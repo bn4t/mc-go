@@ -1,0 +1,38 @@
+host: 0.0.0.0
+port: 25565
+max_players: 20
+motd: A Minecraft Server
+online_mode: false
+debug: true
+log_level: 1
+world:
+    default_world: world
+    worlds_dir: worlds
+    view_distance: 10
+    generate_structures: true
+    allow_nether: true
+    allow_end: true
+    max_build_height: 256
+    seed: 0
+network:
+    compression_threshold: 256
+    connection_timeout: 30
+    keepalive_interval: 20
+    enable_query: false
+    query_port: 25565
+    enable_rcon: false
+    rcon_port: 25575
+    rcon_password: ""
+game:
+    difficulty: normal
+    gamemode: survival
+    hardcore: false
+    pvp: true
+    spawn_animals: true
+    spawn_monsters: true
+    spawn_npcs: true
+    spawn_protection: 16
+    max_tick_time: 60000
+    force_gamemode: false
+    allow_flight: false
+    announce_advancements: true
