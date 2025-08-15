@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 	
-	"github.com/mc-go/server/pkg/player"
+	"github.com/mc-go/server/pkg/types"
 )
 
 type World struct {
@@ -57,7 +57,7 @@ func (w *World) GetName() string {
 	return w.name
 }
 
-func (w *World) GetChunk(x, z int32) interface{} {
+func (w *World) GetChunk(x, z int32) types.Chunk {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	
@@ -81,7 +81,7 @@ func (w *World) generateChunk(x, z int32) *Chunk {
 	return chunk
 }
 
-func (w *World) SpawnPlayer(p *player.Player) error {
+func (w *World) SpawnPlayer(p types.Player) error {
 	return nil
 }
 
@@ -109,16 +109,129 @@ func (w *World) SetTime(time int64) {
 	w.time = time
 }
 
-func (w *World) GetWeather() Weather {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return w.weather
+// Additional methods to implement types.World interface
+
+func (w *World) GetDimension() int8 {
+	return 0 // Overworld
 }
 
-func (w *World) SetWeather(weather Weather) {
+func (w *World) GetSeed() int64 {
+	return 0 // TODO: Implement seed
+}
+
+func (w *World) LoadChunk(x, z int32) (types.Chunk, error) {
+	chunk := w.GetChunk(x, z)
+	if chunk == nil {
+		return nil, fmt.Errorf("failed to load chunk %d,%d", x, z)
+	}
+	return chunk, nil
+}
+
+func (w *World) UnloadChunk(x, z int32) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.weather = weather
+	delete(w.chunks, ChunkPos{X: x, Z: z})
+	return nil
+}
+
+func (w *World) IsChunkLoaded(x, z int32) bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	_, exists := w.chunks[ChunkPos{X: x, Z: z}]
+	return exists
+}
+
+func (w *World) GenerateChunk(x, z int32) types.Chunk {
+	return w.generateChunk(x, z)
+}
+
+func (w *World) GetBlock(x, y, z int32) types.Block {
+	// TODO: Implement block access
+	return nil
+}
+
+func (w *World) SetBlock(x, y, z int32, block types.Block) error {
+	// TODO: Implement block setting
+	return nil
+}
+
+func (w *World) SpawnEntity(entity types.Entity) error {
+	// TODO: Implement entity spawning
+	return nil
+}
+
+func (w *World) RemoveEntity(entityID int32) error {
+	// TODO: Implement entity removal
+	return nil
+}
+
+func (w *World) GetEntity(entityID int32) types.Entity {
+	// TODO: Implement entity lookup
+	return nil
+}
+
+func (w *World) GetEntities() []types.Entity {
+	// TODO: Implement entity list
+	return nil
+}
+
+func (w *World) GetNearbyEntities(x, y, z float64, radius float64) []types.Entity {
+	// TODO: Implement nearby entity search
+	return nil
+}
+
+func (w *World) RemovePlayer(player types.Player) error {
+	// TODO: Implement player removal
+	return nil
+}
+
+func (w *World) GetPlayers() []types.Player {
+	// TODO: Implement player list
+	return nil
+}
+
+func (w *World) BroadcastMessage(message string) {
+	// TODO: Implement message broadcast
+}
+
+func (w *World) BroadcastPacket(packet interface{}) {
+	// TODO: Implement packet broadcast
+}
+
+func (w *World) GetWeather() types.Weather {
+	// TODO: Implement weather
+	return nil
+}
+
+func (w *World) SetWeather(weather types.Weather) {
+	// TODO: Implement weather setting
+}
+
+func (w *World) GetSpawnLocation() types.Location {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return types.Location{
+		World: w.name,
+		X:     w.spawn.X,
+		Y:     w.spawn.Y,
+		Z:     w.spawn.Z,
+	}
+}
+
+func (w *World) SetSpawnLocation(loc types.Location) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.spawn = Position{X: loc.X, Y: loc.Y, Z: loc.Z}
+}
+
+func (w *World) Save() error {
+	// TODO: Implement world saving
+	return nil
+}
+
+func (w *World) IsModified() bool {
+	// TODO: Track modifications
+	return false
 }
 
 func (w *World) GetDifficulty() Difficulty {
@@ -142,48 +255,6 @@ func (w *World) Tick() {
 	w.mu.Unlock()
 }
 
-func (w *World) Save() error {
-	return nil
-}
-
 func (w *World) Load() error {
-	return nil
-}
-
-func (w *World) GetBlock(x, y, z int32) (BlockID, error) {
-	chunkX := x >> 4
-	chunkZ := z >> 4
-	
-	w.mu.RLock()
-	chunk, exists := w.chunks[ChunkPos{X: chunkX, Z: chunkZ}]
-	w.mu.RUnlock()
-	
-	if !exists {
-		return 0, fmt.Errorf("chunk not loaded")
-	}
-	
-	localX := x & 0xF
-	localZ := z & 0xF
-	
-	return chunk.GetBlock(localX, y, localZ), nil
-}
-
-func (w *World) SetBlock(x, y, z int32, blockID BlockID) error {
-	chunkX := x >> 4
-	chunkZ := z >> 4
-	
-	w.mu.RLock()
-	chunk, exists := w.chunks[ChunkPos{X: chunkX, Z: chunkZ}]
-	w.mu.RUnlock()
-	
-	if !exists {
-		chunk = w.generateChunk(chunkX, chunkZ)
-	}
-	
-	localX := x & 0xF
-	localZ := z & 0xF
-	
-	chunk.SetBlock(localX, y, localZ, blockID)
-	
 	return nil
 }

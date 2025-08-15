@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mc-go/server/pkg/event"
 	"github.com/mc-go/server/pkg/protocol"
+	"github.com/mc-go/server/pkg/types"
 )
 
 type ConnectionState int
@@ -30,6 +32,9 @@ type Client struct {
 	username string
 	uuid     uuid.UUID
 	protocol int32
+	// Event context (set after player is created)
+	eventBus event.EventBus
+	player   types.Player
 }
 
 func NewClient(conn net.Conn, manager *Manager) *Client {
@@ -269,5 +274,21 @@ func (c *Client) ReadPacket() (*protocol.Packet, error) {
 }
 
 func (c *Client) WritePacket(packet *protocol.Packet) error {
+	// Fire PacketSendEvent if we have context; allow cancellation
+	if c.eventBus != nil && c.player != nil {
+		e := &event.PacketSendEvent{Player: c.player, Packet: packet}
+		c.eventBus.Fire(e)
+		if e.IsCancelled() {
+			return nil
+		}
+	}
 	return c.writer.WritePacket(packet)
+}
+
+// SetEventContext attaches event bus and player for packet send/receive events
+func (c *Client) SetEventContext(bus event.EventBus, p types.Player) {
+	c.mu.Lock()
+	c.eventBus = bus
+	c.player = p
+	c.mu.Unlock()
 }

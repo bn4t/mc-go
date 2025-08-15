@@ -21,26 +21,60 @@ type EventHandler func(event Event) error
 type EventType int
 
 const (
+	// Server events
 	EventServerStart EventType = iota
 	EventServerStop
+	EventServerTick
+	
+	// Player connection events
+	EventPlayerPreLogin
+	EventPlayerLogin
 	EventPlayerJoin
 	EventPlayerQuit
+	EventPlayerKick
+	
+	// Player interaction events
 	EventPlayerChat
+	EventPlayerCommand
 	EventPlayerMove
+	EventPlayerTeleport
+	EventPlayerGameModeChange
+	EventPlayerInteract
+	EventPlayerItemUse
+	EventPlayerItemDrop
+	EventPlayerItemPickup
+	
+	// Block events
 	EventBlockBreak
 	EventBlockPlace
-	EventPlayerDeath
-	EventPlayerRespawn
+	EventBlockChange
+	EventBlockPhysics
+	
+	// World events
 	EventWorldLoad
 	EventWorldUnload
 	EventWorldSave
+	EventChunkGenerate
 	EventChunkLoad
 	EventChunkUnload
+	EventChunkSend
+	
+	// Entity events
 	EventEntitySpawn
 	EventEntityDespawn
-	EventPlayerCommand
+	EventEntityDamage
+	EventEntityDeath
+	EventPlayerDeath
+	EventPlayerRespawn
+	
+	// Packet events
+	EventPacketReceive
+	EventPacketSend
+	
+	// Environment events
 	EventWeatherChange
 	EventTimeChange
+	EventExplosion
 )
 
 type Event interface {

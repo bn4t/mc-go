@@ -2,6 +2,8 @@ package world
 
 import (
 	"sync"
+	
+	"github.com/mc-go/server/pkg/types"
 )
 
 type BlockID uint16
@@ -63,7 +65,7 @@ func NewChunk(x, z int32) *Chunk {
 	return chunk
 }
 
-func (c *Chunk) Generate() {
+func (c *Chunk) Generate() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	
@@ -88,9 +90,182 @@ func (c *Chunk) Generate() {
 	}
 	
 	c.modified = true
+	return nil
 }
 
-func (c *Chunk) GetBlock(x, y, z int32) BlockID {
+
+// Implement types.Chunk interface
+
+func (c *Chunk) GetX() int32 {
+	return c.x
+}
+
+func (c *Chunk) GetZ() int32 {
+	return c.z
+}
+
+func (c *Chunk) GetWorld() types.World {
+	// TODO: Store world reference
+	return nil
+}
+
+func (c *Chunk) GetBlock(x, y, z int) types.Block {
+	// TODO: Return types.Block instead of BlockID
+	return nil
+}
+
+func (c *Chunk) SetBlock(x, y, z int, block types.Block) error {
+	// TODO: Implement with types.Block
+	return nil
+}
+
+func (c *Chunk) GetBlockLight(x, y, z int) byte {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	
+	if x < 0 || x >= ChunkSize || y < 0 || y >= ChunkHeight || z < 0 || z >= ChunkSize {
+		return 0
+	}
+	
+	return c.blockLight[x][y][z]
+}
+
+func (c *Chunk) SetBlockLight(x, y, z int, level byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	if x < 0 || x >= ChunkSize || y < 0 || y >= ChunkHeight || z < 0 || z >= ChunkSize {
+		return
+	}
+	
+	c.blockLight[x][y][z] = level
+	c.modified = true
+}
+
+func (c *Chunk) GetSkyLight(x, y, z int) byte {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	
+	if x < 0 || x >= ChunkSize || y < 0 || y >= ChunkHeight || z < 0 || z >= ChunkSize {
+		return 15
+	}
+	
+	return c.skyLight[x][y][z]
+}
+
+func (c *Chunk) SetSkyLight(x, y, z int, level byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	if x < 0 || x >= ChunkSize || y < 0 || y >= ChunkHeight || z < 0 || z >= ChunkSize {
+		return
+	}
+	
+	c.skyLight[x][y][z] = level
+	c.modified = true
+}
+
+func (c *Chunk) GetBiome(x, z int) types.Biome {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	
+	if x < 0 || x >= ChunkSize || z < 0 || z >= ChunkSize {
+		return types.BiomePlains
+	}
+	
+	return types.Biome(c.biomes[x][z])
+}
+
+func (c *Chunk) SetBiome(x, z int, biome types.Biome) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	if x < 0 || x >= ChunkSize || z < 0 || z >= ChunkSize {
+		return
+	}
+	
+	c.biomes[x][z] = byte(biome)
+	c.modified = true
+}
+
+func (c *Chunk) GetEntities() []types.Entity {
+	// TODO: Implement entity storage
+	return nil
+}
+
+func (c *Chunk) AddEntity(entity types.Entity) {
+	// TODO: Implement entity storage
+}
+
+func (c *Chunk) RemoveEntity(entity types.Entity) {
+	// TODO: Implement entity storage
+}
+
+func (c *Chunk) GetTileEntity(x, y, z int) types.TileEntity {
+	// TODO: Implement tile entity storage
+	return nil
+}
+
+func (c *Chunk) SetTileEntity(x, y, z int, tileEntity types.TileEntity) {
+	// TODO: Implement tile entity storage
+}
+
+func (c *Chunk) GetTileEntities() []types.TileEntity {
+	// TODO: Implement tile entity storage
+	return nil
+}
+
+func (c *Chunk) IsLoaded() bool {
+	return true // Chunks in memory are loaded
+}
+
+func (c *Chunk) Load() error {
+	// TODO: Implement chunk loading from disk
+	return nil
+}
+
+func (c *Chunk) Unload() error {
+	// TODO: Implement chunk unloading
+	return nil
+}
+
+func (c *Chunk) IsModified() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.modified
+}
+
+func (c *Chunk) Save() error {
+	// TODO: Implement chunk saving
+	c.mu.Lock()
+	c.modified = false
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *Chunk) IsGenerated() bool {
+	// TODO: Track generation state
+	return true
+}
+
+func (c *Chunk) Populate() error {
+	// TODO: Implement chunk population (trees, ores, etc)
+	return nil
+}
+
+func (c *Chunk) Serialize() ([]byte, error) {
+	// TODO: Implement serialization
+	return nil, nil
+}
+
+func (c *Chunk) Deserialize(data []byte) error {
+	// TODO: Implement deserialization
+	return nil
+}
+
+// Original methods with different signatures
+
+func (c *Chunk) GetBlockID(x, y, z int32) BlockID {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	
@@ -101,7 +276,7 @@ func (c *Chunk) GetBlock(x, y, z int32) BlockID {
 	return c.blocks[x][y][z]
 }
 
-func (c *Chunk) SetBlock(x, y, z int32, blockID BlockID) {
+func (c *Chunk) SetBlockID(x, y, z int32, blockID BlockID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	
@@ -136,81 +311,6 @@ func (c *Chunk) SetBlockData(x, y, z int32, data byte) {
 	c.modified = true
 }
 
-func (c *Chunk) GetSkyLight(x, y, z int32) byte {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	
-	if x < 0 || x >= ChunkSize || y < 0 || y >= ChunkHeight || z < 0 || z >= ChunkSize {
-		return 15
-	}
-	
-	return c.skyLight[x][y][z]
-}
-
-func (c *Chunk) SetSkyLight(x, y, z int32, light byte) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	
-	if x < 0 || x >= ChunkSize || y < 0 || y >= ChunkHeight || z < 0 || z >= ChunkSize {
-		return
-	}
-	
-	c.skyLight[x][y][z] = light
-	c.modified = true
-}
-
-func (c *Chunk) GetBlockLight(x, y, z int32) byte {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	
-	if x < 0 || x >= ChunkSize || y < 0 || y >= ChunkHeight || z < 0 || z >= ChunkSize {
-		return 0
-	}
-	
-	return c.blockLight[x][y][z]
-}
-
-func (c *Chunk) SetBlockLight(x, y, z int32, light byte) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	
-	if x < 0 || x >= ChunkSize || y < 0 || y >= ChunkHeight || z < 0 || z >= ChunkSize {
-		return
-	}
-	
-	c.blockLight[x][y][z] = light
-	c.modified = true
-}
-
-func (c *Chunk) GetBiome(x, z int32) byte {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	
-	if x < 0 || x >= ChunkSize || z < 0 || z >= ChunkSize {
-		return 0
-	}
-	
-	return c.biomes[x][z]
-}
-
-func (c *Chunk) SetBiome(x, z int32, biome byte) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	
-	if x < 0 || x >= ChunkSize || z < 0 || z >= ChunkSize {
-		return
-	}
-	
-	c.biomes[x][z] = biome
-	c.modified = true
-}
-
-func (c *Chunk) IsModified() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.modified
-}
-
 func (c *Chunk) SetModified(modified bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -219,31 +319,4 @@ func (c *Chunk) SetModified(modified bool) {
 
 func (c *Chunk) GetPosition() (int32, int32) {
 	return c.x, c.z
-}
-
-func (c *Chunk) AddEntity(entity interface{}) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.entities = append(c.entities, entity)
-}
-
-func (c *Chunk) RemoveEntity(entity interface{}) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	
-	for i, e := range c.entities {
-		if e == entity {
-			c.entities = append(c.entities[:i], c.entities[i+1:]...)
-			break
-		}
-	}
-}
-
-func (c *Chunk) GetEntities() []interface{} {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	
-	entities := make([]interface{}, len(c.entities))
-	copy(entities, c.entities)
-	return entities
 }

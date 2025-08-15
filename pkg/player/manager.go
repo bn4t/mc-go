@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/mc-go/server/pkg/event"
 	"github.com/mc-go/server/pkg/network"
 )
 
@@ -11,14 +12,16 @@ type Manager struct {
 	players    map[uuid.UUID]*Player
 	maxPlayers int
 	entityID   int32
+	eventBus   event.EventBus
 	mu         sync.RWMutex
 }
 
-func NewManager(maxPlayers int) *Manager {
+func NewManager(maxPlayers int, eventBus event.EventBus) *Manager {
 	return &Manager{
 		players:    make(map[uuid.UUID]*Player),
 		maxPlayers: maxPlayers,
 		entityID:   1,
+		eventBus:  eventBus,
 	}
 }
 
@@ -34,7 +37,7 @@ func (m *Manager) CreatePlayer(username string, playerUUID uuid.UUID, client *ne
 		return nil
 	}
 	
-	player := NewPlayer(username, playerUUID, client, m.entityID)
+	player := NewPlayer(username, playerUUID, client, m.entityID, m.eventBus)
 	m.entityID++
 	
 	m.players[playerUUID] = player
