@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mc-go/server/internal/anticheat"
+	cfgpkg "github.com/mc-go/server/internal/config"
 	"github.com/mc-go/server/internal/pipeline"
 	"github.com/mc-go/server/internal/session"
 	"github.com/mc-go/server/internal/world"
@@ -23,16 +24,18 @@ type Acceptor struct {
 	closed  atomic.Bool
 	world   *world.World
 	nextID  atomic.Uint64
-	cfgKA   time.Duration
-	motd    string
-	maxP    int
+	cfg     *cfgpkg.Config
 }
 
-func NewAcceptor(log *zap.Logger, readTO, writeTO time.Duration, w *world.World, keepAlive time.Duration, motd string, maxPlayers int) *Acceptor {
-	if keepAlive <= 0 {
-		keepAlive = 15 * time.Second
+func NewAcceptor(log *zap.Logger, cfg *cfgpkg.Config, w *world.World) *Acceptor {
+	readTO, writeTO := cfg.ReadTimeout, cfg.WriteTimeout
+	if readTO <= 0 {
+		readTO = 10 * time.Second
 	}
-	return &Acceptor{log: log, readTO: readTO, writeTO: writeTO, world: w, cfgKA: keepAlive, motd: motd, maxP: maxPlayers}
+	if writeTO <= 0 {
+		writeTO = 10 * time.Second
+	}
+	return &Acceptor{log: log, readTO: readTO, writeTO: writeTO, world: w, cfg: cfg}
 }
 
 func (a *Acceptor) Serve(ctx context.Context, lis net.Listener) {
@@ -70,7 +73,7 @@ func (a *Acceptor) handleConn(ctx context.Context, c net.Conn) {
 	chain := pipeline.NewChain([]pipeline.Interceptor{anticheat.MovementIC{}})
 	id := pipeline.ConnID(a.nextID.Add(1))
 	sess := session.New(id, c, br, bw, chain, a.world, a.log)
-	sess.SetConfig(a.cfgKA, a.motd, a.maxP)
+	sess.SetConfig(a.cfg.KeepAliveInterval, a.cfg.MOTD, a.cfg.MaxPlayers)
 	if err := sess.Run(ctx); err != nil {
 		a.log.Debug("session end", zap.String("remote", c.RemoteAddr().String()), zap.Error(err))
 	}
