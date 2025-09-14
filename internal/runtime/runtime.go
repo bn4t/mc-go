@@ -24,8 +24,7 @@ type App struct {
 // Boot initializes logging, loads config, starts the TCP acceptor, and
 // blocks until a shutdown signal is received or context cancellation.
 func Boot(ctx context.Context, configPath string) error {
-	var _ *cfgpkg.Config
-	cfg, err := LoadConfig(configPath)
+	cfg, err := cfgpkg.Load(configPath)
 	if err != nil {
 		return err
 	}

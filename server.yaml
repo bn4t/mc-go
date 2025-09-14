@@ -1,7 +1,7 @@
 listen_addr: :25565
 motd: mc-go experimental
-max_players: 20
-debug: false
+max_players: 200
+debug: true
 read_timeout: 10s
 write_timeout: 10s
 protocol: 1.21.1

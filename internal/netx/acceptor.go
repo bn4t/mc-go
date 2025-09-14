@@ -28,14 +28,7 @@ type Acceptor struct {
 }
 
 func NewAcceptor(log *zap.Logger, cfg *cfgpkg.Config, w *world.World) *Acceptor {
-	readTO, writeTO := cfg.ReadTimeout, cfg.WriteTimeout
-	if readTO <= 0 {
-		readTO = 10 * time.Second
-	}
-	if writeTO <= 0 {
-		writeTO = 10 * time.Second
-	}
-	return &Acceptor{log: log, readTO: readTO, writeTO: writeTO, world: w, cfg: cfg}
+	return &Acceptor{log: log, readTO: cfg.ReadTimeout, writeTO: cfg.WriteTimeout, world: w, cfg: cfg}
 }
 
 func (a *Acceptor) Serve(ctx context.Context, lis net.Listener) {
