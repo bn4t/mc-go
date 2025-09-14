@@ -7,25 +7,12 @@ import (
 	"os"
 	"time"
 
+	cfgpkg "github.com/mc-go/server/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
-// Config is the minimal runtime configuration used by this lean server.
-// It intentionally focuses on network and identity knobs only.
-type Config struct {
-	ListenAddr   string        `yaml:"listen_addr"` // e.g. ":25565"
-	MOTD         string        `yaml:"motd"`
-	MaxPlayers   int           `yaml:"max_players"`
-	Debug        bool          `yaml:"debug"`
-	ReadTimeout  time.Duration `yaml:"read_timeout"`
-	WriteTimeout time.Duration `yaml:"write_timeout"`
-	// Protocol version pin (e.g., 1.21.1). Currently informational.
-	Protocol          string        `yaml:"protocol"`
-	KeepAliveInterval time.Duration `yaml:"keepalive_interval"`
-}
-
-func defaultConfig() *Config {
-	return &Config{
+func defaultConfig() *cfgpkg.Config {
+	return &cfgpkg.Config{
 		ListenAddr:        ":25565",
 		MOTD:              "mc-go experimental",
 		MaxPlayers:        20,
@@ -39,7 +26,7 @@ func defaultConfig() *Config {
 
 // LoadConfig loads YAML from path. If the file is missing, a default config is
 // written to that location and returned.
-func LoadConfig(path string) (*Config, error) {
+func LoadConfig(path string) (*cfgpkg.Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -58,7 +45,7 @@ func LoadConfig(path string) (*Config, error) {
 	return cfg, nil
 }
 
-func writeDefault(path string, cfg *Config) error {
+func writeDefault(path string, cfg *cfgpkg.Config) error {
 	b, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshal default config: %w", err)

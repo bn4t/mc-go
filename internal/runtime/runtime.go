@@ -8,13 +8,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	cfgpkg "github.com/mc-go/server/internal/config"
 	"github.com/mc-go/server/internal/netx"
 	"github.com/mc-go/server/internal/world"
 	"go.uber.org/zap"
 )
 
 type App struct {
-	Cfg      *Config
+	Cfg      *cfgpkg.Config
 	Logger   *zap.Logger
 	Lis      net.Listener
 	Acceptor *netx.Acceptor
@@ -23,6 +24,7 @@ type App struct {
 // Boot initializes logging, loads config, starts the TCP acceptor, and
 // blocks until a shutdown signal is received or context cancellation.
 func Boot(ctx context.Context, configPath string) error {
+	var _ *cfgpkg.Config
 	cfg, err := LoadConfig(configPath)
 	if err != nil {
 		return err
@@ -44,7 +46,7 @@ func Boot(ctx context.Context, configPath string) error {
 	wctx, wcancel := context.WithCancel(ctx)
 	go wrld.Start(wctx)
 
-	acceptor := netx.NewAcceptor(log, cfg.ReadTimeout, cfg.WriteTimeout, wrld, cfg.KeepAliveInterval, cfg.MOTD, cfg.MaxPlayers)
+	acceptor := netx.NewAcceptor(log, cfg, wrld)
 	go acceptor.Serve(ctx, lis)
 
 	// Wait for signal or context cancel
