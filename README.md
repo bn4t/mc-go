@@ -2,7 +2,7 @@
 
 This repository contains a lean, production‑ready architecture skeleton for a Java‑Edition Minecraft server in Go. It focuses on a deterministic world loop and a four‑stage packet pipeline that exposes clean hooks for anti‑cheat.
 
-Current milestone: transport + framer + Status ping (1.21.1 semantics).
+Current milestone: transport + framer + Status ping + minimal Login→Play with KeepAlive (target 1.21.1).
 
 ## Layout
 

@@ -58,8 +58,7 @@ func (a *Acceptor) handleConn(ctx context.Context, c net.Conn) {
 
 	chain := pipeline.NewChain([]pipeline.Interceptor{anticheat.MovementIC{}})
 	sess := session.New(c, br, bw, chain, a.log)
-	// Only implements Handshake + Status path currently.
-	if err := sess.RunStatus(ctx); err != nil {
+	if err := sess.Run(ctx); err != nil {
 		a.log.Debug("session end", zap.String("remote", c.RemoteAddr().String()), zap.Error(err))
 	}
 	_ = c.Close()

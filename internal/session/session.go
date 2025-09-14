@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/mc-go/server/internal/packets/v1211"
@@ -16,22 +17,25 @@ import (
 	"go.uber.org/zap"
 )
 
-// Session handles a single connection's lifecycle. For now, only Status is supported.
+// Session handles a single connection's lifecycle.
 type Session struct {
-	conn  net.Conn
-	br    *bufio.Reader
-	bw    *bufio.Writer
-	chain *pipeline.Chain
-	state pipeline.SessionState
-	proto pipeline.ProtoVer
-	log   *zap.Logger
+	conn   net.Conn
+	br     *bufio.Reader
+	bw     *bufio.Writer
+	chain  *pipeline.Chain
+	state  pipeline.SessionState
+	proto  pipeline.ProtoVer
+	log    *zap.Logger
+	lastKA int64
+	closed atomic.Bool
 }
 
 func New(c net.Conn, br *bufio.Reader, bw *bufio.Writer, chain *pipeline.Chain, log *zap.Logger) *Session {
 	return &Session{conn: c, br: br, bw: bw, chain: chain, state: pipeline.StateHandshake, proto: 0, log: log}
 }
 
-func (s *Session) RunStatus(ctx context.Context) error {
+// Run reads the handshake and dispatches to Status or Login→Play.
+func (s *Session) Run(ctx context.Context) error {
 	// Handshake
 	rf, ok, err := s.readRaw(ctx)
 	if err != nil {
@@ -48,15 +52,23 @@ func (s *Session) RunStatus(ctx context.Context) error {
 	if err := hs.ReadFrom(bodyR); err != nil {
 		return fmt.Errorf("decode handshake: %w", err)
 	}
-	// For now, we accept any ProtocolVersion and pin to 1.21.1 semantics
-	if hs.NextState != 1 { // 1 = status
-		return fmt.Errorf("only status supported in this build")
-	}
-	s.state = pipeline.StateStatus
 
-	// Loop for Status Request then Ping
+	switch hs.NextState {
+	case 1:
+		s.state = pipeline.StateStatus
+		return s.runStatus(ctx)
+	case 2:
+		s.state = pipeline.StateLogin
+		return s.runLoginPlay(ctx)
+	default:
+		return fmt.Errorf("unsupported next state: %d", hs.NextState)
+	}
+}
+
+// runStatus handles the Status query+ping cycle.
+func (s *Session) runStatus(ctx context.Context) error {
 	for {
-		rf, ok, err = s.readRaw(ctx)
+		rf, ok, err := s.readRaw(ctx)
 		if err != nil {
 			return err
 		}
@@ -67,13 +79,10 @@ func (s *Session) RunStatus(ctx context.Context) error {
 
 		switch pid {
 		case v1211.PIDCStatusRequest:
-			// decode (no fields)
 			var req v1211.CStatusRequest
 			if err := req.ReadFrom(body); err != nil {
 				return err
 			}
-			// Build JSON per status response spec
-			// Keep MOTD simple and player counts unknown (-1)
 			json := `{"version":{"name":"1.21.1","protocol":767},"players":{"max":20,"online":0},"description":{"text":"mc-go"}}`
 			resp := v1211.SStatusResponse{JSON: json}
 			if err := s.writePacket(resp.ID(), resp.EncodeBody()); err != nil {
@@ -88,15 +97,77 @@ func (s *Session) RunStatus(ctx context.Context) error {
 			if err := s.writePacket(pong.ID(), pong.EncodeBody()); err != nil {
 				return err
 			}
-			return nil // status flow typically ends after ping/pong
+			return nil
 		default:
 			return fmt.Errorf("unexpected pid in status: 0x%x", pid)
 		}
 	}
 }
 
+// runLoginPlay implements a minimal offline Login→Play flow and KeepAlive loop.
+func (s *Session) runLoginPlay(ctx context.Context) error {
+	// Expect Login Start (serverbound 0x00) — minimal read
+	rf, ok, err := s.readRaw(ctx)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	pid, bodyR := s.peekPacketID(rf.Body)
+	if pid != v1211.PIDCLoginStart {
+		return fmt.Errorf("expected login start, got pid=0x%x", pid)
+	}
+	var ls v1211.CLoginStart
+	_ = ls.ReadFrom(bodyR)
+
+	// Transition directly to Play (Configuration state omitted in this cut)
+	s.state = pipeline.StatePlay
+	s.log.Info("login accepted", zap.String("user", ls.Name))
+
+	// Start clientbound keepalive loop
+	go s.keepAliveLoop()
+
+	// Read loop: only handle serverbound keepalive replies for now
+	for {
+		rf, ok, err = s.readRaw(ctx)
+		if err != nil {
+			return err
+		}
+		if !ok || s.closed.Load() {
+			return nil
+		}
+		pid, bodyR := s.peekPacketID(rf.Body)
+		if pid == v1211.PIDCPlayKeepAlive {
+			id, err := v1211.DecodeServerboundKeepAlive(readRemaining(bodyR))
+			if err == nil {
+				atomic.StoreInt64(&s.lastKA, id)
+			}
+			continue
+		}
+		// Ignore others for now
+	}
+}
+
+func (s *Session) keepAliveLoop() {
+	t := time.NewTicker(15 * time.Second)
+	defer t.Stop()
+	for !s.closed.Load() {
+		select {
+		case <-t.C:
+			ka := v1211.SPlayKeepAlive{Value: time.Now().UnixNano()}
+			if err := s.writePacket(ka.ID(), ka.EncodeBody()); err != nil {
+				s.log.Debug("keepalive send failed", zap.Error(err))
+				s.closed.Store(true)
+				return
+			}
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
 func (s *Session) readRaw(ctx context.Context) (*pipeline.RawFrame, bool, error) {
-	// Deadline safety for sluggish clients
 	_ = s.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	body, _, err := proto.ReadFrame(s.br)
 	if err != nil {
@@ -121,7 +192,6 @@ func (s *Session) peekPacketID(body []byte) (int32, *bufio.Reader) {
 }
 
 func (s *Session) writePacket(pid int32, payload []byte) error {
-	// Outbound S3 hook is applied at the packet level in a complete server.
 	frame := proto.WrapFrame(pid, payload)
 	if _, err := s.bw.Write(frame); err != nil {
 		return err
@@ -135,4 +205,10 @@ func (s *Session) ctx(stage pipeline.Stage) pipeline.PktCtx {
 
 func isEOF(err error) bool {
 	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF)
+}
+
+func readRemaining(r *bufio.Reader) []byte {
+	b := make([]byte, r.Buffered())
+	_, _ = r.Read(b)
+	return b
 }
