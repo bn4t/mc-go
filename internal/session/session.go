@@ -14,28 +14,47 @@ import (
 	"github.com/mc-go/server/internal/packets/v1211"
 	"github.com/mc-go/server/internal/pipeline"
 	"github.com/mc-go/server/internal/proto"
+	"github.com/mc-go/server/internal/world"
 	"go.uber.org/zap"
 )
 
 // Session handles a single connection's lifecycle.
 type Session struct {
-	conn   net.Conn
-	br     *bufio.Reader
-	bw     *bufio.Writer
-	chain  *pipeline.Chain
-	state  pipeline.SessionState
-	proto  pipeline.ProtoVer
-	log    *zap.Logger
-	lastKA int64
-	closed atomic.Bool
+	id       pipeline.ConnID
+	conn     net.Conn
+	br       *bufio.Reader
+	bw       *bufio.Writer
+	out      chan []byte
+	chain    *pipeline.Chain
+	state    pipeline.SessionState
+	proto    pipeline.ProtoVer
+	log      *zap.Logger
+	world    *world.World
+	kaInt    time.Duration
+	motd     string
+	maxP     int
+	lastKA   int64
+	lastKAAt int64
+	closed   atomic.Bool
 }
 
-func New(c net.Conn, br *bufio.Reader, bw *bufio.Writer, chain *pipeline.Chain, log *zap.Logger) *Session {
-	return &Session{conn: c, br: br, bw: bw, chain: chain, state: pipeline.StateHandshake, proto: 0, log: log}
+func New(id pipeline.ConnID, c net.Conn, br *bufio.Reader, bw *bufio.Writer, chain *pipeline.Chain, w *world.World, log *zap.Logger) *Session {
+	return &Session{id: id, conn: c, br: br, bw: bw, out: make(chan []byte, 256), chain: chain, state: pipeline.StateHandshake, proto: 0, log: log, world: w, kaInt: 15 * time.Second}
+}
+
+func (s *Session) SetConfig(keepAlive time.Duration, motd string, maxPlayers int) {
+	if keepAlive > 0 {
+		s.kaInt = keepAlive
+	}
+	s.motd = motd
+	s.maxP = maxPlayers
 }
 
 // Run reads the handshake and dispatches to Status or Login→Play.
 func (s *Session) Run(ctx context.Context) error {
+	// Start single writer goroutine
+	go s.writer()
+	defer func() { s.closed.Store(true); close(s.out) }()
 	// Handshake
 	rf, ok, err := s.readRaw(ctx)
 	if err != nil {
@@ -83,7 +102,17 @@ func (s *Session) runStatus(ctx context.Context) error {
 			if err := req.ReadFrom(body); err != nil {
 				return err
 			}
-			json := `{"version":{"name":"1.21.1","protocol":767},"players":{"max":20,"online":0},"description":{"text":"mc-go"}}`
+			online := 0
+			if s.world != nil {
+				online = s.world.Online()
+			}
+			if s.maxP <= 0 {
+				s.maxP = 20
+			}
+			if s.motd == "" {
+				s.motd = "mc-go"
+			}
+			json := fmt.Sprintf(`{"version":{"name":"1.21.1","protocol":767},"players":{"max":%d,"online":%d},"description":{"text":"%s"}}`, s.maxP, online, s.motd)
 			resp := v1211.SStatusResponse{JSON: json}
 			if err := s.writePacket(resp.ID(), resp.EncodeBody()); err != nil {
 				return err
@@ -124,6 +153,10 @@ func (s *Session) runLoginPlay(ctx context.Context) error {
 	// Transition directly to Play (Configuration state omitted in this cut)
 	s.state = pipeline.StatePlay
 	s.log.Info("login accepted", zap.String("user", ls.Name))
+	if s.world != nil {
+		s.world.Submit(world.Inbound{Conn: s.id, Cmd: pipeline.Command{Kind: "player/join"}, Ctx: s.ctx(pipeline.StagePreApply), Chain: s.chain})
+		defer s.world.Submit(world.Inbound{Conn: s.id, Cmd: pipeline.Command{Kind: "player/leave"}, Ctx: s.ctx(pipeline.StagePreApply), Chain: s.chain})
+	}
 
 	// Start clientbound keepalive loop
 	go s.keepAliveLoop()
@@ -193,14 +226,34 @@ func (s *Session) peekPacketID(body []byte) (int32, *bufio.Reader) {
 
 func (s *Session) writePacket(pid int32, payload []byte) error {
 	frame := proto.WrapFrame(pid, payload)
-	if _, err := s.bw.Write(frame); err != nil {
-		return err
+	select {
+	case s.out <- frame:
+		return nil
+	default:
+		return fmt.Errorf("outbox full")
 	}
-	return s.bw.Flush()
+}
+
+func (s *Session) writer() {
+	for f := range s.out {
+		_ = s.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
+		if _, err := s.bw.Write(f); err != nil {
+			s.log.Debug("write error", zap.Error(err))
+			return
+		}
+		if err := s.bw.Flush(); err != nil {
+			s.log.Debug("flush error", zap.Error(err))
+			return
+		}
+	}
 }
 
 func (s *Session) ctx(stage pipeline.Stage) pipeline.PktCtx {
-	return pipeline.PktCtx{Stage: stage}
+	var ip net.IP
+	if ra, ok := s.conn.RemoteAddr().(*net.TCPAddr); ok && ra != nil {
+		ip = ra.IP
+	}
+	return pipeline.PktCtx{Conn: s.id, Stage: stage, State: s.state, Proto: s.proto, IP: ip, TimeNS: time.Now().UnixNano()}
 }
 
 func isEOF(err error) bool {

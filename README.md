@@ -2,7 +2,7 @@
 
 This repository contains a lean, production‑ready architecture skeleton for a Java‑Edition Minecraft server in Go. It focuses on a deterministic world loop and a four‑stage packet pipeline that exposes clean hooks for anti‑cheat.
 
-Current milestone: transport + framer + Status ping + minimal Login→Play with KeepAlive (target 1.21.1).
+Current milestone: transport + framer + Status ping + minimal Login→Play with KeepAlive (target 1.21.1), plus a 20 TPS world loop and single-writer I/O.
 
 ## Layout
 
@@ -26,7 +26,15 @@ Current milestone: transport + framer + Status ping + minimal Login→Play with 
 - Build: `go build -o mcserver ./cmd/server`
 - Run: `./mcserver`
 
-On first run a minimal `server.yaml` is created. The server listens on `:25565` and supports the Status query/ping path so it shows as online in the Minecraft server list.
+On first run a minimal `server.yaml` is created. The server listens on `:25565` and supports the Status query/ping path so it shows as online in the Minecraft server list. Status response uses dynamic MOTD and online count from runtime.
+
+Config keys (partial):
+- `listen_addr`: string (default `:25565`)
+- `motd`: string
+- `max_players`: int
+- `read_timeout`, `write_timeout`: duration (e.g., `10s`)
+- `protocol`: string (info) e.g., `1.21.1`
+- `keepalive_interval`: duration (default `15s`)
 
 ## Pipeline (hooks for anti‑cheat)
 

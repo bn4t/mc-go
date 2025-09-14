@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/mc-go/server/internal/netx"
+	"github.com/mc-go/server/internal/world"
 	"go.uber.org/zap"
 )
 
@@ -38,7 +39,12 @@ func Boot(ctx context.Context, configPath string) error {
 	}
 	log.Info("listening", zap.String("addr", lis.Addr().String()), zap.String("protocol", cfg.Protocol))
 
-	acceptor := netx.NewAcceptor(log, cfg.ReadTimeout, cfg.WriteTimeout)
+	// Start world loop
+	wrld := world.New(log)
+	wctx, wcancel := context.WithCancel(ctx)
+	go wrld.Start(wctx)
+
+	acceptor := netx.NewAcceptor(log, cfg.ReadTimeout, cfg.WriteTimeout, wrld, cfg.KeepAliveInterval, cfg.MOTD, cfg.MaxPlayers)
 	go acceptor.Serve(ctx, lis)
 
 	// Wait for signal or context cancel
@@ -51,6 +57,7 @@ func Boot(ctx context.Context, configPath string) error {
 		log.Info("signal received", zap.String("signal", s.String()))
 	}
 	_ = lis.Close()
+	wcancel()
 	acceptor.Shutdown()
 	return nil
 }

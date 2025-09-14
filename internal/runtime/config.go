@@ -20,18 +20,20 @@ type Config struct {
 	ReadTimeout  time.Duration `yaml:"read_timeout"`
 	WriteTimeout time.Duration `yaml:"write_timeout"`
 	// Protocol version pin (e.g., 1.21.1). Currently informational.
-	Protocol string `yaml:"protocol"`
+	Protocol          string        `yaml:"protocol"`
+	KeepAliveInterval time.Duration `yaml:"keepalive_interval"`
 }
 
 func defaultConfig() *Config {
 	return &Config{
-		ListenAddr:   ":25565",
-		MOTD:         "mc-go experimental",
-		MaxPlayers:   20,
-		Debug:        false,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		Protocol:     "1.21.1",
+		ListenAddr:        ":25565",
+		MOTD:              "mc-go experimental",
+		MaxPlayers:        20,
+		Debug:             false,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		Protocol:          "1.21.1",
+		KeepAliveInterval: 15 * time.Second,
 	}
 }
 
