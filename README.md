@@ -1,115 +1,54 @@
-# Minecraft 1.8.9 Server Implementation
+# mc-go (lean Java-Edition server skeleton)
 
-A modular Minecraft 1.8.9 server implementation written in Go.
+This repository contains a lean, production‑ready architecture skeleton for a Java‑Edition Minecraft server in Go. It focuses on a deterministic world loop and a four‑stage packet pipeline that exposes clean hooks for anti‑cheat.
 
-## Features
+Current milestone: transport + framer + Status ping (1.21.1 semantics).
 
-- **Modular Architecture**: Clean separation of concerns with distinct packages for server, network, protocol, world, player, plugin, and configuration management
-- **Plugin System**: Dynamic plugin loading system supporting custom commands and event handlers
-- **World Management**: Basic world and chunk generation with support for multiple worlds
-- **Player Management**: Complete player session handling with packet processing
-- **Network Layer**: Full implementation of Minecraft 1.8.9 protocol (version 47) with compression support
-- **Configuration**: YAML-based configuration with sensible defaults
-- **Logging**: Structured logging with Zap
-
-## Project Structure
+## Layout
 
 ```
-mc-go/
-├── cmd/
-│   └── server/          # Server entry point
-├── pkg/
-│   ├── config/          # Configuration management
-│   ├── network/         # Network and client handling
-│   ├── player/          # Player entities and management
-│   ├── plugin/          # Plugin system
-│   ├── protocol/        # Minecraft protocol implementation
-│   ├── server/          # Core server logic
-│   └── world/           # World and chunk management
-└── internal/
-    └── utils/           # Internal utilities
+/cmd/server               # entrypoint (mcserver)
+/internal/runtime/        # process boot, config, telemetry
+/internal/netx/           # TCP acceptor, conn setup
+/internal/proto/          # VarInt framing, helpers
+/internal/packets/        # typed packet structs per version
+/internal/pipeline/       # four-stage packet pipeline + interceptors
+/internal/session/        # per-connection state machine (Handshake/Status now)
+/internal/world/          # (stub) authoritative world loop
+/internal/events/         # (stub) in‑process event bus
+/internal/anticheat/      # interceptors (MovementIC stub)
+/internal/persist/        # (stub) persistence interfaces
+/internal/plugins/        # (stub) plugin host surface
 ```
 
 ## Quick Start
 
-1. Build the server:
-```bash
-go build -o mcserver cmd/server/main.go
-```
+- Build: `go build -o mcserver ./cmd/server`
+- Run: `./mcserver`
 
-2. Run the server:
-```bash
-./mcserver
-```
+On first run a minimal `server.yaml` is created. The server listens on `:25565` and supports the Status query/ping path so it shows as online in the Minecraft server list.
 
-The server will create a default `server.yaml` configuration file on first run.
+## Pipeline (hooks for anti‑cheat)
 
-## Configuration
+- S0 Inbound/Raw → after length framing (no compression yet)
+- S1 Inbound/Decoded → typed packet, pre‑domain mapping
+- S2 Pre‑Apply → world thread (authoritative) before state mutation
+- S3 Outbound → just before send (bait/rate policing)
 
-The server uses a YAML configuration file with the following main sections:
+This skeleton enables S0/S1/S3; S2 integrates once the world loop and command application land.
 
-- **Server Settings**: Host, port, max players, MOTD, online mode
-- **World Settings**: Default world, view distance, world generation options
-- **Network Settings**: Compression, timeouts, query/RCON support
-- **Game Settings**: Difficulty, game mode, PvP, spawn protection
+## Versioning
 
-## Plugin Development
+Codecs are organized per protocol version under `internal/packets`. This cut includes 1.21.1 Handshake + Status only.
 
-Plugins must implement the `Plugin` interface:
+## Next Steps
 
-```go
-type Plugin interface {
-    Name() string
-    Version() string
-    Author() string
-    Description() string
-    OnEnable() error
-    OnDisable() error
-    OnTick()
-    RegisterCommands() map[string]CommandHandler
-    RegisterEventHandlers() map[EventType]EventHandler
-}
-```
-
-Build plugins as shared objects (`.so` files) and place them in the `plugins/` directory.
-
-## Architecture
-
-### Core Components
-
-- **Server**: Main server orchestration and lifecycle management
-- **Network Manager**: Handles client connections and packet compression
-- **Protocol**: Complete Minecraft 1.8.9 protocol implementation with packet serialization/deserialization
-- **Player Manager**: Manages player sessions, authentication, and state
-- **World Manager**: Handles world loading, chunk generation, and block management
-- **Plugin Manager**: Dynamic plugin loading, event system, and command registration
-
-### Packet Flow
-
-1. Client connects → Network layer accepts connection
-2. Handshake → Determine connection state (Status/Login)
-3. Login → Authenticate player (online/offline mode)
-4. Join Game → Initialize player in world
-5. Play → Handle gameplay packets bidirectionally
-
-## Supported Features
-
-- Basic server status and ping
-- Player authentication (online/offline mode)
-- World join and spawn
-- Basic movement and rotation
-- Chat messages
-- Keep-alive handling
-- Plugin system with events
-- Command system
-- Multiple worlds
-- Chunk generation
+- Login→Play path and keep‑alive
+- World loop @ 20 TPS and S2 checks
+- Shadow physics, setbacks, and evidence recorder
+- Compression and online‑mode auth
 
 ## Requirements
 
-- Go 1.21 or higher
-- Network port 25565 (default)
-
-## License
-
-This implementation is for educational purposes.
+- Go 1.21+
+- TCP port 25565 available
