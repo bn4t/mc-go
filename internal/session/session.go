@@ -2,18 +2,14 @@ package session
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"net"
 	"sync/atomic"
 	"time"
 
 	"github.com/mc-go/server/internal/packets/v1211"
 	"github.com/mc-go/server/internal/pipeline"
-	"github.com/mc-go/server/internal/proto"
 	"github.com/mc-go/server/internal/world"
 	"go.uber.org/zap"
 )
@@ -72,73 +68,11 @@ func (s *Session) Run(ctx context.Context) error {
 		s.state = pipeline.StateStatus
 		return s.runStatus(ctx)
 	case 2:
-		// start writer -> this is a long running connection
-		go s.writer()
 		s.state = pipeline.StateLogin
 		return s.runLoginPlay(ctx)
 	default:
 		return fmt.Errorf("unsupported next state: %d", hs.NextState)
 	}
-}
-
-func (s *Session) readRaw(ctx context.Context) (*pipeline.RawFrame, bool, error) {
-	_ = s.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-	body, _, err := proto.ReadFrame(s.br)
-	if err != nil {
-		if errors.Is(err, net.ErrClosed) || isEOF(err) {
-			return nil, false, nil
-		}
-		return nil, false, err
-	}
-	rf := &pipeline.RawFrame{Len: len(body), Body: body}
-	ctx0 := s.ctx(pipeline.StageInboundRaw)
-	rf, ok := s.chain.RunInboundRaw(ctx0, rf)
-	if !ok {
-		return nil, false, nil
-	}
-	return rf, true, nil
-}
-
-func (s *Session) peekPacketID(body []byte) (int32, *bufio.Reader) {
-	br := bufio.NewReader(bytes.NewReader(body))
-	pid, _, _ := proto.ReadVarInt(br)
-	return pid, br
-}
-
-func (s *Session) writePacket(pid int32, payload []byte) error {
-	frame := proto.WrapFrame(pid, payload)
-	select {
-	case s.out <- frame:
-		return nil
-	default:
-		return fmt.Errorf("outbox full")
-	}
-}
-
-func (s *Session) writer() {
-	s.log.Info("writer started")
-	for f := range s.out {
-		s.log.Info("writer write", zap.Int("len", len(f)))
-		_ = s.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
-		if _, err := s.bw.Write(f); err != nil {
-			s.log.Debug("write error", zap.Error(err))
-			return
-		}
-		if err := s.bw.Flush(); err != nil {
-			s.log.Debug("flush error", zap.Error(err))
-			return
-		}
-	}
-}
-
-// writePacketNow writes directly to the connection for Status flow.
-func (s *Session) writePacketNow(pid int32, payload []byte) error {
-	frame := proto.WrapFrame(pid, payload)
-	_ = s.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
-	if _, err := s.bw.Write(frame); err != nil {
-		return err
-	}
-	return s.bw.Flush()
 }
 
 func (s *Session) ctx(stage pipeline.Stage) pipeline.PktCtx {
@@ -147,14 +81,4 @@ func (s *Session) ctx(stage pipeline.Stage) pipeline.PktCtx {
 		ip = ra.IP
 	}
 	return pipeline.PktCtx{Conn: s.id, Stage: stage, State: s.state, Proto: s.proto, IP: ip, TimeNS: time.Now().UnixNano()}
-}
-
-func isEOF(err error) bool {
-	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF)
-}
-
-func readRemaining(r *bufio.Reader) []byte {
-	b := make([]byte, r.Buffered())
-	_, _ = r.Read(b)
-	return b
 }
