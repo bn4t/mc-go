@@ -125,41 +125,43 @@ func (s *Server) dimOf(player string) *dimension {
 // It updates the sharded world, publishes a BlockChange event, and fans
 // a Block Update out to tracking sessions (vanilla behavior for single
 // edits; full columns still stream via Chunk Data on join/move).
-func (s *Server) runSetblock(player string, args []string) string {
+func (s *Server) runSetblock(player string, args []string) reply {
 	if len(args) != 4 {
-		return "Usage: /setblock <x> <y> <z> <stone|dirt|grass|air>"
+		return textReply("Usage: /setblock <x> <y> <z> <stone|dirt|grass|air>")
 	}
 	bx, by, bz := s.baseBlockPos(player)
 	x, err := parseCoord(args[0], bx)
 	if err != nil {
-		return "Invalid x: " + args[0]
+		return textReply("Invalid x: " + args[0])
 	}
 	y, err := parseCoord(args[1], by)
 	if err != nil {
-		return "Invalid y: " + args[1]
+		return textReply("Invalid y: " + args[1])
 	}
 	z, err := parseCoord(args[2], bz)
 	if err != nil {
-		return "Invalid z: " + args[2]
+		return textReply("Invalid z: " + args[2])
 	}
 	d := s.dimOf(player)
 	if y < d.minY || y > d.minY+d.height-1 {
-		return fmt.Sprintf("Y out of range %d..%d", d.minY, d.minY+d.height-1)
+		return textReply(fmt.Sprintf("Y out of range %d..%d", d.minY, d.minY+d.height-1))
 	}
 	// World border, matching movement validation.
 	const border = 29999984
 	if x < -border || x > border || z < -border || z > border {
-		return "Position outside world border"
+		return textReply("Position outside world border")
 	}
 	blk, ok := parseBlockName(args[3])
 	if !ok {
-		return "Unknown block: " + args[3]
+		return textReply("Unknown block: " + args[3])
 	}
 	pos := world.Pos{X: x, Y: y, Z: z}
 	if affected := s.setBlockAndBroadcast(player, pos, blk); len(affected) > 0 {
 		s.sendLightUpdate(d, pos.X>>4, pos.Z>>4, affected)
 	}
-	return fmt.Sprintf("Set block %d %d %d to %s", x, y, z, strings.ToLower(args[3]))
+	// Success is the real server's component, three plain ints - which
+	// is what /item's own fixture setup compares.
+	return componentReply(translatable("commands.setblock.success", int32(x), int32(y), int32(z)))
 }
 
 // broadcastChunk resends one column to every play-stage session holding
@@ -184,7 +186,7 @@ func (s *Server) broadcastChunk(d *dimension, cx, cz int) {
 func (s *Server) registerBuiltins() {
 	s.registerOps()
 	s.commands.Register("help", func(player string, args []string) string {
-		return "Commands: " + strings.Join(s.commands.Names(), ", ")
+		return "Commands: " + strings.Join(s.helpNames(), ", ")
 	})
 	s.commands.Register("list", func(player string, args []string) string {
 		var names []string
@@ -211,7 +213,7 @@ func (s *Server) registerBuiltins() {
 		x, y, z, yaw, pitch, _ := sess.Pos()
 		return fmt.Sprintf("%.2f %.2f %.2f yaw=%.1f pitch=%.1f", x, y, z, yaw, pitch)
 	})
-	s.commands.Register("setblock", func(player string, args []string) string {
+	s.registerComponentCommand("setblock", func(player string, args []string) reply {
 		return s.runSetblock(player, args)
 	})
 	s.commands.Register("give", func(player string, args []string) string {

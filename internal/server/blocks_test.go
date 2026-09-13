@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"mc-go/internal/event"
+	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
@@ -227,8 +228,24 @@ func TestSetblockUpdatesWorldAndBroadcasts(t *testing.T) {
 	if st, err := ur.VarInt(); err != nil || st != StateStone {
 		t.Fatalf("update state = %d, err %v (want stone %d)", st, err, StateStone)
 	}
-	if got := readSystemChat(t, pr); !strings.Contains(got, "Set block 3 70 3") {
-		t.Fatalf("confirm = %q", got)
+	// Success is the real server's component, measured off it live: the
+	// setblock key with the three coordinates as plain ints.
+	root := readSystemChatNBT(t, pr)
+	m, ok := root.(map[string]any)
+	if !ok {
+		t.Fatalf("confirm root = %T, want compound", root)
+	}
+	if key, _ := m["translate"].(string); key != "commands.setblock.success" {
+		t.Fatalf("confirm key = %q, want commands.setblock.success", key)
+	}
+	l, ok := m["with"].(nbt.List)
+	if !ok || len(l.Items) != 3 {
+		t.Fatalf("confirm with = %v, want three ints", m["with"])
+	}
+	for i, want := range []int32{3, 70, 3} {
+		if got, ok := l.Items[i].(int32); !ok || got != want {
+			t.Fatalf("confirm with[%d] = %v, want %d", i, l.Items[i], want)
+		}
 	}
 	if got := s.World().GetBlock(world.Pos{X: 3, Y: 70, Z: 3}); got != world.Stone {
 		t.Fatalf("world = %d, want stone", got)

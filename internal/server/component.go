@@ -26,7 +26,9 @@ type component struct {
 	// "commands.time.query.gametime".
 	translate string
 	// with holds the translation arguments: string, int32, int64,
-	// float32, float64 or a nestedCompound.
+	// float32, float64, a nestedCompound, or a whole component (an
+	// /item reply passes the target name and the item brackets as
+	// compounds among numbers).
 	with []any
 	// color styles the component, "red" for command errors.
 	color string
@@ -44,6 +46,12 @@ type component struct {
 	// click is the input of a suggest_command click event, which is how
 	// vanilla makes a failed command clickable in the client.
 	click string
+	// insertion is the shift-click insertion text, which vanilla sets on
+	// the entity names its replies carry (/item names its target).
+	insertion string
+	// hover is a hover_event compound, e.g. show_entity on an /item
+	// target or show_item on the item its brackets name.
+	hover map[string]any
 }
 
 // nestedCompound is an NBT compound used as a translation argument.
@@ -78,7 +86,8 @@ func commandError(key string, with ...any) component {
 // vanilla sends as a string rather than a compound.
 func (c component) isPlain() bool {
 	return c.translate == "" && c.color == "" && len(c.extra) == 0 &&
-		c.emptyKey == "" && c.click == "" && !c.underlined && !c.italic
+		c.emptyKey == "" && c.click == "" && c.insertion == "" &&
+		len(c.hover) == 0 && !c.underlined && !c.italic
 }
 
 // nested renders the component as an NBT compound.
@@ -98,6 +107,12 @@ func (c component) nested() map[string]any {
 	}
 	if c.italic {
 		m["italic"] = int8(1)
+	}
+	if c.insertion != "" {
+		m["insertion"] = c.insertion
+	}
+	if len(c.hover) > 0 {
+		m["hover_event"] = c.hover
 	}
 	if c.translate != "" {
 		m["translate"] = c.translate
@@ -232,6 +247,8 @@ func argumentValue(a any) (any, byte) {
 	case nestedCompound:
 		value, _ := argumentValue(v.value)
 		return map[string]any{v.key: value}, nbt.TagCompound
+	case component:
+		return v.nested(), nbt.TagCompound
 	}
 	return "", nbt.TagString
 }

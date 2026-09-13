@@ -171,6 +171,20 @@ func (s *Server) sendContainerContent(sess *Session) error {
 // maxStack is the vanilla stack limit for unstackable-unaware items.
 const maxStack = 64
 
+// maxStackOfID is the most of one item a slot holds: the measured table
+// in maxstack_gen.go by item id, defaulting to 64 for anything outside
+// it. Air stacks to 1 - the real server refuses `air 5` naming a cap of
+// one - and as id 0 is outside the table it is pinned here.
+func maxStackOfID(id int32) int32 {
+	if id == 0 {
+		return 1
+	}
+	if name, ok := world.ItemName(id); ok {
+		return maxStackOfItem(name)
+	}
+	return maxStack
+}
+
 // handleClickContainer implements the core click modes on the player
 // inventory. Click modes: 0 pickup, 1 quick-move, 2 swap, 3 creative
 // clone, 4 throw. Exotic modes are acknowledged with a state bump and
@@ -257,7 +271,7 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 				sess.inv[slot] = cur
 				sess.carried = ItemStack{}
 			} else if target.Stackable(cur) {
-				room := maxStack - target.Count
+				room := maxStackOfID(target.ID) - target.Count
 				move := cur.Count
 				if move > room {
 					move = room
@@ -287,7 +301,7 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 				if sess.carried.Count <= 0 {
 					sess.carried = ItemStack{}
 				}
-			} else if target.ID == cur.ID && target.Count < maxStack {
+			} else if target.ID == cur.ID && target.Count < maxStackOfID(target.ID) {
 				sess.inv[slot].Count++
 				sess.carried.Count--
 				if sess.carried.Count <= 0 {
@@ -319,7 +333,7 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 	case 3: // creative clone
 		if !sess.inv[slot].Empty() {
 			if button == 2 {
-				sess.carried = ItemStack{ID: sess.inv[slot].ID, Count: maxStack}
+				sess.carried = ItemStack{ID: sess.inv[slot].ID, Count: maxStackOfID(sess.inv[slot].ID)}
 			} else {
 				sess.carried = sess.inv[slot]
 			}
@@ -484,7 +498,7 @@ func (s *Server) quickMoveLocked(sess *Session, slot int16, from, to int16, touc
 		if !sess.inv[i].Stackable(moving) {
 			continue
 		}
-		room := maxStack - sess.inv[i].Count
+		room := maxStackOfID(sess.inv[i].ID) - sess.inv[i].Count
 		move := moving.Count
 		if move > room {
 			move = room
@@ -493,13 +507,20 @@ func (s *Server) quickMoveLocked(sess *Session, slot int16, from, to int16, touc
 		moving.Count -= move
 		touch(i)
 	}
-	// Then fill empty slots.
+	// Then fill empty slots, one capped stack at a time.
 	for i := from; i <= to && !moving.Empty(); i++ {
 		if !sess.inv[i].Empty() {
 			continue
 		}
-		sess.inv[i] = moving
-		moving = ItemStack{}
+		put := moving.Count
+		if limit := maxStackOfID(moving.ID); put > limit {
+			put = limit
+		}
+		sess.inv[i] = ItemStack{ID: moving.ID, Count: put, Contents: moving.Contents}
+		moving.Count -= put
+		if moving.Count <= 0 {
+			moving = ItemStack{}
+		}
 		touch(i)
 	}
 	sess.inv[slot] = moving
@@ -531,7 +552,7 @@ func (sess *Session) addStack(it ItemStack) (ItemStack, bool) {
 		if !cur.Stackable(it) {
 			continue
 		}
-		room := maxStack - cur.Count
+		room := maxStackOfID(cur.ID) - cur.Count
 		if room <= 0 {
 			continue
 		}
@@ -551,8 +572,15 @@ func (sess *Session) addStack(it ItemStack) (ItemStack, bool) {
 		if !sess.inv[sl].Empty() {
 			continue
 		}
-		sess.inv[sl] = it
-		it = ItemStack{}
+		put := it.Count
+		if limit := maxStackOfID(it.ID); put > limit {
+			put = limit
+		}
+		sess.inv[sl] = ItemStack{ID: it.ID, Count: put, Contents: it.Contents}
+		it.Count -= put
+		if it.Count <= 0 {
+			it = ItemStack{}
+		}
 		touched = append(touched, sl)
 		picked = true
 	}

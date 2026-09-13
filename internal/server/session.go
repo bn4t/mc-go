@@ -61,6 +61,13 @@ type Session struct {
 	invMu    sync.RWMutex
 	inv      [slotCount]ItemStack
 	carried  ItemStack
+	// ender is the player's ender chest (27 slots), which /item addresses
+	// as enderchest.N and which persists with the player.
+	ender [27]ItemStack
+	// bodyArmor is the body equipment slot /item addresses as
+	// armor.body. A player never equips it through a menu, but the
+	// command writes it like the real server's does.
+	bodyArmor ItemStack
 	invState atomic.Int32
 	held     atomic.Int32
 	// chatIndex counts this player's relayed chat messages; chatGlobal

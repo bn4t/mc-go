@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -28,36 +29,48 @@ type reply struct {
 // the parse failed on, and whether the cursor sits at its end rather
 // than its start. Vanilla reports the end of the token for a value it
 // read but rejected, and the start of it for one it could not read at
-// all.
+// all. A reader that stops mid-token - an id with a valid prefix and
+// junk after it - reports past the prefix, which off carries.
 type failMark struct {
 	token int
 	end   bool
+	off   int
 }
 
-// cursor is the offset in the input the real server would report for
-// this failure. A token index past the last token means the input ran
-// out mid-command, which puts the cursor at the end.
-func (f failMark) cursor(input string) int {
+// tokenBounds finds one token's start and end offsets in the input. A
+// token index past the last token means the input ran out mid-command,
+// which puts both at the end.
+func tokenBounds(input string, token int) (start, end int) {
 	i, n := 0, 0
 	for {
 		for i < len(input) && input[i] == ' ' {
 			i++
 		}
-		start := i
+		start = i
 		for i < len(input) && input[i] != ' ' {
 			i++
 		}
 		if start == i {
-			return len(input)
+			return len(input), len(input)
 		}
-		if n == f.token {
-			if f.end {
-				return i
-			}
-			return start
+		if n == token {
+			return start, i
 		}
 		n++
 	}
+}
+
+// cursor is the offset in the input the real server would report for
+// this failure.
+func (f failMark) cursor(input string) int {
+	start, end := tokenBounds(input, f.token)
+	if f.end {
+		return end
+	}
+	if c := start + f.off; c <= end {
+		return c
+	}
+	return end
 }
 
 // textReply is a plain-text reply.
@@ -91,6 +104,17 @@ func errTokenEnd(key string, token int, with ...any) reply {
 	}
 }
 
+// errTokenOff is a parse failure past a token's valid prefix: the real
+// server read that much and stopped, as with an id the registry does
+// not hold where the prefix parses but the rest does not.
+func errTokenOff(key string, token, off int, with ...any) reply {
+	return reply{
+		comp:   commandError(key, with...),
+		styled: true,
+		fail:   &failMark{token: token, off: off},
+	}
+}
+
 // asComponent renders any reply as a component, which is what /execute
 // needs: it forwards whatever the inner command produced.
 func (r reply) asComponent() component {
@@ -117,6 +141,27 @@ func (s *Server) componentCommand(name string) func(string, []string) reply {
 	s.compMu.RLock()
 	defer s.compMu.RUnlock()
 	return s.compCommands[name]
+}
+
+// helpNames lists every command /help offers: plugin commands plus the
+// built-ins that answer with components, which live in their own
+// registry (/setblock moved there for its vanilla success reply).
+func (s *Server) helpNames() []string {
+	names := s.commands.Names()
+	seen := map[string]bool{}
+	for _, n := range names {
+		seen[n] = true
+	}
+	s.compMu.RLock()
+	extra := make([]string, 0, len(s.compCommands))
+	for n := range s.compCommands {
+		if !seen[n] {
+			extra = append(extra, n)
+		}
+	}
+	s.compMu.RUnlock()
+	sort.Strings(extra)
+	return append(names, extra...)
 }
 
 // runCommand runs any registered command - component command or plugin

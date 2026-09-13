@@ -628,7 +628,7 @@ func clickLeft(cur, target ItemStack, spec *containerSpec, slot int) (carried, p
 		}
 		return ItemStack{}, cur
 	case target.Stackable(cur):
-		room := int32(maxStack) - target.Count
+		room := maxStackOfID(target.ID) - target.Count
 		move := cur.Count
 		if move > room {
 			move = room
@@ -670,7 +670,7 @@ func clickRight(cur, target ItemStack) (carried, placed ItemStack) {
 			cur = ItemStack{}
 		}
 		return cur, target
-	case target.Stackable(cur) && target.Count < maxStack:
+	case target.Stackable(cur) && target.Count < maxStackOfID(target.ID):
 		target.Count++
 		cur.Count--
 		if cur.Count <= 0 {
@@ -689,7 +689,7 @@ func quickMoveIntoPlayer(sess *Session, c *containerData, moving *ItemStack, tou
 		if !other.Stackable(*moving) {
 			continue
 		}
-		room := int32(maxStack) - other.Count
+		room := maxStackOfID(other.ID) - other.Count
 		move := moving.Count
 		if move > room {
 			move = room
@@ -703,8 +703,7 @@ func quickMoveIntoPlayer(sess *Session, c *containerData, moving *ItemStack, tou
 		if !sess.menuStack(i).Empty() {
 			continue
 		}
-		sess.setMenuStack(i, *moving)
-		*moving = ItemStack{}
+		placeCapped(sess, i, moving)
 		*touched = append(*touched, i)
 	}
 }
@@ -724,7 +723,7 @@ func quickMoveIntoContainer(sess *Session, c *containerData, moving *ItemStack, 
 		if !other.Stackable(*moving) {
 			continue
 		}
-		room := int32(maxStack) - other.Count
+		room := maxStackOfID(other.ID) - other.Count
 		move := moving.Count
 		if move > room {
 			move = room
@@ -741,9 +740,23 @@ func quickMoveIntoContainer(sess *Session, c *containerData, moving *ItemStack, 
 		if !c.spec.accepts(i, *moving) || !sess.menuStack(i).Empty() {
 			continue
 		}
-		sess.setMenuStack(i, *moving)
-		*moving = ItemStack{}
+		placeCapped(sess, i, moving)
 		*touched = append(*touched, i)
+	}
+}
+
+// placeCapped moves a quick-move remainder into an empty menu slot, one
+// capped stack at a time: 64 pickaxes fill 64 slots of one, the way the
+// real server's shift-click spreads what a slot cannot take.
+func placeCapped(sess *Session, i int, moving *ItemStack) {
+	put := moving.Count
+	if limit := maxStackOfID(moving.ID); put > limit {
+		put = limit
+	}
+	sess.setMenuStack(i, ItemStack{ID: moving.ID, Count: put, Contents: moving.Contents})
+	moving.Count -= put
+	if moving.Count <= 0 {
+		*moving = ItemStack{}
 	}
 }
 

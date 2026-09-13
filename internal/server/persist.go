@@ -18,6 +18,8 @@ import (
 type playerPersist struct {
 	Inv        [slotCount]ItemStack `json:"inv"`
 	Carried    ItemStack            `json:"carried"`
+	Ender      [27]ItemStack        `json:"ender"`
+	Body       ItemStack            `json:"body"`
 	XPTotal    int32                `json:"xp_total"`
 	XPLevel    int32                `json:"xp_level"`
 	XPProgress float32              `json:"xp_progress"`
@@ -92,7 +94,7 @@ func (s *Server) dataPath() string {
 // snapshotPlayer captures a session's persistent state.
 func snapshotPlayer(sess *Session) playerPersist {
 	sess.invMu.RLock()
-	p := playerPersist{Inv: sess.inv, Carried: sess.carried}
+	p := playerPersist{Inv: sess.inv, Carried: sess.carried, Ender: sess.ender, Body: sess.bodyArmor}
 	sess.invMu.RUnlock()
 	p.XPTotal = sess.xpTotal
 	p.XPLevel = sess.xpLevel
@@ -251,6 +253,8 @@ func (s *Server) applySavedPlayer(sess *Session) {
 	sess.invMu.Lock()
 	sess.inv = p.Inv
 	sess.carried = p.Carried
+	sess.ender = p.Ender
+	sess.bodyArmor = p.Body
 	sess.invMu.Unlock()
 	sess.xpTotal = p.XPTotal
 	sess.xpLevel = p.XPLevel
