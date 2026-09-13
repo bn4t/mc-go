@@ -91,7 +91,10 @@ Mojang server over the wire.
   creative middle-click clone, close-returns-cursor (order + full
   probes), hopper/crafting/barrel/furnace menu parity with the table's
   grid-return, survival click restrictions, /gamemode command parity;
-  anvil/etc menus still open)
+  anvil repair-combine parity: menu 8 + title + cost property, combine
+  arithmetic, charged/quick-move/poor takes, invalid pairs, silent
+  output clicks, close returns with no close echo; other menus
+  - enchanting, brewing, beacon, lectern - still open)
 - [ ] Survival mode: health, hunger, regen, death/respawn
 - [~] Crafting, recipes, recipe book (join registry served verbatim;
   unlock engine pending)
@@ -101,9 +104,10 @@ Mojang server over the wire.
 ### Server
 - [~] Multithreaded session/tick/world-shard model
 - [~] Full command tree (Brigadier) parity: `/item replace` (with/from,
-  block/entity) and `item modify` (registry ids, loot-function SNBT)
-  match the real server reply for reply (`TestItemCommandParity`), and
-  the whole modifier grammar is pinned case for case
+  block/entity) and `item modify` (registry ids, loot-function SNBT;
+  bare set_damage compounds apply, damage truncating (1-f)*max in
+  float32) match the real server reply for reply (`TestItemCommandParity`),
+  and the whole modifier grammar is pinned case for case
   (`TestItemSNBTParity`)
 - [ ] World save format parity (region files)
 - [ ] RCON, query, properties parity
@@ -111,6 +115,38 @@ Mojang server over the wire.
 
 ## Progress log
 
+- 2026-09-13: Anvil repair-combine parity, green against 26.2
+  (`TestAnvilParity`, 41 steps on each server: two charged takes by
+  hand and by quick-move, a poor take at 0 levels, a dirt+pick invalid
+  pair, empty-output and place-into-output clicks, a close with the
+  inputs full, and a reopen). Every step compares damage- and
+  repair-cost-sensitive slot state, the cost property, XP levels,
+  anvil-use sounds, Set Player Inventory returns, and the absence of
+  a Container Close echo; both opens compare the title bytes. The
+  script's setup wears picks with `item modify ... set_damage`, which
+  forced the modifier engine's one exclusion half open: six vanilla
+  fractions (0.0/0.1/0.2/0.5/0.8/0.9 -> damage
+  250/225/200/125/49/25) pin the arithmetic to damage truncating
+  (1-f)*max in 32-bit floats - the only rounding fitting 0.8 -> 49
+  and 0.1 -> 225 at once (no linear f*M model fits all three) -
+  pinned by internal `TestApplySetDamage`. Out-of-range fractions
+  clamp; lists, compounds with conditions, empty stacks, and
+  undamageables stay no-op successes; all unmeasured guesses flagged
+  in code. Two
+  bugs the differential caught: `clickLeft` consulted the spec's
+  accept filter for player-side slots too, and `accepts` refuses any
+  slot past the container, so parking the repaired pick into hotbar.8
+  stranded it on the cursor - a new `menuAccepts` limits the filter
+  to the container side (window-0 clicks never reach `clickLeft`,
+  they have their own path); and `closeAnvil` returned the virtual
+  output slot alongside the inputs, duplicating them when closing
+  with an output computed - it now clears. Still open behind this:
+  renames, material/unit repair, the degrade roll, costs past 39,
+  throw/number-key/creative-clone on the output, full-durability
+  non-fresh pairs, and main/offhand close-return numbering. The four
+  `probe_anvil*_test.go` throwaways are deleted; the click driver's
+  `stackKey` now carries nonzero damage/repair-cost and `foldPkts`
+  folds Set Player Inventory (hotbar 0-8 shifted to window 36-44).
 - 2026-09-13: /gamemode and the furnace script verified green, and the
   differentials rewrote three rules. `TestGamemodeParity` runs twelve
   /gamemode steps on two same-named ops per server: chats compare as
