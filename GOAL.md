@@ -87,7 +87,8 @@ Mojang server over the wire.
 - [~] Movement tracking, keep-alive, chat, tab list
 - [ ] Full inventory + container protocol
 - [ ] Survival mode: health, hunger, regen, death/respawn
-- [ ] Crafting, recipes, recipe book
+- [~] Crafting, recipes, recipe book (join registry served verbatim;
+  unlock engine pending)
 - [ ] Advancements, statistics, scoreboard, teams
 - [ ] Player data persistence
 
@@ -755,3 +756,18 @@ Mojang server over the wire.
   unchecked Player rows (inventory/container protocol, survival,
   crafting, persistence) all build on stacks being right, which they
   now are.
+- 2026-09-13: Join recipe burst served verbatim. A fresh join on the
+  live server carries Update Recipes (3360 bytes: 7 property sets, then
+  319 stonecutting recipes, no fuel set), 8-false book settings, and
+  the empty book add; mc-go now sends the registry bytes as captured
+  (`internal/server/testdata/vanilla-26.2/play/update_recipes.bin`) and
+  `TestRecipeBurstParity` compares all three packets fresh-join to
+  fresh-join. Measurement changed the test design: the property-set
+  order and the item order inside each set vary boot to boot (first set
+  smoker in one boot, campfire the next), while the sets as multisets
+  and the whole recipe tail are byte-stable across boots - so the test
+  canonicalizes (sets sorted by id, items numerically) before comparing.
+  The furnace_input ids resolve through `reports/registries.json` to
+  exactly the smelting inputs. Still open behind this: the post-spawn
+  unlock add (one entry, crafting_table), advancement sync, the unlock
+  engine itself, and known-recipe persistence.
