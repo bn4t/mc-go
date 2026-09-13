@@ -317,13 +317,10 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 			touched = append(touched, int(slot))
 			break
 		}
-		// Furnace input takes smeltables, fuel takes fuel; anything
-		// else resyncs instead of diverging.
-		if w.furnace != nil && (slot == furnaceInput || slot == furnaceFuel) &&
-			!carried.Empty() && !furnaceAccepts(w.furnace, int(slot), carried) {
-			s.sendFurnaceContent(sess)
-			return
-		}
+		// Manual placement into furnace input and fuel is unfiltered:
+		// the differential caught vanilla accepting dirt in the input
+		// by hand. Quick-move below still honors the accept rules, and
+		// the output stays take-only.
 		cur := carried
 		target := sess.menuStack(int(slot))
 		if button == 0 {
@@ -445,14 +442,9 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 			break
 		}
 		if swap >= w.menuSize()-9 && swap < w.menuSize() {
-			// Swapping into furnace input or fuel obeys the same
-			// accept rules as placing by hand.
-			if w.furnace != nil && (slot == furnaceInput || slot == furnaceFuel) {
-				if b := sess.menuStack(swap); !b.Empty() && !furnaceAccepts(w.furnace, int(slot), b) {
-					s.sendFurnaceContent(sess)
-					return
-				}
-			}
+			// Hotbar swaps ignore the accept rules, like manual
+			// placement: the differential shows vanilla swapping
+			// sticks into the input.
 			a := sess.menuStack(int(slot))
 			b := sess.menuStack(swap)
 			sess.setMenuStack(int(slot), b)

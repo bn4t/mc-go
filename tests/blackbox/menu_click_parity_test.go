@@ -77,26 +77,37 @@ func TestMenuClickParity(t *testing.T) {
 			// Furnace menu: 0 input, 1 fuel, 2 result, 3-29 main,
 			// 30-38 hotbar. Input takes smeltables, fuel takes fuel,
 			// the result is take-only; the output fill runs through
-			// /item on the open block.
+			// /item on the open block. The script never lights the
+			// furnace - fuel and smeltables meet only in the output
+			// fill, which carries no input - because a lit furnace
+			// streams ContainerProperty ticks and the settle would
+			// never see quiet. Fuel and smeltables are kept apart for
+			// the same reason, and the iron shuttles in and out by hand
+			// and by shift before any fuel is placed. Manual placement
+			// ignores the accept rules (vanilla takes dirt in the input
+			// by hand); swap-input2 swaps the iron input against sticks
+			// to probe whether hotbar swaps do too.
 			name: "furnace", block: "minecraft:furnace", menuID: 14,
 			gives: [][2]string{
 				{"hotbar.0", "minecraft:dirt 64"},
 				{"hotbar.1", "minecraft:coal 16"},
 				{"hotbar.2", "minecraft:raw_iron 16"},
 				{"hotbar.3", "minecraft:coal 16"},
-				{"hotbar.4", "minecraft:oak_log 16"},
+				{"hotbar.4", "minecraft:stick 16"},
 			},
 			steps: []miniStep{
 				{tag: "pickup-dirt", slot: 30},
 				{tag: "place-input-dirt", slot: 0},
 				{tag: "place-main", slot: 3},
-				{tag: "pickup-coal", slot: 31},
-				{tag: "place-fuel", slot: 1},
 				{tag: "pickup-iron", slot: 32},
 				{tag: "place-input", slot: 0},
-				{tag: "shift-coal", slot: 33, mode: 1},
-				{tag: "shift-log", slot: 34, mode: 1},
 				{tag: "swap-input", slot: 0, mode: 2},
+				{tag: "shift-iron", slot: 30, mode: 1},
+				{tag: "swap-input2", slot: 0, mode: 2, button: 4},
+				{tag: "swap-input3", slot: 0, mode: 2},
+				{tag: "pickup-coal", slot: 31},
+				{tag: "place-fuel", slot: 1},
+				{tag: "shift-coal", slot: 33, mode: 1},
 				{tag: "fill-output", ops: []string{
 					"item replace block 8 -61 0 container.2 with minecraft:iron_ingot 8",
 				}},

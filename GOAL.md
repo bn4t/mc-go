@@ -89,10 +89,9 @@ Mojang server over the wire.
   parity scripted step by step, stale-state resync, menu titles, ender
   chest over shared player storage with close/reopen/break persistence;
   creative middle-click clone, close-returns-cursor (order + full
-  probes), hopper/crafting/barrel menu parity with the table's
-  grid-return, survival click restrictions; furnace click rules and
-  /gamemode implemented, blackbox verification still open; anvil/etc
-  menus still open)
+  probes), hopper/crafting/barrel/furnace menu parity with the table's
+  grid-return, survival click restrictions, /gamemode command parity;
+  anvil/etc menus still open)
 - [ ] Survival mode: health, hunger, regen, death/respawn
 - [~] Crafting, recipes, recipe book (join registry served verbatim;
   unlock engine pending)
@@ -112,6 +111,34 @@ Mojang server over the wire.
 
 ## Progress log
 
+- 2026-09-13: /gamemode and the furnace script verified green, and the
+  differentials rewrote three rules. `TestGamemodeParity` runs twelve
+  /gamemode steps on two same-named ops per server: chats compare as
+  canonicalized NBT trees (mc-go encodes compounds in Go map order,
+  which is nondeterministic, while vanilla follows builder insertion
+  order, so field byte order is out of scope - every key, value,
+  style, and nesting level still pins), GameEvent byte for byte,
+  attributes parsed as sets, playerinfo parsed, abilities as flag
+  sets. Measured corrections: spectator abilities are flags 0x07, the
+  switch never sets the flying bit (leaving a flighted mode only
+  clears it, so a later creative switch resends bare 0x0D), the
+  gamemode-only Player Info Update goes to every player including the
+  target, the reach resync goes to the target only, an invalid mode
+  stops the cursor at the end of the token (errTokenEnd, not errToken),
+  and the switch answers abilities twice (count not pinned, flags
+  compared as a set). One vanilla behavior stays out of the test's
+  scope on purpose: whether a bystander sees the target's resync
+  depends on entity tracking, not /gamemode (vanilla delivered it on
+  three of six switches), so only the changed side's attrs compare.
+  The furnace script (menu 14, dark throughout - a lit furnace streams
+  ContainerProperty ticks and the settle never sees quiet) proved
+  manual placement and hotbar swaps ignore the accept rules: vanilla
+  takes dirt in the input by hand and swaps sticks into it, while
+  quick-move honors them (coal merges to fuel, sticks stay out). Oak
+  logs are both fuel and smeltable, so the shift probe uses sticks and
+  the script never lights. Still open: manual placement into the
+  output, the dual-nature quick-move order, lit-furnace menus (the
+  settle cannot run on them), and the admin-broadcast gate level.
 - 2026-09-13: Furnace menu click rules and /gamemode implemented,
   shipped unverified. The furnace output is take-only (empty cursor
   takes all, same-id merges up to the max stack, foreign placements
