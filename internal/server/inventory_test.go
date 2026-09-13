@@ -105,10 +105,11 @@ func TestClickCreativeClone(t *testing.T) {
 	s := New("unused")
 	sess := placeSession(t, s, "Clicker", 8.5, -60, 8.5)
 	sess.setStack(slotMainStart, ItemStack{ID: 1, Count: 7})
+	sess.setMode(GameModeCreative)
 
 	s.handleClickContainer(sess, clickPacket(t, sess, slotMainStart, 0, 3))
-	if got := sess.carried; got != (ItemStack{ID: 1, Count: 7}) {
-		t.Fatalf("clone = %+v", got)
+	if got := sess.carried; !got.Empty() {
+		t.Fatalf("clone wrong button = %+v", got)
 	}
 	s.handleClickContainer(sess, clickPacket(t, sess, slotMainStart, 2, 3))
 	if got := sess.carried; got != (ItemStack{ID: 1, Count: maxStack}) {

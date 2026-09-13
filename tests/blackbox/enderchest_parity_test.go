@@ -43,7 +43,7 @@ func TestEnderChestParity(t *testing.T) {
 	}
 
 	run := func(addr, name string) ([]clickSnap, [][]byte) {
-		d := newClickDriverOn(t, addr, name, "minecraft:ender_chest", [][2]string{
+		d := newClickDriverOn(t, addr, name, "minecraft:ender_chest", 2, [][2]string{
 			{"hotbar.0", "minecraft:dirt 64"},
 			{"hotbar.1", "minecraft:cobblestone 32"},
 		}, [][2]string{

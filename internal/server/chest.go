@@ -399,6 +399,22 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 			sess.setMenuStack(swap, a)
 			touched = append(touched, int(slot), swap)
 		}
+	case 3:
+		// Creative middle-click clone: a full stack onto the cursor,
+		// the slot unchanged. A clone carries the slot's update so the
+		// client stays live; anything else resyncs like an
+		// unsupported mode instead of diverging.
+		if out, ok := creativeClone(sess, sess.menuStack(int(slot)), button); ok {
+			carried = out
+			touched = append(touched, int(slot))
+			break
+		}
+		if w.furnace != nil {
+			s.sendFurnaceContent(sess)
+		} else {
+			s.sendChestContent(sess)
+		}
+		return
 	case 4:
 		it := sess.menuStack(int(slot))
 		if !it.Empty() {
@@ -498,9 +514,28 @@ func (s *Server) handleCloseContainer(sess *Session, p protocol.Packet) {
 	}
 	sess.window = nil
 	sess.windowMu.Unlock()
+	if w.craft != nil {
+		s.closeCraftTable(sess, w.craft)
+	} else {
+		s.returnCarried(sess)
+	}
 	var b protocol.Buffer
 	b.VarInt(win)
 	_ = sess.write(sess.ids().PlayContainerClose, b.Bytes())
+}
+
+// returnCarried moves the cursor stack back into the player inventory,
+// vanilla's answer to closing a menu with something on the cursor:
+// hotbar first, and no cursor packet when it empties. A remainder that
+// fits nowhere (a full inventory) stays on the cursor.
+func (s *Server) returnCarried(sess *Session) {
+	if carried := sess.carriedBuffer(); !carried.Empty() {
+		rest, _ := sess.addStack(carried)
+		sess.carriedMuSet(rest)
+		if !rest.Empty() {
+			_ = s.sendCarriedItem(sess, rest)
+		}
+	}
 }
 
 // closeWindow retires any open window without waiting for the client

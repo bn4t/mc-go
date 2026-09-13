@@ -242,6 +242,18 @@ func (s *Server) handleHopperClick(sess *Session, w *openWindow, h *hopperData, 
 		sess.setHopperMenuStack(h, int(slot), b)
 		sess.setHopperMenuStack(h, swap, a)
 		touched = append(touched, int(slot), swap)
+	case 3:
+		// Creative middle-click clone: a full stack onto the cursor,
+		// the slot unchanged. A clone carries the slot's update so the
+		// client stays live; anything else resyncs like an
+		// unsupported mode instead of diverging.
+		if out, ok := creativeClone(sess, sess.hopperMenuStack(h, int(slot)), button); ok {
+			sess.carriedMuSet(out)
+			touched = append(touched, int(slot))
+			break
+		}
+		s.sendHopperContent(sess)
+		return
 	default:
 		s.sendHopperContent(sess)
 		return
@@ -307,6 +319,7 @@ func (s *Server) syncHopperSlots(sess *Session, w *openWindow, h *hopperData, to
 		writeSlot(&b, sess.hopperMenuStack(h, slot))
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}
+	_ = s.sendCarriedItem(sess, sess.carriedBuffer())
 }
 
 // hopperTransferEvery is the vanilla cooldown a hopper takes on after a

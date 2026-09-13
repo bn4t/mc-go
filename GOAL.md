@@ -88,7 +88,10 @@ Mojang server over the wire.
 - [~] Full inventory + container protocol (chest + window-0 click
   parity scripted step by step, stale-state resync, menu titles, ender
   chest over shared player storage with close/reopen/break persistence;
-  other menu types and survival restrictions still open)
+  creative middle-click clone, close-returns-cursor (order + full
+  probes), hopper/crafting/barrel menu parity with the table's
+  grid-return, survival click restrictions; furnace/anvil/etc menus
+  and /gamemode still open)
 - [ ] Survival mode: health, hunger, regen, death/respawn
 - [~] Crafting, recipes, recipe book (join registry served verbatim;
   unlock engine pending)
@@ -108,6 +111,39 @@ Mojang server over the wire.
 
 ## Progress log
 
+- 2026-09-13: Item handling finished, second half: creative clone,
+  close-returns-cursor, and hopper/crafting/barrel menu parity, all
+  measured off the live 26.2 server. Creative middle-click clones only
+  for creative players, only with the middle button, only from a filled
+  slot - a full stack keeping the slot's components, the slot unchanged
+  (mc-go cloned on any button, dropped components, and let survival
+  clone). A click on window 0 while any menu is open is ignored outright
+  (mc-go applied it, moving the cursor under the open menu). Two
+  client-liveness rules the failures taught: an ignored menu click
+  resyncs the window instead of bumping state in silence, and a
+  successful clone carries its slot's update - either silent path leaves
+  the client's tracked state stale and the next real click is swallowed
+  on one side only. Closing with something on the cursor returns it to
+  the player inventory through the hotbar-first add path, with no cursor
+  packet when it empties and the remainder staying on the cursor when
+  the inventory is full (order pinned by occupying hotbar.0: the stack
+  takes hotbar.1 over cleared main slot 1; the full case keeps 64 on the
+  cursor on both). The crafting table keeps no storage, so its close
+  also returns the grid - cursor first, then grid in slot order, pinned
+  by ending with grid dirt and a cobble cursor (vanilla: cobble to
+  hotbar.0, dirt past full hotbar.1 to hotbar.2). Two real gaps the new
+  menus exposed: the hopper and crafting-table click answers never sent
+  the cursor at all, now fixed. `TestContainerClickParity` grows the
+  clone steps, the merge-back, the close return, and the order/full
+  probes; new `TestMenuClickParity` runs pickup/place/clone/close on
+  hopper, crafting table, and barrel; new
+  `TestSurvivalClickRestrictions` pins the survival ignores on servers
+  booted in survival, dig-test style. That style is load-bearing: mc-go
+  has no /gamemode command (the first draft of the survival test used
+  one and mc-go stayed creative while vanilla switched), so /gamemode
+  joins the open list with the furnace/anvil/etc menus. Geometry note
+  the close diagnosis depended on: the click cell opens a single chest,
+  63 slots with the hotbar at 54-62, so slot 54 is hotbar.0.
 - 2026-09-13: Ender chest opens over the player's own storage
   (`TestEnderChestParity`, green first run against 26.2). The menu is
   the chest's shape (generic_9x3, title container.enderchest compared

@@ -185,6 +185,20 @@ func maxStackOfID(id int32) int32 {
 	return maxStack
 }
 
+// creativeClone answers a middle-click (mode 3) the way vanilla 26.2
+// does, measured: only a creative player clones, only with the middle
+// button, and only from a slot holding something - anything else is
+// ignored. The clone is a full stack that keeps the slot's components,
+// and the slot itself is unchanged.
+func creativeClone(sess *Session, it ItemStack, button byte) (ItemStack, bool) {
+	if sess.mode() != GameModeCreative || button != 2 || it.Empty() {
+		return ItemStack{}, false
+	}
+	out := it
+	out.Count = maxStackOfID(it.ID)
+	return out, true
+}
+
 // handleClickContainer implements the core click modes on the player
 // inventory. Click modes: 0 pickup, 1 quick-move, 2 swap, 3 creative
 // clone, 4 throw. Exotic modes are acknowledged with a state bump and
@@ -215,6 +229,15 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 			return false
 		}
 		s.handleChestClickPacket(sess, p)
+		return false
+	}
+	sess.windowMu.Lock()
+	menuOpen := sess.window != nil
+	sess.windowMu.Unlock()
+	if menuOpen {
+		// Clicks on window 0 while a menu is open are ignored on
+		// vanilla 26.2 (measured): the menu owns the cursor until it
+		// closes.
 		return false
 	}
 	st, err := r.VarInt() // state id
@@ -345,12 +368,8 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 			touch(swap)
 		}
 	case 3: // creative clone
-		if !sess.inv[slot].Empty() {
-			if button == 2 {
-				sess.carried = ItemStack{ID: sess.inv[slot].ID, Count: maxStackOfID(sess.inv[slot].ID)}
-			} else {
-				sess.carried = sess.inv[slot]
-			}
+		if out, ok := creativeClone(sess, sess.inv[slot], button); ok {
+			sess.carried = out
 		}
 		touch(slot)
 	case 4: // throw

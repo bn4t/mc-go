@@ -94,6 +94,25 @@ func (sess *Session) setCraftMenuStack(table *craftTable, slot int, it ItemStack
 	}
 }
 
+// closeCraftTable retires a crafting menu: the table keeps no storage,
+// so the grid returns to the player inventory after the cursor does,
+// and the result ghost clears with it.
+func (s *Server) closeCraftTable(sess *Session, table *craftTable) {
+	s.returnCarried(sess)
+	for i := 1; i <= craftTableGrid; i++ {
+		if st := sess.craftMenuStack(table, i); !st.Empty() {
+			sess.setCraftMenuStack(table, i, ItemStack{})
+			rest, _ := sess.addStack(st)
+			if !rest.Empty() {
+				// Nowhere fits everything: keep the grid's order by
+				// parking the remainder back where it came from.
+				sess.setCraftMenuStack(table, i, rest)
+			}
+		}
+	}
+	s.refreshTableResult(sess, table)
+}
+
 // refreshTableResult recomputes the table's result slot, returning
 // whether it changed.
 func (s *Server) refreshTableResult(sess *Session, table *craftTable) bool {
@@ -202,6 +221,18 @@ func (s *Server) handleCraftTableClick(sess *Session, w *openWindow, table *craf
 			moving = ItemStack{}
 		}
 		sess.setCraftMenuStack(table, int(slot), moving)
+	case 3:
+		// Creative middle-click clone: a full stack onto the cursor,
+		// the slot unchanged. A clone carries the slot's update so the
+		// client stays live; anything else resyncs like an
+		// unsupported mode instead of diverging.
+		if out, ok := creativeClone(sess, sess.craftMenuStack(table, int(slot)), button); ok {
+			sess.carried = out
+			touched = append(touched, int(slot))
+			break
+		}
+		s.sendCraftTableContent(sess, table)
+		return
 	default:
 		s.sendCraftTableContent(sess, table)
 		return
@@ -298,6 +329,7 @@ func (s *Server) syncCraftTableSlots(sess *Session, w *openWindow, table *craftT
 		writeSlot(&b, sess.craftMenuStack(table, slot))
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}
+	_ = s.sendCarriedItem(sess, sess.carriedBuffer())
 }
 
 // handleCraftTableClickPacket parses and applies a click on the

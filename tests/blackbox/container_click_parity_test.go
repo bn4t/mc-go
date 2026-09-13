@@ -4,7 +4,9 @@ package blackbox
 // both servers must leave identical logical slot states after every
 // step. The script covers pickup/place, right-click half and single
 // placement, merging, quick move, hotbar swap, throw one/all, drag
-// splits, double-click collect, and window-0 clicks after close.
+// splits, double-click collect, creative clone, and window-0 clicks
+// after close. Closing with a cursor returns it to the inventory
+// (order and full-inventory probes included).
 // States are compared parsed (carried, menu slots, player slots), not
 // byte for byte: state counters are folded, not matched.
 
@@ -49,7 +51,7 @@ type clickDriver struct {
 
 func newClickDriver(t *testing.T, addr, name string) *clickDriver {
 	t.Helper()
-	return newClickDriverOn(t, addr, name, "minecraft:chest", [][2]string{
+	return newClickDriverOn(t, addr, name, "minecraft:chest", 2, [][2]string{
 		{"hotbar.0", "minecraft:dirt 64"},
 		{"hotbar.1", "minecraft:cobblestone 32"},
 		{"inventory.0", "minecraft:oak_planks 16"},
@@ -59,8 +61,9 @@ func newClickDriver(t *testing.T, addr, name string) *clickDriver {
 // newClickDriverOn runs the click setup against any menu block: it
 // places the block, hands the player the gives, pre-fills the ender
 // storage when prefill is set (for the ender chest's shared storage),
-// and opens the menu with a use.
-func newClickDriverOn(t *testing.T, addr, name, block string, gives [][2]string, prefill [][2]string) *clickDriver {
+// and opens the menu with a use. wantMenu is the menu-registry id the
+// open screen must carry (2 generic_9x3, 12 crafting, 16 hopper).
+func newClickDriverOn(t *testing.T, addr, name, block string, wantMenu int32, gives [][2]string, prefill [][2]string) *clickDriver {
 	t.Helper()
 	c, pr, pw := joinPlayBlackbox(t, addr, name)
 	t.Cleanup(func() { c.Close() })
@@ -107,7 +110,7 @@ func newClickDriverOn(t *testing.T, addr, name, block string, gives [][2]string,
 	d.sink.take()
 	d.reopen(8, -61, 0, 11, "use-open")
 	v := judgeUse(d.opened)
-	if !v.open || v.menu != 2 {
+	if !v.open || v.menu != wantMenu {
 		t.Fatalf("%s: %s did not open (open=%v menu=%d)", name, block, v.open, v.menu)
 	}
 	return d
@@ -282,6 +285,20 @@ func diffSnaps(a, b clickSnap) []string {
 	return out
 }
 
+// fullFillInv fills every player-inventory slot the close-return can
+// reach (hotbar, main, offhand) so closing with a full cursor has
+// nowhere to put it.
+func fullFillInv() []string {
+	ops := []string{}
+	for i := 0; i < 9; i++ {
+		ops = append(ops, fmt.Sprintf("item replace entity @s hotbar.%d with minecraft:stone 64", i))
+	}
+	for i := 0; i < 27; i++ {
+		ops = append(ops, fmt.Sprintf("item replace entity @s inventory.%d with minecraft:stone 64", i))
+	}
+	return append(ops, "item replace entity @s weapon.offhand with minecraft:stone 64")
+}
+
 // TestContainerClickParity replays the click script on both servers,
 // comparing logical slot state after every step.
 func TestContainerClickParity(t *testing.T) {
@@ -298,6 +315,8 @@ func TestContainerClickParity(t *testing.T) {
 		w0          bool
 		badState    bool
 		closeFirst  bool
+		reopen      bool
+		ops         []string
 		expectSetup bool
 	}{
 		{tag: "setup", expectSetup: true},
@@ -320,25 +339,79 @@ func TestContainerClickParity(t *testing.T) {
 		{tag: "dblclick", slot: 2, button: 0, mode: 6},
 		// Stale window state: ignored, whole menu resynced.
 		{tag: "stale-menu", slot: 5, button: 0, mode: 0, badState: true},
+		// Creative clone: a middle-click copies the full stack onto
+		// the cursor and leaves the slot alone; other buttons and
+		// empty slots are ignored.
+		{tag: "clone-menu1", slot: 1, button: 2, mode: 3},
+		{tag: "clone-menu1-left", slot: 1, button: 0, mode: 3},
+		{tag: "clone-empty", slot: 5, button: 2, mode: 3},
+		// Put the clone back: it merges into its source, leaving 16 on
+		// the cursor; closing returns those to the inventory.
+		{tag: "merge-back", slot: 1, button: 0, mode: 0},
 		{tag: "close", closeFirst: true},
 		// Heal window-0 state: setup traffic is dropped above, so this
 		// stale click forces a full inventory resync on both servers.
 		{tag: "sync-w0", slot: 10, button: 0, mode: 0, w0: true, badState: true},
-		// Hotbar.8 still holds the shift-moved dirt64 on both servers.
+		// Creative clone on window 0, then ignored variants.
+		{tag: "w0-clone", slot: 37, button: 2, mode: 3, w0: true},
+		{tag: "w0-clone-left", slot: 37, button: 0, mode: 3, w0: true},
+		// The clone sits on the cursor, so this swaps with hotbar.8's
+		// shift-moved dirt64 on both servers.
 		{tag: "w0-pickup", slot: 44, button: 0, mode: 0, w0: true},
 		{tag: "w0-place", slot: 10, button: 0, mode: 0, w0: true},
 		{tag: "w0-shift", slot: 10, button: 0, mode: 1, w0: true},
 		// Stale window-0 state: ignored, whole inventory resynced.
 		{tag: "stale-w0", slot: 10, button: 0, mode: 0, w0: true, badState: true},
+		// Close with a full cursor returns it to the inventory. With
+		// hotbar.0 occupied and main slot 1 cleared, hotbar-first and
+		// main-first orders pick different slots.
+		{tag: "ord-fill", ops: []string{
+			"item replace entity @s hotbar.0 with minecraft:stone 64",
+			"item replace entity @s hotbar.1 with minecraft:air",
+			"item replace entity @s hotbar.2 with minecraft:air",
+			"item replace entity @s hotbar.3 with minecraft:air",
+			"item replace entity @s hotbar.4 with minecraft:air",
+			"item replace entity @s hotbar.5 with minecraft:air",
+			"item replace entity @s hotbar.6 with minecraft:air",
+			"item replace entity @s hotbar.7 with minecraft:air",
+			"item replace entity @s hotbar.8 with minecraft:air",
+			"item replace entity @s inventory.1 with minecraft:air",
+		}},
+		{tag: "ord-reopen", reopen: true},
+		{tag: "ord-heal", slot: 5, button: 0, mode: 0, badState: true},
+		{tag: "ord-clone", slot: 1, button: 2, mode: 3},
+		{tag: "ord-close", closeFirst: true},
+		// A full inventory leaves the cursor nowhere to go.
+		{tag: "full-fill", ops: fullFillInv()},
+		{tag: "full-reopen", reopen: true},
+		{tag: "full-heal", slot: 5, button: 0, mode: 0, badState: true},
+		{tag: "full-clone", slot: 1, button: 2, mode: 3},
+		{tag: "full-close", closeFirst: true},
 	}
 
 	run := func(addr, name string) []clickSnap {
 		d := newClickDriver(t, addr, name)
+		seq := int32(12)
+		opN := 0
 		snaps := make([]clickSnap, 0, len(steps))
 		for _, s := range steps {
-			if s.closeFirst {
+			switch {
+			case s.expectSetup:
+			case s.closeFirst:
 				d.close()
-			} else if !s.expectSetup {
+			case s.reopen:
+				d.reopen(8, -61, 0, seq, s.tag)
+				seq++
+			case len(s.ops) > 0:
+				for _, cmd := range s.ops {
+					sendCommand(t, d.pw, cmd)
+					opN++
+					if !digSentinel(t, d.pw, d.sink, fmt.Sprintf("CLKOP%d", opN), 10*time.Second) {
+						t.Fatalf("%s: no op ack", name)
+					}
+				}
+				d.fold()
+			default:
 				d.click(s.tag, s.slot, s.button, s.mode, s.w0, s.badState)
 			}
 			cp := clickSnap{carried: d.snap.carried, menu: map[int32]string{}, p0: map[int32]string{}}

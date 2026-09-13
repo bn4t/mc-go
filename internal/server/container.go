@@ -582,6 +582,18 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		sess.setMenuStack(int(slot), b)
 		sess.setMenuStack(swap, a)
 		touched = append(touched, int(slot), swap)
+	case 3:
+		// Creative middle-click clone: a full stack onto the cursor,
+		// the slot unchanged. A clone carries the slot's update so the
+		// client stays live; anything else resyncs like an
+		// unsupported mode instead of diverging.
+		if out, ok := creativeClone(sess, sess.menuStack(int(slot)), button); ok {
+			s.setCarriedLocked(sess, out)
+			touched = append(touched, int(slot))
+			break
+		}
+		s.sendContainerMenuContent(sess)
+		return
 	case 4:
 		it := sess.menuStack(int(slot))
 		if it.Empty() {
