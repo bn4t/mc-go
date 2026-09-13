@@ -276,9 +276,53 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 	container := w.containerSize()
 	switch mode {
 	case 0:
-		// The furnace output is take-only.
+		// The furnace output is take-only: takes move to the cursor,
+		// placements resync instead of diverging.
 		if w.furnace != nil && slot == furnaceOutput {
+			target := sess.menuStack(int(slot))
+			if target.Empty() {
+				break
+			}
+			if button == 0 {
+				switch {
+				case carried.Empty():
+					carried, target = target, ItemStack{}
+				case carried.ID == target.ID:
+					room := maxStackOfID(carried.ID) - carried.Count
+					move := target.Count
+					if move > room {
+						move = room
+					}
+					carried.Count += move
+					target.Count -= move
+					if target.Count <= 0 {
+						target = ItemStack{}
+					}
+				default:
+					s.sendFurnaceContent(sess)
+					return
+				}
+			} else if carried.Empty() {
+				half := (target.Count + 1) / 2
+				carried = ItemStack{ID: target.ID, Count: half, Contents: target.Contents}
+				target.Count -= half
+				if target.Count <= 0 {
+					target = ItemStack{}
+				}
+			} else {
+				s.sendFurnaceContent(sess)
+				return
+			}
+			sess.setMenuStack(int(slot), target)
+			touched = append(touched, int(slot))
 			break
+		}
+		// Furnace input takes smeltables, fuel takes fuel; anything
+		// else resyncs instead of diverging.
+		if w.furnace != nil && (slot == furnaceInput || slot == furnaceFuel) &&
+			!carried.Empty() && !furnaceAccepts(w.furnace, int(slot), carried) {
+			s.sendFurnaceContent(sess)
+			return
 		}
 		cur := carried
 		target := sess.menuStack(int(slot))
@@ -357,6 +401,10 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 			if w.furnace != nil && i == furnaceOutput {
 				continue // never quick-move into the output
 			}
+			if w.furnace != nil && (i == furnaceInput || i == furnaceFuel) &&
+				!furnaceAccepts(w.furnace, i, moving) {
+				continue // the slot would not take the stack by hand either
+			}
 			other := sess.menuStack(i)
 			if !other.Stackable(moving) {
 				continue
@@ -379,6 +427,10 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 			if w.furnace != nil && i == furnaceOutput {
 				continue // never quick-move into the output
 			}
+			if w.furnace != nil && (i == furnaceInput || i == furnaceFuel) &&
+				!furnaceAccepts(w.furnace, i, moving) {
+				continue // the slot would not take the stack by hand either
+			}
 			if !sess.menuStack(i).Empty() {
 				continue
 			}
@@ -393,6 +445,14 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 			break
 		}
 		if swap >= w.menuSize()-9 && swap < w.menuSize() {
+			// Swapping into furnace input or fuel obeys the same
+			// accept rules as placing by hand.
+			if w.furnace != nil && (slot == furnaceInput || slot == furnaceFuel) {
+				if b := sess.menuStack(swap); !b.Empty() && !furnaceAccepts(w.furnace, int(slot), b) {
+					s.sendFurnaceContent(sess)
+					return
+				}
+			}
 			a := sess.menuStack(int(slot))
 			b := sess.menuStack(swap)
 			sess.setMenuStack(int(slot), b)

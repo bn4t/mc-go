@@ -143,6 +143,21 @@ func cookFor(kind int32, item string) (cookRecipe, bool) {
 	return r, ok
 }
 
+// furnaceAccepts reports whether a menu click may place the stack in a
+// furnace slot: the input takes what the block's recipe set smelts,
+// the fuel takes what burns.
+func furnaceAccepts(f *furnaceData, slot int, it ItemStack) bool {
+	if slot == furnaceFuel {
+		return isFuelItem(it.ID)
+	}
+	name, ok := itemNameOf(it.ID)
+	if !ok {
+		return false
+	}
+	_, ok = cookFor(f.kind, name)
+	return ok
+}
+
 // fuelTicks is the burn duration of the common fuels.
 var fuelTicks = map[string]int32{
 	"coal":        1600,
