@@ -9,7 +9,6 @@ import (
 
 	"mc-go/internal/event"
 	"mc-go/internal/plugin"
-	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
 
@@ -37,6 +36,34 @@ type Server struct {
 	// skips loading, so tests and ephemeral servers stay file-free.
 	WorldPath string
 
+	// WorldDir is a vanilla-format world directory: level.dat, the
+	// SavedData files beside it, and dimensions/<namespace>/<path>/
+	// region chunks. When set it takes precedence over WorldPath and
+	// the world is saved in the format the real server reads, which is
+	// what makes a world survive a handoff between the two.
+	WorldDir string
+
+	// loadMu guards worldLoaded, which makes LoadWorld idempotent so
+	// the world a server was configured with is loaded exactly once
+	// however many times loading is asked for.
+	loadMu      sync.Mutex
+	worldLoaded bool
+
+	// WorldSeed is written into world_gen_settings.dat. It does not
+	// change the flat generator's terrain, but the real server keeps it
+	// and a mismatched seed is a world the two disagree about.
+	WorldSeed int64
+
+	// LevelName is what level.dat calls the world; empty uses the
+	// world directory's base name, which is how vanilla names it.
+	LevelName string
+
+	// GenerateStructures is recorded in the world's generator settings.
+	// The zero value is false, so New sets the vanilla default (true);
+	// it does not change the flat terrain, which has no structures to
+	// generate either way.
+	GenerateStructures bool
+
 	// DataPath is the save file for player state and block entities.
 	// Empty derives it from WorldPath (".data.json" suffix); an empty
 	// WorldPath with an explicit DataPath still persists data.
@@ -62,17 +89,31 @@ type Server struct {
 	// the mc-go binary defaults to survival (vanilla's default).
 	GameMode byte
 
+	// StartFrozen starts the game clock frozen, as though /tick freeze
+	// had been issued before the first tick. It exists for tests that
+	// need a loaded world handed over untouched - a furnace's saved
+	// cook and burn counters are exactly the number of ticks since the
+	// world was loaded, so a test comparing them against the real
+	// server has to be able to say "no ticks yet" and cannot, since
+	// the first thing a joining player does is tick the world while
+	// the freeze command is still in flight.
+	StartFrozen bool
+
 	listenersMu  sync.Mutex
 	listeners    map[net.Listener]struct{}
 	shuttingDown atomic.Bool
 
-	bus        *event.Bus
-	world      *world.World // overworld; also dims["minecraft:overworld"].w
-	dims       map[string]*dimension
-	commands   *plugin.Commands
-	entities   *Manager
-	board      scoreboard
-	nextWindow atomic.Int32
+	bus      *event.Bus
+	world    *world.World // overworld; also dims["minecraft:overworld"].w
+	dims     map[string]*dimension
+	commands *plugin.Commands
+	// compCommands are the built-in commands that answer with a chat
+	// component rather than plain text (see timecmd.go).
+	compMu       sync.RWMutex
+	compCommands map[string]func(string, []string) reply
+	entities     *Manager
+	board        scoreboard
+	nextWindow   atomic.Int32
 	// World rules, guarded by rulesMu. Difficulty and the game-rule
 	// table are server-wide in vanilla (every player sees the same
 	// values); lockDifficulty mirrors the /difficulty lock flag.
@@ -80,6 +121,11 @@ type Server struct {
 	difficulty       byte
 	difficultyLocked bool
 	gameRules        map[string]string
+	// The world spawn, which a loaded level.dat can move; see
+	// WorldSpawn. Guarded by spawnMu.
+	spawnMu   sync.Mutex
+	spawnPos  [3]int
+	haveSpawn bool
 	// ops maps player name to permission level (1-4), from ops.json.
 	// OpsRequired turns on vanilla's gating: without it every player is
 	// level 4, which is what library embeddings and the scripted test
@@ -128,13 +174,14 @@ func New(addr string) *Server {
 		started:          time.Now(),
 		// Creative keeps existing scripted sessions deterministic;
 		// the mc-go binary sets survival from -gamemode.
-		GameMode:     GameModeCreative,
-		difficulty:   DifficultyNormal,
-		gameRules:    defaultGameRules(),
-		ops:          map[string]int{},
-		ticks:        newTickScheduler(),
-		rng:          newRandState(0x5DEECE66D),
-		randSections: map[randSectionKey]bool{},
+		GameMode:           GameModeCreative,
+		GenerateStructures: true,
+		difficulty:         DifficultyNormal,
+		gameRules:          defaultGameRules(),
+		ops:                map[string]int{},
+		ticks:              newTickScheduler(),
+		rng:                newRandState(0x5DEECE66D),
+		randSections:       map[randSectionKey]bool{},
 	}
 	if s.ViewDistance == 0 {
 		s.ViewDistance = 10
@@ -148,9 +195,12 @@ func New(addr string) *Server {
 	return s
 }
 
-// worldAgeTicks reports ticks since boot, the world age vanilla syncs.
+// worldAgeTicks reports the world age vanilla syncs: the number of
+// completed game ticks. It is the game clock rather than the wall
+// clock, so a frozen or stepped game reports exactly the ticks it has
+// simulated - the same thing /time query gametime answers with.
 func (s *Server) worldAgeTicks() int64 {
-	return int64(time.Since(s.started) / (50 * time.Millisecond))
+	return s.gameTime()
 }
 
 // startTimeSync broadcasts Update Time to every play-stage session on
@@ -172,25 +222,7 @@ func (s *Server) startTimeSync() chan struct{} {
 			case <-stop:
 				return
 			case <-t.C:
-				age := s.worldAgeTicks()
-				var b protocol.Buffer
-				b.Long(age)
-				b.VarInt(2)
-				for id := int32(0); id < 2; id++ {
-					b.VarInt(id)
-					b.VarLong(age)
-					b.Float(0)
-					b.Float(1)
-				}
-				body := b.Bytes()
-				s.sessions.Range(func(_, v any) bool {
-					sess := v.(*Session)
-					if sess.state.Load() != StatePlay {
-						return true
-					}
-					_ = sess.write(sess.ids().PlayUpdateTime, body)
-					return true
-				})
+				s.broadcastUpdateTime()
 			}
 		}
 	}()
@@ -252,6 +284,19 @@ func (s *Server) Serve(ln net.Listener) error {
 	if !ok {
 		return fmt.Errorf("java frontend not registered")
 	}
+	// The world is loaded here rather than left to the caller, so a
+	// server configured with a world directory serves it even when the
+	// embedding program never calls LoadWorld. main loads before
+	// serving and this is then a no-op.
+	if err := s.LoadWorld(); err != nil {
+		return err
+	}
+	// Frozen before the tick loop starts, so no tick is ever simulated
+	// and a world handed to the server comes back out untouched (see
+	// StartFrozen).
+	if s.StartFrozen {
+		s.SetFrozen(true)
+	}
 	stop := s.startTimeSync()
 	defer close(stop)
 	stopTicks := s.startGameTicks()
@@ -278,6 +323,9 @@ func (s *Server) track(sess *Session) {
 
 func (s *Server) untrack(sess *Session) {
 	s.sessions.Delete(sess.id)
+	// A player who leaves is no longer editing anything: measured on 26.2,
+	// the sign its editor was open on is free for the next player at once.
+	s.releaseSignEdits(sess)
 	name := sess.getName()
 	if name == "" {
 		return

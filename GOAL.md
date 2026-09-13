@@ -40,7 +40,17 @@ Mojang server over the wire.
 
 ### World
 - [~] Sharded world, block overrides, persistence
-- [~] Chunk streaming, light packet
+- [x] Chunk streaming, light packet. The streamed window is measured
+      and matched exactly (square radius viewDistance+1 less a circular
+      corner cut at viewDistance+2.75, 49/81/117/213/329 columns for view
+      distances default/3/4/6/8, with a late Client Information
+      re-streaming it and no chunk cache radius packet sent -
+      `TestChunkWindowParity`), and so is the acknowledgement throttle
+      that paces the batches: nine columns before the first
+      acknowledgement and nothing after it, then ten batches per
+      acknowledgement, at the acknowledged rate truncated and clamped to
+      [1, 64], one batch a tick - `TestChunkThrottleParity`,
+      `TestChunkThrottleStaysBlocked`
 - [ ] Vanilla terrain generation (seed, noise, biomes, structures)
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
@@ -50,7 +60,16 @@ Mojang server over the wire.
       falling columns and dry-up. Redstone, block ticks and random
       ticks remain (the random-tick sampler and its per-section gate
       are in place, with no block rules registered yet)
-- [~] Block entities (chests, furnaces, signs, ...)
+- [x] Block entities (chests, furnaces, signs, hoppers, barrels, ...):
+      saved and loaded in the real server's own chunk format, compared
+      block entity for block entity both ways
+      (`TestWorldBlockEntityParity`), with hopper transfer, hopper and
+      furnace sided rules, and the smoker/blast-furnace fuel rate
+      measured and matched (`TestHopperTransferParity`). The furnace
+      family's recipe sets are the data pack's own, and what each of the
+      three blocks will and will not cook, at what cook time, and which
+      recipe id each counts it under, are compared against the real
+      server's own blocks (`TestFurnaceRecipeParity`)
 - [~] Dimensions: overworld/nether/end worlds, nether portal travel
   with 8x coordinate scaling and auto-built return portals, Respawn
   field parity (dimension type, sea level, obfuscated seed, flat flag,
@@ -80,6 +99,108 @@ Mojang server over the wire.
 - [ ] Performance targets under vanilla-like load
 
 ## Progress log
+
+- 2026-09-12: Hopper transfers, measured tick by tick and then made to
+  match, and the block entity file behind them. The rules came from the
+  real server's own tick loop rather than from memory: `/tick freeze`
+  with `/tick step 1` and `data get block` after each step, in seven
+  arrangements covering every facing a hopper can have and every
+  container it works with. A hopper pushes toward its own `facing` and
+  not always down; it pushes and pulls in the same tick, pushing first;
+  it moves exactly one item per direction per transfer; the countdown
+  runs *before* the hopper acts, so a transfer every eight ticks is
+  eight ticks between one item and the next; a hopper that has never
+  ticked carries `TransferCooldown` -1, which its first tick turns into
+  the 0 an idle hopper keeps; and `hopper[facing=up]` is not a block the
+  real server accepts at all ("does not accept 'up' for facing
+  property"), so a hopper never pulls from the block above. A hopper
+  feeding a furnace follows the real server's sided rules - above fills
+  the input with anything, beside fills only the fuel slot and only with
+  fuel, and only the result ever leaves - and an insert into the input
+  slot is what makes the furnace recompute `cooking_total_time` (to the
+  recipe's own time, or 200 when its recipe type has no recipe, which
+  includes an input just emptied; a world load and the furnace's own
+  smelting do not). `TestHopperTransferParity` builds the world once on
+  the real server, copies it to both, advances each by the same 240
+  ticks, and requires the two saved chunks to be identical block entity
+  for block entity - which they now are. Two more furnace rules the
+  same session turned up: a smoker and a blast furnace burn fuel at
+  twice the rate (a coal lasts 800 ticks there against 1600 in a
+  furnace, in `lit_total_time` as well as `lit_time_remaining`), and
+  coal is not the only thing with no recipe. Alongside it, the chunk
+  format: a saved palette names *every* state's block - a sign facing
+  east is `minecraft:oak_sign` with `rotation=1`, not an unnamed state -
+  and a palette entry mc-go cannot resolve now leaves the generator's
+  own blocks standing rather than silently writing air over them
+  (`TestChunkPaletteNamesEveryState`, `TestChunkLoadLeavesUnknownPalettesAlone`).
+  Since this work: the furnace family's recipe *sets* are the data
+  pack's own rather than a hand-written table, with the three sets'
+  accept and reject edges, their cook times and their recipe ids
+  compared against the real server's own blocks
+  (`TestFurnaceRecipeParity`). Still open: mc-go has no `/item`
+  command, which is how the real server builds the fixtures these tests
+  hand both servers - the furnace test builds them on the real server
+  for that reason.
+
+- 2026-09-12: World saving, in both directions, against the real server.
+  `TestWorldSaveParity` hands a world each way: the real 26.2 server
+  saves one and mc-go loads it, mc-go saves one and the real server
+  loads it, and the chunk mc-go writes for a given world state is
+  compared field by field - DataVersion, status, section indices,
+  palettes, all four heightmaps - with the chunk the real server wrote
+  for the same state. Three things the test found and fixed, each
+  invisible from inside mc-go: the saved palette spells its property map
+  `Properties`, capitalised (the network palettes carry global state ids
+  instead, and the lowercase key made every mc-go palette entry
+  unreadable to the real server); a chunk the real server saves while
+  still generating - "minecraft:biomes", "carvers", "structure_starts" -
+  holds all-air placeholder sections that must not be applied, or loading
+  a world erases the terrain it describes; and saving into a directory
+  that does not exist yet failed outright, which is the ordinary case for
+  a first save. The test also had to be made honest about its own
+  premises: 26.2 keeps no spawn chunks loaded, so `/setblock` answered
+  "That position is not loaded" until the test forced the chunk, and a
+  player needs `op` before `/time` answers anything at all. The world
+  files (level.dat, the three data/minecraft/*.dat, the dimension
+  layout) round-trip through mc-go's own reader too, pinned by
+  `TestLevelRoundTrip`; block entities in chunks, `poi/`, and the
+  `entities/` region directories remain.
+
+- 2026-09-12: Where water meets lava, measured. The fluid parity scenario
+  that pours water at lava failed, and the fix was three wrong rules
+  rather than a tuning problem: water *below* lava does not set the lava
+  solid at all (the water is what changes, to stone, and the lava is
+  untouched), the block below is not one of the five neighbours that count
+  as contact, and a lava *flow* that water reaches sets to cobblestone
+  rather than being swept away — a source sets to obsidian. The
+  solidification also happens in the block-update path, in the same tick
+  the water lands, not on the lava's own 30-tick schedule.
+  `TestFluidContactParity` pins all of it: nine geometries (water beside,
+  above, under and two and three blocks from a source and a flow), each
+  run on mc-go and on vanilla, compared block by block at the moment the
+  water lands and again once both worlds have settled.
+
+- 2026-09-12: Command replies byte for byte, and the context message.
+  `/time` and `/tick` now answer with exactly the components the real
+  server sends, which is a stricter claim than "the same key and
+  arguments": a translatable component carries no `text` field at all
+  (not even an empty one), the tick count of `/tick step` rounds half up
+  and the tick count of `/time set` saturates at 2147483647 rather than
+  wrapping, a too-small float is `argument.float.low` and not
+  `argument.float.small`, and `/time add`'s own reply is a long while
+  `/time set`'s is an int wrapped in a compound.
+  A failed parse is two messages, not one: the error, then a gray
+  clickable echo of the input with the token the parse stopped on marked
+  in red underline and a cursor marker at the end. The second message is
+  only sent for failures the real server reports while reading — an
+  unknown command, an unknown argument, a number that would not parse, a
+  value it read and rejected — and not for failures it reports while
+  running (`/tick step` while the game is running, a time marker that
+  does not exist), which is why the cursor of the first kind is part of
+  the reply and the second kind has no cursor at all.
+  `TestTimeCommandParity` replays 40 clock commands against both servers
+  and compares every message field by field, tags included, so a wrong
+  cursor or a missing style flag fails the test.
 
 - 2026-09-12: Fluid simulation. Water and lava now flow: levels 0-7 with
   8 as the falling state, a level of 0 as the permanent source, a
@@ -329,6 +450,31 @@ Mojang server over the wire.
   iron-sword hit (health 14) on the wire; unit tests cover weapon
   damage and full iron armor (15 points -> 0.4 damage from a fist).
   Attack-cooldown scaling, enchantments, and durability remain.
+- 2026-09-12: Survival digging is now the server's own model instead of
+  the client's word. A start records the block, digTickStep adds one
+  tick of progress per game tick from the public breaking formula
+  (speed/hardness/30 when the block can be harvested with what is held,
+  /100 when it cannot), and the block is destroyed by the server when
+  the progress completes; the client's finish only commits the dig, so a
+  scripted client that stops early cannot buy a faster break. Measured
+  against the real server with a scripted client: grass bare-handed
+  takes 18 ticks and stone 150, a start on its own never destroys
+  anything, an abort discards the dig, a duplicate start cancels it and
+  is answered with a resync of the true block, and swings, tick ends,
+  inputs, and unrelated commands do not advance it.
+  TestDigParity replays nine of those sequences against both servers and
+  requires the same outcome and break time. The old 50 ms wall-clock
+  guard (which rejected the dig a lagging client actually completed) and
+  the look-direction raycast on start (vanilla only checks reach) are
+  gone; /tp now accepts the vanilla <yaw> <pitch> form.
+- 2026-09-12: Lava and water contact, measured against the real server:
+  a lava source touched by water anywhere sets to obsidian; a lava flow
+  with water falling onto it sets to cobblestone (the cobblestone
+  generator); and a lava flow with water merely beside it is swept away
+  to air, with the water flowing into the gap. The previous "flow beside
+  water becomes cobblestone" rule was wrong and left cobblestone where
+  vanilla leaves water. TestFluidParity gains scenario E (water falling
+  onto a lava flow) and scenario D now passes.
 - 2026-09-10: Scoreboard basics: /scoreboard objectives add/remove/
   setdisplay sidebar and players set/get/reset with the Update
   Objectives, Update Score, Display Objective, and Reset Score
@@ -337,3 +483,241 @@ Mojang server over the wire.
   other objective criteria remain. TestJoinBurstSequence now drops
   tick-driven Update Time/Keep Alive packets before comparing, keeping
   the state-machine comparison strict without run-to-run flakes.
+- 2026-09-12: The block entity array inside the chunk packet, which had
+  been sent empty, and with it the first thing a real client could not
+  see: a sign's text. The array is not the saved form. Measured by
+  joining the real 26.2 server and reading its own chunk packets back,
+  each entry is a packed column position byte, the y as a big-endian
+  short, a varint block entity *type* (not the id string the file
+  carries), and then the entry's client data - and for everything mc-go
+  models except a sign that data is nothing at all: a chest holding
+  three diamonds, a barrel, a furnace mid-cook with a lit time and a
+  cook time, a hopper, a dropper, a dispenser, a shulker box, a brewing
+  stand and a crafter all arrive as a single TAG_End byte, so a
+  container's contents never travel with the chunk and the client learns
+  them only when the menu is opened. A sign and a hanging sign are the
+  exception, and the compound they carry is neither the file form (no
+  id, x, y, z, keepPacked or components) nor a subset of it: front_text,
+  back_text and is_waxed, each side being four text components held as
+  strings plus its colour and glow. The packed byte's high nibble is x
+  and its low nibble z, verified at a position where the two differ
+  (the fixture sign sits at x=14, z=3, so a swapped pair could not pass),
+  and the real server's own array is in its block entity map's hash
+  order, which is not a property of the world; mc-go orders by position
+  so the packet is a function of the world state. The fixture world also
+  turned up two divergences of mc-go's own: its sign store discarded the
+  colour, the glow and the waxed flag, so a dyed sign lost its styling
+  both in the packet and across a save, and there is no way to *make* a
+  styled sign yet - the dye, glow ink sac and honeycomb interactions are
+  not implemented. Styling is now carried through the store, the saved
+  chunk and mc-go's own data file. `TestChunkPacketBlockEntityParity`
+  builds one of every block entity mc-go models on the real server
+  (twelve containers holding state only a block entity can hold, a
+  hanging sign, a two-line sign, and a sign whose front is red, glowing
+  and waxed), hands identical copies to both servers, joins each with a
+  scripted client and requires the two chunk packets' block entity
+  arrays to match entry for entry. Two protocol facts the same
+  measurement pinned down: `player_loaded` carries no body in 776 (a
+  byte in it makes the real server disconnect the client with "was
+  larger than I expected"), and the real server ignores interactions
+  from a client that has not yet accepted a teleport - `use_item_on` is
+  acted on only after the client answers the `player_position` packet's
+  teleport id with `accept_teleportation`, which any test that drives an
+  interaction has to do first.
+  Still open: the dye/glow-ink/honeycomb interactions themselves, and
+  a blackbox test for the update_sign broadcast (the real server
+  re-sends the same nameless sign compound to every client tracking the
+  chunk as block_entity_data).
+- 2026-09-13: Three measured rules of the real 26.2 server, all found by
+  scripted blackbox probes and now implemented and compared step for
+  step against it.
+  (1) The interaction gate. A use or dig a player sends is dropped until
+  the client reports its terrain loaded (`player_loaded`, no body in
+  776), or until 3.0 seconds (60 ticks) have passed since the join,
+  whichever comes first. Measured by sending the same use from the
+  moment of joining, one fresh client per delay: swallowed at 0.72, 1.62,
+  2.12 and 2.62 seconds, acted on at 3.12, 3.62, 4.12 and 5.12. The
+  measurement only means anything with the target chunks loaded - a
+  forceload command that vanilla silently refused (`forceload add -64
+  -64 256 256` is over its limit) left the target chunks unloaded and
+  produced an all-zero "the grace never ends" curve.
+  `TestInteractionGateParity` runs the script against both servers: a use
+  inside the first moments is dropped, the same use works the instant the
+  report goes out, and a client that never reports is let through once
+  the grace has run out. The scripted clients in this suite report
+  loading as they join (joinPlayBlackbox), so no other test has to know
+  about the gate.
+  (2) The sign editor lock. A sign's editor is held by one player at a
+  time. Another player's use of that sign is answered with *nothing at
+  all* - no editor and not even the block entity data a dye would bring -
+  and the lock is per sign, not per side (a player behind the sign is
+  refused too) and not per player (the holder can reopen its own editor
+  as often as it likes). It is released by the holder writing the sign on
+  the side it opened (the next player is given the editor at once), by
+  the holder disconnecting (free at once), and by the holder moving more
+  than ten blocks away (locked at nine blocks from the sign, free at ten;
+  the readings fit a squared distance of 100 from the player's feet to
+  the centre of the sign's block). There is no timeout: thirty seconds of
+  standing still with the editor open still locks the sign. A waxed sign
+  answers nothing whatever the item. And `update_sign` itself is gated on
+  being the current holder - measured by reading the sign back with the
+  real server's own `/data get block`, a scripted client that was never
+  given the editor changes nothing, whether or not another player was
+  editing at the time. mc-go's sign store grew an `editors` map with the
+  measured release rules, and `TestSignEditorLockParity` drives three
+  clients through the whole rule (refusal, the per-sign control, the
+  released-by-write hand-off, the five-block/ twelve-block edges, the
+  disconnect) and requires the same answer from both servers at every
+  step.
+  (3) The chunk window. It is not a square: it is the square of radius
+  viewDistance+1 with the corners beyond a circle of radius
+  viewDistance+2.75 cut away. Measured by joining with one view distance
+  after another, acking the chunk batches, and listing every column
+  streamed: view distance 2 (and a client that announces nothing at all,
+  which the real server reads as 2) gets the whole 7x7 square, 49
+  columns; 3 gets the whole 9x9 square, 81; 4 gets 117 (the 11x11 square
+  less its four corners: (5,4) at squared distance 41 is in, (5,5) at 50
+  is out); 6 gets 213; 8 gets 329. An integer radius cannot produce the
+  window at 8 (radius 10 gives 317 columns), and the readings pin the
+  constant to [2.7279, 2.7648) - 11/4 is the value used, and every
+  measured distance is reproduced exactly. A client that announces its
+  view distance late has the wider window streamed to it at once (329
+  columns the moment an 8 arrives), and asking for less takes the excess
+  away. Two divergences of mc-go's own came out of the same measurement:
+  it streamed a 3x3 window to a client that never announced a distance
+  (the real server streams 7x7), and it never re-streamed when a late
+  Client Information arrived. Both are fixed, and `TestChunkWindowParity`
+  compares the *column sets* of both servers for the default, 2, 3, 4 and
+  8 - a window that is merely the right size does not pass.
+  The same probes settled two protocol facts. The real server never sends
+  Set Render Distance (chunk cache radius, 0x5F): with no Client
+  Information at all, after announcing 8, and after asking for 2, every
+  play packet it sent was listed and the packet never appeared, while Set
+  Center Chunk (0x5E) did - so mc-go no longer sends it, and the tests
+  that expected it now require its absence. And chunk streaming is
+  throttled by the client's batch acknowledgements: a client that answers
+  keep-alive and teleports but never acks a chunk batch is sent nine
+  columns and nothing more, however long it waits, while mc-go sends the
+  whole window in one batch.
+
+  The throttle is now closed. Chunk Batch Received carries the client's
+  chunks-per-tick rate, and on 26.2 one acknowledgement buys exactly ten
+  batches: the opening nine columns for a client that has not
+  acknowledged, and then, per acknowledgement, ten batches of that rate,
+  one batch a tick, the first of them at once. Measured rate by rate:
+  ack(1) gives ten columns as ten batches of one before falling silent,
+  ack(2) gives twenty, ack(3) thirty, ack(25) the whole 81-column window
+  of a view distance of 3 as 25, 25, 25, 6. The rate is the float
+  truncated and clamped to [1, 64] (1000 gives batches of 64), and a rate
+  below one is still a batch of one column but spaced ceil(1/rate) ticks
+  apart - 0.1 gives ten columns over five seconds, 0.25 four ticks apart,
+  0.5 and 0.9 two, and a rate of zero is one column every 5050 ms. The
+  silence before the first acknowledgement is a property of the player,
+  not of the window: a never-acking client teleported four hundred blocks
+  into new country, with the teleport confirmed and the whole new window
+  waiting, is sent nothing at all. Two smaller facts fell out of the same
+  probes: an acknowledgement that arrives before the opening batch has
+  gone out replaces it, so the first batch is 25 rather than nine; and
+  the acknowledged rate survives a dimension change, which mc-go already
+  did. `TestChunkThrottleParity` compares both servers batch size by
+  batch size and tick by tick, and `TestChunkThrottleStaysBlocked`
+  requires the confirmed-teleport silence from both.
+
+  Matching the pacing needed a world-side fix rather than a protocol one:
+  a batch could not go out a tick after the last because building it cost
+  ten milliseconds a column. `World.shardFor` allocated and ran an FNV
+  digest per *block* - 98304 times per column - and `FillBox` collected a
+  position and two slice appends per block as well, so a 25-column batch
+  took 300 ms and its batches came 300 ms apart instead of 50. Shards are
+  now routed with an arithmetic mix and grouped by column, a chunk column
+  costs one shard round trip instead of 256, and `encodeChunk` fell from
+  10 ms to 1.4 ms - which the parity test can see, because it compares
+  when each batch lands and not only what it holds.
+  Test infrastructure: two goroutines writing the same connection
+  interleave the two writes of a packet (protocol.Writer writes the
+  length prefix and the body separately) and desynchronise the server's
+  decoder, which showed up as random disconnects in the probing clients.
+  The blackbox harness now wraps every client connection in a mutex for
+  writes.
+- 2026-09-13: The furnace family, at the level below the one the hopper
+  session reached: which inputs each of the three blocks will and will
+  not cook, how long each takes, and which recipe id each records.
+  `cookRecipes` is now built from the bundled data pack rather than a
+  hand-written table, so the three sets are the real server's own - and
+  they are genuinely three: the bundled pack lists 110 smelting recipes
+  (156 inputs after tags are expanded), 62 blasting and 9 smoking, and
+  the sets are asymmetric in both directions. A blast furnace smelts an
+  iron pickaxe into nuggets at half the furnace's time and refuses beef;
+  a smoker cooks beef and refuses sand and raw iron, both of which are
+  perfectly good smelting recipes. The thirteen-entry hand table accepted
+  the same thirteen inputs in all three blocks, which is wrong in both
+  directions at once, and no fixture built from it could tell the sets
+  apart.
+  `TestFurnaceRecipeParity` is built to fail on exactly that: nine
+  fixtures, one world built once on the real server and copied to both,
+  451 simulated ticks, and every block entity compared field for field
+  afterwards. Each fixture is chosen for one edge - a tag member, a
+  tool, food, an ore - and the reject fixtures are the point: a block
+  given an input its own recipe type does not list comes out untouched,
+  never lit, with its cook total left at the recipe lookup's 200
+  fallback rather than its own type's time. The real server's own blocks
+  are checked against those rules before the comparison, so the test
+  cannot pass by comparing two worlds where nothing happened.
+  What the same run turned up, none of it visible from inside mc-go:
+  (1) `RecipesUsed` - the compound a furnace family block saves with a
+  count per recipe id, which names the *variant* that was cooked: a
+  smoker's beef is `cooked_beef_from_smoking` and a blast furnace's raw
+  iron is `iron_ingot_from_blasting_raw_iron`, where a plain furnace
+  writes `cooked_beef`. mc-go wrote an empty compound for every furnace
+  and now writes the real ids.
+  (2) The real server will not over-stack an item through `/item
+  replace`: `with minecraft:iron_pickaxe 4` is refused with
+  "minecraft:iron_pickaxe can only stack up to 1", so the tools in the
+  fixture are given one and the fixture's item count is 39 and not 45.
+  (3) Two save hazards that make a fixture world silently different from
+  the one that was built, both measured: a `/stop` after `/save-all
+  flush` sometimes writes the *older* of the two copies of a chunk back
+  out (the last-written chunk, about half the time - which is why the
+  builder flushes and is then killed rather than stopped, and why the
+  test reads the runner's world after the flush and before its stop);
+  and a `/forceload` ticket is persisted into the world's
+  `chunk_tickets.dat`, so a world handed over with one has that chunk
+  loaded and *ticking* from the moment the next server boots. Seven
+  ticks of it, in every fixture, on a world whose only difference was
+  the ticket - and a player's ticket, which is transient, leaves the
+  world clean. mc-go gained `Server.StartFrozen` for the other half of
+  the same problem: a joining player ticks the world for the seconds it
+  takes a freeze command to land, so a test that hands over a world and
+  needs it unstepped has to be able to say "no ticks yet".
+  (4) The game loop slept a flat period *after* each tick, which makes
+  the period the tick's own duration plus the sleep. A tick that
+  streams twenty-five columns costs as much as a tick, so mc-go sent its
+  chunk batches every hundred milliseconds where the real server sends
+  them every fifty - found by `TestChunkThrottleParity`, which compares
+  when each batch lands. The loop now sleeps what is left of the tick's
+  budget once the tick has run, which is the real server's own
+  arithmetic.
+  (5) `/tick sprint n` simulates n+1 ticks. Measured on 26.2, three
+  sprints of ten in a row moved the game clock by eleven each, a sprint
+  of one by two, and a sprint of forty by forty-one - read off `/time
+  query gametime` and cross-checked against the cook and burn counters
+  of a furnace that had never been lit, which can only move on a
+  simulated tick. The command is handled inside a tick and the sprint
+  applies to the rest of that tick as well, so the tick it arrives on is
+  simulated too. `/tick step n` is the other way round: exactly n, run
+  at twenty ticks a second whatever the machine can do (a step of a
+  hundred is still going five seconds after it has answered, which is
+  why the tests sprint). mc-go now does both, and `TestTickCountParity`
+  pins all five cases against the real server's clock.
+  Test-side: `checkFurnacesRan` read its fields as `CookTimeTotal`,
+  `CookTime` and `BurnTime` off a compound the real server spells
+  `cooking_total_time`, `cooking_time_spent` and `lit_time_remaining`.
+  With the type assertion allowed to fail, every one of those reads was
+  zero - and zero is what half of those checks are looking for - so the
+  oracle check passed whatever the world said. The fields are read
+  through a helper that fails when the field is missing. The sign editor
+  lock test had the same shape of bug in its setup: it placed its three
+  signs before forcing the chunks, so the far sign, three chunks out and
+  outside the window the setup player's own connection loads, was
+  refused with "That position is not loaded" - a refusal its filter did
+  not name, leaving a missing sign whose every use read as the lock.

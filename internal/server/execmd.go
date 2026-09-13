@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -24,7 +25,7 @@ type executeContext struct {
 }
 
 // runExecute parses an /execute chain and runs its trailing command.
-func (s *Server) runExecute(player string, args []string) string {
+func (s *Server) runExecute(player string, args []string) reply {
 	ctx := executeContext{dim: s.dimOf(player), alive: true}
 	bx, by, bz := s.baseBlockPos(player)
 
@@ -33,26 +34,26 @@ func (s *Server) runExecute(player string, args []string) string {
 		switch args[i] {
 		case "in":
 			if i+1 >= len(args) {
-				return "Usage: /execute in <dimension> ..."
+				return textReply("Usage: /execute in <dimension> ...")
 			}
 			d := s.dimensionByName(args[i+1])
 			if d == nil {
-				return "Unknown dimension: " + args[i+1]
+				return textReply("Unknown dimension: " + args[i+1])
 			}
 			ctx.dim = d
 			i += 2
 		case "if", "unless":
 			if i+1 >= len(args) {
-				return "Usage: /execute if|unless <condition> ..."
+				return textReply("Usage: /execute if|unless <condition> ...")
 			}
 			negate := args[i] == "unless"
 			consumed, ok, msg := s.executeCondition(&ctx, player, args[i+1:], bx, by, bz)
 			if msg != "" {
-				return msg
+				return textReply(msg)
 			}
 			if !ok {
 				// A malformed condition short-circuits the whole chain.
-				return "Usage: /execute if|unless <condition> ..."
+				return textReply("Usage: /execute if|unless <condition> ...")
 			}
 			if negate {
 				ctx.alive = !ctx.alive
@@ -61,19 +62,19 @@ func (s *Server) runExecute(player string, args []string) string {
 		case "run":
 			sub := args[i+1:]
 			if len(sub) == 0 {
-				return "Usage: /execute ... run <command>"
+				return textReply("Usage: /execute ... run <command>")
 			}
 			if !ctx.alive {
-				return "Test failed"
+				return textReply("Test failed")
 			}
 			return s.runInDimension(player, ctx.dim, sub)
 		case "positioned", "as", "at", "align", "facing", "rotated", "anchored", "summon":
-			return "Unsupported execute subcommand: " + args[i]
+			return textReply("Unsupported execute subcommand: " + args[i])
 		default:
-			return "Unknown execute subcommand: " + args[i]
+			return textReply("Unknown execute subcommand: " + args[i])
 		}
 	}
-	return "Usage: /execute <subcommand> ... run <command>"
+	return textReply("Usage: /execute <subcommand> ... run <command>")
 }
 
 // executeCondition evaluates one condition and reports how many of the
@@ -149,10 +150,10 @@ func (s *Server) matchesBlockPredicate(d *dimension, pos world.Pos, blk world.Bl
 // dimension in force for the duration of the call. Teleport is the one
 // command that must actually move the target across dimensions rather
 // than just run with that context, so it bypasses the registry.
-func (s *Server) runInDimension(player string, d *dimension, sub []string) string {
+func (s *Server) runInDimension(player string, d *dimension, sub []string) reply {
 	switch sub[0] {
 	case "tp", "teleport":
-		return s.runExecuteTeleport(player, d, sub[1:])
+		return textReply(s.runExecuteTeleport(player, d, sub[1:]))
 	}
 	sess := s.findSessionByName(player)
 	if sess != nil && d != nil {
@@ -160,10 +161,10 @@ func (s *Server) runInDimension(player string, d *dimension, sub []string) strin
 		sess.dim.Store(d)
 		defer sess.dim.Store(prev)
 	}
-	if out, ok := s.commands.Run(sub[0], player, sub[1:]); ok {
-		return out
+	if r, ok := s.runCommand(player, sub[0], sub[1:]); ok {
+		return r
 	}
-	return "Unknown command: " + sub[0]
+	return componentReply(unknownCommand())
 }
 
 // resolveTarget maps a selector token to a live session.
@@ -187,77 +188,145 @@ func (s *Server) registerWorldCommands() {
 		// The sender has already been given the line by the broadcast.
 		return ""
 	})
-	s.commands.Register("tick", func(player string, args []string) string {
-		return s.runTick(args)
+	s.registerComponentCommand("tick", func(player string, args []string) reply {
+		return s.runTick(player, args)
+	})
+	s.registerComponentCommand("time", func(player string, args []string) reply {
+		return s.runTime(player, args)
 	})
 	s.commands.Register("fill", func(player string, args []string) string {
 		return s.runFill(player, args)
 	})
 }
 
-// runTick implements vanilla's /tick command surface.
-func (s *Server) runTick(args []string) string {
+// runTick implements vanilla's /tick command surface. Replies are the
+// real server's components - a client localizes them and /tick query
+// reports numbers with the same NBT types - and /tick step only works
+// while the game is frozen, exactly as the real server reports it.
+func (s *Server) runTick(player string, args []string) reply {
 	if len(args) == 0 {
-		return "Usage: /tick <freeze|unfreeze|step|sprint|rate|query>"
+		// A bare "/tick" stops at the end of its own name.
+		return errTokenEnd("command.unknown.command", 0)
 	}
 	switch args[0] {
 	case "freeze":
+		if len(args) > 1 {
+			return errToken("command.unknown.argument", 2)
+		}
 		s.SetFrozen(true)
-		return "The game is frozen"
+		return componentReply(translatable("commands.tick.status.frozen"))
 	case "unfreeze":
+		if len(args) > 1 {
+			return errToken("command.unknown.argument", 2)
+		}
 		s.SetFrozen(false)
-		return "The game is unfrozen"
+		return componentReply(translatable("commands.tick.status.running"))
 	case "step":
-		n, ok := tickArg(args[1:])
-		if !ok {
-			return "Usage: /tick step [<ticks>]"
+		if len(args) > 2 {
+			return errToken("command.unknown.argument", 3)
+		}
+		n, err := tickCount(args[1:])
+		if err != nil {
+			return errToken("parsing.float.expected", 2)
+		}
+		if n < 1 {
+			return errTokenEnd("argument.time.tick_count_too_low", 2, int32(1), int32(n))
+		}
+		if !s.clock.isFrozen() {
+			return componentReply(commandError("commands.tick.step.fail"))
 		}
 		s.StepTicks(n)
-		return fmt.Sprintf("Stepping the game %d tick(s)", n)
+		return componentReply(translatable("commands.tick.step.success", int32(n)))
 	case "sprint":
 		if len(args) >= 2 && args[1] == "stop" {
+			if !s.clock.isSprinting() {
+				return componentReply(commandError("commands.tick.sprint.stop.fail"))
+			}
 			s.StopSprint()
-			return "Stopped sprinting"
+			return componentReply(translatable("commands.tick.sprint.stop.success"))
 		}
-		n, ok := tickArg(args[1:])
-		if !ok {
-			return "Usage: /tick sprint [<ticks>|stop]"
+		if len(args) > 2 {
+			return errToken("command.unknown.argument", 3)
+		}
+		n, err := tickCount(args[1:])
+		if err != nil {
+			return errToken("parsing.float.expected", 2)
+		}
+		if n < 1 {
+			return errTokenEnd("argument.time.tick_count_too_low", 2, int32(1), int32(n))
 		}
 		s.SprintTicks(n)
-		return fmt.Sprintf("Sprinting the game %d tick(s)", n)
+		return componentReply(translatable("commands.tick.status.sprinting"))
 	case "rate":
-		if len(args) < 2 {
-			st := s.clock.status()
-			return fmt.Sprintf("The current tick rate is %.1f", st.Rate)
+		if len(args) != 2 {
+			// The rate argument is required, so a bare "/tick rate"
+			// stops at the end of "rate" rather than naming a value.
+			return errTokenEnd("command.unknown.command", 1)
 		}
 		v, err := strconv.ParseFloat(args[1], 64)
 		if err != nil {
-			return "Invalid rate: " + args[1]
+			return errToken("parsing.float.expected", 2)
+		}
+		if v > MaxTickRate {
+			return errToken("argument.float.big", 2, float32(MaxTickRate), float32(v))
+		}
+		if v < 1 {
+			return errToken("argument.float.low", 2, float32(1), float32(v))
 		}
 		s.SetTickRate(v)
-		return fmt.Sprintf("The tick rate has been set to %.1f", s.clock.tickRate())
+		return componentReply(translatable("commands.tick.rate.success", formatRate(s.clock.tickRate())))
 	case "query":
-		st := s.clock.status()
-		if st.Frozen {
-			return fmt.Sprintf("The game is frozen. Current tick: %d, tick rate: %.1f. Frozen for %d tick(s)",
-				st.Count, st.Rate, st.FrozenFor)
-		}
-		return fmt.Sprintf("The game is running normally. Current tick: %d, tick rate: %.1f", st.Count, st.Rate)
+		return s.runTickQuery(args[1:])
 	}
-	return "Unknown /tick subcommand: " + args[0]
+	return errToken("command.unknown.argument", 1)
 }
 
-// tickArg parses an optional tick count, defaulting to 1. The trailing
-// "t"/"d"/"s" unit suffixes vanilla accepts are not modelled.
-func tickArg(args []string) (int64, bool) {
+// runTickQuery reports the clock state. The real server follows it with
+// a tick-time percentile report; mc-go does not keep tick-time history
+// yet, so it reports the state and the rate and stops there.
+func (s *Server) runTickQuery(args []string) reply {
+	if len(args) > 0 {
+		return errToken("command.unknown.argument", 2)
+	}
+	st := s.clock.status()
+	// Two messages: the clock state, then the rate report. The real
+	// server's rate report names the fastest, average and slowest tick
+	// times over its window; mc-go reports the target rate three times
+	// until tick-time history exists.
+	rate := formatRate(st.Rate)
+	if st.Frozen {
+		return componentReplyWith(translatable("commands.tick.status.frozen"),
+			translatable("commands.tick.query.rate.frozen", rate, rate, rate))
+	}
+	return componentReplyWith(translatable("commands.tick.status.running"),
+		translatable("commands.tick.query.rate.running", rate, rate, rate))
+}
+
+// formatRate renders a tick rate the way the real server does in its
+// replies: one decimal place.
+func formatRate(rate float64) string {
+	return strconv.FormatFloat(rate, 'f', 1, 64)
+}
+
+// tickCount parses /tick's optional tick count, which the real server
+// takes as a number and defaults to one. A fractional count is rounded
+// to the nearest tick rather than truncated: "/tick step 2.7" steps
+// three times, not two.
+func tickCount(args []string) (int64, error) {
 	if len(args) == 0 {
-		return 1, true
+		return 1, nil
 	}
-	v, err := strconv.ParseInt(args[0], 10, 64)
-	if err != nil || v < 1 {
-		return 0, false
+	v, err := strconv.ParseFloat(args[0], 64)
+	if err != nil {
+		return 0, err
 	}
-	return v, true
+	return roundTicks(v), nil
+}
+
+// roundTicks converts a tick argument to whole ticks the way the real
+// server does: half rounds up, which is Java's Math.round.
+func roundTicks(v float64) int64 {
+	return int64(math.Floor(v + 0.5))
 }
 
 // runFill implements "/fill <x1> <y1> <z1> <x2> <y2> <z2> <block>

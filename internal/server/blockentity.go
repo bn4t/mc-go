@@ -1,0 +1,636 @@
+package server
+
+import (
+	"sort"
+	"strings"
+
+	"mc-go/internal/nbt"
+	"mc-go/internal/world"
+)
+
+// Block entity persistence, in the real server's own format.
+//
+// A chunk's block entities travel in the chunk itself, in its
+// block_entities list, and that list is the only place a chest's
+// contents or a sign's text is kept: the blocks say where the chest is
+// and nothing about what is inside it. Every field name here was read
+// off a chunk the real 26.2 server saved, and the shapes that look
+// arbitrary are not:
+//
+//   - each entry repeats its own x/y/z alongside the chunk that holds
+//     it, and carries an `id` naming the block entity type, which for a
+//     sign is "minecraft:sign" however many wood types and wall
+//     variants the block has;
+//   - every one of them carries an empty `components` compound: the
+//     block entity's own data components, which 26.2 writes even when
+//     there are none, for a sign as much as for a chest;
+//   - a stack is `Slot` (a byte), `count` (an int) and `id`, plus a
+//     `components` compound that is written only when the stack
+//     actually carries one - an empty one on the stack is not the same
+//     file, and the real server drops it on the next save;
+//   - a shulker box's stored items are a component, not slots of the
+//     block entity: the box travels as one item carrying
+//     minecraft:container, and the nested stacks carry no Slot and
+//     leave count out when it is 1.
+type blockEntitySpec struct {
+	id   int32  // minecraft:block_entity_type registry id
+	name string // the id the saved compound carries
+}
+
+// blockEntitySpecs maps a block name to the block entity the real
+// server keeps for it. Blocks missing from the table have no block
+// entity at all, however much state their menu shows (an anvil's
+// rename is not saved, and neither is a stonecutter's input).
+var blockEntitySpecs = map[string]blockEntitySpec{
+	"furnace":       {0, "minecraft:furnace"},
+	"chest":         {1, "minecraft:chest"},
+	"trapped_chest": {2, "minecraft:trapped_chest"},
+	"dispenser":     {5, "minecraft:dispenser"},
+	"dropper":       {6, "minecraft:dropper"},
+	"sign":          {7, "minecraft:sign"},
+	"hanging_sign":  {8, "minecraft:hanging_sign"},
+	"brewing_stand": {12, "minecraft:brewing_stand"},
+	"hopper":        {18, "minecraft:hopper"},
+	"shulker_box":   {24, "minecraft:shulker_box"},
+	"barrel":        {26, "minecraft:barrel"},
+	"smoker":        {27, "minecraft:smoker"},
+	"blast_furnace": {28, "minecraft:blast_furnace"},
+	"crafter":       {42, "minecraft:crafter"},
+}
+
+// blockEntityOf resolves a block state to its block entity type. A
+// sign is saved and loaded as "minecraft:sign" whatever its wood or
+// whether it stands on a wall, and a shulker box as "minecraft:
+// shulker_box" whatever its colour.
+func blockEntityOf(b world.Block) (blockEntitySpec, bool) {
+	name, ok := world.StateOwner(b)
+	if !ok {
+		return blockEntitySpec{}, false
+	}
+	if spec, ok := blockEntitySpecs[name]; ok {
+		return spec, true
+	}
+	switch {
+	case strings.HasSuffix(name, "_hanging_sign") || strings.HasSuffix(name, "_wall_hanging_sign"):
+		return blockEntitySpecs["hanging_sign"], true
+	case isSignBlock(b) || strings.HasSuffix(name, "_wall_sign"):
+		return blockEntitySpecs["sign"], true
+	case name == "shulker_box" || strings.HasSuffix(name, "_shulker_box"):
+		return blockEntitySpecs["shulker_box"], true
+	}
+	return blockEntitySpec{}, false
+}
+
+// chunkBlockEntities builds the block_entities list for one chunk of
+// dimension d, ordered by position so the written chunk is a function
+// of the world and not of a map's iteration order. The real server
+// writes them in no particular order and reads them by position.
+func (s *Server) chunkBlockEntities(d *dimension, cx, cz int) []map[string]any {
+	type entry struct {
+		pos world.Pos
+		nbt map[string]any
+	}
+	var out []entry
+	add := func(pos world.Pos, v map[string]any) {
+		if pos.X>>4 != cx || pos.Z>>4 != cz {
+			return
+		}
+		out = append(out, entry{pos, v})
+	}
+	// A block whose block entity type the real server does not keep -
+	// an anvil, a stonecutter - is never written, even though mc-go
+	// holds its slots while the server runs.
+	keep := func(pos world.Pos) bool {
+		_, ok := blockEntityOf(d.w.GetBlock(pos))
+		return ok
+	}
+
+	d.signs.mu.Lock()
+	for pos, st := range d.signs.signs {
+		if !keep(pos) {
+			continue
+		}
+		spec, _ := blockEntityOf(d.w.GetBlock(pos))
+		add(pos, blockEntityNBT(pos, spec, func(extra map[string]any) {
+			extra["front_text"] = signTextNBT(st.Front, st.frontColor, st.frontGlowing)
+			extra["back_text"] = signTextNBT(st.Back, st.backColor, st.backGlowing)
+			extra["is_waxed"] = boolByte(st.waxed)
+		}))
+	}
+	d.signs.mu.Unlock()
+
+	d.chests.mu.Lock()
+	for pos, c := range d.chests.chests {
+		if !keep(pos) {
+			continue
+		}
+		spec, _ := blockEntityOf(d.w.GetBlock(pos))
+		slots := make([]ItemStack, len(c.slots))
+		copy(slots, c.slots[:])
+		add(pos, blockEntityNBT(pos, spec, func(extra map[string]any) {
+			extra["Items"] = itemsNBT(slots)
+		}))
+	}
+	d.chests.mu.Unlock()
+
+	d.hoppers.mu.Lock()
+	for pos, h := range d.hoppers.hoppers {
+		if !keep(pos) {
+			continue
+		}
+		spec, _ := blockEntityOf(d.w.GetBlock(pos))
+		slots := make([]ItemStack, len(h.slots))
+		copy(slots, h.slots[:])
+		cooldown := h.cooldown
+		add(pos, blockEntityNBT(pos, spec, func(extra map[string]any) {
+			extra["Items"] = itemsNBT(slots)
+			extra["TransferCooldown"] = cooldown
+		}))
+	}
+	d.hoppers.mu.Unlock()
+
+	d.furnaces.mu.Lock()
+	for pos, f := range d.furnaces.furnaces {
+		if !keep(pos) {
+			continue
+		}
+		spec, _ := blockEntityOf(d.w.GetBlock(pos))
+		slots := make([]ItemStack, len(f.slots))
+		copy(slots, f.slots[:])
+		burn, burnTotal, cook, cookTotal := f.burn, f.burnTotal, f.cook, f.cookTotal
+		used := make(map[string]any, len(f.used))
+		for id, n := range f.used {
+			used[id] = n
+		}
+		add(pos, blockEntityNBT(pos, spec, func(extra map[string]any) {
+			extra["Items"] = itemsNBT(slots)
+			extra["lit_time_remaining"] = int16(burn)
+			extra["lit_total_time"] = int16(burnTotal)
+			extra["cooking_time_spent"] = int16(cook)
+			extra["cooking_total_time"] = int16(cookTotal)
+			// Which recipes this furnace has used, for the recipe
+			// book's "you have made this" tracking: a count per recipe
+			// id, and an empty compound for a furnace that has smelted
+			// nothing. The id names the variant that was cooked, so a
+			// smoker's beef is counted under cooked_beef_from_smoking
+			// while a furnace's is counted under cooked_beef.
+			extra["RecipesUsed"] = used
+		}))
+	}
+	d.furnaces.mu.Unlock()
+
+	d.containers.mu.Lock()
+	for pos, c := range d.containers.containers {
+		if !keep(pos) {
+			continue
+		}
+		spec, _ := blockEntityOf(d.w.GetBlock(pos))
+		slots := make([]ItemStack, len(c.slots))
+		copy(slots, c.slots[:])
+		brew, fuel, disabled := c.brewTime, c.fuel, c.disabled
+		add(pos, blockEntityNBT(pos, spec, func(extra map[string]any) {
+			extra["Items"] = itemsNBT(slots)
+			if spec.name == "minecraft:brewing_stand" {
+				extra["BrewTime"] = int16(brew)
+				extra["Fuel"] = int8(fuel)
+			}
+			if spec.name == "minecraft:crafter" {
+				extra["disabled_slots"] = disabled
+			}
+		}))
+	}
+	d.containers.mu.Unlock()
+
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i].pos, out[j].pos
+		if a.X != b.X {
+			return a.X < b.X
+		}
+		if a.Y != b.Y {
+			return a.Y < b.Y
+		}
+		return a.Z < b.Z
+	})
+	list := make([]map[string]any, 0, len(out))
+	for _, e := range out {
+		list = append(list, e.nbt)
+	}
+	return list
+}
+
+// clientBlockEntity is one entry of the block entity array a chunk
+// packet carries: where the block entity is, which type it is, and the
+// NBT the real server sends for it. A nil nbt is the empty payload the
+// real server sends for a block entity whose data the client does not
+// need.
+type clientBlockEntity struct {
+	pos  world.Pos
+	spec blockEntitySpec
+	nbt  []byte
+}
+
+// chunkClientBlockEntities gathers the block entity array for column
+// (cx, cz): every block entity the chunk holds, in position order.
+//
+// What travels is not the block entity's saved form. Each one is sent as
+// the data a client needs to draw it, and for everything mc-go models
+// except a sign that data is nothing at all - measured on 26.2 by
+// joining it and reading the chunk packet back: a chest holding three
+// diamonds, a barrel holding five apples, a furnace mid-cook with a lit
+// time and a cook time, a hopper, a dropper, a dispenser, a shulker box,
+// a brewing stand and a crafter all arrive as a single TAG_End byte,
+// while a sign and a hanging sign arrive as a nameless compound of
+// front_text, back_text and is_waxed (the same compound the sign's own
+// block entity data update carries). The entry itself is always sent: a
+// client that is never told about a chest still draws one, but a sign
+// with no entry keeps blank text.
+//
+// The real server's order is its own block entity map's, which is hash
+// order and not a property of the world; mc-go orders by position so the
+// packet is a function of the world.
+func (s *Server) chunkClientBlockEntities(d *dimension, cx, cz int) []clientBlockEntity {
+	var out []clientBlockEntity
+	add := func(pos world.Pos, nbt []byte) {
+		if pos.X>>4 != cx || pos.Z>>4 != cz {
+			return
+		}
+		spec, ok := blockEntityOf(d.w.GetBlock(pos))
+		if !ok {
+			return
+		}
+		out = append(out, clientBlockEntity{pos: pos, spec: spec, nbt: nbt})
+	}
+
+	d.signs.mu.Lock()
+	for pos, st := range d.signs.signs {
+		add(pos, signNBT(*st))
+	}
+	d.signs.mu.Unlock()
+
+	d.chests.mu.Lock()
+	for pos := range d.chests.chests {
+		add(pos, nil)
+	}
+	d.chests.mu.Unlock()
+
+	d.furnaces.mu.Lock()
+	for pos := range d.furnaces.furnaces {
+		add(pos, nil)
+	}
+	d.furnaces.mu.Unlock()
+
+	d.hoppers.mu.Lock()
+	for pos := range d.hoppers.hoppers {
+		add(pos, nil)
+	}
+	d.hoppers.mu.Unlock()
+
+	d.containers.mu.Lock()
+	for pos := range d.containers.containers {
+		add(pos, nil)
+	}
+	d.containers.mu.Unlock()
+
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i].pos, out[j].pos
+		if a.X != b.X {
+			return a.X < b.X
+		}
+		if a.Y != b.Y {
+			return a.Y < b.Y
+		}
+		return a.Z < b.Z
+	})
+	return out
+}
+
+// blockEntityNBT is the frame every saved block entity shares: its
+// position, its type, and the fields the real server writes on every
+// one of them - keepPacked, and the empty components compound the
+// block entity's own data components live in.
+func blockEntityNBT(pos world.Pos, spec blockEntitySpec, fill func(map[string]any)) map[string]any {
+	m := map[string]any{
+		"id":         spec.name,
+		"x":          int32(pos.X),
+		"y":          int32(pos.Y),
+		"z":          int32(pos.Z),
+		"keepPacked": int8(0),
+		"components": map[string]any{},
+	}
+	fill(m)
+	return m
+}
+
+// signTextNBT renders one side of a sign the way the real server stores
+// it and sends it. The four lines are the text components the client
+// sent, held verbatim as strings; the colour and the glow are the side's
+// own styling, and a side that has never been dyed is black.
+func signTextNBT(lines [4]string, color string, glowing bool) map[string]any {
+	msgs := nbt.List{Elem: nbt.TagString, Items: make([]any, 0, 4)}
+	for _, l := range lines {
+		msgs.Items = append(msgs.Items, l)
+	}
+	return map[string]any{
+		"messages":         msgs,
+		"color":            signColor(color),
+		"has_glowing_text": boolByte(glowing),
+	}
+}
+
+// itemsNBT renders a slot list, skipping the empty slots - the real
+// server writes only the slots that hold something, and each entry
+// names its own slot.
+func itemsNBT(slots []ItemStack) nbt.List {
+	list := nbt.List{Elem: nbt.TagCompound}
+	for i, it := range slots {
+		if it.Empty() {
+			continue
+		}
+		list.Items = append(list.Items, itemNBTSlotted(it, int8(i)))
+	}
+	return list
+}
+
+// itemNBTSlotted is one stack inside a container: the slot it sits in
+// is part of the entry.
+func itemNBTSlotted(it ItemStack, slot int8) map[string]any {
+	m := itemNBT(it)
+	m["Slot"] = slot
+	return m
+}
+
+// itemNBT is one stack the way 26.2 stores it: the registry name, the
+// count, and the components the stack carries - the last of which is
+// left out entirely when the stack carries none, so a plain diamond in
+// a chest is three fields and not four.
+func itemNBT(it ItemStack) map[string]any {
+	name, ok := world.ItemName(it.ID)
+	if !ok {
+		name = "air"
+	}
+	m := map[string]any{
+		"id":    "minecraft:" + name,
+		"count": it.Count,
+	}
+	if comps := itemComponentsNBT(it); len(comps) > 0 {
+		m["components"] = comps
+	}
+	return m
+}
+
+// itemComponentsNBT renders a stack's data components. mc-go models
+// one of them: the items stored inside a shulker box, which travel
+// with the item and are what a box dropped on the ground still holds.
+func itemComponentsNBT(it ItemStack) map[string]any {
+	comps := map[string]any{}
+	if it.Contents == nil {
+		return comps
+	}
+	list := nbt.List{Elem: nbt.TagCompound}
+	for i := range it.Contents {
+		inner := it.Contents[i]
+		if inner.Empty() {
+			continue
+		}
+		list.Items = append(list.Items, map[string]any{
+			"slot": int32(i),
+			"item": itemNBTInner(inner),
+		})
+	}
+	if len(list.Items) == 0 {
+		return comps
+	}
+	comps["minecraft:container"] = list
+	return comps
+}
+
+// itemNBTInner is a stack nested inside a component, where the slot is
+// the component's own field and a count of one is left out.
+func itemNBTInner(it ItemStack) map[string]any {
+	m := map[string]any{"id": itemNBT(it)["id"]}
+	if it.Count != 1 {
+		m["count"] = it.Count
+	}
+	if comps := itemComponentsNBT(it); len(comps) > 0 {
+		m["components"] = comps
+	}
+	return m
+}
+
+// restoreBlockEntities turns the block entities a load read out of the
+// region files back into the per-dimension stores the server runs on.
+// It runs once, after a world directory's chunks are loaded, and
+// nothing in it can fail: a block entity mc-go cannot model is one it
+// was not modelling before the save either.
+func (s *Server) restoreBlockEntities() {
+	for _, d := range s.dims {
+		for _, be := range d.w.BlockEntities() {
+			s.restoreBlockEntity(d, be)
+		}
+	}
+}
+
+// restoreBlockEntity restores one saved block entity into d.
+func (s *Server) restoreBlockEntity(d *dimension, be map[string]any) {
+	id, _ := be["id"].(string)
+	x, okx := nbtNumber(be["x"])
+	y, oky := nbtNumber(be["y"])
+	z, okz := nbtNumber(be["z"])
+	if !okx || !oky || !okz {
+		return
+	}
+	pos := world.Pos{X: int(x), Y: int(y), Z: int(z)}
+
+	switch id {
+	case "minecraft:chest", "minecraft:trapped_chest":
+		c := s.chestAt(d, pos)
+		d.chests.mu.Lock()
+		itemsInto(be["Items"], c.slots[:])
+		d.chests.mu.Unlock()
+	case "minecraft:sign", "minecraft:hanging_sign":
+		s.ensureSign(d, pos)
+		d.signs.mu.Lock()
+		st := d.signs.signs[pos]
+		st.Front, st.frontColor, st.frontGlowing = signSideFromNBT(be["front_text"])
+		st.Back, st.backColor, st.backGlowing = signSideFromNBT(be["back_text"])
+		if w, ok := nbtNumber(be["is_waxed"]); ok {
+			st.waxed = w != 0
+		}
+		d.signs.mu.Unlock()
+	case "minecraft:hopper":
+		h := s.hopperAt(d, pos)
+		d.hoppers.mu.Lock()
+		itemsInto(be["Items"], h.slots[:])
+		if cd, ok := nbtNumber(be["TransferCooldown"]); ok {
+			h.cooldown = int32(cd)
+		}
+		d.hoppers.mu.Unlock()
+	case "minecraft:furnace", "minecraft:blast_furnace", "minecraft:smoker":
+		// The block decides the menu and the cook time, so the store
+		// is created from the world rather than from the saved id.
+		f := s.furnaceAt(d, pos)
+		d.furnaces.mu.Lock()
+		itemsInto(be["Items"], f.slots[:])
+		f.burn = nbtNumberOr(be["lit_time_remaining"], 0)
+		f.burnTotal = nbtNumberOr(be["lit_total_time"], 0)
+		f.cook = nbtNumberOr(be["cooking_time_spent"], 0)
+		f.cookTotal = nbtNumberOr(be["cooking_total_time"], 0)
+		if used, ok := be["RecipesUsed"].(map[string]any); ok {
+			for id, v := range used {
+				if n, ok := nbtNumber(v); ok {
+					if f.used == nil {
+						f.used = map[string]int32{}
+					}
+					f.used[id] = int32(n)
+				}
+			}
+		}
+		d.furnaces.mu.Unlock()
+	case "minecraft:barrel", "minecraft:dispenser", "minecraft:dropper",
+		"minecraft:shulker_box", "minecraft:brewing_stand", "minecraft:crafter":
+		c := s.containerAt(d, pos)
+		if c == nil {
+			return
+		}
+		d.containers.mu.Lock()
+		itemsInto(be["Items"], c.slots)
+		if bt, ok := nbtNumber(be["BrewTime"]); ok {
+			c.brewTime = int32(bt)
+		}
+		if fu, ok := nbtNumber(be["Fuel"]); ok {
+			c.fuel = int32(fu)
+		}
+		if ds, ok := nbtNumber(be["disabled_slots"]); ok {
+			c.disabled = uint16(ds)
+		}
+		d.containers.mu.Unlock()
+	}
+}
+
+// itemsInto reads a saved slot list into the storage a block entity
+// was created with. Each entry names its own slot, and an entry whose
+// slot is outside that storage is dropped rather than shifting the
+// rest: a block written by a server with a bigger menu loses the slots
+// this one does not have.
+func itemsInto(v any, dst []ItemStack) {
+	list, ok := v.(nbt.List)
+	if !ok {
+		return
+	}
+	for _, anyItem := range list.Items {
+		m, ok := anyItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		slot, ok := nbtNumber(m["Slot"])
+		if !ok || slot < 0 || int(slot) >= len(dst) {
+			continue
+		}
+		dst[slot] = itemFromNBT(m)
+	}
+}
+
+// itemFromNBT reads one saved stack, components included.
+func itemFromNBT(m map[string]any) ItemStack {
+	name, _ := m["id"].(string)
+	var it ItemStack
+	if id, ok := world.ItemID(strings.TrimPrefix(name, "minecraft:")); ok {
+		it.ID = id
+	}
+	it.Count = int32(nbtNumberOr(m["count"], 1))
+	if comps, ok := m["components"].(map[string]any); ok {
+		it.Contents = shulkerContentsFromNBT(comps)
+	}
+	return it
+}
+
+// shulkerContentsFromNBT reads the minecraft:container component, the
+// items stored inside a shulker box, into the box's own storage.
+func shulkerContentsFromNBT(comps map[string]any) *[shulkerSlots]ItemStack {
+	list, ok := comps["minecraft:container"].(nbt.List)
+	if !ok {
+		return nil
+	}
+	var box [shulkerSlots]ItemStack
+	stored := false
+	for _, anyEntry := range list.Items {
+		entry, ok := anyEntry.(map[string]any)
+		if !ok {
+			continue
+		}
+		slot, ok := nbtNumber(entry["slot"])
+		if !ok || slot < 0 || int(slot) >= shulkerSlots {
+			continue
+		}
+		inner, ok := entry["item"].(map[string]any)
+		if !ok {
+			continue
+		}
+		box[slot] = itemFromNBT(inner)
+		stored = stored || !box[slot].Empty()
+	}
+	if !stored {
+		return nil
+	}
+	return &box
+}
+
+// signSideFromNBT reads one side of a saved or transmitted sign: its
+// lines, which are the text components the client typed, held as strings,
+// and its styling. A sign with no side at all, or fewer lines than a sign
+// shows, reads as blank.
+func signSideFromNBT(v any) ([4]string, string, bool) {
+	var lines [4]string
+	var color string
+	var glowing bool
+	side, ok := v.(map[string]any)
+	if !ok {
+		return lines, color, glowing
+	}
+	if c, ok := side["color"].(string); ok {
+		color = c
+	}
+	if g, ok := nbtNumber(side["has_glowing_text"]); ok {
+		glowing = g != 0
+	}
+	msgs, ok := side["messages"].(nbt.List)
+	if !ok {
+		return lines, color, glowing
+	}
+	for i, m := range msgs.Items {
+		if i >= len(lines) {
+			break
+		}
+		if s, ok := m.(string); ok {
+			lines[i] = s
+		}
+	}
+	return lines, color, glowing
+}
+
+// nbtNumber reads any of the integer tags a saved field may carry.
+func nbtNumber(v any) (int64, bool) {
+	switch n := v.(type) {
+	case int8:
+		return int64(n), true
+	case int16:
+		return int64(n), true
+	case int32:
+		return int64(n), true
+	case int64:
+		return n, true
+	case float32:
+		return int64(n), true
+	case float64:
+		return int64(n), true
+	}
+	return 0, false
+}
+
+// nbtNumberOr is nbtNumber with a default for a missing field.
+func nbtNumberOr(v any, def int32) int32 {
+	if n, ok := nbtNumber(v); ok {
+		return int32(n)
+	}
+	return def
+}

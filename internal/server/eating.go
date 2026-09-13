@@ -37,8 +37,12 @@ var foodItems = map[string]foodStats{
 }
 
 // handleUseItem processes Use Item: food begins eating; everything else
-// is acknowledged by coverage only for now.
+// is acknowledged by coverage only for now. Like a use on a block it is
+// dropped until the client reports its terrain loaded.
 func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
+	if !sess.interactionsOpen(s.TickCount()) {
+		return
+	}
 	r := protocol.NewPacketReader(p.Data)
 	if _, err := r.VarInt(); err != nil { // hand
 		return

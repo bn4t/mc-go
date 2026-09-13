@@ -6,15 +6,34 @@ import (
 )
 
 // ItemStack is one inventory slot value. Count<=0 means empty. Data
-// components are not modeled yet; every stack is sent with an empty
-// component patch, which is what vanilla does for plain items.
+// components are mostly not modeled yet; every stack is sent with an
+// empty component patch, which is what vanilla does for plain items.
+// The exception is a shulker box's contents (vanilla's
+// minecraft:container component), which has to survive the box being
+// broken, dropped, and picked up.
 type ItemStack struct {
 	ID    int32
 	Count int32
+	// Contents is a shulker box's stored items. It is a pointer so
+	// ItemStack stays comparable with ==, which the inventory tests and
+	// the change-detection paths rely on; a box holding anything is
+	// therefore also not stackable with a plain box, exactly as vanilla
+	// refuses to merge stacks with different components.
+	Contents *[shulkerSlots]ItemStack `json:"contents,omitempty"`
 }
 
 // Empty reports whether the slot holds nothing.
 func (it ItemStack) Empty() bool { return it.Count <= 0 || it.ID == 0 }
+
+// Stackable reports whether two stacks merge into one slot: same item
+// and no component difference we model. Vanilla treats any component
+// difference as unstackable, and a box with contents carries one.
+func (it ItemStack) Stackable(other ItemStack) bool {
+	if it.Empty() || other.Empty() || it.ID != other.ID {
+		return false
+	}
+	return it.Contents == nil && other.Contents == nil
+}
 
 // Player inventory window layout (menu slots):
 //
@@ -177,6 +196,10 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 			s.handleHopperClickPacket(sess, p)
 			return false
 		}
+		if w != nil && w.container != nil {
+			s.handleContainerClickPacket(sess, p)
+			return false
+		}
 		s.handleChestClickPacket(sess, p)
 		return false
 	}
@@ -233,7 +256,7 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 			} else if target.Empty() {
 				sess.inv[slot] = cur
 				sess.carried = ItemStack{}
-			} else if target.ID == cur.ID {
+			} else if target.Stackable(cur) {
 				room := maxStack - target.Count
 				move := cur.Count
 				if move > room {
@@ -458,7 +481,7 @@ func (s *Server) quickMoveLocked(sess *Session, slot int16, from, to int16, touc
 	}
 	// Merge into existing stacks first.
 	for i := from; i <= to && !moving.Empty(); i++ {
-		if sess.inv[i].Empty() || sess.inv[i].ID != moving.ID {
+		if !sess.inv[i].Stackable(moving) {
 			continue
 		}
 		room := maxStack - sess.inv[i].Count
@@ -505,7 +528,7 @@ func (sess *Session) addStack(it ItemStack) (ItemStack, bool) {
 			break
 		}
 		cur := sess.inv[sl]
-		if cur.Empty() || cur.ID != it.ID {
+		if !cur.Stackable(it) {
 			continue
 		}
 		room := maxStack - cur.Count

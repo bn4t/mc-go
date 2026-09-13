@@ -79,7 +79,7 @@ func (s *Server) portalTickStep() {
 }
 
 func isNetherPortal(b world.Block) bool {
-	name, ok := world.BlockName(b)
+	name, ok := world.StateOwner(b)
 	return ok && name == "nether_portal"
 }
 

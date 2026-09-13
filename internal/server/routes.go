@@ -44,7 +44,7 @@ func init() {
 		IDPlayChatMessageSB:       (*Server).routeChatMessage,
 		IDPlayChatSessionUpdateSB: (*Server).handleChatSessionUpdate,
 
-		IDPlayChunkBatchRecvSB:            (*Server).ignoreServerbound,
+		IDPlayChunkBatchRecvSB:            (*Server).handleChunkBatchReceived,
 		IDPlayClientStatusSB:              (*Server).handleClientStatus,
 		IDPlayClientTickEndSB:             (*Server).ignoreServerbound,
 		IDPlayClientInfoSB:                (*Server).handleClientInfo,

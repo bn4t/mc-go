@@ -125,6 +125,11 @@ func TestMcGoOnlyExecuteDimensionTeleport(t *testing.T) {
 	c, pr, pw := joinPlayBlackbox(t, addr, "Traveler")
 	defer c.Close()
 	drainToJoinBlackbox(t, "traveler", pr)
+	// Finish the overworld window before the jump: the streaming throttle
+	// holds everything past the opening batch until the client
+	// acknowledges, and a chunk of the wrong dimension would be the next
+	// thing read otherwise.
+	drainChunkWindow(t, "traveler", c, pr, pw, 500*time.Millisecond)
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB,
@@ -144,14 +149,22 @@ func TestMcGoOnlyExecuteDimensionTeleport(t *testing.T) {
 
 	// Chunks arrive; the first Chunk Data for the new dimension must
 	// carry the no-skylight light profile (16 sections + 2 edge slots
-	// marked empty, no arrays).
+	// marked empty, no arrays). The nether window streams as the client
+	// acknowledges, so the batches are answered as they land.
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		p, err := pr.ReadPacket()
 		if err != nil {
 			t.Fatalf("chunk stream: %v", err)
 		}
-		if p.ID != server.IDPlayChunkData {
+		switch p.ID {
+		case server.IDPlayChunkBatchDone:
+			if err := ackChunkBatch(pw); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		case server.IDPlayChunkData:
+		default:
 			continue
 		}
 		checkNetherLightProfile(t, p.Data)

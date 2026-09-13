@@ -289,3 +289,85 @@ func TestFluidPredicatesMatchAnyLevel(t *testing.T) {
 		t.Fatal("water[level=4] should not match a level 3 block")
 	}
 }
+
+// TestWaterSetsLavaSolid: water arriving beside a lava source sets the
+// source to obsidian, and the flow the water later reaches sets to
+// cobblestone. Both halves were measured against the real server (the
+// fluid parity scenarios pour water at lava from every side), so this
+// pins the shapes the parity run covers. The two solid lookups are
+// lazy, so this also pins that they are resolved before they are
+// written: a zero block id would leave air behind, and the water would
+// flow into the hole.
+func TestWaterSetsLavaSolid(t *testing.T) {
+	s := fluidSim(t)
+	d := s.dims[dimOverworld]
+	src := world.Pos{X: 96, Y: -60, Z: 96}
+	waterPos := world.Pos{X: 97, Y: -60, Z: 96}
+
+	s.set(d, src, lava(t, 0))
+	for i := 0; i < 40; i++ {
+		s.GameTick()
+	}
+	// The source has spread lava in each direction; this diagonal
+	// neighbour is a flow the water has to travel to.
+	flow := world.Pos{X: 96, Y: -60, Z: 97}
+	if got := ownerName(d, flow); got != "lava" {
+		t.Fatalf("the neighbour of the source is %s, want a lava flow", got)
+	}
+
+	s.set(d, waterPos, water(t, 0))
+	for i := 0; i < 200; i++ {
+		s.GameTick()
+	}
+
+	if got := ownerName(d, src); got != "obsidian" {
+		t.Fatalf("the lava source became %s, want obsidian", got)
+	}
+	if got := ownerName(d, flow); got != "cobblestone" {
+		t.Fatalf("the lava flow the water reached became %s, want cobblestone", got)
+	}
+	if got := ownerName(d, waterPos); got != "water" {
+		t.Fatalf("the water source became %s, want water", got)
+	}
+	// The flows past that lost their supply too: once the source is gone
+	// they drain, and nothing leaves lava behind.
+	for _, dz := range []int{-6, -5, -4, 4, 5, 6} {
+		p := world.Pos{X: 96, Y: -60, Z: 96 + dz}
+		if got := ownerName(d, p); got == "lava" {
+			t.Fatalf("lava still flows at dz=%d after its source set solid", dz)
+		}
+	}
+}
+
+// TestWaterFallingOnLavaFlowMakesCobblestone: the cobblestone generator
+// case. Water above a lava flow sets that flow to cobblestone, while the
+// same water above a lava source sets the source to obsidian.
+func TestWaterFallingOnLavaFlowMakesCobblestone(t *testing.T) {
+	s := fluidSim(t)
+	d := s.dims[dimOverworld]
+	src := world.Pos{X: 0, Y: -60, Z: 0}
+	s.set(d, src, lava(t, 0))
+	for i := 0; i < 40; i++ {
+		s.GameTick()
+	}
+	flow := world.Pos{X: 1, Y: -60, Z: 0}
+	if got := ownerName(d, flow); got != "lava" {
+		t.Fatalf("the neighbour of the source is %s, want a lava flow", got)
+	}
+	s.set(d, world.Pos{X: 1, Y: -59, Z: 0}, water(t, 0))
+	for i := 0; i < 200; i++ {
+		s.GameTick()
+	}
+	if got := ownerName(d, flow); got != "cobblestone" {
+		t.Fatalf("water falling on a lava flow left %s, want cobblestone", got)
+	}
+	if got := ownerName(d, src); got != "obsidian" {
+		t.Fatalf("the lava source became %s, want obsidian", got)
+	}
+}
+
+// ownerName is the block state's owner name at pos.
+func ownerName(d *dimension, p world.Pos) string {
+	n, _ := world.StateOwner(d.w.GetBlock(p))
+	return n
+}

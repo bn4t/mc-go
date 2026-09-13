@@ -53,6 +53,9 @@ func placeSession(t *testing.T, s *Server, name string, x, y, z float64) *Sessio
 	sess.teleportNext.Store(1)
 	sess.setIdentity(name, offlineUUID(name))
 	sess.state.Store(StatePlay)
+	// A real client reports its terrain loaded right after joining; the
+	// gate would otherwise drop the uses this helper's callers send.
+	sess.loaded.Store(true)
 	// Production seeds the per-player mode in initSurvival; the helper
 	// mirrors it so tests exercise the same source of truth.
 	sess.setMode(s.GameMode)

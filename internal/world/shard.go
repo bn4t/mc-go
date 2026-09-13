@@ -25,9 +25,14 @@ type shardOp struct {
 	pos  Pos
 	val  Block
 	resp chan Block
-	// Bulk read: positions in, blocks out, same order.
-	fill     []Pos
-	fillResp chan []Block
+	// Bulk read: whole columns of a FillBox box in, their blocks out,
+	// colDY per column, columns in the order they were asked for.
+	cols     []colRef
+	boxX     int
+	boxY     int
+	boxZ     int
+	colDY    int
+	colsResp chan []Block
 	// Snapshot: copy of the override map out.
 	snapResp chan map[Pos]Block
 }
@@ -56,16 +61,20 @@ func (s *shard) start() {
 						cp[p] = b
 					}
 					op.snapResp <- cp
-				} else if op.fillResp != nil {
-					out := make([]Block, len(op.fill))
-					for i, p := range op.fill {
-						b, ok := s.data[p]
-						if !ok {
-							b = s.gen(p)
+				} else if op.colsResp != nil {
+					out := make([]Block, len(op.cols)*op.colDY)
+					for i, c := range op.cols {
+						x, z := op.boxX+c.x, op.boxZ+c.z
+						for y := 0; y < op.colDY; y++ {
+							p := Pos{x, op.boxY + y, z}
+							b, ok := s.data[p]
+							if !ok {
+								b = s.gen(p)
+							}
+							out[i*op.colDY+y] = b
 						}
-						out[i] = b
 					}
-					op.fillResp <- out
+					op.colsResp <- out
 				} else if op.get {
 					b, ok := s.data[op.pos]
 					if !ok {

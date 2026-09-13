@@ -1,6 +1,7 @@
 package server
 
 import (
+	"sort"
 	"testing"
 
 	"mc-go/internal/event"
@@ -158,7 +159,7 @@ func TestChunkRoundTrip(t *testing.T) {
 	defer w.Stop()
 	w.SetBlock(world.Pos{X: 3, Y: 70, Z: 3}, world.Stone) // override above ground
 
-	body := encodeChunk(testOverworld(w), 0, 0)
+	body := encodeChunk(testOverworld(w), 0, 0, nil)
 	r := protocol.NewPacketReader(body)
 	x, err := r.Int()
 	if err != nil || x != 0 {
@@ -291,16 +292,21 @@ func TestForgetChunkOnFarMove(t *testing.T) {
 	c, pr, pw := joinPlay(t, s, "Walker")
 	defer c.Close()
 	drainJoinBurst(t, pr)
-	drainToQuiet(t, pr)
+	finishJoin(t, s, pr, pw)
 
-	// Jump from chunk (0,0) to chunk (10,0): window x 9..11 streams
-	// as 9 chunk packets (light rides inside them), all nine x -1..1
-	// columns prune away.
+	// Jump from chunk (0,0) to chunk (10,0): the columns of the window
+	// around the new column that the old window did not hold stream as
+	// chunk packets (light rides inside them), and every column the old
+	// window held is past the prune border and is forgotten.
 	sendPosRot(t, pw, 168.5, -60, 8.5, 0, 0, true)
+	fresh := freshColumns(2, 0, 0, 10, 0)
+	if len(fresh) == 0 {
+		t.Fatal("the jump streams nothing")
+	}
 	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchStart {
 		t.Fatalf("batch start = %#x, err %v", p.ID, err)
 	}
-	for i := 0; i < 9; i++ {
+	for i := 0; i < len(fresh); i++ {
 		ch, err := pr.ReadPacket()
 		if err != nil || ch.ID != IDPlayChunkData {
 			t.Fatalf("stream chunk %d = %#x, err %v", i, ch.ID, err)
@@ -309,10 +315,9 @@ func TestForgetChunkOnFarMove(t *testing.T) {
 	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchDone {
 		t.Fatalf("batch done = %#x, err %v", p.ID, err)
 	}
-	want := [][2]int32{
-		{-1, -1}, {-1, 0}, {-1, 1},
-		{0, -1}, {0, 0}, {0, 1},
-		{1, -1}, {1, 0}, {1, 1},
+	want := forgotColumns(2, 0, 0, 10, 0)
+	if len(want) == 0 {
+		t.Fatal("the jump forgets nothing")
 	}
 	for i, w := range want {
 		p, err := pr.ReadPacket()
@@ -328,4 +333,55 @@ func TestForgetChunkOnFarMove(t *testing.T) {
 			t.Fatalf("forget %d = %d,%d want %d,%d", i, x, z, w[0], w[1])
 		}
 	}
+}
+
+// freshColumns lists what a move from one column to another takes on:
+// the columns the streamed window around the new column holds and the
+// one around the old column did not, in the order sendWindow queues them.
+//
+// The window rule itself is pinned against the real server by
+// TestChunkWindowParity, so the tests here derive their expectations from
+// it rather than listing columns that a change in shape would strand.
+func freshColumns(viewDistance, fromCX, fromCZ, toCX, toCZ int) [][2]int32 {
+	var out [][2]int32
+	for dx := -viewDistance - 1; dx <= viewDistance+1; dx++ {
+		for dz := -viewDistance - 1; dz <= viewDistance+1; dz++ {
+			if !chunkInWindow(viewDistance, dx, dz) {
+				continue
+			}
+			cx, cz := toCX+dx, toCZ+dz
+			if chunkInWindow(viewDistance, cx-fromCX, cz-fromCZ) {
+				continue
+			}
+			out = append(out, [2]int32{int32(cx), int32(cz)})
+		}
+	}
+	return out
+}
+
+// forgotColumns lists what the same move forgets: every column of the
+// old window past the prune border, told to the client in the ascending
+// (x, z) order the forget pass sorts to.
+func forgotColumns(viewDistance, fromCX, fromCZ, toCX, toCZ int) [][2]int32 {
+	prune := viewDistance + pruneBorder
+	var out [][2]int32
+	for dx := -viewDistance - 1; dx <= viewDistance+1; dx++ {
+		for dz := -viewDistance - 1; dz <= viewDistance+1; dz++ {
+			if !chunkInWindow(viewDistance, dx, dz) {
+				continue
+			}
+			cx, cz := fromCX+dx, fromCZ+dz
+			if chunkInWindow(prune, cx-toCX, cz-toCZ) {
+				continue
+			}
+			out = append(out, [2]int32{int32(cx), int32(cz)})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i][0] != out[j][0] {
+			return out[i][0] < out[j][0]
+		}
+		return out[i][1] < out[j][1]
+	})
+	return out
 }

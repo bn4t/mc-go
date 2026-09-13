@@ -45,10 +45,24 @@ func (s *Server) KickPlayer(name, reason string) bool {
 // online.
 func (s *Server) TeleportPlayer(name string, x, y, z float64) bool {
 	sess := s.findSessionByName(name)
-	if sess == nil || sess.state.Load() != StatePlay {
+	if sess == nil {
 		return false
 	}
 	_, _, _, yaw, pitch, _ := sess.Pos()
+	return s.teleportPlayerRot(name, x, y, z, yaw, pitch)
+}
+
+// TeleportPlayerRot is TeleportPlayer with the look direction set too,
+// the /tp <x> <y> <z> <yaw> <pitch> form vanilla supports.
+func (s *Server) TeleportPlayerRot(name string, x, y, z float64, yaw, pitch float32) bool {
+	return s.teleportPlayerRot(name, x, y, z, yaw, pitch)
+}
+
+func (s *Server) teleportPlayerRot(name string, x, y, z float64, yaw, pitch float32) bool {
+	sess := s.findSessionByName(name)
+	if sess == nil || sess.state.Load() != StatePlay {
+		return false
+	}
 	sess.setPos(x, y, z, yaw, pitch, false)
 	if err := s.sendSyncPos(sess, x, y, z); err != nil {
 		return false

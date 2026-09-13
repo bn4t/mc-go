@@ -76,8 +76,19 @@ func (s *Server) runTp(player string, args []string) string {
 		return s.runTpCoords(player, player, args)
 	case 4:
 		return s.runTpCoords(resolve(args[0]), player, args[1:])
+	case 5:
+		// /tp <x> <y> <z> <yaw> <pitch> when the leading argument is a
+		// coordinate; a name there means a victim form with arguments
+		// missing, which vanilla also rejects.
+		if _, err := parseDouble(args[0], 0); err != nil {
+			return "Usage: /tp <player> | /tp <x> <y> <z> [<yaw> <pitch>] | /tp <victim> <x> <y> <z> [<yaw> <pitch>]"
+		}
+		return s.runTpCoordsRot(player, player, args[:3], args[3:])
+	case 6:
+		// /tp <victim> <x> <y> <z> <yaw> <pitch>
+		return s.runTpCoordsRot(resolve(args[0]), player, args[1:4], args[4:])
 	default:
-		return "Usage: /tp <player> | /tp <x> <y> <z> | /tp <victim> <x> <y> <z>"
+		return "Usage: /tp <player> | /tp <x> <y> <z> [<yaw> <pitch>] | /tp <victim> <x> <y> <z> [<yaw> <pitch>]"
 	}
 }
 
@@ -110,6 +121,41 @@ func (s *Server) runTpCoords(victim, issuer string, args []string) string {
 }
 
 // runKick implements "/kick <player> [reason...]".
+
+// runTpCoordsRot is the /tp form that also turns the player.
+func (s *Server) runTpCoordsRot(victim, issuer string, coords, rot []string) string {
+	const border = 29999984.0
+	bx, by, bz := s.baseBlockPos(victim)
+	x, err := parseDouble(coords[0], bx)
+	if err != nil {
+		return "Invalid x: " + coords[0]
+	}
+	y, err := parseDouble(coords[1], by)
+	if err != nil {
+		return "Invalid y: " + coords[1]
+	}
+	z, err := parseDouble(coords[2], bz)
+	if err != nil {
+		return "Invalid z: " + coords[2]
+	}
+	yaw, err := strconv.ParseFloat(rot[0], 32)
+	if err != nil {
+		return "Invalid yaw: " + rot[0]
+	}
+	pitch, err := strconv.ParseFloat(rot[1], 32)
+	if err != nil {
+		return "Invalid pitch: " + rot[1]
+	}
+	if x < -border || x > border || z < -border || z > border || y < -2048 || y > 2048 {
+		return "Position outside the world"
+	}
+	_ = issuer
+	if !s.TeleportPlayerRot(victim, x, y, z, float32(yaw), float32(pitch)) {
+		return "Unknown player: " + victim
+	}
+	return fmt.Sprintf("Teleported to %.2f %.2f %.2f", x, y, z)
+}
+
 func (s *Server) runKick(player string, args []string) string {
 	if len(args) < 1 {
 		return "Usage: /kick <player> [reason...]"

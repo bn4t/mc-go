@@ -15,6 +15,11 @@ const (
 )
 
 // hopperData is one hopper block entity's state.
+//
+// cooldown starts at -1, which is what the real server's own fresh
+// hopper carries: it is the value a hopper that has never ticked saves
+// and reads back, and the first tick it takes turns it into the 0 an
+// idle hopper keeps.
 type hopperData struct {
 	slots    [hopperSlots]ItemStack
 	cooldown int32
@@ -28,7 +33,7 @@ type hopperStore struct {
 
 // isHopperBlock reports whether a block state is a hopper.
 func isHopperBlock(b world.Block) bool {
-	name, ok := world.BlockName(b)
+	name, ok := world.StateOwner(b)
 	return ok && name == "hopper"
 }
 
@@ -38,7 +43,7 @@ func (s *Server) ensureHopper(d *dimension, pos world.Pos) {
 		d.hoppers.hoppers = make(map[world.Pos]*hopperData)
 	}
 	if _, ok := d.hoppers.hoppers[pos]; !ok {
-		d.hoppers.hoppers[pos] = &hopperData{}
+		d.hoppers.hoppers[pos] = &hopperData{cooldown: hopperFreshCooldown}
 	}
 	d.hoppers.mu.Unlock()
 }
@@ -205,7 +210,7 @@ func (s *Server) handleHopperClick(sess *Session, w *openWindow, h *hopperData, 
 				continue
 			}
 			other := sess.hopperMenuStack(h, i)
-			if other.Empty() || other.ID != moving.ID {
+			if !other.Stackable(moving) {
 				continue
 			}
 			room := maxStack - other.Count
@@ -300,11 +305,45 @@ func (s *Server) syncHopperSlots(sess *Session, w *openWindow, h *hopperData, to
 	}
 }
 
-// hopperTransferEvery is the vanilla cooldown between transfer attempts.
+// hopperTransferEvery is the vanilla cooldown a hopper takes on after a
+// transfer, in ticks: eight, so a working hopper moves one item per
+// eight ticks.
 const hopperTransferEvery = 8
 
-// hopperTickStep advances every hopper in every dimension: pull from
-// the container above, push into the container below.
+// hopperFreshCooldown is what a hopper that has never ticked carries,
+// and what the real server saves for one: -1, which is not a countdown
+// but the absence of one.
+const hopperFreshCooldown = -1
+
+// hopperTickStep advances every hopper in every dimension. A hopper
+// pushes one item into the container it faces and pulls one item out of
+// the container above it.
+//
+// Every rule here was measured against the real server rather than
+// guessed, by freezing its tick loop and stepping a single tick at a
+// time (/tick freeze, /tick step 1) with a hopper and two containers in
+// every arrangement:
+//
+//   - the push goes toward the hopper's own facing and not always down:
+//     a hopper facing east, with a chest east of it and another below
+//     it, fills the eastern one;
+//   - the push and the pull both happen in the same tick, pushing
+//     first, so a hopper that sent an item on and has room refills
+//     itself in that same tick;
+//   - one item moves per transfer per direction - never a whole stack -
+//     so a hopper drains and fills at a steady one item per eight ticks;
+//   - a hopper facing up does not pull at all: the container above is
+//     the one it pushes into;
+//   - a transfer takes on a cooldown of eight ticks, and a hopper with
+//     nothing to move keeps none at all. An idle hopper is saved as
+//     TransferCooldown 0, which is what the real server writes; one that
+//     counted its cooldown down regardless would save a number in 1..8
+//     that depended on when the save happened;
+//   - the countdown runs before the hopper acts, so a transfer every
+//     eight ticks means eight ticks between one item and the next;
+//   - a hopper that has never ticked carries -1 rather than 0, which is
+//     what the real server reads back from its own fresh hopper: the
+//     first tick a hopper takes turns that into the 0 of an idle one.
 func (s *Server) hopperTickStep() {
 	for _, d := range s.dims {
 		d.hoppers.mu.Lock()
@@ -318,109 +357,250 @@ func (s *Server) hopperTickStep() {
 		}
 		d.hoppers.mu.Unlock()
 		for _, e := range current {
-			e.h.cooldown--
+			// The cooldown counts down before the hopper acts, and a
+			// hopper that never had one starts at -1: the real server's
+			// first tick turns that into 0, which is the value an idle
+			// hopper keeps and the value it is saved with.
 			if e.h.cooldown > 0 {
+				e.h.cooldown--
+				if e.h.cooldown > 0 {
+					continue
+				}
+			} else if e.h.cooldown < 0 {
+				e.h.cooldown = 0
+			}
+			blk := d.w.GetBlock(e.pos)
+			if !isHopperBlock(blk) {
 				continue
 			}
-			e.h.cooldown = hopperTransferEvery
-			if s.hopperPull(d, e.pos, e.h) {
-				continue
+			face := hopperFacing(blk)
+			target := world.Pos{X: e.pos.X + face[0], Y: e.pos.Y + face[1], Z: e.pos.Z + face[2]}
+			moved := s.hopperPush(d, e.pos, target, e.h)
+			if face != hopperUp && s.hopperPull(d, e.pos, e.h) {
+				moved = true
 			}
-			s.hopperPush(d, e.pos, e.h)
+			if moved {
+				e.h.cooldown = hopperTransferEvery
+			}
 		}
 	}
 }
 
-// hopperPull moves one item from the container above into the hopper.
-func (s *Server) hopperPull(d *dimension, pos world.Pos, h *hopperData) bool {
-	above := world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z}
-	blk := d.w.GetBlock(above)
-	if !isChestBlock(blk) {
-		return false
+// hopperUp is the one facing a hopper does not pull from.
+var hopperUp = [3]int{0, 1, 0}
+
+// hopperFacing is the direction a hopper block points: the side it
+// pushes into. The block carries it as a property, and a state with
+// none to read is the block's own default, which is down.
+func hopperFacing(b world.Block) [3]int {
+	dir, ok := world.BlockProperties(b)["facing"]
+	if !ok {
+		return [3]int{0, -1, 0}
 	}
-	chest := s.chestAt(d, above)
-	d.chests.mu.Lock()
-	var source *ItemStack
-	if chest != nil {
-		for i := range chest.slots {
-			if !chest.slots[i].Empty() {
-				source = &chest.slots[i]
-				break
-			}
-		}
+	switch dir {
+	case "up":
+		return hopperUp
+	case "north":
+		return [3]int{0, 0, -1}
+	case "south":
+		return [3]int{0, 0, 1}
+	case "east":
+		return [3]int{1, 0, 0}
+	case "west":
+		return [3]int{-1, 0, 0}
 	}
-	if source == nil {
-		d.chests.mu.Unlock()
-		return false
-	}
-	moving := *source
-	if !s.hopperAccept(h, &moving) {
-		d.chests.mu.Unlock()
-		return false
-	}
-	*source = moving
-	d.chests.mu.Unlock()
-	return true
+	return [3]int{0, -1, 0}
 }
 
-// hopperPush moves one item from the hopper into the container below.
-func (s *Server) hopperPush(d *dimension, pos world.Pos, h *hopperData) bool {
-	below := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
-	blk := d.w.GetBlock(below)
+// hopperPush moves a single item from the hopper into the container at
+// target, reporting whether it moved. The hopper's own store is locked
+// for the whole transfer, and the destination is locked inside that, so
+// the two locks of a hopper-to-hopper transfer are always taken in the
+// same order.
+func (s *Server) hopperPush(d *dimension, pos, target world.Pos, h *hopperData) bool {
 	d.hoppers.mu.Lock()
 	defer d.hoppers.mu.Unlock()
 	for i := range h.slots {
 		if h.slots[i].Empty() {
 			continue
 		}
-		moving := h.slots[i]
-		switch {
-		case isChestBlock(blk):
-			chest := s.chestAt(d, below)
-			d.chests.mu.Lock()
-			ok := chestInsert(chest, &moving)
-			d.chests.mu.Unlock()
-			if !ok {
-				return false
-			}
-		case isFurnaceBlock(blk):
-			f := s.furnaceAt(d, below)
-			d.furnaces.mu.Lock()
-			ok := false
-			if name, ok := itemNameOf(moving.ID); ok {
-				if _, smelts := smeltResult[name]; smelts {
-					ok = insertStack(&f.slots[furnaceInput], &moving)
-				} else if _, fuel := fuelTicks[name]; fuel {
-					ok = insertStack(&f.slots[furnaceFuel], &moving)
-				}
-			}
-			d.furnaces.mu.Unlock()
-			if !ok {
-				return false
-			}
-		default:
+		one := h.slots[i]
+		one.Count = 1
+		if !s.hopperInsert(d, target, pos, one) {
 			return false
 		}
-		h.slots[i] = moving
+		removeOne(&h.slots[i])
 		return true
 	}
 	return false
 }
 
-// hopperAccept merges a moving stack into the hopper (merge then empty
-// slots), reporting whether anything moved.
-func (s *Server) hopperAccept(h *hopperData, moving *ItemStack) bool {
-	accepted := false
-	for i := range h.slots {
+// hopperPull moves a single item out of the container above the hopper
+// into it, reporting whether it moved.
+func (s *Server) hopperPull(d *dimension, pos world.Pos, h *hopperData) bool {
+	above := world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z}
+	d.hoppers.mu.Lock()
+	defer d.hoppers.mu.Unlock()
+	// The hopper is the destination, and it is locked before the source
+	// is looked into: nothing is taken out of the container above until
+	// the hopper has room for it.
+	return hopperTakeOne(d, above, func(candidate ItemStack) bool {
+		one := candidate
+		one.Count = 1
+		return slotsInsert(h.slots[:], &one)
+	})
+}
+
+// hopperInsert puts one item into the container at target, which the
+// hopper at from is facing, using only the slots the real server lets a
+// hopper reach from that side. The caller holds the hopper store's
+// lock.
+func (s *Server) hopperInsert(d *dimension, target, from world.Pos, one ItemStack) bool {
+	blk := d.w.GetBlock(target)
+	switch {
+	case isHopperBlock(blk):
+		// Reached through the lock the caller already holds.
+		dst := d.hoppers.hoppers[target]
+		if dst == nil {
+			return false
+		}
+		moving := one
+		return slotsInsert(dst.slots[:], &moving)
+	case isChestBlock(blk):
+		chest := s.chestAt(d, target)
+		d.chests.mu.Lock()
+		defer d.chests.mu.Unlock()
+		moving := one
+		return slotsInsert(chest.slots[:], &moving)
+	case isFurnaceBlock(blk):
+		f := s.furnaceAt(d, target)
+		d.furnaces.mu.Lock()
+		defer d.furnaces.mu.Unlock()
+		// A hopper above a furnace fills its input slot with anything at
+		// all, coal included; a hopper beside or below it may only fill
+		// the fuel slot, and only with fuel. Both are the real server's
+		// own sided rules - its slot 2 is never filled by a hopper.
+		slot := furnaceInput
+		if from.Y <= target.Y {
+			slot = furnaceFuel
+			if !isFuelItem(one.ID) {
+				return false
+			}
+		}
+		moving := one
+		inserted := insertStack(&f.slots[slot], &moving)
+		if inserted && slot == furnaceInput {
+			// A hopper filling the input is a slot write like any other,
+			// and the real server recomputes the cook total from it.
+			f.refreshCookTotal()
+		}
+		return inserted
+	default:
+		c := s.containerAt(d, target)
+		if c == nil {
+			return false
+		}
+		d.containers.mu.Lock()
+		defer d.containers.mu.Unlock()
+		moving := one
+		return slotsInsert(c.slots, &moving)
+	}
+}
+
+// hopperTakeOne hands one item from the container at pos to accept,
+// which takes it or refuses it; an item refused stays where it is. The
+// caller holds the hopper store's lock, and a source that is itself a
+// hopper is reached through that same lock, so no transfer ever holds
+// two locks at once.
+func hopperTakeOne(d *dimension, pos world.Pos, accept func(ItemStack) bool) bool {
+	blk := d.w.GetBlock(pos)
+	switch {
+	case isHopperBlock(blk):
+		src := d.hoppers.hoppers[pos]
+		if src == nil {
+			return false
+		}
+		return slotsTakeOne(src.slots[:], accept)
+	case isChestBlock(blk):
+		chest := d.chests.chests[pos]
+		if chest == nil {
+			return false
+		}
+		d.chests.mu.Lock()
+		defer d.chests.mu.Unlock()
+		return slotsTakeOne(chest.slots[:], accept)
+	case isFurnaceBlock(blk):
+		f := d.furnaces.furnaces[pos]
+		if f == nil {
+			return false
+		}
+		d.furnaces.mu.Lock()
+		defer d.furnaces.mu.Unlock()
+		// Only the result leaves a furnace, whatever side the hopper is
+		// on: the input and the fuel are the furnace's own business.
+		return slotsTakeOne(f.slots[furnaceOutput:furnaceOutput+1], accept)
+	default:
+		c := d.containers.containers[pos]
+		if c == nil {
+			return false
+		}
+		d.containers.mu.Lock()
+		defer d.containers.mu.Unlock()
+		return slotsTakeOne(c.slots, accept)
+	}
+}
+
+// slotsTakeOne finds the first stack a hopper may take out of slots and
+// takes one item of it, if accept takes that item.
+func slotsTakeOne(slots []ItemStack, accept func(ItemStack) bool) bool {
+	for i := range slots {
+		if slots[i].Empty() {
+			continue
+		}
+		candidate := slots[i]
+		if !accept(candidate) {
+			continue
+		}
+		removeOne(&slots[i])
+		return true
+	}
+	return false
+}
+
+// slotsInsert merges a single item into the first slot that takes it -
+// a matching stack with room, or an empty one - updating moving to the
+// remainder.
+func slotsInsert(slots []ItemStack, moving *ItemStack) bool {
+	moved := false
+	for i := range slots {
 		if moving.Empty() {
 			break
 		}
-		if !insertStack(&h.slots[i], moving) {
-			continue
+		if insertStack(&slots[i], moving) {
+			moved = true
 		}
-		accepted = true
 	}
-	return accepted
+	return moved
+}
+
+// removeOne takes a single item off a stack, clearing the slot when it
+// was the last.
+func removeOne(stack *ItemStack) {
+	stack.Count--
+	if stack.Count <= 0 {
+		*stack = ItemStack{}
+	}
+}
+
+// isFuelItem reports whether an item burns, which is what a furnace's
+// fuel slot accepts from a hopper.
+func isFuelItem(id int32) bool {
+	name, ok := world.ItemName(id)
+	if !ok {
+		return false
+	}
+	_, fuel := fuelTicks[name]
+	return fuel
 }
 
 // insertStack merges moving into dst (empty or same item with room),
@@ -434,7 +614,7 @@ func insertStack(dst *ItemStack, moving *ItemStack) bool {
 		*moving = ItemStack{}
 		return true
 	}
-	if dst.ID != moving.ID || dst.Count >= maxStack {
+	if !dst.Stackable(*moving) || dst.Count >= maxStack {
 		return false
 	}
 	room := maxStack - dst.Count
@@ -448,21 +628,4 @@ func insertStack(dst *ItemStack, moving *ItemStack) bool {
 		*moving = ItemStack{}
 	}
 	return true
-}
-
-// chestInsert merges a moving stack into a chest.
-func chestInsert(chest *chestData, moving *ItemStack) bool {
-	if chest == nil {
-		return false
-	}
-	accepted := false
-	for i := range chest.slots {
-		if moving.Empty() {
-			break
-		}
-		if insertStack(&chest.slots[i], moving) {
-			accepted = true
-		}
-	}
-	return accepted
 }

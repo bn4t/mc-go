@@ -177,8 +177,26 @@ func TestPlayJoinParity(t *testing.T) {
 }
 
 // joinPlayBlackbox runs the full scripted handshake through config
-// finish-ack and returns at the play stage.
+// finish-ack and returns at the play stage, having reported the terrain
+// loaded. That report is what a real client sends within a fraction of a
+// second of joining, and what the real server waits for before it acts
+// on a player's uses and digs (see TestInteractionGateParity for the gate
+// itself).
 func joinPlayBlackbox(t *testing.T, addr, name string) (net.Conn, *protocol.Reader, *protocol.Writer) {
+	t.Helper()
+	c, pr, pw := joinPlayQuiet(t, addr, name)
+	// A moment for the server to finish entering the play stage, then the
+	// report.
+	time.Sleep(50 * time.Millisecond)
+	if err := pw.WritePacket(server.IDPlayPlayerLoadedSB, nil); err != nil {
+		t.Fatal(err)
+	}
+	return c, pr, pw
+}
+
+// joinPlayQuiet is the same handshake without the terrain-loaded report,
+// for the tests that measure the interaction gate itself.
+func joinPlayQuiet(t *testing.T, addr, name string) (net.Conn, *protocol.Reader, *protocol.Writer) {
 	t.Helper()
 	c, pr, pw := loginStart(t, addr, name)
 	readLoginSuccess(t, pr, pw, addr)

@@ -99,6 +99,32 @@ func drainToQuiet(t *testing.T, pr *protocol.Reader) {
 	pr.SetDeadline(time.Time{})
 }
 
+// finishJoin takes a freshly joined scripted session the rest of the way
+// to where a real client is a moment after joining: it acknowledges
+// chunk batches at the highest rate the protocol allows, runs the
+// streaming tick, and drains what that wrote.
+//
+// Tests that act on blocks need this. The spawn window streams in two
+// halves - the opening batch of nine columns the real server sends
+// before any acknowledgement, then the rest once the client answers (see
+// pumpChunks) - and the block, light, dig and sign fan-outs only reach
+// columns the session has taken on.
+func finishJoin(t *testing.T, s *Server, pr *protocol.Reader, pw *protocol.Writer) {
+	t.Helper()
+	var b protocol.Buffer
+	b.Float(maxChunkBatch)
+	if err := pw.WritePacket(IDPlayChunkBatchRecvSB, b.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	// The session reads the acknowledgement on its own goroutine; give
+	// it a moment before the tick that acts on it. A whole default
+	// window fits the session's outbound queue, so the tick can run
+	// here rather than on a goroutine the reads would have to chase.
+	time.Sleep(20 * time.Millisecond)
+	s.chunkTickStep()
+	drainToQuiet(t, pr)
+}
+
 // drainJoinBurst consumes the post-Join-Game burst through the
 // joiner's own tab-list row (the second Player Info Update). Vanilla
 // and mc-go both put the owner row before world state and chunks, so
@@ -234,7 +260,8 @@ func TestSetblockRelativeAndOtherSessionGetsUpdate(t *testing.T) {
 	waitPlayerInfo(t, pra, "Builder")
 	expectPlayerSpawnAnnouncement(t, pra, "Builder")
 
-	// Builder at spawn (8.5,-60,0.5); ~ ~1 ~ targets (8,-59,0).
+	// Builder at spawn (0.5,-60,0.5) - the flat world's spawn, where the
+	// real server puts it; ~ ~1 ~ targets (0,-59,0).
 	sendChat(t, pwb, IDPlayChatCommandSB, "setblock ~ ~1 ~ dirt")
 	// Builder gets its own update + confirm.
 	for i := 0; i < 2; i++ {
@@ -248,11 +275,11 @@ func TestSetblockRelativeAndOtherSessionGetsUpdate(t *testing.T) {
 		t.Fatalf("watcher update: %v", err)
 	}
 	ur := protocol.NewPacketReader(upd.Data)
-	if ux, uy, uz, err := ur.Position(); err != nil || ux != 8 || uy != -59 || uz != 0 {
+	if ux, uy, uz, err := ur.Position(); err != nil || ux != 0 || uy != -59 || uz != 0 {
 		t.Fatalf("watcher pos = %d,%d,%d err %v", ux, uy, uz, err)
 	}
-	if got := s.World().GetBlock(world.Pos{X: 8, Y: -59, Z: 0}); got != world.Dirt {
-		t.Fatalf("world (8,66,8) = %d, want dirt", got)
+	if got := s.World().GetBlock(world.Pos{X: 0, Y: -59, Z: 0}); got != world.Dirt {
+		t.Fatalf("world (0,-59,0) = %d, want dirt", got)
 	}
 }
 
@@ -392,7 +419,7 @@ func TestBuiltinListAndHelp(t *testing.T) {
 		t.Fatalf("help = %q", got)
 	}
 	sendChat(t, pw, IDPlayChatCommandSB, "pos")
-	if got := readSystemChat(t, pr); !strings.Contains(got, "8.50") {
+	if got := readSystemChat(t, pr); !strings.Contains(got, "0.50") {
 		t.Fatalf("pos = %q", got)
 	}
 }

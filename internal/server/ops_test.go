@@ -209,6 +209,13 @@ func joinPlayPipeConn(t *testing.T, s *Server, name string) (net.Conn, *protocol
 	if err := pw.WritePacket(IDConfigFinishAck, nil); err != nil {
 		t.Fatal(err)
 	}
+	// A real client reports its terrain loaded a fraction of a second
+	// after entering play, which is what opens its world interactions;
+	// this scripted client does the same so tests exercise the same
+	// world (see interactionsOpen for the gate the report releases).
+	if err := pw.WritePacket(IDPlayPlayerLoadedSB, nil); err != nil {
+		t.Fatal(err)
+	}
 	// Drain the join burst through our own tab-list row; anything else
 	// (chunks, pig, abilities) is skipped, not asserted, here.
 	for i := 0; i < 80; i++ {

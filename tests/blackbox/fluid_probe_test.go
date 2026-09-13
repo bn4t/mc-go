@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
 	"mc-go/internal/server"
 )
@@ -153,6 +155,181 @@ func waitDrained(t *testing.T, pw *protocol.Writer, sink *chatSink) {
 		}
 	}
 	t.Fatal("server never drained its command queue")
+}
+
+// componentArgs decodes a System Chat payload captured by the sink and
+// returns its translation key with the arguments, the form the real
+// server words command replies in.
+func componentArgs(line string) (string, []any, bool) {
+	i := strings.Index(line, ":")
+	if i < 0 {
+		return "", nil, false
+	}
+	root, err := nbt.ReadUnnamed(strings.NewReader(line[i+1:]))
+	if err != nil {
+		return "", nil, false
+	}
+	m, ok := root.(map[string]any)
+	if !ok {
+		return "", nil, false
+	}
+	key, found := m["translate"].(string)
+	if !found {
+		// Error replies carry the message one level down, in extra, and
+		// the arguments with it.
+		if l, ok := m["extra"].(nbt.List); ok && len(l.Items) > 0 {
+			sub, ok := l.Items[0].(map[string]any)
+			if !ok {
+				return "", nil, false
+			}
+			m = sub
+			key, found = m["translate"].(string)
+		}
+	}
+	if !found {
+		return "", nil, false
+	}
+	var args []any
+	if l, ok := m["with"].(nbt.List); ok {
+		args = l.Items
+	}
+	return key, args, true
+}
+
+// componentTree renders a captured System Chat payload as its whole NBT
+// tree, canonicalized: every field with its tag type, compounds sorted
+// by name. A command reply carries more than a translation key - an
+// error is styled and empty-texted with the message in extra, and it is
+// followed by a context message whose click event, marked token and
+// cursor marker are all part of the reply - so a comparison that reads
+// only the key cannot see a wrong cursor or a missing style flag.
+//
+// Only System Chat payloads are decoded: the sink keeps every packet
+// small enough to be a message, and a Set Time packet's eight bytes
+// should not be read as a component.
+func componentTree(line string, withValues bool) (string, bool) {
+	i := strings.Index(line, ":")
+	if i < 0 {
+		return "", false
+	}
+	id, err := strconv.ParseInt(line[:i], 0, 32)
+	if err != nil || int32(id) != server.IDPlaySystemChatCB {
+		return "", false
+	}
+	root, err := nbt.ReadUnnamed(strings.NewReader(line[i+1:]))
+	if err != nil {
+		return "", false
+	}
+	if _, ok := root.(map[string]any); !ok {
+		return "", false
+	}
+	return renderNBT(root, withValues), true
+}
+
+// renderNBT renders one NBT value with its tag type. Bytes keep their
+// value even when numbers are masked, because the only bytes a command
+// reply carries are style flags: "italic: 1" is a different reply from
+// "italic: 0", while a game time is a moving reading.
+func renderNBT(v any, withValues bool) string {
+	switch x := v.(type) {
+	case string:
+		return strconv.Quote(x)
+	case int8:
+		return fmt.Sprintf("b(%d)", x)
+	case int16:
+		return nbtNum("s", float64(x), withValues)
+	case int32:
+		return nbtNum("i", float64(x), withValues)
+	case int64:
+		return nbtNum("l", float64(x), withValues)
+	case float32:
+		return nbtNum("f", float64(x), withValues)
+	case float64:
+		return nbtNum("d", x, withValues)
+	case nbt.List:
+		parts := make([]string, 0, len(x.Items))
+		for _, it := range x.Items {
+			parts = append(parts, renderNBT(it, withValues))
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	case []byte:
+		return fmt.Sprintf("ba(%d)", len(x))
+	case []int32:
+		return fmt.Sprintf("ia(%d)", len(x))
+	case []int64:
+		return fmt.Sprintf("la(%d)", len(x))
+	case map[string]any:
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var b strings.Builder
+		b.WriteString("{")
+		for i, k := range keys {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "%q: %s", k, renderNBT(x[k], withValues))
+		}
+		b.WriteString("}")
+		return b.String()
+	case nil:
+		return "nil"
+	}
+	return fmt.Sprintf("%T", v)
+}
+
+// nbtNum renders a numeric NBT value with its tag letter.
+func nbtNum(tag string, v float64, withValues bool) string {
+	if !withValues {
+		return tag
+	}
+	return fmt.Sprintf("%s(%v)", tag, v)
+}
+
+// gameTimeOf asks a server for its game clock. The clock stands still
+// while the game is frozen and moves exactly one tick per tick
+// simulated, which makes it the one honest completion signal for a
+// stepped or sprinted run: /tick step and /tick sprint both answer
+// before the ticks have been simulated.
+func gameTimeOf(t *testing.T, pw *protocol.Writer, sink *chatSink) int64 {
+	t.Helper()
+	sink.take()
+	sendCommand(t, pw, "time query gametime")
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, line := range sink.take() {
+			key, args, ok := componentArgs(line)
+			if !ok || key != "commands.time.query.gametime" || len(args) == 0 {
+				continue
+			}
+			if v, ok := args[0].(int64); ok {
+				return v
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("no game time reply from the server (%s)", sink.health())
+	return 0
+}
+
+// sprintTicks advances a server by exactly n ticks and returns once
+// they have all been simulated. It sprint rather than steps because the
+// real server runs a step at 20 ticks per second no matter how fast the
+// machine is, while a sprint runs flat out - and a sprint report comes
+// back only after the ticks are done.
+func sprintTicks(t *testing.T, pw *protocol.Writer, sink *chatSink, n int) {
+	t.Helper()
+	before := gameTimeOf(t, pw, sink)
+	sendCommand(t, pw, fmt.Sprintf("tick sprint %d", n))
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		if gameTimeOf(t, pw, sink) >= before+int64(n) {
+			return
+		}
+	}
+	t.Fatalf("the server never simulated %d ticks", n)
 }
 
 // blockQuery asks the server what block is at a position by testing the

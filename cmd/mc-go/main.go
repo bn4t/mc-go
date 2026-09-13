@@ -22,6 +22,10 @@ func main() {
 	motd := flag.String("motd", server.MOTD, "server list description")
 	maxPlayers := flag.Int("max-players", server.MaxPlayers, "status max players and login cap")
 	worldPath := flag.String("world", "world.json", "block-override save file (empty disables persistence)")
+	worldDir := flag.String("world-dir", "", "vanilla-format world directory (level.dat + region files); takes precedence over -world")
+	levelName := flag.String("level-name", "", "level name written into level.dat (empty uses the directory name)")
+	seed := flag.Int64("seed", 1, "world seed written into the generator settings")
+	generateStructures := flag.Bool("generate-structures", true, "whether the world generates structures (recorded in the generator settings)")
 	saveInterval := flag.Duration("save-interval", 5*time.Minute, "autosave period (0 disables)")
 	frontendName := flag.String("frontend", "java", "protocol frontend to serve ("+strings.Join(server.FrontendNames(), ", ")+")")
 	gameMode := flag.String("gamemode", "survival", "default game mode: survival, creative, adventure, spectator")
@@ -31,6 +35,10 @@ func main() {
 	s.MOTD = *motd
 	s.MaxPlayers = *maxPlayers
 	s.WorldPath = *worldPath
+	s.WorldDir = *worldDir
+	s.LevelName = *levelName
+	s.WorldSeed = *seed
+	s.GenerateStructures = *generateStructures
 	switch strings.ToLower(*gameMode) {
 	case "survival":
 		s.GameMode = server.GameModeSurvival
@@ -56,7 +64,7 @@ func main() {
 	if !ok {
 		log.Fatalf("unknown frontend %q (have %s)", *frontendName, strings.Join(server.FrontendNames(), ", "))
 	}
-	if *saveInterval > 0 && *worldPath != "" {
+	if *saveInterval > 0 && (*worldPath != "" || *worldDir != "") {
 		go func() {
 			t := time.NewTicker(*saveInterval)
 			defer t.Stop()

@@ -279,42 +279,56 @@ func TestLoginJoinFlow(t *testing.T) {
 			}
 		}
 	}
-	// Spawn columns: a batch of 3x3 around chunk (0,0); light rides
-	// inline.
-	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchStart {
-		t.Fatalf("batch start = %#x, err %v", p.ID, err)
-	}
+	// Spawn columns: the default window around chunk (0,0), which is the
+	// 7x7 square the real server streams to a client that has announced
+	// no view distance (see TestChunkWindowParity). Light rides inline.
+	//
+	// The window arrives in two halves, as it does from the real server:
+	// the opening batch of nine columns, which is all a client is sent
+	// before it acknowledges anything, and then the rest once it
+	// answers with a rate (see pumpChunks for the measurement).
 	seen := map[[2]int32]bool{}
-	for i := 0; i < 9; i++ {
-		ch, err := pr.ReadPacket()
-		if err != nil {
-			t.Fatal(err)
+	readBatch := func(want int) {
+		if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchStart {
+			t.Fatalf("batch start = %#x, err %v", p.ID, err)
 		}
-		if ch.ID != IDPlayChunkData {
-			t.Fatalf("chunk %d id = %#x, want chunk data", i, ch.ID)
+		for i := 0; i < want; i++ {
+			ch, err := pr.ReadPacket()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ch.ID != IDPlayChunkData {
+				t.Fatalf("chunk %d id = %#x, want chunk data", i, ch.ID)
+			}
+			cr := protocol.NewPacketReader(ch.Data)
+			cx, err := cr.Int()
+			if err != nil {
+				t.Fatalf("chunk %d x: %v", i, err)
+			}
+			cz, err := cr.Int()
+			if err != nil {
+				t.Fatalf("chunk %d z: %v", i, err)
+			}
+			if cx < -3 || cx > 3 || cz < -3 || cz > 3 || seen[[2]int32{cx, cz}] {
+				t.Fatalf("chunk %d coords out of range or dup: %d,%d", i, cx, cz)
+			}
+			seen[[2]int32{cx, cz}] = true
 		}
-		cr := protocol.NewPacketReader(ch.Data)
-		cx, err := cr.Int()
-		if err != nil {
-			t.Fatalf("chunk %d x: %v", i, err)
+		if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchDone {
+			t.Fatalf("batch done = %#x, err %v", p.ID, err)
 		}
-		cz, err := cr.Int()
-		if err != nil {
-			t.Fatalf("chunk %d z: %v", i, err)
-		}
-		if cx < -1 || cx > 1 || cz < -1 || cz > 1 || seen[[2]int32{cx, cz}] {
-			t.Fatalf("chunk %d coords out of range or dup: %d,%d", i, cx, cz)
-		}
-		seen[[2]int32{cx, cz}] = true
 	}
-	if len(seen) != 9 {
-		t.Fatalf("chunks = %d, want 9", len(seen))
+	readBatch(initialChunkBatch)
+	var batchAck protocol.Buffer
+	batchAck.Float(maxChunkBatch)
+	if err := pw.WritePacket(IDPlayChunkBatchRecvSB, batchAck.Bytes()); err != nil {
+		t.Fatal(err)
 	}
-	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchDone {
-		t.Fatalf("batch done = %#x, err %v", p.ID, err)
-	}
-	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkCacheRadius {
-		t.Fatalf("chunk radius = %#x, err %v", p.ID, err)
+	time.Sleep(20 * time.Millisecond)
+	s.chunkTickStep()
+	readBatch(49 - initialChunkBatch)
+	if len(seen) != 49 {
+		t.Fatalf("chunks = %d, want 49", len(seen))
 	}
 	if got := s.OnlineCount(); got != 1 {
 		t.Fatalf("online = %d, want 1 during session", got)
@@ -368,6 +382,13 @@ func joinPlay(t *testing.T, s *Server, name string) (net.Conn, *protocol.Reader,
 		}
 	}
 	if err := pw.WritePacket(IDConfigFinishAck, nil); err != nil {
+		t.Fatal(err)
+	}
+	// A real client reports its terrain loaded a fraction of a second
+	// after entering play, which is what opens its world interactions;
+	// the scripted client does the same so tests exercise the same world
+	// (see interactionsOpen for the gate the report releases).
+	if err := pw.WritePacket(IDPlayPlayerLoadedSB, nil); err != nil {
 		t.Fatal(err)
 	}
 	return c, pr, pw
@@ -494,7 +515,7 @@ func TestMovementUpdatesPos(t *testing.T) {
 	c, pr, pw := joinPlay(t, s, "Mover")
 	defer c.Close()
 	drainJoinBurst(t, pr)
-	drainToQuiet(t, pr)
+	finishJoin(t, s, pr, pw)
 	sendPosRot(t, pw, 10.5, 66, -3.25, 90, 0, true)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -507,12 +528,14 @@ func TestMovementUpdatesPos(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	// Chunk (0,-1) is new: drain the chunk batch (start, 3 chunks,
-	// done) so the pipe reader keeps up with the session writer.
+	// Moving into chunk (0,-1) takes on the columns that only the new
+	// window holds: drain that batch so the pipe reader keeps up with
+	// the session writer.
+	fresh := freshColumns(2, 0, 0, 0, -1)
 	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchStart {
 		t.Fatalf("batch start = %#x, err %v", p.ID, err)
 	}
-	for i := 0; i < 3; i++ {
+	for i := 0; i < len(fresh); i++ {
 		ch, err := pr.ReadPacket()
 		if err != nil || ch.ID != IDPlayChunkData {
 			t.Fatalf("stream chunk %d = %#x, err %v", i, ch.ID, err)
@@ -565,6 +588,51 @@ func sendChat(t *testing.T, pw *protocol.Writer, id int32, text string) {
 	}
 }
 
+// readSystemChatComponent reads one System Chat packet and returns the
+// translation key of its component, for replies that are not plain text.
+func readSystemChatComponent(t *testing.T, pr *protocol.Reader) string {
+	t.Helper()
+	root := readSystemChatNBT(t, pr)
+	m, ok := root.(map[string]any)
+	if !ok {
+		t.Fatalf("component root = %T, want compound", root)
+	}
+	if key, ok := m["translate"].(string); ok {
+		return key
+	}
+	if l, ok := m["extra"].(nbt.List); ok && len(l.Items) > 0 {
+		if sub, ok := l.Items[0].(map[string]any); ok {
+			if key, ok := sub["translate"].(string); ok {
+				return key
+			}
+		}
+	}
+	t.Fatalf("component has no translation key: %v", m)
+	return ""
+}
+
+// readSystemChatNBT reads one System Chat packet and decodes its
+// component.
+func readSystemChatNBT(t *testing.T, pr *protocol.Reader) any {
+	t.Helper()
+	for i := 0; i < 256; i++ {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("chat read: %v", err)
+		}
+		if p.ID != IDPlaySystemChatCB {
+			continue
+		}
+		root, err := nbt.ReadUnnamed(bytes.NewReader(p.Data))
+		if err != nil {
+			t.Fatalf("chat nbt: %v", err)
+		}
+		return root
+	}
+	t.Fatal("no system chat arrived")
+	return nil
+}
+
 func readSystemChat(t *testing.T, pr *protocol.Reader) string {
 	t.Helper()
 	for i := 0; i < 256; i++ {
@@ -603,8 +671,10 @@ func TestChatCommandRunsPlugin(t *testing.T) {
 		t.Fatalf("reply = %q", got)
 	}
 	sendChat(t, pw, IDPlayChatCommandSB, "nope")
-	if got := readSystemChat(t, pr); got != "Unknown command: nope" {
-		t.Fatalf("reply = %q", got)
+	// An unknown command is answered with the real server's error
+	// component, not a hand-written sentence.
+	if got := readSystemChatComponent(t, pr); got != "command.unknown.command" {
+		t.Fatalf("unknown-command reply = %q", got)
 	}
 }
 
@@ -643,18 +713,23 @@ func TestChunkStreamingOnMove(t *testing.T) {
 	c, pr, pw := joinPlay(t, s, "Walker")
 	defer c.Close()
 	drainJoinBurst(t, pr)
-	drainToQuiet(t, pr)
-	// Walk east into chunk (2,0): window becomes x 1..3, so the six
-	// x=2,3 columns must stream as chunk+light pairs.
+	finishJoin(t, s, pr, pw)
+	// Walk east into chunk (2,0): the window is centered there now, so
+	// the columns the old window around (0,0) did not cover stream as
+	// chunk+light pairs. Both windows come from the same rule, so the
+	// expected set is derived from it rather than listed.
 	sendPosRot(t, pw, 40.5, 66, 8.5, 0, 0, true)
-	want := map[[2]int32]bool{
-		{2, -1}: false, {2, 0}: false, {2, 1}: false,
-		{3, -1}: false, {3, 0}: false, {3, 1}: false,
+	want := map[[2]int32]bool{}
+	for _, k := range freshColumns(2, 0, 0, 2, 0) {
+		want[k] = false
+	}
+	if len(want) == 0 {
+		t.Fatal("the move streams nothing")
 	}
 	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchStart {
 		t.Fatalf("batch start = %#x, err %v", p.ID, err)
 	}
-	for i := 0; i < 6; i++ {
+	for i := 0; i < len(want); i++ {
 		ch, err := pr.ReadPacket()
 		if err != nil {
 			t.Fatalf("stream chunk %d: %v", i, err)

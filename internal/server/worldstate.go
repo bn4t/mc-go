@@ -91,13 +91,13 @@ func defaultGameRules() map[string]string {
 // never conjures storage.
 func (s *Server) blockEntityTag(d *dimension, pos world.Pos) []byte {
 	blk := d.w.GetBlock(pos)
-	if isSignBlock(blk) {
+	if _, ok := signSpecOf(blk); ok {
 		if st, ok := s.signAt(d, pos); ok {
 			return signNBT(st)
 		}
 		return nil
 	}
-	name, _ := world.BlockName(blk)
+	name, _ := world.StateOwner(blk)
 	base := strings.TrimPrefix(name, "minecraft:")
 	switch base {
 	case "chest", "trapped_chest", "barrel":
@@ -185,11 +185,15 @@ func (s *Server) dispatchCommandText(sess *Session, text string) {
 		return
 	}
 	name := sess.getName()
-	if out, ok := s.commands.Run(fields[0], name, fields[1:]); ok {
-		s.sendSystemChat(sess, out)
-		return
+	input := strings.Join(fields, " ")
+	r, ok := s.runCommand(name, fields[0], fields[1:])
+	if !ok {
+		r = reply{comp: unknownCommand(), styled: true, fail: &failMark{}}
 	}
-	s.sendSystemChat(sess, "Unknown command: "+fields[0])
+	s.sendReply(sess, r)
+	if r.fail != nil {
+		s.sendSystemChatComponent(sess, errorContext(input, r.fail.cursor(input)))
+	}
 }
 
 // handleInteract processes right-click and "attack" interactions on an

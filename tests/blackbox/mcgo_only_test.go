@@ -285,7 +285,10 @@ func TestMcGoOnlyJoinSync(t *testing.T) {
 			x, _ := r.Double()
 			y, _ := r.Double()
 			z, _ := r.Double()
-			if x != 8.5 || y != -60 || z != 0.5 {
+			// The flat world's spawn is the origin block: the real 26.2
+			// server writes spawn.pos (0,-60,0) into level.dat for a
+			// default superflat world, so a joining player stands on it.
+			if x != 0.5 || y != -60 || z != 0.5 {
 				t.Fatalf("spawn = %v,%v,%v", x, y, z)
 			}
 		}
@@ -408,23 +411,26 @@ func TestMcGoOnlyDigBreaksBlock(t *testing.T) {
 	t.Fatal("watcher never received air update (6,70,6)")
 }
 
-// TestMcGoOnlyForgetChunkOnFarMove jumps ten chunks east and requires
-// Forget Level Chunk packets for all nine spawn-window columns.
+// TestMcGoOnlyForgetChunkOnFarMove jumps ten chunks east and requires a
+// Forget Level Chunk for every column of the spawn window the client was
+// holding - the whole 7x7 a client that announces no view distance is
+// sent, all of it now past the prune border.
 func TestMcGoOnlyForgetChunkOnFarMove(t *testing.T) {
 	addr := requireMcGoOnly(t)
 	c, pr, pw := joinPlayBlackbox(t, addr, "Walker")
 	defer c.Close()
 	drainToJoinBlackbox(t, "walker", pr)
+	chunks := drainChunkWindow(t, "walker", c, pr, pw, 500*time.Millisecond)
+	if len(chunks) != 49 {
+		t.Fatalf("spawn window = %d columns, want 49", len(chunks))
+	}
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 	if err := sendMovePosRot(pw, 168.5, 66, 8.5); err != nil {
 		t.Fatal(err)
 	}
-	want := map[[2]int32]bool{
-		{-1, -1}: false, {-1, 0}: false, {-1, 1}: false,
-		{0, -1}: false, {0, 0}: false, {0, 1}: false,
-		{1, -1}: false, {1, 0}: false, {1, 1}: false,
-	}
-	for i := 0; i < 150; i++ {
+	const want = 49
+	seen := map[[2]int32]bool{}
+	for i := 0; i < 400 && len(seen) < want; i++ {
 		p, err := pr.ReadPacket()
 		if err != nil {
 			t.Fatalf("move stream: %v", err)
@@ -437,18 +443,14 @@ func TestMcGoOnlyForgetChunkOnFarMove(t *testing.T) {
 			t.Fatalf("forget long: %v", err)
 		}
 		k := [2]int32{int32(uint64(v) & 0xFFFFFFFF), int32(uint64(v) >> 32)}
-		if _, ok := want[k]; ok {
-			want[k] = true
+		if k[0] < -3 || k[0] > 3 || k[1] < -3 || k[1] > 3 {
+			t.Fatalf("forgot %d,%d, which the client never held", k[0], k[1])
 		}
-		done := true
-		for _, seen := range want {
-			done = done && seen
-		}
-		if done {
-			return
-		}
+		seen[k] = true
 	}
-	t.Fatalf("missing forgets: %+v", want)
+	if len(seen) != want {
+		t.Fatalf("forgets = %d, want %d", len(seen), want)
+	}
 }
 
 // TestMcGoOnlyOpsCommands drives the operator slice end to end over the
@@ -489,7 +491,9 @@ func TestMcGoOnlyOpsCommands(t *testing.T) {
 	if out := runCmd(pwa, pra, "tp Bob"); out != "Teleported to Bob" {
 		t.Fatalf("/tp player = %q", out)
 	}
-	if out := runCmd(pwa, pra, "pos"); !strings.HasPrefix(out, "8.50 -60.00 0.50") {
+	// Bob has never moved, so teleporting to him lands on the world
+	// spawn, which is the origin block of the flat world.
+	if out := runCmd(pwa, pra, "pos"); !strings.HasPrefix(out, "0.50 -60.00 0.50") {
 		t.Fatalf("/pos after tp player = %q", out)
 	}
 	if out := runCmd(pwa, pra, "tp Ghost"); out != "Unknown player: Ghost" {
@@ -849,42 +853,54 @@ func TestMcGoOnlyViewDistanceStreams(t *testing.T) {
 	drainToJoinBlackbox(t, "far", pr)
 
 	_ = c.SetDeadline(time.Now().Add(30 * time.Second))
-	var batch int
+	// A view distance of 8 streams the window the real server streams for
+	// that distance: the 19x19 square with its corners cut by a circle,
+	// 329 columns rather than the 289 of a plain square (see
+	// TestChunkWindowParity for the measurement).
+	//
+	// It arrives the way the real server sends it, nine columns at a time
+	// and one batch a tick once the client acknowledges (see
+	// server.pumpChunks), so the scripted client answers every batch the
+	// way a real one does and counts what lands.
+	const want = 329
 	chunks := 0
-	sawStart := false
-	for i := 0; i < 600; i++ {
+	deadline := time.Now().Add(30 * time.Second)
+	for chunks < want && time.Now().Before(deadline) {
+		if err := c.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
 		p, err := pr.ReadPacket()
 		if err != nil {
-			t.Fatalf("play stream: %v", err)
+			continue
+		}
+		if p.ID == server.IDPlayChunkCacheRadius {
+			t.Fatalf("the real server sends no chunk cache radius packet; mc-go sent one")
 		}
 		switch p.ID {
-		case server.IDPlayChunkBatchStart:
-			sawStart = true
 		case server.IDPlayChunkData:
-			if sawStart {
-				chunks++
-			}
+			chunks++
 		case server.IDPlayChunkBatchDone:
-			r := protocol.NewPacketReader(p.Data)
-			if n, err := r.VarInt(); err == nil {
-				batch = int(n)
+			if err := ackChunkBatch(pw); err != nil {
+				t.Fatal(err)
 			}
-		case server.IDPlayChunkCacheRadius:
-			r := protocol.NewPacketReader(p.Data)
-			radius, _ := r.VarInt()
-			if !sawStart || chunks == 0 {
-				t.Fatalf("radius arrived before chunks")
-			}
-			if radius != 8 {
-				t.Fatalf("radius = %d, want 8", radius)
-			}
-			if chunks != 17*17 || batch != 17*17 {
-				t.Fatalf("chunks = %d (batch %d), want %d", chunks, batch, 17*17)
-			}
-			return
 		}
 	}
-	t.Fatal("view-distance stream never completed")
+	if chunks != want {
+		t.Fatalf("chunks = %d, want %d", chunks, want)
+	}
+	// Nothing more belongs to the window: the stream is over.
+	for {
+		if err := c.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		p, err := pr.ReadPacket()
+		if err != nil {
+			break
+		}
+		if p.ID == server.IDPlayChunkData {
+			t.Fatalf("chunks past the window: %d streamed, want %d", chunks+1, want)
+		}
+	}
 }
 
 // TestMcGoOnlyLatencyUpdate proves the tab-list ping flow: a fast

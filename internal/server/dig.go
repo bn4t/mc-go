@@ -87,10 +87,10 @@ func (s *Server) setBlockAndBroadcast(player string, pos world.Pos, blk world.Bl
 // created and announced, and one that does not has any stale state
 // dropped. Shared by /setblock, digging, and fluid flow.
 func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block) {
-	if isSignBlock(blk) {
+	if spec, ok := signSpecOf(blk); ok {
 		s.ensureSign(d, pos)
 		if st, ok := s.signAt(d, pos); ok {
-			s.broadcastBlockEntityData(d, pos, signBlockEntityType, signNBT(st))
+			s.broadcastBlockEntityData(d, pos, spec.id, signNBT(st))
 		}
 	} else {
 		s.clearSign(d, pos)
@@ -110,6 +110,27 @@ func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block)
 	} else {
 		s.removeHopper(d, pos)
 	}
+	s.syncContainerBlock(d, pos, blk)
+}
+
+// syncContainerBlock keeps the generic container store in step with a
+// block write. A block that is no longer a container, or a different
+// container than the one already stored (a barrel swapped for a
+// dispenser), drops what it held: the two menus have different slot
+// counts, so carrying the old storage over would desync the window.
+func (s *Server) syncContainerBlock(d *dimension, pos world.Pos, blk world.Block) {
+	if _, ok := containerSpecFor(blk); !ok {
+		s.removeContainer(d, pos)
+		return
+	}
+	name, _ := world.StateOwner(blk)
+	d.containers.mu.Lock()
+	cur := d.containers.containers[pos]
+	d.containers.mu.Unlock()
+	if cur != nil && cur.block != name {
+		s.removeContainer(d, pos)
+	}
+	s.ensureContainer(d, pos, blk)
 }
 
 // sendBlockAck retires one client prediction slot.
@@ -126,6 +147,11 @@ func (s *Server) sendBlockAck(sess *Session, seq int32) {
 // the face/sequence tail varies by version and is skipped best-effort,
 // with the trailing VarInt echoed as the ack sequence when present.
 func (s *Server) handleDig(sess *Session, p protocol.Packet) {
+	// Mining in the first moments of a session is dropped with the rest
+	// of a player's world interactions.
+	if !sess.interactionsOpen(s.TickCount()) {
+		return
+	}
 	r := protocol.NewPacketReader(p.Data)
 	status, err := r.VarInt()
 	if err != nil {
@@ -163,26 +189,41 @@ func (s *Server) handleDig(sess *Session, p protocol.Packet) {
 		return // inventory statuses: ack only
 	}
 	pos := world.Pos{X: int(x), Y: int(y), Z: int(z)}
-	if sess.mode() != GameModeCreative {
-		affected := s.handleDigSurvival(sess, pos, status)
+	switch sess.mode() {
+	case GameModeCreative:
+		// Creative destroys the block outright on start or finish; a
+		// cancel is acknowledged and changes nothing.
+		if status == digCancel {
+			return
+		}
+		if d.w.GetBlock(pos) == world.Air {
+			return // already air: ack only, no event storm
+		}
+		affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
 		acked = true
 		if seq >= 0 {
 			s.sendBlockAck(sess, seq)
 		}
 		s.sendLightUpdate(d, pos.X>>4, pos.Z>>4, affected)
 		return
+	case GameModeSurvival:
+		// Survival digging is timed by the server's own tick loop, so
+		// the action only records state here (see handleDigSurvival);
+		// the block change, its drops, and the light update all come
+		// from digTickStep on the tick that finishes the work.
+		s.handleDigSurvival(sess, pos, status)
+		acked = true
+		if seq >= 0 {
+			s.sendBlockAck(sess, seq)
+		}
+		return
+	default:
+		// Adventure and spectator players cannot destroy blocks; the
+		// action is acknowledged and otherwise ignored.
+		acked = true
+		if seq >= 0 {
+			s.sendBlockAck(sess, seq)
+		}
+		return
 	}
-	if status != digStart && status != digFinish {
-		return // cancel / inventory statuses: ack only
-	}
-	if cur := d.w.GetBlock(pos); cur == world.Air {
-		return // already air: ack only, no event storm
-	}
-	player := sess.getName()
-	affected := s.setBlockAndBroadcast(player, pos, world.Air)
-	acked = true
-	if seq >= 0 {
-		s.sendBlockAck(sess, seq)
-	}
-	s.sendLightUpdate(d, pos.X>>4, pos.Z>>4, affected)
 }

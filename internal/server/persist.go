@@ -30,11 +30,21 @@ type playerPersist struct {
 	Z          float64              `json:"z,omitempty"`
 }
 
+// signPersist is one sign's state on disk. Its styling travels with it:
+// the dye colour and glow of each side and whether the sign is waxed are
+// part of the block entity, not of the block, so dropping them here would
+// lose them on the next load - and change what a joining client is sent.
+// An unstyled side stores nothing and reads back as black, unglowing.
 type signPersist struct {
-	Dim     string `json:"dim,omitempty"`
-	X, Y, Z int
-	Front   [4]string `json:"front"`
-	Back    [4]string `json:"back"`
+	Dim          string `json:"dim,omitempty"`
+	X, Y, Z      int
+	Front        [4]string `json:"front"`
+	Back         [4]string `json:"back"`
+	FrontColor   string    `json:"frontColor,omitempty"`
+	BackColor    string    `json:"backColor,omitempty"`
+	FrontGlowing bool      `json:"frontGlowing,omitempty"`
+	BackGlowing  bool      `json:"backGlowing,omitempty"`
+	Waxed        bool      `json:"waxed,omitempty"`
 }
 
 type chestPersist struct {
@@ -43,14 +53,28 @@ type chestPersist struct {
 	Items   [chestSlots]ItemStack `json:"items"`
 }
 
-type serverDataFile struct {
-	Version int                      `json:"version"`
-	Players map[string]playerPersist `json:"players"`
-	Signs   []signPersist            `json:"signs"`
-	Chests  []chestPersist           `json:"chests"`
+// containerPersist covers the generic container family. The block name
+// is stored so a reload can rebuild the menu spec without reading the
+// world (the data file may be loaded before any chunk exists).
+type containerPersist struct {
+	Dim      string `json:"dim,omitempty"`
+	X, Y, Z  int
+	Block    string      `json:"block"`
+	Items    []ItemStack `json:"items"`
+	BrewTime int32       `json:"brew_time,omitempty"`
+	Fuel     int32       `json:"fuel,omitempty"`
+	Disabled uint16      `json:"disabled,omitempty"`
 }
 
-const serverDataVersion = 2
+type serverDataFile struct {
+	Version    int                      `json:"version"`
+	Players    map[string]playerPersist `json:"players"`
+	Signs      []signPersist            `json:"signs"`
+	Chests     []chestPersist           `json:"chests"`
+	Containers []containerPersist       `json:"containers,omitempty"`
+}
+
+const serverDataVersion = 3
 
 var dataSaveMu sync.Mutex
 
@@ -101,7 +125,13 @@ func (s *Server) SaveServerData() error {
 	for name, d := range s.dims {
 		d.signs.mu.Lock()
 		for pos, st := range d.signs.signs {
-			f.Signs = append(f.Signs, signPersist{Dim: name, X: pos.X, Y: pos.Y, Z: pos.Z, Front: st.Front, Back: st.Back})
+			f.Signs = append(f.Signs, signPersist{
+				Dim: name, X: pos.X, Y: pos.Y, Z: pos.Z,
+				Front: st.Front, Back: st.Back,
+				FrontColor: st.frontColor, BackColor: st.backColor,
+				FrontGlowing: st.frontGlowing, BackGlowing: st.backGlowing,
+				Waxed: st.waxed,
+			})
 		}
 		d.signs.mu.Unlock()
 		d.chests.mu.Lock()
@@ -109,6 +139,14 @@ func (s *Server) SaveServerData() error {
 			f.Chests = append(f.Chests, chestPersist{Dim: name, X: pos.X, Y: pos.Y, Z: pos.Z, Items: c.slots})
 		}
 		d.chests.mu.Unlock()
+		d.containers.mu.Lock()
+		for pos, c := range d.containers.containers {
+			f.Containers = append(f.Containers, containerPersist{
+				Dim: name, X: pos.X, Y: pos.Y, Z: pos.Z, Block: c.block,
+				Items: c.slots, BrewTime: c.brewTime, Fuel: c.fuel, Disabled: c.disabled,
+			})
+		}
+		d.containers.mu.Unlock()
 	}
 
 	raw, err := json.Marshal(f)
@@ -150,7 +188,12 @@ func (s *Server) LoadServerData() error {
 		if d.signs.signs == nil {
 			d.signs.signs = make(map[world.Pos]*signText)
 		}
-		st := signText{Front: sp.Front, Back: sp.Back}
+		st := signText{
+			Front: sp.Front, Back: sp.Back,
+			frontColor: sp.FrontColor, backColor: sp.BackColor,
+			frontGlowing: sp.FrontGlowing, backGlowing: sp.BackGlowing,
+			waxed: sp.Waxed,
+		}
 		d.signs.signs[world.Pos{X: sp.X, Y: sp.Y, Z: sp.Z}] = &st
 		d.signs.mu.Unlock()
 	}
@@ -165,6 +208,34 @@ func (s *Server) LoadServerData() error {
 		}
 		d.chests.chests[world.Pos{X: cp.X, Y: cp.Y, Z: cp.Z}] = &chestData{slots: cp.Items}
 		d.chests.mu.Unlock()
+	}
+	// Generic containers rebuild their spec from the stored block name,
+	// which also restores the shulker box's color and drop item.
+	for _, cp := range f.Containers {
+		d := s.dims[cp.Dim]
+		if d == nil {
+			d = s.dims[dimOverworld]
+		}
+		blk, ok := world.BlockState(cp.Block)
+		if !ok {
+			continue
+		}
+		spec, ok := containerSpecFor(blk)
+		if !ok {
+			continue
+		}
+		item, _ := world.ItemIDForBlockState(blk)
+		c := &containerData{
+			spec: spec, slots: make([]ItemStack, spec.slots), block: cp.Block, item: item,
+			brewTime: cp.BrewTime, fuel: cp.Fuel, disabled: cp.Disabled,
+		}
+		copy(c.slots, cp.Items)
+		d.containers.mu.Lock()
+		if d.containers.containers == nil {
+			d.containers.containers = make(map[world.Pos]*containerData)
+		}
+		d.containers.containers[world.Pos{X: cp.X, Y: cp.Y, Z: cp.Z}] = c
+		d.containers.mu.Unlock()
 	}
 	s.savedPlayers = f.Players
 	return nil

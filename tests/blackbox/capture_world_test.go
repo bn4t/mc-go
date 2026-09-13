@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"mc-go/internal/server"
 )
@@ -28,6 +29,12 @@ func TestCaptureVanillaWorld(t *testing.T) {
 
 	c, pr, _ := joinPlayBlackbox(t, tg.vanilla, "WorldProbe")
 	defer c.Close()
+	// The join burst is read to its end, and the shared client's deadline
+	// is ten seconds from the dial: under load that is not enough for the
+	// real server to finish generating and streaming the columns this
+	// capture is waiting for, and the read that runs out reports a
+	// timeout rather than a missing packet.
+	_ = c.SetDeadline(time.Now().Add(90 * time.Second))
 	var order []byte
 	gotChunk, gotLight := false, false
 	for i := 0; i < 400; i++ {

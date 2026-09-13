@@ -1223,7 +1223,10 @@ func BlockState(name string) (Block, bool) {
 	return s, ok
 }
 
-// blockNames maps a default state id back to its block name.
+// blockNames maps a block's default state id back to its name, one
+// entry per block. It exists to list the name universe; resolving an
+// arbitrary state id is StateOwner's job, because a chunk palette
+// carries every state and not just the defaults.
 var blockNames = map[Block]string{
 	10780: "acacia_button",
 	14263: "acacia_door",
@@ -2421,12 +2424,6 @@ var blockNames = map[Block]string{
 	2297: "yellow_wool",
 	11011: "zombie_head",
 	11028: "zombie_wall_head",
-}
-
-// BlockName returns the block name for a default state id.
-func BlockName(b Block) (string, bool) {
-	n, ok := blockNames[b]
-	return n, ok
 }
 
 // BlockNames lists every block name, sorted. The command

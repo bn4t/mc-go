@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,12 +17,17 @@ import (
 // op-gated packets the comparison needs.
 const rulesProbeName = "RulesProbe"
 
-// opsJSONFor builds a vanilla ops.json granting one offline-mode player
-// full operator level.
-func opsJSONFor(name string) string {
-	u := server.OfflineUUID(name)
-	return fmt.Sprintf(`[{"uuid":"%s","name":"%s","level":4,"bypassesPlayerLimit":false}]`,
-		server.DashUUID(u), name)
+// opsJSONFor builds a vanilla ops.json granting each named offline-mode
+// player full operator level. One name is the common case; a test that
+// drives two scripted clients asks for both.
+func opsJSONFor(names ...string) string {
+	entries := make([]string, 0, len(names))
+	for _, name := range names {
+		u := server.OfflineUUID(name)
+		entries = append(entries, fmt.Sprintf(`{"uuid":"%s","name":"%s","level":4,"bypassesPlayerLimit":false}`,
+			server.DashUUID(u), name))
+	}
+	return "[" + strings.Join(entries, ",") + "]"
 }
 
 // TestCaptureVanillaGameRules records the vanilla server's game-rule

@@ -110,6 +110,15 @@ func (s *Server) handleChangeDifficulty(sess *Session, p protocol.Packet) {
 	s.setDifficulty(d)
 }
 
+// setDifficultyQuiet stores the difficulty without telling anyone,
+// which is what loading a world needs: it happens at boot, before a
+// player is connected to be told.
+func (s *Server) setDifficultyQuiet(d byte) {
+	s.rulesMu.Lock()
+	s.difficulty = d
+	s.rulesMu.Unlock()
+}
+
 // setDifficulty stores the difficulty and fans the Change Difficulty
 // packet out to every player.
 func (s *Server) setDifficulty(d byte) {
@@ -407,35 +416,92 @@ func (s *Server) handleConfigurationAcknowledged(sess *Session, p protocol.Packe
 	s.handleConfig(sess)
 }
 
-// handleContainerButtonClick consumes a container button click. Vanilla
-// only routes buttons for enchantment tables, stonecutters, lecterns,
-// and the loom; mc-go has none of those menus yet, so a click on any
-// open menu is dropped exactly as vanilla drops a button click for a
-// menu without a button handler.
+// Container button ids, from the menus that have button handlers: the
+// lectern turns pages and takes its book back, the stonecutter picks a
+// recipe, the loom picks a pattern, and the enchantment table picks an
+// offer.
+const (
+	lecternButtonPrev = 1
+	lecternButtonNext = 2
+	lecternButtonTake = 3
+)
+
+// handleContainerButtonClick routes a container button click to the
+// open menu. Vanilla drops a button click when the window does not
+// match or the menu has no button handler; the only handler with an
+// effect here is the lectern's take-book button.
 func (s *Server) handleContainerButtonClick(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
-	if _, err := r.VarInt(); err != nil { // window id
+	win, err := r.VarInt()
+	if err != nil {
 		return
 	}
-	if _, err := r.VarInt(); err != nil { // button id
+	button, err := r.VarInt()
+	if err != nil {
 		return
+	}
+	sess.windowMu.Lock()
+	w := sess.window
+	sess.windowMu.Unlock()
+	if w == nil || w.container == nil || w.id != win || w.container.spec.menu != menuLectern {
+		return
+	}
+	switch button {
+	case lecternButtonTake:
+		it := sess.menuStack(lecternBook)
+		if it.Empty() {
+			return
+		}
+		sess.setMenuStack(lecternBook, ItemStack{})
+		remainder, _ := sess.addStack(it)
+		s.setCarriedLocked(sess, remainder)
+		s.syncContainerMenuSlots(sess, w, []int{lecternBook})
+	case lecternButtonPrev, lecternButtonNext:
+		// TODO(book data): turning the page needs the written book's
+		// page count (the minecraft:written_book_content component), so
+		// the page stays where it is and the property is re-sent.
+		s.sendContainerProperty(sess, w.id, 0, 0)
 	}
 }
 
-// handleContainerSlotStateChanged consumes a crafter slot toggle. The
-// crafter is the only menu with slot states; mc-go has no crafter menu,
-// so the packet is validated and dropped.
+// handleContainerSlotStateChanged records a crafter slot toggle. The
+// crafter is the only menu with per-slot states.
 func (s *Server) handleContainerSlotStateChanged(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
-	if _, err := r.VarInt(); err != nil { // slot id
+	slot, err := r.VarInt()
+	if err != nil {
 		return
 	}
-	if _, err := r.VarInt(); err != nil { // window id
+	win, err := r.VarInt()
+	if err != nil {
 		return
 	}
-	if _, err := r.Bool(); err != nil { // enabled
+	enabled, err := r.Bool()
+	if err != nil {
 		return
 	}
+	sess.windowMu.Lock()
+	w := sess.window
+	sess.windowMu.Unlock()
+	if w == nil || w.container == nil || w.id != win || !w.container.spec.crafter {
+		return
+	}
+	if slot < 0 || slot > 8 {
+		return
+	}
+	c := w.container
+	w.dim.containers.mu.Lock()
+	// The toggle is recorded so a reload keeps the client's state; which
+	// slots the crafter may fill is only observable once it can craft.
+	if enabled {
+		c.disabled &^= 1 << uint(slot)
+	} else {
+		c.disabled |= 1 << uint(slot)
+	}
+	w.dim.containers.mu.Unlock()
+	// TODO(crafter): broadcast the crafter's block-entity data so other
+	// viewers see the new toggles, and run its 3x3 crafting dispatch
+	// when the block is triggered, which needs the redstone engine.
 }
 
 // handleCookieResponse consumes a response to a Cookie Request. mc-go
@@ -464,10 +530,16 @@ func (s *Server) handleResourcePackResponse(sess *Session, p protocol.Packet) {
 	}
 }
 
-// handlePlayerLoaded records that the client finished loading terrain.
-// Vanilla uses the flag to decide when the player may interact; mc-go
-// streams chunks and accepts interactions immediately, so the flag is
-// tracked for introspection only.
+// handlePlayerLoaded records that the client finished loading terrain,
+// which is what lifts the interaction gate: until this packet arrives,
+// or loadedGraceTicks go by without it, the real server drops the
+// player's uses and digs, and mc-go does the same.
+//
+// The packet carries no body at all, which 26.2 enforces: a scripted
+// client that sends a byte with it is disconnected with "Packet
+// play/serverbound/minecraft:player_loaded (ServerboundPlayerLoadedPacket)
+// was larger than I expected". mc-go reads nothing from it, so both the
+// real client's empty packet and anything else are accepted.
 func (s *Server) handlePlayerLoaded(sess *Session, p protocol.Packet) {
 	sess.loaded.Store(true)
 }
@@ -564,14 +636,28 @@ func (s *Server) handleRecipeBookSeenRecipe(sess *Session, p protocol.Packet) {
 	sess.bookMu.Unlock()
 }
 
-// handleRenameItem consumes an anvil rename. mc-go has no anvil menu, so
-// a rename cannot legitimately arrive; vanilla ignores the packet when
-// the open menu is not an anvil, which is the behavior reproduced here.
+// handleRenameItem stores an anvil rename. Vanilla ignores the packet
+// when the open menu is not an anvil, which is what the window check
+// reproduces.
 func (s *Server) handleRenameItem(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
-	if _, err := r.String(); err != nil {
+	name, err := r.String()
+	if err != nil {
 		return
 	}
+	sess.windowMu.Lock()
+	w := sess.window
+	sess.windowMu.Unlock()
+	if w == nil || w.container == nil || w.container.spec.menu != menuAnvil {
+		return
+	}
+	c := w.container
+	w.dim.containers.mu.Lock()
+	c.rename = name
+	w.dim.containers.mu.Unlock()
+	// TODO(anvil data): apply the name as the item_name component and
+	// compute the level cost, which needs per-item repair data (max
+	// damage, enchantments, prior work penalty).
 }
 
 // handleSelectTrade consumes a villager trade selection. mc-go has no
@@ -583,16 +669,32 @@ func (s *Server) handleSelectTrade(sess *Session, p protocol.Packet) {
 	}
 }
 
-// handleSetBeacon consumes a beacon effect change. mc-go has no beacon
-// menu, so vanilla's "ignore when no beacon is open" applies.
+// handleSetBeacon stores a beacon's chosen effects. Vanilla ignores the
+// packet when no beacon menu is open.
 func (s *Server) handleSetBeacon(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
-	if _, _, err := r.OptionalVarInt(); err != nil {
+	primary, hasPrimary, err := r.OptionalVarInt()
+	if err != nil {
 		return
 	}
-	if _, _, err := r.OptionalVarInt(); err != nil {
+	secondary, hasSecondary, err := r.OptionalVarInt()
+	if err != nil {
 		return
 	}
+	sess.windowMu.Lock()
+	w := sess.window
+	sess.windowMu.Unlock()
+	if w == nil || w.container == nil || w.container.spec.menu != menuBeacon {
+		return
+	}
+	c := w.container
+	w.dim.containers.mu.Lock()
+	c.beaconPrimary, c.hasBeaconPrimary = primary, hasPrimary
+	c.beaconSecondary, c.hasBeaconSecondary = secondary, hasSecondary
+	w.dim.containers.mu.Unlock()
+	// TODO(beacon effects): apply the chosen effects to nearby players,
+	// which needs the mob-effect registry, the beacon beam block state,
+	// and the pyramid scan that decides how many effect tiers are open.
 }
 
 // handleMoveVehicle applies a vehicle position update. mc-go has no

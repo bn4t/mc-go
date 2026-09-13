@@ -15,7 +15,10 @@ import (
 func (s *Server) handlePlay(sess *Session) {
 	overworld := s.dims[dimOverworld]
 	sess.dim.Store(overworld)
-	x, y, z := s.world.Spawn()
+	// Joining opens the interaction gate; the client lifts it by
+	// reporting its terrain loaded.
+	sess.joinTick.Store(s.TickCount())
+	x, y, z := s.WorldSpawn()
 	sess.setPos(x, y, z, 0, 0, false)
 	sess.initSurvival()
 	s.applySavedPlayer(sess)
@@ -113,8 +116,6 @@ func (s *Server) handlePlay(sess *Session) {
 	if err := s.sendWindow(sess, scx, scz); err != nil {
 		return
 	}
-	// The effective chunk radius follows the loaded window.
-	s.sendChunkCacheRadius(sess)
 	// Remote-player visibility: everyone already online spawns for the
 	// joiner right after their tab-list rows arrive, along with their
 	// equipment.
@@ -402,6 +403,7 @@ func (s *Server) sendJoinGame(sess *Session) error {
 // absolute coordinates; each call issues a fresh teleport id (the spawn
 // teleport is 1) for the client to confirm.
 func (s *Server) sendSyncPos(sess *Session, x, y, z float64) error {
+	_, _, _, yaw, pitch, _ := sess.Pos()
 	id := sess.teleportNext.Add(1) - 1
 	var b protocol.Buffer
 	b.VarInt(id)
@@ -411,9 +413,9 @@ func (s *Server) sendSyncPos(sess *Session, x, y, z float64) error {
 	b.Double(0) // velocity x
 	b.Double(0) // velocity y
 	b.Double(0) // velocity z
-	b.Float(0)  // yaw
-	b.Float(0)  // pitch
-	b.Int(0)    // teleport flags: absolute
+	b.Float(yaw)
+	b.Float(pitch)
+	b.Int(0) // teleport flags: absolute
 	return sess.write(sess.ids().PlaySyncPos, b.Bytes())
 }
 

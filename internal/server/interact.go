@@ -332,6 +332,29 @@ func (s *Server) handlePlayerAbilities(sess *Session, p protocol.Packet) {
 	_ = s.sendAbilities(sess)
 }
 
+// handleChunkBatchReceived applies the client's chunk-batch
+// acknowledgement: the chunks-per-tick rate it asks for, which the
+// streaming throttle spends on ten batches from the next tick on. The
+// real server floors the request to a whole number of chunks and clamps
+// it to [1, 64], and ignores acknowledgements that do not parse.
+//
+// The first of the ten batches goes out at once rather than on a tick, as
+// it does in the real server, so a client that acknowledges every batch
+// keeps its window streaming without waiting for a tick boundary.
+func (s *Server) handleChunkBatchReceived(sess *Session, p protocol.Packet) {
+	rate, err := protocol.NewPacketReader(p.Data).Float()
+	if err != nil {
+		return
+	}
+	sess.sentMu.Lock()
+	sess.rate = chunkRate(rate)
+	sess.interval = chunkInterval(rate)
+	sess.burst = burstBatches
+	sess.cool = 0
+	sess.sentMu.Unlock()
+	_ = s.pumpChunks(sess)
+}
+
 // clientInfo is the subset of Client Information the server keeps.
 type clientInfo struct {
 	Locale       string
@@ -380,26 +403,45 @@ func parseClientInfo(data []byte) (clientInfo, bool) {
 }
 
 // handleClientInfo stores the client's settings packet.
+//
+// A view distance that changes mid-game widens or narrows the window the
+// player is being sent, and the real server acts on it at once:
+// measured on 26.2, a client that has announced nothing is sent the
+// default window and is given the whole of a larger one the moment its
+// Client Information arrives (329 columns for a view distance of 8,
+// where the default window is 49), and asking for a smaller distance
+// again takes the excess away.
 func (s *Server) handleClientInfo(sess *Session, p protocol.Packet) {
 	info, ok := parseClientInfo(p.Data)
 	if !ok {
 		return
 	}
+	before := sess.viewRadius(s.ViewDistance)
 	sess.infoMu.Lock()
 	sess.info = info
 	sess.infoMu.Unlock()
+	if sess.viewRadius(s.ViewDistance) == before || sess.state.Load() != StatePlay {
+		return
+	}
+	x, _, z, _, _, _ := sess.Pos()
+	_ = s.sendWindow(sess, int(x)>>4, int(z)>>4)
 }
 
 // viewRadius returns the effective streamed-window radius: the server's
-// view distance capped by the client's requested distance. Clients
-// that never sent Client Information get the minimal window so
-// scripted sessions stay small.
+// view distance capped by the client's requested distance.
+//
+// A client that never sent Client Information is read as asking for the
+// smallest distance the protocol allows, which is what the real server
+// falls back to: measured on 26.2, a scripted client that announces
+// nothing is sent the same 49 columns as one that asks for a view
+// distance of 2, and a client asking for 3 is sent 81 - so the fallback
+// is 2 and not the smallest window mc-go used to send.
 func (sess *Session) viewRadius(serverVD int) int {
 	sess.infoMu.Lock()
 	v := int(sess.info.ViewDistance)
 	sess.infoMu.Unlock()
-	if v <= 0 {
-		v = 1
+	if v < minViewDistance {
+		v = minViewDistance
 	}
 	if serverVD > 0 && v > serverVD {
 		v = serverVD

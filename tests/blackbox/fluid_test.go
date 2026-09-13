@@ -73,7 +73,7 @@ func TestFluidParity(t *testing.T) {
 // namedScenarioNames is the fixed comparison order for the scenarios
 // compared by block name rather than fluid level.
 func namedScenarioNames() []string {
-	return []string{"D: water reaching lava"}
+	return []string{"D: water reaching lava", "E: water falling onto lava"}
 }
 
 func sameNames(a, b map[[3]int]string) bool {
@@ -258,26 +258,44 @@ func runFluidScenarios(t *testing.T, addr, name string) fluidRun {
 	out.levels["C: lava source on flat ground"] = queryLevels(t, pw, sink, "lava", crossPositions(64, -60, 64, 6))
 
 	// D: water reaching lava. The lava is the block that gives way, and
-	// what it becomes depends on whether it was a source or a flow.
+	// what it becomes depends on whether it was a source or a flow, and
+	// on where the water arrives from.
 	lavaAt := [3]int{96, -60, 96}
 	waterAt := [3]int{97, -60, 96}
 	placeAndStep(t, pw, sink, "setblock 96 -60 96 minecraft:lava[level=0]", 40)
 	placeAndStep(t, pw, sink, "setblock 97 -60 96 minecraft:water[level=0]", settleTicks)
-	candidates := []string{"minecraft:lava", "minecraft:water", "minecraft:obsidian", "minecraft:cobblestone", "minecraft:air"}
 	around := [][3]int{lavaAt, waterAt,
 		{95, -60, 96}, {96, -60, 97}, {96, -60, 95}, {98, -60, 96}, {98, -60, 97}}
-	out.names["D: water reaching lava"] = queryNames(t, pw, sink, candidates, around)
+	out.names["D: water reaching lava"] = queryNames(t, pw, sink, fluidContactCandidates, around)
+
+	// E: water falling onto a lava flow, which is where cobblestone
+	// comes from. The lava is given its first spread first, and the
+	// water lands on the flow one block from the source.
+	genSrc := [3]int{128, -60, 128}
+	genFlow := [3]int{129, -60, 128}
+	genWater := [3]int{129, -59, 128}
+	placeAndStep(t, pw, sink, "setblock 128 -60 128 minecraft:lava[level=0]", 40)
+	placeAndStep(t, pw, sink, "setblock 129 -59 128 minecraft:water[level=0]", settleTicks)
+	out.names["E: water falling onto lava"] = queryNames(t, pw, sink, fluidContactCandidates,
+		[][3]int{genSrc, genFlow, genWater, {130, -60, 128}, {129, -58, 128}, {128, -59, 128}})
 
 	return out
 }
 
-// placeAndStep issues a placement and advances the frozen clock.
+// fluidContactCandidates is the block set a lava/water meeting can
+// produce, plus what the two fluids look like on their own.
+var fluidContactCandidates = []string{
+	"minecraft:lava", "minecraft:water", "minecraft:obsidian", "minecraft:cobblestone", "minecraft:air", "minecraft:stone",
+}
+
+// placeAndStep issues a placement and advances the frozen clock by
+// exactly the requested number of ticks, waiting for the game clock to
+// say the ticks really happened.
 func placeAndStep(t *testing.T, pw *protocol.Writer, sink *chatSink, place string, ticks int) {
 	t.Helper()
 	sendCommand(t, pw, place)
 	waitDrained(t, pw, sink)
-	sendCommand(t, pw, fmt.Sprintf("tick step %d", ticks))
-	waitDrained(t, pw, sink)
+	sprintTicks(t, pw, sink, ticks)
 }
 
 // crossPositions is the two axes plus both diagonals through a centre,
@@ -447,7 +465,7 @@ func queryNames(t *testing.T, pw *protocol.Writer, sink *chatSink, candidates []
 // multiplies a spreading fluid's delay by four at random, so the shape
 // converges long before the furthest block arrives. Comparing mid-flow
 // would compare nothing but the two servers' luck.
-const settleTicks = 2000
+const settleTicks = 400
 
 // commandPace is the gap between probe commands. Vanilla's command
 // throttle drops packets above roughly one per tick, so the probe paces

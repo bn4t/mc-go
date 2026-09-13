@@ -57,7 +57,6 @@ func TestIgnoreServerboundIsDeliberate(t *testing.T) {
 	// the list explicit means adding a new no-op route requires a
 	// deliberate edit here as well.
 	wantIgnored := []string{
-		"chunk_batch_received",
 		"client_tick_end",
 		"jigsaw_generate",
 		"set_command_block",

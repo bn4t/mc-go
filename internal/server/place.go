@@ -92,6 +92,12 @@ const placeReachM = 6.5
 // as a one-byte varint first). Denials still ack the sequence so the
 // client retires its prediction instead of desyncing.
 func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
+	// A use in the first moments of a session, before the client has
+	// reported its terrain loaded, is dropped whole: no placement, no
+	// editor, no acknowledgement.
+	if !sess.interactionsOpen(s.TickCount()) {
+		return
+	}
 	r := protocol.NewPacketReader(p.Data)
 	if _, err := r.VarInt(); err != nil { // hand
 		return
@@ -144,45 +150,18 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	if cur == world.Air {
 		return // no block targeted: ack only
 	}
-	// Interacting with a sign opens its editor instead of placing.
-	if isSignBlock(cur) {
-		s.sendOpenSignEditor(sess, clicked, true)
+	// Interacting with a sign dyes it, waxes it, makes its text glow,
+	// or opens its editor - it never places.
+	if isSignLikeBlock(cur) {
+		s.useSign(sess, d, clicked, cur)
 		acked = true
 		if seq >= 0 {
 			s.sendBlockAck(sess, seq)
 		}
 		return
 	}
-	// Chests open their container window.
-	if isChestBlock(cur) {
-		s.openChest(sess, clicked)
-		acked = true
-		if seq >= 0 {
-			s.sendBlockAck(sess, seq)
-		}
-		return
-	}
-	// Hoppers open their five-slot menu.
-	if isHopperBlock(cur) {
-		s.openHopper(sess, clicked)
-		acked = true
-		if seq >= 0 {
-			s.sendBlockAck(sess, seq)
-		}
-		return
-	}
-	// Crafting tables open the 3x3 crafting menu.
-	if isCraftingTableBlock(cur) {
-		s.openCraftingTable(sess, clicked)
-		acked = true
-		if seq >= 0 {
-			s.sendBlockAck(sess, seq)
-		}
-		return
-	}
-	// Furnaces open their smelting window.
-	if isFurnaceBlock(cur) {
-		s.openFurnace(sess, clicked)
+	// Container blocks open their menu instead of placing.
+	if s.openBlockMenu(sess, cur, clicked) {
 		acked = true
 		if seq >= 0 {
 			s.sendBlockAck(sess, seq)
@@ -214,6 +193,18 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		return // not a placeable block-item: ack only
 	}
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
+	// A shulker box placed out of a stack that came with contents (it
+	// was broken with items inside) restores them, so the box keeps its
+	// contents across a move.
+	if isShulkerBoxBlock(blk) {
+		if held := sess.heldStack(); held.Contents != nil {
+			if c := s.containerAt(sess.dimension(), target); c != nil {
+				sess.dimension().containers.mu.Lock()
+				copy(c.slots, held.Contents[:])
+				sess.dimension().containers.mu.Unlock()
+			}
+		}
+	}
 	acked = true
 	if seq >= 0 {
 		s.sendBlockAck(sess, seq)

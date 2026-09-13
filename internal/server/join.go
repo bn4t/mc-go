@@ -109,26 +109,47 @@ func (s *Server) sendInitializeBorder(sess *Session) error {
 	return sess.write(sess.ids().PlayInitializeBorder, b.Bytes())
 }
 
-// sendUpdateTime sends the world age and clock states. Two clocks
-// (overworld, the_end) tick with the world, matching vanilla's flat
-// world setup.
+// sendUpdateTime sends the world age and the clock states, matching the
+// real server field for field: the world age, then two clock entries -
+// the game-time clock (id 1) and the day clock (id 0) - each with its
+// time, a fractional part and a rate of one tick per tick.
 func (s *Server) sendUpdateTime(sess *Session) error {
+	return sess.write(sess.ids().PlayUpdateTime, s.updateTimeBody())
+}
+
+// updateTimeBody builds an Update Time body for the current clocks.
+func (s *Server) updateTimeBody() []byte {
 	age := s.worldAgeTicks()
 	var b protocol.Buffer
 	b.Long(age)
 	b.VarInt(2)
-	for id := int32(0); id < 2; id++ {
-		b.VarInt(id)
-		b.VarLong(age)
-		b.Float(0) // fractional time
-		b.Float(1) // rate: clock ticks per client tick
-	}
-	return sess.write(sess.ids().PlayUpdateTime, b.Bytes())
+	b.VarInt(1)
+	b.VarLong(age)
+	b.Float(0) // fractional time
+	b.Float(1) // rate: clock ticks per client tick
+	b.VarInt(0)
+	b.VarLong(s.dayTime())
+	b.Float(0)
+	b.Float(1)
+	return b.Bytes()
+}
+
+// broadcastUpdateTime pushes Update Time to every play-stage session,
+// which is what /time set and /time add do on the real server.
+func (s *Server) broadcastUpdateTime() {
+	body := s.updateTimeBody()
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() == StatePlay {
+			_ = sess.write(sess.ids().PlayUpdateTime, body)
+		}
+		return true
+	})
 }
 
 // sendDefaultSpawn syncs the world spawn point.
 func (s *Server) sendDefaultSpawn(sess *Session) error {
-	x, y, z := s.world.Spawn()
+	x, y, z := s.WorldSpawn()
 	var b protocol.Buffer
 	b.String("minecraft:overworld")
 	b.Position(int32(x-0.5), int32(y+1), int32(z-0.5))

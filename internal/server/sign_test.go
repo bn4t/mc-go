@@ -20,6 +20,16 @@ func TestSignBlockEntityLifecycle(t *testing.T) {
 		t.Fatal("sign block entity not created")
 	}
 
+	// A sign editor belongs to the player who opened it - the real server
+	// answers an update_sign from anyone else with nothing at all - so
+	// the test opens the editor the way a player does, standing in front
+	// of the sign within reach.
+	sess.setPos(4.5, 4.5, 3.5, 0, 0, true)
+	s.handleUseItem(sess, useItemPkt(0, 4, 4, 4, 2, nil))
+	if s.signEditorHolder(s.dims[dimOverworld], pos) != sess {
+		t.Fatal("sign editor not opened by the use")
+	}
+
 	// Edit the front text.
 	var b protocol.Buffer
 	b.Position(int32(pos.X), int32(pos.Y), int32(pos.Z))

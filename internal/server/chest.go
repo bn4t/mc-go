@@ -30,7 +30,7 @@ type chestStore struct {
 
 // isChestBlock reports whether a block state is a chest.
 func isChestBlock(b world.Block) bool {
-	name, ok := world.BlockName(b)
+	name, ok := world.StateOwner(b)
 	if !ok {
 		return false
 	}
@@ -91,21 +91,29 @@ func (s *Server) removeChest(d *dimension, pos world.Pos) {
 // openWindow describes one session's open container window. dim is the
 // dimension whose block-entity store owns the container.
 type openWindow struct {
-	id      int32
-	pos     world.Pos
-	dim     *dimension
-	chest   *chestData
-	furnace *furnaceData
-	craft   *craftTable
-	hopper  *hopperData
-	kind    int32 // menu registry id
+	id        int32
+	pos       world.Pos
+	dim       *dimension
+	chest     *chestData
+	furnace   *furnaceData
+	craft     *craftTable
+	hopper    *hopperData
+	container *containerData
+	kind      int32 // menu registry id
 }
 
 // containerSize is the number of container-side slots (before the
 // player rows).
 func (w *openWindow) containerSize() int {
-	if w.furnace != nil {
+	switch {
+	case w.furnace != nil:
 		return furnaceSlots
+	case w.hopper != nil:
+		return hopperSlots
+	case w.craft != nil:
+		return 1 + craftTableGrid
+	case w.container != nil:
+		return w.container.spec.slots
 	}
 	return chestSlots
 }
@@ -166,6 +174,11 @@ func (sess *Session) menuStack(slot int) ItemStack {
 			defer w.dim.furnaces.mu.Unlock()
 			return w.furnace.slots[slot]
 		}
+		if w.container != nil {
+			w.dim.containers.mu.Lock()
+			defer w.dim.containers.mu.Unlock()
+			return w.container.slots[slot]
+		}
 		w.dim.chests.mu.Lock()
 		defer w.dim.chests.mu.Unlock()
 		return w.chest.slots[slot]
@@ -190,7 +203,19 @@ func (sess *Session) setMenuStack(slot int, it ItemStack) {
 		if w.furnace != nil {
 			w.dim.furnaces.mu.Lock()
 			w.furnace.slots[slot] = it
+			if slot == furnaceInput {
+				// Writing the input slot is what makes the real server
+				// recompute the cook total: a player dropping an item in
+				// is one of the three ways it happens.
+				w.furnace.refreshCookTotal()
+			}
 			w.dim.furnaces.mu.Unlock()
+			return
+		}
+		if w.container != nil {
+			w.dim.containers.mu.Lock()
+			w.container.slots[slot] = it
+			w.dim.containers.mu.Unlock()
 			return
 		}
 		w.dim.chests.mu.Lock()
@@ -281,7 +306,7 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 				continue // never quick-move into the output
 			}
 			other := sess.menuStack(i)
-			if other.Empty() || other.ID != moving.ID {
+			if !other.Stackable(moving) {
 				continue
 			}
 			room := maxStack - other.Count

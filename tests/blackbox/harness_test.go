@@ -11,12 +11,14 @@ package blackbox
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -56,25 +58,7 @@ func requireBlackboxCfg(t *testing.T, vanillaProps map[string]string, mcgo func(
 // comparing them against vanilla needs an operator).
 func requireBlackboxFiles(t *testing.T, vanillaProps, vanillaFiles map[string]string, mcgo func(*server.Server)) targets {
 	t.Helper()
-	if os.Getenv(enableProp) != "1" {
-		t.Skipf("set %s=1 to run comparison against the Mojang server", enableProp)
-	}
-	if out, err := exec.Command("java", "-version").CombinedOutput(); err != nil {
-		t.Skipf("no working java runtime (%v): %s", err, firstLine(out))
-	}
-	jar := os.Getenv(vanillaProp)
-	if jar == "" {
-		jar = filepath.Join("..", "..", "vanilla", "server-26.2.jar")
-	}
-	if _, err := os.Stat(jar); err != nil {
-		t.Skipf("vanilla jar not found at %s: %v", jar, err)
-	}
-	// startVanilla runs java with cwd set to a temp dir, so the jar
-	// path must be absolute before it is handed over.
-	jar, err := filepath.Abs(jar)
-	if err != nil {
-		t.Fatalf("resolve jar path %s: %v", jar, err)
-	}
+	jar := blackboxJar(t)
 	vPort, ok := freePort()
 	if !ok {
 		t.Skip("loopback binds blocked in this environment")
@@ -91,6 +75,33 @@ func requireBlackboxFiles(t *testing.T, vanillaProps, vanillaFiles map[string]st
 		mcgo:    mAddr,
 		cleanup: stopVanilla,
 	}
+}
+
+// blackboxJar is the real server jar, absolute, or a skip: the suite's
+// requirements are one check, and a test that boots the jar itself
+// (rather than through requireBlackboxFiles) needs the same guard.
+func blackboxJar(t *testing.T) string {
+	t.Helper()
+	if os.Getenv(enableProp) != "1" {
+		t.Skipf("set %s=1 to run comparison against the Mojang server", enableProp)
+	}
+	if out, err := exec.Command("java", "-version").CombinedOutput(); err != nil {
+		t.Skipf("no working java runtime (%v): %s", err, firstLine(out))
+	}
+	jar := os.Getenv(vanillaProp)
+	if jar == "" {
+		jar = filepath.Join("..", "..", "vanilla", "server-26.2.jar")
+	}
+	if _, err := os.Stat(jar); err != nil {
+		t.Skipf("vanilla jar not found at %s: %v", jar, err)
+	}
+	// java runs with cwd set to a temp dir, so the jar path must be
+	// absolute before it is handed over.
+	jar, err := filepath.Abs(jar)
+	if err != nil {
+		t.Fatalf("resolve jar path %s: %v", jar, err)
+	}
+	return jar
 }
 
 func freePort() (int, bool) {
@@ -122,10 +133,22 @@ func startVanillaCfg(t *testing.T, jar string, port int, extra map[string]string
 // and any extra files the caller needs in place before boot.
 func startVanillaCfgFiles(t *testing.T, jar string, port int, extra, files map[string]string) (string, func()) {
 	t.Helper()
-	dir := t.TempDir()
+	return startVanillaInDir(t, jar, port, extra, files, "")
+}
+
+// writeVanillaServerDir lays out a server's working directory: the
+// eula, server.properties (the shared comparison configuration plus
+// extra), and whatever files the caller needs in place before boot.
+// Files may name subdirectories; they are created as needed.
+func writeVanillaServerDir(t *testing.T, dir string, port int, extra, files map[string]string) {
+	t.Helper()
 	vanillaDirForDebug = dir
 	write := func(name, body string) {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -173,7 +196,114 @@ func startVanillaCfgFiles(t *testing.T, jar string, port int, extra, files map[s
 	for name, body := range files {
 		write(name, body)
 	}
+}
 
+// vanillaConsole is a real server whose console is a pipe, so a test
+// can run commands and ask it to stop gracefully. That last part is
+// what world-save tests need and the ordinary harness cannot give:
+// vanilla only writes its world on `/save-all` or on a clean stop, and
+// the harness ends a test by killing the process.
+//
+// The returned wait blocks until the server exits and reports its exit
+// code; stopping it properly is the caller's job (send "stop"), and any
+// leftover process is killed at cleanup.
+func vanillaConsole(t *testing.T, jar string, port int, extra, files map[string]string, dir string) (addr string, say func(string), wait func() int) {
+	t.Helper()
+	if dir == "" {
+		dir = t.TempDir()
+	}
+	writeVanillaServerDir(t, dir, port, extra, files)
+	cmd := exec.Command("java", "-jar", jar, "--nogui")
+	cmd.Dir = dir
+	log, err := os.Create(filepath.Join(dir, "vanilla.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+	cmd.Stdout = log
+	cmd.Stderr = log
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start vanilla: %v", err)
+	}
+	done := make(chan int, 1)
+	go func() {
+		err := cmd.Wait()
+		code := 0
+		if err != nil {
+			if ee, ok := err.(*exec.ExitError); ok {
+				code = ee.ExitCode()
+			} else {
+				code = -1
+			}
+		}
+		done <- code
+	}()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		select {
+		case <-done:
+		default:
+		}
+	})
+
+	addr = fmt.Sprintf("127.0.0.1:%d", port)
+	deadline := time.Now().Add(90 * time.Second)
+	ready := false
+	for time.Now().Before(deadline) {
+		select {
+		case <-done:
+			out, _ := os.ReadFile(filepath.Join(dir, "vanilla.log"))
+			t.Fatalf("vanilla exited before it was ready, log tail:\n%s", tail(out, 3000))
+		default:
+		}
+		if probeStatus(addr) {
+			ready = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !ready {
+		out, _ := os.ReadFile(filepath.Join(dir, "vanilla.log"))
+		t.Fatalf("vanilla not ready in 90s, log tail:\n%s", tail(out, 3000))
+	}
+
+	say = func(line string) {
+		if _, err := io.WriteString(in, line+"\n"); err != nil {
+			t.Fatalf("vanilla console %q: %v", line, err)
+		}
+		// The console reads a line per tick; a short pause keeps a
+		// burst of commands from overtaking each other.
+		time.Sleep(400 * time.Millisecond)
+	}
+	wait = func() int {
+		select {
+		case code := <-done:
+			return code
+		case <-time.After(90 * time.Second):
+			vanillaLogTail(t)
+			t.Fatalf("vanilla did not exit in 90s")
+			return -1
+		}
+	}
+	return addr, say, wait
+}
+
+// startVanillaInDir is startVanillaCfgFiles with the working directory
+// chosen by the caller, which is what a test needs when it hands the
+// server a world that already exists: the world directory is a
+// subdirectory of the server's own working directory, so both have to
+// be the caller's to place. An empty dir means a fresh temporary one.
+// Files may name subdirectories; they are created as needed.
+func startVanillaInDir(t *testing.T, jar string, port int, extra, files map[string]string, dir string) (string, func()) {
+	t.Helper()
+	if dir == "" {
+		dir = t.TempDir()
+	}
+	writeVanillaServerDir(t, dir, port, extra, files)
 	cmd := exec.Command("java", "-jar", jar, "--nogui")
 	cmd.Dir = dir
 	log, err := os.Create(filepath.Join(dir, "vanilla.log"))
@@ -242,6 +372,23 @@ func startMcGoCfg(t *testing.T, port int, mutate func(*server.Server)) string {
 	return ""
 }
 
+// lockedConn serialises writes to one connection. A framed packet is
+// written with two Write calls - the length prefix, then the body - so
+// two goroutines writing at once, a test body and the sink goroutine
+// answering keep-alives, interleave halves of two frames and desync the
+// server's decoder. Everything the harness hands a test writes through
+// one of these.
+type lockedConn struct {
+	mu sync.Mutex
+	c  net.Conn
+}
+
+func (l *lockedConn) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.c.Write(p)
+}
+
 // client dials addr and returns framed reader/writer.
 func client(t *testing.T, addr string) (net.Conn, *protocol.Reader, *protocol.Writer) {
 	t.Helper()
@@ -250,7 +397,7 @@ func client(t *testing.T, addr string) (net.Conn, *protocol.Reader, *protocol.Wr
 		t.Fatalf("dial %s: %v", addr, err)
 	}
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
-	return c, protocol.NewReader(c), protocol.NewWriter(c)
+	return c, protocol.NewReader(c), protocol.NewWriter(&lockedConn{c: c})
 }
 
 func handshake(pw *protocol.Writer, next int32) error {
@@ -295,4 +442,58 @@ func tail(b []byte, n int) string {
 		return string(b)
 	}
 	return string(b[len(b)-n:])
+}
+
+// ackChunkBatch answers one finished chunk batch, asking for the highest
+// rate the protocol allows - what a real client does every time a batch
+// lands, and what releases the next batch of the player's window (see
+// server.pumpChunks for the measured pacing).
+func ackChunkBatch(pw *protocol.Writer) error {
+	var b protocol.Buffer
+	b.Float(64)
+	return pw.WritePacket(server.IDPlayChunkBatchRecvSB, b.Bytes())
+}
+
+// drainChunkWindow reads until the connection has been quiet for the
+// given period, answering chunk batches so the server streams the whole
+// window, and returns the Chunk Data packets it saw in arrival order.
+// Keep-alives are answered too: the helper is used where a client would
+// otherwise sit idle while its window arrives.
+func drainChunkWindow(t *testing.T, tag string, c net.Conn, pr *protocol.Reader, pw *protocol.Writer, quiet time.Duration) []protocol.Packet {
+	t.Helper()
+	var chunks []protocol.Packet
+	for {
+		if err := c.SetReadDeadline(time.Now().Add(quiet)); err != nil {
+			t.Fatalf("%s: %v", tag, err)
+		}
+		p, err := pr.ReadPacket()
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				break
+			}
+			t.Fatalf("%s chunk stream: %v", tag, err)
+		}
+		switch p.ID {
+		case server.IDPlayChunkData:
+			chunks = append(chunks, p)
+		case server.IDPlayChunkBatchDone:
+			if err := ackChunkBatch(pw); err != nil {
+				t.Fatalf("%s: %v", tag, err)
+			}
+		case server.IDPlayKeepAliveCB:
+			if err := pw.WritePacket(server.IDPlayKeepAliveSB, p.Data); err != nil {
+				t.Fatalf("%s: %v", tag, err)
+			}
+		case server.IDPlaySyncPos:
+			if id, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
+				var b protocol.Buffer
+				b.VarInt(id)
+				if err := pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes()); err != nil {
+					t.Fatalf("%s: %v", tag, err)
+				}
+			}
+		}
+	}
+	_ = c.SetReadDeadline(time.Time{})
+	return chunks
 }

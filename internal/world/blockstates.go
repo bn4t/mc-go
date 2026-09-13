@@ -143,6 +143,29 @@ func BlockStateOf(name string, props map[string]string) (Block, bool) {
 	return s, ok
 }
 
+// BlockProperties returns every property of a state by name, which is
+// what a chunk palette entry carries: the real server writes all of a
+// block's properties, defaults included - a grass block is saved as
+// {snowy: "false"} - and omits the map only for the blocks that have no
+// properties at all. A map that dropped the defaulted properties would
+// still read back as the same state, but it is not the same file.
+func BlockProperties(b Block) map[string]string {
+	bi := ownerIndex(int(b))
+	if bi < 0 || int(b) >= len(statePacked) {
+		return nil
+	}
+	sc := blockSchemas[bi]
+	if len(sc.Names) == 0 {
+		return nil
+	}
+	idx := unpackProps(bi, statePacked[b])
+	out := make(map[string]string, len(sc.Names))
+	for j, name := range sc.Names {
+		out[name] = sc.Values[j][idx[j]]
+	}
+	return out
+}
+
 // StateOwner returns the block name owning a state id.
 func StateOwner(b Block) (string, bool) {
 	bi := ownerIndex(int(b))

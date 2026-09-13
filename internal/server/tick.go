@@ -25,6 +25,15 @@ type tickClock struct {
 	frozen bool
 	rate   float64
 	count  int64
+	// base is the game time a loaded world resumes from: the count a
+	// previous run wrote into level.dat. TickCount reports count+base
+	// so /time query gametime and the world-age packets continue where
+	// the saved world left off instead of restarting at zero.
+	base int64
+	// day is the world's daytime counter, the clock the client draws
+	// its sky from. It advances with the game clock (/time set and
+	// /time add move it) and stops when the game is frozen.
+	day int64
 	// frozenAt is TickCount when the freeze began, so /tick query can
 	// report how long the game has been frozen.
 	frozenAt int64
@@ -42,7 +51,17 @@ type tickClock struct {
 // sleep before acting; run reports whether a tick should then be
 // advanced. A frozen clock returns run=false, so the loop keeps sleeping
 // without touching the simulation.
-func (c *tickClock) next() (wait time.Duration, run bool) {
+//
+// since is how long the tick that has just finished took, and the wait
+// is what is left of the next tick's budget after it. That is the real
+// server's own arithmetic, and it is not the same thing as sleeping a
+// whole period after each tick: a flat sleep makes the period the tick's
+// own duration plus the sleep, so a tick that takes as long as a tick
+// halves the rate. Measured on 26.2 with a client asking for batches of
+// 25: the real server's batches came one tick apart, and a loop that
+// slept a flat period sent them two apart, because serializing the
+// twenty-five columns inside the tick took about as long as the tick.
+func (c *tickClock) next(since time.Duration) (wait time.Duration, run bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.frozen {
@@ -52,7 +71,14 @@ func (c *tickClock) next() (wait time.Duration, run bool) {
 	if rate <= 0 {
 		rate = DefaultTickRate
 	}
-	return time.Duration(float64(time.Second) / rate), true
+	period := time.Duration(float64(time.Second) / rate)
+	if wait := period - since; wait > 0 {
+		return wait, true
+	}
+	// The tick overran its budget: the next one starts at once. The rate
+	// is then the fastest the server can manage, which is what the real
+	// server reports as a tick rate below twenty.
+	return 0, true
 }
 
 func (c *tickClock) tickRate() float64 {
@@ -92,6 +118,20 @@ func (c *tickClock) setFrozen(frozen bool) {
 	c.frozen = frozen
 }
 
+// isFrozen reports whether the game is frozen, which /tick step needs.
+func (c *tickClock) isFrozen() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.frozen
+}
+
+// isSprinting reports whether a /tick sprint is running.
+func (c *tickClock) isSprinting() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sprinting
+}
+
 // status is a snapshot for /tick query.
 type tickStatus struct {
 	Count     int64
@@ -120,11 +160,42 @@ func (c *tickClock) status() tickStatus {
 	return st
 }
 
-// TickCount is the number of completed game ticks.
+// gameTime is the number of completed game ticks: vanilla's game time,
+// what /time query gametime reports and the world age the client is
+// synced with. It stops while the game is frozen, as vanilla's does.
+func (s *Server) gameTime() int64 { return s.TickCount() }
+
+// dayTime is the world's daytime counter, in ticks since the world
+// began. /time set and /time add move it, and the client's sky follows
+// it.
+func (s *Server) dayTime() int64 {
+	s.clock.mu.Lock()
+	defer s.clock.mu.Unlock()
+	return s.clock.day
+}
+
+// setDayTime applies /time set and /time add.
+func (s *Server) setDayTime(day int64) {
+	s.clock.mu.Lock()
+	s.clock.day = day
+	s.clock.mu.Unlock()
+	s.broadcastUpdateTime()
+}
+
+// TickCount is the number of completed game ticks: this run's ticks
+// plus the base a loaded world resumed from.
 func (s *Server) TickCount() int64 {
 	s.clock.mu.Lock()
 	defer s.clock.mu.Unlock()
-	return s.clock.count
+	return s.clock.count + s.clock.base
+}
+
+// setGameTimeBase seeds the game time from a loaded world's level.dat.
+// It runs at boot, before any tick, so nothing has to be rewound.
+func (s *Server) setGameTimeBase(base int64) {
+	s.clock.mu.Lock()
+	s.clock.base = base
+	s.clock.mu.Unlock()
 }
 
 // SetTickRate applies /tick rate.
@@ -152,10 +223,21 @@ func (s *Server) StepTicks(n int64) {
 // SprintTicks runs n ticks back to back in the background, stopping
 // early if StopSprint is called. Vanilla's /tick sprint returns at once
 // and simulates as fast as the machine allows.
+//
+// A sprint of n simulates n+1 ticks, which is the real server's own
+// count and not a rounding of it: measured on 26.2, three sprints of ten
+// in a row moved the game clock by exactly eleven each and a sprint of
+// forty moved it by forty-one, read off /time query gametime and off the
+// cook and burn counters of a furnace that had never been lit, which can
+// only move on a simulated tick. The command is handled inside a tick and
+// the sprint applies to the rest of that tick too, so the tick it arrived
+// on is simulated along with the n it asks for. /tick step is answered
+// the same way and simulates exactly n.
 func (s *Server) SprintTicks(n int64) {
 	if n < 1 {
 		n = 1
 	}
+	n++
 	s.clock.mu.Lock()
 	s.clock.sprinting = true
 	s.clock.mu.Unlock()
@@ -193,8 +275,10 @@ func (s *Server) StopSprint() {
 // the world deterministically instead of sleeping and hoping.
 func (s *Server) GameTick() {
 	s.itemTickStep()
+	s.digTickStep()
 	s.mobTickStep()
 	s.furnaceTickStep()
+	s.containerTickStep()
 	s.hungerTickStep()
 	s.combatTickStep()
 	s.hopperTickStep()
@@ -203,18 +287,31 @@ func (s *Server) GameTick() {
 	s.portalTickStep()
 	s.scheduledTickStep()
 	s.randomTickStep()
+	// Chunk streaming is paced on the tick, like everything else: one
+	// batch per tick per player, at the rate their client asked for.
+	s.chunkTickStep()
 
 	s.clock.mu.Lock()
 	s.clock.count++
+	// The day clock is the one game time can pause: with
+	// advance_time off (doDaylightCycle in older versions) the sun
+	// stops, while the world age - the tick counter - keeps counting.
+	if s.gameRuleBool("minecraft:advance_time") {
+		s.clock.day++
+	}
 	s.clock.mu.Unlock()
 }
 
 // runGameLoop drives GameTick on the clock's schedule until stop
 // closes. Delays are recomputed every iteration so /tick rate takes
 // effect on the next tick, and a frozen clock simply never advances.
+// Each sleep is what is left of the tick's budget once the tick itself
+// has run, so a slow tick eats into its own period rather than adding to
+// it (see tickClock.next).
 func (s *Server) runGameLoop(stop chan struct{}) {
+	var since time.Duration
 	for {
-		wait, run := s.clock.next()
+		wait, run := s.clock.next(since)
 		if wait > 0 {
 			t := time.NewTimer(wait)
 			select {
@@ -229,11 +326,15 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 			return
 		default:
 		}
-		if run {
-			s.clock.runMu.Lock()
-			s.GameTick()
-			s.clock.runMu.Unlock()
+		if !run {
+			since = 0
+			continue
 		}
+		start := time.Now()
+		s.clock.runMu.Lock()
+		s.GameTick()
+		s.clock.runMu.Unlock()
+		since = time.Since(start)
 	}
 }
 

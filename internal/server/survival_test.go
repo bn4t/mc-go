@@ -26,11 +26,16 @@ func TestSurvivalDigDropsItemAfterBreakTime(t *testing.T) {
 	s.world.SetBlock(pos, world.Dirt)
 
 	s.handleDigSurvival(sess, pos, digStart)
-	// Backdate the dig so the break is complete.
-	sess.digMu.Lock()
-	sess.digStart = time.Now().Add(-5 * time.Second)
-	sess.digMu.Unlock()
 	s.handleDigSurvival(sess, pos, digFinish)
+	// Dirt is hardness 0.5 and bare hands harvest it, so vanilla's
+	// formula gives 15 ticks of progress.
+	for i := 0; i < 14; i++ {
+		s.digTickStep()
+	}
+	if got := s.world.GetBlock(pos); got != world.Dirt {
+		t.Fatalf("block broke after 14 of 15 ticks: %d", got)
+	}
+	s.digTickStep()
 
 	if got := s.world.GetBlock(pos); got != world.Air {
 		t.Fatalf("block = %d, want air", got)
@@ -59,13 +64,86 @@ func TestSurvivalFinishBreaksTrackedStart(t *testing.T) {
 	s.world.SetBlock(pos, world.Dirt)
 
 	s.handleDigSurvival(sess, pos, digStart)
-	// A dig must span at least one server tick.
-	sess.digMu.Lock()
-	sess.digStart = time.Now().Add(-100 * time.Millisecond)
-	sess.digMu.Unlock()
 	s.handleDigSurvival(sess, pos, digFinish)
+	for i := 0; i < 15; i++ {
+		s.digTickStep()
+	}
 	if got := s.world.GetBlock(pos); got != world.Air {
 		t.Fatal("tracked dig did not break on finish")
+	}
+}
+
+// A dig that is never committed by a finish is not destroyed, however
+// long the player stares at it (verified against the real server).
+func TestSurvivalStartAloneNeverBreaks(t *testing.T) {
+	s := New("unused")
+	sess := survivalSession(t, s, "Starr")
+	pos := world.Pos{X: 0, Y: 0, Z: 0}
+	s.world.SetBlock(pos, world.Dirt)
+
+	s.handleDigSurvival(sess, pos, digStart)
+	for i := 0; i < 600; i++ {
+		s.digTickStep()
+	}
+	if got := s.world.GetBlock(pos); got != world.Dirt {
+		t.Fatal("an uncommitted dig broke the block")
+	}
+}
+
+// An abort discards the dig entirely, and the finish that follows has
+// nothing to commit (the real server ignores a stop with no start).
+func TestSurvivalAbortResetsProgress(t *testing.T) {
+	s := New("unused")
+	sess := survivalSession(t, s, "Fickle")
+	pos := world.Pos{X: 0, Y: 0, Z: 0}
+	s.world.SetBlock(pos, world.Dirt)
+
+	s.handleDigSurvival(sess, pos, digStart)
+	s.handleDigSurvival(sess, pos, digCancel)
+	s.handleDigSurvival(sess, pos, digFinish)
+	for i := 0; i < 200; i++ {
+		s.digTickStep()
+	}
+	if got := s.world.GetBlock(pos); got != world.Dirt {
+		t.Fatal("cancelled dig still broke the block")
+	}
+	if sess.digActive {
+		t.Fatal("a finish with no start opened a dig")
+	}
+}
+
+// A second start on the same block cancels the dig, as the real server
+// does (it resyncs the client instead of completing the break).
+func TestSurvivalDuplicateStartCancels(t *testing.T) {
+	s := New("unused")
+	sess := survivalSession(t, s, "Twitchy")
+	pos := world.Pos{X: 0, Y: 0, Z: 0}
+	s.world.SetBlock(pos, world.Dirt)
+
+	s.handleDigSurvival(sess, pos, digStart)
+	s.handleDigSurvival(sess, pos, digFinish)
+	for i := 0; i < 8; i++ {
+		s.digTickStep()
+	}
+	s.handleDigSurvival(sess, pos, digStart)
+	for i := 0; i < 200; i++ {
+		s.digTickStep()
+	}
+	if got := s.world.GetBlock(pos); got != world.Dirt {
+		t.Fatal("restarted dig completed without a finish")
+	}
+}
+
+// Out-of-reach digs are refused outright.
+func TestSurvivalDigBeyondReachIgnored(t *testing.T) {
+	s := New("unused")
+	sess := survivalSession(t, s, "Farmer")
+	pos := world.Pos{X: 12, Y: 0, Z: 12}
+	s.world.SetBlock(pos, world.Dirt)
+
+	s.handleDigSurvival(sess, pos, digStart)
+	if sess.digActive {
+		t.Fatal("started a dig twelve blocks away")
 	}
 }
 
@@ -88,10 +166,16 @@ func TestSurvivalStoneNeedsTool(t *testing.T) {
 	s.world.SetBlock(pos, world.Stone)
 
 	s.handleDigSurvival(sess, pos, digStart)
-	sess.digMu.Lock()
-	sess.digStart = time.Now().Add(-time.Minute)
-	sess.digMu.Unlock()
 	s.handleDigSurvival(sess, pos, digFinish)
+	// Stone needs a pickaxe, so bare hands run at the slow rate: 150
+	// ticks, 7.5 seconds.
+	for i := 0; i < 149; i++ {
+		s.digTickStep()
+	}
+	if got := s.world.GetBlock(pos); got != world.Stone {
+		t.Fatal("stone broke early without a pickaxe")
+	}
+	s.digTickStep()
 	if got := s.world.GetBlock(pos); got != world.Air {
 		t.Fatalf("stone did not break: %d", got)
 	}
@@ -108,14 +192,14 @@ func TestSurvivalBedrockUnbreakable(t *testing.T) {
 	sess := survivalSession(t, s, "Miner")
 	pos := world.Pos{X: 4, Y: -64, Z: 4}
 	blk := s.world.GetBlock(pos)
-	if name, _ := world.BlockName(blk); name != "bedrock" {
+	if name, _ := world.StateOwner(blk); name != "bedrock" {
 		t.Fatalf("expected bedrock at floor, got %q", name)
 	}
 	s.handleDigSurvival(sess, pos, digStart)
-	sess.digMu.Lock()
-	sess.digStart = time.Now().Add(-time.Hour)
-	sess.digMu.Unlock()
 	s.handleDigSurvival(sess, pos, digFinish)
+	for i := 0; i < 400; i++ {
+		s.digTickStep()
+	}
 	if got := s.world.GetBlock(pos); got != blk {
 		t.Fatal("bedrock broke")
 	}

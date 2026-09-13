@@ -71,11 +71,16 @@ type Session struct {
 	// Client settings from Client Information.
 	infoMu sync.Mutex
 	info   clientInfo
-	// Survival digging state.
-	digMu     sync.Mutex
-	digPos    world.Pos
-	digStart  time.Time
-	digActive bool
+	// Survival digging state (see digTickStep): the block being dug,
+	// how many ticks of progress it has, and whether the client has
+	// confirmed the dig with a finish (stop) action.
+	digMu        sync.Mutex
+	digPos       world.Pos
+	digBlock     world.Block
+	digTicks     int
+	digNeeded    int
+	digConfirmed bool
+	digActive    bool
 	// Survival player state (touched only from the session read loop).
 	health       float32
 	food         int32
@@ -118,9 +123,32 @@ type Session struct {
 	// completes; leave fan-out only fires for spawned sessions.
 	entityID atomic.Int32
 	spawned  atomic.Bool
-	// Streamed columns, guarded by sentMu.
-	sentMu sync.Mutex
-	sent   map[[2]int]bool
+	// Chunk streaming, guarded by sentMu. queued holds every column the
+	// session has taken on - already streamed or still waiting - sent
+	// only the ones the client has actually been given, which is what
+	// hasChunk and the forget pass work on, and pending is the queue of
+	// columns in the order they will go out. rate is how many columns a
+	// batch holds under the client's last acknowledgement, zero until the
+	// first acknowledgement; opened records whether the opening batch has
+	// gone out; burst is how many of the ten batches that acknowledgement
+	// bought are still owed; interval is the ticks between those batches
+	// and cool the ticks still to wait before the next one.
+	//
+	// The queue is what the streaming throttle works on: the real server
+	// sends one batch of columns per interval and nothing at all until the
+	// client acknowledges a batch (see pumpChunks).
+	sentMu   sync.Mutex
+	queued   map[[2]int]bool
+	sent     map[[2]int]bool
+	pending  [][2]int
+	rate     int
+	opened   bool
+	burst    int
+	interval int
+	cool     int
+	// chunkPumpMu serializes whole batches: a window change on the
+	// connection goroutine and the tick loop can pump at the same time.
+	chunkPumpMu sync.Mutex
 	// Chunk-cache center last sent to the client, guarded by sentMu.
 	centerSet        bool
 	centerX, centerZ int
@@ -142,9 +170,15 @@ type Session struct {
 	// book's contents live here until components land.
 	bookPages map[int16][]string
 	bookTitle map[int16]string
-	// loaded is set by the Player Loaded packet: the client finished
-	// loading terrain.
-	loaded atomic.Bool
+	// loaded is set by the Player Loaded packet: the client reports its
+	// terrain loaded. The real server acts on a player's world
+	// interactions only after that packet arrives, or after
+	// loadedGraceTicks have gone by - measured on 26.2, a use or a dig
+	// sent in the first moments of a session does nothing at all and
+	// works the instant the packet lands. joinTick is the game tick the
+	// session entered play, where that grace is counted from.
+	loaded   atomic.Bool
+	joinTick atomic.Int64
 	// Player statistics counters and the last-sent baseline.
 	statMu sync.Mutex
 	stats  *statStore
@@ -183,6 +217,25 @@ type sendPkt struct {
 	// setThreshold, when non-nil, switches the writer's compression
 	// threshold instead of sending a packet.
 	setThreshold *int32
+}
+
+// loadedGraceTicks is how long the real server waits for a client's
+// Player Loaded packet before it stops gating that player's world
+// interactions. Measured on 26.2 by sending a use every 100ms from the
+// moment of joining and noting when the first one was acted on: 3.0
+// seconds, which is 60 ticks. A real client reports its terrain loaded
+// well inside that, which is why the gate is invisible in normal play.
+const loadedGraceTicks = 60
+
+// interactionsOpen reports whether this session's world interactions -
+// a use, a dig - are acted on yet. Until the client reports its terrain
+// loaded, or the grace runs out, the real server drops them: no editor,
+// no damage, no acknowledgement.
+func (sess *Session) interactionsOpen(now int64) bool {
+	if sess.loaded.Load() {
+		return true
+	}
+	return now-sess.joinTick.Load() >= loadedGraceTicks
 }
 
 // Pos returns the last known player position.
@@ -230,11 +283,16 @@ func (sess *Session) latency() time.Duration {
 	return time.Duration(sess.rtt.Load())
 }
 
-// hasChunk reports whether column (cx,cz) was already streamed.
+// hasChunk reports whether the session is tracking column (cx,cz), the
+// question the block, light, dig and sign fan-outs ask before sending an
+// update. A column counts as tracked from the moment the session takes
+// it on, not from the moment its chunk packet goes out - the same as the
+// real server, which tracks a player whose chunk is still queued behind
+// the streaming throttle.
 func (sess *Session) hasChunk(cx, cz int) bool {
 	sess.sentMu.Lock()
 	defer sess.sentMu.Unlock()
-	return sess.sent[[2]int{cx, cz}]
+	return sess.queued[[2]int{cx, cz}]
 }
 
 func (sess *Session) setPos(x, y, z float64, yaw, pitch float32, onGround bool) {

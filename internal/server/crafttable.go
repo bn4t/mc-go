@@ -24,7 +24,7 @@ type craftTable struct {
 // isCraftingTableBlock reports whether a block state is a crafting
 // table.
 func isCraftingTableBlock(b world.Block) bool {
-	name, ok := world.BlockName(b)
+	name, ok := world.StateOwner(b)
 	return ok && name == "crafting_table"
 }
 

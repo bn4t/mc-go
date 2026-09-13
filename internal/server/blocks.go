@@ -108,7 +108,7 @@ func (s *Server) baseBlockPos(player string) (int, int, int) {
 		return int(math.Floor(x)), int(math.Floor(y)), int(math.Floor(z))
 	}
 	// Fallback to world spawn when the sender has no session (tests).
-	sx, sy, sz := s.world.Spawn()
+	sx, sy, sz := s.WorldSpawn()
 	return int(math.Floor(sx)), int(math.Floor(sy)), int(math.Floor(sz))
 }
 
@@ -165,7 +165,7 @@ func (s *Server) runSetblock(player string, args []string) string {
 // broadcastChunk resends one column to every play-stage session holding
 // it in dimension d.
 func (s *Server) broadcastChunk(d *dimension, cx, cz int) {
-	chunk := encodeChunk(d, cx, cz)
+	chunk := encodeChunk(d, cx, cz, s.chunkClientBlockEntities(d, cx, cz))
 	light := encodeLightFor(d, cx, cz)
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
@@ -220,7 +220,9 @@ func (s *Server) registerBuiltins() {
 	s.commands.Register("summon", func(player string, args []string) string {
 		return s.runSummon(player, args)
 	})
-	s.commands.Register("execute", func(player string, args []string) string {
+	// /execute forwards whatever the inner command produced, component
+	// or text, so the inner reply reaches the client unchanged.
+	s.registerComponentCommand("execute", func(player string, args []string) reply {
 		return s.runExecute(player, args)
 	})
 	s.commands.Register("scoreboard", func(player string, args []string) string {

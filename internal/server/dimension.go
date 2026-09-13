@@ -43,10 +43,11 @@ type dimension struct {
 	// all air (the end's void) or ground cannot be found.
 	arrivalY int
 	// Block-entity stores, per level.
-	signs    signStore
-	chests   chestStore
-	furnaces furnaceStore
-	hoppers  hopperStore
+	signs      signStore
+	chests     chestStore
+	furnaces   furnaceStore
+	hoppers    hopperStore
+	containers containerStore
 }
 
 // sections is the chunk section count for this dimension.
@@ -219,14 +220,13 @@ func (s *Server) changeDimension(sess *Session, dst *dimension, x, y, z float64,
 	_ = s.sendHealth(sess)
 
 	// Restream: drop the old window, center and fill the new one.
+	sess.resetChunks()
 	sess.sentMu.Lock()
-	sess.sent = nil
 	sess.centerSet = false
 	sess.sentMu.Unlock()
 	scx, scz := int(math.Floor(x))>>4, int(math.Floor(z))>>4
 	s.sendCenterChunk(sess, scx, scz)
 	_ = s.sendWindow(sess, scx, scz)
-	s.sendChunkCacheRadius(sess)
 
 	// New-dimension entities (players and mobs) spawn for the
 	// traveler; the traveler spawns for them.

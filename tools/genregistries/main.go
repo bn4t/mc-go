@@ -109,7 +109,10 @@ func writeWorldBlocks(blocks map[string]any) {
 	b.WriteString("\ts, ok := blockStates[name]\n")
 	b.WriteString("\treturn s, ok\n")
 	b.WriteString("}\n\n")
-	b.WriteString("// blockNames maps a default state id back to its block name.\n")
+	b.WriteString("// blockNames maps a block's default state id back to its name, one\n")
+	b.WriteString("// entry per block. It exists to list the name universe; resolving an\n")
+	b.WriteString("// arbitrary state id is StateOwner's job, because a chunk palette\n")
+	b.WriteString("// carries every state and not just the defaults.\n")
 	b.WriteString("var blockNames = map[Block]string{\n")
 	names := make([]string, 0, len(states))
 	for n := range states {
@@ -119,11 +122,6 @@ func writeWorldBlocks(blocks map[string]any) {
 	for _, n := range names {
 		fmt.Fprintf(&b, "\t%d: %q,\n", states[n], n)
 	}
-	b.WriteString("}\n\n")
-	b.WriteString("// BlockName returns the block name for a default state id.\n")
-	b.WriteString("func BlockName(b Block) (string, bool) {\n")
-	b.WriteString("\tn, ok := blockNames[b]\n")
-	b.WriteString("\treturn n, ok\n")
 	b.WriteString("}\n\n")
 	b.WriteString("// BlockNames lists every block name, sorted. The command\n")
 	b.WriteString("// completion engine and /setblock use it as the name universe.\n")
@@ -423,7 +421,6 @@ func writeInt32s(b *strings.Builder, vals []int32) {
 	}
 }
 
-
 func writeWorldItems(registries map[string]any) {
 	items := regEntries(registries, "minecraft:item")
 	var b strings.Builder
@@ -438,6 +435,25 @@ func writeWorldItems(registries map[string]any) {
 	b.WriteString("func ItemID(name string) (int32, bool) {\n")
 	b.WriteString("\tid, ok := ItemIDs[name]\n")
 	b.WriteString("\treturn id, ok\n")
+	b.WriteString("}\n\n")
+	// The reverse table is what writes an item into saved NBT, whose
+	// stacks carry the registry name and never the id.
+	b.WriteString("// ItemNames maps an item's protocol registry id back to its name\n")
+	b.WriteString("// (without the minecraft: prefix).\n")
+	b.WriteString("var ItemNames = map[int32]string{\n")
+	names := make([]string, 0, len(items))
+	for name := range items {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool { return items[names[i]] < items[names[j]] })
+	for _, name := range names {
+		fmt.Fprintf(&b, "\t%d: %q,\n", items[name], name)
+	}
+	b.WriteString("}\n\n")
+	b.WriteString("// ItemName returns the name of the item a protocol id names.\n")
+	b.WriteString("func ItemName(id int32) (string, bool) {\n")
+	b.WriteString("\tname, ok := ItemNames[id]\n")
+	b.WriteString("\treturn name, ok\n")
 	b.WriteString("}\n\n")
 	b.WriteString("// BlockItemStates maps a block-item's protocol id to the default\n")
 	b.WriteString("// block state it places, for items whose name matches a block.\n")

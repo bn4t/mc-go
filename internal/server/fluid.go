@@ -133,68 +133,45 @@ func fluidState(k fluidKind, level int) world.Block {
 
 // replaceableByFluid reports whether a fluid may flow into this block.
 // Vanilla's rule is "the block can be replaced", which covers air and
-// the non-solid decoration blocks a fluid washes away.
-func replaceableByFluid(b world.Block) bool {
-	if b == world.Air {
-		return true
-	}
-	name, ok := world.StateOwner(b)
-	if !ok {
-		return false
-	}
-	return replaceableFluidTargets[name]
-}
+// the non-solid decoration blocks a fluid washes away - the same set a
+// heightmap looks through, so the world package owns it.
+func replaceableByFluid(b world.Block) bool { return world.NonSolid(b) }
 
-// replaceableFluidTargets are the blocks a fluid flows into and
-// destroys. Waterlogged blocks are handled separately (they keep their
-// block and just take the fluid); this is the "washed away" set.
-var replaceableFluidTargets = map[string]bool{
-	"air": true, "cave_air": true, "void_air": true,
-	"short_grass": true, "tall_grass": true, "fern": true, "large_fern": true,
-	"dead_bush": true, "dandelion": true, "poppy": true, "cornflower": true,
-	"azure_bluet": true, "oxeye_daisy": true, "allium": true, "blue_orchid": true,
-	"lily_of_the_valley": true, "sunflower": true, "lilac": true, "rose_bush": true,
-	"peony": true, "red_tulip": true, "orange_tulip": true, "white_tulip": true,
-	"pink_tulip": true, "torchflower": true, "pitcher_plant": true,
-	"wheat": true, "carrots": true, "potatoes": true, "beetroots": true,
-	"oak_sapling": true, "birch_sapling": true, "spruce_sapling": true,
-	"jungle_sapling": true, "acacia_sapling": true, "dark_oak_sapling": true,
-	"cherry_sapling": true, "pale_oak_sapling": true, "mangrove_propagule": true,
-	"sugar_cane": true, "kelp": true, "kelp_plant": true, "seagrass": true,
-	"tall_seagrass": true, "snow": true, "fire": true, "soul_fire": true,
-	"nether_sprouts": true, "crimson_roots": true, "warped_roots": true,
-	"crimson_fungus": true, "warped_fungus": true, "brown_mushroom": true,
-	"red_mushroom": true, "sweet_berry_bush": true, "glow_lichen": true,
-	"sculk_vein": true, "vine": true, "hanging_roots": true, "big_dripleaf": true,
-	"small_dripleaf": true, "azalea": true, "flowering_azalea": true,
-	"moss_carpet": true, "pink_petals": true, "spore_blossom": true,
-	"cave_vines": true, "cave_vines_plant": true, "weeping_vines": true,
-	"weeping_vines_plant": true, "twisting_vines": true, "twisting_vines_plant": true,
-	"nether_wart": true, "torch": true, "soul_torch": true, "redstone_torch": true,
-	"redstone_wire": true, "lever": true, "tripwire": true, "tripwire_hook": true,
-	"string": true, "rail": true, "powered_rail": true, "detector_rail": true,
-	"activator_rail": true, "red_mushroom_block": false,
-}
-
-// The two blocks lava turns into when water reaches it, resolved once
-// on demand so a regenerated block table cannot shift them silently.
+// The three blocks a lava/water meeting can produce, resolved once on
+// demand so a regenerated block table cannot shift them silently.
 var (
 	solidStatesOnce  sync.Once
 	obsidianState    world.Block
 	cobblestoneState world.Block
+	stoneState       world.Block
 )
 
 func resolveSolidStates() {
 	solidStatesOnce.Do(func() {
 		obsidianState, _ = world.BlockStateOf("obsidian", nil)
 		cobblestoneState, _ = world.BlockStateOf("cobblestone", nil)
+		stoneState, _ = world.BlockStateOf("stone", nil)
 	})
 }
 
-// touchesWater reports whether any of the six blocks around pos holds
-// water.
+// waterContacts lists the five positions around pos that count as water
+// reaching lava: the four sides and the block above. The block below is
+// deliberately absent, because the real server treats it separately -
+// water under lava is not what sets the lava solid.
+func waterContacts(pos world.Pos) []world.Pos {
+	return []world.Pos{
+		{X: pos.X, Y: pos.Y + 1, Z: pos.Z},
+		{X: pos.X - 1, Y: pos.Y, Z: pos.Z},
+		{X: pos.X + 1, Y: pos.Y, Z: pos.Z},
+		{X: pos.X, Y: pos.Y, Z: pos.Z - 1},
+		{X: pos.X, Y: pos.Y, Z: pos.Z + 1},
+	}
+}
+
+// touchesWater reports whether water reaches pos from any of the five
+// positions that count.
 func (s *Server) touchesWater(d *dimension, pos world.Pos) bool {
-	for _, p := range neighbourPositions(pos) {
+	for _, p := range waterContacts(pos) {
 		if k, _, ok := fluidOf(d.w.GetBlock(p)); ok && k == fluidWater {
 			return true
 		}
@@ -202,14 +179,53 @@ func (s *Server) touchesWater(d *dimension, pos world.Pos) bool {
 	return false
 }
 
-// wakeLava schedules any lava touching pos, so water arriving beside it
-// makes it tick and set solid instead of waiting for a tick it may never
-// be given.
+// lavaWaterContact is what lava becomes when water reaches it, measured
+// against the real server rather than assumed. Over every geometry
+// tried - water placed beside the lava, water falling on it, water
+// flowing up to it from a distance, water arriving beside a flow three
+// blocks from its source - the answer depends only on whether the lava
+// is a source:
+//
+//   - a lava source that water reaches sets to obsidian;
+//   - a lava flow that water reaches sets to cobblestone, whichever side
+//     the water arrived from.
+//
+// Water directly under lava is not part of this: the lava ignores it and
+// the water is what changes, to stone, which is handled where lava
+// spreads downwards.
+func (s *Server) lavaWaterContact(d *dimension, pos world.Pos, level int) (world.Block, bool) {
+	if !s.touchesWater(d, pos) {
+		return 0, false
+	}
+	resolveSolidStates()
+	if level == 0 {
+		return obsidianState, true
+	}
+	return cobblestoneState, true
+}
+
+// wakeLava sets any lava touching pos solid at once and queues the rest
+// of the fluid re-evaluation around it. The real server does this in the
+// block-update path rather than on the lava's own scheduled tick, so
+// water placed beside lava solidifies it in the same tick it lands; a
+// scheduled tick would leave the lava spreading for another 30 ticks
+// while the water kept flowing.
 func (s *Server) wakeLava(d *dimension, pos world.Pos) {
 	for _, p := range append([]world.Pos{pos}, neighbourPositions(pos)...) {
-		if k, _, ok := fluidOf(d.w.GetBlock(p)); ok && k == fluidLava {
-			s.scheduleFluidTick(d, p, k.tickDelay(d))
+		k, level, ok := fluidOf(d.w.GetBlock(p))
+		if !ok || k != fluidLava {
+			continue
 		}
+		if solid, ok := s.lavaWaterContact(d, p, level); ok {
+			s.setFluidBlock(d, p, solid)
+			for _, q := range append([]world.Pos{p}, neighbourPositions(p)...) {
+				if k2, _, ok := fluidOf(d.w.GetBlock(q)); ok {
+					s.scheduleFluidTick(d, q, k2.tickDelay(d))
+				}
+			}
+			continue
+		}
+		s.scheduleFluidTick(d, p, k.tickDelay(d))
 	}
 }
 
@@ -226,14 +242,15 @@ func (s *Server) scheduleFluidTick(d *dimension, pos world.Pos, delay int64) {
 
 // wakeFluids schedules a fluid tick for pos and each of its neighbours,
 // which is what makes a placed or broken block start or stop a flow.
-// Vanilla reaches the same positions through neighbour updates.
+// Vanilla reaches the same positions through neighbour updates, and sets
+// lava solid in the same update rather than waiting for its tick.
 func (s *Server) wakeFluids(d *dimension, pos world.Pos) {
 	if s.ticks == nil || d == nil {
 		return
 	}
+	s.wakeLava(d, pos)
 	for _, p := range append([]world.Pos{pos}, neighbourPositions(pos)...) {
-		if k, lvl, ok := fluidOf(d.w.GetBlock(p)); ok {
-			_ = lvl
+		if k, _, ok := fluidOf(d.w.GetBlock(p)); ok {
 			s.scheduleFluidTick(d, p, k.tickDelay(d))
 		}
 	}
@@ -289,17 +306,14 @@ func (s *Server) fluidTick(d *dimension, pos world.Pos) {
 	if !ok {
 		return
 	}
-	// Water meeting lava sets it solid: a lava source becomes obsidian,
-	// a lava flow becomes cobblestone. The water is what does the
-	// setting, so the lava is the block that changes.
-	if kind == fluidLava && s.touchesWater(d, pos) {
-		solid := obsidianState
-		if level != 0 {
-			solid = cobblestoneState
+	// Water meeting lava changes the lava: obsidian at a source,
+	// cobblestone at a flow, whichever side the water came from.
+	if kind == fluidLava {
+		if solid, ok := s.lavaWaterContact(d, pos, level); ok {
+			s.setFluidBlock(d, pos, solid)
+			s.wakeFluids(d, pos)
+			return
 		}
-		s.setFluidBlock(d, pos, solid)
-		s.wakeFluids(d, pos)
-		return
 	}
 	next := s.newFluidState(d, pos, kind, level)
 	if next != cur {
@@ -404,18 +418,40 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 	if d.minY <= below.Y && below.Y < d.minY+d.height {
 		under := d.w.GetBlock(below)
 		if k2, _, isFluid := fluidOf(under); isFluid {
-			columnBelow = k2 == kind
+			switch {
+			case kind == fluidLava && k2 == fluidWater:
+				// Lava reaching down into water sets the water to stone.
+				// This is the one place the two fluids meet from opposite
+				// sides of the block: the lava stays, the water hardens,
+				// and the lava is then still resting, so it goes on to
+				// spread sideways below.
+				resolveSolidStates()
+				s.setFluidBlock(d, below, stoneState)
+				s.wakeFluids(d, below)
+			default:
+				columnBelow = k2 == kind
+			}
 		} else if replaceableByFluid(under) {
 			canFall = true
 			s.setFluidBlock(d, below, fluidState(kind, fluidFalling))
 			s.scheduleFluidTick(d, below, kind.tickDelay(d))
 		}
 	}
-	// A source feeds every direction. Everything else spreads sideways
-	// only once it has come to rest: a fluid with somewhere to fall goes
-	// there instead, and the middle of a falling column stays one block
-	// wide instead of fanning out at every level on the way down.
-	if level != 0 && (canFall || columnBelow) {
+	// A fluid with somewhere to fall goes there instead of spreading
+	// sideways, and this holds for a source too: a source dropped in the
+	// air sends down a one-block column and fans out at its own level
+	// only once that column is under it, which is a tick later. The
+	// reschedule is what gives it that next tick - the real server gets
+	// it from the block update the new falling block causes.
+	if canFall {
+		s.scheduleFluidTick(d, pos, kind.tickDelay(d))
+		return
+	}
+	// Once the fluid below is the same fluid, this block is standing on
+	// its own column: a source at the top of one fans out, while the
+	// middle of a falling column stays one block wide rather than
+	// spreading at every level on the way down.
+	if columnBelow && level != 0 {
 		return
 	}
 

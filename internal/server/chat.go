@@ -58,10 +58,22 @@ func (s *Server) handleChat(sess *Session, p protocol.Packet, command bool) {
 		if len(fields) == 0 {
 			return
 		}
-		if out, ok := s.commands.Run(fields[0], name, fields[1:]); ok {
-			s.sendSystemChat(sess, out)
-		} else {
-			s.sendSystemChat(sess, "Unknown command: "+fields[0])
+		// The real server echoes the input it was given in the context
+		// message that follows a failed parse, and marks the cursor by
+		// position within it. Fields were split on whitespace, so the
+		// input is rebuilt the same way: a client that double-spaced its
+		// command would see its own spacing in the real server's reply
+		// and single spacing here.
+		input := strings.Join(fields, " ")
+		r, ok := s.runCommand(name, fields[0], fields[1:])
+		if !ok {
+			// The command name itself is unknown, so the parse never got
+			// past the start of the input.
+			r = reply{comp: unknownCommand(), styled: true, fail: &failMark{}}
+		}
+		s.sendReply(sess, r)
+		if r.fail != nil {
+			s.sendSystemChatComponent(sess, errorContext(input, r.fail.cursor(input)))
 		}
 		return
 	}
@@ -104,6 +116,30 @@ func (s *Server) broadcastPlayerChat(sender *Session, text string) {
 		_ = sess.write(sess.ids().PlayPlayerChat, b.Bytes())
 		return true
 	})
+}
+
+// sendSystemChatComponent delivers a component to one session, which
+// is how the built-in commands answer: vanilla words their replies as
+// translatable components.
+func (s *Server) sendSystemChatComponent(sess *Session, c component) {
+	var b protocol.Buffer
+	b.Raw(c.content())
+	b.Bool(false) // overlay
+	_ = sess.write(sess.ids().PlaySystemChatCB, b.Bytes())
+}
+
+// sendReply delivers whatever a command produced to its caller.
+func (s *Server) sendReply(sess *Session, r reply) {
+	if r.styled {
+		s.sendSystemChatComponent(sess, r.comp)
+		for _, c := range r.extra {
+			s.sendSystemChatComponent(sess, c)
+		}
+		return
+	}
+	if r.text != "" {
+		s.sendSystemChat(sess, r.text)
+	}
 }
 
 // sendSystemChat delivers a plain-text server message to one session.

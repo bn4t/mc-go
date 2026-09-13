@@ -2,7 +2,6 @@ package server
 
 import (
 	"math"
-	"time"
 
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
@@ -49,7 +48,7 @@ var blockHardnessTable = map[string]blockHardness{
 
 // hardnessOf returns the break rules for a block state.
 func hardnessOf(b world.Block) blockHardness {
-	name, ok := world.BlockName(b)
+	name, ok := world.StateOwner(b)
 	if !ok {
 		return blockHardness{hardness: 1.0}
 	}
@@ -64,21 +63,27 @@ func hardnessOf(b world.Block) blockHardness {
 	return blockHardness{hardness: 1.0, drop: drop}
 }
 
-// breakSeconds is how long a bare-handed break takes. Vanilla's
-// progress formula is (1/hardness)/100 per tick without the proper
-// tool, i.e. hardness * 5 seconds; a matching tool would use
-// hardness * 1.5 and arrives with the tool milestone.
-func breakSeconds(info blockHardness) float64 {
+// digTicks is how many game ticks a break takes, straight from the
+// public breaking formula: per-tick progress is speed/hardness/30 when
+// the block can be harvested with what is held and /100 when it cannot,
+// with a bare hand's speed of 1 and every result quantized to a whole
+// tick. Verified against the real server: grass and dirt bare-handed
+// take 18 and 15 ticks, stone bare-handed 150.
+func digTicks(info blockHardness) int {
 	if info.hardness < 0 {
 		return -1
 	}
-	return info.hardness * 5
-}
-
-// digState tracks an in-progress survival break.
-type digState struct {
-	pos   world.Pos
-	start time.Time
+	div := 30.0
+	if info.requiresTool {
+		// Without the right tool the player cannot harvest the block,
+		// which makes every tick of progress that much smaller.
+		div = 100.0
+	}
+	n := int(math.Ceil(info.hardness * div))
+	if n < 1 {
+		n = 1
+	}
+	return n
 }
 
 // reachSurvival is the vanilla block-interaction reach in survival.
@@ -93,85 +98,136 @@ func lookVector(yaw, pitch float32) (float64, float64, float64) {
 	return -math.Sin(ya) * cosP, -math.Sin(pa), math.Cos(ya) * cosP
 }
 
-// targetedBlock returns the first non-air block along the player's
-// look vector within reach, vanilla's interaction target.
-func (s *Server) targetedBlock(sess *Session, reach float64) (world.Pos, bool) {
-	x, y, z, yaw, pitch, _ := sess.Pos()
-	dx, dy, dz := lookVector(yaw, pitch)
-	ex, ey, ez := x, y+1.62, z
-	for t := 0.0; t <= reach; t += 0.05 {
-		px := int(math.Floor(ex + dx*t))
-		py := int(math.Floor(ey + dy*t))
-		pz := int(math.Floor(ez + dz*t))
-		p := world.Pos{X: px, Y: py, Z: pz}
-		if sess.world().GetBlock(p) != world.Air {
-			return p, true
-		}
-	}
-	return world.Pos{}, false
+// withinReach reports whether pos is close enough to the session's eye
+// to be acted on, vanilla's block interaction range of 4.5 blocks
+// measured to the nearest point of the block.
+func withinReach(sess *Session, pos world.Pos, reach float64) bool {
+	x, y, z, _, _, _ := sess.Pos()
+	dx := math.Max(0, math.Max(float64(pos.X)-(x), x-(float64(pos.X)+1)))
+	dy := math.Max(0, math.Max(float64(pos.Y)-(y+1.62), (y+1.62)-(float64(pos.Y)+1)))
+	dz := math.Max(0, math.Max(float64(pos.Z)-(z), z-(float64(pos.Z)+1)))
+	return math.Sqrt(dx*dx+dy*dy+dz*dz) <= reach
 }
 
-// handleDigSurvival implements the survival branch of Player Action:
-// start records the dig, cancel clears it, finish breaks the block when
-// enough time has passed. Tool speed and the block-destruction animation
-// ride the tool milestone.
+// handleDigSurvival implements the survival branch of Player Action.
+// Vanilla's start records the block the player set out to mine, the
+// server accumulates one tick of progress per game tick (digTickStep)
+// and never trusts the client's idea of elapsed time, and the client's
+// finish only commits a dig whose progress the server measured itself.
+// Verified against the real server with a scripted client: a start on
+// its own never destroys anything, a start plus finish destroys the
+// block after exactly the hardness-derived number of ticks counted from
+// the start, an abort discards the dig, and a second start on the same
+// block cancels it and is answered with a resync of the true block.
 func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) []int {
 	blk := sess.world().GetBlock(pos)
 	info := hardnessOf(blk)
 	switch status {
 	case digStart:
-		if info.hardness < 0 {
+		if info.hardness < 0 || blk == world.Air {
 			return nil
 		}
-		// Vanilla only starts digs on the block the player is looking
-		// at; a scripted or desynced client cannot break around corners.
-		if hit, ok := s.targetedBlock(sess, reachSurvival); !ok || hit != pos {
+		if !withinReach(sess, pos, reachSurvival) {
 			return nil
 		}
 		sess.digMu.Lock()
-		if !sess.digActive || sess.digPos != pos {
-			sess.digPos = pos
-			sess.digStart = time.Now()
-			sess.digActive = true
-		}
+		restart := sess.digActive && sess.digPos == pos
+		sess.digPos = pos
+		sess.digBlock = blk
+		sess.digTicks = 0
+		sess.digNeeded = digTicks(info)
+		sess.digConfirmed = false
+		sess.digActive = true
 		sess.digMu.Unlock()
+		if restart {
+			// Vanilla answers a redundant start with the truth about
+			// the block, which is what resynchronizes a client that
+			// predicted a break the server did not agree to.
+			sess.digMu.Lock()
+			sess.digActive = false
+			sess.digMu.Unlock()
+			s.sendBlockResync(sess, pos)
+		}
 	case digCancel:
 		sess.digMu.Lock()
 		sess.digActive = false
+		sess.digTicks = 0
+		sess.digConfirmed = false
 		sess.digMu.Unlock()
 	case digFinish:
+		// A finish only commits the dig it belongs to, and the
+		// destruction itself happens on the tick that completes the
+		// progress (digTickStep), so a client that stops early cannot
+		// buy itself a faster break.
 		sess.digMu.Lock()
-		active := sess.digActive && sess.digPos == pos
-		started := sess.digStart
-		sess.digActive = false
+		if sess.digActive && sess.digPos == pos {
+			sess.digConfirmed = true
+		}
 		sess.digMu.Unlock()
-		if !active {
-			// Vanilla only completes a dig it saw start for; a
-			// finish without a matching start is ignored (the client
-			// would resync).
-			return nil
-		}
-		if time.Since(started) < 50*time.Millisecond {
-			// The server ticks dig progress once per tick; a finish
-			// in the same tick as the start never completes in
-			// vanilla either.
-			return nil
-		}
-		// Vanilla trusts the client's finish once the start was
-		// accepted (verified against the real server); break speed is
-		// enforced client-side. Server-side timing returns with the
-		// anticheat milestone.
-		return s.breakBlock(sess, pos, info)
 	}
 	return nil
 }
 
+// sendBlockResync tells one client what a block really is, vanilla's
+// answer to a block action the server rejected.
+func (s *Server) sendBlockResync(sess *Session, pos world.Pos) {
+	blk := sess.world().GetBlock(pos)
+	body := encodeBlockUpdate(int32(pos.X), int32(pos.Y), int32(pos.Z), blockState(blk))
+	_ = sess.write(sess.ids().PlayBlockUpdateCB, body)
+}
+
+// digTickStep advances the survival dig of every playing session by one
+// tick and destroys the blocks whose progress completes, the server
+// being the authority on break timing exactly as vanilla is.
+func (s *Server) digTickStep() {
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || sess.dead || sess.mode() != GameModeSurvival {
+			return true
+		}
+		sess.digMu.Lock()
+		if !sess.digActive {
+			sess.digMu.Unlock()
+			return true
+		}
+		pos, want, need := sess.digPos, sess.digBlock, sess.digNeeded
+		sess.digTicks++
+		done := sess.digConfirmed && sess.digTicks >= need
+		if done {
+			sess.digActive = false
+			sess.digTicks = 0
+			sess.digConfirmed = false
+		}
+		sess.digMu.Unlock()
+
+		if cur := sess.world().GetBlock(pos); cur != want {
+			// Somebody else changed the block: the dig is stale.
+			sess.digMu.Lock()
+			sess.digActive = false
+			sess.digMu.Unlock()
+			return true
+		}
+		if !done {
+			return true
+		}
+		affected := s.breakBlock(sess, pos, hardnessOf(want))
+		s.sendLightUpdate(sess.dimension(), pos.X>>4, pos.Z>>4, affected)
+		return true
+	})
+}
+
 // breakBlock removes a block and spawns its drops.
 func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []int {
-	if sess.world().GetBlock(pos) == world.Air {
+	broken := sess.world().GetBlock(pos)
+	if broken == world.Air {
 		return nil
 	}
 	affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
+	// A shulker box drops itself with everything inside as one stack
+	// (see removeContainer), so the plain block item would duplicate it.
+	if isShulkerBoxBlock(broken) {
+		return affected
+	}
 	// Tool-aware drops arrive with the tool milestone; a bare hand
 	// cannot harvest requires-tool blocks, exactly like vanilla.
 	if info.drop == "" || info.requiresTool {
@@ -422,7 +478,7 @@ func (s *Server) respawnPlayer(sess *Session) {
 	if sess.dimension() != overworld {
 		// Cross-dimension respawn: entity tracking, chunks, and
 		// dimension bookkeeping all run through changeDimension.
-		x, y, z := s.world.Spawn()
+		x, y, z := s.WorldSpawn()
 		s.changeDimension(sess, overworld, x, y, z, 0)
 		_ = s.sendContainerContent(sess)
 		return
@@ -430,14 +486,12 @@ func (s *Server) respawnPlayer(sess *Session) {
 
 	_ = s.sendRespawn(sess, overworld, 0, 0)
 
-	x, y, z := s.world.Spawn()
+	x, y, z := s.WorldSpawn()
 	sess.setPos(x, y, z, 0, 0, false)
 	_ = s.sendSyncPos(sess, x, y, z)
 	_ = s.sendHealth(sess)
 	_ = s.sendContainerContent(sess)
-	sess.sentMu.Lock()
-	sess.sent = nil
-	sess.sentMu.Unlock()
+	sess.resetChunks()
 	scx, scz := int(x)>>4, int(z)>>4
 	s.sendCenterChunk(sess, scx, scz)
 	_ = s.sendWindow(sess, scx, scz)
