@@ -599,9 +599,9 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		if it.Empty() {
 			break
 		}
-		drop := ItemStack{ID: it.ID, Count: 1, Contents: it.Contents}
-		if button == 1 {
-			drop.Count = it.Count
+		drop := it
+		if button == 0 {
+			drop = it.withCount(1)
 		}
 		it.Count -= drop.Count
 		if it.Count <= 0 {
@@ -669,14 +669,14 @@ func clickRight(cur, target ItemStack) (carried, placed ItemStack) {
 			return cur, target
 		}
 		half := (target.Count + 1) / 2
-		carried = ItemStack{ID: target.ID, Count: half, Contents: target.Contents}
+		carried = target.withCount(half)
 		target.Count -= half
 		if target.Count <= 0 {
 			target = ItemStack{}
 		}
 		return carried, target
 	case target.Empty():
-		target = ItemStack{ID: cur.ID, Count: 1, Contents: cur.Contents}
+		target = cur.withCount(1)
 		cur.Count--
 		if cur.Count <= 0 {
 			cur = ItemStack{}
@@ -768,7 +768,7 @@ func placeCapped(sess *Session, i int, moving *ItemStack) {
 	if limit := maxStackOfID(moving.ID); put > limit {
 		put = limit
 	}
-	sess.setMenuStack(i, ItemStack{ID: moving.ID, Count: put, Contents: moving.Contents})
+	sess.setMenuStack(i, moving.withCount(put))
 	moving.Count -= put
 	if moving.Count <= 0 {
 		*moving = ItemStack{}

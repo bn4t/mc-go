@@ -304,7 +304,7 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 				}
 			} else if carried.Empty() {
 				half := (target.Count + 1) / 2
-				carried = ItemStack{ID: target.ID, Count: half, Contents: target.Contents}
+				carried = target.withCount(half)
 				target.Count -= half
 				if target.Count <= 0 {
 					target = ItemStack{}
@@ -328,8 +328,8 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 				carried, target = target, ItemStack{}
 			} else if target.Empty() {
 				target, carried = cur, ItemStack{}
-			} else if target.ID == cur.ID {
-				room := maxStack - target.Count
+			} else if target.Stackable(cur) {
+				room := maxStackOfID(target.ID) - target.Count
 				move := cur.Count
 				if move > room {
 					move = room
@@ -346,19 +346,19 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 			if cur.Empty() {
 				if !target.Empty() {
 					half := (target.Count + 1) / 2
-					carried = ItemStack{ID: target.ID, Count: half}
+					carried = target.withCount(half)
 					target.Count -= half
 					if target.Count <= 0 {
 						target = ItemStack{}
 					}
 				}
 			} else if target.Empty() {
-				target = ItemStack{ID: cur.ID, Count: 1}
+				target = cur.withCount(1)
 				carried.Count--
 				if carried.Count <= 0 {
 					carried = ItemStack{}
 				}
-			} else if target.ID == cur.ID && target.Count < maxStack {
+			} else if target.Stackable(cur) && target.Count < maxStackOfID(target.ID) {
 				target.Count++
 				carried.Count--
 				if carried.Count <= 0 {
@@ -406,7 +406,7 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 			if !other.Stackable(moving) {
 				continue
 			}
-			room := maxStack - other.Count
+			room := maxStackOfID(other.ID) - other.Count
 			move := moving.Count
 			if move > room {
 				move = room
@@ -470,9 +470,9 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 	case 4:
 		it := sess.menuStack(int(slot))
 		if !it.Empty() {
-			drop := ItemStack{ID: it.ID, Count: 1, Contents: it.Contents}
-			if button == 1 {
-				drop.Count = it.Count
+			drop := it
+			if button == 0 {
+				drop = it.withCount(1)
 			}
 			it.Count -= drop.Count
 			if it.Count <= 0 {

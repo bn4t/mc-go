@@ -290,7 +290,7 @@ func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, bool) {
 		if sess.carried.ID != result.ID {
 			return sess.carried, nil, false
 		}
-		room := maxStack - sess.carried.Count
+		room := maxStackOfID(sess.carried.ID) - sess.carried.Count
 		if room < result.Count {
 			return sess.carried, nil, false
 		}

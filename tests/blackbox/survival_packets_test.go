@@ -2,6 +2,7 @@ package blackbox
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"path/filepath"
 	"testing"
@@ -1782,24 +1783,60 @@ func TestHungerSprintPackets(t *testing.T) {
 	}
 }
 
-// readSlotBB reads one protocol Slot (count, then item id and empty
-// component patches when non-empty).
+// readSlotBB reads one protocol Slot (count, then item id and component
+// patches when non-empty). Component payloads are skipped so the stream
+// stays aligned; only minecraft:damage (type 3, measured on vanilla 26.2
+// as a bare VarInt, e.g. a half-worn iron pickaxe reads damage 125) is
+// understood, anything else errors loudly instead of silently desyncing
+// every slot after it.
 func readSlotBB(r *protocol.PacketReader) (server.ItemStack, error) {
+	it, _, _, err := readSlotBBFull(r)
+	return it, err
+}
+
+// readSlotBBFull is readSlotBB plus the damage value: hasDamage reports a
+// minecraft:damage component, dmg is its value.
+func readSlotBBFull(r *protocol.PacketReader) (server.ItemStack, int32, bool, error) {
 	count, err := r.VarInt()
 	if err != nil || count <= 0 {
-		return server.ItemStack{}, err
+		return server.ItemStack{}, 0, false, err
 	}
 	id, err := r.VarInt()
 	if err != nil {
-		return server.ItemStack{}, err
+		return server.ItemStack{}, 0, false, err
 	}
-	if _, err := r.VarInt(); err != nil { // components to add
-		return server.ItemStack{}, err
+	nadd, err := r.VarInt() // components to add
+	if err != nil {
+		return server.ItemStack{}, 0, false, err
 	}
-	if _, err := r.VarInt(); err != nil { // components to remove
-		return server.ItemStack{}, err
+	nrem, err := r.VarInt() // components to remove (types only, no payload)
+	if err != nil {
+		return server.ItemStack{}, 0, false, err
 	}
-	return server.ItemStack{ID: id, Count: count}, nil
+	var dmg int32
+	hasDmg := false
+	for ; nadd > 0; nadd-- {
+		typ, err := r.VarInt()
+		if err != nil {
+			return server.ItemStack{}, 0, false, err
+		}
+		switch typ {
+		case 3: // minecraft:damage, VarInt payload (measured 26.2)
+			dmg, err = r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, err
+			}
+			hasDmg = true
+		default:
+			return server.ItemStack{}, 0, false, fmt.Errorf("blackbox: unknown added component type %d on item %d", typ, id)
+		}
+	}
+	for ; nrem > 0; nrem-- {
+		if _, err := r.VarInt(); err != nil { // removed types carry no payload
+			return server.ItemStack{}, 0, false, err
+		}
+	}
+	return server.ItemStack{ID: id, Count: count}, dmg, hasDmg, nil
 }
 
 // TestEquipmentPackets proves armor sync at the packet level: equipping

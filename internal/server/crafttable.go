@@ -149,8 +149,8 @@ func (s *Server) handleCraftTableClick(sess *Session, w *openWindow, table *craf
 				cur, target = target, ItemStack{}
 			} else if target.Empty() {
 				target, cur = cur, ItemStack{}
-			} else if target.ID == cur.ID {
-				room := maxStack - target.Count
+			} else if target.Stackable(cur) {
+				room := maxStackOfID(target.ID) - target.Count
 				move := cur.Count
 				if move > room {
 					move = room
@@ -166,14 +166,14 @@ func (s *Server) handleCraftTableClick(sess *Session, w *openWindow, table *craf
 		} else if cur.Empty() {
 			if !target.Empty() {
 				half := (target.Count + 1) / 2
-				cur = ItemStack{ID: target.ID, Count: half}
+				cur = target.withCount(half)
 				target.Count -= half
 				if target.Count <= 0 {
 					target = ItemStack{}
 				}
 			}
 		} else if target.Empty() {
-			target = ItemStack{ID: cur.ID, Count: 1}
+			target = cur.withCount(1)
 			cur.Count--
 			if cur.Count <= 0 {
 				cur = ItemStack{}
@@ -195,10 +195,10 @@ func (s *Server) handleCraftTableClick(sess *Session, w *openWindow, table *craf
 				continue
 			}
 			other := sess.craftMenuStack(table, i)
-			if other.Empty() || other.ID != moving.ID {
+			if !other.Stackable(moving) {
 				continue
 			}
-			room := maxStack - other.Count
+			room := maxStackOfID(other.ID) - other.Count
 			move := moving.Count
 			if move > room {
 				move = room

@@ -1,9 +1,19 @@
 package server
 
 import (
+	"fmt"
+
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
+
+// errUnknownComponent reports a data component type the slot parser
+// does not know the payload shape of. Failing closed keeps the stream
+// aligned by rejecting the click; extend the switch in readSlot (by
+// measurement against vanilla) when a new type shows up in the wild.
+func errUnknownComponent(typ, id int32) error {
+	return fmt.Errorf("server: unknown data component type %d on item %d", typ, id)
+}
 
 // ItemStack is one inventory slot value. Count<=0 means empty. Data
 // components are mostly not modeled yet; every stack is sent with an
@@ -14,6 +24,15 @@ import (
 type ItemStack struct {
 	ID    int32
 	Count int32
+	// Damage is the minecraft:damage component value (the max wears
+	// the item to nothing), absent when zero: vanilla omits
+	// damage:0, so a fresh tool reads back bare. RepairCost is the
+	// minecraft:repair_cost component, likewise absent when zero.
+	// Both are plain values so ItemStack stays comparable with ==,
+	// which the inventory tests and the change-detection paths rely
+	// on.
+	Damage     int32 `json:"damage,omitempty"`
+	RepairCost int32 `json:"repair_cost,omitempty"`
 	// Contents is a shulker box's stored items. It is a pointer so
 	// ItemStack stays comparable with ==, which the inventory tests and
 	// the change-detection paths rely on; a box holding anything is
@@ -32,7 +51,15 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 	if it.Empty() || other.Empty() || it.ID != other.ID {
 		return false
 	}
-	return it.Contents == nil && other.Contents == nil
+	return it.Contents == nil && other.Contents == nil &&
+		it.Damage == other.Damage && it.RepairCost == other.RepairCost
+}
+
+// withCount returns the stack with another count, keeping every
+// component: splitting a damaged tool must not repair it.
+func (it ItemStack) withCount(n int32) ItemStack {
+	it.Count = n
+	return it
 }
 
 // Player inventory window layout (menu slots):
@@ -56,6 +83,15 @@ const (
 // invSlotForHotbar maps a selected hotbar index (0-8) to its menu slot.
 func invSlotForHotbar(held int32) int16 { return int16(slotHotbarStart + held) }
 
+// Component type ids on the Slot wire format, measured on 26.2: a
+// half-worn pick reads damage (3) with a bare VarInt payload, and a
+// repaired one carries repair_cost (19) right after it, also a bare
+// VarInt. The add list is written in ascending type order.
+const (
+	compDamage     = 3
+	compRepairCost = 19
+)
+
 // writeSlot writes one Slot value: VarInt count, then (when non-empty)
 // item id and empty component add/remove counts.
 func writeSlot(b *protocol.Buffer, it ItemStack) {
@@ -65,11 +101,31 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 	}
 	b.VarInt(it.Count)
 	b.VarInt(it.ID)
-	b.VarInt(0) // components to add
+	var add int32
+	if it.Damage != 0 {
+		add++
+	}
+	if it.RepairCost != 0 {
+		add++
+	}
+	b.VarInt(add)
 	b.VarInt(0) // components to remove
+	if it.Damage != 0 {
+		b.VarInt(compDamage)
+		b.VarInt(it.Damage)
+	}
+	if it.RepairCost != 0 {
+		b.VarInt(compRepairCost)
+		b.VarInt(it.RepairCost)
+	}
 }
 
-// readSlot reads one Slot value, ignoring component patches.
+// readSlot reads one Slot value, decoding the minecraft:damage and
+// minecraft:repair_cost components (both bare VarInts, measured on
+// vanilla 26.2) into the stack so the stream stays aligned and clicks
+// carrying a worn tool parse. Any other component fails the parse and
+// the click is rejected, instead of silently desyncing every field
+// after it.
 func readSlot(r *protocol.PacketReader) (ItemStack, error) {
 	count, err := r.VarInt()
 	if err != nil || count <= 0 {
@@ -79,13 +135,39 @@ func readSlot(r *protocol.PacketReader) (ItemStack, error) {
 	if err != nil {
 		return ItemStack{}, err
 	}
-	if _, err := r.VarInt(); err != nil { // components to add
+	nadd, err := r.VarInt() // components to add
+	if err != nil {
 		return ItemStack{}, err
 	}
-	if _, err := r.VarInt(); err != nil { // components to remove
+	nrem, err := r.VarInt() // components to remove (types only)
+	if err != nil {
 		return ItemStack{}, err
 	}
-	return ItemStack{ID: id, Count: count}, nil
+	it := ItemStack{ID: id, Count: count}
+	for ; nadd > 0; nadd-- {
+		typ, err := r.VarInt()
+		if err != nil {
+			return ItemStack{}, err
+		}
+		switch typ {
+		case compDamage: // minecraft:damage, VarInt payload (measured 26.2)
+			if it.Damage, err = r.VarInt(); err != nil {
+				return ItemStack{}, err
+			}
+		case compRepairCost: // minecraft:repair_cost, VarInt payload
+			if it.RepairCost, err = r.VarInt(); err != nil {
+				return ItemStack{}, err
+			}
+		default:
+			return ItemStack{}, errUnknownComponent(typ, id)
+		}
+	}
+	for ; nrem > 0; nrem-- {
+		if _, err := r.VarInt(); err != nil { // removed types carry no payload
+			return ItemStack{}, err
+		}
+	}
+	return it, nil
 }
 
 // setSlot records one inventory slot; count<=0 clears it.
@@ -326,19 +408,19 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 			if cur.Empty() {
 				if !target.Empty() {
 					half := (target.Count + 1) / 2
-					sess.carried = ItemStack{ID: target.ID, Count: half}
+					sess.carried = target.withCount(half)
 					sess.inv[slot].Count -= half
 					if sess.inv[slot].Count <= 0 {
 						sess.inv[slot] = ItemStack{}
 					}
 				}
 			} else if target.Empty() {
-				sess.inv[slot] = ItemStack{ID: cur.ID, Count: 1}
+				sess.inv[slot] = cur.withCount(1)
 				sess.carried.Count--
 				if sess.carried.Count <= 0 {
 					sess.carried = ItemStack{}
 				}
-			} else if target.ID == cur.ID && target.Count < maxStackOfID(target.ID) {
+			} else if target.Stackable(cur) && target.Count < maxStackOfID(target.ID) {
 				sess.inv[slot].Count++
 				sess.carried.Count--
 				if sess.carried.Count <= 0 {
@@ -374,9 +456,9 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 		touch(slot)
 	case 4: // throw
 		if !sess.inv[slot].Empty() {
-			dropped := ItemStack{ID: sess.inv[slot].ID, Count: 1}
-			if button == 1 {
-				dropped.Count = sess.inv[slot].Count
+			dropped := sess.inv[slot]
+			if button == 0 {
+				dropped = dropped.withCount(1)
 			}
 			sess.inv[slot].Count -= dropped.Count
 			if sess.inv[slot].Count <= 0 {
@@ -549,7 +631,7 @@ func (s *Server) quickMoveLocked(sess *Session, slot int16, from, to int16, touc
 		if limit := maxStackOfID(moving.ID); put > limit {
 			put = limit
 		}
-		sess.inv[i] = ItemStack{ID: moving.ID, Count: put, Contents: moving.Contents}
+		sess.inv[i] = moving.withCount(put)
 		moving.Count -= put
 		if moving.Count <= 0 {
 			moving = ItemStack{}
@@ -609,7 +691,7 @@ func (sess *Session) addStack(it ItemStack) (ItemStack, bool) {
 		if limit := maxStackOfID(it.ID); put > limit {
 			put = limit
 		}
-		sess.inv[sl] = ItemStack{ID: it.ID, Count: put, Contents: it.Contents}
+		sess.inv[sl] = it.withCount(put)
 		it.Count -= put
 		if it.Count <= 0 {
 			it = ItemStack{}
