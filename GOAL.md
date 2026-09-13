@@ -93,7 +93,11 @@ Mojang server over the wire.
 
 ### Server
 - [~] Multithreaded session/tick/world-shard model
-- [ ] Full command tree (Brigadier) parity
+- [~] Full command tree (Brigadier) parity: `/item replace` (with/from,
+  block/entity) and `item modify` (registry ids, loot-function SNBT)
+  match the real server reply for reply (`TestItemCommandParity`), and
+  the whole modifier grammar is pinned case for case
+  (`TestItemSNBTParity`)
 - [ ] World save format parity (region files)
 - [ ] RCON, query, properties parity
 - [ ] Performance targets under vanilla-like load
@@ -721,3 +725,33 @@ Mojang server over the wire.
   outside the window the setup player's own connection loads, was
   refused with "That position is not loaded" - a refusal its filter did
   not name, leaving a missing sign whose every use read as the lock.
+- 2026-09-13: `/item replace` and `item modify` are done, with the
+  modifier grammar measured token by token against the live 26.2 server
+  in twenty-two differential rounds and pinned by `TestItemSNBTParity`
+  (612 cases, every reply compared component for component). The
+  command itself was the smaller half: replace with/from over block and
+  entity slots, modify by registry id or loot-function SNBT, per-item
+  max stacks from the generated table refusing over-stacks naming the
+  cap. The grammar was the real work, and vanilla's parser has opinions
+  a clean-room guess would never land on: a `_` digit separator is only
+  a separator between digits, otherwise the number ends before it (so
+  `[1_.5]` is a word but `[1__2]` is 12); in arrays a trailing one voids
+  the element (`[B;1_]` wants `+`) unless the run is zero-led, which
+  wants the hex marker instead; a separator inside array hex is its own
+  error (`underscore_not_allowed`) at the run's start; bytes pre-parse
+  at 32 bits and cast to 8 (`[B;2147483647]` is out of range,
+  `[B;2147483648]` names its digits); int hex parses unsigned
+  (`[I;0xFFFFFFFF]` is -1); longs peek past a `-0x` (empty wants a hex
+  numeral, digits are rejected as negative); overflow messages strip a
+  `+` but keep a `-`, and quote only the digits
+  (`For input string: "ff.." under radix 16`); doubles print by exact
+  decimal, shortest from two significant digits up. Two things the
+  rounds turned up that stay open: a modifier that parses but must then
+  run (`{function:"minecraft:set_count",count:2}`) is accepted and not
+  applied - the one exclusion in both suites - and signed zero-led
+  array edges like `[B;-01]` are guessed from composition, not measured.
+  The probe files are deleted; the pins live in
+  `tests/blackbox/itemsnbt_test.go`. Next in line behind this: the
+  unchecked Player rows (inventory/container protocol, survival,
+  crafting, persistence) all build on stacks being right, which they
+  now are.
