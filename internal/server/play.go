@@ -363,9 +363,11 @@ const (
 const abilityFlagsCreative = 0x01 | 0x04 | 0x08
 
 // sendAbilities syncs the game mode's ability flags and default speeds.
+// The mode is the player's own, not the server default: /gamemode
+// resends this on every switch.
 func (s *Server) sendAbilities(sess *Session) error {
 	flags := byte(0)
-	if s.GameMode == GameModeCreative {
+	if sess.mode() == GameModeCreative {
 		flags = abilityFlagsCreative
 		if sess.flying {
 			flags |= abilityFlagFlying

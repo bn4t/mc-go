@@ -122,10 +122,17 @@ func (s *Server) broadcastPlayerChat(sender *Session, text string) {
 // is how the built-in commands answer: vanilla words their replies as
 // translatable components.
 func (s *Server) sendSystemChatComponent(sess *Session, c component) {
+	_ = sess.write(sess.ids().PlaySystemChatCB, systemChatBody(c))
+}
+
+// systemChatBody encodes one non-overlay System Chat packet body for a
+// component, shared by the single-session reply and the admin
+// broadcast.
+func systemChatBody(c component) []byte {
 	var b protocol.Buffer
 	b.Raw(c.content())
 	b.Bool(false) // overlay
-	_ = sess.write(sess.ids().PlaySystemChatCB, b.Bytes())
+	return b.Bytes()
 }
 
 // sendActionBar delivers a component on the action bar: a System Chat

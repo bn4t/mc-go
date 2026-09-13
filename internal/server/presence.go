@@ -35,6 +35,33 @@ type playerEntry struct {
 	latency  int32
 }
 
+// encodePlayerInfoGamemode builds a gamemode-only Player Info Update:
+// just the UPDATE_GAME_MODE bit, then per entry UUID plus gamemode.
+// Vanilla sends one of these to every other player when someone's
+// mode changes; the changed player itself gets none.
+func encodePlayerInfoGamemode(uuid [16]byte, gamemode int32) []byte {
+	var b protocol.Buffer
+	b.Byte(infoGamemode)
+	b.VarInt(1)
+	b.UUID(uuid)
+	b.VarInt(gamemode)
+	return b.Bytes()
+}
+
+// broadcastPlayerInfoGamemode reports a mode change to every
+// play-stage session except the changed player itself.
+func (s *Server) broadcastPlayerInfoGamemode(sess *Session) {
+	body := encodePlayerInfoGamemode(sess.getUUID(), int32(sess.mode()))
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other == sess || other.state.Load() != StatePlay {
+			return true
+		}
+		_ = other.write(other.ids().PlayPlayerInfoUpd, body)
+		return true
+	})
+}
+
 // encodePlayerInfoAdd builds a Player Info Update body: Byte actions,
 // VarInt entry count, then per entry UUID + name + empty properties +
 // gamemode + listed + latency, in action-enum order.

@@ -197,6 +197,9 @@ func (s *Server) registerWorldCommands() {
 	s.registerComponentCommand("item", func(player string, args []string) reply {
 		return s.runItem(player, args)
 	})
+	s.registerComponentCommand("gamemode", func(player string, args []string) reply {
+		return s.runGamemode(player, args)
+	})
 	s.commands.Register("fill", func(player string, args []string) string {
 		return s.runFill(player, args)
 	})

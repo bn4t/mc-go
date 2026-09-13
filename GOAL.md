@@ -90,8 +90,9 @@ Mojang server over the wire.
   chest over shared player storage with close/reopen/break persistence;
   creative middle-click clone, close-returns-cursor (order + full
   probes), hopper/crafting/barrel menu parity with the table's
-  grid-return, survival click restrictions; furnace/anvil/etc menus
-  and /gamemode still open)
+  grid-return, survival click restrictions; furnace click rules and
+  /gamemode implemented, blackbox verification still open; anvil/etc
+  menus still open)
 - [ ] Survival mode: health, hunger, regen, death/respawn
 - [~] Crafting, recipes, recipe book (join registry served verbatim;
   unlock engine pending)
@@ -111,6 +112,36 @@ Mojang server over the wire.
 
 ## Progress log
 
+- 2026-09-13: Furnace menu click rules and /gamemode implemented,
+  shipped unverified. The furnace output is take-only (empty cursor
+  takes all, same-id merges up to the max stack, foreign placements
+  resync), input takes what the block's recipe set smelts and fuel
+  takes what burns (`furnaceAccepts`), quick-move and hotbar-swap
+  into input/fuel obey the same rules; `TestMenuClickParity` grows a
+  furnace script (menu 14, geometry 0/1/2/3-29/30-38) covering dirt
+  rejection, coal/iron placement, shift order, swap, /item output
+  fill, clone/take output, and close. /gamemode was measured with
+  three throwaway probes (kept in tree as `probe_gamemode*_test.go`
+  until the differential test is written): a switch sends GameEvent
+  reason 3 with the mode, a success.self chat (or .other naming the
+  target), gameMode.changed plus a gray-italic chat.type.admin
+  broadcast to the other ops for remote targets, refreshed abilities,
+  bare two-entry reach attributes when creative is left or entered
+  (nothing otherwise, no speed entry, entry order nondeterministic),
+  and a gamemode-only Player Info Update to every other player but
+  the changed one; repeating the mode is silent. Implementation adds
+  `runGamemode`, `updateAttributesMode`, `encodePlayerInfoGamemode`,
+  and `broadcastAdmin`, and `sendAbilities` now follows the player's
+  own mode instead of the server default. Still open: the
+  `gamemode_parity_test.go` differential (two same-named ops per
+  server, byte-compared chat/events, parsed attributes/playerinfo,
+  behavior-proved mode) and the furnace blackbox run; entry-order
+  and admin-gate-level guesses are flagged in code. Anvil and other
+  menus still open. Drive-by repair in the same tree:
+  `TestMcGoOnlySetblockStreamsChunk` was red since 10f1018 changed
+  the /setblock confirm to the measured `commands.setblock.success`
+  component - the test still decoded a plain-text root, so it now
+  accepts the component form.
 - 2026-09-13: Item handling finished, second half: creative clone,
   close-returns-cursor, and hopper/crafting/barrel menu parity, all
   measured off the live 26.2 server. Creative middle-click clones only

@@ -109,6 +109,27 @@ func updateAttributesMods(eid int32) []byte {
 	return b.Bytes()
 }
 
+// updateAttributesMode rebuilds the reach entries for a gamemode
+// switch: creative carries the two range modifiers, every other mode
+// carries the bare bases. Vanilla resends exactly these two entries
+// (no speed) when creative is left or entered, and nothing at all for
+// switches between the other three modes. Entry order shuffles per
+// send on the real server; mc-go sends entity first and tests compare
+// as sets.
+func updateAttributesMode(eid int32, mode byte) []byte {
+	var b protocol.Buffer
+	b.VarInt(eid)
+	b.VarInt(2)
+	if mode == GameModeCreative {
+		writeAttrEntry(&b, attrEntityInteractionRange, 3.0, attrEntityMod())
+		writeAttrEntry(&b, attrBlockInteractionRange, 4.5, attrBlockMod())
+	} else {
+		writeAttrEntry(&b, attrEntityInteractionRange, 3.0)
+		writeAttrEntry(&b, attrBlockInteractionRange, 4.5)
+	}
+	return b.Bytes()
+}
+
 // sendUpdateAttributes syncs the joiner's attributes after the opening
 // chunk batch, where the real server sends them. A returning name gets
 // the reset stub plus the modifier follow-up; a fresh name gets the
