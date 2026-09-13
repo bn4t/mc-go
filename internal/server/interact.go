@@ -1,0 +1,411 @@
+package server
+
+import (
+	"math"
+
+	"mc-go/internal/protocol"
+)
+
+// Entity animation ids (Entity Animation packet).
+const (
+	animSwingMainArm   = 0
+	animSwingOffhand   = 3
+	animCriticalEffect = 4
+	animMagicCritical  = 5
+)
+
+// handleSwing broadcasts the arm swing animation to other players.
+func (s *Server) handleSwing(sess *Session, p protocol.Packet) {
+	r := protocol.NewPacketReader(p.Data)
+	hand, err := r.VarInt()
+	if err != nil {
+		return
+	}
+	anim := byte(animSwingMainArm)
+	if hand == 1 {
+		anim = animSwingOffhand
+	}
+	s.broadcastEntityAnimation(sess, sess.entityID.Load(), anim)
+}
+
+// broadcastEntityAnimation sends one Entity Animation to every other
+// spawned play-stage session in the subject's dimension.
+func (s *Server) broadcastEntityAnimation(except *Session, eid int32, anim byte) {
+	if eid == 0 {
+		return
+	}
+	dim := dimOverworld
+	if e, ok := s.entities.Get(eid); ok {
+		dim = e.Dim
+	}
+	var b protocol.Buffer
+	b.VarInt(eid)
+	b.Byte(anim)
+	body := b.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess == except || sess.state.Load() != StatePlay || !sess.spawned.Load() {
+			return true
+		}
+		if sess.dimName() != dim {
+			return true
+		}
+		_ = sess.write(sess.ids().PlayEntityAnimation, body)
+		return true
+	})
+}
+
+// Player Action statuses that are not block breaking.
+const (
+	actionDropStack = 3
+	actionDropItem  = 4
+	actionSwapHands = 6
+)
+
+// handlePlayerActionExtras handles the non-digging Player Action
+// statuses: drop item/stack and swap with offhand.
+func (s *Server) handlePlayerActionExtras(sess *Session, p protocol.Packet) bool {
+	r := protocol.NewPacketReader(p.Data)
+	status, err := r.VarInt()
+	if err != nil {
+		return false
+	}
+	switch status {
+	case actionDropStack, actionDropItem:
+		if _, _, _, err := r.Position(); err != nil {
+			return false
+		}
+		whole := status == actionDropStack
+		s.dropHeld(sess, whole)
+		return true
+	case actionSwapHands:
+		s.swapHands(sess)
+		return true
+	}
+	return false
+}
+
+// dropHeld removes the held stack (or one item) from the inventory.
+// Dropped-item entities arrive with the item-entity milestone.
+func (s *Server) dropHeld(sess *Session, whole bool) {
+	slot := invSlotForHotbar(sess.held.Load())
+	sess.invMu.Lock()
+	it := sess.inv[slot]
+	if it.Empty() {
+		sess.invMu.Unlock()
+		return
+	}
+	if whole {
+		sess.inv[slot] = ItemStack{}
+	} else {
+		sess.inv[slot].Count--
+		if sess.inv[slot].Count <= 0 {
+			sess.inv[slot] = ItemStack{}
+		}
+	}
+	updated := sess.inv[slot]
+	sess.invMu.Unlock()
+	_ = s.sendContainerSlot(sess, slot, updated)
+}
+
+// swapHands swaps the held hotbar stack with the offhand stack.
+func (s *Server) swapHands(sess *Session) {
+	slot := invSlotForHotbar(sess.held.Load())
+	sess.invMu.Lock()
+	sess.inv[slot], sess.inv[slotOffhand] = sess.inv[slotOffhand], sess.inv[slot]
+	main := sess.inv[slot]
+	off := sess.inv[slotOffhand]
+	sess.invMu.Unlock()
+	_ = s.sendContainerSlot(sess, slot, main)
+	_ = s.sendContainerSlot(sess, slotOffhand, off)
+}
+
+// attackReach is the vanilla entity-interaction range in survival.
+const attackReach = 3.0
+
+// handleAttack applies a melee attack to another player: damage, hurt
+// animation, and knockback (motion sync). Entity types beyond players
+// arrive with the entity milestone.
+func (s *Server) handleAttack(sess *Session, p protocol.Packet) {
+	r := protocol.NewPacketReader(p.Data)
+	targetID, err := r.VarInt()
+	if err != nil {
+		return
+	}
+	s.attackEntity(sess, targetID)
+}
+
+// attackEntity applies a melee hit to one entity id, shared by the
+// Attack packet and the Interact packet's attack action so both routes
+// produce identical damage, combat, and animation packets.
+func (s *Server) attackEntity(sess *Session, targetID int32) {
+	if sess.mode() != GameModeSurvival || sess.dead {
+		return
+	}
+	if targetID == 0 || targetID == sess.entityID.Load() {
+		return
+	}
+	var target *Session
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.entityID.Load() == targetID {
+			target = other
+			return false
+		}
+		return true
+	})
+	if target == nil {
+		// Not a player: attack a living mob if one has this id.
+		if e, ok := s.entities.Get(targetID); ok && e.Living {
+			s.broadcastDamageEvent(e.ID, damageInfo{
+				typeName: "player_attack",
+				cause:    sess.entityID.Load(),
+				direct:   sess.entityID.Load(),
+			})
+			s.damageMob(&e, 1.0)
+			s.broadcastEntityEventDamage(nil, e.ID)
+		}
+		return
+	}
+	if target.dead {
+		return
+	}
+	ax, ay, az, _, _, _ := sess.Pos()
+	tx, ty, tz, _, _, _ := target.Pos()
+	dx, dy, dz := ax-tx, ay-ty, az-tz
+	if dx*dx+dy*dy+dz*dz > (attackReach+0.5)*(attackReach+0.5) {
+		return
+	}
+	if sess.addExhaustion(0.1) { // attacking costs hunger
+		_ = s.sendHealth(sess)
+	}
+	s.startCombat(sess)
+	s.startCombat(target)
+	// Weapon damage reduced by the victim's armor; the attack-cooldown
+	// scaling and enchantments ride a later combat milestone.
+	damage := reduceDamage(sess.heldAttackDamage(), target.armorDefense())
+	s.damageWith(target, damage, sess.getName()+" was slain by "+target.getName(), damageSource{
+		typeName: "player_attack",
+		cause:    sess.entityID.Load(),
+		direct:   sess.entityID.Load(),
+	})
+	s.sendHurtAnimation(target, hurtYaw(tx, tz, ax, az))
+	// Everyone except the victim sees the hurt entity event, matching
+	// vanilla (the victim gets Hurt Animation instead).
+	s.broadcastEntityEventDamage(target, targetID)
+	_ = dy
+}
+
+// hurtYaw is the yaw of the damage direction (from the victim toward
+// the attacker), matching the Hurt Animation convention.
+func hurtYaw(tx, tz, ax, az float64) float32 {
+	dx, dz := ax-tx, az-tz
+	if dx == 0 && dz == 0 {
+		return 0
+	}
+	// Minecraft yaw: 0 faces +Z, increasing toward -X.
+	return float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+}
+
+func (s *Server) sendHurtAnimation(sess *Session, yaw float32) {
+	var b protocol.Buffer
+	b.VarInt(sess.entityID.Load())
+	b.Float(yaw)
+	_ = sess.write(sess.ids().PlayHurtAnimation, b.Bytes())
+}
+
+// broadcastEntityEventDamage plays the hurt entity event for everyone
+// in the victim's dimension except the victim (who receives Hurt
+// Animation instead).
+func (s *Server) broadcastEntityEventDamage(except *Session, eid int32) {
+	dim := dimOverworld
+	if e, ok := s.entities.Get(eid); ok {
+		dim = e.Dim
+	}
+	var b protocol.Buffer
+	b.Int(eid)
+	b.Byte(2) // status: hurt
+	body := b.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other == except || other.state.Load() != StatePlay || !other.spawned.Load() {
+			return true
+		}
+		if other.dimName() != dim {
+			return true
+		}
+		_ = other.write(other.ids().PlayEntityEvent, body)
+		return true
+	})
+}
+
+// Player Input flag bits: 0x20 sneak, 0x40 sprint.
+const (
+	inputSneak  = 0x20
+	inputSprint = 0x40
+)
+
+// Living-entity metadata index for the pose, and the pose values we
+// broadcast. The index is verified against the real server by
+// TestSneakPoseParity.
+const (
+	metaPoseIndex = 6
+	metaPoseType  = 20
+	poseStanding  = 0
+	poseSneaking  = 5
+)
+
+// handlePlayerInput tracks the client's movement input flags and
+// broadcasts pose metadata when sneaking starts or stops.
+func (s *Server) handlePlayerInput(sess *Session, p protocol.Packet) {
+	r := protocol.NewPacketReader(p.Data)
+	flags, err := r.Byte()
+	if err != nil {
+		return
+	}
+	sneak := flags&inputSneak != 0
+	sprint := flags&inputSprint != 0
+	jump := flags&0x10 != 0
+	sess.sprinting = sprint
+	if jump && !sess.jumping && s.GameMode == GameModeSurvival {
+		if sess.addExhaustion(0.05) {
+			_ = s.sendHealth(sess)
+		}
+	}
+	sess.jumping = jump
+	if sneak == sess.sneaking {
+		return
+	}
+	sess.sneaking = sneak
+	pose := int32(poseStanding)
+	if sneak {
+		pose = poseSneaking
+	}
+	s.broadcastPose(sess, pose)
+}
+
+// broadcastPose sends the player's pose metadata to every play-stage
+// session in their dimension (including the subject, like vanilla).
+func (s *Server) broadcastPose(sess *Session, pose int32) {
+	eid := sess.entityID.Load()
+	if eid == 0 {
+		return
+	}
+	dim := sess.dimName()
+	var b protocol.Buffer
+	b.VarInt(eid)
+	b.Byte(metaPoseIndex)
+	b.Byte(metaPoseType)
+	b.VarInt(pose)
+	b.Byte(0xFF)
+	body := b.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() {
+			return true
+		}
+		if other.dimName() != dim {
+			return true
+		}
+		_ = other.write(other.ids().PlayEntityMetadata, body)
+		return true
+	})
+}
+
+// handlePlayerAbilities applies the client's ability flag update
+// (flight toggle) and echoes the server-authoritative flags, exactly
+// like vanilla. Modes without flight cannot start flying.
+func (s *Server) handlePlayerAbilities(sess *Session, p protocol.Packet) {
+	r := protocol.NewPacketReader(p.Data)
+	flags, err := r.Byte()
+	if err != nil {
+		return
+	}
+	flying := flags&abilityFlagFlying != 0
+	if flying && sess.mode() != GameModeCreative && sess.mode() != GameModeSpectator {
+		flying = false
+	}
+	if flying == sess.flying {
+		return
+	}
+	sess.flying = flying
+	_ = s.sendAbilities(sess)
+}
+
+// clientInfo is the subset of Client Information the server keeps.
+type clientInfo struct {
+	Locale       string
+	ViewDistance byte
+	ChatColors   bool
+	SkinParts    byte
+	MainHand     int32
+}
+
+// parseClientInfo decodes a Client Information body.
+func parseClientInfo(data []byte) (clientInfo, bool) {
+	r := protocol.NewPacketReader(data)
+	locale, err := r.String()
+	if err != nil || len(locale) > 64 {
+		return clientInfo{}, false
+	}
+	view, err := r.Byte()
+	if err != nil || view > 32 {
+		return clientInfo{}, false
+	}
+	chatMode, err := r.VarInt()
+	if err != nil || chatMode < 0 || chatMode > 2 {
+		return clientInfo{}, false
+	}
+	chatColors, err := r.Bool()
+	if err != nil {
+		return clientInfo{}, false
+	}
+	skin, err := r.Byte()
+	if err != nil {
+		return clientInfo{}, false
+	}
+	main, err := r.VarInt()
+	if err != nil {
+		return clientInfo{}, false
+	}
+	// Trailing options (text filtering, server listings, particle
+	// status) are parsed when a feature needs them.
+	return clientInfo{
+		Locale:       locale,
+		ViewDistance: view,
+		ChatColors:   chatColors,
+		SkinParts:    skin,
+		MainHand:     main,
+	}, true
+}
+
+// handleClientInfo stores the client's settings packet.
+func (s *Server) handleClientInfo(sess *Session, p protocol.Packet) {
+	info, ok := parseClientInfo(p.Data)
+	if !ok {
+		return
+	}
+	sess.infoMu.Lock()
+	sess.info = info
+	sess.infoMu.Unlock()
+}
+
+// viewRadius returns the effective streamed-window radius: the server's
+// view distance capped by the client's requested distance. Clients
+// that never sent Client Information get the minimal window so
+// scripted sessions stay small.
+func (sess *Session) viewRadius(serverVD int) int {
+	sess.infoMu.Lock()
+	v := int(sess.info.ViewDistance)
+	sess.infoMu.Unlock()
+	if v <= 0 {
+		v = 1
+	}
+	if serverVD > 0 && v > serverVD {
+		v = serverVD
+	}
+	if v < 1 {
+		v = 1
+	}
+	return v
+}

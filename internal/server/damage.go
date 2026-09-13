@@ -1,0 +1,153 @@
+package server
+
+import "mc-go/internal/protocol"
+
+// damageInfo describes one damage source for the Damage Event packet.
+type damageInfo struct {
+	typeName string // minecraft:damage_type registry entry
+	cause    int32  // responsible entity id, or 0
+	direct   int32  // directly dealing entity id, or 0
+	hasPos   bool
+	x, y, z  float64
+}
+
+// sendDamageEvent broadcasts one Damage Event for an entity to its
+// dimension. The damage type resolves against the captured damage_type
+// registry; an unknown type falls back to minecraft:generic.
+func (s *Server) broadcastDamageEvent(eid int32, info damageInfo) {
+	if eid == 0 {
+		return
+	}
+	dim := dimOverworld
+	if e, ok := s.entities.Get(eid); ok {
+		dim = e.Dim
+	}
+	typeID := registryEntryID("minecraft:damage_type", "minecraft:"+info.typeName)
+	if typeID < 0 {
+		typeID = registryEntryID("minecraft:damage_type", "minecraft:generic")
+		if typeID < 0 {
+			typeID = 0
+		}
+	}
+	var b protocol.Buffer
+	b.VarInt(eid)
+	b.VarInt(typeID)
+	cause := int32(0)
+	if info.cause != 0 {
+		cause = info.cause + 1
+	}
+	b.VarInt(cause)
+	direct := int32(0)
+	if info.direct != 0 {
+		direct = info.direct + 1
+	}
+	b.VarInt(direct)
+	b.Bool(info.hasPos)
+	if info.hasPos {
+		b.Double(info.x)
+		b.Double(info.y)
+		b.Double(info.z)
+	}
+	body := b.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || !sess.spawned.Load() {
+			return true
+		}
+		if sess.dimName() != dim {
+			return true
+		}
+		_ = sess.write(sess.ids().PlayDamageEvent, body)
+		return true
+	})
+}
+
+// combatTimeoutTicks is vanilla's 15-second combat tag.
+const combatTimeoutTicks = 15 * 20
+
+// startCombat tags a player as in combat, sending Enter Combat the
+// first time.
+func (s *Server) startCombat(sess *Session) {
+	if sess.combatTicks > 0 {
+		sess.combatTicks = combatTimeoutTicks
+		return
+	}
+	sess.combatTicks = combatTimeoutTicks
+	var b protocol.Buffer // Enter Combat has an empty body
+	_ = sess.write(sess.ids().PlayEnterCombat, b.Bytes())
+}
+
+// combatTickStep counts combat timers down and emits End Combat when a
+// player leaves combat.
+func (s *Server) combatTickStep() {
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.combatTicks <= 0 {
+			return true
+		}
+		sess.combatTicks--
+		if sess.combatTicks == 0 {
+			var b protocol.Buffer
+			b.VarInt(combatTimeoutTicks)
+			_ = sess.write(sess.ids().PlayEndCombat, b.Bytes())
+		}
+		return true
+	})
+}
+
+// damageSource tracks how a damage call should be attributed.
+type damageSource struct {
+	typeName string
+	cause    int32
+	direct   int32
+}
+
+var (
+	srcGeneric = damageSource{typeName: "generic"}
+	srcFall    = damageSource{typeName: "fall"}
+	srcStarve  = damageSource{typeName: "starve"}
+	srcKill    = damageSource{typeName: "generic_kill"}
+	srcVoid    = damageSource{typeName: "out_of_world"}
+)
+
+// voidTickStep damages players that fall out of the world every ten
+// ticks. The void starts 64 blocks under each dimension's floor,
+// matching vanilla's out-of-world band.
+func (s *Server) voidTickStep() {
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || sess.dead || sess.mode() != GameModeSurvival {
+			return true
+		}
+		_, y, _, _, _, _ := sess.Pos()
+		if y >= float64(sess.dimension().minY-64) {
+			sess.voidTimer = 0
+			return true
+		}
+		sess.voidTimer++
+		if sess.voidTimer < 10 {
+			return true
+		}
+		sess.voidTimer = 0
+		s.damageWith(sess, 4, "Fell out of the world", srcVoid)
+		return true
+	})
+}
+
+// damageWith applies damage with an explicit source, emitting the
+// Damage Event before the health sync.
+func (s *Server) damageWith(sess *Session, amount float32, message string, src damageSource) {
+	if sess.mode() != GameModeSurvival || sess.dead {
+		return
+	}
+	eid := sess.entityID.Load()
+	x, y, z, _, _, _ := sess.Pos()
+	s.broadcastDamageEvent(eid, damageInfo{
+		typeName: src.typeName,
+		cause:    src.cause,
+		direct:   src.direct,
+		hasPos:   src.cause != 0,
+		x:        x, y: y, z: z,
+	})
+	s.damage(sess, amount, message)
+}

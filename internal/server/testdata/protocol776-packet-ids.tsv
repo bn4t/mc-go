@@ -1,0 +1,256 @@
+handshake	serverbound	0	0x0	Handshake	16
+status	clientbound	0	0x0	Status Response	20
+status	clientbound	1	0x1	Pong Response (status)	21
+status	serverbound	0	0x0	Status Request	23
+status	serverbound	1	0x1	Ping Request (status)	24
+login	clientbound	0	0x0	Disconnect (login)	27
+login	clientbound	1	0x1	Encryption Request	28
+login	clientbound	2	0x2	Login Success	29
+login	clientbound	3	0x3	Set Compression	30
+login	clientbound	4	0x4	Login Plugin Request	31
+login	clientbound	5	0x5	Cookie Request	39
+login	serverbound	0	0x0	Login Start	33
+login	serverbound	1	0x1	Encryption Response	34
+login	serverbound	2	0x2	Login Plugin Response	35
+login	serverbound	3	0x3	Login Acknowledged	36
+login	serverbound	4	0x4	Cookie Response	41
+configuration	clientbound	0	0x0	Cookie Request	39
+configuration	clientbound	1	0x1	Plugin Message (clientbound)	44
+configuration	clientbound	2	0x2	Disconnect	45
+configuration	clientbound	3	0x3	Finish Configuration	65
+configuration	clientbound	4	0x4	Keep Alive (clientbound)	46
+configuration	clientbound	5	0x5	Ping	47
+configuration	clientbound	6	0x6	Reset Chat	66
+configuration	clientbound	7	0x7	Registry Data	67
+configuration	clientbound	8	0x8	Remove Resource Pack	48
+configuration	clientbound	9	0x9	Add Resource Pack	49
+configuration	clientbound	10	0xA	Store Cookie	50
+configuration	clientbound	11	0xB	Transfer	51
+configuration	clientbound	12	0xC	Feature Flags	68
+configuration	clientbound	13	0xD	Update Tags	52
+configuration	clientbound	14	0xE	Known Packs (clientbound)	69
+configuration	clientbound	15	0xF	Custom Report Details	53
+configuration	clientbound	16	0x10	Server Links	54
+configuration	clientbound	17	0x11	Clear Dialog	55
+configuration	clientbound	18	0x12	Show Dialog (configuration)	70
+configuration	clientbound	19	0x13	Code of Conduct	71
+configuration	serverbound	0	0x0	Client Information	57
+configuration	serverbound	1	0x1	Cookie Response	41
+configuration	serverbound	2	0x2	Plugin Message (serverbound)	58
+configuration	serverbound	3	0x3	Acknowledge Finish Configuration	73
+configuration	serverbound	4	0x4	Keep Alive (serverbound)	59
+configuration	serverbound	5	0x5	Pong	60
+configuration	serverbound	6	0x6	Resource Pack Response	61
+configuration	serverbound	7	0x7	Known Packs (serverbound)	74
+configuration	serverbound	8	0x8	Custom Click Action	62
+configuration	serverbound	9	0x9	Accept Code of Conduct	75
+play	clientbound	0	0x0	Bundle Delimiter	78
+play	clientbound	1	0x1	Spawn Entity	79
+play	clientbound	2	0x2	Entity Animation	80
+play	clientbound	3	0x3	Award Statistics	81
+play	clientbound	4	0x4	Acknowledge Block Change	82
+play	clientbound	5	0x5	Set Block Destroy Stage	83
+play	clientbound	6	0x6	Block Entity Data	84
+play	clientbound	7	0x7	Block Action	85
+play	clientbound	8	0x8	Block Update	86
+play	clientbound	9	0x9	Boss Bar	87
+play	clientbound	10	0xA	Change Difficulty	88
+play	clientbound	11	0xB	Chunk Batch Finished	89
+play	clientbound	12	0xC	Chunk Batch Start	90
+play	clientbound	13	0xD	Chunk Biomes	91
+play	clientbound	14	0xE	Clear Titles	92
+play	clientbound	15	0xF	Command Suggestions Response	93
+play	clientbound	16	0x10	Commands	94
+play	clientbound	17	0x11	Close Container	95
+play	clientbound	18	0x12	Set Container Content	96
+play	clientbound	19	0x13	Set Container Property	97
+play	clientbound	20	0x14	Set Container Slot	98
+play	clientbound	21	0x15	Cookie Request	39
+play	clientbound	22	0x16	Set Cooldown	99
+play	clientbound	23	0x17	Chat Suggestions	100
+play	clientbound	24	0x18	Plugin Message (clientbound)	44
+play	clientbound	25	0x19	Damage Event	101
+play	clientbound	26	0x1A	Debug Block Value	102
+play	clientbound	27	0x1B	Debug Chunk Value	103
+play	clientbound	28	0x1C	Debug Entity Value	104
+play	clientbound	29	0x1D	Debug Event	105
+play	clientbound	30	0x1E	Debug Sample	106
+play	clientbound	31	0x1F	Delete Message	107
+play	clientbound	32	0x20	Disconnect	45
+play	clientbound	33	0x21	Disguised Chat Message	108
+play	clientbound	34	0x22	Entity Event	109
+play	clientbound	35	0x23	Teleport Entity	110
+play	clientbound	36	0x24	Explosion	111
+play	clientbound	37	0x25	Unload Chunk	112
+play	clientbound	38	0x26	Game Event	113
+play	clientbound	39	0x27	Game Rule Values	114
+play	clientbound	40	0x28	Game Test Highlight Position	115
+play	clientbound	41	0x29	Open Horse Screen	116
+play	clientbound	42	0x2A	Hurt Animation	117
+play	clientbound	43	0x2B	Initialize World Border	118
+play	clientbound	44	0x2C	Keep Alive (clientbound)	46
+play	clientbound	45	0x2D	Chunk Data and Update Light	119
+play	clientbound	46	0x2E	World Event	120
+play	clientbound	47	0x2F	Particle	121
+play	clientbound	48	0x30	Update Light	122
+play	clientbound	49	0x31	Login (play)	123
+play	clientbound	50	0x32	Low Disk Space Warning	124
+play	clientbound	51	0x33	Map Data	125
+play	clientbound	52	0x34	Merchant Offers	126
+play	clientbound	53	0x35	Update Entity Position	127
+play	clientbound	54	0x36	Update Entity Position and Rotation	128
+play	clientbound	55	0x37	Move Minecart Along Track	129
+play	clientbound	56	0x38	Update Entity Rotation	130
+play	clientbound	57	0x39	Move Vehicle (clientbound)	131
+play	clientbound	58	0x3A	Open Book	132
+play	clientbound	59	0x3B	Open Screen	133
+play	clientbound	60	0x3C	Open Sign Editor	134
+play	clientbound	61	0x3D	Ping	47
+play	clientbound	62	0x3E	Ping Response	
+play	clientbound	63	0x3F	Place Ghost Recipe	135
+play	clientbound	64	0x40	Player Abilities (clientbound)	136
+play	clientbound	65	0x41	Player Chat Message	137
+play	clientbound	66	0x42	End Combat	138
+play	clientbound	67	0x43	Enter Combat	139
+play	clientbound	68	0x44	Combat Death	140
+play	clientbound	69	0x45	Player Info Remove	141
+play	clientbound	70	0x46	Player Info Update	142
+play	clientbound	71	0x47	Look At	143
+play	clientbound	72	0x48	Synchronize Player Position	144
+play	clientbound	73	0x49	Player Rotation	145
+play	clientbound	74	0x4A	Recipe Book Add	146
+play	clientbound	75	0x4B	Recipe Book Remove	147
+play	clientbound	76	0x4C	Recipe Book Settings	148
+play	clientbound	77	0x4D	Remove Entities	149
+play	clientbound	78	0x4E	Remove Entity Effect	150
+play	clientbound	79	0x4F	Reset Score	151
+play	clientbound	80	0x50	Remove Resource Pack	48
+play	clientbound	81	0x51	Add Resource Pack	49
+play	clientbound	82	0x52	Respawn	152
+play	clientbound	83	0x53	Set Head Rotation	153
+play	clientbound	84	0x54	Update Section Blocks	154
+play	clientbound	85	0x55	Select Advancements Tab	155
+play	clientbound	86	0x56	Server Data	156
+play	clientbound	87	0x57	Set Action Bar Text	157
+play	clientbound	88	0x58	Set Border Center	158
+play	clientbound	89	0x59	Set Border Lerp Size	159
+play	clientbound	90	0x5A	Set Border Size	160
+play	clientbound	91	0x5B	Set Border Warning Delay	161
+play	clientbound	92	0x5C	Set Border Warning Distance	162
+play	clientbound	93	0x5D	Set Camera	163
+play	clientbound	94	0x5E	Set Center Chunk	164
+play	clientbound	95	0x5F	Set Render Distance	165
+play	clientbound	96	0x60	Set Cursor Item	166
+play	clientbound	97	0x61	Set Default Spawn Position	167
+play	clientbound	98	0x62	Display Objective	168
+play	clientbound	99	0x63	Set Entity Metadata	169
+play	clientbound	100	0x64	Link Entities	170
+play	clientbound	101	0x65	Set Entity Velocity	171
+play	clientbound	102	0x66	Set Equipment	172
+play	clientbound	103	0x67	Set Experience	173
+play	clientbound	104	0x68	Set Health	174
+play	clientbound	105	0x69	Set Held Item (clientbound)	175
+play	clientbound	106	0x6A	Update Objectives	176
+play	clientbound	107	0x6B	Set Passengers	177
+play	clientbound	108	0x6C	Set Player Inventory Slot	178
+play	clientbound	109	0x6D	Update Teams	179
+play	clientbound	110	0x6E	Update Score	180
+play	clientbound	111	0x6F	Set Simulation Distance	181
+play	clientbound	112	0x70	Set Subtitle Text	182
+play	clientbound	113	0x71	Update Time	183
+play	clientbound	114	0x72	Set Title Text	184
+play	clientbound	115	0x73	Set Title Animation Times	185
+play	clientbound	116	0x74	Entity Sound Effect	186
+play	clientbound	117	0x75	Sound Effect	187
+play	clientbound	118	0x76	Start Configuration	188
+play	clientbound	119	0x77	Stop Sound	189
+play	clientbound	120	0x78	Store Cookie	50
+play	clientbound	121	0x79	System Chat Message	190
+play	clientbound	122	0x7A	Set Tab List Header And Footer	191
+play	clientbound	123	0x7B	Tag Query Response	192
+play	clientbound	124	0x7C	Pickup Item	193
+play	clientbound	125	0x7D	Synchronize Vehicle Position	194
+play	clientbound	126	0x7E	Test Instance Block Status	195
+play	clientbound	127	0x7F	Set Ticking State	196
+play	clientbound	128	0x80	Step Tick	197
+play	clientbound	129	0x81	Transfer	51
+play	clientbound	130	0x82	Update Advancements	198
+play	clientbound	131	0x83	Update Attributes	199
+play	clientbound	132	0x84	Entity Effect	200
+play	clientbound	133	0x85	Update Recipes	201
+play	clientbound	134	0x86	Update Tags	52
+play	clientbound	135	0x87	Projectile Power	202
+play	clientbound	136	0x88	Custom Report Details	53
+play	clientbound	137	0x89	Server Links	54
+play	clientbound	138	0x8A	Waypoint	203
+play	clientbound	139	0x8B	Clear Dialog	55
+play	clientbound	140	0x8C	Show Dialog (play)	204
+play	serverbound	0	0x0	Confirm Teleportation	206
+play	serverbound	1	0x1	Attack	207
+play	serverbound	2	0x2	Query Block Entity Tag	208
+play	serverbound	3	0x3	Bundle Item Selected	209
+play	serverbound	4	0x4	Change Difficulty	88
+play	serverbound	5	0x5	Change Game Mode	211
+play	serverbound	6	0x6	Acknowledge Message	212
+play	serverbound	7	0x7	Chat Command	213
+play	serverbound	8	0x8	Signed Chat Command	214
+play	serverbound	9	0x9	Chat Message	215
+play	serverbound	10	0xA	Player Session	216
+play	serverbound	11	0xB	Chunk Batch Received	217
+play	serverbound	12	0xC	Client Status	218
+play	serverbound	13	0xD	Client Tick End	219
+play	serverbound	14	0xE	Client Information	57
+play	serverbound	15	0xF	Command Suggestions Request	220
+play	serverbound	16	0x10	Acknowledge Configuration	221
+play	serverbound	17	0x11	Click Container Button	222
+play	serverbound	18	0x12	Click Container	223
+play	serverbound	19	0x13	Close Container	95
+play	serverbound	20	0x14	Change Container Slot State	225
+play	serverbound	21	0x15	Cookie Response	41
+play	serverbound	22	0x16	Plugin Message (serverbound)	58
+play	serverbound	23	0x17	Debug Subscription Request	226
+play	serverbound	24	0x18	Edit Book	227
+play	serverbound	25	0x19	Query Entity Tag	228
+play	serverbound	26	0x1A	Interact	229
+play	serverbound	27	0x1B	Jigsaw Generate	230
+play	serverbound	28	0x1C	Keep Alive (serverbound)	59
+play	serverbound	29	0x1D	Lock Difficulty	231
+play	serverbound	30	0x1E	Set Player Position	232
+play	serverbound	31	0x1F	Set Player Position and Rotation	233
+play	serverbound	32	0x20	Set Player Rotation	234
+play	serverbound	33	0x21	Set Player Movement Flags	235
+play	serverbound	34	0x22	Move Vehicle (serverbound)	236
+play	serverbound	35	0x23	Paddle Boat	237
+play	serverbound	36	0x24	Pick Item From Block	238
+play	serverbound	37	0x25	Pick Item From Entity	239
+play	serverbound	38	0x26	Ping Request	
+play	serverbound	39	0x27	Place Recipe	240
+play	serverbound	40	0x28	Player Abilities (serverbound)	241
+play	serverbound	41	0x29	Player Action	242
+play	serverbound	42	0x2A	Player Command	243
+play	serverbound	43	0x2B	Player Input	244
+play	serverbound	44	0x2C	Player Loaded	245
+play	serverbound	45	0x2D	Pong	60
+play	serverbound	46	0x2E	Change Recipe Book Settings	246
+play	serverbound	47	0x2F	Set Seen Recipe	247
+play	serverbound	48	0x30	Rename Item	248
+play	serverbound	49	0x31	Resource Pack Response	61
+play	serverbound	50	0x32	Seen Advancements	249
+play	serverbound	51	0x33	Select Trade	250
+play	serverbound	52	0x34	Set Beacon Effect	251
+play	serverbound	53	0x35	Set Held Item (serverbound)	252
+play	serverbound	54	0x36	Program Command Block	253
+play	serverbound	55	0x37	Program Command Block Minecart	254
+play	serverbound	56	0x38	Set Creative Mode Slot	255
+play	serverbound	57	0x39	Set Game Rules	256
+play	serverbound	58	0x3A	Program Jigsaw Block	257
+play	serverbound	59	0x3B	Program Structure Block	258
+play	serverbound	60	0x3C	Set Test Block	259
+play	serverbound	61	0x3D	Update Sign	260
+play	serverbound	62	0x3E	Spectator Action	261
+play	serverbound	63	0x3F	Swing Arm	262
+play	serverbound	64	0x40	Teleport To Entity	263
+play	serverbound	65	0x41	Test Instance Block Action	264
+play	serverbound	66	0x42	Use Item On	265
+play	serverbound	67	0x43	Use Item	266
+play	serverbound	68	0x44	Custom Click Action	62

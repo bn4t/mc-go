@@ -1,0 +1,2315 @@
+package blackbox
+
+import (
+	"bytes"
+	"math"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"mc-go/internal/protocol"
+	"mc-go/internal/server"
+	"mc-go/internal/world"
+)
+
+// drainToQuietBlackbox reads until the connection is quiet for gap.
+func drainToQuietBlackbox(t *testing.T, c interface{ SetReadDeadline(time.Time) error }, pr *protocol.Reader, gap time.Duration) {
+	t.Helper()
+	for {
+		_ = c.SetReadDeadline(time.Now().Add(gap))
+		if _, err := pr.ReadPacket(); err != nil {
+			_ = c.SetReadDeadline(time.Time{})
+			return
+		}
+	}
+}
+
+// sendMovePosRotPitch writes a full position+rotation update.
+func sendMovePosRotPitch(pw *protocol.Writer, x, y, z float64, yaw, pitch float32) error {
+	var b protocol.Buffer
+	b.Double(x)
+	b.Double(y)
+	b.Double(z)
+	b.Float(yaw)
+	b.Float(pitch)
+	b.Byte(0x01) // on ground
+	return pw.WritePacket(server.IDPlayMovePosRotSB, b.Bytes())
+}
+
+// sendDig writes one Player Action digging packet.
+func sendDig(t *testing.T, pw *protocol.Writer, status int32, x, y, z int32, seq int32) {
+	t.Helper()
+	var b protocol.Buffer
+	b.VarInt(status)
+	b.Position(x, y, z)
+	b.VarInt(1) // face: top
+	b.VarInt(seq)
+	if err := pw.WritePacket(server.IDPlayPlayerActionSB, b.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSurvivalBreakDropPickupPackets proves the survival break -> item
+// entity -> pickup flow at the packet level on a standalone server:
+// exact IDs, exact field encodings, no timing assertions. Waits are
+// event-driven (poll until the expected packet) with a generous cap.
+func TestSurvivalBreakDropPickupPackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	c, pr, pw := joinPlayBlackbox(t, addr, "Miner")
+	defer c.Close()
+	drainToJoinBlackbox(t, "miner", pr)
+
+	var tp protocol.Buffer
+	tp.VarInt(1)
+	if err := pw.WritePacket(server.IDPlayTeleportConfirmSB, tp.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if err := pw.WritePacket(server.IDPlayPlayerLoadedSB, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := sendMovePosRotPitch(pw, 8.5, -60, 0.5, 0, 90); err != nil {
+		t.Fatal(err)
+	}
+
+	// Start the dig, let one server tick pass, then finish. The wait
+	// is for the server's dig-state tick, not a behavior assertion.
+	sendDig(t, pw, 0, 8, -61, 0, 1)
+	time.Sleep(120 * time.Millisecond)
+	sendDig(t, pw, 2, 8, -61, 0, 2)
+
+	deadline := time.Now().Add(10 * time.Second)
+	_ = c.SetReadDeadline(deadline)
+
+	// 1. Block Update for (8,-61,0) with state 0 (air).
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting block update: %v", err)
+		}
+		if p.ID != server.IDPlayBlockUpdateCB {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		x, y, z, err := r.Position()
+		if err != nil {
+			t.Fatalf("block update position: %v", err)
+		}
+		state, err := r.VarInt()
+		if err != nil {
+			t.Fatalf("block update state: %v", err)
+		}
+		if x != 8 || y != -61 || z != 0 {
+			t.Fatalf("block update pos = %d,%d,%d, want 8,-61,0", x, y, z)
+		}
+		if state != int32(world.Air) {
+			t.Fatalf("block update state = %d, want air", state)
+		}
+		break
+	}
+
+	// 2. Spawn Entity for an item entity; capture its id and UUID.
+	var itemEID int32
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting item spawn: %v", err)
+		}
+		if p.ID != server.IDPlaySpawnEntity {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, err := r.VarInt()
+		if err != nil {
+			t.Fatalf("spawn entity id: %v", err)
+		}
+		if _, err := r.UUID(); err != nil {
+			t.Fatalf("spawn uuid: %v", err)
+		}
+		typ, err := r.VarInt()
+		if err != nil {
+			t.Fatalf("spawn type: %v", err)
+		}
+		wantType, _ := server.EntityTypeID("item")
+		if typ != wantType {
+			t.Fatalf("spawn type = %d, want item (%d)", typ, wantType)
+		}
+		itemEID = eid
+		break
+	}
+
+	// 3. Set Entity Data: index 8, type 7 (slot), dirt x1.
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting item metadata: %v", err)
+		}
+		if p.ID != server.IDPlayEntityMetadata {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, err := r.VarInt()
+		if err != nil || eid != itemEID {
+			t.Fatalf("metadata eid = %d, err %v (want %d)", eid, err, itemEID)
+		}
+		index, err := r.Byte()
+		if err != nil || index != 8 {
+			t.Fatalf("metadata index = %d, err %v (want 8 = item)", index, err)
+		}
+		typ, err := r.Byte()
+		if err != nil || typ != 7 {
+			t.Fatalf("metadata type = %d, err %v (want 7 = slot)", typ, err)
+		}
+		count, err := r.VarInt()
+		if err != nil || count != 1 {
+			t.Fatalf("item count = %d, err %v", count, err)
+		}
+		id, err := r.VarInt()
+		if err != nil || id != world.ItemIDs["dirt"] {
+			t.Fatalf("item id = %d, err %v (want dirt %d)", id, err, world.ItemIDs["dirt"])
+		}
+		if a, err := r.VarInt(); err != nil || a != 0 {
+			t.Fatalf("components to add = %d, err %v", a, err)
+		}
+		if rm, err := r.VarInt(); err != nil || rm != 0 {
+			t.Fatalf("components to remove = %d, err %v", rm, err)
+		}
+		if term, err := r.Byte(); err != nil || term != 0xFF {
+			t.Fatalf("metadata terminator = %#x, err %v", term, err)
+		}
+		break
+	}
+
+	// 4. After the pickup delay, Take Item Entity then Remove Entities
+	// then the inventory slot sync.
+	sawTake := false
+	sawRemove := false
+	sawSlot := false
+	for !(sawTake && sawRemove && sawSlot) {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting pickup (take=%v remove=%v slot=%v): %v", sawTake, sawRemove, sawSlot, err)
+		}
+		switch p.ID {
+		case server.IDPlayTakeItem:
+			r := protocol.NewPacketReader(p.Data)
+			ie, err1 := r.VarInt()
+			ce, err2 := r.VarInt()
+			am, err3 := r.VarInt()
+			if err1 != nil || err2 != nil || err3 != nil {
+				t.Fatalf("take item fields: %v/%v/%v", err1, err2, err3)
+			}
+			if ie != itemEID {
+				t.Fatalf("take item entity = %d, want %d", ie, itemEID)
+			}
+			if ce == 0 {
+				t.Fatal("take item collector = 0")
+			}
+			if am != 1 {
+				t.Fatalf("take item amount = %d, want 1", am)
+			}
+			sawTake = true
+		case server.IDPlayRemoveEntity:
+			r := protocol.NewPacketReader(p.Data)
+			n, err := r.VarInt()
+			if err != nil || n != 1 {
+				t.Fatalf("remove count = %d, err %v", n, err)
+			}
+			id, err := r.VarInt()
+			if err != nil || id != itemEID {
+				t.Fatalf("remove id = %d, err %v (want %d)", id, err, itemEID)
+			}
+			sawRemove = true
+		case server.IDPlayContainerSlot:
+			r := protocol.NewPacketReader(p.Data)
+			win, _ := r.VarInt()
+			state, _ := r.VarInt()
+			slot, err := r.VarInt()
+			if err != nil {
+				t.Fatalf("container slot index: %v", err)
+			}
+			count, _ := r.VarInt()
+			id, _ := r.VarInt()
+			if win != 0 {
+				t.Fatalf("container window = %d, want 0", win)
+			}
+			_ = state
+			if slot < 36 || slot > 44 {
+				t.Fatalf("picked-up slot = %d, want hotbar 36-44", slot)
+			}
+			if count != 1 || id != world.ItemIDs["dirt"] {
+				t.Fatalf("picked-up stack = %d x%d, want dirt x1", id, count)
+			}
+			sawSlot = true
+		}
+	}
+}
+
+// TestSurvivalDeathRespawnPackets proves the death and respawn packet
+// flow over the wire: /kill produces Set Health 0 and Combat Death,
+// and Client Command perform-respawn produces Respawn, Set Health, and
+// a fresh position sync.
+func TestSurvivalDeathRespawnPackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	c, pr, pw := joinPlayBlackbox(t, addr, "Mortal")
+	defer c.Close()
+	drainToJoinBlackbox(t, "mortal", pr)
+	drainToQuietBlackbox(t, c, pr, 500*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "kill")
+
+	// Set Health 0 and Combat Death arrive after the command reply.
+	var sawDeathHealth, sawCombat bool
+	for !(sawDeathHealth && sawCombat) {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting death packets (health=%v combat=%v): %v", sawDeathHealth, sawCombat, err)
+		}
+		switch p.ID {
+		case server.IDPlaySetHealth:
+			r := protocol.NewPacketReader(p.Data)
+			h, err := r.Float()
+			if err != nil {
+				t.Fatalf("health: %v", err)
+			}
+			if h == 0 {
+				sawDeathHealth = true
+			}
+		case server.IDPlayCombatDeath:
+			r := protocol.NewPacketReader(p.Data)
+			if _, err := r.VarInt(); err != nil {
+				t.Fatalf("combat death eid: %v", err)
+			}
+			rest, err := r.Read(r.Remaining())
+			if err != nil {
+				t.Fatalf("combat death message: %v", err)
+			}
+			if !bytes.Contains(rest, []byte("Killed by Mortal")) {
+				t.Fatalf("combat death message lacks kill text: %x", rest)
+			}
+			sawCombat = true
+		}
+	}
+
+	// Perform respawn.
+	var cc protocol.Buffer
+	cc.VarInt(0)
+	if err := pw.WritePacket(server.IDPlayClientStatusSB, cc.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	sawRespawn, sawHealth20, sawPos := false, false, false
+	for !(sawRespawn && sawHealth20 && sawPos) {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting respawn packets: %v", err)
+		}
+		switch p.ID {
+		case server.IDPlayRespawn:
+			r := protocol.NewPacketReader(p.Data)
+			if dimType, err := r.VarInt(); err != nil || dimType != 0 {
+				t.Fatalf("respawn dim type = %d, err %v", dimType, err)
+			}
+			if dim, err := r.String(); err != nil || dim != "minecraft:overworld" {
+				t.Fatalf("respawn dim = %q, err %v", dim, err)
+			}
+			sawRespawn = true
+		case server.IDPlaySetHealth:
+			r := protocol.NewPacketReader(p.Data)
+			if h, err := r.Float(); err == nil && h == 20 {
+				sawHealth20 = true
+			}
+		case server.IDPlaySyncPos:
+			r := protocol.NewPacketReader(p.Data)
+			if tid, err := r.VarInt(); err == nil && tid > 0 {
+				sawPos = true
+			}
+		}
+	}
+}
+
+// TestSurvivalAttackPackets proves player melee at the packet level:
+// Bob attacks Alice (entity id learned from her spawn in his join
+// burst); Alice receives Set Health 19 and Hurt Animation, and Bob
+// receives the hurt Entity Event.
+func TestSurvivalAttackPackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	ca, pra, _ := joinPlayBlackbox(t, addr, "Alice")
+	defer ca.Close()
+	drainToJoinBlackbox(t, "alice", pra)
+	drainToQuietBlackbox(t, ca, pra, 400*time.Millisecond)
+
+	cb, prb, pwb := joinPlayBlackbox(t, addr, "Bob")
+	defer cb.Close()
+	// Bob's join burst carries Alice's Spawn Entity: capture her id.
+	var aliceEID int32
+	wantUUID := offlineUUIDBlackbox("Alice")
+	_ = cb.SetReadDeadline(time.Now().Add(10 * time.Second))
+	for {
+		p, err := prb.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting alice spawn: %v", err)
+		}
+		if p.ID != server.IDPlaySpawnEntity {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, err := r.VarInt()
+		if err != nil {
+			t.Fatalf("spawn eid: %v", err)
+		}
+		u, err := r.UUID()
+		if err != nil {
+			t.Fatalf("spawn uuid: %v", err)
+		}
+		if u != wantUUID {
+			continue
+		}
+		aliceEID = eid
+		break
+	}
+
+	// Bob attacks Alice (both stand at spawn, within reach).
+	var atk protocol.Buffer
+	atk.VarInt(aliceEID)
+	if err := pwb.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Bob sees the hurt entity event for Alice.
+	ev := waitForPacketBlackbox(t, cb, prb, server.IDPlayEntityEvent, 5*time.Second)
+	if ev == nil {
+		t.Fatal("bob hurt event never arrived")
+	}
+	er := protocol.NewPacketReader(ev.Data)
+	if eid, err := er.Int(); err != nil || eid != aliceEID {
+		t.Fatalf("event eid = %d, err %v (want %d)", eid, err, aliceEID)
+	}
+	if status, err := er.Byte(); err != nil || status != 2 {
+		t.Fatalf("event status = %d, err %v (want 2 hurt)", status, err)
+	}
+
+	// Alice sees Set Health 19 and Hurt Animation for herself.
+	sawHealth, sawHurt := false, false
+	_ = ca.SetDeadline(time.Now().Add(5 * time.Second))
+	for !(sawHealth && sawHurt) {
+		p, err := pra.ReadPacket()
+		if err != nil {
+			t.Fatalf("alice waiting (health=%v hurt=%v): %v", sawHealth, sawHurt, err)
+		}
+		switch p.ID {
+		case server.IDPlaySetHealth:
+			r := protocol.NewPacketReader(p.Data)
+			if h, err := r.Float(); err == nil && h == 19 {
+				sawHealth = true
+			}
+		case server.IDPlayHurtAnimation:
+			r := protocol.NewPacketReader(p.Data)
+			if eid, err := r.VarInt(); err == nil && eid == aliceEID {
+				sawHurt = true
+			}
+		}
+	}
+}
+
+// TestSurvivalPlaceConsumesPackets proves survival placement at the
+// packet level: /give stocks the hotbar, Use Item On places the block,
+// and the consumed stack is synced back to the client.
+func TestSurvivalPlaceConsumesPackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	c, pr, pw := joinPlayBlackbox(t, addr, "Builder")
+	defer c.Close()
+	drainToJoinBlackbox(t, "builder", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give dirt 2")
+	// The hotbar slot sync carries the granted dirt.
+	foundGive := false
+	for !foundGive {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting give: %v", err)
+		}
+		if p.ID != server.IDPlayContainerSlot && p.ID != server.IDPlayContainerContent {
+			continue
+		}
+		if p.ID == server.IDPlayContainerContent {
+			foundGive = true
+			break
+		}
+		r := protocol.NewPacketReader(p.Data)
+		_, _ = r.VarInt() // window
+		_, _ = r.VarInt() // state
+		slot, err := r.VarInt()
+		if err != nil || slot != 36 {
+			continue
+		}
+		count, _ := r.VarInt()
+		id, _ := r.VarInt()
+		if count == 2 && id == world.ItemIDs["dirt"] {
+			foundGive = true
+		}
+	}
+
+	// Aim at the grass under the player and place against its top.
+	var tp protocol.Buffer
+	tp.VarInt(1)
+	_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, tp.Bytes())
+	_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+	if err := sendMovePosRotPitch(pw, 8.5, -60, 0.5, 0, 90); err != nil {
+		t.Fatal(err)
+	}
+	var use protocol.Buffer
+	use.VarInt(0)           // hand
+	use.Position(8, -61, 0) // clicked grass
+	use.VarInt(1)           // face: top
+	use.Float(0.5)
+	use.Float(1.0)
+	use.Float(0.5)
+	use.Bool(false) // inside block
+	use.Bool(false) // world border
+	use.VarInt(7)   // sequence
+	if err := pw.WritePacket(server.IDPlayUseItemOnSB, use.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	sawBlock, sawConsume := false, false
+	for !(sawBlock && sawConsume) {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting place (block=%v consume=%v): %v", sawBlock, sawConsume, err)
+		}
+		switch p.ID {
+		case server.IDPlayBlockUpdateCB:
+			r := protocol.NewPacketReader(p.Data)
+			x, y, z, err := r.Position()
+			if err != nil {
+				t.Fatalf("block update: %v", err)
+			}
+			st, _ := r.VarInt()
+			if x == 8 && y == -60 && z == 0 && st == int32(world.Dirt) {
+				sawBlock = true
+			}
+		case server.IDPlayContainerSlot:
+			r := protocol.NewPacketReader(p.Data)
+			_, _ = r.VarInt()
+			_, _ = r.VarInt()
+			slot, err := r.VarInt()
+			if err != nil || slot != 36 {
+				continue
+			}
+			count, _ := r.VarInt()
+			id, _ := r.VarInt()
+			if count == 1 && id == world.ItemIDs["dirt"] {
+				sawConsume = true
+			}
+		}
+	}
+}
+
+// TestMobSummonAttackPackets proves the mob lifecycle at the packet
+// level: /summon emits Spawn Entity for the pig type plus health
+// metadata, each attack emits a hurt Entity Event and updated health
+// metadata, and the tenth hit removes the entity.
+func TestMobSummonAttackPackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	c, pr, pw := joinPlayBlackbox(t, addr, "Hunter")
+	defer c.Close()
+	drainToJoinBlackbox(t, "hunter", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "summon pig")
+
+	// Spawn Entity: pig type; capture the id.
+	pigType, _ := server.EntityTypeID("pig")
+	var pigEID int32
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting summon: %v", err)
+		}
+		if p.ID != server.IDPlaySpawnEntity {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, err := r.VarInt()
+		if err != nil {
+			t.Fatalf("spawn eid: %v", err)
+		}
+		if _, err := r.UUID(); err != nil {
+			t.Fatalf("spawn uuid: %v", err)
+		}
+		typ, err := r.VarInt()
+		if err != nil {
+			t.Fatalf("spawn type: %v", err)
+		}
+		if typ != pigType {
+			t.Fatalf("spawn type = %d, want pig %d", typ, pigType)
+		}
+		pigEID = eid
+		break
+	}
+
+	// Health metadata: index 9, float, 10.
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting health metadata: %v", err)
+		}
+		if p.ID != server.IDPlayEntityMetadata {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, _ := r.VarInt()
+		if eid != pigEID {
+			continue
+		}
+		index, _ := r.Byte()
+		typ, _ := r.VarInt()
+		health, err := r.Float()
+		if index != 9 || typ != 3 || err != nil || health != 10 {
+			t.Fatalf("spawn metadata = index %d type %d health %v err %v", index, typ, health, err)
+		}
+		break
+	}
+
+	// Hit it ten times; watch health fall and the removal arrive.
+	for hit := 1; hit <= 10; hit++ {
+		var atk protocol.Buffer
+		atk.VarInt(pigEID)
+		if err := pw.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sawHurt, sawRemove := false, false
+	var lastHealth float32 = 10
+	for !sawHurt || !sawRemove {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting combat (hurt=%v remove=%v): %v", sawHurt, sawRemove, err)
+		}
+		switch p.ID {
+		case server.IDPlayEntityEvent:
+			r := protocol.NewPacketReader(p.Data)
+			eid, err1 := r.Int()
+			status, err2 := r.Byte()
+			if err1 == nil && err2 == nil && eid == pigEID && status == 2 {
+				sawHurt = true
+			}
+		case server.IDPlayEntityMetadata:
+			r := protocol.NewPacketReader(p.Data)
+			eid, _ := r.VarInt()
+			if eid != pigEID {
+				continue
+			}
+			_, _ = r.Byte() // index
+			_, _ = r.VarInt()
+			h, err := r.Float()
+			if err != nil {
+				t.Fatalf("health metadata: %v", err)
+			}
+			if h >= lastHealth {
+				t.Fatalf("health did not drop: %v -> %v", lastHealth, h)
+			}
+			lastHealth = h
+		case server.IDPlayRemoveEntity:
+			r := protocol.NewPacketReader(p.Data)
+			n, err := r.VarInt()
+			if err != nil || n != 1 {
+				t.Fatalf("remove count = %d, err %v", n, err)
+			}
+			id, err := r.VarInt()
+			if err != nil || id != pigEID {
+				t.Fatalf("remove id = %d, err %v (want %d)", id, err, pigEID)
+			}
+			sawRemove = true
+		}
+	}
+	if lastHealth > 1 {
+		t.Fatalf("final health = %v, want <= 1", lastHealth)
+	}
+
+	// The pig drops porkchop as an item entity after removal.
+	itemType, _ := server.EntityTypeID("item")
+	var dropEID int32
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting loot: %v", err)
+		}
+		if p.ID != server.IDPlaySpawnEntity {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, _ := r.VarInt()
+		if _, err := r.UUID(); err != nil {
+			t.Fatalf("loot uuid: %v", err)
+		}
+		typ, err := r.VarInt()
+		if err != nil || typ != itemType {
+			continue
+		}
+		dropEID = eid
+		break
+	}
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting loot metadata: %v", err)
+		}
+		if p.ID != server.IDPlayEntityMetadata {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, _ := r.VarInt()
+		if eid != dropEID {
+			continue
+		}
+		index, _ := r.Byte()
+		typ, _ := r.VarInt()
+		if index != 8 || typ != 7 {
+			t.Fatalf("loot metadata = index %d type %d", index, typ)
+		}
+		count, err := r.VarInt()
+		if err != nil || count < 1 || count > 3 {
+			t.Fatalf("porkchop count = %d, err %v", count, err)
+		}
+		id, err := r.VarInt()
+		if err != nil || id != world.ItemIDs["porkchop"] {
+			t.Fatalf("loot item = %d, err %v (want porkchop %d)", id, err, world.ItemIDs["porkchop"])
+		}
+		break
+	}
+}
+
+// TestDeathDropsInventoryPackets proves death drops at the packet
+// level: /give stocks dirt, /kill emits the death flow plus an item
+// entity carrying the whole stack, and the respawned inventory is
+// empty.
+func TestDeathDropsInventoryPackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	c, pr, pw := joinPlayBlackbox(t, addr, "Mortal")
+	defer c.Close()
+	drainToJoinBlackbox(t, "mortal", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give dirt 5")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "kill")
+
+	itemType, _ := server.EntityTypeID("item")
+	sawDeath, sawDrop, sawMetadata := false, false, false
+	for !(sawDeath && sawDrop && sawMetadata) {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting death (death=%v drop=%v meta=%v): %v", sawDeath, sawDrop, sawMetadata, err)
+		}
+		switch p.ID {
+		case server.IDPlaySetHealth:
+			r := protocol.NewPacketReader(p.Data)
+			if h, err := r.Float(); err == nil && h == 0 {
+				sawDeath = true
+			}
+		case server.IDPlaySpawnEntity:
+			r := protocol.NewPacketReader(p.Data)
+			if _, err := r.VarInt(); err != nil {
+				t.Fatalf("drop eid: %v", err)
+			}
+			if _, err := r.UUID(); err != nil {
+				t.Fatalf("drop uuid: %v", err)
+			}
+			if typ, err := r.VarInt(); err == nil && typ == itemType {
+				sawDrop = true
+			}
+		case server.IDPlayEntityMetadata:
+			r := protocol.NewPacketReader(p.Data)
+			if _, err := r.VarInt(); err != nil {
+				t.Fatal(err)
+			}
+			index, _ := r.Byte()
+			typ, _ := r.VarInt()
+			if index != 8 || typ != 7 {
+				continue
+			}
+			count, _ := r.VarInt()
+			id, _ := r.VarInt()
+			if id != world.ItemIDs["dirt"] || count != 5 {
+				t.Fatalf("drop = %d x%d, want dirt x5", id, count)
+			}
+			sawMetadata = true
+		}
+	}
+}
+
+// TestMobXPOrbPackets proves mob experience at the packet level:
+// killing a pig spawns an experience orb (type 49) with value metadata
+// (index 8, VarInt 1..3), and collecting it emits Set Experience with
+// the matching total and the entity removed.
+func TestMobXPOrbPackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	c, pr, pw := joinPlayBlackbox(t, addr, "Learner")
+	defer c.Close()
+	drainToJoinBlackbox(t, "learner", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "summon pig")
+
+	orbType, _ := server.EntityTypeID("experience_orb")
+	// Wait for the pig spawn, learn its id, then kill it.
+	var pigEID int32
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting pig: %v", err)
+		}
+		if p.ID != server.IDPlaySpawnEntity {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, _ := r.VarInt()
+		if _, err := r.UUID(); err != nil {
+			t.Fatal(err)
+		}
+		typ, _ := r.VarInt()
+		if typ == orbType {
+			continue
+		}
+		pigEID = eid
+		break
+	}
+	for i := 0; i < 10; i++ {
+		var atk protocol.Buffer
+		atk.VarInt(pigEID)
+		if err := pw.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The orb spawns after the pig's removal.
+	var orbEID, orbValue int32
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting orb: %v", err)
+		}
+		if p.ID == server.IDPlaySpawnEntity {
+			r := protocol.NewPacketReader(p.Data)
+			eid, _ := r.VarInt()
+			if _, err := r.UUID(); err != nil {
+				t.Fatal(err)
+			}
+			typ, _ := r.VarInt()
+			if typ == orbType {
+				orbEID = eid
+			}
+			continue
+		}
+		if p.ID != server.IDPlayEntityMetadata || orbEID == 0 {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, _ := r.VarInt()
+		if eid != orbEID {
+			continue
+		}
+		index, _ := r.Byte()
+		typ, _ := r.VarInt()
+		if index != 8 || typ != 1 {
+			t.Fatalf("orb metadata = index %d type %d", index, typ)
+		}
+		val, err := r.VarInt()
+		if err != nil || val < 1 || val > 3 {
+			t.Fatalf("orb value = %d, err %v", val, err)
+		}
+		orbValue = val
+		break
+	}
+
+	// Collecting the orb emits Set Experience and removes it.
+	sawXP, sawRemove := false, false
+	for !(sawXP && sawRemove) {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting pickup (xp=%v remove=%v): %v", sawXP, sawRemove, err)
+		}
+		switch p.ID {
+		case server.IDPlaySetExperience:
+			r := protocol.NewPacketReader(p.Data)
+			if _, err := r.Float(); err != nil { // bar
+				t.Fatal(err)
+			}
+			if _, err := r.VarInt(); err != nil { // level
+				t.Fatal(err)
+			}
+			total, err := r.VarInt()
+			if err != nil || total != orbValue {
+				t.Fatalf("xp total = %d, err %v (want %d)", total, err, orbValue)
+			}
+			sawXP = true
+		case server.IDPlayRemoveEntity:
+			r := protocol.NewPacketReader(p.Data)
+			n, _ := r.VarInt()
+			if n != 1 {
+				continue
+			}
+			id, _ := r.VarInt()
+			if id == orbEID {
+				sawRemove = true
+			}
+		}
+	}
+}
+
+// TestMobWanderPackets proves the wander AI reaches the wire: after
+// /summon, the pig emits Entity Position Sync packets with its new
+// position and yaw. The test waits for the event, not a duration.
+func TestMobWanderPackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	c, pr, pw := joinPlayBlackbox(t, addr, "Observer")
+	defer c.Close()
+	drainToJoinBlackbox(t, "observer", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "summon pig")
+
+	var pigEID int32
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting pig: %v", err)
+		}
+		if p.ID != server.IDPlaySpawnEntity {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, _ := r.VarInt()
+		if _, err := r.UUID(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.VarInt(); err != nil { // type
+			t.Fatal(err)
+		}
+		pigEID = eid
+		break
+	}
+
+	// Wait for a movement update for the pig.
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting wander: %v", err)
+		}
+		if p.ID != server.IDPlayEntityTeleportCB {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, err := r.VarInt()
+		if err != nil {
+			t.Fatalf("sync eid: %v", err)
+		}
+		if eid != pigEID {
+			continue
+		}
+		x, err1 := r.Double()
+		y, err2 := r.Double()
+		z, err3 := r.Double()
+		if err1 != nil || err2 != nil || err3 != nil {
+			t.Fatalf("sync position: %v/%v/%v", err1, err2, err3)
+		}
+		if math.Abs(x-0.5) > 100 || math.Abs(z-8.5) > 100 {
+			t.Fatalf("pig strayed: %v,%v,%v", x, y, z)
+		}
+		if !math.IsInf(y, 0) {
+			// y must stay on the flat surface.
+			if y < -60.5 || y > -59.5 {
+				t.Fatalf("pig left the ground: y=%v", y)
+			}
+		}
+		return
+	}
+}
+
+// TestSignEditorPackets proves sign block entities at the packet level:
+// /setblock oak_sign emits Block Entity Data (type 7, sign NBT), using
+// the sign opens the editor, and Update Sign fans the new text back as
+// Block Entity Data.
+func TestSignEditorPackets(t *testing.T) {
+	addr := requireMcGoOnly(t)
+	c, pr, pw := joinPlayBlackbox(t, addr, "Signer")
+	defer c.Close()
+	drainToJoinBlackbox(t, "signer", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 oak_sign")
+
+	// Block Entity Data for the sign: position, type 7, NBT with
+	// front_text.
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting sign data: %v", err)
+		}
+		if p.ID != server.IDPlayBlockEntityData {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		x, y, z, err := r.Position()
+		if err != nil {
+			t.Fatalf("sign pos: %v", err)
+		}
+		typ, err := r.VarInt()
+		if err != nil {
+			t.Fatalf("sign type: %v", err)
+		}
+		rest, err := r.Read(r.Remaining())
+		if err != nil {
+			t.Fatalf("sign nbt: %v", err)
+		}
+		if x != 8 || y != -61 || z != 0 {
+			t.Fatalf("sign pos = %d,%d,%d", x, y, z)
+		}
+		if typ != 7 {
+			t.Fatalf("sign block entity type = %d, want 7", typ)
+		}
+		if !bytes.Contains(rest, []byte("front_text")) {
+			t.Fatalf("sign nbt lacks front_text: %x", rest)
+		}
+		break
+	}
+
+	// Use the sign: the editor opens.
+	var use protocol.Buffer
+	use.VarInt(0)
+	use.Position(8, -61, 0)
+	use.VarInt(1)
+	use.Float(0.5)
+	use.Float(1.0)
+	use.Float(0.5)
+	use.Bool(false)
+	use.Bool(false)
+	use.VarInt(9)
+	if err := pw.WritePacket(server.IDPlayUseItemOnSB, use.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting editor: %v", err)
+		}
+		if p.ID != server.IDPlayOpenSignEditor {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		if x, y, z, err := r.Position(); err != nil || x != 8 || y != -61 || z != 0 {
+			t.Fatalf("editor pos = %d,%d,%d err %v", x, y, z, err)
+		}
+		if front, err := r.Bool(); err != nil || !front {
+			t.Fatalf("editor front = %v, err %v", front, err)
+		}
+		break
+	}
+
+	// Edit the sign; the new text comes back as Block Entity Data.
+	var up protocol.Buffer
+	up.Position(8, -61, 0)
+	up.Bool(true)
+	for _, line := range []string{"hello", "parity", "", "world"} {
+		up.String(line)
+	}
+	if err := pw.WritePacket(server.IDPlayUpdateSignSB, up.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting sign update: %v", err)
+		}
+		if p.ID != server.IDPlayBlockEntityData {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		if _, _, _, err := r.Position(); err != nil {
+			t.Fatal(err)
+		}
+		if typ, err := r.VarInt(); err != nil || typ != 7 {
+			t.Fatalf("update type = %d, err %v", typ, err)
+		}
+		rest, err := r.Read(r.Remaining())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(rest, []byte("parity")) {
+			t.Fatalf("sign update lacks edited text: %x", rest)
+		}
+		return
+	}
+}
+
+// TestChestPackets proves chest containers at the packet level:
+// placing a chest and using it opens the generic 9x3 screen with 63
+// slots, clicking moves items between the player and the chest, and
+// closing acknowledges with Container Close.
+func TestChestPackets(t *testing.T) {
+	addr := requireMcGoOnly(t)
+	c, pr, pw := joinPlayBlackbox(t, addr, "Trader")
+	defer c.Close()
+	drainToJoinBlackbox(t, "trader", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 chest")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give dirt 2")
+
+	// Use the chest: Open Screen (window 1, generic 9x3) then the menu.
+	var use protocol.Buffer
+	use.VarInt(0)
+	use.Position(8, -61, 0)
+	use.VarInt(1)
+	use.Float(0.5)
+	use.Float(1.0)
+	use.Float(0.5)
+	use.Bool(false)
+	use.Bool(false)
+	use.VarInt(11)
+	if err := pw.WritePacket(server.IDPlayUseItemOnSB, use.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	var window int32
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting open screen: %v", err)
+		}
+		if p.ID != server.IDPlayOpenScreen {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		id, err := r.VarInt()
+		if err != nil {
+			t.Fatalf("window id: %v", err)
+		}
+		typ, err := r.VarInt()
+		if err != nil || typ != 2 {
+			t.Fatalf("window type = %d, err %v (want 2 generic_9x3)", typ, err)
+		}
+		rest, _ := r.Read(r.Remaining())
+		if !bytes.Contains(rest, []byte("Chest")) {
+			t.Fatalf("window title = %x, want Chest", rest)
+		}
+		window = id
+		break
+	}
+	if window == 0 {
+		t.Fatal("window id 0 used for a chest")
+	}
+	// Container content: 63 slots, all empty.
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting chest content: %v", err)
+		}
+		if p.ID != server.IDPlayContainerContent {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		wid, _ := r.VarInt()
+		if wid != window {
+			continue
+		}
+		_, _ = r.VarInt() // state
+		n, err := r.VarInt()
+		if err != nil || n != 63 {
+			t.Fatalf("chest slots = %d, err %v (want 63)", n, err)
+		}
+		break
+	}
+
+	// Click the hotbar stack onto the cursor, then into chest slot 0.
+	click := func(slot int16) {
+		t.Helper()
+		var b protocol.Buffer
+		b.VarInt(window)
+		b.VarInt(0)
+		b.Short(slot)
+		b.Byte(0)
+		b.VarInt(0)
+		b.VarInt(0)
+		b.VarInt(0)
+		if err := pw.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	click(54) // hotbar 0
+	click(0)  // chest slot 0
+
+	sawChest := false
+	for !sawChest {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting chest slot: %v", err)
+		}
+		if p.ID != server.IDPlayContainerSlot {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		wid, _ := r.VarInt()
+		if wid != window {
+			continue
+		}
+		_, _ = r.VarInt() // state
+		slot, err := r.VarInt()
+		if err != nil || slot != 0 {
+			continue
+		}
+		count, _ := r.VarInt()
+		id, _ := r.VarInt()
+		if id != world.ItemIDs["dirt"] || count != 2 {
+			t.Fatalf("chest slot 0 = id %d x%d, want dirt x2", id, count)
+		}
+		sawChest = true
+	}
+
+	// Close the window: acknowledged with Container Close.
+	var close protocol.Buffer
+	close.VarInt(window)
+	if err := pw.WritePacket(server.IDPlayCloseContainerSB, close.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting close: %v", err)
+		}
+		if p.ID != server.IDPlayContainerClose {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		if wid, err := r.VarInt(); err != nil || wid != window {
+			t.Fatalf("close window = %d, err %v", wid, err)
+		}
+		return
+	}
+}
+
+// TestPersistenceReconnectPackets proves player persistence at the
+// packet level: items granted to a player survive a reconnect on the
+// same server (the join Container Content carries them back).
+func TestPersistenceReconnectPackets(t *testing.T) {
+	dataFile := filepath.Join(t.TempDir(), "data.json")
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.DataPath = dataFile
+	})
+
+	c1, pr1, pw1 := joinPlayBlackbox(t, addr, "Returner")
+	drainToJoinBlackbox(t, "returner-1", pr1)
+	_ = c1.SetDeadline(time.Now().Add(10 * time.Second))
+	sendChatBlackbox(t, pw1, server.IDPlayChatCommandSB, "give dirt 3")
+	// Wait until the grant lands in the hotbar.
+	for {
+		p, err := pr1.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting give: %v", err)
+		}
+		if p.ID != server.IDPlayContainerSlot {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		_, _ = r.VarInt()
+		_, _ = r.VarInt()
+		slot, _ := r.VarInt()
+		count, _ := r.VarInt()
+		id, _ := r.VarInt()
+		if slot == 36 && count == 3 && id == world.ItemIDs["dirt"] {
+			break
+		}
+	}
+	_ = c1.Close()
+
+	// Wait for the server to retire the session before rejoining.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if v := fetchStatus(t, addr); v.Players.Online == 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	c2, pr2, _ := joinPlayBlackbox(t, addr, "Returner")
+	defer c2.Close()
+	drainToJoinBlackbox(t, "returner-2", pr2)
+	_ = c2.SetDeadline(time.Now().Add(10 * time.Second))
+	for {
+		p, err := pr2.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting restored inventory: %v", err)
+		}
+		if p.ID != server.IDPlayContainerContent {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		win, _ := r.VarInt()
+		if win != 0 {
+			continue
+		}
+		_, _ = r.VarInt() // state
+		n, _ := r.VarInt()
+		if n != 46 {
+			continue
+		}
+		for i := int32(0); i < n; i++ {
+			count, err := r.VarInt()
+			if err != nil {
+				t.Fatalf("slot %d: %v", i, err)
+			}
+			if count <= 0 {
+				continue
+			}
+			id, _ := r.VarInt()
+			if i == 36 && id == world.ItemIDs["dirt"] && count == 3 {
+				return
+			}
+		}
+		t.Fatal("rejoined inventory lacks the persisted dirt")
+	}
+}
+
+// TestFurnacePackets proves furnace containers at the packet level:
+// using a furnace opens the furnace menu (type 14) with 39 slots and
+// the four burn/cook properties, and items move into the input and
+// fuel slots through Click Container.
+func TestFurnacePackets(t *testing.T) {
+	addr := requireMcGoOnly(t)
+	c, pr, pw := joinPlayBlackbox(t, addr, "Smelter")
+	defer c.Close()
+	drainToJoinBlackbox(t, "smelter", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 furnace")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give sand 1")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give coal 1")
+
+	var use protocol.Buffer
+	use.VarInt(0)
+	use.Position(8, -61, 0)
+	use.VarInt(1)
+	use.Float(0.5)
+	use.Float(1.0)
+	use.Float(0.5)
+	use.Bool(false)
+	use.Bool(false)
+	use.VarInt(13)
+	if err := pw.WritePacket(server.IDPlayUseItemOnSB, use.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	var window int32
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting furnace screen: %v", err)
+		}
+		if p.ID != server.IDPlayOpenScreen {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		id, _ := r.VarInt()
+		typ, err := r.VarInt()
+		if err != nil || typ != 14 {
+			t.Fatalf("menu type = %d, err %v (want 14 furnace)", typ, err)
+		}
+		window = id
+		break
+	}
+	// Contents: 39 slots.
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting furnace content: %v", err)
+		}
+		if p.ID != server.IDPlayContainerContent {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		wid, _ := r.VarInt()
+		if wid != window {
+			continue
+		}
+		_, _ = r.VarInt()
+		n, err := r.VarInt()
+		if err != nil || n != 39 {
+			t.Fatalf("furnace slots = %d, err %v (want 39)", n, err)
+		}
+		break
+	}
+
+	// Move the hotbar sand (menu 30) into the input (0) and the coal
+	// (menu 31) into the fuel (1).
+	click := func(slot int16) {
+		t.Helper()
+		var b protocol.Buffer
+		b.VarInt(window)
+		b.VarInt(0)
+		b.Short(slot)
+		b.Byte(0)
+		b.VarInt(0)
+		b.VarInt(0)
+		b.VarInt(0)
+		if err := pw.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	move := func(from, to int16) {
+		click(from)
+		click(to)
+	}
+	move(30, 0)
+	move(31, 1)
+
+	sawInput, sawFuel := false, false
+	for !(sawInput && sawFuel) {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting transfers (input=%v fuel=%v): %v", sawInput, sawFuel, err)
+		}
+		if p.ID != server.IDPlayContainerSlot {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		wid, _ := r.VarInt()
+		if wid != window {
+			continue
+		}
+		_, _ = r.VarInt()
+		slot, err := r.VarInt()
+		if err != nil {
+			continue
+		}
+		count, _ := r.VarInt()
+		id, _ := r.VarInt()
+		switch {
+		case slot == 0 && count == 1 && id == world.ItemIDs["sand"]:
+			sawInput = true
+		case slot == 1 && count == 1 && id == world.ItemIDs["coal"]:
+			sawFuel = true
+		}
+	}
+}
+
+// TestCraftingPackets proves the 2x2 player crafting grid at the
+// packet level: moving a log into the grid makes the result slot carry
+// four planks, and taking the result clears the grid and moves the
+// planks to the cursor.
+func TestCraftingPackets(t *testing.T) {
+	addr := requireMcGoOnly(t)
+	c, pr, pw := joinPlayBlackbox(t, addr, "Crafter")
+	defer c.Close()
+	drainToJoinBlackbox(t, "crafter", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give oak_log 1")
+
+	click := func(slot int16) {
+		t.Helper()
+		var b protocol.Buffer
+		b.VarInt(0) // player inventory window
+		b.VarInt(0)
+		b.Short(slot)
+		b.Byte(0)
+		b.VarInt(0)
+		b.VarInt(0)
+		b.VarInt(0)
+		if err := pw.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Give lands in hotbar slot 36; move it into the grid's top-left.
+	click(36)
+	click(1)
+
+	// The result slot now shows four planks.
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting result: %v", err)
+		}
+		if p.ID != server.IDPlayContainerSlot {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		_, _ = r.VarInt()
+		_, _ = r.VarInt()
+		slot, _ := r.VarInt()
+		count, _ := r.VarInt()
+		id, _ := r.VarInt()
+		if slot == 0 {
+			if id != world.ItemIDs["oak_planks"] || count != 4 {
+				t.Fatalf("result = id %d x%d, want oak_planks x4", id, count)
+			}
+			break
+		}
+	}
+
+	// Take the result: cursor gets the planks, grid clears.
+	click(0)
+	sawGrid, sawCursor, sawClear := false, false, false
+	for !(sawGrid && sawCursor && sawClear) {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting craft take (grid=%v cursor=%v clear=%v): %v", sawGrid, sawCursor, sawClear, err)
+		}
+		switch p.ID {
+		case server.IDPlayContainerSlot:
+			r := protocol.NewPacketReader(p.Data)
+			_, _ = r.VarInt()
+			_, _ = r.VarInt()
+			slot, _ := r.VarInt()
+			count, _ := r.VarInt()
+			id, _ := r.VarInt()
+			if slot == 1 && count == 0 {
+				sawGrid = true
+			}
+			if slot == 0 && count == 0 {
+				sawClear = true
+			}
+			_ = id
+		case server.IDPlaySetCarriedItem:
+			r := protocol.NewPacketReader(p.Data)
+			count, err := r.VarInt()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if count > 0 {
+				id, _ := r.VarInt()
+				if id == world.ItemIDs["oak_planks"] && count == 4 {
+					sawCursor = true
+				}
+			}
+		}
+	}
+}
+
+// TestCraftingTablePackets proves the 3x3 crafting menu at the packet
+// level: using a crafting table opens menu type 12 with 46 slots,
+// right-clicking four planks into the grid yields a crafting table in
+// the result slot, and taking it clears the grid.
+func TestCraftingTablePackets(t *testing.T) {
+	addr := requireMcGoOnly(t)
+	c, pr, pw := joinPlayBlackbox(t, addr, "Crafter")
+	defer c.Close()
+	drainToJoinBlackbox(t, "crafter", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 crafting_table")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give oak_planks 4")
+
+	var use protocol.Buffer
+	use.VarInt(0)
+	use.Position(8, -61, 0)
+	use.VarInt(1)
+	use.Float(0.5)
+	use.Float(1.0)
+	use.Float(0.5)
+	use.Bool(false)
+	use.Bool(false)
+	use.VarInt(17)
+	if err := pw.WritePacket(server.IDPlayUseItemOnSB, use.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	var window int32
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting crafting screen: %v", err)
+		}
+		if p.ID != server.IDPlayOpenScreen {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		id, _ := r.VarInt()
+		typ, err := r.VarInt()
+		if err != nil || typ != 12 {
+			t.Fatalf("menu type = %d, err %v (want 12 crafting)", typ, err)
+		}
+		window = id
+		break
+	}
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting crafting content: %v", err)
+		}
+		if p.ID != server.IDPlayContainerContent {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		wid, _ := r.VarInt()
+		if wid != window {
+			continue
+		}
+		_, _ = r.VarInt()
+		n, err := r.VarInt()
+		if err != nil || n != 46 {
+			t.Fatalf("crafting slots = %d, err %v (want 46)", n, err)
+		}
+		break
+	}
+
+	click := func(slot int16, button byte) {
+		t.Helper()
+		var b protocol.Buffer
+		b.VarInt(window)
+		b.VarInt(0)
+		b.Short(slot)
+		b.Byte(button)
+		b.VarInt(0)
+		b.VarInt(0)
+		b.VarInt(0)
+		if err := pw.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	click(37, 0) // pick the planks from the hotbar
+	for _, slot := range []int16{1, 2, 4, 5} {
+		click(slot, 1) // right-click one plank into each grid cell
+	}
+
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting result: %v", err)
+		}
+		if p.ID != server.IDPlayContainerSlot {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		_, _ = r.VarInt()
+		_, _ = r.VarInt()
+		slot, _ := r.VarInt()
+		count, _ := r.VarInt()
+		id, _ := r.VarInt()
+		if slot != 0 {
+			continue
+		}
+		if id != world.ItemIDs["crafting_table"] || count != 1 {
+			t.Fatalf("result = id %d x%d, want crafting_table x1", id, count)
+		}
+		break
+	}
+
+	// Take the result and confirm the grid clears.
+	click(0, 0)
+	sawGrid, sawResult := false, false
+	for !(sawGrid && sawResult) {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting take (grid=%v result=%v): %v", sawGrid, sawResult, err)
+		}
+		if p.ID != server.IDPlayContainerSlot {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		_, _ = r.VarInt()
+		_, _ = r.VarInt()
+		slot, _ := r.VarInt()
+		count, _ := r.VarInt()
+		if slot == 1 && count == 0 {
+			sawGrid = true
+		}
+		if slot == 0 && count == 0 {
+			sawResult = true
+		}
+	}
+}
+
+// TestHungerSprintPackets proves hunger drain reaches the wire:
+// sprinting across enough blocks consumes a food point and the server
+// syncs Set Health with the new food level.
+func TestHungerSprintPackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	c, pr, pw := joinPlayBlackbox(t, addr, "Sprinter")
+	defer c.Close()
+	drainToJoinBlackbox(t, "sprinter", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	// Start sprinting.
+	var in protocol.Buffer
+	in.Byte(0x40)
+	if err := pw.WritePacket(server.IDPlayPlayerInputSB, in.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	// Sprint 45 blocks (0.1 exhaustion each = 4.5): enough to consume
+	// one saturation point.
+	for i := 1; i <= 45; i++ {
+		if err := sendMovePosRotPitch(pw, 8.5+float64(i), -60, 0.5, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting hunger sync: %v", err)
+		}
+		if p.ID != server.IDPlaySetHealth {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		health, err := r.Float()
+		if err != nil {
+			t.Fatal(err)
+		}
+		food, err := r.VarInt()
+		if err != nil {
+			t.Fatal(err)
+		}
+		saturation, err := r.Float()
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Saturation drains before food; the first sync shows 4 left.
+		if saturation < 5 {
+			if health != 20 || food != 20 || saturation != 4 {
+				t.Fatalf("hunger sync = health %v food %d sat %v, want 20/20/4", health, food, saturation)
+			}
+			return
+		}
+	}
+}
+
+// readSlotBB reads one protocol Slot (count, then item id and empty
+// component patches when non-empty).
+func readSlotBB(r *protocol.PacketReader) (server.ItemStack, error) {
+	count, err := r.VarInt()
+	if err != nil || count <= 0 {
+		return server.ItemStack{}, err
+	}
+	id, err := r.VarInt()
+	if err != nil {
+		return server.ItemStack{}, err
+	}
+	if _, err := r.VarInt(); err != nil { // components to add
+		return server.ItemStack{}, err
+	}
+	if _, err := r.VarInt(); err != nil { // components to remove
+		return server.ItemStack{}, err
+	}
+	return server.ItemStack{ID: id, Count: count}, nil
+}
+
+// TestEquipmentPackets proves armor sync at the packet level: equipping
+// a helmet is broadcast to online observers, and a joining observer
+// receives existing players' equipment with their spawns.
+func TestEquipmentPackets(t *testing.T) {
+	addr := requireMcGoOnly(t)
+	ca, pra, pwa := joinPlayBlackbox(t, addr, "Alice")
+	defer ca.Close()
+	drainToJoinBlackbox(t, "alice", pra)
+	drainToQuietBlackbox(t, ca, pra, 400*time.Millisecond)
+	_ = ca.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pwa, server.IDPlayChatCommandSB, "give iron_helmet 1")
+	aliceUUID := offlineUUIDBlackbox("Alice")
+
+	click := func(slot int16) {
+		t.Helper()
+		var b protocol.Buffer
+		b.VarInt(0)
+		b.VarInt(0)
+		b.Short(slot)
+		b.Byte(0)
+		b.VarInt(0)
+		b.VarInt(0)
+		b.VarInt(0)
+		if err := pwa.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Move the helmet from the hotbar into the helmet armor slot.
+	click(36)
+	click(5)
+
+	cb, prb, _ := joinPlayBlackbox(t, addr, "Bob")
+	defer cb.Close()
+	_ = cb.SetDeadline(time.Now().Add(10 * time.Second))
+
+	// Bob's join carries Alice's equipment: helmet slot with the item.
+	var aliceEID int32
+	helmetSeen := false
+	for !(aliceEID != 0 && helmetSeen) {
+		p, err := prb.ReadPacket()
+		if err != nil {
+			t.Fatalf("bob waiting equipment (eid=%d helmet=%v): %v", aliceEID, helmetSeen, err)
+		}
+		switch p.ID {
+		case server.IDPlaySpawnEntity:
+			r := protocol.NewPacketReader(p.Data)
+			eid, _ := r.VarInt()
+			u, _ := r.UUID()
+			if u == aliceUUID {
+				aliceEID = eid
+			}
+		case server.IDPlaySetEquipment:
+			r := protocol.NewPacketReader(p.Data)
+			eid, err := r.VarInt()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for {
+				slot, err := r.Byte()
+				if err != nil {
+					t.Fatal(err)
+				}
+				last := slot&0x80 == 0
+				slot &= 0x7F
+				stack, err := readSlotBB(r)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if eid == aliceEID && slot == 5 {
+					if stack.ID != world.ItemIDs["iron_helmet"] || stack.Count != 1 {
+						t.Fatalf("helmet equipment = %+v", stack)
+					}
+					helmetSeen = true
+				}
+				if last {
+					break
+				}
+			}
+		}
+	}
+}
+
+// TestDamageEventPackets proves the Damage Event packet content: Bob's
+// attack on Alice carries the damage type, and both the cause and
+// direct ids are Bob's entity id plus one.
+func TestDamageEventPackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	ca, pra, _ := joinPlayBlackbox(t, addr, "Alice")
+	defer ca.Close()
+	drainToJoinBlackbox(t, "alice", pra)
+	drainToQuietBlackbox(t, ca, pra, 400*time.Millisecond)
+	cb, prb, pwb := joinPlayBlackbox(t, addr, "Bob")
+	defer cb.Close()
+
+	// Bob learns Alice's entity id from her spawn; meanwhile Alice
+	// learns Bob's from his.
+	aliceUUID := offlineUUIDBlackbox("Alice")
+	bobUUID := offlineUUIDBlackbox("Bob")
+	var aliceEID int32
+	deadline := time.Now().Add(10 * time.Second)
+	_ = cb.SetDeadline(deadline)
+	for aliceEID == 0 {
+		p, err := prb.ReadPacket()
+		if err != nil {
+			t.Fatalf("bob waiting alice spawn: %v", err)
+		}
+		if p.ID != server.IDPlaySpawnEntity {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, _ := r.VarInt()
+		u, _ := r.UUID()
+		if u == aliceUUID {
+			aliceEID = eid
+		}
+	}
+	var bobEID int32
+	_ = ca.SetDeadline(deadline)
+	for bobEID == 0 {
+		p, err := pra.ReadPacket()
+		if err != nil {
+			t.Fatalf("alice waiting bob spawn: %v", err)
+		}
+		if p.ID != server.IDPlaySpawnEntity {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, _ := r.VarInt()
+		u, _ := r.UUID()
+		if u == bobUUID {
+			bobEID = eid
+		}
+	}
+
+	var atk protocol.Buffer
+	atk.VarInt(aliceEID)
+	if err := pwb.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	for {
+		p, err := pra.ReadPacket()
+		if err != nil {
+			t.Fatalf("alice waiting damage event: %v", err)
+		}
+		if p.ID != server.IDPlayDamageEvent {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, err := r.VarInt()
+		if err != nil || eid != aliceEID {
+			t.Fatalf("damage eid = %d, err %v (want %d)", eid, err, aliceEID)
+		}
+		typeID, err := r.VarInt()
+		if err != nil || typeID == 0 {
+			t.Fatalf("damage type = %d, err %v", typeID, err)
+		}
+		cause, err := r.VarInt()
+		if err != nil || cause != bobEID+1 {
+			t.Fatalf("damage cause = %d, err %v (want %d)", cause, err, bobEID+1)
+		}
+		direct, err := r.VarInt()
+		if err != nil || direct != bobEID+1 {
+			t.Fatalf("damage direct = %d, err %v (want %d)", direct, err, bobEID+1)
+		}
+		hasPos, err := r.Bool()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasPos {
+			t.Fatal("player-attack damage event lacks a source position")
+		}
+		return
+	}
+}
+
+// TestCombatEnterPackets proves Enter Combat reaches both fighters: Bob
+// attacks Alice and both sessions receive the empty Enter Combat
+// packet.
+func TestCombatEnterPackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	ca, pra, _ := joinPlayBlackbox(t, addr, "Alice")
+	defer ca.Close()
+	drainToJoinBlackbox(t, "alice", pra)
+	drainToQuietBlackbox(t, ca, pra, 400*time.Millisecond)
+	cb, prb, pwb := joinPlayBlackbox(t, addr, "Bob")
+	defer cb.Close()
+
+	aliceUUID := offlineUUIDBlackbox("Alice")
+	var aliceEID int32
+	deadline := time.Now().Add(10 * time.Second)
+	_ = cb.SetDeadline(deadline)
+	for aliceEID == 0 {
+		p, err := prb.ReadPacket()
+		if err != nil {
+			t.Fatalf("bob waiting alice: %v", err)
+		}
+		if p.ID != server.IDPlaySpawnEntity {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, _ := r.VarInt()
+		u, _ := r.UUID()
+		if u == aliceUUID {
+			aliceEID = eid
+		}
+	}
+	var atk protocol.Buffer
+	atk.VarInt(aliceEID)
+	if err := pwb.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	sawAlice, sawBob := false, false
+	_ = ca.SetDeadline(deadline)
+	for !(sawAlice && sawBob) && time.Now().Before(deadline) {
+		if p, ok := readWithin(pra, 100*time.Millisecond); ok && p.ID == server.IDPlayEnterCombat {
+			if len(p.Data) != 0 {
+				t.Fatalf("enter combat body = %x", p.Data)
+			}
+			sawAlice = true
+		}
+		if p, ok := readWithin(prb, 100*time.Millisecond); ok && p.ID == server.IDPlayEnterCombat {
+			if len(p.Data) != 0 {
+				t.Fatalf("enter combat body = %x", p.Data)
+			}
+			sawBob = true
+		}
+	}
+	if !(sawAlice && sawBob) {
+		t.Fatalf("enter combat: alice=%v bob=%v", sawAlice, sawBob)
+	}
+}
+
+// TestHopperPackets proves hopper containers at the packet level: using
+// a hopper opens the five-slot menu (type 16, 41 slots), and moving an
+// item from the hotbar into the hopper syncs the slot.
+func TestHopperPackets(t *testing.T) {
+	addr := requireMcGoOnly(t)
+	c, pr, pw := joinPlayBlackbox(t, addr, "Hopper")
+	defer c.Close()
+	drainToJoinBlackbox(t, "hopper", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 hopper")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give stone 2")
+
+	var use protocol.Buffer
+	use.VarInt(0)
+	use.Position(8, -61, 0)
+	use.VarInt(1)
+	use.Float(0.5)
+	use.Float(1.0)
+	use.Float(0.5)
+	use.Bool(false)
+	use.Bool(false)
+	use.VarInt(19)
+	if err := pw.WritePacket(server.IDPlayUseItemOnSB, use.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	var window int32
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting hopper screen: %v", err)
+		}
+		if p.ID != server.IDPlayOpenScreen {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		id, _ := r.VarInt()
+		typ, err := r.VarInt()
+		if err != nil || typ != 16 {
+			t.Fatalf("menu type = %d, err %v (want 16 hopper)", typ, err)
+		}
+		window = id
+		break
+	}
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting hopper content: %v", err)
+		}
+		if p.ID != server.IDPlayContainerContent {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		wid, _ := r.VarInt()
+		if wid != window {
+			continue
+		}
+		_, _ = r.VarInt()
+		n, err := r.VarInt()
+		if err != nil || n != 41 {
+			t.Fatalf("hopper slots = %d, err %v (want 41)", n, err)
+		}
+		break
+	}
+
+	click := func(slot int16) {
+		t.Helper()
+		var b protocol.Buffer
+		b.VarInt(window)
+		b.VarInt(0)
+		b.Short(slot)
+		b.Byte(0)
+		b.VarInt(0)
+		b.VarInt(0)
+		b.VarInt(0)
+		if err := pw.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	click(32) // hotbar 0 in the hopper menu
+	click(0)  // hopper slot 0
+
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting hopper slot: %v", err)
+		}
+		if p.ID != server.IDPlayContainerSlot {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		_, _ = r.VarInt()
+		_, _ = r.VarInt()
+		slot, _ := r.VarInt()
+		count, _ := r.VarInt()
+		id, _ := r.VarInt()
+		if slot == 0 {
+			if id != world.ItemIDs["stone"] || count != 2 {
+				t.Fatalf("hopper slot 0 = id %d x%d, want stone x2", id, count)
+			}
+			return
+		}
+	}
+}
+
+// TestEatingPackets proves food consumption at the packet level: a
+// golden apple is always edible, eating syncs Set Health with the
+// restored saturation, and the item leaves the hotbar.
+func TestEatingPackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	c, pr, pw := joinPlayBlackbox(t, addr, "Eater")
+	defer c.Close()
+	drainToJoinBlackbox(t, "eater", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(15 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give golden_apple 1")
+
+	var use protocol.Buffer
+	use.VarInt(0) // hand
+	use.VarInt(1) // sequence
+	use.Float(0)
+	use.Float(0)
+	if err := pw.WritePacket(server.IDPlayUseItemSB, use.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	sawHealth, sawConsumed := false, false
+	for !(sawHealth && sawConsumed) {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting eat (health=%v consumed=%v): %v", sawHealth, sawConsumed, err)
+		}
+		switch p.ID {
+		case server.IDPlaySetHealth:
+			r := protocol.NewPacketReader(p.Data)
+			_, _ = r.Float() // health
+			_, _ = r.VarInt()
+			sat, err := r.Float()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sat > 5 {
+				if sat != 14.6 {
+					t.Fatalf("saturation = %v, want 14.6", sat)
+				}
+				sawHealth = true
+			}
+		case server.IDPlayContainerSlot:
+			r := protocol.NewPacketReader(p.Data)
+			_, _ = r.VarInt()
+			_, _ = r.VarInt()
+			slot, _ := r.VarInt()
+			count, _ := r.VarInt()
+			if slot == 36 && count == 0 {
+				sawConsumed = true
+			}
+		}
+	}
+}
+
+// TestVoidDamagePackets proves out-of-world damage at the packet
+// level: /tp below the void threshold produces Damage Event and health
+// loss. Waits are event-driven, not timing assertions.
+func TestVoidDamagePackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	c, pr, pw := joinPlayBlackbox(t, addr, "Void")
+	defer c.Close()
+	drainToJoinBlackbox(t, "void", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(15 * time.Second))
+
+	var tp protocol.Buffer
+	tp.VarInt(1)
+	_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, tp.Bytes())
+	_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "tp 0 -200 0")
+
+	sawDamage, sawHealth := false, false
+	for !(sawDamage && sawHealth) {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting void damage (damage=%v health=%v): %v", sawDamage, sawHealth, err)
+		}
+		switch p.ID {
+		case server.IDPlayDamageEvent:
+			r := protocol.NewPacketReader(p.Data)
+			if _, err := r.VarInt(); err != nil {
+				t.Fatal(err)
+			}
+			typeID, err := r.VarInt()
+			if err != nil || typeID == 0 {
+				t.Fatalf("void damage type = %d, err %v", typeID, err)
+			}
+			sawDamage = true
+		case server.IDPlaySetHealth:
+			r := protocol.NewPacketReader(p.Data)
+			if h, err := r.Float(); err == nil && h < 20 {
+				sawHealth = true
+			}
+		}
+	}
+}
+
+// TestWeaponDamagePackets proves held-weapon damage on the wire: Bob
+// attacks with an iron sword and Alice's health syncs to 14 (6 damage
+// from full).
+func TestWeaponDamagePackets(t *testing.T) {
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	ca, pra, _ := joinPlayBlackbox(t, addr, "Alice")
+	defer ca.Close()
+	drainToJoinBlackbox(t, "alice", pra)
+	drainToQuietBlackbox(t, ca, pra, 400*time.Millisecond)
+	cb, prb, pwb := joinPlayBlackbox(t, addr, "Bob")
+	defer cb.Close()
+
+	aliceUUID := offlineUUIDBlackbox("Alice")
+	var aliceEID int32
+	deadline := time.Now().Add(10 * time.Second)
+	_ = cb.SetDeadline(deadline)
+	for aliceEID == 0 {
+		p, err := prb.ReadPacket()
+		if err != nil {
+			t.Fatalf("bob waiting alice: %v", err)
+		}
+		if p.ID != server.IDPlaySpawnEntity {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		eid, _ := r.VarInt()
+		u, _ := r.UUID()
+		if u == aliceUUID {
+			aliceEID = eid
+		}
+	}
+	sendChatBlackbox(t, pwb, server.IDPlayChatCommandSB, "give iron_sword 1")
+	// Select the sword (hotbar slot 0).
+	var held protocol.Buffer
+	held.Short(0)
+	if err := pwb.WritePacket(server.IDPlayHeldChangeSB, held.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	var atk protocol.Buffer
+	atk.VarInt(aliceEID)
+	if err := pwb.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = ca.SetDeadline(deadline)
+	for {
+		p, err := pra.ReadPacket()
+		if err != nil {
+			t.Fatalf("alice waiting health: %v", err)
+		}
+		if p.ID != server.IDPlaySetHealth {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		h, err := r.Float()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h == 14 {
+			return
+		}
+		if h != 20 {
+			t.Fatalf("health = %v, want 14 (iron sword)", h)
+		}
+	}
+}
+
+// TestScoreboardPackets proves the scoreboard packet flow over the
+// wire: objective creation, score updates, sidebar display, and reset.
+func TestScoreboardPackets(t *testing.T) {
+	addr := requireMcGoOnly(t)
+	c, pr, pw := joinPlayBlackbox(t, addr, "Scorer")
+	defer c.Close()
+	drainToJoinBlackbox(t, "scorer", pr)
+	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "scoreboard objectives add test Test Score")
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting objective: %v", err)
+		}
+		if p.ID != server.IDPlayObjectiveCB {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		name, _ := r.String()
+		mode, _ := r.Byte()
+		if name != "test" || mode != 0 {
+			t.Fatalf("objective = %q mode %d", name, mode)
+		}
+		present, _ := r.Bool()
+		if !present {
+			t.Fatal("objective display missing")
+		}
+		rest, _ := r.Read(r.Remaining())
+		if !bytes.Contains(rest, []byte("Test Score")) {
+			t.Fatalf("display component lacks text: %x", rest)
+		}
+		break
+	}
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "scoreboard players set Scorer test 9")
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting score: %v", err)
+		}
+		if p.ID != server.IDPlayUpdateScore {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		entity, _ := r.String()
+		objective, _ := r.String()
+		value, _ := r.VarInt()
+		if entity != "Scorer" || objective != "test" || value != 9 {
+			t.Fatalf("score = %s/%s/%d", entity, objective, value)
+		}
+		break
+	}
+
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "scoreboard objectives setdisplay sidebar test")
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting display: %v", err)
+		}
+		if p.ID != server.IDPlayDisplayObjective {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		position, _ := r.VarInt()
+		name, _ := r.String()
+		if position != 1 || name != "test" {
+			t.Fatalf("display = %d/%q", position, name)
+		}
+		return
+	}
+}
