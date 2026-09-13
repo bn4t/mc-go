@@ -7,11 +7,14 @@ import (
 	"mc-go/internal/world"
 )
 
-func clickWindowPacket(t *testing.T, window int32, slot int16, button byte, mode int32) protocol.Packet {
+func clickWindowPacket(t *testing.T, sess *Session, window int32, slot int16, button byte, mode int32) protocol.Packet {
 	t.Helper()
+	sess.windowMu.Lock()
+	st := sess.windowState
+	sess.windowMu.Unlock()
 	var b protocol.Buffer
 	b.VarInt(window)
-	b.VarInt(0) // state
+	b.VarInt(st) // state, like a synced client echoes
 	b.Short(slot)
 	b.Byte(button)
 	b.VarInt(mode)
@@ -100,8 +103,9 @@ func TestChestQuickMove(t *testing.T) {
 	if got := sess.menuStack(0); !got.Empty() {
 		t.Fatalf("chest slot after quick move = %+v", got)
 	}
-	// Vanilla quick-move scans the player main inventory first.
-	if got := sess.stackAt(slotMainStart); got != (ItemStack{ID: world.ItemIDs["stone"], Count: 5}) {
-		t.Fatalf("main inventory after quick move = %+v", got)
+	// Vanilla quick-move fills the player side backward: the hotbar's
+	// last slot first (blackbox-measured on 26.2).
+	if got := sess.menuStack(62); got != (ItemStack{ID: world.ItemIDs["stone"], Count: 5}) {
+		t.Fatalf("hotbar last slot after quick move = %+v", got)
 	}
 }

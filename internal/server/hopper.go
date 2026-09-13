@@ -95,7 +95,7 @@ func (s *Server) openHopper(sess *Session, pos world.Pos) {
 	var b protocol.Buffer
 	b.VarInt(id)
 	b.VarInt(menuHopper)
-	b.Raw(textComponentContent("Hopper"))
+	b.Raw(menuTitle("container.hopper"))
 	_ = sess.write(sess.ids().PlayOpenScreen, b.Bytes())
 	s.sendHopperContent(sess)
 }
@@ -262,7 +262,11 @@ func (s *Server) handleHopperClickPacket(sess *Session, p protocol.Packet) {
 	if w == nil || w.hopper == nil || w.id != win {
 		return
 	}
-	if _, err := r.VarInt(); err != nil {
+	st, err := r.VarInt() // state id
+	if err != nil {
+		return
+	}
+	if !s.checkClickState(sess, w, st) {
 		return
 	}
 	slot, err := r.Short()
@@ -299,7 +303,7 @@ func (s *Server) syncHopperSlots(sess *Session, w *openWindow, h *hopperData, to
 		var b protocol.Buffer
 		b.VarInt(w.id)
 		b.VarInt(state)
-		b.VarInt(int32(slot))
+		b.Short(int16(slot))
 		writeSlot(&b, sess.hopperMenuStack(h, slot))
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}

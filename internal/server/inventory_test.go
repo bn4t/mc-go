@@ -26,11 +26,11 @@ func TestSlotCodecRoundTrip(t *testing.T) {
 	}
 }
 
-func clickPacket(t *testing.T, slot int16, button byte, mode int32) protocol.Packet {
+func clickPacket(t *testing.T, sess *Session, slot int16, button byte, mode int32) protocol.Packet {
 	t.Helper()
 	var b protocol.Buffer
 	b.VarInt(0) // window
-	b.VarInt(0) // state
+	b.VarInt(sess.invState.Load()) // state, like a synced client echoes
 	b.Short(slot)
 	b.Byte(button)
 	b.VarInt(mode)
@@ -46,7 +46,7 @@ func TestClickPickupAndMerge(t *testing.T) {
 	sess.setStack(slotMainStart, ItemStack{ID: 55, Count: 60})
 
 	// Pick up the hotbar stack into the cursor.
-	s.handleClickContainer(sess, clickPacket(t, slotHotbarStart, 0, 0))
+	s.handleClickContainer(sess, clickPacket(t, sess, slotHotbarStart, 0, 0))
 	if got := sess.carried; got != (ItemStack{ID: 55, Count: 10}) {
 		t.Fatalf("carried = %+v", got)
 	}
@@ -54,7 +54,7 @@ func TestClickPickupAndMerge(t *testing.T) {
 		t.Fatalf("source slot = %+v", sess.stackAt(slotHotbarStart))
 	}
 	// Place onto a same-item stack: merge up to 64.
-	s.handleClickContainer(sess, clickPacket(t, slotMainStart, 0, 0))
+	s.handleClickContainer(sess, clickPacket(t, sess, slotMainStart, 0, 0))
 	if got := sess.stackAt(slotMainStart); got != (ItemStack{ID: 55, Count: 64}) {
 		t.Fatalf("target = %+v", got)
 	}
@@ -69,14 +69,14 @@ func TestClickRightSplit(t *testing.T) {
 	sess.setStack(slotMainStart, ItemStack{ID: 55, Count: 5})
 
 	// Right click picks up half (rounded up), then places one at a time.
-	s.handleClickContainer(sess, clickPacket(t, slotMainStart, 1, 0))
+	s.handleClickContainer(sess, clickPacket(t, sess, slotMainStart, 1, 0))
 	if got := sess.carried; got != (ItemStack{ID: 55, Count: 3}) {
 		t.Fatalf("carried = %+v", got)
 	}
 	if got := sess.stackAt(slotMainStart); got != (ItemStack{ID: 55, Count: 2}) {
 		t.Fatalf("slot = %+v", got)
 	}
-	s.handleClickContainer(sess, clickPacket(t, slotHotbarStart, 1, 0))
+	s.handleClickContainer(sess, clickPacket(t, sess, slotHotbarStart, 1, 0))
 	if got := sess.stackAt(slotHotbarStart); got != (ItemStack{ID: 55, Count: 1}) {
 		t.Fatalf("placed = %+v", got)
 	}
@@ -92,7 +92,7 @@ func TestClickQuickMove(t *testing.T) {
 	sess.setStack(slotMainStart, ItemStack{ID: 1, Count: 64})
 	sess.setStack(slotMainStart+1, ItemStack{ID: 1, Count: 1})
 
-	s.handleClickContainer(sess, clickPacket(t, slotHotbarStart, 0, 1))
+	s.handleClickContainer(sess, clickPacket(t, sess, slotHotbarStart, 0, 1))
 	if !sess.stackAt(slotHotbarStart).Empty() {
 		t.Fatalf("source = %+v", sess.stackAt(slotHotbarStart))
 	}
@@ -106,13 +106,60 @@ func TestClickCreativeClone(t *testing.T) {
 	sess := placeSession(t, s, "Clicker", 8.5, -60, 8.5)
 	sess.setStack(slotMainStart, ItemStack{ID: 1, Count: 7})
 
-	s.handleClickContainer(sess, clickPacket(t, slotMainStart, 0, 3))
+	s.handleClickContainer(sess, clickPacket(t, sess, slotMainStart, 0, 3))
 	if got := sess.carried; got != (ItemStack{ID: 1, Count: 7}) {
 		t.Fatalf("clone = %+v", got)
 	}
-	s.handleClickContainer(sess, clickPacket(t, slotMainStart, 2, 3))
+	s.handleClickContainer(sess, clickPacket(t, sess, slotMainStart, 2, 3))
 	if got := sess.carried; got != (ItemStack{ID: 1, Count: maxStack}) {
 		t.Fatalf("clone full = %+v", got)
+	}
+}
+
+// TestClickStaleStateResyncs proves a click with a stale state id is
+// ignored: the slot and cursor keep their stacks, and the server
+// answers with a full window-0 resync carrying the live state.
+func TestClickStaleStateResyncs(t *testing.T) {
+	s := New("unused")
+	sess := placeSession(t, s, "Clicker", 8.5, -60, 8.5)
+	sess.setStack(slotHotbarStart, ItemStack{ID: 55, Count: 10})
+	live := sess.invState.Load()
+	for len(sess.sendCh) > 0 {
+		<-sess.sendCh
+	}
+
+	var b protocol.Buffer
+	b.VarInt(0)
+	b.VarInt(live + 1) // stale
+	b.Short(slotHotbarStart)
+	b.Byte(0)
+	b.VarInt(0)
+	b.VarInt(0) // changed slots
+	b.VarInt(0) // carried item: empty
+	s.handleClickContainer(sess, protocol.Packet{ID: IDPlayClickContainerSB, Data: b.Bytes()})
+	if got := sess.stackAt(slotHotbarStart); got != (ItemStack{ID: 55, Count: 10}) {
+		t.Fatalf("slot = %+v", got)
+	}
+	if !sess.carried.Empty() {
+		t.Fatalf("carried = %+v", sess.carried)
+	}
+	for {
+		var p sendPkt
+		select {
+		case p = <-sess.sendCh:
+		default:
+			t.Fatal("no resync after stale click")
+		}
+		if p.id != IDPlayContainerContent {
+			continue
+		}
+		r := protocol.NewPacketReader(p.data)
+		wid, _ := r.VarInt()
+		st, _ := r.VarInt()
+		if wid != 0 || st != live {
+			t.Fatalf("resync window=%d state=%d, want 0/%d", wid, st, live)
+		}
+		return
 	}
 }
 

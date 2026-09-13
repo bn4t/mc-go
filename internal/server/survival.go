@@ -624,6 +624,11 @@ func (s *Server) pickupTarget(e *Entity) *Session {
 		if sess.dimName() != e.Dim {
 			return true
 		}
+		// Vanilla pickup rule: only survival and adventure players
+		// collect item entities; creative and spectator never do.
+		if m := sess.mode(); m != GameModeSurvival && m != GameModeAdventure {
+			return true
+		}
 		x, y, z, _, _, _ := sess.Pos()
 		if abs(x-e.X) <= 1.2 && abs(z-e.Z) <= 1.2 && abs(y-e.Y) <= 2.0 {
 			target = sess

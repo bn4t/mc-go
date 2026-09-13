@@ -141,7 +141,7 @@ func (s *Server) sendContainerSlot(sess *Session, slot int16, it ItemStack) erro
 	var b protocol.Buffer
 	b.VarInt(0) // window 0: player inventory
 	b.VarInt(sess.invState.Load())
-	b.VarInt(int32(slot))
+	b.Short(slot)
 	writeSlot(&b, it)
 	return sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 }
@@ -217,7 +217,14 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 		s.handleChestClickPacket(sess, p)
 		return false
 	}
-	if _, err := r.VarInt(); err != nil { // state id
+	st, err := r.VarInt() // state id
+	if err != nil {
+		return false
+	}
+	// Vanilla answers a stale click with a full resync of window 0,
+	// ignoring the click instead of applying it.
+	if st != sess.invState.Load() {
+		_ = s.sendContainerContent(sess)
 		return false
 	}
 	slot, err := r.Short()
@@ -238,6 +245,13 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 	}
 	if _, err := readSlot(r); err != nil { // carried item
 		// Tolerate a truncated tail only for empty carried items.
+		return false
+	}
+
+	// A click outside the 46 player slots (a slot from another menu,
+	// a stale client view) touches nothing instead of crashing: it
+	// falls through with no state change, like any other bad input.
+	if slot < 0 || slot >= slotCount {
 		return false
 	}
 
@@ -394,7 +408,7 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 		var b protocol.Buffer
 		b.VarInt(0)
 		b.VarInt(state)
-		b.VarInt(int32(u.slot))
+		b.Short(u.slot)
 		writeSlot(&b, u.it)
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}
@@ -470,7 +484,7 @@ func (s *Server) sendCraftUpdates(sess *Session, slots []int16, carried ItemStac
 		var b protocol.Buffer
 		b.VarInt(0)
 		b.VarInt(state)
-		b.VarInt(int32(u.slot))
+		b.Short(u.slot)
 		writeSlot(&b, u.it)
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}

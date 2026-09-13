@@ -90,7 +90,7 @@ const (
 type containerSpec struct {
 	menu    int32  // menu registry id
 	slots   int    // container-side slots, before the 36 player slots
-	title   string // Open Screen title
+	title   string // Open Screen translation key, e.g. container.chest
 	brew    bool   // brewing stand: own tick and progress properties
 	shulker bool   // shulker box: the item form carries the contents
 	crafter bool   // crafter: per-slot lock toggles
@@ -170,7 +170,7 @@ const shulkerSlots = 27
 // shulkerSpec is shared by all 17 shulker box colors; the block name
 // only decides which item the broken box drops.
 var shulkerSpec = &containerSpec{
-	menu: menuShulkerBox, slots: shulkerSlots, title: "Shulker Box",
+	menu: menuShulkerBox, slots: shulkerSlots, title: "block.minecraft.shulker_box",
 	shulker: true, inputs: slotsUpTo(shulkerSlots),
 }
 
@@ -204,58 +204,58 @@ var shulkerSpec = &containerSpec{
 //	brewing_stand       the potion_contents component and the
 //	                    potion-brewing mix table (see brewingTick)
 var containerSpecs = map[string]*containerSpec{
-	"barrel":    {menu: menuGeneric9x3, slots: 27, title: "Barrel", inputs: slotsUpTo(27)},
-	"dispenser": {menu: menuGeneric3x3, slots: 9, title: "Dispenser", inputs: slotsUpTo(9)},
-	"dropper":   {menu: menuGeneric3x3, slots: 9, title: "Dropper", inputs: slotsUpTo(9)},
+	"barrel":    {menu: menuGeneric9x3, slots: 27, title: "container.barrel", inputs: slotsUpTo(27)},
+	"dispenser": {menu: menuGeneric3x3, slots: 9, title: "container.dispenser", inputs: slotsUpTo(9)},
+	"dropper":   {menu: menuGeneric3x3, slots: 9, title: "container.dropper", inputs: slotsUpTo(9)},
 	"brewing_stand": {
-		menu: menuBrewingStand, slots: 5, title: "Brewing Stand",
+		menu: menuBrewingStand, slots: 5, title: "container.brewing",
 		brew: true, inputs: slotsUpTo(5),
 	},
 	"stonecutter": {
-		menu: menuStonecutter, slots: 2, title: "Stonecutter",
+		menu: menuStonecutter, slots: 2, title: "container.stonecutter",
 		inputs: []int{stonecutterInput}, results: []int{stonecutterResult},
 	},
 	"smithing_table": {
-		menu: menuSmithing, slots: 4, title: "Smithing Table",
+		menu: menuSmithing, slots: 4, title: "container.upgrade",
 		inputs:  []int{smithingTemplate, smithingBase, smithingAddition},
 		results: []int{smithingResult},
 	},
 	"anvil": {
-		menu: menuAnvil, slots: 3, title: "Anvil",
+		menu: menuAnvil, slots: 3, title: "container.repair",
 		inputs: []int{anvilLeft, anvilRight}, results: []int{anvilResult},
 	},
 	"chipped_anvil": {
-		menu: menuAnvil, slots: 3, title: "Anvil",
+		menu: menuAnvil, slots: 3, title: "container.repair",
 		inputs: []int{anvilLeft, anvilRight}, results: []int{anvilResult},
 	},
 	"damaged_anvil": {
-		menu: menuAnvil, slots: 3, title: "Anvil",
+		menu: menuAnvil, slots: 3, title: "container.repair",
 		inputs: []int{anvilLeft, anvilRight}, results: []int{anvilResult},
 	},
 	"enchanting_table": {
-		menu: menuEnchantment, slots: 2, title: "Enchant",
+		menu: menuEnchantment, slots: 2, title: "container.enchant",
 		inputs: []int{enchantItem, enchantLapis},
 	},
 	"grindstone": {
-		menu: menuGrindstone, slots: 3, title: "Grindstone",
+		menu: menuGrindstone, slots: 3, title: "container.grindstone_title",
 		inputs: []int{grindstoneTop, grindstoneBottom}, results: []int{grindstoneResult},
 	},
 	"loom": {
-		menu: menuLoom, slots: 4, title: "Loom",
+		menu: menuLoom, slots: 4, title: "container.loom",
 		inputs: []int{loomBanner, loomDye, loomPattern}, results: []int{loomResult},
 	},
 	"cartography_table": {
-		menu: menuCartographyTable, slots: 3, title: "Cartography Table",
+		menu: menuCartographyTable, slots: 3, title: "container.cartography_table",
 		inputs: []int{cartographyMap, cartographyAdditional}, results: []int{cartographyResult},
 	},
 	"lectern": {
-		menu: menuLectern, slots: 1, title: "Lectern", inputs: []int{lecternBook},
+		menu: menuLectern, slots: 1, title: "container.lectern", inputs: []int{lecternBook},
 	},
 	"beacon": {
-		menu: menuBeacon, slots: 1, title: "Beacon", inputs: []int{beaconPayment},
+		menu: menuBeacon, slots: 1, title: "container.beacon", inputs: []int{beaconPayment},
 	},
 	"crafter": {
-		menu: menuCrafter3x3, slots: 9, title: "Crafter",
+		menu: menuCrafter3x3, slots: 9, title: "container.crafter",
 		crafter: true, inputs: slotsUpTo(9),
 	},
 }
@@ -466,7 +466,7 @@ func (s *Server) openContainer(sess *Session, pos world.Pos) {
 	var b protocol.Buffer
 	b.VarInt(id)
 	b.VarInt(c.spec.menu)
-	b.Raw(textComponentContent(c.spec.title))
+	b.Raw(menuTitle(c.spec.title))
 	_ = sess.write(sess.ids().PlayOpenScreen, b.Bytes())
 	s.sendContainerMenuContent(sess)
 	if c.spec.brew {
@@ -682,9 +682,12 @@ func clickRight(cur, target ItemStack) (carried, placed ItemStack) {
 }
 
 // quickMoveIntoPlayer moves a container stack into the player side,
-// vanilla's forward scan over the main inventory and then the hotbar.
+// merging first and then filling empty slots, both backward from the
+// hotbar's last slot. Measured on 26.2.
 func quickMoveIntoPlayer(sess *Session, c *containerData, moving *ItemStack, touched *[]int) {
-	for i := c.spec.slots; i < c.spec.slots+36 && !moving.Empty(); i++ {
+	// Vanilla fills the player side backward: hotbar last slot first,
+	// then the main rows backward. Measured on 26.2.
+	for i := c.spec.slots + 35; i >= c.spec.slots && !moving.Empty(); i-- {
 		other := sess.menuStack(i)
 		if !other.Stackable(*moving) {
 			continue
@@ -699,7 +702,7 @@ func quickMoveIntoPlayer(sess *Session, c *containerData, moving *ItemStack, tou
 		sess.setMenuStack(i, other)
 		*touched = append(*touched, i)
 	}
-	for i := c.spec.slots; i < c.spec.slots+36 && !moving.Empty(); i++ {
+	for i := c.spec.slots + 35; i >= c.spec.slots && !moving.Empty(); i-- {
 		if !sess.menuStack(i).Empty() {
 			continue
 		}
@@ -795,7 +798,7 @@ func (s *Server) syncContainerMenuSlots(sess *Session, w *openWindow, touched []
 		var b protocol.Buffer
 		b.VarInt(w.id)
 		b.VarInt(state)
-		b.VarInt(int32(slot))
+		b.Short(int16(slot))
 		writeSlot(&b, sess.menuStack(slot))
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}
@@ -816,7 +819,11 @@ func (s *Server) handleContainerClickPacket(sess *Session, p protocol.Packet) {
 	if w == nil || w.container == nil || w.id != win {
 		return
 	}
-	if _, err := r.VarInt(); err != nil { // state id
+	st, err := r.VarInt() // state id
+	if err != nil {
+		return
+	}
+	if !s.checkClickState(sess, w, st) {
 		return
 	}
 	slot, err := r.Short()
@@ -852,6 +859,15 @@ func (s *Server) openBlockMenu(sess *Session, blk world.Block, pos world.Pos) bo
 	case isFurnaceBlock(blk):
 		s.openFurnace(sess, pos)
 	case isContainerBlock(blk):
+		// A lectern with no book stays silent on vanilla 26.2
+		// (measured): the use falls through to the place path
+		// instead of opening.
+		if name, _ := world.StateOwner(blk); name == "lectern" {
+			c := s.containerAt(sess.dimension(), pos)
+			if c == nil || c.slots[lecternBook].Empty() {
+				return false
+			}
+		}
 		s.openContainer(sess, pos)
 	default:
 		return false
@@ -991,7 +1007,7 @@ func (s *Server) brewingTick(d *dimension, c *containerData) {
 			var b protocol.Buffer
 			b.VarInt(w.id)
 			b.VarInt(sess.windowState)
-			b.VarInt(int32(i))
+			b.Short(int16(i))
 			writeSlot(&b, slots[i])
 			_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 		}

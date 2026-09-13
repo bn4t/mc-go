@@ -132,7 +132,7 @@ func (s *Server) openChest(sess *Session, pos world.Pos) {
 	var b protocol.Buffer
 	b.VarInt(id)
 	b.VarInt(menuGeneric9x3)
-	b.Raw(textComponentContent("Chest"))
+	b.Raw(menuTitle("container.chest"))
 	_ = sess.write(sess.ids().PlayOpenScreen, b.Bytes())
 	s.sendChestContent(sess)
 }
@@ -155,6 +155,31 @@ func (s *Server) sendChestContent(sess *Session) {
 	}
 	writeSlot(&b, sess.carried)
 	_ = sess.write(sess.ids().PlayContainerContent, b.Bytes())
+}
+
+// checkClickState validates a Click Container state id against the
+// window's current state. Vanilla ignores a stale click and resyncs the
+// whole window instead of applying it, so a desynced client recovers.
+func (s *Server) checkClickState(sess *Session, w *openWindow, st int32) bool {
+	sess.windowMu.Lock()
+	cur := sess.windowState
+	sess.windowMu.Unlock()
+	if st == cur {
+		return true
+	}
+	switch {
+	case w.furnace != nil:
+		s.sendFurnaceContent(sess)
+	case w.container != nil:
+		s.sendContainerMenuContent(sess)
+	case w.craft != nil:
+		s.sendCraftTableContent(sess, w.craft)
+	case w.hopper != nil:
+		s.sendHopperContent(sess)
+	default:
+		s.sendChestContent(sess)
+	}
+	return false
 }
 
 // menuStack reads one chest-menu slot: 0-26 chest, 27-53 player main,
@@ -297,10 +322,25 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 		}
 		containerSide := int(slot) < container
 		touched = append(touched, int(slot))
+		// Destination order is vanilla's: into the player side
+		// backward (hotbar last slot first), into the container side
+		// forward. Measured on 26.2.
+		var order []int
+		if containerSide {
+			for i := w.menuSize() - 1; i >= 0; i-- {
+				if i >= container {
+					order = append(order, i)
+				}
+			}
+		} else {
+			for i := 0; i < container; i++ {
+				order = append(order, i)
+			}
+		}
 		// Merge into any matching stacks first.
-		for i := 0; i < w.menuSize() && !moving.Empty(); i++ {
-			if (i < container) == containerSide {
-				continue // destination is the opposite side
+		for _, i := range order {
+			if moving.Empty() {
+				break
 			}
 			if w.furnace != nil && i == furnaceOutput {
 				continue // never quick-move into the output
@@ -320,9 +360,9 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 			touched = append(touched, i)
 		}
 		// Then empty slots on the destination side.
-		for i := 0; i < w.menuSize() && !moving.Empty(); i++ {
-			if (i < container) == containerSide {
-				continue // destination is the opposite side
+		for _, i := range order {
+			if moving.Empty() {
+				break
 			}
 			if w.furnace != nil && i == furnaceOutput {
 				continue // never quick-move into the output
@@ -350,16 +390,16 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 	case 4:
 		it := sess.menuStack(int(slot))
 		if !it.Empty() {
+			drop := ItemStack{ID: it.ID, Count: 1, Contents: it.Contents}
 			if button == 1 {
-				carried = it
+				drop.Count = it.Count
+			}
+			it.Count -= drop.Count
+			if it.Count <= 0 {
 				it = ItemStack{}
-			} else {
-				it.Count--
-				if it.Count <= 0 {
-					it = ItemStack{}
-				}
 			}
 			sess.setMenuStack(int(slot), it)
+			s.dropFromMenu(sess, drop)
 			touched = append(touched, int(slot))
 		}
 	default:
@@ -382,7 +422,7 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 		var b protocol.Buffer
 		b.VarInt(wid)
 		b.VarInt(state)
-		b.VarInt(int32(mslot))
+		b.Short(int16(mslot))
 		writeSlot(&b, sess.menuStack(mslot))
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}
@@ -406,7 +446,11 @@ func (s *Server) handleChestClickPacket(sess *Session, p protocol.Packet) {
 	if w == nil || w.id != win {
 		return
 	}
-	if _, err := r.VarInt(); err != nil { // state id
+	st, err := r.VarInt() // state id
+	if err != nil {
+		return
+	}
+	if !s.checkClickState(sess, w, st) {
 		return
 	}
 	slot, err := r.Short()

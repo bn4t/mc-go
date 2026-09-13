@@ -98,7 +98,7 @@ func (s *digSink) takeEvents() []digEvent {
 	return out
 }
 
-func digSentinel(t *testing.T, pw *protocol.Writer, s *digSink, tag string, timeout time.Duration) bool {
+func digSentinel(t *testing.T, pw *protocol.Writer, s interface{ has(string) bool }, tag string, timeout time.Duration) bool {
 	t.Helper()
 	sendCommand(t, pw, "say "+tag)
 	deadline := time.Now().Add(timeout)

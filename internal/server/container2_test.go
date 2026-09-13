@@ -253,8 +253,8 @@ func TestContainerQuickMoveFromContainer(t *testing.T) {
 		if !sess.menuStack(0).Empty() {
 			t.Fatalf("%s slot 0 still holds %+v", block, sess.menuStack(0))
 		}
-		if got := sess.stackAt(slotMainStart); got != (ItemStack{ID: world.ItemIDs["stone"], Count: 5}) {
-			t.Fatalf("%s quick move landed %+v, want the main inventory", block, got)
+		if got := sess.stackAt(slotHotbarStart + 8); got != (ItemStack{ID: world.ItemIDs["stone"], Count: 5}) {
+			t.Fatalf("%s quick move landed %+v, want hotbar last slot", block, got)
 		}
 	}
 }
@@ -509,8 +509,8 @@ func TestContainerClickPacketRoutes(t *testing.T) {
 	sess.windowMu.Lock()
 	w := sess.window
 	sess.windowMu.Unlock()
-	s.handleClickContainer(sess, clickWindowPacket(t, w.id, int16(c.spec.slots+27), 0, 0))
-	s.handleClickContainer(sess, clickWindowPacket(t, w.id, 0, 0, 0))
+	s.handleClickContainer(sess, clickWindowPacket(t, sess, w.id, int16(c.spec.slots+27), 0, 0))
+	s.handleClickContainer(sess, clickWindowPacket(t, sess, w.id, 0, 0, 0))
 	if got := c.slots[0]; got != (ItemStack{ID: world.ItemIDs["stone"], Count: 2}) {
 		t.Fatalf("barrel slot = %+v", got)
 	}

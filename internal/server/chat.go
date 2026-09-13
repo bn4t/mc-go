@@ -128,6 +128,17 @@ func (s *Server) sendSystemChatComponent(sess *Session, c component) {
 	_ = sess.write(sess.ids().PlaySystemChatCB, b.Bytes())
 }
 
+// sendActionBar delivers a component on the action bar: a System Chat
+// packet with overlay set. Vanilla 26.2 answers an in-reach use that
+// arrives before the client confirmed its teleports with the
+// build.tooHigh action bar (see sendBuildTooHigh).
+func (s *Server) sendActionBar(sess *Session, c component) {
+	var b protocol.Buffer
+	b.Raw(c.content())
+	b.Bool(true) // overlay: action bar
+	_ = sess.write(sess.ids().PlaySystemChatCB, b.Bytes())
+}
+
 // sendReply delivers whatever a command produced to its caller.
 func (s *Server) sendReply(sess *Session, r reply) {
 	if r.styled {

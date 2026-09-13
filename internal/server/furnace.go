@@ -165,17 +165,17 @@ func (f *furnaceData) burnTicks(fuel int32) int32 {
 	return fuel
 }
 
-// furnaceVariant resolves the menu type, cook time, and title of the
-// furnace family block at a position.
+// furnaceVariant resolves the menu type, cook time, and Open Screen
+// translation key of the furnace family block at a position.
 func furnaceVariant(blk world.Block) (kind, cookTicks int32, title string) {
 	name, _ := world.StateOwner(blk)
 	switch name {
 	case "blast_furnace":
-		return menuBlastFurnace, blastCookTicks, "Blast Furnace"
+		return menuBlastFurnace, blastCookTicks, "container.blast_furnace"
 	case "smoker":
-		return menuSmoker, smokerCookTicks, "Smoker"
+		return menuSmoker, smokerCookTicks, "container.smoker"
 	}
-	return menuFurnace, furnaceCookTicks, "Furnace"
+	return menuFurnace, furnaceCookTicks, "container.furnace"
 }
 
 func (s *Server) ensureFurnace(d *dimension, pos world.Pos) {
@@ -243,7 +243,7 @@ func (s *Server) openFurnace(sess *Session, pos world.Pos) {
 	var b protocol.Buffer
 	b.VarInt(id)
 	b.VarInt(f.kind)
-	b.Raw(textComponentContent(f.title))
+	b.Raw(menuTitle(f.title))
 	_ = sess.write(sess.ids().PlayOpenScreen, b.Bytes())
 	s.sendFurnaceContent(sess)
 	s.sendFurnaceProperties(sess)
@@ -470,7 +470,7 @@ func (s *Server) furnaceTick(d *dimension, pos world.Pos, f *furnaceData) {
 			var b protocol.Buffer
 			b.VarInt(w.id)
 			b.VarInt(sess.windowState)
-			b.VarInt(int32(i))
+			b.Short(int16(i))
 			writeSlot(&b, slots[i])
 			_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 		}

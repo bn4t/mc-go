@@ -44,6 +44,55 @@ func faceOffset(face int32) (dx, dy, dz int32, ok bool) {
 	return 0, 0, 0, false
 }
 
+// useMenuReach is how far the eyes may be from the clicked block's
+// nearest point for a use to open its menu. Measured on vanilla 26.2
+// with a chest shelf (opened through 5.93, silent from 6.86) and a
+// vertical column (opened through 5.5): a 6-block limit fits every
+// cell.
+const useMenuReach = 6.0
+
+// opensMenu reports whether using the block opens a menu instead of
+// placing. It mirrors openBlockMenu's dispatch without side effects,
+// so the use gates (reach, teleport confirmation) apply to exactly
+// the blocks that open.
+func opensMenu(blk world.Block) bool {
+	return isChestBlock(blk) || isHopperBlock(blk) || isCraftingTableBlock(blk) || isFurnaceBlock(blk) || isContainerBlock(blk)
+}
+
+// useMenuReachOK reports whether the session's eyes are within reach
+// of the clicked block's nearest point.
+func useMenuReachOK(sess *Session, pos world.Pos) bool {
+	px, py, pz, _, _, _ := sess.Pos()
+	ex, ey, ez := px, py+1.62, pz
+	nx := min(max(ex, float64(pos.X)), float64(pos.X)+1)
+	ny := min(max(ey, float64(pos.Y)), float64(pos.Y)+1)
+	nz := min(max(ez, float64(pos.Z)), float64(pos.Z)+1)
+	dx, dy, dz := ex-nx, ey-ny, ez-nz
+	return dx*dx+dy*dy+dz*dz <= useMenuReach*useMenuReach
+}
+
+// teleportPending reports whether the server sent the session a
+// teleport it never confirmed. Vanilla 26.2 answers an in-reach use
+// that arrives first with the build.tooHigh action bar instead of
+// opening the menu; with no teleport issued yet there is nothing to
+// confirm.
+func teleportPending(sess *Session) bool {
+	last := sess.teleportNext.Load() - 1
+	return last > 0 && sess.teleportAck.Load() != last
+}
+
+// sendBuildTooHigh answers a use that arrived before the client
+// confirmed its teleports: the action-bar "Height limit for building
+// is 319 blocks". Measured byte for byte on vanilla 26.2; the limit
+// is one below the dimension's top (minY+height-1).
+func (s *Server) sendBuildTooHigh(sess *Session, d *dimension) {
+	s.sendActionBar(sess, component{
+		translate: "build.tooHigh",
+		color:     "red",
+		with:      []any{int32(d.minY + d.height - 1)},
+	})
+}
+
 // handleHeld tracks the selected hotbar slot (0-8); anything else is
 // ignored without touching state.
 func (s *Server) handleHeld(sess *Session, p protocol.Packet) {
@@ -160,7 +209,28 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		}
 		return
 	}
-	// Container blocks open their menu instead of placing.
+	// Container blocks open their menu instead of placing, but only
+	// in reach and only once every server teleport is confirmed:
+	// out-of-reach uses die silently, unconfirmed ones get the
+	// build.tooHigh action bar. Measured on vanilla 26.2; the
+	// denials still ack the sequence.
+	if opensMenu(cur) {
+		if !useMenuReachOK(sess, clicked) {
+			acked = true
+			if seq >= 0 {
+				s.sendBlockAck(sess, seq)
+			}
+			return
+		}
+		if teleportPending(sess) {
+			acked = true
+			if seq >= 0 {
+				s.sendBlockAck(sess, seq)
+			}
+			s.sendBuildTooHigh(sess, d)
+			return
+		}
+	}
 	if s.openBlockMenu(sess, cur, clicked) {
 		acked = true
 		if seq >= 0 {

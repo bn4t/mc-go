@@ -40,7 +40,7 @@ func (s *Server) openCraftingTable(sess *Session, pos world.Pos) {
 	var b protocol.Buffer
 	b.VarInt(id)
 	b.VarInt(menuCrafting)
-	b.Raw(textComponentContent("Crafting"))
+	b.Raw(menuTitle("container.crafting"))
 	_ = sess.write(sess.ids().PlayOpenScreen, b.Bytes())
 	s.refreshTableResult(sess, table)
 	s.sendCraftTableContent(sess, table)
@@ -294,7 +294,7 @@ func (s *Server) syncCraftTableSlots(sess *Session, w *openWindow, table *craftT
 		var b protocol.Buffer
 		b.VarInt(w.id)
 		b.VarInt(state)
-		b.VarInt(int32(slot))
+		b.Short(int16(slot))
 		writeSlot(&b, sess.craftMenuStack(table, slot))
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}
@@ -314,7 +314,11 @@ func (s *Server) handleCraftTableClickPacket(sess *Session, p protocol.Packet) {
 	if w == nil || w.craft == nil || w.id != win {
 		return
 	}
-	if _, err := r.VarInt(); err != nil { // state
+	st, err := r.VarInt() // state
+	if err != nil {
+		return
+	}
+	if !s.checkClickState(sess, w, st) {
 		return
 	}
 	slot, err := r.Short()

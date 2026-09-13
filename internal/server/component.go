@@ -185,6 +185,15 @@ func errorContext(input string, cursor int) component {
 	}
 }
 
+// menuTitle encodes an Open Screen title the way vanilla 26.2 does: a
+// compound holding only the menu's translation key, e.g.
+// {"translate": "container.chest"} for an unnamed chest. Measured
+// across every menu (see TestContainerOpenParity): the real server
+// never sends the literal English name for an unrenamed container.
+func menuTitle(key string) []byte {
+	return component{translate: key}.content()
+}
+
 // content encodes the component as the payload of a System Chat packet.
 // A plain literal stays a TAG_String root, the compact form vanilla
 // also uses for unstyled text.

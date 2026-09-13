@@ -24,6 +24,68 @@ func drainToQuietBlackbox(t *testing.T, c interface{ SetReadDeadline(time.Time) 
 	}
 }
 
+// syncClickState returns a window's live container state: it sends a
+// stale click, which both vanilla and mc-go ignore, answering with a
+// full resync that carries the current state id.
+func syncClickState(t *testing.T, pr *protocol.Reader, pw *protocol.Writer, win int32) int32 {
+	t.Helper()
+	var b protocol.Buffer
+	b.VarInt(win)
+	b.VarInt(-1) // stale by construction
+	b.Short(0)
+	b.Byte(0)
+	b.VarInt(0)
+	b.VarInt(0)
+	b.VarInt(0)
+	if err := pw.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting click resync: %v", err)
+		}
+		if p.ID != server.IDPlayContainerContent {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		wid, err1 := r.VarInt()
+		st, err2 := r.VarInt()
+		if err1 != nil || err2 != nil || wid != win {
+			continue
+		}
+		return st
+	}
+}
+
+// confirmSyncsBlackbox reads until the connection is quiet, confirming
+// every Synchronize Player Position on the way. Menu uses are denied
+// until the client confirms its teleports (vanilla 26.2 answers
+// build.tooHigh), so tests that open menus run this after joining and
+// after every teleport.
+func confirmSyncsBlackbox(t *testing.T, c interface {
+	SetDeadline(time.Time) error
+}, pr *protocol.Reader, pw *protocol.Writer) {
+	t.Helper()
+	for {
+		_ = c.SetDeadline(time.Now().Add(500 * time.Millisecond))
+		p, err := pr.ReadPacket()
+		if err != nil {
+			_ = c.SetDeadline(time.Time{})
+			return
+		}
+		if p.ID == server.IDPlaySyncPos {
+			if id, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
+				var b protocol.Buffer
+				b.VarInt(id)
+				if err := pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes()); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+}
+
 // sendMovePosRotPitch writes a full position+rotation update.
 func sendMovePosRotPitch(pw *protocol.Writer, x, y, z float64, yaw, pitch float32) error {
 	var b protocol.Buffer
@@ -225,7 +287,7 @@ func TestSurvivalBreakDropPickupPackets(t *testing.T) {
 			r := protocol.NewPacketReader(p.Data)
 			win, _ := r.VarInt()
 			state, _ := r.VarInt()
-			slot, err := r.VarInt()
+			slot, err := r.Short()
 			if err != nil {
 				t.Fatalf("container slot index: %v", err)
 			}
@@ -448,7 +510,7 @@ func TestSurvivalPlaceConsumesPackets(t *testing.T) {
 		r := protocol.NewPacketReader(p.Data)
 		_, _ = r.VarInt() // window
 		_, _ = r.VarInt() // state
-		slot, err := r.VarInt()
+		slot, err := r.Short()
 		if err != nil || slot != 36 {
 			continue
 		}
@@ -502,7 +564,7 @@ func TestSurvivalPlaceConsumesPackets(t *testing.T) {
 			r := protocol.NewPacketReader(p.Data)
 			_, _ = r.VarInt()
 			_, _ = r.VarInt()
-			slot, err := r.VarInt()
+			slot, err := r.Short()
 			if err != nil || slot != 36 {
 				continue
 			}
@@ -1079,6 +1141,8 @@ func TestChestPackets(t *testing.T) {
 
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 chest")
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give dirt 2")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "tp @s 8 -60 1")
+	confirmSyncsBlackbox(t, c, pr, pw)
 
 	// Use the chest: Open Screen (window 1, generic 9x3) then the menu.
 	var use protocol.Buffer
@@ -1113,7 +1177,7 @@ func TestChestPackets(t *testing.T) {
 			t.Fatalf("window type = %d, err %v (want 2 generic_9x3)", typ, err)
 		}
 		rest, _ := r.Read(r.Remaining())
-		if !bytes.Contains(rest, []byte("Chest")) {
+		if !bytes.Contains(rest, []byte("container.chest")) {
 			t.Fatalf("window title = %x, want Chest", rest)
 		}
 		window = id
@@ -1145,11 +1209,14 @@ func TestChestPackets(t *testing.T) {
 	}
 
 	// Click the hotbar stack onto the cursor, then into chest slot 0.
+	// Container states advance per click, so the clicks carry the live
+	// state instead of a fixed zero.
+	st := syncClickState(t, pr, pw, window)
 	click := func(slot int16) {
 		t.Helper()
 		var b protocol.Buffer
 		b.VarInt(window)
-		b.VarInt(0)
+		b.VarInt(st)
 		b.Short(slot)
 		b.Byte(0)
 		b.VarInt(0)
@@ -1158,6 +1225,7 @@ func TestChestPackets(t *testing.T) {
 		if err := pw.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
 			t.Fatal(err)
 		}
+		st++
 	}
 	click(54) // hotbar 0
 	click(0)  // chest slot 0
@@ -1177,7 +1245,7 @@ func TestChestPackets(t *testing.T) {
 			continue
 		}
 		_, _ = r.VarInt() // state
-		slot, err := r.VarInt()
+		slot, err := r.Short()
 		if err != nil || slot != 0 {
 			continue
 		}
@@ -1236,7 +1304,7 @@ func TestPersistenceReconnectPackets(t *testing.T) {
 		r := protocol.NewPacketReader(p.Data)
 		_, _ = r.VarInt()
 		_, _ = r.VarInt()
-		slot, _ := r.VarInt()
+		slot, _ := r.Short()
 		count, _ := r.VarInt()
 		id, _ := r.VarInt()
 		if slot == 36 && count == 3 && id == world.ItemIDs["dirt"] {
@@ -1308,6 +1376,8 @@ func TestFurnacePackets(t *testing.T) {
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 furnace")
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give sand 1")
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give coal 1")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "tp @s 8 -60 1")
+	confirmSyncsBlackbox(t, c, pr, pw)
 
 	var use protocol.Buffer
 	use.VarInt(0)
@@ -1364,12 +1434,13 @@ func TestFurnacePackets(t *testing.T) {
 	}
 
 	// Move the hotbar sand (menu 30) into the input (0) and the coal
-	// (menu 31) into the fuel (1).
+	// (menu 31) into the fuel (1). Container states advance per click.
+	st := syncClickState(t, pr, pw, window)
 	click := func(slot int16) {
 		t.Helper()
 		var b protocol.Buffer
 		b.VarInt(window)
-		b.VarInt(0)
+		b.VarInt(st)
 		b.Short(slot)
 		b.Byte(0)
 		b.VarInt(0)
@@ -1378,6 +1449,7 @@ func TestFurnacePackets(t *testing.T) {
 		if err := pw.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
 			t.Fatal(err)
 		}
+		st++
 	}
 	move := func(from, to int16) {
 		click(from)
@@ -1401,7 +1473,7 @@ func TestFurnacePackets(t *testing.T) {
 			continue
 		}
 		_, _ = r.VarInt()
-		slot, err := r.VarInt()
+		slot, err := r.Short()
 		if err != nil {
 			continue
 		}
@@ -1430,11 +1502,13 @@ func TestCraftingPackets(t *testing.T) {
 
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give oak_log 1")
 
+	// The give bumped the window-0 state, so sync it before clicking.
+	st := syncClickState(t, pr, pw, 0)
 	click := func(slot int16) {
 		t.Helper()
 		var b protocol.Buffer
 		b.VarInt(0) // player inventory window
-		b.VarInt(0)
+		b.VarInt(st)
 		b.Short(slot)
 		b.Byte(0)
 		b.VarInt(0)
@@ -1443,6 +1517,7 @@ func TestCraftingPackets(t *testing.T) {
 		if err := pw.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
 			t.Fatal(err)
 		}
+		st++
 	}
 	// Give lands in hotbar slot 36; move it into the grid's top-left.
 	click(36)
@@ -1460,7 +1535,7 @@ func TestCraftingPackets(t *testing.T) {
 		r := protocol.NewPacketReader(p.Data)
 		_, _ = r.VarInt()
 		_, _ = r.VarInt()
-		slot, _ := r.VarInt()
+		slot, _ := r.Short()
 		count, _ := r.VarInt()
 		id, _ := r.VarInt()
 		if slot == 0 {
@@ -1484,7 +1559,7 @@ func TestCraftingPackets(t *testing.T) {
 			r := protocol.NewPacketReader(p.Data)
 			_, _ = r.VarInt()
 			_, _ = r.VarInt()
-			slot, _ := r.VarInt()
+			slot, _ := r.Short()
 			count, _ := r.VarInt()
 			id, _ := r.VarInt()
 			if slot == 1 && count == 0 {
@@ -1524,6 +1599,8 @@ func TestCraftingTablePackets(t *testing.T) {
 
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 crafting_table")
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give oak_planks 4")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "tp @s 8 -60 1")
+	confirmSyncsBlackbox(t, c, pr, pw)
 
 	var use protocol.Buffer
 	use.VarInt(0)
@@ -1578,11 +1655,13 @@ func TestCraftingTablePackets(t *testing.T) {
 		break
 	}
 
+	// Container states advance per click, so these carry the live state.
+	st := syncClickState(t, pr, pw, window)
 	click := func(slot int16, button byte) {
 		t.Helper()
 		var b protocol.Buffer
 		b.VarInt(window)
-		b.VarInt(0)
+		b.VarInt(st)
 		b.Short(slot)
 		b.Byte(button)
 		b.VarInt(0)
@@ -1591,6 +1670,7 @@ func TestCraftingTablePackets(t *testing.T) {
 		if err := pw.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
 			t.Fatal(err)
 		}
+		st++
 	}
 	click(37, 0) // pick the planks from the hotbar
 	for _, slot := range []int16{1, 2, 4, 5} {
@@ -1608,7 +1688,7 @@ func TestCraftingTablePackets(t *testing.T) {
 		r := protocol.NewPacketReader(p.Data)
 		_, _ = r.VarInt()
 		_, _ = r.VarInt()
-		slot, _ := r.VarInt()
+		slot, _ := r.Short()
 		count, _ := r.VarInt()
 		id, _ := r.VarInt()
 		if slot != 0 {
@@ -1634,7 +1714,7 @@ func TestCraftingTablePackets(t *testing.T) {
 		r := protocol.NewPacketReader(p.Data)
 		_, _ = r.VarInt()
 		_, _ = r.VarInt()
-		slot, _ := r.VarInt()
+		slot, _ := r.Short()
 		count, _ := r.VarInt()
 		if slot == 1 && count == 0 {
 			sawGrid = true
@@ -1736,11 +1816,13 @@ func TestEquipmentPackets(t *testing.T) {
 	sendChatBlackbox(t, pwa, server.IDPlayChatCommandSB, "give iron_helmet 1")
 	aliceUUID := offlineUUIDBlackbox("Alice")
 
+	// The give bumped Alice's window-0 state, so sync it before clicking.
+	st := syncClickState(t, pra, pwa, 0)
 	click := func(slot int16) {
 		t.Helper()
 		var b protocol.Buffer
 		b.VarInt(0)
-		b.VarInt(0)
+		b.VarInt(st)
 		b.Short(slot)
 		b.Byte(0)
 		b.VarInt(0)
@@ -1749,6 +1831,7 @@ func TestEquipmentPackets(t *testing.T) {
 		if err := pwa.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
 			t.Fatal(err)
 		}
+		st++
 	}
 	// Move the helmet from the hotbar into the helmet armor slot.
 	click(36)
@@ -1974,6 +2057,8 @@ func TestHopperPackets(t *testing.T) {
 
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 hopper")
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give stone 2")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "tp @s 8 -60 1")
+	confirmSyncsBlackbox(t, c, pr, pw)
 
 	var use protocol.Buffer
 	use.VarInt(0)
@@ -2028,11 +2113,13 @@ func TestHopperPackets(t *testing.T) {
 		break
 	}
 
+	// Container states advance per click, so these carry the live state.
+	st := syncClickState(t, pr, pw, window)
 	click := func(slot int16) {
 		t.Helper()
 		var b protocol.Buffer
 		b.VarInt(window)
-		b.VarInt(0)
+		b.VarInt(st)
 		b.Short(slot)
 		b.Byte(0)
 		b.VarInt(0)
@@ -2041,6 +2128,7 @@ func TestHopperPackets(t *testing.T) {
 		if err := pw.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
 			t.Fatal(err)
 		}
+		st++
 	}
 	click(32) // hotbar 0 in the hopper menu
 	click(0)  // hopper slot 0
@@ -2056,7 +2144,7 @@ func TestHopperPackets(t *testing.T) {
 		r := protocol.NewPacketReader(p.Data)
 		_, _ = r.VarInt()
 		_, _ = r.VarInt()
-		slot, _ := r.VarInt()
+		slot, _ := r.Short()
 		count, _ := r.VarInt()
 		id, _ := r.VarInt()
 		if slot == 0 {
@@ -2117,7 +2205,7 @@ func TestEatingPackets(t *testing.T) {
 			r := protocol.NewPacketReader(p.Data)
 			_, _ = r.VarInt()
 			_, _ = r.VarInt()
-			slot, _ := r.VarInt()
+			slot, _ := r.Short()
 			count, _ := r.VarInt()
 			if slot == 36 && count == 0 {
 				sawConsumed = true
