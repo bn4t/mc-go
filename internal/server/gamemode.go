@@ -20,11 +20,12 @@ func parseGameMode(tok string) (byte, bool) {
 // runGamemode implements /gamemode, measured against vanilla 26.2. A
 // mode change sends the target GameEvent reason 3 with the mode, a
 // commands.gamemode.success.self chat to the issuer (or
-// .success.other naming the target), gameMode.changed plus a
-// gray-italic chat.type.admin broadcast to the other operators when
-// another player is targeted, refreshed abilities, re-sent reach
-// attributes when creative is left or entered, and a gamemode-only
-// Player Info Update to every other player. Repeating the current
+// .success.other naming the target), gameMode.changed to a remote
+// target plus a gray-italic chat.type.admin broadcast to the other
+// operators (which also fires on self switches), refreshed abilities,
+// re-sent reach attributes to the target when creative is left or
+// entered, and a gamemode-only Player Info Update to every player,
+// target included. Repeating the current
 // mode is silent; the mode argument is required, unknown names fail,
 // an unknown target fails, and a trailing argument is rejected.
 func (s *Server) runGamemode(player string, args []string) reply {
@@ -38,7 +39,9 @@ func (s *Server) runGamemode(player string, args []string) reply {
 	}
 	mode, ok := parseGameMode(args[0])
 	if !ok {
-		return errToken("argument.gamemode.invalid", 1, args[0])
+		// Vanilla reads the token and rejects the value, so the
+		// cursor stops at the end of the token rather than its start.
+		return errTokenEnd("argument.gamemode.invalid", 1, args[0])
 	}
 	target := sess
 	if len(args) > 1 {
@@ -55,7 +58,12 @@ func (s *Server) runGamemode(player string, args []string) reply {
 	}
 	old := target.mode()
 	target.setMode(mode)
-	target.flying = mode == GameModeCreative || mode == GameModeSpectator
+	if mode != GameModeCreative && mode != GameModeSpectator {
+		// Leaving a flighted mode grounds the player: a later switch
+		// back to creative resends the bare creative flags, with no
+		// flying bit, exactly as the real server does.
+		target.flying = false
+	}
 	_ = s.sendAbilities(target)
 	_ = s.sendGameEvent(target, 3, float32(mode))
 	modeName := translatable("gameMode." + args[0])
@@ -70,15 +78,9 @@ func (s *Server) runGamemode(player string, args []string) reply {
 	}
 	s.broadcastAdmin(sess, selfMsg)
 	if old == GameModeCreative || mode == GameModeCreative {
-		body := updateAttributesMode(target.entityID.Load(), mode)
-		s.sessions.Range(func(_, v any) bool {
-			other := v.(*Session)
-			if other.state.Load() != StatePlay {
-				return true
-			}
-			_ = other.write(other.ids().PlayUpdateAttributes, body)
-			return true
-		})
+		// The reach resync goes to the changed player only: trackers
+		// get the tab-list update, not the attributes.
+		_ = target.write(target.ids().PlayUpdateAttributes, updateAttributesMode(target.entityID.Load(), mode))
 	}
 	s.broadcastPlayerInfoGamemode(target)
 	return componentReply(selfMsg)

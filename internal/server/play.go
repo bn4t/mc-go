@@ -362,16 +362,26 @@ const (
 // fly + instant break. The flying bit itself stays clear until takeoff.
 const abilityFlagsCreative = 0x01 | 0x04 | 0x08
 
+// abilityFlagsSpectator advertises spectator mode: invulnerable +
+// flying + may fly, no instant break. Measured off an
+// adventure-to-spectator /gamemode switch, which answers flags 0x07.
+const abilityFlagsSpectator = 0x01 | 0x02 | 0x04
+
 // sendAbilities syncs the game mode's ability flags and default speeds.
 // The mode is the player's own, not the server default: /gamemode
-// resends this on every switch.
+// resends this on every switch. Per-mode flags measured off those
+// switches: creative 0x0D (plus the flying bit while airborne),
+// spectator 0x07, anything else 0x00.
 func (s *Server) sendAbilities(sess *Session) error {
 	flags := byte(0)
-	if sess.mode() == GameModeCreative {
+	switch sess.mode() {
+	case GameModeCreative:
 		flags = abilityFlagsCreative
 		if sess.flying {
 			flags |= abilityFlagFlying
 		}
+	case GameModeSpectator:
+		flags = abilityFlagsSpectator
 	}
 	var b protocol.Buffer
 	b.Byte(flags)

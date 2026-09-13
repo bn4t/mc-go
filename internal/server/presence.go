@@ -37,8 +37,8 @@ type playerEntry struct {
 
 // encodePlayerInfoGamemode builds a gamemode-only Player Info Update:
 // just the UPDATE_GAME_MODE bit, then per entry UUID plus gamemode.
-// Vanilla sends one of these to every other player when someone's
-// mode changes; the changed player itself gets none.
+// Vanilla sends one of these to every player, target included, when
+// someone's mode changes.
 func encodePlayerInfoGamemode(uuid [16]byte, gamemode int32) []byte {
 	var b protocol.Buffer
 	b.Byte(infoGamemode)
@@ -49,12 +49,13 @@ func encodePlayerInfoGamemode(uuid [16]byte, gamemode int32) []byte {
 }
 
 // broadcastPlayerInfoGamemode reports a mode change to every
-// play-stage session except the changed player itself.
+// play-stage session, the changed player included: the differential
+// test caught the target's own copy on both self and remote switches.
 func (s *Server) broadcastPlayerInfoGamemode(sess *Session) {
 	body := encodePlayerInfoGamemode(sess.getUUID(), int32(sess.mode()))
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
-		if other == sess || other.state.Load() != StatePlay {
+		if other.state.Load() != StatePlay {
 			return true
 		}
 		_ = other.write(other.ids().PlayPlayerInfoUpd, body)
