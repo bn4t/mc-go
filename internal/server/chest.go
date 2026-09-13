@@ -99,6 +99,7 @@ type openWindow struct {
 	craft     *craftTable
 	hopper    *hopperData
 	container *containerData
+	ender     *[27]ItemStack
 	kind      int32 // menu registry id
 }
 
@@ -194,6 +195,11 @@ func (sess *Session) menuStack(slot int) ItemStack {
 	container := w.containerSize()
 	switch {
 	case slot < container:
+		if w.ender != nil {
+			sess.invMu.RLock()
+			defer sess.invMu.RUnlock()
+			return (*w.ender)[slot]
+		}
 		if w.furnace != nil {
 			w.dim.furnaces.mu.Lock()
 			defer w.dim.furnaces.mu.Unlock()
@@ -225,6 +231,12 @@ func (sess *Session) setMenuStack(slot int, it ItemStack) {
 	container := w.containerSize()
 	switch {
 	case slot < container:
+		if w.ender != nil {
+			sess.invMu.Lock()
+			(*w.ender)[slot] = it
+			sess.invMu.Unlock()
+			return
+		}
 		if w.furnace != nil {
 			w.dim.furnaces.mu.Lock()
 			w.furnace.slots[slot] = it

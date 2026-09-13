@@ -852,6 +852,8 @@ func (s *Server) openBlockMenu(sess *Session, blk world.Block, pos world.Pos) bo
 	switch {
 	case isChestBlock(blk):
 		s.openChest(sess, pos)
+	case isEnderChestBlock(blk):
+		s.openEnderChest(sess, pos)
 	case isHopperBlock(blk):
 		s.openHopper(sess, pos)
 	case isCraftingTableBlock(blk):

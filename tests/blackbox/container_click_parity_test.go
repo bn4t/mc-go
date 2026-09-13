@@ -43,10 +43,24 @@ type clickDriver struct {
 	state   int32
 	p0state int32
 	snap    clickSnap
+	opened  []usePkt
 	debug   bool
 }
 
 func newClickDriver(t *testing.T, addr, name string) *clickDriver {
+	t.Helper()
+	return newClickDriverOn(t, addr, name, "minecraft:chest", [][2]string{
+		{"hotbar.0", "minecraft:dirt 64"},
+		{"hotbar.1", "minecraft:cobblestone 32"},
+		{"inventory.0", "minecraft:oak_planks 16"},
+	}, nil)
+}
+
+// newClickDriverOn runs the click setup against any menu block: it
+// places the block, hands the player the gives, pre-fills the ender
+// storage when prefill is set (for the ender chest's shared storage),
+// and opens the menu with a use.
+func newClickDriverOn(t *testing.T, addr, name, block string, gives [][2]string, prefill [][2]string) *clickDriver {
 	t.Helper()
 	c, pr, pw := joinPlayBlackbox(t, addr, name)
 	t.Cleanup(func() { c.Close() })
@@ -70,36 +84,44 @@ func newClickDriver(t *testing.T, addr, name string) *clickDriver {
 	if !digSentinel(t, pw, d.sink, "TPOK", 10*time.Second) {
 		t.Fatalf("%s: no tp", name)
 	}
-	sendCommand(t, pw, "setblock 8 -61 0 minecraft:chest")
+	sendCommand(t, pw, "setblock 8 -61 0 "+block)
 	if !digSentinel(t, pw, d.sink, "SBOK", 10*time.Second) {
 		t.Fatalf("%s: no setblock", name)
 	}
-	sendCommand(t, pw, "item replace entity @s hotbar.0 with minecraft:dirt 64")
-	if !digSentinel(t, pw, d.sink, "IT0", 10*time.Second) {
-		t.Fatalf("%s: no item0", name)
+	for i, g := range gives {
+		sendCommand(t, pw, "item replace entity @s "+g[0]+" with "+g[1])
+		if !digSentinel(t, pw, d.sink, fmt.Sprintf("IT%d", i), 10*time.Second) {
+			t.Fatalf("%s: no item%d", name, i)
+		}
 	}
-	sendCommand(t, pw, "item replace entity @s hotbar.1 with minecraft:cobblestone 32")
-	if !digSentinel(t, pw, d.sink, "IT1", 10*time.Second) {
-		t.Fatalf("%s: no item1", name)
-	}
-	sendCommand(t, pw, "item replace entity @s inventory.0 with minecraft:oak_planks 16")
-	if !digSentinel(t, pw, d.sink, "IT2", 10*time.Second) {
-		t.Fatalf("%s: no item2", name)
+	for i, g := range prefill {
+		sendCommand(t, pw, "item replace entity @s "+g[0]+" with "+g[1])
+		if !digSentinel(t, pw, d.sink, fmt.Sprintf("PF%d", i), 10*time.Second) {
+			t.Fatalf("%s: no prefill%d", name, i)
+		}
 	}
 	// Drop setup traffic: the sentinel polls consume packets as they wait
 	// for the chat echo, so folding here is racy per server. Window-0
 	// state and slots heal deterministically off the sync-w0 resync
 	// after close instead.
 	d.sink.take()
-	sendUseItemOn(t, pw, 8, -61, 0, 1, 11)
-	var opened []usePkt
-	settleUse(t, d.sink, func(pkts []usePkt) { opened = append(opened, pkts...) }, "use-chest")
-	v := judgeUse(opened)
+	d.reopen(8, -61, 0, 11, "use-open")
+	v := judgeUse(d.opened)
 	if !v.open || v.menu != 2 {
-		t.Fatalf("%s: chest did not open (open=%v menu=%d)", name, v.open, v.menu)
+		t.Fatalf("%s: %s did not open (open=%v menu=%d)", name, block, v.open, v.menu)
 	}
-	d.foldPkts(opened)
 	return d
+}
+
+// reopen uses the menu block again (first open or after a close) and
+// folds the answer, keeping the open packets for title checks.
+func (d *clickDriver) reopen(x, y, z, seq int32, tag string) {
+	d.t.Helper()
+	sendUseItemOn(d.t, d.pw, x, y, z, 1, seq)
+	var opened []usePkt
+	settleUse(d.t, d.sink, func(pkts []usePkt) { opened = append(opened, pkts...) }, tag)
+	d.opened = opened
+	d.foldPkts(opened)
 }
 
 // fold merges newly arrived container traffic into the snapshot.

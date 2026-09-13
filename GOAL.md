@@ -86,8 +86,9 @@ Mojang server over the wire.
 ### Player
 - [~] Movement tracking, keep-alive, chat, tab list
 - [~] Full inventory + container protocol (chest + window-0 click
-  parity scripted step by step, stale-state resync, menu titles;
-  other menu types, survival restrictions, ender chest still open)
+  parity scripted step by step, stale-state resync, menu titles, ender
+  chest over shared player storage with close/reopen/break persistence;
+  other menu types and survival restrictions still open)
 - [ ] Survival mode: health, hunger, regen, death/respawn
 - [~] Crafting, recipes, recipe book (join registry served verbatim;
   unlock engine pending)
@@ -107,6 +108,17 @@ Mojang server over the wire.
 
 ## Progress log
 
+- 2026-09-13: Ender chest opens over the player's own storage
+  (`TestEnderChestParity`, green first run against 26.2). The menu is
+  the chest's shape (generic_9x3, title container.enderchest compared
+  byte for byte) and clicks run the chest path, so pickup/place, merge,
+  and both quick-move directions match; close and reopen keep the
+  contents, and breaking the block keeps them too - a second chest
+  elsewhere shows the same stacks, on both servers. mc-go had no open
+  path (a use fell through to placing); the window is one new
+  openWindow arm over sess.ender, which already persisted with the
+  player. The click driver's setup is parameterized behind
+  newClickDriverOn for the next menu.
 - 2026-09-13: `/item` slot registry corrected against the live server in
   a 38-command differential probe (replies plus from-copy reads, no
   dumps). The numbered families alias: hotbar.N is container.N (both

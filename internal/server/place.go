@@ -56,7 +56,7 @@ const useMenuReach = 6.0
 // so the use gates (reach, teleport confirmation) apply to exactly
 // the blocks that open.
 func opensMenu(blk world.Block) bool {
-	return isChestBlock(blk) || isHopperBlock(blk) || isCraftingTableBlock(blk) || isFurnaceBlock(blk) || isContainerBlock(blk)
+	return isChestBlock(blk) || isEnderChestBlock(blk) || isHopperBlock(blk) || isCraftingTableBlock(blk) || isFurnaceBlock(blk) || isContainerBlock(blk)
 }
 
 // useMenuReachOK reports whether the session's eyes are within reach
