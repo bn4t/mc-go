@@ -79,6 +79,40 @@ func readSystemChatBlackbox(t *testing.T, pr *protocol.Reader, timeout time.Dura
 	}
 }
 
+// isSetblockConfirmBlackbox reports whether a System Chat payload is
+// the /setblock success confirm for 3 70 3. Vanilla 26.2 answers with
+// the commands.setblock.success component carrying the three coords
+// as ints (pinned in internal/server/blocks_test.go), not the literal
+// English sentence, so the component form is the expected one and the
+// plain string is kept only for backward tolerance.
+func isSetblockConfirmBlackbox(t *testing.T, data []byte) bool {
+	t.Helper()
+	root, err := nbt.ReadUnnamed(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("chat nbt: %v", err)
+	}
+	if text, ok := root.(string); ok {
+		return strings.Contains(text, "Set block 3 70 3")
+	}
+	m, ok := root.(map[string]any)
+	if !ok {
+		return false
+	}
+	if key, _ := m["translate"].(string); key != "commands.setblock.success" {
+		return false
+	}
+	with, ok := m["with"].(nbt.List)
+	if !ok || len(with.Items) != 3 {
+		return false
+	}
+	for i, want := range []int32{3, 70, 3} {
+		if got, ok := with.Items[i].(int32); !ok || got != want {
+			return false
+		}
+	}
+	return true
+}
+
 // chatTextBlackbox decodes an NBT text component payload to its plain
 // text form.
 func chatTextBlackbox(t *testing.T, data []byte) string {
@@ -206,7 +240,7 @@ func TestMcGoOnlySetblockStreamsChunk(t *testing.T) {
 				sawUpdate = true
 			}
 		case server.IDPlaySystemChatCB:
-			if text := chatTextBlackbox(t, p.Data); strings.Contains(text, "Set block 3 70 3") {
+			if isSetblockConfirmBlackbox(t, p.Data) {
 				sawConfirm = true
 			}
 		}
