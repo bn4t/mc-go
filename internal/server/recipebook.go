@@ -1,7 +1,6 @@
 package server
 
 import (
-	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
 
@@ -265,29 +264,4 @@ func (sess *Session) takeOneFromInventory(itemID int32) bool {
 		return true
 	}
 	return false
-}
-
-// recipeBookEntryCount is how many recipes the book advertises.
-func recipeBookEntryCount() int32 { return int32(len(recipeIndex())) }
-
-// sendRecipeBookAddAll sends the full recipe book so a client can list
-// and click recipes. Each entry carries the result stack and the
-// category/flag byte the 776 client expects.
-func (s *Server) sendRecipeBookAddAll(sess *Session) error {
-	all := recipeIndex()
-	var b protocol.Buffer
-	b.VarInt(int32(len(all)))
-	for i, r := range all {
-		itemID, ok := world.ItemID("minecraft:" + r.result)
-		if !ok {
-			itemID = 0
-		}
-		b.VarInt(int32(i)) // display id
-		writeSlot(&b, ItemStack{ID: itemID, Count: r.count})
-		b.VarInt(0)   // crafting category: building blocks
-		b.Byte(0x01)  // flags: show notification
-		b.Bool(false) // no ingredients list for this entry
-	}
-	b.Bool(true) // replace
-	return sess.write(sess.ids().PlayRecipeBookAdd, b.Bytes())
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	_ "embed"
 	"sort"
 
 	"mc-go/internal/protocol"
@@ -17,13 +18,20 @@ func (s *Server) sendSetHeldSlot(sess *Session, slot int32) error {
 	return sess.write(sess.ids().PlaySetHeldItemCB, b.Bytes())
 }
 
-// sendUpdateRecipes sends the recipe registry. Empty until the crafting
-// milestone; an empty registry is structurally valid.
+//go:embed testdata/vanilla-26.2/play/update_recipes.bin
+var updateRecipesBody []byte
+
+// sendUpdateRecipes sends the recipe registry: the seven property sets
+// (furnace, smoker, blast furnace and campfire inputs, smithing base,
+// addition and template) and the 319 stonecutting recipes, captured
+// from a default live 26.2 server and served verbatim like the
+// configuration registries. The registry is static per version (mc-go
+// has no data-pack reload), and TestRecipeBurstParity compares the
+// bytes against the live server on every run. The furnace_input set
+// decodes to exactly the data pack's smelting inputs, which is the
+// check the capture is the default registry and not server state.
 func (s *Server) sendUpdateRecipes(sess *Session) error {
-	var b protocol.Buffer
-	b.VarInt(0) // property sets
-	b.VarInt(0) // stonecutter recipes
-	return sess.write(sess.ids().PlayUpdateRecipes, b.Bytes())
+	return sess.write(sess.ids().PlayUpdateRecipes, updateRecipesBody)
 }
 
 // sendEntityEvent triggers one entity status animation/event.
@@ -76,8 +84,9 @@ func (s *Server) sendRecipeBookSettings(sess *Session) error {
 	return sess.write(sess.ids().PlayRecipeBookSet, b.Bytes())
 }
 
-// sendRecipeBookAdd syncs known recipes. Empty with replace=false until
-// crafting lands.
+// sendRecipeBookAdd syncs known recipes: empty with replace for a
+// fresh player, which is what the real server sends at this point in
+// the burst (later unlocks arrive as their own adds).
 func (s *Server) sendRecipeBookAdd(sess *Session) error {
 	var b protocol.Buffer
 	b.VarInt(0) // recipes
