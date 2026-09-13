@@ -529,7 +529,10 @@ func (s *Server) runItemModify(player string, args []string) reply {
 		return errToken("command.unknown.argument", modTok+1)
 	}
 	// The modifier applied no functions, so the stack is unchanged and
-	// the reply names what the slot holds.
+	// the reply names what the slot holds. The one exception is a
+	// bare set_damage compound, which wears the stack the way the
+	// real server does (see applySetDamage): without it no
+	// damage-varying setup survives a round trip.
 	d := s.dimOf(player)
 	if args[1] == "block" {
 		x, y, z, _, _ := s.itemBlockPos(player, args)
@@ -537,6 +540,10 @@ func (s *Server) runItemModify(player string, args []string) reply {
 		st, r, ok := s.readItemBlock(d, pos, mustParseItemSlot(args[slotArg]))
 		if !ok {
 			return r
+		}
+		if worn, ok := applySetDamage(args[modArg], st); ok {
+			s.writeItemBlock(d, pos, mustParseItemSlot(args[slotArg]), worn)
+			st = worn
 		}
 		return componentReply(translatable("commands.item.block.set.success",
 			nestedCompound{key: "", value: int32(x)},
@@ -552,8 +559,64 @@ func (s *Server) runItemModify(player string, args []string) reply {
 		return componentReply(noUnchangedSlot(id))
 	}
 	st, _ := readEntitySlot(tgt, id)
+	if worn, ok := applySetDamage(args[modArg], st); ok {
+		s.writeEntitySlot(tgt, id, worn)
+		st = worn
+	}
 	return componentReply(translatable("commands.item.entity.set.success.single",
 		entityTargetComponent(tgt), itemBrackets(st)))
+}
+
+// applySetDamage wears st as a bare `{"function":"set_damage",
+// "damage":f}` compound does on the real server, reporting whether it
+// applied. The fraction is damage-relative: 0.5 on a 250-max pick
+// reads back 125, 0.0 wears it to nothing (damage == max), 1.0
+// repairs it flat. Six fractions measured on vanilla 26.2 (0.0,
+// 0.1, 0.2, 0.5, 0.8, 0.9 -> 250, 225, 200, 125, 49, 25) pin the
+// arithmetic exactly: damage truncates (1-f)*max in 32-bit floats,
+// which is the only rounding that fits 0.8 -> 49 and 0.1 -> 225 at
+// once. Fractions outside 0..1 clamp (unmeasured), a missing or
+// unparsable damage stays a no-op success, and so does a compound
+// carrying anything besides function and damage (conditions the
+// engine cannot evaluate), a list modifier, an empty stack, or an
+// item with no durability.
+func applySetDamage(tok string, st ItemStack) (ItemStack, bool) {
+	if !strings.HasPrefix(tok, "{") || st.Empty() {
+		return st, false
+	}
+	c, _, lerr := parseSNBTCompound(tok, 0)
+	if lerr != nil {
+		return st, false
+	}
+	fn, ok := c.vals["function"]
+	if !ok || fn.kind != snbtString ||
+		strings.TrimPrefix(fn.str, "minecraft:") != "set_damage" {
+		return st, false
+	}
+	if len(c.vals) != 2 {
+		return st, false
+	}
+	dmg, ok := c.vals["damage"]
+	if !ok || dmg.kind != snbtNumber {
+		return st, false
+	}
+	f, err := strconv.ParseFloat(strings.TrimRight(dmg.num,
+		"bBsSiIlLfFdD"), 64)
+	if err != nil {
+		return st, false
+	}
+	if f < 0 {
+		f = 0
+	}
+	if f > 1 {
+		f = 1
+	}
+	maxDmg, ok := damageableItems[mustItemName(st.ID)]
+	if !ok {
+		return st, false
+	}
+	st.Damage = int32((1 - float32(f)) * float32(maxDmg))
+	return st, true
 }
 
 // mustParseItemSlot maps a slot token already parsed successfully.
