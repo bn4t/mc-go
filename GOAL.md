@@ -85,7 +85,9 @@ Mojang server over the wire.
 
 ### Player
 - [~] Movement tracking, keep-alive, chat, tab list
-- [ ] Full inventory + container protocol
+- [~] Full inventory + container protocol (chest + window-0 click
+  parity scripted step by step, stale-state resync, menu titles;
+  other menu types, survival restrictions, ender chest still open)
 - [ ] Survival mode: health, hunger, regen, death/respawn
 - [~] Crafting, recipes, recipe book (join registry served verbatim;
   unlock engine pending)
@@ -104,6 +106,58 @@ Mojang server over the wire.
 - [ ] Performance targets under vanilla-like load
 
 ## Progress log
+
+- 2026-09-13: `/item` slot registry corrected against the live server in
+  a 38-command differential probe (replies plus from-copy reads, no
+  dumps). The numbered families alias: hotbar.N is container.N (both
+  index N, so a chest and a furnace both take hotbar.0-2 and the furnace
+  refuses hotbar.3 as i(3)), and inventory.N is container.9+N (a chest
+  takes inventory.0 as index 9, refuses inventory.26 as i(35)). The
+  player has only 0-35: container.36-53 and horse.4-14 are known names it
+  does not have, refused as no_changed naming the item on write,
+  source.no_such_slot on read, no_changes on modify. mc-go had hotbar.N
+  at 36+N and the player at 0-44, which the reply-only parity script
+  could not see; fixed in parseItemSlot, playerSlotValid,
+  read/writeEntitySlot, and syncItemSlot behind an entityMainSlot helper,
+  with the aliasing pinned by a new TestItemSlotRegistry unit test.
+  TestItemCommandParity, TestItemSNBTParity, TestContainerClickParity,
+  and TestUseGateParity all pass against 26.2. The probe file is
+  deleted; the evidence it added to item_slots.tsv's account lives in
+  the itemcmd.go header comment.
+- 2026-09-13: Item handling finished: max stack sizes, `/item` slot
+  mapping, and a full container-click parity script. `TestItemSNBTParity`
+  and the max-stack table work stood; what remained was the click
+  protocol, and the real server corrected five mc-go rules, all measured
+  off its own bytes. ContainerSetSlot carries its slot as a Short, not a
+  VarInt (the vanilla bytes read `01 05 00 01 01 3e 0000`), fixed in every
+  sender and every test reader. Quick-move from a container into the
+  player fills backward from the hotbar's last slot (a dirt64 landed in
+  hotbar.8), while shift-click inside window 0 fills forward from
+  hotbar.0 - both directions pinned. Throw-all (mode 4, button 1) drops
+  the stack into the world; the chest path moved it to the cursor
+  instead. Creative and spectator players never pick up item entities -
+  mc-go's magnet was quietly re-adding thrown drops to the hotbar. A
+  Click Container with a stale state id is ignored, and the server
+  answers with the whole window carrying the live state (measured on
+  window 0, applied to all five click entry points: chest, generic
+  container, crafting table, hopper, player inventory).
+  `TestContainerClickParity` replays a 24-step script on both servers -
+  pickup/place, right-click half and single, merge, quick-move, hotbar
+  swap, throw one/all, drag, double-click collect, a stale menu click, a
+  stale window-0 click - and compares carried, menu, and player slots
+  after every step. Use Item On gates stand beside it
+  (`TestUseGateParity`, 14/14): reach and teleport-confirm gates, menu
+  titles as translation keys, the silent empty lectern. Three harness
+  lessons, each paid for in debugging time: the sentinel's `has()`
+  consumes packets, so setup traffic cannot be folded race-free and the
+  click script heals window-0 state off a deliberate stale click
+  instead; world spawn is random per boot, so the no-teleport cell reads
+  the join position syncs and places its chest relative to the player;
+  and a `0x71` that increments by 20 per step is the UpdateTime world
+  age, not slot traffic. The six older packet-level click tests now
+  carry live states through a shared `syncClickState` helper, and a unit
+  test pins the stale-click resync directly
+  (`TestClickStaleStateResyncs`).
 
 - 2026-09-12: Hopper transfers, measured tick by tick and then made to
   match, and the block entity file behind them. The rules came from the

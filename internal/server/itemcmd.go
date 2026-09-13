@@ -15,13 +15,18 @@ import (
 // replies around it pinned by TestItemCommandParity.
 //
 // The registry maps every name to one global index, and each target
-// decides which indices it has: a block takes an index below its slot
-// count, so a furnace takes hotbar.0 (index 0) but not inventory.0
-// (index 9), and equipment or enderchest indices fit no block at all. A
-// player takes 0-35 (hotbar and main), the hands and armor, its ender
-// chest, the cursor, and the 2x2 grid - the horse names alias the grid
-// (horse.0 is player.crafting.0, both index 500), and horse.4 and up are
-// known names the player does not have.
+// decides which indices it has. The numbered families alias: hotbar.N is
+// container.N (both index N), and inventory.N is container.9+N. A block
+// takes an index below its slot count, so a chest takes hotbar.0 (index
+// 0) and inventory.0 (index 9) but not inventory.26 (index 35), and a
+// furnace takes hotbar.2 (index 2) but not hotbar.3 (index 3) or
+// inventory.0 (index 9). A player takes 0-35 (hotbar and main), the hands
+// and armor, its ender chest, the cursor, and the 2x2 grid - the horse
+// names alias the grid (horse.0 is player.crafting.0, both index 500).
+// container.36-53 and horse.4-14 are known names the player does not
+// have: writing one fails with no_changed naming the item, reading one
+// as a from-source fails with source.no_such_slot, and modifying one
+// fails with no_changes naming only the slot.
 
 // Global slot indices, the numbers the real server reports for slots a
 // target does not have.
@@ -222,13 +227,23 @@ func playerSlotValid(id int32) bool {
 	return false
 }
 
+// entityMainSlot maps a global main-storage index to the session's
+// inventory: 0-8 are the hotbar, which lives at the window's hotbar
+// slots, and 9-35 are the main storage, which lines up directly.
+func entityMainSlot(id int32) int16 {
+	if id < 9 {
+		return int16(slotHotbarStart + id)
+	}
+	return int16(id)
+}
+
 // readEntitySlot reads one of a player's global slots.
 func readEntitySlot(sess *Session, id int32) (ItemStack, bool) {
 	sess.invMu.RLock()
 	defer sess.invMu.RUnlock()
 	switch {
 	case id >= 0 && id <= 35:
-		return sess.inv[id], true
+		return sess.inv[entityMainSlot(id)], true
 	case id == itemSlotMainhand:
 		return sess.inv[invSlotForHotbar(sess.held.Load())], true
 	case id == itemSlotOffhand:
@@ -261,7 +276,7 @@ func (s *Server) writeEntitySlot(sess *Session, id int32, st ItemStack) bool {
 	sess.invMu.Lock()
 	switch {
 	case id >= 0 && id <= 35:
-		sess.inv[id] = st
+		sess.inv[entityMainSlot(id)] = st
 	case id == itemSlotMainhand:
 		sess.inv[invSlotForHotbar(sess.held.Load())] = st
 		equip = true
@@ -319,7 +334,7 @@ func (s *Server) syncItemSlot(sess *Session, id int32) {
 		var b protocol.Buffer
 		b.VarInt(0)
 		b.VarInt(state)
-		b.VarInt(int32(invSlotForHotbar(sess.held.Load())))
+		b.Short(invSlotForHotbar(sess.held.Load()))
 		writeSlot(&b, it)
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 		return
@@ -327,7 +342,7 @@ func (s *Server) syncItemSlot(sess *Session, id int32) {
 	var slot int16 = -1
 	switch {
 	case id >= 0 && id <= 35:
-		slot = int16(id)
+		slot = entityMainSlot(id)
 	case id == itemSlotOffhand:
 		slot = slotOffhand
 	case id == itemSlotHead:
@@ -353,7 +368,7 @@ func (s *Server) syncItemSlot(sess *Session, id int32) {
 	var b protocol.Buffer
 	b.VarInt(0)
 	b.VarInt(state)
-	b.VarInt(int32(slot))
+	b.Short(slot)
 	writeSlot(&b, it)
 	_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 }
