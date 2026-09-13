@@ -105,6 +105,9 @@ func (s *Server) handlePlay(sess *Session) {
 	if err := s.sendEntityHealthMetadata(sess, sess.entityID.Load(), 20); err != nil {
 		return
 	}
+	if err := s.sendRecipeBookUnlock(sess); err != nil {
+		return
+	}
 	if err := s.sendUpdateAdvancements(sess); err != nil {
 		return
 	}

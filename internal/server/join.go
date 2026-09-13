@@ -3,6 +3,7 @@ package server
 import (
 	_ "embed"
 	"sort"
+	"time"
 
 	"mc-go/internal/protocol"
 )
@@ -92,6 +93,17 @@ func (s *Server) sendRecipeBookAdd(sess *Session) error {
 	b.VarInt(0) // recipes
 	b.Bool(true)
 	return sess.write(sess.ids().PlayRecipeBookAdd, b.Bytes())
+}
+
+//go:embed testdata/vanilla-26.2/play/recipe_book_unlock.bin
+var recipeBookUnlock []byte
+
+// sendRecipeBookUnlock syncs the fresh-spawn recipe unlock: the single
+// crafting_table entry (display id 318), captured from a default live
+// 26.2 server and served verbatim. The bytes are boot-stable; later
+// unlocks arrive as their own adds once the unlock engine exists.
+func (s *Server) sendRecipeBookUnlock(sess *Session) error {
+	return sess.write(sess.ids().PlayRecipeBookAdd, recipeBookUnlock)
 }
 
 // sendServerData sends the MOTD (and no icon).
@@ -221,13 +233,37 @@ func (s *Server) sendSetHealth(sess *Session, health float32, food int32, satura
 	return sess.write(sess.ids().PlaySetHealth, b.Bytes())
 }
 
-// sendUpdateAdvancements syncs advancement progress. Empty for now.
-func (s *Server) sendUpdateAdvancements(sess *Session) error {
+//go:embed testdata/vanilla-26.2/play/advancements.bin
+var advancementsBody []byte
+
+// The Update Advancements capture is static except for one field: the
+// award timestamp of the crafting_table criterion, a big-endian long at
+// these offsets. Measured layout of the 275 bytes: reset, the two
+// recipe advancement definitions, remove-count, then the progress map
+// (recipes/root locked on impossible; crafting_table with
+// unlock_right_away achieved and has_the_recipe locked), then show.
+// Only the progress entry order varies per boot, so the timestamp sits
+// at one fixed offset in this capture; buildAdvancements splices the
+// live time in and advancementSplitTest pins the splice.
+const (
+	advancementTimeAt = 250
+	advancementTimeLn = 8
+)
+
+// buildAdvancements returns the fresh-join advancement sync with the
+// criterion award time set to nowMillis, matching vanilla's invariant
+// that a fresh player's recipe advancements date from the join.
+func buildAdvancements(nowMillis int64) []byte {
 	var b protocol.Buffer
-	b.Bool(false) // reset
-	b.VarInt(0)   // advancement mapping
-	b.VarInt(0)   // identifiers to remove
-	b.VarInt(0)   // progress mapping
-	b.Bool(false) // show advancements
-	return sess.write(sess.ids().PlayUpdateAdvance, b.Bytes())
+	b.Raw(advancementsBody[:advancementTimeAt])
+	b.Long(nowMillis)
+	b.Raw(advancementsBody[advancementTimeAt+advancementTimeLn:])
+	return b.Bytes()
+}
+
+// sendUpdateAdvancements syncs advancement progress. Fresh players get
+// the two recipe advancements (root plus crafting_table), with a live
+// award timestamp.
+func (s *Server) sendUpdateAdvancements(sess *Session) error {
+	return sess.write(sess.ids().PlayUpdateAdvance, buildAdvancements(time.Now().UnixMilli()))
 }

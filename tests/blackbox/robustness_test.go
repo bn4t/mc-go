@@ -349,9 +349,9 @@ func TestChatParity(t *testing.T) {
 }
 
 // TestJoinBurstSequence compares the vanilla-ordered pre-chunk join
-// burst of both servers. Vanilla repeats Recipe Book Add with the real
-// recipe data; mc-go sends the empty add once (crafting milestone), so
-// consecutive duplicate adds are collapsed before comparing.
+// burst of both servers. Both sides repeat Recipe Book Add (empty,
+// then the spawn unlock); only the first is compared here, the bytes
+// live in TestRecipeBurstParity/TestSpawnUnlockParity.
 func TestJoinBurstSequence(t *testing.T) {
 	tg := requireBlackbox(t)
 	defer tg.cleanup()
