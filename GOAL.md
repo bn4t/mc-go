@@ -771,3 +771,23 @@ Mojang server over the wire.
   exactly the smelting inputs. Still open behind this: the post-spawn
   unlock add (one entry, crafting_table), advancement sync, the unlock
   engine itself, and known-recipe persistence.
+- 2026-09-13: Fresh-spawn recipe unlock and advancement sync served.
+  After the entity metadata the live server sends a second book add
+  (166 bytes, the single crafting_table entry) and the advancement
+  sync (275 bytes); mc-go sends both in the same slot, pinned by
+  `TestSpawnUnlockParity`. The unlock bytes are boot-stable and go out
+  verbatim. The advancement packet decoded fully: reset, the two
+  recipe advancement definitions, then a two-entry progress map
+  (recipes/root locked on impossible; crafting_table with
+  unlock_right_away achieved and has_the_recipe locked), then show.
+  Two nondeterminisms, both measured across boots: the progress entry
+  order shuffles (same HashMap habit as the recipe property sets) and
+  the award timestamp is the server's own wall clock - so the test
+  compares definitions byte for byte, progress by entry, and the
+  timestamp by recency window instead of equality, and mc-go splices
+  the live join time into the capture at the measured offset
+  (`buildAdvancements`, splice pinned by the internal
+  `TestAdvancementSplit` round-trip). The full-burst diff this fell
+  out of also mapped the next gaps without touching them: Set
+  Experience and Update Attributes are absent on mc-go, the command
+  tree is smaller, and the post-chunk player-info pattern differs.
