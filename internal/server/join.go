@@ -130,15 +130,21 @@ func (s *Server) sendInitializeBorder(sess *Session) error {
 	return sess.write(sess.ids().PlayInitializeBorder, b.Bytes())
 }
 
-// sendUpdateTime sends the world age and the clock states, matching the
-// real server field for field: the world age, then two clock entries -
-// the game-time clock (id 1) and the day clock (id 0) - each with its
-// time, a fractional part and a rate of one tick per tick.
+// sendUpdateTime sends the join-time clock state, matching the real
+// server field for field on a young world: the world age, then the
+// game-time clock (id 1) at the age and the day clock at the day time,
+// each with a fractional part and a rate of one tick per tick. The day
+// clock's id shuffles per join on vanilla (0 and 2 both observed on
+// young pristine worlds, even across rejoins of one name), so mc-go
+// sends 2 and the tests accept either; the time carried is identical.
+// Past a few hundred ticks of age vanilla flips the day clock's id to
+// 0; the exact threshold is unmeasured (between ages 222 and 382), so
+// mc-go always sends the young form until a threshold hunt pins it.
 func (s *Server) sendUpdateTime(sess *Session) error {
 	return sess.write(sess.ids().PlayUpdateTime, s.updateTimeBody())
 }
 
-// updateTimeBody builds an Update Time body for the current clocks.
+// updateTimeBody builds the join-time Update Time body.
 func (s *Server) updateTimeBody() []byte {
 	age := s.worldAgeTicks()
 	var b protocol.Buffer
@@ -148,17 +154,52 @@ func (s *Server) updateTimeBody() []byte {
 	b.VarLong(age)
 	b.Float(0) // fractional time
 	b.Float(1) // rate: clock ticks per client tick
-	b.VarInt(0)
+	b.VarInt(2)
 	b.VarLong(s.dayTime())
 	b.Float(0)
 	b.Float(1)
 	return b.Bytes()
 }
 
-// broadcastUpdateTime pushes Update Time to every play-stage session,
-// which is what /time set and /time add do on the real server.
+// updateTimeTickBody builds the clockless periodic Update Time: the
+// world age with no clock entries, which is what the real server
+// broadcasts once per second (9 bytes, age advancing 20 ticks a
+// second).
+func (s *Server) updateTimeTickBody() []byte {
+	var b protocol.Buffer
+	b.Long(s.worldAgeTicks())
+	b.VarInt(0)
+	return b.Bytes()
+}
+
+// updateTimeSetBody builds the /time set and /time add broadcast: the
+// world age with the single day clock (id 0) at the new day time.
+func (s *Server) updateTimeSetBody(day int64) []byte {
+	var b protocol.Buffer
+	b.Long(s.worldAgeTicks())
+	b.VarInt(1)
+	b.VarInt(0)
+	b.VarLong(day)
+	b.Float(0)
+	b.Float(1)
+	return b.Bytes()
+}
+
+// broadcastUpdateTime pushes the clockless tick to every play-stage
+// session: the once-a-second sync.
 func (s *Server) broadcastUpdateTime() {
-	body := s.updateTimeBody()
+	s.broadcastUpdateTimeBody(s.updateTimeTickBody())
+}
+
+// broadcastTimeSet pushes a /time set/add day change to every
+// play-stage session.
+func (s *Server) broadcastTimeSet(day int64) {
+	s.broadcastUpdateTimeBody(s.updateTimeSetBody(day))
+}
+
+// broadcastUpdateTimeBody fans one Update Time body out to every
+// play-stage session.
+func (s *Server) broadcastUpdateTimeBody(body []byte) {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
 		if sess.state.Load() == StatePlay {

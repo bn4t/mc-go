@@ -230,6 +230,7 @@ func TestLoginJoinFlow(t *testing.T) {
 		IDPlaySetCenterChunk,
 		IDPlayContainerContent, IDPlayEntityMetadata,
 		IDPlayRecipeBookAdd, IDPlayUpdateAdvance, IDPlaySetHealth,
+		IDPlaySetExperience,
 	}
 	for i, want := range wantIDs {
 		p, err := pr.ReadPacket()
@@ -319,6 +320,10 @@ func TestLoginJoinFlow(t *testing.T) {
 		}
 	}
 	readBatch(initialChunkBatch)
+	// The attribute sync follows the opening batch, as on vanilla.
+	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayUpdateAttributes {
+		t.Fatalf("attributes = %#x, err %v", p.ID, err)
+	}
 	var batchAck protocol.Buffer
 	batchAck.Float(maxChunkBatch)
 	if err := pw.WritePacket(IDPlayChunkBatchRecvSB, batchAck.Bytes()); err != nil {

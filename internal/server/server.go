@@ -135,6 +135,11 @@ type Server struct {
 	// savedPlayers holds login-time snapshots restored from DataPath.
 	savedPlayers map[string]playerPersist
 	dataSaveErr  error
+	// seenJoin records the names that reached the play stage this boot,
+	// so a reconnect draws the returning-player sync (attribute reset
+	// stub) even when nothing was persisted to disk. Guarded by seenMu.
+	seenMu   sync.Mutex
+	seenJoin map[string]bool
 
 	sessions sync.Map // int64 -> *Session
 	nextID   atomic.Int64

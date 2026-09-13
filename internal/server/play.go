@@ -114,9 +114,17 @@ func (s *Server) handlePlay(sess *Session) {
 	if err := s.sendHealth(sess); err != nil {
 		return
 	}
+	// Experience rides right behind health, then the opening chunk
+	// batch, then the attribute sync - vanilla's order.
+	if err := s.sendSetExperience(sess, sess.xpProgress, sess.xpLevel, sess.xpTotal); err != nil {
+		return
+	}
 	// Spawn columns around the player so a real client has ground
 	// underneath it; further columns stream in as it moves.
 	if err := s.sendWindow(sess, scx, scz); err != nil {
+		return
+	}
+	if err := s.sendUpdateAttributes(sess); err != nil {
 		return
 	}
 	// Remote-player visibility: everyone already online spawns for the

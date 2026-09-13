@@ -791,3 +791,55 @@ Mojang server over the wire.
   out of also mapped the next gaps without touching them: Set
   Experience and Update Attributes are absent on mc-go, the command
   tree is smaller, and the post-chunk player-info pattern differs.
+  - 2026-09-13: Spawn-state sync is done: Set Experience, Update
+  Attributes, and the three Update Time shapes, all measured against
+  the live server and pinned by `TestSpawnStateParity`,
+  `TestRejoinAttributesParity`, `TestPeriodicTimeParity`, and
+  `TestTimeSetBroadcastParity` (plus internal `TestUpdateAttributesFull`,
+  `TestUpdateAttributesRejoin`, `TestUpdateTimeBodies`). Positions in
+  the burst: experience (0,0,0, 6 bytes) rides immediately after Set
+  Health, and attributes go out right after the opening chunk batch.
+  A fresh name gets one attributes packet with the full creative set -
+  block range 8 (base 4.5, +0.5 creative_mode_block_range), entity
+  range 13 (base 3.0, +2.0 creative_mode_entity_range), speed 26 (base
+  float32(0.1) widened, no modifiers) - count 03, entry order
+  shuffling per send. A returning name gets a reset stub (always the
+  bare speed entry, other slots bare ranges and/or degenerate fillers,
+  3 slots, once 4) plus a second packet with exactly the two ranged
+  modifiers, which complete the set. The fillers replay byte-for-byte
+  (`d4 00 08` and `84 01 20`, each plus seven zero bytes): ids 84/132
+  sit outside the 40-entry attribute registry, so the client skips
+  them, and every vanilla rejoin carrying them proves the tolerance.
+  Update Time comes in three shapes: the join packet (age plus game
+  clock 1 at the age and the day clock at the day, 29 bytes), the
+  once-a-second tick (clockless age, 9 bytes, +20 ticks a second), and
+  the /time set/add broadcast (age plus the single day clock 0 at the
+  new day, 20 bytes) - mc-go used to send the clocked form for all
+  three. Two shuffles the measurements forced into the tests: the day
+  clock's id is 0 or 2 per join (it flips even across spaced rejoins
+  of one name, and entry order flips too - 2,0,0,0,0,2 across six
+  spaced joins of one boot), so mc-go sends 2 and the tests accept
+  either; the stub mix is unpatterned (bare-8, bare-13, one filler, or
+  two across samples), so the tests pin the invariant (speed always
+  present, slots from the observed set) rather than one mix, and mc-go
+  sends speed plus both fillers. Server Data needed no code: both
+  sides send an unnamed NBT string MOTD plus icon-absent, MOTD-driven.
+  Method note that cost real time: eyeballing hex substrings invents
+  entries (`0d 40 08` contains `d4 00 08` across a boundary, `e7 01`
+  wide-eid headers read as extra body bytes) - every parity claim
+  here was re-verified with a parser that consumes end-exact, and the
+  committed attribute decoder tells well-formed from degenerate by
+  trial for exactly that reason. Still open, all measured: the day
+  clock's 2-to-0 flip past a few hundred ticks of age (between 222
+  and 382 - needs an idle-sweep threshold hunt); count-01 on solo
+  wide-eid first packets (3 samples: two stubs, one full; the one
+  accompanied wide-eid full drew 03, so the leading candidate trigger is
+  solo-and-wide, n=4); the 4-slot stub singleton (one ops rejoin on a
+  post-/time-set world); survival-join modifiers (only creative
+  measured); rejoin experience with nonzero XP; mob attribute tracking
+  (one ambient packet: max_health 16, speed 0.5875); entity-id gaps of
+  ~50 per join (chunk animals); the accompanied clock form
+  ([0,day],[1,day] with epsilon fractions, n=1); and confirming the
+  rapid-rejoin corruption bundle (clock ids 8/9, count-01) with a
+  clean spaced four-join run. None of these bite the harness, whose
+  joins are young, narrow-eid, and solo.

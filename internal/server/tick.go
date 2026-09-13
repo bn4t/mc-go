@@ -179,7 +179,7 @@ func (s *Server) setDayTime(day int64) {
 	s.clock.mu.Lock()
 	s.clock.day = day
 	s.clock.mu.Unlock()
-	s.broadcastUpdateTime()
+	s.broadcastTimeSet(day)
 }
 
 // TickCount is the number of completed game ticks: this run's ticks
