@@ -104,6 +104,7 @@ const (
 	IDPlayContainerProperty = 0x13
 	IDPlayContainerClose    = 0x11
 	IDPlaySetCarriedItem    = 0x60
+	IDPlayLevelEvent        = 0x2E
 	IDPlayInitializeBorder  = 0x2B
 	IDPlayRecipeBookAdd     = 0x4A
 	IDPlayRecipeBookSet     = 0x4C

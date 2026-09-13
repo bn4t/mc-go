@@ -568,12 +568,16 @@ func (s *Server) handleCloseContainer(sess *Session, p protocol.Packet) {
 	sess.windowMu.Unlock()
 	if w.craft != nil {
 		s.closeCraftTable(sess, w.craft)
+	} else if openWindowKindAnvil(w) {
+		// The anvil keeps no storage: its inputs come back to the
+		// player and the cursor stays where it is, measured on 26.2.
+		s.closeAnvil(sess, w, w.container)
 	} else {
 		s.returnCarried(sess)
 	}
-	var b protocol.Buffer
-	b.VarInt(win)
-	_ = sess.write(sess.ids().PlayContainerClose, b.Bytes())
+	// No Container Close echo: the real server never answers a
+	// client-initiated close (four anvil closes, zero 0x11), the
+	// client already retired its own window.
 }
 
 // returnCarried moves the cursor stack back into the player inventory,

@@ -360,7 +360,10 @@ type containerData struct {
 	// rename is the anvil's pending name and the beacon's chosen effects,
 	// recorded until the menus that act on them exist (see the TODOs in
 	// the packet handlers).
-	rename             string
+	rename string
+	// anvilCost is the anvil's current level cost (Container Property
+	// 0), recomputed from the inputs on every change.
+	anvilCost          int32
 	beaconPrimary      int32
 	hasBeaconPrimary   bool
 	beaconSecondary    int32
@@ -458,8 +461,9 @@ func (s *Server) openContainer(sess *Session, pos world.Pos) {
 		return
 	}
 	id := sess.server.nextWindow.Add(1)
+	w := &openWindow{id: id, pos: pos, dim: sess.dimension(), container: c, kind: c.spec.menu}
 	sess.windowMu.Lock()
-	sess.window = &openWindow{id: id, pos: pos, dim: sess.dimension(), container: c, kind: c.spec.menu}
+	sess.window = w
 	sess.windowState = 0
 	sess.windowMu.Unlock()
 
@@ -471,6 +475,9 @@ func (s *Server) openContainer(sess *Session, pos world.Pos) {
 	s.sendContainerMenuContent(sess)
 	if c.spec.brew {
 		s.sendBrewProperties(sess)
+	}
+	if c.spec.menu == menuAnvil {
+		s.sendAnvilCost(sess, w, c)
 	}
 }
 
@@ -628,6 +635,19 @@ func (spec *containerSpec) isResult(slot int) bool {
 	return false
 }
 
+// menuAccepts reports whether a hand click may place the stack into
+// the menu slot: the spec's filters (result slots, brewing stands,
+// beacons) guard the container side, while the player side (main
+// inventory and hotbar) always accepts. accepts() alone refuses any
+// slot past the container, which stranded the cursor when parking a
+// repaired pick into the hotbar (TestAnvilParity ch-park38).
+func menuAccepts(spec *containerSpec, slot int, it ItemStack) bool {
+	if spec == nil || slot >= spec.slots {
+		return true
+	}
+	return spec.accepts(slot, it)
+}
+
 // clickLeft applies a left click to a menu slot: pick the whole stack
 // up, drop the whole stack in, merge, or swap.
 func clickLeft(cur, target ItemStack, spec *containerSpec, slot int) (carried, placed ItemStack) {
@@ -635,7 +655,7 @@ func clickLeft(cur, target ItemStack, spec *containerSpec, slot int) (carried, p
 	case cur.Empty():
 		return target, ItemStack{}
 	case target.Empty():
-		if spec != nil && !spec.accepts(slot, cur) {
+		if !menuAccepts(spec, slot, cur) {
 			return cur, target
 		}
 		return ItemStack{}, cur
@@ -651,7 +671,7 @@ func clickLeft(cur, target ItemStack, spec *containerSpec, slot int) (carried, p
 			cur = ItemStack{}
 		}
 		return cur, target
-	case spec != nil && !spec.accepts(slot, cur):
+	case !menuAccepts(spec, slot, cur):
 		// A typed slot (lapis, blaze powder, a beacon payment) refuses
 		// the swap rather than taking the wrong item.
 		return cur, target
@@ -852,6 +872,10 @@ func (s *Server) handleContainerClickPacket(sess *Session, p protocol.Packet) {
 	}
 	readChangedSlots(r)
 	if _, err := readSlot(r); err != nil { // carried item
+		return
+	}
+	if openWindowKindAnvil(w) {
+		s.handleAnvilClick(sess, w, w.container, slot, button, mode)
 		return
 	}
 	s.handleContainerClick(sess, w, w.container, slot, button, mode)
