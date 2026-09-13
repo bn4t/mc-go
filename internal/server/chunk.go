@@ -102,11 +102,13 @@ func encodeChunk(d *dimension, cx, cz int, blockEntities []clientBlockEntity) []
 	)
 
 	b.VarInt(int32(len(heightmapTypes)))
+	// The heightmap scan does not depend on the map type, so it runs
+	// once for all three maps rather than once each.
+	heightVals := packPadded(heightmapValues(states, height), heightmapBits)
 	for _, typ := range heightmapTypes {
 		b.VarInt(typ)
-		longs := packPadded(heightmapValues(states, height), heightmapBits)
-		b.VarInt(int32(len(longs)))
-		writeLongs(&b, longs)
+		b.VarInt(int32(len(heightVals)))
+		writeLongs(&b, heightVals)
 	}
 
 	var data protocol.Buffer
@@ -163,6 +165,20 @@ func encodeChunk(d *dimension, cx, cz int, blockEntities []clientBlockEntity) []
 // entries is 4096 for blocks, 64 for biomes; minIndirectBits is the
 // smallest legal indirect BPE for that global palette.
 func encodePalettedContainer(b *protocol.Buffer, vals []int32, entries, minIndirectBits int) {
+	// Fast path: single-valued containers skip the index map. The
+	// encoding matches the general path's single-palette output.
+	single := len(vals) > 0
+	for _, v := range vals[1:] {
+		if v != vals[0] {
+			single = false
+			break
+		}
+	}
+	if single {
+		b.Byte(0)
+		b.VarInt(vals[0])
+		return
+	}
 	var palette []int32
 	index := map[int32]int{}
 	for _, v := range vals {
