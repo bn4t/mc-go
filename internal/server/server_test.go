@@ -229,7 +229,7 @@ func TestLoginJoinFlow(t *testing.T) {
 		IDPlayGameEvent, IDPlayTickingState, IDPlayTickingStep,
 		IDPlaySetCenterChunk,
 		IDPlayContainerContent, IDPlayEntityMetadata,
-		IDPlayUpdateAdvance, IDPlaySetHealth,
+		IDPlayRecipeBookAdd, IDPlayUpdateAdvance, IDPlaySetHealth,
 	}
 	for i, want := range wantIDs {
 		p, err := pr.ReadPacket()
