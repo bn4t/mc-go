@@ -1258,26 +1258,15 @@ func TestChestPackets(t *testing.T) {
 		sawChest = true
 	}
 
-	// Close the window: acknowledged with Container Close.
+	// Close the window: the real server never echoes a client-initiated
+	// close, so the close is done once the answer settles instead of
+	// waiting for a Container Close that never comes.
 	var close protocol.Buffer
 	close.VarInt(window)
 	if err := pw.WritePacket(server.IDPlayCloseContainerSB, close.Bytes()); err != nil {
 		t.Fatal(err)
 	}
-	for {
-		p, err := pr.ReadPacket()
-		if err != nil {
-			t.Fatalf("waiting close: %v", err)
-		}
-		if p.ID != server.IDPlayContainerClose {
-			continue
-		}
-		r := protocol.NewPacketReader(p.Data)
-		if wid, err := r.VarInt(); err != nil || wid != window {
-			t.Fatalf("close window = %d, err %v", wid, err)
-		}
-		return
-	}
+	drainToQuietBlackbox(t, c, pr, 800*time.Millisecond)
 }
 
 // TestPersistenceReconnectPackets proves player persistence at the
@@ -1795,7 +1784,11 @@ func readSlotBB(r *protocol.PacketReader) (server.ItemStack, error) {
 }
 
 // readSlotBBFull is readSlotBB plus the damage value: hasDamage reports a
-// minecraft:damage component, dmg is its value.
+// minecraft:damage component, dmg is its value. Repair cost
+// (minecraft:repair_cost, type 19, bare VarInt, measured on 26.2)
+// decodes into the stack; any other component still fails, so a click
+// carrying an unmodeled component (enchantments, a custom name) stays
+// a loud parse error instead of a silent desync.
 func readSlotBBFull(r *protocol.PacketReader) (server.ItemStack, int32, bool, error) {
 	count, err := r.VarInt()
 	if err != nil || count <= 0 {
@@ -1815,6 +1808,7 @@ func readSlotBBFull(r *protocol.PacketReader) (server.ItemStack, int32, bool, er
 	}
 	var dmg int32
 	hasDmg := false
+	it := server.ItemStack{}
 	for ; nadd > 0; nadd-- {
 		typ, err := r.VarInt()
 		if err != nil {
@@ -1826,7 +1820,12 @@ func readSlotBBFull(r *protocol.PacketReader) (server.ItemStack, int32, bool, er
 			if err != nil {
 				return server.ItemStack{}, 0, false, err
 			}
+			it.Damage = dmg
 			hasDmg = true
+		case 19: // minecraft:repair_cost, VarInt payload (measured 26.2)
+			if it.RepairCost, err = r.VarInt(); err != nil {
+				return server.ItemStack{}, 0, false, err
+			}
 		default:
 			return server.ItemStack{}, 0, false, fmt.Errorf("blackbox: unknown added component type %d on item %d", typ, id)
 		}
@@ -1836,7 +1835,9 @@ func readSlotBBFull(r *protocol.PacketReader) (server.ItemStack, int32, bool, er
 			return server.ItemStack{}, 0, false, err
 		}
 	}
-	return server.ItemStack{ID: id, Count: count}, dmg, hasDmg, nil
+	it.ID = id
+	it.Count = count
+	return it, dmg, hasDmg, nil
 }
 
 // TestEquipmentPackets proves armor sync at the packet level: equipping

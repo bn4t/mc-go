@@ -31,7 +31,16 @@ func stackKey(it server.ItemStack) string {
 	if it.Empty() {
 		return "-"
 	}
-	return fmt.Sprintf("%d#%d", it.ID, it.Count)
+	key := fmt.Sprintf("%d#%d", it.ID, it.Count)
+	// Damage and repair cost discriminate anvil inputs from their
+	// outputs: a repaired pick reads back bare, its parents worn.
+	if it.Damage != 0 {
+		key += fmt.Sprintf("[d%d]", it.Damage)
+	}
+	if it.RepairCost != 0 {
+		key += fmt.Sprintf("[rc%d]", it.RepairCost)
+	}
+	return key
 }
 
 // clickDriver runs clicks on one open chest and folds the resulting
@@ -47,6 +56,19 @@ type clickDriver struct {
 	snap    clickSnap
 	opened  []usePkt
 	debug   bool
+	// cost is the last Container Property 0 seen on the open window
+	// (the anvil's level cost), with costSeen false until the first
+	// one arrives. xpLevel is the last Set Experience level, likewise
+	// gated. sounds counts level-event 1030s (anvil use); sawClose
+	// records a clientbound Container Close. invSets counts Set Player
+	// Inventory packets (anvil close returns).
+	cost     int32
+	costSeen bool
+	xpLevel  int32
+	xpSeen   bool
+	sounds   int
+	sawClose bool
+	invSets  int
 }
 
 func newClickDriver(t *testing.T, addr, name string) *clickDriver {
@@ -205,6 +227,52 @@ func (d *clickDriver) foldPkts(pkts []usePkt) (slotsTouched, sawCarried bool) {
 				d.snap.carried = stackKey(it)
 				sawCarried = true
 			}
+		case server.IDPlayContainerProperty:
+			wid, err1 := r.VarInt()
+			prop16, err2 := r.Short()
+			val16, err3 := r.Short()
+			if err1 != nil || err2 != nil || err3 != nil {
+				continue
+			}
+			if wid == d.win && prop16 == 0 {
+				d.cost = int32(val16)
+				d.costSeen = true
+			}
+		case server.IDPlaySetExperience:
+			bar, err1 := r.Float()
+			lv, err2 := r.VarInt()
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			_ = bar
+			d.xpLevel = lv
+			d.xpSeen = true
+		case server.IDPlayLevelEvent:
+			ev, err := r.Int()
+			if err != nil {
+				continue
+			}
+			if ev == 1030 {
+				d.sounds++
+			}
+		case server.IDPlayContainerClose:
+			d.sawClose = true
+		case server.IDPlaySetPlayerInventory:
+			// One moved stack outside a click, by player-inventory
+			// container index (0-8 hotbar, 9-35 main): fold it into
+			// the window-0 snapshot under its window slot.
+			slot, err1 := r.VarInt()
+			it, err2 := readSlotBB(r)
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			d.invSets++
+			w0 := slot
+			if slot >= 0 && slot < 9 {
+				w0 = slot + 36
+			}
+			d.snap.p0[w0] = stackKey(it)
+			slotsTouched = true
 		}
 	}
 	return slotsTouched, sawCarried
