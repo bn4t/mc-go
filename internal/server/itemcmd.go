@@ -969,10 +969,19 @@ func (s *Server) parseItemStack(args []string, itemTok int) (ItemStack, reply, b
 	if len(args) <= ai {
 		return ItemStack{}, errTokenEnd("command.unknown.command", itemTok-1), false
 	}
-	full := normalizeItemName(args[ai])
+	nameTok, patchTok, hasPatch := cutItemPatch(args[ai])
+	full := normalizeItemName(nameTok)
 	id, ok := world.ItemID(shortItemName(full))
 	if !ok {
-		return ItemStack{}, errToken("argument.item.id.invalid", itemTok, echoItemID(idPrefix(args[ai]))), false
+		return ItemStack{}, errToken("argument.item.id.invalid", itemTok, echoItemID(idPrefix(nameTok))), false
+	}
+	var patch ItemStack
+	if hasPatch {
+		st, r, ok := parseItemPatch(patchTok, itemTok)
+		if !ok {
+			return ItemStack{}, r, false
+		}
+		patch = st
 	}
 	count := int32(1)
 	if len(args) > ai+1 {
@@ -997,7 +1006,63 @@ func (s *Server) parseItemStack(args []string, itemTok int) (ItemStack, reply, b
 	if id == 0 {
 		return ItemStack{}, reply{}, true
 	}
-	return ItemStack{ID: id, Count: count}, reply{}, true
+	patch.ID = id
+	patch.Count = count
+	return patch, reply{}, true
+}
+
+// cutItemPatch splits an item token into the bare item name and its
+// bracketed component patch: iron_pickaxe[minecraft:damage=100] is the
+// pick plus one component entry.
+func cutItemPatch(tok string) (name, patch string, has bool) {
+	i := strings.IndexByte(tok, '[')
+	if i < 0 || !strings.HasSuffix(tok, "]") {
+		return tok, "", false
+	}
+	return tok[:i], tok[i+1 : len(tok)-1], true
+}
+
+// parseItemPatch decodes one component patch (the bracketed part of an
+// item token): comma-separated component=value pairs. Only the three
+// components mc-go models parse into the stack — damage and
+// repair_cost numbers, a custom_name string; anything else fails the
+// way vanilla's unknown-component error does rather than dropping the
+// component and silently shipping a plainer item.
+func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
+	var it ItemStack
+	for _, entry := range strings.Split(patch, ",") {
+		key, val, ok := strings.Cut(entry, "=")
+		if !ok {
+			return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+		}
+		vtag, _, perr := parseSNBTTag(val, 0)
+		if perr != nil {
+			return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+		}
+		switch strings.TrimPrefix(key, "minecraft:") {
+		case "damage", "repair_cost":
+			if vtag.kind != snbtNumber {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			n, cerr := strconv.Atoi(strings.TrimRight(vtag.num, "bBsSiIlLfFdD"))
+			if cerr != nil {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			if strings.TrimPrefix(key, "minecraft:") == "damage" {
+				it.Damage = int32(n)
+			} else {
+				it.RepairCost = int32(n)
+			}
+		case "custom_name":
+			if vtag.kind != snbtString {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			it.Name = vtag.str
+		default:
+			return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
+		}
+	}
+	return it, reply{}, true
 }
 
 // readItemSource reads the stack a from-variant copies.

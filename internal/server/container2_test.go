@@ -805,22 +805,22 @@ func TestCrafterSlotToggleStored(t *testing.T) {
 	}
 }
 
-// TestContainerRenameAndBeaconSelection proves the anvil rename and the
-// beacon's effect choice are stored on the open menu (they are recorded
-// until the menus that act on them exist).
+// TestContainerRenameAndBeaconSelection proves the anvil rename lands
+// as the open menu's pending name and the beacon's effect choice is
+// stored on the open menu.
 func TestContainerRenameAndBeaconSelection(t *testing.T) {
 	s := New("unused")
 	sess := placeSession(t, s, "Nam er", 0.5, 0.5, 0.5)
 
 	anvilPos := world.Pos{X: 4, Y: 4, Z: 4}
-	anvil := containerPlace(t, s, "anvil", anvilPos)
+	containerPlace(t, s, "anvil", anvilPos)
 	s.openContainer(sess, anvilPos)
 	var rb protocol.Buffer
 	rb.String("Excalibur")
 	s.handleRenameItem(sess, protocol.Packet{ID: IDPlayRenameItemSB, Data: rb.Bytes()})
-	s.dims[dimOverworld].containers.mu.Lock()
-	name := anvil.rename
-	s.dims[dimOverworld].containers.mu.Unlock()
+	sess.windowMu.Lock()
+	name := sess.window.pendingName
+	sess.windowMu.Unlock()
 	if name != "Excalibur" {
 		t.Fatalf("anvil rename = %q", name)
 	}

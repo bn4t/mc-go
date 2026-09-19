@@ -183,7 +183,7 @@ func parseSNBTWord(s string, i int) (*snbtTag, int, *snbtError) {
 		}
 	}
 word:
-return snbtWordFallback(s, i)
+	return snbtWordFallback(s, i)
 }
 
 // snbtWordFallback reads the maximal bare word at i: true and false
@@ -207,14 +207,14 @@ func snbtWordFallback(s string, i int) (*snbtTag, int, *snbtError) {
 // and word edges ([0x] wants a hex numeral, [0xg] reads as a word);
 // values below follow the array hex rules the probes did pin.
 func snbtPlainHexHead(s string, i int) (xj int, ok bool) {
-j := i
-if j < len(s) && (s[j] == '+' || s[j] == '-') {
-	j++
-}
-if j+1 >= len(s) || s[j] != '0' || (s[j+1] != 'x' && s[j+1] != 'X') {
-	return 0, false
-}
-return j + 1, true
+	j := i
+	if j < len(s) && (s[j] == '+' || s[j] == '-') {
+		j++
+	}
+	if j+1 >= len(s) || s[j] != '0' || (s[j+1] != 'x' && s[j+1] != 'X') {
+		return 0, false
+	}
+	return j + 1, true
 }
 
 // parseSNBTHex reads the hex number at i whose x sits at xj. It reports
@@ -235,26 +235,26 @@ func parseSNBTHex(s string, i, xj int) (tag *snbtTag, next int, herr *snbtError,
 	if htrail {
 		return nil, 0, nil, false
 	}
-if s[i] == '-' {
-	return nil, hend, snbtLit(hend, "u|U"), true
-}
-u, uerr := strconv.ParseUint(h, 16, 32)
-if uerr != nil {
-	return nil, hend, snbtLit(hend, "u|U"), true
-}
-n := int64(int32(u))
-if hend < len(s) {
-	switch s[hend] {
-	case 's', 'S':
-		v := int64(int16(n))
-		return &snbtTag{kind: snbtNumber, num: strconv.FormatInt(v, 10) + "s", end: hend + 1, numWant: "b|B"}, hend + 1, nil, true
-	case 'l', 'L':
-		return &snbtTag{kind: snbtNumber, num: strconv.FormatInt(n, 10) + "L", end: hend + 1, numWant: ","}, hend + 1, nil, true
-	case 'i', 'I':
-		return &snbtTag{kind: snbtNumber, num: strconv.FormatInt(n, 10), end: hend + 1, numWant: ","}, hend + 1, nil, true
+	if s[i] == '-' {
+		return nil, hend, snbtLit(hend, "u|U"), true
 	}
-}
-return &snbtTag{kind: snbtNumber, num: strconv.FormatInt(n, 10), end: hend, numWant: "u|U"}, hend, nil, true
+	u, uerr := strconv.ParseUint(h, 16, 32)
+	if uerr != nil {
+		return nil, hend, snbtLit(hend, "u|U"), true
+	}
+	n := int64(int32(u))
+	if hend < len(s) {
+		switch s[hend] {
+		case 's', 'S':
+			v := int64(int16(n))
+			return &snbtTag{kind: snbtNumber, num: strconv.FormatInt(v, 10) + "s", end: hend + 1, numWant: "b|B"}, hend + 1, nil, true
+		case 'l', 'L':
+			return &snbtTag{kind: snbtNumber, num: strconv.FormatInt(n, 10) + "L", end: hend + 1, numWant: ","}, hend + 1, nil, true
+		case 'i', 'I':
+			return &snbtTag{kind: snbtNumber, num: strconv.FormatInt(n, 10), end: hend + 1, numWant: ","}, hend + 1, nil, true
+		}
+	}
+	return &snbtTag{kind: snbtNumber, num: strconv.FormatInt(n, 10), end: hend, numWant: "u|U"}, hend, nil, true
 }
 
 // isWordLetter reports whether c opens a word the reader finishes:

@@ -357,13 +357,14 @@ type containerData struct {
 	brewed int32
 	// disabled is the crafter's per-slot lock bitmap.
 	disabled uint16
-	// rename is the anvil's pending name and the beacon's chosen effects,
+	// anvilCost is the anvil's current level cost (Container Property
+	// 0), recomputed from the inputs on every change; anvilUse is how
+	// many items the take consumes from the left and right inputs.
+	anvilCost int32
+	anvilUse  [2]int32
+	// beaconPrimary/beaconSecondary are the beacon's chosen effects,
 	// recorded until the menus that act on them exist (see the TODOs in
 	// the packet handlers).
-	rename string
-	// anvilCost is the anvil's current level cost (Container Property
-	// 0), recomputed from the inputs on every change.
-	anvilCost          int32
 	beaconPrimary      int32
 	hasBeaconPrimary   bool
 	beaconSecondary    int32
@@ -802,16 +803,31 @@ func (s *Server) setCarriedLocked(sess *Session, it ItemStack) {
 	sess.invMu.Unlock()
 }
 
-// dropFromMenu spawns the thrown stack as an item entity in front of
-// the player, vanilla's throw click.
+// dropFromMenu spawns the thrown stack as an item entity tossed in
+// the player's look direction, vanilla's throw click: the thrower's
+// item starts at eye level, flies forward, and settles about a block
+// and a half ahead — far enough that a stationary player does not
+// immediately collect it again. The entity gets vanilla's thrown-item
+// pickup delay of 40 ticks.
 func (s *Server) dropFromMenu(sess *Session, it ItemStack) {
 	if it.Empty() {
 		return
 	}
-	x, y, z, _, _, _ := sess.Pos()
+	x, y, z, yaw, pitch, _ := sess.Pos()
 	d := sess.dimension()
-	pos := world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y + 1)), Z: int(math.Floor(z))}
-	s.spawnItemDrop(d.name, pos, it)
+	yr := float64(yaw) * math.Pi / 180
+	pr := float64(pitch) * math.Pi / 180
+	dx := -math.Sin(yr) * math.Cos(pr)
+	dz := math.Cos(yr) * math.Cos(pr)
+	pos := world.Pos{
+		X: int(math.Floor(x + dx*1.7)),
+		Y: int(math.Floor(y + 1.4)),
+		Z: int(math.Floor(z + dz*1.7)),
+	}
+	e := s.spawnItemDrop(d.name, pos, it)
+	if e != nil {
+		e.PickupDelay = 40
+	}
 }
 
 // syncContainerMenuSlots sends Container Slot updates for touched menu

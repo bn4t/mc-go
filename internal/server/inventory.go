@@ -33,6 +33,11 @@ type ItemStack struct {
 	// on.
 	Damage     int32 `json:"damage,omitempty"`
 	RepairCost int32 `json:"repair_cost,omitempty"`
+	// Name is the minecraft:custom_name component's literal text (the
+	// anvil's rename product), absent when empty: an empty rename field
+	// clears the component, so no custom_name is ever the empty string.
+	// A plain string keeps ItemStack comparable with ==.
+	Name string `json:"name,omitempty"`
 	// Contents is a shulker box's stored items. It is a pointer so
 	// ItemStack stays comparable with ==, which the inventory tests and
 	// the change-detection paths rely on; a box holding anything is
@@ -52,7 +57,8 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		return false
 	}
 	return it.Contents == nil && other.Contents == nil &&
-		it.Damage == other.Damage && it.RepairCost == other.RepairCost
+		it.Damage == other.Damage && it.RepairCost == other.RepairCost &&
+		it.Name == other.Name
 }
 
 // withCount returns the stack with another count, keeping every
@@ -89,6 +95,7 @@ func invSlotForHotbar(held int32) int16 { return int16(slotHotbarStart + held) }
 // VarInt. The add list is written in ascending type order.
 const (
 	compDamage     = 3
+	compCustomName = 6
 	compRepairCost = 19
 )
 
@@ -108,11 +115,22 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 	if it.RepairCost != 0 {
 		add++
 	}
+	if it.Name != "" {
+		add++
+	}
 	b.VarInt(add)
 	b.VarInt(0) // components to remove
 	if it.Damage != 0 {
 		b.VarInt(compDamage)
 		b.VarInt(it.Damage)
+	}
+	if it.Name != "" {
+		// custom_name's payload is an NBT string tag: type byte 0x08,
+		// then a u16 length and the UTF-8 text (measured on 26.2).
+		b.VarInt(compCustomName)
+		b.Byte(0x08)
+		b.UShort(uint16(len(it.Name)))
+		b.Raw([]byte(it.Name))
 	}
 	if it.RepairCost != 0 {
 		b.VarInt(compRepairCost)
@@ -154,6 +172,23 @@ func readSlot(r *protocol.PacketReader) (ItemStack, error) {
 			if it.Damage, err = r.VarInt(); err != nil {
 				return ItemStack{}, err
 			}
+		case compCustomName: // minecraft:custom_name, NBT string tag
+			var tag byte
+			if tag, err = r.Byte(); err != nil {
+				return ItemStack{}, err
+			}
+			if tag != 0x08 {
+				return ItemStack{}, fmt.Errorf("server: custom_name tag %d is not a string", tag)
+			}
+			var n uint16
+			if n, err = r.UShort(); err != nil {
+				return ItemStack{}, err
+			}
+			var raw []byte
+			if raw, err = r.Read(int(n)); err != nil {
+				return ItemStack{}, err
+			}
+			it.Name = string(raw)
 		case compRepairCost: // minecraft:repair_cost, VarInt payload
 			if it.RepairCost, err = r.VarInt(); err != nil {
 				return ItemStack{}, err

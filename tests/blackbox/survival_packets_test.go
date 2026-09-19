@@ -1822,6 +1822,23 @@ func readSlotBBFull(r *protocol.PacketReader) (server.ItemStack, int32, bool, er
 			}
 			it.Damage = dmg
 			hasDmg = true
+		case 6: // minecraft:custom_name, NBT string tag (measured 26.2)
+			tag, terr := r.Byte()
+			if terr != nil {
+				return server.ItemStack{}, 0, false, terr
+			}
+			if tag != 0x08 {
+				return server.ItemStack{}, 0, false, fmt.Errorf("blackbox: custom_name tag %d is not a string", tag)
+			}
+			n, terr2 := r.UShort()
+			if terr2 != nil {
+				return server.ItemStack{}, 0, false, terr2
+			}
+			raw, terr3 := r.Read(int(n))
+			if terr3 != nil {
+				return server.ItemStack{}, 0, false, terr3
+			}
+			it.Name = string(raw)
 		case 19: // minecraft:repair_cost, VarInt payload (measured 26.2)
 			if it.RepairCost, err = r.VarInt(); err != nil {
 				return server.ItemStack{}, 0, false, err

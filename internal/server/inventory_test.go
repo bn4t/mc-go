@@ -29,7 +29,7 @@ func TestSlotCodecRoundTrip(t *testing.T) {
 func clickPacket(t *testing.T, sess *Session, slot int16, button byte, mode int32) protocol.Packet {
 	t.Helper()
 	var b protocol.Buffer
-	b.VarInt(0) // window
+	b.VarInt(0)                    // window
 	b.VarInt(sess.invState.Load()) // state, like a synced client echoes
 	b.Short(slot)
 	b.Byte(button)

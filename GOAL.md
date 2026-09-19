@@ -91,10 +91,13 @@ Mojang server over the wire.
   creative middle-click clone, close-returns-cursor (order + full
   probes), hopper/crafting/barrel/furnace menu parity with the table's
   grid-return, survival click restrictions, /gamemode command parity;
-  anvil repair-combine parity: menu 8 + title + cost property, combine
-  arithmetic, charged/quick-move/poor takes, invalid pairs, silent
-  output clicks, close returns with no close echo; other menus
-  - enchanting, brewing, beacon, lectern - still open)
+  anvil parity: menu 8 + title + cost property, combine arithmetic,
+  material/unit repair (generated materials table), rename incl.
+  pending-name scoping and the 50-char drop, the 39-level survival
+  gate, charged/quick-move/poor/throw takes, the 12% degrade roll,
+  invalid pairs, silent output clicks, close returns with no close
+  echo; other menus - enchanting, brewing, beacon, lectern - still
+  open)
 - [ ] Survival mode: health, hunger, regen, death/respawn
 - [~] Crafting, recipes, recipe book (join registry served verbatim;
   unlock engine pending)
@@ -147,6 +150,45 @@ Mojang server over the wire.
   `probe_anvil*_test.go` throwaways are deleted; the click driver's
   `stackKey` now carries nonzero damage/repair-cost and `foldPkts`
   folds Set Player Inventory (hotbar 0-8 shifted to window 36-44).
+- 2026-09-19: The anvil is now feature-complete against 26.2.
+  `TestAnvilParity` grew to ~120 steps and `TestAnvilDegradeParity`
+  pins the wear roll; five probe rounds measured the model before any
+  of it shipped. What the probes taught: the pending rename lives on
+  the open menu (survives takes, dies on close) and an empty field
+  clears the name for cost 1; ops stack combine > material repair >
+  rename, so a full-durability left input with a damaged right
+  computes nothing at all (rename aside), and a same-id combine only
+  fires while the LEFT is damaged. Combine damage is
+  max-(remT+remS+12% of max) and costs 2; material repair heals
+  floor(max/4) per consumed unit for units=ceil(dmg/(max/4)) and costs
+  the units; outputs carry repair_cost=max(rcT,rcS)*2+1 for work ops
+  and the untouched target cost for rename-only. Past 39 levels the
+  output slot stays empty in survival while the cost property still
+  ships the true price (measured 47); creative ignores the cap. A
+  rename field over 50 chars is dropped on the floor, no kick, no
+  resync. The take broadcasts per-slot updates (each carries its own
+  incremented state id) plus the level-event 1030, cursor only on
+  hand-takes; a throw on the output takes it and tosses the entity
+  like any other thrown stack - which is how the suite caught
+  dropFromMenu spawning drops at the player's feet instead of ~1.7m
+  ahead on the look vector with the 40-tick thrower delay. Every take
+  then rolls 12%: anvil -> chipped -> damaged -> air with facing kept,
+  the Block Update arriving with the take's slot traffic. New
+  mechanics behind it: item component 6 (custom_name, an NBT string
+  tag on the wire), the generated 75-entry repair-materials table
+  (`tools/genrepair` walks reports + tags), and `item replace ... with
+  item[damage=N,repair_cost=N,custom_name="X"]` parsing so the test
+  setups speak vanilla. Harness flake found by diff, not by luck:
+  flat-world slimes at y=-61 occasionally ate the survival test
+  player - the death dumped the inventory, voided the window, and
+  surfaced as a wall of slot diffs. `spawn-monsters=false` on the
+  harness plus `spawn_mobs false` (the 26.2 name - `doMobSpawning` is
+  gone) and a slime kill in the test setups closes that hole, and the
+  driver now names the killer (`death=` in step diffs) if anything
+  still gets through. Still open: the other menus (enchanting,
+  brewing, beacon, lectern), the menu-side number-key/clone edges on
+  anvil inputs, and whether a broken-anvil close drops the inputs or
+  holds them.
 - 2026-09-13: /gamemode and the furnace script verified green, and the
   differentials rewrote three rules. `TestGamemodeParity` runs twelve
   /gamemode steps on two same-named ops per server: chats compare as

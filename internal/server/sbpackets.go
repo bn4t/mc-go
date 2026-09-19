@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
@@ -636,28 +637,26 @@ func (s *Server) handleRecipeBookSeenRecipe(sess *Session, p protocol.Packet) {
 	sess.bookMu.Unlock()
 }
 
-// handleRenameItem stores an anvil rename. Vanilla ignores the packet
-// when the open menu is not an anvil, which is what the window check
-// reproduces.
+// handleRenameItem applies an anvil rename: the name becomes the open
+// menu's pending field and the output recomputes. Vanilla ignores the
+// packet when the open menu is not an anvil and drops a name past the
+// field's 50-character cap, which is what the checks reproduce.
 func (s *Server) handleRenameItem(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
 	name, err := r.String()
-	if err != nil {
+	if err != nil || utf8.RuneCountInString(name) > anvilMaxNameLength {
 		return
 	}
 	sess.windowMu.Lock()
 	w := sess.window
+	if openWindowKindAnvil(w) {
+		w.pendingName = name
+	}
 	sess.windowMu.Unlock()
-	if w == nil || w.container == nil || w.container.spec.menu != menuAnvil {
+	if !openWindowKindAnvil(w) {
 		return
 	}
-	c := w.container
-	w.dim.containers.mu.Lock()
-	c.rename = name
-	w.dim.containers.mu.Unlock()
-	// TODO(anvil data): apply the name as the item_name component and
-	// compute the level cost, which needs per-item repair data (max
-	// damage, enchantments, prior work penalty).
+	s.anvilSyncResult(sess, w, w.container)
 }
 
 // handleSelectTrade consumes a villager trade selection. mc-go has no
