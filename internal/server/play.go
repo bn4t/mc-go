@@ -283,6 +283,7 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 			sess.fallStartY = oy
 		}
 		sess.fallDistance += oy - y
+		s.fireSlideDown(sess, x, y, z)
 	} else if onGround {
 		if sess.fallDistance > 0 && sess.fallStart {
 			s.fireFallFromHeight(sess, sess.fallStartY, y)

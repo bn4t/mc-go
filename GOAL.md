@@ -1765,3 +1765,12 @@ physics through a void dip plus a fed recovery window.
   conditions reduce to bystander entity_type + bolt distance +
   blocks_set_on_fire. Villager joined the summon table (20hp,
   0.6x1.95). TestLightningStrikeParity green both targets.
+- 2026-09-20: slide_down_block (adventure/honey_block_slide "Sticky
+  Situation"). Vanilla's HoneyBlock.entityInside fires for blocks the
+  box clips, and isSlidingDown is measured: not onGround, feet below
+  the shape top (block y+0.9375), vy<-0.08, and — counterintuitively —
+  |cellCenter - pos| > 0.4375+bbWidth/2 on at least one horizontal
+  axis, because the entity slides against the column's outer face,
+  not through it. mc-go fires the trigger from the move-packet
+  descent path. TestSlideDownBlockParity hugs a honey wall's face on
+  both targets — green.

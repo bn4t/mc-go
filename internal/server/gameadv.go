@@ -58,6 +58,7 @@ type advMeta struct {
 	enters     []enterCond     // enter_block — game tree (end/enter_end_gateway)
 	falls      []fallCond      // fall_from_height — landed drops
 	lights     []lightningCond // lightning_strike — bolt struck near a bystander
+	slides     []slideCond     // slide_down_block — sliding a sticky side
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -291,6 +292,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.falls = append(m.falls, parseFallCond(cname, cm["conditions"]))
 				case "minecraft:lightning_strike":
 					m.lights = append(m.lights, parseLightningCond(cname, cm["conditions"]))
+				case "minecraft:slide_down_block":
+					m.slides = append(m.slides, parseSlideCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -2540,6 +2543,100 @@ func parseFallCond(cname string, conds any) fallCond {
 		}
 	}
 	return fc
+}
+
+// slideCond is one slide_down_block criterion reduced to the slid
+// block's name set (vanilla's conditions carry a flat "block" string
+// or a {blocks:[..]} predicate; a state lock leaves it unearnable).
+type slideCond struct {
+	crit       string
+	blocks     map[string]bool
+	impossible bool
+}
+
+func parseSlideCond(cname string, conds any) slideCond {
+	sc := slideCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "block":
+			switch bv := v.(type) {
+			case string:
+				sc.blocks = map[string]bool{strings.TrimPrefix(bv, "minecraft:"): true}
+			case map[string]any:
+				if bl, ok := bv["blocks"].([]any); ok {
+					sc.blocks = map[string]bool{}
+					for _, b := range bl {
+						if bs, ok := b.(string); ok {
+							sc.blocks[strings.TrimPrefix(bs, "minecraft:")] = true
+						}
+					}
+				}
+				if _, ok := bv["state"]; ok {
+					sc.impossible = true
+				}
+			}
+		default:
+			sc.impossible = true
+		}
+	}
+	return sc
+}
+
+// fireSlideDown grants slide_down_block criteria while the player's
+// descending box clips a sticky block cell and its center sits beyond
+// the inset honey column (vanilla isSlidingDown: not onGround, feet
+// below the shape top (+0.9375), vy < -0.08, and on at least one
+// horizontal axis |cellCenter - pos| > 0.4375 + bbWidth/2 — the entity
+// slides against the block's outer face, not through its center).
+func (s *Server) fireSlideDown(sess *Session, x, y, z float64) {
+	for _, meta := range gameAdvs {
+		hasSlides := false
+		for _, sc := range meta.slides {
+			if !sc.impossible {
+				hasSlides = true
+			}
+		}
+		if !hasSlides {
+			continue
+		}
+		d := sess.dimension()
+		if d == nil {
+			return
+		}
+		// Cells overlapped by the 0.6-wide player box.
+		x0, x1 := x-0.3, x+0.3
+		z0, z1 := z-0.3, z+0.3
+		for bx := int(math.Floor(x0)); bx <= int(math.Floor(x1)); bx++ {
+			for bz := int(math.Floor(z0)); bz <= int(math.Floor(z1)); bz++ {
+				for by := int(math.Floor(y)); by <= int(math.Floor(y+1.8)); by++ {
+					name, ok := blockNameAt(d, world.Pos{X: bx, Y: by, Z: bz})
+					if !ok {
+						continue
+					}
+					// Center must sit beyond the inset column edge on
+					// at least one axis; feet below the shape top.
+					dx := math.Abs(float64(bx) + 0.5 - x)
+					dz := math.Abs(float64(bz) + 0.5 - z)
+					if dx+1e-7 <= 0.7375 && dz+1e-7 <= 0.7375 {
+						continue
+					}
+					if y > float64(by)+0.9375-1e-7 {
+						continue
+					}
+					for _, sc := range meta.slides {
+						if sc.impossible {
+							continue
+						}
+						if len(sc.blocks) > 0 && !sc.blocks[strings.TrimPrefix(name, "minecraft:")] {
+							continue
+						}
+						sess.grantGameCriterion(meta, sc.crit)
+					}
+				}
+			}
+		}
+	}
 }
 
 // lightningCond is one lightning_strike criterion reduced to the
