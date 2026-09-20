@@ -257,13 +257,31 @@ func (s *Server) runSummon(player string, args []string) reply {
 				mz = snbtNum(mv.items[2])
 			}
 		}
-		e := s.entities.Spawn(&Entity{
+		e := &Entity{
 			Type: mustEntityType("arrow"),
 			Dim:  sess.dimName(),
 			X:    x, Y: y, Z: z,
 			MotionX: mx, MotionY: my, MotionZ: mz,
 			VX: int16(mx * 8000), VY: int16(my * 8000), VZ: int16(mz * 8000),
-		})
+		}
+		// Owner:[I;a,b,c,d] stores an EntityReference to the shooter —
+		// its kills credit that player (advancements, death messages).
+		if tag != nil {
+			if ov, ok := tag.vals["Owner"]; ok && len(ov.items) == 4 {
+				var u [16]byte
+				for i := 0; i < 4; i++ {
+					v := int32(snbtNum(ov.items[i]))
+					u[i*4] = byte(v >> 24)
+					u[i*4+1] = byte(v >> 16)
+					u[i*4+2] = byte(v >> 8)
+					u[i*4+3] = byte(v)
+				}
+				if owner := s.sessionByUUID(u); owner != nil {
+					e.arrowShooter = owner.entityID.Load()
+				}
+			}
+		}
+		s.entities.Spawn(e)
 		s.broadcastEntitySpawn(nil, *e)
 		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft.arrow")))
 	}

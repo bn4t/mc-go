@@ -1626,3 +1626,14 @@ physics through a void dip plus a fed recovery window.
   range so level 4 satisfies both advancements in one activation.
   TestConstructBeaconParity green — vanilla's oracle asserts both
   grants plus the activate sound (wire id 153).
+
+- 2026-09-20: player_killed_entity's distance criterion →
+  adventure/sniper_duel. /summon arrow now honours Owner:[I;a,b,c,d]
+  (EntityReference to a player) — its kills credit that player for
+  advancement evaluation. TestSniperDuelParity summons a NoAI
+  skeleton 60m from the shooter and drives owned arrows on a flat
+  trajectory; vanilla's evaluator resolves ORIGIN to the player's
+  position at kill time, so the ≥50m sniper_duel predicate holds.
+  Also fixed in the shared drain: advCollect now acks
+  chunk_batch_finished, which unblocks vanilla's entity add_entity
+  delivery to the test client. Green both servers, stable x2.

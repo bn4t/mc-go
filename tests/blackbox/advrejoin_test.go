@@ -39,10 +39,22 @@ func advCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writ
 				b.VarInt(id)
 				_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes())
 			}
+		case server.IDPlayChunkBatchDone:
+			_ = ackChunkBatch(pw)
 		case server.IDPlayUpdateAdvance:
 			decodeUpdateAdv(t, p.Data, f)
 		case server.IDPlaySystemChatCB:
 			f.chats = append(f.chats, chatKey(p.Data))
+		case server.IDPlaySpawnEntity:
+			if f.spawnTypes != nil {
+				r := protocol.NewPacketReader(p.Data)
+				id, e1 := r.VarInt()
+				_, e2 := r.Read(16)
+				typ, e3 := r.VarInt()
+				if e1 == nil && e2 == nil && e3 == nil {
+					f.spawnTypes[typ] = append(f.spawnTypes[typ], id)
+				}
+			}
 		}
 	}
 }
