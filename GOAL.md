@@ -148,6 +148,27 @@ Mojang server over the wire.
 
 ## Progress log
 
+- 2026-09-20: Melee knockback: hurt's default push is
+  `knockback(0.4, attackerPos - victimPos)` and a sprinting strong
+  hit (scale > 0.9) adds `knockback(0.5, sin(yaw), -cos(yaw))` along
+  the attacker's facing, then damps the attacker's horizontal delta
+  by 0.6 and clears sprint. knockback() applies
+  `strength *= 1 - knockback_resistance` (iron golem 1.0), a +-0.01
+  random jitter when the xz gap is under 1e-5, then
+  `new = (v/2 - k)` per axis with `y = min(0.4, y/2 + strength)`
+  when grounded. Player victims get set_entity_motion and their
+  server-side delta is restored; mob deltas persist and compose
+  across hits (pig: 0.4 plain, then 0.8 sprint). set_entity_motion
+  uses the 26.2 LpVec3 packed codec, not three shorts — three
+  scale bits plus 15-bit axis fields at shifts 3/18/33 in a 48-bit
+  little-endian word. player_command renumbered for 26.2: sprint
+  start/stop is actions 1/2 (no sneak actions — sneak lives in the
+  player_input shift bit); sprint set/clear broadcasts entity_data
+  index-0 byte flags (bit 0x08). /summon now parses vec3 + NBT —
+  NoAI freezes gravity and wander entirely. `TestKnockbackParity`
+  scripts fist hits on a player and a NoAI pig on both servers.
+  Crit (fallDistance rules) and sweep attack remain open.
+
 - 2026-09-20: Armor-on-hurt durability: a hit armor can absorb costs
   each equipped damageable piece max(1, post-i-frames damage/4) in
   vanilla's feet-legs-chest-head order, breaking pieces emit the right

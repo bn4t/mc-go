@@ -119,6 +119,7 @@ const (
 	IDPlayResetScore        = 0x4F
 	IDPlayEnterCombat       = 0x43
 	IDPlayEndCombat         = 0x42
+	IDPlayEntityMotion      = 0x65
 	IDPlaySetEquipment      = 0x66
 	IDPlayOpenSignEditor    = 0x3C
 	IDPlayOpenScreen        = 0x3B

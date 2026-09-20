@@ -22,6 +22,11 @@ type wearObs struct {
 	// eid -> type, x, y, z — for picking the entity a summon just
 	// produced out of ambient spawn traffic.
 	spawnedPos map[int32][4]float64
+	// motions records the last set_entity_motion delta (decoded
+	// LpVec3) per entity; flags the last index-0 shared-flags
+	// metadata byte.
+	motions map[int32][3]float64
+	flags   map[int32]byte
 }
 
 // drainWear reads server traffic for d, keeping the session alive and
@@ -63,6 +68,40 @@ func drainWear(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Write
 				continue
 			}
 			obs.slots = append(obs.slots, fmt.Sprintf("%d=%s", slot, stackKey(it)))
+		case server.IDPlayEntityMotion:
+			r := protocol.NewPacketReader(p.Data)
+			eid, err := r.VarInt()
+			if err != nil {
+				continue
+			}
+			x, y, z, ok := decodeLpVec3(r)
+			if !ok {
+				continue
+			}
+			if obs.motions == nil {
+				obs.motions = map[int32][3]float64{}
+			}
+			obs.motions[eid] = [3]float64{x, y, z}
+		case server.IDPlayEntityMetadata:
+			r := protocol.NewPacketReader(p.Data)
+			eid, err := r.VarInt()
+			if err != nil {
+				continue
+			}
+			idx, err := r.Byte()
+			if err != nil || idx != 0 {
+				continue
+			}
+			ty, _ := r.VarInt()
+			if ty != 0 {
+				continue
+			}
+			if v, err := r.Byte(); err == nil {
+				if obs.flags == nil {
+					obs.flags = map[int32]byte{}
+				}
+				obs.flags[eid] = v
+			}
 		case server.IDPlayEntityEvent:
 			r := protocol.NewPacketReader(p.Data)
 			if _, err := r.Int(); err != nil {
@@ -430,4 +469,43 @@ func TestAttackCooldownParity(t *testing.T) {
 	got := runCooldownScenario(t, tg.mcgo, "CoolM")
 
 	compareWearObs(t, "attacker", want, got)
+}
+
+// decodeLpVec3 reads vanilla's 26.2 LpVec3 wire form (the
+// set_entity_motion delta): byte0==0 means the zero vector; otherwise
+// two low bytes plus a big-endian int make the packed word with a
+// 2-bit scale (+VarInt extension) and 15-bit quantized axes at 3/18/33.
+func decodeLpVec3(r *protocol.PacketReader) (x, y, z float64, ok bool) {
+	b0, err := r.Byte()
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	if b0 == 0 {
+		return 0, 0, 0, true
+	}
+	b1, err := r.Byte()
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	hi, err := r.Int()
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	word := uint64(uint32(hi))<<16 | uint64(b1)<<8 | uint64(b0)
+	scale := int64(b0 & 3)
+	if b0&4 != 0 {
+		ext, err := r.VarInt()
+		if err != nil {
+			return 0, 0, 0, false
+		}
+		scale |= int64(ext) << 2
+	}
+	unpack := func(shift uint) float64 {
+		u := (word >> shift) & 32767
+		if u > 32766 {
+			u = 32766
+		}
+		return (float64(u)*2/32766 - 1) * float64(scale)
+	}
+	return unpack(3), unpack(18), unpack(33), true
 }

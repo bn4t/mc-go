@@ -306,7 +306,7 @@ func TestSummonAndKillMob(t *testing.T) {
 	s := New("unused")
 	s.GameMode = GameModeSurvival
 	sess := survivalSession(t, s, "Hunter")
-	e, ok := s.summonMob(s.dims[dimOverworld], "pig", world.Pos{X: 0, Y: 0, Z: 0})
+	e, ok := s.summonMob(s.dims[dimOverworld], "pig", 0.5, 0, 0.5, false)
 	if !ok {
 		t.Fatal("summon failed")
 	}
@@ -329,7 +329,7 @@ func TestSummonAndKillMob(t *testing.T) {
 
 func TestPigDropsPorkchop(t *testing.T) {
 	s := New("unused")
-	e, ok := s.summonMob(s.dims[dimOverworld], "pig", world.Pos{X: 4, Y: 4, Z: 4})
+	e, ok := s.summonMob(s.dims[dimOverworld], "pig", 4.5, 4, 4.5, false)
 	if !ok {
 		t.Fatal("summon failed")
 	}
@@ -355,14 +355,14 @@ func TestPigDropsPorkchop(t *testing.T) {
 
 func TestSummonRejectsUnknown(t *testing.T) {
 	s := New("unused")
-	if _, ok := s.summonMob(s.dims[dimOverworld], "ender_dragon_egg", world.Pos{}); ok {
+	if _, ok := s.summonMob(s.dims[dimOverworld], "ender_dragon_egg", 0, 0, 0, false); ok {
 		t.Fatal("summoned an unsupported entity")
 	}
 }
 
 func TestMobGravity(t *testing.T) {
 	s := New("unused")
-	e, ok := s.summonMob(s.dims[dimOverworld], "pig", world.Pos{X: 0, Y: 100, Z: 0})
+	e, ok := s.summonMob(s.dims[dimOverworld], "pig", 0, 100, 0, false)
 	if !ok {
 		t.Fatal("summon failed")
 	}
@@ -468,7 +468,7 @@ func TestExperienceLevelThresholds(t *testing.T) {
 
 func TestMobDeathSpawnsXPOrb(t *testing.T) {
 	s := New("unused")
-	e, ok := s.summonMob(s.dims[dimOverworld], "pig", world.Pos{X: 2, Y: 2, Z: 2})
+	e, ok := s.summonMob(s.dims[dimOverworld], "pig", 2.5, 2, 2.5, false)
 	if !ok {
 		t.Fatal("summon failed")
 	}
@@ -493,7 +493,7 @@ func TestMobDeathSpawnsXPOrb(t *testing.T) {
 func TestMobWanderMovesOnGround(t *testing.T) {
 	s := New("unused")
 	// Flat grass at y=-61; spawn the pig on top.
-	e, ok := s.summonMob(s.dims[dimOverworld], "pig", world.Pos{X: 4, Y: -60, Z: 4})
+	e, ok := s.summonMob(s.dims[dimOverworld], "pig", 4.5, -60, 4.5, false)
 	if !ok {
 		t.Fatal("summon failed")
 	}
@@ -516,7 +516,7 @@ func TestMobWanderMovesOnGround(t *testing.T) {
 
 func TestMobFallsBeforeWalking(t *testing.T) {
 	s := New("unused")
-	e, ok := s.summonMob(s.dims[dimOverworld], "pig", world.Pos{X: 4, Y: 100, Z: 4})
+	e, ok := s.summonMob(s.dims[dimOverworld], "pig", 4.5, 100, 4.5, false)
 	if !ok {
 		t.Fatal("summon failed")
 	}

@@ -1,5 +1,10 @@
 package server
 
+import (
+	"math"
+	"math/rand"
+)
+
 // weaponDamage is the attack damage of the common weapons (vanilla
 // values, main hand only).
 var weaponDamage = map[string]float32{
@@ -68,16 +73,50 @@ func (sess *Session) heldAttackDelayTicks() float32 {
 	return 20.0 / float32(speed)
 }
 
+// attackScale is vanilla's getAttackStrengthScale(0.5): the charge
+// fraction that decides strong hits (>0.9) and scales the damage.
+func (sess *Session) attackScale() float32 {
+	scale := (float32(sess.attackTicker) + 0.5) / sess.heldAttackDelayTicks()
+	if scale > 1 {
+		scale = 1
+	}
+	return scale
+}
+
 // attackDamage applies vanilla's cooldown scale to the weapon's base
 // damage: damage * (0.2 + 0.8 * scale²), where
 // scale = clamp((attackTicker + 0.5) / delayTicks, 0, 1) — the 0.5 is
 // the partial tick vanilla passes into getAttackStrengthScale.
 func (sess *Session) attackDamage() float32 {
-	scale := (float32(sess.attackTicker) + 0.5) / sess.heldAttackDelayTicks()
-	if scale > 1 {
-		scale = 1
-	}
+	scale := sess.attackScale()
 	return sess.heldAttackDamage() * (0.2 + 0.8*scale*scale)
+}
+
+// mobKnockbackResistance is the vanilla KNOCKBACK_RESISTANCE attribute
+// per entity type; absent types default to zero (take full knockback).
+var mobKnockbackResistance = map[string]float64{
+	"iron_golem": 1.0,
+}
+
+// knockDelta applies one vanilla LivingEntity.knockback step to a
+// velocity: strength folded by knockback resistance, direction pushed
+// away from the damage source, grounded victims popped upwards.
+func knockDelta(vx, vy, vz, strength, resistance, dx, dz float64, grounded bool) (float64, float64, float64) {
+	strength *= 1 - resistance
+	if strength <= 0 {
+		return vx, vy, vz
+	}
+	if dx*dx+dz*dz < 1e-5 {
+		dx = (rand.Float64() - rand.Float64()) * 0.01
+		dz = (rand.Float64() - rand.Float64()) * 0.01
+	}
+	l := math.Hypot(dx, dz)
+	kbx, kbz := dx/l*strength, dz/l*strength
+	ny := vy / 2
+	if grounded {
+		ny = math.Min(0.4, vy/2+strength)
+	}
+	return vx/2 - kbx, ny, vz/2 - kbz
 }
 
 // armorDefense sums the armor points of a player's four armor slots.

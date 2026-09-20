@@ -152,6 +152,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	if target == nil {
 		// Not a player: attack a living mob if one has this id.
 		if e, ok := s.entities.Get(targetID); ok && e.Living {
+			scale := sess.attackScale()
 			damage := sess.attackDamage()
 			sess.attackTicker = 0
 			if dealt := s.damageMob(&e, damage); dealt > 0 {
@@ -165,6 +166,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 					sess.addStat(statKilled, e.Type, 1)
 					sess.addCustomStat("mob_kills", 1)
 				}
+				s.mobAttackKnockback(sess, e.ID, scale)
 			}
 			s.attackWear(sess)
 		}
@@ -186,6 +188,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	// inside (vanilla's getDamageAfterArmorAbsorb); the attacker's
 	// damage_dealt counts the post-absorb amount. The cooldown scale
 	// is read before the ticker resets, as in vanilla's attack().
+	scale := sess.attackScale()
 	dealt := s.damageWith(target, sess.attackDamage(), sess.getName()+" was slain by "+target.getName(), damageSource{
 		typeName: "player_attack",
 		cause:    sess.entityID.Load(),
@@ -194,6 +197,9 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	sess.attackTicker = 0
 	sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
 	s.sendHurtAnimation(target, hurtYaw(tx, tz, ax, az))
+	if dealt > 0 {
+		s.playerAttackKnockback(sess, target, scale)
+	}
 	// hurtEnemy + postHurtEnemy: the used stat and the weapon wear.
 	s.attackWear(sess)
 }
@@ -216,10 +222,10 @@ func (s *Server) sendHurtAnimation(sess *Session, yaw float32) {
 	_ = sess.write(sess.ids().PlayHurtAnimation, b.Bytes())
 }
 
-// Player Input flag bits: 0x20 sneak, 0x40 sprint.
+// Player Input flag bits: 0x20 sneak; vanilla ignores the sprint bit
+// here (sprint is player_command-driven).
 const (
-	inputSneak  = 0x20
-	inputSprint = 0x40
+	inputSneak = 0x20
 )
 
 // Living-entity metadata index for the pose, and the pose values we
@@ -241,9 +247,9 @@ func (s *Server) handlePlayerInput(sess *Session, p protocol.Packet) {
 		return
 	}
 	sneak := flags&inputSneak != 0
-	sprint := flags&inputSprint != 0
 	jump := flags&0x10 != 0
-	sess.sprinting = sprint
+	// Vanilla reads only the shift flag here; sprinting stays
+	// player_command-driven.
 	if jump && !sess.jumping {
 		_, _, _, _, _, onGround := sess.Pos()
 		if onGround && !sess.flying {
@@ -263,6 +269,7 @@ func (s *Server) handlePlayerInput(sess *Session, p protocol.Packet) {
 		pose = poseSneaking
 	}
 	s.broadcastPose(sess, pose)
+	s.broadcastSharedFlags(sess)
 }
 
 // broadcastPose sends the player's pose metadata to every play-stage
@@ -431,4 +438,135 @@ func (sess *Session) viewRadius(serverVD int) int {
 		v = 1
 	}
 	return v
+}
+
+// sprintKnockbackHit reports whether this swing is vanilla's sprint
+// knockback hit (scale > 0.9 while sprinting); it must be evaluated
+// before the cooldown ticker resets.
+func sprintKnockbackHit(sess *Session, scale float32) bool {
+	return sess.sprinting && scale > 0.9
+}
+
+// knockbackYaw returns the facing unit vector vanilla aims the sprint
+// bonus along: (sin(yaw), -cos(yaw)) with yaw in degrees.
+func knockbackYaw(yaw float32) (float64, float64) {
+	r := float64(yaw) * math.Pi / 180
+	return math.Sin(r), -math.Cos(r)
+}
+
+// mobAttackKnockback applies vanilla's two knockback steps to a living
+// mob victim: the default 0.4 push away from the attacker from inside
+// hurt, then the 0.5 sprint bonus along the attacker's facing. The
+// composed delta goes to chunk trackers as set_entity_motion.
+func (s *Server) mobAttackKnockback(sess *Session, eid int32, scale float32) {
+	e, ok := s.entities.Get(eid)
+	if !ok {
+		return
+	}
+	res := float64(0)
+	if name, ok := EntityTypeName(e.Type); ok {
+		res = mobKnockbackResistance[name]
+	}
+	ax, _, az, yaw, _, _ := sess.Pos()
+	vx, vy, vz := knockDelta(e.MotionX, e.MotionY, e.MotionZ, 0.4, res, ax-e.X, az-e.Z, e.Grounded)
+	if sprintKnockbackHit(sess, scale) {
+		kx, kz := knockbackYaw(yaw)
+		vx, vy, vz = knockDelta(vx, vy, vz, 0.5, res, kx, kz, e.Grounded)
+		s.endSprintKnockback(sess)
+	}
+	s.entities.SetMotion(eid, vx, vy, vz)
+	s.broadcastEntityMotion(e.Dim, eid, vx, vy, vz)
+}
+
+// playerAttackKnockback sends the victim's post-hit velocity as
+// set_entity_motion — vanilla restores the server-side delta after
+// sending, so only the packet reflects the knockback. The default
+// 0.4 push away from the attacker composes with the 0.5 sprint bonus
+// along the attacker's facing when the swing was a strong sprint hit.
+func (s *Server) playerAttackKnockback(sess, target *Session, scale float32) {
+	ax, _, az, yaw, _, _ := sess.Pos()
+	_, _, _, _, _, grounded := target.Pos()
+	tx, _, tz, _, _, _ := target.Pos()
+	vx, vy, vz := knockDelta(0, 0, 0, 0.4, 0, ax-tx, az-tz, grounded)
+	if sprintKnockbackHit(sess, scale) {
+		kx, kz := knockbackYaw(yaw)
+		vx, vy, vz = knockDelta(vx, vy, vz, 0.5, 0, kx, kz, grounded)
+		s.endSprintKnockback(sess)
+	}
+	s.sendEntityMotion(target, vx, vy, vz)
+}
+
+// endSprintKnockback performs vanilla's sprint-hit aftermath: the
+// attacker's motion is damped horizontally and sprinting ends, which
+// trackers see as a shared-flags entity data update.
+func (s *Server) endSprintKnockback(sess *Session) {
+	sess.sprinting = false
+	s.broadcastSharedFlags(sess)
+}
+
+// broadcastSharedFlags sends the index-0 entity flags byte (sneak 0x02,
+// sprint 0x08, etc.) to every play-state session in the dimension,
+// including the subject like the other metadata broadcasts.
+func (s *Server) broadcastSharedFlags(sess *Session) {
+	eid := sess.entityID.Load()
+	if eid == 0 {
+		return
+	}
+	flags := byte(0)
+	if sess.sneaking {
+		flags |= 0x02
+	}
+	if sess.sprinting {
+		flags |= 0x08
+	}
+	dim := sess.dimName()
+	var b protocol.Buffer
+	b.VarInt(eid)
+	b.Byte(0) // index: shared flags
+	b.Byte(0) // type: byte
+	b.Byte(flags)
+	b.Byte(0xFF)
+	body := b.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() {
+			return true
+		}
+		if other.dimName() != dim {
+			return true
+		}
+		_ = other.write(other.ids().PlayEntityMetadata, body)
+		return true
+	})
+}
+
+// broadcastEntityMotion sends set_entity_motion to every play-state
+// session tracking the entity's dimension.
+func (s *Server) broadcastEntityMotion(dim string, eid int32, vx, vy, vz float64) {
+	body := encodeEntityMotion(eid, vx, vy, vz)
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() {
+			return true
+		}
+		if other.dimName() != dim {
+			return true
+		}
+		_ = other.write(other.ids().PlaySetEntityMotion, body)
+		return true
+	})
+}
+
+// sendEntityMotion delivers set_entity_motion to one session.
+func (s *Server) sendEntityMotion(sess *Session, vx, vy, vz float64) {
+	_ = sess.write(sess.ids().PlaySetEntityMotion, encodeEntityMotion(sess.entityID.Load(), vx, vy, vz))
+}
+
+// encodeEntityMotion builds set_entity_motion: 26.2 ships the delta
+// as an LpVec3 (VarInt id + packed low-precision vector).
+func encodeEntityMotion(eid int32, vx, vy, vz float64) []byte {
+	var b protocol.Buffer
+	b.VarInt(eid)
+	b.Raw(lpVec3(vx, vy, vz))
+	return b.Bytes()
 }

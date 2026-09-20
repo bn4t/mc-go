@@ -177,12 +177,27 @@ func (s *Server) runSummon(player string, args []string) string {
 		return "Unknown player: " + player
 	}
 	x, y, z, _, _, _ := sess.Pos()
-	pos := world.Pos{
-		X: int(math.Floor(x)),
-		Y: int(math.Floor(y)),
-		Z: int(math.Floor(z)),
+	if len(args) >= 4 {
+		var err error
+		if x, err = parseDouble(args[1], x, true); err != nil {
+			return "Invalid position " + args[1]
+		}
+		if y, err = parseDouble(args[2], y, false); err != nil {
+			return "Invalid position " + args[2]
+		}
+		if z, err = parseDouble(args[3], z, true); err != nil {
+			return "Invalid position " + args[3]
+		}
 	}
-	if _, ok := s.summonMob(sess.dimension(), strings.TrimPrefix(args[0], "minecraft:"), pos); !ok {
+	noAI := false
+	if len(args) >= 5 {
+		if tag, _, err := parseSNBTTag(args[4], 0); err == nil && tag != nil {
+			if v, ok := tag.vals["NoAI"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+				noAI = true
+			}
+		}
+	}
+	if _, ok := s.summonMob(sess.dimension(), strings.TrimPrefix(args[0], "minecraft:"), x, y, z, noAI); !ok {
 		return "Unknown entity: " + args[0]
 	}
 	return "Summoned " + args[0]
@@ -190,7 +205,7 @@ func (s *Server) runSummon(player string, args []string) string {
 
 // summonMob spawns one living entity at pos in dimension d and fans it
 // out with its health metadata. Unknown entity types are rejected.
-func (s *Server) summonMob(d *dimension, name string, pos world.Pos) (*Entity, bool) {
+func (s *Server) summonMob(d *dimension, name string, x, y, z float64, noAI bool) (*Entity, bool) {
 	id, ok := EntityTypeID(name)
 	if !ok {
 		return nil, false
@@ -202,12 +217,13 @@ func (s *Server) summonMob(d *dimension, name string, pos world.Pos) (*Entity, b
 	e := s.entities.Spawn(&Entity{
 		Type:      id,
 		Dim:       d.name,
-		X:         float64(pos.X) + 0.5,
-		Y:         float64(pos.Y),
-		Z:         float64(pos.Z) + 0.5,
+		X:         x,
+		Y:         y,
+		Z:         z,
 		Living:    true,
 		Health:    health,
 		MaxHealth: health,
+		NoAI:      noAI,
 	})
 	s.broadcastEntitySpawn(nil, *e)
 	s.broadcastEntityMetadata(e.ID, encodeLivingMetadata(e))
@@ -292,6 +308,9 @@ func (s *Server) mobTickStep() {
 		}
 		if e.invulnTicks > 0 {
 			e.invulnTicks--
+		}
+		if e.NoAI {
+			continue
 		}
 		w := s.dimWorld(e.Dim)
 		if w == nil {

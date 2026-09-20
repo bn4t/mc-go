@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 
@@ -29,7 +30,10 @@ type Entity struct {
 	// each tick with vanilla's 0.98 air / ~0.55 grounded decay.
 	MotionX, MotionZ float64
 	// Living mobs carry health and take damage from attacks.
-	Living    bool
+	Living bool
+	// NoAI (from the summon NBT) freezes gravity and wander like
+	// vanilla's Mob.NoAi flag — the entity still takes knockback.
+	NoAI      bool
 	Health    float32
 	MaxHealth float32
 	// invulnTicks/lastHurt are the same twenty-tick post-hit grace
@@ -100,6 +104,19 @@ func (m *Manager) Update(id int32, x, y, z float64, yaw, pitch float32, onGround
 	e.X, e.Y, e.Z = x, y, z
 	e.Yaw, e.Pitch, e.HeadYaw = yaw, pitch, yaw
 	_ = onGround
+	return true
+}
+
+// SetMotion stores a fresh entity velocity (knockback writes here; the
+// next tracker sync or explicit motion packet ships it).
+func (m *Manager) SetMotion(id int32, x, y, z float64) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.byID[id]
+	if !ok {
+		return false
+	}
+	e.MotionX, e.MotionY, e.MotionZ = x, y, z
 	return true
 }
 
@@ -204,49 +221,40 @@ func encodeSpawn(e *Entity) []byte {
 	return b.Bytes()
 }
 
-// lpVec3 encodes a low-precision velocity vector. Zero (and any vector
-// whose largest component is below 1/32766) is a single 0x00 byte,
-// which covers every velocity the server currently emits. Non-zero
-// vectors are quantized to 15 bits per axis with a 2-bit scale and a
-// continuation bit for larger magnitudes, matching the documented
-// LpVec3 bit distribution.
+// lpVec3 encodes the 26.2 low-precision Vec3 wire format (LpVec3):
+// a zero/tiny vector (< 3.051944088384301e-5 max abs) is one 0x00
+// byte; otherwise each axis is quantized to 15 bits over [-1,1] times
+// a ceil-rounded shared scale in the low bits. Bits: scale low-2 at
+// 0-1, continuation at 2, x/y/z at 3/18/33 — the packed word goes out
+// as two low bytes then a big-endian int of the upper 32, plus a
+// VarInt scale-extension when the scale needs more than 2 bits.
 func lpVec3(x, y, z float64) []byte {
-	max := 0.0
-	for _, v := range []float64{x, y, z} {
-		if v < 0 {
-			v = -v
+	san := func(v float64) float64 {
+		if math.IsNaN(v) {
+			return 0
 		}
-		if v > max {
-			max = v
-		}
+		return math.Max(-1.7179869183e10, math.Min(1.7179869183e10, v))
 	}
-	if max < 1.0/32766.0 {
+	x, y, z = san(x), san(y), san(z)
+	max := math.Max(math.Abs(x), math.Max(math.Abs(y), math.Abs(z)))
+	if max < 3.051944088384301e-5 {
 		return []byte{0}
 	}
-	scale := int64(max)
-	if float64(scale) < max {
-		scale++ // rounded up
+	scale := int64(math.Ceil(max))
+	var scaleBits uint64
+	cont := scale > 3
+	if cont {
+		scaleBits = uint64(scale&3) | 4
+	} else {
+		scaleBits = uint64(scale)
 	}
-	q := func(v float64) uint64 {
-		u := (v/float64(scale) + 1) / 2 * 32766
-		if u < 0 {
-			u = 0
-		}
-		if u > 32766 {
-			u = 32766
-		}
-		return uint64(u + 0.5)
+	pack := func(v float64) uint64 {
+		return uint64(math.Round((v/float64(scale)*0.5 + 0.5) * 32766))
 	}
-	cont := uint64(0)
-	if scale >= 3 {
-		cont = 1
-	}
-	word := q(x) | q(y)<<15 | q(z)<<30 | cont<<45 | uint64(scale&0x3)<<46
-	out := []byte{
-		byte(word), byte(word >> 8),
-		byte(word >> 40), byte(word >> 32), byte(word >> 24), byte(word >> 16),
-	}
-	if cont == 1 {
+	word := scaleBits | pack(x)<<3 | pack(y)<<18 | pack(z)<<33
+	hi := uint32(word >> 16)
+	out := []byte{byte(word), byte(word >> 8), byte(hi >> 24), byte(hi >> 16), byte(hi >> 8), byte(hi)}
+	if cont {
 		var vb protocol.Buffer
 		vb.VarInt(int32(scale >> 2))
 		out = append(out, vb.Bytes()...)
