@@ -1,5 +1,10 @@
 package server
 
+import (
+	"math"
+	"math/rand"
+)
+
 // weaponDamage is the attack damage of the common weapons (vanilla
 // values, main hand only).
 var weaponDamage = map[string]float32{
@@ -55,6 +60,65 @@ func (sess *Session) heldAttackDamage() float32 {
 	return 1
 }
 
+// heldAttackDelayTicks is vanilla's getCurrentItemAttackStrengthDelay:
+// (1 / attackSpeed) * 20, with attackSpeed the base 4 plus the item's
+// mainhand attribute modifier (a stone sword's -2.4 => 12.5 ticks).
+func (sess *Session) heldAttackDelayTicks() float32 {
+	speed := float64(4.0)
+	if held := sess.heldStack(); !held.Empty() {
+		if name, ok := itemNameOf(held.ID); ok {
+			speed += itemAttackSpeedMod[name]
+		}
+	}
+	return 20.0 / float32(speed)
+}
+
+// attackScale is vanilla's getAttackStrengthScale(0.5): the charge
+// fraction that decides strong hits (>0.9) and scales the damage.
+func (sess *Session) attackScale() float32 {
+	scale := (float32(sess.attackTicker) + 0.5) / sess.heldAttackDelayTicks()
+	if scale > 1 {
+		scale = 1
+	}
+	return scale
+}
+
+// attackDamage applies vanilla's cooldown scale to the weapon's base
+// damage: damage * (0.2 + 0.8 * scale²), where
+// scale = clamp((attackTicker + 0.5) / delayTicks, 0, 1) — the 0.5 is
+// the partial tick vanilla passes into getAttackStrengthScale.
+func (sess *Session) attackDamage() float32 {
+	scale := sess.attackScale()
+	return sess.heldAttackDamage() * (0.2 + 0.8*scale*scale)
+}
+
+// mobKnockbackResistance is the vanilla KNOCKBACK_RESISTANCE attribute
+// per entity type; absent types default to zero (take full knockback).
+var mobKnockbackResistance = map[string]float64{
+	"iron_golem": 1.0,
+}
+
+// knockDelta applies one vanilla LivingEntity.knockback step to a
+// velocity: strength folded by knockback resistance, direction pushed
+// away from the damage source, grounded victims popped upwards.
+func knockDelta(vx, vy, vz, strength, resistance, dx, dz float64, grounded bool) (float64, float64, float64) {
+	strength *= 1 - resistance
+	if strength <= 0 {
+		return vx, vy, vz
+	}
+	if dx*dx+dz*dz < 1e-5 {
+		dx = (rand.Float64() - rand.Float64()) * 0.01
+		dz = (rand.Float64() - rand.Float64()) * 0.01
+	}
+	l := math.Hypot(dx, dz)
+	kbx, kbz := dx/l*strength, dz/l*strength
+	ny := vy / 2
+	if grounded {
+		ny = math.Min(0.4, vy/2+strength)
+	}
+	return vx/2 - kbx, ny, vz/2 - kbz
+}
+
 // armorDefense sums the armor points of a player's four armor slots.
 func (sess *Session) armorDefense() float32 {
 	total := float32(0)
@@ -70,14 +134,21 @@ func (sess *Session) armorDefense() float32 {
 	return total
 }
 
-// reduceDamage applies vanilla's armor formula: damage scaled by
-// 1 - min(20, armor)/25.
+// reduceDamage applies vanilla's armor absorb (CombatRules.
+// getDamageAfterAbsorb): effective defense is armor minus
+// damage/(2+toughness/4), floored at armor/5 and capped at 20; the
+// surviving damage scales by 1 - defense/25. Toughness is always 0
+// here — no armor on this server carries armor_toughness yet.
 func reduceDamage(damage, armor float32) float32 {
-	if armor <= 0 {
+	if armor <= 0 || damage <= 0 {
 		return damage
 	}
-	if armor > 20 {
-		armor = 20
+	defense := armor - damage/2
+	if floor := armor * 0.2; defense < floor {
+		defense = floor
 	}
-	return damage * (1 - armor/25)
+	if defense > 20 {
+		defense = 20
+	}
+	return damage * (1 - defense/25)
 }

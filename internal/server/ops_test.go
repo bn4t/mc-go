@@ -31,16 +31,16 @@ func TestTpCoords(t *testing.T) {
 		t.Fatalf("tp border = %q", out)
 	}
 	out := s.runTp("Warden", []string{"100", "70", "-40"})
-	if out != "Teleported to 100.00 70.00 -40.00" {
+	if out != "Teleported to 100.50 70.00 -39.50" {
 		t.Fatalf("tp = %q", out)
 	}
 	st, ok := s.PlayerStateOf("Warden")
-	if !ok || st.X != 100 || st.Y != 70 || st.Z != -40 {
+	if !ok || st.X != 100.5 || st.Y != 70 || st.Z != -39.5 {
 		t.Fatalf("state = %+v,%v", st, ok)
 	}
-	// "~" relativity resolves against the sender's block position.
+	// "~" relativity resolves against the sender's exact position.
 	out = s.runTp("Warden", []string{"~1", "~", "~-1"})
-	if out != "Teleported to 101.00 70.00 -41.00" {
+	if out != "Teleported to 101.50 70.00 -40.50" {
 		t.Fatalf("tp relative = %q", out)
 	}
 }
@@ -64,7 +64,7 @@ func TestTpPlayerToPlayer(t *testing.T) {
 	if out := s.runTp("Warden", []string{"Ghost", "1", "65", "1"}); out != "Unknown player: Ghost" {
 		t.Fatalf("tp ghost victim = %q", out)
 	}
-	if out := s.runTp("Warden", []string{"Mover", "1", "65", "1"}); out != "Teleported Mover to 1.00 65.00 1.00" {
+	if out := s.runTp("Warden", []string{"Mover", "1", "65", "1"}); out != "Teleported Mover to 1.50 65.00 1.50" {
 		t.Fatalf("tp victim = %q", out)
 	}
 }
@@ -278,11 +278,11 @@ func TestOpsFlowOverWire(t *testing.T) {
 	}
 
 	sendCmdPipe(t, pwa, "tp 100 70 100")
-	if out := readChatPipe(t, pra); out != "Teleported to 100.00 70.00 100.00" {
+	if out := readChatPipe(t, pra); out != "Teleported to 100.50 70.00 100.50" {
 		t.Fatalf("/tp = %q", out)
 	}
 	sendCmdPipe(t, pwa, "pos")
-	if out := readChatPipe(t, pra); !strings.HasPrefix(out, "100.00 70.00 100.00") {
+	if out := readChatPipe(t, pra); !strings.HasPrefix(out, "100.50 70.00 100.50") {
 		t.Fatalf("/pos = %q", out)
 	}
 

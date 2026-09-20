@@ -107,6 +107,7 @@ const (
 	IDPlayLevelEvent        = 0x2E
 	IDPlayInitializeBorder  = 0x2B
 	IDPlayRecipeBookAdd     = 0x4A
+	IDPlayRecipeBookRemove  = 0x4B
 	IDPlayRecipeBookSet     = 0x4C
 	IDPlayServerData        = 0x56
 	IDPlayDefaultSpawn      = 0x61
@@ -118,6 +119,7 @@ const (
 	IDPlayResetScore        = 0x4F
 	IDPlayEnterCombat       = 0x43
 	IDPlayEndCombat         = 0x42
+	IDPlayEntityMotion      = 0x65
 	IDPlaySetEquipment      = 0x66
 	IDPlayOpenSignEditor    = 0x3C
 	IDPlayOpenScreen        = 0x3B

@@ -969,10 +969,19 @@ func (s *Server) parseItemStack(args []string, itemTok int) (ItemStack, reply, b
 	if len(args) <= ai {
 		return ItemStack{}, errTokenEnd("command.unknown.command", itemTok-1), false
 	}
-	full := normalizeItemName(args[ai])
+	tok := args[ai]
+	var comps string
+	if i := strings.IndexByte(tok, '['); i >= 0 {
+		if !strings.HasSuffix(tok, "]") {
+			return ItemStack{}, errToken("command.unknown.argument", itemTok), false
+		}
+		comps = tok[i+1 : len(tok)-1]
+		tok = tok[:i]
+	}
+	full := normalizeItemName(tok)
 	id, ok := world.ItemID(shortItemName(full))
 	if !ok {
-		return ItemStack{}, errToken("argument.item.id.invalid", itemTok, echoItemID(idPrefix(args[ai]))), false
+		return ItemStack{}, errToken("argument.item.id.invalid", itemTok, echoItemID(idPrefix(tok))), false
 	}
 	count := int32(1)
 	if len(args) > ai+1 {
@@ -997,7 +1006,76 @@ func (s *Server) parseItemStack(args []string, itemTok int) (ItemStack, reply, b
 	if id == 0 {
 		return ItemStack{}, reply{}, true
 	}
-	return ItemStack{ID: id, Count: count}, reply{}, true
+	st := ItemStack{ID: id, Count: count}
+	if comps != "" {
+		if r, ok := applyItemComponents(&st, comps, itemTok); !ok {
+			return ItemStack{}, r, false
+		}
+	}
+	return st, reply{}, true
+}
+
+// applyItemComponents applies the bracket grammar after an item spec:
+// `name=value` sets a component the item model carries, `!name` clears
+// one. Only the modeled set (damage, repair_cost, custom_name) is
+// interpreted; anything else is ignored rather than rejected.
+func applyItemComponents(st *ItemStack, comps string, tok int) (reply, bool) {
+	for _, e := range splitComponents(comps) {
+		if e == "" {
+			continue
+		}
+		if strings.HasPrefix(e, "!") {
+			name := shortItemName(normalizeItemName(strings.TrimPrefix(e, "!")))
+			switch name {
+			case "damage":
+				st.Damage = 0
+			case "repair_cost":
+				st.RepairCost = 0
+			}
+			continue
+		}
+		k, v, ok := strings.Cut(e, "=")
+		if !ok {
+			return errToken("command.unknown.argument", tok), false
+		}
+		switch shortItemName(normalizeItemName(k)) {
+		case "damage":
+			n, err := strconv.ParseInt(v, 10, 32)
+			if err != nil {
+				return errToken("parsing.int.expected", tok), false
+			}
+			st.Damage = int32(n)
+		case "repair_cost":
+			n, err := strconv.ParseInt(v, 10, 32)
+			if err != nil {
+				return errToken("parsing.int.expected", tok), false
+			}
+			st.RepairCost = int32(n)
+		}
+	}
+	return reply{}, true
+}
+
+// splitComponents splits a bracket list on top-level commas, so values
+// holding commas inside {} or [] stay whole.
+func splitComponents(s string) []string {
+	var out []string
+	depth := 0
+	start := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '{', '[':
+			depth++
+		case '}', ']':
+			depth--
+		case ',':
+			if depth == 0 {
+				out = append(out, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(out, s[start:])
 }
 
 // readItemSource reads the stack a from-variant copies.

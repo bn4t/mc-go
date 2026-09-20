@@ -216,7 +216,7 @@ func (s *Server) registerBuiltins() {
 	s.registerComponentCommand("setblock", func(player string, args []string) reply {
 		return s.runSetblock(player, args)
 	})
-	s.commands.Register("give", func(player string, args []string) string {
+	s.registerComponentCommand("give", func(player string, args []string) reply {
 		return s.runGive(player, args)
 	})
 	s.commands.Register("summon", func(player string, args []string) string {
@@ -245,36 +245,45 @@ func (s *Server) registerBuiltins() {
 	})
 }
 
-// runGive implements /give <item> [count]: the item joins the player's
-// inventory through the normal pickup path, syncing the slots.
-func (s *Server) runGive(player string, args []string) string {
+// runGive implements /give [target] <item> [count]: the item joins the
+// target's inventory through the normal pickup path, syncing the slots,
+// and the reply is vanilla's commands.give.success.single component.
+// A leading token that resolves as a target (@s or a player name) is
+// the recipient; without one the sender receives the item.
+func (s *Server) runGive(player string, args []string) reply {
+	sess := s.findSessionByName(player)
+	if len(args) > 0 {
+		if ts := s.resolveTarget(player, args[0]); ts != nil {
+			sess = ts
+			args = args[1:]
+		}
+	}
 	if len(args) == 0 {
-		return "Usage: /give <item> [count]"
+		return reply{text: "Usage: /give [target] <item> [count]"}
 	}
 	name := strings.TrimPrefix(args[0], "minecraft:")
 	id, ok := world.ItemID(name)
 	if !ok {
-		return "Unknown item: " + args[0]
+		return reply{text: "Unknown item: " + args[0]}
 	}
 	count := int32(1)
 	if len(args) > 1 {
 		n, err := strconv.Atoi(args[1])
 		if err != nil || n < 1 || n > maxStack {
-			return "Invalid count: " + args[1]
+			return reply{text: "Invalid count: " + args[1]}
 		}
 		count = int32(n)
 	}
-	sess := s.findSessionByName(player)
 	if sess == nil {
-		return "Unknown player: " + player
+		return reply{text: "Unknown player: " + player}
 	}
-	remainder, picked := sess.addStack(ItemStack{ID: id, Count: count})
-	if !picked {
-		return "Inventory full"
-	}
+	st := ItemStack{ID: id, Count: count}
+	remainder, _ := sess.addStack(st)
 	_ = s.sendContainerContent(sess)
-	if remainder.Count > 0 {
-		return "Partially gave " + name
-	}
-	return "Gave " + strconv.Itoa(int(count)) + " " + name
+	_ = remainder
+	return reply{styled: true, comp: translatable("commands.give.success.single",
+		nestedCompound{key: "", value: count},
+		itemBrackets(st),
+		entityTargetComponent(sess),
+	)}
 }

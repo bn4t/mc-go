@@ -95,11 +95,44 @@ Mojang server over the wire.
   arithmetic, charged/quick-move/poor takes, invalid pairs, silent
   output clicks, close returns with no close echo; other menus
   - enchanting, brewing, beacon, lectern - still open)
-- [ ] Survival mode: health, hunger, regen, death/respawn
-- [~] Crafting, recipes, recipe book (join registry served verbatim;
-  unlock engine pending)
-- [ ] Advancements, statistics, scoreboard, teams
-- [ ] Player data persistence
+- [~] Survival mode: health, hunger (two-clock regen + deferred
+      exhaustion drain + i-frames measured), starvation, void, death/
+      respawn, item drops on death — eating/fall damage present
+- [~] Crafting, recipes, recipe book (full data.Recipes table wired,
+  shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
+  /recipe give|take + RecipeBookAdd/Remove wire-parity including the
+  1568-entry give-all blob; decorated_pot needs an unmodeled component,
+  smithing needs the menu, bookcloning/shielddecoration/fireworks/
+  mapextending need content components)
+- [~] Advancements (recipe advancements: recipe_unlocked,
+  inventory_changed, enter_block and the tick trigger all grant, the
+  requirements-group semantics (every group needs one satisfied
+  criterion) drive completion + reward unlocks, the deferred per-tick
+  UpdateAdvancements flush ships added defs + criterion progress, and
+  completed-advancement grants are no-ops - implemented and
+  parity-tested incl. the 1560-entry give-all sync and give-triggered
+  auto-unlocks; vanilla emits added/progress entries in identity-hash
+  order which varies per run, so the test compares them as sets while
+  per-criterion order — String-hash buckets seeded by a fastutil set —
+  matches exactly. Non-recipe advancement triggers, scoreboard,
+  teams remain open)
+- [~] Statistics (Award Statistics on Client Status 1: counters for
+  mined/crafted/used/broken/picked_up/dropped/killed/killed_by and the
+  custom family — ticked play_time/total_world_time/time_since_death/
+  time_since_rest/sneak_time, drop, deaths, damage_dealt/taken,
+  mob_kills, player_kills, jump, leave_game, distance buckets
+  walk/sprint/crouch/swim/fall/fly/climb/on-water/under-water —
+  increment at their events; emit order reproduces vanilla's
+  dirty-HashSet-copy → Object2IntOpenHashMap-descending-slot chain
+  byte-for-byte, pinned by TestStatsParity and TestStatEmitOrder.
+  Stats persist in the data file; item-break (broken) is emitted when
+  a tool's durability is exhausted — pinned by TestToolWearParity —
+  and exotic distance buckets (vehicles, walk_under_water edge cases)
+  remain open)
+- [x] Player data persistence (position, dimension, inventory, ender
+  chest, xp, health, food restore on rejoin — plus statistics; world
+  block data ships in the save file; per-player .dat files and
+  advancement/recipe-book persistence remain open)
 
 ### Server
 - [~] Multithreaded session/tick/world-shard model
@@ -115,6 +148,73 @@ Mojang server over the wire.
 
 ## Progress log
 
+- 2026-09-20: Melee knockback: hurt's default push is
+  `knockback(0.4, attackerPos - victimPos)` and a sprinting strong
+  hit (scale > 0.9) adds `knockback(0.5, sin(yaw), -cos(yaw))` along
+  the attacker's facing, then damps the attacker's horizontal delta
+  by 0.6 and clears sprint. knockback() applies
+  `strength *= 1 - knockback_resistance` (iron golem 1.0), a +-0.01
+  random jitter when the xz gap is under 1e-5, then
+  `new = (v/2 - k)` per axis with `y = min(0.4, y/2 + strength)`
+  when grounded. Player victims get set_entity_motion and their
+  server-side delta is restored; mob deltas persist and compose
+  across hits (pig: 0.4 plain, then 0.8 sprint). set_entity_motion
+  uses the 26.2 LpVec3 packed codec, not three shorts — three
+  scale bits plus 15-bit axis fields at shifts 3/18/33 in a 48-bit
+  little-endian word. player_command renumbered for 26.2: sprint
+  start/stop is actions 1/2 (no sneak actions — sneak lives in the
+  player_input shift bit); sprint set/clear broadcasts entity_data
+  index-0 byte flags (bit 0x08). /summon now parses vec3 + NBT —
+  NoAI freezes gravity and wander entirely. `TestKnockbackParity`
+  scripts fist hits on a player and a NoAI pig on both servers.
+  Crit (fallDistance rules) and sweep attack remain open.
+
+- 2026-09-20: Armor-on-hurt durability: a hit armor can absorb costs
+  each equipped damageable piece max(1, post-i-frames damage/4) in
+  vanilla's feet-legs-chest-head order, breaking pieces emit the right
+  entity events (head=49, chest=50, legs=51, feet=52) and resync slots
+  ascending. Pinned and fixed along the way: the absorb formula is the
+  real CombatRules one (defense = clamp(armor - dmg/(2+tough/4),
+  armor/5, 20) — replaces the naive 1-armor/25), armor counts pre-wear
+  for its own hit, and the hurt entity event goes to third parties
+  only — the attacker gets nothing, the victim Hurt Animation.
+  `TestArmorWearParity` scripts two sword hits against an armored
+  victim on both servers. Enchantment toughness modifiers and
+  mob-attacking-player paths remain open.
+
+- 2026-09-20: Tool/weapon durability: mining a non-instant block
+  wears the held tool by its damage_per_block (generated
+  itemToolDamagePerBlock/itemWeaponDamagePerAttack maps from the
+  component reports), a landed hit wears a weapon by
+  item_damage_per_attack, and exhausting an item empties the slot,
+  broadcasts entity event 47, and emits the `broken` item stat.
+  Order matches vanilla bytecode: mineBlock wears (and breaks, and
+  emits `broken`) *before* the caller's `used` award, while attack
+  is `used` then `postHurtEnemy` wear. Instant-break blocks (hardness
+  0 — torch & friends added to the hardness table) skip wear but
+  still count as `used`; a mob's hurt entity event goes to chunk
+  trackers but never the attacker (measured). `TestToolWearParity`
+  digs a pickaxe to break and swings a sword against both servers.
+  Attack-cooldown scaling, enchantments (unbreaking), and the
+  item_durability_changed advancement trigger remain open.
+
+- 2026-09-20: Statistics slice: stat store with vanilla emit-order
+  model (dirty HashSet → Sets.newHashSet copy iterates bucket order →
+  Object2IntOpenHashMap descends slots; Stat name =
+  `minecraft.<type>:minecraft.<value>` hashed as String), all the
+  wired increments (mined on breakBlock, dropped/drop on throw,
+  used on place+eat, crafted on take, picked_up on collect, killed/
+  killed_by/player_kills/mob_kills on deaths, damage_dealt/taken in
+  tenths, the four ticked timers + sneak_time, jump, leave_game,
+  distance buckets), thrown-item drift physics so Q-drops land out of
+  pickup reach, stats persisted in the data file with the map-order
+  round-trip vanilla's stats/*.json does. TestStatsParity (join,
+  give+Q-drop, mine dirt, walk) is byte-order-exact vs vanilla;
+  TestStatEmitOrder pins both captured emit orders. Side observation:
+  multi-case tests share one world and one spawn — items a previous
+  case's player left on the ground can be picked up by the next joiner
+  (seen once as a repair-mismatch diff of leftover hotbar stacks).
+  Intermittent; a per-case arena would remove it.
 - 2026-09-13: Anvil repair-combine parity, green against 26.2
   (`TestAnvilParity`, 41 steps on each server: two charged takes by
   hand and by quick-move, a poor take at 0 levels, a dirt+pick invalid
@@ -650,7 +750,8 @@ Mojang server over the wire.
   1 - min(20, armor)/25 formula. `TestWeaponDamagePackets` proves the
   iron-sword hit (health 14) on the wire; unit tests cover weapon
   damage and full iron armor (15 points -> 0.4 damage from a fist).
-  Attack-cooldown scaling, enchantments, and durability remain.
+  Cooldown scaling and durability have since landed; enchantments
+  remain.
 - 2026-09-12: Survival digging is now the server's own model instead of
   the client's word. A start records the block, digTickStep adds one
   tick of progress per game tick from the public breaking formula
@@ -1039,3 +1140,183 @@ Mojang server over the wire.
   rapid-rejoin corruption bundle (clock ids 8/9, count-01) with a
   clean spaced four-join run. None of these bite the harness, whose
   joins are young, narrow-eid, and solo.
+
+- 2026-09-20: Real-client playtest round found three join-blocking
+  wire bugs and one dead loop, all fixed and pinned. Login finish now
+  appends the trailing session-id UUID the 26.2 client requires
+  (DecoderException without it; readLoginSuccess parses the property
+  array and the 16-byte tail end-exact). The join-time set_time now
+  sends the two-clock form measured live - clock 0 (overworld) carries
+  DAY time, clock 1 (the_end) carries AGE, disambiguated by adding 5000
+  and rejoining; the stale {1,2} ids kicked the client because the
+  clock registry only has entries 0 and 1. The rejoin
+  update_attributes stub is now the real triple (block range 8=4.5,
+  entity range 13=3.0, speed 26=0.1, all bare) - the old filler ids
+  84/132 are past the static 40-entry attribute registry and kick.
+  Survival dig had two bugs: a repeated start on the same block must
+  RESTART the timer with the finish latched (measured: re-start at
+  ~10t then finish breaks grass at ~28t, not ~18t, not never), which
+  mc-go previously cancelled; and the shipped binary never ticked at
+  all - main called fe.Serve directly so startGameTicks/startTimeSync
+  were dead code (proven live: gametime stayed 0 for minutes, /tick
+  step advanced it, and a stepped tick completed a latched dig).
+  Server.ServeFrontend now owns the lifecycle for any named frontend
+  and main uses it. Join/leave log lines added. Crafting now resolves
+  against the full generated data.Recipes table (shaped with vanilla's
+  horizontal mirroring, shapeless as multisets, tag-flattened
+  ingredients) and the recipe book indexes the same table - the old
+  hand-written 11-recipe list and its broken key resolver are gone.
+  TestCraftRecipeParity replays 8 click sequences on both servers
+  (pickaxe, stairs + mirrored stairs, corner-placed log, shapeless
+  andesite, cake, a damaged-bow dispenser, 2x2) and every slot/carry
+  state matches vanilla end-to-end. Probes deleted once pinned; the
+  repeated-start discriminator lives on in TestDigParity.
+
+- 2026-09-20 (cont.): Two more playtest-found bugs fixed. Rejoin
+  position restore now actually reaches the client - the persist path
+  existed but untrack gated even the in-memory savedPlayers write on
+  dataPath() != "", so a -world "" server resumed nothing; and
+  handlePlay's sendSyncPos + entity record used the WorldSpawn locals
+  captured BEFORE applySavedPlayer ran, so restored state never hit
+  the wire. Both fixed; TestRejoinPositionParity lands the player back
+  on the teleported spot on both servers. It also surfaced a /tp
+  argument gap: bare-integer x/z center on the block (100 -> 100.5)
+  while decimals and ~ stay exact, and ~ resolves against the entity's
+  exact position rather than the block floor. parseDouble now takes
+  the double base + a per-axis center flag; portal teleports center
+  the same way.
+
+Special crafting types are wired: the single-pass craftResult loop
+dispatches per recipe type, so crafting_special_repairitem (two
+same-id damageables merge, damage = dmgA+dmgB-max-floor(max/20),
+clamped at 0 - confirmed against vanilla at 80+100 on stone
+pickaxes) and crafting_transmute (input stack retyped to
+r.Result.Item keeping its components; bundle+dye measured) now
+answer identically to vanilla. Three new TestCraftRecipeParity
+cases pin repair, repair's same-id gate, and bundle recoloring.
+The measurement surfaced a /item grammar gap along the way: the
+item-spec bracket form (item[comp=v,...], plus !comp to clear)
+wasn't parsed at all, so `item replace ... with
+stone_pickaxe[damage=80]` refused its target. parseItemStack now
+splits the bracket and applyItemComponents sets damage and
+repair_cost (the only modeled scalars); unknown components are
+ignored.
+
+The health/hunger surface turned out to be a tick-model bug, not a
+content gap: measured on 26.2, a player parked in the void while the
+game was frozen died in seconds and a hurt player healed nothing across
+hundreds of /tick step'd ticks — the per-player connection tick
+(void damage, hunger, eating, digging, combat, portals) runs on wall
+clock, ungated by /tick freeze and never stepped. Those steps moved
+from GameTick to a playerTick the run loop calls every wall-clock tick
+regardless of freeze. Vanilla also emits at most one Set Health per
+tick with end-of-tick values, so damage/starvation/exhaustion now set a
+healthDirty flag the player tick flushes. Two more measured details:
+post-hit invulnerability is 20 ticks with the excess-only rule (a 4.0
+void hit lands every ~10, not every tick), and regen is two clocks -
+min(sat,6)/6 every 10 while saturation lasts and food is 20, then 1
+every 80 while food >= 18; the heal adds exhaustion that only drains
+on the NEXT food tick, which is why vanilla's heal packet still shows
+the pre-drain saturation. TestHungerRegenParity diffs the packet
+physics through a void dip plus a fed recovery window.
+
+- 2026-09-20: Recipe unlock engine: /recipe give|take with the full
+  RecipeDisplayEntry wire model reverse-engineered from the 26.2 jar -
+  display types (shapeless/shaped/furnace/stonecutter/smithing), all 11
+  slot-display codecs (composite, tag, with_remainder, dyed,
+  only_with_component, with_any_potion, smithing_trim...), trimmed
+  shaped patterns, per-type cook-time defaults (200/100/600),
+  ranged-transmute expansion (map_cloning emits one display per
+  material count), suspicious-stew component patches, and the recipe's
+  own show_notification flag driving the notify bit. Entry order is
+  bookable-recipes-in-data order with group/category/requirements
+  resolving exactly as measured. /recipe give emits only newly-known
+  recipes (already-known are skipped, not re-sent), give on a special
+  or unknown recipe fails with the right translation keys, take emits
+  RecipeBookRemove for the removed displays only, and success replies
+  carry {int N, player} under give/take.success.single. Compound NBT
+  now writes keys in Java HashMap bucket order, which is what makes the
+  reply bytes line up at all. Pinned byte-exact:
+  TestGiveAllBytes re-generates the whole give-all Add body (91865
+  bytes, 1568 entries) and TestRecipeCommandParity diffs every add,
+  remove and reply through a give/dup/take/take-all/give-all script.
+
+- 2026-09-20: Recipe advancement sync: /recipe give now grants the
+  recipe's has_the_recipe criterion and queues a dirty advancement, and
+  the player tick flushes UpdateAdvancements with the defs the client
+  has not seen plus criterion progress - the deferred flush is why the
+  packet lands after the reply. Granting a completed advancement's
+  leftover criteria is a no-op (crafting_table's unlock_right_away
+  completes it at join, so give * reports 1560 progress entries, not
+  1561). Both the added set and progress map iterate in identity-hash
+  order on the real server - two vanilla runs of give * produced
+  different wire orders - so the parity test compares entries as sets;
+  criterion order inside an entry IS deterministic and matched all
+  1560 entries exactly once modelled as HashMap buckets fed by the
+  requirements' fastutil ObjectOpenHashSet order. Recipe advancement
+  defs come from a new generated table (recipeadvs_gen.go: recipe ->
+  advancement id, requirements, JSON-order criteria).
+- 2026-09-20: inventory_changed + enter_block trigger engine: the tick
+  diffs the inventory snapshot and addStack fires synchronously, so a
+  /give that completes a has_* criterion emits the reward's
+  RecipeBookAdd before the command reply exactly as vanilla does (one
+  Add per completed advancement). Also cracked the advancement
+  requirements semantics: each outer group is satisfied by ANY one of
+  its criteria (AdvancementRequirements.test = all-groups-any-match),
+  so `recipe give *` completes every recipe advancement through
+  has_the_recipe and later pickups stay silent - verified against
+  vanilla which emits nothing for a give after give-all. /give now
+  takes an optional target (@s or player name) and answers with the
+  real commands.give.success.single component ({""-keyed count arg,
+  square-bracket item display with show_item hover, entity display
+  with suggest_command + show_entity hover) - byte-exact vs vanilla.
+  TestRecipeCommandParity gained keepalive echo (vanilla kicks a client
+  that never answers) and the give-oak_log/give-stone steps; trigger
+  adds compare as a multiset since vanilla's listener order is
+  identity-hash dependent.
+
+- 2026-09-20: Attack-cooldown + mob death pipeline: the per-weapon
+  recharge timer is `20/(4.0 + mainhand attack_speed modifier)`
+  ticks (stone sword 12.5) and a swing's damage scales by
+  `0.2 + 0.8 * scale^2` where scale = clamp((ticker+0.5)/delay,0,1);
+  the ticker resets on every attack and starts at zero. damage_dealt
+  is `round(dealt*10)` where dealt is health actually lost (capped
+  at remaining health — a sniffer's killing 5-damage blow reports
+  4.0). Mobs get the full LivingEntity treatment: i-frames
+  (invulnerableTime>10 rejects weaker hits, stronger hits land the
+  delta), die() fires entity event 3 + loot/XP while the corpse
+  lingers 20 ticks before event 60 + removal. Dropped the invented
+  hurt-status-2 entity event — vanilla mob hurt is the damage_event
+  packet only. `TestAttackCooldownParity` swings a stone sword at a
+  NoAI iron golem on both servers (hit mid-cooldown lands ~44
+  damage_dealt, recharged hits 50) and the unit tests charge the
+  ticker to model full-strength swings. Learned the hard way that
+  entity ids churn while chunk tracking settles after a teleport —
+  scenarios must pick the freshest spawn near the player.
+
+- 2026-09-20: attack aftermath parity — crits, sweeps, sounds,
+  particles, reach gate, grace hits. Player.attack's post-hit pipeline
+  decoded from 26.2 bytecode: charged standing sword hit = sweep sound
+  (charged+onsolid ground+horizontal speed < walk speed*2.5 +
+  sword-held); sprint hit = knockback sound + 0.5 kb; airborne hit
+  with fallDistance>0 = crit sound + 1.5x damage + animate(4);
+  otherwise strong (>0.9 charge) or weak sound. Holder<SoundEvent>
+  holders encode id+1 on the wire (0 = inline) — the earlier
+  'weak-on-full-damage' mystery was an off-by-one decode. doSweepAttack
+  damages LivingEntity neighbors in victim box inflated (1,0.25,1)
+  with distanceSqr<9 (strict) at 1*scale each, knockback = hurt's
+  away-kb then the sweep's facing-kb (two knockDelta halvings), then
+  the sweep_attack particle one block ahead at half bb height.
+  damage_indicator particle when dealt>2, count=int(dealt*0.5) at
+  victim getY(0.5). handleAttack gates on clamped eye-to-AABB distance
+  <= entity_interaction_range (3.0) — out-of-range attacks are
+  silently ignored. A second hit inside the 10-tick i-frame window
+  lands only the amount-lastHurt excess (graced): health meta still
+  updates but no damage_event and no knockback. mc-go gained
+  planAttack/preAttackSound/attackAftermath/doSweepAttack,
+  withinAttackRange, lastHorizSq tracking, per-mob bounding boxes, and
+  the graced flag on Manager.Damage. TestCritSweepParity scripts all
+  five legs (sweep/crit/weak/sprint/strong) against both servers —
+  green; the weak leg asserts a partial-hit band since the dealt
+  amount is quantized by the tick boundary each server crosses inside
+  the scripted gap.

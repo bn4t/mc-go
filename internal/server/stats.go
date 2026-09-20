@@ -1,16 +1,18 @@
 package server
 
 import (
-	"sort"
+	"strconv"
+	"strings"
 
 	"mc-go/internal/protocol"
+	"mc-go/internal/world"
 )
 
 // Player statistics: the per-player counters the client shows in its
 // Statistics screen, sent as Award Statistics in reply to Client Status
-// action 1. Categories and their id spaces come from the
-// minecraft:stat_type registry; within a category the id is a block,
-// item, entity-type, or custom-stat id.
+// action 1 (and pushed again on respawn). Categories and their id
+// spaces come from the minecraft:stat_type registry; within a category
+// the id is a block, item, entity-type, or custom-stat id.
 const (
 	statMined     = 0
 	statCrafted   = 1
@@ -24,47 +26,98 @@ const (
 	statCategoryN = 9
 )
 
+// statTypeNames is the stat_type registry name for each category, used
+// to build a stat's hashable name.
+var statTypeNames = [statCategoryN]string{
+	"mined", "crafted", "used", "broken", "picked_up",
+	"dropped", "killed", "killed_by", "custom",
+}
+
 // statKey identifies one counter.
 type statKey struct {
 	category int32
 	id       int32
 }
 
-// statStore is a player's counter table plus the baseline last sent to
-// the client. Vanilla only sends values that changed since the previous
-// request, so the baseline is what makes repeat requests cheap.
+// statStore is a player's counter table. Two insertion histories are
+// kept because the wire order of an Award Statistics packet depends on
+// them (see statEmitOrder):
+//
+//   - insertOrder is first-award order, mirroring the key insertion
+//     order of vanilla's Object2IntOpenHashMap stat table.
+//   - dirtyOrder is the order keys entered vanilla's dirty HashSet
+//     (award order, or markAllDirty's table iteration at join/respawn).
 type statStore struct {
-	counts map[statKey]int32
-	sent   map[statKey]int32
+	counts      map[statKey]int32
+	insertOrder []statKey
+	dirty       map[statKey]bool
+	dirtyOrder  []statKey
+}
+
+// ensureStats lazily builds the store.
+func (sess *Session) ensureStats() *statStore {
+	if sess.stats == nil {
+		sess.stats = &statStore{
+			counts: map[statKey]int32{},
+			dirty:  map[statKey]bool{},
+		}
+	}
+	return sess.stats
 }
 
 // addStat increments one counter, ignoring negative deltas that would
-// take it below zero (vanilla clamps the same way).
+// take it below zero (vanilla clamps the same way). A changed counter
+// enters the dirty set so the next stats request reports it.
 func (sess *Session) addStat(category, id, delta int32) {
 	if delta == 0 || id < 0 {
 		return
 	}
 	sess.statMu.Lock()
 	defer sess.statMu.Unlock()
-	if sess.stats == nil {
-		sess.stats = &statStore{
-			counts: map[statKey]int32{},
-			sent:   map[statKey]int32{},
-		}
-	}
+	st := sess.ensureStats()
 	k := statKey{category, id}
-	next := sess.stats.counts[k] + delta
+	next := st.counts[k] + delta
 	if next < 0 {
 		next = 0
 	}
-	sess.stats.counts[k] = next
+	if _, seen := st.counts[k]; !seen {
+		st.insertOrder = append(st.insertOrder, k)
+	}
+	st.counts[k] = next
+	if !st.dirty[k] {
+		st.dirty[k] = true
+		st.dirtyOrder = append(st.dirtyOrder, k)
+	}
 }
 
-// addBlockStat records a statistic about a block, resolving the block
-// state to its registry id (which is the same id space the report uses
-// for blocks).
-func (sess *Session) addBlockStat(category int32, blk BlockRef, delta int32) {
-	sess.addStat(category, int32(blk), delta)
+// setStat forces one counter's value (respawn resets, loads).
+func (sess *Session) setStat(category, id, value int32) {
+	sess.statMu.Lock()
+	defer sess.statMu.Unlock()
+	st := sess.ensureStats()
+	k := statKey{category, id}
+	if _, seen := st.counts[k]; !seen {
+		st.insertOrder = append(st.insertOrder, k)
+	}
+	st.counts[k] = value
+	if !st.dirty[k] {
+		st.dirty[k] = true
+		st.dirtyOrder = append(st.dirtyOrder, k)
+	}
+}
+
+// addBlockStat records a statistic about a block; the value is the
+// block-registry id (not the block-state id).
+func (sess *Session) addBlockStat(category int32, b world.Block, delta int32) {
+	name, ok := world.StateOwner(b)
+	if !ok {
+		return
+	}
+	id, ok := BlockID(name)
+	if !ok {
+		return
+	}
+	sess.addStat(category, id, delta)
 }
 
 // addItemStat records a statistic about an item.
@@ -72,9 +125,9 @@ func (sess *Session) addItemStat(category int32, itemID int32, delta int32) {
 	sess.addStat(category, itemID, delta)
 }
 
-// addCustomStat records a custom statistic by name.
+// addCustomStat records a custom statistic by short name.
 func (sess *Session) addCustomStat(name string, delta int32) {
-	id, ok := CustomStatID("minecraft:" + name)
+	id, ok := CustomStatID(name)
 	if !ok {
 		return
 	}
@@ -91,38 +144,44 @@ func (sess *Session) statCount(category, id int32) int32 {
 	return sess.stats.counts[statKey{category, id}]
 }
 
-// sendStatistics answers Client Status action 1 with every counter that
-// changed since the last request, then advances the baseline. An
-// unchanged table produces an empty packet, which is what vanilla
-// sends when nothing moved.
+// markAllStatsDirty flags every existing counter dirty, the way
+// vanilla's markAllDirty does at join and respawn. Vanilla iterates
+// its stat map (a fastutil open hash map), so the dirty set receives
+// keys in descending-slot order — that order matters because it feeds
+// the wire emit order.
+func (sess *Session) markAllStatsDirty() {
+	sess.statMu.Lock()
+	defer sess.statMu.Unlock()
+	st := sess.ensureStats()
+	for _, k := range fastutilIterDesc(st.insertOrder) {
+		if !st.dirty[k] {
+			st.dirty[k] = true
+			st.dirtyOrder = append(st.dirtyOrder, k)
+		}
+	}
+}
+
+// sendStatistics answers Client Status action 1 with every dirty
+// counter, then clears the dirty set. The emit order reproduces
+// vanilla's chain: the dirty HashSet is copied (iterating in HashMap
+// bucket order), entries are inserted into an Object2IntOpenHashMap in
+// that order, and the packet codec iterates the map's slots
+// descending.
 func (s *Server) sendStatistics(sess *Session) error {
 	sess.statMu.Lock()
-	if sess.stats == nil {
-		sess.stats = &statStore{counts: map[statKey]int32{}, sent: map[statKey]int32{}}
+	st := sess.ensureStats()
+	order := statEmitOrder(st.dirtyOrder)
+	values := make(map[statKey]int32, len(order))
+	for _, k := range order {
+		values[k] = st.counts[k]
 	}
-	changed := make([]statKey, 0, len(sess.stats.counts))
-	for k, v := range sess.stats.counts {
-		if sess.stats.sent[k] != v {
-			changed = append(changed, k)
-			sess.stats.sent[k] = v
-		}
-	}
-	values := make(map[statKey]int32, len(changed))
-	for _, k := range changed {
-		values[k] = sess.stats.counts[k]
-	}
+	st.dirty = map[statKey]bool{}
+	st.dirtyOrder = nil
 	sess.statMu.Unlock()
 
-	sort.Slice(changed, func(i, j int) bool {
-		if changed[i].category != changed[j].category {
-			return changed[i].category < changed[j].category
-		}
-		return changed[i].id < changed[j].id
-	})
-
 	var b protocol.Buffer
-	b.VarInt(int32(len(changed)))
-	for _, k := range changed {
+	b.VarInt(int32(len(order)))
+	for _, k := range order {
 		b.VarInt(k.category)
 		b.VarInt(k.id)
 		b.VarInt(values[k])
@@ -130,5 +189,105 @@ func (s *Server) sendStatistics(sess *Session) error {
 	return sess.write(sess.ids().PlayAwardStats, b.Bytes())
 }
 
-// BlockRef is a block state id as the statistics registry records it.
-type BlockRef = uint16
+// statEmitOrder computes the wire order for a set of dirty stats:
+// Java-HashSet bucket order of the copy, then descending fastutil
+// slots of the map that copy inserts into.
+func statEmitOrder(dirtyOrder []statKey) []statKey {
+	return fastutilIterDesc(javaHashSetIterOrder(dirtyOrder))
+}
+
+// statNameHash hashes a stat the way Stat.hashCode does: the Java
+// String hash of "locationKey(typeId):locationKey(valueId)" where
+// locationKey renders the identifier with '.' for ':'.
+func statNameHash(k statKey) uint32 {
+	var vname string
+	var ok bool
+	switch k.category {
+	case statMined:
+		vname, ok = blockIDName(k.id)
+	case statCrafted, statUsed, statBroken, statPickedUp, statDropped:
+		vname, ok = world.ItemName(k.id)
+	case statKilled, statKilledBy:
+		vname, ok = EntityTypeName(k.id)
+	case statCustom:
+		vname, ok = customStatName(k.id)
+	}
+	if !ok || k.category < 0 || int(k.category) >= len(statTypeNames) {
+		// Unknown value: hash its numeric id — still deterministic,
+		// just not the java name (these never reach a real client
+		// because only resolvable stats get incremented).
+		return uint32(k.category*1000003) ^ uint32(k.id)
+	}
+	return uint32(javaStringHash("minecraft." + statTypeNames[k.category] + ":minecraft." + vname))
+}
+
+// statPersistKey encodes a stat key for the data file.
+func statPersistKey(k statKey) string {
+	return strconv.Itoa(int(k.category)) + ":" + strconv.Itoa(int(k.id))
+}
+
+// parseStatPersistKey reads back a statPersistKey.
+func parseStatPersistKey(s string) (statKey, bool) {
+	i := strings.IndexByte(s, ':')
+	if i < 0 {
+		return statKey{}, false
+	}
+	cat, err1 := strconv.Atoi(s[:i])
+	id, err2 := strconv.Atoi(s[i+1:])
+	if err1 != nil || err2 != nil {
+		return statKey{}, false
+	}
+	return statKey{int32(cat), int32(id)}, true
+}
+
+// hashSpread is java.util.HashMap's supplemental hash.
+func hashSpread(h uint32) uint32 { return h ^ (h >> 16) }
+
+// javaHashSetIterOrder orders keys the way iterating a java HashSet
+// does: bucket index ascending, insertion order within a bucket. The
+// table starts at capacity 16 and doubles whenever size exceeds 3/4 of
+// capacity; splits preserve relative order, so bucket-sorting the
+// insertion sequence at the final capacity reproduces iteration order.
+func javaHashSetIterOrder(keys []statKey) []statKey {
+	n := hashMapCap(len(keys))
+	mask := uint32(n - 1)
+	buckets := make([][]statKey, n)
+	for _, k := range keys {
+		b := hashSpread(statNameHash(k)) & mask
+		buckets[b] = append(buckets[b], k)
+	}
+	out := make([]statKey, 0, len(keys))
+	for _, list := range buckets {
+		out = append(out, list...)
+	}
+	return out
+}
+
+// fastutilIterDesc inserts keys into a simulated
+// Object2IntOpenHashMap (open addressing, forward probing, table
+// doubled once size reaches the .75 fill) and returns them in the
+// map's iteration order: slot index descending.
+func fastutilIterDesc(insertOrder []statKey) []statKey {
+	n := 32 // arraySize(16, 0.75) — the map's default-constructor size
+	for len(insertOrder) >= n*3/4 {
+		n *= 2
+	}
+	mask := uint32(n - 1)
+	table := make([]statKey, n)
+	used := make([]bool, n)
+	for _, k := range insertOrder {
+		p := uint32(fastutilMix(int32(statNameHash(k)))) & mask
+		for used[p] {
+			p = (p + 1) & mask
+		}
+		used[p] = true
+		table[p] = k
+	}
+	out := make([]statKey, 0, len(insertOrder))
+	for i := n - 1; i >= 0; i-- {
+		if used[i] {
+			out = append(out, table[i])
+		}
+	}
+	return out
+}

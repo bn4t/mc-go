@@ -713,6 +713,11 @@ func (sess *Session) addStack(it ItemStack) (ItemStack, bool) {
 	for _, u := range updates {
 		_ = sess.server.sendContainerSlot(sess, u.slot, u.it)
 	}
+	if picked {
+		// vanilla's container.changed() listener evaluates the
+		// inventory_changed advancement criteria after each mutation
+		sess.server.fireInventoryChanged(sess)
+	}
 	return it, picked
 }
 
@@ -776,9 +781,36 @@ func readHashedSlot(r *protocol.PacketReader) (ItemStack, bool) {
 	return ItemStack{ID: id, Count: count}, true
 }
 
-// dropItemLocked is a placeholder for entity item spawning; the item
-// merge/throw semantics are already applied to the inventory.
+// dropItemLocked spawns the thrown stack as an item entity above the
+// player and counts the drop statistics — one custom "drop" per throw
+// and the item count under dropped[item].
 func (s *Server) dropItemLocked(sess *Session, it ItemStack) {
-	_ = world.ItemIDs
-	_ = it
+	if it.Empty() {
+		return
+	}
+	x, y, z, yaw, pitch, _ := sess.Pos()
+	itemType, ok := EntityTypeID("item")
+	if !ok {
+		return
+	}
+	// Vanilla's Player.drop tosses the stack forward along the look
+	// vector at ~0.3 blocks/tick with a small upward pop.
+	lx, _, lz := lookVector(yaw, pitch)
+	e := s.entities.Spawn(&Entity{
+		Type:        itemType,
+		Dim:         sess.dimName(),
+		X:           x + lx*0.3,
+		Y:           y + 1.32, // eye height minus vanilla's 0.3 offset
+		Z:           z + lz*0.3,
+		MotionX:     lx * 0.3,
+		MotionZ:     lz * 0.3,
+		MotionY:     0.2,
+		Item:        it,
+		PickupDelay: 40,
+	})
+	e.Yaw = yaw
+	s.broadcastEntitySpawn(nil, *e)
+	s.broadcastEntityMetadata(e.ID, encodeItemMetadata(it))
+	sess.addCustomStat("drop", 1)
+	sess.addItemStat(statDropped, it.ID, it.Count)
 }

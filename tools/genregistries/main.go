@@ -30,12 +30,14 @@ func main() {
 	writeWorldItems(registries)
 	writeEntityTypes(registries)
 	writeLootFunctions(registries)
+	writeWear()
 	fmt.Println("generated:")
 	fmt.Println("  internal/world/blocks_gen.go")
 	fmt.Println("  internal/world/blockstates_gen.go")
 	fmt.Println("  internal/world/items_gen.go")
 	fmt.Println("  internal/server/entitytypes_gen.go")
 	fmt.Println("  internal/server/lootfunctions_gen.go")
+	fmt.Println("  internal/server/wear_gen.go")
 }
 
 func readJSON(path string) map[string]any {
@@ -518,6 +520,51 @@ func writeEntityTypes(registries map[string]any) {
 	b.WriteString("\tid, ok := CustomStatIDs[name]\n")
 	b.WriteString("\treturn id, ok\n")
 	b.WriteString("}\n\n")
+	b.WriteString("// customStatNames maps a custom-stat registry id back to its name.\n")
+	b.WriteString("var customStatNames = map[int32]string{\n")
+	cnames := make([]string, 0, len(regEntries(registries, "minecraft:custom_stat")))
+	for n, id := range regEntries(registries, "minecraft:custom_stat") {
+		_ = id
+		cnames = append(cnames, n)
+	}
+	sort.Strings(cnames)
+	for _, n := range cnames {
+		fmt.Fprintf(&b, "\t%d: %q,\n", regEntries(registries, "minecraft:custom_stat")[n], n)
+	}
+	b.WriteString("}\n\n")
+	b.WriteString("// customStatName returns the stat name a registry id names.\n")
+	b.WriteString("func customStatName(id int32) (string, bool) {\n")
+	b.WriteString("\tn, ok := customStatNames[id]\n")
+	b.WriteString("\treturn n, ok\n")
+	b.WriteString("}\n\n")
+	b.WriteString("// blockIDs maps a block name (without the minecraft: prefix) to its\n")
+	b.WriteString("// protocol block-registry id — the value mined/broken statistics\n")
+	b.WriteString("// carry (note this is the registry id, not a block-state id).\n")
+	b.WriteString("var blockIDs = map[string]int32{\n")
+	blocks := regEntries(registries, "minecraft:block")
+	writeSorted(&b, blocks, func(v int) string { return fmt.Sprintf("%d", v) })
+	b.WriteString("}\n\n")
+	b.WriteString("// BlockID returns the block-registry id for a block name.\n")
+	b.WriteString("func BlockID(name string) (int32, bool) {\n")
+	b.WriteString("\tid, ok := blockIDs[name]\n")
+	b.WriteString("\treturn id, ok\n")
+	b.WriteString("}\n\n")
+	b.WriteString("// blockIDNames maps a block-registry id back to its name.\n")
+	b.WriteString("var blockIDNames = map[int32]string{\n")
+	bnames := make([]string, 0, len(blocks))
+	for n := range blocks {
+		bnames = append(bnames, n)
+	}
+	sort.Slice(bnames, func(i, j int) bool { return blocks[bnames[i]] < blocks[bnames[j]] })
+	for _, n := range bnames {
+		fmt.Fprintf(&b, "\t%d: %q,\n", blocks[n], n)
+	}
+	b.WriteString("}\n\n")
+	b.WriteString("// blockIDName returns the block name a registry id names.\n")
+	b.WriteString("func blockIDName(id int32) (string, bool) {\n")
+	b.WriteString("\tn, ok := blockIDNames[id]\n")
+	b.WriteString("\treturn n, ok\n")
+	b.WriteString("}\n\n")
 	b.WriteString("// entityTypes maps entity type name (without the minecraft: prefix)\n")
 	b.WriteString("// to its protocol registry id.\n")
 	b.WriteString("var entityTypes = map[string]int32{\n")
@@ -572,6 +619,100 @@ func writeLootFunctions(registries map[string]any) {
 	writeFile("internal/server/lootfunctions_gen.go", b.String())
 }
 
+// writeWear emits the per-item durability costs from the components
+// reports: the tool component's damage_per_block (what mining a
+// non-instant block wears, defaulting to 1) and the weapon
+// component's item_damage_per_attack (what a landed hit wears,
+// defaulting to 1). Items with neither component are absent.
+func writeWear() {
+	dents, err := os.ReadDir("vanilla/reports/minecraft/components/item")
+	if err != nil {
+		fatalf("read components dir: %v", err)
+	}
+	tool := map[string]int{}
+	weapon := map[string]int{}
+	hurtExempt := map[string]int{}
+	equippable := map[string]int{}
+	attackSpeed := map[string]float64{}
+	for _, de := range dents {
+		if !strings.HasSuffix(de.Name(), ".json") {
+			continue
+		}
+		name := strings.TrimSuffix(de.Name(), ".json")
+		comp := readJSON("vanilla/reports/minecraft/components/item/" + de.Name())
+		c, _ := comp["components"].(map[string]any)
+		if c == nil {
+			continue
+		}
+		if _, ok := c["minecraft:tool"].(map[string]any); ok {
+			dpb := 1
+			if t, _ := c["minecraft:tool"].(map[string]any); t != nil {
+				if v, ok := t["damage_per_block"].(float64); ok {
+					dpb = int(v)
+				}
+			}
+			tool[name] = dpb
+		}
+		if w, ok := c["minecraft:weapon"].(map[string]any); ok {
+			dpa := 1
+			if v, ok := w["item_damage_per_attack"].(float64); ok {
+				dpa = int(v)
+			}
+			weapon[name] = dpa
+		}
+		if eq, ok := c["minecraft:equippable"].(map[string]any); ok {
+			equippable[name] = 1
+			if v, ok := eq["damage_on_hurt"].(bool); ok && !v {
+				hurtExempt[name] = 1
+			}
+		}
+		if mods, ok := c["minecraft:attribute_modifiers"].([]any); ok {
+			for _, m := range mods {
+				mod, _ := m.(map[string]any)
+				if mod == nil || mod["type"] != "minecraft:attack_speed" || mod["operation"] != "add_value" {
+					continue
+				}
+				if v, ok := mod["amount"].(float64); ok {
+					attackSpeed[name] += v
+				}
+			}
+		}
+	}
+	var b strings.Builder
+	b.WriteString("// Code generated by tools/genregistries from vanilla/reports/minecraft/components/item/*.json; DO NOT EDIT.\n\n")
+	b.WriteString("package server\n\n")
+	b.WriteString("// itemToolDamagePerBlock is each tool item's damage_per_block:\n")
+	b.WriteString("// the durability points breaking a non-instantly-mineable block\n")
+	b.WriteString("// costs (minecraft:tool's damage_per_block, default 1 in vanilla).\n")
+	b.WriteString("var itemToolDamagePerBlock = map[string]int32{\n")
+	writeSorted(&b, tool, func(v int) string { return fmt.Sprintf("%d", v) })
+	b.WriteString("}\n\n")
+	b.WriteString("// itemWeaponDamagePerAttack is each weapon item's\n")
+	b.WriteString("// item_damage_per_attack: the durability points a landed hit\n")
+	b.WriteString("// costs (minecraft:weapon's item_damage_per_attack, default 1).\n")
+	b.WriteString("var itemWeaponDamagePerAttack = map[string]int32{\n")
+	writeSorted(&b, weapon, func(v int) string { return fmt.Sprintf("%d", v) })
+	b.WriteString("}\n\n")
+	b.WriteString("// itemHurtWearExempt lists equippable items whose\n")
+	b.WriteString("// damage_on_hurt is false: they never lose durability when the\n")
+	b.WriteString("// wearer is hurt (vanilla equippable defaults it true).\n")
+	b.WriteString("var itemHurtWearExempt = map[string]int32{\n")
+	writeSorted(&b, hurtExempt, func(v int) string { return fmt.Sprintf("%d", v) })
+	b.WriteString("}\n\n")
+	b.WriteString("// itemEquippable lists every item with a minecraft:equippable\n")
+	b.WriteString("// component (armor, elytra, heads, saddles, ...).\n")
+	b.WriteString("var itemEquippable = map[string]int32{\n")
+	writeSorted(&b, equippable, func(v int) string { return fmt.Sprintf("%d", v) })
+	b.WriteString("}\n\n")
+	b.WriteString("// itemAttackSpeedMod is each item's summed mainhand\n")
+	b.WriteString("// attack_speed add_value modifier — added to the player's base 4\n")
+	b.WriteString("// to get the attack speed that paces the cooldown.\n")
+	b.WriteString("var itemAttackSpeedMod = map[string]float64{\n")
+	writeSortedF(&b, attackSpeed)
+	b.WriteString("}\n")
+	writeFile("internal/server/wear_gen.go", b.String())
+}
+
 // regEntries returns name (prefix-stripped) -> protocol id for one
 // registry in registries.json.
 func regEntries(registries map[string]any, key string) map[string]int {
@@ -587,6 +728,17 @@ func regEntries(registries map[string]any, key string) map[string]int {
 		out[strings.TrimPrefix(name, "minecraft:")] = int(id)
 	}
 	return out
+}
+
+func writeSortedF(b *strings.Builder, m map[string]float64) {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Fprintf(b, "\t%q: %g,\n", k, m[k])
+	}
 }
 
 func writeSorted(b *strings.Builder, m map[string]int, format func(int) string) {

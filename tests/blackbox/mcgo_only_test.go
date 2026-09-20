@@ -516,10 +516,10 @@ func TestMcGoOnlyOpsCommands(t *testing.T) {
 		return readSystemChatBlackbox(t, pr, 10*time.Second)
 	}
 
-	if out := runCmd(pwa, pra, "tp 100 70 100"); out != "Teleported to 100.00 70.00 100.00" {
+	if out := runCmd(pwa, pra, "tp 100 70 100"); out != "Teleported to 100.50 70.00 100.50" {
 		t.Fatalf("/tp coords = %q", out)
 	}
-	if out := runCmd(pwa, pra, "pos"); !strings.HasPrefix(out, "100.00 70.00 100.00") {
+	if out := runCmd(pwa, pra, "pos"); !strings.HasPrefix(out, "100.50 70.00 100.50") {
 		t.Fatalf("/pos after tp = %q", out)
 	}
 	if out := runCmd(pwa, pra, "tp Bob"); out != "Teleported to Bob" {

@@ -37,18 +37,40 @@ func (s *Server) registerOps() {
 }
 
 // parseDouble resolves one teleport axis: "12", "12.5", "~", "~-3.5".
-func parseDouble(tok string, base int) (float64, error) {
+// The base is the entity's exact position — vanilla's "~" moves from
+// the player's fractional spot, not the block floor. When center is
+// set (the horizontal axes of a teleport), a bare integer means the
+// block column and lands on its center — vanilla's vec3 arg centers
+// x/z on 0.5 while y stays exact.
+func parseDouble(tok string, base float64, center bool) (float64, error) {
 	if tok == "~" {
-		return float64(base), nil
+		return base, nil
 	}
 	if strings.HasPrefix(tok, "~") {
 		off, err := strconv.ParseFloat(strings.TrimPrefix(tok, "~"), 64)
 		if err != nil {
 			return 0, err
 		}
-		return float64(base) + off, nil
+		return base + off, nil
 	}
-	return strconv.ParseFloat(tok, 64)
+	v, err := strconv.ParseFloat(tok, 64)
+	if err != nil {
+		return 0, err
+	}
+	if center && !strings.ContainsAny(tok, ".eE") {
+		v += 0.5
+	}
+	return v, nil
+}
+
+// baseExactPos returns the player's exact position for "~" resolution
+// in teleport-style arguments, falling back to world spawn.
+func (s *Server) baseExactPos(player string) (float64, float64, float64) {
+	if sess := s.findSessionByName(player); sess != nil {
+		x, y, z, _, _, _ := sess.Pos()
+		return x, y, z
+	}
+	return s.WorldSpawn()
 }
 
 // runTp implements "/tp <player>", "/tp <x> <y> <z>", and
@@ -80,7 +102,7 @@ func (s *Server) runTp(player string, args []string) string {
 		// /tp <x> <y> <z> <yaw> <pitch> when the leading argument is a
 		// coordinate; a name there means a victim form with arguments
 		// missing, which vanilla also rejects.
-		if _, err := parseDouble(args[0], 0); err != nil {
+		if _, err := parseDouble(args[0], 0, true); err != nil {
 			return "Usage: /tp <player> | /tp <x> <y> <z> [<yaw> <pitch>] | /tp <victim> <x> <y> <z> [<yaw> <pitch>]"
 		}
 		return s.runTpCoordsRot(player, player, args[:3], args[3:])
@@ -94,16 +116,16 @@ func (s *Server) runTp(player string, args []string) string {
 
 func (s *Server) runTpCoords(victim, issuer string, args []string) string {
 	const border = 29999984.0
-	bx, by, bz := s.baseBlockPos(victim)
-	x, err := parseDouble(args[0], bx)
+	bx, by, bz := s.baseExactPos(victim)
+	x, err := parseDouble(args[0], bx, true)
 	if err != nil {
 		return "Invalid x: " + args[0]
 	}
-	y, err := parseDouble(args[1], by)
+	y, err := parseDouble(args[1], by, false)
 	if err != nil {
 		return "Invalid y: " + args[1]
 	}
-	z, err := parseDouble(args[2], bz)
+	z, err := parseDouble(args[2], bz, true)
 	if err != nil {
 		return "Invalid z: " + args[2]
 	}
@@ -125,16 +147,16 @@ func (s *Server) runTpCoords(victim, issuer string, args []string) string {
 // runTpCoordsRot is the /tp form that also turns the player.
 func (s *Server) runTpCoordsRot(victim, issuer string, coords, rot []string) string {
 	const border = 29999984.0
-	bx, by, bz := s.baseBlockPos(victim)
-	x, err := parseDouble(coords[0], bx)
+	bx, by, bz := s.baseExactPos(victim)
+	x, err := parseDouble(coords[0], bx, true)
 	if err != nil {
 		return "Invalid x: " + coords[0]
 	}
-	y, err := parseDouble(coords[1], by)
+	y, err := parseDouble(coords[1], by, false)
 	if err != nil {
 		return "Invalid y: " + coords[1]
 	}
-	z, err := parseDouble(coords[2], bz)
+	z, err := parseDouble(coords[2], bz, true)
 	if err != nil {
 		return "Invalid z: " + coords[2]
 	}

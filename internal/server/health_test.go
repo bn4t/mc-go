@@ -22,6 +22,8 @@ func TestDamageSyncsHealth(t *testing.T) {
 		t.Fatal("session missing")
 	}
 	s.damage(sess, 5, "test")
+	// The sync lands on the next player tick, not on the damage call.
+	s.playerTick()
 	p, err := waitPacket(t, pr, IDPlaySetHealth)
 	if err != nil {
 		t.Fatal(err)
@@ -195,22 +197,35 @@ func TestAttackDamagesPlayer(t *testing.T) {
 	if alice == nil || bob == nil {
 		t.Fatal("sessions missing")
 	}
-	// Both spawn at the same point: within attack reach.
+	// Both spawn at the same point: within attack reach. Charge the
+	// cooldown so the scripted swing lands at full strength.
+	bob.attackTicker = 200
 	s.handleAttack(bob, attackPacket(t, alice.entityID.Load()))
 
 	if alice.health != 19 {
 		t.Fatalf("alice health = %v, want 19", alice.health)
 	}
-	hp, err := waitPacket(t, pra, IDPlaySetHealth)
-	if err != nil {
-		t.Fatal(err)
+	s.playerTick()
+	// The hurt animation goes out with the attack; the health sync only
+	// lands on the player tick, so the two can arrive in either order.
+	var hp, ha protocol.Packet
+	for i := 0; i < 256 && (hp.Data == nil || ha.Data == nil); i++ {
+		p, err := pra.ReadPacket()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.ID == IDPlaySetHealth {
+			hp = p
+		}
+		if p.ID == IDPlayHurtAnimation {
+			ha = p
+		}
+	}
+	if hp.Data == nil || ha.Data == nil {
+		t.Fatalf("health=%v anim=%v never both arrived", hp.Data != nil, ha.Data != nil)
 	}
 	if h, _ := protocol.NewPacketReader(hp.Data).Float(); h != 19 {
 		t.Fatalf("set health = %v, want 19", h)
-	}
-	ha, err := waitPacket(t, pra, IDPlayHurtAnimation)
-	if err != nil {
-		t.Fatal(err)
 	}
 	r := protocol.NewPacketReader(ha.Data)
 	if eid, err := r.VarInt(); err != nil || eid != alice.entityID.Load() {
@@ -257,6 +272,7 @@ func TestAttackLethalSendsCombatDeath(t *testing.T) {
 	alice := s.findSessionByName("Alice")
 	bob := s.findSessionByName("Bob")
 	alice.health = 0.5
+	bob.attackTicker = 200
 	s.handleAttack(bob, attackPacket(t, alice.entityID.Load()))
 	if !alice.dead {
 		t.Fatal("lethal attack did not kill")
@@ -417,8 +433,10 @@ func TestVoidDamageKills(t *testing.T) {
 	s.GameMode = GameModeSurvival
 	sess := survivalSession(t, s, "Void")
 	sess.setPos(0, float64(int32(MinY-64))-5, 0, 0, 0, false)
+	// The void lives on the player tick; post-hit invulnerability paces
+	// the hits to roughly every ten ticks, so sixty ticks is lethal.
 	for i := 0; i < 60; i++ {
-		s.voidTickStep()
+		s.playerTick()
 	}
 	if !sess.dead {
 		t.Fatalf("player survived the void: health %v", sess.health)
@@ -441,6 +459,7 @@ func TestWeaponDamage(t *testing.T) {
 	bob.setStack(invSlotForHotbar(0), ItemStack{ID: world.ItemIDs["iron_sword"], Count: 1})
 	bob.held.Store(0)
 
+	bob.attackTicker = 200
 	s.handleAttack(bob, attackPacket(t, alice.entityID.Load()))
 	if alice.health != 14 {
 		t.Fatalf("alice health = %v, want 14 (iron sword 6)", alice.health)
@@ -468,6 +487,7 @@ func TestArmorReducesDamage(t *testing.T) {
 		t.Fatalf("armor = %v, want 15", got)
 	}
 
+	bob.attackTicker = 200
 	s.handleAttack(bob, attackPacket(t, alice.entityID.Load()))
 	want := float32(20) - reduceDamage(1, 15)
 	if alice.health != want {

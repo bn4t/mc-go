@@ -14,6 +14,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"sort"
 )
 
 // Tag type ids.
@@ -101,6 +102,40 @@ func ReadNamed(r io.Reader) (string, any, error) {
 	return name, v, err
 }
 
+// compoundKeyOrder returns the keys of an NBT compound in the order a
+// real server's CompoundTag would store them: Java HashMap iteration
+// order, which walks hash buckets ascending.
+func compoundKeyOrder(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	// HashMap resizes past capacity*0.75.
+	cap := 16
+	for int(float64(cap)*0.75) < len(keys) {
+		cap *= 2
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		bi, bj := javaBucket(keys[i], cap), javaBucket(keys[j], cap)
+		if bi != bj {
+			return bi < bj
+		}
+		return keys[i] < keys[j]
+	})
+	return keys
+}
+
+// javaBucket computes a String key's HashMap bucket index: the spread
+// hash h ^ (h >>> 16) masked by the table capacity.
+func javaBucket(s string, cap int) int {
+	var h uint32
+	for i := 0; i < len(s); i++ {
+		h = 31*h + uint32(s[i])
+	}
+	h ^= h >> 16
+	return int(h) & (cap - 1)
+}
+
 func tagOf(v any) (byte, error) {
 	switch v.(type) {
 	case int8:
@@ -169,7 +204,9 @@ func writePayload(w io.Writer, tag byte, v any) error {
 		}
 		return nil
 	case TagCompound:
-		for name, item := range v.(map[string]any) {
+		m := v.(map[string]any)
+		for _, name := range compoundKeyOrder(m) {
+			item := m[name]
 			t, err := tagOf(item)
 			if err != nil {
 				return err

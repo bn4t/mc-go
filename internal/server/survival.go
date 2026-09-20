@@ -44,6 +44,13 @@ var blockHardnessTable = map[string]blockHardness{
 	"oak_log":                 {hardness: 2.0, drop: "oak_log"},
 	"oak_planks":              {hardness: 2.0, drop: "oak_planks"},
 	"glass":                   {hardness: 0.3, drop: ""},
+	// Instant breaks: destroySpeed 0 means no dig time and no tool
+	// wear (vanilla only wears when destroySpeed != 0).
+	"torch":          {hardness: 0, drop: "torch"},
+	"redstone_torch": {hardness: 0, drop: "redstone_torch"},
+	"soul_torch":     {hardness: 0, drop: "soul_torch"},
+	"lever":          {hardness: 0, drop: "lever"},
+	"oak_sapling":    {hardness: 0, drop: "oak_sapling"},
 }
 
 // hardnessOf returns the break rules for a block state.
@@ -118,7 +125,8 @@ func withinReach(sess *Session, pos world.Pos, reach float64) bool {
 // its own never destroys anything, a start plus finish destroys the
 // block after exactly the hardness-derived number of ticks counted from
 // the start, an abort discards the dig, and a second start on the same
-// block cancels it and is answered with a resync of the true block.
+// block restarts the timer and is answered with a resync of the true
+// block; the real client also retries finish while a dig is latched.
 func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) []int {
 	blk := sess.world().GetBlock(pos)
 	info := hardnessOf(blk)
@@ -143,9 +151,6 @@ func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) [
 			// Vanilla answers a redundant start with the truth about
 			// the block, which is what resynchronizes a client that
 			// predicted a break the server did not agree to.
-			sess.digMu.Lock()
-			sess.digActive = false
-			sess.digMu.Unlock()
 			s.sendBlockResync(sess, pos)
 		}
 	case digCancel:
@@ -223,6 +228,11 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 		return nil
 	}
 	affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
+	// Vanilla's destroyBlock wears the held tool and counts the use
+	// (ItemStack.mineBlock) before the break statistics land
+	// (Block.playerDestroy), so the used stat precedes mined here.
+	s.mineWear(sess, info)
+	sess.addBlockStat(statMined, broken, 1)
 	// A shulker box drops itself with everything inside as one stack
 	// (see removeContainer), so the plain block item would duplicate it.
 	if isShulkerBoxBlock(broken) {
@@ -349,6 +359,23 @@ func (s *Server) itemTickStep() {
 		if moved {
 			s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, 0, 0, true)
 		}
+		// Thrown items drift: horizontal motion applied each tick with
+		// vanilla's decay (0.98 airborne, block slip ~0.55 grounded).
+		if e.MotionX != 0 || e.MotionZ != 0 {
+			e.X += e.MotionX
+			e.Z += e.MotionZ
+			fr := 0.98
+			if e.MotionY == 0 {
+				fr = 0.55
+			}
+			e.MotionX *= fr
+			e.MotionZ *= fr
+			if math.Abs(e.MotionX) < 0.01 && math.Abs(e.MotionZ) < 0.01 {
+				e.MotionX, e.MotionZ = 0, 0
+			} else {
+				moved = true
+			}
+		}
 		if e.PickupDelay <= 0 {
 			if sess := s.pickupTarget(e); sess != nil {
 				if orb {
@@ -359,12 +386,15 @@ func (s *Server) itemTickStep() {
 				}
 				remainder, picked := sess.addStack(e.Item)
 				if picked {
+					took := e.Item.Count
 					// Vanilla tells the client the item flies to
 					// the collector before it disappears.
 					s.broadcastTakeItem(e.Dim, e.ID, sess.entityID.Load(), e.Item.Count)
 					s.entities.Remove(e.ID)
 					s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+					sess.addItemStat(statPickedUp, e.Item.ID, took)
 				} else if remainder != e.Item {
+					sess.addItemStat(statPickedUp, e.Item.ID, e.Item.Count-remainder.Count)
 					e.Item = remainder
 					s.broadcastEntityMetadata(e.ID, encodeItemMetadata(remainder))
 				}
@@ -407,7 +437,7 @@ func (s *Server) damage(sess *Session, amount float32, message string) {
 		s.killPlayer(sess, message)
 		return
 	}
-	_ = s.sendHealth(sess)
+	sess.healthDirty.Store(true)
 }
 
 // killPlayer runs the death flow: health 0, combat death notice, and
@@ -418,6 +448,17 @@ func (s *Server) killPlayer(sess *Session, message string) {
 	}
 	sess.dead = true
 	sess.health = 0
+	// Vanilla's die() award order: killed_by[killer], then deaths,
+	// then time_since_death resets.
+	if killer := s.entityByID(sess.lastHurtBy); killer != nil {
+		sess.addStat(statKilledBy, killer.Type, 1)
+	}
+	if src := s.sessionByEntityID(sess.lastHurtBy); src != nil {
+		src.addStat(statKilled, mustEntityType("player"), 1)
+		src.addCustomStat("player_kills", 1)
+	}
+	sess.addCustomStat("deaths", 1)
+	sess.setStat(statCustom, int32(CustomStatIDs["time_since_death"]), 0)
 	s.closeWindow(sess)
 	// Survival drops the whole inventory at the death spot.
 	if s.GameMode == GameModeSurvival {
@@ -529,37 +570,54 @@ func (s *Server) applyFallDamage(sess *Session) {
 	s.damageWith(sess, float32(distance-3.0), "Fell from a high place", srcFall)
 }
 
-// addExhaustion accumulates activity exhaustion; every four points
-// consume one saturation, or one food point when saturation is gone.
-func (sess *Session) addExhaustion(amount float32) bool {
-	if amount <= 0 {
-		return false
+// addExhaustion accumulates activity exhaustion. The saturation/food
+// spend does not happen here: vanilla drains it at the top of the next
+// food tick, which is what hungerTickStep does.
+func (sess *Session) addExhaustion(amount float32) {
+	if amount > 0 {
+		sess.exhaustion += amount
 	}
-	sess.exhaustion += amount
-	changed := false
-	for sess.exhaustion >= 4 {
-		sess.exhaustion -= 4
-		if sess.saturation > 0 {
-			sess.saturation--
-			changed = true
-		} else if sess.food > 0 {
-			sess.food--
-			changed = true
-		}
-	}
-	return changed
 }
 
-// hungerTickStep advances the hunger simulation one tick: natural
-// regeneration while well fed and starvation damage when empty.
+// hungerTickStep advances the hunger simulation one player tick:
+// natural regeneration runs on two vanilla clocks — a heal of
+// min(saturation,6)/6 every ten ticks while saturation lasts and the
+// player is full, else one health every eighty ticks once food is at
+// least eighteen — and starvation lands one damage every eighty ticks
+// while empty. All of it sits under the natural_health_regeneration
+// game rule for the heal side.
 func (s *Server) hungerTickStep() {
+	regen := s.gameRuleBool("minecraft:natural_health_regeneration")
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
 		if sess.state.Load() != StatePlay || sess.dead || sess.mode() != GameModeSurvival {
 			return true
 		}
 		changed := false
-		if sess.food >= 18 && sess.health < defaultHealth {
+		// Exhaustion spends first: every four points take a saturation,
+		// then a food point. The exhaustion a regen heal adds drains on
+		// the NEXT tick, so its health packet still carries the old
+		// saturation.
+		for sess.exhaustion >= 4 {
+			sess.exhaustion -= 4
+			if sess.saturation > 0 {
+				sess.saturation--
+			} else if sess.food > 0 {
+				sess.food--
+			}
+			changed = true
+		}
+		hurt := sess.health < defaultHealth
+		if regen && hurt && sess.food >= 20 && sess.saturation > 0 {
+			sess.foodTickTimer++
+			if sess.foodTickTimer >= 10 {
+				sess.foodTickTimer = 0
+				amount := min(sess.saturation, 6)
+				sess.health = min(sess.health+amount/6, defaultHealth)
+				sess.addExhaustion(amount)
+				changed = true
+			}
+		} else if regen && hurt && sess.food >= 18 {
 			sess.foodTickTimer++
 			if sess.foodTickTimer >= 80 {
 				sess.foodTickTimer = 0
@@ -574,15 +632,13 @@ func (s *Server) hungerTickStep() {
 			sess.starveTimer++
 			if sess.starveTimer >= 80 {
 				sess.starveTimer = 0
-				s.broadcastDamageEvent(sess.entityID.Load(), damageInfo{typeName: "starve"})
-				sess.health--
-				changed = true
+				s.damageWith(sess, 1, "Starved to death", srcStarve)
 			}
 		} else {
 			sess.starveTimer = 0
 		}
 		if changed {
-			_ = s.sendHealth(sess)
+			sess.healthDirty.Store(true)
 		}
 		return true
 	})
@@ -630,7 +686,11 @@ func (s *Server) pickupTarget(e *Entity) *Session {
 			return true
 		}
 		x, y, z, _, _, _ := sess.Pos()
-		if abs(x-e.X) <= 1.2 && abs(z-e.Z) <= 1.2 && abs(y-e.Y) <= 2.0 {
+		// Vanilla collects an item when its 0.25-cube box touches the
+		// player's bounding box inflated by (1.0, 0.5, 1.0): half-width
+		// 0.3+1.0+0.125 horizontally, [y-0.75, y+2.3] for the item's
+		// feet vertically.
+		if abs(x-e.X) <= 1.425 && abs(z-e.Z) <= 1.425 && e.Y >= y-0.75 && e.Y <= y+2.3 {
 			target = sess
 			return false
 		}
