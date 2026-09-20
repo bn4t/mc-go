@@ -18,21 +18,25 @@ func TestTpCoords(t *testing.T) {
 	s := New("unused")
 	enforceSession(t, s, "Warden")
 
-	if out := s.runTp("Warden", nil); !strings.HasPrefix(out, "Usage:") {
-		t.Fatalf("tp usage = %q", out)
+	if out := s.runTp("Warden", nil); !strings.HasPrefix(out.text, "Usage:") {
+		t.Fatalf("tp usage = %q", out.text)
 	}
-	if out := s.runTp("Warden", []string{"Ghost"}); out != "Unknown player: Ghost" {
-		t.Fatalf("tp ghost = %q", out)
+	if out := s.runTp("Warden", []string{"Ghost"}); out.text != "Unknown player: Ghost" {
+		t.Fatalf("tp ghost = %q", out.text)
 	}
-	if out := s.runTp("Warden", []string{"100", "oops", "100"}); out != "Invalid y: oops" {
-		t.Fatalf("tp bad y = %q", out)
+	if out := s.runTp("Warden", []string{"100", "oops", "100"}); out.text != "Invalid y: oops" {
+		t.Fatalf("tp bad y = %q", out.text)
 	}
-	if out := s.runTp("Warden", []string{"99999999", "70", "0"}); out != "Position outside the world" {
-		t.Fatalf("tp border = %q", out)
+	if out := s.runTp("Warden", []string{"99999999", "70", "0"}); out.text != "Position outside the world" {
+		t.Fatalf("tp border = %q", out.text)
 	}
 	out := s.runTp("Warden", []string{"100", "70", "-40"})
-	if out != "Teleported to 100.50 70.00 -39.50" {
-		t.Fatalf("tp = %q", out)
+	if out.comp.translate != "commands.teleport.success.location.single" {
+		t.Fatalf("tp = %+v", out.comp)
+	}
+	if len(out.comp.with) != 4 || out.comp.with[1] != "100.500000" ||
+		out.comp.with[2] != "70.000000" || out.comp.with[3] != "-39.500000" {
+		t.Fatalf("tp coords = %v", out.comp.with)
 	}
 	st, ok := s.PlayerStateOf("Warden")
 	if !ok || st.X != 100.5 || st.Y != 70 || st.Z != -39.5 {
@@ -40,8 +44,9 @@ func TestTpCoords(t *testing.T) {
 	}
 	// "~" relativity resolves against the sender's exact position.
 	out = s.runTp("Warden", []string{"~1", "~", "~-1"})
-	if out != "Teleported to 101.50 70.00 -40.50" {
-		t.Fatalf("tp relative = %q", out)
+	if len(out.comp.with) != 4 || out.comp.with[1] != "101.500000" ||
+		out.comp.with[2] != "70.000000" || out.comp.with[3] != "-40.500000" {
+		t.Fatalf("tp relative = %v", out.comp.with)
 	}
 }
 
@@ -51,21 +56,21 @@ func TestTpPlayerToPlayer(t *testing.T) {
 	enforceSession(t, s, "Mover")
 	s.TeleportPlayer("Mover", 50, 66, 50)
 
-	if out := s.runTp("Warden", []string{"Mover"}); out != "Teleported to Mover" {
-		t.Fatalf("tp player = %q", out)
+	if out := s.runTp("Warden", []string{"Mover"}); out.comp.translate != "commands.teleport.success.entity.single" {
+		t.Fatalf("tp player = %+v", out.comp)
 	}
 	st, _ := s.PlayerStateOf("Warden")
 	if st.X != 50 || st.Y != 66 || st.Z != 50 {
 		t.Fatalf("state = %+v", st)
 	}
-	if out := s.runTp("Warden", []string{"Mover", "1", "65", "1", "extra"}); !strings.HasPrefix(out, "Usage:") {
-		t.Fatalf("tp 5 args = %q", out)
+	if out := s.runTp("Warden", []string{"Mover", "1", "65", "1", "extra"}); !strings.HasPrefix(out.text, "Usage:") {
+		t.Fatalf("tp 5 args = %q", out.text)
 	}
-	if out := s.runTp("Warden", []string{"Ghost", "1", "65", "1"}); out != "Unknown player: Ghost" {
-		t.Fatalf("tp ghost victim = %q", out)
+	if out := s.runTp("Warden", []string{"Ghost", "1", "65", "1"}); out.text != "Unknown player: Ghost" {
+		t.Fatalf("tp ghost victim = %q", out.text)
 	}
-	if out := s.runTp("Warden", []string{"Mover", "1", "65", "1"}); out != "Teleported Mover to 1.50 65.00 1.50" {
-		t.Fatalf("tp victim = %q", out)
+	if out := s.runTp("Warden", []string{"Mover", "1", "65", "1"}); out.comp.translate != "commands.teleport.success.location.single" {
+		t.Fatalf("tp victim = %+v", out.comp)
 	}
 }
 
@@ -268,6 +273,36 @@ func readChatPipe(t *testing.T, pr *protocol.Reader) string {
 	return ""
 }
 
+// readChatPipeRoot returns the translate key of the next system chat,
+// for the commands whose replies are translatable components rather
+// than literals.
+func readChatPipeRoot(t *testing.T, pr *protocol.Reader) any {
+	t.Helper()
+	for i := 0; i < 256; i++ {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("chat stream: %v", err)
+		}
+		if p.ID != IDPlaySystemChatCB {
+			continue
+		}
+		root, err := nbt.ReadUnnamed(bytes.NewReader(p.Data))
+		if err != nil {
+			t.Fatalf("chat nbt: %v", err)
+		}
+		if s, ok := root.(string); ok {
+			return s
+		}
+		m, ok := root.(map[string]any)
+		if !ok {
+			t.Fatalf("chat root = %T", root)
+		}
+		return m["translate"]
+	}
+	t.Fatal("no system chat")
+	return nil
+}
+
 func TestOpsFlowOverWire(t *testing.T) {
 	s := New("unused")
 	pra, pwa := joinPlayPipe(t, s, "Alice")
@@ -278,8 +313,8 @@ func TestOpsFlowOverWire(t *testing.T) {
 	}
 
 	sendCmdPipe(t, pwa, "tp 100 70 100")
-	if out := readChatPipe(t, pra); out != "Teleported to 100.50 70.00 100.50" {
-		t.Fatalf("/tp = %q", out)
+	if out := readChatPipeRoot(t, pra); out != "commands.teleport.success.location.single" {
+		t.Fatalf("/tp translate = %v", out)
 	}
 	sendCmdPipe(t, pwa, "pos")
 	if out := readChatPipe(t, pra); !strings.HasPrefix(out, "100.50 70.00 100.50") {

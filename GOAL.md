@@ -1320,3 +1320,29 @@ physics through a void dip plus a fed recovery window.
   green; the weak leg asserts a partial-hit band since the dealt
   amount is quantized by the tick boundary each server crosses inside
   the scripted gap.
+
+- 2026-09-20: Gameplay advancement triggers + visibility flush.
+  player_killed_entity, entity_killed_player, and location fire live
+  now: kills dispatch the whole adventure tab's OR-requirement set
+  (conditions:null matches any entity), entity_killed_player fires on
+  the victim for entity-caused deaths, and location runs on
+  tickCount%20==0 with biome predicates resolved against the flat
+  world's plains. The AdvancementVisibilityEvaluator rules are
+  reproduced faithfully (hidden→HIDE, done→SHOW, bubble-up through
+  children, 3-node unfinished peek) — a zombie kill lights up all 42
+  adventure defs + progress entries exactly like vanilla, and the
+  chat announce is the {translate:chat.type.advancement.task,
+  with:[player-entity-comp, bracketed-hover-title]} component emitted
+  at award time. Def bytes ride a rebuilt 1688-entry wire table
+  (internal/data/advwire.dat.gz, merged from grant-all + zombie-kill
+  captures plus synthesized display-less recipe defs via
+  tools/advslice). TestKillAdvParity does zombie/skeleton/pig legs on
+  both servers and compares the cumulative def+progress+chat union —
+  green. Side parities pinned along the way: /tp and /teleport now
+  answer commands.teleport.success.{entity,location}.single with %f
+  coord args (vanilla's formatDouble), and /summon replies
+  commands.summon.success. entity_type tags joined the generated tag
+  tables for #skeletons-style predicates. Remaining trigger gaps:
+  player_hurt_entity / entity_hurt_player (need arrows, the mace's
+  overoverkill), the non-plains location predicates, and advancement
+  persistence across rejoin.

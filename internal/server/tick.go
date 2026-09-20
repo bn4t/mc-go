@@ -318,6 +318,9 @@ func (s *Server) playerTick() {
 		if sess.attackTicker < 200 {
 			sess.attackTicker++
 		}
+		if sess.locTicks++; sess.locTicks%20 == 0 && sess.spawned.Load() {
+			s.fireLocation(sess)
+		}
 		// Vanilla ticks the time-of-play family every live player tick.
 		if !sess.dead && sess.spawned.Load() {
 			sess.addCustomStat("play_time", 1)

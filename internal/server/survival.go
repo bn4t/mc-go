@@ -456,6 +456,25 @@ func (s *Server) killPlayer(sess *Session, message string) {
 	if src := s.sessionByEntityID(sess.lastHurtBy); src != nil {
 		src.addStat(statKilled, mustEntityType("player"), 1)
 		src.addCustomStat("player_kills", 1)
+		// player_killed_entity fires for player victims too — the
+		// advancement's killed_something criterion matches any entity.
+		vx, _, vz, _, _, _ := sess.Pos()
+		ax, _, az, _, _, _ := src.Pos()
+		s.firePlayerKilledEntity(src, "player", vx, vz, ax, az)
+	}
+	// entity_killed_player is the victim-side trigger (killed_by_-
+	// something on adventure/root): fires whenever an entity did the
+	// killing, mob or player.
+	if sess.lastHurtBy != 0 {
+		vx, _, vz, _, _, _ := sess.Pos()
+		if src := s.sessionByEntityID(sess.lastHurtBy); src != nil {
+			ax, _, az, _, _, _ := src.Pos()
+			s.fireEntityKilledPlayer(sess, "player", vx, vz, ax, az)
+		} else if killer := s.entityByID(sess.lastHurtBy); killer != nil {
+			if kn, ok := EntityTypeName(killer.Type); ok {
+				s.fireEntityKilledPlayer(sess, kn, vx, vz, killer.X, killer.Z)
+			}
+		}
 	}
 	sess.addCustomStat("deaths", 1)
 	sess.setStat(statCustom, int32(CustomStatIDs["time_since_death"]), 0)

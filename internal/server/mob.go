@@ -200,26 +200,27 @@ func mobBounds(typeID int32) [2]float64 {
 }
 
 // runSummon implements /summon <entity>: the mob spawns at the
-// player's feet.
-func (s *Server) runSummon(player string, args []string) string {
+// player's feet. Success replies with vanilla's translatable
+// commands.summon.success, carrying the entity type's display name.
+func (s *Server) runSummon(player string, args []string) reply {
 	if len(args) == 0 {
-		return "Usage: /summon <entity>"
+		return textReply("Usage: /summon <entity>")
 	}
 	sess := s.findSessionByName(player)
 	if sess == nil {
-		return "Unknown player: " + player
+		return textReply("Unknown player: " + player)
 	}
 	x, y, z, _, _, _ := sess.Pos()
 	if len(args) >= 4 {
 		var err error
 		if x, err = parseDouble(args[1], x, true); err != nil {
-			return "Invalid position " + args[1]
+			return textReply("Invalid position " + args[1])
 		}
 		if y, err = parseDouble(args[2], y, false); err != nil {
-			return "Invalid position " + args[2]
+			return textReply("Invalid position " + args[2])
 		}
 		if z, err = parseDouble(args[3], z, true); err != nil {
-			return "Invalid position " + args[3]
+			return textReply("Invalid position " + args[3])
 		}
 	}
 	noAI := false
@@ -230,10 +231,11 @@ func (s *Server) runSummon(player string, args []string) string {
 			}
 		}
 	}
-	if _, ok := s.summonMob(sess.dimension(), strings.TrimPrefix(args[0], "minecraft:"), x, y, z, noAI); !ok {
-		return "Unknown entity: " + args[0]
+	name := strings.TrimPrefix(args[0], "minecraft:")
+	if _, ok := s.summonMob(sess.dimension(), name, x, y, z, noAI); !ok {
+		return textReply("Unknown entity: " + args[0])
 	}
-	return "Summoned " + args[0]
+	return componentReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 }
 
 // summonMob spawns one living entity at pos in dimension d and fans it
@@ -279,15 +281,15 @@ func encodeLivingHealth(health float32) []byte {
 	return b.Bytes()
 }
 
-// damageMob applies damage to a living mob and syncs metadata; a lethal
-// hit removes the entity. It reports the damage actually dealt — zero
-// when the hit was swallowed by the post-hit invulnerability window —
-// and whether the hit ran inside that window (vanilla then skips the
-// damage event and knockback).
-func (s *Server) damageMob(e *Entity, amount float32) (float32, bool) {
-	health, dealt, ok, graced := s.entities.Damage(e.ID, amount)
-	if !ok || dealt <= 0 {
-		return 0, graced
+// damageMob applies damage to a living mob and syncs metadata. It
+// reports the damage actually dealt — zero when the hit was swallowed
+// by the post-hit invulnerability window — whether the hit ran inside
+// that window (vanilla then skips the damage event and knockback), and
+// whether the hit killed the mob.
+func (s *Server) damageMob(e *Entity, amount float32) (dealt float32, graced, died bool) {
+	health, d, ok, gr := s.entities.Damage(e.ID, amount)
+	if !ok || d <= 0 {
+		return 0, gr, false
 	}
 	if health <= 0 {
 		// die(): the corpse event and loot/XP fire immediately, the
@@ -299,10 +301,10 @@ func (s *Server) damageMob(e *Entity, amount float32) (float32, bool) {
 			s.spawnMobLoot(e.Dim, name, e.X, e.Y, e.Z)
 			s.spawnMobXP(e.Dim, name, e.X, e.Y, e.Z)
 		}
-		return dealt, graced
+		return d, gr, true
 	}
 	s.broadcastEntityMetadata(e.ID, encodeLivingHealth(health))
-	return dealt, graced
+	return d, gr, false
 }
 
 // mobWalkSpeed is the blocks-per-tick stride of the wander AI.

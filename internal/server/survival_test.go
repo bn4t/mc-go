@@ -376,14 +376,14 @@ func TestMobGravity(t *testing.T) {
 func TestSummonCommand(t *testing.T) {
 	s := New("unused")
 	sess := placeSession(t, s, "Summoner", 0.5, 0.5, 0.5)
-	if out := s.runSummon("Summoner", nil); out != "Usage: /summon <entity>" {
-		t.Fatalf("usage = %q", out)
+	if out := s.runSummon("Summoner", nil); out.text != "Usage: /summon <entity>" {
+		t.Fatalf("usage = %q", out.text)
 	}
-	if out := s.runSummon("Summoner", []string{"nope"}); out != "Unknown entity: nope" {
-		t.Fatalf("unknown = %q", out)
+	if out := s.runSummon("Summoner", []string{"nope"}); out.text != "Unknown entity: nope" {
+		t.Fatalf("unknown = %q", out.text)
 	}
-	if out := s.runSummon("Summoner", []string{"pig"}); out != "Summoned pig" {
-		t.Fatalf("summon = %q", out)
+	if out := s.runSummon("Summoner", []string{"pig"}); out.comp.translate != "commands.summon.success" {
+		t.Fatalf("summon = %q", out.comp.translate)
 	}
 	if s.entities.Count() != 1 {
 		t.Fatalf("entities = %d, want 1", s.entities.Count())
