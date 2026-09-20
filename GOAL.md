@@ -1103,3 +1103,21 @@ stone_pickaxe[damage=80]` refused its target. parseItemStack now
 splits the bracket and applyItemComponents sets damage and
 repair_cost (the only modeled scalars); unknown components are
 ignored.
+
+The health/hunger surface turned out to be a tick-model bug, not a
+content gap: measured on 26.2, a player parked in the void while the
+game was frozen died in seconds and a hurt player healed nothing across
+hundreds of /tick step'd ticks — the per-player connection tick
+(void damage, hunger, eating, digging, combat, portals) runs on wall
+clock, ungated by /tick freeze and never stepped. Those steps moved
+from GameTick to a playerTick the run loop calls every wall-clock tick
+regardless of freeze. Vanilla also emits at most one Set Health per
+tick with end-of-tick values, so damage/starvation/exhaustion now set a
+healthDirty flag the player tick flushes. Two more measured details:
+post-hit invulnerability is 20 ticks with the excess-only rule (a 4.0
+void hit lands every ~10, not every tick), and regen is two clocks -
+min(sat,6)/6 every 10 while saturation lasts and food is 20, then 1
+every 80 while food >= 18; the heal adds exhaustion that only drains
+on the NEXT food tick, which is why vanilla's heal packet still shows
+the pre-drain saturation. TestHungerRegenParity diffs the packet
+physics through a void dip plus a fed recovery window.

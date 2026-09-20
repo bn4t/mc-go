@@ -405,7 +405,7 @@ func (s *Server) damage(sess *Session, amount float32, message string) {
 		s.killPlayer(sess, message)
 		return
 	}
-	_ = s.sendHealth(sess)
+	sess.healthDirty.Store(true)
 }
 
 // killPlayer runs the death flow: health 0, combat death notice, and
@@ -527,37 +527,54 @@ func (s *Server) applyFallDamage(sess *Session) {
 	s.damageWith(sess, float32(distance-3.0), "Fell from a high place", srcFall)
 }
 
-// addExhaustion accumulates activity exhaustion; every four points
-// consume one saturation, or one food point when saturation is gone.
-func (sess *Session) addExhaustion(amount float32) bool {
-	if amount <= 0 {
-		return false
+// addExhaustion accumulates activity exhaustion. The saturation/food
+// spend does not happen here: vanilla drains it at the top of the next
+// food tick, which is what hungerTickStep does.
+func (sess *Session) addExhaustion(amount float32) {
+	if amount > 0 {
+		sess.exhaustion += amount
 	}
-	sess.exhaustion += amount
-	changed := false
-	for sess.exhaustion >= 4 {
-		sess.exhaustion -= 4
-		if sess.saturation > 0 {
-			sess.saturation--
-			changed = true
-		} else if sess.food > 0 {
-			sess.food--
-			changed = true
-		}
-	}
-	return changed
 }
 
-// hungerTickStep advances the hunger simulation one tick: natural
-// regeneration while well fed and starvation damage when empty.
+// hungerTickStep advances the hunger simulation one player tick:
+// natural regeneration runs on two vanilla clocks — a heal of
+// min(saturation,6)/6 every ten ticks while saturation lasts and the
+// player is full, else one health every eighty ticks once food is at
+// least eighteen — and starvation lands one damage every eighty ticks
+// while empty. All of it sits under the natural_health_regeneration
+// game rule for the heal side.
 func (s *Server) hungerTickStep() {
+	regen := s.gameRuleBool("minecraft:natural_health_regeneration")
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
 		if sess.state.Load() != StatePlay || sess.dead || sess.mode() != GameModeSurvival {
 			return true
 		}
 		changed := false
-		if sess.food >= 18 && sess.health < defaultHealth {
+		// Exhaustion spends first: every four points take a saturation,
+		// then a food point. The exhaustion a regen heal adds drains on
+		// the NEXT tick, so its health packet still carries the old
+		// saturation.
+		for sess.exhaustion >= 4 {
+			sess.exhaustion -= 4
+			if sess.saturation > 0 {
+				sess.saturation--
+			} else if sess.food > 0 {
+				sess.food--
+			}
+			changed = true
+		}
+		hurt := sess.health < defaultHealth
+		if regen && hurt && sess.food >= 20 && sess.saturation > 0 {
+			sess.foodTickTimer++
+			if sess.foodTickTimer >= 10 {
+				sess.foodTickTimer = 0
+				amount := min(sess.saturation, 6)
+				sess.health = min(sess.health+amount/6, defaultHealth)
+				sess.addExhaustion(amount)
+				changed = true
+			}
+		} else if regen && hurt && sess.food >= 18 {
 			sess.foodTickTimer++
 			if sess.foodTickTimer >= 80 {
 				sess.foodTickTimer = 0
@@ -572,15 +589,13 @@ func (s *Server) hungerTickStep() {
 			sess.starveTimer++
 			if sess.starveTimer >= 80 {
 				sess.starveTimer = 0
-				s.broadcastDamageEvent(sess.entityID.Load(), damageInfo{typeName: "starve"})
-				sess.health--
-				changed = true
+				s.damageWith(sess, 1, "Starved to death", srcStarve)
 			}
 		} else {
 			sess.starveTimer = 0
 		}
 		if changed {
-			_ = s.sendHealth(sess)
+			sess.healthDirty.Store(true)
 		}
 		return true
 	})

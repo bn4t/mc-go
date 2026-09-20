@@ -176,9 +176,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	if dx*dx+dy*dy+dz*dz > (attackReach+0.5)*(attackReach+0.5) {
 		return
 	}
-	if sess.addExhaustion(0.1) { // attacking costs hunger
-		_ = s.sendHealth(sess)
-	}
+	sess.addExhaustion(0.1) // attacking costs hunger
 	s.startCombat(sess)
 	s.startCombat(target)
 	// Weapon damage reduced by the victim's armor; the attack-cooldown
@@ -268,9 +266,7 @@ func (s *Server) handlePlayerInput(sess *Session, p protocol.Packet) {
 	jump := flags&0x10 != 0
 	sess.sprinting = sprint
 	if jump && !sess.jumping && s.GameMode == GameModeSurvival {
-		if sess.addExhaustion(0.05) {
-			_ = s.sendHealth(sess)
-		}
+		sess.addExhaustion(0.05)
 	}
 	sess.jumping = jump
 	if sneak == sess.sneaking {

@@ -267,9 +267,7 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 	// Sprinting drains hunger by distance travelled.
 	if sess.sprinting && s.GameMode == GameModeSurvival {
 		dx, dz := x-ox, z-oz
-		if sess.addExhaustion(0.1 * float32(math.Sqrt(dx*dx+dz*dz))) {
-			_ = s.sendHealth(sess)
-		}
+		sess.addExhaustion(0.1 * float32(math.Sqrt(dx*dx+dz*dz)))
 	}
 	// Fall-distance tracking for survival fall damage.
 	if y < oy && !onGround {

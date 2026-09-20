@@ -110,7 +110,7 @@ func (s *Server) eatTickStep() {
 			sess.saturation = float32(sess.food)
 		}
 		sess.consumeHeld(1)
-		_ = s.sendHealth(sess)
+		sess.healthDirty.Store(true)
 		return true
 	})
 }

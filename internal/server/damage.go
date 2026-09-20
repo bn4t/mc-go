@@ -110,9 +110,10 @@ var (
 	srcVoid    = damageSource{typeName: "out_of_world"}
 )
 
-// voidTickStep damages players that fall out of the world every ten
-// ticks. The void starts 64 blocks under each dimension's floor,
-// matching vanilla's out-of-world band.
+// voidTickStep damages players under the out-of-world band (64 blocks
+// below each dimension's floor) on every player tick; vanilla hits
+// there once a tick, and the post-hit invulnerability is what paces the
+// visible damage to roughly every ten.
 func (s *Server) voidTickStep() {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
@@ -121,14 +122,8 @@ func (s *Server) voidTickStep() {
 		}
 		_, y, _, _, _, _ := sess.Pos()
 		if y >= float64(sess.dimension().minY-64) {
-			sess.voidTimer = 0
 			return true
 		}
-		sess.voidTimer++
-		if sess.voidTimer < 10 {
-			return true
-		}
-		sess.voidTimer = 0
 		s.damageWith(sess, 4, "Fell out of the world", srcVoid)
 		return true
 	})
@@ -140,6 +135,18 @@ func (s *Server) damageWith(sess *Session, amount float32, message string, src d
 	if sess.mode() != GameModeSurvival || sess.dead {
 		return
 	}
+	// Vanilla grants twenty ticks of invulnerability after a hit; while
+	// more than half remains, a hit no stronger than the last is ignored
+	// and a stronger one lands only for its excess.
+	orig := amount
+	if sess.invulnTicks > 10 {
+		if orig <= sess.lastHurt {
+			return
+		}
+		amount = orig - sess.lastHurt
+	}
+	sess.lastHurt = orig
+	sess.invulnTicks = 20
 	eid := sess.entityID.Load()
 	x, y, z, _, _, _ := sess.Pos()
 	s.broadcastDamageEvent(eid, damageInfo{

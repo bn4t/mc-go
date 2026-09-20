@@ -111,8 +111,16 @@ type Session struct {
 	// eatingTicks counts down an in-progress food use.
 	eatingTicks int32
 	eatingItem  int32
-	// voidTimer paces out-of-world damage.
-	voidTimer int
+	// invulnTicks is the damage grace vanilla grants after a hit: twenty
+	// ticks counted down on the player tick, during which only damage
+	// exceeding lastHurt lands, and only for the excess.
+	invulnTicks int32
+	lastHurt    float32
+	// healthDirty marks health/food/saturation changes to sync. Vanilla
+	// sends at most one Set Health per player per tick, carrying the
+	// end-of-tick values, so tick-side writers set this instead of
+	// sending immediately; the player tick drains it.
+	healthDirty atomic.Bool
 	// Open container window (chest) and its state id.
 	windowMu    sync.Mutex
 	window      *openWindow
