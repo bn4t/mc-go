@@ -1293,3 +1293,30 @@ physics through a void dip plus a fed recovery window.
   ticker to model full-strength swings. Learned the hard way that
   entity ids churn while chunk tracking settles after a teleport —
   scenarios must pick the freshest spawn near the player.
+
+- 2026-09-20: attack aftermath parity — crits, sweeps, sounds,
+  particles, reach gate, grace hits. Player.attack's post-hit pipeline
+  decoded from 26.2 bytecode: charged standing sword hit = sweep sound
+  (charged+onsolid ground+horizontal speed < walk speed*2.5 +
+  sword-held); sprint hit = knockback sound + 0.5 kb; airborne hit
+  with fallDistance>0 = crit sound + 1.5x damage + animate(4);
+  otherwise strong (>0.9 charge) or weak sound. Holder<SoundEvent>
+  holders encode id+1 on the wire (0 = inline) — the earlier
+  'weak-on-full-damage' mystery was an off-by-one decode. doSweepAttack
+  damages LivingEntity neighbors in victim box inflated (1,0.25,1)
+  with distanceSqr<9 (strict) at 1*scale each, knockback = hurt's
+  away-kb then the sweep's facing-kb (two knockDelta halvings), then
+  the sweep_attack particle one block ahead at half bb height.
+  damage_indicator particle when dealt>2, count=int(dealt*0.5) at
+  victim getY(0.5). handleAttack gates on clamped eye-to-AABB distance
+  <= entity_interaction_range (3.0) — out-of-range attacks are
+  silently ignored. A second hit inside the 10-tick i-frame window
+  lands only the amount-lastHurt excess (graced): health meta still
+  updates but no damage_event and no knockback. mc-go gained
+  planAttack/preAttackSound/attackAftermath/doSweepAttack,
+  withinAttackRange, lastHorizSq tracking, per-mob bounding boxes, and
+  the graced flag on Manager.Damage. TestCritSweepParity scripts all
+  five legs (sweep/crit/weak/sprint/strong) against both servers —
+  green; the weak leg asserts a partial-hit band since the dealt
+  amount is quantized by the tick boundary each server crosses inside
+  the scripted gap.

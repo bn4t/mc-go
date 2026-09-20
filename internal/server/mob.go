@@ -166,6 +166,39 @@ var mobHealth = map[string]float32{
 	"iron_golem": 100,
 }
 
+// mobBoundsTable is the vanilla bounding box (width, height) per
+// summonable mob — the box sweep attacks inflate and damage-indicator
+// particles ride at half height on.
+var mobBoundsTable = map[int32][2]float64{}
+
+func init() {
+	for name, dims := range map[string][2]float64{
+		"pig":        {0.9, 0.9},
+		"cow":        {0.9, 1.4},
+		"chicken":    {0.4, 0.7},
+		"sheep":      {0.9, 1.3},
+		"zombie":     {0.6, 1.95},
+		"skeleton":   {0.6, 1.99},
+		"creeper":    {0.6, 1.7},
+		"spider":     {1.4, 0.9},
+		"sniffer":    {1.9, 1.75},
+		"iron_golem": {1.4, 2.7},
+	} {
+		if id, ok := EntityTypeID(name); ok {
+			mobBoundsTable[id] = dims
+		}
+	}
+}
+
+// mobBounds returns the (width, height) bounding box for an entity
+// type, defaulting to the player's box.
+func mobBounds(typeID int32) [2]float64 {
+	if dims, ok := mobBoundsTable[typeID]; ok {
+		return dims
+	}
+	return [2]float64{0.6, 1.8}
+}
+
 // runSummon implements /summon <entity>: the mob spawns at the
 // player's feet.
 func (s *Server) runSummon(player string, args []string) string {
@@ -248,14 +281,13 @@ func encodeLivingHealth(health float32) []byte {
 
 // damageMob applies damage to a living mob and syncs metadata; a lethal
 // hit removes the entity. It reports the damage actually dealt — zero
-// when the hit was swallowed by the post-hit invulnerability window.
-func (s *Server) damageMob(e *Entity, amount float32) float32 {
-	health, dealt, ok := s.entities.Damage(e.ID, amount)
-	if !ok {
-		return 0
-	}
-	if dealt <= 0 {
-		return 0
+// when the hit was swallowed by the post-hit invulnerability window —
+// and whether the hit ran inside that window (vanilla then skips the
+// damage event and knockback).
+func (s *Server) damageMob(e *Entity, amount float32) (float32, bool) {
+	health, dealt, ok, graced := s.entities.Damage(e.ID, amount)
+	if !ok || dealt <= 0 {
+		return 0, graced
 	}
 	if health <= 0 {
 		// die(): the corpse event and loot/XP fire immediately, the
@@ -267,10 +299,10 @@ func (s *Server) damageMob(e *Entity, amount float32) float32 {
 			s.spawnMobLoot(e.Dim, name, e.X, e.Y, e.Z)
 			s.spawnMobXP(e.Dim, name, e.X, e.Y, e.Z)
 		}
-		return dealt
+		return dealt, graced
 	}
 	s.broadcastEntityMetadata(e.ID, encodeLivingHealth(health))
-	return dealt
+	return dealt, graced
 }
 
 // mobWalkSpeed is the blocks-per-tick stride of the wander AI.

@@ -268,6 +268,8 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 		return
 	}
 	sess.setPos(x, y, z, yaw, pitch, onGround)
+	mdx, mdz := x-ox, z-oz
+	sess.lastHorizSq = mdx*mdx + mdz*mdz
 	s.awardMoveStats(sess, ox, oy, oz, x, y, z, onGround)
 	// Sprinting drains hunger by distance travelled.
 	if sess.sprinting && s.GameMode == GameModeSurvival {

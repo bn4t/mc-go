@@ -120,20 +120,24 @@ func (m *Manager) SetMotion(id int32, x, y, z float64) bool {
 	return true
 }
 
-// Damage applies a hit to a living entity with vanilla's invulnerable-
-// Time semantics: while invulnTicks > 10 only the excess over the last
-// hit lands. It returns the amount actually dealt and the new health.
-func (m *Manager) Damage(id int32, amount float32) (float32, float32, bool) {
+// Damage applies damage to a living entity: the hit lands fully
+// outside the post-hit grace window; inside it only the excess over
+// the last hit applies (vanilla's invulnerableTime rule). It reports
+// the remaining health, the amount dealt, whether the entity exists,
+// and whether the hit ran inside the grace window — vanilla skips the
+// damage event and knockback on that excess path.
+func (m *Manager) Damage(id int32, amount float32) (float32, float32, bool, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.byID[id]
 	if !ok || e.Dying {
-		return 0, 0, false
+		return 0, 0, false, false
 	}
 	orig := amount
-	if e.invulnTicks > 10 {
+	graced := e.invulnTicks > 10
+	if graced {
 		if orig <= e.lastHurt {
-			return e.Health, 0, true
+			return e.Health, 0, true, true
 		}
 		amount = orig - e.lastHurt
 	}
@@ -148,7 +152,7 @@ func (m *Manager) Damage(id int32, amount float32) (float32, float32, bool) {
 	if e.Health < 0 {
 		e.Health = 0
 	}
-	return e.Health, amount, true
+	return e.Health, amount, true, graced
 }
 
 // SetDying marks a living entity as dying (health exhausted).
@@ -180,6 +184,18 @@ func (m *Manager) Get(id int32) (Entity, bool) {
 		return Entity{}, false
 	}
 	return *e, true
+}
+
+// All snapshots the live entity set — entity copies, so mutating a
+// returned Entity does not write back (use SetMotion/Damage for that).
+func (m *Manager) All() []Entity {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]Entity, 0, len(m.byID))
+	for _, e := range m.byID {
+		out = append(out, *e)
+	}
+	return out
 }
 
 // TickDeath advances a dying mob's corpse countdown, reporting the

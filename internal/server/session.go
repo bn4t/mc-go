@@ -136,7 +136,11 @@ type Session struct {
 	// the last attack() call; it paces the damage cooldown scale and
 	// resets on every attack that reaches the damage code.
 	attackTicker int32
-	lastHurt     float32
+	// lastHorizSq is the squared horizontal delta of the last move
+	// packet — vanilla's knownMovement, which gates the sweep attack
+	// (it must stay under (movement speed * 2.5)²).
+	lastHorizSq float64
+	lastHurt    float32
 	// lastHurtBy is the entity id of the most recent damage source's
 	// attacker, for killed_by/kill-score stat attribution.
 	lastHurtBy int32
