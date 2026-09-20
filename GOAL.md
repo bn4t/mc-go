@@ -1698,5 +1698,9 @@ physics through a void dip plus a fed recovery window.
   item stat, and shot_crossbow with the weapon as the condition
   item (same item.items shape as used_totem). TestShotCrossbowParity
   runs use→hold→release→use on both targets and diffs grants —
-  green. The crossbow-tagged kill predicates (whos_the_pillager_now,
-  arbalistic) still need fired_from_weapon tracking on arrows.
+  green. killed_by_arrow followed in the same commit: arrows carry
+  the firing weapon name, the trigger reads fired_from_weapon.items
+  plus the victims[] entity_type union, and unique_entity_types>1
+  (arbalistic) stays locked until per-criterion kill sets exist.
+  Pillager joined the summon table (24hp, 0.6x1.95 box) so the test
+  also kills one by crossbow — whos_the_pillager_now green on both.

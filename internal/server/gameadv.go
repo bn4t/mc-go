@@ -51,6 +51,7 @@ type advMeta struct {
 	totems     []totemCond    // used_totem — death protection popped
 	effs       []effCond      // effects_changed — effect set transition
 	shots      []totemCond    // shot_crossbow — item predicate on the weapon
+	kba        []kbaCond      // killed_by_arrow — arrow kills by weapon/victim
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -272,6 +273,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.effs = append(m.effs, parseEffCond(cname, cm["conditions"]))
 				case "minecraft:shot_crossbow":
 					m.shots = append(m.shots, parseTotemCond(cname, cm["conditions"]))
+				case "minecraft:killed_by_arrow":
+					m.kba = append(m.kba, parseKBACond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -1892,6 +1895,92 @@ func (s *Server) fireEffectsChanged(sess *Session) {
 			if have {
 				sess.grantGameCriterion(meta, ec.crit)
 			}
+		}
+	}
+}
+
+// kbaCond is one killed_by_arrow criterion reduced to
+// fired_from_weapon's item name set and the victims list's entity-type
+// union (vanilla fires once per victim and matches that victim against
+// the list). unique_entity_types > 1 (arbalistic's 5) needs per-
+// criterion kill-set tracking — locked until modeled.
+type kbaCond struct {
+	crit        string
+	weapons     map[string]bool // fired_from_weapon items; empty = any
+	victimTypes map[string]bool // victims' entity_type union; empty = any
+	impossible  bool
+}
+
+// parseKBACond reads conditions.fired_from_weapon.items plus the
+// victims[] entity predicates. Victim entries carrying anything beyond
+// an entity_type predicate lock the criterion.
+func parseKBACond(cname string, conds any) kbaCond {
+	kc := kbaCond{crit: cname, weapons: map[string]bool{}, victimTypes: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "fired_from_weapon":
+			im, _ := v.(map[string]any)
+			for pk, pv := range im {
+				if pk != "items" {
+					kc.impossible = true
+					continue
+				}
+				switch it := pv.(type) {
+				case string:
+					kc.weapons[strings.TrimPrefix(it, "minecraft:")] = true
+				case []any:
+					for _, e := range it {
+						if es, ok := e.(string); ok {
+							kc.weapons[strings.TrimPrefix(es, "minecraft:")] = true
+						}
+					}
+				}
+			}
+		case "victims":
+			lst, _ := v.([]any)
+			for _, entry := range lst {
+				condsList, _ := entry.([]any)
+				for _, c := range condsList {
+					cc, _ := c.(map[string]any)
+					pred, _ := cc["predicate"].(map[string]any)
+					et, _ := pred["entity_type"].(string)
+					if et2, _ := pred["minecraft:entity_type"].(string); et2 != "" {
+						et = et2
+					}
+					if et == "" {
+						kc.impossible = true
+						continue
+					}
+					kc.victimTypes[strings.TrimPrefix(et, "minecraft:")] = true
+				}
+			}
+		case "unique_entity_types":
+			if n, ok := v.(float64); !ok || n > 1 {
+				kc.impossible = true
+			}
+		default:
+			kc.impossible = true
+		}
+	}
+	return kc
+}
+
+// fireKilledByArrow runs on a player arrow kill — vanilla's
+// KilledByArrowTrigger fires per victim with the weapon stack.
+func (s *Server) fireKilledByArrow(sess *Session, victimType, weapon string) {
+	for _, meta := range gameAdvs {
+		for _, kc := range meta.kba {
+			if kc.impossible {
+				continue
+			}
+			if len(kc.weapons) > 0 && !kc.weapons[weapon] {
+				continue
+			}
+			if len(kc.victimTypes) > 0 && !kc.victimTypes[victimType] {
+				continue
+			}
+			sess.grantGameCriterion(meta, kc.crit)
 		}
 	}
 }

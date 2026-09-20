@@ -3,7 +3,9 @@ package blackbox
 // TestShotCrossbowParity fires adventure/ol_betsy on both servers:
 // Use Item charges the crossbow for the vanilla 25-tick hold, the
 // release arms it, and the second use fires — shot_crossbow grants
-// with the crossbow itself as the condition item.
+// with the crossbow itself as the condition item. A summoned
+// pillager then dies to crossbow bolts for whos_the_pillager_now
+// (killed_by_arrow with fired_from_weapon=crossbow).
 
 import (
 	"testing"
@@ -21,15 +23,18 @@ func TestShotCrossbowParity(t *testing.T) {
 	})
 	defer targets.cleanup()
 
-	const adv = "minecraft:adventure/ol_betsy"
 	run := func(addr string) *advFlush {
 		f := &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}}
 		c, pr, pw := joinPlayBlackbox(t, addr, "XBow")
 		defer c.Close()
 		_ = c.SetDeadline(time.Time{})
 		advCollect(t, c, pr, pw, 1200*time.Millisecond, f)
+		sendCommand(t, pw, "gamerule doMobSpawning false")
+		sendCommand(t, pw, "kill @e[type=!player]")
+		sendCommand(t, pw, "tp @s 4 -60 2 0 0")
 		sendCommand(t, pw, "item replace entity @s weapon.mainhand with minecraft:crossbow")
-		advCollect(t, c, pr, pw, 500*time.Millisecond, f)
+		sendCommand(t, pw, "summon minecraft:pillager 4 -60 14 {NoAI:1b}")
+		advCollect(t, c, pr, pw, 700*time.Millisecond, f)
 
 		use := func() {
 			var ub protocol.Buffer
@@ -47,21 +52,30 @@ func TestShotCrossbowParity(t *testing.T) {
 			ab.VarInt(0)
 			_ = pw.WritePacket(server.IDPlayPlayerActionSB, ab.Bytes())
 		}
-		// Charge: hold past 25 ticks, release to arm, use once more to
-		// fire — vanilla's three-step crossbow.
-		use()
-		advCollect(t, c, pr, pw, 1400*time.Millisecond, f)
-		release()
-		advCollect(t, c, pr, pw, 200*time.Millisecond, f)
-		use()
-		advCollect(t, c, pr, pw, 1500*time.Millisecond, f)
+		// Each shot: charge ≥25t, release to arm, use to fire. Seven
+		// arrows at ~7 damage cover the pillager's 24 health with
+		// margin for aim jitter on both targets.
+		for i := 0; i < 7; i++ {
+			use()
+			advCollect(t, c, pr, pw, 1350*time.Millisecond, f)
+			release()
+			advCollect(t, c, pr, pw, 150*time.Millisecond, f)
+			use()
+			advCollect(t, c, pr, pw, 400*time.Millisecond, f)
+		}
+		advCollect(t, c, pr, pw, 1200*time.Millisecond, f)
 		return f
 	}
 
 	want := run(targets.vanilla)
 	got := run(targets.mcgo)
-	if !want.prog[adv]["shot_crossbow"] {
-		t.Fatalf("vanilla: shot_crossbow not obtained: %v", want.prog[adv])
+	for _, tc := range [][2]string{
+		{"minecraft:adventure/ol_betsy", "shot_crossbow"},
+		{"minecraft:adventure/whos_the_pillager_now", "kill_pillager"},
+	} {
+		if !want.prog[tc[0]][tc[1]] {
+			t.Fatalf("vanilla: %s[%s] not obtained: %v", tc[0], tc[1], want.prog[tc[0]])
+		}
 	}
 	want.chats, got.chats = nil, nil
 	if diffs := diffAdvFlush(want, got); len(diffs) > 0 {

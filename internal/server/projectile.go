@@ -94,7 +94,9 @@ func (s *Server) fireCrossbow(sess *Session) {
 	st := sess.heldStack()
 	x, y, z, yaw, pitch, _ := sess.Pos()
 	y += 1.52
-	s.spawnArrow(sess, x, y, z, yaw, pitch, 3.15)
+	if e := s.spawnArrow(sess, x, y, z, yaw, pitch, 3.15); e != nil {
+		e.arrowWeapon = "crossbow"
+	}
 	s.wearHeld(sess, 1)
 	sess.addItemStat(statUsed, st.ID, 1)
 	s.fireShotCrossbow(sess, "crossbow")
@@ -112,7 +114,7 @@ func (s *Server) releaseCrossbow(sess *Session) {
 // spawnArrow creates the arrow entity travelling at speed blocks/tick
 // along the look vector. Entity.Data is the shooter id + 1 — vanilla's
 // spawn-packet owner field.
-func (s *Server) spawnArrow(shooter *Session, x, y, z float64, yaw, pitch float32, speed float64) {
+func (s *Server) spawnArrow(shooter *Session, x, y, z float64, yaw, pitch float32, speed float64) *Entity {
 	yawR := float64(yaw) * math.Pi / 180
 	pitchR := float64(pitch) * math.Pi / 180
 	dx := -math.Sin(yawR) * math.Cos(pitchR)
@@ -130,7 +132,9 @@ func (s *Server) spawnArrow(shooter *Session, x, y, z float64, yaw, pitch float3
 		Data: shooter.entityID.Load() + 1,
 	})
 	e.arrowShooter = shooter.entityID.Load()
+	e.arrowWeapon = "bow"
 	s.broadcastEntitySpawn(nil, *e)
+	return e
 }
 
 // arrowTickStep advances flying arrows one tick: integrate, apply drag
@@ -211,6 +215,7 @@ func (s *Server) arrowCollide(e *Entity, ox, oy, oz float64) bool {
 							vx, vz := t.X, t.Z
 							ax, _, az, _, _, _ := shooter.Pos()
 							s.firePlayerKilledEntityDamage(shooter, tn, vx, vz, ax, az, true, "arrow")
+							s.fireKilledByArrow(shooter, tn, e.arrowWeapon)
 						}
 					}
 				}

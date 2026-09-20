@@ -62,7 +62,11 @@ type Entity struct {
 	// arrowShooter is the entity id of the player who loosed an arrow;
 	// zero when unattributed.
 	arrowShooter int32
-	Grounded     bool
+	// arrowWeapon names the item that fired this arrow ("bow" is
+	// vanilla's default; "crossbow" when a crossbow loosed it) —
+	// killed_by_arrow's fired_from_weapon predicate reads it.
+	arrowWeapon string
+	Grounded    bool
 }
 
 // Manager owns entity ids and the live set. All methods are safe for
