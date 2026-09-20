@@ -1460,3 +1460,15 @@ physics through a void dip plus a fed recovery window.
   TestShootArrowParity draws, releases at a NoAI zombie, and diffs the
   cumulative advancement flush + chat multiset — green, including the
   def fan-out vanilla reveals when shot_arrow completes.
+
+- 2026-09-20: inventory_changed on the game tree. The recipe tree
+  already fired the trigger; the 28 non-recipe criteria (story/root's
+  crafting_table, mine_diamond, smelt_iron, obtain_armor pieces,
+  husbandry/netherite_hoe, nether rods/skulls/debris, end's
+  elytra/dragon_egg/...) now evaluate too — items[] parsed as an OR-set
+  of names + expanded tags (stone_tool_materials, decorated_pot_sherds,
+  netherite armor's multi-item list), everything else locking the
+  criterion as impossible like vanilla's unmatched predicates.
+  fireInventoryChanged fans out to fireGameInventoryChanged after the
+  recipe pass. TestInventoryAdvancementParity gives diamond +
+  crafting_table in survival and diffs the flush — green.

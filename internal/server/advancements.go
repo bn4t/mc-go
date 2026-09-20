@@ -230,6 +230,7 @@ func (s *Server) fireInventoryChanged(sess *Session) {
 			}
 		}
 	}
+	s.fireGameInventoryChanged(sess)
 }
 
 // fireEnterBlock grants enter_block criteria when the player's feet sit

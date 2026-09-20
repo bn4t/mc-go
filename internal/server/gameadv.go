@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"mc-go/internal/data"
+	"mc-go/internal/world"
 )
 
 // Gameplay (non-recipe) advancements. Recipe advancements stay on the
@@ -31,6 +32,7 @@ type advMeta struct {
 	deaths     []killCond // entity_killed_player — conditions apply to the killer
 	locs       []locCond  // location — only biome checks are modeled
 	hurts      []hurtCond // player_hurt_entity — a player dealt damage
+	inv        []invCond  // inventory_changed — an item reached inventory
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -68,6 +70,16 @@ type hurtCond struct {
 	direct     map[string]bool // direct_entity entity types (nil = any)
 	needsProj  bool            // damage.type.tags contains is_projectile
 	minDealt   float64         // damage.dealt.min (raw hearts, not half)
+	impossible bool
+}
+
+// invCond is one inventory_changed criterion reduced to its items[]
+// OR-list: each entry a concrete item name or an expanded item tag. The
+// slots and equipment condition shapes are not modeled, so criteria
+// that use them stay locked.
+type invCond struct {
+	crit       string
+	items      map[string]bool
 	impossible bool
 }
 
@@ -117,6 +129,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.deaths = append(m.deaths, parseKillCond(cname, cm["conditions"]))
 				case "minecraft:player_hurt_entity":
 					m.hurts = append(m.hurts, parseHurtCond(cname, cm["conditions"]))
+				case "minecraft:inventory_changed":
+					m.inv = append(m.inv, parseInvCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -449,6 +463,85 @@ func (s *Server) firePlayerHurtEntity(sess *Session, directType string, proj boo
 				continue
 			}
 			sess.grantGameCriterion(meta, hc.crit)
+		}
+	}
+}
+
+// parseInvCond reduces an inventory_changed criterion to its items[]
+// OR-set. Any condition key mc-go does not model (slots, equipment on
+// the player predicate, ...) locks the criterion — matching vanilla
+// where an unmatched predicate can never grant.
+func parseInvCond(cname string, conds any) invCond {
+	ic := invCond{crit: cname, items: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	items, _ := cm["items"].([]any)
+	for _, iv := range items {
+		im, _ := iv.(map[string]any)
+		if im == nil {
+			ic.impossible = true
+			continue
+		}
+		for k, v := range im {
+			if k != "items" {
+				ic.impossible = true
+				continue
+			}
+			addItem := func(name string) {
+				if strings.HasPrefix(name, "#") {
+					for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(name, "#"), "minecraft:")] {
+						ic.items[m] = true
+					}
+					return
+				}
+				ic.items[strings.TrimPrefix(name, "minecraft:")] = true
+			}
+			switch it := v.(type) {
+			case string:
+				addItem(it)
+			case []any:
+				for _, e := range it {
+					if es, ok := e.(string); ok {
+						addItem(es)
+					}
+				}
+			}
+		}
+	}
+	for k := range cm {
+		if k != "items" {
+			ic.impossible = true
+		}
+	}
+	return ic
+}
+
+// fireGameInventoryChanged evaluates every game-tree inventory_changed
+// criterion against the session's current inventory — the same shape
+// the recipe-tree listener in advancements.go uses.
+func (s *Server) fireGameInventoryChanged(sess *Session) {
+	sess.invMu.RLock()
+	inv := append([]ItemStack(nil), sess.inv[:]...)
+	sess.invMu.RUnlock()
+	items := map[string]bool{}
+	for _, it := range inv {
+		if it.Empty() {
+			continue
+		}
+		if n, ok := world.ItemName(it.ID); ok {
+			items[n] = true
+		}
+	}
+	for _, meta := range gameAdvs {
+		for _, ic := range meta.inv {
+			if ic.impossible {
+				continue
+			}
+			for name := range ic.items {
+				if items[name] {
+					sess.grantGameCriterion(meta, ic.crit)
+					break
+				}
+			}
 		}
 	}
 }
