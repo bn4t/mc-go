@@ -18,7 +18,7 @@ func genTags(zr *zip.Reader) []byte {
 	writeHeader(&b, "tools/gendata")
 	b.WriteString("package data\n\n")
 
-	for _, kind := range []string{"item", "block"} {
+	for _, kind := range []string{"item", "block", "entity_type"} {
 		raw := readJSON(zr, "tags/"+kind)
 		tags := map[string][]string{}
 		for k, v := range raw {
@@ -47,9 +47,13 @@ func genTags(zr *zip.Reader) []byte {
 		sort.Strings(names)
 		varName := "ItemTags"
 		doc := "// ItemTags maps a tag name (minecraft namespace implied, prefix\n// dropped) to the item names it contains, with nested #tag entries\n// expanded. Generated from the bundled data pack."
-		if kind == "block" {
+		switch kind {
+		case "block":
 			varName = "BlockTags"
 			doc = "// BlockTags is ItemTags for the block tag registry."
+		case "entity_type":
+			varName = "EntityTypeTags"
+			doc = "// EntityTypeTags is ItemTags for the entity_type tag registry."
 		}
 		fmt.Fprintf(&b, "%s\nvar %s = map[string][]string{\n", doc, varName)
 		for _, n := range names {

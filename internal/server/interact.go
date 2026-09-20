@@ -175,7 +175,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 			plan := s.planAttack(sess)
 			s.preAttackSound(sess, plan)
 			sess.attackTicker = 0
-			dealt, graced := s.damageMob(&e, plan.damage)
+			dealt, graced, died := s.damageMob(&e, plan.damage)
 			if dealt > 0 {
 				if !graced {
 					s.broadcastDamageEvent(e.ID, damageInfo{
@@ -185,9 +185,10 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 					})
 				}
 				sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
-				if _, still := s.entities.Get(targetID); !still {
+				if died {
 					sess.addStat(statKilled, e.Type, 1)
 					sess.addCustomStat("mob_kills", 1)
+					s.onPlayerKilledMob(sess, e)
 				}
 				if !graced {
 					s.mobAttackKnockback(sess, e.ID, plan.scale)
@@ -358,7 +359,7 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 		if name, ok2 := EntityTypeName(e.Type); ok2 {
 			res = mobKnockbackResistance[name]
 		}
-		if dealt, graced := s.damageMob(&e, dmg); dealt > 0 {
+		if dealt, graced, died := s.damageMob(&e, dmg); dealt > 0 {
 			if !graced {
 				s.broadcastDamageEvent(e.ID, damageInfo{
 					typeName: "player_attack",
@@ -372,6 +373,9 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 				mx, my, mz = knockDelta(mx, my, mz, 0.4, res, kx, kz, e.Grounded)
 				s.entities.SetMotion(e.ID, mx, my, mz)
 				s.broadcastEntityMotion(e.Dim, e.ID, mx, my, mz)
+			}
+			if died {
+				s.onPlayerKilledMob(sess, e)
 			}
 		}
 	}

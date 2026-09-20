@@ -136,6 +136,9 @@ type Session struct {
 	// the last attack() call; it paces the damage cooldown scale and
 	// resets on every attack that reaches the damage code.
 	attackTicker int32
+	// locTicks paces the location advancement trigger, which vanilla
+	// fires for a player every twenty ticks (tickCount % 20).
+	locTicks int32
 	// lastHorizSq is the squared horizontal delta of the last move
 	// packet — vanilla's knownMovement, which gates the sweep attack
 	// (it must stay under (movement speed * 2.5)²).

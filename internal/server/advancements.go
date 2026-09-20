@@ -250,37 +250,66 @@ func (s *Server) flushAdvancements(sess *Session) {
 		sess.advMu.Unlock()
 		return
 	}
-	dirty := sess.advDirtyOrder
 	crits := sess.advCrits
 	sent := sess.advSent
+	if sent == nil {
+		// Sessions that skipped the join path (unit-test fixtures) never
+		// ran initAdvancements; an empty set is their correct state.
+		sent = map[string]bool{}
+		sess.advSent = sent
+	}
+	if crits == nil {
+		crits = map[string]map[string]int64{}
+		sess.advCrits = crits
+	}
+	if sess.advDone == nil {
+		sess.advDone = map[string]bool{}
+	}
 	sess.advDirty = nil
-	sess.advDirtyOrder = nil
 	sess.advMu.Unlock()
 
-	advsByID := map[string]*data.RecipeAdv{}
-	var added []*data.RecipeAdv
+	// Dirty = progressed ∪ newly visible. Vanilla emits a def entry for
+	// every dirty advancement it has not sent before and a progress
+	// entry for every dirty advancement — even ones whose criteria are
+	// all still locked (the client needs the criteria list to render).
+	visible := computeAdvVisibility(sess.advDone)
 	var progressIDs []string
-	for _, id := range dirty {
-		adv := recipeAdvByID[id]
-		advsByID[id] = adv
+	progressSeen := map[string]bool{}
+	for _, id := range sess.advDirtyOrder {
+		progressSeen[id] = true
 		progressIDs = append(progressIDs, id)
-		if !sent[id] {
-			added = append(added, adv)
+	}
+	for id, v := range visible {
+		if v && !sent[id] && !progressSeen[id] {
+			progressIDs = append(progressIDs, id)
 		}
 	}
-	javaHashOrder(added, func(a *data.RecipeAdv) string { return a.ID })
+	sess.advDirtyOrder = nil
+
+	var added []string
+	for _, id := range progressIDs {
+		if !sent[id] {
+			added = append(added, id)
+		}
+	}
+	javaHashOrder(added, func(id string) string { return id })
 	javaHashOrder(progressIDs, func(id string) string { return id })
 
 	var b protocol.Buffer
 	b.Bool(false) // reset: the first sync (join) already went out
 	b.VarInt(int32(len(added)))
-	for _, a := range added {
-		b.String(a.ID)
+	for _, id := range added {
+		if def := data.AdvDefWire[id]; def != nil {
+			b.Raw(def)
+			continue
+		}
+		adv := recipeAdvByID[id]
+		b.String(adv.ID)
 		b.Bool(true)
-		b.String(a.Parent)
+		b.String(adv.Parent)
 		b.Bool(false) // no display info
-		b.VarInt(int32(len(a.Reqs)))
-		for _, group := range a.Reqs {
+		b.VarInt(int32(len(adv.Reqs)))
+		for _, group := range adv.Reqs {
 			b.VarInt(int32(len(group)))
 			for _, c := range group {
 				b.String(c)
@@ -291,11 +320,11 @@ func (s *Server) flushAdvancements(sess *Session) {
 	b.VarInt(0) // removed
 	b.VarInt(int32(len(progressIDs)))
 	for _, id := range progressIDs {
-		adv := advsByID[id]
+		criteria, reqs := advCriteriaReqs(id)
 		b.String(id)
-		criteria := criteriaEmitOrder(adv)
-		b.VarInt(int32(len(criteria)))
-		for _, c := range criteria {
+		ordered := criteriaEmitOrderOf(criteria, reqs)
+		b.VarInt(int32(len(ordered)))
+		for _, c := range ordered {
 			b.String(c)
 			t, done := crits[id][c]
 			b.Bool(done)
@@ -308,8 +337,8 @@ func (s *Server) flushAdvancements(sess *Session) {
 	_ = sess.write(sess.ids().PlayUpdateAdvance, b.Bytes())
 
 	sess.advMu.Lock()
-	for _, a := range added {
-		sess.advSent[a.ID] = true
+	for _, id := range added {
+		sess.advSent[id] = true
 	}
 	sess.advMu.Unlock()
 }
@@ -419,23 +448,30 @@ func fastutilSetOrder(names []string) []string {
 // ObjectOpenHashSet — so ties inside a bucket land in that set's
 // descending-slot order.
 func criteriaEmitOrder(adv *data.RecipeAdv) []string {
+	return criteriaEmitOrderOf(adv.Criteria, adv.Reqs)
+}
+
+// criteriaEmitOrderOf is criteriaEmitOrder for an advancement given as
+// (criteria names, requirement groups) — the gameplay tree carries the
+// same shape outside data.RecipeAdv.
+func criteriaEmitOrderOf(criteria []string, reqs [][]string) []string {
 	var flat []string
-	for _, g := range adv.Reqs {
+	for _, g := range reqs {
 		flat = append(flat, g...)
 	}
 	ins := fastutilSetOrder(flat)
-	inCrit := make(map[string]bool, len(adv.Criteria))
-	for _, c := range adv.Criteria {
+	inCrit := make(map[string]bool, len(criteria))
+	for _, c := range criteria {
 		inCrit[c] = true
 	}
-	ordered := make([]string, 0, len(adv.Criteria))
+	ordered := make([]string, 0, len(criteria))
 	for _, c := range ins {
 		if inCrit[c] {
 			ordered = append(ordered, c)
 		}
 	}
-	for _, c := range adv.Criteria {
-		if len(ordered) == len(adv.Criteria) {
+	for _, c := range criteria {
+		if len(ordered) == len(criteria) {
 			break
 		}
 		have := false
@@ -451,4 +487,16 @@ func criteriaEmitOrder(adv *data.RecipeAdv) []string {
 	}
 	javaHashOrder(ordered, func(s string) string { return s })
 	return ordered
+}
+
+// advCriteriaReqs returns an advancement's criteria names and
+// requirement groups regardless of which table it lives in.
+func advCriteriaReqs(id string) ([]string, [][]string) {
+	if a := gameAdvs[id]; a != nil {
+		return a.criteria, a.reqs
+	}
+	if a := recipeAdvByID[id]; a != nil {
+		return a.Criteria, a.Reqs
+	}
+	return nil, nil
 }

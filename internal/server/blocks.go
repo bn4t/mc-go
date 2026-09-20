@@ -219,7 +219,7 @@ func (s *Server) registerBuiltins() {
 	s.registerComponentCommand("give", func(player string, args []string) reply {
 		return s.runGive(player, args)
 	})
-	s.commands.Register("summon", func(player string, args []string) string {
+	s.registerComponentCommand("summon", func(player string, args []string) reply {
 		return s.runSummon(player, args)
 	})
 	// /execute forwards whatever the inner command produced, component
