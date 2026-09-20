@@ -174,6 +174,8 @@ var mobHealth = map[string]float32{
 	"pufferfish":    3,
 	"tropical_fish": 3,
 	"pillager":      24,
+	"ghast":         10,
+	"ender_dragon":  200,
 }
 
 // mobBoundsTable is the vanilla bounding box (width, height) per
@@ -183,17 +185,20 @@ var mobBoundsTable = map[int32][2]float64{}
 
 func init() {
 	for name, dims := range map[string][2]float64{
-		"pig":        {0.9, 0.9},
-		"cow":        {0.9, 1.4},
-		"chicken":    {0.4, 0.7},
-		"sheep":      {0.9, 1.3},
-		"zombie":     {0.6, 1.95},
-		"skeleton":   {0.6, 1.99},
-		"creeper":    {0.6, 1.7},
-		"spider":     {1.4, 0.9},
-		"sniffer":    {1.9, 1.75},
-		"iron_golem": {1.4, 2.7},
-		"pillager":   {0.6, 1.95},
+		"pig":          {0.9, 0.9},
+		"cow":          {0.9, 1.4},
+		"chicken":      {0.4, 0.7},
+		"sheep":        {0.9, 1.3},
+		"zombie":       {0.6, 1.95},
+		"skeleton":     {0.6, 1.99},
+		"creeper":      {0.6, 1.7},
+		"spider":       {1.4, 0.9},
+		"sniffer":      {1.9, 1.75},
+		"iron_golem":   {1.4, 2.7},
+		"pillager":     {0.6, 1.95},
+		"ghast":        {4.0, 4.0},
+		"parrot":       {0.5, 0.9},
+		"ender_dragon": {16.0, 8.0},
 	} {
 		if id, ok := EntityTypeID(name); ok {
 			mobBoundsTable[id] = dims

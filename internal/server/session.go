@@ -143,6 +143,10 @@ type Session struct {
 	// that fires instead of drawing again. Early release cancels.
 	crossbowStartTick int64
 	crossbowCharged   bool
+	// usingItemID is the item id currently in continuous use
+	// (spyglass scope); 0 when nothing is in use. Vanilla fires
+	// using_item every tick while set.
+	usingItemID int32
 	// portalEntryX/Z is where the player left the overworld for the
 	// nether; nether_travel measures the return against it.
 	portalEntryX   float64

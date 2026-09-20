@@ -84,6 +84,7 @@ func (s *Server) handlePlayerActionExtras(sess *Session, p protocol.Packet) bool
 		sess.blocking.Store(false)
 		s.releaseBow(sess)
 		s.releaseCrossbow(sess)
+		sess.usingItemID = 0
 		return true
 	case actionSwapHands:
 		s.swapHands(sess)

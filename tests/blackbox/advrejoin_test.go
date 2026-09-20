@@ -46,6 +46,7 @@ func advCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writ
 			decodeUpdateAdv(t, p.Data, f)
 		case server.IDPlaySystemChatCB:
 			f.chats = append(f.chats, chatKey(p.Data))
+			f.chatRaw = append(f.chatRaw, p.Data)
 		case server.IDPlayEntityEvent:
 			r := protocol.NewPacketReader(p.Data)
 			if _, err := r.Int(); err == nil {

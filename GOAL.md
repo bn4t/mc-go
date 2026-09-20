@@ -1704,3 +1704,21 @@ physics through a void dip plus a fed recovery window.
   (arbalistic) stays locked until per-criterion kill sets exist.
   Pillager joined the summon table (24hp, 0.6x1.95 box) so the test
   also kills one by crossbow — whos_the_pillager_now green on both.
+- 2026-09-20: using_item (adventure/spyglass_at_parrot "Is It a Bird?"
+  and spyglass_at_ghast "Is It a Balloon?"). Vanilla's ServerPlayer
+  overrides LivingEntity.updateUsingItem to fire the trigger every
+  tick the item stays in use, so a spyglass keeps the predicate hot
+  until release/deselect. Conditions reduce to item.items plus the
+  player predicate's type_specific/player.looking_at.entity_type —
+  which javap pins as a 100-block ProjectileUtil.getEntityHitResult
+  over boxes + hasLineOfSight — other player content locks the
+  criterion. mc-go gained sess.usingItemID (set on Use Item for a
+  spyglass, cleared on release_use_item), a per-tick fireUsingItem,
+  and an eye-line raycast over living entity boxes. Two harness
+  lessons measured the hard way: the serverbound use_item packet's
+  yRot/xRot fields genuinely re-aim the player (send the real aim),
+  and spyglass_at_ghast's def only goes visible after its parrot
+  parent, so the parrot must scope first. Ghast summon y is a foot
+  position — its box rides [y, y+4]. TestSpyglassAdvParity scopes a
+  parrot then a ghast on both targets — green. chatRaw joined the
+  advFlush diagnostics while chasing this.

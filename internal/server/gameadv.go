@@ -1,6 +1,7 @@
 package server
 
 import (
+	"math"
 	"strings"
 	"time"
 
@@ -52,6 +53,7 @@ type advMeta struct {
 	effs       []effCond      // effects_changed — effect set transition
 	shots      []totemCond    // shot_crossbow — item predicate on the weapon
 	kba        []kbaCond      // killed_by_arrow — arrow kills by weapon/victim
+	usings     []usingCond    // using_item — held-use items (spyglass)
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -275,6 +277,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.shots = append(m.shots, parseTotemCond(cname, cm["conditions"]))
 				case "minecraft:killed_by_arrow":
 					m.kba = append(m.kba, parseKBACond(cname, cm["conditions"]))
+				case "minecraft:using_item":
+					m.usings = append(m.usings, parseUsingCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -1983,6 +1987,188 @@ func (s *Server) fireKilledByArrow(sess *Session, victimType, weapon string) {
 			sess.grantGameCriterion(meta, kc.crit)
 		}
 	}
+}
+
+// usingCond is one using_item criterion reduced to conditions.item
+// .items plus the player predicate's looking_at entity_type set
+// (spyglass_at_*). Other player predicate content locks the criterion.
+type usingCond struct {
+	crit       string
+	items      map[string]bool
+	lookingAt  map[string]bool // entity types; empty = no looking_at check
+	impossible bool
+}
+
+// parseUsingCond reads item.items and walks the player condition list
+// for entity_properties entries carrying type_specific.player.looking_
+// at.entity_type. Any other player predicate content locks it.
+func parseUsingCond(cname string, conds any) usingCond {
+	uc := usingCond{crit: cname, items: map[string]bool{}, lookingAt: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "item":
+			im, _ := v.(map[string]any)
+			for pk, pv := range im {
+				if pk != "items" {
+					uc.impossible = true
+					continue
+				}
+				switch it := pv.(type) {
+				case string:
+					uc.items[strings.TrimPrefix(it, "minecraft:")] = true
+				case []any:
+					for _, e := range it {
+						if es, ok := e.(string); ok {
+							uc.items[strings.TrimPrefix(es, "minecraft:")] = true
+						}
+					}
+				}
+			}
+		case "player":
+			lst, _ := v.([]any)
+			for _, entry := range lst {
+				ec, _ := entry.(map[string]any)
+				pred, _ := ec["predicate"].(map[string]any)
+				// The player sub-predicate sits behind the single key
+				// "type_specific/player" (vanilla serializes the
+				// type-specific name as one path segment).
+				var psub map[string]any
+				for pk, pv := range pred {
+					if strings.HasSuffix(strings.TrimPrefix(pk, "minecraft:"), "type_specific/player") {
+						psub, _ = pv.(map[string]any)
+					} else if pk != "minecraft:type_specific/player" && pk != "type_specific/player" {
+						// Any other predicate field is unmodeled content.
+						if pk != "" {
+							uc.impossible = true
+						}
+					}
+				}
+				la, _ := psub["looking_at"].(map[string]any)
+				if la == nil {
+					uc.impossible = true
+					continue
+				}
+				et, _ := la["entity_type"].(string)
+				if et2, _ := la["minecraft:entity_type"].(string); et2 != "" {
+					et = et2
+				}
+				if et == "" {
+					uc.impossible = true
+					continue
+				}
+				uc.lookingAt[strings.TrimPrefix(et, "minecraft:")] = true
+			}
+		default:
+			uc.impossible = true
+		}
+	}
+	return uc
+}
+
+// fireUsingItem runs each player tick while an item is in continuous
+// use, matching vanilla's per-tick UsingItemTrigger: the held item's
+// name must hit items[] and, when looking_at is conditioned, the
+// entity under the crosshair must be a listed type.
+func (s *Server) fireUsingItem(sess *Session) {
+	name, ok := itemNameOf(sess.usingItemID)
+	if !ok {
+		return
+	}
+	var lookType string
+	needLook := false
+	for _, meta := range gameAdvs {
+		for _, uc := range meta.usings {
+			if len(uc.lookingAt) > 0 {
+				needLook = true
+			}
+		}
+	}
+	if needLook {
+		lookType = s.lookedAtLivingType(sess)
+	}
+	for _, meta := range gameAdvs {
+		for _, uc := range meta.usings {
+			if uc.impossible {
+				continue
+			}
+			if len(uc.items) > 0 && !uc.items[name] {
+				continue
+			}
+			if len(uc.lookingAt) > 0 && !uc.lookingAt[lookType] {
+				continue
+			}
+			sess.grantGameCriterion(meta, uc.crit)
+		}
+	}
+}
+
+// lookedAtLivingType raycasts the eye vector against every living
+// entity's box in the dimension and returns the nearest hit's type
+// name within 100 blocks — vanilla's looking_at pick (spyglass zoom
+// narrows vision client-side; the predicate is a plain raycast).
+func (s *Server) lookedAtLivingType(sess *Session) string {
+	x, y, z, yaw, pitch, _ := sess.Pos()
+	y += 1.62
+	yawR := float64(yaw) * math.Pi / 180
+	pitchR := float64(pitch) * math.Pi / 180
+	dx := -math.Sin(yawR) * math.Cos(pitchR)
+	dy := -math.Sin(pitchR)
+	dz := math.Cos(yawR) * math.Cos(pitchR)
+	best := 100.0
+	bestType := ""
+	s.entities.mu.RLock()
+	for _, e := range s.entities.byID {
+		if e.Dying || !e.Living || e.Dim != sess.dimName() {
+			continue
+		}
+		bb := mobBounds(e.Type)
+		half := bb[0] / 2
+		t := rayAABB(x, y, z, dx, dy, dz,
+			e.X-half, e.Y, e.Z-half,
+			e.X+half, e.Y+bb[1], e.Z+half)
+		if t >= 0 && t < best {
+			best = t
+			if n, ok := EntityTypeName(e.Type); ok {
+				bestType = n
+			}
+		}
+	}
+	s.entities.mu.RUnlock()
+	return bestType
+}
+
+// rayAABB is the slab test: it returns the entry distance along the
+// ray direction or -1 for a miss.
+func rayAABB(ox, oy, oz, dx, dy, dz, minx, miny, minz, maxx, maxy, maxz float64) float64 {
+	tmin, tmax := -1e9, 1e9
+	clip := func(o, d, lo, hi float64) bool {
+		if d == 0 {
+			return o >= lo && o <= hi
+		}
+		t1 := (lo - o) / d
+		t2 := (hi - o) / d
+		if t1 > t2 {
+			t1, t2 = t2, t1
+		}
+		if t1 > tmin {
+			tmin = t1
+		}
+		if t2 < tmax {
+			tmax = t2
+		}
+		return tmin <= tmax
+	}
+	if !clip(ox, dx, minx, maxx) || !clip(oy, dy, miny, maxy) || !clip(oz, dz, minz, maxz) {
+		return -1
+	}
+	if tmax < 0 {
+		return -1 // box behind the eye
+	}
+	if tmin < 0 {
+		return 0 // eye inside the box
+	}
+	return tmin
 }
 
 // fireShotCrossbow grants shot_crossbow criteria whose item predicate

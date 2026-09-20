@@ -39,6 +39,7 @@ type advFlush struct {
 	codRemoved bool                       // diagnostic: target cod observed removed
 	ev35       int                        // diagnostic: entity event 35 (totem pop) seen
 	mobFx      map[int32]string           // diagnostic: effect id -> "amp,dur,flags" first seen
+	chatRaw    [][]byte                   // diagnostic: raw system_chat payloads
 	fxRemoved  []bool                     // diagnostic: remove_mob_effect packets seen
 }
 

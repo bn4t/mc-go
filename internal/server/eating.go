@@ -89,6 +89,13 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 		s.useCrossbow(sess)
 		return
 	}
+	if name == "spyglass" {
+		// Spyglasses scope while held — vanilla keeps the item "in
+		// use" until release or deselect and fires using_item every
+		// tick in between.
+		sess.usingItemID = held.ID
+		return
+	}
 	stats, ok := foodItems[name]
 	if !ok || (!stats.always && sess.food >= defaultFood) {
 		return
