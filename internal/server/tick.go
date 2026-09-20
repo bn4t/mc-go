@@ -277,6 +277,7 @@ func (s *Server) StopSprint() {
 func (s *Server) GameTick() {
 	s.itemTickStep()
 	s.mobTickStep()
+	s.arrowTickStep()
 	s.furnaceTickStep()
 	s.containerTickStep()
 	s.hopperTickStep()

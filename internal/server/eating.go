@@ -56,7 +56,7 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 	if _, err := r.Float(); err != nil { // pitch
 		return
 	}
-	if sess.mode() != GameModeSurvival || sess.dead {
+	if sess.dead {
 		return
 	}
 	held := sess.heldStack()
@@ -65,6 +65,12 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 	}
 	name, ok := itemNameOf(held.ID)
 	if !ok {
+		return
+	}
+	if name == "bow" {
+		// Vanilla bows draw on use even in creative (which skips the
+		// arrow check until release); the shot lands on release.
+		sess.bowStartTick = s.TickCount()
 		return
 	}
 	stats, ok := foodItems[name]

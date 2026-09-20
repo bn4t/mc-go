@@ -51,7 +51,10 @@ type Entity struct {
 	// attackCooldown is the hostile-melee swing timer — vanilla's
 	// twenty-tick reset after each landed blow.
 	attackCooldown int32
-	Grounded       bool
+	// arrowShooter is the entity id of the player who loosed an arrow;
+	// zero when unattributed.
+	arrowShooter int32
+	Grounded     bool
 }
 
 // Manager owns entity ids and the live set. All methods are safe for

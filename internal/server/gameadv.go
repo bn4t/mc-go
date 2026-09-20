@@ -30,6 +30,7 @@ type advMeta struct {
 	kills      []killCond
 	deaths     []killCond // entity_killed_player — conditions apply to the killer
 	locs       []locCond  // location — only biome checks are modeled
+	hurts      []hurtCond // player_hurt_entity — a player dealt damage
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -54,6 +55,19 @@ type killCond struct {
 	minDist    float64         // conditions.entity[].distance.horizontal.min
 	needsProj  bool            // killing_blow.tags contains is_projectile
 	direct     map[string]bool // killing_blow.direct_entity entity types
+	impossible bool
+}
+
+// hurtCond is one player_hurt_entity criterion reduced to what mc-go
+// evaluates: damage.type.direct_entity's entity type set, the
+// is_projectile damage tag, and dealt.min. Blocked damage, item
+// predicates beyond entity type, and unmodeled condition fields leave
+// the criterion locked.
+type hurtCond struct {
+	crit       string
+	direct     map[string]bool // direct_entity entity types (nil = any)
+	needsProj  bool            // damage.type.tags contains is_projectile
+	minDealt   float64         // damage.dealt.min (raw hearts, not half)
 	impossible bool
 }
 
@@ -101,6 +115,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.kills = append(m.kills, parseKillCond(cname, cm["conditions"]))
 				case "minecraft:entity_killed_player":
 					m.deaths = append(m.deaths, parseKillCond(cname, cm["conditions"]))
+				case "minecraft:player_hurt_entity":
+					m.hurts = append(m.hurts, parseHurtCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -259,11 +275,26 @@ func parseKillCond(cname string, conds any) killCond {
 // no projectile/direct entity, so criteria that require either never
 // match.
 func (s *Server) firePlayerKilledEntity(sess *Session, victimType string, vx, vz, ax, az float64) {
+	s.firePlayerKilledEntityDamage(sess, victimType, vx, vz, ax, az, false, "")
+}
+
+// firePlayerKilledEntityDamage is firePlayerKilledEntity carrying the
+// killing blow's shape: proj is the is_projectile damage tag and
+// directType the direct entity's name ("arrow", "trident"; empty for a
+// plain melee strike, which has no direct entity separate from the
+// attacker).
+func (s *Server) firePlayerKilledEntityDamage(sess *Session, victimType string, vx, vz, ax, az float64, proj bool, directType string) {
 	dx, dz := vx-ax, vz-az
 	distSq := dx*dx + dz*dz
 	for _, meta := range gameAdvs {
 		for _, kc := range meta.kills {
-			if kc.impossible || kc.needsProj || kc.direct != nil {
+			if kc.impossible {
+				continue
+			}
+			if kc.needsProj && !proj {
+				continue
+			}
+			if kc.direct != nil && !kc.direct[directType] {
 				continue
 			}
 			if kc.types != nil && !kc.types[victimType] {
@@ -346,6 +377,78 @@ func (s *Server) fireLocation(sess *Session) {
 				continue
 			}
 			sess.grantGameCriterion(meta, lc.crit)
+		}
+	}
+}
+
+// parseHurtCond reduces a player_hurt_entity criterion's conditions to
+// a hurtCond. Only damage.type.{direct_entity,tags} and damage.dealt.min
+// are read — a criterion needing anything more is marked impossible.
+func parseHurtCond(cname string, conds any) hurtCond {
+	hc := hurtCond{crit: cname}
+	cm, ok := conds.(map[string]any)
+	if !ok {
+		hc.impossible = true
+		return hc
+	}
+	dm, _ := cm["damage"].(map[string]any)
+	if dm == nil {
+		return hc
+	}
+	if tm, ok := dm["type"].(map[string]any); ok {
+		for k, v := range tm {
+			switch k {
+			case "direct_entity":
+				hc.direct = map[string]bool{}
+				if em, ok := v.(map[string]any); ok {
+					if et, ok := em["minecraft:entity_type"].(string); ok {
+						if strings.HasPrefix(et, "#") {
+							for _, m := range data.EntityTypeTags[strings.TrimPrefix(et, "#minecraft:")] {
+								hc.direct[m] = true
+							}
+						} else {
+							hc.direct[strings.TrimPrefix(et, "minecraft:")] = true
+						}
+					}
+				}
+			case "tags":
+				for _, tv := range v.([]any) {
+					if tm, ok := tv.(map[string]any); ok {
+						if tm["id"] == "minecraft:is_projectile" && tm["expected"] == true {
+							hc.needsProj = true
+						}
+					}
+				}
+			default:
+				hc.impossible = true
+			}
+		}
+	}
+	if dealt, ok := dm["dealt"].(map[string]any); ok {
+		if mn, ok := dealt["min"].(float64); ok {
+			hc.minDealt = mn
+		}
+	}
+	return hc
+}
+
+// firePlayerHurtEntity evaluates every player_hurt_entity criterion
+// against a hit: directType is the damage's direct entity (the arrow
+// itself, or "player" for melee), proj the is_projectile tag on the
+// damage type, and dealt the post-absorb damage in half-hearts.
+func (s *Server) firePlayerHurtEntity(sess *Session, directType string, proj bool, dealt float32) {
+	for _, meta := range gameAdvs {
+		for _, hc := range meta.hurts {
+			if hc.impossible || (hc.needsProj && !proj) {
+				continue
+			}
+			if hc.direct != nil && !hc.direct[directType] {
+				continue
+			}
+			if float64(dealt) < hc.minDealt {
+				continue
+			}
+			sess.grantGameCriterion(meta, hc.crit)
 		}
 	}
 }

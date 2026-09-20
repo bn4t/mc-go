@@ -58,9 +58,10 @@ func (s *Server) broadcastEntityAnimation(except *Session, eid int32, anim byte)
 
 // Player Action statuses that are not block breaking.
 const (
-	actionDropStack = 3
-	actionDropItem  = 4
-	actionSwapHands = 6
+	actionDropStack  = 3
+	actionDropItem   = 4
+	actionReleaseUse = 5
+	actionSwapHands  = 6
 )
 
 // handlePlayerActionExtras handles the non-digging Player Action
@@ -78,6 +79,9 @@ func (s *Server) handlePlayerActionExtras(sess *Session, p protocol.Packet) bool
 		}
 		whole := status == actionDropStack
 		s.dropHeld(sess, whole)
+		return true
+	case actionReleaseUse:
+		s.releaseBow(sess)
 		return true
 	case actionSwapHands:
 		s.swapHands(sess)

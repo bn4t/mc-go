@@ -1440,3 +1440,23 @@ physics through a void dip plus a fed recovery window.
   missing. TestMobKillsPlayerParity drops a zombie beside a survival
   player on both servers, waits out the ~8s kill, and diffs the
   cumulative advancement union + chat multiset — green.
+
+- 2026-09-20: bows and arrow projectiles at wire parity for
+  player_hurt_entity / projectile killing blows. Use Item on a bow
+  starts the draw (bowStartTick), Player Action status 5
+  (RELEASE_USE_ITEM) releases with vanilla's power curve
+  t*(t+2)/20 capped at 1.0 and a 3-tick dud floor; survival consumes
+  an arrow, creative skips the check. Arrow entities integrate at the
+  fired speed (power*3 b/t) with 0.99 air drag and 0.05/tick gravity;
+  collision is vanilla's AABB.clip — the movement segment slab-tested
+  against target boxes inflated 0.3 (point checks tunnel through at
+  full draw). Hits deal ceil(speed*2) through damageWith/damageMob as
+  minecraft:arrow with cause=shooter direct=arrow, then fire
+  player_hurt_entity (new hurtCond: direct_entity type set, the
+  is_projectile tag, dealt.min) and, on a kill,
+  player_killed_entity's projectile path — firePlayerKilledEntityDamage
+  now carries needsProj + killing_blow.direct_entity matching, so
+  sniper_duel's 50-block skeleton shot is reachable.
+  TestShootArrowParity draws, releases at a NoAI zombie, and diffs the
+  cumulative advancement flush + chat multiset — green, including the
+  def fan-out vanilla reveals when shot_arrow completes.

@@ -131,6 +131,9 @@ type Session struct {
 	// eatingTicks counts down an in-progress food use.
 	eatingTicks int32
 	eatingItem  int32
+	// bowStartTick is the server tick a bow draw began on; zero means
+	// not drawing.
+	bowStartTick int64
 	// invulnTicks is the damage grace vanilla grants after a hit: twenty
 	// ticks counted down on the player tick, during which only damage
 	// exceeding lastHurt lands, and only for the excess.
