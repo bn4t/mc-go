@@ -34,6 +34,7 @@ type advMeta struct {
 	hurts      []hurtCond    // player_hurt_entity — a player dealt damage
 	inv        []invCond     // inventory_changed — an item reached inventory
 	consumed   []consumeCond // consume_item — a food finished eating
+	placed     []placedCond  // placed_block — a block landed in the world
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -92,6 +93,16 @@ type consumeCond struct {
 	impossible bool
 }
 
+// placedCond is one placed_block criterion reduced to the placed
+// block's name. The location predicate's richer shapes — block
+// properties, all_of/any_of terms, biome/position checks — stay
+// locked; only a plain {"block": name} single-term location matches.
+type placedCond struct {
+	crit       string
+	block      string
+	impossible bool
+}
+
 var (
 	gameAdvs     = loadGameAdvs()
 	gameAdvChild = func() map[string][]string {
@@ -142,6 +153,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.inv = append(m.inv, parseInvCond(cname, cm["conditions"]))
 				case "minecraft:consume_item":
 					m.consumed = append(m.consumed, parseConsumeCond(cname, cm["conditions"]))
+				case "minecraft:placed_block":
+					m.placed = append(m.placed, parsePlacedCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -581,6 +594,61 @@ func (s *Server) fireConsumeItem(sess *Session, item string) {
 				continue
 			}
 			sess.grantGameCriterion(meta, cc.crit)
+		}
+	}
+}
+
+// parsePlacedCond reduces a placed_block criterion to the block name
+// of its first location term; nested predicates and property checks
+// are unmodeled, so criteria using them lock.
+func parsePlacedCond(cname string, conds any) placedCond {
+	pc := placedCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "location" {
+			pc.impossible = true
+			continue
+		}
+		terms, _ := v.([]any)
+		if len(terms) != 1 {
+			pc.impossible = true
+			continue
+		}
+		tm, _ := terms[0].(map[string]any)
+		if tm == nil {
+			pc.impossible = true
+			continue
+		}
+		if c, _ := tm["condition"].(string); c != "minecraft:block_state_property" {
+			pc.impossible = true
+			continue
+		}
+		for tk, tv := range tm {
+			switch tk {
+			case "condition":
+			case "block":
+				if bs, ok := tv.(string); ok {
+					pc.block = strings.TrimPrefix(bs, "minecraft:")
+				}
+			default:
+				pc.impossible = true
+			}
+		}
+	}
+	if pc.block == "" {
+		pc.impossible = true
+	}
+	return pc
+}
+
+// firePlacedBlock grants placed_block criteria for one placed block.
+func (s *Server) firePlacedBlock(sess *Session, blockName string) {
+	for _, meta := range gameAdvs {
+		for _, pc := range meta.placed {
+			if pc.impossible || pc.block != blockName {
+				continue
+			}
+			sess.grantGameCriterion(meta, pc.crit)
 		}
 	}
 }

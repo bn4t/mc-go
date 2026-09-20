@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -206,7 +205,7 @@ func (s *Server) registerWorldCommands() {
 	s.registerComponentCommand("recipe", func(player string, args []string) reply {
 		return s.runRecipe(player, args)
 	})
-	s.commands.Register("fill", func(player string, args []string) string {
+	s.registerComponentCommand("fill", func(player string, args []string) reply {
 		return s.runFill(player, args)
 	})
 }
@@ -344,22 +343,22 @@ func roundTicks(v float64) int64 {
 // runFill implements "/fill <x1> <y1> <z1> <x2> <y2> <z2> <block>
 // [replace <filter>]", including the "replace" filter the fluid probes
 // use to count what a region holds.
-func (s *Server) runFill(player string, args []string) string {
+func (s *Server) runFill(player string, args []string) reply {
 	if len(args) < 7 {
-		return "Usage: /fill <x1> <y1> <z1> <x2> <y2> <z2> <block> [replace <filter>]"
+		return errTokenEnd("command.unknown.argument", len(args))
 	}
 	bx, by, bz := s.baseBlockPos(player)
 	c := make([]int, 6)
 	for i := 0; i < 6; i++ {
 		v, err := parseCoord(args[i], map[int]int{0: bx, 2: bz, 1: by, 3: bx, 4: by, 5: bz}[i])
 		if err != nil {
-			return "Invalid coordinate: " + args[i]
+			return errToken("parsing.int.invalid", i)
 		}
 		c[i] = v
 	}
 	blk, _, ok := parseBlockSpec(args[6])
 	if !ok {
-		return "Unknown block: " + args[6]
+		return errTokenEnd("argument.block.id.invalid", 7)
 	}
 	var filter world.Block
 	haveFilter := false
@@ -367,7 +366,7 @@ func (s *Server) runFill(player string, args []string) string {
 	if len(args) >= 9 && args[7] == "replace" {
 		f, ex, ok := parseBlockSpec(args[8])
 		if !ok {
-			return "Unknown block: " + args[8]
+			return errTokenEnd("argument.block.id.invalid", 8)
 		}
 		filter, exactFilter, haveFilter = f, ex, true
 	}
@@ -377,7 +376,8 @@ func (s *Server) runFill(player string, args []string) string {
 	minZ, maxZ := minmax(c[2], c[5])
 	const fillLimit = 32768
 	if (maxX-minX+1)*(maxY-minY+1)*(maxZ-minZ+1) > fillLimit {
-		return "Too many blocks in the specified area"
+		return componentReply(commandError("commands.fill.toobig",
+			int32(fillLimit), int32((maxX-minX+1)*(maxY-minY+1)*(maxZ-minZ+1))))
 	}
 	// A large fill is one operation with one column-top recompute, the
 	// same shape vanilla uses; light is refreshed per affected section.
@@ -405,9 +405,9 @@ func (s *Server) runFill(player string, args []string) string {
 	}
 	_ = touched
 	if changed == 0 {
-		return "No blocks were filled"
+		return componentReply(commandError("commands.fill.failed"))
 	}
-	return fmt.Sprintf("Successfully filled %d blocks", changed)
+	return componentReply(translatable("commands.fill.success", int32(changed)))
 }
 
 func minmax(a, b int) (int, int) {

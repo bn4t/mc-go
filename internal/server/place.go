@@ -19,9 +19,39 @@ var (
 	ItemGrass = world.ItemIDs["grass_block"]
 )
 
-// itemBlock maps a held item to the block it places.
+// itemBlock maps a held item to the block it places. Most block items
+// resolve through ItemBlockState; items whose block carries a different
+// name (seeds → crops, redstone → wire, ...) go through the alias table.
 func itemBlock(id int32) (world.Block, bool) {
-	return world.ItemBlockState(id)
+	if b, ok := world.ItemBlockState(id); ok {
+		return b, true
+	}
+	if name, ok := itemNameOf(id); ok {
+		if alias, ok := itemBlockAlias[name]; ok {
+			return world.BlockState(alias)
+		}
+	}
+	return 0, false
+}
+
+// itemBlockAlias is the vanilla item-name → block-name map for items
+// that place a differently-named block (BlockItem States only cover
+// the same-name set).
+var itemBlockAlias = map[string]string{
+	"wheat_seeds":       "wheat",
+	"beetroot_seeds":    "beetroots",
+	"melon_seeds":       "melon_stem",
+	"pumpkin_seeds":     "pumpkin_stem",
+	"torchflower_seeds": "torchflower_crop",
+	"pitcher_pod":       "pitcher_crop",
+	"nether_wart":       "nether_wart",
+	"carrot":            "carrots",
+	"potato":            "potatoes",
+	"cocoa_beans":       "cocoa",
+	"sweet_berries":     "sweet_berry_bush",
+	"glow_berries":      "cave_vines",
+	"redstone":          "redstone_wire",
+	"string":            "tripwire",
 }
 
 // faceOffset resolves a clicked face to the adjacent cell, following
@@ -264,6 +294,9 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	}
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
 	sess.addItemStat(statUsed, item, 1)
+	if bname, ok := world.StateOwner(blk); ok {
+		s.firePlacedBlock(sess, bname)
+	}
 	// A shulker box placed out of a stack that came with contents (it
 	// was broken with items inside) restores them, so the box keeps its
 	// contents across a move.

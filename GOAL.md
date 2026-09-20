@@ -1480,3 +1480,16 @@ physics through a void dip plus a fed recovery window.
   (husbandry/root) match any item. TestConsumeItemParity eats a golden
   apple (always-edible — plain foods refuse at full hunger on both
   servers) and diffs the flush — green.
+
+- 2026-09-20: placed_block + /fill component replies. The place path
+  resolves seed→crop and the rest of the differently-named block items
+  through itemBlockAlias (ItemBlockState only covers same-name items —
+  wheat_seeds→wheat, beetroot_seeds→beetroots, melon/pumpkin→_stem,
+  torchflower_seeds/pitcher_pod→_crop, nether_wart, carrot/potato,
+  cocoa_beans→cocoa, berries, redstone→wire, string→tripwire) and fires
+  placed_block against single-term block_state_property predicates —
+  property/nested shapes lock as impossible. /fill moved to the
+  component reply path: commands.fill.success(toobig/failed/
+  int.invalid/block.id.invalid args) instead of literals.
+  TestPlacedBlockParity plants wheat_seeds on farmland and diffs the
+  flush — green.
