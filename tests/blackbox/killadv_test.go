@@ -33,6 +33,7 @@ type advFlush struct {
 	chats      []string                   // system_chat translate keys
 	spawnTypes map[int32][]int32          // diagnostic: entity type -> eids seen
 	sounds     int                        // diagnostic: sound packets seen
+	soundIDs   map[int32]bool             // diagnostic: sound_event ids seen
 	removedIDs []int32                    // diagnostic: remove_entities ids seen
 	advPkts    int                        // diagnostic: update_advancements packets seen
 	codRemoved bool                       // diagnostic: target cod observed removed

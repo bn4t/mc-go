@@ -284,6 +284,7 @@ func (s *Server) GameTick() {
 	s.hopperTickStep()
 	s.scheduledTickStep()
 	s.randomTickStep()
+	s.beaconTickStep()
 	// Chunk streaming is paced on the tick, like everything else: one
 	// batch per tick per player, at the rate their client asked for.
 	s.chunkTickStep()

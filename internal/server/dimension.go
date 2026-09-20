@@ -48,6 +48,7 @@ type dimension struct {
 	furnaces   furnaceStore
 	hoppers    hopperStore
 	containers containerStore
+	beacons    map[world.Pos]*beaconEnt
 }
 
 // sections is the chunk section count for this dimension.

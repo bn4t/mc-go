@@ -51,6 +51,7 @@ var blockEntitySpecs = map[string]blockEntitySpec{
 	"hanging_sign":  {8, "minecraft:hanging_sign"},
 	"brewing_stand": {12, "minecraft:brewing_stand"},
 	"hopper":        {18, "minecraft:hopper"},
+	"beacon":        {15, "minecraft:beacon"},
 	"shulker_box":   {24, "minecraft:shulker_box"},
 	"barrel":        {26, "minecraft:barrel"},
 	"smoker":        {27, "minecraft:smoker"},

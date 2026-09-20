@@ -1613,3 +1613,16 @@ physics through a void dip plus a fed recovery window.
   progress entry, even for the real client. Also fixed a preexisting
   concurrent-map-writes crash on savedPlayers hit by the unit suite.
   TestTacticalFishingParity green.
+
+- 2026-09-20: construct_beacon (nether/create_beacon +
+  create_full_beacon). Beacons get a block entity (type 15) and a
+  per-dimension set fed by the shared setBlockAndBroadcast path; every
+  80 ticks each beacon re-checks sky access and counts contiguous
+  complete pyramid layers (3x3→9x9 of beacon_base_blocks) under it.
+  On a 0→n transition it plays block.beacon.activate and fires
+  construct_beacon(level) for every player in vanilla's grant box
+  (x/z ±10, y-9…y+5); on loss it plays deactivate, and ambient replays
+  while active. The condition parser reduces "level" to a min/max
+  range so level 4 satisfies both advancements in one activation.
+  TestConstructBeaconParity green — vanilla's oracle asserts both
+  grants plus the activate sound (wire id 153).

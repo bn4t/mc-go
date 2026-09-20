@@ -46,6 +46,7 @@ type advMeta struct {
 	interacts  []interactCond // player_interacted_with_entity — a successful right-click
 	fills      []fillCond     // filled_bucket — a bucket was filled
 	sleeps     []sleepCond    // slept_in_bed — entered a bed
+	beacons    []beaconCond   // construct_beacon — pyramid activated
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -257,6 +258,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.interacts = append(m.interacts, parseInteractCond(cname, cm["conditions"]))
 				case "minecraft:filled_bucket":
 					m.fills = append(m.fills, parseFillCond(cname, cm["conditions"]))
+				case "minecraft:construct_beacon":
+					m.beacons = append(m.beacons, parseBeaconCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -1639,6 +1642,62 @@ func (s *Server) firePlayerInteractedEntity(sess *Session, etype, heldName strin
 				continue
 			}
 			sess.grantGameCriterion(meta, ic.crit)
+		}
+	}
+}
+
+// beaconCond is one construct_beacon criterion reduced to the pyramid
+// level range it accepts (default 0..4, the only levels that exist).
+// Anything outside "level" locks it.
+type beaconCond struct {
+	crit       string
+	min, max   float64
+	impossible bool
+}
+
+func parseBeaconCond(cname string, conds any) beaconCond {
+	bc := beaconCond{crit: cname, max: 4}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "level" {
+			bc.impossible = true
+			continue
+		}
+		switch lv := v.(type) {
+		case float64:
+			bc.min, bc.max = lv, lv
+		case map[string]any:
+			for rk, rv := range lv {
+				f, ok := rv.(float64)
+				if !ok {
+					bc.impossible = true
+					continue
+				}
+				switch rk {
+				case "min":
+					bc.min = f
+				case "max":
+					bc.max = f
+				default:
+					bc.impossible = true
+				}
+			}
+		default:
+			bc.impossible = true
+		}
+	}
+	return bc
+}
+
+// fireConstructBeacon grants every construct_beacon criterion whose
+// level range admits the activated pyramid depth.
+func (s *Server) fireConstructBeacon(sess *Session, levels int) {
+	for _, meta := range gameAdvs {
+		for _, bc := range meta.beacons {
+			if bc.impossible || float64(levels) < bc.min || float64(levels) > bc.max {
+				continue
+			}
+			sess.grantGameCriterion(meta, bc.crit)
 		}
 	}
 }

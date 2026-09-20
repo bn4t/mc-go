@@ -112,6 +112,7 @@ func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block)
 		s.removeHopper(d, pos)
 	}
 	s.syncContainerBlock(d, pos, blk)
+	s.syncBeacon(d, pos, blk)
 }
 
 // syncContainerBlock keeps the generic container store in step with a
