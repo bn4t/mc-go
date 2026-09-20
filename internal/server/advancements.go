@@ -7,6 +7,7 @@ import (
 
 	"mc-go/internal/data"
 	"mc-go/internal/protocol"
+	"mc-go/internal/world"
 )
 
 // Advancement progress is only modelled for recipe advancements so far:
@@ -61,12 +62,22 @@ func (sess *Session) grantRecipeCriterion(idx int) {
 	if adv == nil {
 		return
 	}
+	sess.grantAdvCriterion(adv, "has_the_recipe")
+}
+
+// grantAdvCriterion records criterion cname earned on adv. When the
+// grant finishes a requirements group the advancement completes: its
+// recipe reward unlocks inline (RecipeBookAdd), and further criteria
+// grants become no-ops - vanilla unregisters a completed advancement's
+// listeners, which is why a give * never reports the crafting_table
+// criterion.
+func (sess *Session) grantAdvCriterion(adv *data.RecipeAdv, cname string) {
 	sess.advMu.Lock()
-	defer sess.advMu.Unlock()
 	if sess.advDone == nil {
 		sess.advDone = map[string]bool{}
 	}
 	if sess.advDone[adv.ID] {
+		sess.advMu.Unlock()
 		return
 	}
 	if sess.advCrits == nil {
@@ -75,22 +86,30 @@ func (sess *Session) grantRecipeCriterion(idx int) {
 	if sess.advCrits[adv.ID] == nil {
 		sess.advCrits[adv.ID] = map[string]int64{}
 	}
-	if _, done := sess.advCrits[adv.ID]["has_the_recipe"]; done {
+	if _, done := sess.advCrits[adv.ID][cname]; done {
+		sess.advMu.Unlock()
 		return
 	}
-	sess.advCrits[adv.ID]["has_the_recipe"] = time.Now().UnixMilli()
+	sess.advCrits[adv.ID][cname] = time.Now().UnixMilli()
+	// A requirements group is a set of alternative criteria: any one
+	// satisfied meets it, and the advancement completes when every
+	// group is met (AdvancementRequirements.test).
+	complete := len(adv.Reqs) > 0
 	for _, group := range adv.Reqs {
-		done := true
+		met := false
 		for _, c := range group {
-			if _, ok := sess.advCrits[adv.ID][c]; !ok {
-				done = false
+			if _, ok := sess.advCrits[adv.ID][c]; ok {
+				met = true
 				break
 			}
 		}
-		if done {
-			sess.advDone[adv.ID] = true
+		if !met {
+			complete = false
 			break
 		}
+	}
+	if complete {
+		sess.advDone[adv.ID] = true
 	}
 	if sess.advDirty == nil {
 		sess.advDirty = map[string]bool{}
@@ -98,6 +117,124 @@ func (sess *Session) grantRecipeCriterion(idx int) {
 	if !sess.advDirty[adv.ID] {
 		sess.advDirty[adv.ID] = true
 		sess.advDirtyOrder = append(sess.advDirtyOrder, adv.ID)
+	}
+	sess.advMu.Unlock()
+
+	if complete {
+		sess.server.awardRecipeAdvancement(sess, adv)
+	}
+}
+
+// awardRecipeAdvancement runs the advancement's recipe reward: the
+// recipe unlocks through the same RecipeBookAdd path /recipe give uses
+// (already-known entries skip silently), and the unlock re-grants the
+// advancement's own recipe criterion - a no-op now that it's done.
+func (s *Server) awardRecipeAdvancement(sess *Session, adv *data.RecipeAdv) {
+	name := strings.TrimPrefix(adv.Recipe, "minecraft:")
+	idx, ok := recipeIndex[name]
+	if !ok || !recipeBookable(data.Recipes[idx]) {
+		return
+	}
+	if !sess.unlockRecipe(idx) {
+		return
+	}
+	var b protocol.Buffer
+	var entries protocol.Buffer
+	n := recipeEntry(&entries, idx, recipeGiveFlags(data.Recipes[idx]))
+	b.VarInt(int32(n))
+	b.Raw(entries.Bytes())
+	b.Bool(false)
+	sess.write(sess.ids().PlayRecipeBookAdd, b.Bytes())
+	sess.grantRecipeCriterion(idx)
+}
+
+// fireInventoryChanged is the inventory listener: vanilla attaches a
+// container.changed() hook that evaluates every inventory_changed
+// criterion against the player's whole inventory each time a slot
+// mutates. addStack and the slot setters call this after writing.
+func (s *Server) fireInventoryChanged(sess *Session) {
+	sess.invMu.RLock()
+	inv := append([]ItemStack(nil), sess.inv[:]...)
+	sess.invMu.RUnlock()
+
+	occupied := 0
+	items := map[string]bool{}
+	for _, it := range inv {
+		if it.Empty() {
+			continue
+		}
+		occupied++
+		if n, ok := world.ItemName(it.ID); ok {
+			items[n] = true
+		}
+	}
+	for i := range data.RecipeAdvs {
+		adv := &data.RecipeAdvs[i]
+		for _, c := range adv.Conds {
+			if c.Trigger != "inventory_changed" {
+				continue
+			}
+			sess.advMu.Lock()
+			done := sess.advCrits[adv.ID] != nil
+			if done {
+				_, done = sess.advCrits[adv.ID][c.Name]
+			}
+			sess.advMu.Unlock()
+			if done {
+				continue
+			}
+			match := false
+			if c.SlotsMin > 0 && occupied >= c.SlotsMin {
+				match = true
+			}
+			for _, pred := range c.Items {
+				if strings.HasPrefix(pred, "#") {
+					for _, member := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(pred, "#"), "minecraft:")] {
+						if items[member] {
+							match = true
+						}
+					}
+					continue
+				}
+				if items[strings.TrimPrefix(pred, "minecraft:")] {
+					match = true
+				}
+			}
+			if match {
+				sess.grantAdvCriterion(adv, c.Name)
+			}
+		}
+	}
+}
+
+// fireEnterBlock grants enter_block criteria when the player's feet sit
+// inside the named block - the boat/raft recipe advancements fire on
+// "water" this way.
+func (s *Server) fireEnterBlock(sess *Session) {
+	sess.posMu.RLock()
+	bx, by, bz := int(sess.px), int(sess.py), int(sess.pz)
+	sess.posMu.RUnlock()
+	blk := sess.world().GetBlock(world.Pos{X: bx, Y: by, Z: bz})
+	feet, _ := world.StateOwner(blk)
+	if feet == "" {
+		return
+	}
+	for i := range data.RecipeAdvs {
+		adv := &data.RecipeAdvs[i]
+		for _, c := range adv.Conds {
+			if c.Trigger != "enter_block" || c.Block != feet {
+				continue
+			}
+			sess.advMu.Lock()
+			done := sess.advCrits[adv.ID] != nil
+			if done {
+				_, done = sess.advCrits[adv.ID][c.Name]
+			}
+			sess.advMu.Unlock()
+			if !done {
+				sess.grantAdvCriterion(adv, c.Name)
+			}
+		}
 	}
 }
 

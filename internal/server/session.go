@@ -68,6 +68,10 @@ type Session struct {
 	advDirty      map[string]bool
 	advDirtyOrder []string
 	advDone       map[string]bool
+	// invSnap is the last-tick inventory snapshot that decides whether
+	// the inventory_changed advancement trigger needs evaluating.
+	invSnap   [slotCount]ItemStack
+	invSnapOK bool
 	// Player inventory window (46 slots), guarded by invMu. Slots are Slots are
 	// populated from Set Creative Mode Slot and container clicks; the
 	// selected hotbar slot (0-8) picks what Use Item On places.

@@ -104,15 +104,18 @@ Mojang server over the wire.
   1568-entry give-all blob; decorated_pot needs an unmodeled component,
   smithing needs the menu, bookcloning/shielddecoration/fireworks/
   mapextending need content components)
-- [~] Advancements (recipe advancements: the recipe_unlocked criterion
-  grant, the deferred per-tick UpdateAdvancements flush with added defs
-  + criterion progress, and the completed-advancement grant no-op are
-  implemented and parity-tested incl. the 1560-entry give-all sync;
-  vanilla emits added/progress entries in identity-hash order which
-  varies per run, so the test compares them as sets while per-criterion
-  order — String-hash buckets seeded by a fastutil set — matches
-  exactly. Non-recipe advancement triggers, statistics, scoreboard,
-  teams remain open)
+- [~] Advancements (recipe advancements: recipe_unlocked,
+  inventory_changed, enter_block and the tick trigger all grant, the
+  requirements-group semantics (every group needs one satisfied
+  criterion) drive completion + reward unlocks, the deferred per-tick
+  UpdateAdvancements flush ships added defs + criterion progress, and
+  completed-advancement grants are no-ops - implemented and
+  parity-tested incl. the 1560-entry give-all sync and give-triggered
+  auto-unlocks; vanilla emits added/progress entries in identity-hash
+  order which varies per run, so the test compares them as sets while
+  per-criterion order — String-hash buckets seeded by a fastutil set —
+  matches exactly. Non-recipe advancement triggers, statistics,
+  scoreboard, teams remain open)
 - [ ] Player data persistence
 
 ### Server
@@ -1169,3 +1172,21 @@ physics through a void dip plus a fed recovery window.
   requirements' fastutil ObjectOpenHashSet order. Recipe advancement
   defs come from a new generated table (recipeadvs_gen.go: recipe ->
   advancement id, requirements, JSON-order criteria).
+- 2026-09-20: inventory_changed + enter_block trigger engine: the tick
+  diffs the inventory snapshot and addStack fires synchronously, so a
+  /give that completes a has_* criterion emits the reward's
+  RecipeBookAdd before the command reply exactly as vanilla does (one
+  Add per completed advancement). Also cracked the advancement
+  requirements semantics: each outer group is satisfied by ANY one of
+  its criteria (AdvancementRequirements.test = all-groups-any-match),
+  so `recipe give *` completes every recipe advancement through
+  has_the_recipe and later pickups stay silent - verified against
+  vanilla which emits nothing for a give after give-all. /give now
+  takes an optional target (@s or player name) and answers with the
+  real commands.give.success.single component ({""-keyed count arg,
+  square-bracket item display with show_item hover, entity display
+  with suggest_command + show_entity hover) - byte-exact vs vanilla.
+  TestRecipeCommandParity gained keepalive echo (vanilla kicks a client
+  that never answers) and the give-oak_log/give-stone steps; trigger
+  adds compare as a multiset since vanilla's listener order is
+  identity-hash dependent.

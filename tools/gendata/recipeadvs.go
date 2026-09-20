@@ -19,7 +19,21 @@ import (
 type recipeAdvFile struct {
 	Parent       string     `json:"parent"`
 	Requirements [][]string `json:"requirements"`
-	Rewards      struct {
+	Criteria     map[string]struct {
+		Trigger    string `json:"trigger"`
+		Conditions struct {
+			Items []struct {
+				Items string `json:"items"`
+			} `json:"items"`
+			Block string `json:"block"`
+			Slots struct {
+				Occupied struct {
+					Min int `json:"min"`
+				} `json:"occupied"`
+			} `json:"slots"`
+		} `json:"conditions"`
+	} `json:"criteria"`
+	Rewards struct {
 		Recipes []string `json:"recipes"`
 	} `json:"rewards"`
 }
@@ -56,10 +70,18 @@ func orderedKeys(raw json.RawMessage, field string) []string {
 
 func genRecipeAdvs(zr *zip.Reader) []byte {
 	const prefix = "data/minecraft/advancement/recipes/"
+	type advCond struct {
+		Name     string
+		Trigger  string
+		Items    []string // item ids or "#tag"
+		Block    string
+		SlotsMin int
+	}
 	type entry struct {
 		id, recipe, parent string
 		criteria           []string
 		reqs               [][]string
+		conds              []advCond
 	}
 	var entries []entry
 	for _, f := range zr.File {
@@ -84,8 +106,21 @@ func genRecipeAdvs(zr *zip.Reader) []byte {
 		}
 		id := strings.TrimSuffix(strings.TrimPrefix(f.Name, "data/minecraft/advancement/"), ".json")
 		criteria := orderedKeys(raw, "criteria")
+		var conds []advCond
+		for _, c := range criteria {
+			cc := parsed.Criteria[c]
+			var cond advCond
+			cond.Name = c
+			cond.Trigger = strings.TrimPrefix(cc.Trigger, "minecraft:")
+			for _, pred := range cc.Conditions.Items {
+				cond.Items = append(cond.Items, pred.Items)
+			}
+			cond.Block = strings.TrimPrefix(cc.Conditions.Block, "minecraft:")
+			cond.SlotsMin = cc.Conditions.Slots.Occupied.Min
+			conds = append(conds, cond)
+		}
 		for _, recipe := range parsed.Rewards.Recipes {
-			entries = append(entries, entry{id, recipe, parsed.Parent, criteria, parsed.Requirements})
+			entries = append(entries, entry{id, recipe, parsed.Parent, criteria, parsed.Requirements, conds})
 		}
 	}
 	sortEntries := func(s []entry) {
@@ -110,6 +145,19 @@ type RecipeAdv struct {
 	Parent   string
 	Criteria []string
 	Reqs     [][]string
+	Conds    []AdvCond // aligned with Criteria
+}
+
+// AdvCond is one recipe-advancement criterion's grant condition:
+// inventory_changed fires when a matching item occupies an inventory
+// slot, enter_block when the player stands inside the block, and
+// slots.occupied when that many inventory slots are filled.
+type AdvCond struct {
+	Name     string
+	Trigger  string
+	Items    []string // item ids or "#tag" item tag
+	Block    string
+	SlotsMin int
 }
 
 // RecipeAdvs lists every recipe advancement in the vanilla data pack,
@@ -135,6 +183,30 @@ var RecipeAdvs = []RecipeAdv{
 					b.WriteString(", ")
 				}
 				fmt.Fprintf(&b, "%q", c)
+			}
+			b.WriteString("}")
+		}
+		b.WriteString("}, Conds: []AdvCond{")
+		for i, c := range e.conds {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "{Name: %q, Trigger: %q", c.Name, c.Trigger)
+			if len(c.Items) > 0 {
+				b.WriteString(", Items: []string{")
+				for j, it := range c.Items {
+					if j > 0 {
+						b.WriteString(", ")
+					}
+					fmt.Fprintf(&b, "%q", it)
+				}
+				b.WriteString("}")
+			}
+			if c.Block != "" {
+				fmt.Fprintf(&b, ", Block: %q", c.Block)
+			}
+			if c.SlotsMin != 0 {
+				fmt.Fprintf(&b, ", SlotsMin: %d", c.SlotsMin)
 			}
 			b.WriteString("}")
 		}

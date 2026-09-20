@@ -713,6 +713,11 @@ func (sess *Session) addStack(it ItemStack) (ItemStack, bool) {
 	for _, u := range updates {
 		_ = sess.server.sendContainerSlot(sess, u.slot, u.it)
 	}
+	if picked {
+		// vanilla's container.changed() listener evaluates the
+		// inventory_changed advancement criteria after each mutation
+		sess.server.fireInventoryChanged(sess)
+	}
 	return it, picked
 }
 

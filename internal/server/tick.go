@@ -320,6 +320,18 @@ func (s *Server) playerTick() {
 		if sess.healthDirty.Swap(false) {
 			_ = s.sendHealth(sess)
 		}
+		// The inventory listener normally fires from addStack the moment
+		// a slot mutates; slot writers that skip addStack still trip the
+		// criteria scan here on the tick boundary.
+		sess.invMu.RLock()
+		inv := sess.inv
+		sess.invMu.RUnlock()
+		if !sess.invSnapOK || inv != sess.invSnap {
+			sess.invSnap = inv
+			sess.invSnapOK = true
+			s.fireInventoryChanged(sess)
+		}
+		s.fireEnterBlock(sess)
 		s.flushAdvancements(sess)
 		return true
 	})

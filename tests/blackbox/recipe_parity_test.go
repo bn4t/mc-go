@@ -49,6 +49,12 @@ func runRecipeScript(t *testing.T, addr, name string) *recipeCapture {
 				}
 				t.Fatalf("recipe parity %s: read: %v", marker, err)
 			}
+			if p.ID == server.IDPlayKeepAliveCB {
+				var b protocol.Buffer
+				b.Raw(p.Data)
+				_ = pw.WritePacket(server.IDPlayKeepAliveSB, b.Bytes())
+				continue
+			}
 			if bytes.Contains(p.Data, []byte(marker)) && !found {
 				found = true
 				continue
@@ -82,6 +88,11 @@ func runRecipeScript(t *testing.T, addr, name string) *recipeCapture {
 		{"recipe give @s minecraft:book_cloning", "R8"},
 		{"recipe take @s minecraft:map_cloning", "R9"},
 		{"recipe give @s minecraft:tipped_arrow", "R10"},
+		// inventory_changed: the given items complete has_* criteria,
+		// each completed advancement pushes one RecipeBookAdd for its
+		// reward recipe before the command reply goes out.
+		{"give @s oak_log", "R11"},
+		{"give @s stone", "R12"},
 	}
 	sections := make([]*recipeCapture, len(steps))
 	for i, st := range steps {
@@ -134,7 +145,32 @@ func TestRecipeCommandParity(t *testing.T) {
 			}
 		}
 	}
-	cmp("adds", van.adds, mc.adds)
+	// Trigger unlocks emit one RecipeBookAdd per completed advancement,
+	// in the order the vanilla trigger's listeners happen to run - an
+	// identity-hash order that varies across vanilla launches - so adds
+	// compare as a multiset. The give commands' own adds are single
+	// packets anyway.
+	if len(van.adds) != len(mc.adds) {
+		t.Fatalf("adds count: vanilla %d, mc-go %d", len(van.adds), len(mc.adds))
+	}
+	multiset := func(b [][]byte) map[string]int {
+		m := map[string]int{}
+		for _, p := range b {
+			m[string(p)]++
+		}
+		return m
+	}
+	vm, mm := multiset(van.adds), multiset(mc.adds)
+	for k, n := range vm {
+		if mm[k] != n {
+			t.Fatalf("adds: vanilla has %d of %x, mc-go %d", n, k[:min(40, len(k))], mm[k])
+		}
+	}
+	for k, n := range mm {
+		if vm[k] != n {
+			t.Fatalf("adds: mc-go has %d of %x, vanilla %d", n, k[:min(40, len(k))], vm[k])
+		}
+	}
 	cmp("removes", van.removes, mc.removes)
 	cmp("replies", van.replies, mc.replies)
 	cmpAdv(t, "advs", van.advs, mc.advs)
