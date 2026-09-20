@@ -686,7 +686,11 @@ func (s *Server) pickupTarget(e *Entity) *Session {
 			return true
 		}
 		x, y, z, _, _, _ := sess.Pos()
-		if abs(x-e.X) <= 1.2 && abs(z-e.Z) <= 1.2 && abs(y-e.Y) <= 2.0 {
+		// Vanilla collects an item when its 0.25-cube box touches the
+		// player's bounding box inflated by (1.0, 0.5, 1.0): half-width
+		// 0.3+1.0+0.125 horizontally, [y-0.75, y+2.3] for the item's
+		// feet vertically.
+		if abs(x-e.X) <= 1.425 && abs(z-e.Z) <= 1.425 && e.Y >= y-0.75 && e.Y <= y+2.3 {
 			target = sess
 			return false
 		}

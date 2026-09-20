@@ -118,3 +118,81 @@ func (s *Server) attackWear(sess *Session) {
 	sess.addItemStat(statUsed, it.ID, 1)
 	s.wearHeld(sess, dpa)
 }
+
+// bypassesArmor lists the damage types vanilla tags
+// minecraft:bypasses_armor that this server emits; a hit from one
+// never reduces through armor and never wears it.
+func bypassesArmor(typeName string) bool {
+	switch typeName {
+	case "generic", "generic_kill", "fall", "starve", "out_of_world":
+		return true
+	}
+	return false
+}
+
+// armorBreakEvents maps an armor inventory slot to its
+// entity-status byte (LivingEntity.entityEventForEquipmentBreak on
+// 26.2's tableswitch: head=49, chest=50, legs=51, feet=52).
+var armorBreakEvents = map[int]byte{
+	slotArmorStart + 3: 52, // feet
+	slotArmorStart + 2: 51, // legs
+	slotArmorStart + 1: 50, // chest
+	slotArmorStart + 0: 49, // head
+}
+
+// armorWear is LivingEntity.doHurtEquipment for the four armor
+// slots: a hit that does not bypass armor costs every damageable,
+// hurt-wearable equipped item max(1, rawDamage/4) durability — the
+// raw incoming amount, before armor reduces it. A piece that
+// exhausts its durability empties the slot, snaps the break entity
+// event, and awards the item-broken statistic.
+func (s *Server) armorWear(sess *Session, src damageSource, rawDamage float32) {
+	if sess.mode() != GameModeSurvival || bypassesArmor(src.typeName) {
+		return
+	}
+	amount := int32(rawDamage / 4)
+	if amount < 1 {
+		amount = 1
+	}
+	broke := false
+	dirty := map[int]ItemStack{}
+	// Vanilla's doHurtEquipment walks feet, legs, chest, head, so the
+	// break events leave in that order; the client's slot resyncs are
+	// the inventory change broadcast, which walks slots ascending.
+	for _, slot := range []int{slotArmorStart + 3, slotArmorStart + 2, slotArmorStart + 1, slotArmorStart} {
+		sess.invMu.Lock()
+		it := sess.inv[slot]
+		name, ok := world.ItemName(it.ID)
+		maxDmg, dmgOK := damageableItems[name]
+		if !ok || !dmgOK || itemEquippable[name] == 0 || itemHurtWearExempt[name] != 0 {
+			sess.invMu.Unlock()
+			continue
+		}
+		it.Damage += amount
+		var empt bool
+		if it.Damage >= maxDmg {
+			sess.inv[slot] = ItemStack{}
+			empt = true
+		} else {
+			sess.inv[slot] = it
+		}
+		dirty[slot] = sess.inv[slot]
+		sess.invState.Add(1)
+		sess.invMu.Unlock()
+
+		if empt {
+			s.broadcastEntityEvent(sess.entityID.Load(), armorBreakEvents[slot])
+			sess.addItemStat(statBroken, it.ID, 1)
+			broke = true
+		}
+	}
+	for slot := slotArmorStart; slot < slotArmorStart+4; slot++ {
+		if cur, ok := dirty[slot]; ok {
+			_ = s.sendContainerSlot(sess, int16(slot), cur)
+		}
+	}
+	if broke {
+		s.fireInventoryChanged(sess)
+		s.broadcastEquipment(sess)
+	}
+}

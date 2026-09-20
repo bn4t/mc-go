@@ -70,14 +70,21 @@ func (sess *Session) armorDefense() float32 {
 	return total
 }
 
-// reduceDamage applies vanilla's armor formula: damage scaled by
-// 1 - min(20, armor)/25.
+// reduceDamage applies vanilla's armor absorb (CombatRules.
+// getDamageAfterAbsorb): effective defense is armor minus
+// damage/(2+toughness/4), floored at armor/5 and capped at 20; the
+// surviving damage scales by 1 - defense/25. Toughness is always 0
+// here — no armor on this server carries armor_toughness yet.
 func reduceDamage(damage, armor float32) float32 {
-	if armor <= 0 {
+	if armor <= 0 || damage <= 0 {
 		return damage
 	}
-	if armor > 20 {
-		armor = 20
+	defense := armor - damage/2
+	if floor := armor * 0.2; defense < floor {
+		defense = floor
 	}
-	return damage * (1 - armor/25)
+	if defense > 20 {
+		defense = 20
+	}
+	return damage * (1 - defense/25)
 }

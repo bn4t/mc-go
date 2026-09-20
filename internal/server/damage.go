@@ -130,10 +130,12 @@ func (s *Server) voidTickStep() {
 }
 
 // damageWith applies damage with an explicit source, emitting the
-// Damage Event before the health sync.
-func (s *Server) damageWith(sess *Session, amount float32, message string, src damageSource) {
+// Damage Event before the health sync, and returns the damage that
+// actually landed after armor absorbs it (0 when the hit was
+// rejected by the post-hit invulnerability window).
+func (s *Server) damageWith(sess *Session, amount float32, message string, src damageSource) float32 {
 	if sess.mode() != GameModeSurvival || sess.dead {
-		return
+		return 0
 	}
 	// Vanilla grants twenty ticks of invulnerability after a hit; while
 	// more than half remains, a hit no stronger than the last is ignored
@@ -141,13 +143,22 @@ func (s *Server) damageWith(sess *Session, amount float32, message string, src d
 	orig := amount
 	if sess.invulnTicks > 10 {
 		if orig <= sess.lastHurt {
-			return
+			return 0
 		}
 		amount = orig - sess.lastHurt
 	}
 	sess.lastHurt = orig
 	sess.invulnTicks = 20
 	sess.lastHurtBy = src.cause
+	// A hit that armor can absorb wears the equipped pieces first —
+	// on the amount still standing after the i-frames delta — and is
+	// then reduced by the armor formula. The defense value is the
+	// pre-wear total: pieces that break still count for this hit.
+	if !bypassesArmor(src.typeName) {
+		defense := sess.armorDefense()
+		s.armorWear(sess, src, amount)
+		amount = reduceDamage(amount, defense)
+	}
 	// Vanilla counts damage in tenths of a heart.
 	sess.addCustomStat("damage_taken", int32(amount*10))
 	eid := sess.entityID.Load()
@@ -160,4 +171,5 @@ func (s *Server) damageWith(sess *Session, amount float32, message string, src d
 		x:        x, y: y, z: z,
 	})
 	s.damage(sess, amount, message)
+	return amount
 }
