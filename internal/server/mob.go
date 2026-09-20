@@ -346,6 +346,12 @@ func (s *Server) mobTickStep() {
 		if e.NoAI {
 			continue
 		}
+		// Hostile melee mobs chase the nearest player and swing on a
+		// vanilla-paced cooldown; a successful chase replaces the wander
+		// step for this tick.
+		if dmg, ok := mobMelee[e.Type]; ok && s.mobMeleeStep(e, dmg) {
+			continue
+		}
 		w := s.dimWorld(e.Dim)
 		if w == nil {
 			continue
@@ -394,4 +400,110 @@ func (s *Server) mobTickStep() {
 		e.X, e.Z = nx, nz
 		s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, e.Yaw, 0, true)
 	}
+}
+
+// mobMelee is the melee attack damage (vanilla attackDamage) for the
+// hostile mobs mc-go simulates. Follow range is vanilla's
+// followRange (35 for zombies) — skeletons shoot rather than melee and
+// creepers explode, so neither is in the table.
+var mobMelee = map[int32]float32{}
+
+func init() {
+	for name, dmg := range map[string]float32{
+		"zombie":           3,
+		"husk":             3,
+		"drowned":          3,
+		"zombie_villager":  3,
+		"zombified_piglin": 8,
+		"spider":           3,
+		"cave_spider":      3,
+		"iron_golem":       15,
+	} {
+		if id, ok := EntityTypeID(name); ok {
+			mobMelee[id] = dmg
+		}
+	}
+}
+
+// mobChaseSpeed is the vanilla zombie-family movement speed in
+// blocks per tick (movementSpeed attribute 0.23).
+const mobChaseSpeed = 0.23
+
+// mobMeleeStep runs one hostile-melee tick: chase the nearest living
+// survival player inside follow range; within reach, swing (the animate
+// broadcast) and land attackDamage on the vanilla 20-tick cooldown.
+// Reports whether the mob had a target — true replaces wander.
+func (s *Server) mobMeleeStep(e *Entity, dmg float32) bool {
+	var target *Session
+	best := 35.0 * 35.0
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if !sess.spawned.Load() || sess.dead || sess.mode() != GameModeSurvival {
+			return true
+		}
+		if sess.dimension().name != e.Dim {
+			return true
+		}
+		px, py, pz, _, _, _ := sess.Pos()
+		dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
+		if d2 := dx*dx + dz*dz + dy*dy*0.25; d2 < best {
+			best = d2
+			target = sess
+		}
+		return true
+	})
+	if target == nil {
+		return false
+	}
+	px, py, pz, _, _, _ := target.Pos()
+	dx, dz := px-e.X, pz-e.Z
+	dist := math.Hypot(dx, dz)
+	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	// Vanilla's attack reach is the mob's inflated box vs the target's;
+	// for the zombie's 0.6 box vs a player that lands ~1.5 blocks out.
+	reach := mobBounds(e.Type)[0] + 0.6 + 0.3
+	if dist > reach {
+		step := mobChaseSpeed
+		if step > dist-reach*0.8 {
+			step = dist - reach*0.8
+		}
+		if step > 0 {
+			e.X += dx / dist * step
+			e.Z += dz / dist * step
+		}
+	}
+	s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, e.Yaw, 0, true)
+	if e.attackCooldown > 0 {
+		e.attackCooldown--
+		return true
+	}
+	dy := math.Abs(py - e.Y)
+	if dist <= reach && dy < 2.5 {
+		e.attackCooldown = 20
+		s.broadcastEntityAnimation(nil, e.ID, 0) // swing main hand
+		kn, _ := EntityTypeName(e.Type)
+		s.damageWith(target, dmg, translatable("death.attack.mob",
+			literal(target.getName()), literal(mobDisplayName(kn))), damageSource{
+			typeName: "mob_attack",
+			cause:    e.ID,
+			direct:   e.ID,
+		})
+	}
+	return true
+}
+
+// mobDisplayName is the entity type's death-message name — vanilla
+// renders the translatable entity name; mc-go's death strings carry the
+// English form.
+func mobDisplayName(typ string) string {
+	if typ == "" {
+		return "something"
+	}
+	parts := strings.Split(typ, "_")
+	for i, p := range parts {
+		if p != "" {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return strings.Join(parts, " ")
 }

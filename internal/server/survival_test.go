@@ -398,7 +398,7 @@ func TestDeathDropsInventory(t *testing.T) {
 	sess.setStack(invSlotForHotbar(0), ItemStack{ID: world.ItemIDs["dirt"], Count: 5})
 	sess.setStack(slotMainStart, ItemStack{ID: world.ItemIDs["stone"], Count: 12})
 
-	s.killPlayer(sess, "test")
+	s.killPlayer(sess, literal("test"))
 	if !sess.dead {
 		t.Fatal("not dead")
 	}

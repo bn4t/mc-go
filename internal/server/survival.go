@@ -427,7 +427,7 @@ func (s *Server) sendHealth(sess *Session) error {
 
 // damage applies survival damage and syncs health; a lethal hit runs
 // the death flow. Creative and spectator players are immune.
-func (s *Server) damage(sess *Session, amount float32, message string) {
+func (s *Server) damage(sess *Session, amount float32, message component) {
 	if amount <= 0 || sess.mode() != GameModeSurvival || sess.dead {
 		return
 	}
@@ -442,7 +442,7 @@ func (s *Server) damage(sess *Session, amount float32, message string) {
 
 // killPlayer runs the death flow: health 0, combat death notice, and
 // the dead state that blocks further actions until respawn.
-func (s *Server) killPlayer(sess *Session, message string) {
+func (s *Server) killPlayer(sess *Session, message component) {
 	if sess.dead {
 		return
 	}
@@ -486,8 +486,11 @@ func (s *Server) killPlayer(sess *Session, message string) {
 	_ = s.sendHealth(sess)
 	var b protocol.Buffer
 	b.VarInt(sess.entityID.Load())
-	b.Raw(textComponentContent(message))
+	b.Raw(message.content())
 	_ = sess.write(sess.ids().PlayCombatDeath, b.Bytes())
+	// Vanilla also fans the death message out as a system chat line to
+	// every player (the same translatable combat_death carries).
+	s.broadcastSystemChatComponent(message)
 }
 
 // dropInventory scatters every item stack at the player's death spot
@@ -586,7 +589,7 @@ func (s *Server) applyFallDamage(sess *Session) {
 	}
 	distance := sess.fallDistance
 	sess.fallDistance = 0
-	s.damageWith(sess, float32(distance-3.0), "Fell from a high place", srcFall)
+	s.damageWith(sess, float32(distance-3.0), translatable("death.fell.accident.generic", literal(sess.getName())), srcFall)
 }
 
 // addExhaustion accumulates activity exhaustion. The saturation/food
@@ -651,7 +654,7 @@ func (s *Server) hungerTickStep() {
 			sess.starveTimer++
 			if sess.starveTimer >= 80 {
 				sess.starveTimer = 0
-				s.damageWith(sess, 1, "Starved to death", srcStarve)
+				s.damageWith(sess, 1, translatable("death.attack.starve", literal(sess.getName())), srcStarve)
 			}
 		} else {
 			sess.starveTimer = 0

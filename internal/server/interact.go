@@ -218,7 +218,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	// is read before the ticker resets, as in vanilla's attack().
 	plan := s.planAttack(sess)
 	s.preAttackSound(sess, plan)
-	dealt := s.damageWith(target, plan.damage, sess.getName()+" was slain by "+target.getName(), damageSource{
+	dealt := s.damageWith(target, plan.damage, translatable("death.attack.player", literal(target.getName()), literal(sess.getName())), damageSource{
 		typeName: "player_attack",
 		cause:    sess.entityID.Load(),
 		direct:   sess.entityID.Load(),
@@ -395,7 +395,7 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 		if (ax-ox)*(ax-ox)+(ay-oy)*(ay-oy)+(az-oz)*(az-oz) >= 9 {
 			return true
 		}
-		dealt := s.damageWith(other, dmg, sess.getName()+" was slain by "+other.getName(), damageSource{
+		dealt := s.damageWith(other, dmg, translatable("death.attack.player", literal(other.getName()), literal(sess.getName())), damageSource{
 			typeName: "player_attack",
 			cause:    sess.entityID.Load(),
 			direct:   sess.entityID.Load(),

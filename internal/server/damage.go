@@ -124,7 +124,8 @@ func (s *Server) voidTickStep() {
 		if y >= float64(sess.dimension().minY-64) {
 			return true
 		}
-		s.damageWith(sess, 4, "Fell out of the world", srcVoid)
+		s.damageWith(sess, 4, translatable("death.fell.out_of_world",
+			literal(sess.getName())), srcVoid)
 		return true
 	})
 }
@@ -133,7 +134,7 @@ func (s *Server) voidTickStep() {
 // Damage Event before the health sync, and returns the damage that
 // actually landed after armor absorbs it (0 when the hit was
 // rejected by the post-hit invulnerability window).
-func (s *Server) damageWith(sess *Session, amount float32, message string, src damageSource) float32 {
+func (s *Server) damageWith(sess *Session, amount float32, message component, src damageSource) float32 {
 	if sess.mode() != GameModeSurvival || sess.dead {
 		return 0
 	}

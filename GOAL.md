@@ -1422,3 +1422,21 @@ physics through a void dip plus a fed recovery window.
   13-command grant/revoke script on both servers and diffs the
   cumulative def+progress+removed+chat union — green alongside
   TestKillAdvParity and TestAdvRejoinParity.
+
+- 2026-09-20: hostile-mob melee + death-message broadcast at wire
+  parity. mobMeleeStep gives zombie-family melee mobs (zombie, husk,
+  drowned, zombie_villager, zombified_piglin, spider, cave_spider,
+  iron_golem) vanilla's chase-and-swing: nearest survival player inside
+  followRange 35, approach at movementSpeed 0.23 b/t replacing wander,
+  swing animation + attackDamage on the 20-tick attack cooldown inside
+  the inflated-box reach. Hits route through damageWith as
+  minecraft:mob_attack, so entity_killed_player fires via lastHurtBy
+  (adventure/root's killed_by_something grants on the kill tick).
+  killPlayer/damage/damageWith now carry components instead of strings:
+  combat_death ships the vanilla translatable (death.attack.mob /
+  .player / .starve / .fell.accident.generic / .fell.out_of_world /
+  .attack.generic) and the same component fans out as a system chat
+  death message to every player — vanilla's broadcast mc-go was
+  missing. TestMobKillsPlayerParity drops a zombie beside a survival
+  player on both servers, waits out the ~8s kill, and diffs the
+  cumulative advancement union + chat multiset — green.

@@ -21,7 +21,7 @@ func TestDamageSyncsHealth(t *testing.T) {
 	if sess == nil {
 		t.Fatal("session missing")
 	}
-	s.damage(sess, 5, "test")
+	s.damage(sess, 5, literal("test"))
 	// The sync lands on the next player tick, not on the damage call.
 	s.playerTick()
 	p, err := waitPacket(t, pr, IDPlaySetHealth)
@@ -54,7 +54,7 @@ func TestDeathAndRespawnFlow(t *testing.T) {
 	if sess == nil {
 		t.Fatal("session missing")
 	}
-	s.killPlayer(sess, "Died for science")
+	s.killPlayer(sess, literal("Died for science"))
 	if !sess.dead {
 		t.Fatal("player not marked dead")
 	}

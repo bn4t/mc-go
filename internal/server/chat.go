@@ -168,6 +168,19 @@ func (s *Server) sendSystemChat(sess *Session, text string) {
 	_ = sess.write(sess.ids().PlaySystemChatCB, b.Bytes())
 }
 
+// broadcastSystemChatComponent delivers a component to every play-stage
+// session — vanilla's death-message and advancement-announce fan-outs.
+func (s *Server) broadcastSystemChatComponent(c component) {
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay {
+			return true
+		}
+		s.sendSystemChatComponent(sess, c)
+		return true
+	})
+}
+
 // broadcastSystemChat delivers a plain-text message to every play-stage session.
 func (s *Server) broadcastSystemChat(text string) {
 	var b protocol.Buffer

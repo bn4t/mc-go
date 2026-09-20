@@ -241,7 +241,7 @@ func (s *Server) registerBuiltins() {
 			return "Unknown player: " + target
 		}
 		s.broadcastDamageEvent(sess.entityID.Load(), damageInfo{typeName: "generic_kill"})
-		s.killPlayer(sess, "Killed by "+player)
+		s.killPlayer(sess, translatable("death.attack.generic", literal(sess.getName())))
 		return "Killed " + target
 	})
 }

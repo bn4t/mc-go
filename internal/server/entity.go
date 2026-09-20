@@ -48,7 +48,10 @@ type Entity struct {
 	// WanderTicks counts AI steps; the wander angle derives from it so
 	// movement is deterministic for tests.
 	WanderTicks int64
-	Grounded    bool
+	// attackCooldown is the hostile-melee swing timer — vanilla's
+	// twenty-tick reset after each landed blow.
+	attackCooldown int32
+	Grounded       bool
 }
 
 // Manager owns entity ids and the live set. All methods are safe for
