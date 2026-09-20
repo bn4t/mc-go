@@ -158,3 +158,24 @@ func (s *Server) tameAnimal(sess *Session, eid int32) {
 	s.broadcastEntityAnimation(sess, sess.entityID.Load(), 0)
 	s.fireTamedAnimal(sess, name)
 }
+
+// interactEntityAdv resolves the clicked entity's type name and the
+// held item for the player_interacted_with_entity trigger.
+func (s *Server) interactEntityAdv(sess *Session, eid int32) {
+	s.entities.mu.RLock()
+	e := s.entities.byID[eid]
+	etype, ok := "", false
+	if e != nil {
+		etype, ok = EntityTypeName(e.Type)
+	}
+	s.entities.mu.RUnlock()
+	if !ok {
+		return
+	}
+	held := sess.heldStack()
+	heldName := ""
+	if n, ok := itemNameOf(held.ID); ok && !held.Empty() {
+		heldName = n
+	}
+	s.firePlayerInteractedEntity(sess, etype, heldName)
+}

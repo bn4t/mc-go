@@ -42,8 +42,9 @@ type advMeta struct {
 	summons    []summonCond  // summoned_entity — a built entity spawned
 	loots      []lootCond    // player_generates_container_loot — chest opened
 	breds      []breedCond   // bred_animals — a baby was produced
-	tames      []tameCond    // tame_animal — an animal was tamed
-	sleeps     []sleepCond   // slept_in_bed — entered a bed
+	tames      []tameCond
+	interacts  []interactCond // tame_animal — an animal was tamed
+	sleeps     []sleepCond    // slept_in_bed — entered a bed
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -251,6 +252,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.breds = append(m.breds, parseBreedCond(cname, cm["conditions"]))
 				case "minecraft:tame_animal":
 					m.tames = append(m.tames, parseTameCond(cname, cm["conditions"]))
+				case "minecraft:player_interacted_with_entity":
+					m.interacts = append(m.interacts, parseInteractCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -1442,6 +1445,17 @@ type tameCond struct {
 	impossible  bool
 }
 
+// interactCond is one player_interacted_with_entity criterion reduced
+// to the target entity's type OR-set and the held item's name OR-set.
+// Other entity predicate fields (flags, components, equipment) and
+// player predicates lock the criterion.
+type interactCond struct {
+	crit       string
+	entities   map[string]bool
+	items      map[string]bool
+	impossible bool
+}
+
 func parseTameCond(cname string, conds any) tameCond {
 	tc := tameCond{crit: cname}
 	cm, _ := conds.(map[string]any)
@@ -1532,6 +1546,88 @@ func (s *Server) fireSleptInBed(sess *Session) {
 				continue
 			}
 			sess.grantGameCriterion(meta, sc.crit)
+		}
+	}
+}
+
+// parseInteractCond reduces a player_interacted_with_entity criterion
+// to the entity-type OR-set under entity[] predicates plus the
+// item.items OR-set (item tags expand). Anything else locks it.
+func parseInteractCond(cname string, conds any) interactCond {
+	ic := interactCond{crit: cname, entities: map[string]bool{}, items: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "entity":
+			ents, _ := v.([]any)
+			for _, ev := range ents {
+				em, _ := ev.(map[string]any)
+				if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+					ic.impossible = true
+					continue
+				}
+				pred, _ := em["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					if pk == "minecraft:entity_type" {
+						if st, ok := pv.(string); ok {
+							ic.entities[strings.TrimPrefix(st, "minecraft:")] = true
+						}
+						continue
+					}
+					ic.impossible = true
+				}
+			}
+		case "item":
+			im, _ := v.(map[string]any)
+			for ik, iv := range im {
+				if ik != "items" {
+					ic.impossible = true
+					continue
+				}
+				switch it := iv.(type) {
+				case string:
+					ic.addItem(it)
+				case []any:
+					for _, e := range it {
+						if es, ok := e.(string); ok {
+							ic.addItem(es)
+						}
+					}
+				}
+			}
+		default:
+			ic.impossible = true
+		}
+	}
+	return ic
+}
+
+func (ic *interactCond) addItem(name string) {
+	if strings.HasPrefix(name, "#") {
+		for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(name, "#"), "minecraft:")] {
+			ic.items[m] = true
+		}
+		return
+	}
+	ic.items[strings.TrimPrefix(name, "minecraft:")] = true
+}
+
+// firePlayerInteractedEntity runs the player_interacted_with_entity
+// criteria against a right-click: etype is the clicked entity's type
+// name and heldName the main-hand item ("" for empty).
+func (s *Server) firePlayerInteractedEntity(sess *Session, etype, heldName string) {
+	for _, meta := range gameAdvs {
+		for _, ic := range meta.interacts {
+			if ic.impossible {
+				continue
+			}
+			if len(ic.entities) > 0 && !ic.entities[etype] {
+				continue
+			}
+			if len(ic.items) > 0 && !ic.items[heldName] {
+				continue
+			}
+			sess.grantGameCriterion(meta, ic.crit)
 		}
 	}
 }

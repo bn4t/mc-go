@@ -1587,3 +1587,10 @@ physics through a void dip plus a fed recovery window.
   Motion list — non-living summons spawn the projectile instead of
   being rejected. TestDeflectArrowParity asserts the block left health
   at 20 and emitted the shield sound on both targets.
+
+- 2026-09-20: player_interacted_with_entity (adventure/brush_armadillo,
+  "Isn't It Scute?"). Interact packets (actions 0/2) now resolve the
+  clicked entity's type and the held item and fire the trigger; the
+  criterion parser reduces entity[] predicates to an entity-type OR-set
+  and item.items to a name/tag OR-set. Armadillo joins the summonable
+  table at vanilla's 12 HP. TestBrushArmadilloParity green.

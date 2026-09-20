@@ -235,6 +235,7 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	if action == 0 || action == 2 {
 		s.feedAnimal(sess, id)
 		s.tameAnimal(sess, id)
+		s.interactEntityAdv(sess, id)
 	}
 }
 
