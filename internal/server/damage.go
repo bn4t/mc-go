@@ -151,6 +151,16 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 	sess.lastHurt = orig
 	sess.invulnTicks = 20
 	sess.lastHurtBy = src.cause
+	// A raised shield negates projectile damage outright: vanilla swaps
+	// the damage event for the blocked-by-shield type, plays the shield
+	// sound, and fires entity_hurt_player with blocked=true. The hit
+	// still costs the shield durability on vanilla; the item model has
+	// no durability on players yet.
+	if sess.blocking.Load() && src.typeName == "arrow" {
+		s.broadcastAttackSound(sess, 1455) // minecraft:item.shield.block
+		s.fireEntityHurtPlayer(sess, true, true)
+		return 0
+	}
 	// A hit that armor can absorb wears the equipped pieces first —
 	// on the amount still standing after the i-frames delta — and is
 	// then reduced by the armor formula. The defense value is the
@@ -178,5 +188,6 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 	if amount > healthBefore {
 		amount = healthBefore
 	}
+	s.fireEntityHurtPlayer(sess, src.typeName == "arrow", false)
 	return amount
 }

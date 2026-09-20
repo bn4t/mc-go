@@ -1356,3 +1356,12 @@ func snbtEscape(s string) string {
 	}
 	return b.String()
 }
+
+// snbtNum coerces a numeric tag to float64; non-numbers read 0.
+func snbtNum(t *snbtTag) float64 {
+	if t == nil || t.kind != snbtNumber {
+		return 0
+	}
+	f, _ := strconv.ParseFloat(strings.TrimRight(t.num, "bslfBSLFdiI"), 64)
+	return f
+}

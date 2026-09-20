@@ -32,6 +32,7 @@ type advMeta struct {
 	deaths     []killCond    // entity_killed_player — conditions apply to the killer
 	locs       []locCond     // location — only biome checks are modeled
 	hurts      []hurtCond    // player_hurt_entity — a player dealt damage
+	ehurts     []ehurtCond   // entity_hurt_player — a player took damage
 	inv        []invCond     // inventory_changed — an item reached inventory
 	consumed   []consumeCond // consume_item — a food finished eating
 	placed     []placedCond  // placed_block — a block landed in the world
@@ -80,6 +81,18 @@ type hurtCond struct {
 	direct     map[string]bool // direct_entity entity types (nil = any)
 	needsProj  bool            // damage.type.tags contains is_projectile
 	minDealt   float64         // damage.dealt.min (raw hearts, not half)
+	impossible bool
+}
+
+// ehurtCond is one entity_hurt_player criterion reduced to what a
+// blocked projectile hit can satisfy: the is_projectile damage tag and
+// the damage.blocked flag. Source/direct predicates and unmodeled
+// fields lock the criterion.
+type ehurtCond struct {
+	crit       string
+	needsProj  bool
+	needsBlock bool
+	blockFalse bool
 	impossible bool
 }
 
@@ -216,6 +229,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.deaths = append(m.deaths, parseKillCond(cname, cm["conditions"]))
 				case "minecraft:player_hurt_entity":
 					m.hurts = append(m.hurts, parseHurtCond(cname, cm["conditions"]))
+				case "minecraft:entity_hurt_player":
+					m.ehurts = append(m.ehurts, parseEHurtCond(cname, cm["conditions"]))
 				case "minecraft:inventory_changed":
 					m.inv = append(m.inv, parseInvCond(cname, cm["conditions"]))
 				case "minecraft:consume_item":
@@ -567,6 +582,69 @@ func parseHurtCond(cname string, conds any) hurtCond {
 		}
 	}
 	return hc
+}
+
+// parseEHurtCond reduces an entity_hurt_player criterion to the
+// damage.blocked flag plus the is_projectile damage-type tag.
+func parseEHurtCond(cname string, conds any) ehurtCond {
+	ec := ehurtCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "damage" {
+			ec.impossible = true
+		}
+		_ = v
+	}
+	dm, _ := cm["damage"].(map[string]any)
+	for k, v := range dm {
+		switch k {
+		case "blocked":
+			b, _ := v.(bool)
+			ec.needsBlock = b
+			ec.blockFalse = !b
+		case "type":
+			tm, _ := v.(map[string]any)
+			for tk, tv := range tm {
+				if tk != "tags" {
+					ec.impossible = true
+				}
+				tags, _ := tv.([]any)
+				for _, t := range tags {
+					tg, _ := t.(map[string]any)
+					exp, _ := tg["expected"].(bool)
+					id, _ := tg["id"].(string)
+					if exp && id == "minecraft:is_projectile" {
+						ec.needsProj = true
+					} else {
+						ec.impossible = true
+					}
+				}
+			}
+		default:
+			ec.impossible = true
+		}
+	}
+	return ec
+}
+
+// fireEntityHurtPlayer evaluates every entity_hurt_player criterion
+// against the hit the player took: proj is the is_projectile damage
+// tag, blocked whether a shield ate it.
+func (s *Server) fireEntityHurtPlayer(sess *Session, proj, blocked bool) {
+	for _, meta := range gameAdvs {
+		for _, ec := range meta.ehurts {
+			if ec.impossible || (ec.needsProj && !proj) {
+				continue
+			}
+			if ec.needsBlock && !blocked {
+				continue
+			}
+			if ec.blockFalse && blocked {
+				continue
+			}
+			sess.grantGameCriterion(meta, ec.crit)
+		}
+	}
 }
 
 // firePlayerHurtEntity evaluates every player_hurt_entity criterion

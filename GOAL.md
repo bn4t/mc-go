@@ -1576,3 +1576,14 @@ physics through a void dip plus a fed recovery window.
   morning and broadcasts sleep.skipping_night. Setblock places only a
   bed foot, which vanilla can't sleep in, so the test places through
   the real item-use path. TestSleptInBedParity green.
+
+- 2026-09-20: entity_hurt_player blocked-flag (story/deflect_arrow).
+  A use-item on a shield (either hand, honoring the packet's hand field)
+  raises the blocking flag until release_use_item; a projectile hit
+  against a raised shield is negated outright, plays
+  item.shield.block, and fires entity_hurt_player with blocked=true.
+  The trigger also fires on ordinary landed hits (blocked=false) so
+  criteria can match either side. /summon now accepts the arrow with a
+  Motion list — non-living summons spawn the projectile instead of
+  being rejected. TestDeflectArrowParity asserts the block left health
+  at 20 and emitted the shield sound on both targets.

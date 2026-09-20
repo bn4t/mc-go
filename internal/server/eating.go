@@ -44,7 +44,8 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 		return
 	}
 	r := protocol.NewPacketReader(p.Data)
-	if _, err := r.VarInt(); err != nil { // hand
+	hand, err := r.VarInt()
+	if err != nil {
 		return
 	}
 	if _, err := r.VarInt(); err != nil { // sequence
@@ -57,6 +58,17 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 		return
 	}
 	if sess.dead {
+		return
+	}
+	// A shield raises instead of eating/drawing; the raised flag lives
+	// until the release_use_item action. Vanilla reads the hand the
+	// packet asked for — an offhand use ignores the main hand stack.
+	st := sess.heldStack()
+	if hand == 1 {
+		st = sess.stackAt(slotOffhand)
+	}
+	if un, ok := itemNameOf(st.ID); ok && !st.Empty() && un == "shield" {
+		sess.blocking.Store(true)
 		return
 	}
 	held := sess.heldStack()

@@ -228,18 +228,41 @@ func (s *Server) runSummon(player string, args []string) reply {
 		}
 	}
 	noAI := false
+	var tag *snbtTag
 	if len(args) >= 5 {
-		if tag, _, err := parseSNBTTag(args[4], 0); err == nil && tag != nil {
-			if v, ok := tag.vals["NoAI"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+		if tg, _, err := parseSNBTTag(args[4], 0); err == nil && tg != nil {
+			tag = tg
+			if v, ok := tg.vals["NoAI"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
 				noAI = true
 			}
 		}
 	}
 	name := strings.TrimPrefix(args[0], "minecraft:")
-	if _, ok := s.summonMob(sess.dimension(), name, x, y, z, noAI); !ok {
-		return textReply("Unknown entity: " + args[0])
+	if _, ok := s.summonMob(sess.dimension(), name, x, y, z, noAI); ok {
+		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}
-	return componentReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
+	// Non-living summons the command still accepts: projectiles take
+	// their Motion list and fly like a bow release.
+	if name == "arrow" {
+		mx, my, mz := 0.0, -0.1, 0.0
+		if tag != nil {
+			if mv, ok := tag.vals["Motion"]; ok && len(mv.items) == 3 {
+				mx = snbtNum(mv.items[0])
+				my = snbtNum(mv.items[1])
+				mz = snbtNum(mv.items[2])
+			}
+		}
+		e := s.entities.Spawn(&Entity{
+			Type: mustEntityType("arrow"),
+			Dim:  sess.dimName(),
+			X:    x, Y: y, Z: z,
+			MotionX: mx, MotionY: my, MotionZ: mz,
+			VX: int16(mx * 8000), VY: int16(my * 8000), VZ: int16(mz * 8000),
+		})
+		s.broadcastEntitySpawn(nil, *e)
+		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft.arrow")))
+	}
+	return textReply("Unknown entity: " + args[0])
 }
 
 // summonMob spawns one living entity at pos in dimension d and fans it

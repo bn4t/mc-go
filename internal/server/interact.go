@@ -81,6 +81,7 @@ func (s *Server) handlePlayerActionExtras(sess *Session, p protocol.Packet) bool
 		s.dropHeld(sess, whole)
 		return true
 	case actionReleaseUse:
+		sess.blocking.Store(false)
 		s.releaseBow(sess)
 		return true
 	case actionSwapHands:
