@@ -36,6 +36,16 @@ type playerPersist struct {
 	// Award Statistics emit order depends on it.
 	Stats      map[string]int32 `json:"stats,omitempty"`
 	StatsOrder []string         `json:"stats_order,omitempty"`
+	// Advancements persists criterion progress keyed by advancement id:
+	// done flags and per-criterion obtain times, mirroring vanilla's
+	// advancements/<uuid>.json store.
+	Advancements map[string]savedAdv `json:"advancements,omitempty"`
+}
+
+// savedAdv is one advancement's persisted progress.
+type savedAdv struct {
+	Done     bool             `json:"done,omitempty"`
+	Criteria map[string]int64 `json:"criteria,omitempty"`
 }
 
 // signPersist is one sign's state on disk. Its styling travels with it:
@@ -124,6 +134,24 @@ func snapshotPlayer(sess *Session) playerPersist {
 		}
 	}
 	sess.statMu.Unlock()
+	sess.advMu.Lock()
+	if len(sess.advCrits) > 0 || len(sess.advDone) > 0 {
+		p.Advancements = map[string]savedAdv{}
+		for id, crits := range sess.advCrits {
+			e := p.Advancements[id]
+			e.Criteria = make(map[string]int64, len(crits))
+			for c, t := range crits {
+				e.Criteria[c] = t
+			}
+			p.Advancements[id] = e
+		}
+		for id := range sess.advDone {
+			e := p.Advancements[id]
+			e.Done = true
+			p.Advancements[id] = e
+		}
+	}
+	sess.advMu.Unlock()
 	return p
 }
 
@@ -282,6 +310,9 @@ func (s *Server) applySavedPlayer(sess *Session) {
 	sess.health = p.Health
 	sess.food = p.Food
 	sess.saturation = p.Saturation
+	if len(p.Advancements) > 0 {
+		sess.pendingAdv = p.Advancements
+	}
 	if len(p.Stats) > 0 {
 		sess.statMu.Lock()
 		st := sess.ensureStats()

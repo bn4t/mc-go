@@ -68,6 +68,9 @@ type Session struct {
 	advDirty      map[string]bool
 	advDirtyOrder []string
 	advDone       map[string]bool
+	// pendingAdv carries a returning player's saved advancement state
+	// from applySavedPlayer to initAdvancements at join.
+	pendingAdv map[string]savedAdv
 	// invSnap is the last-tick inventory snapshot that decides whether
 	// the inventory_changed advancement trigger needs evaluating.
 	invSnap   [slotCount]ItemStack
