@@ -34,6 +34,7 @@ func TestSpyglassAdvParity(t *testing.T) {
 		sendCommand(t, pw, "tp @s 4 -60 2 0 -8")
 		sendCommand(t, pw, "summon minecraft:ghast 4 -60 15 {NoAI:1b}")
 		sendCommand(t, pw, "summon minecraft:parrot 4 -60 -28 {NoAI:1b}")
+		sendCommand(t, pw, "summon minecraft:ender_dragon 60 -60 2 {NoAI:1b}")
 		sendCommand(t, pw, "item replace entity @s weapon.mainhand with minecraft:spyglass")
 		advCollect(t, c, pr, pw, 700*time.Millisecond, f)
 
@@ -70,6 +71,15 @@ func TestSpyglassAdvParity(t *testing.T) {
 		use(0, 0)
 		advCollect(t, c, pr, pw, 1500*time.Millisecond, f)
 		release()
+		advCollect(t, c, pr, pw, 300*time.Millisecond, f)
+		// The dragon sits east (+x → yaw -90); its 8-block tall box
+		// swallows the level ray even a few blocks off eye height.
+		sendCommand(t, pw, "tp @s 4 -60 2 -90 0")
+		sendCommand(t, pw, "tp @e[type=ender_dragon] 60 -60 2 -90 0")
+		advCollect(t, c, pr, pw, 500*time.Millisecond, f)
+		use(-90, 0)
+		advCollect(t, c, pr, pw, 1500*time.Millisecond, f)
+		release()
 		advCollect(t, c, pr, pw, 600*time.Millisecond, f)
 		return f
 	}
@@ -79,6 +89,7 @@ func TestSpyglassAdvParity(t *testing.T) {
 	for _, tc := range [][2]string{
 		{"minecraft:adventure/spyglass_at_parrot", "spyglass_at_parrot"},
 		{"minecraft:adventure/spyglass_at_ghast", "spyglass_at_ghast"},
+		{"minecraft:adventure/spyglass_at_dragon", "spyglass_at_dragon"},
 	} {
 		if !want.prog[tc[0]][tc[1]] {
 			t.Fatalf("vanilla: %s[%s] not obtained: %v", tc[0], tc[1], want.prog[tc[0]])

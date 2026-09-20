@@ -1721,4 +1721,6 @@ physics through a void dip plus a fed recovery window.
   parent, so the parrot must scope first. Ghast summon y is a foot
   position — its box rides [y, y+4]. TestSpyglassAdvParity scopes a
   parrot then a ghast on both targets — green. chatRaw joined the
-  advFlush diagnostics while chasing this.
+  advFlush diagnostics while chasing this.  The same test grew a third
+  leg for spyglass_at_dragon ("Is It a Plane?") — an ender_dragon
+  (16x8 box) scoped east — green on both targets too.
