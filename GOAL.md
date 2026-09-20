@@ -1532,3 +1532,15 @@ physics through a void dip plus a fed recovery window.
   player in the dimension — including setblock- or fill-placed
   pumpkins — so the check sits in setBlockAndBroadcast, not the
   placement path. TestSummonedEntityParity green.
+
+- 2026-09-20: player_generates_container_loot (loot_bastion's four
+  tables) + chest LootTable NBT. /setblock accepts trailing SNBT
+  ({LootTable:"...",LootSeed:n}); a chest opened with a pending table
+  rolls it into random free slots, clears the fields, and fires the
+  trigger — rollLootTable evaluates pools' rolls, weighted item
+  entries, and set_count (uniform/binomial/constant providers).
+  Measured subtlety: loot_bastion's requirement groups are OR-ed, so
+  the first matching chest completes the advancement and unregisters
+  its listeners — each table gets its own player in the test. Also
+  found: setblock into an unloaded chunk fails on vanilla; tp first.
+  TestContainerLootParity green.

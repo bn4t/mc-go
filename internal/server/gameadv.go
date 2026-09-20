@@ -39,6 +39,7 @@ type advMeta struct {
 	usedOn     []usedOnCond  // item_used_on_block — tool met block
 	travel     []travelCond  // nether_travel — portal loop distance
 	summons    []summonCond  // summoned_entity — a built entity spawned
+	loots      []lootCond    // player_generates_container_loot — chest opened
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -137,6 +138,14 @@ type summonCond struct {
 	impossible bool
 }
 
+// lootCond is one player_generates_container_loot criterion: the
+// loot-table id the opened container rolled ("chests/bastion_bridge").
+type lootCond struct {
+	crit       string
+	table      string
+	impossible bool
+}
+
 // placedCond is one placed_block criterion reduced to the placed
 // block's name. The location predicate's richer shapes — block
 // properties, all_of/any_of terms, biome/position checks — stay
@@ -207,6 +216,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.travel = append(m.travel, parseTravelCond(cname, cm["conditions"]))
 				case "minecraft:summoned_entity":
 					m.summons = append(m.summons, parseSummonCond(cname, cm["conditions"]))
+				case "minecraft:player_generates_container_loot":
+					m.loots = append(m.loots, parseLootCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -935,6 +946,39 @@ func parseSummonCond(cname string, conds any) summonCond {
 		sc.impossible = true
 	}
 	return sc
+}
+
+// parseLootCond reduces player_generates_container_loot to its
+// conditions.loot_table id (kept namespaced; mc-go table keys are too).
+func parseLootCond(cname string, conds any) lootCond {
+	lc := lootCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "loot_table" {
+			lc.impossible = true
+			continue
+		}
+		if s, ok := v.(string); ok {
+			lc.table = s
+		}
+	}
+	if lc.table == "" {
+		lc.impossible = true
+	}
+	return lc
+}
+
+// firePlayerGeneratesContainerLoot grants criteria whose loot_table
+// id matches the table the opened container just rolled.
+func (s *Server) firePlayerGeneratesContainerLoot(sess *Session, table string) {
+	for _, meta := range gameAdvs {
+		for _, lc := range meta.loots {
+			if lc.impossible || lc.table != table {
+				continue
+			}
+			sess.grantGameCriterion(meta, lc.crit)
+		}
+	}
 }
 
 // fireSummonedEntity grants summoned_entity criteria for one

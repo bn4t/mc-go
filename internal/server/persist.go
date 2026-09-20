@@ -66,9 +66,11 @@ type signPersist struct {
 }
 
 type chestPersist struct {
-	Dim     string `json:"dim,omitempty"`
-	X, Y, Z int
-	Items   [chestSlots]ItemStack `json:"items"`
+	Dim      string `json:"dim,omitempty"`
+	X, Y, Z  int
+	Items    [chestSlots]ItemStack `json:"items"`
+	LootTable string `json:"loot_table,omitempty"`
+	LootSeed  int64  `json:"loot_seed,omitempty"`
 }
 
 // containerPersist covers the generic container family. The block name
@@ -186,7 +188,7 @@ func (s *Server) SaveServerData() error {
 		d.signs.mu.Unlock()
 		d.chests.mu.Lock()
 		for pos, c := range d.chests.chests {
-			f.Chests = append(f.Chests, chestPersist{Dim: name, X: pos.X, Y: pos.Y, Z: pos.Z, Items: c.slots})
+			f.Chests = append(f.Chests, chestPersist{Dim: name, X: pos.X, Y: pos.Y, Z: pos.Z, Items: c.slots, LootTable: c.lootTable, LootSeed: c.lootSeed})
 		}
 		d.chests.mu.Unlock()
 		d.containers.mu.Lock()
@@ -256,7 +258,7 @@ func (s *Server) LoadServerData() error {
 		if d.chests.chests == nil {
 			d.chests.chests = make(map[world.Pos]*chestData)
 		}
-		d.chests.chests[world.Pos{X: cp.X, Y: cp.Y, Z: cp.Z}] = &chestData{slots: cp.Items}
+		d.chests.chests[world.Pos{X: cp.X, Y: cp.Y, Z: cp.Z}] = &chestData{slots: cp.Items, lootTable: cp.LootTable, lootSeed: cp.LootSeed}
 		d.chests.mu.Unlock()
 	}
 	// Generic containers rebuild their spec from the stored block name,

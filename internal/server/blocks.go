@@ -151,13 +151,35 @@ func (s *Server) runSetblock(player string, args []string) reply {
 	if x < -border || x > border || z < -border || z > border {
 		return textReply("Position outside world border")
 	}
-	blk, ok := parseBlockName(args[3])
+	// The block token may carry trailing block-entity data in braces:
+	// "chest{LootTable:\"minecraft:chests/bastion_bridge\"}".
+	spec := args[3]
+	var tag *snbtTag
+	if i := strings.IndexByte(spec, '{'); i >= 0 {
+		t, next, err := parseSNBTTag(spec[i:], 0)
+		if err != nil || next != len(spec[i:]) {
+			return textReply("Invalid block data: " + args[3])
+		}
+		tag, spec = t, spec[:i]
+	}
+	blk, ok := parseBlockName(spec)
 	if !ok {
 		return textReply("Unknown block: " + args[3])
 	}
 	pos := world.Pos{X: x, Y: y, Z: z}
 	if affected := s.setBlockAndBroadcast(player, pos, blk); len(affected) > 0 {
 		s.sendLightUpdate(d, pos.X>>4, pos.Z>>4, affected)
+	}
+	if tag != nil && isChestBlock(blk) {
+		c := s.chestAt(d, pos)
+		if lt, ok := tag.vals["LootTable"]; ok && lt.kind == snbtString {
+			c.lootTable = lt.str
+		}
+		if sd, ok := tag.vals["LootSeed"]; ok && sd.kind == snbtNumber {
+			if n, err := strconv.ParseInt(sd.num, 10, 64); err == nil {
+				c.lootSeed = n
+			}
+		}
 	}
 	// Success is the real server's component, three plain ints - which
 	// is what /item's own fixture setup compares.

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"math/rand"
 	"sync"
 
 	"mc-go/internal/protocol"
@@ -20,6 +21,12 @@ const (
 // chestData is one chest block entity's storage.
 type chestData struct {
 	slots [chestSlots]ItemStack
+	// lootTable is an ungenerated container loot table (vanilla's
+	// ChestBlockEntity LootTable NBT); the first open rolls it, clears
+	// it, and fires player_generates_container_loot. lootSeed is the
+	// table's deterministic seed (vanilla LootSeed), 0 = random.
+	lootTable string
+	lootSeed  int64
 }
 
 // chestStore keeps chest contents by position.
@@ -127,6 +134,33 @@ func (w *openWindow) menuSize() int { return w.containerSize() + 36 }
 
 // openChest shows the chest window and its contents to one session.
 func (s *Server) openChest(sess *Session, pos world.Pos) {
+	d := sess.dimension()
+	if ch := s.chestAt(d, pos); ch.lootTable != "" {
+		table := ch.lootTable
+		seed := ch.lootSeed
+		if seed == 0 {
+			seed = rand.Int63()
+		}
+		ch.lootTable = ""
+		ch.lootSeed = 0
+		// Vanilla scatters generated stacks into random empty slots.
+		items := rollLootTable(table, seed)
+		free := []int{}
+		for i := range ch.slots {
+			if ch.slots[i].Empty() {
+				free = append(free, i)
+			}
+		}
+		for _, it := range items {
+			if len(free) == 0 {
+				break
+			}
+			i := rand.Intn(len(free))
+			ch.slots[free[i]] = it
+			free = append(free[:i], free[i+1:]...)
+		}
+		s.firePlayerGeneratesContainerLoot(sess, table)
+	}
 	id := sess.server.nextWindow.Add(1)
 	sess.windowMu.Lock()
 	sess.window = &openWindow{id: id, pos: pos, dim: sess.dimension(), chest: s.chestAt(sess.dimension(), pos), kind: menuGeneric9x3}
