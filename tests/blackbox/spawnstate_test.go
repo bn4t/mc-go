@@ -391,6 +391,88 @@ func checkServerData(t *testing.T, tag string, body []byte, motd string) {
 	}
 }
 
+// TestRejoinPositionParity teleports, leaves, and rejoins on both
+// servers: the rejoin's Synchronize Player Position must land back on
+// the teleported spot, not the world spawn.
+func TestRejoinPositionParity(t *testing.T) {
+	tg := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("Mover"),
+	}, nil)
+	defer tg.cleanup()
+
+	// scanUntil reads packets until marker shows up in one, returning
+	// the most recent Synchronize Player Position coords seen.
+	scanUntil := func(t *testing.T, pr *protocol.Reader, marker string, timeout time.Duration) (float64, float64, float64) {
+		t.Helper()
+		var x, y, z float64
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			p, err := pr.ReadPacket()
+			if err != nil {
+				t.Fatalf("scan %s: %v", marker, err)
+			}
+			if p.ID == server.IDPlaySyncPos {
+				r := protocol.NewPacketReader(p.Data)
+				if _, err := r.VarInt(); err == nil {
+					x, _ = r.Double()
+					y, _ = r.Double()
+					z, _ = r.Double()
+				}
+			}
+			if bytes.Contains(p.Data, []byte(marker)) {
+				return x, y, z
+			}
+		}
+		t.Fatalf("marker %s never arrived", marker)
+		return 0, 0, 0
+	}
+
+	for _, tc := range []struct{ tag, addr string }{
+		{"vanilla", tg.vanilla},
+		{"mc-go", tg.mcgo},
+	} {
+		c, pr, pw := joinPlayBlackbox(t, tc.addr, "Mover")
+		sendCommand(t, pw, "say READY")
+		scanUntil(t, pr, "READY", 30*time.Second)
+		sendCommand(t, pw, "tp @s 100 -55 100")
+		sendCommand(t, pw, "say TPD") // commands run in order
+		tx, ty, tz := scanUntil(t, pr, "TPD", 15*time.Second)
+		// Bare integers on x/z land on the block center, y stays exact.
+		if math.Abs(tx-100.5) > 0.01 || math.Abs(ty-(-55)) > 0.01 || math.Abs(tz-100.5) > 0.01 {
+			t.Errorf("%s: tp landed at (%.2f,%.2f,%.2f), want (100.5,-55,100.5)", tc.tag, tx, ty, tz)
+		}
+		c.Close()
+		time.Sleep(2 * time.Second)
+		c2, pr2, _ := joinPlayBlackbox(t, tc.addr, "Mover")
+		// The rejoin burst's own sync is the resumed position.
+		var rx, ry, rz float64
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			p, err := pr2.ReadPacket()
+			if err != nil {
+				t.Fatalf("%s rejoin read: %v", tc.tag, err)
+			}
+			if p.ID != server.IDPlaySyncPos {
+				continue
+			}
+			r := protocol.NewPacketReader(p.Data)
+			if _, err := r.VarInt(); err == nil {
+				rx, _ = r.Double()
+				ry, _ = r.Double()
+				rz, _ = r.Double()
+			}
+			break
+		}
+		c2.Close()
+		if math.Abs(rx-tx) > 0.01 || math.Abs(ry-ty) > 0.01 || math.Abs(rz-tz) > 0.01 {
+			t.Errorf("%s: rejoin pos (%.2f,%.2f,%.2f) != logout pos (%.2f,%.2f,%.2f)",
+				tc.tag, rx, ry, rz, tx, ty, tz)
+		}
+		t.Logf("%s: teleported to (%.1f,%.1f,%.1f), rejoined at (%.1f,%.1f,%.1f)",
+			tc.tag, tx, ty, tz, rx, ry, rz)
+	}
+}
+
 // TestRejoinAttributesParity joins, leaves, and rejoins one name on
 // both servers: the rejoin must draw the reset stub plus the modifier
 // follow-up, combining to the full set.

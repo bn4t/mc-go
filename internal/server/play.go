@@ -22,9 +22,10 @@ func (s *Server) handlePlay(sess *Session) {
 	sess.setPos(x, y, z, 0, 0, false)
 	sess.initSurvival()
 	s.applySavedPlayer(sess)
-	// Allocate this player's entity id up front so every later fan-out
-	// (spawns, teleports, removes) agrees on it. The profile UUID rides
-	// the entity so clients bind it to the tab-list row.
+	// A returning player resumes where they logged out; the spawn
+	// position, entity record, and teleport all follow the restored
+	// coordinates, not the world spawn.
+	x, y, z, _, _, _ = sess.Pos()
 	sess.entityID.Store(s.entities.Spawn(&Entity{
 		UUID: sess.getUUID(), Type: sess.ids().EntityTypePlayer,
 		Dim: sess.dimName(),

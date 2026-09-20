@@ -359,14 +359,17 @@ func (s *Server) untrack(sess *Session) {
 			s.broadcastEntityRemoveIn(sess.dimName(), nil, []int32{eid})
 		}
 	}
-	// Persist the leaving player's state so a reconnect resumes it.
-	if sess.state.Load() == StatePlay && s.dataPath() != "" {
+	// Persist the leaving player's state so a reconnect resumes it —
+	// in memory always, to disk when a data path is configured.
+	if sess.state.Load() == StatePlay {
 		if s.savedPlayers == nil {
 			s.savedPlayers = make(map[string]playerPersist)
 		}
 		s.savedPlayers[name] = snapshotPlayer(sess)
-		if err := s.SaveServerData(); err != nil && s.dataSaveErr == nil {
-			s.dataSaveErr = err
+		if s.dataPath() != "" {
+			if err := s.SaveServerData(); err != nil && s.dataSaveErr == nil {
+				s.dataSaveErr = err
+			}
 		}
 	}
 }

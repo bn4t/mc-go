@@ -1071,3 +1071,17 @@ Mojang server over the wire.
   andesite, cake, a damaged-bow dispenser, 2x2) and every slot/carry
   state matches vanilla end-to-end. Probes deleted once pinned; the
   repeated-start discriminator lives on in TestDigParity.
+
+- 2026-09-20 (cont.): Two more playtest-found bugs fixed. Rejoin
+  position restore now actually reaches the client - the persist path
+  existed but untrack gated even the in-memory savedPlayers write on
+  dataPath() != "", so a -world "" server resumed nothing; and
+  handlePlay's sendSyncPos + entity record used the WorldSpawn locals
+  captured BEFORE applySavedPlayer ran, so restored state never hit
+  the wire. Both fixed; TestRejoinPositionParity lands the player back
+  on the teleported spot on both servers. It also surfaced a /tp
+  argument gap: bare-integer x/z center on the block (100 -> 100.5)
+  while decimals and ~ stay exact, and ~ resolves against the entity's
+  exact position rather than the block floor. parseDouble now takes
+  the double base + a per-axis center flag; portal teleports center
+  the same way.
