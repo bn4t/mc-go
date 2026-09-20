@@ -33,14 +33,16 @@ type advFlush struct {
 	chats      []string                   // system_chat translate keys
 	spawnTypes map[int32][]int32          // diagnostic: entity type -> eids seen
 	sounds     int                        // diagnostic: sound packets seen
-	soundIDs   map[int32]bool             // diagnostic: sound_event ids seen
-	removedIDs []int32                    // diagnostic: remove_entities ids seen
-	advPkts    int                        // diagnostic: update_advancements packets seen
-	codRemoved bool                       // diagnostic: target cod observed removed
-	ev35       int                        // diagnostic: entity event 35 (totem pop) seen
-	mobFx      map[int32]string           // diagnostic: effect id -> "amp,dur,flags" first seen
-	chatRaw    [][]byte                   // diagnostic: raw system_chat payloads
-	fxRemoved  []bool                     // diagnostic: remove_mob_effect packets seen
+	soundIDs   map[int32]bool
+	pktIDs     map[int32]int    // diagnostic: packet id histogram
+	updTimes   []string         // diagnostic: update_advancements len@ms seen
+	removedIDs []int32          // diagnostic: remove_entities ids seen
+	advPkts    int              // diagnostic: update_advancements packets seen
+	codRemoved bool             // diagnostic: target cod observed removed
+	ev35       int              // diagnostic: entity event 35 (totem pop) seen
+	mobFx      map[int32]string // diagnostic: effect id -> "amp,dur,flags" first seen
+	chatRaw    [][]byte         // diagnostic: raw system_chat payloads
+	fxRemoved  []bool           // diagnostic: remove_mob_effect packets seen
 }
 
 // decodeUpdateAdv parses an update_advancements payload. Def entries
@@ -64,7 +66,11 @@ func decodeUpdateAdv(t *testing.T, d []byte, out *advFlush) {
 		}
 		entry, ok := data.AdvDefWire[id]
 		if !ok {
-			t.Fatalf("def %s not in the captured wire table", id)
+			// Unknown def (e.g. a datapack-injected probe advancement on
+			// vanilla): its serialized length is unknowable here, so the
+			// rest of this packet can't be walked — bail with what we have.
+			t.Logf("def %s not in the captured wire table; truncating", id)
+			return
 		}
 		skip := len(entry) - (before - r.Remaining())
 		if skip < 0 {

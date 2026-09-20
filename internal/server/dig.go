@@ -113,6 +113,16 @@ func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block)
 	}
 	s.syncContainerBlock(d, pos, blk)
 	s.syncBeacon(d, pos, blk)
+	if !isBeeNestBlock(blk) {
+		delete(d.bees, pos)
+	}
+}
+
+// isBeeNestBlock reports whether blk is a bee_nest or beehive — the
+// two blocks that hold a Bees occupant list.
+func isBeeNestBlock(blk world.Block) bool {
+	name, ok := world.StateOwner(blk)
+	return ok && (name == "bee_nest" || name == "beehive")
 }
 
 // syncContainerBlock keeps the generic container store in step with a
@@ -198,9 +208,14 @@ func (s *Server) handleDig(sess *Session, p protocol.Packet) {
 		if status == digCancel {
 			return
 		}
-		if d.w.GetBlock(pos) == world.Air {
+		broken := d.w.GetBlock(pos)
+		if broken == world.Air {
 			return // already air: ack only, no event storm
 		}
+		// Vanilla's bee_nest_destroyed trigger lives in Block.playerDestroy,
+		// which ServerPlayerGameMode.destroyBlock skips for players whose
+		// mode prevents block drops (creative): a creative break never fires
+		// the trigger — only the survival dig path does (breakBlock).
 		affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
 		acked = true
 		if seq >= 0 {

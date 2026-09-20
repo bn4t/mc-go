@@ -316,6 +316,20 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	if bname, ok := world.StateOwner(blk); ok {
 		s.firePlacedBlock(sess, bname)
 	}
+	// A bee nest placed from a stack carrying a bees component keeps the
+	// occupants on the block (vanilla applies the item's implicit
+	// components on placement).
+	if isBeeNestBlock(blk) {
+		held := sess.heldStack()
+		if d.bees == nil {
+			d.bees = map[world.Pos]int32{}
+		}
+		if held.Bees > 0 {
+			d.bees[target] = held.Bees
+		} else {
+			delete(d.bees, target)
+		}
+	}
 	// A shulker box placed out of a stack that came with contents (it
 	// was broken with items inside) restores them, so the box keeps its
 	// contents across a move.

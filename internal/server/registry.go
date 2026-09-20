@@ -128,6 +128,28 @@ func biomeID(name string) int32 {
 	return 0
 }
 
+// registryEntryName returns the entry name at index id in a synced
+// registry, or "" when either is unknown.
+func registryEntryName(registryKey string, id int32) string {
+	loadConfigData()
+	for _, reg := range configRegs {
+		if reg.key != registryKey {
+			continue
+		}
+		_, ids, err := parseRegistryBody(reg.body)
+		if err != nil {
+			return ""
+		}
+		for name, i := range ids {
+			if i == id {
+				return name
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
 // registryEntryID returns the captured index of an entry in a synced
 // registry, or -1 when either is unknown.
 func registryEntryID(registryKey, entryName string) int32 {

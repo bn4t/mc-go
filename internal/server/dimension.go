@@ -49,6 +49,11 @@ type dimension struct {
 	hoppers    hopperStore
 	containers containerStore
 	beacons    map[world.Pos]*beaconEnt
+	// bees is a nest or hive's occupant count — the block entity's
+	// Bees list length, tracked only as a count because the trigger
+	// that reads it (bee_nest_destroyed's num_bees_inside) sees no
+	// more than that.
+	bees map[world.Pos]int32
 }
 
 // sections is the chunk section count for this dimension.

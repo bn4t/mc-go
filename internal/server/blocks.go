@@ -181,6 +181,21 @@ func (s *Server) runSetblock(player string, args []string) reply {
 			}
 		}
 	}
+	if isBeeNestBlock(blk) {
+		if d.bees == nil {
+			d.bees = map[world.Pos]int32{}
+		}
+		if tag != nil {
+			// The block entity's save key is `bees` (lowercase, 26.2).
+			if list, ok := tag.vals["bees"]; ok && list.kind == snbtList {
+				d.bees[pos] = int32(len(list.items))
+			} else {
+				delete(d.bees, pos)
+			}
+		} else {
+			delete(d.bees, pos)
+		}
+	}
 	// Success is the real server's component, three plain ints - which
 	// is what /item's own fixture setup compares.
 	return componentReply(translatable("commands.setblock.success", int32(x), int32(y), int32(z)))

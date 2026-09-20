@@ -1,6 +1,7 @@
 package server
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
@@ -1052,6 +1053,10 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.RepairCost = 0
 			case "custom_name":
 				it.Name = ""
+			case "enchantments":
+				it.Ench = ""
+			case "bees":
+				it.Bees = 0
 			default:
 				return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
 			}
@@ -1084,6 +1089,34 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
 			it.Name = vtag.str
+		case "enchantments":
+			// The component is a flat {name: level} compound
+			// (ItemEnchantments' codec is the unbounded map itself,
+			// no levels wrapper). Names go in canonical — sorted,
+			// prefix-stripped — so == and the wire encoder agree.
+			if vtag.kind != snbtCompound {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			parts := make([]string, 0, len(vtag.vals))
+			for en, lv := range vtag.vals {
+				if lv.kind != snbtNumber {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				n, err := strconv.Atoi(strings.TrimRight(lv.num, "bBsSiIlLfFdD"))
+				if err != nil {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				parts = append(parts, strings.TrimPrefix(en, "minecraft:")+":"+strconv.Itoa(n))
+			}
+			sort.Strings(parts)
+			it.Ench = strings.Join(parts, ",")
+		case "bees":
+			// The component is a list of occupant compounds; only the
+			// count survives our stack model.
+			if vtag.kind != snbtList {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			it.Bees = int32(len(vtag.items))
 		default:
 			return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
 		}

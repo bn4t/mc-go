@@ -2,6 +2,9 @@ package server
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
@@ -44,6 +47,16 @@ type ItemStack struct {
 	// therefore also not stackable with a plain box, exactly as vanilla
 	// refuses to merge stacks with different components.
 	Contents *[shulkerSlots]ItemStack `json:"contents,omitempty"`
+	// Ench is the minecraft:enchantments component as a canonical
+	// "name:level,name:level" string sorted by name, names stripped of
+	// the minecraft: prefix. A plain string keeps ItemStack comparable
+	// with ==.
+	Ench string `json:"ench,omitempty"`
+	// Bees is the minecraft:bees component's occupant count — a
+	// bee_nest/beehive item remembers how many bees it carries into
+	// placement. Only the count matters for the triggers we model;
+	// the entity payloads are never inspected.
+	Bees int32 `json:"bees,omitempty"`
 }
 
 // Empty reports whether the slot holds nothing.
@@ -58,7 +71,23 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 	}
 	return it.Contents == nil && other.Contents == nil &&
 		it.Damage == other.Damage && it.RepairCost == other.RepairCost &&
-		it.Name == other.Name
+		it.Name == other.Name && it.Ench == other.Ench && it.Bees == other.Bees
+}
+
+// enchLevel reports the stack's level of one enchantment, or 0 when
+// absent. Ench is stored canonical — "silk_touch:1" — so a scan is the
+// whole lookup and names match with or without the minecraft: prefix.
+func (it ItemStack) enchLevel(name string) int32 {
+	want := strings.TrimPrefix(name, "minecraft:")
+	for _, e := range strings.Split(it.Ench, ",") {
+		if n, lv, ok := strings.Cut(e, ":"); ok && n == want {
+			v, err := strconv.Atoi(lv)
+			if err == nil {
+				return int32(v)
+			}
+		}
+	}
+	return 0
 }
 
 // withCount returns the stack with another count, keeping every
@@ -94,9 +123,10 @@ func invSlotForHotbar(held int32) int16 { return int16(slotHotbarStart + held) }
 // repaired one carries repair_cost (19) right after it, also a bare
 // VarInt. The add list is written in ascending type order.
 const (
-	compDamage     = 3
-	compCustomName = 6
-	compRepairCost = 19
+	compDamage       = 3
+	compCustomName   = 6
+	compEnchantments = 13
+	compRepairCost   = 19
 )
 
 // writeSlot writes one Slot value: VarInt count, then (when non-empty)
@@ -118,6 +148,9 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 	if it.Name != "" {
 		add++
 	}
+	if it.Ench != "" {
+		add++
+	}
 	b.VarInt(add)
 	b.VarInt(0) // components to remove
 	if it.Damage != 0 {
@@ -131,6 +164,20 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 		b.Byte(0x08)
 		b.UShort(uint16(len(it.Name)))
 		b.Raw([]byte(it.Name))
+	}
+	if it.Ench != "" {
+		// enchantments' payload is a VarInt-counted map of VarInt
+		// enchantment registry id to VarInt level (measured on 26.2;
+		// ItemEnchantments.STREAM_CODEC is the flat pair map).
+		b.VarInt(compEnchantments)
+		parts := strings.Split(it.Ench, ",")
+		b.VarInt(int32(len(parts)))
+		for _, e := range parts {
+			n, lv, _ := strings.Cut(e, ":")
+			v, _ := strconv.Atoi(lv)
+			b.VarInt(registryEntryID("minecraft:enchantment", "minecraft:"+n))
+			b.VarInt(int32(v))
+		}
 	}
 	if it.RepairCost != 0 {
 		b.VarInt(compRepairCost)
@@ -189,6 +236,27 @@ func readSlot(r *protocol.PacketReader) (ItemStack, error) {
 				return ItemStack{}, err
 			}
 			it.Name = string(raw)
+		case compEnchantments: // minecraft:enchantments, VarInt id->level map
+			n, err := r.VarInt()
+			if err != nil {
+				return ItemStack{}, err
+			}
+			parts := make([]string, 0, n)
+			for ; n > 0; n-- {
+				eid, err := r.VarInt()
+				if err != nil {
+					return ItemStack{}, err
+				}
+				lv, err := r.VarInt()
+				if err != nil {
+					return ItemStack{}, err
+				}
+				if name := registryEntryName("minecraft:enchantment", eid); name != "" {
+					parts = append(parts, strings.TrimPrefix(name, "minecraft:")+":"+strconv.Itoa(int(lv)))
+				}
+			}
+			sort.Strings(parts)
+			it.Ench = strings.Join(parts, ",")
 		case compRepairCost: // minecraft:repair_cost, VarInt payload
 			if it.RepairCost, err = r.VarInt(); err != nil {
 				return ItemStack{}, err

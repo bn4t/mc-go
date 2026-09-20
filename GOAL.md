@@ -1781,3 +1781,21 @@ physics through a void dip plus a fed recovery window.
   count with distance.y/distance.x + duration bounds. Risen distance
   comes from the move packets, like the fall trigger.
   TestLevitationParity green both targets.
+- 2026-09-20: bee_nest_destroyed (husbandry/silk_touch_nest "Total
+  Beelocation"). The setblock `bees` occupant list only decodes on
+  vanilla 26.2 with a namespaced entity_data.id ("minecraft:bee") and
+  a min_ticks_in_hive at/above the codec floor (worldgen uses 600).
+  The measured gate worth pinning: the trigger lives in
+  Block.playerDestroy, which ServerPlayerGameMode.destroyBlock skips
+  for players who preventsBlockDrops — a CREATIVE break never fires
+  it, on vanilla or now on mc-go (the creative-branch fire was a
+  parity bug). Survival digs fire it via breakBlock with the held
+  stack and stored-occupant count; conditions reduce to block id,
+  num_bees_inside exact bounds, and item enchantments predicates.
+  TestBeeNestDestroyedParity digs creative (no grant) then survival
+  (grant) — green on both targets.
+  Residuals noted: vanilla sends no update_advancements for this earn
+  (announce chat only; mc-go emits def+progress — diff compares chat
+  keys); an update_advancements packet arriving while a teleport is
+  unconfirmed stalls vanilla block actions — the harness now echoes
+  MovePlayerPos after every sync-position, like a real client.

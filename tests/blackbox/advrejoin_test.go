@@ -28,6 +28,10 @@ func advCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writ
 		if err != nil {
 			return
 		}
+		if f.pktIDs == nil {
+			f.pktIDs = map[int32]int{}
+		}
+		f.pktIDs[p.ID]++
 		switch p.ID {
 		case server.IDPlayKeepAliveCB:
 			var kb protocol.Buffer
@@ -39,10 +43,25 @@ func advCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writ
 				var b protocol.Buffer
 				b.VarInt(id)
 				_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes())
+				// A real client echoes its position back; otherwise vanilla
+				// keeps awaitingTeleport set and silently drops block actions.
+				if x, err := r.Double(); err == nil {
+					var mb protocol.Buffer
+					mb.Double(x)
+					if y, err := r.Double(); err == nil {
+						mb.Double(y)
+					}
+					if z, err := r.Double(); err == nil {
+						mb.Double(z)
+					}
+					mb.Byte(0)
+					_ = pw.WritePacket(server.IDPlayMovePosSB, mb.Bytes())
+				}
 			}
 		case server.IDPlayChunkBatchDone:
 			_ = ackChunkBatch(pw)
 		case server.IDPlayUpdateAdvance:
+			f.updTimes = append(f.updTimes, fmt.Sprintf("%d@%d", len(p.Data), time.Now().UnixMilli()%100000))
 			decodeUpdateAdv(t, p.Data, f)
 		case server.IDPlaySystemChatCB:
 			f.chats = append(f.chats, chatKey(p.Data))

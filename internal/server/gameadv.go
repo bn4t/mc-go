@@ -60,6 +60,7 @@ type advMeta struct {
 	lights     []lightningCond // lightning_strike — bolt struck near a bystander
 	slides     []slideCond     // slide_down_block — sliding a sticky side
 	levitates  []levitateCond  // levitation — distance risen under the effect
+	beenests   []beeNestCond   // bee_nest_destroyed — silk-touch nest break
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -297,6 +298,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.slides = append(m.slides, parseSlideCond(cname, cm["conditions"]))
 				case "minecraft:levitation":
 					m.levitates = append(m.levitates, parseLevitateCond(cname, cm["conditions"]))
+				case "minecraft:bee_nest_destroyed":
+					m.beenests = append(m.beenests, parseBeeNestCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -2738,6 +2741,160 @@ func (s *Server) fireLevitation(sess *Session) {
 				continue
 			}
 			sess.grantGameCriterion(meta, lc.crit)
+		}
+	}
+}
+
+// beeNestCond is one bee_nest_destroyed criterion: the block that
+// broke (flat name list), the tool's enchantments predicate (flat
+// name -> level bounds), and num_bees_inside (the nest's Bees list
+// length). numBMax of -1 means unbounded.
+type beeNestCond struct {
+	crit       string
+	blocks     map[string]bool
+	itemEnch   []enchRange // each must match on the held stack
+	hasItem    bool
+	numBMin    float64
+	numBMax    float64
+	hasNum     bool
+	impossible bool
+}
+
+type enchRange struct {
+	name string
+	min  float64
+	max  float64 // -1 = unbounded
+}
+
+// parseBeeNestCond reads block (string or nothing else modeled),
+// item.predicates["minecraft:enchantments"] (each entry's
+// enchantments name plus levels int|{min,max}), and
+// num_bees_inside (int or {min,max}).
+func parseBeeNestCond(cname string, conds any) beeNestCond {
+	bc := beeNestCond{crit: cname, numBMax: -1}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "block":
+			s, ok := v.(string)
+			if !ok {
+				bc.impossible = true
+				continue
+			}
+			if bc.blocks == nil {
+				bc.blocks = map[string]bool{}
+			}
+			bc.blocks[strings.TrimPrefix(s, "minecraft:")] = true
+		case "num_bees_inside":
+			bc.hasNum = true
+			switch n := v.(type) {
+			case float64:
+				bc.numBMin, bc.numBMax = n, n
+			case map[string]any:
+				if mn, ok := n["min"].(float64); ok {
+					bc.numBMin = mn
+				}
+				if mx, ok := n["max"].(float64); ok {
+					bc.numBMax = mx
+				}
+			default:
+				bc.impossible = true
+			}
+		case "item":
+			im, _ := v.(map[string]any)
+			for pk, pv := range im {
+				if pk != "predicates" {
+					bc.impossible = true
+					continue
+				}
+				pm, _ := pv.(map[string]any)
+				for pred, pl := range pm {
+					if strings.TrimPrefix(pred, "minecraft:") != "enchantments" {
+						bc.impossible = true
+						continue
+					}
+					lst, _ := pl.([]any)
+					for _, e := range lst {
+						em, _ := e.(map[string]any)
+						var names []string
+						switch en := em["enchantments"].(type) {
+						case string:
+							names = append(names, en)
+						case []any:
+							for _, x := range en {
+								if s, ok := x.(string); ok {
+									names = append(names, s)
+								}
+							}
+						}
+						lvMin, lvMax := float64(0), float64(-1)
+						switch lv := em["levels"].(type) {
+						case float64:
+							lvMin, lvMax = lv, lv
+						case map[string]any:
+							if mn, ok := lv["min"].(float64); ok {
+								lvMin = mn
+							}
+							if mx, ok := lv["max"].(float64); ok {
+								lvMax = mx
+							}
+						}
+						for _, n := range names {
+							bc.itemEnch = append(bc.itemEnch, enchRange{name: n, min: lvMin, max: lvMax})
+						}
+					}
+					bc.hasItem = true
+				}
+			}
+		case "player", "state":
+			// player[] and block-state conditions are unmodeled; a
+			// criterion carrying them stays locked rather than firing
+			// wide.
+			bc.impossible = true
+		default:
+			bc.impossible = true
+		}
+	}
+	return bc
+}
+
+// fireBeeNestDestroyed grants bee_nest_destroyed criteria when a nest
+// or hive breaks under a player: the held tool's enchantments match
+// the item predicate and the nest's Bees count fits num_bees_inside.
+// Vanilla reads the count straight off the block entity at destroy
+// time, so this runs before the world write clears it.
+func (s *Server) fireBeeNestDestroyed(sess *Session, d *dimension, pos world.Pos, broken world.Block) {
+	owner, _ := world.StateOwner(broken)
+	held := sess.heldStack()
+	bees := d.bees[pos]
+	for _, meta := range gameAdvs {
+		for _, bc := range meta.beenests {
+			if bc.impossible {
+				continue
+			}
+			if bc.blocks != nil && !bc.blocks[owner] {
+				continue
+			}
+			if bc.hasNum {
+				f := float64(bees)
+				if f < bc.numBMin || (bc.numBMax >= 0 && f > bc.numBMax) {
+					continue
+				}
+			}
+			if bc.hasItem {
+				ok := true
+				for _, r := range bc.itemEnch {
+					lv := float64(held.enchLevel(r.name))
+					if lv < r.min || (r.max >= 0 && lv > r.max) {
+						ok = false
+						break
+					}
+				}
+				if !ok {
+					continue
+				}
+			}
+			sess.grantGameCriterion(meta, bc.crit)
 		}
 	}
 }
