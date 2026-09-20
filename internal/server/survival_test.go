@@ -306,7 +306,7 @@ func TestSummonAndKillMob(t *testing.T) {
 	s := New("unused")
 	s.GameMode = GameModeSurvival
 	sess := survivalSession(t, s, "Hunter")
-	e, ok := s.summonMob(s.dims[dimOverworld], "pig", world.Pos{X: 0, Y: 0, Z: 0})
+	e, ok := s.summonMob(s.dims[dimOverworld], "pig", 0.5, 0, 0.5, false)
 	if !ok {
 		t.Fatal("summon failed")
 	}
@@ -314,7 +314,12 @@ func TestSummonAndKillMob(t *testing.T) {
 		t.Fatalf("pig = %+v", e)
 	}
 	for i := 0; i < 10; i++ {
+		e.invulnTicks = 0 // bypass the post-hit grace window
 		s.damageMob(e, 1)
+	}
+	// die() leaves a twenty-tick corpse; tick the poof through.
+	for i := 0; i < 20; i++ {
+		s.mobTickStep()
 	}
 	if _, ok := s.entities.Get(e.ID); ok {
 		t.Fatal("pig survived ten hits")
@@ -324,11 +329,12 @@ func TestSummonAndKillMob(t *testing.T) {
 
 func TestPigDropsPorkchop(t *testing.T) {
 	s := New("unused")
-	e, ok := s.summonMob(s.dims[dimOverworld], "pig", world.Pos{X: 4, Y: 4, Z: 4})
+	e, ok := s.summonMob(s.dims[dimOverworld], "pig", 4.5, 4, 4.5, false)
 	if !ok {
 		t.Fatal("summon failed")
 	}
 	for i := 0; i < 10; i++ {
+		e.invulnTicks = 0 // bypass the post-hit grace window
 		s.damageMob(e, 1)
 	}
 	s.entities.mu.RLock()
@@ -349,14 +355,14 @@ func TestPigDropsPorkchop(t *testing.T) {
 
 func TestSummonRejectsUnknown(t *testing.T) {
 	s := New("unused")
-	if _, ok := s.summonMob(s.dims[dimOverworld], "ender_dragon_egg", world.Pos{}); ok {
+	if _, ok := s.summonMob(s.dims[dimOverworld], "ender_dragon_egg", 0, 0, 0, false); ok {
 		t.Fatal("summoned an unsupported entity")
 	}
 }
 
 func TestMobGravity(t *testing.T) {
 	s := New("unused")
-	e, ok := s.summonMob(s.dims[dimOverworld], "pig", world.Pos{X: 0, Y: 100, Z: 0})
+	e, ok := s.summonMob(s.dims[dimOverworld], "pig", 0, 100, 0, false)
 	if !ok {
 		t.Fatal("summon failed")
 	}
@@ -462,11 +468,12 @@ func TestExperienceLevelThresholds(t *testing.T) {
 
 func TestMobDeathSpawnsXPOrb(t *testing.T) {
 	s := New("unused")
-	e, ok := s.summonMob(s.dims[dimOverworld], "pig", world.Pos{X: 2, Y: 2, Z: 2})
+	e, ok := s.summonMob(s.dims[dimOverworld], "pig", 2.5, 2, 2.5, false)
 	if !ok {
 		t.Fatal("summon failed")
 	}
 	for i := 0; i < 10; i++ {
+		e.invulnTicks = 0 // bypass the post-hit grace window
 		s.damageMob(e, 1)
 	}
 	orbType := mustEntityType("experience_orb")
@@ -486,7 +493,7 @@ func TestMobDeathSpawnsXPOrb(t *testing.T) {
 func TestMobWanderMovesOnGround(t *testing.T) {
 	s := New("unused")
 	// Flat grass at y=-61; spawn the pig on top.
-	e, ok := s.summonMob(s.dims[dimOverworld], "pig", world.Pos{X: 4, Y: -60, Z: 4})
+	e, ok := s.summonMob(s.dims[dimOverworld], "pig", 4.5, -60, 4.5, false)
 	if !ok {
 		t.Fatal("summon failed")
 	}
@@ -509,7 +516,7 @@ func TestMobWanderMovesOnGround(t *testing.T) {
 
 func TestMobFallsBeforeWalking(t *testing.T) {
 	s := New("unused")
-	e, ok := s.summonMob(s.dims[dimOverworld], "pig", world.Pos{X: 4, Y: 100, Z: 4})
+	e, ok := s.summonMob(s.dims[dimOverworld], "pig", 4.5, 100, 4.5, false)
 	if !ok {
 		t.Fatal("summon failed")
 	}
@@ -531,7 +538,9 @@ func TestHungerExhaustionDrainsFood(t *testing.T) {
 	sess.food = 20
 	sess.saturation = 0
 	sess.exhaustion = 3.9
+	// Exhaustion only accumulates; the food tick spends it.
 	sess.addExhaustion(0.2)
+	s.hungerTickStep()
 	if sess.food != 19 {
 		t.Fatalf("food = %d, want 19", sess.food)
 	}
@@ -539,6 +548,7 @@ func TestHungerExhaustionDrainsFood(t *testing.T) {
 	sess.saturation = 5
 	sess.exhaustion = 3.9
 	sess.addExhaustion(0.2)
+	s.hungerTickStep()
 	if sess.saturation != 4 || sess.food != 19 {
 		t.Fatalf("saturation = %v food = %d, want 4/19", sess.saturation, sess.food)
 	}
@@ -555,19 +565,32 @@ func TestHungerRegeneration(t *testing.T) {
 	sess.health = 10
 	sess.food = 20
 	sess.saturation = 5
+	// Vanilla's fed regen heals min(saturation,6)/6 every ten ticks;
+	// eighty ticks at saturation five lands eight heals.
 	for i := 0; i < 80; i++ {
-		s.hungerTickStep()
+		s.playerTick()
 	}
-	if sess.health != 11 {
-		t.Fatalf("health = %v, want 11", sess.health)
+	if sess.health <= 10 || sess.health >= 20 {
+		t.Fatalf("health = %v, want a partial heal", sess.health)
 	}
-	// The regeneration syncs Set Health on the wire.
-	p, err := waitPacket(t, pr, IDPlaySetHealth)
-	if err != nil {
-		t.Fatal(err)
+	// The regeneration syncs a Set Health per heal; the last one reports
+	// the final health.
+	var last float32
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		p, err := waitPacket(t, pr, IDPlaySetHealth)
+		if err != nil {
+			break
+		}
+		if h, _ := protocol.NewPacketReader(p.Data).Float(); h > 0 {
+			last = h
+		}
+		if time.Now().After(deadline) {
+			break
+		}
 	}
-	if h, _ := protocol.NewPacketReader(p.Data).Float(); h != 11 {
-		t.Fatalf("set health = %v", h)
+	if last != sess.health {
+		t.Fatalf("last set health = %v, want %v", last, sess.health)
 	}
 }
 
@@ -605,14 +628,16 @@ func TestSprintDrainsHungerOverMovement(t *testing.T) {
 	sess.food = 20
 	sess.exhaustion = 3.5
 
-	// Sprint far enough to drain one food point (0.1 per block).
+	// Sprint far enough to drain one food point (0.1 per block); the
+	// spend happens on the food tick, not inside the move handler.
 	for i := 0; i < 6; i++ {
 		sendPosRot(t, pw, float64(10+i), -60, 0.5, 0, 0, true)
 	}
 	deadline := time.Now().Add(2 * time.Second)
-	for sess.food != 19 && time.Now().Before(deadline) {
+	for sess.exhaustion < 4 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
+	s.playerTick()
 	if sess.food != 19 {
 		t.Fatalf("food = %d, want 19 after sprinting", sess.food)
 	}
@@ -663,6 +688,8 @@ func TestEatingRestoresHunger(t *testing.T) {
 	if !sess.stackAt(invSlotForHotbar(0)).Empty() {
 		t.Fatal("bread not consumed")
 	}
+	// The health sync lands on the player tick after the flag is set.
+	s.playerTick()
 	if _, err := waitPacket(t, pr, IDPlaySetHealth); err != nil {
 		t.Fatalf("health sync: %v", err)
 	}

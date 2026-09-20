@@ -24,6 +24,9 @@ type recipeOut struct {
 	Ingredients []ingredient          // shapeless / cooking / stonecutting inputs
 	ResultName  string
 	ResultCount int
+	MaterialMax int
+	MaterialMin int
+	HideNotify  bool
 	CookingTime int
 	Experience  float64
 	// Extra fields used by the dye/transmute/imbue/smithing families.
@@ -90,6 +93,9 @@ func parseRecipe(fileName string, m map[string]any, tags map[string][]string) (r
 	r.ResultName = name(asString(res["id"]))
 	r.ResultCount = int(asInt(res["count"], 1))
 	r.CookingTime = int(asInt(m["cookingtime"], 0))
+	if sn, ok := m["show_notification"].(bool); ok && !sn {
+		r.HideNotify = true
+	}
 	r.Experience = asFloat(m["experience"])
 
 	switch r.Type {
@@ -113,6 +119,10 @@ func parseRecipe(fileName string, m map[string]any, tags map[string][]string) (r
 	case "crafting_transmute", "crafting_dye":
 		r.Input = ingredientNames(m["input"], tags)
 		r.Material = ingredientNames(m["material"], tags)
+		if mc := asMap(m["material_count"]); mc != nil {
+			r.MaterialMax = int(asInt(mc["max"], 0))
+			r.MaterialMin = int(asInt(mc["min"], 0))
+		}
 	case "crafting_imbue":
 		r.Input = ingredientNames(m["input"], tags)
 		r.Material = ingredientNames(m["material"], tags)
@@ -167,7 +177,6 @@ func ingredientNames(v any, tags map[string][]string) ingredient {
 				}
 			}
 		}
-		sort.Strings(out)
 		return ingredient{Items: out}
 	case map[string]any:
 		if tag := asString(t["tag"]); tag != "" {
@@ -265,6 +274,9 @@ func writeRecipe(b *strings.Builder, r recipeOut) {
 	if len(r.Material.Items) > 0 {
 		fmt.Fprintf(b, "Material: %s, ", goIngredient(r.Material))
 	}
+	if r.MaterialMax > 0 {
+		fmt.Fprintf(b, "MaterialMax: %d, MaterialMin: %d, ", r.MaterialMax, r.MaterialMin)
+	}
 	if len(r.Template.Items) > 0 {
 		fmt.Fprintf(b, "Template: %s, ", goIngredient(r.Template))
 	}
@@ -273,6 +285,9 @@ func writeRecipe(b *strings.Builder, r recipeOut) {
 	}
 	if len(r.Addition.Items) > 0 {
 		fmt.Fprintf(b, "Addition: %s, ", goIngredient(r.Addition))
+	}
+	if r.HideNotify {
+		fmt.Fprintf(b, "HideNotification: true, ")
 	}
 	fmt.Fprintf(b, "Result: ItemStack{Item: %s, Count: %d}", gostr(r.ResultName), r.ResultCount)
 	if r.CookingTime != 0 {

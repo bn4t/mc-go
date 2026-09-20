@@ -7,8 +7,8 @@ import (
 )
 
 // Dig statuses, clean-room from the public protocol docs (26.1.2 spec:
-// 0=start 1=cancel 2=finish, 3+=drop-item/release-use which need
-// inventory and are ignored until that milestone).
+// 0=start 1=cancel 2=finish; 3/4 (drop stack/one) are handled by
+// handlePlayerActionExtras, 5+ are ignored until that milestone).
 const (
 	digStart  = 0
 	digCancel = 1

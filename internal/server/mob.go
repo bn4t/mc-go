@@ -154,14 +154,49 @@ func mustEntityType(name string) int32 {
 // mobHealth is the vanilla max health for the mobs mc-go can summon.
 // Mobs beyond this table arrive with the broader entity milestone.
 var mobHealth = map[string]float32{
-	"pig":      10,
-	"cow":      10,
-	"chicken":  4,
-	"sheep":    8,
-	"zombie":   20,
-	"skeleton": 20,
-	"creeper":  20,
-	"spider":   16,
+	"pig":        10,
+	"cow":        10,
+	"chicken":    4,
+	"sheep":      8,
+	"zombie":     20,
+	"skeleton":   20,
+	"creeper":    20,
+	"spider":     16,
+	"sniffer":    14,
+	"iron_golem": 100,
+}
+
+// mobBoundsTable is the vanilla bounding box (width, height) per
+// summonable mob — the box sweep attacks inflate and damage-indicator
+// particles ride at half height on.
+var mobBoundsTable = map[int32][2]float64{}
+
+func init() {
+	for name, dims := range map[string][2]float64{
+		"pig":        {0.9, 0.9},
+		"cow":        {0.9, 1.4},
+		"chicken":    {0.4, 0.7},
+		"sheep":      {0.9, 1.3},
+		"zombie":     {0.6, 1.95},
+		"skeleton":   {0.6, 1.99},
+		"creeper":    {0.6, 1.7},
+		"spider":     {1.4, 0.9},
+		"sniffer":    {1.9, 1.75},
+		"iron_golem": {1.4, 2.7},
+	} {
+		if id, ok := EntityTypeID(name); ok {
+			mobBoundsTable[id] = dims
+		}
+	}
+}
+
+// mobBounds returns the (width, height) bounding box for an entity
+// type, defaulting to the player's box.
+func mobBounds(typeID int32) [2]float64 {
+	if dims, ok := mobBoundsTable[typeID]; ok {
+		return dims
+	}
+	return [2]float64{0.6, 1.8}
 }
 
 // runSummon implements /summon <entity>: the mob spawns at the
@@ -175,12 +210,27 @@ func (s *Server) runSummon(player string, args []string) string {
 		return "Unknown player: " + player
 	}
 	x, y, z, _, _, _ := sess.Pos()
-	pos := world.Pos{
-		X: int(math.Floor(x)),
-		Y: int(math.Floor(y)),
-		Z: int(math.Floor(z)),
+	if len(args) >= 4 {
+		var err error
+		if x, err = parseDouble(args[1], x, true); err != nil {
+			return "Invalid position " + args[1]
+		}
+		if y, err = parseDouble(args[2], y, false); err != nil {
+			return "Invalid position " + args[2]
+		}
+		if z, err = parseDouble(args[3], z, true); err != nil {
+			return "Invalid position " + args[3]
+		}
 	}
-	if _, ok := s.summonMob(sess.dimension(), strings.TrimPrefix(args[0], "minecraft:"), pos); !ok {
+	noAI := false
+	if len(args) >= 5 {
+		if tag, _, err := parseSNBTTag(args[4], 0); err == nil && tag != nil {
+			if v, ok := tag.vals["NoAI"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+				noAI = true
+			}
+		}
+	}
+	if _, ok := s.summonMob(sess.dimension(), strings.TrimPrefix(args[0], "minecraft:"), x, y, z, noAI); !ok {
 		return "Unknown entity: " + args[0]
 	}
 	return "Summoned " + args[0]
@@ -188,7 +238,7 @@ func (s *Server) runSummon(player string, args []string) string {
 
 // summonMob spawns one living entity at pos in dimension d and fans it
 // out with its health metadata. Unknown entity types are rejected.
-func (s *Server) summonMob(d *dimension, name string, pos world.Pos) (*Entity, bool) {
+func (s *Server) summonMob(d *dimension, name string, x, y, z float64, noAI bool) (*Entity, bool) {
 	id, ok := EntityTypeID(name)
 	if !ok {
 		return nil, false
@@ -200,12 +250,13 @@ func (s *Server) summonMob(d *dimension, name string, pos world.Pos) (*Entity, b
 	e := s.entities.Spawn(&Entity{
 		Type:      id,
 		Dim:       d.name,
-		X:         float64(pos.X) + 0.5,
-		Y:         float64(pos.Y),
-		Z:         float64(pos.Z) + 0.5,
+		X:         x,
+		Y:         y,
+		Z:         z,
 		Living:    true,
 		Health:    health,
 		MaxHealth: health,
+		NoAI:      noAI,
 	})
 	s.broadcastEntitySpawn(nil, *e)
 	s.broadcastEntityMetadata(e.ID, encodeLivingMetadata(e))
@@ -229,22 +280,29 @@ func encodeLivingHealth(health float32) []byte {
 }
 
 // damageMob applies damage to a living mob and syncs metadata; a lethal
-// hit removes the entity.
-func (s *Server) damageMob(e *Entity, amount float32) {
-	health, ok := s.entities.Damage(e.ID, amount)
-	if !ok {
-		return
+// hit removes the entity. It reports the damage actually dealt — zero
+// when the hit was swallowed by the post-hit invulnerability window —
+// and whether the hit ran inside that window (vanilla then skips the
+// damage event and knockback).
+func (s *Server) damageMob(e *Entity, amount float32) (float32, bool) {
+	health, dealt, ok, graced := s.entities.Damage(e.ID, amount)
+	if !ok || dealt <= 0 {
+		return 0, graced
 	}
 	if health <= 0 {
-		s.entities.Remove(e.ID)
-		s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+		// die(): the corpse event and loot/XP fire immediately, the
+		// entity lingers twenty ticks, then poofs (event 60) and is
+		// removed — all inside mobTickStep's per-mob pass.
+		s.entities.SetDying(e.ID)
+		s.broadcastEntityEventTo(nil, e.Dim, e.ID, 3)
 		if name, ok := EntityTypeName(e.Type); ok {
 			s.spawnMobLoot(e.Dim, name, e.X, e.Y, e.Z)
 			s.spawnMobXP(e.Dim, name, e.X, e.Y, e.Z)
 		}
-		return
+		return dealt, graced
 	}
 	s.broadcastEntityMetadata(e.ID, encodeLivingHealth(health))
+	return dealt, graced
 }
 
 // mobWalkSpeed is the blocks-per-tick stride of the wander AI.
@@ -272,6 +330,20 @@ func (s *Server) mobTickStep() {
 	}
 	s.entities.mu.RUnlock()
 	for _, e := range mobs {
+		if e.Dying {
+			if s.entities.TickDeath(e.ID) {
+				s.broadcastEntityEventTo(nil, e.Dim, e.ID, 60)
+				s.entities.Remove(e.ID)
+				s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+			}
+			continue
+		}
+		if e.invulnTicks > 0 {
+			e.invulnTicks--
+		}
+		if e.NoAI {
+			continue
+		}
 		w := s.dimWorld(e.Dim)
 		if w == nil {
 			continue

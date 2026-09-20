@@ -110,9 +110,10 @@ var (
 	srcVoid    = damageSource{typeName: "out_of_world"}
 )
 
-// voidTickStep damages players that fall out of the world every ten
-// ticks. The void starts 64 blocks under each dimension's floor,
-// matching vanilla's out-of-world band.
+// voidTickStep damages players under the out-of-world band (64 blocks
+// below each dimension's floor) on every player tick; vanilla hits
+// there once a tick, and the post-hit invulnerability is what paces the
+// visible damage to roughly every ten.
 func (s *Server) voidTickStep() {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
@@ -121,25 +122,45 @@ func (s *Server) voidTickStep() {
 		}
 		_, y, _, _, _, _ := sess.Pos()
 		if y >= float64(sess.dimension().minY-64) {
-			sess.voidTimer = 0
 			return true
 		}
-		sess.voidTimer++
-		if sess.voidTimer < 10 {
-			return true
-		}
-		sess.voidTimer = 0
 		s.damageWith(sess, 4, "Fell out of the world", srcVoid)
 		return true
 	})
 }
 
 // damageWith applies damage with an explicit source, emitting the
-// Damage Event before the health sync.
-func (s *Server) damageWith(sess *Session, amount float32, message string, src damageSource) {
+// Damage Event before the health sync, and returns the damage that
+// actually landed after armor absorbs it (0 when the hit was
+// rejected by the post-hit invulnerability window).
+func (s *Server) damageWith(sess *Session, amount float32, message string, src damageSource) float32 {
 	if sess.mode() != GameModeSurvival || sess.dead {
-		return
+		return 0
 	}
+	// Vanilla grants twenty ticks of invulnerability after a hit; while
+	// more than half remains, a hit no stronger than the last is ignored
+	// and a stronger one lands only for its excess.
+	orig := amount
+	if sess.invulnTicks > 10 {
+		if orig <= sess.lastHurt {
+			return 0
+		}
+		amount = orig - sess.lastHurt
+	}
+	sess.lastHurt = orig
+	sess.invulnTicks = 20
+	sess.lastHurtBy = src.cause
+	// A hit that armor can absorb wears the equipped pieces first —
+	// on the amount still standing after the i-frames delta — and is
+	// then reduced by the armor formula. The defense value is the
+	// pre-wear total: pieces that break still count for this hit.
+	if !bypassesArmor(src.typeName) {
+		defense := sess.armorDefense()
+		s.armorWear(sess, src, amount)
+		amount = reduceDamage(amount, defense)
+	}
+	// Vanilla counts damage in tenths of a heart.
+	sess.addCustomStat("damage_taken", int32(amount*10))
 	eid := sess.entityID.Load()
 	x, y, z, _, _, _ := sess.Pos()
 	s.broadcastDamageEvent(eid, damageInfo{
@@ -149,5 +170,12 @@ func (s *Server) damageWith(sess *Session, amount float32, message string, src d
 		hasPos:   src.cause != 0,
 		x:        x, y: y, z: z,
 	})
+	// damage_dealt-style accounting counts health lost, not the raw
+	// hit: an overkill blow still reports only what remained.
+	healthBefore := sess.health
 	s.damage(sess, amount, message)
+	if amount > healthBefore {
+		amount = healthBefore
+	}
+	return amount
 }

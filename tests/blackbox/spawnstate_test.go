@@ -223,32 +223,30 @@ func checkModsAttrs(t *testing.T, tag string, body []byte) {
 	}
 }
 
-// checkStubAttrs requires the rejoin reset invariant: the bare speed
-// entry is always present, every other slot is a bare range or a
-// byte-exact filler, and the packet holds 3 or 4 slots.
+// checkStubAttrs requires the rejoin reset: exactly the three bare
+// entries, no modifiers. Measured on the live 26.2 server; earlier
+// captures showing filler ids (84/132) are stale and invalid against
+// the 40-entry attribute registry - a real client kicks on them.
 func checkStubAttrs(t *testing.T, tag string, body []byte) {
 	t.Helper()
 	_, es := parseSpanAttrs(t, body)
-	if len(es) != 3 && len(es) != 4 {
+	if len(es) != 3 {
 		t.Fatalf("%s: stub holds %d entries: %q", tag, len(es), attrMultiset(es))
 	}
-	speed := "26:" + fbits(float64(float32(0.1)))
-	blockBare := "8:" + fbits(4.5)
-	entityBare := "13:" + fbits(3.0)
-	blockFill := "filler:" + string([]byte{0xd4, 0x00, 0x08, 0, 0, 0, 0, 0, 0, 0})
-	entityFill := "filler:" + string([]byte{0x84, 0x01, 0x20, 0, 0, 0, 0, 0, 0, 0})
-	seenSpeed := false
-	for _, c := range attrMultiset(es) {
-		switch c {
-		case speed:
-			seenSpeed = true
-		case blockBare, entityBare, blockFill, entityFill:
-		default:
-			t.Fatalf("%s: stub has unexpected entry %q in %q", tag, c, attrMultiset(es))
-		}
+	want := []string{
+		"8:" + fbits(4.5),
+		"13:" + fbits(3.0),
+		"26:" + fbits(float64(float32(0.1))),
 	}
-	if !seenSpeed {
-		t.Fatalf("%s: stub lacks bare speed in %q", tag, attrMultiset(es))
+	sort.Strings(want)
+	got := attrMultiset(es)
+	if len(got) != len(want) {
+		t.Fatalf("%s: attributes %q, want %q", tag, got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s: attributes %q, want %q", tag, got, want)
+		}
 	}
 }
 
@@ -310,10 +308,11 @@ func TestSpawnStateParity(t *testing.T) {
 }
 
 // checkClocked requires the young-world join clock shape: the age,
-// then the game-time clock (id 1) at the age and the day clock (id 0
-// or 2 - vanilla shuffles the id per join) at the day, which equals
-// the age on a fresh world give or take a tick. Entry order shuffles
-// too, so the two clocks compare as a set.
+// then the overworld clock (id 0) at the age and the the_end clock
+// (id 1) at the day, which equals the age on a fresh world give or
+// take a tick. The 26.2 world_clock registry holds exactly those two
+// entries, so any other id kicks the client - earlier captures that
+// suggested id 2 were stale.
 func checkClocked(t *testing.T, tag string, body []byte) {
 	t.Helper()
 	if len(body) != 29 {
@@ -344,17 +343,17 @@ func checkClocked(t *testing.T, tag string, body []byte) {
 	for i := range cs {
 		if cs[i].id == 1 {
 			game = &cs[i]
-		} else if cs[i].id == 0 || cs[i].id == 2 {
+		} else if cs[i].id == 0 {
 			day = &cs[i]
 		} else {
-			t.Fatalf("%s: clock id %d, want 1 plus 0 or 2", tag, cs[i].id)
+			t.Fatalf("%s: clock id %d out of the 2-entry registry", tag, cs[i].id)
 		}
 	}
 	if game == nil || day == nil {
-		t.Fatalf("%s: clocks %v, want game plus day", tag, cs)
+		t.Fatalf("%s: clocks %v, want ids 0 and 1", tag, cs)
 	}
 	if game.tm != age || game.fr != 0 || game.rate != 1 {
-		t.Fatalf("%s: game clock %+v vs age %d", tag, *game, age)
+		t.Fatalf("%s: age clock %+v vs age %d", tag, *game, age)
 	}
 	if day.tm < age-2 || day.tm > age+2 || day.fr != 0 || day.rate != 1 {
 		t.Fatalf("%s: day clock %+v vs age %d", tag, *day, age)
@@ -389,6 +388,88 @@ func checkServerData(t *testing.T, tag string, body []byte, motd string) {
 	}
 	if r.Remaining() != 0 {
 		t.Fatalf("%s: server data trailing bytes: %d", tag, r.Remaining())
+	}
+}
+
+// TestRejoinPositionParity teleports, leaves, and rejoins on both
+// servers: the rejoin's Synchronize Player Position must land back on
+// the teleported spot, not the world spawn.
+func TestRejoinPositionParity(t *testing.T) {
+	tg := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("Mover"),
+	}, nil)
+	defer tg.cleanup()
+
+	// scanUntil reads packets until marker shows up in one, returning
+	// the most recent Synchronize Player Position coords seen.
+	scanUntil := func(t *testing.T, pr *protocol.Reader, marker string, timeout time.Duration) (float64, float64, float64) {
+		t.Helper()
+		var x, y, z float64
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			p, err := pr.ReadPacket()
+			if err != nil {
+				t.Fatalf("scan %s: %v", marker, err)
+			}
+			if p.ID == server.IDPlaySyncPos {
+				r := protocol.NewPacketReader(p.Data)
+				if _, err := r.VarInt(); err == nil {
+					x, _ = r.Double()
+					y, _ = r.Double()
+					z, _ = r.Double()
+				}
+			}
+			if bytes.Contains(p.Data, []byte(marker)) {
+				return x, y, z
+			}
+		}
+		t.Fatalf("marker %s never arrived", marker)
+		return 0, 0, 0
+	}
+
+	for _, tc := range []struct{ tag, addr string }{
+		{"vanilla", tg.vanilla},
+		{"mc-go", tg.mcgo},
+	} {
+		c, pr, pw := joinPlayBlackbox(t, tc.addr, "Mover")
+		sendCommand(t, pw, "say READY")
+		scanUntil(t, pr, "READY", 30*time.Second)
+		sendCommand(t, pw, "tp @s 100 -55 100")
+		sendCommand(t, pw, "say TPD") // commands run in order
+		tx, ty, tz := scanUntil(t, pr, "TPD", 15*time.Second)
+		// Bare integers on x/z land on the block center, y stays exact.
+		if math.Abs(tx-100.5) > 0.01 || math.Abs(ty-(-55)) > 0.01 || math.Abs(tz-100.5) > 0.01 {
+			t.Errorf("%s: tp landed at (%.2f,%.2f,%.2f), want (100.5,-55,100.5)", tc.tag, tx, ty, tz)
+		}
+		c.Close()
+		time.Sleep(2 * time.Second)
+		c2, pr2, _ := joinPlayBlackbox(t, tc.addr, "Mover")
+		// The rejoin burst's own sync is the resumed position.
+		var rx, ry, rz float64
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			p, err := pr2.ReadPacket()
+			if err != nil {
+				t.Fatalf("%s rejoin read: %v", tc.tag, err)
+			}
+			if p.ID != server.IDPlaySyncPos {
+				continue
+			}
+			r := protocol.NewPacketReader(p.Data)
+			if _, err := r.VarInt(); err == nil {
+				rx, _ = r.Double()
+				ry, _ = r.Double()
+				rz, _ = r.Double()
+			}
+			break
+		}
+		c2.Close()
+		if math.Abs(rx-tx) > 0.01 || math.Abs(ry-ty) > 0.01 || math.Abs(rz-tz) > 0.01 {
+			t.Errorf("%s: rejoin pos (%.2f,%.2f,%.2f) != logout pos (%.2f,%.2f,%.2f)",
+				tc.tag, rx, ry, rz, tx, ty, tz)
+		}
+		t.Logf("%s: teleported to (%.1f,%.1f,%.1f), rejoined at (%.1f,%.1f,%.1f)",
+			tc.tag, tx, ty, tz, rx, ry, rz)
 	}
 }
 

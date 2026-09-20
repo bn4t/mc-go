@@ -249,34 +249,27 @@ func (s *Server) handlePlayerCommand(sess *Session, p protocol.Packet) {
 	if _, err := r.VarInt(); err != nil { // jump boost
 		return
 	}
+	// Vanilla 26.2's PlayerCommand actions; sneaking left the enum for
+	// the player_input packet.
 	switch action {
-	case 0: // start sneaking
-		if !sess.sneaking {
-			sess.sneaking = true
-			s.broadcastPose(sess, poseSneaking)
-		}
-	case 1: // stop sneaking
-		if sess.sneaking {
-			sess.sneaking = false
-			s.broadcastPose(sess, poseStanding)
-		}
-	case 2: // leave bed
+	case 0: // stop sleeping
 		// Sleeping is not modelled; vanilla clears the sleeping flag.
-	case 3: // start sprinting
+	case 1: // start sprinting
 		sess.sprinting = true
-	case 4: // stop sprinting
+		s.broadcastSharedFlags(sess)
+	case 2: // stop sprinting
 		sess.sprinting = false
-	case 5, 6: // start/stop horse jump
+		s.broadcastSharedFlags(sess)
+	case 3, 4: // start/stop riding jump
 		// Requires a ridden horse; vanilla ignores it without one.
-	case 7: // open horse inventory
-		// Requires a ridden horse; vanilla ignores it without one.
-	case 8: // start flying with elytra
+	case 5: // open vehicle inventory
+		// Requires a ridden entity; vanilla ignores it without one.
+	case 6: // start flying with elytra
 		if sess.mode() == GameModeCreative || sess.mode() == GameModeSpectator {
 			break
 		}
 		// Elytra flight needs the item; vanilla ignores the packet
 		// when the player is not wearing one.
-	case 9: // stop flying with elytra
 	}
 }
 

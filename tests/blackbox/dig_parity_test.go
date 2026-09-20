@@ -266,6 +266,16 @@ func digCaseList() []digCase {
 			time.Sleep(300 * time.Millisecond)
 			start(t, pw, 19)
 		}),
+		grass("re-start then stop", grassWait, func(t *testing.T, pw *protocol.Writer) {
+			// A repeated start restarts the dig rather than killing
+			// it: the finish is latched and the block still breaks
+			// once the restarted timer completes.
+			start(t, pw, 25)
+			time.Sleep(300 * time.Millisecond)
+			start(t, pw, 26)
+			time.Sleep(500 * time.Millisecond)
+			stop(t, pw, 27)
+		}),
 		grass("start+swing every 50ms", grassWait, func(t *testing.T, pw *protocol.Writer) {
 			start(t, pw, 20)
 			for i := 0; i < 55; i++ {

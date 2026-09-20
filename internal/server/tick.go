@@ -268,23 +268,18 @@ func (s *Server) StopSprint() {
 	s.clock.mu.Unlock()
 }
 
-// GameTick advances the whole simulation by exactly one tick.
+// GameTick advances the world simulation by exactly one tick.
 //
-// Everything time-driven belongs here, in a fixed order, so that
+// Everything world-driven belongs here, in a fixed order, so that
 // freezing the clock is a complete freeze and so that tests can step
-// the world deterministically instead of sleeping and hoping.
+// the world deterministically instead of sleeping and hoping. Per-player
+// connection-tick work is deliberately not here: see playerTick.
 func (s *Server) GameTick() {
 	s.itemTickStep()
-	s.digTickStep()
 	s.mobTickStep()
 	s.furnaceTickStep()
 	s.containerTickStep()
-	s.hungerTickStep()
-	s.combatTickStep()
 	s.hopperTickStep()
-	s.eatTickStep()
-	s.voidTickStep()
-	s.portalTickStep()
 	s.scheduledTickStep()
 	s.randomTickStep()
 	// Chunk streaming is paced on the tick, like everything else: one
@@ -302,14 +297,69 @@ func (s *Server) GameTick() {
 	s.clock.mu.Unlock()
 }
 
+// playerTick is the per-player connection tick, which vanilla runs
+// from the packet listener once per wall-clock tick: it is NOT part of
+// the freeze-gated game tick, so it keeps running under /tick freeze
+// and /tick step never advances it. Measured on 26.2: a player parked
+// in the void while the game was frozen died in seconds, and a hurt
+// player healed nothing across hundreds of stepped ticks.
+func (s *Server) playerTick() {
+	s.digTickStep()
+	s.hungerTickStep()
+	s.combatTickStep()
+	s.eatTickStep()
+	s.voidTickStep()
+	s.portalTickStep()
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.invulnTicks > 0 {
+			sess.invulnTicks--
+		}
+		if sess.attackTicker < 200 {
+			sess.attackTicker++
+		}
+		// Vanilla ticks the time-of-play family every live player tick.
+		if !sess.dead && sess.spawned.Load() {
+			sess.addCustomStat("play_time", 1)
+			sess.addCustomStat("total_world_time", 1)
+			sess.addCustomStat("time_since_death", 1)
+			sess.addCustomStat("time_since_rest", 1)
+			if sess.sneaking {
+				sess.addCustomStat("sneak_time", 1)
+			}
+		}
+		// One Set Health per tick, after every mutator ran, carrying the
+		// end-of-tick health/food/saturation.
+		if sess.healthDirty.Swap(false) {
+			_ = s.sendHealth(sess)
+		}
+		// The inventory listener normally fires from addStack the moment
+		// a slot mutates; slot writers that skip addStack still trip the
+		// criteria scan here on the tick boundary.
+		sess.invMu.RLock()
+		inv := sess.inv
+		sess.invMu.RUnlock()
+		if !sess.invSnapOK || inv != sess.invSnap {
+			sess.invSnap = inv
+			sess.invSnapOK = true
+			s.fireInventoryChanged(sess)
+		}
+		s.fireEnterBlock(sess)
+		s.flushAdvancements(sess)
+		return true
+	})
+}
+
 // runGameLoop drives GameTick on the clock's schedule until stop
 // closes. Delays are recomputed every iteration so /tick rate takes
 // effect on the next tick, and a frozen clock simply never advances.
 // Each sleep is what is left of the tick's budget once the tick itself
 // has run, so a slow tick eats into its own period rather than adding to
-// it (see tickClock.next).
+// it (see tickClock.next). The player tick rides the same cadence but is
+// gated only by elapsed wall time, so it also runs while frozen.
 func (s *Server) runGameLoop(stop chan struct{}) {
 	var since time.Duration
+	lastPlayerTick := time.Now()
 	for {
 		wait, run := s.clock.next(since)
 		if wait > 0 {
@@ -325,6 +375,11 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 		case <-stop:
 			return
 		default:
+		}
+		period := time.Duration(float64(time.Second) / s.clock.tickRate())
+		if time.Since(lastPlayerTick) >= period {
+			lastPlayerTick = time.Now()
+			s.playerTick()
 		}
 		if !run {
 			since = 0

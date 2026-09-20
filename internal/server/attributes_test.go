@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"testing"
 
 	"mc-go/internal/protocol"
@@ -103,18 +102,15 @@ func TestUpdateAttributesRejoin(t *testing.T) {
 	if eid != 7 || n != 3 {
 		t.Fatalf("stub head (%d,%d), want (7,3)", eid, n)
 	}
-	speed := readAttrEntry(t, r)
-	if speed.id != attrMovementSpeed || len(speed.mods) != 0 {
-		t.Fatalf("stub first entry: %+v", speed)
-	}
-	// The other two slots are the degenerate fillers, byte-exact.
-	for i, want := range [][]byte{attrFillerEntity, attrFillerBlock} {
-		raw, err := r.Read(10)
-		if err != nil {
-			t.Fatalf("stub filler %d: %v", i, err)
+	// The real 26.2 stub is the three bare entries, no fillers.
+	wantIDs := []int32{attrBlockInteractionRange, attrEntityInteractionRange, attrMovementSpeed}
+	for i, want := range wantIDs {
+		e := readAttrEntry(t, r)
+		if e.id != want || len(e.mods) != 0 {
+			t.Fatalf("stub entry %d: %+v", i, e)
 		}
-		if !bytes.Equal(raw, want) {
-			t.Fatalf("stub filler %d = %x, want %x", i, raw, want)
+		if e.id < 0 || e.id >= 40 {
+			t.Fatalf("stub id %d out of the 40-entry attribute registry", e.id)
 		}
 	}
 	if r.Remaining() != 0 {
@@ -156,11 +152,11 @@ func TestUpdateTimeBodies(t *testing.T) {
 	t2, _ := r.VarLong()
 	r.Float()
 	r.Float()
-	if id1 != 1 || t1 != age {
-		t.Fatalf("game clock (%d,%d), want (1,%d)", id1, t1, age)
+	if id1 != 0 || t1 != s.dayTime() {
+		t.Fatalf("day clock (%d,%d), want (0,%d)", id1, t1, s.dayTime())
 	}
-	if id2 != 2 || t2 != s.dayTime() {
-		t.Fatalf("day clock (%d,%d), want (2,day)", id2, t2)
+	if id2 != 1 || t2 != age {
+		t.Fatalf("age clock (%d,%d), want (1,%d)", id2, t2, age)
 	}
 	if r.Remaining() != 0 {
 		t.Fatalf("join trailing bytes: %d", r.Remaining())

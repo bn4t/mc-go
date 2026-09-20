@@ -55,7 +55,24 @@ type Session struct {
 	yaw, pitch  float32
 	onGround    bool
 	teleportAck atomic.Int32 // last confirmed teleport id, -1 none
-	// Player inventory window (46 slots), guarded by invMu. Slots are
+	// unlockedRecipes holds the recipe-book keys the session has been
+	// given, keyed by data.Recipes index; guarded by recipesMu.
+	recipesMu       sync.Mutex
+	unlockedRecipes map[int]bool
+	// advSent/advCrits/advDirty track advancement sync state: defs sent,
+	// criteria earned (adv id -> criterion -> millis), and advancements
+	// awaiting the next UpdateAdvancements flush. Guarded by advMu.
+	advMu         sync.Mutex
+	advSent       map[string]bool
+	advCrits      map[string]map[string]int64
+	advDirty      map[string]bool
+	advDirtyOrder []string
+	advDone       map[string]bool
+	// invSnap is the last-tick inventory snapshot that decides whether
+	// the inventory_changed advancement trigger needs evaluating.
+	invSnap   [slotCount]ItemStack
+	invSnapOK bool
+	// Player inventory window (46 slots), guarded by invMu. Slots are Slots are
 	// populated from Set Creative Mode Slot and container clicks; the
 	// selected hotbar slot (0-8) picks what Use Item On places.
 	invMu   sync.RWMutex
@@ -111,8 +128,27 @@ type Session struct {
 	// eatingTicks counts down an in-progress food use.
 	eatingTicks int32
 	eatingItem  int32
-	// voidTimer paces out-of-world damage.
-	voidTimer int
+	// invulnTicks is the damage grace vanilla grants after a hit: twenty
+	// ticks counted down on the player tick, during which only damage
+	// exceeding lastHurt lands, and only for the excess.
+	invulnTicks int32
+	// attackTicker is vanilla's attackStrengthTicker: the ticks since
+	// the last attack() call; it paces the damage cooldown scale and
+	// resets on every attack that reaches the damage code.
+	attackTicker int32
+	// lastHorizSq is the squared horizontal delta of the last move
+	// packet — vanilla's knownMovement, which gates the sweep attack
+	// (it must stay under (movement speed * 2.5)²).
+	lastHorizSq float64
+	lastHurt    float32
+	// lastHurtBy is the entity id of the most recent damage source's
+	// attacker, for killed_by/kill-score stat attribution.
+	lastHurtBy int32
+	// healthDirty marks health/food/saturation changes to sync. Vanilla
+	// sends at most one Set Health per player per tick, carrying the
+	// end-of-tick values, so tick-side writers set this instead of
+	// sending immediately; the player tick drains it.
+	healthDirty atomic.Bool
 	// Open container window (chest) and its state id.
 	windowMu    sync.Mutex
 	window      *openWindow

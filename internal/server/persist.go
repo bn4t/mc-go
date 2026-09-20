@@ -30,6 +30,12 @@ type playerPersist struct {
 	X          float64              `json:"x,omitempty"`
 	Y          float64              `json:"y,omitempty"`
 	Z          float64              `json:"z,omitempty"`
+	// Stats carries the player's counters, keyed "category:id". The
+	// StatsOrder list preserves the stat table's insertion history —
+	// it is what a vanilla stats file's key order reproduces, and the
+	// Award Statistics emit order depends on it.
+	Stats      map[string]int32 `json:"stats,omitempty"`
+	StatsOrder []string         `json:"stats_order,omitempty"`
 }
 
 // signPersist is one sign's state on disk. Its styling travels with it:
@@ -104,6 +110,20 @@ func snapshotPlayer(sess *Session) playerPersist {
 	p.Saturation = sess.saturation
 	p.Dim = sess.dimName()
 	p.X, p.Y, p.Z, _, _, _ = sess.Pos()
+	sess.statMu.Lock()
+	if st := sess.stats; st != nil && len(st.counts) > 0 {
+		p.Stats = make(map[string]int32, len(st.counts))
+		// Vanilla's stats file iterates its map when writing, so the
+		// stored key order is the map's iteration order — the order
+		// the entries reload in.
+		order := fastutilIterDesc(st.insertOrder)
+		for _, k := range order {
+			key := statPersistKey(k)
+			p.Stats[key] = st.counts[k]
+			p.StatsOrder = append(p.StatsOrder, key)
+		}
+	}
+	sess.statMu.Unlock()
 	return p
 }
 
@@ -262,6 +282,19 @@ func (s *Server) applySavedPlayer(sess *Session) {
 	sess.health = p.Health
 	sess.food = p.Food
 	sess.saturation = p.Saturation
+	if len(p.Stats) > 0 {
+		sess.statMu.Lock()
+		st := sess.ensureStats()
+		for _, key := range p.StatsOrder {
+			k, ok := parseStatPersistKey(key)
+			if !ok {
+				continue
+			}
+			st.counts[k] = p.Stats[key]
+			st.insertOrder = append(st.insertOrder, k)
+		}
+		sess.statMu.Unlock()
+	}
 	// Vanilla resumes the player where they logged out: dimension and
 	// position both restore.
 	if d := s.dimensionByName(p.Dim); d != nil && p.Y != 0 {

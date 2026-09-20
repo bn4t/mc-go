@@ -80,6 +80,7 @@ func main() {
 			dir: "advancement", varName: "advancementBlob", funcName: "Advancements",
 			doc: "// Advancements returns the vanilla advancement tree, keyed by path\n// inside data/minecraft/advancement.",
 		}))
+		emit("recipeadvs_gen.go", genRecipeAdvs(zr))
 	}
 	if sections["trades"] {
 		emit("trades_gen.go", genBlob(zr, blobSpec{

@@ -444,18 +444,20 @@ func TestSurvivalAttackPackets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Bob sees the hurt entity event for Alice.
-	ev := waitForPacketBlackbox(t, cb, prb, server.IDPlayEntityEvent, 5*time.Second)
-	if ev == nil {
-		t.Fatal("bob hurt event never arrived")
+	// The attacker is not sent the hurt entity event — measured on
+	// vanilla, the attacker's client gets nothing at all. Nothing
+	// arriving inside the window is the pass.
+	_ = cb.SetReadDeadline(time.Now().Add(600 * time.Millisecond))
+	for {
+		p, err := prb.ReadPacket()
+		if err != nil {
+			break
+		}
+		if p.ID == server.IDPlayEntityEvent {
+			t.Fatal("attacker received a hurt entity event vanilla never sends")
+		}
 	}
-	er := protocol.NewPacketReader(ev.Data)
-	if eid, err := er.Int(); err != nil || eid != aliceEID {
-		t.Fatalf("event eid = %d, err %v (want %d)", eid, err, aliceEID)
-	}
-	if status, err := er.Byte(); err != nil || status != 2 {
-		t.Fatalf("event status = %d, err %v (want 2 hurt)", status, err)
-	}
+	_ = cb.SetReadDeadline(time.Time{})
 
 	// Alice sees Set Health 19 and Hurt Animation for herself.
 	sawHealth, sawHurt := false, false

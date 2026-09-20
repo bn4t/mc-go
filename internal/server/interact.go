@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"strings"
 
 	"mc-go/internal/protocol"
 )
@@ -85,8 +86,8 @@ func (s *Server) handlePlayerActionExtras(sess *Session, p protocol.Packet) bool
 	return false
 }
 
-// dropHeld removes the held stack (or one item) from the inventory.
-// Dropped-item entities arrive with the item-entity milestone.
+// dropHeld throws the selected hotbar stack — all of it, or a single
+// item — spawning the item entity and counting the drop stats.
 func (s *Server) dropHeld(sess *Session, whole bool) {
 	slot := invSlotForHotbar(sess.held.Load())
 	sess.invMu.Lock()
@@ -95,17 +96,20 @@ func (s *Server) dropHeld(sess *Session, whole bool) {
 		sess.invMu.Unlock()
 		return
 	}
-	if whole {
+	out := it
+	if !whole {
+		out = it.withCount(1)
+	}
+	sess.inv[slot].Count -= out.Count
+	if sess.inv[slot].Count <= 0 {
 		sess.inv[slot] = ItemStack{}
-	} else {
-		sess.inv[slot].Count--
-		if sess.inv[slot].Count <= 0 {
-			sess.inv[slot] = ItemStack{}
-		}
 	}
 	updated := sess.inv[slot]
+	sess.invState.Add(1)
+	s.dropItemLocked(sess, out)
 	sess.invMu.Unlock()
 	_ = s.sendContainerSlot(sess, slot, updated)
+	s.fireInventoryChanged(sess)
 }
 
 // swapHands swaps the held hotbar stack with the offhand stack.
@@ -120,8 +124,21 @@ func (s *Server) swapHands(sess *Session) {
 	_ = s.sendContainerSlot(sess, slotOffhand, off)
 }
 
-// attackReach is the vanilla entity-interaction range in survival.
+// attackReach is the vanilla entity_interaction_range base value.
 const attackReach = 3.0
+
+// withinAttackRange is vanilla's isWithinAttackRange: the clamped
+// distance from the attacker's eye position to the target's bounding
+// box must stay inside entity_interaction_range (3.0 base).
+func (sess *Session) withinAttackRange(cx, cy, cz float64, bb [2]float64) bool {
+	x, y, z, _, _, _ := sess.Pos()
+	eye := y + 1.62
+	hw := bb[0] / 2
+	gx := math.Max(math.Max(cx-hw-x, x-cx-hw), 0)
+	gy := math.Max(math.Max(cy-eye, eye-cy-bb[1]), 0)
+	gz := math.Max(math.Max(cz-hw-z, z-cz-hw), 0)
+	return gx*gx+gy*gy+gz*gz <= attackReach*attackReach
+}
 
 // handleAttack applies a melee attack to another player: damage, hurt
 // animation, and knockback (motion sync). Entity types beyond players
@@ -145,55 +162,252 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	if targetID == 0 || targetID == sess.entityID.Load() {
 		return
 	}
-	var target *Session
-	s.sessions.Range(func(_, v any) bool {
-		other := v.(*Session)
-		if other.entityID.Load() == targetID {
-			target = other
-			return false
-		}
-		return true
-	})
+	target := s.sessionByEntityID(targetID)
 	if target == nil {
-		// Not a player: attack a living mob if one has this id.
+		// Not a player: attack a living mob if one has this id. The
+		// reach gate is vanilla's isWithinAttackRange — the eye to the
+		// target's bounding box, not center distance.
 		if e, ok := s.entities.Get(targetID); ok && e.Living {
-			s.broadcastDamageEvent(e.ID, damageInfo{
-				typeName: "player_attack",
-				cause:    sess.entityID.Load(),
-				direct:   sess.entityID.Load(),
-			})
-			s.damageMob(&e, 1.0)
-			s.broadcastEntityEventDamage(nil, e.ID)
+			bb := mobBounds(e.Type)
+			if !sess.withinAttackRange(e.X, e.Y, e.Z, bb) {
+				return
+			}
+			plan := s.planAttack(sess)
+			s.preAttackSound(sess, plan)
+			sess.attackTicker = 0
+			dealt, graced := s.damageMob(&e, plan.damage)
+			if dealt > 0 {
+				if !graced {
+					s.broadcastDamageEvent(e.ID, damageInfo{
+						typeName: "player_attack",
+						cause:    sess.entityID.Load(),
+						direct:   sess.entityID.Load(),
+					})
+				}
+				sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
+				if _, still := s.entities.Get(targetID); !still {
+					sess.addStat(statKilled, e.Type, 1)
+					sess.addCustomStat("mob_kills", 1)
+				}
+				if !graced {
+					s.mobAttackKnockback(sess, e.ID, plan.scale)
+				}
+				s.attackAftermath(sess, plan, e.ID, dealt, mobBounds(e.Type))
+			} else {
+				s.broadcastAttackSound(sess, sndAttackNodamage)
+			}
+			s.attackWear(sess)
 		}
 		return
 	}
 	if target.dead {
 		return
 	}
-	ax, ay, az, _, _, _ := sess.Pos()
 	tx, ty, tz, _, _, _ := target.Pos()
-	dx, dy, dz := ax-tx, ay-ty, az-tz
-	if dx*dx+dy*dy+dz*dz > (attackReach+0.5)*(attackReach+0.5) {
+	if !sess.withinAttackRange(tx, ty, tz, [2]float64{0.6, 1.8}) {
 		return
 	}
-	if sess.addExhaustion(0.1) { // attacking costs hunger
-		_ = s.sendHealth(sess)
-	}
+	ax, _, az, _, _, _ := sess.Pos()
+	sess.addExhaustion(0.1) // attacking costs hunger
 	s.startCombat(sess)
 	s.startCombat(target)
-	// Weapon damage reduced by the victim's armor; the attack-cooldown
-	// scaling and enchantments ride a later combat milestone.
-	damage := reduceDamage(sess.heldAttackDamage(), target.armorDefense())
-	s.damageWith(target, damage, sess.getName()+" was slain by "+target.getName(), damageSource{
+	// damageWith wears the armor and applies the armor reduction
+	// inside (vanilla's getDamageAfterArmorAbsorb); the attacker's
+	// damage_dealt counts the post-absorb amount. The cooldown scale
+	// is read before the ticker resets, as in vanilla's attack().
+	plan := s.planAttack(sess)
+	s.preAttackSound(sess, plan)
+	dealt := s.damageWith(target, plan.damage, sess.getName()+" was slain by "+target.getName(), damageSource{
 		typeName: "player_attack",
 		cause:    sess.entityID.Load(),
 		direct:   sess.entityID.Load(),
 	})
+	sess.attackTicker = 0
+	sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
 	s.sendHurtAnimation(target, hurtYaw(tx, tz, ax, az))
-	// Everyone except the victim sees the hurt entity event, matching
-	// vanilla (the victim gets Hurt Animation instead).
-	s.broadcastEntityEventDamage(target, targetID)
-	_ = dy
+	if dealt > 0 {
+		s.playerAttackKnockback(sess, target, plan.scale)
+		s.attackAftermath(sess, plan, target.entityID.Load(), dealt, [2]float64{0.6, 1.8})
+	} else {
+		s.broadcastAttackSound(sess, sndAttackNodamage)
+	}
+	// hurtEnemy + postHurtEnemy: the used stat and the weapon wear.
+	s.attackWear(sess)
+}
+
+// Attack sound_event registry ids (vanilla 26.2). The wire value is
+// the id + 1: SoundEvent packets carry a registry Holder, and holder
+// ids are encoded one-based so zero can mean an inline event.
+const (
+	sndAttackCrit      int32 = 1302
+	sndAttackKnockback int32 = 1303
+	sndAttackNodamage  int32 = 1304
+	sndAttackStrong    int32 = 1305
+	sndAttackSweep     int32 = 1306
+	sndAttackWeak      int32 = 1307
+)
+
+// attackPlan is the swing classification vanilla's Player.attack
+// computes before damage lands: the cooldown scale, whether the hit is
+// strong (>0.9), the sprint-knockback and crit flags, and the sweep
+// flag a strong standing sword hit earns.
+type attackPlan struct {
+	scale    float32
+	damage   float32
+	strong   bool
+	sprintKb bool
+	crit     bool
+	sweep    bool
+}
+
+// planAttack mirrors Player.attack's prelude: scale read before the
+// ticker resets, sprint knockback only on a strong hit, crit needing
+// accumulated fall distance while airborne, sweep a strong non-crit
+// non-sprint hit that lands while standing still with a sword.
+func (s *Server) planAttack(sess *Session) attackPlan {
+	scale := sess.attackScale()
+	_, _, _, _, _, onGround := sess.Pos()
+	strong := scale > 0.9
+	sprintKb := sess.sprinting && strong
+	crit := strong && sess.fallDistance > 0 && !onGround && !sess.sprinting
+	// Vanilla's isSweepAttack checks the client-reported horizontal
+	// movement stays under (movement speed * 2.5) squared; the base
+	// move speed attribute is 0.1, so the bound is 0.0625.
+	sweep := strong && !crit && !sprintKb && onGround && sess.lastHorizSq < 0.0625 && sess.heldIsSword()
+	damage := sess.attackDamage()
+	if crit {
+		damage *= 1.5
+	}
+	return attackPlan{
+		scale:    scale,
+		damage:   damage,
+		strong:   strong,
+		sprintKb: sprintKb,
+		crit:     crit,
+		sweep:    sweep,
+	}
+}
+
+// preAttackSound plays the sprint-knockback sound vanilla emits ahead
+// of the hit when a sprint hit lands strong.
+func (s *Server) preAttackSound(sess *Session, plan attackPlan) {
+	if plan.sprintKb {
+		s.broadcastAttackSound(sess, sndAttackKnockback)
+	}
+}
+
+// attackAftermath runs the post-hit tail of Player.attack: the sweep
+// (neighbors hurt, sweep sound + particle), the crit/strong/weak sound
+// and crit animation, then the damage-indicator hearts.
+func (s *Server) attackAftermath(sess *Session, plan attackPlan, victimEID int32, dealt float32, victimBB [2]float64) {
+	if plan.sweep {
+		s.doSweepAttack(sess, victimEID, plan, victimBB)
+	}
+	switch {
+	case plan.crit:
+		s.broadcastAttackSound(sess, sndAttackCrit)
+		s.broadcastEntityAnimation(nil, victimEID, animCriticalEffect)
+	case !plan.sweep:
+		if plan.strong {
+			s.broadcastAttackSound(sess, sndAttackStrong)
+		} else {
+			s.broadcastAttackSound(sess, sndAttackWeak)
+		}
+	}
+	if dealt > 2 {
+		e, ok := s.entities.Get(victimEID)
+		vx, vy, vz := e.X, e.Y+float64(victimBB[1])*0.5, e.Z
+		if !ok {
+			return
+		}
+		s.broadcastParticles(e.Dim, particleDamageIndicator, vx, vy, vz, 0.1, 0, 0.1, 0.2, int32(dealt*0.5))
+	}
+}
+
+// doSweepAttack is vanilla's sweep: the sweep sound first, then every
+// living entity inside the victim's bounding box inflated by (1, 0.25,
+// 1) and within 3 blocks of the attacker takes scale damage and a 0.4
+// knockback along the attacker's facing; the sweep particle lands one
+// block ahead of the attacker at half bounding height.
+func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, victimBB [2]float64) {
+	s.broadcastAttackSound(sess, sndAttackSweep)
+	ax, ay, az, yaw, _, _ := sess.Pos()
+	v, ok := s.entities.Get(victimEID)
+	vx, vy, vz := ax, ay, az
+	if ok {
+		vx, vy, vz = v.X, v.Y, v.Z
+	} else if target := s.sessionByEntityID(victimEID); target != nil {
+		vx, vy, vz, _, _, _ = target.Pos()
+	}
+	hw := float64(victimBB[0])/2 + 1
+	dmg := plan.scale // sweeping_damage_ratio is 0: 1 * scale
+	kx, kz := knockbackYaw(yaw)
+	for _, e := range s.entities.All() {
+		if !e.Living || e.ID == victimEID || e.ID == sess.entityID.Load() {
+			continue
+		}
+		nb := mobBounds(e.Type)
+		if math.Abs(e.X-vx) > hw || math.Abs(e.Z-vz) > hw ||
+			e.Y+float64(nb[1]) < vy-0.25 || e.Y > vy+float64(victimBB[1])+0.25 {
+			continue
+		}
+		if (ax-e.X)*(ax-e.X)+(ay-e.Y)*(ay-e.Y)+(az-e.Z)*(az-e.Z) >= 9 {
+			continue
+		}
+		res := float64(0)
+		if name, ok2 := EntityTypeName(e.Type); ok2 {
+			res = mobKnockbackResistance[name]
+		}
+		if dealt, graced := s.damageMob(&e, dmg); dealt > 0 {
+			if !graced {
+				s.broadcastDamageEvent(e.ID, damageInfo{
+					typeName: "player_attack",
+					cause:    sess.entityID.Load(),
+					direct:   sess.entityID.Load(),
+				})
+				// The hit applies the default 0.4 knockback away from
+				// the attacker inside hurt, then the sweep's own 0.4
+				// along the facing — each step halves the stored delta.
+				mx, my, mz := knockDelta(e.MotionX, e.MotionY, e.MotionZ, 0.4, res, ax-e.X, az-e.Z, e.Grounded)
+				mx, my, mz = knockDelta(mx, my, mz, 0.4, res, kx, kz, e.Grounded)
+				s.entities.SetMotion(e.ID, mx, my, mz)
+				s.broadcastEntityMotion(e.Dim, e.ID, mx, my, mz)
+			}
+		}
+	}
+	// Same box test over player victims (LivingEntity covers them).
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other == sess || other.state.Load() != StatePlay || other.mode() != GameModeSurvival || other.dead {
+			return true
+		}
+		if other.entityID.Load() == victimEID {
+			return true
+		}
+		ox, oy, oz, _, _, og := other.Pos()
+		if math.Abs(ox-vx) > hw || math.Abs(oz-vz) > hw || oy < vy-0.25 || oy-1.8 > vy+0.25 {
+			return true
+		}
+		if (ax-ox)*(ax-ox)+(ay-oy)*(ay-oy)+(az-oz)*(az-oz) >= 9 {
+			return true
+		}
+		dealt := s.damageWith(other, dmg, sess.getName()+" was slain by "+other.getName(), damageSource{
+			typeName: "player_attack",
+			cause:    sess.entityID.Load(),
+			direct:   sess.entityID.Load(),
+		})
+		if dealt > 0 {
+			mx, my, mz := knockDelta(0, 0, 0, 0.4, 0, ax-ox, az-oz, og)
+			mx, my, mz = knockDelta(mx, my, mz, 0.4, 0, kx, kz, og)
+			s.sendEntityMotion(other, mx, my, mz)
+		}
+		return true
+	})
+	rad := float64(yaw) * math.Pi / 180
+	px := ax - math.Sin(rad)
+	py := ay + 1.8*0.5 // getY(0.5): half the player's bounding height
+	pz := az + math.Cos(rad)
+	s.broadcastParticles(sess.dimName(), particleSweepAttack, px, py, pz, 0, 0, 0, 0, 1)
 }
 
 // hurtYaw is the yaw of the damage direction (from the victim toward
@@ -214,35 +428,10 @@ func (s *Server) sendHurtAnimation(sess *Session, yaw float32) {
 	_ = sess.write(sess.ids().PlayHurtAnimation, b.Bytes())
 }
 
-// broadcastEntityEventDamage plays the hurt entity event for everyone
-// in the victim's dimension except the victim (who receives Hurt
-// Animation instead).
-func (s *Server) broadcastEntityEventDamage(except *Session, eid int32) {
-	dim := dimOverworld
-	if e, ok := s.entities.Get(eid); ok {
-		dim = e.Dim
-	}
-	var b protocol.Buffer
-	b.Int(eid)
-	b.Byte(2) // status: hurt
-	body := b.Bytes()
-	s.sessions.Range(func(_, v any) bool {
-		other := v.(*Session)
-		if other == except || other.state.Load() != StatePlay || !other.spawned.Load() {
-			return true
-		}
-		if other.dimName() != dim {
-			return true
-		}
-		_ = other.write(other.ids().PlayEntityEvent, body)
-		return true
-	})
-}
-
-// Player Input flag bits: 0x20 sneak, 0x40 sprint.
+// Player Input flag bits: 0x20 sneak; vanilla ignores the sprint bit
+// here (sprint is player_command-driven).
 const (
-	inputSneak  = 0x20
-	inputSprint = 0x40
+	inputSneak = 0x20
 )
 
 // Living-entity metadata index for the pose, and the pose values we
@@ -264,12 +453,16 @@ func (s *Server) handlePlayerInput(sess *Session, p protocol.Packet) {
 		return
 	}
 	sneak := flags&inputSneak != 0
-	sprint := flags&inputSprint != 0
 	jump := flags&0x10 != 0
-	sess.sprinting = sprint
-	if jump && !sess.jumping && s.GameMode == GameModeSurvival {
-		if sess.addExhaustion(0.05) {
-			_ = s.sendHealth(sess)
+	// Vanilla reads only the shift flag here; sprinting stays
+	// player_command-driven.
+	if jump && !sess.jumping {
+		_, _, _, _, _, onGround := sess.Pos()
+		if onGround && !sess.flying {
+			sess.addCustomStat("jump", 1)
+		}
+		if s.GameMode == GameModeSurvival {
+			sess.addExhaustion(0.05)
 		}
 	}
 	sess.jumping = jump
@@ -282,6 +475,7 @@ func (s *Server) handlePlayerInput(sess *Session, p protocol.Packet) {
 		pose = poseSneaking
 	}
 	s.broadcastPose(sess, pose)
+	s.broadcastSharedFlags(sess)
 }
 
 // broadcastPose sends the player's pose metadata to every play-stage
@@ -450,4 +644,206 @@ func (sess *Session) viewRadius(serverVD int) int {
 		v = 1
 	}
 	return v
+}
+
+// sprintKnockbackHit reports whether this swing is vanilla's sprint
+// knockback hit (scale > 0.9 while sprinting); it must be evaluated
+// before the cooldown ticker resets.
+func sprintKnockbackHit(sess *Session, scale float32) bool {
+	return sess.sprinting && scale > 0.9
+}
+
+// knockbackYaw returns the facing unit vector vanilla aims the sprint
+// bonus along: (sin(yaw), -cos(yaw)) with yaw in degrees.
+func knockbackYaw(yaw float32) (float64, float64) {
+	r := float64(yaw) * math.Pi / 180
+	return math.Sin(r), -math.Cos(r)
+}
+
+// mobAttackKnockback applies vanilla's two knockback steps to a living
+// mob victim: the default 0.4 push away from the attacker from inside
+// hurt, then the 0.5 sprint bonus along the attacker's facing. The
+// composed delta goes to chunk trackers as set_entity_motion.
+func (s *Server) mobAttackKnockback(sess *Session, eid int32, scale float32) {
+	e, ok := s.entities.Get(eid)
+	if !ok {
+		return
+	}
+	res := float64(0)
+	if name, ok := EntityTypeName(e.Type); ok {
+		res = mobKnockbackResistance[name]
+	}
+	ax, _, az, yaw, _, _ := sess.Pos()
+	vx, vy, vz := knockDelta(e.MotionX, e.MotionY, e.MotionZ, 0.4, res, ax-e.X, az-e.Z, e.Grounded)
+	if sprintKnockbackHit(sess, scale) {
+		kx, kz := knockbackYaw(yaw)
+		vx, vy, vz = knockDelta(vx, vy, vz, 0.5, res, kx, kz, e.Grounded)
+		s.endSprintKnockback(sess)
+	}
+	s.entities.SetMotion(eid, vx, vy, vz)
+	s.broadcastEntityMotion(e.Dim, eid, vx, vy, vz)
+}
+
+// playerAttackKnockback sends the victim's post-hit velocity as
+// set_entity_motion — vanilla restores the server-side delta after
+// sending, so only the packet reflects the knockback. The default
+// 0.4 push away from the attacker composes with the 0.5 sprint bonus
+// along the attacker's facing when the swing was a strong sprint hit.
+func (s *Server) playerAttackKnockback(sess, target *Session, scale float32) {
+	ax, _, az, yaw, _, _ := sess.Pos()
+	_, _, _, _, _, grounded := target.Pos()
+	tx, _, tz, _, _, _ := target.Pos()
+	vx, vy, vz := knockDelta(0, 0, 0, 0.4, 0, ax-tx, az-tz, grounded)
+	if sprintKnockbackHit(sess, scale) {
+		kx, kz := knockbackYaw(yaw)
+		vx, vy, vz = knockDelta(vx, vy, vz, 0.5, 0, kx, kz, grounded)
+		s.endSprintKnockback(sess)
+	}
+	s.sendEntityMotion(target, vx, vy, vz)
+}
+
+// endSprintKnockback performs vanilla's sprint-hit aftermath: the
+// attacker's motion is damped horizontally and sprinting ends, which
+// trackers see as a shared-flags entity data update.
+func (s *Server) endSprintKnockback(sess *Session) {
+	sess.sprinting = false
+	s.broadcastSharedFlags(sess)
+}
+
+// broadcastSharedFlags sends the index-0 entity flags byte (sneak 0x02,
+// sprint 0x08, etc.) to every play-state session in the dimension,
+// including the subject like the other metadata broadcasts.
+func (s *Server) broadcastSharedFlags(sess *Session) {
+	eid := sess.entityID.Load()
+	if eid == 0 {
+		return
+	}
+	flags := byte(0)
+	if sess.sneaking {
+		flags |= 0x02
+	}
+	if sess.sprinting {
+		flags |= 0x08
+	}
+	dim := sess.dimName()
+	var b protocol.Buffer
+	b.VarInt(eid)
+	b.Byte(0) // index: shared flags
+	b.Byte(0) // type: byte
+	b.Byte(flags)
+	b.Byte(0xFF)
+	body := b.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() {
+			return true
+		}
+		if other.dimName() != dim {
+			return true
+		}
+		_ = other.write(other.ids().PlayEntityMetadata, body)
+		return true
+	})
+}
+
+// broadcastEntityMotion sends set_entity_motion to every play-state
+// session tracking the entity's dimension.
+func (s *Server) broadcastEntityMotion(dim string, eid int32, vx, vy, vz float64) {
+	body := encodeEntityMotion(eid, vx, vy, vz)
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() {
+			return true
+		}
+		if other.dimName() != dim {
+			return true
+		}
+		_ = other.write(other.ids().PlaySetEntityMotion, body)
+		return true
+	})
+}
+
+// sendEntityMotion delivers set_entity_motion to one session.
+func (s *Server) sendEntityMotion(sess *Session, vx, vy, vz float64) {
+	_ = sess.write(sess.ids().PlaySetEntityMotion, encodeEntityMotion(sess.entityID.Load(), vx, vy, vz))
+}
+
+// encodeEntityMotion builds set_entity_motion: 26.2 ships the delta
+// as an LpVec3 (VarInt id + packed low-precision vector).
+func encodeEntityMotion(eid int32, vx, vy, vz float64) []byte {
+	var b protocol.Buffer
+	b.VarInt(eid)
+	b.Raw(lpVec3(vx, vy, vz))
+	return b.Bytes()
+}
+
+// heldIsSword reports whether the main-hand stack is in vanilla's
+// SWORDS tag — the gate a sweep attack needs.
+func (sess *Session) heldIsSword() bool {
+	held := sess.heldStack()
+	if held.Empty() {
+		return false
+	}
+	name, ok := itemNameOf(held.ID)
+	return ok && strings.HasSuffix(name, "_sword")
+}
+
+// particle type ids used by combat feedback (particle registry ids).
+const (
+	particleDamageIndicator int32 = 14
+	particleSweepAttack     int32 = 74
+)
+
+// broadcastAttackSound plays one sound_event to every spawned session
+// in the attacker's dimension, positioned at the attacker — vanilla's
+// playServerSideSound. The holder field is the registry id + 1; the
+// coordinates are fixed-point eighths; the seed seeds the client's
+// event pitch pick.
+func (s *Server) broadcastAttackSound(sess *Session, soundID int32) {
+	x, y, z, _, _, _ := sess.Pos()
+	var b protocol.Buffer
+	b.VarInt(soundID + 1)
+	b.VarInt(7) // SoundSource.PLAYERS
+	b.Int(int32(x * 8))
+	b.Int(int32(y * 8))
+	b.Int(int32(z * 8))
+	b.Float(1)
+	b.Float(1)
+	b.Long(0)
+	body := b.Bytes()
+	dim := sess.dimName()
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
+			return true
+		}
+		_ = other.write(other.ids().PlaySound, body)
+		return true
+	})
+}
+
+// broadcastParticles sends one level_particles packet (simple particle
+// types: the id tail has no per-particle data).
+func (s *Server) broadcastParticles(dim string, id int32, x, y, z, xd, yd, zd, speed float64, count int32) {
+	var b protocol.Buffer
+	b.Byte(0) // overrideLimiter
+	b.Byte(0) // alwaysShow
+	b.Double(x)
+	b.Double(y)
+	b.Double(z)
+	b.Float(float32(xd))
+	b.Float(float32(yd))
+	b.Float(float32(zd))
+	b.Float(float32(speed))
+	b.Int(count)
+	b.VarInt(id)
+	body := b.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
+			return true
+		}
+		_ = other.write(other.ids().PlayLevelParticles, body)
+		return true
+	})
 }

@@ -53,7 +53,7 @@ func TestCraftNoMatchClearsResult(t *testing.T) {
 	s := New("unused")
 	sess := placeSession(t, s, "Crafter", 0.5, 0.5, 0.5)
 	sess.setStack(slotCraftResult, ItemStack{ID: world.ItemIDs["stick"], Count: 4})
-	sess.setStack(slotCraftStart, ItemStack{ID: world.ItemIDs["stone"], Count: 1})
+	sess.setStack(slotCraftStart, ItemStack{ID: world.ItemIDs["bedrock"], Count: 1})
 	s.refreshCraftResult(sess)
 	if !sess.stackAt(slotCraftResult).Empty() {
 		t.Fatalf("stale result = %+v", sess.stackAt(slotCraftResult))

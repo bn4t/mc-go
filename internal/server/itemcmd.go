@@ -969,11 +969,21 @@ func (s *Server) parseItemStack(args []string, itemTok int) (ItemStack, reply, b
 	if len(args) <= ai {
 		return ItemStack{}, errTokenEnd("command.unknown.command", itemTok-1), false
 	}
-	nameTok, patchTok, hasPatch := cutItemPatch(args[ai])
-	full := normalizeItemName(nameTok)
+	tok := args[ai]
+	var patchTok string
+	var hasPatch bool
+	if i := strings.IndexByte(tok, '['); i >= 0 {
+		if !strings.HasSuffix(tok, "]") {
+			return ItemStack{}, errToken("command.unknown.argument", itemTok), false
+		}
+		patchTok = tok[i+1 : len(tok)-1]
+		tok = tok[:i]
+		hasPatch = true
+	}
+	full := normalizeItemName(tok)
 	id, ok := world.ItemID(shortItemName(full))
 	if !ok {
-		return ItemStack{}, errToken("argument.item.id.invalid", itemTok, echoItemID(idPrefix(nameTok))), false
+		return ItemStack{}, errToken("argument.item.id.invalid", itemTok, echoItemID(idPrefix(tok))), false
 	}
 	var patch ItemStack
 	if hasPatch {
@@ -1011,26 +1021,33 @@ func (s *Server) parseItemStack(args []string, itemTok int) (ItemStack, reply, b
 	return patch, reply{}, true
 }
 
-// cutItemPatch splits an item token into the bare item name and its
-// bracketed component patch: iron_pickaxe[minecraft:damage=100] is the
-// pick plus one component entry.
-func cutItemPatch(tok string) (name, patch string, has bool) {
-	i := strings.IndexByte(tok, '[')
-	if i < 0 || !strings.HasSuffix(tok, "]") {
-		return tok, "", false
-	}
-	return tok[:i], tok[i+1 : len(tok)-1], true
-}
-
 // parseItemPatch decodes one component patch (the bracketed part of an
-// item token): comma-separated component=value pairs. Only the three
-// components mc-go models parse into the stack — damage and
-// repair_cost numbers, a custom_name string; anything else fails the
-// way vanilla's unknown-component error does rather than dropping the
-// component and silently shipping a plainer item.
+// item token): comma-separated component=value pairs, or `!name` to
+// clear a component. Entries split on top-level commas only, so values
+// holding commas inside {} or [] stay whole. Only the components mc-go
+// models parse into the stack — damage and repair_cost numbers, a
+// custom_name string; anything else fails the way vanilla's
+// unknown-component error does rather than dropping the component and
+// silently shipping a plainer item.
 func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 	var it ItemStack
-	for _, entry := range strings.Split(patch, ",") {
+	for _, entry := range splitComponents(patch) {
+		if entry == "" {
+			continue
+		}
+		if strings.HasPrefix(entry, "!") {
+			switch strings.TrimPrefix(strings.TrimPrefix(entry, "!"), "minecraft:") {
+			case "damage":
+				it.Damage = 0
+			case "repair_cost":
+				it.RepairCost = 0
+			case "custom_name":
+				it.Name = ""
+			default:
+				return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
+			}
+			continue
+		}
 		key, val, ok := strings.Cut(entry, "=")
 		if !ok {
 			return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
@@ -1063,6 +1080,28 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 		}
 	}
 	return it, reply{}, true
+}
+
+// splitComponents splits a bracket list on top-level commas, so values
+// holding commas inside {} or [] stay whole.
+func splitComponents(s string) []string {
+	var out []string
+	depth := 0
+	start := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '{', '[':
+			depth++
+		case '}', ']':
+			depth--
+		case ',':
+			if depth == 0 {
+				out = append(out, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(out, s[start:])
 }
 
 // readItemSource reads the stack a from-variant copies.

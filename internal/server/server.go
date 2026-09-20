@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -282,12 +283,19 @@ func (s *Server) InitPlugins() error {
 
 // Serve accepts Java Edition connections on ln until it closes. It
 // delegates to the registered "java" frontend so every protocol enters
-// through the same Frontend abstraction; use NewFrontend to serve a
-// different protocol. This method blocks.
+// through the same Frontend abstraction. This method blocks.
 func (s *Server) Serve(ln net.Listener) error {
-	fe, ok := NewFrontend("java", s)
+	return s.ServeFrontend("java", ln)
+}
+
+// ServeFrontend is Serve for a named frontend: it loads the world and
+// starts the game loop (tick loop + time sync) before handing the
+// listener to the frontend. Programs that pick a frontend by name must
+// call this rather than Frontend.Serve so the world actually ticks.
+func (s *Server) ServeFrontend(name string, ln net.Listener) error {
+	fe, ok := NewFrontend(name, s)
 	if !ok {
-		return fmt.Errorf("java frontend not registered")
+		return fmt.Errorf("%s frontend not registered", name)
 	}
 	// The world is loaded here rather than left to the caller, so a
 	// server configured with a world directory serves it even when the
@@ -319,6 +327,34 @@ func (s *Server) ListenAndServe() error {
 	return s.Serve(ln)
 }
 
+// sessionByEntityID returns the play session owning an entity id.
+func (s *Server) sessionByEntityID(eid int32) *Session {
+	if eid == 0 {
+		return nil
+	}
+	var out *Session
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.entityID.Load() == eid {
+			out = other
+			return false
+		}
+		return true
+	})
+	return out
+}
+
+// entityByID returns the managed entity with the id, if any.
+func (s *Server) entityByID(eid int32) *Entity {
+	if eid == 0 {
+		return nil
+	}
+	if e, ok := s.entities.Get(eid); ok {
+		return &e
+	}
+	return nil
+}
+
 func (s *Server) track(sess *Session) {
 	s.sessions.Store(sess.id, sess)
 	// OnlineCount only covers logged-in players; status probes stay
@@ -341,6 +377,7 @@ func (s *Server) untrack(sess *Session) {
 			"name": name,
 		})
 	}
+	log.Printf("%s left the game", name)
 	s.broadcastSystemChat("<" + name + "> left the game")
 	s.broadcastPlayerInfoRemove([][16]byte{sess.getUUID()})
 	// Retire the player's entity everywhere it was spawned.
@@ -350,14 +387,18 @@ func (s *Server) untrack(sess *Session) {
 			s.broadcastEntityRemoveIn(sess.dimName(), nil, []int32{eid})
 		}
 	}
-	// Persist the leaving player's state so a reconnect resumes it.
-	if sess.state.Load() == StatePlay && s.dataPath() != "" {
+	// Persist the leaving player's state so a reconnect resumes it —
+	// in memory always, to disk when a data path is configured.
+	if sess.state.Load() == StatePlay {
+		sess.addCustomStat("leave_game", 1)
 		if s.savedPlayers == nil {
 			s.savedPlayers = make(map[string]playerPersist)
 		}
 		s.savedPlayers[name] = snapshotPlayer(sess)
-		if err := s.SaveServerData(); err != nil && s.dataSaveErr == nil {
-			s.dataSaveErr = err
+		if s.dataPath() != "" {
+			if err := s.SaveServerData(); err != nil && s.dataSaveErr == nil {
+				s.dataSaveErr = err
+			}
 		}
 	}
 }
