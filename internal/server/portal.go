@@ -50,13 +50,17 @@ func (s *Server) portalTickStep() {
 		if sess.state.Load() != StatePlay || sess.dead || sess.mode() == GameModeSpectator {
 			return true
 		}
-		if sess.portalCooldownTicks > 0 {
-			sess.portalCooldownTicks--
-		}
 		x, y, z, _, _, _ := sess.Pos()
 		d := sess.dimension()
 		feet := world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}
-		if !isNetherPortal(d.w.GetBlock(feet)) {
+		insidePortal := isNetherPortal(d.w.GetBlock(feet))
+		// Vanilla's post-travel cooldown only counts down OUTSIDE a
+		// portal: standing in one freezes it, so re-travel means
+		// stepping out, waiting it off, and stepping back in.
+		if !insidePortal && sess.portalCooldownTicks > 0 {
+			sess.portalCooldownTicks--
+		}
+		if !insidePortal {
 			sess.portalTicks = 0
 			return true
 		}
@@ -98,6 +102,13 @@ func (s *Server) travelNetherPortal(sess *Session, feet world.Pos) {
 	default:
 		return // portals bridge overworld and nether only
 	}
+	if cur.name == dimOverworld {
+		// Leaving for the nether latches the overworld entry point —
+		// nether_travel's distance is measured against it.
+		sess.portalEntryX = float64(feet.X)
+		sess.portalEntryZ = float64(feet.Z)
+		sess.portalEntrySet = true
+	}
 	factor := dst.coordScale / cur.coordScale
 	tx := math.Floor(float64(feet.X) / factor)
 	tz := math.Floor(float64(feet.Z) / factor)
@@ -116,6 +127,12 @@ func (s *Server) travelNetherPortal(sess *Session, feet world.Pos) {
 	py := s.findPortalOrGround(dst, px, pz)
 	sess.portalCooldownTicks = 300 // vanilla's post-travel portal cooldown
 	s.changeDimension(sess, dst, float64(px)+1.5, float64(py), float64(pz)+0.5, -1)
+	if cur.name == dimNether && sess.portalEntrySet {
+		dx := float64(px) + 1.5 - sess.portalEntryX
+		dz := float64(pz) + 1.5 - sess.portalEntryZ
+		s.fireNetherTravel(sess, dx*dx+dz*dz)
+		sess.portalEntrySet = false
+	}
 }
 
 // findPortalOrGround locates an existing nether portal near (px, pz)

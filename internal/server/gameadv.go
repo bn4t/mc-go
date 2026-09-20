@@ -37,6 +37,7 @@ type advMeta struct {
 	placed     []placedCond  // placed_block — a block landed in the world
 	dims       []dimCond     // changed_dimension — crossed dimensions
 	usedOn     []usedOnCond  // item_used_on_block — tool met block
+	travel     []travelCond  // nether_travel — portal loop distance
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -116,6 +117,16 @@ type usedOnCond struct {
 	impossible bool
 }
 
+// travelCond is one nether_travel criterion: the horizontal
+// overworld-space distance between the portal the player entered and
+// the portal they exited. Other distance shapes (absolute, y, ...)
+// lock the criterion.
+type travelCond struct {
+	crit       string
+	minDist    float64
+	impossible bool
+}
+
 // placedCond is one placed_block criterion reduced to the placed
 // block's name. The location predicate's richer shapes — block
 // properties, all_of/any_of terms, biome/position checks — stay
@@ -182,6 +193,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.dims = append(m.dims, parseDimCond(cname, cm["conditions"]))
 				case "minecraft:item_used_on_block":
 					m.usedOn = append(m.usedOn, parseUsedOnCond(cname, cm["conditions"]))
+				case "minecraft:nether_travel":
+					m.travel = append(m.travel, parseTravelCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -828,6 +841,51 @@ func (s *Server) fireItemUsedOnBlock(sess *Session, blockName, itemName string) 
 				continue
 			}
 			sess.grantGameCriterion(meta, uc.crit)
+		}
+	}
+}
+
+// parseTravelCond reduces nether_travel to distance.horizontal.min;
+// any other key locks the criterion.
+func parseTravelCond(cname string, conds any) travelCond {
+	tc := travelCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "distance" {
+			tc.impossible = true
+			continue
+		}
+		dm, _ := v.(map[string]any)
+		for dk, dv := range dm {
+			if dk != "horizontal" {
+				tc.impossible = true
+				continue
+			}
+			hm, _ := dv.(map[string]any)
+			for hk, hv := range hm {
+				if hk != "min" {
+					tc.impossible = true
+					continue
+				}
+				if f, ok := hv.(float64); ok {
+					tc.minDist = f
+				}
+			}
+		}
+	}
+	return tc
+}
+
+// fireNetherTravel evaluates nether_travel criteria on the return leg:
+// distSq is the horizontal distance squared between the overworld
+// portal used to leave and the one the player reappeared at.
+func (s *Server) fireNetherTravel(sess *Session, distSq float64) {
+	for _, meta := range gameAdvs {
+		for _, tc := range meta.travel {
+			if tc.impossible || distSq < tc.minDist*tc.minDist {
+				continue
+			}
+			sess.grantGameCriterion(meta, tc.crit)
 		}
 	}
 }

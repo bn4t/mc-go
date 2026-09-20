@@ -1512,3 +1512,15 @@ physics through a void dip plus a fed recovery window.
   TestItemUsedOnBlockParity clicks a lodestone with a compass —
   adventure/use_lodestone's measured shape — and diffs the flush:
   green.
+
+- 2026-09-20: nether_travel (fast_travel) + portal cooldown semantics.
+  Portal entry latches the overworld position on the way out; the
+  return leg measures horizontal overworld-space distance and fires
+  nether_travel at the 7000-block mark. Real parity fix on the way:
+  mc-go ticked the post-travel portalCooldown while standing inside a
+  portal — vanilla freezes it inside portal blocks (a re-hop requires
+  stepping out first). Note: vanilla setblock refuses unloaded chunks
+  (tp loads first) and the exit biome is terrain-dependent, so the
+  test filters explore_nether's per-biome location criteria.
+  TestNetherTravelParity runs the two-portal loop on both servers —
+  green.

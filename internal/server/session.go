@@ -134,6 +134,11 @@ type Session struct {
 	// bowStartTick is the server tick a bow draw began on; zero means
 	// not drawing.
 	bowStartTick int64
+	// portalEntryX/Z is where the player left the overworld for the
+	// nether; nether_travel measures the return against it.
+	portalEntryX   float64
+	portalEntryZ   float64
+	portalEntrySet bool
 	// invulnTicks is the damage grace vanilla grants after a hit: twenty
 	// ticks counted down on the player tick, during which only damage
 	// exceeding lastHurt lands, and only for the excess.
