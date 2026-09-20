@@ -427,12 +427,28 @@ func (s *Server) sendHealth(sess *Session) error {
 
 // damage applies survival damage and syncs health; a lethal hit runs
 // the death flow. Creative and spectator players are immune.
-func (s *Server) damage(sess *Session, amount float32, message component) {
+func (s *Server) damage(sess *Session, amount float32, message component, src damageSource) {
 	if amount <= 0 || sess.mode() != GameModeSurvival || sess.dead {
 		return
 	}
+	// Absorption hearts soak damage before health — vanilla's absorb
+	// step runs after armor/enchant reduction and before the death
+	// check, so the totem only sees what survives the yellow hearts.
+	if sess.absorb > 0 {
+		soak := sess.absorb
+		if soak > amount {
+			soak = amount
+		}
+		sess.absorb -= soak
+		amount -= soak
+	}
 	sess.health -= amount
 	if sess.health <= 0 {
+		// A totem absorbs the killing blow unless the source is in
+		// bypasses_invulnerability (void, /kill).
+		if !damageTypeBypassesInvulnerability(src.typeName) && s.tryTotem(sess) {
+			return
+		}
 		sess.health = 0
 		s.killPlayer(sess, message)
 		return

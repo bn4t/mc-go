@@ -48,6 +48,7 @@ type advMeta struct {
 	sleeps     []sleepCond    // slept_in_bed — entered a bed
 	beacons    []beaconCond   // construct_beacon — pyramid activated
 	recipes    []recipeCond   // recipe_crafted — a recipe completed
+	totems     []totemCond    // used_totem — death protection popped
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -263,6 +264,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.beacons = append(m.beacons, parseBeaconCond(cname, cm["conditions"]))
 				case "minecraft:recipe_crafted":
 					m.recipes = append(m.recipes, parseRecipeCond(cname, cm["conditions"]))
+				case "minecraft:used_totem":
+					m.totems = append(m.totems, parseTotemCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -1775,6 +1778,61 @@ func parseRecipeCond(cname string, conds any) recipeCond {
 		}
 	}
 	return rc
+}
+
+// totemCond is one used_totem criterion reduced to the item
+// predicate's name set; the only vanilla carrier is the totem itself.
+type totemCond struct {
+	crit       string
+	items      map[string]bool
+	impossible bool
+}
+
+// parseTotemCond reduces used_totem to conditions.item.items — an
+// absent item predicate means any death-protection item matches;
+// anything more (count, components) locks the criterion.
+func parseTotemCond(cname string, conds any) totemCond {
+	tc := totemCond{crit: cname, items: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "item" {
+			tc.impossible = true
+			continue
+		}
+		im, _ := v.(map[string]any)
+		for pk, pv := range im {
+			if pk != "items" {
+				tc.impossible = true
+				continue
+			}
+			switch it := pv.(type) {
+			case string:
+				tc.items[strings.TrimPrefix(it, "minecraft:")] = true
+			case []any:
+				for _, e := range it {
+					if es, ok := e.(string); ok {
+						tc.items[strings.TrimPrefix(es, "minecraft:")] = true
+					}
+				}
+			}
+		}
+	}
+	return tc
+}
+
+// fireUsedTotem grants used_totem criteria whose item predicate admits
+// the totem — vanilla triggers on the stack copy before it shrinks.
+func (s *Server) fireUsedTotem(sess *Session) {
+	for _, meta := range gameAdvs {
+		for _, tc := range meta.totems {
+			if tc.impossible {
+				continue
+			}
+			if len(tc.items) == 0 || tc.items["totem_of_undying"] {
+				sess.grantGameCriterion(meta, tc.crit)
+			}
+		}
+	}
 }
 
 // fireRecipeCrafted grants every recipe_crafted criterion matching

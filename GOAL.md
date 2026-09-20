@@ -1656,3 +1656,20 @@ physics through a void dip plus a fed recovery window.
   craft the same recipe but fail the sherd predicates — green both,
   plus an advFlush sniff plumbed through the click driver's fold for
   in-session advancement capture.
+- 2026-09-20: used_totem (adventure/totem_of_undying "Postmortal").
+  LivingEntity.checkTotemDeathProtection parity: lethal damage with a
+  death_protection carrier in main hand (then off hand) shrinks the
+  stack, bumps ITEM_USED, fires used_totem with the pre-shrink item,
+  resets health to 1, clears effects, applies regen II 900t /
+  absorption II 100t / fire res 800t, and broadcasts entity event 35.
+  /kill and void (bypasses_invulnerability) skip it. The effect system
+  is new: sessions hold a small effect map, update_mob_effect goes to
+  the player and trackers with vanilla's bare registry id (no +1) and
+  applied-effect flags 0x0E, and mobEffectTickStep expires them with
+  remove_mob_effect. Absorption is real: the pool fills to
+  4*(amplifier+1) half-hearts on apply, soaks post-armor damage, and
+  empties on removal — without it the post-pop zombie hit kills the
+  mc-go player while vanilla's yellow hearts absorb it (found via the
+  parity diff: killed_by_something diverged). TestTotemParity pops a
+  zombie-survivor on both targets and diffs grants, event-35 count,
+  and the effect table — green, stable ×2.

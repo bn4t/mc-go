@@ -127,6 +127,8 @@ const (
 	IDPlayTickingState      = 0x7F
 	IDPlayTickingStep       = 0x80
 	IDPlayUpdateAdvance     = 0x82
+	IDPlayRemoveMobEffect   = 0x4E
+	IDPlayUpdateMobEffect   = 0x84
 	IDPlayUpdateRecipes     = 0x85
 	IDPlayUpdateTime        = 0x71
 	// Play serverbound

@@ -184,7 +184,7 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 	// damage_dealt-style accounting counts health lost, not the raw
 	// hit: an overkill blow still reports only what remained.
 	healthBefore := sess.health
-	s.damage(sess, amount, message)
+	s.damage(sess, amount, message, src)
 	if amount > healthBefore {
 		amount = healthBefore
 	}

@@ -37,6 +37,9 @@ type advFlush struct {
 	removedIDs []int32                    // diagnostic: remove_entities ids seen
 	advPkts    int                        // diagnostic: update_advancements packets seen
 	codRemoved bool                       // diagnostic: target cod observed removed
+	ev35       int                        // diagnostic: entity event 35 (totem pop) seen
+	mobFx      map[int32]string           // diagnostic: effect id -> "amp,dur,flags" first seen
+	fxRemoved  []bool                     // diagnostic: remove_mob_effect packets seen
 }
 
 // decodeUpdateAdv parses an update_advancements payload. Def entries

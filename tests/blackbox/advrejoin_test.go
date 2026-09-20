@@ -8,6 +8,7 @@ package blackbox
 // .data.json player blob and must emit the identical union.
 
 import (
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -45,6 +46,32 @@ func advCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writ
 			decodeUpdateAdv(t, p.Data, f)
 		case server.IDPlaySystemChatCB:
 			f.chats = append(f.chats, chatKey(p.Data))
+		case server.IDPlayEntityEvent:
+			r := protocol.NewPacketReader(p.Data)
+			if _, err := r.Int(); err == nil {
+				if st, err := r.Byte(); err == nil && st == 35 {
+					f.ev35++
+				}
+			}
+		case server.IDPlayUpdateMobEffect:
+			r := protocol.NewPacketReader(p.Data)
+			if _, err := r.VarInt(); err == nil { // entity id
+				if eff, err := r.VarInt(); err == nil {
+					amp, e1 := r.VarInt()
+					dur, e2 := r.VarInt()
+					fl, e3 := r.Byte()
+					if e1 == nil && e2 == nil && e3 == nil {
+						if f.mobFx == nil {
+							f.mobFx = map[int32]string{}
+						}
+						if _, seen := f.mobFx[eff]; !seen {
+							f.mobFx[eff] = fmt.Sprintf("%d,%d,%d", amp, dur, fl)
+						}
+					}
+				}
+			}
+		case server.IDPlayRemoveMobEffect:
+			f.fxRemoved = append(f.fxRemoved, true)
 		case server.IDPlaySpawnEntity:
 			if f.spawnTypes != nil {
 				r := protocol.NewPacketReader(p.Data)

@@ -88,8 +88,12 @@ type Session struct {
 	// armor.body. A player never equips it through a menu, but the
 	// command writes it like the real server's does.
 	bodyArmor ItemStack
-	invState  atomic.Int32
-	held      atomic.Int32
+	// effects is the active mob-effect map (totem pops apply the
+	// death_protection component's death effects).
+	effMu    sync.Mutex
+	effects  map[int32]mobEffectInst
+	invState atomic.Int32
+	held     atomic.Int32
 	// chatIndex counts this player's relayed chat messages; chatGlobal
 	// counts messages delivered to this client (Player Chat Message
 	// ordering counters).
@@ -163,6 +167,10 @@ type Session struct {
 	// end-of-tick values, so tick-side writers set this instead of
 	// sending immediately; the player tick drains it.
 	healthDirty atomic.Bool
+	// absorb is the absorption heart pool (half-hearts). Vanilla
+	// sets it to 4*(amplifier+1) when the Absorption effect lands and
+	// clears it on removal; damage soaks it before touching health.
+	absorb float32
 	// Open container window (chest) and its state id.
 	windowMu    sync.Mutex
 	window      *openWindow
