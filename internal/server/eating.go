@@ -85,6 +85,10 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 		sess.bowStartTick = s.TickCount()
 		return
 	}
+	if name == "crossbow" {
+		s.useCrossbow(sess)
+		return
+	}
 	stats, ok := foodItems[name]
 	if !ok || (!stats.always && sess.food >= defaultFood) {
 		return

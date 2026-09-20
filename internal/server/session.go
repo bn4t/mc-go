@@ -138,6 +138,11 @@ type Session struct {
 	// bowStartTick is the server tick a bow draw began on; zero means
 	// not drawing.
 	bowStartTick int64
+	// crossbowStartTick is the server tick a crossbow charge began;
+	// crossbowCharged is set once 25 ticks pass — the second use after
+	// that fires instead of drawing again. Early release cancels.
+	crossbowStartTick int64
+	crossbowCharged   bool
 	// portalEntryX/Z is where the player left the overworld for the
 	// nether; nether_travel measures the return against it.
 	portalEntryX   float64

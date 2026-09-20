@@ -60,6 +60,55 @@ func (s *Server) releaseBow(sess *Session) {
 	sess.addItemStat(statUsed, st.ID, 1)
 }
 
+// crossbowChargeTicks is vanilla's CrossbowItem.DEFAULT_CHARGE_TIME:
+// 1.25 seconds of holding use.
+const crossbowChargeTicks = 25
+
+// useCrossbow runs CrossbowItem.use: a charged crossbow fires
+// immediately; an uncharged one starts its 25-tick charge (survival
+// needs a projectile on hand, creative charges regardless). The charge
+// completes lazily — the flag is checked against the start tick, the
+// way vanilla's releaseUsing only arms the stack after the use
+// duration elapses.
+func (s *Server) useCrossbow(sess *Session) {
+	if sess.crossbowCharged {
+		s.fireCrossbow(sess)
+		return
+	}
+	if sess.mode() == GameModeSurvival && !sess.hasItem("arrow") {
+		return
+	}
+	sess.crossbowStartTick = s.TickCount()
+}
+
+// fireCrossbow shoots the stored projectile: arrow at the vanilla
+// crossbow speed 3.15, a point of durability, the item stat, and
+// shot_crossbow (adventure/ol_betsy) with the crossbow itself as the
+// used item.
+func (s *Server) fireCrossbow(sess *Session) {
+	sess.crossbowCharged = false
+	sess.crossbowStartTick = 0
+	if sess.mode() == GameModeSurvival && !sess.takeOneOf("arrow") {
+		return
+	}
+	st := sess.heldStack()
+	x, y, z, yaw, pitch, _ := sess.Pos()
+	y += 1.52
+	s.spawnArrow(sess, x, y, z, yaw, pitch, 3.15)
+	s.wearHeld(sess, 1)
+	sess.addItemStat(statUsed, st.ID, 1)
+	s.fireShotCrossbow(sess, "crossbow")
+}
+
+// releaseCrossbow cancels an incomplete charge; a finished charge
+// survives the release (vanilla arms the stack mid-hold).
+func (s *Server) releaseCrossbow(sess *Session) {
+	if sess.crossbowStartTick != 0 && s.TickCount()-sess.crossbowStartTick >= crossbowChargeTicks {
+		sess.crossbowCharged = true
+	}
+	sess.crossbowStartTick = 0
+}
+
 // spawnArrow creates the arrow entity travelling at speed blocks/tick
 // along the look vector. Entity.Data is the shooter id + 1 — vanilla's
 // spawn-packet owner field.
@@ -241,6 +290,22 @@ func segmentHitsBox(sx, sy, sz, ex, ey, ez, bx, by, bz, w, h float64) bool {
 		}
 	}
 	return true
+}
+
+// hasItem reports whether the inventory holds the named item.
+func (sess *Session) hasItem(item string) bool {
+	sess.invMu.Lock()
+	defer sess.invMu.Unlock()
+	for i := range sess.inv {
+		it := sess.inv[i]
+		if it.Empty() {
+			continue
+		}
+		if n, ok := itemNameOf(it.ID); ok && n == item {
+			return true
+		}
+	}
+	return false
 }
 
 // takeOneOf removes one item by name from the inventory, preferring

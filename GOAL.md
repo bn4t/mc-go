@@ -1690,3 +1690,13 @@ physics through a void dip plus a fed recovery window.
   axolotl source stays unmodelable for now). TestEffectAdvParity
   grants nether/all_potions by giving all 17 potion effects at once,
   plus a specific-clear+regive round — green both targets.
+- 2026-09-20: shot_crossbow (adventure/ol_betsy "Ol' Betsy").
+  CrossbowItem three-step parity: use starts a 25-tick charge
+  (survival requires a projectile; creative doesn't), release before
+  25 cancels but release after arms the charge, and the next use
+  fires — arrow at vanilla's 3.15 b/t, one durability point, the
+  item stat, and shot_crossbow with the weapon as the condition
+  item (same item.items shape as used_totem). TestShotCrossbowParity
+  runs use→hold→release→use on both targets and diffs grants —
+  green. The crossbow-tagged kill predicates (whos_the_pillager_now,
+  arbalistic) still need fired_from_weapon tracking on arrows.

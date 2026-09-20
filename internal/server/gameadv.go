@@ -50,6 +50,7 @@ type advMeta struct {
 	recipes    []recipeCond   // recipe_crafted — a recipe completed
 	totems     []totemCond    // used_totem — death protection popped
 	effs       []effCond      // effects_changed — effect set transition
+	shots      []totemCond    // shot_crossbow — item predicate on the weapon
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -269,6 +270,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.totems = append(m.totems, parseTotemCond(cname, cm["conditions"]))
 				case "minecraft:effects_changed":
 					m.effs = append(m.effs, parseEffCond(cname, cm["conditions"]))
+				case "minecraft:shot_crossbow":
+					m.shots = append(m.shots, parseTotemCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -1888,6 +1891,21 @@ func (s *Server) fireEffectsChanged(sess *Session) {
 			}
 			if have {
 				sess.grantGameCriterion(meta, ec.crit)
+			}
+		}
+	}
+}
+
+// fireShotCrossbow grants shot_crossbow criteria whose item predicate
+// admits the weapon that fired — ol_betsy wants exactly "crossbow".
+func (s *Server) fireShotCrossbow(sess *Session, item string) {
+	for _, meta := range gameAdvs {
+		for _, tc := range meta.shots {
+			if tc.impossible {
+				continue
+			}
+			if len(tc.items) == 0 || tc.items[item] {
+				sess.grantGameCriterion(meta, tc.crit)
 			}
 		}
 	}
