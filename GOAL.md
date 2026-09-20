@@ -1742,3 +1742,8 @@ physics through a void dip plus a fed recovery window.
   Here?"): the full 34-effect set granted by /effect finishes
   all_potions first, then the hidden challenge — deferred
   visibility emits correctly. TestAllEffectsParity green both.
+- 2026-09-20: enter_block on the game tree (end/enter_end_gateway).
+  The recipe-side enter_block listener now also fans game criteria —
+  conditions reduce to the block name; state/entity predicates lock.
+  TestEnterEndGatewayParity setblocks a gateway and tps the player
+  inside — green both targets.

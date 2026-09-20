@@ -262,6 +262,7 @@ func (s *Server) fireEnterBlock(sess *Session) {
 			}
 		}
 	}
+	s.fireGameEnterBlock(sess, feet)
 }
 
 // flushAdvancements emits the queued UpdateAdvancements packet:

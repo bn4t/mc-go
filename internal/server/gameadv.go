@@ -55,6 +55,7 @@ type advMeta struct {
 	kba        []kbaCond       // killed_by_arrow — arrow kills by weapon/victim
 	usings     []usingCond     // using_item — held-use items (spyglass)
 	targetHits []targetHitCond // target_hit — projectiles ringing a target block
+	enters     []enterCond     // enter_block — game tree (end/enter_end_gateway)
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -282,6 +283,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.usings = append(m.usings, parseUsingCond(cname, cm["conditions"]))
 				case "minecraft:target_hit":
 					m.targetHits = append(m.targetHits, parseTargetHitCond(cname, cm["conditions"]))
+				case "minecraft:enter_block":
+					m.enters = append(m.enters, parseEnterCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -2398,6 +2401,46 @@ func (s *Server) fireTargetHit(shooter *Session, proj *Entity, signal int) {
 			}
 			sess := shooter
 			sess.grantGameCriterion(meta, tc.crit)
+		}
+	}
+}
+
+// enterCond is one game-tree enter_block criterion reduced to the
+// block name — enter_end_gateway conditions on just "end_gateway".
+// state/entity predicates lock the criterion for now.
+type enterCond struct {
+	crit       string
+	block      string
+	impossible bool
+}
+
+// parseEnterCond reads conditions.block; any other condition key locks
+// the criterion until state/entity sub-predicates are modeled.
+func parseEnterCond(cname string, conds any) enterCond {
+	ec := enterCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k == "block" {
+			if bs, ok := v.(string); ok {
+				ec.block = strings.TrimPrefix(bs, "minecraft:")
+				continue
+			}
+		}
+		ec.impossible = true
+	}
+	return ec
+}
+
+// fireGameEnterBlock grants game-tree enter_block criteria when the
+// player's feet sit inside the named block — same feet check the
+// recipe listener runs, one trigger pass per tick.
+func (s *Server) fireGameEnterBlock(sess *Session, feet string) {
+	for _, meta := range gameAdvs {
+		for _, ec := range meta.enters {
+			if ec.impossible || ec.block == "" || ec.block != feet {
+				continue
+			}
+			sess.grantGameCriterion(meta, ec.crit)
 		}
 	}
 }

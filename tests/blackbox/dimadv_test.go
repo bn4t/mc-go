@@ -44,3 +44,44 @@ func TestChangedDimensionParity(t *testing.T) {
 		t.Fatalf("changed_dimension parity: %d diffs\n%s", len(diffs), joinLines(diffs))
 	}
 }
+
+// TestEnterEndGatewayParity drops an end_gateway block into the flat
+// world and walks the player inside on both servers: enter_block fires
+// the game-tree criterion (end/enter_end_gateway) the same tick.
+func TestEnterEndGatewayParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("Gater"),
+	}, func(s *server.Server) {
+		s.GameMode = server.GameModeCreative
+	})
+	defer targets.cleanup()
+
+	run := func(addr string) *advFlush {
+		f := &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}}
+		c, pr, pw := joinPlayBlackbox(t, addr, "Gater")
+		defer c.Close()
+		advCollect(t, c, pr, pw, 1200*time.Millisecond, f)
+		sendCommand(t, pw, "gamerule doMobSpawning false")
+		sendCommand(t, pw, "setblock 4 -60 8 minecraft:end_gateway")
+		sendCommand(t, pw, "tp @s 4 -60 2")
+		advCollect(t, c, pr, pw, 400*time.Millisecond, f)
+		// Step inside the gateway block.
+		sendCommand(t, pw, "tp @s 4 -60 8")
+		advCollect(t, c, pr, pw, 1200*time.Millisecond, f)
+		return f
+	}
+
+	want := run(targets.vanilla)
+	got := run(targets.mcgo)
+	for _, tc := range [][2]string{
+		{"minecraft:end/enter_end_gateway", "entered_end_gateway"},
+	} {
+		if !want.prog[tc[0]][tc[1]] {
+			t.Fatalf("vanilla: %s[%s] not obtained: %v", tc[0], tc[1], want.prog[tc[0]])
+		}
+	}
+	want.chats, got.chats = nil, nil
+	if diffs := diffAdvFlush(want, got); len(diffs) > 0 {
+		t.Fatalf("enter_block parity: %d diffs\n%s", len(diffs), joinLines(diffs))
+	}
+}
