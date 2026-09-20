@@ -157,13 +157,17 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 				cause:    sess.entityID.Load(),
 				direct:   sess.entityID.Load(),
 			})
-			s.damageMob(&e, 1.0)
-			s.broadcastEntityEventDamage(nil, e.ID)
-			sess.addCustomStat("damage_dealt", 10)
+			damage := sess.heldAttackDamage()
+			s.damageMob(&e, damage)
+			// Vanilla's mob-hurt broadcast reaches every chunk tracker
+			// but the attacker (measured on the real server).
+			s.broadcastEntityEventDamage(sess, e.ID)
+			sess.addCustomStat("damage_dealt", int32(damage*10))
 			if _, still := s.entities.Get(targetID); !still {
 				sess.addStat(statKilled, e.Type, 1)
 				sess.addCustomStat("mob_kills", 1)
 			}
+			s.attackWear(sess)
 		}
 		return
 	}
@@ -192,6 +196,8 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	// Everyone except the victim sees the hurt entity event, matching
 	// vanilla (the victim gets Hurt Animation instead).
 	s.broadcastEntityEventDamage(target, targetID)
+	// hurtEnemy + postHurtEnemy: the used stat and the weapon wear.
+	s.attackWear(sess)
 	_ = dy
 }
 

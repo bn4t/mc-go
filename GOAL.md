@@ -125,8 +125,9 @@ Mojang server over the wire.
   increment at their events; emit order reproduces vanilla's
   dirty-HashSet-copy → Object2IntOpenHashMap-descending-slot chain
   byte-for-byte, pinned by TestStatsParity and TestStatEmitOrder.
-  Stats persist in the data file; item-break (broken) increments and
-  exotic distance buckets (vehicles, walk_under_water edge cases)
+  Stats persist in the data file; item-break (broken) is emitted when
+  a tool's durability is exhausted — pinned by TestToolWearParity —
+  and exotic distance buckets (vehicles, walk_under_water edge cases)
   remain open)
 - [x] Player data persistence (position, dimension, inventory, ender
   chest, xp, health, food restore on rejoin — plus statistics; world
@@ -146,6 +147,22 @@ Mojang server over the wire.
 - [ ] Performance targets under vanilla-like load
 
 ## Progress log
+
+- 2026-09-20: Tool/weapon durability: mining a non-instant block
+  wears the held tool by its damage_per_block (generated
+  itemToolDamagePerBlock/itemWeaponDamagePerAttack maps from the
+  component reports), a landed hit wears a weapon by
+  item_damage_per_attack, and exhausting an item empties the slot,
+  broadcasts entity event 47, and emits the `broken` item stat.
+  Order matches vanilla bytecode: mineBlock wears (and breaks, and
+  emits `broken`) *before* the caller's `used` award, while attack
+  is `used` then `postHurtEnemy` wear. Instant-break blocks (hardness
+  0 — torch & friends added to the hardness table) skip wear but
+  still count as `used`; a mob's hurt entity event goes to chunk
+  trackers but never the attacker (measured). `TestToolWearParity`
+  digs a pickaxe to break and swings a sword against both servers.
+  Attack-cooldown scaling, enchantments (unbreaking), and the
+  item_durability_changed advancement trigger remain open.
 
 - 2026-09-20: Statistics slice: stat store with vanilla emit-order
   model (dirty HashSet → Sets.newHashSet copy iterates bucket order →

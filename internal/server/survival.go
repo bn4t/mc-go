@@ -44,6 +44,13 @@ var blockHardnessTable = map[string]blockHardness{
 	"oak_log":                 {hardness: 2.0, drop: "oak_log"},
 	"oak_planks":              {hardness: 2.0, drop: "oak_planks"},
 	"glass":                   {hardness: 0.3, drop: ""},
+	// Instant breaks: destroySpeed 0 means no dig time and no tool
+	// wear (vanilla only wears when destroySpeed != 0).
+	"torch":          {hardness: 0, drop: "torch"},
+	"redstone_torch": {hardness: 0, drop: "redstone_torch"},
+	"soul_torch":     {hardness: 0, drop: "soul_torch"},
+	"lever":          {hardness: 0, drop: "lever"},
+	"oak_sapling":    {hardness: 0, drop: "oak_sapling"},
 }
 
 // hardnessOf returns the break rules for a block state.
@@ -221,6 +228,10 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 		return nil
 	}
 	affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
+	// Vanilla's destroyBlock wears the held tool and counts the use
+	// (ItemStack.mineBlock) before the break statistics land
+	// (Block.playerDestroy), so the used stat precedes mined here.
+	s.mineWear(sess, info)
 	sess.addBlockStat(statMined, broken, 1)
 	// A shulker box drops itself with everything inside as one stack
 	// (see removeContainer), so the plain block item would duplicate it.
