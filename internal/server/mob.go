@@ -159,6 +159,7 @@ var mobHealth = map[string]float32{
 	"chicken":       4,
 	"sheep":         8,
 	"zombie":        20,
+	"villager":      20,
 	"skeleton":      20,
 	"creeper":       20,
 	"spider":        16,
@@ -199,6 +200,7 @@ func init() {
 		"ghast":        {4.0, 4.0},
 		"parrot":       {0.5, 0.9},
 		"ender_dragon": {16.0, 8.0},
+		"villager":     {0.6, 1.95},
 	} {
 		if id, ok := EntityTypeID(name); ok {
 			mobBoundsTable[id] = dims
@@ -291,6 +293,28 @@ func (s *Server) runSummon(player string, args []string) reply {
 		s.entities.Spawn(e)
 		s.broadcastEntitySpawn(nil, *e)
 		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft.arrow")))
+	}
+	if name == "lightning_bolt" {
+		e := s.entities.Spawn(&Entity{
+			Type: mustEntityType("lightning_bolt"),
+			Dim:  sess.dimName(),
+			X:    x, Y: y, Z: z,
+		})
+		s.broadcastEntitySpawn(nil, *e)
+		// A bolt that lands on a lightning rod sets no fires — vanilla's
+		// type_specific/lightning.blocks_set_on_fire stays zero and the
+		// Surge Protector predicate matches.
+		fires := 1
+		if n, ok := blockNameAt(sess.dimension(), world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)) - 1, Z: int(math.Floor(z))}); ok && strings.HasSuffix(n, "lightning_rod") {
+			fires = 0
+		}
+		if n, ok := blockNameAt(sess.dimension(), world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}); ok && strings.HasSuffix(n, "lightning_rod") {
+			fires = 0
+		}
+		s.fireLightningStrike(sess.dimension(), x, y, z, fires)
+		s.entities.Remove(e.ID)
+		s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft.lightning_bolt")))
 	}
 	return textReply("Unknown entity: " + args[0])
 }

@@ -57,6 +57,7 @@ type advMeta struct {
 	targetHits []targetHitCond // target_hit — projectiles ringing a target block
 	enters     []enterCond     // enter_block — game tree (end/enter_end_gateway)
 	falls      []fallCond      // fall_from_height — landed drops
+	lights     []lightningCond // lightning_strike — bolt struck near a bystander
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -288,6 +289,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.enters = append(m.enters, parseEnterCond(cname, cm["conditions"]))
 				case "minecraft:fall_from_height":
 					m.falls = append(m.falls, parseFallCond(cname, cm["conditions"]))
+				case "minecraft:lightning_strike":
+					m.lights = append(m.lights, parseLightningCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -2537,6 +2540,137 @@ func parseFallCond(cname string, conds any) fallCond {
 		}
 	}
 	return fc
+}
+
+// lightningCond is one lightning_strike criterion reduced to the
+// bystander predicate's entity_type union (any entity caught in the
+// strike box), the bolt's distance.absolute bounds measured from the
+// player, and type_specific/lightning.blocks_set_on_fire — zero when a
+// lightning rod absorbed the bolt's fire. Other keys lock it.
+type lightningCond struct {
+	crit       string
+	byTypes    map[string]bool
+	hasBy      bool
+	distMin    float64
+	distMax    float64
+	hasDist    bool
+	fires      int // -1 = unconstrained
+	impossible bool
+}
+
+// parseLightningCond reads bystander[] entity_properties entity_type,
+// lightning[] entity_properties distance.absolute + type_specific/
+// lightning.blocks_set_on_fire, and rejects other keys.
+func parseLightningCond(cname string, conds any) lightningCond {
+	lc := lightningCond{crit: cname, fires: -1}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "bystander", "lightning":
+			lst, _ := v.([]any)
+			for _, entry := range lst {
+				ec, _ := entry.(map[string]any)
+				if ec["condition"] != "minecraft:entity_properties" {
+					lc.impossible = true
+					continue
+				}
+				pred, _ := ec["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					switch {
+					case pk == "minecraft:entity_type" && k == "bystander":
+						if lc.byTypes == nil {
+							lc.byTypes = map[string]bool{}
+						}
+						lc.hasBy = true
+						if et, ok := pv.(string); ok {
+							if strings.HasPrefix(et, "#") {
+								for _, m := range data.EntityTypeTags[strings.TrimPrefix(et, "#minecraft:")] {
+									lc.byTypes[m] = true
+								}
+							} else {
+								lc.byTypes[strings.TrimPrefix(et, "minecraft:")] = true
+							}
+						}
+					case pk == "minecraft:distance" && k == "lightning":
+						if dm, ok := pv.(map[string]any); ok {
+							if am, ok := dm["absolute"].(map[string]any); ok {
+								lc.hasDist = true
+								if mn, ok := am["min"].(float64); ok {
+									lc.distMin = mn
+								}
+								if mx, ok := am["max"].(float64); ok {
+									lc.distMax = mx
+								}
+							} else {
+								lc.impossible = true
+							}
+						}
+					case pk == "minecraft:type_specific/lightning" && k == "lightning":
+						if tm, ok := pv.(map[string]any); ok {
+							if n, ok := tm["blocks_set_on_fire"].(float64); ok {
+								lc.fires = int(n)
+							}
+						}
+					default:
+						lc.impossible = true
+					}
+				}
+			}
+		default:
+			lc.impossible = true
+		}
+	}
+	return lc
+}
+
+// fireLightningStrike grants lightning_strike criteria to every player
+// meeting the bolt's distance bound, with byTypes matched against the
+// entities caught in the strike box (vanilla's ±15, y→y+21 AABB) and
+// firesSet = 0 when a lightning rod absorbed the bolt.
+func (s *Server) fireLightningStrike(d *dimension, x, y, z float64, firesSet int) {
+	for _, meta := range gameAdvs {
+		for _, lc := range meta.lights {
+			if lc.impossible {
+				continue
+			}
+			if lc.fires >= 0 && lc.fires != firesSet {
+				continue
+			}
+			s.sessions.Range(func(_, v any) bool {
+				sess := v.(*Session)
+				if sess.state.Load() != StatePlay || sess.dimension() != d {
+					return true
+				}
+				px, py, pz, _, _, _ := sess.Pos()
+				dx, dy, dz := px-x, py-y, pz-z
+				dist := math.Sqrt(dx*dx + dy*dy + dz*dz)
+				if lc.hasDist && (dist < lc.distMin || dist > lc.distMax) {
+					return true
+				}
+				if lc.hasBy {
+					found := false
+					for _, e := range s.entities.All() {
+						if e.Dim != d.name {
+							continue
+						}
+						if math.Abs(e.X-x) > 15 || math.Abs(e.Z-z) > 15 ||
+							e.Y < y-15 || e.Y > y+21 {
+							continue
+						}
+						if lc.byTypes[strings.TrimPrefix(entityTypeNameOr(e.Type), "minecraft:")] {
+							found = true
+							break
+						}
+					}
+					if !found {
+						return true
+					}
+				}
+				sess.grantGameCriterion(meta, lc.crit)
+				return true
+			})
+		}
+	}
 }
 
 // fireFallFromHeight grants fall_from_height criteria on a landing:

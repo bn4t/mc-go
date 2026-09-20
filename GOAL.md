@@ -1755,3 +1755,13 @@ physics through a void dip plus a fed recovery window.
   the trigger on the onGround transition; conditions reduce to
   distance.y + start_position.y + landing position.y bounds.
   TestFallFromHeightParity green both targets.
+- 2026-09-20: lightning_strike (adventure/lightning_rod_with_villager_
+  no_fire "Surge Protector"). /summon lightning_bolt now resolves a
+  strike: a rod at the getStrikePosition cell (bolt pos dipped 1e-6)
+  leaves blocks_set_on_fire 0, scatter fires need a sturdy-or-flammable
+  base so a rod on a pillar is the honest vanilla way to zero them.
+  The trigger gathers bystanders from the bolt's ±15 / y−15..y+21 box
+  and fires for every player inside distance.absolute of the bolt —
+  conditions reduce to bystander entity_type + bolt distance +
+  blocks_set_on_fire. Villager joined the summon table (20hp,
+  0.6x1.95). TestLightningStrikeParity green both targets.
