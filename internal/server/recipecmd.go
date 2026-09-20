@@ -56,6 +56,7 @@ func (s *Server) recipeOne(sess *Session, idx int, give bool) reply {
 		if !newly {
 			return componentReply(commandError(recipeFailKey(give)))
 		}
+		sess.grantRecipeCriterion(idx)
 		var b protocol.Buffer
 		var entries protocol.Buffer
 		n := recipeEntry(&entries, idx, recipeGiveFlags(r))
@@ -89,6 +90,7 @@ func (s *Server) recipeAll(sess *Session, give bool) reply {
 				// already-known recipes are skipped entirely
 				continue
 			}
+			sess.grantRecipeCriterion(i)
 			changed = true
 			n += int32(recipeEntry(&b, i, recipeGiveFlags(r)))
 			continue

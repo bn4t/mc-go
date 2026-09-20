@@ -320,6 +320,7 @@ func (s *Server) playerTick() {
 		if sess.healthDirty.Swap(false) {
 			_ = s.sendHealth(sess)
 		}
+		s.flushAdvancements(sess)
 		return true
 	})
 }

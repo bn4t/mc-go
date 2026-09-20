@@ -59,6 +59,15 @@ type Session struct {
 	// given, keyed by data.Recipes index; guarded by recipesMu.
 	recipesMu       sync.Mutex
 	unlockedRecipes map[int]bool
+	// advSent/advCrits/advDirty track advancement sync state: defs sent,
+	// criteria earned (adv id -> criterion -> millis), and advancements
+	// awaiting the next UpdateAdvancements flush. Guarded by advMu.
+	advMu         sync.Mutex
+	advSent       map[string]bool
+	advCrits      map[string]map[string]int64
+	advDirty      map[string]bool
+	advDirtyOrder []string
+	advDone       map[string]bool
 	// Player inventory window (46 slots), guarded by invMu. Slots are Slots are
 	// populated from Set Creative Mode Slot and container clicks; the
 	// selected hotbar slot (0-8) picks what Use Item On places.

@@ -305,5 +305,7 @@ func buildAdvancements(nowMillis int64) []byte {
 // the two recipe advancements (root plus crafting_table), with a live
 // award timestamp.
 func (s *Server) sendUpdateAdvancements(sess *Session) error {
-	return sess.write(sess.ids().PlayUpdateAdvance, buildAdvancements(time.Now().UnixMilli()))
+	now := time.Now().UnixMilli()
+	sess.initAdvancements(now)
+	return sess.write(sess.ids().PlayUpdateAdvance, buildAdvancements(now))
 }

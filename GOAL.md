@@ -104,7 +104,15 @@ Mojang server over the wire.
   1568-entry give-all blob; decorated_pot needs an unmodeled component,
   smithing needs the menu, bookcloning/shielddecoration/fireworks/
   mapextending need content components)
-- [ ] Advancements, statistics, scoreboard, teams
+- [~] Advancements (recipe advancements: the recipe_unlocked criterion
+  grant, the deferred per-tick UpdateAdvancements flush with added defs
+  + criterion progress, and the completed-advancement grant no-op are
+  implemented and parity-tested incl. the 1560-entry give-all sync;
+  vanilla emits added/progress entries in identity-hash order which
+  varies per run, so the test compares them as sets while per-criterion
+  order — String-hash buckets seeded by a fastutil set — matches
+  exactly. Non-recipe advancement triggers, statistics, scoreboard,
+  teams remain open)
 - [ ] Player data persistence
 
 ### Server
@@ -1145,3 +1153,19 @@ physics through a void dip plus a fed recovery window.
   TestGiveAllBytes re-generates the whole give-all Add body (91865
   bytes, 1568 entries) and TestRecipeCommandParity diffs every add,
   remove and reply through a give/dup/take/take-all/give-all script.
+
+- 2026-09-20: Recipe advancement sync: /recipe give now grants the
+  recipe's has_the_recipe criterion and queues a dirty advancement, and
+  the player tick flushes UpdateAdvancements with the defs the client
+  has not seen plus criterion progress - the deferred flush is why the
+  packet lands after the reply. Granting a completed advancement's
+  leftover criteria is a no-op (crafting_table's unlock_right_away
+  completes it at join, so give * reports 1560 progress entries, not
+  1561). Both the added set and progress map iterate in identity-hash
+  order on the real server - two vanilla runs of give * produced
+  different wire orders - so the parity test compares entries as sets;
+  criterion order inside an entry IS deterministic and matched all
+  1560 entries exactly once modelled as HashMap buckets fed by the
+  requirements' fastutil ObjectOpenHashSet order. Recipe advancement
+  defs come from a new generated table (recipeadvs_gen.go: recipe ->
+  advancement id, requirements, JSON-order criteria).
