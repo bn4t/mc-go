@@ -1774,3 +1774,10 @@ physics through a void dip plus a fed recovery window.
   not through it. mc-go fires the trigger from the move-packet
   descent path. TestSlideDownBlockParity hugs a honey wall's face on
   both targets — green.
+- 2026-09-20: levitation (end/levitate "Great View From Up Here").
+  Vanilla stamps levitationStartPos + levitationStartTime when the
+  effect lands, fires the trigger every player tick while the anchor
+  is set, and clears it on removal — mc-go mirrors that on the clock
+  count with distance.y/distance.x + duration bounds. Risen distance
+  comes from the move packets, like the fall trigger.
+  TestLevitationParity green both targets.

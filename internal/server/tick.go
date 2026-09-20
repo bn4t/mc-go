@@ -328,6 +328,9 @@ func (s *Server) playerTick() {
 		if sess.usingItemID != 0 {
 			s.fireUsingItem(sess)
 		}
+		if sess.levitationStart != nil {
+			s.fireLevitation(sess)
+		}
 		// Vanilla ticks the time-of-play family every live player tick.
 		if !sess.dead && sess.spawned.Load() {
 			sess.addCustomStat("play_time", 1)

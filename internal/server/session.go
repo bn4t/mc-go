@@ -151,6 +151,11 @@ type Session struct {
 	// (spyglass scope); 0 when nothing is in use. Vanilla fires
 	// using_item every tick while set.
 	usingItemID int32
+	// levitationStart / levitationStartTick anchor the levitation
+	// trigger — vanilla stamps them when the effect lands and clears
+	// on removal.
+	levitationStart     []float64
+	levitationStartTick int64
 	// portalEntryX/Z is where the player left the overworld for the
 	// nether; nether_travel measures the return against it.
 	portalEntryX   float64

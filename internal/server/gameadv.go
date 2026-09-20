@@ -59,6 +59,7 @@ type advMeta struct {
 	falls      []fallCond      // fall_from_height — landed drops
 	lights     []lightningCond // lightning_strike — bolt struck near a bystander
 	slides     []slideCond     // slide_down_block — sliding a sticky side
+	levitates  []levitateCond  // levitation — distance risen under the effect
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -294,6 +295,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.lights = append(m.lights, parseLightningCond(cname, cm["conditions"]))
 				case "minecraft:slide_down_block":
 					m.slides = append(m.slides, parseSlideCond(cname, cm["conditions"]))
+				case "minecraft:levitation":
+					m.levitates = append(m.levitates, parseLevitateCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -2635,6 +2638,106 @@ func (s *Server) fireSlideDown(sess *Session, x, y, z float64) {
 					}
 				}
 			}
+		}
+	}
+}
+
+// levitateCond is one levitation criterion reduced to the distance
+// predicate's component bounds measured from the effect-start position
+// and the duration bounds in ticks. Other distance shapes lock it.
+type levitateCond struct {
+	crit       string
+	yMin, yMax float64
+	hasY       bool
+	xMin, xMax float64
+	hasX       bool
+	durMin     int64
+	durMax     int64
+	hasDur     bool
+	impossible bool
+}
+
+// parseLevitateCond reads distance.{x,y} + duration bounds; absolute/
+// horizontal/z components and player predicates lock the criterion.
+func parseLevitateCond(cname string, conds any) levitateCond {
+	lc := levitateCond{crit: cname, durMax: 1 << 60}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "distance":
+			dm, _ := v.(map[string]any)
+			for dk, dv := range dm {
+				bm, _ := dv.(map[string]any)
+				switch dk {
+				case "y":
+					lc.hasY = true
+					lc.yMin, lc.yMax = -1e9, 1e9
+					if mn, ok := bm["min"].(float64); ok {
+						lc.yMin = mn
+					}
+					if mx, ok := bm["max"].(float64); ok {
+						lc.yMax = mx
+					}
+				case "x":
+					lc.hasX = true
+					lc.xMin, lc.xMax = -1e9, 1e9
+					if mn, ok := bm["min"].(float64); ok {
+						lc.xMin = mn
+					}
+					if mx, ok := bm["max"].(float64); ok {
+						lc.xMax = mx
+					}
+				default:
+					lc.impossible = true
+				}
+			}
+		case "duration":
+			switch dv := v.(type) {
+			case float64:
+				lc.hasDur = true
+				lc.durMin, lc.durMax = int64(dv), int64(dv)
+			case map[string]any:
+				lc.hasDur = true
+				if mn, ok := dv["min"].(float64); ok {
+					lc.durMin = int64(mn)
+				}
+				if mx, ok := dv["max"].(float64); ok {
+					lc.durMax = int64(mx)
+				}
+			}
+		default:
+			lc.impossible = true
+		}
+	}
+	return lc
+}
+
+// fireLevitation runs once a player tick while levitationStart is set —
+// vanilla's ServerPlayer fires it every tick until the effect leaves.
+func (s *Server) fireLevitation(sess *Session) {
+	if sess.levitationStart == nil {
+		return
+	}
+	x, y, z, _, _, _ := sess.Pos()
+	dy := y - sess.levitationStart[1]
+	dx := x - sess.levitationStart[0]
+	_ = z
+	dur := s.clock.count - sess.levitationStartTick
+	for _, meta := range gameAdvs {
+		for _, lc := range meta.levitates {
+			if lc.impossible {
+				continue
+			}
+			if lc.hasY && (dy < lc.yMin || dy > lc.yMax) {
+				continue
+			}
+			if lc.hasX && (dx < lc.xMin || dx > lc.xMax) {
+				continue
+			}
+			if lc.hasDur && (dur < lc.durMin || dur > lc.durMax) {
+				continue
+			}
+			sess.grantGameCriterion(meta, lc.crit)
 		}
 	}
 }

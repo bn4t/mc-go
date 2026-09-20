@@ -26,6 +26,7 @@ const (
 	effectRegeneration   = 9
 	effectFireResistance = 11
 	effectAbsorption     = 21
+	effectLevitation     = 24
 )
 
 // damageTypeBypassesInvulnerability is the vanilla damage-type tag
@@ -90,6 +91,11 @@ func (s *Server) applyMobEffectFlags(sess *Session, id, amplifier int32, duratio
 	}
 	sess.effects[id] = mobEffectInst{amplifier: amplifier, expiry: expiry}
 	sess.effMu.Unlock()
+	if id == effectLevitation {
+		x, y, z, _, _, _ := sess.Pos()
+		sess.levitationStart = []float64{x, y, z}
+		sess.levitationStartTick = s.clock.count
+	}
 	// Vanilla's onEffectAdded raises the absorb pool to the effect's
 	// ceiling — 4 half-hearts per level — but never lowers it.
 	if id == effectAbsorption {
@@ -133,6 +139,9 @@ func (s *Server) clearMobEffects(sess *Session) {
 func (s *Server) removeMobEffect(sess *Session, id int32) {
 	if id == effectAbsorption {
 		sess.absorb = 0
+	}
+	if id == effectLevitation {
+		sess.levitationStart = nil
 	}
 	sess.effMu.Lock()
 	delete(sess.effects, id)
