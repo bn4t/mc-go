@@ -1724,3 +1724,17 @@ physics through a void dip plus a fed recovery window.
   advFlush diagnostics while chasing this.  The same test grew a third
   leg for spyglass_at_dragon ("Is It a Plane?") — an ender_dragon
   (16x8 box) scoped east — green on both targets too.
+- 2026-09-20: target_hit (adventure/bullseye "Bullseye!"). Arrows
+  gained block collision in mc-go — the tick's movement segment is
+  walked against solid cells (NonSolid pass-through), the entry face
+  and point come from the slab test against the unit cube, and a hit
+  sticks the arrow (vanilla's inGround). TargetBlock parity:
+  getRedstoneStrength = max(1, ceil(15·(0.5−d)/0.5)) over the two
+  in-plane |frac−0.5| distances, and onProjectileHit fires
+  target_hit for any projectile whose owner is a player.
+  Conditions reduce to signal_strength bounds (15 = dead center)
+  plus the projectile predicate's entity_type union and
+  distance.horizontal from the shooter (30 for bullseye).
+  TestTargetHitParity drops an Owner-tagged summon arrow onto a
+  target's top-face center from a shooter 65 blocks away — green
+  both targets.

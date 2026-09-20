@@ -9,6 +9,8 @@ package server
 
 import (
 	"math"
+
+	"mc-go/internal/world"
 )
 
 // bowUseTicks is the bow's use duration floor: vanilla's
@@ -153,6 +155,9 @@ func (s *Server) arrowTickStep() {
 	}
 	s.entities.mu.RUnlock()
 	for _, e := range arrows {
+		if e.arrowStuck {
+			continue
+		}
 		ox, oy, oz := e.X, e.Y, e.Z
 		e.X += e.MotionX
 		e.Y += e.MotionY
@@ -168,8 +173,113 @@ func (s *Server) arrowTickStep() {
 		if s.arrowCollide(e, ox, oy, oz) {
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemove([]int32{e.ID})
+			continue
+		}
+		// Blocks are tested second, matching vanilla's hit order —
+		// a living hit consumes the arrow before the wall check runs.
+		if bx, by, bz, axis, hx, hy, hz, hit := s.arrowBlockHit(e, ox, oy, oz); hit {
+			e.X, e.Y, e.Z = hx, hy, hz
+			e.MotionX, e.MotionY, e.MotionZ = 0, 0, 0
+			e.arrowStuck = true
+			d := s.dimensionByName(e.Dim)
+			if name, ok := blockNameAt(d, world.Pos{X: bx, Y: by, Z: bz}); ok && name == "target" {
+				signal := targetSignal(axis, hx, hy, hz)
+				if shooter := s.sessionByEntityID(e.arrowShooter); shooter != nil {
+					s.fireTargetHit(shooter, e, signal)
+				}
+			}
 		}
 	}
+}
+
+// arrowBlockHit steps the tick's movement segment in small increments
+// and reports the first solid block entered: its cell, the axis of the
+// face the ray crossed (0=x,1=y,2=z), and the exact hit point on that
+// face. Face detection reuses the slab test against the unit cube.
+func (s *Server) arrowBlockHit(e *Entity, ox, oy, oz float64) (bx, by, bz, axis int, hx, hy, hz float64, ok bool) {
+	d := s.dimensionByName(e.Dim)
+	if d == nil {
+		return
+	}
+	dx, dy, dz := e.X-ox, e.Y-oy, e.Z-oz
+	length := math.Sqrt(dx*dx + dy*dy + dz*dz)
+	if length == 0 {
+		return
+	}
+	nx, ny, nz := dx/length, dy/length, dz/length
+	steps := int(length/0.05) + 1
+	prev := world.Pos{X: int(math.Floor(ox)), Y: int(math.Floor(oy)), Z: int(math.Floor(oz))}
+	for i := 1; i <= steps; i++ {
+		t := length * float64(i) / float64(steps)
+		px, py, pz := ox+nx*t, oy+ny*t, oz+nz*t
+		p := world.Pos{X: int(math.Floor(px)), Y: int(math.Floor(py)), Z: int(math.Floor(pz))}
+		if p == prev {
+			continue
+		}
+		prev = p
+		if _, has := blockNameAt(d, p); !has || world.NonSolid(d.w.GetBlock(p)) {
+			continue
+		}
+		bx, by, bz = p.X, p.Y, p.Z
+		// Re-clip the full segment against the unit cube for the exact
+		// entry point; the face is whichever bound the point sits on.
+		ent := rayAABB(ox, oy, oz, nx, ny, nz,
+			float64(bx), float64(by), float64(bz),
+			float64(bx+1), float64(by+1), float64(bz+1))
+		if ent < 0 || ent > length {
+			ent = t - 0.05
+			if ent < 0 {
+				ent = 0
+			}
+		}
+		hx, hy, hz = ox+nx*ent, oy+ny*ent, oz+nz*ent
+		switch {
+		case math.Abs(hx-float64(bx)) < 1e-6 || math.Abs(hx-float64(bx+1)) < 1e-6:
+			axis = 0
+		case math.Abs(hy-float64(by)) < 1e-6 || math.Abs(hy-float64(by+1)) < 1e-6:
+			axis = 1
+		default:
+			axis = 2
+		}
+		// Nudge the arrow a hair back out of the face so it rests on
+		// the surface rather than inside it.
+		const eps = 0.001
+		hx -= nx * eps
+		hy -= ny * eps
+		hz -= nz * eps
+		ok = true
+		return
+	}
+	return
+}
+
+// targetSignal is vanilla TargetBlock.getRedstoneStrength: the
+// fractional distance from the block center in the two axes of the hit
+// face, strength = max(1, ceil(15·(0.5−d)/0.5)).
+func targetSignal(axis int, hx, hy, hz float64) int {
+	frac := func(v float64) float64 { return math.Abs((v - math.Floor(v)) - 0.5) }
+	var d float64
+	switch axis {
+	case 0:
+		d = math.Max(frac(hy), frac(hz))
+	case 1:
+		d = math.Max(frac(hx), frac(hz))
+	default:
+		d = math.Max(frac(hx), frac(hy))
+	}
+	s := math.Max(1, float64(math.Ceil(15*((0.5-d)/0.5))))
+	if s < 0 {
+		s = 0
+	}
+	return int(s)
+}
+
+// blockNameAt resolves the block-name owning the state at p.
+func blockNameAt(d *dimension, p world.Pos) (string, bool) {
+	if d == nil {
+		return "", false
+	}
+	return world.StateOwner(d.w.GetBlock(p))
 }
 
 // arrowCollide resolves the arrow's hit against every living entity and

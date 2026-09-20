@@ -44,16 +44,17 @@ type advMeta struct {
 	loots      []lootCond    // player_generates_container_loot — chest opened
 	breds      []breedCond   // bred_animals — a baby was produced
 	tames      []tameCond
-	interacts  []interactCond // player_interacted_with_entity — a successful right-click
-	fills      []fillCond     // filled_bucket — a bucket was filled
-	sleeps     []sleepCond    // slept_in_bed — entered a bed
-	beacons    []beaconCond   // construct_beacon — pyramid activated
-	recipes    []recipeCond   // recipe_crafted — a recipe completed
-	totems     []totemCond    // used_totem — death protection popped
-	effs       []effCond      // effects_changed — effect set transition
-	shots      []totemCond    // shot_crossbow — item predicate on the weapon
-	kba        []kbaCond      // killed_by_arrow — arrow kills by weapon/victim
-	usings     []usingCond    // using_item — held-use items (spyglass)
+	interacts  []interactCond  // player_interacted_with_entity — a successful right-click
+	fills      []fillCond      // filled_bucket — a bucket was filled
+	sleeps     []sleepCond     // slept_in_bed — entered a bed
+	beacons    []beaconCond    // construct_beacon — pyramid activated
+	recipes    []recipeCond    // recipe_crafted — a recipe completed
+	totems     []totemCond     // used_totem — death protection popped
+	effs       []effCond       // effects_changed — effect set transition
+	shots      []totemCond     // shot_crossbow — item predicate on the weapon
+	kba        []kbaCond       // killed_by_arrow — arrow kills by weapon/victim
+	usings     []usingCond     // using_item — held-use items (spyglass)
+	targetHits []targetHitCond // target_hit — projectiles ringing a target block
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -279,6 +280,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.kba = append(m.kba, parseKBACond(cname, cm["conditions"]))
 				case "minecraft:using_item":
 					m.usings = append(m.usings, parseUsingCond(cname, cm["conditions"]))
+				case "minecraft:target_hit":
+					m.targetHits = append(m.targetHits, parseTargetHitCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -2293,6 +2296,108 @@ func (s *Server) fireFilledBucket(sess *Session, bucket string) {
 				continue
 			}
 			sess.grantGameCriterion(meta, fc.crit)
+		}
+	}
+}
+
+// targetHitCond is one target_hit criterion reduced to the
+// signal_strength bounds plus the projectile predicate's entity_type
+// union and horizontal distance bounds measured from the shooter —
+// bullseye wants a center hit (signal 15) from ≥30 blocks away.
+// Other projectile predicate content locks the criterion.
+type targetHitCond struct {
+	crit       string
+	sigMin     int
+	sigMax     int
+	types      map[string]bool
+	distMin    float64
+	distMax    float64
+	hasDist    bool
+	impossible bool
+}
+
+// parseTargetHitCond reads signal_strength (bare int or {min,max}) and
+// walks the projectile[] predicate for entity_type and
+// distance.horizontal bounds.
+func parseTargetHitCond(cname string, conds any) targetHitCond {
+	tc := targetHitCond{crit: cname, sigMin: 1, sigMax: 15, types: map[string]bool{}, distMax: 1e9}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "signal_strength":
+			switch sv := v.(type) {
+			case float64:
+				tc.sigMin, tc.sigMax = int(sv), int(sv)
+			case map[string]any:
+				if mn, ok := sv["min"].(float64); ok {
+					tc.sigMin = int(mn)
+				}
+				if mx, ok := sv["max"].(float64); ok {
+					tc.sigMax = int(mx)
+				}
+			}
+		case "projectile":
+			lst, _ := v.([]any)
+			for _, entry := range lst {
+				ec, _ := entry.(map[string]any)
+				pred, _ := ec["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					pkn := strings.TrimPrefix(pk, "minecraft:")
+					switch pkn {
+					case "entity_type":
+						if es, ok := pv.(string); ok {
+							tc.types[strings.TrimPrefix(es, "minecraft:")] = true
+						}
+					case "distance":
+						dm, _ := pv.(map[string]any)
+						hm, _ := dm["horizontal"].(map[string]any)
+						if hm != nil {
+							tc.hasDist = true
+							if mn, ok := hm["min"].(float64); ok {
+								tc.distMin = mn
+							}
+							if mx, ok := hm["max"].(float64); ok {
+								tc.distMax = mx
+							}
+						} else {
+							tc.impossible = true
+						}
+					default:
+						tc.impossible = true
+					}
+				}
+			}
+		default:
+			tc.impossible = true
+		}
+	}
+	return tc
+}
+
+// fireTargetHit grants target_hit criteria on the projectile owner
+// when a projectile strikes a target block at the given signal
+// strength — vanilla runs it for any projectile with a player owner
+// (TargetBlock.onProjectileHit).
+func (s *Server) fireTargetHit(shooter *Session, proj *Entity, signal int) {
+	sx, _, sz, _, _, _ := shooter.Pos()
+	hdist := math.Hypot(proj.X-sx, proj.Z-sz)
+	pname, _ := EntityTypeName(proj.Type)
+	for _, meta := range gameAdvs {
+		for _, tc := range meta.targetHits {
+			if tc.impossible {
+				continue
+			}
+			if signal < tc.sigMin || signal > tc.sigMax {
+				continue
+			}
+			if len(tc.types) > 0 && !tc.types[pname] {
+				continue
+			}
+			if tc.hasDist && (hdist < tc.distMin || hdist > tc.distMax) {
+				continue
+			}
+			sess := shooter
+			sess.grantGameCriterion(meta, tc.crit)
 		}
 	}
 }

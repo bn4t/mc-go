@@ -66,7 +66,11 @@ type Entity struct {
 	// vanilla's default; "crossbow" when a crossbow loosed it) —
 	// killed_by_arrow's fired_from_weapon predicate reads it.
 	arrowWeapon string
-	Grounded    bool
+	// arrowStuck marks an arrow embedded in a block: it stops
+	// moving and colliding until it despawns, like vanilla's
+	// inGround state.
+	arrowStuck bool
+	Grounded   bool
 }
 
 // Manager owns entity ids and the live set. All methods are safe for
