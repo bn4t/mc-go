@@ -118,6 +118,7 @@ func (s *Server) eatTickStep() {
 		sess.consumeHeld(1)
 		sess.addItemStat(statUsed, held.ID, 1)
 		sess.healthDirty.Store(true)
+		s.fireConsumeItem(sess, name)
 		return true
 	})
 }

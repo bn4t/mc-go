@@ -1472,3 +1472,11 @@ physics through a void dip plus a fed recovery window.
   fireInventoryChanged fans out to fireGameInventoryChanged after the
   recipe pass. TestInventoryAdvancementParity gives diamond +
   crafting_table in survival and diffs the flush — green.
+
+- 2026-09-20: consume_item on the game tree. The eating pipeline now
+  fires consume_item when a food finishes — 41 criteria: balanced_diet's
+  40-food roster plus husbandry/root's unconditional consumed_item.
+  consumeCond parses item.items as a name/tag OR-set; absent conditions
+  (husbandry/root) match any item. TestConsumeItemParity eats a golden
+  apple (always-edible — plain foods refuse at full hunger on both
+  servers) and diffs the flush — green.

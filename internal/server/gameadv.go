@@ -29,10 +29,11 @@ type advMeta struct {
 	descKey    string // display.description translate key
 	frame      string // display.frame: task/goal/challenge
 	kills      []killCond
-	deaths     []killCond // entity_killed_player — conditions apply to the killer
-	locs       []locCond  // location — only biome checks are modeled
-	hurts      []hurtCond // player_hurt_entity — a player dealt damage
-	inv        []invCond  // inventory_changed — an item reached inventory
+	deaths     []killCond    // entity_killed_player — conditions apply to the killer
+	locs       []locCond     // location — only biome checks are modeled
+	hurts      []hurtCond    // player_hurt_entity — a player dealt damage
+	inv        []invCond     // inventory_changed — an item reached inventory
+	consumed   []consumeCond // consume_item — a food finished eating
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -78,6 +79,14 @@ type hurtCond struct {
 // slots and equipment condition shapes are not modeled, so criteria
 // that use them stay locked.
 type invCond struct {
+	crit       string
+	items      map[string]bool
+	impossible bool
+}
+
+// consumeCond is one consume_item criterion: the eaten item's name set
+// (empty = any item, e.g. husbandry/root's consumed_item).
+type consumeCond struct {
 	crit       string
 	items      map[string]bool
 	impossible bool
@@ -131,6 +140,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.hurts = append(m.hurts, parseHurtCond(cname, cm["conditions"]))
 				case "minecraft:inventory_changed":
 					m.inv = append(m.inv, parseInvCond(cname, cm["conditions"]))
+				case "minecraft:consume_item":
+					m.consumed = append(m.consumed, parseConsumeCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -513,6 +524,65 @@ func parseInvCond(cname string, conds any) invCond {
 		}
 	}
 	return ic
+}
+
+// parseConsumeCond reduces a consume_item criterion to its item name
+// set; an absent conditions block means any consumed item matches.
+func parseConsumeCond(cname string, conds any) consumeCond {
+	cc := consumeCond{crit: cname, items: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "item" {
+			cc.impossible = true
+			continue
+		}
+		im, _ := v.(map[string]any)
+		if im == nil {
+			cc.impossible = true
+			continue
+		}
+		for ik, iv := range im {
+			if ik != "items" {
+				cc.impossible = true
+				continue
+			}
+			addItem := func(name string) {
+				if strings.HasPrefix(name, "#") {
+					for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(name, "#"), "minecraft:")] {
+						cc.items[m] = true
+					}
+					return
+				}
+				cc.items[strings.TrimPrefix(name, "minecraft:")] = true
+			}
+			switch it := iv.(type) {
+			case string:
+				addItem(it)
+			case []any:
+				for _, e := range it {
+					if es, ok := e.(string); ok {
+						addItem(es)
+					}
+				}
+			}
+		}
+	}
+	return cc
+}
+
+// fireConsumeItem grants consume_item criteria for one finished food.
+func (s *Server) fireConsumeItem(sess *Session, item string) {
+	for _, meta := range gameAdvs {
+		for _, cc := range meta.consumed {
+			if cc.impossible {
+				continue
+			}
+			if len(cc.items) > 0 && !cc.items[item] {
+				continue
+			}
+			sess.grantGameCriterion(meta, cc.crit)
+		}
+	}
 }
 
 // fireGameInventoryChanged evaluates every game-tree inventory_changed
