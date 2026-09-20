@@ -38,6 +38,7 @@ type advMeta struct {
 	dims       []dimCond     // changed_dimension — crossed dimensions
 	usedOn     []usedOnCond  // item_used_on_block — tool met block
 	travel     []travelCond  // nether_travel — portal loop distance
+	summons    []summonCond  // summoned_entity — a built entity spawned
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -127,6 +128,15 @@ type travelCond struct {
 	impossible bool
 }
 
+// summonCond is one summoned_entity criterion: the constructed
+// entity's type name (iron golem today; the wither's pattern is
+// unmodeled). conditions.entity reduces to its entity_type predicate.
+type summonCond struct {
+	crit       string
+	entityType string
+	impossible bool
+}
+
 // placedCond is one placed_block criterion reduced to the placed
 // block's name. The location predicate's richer shapes — block
 // properties, all_of/any_of terms, biome/position checks — stay
@@ -195,6 +205,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.usedOn = append(m.usedOn, parseUsedOnCond(cname, cm["conditions"]))
 				case "minecraft:nether_travel":
 					m.travel = append(m.travel, parseTravelCond(cname, cm["conditions"]))
+				case "minecraft:summoned_entity":
+					m.summons = append(m.summons, parseSummonCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -886,6 +898,54 @@ func (s *Server) fireNetherTravel(sess *Session, distSq float64) {
 				continue
 			}
 			sess.grantGameCriterion(meta, tc.crit)
+		}
+	}
+}
+
+// parseSummonCond reduces summoned_entity's conditions.entity to the
+// summoned entity's type name.
+func parseSummonCond(cname string, conds any) summonCond {
+	sc := summonCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "entity" {
+			sc.impossible = true
+			continue
+		}
+		ents, _ := v.([]any)
+		for _, ev := range ents {
+			em, _ := ev.(map[string]any)
+			if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+				sc.impossible = true
+				continue
+			}
+			pred, _ := em["predicate"].(map[string]any)
+			for pk, pv := range pred {
+				if pk != "minecraft:entity_type" {
+					sc.impossible = true
+					continue
+				}
+				if s, ok := pv.(string); ok {
+					sc.entityType = strings.TrimPrefix(s, "minecraft:")
+				}
+			}
+		}
+	}
+	if sc.entityType == "" {
+		sc.impossible = true
+	}
+	return sc
+}
+
+// fireSummonedEntity grants summoned_entity criteria for one
+// constructed entity spawn (iron golem from the pumpkin T today).
+func (s *Server) fireSummonedEntity(sess *Session, entityType string) {
+	for _, meta := range gameAdvs {
+		for _, sc := range meta.summons {
+			if sc.impossible || sc.entityType != entityType {
+				continue
+			}
+			sess.grantGameCriterion(meta, sc.crit)
 		}
 	}
 }

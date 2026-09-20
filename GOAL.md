@@ -1524,3 +1524,11 @@ physics through a void dip plus a fed recovery window.
   test filters explore_nether's per-biome location criteria.
   TestNetherTravelParity runs the two-portal loop on both servers —
   green.
+
+- 2026-09-20: summoned_entity (summon_iron_golem). carved_pumpkin on an
+  iron-block T now consumes the pattern and spawns the golem. Two
+  vanilla details measured: the pattern is ~^~/###/~#~ with air
+  required beside pumpkin and base, and the trigger fires for every
+  player in the dimension — including setblock- or fill-placed
+  pumpkins — so the check sits in setBlockAndBroadcast, not the
+  placement path. TestSummonedEntityParity green.

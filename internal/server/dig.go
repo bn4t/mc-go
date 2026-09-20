@@ -75,6 +75,7 @@ func (s *Server) setBlockAndBroadcast(player string, pos world.Pos, blk world.Bl
 	}
 	s.broadcastBlockState(d, pos, blk)
 	s.syncBlockEntities(d, pos, blk)
+	s.checkSummonedEntity(d, pos, blk)
 	s.invalidateRandomTickSection(d, pos)
 	// Placing or breaking a block changes what the fluids around it can
 	// do, so they are re-evaluated on their own next tick.
