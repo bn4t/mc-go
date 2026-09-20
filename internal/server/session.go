@@ -55,12 +55,16 @@ type Session struct {
 	yaw, pitch  float32
 	onGround    bool
 	teleportAck atomic.Int32 // last confirmed teleport id, -1 none
-	// Player inventory window (46 slots), guarded by invMu. Slots are
+	// unlockedRecipes holds the recipe-book keys the session has been
+	// given, keyed by data.Recipes index; guarded by recipesMu.
+	recipesMu       sync.Mutex
+	unlockedRecipes map[int]bool
+	// Player inventory window (46 slots), guarded by invMu. Slots are Slots are
 	// populated from Set Creative Mode Slot and container clicks; the
 	// selected hotbar slot (0-8) picks what Use Item On places.
-	invMu    sync.RWMutex
-	inv      [slotCount]ItemStack
-	carried  ItemStack
+	invMu   sync.RWMutex
+	inv     [slotCount]ItemStack
+	carried ItemStack
 	// ender is the player's ender chest (27 slots), which /item addresses
 	// as enderchest.N and which persists with the player.
 	ender [27]ItemStack
@@ -68,8 +72,8 @@ type Session struct {
 	// armor.body. A player never equips it through a menu, but the
 	// command writes it like the real server's does.
 	bodyArmor ItemStack
-	invState atomic.Int32
-	held     atomic.Int32
+	invState  atomic.Int32
+	held      atomic.Int32
 	// chatIndex counts this player's relayed chat messages; chatGlobal
 	// counts messages delivered to this client (Player Chat Message
 	// ordering counters).

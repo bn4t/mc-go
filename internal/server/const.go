@@ -107,6 +107,7 @@ const (
 	IDPlayLevelEvent        = 0x2E
 	IDPlayInitializeBorder  = 0x2B
 	IDPlayRecipeBookAdd     = 0x4A
+	IDPlayRecipeBookRemove  = 0x4B
 	IDPlayRecipeBookSet     = 0x4C
 	IDPlayServerData        = 0x56
 	IDPlayDefaultSpawn      = 0x61

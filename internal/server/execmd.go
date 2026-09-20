@@ -203,6 +203,9 @@ func (s *Server) registerWorldCommands() {
 	s.registerComponentCommand("xp", func(player string, args []string) reply {
 		return s.runXp(player, args)
 	})
+	s.registerComponentCommand("recipe", func(player string, args []string) reply {
+		return s.runRecipe(player, args)
+	})
 	s.commands.Register("fill", func(player string, args []string) string {
 		return s.runFill(player, args)
 	})

@@ -85,12 +85,17 @@ type Recipe struct {
 	Ingredients []Ingredient         // shapeless, cooking, stonecutting inputs
 	Input       Ingredient           // transmute/dye/imbue base item
 	Material    Ingredient           // transmute/dye/imbue applied item
+	MaterialMax int                  // transmute: material_count.max (0 = single)
+	MaterialMin int                  // transmute: material_count.min
 	Template    Ingredient           // smithing template
 	Base        Ingredient           // smithing base
 	Addition    Ingredient           // smithing addition
 	Result      ItemStack
 	CookingTime int
 	Experience  float64
+	// HideNotification is the recipe JSON show_notification:false; the
+	// recipe book entry omits the toast flag for it.
+	HideNotification bool
 }
 
 // IsCooking reports whether the recipe is one of the furnace-family

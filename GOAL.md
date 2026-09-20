@@ -95,12 +95,15 @@ Mojang server over the wire.
   arithmetic, charged/quick-move/poor takes, invalid pairs, silent
   output clicks, close returns with no close echo; other menus
   - enchanting, brewing, beacon, lectern - still open)
-- [ ] Survival mode: health, hunger, regen, death/respawn
+- [~] Survival mode: health, hunger (two-clock regen + deferred
+      exhaustion drain + i-frames measured), starvation, void, death/
+      respawn, item drops on death — eating/fall damage present
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
   shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
-  decorated_pot needs an unmodeled component, smithing needs the menu,
-  bookcloning/shielddecoration/fireworks/mapextending need content
-  components; unlock engine pending)
+  /recipe give|take + RecipeBookAdd/Remove wire-parity including the
+  1568-entry give-all blob; decorated_pot needs an unmodeled component,
+  smithing needs the menu, bookcloning/shielddecoration/fireworks/
+  mapextending need content components)
 - [ ] Advancements, statistics, scoreboard, teams
 - [ ] Player data persistence
 
@@ -1121,3 +1124,24 @@ every 80 while food >= 18; the heal adds exhaustion that only drains
 on the NEXT food tick, which is why vanilla's heal packet still shows
 the pre-drain saturation. TestHungerRegenParity diffs the packet
 physics through a void dip plus a fed recovery window.
+
+- 2026-09-20: Recipe unlock engine: /recipe give|take with the full
+  RecipeDisplayEntry wire model reverse-engineered from the 26.2 jar -
+  display types (shapeless/shaped/furnace/stonecutter/smithing), all 11
+  slot-display codecs (composite, tag, with_remainder, dyed,
+  only_with_component, with_any_potion, smithing_trim...), trimmed
+  shaped patterns, per-type cook-time defaults (200/100/600),
+  ranged-transmute expansion (map_cloning emits one display per
+  material count), suspicious-stew component patches, and the recipe's
+  own show_notification flag driving the notify bit. Entry order is
+  bookable-recipes-in-data order with group/category/requirements
+  resolving exactly as measured. /recipe give emits only newly-known
+  recipes (already-known are skipped, not re-sent), give on a special
+  or unknown recipe fails with the right translation keys, take emits
+  RecipeBookRemove for the removed displays only, and success replies
+  carry {int N, player} under give/take.success.single. Compound NBT
+  now writes keys in Java HashMap bucket order, which is what makes the
+  reply bytes line up at all. Pinned byte-exact:
+  TestGiveAllBytes re-generates the whole give-all Add body (91865
+  bytes, 1568 entries) and TestRecipeCommandParity diffs every add,
+  remove and reply through a give/dup/take/take-all/give-all script.

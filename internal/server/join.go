@@ -103,6 +103,7 @@ var recipeBookUnlock []byte
 // 26.2 server and served verbatim. The bytes are boot-stable; later
 // unlocks arrive as their own adds once the unlock engine exists.
 func (s *Server) sendRecipeBookUnlock(sess *Session) error {
+	sess.markRecipesUnlocked("crafting_table")
 	return sess.write(sess.ids().PlayRecipeBookAdd, recipeBookUnlock)
 }
 
