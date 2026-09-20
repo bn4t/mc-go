@@ -51,6 +51,10 @@ type Entity struct {
 	// attackCooldown is the hostile-melee swing timer — vanilla's
 	// twenty-tick reset after each landed blow.
 	attackCooldown int32
+	// loveTicks/loveCause are the breeding state: vanilla's Animal
+	// inLove countdown plus the player who fed it last.
+	loveTicks int32
+	loveCause string
 	// arrowShooter is the entity id of the player who loosed an arrow;
 	// zero when unattributed.
 	arrowShooter int32

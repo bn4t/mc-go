@@ -1544,3 +1544,15 @@ physics through a void dip plus a fed recovery window.
   its listeners — each table gets its own player in the test. Also
   found: setblock into an unloaded chunk fails on vanilla; tp first.
   TestContainerLootParity green.
+
+- 2026-09-20: bred_animals (breed_an_animal + bred_all_animals:cow).
+  INTERACT on a food-holding mob enters love (entity status 18 hearts,
+  held item consumed in survival, 600-tick decay); a same-species
+  in-love mate within 8 blocks produces a baby at the midpoint and
+  fires the trigger with the child type. Parser takes the species
+  filter from any of child/parent/partner entity_type predicates.
+  Test harness details measured: natural passive spawns emit
+  entity_spawn packets mid-test (filter captured ids by entity type),
+  and a tp re-streams chunks — without answering chunk_batch_finished
+  the entity spawn packets stall for seconds. TestBredAnimalsParity
+  green.

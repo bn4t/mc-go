@@ -343,6 +343,9 @@ func (s *Server) mobTickStep() {
 		if e.invulnTicks > 0 {
 			e.invulnTicks--
 		}
+		if e.loveTicks > 0 {
+			e.loveTicks--
+		}
 		if e.NoAI {
 			continue
 		}

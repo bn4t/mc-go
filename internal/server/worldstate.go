@@ -232,6 +232,9 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	if action == 1 {
 		s.attackEntity(sess, id)
 	}
+	if action == 0 || action == 2 {
+		s.feedAnimal(sess, id)
+	}
 }
 
 // handlePlayerCommand processes Player Command (0x2A): sneak, sprint,

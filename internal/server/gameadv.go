@@ -40,6 +40,7 @@ type advMeta struct {
 	travel     []travelCond  // nether_travel — portal loop distance
 	summons    []summonCond  // summoned_entity — a built entity spawned
 	loots      []lootCond    // player_generates_container_loot — chest opened
+	breds      []breedCond   // bred_animals — a baby was produced
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -146,6 +147,17 @@ type lootCond struct {
 	impossible bool
 }
 
+// breedCond is one bred_animals criterion reduced to the child's
+// entity_type ("minecraft:cow"). Vanilla's conditions carry child/
+// parent/partner predicates; matching on the child's species covers
+// bred_all_animals' per-species criteria. Richer predicates (location,
+// properties) lock the criterion.
+type breedCond struct {
+	crit       string
+	childType  string
+	impossible bool
+}
+
 // placedCond is one placed_block criterion reduced to the placed
 // block's name. The location predicate's richer shapes — block
 // properties, all_of/any_of terms, biome/position checks — stay
@@ -218,6 +230,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.summons = append(m.summons, parseSummonCond(cname, cm["conditions"]))
 				case "minecraft:player_generates_container_loot":
 					m.loots = append(m.loots, parseLootCond(cname, cm["conditions"]))
+				case "minecraft:bred_animals":
+					m.breds = append(m.breds, parseBreedCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -946,6 +960,60 @@ func parseSummonCond(cname string, conds any) summonCond {
 		sc.impossible = true
 	}
 	return sc
+}
+
+// parseBreedCond reduces bred_animals' conditions to the child's
+// entity_type. breed_an_animal's "bred" has no conditions at all.
+func parseBreedCond(cname string, conds any) breedCond {
+	bc := breedCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "child" && k != "parent" && k != "partner" {
+			bc.impossible = true
+			continue
+		}
+		ents, _ := v.([]any)
+		for _, ev := range ents {
+			em, _ := ev.(map[string]any)
+			if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+				bc.impossible = true
+				continue
+			}
+			pred, _ := em["predicate"].(map[string]any)
+			for pk, pv := range pred {
+				if pk != "minecraft:entity_type" {
+					bc.impossible = true
+					continue
+				}
+				if s, ok := pv.(string); ok {
+					nm := strings.TrimPrefix(s, "minecraft:")
+					if bc.childType == "" {
+						bc.childType = nm
+					} else if bc.childType != nm {
+						bc.impossible = true // mixed species can't all match one baby
+					}
+				}
+			}
+		}
+	}
+	return bc
+}
+
+// fireBredAnimal grants bred_animals criteria for a produced baby:
+// criteria with no child predicate (breed_an_animal) plus the species
+// ones (bred_all_animals).
+func (s *Server) fireBredAnimal(sess *Session, childType string) {
+	for _, meta := range gameAdvs {
+		for _, bc := range meta.breds {
+			if bc.impossible {
+				continue
+			}
+			if bc.childType != "" && bc.childType != childType {
+				continue
+			}
+			sess.grantGameCriterion(meta, bc.crit)
+		}
+	}
 }
 
 // parseLootCond reduces player_generates_container_loot to its
