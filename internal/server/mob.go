@@ -154,14 +154,16 @@ func mustEntityType(name string) int32 {
 // mobHealth is the vanilla max health for the mobs mc-go can summon.
 // Mobs beyond this table arrive with the broader entity milestone.
 var mobHealth = map[string]float32{
-	"pig":      10,
-	"cow":      10,
-	"chicken":  4,
-	"sheep":    8,
-	"zombie":   20,
-	"skeleton": 20,
-	"creeper":  20,
-	"spider":   16,
+	"pig":        10,
+	"cow":        10,
+	"chicken":    4,
+	"sheep":      8,
+	"zombie":     20,
+	"skeleton":   20,
+	"creeper":    20,
+	"spider":     16,
+	"sniffer":    14,
+	"iron_golem": 100,
 }
 
 // runSummon implements /summon <entity>: the mob spawns at the
@@ -229,22 +231,30 @@ func encodeLivingHealth(health float32) []byte {
 }
 
 // damageMob applies damage to a living mob and syncs metadata; a lethal
-// hit removes the entity.
-func (s *Server) damageMob(e *Entity, amount float32) {
-	health, ok := s.entities.Damage(e.ID, amount)
+// hit removes the entity. It reports the damage actually dealt — zero
+// when the hit was swallowed by the post-hit invulnerability window.
+func (s *Server) damageMob(e *Entity, amount float32) float32 {
+	health, dealt, ok := s.entities.Damage(e.ID, amount)
 	if !ok {
-		return
+		return 0
+	}
+	if dealt <= 0 {
+		return 0
 	}
 	if health <= 0 {
-		s.entities.Remove(e.ID)
-		s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+		// die(): the corpse event and loot/XP fire immediately, the
+		// entity lingers twenty ticks, then poofs (event 60) and is
+		// removed — all inside mobTickStep's per-mob pass.
+		s.entities.SetDying(e.ID)
+		s.broadcastEntityEventTo(nil, e.Dim, e.ID, 3)
 		if name, ok := EntityTypeName(e.Type); ok {
 			s.spawnMobLoot(e.Dim, name, e.X, e.Y, e.Z)
 			s.spawnMobXP(e.Dim, name, e.X, e.Y, e.Z)
 		}
-		return
+		return dealt
 	}
 	s.broadcastEntityMetadata(e.ID, encodeLivingHealth(health))
+	return dealt
 }
 
 // mobWalkSpeed is the blocks-per-tick stride of the wander AI.
@@ -272,6 +282,17 @@ func (s *Server) mobTickStep() {
 	}
 	s.entities.mu.RUnlock()
 	for _, e := range mobs {
+		if e.Dying {
+			if s.entities.TickDeath(e.ID) {
+				s.broadcastEntityEventTo(nil, e.Dim, e.ID, 60)
+				s.entities.Remove(e.ID)
+				s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+			}
+			continue
+		}
+		if e.invulnTicks > 0 {
+			e.invulnTicks--
+		}
 		w := s.dimWorld(e.Dim)
 		if w == nil {
 			continue

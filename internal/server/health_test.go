@@ -197,7 +197,9 @@ func TestAttackDamagesPlayer(t *testing.T) {
 	if alice == nil || bob == nil {
 		t.Fatal("sessions missing")
 	}
-	// Both spawn at the same point: within attack reach.
+	// Both spawn at the same point: within attack reach. Charge the
+	// cooldown so the scripted swing lands at full strength.
+	bob.attackTicker = 200
 	s.handleAttack(bob, attackPacket(t, alice.entityID.Load()))
 
 	if alice.health != 19 {
@@ -270,6 +272,7 @@ func TestAttackLethalSendsCombatDeath(t *testing.T) {
 	alice := s.findSessionByName("Alice")
 	bob := s.findSessionByName("Bob")
 	alice.health = 0.5
+	bob.attackTicker = 200
 	s.handleAttack(bob, attackPacket(t, alice.entityID.Load()))
 	if !alice.dead {
 		t.Fatal("lethal attack did not kill")
@@ -456,6 +459,7 @@ func TestWeaponDamage(t *testing.T) {
 	bob.setStack(invSlotForHotbar(0), ItemStack{ID: world.ItemIDs["iron_sword"], Count: 1})
 	bob.held.Store(0)
 
+	bob.attackTicker = 200
 	s.handleAttack(bob, attackPacket(t, alice.entityID.Load()))
 	if alice.health != 14 {
 		t.Fatalf("alice health = %v, want 14 (iron sword 6)", alice.health)
@@ -483,6 +487,7 @@ func TestArmorReducesDamage(t *testing.T) {
 		t.Fatalf("armor = %v, want 15", got)
 	}
 
+	bob.attackTicker = 200
 	s.handleAttack(bob, attackPacket(t, alice.entityID.Load()))
 	want := float32(20) - reduceDamage(1, 15)
 	if alice.health != want {

@@ -729,7 +729,8 @@ Mojang server over the wire.
   1 - min(20, armor)/25 formula. `TestWeaponDamagePackets` proves the
   iron-sword hit (health 14) on the wire; unit tests cover weapon
   damage and full iron armor (15 points -> 0.4 damage from a fist).
-  Attack-cooldown scaling, enchantments, and durability remain.
+  Cooldown scaling and durability have since landed; enchantments
+  remain.
 - 2026-09-12: Survival digging is now the server's own model instead of
   the client's word. A start records the block, digTickStep adds one
   tick of progress per game tick from the public breaking formula
@@ -1252,3 +1253,22 @@ physics through a void dip plus a fed recovery window.
   that never answers) and the give-oak_log/give-stone steps; trigger
   adds compare as a multiset since vanilla's listener order is
   identity-hash dependent.
+
+- 2026-09-20: Attack-cooldown + mob death pipeline: the per-weapon
+  recharge timer is `20/(4.0 + mainhand attack_speed modifier)`
+  ticks (stone sword 12.5) and a swing's damage scales by
+  `0.2 + 0.8 * scale^2` where scale = clamp((ticker+0.5)/delay,0,1);
+  the ticker resets on every attack and starts at zero. damage_dealt
+  is `round(dealt*10)` where dealt is health actually lost (capped
+  at remaining health — a sniffer's killing 5-damage blow reports
+  4.0). Mobs get the full LivingEntity treatment: i-frames
+  (invulnerableTime>10 rejects weaker hits, stronger hits land the
+  delta), die() fires entity event 3 + loot/XP while the corpse
+  lingers 20 ticks before event 60 + removal. Dropped the invented
+  hurt-status-2 entity event — vanilla mob hurt is the damage_event
+  packet only. `TestAttackCooldownParity` swings a stone sword at a
+  NoAI iron golem on both servers (hit mid-cooldown lands ~44
+  damage_dealt, recharged hits 50) and the unit tests charge the
+  ticker to model full-strength swings. Learned the hard way that
+  entity ids churn while chunk tracking settles after a teleport —
+  scenarios must pick the freshest spawn near the player.

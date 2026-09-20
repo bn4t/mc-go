@@ -132,7 +132,11 @@ type Session struct {
 	// ticks counted down on the player tick, during which only damage
 	// exceeding lastHurt lands, and only for the excess.
 	invulnTicks int32
-	lastHurt    float32
+	// attackTicker is vanilla's attackStrengthTicker: the ticks since
+	// the last attack() call; it paces the damage cooldown scale and
+	// resets on every attack that reaches the damage code.
+	attackTicker int32
+	lastHurt     float32
 	// lastHurtBy is the entity id of the most recent damage source's
 	// attacker, for killed_by/kill-score stat attribution.
 	lastHurtBy int32

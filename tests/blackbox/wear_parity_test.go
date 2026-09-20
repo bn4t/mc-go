@@ -18,6 +18,10 @@ type wearObs struct {
 	slots []string
 	evs   []int32
 	stats []statEntry
+	// spawnedPos records every add_entity the drain saw:
+	// eid -> type, x, y, z — for picking the entity a summon just
+	// produced out of ambient spawn traffic.
+	spawnedPos map[int32][4]float64
 }
 
 // drainWear reads server traffic for d, keeping the session alive and
@@ -80,9 +84,16 @@ func drainWear(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Write
 			if err != nil {
 				continue
 			}
+			x, _ := r.Double()
+			y, _ := r.Double()
+			z, _ := r.Double()
 			if spawned != nil {
 				spawned[ty] = eid
 			}
+			if obs.spawnedPos == nil {
+				obs.spawnedPos = map[int32][4]float64{}
+			}
+			obs.spawnedPos[eid] = [4]float64{float64(ty), x, y, z}
 		}
 	}
 }
@@ -336,4 +347,87 @@ func TestArmorWearParity(t *testing.T) {
 
 	compareWearObs(t, "victim", wantV, gotV)
 	compareWearObs(t, "attacker", wantA, gotA)
+}
+
+// runCooldownScenario swings a stone sword at a summoned NoAI iron
+// golem (it cannot wander off or retaliate) three times: charged,
+// ~11 ticks later — past the mob's post-hit grace but still inside
+// the 12.5-tick sword cooldown — then recharged. Stats are drained
+// once at the end: the cumulative damage_dealt row is the verdict —
+// a server without the cooldown scale reports 150, vanilla ~144.
+func runCooldownScenario(t *testing.T, addr, name string) []wearObs {
+	t.Helper()
+	c, pr, pw := joinPlayBlackbox(t, addr, name)
+	defer c.Close()
+	_ = c.SetDeadline(time.Now().Add(120 * time.Second))
+	var pos [3]float64
+	obs := wearObs{}
+	drainWear(t, c, pr, pw, &pos, 1200*time.Millisecond, &obs, nil)
+	sendCommand(t, pw, "tp @s 6 -60 2 0 0")
+	sendCommand(t, pw, "item replace entity @s hotbar.0 with minecraft:stone_sword")
+	var hb protocol.Buffer
+	hb.Short(0)
+	if err := pw.WritePacket(server.IDPlayHeldChangeSB, hb.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	drainWear(t, c, pr, pw, &pos, 400*time.Millisecond, &obs, nil)
+	sendCommand(t, pw, "summon minecraft:iron_golem ~ ~ ~ {NoAI:1b}")
+	golemType, _ := server.EntityTypeID("iron_golem")
+	drainWear(t, c, pr, pw, &pos, 1500*time.Millisecond, &obs, nil)
+	// Ambient world-gen can also produce golem spawns — ours is the
+	// type-70 entity that appeared on top of the player.
+	golemEID := int32(0)
+	best := math.MaxFloat64
+	for eid, sp := range obs.spawnedPos {
+		if int32(sp[0]) != golemType {
+			continue
+		}
+		dx, dy, dz := sp[1]-pos[0], sp[2]-pos[1], sp[3]-pos[2]
+		if d := dx*dx + dy*dy + dz*dz; d < best {
+			best, golemEID = d, eid
+		}
+	}
+	if golemEID == 0 || best > 25 {
+		t.Fatalf("%s: no nearby iron golem spawn (spawned=%v)", name, obs.spawnedPos)
+	}
+	swing := func() {
+		var atk protocol.Buffer
+		atk.VarInt(golemEID)
+		if err := pw.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	swing()
+	time.Sleep(560 * time.Millisecond)
+	swing()
+	time.Sleep(1500 * time.Millisecond)
+	swing()
+	po := wearObs{}
+	drainWear(t, c, pr, pw, &pos, 1200*time.Millisecond, &po, nil)
+	po.stats = drainStats(t, c, pr, pw, &pos, 5*time.Second)
+	return []wearObs{po}
+}
+
+// TestAttackCooldownParity pins vanilla's attack-strength cooldown:
+// damage scales by 0.2 + 0.8*scale² with
+// scale = (ticker + 0.5) / (20 / attackSpeed) — a mid-recharge hit on
+// a mob whose i-frames just expired lands for ~88% of a stone sword,
+// and each landed hit is awarded damage_dealt = round(dealt * 10).
+func TestAttackCooldownParity(t *testing.T) {
+	tg := requireBlackboxFiles(t, map[string]string{"gamemode": "survival"}, map[string]string{
+		"ops.json": opsJSONFor("CoolV", "CoolM"),
+	}, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	defer tg.cleanup()
+	defer func() {
+		if t.Failed() {
+			vanillaLogTail(t)
+		}
+	}()
+
+	want := runCooldownScenario(t, tg.vanilla, "CoolV")
+	got := runCooldownScenario(t, tg.mcgo, "CoolM")
+
+	compareWearObs(t, "attacker", want, got)
 }

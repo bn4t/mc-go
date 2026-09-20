@@ -152,20 +152,19 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	if target == nil {
 		// Not a player: attack a living mob if one has this id.
 		if e, ok := s.entities.Get(targetID); ok && e.Living {
-			s.broadcastDamageEvent(e.ID, damageInfo{
-				typeName: "player_attack",
-				cause:    sess.entityID.Load(),
-				direct:   sess.entityID.Load(),
-			})
-			damage := sess.heldAttackDamage()
-			s.damageMob(&e, damage)
-			// Vanilla's mob-hurt broadcast reaches every chunk tracker
-			// but the attacker (measured on the real server).
-			s.broadcastEntityEventDamage(sess, nil, e.ID)
-			sess.addCustomStat("damage_dealt", int32(damage*10))
-			if _, still := s.entities.Get(targetID); !still {
-				sess.addStat(statKilled, e.Type, 1)
-				sess.addCustomStat("mob_kills", 1)
+			damage := sess.attackDamage()
+			sess.attackTicker = 0
+			if dealt := s.damageMob(&e, damage); dealt > 0 {
+				s.broadcastDamageEvent(e.ID, damageInfo{
+					typeName: "player_attack",
+					cause:    sess.entityID.Load(),
+					direct:   sess.entityID.Load(),
+				})
+				sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
+				if _, still := s.entities.Get(targetID); !still {
+					sess.addStat(statKilled, e.Type, 1)
+					sess.addCustomStat("mob_kills", 1)
+				}
 			}
 			s.attackWear(sess)
 		}
@@ -185,20 +184,18 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	s.startCombat(target)
 	// damageWith wears the armor and applies the armor reduction
 	// inside (vanilla's getDamageAfterArmorAbsorb); the attacker's
-	// damage_dealt counts the post-absorb amount.
-	dealt := s.damageWith(target, sess.heldAttackDamage(), sess.getName()+" was slain by "+target.getName(), damageSource{
+	// damage_dealt counts the post-absorb amount. The cooldown scale
+	// is read before the ticker resets, as in vanilla's attack().
+	dealt := s.damageWith(target, sess.attackDamage(), sess.getName()+" was slain by "+target.getName(), damageSource{
 		typeName: "player_attack",
 		cause:    sess.entityID.Load(),
 		direct:   sess.entityID.Load(),
 	})
-	sess.addCustomStat("damage_dealt", int32(dealt*10))
+	sess.attackTicker = 0
+	sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
 	s.sendHurtAnimation(target, hurtYaw(tx, tz, ax, az))
-	// Only third parties see the hurt entity event — the victim gets
-	// Hurt Animation, the attacker gets nothing (measured on vanilla).
-	s.broadcastEntityEventDamage(target, sess, targetID)
 	// hurtEnemy + postHurtEnemy: the used stat and the weapon wear.
 	s.attackWear(sess)
-	_ = dy
 }
 
 // hurtYaw is the yaw of the damage direction (from the victim toward
@@ -217,32 +214,6 @@ func (s *Server) sendHurtAnimation(sess *Session, yaw float32) {
 	b.VarInt(sess.entityID.Load())
 	b.Float(yaw)
 	_ = sess.write(sess.ids().PlayHurtAnimation, b.Bytes())
-}
-
-// broadcastEntityEventDamage plays the hurt entity event for the
-// third parties watching — never the victim (who receives Hurt
-// Animation instead) and never the attacker (vanilla sends them
-// nothing at all, measured).
-func (s *Server) broadcastEntityEventDamage(exceptA, exceptB *Session, eid int32) {
-	dim := dimOverworld
-	if e, ok := s.entities.Get(eid); ok {
-		dim = e.Dim
-	}
-	var b protocol.Buffer
-	b.Int(eid)
-	b.Byte(2) // status: hurt
-	body := b.Bytes()
-	s.sessions.Range(func(_, v any) bool {
-		other := v.(*Session)
-		if other == exceptA || other == exceptB || other.state.Load() != StatePlay || !other.spawned.Load() {
-			return true
-		}
-		if other.dimName() != dim {
-			return true
-		}
-		_ = other.write(other.ids().PlayEntityEvent, body)
-		return true
-	})
 }
 
 // Player Input flag bits: 0x20 sneak, 0x40 sprint.

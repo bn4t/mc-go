@@ -32,6 +32,15 @@ type Entity struct {
 	Living    bool
 	Health    float32
 	MaxHealth float32
+	// invulnTicks/lastHurt are the same twenty-tick post-hit grace
+	// players have: a hit inside it only lands for the amount it
+	// exceeds the last hit by.
+	invulnTicks int32
+	lastHurt    float32
+	// Dying mobs lie as a corpse for twenty ticks (vanilla's
+	// deathTime window) before the death-poof event and removal.
+	Dying      bool
+	deathTicks int32
 	// WanderTicks counts AI steps; the wander angle derives from it so
 	// movement is deterministic for tests.
 	WanderTicks int64
@@ -94,20 +103,44 @@ func (m *Manager) Update(id int32, x, y, z float64, yaw, pitch float32, onGround
 	return true
 }
 
-// Damage subtracts from a living entity's health under the manager
-// lock, returning the new health.
-func (m *Manager) Damage(id int32, amount float32) (float32, bool) {
+// Damage applies a hit to a living entity with vanilla's invulnerable-
+// Time semantics: while invulnTicks > 10 only the excess over the last
+// hit lands. It returns the amount actually dealt and the new health.
+func (m *Manager) Damage(id int32, amount float32) (float32, float32, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.byID[id]
-	if !ok {
-		return 0, false
+	if !ok || e.Dying {
+		return 0, 0, false
+	}
+	orig := amount
+	if e.invulnTicks > 10 {
+		if orig <= e.lastHurt {
+			return e.Health, 0, true
+		}
+		amount = orig - e.lastHurt
+	}
+	e.lastHurt = orig
+	e.invulnTicks = 20
+	// Vanilla's damage_dealt is the health the target actually lost:
+	// the hit's amount clamped to the pre-hit health.
+	if amount > e.Health {
+		amount = e.Health
 	}
 	e.Health -= amount
 	if e.Health < 0 {
 		e.Health = 0
 	}
-	return e.Health, true
+	return e.Health, amount, true
+}
+
+// SetDying marks a living entity as dying (health exhausted).
+func (m *Manager) SetDying(id int32) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e, ok := m.byID[id]; ok {
+		e.Dying = true
+	}
 }
 
 // Remove deletes an entity, reporting whether it existed.
@@ -132,7 +165,20 @@ func (m *Manager) Get(id int32) (Entity, bool) {
 	return *e, true
 }
 
-// Count reports live entities.
+// TickDeath advances a dying mob's corpse countdown, reporting the
+// tick at which vanilla fires the death-poof event and removes the
+// entity (deathTime == 20).
+func (m *Manager) TickDeath(id int32) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.byID[id]
+	if !ok {
+		return false
+	}
+	e.deathTicks++
+	return e.deathTicks >= 20
+}
+
 func (m *Manager) Count() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

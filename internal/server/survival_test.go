@@ -314,7 +314,12 @@ func TestSummonAndKillMob(t *testing.T) {
 		t.Fatalf("pig = %+v", e)
 	}
 	for i := 0; i < 10; i++ {
+		e.invulnTicks = 0 // bypass the post-hit grace window
 		s.damageMob(e, 1)
+	}
+	// die() leaves a twenty-tick corpse; tick the poof through.
+	for i := 0; i < 20; i++ {
+		s.mobTickStep()
 	}
 	if _, ok := s.entities.Get(e.ID); ok {
 		t.Fatal("pig survived ten hits")
@@ -329,6 +334,7 @@ func TestPigDropsPorkchop(t *testing.T) {
 		t.Fatal("summon failed")
 	}
 	for i := 0; i < 10; i++ {
+		e.invulnTicks = 0 // bypass the post-hit grace window
 		s.damageMob(e, 1)
 	}
 	s.entities.mu.RLock()
@@ -467,6 +473,7 @@ func TestMobDeathSpawnsXPOrb(t *testing.T) {
 		t.Fatal("summon failed")
 	}
 	for i := 0; i < 10; i++ {
+		e.invulnTicks = 0 // bypass the post-hit grace window
 		s.damageMob(e, 1)
 	}
 	orbType := mustEntityType("experience_orb")

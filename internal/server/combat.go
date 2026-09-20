@@ -55,6 +55,31 @@ func (sess *Session) heldAttackDamage() float32 {
 	return 1
 }
 
+// heldAttackDelayTicks is vanilla's getCurrentItemAttackStrengthDelay:
+// (1 / attackSpeed) * 20, with attackSpeed the base 4 plus the item's
+// mainhand attribute modifier (a stone sword's -2.4 => 12.5 ticks).
+func (sess *Session) heldAttackDelayTicks() float32 {
+	speed := float64(4.0)
+	if held := sess.heldStack(); !held.Empty() {
+		if name, ok := itemNameOf(held.ID); ok {
+			speed += itemAttackSpeedMod[name]
+		}
+	}
+	return 20.0 / float32(speed)
+}
+
+// attackDamage applies vanilla's cooldown scale to the weapon's base
+// damage: damage * (0.2 + 0.8 * scale²), where
+// scale = clamp((attackTicker + 0.5) / delayTicks, 0, 1) — the 0.5 is
+// the partial tick vanilla passes into getAttackStrengthScale.
+func (sess *Session) attackDamage() float32 {
+	scale := (float32(sess.attackTicker) + 0.5) / sess.heldAttackDelayTicks()
+	if scale > 1 {
+		scale = 1
+	}
+	return sess.heldAttackDamage() * (0.2 + 0.8*scale*scale)
+}
+
 // armorDefense sums the armor points of a player's four armor slots.
 func (sess *Session) armorDefense() float32 {
 	total := float32(0)

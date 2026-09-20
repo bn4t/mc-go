@@ -64,13 +64,19 @@ func (s *Server) broadcastEntityEvent(eid int32, status byte) {
 	if e, ok := s.entities.Get(eid); ok {
 		dim = e.Dim
 	}
+	s.broadcastEntityEventTo(nil, dim, eid, status)
+}
+
+// broadcastEntityEventTo fans an entity event out to every play-state
+// session in dim except the given one.
+func (s *Server) broadcastEntityEventTo(except *Session, dim string, eid int32, status byte) {
 	var b protocol.Buffer
 	b.Int(eid)
 	b.Byte(status)
 	body := b.Bytes()
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
-		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
+		if other == except || other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
 			return true
 		}
 		_ = other.write(other.ids().PlayEntityEvent, body)
