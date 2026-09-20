@@ -1738,3 +1738,7 @@ physics through a void dip plus a fed recovery window.
   TestTargetHitParity drops an Owner-tagged summon arrow onto a
   target's top-face center from a shooter 65 blocks away — green
   both targets.
+  effects_changed also covers nether/all_effects ("How Did We Get
+  Here?"): the full 34-effect set granted by /effect finishes
+  all_potions first, then the hidden challenge — deferred
+  visibility emits correctly. TestAllEffectsParity green both.

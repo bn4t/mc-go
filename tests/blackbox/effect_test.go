@@ -63,3 +63,53 @@ func TestEffectAdvParity(t *testing.T) {
 		t.Fatalf("effect parity: %d diffs\n%s", len(diffs), joinLines(diffs))
 	}
 }
+
+// allEffects is the 34-effect set nether/all_effects ("How Did We
+// Get Here?") requires simultaneously — the 17 potion effects plus
+// the non-potion remainder, every one grantable via /effect.
+var allEffects = append(append([]string{}, potionEffects...),
+	"absorption", "bad_omen", "blindness", "breath_of_the_nautilus",
+	"conduit_power", "darkness", "dolphins_grace", "glowing", "haste",
+	"hero_of_the_village", "hunger", "levitation", "mining_fatigue",
+	"nausea", "raid_omen", "trial_omen", "wither")
+
+// TestAllEffectsParity grants all 34 at once on both servers: the
+// all_potions subset finishes first, then all_effects — the hidden
+// challenge def surfaces only after its parent, so the flush diff
+// covers both the deferred visibility and the grant itself.
+func TestAllEffectsParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("AllFxV", "AllFxM"),
+	}, func(s *server.Server) {
+		s.GameMode = server.GameModeCreative
+	})
+	defer targets.cleanup()
+
+	run := func(addr, name string) *advFlush {
+		f := &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}, mobFx: map[int32]string{}}
+		c, pr, pw := joinPlayBlackbox(t, addr, name)
+		defer c.Close()
+		advCollect(t, c, pr, pw, 1200*time.Millisecond, f)
+		for _, eff := range allEffects {
+			sendCommand(t, pw, fmt.Sprintf("effect give @s minecraft:%s infinite", eff))
+			advCollect(t, c, pr, pw, 150*time.Millisecond, f)
+		}
+		advCollect(t, c, pr, pw, 800*time.Millisecond, f)
+		return f
+	}
+
+	want := run(targets.vanilla, "AllFxV")
+	got := run(targets.mcgo, "AllFxM")
+	for _, adv := range [][2]string{
+		{"minecraft:nether/all_potions", "all_effects"},
+		{"minecraft:nether/all_effects", "all_effects"},
+	} {
+		if !want.prog[adv[0]][adv[1]] {
+			t.Fatalf("vanilla: %s not obtained: prog=%v", adv[0], want.prog)
+		}
+	}
+	want.chats, got.chats = nil, nil
+	if diffs := diffAdvFlush(want, got); len(diffs) > 0 {
+		t.Fatalf("all_effects parity: %d diffs\n%s", len(diffs), joinLines(diffs))
+	}
+}
