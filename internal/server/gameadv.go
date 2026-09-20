@@ -41,6 +41,7 @@ type advMeta struct {
 	summons    []summonCond  // summoned_entity — a built entity spawned
 	loots      []lootCond    // player_generates_container_loot — chest opened
 	breds      []breedCond   // bred_animals — a baby was produced
+	tames      []tameCond    // tame_animal — an animal was tamed
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -232,6 +233,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.loots = append(m.loots, parseLootCond(cname, cm["conditions"]))
 				case "minecraft:bred_animals":
 					m.breds = append(m.breds, parseBreedCond(cname, cm["conditions"]))
+				case "minecraft:tame_animal":
+					m.tames = append(m.tames, parseTameCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -1347,4 +1350,80 @@ func (s *Server) onPlayerKilledMob(sess *Session, e Entity) {
 	}
 	ax, _, az, _, _, _ := sess.Pos()
 	s.firePlayerKilledEntity(sess, name, e.X, e.Z, ax, az)
+}
+
+// tameCond is one tame_animal criterion reduced to the tamed entity's
+// type. The "entity" predicate is the only shape vanilla uses.
+type tameCond struct {
+	crit        string
+	animalType  string
+	wolfVariant string // minecraft:components' minecraft:wolf/variant
+	impossible  bool
+}
+
+func parseTameCond(cname string, conds any) tameCond {
+	tc := tameCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "entity" {
+			tc.impossible = true
+			continue
+		}
+		ents, _ := v.([]any)
+		for _, ev := range ents {
+			em, _ := ev.(map[string]any)
+			if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+				tc.impossible = true
+				continue
+			}
+			pred, _ := em["predicate"].(map[string]any)
+			for pk, pv := range pred {
+				if pk == "minecraft:entity_type" {
+					if st, ok := pv.(string); ok {
+						tc.animalType = strings.TrimPrefix(st, "minecraft:")
+					}
+					continue
+				}
+				if pk == "minecraft:components" {
+					cmap, _ := pv.(map[string]any)
+					for ck, cv := range cmap {
+						if ck == "minecraft:wolf/variant" {
+							if st, ok := cv.(string); ok {
+								tc.wolfVariant = strings.TrimPrefix(st, "minecraft:")
+							}
+							continue
+						}
+						tc.impossible = true
+					}
+					continue
+				}
+				tc.impossible = true
+			}
+		}
+	}
+	return tc
+}
+
+// fireTamedAnimal grants tame_animal criteria: bare triggers plus
+// entity_type-filtered ones.
+func (s *Server) fireTamedAnimal(sess *Session, animalType string) {
+	for _, meta := range gameAdvs {
+		for _, tc := range meta.tames {
+			if tc.impossible {
+				continue
+			}
+			if tc.animalType != "" && tc.animalType != animalType {
+				continue
+			}
+			// Only wolves carry a variant component today; a wolf the
+			// server doesn't track counts as vanilla's plains default.
+			if tc.wolfVariant != "" && animalType != "wolf" {
+				continue
+			}
+			if tc.wolfVariant != "" && tc.wolfVariant != "pale" {
+				continue
+			}
+			sess.grantGameCriterion(meta, tc.crit)
+		}
+	}
 }

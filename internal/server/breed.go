@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"math/rand"
 )
 
 // animalFood is the breeding feed each species accepts (vanilla's
@@ -18,7 +19,7 @@ var animalFood = map[string]map[string]bool{
 	"horse":     {"wheat": true, "apple": true, "golden_carrot": true, "golden_apple": true, "hay_block": true},
 	"donkey":    {"wheat": true, "apple": true, "golden_carrot": true, "golden_apple": true, "hay_block": true},
 	"llama":     {"wheat": true, "hay_block": true},
-	"wolf":      {"bone": true, "beef": true, "chicken": true, "mutton": true, "porkchop": true, "rabbit": true, "rotten_flesh": true, "cod": true, "salmon": true, "pufferfish": true, "tropical_fish": true},
+	"wolf":      {"beef": true, "chicken": true, "mutton": true, "porkchop": true, "rabbit": true, "rotten_flesh": true, "cod": true, "salmon": true, "pufferfish": true, "tropical_fish": true},
 	"cat":       {"cod": true, "salmon": true},
 	"ocelot":    {"cod": true, "salmon": true},
 	"fox":       {"sweet_berries": true, "glow_berries": true},
@@ -98,4 +99,62 @@ func (s *Server) feedAnimal(sess *Session, eid int32) {
 	s.broadcastEntitySpawn(nil, *baby)
 	s.broadcastEntityMetadata(baby.ID, encodeLivingMetadata(baby))
 	s.fireBredAnimal(sess, name)
+}
+
+// tameFood maps tameable species to the item that tames them and the
+// 1-in-N success odds vanilla rolls per use: wolves take bones (NOT
+// their breed food — tamed wolves breed on meat), cats and ocelots raw
+// fish, parrots any seed.
+var tameFood = map[string]struct {
+	items map[string]bool
+	odds  int
+}{
+	"wolf":   {map[string]bool{"bone": true}, 3},
+	"cat":    {map[string]bool{"cod": true, "salmon": true}, 3},
+	"ocelot": {map[string]bool{"cod": true, "salmon": true}, 3},
+	"parrot": {map[string]bool{
+		"wheat_seeds": true, "melon_seeds": true, "pumpkin_seeds": true,
+		"beetroot_seeds": true, "torchflower_seeds": true,
+	}, 10},
+}
+
+// tameAnimal handles Interact/Interact-At on a tameable mob holding its
+// taming item: one item is consumed (in survival), the vanilla odds
+// roll decides, and the outcome broadcasts entity status 7 (hearts) or
+// 6 (smoke). A tame fires tame_animal.
+func (s *Server) tameAnimal(sess *Session, eid int32) {
+	s.entities.mu.RLock()
+	e, ok := s.entities.byID[eid]
+	s.entities.mu.RUnlock()
+	if !ok || !e.Living || e.tamed {
+		return
+	}
+	name, ok := EntityTypeName(e.Type)
+	if !ok {
+		return
+	}
+	tf, ok := tameFood[name]
+	if !ok {
+		return
+	}
+	held := sess.heldStack()
+	if held.Empty() {
+		return
+	}
+	iname, ok := itemNameOf(held.ID)
+	if !ok || !tf.items[iname] {
+		return
+	}
+	if sess.mode() == GameModeSurvival || sess.mode() == GameModeAdventure {
+		sess.consumeHeld(1)
+	}
+	if rand.Intn(tf.odds) != 0 {
+		s.broadcastEntityEventTo(nil, e.Dim, e.ID, 6) // tame failed — smoke
+		return
+	}
+	e.tamed = true
+	e.owner = sess.getName()
+	s.broadcastEntityEventTo(nil, e.Dim, e.ID, 7) // tamed — hearts
+	s.broadcastEntityAnimation(sess, sess.entityID.Load(), 0)
+	s.fireTamedAnimal(sess, name)
 }

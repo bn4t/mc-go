@@ -55,6 +55,10 @@ type Entity struct {
 	// inLove countdown plus the player who fed it last.
 	loveTicks int32
 	loveCause string
+	// tamed/owner are the TamableAnimal state the tame_animal trigger
+	// consumes.
+	tamed bool
+	owner string
 	// arrowShooter is the entity id of the player who loosed an arrow;
 	// zero when unattributed.
 	arrowShooter int32

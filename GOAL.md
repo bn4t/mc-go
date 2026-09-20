@@ -1556,3 +1556,13 @@ physics through a void dip plus a fed recovery window.
   and a tp re-streams chunks — without answering chunk_batch_finished
   the entity spawn packets stall for seconds. TestBredAnimalsParity
   green.
+
+- 2026-09-20: tame_animal (tame_an_animal + whole_pack:pale). INTERACT
+  with a tameable species' item rolls vanilla's odds (wolf/cat/ocelot
+  1/3, parrot 1/10), broadcasts entity status 6 (smoke) on failure or
+  7 (hearts) on success, and fires the trigger. Wolf bones are the
+  TAME item — removed from its breed-food list. The whole_pack
+  criteria predicate on minecraft:components' wolf/variant; mc-go
+  doesn't track wolf variants, so an untracked wolf counts as pale
+  (the plains default a bare summon produces on vanilla too).
+  TestTameAnimalParity green.
