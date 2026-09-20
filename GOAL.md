@@ -148,6 +148,19 @@ Mojang server over the wire.
 
 ## Progress log
 
+- 2026-09-20: Armor-on-hurt durability: a hit armor can absorb costs
+  each equipped damageable piece max(1, post-i-frames damage/4) in
+  vanilla's feet-legs-chest-head order, breaking pieces emit the right
+  entity events (head=49, chest=50, legs=51, feet=52) and resync slots
+  ascending. Pinned and fixed along the way: the absorb formula is the
+  real CombatRules one (defense = clamp(armor - dmg/(2+tough/4),
+  armor/5, 20) — replaces the naive 1-armor/25), armor counts pre-wear
+  for its own hit, and the hurt entity event goes to third parties
+  only — the attacker gets nothing, the victim Hurt Animation.
+  `TestArmorWearParity` scripts two sword hits against an armored
+  victim on both servers. Enchantment toughness modifiers and
+  mob-attacking-player paths remain open.
+
 - 2026-09-20: Tool/weapon durability: mining a non-instant block
   wears the held tool by its damage_per_block (generated
   itemToolDamagePerBlock/itemWeaponDamagePerAttack maps from the
