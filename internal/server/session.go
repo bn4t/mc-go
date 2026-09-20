@@ -118,7 +118,11 @@ type Session struct {
 	saturation   float32
 	dead         bool
 	fallDistance float64
-	sneaking     bool
+	// fallStartY is where the current drop began — vanilla's
+	// fall_from_height start_position reads this point.
+	fallStartY float64
+	fallStart  bool
+	sneaking   bool
 	flying       bool
 	// Experience tracked from orbs (vanilla /xp levels ride later).
 	xpTotal    int32

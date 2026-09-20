@@ -56,6 +56,7 @@ type advMeta struct {
 	usings     []usingCond     // using_item — held-use items (spyglass)
 	targetHits []targetHitCond // target_hit — projectiles ringing a target block
 	enters     []enterCond     // enter_block — game tree (end/enter_end_gateway)
+	falls      []fallCond      // fall_from_height — landed drops
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -285,6 +286,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.targetHits = append(m.targetHits, parseTargetHitCond(cname, cm["conditions"]))
 				case "minecraft:enter_block":
 					m.enters = append(m.enters, parseEnterCond(cname, cm["conditions"]))
+				case "minecraft:fall_from_height":
+					m.falls = append(m.falls, parseFallCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -2441,6 +2444,122 @@ func (s *Server) fireGameEnterBlock(sess *Session, feet string) {
 				continue
 			}
 			sess.grantGameCriterion(meta, ec.crit)
+		}
+	}
+}
+
+// fallCond is one fall_from_height criterion reduced to the
+// distance.y bounds (fallen span), the start_position position.y
+// bounds (where the fall began), and the player location predicate's
+// position.y bounds (where the landing happened). Other player
+// content locks the criterion.
+type fallCond struct {
+	crit       string
+	distYMin   float64
+	distYMax   float64
+	hasDist    bool
+	startYMin  float64
+	startYMax  float64
+	hasStart   bool
+	endYMin    float64
+	endYMax    float64
+	hasEnd     bool
+	impossible bool
+}
+
+// parseFallCond reads distance.y, start_position.position.y, and the
+// player[] entity_properties location.position.y bounds.
+func parseFallCond(cname string, conds any) fallCond {
+	fc := fallCond{crit: cname, distYMax: 1e9, startYMax: 1e9, endYMin: -1e9, endYMax: 1e9, startYMin: -1e9}
+	yBounds := func(m map[string]any) (mn, mx float64, ok bool) {
+		pm, _ := m["position"].(map[string]any)
+		ym, _ := pm["y"].(map[string]any)
+		if ym == nil {
+			return 0, 0, false
+		}
+		mn, mx = -1e9, 1e9
+		if v, ok := ym["min"].(float64); ok {
+			mn = v
+		}
+		if v, ok := ym["max"].(float64); ok {
+			mx = v
+		}
+		return mn, mx, true
+	}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "distance":
+			dm, _ := v.(map[string]any)
+			ym, _ := dm["y"].(map[string]any)
+			if ym == nil {
+				fc.impossible = true
+				continue
+			}
+			fc.hasDist = true
+			fc.distYMin, fc.distYMax = -1e9, 1e9
+			if mn, ok := ym["min"].(float64); ok {
+				fc.distYMin = mn
+			}
+			if mx, ok := ym["max"].(float64); ok {
+				fc.distYMax = mx
+			}
+		case "start_position":
+			sp, _ := v.(map[string]any)
+			if mn, mx, ok := yBounds(sp); ok {
+				fc.hasStart = true
+				fc.startYMin, fc.startYMax = mn, mx
+			} else {
+				fc.impossible = true
+			}
+		case "player":
+			lst, _ := v.([]any)
+			for _, entry := range lst {
+				ec, _ := entry.(map[string]any)
+				pred, _ := ec["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					pkn := strings.TrimPrefix(pk, "minecraft:")
+					if pkn == "location" {
+						lm, _ := pv.(map[string]any)
+						if mn, mx, ok := yBounds(lm); ok {
+							fc.hasEnd = true
+							fc.endYMin, fc.endYMax = mn, mx
+						} else {
+							fc.impossible = true
+						}
+					} else {
+						fc.impossible = true
+					}
+				}
+			}
+		default:
+			fc.impossible = true
+		}
+	}
+	return fc
+}
+
+// fireFallFromHeight grants fall_from_height criteria on a landing:
+// startY is where the fall began (the tick fallDistance opened),
+// endY where the player stood on ground again, and distance.y is the
+// signed drop between them — vanilla's trigger takes the same three.
+func (s *Server) fireFallFromHeight(sess *Session, startY, endY float64) {
+	dist := startY - endY
+	for _, meta := range gameAdvs {
+		for _, fc := range meta.falls {
+			if fc.impossible {
+				continue
+			}
+			if fc.hasDist && (dist < fc.distYMin || dist > fc.distYMax) {
+				continue
+			}
+			if fc.hasStart && (startY < fc.startYMin || startY > fc.startYMax) {
+				continue
+			}
+			if fc.hasEnd && (endY < fc.endYMin || endY > fc.endYMax) {
+				continue
+			}
+			sess.grantGameCriterion(meta, fc.crit)
 		}
 	}
 }

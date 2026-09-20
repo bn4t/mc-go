@@ -278,11 +278,20 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 	}
 	// Fall-distance tracking for survival fall damage.
 	if y < oy && !onGround {
+		if !sess.fallStart {
+			sess.fallStart = true
+			sess.fallStartY = oy
+		}
 		sess.fallDistance += oy - y
 	} else if onGround {
+		if sess.fallDistance > 0 && sess.fallStart {
+			s.fireFallFromHeight(sess, sess.fallStartY, y)
+		}
+		sess.fallStart = false
 		s.applyFallDamage(sess)
 	} else if y > oy {
 		sess.fallDistance = 0
+		sess.fallStart = false
 	}
 	// Track the move on the player's entity and fan it out: remote
 	// clients render each other from these teleports.

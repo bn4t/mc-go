@@ -1747,3 +1747,11 @@ physics through a void dip plus a fed recovery window.
   conditions reduce to the block name; state/entity predicates lock.
   TestEnterEndGatewayParity setblocks a gateway and tps the player
   inside — green both targets.
+- 2026-09-20: fall_from_height (adventure/fall_from_world_height
+  "Caves & Cliffs"). Neither server simulates player gravity — the
+  client reports the descent — so the harness streams airborne
+  MovePos packets from y=400 down to the flat ground and lands.
+  mc-go now tracks fallStartY (the tick the drop opened) and fires
+  the trigger on the onGround transition; conditions reduce to
+  distance.y + start_position.y + landing position.y bounds.
+  TestFallFromHeightParity green both targets.
