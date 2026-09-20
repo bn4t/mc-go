@@ -181,6 +181,9 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 			sess.attackTicker = 0
 			dealt, graced, died := s.damageMob(&e, plan.damage)
 			if dealt > 0 {
+				// Melee lands on player_hurt_entity too: the direct
+				// entity is the player and there's no projectile tag.
+				s.firePlayerHurtEntity(sess, "player", false, dealt)
 				if !graced {
 					s.broadcastDamageEvent(e.ID, damageInfo{
 						typeName: "player_attack",
@@ -227,6 +230,9 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 		cause:    sess.entityID.Load(),
 		direct:   sess.entityID.Load(),
 	})
+	if dealt > 0 {
+		s.firePlayerHurtEntity(sess, "player", false, dealt)
+	}
 	sess.attackTicker = 0
 	sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
 	s.sendHurtAnimation(target, hurtYaw(tx, tz, ax, az))
