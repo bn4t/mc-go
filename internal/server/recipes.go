@@ -3,61 +3,17 @@ package server
 import (
 	"strings"
 
+	"mc-go/internal/data"
 	"mc-go/internal/world"
 )
 
 // Crafting: the player inventory's 2x2 grid (menu slots 1-4, result at
-// 0) plus the crafting-table 3x3 when that menu lands. Recipes use the
-// vanilla shape rules: patterns are trimmed to their occupied bounding
-// box and may sit anywhere in the grid; shapeless recipes match any
-// arrangement.
-
-// shapedRecipe matches a normalized grid pattern. Runes in Pattern are
-// keys into Key, naming an item. ' ' means empty.
-type shapedRecipe struct {
-	Pattern []string
-	Key     map[byte]string
-	Result  string
-	Count   int32
-}
-
-// shapelessRecipe matches any arrangement of its ingredient names.
-type shapelessRecipe struct {
-	Ingredients []string
-	Result      string
-	Count       int32
-}
-
-var shapedRecipes = []shapedRecipe{
-	// Torches: coal above a stick.
-	{Pattern: []string{"C", "S"}, Key: map[byte]string{'C': "coal", 'S': "stick"}, Result: "torch", Count: 4},
-	// Stick: two planks vertically (any plank kind handled below).
-	{Pattern: []string{"P", "P"}, Key: map[byte]string{'P': "*planks"}, Result: "stick", Count: 4},
-	// Crafting table: 2x2 planks.
-	{Pattern: []string{"PP", "PP"}, Key: map[byte]string{'P': "*planks"}, Result: "crafting_table", Count: 1},
-	// Furnace: eight cobblestone in a ring.
-	{Pattern: []string{"CCC", "C C", "CCC"}, Key: map[byte]string{'C': "cobblestone"}, Result: "furnace", Count: 1},
-	// Chest: eight planks in a ring.
-	{Pattern: []string{"PPP", "P P", "PPP"}, Key: map[byte]string{'P': "*planks"}, Result: "chest", Count: 1},
-}
-
-var shapelessRecipes = []shapelessRecipe{
-	{Ingredients: []string{"oak_log"}, Result: "oak_planks", Count: 4},
-	{Ingredients: []string{"spruce_log"}, Result: "spruce_planks", Count: 4},
-	{Ingredients: []string{"birch_log"}, Result: "birch_planks", Count: 4},
-	{Ingredients: []string{"jungle_log"}, Result: "jungle_planks", Count: 4},
-	{Ingredients: []string{"acacia_log"}, Result: "acacia_planks", Count: 4},
-	{Ingredients: []string{"dark_oak_log"}, Result: "dark_oak_planks", Count: 4},
-}
-
-// itemMatches reports whether an item name satisfies a recipe key.
-// Keys starting with '*' match a family suffix (e.g. "*planks").
-func itemMatches(key, itemName string) bool {
-	if strings.HasPrefix(key, "*") {
-		return strings.HasSuffix(itemName, key[1:])
-	}
-	return key == itemName
-}
+// 0) plus the crafting-table 3x3 when that menu lands. Recipes come
+// from the generated vanilla recipe table (data.Recipes); matching
+// follows the vanilla shape rules: patterns are trimmed to their
+// occupied bounding box and may sit anywhere in the grid, a shaped
+// recipe also matches horizontally mirrored, and shapeless recipes
+// match any arrangement.
 
 // craftGrid is a 3x3 crafting grid in row-major order. The player
 // inventory uses the top-left 2x2 subset of it.
@@ -82,29 +38,61 @@ func gridNames(g craftGrid) ([]string, []bool, bool) {
 	return names, filled, true
 }
 
-// matchShapeless finds a shapeless recipe for the grid.
-func matchShapeless(g craftGrid) (ItemStack, bool) {
-	names, _, ok := gridNames(g)
+// gridBox returns the occupied bounding box of the grid as min/max row
+// and column; maxRow is -1 when the grid is empty.
+func gridBox(filled []bool) (minRow, minCol, maxRow, maxCol int) {
+	minRow, minCol, maxRow, maxCol = 3, 3, -1, -1
+	for i, f := range filled {
+		if !f {
+			continue
+		}
+		row, col := i/3, i%3
+		if row < minRow {
+			minRow = row
+		}
+		if row > maxRow {
+			maxRow = row
+		}
+		if col < minCol {
+			minCol = col
+		}
+		if col > maxCol {
+			maxCol = col
+		}
+	}
+	return
+}
+
+// recipeStack converts a data.ItemStack into a wire ItemStack.
+func recipeStack(out data.ItemStack) (ItemStack, bool) {
+	id, ok := world.ItemID(out.Item)
 	if !ok {
 		return ItemStack{}, false
 	}
+	return ItemStack{ID: id, Count: out.Count}, true
+}
+
+// matchShapeless finds the first shapeless recipe whose ingredient
+// multiset is exactly the grid's contents.
+func matchShapeless(names []string, filled []bool) (ItemStack, bool) {
 	var present []string
-	for _, n := range names {
-		if n != "" {
+	for i, n := range names {
+		if filled[i] {
 			present = append(present, n)
 		}
 	}
-	for _, r := range shapelessRecipes {
-		if len(r.Ingredients) != len(present) {
+	for i := range data.Recipes {
+		r := &data.Recipes[i]
+		if r.Type != data.CraftingShapeless || len(r.Ingredients) != len(present) {
 			continue
 		}
 		used := make([]bool, len(present))
 		matched := true
-		for _, want := range r.Ingredients {
+		for _, in := range r.Ingredients {
 			found := false
-			for i, got := range present {
-				if !used[i] && itemMatches(want, got) {
-					used[i] = true
+			for j, got := range present {
+				if !used[j] && in.Accepts(got) {
+					used[j] = true
 					found = true
 					break
 				}
@@ -115,8 +103,8 @@ func matchShapeless(g craftGrid) (ItemStack, bool) {
 			}
 		}
 		if matched {
-			if id, ok := world.ItemID(r.Result); ok {
-				return ItemStack{ID: id, Count: r.Count}, true
+			if st, ok := recipeStack(r.Result); ok {
+				return st, true
 			}
 		}
 	}
@@ -155,78 +143,72 @@ func trimPattern(rows []string) []string {
 	return out
 }
 
-// matchShaped finds a shaped recipe whose normalized pattern matches
-// the grid's normalized occupied box.
-func matchShaped(g craftGrid) (ItemStack, bool) {
-	names, filled, ok := gridNames(g)
-	if !ok {
-		return ItemStack{}, false
-	}
-	minRow, minCol := 3, 3
-	maxRow, maxCol := -1, -1
-	for i, f := range filled {
-		if !f {
-			continue
-		}
-		row, col := i/3, i%3
-		if row < minRow {
-			minRow = row
-		}
-		if row > maxRow {
-			maxRow = row
-		}
-		if col < minCol {
-			minCol = col
-		}
-		if col > maxCol {
-			maxCol = col
+// patternAt reports whether the trimmed pattern, optionally mirrored
+// horizontally the way vanilla shaped matching allows, occupies the
+// grid's bounding box cell-for-cell.
+func patternAt(pat []string, r *data.Recipe, names []string, filled []bool, minRow, minCol int, mirror bool) bool {
+	for y := range pat {
+		for x := 0; x < len(pat[y]); x++ {
+			px := x
+			if mirror {
+				px = len(pat[y]) - 1 - x
+			}
+			gi := (minRow+y)*3 + (minCol + x)
+			if pat[y][px] == ' ' {
+				if filled[gi] {
+					return false
+				}
+				continue
+			}
+			if !filled[gi] || !r.Key[pat[y][px]].Accepts(names[gi]) {
+				return false
+			}
 		}
 	}
+	return true
+}
+
+// matchShaped finds the first shaped recipe whose normalized pattern
+// matches the grid's normalized occupied box, trying the mirrored
+// pattern too — vanilla allows horizontal flips.
+func matchShaped(names []string, filled []bool) (ItemStack, bool) {
+	minRow, minCol, maxRow, maxCol := gridBox(filled)
 	if maxRow < 0 {
 		return ItemStack{}, false
 	}
 	boxH, boxW := maxRow-minRow+1, maxCol-minCol+1
 
-	for _, r := range shapedRecipes {
+	for i := range data.Recipes {
+		r := &data.Recipes[i]
+		if r.Type != data.CraftingShaped {
+			continue
+		}
 		pat := trimPattern(r.Pattern)
 		if len(pat) != boxH || len(pat[0]) != boxW {
 			continue
 		}
-		matched := true
-		for y := range pat {
-			for x := 0; x < len(pat[y]); x++ {
-				gi := (minRow+y)*3 + (minCol + x)
-				if pat[y][x] == ' ' {
-					if filled[gi] {
-						matched = false
-						break
-					}
-					continue
-				}
-				if !filled[gi] || !itemMatches(r.Key[pat[y][x]], names[gi]) {
-					matched = false
-					break
-				}
-			}
-			if !matched {
-				break
-			}
-		}
-		if matched {
-			if id, ok := world.ItemID(r.Result); ok {
-				return ItemStack{ID: id, Count: r.Count}, true
+		if patternAt(pat, r, names, filled, minRow, minCol, false) ||
+			patternAt(pat, r, names, filled, minRow, minCol, true) {
+			if st, ok := recipeStack(r.Result); ok {
+				return st, true
 			}
 		}
 	}
 	return ItemStack{}, false
 }
 
-// craftResult computes the 2x2 grid's result stack.
+// craftResult computes the grid's result stack. Shaped recipes win
+// over shapeless ones, matching the order a vanilla table resolves
+// them.
 func craftResult(g craftGrid) (ItemStack, bool) {
-	if out, ok := matchShaped(g); ok {
+	names, filled, ok := gridNames(g)
+	if !ok {
+		return ItemStack{}, false
+	}
+	if out, ok := matchShaped(names, filled); ok {
 		return out, true
 	}
-	return matchShapeless(g)
+	return matchShapeless(names, filled)
 }
 
 // playerCraftGrid snapshots the session's 2x2 grid inside a 3x3 view.

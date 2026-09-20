@@ -106,7 +106,7 @@ func main() {
 	}
 	log.Printf("mc-go listening on %s via %s frontend (versions %s, plugins %d)",
 		s.Addr, fe.Name(), strings.Join(vers, ","), len(plugin.All()))
-	if err := fe.Serve(ln); err != nil {
+	if err := s.ServeFrontend(*frontendName, ln); err != nil {
 		if s.ShuttingDown() {
 			return // planned /stop or signal: clean exit
 		}

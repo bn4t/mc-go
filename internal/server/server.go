@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -282,12 +283,19 @@ func (s *Server) InitPlugins() error {
 
 // Serve accepts Java Edition connections on ln until it closes. It
 // delegates to the registered "java" frontend so every protocol enters
-// through the same Frontend abstraction; use NewFrontend to serve a
-// different protocol. This method blocks.
+// through the same Frontend abstraction. This method blocks.
 func (s *Server) Serve(ln net.Listener) error {
-	fe, ok := NewFrontend("java", s)
+	return s.ServeFrontend("java", ln)
+}
+
+// ServeFrontend is Serve for a named frontend: it loads the world and
+// starts the game loop (tick loop + time sync) before handing the
+// listener to the frontend. Programs that pick a frontend by name must
+// call this rather than Frontend.Serve so the world actually ticks.
+func (s *Server) ServeFrontend(name string, ln net.Listener) error {
+	fe, ok := NewFrontend(name, s)
 	if !ok {
-		return fmt.Errorf("java frontend not registered")
+		return fmt.Errorf("%s frontend not registered", name)
 	}
 	// The world is loaded here rather than left to the caller, so a
 	// server configured with a world directory serves it even when the
@@ -341,6 +349,7 @@ func (s *Server) untrack(sess *Session) {
 			"name": name,
 		})
 	}
+	log.Printf("%s left the game", name)
 	s.broadcastSystemChat("<" + name + "> left the game")
 	s.broadcastPlayerInfoRemove([][16]byte{sess.getUUID()})
 	// Retire the player's entity everywhere it was spawned.

@@ -1,49 +1,26 @@
 package server
 
 import (
+	"mc-go/internal/data"
 	"mc-go/internal/world"
 )
 
-// Recipe book: a stable network-id index over the recipe table, and the
-// Place Recipe handler that fills the open crafting grid from it. The
-// index is what ties a client's recipe click back to a server recipe,
-// so the ids must be assigned in one place and never reordered.
-
-// recipeEntry is one recipe as the recipe book sees it: the result plus
-// the ingredient shape the grid must be filled with.
-type recipeEntry struct {
-	result      string
-	count       int32
-	pattern     []string // shaped rows; nil for shapeless
-	key         map[byte]string
-	ingredients []string // shapeless ingredient names
-}
-
-// recipeIndex is the ordered recipe table. Network ids are indices into
-// this slice; Recipe Book Add and Place Recipe both resolve through it.
-func recipeIndex() []recipeEntry {
-	out := make([]recipeEntry, 0, len(shapedRecipes)+len(shapelessRecipes))
-	for _, r := range shapedRecipes {
-		out = append(out, recipeEntry{
-			result: r.Result, count: r.Count, pattern: r.Pattern, key: r.Key,
-		})
-	}
-	for _, r := range shapelessRecipes {
-		out = append(out, recipeEntry{
-			result: r.Result, count: r.Count, ingredients: r.Ingredients,
-		})
-	}
-	return out
-}
+// Recipe book: the network recipe id indexes data.Recipes directly,
+// and the Place Recipe handler fills the open crafting grid from it.
+// The index is what ties a client's recipe click back to a server
+// recipe, so it must never be reordered.
 
 // recipeByID resolves a network recipe id, reporting false when the id
-// is outside the index.
-func recipeByID(id int32) (recipeEntry, bool) {
-	all := recipeIndex()
-	if id < 0 || int(id) >= len(all) {
-		return recipeEntry{}, false
+// is outside the table or not a grid-craftable recipe.
+func recipeByID(id int32) (data.Recipe, bool) {
+	if id < 0 || int(id) >= len(data.Recipes) {
+		return data.Recipe{}, false
 	}
-	return all[id], true
+	r := data.Recipes[id]
+	if r.Type != data.CraftingShaped && r.Type != data.CraftingShapeless {
+		return data.Recipe{}, false
+	}
+	return r, true
 }
 
 // gridSide reports the open crafting grid's side length: 3 for a
@@ -97,19 +74,19 @@ func (s *Server) placeRecipe(sess *Session, windowID int32, recipeID int32, make
 	s.syncCraftGrid(sess, w, side)
 }
 
-// recipeShape normalises a recipe into a side x side item-name matrix
+// recipeShape normalises a recipe into a side x side ingredient matrix
 // (row-major), reporting false when the recipe cannot fit.
-func recipeShape(rec recipeEntry, side int) ([]string, bool) {
-	grid := make([]string, side*side)
-	if rec.pattern == nil {
+func recipeShape(rec data.Recipe, side int) ([]data.Ingredient, bool) {
+	grid := make([]data.Ingredient, side*side)
+	if rec.Type == data.CraftingShapeless {
 		// Shapeless: place the ingredients in the first cells.
-		if len(rec.ingredients) > side*side {
+		if len(rec.Ingredients) > side*side {
 			return nil, false
 		}
-		copy(grid, rec.ingredients)
+		copy(grid, rec.Ingredients)
 		return grid, true
 	}
-	rows := trimPattern(rec.pattern)
+	rows := trimPattern(rec.Pattern)
 	if len(rows) == 0 || len(rows) > side {
 		return nil, false
 	}
@@ -127,11 +104,11 @@ func recipeShape(rec recipeEntry, side int) ([]string, bool) {
 			if row[x] == ' ' {
 				continue
 			}
-			name, ok := rec.key[row[x]]
+			in, ok := rec.Key[row[x]]
 			if !ok {
 				return nil, false
 			}
-			grid[y*side+x] = name
+			grid[y*side+x] = in
 		}
 	}
 	return grid, true
@@ -161,51 +138,27 @@ func (s *Server) clearGrid(sess *Session, w *openWindow, side int) {
 }
 
 // fillGrid draws one of each required ingredient from the inventory
-// into its grid cell. Ingredients the inventory cannot supply leave the
-// cell empty, which is what vanilla does when the recipe is only partly
-// craftable.
-func (s *Server) fillGrid(sess *Session, w *openWindow, side int, shape []string) {
+// into its grid cell, trying the ingredient's acceptable items in
+// order and taking the first the player has. Ingredients the inventory
+// cannot supply leave the cell empty, which is what vanilla does when
+// the recipe is only partly craftable.
+func (s *Server) fillGrid(sess *Session, w *openWindow, side int, shape []data.Ingredient) {
 	for cell, want := range shape {
-		if want == "" {
+		if len(want.Items) == 0 {
 			continue
 		}
-		itemID, ok := itemForRecipeKey(want)
-		if !ok {
-			continue
-		}
-		if !sess.takeOneFromInventory(itemID) {
-			continue
-		}
-		s.setGridStack(sess, w, gridSlot(w, side, cell), ItemStack{ID: itemID, Count: 1})
-	}
-}
-
-// itemForRecipeKey resolves a recipe key to a concrete item id. Keys
-// starting with '*' are families, resolved to their first member in
-// registry order so placement is deterministic.
-func itemForRecipeKey(key string) (int32, bool) {
-	if len(key) == 0 {
-		return 0, false
-	}
-	if key[0] != '*' {
-		return world.ItemID("minecraft:" + key)
-	}
-	suffix := key[1:]
-	for name, id := range world.ItemIDs {
-		if hasSuffixAfterPrefix(name, suffix) {
-			return id, true
+		for _, name := range want.Items {
+			itemID, ok := world.ItemID(name)
+			if !ok {
+				continue
+			}
+			if !sess.takeOneFromInventory(itemID) {
+				continue
+			}
+			s.setGridStack(sess, w, gridSlot(w, side, cell), ItemStack{ID: itemID, Count: 1})
+			break
 		}
 	}
-	return 0, false
-}
-
-// hasSuffixAfterPrefix reports whether a "minecraft:x_suffix" name ends
-// with "_suffix".
-func hasSuffixAfterPrefix(name, suffix string) bool {
-	if len(name) < len(suffix)+1 {
-		return false
-	}
-	return name[len(name)-len(suffix)-1] == '_' && name[len(name)-len(suffix):] == suffix
 }
 
 // gridStack reads one crafting-grid slot for the open menu.

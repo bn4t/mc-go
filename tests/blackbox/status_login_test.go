@@ -130,6 +130,35 @@ func readLoginSuccess(t *testing.T, pr *protocol.Reader, pw *protocol.Writer, ad
 		if err != nil {
 			t.Fatalf("%s: success name: %v", addr, err)
 		}
+		props, err := r.VarInt()
+		if err != nil {
+			t.Fatalf("%s: success props: %v", addr, err)
+		}
+		for i := int32(0); i < props; i++ {
+			if _, err = r.String(); err != nil {
+				t.Fatalf("%s: prop name: %v", addr, err)
+			}
+			if _, err = r.String(); err != nil {
+				t.Fatalf("%s: prop value: %v", addr, err)
+			}
+			signed, err := r.Bool()
+			if err != nil {
+				t.Fatalf("%s: prop signed: %v", addr, err)
+			}
+			if signed {
+				if _, err = r.String(); err != nil {
+					t.Fatalf("%s: prop sig: %v", addr, err)
+				}
+			}
+		}
+		// 26.2 trails the properties with a session-id UUID; without
+		// it the real client kicks on decode.
+		if _, err := r.UUID(); err != nil {
+			t.Fatalf("%s: missing trailing session id: %v", addr, err)
+		}
+		if r.Remaining() != 0 {
+			t.Fatalf("%s: success trailing bytes: %d", addr, r.Remaining())
+		}
 		return uuid, name
 	}
 }

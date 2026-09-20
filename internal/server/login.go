@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/rand"
+	"log"
 	"time"
 
 	"mc-go/internal/event"
@@ -41,6 +43,7 @@ func (s *Server) handleLogin(sess *Session) {
 	if s.bus != nil {
 		s.bus.Publish(event.TopicPlayerLogin, map[string]string{"name": name})
 	}
+	log.Printf("%s logged in from %s", name, sess.conn.RemoteAddr())
 
 	// Negotiate compression like vanilla (default threshold 256):
 	// Set Compression goes out raw, everything after is framed. The
@@ -59,6 +62,13 @@ func (s *Server) handleLogin(sess *Session) {
 	b.UUID(sess.uuid)
 	b.String(name)
 	b.VarInt(0) // property count: none in offline mode
+	// The session id trails the properties. The real 26.2 client
+	// decodes a UUID here and kicks without it.
+	var sid [16]byte
+	_, _ = rand.Read(sid[:])
+	sid[6] = (sid[6] & 0x0f) | 0x40
+	sid[8] = (sid[8] & 0x3f) | 0x80
+	b.UUID(sid)
 	if err := sess.write(sess.ids().LoginSuccess, b.Bytes()); err != nil {
 		return
 	}

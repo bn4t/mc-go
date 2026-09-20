@@ -96,8 +96,9 @@ Mojang server over the wire.
   output clicks, close returns with no close echo; other menus
   - enchanting, brewing, beacon, lectern - still open)
 - [ ] Survival mode: health, hunger, regen, death/respawn
-- [~] Crafting, recipes, recipe book (join registry served verbatim;
-  unlock engine pending)
+- [~] Crafting, recipes, recipe book (full data.Recipes table wired,
+  shaped/shapeless/mirror parity vs 26.2; special/transmute/smithing
+  types and the unlock engine pending)
 - [ ] Advancements, statistics, scoreboard, teams
 - [ ] Player data persistence
 
@@ -1039,3 +1040,34 @@ Mojang server over the wire.
   rapid-rejoin corruption bundle (clock ids 8/9, count-01) with a
   clean spaced four-join run. None of these bite the harness, whose
   joins are young, narrow-eid, and solo.
+
+- 2026-09-20: Real-client playtest round found three join-blocking
+  wire bugs and one dead loop, all fixed and pinned. Login finish now
+  appends the trailing session-id UUID the 26.2 client requires
+  (DecoderException without it; readLoginSuccess parses the property
+  array and the 16-byte tail end-exact). The join-time set_time now
+  sends the two-clock form measured live - clock 0 (overworld) carries
+  DAY time, clock 1 (the_end) carries AGE, disambiguated by adding 5000
+  and rejoining; the stale {1,2} ids kicked the client because the
+  clock registry only has entries 0 and 1. The rejoin
+  update_attributes stub is now the real triple (block range 8=4.5,
+  entity range 13=3.0, speed 26=0.1, all bare) - the old filler ids
+  84/132 are past the static 40-entry attribute registry and kick.
+  Survival dig had two bugs: a repeated start on the same block must
+  RESTART the timer with the finish latched (measured: re-start at
+  ~10t then finish breaks grass at ~28t, not ~18t, not never), which
+  mc-go previously cancelled; and the shipped binary never ticked at
+  all - main called fe.Serve directly so startGameTicks/startTimeSync
+  were dead code (proven live: gametime stayed 0 for minutes, /tick
+  step advanced it, and a stepped tick completed a latched dig).
+  Server.ServeFrontend now owns the lifecycle for any named frontend
+  and main uses it. Join/leave log lines added. Crafting now resolves
+  against the full generated data.Recipes table (shaped with vanilla's
+  horizontal mirroring, shapeless as multisets, tag-flattened
+  ingredients) and the recipe book indexes the same table - the old
+  hand-written 11-recipe list and its broken key resolver are gone.
+  TestCraftRecipeParity replays 8 click sequences on both servers
+  (pickaxe, stairs + mirrored stairs, corner-placed log, shapeless
+  andesite, cake, a damaged-bow dispenser, 2x2) and every slot/carry
+  state matches vanilla end-to-end. Probes deleted once pinned; the
+  repeated-start discriminator lives on in TestDigParity.

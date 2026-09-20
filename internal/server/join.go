@@ -131,15 +131,13 @@ func (s *Server) sendInitializeBorder(sess *Session) error {
 }
 
 // sendUpdateTime sends the join-time clock state, matching the real
-// server field for field on a young world: the world age, then the
-// game-time clock (id 1) at the age and the day clock at the day time,
-// each with a fractional part and a rate of one tick per tick. The day
-// clock's id shuffles per join on vanilla (0 and 2 both observed on
-// young pristine worlds, even across rejoins of one name), so mc-go
-// sends 2 and the tests accept either; the time carried is identical.
-// Past a few hundred ticks of age vanilla flips the day clock's id to
-// 0; the exact threshold is unmeasured (between ages 222 and 382), so
-// mc-go always sends the young form until a threshold hunt pins it.
+// server field for field on a young world: the world age, then two
+// clock entries - the overworld clock (id 0) carrying the day time
+// and the the_end clock (id 1) carrying the age - each with a
+// fractional part and a rate of one tick per tick. The 26.2
+// world_clock registry has only those two entries; a clock id
+// outside it kicks the client on decode. (Measured with day != age:
+// id 0 took the day time, id 1 the age.)
 func (s *Server) sendUpdateTime(sess *Session) error {
 	return sess.write(sess.ids().PlayUpdateTime, s.updateTimeBody())
 }
@@ -150,12 +148,12 @@ func (s *Server) updateTimeBody() []byte {
 	var b protocol.Buffer
 	b.Long(age)
 	b.VarInt(2)
-	b.VarInt(1)
-	b.VarLong(age)
+	b.VarInt(0)
+	b.VarLong(s.dayTime())
 	b.Float(0) // fractional time
 	b.Float(1) // rate: clock ticks per client tick
-	b.VarInt(2)
-	b.VarLong(s.dayTime())
+	b.VarInt(1)
+	b.VarLong(age)
 	b.Float(0)
 	b.Float(1)
 	return b.Bytes()

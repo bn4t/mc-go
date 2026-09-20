@@ -16,22 +16,10 @@ import (
 // (key string, big-endian double amount, op) triples.
 //
 // A name the world has never seen gets one Update Attributes with all
-// three entries. A returning name gets a reset stub - always carrying
-// the bare speed entry plus the bare range entries and/or degenerate
-// filler entries - followed by a second packet with the two ranged
-// modifiers, which overwrite the bare entries. Entry order shuffles per
-// send on the real server, so tests compare canonically.
-//
-// The fillers are 10-byte degenerate entries (ids 84 and 132, outside
-// the 40-entry attribute registry) with no modifier count, replayed
-// byte-for-byte: d4 00 08 plus seven zero bytes, and 84 01 20 plus
-// seven zero bytes. Their shape never varied across captures, and the
-// client demonstrably tolerates them - every vanilla rejoin carries
-// them - so replaying the same bytes carries the same tolerance. Which
-// stub mix a rejoin draws (bare ranges, one filler, or two) showed no
-// pattern across captures, so mc-go sends one fixed mix and the tests
-// pin the invariant (speed always present, modifiers always follow)
-// rather than the exact mix.
+// three entries. A returning name gets a reset stub - the three bare
+// entries with no modifiers - followed by a second packet with the two
+// ranged modifiers, which overwrite the bare entries. Entry order
+// shuffles per send on the real server, so tests compare canonically.
 const (
 	attrBlockInteractionRange  = 8
 	attrEntityInteractionRange = 13
@@ -39,11 +27,6 @@ const (
 
 	attrModCreativeBlockRange  = "minecraft:creative_mode_block_range"
 	attrModCreativeEntityRange = "minecraft:creative_mode_entity_range"
-)
-
-var (
-	attrFillerBlock  = []byte{0xd4, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-	attrFillerEntity = []byte{0x84, 0x01, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 )
 
 // attrModifier is one attribute modifier triple: key, amount, op.
@@ -86,15 +69,17 @@ func updateAttributesFull(eid int32) []byte {
 	return b.Bytes()
 }
 
-// updateAttributesStub builds the rejoin reset: bare speed plus both
-// filler entries.
+// updateAttributesStub builds the rejoin reset: the three bare
+// entries with no modifiers, which is the stub shape the real 26.2
+// server sends (filler entries replayed from older captures carried
+// ids past the 40-entry attribute registry and kick the real client).
 func updateAttributesStub(eid int32) []byte {
 	var b protocol.Buffer
 	b.VarInt(eid)
 	b.VarInt(3)
+	writeAttrEntry(&b, attrBlockInteractionRange, 4.5)
+	writeAttrEntry(&b, attrEntityInteractionRange, 3.0)
 	writeAttrEntry(&b, attrMovementSpeed, float64(float32(0.1)))
-	b.Raw(attrFillerEntity)
-	b.Raw(attrFillerBlock)
 	return b.Bytes()
 }
 

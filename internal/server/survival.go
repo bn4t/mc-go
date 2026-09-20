@@ -118,7 +118,8 @@ func withinReach(sess *Session, pos world.Pos, reach float64) bool {
 // its own never destroys anything, a start plus finish destroys the
 // block after exactly the hardness-derived number of ticks counted from
 // the start, an abort discards the dig, and a second start on the same
-// block cancels it and is answered with a resync of the true block.
+// block restarts the timer and is answered with a resync of the true
+// block; the real client also retries finish while a dig is latched.
 func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) []int {
 	blk := sess.world().GetBlock(pos)
 	info := hardnessOf(blk)
@@ -143,9 +144,6 @@ func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) [
 			// Vanilla answers a redundant start with the truth about
 			// the block, which is what resynchronizes a client that
 			// predicted a break the server did not agree to.
-			sess.digMu.Lock()
-			sess.digActive = false
-			sess.digMu.Unlock()
 			s.sendBlockResync(sess, pos)
 		}
 	case digCancel:
