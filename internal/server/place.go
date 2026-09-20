@@ -238,6 +238,16 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 			}
 		}
 	}
+	// A bed click sleeps — it never places the held item, even
+	// holding blocks. slept_in_bed fires when the gate passes.
+	if isBedBlock(cur) {
+		s.useBed(sess, clicked)
+		acked = true
+		if seq >= 0 {
+			s.sendBlockAck(sess, seq)
+		}
+		return
+	}
 	// Interacting with a sign dyes it, waxes it, makes its text glow,
 	// or opens its editor - it never places.
 	if isSignLikeBlock(cur) {

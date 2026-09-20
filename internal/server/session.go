@@ -236,6 +236,11 @@ type Session struct {
 	// session entered play, where that grace is counted from.
 	loaded   atomic.Bool
 	joinTick atomic.Int64
+	// sleeping/sleepTicks are the bed state: sleeping is set by a bed
+	// click inside the sleep window; GameTick increments sleepTicks and
+	// skips the night once everyone has been under 100 ticks.
+	sleeping   atomic.Bool
+	sleepTicks atomic.Int32
 	// Player statistics counters and the last-sent baseline.
 	statMu sync.Mutex
 	stats  *statStore

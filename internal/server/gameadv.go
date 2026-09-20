@@ -42,6 +42,7 @@ type advMeta struct {
 	loots      []lootCond    // player_generates_container_loot — chest opened
 	breds      []breedCond   // bred_animals — a baby was produced
 	tames      []tameCond    // tame_animal — an animal was tamed
+	sleeps     []sleepCond   // slept_in_bed — entered a bed
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -235,6 +236,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.breds = append(m.breds, parseBreedCond(cname, cm["conditions"]))
 				case "minecraft:tame_animal":
 					m.tames = append(m.tames, parseTameCond(cname, cm["conditions"]))
+				case "minecraft:slept_in_bed":
+					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -1424,6 +1427,33 @@ func (s *Server) fireTamedAnimal(sess *Session, animalType string) {
 				continue
 			}
 			sess.grantGameCriterion(meta, tc.crit)
+		}
+	}
+}
+
+// sleepCond is a slept_in_bed criterion — vanilla's trigger carries no
+// conditions, so any present key locks it.
+type sleepCond struct {
+	crit       string
+	impossible bool
+}
+
+func parseSleepCond(cname string, conds any) sleepCond {
+	sc := sleepCond{crit: cname}
+	if cm, _ := conds.(map[string]any); len(cm) > 0 {
+		sc.impossible = true
+	}
+	return sc
+}
+
+// fireSleptInBed grants slept_in_bed criteria on bed entry.
+func (s *Server) fireSleptInBed(sess *Session) {
+	for _, meta := range gameAdvs {
+		for _, sc := range meta.sleeps {
+			if sc.impossible {
+				continue
+			}
+			sess.grantGameCriterion(meta, sc.crit)
 		}
 	}
 }

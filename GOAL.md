@@ -1566,3 +1566,13 @@ physics through a void dip plus a fed recovery window.
   doesn't track wolf variants, so an untracked wolf counts as pale
   (the plains default a bare summon produces on vanilla too).
   TestTameAnimalParity green.
+
+- 2026-09-20: slept_in_bed (adventure/sleep_in_bed). A right-click on a
+  bed inside the night window (daytime mod 24000 ∈ [12542,23459]) sets
+  the spawn point (block.minecraft.set_spawn action bar) and fires the
+  trigger; outside the window block.minecraft.bed.no_sleep shows. The
+  session sleeps for vanilla's 100 ticks, then — once every play
+  session in the dimension is under — the world skips to the next
+  morning and broadcasts sleep.skipping_night. Setblock places only a
+  bed foot, which vanilla can't sleep in, so the test places through
+  the real item-use path. TestSleptInBedParity green.
