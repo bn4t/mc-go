@@ -6,6 +6,7 @@ import (
 
 	"mc-go/internal/event"
 	"mc-go/internal/protocol"
+	"mc-go/internal/world"
 )
 
 // handlePlay runs the Play stage: Join Game + Synchronize Player
@@ -149,6 +150,9 @@ func (s *Server) handlePlay(sess *Session) {
 	// The burst is complete: leave fan-out may now reference us.
 	sess.spawned.Store(true)
 	s.broadcastEquipment(sess)
+	// Vanilla marks every stat dirty when the player is added; the
+	// first stats request then dumps the whole table.
+	sess.markAllStatsDirty()
 	sess.markAlive()
 	sess.teleportAck.Store(-1)
 	stopKA := sess.startKeepAlive()
@@ -264,6 +268,7 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 		return
 	}
 	sess.setPos(x, y, z, yaw, pitch, onGround)
+	s.awardMoveStats(sess, ox, oy, oz, x, y, z, onGround)
 	// Sprinting drains hunger by distance travelled.
 	if sess.sprinting && s.GameMode == GameModeSurvival {
 		dx, dz := x-ox, z-oz
@@ -296,6 +301,62 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 	// loads before it re-centers.
 	_ = s.sendWindow(sess, int(x)>>4, int(z)>>4)
 	s.sendCenterChunk(sess, int(x)>>4, int(z)>>4)
+}
+
+// awardMoveStats buckets the travelled distance into the *_one_cm
+// counters the way vanilla's checkMovementStatistics does: climbing
+// first, then water, then grounded, then airborne.
+func (s *Server) awardMoveStats(sess *Session, ox, oy, oz, x, y, z float64, onGround bool) {
+	if s.GameMode == GameModeSpectator {
+		return
+	}
+	dx, dy, dz := x-ox, y-oy, z-oz
+	cmXZ := int32(math.Round(math.Sqrt(dx*dx+dz*dz) * 100))
+	cmY := int32(math.Round(math.Abs(dy) * 100))
+	if cmXZ == 0 && cmY == 0 {
+		return
+	}
+	feet := world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}
+	feetName, _ := world.StateOwner(sess.world().GetBlock(feet))
+	belowName, _ := world.StateOwner(sess.world().GetBlock(world.Pos{X: feet.X, Y: feet.Y - 1, Z: feet.Z}))
+	switch {
+	case isClimbableBlock(feetName) && dy != 0:
+		sess.addCustomStat("climb_one_cm", cmY)
+	case feetName == "water":
+		if onGround {
+			sess.addCustomStat("walk_under_water_one_cm", cmXZ)
+		} else {
+			sess.addCustomStat("swim_one_cm", cmXZ+cmY)
+		}
+	case onGround:
+		if belowName == "water" {
+			sess.addCustomStat("walk_on_water_one_cm", cmXZ)
+			break
+		}
+		switch {
+		case sess.sneaking:
+			sess.addCustomStat("crouch_one_cm", cmXZ)
+		case sess.sprinting:
+			sess.addCustomStat("sprint_one_cm", cmXZ)
+		default:
+			sess.addCustomStat("walk_one_cm", cmXZ)
+		}
+	case sess.flying:
+		sess.addCustomStat("fly_one_cm", cmXZ)
+	case dy < 0:
+		sess.addCustomStat("fall_one_cm", cmY)
+	}
+}
+
+// isClimbableBlock names the blocks vanilla counts under climb_one_cm.
+func isClimbableBlock(name string) bool {
+	switch name {
+	case "ladder", "vine", "scaffolding", "twisting_vines",
+		"twisting_vines_plant", "weeping_vines", "weeping_vines_plant",
+		"cave_vines", "cave_vines_plant":
+		return true
+	}
+	return false
 }
 
 func badFloat(v float64) bool {

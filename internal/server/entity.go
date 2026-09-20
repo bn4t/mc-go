@@ -25,6 +25,9 @@ type Entity struct {
 	Item        ItemStack
 	PickupDelay int
 	MotionY     float64
+	// MotionX/MotionZ carry a thrown item's horizontal drift, applied
+	// each tick with vanilla's 0.98 air / ~0.55 grounded decay.
+	MotionX, MotionZ float64
 	// Living mobs carry health and take damage from attacks.
 	Living    bool
 	Health    float32

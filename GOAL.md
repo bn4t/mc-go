@@ -114,9 +114,24 @@ Mojang server over the wire.
   auto-unlocks; vanilla emits added/progress entries in identity-hash
   order which varies per run, so the test compares them as sets while
   per-criterion order — String-hash buckets seeded by a fastutil set —
-  matches exactly. Non-recipe advancement triggers, statistics,
-  scoreboard, teams remain open)
-- [ ] Player data persistence
+  matches exactly. Non-recipe advancement triggers, scoreboard,
+  teams remain open)
+- [~] Statistics (Award Statistics on Client Status 1: counters for
+  mined/crafted/used/broken/picked_up/dropped/killed/killed_by and the
+  custom family — ticked play_time/total_world_time/time_since_death/
+  time_since_rest/sneak_time, drop, deaths, damage_dealt/taken,
+  mob_kills, player_kills, jump, leave_game, distance buckets
+  walk/sprint/crouch/swim/fall/fly/climb/on-water/under-water —
+  increment at their events; emit order reproduces vanilla's
+  dirty-HashSet-copy → Object2IntOpenHashMap-descending-slot chain
+  byte-for-byte, pinned by TestStatsParity and TestStatEmitOrder.
+  Stats persist in the data file; item-break (broken) increments and
+  exotic distance buckets (vehicles, walk_under_water edge cases)
+  remain open)
+- [x] Player data persistence (position, dimension, inventory, ender
+  chest, xp, health, food restore on rejoin — plus statistics; world
+  block data ships in the save file; per-player .dat files and
+  advancement/recipe-book persistence remain open)
 
 ### Server
 - [~] Multithreaded session/tick/world-shard model
@@ -132,6 +147,23 @@ Mojang server over the wire.
 
 ## Progress log
 
+- 2026-09-20: Statistics slice: stat store with vanilla emit-order
+  model (dirty HashSet → Sets.newHashSet copy iterates bucket order →
+  Object2IntOpenHashMap descends slots; Stat name =
+  `minecraft.<type>:minecraft.<value>` hashed as String), all the
+  wired increments (mined on breakBlock, dropped/drop on throw,
+  used on place+eat, crafted on take, picked_up on collect, killed/
+  killed_by/player_kills/mob_kills on deaths, damage_dealt/taken in
+  tenths, the four ticked timers + sneak_time, jump, leave_game,
+  distance buckets), thrown-item drift physics so Q-drops land out of
+  pickup reach, stats persisted in the data file with the map-order
+  round-trip vanilla's stats/*.json does. TestStatsParity (join,
+  give+Q-drop, mine dirt, walk) is byte-order-exact vs vanilla;
+  TestStatEmitOrder pins both captured emit orders. Side observation:
+  multi-case tests share one world and one spawn — items a previous
+  case's player left on the ground can be picked up by the next joiner
+  (seen once as a repair-mismatch diff of leftover hotbar stacks).
+  Intermittent; a per-case arena would remove it.
 - 2026-09-13: Anvil repair-combine parity, green against 26.2
   (`TestAnvilParity`, 41 steps on each server: two charged takes by
   hand and by quick-move, a poor take at 0 levels, a dirt+pick invalid

@@ -133,6 +133,9 @@ type Session struct {
 	// exceeding lastHurt lands, and only for the excess.
 	invulnTicks int32
 	lastHurt    float32
+	// lastHurtBy is the entity id of the most recent damage source's
+	// attacker, for killed_by/kill-score stat attribution.
+	lastHurtBy int32
 	// healthDirty marks health/food/saturation changes to sync. Vanilla
 	// sends at most one Set Health per player per tick, carrying the
 	// end-of-tick values, so tick-side writers set this instead of

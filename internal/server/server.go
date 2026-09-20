@@ -327,6 +327,34 @@ func (s *Server) ListenAndServe() error {
 	return s.Serve(ln)
 }
 
+// sessionByEntityID returns the play session owning an entity id.
+func (s *Server) sessionByEntityID(eid int32) *Session {
+	if eid == 0 {
+		return nil
+	}
+	var out *Session
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.entityID.Load() == eid {
+			out = other
+			return false
+		}
+		return true
+	})
+	return out
+}
+
+// entityByID returns the managed entity with the id, if any.
+func (s *Server) entityByID(eid int32) *Entity {
+	if eid == 0 {
+		return nil
+	}
+	if e, ok := s.entities.Get(eid); ok {
+		return &e
+	}
+	return nil
+}
+
 func (s *Server) track(sess *Session) {
 	s.sessions.Store(sess.id, sess)
 	// OnlineCount only covers logged-in players; status probes stay
@@ -362,6 +390,7 @@ func (s *Server) untrack(sess *Session) {
 	// Persist the leaving player's state so a reconnect resumes it —
 	// in memory always, to disk when a data path is configured.
 	if sess.state.Load() == StatePlay {
+		sess.addCustomStat("leave_game", 1)
 		if s.savedPlayers == nil {
 			s.savedPlayers = make(map[string]playerPersist)
 		}

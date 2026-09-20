@@ -263,6 +263,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		return // not a placeable block-item: ack only
 	}
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
+	sess.addItemStat(statUsed, item, 1)
 	// A shulker box placed out of a stack that came with contents (it
 	// was broken with items inside) restores them, so the box keeps its
 	// contents across a move.

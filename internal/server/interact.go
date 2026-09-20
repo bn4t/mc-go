@@ -85,8 +85,8 @@ func (s *Server) handlePlayerActionExtras(sess *Session, p protocol.Packet) bool
 	return false
 }
 
-// dropHeld removes the held stack (or one item) from the inventory.
-// Dropped-item entities arrive with the item-entity milestone.
+// dropHeld throws the selected hotbar stack — all of it, or a single
+// item — spawning the item entity and counting the drop stats.
 func (s *Server) dropHeld(sess *Session, whole bool) {
 	slot := invSlotForHotbar(sess.held.Load())
 	sess.invMu.Lock()
@@ -95,17 +95,20 @@ func (s *Server) dropHeld(sess *Session, whole bool) {
 		sess.invMu.Unlock()
 		return
 	}
-	if whole {
+	out := it
+	if !whole {
+		out = it.withCount(1)
+	}
+	sess.inv[slot].Count -= out.Count
+	if sess.inv[slot].Count <= 0 {
 		sess.inv[slot] = ItemStack{}
-	} else {
-		sess.inv[slot].Count--
-		if sess.inv[slot].Count <= 0 {
-			sess.inv[slot] = ItemStack{}
-		}
 	}
 	updated := sess.inv[slot]
+	sess.invState.Add(1)
+	s.dropItemLocked(sess, out)
 	sess.invMu.Unlock()
 	_ = s.sendContainerSlot(sess, slot, updated)
+	s.fireInventoryChanged(sess)
 }
 
 // swapHands swaps the held hotbar stack with the offhand stack.
@@ -145,15 +148,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	if targetID == 0 || targetID == sess.entityID.Load() {
 		return
 	}
-	var target *Session
-	s.sessions.Range(func(_, v any) bool {
-		other := v.(*Session)
-		if other.entityID.Load() == targetID {
-			target = other
-			return false
-		}
-		return true
-	})
+	target := s.sessionByEntityID(targetID)
 	if target == nil {
 		// Not a player: attack a living mob if one has this id.
 		if e, ok := s.entities.Get(targetID); ok && e.Living {
@@ -164,6 +159,11 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 			})
 			s.damageMob(&e, 1.0)
 			s.broadcastEntityEventDamage(nil, e.ID)
+			sess.addCustomStat("damage_dealt", 10)
+			if _, still := s.entities.Get(targetID); !still {
+				sess.addStat(statKilled, e.Type, 1)
+				sess.addCustomStat("mob_kills", 1)
+			}
 		}
 		return
 	}
@@ -182,6 +182,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	// Weapon damage reduced by the victim's armor; the attack-cooldown
 	// scaling and enchantments ride a later combat milestone.
 	damage := reduceDamage(sess.heldAttackDamage(), target.armorDefense())
+	sess.addCustomStat("damage_dealt", int32(damage*10))
 	s.damageWith(target, damage, sess.getName()+" was slain by "+target.getName(), damageSource{
 		typeName: "player_attack",
 		cause:    sess.entityID.Load(),
@@ -265,8 +266,14 @@ func (s *Server) handlePlayerInput(sess *Session, p protocol.Packet) {
 	sprint := flags&inputSprint != 0
 	jump := flags&0x10 != 0
 	sess.sprinting = sprint
-	if jump && !sess.jumping && s.GameMode == GameModeSurvival {
-		sess.addExhaustion(0.05)
+	if jump && !sess.jumping {
+		_, _, _, _, _, onGround := sess.Pos()
+		if onGround && !sess.flying {
+			sess.addCustomStat("jump", 1)
+		}
+		if s.GameMode == GameModeSurvival {
+			sess.addExhaustion(0.05)
+		}
 	}
 	sess.jumping = jump
 	if sneak == sess.sneaking {

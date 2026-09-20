@@ -518,6 +518,51 @@ func writeEntityTypes(registries map[string]any) {
 	b.WriteString("\tid, ok := CustomStatIDs[name]\n")
 	b.WriteString("\treturn id, ok\n")
 	b.WriteString("}\n\n")
+	b.WriteString("// customStatNames maps a custom-stat registry id back to its name.\n")
+	b.WriteString("var customStatNames = map[int32]string{\n")
+	cnames := make([]string, 0, len(regEntries(registries, "minecraft:custom_stat")))
+	for n, id := range regEntries(registries, "minecraft:custom_stat") {
+		_ = id
+		cnames = append(cnames, n)
+	}
+	sort.Strings(cnames)
+	for _, n := range cnames {
+		fmt.Fprintf(&b, "\t%d: %q,\n", regEntries(registries, "minecraft:custom_stat")[n], n)
+	}
+	b.WriteString("}\n\n")
+	b.WriteString("// customStatName returns the stat name a registry id names.\n")
+	b.WriteString("func customStatName(id int32) (string, bool) {\n")
+	b.WriteString("\tn, ok := customStatNames[id]\n")
+	b.WriteString("\treturn n, ok\n")
+	b.WriteString("}\n\n")
+	b.WriteString("// blockIDs maps a block name (without the minecraft: prefix) to its\n")
+	b.WriteString("// protocol block-registry id — the value mined/broken statistics\n")
+	b.WriteString("// carry (note this is the registry id, not a block-state id).\n")
+	b.WriteString("var blockIDs = map[string]int32{\n")
+	blocks := regEntries(registries, "minecraft:block")
+	writeSorted(&b, blocks, func(v int) string { return fmt.Sprintf("%d", v) })
+	b.WriteString("}\n\n")
+	b.WriteString("// BlockID returns the block-registry id for a block name.\n")
+	b.WriteString("func BlockID(name string) (int32, bool) {\n")
+	b.WriteString("\tid, ok := blockIDs[name]\n")
+	b.WriteString("\treturn id, ok\n")
+	b.WriteString("}\n\n")
+	b.WriteString("// blockIDNames maps a block-registry id back to its name.\n")
+	b.WriteString("var blockIDNames = map[int32]string{\n")
+	bnames := make([]string, 0, len(blocks))
+	for n := range blocks {
+		bnames = append(bnames, n)
+	}
+	sort.Slice(bnames, func(i, j int) bool { return blocks[bnames[i]] < blocks[bnames[j]] })
+	for _, n := range bnames {
+		fmt.Fprintf(&b, "\t%d: %q,\n", blocks[n], n)
+	}
+	b.WriteString("}\n\n")
+	b.WriteString("// blockIDName returns the block name a registry id names.\n")
+	b.WriteString("func blockIDName(id int32) (string, bool) {\n")
+	b.WriteString("\tn, ok := blockIDNames[id]\n")
+	b.WriteString("\treturn n, ok\n")
+	b.WriteString("}\n\n")
 	b.WriteString("// entityTypes maps entity type name (without the minecraft: prefix)\n")
 	b.WriteString("// to its protocol registry id.\n")
 	b.WriteString("var entityTypes = map[string]int32{\n")

@@ -147,6 +147,9 @@ func (s *Server) damageWith(sess *Session, amount float32, message string, src d
 	}
 	sess.lastHurt = orig
 	sess.invulnTicks = 20
+	sess.lastHurtBy = src.cause
+	// Vanilla counts damage in tenths of a heart.
+	sess.addCustomStat("damage_taken", int32(amount*10))
 	eid := sess.entityID.Load()
 	x, y, z, _, _, _ := sess.Pos()
 	s.broadcastDamageEvent(eid, damageInfo{

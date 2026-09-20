@@ -221,6 +221,7 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 		return nil
 	}
 	affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
+	sess.addBlockStat(statMined, broken, 1)
 	// A shulker box drops itself with everything inside as one stack
 	// (see removeContainer), so the plain block item would duplicate it.
 	if isShulkerBoxBlock(broken) {
@@ -347,6 +348,23 @@ func (s *Server) itemTickStep() {
 		if moved {
 			s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, 0, 0, true)
 		}
+		// Thrown items drift: horizontal motion applied each tick with
+		// vanilla's decay (0.98 airborne, block slip ~0.55 grounded).
+		if e.MotionX != 0 || e.MotionZ != 0 {
+			e.X += e.MotionX
+			e.Z += e.MotionZ
+			fr := 0.98
+			if e.MotionY == 0 {
+				fr = 0.55
+			}
+			e.MotionX *= fr
+			e.MotionZ *= fr
+			if math.Abs(e.MotionX) < 0.01 && math.Abs(e.MotionZ) < 0.01 {
+				e.MotionX, e.MotionZ = 0, 0
+			} else {
+				moved = true
+			}
+		}
 		if e.PickupDelay <= 0 {
 			if sess := s.pickupTarget(e); sess != nil {
 				if orb {
@@ -357,12 +375,15 @@ func (s *Server) itemTickStep() {
 				}
 				remainder, picked := sess.addStack(e.Item)
 				if picked {
+					took := e.Item.Count
 					// Vanilla tells the client the item flies to
 					// the collector before it disappears.
 					s.broadcastTakeItem(e.Dim, e.ID, sess.entityID.Load(), e.Item.Count)
 					s.entities.Remove(e.ID)
 					s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+					sess.addItemStat(statPickedUp, e.Item.ID, took)
 				} else if remainder != e.Item {
+					sess.addItemStat(statPickedUp, e.Item.ID, e.Item.Count-remainder.Count)
 					e.Item = remainder
 					s.broadcastEntityMetadata(e.ID, encodeItemMetadata(remainder))
 				}
@@ -416,6 +437,17 @@ func (s *Server) killPlayer(sess *Session, message string) {
 	}
 	sess.dead = true
 	sess.health = 0
+	// Vanilla's die() award order: killed_by[killer], then deaths,
+	// then time_since_death resets.
+	if killer := s.entityByID(sess.lastHurtBy); killer != nil {
+		sess.addStat(statKilledBy, killer.Type, 1)
+	}
+	if src := s.sessionByEntityID(sess.lastHurtBy); src != nil {
+		src.addStat(statKilled, mustEntityType("player"), 1)
+		src.addCustomStat("player_kills", 1)
+	}
+	sess.addCustomStat("deaths", 1)
+	sess.setStat(statCustom, int32(CustomStatIDs["time_since_death"]), 0)
 	s.closeWindow(sess)
 	// Survival drops the whole inventory at the death spot.
 	if s.GameMode == GameModeSurvival {

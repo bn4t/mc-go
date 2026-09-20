@@ -110,6 +110,7 @@ func (s *Server) eatTickStep() {
 			sess.saturation = float32(sess.food)
 		}
 		sess.consumeHeld(1)
+		sess.addItemStat(statUsed, held.ID, 1)
 		sess.healthDirty.Store(true)
 		return true
 	})

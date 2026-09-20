@@ -315,6 +315,16 @@ func (s *Server) playerTick() {
 		if sess.invulnTicks > 0 {
 			sess.invulnTicks--
 		}
+		// Vanilla ticks the time-of-play family every live player tick.
+		if !sess.dead && sess.spawned.Load() {
+			sess.addCustomStat("play_time", 1)
+			sess.addCustomStat("total_world_time", 1)
+			sess.addCustomStat("time_since_death", 1)
+			sess.addCustomStat("time_since_rest", 1)
+			if sess.sneaking {
+				sess.addCustomStat("sneak_time", 1)
+			}
+		}
 		// One Set Health per tick, after every mutator ran, carrying the
 		// end-of-tick health/food/saturation.
 		if sess.healthDirty.Swap(false) {

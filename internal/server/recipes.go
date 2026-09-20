@@ -382,6 +382,7 @@ func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, bool) {
 			sess.carried = ItemStack{ID: out.ID, Count: out.Count}
 		}
 		sess.inv[slotCraftResult] = ItemStack{}
+		sess.addItemStat(statCrafted, out.ID, out.Count)
 		// Recompute for the next craft.
 		if next, ok := craftResult(craftGrid{
 			sess.inv[slotCraftStart],
