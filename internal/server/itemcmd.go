@@ -273,28 +273,30 @@ func readEntitySlot(sess *Session, id int32) (ItemStack, bool) {
 // menu click would.
 func (s *Server) writeEntitySlot(sess *Session, id int32, st ItemStack) bool {
 	equip := false
+	inventory := false
 	sess.invMu.Lock()
 	switch {
 	case id >= 0 && id <= 35:
 		sess.inv[entityMainSlot(id)] = st
+		inventory = true
 	case id == itemSlotMainhand:
 		sess.inv[invSlotForHotbar(sess.held.Load())] = st
-		equip = true
+		equip, inventory = true, true
 	case id == itemSlotOffhand:
 		sess.inv[slotOffhand] = st
-		equip = true
+		equip, inventory = true, true
 	case id == itemSlotHead:
 		sess.inv[slotArmorStart] = st
-		equip = true
+		equip, inventory = true, true
 	case id == itemSlotChest:
 		sess.inv[slotArmorStart+1] = st
-		equip = true
+		equip, inventory = true, true
 	case id == itemSlotLegs:
 		sess.inv[slotArmorStart+2] = st
-		equip = true
+		equip, inventory = true, true
 	case id == itemSlotFeet:
 		sess.inv[slotArmorStart+3] = st
-		equip = true
+		equip, inventory = true, true
 	case id == itemSlotBody:
 		sess.bodyArmor = st
 	case id >= 200 && id <= 226:
@@ -313,6 +315,13 @@ func (s *Server) writeEntitySlot(sess *Session, id int32, st ItemStack) bool {
 		s.broadcastEquipment(sess)
 	}
 	s.syncItemSlot(sess, id)
+	if inventory {
+		// Vanilla attaches the inventory_changed listener to the
+		// player inventory's changed callback, which /item replace
+		// also ticks; the ender chest, cursor, and craft grid are
+		// different containers and stay quiet.
+		s.fireInventoryChanged(sess)
+	}
 	return equip
 }
 

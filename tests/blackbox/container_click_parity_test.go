@@ -81,6 +81,10 @@ type clickDriver struct {
 	// a dead survival player loses its menu, which makes every later
 	// step silently diverge.
 	death string
+	// adv, when non-nil, receives every UpdateAdvancements packet the
+	// fold sees — click flows that grant advancements (recipe_crafted)
+	// can then assert progress without a rejoin.
+	adv *advFlush
 }
 
 func newClickDriver(t *testing.T, addr, name string) *clickDriver {
@@ -186,6 +190,9 @@ func (d *clickDriver) foldPkts(pkts []usePkt) (slotsTouched, sawCarried bool) {
 			if i >= 0 {
 				d.death = string(p.data[i:])
 			}
+		}
+		if d.adv != nil && p.id == server.IDPlayUpdateAdvance {
+			decodeUpdateAdv(d.t, p.data, d.adv)
 		}
 		r := protocol.NewPacketReader(p.data)
 		switch p.id {

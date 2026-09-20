@@ -1637,3 +1637,22 @@ physics through a void dip plus a fed recovery window.
   Also fixed in the shared drain: advCollect now acks
   chunk_batch_finished, which unblocks vanilla's entity add_entity
   delivery to the test client. Green both servers, stable x2.
+
+- 2026-09-20: recipe_crafted (adventure/craft_decorated_pot_using_
+  only_sherds). craftResult now reports the winning recipe's id; both
+  take paths (window-0 2x2, crafting-table menu) fire recipe_crafted
+  on the pre-consume grid the way vanilla's onTake hands
+  craftSlots.getItems() to awardUsedRecipes. The criterion matches
+  recipe_id exactly, then consumes one distinct input stack per
+  ingredients[] predicate (multiset subset, empty slots never match).
+  crafting_decorated_pot gets its own matcher — vanilla's
+  DecoratedPotPattern pins ingredients to the four edge middles of a
+  full 3x3 with empty corners/center. Found while measuring: /item
+  replace never ticked the inventory_changed listener, so has_*
+  recipe-unlock criteria (and game-tree inventory_changed) missed
+  command writes — writeEntitySlot now fires it for player-inventory
+  slots (ender/cursor/craft-grid stay quiet, matching vanilla's
+  container split). TestRecipeCraftedAdvParity: sherds grant, bricks
+  craft the same recipe but fail the sherd predicates — green both,
+  plus an advFlush sniff plumbed through the click driver's fold for
+  in-session advancement capture.

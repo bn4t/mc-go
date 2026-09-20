@@ -176,6 +176,30 @@ func matchShapedRecipe(r *data.Recipe, names []string, filled []bool, minRow, mi
 	return ItemStack{}, false
 }
 
+// matchDecoratedPot handles crafting_decorated_pot: vanilla's
+// DecoratedPotPattern fixes the four ingredients to the edge middles
+// of the full 3x3 — (0,1), (1,0), (1,2), (2,1) — with the corners and
+// center empty. Each slot matches its own ingredient (all four carry
+// the same tag in the bundled recipe, but the check stays per-slot).
+func matchDecoratedPot(r *data.Recipe, names []string, filled []bool, boxH, boxW int) (ItemStack, bool) {
+	if boxH != 3 || boxW != 3 || len(r.Ingredients) != 4 {
+		return ItemStack{}, false
+	}
+	// back, left, right, front in vanilla field order.
+	edgeIdx := [4]int{1, 3, 5, 7}
+	for i, gi := range edgeIdx {
+		if !filled[gi] || !r.Ingredients[i].Accepts(names[gi]) {
+			return ItemStack{}, false
+		}
+	}
+	for gi := 0; gi < 9; gi++ {
+		if filled[gi] && gi != 1 && gi != 3 && gi != 5 && gi != 7 {
+			return ItemStack{}, false
+		}
+	}
+	return recipeStack(r.Result)
+}
+
 // matchRepair handles crafting_special_repairitem: two of the same
 // damageable item merge into one whose damage is the sum minus the
 // max and a 5%-of-max bonus (floored at zero), exactly as vanilla's
@@ -248,11 +272,12 @@ func matchTransmute(r *data.Recipe, g craftGrid, filled []bool) (ItemStack, bool
 
 // craftResult computes the grid's result stack, iterating the recipe
 // table in registry order so the first matching recipe wins like
-// vanilla's CraftingManager.
-func craftResult(g craftGrid) (ItemStack, bool) {
+// vanilla's CraftingManager. It also reports the winning recipe's id —
+// recipe_crafted needs it at take time.
+func craftResult(g craftGrid) (ItemStack, string, bool) {
 	names, filled, ok := gridNames(g)
 	if !ok {
-		return ItemStack{}, false
+		return ItemStack{}, "", false
 	}
 	minRow, minCol, maxRow, maxCol := gridBox(filled)
 	boxH, boxW := 0, 0
@@ -272,12 +297,14 @@ func craftResult(g craftGrid) (ItemStack, bool) {
 			out, hit = matchRepair(g, filled)
 		case data.CraftingTransmute:
 			out, hit = matchTransmute(r, g, filled)
+		case data.CraftingDecoratedPot:
+			out, hit = matchDecoratedPot(r, names, filled, boxH, boxW)
 		}
 		if hit {
-			return out, true
+			return out, r.ID, true
 		}
 	}
-	return ItemStack{}, false
+	return ItemStack{}, "", false
 }
 
 // playerCraftGrid snapshots the session's 2x2 grid inside a 3x3 view.
@@ -297,7 +324,7 @@ func (sess *Session) playerCraftGrid() craftGrid {
 // changed.
 func (s *Server) refreshCraftResult(sess *Session) {
 	grid := sess.playerCraftGrid()
-	want, ok := craftResult(grid)
+	want, _, ok := craftResult(grid)
 	if !ok {
 		want = ItemStack{}
 	}
@@ -367,6 +394,18 @@ func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, bool) {
 		if !ok {
 			break
 		}
+		// recipe_crafted fires on the grid as it stood when the craft
+		// resolved, before the ingredients are consumed.
+		grid := craftGrid{
+			sess.inv[slotCraftStart],
+			sess.inv[slotCraftStart+1], {},
+			sess.inv[slotCraftStart+2],
+			sess.inv[slotCraftStart+3], {}, {},
+			{}, {},
+		}
+		if _, rid, ridOK := craftResult(grid); ridOK {
+			sess.server.fireRecipeCrafted(sess, rid, grid)
+		}
 		for i := int16(slotCraftStart); i < slotCraftStart+4; i++ {
 			if sess.inv[i].Empty() {
 				continue
@@ -384,7 +423,7 @@ func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, bool) {
 		sess.inv[slotCraftResult] = ItemStack{}
 		sess.addItemStat(statCrafted, out.ID, out.Count)
 		// Recompute for the next craft.
-		if next, ok := craftResult(craftGrid{
+		if next, _, ok := craftResult(craftGrid{
 			sess.inv[slotCraftStart],
 			sess.inv[slotCraftStart+1], {},
 			sess.inv[slotCraftStart+2],

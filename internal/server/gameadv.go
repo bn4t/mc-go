@@ -47,6 +47,7 @@ type advMeta struct {
 	fills      []fillCond     // filled_bucket — a bucket was filled
 	sleeps     []sleepCond    // slept_in_bed — entered a bed
 	beacons    []beaconCond   // construct_beacon — pyramid activated
+	recipes    []recipeCond   // recipe_crafted — a recipe completed
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -260,6 +261,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.fills = append(m.fills, parseFillCond(cname, cm["conditions"]))
 				case "minecraft:construct_beacon":
 					m.beacons = append(m.beacons, parseBeaconCond(cname, cm["conditions"]))
+				case "minecraft:recipe_crafted":
+					m.recipes = append(m.recipes, parseRecipeCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -1698,6 +1701,120 @@ func (s *Server) fireConstructBeacon(sess *Session, levels int) {
 				continue
 			}
 			sess.grantGameCriterion(meta, bc.crit)
+		}
+	}
+}
+
+// recipeCond is one recipe_crafted criterion reduced to the recipe id
+// plus the ingredients multiset. Vanilla's TriggerInstance.matches
+// requires the exact recipe id, then consumes one input stack per
+// ingredient predicate — order-free, one stack never satisfying two
+// predicates. A missing recipe_id fails the codec in vanilla and the
+// criterion never grants.
+type recipeCond struct {
+	crit        string
+	recipeID    string
+	ingredients []map[string]bool
+	impossible  bool
+}
+
+// parseRecipeCond reduces a recipe_crafted criterion. The item
+// predicate list uses the same items/#tag grammar as
+// inventory_changed; any other predicate key locks the criterion.
+func parseRecipeCond(cname string, conds any) recipeCond {
+	rc := recipeCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	rid, _ := cm["recipe_id"].(string)
+	if rid == "" {
+		rc.impossible = true
+	}
+	rc.recipeID = strings.TrimPrefix(rid, "minecraft:")
+	for k, v := range cm {
+		if k == "recipe_id" {
+			continue
+		}
+		if k != "ingredients" {
+			rc.impossible = true
+			continue
+		}
+		list, _ := v.([]any)
+		for _, iv := range list {
+			im, _ := iv.(map[string]any)
+			set := map[string]bool{}
+			okPred := true
+			for pk, pv := range im {
+				if pk != "items" {
+					okPred = false
+					continue
+				}
+				add := func(name string) {
+					if strings.HasPrefix(name, "#") {
+						for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(name, "#"), "minecraft:")] {
+							set[m] = true
+						}
+						return
+					}
+					set[strings.TrimPrefix(name, "minecraft:")] = true
+				}
+				switch it := pv.(type) {
+				case string:
+					add(it)
+				case []any:
+					for _, e := range it {
+						if es, ok := e.(string); ok {
+							add(es)
+						}
+					}
+				}
+			}
+			if !okPred || len(set) == 0 {
+				rc.impossible = true
+				continue
+			}
+			rc.ingredients = append(rc.ingredients, set)
+		}
+	}
+	return rc
+}
+
+// fireRecipeCrafted grants every recipe_crafted criterion matching
+// the completed recipe id whose ingredient predicates each consume a
+// distinct input stack — empty slots match nothing, same as vanilla's
+// ItemPredicate over the raw crafting container.
+func (s *Server) fireRecipeCrafted(sess *Session, recipeID string, grid craftGrid) {
+	stacks := make([]ItemStack, 0, len(grid))
+	for _, st := range grid {
+		stacks = append(stacks, st)
+	}
+	for _, meta := range gameAdvs {
+		for _, rc := range meta.recipes {
+			if rc.impossible || rc.recipeID != recipeID {
+				continue
+			}
+			remaining := append([]ItemStack{}, stacks...)
+			matched := true
+			for _, set := range rc.ingredients {
+				found := false
+				for i, st := range remaining {
+					if st.Empty() {
+						continue
+					}
+					name, _ := world.ItemName(st.ID)
+					if !set[name] {
+						continue
+					}
+					remaining = append(remaining[:i], remaining[i+1:]...)
+					found = true
+					break
+				}
+				if !found {
+					matched = false
+					break
+				}
+			}
+			if matched {
+				sess.grantGameCriterion(meta, rc.crit)
+			}
 		}
 	}
 }

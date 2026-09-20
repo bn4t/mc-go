@@ -117,7 +117,7 @@ func (s *Server) closeCraftTable(sess *Session, table *craftTable) {
 // whether it changed.
 func (s *Server) refreshTableResult(sess *Session, table *craftTable) bool {
 	grid := craftGrid(table.slots[1:10])
-	want, ok := craftResult(grid)
+	want, _, ok := craftResult(grid)
 	if !ok {
 		want = ItemStack{}
 	}
@@ -273,6 +273,13 @@ func (s *Server) takeTableResult(sess *Session, w *openWindow, table *craftTable
 				break
 			}
 			sess.carriedMuSet(remainder)
+		}
+		// recipe_crafted sees the grid as it was when this craft
+		// resolved — vanilla passes craftSlots.getItems() in onTake,
+		// before the ingredients are consumed.
+		grid := craftGrid(table.slots[1:10])
+		if _, rid, ok := craftResult(grid); ok {
+			s.fireRecipeCrafted(sess, rid, grid)
 		}
 		for i := 1; i <= craftTableGrid; i++ {
 			if table.slots[i].Empty() {
