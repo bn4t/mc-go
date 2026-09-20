@@ -35,6 +35,7 @@ type advMeta struct {
 	inv        []invCond     // inventory_changed — an item reached inventory
 	consumed   []consumeCond // consume_item — a food finished eating
 	placed     []placedCond  // placed_block — a block landed in the world
+	dims       []dimCond     // changed_dimension — crossed dimensions
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -90,6 +91,16 @@ type invCond struct {
 type consumeCond struct {
 	crit       string
 	items      map[string]bool
+	impossible bool
+}
+
+// dimCond is one changed_dimension criterion: optional from/to
+// dimension names (minecraft:overworld / the_nether / the_end). The
+// condition shape is flat strings, not location predicates.
+type dimCond struct {
+	crit       string
+	from       string
+	to         string
 	impossible bool
 }
 
@@ -155,6 +166,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.consumed = append(m.consumed, parseConsumeCond(cname, cm["conditions"]))
 				case "minecraft:placed_block":
 					m.placed = append(m.placed, parsePlacedCond(cname, cm["conditions"]))
+				case "minecraft:changed_dimension":
+					m.dims = append(m.dims, parseDimCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -401,17 +414,33 @@ func parseLocCond(cname string, conds any) locCond {
 	return lc
 }
 
+// dimBiome is the single biome a flat dimension reports everywhere —
+// mc-go's generated terrain is flat per dimension, so a location check
+// reduces to the dimension's fixed biome.
+func dimBiome(dimName string) string {
+	switch dimName {
+	case "minecraft:overworld":
+		return "plains"
+	case "minecraft:the_nether":
+		return "nether_wastes"
+	case "minecraft:the_end":
+		return "the_end"
+	}
+	return ""
+}
+
 // fireLocation runs the location trigger, which vanilla ticks per
-// player every 20 ticks (ServerPlayer tickCount % 20). The flat
-// overworld is plains everywhere; other dimensions have no modeled
-// biomes, so nothing matches off the overworld.
+// player every 20 ticks (ServerPlayer tickCount % 20). Each flat
+// dimension reports its single biome; criteria asking for anything
+// else stay locked.
 func (s *Server) fireLocation(sess *Session) {
-	if sess.dimName() != "minecraft:overworld" {
+	biome := dimBiome(sess.dimName())
+	if biome == "" {
 		return
 	}
 	for _, meta := range gameAdvs {
 		for _, lc := range meta.locs {
-			if lc.impossible || !lc.biomes["plains"] {
+			if lc.impossible || !lc.biomes[biome] {
 				continue
 			}
 			sess.grantGameCriterion(meta, lc.crit)
@@ -649,6 +678,49 @@ func (s *Server) firePlacedBlock(sess *Session, blockName string) {
 				continue
 			}
 			sess.grantGameCriterion(meta, pc.crit)
+		}
+	}
+}
+
+// parseDimCond reads changed_dimension's flat from/to dimension names.
+func parseDimCond(cname string, conds any) dimCond {
+	dc := dimCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "from", "to":
+			name, ok := v.(string)
+			if !ok {
+				dc.impossible = true
+				continue
+			}
+			if k == "from" {
+				dc.from = name
+			} else {
+				dc.to = name
+			}
+		default:
+			dc.impossible = true
+		}
+	}
+	return dc
+}
+
+// fireChangedDimension grants changed_dimension criteria for one
+// completed hop; from/to are bare dimension names.
+func (s *Server) fireChangedDimension(sess *Session, from, to string) {
+	for _, meta := range gameAdvs {
+		for _, dc := range meta.dims {
+			if dc.impossible {
+				continue
+			}
+			if dc.from != "" && dc.from != from {
+				continue
+			}
+			if dc.to != "" && dc.to != to {
+				continue
+			}
+			sess.grantGameCriterion(meta, dc.crit)
 		}
 	}
 }

@@ -201,8 +201,10 @@ func (s *Server) changeDimension(sess *Session, dst *dimension, x, y, z float64,
 		return
 	}
 	eid := sess.entityID.Load()
+	from := old.name
 	sess.dim.Store(dst)
 	sess.setPos(x, y, z, 0, 0, false)
+	s.fireChangedDimension(sess, from, dst.name)
 	s.entities.Update(eid, x, y, z, 0, 0, false)
 	s.entities.SetDimension(eid, dst.name)
 	// Old-dimension residents drop the traveler; the client's own

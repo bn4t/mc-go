@@ -1493,3 +1493,13 @@ physics through a void dip plus a fed recovery window.
   int.invalid/block.id.invalid args) instead of literals.
   TestPlacedBlockParity plants wheat_seeds on farmland and diffs the
   flush — green.
+
+- 2026-09-20: changed_dimension + per-dimension location biomes.
+  changeDimension fires changed_dimension with namespaced from/to
+  names (nether/root's entered_nether, story/enter_the_nether, the
+  end pair); dimCond parses flat from/to strings. fireLocation now
+  maps each flat dimension to its fixed biome (overworld→plains,
+  the_nether→nether_wastes, the_end→the_end) so explore_nether's
+  nether_wastes criterion lands on the hop. TestChangedDimensionParity
+  setblocks a nether_portal, waits out the survival 80-tick charge,
+  and diffs the flush including the nether-tree def fan-out — green.
