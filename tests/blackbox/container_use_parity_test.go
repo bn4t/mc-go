@@ -270,7 +270,7 @@ func parseSyncPos(data []byte) (float64, float64, float64, bool) {
 // spawn position observable at all.
 type posWatch struct {
 	x, y, z float64
-	have     bool
+	have    bool
 }
 
 func (w *posWatch) note(pkts []usePkt) {

@@ -7,6 +7,19 @@
 //	MCGO_BLACKBOX=1, a working `java`, loopback TCP binds allowed.
 //
 // Vanilla jar: MCGO_VANILLA_JAR or ../../vanilla/server-26.2.jar.
+//
+// External targets: MCGO_TARGET=host:port runs the same suite against
+// an already-running server instead of an in-process mc-go, which is
+// how another implementation is checked for parity — the differential
+// tests still boot vanilla as the oracle and compare the target's wire
+// behavior against it, and the mc-go-only tests exercise the target
+// directly. Tests that need in-process control (a *server.Server
+// mutator, world-state injection) skip with a clear reason, and the
+// target is expected to run the shared comparison configuration —
+// online-mode off, flat world, seed 1, view/simulation distance 8,
+// creative default — plus ops for the test player names where a test
+// writes vanilla an ops.json (mc-go grants everyone level 4 unless
+// OpsRequired is set, so an mc-go target needs no file).
 package blackbox
 
 import (
@@ -29,9 +42,12 @@ import (
 const (
 	vanillaProp = "MCGO_VANILLA_JAR"
 	enableProp  = "MCGO_BLACKBOX"
+	targetProp  = "MCGO_TARGET"
 )
 
-// targets holds one live vanilla and one live mc-go endpoint.
+// targets holds one live vanilla endpoint and one system-under-test
+// endpoint — an in-process mc-go, or the MCGO_TARGET address when the
+// suite is pointed at an external server.
 type targets struct {
 	vanilla string
 	mcgo    string
@@ -165,6 +181,11 @@ func writeVanillaServerDir(t *testing.T, dir string, port int, extra, files map[
 		// and the same view/simulation distance.
 		"gamemode=creative",
 		"difficulty=normal",
+		// A flat comparison world crawls with slimes at the depths the
+		// tests play in; a slime eating a survival-mode test player mid
+		// run silently kills its window and drains the run's diffs into
+		// noise. Tests needing a mob summon it explicitly.
+		"spawn-monsters=false",
 		"level-type=flat",
 		"level-seed=1",
 		"view-distance=8",
@@ -342,8 +363,21 @@ func startMcGo(t *testing.T, port int) string {
 }
 
 // startMcGoCfg serves mc-go with an optional mutator (e.g. survival).
+// With MCGO_TARGET set the "mc-go" endpoint is an already-running
+// server instead: the caller's port goes unused and the mutate hook —
+// which only an in-process server could honor — turns the test into a
+// skip rather than silently running a different configuration.
 func startMcGoCfg(t *testing.T, port int, mutate func(*server.Server)) string {
 	t.Helper()
+	if target := os.Getenv(targetProp); target != "" {
+		if mutate != nil {
+			t.Skipf("%s mode: %s needs in-process mc-go configuration", targetProp, t.Name())
+		}
+		if !probeStatus(target) {
+			t.Fatalf("%s=%s did not answer a status ping", targetProp, target)
+		}
+		return target
+	}
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	s := server.New(addr)
 	// Match the vanilla harness properties so join values compare.

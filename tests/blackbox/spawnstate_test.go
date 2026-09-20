@@ -3,8 +3,8 @@ package blackbox
 import (
 	"bytes"
 	"math"
-	"strconv"
 	"sort"
+	"strconv"
 	"testing"
 	"time"
 

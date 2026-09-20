@@ -11,6 +11,7 @@ package blackbox
 // byte for byte: state counters are folded, not matched.
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"testing"
@@ -32,10 +33,14 @@ func stackKey(it server.ItemStack) string {
 		return "-"
 	}
 	key := fmt.Sprintf("%d#%d", it.ID, it.Count)
-	// Damage and repair cost discriminate anvil inputs from their
-	// outputs: a repaired pick reads back bare, its parents worn.
+	// Damage, repair cost, and custom name discriminate anvil inputs
+	// from their outputs: a repaired pick reads back bare, its parents
+	// worn; a renamed one carries its name.
 	if it.Damage != 0 {
 		key += fmt.Sprintf("[d%d]", it.Damage)
+	}
+	if it.Name != "" {
+		key += fmt.Sprintf("[n%q]", it.Name)
 	}
 	if it.RepairCost != 0 {
 		key += fmt.Sprintf("[rc%d]", it.RepairCost)
@@ -69,6 +74,13 @@ type clickDriver struct {
 	sounds   int
 	sawClose bool
 	invSets  int
+	// blkUps counts Block Update packets per position: the anvil's
+	// 12%-per-take degrade roll is a block change at the menu's pos.
+	blkUps map[[3]int32]int
+	// death holds the killer's entity id when a death chat arrives:
+	// a dead survival player loses its menu, which makes every later
+	// step silently diverge.
+	death string
 }
 
 func newClickDriver(t *testing.T, addr, name string) *clickDriver {
@@ -165,6 +177,16 @@ func (d *clickDriver) foldPkts(pkts []usePkt) (slotsTouched, sawCarried bool) {
 		if d.debug {
 			d.t.Logf("%s recv id=%#x %x", d.name, p.id, p.data)
 		}
+		// Death messages are translated chat payloads naming the
+		// killer (death.attack.mob, entity.minecraft.slime). Flag any
+		// packet carrying one so a stale menu surfaces as a death,
+		// not a string of slot diffs.
+		if bytes.Contains(p.data, []byte("death.")) {
+			i := bytes.Index(p.data, []byte("entity.minecraft."))
+			if i >= 0 {
+				d.death = string(p.data[i:])
+			}
+		}
 		r := protocol.NewPacketReader(p.data)
 		switch p.id {
 		case server.IDPlayOpenScreen:
@@ -257,6 +279,15 @@ func (d *clickDriver) foldPkts(pkts []usePkt) (slotsTouched, sawCarried bool) {
 			}
 		case server.IDPlayContainerClose:
 			d.sawClose = true
+		case server.IDPlayBlockUpdateCB:
+			x, y, z, err := r.Position()
+			if err != nil {
+				continue
+			}
+			if d.blkUps == nil {
+				d.blkUps = map[[3]int32]int{}
+			}
+			d.blkUps[[3]int32{x, y, z}]++
 		case server.IDPlaySetPlayerInventory:
 			// One moved stack outside a click, by player-inventory
 			// container index (0-8 hotbar, 9-35 main): fold it into
@@ -316,6 +347,18 @@ func (d *clickDriver) click(tag string, slot int16, button byte, mode int32, w0 
 	if touched && !carried {
 		d.snap.carried = "-"
 	}
+}
+
+// rename sends a Rename Item packet (the anvil's text field) and folds
+// the answer: a recomputed output slot and level cost, or nothing.
+func (d *clickDriver) rename(tag, name string) {
+	d.t.Helper()
+	var b protocol.Buffer
+	b.String(name)
+	if err := d.pw.WritePacket(server.IDPlayRenameItemSB, b.Bytes()); err != nil {
+		d.t.Fatal(err)
+	}
+	settleUse(d.t, d.sink, func(pkts []usePkt) { d.foldPkts(pkts) }, tag)
 }
 
 func (d *clickDriver) close() {

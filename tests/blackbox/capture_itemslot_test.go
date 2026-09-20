@@ -21,16 +21,18 @@ import (
 //     refused as "slot.unknown" with the token echoed back, and a name it
 //     knows but the target has no slot for is refused as
 //     "commands.item.target.no_such_slot" with a number.
+//
 //   - what that number is. It is the slot's own index in a space that is
 //     not any container mc-go models: a chest reports 27 for a 28th
 //     container slot, and 98 for weapon.mainhand, which a chest cannot
 //     hold at all.
+//
 //   - which writes a slot refuses. The armor slots refuse an item that is
 //     not armor ("commands.item.target.no_changed.known_item", with the
 //     item and the slot's number), and the head slot is measured
 //     separately because it behaves differently from the other four.
 //
-//	MCGO_BLACKBOX=1 MCGO_CAPTURE=1 go test ./tests/blackbox -run TestCaptureVanillaItemSlots
+//     MCGO_BLACKBOX=1 MCGO_CAPTURE=1 go test ./tests/blackbox -run TestCaptureVanillaItemSlots
 //
 // The recording is committed as
 // internal/server/testdata/vanilla-26.2/item_slots.tsv, one

@@ -101,6 +101,9 @@ type openWindow struct {
 	container *containerData
 	ender     *[27]ItemStack
 	kind      int32 // menu registry id
+	// pendingName is the anvil's rename field for this open menu: per
+	// session, empty at open, surviving takes, gone with the window.
+	pendingName string
 }
 
 // containerSize is the number of container-side slots (before the

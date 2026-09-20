@@ -970,18 +970,28 @@ func (s *Server) parseItemStack(args []string, itemTok int) (ItemStack, reply, b
 		return ItemStack{}, errTokenEnd("command.unknown.command", itemTok-1), false
 	}
 	tok := args[ai]
-	var comps string
+	var patchTok string
+	var hasPatch bool
 	if i := strings.IndexByte(tok, '['); i >= 0 {
 		if !strings.HasSuffix(tok, "]") {
 			return ItemStack{}, errToken("command.unknown.argument", itemTok), false
 		}
-		comps = tok[i+1 : len(tok)-1]
+		patchTok = tok[i+1 : len(tok)-1]
 		tok = tok[:i]
+		hasPatch = true
 	}
 	full := normalizeItemName(tok)
 	id, ok := world.ItemID(shortItemName(full))
 	if !ok {
 		return ItemStack{}, errToken("argument.item.id.invalid", itemTok, echoItemID(idPrefix(tok))), false
+	}
+	var patch ItemStack
+	if hasPatch {
+		st, r, ok := parseItemPatch(patchTok, itemTok)
+		if !ok {
+			return ItemStack{}, r, false
+		}
+		patch = st
 	}
 	count := int32(1)
 	if len(args) > ai+1 {
@@ -1006,54 +1016,70 @@ func (s *Server) parseItemStack(args []string, itemTok int) (ItemStack, reply, b
 	if id == 0 {
 		return ItemStack{}, reply{}, true
 	}
-	st := ItemStack{ID: id, Count: count}
-	if comps != "" {
-		if r, ok := applyItemComponents(&st, comps, itemTok); !ok {
-			return ItemStack{}, r, false
-		}
-	}
-	return st, reply{}, true
+	patch.ID = id
+	patch.Count = count
+	return patch, reply{}, true
 }
 
-// applyItemComponents applies the bracket grammar after an item spec:
-// `name=value` sets a component the item model carries, `!name` clears
-// one. Only the modeled set (damage, repair_cost, custom_name) is
-// interpreted; anything else is ignored rather than rejected.
-func applyItemComponents(st *ItemStack, comps string, tok int) (reply, bool) {
-	for _, e := range splitComponents(comps) {
-		if e == "" {
+// parseItemPatch decodes one component patch (the bracketed part of an
+// item token): comma-separated component=value pairs, or `!name` to
+// clear a component. Entries split on top-level commas only, so values
+// holding commas inside {} or [] stay whole. Only the components mc-go
+// models parse into the stack — damage and repair_cost numbers, a
+// custom_name string; anything else fails the way vanilla's
+// unknown-component error does rather than dropping the component and
+// silently shipping a plainer item.
+func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
+	var it ItemStack
+	for _, entry := range splitComponents(patch) {
+		if entry == "" {
 			continue
 		}
-		if strings.HasPrefix(e, "!") {
-			name := shortItemName(normalizeItemName(strings.TrimPrefix(e, "!")))
-			switch name {
+		if strings.HasPrefix(entry, "!") {
+			switch strings.TrimPrefix(strings.TrimPrefix(entry, "!"), "minecraft:") {
 			case "damage":
-				st.Damage = 0
+				it.Damage = 0
 			case "repair_cost":
-				st.RepairCost = 0
+				it.RepairCost = 0
+			case "custom_name":
+				it.Name = ""
+			default:
+				return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
 			}
 			continue
 		}
-		k, v, ok := strings.Cut(e, "=")
+		key, val, ok := strings.Cut(entry, "=")
 		if !ok {
-			return errToken("command.unknown.argument", tok), false
+			return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 		}
-		switch shortItemName(normalizeItemName(k)) {
-		case "damage":
-			n, err := strconv.ParseInt(v, 10, 32)
-			if err != nil {
-				return errToken("parsing.int.expected", tok), false
+		vtag, _, perr := parseSNBTTag(val, 0)
+		if perr != nil {
+			return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+		}
+		switch strings.TrimPrefix(key, "minecraft:") {
+		case "damage", "repair_cost":
+			if vtag.kind != snbtNumber {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
-			st.Damage = int32(n)
-		case "repair_cost":
-			n, err := strconv.ParseInt(v, 10, 32)
-			if err != nil {
-				return errToken("parsing.int.expected", tok), false
+			n, cerr := strconv.Atoi(strings.TrimRight(vtag.num, "bBsSiIlLfFdD"))
+			if cerr != nil {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
-			st.RepairCost = int32(n)
+			if strings.TrimPrefix(key, "minecraft:") == "damage" {
+				it.Damage = int32(n)
+			} else {
+				it.RepairCost = int32(n)
+			}
+		case "custom_name":
+			if vtag.kind != snbtString {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			it.Name = vtag.str
+		default:
+			return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
 		}
 	}
-	return reply{}, true
+	return it, reply{}, true
 }
 
 // splitComponents splits a bracket list on top-level commas, so values
