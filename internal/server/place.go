@@ -229,6 +229,15 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	if cur == world.Air {
 		return // no block targeted: ack only
 	}
+	// item_used_on_block fires on the interaction itself — vanilla
+	// evaluates it inside useOn before the use's outcome is known.
+	if bname, ok := world.StateOwner(cur); ok {
+		if held := sess.heldStack(); !held.Empty() {
+			if iname, ok := itemNameOf(held.ID); ok {
+				s.fireItemUsedOnBlock(sess, bname, iname)
+			}
+		}
+	}
 	// Interacting with a sign dyes it, waxes it, makes its text glow,
 	// or opens its editor - it never places.
 	if isSignLikeBlock(cur) {

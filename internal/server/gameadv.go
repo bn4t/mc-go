@@ -36,6 +36,7 @@ type advMeta struct {
 	consumed   []consumeCond // consume_item — a food finished eating
 	placed     []placedCond  // placed_block — a block landed in the world
 	dims       []dimCond     // changed_dimension — crossed dimensions
+	usedOn     []usedOnCond  // item_used_on_block — tool met block
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -104,6 +105,17 @@ type dimCond struct {
 	impossible bool
 }
 
+// usedOnCond is one item_used_on_block criterion reduced to the
+// clicked block's name set and the used item's name set. Block state
+// checks, biome predicates, and component predicates (the jukebox's
+// playable check) are unmodeled and lock the criterion.
+type usedOnCond struct {
+	crit       string
+	blocks     map[string]bool
+	toolItems  map[string]bool
+	impossible bool
+}
+
 // placedCond is one placed_block criterion reduced to the placed
 // block's name. The location predicate's richer shapes — block
 // properties, all_of/any_of terms, biome/position checks — stay
@@ -168,6 +180,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.placed = append(m.placed, parsePlacedCond(cname, cm["conditions"]))
 				case "minecraft:changed_dimension":
 					m.dims = append(m.dims, parseDimCond(cname, cm["conditions"]))
+				case "minecraft:item_used_on_block":
+					m.usedOn = append(m.usedOn, parseUsedOnCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -721,6 +735,99 @@ func (s *Server) fireChangedDimension(sess *Session, from, to string) {
 				continue
 			}
 			sess.grantGameCriterion(meta, dc.crit)
+		}
+	}
+}
+
+// parseUsedOnCond reduces item_used_on_block to a (block set, tool
+// set) pair gathered from the location term list: location_check terms
+// contribute the block's name/tag set (state and biome keys lock the
+// criterion) and match_tool terms contribute the used item's set.
+func parseUsedOnCond(cname string, conds any) usedOnCond {
+	uc := usedOnCond{crit: cname, blocks: map[string]bool{}, toolItems: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "location" {
+			uc.impossible = true
+			continue
+		}
+		terms, _ := v.([]any)
+		for _, tv := range terms {
+			tm, _ := tv.(map[string]any)
+			if tm == nil {
+				uc.impossible = true
+				continue
+			}
+			cond, _ := tm["condition"].(string)
+			pred, _ := tm["predicate"].(map[string]any)
+			switch cond {
+			case "minecraft:location_check":
+				for pk, pv := range pred {
+					switch pk {
+					case "block":
+						bm, _ := pv.(map[string]any)
+						for bk, bv := range bm {
+							if bk != "blocks" {
+								uc.impossible = true
+								continue
+							}
+							addUsedOnBlocks(uc.blocks, bv)
+						}
+					default:
+						uc.impossible = true
+					}
+				}
+			case "minecraft:match_tool":
+				for pk, pv := range pred {
+					switch pk {
+					case "items":
+						addUsedOnBlocks(uc.toolItems, pv)
+					default:
+						uc.impossible = true
+					}
+				}
+			default:
+				uc.impossible = true
+			}
+		}
+	}
+	if len(uc.blocks) == 0 || len(uc.toolItems) == 0 {
+		uc.impossible = true
+	}
+	return uc
+}
+
+// addUsedOnBlocks expands a name | list | #tag entry into the set.
+func addUsedOnBlocks(dst map[string]bool, v any) {
+	switch it := v.(type) {
+	case string:
+		if strings.HasPrefix(it, "#") {
+			tag := strings.TrimPrefix(strings.TrimPrefix(it, "#"), "minecraft:")
+			for _, m := range data.BlockTags[tag] {
+				dst[m] = true
+			}
+			return
+		}
+		dst[strings.TrimPrefix(it, "minecraft:")] = true
+	case []any:
+		for _, e := range it {
+			if es, ok := e.(string); ok {
+				dst[strings.TrimPrefix(es, "minecraft:")] = true
+			}
+		}
+	}
+}
+
+// fireItemUsedOnBlock grants item_used_on_block criteria for one
+// successful use-on-block interaction: the clicked block's name and
+// the used item's name must each satisfy their sets.
+func (s *Server) fireItemUsedOnBlock(sess *Session, blockName, itemName string) {
+	for _, meta := range gameAdvs {
+		for _, uc := range meta.usedOn {
+			if uc.impossible || !uc.blocks[blockName] || !uc.toolItems[itemName] {
+				continue
+			}
+			sess.grantGameCriterion(meta, uc.crit)
 		}
 	}
 }

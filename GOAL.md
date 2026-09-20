@@ -1503,3 +1503,12 @@ physics through a void dip plus a fed recovery window.
   nether_wastes criterion lands on the hop. TestChangedDimensionParity
   setblocks a nether_portal, waits out the survival 80-tick charge,
   and diffs the flush including the nether-tree def fan-out — green.
+
+- 2026-09-20: item_used_on_block. The use-on-block handler fires the
+  trigger before the interaction's outcome (vanilla evaluates inside
+  useOn), matching clicked-block + held-item sets against
+  location_check (block.blocks name/list/#block-tag; state and biome
+  keys lock the criterion) and match_tool (predicate.items) terms.
+  TestItemUsedOnBlockParity clicks a lodestone with a compass —
+  adventure/use_lodestone's measured shape — and diffs the flush:
+  green.
