@@ -1820,3 +1820,34 @@ physics through a void dip plus a fed recovery window.
   TestEnchantParity pins open props, offer shapes, survival
   lapis+level spend, the slot transmute, seed re-roll, announce, and
   sound — green on both targets.
+- 2026-09-20: brewed_potion (nether/brew_potion "Local Brewery") and
+  real brewing. BrewingStandBlockEntity.serverTick tops fuel to 20
+  from a #brewing_fuel item when empty (one powder consumed), isBrewable
+  requires a mix hit on >=1 potion slot, a brew costs 1 charge up
+  front and ticks brewTime 400->0; doBrew applies
+  PotionBrewing.mix per potion slot (container mix rewrites the item
+  id first, then the potion mix rewrites potion_contents), shrinks the
+  ingredient, slots the crafting remainder (dragon_breath's
+  glass_bottle) or drops it at the stand, fires level event 1035,
+  and mirrors slot occupancy into the has_bottle_0..2 block states
+  (9452 all-true base, b0 the high bit). The trigger fires in
+  PotionSlot.onTake on any take path, gated on the stack's
+  potion_contents.potion holder being present — a bare `potion` item
+  carries EMPTY contents (the uncraftable potion), NOT water, so
+  water bottles need potion[potion_contents=water]; measured.
+  potion_contents (component 51) writes the RAW potion registry id
+  (not holder+1 like sound holders) and the potion registry is
+  static — never wire-synced — so ids come from the datagen report:
+  tools/genpotions now emits PotionIDs alongside the 63 potion + 2
+  container mixes extracted from PotionBrewing.addVanillaMixes
+  bytecode. /give and /item share parseItemStack, which gained the
+  potion_contents patch (bare id or {potion=...}). Brew-side slot
+  broadcast is per-tick DIFFED like vanilla's broadcastChanges —
+  props stream every tick while only changed slots go out.
+  TestBrewPotionParity drives fuel+3 water bottles+nether_wart through
+  a full cycle on both targets, pins the awkward results, fuel 2->19,
+  the 1035 event, and the take-triggered announce (obtain_blaze_rod
+  granted first so the child is visible). Green on both targets.
+  Harness note: Container Property is excluded from the click settle
+  set — a ticking menu streams it every tick, so it can never hold
+  the quiet window open.

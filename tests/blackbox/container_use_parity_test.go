@@ -95,12 +95,15 @@ func (u *useClient) has(marker string) bool {
 
 // isContainerPkt reports whether a clientbound packet carries menu,
 // chat, or acknowledgement traffic: the packets a use or click can
-// answer with.
+// answer with. Container Property is deliberately absent — a running
+// brew (or any ticking menu) streams it every tick, so treating it as
+// an answer keeps the settle window open forever; it is still folded
+// whenever it arrives.
 func isContainerPkt(id int32) bool {
 	switch id {
 	case server.IDPlayOpenScreen, server.IDPlayContainerContent,
 		server.IDPlayContainerSlot, server.IDPlaySetCarriedItem,
-		server.IDPlayContainerClose, server.IDPlayContainerProperty,
+		server.IDPlayContainerClose,
 		server.IDPlaySystemChatCB, server.IDPlayBlockChangedAck:
 		return true
 	}

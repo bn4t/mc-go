@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"mc-go/internal/data"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
@@ -60,6 +61,13 @@ type ItemStack struct {
 	// placement. Only the count matters for the triggers we model;
 	// the entity payloads are never inspected.
 	Bees int32 `json:"bees,omitempty"`
+	// Potion is the minecraft:potion_contents component's potion id,
+	// minecraft: prefix stripped; empty means the holder is absent —
+	// a bare potion item ships the component EMPTY (the uncraftable
+	// potion), not water. The component's optional color/effects/
+	// custom-name fields are not modeled — brewed potions never set
+	// them.
+	Potion string `json:"potion,omitempty"`
 }
 
 // Empty reports whether the slot holds nothing.
@@ -75,7 +83,8 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 	return it.Contents == nil && other.Contents == nil &&
 		it.Damage == other.Damage && it.RepairCost == other.RepairCost &&
 		it.Name == other.Name && it.Ench == other.Ench &&
-		it.StoredEnch == other.StoredEnch && it.Bees == other.Bees
+		it.StoredEnch == other.StoredEnch && it.Bees == other.Bees &&
+		it.Potion == other.Potion
 }
 
 // enchLevel reports the stack's level of one enchantment, or 0 when
@@ -132,7 +141,23 @@ const (
 	compEnchantments = 13
 	compRepairCost   = 19
 	compStoredEnch   = 42
+	// potion_contents, measured on 26.2: presence bool, potion
+	// registry id (raw, not holder +1), then three absent-option
+	// bytes — custom color, custom effects list (VarInt 0), custom
+	// name.
+	compPotionContents = 51
 )
+
+// potionNamesByID inverts data.PotionIDs for the decode path; the
+// potion registry is static (never synced), so the generated table is
+// authoritative both ways.
+var potionNamesByID = func() map[int32]string {
+	m := make(map[int32]string, len(data.PotionIDs))
+	for n, id := range data.PotionIDs {
+		m[id] = n
+	}
+	return m
+}()
 
 // writeSlot writes one Slot value: VarInt count, then (when non-empty)
 // item id and empty component add/remove counts.
@@ -157,6 +182,9 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 		add++
 	}
 	if it.StoredEnch != "" {
+		add++
+	}
+	if it.Potion != "" {
 		add++
 	}
 	b.VarInt(add)
@@ -196,6 +224,16 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 			v, _ := strconv.Atoi(lv)
 			b.VarInt(registryEntryID("minecraft:enchantment", "minecraft:"+n))
 			b.VarInt(int32(v))
+		}
+	}
+	if it.Potion != "" {
+		if pid, ok := data.PotionIDs[it.Potion]; ok {
+			b.VarInt(compPotionContents)
+			b.Byte(1) // potion holder present: the RAW registry id
+			b.VarInt(pid)
+			b.Byte(0)   // custom_color absent
+			b.VarInt(0) // custom_effects empty
+			b.Byte(0)   // custom_name absent
 		}
 	}
 	if it.RepairCost != 0 {
@@ -276,6 +314,95 @@ func readSlot(r *protocol.PacketReader) (ItemStack, error) {
 			}
 			sort.Strings(parts)
 			it.Ench = strings.Join(parts, ",")
+		case compStoredEnch: // minecraft:stored_enchantments, same map payload
+			n, err := r.VarInt()
+			if err != nil {
+				return ItemStack{}, err
+			}
+			parts := make([]string, 0, n)
+			for ; n > 0; n-- {
+				eid, err := r.VarInt()
+				if err != nil {
+					return ItemStack{}, err
+				}
+				lv, err := r.VarInt()
+				if err != nil {
+					return ItemStack{}, err
+				}
+				if name := registryEntryName("minecraft:enchantment", eid); name != "" {
+					parts = append(parts, strings.TrimPrefix(name, "minecraft:")+":"+strconv.Itoa(int(lv)))
+				}
+			}
+			sort.Strings(parts)
+			it.StoredEnch = strings.Join(parts, ",")
+		case compPotionContents: // minecraft:potion_contents
+			if tag, err := r.Byte(); err != nil {
+				return ItemStack{}, err
+			} else if tag != 0 {
+				pid, err := r.VarInt()
+				if err != nil {
+					return ItemStack{}, err
+				}
+				if name, ok := potionNamesByID[pid]; ok {
+					it.Potion = name
+				}
+			}
+			if tag, err := r.Byte(); err != nil {
+				return ItemStack{}, err
+			} else if tag != 0 {
+				if _, err := r.VarInt(); err != nil { // custom_color
+					return ItemStack{}, err
+				}
+			}
+			n, err := r.VarInt() // custom_effects
+			if err != nil {
+				return ItemStack{}, err
+			}
+			for ; n > 0; n-- {
+				// MobEffectInstance: id, amplifier, duration, ambient,
+				// showParticles, showIcon, hiddenEntry — read as far as
+				// the fixed fields go; brewed potions never carry this.
+				if _, err := r.VarInt(); err != nil {
+					return ItemStack{}, err
+				}
+				if _, err := r.VarInt(); err != nil {
+					return ItemStack{}, err
+				}
+				if _, err := r.VarInt(); err != nil {
+					return ItemStack{}, err
+				}
+				if _, err := r.Byte(); err != nil {
+					return ItemStack{}, err
+				}
+				if _, err := r.Byte(); err != nil {
+					return ItemStack{}, err
+				}
+				if _, err := r.Byte(); err != nil {
+					return ItemStack{}, err
+				}
+				if b, err := r.Byte(); err != nil {
+					return ItemStack{}, err
+				} else if b != 0 {
+					return ItemStack{}, errUnknownComponent(typ, id)
+				}
+			}
+			if tag, err := r.Byte(); err != nil {
+				return ItemStack{}, err
+			} else if tag != 0 {
+				// custom_name: NBT string tag
+				if t2, err := r.Byte(); err != nil {
+					return ItemStack{}, err
+				} else if t2 != 0x08 {
+					return ItemStack{}, errUnknownComponent(typ, id)
+				}
+				var nn uint16
+				if nn, err = r.UShort(); err != nil {
+					return ItemStack{}, err
+				}
+				if _, err := r.Read(int(nn)); err != nil {
+					return ItemStack{}, err
+				}
+			}
 		case compRepairCost: // minecraft:repair_cost, VarInt payload
 			if it.RepairCost, err = r.VarInt(); err != nil {
 				return ItemStack{}, err

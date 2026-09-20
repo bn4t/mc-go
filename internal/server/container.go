@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"mc-go/internal/data"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
@@ -323,7 +324,7 @@ func potionSlotAccepts(it ItemStack) bool {
 // ingredient slot.
 func brewIngredientItem(it ItemStack) bool {
 	name, ok := itemNameOf(it.ID)
-	return ok && brewingIngredients[name]
+	return ok && brewingIngredientSet[name]
 }
 
 // beaconPaymentItems is the vanilla beacon payment tag
@@ -546,6 +547,17 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 	containerSide := int(slot) < c.spec.slots
 	isResult := containerSide && c.spec.isResult(int(slot))
 
+	// The brewing stand's potion slots fire brewed_potion in onTake:
+	// any click that removes a potion-bearing stack counts, whatever
+	// the mode. Snapshot the three slots so the post-click diff can
+	// see what left.
+	var brewTaken [3]ItemStack
+	if c.spec.brew {
+		for i := brewPotionFirst; i <= brewPotionLast; i++ {
+			brewTaken[i] = sess.menuStack(i)
+		}
+	}
+
 	sess.invMu.RLock()
 	cur := sess.carried
 	sess.invMu.RUnlock()
@@ -631,6 +643,19 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		return
 	}
 	s.syncContainerMenuSlots(sess, w, touched)
+	if c.spec.brew {
+		for i := brewPotionFirst; i <= brewPotionLast; i++ {
+			old := brewTaken[i]
+			if old.Empty() || old.Potion == "" {
+				continue
+			}
+			now := sess.menuStack(i)
+			if !now.Stackable(old) || now.Count < old.Count {
+				s.fireBrewedPotion(sess, old)
+			}
+		}
+		s.updateBrewBlockState(w.dim, w.pos, brewPotionBits(c))
+	}
 	if c.spec.menu == menuEnchantment {
 		s.enchantSlotsChanged(sess, w)
 	}
@@ -948,24 +973,51 @@ const (
 	brewingFuelPerPowder = 20
 )
 
-// brewingIngredients are the items that can start a brew. The full set
-// lives in the potion-brewing recipe data (a mix table of ingredient
-// and potion); this list only decides whether a brew is attempted.
-var brewingIngredients = map[string]bool{
-	"nether_wart":            true,
-	"redstone":               true,
-	"glowstone_dust":         true,
-	"fermented_spider_eye":   true,
-	"gunpowder":              true,
-	"dragon_breath":          true,
-	"sugar":                  true,
-	"rabbit_foot":            true,
-	"glistering_melon_slice": true,
-	"spider_eye":             true,
-	"pufferfish":             true,
-	"magma_cream":            true,
-	"golden_carrot":          true,
-	"breeze_rod":             true,
+// brewingIngredientSet is the ingredient slot's accept set, generated
+// from the mix table — every item that is an ingredient in at least
+// one potion or container mix.
+var brewingIngredientSet = func() map[string]bool {
+	m := make(map[string]bool, len(data.BrewingIngredientItems))
+	for _, n := range data.BrewingIngredientItems {
+		m[n] = true
+	}
+	return m
+}()
+
+// brewMixResult applies one slot's mix for an ingredient: the
+// container mix first (potion->splash_potion->lingering_potion),
+// then the potion mix on the (new) stack's potion_contents. The
+// stack is unchanged when neither matches, which is also how
+// PotionBrewing.mix leaves it.
+func brewMixResult(ingredient string, it ItemStack) ItemStack {
+	name, ok := itemNameOf(it.ID)
+	if !ok {
+		return it
+	}
+	if to, ok := data.ContainerMixes[[2]string{name, ingredient}]; ok {
+		it.ID = world.ItemIDs["minecraft:"+to]
+		name = to
+	}
+	if it.Potion != "" {
+		if to, ok := data.PotionMixes[[2]string{it.Potion, ingredient}]; ok {
+			it.Potion = to
+		}
+	}
+	return it
+}
+
+// brewHasMix reports whether the ingredient can brew into this stack:
+// a container mix (item type change) or a potion mix (potion_contents
+// change). Potions only live in container items, so anything else
+// never mixes — vanilla's isBrewable checks the same pair.
+func brewHasMix(ingredient string, it ItemStack) bool {
+	name, ok := itemNameOf(it.ID)
+	if !ok || it.Empty() || !isPotionItem(it) {
+		return false
+	}
+	_, pm := data.PotionMixes[[2]string{it.Potion, ingredient}]
+	_, cm := data.ContainerMixes[[2]string{name, ingredient}]
+	return pm || cm
 }
 
 // brewable reports whether the stand has an ingredient that can brew
@@ -974,8 +1026,9 @@ func brewable(c *containerData, ingredient ItemStack) bool {
 	if ingredient.Empty() || !brewIngredientItem(ingredient) {
 		return false
 	}
+	name, _ := itemNameOf(ingredient.ID)
 	for i := brewPotionFirst; i <= brewPotionLast; i++ {
-		if isPotionItem(c.slots[i]) {
+		if brewHasMix(name, c.slots[i]) {
 			return true
 		}
 	}
@@ -999,7 +1052,7 @@ func (s *Server) containerTickStep() {
 		}
 		d.containers.mu.Unlock()
 		for _, e := range brewing {
-			s.brewingTick(d, e.c)
+			s.brewingTick(d, e.pos, e.c)
 		}
 	}
 }
@@ -1008,8 +1061,10 @@ func (s *Server) containerTickStep() {
 // topped up from a blaze powder whenever it runs out, a brew costs one
 // fuel charge up front and 400 ticks of brew time, and the ingredient
 // is consumed when the brew finishes.
-func (s *Server) brewingTick(d *dimension, c *containerData) {
+func (s *Server) brewingTick(d *dimension, pos world.Pos, c *containerData) {
 	d.containers.mu.Lock()
+	before := append([]ItemStack(nil), c.slots...)
+	changed := false
 	if c.fuel <= 0 {
 		if f := c.slots[brewFuelSlot]; !f.Empty() && itemNamed(f, "blaze_powder") {
 			f.Count--
@@ -1018,28 +1073,43 @@ func (s *Server) brewingTick(d *dimension, c *containerData) {
 			}
 			c.slots[brewFuelSlot] = f
 			c.fuel = brewingFuelPerPowder
+			changed = true
 		}
 	}
 	ingredient := c.slots[brewIngredient]
 	canBrew := brewable(c, ingredient)
-	changed := false
+	brewDone := false
+	var remainder ItemStack
+	remainderDrop := false
 	switch {
 	case c.brewTime > 0:
 		c.brewTime--
 		changed = true
 		switch {
 		case c.brewTime == 0 && canBrew:
-			if one := c.slots[brewIngredient].Count - 1; one > 0 {
-				c.slots[brewIngredient].Count = one
-			} else {
-				c.slots[brewIngredient] = ItemStack{}
+			// doBrew: apply the ingredient's mixes to each potion
+			// slot (container mix first, then the potion mix), then
+			// shrink the ingredient — a remainder replaces the slot
+			// when it emptied, otherwise it drops at the stand.
+			ingName, _ := itemNameOf(ingredient.ID)
+			for i := brewPotionFirst; i <= brewPotionLast; i++ {
+				c.slots[i] = brewMixResult(ingName, c.slots[i])
 			}
+			ingredient.Count--
+			if ingredient.Count <= 0 {
+				ingredient = ItemStack{}
+			}
+			if rem := brewRemainder(ingName); rem != "" {
+				remainder = ItemStack{ID: world.ItemIDs["minecraft:"+rem], Count: 1}
+				remainderDrop = !ingredient.Empty()
+				if ingredient.Empty() {
+					ingredient = remainder
+					remainderDrop = false
+				}
+			}
+			c.slots[brewIngredient] = ingredient
 			c.brewed = 0
-			// TODO(potion data): apply the ingredient's mixes to the
-			// potion slots. That needs the potion_contents component
-			// (so a potion's type survives in an ItemStack) and the
-			// potion-brewing recipe table; until then the brew consumes
-			// the ingredient and leaves the potions as they were.
+			brewDone = true
 		case !canBrew || ingredient.ID != c.brewed:
 			c.brewTime = 0
 			c.brewed = 0
@@ -1052,7 +1122,20 @@ func (s *Server) brewingTick(d *dimension, c *containerData) {
 	}
 	props := [2]int32{c.brewTime, c.fuel}
 	slots := append([]ItemStack(nil), c.slots...)
+	var touched []int
+	for i := range slots {
+		if !slots[i].Stackable(before[i]) || slots[i].Count != before[i].Count {
+			touched = append(touched, i)
+		}
+	}
+	potionBits := brewPotionBits(c)
 	d.containers.mu.Unlock()
+	if brewDone {
+		s.brewFinished(d, pos, slots, remainderDrop, remainder)
+	}
+	if bitsChanged := s.updateBrewBlockState(d, pos, potionBits); bitsChanged {
+		changed = true
+	}
 	if !changed {
 		return
 	}
@@ -1067,7 +1150,7 @@ func (s *Server) brewingTick(d *dimension, c *containerData) {
 		for i, val := range props {
 			s.sendContainerProperty(sess, w.id, int16(i), val)
 		}
-		for i := range slots {
+		for _, i := range touched {
 			var b protocol.Buffer
 			b.VarInt(w.id)
 			b.VarInt(sess.windowState)
@@ -1077,4 +1160,81 @@ func (s *Server) brewingTick(d *dimension, c *containerData) {
 		}
 		return true
 	})
+}
+
+// brewRemainder is the crafting-remainder item an ingredient leaves
+// behind: only dragon's breath hands back its bottle.
+func brewRemainder(ingredient string) string {
+	if ingredient == "dragon_breath" {
+		return "glass_bottle"
+	}
+	return ""
+}
+
+// brewPotionBits returns which of the three potion slots hold a
+// stack — the has_bottle_0..2 block properties vanilla mirrors.
+func brewPotionBits(c *containerData) (bits [3]bool) {
+	for i := brewPotionFirst; i <= brewPotionLast; i++ {
+		bits[i] = !c.slots[i].Empty()
+	}
+	return
+}
+
+// brewingStandBaseState is the all-empty brewing stand block state;
+// has_bottle_0..2 shift it up (b0 is the high bit — measured against
+// vanilla/reports/blocks.json's state list).
+const brewingStandBaseState = world.Block(9459)
+
+// updateBrewBlockState mirrors the potion-slot occupancy into the
+// stand's has_bottle_0..2 states, broadcasting a Block Update when it
+// changes. Returns whether the block changed.
+func (s *Server) updateBrewBlockState(d *dimension, pos world.Pos, bits [3]bool) bool {
+	cur := d.w.GetBlock(pos)
+	name, ok := world.StateOwner(cur)
+	if !ok || name != "brewing_stand" {
+		return false
+	}
+	// bits are the has_bottle_0..2 flags: 9452 all true, 9459 all
+	// false, each bottle dropping the high/mid/low bit in that order.
+	want := brewingStandBaseState
+	if bits[0] {
+		want -= 4
+	}
+	if bits[1] {
+		want -= 2
+	}
+	if bits[2] {
+		want--
+	}
+	if cur == want {
+		return false
+	}
+	d.w.SetBlock(pos, want)
+	s.broadcastBlockState(d, pos, want)
+	return true
+}
+
+// brewFinished is the post-doBrew fan-out: level event 1035 (the brew
+// sound+particles) at the stand, and the ingredient remainder drop
+// when the slot stayed occupied.
+func (s *Server) brewFinished(d *dimension, pos world.Pos, slots []ItemStack, dropRem bool, rem ItemStack) {
+	var b protocol.Buffer
+	b.Int(1035)
+	b.Position(int32(pos.X), int32(pos.Y), int32(pos.Z))
+	b.Int(0)
+	b.Bool(false)
+	body := b.Bytes()
+	cx, cz := pos.X>>4, pos.Z>>4
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || sess.dimName() != d.name || !sess.hasChunk(cx, cz) {
+			return true
+		}
+		_ = sess.write(sess.ids().PlayLevelEvent, body)
+		return true
+	})
+	if dropRem {
+		s.spawnItemDrop(d.name, pos, rem)
+	}
+	_ = slots // slots already resynced by the caller's broadcast
 }

@@ -1057,6 +1057,8 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.Ench = ""
 			case "bees":
 				it.Bees = 0
+			case "potion_contents":
+				it.Potion = ""
 			default:
 				return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
 			}
@@ -1117,6 +1119,22 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
 			it.Bees = int32(len(vtag.items))
+		case "potion_contents":
+			// potion_contents accepts a bare potion id or a compound
+			// with a potion field (potion_contents={potion="water"}).
+			// The custom color/effects/name fields are unmodeled.
+			switch vtag.kind {
+			case snbtString:
+				it.Potion = strings.TrimPrefix(vtag.str, "minecraft:")
+			case snbtCompound:
+				pv, ok := vtag.vals["potion"]
+				if !ok || pv.kind != snbtString {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				it.Potion = strings.TrimPrefix(pv.str, "minecraft:")
+			default:
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
 		default:
 			return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
 		}

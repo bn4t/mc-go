@@ -45,6 +45,15 @@ func stackKey(it server.ItemStack) string {
 	if it.RepairCost != 0 {
 		key += fmt.Sprintf("[rc%d]", it.RepairCost)
 	}
+	if it.Potion != "" {
+		key += fmt.Sprintf("[p%s]", it.Potion)
+	}
+	if it.StoredEnch != "" {
+		key += fmt.Sprintf("[se%s]", it.StoredEnch)
+	}
+	if it.Ench != "" {
+		key += fmt.Sprintf("[e%s]", it.Ench)
+	}
 	return key
 }
 
@@ -80,7 +89,9 @@ type clickDriver struct {
 	announce int
 	// sndPkts counts clientbound sound packets (id 0x75 on 26.2 — the
 	// enchanting table's use sound).
-	sndPkts  int
+	sndPkts int
+	// brewDone counts level-event 1035s (brewing stand finished).
+	brewDone int
 	sounds   int
 	sawClose bool
 	invSets  int
@@ -305,6 +316,9 @@ func (d *clickDriver) foldPkts(pkts []usePkt) (slotsTouched, sawCarried bool) {
 			}
 			if ev == 1030 {
 				d.sounds++
+			}
+			if ev == 1035 {
+				d.brewDone++
 			}
 		case server.IDPlayContainerClose:
 			d.sawClose = true

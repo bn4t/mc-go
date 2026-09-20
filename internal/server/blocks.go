@@ -299,28 +299,18 @@ func (s *Server) runGive(player string, args []string) reply {
 	if len(args) == 0 {
 		return reply{text: "Usage: /give [target] <item> [count]"}
 	}
-	name := strings.TrimPrefix(args[0], "minecraft:")
-	id, ok := world.ItemID(name)
+	st, r, ok := s.parseItemStack(args, 1)
 	if !ok {
-		return reply{text: "Unknown item: " + args[0]}
-	}
-	count := int32(1)
-	if len(args) > 1 {
-		n, err := strconv.Atoi(args[1])
-		if err != nil || n < 1 || n > maxStack {
-			return reply{text: "Invalid count: " + args[1]}
-		}
-		count = int32(n)
+		return r
 	}
 	if sess == nil {
 		return reply{text: "Unknown player: " + player}
 	}
-	st := ItemStack{ID: id, Count: count}
 	remainder, _ := sess.addStack(st)
 	_ = s.sendContainerContent(sess)
 	_ = remainder
 	return reply{styled: true, comp: translatable("commands.give.success.single",
-		nestedCompound{key: "", value: count},
+		nestedCompound{key: "", value: st.Count},
 		itemBrackets(st),
 		entityTargetComponent(sess),
 	)}

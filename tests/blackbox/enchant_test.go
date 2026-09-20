@@ -1,6 +1,7 @@
 package blackbox
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -91,8 +92,12 @@ func TestEnchantParity(t *testing.T) {
 		d.props = map[int16]int16{}
 		d.xpSeen = false
 		d.button("enchant", 0)
-		if got := d.snap.menu[0]; got != "1274#1" {
-			t.Fatalf("%s: slot0=%s want enchanted_book 1274#1", name, got)
+		// The book is now an enchanted_book carrying stored_enchantments
+		// ([se<enchid>:<lv>]); which enchantment is seed-dependent, so
+		// assert the item id + the se marker rather than the exact roll.
+		got := d.snap.menu[0]
+		if !strings.HasPrefix(got, "1274#1[se") || !strings.HasSuffix(got, "]") {
+			t.Fatalf("%s: slot0=%s want enchanted_book 1274#1[se...]", name, got)
 		}
 		if got := d.snap.menu[1]; got != "928#9" {
 			t.Fatalf("%s: slot1=%s want lapis 928#9", name, got)

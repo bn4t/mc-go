@@ -62,6 +62,7 @@ type advMeta struct {
 	levitates  []levitateCond  // levitation — distance risen under the effect
 	beenests   []beeNestCond   // bee_nest_destroyed — silk-touch nest break
 	enchanteds []enchantCond   // enchanted_item — a table enchant landed
+	breweds    []brewedCond    // brewed_potion — a brewed stack left the stand
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -305,6 +306,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:enchanted_item":
 					m.enchanteds = append(m.enchanteds, parseEnchantCond(cname, cm["conditions"]))
+				case "minecraft:brewed_potion":
+					m.breweds = append(m.breweds, parseBrewedCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -1664,6 +1667,68 @@ func parseEnchantCond(cname string, conds any) enchantCond {
 		}
 	}
 	return ec
+}
+
+// brewedCond is one brewed_potion criterion: the potion the taken
+// stack carried, as an OR-set of ids (empty = any, which is
+// nether/brew_potion "Local Brewery"). conditions.potion is a holder
+// reference — a single id string or a list — anything else locks it.
+type brewedCond struct {
+	crit       string
+	potions    map[string]bool
+	impossible bool
+}
+
+func parseBrewedCond(cname string, conds any) brewedCond {
+	bc := brewedCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "potion" {
+			bc.impossible = true
+			continue
+		}
+		add := func(s string) {
+			if bc.potions == nil {
+				bc.potions = map[string]bool{}
+			}
+			bc.potions[strings.TrimPrefix(s, "minecraft:")] = true
+		}
+		switch p := v.(type) {
+		case string:
+			add(p)
+		case []any:
+			for _, e := range p {
+				if s, ok := e.(string); ok {
+					add(s)
+				}
+			}
+		default:
+			bc.impossible = true
+		}
+	}
+	return bc
+}
+
+// fireBrewedPotion grants brewed_potion criteria when a stack carrying
+// a potion leaves a brewing-stand slot. Vanilla fires it in
+// PotionSlot.onTake, so any take path (pickup, quick-move, hotkey
+// swap) qualifies.
+func (s *Server) fireBrewedPotion(sess *Session, it ItemStack) {
+	potion := it.Potion
+	if potion == "" {
+		return // uncraftable/empty contents: no trigger (vanilla's Optional check)
+	}
+	for _, meta := range gameAdvs {
+		for _, bc := range meta.breweds {
+			if bc.impossible {
+				continue
+			}
+			if bc.potions != nil && !bc.potions[potion] {
+				continue
+			}
+			sess.grantGameCriterion(meta, bc.crit)
+		}
+	}
 }
 
 // fireEnchantedItem grants enchanted_item criteria on a table enchant:

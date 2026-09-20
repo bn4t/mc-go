@@ -343,7 +343,7 @@ func TestBrewingStandBrews(t *testing.T) {
 	s := New("unused")
 	pos := world.Pos{X: 4, Y: 4, Z: 4}
 	c := containerPlace(t, s, "brewing_stand", pos)
-	c.slots[brewPotionFirst] = ItemStack{ID: world.ItemIDs["potion"], Count: 1}
+	c.slots[brewPotionFirst] = ItemStack{ID: world.ItemIDs["potion"], Count: 1, Potion: "water"}
 	c.slots[brewIngredient] = ItemStack{ID: world.ItemIDs["nether_wart"], Count: 2}
 	c.slots[brewFuelSlot] = ItemStack{ID: world.ItemIDs["blaze_powder"], Count: 2}
 
@@ -366,9 +366,8 @@ func TestBrewingStandBrews(t *testing.T) {
 	if got := c.slots[brewIngredient]; got.Count != 1 || got.ID != world.ItemIDs["nether_wart"] {
 		t.Fatalf("ingredient after the brew = %+v, want one nether wart left", got)
 	}
-	// The potions are still there: turning an ingredient into a specific
-	// potion needs the potion contents component, which is a TODO.
-	if got := c.slots[brewPotionFirst]; got.ID != world.ItemIDs["potion"] {
+	// The water bottle brewed to awkward (potion_contents id 3).
+	if got := c.slots[brewPotionFirst]; got.ID != world.ItemIDs["potion"] || got.Potion != "awkward" {
 		t.Fatalf("potion slot = %+v", got)
 	}
 	// The second powder is untouched until the fuel runs out again.
@@ -386,7 +385,7 @@ func TestBrewingStandAbortsOnIngredientSwap(t *testing.T) {
 	s := New("unused")
 	pos := world.Pos{X: 4, Y: 4, Z: 4}
 	c := containerPlace(t, s, "brewing_stand", pos)
-	c.slots[brewPotionFirst] = ItemStack{ID: world.ItemIDs["potion"], Count: 1}
+	c.slots[brewPotionFirst] = ItemStack{ID: world.ItemIDs["potion"], Count: 1, Potion: "water"}
 	c.slots[brewIngredient] = ItemStack{ID: world.ItemIDs["nether_wart"], Count: 1}
 	c.slots[brewFuelSlot] = ItemStack{ID: world.ItemIDs["blaze_powder"], Count: 1}
 

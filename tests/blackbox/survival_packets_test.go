@@ -1846,6 +1846,28 @@ func readSlotBBFull(r *protocol.PacketReader) (server.ItemStack, int32, bool, er
 			if it.RepairCost, err = r.VarInt(); err != nil {
 				return server.ItemStack{}, 0, false, err
 			}
+		case 51: // minecraft:potion_contents (measured 26.2): holder bool+id,
+			// then absent custom_color / effects list / custom_name.
+			if tag, terr := r.Byte(); terr != nil {
+				return server.ItemStack{}, 0, false, terr
+			} else if tag != 0 {
+				pid, terr := r.VarInt()
+				if terr != nil {
+					return server.ItemStack{}, 0, false, terr
+				}
+				it.Potion = fmt.Sprintf("h%d", pid)
+			}
+			if _, terr := r.Byte(); terr != nil { // custom_color
+				return server.ItemStack{}, 0, false, terr
+			}
+			if n, terr := r.VarInt(); terr != nil { // custom_effects
+				return server.ItemStack{}, 0, false, terr
+			} else if n != 0 {
+				return server.ItemStack{}, 0, false, fmt.Errorf("blackbox: potion custom_effects %d", n)
+			}
+			if _, terr := r.Byte(); terr != nil { // custom_name
+				return server.ItemStack{}, 0, false, terr
+			}
 		case 13, 42: // minecraft:enchantments / stored_enchantments: VarInt map of enchant id to level (measured 26.2)
 			n, err := r.VarInt()
 			if err != nil {
