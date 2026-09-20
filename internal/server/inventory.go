@@ -244,6 +244,52 @@ func (sess *Session) heldStack() ItemStack {
 	return sess.stackAt(invSlotForHotbar(sess.held.Load()))
 }
 
+// stackForHand resolves the InteractionHand a packet named: 0 is the
+// selected hotbar slot, 1 the offhand. Out-of-range hands fall back to
+// the main hand. Returns the stack and its menu slot so callers can
+// write back to the same hand.
+func (sess *Session) stackForHand(hand int32) (ItemStack, int16) {
+	slot := invSlotForHotbar(sess.held.Load())
+	if hand == 1 {
+		slot = slotOffhand
+	}
+	return sess.stackAt(slot), slot
+}
+
+// consumeSlot shrinks the stack in one menu slot by n.
+func (sess *Session) consumeSlot(slot int16, n int32) {
+	if slot < 0 || slot >= slotCount {
+		return
+	}
+	sess.invMu.Lock()
+	it := sess.inv[slot]
+	if it.Empty() {
+		sess.invMu.Unlock()
+		return
+	}
+	it.Count -= n
+	if it.Count <= 0 {
+		it = ItemStack{}
+	}
+	sess.inv[slot] = it
+	sess.invMu.Unlock()
+	_ = sess.server.sendContainerSlot(sess, slot, it)
+}
+
+// firstEmptySlot returns the first empty storage slot, searching the
+// main inventory then the hotbar — vanilla's ordering for a creative
+// pickup that lands in a fresh stack.
+func (sess *Session) firstEmptySlot() int16 {
+	sess.invMu.RLock()
+	defer sess.invMu.RUnlock()
+	for slot := int16(slotMainStart); slot < slotOffhand; slot++ {
+		if sess.inv[slot].Empty() {
+			return slot
+		}
+	}
+	return -1
+}
+
 // heldItem keeps the old (id, ok) shape used by placement code.
 func (sess *Session) heldItem() (int32, bool) {
 	it := sess.heldStack()

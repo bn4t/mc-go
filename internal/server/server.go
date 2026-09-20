@@ -134,8 +134,11 @@ type Server struct {
 	ops         map[string]int
 	OpsRequired bool
 	// savedPlayers holds login-time snapshots restored from DataPath.
-	savedPlayers map[string]playerPersist
-	dataSaveErr  error
+	// untrack writes it from each connection goroutine and join reads
+	// it, so every access runs under savedPlayersMu.
+	savedPlayersMu sync.Mutex
+	savedPlayers   map[string]playerPersist
+	dataSaveErr    error
 	// seenJoin records the names that reached the play stage this boot,
 	// so a reconnect draws the returning-player sync (attribute reset
 	// stub) even when nothing was persisted to disk. Guarded by seenMu.
@@ -391,10 +394,12 @@ func (s *Server) untrack(sess *Session) {
 	// in memory always, to disk when a data path is configured.
 	if sess.state.Load() == StatePlay {
 		sess.addCustomStat("leave_game", 1)
+		s.savedPlayersMu.Lock()
 		if s.savedPlayers == nil {
 			s.savedPlayers = make(map[string]playerPersist)
 		}
 		s.savedPlayers[name] = snapshotPlayer(sess)
+		s.savedPlayersMu.Unlock()
 		if s.dataPath() != "" {
 			if err := s.SaveServerData(); err != nil && s.dataSaveErr == nil {
 				s.dataSaveErr = err

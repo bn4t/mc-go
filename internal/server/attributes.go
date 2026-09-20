@@ -143,7 +143,9 @@ func (s *Server) markJoined(name string) bool {
 	if s.seenJoin[name] {
 		return true
 	}
+	s.savedPlayersMu.Lock()
 	_, known := s.savedPlayers[name]
+	s.savedPlayersMu.Unlock()
 	s.seenJoin[name] = true
 	return known
 }

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"mc-go/internal/world"
+
 	"math"
 	"math/rand"
 )
@@ -33,7 +35,7 @@ var animalFood = map[string]map[string]bool{
 // item is that species' food the animal enters love (entity status 18
 // = hearts), the food is consumed in survival, and a partner already
 // in love within reach produces a baby.
-func (s *Server) feedAnimal(sess *Session, eid int32) {
+func (s *Server) feedAnimal(sess *Session, eid int32, hand int32) {
 	s.entities.mu.RLock()
 	e, ok := s.entities.byID[eid]
 	s.entities.mu.RUnlock()
@@ -48,7 +50,7 @@ func (s *Server) feedAnimal(sess *Session, eid int32) {
 	if !breedable {
 		return
 	}
-	held := sess.heldStack()
+	held, hslot := sess.stackForHand(hand)
 	if held.Empty() {
 		return
 	}
@@ -60,7 +62,7 @@ func (s *Server) feedAnimal(sess *Session, eid int32) {
 		return // already in love — extra feeds are no-ops
 	}
 	if sess.mode() == GameModeSurvival || sess.mode() == GameModeAdventure {
-		sess.consumeHeld(1)
+		sess.consumeSlot(hslot, 1)
 	}
 	e.loveTicks = 600
 	e.loveCause = sess.getName()
@@ -122,7 +124,7 @@ var tameFood = map[string]struct {
 // taming item: one item is consumed (in survival), the vanilla odds
 // roll decides, and the outcome broadcasts entity status 7 (hearts) or
 // 6 (smoke). A tame fires tame_animal.
-func (s *Server) tameAnimal(sess *Session, eid int32) {
+func (s *Server) tameAnimal(sess *Session, eid int32, hand int32) {
 	s.entities.mu.RLock()
 	e, ok := s.entities.byID[eid]
 	s.entities.mu.RUnlock()
@@ -137,7 +139,7 @@ func (s *Server) tameAnimal(sess *Session, eid int32) {
 	if !ok {
 		return
 	}
-	held := sess.heldStack()
+	held, hslot := sess.stackForHand(hand)
 	if held.Empty() {
 		return
 	}
@@ -146,7 +148,7 @@ func (s *Server) tameAnimal(sess *Session, eid int32) {
 		return
 	}
 	if sess.mode() == GameModeSurvival || sess.mode() == GameModeAdventure {
-		sess.consumeHeld(1)
+		sess.consumeSlot(hslot, 1)
 	}
 	if rand.Intn(tf.odds) != 0 {
 		s.broadcastEntityEventTo(nil, e.Dim, e.ID, 6) // tame failed — smoke
@@ -161,7 +163,7 @@ func (s *Server) tameAnimal(sess *Session, eid int32) {
 
 // interactEntityAdv resolves the clicked entity's type name and the
 // held item for the player_interacted_with_entity trigger.
-func (s *Server) interactEntityAdv(sess *Session, eid int32) {
+func (s *Server) interactEntityAdv(sess *Session, eid int32, hand int32) {
 	s.entities.mu.RLock()
 	e := s.entities.byID[eid]
 	etype, ok := "", false
@@ -172,10 +174,68 @@ func (s *Server) interactEntityAdv(sess *Session, eid int32) {
 	if !ok {
 		return
 	}
-	held := sess.heldStack()
+	held, _ := sess.stackForHand(hand)
 	heldName := ""
 	if n, ok := itemNameOf(held.ID); ok && !held.Empty() {
 		heldName = n
 	}
 	s.firePlayerInteractedEntity(sess, etype, heldName)
+}
+
+// fishBuckets maps the bucketable fish entity names to the filled
+// bucket item — vanilla's water-bucket-on-fish pickup.
+var fishBuckets = map[string]string{
+	"cod":           "cod_bucket",
+	"salmon":        "salmon_bucket",
+	"pufferfish":    "pufferfish_bucket",
+	"tropical_fish": "tropical_fish_bucket",
+	"axolotl":       "axolotl_bucket",
+	"tadpole":       "tadpole_bucket",
+}
+
+// bucketFish implements the water-bucket-on-live-fish pickup: the entity
+// despawns, the fill sound plays, and the matching fish bucket lands in
+// the inventory. In creative the water bucket stays in hand (vanilla's
+// createFilledResult returns the original stack and adds the filled
+// bucket separately); survival replaces it. Measured on 26.2: no
+// filled_bucket advancement reaches the wire, so none fires.
+func (s *Server) bucketFish(sess *Session, eid int32, hand int32) {
+	s.entities.mu.RLock()
+	e := s.entities.byID[eid]
+	if e == nil || e.Dying {
+		s.entities.mu.RUnlock()
+		return
+	}
+	name, ok := EntityTypeName(e.Type)
+	dim := e.Dim
+	s.entities.mu.RUnlock()
+	if !ok {
+		return
+	}
+	bucket, ok := fishBuckets[name]
+	if !ok {
+		return
+	}
+	held, hslot := sess.stackForHand(hand)
+	if heldName, ok := itemNameOf(held.ID); !ok || heldName != "water_bucket" {
+		return
+	}
+	outID, ok := world.ItemID(bucket)
+	if !ok {
+		return
+	}
+	if sess.mode() == GameModeCreative {
+		slot := sess.firstEmptySlot()
+		if slot < 0 {
+			return
+		}
+		sess.setStack(slot, ItemStack{ID: outID, Count: 1})
+		_ = s.sendContainerSlot(sess, slot, sess.stackAt(slot))
+	} else {
+		sess.setStack(hslot, ItemStack{ID: outID, Count: 1})
+		_ = s.sendContainerSlot(sess, hslot, sess.stackAt(hslot))
+	}
+	s.entities.Remove(eid)
+	s.broadcastEntityRemoveIn(dim, nil, []int32{eid})
+	s.broadcastAttackSound(sess, 232) // minecraft:item.bucket.fill_fish
 }

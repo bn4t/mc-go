@@ -196,47 +196,47 @@ func (s *Server) dispatchCommandText(sess *Session, text string) {
 	}
 }
 
-// handleInteract processes right-click and "attack" interactions on an
-// entity: Interact (0x1A). The action is 0 interact, 1 attack, 2
-// interact-at; only attack changes state mc-go models today, and it
-// shares the Attack packet's damage path so both routes agree.
+// handleInteract processes a right-click use on an entity: Interact
+// (0x1A). The 26.2 record is (entityId, hand, location LpVec3,
+// usingSecondaryAction) — there is no action discriminator: attacks
+// arrive as their own Attack packet (0x01). The LpVec3 starts with a
+// byte that is 0 for Vec3.ZERO, otherwise three packed fields over six
+// bytes (plus a trailing VarInt when bit 2 of the first byte is set).
+// mc-go ignores the click position; vanilla uses it only for range.
 func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
 	id, err := r.VarInt()
 	if err != nil {
 		return
 	}
-	action, err := r.VarInt()
+	hand, err := r.VarInt()
 	if err != nil {
 		return
 	}
-	if action == 2 {
-		// Interact At carries the clicked target position before the
-		// hand and sneaking flags.
-		if _, err := r.Float(); err != nil {
-			return
-		}
-		if _, err := r.Float(); err != nil {
-			return
-		}
-		if _, err := r.Float(); err != nil {
-			return
-		}
-	}
-	if _, err := r.VarInt(); err != nil { // hand
+	b0, err := r.Byte()
+	if err != nil {
 		return
 	}
-	if _, err := r.Bool(); err != nil { // sneaking
+	if b0 != 0 {
+		if _, err := r.Byte(); err != nil {
+			return
+		}
+		if _, err := r.Read(4); err != nil {
+			return
+		}
+		if b0&4 != 0 {
+			if _, err := r.VarInt(); err != nil {
+				return
+			}
+		}
+	}
+	if _, err := r.Bool(); err != nil {
 		return
 	}
-	if action == 1 {
-		s.attackEntity(sess, id)
-	}
-	if action == 0 || action == 2 {
-		s.feedAnimal(sess, id)
-		s.tameAnimal(sess, id)
-		s.interactEntityAdv(sess, id)
-	}
+	s.bucketFish(sess, id, hand)
+	s.feedAnimal(sess, id, hand)
+	s.tameAnimal(sess, id, hand)
+	s.interactEntityAdv(sess, id, hand)
 }
 
 // handlePlayerCommand processes Player Command (0x2A): sneak, sprint,

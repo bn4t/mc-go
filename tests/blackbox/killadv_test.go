@@ -27,10 +27,15 @@ import (
 )
 
 type advFlush struct {
-	defs    map[string][]byte          // def id -> raw def entry bytes
-	prog    map[string]map[string]bool // adv id -> criterion -> obtained
-	removed map[string]bool            // def ids sent in the removed list
-	chats   []string                   // system_chat translate keys
+	defs       map[string][]byte          // def id -> raw def entry bytes
+	prog       map[string]map[string]bool // adv id -> criterion -> obtained
+	removed    map[string]bool            // def ids sent in the removed list
+	chats      []string                   // system_chat translate keys
+	spawnTypes map[int32][]int32          // diagnostic: entity type -> eids seen
+	sounds     int                        // diagnostic: sound packets seen
+	removedIDs []int32                    // diagnostic: remove_entities ids seen
+	advPkts    int                        // diagnostic: update_advancements packets seen
+	codRemoved bool                       // diagnostic: target cod observed removed
 }
 
 // decodeUpdateAdv parses an update_advancements payload. Def entries

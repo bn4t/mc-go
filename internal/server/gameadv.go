@@ -43,7 +43,8 @@ type advMeta struct {
 	loots      []lootCond    // player_generates_container_loot — chest opened
 	breds      []breedCond   // bred_animals — a baby was produced
 	tames      []tameCond
-	interacts  []interactCond // tame_animal — an animal was tamed
+	interacts  []interactCond // player_interacted_with_entity — a successful right-click
+	fills      []fillCond     // filled_bucket — a bucket was filled
 	sleeps     []sleepCond    // slept_in_bed — entered a bed
 }
 
@@ -254,6 +255,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.tames = append(m.tames, parseTameCond(cname, cm["conditions"]))
 				case "minecraft:player_interacted_with_entity":
 					m.interacts = append(m.interacts, parseInteractCond(cname, cm["conditions"]))
+				case "minecraft:filled_bucket":
+					m.fills = append(m.fills, parseFillCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -1456,6 +1459,14 @@ type interactCond struct {
 	impossible bool
 }
 
+// fillCond is one filled_bucket criterion: the produced bucket item's
+// name OR-set. Anything else in the condition locks it.
+type fillCond struct {
+	crit       string
+	items      map[string]bool
+	impossible bool
+}
+
 func parseTameCond(cname string, conds any) tameCond {
 	tc := tameCond{crit: cname}
 	cm, _ := conds.(map[string]any)
@@ -1628,6 +1639,60 @@ func (s *Server) firePlayerInteractedEntity(sess *Session, etype, heldName strin
 				continue
 			}
 			sess.grantGameCriterion(meta, ic.crit)
+		}
+	}
+}
+
+// parseFillCond reduces a filled_bucket criterion to its item.items
+// OR-set; other condition keys lock it.
+func parseFillCond(cname string, conds any) fillCond {
+	fc := fillCond{crit: cname, items: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "item" {
+			fc.impossible = true
+			continue
+		}
+		im, _ := v.(map[string]any)
+		for ik, iv := range im {
+			if ik != "items" {
+				fc.impossible = true
+				continue
+			}
+			switch it := iv.(type) {
+			case string:
+				fc.addItem(it)
+			case []any:
+				for _, e := range it {
+					if es, ok := e.(string); ok {
+						fc.addItem(es)
+					}
+				}
+			}
+		}
+	}
+	return fc
+}
+
+func (fc *fillCond) addItem(name string) {
+	if strings.HasPrefix(name, "#") {
+		for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(name, "#"), "minecraft:")] {
+			fc.items[m] = true
+		}
+		return
+	}
+	fc.items[strings.TrimPrefix(name, "minecraft:")] = true
+}
+
+// fireFilledBucket runs filled_bucket criteria against the bucket item
+// that resulted from the fill.
+func (s *Server) fireFilledBucket(sess *Session, bucket string) {
+	for _, meta := range gameAdvs {
+		for _, fc := range meta.fills {
+			if fc.impossible || (len(fc.items) > 0 && !fc.items[bucket]) {
+				continue
+			}
+			sess.grantGameCriterion(meta, fc.crit)
 		}
 	}
 }

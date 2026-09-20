@@ -1594,3 +1594,22 @@ physics through a void dip plus a fed recovery window.
   criterion parser reduces entity[] predicates to an entity-type OR-set
   and item.items to a name/tag OR-set. Armadillo joins the summonable
   table at vanilla's 12 HP. TestBrushArmadilloParity green.
+
+- 2026-09-20: filled_bucket / husbandry/tactical_fishing. The Interact
+  packet was decoded with a phantom action discriminator left over
+  from pre-26.x; on the 26.2 wire (entityId, hand, LpVec3,
+  usingSecondaryAction) the "hand" varint landed on the first LpVec3
+  byte, pushed 0xff onto the sneak flag, and ReadBool rejected it —
+  every real client interact silently died before dispatch. The
+  handler now decodes the real record, and feedAnimal/tameAnimal/
+  interactEntityAdv/bucketFish honor the packet's hand instead of
+  always reading the main hand. bucketFish also matches vanilla's
+  creative semantics — the water bucket stays in hand and the filled
+  bucket lands in the first free inventory slot — and no
+  filled_bucket grant fires: measured three ways on vanilla 26.2
+  (wire flush, server-side selector, persisted advancement files),
+  the fish pickup removes the entity, plays fill_fish, and writes the
+  cod_bucket into inventory but never produces a tactical_fishing
+  progress entry, even for the real client. Also fixed a preexisting
+  concurrent-map-writes crash on savedPlayers hit by the unit suite.
+  TestTacticalFishingParity green.

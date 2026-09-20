@@ -66,11 +66,11 @@ type signPersist struct {
 }
 
 type chestPersist struct {
-	Dim      string `json:"dim,omitempty"`
-	X, Y, Z  int
-	Items    [chestSlots]ItemStack `json:"items"`
-	LootTable string `json:"loot_table,omitempty"`
-	LootSeed  int64  `json:"loot_seed,omitempty"`
+	Dim       string `json:"dim,omitempty"`
+	X, Y, Z   int
+	Items     [chestSlots]ItemStack `json:"items"`
+	LootTable string                `json:"loot_table,omitempty"`
+	LootSeed  int64                 `json:"loot_seed,omitempty"`
 }
 
 // containerPersist covers the generic container family. The block name
@@ -289,14 +289,18 @@ func (s *Server) LoadServerData() error {
 		d.containers.containers[world.Pos{X: cp.X, Y: cp.Y, Z: cp.Z}] = c
 		d.containers.mu.Unlock()
 	}
+	s.savedPlayersMu.Lock()
 	s.savedPlayers = f.Players
+	s.savedPlayersMu.Unlock()
 	return nil
 }
 
 // applySavedPlayer loads a player's stored state into a joining
 // session, if any.
 func (s *Server) applySavedPlayer(sess *Session) {
+	s.savedPlayersMu.Lock()
 	p, ok := s.savedPlayers[sess.getName()]
+	s.savedPlayersMu.Unlock()
 	if !ok {
 		return
 	}
