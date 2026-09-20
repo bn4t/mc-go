@@ -15,7 +15,9 @@ func TestCraftRecipeParity(t *testing.T) {
 		"ops.json": opsJSONFor("CraftV1", "CraftM1", "CraftV2", "CraftM2",
 			"CraftV3", "CraftM3", "CraftV4", "CraftM4",
 			"CraftV5", "CraftM5", "CraftV6", "CraftM6",
-			"CraftV7", "CraftM7", "CraftV8", "CraftM8"),
+			"CraftV7", "CraftM7", "CraftV8", "CraftM8",
+			"CraftV9", "CraftM9", "CraftV10", "CraftM10",
+			"CraftV11", "CraftM11"),
 	}, nil)
 	defer tg.cleanup()
 
@@ -186,6 +188,58 @@ func TestCraftRecipeParity(t *testing.T) {
 				{tag: "lift", slot: 36, w0: true},
 				{tag: "log", slot: 1, button: 1, w0: true},
 				{tag: "back", slot: 36, w0: true},
+				{tag: "take", slot: 0, w0: true},
+				{tag: "park", slot: 9, w0: true},
+			},
+		},
+		{
+			// Special repair: two damaged pickaxes merge with the
+			// 5%-of-max bonus; the result's damage component is the
+			// whole comparison.
+			name: "repair", suf: "9", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:stone_pickaxe[minecraft:damage=80]"},
+				{"hotbar.1", "minecraft:stone_pickaxe[minecraft:damage=100]"},
+			},
+			steps: []step{
+				{tag: "lift-a", slot: 36, w0: true},
+				{tag: "a1", slot: 1, w0: true},
+				{tag: "lift-b", slot: 37, w0: true},
+				{tag: "b2", slot: 2, w0: true},
+				{tag: "take", slot: 0, w0: true},
+				{tag: "park", slot: 9, w0: true},
+			},
+		},
+		{
+			// Repair only pairs same-id damageables: a pickaxe plus
+			// a shovel must not produce a result.
+			name: "repair-mismatch", suf: "10", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:stone_pickaxe[minecraft:damage=80]"},
+				{"hotbar.1", "minecraft:stone_shovel[minecraft:damage=80]"},
+			},
+			steps: []step{
+				{tag: "lift-a", slot: 36, w0: true},
+				{tag: "a1", slot: 1, w0: true},
+				{tag: "lift-b", slot: 37, w0: true},
+				{tag: "b2", slot: 2, w0: true},
+				{tag: "take?", slot: 0, w0: true},
+			},
+		},
+		{
+			// Transmute: a bundle plus a dye recolors in place; the
+			// input stack's components ride onto the result.
+			name: "transmute-bundle", suf: "11", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:bundle"},
+				{"hotbar.1", "minecraft:red_dye 4"},
+			},
+			steps: []step{
+				{tag: "lift-bundle", slot: 36, w0: true},
+				{tag: "b1", slot: 1, w0: true},
+				{tag: "lift-dye", slot: 37, w0: true},
+				{tag: "d2", slot: 2, button: 1, w0: true},
+				{tag: "back-dye", slot: 37, w0: true},
 				{tag: "take", slot: 0, w0: true},
 				{tag: "park", slot: 9, w0: true},
 			},

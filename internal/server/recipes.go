@@ -72,43 +72,33 @@ func recipeStack(out data.ItemStack) (ItemStack, bool) {
 	return ItemStack{ID: id, Count: out.Count}, true
 }
 
-// matchShapeless finds the first shapeless recipe whose ingredient
-// multiset is exactly the grid's contents.
-func matchShapeless(names []string, filled []bool) (ItemStack, bool) {
+// matchShapelessRecipe reports whether the grid's contents are exactly
+// the recipe's ingredient multiset.
+func matchShapelessRecipe(r *data.Recipe, names []string, filled []bool) (ItemStack, bool) {
 	var present []string
 	for i, n := range names {
 		if filled[i] {
 			present = append(present, n)
 		}
 	}
-	for i := range data.Recipes {
-		r := &data.Recipes[i]
-		if r.Type != data.CraftingShapeless || len(r.Ingredients) != len(present) {
-			continue
-		}
-		used := make([]bool, len(present))
-		matched := true
-		for _, in := range r.Ingredients {
-			found := false
-			for j, got := range present {
-				if !used[j] && in.Accepts(got) {
-					used[j] = true
-					found = true
-					break
-				}
-			}
-			if !found {
-				matched = false
+	if len(r.Ingredients) != len(present) {
+		return ItemStack{}, false
+	}
+	used := make([]bool, len(present))
+	for _, in := range r.Ingredients {
+		found := false
+		for j, got := range present {
+			if !used[j] && in.Accepts(got) {
+				used[j] = true
+				found = true
 				break
 			}
 		}
-		if matched {
-			if st, ok := recipeStack(r.Result); ok {
-				return st, true
-			}
+		if !found {
+			return ItemStack{}, false
 		}
 	}
-	return ItemStack{}, false
+	return recipeStack(r.Result)
 }
 
 // trimPattern removes empty rows and columns from a pattern.
@@ -168,47 +158,126 @@ func patternAt(pat []string, r *data.Recipe, names []string, filled []bool, minR
 	return true
 }
 
-// matchShaped finds the first shaped recipe whose normalized pattern
+// matchShapedRecipe reports whether the recipe's normalized pattern
 // matches the grid's normalized occupied box, trying the mirrored
 // pattern too — vanilla allows horizontal flips.
-func matchShaped(names []string, filled []bool) (ItemStack, bool) {
-	minRow, minCol, maxRow, maxCol := gridBox(filled)
-	if maxRow < 0 {
+func matchShapedRecipe(r *data.Recipe, names []string, filled []bool, minRow, minCol, boxH, boxW int) (ItemStack, bool) {
+	if boxH <= 0 {
 		return ItemStack{}, false
 	}
-	boxH, boxW := maxRow-minRow+1, maxCol-minCol+1
-
-	for i := range data.Recipes {
-		r := &data.Recipes[i]
-		if r.Type != data.CraftingShaped {
-			continue
-		}
-		pat := trimPattern(r.Pattern)
-		if len(pat) != boxH || len(pat[0]) != boxW {
-			continue
-		}
-		if patternAt(pat, r, names, filled, minRow, minCol, false) ||
-			patternAt(pat, r, names, filled, minRow, minCol, true) {
-			if st, ok := recipeStack(r.Result); ok {
-				return st, true
-			}
-		}
+	pat := trimPattern(r.Pattern)
+	if len(pat) != boxH || len(pat[0]) != boxW {
+		return ItemStack{}, false
+	}
+	if patternAt(pat, r, names, filled, minRow, minCol, false) ||
+		patternAt(pat, r, names, filled, minRow, minCol, true) {
+		return recipeStack(r.Result)
 	}
 	return ItemStack{}, false
 }
 
-// craftResult computes the grid's result stack. Shaped recipes win
-// over shapeless ones, matching the order a vanilla table resolves
-// them.
+// matchRepair handles crafting_special_repairitem: two of the same
+// damageable item merge into one whose damage is the sum minus the
+// max and a 5%-of-max bonus (floored at zero), exactly as vanilla's
+// RepairItemRecipe computes it.
+func matchRepair(g craftGrid, filled []bool) (ItemStack, bool) {
+	var a, b ItemStack
+	n := 0
+	for i, f := range filled {
+		if !f {
+			continue
+		}
+		n++
+		if n == 1 {
+			a = g[i]
+		} else if n == 2 {
+			b = g[i]
+		}
+	}
+	if n != 2 || a.ID != b.ID {
+		return ItemStack{}, false
+	}
+	max := MaxDamageOfID(a.ID)
+	if max <= 0 {
+		return ItemStack{}, false
+	}
+	dmg := a.Damage + b.Damage - max - max/20
+	if dmg < 0 {
+		dmg = 0
+	}
+	return ItemStack{ID: a.ID, Count: 1, Damage: dmg}, true
+}
+
+// matchTransmute handles crafting_transmute: exactly two grid items,
+// the input and the material in either order; the result is the input
+// stack retyped to the result item so carried components (a shulker
+// box's contents) ride along, as vanilla's TransmuteRecipe does.
+func matchTransmute(r *data.Recipe, g craftGrid, filled []bool) (ItemStack, bool) {
+	var stacks []ItemStack
+	var names []string
+	for i, f := range filled {
+		if f {
+			stacks = append(stacks, g[i])
+			name, ok := itemNameOf(g[i].ID)
+			if !ok {
+				return ItemStack{}, false
+			}
+			names = append(names, name)
+		}
+	}
+	if len(stacks) != 2 {
+		return ItemStack{}, false
+	}
+	var input ItemStack
+	switch {
+	case r.Input.Accepts(names[0]) && r.Material.Accepts(names[1]):
+		input = stacks[0]
+	case r.Input.Accepts(names[1]) && r.Material.Accepts(names[0]):
+		input = stacks[1]
+	default:
+		return ItemStack{}, false
+	}
+	id, ok := world.ItemID(r.Result.Item)
+	if !ok {
+		return ItemStack{}, false
+	}
+	input.ID = id
+	input.Count = r.Result.Count
+	return input, true
+}
+
+// craftResult computes the grid's result stack, iterating the recipe
+// table in registry order so the first matching recipe wins like
+// vanilla's CraftingManager.
 func craftResult(g craftGrid) (ItemStack, bool) {
 	names, filled, ok := gridNames(g)
 	if !ok {
 		return ItemStack{}, false
 	}
-	if out, ok := matchShaped(names, filled); ok {
-		return out, true
+	minRow, minCol, maxRow, maxCol := gridBox(filled)
+	boxH, boxW := 0, 0
+	if maxRow >= 0 {
+		boxH, boxW = maxRow-minRow+1, maxCol-minCol+1
 	}
-	return matchShapeless(names, filled)
+	for i := range data.Recipes {
+		r := &data.Recipes[i]
+		var out ItemStack
+		var hit bool
+		switch r.Type {
+		case data.CraftingShaped:
+			out, hit = matchShapedRecipe(r, names, filled, minRow, minCol, boxH, boxW)
+		case data.CraftingShapeless:
+			out, hit = matchShapelessRecipe(r, names, filled)
+		case data.CraftingSpecialRepairitem:
+			out, hit = matchRepair(g, filled)
+		case data.CraftingTransmute:
+			out, hit = matchTransmute(r, g, filled)
+		}
+		if hit {
+			return out, true
+		}
+	}
+	return ItemStack{}, false
 }
 
 // playerCraftGrid snapshots the session's 2x2 grid inside a 3x3 view.

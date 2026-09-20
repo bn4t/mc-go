@@ -97,8 +97,10 @@ Mojang server over the wire.
   - enchanting, brewing, beacon, lectern - still open)
 - [ ] Survival mode: health, hunger, regen, death/respawn
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
-  shaped/shapeless/mirror parity vs 26.2; special/transmute/smithing
-  types and the unlock engine pending)
+  shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
+  decorated_pot needs an unmodeled component, smithing needs the menu,
+  bookcloning/shielddecoration/fireworks/mapextending need content
+  components; unlock engine pending)
 - [ ] Advancements, statistics, scoreboard, teams
 - [ ] Player data persistence
 
@@ -1085,3 +1087,19 @@ Mojang server over the wire.
   exact position rather than the block floor. parseDouble now takes
   the double base + a per-axis center flag; portal teleports center
   the same way.
+
+Special crafting types are wired: the single-pass craftResult loop
+dispatches per recipe type, so crafting_special_repairitem (two
+same-id damageables merge, damage = dmgA+dmgB-max-floor(max/20),
+clamped at 0 - confirmed against vanilla at 80+100 on stone
+pickaxes) and crafting_transmute (input stack retyped to
+r.Result.Item keeping its components; bundle+dye measured) now
+answer identically to vanilla. Three new TestCraftRecipeParity
+cases pin repair, repair's same-id gate, and bundle recoloring.
+The measurement surfaced a /item grammar gap along the way: the
+item-spec bracket form (item[comp=v,...], plus !comp to clear)
+wasn't parsed at all, so `item replace ... with
+stone_pickaxe[damage=80]` refused its target. parseItemStack now
+splits the bracket and applyItemComponents sets damage and
+repair_cost (the only modeled scalars); unknown components are
+ignored.
