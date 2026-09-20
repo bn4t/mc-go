@@ -52,6 +52,31 @@ func (sess *Session) initAdvancements(joinMillis int64) {
 	// group at join; a completed advancement stops reporting further
 	// criteria, which is why a later `give *` omits it from progress.
 	sess.advDone = map[string]bool{advCraftingTable: true}
+	// A returning player replays its saved progress through the first
+	// flush: every progressed advancement joins the dirty set so the
+	// packet carries its def (when unsent this session) and full
+	// criterion state — vanilla's rejoin sync is the same shape.
+	for id, a := range sess.pendingAdv {
+		if len(a.Criteria) > 0 {
+			if sess.advCrits[id] == nil {
+				sess.advCrits[id] = map[string]int64{}
+			}
+			for c, t := range a.Criteria {
+				sess.advCrits[id][c] = t
+			}
+		}
+		if a.Done {
+			sess.advDone[id] = true
+		}
+		if sess.advDirty == nil {
+			sess.advDirty = map[string]bool{}
+		}
+		if !sess.advDirty[id] {
+			sess.advDirty[id] = true
+			sess.advDirtyOrder = append(sess.advDirtyOrder, id)
+		}
+	}
+	sess.pendingAdv = nil
 }
 
 // grantRecipeCriterion marks the recipe's "has_the_recipe" criterion

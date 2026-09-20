@@ -1388,3 +1388,16 @@ physics through a void dip plus a fed recovery window.
   player_hurt_entity / entity_hurt_player (need arrows, the mace's
   overoverkill), the non-plains location predicates, and advancement
   persistence across rejoin.
+
+- 2026-09-20: Advancement persistence across rejoin. Vanilla stores
+  criterion progress in advancements/<uuid>.json and replays the full
+  visible set on the next join — defs plus progress — because the
+  client resets its advancement state every session. mc-go now writes
+  done flags + criterion timestamps into the .data.json player blob
+  (playerPersist.Advancements), and initAdvancements merges them back:
+  progressed ids join the dirty queue so the first tick's flush emits
+  defs (once per session) and full criterion state. TestAdvRejoinParity
+  kills a zombie on both servers, disconnects, rejoins, and diffs the
+  rejoin sync union — green at 44 defs + 44 progress entries each.
+  Recipe-book unlock persistence (the unlockedRecipes set itself)
+  remains open.
