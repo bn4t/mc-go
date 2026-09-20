@@ -49,6 +49,7 @@ type advMeta struct {
 	beacons    []beaconCond   // construct_beacon — pyramid activated
 	recipes    []recipeCond   // recipe_crafted — a recipe completed
 	totems     []totemCond    // used_totem — death protection popped
+	effs       []effCond      // effects_changed — effect set transition
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -266,6 +267,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.recipes = append(m.recipes, parseRecipeCond(cname, cm["conditions"]))
 				case "minecraft:used_totem":
 					m.totems = append(m.totems, parseTotemCond(cname, cm["conditions"]))
+				case "minecraft:effects_changed":
+					m.effs = append(m.effs, parseEffCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:location":
@@ -1818,6 +1821,76 @@ func parseTotemCond(cname string, conds any) totemCond {
 		}
 	}
 	return tc
+}
+
+// effCond is one effects_changed criterion reduced to its
+// conditions.effects keyset: every listed effect must be active at
+// trigger time. A source entity predicate (the axolotl criterion)
+// or per-effect amplifier/duration bounds are unmodeled and lock the
+// criterion.
+type effCond struct {
+	crit       string
+	effects    map[string]bool // required active effects, no prefix
+	impossible bool
+}
+
+// parseEffCond reads conditions.effects; any other condition key or a
+// non-object per-effect bound locks the criterion — vanilla's
+// MobEffectsPredicate supports amplifier/duration ranges mc-go does
+// not evaluate.
+func parseEffCond(cname string, conds any) effCond {
+	ec := effCond{crit: cname, effects: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "effects" {
+			ec.impossible = true
+			continue
+		}
+		em, _ := v.(map[string]any)
+		if em == nil {
+			ec.impossible = true
+			continue
+		}
+		for name, bound := range em {
+			if bm, ok := bound.(map[string]any); !ok || len(bm) > 0 {
+				ec.impossible = true
+				continue
+			}
+			ec.effects[strings.TrimPrefix(name, "minecraft:")] = true
+		}
+	}
+	return ec
+}
+
+// fireEffectsChanged grants effects_changed criteria whose required
+// set is fully active. Vanilla fires the trigger on add, update, and
+// removal alike, so this runs after every store transition.
+func (s *Server) fireEffectsChanged(sess *Session) {
+	sess.effMu.Lock()
+	active := map[string]bool{}
+	for id := range sess.effects {
+		if name, ok := MobEffectName(id); ok {
+			active[name] = true
+		}
+	}
+	sess.effMu.Unlock()
+	for _, meta := range gameAdvs {
+		for _, ec := range meta.effs {
+			if ec.impossible {
+				continue
+			}
+			have := true
+			for name := range ec.effects {
+				if !active[name] {
+					have = false
+					break
+				}
+			}
+			if have {
+				sess.grantGameCriterion(meta, ec.crit)
+			}
+		}
+	}
 }
 
 // fireUsedTotem grants used_totem criteria whose item predicate admits

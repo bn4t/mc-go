@@ -73,11 +73,22 @@ func (s *Server) tryTotem(sess *Session) bool {
 // to the player and everyone tracking them — vanilla's addEffect
 // broadcasts to both.
 func (s *Server) applyMobEffect(sess *Session, id, amplifier int32, duration int32) {
+	s.applyMobEffectFlags(sess, id, amplifier, duration, false)
+}
+
+// applyMobEffectFlags is applyMobEffect with the /effect hideParticles
+// flag: hiding clears bit 0x02 of vanilla's applied-effect mask 0x0E.
+// A duration < 0 is vanilla's infinite and never expires.
+func (s *Server) applyMobEffectFlags(sess *Session, id, amplifier int32, duration int32, hideParticles bool) {
 	sess.effMu.Lock()
 	if sess.effects == nil {
 		sess.effects = map[int32]mobEffectInst{}
 	}
-	sess.effects[id] = mobEffectInst{amplifier: amplifier, expiry: s.clock.count + int64(duration)}
+	expiry := int64(-1)
+	if duration >= 0 {
+		expiry = s.clock.count + int64(duration)
+	}
+	sess.effects[id] = mobEffectInst{amplifier: amplifier, expiry: expiry}
 	sess.effMu.Unlock()
 	// Vanilla's onEffectAdded raises the absorb pool to the effect's
 	// ceiling — 4 half-hearts per level — but never lowers it.
@@ -92,10 +103,15 @@ func (s *Server) applyMobEffect(sess *Session, id, amplifier int32, duration int
 	b.VarInt(id) // bare mob_effect registry protocol id
 	b.VarInt(amplifier)
 	b.VarInt(duration)
-	b.Byte(0x0E) // particles + icon + blend — vanilla's applied-effect flags
+	flags := byte(0x0E) // particles + icon + blend — vanilla's applied-effect flags
+	if hideParticles {
+		flags &^= 0x02
+	}
+	b.Byte(flags)
 	body := b.Bytes()
 	_ = sess.write(sess.ids().PlayUpdateMobEffect, body)
 	s.broadcastToDim(sess.dimName(), sess, sess.ids().PlayUpdateMobEffect, body)
+	s.fireEffectsChanged(sess)
 }
 
 // clearMobEffects is vanilla's ClearAllStatusEffectsConsumeEffect: each
@@ -118,12 +134,16 @@ func (s *Server) removeMobEffect(sess *Session, id int32) {
 	if id == effectAbsorption {
 		sess.absorb = 0
 	}
+	sess.effMu.Lock()
+	delete(sess.effects, id)
+	sess.effMu.Unlock()
 	var b protocol.Buffer
 	b.VarInt(sess.entityID.Load())
 	b.VarInt(id)
 	body := b.Bytes()
 	_ = sess.write(sess.ids().PlayRemoveMobEffect, body)
 	s.broadcastToDim(sess.dimName(), sess, sess.ids().PlayRemoveMobEffect, body)
+	s.fireEffectsChanged(sess)
 }
 
 // broadcastToDim writes body to every play-state session in dim except

@@ -1673,3 +1673,20 @@ physics through a void dip plus a fed recovery window.
   parity diff: killed_by_something diverged). TestTotemParity pops a
   zombie-survivor on both targets and diffs grants, event-35 count,
   and the effect table — green, stable ×2.
+- 2026-09-20: effects_changed + /effect at parity. The mob_effect
+  registry joins genregistries (name<->id); /effect give|clear runs
+  vanilla's grammar — give <targets> <effect> [seconds] [amplifier]
+  [hideParticles], "infinite" as -1, clear [targets] [effect] — with
+  the reply lattice commands.effect.{give,clear}.{success,failed}.*
+  including give.failed when an equal-or-stronger instance is already
+  running (stronger amplifier, or equal amplifier with at-least-as-
+  long remaining time). Wire details measured: effect field is the
+  bare registry id, applied-effect flags are 0x0E (particles|icon|
+  blend), hideParticles drops bit 0x02, infinite writes -1. The
+  effects_changed trigger fires on add and remove alike (vanilla runs
+  it from onEffectAdded and onEffectRemoved); criteria reduce to the
+  conditions.effects keyset — source predicates and per-effect
+  amplifier/duration bounds lock a criterion (kill_axolotl_target's
+  axolotl source stays unmodelable for now). TestEffectAdvParity
+  grants nether/all_potions by giving all 17 potion effects at once,
+  plus a specific-clear+regive round — green both targets.
