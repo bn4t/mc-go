@@ -1799,3 +1799,24 @@ physics through a void dip plus a fed recovery window.
   keys); an update_advancements packet arriving while a teleport is
   unconfirmed stalls vanilla block actions — the harness now echoes
   MovePlayerPos after every sync-position, like a real client.
+- 2026-09-20: enchanted_item (story/enchant_item "Enchanter") and the
+  enchanting-table menu itself. EnchantmentMenu broadcasts all ten
+  container properties at open (three costs, the per-player seed,
+  three enchantment-id clues, three level clues — all 0/-1 for a
+  fresh player), then re-rolls offers on every slotsChanged. Costs
+  come from j=rand(8)+1+(power>>1)+rand(power+1) capped per slot;
+  the bookshelf ring (|x|==2||z|==2, y 0-1) counts a shelf only when
+  the provider sits at the offset and air sits at offset/2 — power 0
+  in the flat test world. Offers sample the enchantment registry
+  seeded by playerSeed+slot; books roll one extra discard. The button
+  click gates on lapis>=i+1, xp>=i+1 && xp>=costs[i], costs[i]>0,
+  then consumes i+1 LEVELS and i+1 lapis (not costs[i]!), transmutes
+  book->enchanted_book with stored_enchantments (component 42),
+  re-seeds the player, fires enchanted_item, and plays
+  block.enchantment_table.use. Creative keeps the lapis stack
+  (consume respects infinite materials) but still loses the levels —
+  measured. tools/genenchant generates the 43-enchantment, 36-in-table
+  table with exclusive_set compatibility from the datapack JSONs.
+  TestEnchantParity pins open props, offer shapes, survival
+  lapis+level spend, the slot transmute, seed re-roll, announce, and
+  sound — green on both targets.

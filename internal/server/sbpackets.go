@@ -444,7 +444,14 @@ func (s *Server) handleContainerButtonClick(sess *Session, p protocol.Packet) {
 	sess.windowMu.Lock()
 	w := sess.window
 	sess.windowMu.Unlock()
-	if w == nil || w.container == nil || w.id != win || w.container.spec.menu != menuLectern {
+	if w == nil || w.container == nil || w.id != win {
+		return
+	}
+	if w.container.spec.menu == menuEnchantment {
+		s.enchantButton(sess, w, button)
+		return
+	}
+	if w.container.spec.menu != menuLectern {
 		return
 	}
 	switch button {

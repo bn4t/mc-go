@@ -123,11 +123,14 @@ type Session struct {
 	fallStartY float64
 	fallStart  bool
 	sneaking   bool
-	flying       bool
+	flying     bool
 	// Experience tracked from orbs (vanilla /xp levels ride later).
 	xpTotal    int32
 	xpLevel    int32
 	xpProgress float32
+	// enchantSeed is the player's enchantment seed, rerolled on every
+	// table enchant; it starts at 0 for a fresh player like vanilla's.
+	enchantSeed int32
 	// Hunger simulation: exhaustion accumulates toward food loss.
 	exhaustion    float32
 	foodTickTimer int

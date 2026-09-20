@@ -126,6 +126,10 @@ func (spec *containerSpec) accepts(slot int, it ItemStack) bool {
 		return false
 	case spec.menu == menuEnchantment && slot == enchantLapis:
 		return itemNamed(it, "lapis_lazuli")
+	case spec.menu == menuEnchantment && slot == enchantItem:
+		// The enchant slot takes only stacks with an enchantable
+		// component (vanilla's mayPlace reads the same field).
+		return enchantableOf(it) > 0
 	case spec.menu == menuLectern:
 		return itemNamed(it, "written_book")
 	case spec.menu == menuBeacon:
@@ -480,6 +484,9 @@ func (s *Server) openContainer(sess *Session, pos world.Pos) {
 	if c.spec.menu == menuAnvil {
 		s.sendAnvilCost(sess, w, c)
 	}
+	if c.spec.menu == menuEnchantment {
+		s.enchantSlotsChanged(sess, w)
+	}
 }
 
 // sendContainerMenuContent syncs a whole generic container menu.
@@ -624,6 +631,9 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		return
 	}
 	s.syncContainerMenuSlots(sess, w, touched)
+	if c.spec.menu == menuEnchantment {
+		s.enchantSlotsChanged(sess, w)
+	}
 }
 
 // isResult reports whether a container slot is take-only.

@@ -52,6 +52,9 @@ type ItemStack struct {
 	// the minecraft: prefix. A plain string keeps ItemStack comparable
 	// with ==.
 	Ench string `json:"ench,omitempty"`
+	// StoredEnch is the minecraft:stored_enchantments component — the
+	// list an enchanted_book carries — same canonical encoding as Ench.
+	StoredEnch string `json:"stored_ench,omitempty"`
 	// Bees is the minecraft:bees component's occupant count — a
 	// bee_nest/beehive item remembers how many bees it carries into
 	// placement. Only the count matters for the triggers we model;
@@ -71,7 +74,8 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 	}
 	return it.Contents == nil && other.Contents == nil &&
 		it.Damage == other.Damage && it.RepairCost == other.RepairCost &&
-		it.Name == other.Name && it.Ench == other.Ench && it.Bees == other.Bees
+		it.Name == other.Name && it.Ench == other.Ench &&
+		it.StoredEnch == other.StoredEnch && it.Bees == other.Bees
 }
 
 // enchLevel reports the stack's level of one enchantment, or 0 when
@@ -127,6 +131,7 @@ const (
 	compCustomName   = 6
 	compEnchantments = 13
 	compRepairCost   = 19
+	compStoredEnch   = 42
 )
 
 // writeSlot writes one Slot value: VarInt count, then (when non-empty)
@@ -151,6 +156,9 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 	if it.Ench != "" {
 		add++
 	}
+	if it.StoredEnch != "" {
+		add++
+	}
 	b.VarInt(add)
 	b.VarInt(0) // components to remove
 	if it.Damage != 0 {
@@ -171,6 +179,17 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 		// ItemEnchantments.STREAM_CODEC is the flat pair map).
 		b.VarInt(compEnchantments)
 		parts := strings.Split(it.Ench, ",")
+		b.VarInt(int32(len(parts)))
+		for _, e := range parts {
+			n, lv, _ := strings.Cut(e, ":")
+			v, _ := strconv.Atoi(lv)
+			b.VarInt(registryEntryID("minecraft:enchantment", "minecraft:"+n))
+			b.VarInt(int32(v))
+		}
+	}
+	if it.StoredEnch != "" {
+		b.VarInt(compStoredEnch)
+		parts := strings.Split(it.StoredEnch, ",")
 		b.VarInt(int32(len(parts)))
 		for _, e := range parts {
 			n, lv, _ := strings.Cut(e, ":")

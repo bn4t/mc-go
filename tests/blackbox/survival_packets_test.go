@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1844,6 +1845,28 @@ func readSlotBBFull(r *protocol.PacketReader) (server.ItemStack, int32, bool, er
 		case 19: // minecraft:repair_cost, VarInt payload (measured 26.2)
 			if it.RepairCost, err = r.VarInt(); err != nil {
 				return server.ItemStack{}, 0, false, err
+			}
+		case 13, 42: // minecraft:enchantments / stored_enchantments: VarInt map of enchant id to level (measured 26.2)
+			n, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, err
+			}
+			var pairs []string
+			for ; n > 0; n-- {
+				eid, err := r.VarInt()
+				if err != nil {
+					return server.ItemStack{}, 0, false, err
+				}
+				lv, err := r.VarInt()
+				if err != nil {
+					return server.ItemStack{}, 0, false, err
+				}
+				pairs = append(pairs, fmt.Sprintf("%d:%d", eid, lv))
+			}
+			if typ == 13 {
+				it.Ench = strings.Join(pairs, ",")
+			} else {
+				it.StoredEnch = strings.Join(pairs, ",")
 			}
 		default:
 			return server.ItemStack{}, 0, false, fmt.Errorf("blackbox: unknown added component type %d on item %d", typ, id)

@@ -61,6 +61,7 @@ type advMeta struct {
 	slides     []slideCond     // slide_down_block — sliding a sticky side
 	levitates  []levitateCond  // levitation — distance risen under the effect
 	beenests   []beeNestCond   // bee_nest_destroyed — silk-touch nest break
+	enchanteds []enchantCond   // enchanted_item — a table enchant landed
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -302,6 +303,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.beenests = append(m.beenests, parseBeeNestCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
+				case "minecraft:enchanted_item":
+					m.enchanteds = append(m.enchanteds, parseEnchantCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -1600,6 +1603,85 @@ func (s *Server) fireSleptInBed(sess *Session) {
 				continue
 			}
 			sess.grantGameCriterion(meta, sc.crit)
+		}
+	}
+}
+
+// enchantCond is an enchanted_item criterion: the levels int|{min,max}
+// range and the item predicate's items OR-set. Any other condition key
+// locks it.
+type enchantCond struct {
+	crit       string
+	items      map[string]bool
+	lvlMin     float64
+	lvlMax     float64 // -1 = unbounded
+	impossible bool
+}
+
+func parseEnchantCond(cname string, conds any) enchantCond {
+	ec := enchantCond{crit: cname, lvlMax: -1}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "item":
+			im, _ := v.(map[string]any)
+			for pk, pv := range im {
+				if pk != "items" {
+					ec.impossible = true
+					continue
+				}
+				lst, _ := pv.([]any)
+				if len(lst) == 0 {
+					if s, ok := pv.(string); ok {
+						lst = append(lst, s)
+					}
+				}
+				for _, e := range lst {
+					if s, ok := e.(string); ok {
+						if ec.items == nil {
+							ec.items = map[string]bool{}
+						}
+						ec.items[strings.TrimPrefix(s, "minecraft:")] = true
+					}
+				}
+			}
+		case "levels":
+			switch n := v.(type) {
+			case float64:
+				ec.lvlMin, ec.lvlMax = n, n
+			case map[string]any:
+				if mn, ok := n["min"].(float64); ok {
+					ec.lvlMin = mn
+				}
+				if mx, ok := n["max"].(float64); ok {
+					ec.lvlMax = mx
+				}
+			default:
+				ec.impossible = true
+			}
+		default:
+			ec.impossible = true
+		}
+	}
+	return ec
+}
+
+// fireEnchantedItem grants enchanted_item criteria on a table enchant:
+// item is the resulting stack, levels the option's cost (index+1).
+func (s *Server) fireEnchantedItem(sess *Session, item ItemStack, levels int32) {
+	itemName, _ := itemNameOf(item.ID)
+	for _, meta := range gameAdvs {
+		for _, ec := range meta.enchanteds {
+			if ec.impossible {
+				continue
+			}
+			if float64(levels) < ec.lvlMin || (ec.lvlMax >= 0 && float64(levels) > ec.lvlMax) {
+				continue
+			}
+			if ec.items != nil && !ec.items[itemName] {
+				continue
+			}
+			sess.grantGameCriterion(meta, ec.crit)
 		}
 	}
 }

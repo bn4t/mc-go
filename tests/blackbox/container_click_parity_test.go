@@ -69,8 +69,18 @@ type clickDriver struct {
 	// Inventory packets (anvil close returns).
 	cost     int32
 	costSeen bool
-	xpLevel  int32
-	xpSeen   bool
+	// props keeps every Container Property value by index (the
+	// enchantment menu's ten offer slots), so menus other than the
+	// anvil's single cost field can be read back.
+	props   map[int16]int16
+	xpLevel int32
+	xpSeen  bool
+	// announce counts advancement-announce system chats seen by the
+	// fold (chat.type.advancement.* translate keys).
+	announce int
+	// sndPkts counts clientbound sound packets (id 0x75 on 26.2 — the
+	// enchanting table's use sound).
+	sndPkts  int
 	sounds   int
 	sawClose bool
 	invSets  int
@@ -194,6 +204,12 @@ func (d *clickDriver) foldPkts(pkts []usePkt) (slotsTouched, sawCarried bool) {
 		if d.adv != nil && p.id == server.IDPlayUpdateAdvance {
 			decodeUpdateAdv(d.t, p.data, d.adv)
 		}
+		if bytes.Contains(p.data, []byte("chat.type.advancement")) {
+			d.announce++
+		}
+		if p.id == 0x75 {
+			d.sndPkts++
+		}
 		r := protocol.NewPacketReader(p.data)
 		switch p.id {
 		case server.IDPlayOpenScreen:
@@ -266,6 +282,12 @@ func (d *clickDriver) foldPkts(pkts []usePkt) (slotsTouched, sawCarried bool) {
 			if wid == d.win && prop16 == 0 {
 				d.cost = int32(val16)
 				d.costSeen = true
+			}
+			if wid == d.win {
+				if d.props == nil {
+					d.props = map[int16]int16{}
+				}
+				d.props[prop16] = val16
 			}
 		case server.IDPlaySetExperience:
 			bar, err1 := r.Float()
@@ -363,6 +385,20 @@ func (d *clickDriver) rename(tag, name string) {
 	var b protocol.Buffer
 	b.String(name)
 	if err := d.pw.WritePacket(server.IDPlayRenameItemSB, b.Bytes()); err != nil {
+		d.t.Fatal(err)
+	}
+	settleUse(d.t, d.sink, func(pkts []usePkt) { d.foldPkts(pkts) }, tag)
+}
+
+// button sends one Container Button Click (the enchantment table's
+// option buttons, the lectern's take-book, the beacon's confirm) and
+// folds the answer.
+func (d *clickDriver) button(tag string, btn int32) {
+	d.t.Helper()
+	var b protocol.Buffer
+	b.VarInt(d.win)
+	b.VarInt(btn)
+	if err := d.pw.WritePacket(server.IDPlayContainerButtonClickSB, b.Bytes()); err != nil {
 		d.t.Fatal(err)
 	}
 	settleUse(d.t, d.sink, func(pkts []usePkt) { d.foldPkts(pkts) }, tag)
