@@ -271,6 +271,28 @@ func (s *Server) fireEnterBlock(sess *Session) {
 // identifiers rather than grant order.
 func (s *Server) flushAdvancements(sess *Session) {
 	sess.advMu.Lock()
+	// The minecraft:tick trigger re-obtains unlock_right_away every
+	// tick, so a revoke of crafting_table never sticks: the criterion
+	// (and the done it completes) is back before the packet goes out.
+	if sess.advCrits != nil {
+		if _, ok := sess.advCrits[advCraftingTable]["unlock_right_away"]; !ok {
+			if sess.advCrits[advCraftingTable] == nil {
+				sess.advCrits[advCraftingTable] = map[string]int64{}
+			}
+			sess.advCrits[advCraftingTable]["unlock_right_away"] = time.Now().UnixMilli()
+			if sess.advDone == nil {
+				sess.advDone = map[string]bool{}
+			}
+			sess.advDone[advCraftingTable] = true
+			if sess.advDirty == nil {
+				sess.advDirty = map[string]bool{}
+			}
+			if !sess.advDirty[advCraftingTable] {
+				sess.advDirty[advCraftingTable] = true
+				sess.advDirtyOrder = append(sess.advDirtyOrder, advCraftingTable)
+			}
+		}
+	}
 	if len(sess.advDirtyOrder) == 0 {
 		sess.advMu.Unlock()
 		return
@@ -298,9 +320,15 @@ func (s *Server) flushAdvancements(sess *Session) {
 	// entry for every dirty advancement — even ones whose criteria are
 	// all still locked (the client needs the criteria list to render).
 	visible := computeAdvVisibility(sess.advDone)
+	// Vanilla emits progress only for dirty ids that are visible — an
+	// invisible advancement's progress stays server-side (measured: a
+	// criterion grant on an unlit advancement sends nothing).
 	var progressIDs []string
 	progressSeen := map[string]bool{}
 	for _, id := range sess.advDirtyOrder {
+		if !visible[id] {
+			continue
+		}
 		progressSeen[id] = true
 		progressIDs = append(progressIDs, id)
 	}
@@ -317,8 +345,18 @@ func (s *Server) flushAdvancements(sess *Session) {
 			added = append(added, id)
 		}
 	}
+	// Revokes drop sent-but-no-longer-visible advancements into the
+	// packet's removed set; they may be sent again if relit.
+	var removed []string
+	for id := range sent {
+		if !visible[id] {
+			removed = append(removed, id)
+			delete(sent, id)
+		}
+	}
 	javaHashOrder(added, func(id string) string { return id })
 	javaHashOrder(progressIDs, func(id string) string { return id })
+	javaHashOrder(removed, func(id string) string { return id })
 
 	var b protocol.Buffer
 	b.Bool(false) // reset: the first sync (join) already went out
@@ -342,7 +380,10 @@ func (s *Server) flushAdvancements(sess *Session) {
 		}
 		b.Bool(false) // sends_telemetry_event
 	}
-	b.VarInt(0) // removed
+	b.VarInt(int32(len(removed)))
+	for _, id := range removed {
+		b.String(id)
+	}
 	b.VarInt(int32(len(progressIDs)))
 	for _, id := range progressIDs {
 		criteria, reqs := advCriteriaReqs(id)

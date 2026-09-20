@@ -27,9 +27,10 @@ import (
 )
 
 type advFlush struct {
-	defs  map[string][]byte          // def id -> raw def entry bytes
-	prog  map[string]map[string]bool // adv id -> criterion -> obtained
-	chats []string                   // system_chat translate keys
+	defs    map[string][]byte          // def id -> raw def entry bytes
+	prog    map[string]map[string]bool // adv id -> criterion -> obtained
+	removed map[string]bool            // def ids sent in the removed list
+	chats   []string                   // system_chat translate keys
 }
 
 // decodeUpdateAdv parses an update_advancements payload. Def entries
@@ -73,7 +74,7 @@ func decodeUpdateAdv(t *testing.T, d []byte, out *advFlush) {
 	}
 	for i := 0; i < int(nrem); i++ {
 		id, _ := r.String()
-		t.Fatalf("unexpected removed advancement %s", id)
+		out.removed[id] = true
 	}
 	nprog, err := r.VarInt()
 	if err != nil {
@@ -170,6 +171,16 @@ func diffAdvFlush(want, got *advFlush) []string {
 			diffs = append(diffs, "extra progress "+id)
 		}
 	}
+	for id := range want.removed {
+		if !got.removed[id] {
+			diffs = append(diffs, "missing removed "+id)
+		}
+	}
+	for id := range got.removed {
+		if !want.removed[id] {
+			diffs = append(diffs, "extra removed "+id)
+		}
+	}
 	w, g := append([]string{}, want.chats...), append([]string{}, got.chats...)
 	sort.Strings(w)
 	sort.Strings(g)
@@ -192,7 +203,7 @@ func TestKillAdvParity(t *testing.T) {
 	run := func(addr string) []*advFlush {
 		c, pr, pw := joinPlayBlackbox(t, addr, "KAdv")
 		defer c.Close()
-		setup := &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}}
+		setup := &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}}
 		collect := func(d time.Duration, f *advFlush) {
 			end := time.Now().Add(d)
 			for time.Now().Before(end) {
@@ -331,7 +342,7 @@ func TestKillAdvParity(t *testing.T) {
 		// side) counts toward the cumulative session state.
 		legs[0] = setup
 		for i := 1; i < 3; i++ {
-			legs[i] = &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}}
+			legs[i] = &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}}
 		}
 		movePos(true)
 		kill(spawnEID(legs[0], "zombie", 6.5, -60, 2.5), legs[0])
@@ -353,7 +364,7 @@ func TestKillAdvParity(t *testing.T) {
 	// run must match. Only the pig leg keeps a local assertion — it
 	// must be silent on both servers.
 	union := func(legs []*advFlush) *advFlush {
-		u := &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}}
+		u := &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}}
 		for _, f := range legs {
 			for id, e := range f.defs {
 				u.defs[id] = e

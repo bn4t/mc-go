@@ -185,6 +185,7 @@ func (s *Server) broadcastChunk(d *dimension, cx, cz int) {
 // commands registered later may override these names.
 func (s *Server) registerBuiltins() {
 	s.registerOps()
+	s.registerAdvancementCommand()
 	s.commands.Register("help", func(player string, args []string) string {
 		return "Commands: " + strings.Join(s.helpNames(), ", ")
 	})

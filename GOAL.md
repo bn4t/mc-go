@@ -1401,3 +1401,24 @@ physics through a void dip plus a fed recovery window.
   rejoin sync union — green at 44 defs + 44 progress entries each.
   Recipe-book unlock persistence (the unlockedRecipes set itself)
   remains open.
+
+- 2026-09-20: /advancement grant|revoke command at wire parity. All
+  modes (everything/only/from/through/until, optional criterion),
+  multi-target resolution (@s/@p/@r/@a/@e/name), and vanilla's reply
+  key lattice commands.advancement.<action>.{criterion|many|one}.to.
+  {one|many}[.success|.failure] (failures as red compound components,
+  advancementNotFound / criterionNotFound args verbatim). Packet side:
+  flushAdvancements now emits the removed id list (sent-but-no-longer-
+  visible) and filters progress to dirty∩visible. Measured subtleties
+  pinned: the visibility evaluator bubbles only *obtained* children to
+  parents (rule-inherited visibility does not propagate), criterion
+  revoke recomputes isDone over requirement groups (kill_a_mob's single
+  41-mob OR-group stays done when one name is pulled, so vanilla never
+  re-announces it), the minecraft:tick trigger re-obtains
+  unlock_right_away every tick (crafting_table can never stay revoked),
+  and the command path awards every criterion even when the advancement
+  is already done (vanilla's award("*")). Announcements fire only on
+  the not-done→done transition. TestAdvancementCommandParity runs a
+  13-command grant/revoke script on both servers and diffs the
+  cumulative def+progress+removed+chat union — green alongside
+  TestKillAdvParity and TestAdvRejoinParity.

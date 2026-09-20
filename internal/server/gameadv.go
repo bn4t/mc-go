@@ -376,13 +376,27 @@ func (s *Server) fireEntityKilledPlayer(sess *Session, killerType string, vx, vz
 // semantics: mark criterion, recompute done over requirement groups,
 // queue the advancement for the dirty flush.
 func (sess *Session) grantGameCriterion(meta *advMeta, cname string) {
+	sess.grantGameCriterionChanged(meta, cname)
+}
+
+// grantGameCriterionChanged is grantGameCriterion reporting whether the
+// criterion moved — the /advancement command counts its targets on that.
+func (sess *Session) grantGameCriterionChanged(meta *advMeta, cname string) bool {
+	return sess.grantCriterion(meta, cname, true)
+}
+
+// grantCriterion marks one criterion obtained. skipDone gates the
+// trigger path (a finished advancement stops listening); the
+// /advancement command passes false since vanilla's award("*") obtains
+// every criterion even when the advancement is already done.
+func (sess *Session) grantCriterion(meta *advMeta, cname string, skipDone bool) bool {
 	sess.advMu.Lock()
 	if sess.advDone == nil {
 		sess.advDone = map[string]bool{}
 	}
-	if sess.advDone[meta.id] {
+	if skipDone && sess.advDone[meta.id] {
 		sess.advMu.Unlock()
-		return
+		return false
 	}
 	if sess.advCrits == nil {
 		sess.advCrits = map[string]map[string]int64{}
@@ -392,9 +406,10 @@ func (sess *Session) grantGameCriterion(meta *advMeta, cname string) {
 	}
 	if _, done := sess.advCrits[meta.id][cname]; done {
 		sess.advMu.Unlock()
-		return
+		return false
 	}
 	sess.advCrits[meta.id][cname] = time.Now().UnixMilli()
+	wasDone := sess.advDone[meta.id]
 	complete := len(meta.reqs) > 0
 	for _, group := range meta.reqs {
 		met := false
@@ -412,6 +427,8 @@ func (sess *Session) grantGameCriterion(meta *advMeta, cname string) {
 	if complete {
 		sess.advDone[meta.id] = true
 	}
+	// announce only on the transition into done — a done advancement's
+	// remaining criteria (granted via /advancement ... "*") are silent.
 	if sess.advDirty == nil {
 		sess.advDirty = map[string]bool{}
 	}
@@ -420,45 +437,22 @@ func (sess *Session) grantGameCriterion(meta *advMeta, cname string) {
 		sess.advDirtyOrder = append(sess.advDirtyOrder, meta.id)
 	}
 	sess.advMu.Unlock()
-	if complete {
+	if complete && !wasDone {
 		sess.server.announceAdvancement(sess, meta)
 	}
+	return true
 }
 
-// announceAdvancement broadcasts vanilla's "X has made the advancement"
-// chat for a completed gameplay advancement — measured wire shape:
-// chat.type.advancement.<frame> with the player's display-name component
-// (insertion + suggest_command click + show_entity hover) and the
-// advancement name as chat.square_brackets in the frame color, hovering
-// title + \n + description.
-func (s *Server) announceAdvancement(sess *Session, meta *advMeta) {
-	if meta.titleKey == "" || !meta.hasDisplay || !meta.announce {
-		return
-	}
-	name := sess.getName()
-	u := sess.getUUID()
+// advChatComponent renders the advancement's display name the way
+// vanilla's Advancement.getChatComponent does — square brackets in the
+// frame color over a title hover showing title, newline, description.
+func advChatComponent(meta *advMeta) component {
 	color := advFrameColor(meta.frame)
 	descKey := meta.descKey
 	if descKey == "" {
 		descKey = strings.TrimSuffix(meta.titleKey, ".title") + ".description"
 	}
-	playerName := component{
-		text:      name,
-		insertion: name,
-		click:     "/tell " + name + " ",
-		hover: map[string]any{
-			"name":   name,
-			"action": "show_entity",
-			"id":     "minecraft:player",
-			"uuid": []int32{
-				int32(u[0])<<24 | int32(u[1])<<16 | int32(u[2])<<8 | int32(u[3]),
-				int32(u[4])<<24 | int32(u[5])<<16 | int32(u[6])<<8 | int32(u[7]),
-				int32(u[8])<<24 | int32(u[9])<<16 | int32(u[10])<<8 | int32(u[11]),
-				int32(u[12])<<24 | int32(u[13])<<16 | int32(u[14])<<8 | int32(u[15]),
-			},
-		},
-	}
-	advName := component{
+	return component{
 		translate: "chat.square_brackets",
 		color:     color,
 		with: []any{component{
@@ -476,6 +470,44 @@ func (s *Server) announceAdvancement(sess *Session, meta *advMeta) {
 			},
 		}},
 	}
+}
+
+// playerChatComponent is the player's name component vanilla puts in
+// command replies and announce chat: insertion, /tell click, and a
+// show_entity hover with the UUID as int32[4].
+func playerChatComponent(sess *Session) component {
+	name := sess.getName()
+	u := sess.getUUID()
+	return component{
+		text:      name,
+		insertion: name,
+		click:     "/tell " + name + " ",
+		hover: map[string]any{
+			"name":   name,
+			"action": "show_entity",
+			"id":     "minecraft:player",
+			"uuid": []int32{
+				int32(u[0])<<24 | int32(u[1])<<16 | int32(u[2])<<8 | int32(u[3]),
+				int32(u[4])<<24 | int32(u[5])<<16 | int32(u[6])<<8 | int32(u[7]),
+				int32(u[8])<<24 | int32(u[9])<<16 | int32(u[10])<<8 | int32(u[11]),
+				int32(u[12])<<24 | int32(u[13])<<16 | int32(u[14])<<8 | int32(u[15]),
+			},
+		},
+	}
+}
+
+// announceAdvancement broadcasts vanilla's "X has made the advancement"
+// chat for a completed gameplay advancement — measured wire shape:
+// chat.type.advancement.<frame> with the player's display-name component
+// (insertion + suggest_command click + show_entity hover) and the
+// advancement name as chat.square_brackets in the frame color, hovering
+// title + \n + description.
+func (s *Server) announceAdvancement(sess *Session, meta *advMeta) {
+	if meta.titleKey == "" || !meta.hasDisplay || !meta.announce {
+		return
+	}
+	playerName := playerChatComponent(sess)
+	advName := advChatComponent(meta)
 	c := component{
 		translate: "chat.type.advancement." + meta.frame,
 		with:      []any{playerName, advName},
@@ -527,6 +559,7 @@ func computeAdvVisibility(done map[string]bool) map[string]bool {
 				res = true
 			}
 		}
+		childRes := res
 		if !res {
 			// Unfinished node: peek self then parent then grandparent.
 			for depth := 0; depth < 3 && depth < len(r2); depth++ {
@@ -544,7 +577,11 @@ func computeAdvVisibility(done map[string]bool) map[string]bool {
 		if res {
 			vis[id] = true
 		}
-		return res
+		// The recursion's parent-facing result counts only obtained
+		// or obtained-descendant nodes: visibility inherited through
+		// a rule does not bubble further up (javap: evaluateVisibility
+		// returns the pre-rule value).
+		return childRes
 	}
 	for _, root := range gameAdvRoots {
 		walk(root, nil)

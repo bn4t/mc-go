@@ -56,7 +56,7 @@ func TestAdvRejoinParity(t *testing.T) {
 	defer targets.cleanup()
 
 	run := func(addr string) (first, rejoin *advFlush) {
-		first = &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}}
+		first = &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}}
 		c, pr, pw := joinPlayBlackbox(t, addr, "AdvRej")
 		advCollect(t, c, pr, pw, 1200*time.Millisecond, first)
 		sendCommand(t, pw, "gamemode survival @s")
@@ -107,7 +107,7 @@ func TestAdvRejoinParity(t *testing.T) {
 		c.Close()
 		time.Sleep(400 * time.Millisecond)
 
-		rejoin = &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}}
+		rejoin = &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}}
 		c2, pr2, pw2 := joinPlayBlackbox(t, addr, "AdvRej")
 		advCollect(t, c2, pr2, pw2, 2500*time.Millisecond, rejoin)
 		c2.Close()
