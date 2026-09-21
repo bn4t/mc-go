@@ -584,7 +584,7 @@ func (s *Server) handleSeenAdvancements(sess *Session, p protocol.Packet) {
 func (s *Server) handleRecipeBookChangeSettings(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
 	book, err := r.VarInt()
-	if err != nil || book < 0 || book > 1 {
+	if err != nil || book < 0 || book > 3 {
 		return
 	}
 	open, err := r.Bool()
@@ -602,13 +602,14 @@ func (s *Server) handleRecipeBookChangeSettings(sess *Session, p protocol.Packet
 	_ = s.sendRecipeBookSettingsFor(sess)
 }
 
-// sendRecipeBookSettingsFor encodes the four recipe-book toggles in the
-// vanilla order: crafting open/filtering, then furnace open/filtering.
+// sendRecipeBookSettingsFor encodes the recipe-book toggles in the
+// vanilla order: open/filtering per book type — crafting, furnace,
+// blast furnace, smoker — so the packet carries eight booleans.
 func (s *Server) sendRecipeBookSettingsFor(sess *Session) error {
 	sess.bookMu.Lock()
-	body := [4]bool{
-		sess.bookOpen[0], sess.bookFilter[0],
-		sess.bookOpen[1], sess.bookFilter[1],
+	body := [8]bool{}
+	for i := 0; i < 4; i++ {
+		body[i*2], body[i*2+1] = sess.bookOpen[i], sess.bookFilter[i]
 	}
 	sess.bookMu.Unlock()
 	var b protocol.Buffer

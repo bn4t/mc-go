@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
+	"mc-go/internal/data"
 	"mc-go/internal/world"
 )
 
@@ -40,6 +42,13 @@ type playerPersist struct {
 	// done flags and per-criterion obtain times, mirroring vanilla's
 	// advancements/<uuid>.json store.
 	Advancements map[string]savedAdv `json:"advancements,omitempty"`
+	// RecipeBook mirrors vanilla's recipeBook compound: the known
+	// recipe ids, the display ids the client already marked seen, and
+	// the per-category open/filtering toggles.
+	UnlockedRecipes []string `json:"unlocked_recipes,omitempty"`
+	SeenRecipes     []int32  `json:"seen_recipes,omitempty"`
+	BookOpen        [4]bool  `json:"book_open"`
+	BookFilter      [4]bool  `json:"book_filter"`
 }
 
 // savedAdv is one advancement's persisted progress.
@@ -136,6 +145,17 @@ func snapshotPlayer(sess *Session) playerPersist {
 		}
 	}
 	sess.statMu.Unlock()
+	sess.recipesMu.Lock()
+	for idx := range sess.unlockedRecipes {
+		p.UnlockedRecipes = append(p.UnlockedRecipes, data.Recipes[idx].ID)
+	}
+	sess.recipesMu.Unlock()
+	sess.bookMu.Lock()
+	for id := range sess.seenRecipes {
+		p.SeenRecipes = append(p.SeenRecipes, id)
+	}
+	p.BookOpen, p.BookFilter = sess.bookOpen, sess.bookFilter
+	sess.bookMu.Unlock()
 	sess.advMu.Lock()
 	if len(sess.advCrits) > 0 || len(sess.advDone) > 0 {
 		p.Advancements = map[string]savedAdv{}
@@ -318,6 +338,28 @@ func (s *Server) applySavedPlayer(sess *Session) {
 	sess.saturation = p.Saturation
 	if len(p.Advancements) > 0 {
 		sess.pendingAdv = p.Advancements
+	}
+	if len(p.UnlockedRecipes) > 0 || len(p.SeenRecipes) > 0 ||
+		p.BookOpen != [4]bool{} || p.BookFilter != [4]bool{} {
+		sess.recipesMu.Lock()
+		if sess.unlockedRecipes == nil {
+			sess.unlockedRecipes = map[int]bool{}
+		}
+		for _, id := range p.UnlockedRecipes {
+			if idx, ok := recipeIndex[strings.TrimPrefix(id, "minecraft:")]; ok {
+				sess.unlockedRecipes[idx] = true
+			}
+		}
+		sess.recipesMu.Unlock()
+		sess.bookMu.Lock()
+		if sess.seenRecipes == nil {
+			sess.seenRecipes = map[int32]bool{}
+		}
+		for _, id := range p.SeenRecipes {
+			sess.seenRecipes[id] = true
+		}
+		sess.bookOpen, sess.bookFilter = p.BookOpen, p.BookFilter
+		sess.bookMu.Unlock()
 	}
 	if len(p.Stats) > 0 {
 		sess.statMu.Lock()

@@ -274,12 +274,12 @@ type Session struct {
 	// guarded by modeMu because the tick and fan-out paths read it.
 	modeMu   sync.RWMutex
 	gameMode byte
-	// Recipe book UI toggles (crafting/furnace book open, filtering)
-	// and the set of recipes the player has seen, from the recipe book
-	// packets.
+	// Recipe book UI toggles per vanilla RecipeBookType (crafting,
+	// furnace, blast furnace, smoker: open then filtering) and the set
+	// of recipes the player has seen, from the recipe book packets.
 	bookMu      sync.Mutex
-	bookOpen    [2]bool // 0: crafting book, 1: furnace book
-	bookFilter  [2]bool
+	bookOpen    [4]bool
+	bookFilter  [4]bool
 	seenRecipes map[int32]bool
 	// Pages and title written into book-and-quill stacks, keyed by
 	// inventory slot. The item model carries no components yet, so the

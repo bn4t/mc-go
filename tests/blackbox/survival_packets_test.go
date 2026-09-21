@@ -1344,6 +1344,65 @@ func TestPersistenceReconnectPackets(t *testing.T) {
 	}
 }
 
+// TestMcGoOnlyRecipeBookPersistence proves the recipe book survives a
+// rejoin: a granted recipe re-adds itself inside the join burst's
+// recipe_book_add and a repeat /recipe give fails with vanilla's
+// already-known error instead of re-adding.
+func TestMcGoOnlyRecipeBookPersistence(t *testing.T) {
+	dataFile := filepath.Join(t.TempDir(), "data.json")
+	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		s.DataPath = dataFile
+	})
+
+	c1, pr1, pw1 := joinPlayBlackbox(t, addr, "Bookworm")
+	drainToJoinBlackbox(t, "bookworm-1", pr1)
+	_ = c1.SetDeadline(time.Now().Add(10 * time.Second))
+	sendChatBlackbox(t, pw1, server.IDPlayChatCommandSB, "recipe give Bookworm barrel")
+	if out := readSystemChatBlackbox(t, pr1, 10*time.Second); !strings.Contains(out, "commands.recipe.give.success") {
+		t.Fatalf("/recipe give = %q", out)
+	}
+	_ = c1.Close()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if v := fetchStatus(t, addr); v.Players.Online == 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	c2, pr2, pw2 := joinPlayBlackbox(t, addr, "Bookworm")
+	defer c2.Close()
+	_ = c2.SetDeadline(time.Now().Add(15 * time.Second))
+	// The join burst must carry the restored book: a recipe_book_add
+	// with at least one entry (fresh players get an empty one).
+	foundAdd := false
+	deadline = time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		p, err := pr2.ReadPacket()
+		if err != nil {
+			break
+		}
+		if p.ID != server.IDPlayRecipeBookAdd {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		if n, err := r.VarInt(); err == nil && n > 0 {
+			foundAdd = true
+			break
+		}
+	}
+	if !foundAdd {
+		t.Fatal("rejoin burst carried no restored recipe-book entries")
+	}
+	// A repeat grant must fail the same way it would mid-session —
+	// only possible if the book state survived.
+	sendChatBlackbox(t, pw2, server.IDPlayChatCommandSB, "recipe give Bookworm barrel")
+	if out := readSystemChatBlackbox(t, pr2, 10*time.Second); !strings.Contains(out, "commands.recipe.give.failed") {
+		t.Fatalf("repeat /recipe give after rejoin = %q, want give.failed", out)
+	}
+}
+
 // TestFurnacePackets proves furnace containers at the packet level:
 // using a furnace opens the furnace menu (type 14) with 39 slots and
 // the four burn/cook properties, and items move into the input and

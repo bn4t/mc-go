@@ -76,21 +76,31 @@ func (s *Server) sendCommands(sess *Session) error {
 	return sess.write(sess.ids().PlayCommands, b.Bytes())
 }
 
-// sendRecipeBookSettings syncs the four recipe book UI toggles.
+// sendRecipeBookSettings syncs the recipe book UI toggles — the
+// restored per-category open/filtering flags for a returning player.
 func (s *Server) sendRecipeBookSettings(sess *Session) error {
-	var b protocol.Buffer
-	for i := 0; i < 8; i++ {
-		b.Bool(false)
-	}
-	return sess.write(sess.ids().PlayRecipeBookSet, b.Bytes())
+	return s.sendRecipeBookSettingsFor(sess)
 }
 
 // sendRecipeBookAdd syncs known recipes: empty with replace for a
 // fresh player, which is what the real server sends at this point in
-// the burst (later unlocks arrive as their own adds).
+// the burst, or the returning player's persisted book — each entry
+// with flags 0 (known recipes carry no toast and no new badge).
 func (s *Server) sendRecipeBookAdd(sess *Session) error {
-	var b protocol.Buffer
-	b.VarInt(0) // recipes
+	sess.recipesMu.Lock()
+	idxs := make([]int, 0, len(sess.unlockedRecipes))
+	for idx := range sess.unlockedRecipes {
+		idxs = append(idxs, idx)
+	}
+	sess.recipesMu.Unlock()
+	sort.Ints(idxs)
+	var b, entries protocol.Buffer
+	n := 0
+	for _, idx := range idxs {
+		n += recipeEntry(&entries, idx, 0)
+	}
+	b.VarInt(int32(n))
+	b.Raw(entries.Bytes())
 	b.Bool(true)
 	return sess.write(sess.ids().PlayRecipeBookAdd, b.Bytes())
 }
@@ -101,8 +111,18 @@ var recipeBookUnlock []byte
 // sendRecipeBookUnlock syncs the fresh-spawn recipe unlock: the single
 // crafting_table entry (display id 318), captured from a default live
 // 26.2 server and served verbatim. The bytes are boot-stable; later
-// unlocks arrive as their own adds once the unlock engine exists.
+// unlocks arrive as their own adds once the unlock engine exists. A
+// returning player whose persisted book already contains the recipe
+// got it inside sendRecipeBookAdd instead.
 func (s *Server) sendRecipeBookUnlock(sess *Session) error {
+	if idx, ok := recipeIndex["crafting_table"]; ok {
+		sess.recipesMu.Lock()
+		known := sess.unlockedRecipes[idx]
+		sess.recipesMu.Unlock()
+		if known {
+			return nil
+		}
+	}
 	sess.markRecipesUnlocked("crafting_table")
 	return sess.write(sess.ids().PlayRecipeBookAdd, recipeBookUnlock)
 }

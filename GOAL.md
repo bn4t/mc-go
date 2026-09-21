@@ -2383,3 +2383,16 @@ physics through a void dip plus a fed recovery window.
   vanilla-shaped translatable components: chatTextBlackbox now flattens
   component roots (text/translate/with/extra) and the /tp assertions
   check the translation keys + target names.
+- Recipe-book persistence slice (26.2): the player's recipe book now
+  travels with the data file — unlocked recipe ids, the client-marked
+  seen set, and the per-category open/filtering toggles persist in
+  playerPersist and restore into the session on rejoin
+  (TestMcGoOnlyRecipeBookPersistence: give → rejoin → join burst's
+  recipe_book_add carries the entry, repeat give fails with
+  give.failed). The restored set emits inside sendRecipeBookAdd with
+  flags 0 (known recipes toast/badge nothing) while the canned
+  crafting_table join blob is skipped once already known. Wire fixes
+  folded in: recipe_book_settings now writes all eight toggles
+  (crafting/furnace/blast/smoker × open/filter — the echo used to send
+  only four) and recipe_book_change_settings accepts the blast/smoker
+  ordinals it previously rejected.
