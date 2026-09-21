@@ -104,12 +104,22 @@ type Entity struct {
 	// dirty sync: pairing leaves every loaded entry dirty, so the next
 	// mob tick resends the full metadata set (now including the
 	// freshly-computed effect particles) and the syncable attributes;
-	// SyncCount counts sync ticks since attach so a zero-delta
-	// move_entity_pos goes out every 60 like vanilla's tickCount%60.
+	// PosDirty maps to vanilla's needsSync forcing a sendChanges run.
+	// SyncCount counts sync ticks so the zero-delta keepalive lands
+	// every 60 like vanilla's tickCount%60.
 	MetaDirty bool
 	AttrDirty bool
 	PosDirty  bool
 	SyncCount int64
+	// ServerEntity position/rotation send state: the fixed-point
+	// (1/4096) base the last position packet was computed from, the
+	// last packed rotation bytes, ticks since the last
+	// entity_position_sync, and the previous onGround flag.
+	syncInit                         bool
+	syncPX, syncPY, syncPZ           int64
+	lastYRotB, lastXRotB, lastYHeadB byte
+	teleportDelay                    int
+	wasOnGround                      bool
 	// ParticlesSent is the last-broadcast DATA_EFFECT_PARTICLES value
 	// bytes — dirty packs emit index 10 whenever it changes.
 	ParticlesSent []byte

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"math"
 	"sort"
 
 	"mc-go/internal/protocol"
@@ -70,27 +71,6 @@ func (s *Server) broadcastMobAttrs(e *Entity) {
 			return true
 		}
 		_ = other.write(IDPlayUpdateAttributes, body)
-		return true
-	})
-}
-
-// broadcastMobMoveZero emits move_entity_pos with zero deltas — the
-// packet vanilla sends after a summon snapTo and every 60 sync ticks
-// for a stationary mob.
-func (s *Server) broadcastMobMoveZero(e *Entity) {
-	var b protocol.Buffer
-	b.VarInt(e.ID)
-	b.Short(0)
-	b.Short(0)
-	b.Short(0)
-	b.Bool(false)
-	body := b.Bytes()
-	s.sessions.Range(func(_, v any) bool {
-		other := v.(*Session)
-		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != e.Dim {
-			return true
-		}
-		_ = other.write(IDPlayEntityUpdatePos, body)
 		return true
 	})
 }
@@ -188,15 +168,20 @@ func encodeParticlesEntry(value []byte) []byte {
 	return b.Bytes()
 }
 
-// mobSyncFlush is the per-mob sendChanges pass: a zero-delta
-// move_entity_pos when the summon marked the position dirty or every
-// 60 sync ticks, the full metadata resend while entries are dirty
-// (effect particles included — vanilla computes them lazily), then the
-// attribute dirty resend.
+// mobUpdateInterval is vanilla's per-entity-type tracker cadence; the
+// builder's default (3) covers every living mob mc-go simulates.
+const mobUpdateInterval = 3
+
+// mobSyncFlush is the per-mob sendChanges pass: position/rotation
+// through the vanilla packet selection, the full metadata resend while
+// entries are dirty (effect particles included — vanilla computes them
+// lazily), then the attribute dirty resend.
 func (s *Server) mobSyncFlush(e *Entity) {
-	if e.PosDirty || e.SyncCount%60 == 0 {
-		e.PosDirty = false
-		s.broadcastMobMoveZero(e)
+	e.SyncCount++
+	// Vanilla runs sendChanges every updateInterval ticks plus any tick
+	// the entity reports needsSync or dirty entity data.
+	if e.SyncCount%mobUpdateInterval == 0 || e.PosDirty || e.MetaDirty {
+		s.mobMoveSync(e)
 	}
 	if e.MetaDirty {
 		e.MetaDirty = false
@@ -210,7 +195,130 @@ func (s *Server) mobSyncFlush(e *Entity) {
 		e.AttrDirty = false
 		s.broadcastMobAttrs(e)
 	}
-	e.SyncCount++
+}
+
+// mobFixed is the tracker's fixed-point position scale: one block is
+// 4096 units, and positions encode floored like vanilla's
+// TrackedPosition.
+func mobFixed(v float64) int64 {
+	return int64(math.Floor(v * 4096))
+}
+
+func mobByteDiff(a, b byte) int {
+	d := int(a) - int(b)
+	if d < 0 {
+		return -d
+	}
+	return d
+}
+
+// mobMoveSync is vanilla ServerEntity.sendChanges' position branch:
+// the delta against the last sent base picks move_entity_pos,
+// move_entity_pos_rot, or move_entity_rot, while an out-of-range delta,
+// a long silence, an onGround flip, or a ride boundary promotes to
+// entity_position_sync. The head's packed yaw rides rotate_head on its
+// own slot. Runs only on sendChanges-eligible ticks.
+func (s *Server) mobMoveSync(e *Entity) {
+	if !e.syncInit {
+		// The spawn packet already carried position and rotation; the
+		// first sync tick latches the send baseline, and the summon-time
+		// position dirty (vanilla's snapTo marking) answers with the
+		// zero-delta move_entity_pos the pairing burst ends in.
+		e.syncInit = true
+		e.syncPX, e.syncPY, e.syncPZ = mobFixed(e.X), mobFixed(e.Y), mobFixed(e.Z)
+		e.lastYRotB = angleByte(e.Yaw)
+		e.lastXRotB = angleByte(e.Pitch)
+		e.lastYHeadB = angleByte(e.HeadYaw)
+		e.wasOnGround = e.Grounded
+		if e.PosDirty {
+			e.PosDirty = false
+			var b protocol.Buffer
+			b.VarInt(e.ID)
+			b.Short(0)
+			b.Short(0)
+			b.Short(0)
+			b.Bool(e.Grounded)
+			s.broadcastToTrackers(e, b.Bytes(), func(ids idSet) int32 { return ids.PlayMoveEntityPos })
+		}
+		return
+	}
+	yRotB := angleByte(e.Yaw)
+	xRotB := angleByte(e.Pitch)
+	rotChanged := mobByteDiff(yRotB, e.lastYRotB) >= 1 || mobByteDiff(xRotB, e.lastXRotB) >= 1
+	e.teleportDelay++
+	sx, sy, sz := mobFixed(e.X), mobFixed(e.Y), mobFixed(e.Z)
+	dx, dy, dz := sx-e.syncPX, sy-e.syncPY, sz-e.syncPZ
+	// TrackedPosition.delta().lengthSqr() threshold, block space.
+	posChanged := float64(dx*dx+dy*dy+dz*dz)/(4096.0*4096.0) >= 7.62939453125e-6
+	pos := posChanged || e.SyncCount%60 == 0
+	deltaTooBig := dx < -32768 || dx > 32767 || dy < -32768 || dy > 32767 || dz < -32768 || dz > 32767
+	var sentPos, sentRot bool
+	switch {
+	case deltaTooBig || e.teleportDelay > 400 || e.wasOnGround != e.Grounded:
+		e.teleportDelay = 0
+		s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, e.Yaw, e.Pitch, e.Grounded)
+		sentPos, sentRot = true, true
+	case pos && rotChanged:
+		var b protocol.Buffer
+		b.VarInt(e.ID)
+		b.Short(int16(dx))
+		b.Short(int16(dy))
+		b.Short(int16(dz))
+		b.Byte(yRotB)
+		b.Byte(xRotB)
+		b.Bool(e.Grounded)
+		s.broadcastToTrackers(e, b.Bytes(), func(ids idSet) int32 { return ids.PlayMoveEntityPosRot })
+		sentPos, sentRot = true, true
+	case pos:
+		var b protocol.Buffer
+		b.VarInt(e.ID)
+		b.Short(int16(dx))
+		b.Short(int16(dy))
+		b.Short(int16(dz))
+		b.Bool(e.Grounded)
+		s.broadcastToTrackers(e, b.Bytes(), func(ids idSet) int32 { return ids.PlayMoveEntityPos })
+		sentPos = true
+	case rotChanged:
+		var b protocol.Buffer
+		b.VarInt(e.ID)
+		b.Byte(yRotB)
+		b.Byte(xRotB)
+		b.Bool(e.Grounded)
+		s.broadcastToTrackers(e, b.Bytes(), func(ids idSet) int32 { return ids.PlayMoveEntityRot })
+		sentRot = true
+	}
+	if sentPos {
+		e.syncPX, e.syncPY, e.syncPZ = sx, sy, sz
+	}
+	if sentRot {
+		e.lastYRotB, e.lastXRotB = yRotB, xRotB
+	}
+	e.wasOnGround = e.Grounded
+	e.PosDirty = false
+	yHeadB := angleByte(e.HeadYaw)
+	if mobByteDiff(yHeadB, e.lastYHeadB) >= 1 {
+		e.lastYHeadB = yHeadB
+		var b protocol.Buffer
+		b.VarInt(e.ID)
+		b.Byte(yHeadB)
+		s.broadcastToTrackers(e, b.Bytes(), func(ids idSet) int32 { return ids.PlayRotateHead })
+	}
+}
+
+// idSet is the per-version packet-id table on a session.
+type idSet = ProtoIDs
+
+// broadcastToTrackers writes a mob-tracking packet to every spawned
+// play-stage session in the entity's dimension.
+func (s *Server) broadcastToTrackers(e *Entity, body []byte, id func(idSet) int32) {
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != e.Dim {
+			return true
+		}
+		_ = other.write(id(other.ids()), body)
+		return true
+	})
 }
 
 func bytesEq(a, b []byte) bool {

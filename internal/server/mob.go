@@ -911,72 +911,79 @@ func (s *Server) mobTickStep() {
 				})
 			}
 		}
-		s.mobSyncFlush(e)
 		if e.invulnTicks > 0 {
 			e.invulnTicks--
 		}
 		if e.loveTicks > 0 {
 			e.loveTicks--
 		}
-		if e.NoAI || e.Riding != 0 {
+		if !e.NoAI && e.Riding == 0 {
 			// A passenger stays put — vanilla's entity rider has no
-			// gravity or wander of its own.
-			continue
-		}
-		// Hostile melee mobs chase the nearest player and swing on a
-		// vanilla-paced cooldown; a successful chase replaces the wander
-		// step for this tick.
-		if dmg, ok := mobMelee[e.Type]; ok && s.mobMeleeStep(e, dmg) {
-			continue
-		}
-		w := s.dimWorld(e.Dim)
-		if w == nil {
-			continue
-		}
-		below := world.Pos{
-			X: int(math.Floor(e.X)),
-			Y: int(math.Floor(e.Y)) - 1,
-			Z: int(math.Floor(e.Z)),
-		}
-		grounded := w.GetBlock(below) != world.Air
-		if !grounded {
-			e.MotionY -= 0.08
-			if e.MotionY < -1.0 {
-				e.MotionY = -1.0
+			// gravity or wander of its own. Hostile melee mobs chase
+			// the nearest player and swing on a vanilla-paced cooldown;
+			// a successful chase replaces the wander step.
+			if dmg, ok := mobMelee[e.Type]; ok && s.mobMeleeStep(e, dmg) {
+				s.mobSyncFlush(e)
+				continue
 			}
-			e.Y += e.MotionY
-			s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, e.Yaw, 0, false)
-			continue
+			w := s.dimWorld(e.Dim)
+			if w != nil {
+				s.mobMoveStep(e, w)
+			}
 		}
-		e.MotionY = 0
-		e.Y = math.Floor(e.Y)
-		e.Grounded = true
-		e.WanderTicks++
-		// Change heading every 40 steps; walk otherwise.
-		if e.WanderTicks%40 == 1 {
-			e.Yaw = mobYawFor(e.ID, e.WanderTicks)
-		}
-		dx, _, dz := lookVector(e.Yaw, 0)
-		nx := e.X + dx*mobWalkSpeed
-		nz := e.Z + dz*mobWalkSpeed
-		nextBelow := world.Pos{
-			X: int(math.Floor(nx)),
-			Y: int(math.Floor(e.Y)) - 1,
-			Z: int(math.Floor(nz)),
-		}
-		nextSpace := world.Pos{
-			X: int(math.Floor(nx)),
-			Y: int(math.Floor(e.Y)),
-			Z: int(math.Floor(nz)),
-		}
-		if w.GetBlock(nextBelow) == world.Air || w.GetBlock(nextSpace) != world.Air {
-			// Ledge or obstacle: pick a new heading next step.
-			e.Yaw += 90
-			continue
-		}
-		e.X, e.Z = nx, nz
-		s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, e.Yaw, 0, true)
+		s.mobSyncFlush(e)
 	}
+}
+
+// mobMoveStep is the gravity + wander half of a mob tick: falling until
+// a solid block is underfoot, then a deterministic wander step that
+// refuses to walk off a ledge. It only mutates entity state — the wire
+// emission is mobSyncFlush's sendChanges selection.
+func (s *Server) mobMoveStep(e *Entity, w *world.World) {
+	below := world.Pos{
+		X: int(math.Floor(e.X)),
+		Y: int(math.Floor(e.Y)) - 1,
+		Z: int(math.Floor(e.Z)),
+	}
+	grounded := w.GetBlock(below) != world.Air
+	if !grounded {
+		e.Grounded = false
+		e.MotionY -= 0.08
+		if e.MotionY < -1.0 {
+			e.MotionY = -1.0
+		}
+		e.Y += e.MotionY
+		return
+	}
+	e.MotionY = 0
+	e.Y = math.Floor(e.Y)
+	e.Grounded = true
+	e.WanderTicks++
+	// Change heading every 40 steps; walk otherwise.
+	if e.WanderTicks%40 == 1 {
+		e.Yaw = mobYawFor(e.ID, e.WanderTicks)
+		e.HeadYaw = e.Yaw
+	}
+	dx, _, dz := lookVector(e.Yaw, 0)
+	nx := e.X + dx*mobWalkSpeed
+	nz := e.Z + dz*mobWalkSpeed
+	nextBelow := world.Pos{
+		X: int(math.Floor(nx)),
+		Y: int(math.Floor(e.Y)) - 1,
+		Z: int(math.Floor(nz)),
+	}
+	nextSpace := world.Pos{
+		X: int(math.Floor(nx)),
+		Y: int(math.Floor(e.Y)),
+		Z: int(math.Floor(nz)),
+	}
+	if w.GetBlock(nextBelow) == world.Air || w.GetBlock(nextSpace) != world.Air {
+		// Ledge or obstacle: pick a new heading next step.
+		e.Yaw += 90
+		e.HeadYaw = e.Yaw
+		return
+	}
+	e.X, e.Z = nx, nz
 }
 
 // mobMelee is the melee attack damage (vanilla attackDamage) for the
@@ -1036,6 +1043,7 @@ func (s *Server) mobMeleeStep(e *Entity, dmg float32) bool {
 	dx, dz := px-e.X, pz-e.Z
 	dist := math.Hypot(dx, dz)
 	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	e.HeadYaw = e.Yaw
 	// Vanilla's attack reach is the mob's inflated box vs the target's;
 	// for the zombie's 0.6 box vs a player that lands ~1.5 blocks out.
 	reach := mobBounds(e.Type)[0] + 0.6 + 0.3
@@ -1049,7 +1057,6 @@ func (s *Server) mobMeleeStep(e *Entity, dmg float32) bool {
 			e.Z += dz / dist * step
 		}
 	}
-	s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, e.Yaw, 0, true)
 	if e.attackCooldown > 0 {
 		e.attackCooldown--
 		return true

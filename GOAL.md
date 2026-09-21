@@ -2396,3 +2396,18 @@ physics through a void dip plus a fed recovery window.
   (crafting/furnace/blast/smoker × open/filter — the echo used to send
   only four) and recipe_book_change_settings accepts the blast/smoker
   ordinals it previously rejected.
+- Wandering-mob move-packet family (26.2): mc-go used to answer every
+  wander/gravity/chase step with entity_position_sync — a zombie chase
+  emitted it 80 times in 4s where vanilla emits 26 move_entity_pos +
+  6 move_entity_pos_rot + 10 rotate_head + at most one
+  entity_position_sync (the spawn-time onGround flip). ServerEntity's
+  measured sendChanges is now implemented in mobMoveSync: mobs sync on
+  updateInterval=3 ticks (plus dirty ticks), fixed-point 1/4096 deltas
+  against the last-emitted position, positionChanged at >=7.63e-6
+  block², a forced resend every 60 sync ticks, packet selection
+  pos+rot→pos_rot / pos→pos / rot→rot / head-yaw→rotate_head, and
+  entity_position_sync only for delta overflow or the onGround flip.
+  summon PosDirty resolves into the zero-delta move_entity_pos the
+  vanilla pairing burst ends in. Pinned by TestMobMovePacketFamilyParity
+  (family + no teleports + delta range on both servers) and
+  TestMobWanderPackets now reads the delta family.

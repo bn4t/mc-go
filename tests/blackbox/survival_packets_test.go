@@ -968,13 +968,14 @@ func TestMobWanderPackets(t *testing.T) {
 		break
 	}
 
-	// Wait for a movement update for the pig.
+	// Wait for a movement update for the pig: vanilla syncs live mobs as
+	// move_entity_pos/pos_rot deltas every few ticks, not teleports.
 	for {
 		p, err := pr.ReadPacket()
 		if err != nil {
 			t.Fatalf("waiting wander: %v", err)
 		}
-		if p.ID != server.IDPlayEntityTeleportCB {
+		if p.ID != server.IDPlayEntityUpdatePos && p.ID != server.IDPlayEntityUpdateRot {
 			continue
 		}
 		r := protocol.NewPacketReader(p.Data)
@@ -985,22 +986,115 @@ func TestMobWanderPackets(t *testing.T) {
 		if eid != pigEID {
 			continue
 		}
-		x, err1 := r.Double()
-		y, err2 := r.Double()
-		z, err3 := r.Double()
-		if err1 != nil || err2 != nil || err3 != nil {
-			t.Fatalf("sync position: %v/%v/%v", err1, err2, err3)
+		dx, _ := r.Short()
+		dy, _ := r.Short()
+		dz, _ := r.Short()
+		// A wander step is a fraction of a block; the fixed-point delta
+		// stays well inside a block in each axis.
+		if math.Abs(float64(dx)/4096) > 1 || math.Abs(float64(dz)/4096) > 1 {
+			t.Fatalf("pig strayed: dxyz=%d,%d,%d", dx, dy, dz)
 		}
-		if math.Abs(x-0.5) > 100 || math.Abs(z-8.5) > 100 {
-			t.Fatalf("pig strayed: %v,%v,%v", x, y, z)
-		}
-		if !math.IsInf(y, 0) {
-			// y must stay on the flat surface.
-			if y < -60.5 || y > -59.5 {
-				t.Fatalf("pig left the ground: y=%v", y)
-			}
+		if dy != 0 {
+			t.Fatalf("pig left the ground: dy=%d", dy)
 		}
 		return
+	}
+}
+
+// TestMobMovePacketFamilyParity watches a zombie chase a survival
+// player on both servers: every position update must ride the
+// fixed-point delta family (move_entity_pos / move_entity_pos_rot /
+// move_entity_rot / rotate_head) — never teleport_entity — and
+// entity_position_sync may appear at most once (vanilla emits it for
+// the spawn-time onGround flip).
+func TestMobMovePacketFamilyParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("Prey"),
+	}, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	defer targets.cleanup()
+
+	type familyCount struct {
+		pos, posRot, rot, rotHead, posSync, teleport int
+	}
+	run := func(tag, addr string) familyCount {
+		c, pr, pw := joinPlayBlackbox(t, addr, "Prey")
+		defer c.Close()
+		drainToJoinBlackbox(t, tag, pr)
+		_ = c.SetDeadline(time.Now().Add(30 * time.Second))
+		sendCommand(t, pw, "gamemode survival @s")
+		sendCommand(t, pw, "tp @s 20 -60 8")
+		sendCommand(t, pw, "summon minecraft:zombie 8 -60 8")
+		var zom int32 = -1
+		for zom < 0 {
+			p, err := pr.ReadPacket()
+			if err != nil {
+				t.Fatalf("%s spawn wait: %v", tag, err)
+			}
+			if p.ID != server.IDPlaySpawnEntity {
+				continue
+			}
+			r := protocol.NewPacketReader(p.Data)
+			eid, _ := r.VarInt()
+			_, _ = r.UUID()
+			typ, _ := r.VarInt()
+			if id, ok := server.EntityTypeID("zombie"); ok && typ == id {
+				zom = eid
+			}
+		}
+		var fc familyCount
+		end := time.Now().Add(4 * time.Second)
+		for time.Now().Before(end) {
+			p, err := pr.ReadPacket()
+			if err != nil {
+				break
+			}
+			if len(p.Data) < 1 {
+				continue
+			}
+			r := protocol.NewPacketReader(p.Data)
+			eid, eerr := r.VarInt()
+			if eerr != nil || eid != zom {
+				continue
+			}
+			switch p.ID {
+			case 0x35:
+				fc.pos++
+				dx, _ := r.Short()
+				dy, _ := r.Short()
+				dz, _ := r.Short()
+				if math.Abs(float64(dx)/4096) >= 8 || math.Abs(float64(dy)/4096) >= 8 || math.Abs(float64(dz)/4096) >= 8 {
+					t.Fatalf("%s pos delta out of delta range: %d,%d,%d", tag, dx, dy, dz)
+				}
+			case 0x36:
+				fc.posRot++
+			case 0x38:
+				fc.rot++
+			case 0x53:
+				fc.rotHead++
+			case 0x23:
+				fc.posSync++
+			case 0x7d:
+				fc.teleport++
+			}
+		}
+		return fc
+	}
+
+	v := run("vanilla", targets.vanilla)
+	g := run("mc-go", targets.mcgo)
+	t.Logf("vanilla=%+v mc-go=%+v", v, g)
+	for tag, fc := range map[string]familyCount{"vanilla": v, "mc-go": g} {
+		if fc.pos+fc.posRot == 0 {
+			t.Fatalf("%s emitted no move delta packets for a chasing zombie: %+v", tag, fc)
+		}
+		if fc.teleport > 0 {
+			t.Fatalf("%s emitted teleport_entity for a walking zombie: %+v", tag, fc)
+		}
+		if fc.posSync > 1 {
+			t.Fatalf("%s emitted %d entity_position_sync for a walking zombie, want ≤1", tag, fc.posSync)
+		}
 	}
 }
 
