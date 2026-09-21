@@ -380,6 +380,9 @@ func (s *Server) track(sess *Session) {
 
 func (s *Server) untrack(sess *Session) {
 	s.sessions.Delete(sess.id)
+	// A disconnecting rider dismounts: remaining viewers get the
+	// vehicle's emptied passenger list (PlayerList.remove -> stopRiding).
+	s.dismount(sess)
 	// A player who leaves is no longer editing anything: measured on 26.2,
 	// the sign its editor was open on is free for the next player at once.
 	s.releaseSignEdits(sess)

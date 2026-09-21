@@ -71,7 +71,31 @@ func (s *Server) rideVehicle(sess *Session, eid int32, sneaking bool) {
 	rider := sess.entityID.Load()
 	veh.Passengers = append(veh.Passengers, rider)
 	sess.riding.Store(eid)
+	s.broadcastSetPassengers(veh)
 	s.fireStartedRiding(sess)
+}
+
+// dismount is Entity.stopRiding for a player: drop the rider off the
+// vehicle's passenger list and tell trackers. Vanilla runs it from
+// Player.tick when wantsToStopRiding (shift held) is true.
+func (s *Server) dismount(sess *Session) {
+	vid := sess.riding.Swap(0)
+	if vid == 0 {
+		return
+	}
+	p, ok := s.entities.GetPtr(vid)
+	if !ok {
+		return
+	}
+	rider := sess.entityID.Load()
+	out := p.Passengers[:0]
+	for _, pid := range p.Passengers {
+		if pid != rider {
+			out = append(out, pid)
+		}
+	}
+	p.Passengers = out
+	s.broadcastSetPassengers(p)
 }
 
 // rideTickStep is the per-player-tick riding work vanilla runs in
@@ -89,6 +113,7 @@ func (s *Server) rideTickStep(sess *Session) {
 	s.entities.mu.RUnlock()
 	if !ok || veh.Dying {
 		sess.lavaRideSet = false
+		sess.riding.Store(0)
 		return
 	}
 	// A passenger's position is the vehicle's (vanilla syncs it in

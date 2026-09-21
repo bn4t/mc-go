@@ -422,6 +422,31 @@ func (s *Server) broadcastEntitySpawnIn(dim string, except *Session, e Entity) {
 	})
 }
 
+// broadcastSetPassengers announces a vehicle's passenger list to every
+// spawned play-stage session in its dimension — vanilla's
+// ServerEntity sends set_passengers to trackers whenever the list
+// changes (mount, dismount, passenger removal).
+func (s *Server) broadcastSetPassengers(veh *Entity) {
+	var b protocol.Buffer
+	b.VarInt(veh.ID)
+	b.VarInt(int32(len(veh.Passengers)))
+	for _, pid := range veh.Passengers {
+		b.VarInt(pid)
+	}
+	body := b.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || !sess.spawned.Load() {
+			return true
+		}
+		if sess.dimName() != veh.Dim {
+			return true
+		}
+		_ = sess.write(sess.ids().PlaySetPassengers, body)
+		return true
+	})
+}
+
 // broadcastEntityTeleport fans one entity movement to every other
 // spawned play-stage session sharing the entity's dimension.
 func (s *Server) broadcastEntityTeleport(except *Session, id int32, x, y, z float64, yaw, pitch float32, onGround bool) {

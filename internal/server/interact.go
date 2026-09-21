@@ -604,6 +604,10 @@ func (s *Server) handlePlayerInput(sess *Session, p protocol.Packet) {
 		}
 	}
 	sess.jumping = jump
+	if sneak && sess.riding.Load() != 0 {
+		// Player.tick: wantsToStopRiding (shift key down) -> stopRiding.
+		s.dismount(sess)
+	}
 	if sneak == sess.sneaking {
 		return
 	}

@@ -2080,3 +2080,12 @@ physics through a void dip plus a fed recovery window.
   Also fixed: item-entity pickup never fired inventory_changed — the
   wolf_armor pickup unlocks recipes/misc/wolf_armor_dyed on vanilla.
   TestPlayerShearedEquipmentParity green vs vanilla 26.2.
+
+- set_passengers + dismount: 26.2 has no sneak actions in
+  player_command — sneak is the 0x20 bit of player_input, and
+  dismount is Player.tick's wantsToStopRiding (shift down) ->
+  stopRiding. mc-go now broadcasts set_passengers on mount, clears
+  riding + broadcasts the emptied list on shift-dismount, disconnect
+  (untrack), and vehicle death (rideTickStep clears the stale id).
+  TestSetPassengersParity: watcher client records mount riders=1 and
+  dismount riders=0 identically on vanilla 26.2 and mc-go.
