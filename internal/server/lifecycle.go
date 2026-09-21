@@ -254,6 +254,19 @@ func (s *Server) setWorldSpawn(px, py, pz int) {
 	s.spawnMu.Unlock()
 }
 
+// setWorldSpawnAngles stores the spawn point and angle /setworldspawn
+// reports, returning whether anything changed — the real server skips
+// the broadcast when it didn't.
+func (s *Server) setWorldSpawnAngles(pos [3]int, yaw, pitch float32) bool {
+	s.spawnMu.Lock()
+	defer s.spawnMu.Unlock()
+	changed := !s.haveSpawn || s.spawnPos != pos || s.spawnYaw != yaw || s.spawnPitch != pitch
+	s.spawnPos = pos
+	s.spawnYaw, s.spawnPitch = yaw, pitch
+	s.haveSpawn = true
+	return changed
+}
+
 // disconnectSoon kicks one session and closes the socket after the
 // writer flushes the kick.
 func (s *Server) disconnectSoon(sess *Session, reason string) {

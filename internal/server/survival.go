@@ -589,19 +589,40 @@ func (s *Server) respawnPlayer(sess *Session) {
 	sess.fallDistance = 0
 
 	overworld := s.dims[dimOverworld]
-	if sess.dimension() != overworld {
+	// A /spawnpoint (or bed/anchor) respawn wins over the world spawn;
+	// it can also live in another dimension.
+	sess.posMu.Lock()
+	hasSpawn := sess.hasSpawnPos
+	spawnPos := sess.spawnPos
+	spawnYaw, spawnPitch := sess.spawnYaw, sess.spawnPitch
+	spawnDim := sess.spawnDim
+	sess.posMu.Unlock()
+	dest := overworld
+	var x, y, z float64
+	yaw := float32(0)
+	if hasSpawn {
+		if d, ok := s.dims[spawnDim]; ok {
+			dest = d
+		}
+		x, y, z = float64(spawnPos[0])+0.5, float64(spawnPos[1]), float64(spawnPos[2])+0.5
+		yaw = spawnYaw
+	} else {
+		x, y, z = s.WorldSpawn()
+	}
+	if sess.dimension() != dest {
 		// Cross-dimension respawn: entity tracking, chunks, and
 		// dimension bookkeeping all run through changeDimension.
-		x, y, z := s.WorldSpawn()
-		s.changeDimension(sess, overworld, x, y, z, 0)
+		s.changeDimension(sess, dest, x, y, z, 0)
+		// changeDimension zeroes the view rotation; restore the spawn
+		// point's angles on the session side for selectors/tracking.
+		sess.setPos(x, y, z, spawnYaw, spawnPitch, false)
 		_ = s.sendContainerContent(sess)
 		return
 	}
 
-	_ = s.sendRespawn(sess, overworld, 0, 0)
+	_ = s.sendRespawn(sess, dest, 0, 0)
 
-	x, y, z := s.WorldSpawn()
-	sess.setPos(x, y, z, 0, 0, false)
+	sess.setPos(x, y, z, yaw, spawnPitch, false)
 	_ = s.sendSyncPos(sess, x, y, z)
 	_ = s.sendHealth(sess)
 	_ = s.sendContainerContent(sess)

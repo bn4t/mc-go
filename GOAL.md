@@ -2702,3 +2702,15 @@ physics through a void dip plus a fed recovery window.
   token, and /msg rejects @e-family selectors argument.player.entities
   and unknown players argument.entity.notfound.player (no context).
   TestUtilCommandParity 33 commands green vs vanilla.
+
+- /spawnpoint + /setworldspawn: blockpos args are ints or ~relatives
+  with parsing.int.expected / parsing.int.invalid (overflow int32 keeps
+  the literal back) / argument.pos3d.incomplete cursors, the rotation
+  tail is a yaw+pitch pair (argument.rotation.incomplete on one value,
+  parsing.double.expected on a bad element, ~ resolves against the
+  sender's view), and success carries [x,y,z,yaw,pitch,dimension] plus
+  the decorated target name for spawnpoint's single form. /spawnpoint
+  writes per-session respawn data that respawnPlayer now honors (incl.
+  cross-dimension); /setworldspawn updates the world spawn and fans
+  Set Default Spawn Position out only when the point actually changed.
+  TestSpawnCommandParity 27 commands green vs vanilla.

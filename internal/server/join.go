@@ -228,14 +228,22 @@ func (s *Server) broadcastUpdateTimeBody(body []byte) {
 	})
 }
 
-// sendDefaultSpawn syncs the world spawn point.
+// sendDefaultSpawn syncs the world spawn point, including any angle a
+// /setworldspawn set.
 func (s *Server) sendDefaultSpawn(sess *Session) error {
-	x, y, z := s.WorldSpawn()
+	s.spawnMu.Lock()
+	pos, yaw, pitch := s.spawnPos, s.spawnYaw, s.spawnPitch
+	have := s.haveSpawn
+	s.spawnMu.Unlock()
+	if !have {
+		x, y, z := s.WorldSpawn()
+		pos = [3]int{int(x - 0.5), int(y + 1), int(z - 0.5)}
+	}
 	var b protocol.Buffer
 	b.String("minecraft:overworld")
-	b.Position(int32(x-0.5), int32(y+1), int32(z-0.5))
-	b.Float(0)
-	b.Float(0)
+	b.Position(int32(pos[0]), int32(pos[1]), int32(pos[2]))
+	b.Float(yaw)
+	b.Float(pitch)
 	return sess.write(sess.ids().PlayDefaultSpawn, b.Bytes())
 }
 

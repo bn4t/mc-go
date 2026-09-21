@@ -48,6 +48,14 @@ type Session struct {
 	// teleportNext issues Synchronize Player Position ids; the spawn
 	// teleport is 1, server-initiated teleports count up from there.
 	teleportNext atomic.Int32
+	// Per-player respawn point from /spawnpoint (or a bed/anchor): the
+	// block, the spawn angle, and the dimension the point lives in.
+	// Guarded by posMu alongside the position fields it feeds on
+	// respawn.
+	spawnPos             [3]int
+	spawnYaw, spawnPitch float32
+	spawnDim             string
+	hasSpawnPos          bool
 	// Player position (play stage). Guarded by posMu; the read loop
 	// writes, tick/broadcast paths read.
 	posMu       sync.RWMutex

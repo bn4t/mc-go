@@ -129,9 +129,10 @@ type Server struct {
 	gameRules        map[string]string
 	// The world spawn, which a loaded level.dat can move; see
 	// WorldSpawn. Guarded by spawnMu.
-	spawnMu   sync.Mutex
-	spawnPos  [3]int
-	haveSpawn bool
+	spawnMu              sync.Mutex
+	spawnPos             [3]int
+	spawnYaw, spawnPitch float32
+	haveSpawn            bool
 	// ops maps player name to permission level (1-4), from ops.json.
 	// OpsRequired turns on vanilla's gating: without it every player is
 	// level 4, which is what library embeddings and the scripted test
