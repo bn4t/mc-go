@@ -1,6 +1,7 @@
 package server
 
 import (
+	"strings"
 	"sync"
 
 	"mc-go/internal/world"
@@ -212,9 +213,34 @@ func (s *Server) randomTickBlock(d *dimension, pos world.Pos) {
 // which is also true in vanilla for most blocks.
 var randomTickRules = map[string]func(*Server, *dimension, world.Pos, world.Block){}
 
-// blockTick handles one scheduled (non-random) block tick. Redstone and
-// crop growth scheduling will land here; nothing schedules one yet.
-func (s *Server) blockTick(d *dimension, pos world.Pos) {}
+// blockTick handles one scheduled (non-random) block tick. Redstone
+// and crop growth scheduling will land here; the only current client
+// is the button release a wind-charge burst schedules.
+func (s *Server) blockTick(d *dimension, pos world.Pos) {
+	blk := d.w.GetBlock(pos)
+	name, ok := world.StateOwner(blk)
+	if !ok {
+		return
+	}
+	short := strings.TrimPrefix(name, "minecraft:")
+	if !strings.HasSuffix(short, "_button") {
+		return
+	}
+	// ButtonBlock.tick: an unpowered button ignores its tick; a powered
+	// one releases with the click-off sound.
+	if p, _ := world.StateProperty(blk, "powered"); p != "true" {
+		return
+	}
+	nb, ok := world.WithProperty(blk, "powered", "false")
+	if !ok {
+		return
+	}
+	d.w.SetBlock(pos, nb)
+	s.broadcastBlockState(d, pos, nb)
+	// checkPressed(): setBlock -> updateNeighbours -> click_off.
+	s.explodeUpdateNeighboursAttached(d, pos, nb)
+	s.explodeBlockSound(d, pos, windSoundFamily(short)+"_button.click_off", 1, 1)
+}
 
 // randomTickSpeed reads the randomTickSpeed game rule.
 func (s *Server) randomTickSpeed() int {

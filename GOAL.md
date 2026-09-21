@@ -2310,3 +2310,40 @@ physics through a void dip plus a fed recovery window.
  none, explode-before-remove. Harness note: a read deadline shared
  across two conns starves the second reader — set each deadline
  immediately before its drain.
+
+- wind-charge TRIGGER_BLOCK slice (26.2, measured via CFR + wire):
+  interactWithBlocks shuffles the sampled positions and runs each
+  block's onExplosionHit — doors/trapdoors/fence gates toggle open
+  when unpowered (iron doors/trapdoors are wind-charge-proof), buttons
+  press and release on scheduleTick (stone/polished_blackstone 20t,
+  wood 30t), levers pull, lit candles extinguish with a smoke puff.
+  Breeze charges are additionally gated on the mob_griefing gamerule.
+  What actually runs is deeper than a flag flip: a pressed button or
+  pulled lever fires updateNeighbours (neighbors of the control +
+  neighbors of its attached block), and doors/trapdoors/gates answer
+  neighborChanged by syncing powered (and open when they differ) to
+  the sensed signal — a powered button next to a door re-closes it on
+  release. Doors also mirror their whole state across halves via
+  DoorBlock.updateShape, so the upper half writes whenever the lower
+  does. Wind-charge blast sampling drains NO resistance except the
+  immune tag {barrier, bedrock} — every other block returns the empty
+  Optional, so bursts reach farther than the old resistance table
+  implied; burst centre = block-face contact + normal*0.25 (a floor
+  hit bursts at floorTop+0.25, not inside the block). Wire: vanilla
+  never emits per-flip block_update for multi-block changes —
+  ChunkHolder batches same-section changes into
+  section_blocks_update (0x54) at tick end; sounds go immediately.
+  mc-go now implements the sampler reach, face-offset burst, the
+  triggered flips with their positioned sounds (sound_event ids come
+  from a generated SoundEventID table — sound_event is a static
+  registry, the old registryEntryID login-registry lookup silently
+  returned -1, which also meant the enchant-table use sound wrote a
+  malformed holder — fixed), powered-neighbor propagation for the
+  button/lever emitter set, and the door-half mirror. Pin:
+  TestWindChargeTriggerBlocksParity green vs vanilla 26.2 — identical
+  final states incl. the re-closed powered door, both door open+close
+  sounds, the button's press+release pair, and the full sound set.
+  Harness notes: vanilla suppresses chunk-tracker-emitted packets
+  (block updates, section updates) until the client acks each chunk
+  batch — drains must go through drainChunkWindow, which acks; a
+  shared read deadline across conns starves the second reader.

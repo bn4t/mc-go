@@ -418,6 +418,7 @@ func (s *Server) enchantButton(sess *Session, w *openWindow, btn int32) {
 	s.sendSetExperience(sess, sess.xpProgress, sess.xpLevel, sess.xpTotal)
 	s.syncContainerMenuSlots(sess, w, []int{enchantItem, enchantLapis})
 	s.enchantSlotsChanged(sess, w)
-	s.playSoundIn(w.dim.name, w.pos,
-		registryEntryID("minecraft:sound_event", "minecraft:block.enchantment_table.use"))
+	if id, ok := SoundEventID("block.enchantment_table.use"); ok {
+		s.playSoundIn(w.dim.name, w.pos, id)
+	}
 }
