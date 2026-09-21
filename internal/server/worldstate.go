@@ -213,23 +213,8 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
-	b0, err := r.Byte()
-	if err != nil {
-		return
-	}
-	if b0 != 0 {
-		if _, err := r.Byte(); err != nil {
-			return
-		}
-		if _, err := r.Read(4); err != nil {
-			return
-		}
-		if b0&4 != 0 {
-			if _, err := r.VarInt(); err != nil {
-				return
-			}
-		}
-	}
+	var clickY float64
+	_, clickY, _, _ = r.ReadLpVec3()
 	sneaking, err := r.Bool()
 	if err != nil {
 		return
@@ -244,6 +229,7 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	s.tradeVillager(sess, id, hand)
 	s.giveAllay(sess, id, hand)
 	s.cureZombieVillager(sess, id, hand)
+	s.armorStandInteract(sess, id, hand, clickY)
 	s.interactEntityAdv(sess, id, hand)
 }
 

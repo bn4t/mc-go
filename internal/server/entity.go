@@ -87,6 +87,19 @@ type Entity struct {
 	// Saddle is the equipment.saddle slot on saddleable mounts
 	// (strider, pig, horse family): vanilla gates mounting on it.
 	Saddle bool
+	// Small/ShowArms/DisabledSlots are the armor stand's
+	// ArmorStand.CLIENT_FLAG bits and NBT; Equips is the entity
+	// equipment map keyed by vanilla equipment index
+	// (equipMainHand..equipHelmet) — armor stands read/write it in
+	// interact; other mobs still use the named fields.
+	Small         bool
+	ShowArms      bool
+	DisabledSlots int32
+	Equips        map[int32]ItemStack
+	// EquipDirty is vanilla's equipment dirty flag: summon NBT marks
+	// every loaded slot, and the next mob tick's
+	// detectEquipmentUpdates resends the set to trackers.
+	EquipDirty bool
 	// MotionX/MotionZ carry a thrown item's horizontal drift, applied
 	// each tick with vanilla's 0.98 air / ~0.55 grounded decay.
 	MotionX, MotionZ float64

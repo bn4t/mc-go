@@ -186,6 +186,7 @@ var mobHealth = map[string]float32{
 	"allay":       20,
 	"goat":        10,
 	"strider":     20,
+	"armor_stand": 20,
 }
 
 // mobBoundsTable is the vanilla bounding box (width, height) per
@@ -266,7 +267,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		}
 	}
 	name := strings.TrimPrefix(args[0], "minecraft:")
-	if e, ok := s.summonMob(sess.dimension(), name, x, y, z, noAI); ok {
+	if e, ok := s.summonMobRaw(sess.dimension(), name, x, y, z, noAI); ok {
 		if tag != nil {
 			if v, ok := tag.vals["CanPickUpLoot"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
 				e.CanPickUpLoot = true
@@ -285,6 +286,36 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if eq, ok := tag.vals["equipment"]; ok {
 				if sd, ok := eq.vals["saddle"]; ok && sd.vals["id"].str != "" {
 					e.Saddle = true
+				}
+				// equipment.<slot> {id,count} fills the armor stand's
+				// (and any mob's) shared equipment table.
+				for slot, key := range map[int32]string{
+					equipMainHand: "mainhand", equipOffHand: "offhand",
+					equipBoots: "feet", equipLegs: "legs",
+					equipChest: "chest", equipHelmet: "head",
+				} {
+					sd, ok := eq.vals[key]
+					if !ok {
+						continue
+					}
+					idv, ok := sd.vals["id"]
+					if !ok || idv.str == "" {
+						continue
+					}
+					iid, ok := world.ItemID(strings.TrimPrefix(idv.str, "minecraft:"))
+					if !ok {
+						continue
+					}
+					cnt := int32(1)
+					if cv, ok := sd.vals["count"]; ok {
+						if n, err := strconv.Atoi(strings.TrimRight(cv.num, "bBsSiIlLfFdD")); err == nil && n > 0 {
+							cnt = int32(n)
+						}
+					}
+					if e.Equips == nil {
+						e.Equips = map[int32]ItemStack{}
+					}
+					e.Equips[slot] = ItemStack{ID: iid, Count: cnt}
 				}
 				if bd, ok := eq.vals["body"]; ok {
 					if idv, ok := bd.vals["id"]; ok && idv.str != "" {
@@ -369,7 +400,21 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if sv, ok := tag.vals["Silent"]; ok && (sv.num == "1b" || sv.num == "1" || sv.str == "true") {
 				e.Silent = true
 			}
+			// Armor stand NBT: Small halves the click-height bands,
+			// ShowArms unlocks the hand slots, DisabledSlots is the
+			// replace/take/place bitmask.
+			if v, ok := tag.vals["Small"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+				e.Small = true
+			}
+			if v, ok := tag.vals["ShowArms"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+				e.ShowArms = true
+			}
+			if v, ok := tag.vals["DisabledSlots"]; ok {
+				e.DisabledSlots = int32(snbtNum(v))
+			}
+
 		}
+		s.broadcastFreshMob(e)
 		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}
 	// A dropped stack on the ground: Item holds the stack, Thrower
@@ -574,14 +619,85 @@ func (s *Server) summonMob(d *dimension, name string, x, y, z float64, noAI bool
 		MaxHealth: health,
 		NoAI:      noAI,
 	})
+	s.broadcastFreshMob(e)
+	return e, true
+}
+
+// summonMobRaw is summonMob without the broadcast: the caller applies
+// summon NBT first so the tracker-attach burst carries the final
+// metadata and equipment. summonMob stays for callers with no NBT.
+func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI bool) (*Entity, bool) {
+	id, ok := EntityTypeID(name)
+	if !ok {
+		return nil, false
+	}
+	health, known := mobHealth[name]
+	if !known {
+		return nil, false
+	}
+	return s.entities.Spawn(&Entity{
+		Type:      id,
+		Dim:       d.name,
+		X:         x,
+		Y:         y,
+		Z:         z,
+		Living:    true,
+		Health:    health,
+		MaxHealth: health,
+		NoAI:      noAI,
+	}), true
+}
+
+// broadcastFreshMob is vanilla's tracker-attach burst: spawn packet,
+// entity metadata, and every occupied equipment slot. When equipment
+// was loaded from summon NBT each slot is still dirty, so the next
+// detectEquipmentUpdates tick resends the whole set — EquipDirty
+// replays that second burst on the next mob tick.
+func (s *Server) broadcastFreshMob(e *Entity) {
 	s.broadcastEntitySpawn(nil, *e)
 	s.broadcastEntityMetadata(e.ID, encodeLivingMetadata(e))
-	return e, true
+	if slots := armorStandEquipAll(e); len(slots) > 0 {
+		e.EquipDirty = true
+		body := encodeEquipment(e.ID, slots)
+		s.sessions.Range(func(_, v any) bool {
+			other := v.(*Session)
+			if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != e.Dim {
+				return true
+			}
+			_ = other.write(other.ids().PlaySetEquipment, body)
+			return true
+		})
+	}
+}
+
+// encodeArmorStandFlags packs ArmorStand's DATA_CLIENT_FLAGS byte
+// (metadata index 15): 0x01 small, 0x04 show arms, 0x08 no baseplate,
+// 0x10 marker. mc-go reads Small and ShowArms from summon NBT.
+func encodeArmorStandFlags(e *Entity) byte {
+	var flags byte
+	if e.Small {
+		flags |= 0x01
+	}
+	if e.ShowArms {
+		flags |= 0x04
+	}
+	return flags
 }
 
 // encodeLivingMetadata builds the Set Entity Data body for a living
 // entity: health at index 9 (float), terminated.
 func encodeLivingMetadata(e *Entity) []byte {
+	if e.Type == mustEntityType("armor_stand") {
+		var b protocol.Buffer
+		b.Byte(9) // index: health
+		b.Byte(3) // type: float
+		b.Float(e.Health)
+		b.Byte(15) // index: armor-stand client flags
+		b.Byte(0)  // type: byte
+		b.Byte(encodeArmorStandFlags(e))
+		b.Byte(0xFF)
+		return b.Bytes()
+	}
 	return encodeLivingHealth(e.Health)
 }
 
@@ -653,6 +769,22 @@ func (s *Server) mobTickStep() {
 				s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 			}
 			continue
+		}
+		// detectEquipmentUpdates: equipment loaded from NBT stays
+		// dirty until the first tick after the tracker-attach burst.
+		if e.EquipDirty {
+			e.EquipDirty = false
+			if slots := armorStandEquipAll(e); len(slots) > 0 {
+				body := encodeEquipment(e.ID, slots)
+				s.sessions.Range(func(_, v any) bool {
+					other := v.(*Session)
+					if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != e.Dim {
+						return true
+					}
+					_ = other.write(other.ids().PlaySetEquipment, body)
+					return true
+				})
+			}
 		}
 		if e.invulnTicks > 0 {
 			e.invulnTicks--

@@ -208,6 +208,49 @@ func (r *PacketReader) Position() (x, y, z int32, err error) {
 	return ReadPosition(r.buf)
 }
 
+// lpVec3Unpack decodes one 15-bit coordinate: min(v & 32767, 32766)
+// mapped into [-1, 1], which the caller scales by the vector's scale.
+func lpVec3Unpack(v int64) float64 {
+	q := v & 32767
+	if q > 32766 {
+		q = 32766
+	}
+	return float64(q)*2/32766.0 - 1
+}
+
+// ReadLpVec3 decodes a LpVec3 (26.2's compact vector on the interact
+// packet): first byte 0 is Vec3.ZERO; otherwise two more bytes and a
+// u32 carry three packed 15-bit fields, scaled by the low two bits of
+// the first byte plus an optional continuation VarInt (bit 2).
+func (r *PacketReader) ReadLpVec3() (x, y, z float64, err error) {
+	b0, err := r.Byte()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if b0 == 0 {
+		return 0, 0, 0, nil
+	}
+	b1, err := r.Byte()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	raw, err := r.Read(4)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	u := int64(raw[0])<<24 | int64(raw[1])<<16 | int64(raw[2])<<8 | int64(raw[3])
+	v := u<<16 | int64(b1)<<8 | int64(b0)
+	scale := float64(b0 & 3)
+	if b0&4 != 0 {
+		cont, err := r.VarInt()
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		scale = float64(int64(b0&3) | int64(cont)<<2)
+	}
+	return lpVec3Unpack(v>>3) * scale, lpVec3Unpack(v>>18) * scale, lpVec3Unpack(v>>33) * scale, nil
+}
+
 // ByteArray reads a VarInt-prefixed byte array (the protocol's
 // "Prefixed Array of Byte"), as used for chat public keys and plugin
 // message payloads.

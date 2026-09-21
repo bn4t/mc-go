@@ -164,7 +164,8 @@ Mojang server over the wire.
   across hits (pig: 0.4 plain, then 0.8 sprint). set_entity_motion
   uses the 26.2 LpVec3 packed codec, not three shorts — three
   scale bits plus 15-bit axis fields at shifts 3/18/33 in a 48-bit
-  little-endian word. player_command renumbered for 26.2: sprint
+  word whose wire bytes are the low two bytes little-endian then the
+  high four bytes as one big-endian writeInt. player_command renumbered for 26.2: sprint
   start/stop is actions 1/2 (no sneak actions — sneak lives in the
   player_input shift bit); sprint set/clear broadcasts entity_data
   index-0 byte flags (bit 0x08). /summon now parses vec3 + NBT —
@@ -2223,3 +2224,29 @@ physics through a void dip plus a fed recovery window.
   lazily expiry-checked like session effects), loadable via summon
   NBT active_effects {id,duration,amplifier}.
   TestCureInteractParity green vs vanilla 26.2.
+
+- armor_stand interact_at equipment swap (ArmorStand.interact /
+  getClickedSlot / swapItem): the interact packet's LpVec3 click
+  position is entity-local (feet origin); the wire bytes are the
+  packed word's low two bytes little-endian followed by the high 32
+  bits as a big-endian writeInt — plain little-endian scrambles every
+  field, which is why early probes silently no-op'd. Empty hand picks
+  the clicked slot by height band (feet [0.1,0.55), legs [0.4,1.2),
+  chest [0.9,1.6), head >=1.6; halved/reshaped for Small, all gated on
+  hasItemInSlot, defaulting to OFFHAND when mainhand is empty but
+  offhand isn't, else MAINHAND) falling back to MAINHAND when the
+  clicked slot is disabled; a held stack targets its own equippable
+  slot. swapItem gates: DisabledSlots bits index the EquipmentSlot
+  FILTER space {main:0, feet:1, legs:2, chest:3, head:4, off:5} —
+  not the wire ordinals — at +0 (whole-slot via isDisabled), +8
+  (take), +16 (place); hand slots die on armless stands. Creative
+  puts copy a single item; stacks>1 split one onto an empty slot
+  (returning false when the slot is occupied); otherwise the whole
+  stack swaps and the old piece lands in the clicking hand.
+  equipment.{feet,legs,chest,head,mainhand,offhand} summon NBT fills
+  the Equips table BEFORE the tracker-attach burst, matching
+  vanilla's spawn wire: spawn + metadata + one set_equipment burst,
+  then a second identical burst on the next tick from
+  detectEquipmentUpdates' dirty-flag resend (mc-go: EquipDirty ->
+  mobTickStep). swing anim id is 0 for the main hand, 3 for the off
+  hand. TestArmorStandInteractParity green vs vanilla 26.2.
