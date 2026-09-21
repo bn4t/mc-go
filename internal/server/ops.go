@@ -21,9 +21,6 @@ func (s *Server) registerOps() {
 	s.registerComponentCommand("teleport", func(player string, args []string) reply {
 		return s.runTp(player, args)
 	})
-	s.commands.Register("kick", func(player string, args []string) string {
-		return s.runKick(player, args)
-	})
 	s.commands.Register("save-all", func(player string, args []string) string {
 		if err := s.SaveWorld(); err != nil {
 			return "Save failed: " + err.Error()
@@ -275,18 +272,4 @@ func (s *Server) runTpEntities(issuer, sel string, args []string) (reply, bool) 
 	}
 	return s.tpReply(issuer, translatable("commands.teleport.success.location.multiple",
 		int32(len(ents)), sx, sy, sz)), true
-}
-
-func (s *Server) runKick(player string, args []string) string {
-	if len(args) < 1 {
-		return "Usage: /kick <player> [reason...]"
-	}
-	reason := "Kicked by an operator"
-	if len(args) > 1 {
-		reason = strings.Join(args[1:], " ")
-	}
-	if !s.KickPlayer(args[0], reason) {
-		return "Unknown player: " + args[0]
-	}
-	return "Kicked " + args[0]
 }

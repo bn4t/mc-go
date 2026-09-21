@@ -141,7 +141,11 @@ func (s *Server) handlePlay(sess *Session) {
 	if s.bus != nil {
 		s.bus.Publish(event.TopicPlayerJoin, map[string]string{"name": sess.getName()})
 	}
-	s.broadcastSystemChatExcept(sess, "<"+sess.getName()+"> joined the game")
+	s.broadcastSystemChatComponentExcept(sess, component{
+		color:     "yellow",
+		translate: "multiplayer.player.joined",
+		with:      []any{playerChatComponent(sess)},
+	})
 	s.broadcastPlayerInfoAdd(sess, []playerEntry{mine})
 	// ...and the joiner spawns for everyone already online.
 	if e, ok := playerEntity(sess); ok {

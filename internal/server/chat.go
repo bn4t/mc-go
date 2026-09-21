@@ -307,6 +307,19 @@ func (s *Server) broadcastSystemChat(text string) {
 	})
 }
 
+// broadcastSystemChatComponentExcept delivers a component to every
+// play-stage session except one.
+func (s *Server) broadcastSystemChatComponentExcept(except *Session, c component) {
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess == except || sess.state.Load() != StatePlay {
+			return true
+		}
+		s.sendSystemChatComponent(sess, c)
+		return true
+	})
+}
+
 // broadcastSystemChatExcept delivers to every play-stage session except one.
 // Join messages use this: vanilla notifies existing players, not the joiner.
 func (s *Server) broadcastSystemChatExcept(except *Session, text string) {

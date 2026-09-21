@@ -2724,3 +2724,17 @@ physics through a void dip plus a fed recovery window.
   suppresses every later command reply — including the set's own — and
   error context, gated at both dispatch sites. TestGameRuleParity 23
   commands green vs vanilla.
+
+- Operator commands + /tag: op/deop reply with the resolved name and
+  send the affected player entity-status 24+level plus a command-tree
+  resend; kick drops the target with multiplayer.disconnect.kicked (or
+  the typed reason as a literal) and reports the decorated name plus a
+  nested-compound reason; ban/pardon and ban-ip/pardon-ip track
+  bannedNames/bannedIPs, kick live sessions with banned[_ip].reason,
+  and reject at login with the same component. /tag resolves entities
+  (not players) so misses report argument.entity.notfound.entity, add
+  and remove report .single/.multiple with the tag as an {"" -> name}
+  compound, and list joins green tag literals with gray ", ". Join and
+  leave notices switched to the yellow multiplayer.player.joined/left
+  translatables. TestAdminTagParity 35 commands green vs vanilla, Q's
+  disconnect packets included.

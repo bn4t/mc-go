@@ -78,14 +78,14 @@ func TestKickCommand(t *testing.T) {
 	s := New("unused")
 	sess, _ := enforceSession(t, s, "Warden")
 
-	if out := s.runKick("Op", nil); !strings.HasPrefix(out, "Usage:") {
-		t.Fatalf("kick usage = %q", out)
+	if out := s.runKickCmd("Op", nil); out.fail == nil {
+		t.Fatalf("kick usage = %+v", out)
 	}
-	if out := s.runKick("Op", []string{"Ghost"}); out != "Unknown player: Ghost" {
-		t.Fatalf("kick ghost = %q", out)
+	if out := s.runKickCmd("Op", []string{"Ghost"}); out.comp.translate != "" {
+		t.Fatalf("kick ghost = %+v", out)
 	}
-	if out := s.runKick("Op", []string{"Warden", "griefing"}); out != "Kicked Warden" {
-		t.Fatalf("kick = %q", out)
+	if out := s.runKickCmd("Op", []string{"Warden", "griefing"}); out.comp.translate != "commands.kick.success" {
+		t.Fatalf("kick = %+v", out)
 	}
 	select {
 	case pkt := <-sess.sendCh:
@@ -263,14 +263,44 @@ func readChatPipe(t *testing.T, pr *protocol.Reader) string {
 		if err != nil {
 			t.Fatalf("chat nbt: %v", err)
 		}
-		text, ok := root.(string)
-		if !ok {
-			t.Fatalf("chat root = %T, want string", root)
-		}
-		return text
+		return flattenChatText(root)
 	}
 	t.Fatal("no system chat")
 	return ""
+}
+
+// flattenChatText renders a decoded chat component to a searchable
+// string: the translate key plus every nested text value.
+func flattenChatText(root any) string {
+	var out strings.Builder
+	var walk func(v any)
+	walk = func(v any) {
+		switch t := v.(type) {
+		case string:
+			out.WriteString(t)
+			out.WriteByte(' ')
+		case map[string]any:
+			for _, k := range []string{"translate", "text"} {
+				if s, ok := t[k].(string); ok {
+					out.WriteString(s)
+					out.WriteByte(' ')
+				}
+			}
+			for _, k := range []string{"with", "extra"} {
+				walk(t[k])
+			}
+		case []any:
+			for _, it := range t {
+				walk(it)
+			}
+		case nbt.List:
+			for _, it := range t.Items {
+				walk(it)
+			}
+		}
+	}
+	walk(root)
+	return out.String()
 }
 
 // readChatPipeRoot returns the translate key of the next system chat,
@@ -322,7 +352,7 @@ func TestOpsFlowOverWire(t *testing.T) {
 	}
 
 	sendCmdPipe(t, pwa, "kick Bob griefing")
-	if out := readChatPipe(t, pra); out != "Kicked Bob" {
+	if out := readChatPipe(t, pra); !strings.Contains(out, "commands.kick.success") {
 		t.Fatalf("/kick = %q", out)
 	}
 	// Bob's next packet is the kick disconnect.
@@ -343,7 +373,7 @@ func TestOpsFlowOverWire(t *testing.T) {
 	}
 
 	sendCmdPipe(t, pwa, "stop")
-	if out := readChatPipe(t, pra); out != "Stopping the server" {
+	if out := readChatPipe(t, pra); !strings.Contains(out, "Stopping the server") {
 		t.Fatalf("/stop = %q", out)
 	}
 	for i := 0; i < 20; i++ {

@@ -67,6 +67,10 @@ type Session struct {
 	// given, keyed by data.Recipes index; guarded by recipesMu.
 	recipesMu       sync.Mutex
 	unlockedRecipes map[int]bool
+	// tags holds the /tag labels on this player; insertion order is
+	// what /tag list echoes back.
+	tagMu sync.Mutex
+	tags  []string
 	// execEnt/execPos are the session-scoped frame an execute chain
 	// applies around its leaf: `as`/`summon` bind execEnt so @s reads
 	// the forked executor, `positioned`/`at`/`align` bind execPos so

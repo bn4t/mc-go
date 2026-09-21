@@ -39,6 +39,12 @@ func (s *Server) handleLogin(sess *Session) {
 	}
 
 	sess.setIdentity(name, offlineUUID(name))
+	// Bans and ip-bans reject at login like vanilla: the disconnect is
+	// the translated reason, the typed text when one was given.
+	if reason, banned := s.bannedReason(name, sess); banned {
+		s.sendLoginDisconnect(sess, reason)
+		return
+	}
 	s.online.Add(1)
 	if s.bus != nil {
 		s.bus.Publish(event.TopicPlayerLogin, map[string]string{"name": name})

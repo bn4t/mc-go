@@ -137,7 +137,13 @@ type Server struct {
 	// OpsRequired turns on vanilla's gating: without it every player is
 	// level 4, which is what library embeddings and the scripted test
 	// clients rely on. The mc-go binary enables it.
-	ops         map[string]int
+	ops map[string]int
+
+	// banMu guards bannedNames and bannedIPs, the /ban /pardon /ban-ip
+	// /pardon-ip tables.
+	banMu       sync.Mutex
+	bannedNames map[string]string
+	bannedIPs   map[string]string
 	OpsRequired bool
 	// savedPlayers holds login-time snapshots restored from DataPath.
 	// untrack writes it from each connection goroutine and join reads
@@ -429,7 +435,11 @@ func (s *Server) untrack(sess *Session) {
 		})
 	}
 	log.Printf("%s left the game", name)
-	s.broadcastSystemChat("<" + name + "> left the game")
+	s.broadcastSystemChatComponent(component{
+		color:     "yellow",
+		translate: "multiplayer.player.left",
+		with:      []any{playerChatComponent(sess)},
+	})
 	s.broadcastPlayerInfoRemove([][16]byte{sess.getUUID()})
 	// Retire the player's entity everywhere it was spawned.
 	if sess.spawned.Load() {

@@ -1559,18 +1559,21 @@ func (d *dataEntity) entityInTag(tag string) bool {
 }
 
 // hasTag reports scoreboard-tag membership: mobs carry it in Tags;
-// players never have tags.
+// players carry the tags /tag gave the session.
 func (d *dataEntity) hasTag(tag string) bool {
 	if d.sess != nil {
+		d.sess.tagMu.Lock()
+		defer d.sess.tagMu.Unlock()
+		for _, t := range d.sess.tags {
+			if t == tag {
+				return true
+			}
+		}
 		return false
 	}
-	if tg, ok := d.mob.ExtraNBT["Tags"]; ok {
-		if l, ok := tg.(nbt.List); ok {
-			for _, it := range l.Items {
-				if it == tag {
-					return true
-				}
-			}
+	for _, t := range mobTagList(d.mob) {
+		if t == tag {
+			return true
 		}
 	}
 	return false
