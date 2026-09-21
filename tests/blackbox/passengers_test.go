@@ -77,7 +77,7 @@ func TestSetPassengersParity(t *testing.T) {
 		_ = wc.SetDeadline(time.Time{})
 		_ = wpw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
 		sendCommand(t, wpw, "tp @s 8.5 -60 11.5 180 0")
-		drainChunkWindow(t, "watch", wc, wpr, wpw, 900*time.Millisecond)
+		advCollect(t, wc, wpr, wpw, 900*time.Millisecond, &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}})
 
 		rc, rpr, rpw := joinPlayBlackbox(t, addr, "Rider")
 		defer rc.Close()
@@ -118,7 +118,7 @@ func TestSetPassengersParity(t *testing.T) {
 		if boatID == 0 {
 			t.Fatalf("no boat spawn seen")
 		}
-		drainChunkWindow(t, "watch", wc, wpr, wpw, 400*time.Millisecond)
+		advCollect(t, wc, wpr, wpw, 400*time.Millisecond, &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}})
 
 		// Mount: rider Interact on the boat, sneak flag clear.
 		var ib protocol.Buffer
@@ -179,20 +179,21 @@ func TestJoinSeesExistingEntities(t *testing.T) {
 	}, nil)
 	defer targets.cleanup()
 
-	run := func(addr string) bool {
+	run := func(addr string) (bool, bool) {
 		ac, apr, apw := joinPlayBlackbox(t, addr, "First")
 		defer ac.Close()
 		_ = ac.SetDeadline(time.Time{})
 		sendCommand(t, apw, "summon minecraft:wolf 8.5 -60 8.5 {NoAI:1b}")
 		sendCommand(t, apw, "tp @s 8.5 -60 4.5 180 0")
-		drainChunkWindow(t, "first", ac, apr, apw, 900*time.Millisecond)
+		advCollect(t, ac, apr, apw, 900*time.Millisecond, &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}})
 
 		bc, bpr, bpw := joinPlayBlackbox(t, addr, "Second")
 		defer bc.Close()
 		_ = bc.SetDeadline(time.Time{})
 		sendCommand(t, bpw, "tp @s 8.5 -60 4.5 180 0")
 
-		seen := false
+		seen, meta := false, false
+		var wolfID int32
 		end := time.Now().Add(12 * time.Second)
 		for time.Now().Before(end) {
 			_ = bc.SetReadDeadline(time.Now().Add(time.Until(end)))
@@ -213,7 +214,8 @@ func TestJoinSeesExistingEntities(t *testing.T) {
 				}
 			case server.IDPlaySpawnEntity:
 				r := protocol.NewPacketReader(p.Data)
-				if _, e1 := r.VarInt(); e1 != nil {
+				id, e1 := r.VarInt()
+				if e1 != nil {
 					continue
 				}
 				if _, e2 := r.Read(16); e2 != nil {
@@ -222,19 +224,26 @@ func TestJoinSeesExistingEntities(t *testing.T) {
 				typ, e3 := r.VarInt()
 				if e3 == nil && typ == 149 { // wolf
 					seen = true
+					wolfID = id
+				}
+			case server.IDPlayEntityMetadata:
+				if id, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil && id == wolfID && wolfID != 0 {
+					meta = true
 				}
 			}
-			if seen {
+			if seen && meta {
 				break
 			}
 		}
-		return seen
+		return seen, meta
 	}
 
-	if !run(targets.vanilla) {
-		t.Fatalf("vanilla: joining player never saw the pre-summoned wolf")
+	seen, meta := run(targets.vanilla)
+	if !seen || !meta {
+		t.Fatalf("vanilla: joining player wolf spawn=%v meta=%v", seen, meta)
 	}
-	if !run(targets.mcgo) {
-		t.Fatalf("mc-go: joining player never saw the pre-summoned wolf")
+	seen, meta = run(targets.mcgo)
+	if !seen || !meta {
+		t.Fatalf("mc-go: joining player wolf spawn=%v meta=%v", seen, meta)
 	}
 }

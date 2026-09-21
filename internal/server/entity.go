@@ -414,6 +414,23 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 		if err := sess.write(sess.ids().PlaySpawnEntity, encodeSpawn(&e)); err != nil && first == nil {
 			first = err
 		}
+		// Tracker pairing also carries the entity's data: item
+		// entities need their stack, living entities their health.
+		var meta []byte
+		switch {
+		case e.Item.ID != 0:
+			meta = encodeItemMetadata(e.Item)
+		case e.Living:
+			meta = encodeLivingMetadata(&e)
+		}
+		if meta != nil {
+			var mb protocol.Buffer
+			mb.VarInt(e.ID)
+			mb.Raw(meta)
+			if err := sess.write(sess.ids().PlayEntityMetadata, mb.Bytes()); err != nil && first == nil {
+				first = err
+			}
+		}
 		if len(e.Passengers) > 0 {
 			var b protocol.Buffer
 			b.VarInt(e.ID)

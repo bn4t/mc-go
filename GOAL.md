@@ -2096,3 +2096,8 @@ physics through a void dip plus a fed recovery window.
   gets an add_entity, and vehicles already carrying passengers get a
   set_passengers follow-up. TestJoinSeesExistingEntities: player B
   joins after a wolf summon and sees it on both servers.
+
+  Follow-up: tracker pairing also carries entity_data (item stacks,
+  living health) — sent alongside join spawns now. Harness note:
+  drainChunkWindow's quiet-gap break can hang when a server sends
+  periodic packets — new tests use advCollect's hard deadline.
