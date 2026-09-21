@@ -107,6 +107,45 @@ func ReadNamed(r io.Reader) (string, any, error) {
 // the save form is emitted.
 func OrderedKeys(m map[string]any) []string { return compoundKeyOrder(m) }
 
+// OrderedKeysSeq is compoundKeyOrder with an explicit write order:
+// HashMap emits same-bucket keys in insertion order, so a compound
+// whose put order is known (an entity save, say) renders its keys
+// bucket-ascending with seq as the tie-break.
+func OrderedKeysSeq(m map[string]any, seq []string) []string {
+	idx := make(map[string]int, len(seq))
+	for i, k := range seq {
+		if _, ok := idx[k]; !ok {
+			idx[k] = i
+		}
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	cap := 16
+	for int(float64(cap)*0.75) < len(keys) {
+		cap *= 2
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		bi, bj := javaBucket(keys[i], cap), javaBucket(keys[j], cap)
+		if bi != bj {
+			return bi < bj
+		}
+		si, sj := len(seq)+1, len(seq)+1
+		if v, ok := idx[keys[i]]; ok {
+			si = v
+		}
+		if v, ok := idx[keys[j]]; ok {
+			sj = v
+		}
+		if si != sj {
+			return si < sj
+		}
+		return keys[i] < keys[j]
+	})
+	return keys
+}
+
 // compoundKeyOrder returns the keys of an NBT compound in the order a
 // real server's CompoundTag would store them: Java HashMap iteration
 // order, which walks hash buckets ascending.

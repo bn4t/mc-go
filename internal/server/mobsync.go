@@ -32,6 +32,8 @@ var mobPairingAttrTypes = map[int32]bool{}
 var mobSyncableSpeed = map[string]float64{
 	"zombie_villager": 0.23000000417232513,
 	"villager":        0.5,
+	"pig":             0.25,
+	"zombie":          0.23000000417232513,
 }
 
 func init() {
@@ -183,7 +185,11 @@ func (s *Server) mobSyncFlush(e *Entity) {
 	if e.SyncCount%mobUpdateInterval == 0 || e.PosDirty || e.MetaDirty {
 		s.mobMoveSync(e)
 	}
-	if e.MetaDirty {
+	if len(e.dataSync) > 0 {
+		data := e.dataSync
+		e.dataSync = nil
+		s.broadcastEntityMetadata(e.ID, data)
+	} else if e.MetaDirty {
 		e.MetaDirty = false
 		s.broadcastEntityMetadata(e.ID, encodeLivingMetadata(e, s.effectParticlesValue(e)))
 		e.ParticlesSent = s.effectParticlesValue(e)
@@ -191,7 +197,10 @@ func (s *Server) mobSyncFlush(e *Entity) {
 		e.ParticlesSent = p
 		s.broadcastEntityMetadata(e.ID, encodeParticlesEntry(p))
 	}
-	if e.AttrDirty {
+	if e.dataSyncAttrs {
+		e.dataSyncAttrs = false
+		s.broadcastMobAttrs(e)
+	} else if e.AttrDirty {
 		e.AttrDirty = false
 		s.broadcastMobAttrs(e)
 	}

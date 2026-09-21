@@ -139,6 +139,20 @@ type Entity struct {
 	// MotionX/MotionZ carry a thrown item's horizontal drift, applied
 	// each tick with vanilla's 0.98 air / ~0.55 grounded decay.
 	MotionX, MotionZ float64
+	// CustomName is the entity's custom_name exactly as the summon NBT
+	// carried it: vanilla stores the component's serialized string and
+	// uses that string as the display name's text.
+	CustomName string
+	// ExtraNBT holds save-map fields /data entity writes that the
+	// entity model does not track individually — they round-trip back
+	// into the save map verbatim like vanilla's loaded NBT.
+	ExtraNBT map[string]any
+	// dataSync is a pending dirty-entries entity_metadata payload and
+	// dataSyncAttrs the attribute resend — /data mutations emit both on
+	// the next mob sync tick, after the command's reply, like vanilla's
+	// sendChanges running at tick end.
+	dataSync      []byte
+	dataSyncAttrs bool
 	// Living mobs carry health and take damage from attacks.
 	Living bool
 	// NoAI (from the summon NBT) freezes gravity and wander like

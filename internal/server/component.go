@@ -217,20 +217,35 @@ func (c component) content() []byte {
 // String list, but a compound anywhere makes every element a compound —
 // a bare literal then takes its empty-key form {"": text}.
 func componentsNBT(cs []component) nbt.List {
+	// An unstyled empty-key piece is a literal like a plain one: a list
+	// of only literals is a String list ({"extra":["{","}"]}), and in a
+	// compound list each renders {"": text}.
+	stringable := func(c component) bool {
+		if c.isPlain() {
+			return true
+		}
+		return c.emptyKey != "" && !c.forceCompound && c.color == "" &&
+			len(c.extra) == 0 && c.click == "" && c.insertion == "" &&
+			len(c.hover) == 0 && c.translate == "" && !c.underlined && !c.italic
+	}
 	compound := false
 	for _, c := range cs {
-		if !c.isPlain() {
+		if !stringable(c) {
 			compound = true
 			break
 		}
 	}
 	items := make([]any, 0, len(cs))
 	for _, c := range cs {
-		if c.isPlain() {
+		if stringable(c) {
+			text := c.text
+			if c.emptyKey != "" {
+				text = c.emptyKey
+			}
 			if compound {
-				items = append(items, map[string]any{"": c.text})
+				items = append(items, map[string]any{"": text})
 			} else {
-				items = append(items, c.text)
+				items = append(items, text)
 			}
 		} else {
 			items = append(items, c.nested())
@@ -248,10 +263,23 @@ func componentsNBT(cs []component) nbt.List {
 // and a list of compounds for a timeline, and the client's decoder
 // rejects a list that mixes tags.
 func argumentList(args []any) (nbt.List, error) {
+	compound := false
+	for _, a := range args {
+		switch a.(type) {
+		case nestedCompound, component:
+			compound = true
+		}
+	}
 	items := make([]any, 0, len(args))
 	elem := byte(0)
 	for _, a := range args {
 		v, tag := argumentValue(a)
+		// NBT lists are homogeneous: once an argument is a compound
+		// every primitive arg takes its empty-key form {"": x}, the
+		// same rule componentsNBT applies to mixed lists.
+		if compound && tag != nbt.TagCompound {
+			v, tag = map[string]any{"": v}, nbt.TagCompound
+		}
 		if elem == 0 {
 			elem = tag
 		}

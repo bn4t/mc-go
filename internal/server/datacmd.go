@@ -27,6 +27,9 @@ import (
 // (SignBlockEntity.setChanged calls sendBlockUpdated); chest and
 // furnace mutations send nothing.
 func (s *Server) runData(player string, args []string) reply {
+	if len(args) > 1 && args[1] == "entity" {
+		return s.runDataEntity(player, args)
+	}
 	if len(args) < 5 || args[1] != "block" {
 		return componentReply(commandError("command.unknown.command"))
 	}
@@ -598,25 +601,16 @@ func nbtPretty(v any) []component {
 func nbtPrettyElems(v any) []component {
 	switch t := v.(type) {
 	case map[string]any:
-		out := []component{{emptyKey: "{"}}
-		keys := nbt.OrderedKeys(t)
-		for i, k := range keys {
-			out = append(out,
-				component{emptyKey: "", forceCompound: true},
-				component{color: "aqua", text: k},
-				component{emptyKey: ":"},
-				component{emptyKey: " "})
-			out = append(out, nbtPrettyElems(t[k])...)
-			if i+1 < len(keys) {
-				out = append(out, component{emptyKey: ","}, component{emptyKey: " "})
-			}
-		}
-		out = append(out, component{emptyKey: "}"})
-		return out
+		return nbtPrettyMapSeq(t, nil)
 	case nbt.List:
 		out := []component{{emptyKey: "["}}
 		for i, it := range t.Items {
-			out = append(out, component{emptyKey: "", forceCompound: true})
+			// String and compound elements carry the same {"": ""}
+			// preamble a compound's keys do; numbers and arrays don't.
+			switch it.(type) {
+			case string, map[string]any:
+				out = append(out, component{emptyKey: "", forceCompound: true})
+			}
 			out = append(out, nbtPrettyElems(it)...)
 			if i+1 < len(t.Items) {
 				out = append(out, component{emptyKey: ","}, component{emptyKey: " "})
@@ -627,10 +621,17 @@ func nbtPrettyElems(v any) []component {
 	case []any:
 		return nbtPrettyElems(nbt.List{Elem: 0, Items: t})
 	case string:
+		// The pretty printer quotes strings with the delimiter that
+		// needs no escapes: double quotes normally, single quotes when
+		// the text carries a double quote.
+		q := "\""
+		if strings.Contains(t, "\"") && !strings.Contains(t, "'") {
+			q = "'"
+		}
 		return []component{
-			{emptyKey: "\""},
+			{emptyKey: q},
 			{color: "green", text: t},
-			{emptyKey: "\""},
+			{emptyKey: q},
 		}
 	case int8:
 		return nbtNumPretty(strconv.FormatInt(int64(t), 10), "b")
@@ -641,9 +642,9 @@ func nbtPrettyElems(v any) []component {
 	case int64:
 		return nbtNumPretty(strconv.FormatInt(t, 10), "l")
 	case float32:
-		return nbtNumPretty(strconv.FormatFloat(float64(t), 'g', -1, 32), "f")
+		return nbtNumPretty(javaFloatStr(float64(t)), "f")
 	case float64:
-		return nbtNumPretty(strconv.FormatFloat(t, 'g', -1, 64), "d")
+		return nbtNumPretty(javaFloatStr(t), "d")
 	case []byte:
 		return nbtArrayPretty("B", len(t), func(i int) string { return strconv.Itoa(int(t[i])) })
 	case []int32:
@@ -652,6 +653,41 @@ func nbtPrettyElems(v any) []component {
 		return nbtArrayPretty("L", len(t), func(i int) string { return strconv.FormatInt(t[i], 10) })
 	}
 	return []component{{emptyKey: strconv.Itoa(0)}}
+}
+
+// nbtPrettyMapSeq renders a compound in HashMap bucket order — seq is
+// the write order for same-bucket ties (nil = alphabetical fallback).
+func nbtPrettyMapSeq(t map[string]any, seq []string) []component {
+	out := []component{{emptyKey: "{"}}
+	var keys []string
+	if seq != nil {
+		keys = nbt.OrderedKeysSeq(t, seq)
+	} else {
+		keys = nbt.OrderedKeys(t)
+	}
+	for i, k := range keys {
+		out = append(out,
+			component{emptyKey: "", forceCompound: true},
+			component{color: "aqua", text: k},
+			component{emptyKey: ":"},
+			component{emptyKey: " "})
+		out = append(out, nbtPrettyElems(t[k])...)
+		if i+1 < len(keys) {
+			out = append(out, component{emptyKey: ","}, component{emptyKey: " "})
+		}
+	}
+	out = append(out, component{emptyKey: "}"})
+	return out
+}
+
+// javaFloatStr formats like Float/Double.toString: the shortest
+// round-trip digits, always carrying a decimal point (3.0, not 3).
+func javaFloatStr(f float64) string {
+	s := strconv.FormatFloat(f, 'g', -1, 64)
+	if strings.IndexAny(s, ".eENnI") < 0 {
+		s += ".0"
+	}
+	return s
 }
 
 // nbtNumPretty renders a number: the digits in gold, then the suffix
@@ -666,20 +702,20 @@ func nbtNumPretty(digits, suffix string) []component {
 	return out
 }
 
-// nbtArrayPretty renders a typed array [B;1,2] — the letter literal
-// unstyled, elements gold with the array's red suffix.
+// nbtArrayPretty renders a typed array [I;-1,2]: the element letter
+// in red, "; " then the bare gold digits with no element preamble.
 func nbtArrayPretty(letter string, n int, digits func(int) string) []component {
 	out := []component{
 		{emptyKey: "["},
-		{emptyKey: letter},
+		{color: "red", text: letter},
 		{emptyKey: ";"},
+		{emptyKey: " "},
 	}
 	suffix := strings.ToLower(letter)
 	if letter == "I" {
 		suffix = ""
 	}
 	for i := 0; i < n; i++ {
-		out = append(out, component{emptyKey: "", forceCompound: true})
 		out = append(out, nbtNumPretty(digits(i), suffix)...)
 		if i+1 < n {
 			out = append(out, component{emptyKey: ","}, component{emptyKey: " "})

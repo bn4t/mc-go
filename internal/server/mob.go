@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
@@ -367,6 +368,26 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if fv, ok := tag.vals["VillagerDataFinalized"]; ok && (fv.num == "1b" || fv.num == "1" || fv.str == "true") {
 				e.VillagerFinalized = true
 			}
+			// CustomName stores the component string verbatim — vanilla
+			// keeps the raw SNBT value and displays it literally.
+			if cv, ok := tag.vals["CustomName"]; ok && cv.str != "" {
+				e.CustomName = cv.str
+			}
+			// Tags list — @e[tag=...] selection and the save map.
+			if tv, ok := tag.vals["Tags"]; ok && tv.kind == snbtList {
+				var items []any
+				for _, it := range tv.items {
+					if it != nil && it.kind == snbtString {
+						items = append(items, it.str)
+					}
+				}
+				if len(items) > 0 {
+					if e.ExtraNBT == nil {
+						e.ExtraNBT = map[string]any{}
+					}
+					e.ExtraNBT["Tags"] = nbt.List{Elem: nbt.TagString, Items: items}
+				}
+			}
 			if ov, ok := tag.vals["Offers"]; ok {
 				if rc, ok := ov.vals["Recipes"]; ok {
 					e.Offers = parseMerchantOffers(rc.items)
@@ -444,7 +465,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 
 		}
 		s.broadcastFreshMob(e)
-		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
+		return componentReply(translatable("commands.summon.success", entityDisplayName(e)))
 	}
 	// A dropped stack on the ground: Item holds the stack, Thrower
 	// the EntityReference getOwner resolves, PickupDelay the no-grab
@@ -745,6 +766,12 @@ func encodeArmorStandFlags(e *Entity) byte {
 // stand keeps its CLIENT_FLAGS at index 15 instead (it isn't a Mob).
 func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 	var b protocol.Buffer
+	if e.CustomName != "" {
+		b.Byte(2) // index: custom_name
+		b.Byte(6) // type: optional component
+		b.Byte(1) // present
+		writeComponentTag(&b, e.CustomName)
+	}
 	b.Byte(9) // index: health
 	b.Byte(3) // type: float
 	b.Float(e.Health)
@@ -800,6 +827,16 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 	}
 	b.Byte(0xFF)
 	return b.Bytes()
+}
+
+// writeComponentTag writes a component's serialized form inside the
+// optional-component serializer: a TAG_String prefix, u16 length,
+// then the raw component string.
+func writeComponentTag(b *protocol.Buffer, s string) {
+	b.Byte(nbt.TagString)
+	b.Byte(byte(len(s) >> 8))
+	b.Byte(byte(len(s)))
+	b.Raw([]byte(s))
 }
 
 // mobFlagsByte is Mob's DATA_MOB_FLAGS byte: bit0 = NoAI.

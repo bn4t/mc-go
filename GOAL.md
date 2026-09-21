@@ -2513,3 +2513,30 @@ physics through a void dip plus a fed recovery window.
   comp carrying /teammsg click + chat.type.team.hover. Pinned by
   TestTeamCommandParity: 37 commands, every packet body and reply tree
   byte/tree-identical on both connections.
+
+- /data entity scope (26.2, DataCommands EntityAccessor): get/merge/
+  remove/modify on mobs and players. Entity display name: CustomName's
+  raw stored string as text verbatim (single-quoted in pretty print when
+  it carries "), else the entity.<type> translate; both with UUID
+  insertion + show_entity hover, no click event (players keep theirs).
+  Save map matches saveWithoutId — no top-level id; Pos/Motion are
+  double lists, Rotation a float list; per-type extras (pig: Brain,
+  AgeLocked, Age, ForcedAge, InLove, variant, sound_variant) and
+  summon-NBT Tags round-trip through Entity.ExtraNBT. Pretty print:
+  HashMap bucket order with save-write order breaking same-bucket ties
+  (nbt.OrderedKeysSeq + entitySaveSeq); string/compound list elements
+  carry the {"":""} preamble, numbers and typed arrays don't; [I;..]
+  arrays print red letter + "; " + bare digits; Java-style "10.0" float
+  digits; {} compounds collapse to a string-list extra. Players are
+  query-only — merge/remove/modify throw commands.data.entity.invalid.
+  A multi-target selector without limit=1 is rejected upfront as
+  argument.entity.toomany (cursor-0 context), matching vanilla's
+  maxResults gate. Mutations reply first, then the dirty metadata pack
+  (only moved entries: idx2 custom_name as an inline component string,
+  idx9 health, idx15 NoAI flags) and the update_attributes resend ride
+  the next mobSyncFlush like vanilla's end-of-tick sendChanges;
+  data remove Health restores the 10.0 type default. The shared
+  componentsNBT/argumentList now promote all-literal lists to String
+  and wrap mixed-list primitives as {"":x} compounds (fixes the tp
+  coordinate args too). Pinned by TestDataEntityParity: 29 commands,
+  replies and 0x63/0x83 packet bodies identical modulo eid/UUID.

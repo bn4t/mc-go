@@ -52,6 +52,10 @@ func capture(t *testing.T) bool {
 type chatSink struct {
 	mu   sync.Mutex
 	chat []string
+	// cap drops packets larger than this so chunk and light spam does
+	// not drown the interesting ones; tests expecting oversized replies
+	// (a full entity NBT read) raise it.
+	cap int
 	// ids counts traffic per packet id, and where records which packet
 	// ids carried a marker, so a reply that is not a System Chat is
 	// found rather than assumed.
@@ -65,7 +69,7 @@ type chatSink struct {
 // vanilla after a few seconds, which shows up as a broken pipe on the
 // next write and silently truncates whatever was being measured.
 func newChatSink(pr *protocol.Reader, pw *protocol.Writer) *chatSink {
-	s := &chatSink{ids: map[int32]int{}}
+	s := &chatSink{ids: map[int32]int{}, cap: 4096}
 	var writeMu sync.Mutex
 	go func() {
 		for {
@@ -81,7 +85,7 @@ func newChatSink(pr *protocol.Reader, pw *protocol.Writer) *chatSink {
 			s.ids[p.ID]++
 			// Keep anything small enough to be a message; chunk and
 			// light payloads dominate the stream and never carry text.
-			if len(p.Data) < 4096 {
+			if len(p.Data) < s.cap {
 				s.chat = append(s.chat, fmt.Sprintf("%#x:%s", p.ID, string(p.Data)))
 			}
 			s.mu.Unlock()
