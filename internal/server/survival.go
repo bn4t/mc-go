@@ -333,6 +333,13 @@ func (s *Server) itemTickStep() {
 			continue
 		}
 		orb := e.Type == orbType
+		if e.FakeItem {
+			// makeFakeItem ages to 5999 so the entity discards on its
+			// first tick.
+			s.entities.Remove(e.ID)
+			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+			continue
+		}
 		if e.PickupDelay > 0 {
 			e.PickupDelay--
 		}
@@ -749,6 +756,15 @@ func (s *Server) pickupTarget(e *Entity) *Session {
 		// Vanilla pickup rule: only survival and adventure players
 		// collect item entities; creative and spectator never do.
 		if m := sess.mode(); m != GameModeSurvival && m != GameModeAdventure {
+			return true
+		}
+		// ItemEntity.playerTouch: a targeted item (setTarget — /give
+		// overflow) can only be picked up by its owner.
+		if e.HasOwner && e.Owner != sess.getUUID() {
+			return true
+		}
+		// Fake items (/give's visual toss) can never be picked up.
+		if e.FakeItem {
 			return true
 		}
 		x, y, z, _, _, _ := sess.Pos()

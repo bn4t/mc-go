@@ -975,6 +975,15 @@ func (s *Server) runItemReplace(player string, args []string) reply {
 // even where the target has no such slot. Air takes the same path with
 // a cap of one, so `air 5` is refused while `air 1` clears the slot.
 func (s *Server) parseItemStack(args []string, itemTok int) (ItemStack, reply, bool) {
+	return s.parseItemStackMode(args, itemTok, false)
+}
+
+// parseItemStackMode parses the item token + count. giveMode lifts
+// the count cap to vanilla /give's rules: the argument is a bare
+// integer(1) and GiveCommand rejects only count > 100 * maxStackSize
+// (toomanyitems) — bigger counts split into max-sized stacks instead
+// of the /item overstacked error.
+func (s *Server) parseItemStackMode(args []string, itemTok int, giveMode bool) (ItemStack, reply, bool) {
 	ai := itemTok - 1 // args index of the item token
 	if len(args) <= ai {
 		return ItemStack{}, errTokenEnd("command.unknown.command", itemTok-1), false
@@ -1012,7 +1021,7 @@ func (s *Server) parseItemStack(args []string, itemTok int) (ItemStack, reply, b
 		if n < 1 {
 			return ItemStack{}, errToken("argument.integer.low", itemTok+1, int32(1), n), false
 		}
-		if n > 99 {
+		if n > 99 && !giveMode {
 			return ItemStack{}, errToken("argument.integer.big", itemTok+1, int32(99), n), false
 		}
 		count = n
@@ -1020,7 +1029,7 @@ func (s *Server) parseItemStack(args []string, itemTok int) (ItemStack, reply, b
 			return ItemStack{}, errToken("command.unknown.argument", itemTok+2), false
 		}
 	}
-	if count > maxStackOfID(id) {
+	if count > maxStackOfID(id) && !giveMode {
 		return ItemStack{}, componentReply(overstackedItem(ItemStack{ID: id, Count: count})), false
 	}
 	if id == 0 {

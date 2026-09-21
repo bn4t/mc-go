@@ -299,16 +299,42 @@ func (s *Server) runGive(player string, args []string) reply {
 	if len(args) == 0 {
 		return reply{text: "Usage: /give [target] <item> [count]"}
 	}
-	st, r, ok := s.parseItemStack(args, 1)
+	st, r, ok := s.parseItemStackMode(args, 1, true)
 	if !ok {
 		return r
 	}
 	if sess == nil {
 		return reply{text: "Unknown player: " + player}
 	}
-	remainder, _ := sess.addStack(st)
+	max := maxStackOfID(st.ID)
+	if st.Count > max*100 {
+		// commands.give.failed.toomanyitems — the cap is 100 stacks.
+		return componentReply(commandError("commands.give.failed.toomanyitems"))
+	}
+	for remaining := st.Count; remaining > 0; {
+		k := remaining
+		if k > max {
+			k = max
+		}
+		chunk := st
+		chunk.Count = k
+		remainder, _ := sess.addStack(chunk)
+		if !remainder.Empty() {
+			// Vanilla GiveCommand.giveItem: the leftover drops at the
+			// player (no pickup delay, Owner set to the recipient).
+			if e := s.dropItemLocked(sess, remainder); e != nil {
+				e.PickupDelay = 0
+				e.Owner = sess.getUUID()
+				e.HasOwner = true
+			}
+		} else if e := s.dropItemLocked(sess, chunk); e != nil {
+			// Fully added chunks still spawn a fake visual toss —
+			// makeFakeItem = never pick up, despawn next tick.
+			e.FakeItem = true
+		}
+		remaining -= k
+	}
 	_ = s.sendContainerContent(sess)
-	_ = remainder
 	return reply{styled: true, comp: translatable("commands.give.success.single",
 		nestedCompound{key: "", value: st.Count},
 		itemBrackets(st),

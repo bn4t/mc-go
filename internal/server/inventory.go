@@ -1079,14 +1079,14 @@ func readHashedSlot(r *protocol.PacketReader) (ItemStack, bool) {
 // dropItemLocked spawns the thrown stack as an item entity above the
 // player and counts the drop statistics — one custom "drop" per throw
 // and the item count under dropped[item].
-func (s *Server) dropItemLocked(sess *Session, it ItemStack) {
+func (s *Server) dropItemLocked(sess *Session, it ItemStack) *Entity {
 	if it.Empty() {
-		return
+		return nil
 	}
 	x, y, z, yaw, pitch, _ := sess.Pos()
 	itemType, ok := EntityTypeID("item")
 	if !ok {
-		return
+		return nil
 	}
 	// Vanilla's Player.drop tosses the stack forward along the look
 	// vector at ~0.3 blocks/tick with a small upward pop.
@@ -1109,4 +1109,5 @@ func (s *Server) dropItemLocked(sess *Session, it ItemStack) {
 	s.broadcastEntityMetadata(e.ID, encodeItemMetadata(it))
 	sess.addCustomStat("drop", 1)
 	sess.addItemStat(statDropped, it.ID, it.Count)
+	return e
 }

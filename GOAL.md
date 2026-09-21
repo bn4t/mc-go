@@ -2101,3 +2101,13 @@ physics through a void dip plus a fed recovery window.
   living health) — sent alongside join spawns now. Harness note:
   drainChunkWindow's quiet-gap break can hang when a server sends
   periodic packets — new tests use advCollect's hard deadline.
+
+- /give vanilla semantics: count is integer(1), capped at
+  100*maxStackSize (commands.give.failed.toomanyitems); the count
+  splits into max-stack chunks, each chunk inventory.add's and the
+  remainder drops at the player with PickupDelay=0 + Owner=recipient
+  (pickup gated to the owner). Fully-added chunks ALSO toss a fake
+  item entity (makeFakeItem: never pickuppable, despawns next tick).
+  mc-go previously capped count at 99, rejected overstacked gives, and
+  silently deleted overflow. TestGiveOverflowDropsParity green vs
+  vanilla 26.2.

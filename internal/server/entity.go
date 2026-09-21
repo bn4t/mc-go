@@ -31,6 +31,14 @@ type Entity struct {
 	// thrown_item_picked_up_by_entity for that player. Zero when the
 	// item came from a block drop or world spawn.
 	Thrower int32
+	// Owner restricts pickup to that player (ItemEntity's
+	// setTarget — /give overflow). HasOwner distinguishes "no owner"
+	// from a zero uuid.
+	Owner    [16]byte
+	HasOwner bool
+	// FakeItem is vanilla's ItemEntity.makeFakeItem: the /give visual
+	// toss — never pickuppable, despawns on the next item tick.
+	FakeItem bool
 	// Passengers holds the entity ids riding this entity (vanilla's
 	// passengers list); Riding is the vehicle id on the passenger.
 	Passengers []int32
