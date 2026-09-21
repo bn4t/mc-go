@@ -666,14 +666,8 @@ func (s *Server) handleRenameItem(sess *Session, p protocol.Packet) {
 	s.anvilSyncResult(sess, w, w.container)
 }
 
-// handleSelectTrade consumes a villager trade selection. mc-go has no
-// merchant menu, so vanilla's "ignore when no merchant is open" applies.
-func (s *Server) handleSelectTrade(sess *Session, p protocol.Packet) {
-	r := protocol.NewPacketReader(p.Data)
-	if _, err := r.VarInt(); err != nil {
-		return
-	}
-}
+// handleSelectTrade is implemented in trade.go (MerchantMenu's
+// setSelectionHint + tryMoveItems).
 
 // handleSetBeacon stores a beacon's chosen effects. Vanilla ignores the
 // packet when no beacon menu is open.

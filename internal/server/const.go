@@ -100,6 +100,7 @@ const (
 	IDPlayCommands          = 0x10
 	IDPlayUpdateAttributes  = 0x83
 	IDPlayContainerContent  = 0x12
+	IDPlayMerchantOffers    = 0x34
 	IDPlayContainerSlot     = 0x14
 	IDPlayContainerProperty = 0x13
 	IDPlayContainerClose    = 0x11

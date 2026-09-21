@@ -307,6 +307,21 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.owner = ownerSess.getName()
 				}
 			}
+			// VillagerData.profession + Offers.Recipes drive the
+			// merchant menu; Age<0 marks a baby (no trading).
+			if vd, ok := tag.vals["VillagerData"]; ok {
+				if pv, ok := vd.vals["profession"]; ok && pv.str != "" {
+					e.Profession = strings.TrimPrefix(pv.str, "minecraft:")
+				}
+			}
+			if ov, ok := tag.vals["Offers"]; ok {
+				if rc, ok := ov.vals["Recipes"]; ok {
+					e.Offers = parseMerchantOffers(rc.items)
+				}
+			}
+			if av, ok := tag.vals["Age"]; ok && snbtNum(av) < 0 {
+				e.Baby = true
+			}
 		}
 		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}

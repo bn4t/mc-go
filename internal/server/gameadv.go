@@ -46,6 +46,7 @@ type advMeta struct {
 	tames      []tameCond
 	interacts  []interactCond  // player_interacted_with_entity — a successful right-click
 	sheared    []interactCond  // player_sheared_equipment — item=removed stack
+	trades     []interactCond  // villager_trade — entity=trader, item=result stack
 	pickups    []pickupCond    // thrown_item_picked_up_by_entity — a mob took a player's drop
 	pickupsByP []pickupCond    // thrown_item_picked_up_by_player — the picker side
 	rides      []rideCond      // started_riding — a player mounted a vehicle
@@ -294,6 +295,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.interacts = append(m.interacts, parseInteractCond(cname, cm["conditions"]))
 				case "minecraft:player_sheared_equipment":
 					m.sheared = append(m.sheared, parseInteractCond(cname, cm["conditions"]))
+				case "minecraft:villager_trade":
+					m.trades = append(m.trades, parseInteractCondKey(cname, cm["conditions"], "villager"))
 				case "minecraft:thrown_item_picked_up_by_entity":
 					m.pickups = append(m.pickups, parsePickupCond(cname, cm["conditions"]))
 				case "minecraft:thrown_item_picked_up_by_player":
@@ -1988,11 +1991,18 @@ func (s *Server) fireEnchantedItem(sess *Session, item ItemStack, levels int32) 
 // to the entity-type OR-set under entity[] predicates plus the
 // item.items OR-set (item tags expand). Anything else locks it.
 func parseInteractCond(cname string, conds any) interactCond {
+	return parseInteractCondKey(cname, conds, "entity")
+}
+
+// parseInteractCondKey is parseInteractCond with the entity
+// condition's key parameterized — villager_trade nests the trader
+// predicate under "villager" instead of "entity".
+func parseInteractCondKey(cname string, conds any, entityKey string) interactCond {
 	ic := interactCond{crit: cname, entities: map[string]bool{}, items: map[string]bool{}}
 	cm, _ := conds.(map[string]any)
 	for k, v := range cm {
 		switch k {
-		case "entity":
+		case entityKey:
 			ents, _ := v.([]any)
 			for _, ev := range ents {
 				em, _ := ev.(map[string]any)
@@ -2059,6 +2069,28 @@ func (s *Server) firePlayerInteractedEntity(sess *Session, etype, heldName strin
 				continue
 			}
 			if len(ic.items) > 0 && !ic.items[heldName] {
+				continue
+			}
+			sess.grantGameCriterion(meta, ic.crit)
+		}
+	}
+}
+
+// fireVillagerTrade runs the villager_trade criteria when a trade
+// completes — entity predicates match the trader's type, item the
+// result stack.
+func (s *Server) fireVillagerTrade(sess *Session, e *Entity, res ItemStack) {
+	etype, _ := EntityTypeName(e.Type)
+	iname, _ := world.ItemName(res.ID)
+	for _, meta := range gameAdvs {
+		for _, ic := range meta.trades {
+			if ic.impossible {
+				continue
+			}
+			if len(ic.entities) > 0 && !ic.entities[etype] {
+				continue
+			}
+			if len(ic.items) > 0 && !ic.items[iname] {
 				continue
 			}
 			sess.grantGameCriterion(meta, ic.crit)

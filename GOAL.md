@@ -2111,3 +2111,23 @@ physics through a void dip plus a fed recovery window.
   mc-go previously capped count at 99, rejected overstacked gives, and
   silently deleted overflow. TestGiveOverflowDropsParity green vs
   vanilla 26.2.
+
+- villager trading: right-clicking a villager or wandering_trader
+  whose Offers NBT has Recipes opens the merchant screen (menu type
+  19, title entity.minecraft.villager.<profession>) and sends
+  merchant_offers with vanilla's per-offer wire shape (buy ItemCost +
+  predicate byte, sell slot, optional buyB, outOfStock, uses/maxUses/
+  xp/specialPriceDiff/priceMul/demand, then villager level + xp +
+  showProgress + canRestock). select_trade runs MerchantMenu's
+  setSelectionHint + tryMoveItems — the cost stack auto-pulls from the
+  player inventory into the payment slots and the result shows once
+  covered. Taking the result consumes the cost, uses++, drops XP orbs
+  (rewardExp), awards traded_with_villager, and fires the
+  villager_trade trigger (villager + item predicates) — granting
+  minecraft:adventure/trade. Closing the menu returns payment slots to
+  the inventory. TestVillagerTradeParity green vs vanilla 26.2.
+
+  Remaining trigger census: crafter_recipe_crafted (redstone),
+  cured_zombie_villager (multi-minute cure), allay_drop_item_on_block,
+  avoid_vibration (sculk), hero_of_the_village (raid),
+  fall_after_explosion (wind charge launch).

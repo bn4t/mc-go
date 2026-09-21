@@ -114,6 +114,9 @@ type openWindow struct {
 	// ench is the enchantment menu's offer state for this open window,
 	// nil until the menu is an enchanting table.
 	ench *enchantMenuState
+	// merchant is the trading menu's state for this open window, nil
+	// until an entity-bound merchant screen opens (villager/trader).
+	merchant *merchantState
 }
 
 // containerSize is the number of container-side slots (before the
@@ -126,6 +129,8 @@ func (w *openWindow) containerSize() int {
 		return hopperSlots
 	case w.craft != nil:
 		return 1 + craftTableGrid
+	case w.merchant != nil:
+		return len(w.merchant.slots)
 	case w.container != nil:
 		return w.container.spec.slots
 	}
@@ -209,6 +214,8 @@ func (s *Server) checkClickState(sess *Session, w *openWindow, st int32) bool {
 		return true
 	}
 	switch {
+	case w.merchant != nil:
+		s.sendMerchantContent(sess, w)
 	case w.furnace != nil:
 		s.sendFurnaceContent(sess)
 	case w.container != nil:
@@ -235,6 +242,9 @@ func (sess *Session) menuStack(slot int) ItemStack {
 	container := w.containerSize()
 	switch {
 	case slot < container:
+		if w.merchant != nil {
+			return w.merchant.slots[slot]
+		}
 		if w.ender != nil {
 			sess.invMu.RLock()
 			defer sess.invMu.RUnlock()
@@ -275,6 +285,10 @@ func (sess *Session) setMenuStack(slot int, it ItemStack) {
 			sess.invMu.Lock()
 			(*w.ender)[slot] = it
 			sess.invMu.Unlock()
+			return
+		}
+		if w.merchant != nil {
+			w.merchant.slots[slot] = it
 			return
 		}
 		if w.furnace != nil {
@@ -606,7 +620,9 @@ func (s *Server) handleCloseContainer(sess *Session, p protocol.Packet) {
 	}
 	sess.window = nil
 	sess.windowMu.Unlock()
-	if w.craft != nil {
+	if w.merchant != nil {
+		s.merchantClose(sess, w)
+	} else if w.craft != nil {
 		s.closeCraftTable(sess, w.craft)
 	} else if openWindowKindAnvil(w) {
 		// The anvil keeps no storage: its inputs come back to the

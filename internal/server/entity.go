@@ -39,6 +39,13 @@ type Entity struct {
 	// FakeItem is vanilla's ItemEntity.makeFakeItem: the /give visual
 	// toss — never pickuppable, despawns on the next item tick.
 	FakeItem bool
+	// Offers is the merchant recipe list on traders (villager,
+	// wandering_trader) from summon NBT Offers.Recipes. Profession is
+	// VillagerData.profession (names the open screen's title). Baby is
+	// Age<0 — babies never trade.
+	Offers     []merchantOffer
+	Profession string
+	Baby       bool
 	// Passengers holds the entity ids riding this entity (vanilla's
 	// passengers list); Riding is the vehicle id on the passenger.
 	Passengers []int32
