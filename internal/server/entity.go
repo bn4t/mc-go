@@ -68,6 +68,11 @@ type Entity struct {
 	ConversionStarter [16]byte
 	HasConvStarter    bool
 	Silent            bool
+	// Effects is the mob's active status effects, mob_effect registry
+	// id -> instance (summon active_effects / cure strength). Expiry
+	// is checked lazily against the server clock, the way sessEffect
+	// treats an expired-but-unflushed entry as gone.
+	Effects map[int32]mobEffectInst
 	// Offers is the merchant recipe list on traders (villager,
 	// wandering_trader) from summon NBT Offers.Recipes. Profession is
 	// VillagerData.profession (names the open screen's title). Baby is

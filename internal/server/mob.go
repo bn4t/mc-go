@@ -324,6 +324,37 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if av, ok := tag.vals["Age"]; ok && snbtNum(av) < 0 {
 				e.Baby = true
 			}
+			// active_effects loads the mob's live status effects —
+			// {id, duration (ticks; -1 infinite), amplifier}; lazily
+			// expiry-checked like session effects.
+			if ae, ok := tag.vals["active_effects"]; ok {
+				for _, inst := range ae.items {
+					if inst == nil || inst.vals == nil {
+						continue
+					}
+					iv, ok := inst.vals["id"]
+					if !ok || iv.str == "" {
+						continue
+					}
+					eid, ok := MobEffectID(strings.TrimPrefix(iv.str, "minecraft:"))
+					if !ok {
+						continue
+					}
+					dur := int64(-1)
+					if dv, ok := inst.vals["duration"]; ok {
+						dur = int64(snbtNum(dv))
+					}
+					var amp int32
+					if av, ok := inst.vals["amplifier"]; ok {
+						amp = int32(snbtNum(av))
+					}
+					expiry := int64(-1)
+					if dur >= 0 {
+						expiry = s.clock.count + dur
+					}
+					mobAddEffect(e, eid, amp, expiry)
+				}
+			}
 			// ConversionTime != -1 starts the zombie-villager cure
 			// countdown; ConversionPlayer is the EntityReference the
 			// trigger fires for. Silent mutes the cure sound.

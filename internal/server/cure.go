@@ -30,6 +30,72 @@ func (s *Server) cureTickStep() {
 	}
 }
 
+// mobHasEffect mirrors LivingEntity.hasEffect for entities: the entry
+// counts only while live — an expired-but-unticked instance is gone.
+func mobHasEffect(s *Server, e *Entity, id int32) bool {
+	if e.Effects == nil {
+		return false
+	}
+	inst, ok := e.Effects[id]
+	if ok && inst.expiry >= 0 && inst.expiry <= s.clock.count {
+		return false
+	}
+	return ok
+}
+
+func mobAddEffect(e *Entity, id int32, amplifier int32, expiry int64) {
+	if e.Effects == nil {
+		e.Effects = map[int32]mobEffectInst{}
+	}
+	e.Effects[id] = mobEffectInst{amplifier: amplifier, expiry: expiry}
+}
+
+func mobRemoveEffect(e *Entity, id int32) {
+	delete(e.Effects, id)
+}
+
+// cureZombieVillager is ZombieVillager.mobInteract: a golden apple on a
+// weakness-afflicted zombie villager consumes one stack and starts the
+// conversion timer (3600 + rand(2401) ticks), clears the weakness,
+// adds strength for the conversion's length at vanilla's
+// min(difficulty-1, 0) amplifier, and broadcasts entity event 16 (the
+// cure sound). An apple without weakness returns CONSUME — nothing
+// changes.
+func (s *Server) cureZombieVillager(sess *Session, eid int32, hand int32) {
+	s.entities.mu.RLock()
+	e, ok := s.entities.byID[eid]
+	s.entities.mu.RUnlock()
+	if !ok || e.Dying || e.Type != mustEntityType("zombie_villager") || e.Converting {
+		return
+	}
+	held, hslot := sess.stackForHand(hand)
+	if name, ok2 := itemNameOf(held.ID); !ok2 || name != "golden_apple" || held.Empty() {
+		return
+	}
+	weakness, _ := MobEffectID("weakness")
+	if !mobHasEffect(s, e, weakness) {
+		return
+	}
+	if sess.mode() == GameModeSurvival || sess.mode() == GameModeAdventure {
+		sess.consumeSlot(hslot, 1)
+	}
+	s.entities.mu.Lock()
+	e.Converting = true
+	e.ConversionTime = int32(3600 + rand.Intn(2401))
+	e.ConversionStarter = sess.getUUID()
+	e.HasConvStarter = true
+	mobRemoveEffect(e, weakness)
+	strength, _ := MobEffectID("strength")
+	amplifier := int32(s.difficulty) - 1
+	if amplifier > 0 {
+		amplifier = 0
+	}
+	mobAddEffect(e, strength, amplifier, s.clock.count+int64(e.ConversionTime))
+	s.entities.mu.Unlock()
+	s.broadcastEntityEventTo(nil, e.Dim, eid, 16)
+	s.broadcastEntityAnimation(sess, sess.entityID.Load(), 0)
+}
+
 // cureProgress mirrors getConversionProgress: 1 per tick, plus a 1%
 // roll that scans the 9x9x9 box around the zombie for beds (each found
 // bed, capped at 14, adds 1 with 30% probability).

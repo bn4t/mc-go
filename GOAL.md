@@ -2209,3 +2209,17 @@ physics through a void dip plus a fed recovery window.
   the emission for sensors and grants each non-impossible
   avoid_vibration criterion. TestAvoidVibrationParity green vs
   vanilla 26.2.
+
+- golden-apple cure interact (ZombieVillager.mobInteract): a held
+  golden_apple + hasEffect(WEAKNESS) consumes one stack and calls
+  startConverting(uuid, 3600 + rand(2401)) — conversionStarter,
+  villagerConversionTime, DATA_CONVERTING_ID=true, weakness removed,
+  strength added for the conversion's length at vanilla's
+  Math.min(difficultyId-1, 0) amplifier (always <=0 — a quirk), and
+  entity event 16 (the cure sound cue) broadcast. An apple without
+  weakness returns CONSUME — nothing changes, and because conversion
+  clears the weakness a second apple never re-fires. Mob status
+  effects now model on Entity.Effects (id -> amplifier/expiry,
+  lazily expiry-checked like session effects), loadable via summon
+  NBT active_effects {id,duration,amplifier}.
+  TestCureInteractParity green vs vanilla 26.2.
