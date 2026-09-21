@@ -138,16 +138,16 @@ func (s *Server) sendServerData(sess *Session) error {
 // sendInitializeBorder sends the world border state: full vanilla
 // border at the origin, static, with default warnings.
 func (s *Server) sendInitializeBorder(sess *Session) error {
-	const diameter = 59999968.0
+	bd := s.borderFor(sess.dimName())
 	var b protocol.Buffer
-	b.Double(0) // center X
-	b.Double(0) // center Z
-	b.Double(diameter)
-	b.Double(diameter)
+	b.Double(bd.centerX)
+	b.Double(bd.centerZ)
+	b.Double(bd.size)
+	b.Double(bd.size)
 	b.VarLong(0)       // speed
 	b.VarInt(29999984) // portal teleport boundary
-	b.VarInt(5)        // warning blocks
-	b.VarInt(300)      // warning time
+	b.VarInt(bd.warnBlocks)
+	b.VarInt(bd.warnTime)
 	return sess.write(sess.ids().PlayInitializeBorder, b.Bytes())
 }
 

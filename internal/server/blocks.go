@@ -262,6 +262,7 @@ func (s *Server) registerBuiltins() {
 	s.registerGameRuleCommand()
 	s.registerAdminCommands()
 	s.registerTagCommand()
+	s.registerWorldBorder()
 	s.registerComponentCommand("scoreboard", func(player string, args []string) reply {
 		return s.runScoreboard(player, args)
 	})

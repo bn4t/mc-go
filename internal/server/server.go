@@ -144,6 +144,11 @@ type Server struct {
 	banMu       sync.Mutex
 	bannedNames map[string]string
 	bannedIPs   map[string]string
+
+	// borders holds one world-border state per dimension, keyed by the
+	// dimension's minecraft: name.
+	borderMu sync.Mutex
+	borders  map[string]*border
 	OpsRequired bool
 	// savedPlayers holds login-time snapshots restored from DataPath.
 	// untrack writes it from each connection goroutine and join reads
@@ -237,6 +242,7 @@ func New(addr string) *Server {
 		difficulty:         DifficultyNormal,
 		gameRules:          defaultGameRules(),
 		ops:                map[string]int{},
+		borders:             map[string]*border{},
 		ticks:              newTickScheduler(),
 		rng:                newRandState(0x5DEECE66D),
 		randSections:       map[randSectionKey]bool{},

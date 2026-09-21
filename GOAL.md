@@ -2738,3 +2738,14 @@ physics through a void dip plus a fed recovery window.
   leave notices switched to the yellow multiplayer.player.joined/left
   translatables. TestAdminTagParity 35 commands green vs vanilla, Q's
   disconnect packets included.
+
+- /worldborder: get reports the size unformatted, center broadcasts
+  set_border_center with the vec2 .5-centering ("10" -> 10.50), set/add
+  take a tick-duration second arg (5 -> lerp VarLong 5, set.grow reply
+  [size.1f, ticks*0.05.2f]; set.immediate "600.0") and fail
+  nochange when the size already matches. warning time is a
+  time()-arg (tick_count_too_low at the arg end), warning distance a
+  plain int (integer.low at the token); damage amount/buffer reply
+  %.2f with float.low. The join-time initialize_world_border now
+  carries the real per-dimension state. TestWorldBorderParity 36
+  commands green vs vanilla, border packets 0x58-0x5c included.
