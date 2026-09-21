@@ -2425,3 +2425,16 @@ physics through a void dip plus a fed recovery window.
   TestMsgCommandParity — offline UUIDs are name-derived, so the whole
   body collates). TeamMsgCommand's team_msg_command pair stays open
   (needs scoreboard teams).
+- Item reply components (26.2): the /item (and /give-family) bracket
+  name now matches ItemStack.getDisplayName — the outer component
+  takes the effective rarity's ChatFormatting color (a generated
+  itemRarity table from the component reports, bumped one step while
+  enchanted — common/uncommon to rare, rare to epic), carries a
+  show_item hover with the non-default components map
+  (custom_name/enchantments/damage/repair_cost/potion_contents), and a
+  custom_name's inner wrapper is italic with the literal in extra.
+  Folded in: command-line tokenization keeps quoted and bracketed
+  spans whole (custom_name='Cool Dirt' used to split at the space),
+  and a bare literal in an extra list serializes as a TAG_String
+  element. Pinned by new TestItemCommandParity cases covering epic,
+  rare, uncommon, enchanted-bump, custom-name and damage hovers.

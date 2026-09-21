@@ -393,28 +393,109 @@ func itemDisplayKey(full string) string {
 	return "item.minecraft." + name
 }
 
-// itemBrackets renders a stack as vanilla's chat.square_brackets item:
-// the display name in brackets, white with a show_item hover, the count
-// on the hover when it is not one. Air has neither color nor hover.
+// itemBrackets renders a stack as vanilla's ItemStack.getDisplayName:
+// the hover name wrapped in chat.square_brackets, the outer carrying
+// the effective rarity's color and a show_item hover (count when it
+// is not one). A custom_name replaces the translate key and styles
+// the inner name italic. Air has neither color nor hover.
 func itemBrackets(st ItemStack) component {
-	name := component{translate: itemDisplayKey("minecraft:air")}
-	inner := component{extra: []component{name}, text: ""}
+	inner := component{extra: []component{{translate: itemDisplayKey("minecraft:air")}}, text: ""}
 	if st.Empty() {
 		return component{translate: "chat.square_brackets", with: []any{inner}}
 	}
 	full := "minecraft:" + shortItemName(mustItemName(st.ID))
-	name = component{translate: itemDisplayKey(full)}
-	inner = component{extra: []component{name}, text: ""}
+	// A custom name is the hover name's literal text and makes the
+	// wrapping component italic; otherwise it is the item's
+	// translate key.
+	if st.Name != "" {
+		inner = component{extra: []component{{text: st.Name}}, italic: true, text: ""}
+	} else {
+		inner = component{extra: []component{{translate: itemDisplayKey(full)}}, text: ""}
+	}
 	hover := map[string]any{"action": "show_item", "id": full}
 	if st.Count != 1 {
 		hover["count"] = st.Count
 	}
+	if comps := stackHoverComponents(st); comps != nil {
+		hover["components"] = comps
+	}
 	return component{
-		color:     "white",
+		color:     rarityColor(stackRarity(st)),
 		hover:     hover,
 		translate: "chat.square_brackets",
 		with:      []any{inner},
 	}
+}
+
+// stackRarity is ItemStack.getRarity: the base component value, bumped
+// one rarity step while the item carries enchantments (an
+// enchanted_book's stored_enchantments do not count — isEnchanted
+// reads the enchantments component).
+func stackRarity(st ItemStack) string {
+	r := itemRarity[shortItemName(mustItemName(st.ID))]
+	if r == "" {
+		r = "common"
+	}
+	if st.Ench == "" {
+		return r
+	}
+	switch r {
+	case "common", "uncommon":
+		return "rare"
+	case "rare":
+		return "epic"
+	}
+	return r
+}
+
+// rarityColor maps a rarity name to its ChatFormatting color.
+func rarityColor(r string) string {
+	switch r {
+	case "uncommon":
+		return "yellow"
+	case "rare":
+		return "aqua"
+	case "epic":
+		return "light_purple"
+	}
+	return "white"
+}
+
+// stackHoverComponents is the show_item hover's components map — the
+// item's non-default component values in codec form, which is what the
+// client's tooltip renders. Only the components mc-go models appear:
+// enchantments flatten to {name: level} ints, custom_name and potion
+// contents to their value fields, damage/repair_cost to ints.
+func stackHoverComponents(st ItemStack) map[string]any {
+	m := map[string]any{}
+	if st.Name != "" {
+		m["minecraft:custom_name"] = st.Name
+	}
+	if st.Ench != "" {
+		ench := map[string]any{}
+		for _, pair := range strings.Split(st.Ench, ",") {
+			name, level, _ := strings.Cut(pair, ":")
+			if n, err := strconv.Atoi(level); err == nil {
+				ench["minecraft:"+name] = int32(n)
+			}
+		}
+		if len(ench) > 0 {
+			m["minecraft:enchantments"] = ench
+		}
+	}
+	if st.Damage != 0 {
+		m["minecraft:damage"] = st.Damage
+	}
+	if st.RepairCost != 0 {
+		m["minecraft:repair_cost"] = st.RepairCost
+	}
+	if st.Potion != "" {
+		m["minecraft:potion_contents"] = map[string]any{"potion": "minecraft:" + st.Potion}
+	}
+	if len(m) == 0 {
+		return nil
+	}
+	return m
 }
 
 // mustItemName maps an item id back to its short name; id 0 is air.

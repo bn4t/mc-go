@@ -78,6 +78,18 @@ var itemScript = []string{
 	"item replace block 2 -60 2 container.0 with minecraft:stone",
 	// A count no slot will take.
 	"item replace block 2 -60 2 container.0 with minecraft:stone 0",
+
+	// The reply's brackets component takes the item's effective rarity
+	// color: epic light_purple, rare aqua, uncommon yellow, and an
+	// enchanted common item bumped to rare. A custom_name is the
+	// italic literal hover name.
+	"item replace entity @s weapon.mainhand with minecraft:enchanted_golden_apple",
+	"item replace entity @s weapon.mainhand with minecraft:beacon",
+	"item replace entity @s weapon.mainhand with minecraft:angler_pottery_sherd",
+	"item replace entity @s weapon.mainhand with minecraft:bow[minecraft:enchantments={\"minecraft:power\":1}]",
+	"item replace entity @s weapon.mainhand with minecraft:dirt[minecraft:custom_name='Cool Dirt']",
+	"item replace entity @s weapon.mainhand with minecraft:iron_pickaxe[minecraft:damage=42]",
+	"item replace entity @s weapon.mainhand with minecraft:air",
 	"item replace block 2 -60 2 container.0 with minecraft:stone -1",
 
 	// The item has to exist.

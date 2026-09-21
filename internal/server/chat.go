@@ -54,7 +54,7 @@ func (s *Server) handleChat(sess *Session, p protocol.Packet, command bool) {
 		text = "/" + text
 	}
 	if strings.HasPrefix(text, "/") {
-		fields := strings.Fields(text[1:])
+		fields := splitCommandArgs(text[1:])
 		if len(fields) == 0 {
 			return
 		}
@@ -116,6 +116,51 @@ func (s *Server) broadcastPlayerChat(sender *Session, text string) {
 		_ = sess.write(sess.ids().PlayPlayerChat, b.Bytes())
 		return true
 	})
+}
+
+// splitCommandArgs tokenizes a command line the way brigadier's
+// argument readers consume it: whitespace separates arguments, but
+// text inside quotes and inside balanced {} / [] stays whole — an
+// item token like dirt[custom_name='Cool Dirt'] is one argument.
+func splitCommandArgs(text string) []string {
+	var fields []string
+	start := -1
+	var quote byte
+	depth := 0
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if start < 0 {
+			if c == ' ' || c == '\t' {
+				continue
+			}
+			start = i
+		}
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+		case '{', '[':
+			depth++
+		case '}', ']':
+			if depth > 0 {
+				depth--
+			}
+		case ' ', '\t':
+			if depth == 0 {
+				fields = append(fields, text[start:i])
+				start = -1
+			}
+		}
+	}
+	if start >= 0 {
+		fields = append(fields, text[start:])
+	}
+	return fields
 }
 
 // playerChatName is the decorated display name vanilla's
