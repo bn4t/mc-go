@@ -2781,3 +2781,13 @@ physics through a void dip plus a fed recovery window.
   edges, trigger's objective.notFound, random value|roll ranges,
   spectate (self/not_spectator/entity resolution) and transfer's
   transfer packet + port bounds. TestMiscParity 69 commands green.
+
+- Entity commands: rotate (player_rotation 0x49 = [f32 yaw][00][f32
+  pitch][00], look_at 0x47 = [anchor][3 f64][entity tail], ~ and
+  greedy vec parsing), ride (set_passengers 0x6B + rider position
+  sync, not_riding/already_riding/cant_ride_players/loop edges),
+  spreadplayers (pos2d ~, float.low bounds, optional "under
+  <maxHeight>" literal, teams share one slot so n>1 same-slot spreads
+  report "Infinity"), damage (damage_type registry validated,
+  invulnerable gate for creative/spectator, at|by|from forms,
+  death.attack.<msgId> broadcast). TestEntParity 74 commands green.
