@@ -155,30 +155,32 @@ func mustEntityType(name string) int32 {
 // mobHealth is the vanilla max health for the mobs mc-go can summon.
 // Mobs beyond this table arrive with the broader entity milestone.
 var mobHealth = map[string]float32{
-	"pig":           10,
-	"cow":           10,
-	"chicken":       4,
-	"sheep":         8,
-	"zombie":        20,
-	"villager":      20,
-	"skeleton":      20,
-	"creeper":       20,
-	"spider":        16,
-	"sniffer":       14,
-	"iron_golem":    100,
-	"wolf":          8,
-	"cat":           10,
-	"ocelot":        10,
-	"parrot":        6,
-	"armadillo":     12,
-	"cod":           3,
-	"salmon":        3,
-	"pufferfish":    3,
-	"tropical_fish": 3,
-	"pillager":      24,
-	"ghast":         10,
-	"ender_dragon":  200,
-	"piglin":        16,
+	"pig":              10,
+	"cow":              10,
+	"chicken":          4,
+	"sheep":            8,
+	"zombie":           20,
+	"zombie_villager":  20,
+	"villager":         20,
+	"wandering_trader": 20,
+	"skeleton":         20,
+	"creeper":          20,
+	"spider":           16,
+	"sniffer":          14,
+	"iron_golem":       100,
+	"wolf":             8,
+	"cat":              10,
+	"ocelot":           10,
+	"parrot":           6,
+	"armadillo":        12,
+	"cod":              3,
+	"salmon":           3,
+	"pufferfish":       3,
+	"tropical_fish":    3,
+	"pillager":         24,
+	"ghast":            10,
+	"ender_dragon":     200,
+	"piglin":           16,
 	// sulfur_cube health is 4×size; a bare /summon lands at size 1.
 	"sulfur_cube": 4,
 	"allay":       20,
@@ -321,6 +323,20 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 			if av, ok := tag.vals["Age"]; ok && snbtNum(av) < 0 {
 				e.Baby = true
+			}
+			// ConversionTime != -1 starts the zombie-villager cure
+			// countdown; ConversionPlayer is the EntityReference the
+			// trigger fires for. Silent mutes the cure sound.
+			if cv, ok := tag.vals["ConversionTime"]; ok && int32(snbtNum(cv)) != -1 {
+				e.Converting = true
+				e.ConversionTime = int32(snbtNum(cv))
+				if u, ok := snbtUUID(tag, "ConversionPlayer"); ok {
+					e.ConversionStarter = u
+					e.HasConvStarter = true
+				}
+			}
+			if sv, ok := tag.vals["Silent"]; ok && (sv.num == "1b" || sv.num == "1" || sv.str == "true") {
+				e.Silent = true
 			}
 		}
 		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))

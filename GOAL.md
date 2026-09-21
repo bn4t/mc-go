@@ -2131,3 +2131,16 @@ physics through a void dip plus a fed recovery window.
   cured_zombie_villager (multi-minute cure), allay_drop_item_on_block,
   avoid_vibration (sculk), hero_of_the_village (raid),
   fall_after_explosion (wind charge launch).
+
+- cured_zombie_villager: a zombie_villager's ConversionTime NBT
+  (-1 default) starts the cure countdown with an optional
+  ConversionPlayer EntityReference; each tick it falls by
+  getConversionProgress (1, plus a 1% roll scanning the 9x9x9 box for
+  BedBlocks — each found bed capped at 14 adds 1 with 30%
+  probability; iron bars no longer count in 26.2). At zero
+  finishConversion swaps the entity for a villager (new id, same
+  position/villager data/offers), fires cured_zombie_villager for the
+  starter player, and plays level event 1027 (mute by Silent).
+  zombie_villager + wandering_trader joined the summonable mob
+  table. The golden-apple+weakness interact path still needs a mob
+  effect model. TestCuredZombieVillagerParity green vs vanilla 26.2.

@@ -39,6 +39,16 @@ type Entity struct {
 	// FakeItem is vanilla's ItemEntity.makeFakeItem: the /give visual
 	// toss — never pickuppable, despawns on the next item tick.
 	FakeItem bool
+	// Converting/ConversionTime/ConversionStarter model
+	// ZombieVillager's cure countdown: ConversionTime ticks down by
+	// cureProgress each game tick, and at zero finishCure replaces
+	// the entity with a villager and fires cured_zombie_villager for
+	// the starter. Silent suppresses the cure level event.
+	Converting        bool
+	ConversionTime    int32
+	ConversionStarter [16]byte
+	HasConvStarter    bool
+	Silent            bool
 	// Offers is the merchant recipe list on traders (villager,
 	// wandering_trader) from summon NBT Offers.Recipes. Profession is
 	// VillagerData.profession (names the open screen's title). Baby is

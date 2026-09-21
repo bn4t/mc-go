@@ -47,6 +47,7 @@ type advMeta struct {
 	interacts  []interactCond  // player_interacted_with_entity — a successful right-click
 	sheared    []interactCond  // player_sheared_equipment — item=removed stack
 	trades     []interactCond  // villager_trade — entity=trader, item=result stack
+	cures      []interactCond  // cured_zombie_villager — entity sets for zombie+villager
 	pickups    []pickupCond    // thrown_item_picked_up_by_entity — a mob took a player's drop
 	pickupsByP []pickupCond    // thrown_item_picked_up_by_player — the picker side
 	rides      []rideCond      // started_riding — a player mounted a vehicle
@@ -297,6 +298,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.sheared = append(m.sheared, parseInteractCond(cname, cm["conditions"]))
 				case "minecraft:villager_trade":
 					m.trades = append(m.trades, parseInteractCondKey(cname, cm["conditions"], "villager"))
+				case "minecraft:cured_zombie_villager":
+					m.cures = append(m.cures, parseInteractCondKeys(cname, cm["conditions"], "zombie", "villager"))
 				case "minecraft:thrown_item_picked_up_by_entity":
 					m.pickups = append(m.pickups, parsePickupCond(cname, cm["conditions"]))
 				case "minecraft:thrown_item_picked_up_by_player":
@@ -1586,6 +1589,7 @@ type tameCond struct {
 type interactCond struct {
 	crit       string
 	entities   map[string]bool
+	entities2  map[string]bool // second entity key (villager in cured_zombie_villager)
 	items      map[string]bool
 	impossible bool
 }
@@ -1998,9 +2002,37 @@ func parseInteractCond(cname string, conds any) interactCond {
 // condition's key parameterized — villager_trade nests the trader
 // predicate under "villager" instead of "entity".
 func parseInteractCondKey(cname string, conds any, entityKey string) interactCond {
-	ic := interactCond{crit: cname, entities: map[string]bool{}, items: map[string]bool{}}
+	return parseInteractCondKeys(cname, conds, entityKey, "")
+}
+
+// parseInteractCondKeys is parseInteractCondKey with an optional
+// second entity-predicate key — cured_zombie_villager predicates the
+// zombie under "zombie" and the cured result under "villager".
+func parseInteractCondKeys(cname string, conds any, entityKey, entityKey2 string) interactCond {
+	ic := interactCond{crit: cname, entities: map[string]bool{}, entities2: map[string]bool{}, items: map[string]bool{}}
 	cm, _ := conds.(map[string]any)
 	for k, v := range cm {
+		if entityKey2 != "" && k == entityKey2 {
+			ents, _ := v.([]any)
+			for _, ev := range ents {
+				em, _ := ev.(map[string]any)
+				if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+					ic.impossible = true
+					continue
+				}
+				pred, _ := em["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					if pk == "minecraft:entity_type" {
+						if st, ok := pv.(string); ok {
+							ic.entities2[strings.TrimPrefix(st, "minecraft:")] = true
+						}
+						continue
+					}
+					ic.impossible = true
+				}
+			}
+			continue
+		}
 		switch k {
 		case entityKey:
 			ents, _ := v.([]any)
@@ -2091,6 +2123,28 @@ func (s *Server) fireVillagerTrade(sess *Session, e *Entity, res ItemStack) {
 				continue
 			}
 			if len(ic.items) > 0 && !ic.items[iname] {
+				continue
+			}
+			sess.grantGameCriterion(meta, ic.crit)
+		}
+	}
+}
+
+// fireCuredZombieVillager runs the cured_zombie_villager criteria
+// when a cure completes. The zombie side is always zombie_villager
+// and the villager side always villager, so both entity-type OR-sets
+// reduce to a type check each; item conditions don't exist on this
+// trigger.
+func (s *Server) fireCuredZombieVillager(sess *Session) {
+	for _, meta := range gameAdvs {
+		for _, ic := range meta.cures {
+			if ic.impossible {
+				continue
+			}
+			if len(ic.entities) > 0 && !ic.entities["zombie_villager"] {
+				continue
+			}
+			if len(ic.entities2) > 0 && !ic.entities2["villager"] {
 				continue
 			}
 			sess.grantGameCriterion(meta, ic.crit)
