@@ -185,7 +185,7 @@ func (s *Server) dispatchCommandText(sess *Session, text string) {
 		return
 	}
 	name := sess.getName()
-	input := strings.Join(fields, " ")
+	input := body
 	r, ok := s.runCommand(name, fields[0], fields[1:])
 	if !ok {
 		r = reply{comp: unknownCommand(), styled: true, fail: &failMark{}}

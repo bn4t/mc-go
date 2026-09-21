@@ -60,11 +60,9 @@ func (s *Server) handleChat(sess *Session, p protocol.Packet, command bool) {
 		}
 		// The real server echoes the input it was given in the context
 		// message that follows a failed parse, and marks the cursor by
-		// position within it. Fields were split on whitespace, so the
-		// input is rebuilt the same way: a client that double-spaced its
-		// command would see its own spacing in the real server's reply
-		// and single spacing here.
-		input := strings.Join(fields, " ")
+		// position within it — including any trailing or doubled
+		// whitespace.
+		input := text[1:]
 		r, ok := s.runCommand(name, fields[0], fields[1:])
 		if !ok {
 			// The command name itself is unknown, so the parse never got

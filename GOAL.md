@@ -2670,3 +2670,23 @@ physics through a void dip plus a fed recovery window.
   double-count in @e, and non-players with no scoreboard entry fail
   scores= unconditionally. TestSelectorArgsParity ~52 commands green
   vs vanilla.
+
+- /tellraw + /title (all forms): component args parse the joined
+  remainder as SNBT — bare words become string components, lists use
+  the first element as base with the rest folded into extra — and
+  {score}/{selector} keys resolve server-side before send
+  (scoreboard values to literal text, selectors to the decorated
+  display name; misses resolve to ""). {text:X}-only compounds
+  collapse to the bare string on the wire at every nesting level.
+  /title clear/reset send PlayClearTitles with the reset flag; times
+  args take t/s/d suffixes (×1/×20/×24000, math.Round), fail
+  parsing.float.expected at arg start on non-floats and
+  argument.time.tick_count_too_low at arg end on negatives, and cap
+  negative-input errors at the first bad arg. @e-family selectors in
+  the player slot fail argument.player.entities at parse with the
+  whole input underlined. Component parse failures carry an absolute
+  input cursor (they span whitespace-separated tokens), and error
+  echoes now preserve raw input whitespace — including a trailing
+  space after the last token. TestTellrawTitleParity 35 commands
+  green vs vanilla, comparing chat replies plus the five title/tellraw
+  packet ids.

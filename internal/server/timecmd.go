@@ -41,6 +41,11 @@ type failMark struct {
 	token int
 	end   bool
 	off   int
+	// abs pins the cursor to an absolute input offset — component args
+	// span several tokens, so token-relative marks cannot express a
+	// failure mid-way through them.
+	abs    int
+	hasAbs bool
 }
 
 // tokenBounds finds one token's start and end offsets in the input. A
@@ -69,6 +74,12 @@ func tokenBounds(input string, token int) (start, end int) {
 // cursor is the offset in the input the real server would report for
 // this failure.
 func (f failMark) cursor(input string) int {
+	if f.hasAbs {
+		if f.abs > len(input) {
+			return len(input)
+		}
+		return f.abs
+	}
 	start, end := tokenBounds(input, f.token)
 	if f.end {
 		return end
