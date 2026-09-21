@@ -59,6 +59,13 @@ type Session struct {
 	// given, keyed by data.Recipes index; guarded by recipesMu.
 	recipesMu       sync.Mutex
 	unlockedRecipes map[int]bool
+	// execEnt/execPos are the session-scoped frame an execute chain
+	// applies around its leaf: `as`/`summon` bind execEnt so @s reads
+	// the forked executor, `positioned`/`at`/`align` bind execPos so
+	// ~ reads the forked origin. Commands run on their own goroutine,
+	// so a plain field suffices.
+	execEnt *dataEntity
+	execPos *[3]float64
 	// advSent/advCrits/advDirty track advancement sync state: defs sent,
 	// criteria earned (adv id -> criterion -> millis), and advancements
 	// awaiting the next UpdateAdvancements flush. Guarded by advMu.

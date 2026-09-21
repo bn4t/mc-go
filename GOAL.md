@@ -2619,3 +2619,25 @@ physics through a void dip plus a fed recovery window.
   [holder,score,objective] with fake holders as bare {"":name} args,
   and the long SNBT suffix is uppercase L. TestExecuteIfParity ~100
   commands green vs vanilla.
+- `execute` gains its positional and executor modifiers:
+  `positioned <pos|as <sel>|over <heightmap>>`, `as`, `at`, `align`
+  (per-axis floor of the chain origin), `rotated`/`facing` (consumed —
+  unobservable without ^ local coords — with entity-sourced forms
+  forking per match), `anchored`, `summon` (redirect: spawns at the
+  chain origin, binds @s, leaf errors still print) and `on` (every
+  relation resolves empty — no entity relations modeled). Vanilla's
+  fork-vs-redirect split is the load-bearing semantic: forks
+  (as/at/positioned-as/facing-entity/rotated-as) run the tail once per
+  match and swallow the leaf's runtime failures — `data get block` on
+  a non-BE and bare-leaf objective.notFound both print inside a
+  redirect but go silent inside a fork — while chain PARSE errors
+  (unknown.argument on `run nosuchcmd`, anchor/enum/entity not-found)
+  escape either way. The chain carries a session-scoped frame
+  (execEnt/execPos) the fork binds and restores: @s reads the executor,
+  ~ the moved origin, `at` additionally rebinds the dimension.
+  `summon` needs a tail — bare `execute summon pig` is
+  command.unknown.command and spawns nothing; a bad id is
+  argument.resource.not_found[id, minecraft:entity_type]; spawned
+  entity xz centers on the block like vanilla, y stays exact. The
+  summon leaf's own errors print since it redirects a single source.
+  TestExecuteIfParity ~130 commands green vs vanilla.

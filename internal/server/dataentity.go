@@ -967,11 +967,19 @@ func (s *Server) selectDataEntities(sender *Session, tok string, single bool) ([
 			r := componentReply(commandError("argument.entity.notfound.entity"))
 			return nil, &r
 		}
+		// Inside an execute fork the sender's @s is the bound executor.
+		if sender.execEnt != nil {
+			return []*dataEntity{sender.execEnt}, nil
+		}
 		return []*dataEntity{{sess: sender}}, nil
 	}
 	ax, ay, az := float64(0), float64(0), float64(0)
 	if spec.hasPos {
 		ax, ay, az = spec.x, spec.y, spec.z
+	} else if sender != nil && sender.execPos != nil {
+		ax, ay, az = sender.execPos[0], sender.execPos[1], sender.execPos[2]
+	} else if sender != nil && sender.execEnt != nil && sender.execEnt.mob != nil {
+		ax, ay, az = sender.execEnt.mob.X, sender.execEnt.mob.Y, sender.execEnt.mob.Z
 	} else if sender != nil {
 		ax, ay, az, _, _, _ = sender.Pos()
 	}

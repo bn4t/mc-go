@@ -23,6 +23,15 @@ import (
 type executeContext struct {
 	dim   *dimension
 	alive bool
+	// pos is the chain's origin — where ~ resolves from; positioned,
+	// at and align move it. ent is the executor an `as`/`summon` fork
+	// binds for @s reads inside the tail.
+	pos [3]float64
+	ent *dataEntity
+	// forked marks a chain running inside an entity-fork modifier
+	// (as/at/positioned-as/facing-entity/rotated-as): its leaf's
+	// runtime failures are swallowed — only parse errors escape.
+	forked bool
 	// hasCond marks that an if/unless ran; when the chain ends on one
 	// it is itself the leaf, answering conditional.pass/fail on the
 	// wire. entityCount is the last `if entity`'s match count — the
@@ -38,16 +47,30 @@ type executeContext struct {
 // runExecute parses an /execute chain and runs its trailing command.
 func (s *Server) runExecute(player string, args []string) reply {
 	ctx := executeContext{dim: s.dimOf(player), alive: true}
-	bx, by, bz := s.baseBlockPos(player)
-	return s.execTail(&ctx, player, args, 1, bx, by, bz)
+	ctx.pos = s.execOrigin(player)
+	return s.execTail(&ctx, player, args, 1)
+}
+
+// execOrigin returns the sender's feet position — the point the
+// chain's ~ tokens start from.
+func (s *Server) execOrigin(player string) [3]float64 {
+	if sess := s.findSessionByName(player); sess != nil {
+		x, y, z, _, _, _ := sess.Pos()
+		return [3]float64{x, y, z}
+	}
+	sx, sy, sz := s.WorldSpawn()
+	return [3]float64{sx, sy, sz}
 }
 
 // execTail evaluates a chain fragment starting at args[0]; argTokBase
 // maps args[0] onto its token index in the full input. `store` recurses
 // here for the chain its result comes from.
-func (s *Server) execTail(ctx *executeContext, player string, args []string, argTokBase, bx, by, bz int) reply {
+func (s *Server) execTail(ctx *executeContext, player string, args []string, argTokBase int) reply {
 	i := 0
 	for i < len(args) {
+		bx := int(math.Floor(ctx.pos[0]))
+		by := int(math.Floor(ctx.pos[1]))
+		bz := int(math.Floor(ctx.pos[2]))
 		switch args[i] {
 		case "in":
 			if i+1 >= len(args) {
@@ -80,6 +103,54 @@ func (s *Server) execTail(ctx *executeContext, player string, args []string, arg
 			i += 1 + consumed
 		case "store":
 			return s.executeStore(ctx, player, args[i+1:], argTokBase+i+1, bx, by, bz)
+		case "positioned":
+			return s.executePositioned(ctx, player, args[i+1:], argTokBase+i+1)
+		case "as", "at":
+			return s.executeFork(ctx, player, args[i], args[i+1:], argTokBase+i+1)
+		case "rotated", "facing":
+			return s.executeAim(ctx, player, args[i], args[i+1:], argTokBase+i+1)
+		case "align":
+			// align <axes> floors the origin on each named axis.
+			if i+1 >= len(args) {
+				return errToken("command.unknown.argument", argTokBase+i+1)
+			}
+			for _, c := range args[i+1] {
+				switch c {
+				case 'x':
+					ctx.pos[0] = math.Floor(ctx.pos[0])
+				case 'y':
+					ctx.pos[1] = math.Floor(ctx.pos[1])
+				case 'z':
+					ctx.pos[2] = math.Floor(ctx.pos[2])
+				default:
+					return errToken("command.unknown.argument", argTokBase+i+1)
+				}
+			}
+			i += 2
+		case "anchored":
+			// anchored eyes|feet — only matters for ^ local coords.
+			if i+1 >= len(args) {
+				return errToken("argument.anchor.invalid", argTokBase+i+1)
+			}
+			if args[i+1] != "eyes" && args[i+1] != "feet" {
+				return errToken("argument.anchor.invalid", argTokBase+i+1, args[i+1])
+			}
+			i += 2
+		case "on":
+			// on <relation> forks onto the relation's entities — mc-go
+			// models no relations, so the fork list comes up empty.
+			if i+1 >= len(args) {
+				return errToken("command.unknown.argument", argTokBase+i+1)
+			}
+			switch args[i+1] {
+			case "attacker", "controller", "leasher", "origin", "owner",
+				"passengers", "target", "vehicle":
+			default:
+				return errToken("command.unknown.argument", argTokBase+i+1)
+			}
+			return reply{}
+		case "summon":
+			return s.executeSummon(ctx, player, args[i+1:], argTokBase+i+1)
 		case "run":
 			sub := args[i+1:]
 			if len(sub) == 0 {
@@ -90,9 +161,7 @@ func (s *Server) execTail(ctx *executeContext, player string, args []string, arg
 				// at all — vanilla's only reply is the run command's.
 				return reply{}
 			}
-			return s.runInDimension(player, ctx.dim, sub)
-		case "positioned", "as", "at", "align", "facing", "rotated", "anchored", "summon":
-			return textReply("Unsupported execute subcommand: " + args[i])
+			return s.execRun(ctx, player, sub, argTokBase+i+1)
 		default:
 			return errToken("command.unknown.argument", argTokBase+i)
 		}
@@ -1328,7 +1397,7 @@ func (s *Server) executeStore(ctx *executeContext, player string, args []string,
 	if len(args) <= next {
 		return errToken("command.unknown.argument", tokBase+next)
 	}
-	tail := s.execTail(ctx, player, args[next:], tokBase+next, bx, by, bz)
+	tail := s.execTail(ctx, player, args[next:], tokBase+next)
 	if !tail.hasResult {
 		return tail
 	}
@@ -1366,4 +1435,298 @@ func typedStoreValue(typ string, v int64, scale float64) any {
 		return f
 	}
 	return int32(int64(f))
+}
+
+// execRun hands the trailing command to the dispatcher with the
+// chain's frame bound on the sender's session: the forked executor for
+// @s reads, the forked origin for ~, restored after.
+func (s *Server) execRun(ctx *executeContext, player string, sub []string, subTok int) reply {
+	sess := s.findSessionByName(player)
+	if sess == nil {
+		return s.runInDimension(player, ctx.dim, sub)
+	}
+	prevEnt, prevPos := sess.execEnt, sess.execPos
+	sess.execEnt = ctx.ent
+	pos := ctx.pos
+	sess.execPos = &pos
+	defer func() { sess.execEnt, sess.execPos = prevEnt, prevPos }()
+	// The run subcommand parses with the chain: an unknown command
+	// name is a chain parse error at the name token, not the outer
+	// dispatch's unknown.command.
+	if !s.commandExists(sub[0]) {
+		return errToken("command.unknown.argument", subTok)
+	}
+	return s.runInDimension(player, ctx.dim, sub)
+}
+
+// commandExists reports whether name dispatches to a registered
+// command without running it.
+func (s *Server) commandExists(name string) bool {
+	if s.componentCommand(name) != nil {
+		return true
+	}
+	for _, n := range s.commands.Names() {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// mergeReplies folds a fork's reply into the accumulator — components
+// append in order so multi-fork leaves read like the real server's
+// back-to-back messages. The result fields track the last fork.
+func mergeReplies(dst *reply, src reply) {
+	if src.fail == nil && src.styled && src.comp.color == "red" {
+		// A forked leaf's runtime failure replies nothing — the
+		// error only lands for a single-source (redirect) chain.
+		dst.result, dst.hasResult = src.result, src.hasResult
+		return
+	}
+	if src.fail != nil && dst.fail == nil {
+		dst.fail = src.fail
+	}
+	if src.styled {
+		if !dst.styled && dst.text == "" {
+			dst.comp, dst.styled = src.comp, true
+		} else {
+			dst.extra = append(dst.extra, src.comp)
+		}
+	}
+	if src.text != "" {
+		dst.extra = append(dst.extra, literal(src.text))
+	}
+	dst.extra = append(dst.extra, src.extra...)
+	dst.result, dst.hasResult = src.result, src.hasResult
+}
+
+// dataEntityPos returns the entity's feet position and its dimension.
+func (d *dataEntity) position() [3]float64 {
+	if d.sess != nil {
+		x, y, z, _, _, _ := d.sess.Pos()
+		return [3]float64{x, y, z}
+	}
+	return [3]float64{d.mob.X, d.mob.Y, d.mob.Z}
+}
+
+func (d *dataEntity) dimOf(s *Server) *dimension {
+	if d.sess != nil {
+		return d.sess.dimension()
+	}
+	return s.dimensionByName(d.mob.Dim)
+}
+
+// executeFork runs the entity-forking modifiers — `as` rebinds the
+// executor, `at` additionally rebinds origin and dimension — running
+// the tail once per matched entity like vanilla's chain forks.
+func (s *Server) executeFork(ctx *executeContext, player, kind string, args []string, tokBase int) reply {
+	if len(args) < 1 {
+		return errToken("command.unknown.argument", tokBase)
+	}
+	sess := s.findSessionByName(player)
+	var cands []*dataEntity
+	if len(args[0]) > 0 && args[0][0] != '@' {
+		// A bare player name resolves like `if entity` does.
+		if ts := s.findSessionByName(args[0]); ts != nil {
+			cands = []*dataEntity{{sess: ts}}
+		}
+	} else {
+		var serr *reply
+		cands, serr = s.selectDataEntities(sess, args[0], false)
+		if serr != nil {
+			return *serr
+		}
+	}
+	if !ctx.alive || len(cands) == 0 || sess == nil {
+		return reply{}
+	}
+	var merged reply
+	for _, c := range cands {
+		sub := *ctx
+		sub.ent = c
+		sub.forked = true
+		if kind == "at" {
+			sub.pos = c.position()
+			sub.dim = c.dimOf(s)
+		}
+		prevEnt, prevPos := sess.execEnt, sess.execPos
+		sess.execEnt = c
+		p := sub.pos
+		sess.execPos = &p
+		r := s.execTail(&sub, player, args[1:], tokBase+1)
+		sess.execEnt, sess.execPos = prevEnt, prevPos
+		if r.fail != nil {
+			return r
+		}
+		mergeReplies(&merged, r)
+	}
+	return merged
+}
+
+// executeSummon implements `execute summon <entity>`: the mob spawns at
+// the chain origin and the tail runs once with it as the executor.
+func (s *Server) executeSummon(ctx *executeContext, player string, args []string, tokBase int) reply {
+	if len(args) < 1 {
+		return errToken("command.unknown.argument", tokBase)
+	}
+	sess := s.findSessionByName(player)
+	// The chain must continue past summon — a bare `summon` leaf is
+	// the whole-input unknown.command, and nothing spawns.
+	if len(args) < 2 {
+		return errTokenEnd("command.unknown.command", tokBase+len(args))
+	}
+	name := strings.TrimPrefix(normalizeItemName(args[0]), "minecraft:")
+	e, ok := s.summonMobRaw(ctx.dim, name, ctx.pos[0], ctx.pos[1], ctx.pos[2], false)
+	if !ok {
+		return errTokenEnd("argument.resource.not_found", tokBase, args[0], "minecraft:entity_type")
+	}
+	if !ctx.alive || sess == nil {
+		return reply{}
+	}
+	sub := *ctx
+	sub.ent = &dataEntity{mob: e}
+	prevEnt, prevPos := sess.execEnt, sess.execPos
+	sess.execEnt = sub.ent
+	p := sub.pos
+	sess.execPos = &p
+	defer func() { sess.execEnt, sess.execPos = prevEnt, prevPos }()
+	return s.execTail(&sub, player, args[1:], tokBase+1)
+}
+
+// executePositioned implements `positioned <x> <y> <z>` | `positioned
+// as <sel>` | `positioned over <heightmap>` — it moves the chain
+// origin; the entity and heightmap forms follow vanilla's variants.
+func (s *Server) executePositioned(ctx *executeContext, player string, args []string, tokBase int) reply {
+	if len(args) < 1 {
+		return errToken("command.unknown.argument", tokBase)
+	}
+	switch args[0] {
+	case "as":
+		if len(args) < 2 {
+			return errToken("command.unknown.argument", tokBase+1)
+		}
+		sess := s.findSessionByName(player)
+		cands, serr := s.selectDataEntities(sess, args[1], false)
+		if serr != nil {
+			return *serr
+		}
+		if !ctx.alive || len(cands) == 0 || sess == nil {
+			return reply{}
+		}
+		var merged reply
+		for _, c := range cands {
+			sub := *ctx
+			sub.pos = c.position()
+			sub.forked = true
+			prevPos := sess.execPos
+			p := sub.pos
+			sess.execPos = &p
+			r := s.execTail(&sub, player, args[2:], tokBase+2)
+			sess.execPos = prevPos
+			if r.fail != nil {
+				return r
+			}
+			mergeReplies(&merged, r)
+		}
+		return merged
+	case "over":
+		if len(args) < 2 {
+			return errToken("command.unknown.argument", tokBase+1)
+		}
+		switch args[1] {
+		case "world_surface", "motion_blocking", "motion_blocking_no_leaves", "ocean_floor":
+		default:
+			return errTokenEnd("argument.enum.invalid", tokBase+1, args[1])
+		}
+		x, z := int(math.Floor(ctx.pos[0])), int(math.Floor(ctx.pos[2]))
+		ctx.pos[1] = float64(s.surfaceY(ctx.dim, x, z) + 1)
+		return s.execTail(ctx, player, args[2:], tokBase+2)
+	}
+	if len(args) < 3 {
+		return errToken("parsing.double.expected", tokBase+len(args))
+	}
+	for k := 0; k < 3; k++ {
+		v, err := parseDouble(args[k], ctx.pos[k], true)
+		if err != nil {
+			return errToken("parsing.double.expected", tokBase+k)
+		}
+		ctx.pos[k] = v
+	}
+	return s.execTail(ctx, player, args[3:], tokBase+3)
+}
+
+// executeAim implements `rotated` and `facing`: both consume their
+// rotation arguments — unobservable without ^ local coords — and their
+// entity-sourced forms fork per match.
+func (s *Server) executeAim(ctx *executeContext, player, kind string, args []string, tokBase int) reply {
+	if len(args) < 1 {
+		return errToken("command.unknown.argument", tokBase)
+	}
+	if kind == "rotated" && args[0] == "as" {
+		return s.forkOver(ctx, player, args[1:], tokBase+1)
+	}
+	if kind == "facing" && args[0] == "entity" {
+		if len(args) < 3 {
+			return errToken("command.unknown.argument", tokBase+len(args))
+		}
+		if args[2] != "eyes" && args[2] != "feet" {
+			return errToken("argument.anchor.invalid", tokBase+2, args[2])
+		}
+		return s.forkOver(ctx, player, append([]string{args[1]}, args[3:]...), tokBase+1)
+	}
+	need := 2 // rotated <yaw> <pitch>
+	if kind == "facing" {
+		need = 3 // facing <x> <y> <z>
+	}
+	if len(args) < need {
+		return errToken("parsing.double.expected", tokBase+len(args))
+	}
+	for k := 0; k < need; k++ {
+		if _, err := parseDouble(args[k], 0, true); err != nil {
+			return errToken("parsing.double.expected", tokBase+k)
+		}
+	}
+	return s.execTail(ctx, player, args[need:], tokBase+need)
+}
+
+// forkOver re-runs the tail once per matched entity — the shared
+// per-entity loop for the entity-sourced rotated/facing forms.
+func (s *Server) forkOver(ctx *executeContext, player string, args []string, tokBase int) reply {
+	if len(args) < 1 {
+		return errToken("command.unknown.argument", tokBase)
+	}
+	sess := s.findSessionByName(player)
+	cands, serr := s.selectDataEntities(sess, args[0], false)
+	if serr != nil {
+		return *serr
+	}
+	if !ctx.alive || len(cands) == 0 {
+		return reply{}
+	}
+	var merged reply
+	for range cands {
+		sub := *ctx
+		sub.forked = true
+		r := s.execTail(&sub, player, args[1:], tokBase+1)
+		if r.fail != nil {
+			return r
+		}
+		mergeReplies(&merged, r)
+	}
+	return merged
+}
+
+// surfaceY returns the topmost non-air block's y for the column — the
+// value `positioned over` raises the origin past. Nothing found means
+// the build floor.
+func (s *Server) surfaceY(d *dimension, x, z int) int {
+	if d == nil {
+		return 0
+	}
+	for y := d.minY + d.height - 1; y >= d.minY; y-- {
+		if d.w.GetBlock(world.Pos{X: x, Y: y, Z: z}) != world.Air {
+			return y
+		}
+	}
+	return d.minY
 }

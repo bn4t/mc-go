@@ -104,6 +104,14 @@ func (s *Server) findSessionByName(name string) *Session {
 // baseBlockPos returns the sender's block coordinates for "~" resolution.
 func (s *Server) baseBlockPos(player string) (int, int, int) {
 	if sess := s.findSessionByName(player); sess != nil {
+		if sess.execPos != nil {
+			p := sess.execPos
+			return int(math.Floor(p[0])), int(math.Floor(p[1])), int(math.Floor(p[2]))
+		}
+		if sess.execEnt != nil && sess.execEnt.mob != nil {
+			m := sess.execEnt.mob
+			return int(math.Floor(m.X)), int(math.Floor(m.Y)), int(math.Floor(m.Z))
+		}
 		x, y, z, _, _, _ := sess.Pos()
 		return int(math.Floor(x)), int(math.Floor(y)), int(math.Floor(z))
 	}
