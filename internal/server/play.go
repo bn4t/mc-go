@@ -282,6 +282,16 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 		if !sess.fallStart {
 			sess.fallStart = true
 			sess.fallStartY = oy
+			// Vanilla's trackStartFallingPosition: an explosion impact
+			// latched at or below the apex fires fall_after_explosion,
+			// then both fields clear either way.
+			if sess.explodeImpact != nil {
+				if sess.explodeImpact[1] <= oy {
+					s.fireFallAfterExplosion(sess, sess.explodeImpact[1], oy, sess.explodeCause)
+				}
+				sess.explodeImpact = nil
+				sess.explodeCause = 0
+			}
 		}
 		sess.fallDistance += oy - y
 		s.fireSlideDown(sess, x, y, z)

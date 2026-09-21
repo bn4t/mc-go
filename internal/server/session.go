@@ -131,8 +131,15 @@ type Session struct {
 	// fall_from_height start_position reads this point.
 	fallStartY float64
 	fallStart  bool
-	sneaking   bool
-	flying     bool
+	// explodeImpact/explodeCause are vanilla's
+	// currentExplosionImpactPos + currentExplosionCause: the wind
+	// charge burst latches the player's position and the cause entity
+	// type; the first falling tick fires fall_after_explosion and
+	// clears them.
+	explodeImpact *[3]float64
+	explodeCause  int32
+	sneaking      bool
+	flying        bool
 	// Experience tracked from orbs (vanilla /xp levels ride later).
 	xpTotal    int32
 	xpLevel    int32

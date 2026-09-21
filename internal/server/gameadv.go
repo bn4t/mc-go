@@ -48,6 +48,7 @@ type advMeta struct {
 	sheared    []interactCond  // player_sheared_equipment — item=removed stack
 	trades     []interactCond  // villager_trade — entity=trader, item=result stack
 	cures      []interactCond  // cured_zombie_villager — entity sets for zombie+villager
+	fallExps   []fallExplCond  // fall_after_explosion — cause entity + apex-vs-impact rise
 	pickups    []pickupCond    // thrown_item_picked_up_by_entity — a mob took a player's drop
 	pickupsByP []pickupCond    // thrown_item_picked_up_by_player — the picker side
 	rides      []rideCond      // started_riding — a player mounted a vehicle
@@ -300,6 +301,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.trades = append(m.trades, parseInteractCondKey(cname, cm["conditions"], "villager"))
 				case "minecraft:cured_zombie_villager":
 					m.cures = append(m.cures, parseInteractCondKeys(cname, cm["conditions"], "zombie", "villager"))
+				case "minecraft:fall_after_explosion":
+					m.fallExps = append(m.fallExps, parseFallExplCond(cname, cm["conditions"]))
 				case "minecraft:thrown_item_picked_up_by_entity":
 					m.pickups = append(m.pickups, parsePickupCond(cname, cm["conditions"]))
 				case "minecraft:thrown_item_picked_up_by_player":
@@ -2148,6 +2151,87 @@ func (s *Server) fireCuredZombieVillager(sess *Session) {
 				continue
 			}
 			sess.grantGameCriterion(meta, ic.crit)
+		}
+	}
+}
+
+// fallExplCond is one fall_after_explosion criterion reduced to the
+// cause entity's type OR-set and the distance.y.min rise between the
+// impact latch and the fall-start apex.
+type fallExplCond struct {
+	crit       string
+	causes     map[string]bool
+	minY       float64
+	impossible bool
+}
+
+func parseFallExplCond(cname string, conds any) fallExplCond {
+	fc := fallExplCond{crit: cname, causes: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "cause":
+			ents, _ := v.([]any)
+			for _, ev := range ents {
+				em, _ := ev.(map[string]any)
+				if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+					fc.impossible = true
+					continue
+				}
+				pred, _ := em["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					if pk == "minecraft:entity_type" {
+						if st, ok := pv.(string); ok {
+							fc.causes[strings.TrimPrefix(st, "minecraft:")] = true
+						}
+						continue
+					}
+					fc.impossible = true
+				}
+			}
+		case "distance":
+			dm, _ := v.(map[string]any)
+			for dk, dv := range dm {
+				if dk != "y" {
+					fc.impossible = true
+					continue
+				}
+				ym, _ := dv.(map[string]any)
+				for yk, yv := range ym {
+					if yk != "min" {
+						fc.impossible = true
+						continue
+					}
+					if n, ok := yv.(float64); ok {
+						fc.minY = n
+					}
+				}
+			}
+		default:
+			fc.impossible = true
+		}
+	}
+	return fc
+}
+
+// fireFallAfterExplosion runs the fall_after_explosion criteria when
+// an explosion-launched player starts falling: impactY is where the
+// burst hit, apexY the fall-start height, causeType the entity type
+// name of the burst source ("wind_charge").
+func (s *Server) fireFallAfterExplosion(sess *Session, impactY, apexY float64, causeType int32) {
+	name, _ := EntityTypeName(causeType)
+	for _, meta := range gameAdvs {
+		for _, fc := range meta.fallExps {
+			if fc.impossible {
+				continue
+			}
+			if len(fc.causes) > 0 && !fc.causes[name] {
+				continue
+			}
+			if apexY-impactY < fc.minY {
+				continue
+			}
+			sess.grantGameCriterion(meta, fc.crit)
 		}
 	}
 }

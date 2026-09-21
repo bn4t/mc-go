@@ -2144,3 +2144,16 @@ physics through a void dip plus a fed recovery window.
   zombie_villager + wandering_trader joined the summonable mob
   table. The golden-apple+weakness interact path still needs a mob
   effect model. TestCuredZombieVillagerParity green vs vanilla 26.2.
+
+- fall_after_explosion / wind charges: wind_charge and
+  breeze_wind_charge are summonable with Motion NBT, fly without
+  gravity, and burst on block or player contact. The burst
+  (SimpleExplosionDamageCalculator, power 1.2 player / 3.0 breeze,
+  no entity damage) knocks entities inside the 2*radius box by
+  (1 - dist/2r) * seen * 1.22 along eyePos->center and latches the
+  victim's currentExplosionImpactPos + cause. When that player next
+  starts falling (impact.y <= apex.y), fall_after_explosion fires
+  with distance = impact->apex rise — adventure/who_needs_rockets
+  needs 7. The explode packet's particle/sound payload is still
+  unsent (victims get set_entity_motion instead of the explode
+  knockback field). TestFallAfterExplosionParity green vs 26.2.
