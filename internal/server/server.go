@@ -59,6 +59,11 @@ type Server struct {
 	// world directory's base name, which is how vanilla names it.
 	LevelName string
 
+	// whitelistOn tracks the /whitelist flag; enforcement is not yet
+	// implemented. idleTimeoutMinutes is the /setidletimeout value.
+	whitelistOn        atomic.Bool
+	idleTimeoutMinutes atomic.Int32
+
 	// GenerateStructures is recorded in the world's generator settings.
 	// The zero value is false, so New sets the vanilla default (true);
 	// it does not change the flat terrain, which has no structures to

@@ -499,7 +499,7 @@ func (s *Server) sendJoinGame(sess *Session) error {
 	d := sess.dimension()
 	b.VarInt(d.typeID) // dimension type id
 	b.String(d.name)
-	b.Long(hashedSeed(1)) // obfuscated world seed
+	b.Long(hashedSeed(s.worldSeed())) // obfuscated world seed
 	b.Byte(sess.mode())
 	b.Byte(255) // previous gamemode: none
 	b.Bool(false)

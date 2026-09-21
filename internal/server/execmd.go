@@ -954,59 +954,6 @@ func (s *Server) resolveTarget(player, tok string) *Session {
 // tick work needs: /say, /tick, /fill and /execute's condition forms are
 // reached through runExecute.
 func (s *Server) registerWorldCommands() {
-	s.commands.Register("say", func(player string, args []string) string {
-		if len(args) == 0 {
-			return "Usage: /say <message>"
-		}
-		name := literal(player)
-		if sess := s.findSessionByName(player); sess != nil {
-			name = playerChatName(sess)
-		}
-		s.broadcastDisguisedChat("say_command", name, s.messageText(player, strings.Join(args, " ")))
-		// The sender has already been given the line by the broadcast.
-		return ""
-	})
-	s.commands.Register("me", func(player string, args []string) string {
-		if len(args) == 0 {
-			return "Usage: /me <action>"
-		}
-		name := literal(player)
-		if sess := s.findSessionByName(player); sess != nil {
-			name = playerChatName(sess)
-		}
-		s.broadcastDisguisedChat("emote_command", name, s.messageText(player, strings.Join(args, " ")))
-		return ""
-	})
-	msgCmd := func(player string, args []string) string {
-		if len(args) < 2 {
-			return "Usage: /msg <targets> <message>"
-		}
-		targets := s.resolveTargets(player, args[0])
-		if len(targets) == 0 {
-			return "Player is unknown"
-		}
-		sender := s.findSessionByName(player)
-		name := literal(player)
-		if sender != nil {
-			name = playerChatName(sender)
-		}
-		content := s.messageText(player, strings.Join(args[1:], " "))
-		incoming := registryEntryID("minecraft:chat_type", "minecraft:msg_command_incoming")
-		outgoing := registryEntryID("minecraft:chat_type", "minecraft:msg_command_outgoing")
-		for _, target := range targets {
-			if sender != nil && outgoing >= 0 {
-				tName := playerChatName(target)
-				sendDisguisedChat(sender, outgoing, name, content, &tName)
-			}
-			if incoming >= 0 {
-				sendDisguisedChat(target, incoming, name, content, nil)
-			}
-		}
-		return ""
-	}
-	s.commands.Register("msg", msgCmd)
-	s.commands.Register("tell", msgCmd)
-	s.commands.Register("w", msgCmd)
 	s.registerComponentCommand("tick", func(player string, args []string) reply {
 		return s.runTick(player, args)
 	})

@@ -2690,3 +2690,15 @@ physics through a void dip plus a fed recovery window.
   space after the last token. TestTellrawTitleParity 35 commands
   green vs vanilla, comparing chat replies plus the five title/tellraw
   packet ids.
+
+- /difficulty, /seed, /list, /whitelist, /banlist, /setidletimeout,
+  /say, /me, /msg|/tell|/w, and the /experience alias: difficulty
+  queries report options.difficulty.<level> and sets fan Change
+  Difficulty out; /seed answers the green bracketed copy_to_clipboard
+  component (worldSeed() now feeds hashedSeed in join/respawn too);
+  /list is commands.list.players with count/max/name-or-nameAndId
+  components; bare utility names fail command.unknown.command with the
+  cursor at end of input, bad args fail unknown.argument at their
+  token, and /msg rejects @e-family selectors argument.player.entities
+  and unknown players argument.entity.notfound.player (no context).
+  TestUtilCommandParity 33 commands green vs vanilla.

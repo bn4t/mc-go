@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -428,7 +429,16 @@ func TestBuiltinListAndHelp(t *testing.T) {
 	drainToQuiet(t, pr)
 
 	sendChat(t, pw, IDPlayChatCommandSB, "list")
-	if got := readSystemChat(t, pr); !strings.Contains(got, "Scout") {
+	root := readSystemChatNBT(t, pr)
+	m, ok := root.(map[string]any)
+	if !ok {
+		t.Fatalf("list root = %T, want compound", root)
+	}
+	if m["translate"] != "commands.list.players" {
+		t.Fatalf("list translate = %v", m["translate"])
+	}
+	got := fmt.Sprintf("%v", m)
+	if !strings.Contains(got, "Scout") {
 		t.Fatalf("list = %q", got)
 	}
 	sendChat(t, pw, IDPlayChatCommandSB, "help")

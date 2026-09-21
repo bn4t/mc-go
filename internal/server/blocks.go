@@ -234,23 +234,6 @@ func (s *Server) registerBuiltins() {
 	s.commands.Register("help", func(player string, args []string) string {
 		return "Commands: " + strings.Join(s.helpNames(), ", ")
 	})
-	s.commands.Register("list", func(player string, args []string) string {
-		var names []string
-		s.sessions.Range(func(_, v any) bool {
-			sess := v.(*Session)
-			if sess.state.Load() != StatePlay {
-				return true
-			}
-			if n := sess.getName(); n != "" {
-				names = append(names, n)
-			}
-			return true
-		})
-		if len(names) == 0 {
-			return "No players online"
-		}
-		return "Players (" + strconv.Itoa(len(names)) + "): " + strings.Join(names, ", ")
-	})
 	s.commands.Register("pos", func(player string, args []string) string {
 		sess := s.findSessionByName(player)
 		if sess == nil {
@@ -274,6 +257,7 @@ func (s *Server) registerBuiltins() {
 		return s.runExecute(player, args)
 	})
 	s.registerTextCommands()
+	s.registerUtilCommands()
 	s.registerComponentCommand("scoreboard", func(player string, args []string) reply {
 		return s.runScoreboard(player, args)
 	})

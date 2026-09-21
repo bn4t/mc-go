@@ -187,7 +187,7 @@ func (s *Server) sendRespawn(sess *Session, d *dimension, portalCooldown int32, 
 	var b protocol.Buffer
 	b.VarInt(d.typeID)
 	b.String(d.name)
-	b.Long(hashedSeed(1)) // obfuscated world seed
+	b.Long(hashedSeed(s.worldSeed())) // obfuscated world seed
 	b.Byte(sess.mode())
 	b.Byte(255) // previous game mode: none
 	b.Bool(false)

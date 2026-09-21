@@ -50,6 +50,9 @@ type component struct {
 	// click is the input of a suggest_command click event, which is how
 	// vanilla makes a failed command clickable in the client.
 	click string
+	// copyTo carries a copy_to_clipboard click event — /seed's bracketed
+	// seed copies itself on click.
+	copyTo string
 	// insertion is the shift-click insertion text, which vanilla sets on
 	// the entity names its replies carry (/item names its target).
 	insertion string
@@ -90,7 +93,7 @@ func commandError(key string, with ...any) component {
 // vanilla sends as a string rather than a compound.
 func (c component) isPlain() bool {
 	return c.translate == "" && c.color == "" && len(c.extra) == 0 &&
-		c.emptyKey == "" && !c.forceCompound && c.click == "" &&
+		c.emptyKey == "" && !c.forceCompound && c.click == "" && c.copyTo == "" &&
 		c.insertion == "" && len(c.hover) == 0 && !c.underlined && !c.italic
 }
 
@@ -101,6 +104,12 @@ func (c component) nested() map[string]any {
 		m["click_event"] = map[string]any{
 			"action":  "suggest_command",
 			"command": c.click,
+		}
+	}
+	if c.copyTo != "" {
+		m["click_event"] = map[string]any{
+			"action": "copy_to_clipboard",
+			"value":  c.copyTo,
 		}
 	}
 	if c.color != "" {
