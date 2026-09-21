@@ -139,9 +139,10 @@ func (s *Server) spawnArrow(shooter *Session, x, y, z float64, yaw, pitch float3
 	return e
 }
 
-// arrowTickStep advances flying arrows one tick: integrate, apply drag
-// and gravity, then collide against living mobs and players. A struck
-// target takes the arrow's power-scaled damage; the arrow is spent.
+// arrowTickStep advances flying arrows and thrown tridents one tick:
+// integrate, apply drag and gravity, then collide against living mobs
+// and players. A struck target takes the projectile's damage; the
+// projectile is spent. Stuck tridents try their owner pickup here.
 func (s *Server) arrowTickStep() {
 	s.entities.mu.RLock()
 	arrows := make([]*Entity, 0, 4)
@@ -149,13 +150,18 @@ func (s *Server) arrowTickStep() {
 		if e.Dying {
 			continue
 		}
-		if name, ok := EntityTypeName(e.Type); ok && name == "arrow" {
+		if name, ok := EntityTypeName(e.Type); ok && (name == "arrow" || name == "trident") {
 			arrows = append(arrows, e)
 		}
 	}
 	s.entities.mu.RUnlock()
 	for _, e := range arrows {
-		if e.arrowStuck {
+		trident, _ := EntityTypeName(e.Type)
+		isTrident := trident == "trident"
+		if e.arrowStuck || e.tridentStuck {
+			if isTrident {
+				s.tridentPickupStep(e)
+			}
 			continue
 		}
 		ox, oy, oz := e.X, e.Y, e.Z
@@ -170,7 +176,13 @@ func (s *Server) arrowTickStep() {
 		// Vanilla clips each target's inflated AABB against the whole
 		// tick's movement segment — a point check at the new tip tunnels
 		// straight through at full draw speed (3 blocks/tick).
-		if s.arrowCollide(e, ox, oy, oz) {
+		var collided bool
+		if isTrident {
+			collided = s.projectileCollide(e, ox, oy, oz, tridentHitDamage, "trident")
+		} else {
+			collided = s.arrowCollide(e, ox, oy, oz)
+		}
+		if collided {
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemove([]int32{e.ID})
 			continue
@@ -180,7 +192,12 @@ func (s *Server) arrowTickStep() {
 		if bx, by, bz, axis, hx, hy, hz, hit := s.arrowBlockHit(e, ox, oy, oz); hit {
 			e.X, e.Y, e.Z = hx, hy, hz
 			e.MotionX, e.MotionY, e.MotionZ = 0, 0, 0
-			e.arrowStuck = true
+			if isTrident {
+				e.tridentStuck = true
+				s.playSoundSrc(e.Dim, hx, hy, hz, 1626, 6, 1.0, 1.0) // item.trident.hit_ground
+			} else {
+				e.arrowStuck = true
+			}
 			d := s.dimensionByName(e.Dim)
 			if name, ok := blockNameAt(d, world.Pos{X: bx, Y: by, Z: bz}); ok && name == "target" {
 				signal := targetSignal(axis, hx, hy, hz)
@@ -190,6 +207,42 @@ func (s *Server) arrowTickStep() {
 			}
 		}
 	}
+}
+
+// tridentPickupStep gives a stuck trident back to the first player
+// whose pickup box reaches it — vanilla's AbstractArrow.playerTouch.
+// Creative-thrown tridents are Pickup.CREATIVE_ONLY and stay put.
+func (s *Server) tridentPickupStep(e *Entity) {
+	if e.tridentCreativeOnly {
+		return
+	}
+	var target *Session
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || !sess.spawned.Load() || sess.dimName() != e.Dim {
+			return true
+		}
+		if m := sess.mode(); m != GameModeSurvival && m != GameModeAdventure {
+			return true
+		}
+		x, y, z, _, _, _ := sess.Pos()
+		if abs(x-e.X) <= 1.425 && abs(z-e.Z) <= 1.425 && e.Y >= y-0.75 && e.Y <= y+2.3 {
+			target = sess
+			return false
+		}
+		return true
+	})
+	if target == nil {
+		return
+	}
+	tid, _ := world.ItemIDs["trident"]
+	if _, picked := target.addStack(ItemStack{ID: tid, Count: 1, Damage: e.tridentDamage}); !picked {
+		return
+	}
+	s.broadcastTakeItem(e.Dim, e.ID, target.entityID.Load(), 1)
+	s.entities.Remove(e.ID)
+	s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+	target.addItemStat(statPickedUp, tid, 1)
 }
 
 // arrowBlockHit steps the tick's movement segment in small increments
@@ -282,15 +335,30 @@ func blockNameAt(d *dimension, p world.Pos) (string, bool) {
 	return world.StateOwner(d.w.GetBlock(p))
 }
 
+// tridentHitDamage is ThrownTrident's flat BASE_DAMAGE — 8.0 hearts
+// regardless of flight speed (impaling adds per level, unmodeled).
+const tridentHitDamage = 8
+
 // arrowCollide resolves the arrow's hit against every living entity and
 // player in its dimension, applying damage on the first target whose
 // bounding box the arrow tip enters. The shooter is exempt for the
 // first few ticks so a released arrow cannot hit its owner.
 func (s *Server) arrowCollide(e *Entity, ox, oy, oz float64) bool {
+	return s.projectileCollide(e, ox, oy, oz, 0, "arrow")
+}
+
+// projectileCollide is the shared arrow/trident entity-collision path.
+// flat > 0 pins the hit damage (tridents deal a constant 8); flat = 0
+// uses the arrow's speed-scaled formula. typeName drives the damage
+// type name — the is_projectile tag and the adv predicate read it.
+func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, typeName string) bool {
 	shooter := s.sessionByEntityID(e.arrowShooter)
-	damage := float32(math.Ceil(math.Hypot(e.MotionX, e.MotionZ)*0 + math.Sqrt(e.MotionX*e.MotionX+e.MotionY*e.MotionY+e.MotionZ*e.MotionZ)*2.0))
-	if damage < 1 {
-		damage = 1
+	damage := flat
+	if damage <= 0 {
+		damage = float32(math.Ceil(math.Sqrt(e.MotionX*e.MotionX+e.MotionY*e.MotionY+e.MotionZ*e.MotionZ) * 2.0))
+		if damage < 1 {
+			damage = 1
+		}
 	}
 	hit := false
 	s.entities.mu.RLock()
@@ -312,20 +380,22 @@ func (s *Server) arrowCollide(e *Entity, ox, oy, oz float64) bool {
 			dealt, _, died := s.damageMob(t, damage)
 			if dealt > 0 {
 				s.broadcastDamageEvent(t.ID, damageInfo{
-					typeName: "arrow",
+					typeName: typeName,
 					cause:    e.arrowShooter,
 					direct:   e.ID,
 				})
 				if shooter != nil {
-					s.firePlayerHurtEntity(shooter, "arrow", true, dealt)
+					s.firePlayerHurtEntity(shooter, typeName, true, dealt)
 					if died {
 						shooter.addStat(statKilled, t.Type, 1)
 						shooter.addCustomStat("mob_kills", 1)
 						if tn, ok := EntityTypeName(t.Type); ok {
 							vx, vz := t.X, t.Z
 							ax, _, az, _, _, _ := shooter.Pos()
-							s.firePlayerKilledEntityDamage(shooter, tn, vx, vz, ax, az, true, "arrow")
-							s.fireKilledByArrow(shooter, tn, e.arrowWeapon)
+							s.firePlayerKilledEntityDamage(shooter, tn, vx, vz, ax, az, true, typeName)
+							if e.arrowWeapon != "" {
+								s.fireKilledByArrow(shooter, tn, e.arrowWeapon)
+							}
 						}
 					}
 				}
@@ -350,19 +420,19 @@ func (s *Server) arrowCollide(e *Entity, ox, oy, oz float64) bool {
 		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, px, py, pz, 0.6, 1.8) {
 			hit = true
 			if shooter != nil {
-				dealt := s.damageWith(sess, damage, translatable("death.attack.arrow",
+				dealt := s.damageWith(sess, damage, translatable("death.attack."+typeName,
 					literal(sess.getName()), literal(shooter.getName())), damageSource{
-					typeName: "arrow",
+					typeName: typeName,
 					cause:    e.arrowShooter,
 					direct:   e.ID,
 				})
 				if dealt > 0 {
-					s.firePlayerHurtEntity(shooter, "arrow", true, dealt)
+					s.firePlayerHurtEntity(shooter, typeName, true, dealt)
 				}
 			} else {
-				s.damageWith(sess, damage, translatable("death.attack.arrow",
+				s.damageWith(sess, damage, translatable("death.attack."+typeName,
 					literal(sess.getName())), damageSource{
-					typeName: "arrow",
+					typeName: typeName,
 					direct:   e.ID,
 				})
 			}
@@ -405,6 +475,90 @@ func segmentHitsBox(sx, sy, sz, ex, ey, ez, bx, by, bz, w, h float64) bool {
 		}
 	}
 	return true
+}
+
+// tridentUseTicks is TridentItem.releaseUsing's hold floor: under 10
+// ticks the release is a silent no-op.
+const tridentUseTicks = 10
+
+// releaseTrident throws a charged trident on release_use_item. The
+// stack takes one point of durability (hurtWithoutBreaking) before a
+// single trident is consumed — and survives in the thrown entity for
+// pickup. A stack whose next point would break refuses to throw
+// (vanilla's nextDamageWillBreak gate). Creative throws keep the
+// stack but mark the entity Pickup.CREATIVE_ONLY.
+func (s *Server) releaseTrident(sess *Session) {
+	tick := s.TickCount()
+	held := sess.tridentStartTick != 0
+	dt := tick - sess.tridentStartTick
+	sess.tridentStartTick = 0
+	if !held || dt < tridentUseTicks {
+		return
+	}
+	slot := invSlotForHotbar(sess.held.Load())
+	sess.invMu.Lock()
+	st := sess.inv[slot]
+	if name, ok := itemNameOf(st.ID); !ok || name != "trident" {
+		sess.invMu.Unlock()
+		return
+	}
+	maxDmg := damageableItems["trident"]
+	creative := sess.mode() != GameModeSurvival && sess.mode() != GameModeAdventure
+	carry := st.Damage
+	if creative {
+		// hasInfiniteMaterials: the stack is not worn or consumed.
+	} else {
+		if st.Damage+1 >= maxDmg {
+			sess.invMu.Unlock()
+			return
+		}
+		carry++
+		st.Damage++
+		st.Count--
+		if st.Count <= 0 {
+			sess.inv[slot] = ItemStack{}
+		} else {
+			sess.inv[slot] = st
+		}
+		sess.invState.Add(1)
+	}
+	sess.invMu.Unlock()
+	if !creative {
+		_ = s.sendContainerSlot(sess, slot, sess.stackAt(slot))
+		s.fireInventoryChanged(sess)
+	}
+	x, y, z, yaw, pitch, _ := sess.Pos()
+	y += 1.52
+	e := s.spawnTrident(sess, x, y, z, yaw, pitch, 2.5)
+	e.tridentDamage = carry
+	e.tridentCreativeOnly = creative
+	s.playSoundSrc(sess.dimName(), x, y, z, 1631, 1, 1.0, 1.0) // item.trident.throw, PLAYERS source
+	sess.addItemStat(statUsed, st.ID, 1)
+}
+
+// spawnTrident creates the thrown_trident entity at 2.5 blocks/tick
+// along the look vector — vanilla's spawnProjectileFromRotation
+// constants. Entity.Data is the shooter id + 1.
+func (s *Server) spawnTrident(shooter *Session, x, y, z float64, yaw, pitch float32, speed float64) *Entity {
+	yawR := float64(yaw) * math.Pi / 180
+	pitchR := float64(pitch) * math.Pi / 180
+	dx := -math.Sin(yawR) * math.Cos(pitchR)
+	dy := -math.Sin(pitchR)
+	dz := math.Cos(yawR) * math.Cos(pitchR)
+	e := s.entities.Spawn(&Entity{
+		Type: mustEntityType("trident"),
+		Dim:  shooter.dimName(),
+		X:    x, Y: y, Z: z,
+		Yaw: yaw, Pitch: pitch,
+		MotionX: dx * speed, MotionY: dy * speed, MotionZ: dz * speed,
+		VX:   int16(dx * speed * 8000),
+		VY:   int16(dy * speed * 8000),
+		VZ:   int16(dz * speed * 8000),
+		Data: shooter.entityID.Load() + 1,
+	})
+	e.arrowShooter = shooter.entityID.Load()
+	s.broadcastEntitySpawn(nil, *e)
+	return e
 }
 
 // hasItem reports whether the inventory holds the named item.

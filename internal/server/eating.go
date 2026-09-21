@@ -91,6 +91,12 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 		sess.bowStartTick = s.TickCount()
 		return
 	}
+	if name == "trident" {
+		// TridentItem.use starts the same hold; releaseUsing needs
+		// >= 10 ticks before the trident actually leaves the hand.
+		sess.tridentStartTick = s.TickCount()
+		return
+	}
 	if name == "crossbow" {
 		s.useCrossbow(sess)
 		return

@@ -139,9 +139,14 @@ func encodeBobberMetadata(hookedID int32, biting bool) []byte {
 // playSoundAt broadcasts a positioned Sound packet at fractional
 // coordinates (bobber sounds are entity-positioned NEUTRAL events).
 func (s *Server) playSoundAt(dim string, x, y, z float64, soundID int32, vol, pitch float32) {
+	s.playSoundSrc(dim, x, y, z, soundID, 6, vol, pitch)
+}
+
+// playSoundSrc is playSoundAt with an explicit SoundSource id.
+func (s *Server) playSoundSrc(dim string, x, y, z float64, soundID, src int32, vol, pitch float32) {
 	var b protocol.Buffer
 	b.VarInt(soundID + 1)
-	b.VarInt(6) // SoundSource.NEUTRAL
+	b.VarInt(src)
 	b.Int(int32(x * 8))
 	b.Int(int32(y * 8))
 	b.Int(int32(z * 8))

@@ -83,6 +83,7 @@ func (s *Server) handlePlayerActionExtras(sess *Session, p protocol.Packet) bool
 	case actionReleaseUse:
 		sess.blocking.Store(false)
 		s.releaseBow(sess)
+		s.releaseTrident(sess)
 		s.releaseCrossbow(sess)
 		sess.usingItemID = 0
 		return true

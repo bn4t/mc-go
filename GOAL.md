@@ -1883,3 +1883,27 @@ physics through a void dip plus a fed recovery window.
   green on both targets. Harness note: a `fill` that stops at the
   surface y leaves water UNDER grass and the bobber never bites;
   canSeeSky-style checks must treat fluids as sky-open.
+- 2026-09-21: throw_trident (adventure/throw_trident "A Throwaway
+  Joke") and the thrown_trident projectile. TridentItem.use starts a
+  charge like the bow but releaseUsing needs >= 10 ticks; release
+  hurtWithoutBreaking(1)s the stack THEN consumes one (survival), the
+  wounded stack rides along in the entity, and
+  nextDamageWillBreak (damage+1 >= 250) refuses the throw entirely.
+  Creative keeps the stack and marks the entity Pickup.CREATIVE_ONLY.
+  The entity flies vanilla's AbstractArrow physics (gravity 0.05,
+  drag 0.99) at spawnProjectileFromRotation speed 2.5, hits living
+  targets for a FLAT 8 (BASE_DAMAGE — speed-independent, impaling
+  unmodeled) under damage type "trident" (tagged is_projectile), dies
+  on entity hit, or sticks in blocks (item.trident.hit_ground) where
+  survival/adventure players pick it back up via the same inflated-
+  AABB rule as items, durability preserved. Kills broadcast
+  death.attack.trident; killed_by_arrow only fires when the
+  projectile actually came from a weapon item (arrowWeapon guard —
+  tridents leave it empty). Throw plays item.trident.throw on the
+  PLAYERS source (playSoundAt grew a source param). The entity-
+  collision path is now projectileCollide(e, flat, typeName) shared
+  by arrows. Loyalty/riptide/channeling and trident metadata (idx 8
+  loyalty byte, idx 9 foil) are unmodeled.
+  TestThrowTridentParity grants the parent (kill_a_mob — vanilla
+  hides the child until then), summons a NoAI pig 9 blocks out, and
+  throws pitch-8; green on both targets.

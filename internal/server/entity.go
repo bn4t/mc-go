@@ -66,6 +66,15 @@ type Entity struct {
 	// vanilla's default; "crossbow" when a crossbow loosed it) —
 	// killed_by_arrow's fired_from_weapon predicate reads it.
 	arrowWeapon string
+	// tridentStuck marks a thrown trident embedded in a block; the
+	// owner walks over it to get the stack back.
+	tridentStuck bool
+	// tridentDamage is the minecraft:damage the pickup stack carries
+	// (the trident wears one point when thrown).
+	tridentDamage int32
+	// tridentCreativeOnly marks a creative-thrown trident — vanilla's
+	// Pickup.CREATIVE_ONLY: it can't be picked up.
+	tridentCreativeOnly bool
 	// arrowStuck marks an arrow embedded in a block: it stops
 	// moving and colliding until it despawns, like vanilla's
 	// inGround state.

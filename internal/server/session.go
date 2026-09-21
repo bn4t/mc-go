@@ -145,6 +145,10 @@ type Session struct {
 	// bowStartTick is the server tick a bow draw began on; zero means
 	// not drawing.
 	bowStartTick int64
+	// tridentStartTick is the server tick a trident wind-up began on;
+	// zero means not charging. Vanilla's releaseUsing needs >= 10
+	// ticks of hold before the trident leaves the hand.
+	tridentStartTick int64
 	// crossbowStartTick is the server tick a crossbow charge began;
 	// crossbowCharged is set once 25 ticks pass — the second use after
 	// that fires instead of drawing again. Early release cancels.
