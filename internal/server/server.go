@@ -164,6 +164,18 @@ type Server struct {
 	randMu       sync.Mutex
 	randSections map[randSectionKey]bool
 
+	// dirtyBlocks accumulates changed block positions per chunk
+	// section across a tick; blockChangesFlushStep emits them the way
+	// vanilla's ChunkHolder.broadcastChanges does — a lone change rides
+	// block_update, several ride section_blocks_update, with the state
+	// read at flush time. dirtyMu guards it.
+	dirtyMu     sync.Mutex
+	dirtyBlocks map[blockSectionKey]map[uint16]bool
+	// ticking is set while runGameLoop is alive — block changes batch
+	// for the end-of-tick flush only then; without a ticker (unit tests
+	// driving pipes directly) broadcastBlockState writes immediately.
+	ticking atomic.Bool
+
 	// weatherRaining/weatherThunder are the server-wide weather flags
 	// (vanilla keeps one WeatherData on the server); weatherTicks is
 	// the remaining duration counted down per tick — see weather.go.
@@ -204,6 +216,7 @@ func New(addr string) *Server {
 		ticks:              newTickScheduler(),
 		rng:                newRandState(0x5DEECE66D),
 		randSections:       map[randSectionKey]bool{},
+		dirtyBlocks:        map[blockSectionKey]map[uint16]bool{},
 	}
 	if s.ViewDistance == 0 {
 		s.ViewDistance = 10

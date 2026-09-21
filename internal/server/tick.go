@@ -296,6 +296,11 @@ func (s *Server) GameTick() {
 	// Chunk streaming is paced on the tick, like everything else: one
 	// batch per tick per player, at the rate their client asked for.
 	s.chunkTickStep()
+	// Vanilla flushes each chunk's accumulated block changes at the end
+	// of the tick (ChunkHolder.broadcastChanges) — after entities and
+	// block ticks ran, so the explode packet precedes the flips' section
+	// update on the wire.
+	s.blockChangesFlushStep()
 
 	s.clock.mu.Lock()
 	s.clock.count++
@@ -380,6 +385,8 @@ func (s *Server) playerTick() {
 // it (see tickClock.next). The player tick rides the same cadence but is
 // gated only by elapsed wall time, so it also runs while frozen.
 func (s *Server) runGameLoop(stop chan struct{}) {
+	s.ticking.Store(true)
+	defer s.ticking.Store(false)
 	var since time.Duration
 	lastPlayerTick := time.Now()
 	for {

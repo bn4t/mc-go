@@ -1,6 +1,8 @@
 package server
 
 import (
+	"sort"
+
 	"mc-go/internal/event"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
@@ -25,19 +27,104 @@ func encodeBlockUpdate(x, y, z int32, state int32) []byte {
 	return b.Bytes()
 }
 
-// broadcastBlockState sends a Block Update for pos to every play-stage
-// session tracking its chunk in dimension d.
+// broadcastBlockState records pos as changed in this tick's per-section
+// batch — vanilla's ChunkMap.blockChanged, which accumulates positions
+// and lets ChunkHolder.broadcastChanges emit them at tick end. A
+// section with one change sends block_update; several changes ride a
+// section_blocks_update carrying each position's state at flush time.
+// The blk argument is kept so call sites read as a state write.
 func (s *Server) broadcastBlockState(d *dimension, pos world.Pos, blk world.Block) {
-	cx, cz := pos.X>>4, pos.Z>>4
-	body := encodeBlockUpdate(int32(pos.X), int32(pos.Y), int32(pos.Z), blockState(blk))
-	s.sessions.Range(func(_, v any) bool {
-		sess := v.(*Session)
-		if sess.state.Load() != StatePlay || sess.dimName() != d.name || !sess.hasChunk(cx, cz) {
+	if d == nil {
+		return
+	}
+	if !s.ticking.Load() {
+		// No game loop means no end-of-tick flush will ever run — write
+		// the update right away (unit tests driving a server without
+		// Serve rely on this).
+		cx, cz := pos.X>>4, pos.Z>>4
+		body := encodeBlockUpdate(int32(pos.X), int32(pos.Y), int32(pos.Z), blockState(blk))
+		s.sessions.Range(func(_, v any) bool {
+			sess := v.(*Session)
+			if sess.state.Load() != StatePlay || sess.dimName() != d.name || !sess.hasChunk(cx, cz) {
+				return true
+			}
+			_ = sess.write(sess.ids().PlayBlockUpdateCB, body)
 			return true
+		})
+		return
+	}
+	key := blockSectionKey{dim: d.name, x: pos.X >> 4, y: pos.Y >> 4, z: pos.Z >> 4}
+	lp := uint16((pos.X&15)<<8 | (pos.Z&15)<<4 | (pos.Y & 15))
+	s.dirtyMu.Lock()
+	if s.dirtyBlocks[key] == nil {
+		s.dirtyBlocks[key] = map[uint16]bool{}
+	}
+	s.dirtyBlocks[key][lp] = true
+	s.dirtyMu.Unlock()
+}
+
+// blockSectionKey identifies one 16x16x16 chunk section in a dimension;
+// y is the section coordinate (block y >> 4), not an index above minY.
+type blockSectionKey struct {
+	dim     string
+	x, y, z int
+}
+
+// blockChangesFlushStep emits the tick's accumulated block changes —
+// vanilla's ChunkHolder.broadcastChanges running per ticking chunk. One
+// changed position in a section sends a plain block_update; more send a
+// section_blocks_update: section pos long, VarInt count, then a VarLong
+// per change packing (state id << 12) | 12-bit local position. The state
+// is read at flush, so multiple writes to one block within a tick
+// collapse to the final state — same as vanilla's ShortSet dedup.
+func (s *Server) blockChangesFlushStep() {
+	s.dirtyMu.Lock()
+	dirty := s.dirtyBlocks
+	s.dirtyBlocks = map[blockSectionKey]map[uint16]bool{}
+	s.dirtyMu.Unlock()
+	for key, set := range dirty {
+		d := s.dims[key.dim]
+		if d == nil {
+			continue
 		}
-		_ = sess.write(sess.ids().PlayBlockUpdateCB, body)
-		return true
-	})
+		locals := make([]uint16, 0, len(set))
+		for lp := range set {
+			locals = append(locals, lp)
+		}
+		sort.Slice(locals, func(i, j int) bool { return locals[i] < locals[j] })
+		cx, cz := key.x, key.z
+		if len(locals) == 1 {
+			lp := locals[0]
+			pos := world.Pos{X: cx*16 + int(lp>>8&15), Y: key.y*16 + int(lp&15), Z: cz*16 + int(lp>>4&15)}
+			body := encodeBlockUpdate(int32(pos.X), int32(pos.Y), int32(pos.Z), blockState(d.w.GetBlock(pos)))
+			s.sessions.Range(func(_, v any) bool {
+				sess := v.(*Session)
+				if sess.state.Load() != StatePlay || sess.dimName() != key.dim || !sess.hasChunk(cx, cz) {
+					return true
+				}
+				_ = sess.write(sess.ids().PlayBlockUpdateCB, body)
+				return true
+			})
+			continue
+		}
+		var b protocol.Buffer
+		secLong := int64(int64(key.x)&0x3fffff)<<42 | int64(int64(key.z)&0x3fffff)<<20 | int64(key.y)&0xfffff
+		b.Long(secLong)
+		b.VarInt(int32(len(locals)))
+		for _, lp := range locals {
+			pos := world.Pos{X: cx*16 + int(lp>>8&15), Y: key.y*16 + int(lp&15), Z: cz*16 + int(lp>>4&15)}
+			b.VarLong(int64(uint64(blockState(d.w.GetBlock(pos)))<<12 | uint64(lp)))
+		}
+		body := b.Bytes()
+		s.sessions.Range(func(_, v any) bool {
+			sess := v.(*Session)
+			if sess.state.Load() != StatePlay || sess.dimName() != key.dim || !sess.hasChunk(cx, cz) {
+				return true
+			}
+			_ = sess.write(sess.ids().PlaySectionBlocksUpdate, body)
+			return true
+		})
+	}
 }
 
 // broadcastBlockUpdateIn pushes a raw block-state change (dimension

@@ -2347,3 +2347,21 @@ physics through a void dip plus a fed recovery window.
   (block updates, section updates) until the client acks each chunk
   batch — drains must go through drainChunkWindow, which acks; a
   shared read deadline across conns starves the second reader.
+- Per-section block-change batching generalized (26.2, ChunkHolder
+  parity): broadcastBlockState no longer writes block_update per call —
+  it accumulates changed positions per (dim, chunk section) for the
+  tick, and blockChangesFlushStep runs at GameTick end (after chunk
+  streaming, where vanilla's ChunkMap.tick sits): one change in a
+  section emits block_update, several emit section_blocks_update
+  (0x54: section-pos long, VarInt count, VarLong (stateId<<12)|localPos
+  per change) with the state read AT FLUSH — intra-tick rewrites
+  collapse to the final state, matching vanilla's ShortSet dedup.
+  Light updates already precede the flush so vanilla's light-first
+  ordering inside broadcastChanges is preserved. block_entity_data is
+  still sent eagerly by syncBlockEntities (vanilla piggybacks it on the
+  flush — residual gap). Servers without a running game loop (unit
+  tests) keep the immediate write. Pinned by
+  TestWindChargeTriggerBlocksParity emitting 0x54 carriers.
+  Pre-existing failures unrelated to this change, observed on clean
+  master: TestMcGoOnlyOpsCommands (chat root decode), 
+  TestMcGoOnlyPortalCooldownExpiry (respawn 30s timeout).
