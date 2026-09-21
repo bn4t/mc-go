@@ -99,6 +99,29 @@ func TestDataEntityParity(t *testing.T) {
 		"data merge entity @e[limit=2] {Health:5f}",
 		"data get entity " + selAny,
 		"data get entity @e[limit=2]",
+		// The storage scope: a missing id reads as an empty compound,
+		// writes answer commands.data.storage.modified with the bare
+		// id string, and from/string sources reach across scopes.
+		"data get storage zzprobe:s",
+		"data merge storage zzprobe:s {a:1b,b:\"two\",c:[1,2,3]}",
+		"data get storage zzprobe:s",
+		"data get storage zzprobe:s c[1]",
+		"data modify storage zzprobe:s a set value 9b",
+		"data get storage zzprobe:s a",
+		"data remove storage zzprobe:s b",
+		"data get storage zzprobe:s",
+		"data modify storage zzprobe:s g set from storage zzprobe:s c",
+		"data get storage zzprobe:s g",
+		"data modify storage zzprobe:s hp set from entity " + sel + " Health",
+		"data get storage zzprobe:s hp",
+		"data merge storage zzprobe:s {d:{e:[{f:5}]}}",
+		"data modify storage zzprobe:s d.e[0].f set string storage zzprobe:s c[0]",
+		"data get storage zzprobe:s",
+		"data merge storage zzprobe:s {arr:[I;1,2]}",
+		"data get storage zzprobe:s arr",
+		"data modify storage zzprobe:s h set string entity @s UUID",
+		"data get storage zznone:ns",
+		"data remove storage zzprobe:s nosuch",
 		// Kills come last so the pigs' deaths can't disturb the data
 		// reads above: notfound replies, a single kill's name-comp
 		// reply + pose/health death pack, and a multi kill. Tag

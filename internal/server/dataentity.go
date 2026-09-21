@@ -213,18 +213,42 @@ func (s *Server) modifySource(player string, args []string) (any, *reply) {
 					return nil, &r
 				}
 			}
+		case "storage":
+			if len(args) < 3 {
+				r := componentReply(commandError("command.unknown.command"))
+				return nil, &r
+			}
+			// Copied: `from`/`string` sources carry a snapshot — a `set`
+			// must not alias the live compound it was read out of.
+			val = nbtDeepCopy(s.storageCompound(args[2]))
+			if len(args) > 3 {
+				steps, ok := parseNBTPath(args[3])
+				if !ok {
+					r := componentReply(commandError("command.unknown.command"))
+					return nil, &r
+				}
+				val, ok = nbtGet(val, steps)
+				if !ok {
+					r := componentReply(commandError("arguments.nbtpath.nothing_found", args[3]))
+					return nil, &r
+				}
+			}
 		default:
-			// storage is not modeled yet
 			r := componentReply(commandError("command.unknown.command"))
 			return nil, &r
 		}
 		if wantStr {
-			sv, isStr := val.(string)
-			if !isStr {
-				r := componentReply(commandError("commands.data.modify.expected_value", snbtCompact(val)))
-				return nil, &r
+			// DataCommands.getAsText: a StringTag yields its value, a
+			// PrimitiveTag its SNBT form ("9b", "3.0f"), anything else
+			// throws expected_value.
+			switch sv := val.(type) {
+			case string:
+				return sv, nil
+			case int8, int16, int32, int64, float32, float64:
+				return snbtCompact(sv), nil
 			}
-			return sv, nil
+			r := componentReply(commandError("commands.data.modify.expected_value", snbtCompact(val)))
+			return nil, &r
 		}
 		return val, nil
 	}

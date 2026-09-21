@@ -193,6 +193,12 @@ type Server struct {
 	weatherTicks   atomic.Int64
 	weatherRain    atomic.Int32 // rainLevel * 1000, lerped
 	weatherThundLv atomic.Int32 // thunderLevel * 1000, lerped
+
+	// storage is the /data storage scope — vanilla's CommandStorage:
+	// a global map of resource-location id to NBT compound, empty for
+	// ids nobody wrote. storageMu guards it.
+	storageMu sync.Mutex
+	storage   map[string]map[string]any
 }
 
 // New builds a server with its world, bus, and command registry.
@@ -209,6 +215,7 @@ func New(addr string) *Server {
 		world:            world.New(bus, 8),
 		commands:         plugin.NewCommands(),
 		entities:         NewManager(),
+		storage:          map[string]map[string]any{},
 		sem:              make(chan struct{}, 256),
 		started:          time.Now(),
 		// Creative keeps existing scripted sessions deterministic;

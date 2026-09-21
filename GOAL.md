@@ -2572,3 +2572,12 @@ physics through a void dip plus a fed recovery window.
   keeping adventuring_time and chunk biome palettes aligned.
   TestDataEntityParity adds a double `kill @e[type=!player]` wipe at
   join plus kill/selector cases — 41 commands green end to end.
+- `/data` gains the `storage` scope: `get|merge|remove|modify` on a
+  global id→compound map (missing ids read as `{}`, writes reply
+  commands.data.storage.modified with the bare id string). `from
+  storage`/`string storage` sources wired into modifySource; a `from`
+  source deep-copies so `set` never aliases the live compound.
+  String sources follow vanilla's getAsText — StringTag value,
+  PrimitiveTag compact SNBT, others expected_value — measured after
+  `set string` on int 1 stored "1" but UUID int-array threw.
+  TestDataEntityParity +20 cases green vs both servers.

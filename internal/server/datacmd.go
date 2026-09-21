@@ -30,6 +30,9 @@ func (s *Server) runData(player string, args []string) reply {
 	if len(args) > 1 && args[1] == "entity" {
 		return s.runDataEntity(player, args)
 	}
+	if len(args) > 1 && args[1] == "storage" {
+		return s.runDataStorage(player, args)
+	}
 	if len(args) < 5 || args[1] != "block" {
 		return componentReply(commandError("command.unknown.command"))
 	}
