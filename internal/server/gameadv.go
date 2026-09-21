@@ -48,6 +48,7 @@ type advMeta struct {
 	pickups    []pickupCond    // thrown_item_picked_up_by_entity — a mob took a player's drop
 	pickupsByP []pickupCond    // thrown_item_picked_up_by_player — the picker side
 	rides      []rideCond      // started_riding — a player mounted a vehicle
+	rideLava   []rideLavaCond  // ride_entity_in_lava — distance on a lava vehicle
 	fills      []fillCond      // filled_bucket — a bucket was filled
 	sleeps     []sleepCond     // slept_in_bed — entered a bed
 	sculks     []sleepCond     // kill_mob_near_sculk_catalyst — no conditions
@@ -294,6 +295,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.pickupsByP = append(m.pickupsByP, parsePickupCond(cname, cm["conditions"]))
 				case "minecraft:started_riding":
 					m.rides = append(m.rides, parseRideCond(cname, cm["conditions"]))
+				case "minecraft:ride_entity_in_lava":
+					m.rideLava = append(m.rideLava, parseRideLavaCond(cname, cm["conditions"]))
 				case "minecraft:filled_bucket":
 					m.fills = append(m.fills, parseFillCond(cname, cm["conditions"]))
 				case "minecraft:construct_beacon":
@@ -2356,6 +2359,123 @@ func (s *Server) fireStartedRiding(sess *Session) {
 				if !matched {
 					continue
 				}
+			}
+			sess.grantGameCriterion(meta, rc.crit)
+		}
+	}
+}
+
+// rideLavaCond is one ride_entity_in_lava criterion: a distance
+// predicate (horizontal min measured from the latched lava-entry
+// position) plus the player predicate's location.dimension and
+// vehicle.entity_type constraints. Anything else locks the criterion.
+type rideLavaCond struct {
+	crit       string
+	horizMin   float64
+	hasHoriz   bool
+	vehTypes   map[string]bool
+	dim        string // "" means unconstrained
+	impossible bool
+}
+
+// parseRideLavaCond reduces a ride_entity_in_lava criterion. Vanilla
+// passes a DistancePredicate ("distance") and the entity_properties
+// player predicate; mc-go is single-dimension overworld, so any
+// dimension constraint other than overworld locks the criterion.
+func parseRideLavaCond(cname string, conds any) rideLavaCond {
+	rc := rideLavaCond{crit: cname, vehTypes: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "distance":
+			dm, _ := v.(map[string]any)
+			for dk, dv := range dm {
+				if dk != "horizontal" {
+					continue // y/absolute axes unused by the datapack
+				}
+				hm, _ := dv.(map[string]any)
+				if mn, ok := hm["min"].(float64); ok {
+					rc.horizMin = mn
+					rc.hasHoriz = true
+				}
+			}
+		case "player":
+			plist, _ := v.([]any)
+			for _, pv := range plist {
+				pm, _ := pv.(map[string]any)
+				if c, _ := pm["condition"].(string); c != "minecraft:entity_properties" {
+					rc.impossible = true
+					continue
+				}
+				pred, _ := pm["predicate"].(map[string]any)
+				for pk, pv2 := range pred {
+					switch pk {
+					case "minecraft:location":
+						lm, _ := pv2.(map[string]any)
+						for lk, lv := range lm {
+							switch lk {
+							case "dimension":
+								if st, ok := lv.(string); ok {
+									rc.dim = strings.TrimPrefix(st, "minecraft:")
+								}
+							default:
+								rc.impossible = true
+							}
+						}
+					case "minecraft:vehicle":
+						vm, _ := pv2.(map[string]any)
+						for vk, vv := range vm {
+							if vk != "minecraft:entity_type" {
+								rc.impossible = true
+								continue
+							}
+							if st, ok := vv.(string); ok {
+								rc.vehTypes[st] = true
+							}
+						}
+					default:
+						rc.impossible = true
+					}
+				}
+			}
+		default:
+			rc.impossible = true
+		}
+	}
+	return rc
+}
+
+// fireRideInLava runs ride_entity_in_lava each tick a player's vehicle
+// is in lava, measuring horizontal distance from the entry position.
+func (s *Server) fireRideInLava(sess *Session) {
+	vid := sess.riding.Load()
+	if vid == 0 {
+		return
+	}
+	s.entities.mu.RLock()
+	veh, ok := s.entities.byID[vid]
+	s.entities.mu.RUnlock()
+	if !ok {
+		return
+	}
+	vname, _ := EntityTypeName(veh.Type)
+	x, _, z, _, _, _ := sess.Pos()
+	dx := x - sess.lavaRidePos[0]
+	dz := z - sess.lavaRidePos[2]
+	hdist := math.Sqrt(dx*dx + dz*dz)
+	for _, meta := range gameAdvs {
+		for _, rc := range meta.rideLava {
+			if rc.impossible {
+				continue
+			}
+			if rc.dim != "" && rc.dim != "overworld" {
+				continue
+			}
+			if len(rc.vehTypes) > 0 && !entityTypesMatch(rc.vehTypes, vname) {
+				continue
+			}
+			if rc.hasHoriz && hdist < rc.horizMin {
+				continue
 			}
 			sess.grantGameCriterion(meta, rc.crit)
 		}

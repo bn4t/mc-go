@@ -35,6 +35,9 @@ type Entity struct {
 	// passengers list); Riding is the vehicle id on the passenger.
 	Passengers []int32
 	Riding     int32
+	// Saddle is the equipment.saddle slot on saddleable mounts
+	// (strider, pig, horse family): vanilla gates mounting on it.
+	Saddle bool
 	// MotionX/MotionZ carry a thrown item's horizontal drift, applied
 	// each tick with vanilla's 0.98 air / ~0.55 grounded decay.
 	MotionX, MotionZ float64

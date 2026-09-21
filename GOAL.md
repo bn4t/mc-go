@@ -2015,3 +2015,19 @@ physics through a void dip plus a fed recovery window.
   with #tag resolution via entityTypeTagHas. Goat summonable
   (hp 10, box 0.9x1.3). TestStartedRidingParity mounts an
   oak_boat carrying a goat — green vs vanilla 26.2.
+
+- ride_entity_in_lava (done): vanilla ServerPlayer.tick — while
+  getVehicle().isInLava() the tick latches enteredLavaOnVehiclePosition
+  once and fires the DistanceTrigger against it each tick;
+  nether/ride_strider_in_overworld_lava asks horizontal >= 50 with
+  location.dimension=overworld + vehicle.entity_type=strider. mc-go:
+  strider summonable (hp 20, box 0.9x1.7), saddled via Saddle:1b or
+  the 1.21.6+ equipment.saddle slot (bareback refuses mounting, per
+  Strider.mobInteract), seat caps per vehicle (boat 2 / strider 1),
+  rider position follows the vehicle each player tick, entityInLava
+  scans the vehicle AABB for lava states, and lavaRidePos latches the
+  entry like vanilla. /tp @e[type=X] teleports non-player entities
+  (riders follow their vehicle), replying
+  commands.teleport.success.location.single/.multiple.
+  TestRideEntityInLavaParity teleports the ridden strider 60 blocks
+  along a lava trench — green vs vanilla 26.2.

@@ -97,6 +97,12 @@ type Session struct {
 	// riding is the entity id of the vehicle this player mounted
 	// (boat etc.) — zero when on foot.
 	riding atomic.Int32
+	// lavaRidePos latches the player's position the first tick their
+	// vehicle is in lava (vanilla's enteredLavaOnVehiclePosition);
+	// ride_entity_in_lava's distance predicate measures from it.
+	// Touched only on the player tick.
+	lavaRidePos [3]float64
+	lavaRideSet bool
 	// chatIndex counts this player's relayed chat messages; chatGlobal
 	// counts messages delivered to this client (Player Chat Message
 	// ordering counters).

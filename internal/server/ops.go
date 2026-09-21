@@ -123,6 +123,9 @@ func (s *Server) runTp(player string, args []string) reply {
 	case 4:
 		victim := resolve(args[0])
 		if victim == nil {
+			if r, ok := s.runTpEntities(player, args[0], args[1:]); ok {
+				return r
+			}
 			return textReply("Unknown player: " + args[0])
 		}
 		return s.runTpCoords(victim.getName(), player, args[1:])
@@ -214,6 +217,64 @@ func (s *Server) runTpCoordsRot(victim, issuer string, coords, rot []string) rep
 	sx, sy, sz := tpCoords(x, y, z)
 	return s.tpReply(issuer, translatable("commands.teleport.success.location.single",
 		entityTargetComponent(target), sx, sy, sz))
+}
+
+// runTpEntities implements "/tp @e[type=name] <x> <y> <z>" against
+// non-player entities — vanilla's selector teleports whatever it
+// matches; a rider follows its vehicle on the next tick.
+func (s *Server) runTpEntities(issuer, sel string, args []string) (reply, bool) {
+	if !strings.HasPrefix(sel, "@e[") || !strings.HasSuffix(sel, "]") {
+		return reply{}, false
+	}
+	var typ string
+	for _, kv := range strings.Split(sel[3:len(sel)-1], ",") {
+		k, v, _ := strings.Cut(kv, "=")
+		if strings.TrimSpace(k) == "type" {
+			typ = strings.TrimPrefix(strings.TrimSpace(v), "minecraft:")
+		}
+	}
+	if typ == "" {
+		return reply{}, false
+	}
+	var ents []*Entity
+	s.entities.mu.RLock()
+	for _, e := range s.entities.byID {
+		if n, _ := EntityTypeName(e.Type); n == typ {
+			ents = append(ents, e)
+		}
+	}
+	s.entities.mu.RUnlock()
+	if len(ents) == 0 {
+		return reply{}, false
+	}
+	const border = 29999984.0
+	var lx, ly, lz float64
+	for _, e := range ents {
+		x, err := parseDouble(args[0], e.X, true)
+		if err != nil {
+			return textReply("Invalid x: " + args[0]), true
+		}
+		y, err := parseDouble(args[1], e.Y, false)
+		if err != nil {
+			return textReply("Invalid y: " + args[1]), true
+		}
+		z, err := parseDouble(args[2], e.Z, true)
+		if err != nil {
+			return textReply("Invalid z: " + args[2]), true
+		}
+		if x < -border || x > border || z < -border || z > border || y < -2048 || y > 2048 {
+			return textReply("Position outside the world"), true
+		}
+		e.X, e.Y, e.Z = x, y, z
+		lx, ly, lz = x, y, z
+	}
+	sx, sy, sz := tpCoords(lx, ly, lz)
+	if len(ents) == 1 {
+		return s.tpReply(issuer, translatable("commands.teleport.success.location.single",
+			translatable("entity.minecraft."+typ), sx, sy, sz)), true
+	}
+	return s.tpReply(issuer, translatable("commands.teleport.success.location.multiple",
+		int32(len(ents)), sx, sy, sz)), true
 }
 
 func (s *Server) runKick(player string, args []string) string {

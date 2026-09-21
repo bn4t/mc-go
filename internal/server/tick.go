@@ -361,6 +361,7 @@ func (s *Server) playerTick() {
 			s.fireInventoryChanged(sess)
 		}
 		s.fireEnterBlock(sess)
+		s.rideTickStep(sess)
 		s.flushAdvancements(sess)
 		return true
 	})

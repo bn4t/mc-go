@@ -182,6 +182,7 @@ var mobHealth = map[string]float32{
 	"sulfur_cube": 4,
 	"allay":       20,
 	"goat":        10,
+	"strider":     20,
 }
 
 // mobBoundsTable is the vanilla bounding box (width, height) per
@@ -210,6 +211,7 @@ func init() {
 		"sulfur_cube":  {1.04, 1.04},
 		"allay":        {0.35, 0.6},
 		"goat":         {0.9, 1.3},
+		"strider":      {0.9, 1.7},
 	} {
 		if id, ok := EntityTypeID(name); ok {
 			mobBoundsTable[id] = dims
@@ -271,6 +273,16 @@ func (s *Server) runSummon(player string, args []string) reply {
 			// (e.g. an item entity's Thrower).
 			if u, ok := snbtUUID(tag, "UUID"); ok {
 				e.UUID = u
+			}
+			// Saddleable mounts take the saddle either by the legacy
+			// Saddle flag or by the 1.21.6+ equipment.saddle slot.
+			if v, ok := tag.vals["Saddle"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+				e.Saddle = true
+			}
+			if eq, ok := tag.vals["equipment"]; ok {
+				if sd, ok := eq.vals["saddle"]; ok && sd.vals["id"].str != "" {
+					e.Saddle = true
+				}
 			}
 		}
 		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
