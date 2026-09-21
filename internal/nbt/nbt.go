@@ -102,6 +102,11 @@ func ReadNamed(r io.Reader) (string, any, error) {
 	return name, v, err
 }
 
+// OrderedKeys exposes compoundKeyOrder to renderers outside the wire
+// writer — /data's pretty print must walk a compound in the same order
+// the save form is emitted.
+func OrderedKeys(m map[string]any) []string { return compoundKeyOrder(m) }
+
 // compoundKeyOrder returns the keys of an NBT compound in the order a
 // real server's CompoundTag would store them: Java HashMap iteration
 // order, which walks hash buckets ascending.

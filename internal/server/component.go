@@ -37,8 +37,12 @@ type component struct {
 	extra []component
 	// emptyKey is a literal rendered under the empty entry name vanilla
 	// uses inside command context messages, {"": "tick "}. Such a
-	// component carries no text field of its own.
-	emptyKey string
+	// component carries no text field of its own. forceCompound keeps
+	// an empty emptyKey a compound — /data's pretty SNBT prints {"": ""}
+	// spacers that would otherwise collapse to a bare string inside a
+	// compound-typed extra list.
+	emptyKey      string
+	forceCompound bool
 	// underlined and italic are the style flags vanilla sets on the
 	// token a failed parse points at, and on the cursor marker.
 	underlined bool
@@ -86,8 +90,8 @@ func commandError(key string, with ...any) component {
 // vanilla sends as a string rather than a compound.
 func (c component) isPlain() bool {
 	return c.translate == "" && c.color == "" && len(c.extra) == 0 &&
-		c.emptyKey == "" && c.click == "" && c.insertion == "" &&
-		len(c.hover) == 0 && !c.underlined && !c.italic
+		c.emptyKey == "" && !c.forceCompound && c.click == "" &&
+		c.insertion == "" && len(c.hover) == 0 && !c.underlined && !c.italic
 }
 
 // nested renders the component as an NBT compound.
@@ -130,7 +134,7 @@ func (c component) nested() map[string]any {
 	// anything else is a plain literal with its text spelled out.
 	switch {
 	case c.translate != "":
-	case c.emptyKey != "":
+	case c.emptyKey != "" || c.forceCompound:
 		m[""] = c.emptyKey
 	default:
 		m["text"] = c.text

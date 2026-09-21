@@ -219,6 +219,95 @@ func (s *Server) chunkBlockEntities(d *dimension, cx, cz int) []map[string]any {
 	return list
 }
 
+// blockEntitySaveMap renders the save-form NBT for the block entity
+// at pos — the same map chunkBlockEntities writes into chunk saves —
+// or reports nil when the block owns no block entity mc-go models.
+// /data reads and rewrites it; keepPacked is dropped like the wire
+// form drops it (the real server's save tag keeps it but its command
+// view does not print it — measured 26.2: a chest query prints
+// components,x,y,Items,z,id and no keepPacked).
+func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any, bool) {
+	blk := d.w.GetBlock(pos)
+	spec, ok := blockEntityOf(blk)
+	if !ok {
+		return nil, false
+	}
+	switch spec.name {
+	case "minecraft:sign", "minecraft:hanging_sign":
+		d.signs.mu.Lock()
+		defer d.signs.mu.Unlock()
+		st, ok := d.signs.signs[pos]
+		if !ok {
+			return nil, false
+		}
+		snap := *st
+		return blockEntityNBT(pos, spec, func(extra map[string]any) {
+			extra["front_text"] = signTextNBT(snap.Front, snap.frontColor, snap.frontGlowing)
+			extra["back_text"] = signTextNBT(snap.Back, snap.backColor, snap.backGlowing)
+			extra["is_waxed"] = boolByte(snap.waxed)
+		}), true
+	case "minecraft:chest", "minecraft:trapped_chest", "minecraft:barrel":
+		if c := s.peekChest(d, pos); c != nil {
+			slots := make([]ItemStack, len(c.slots))
+			copy(slots, c.slots[:])
+			return blockEntityNBT(pos, spec, func(extra map[string]any) {
+				extra["Items"] = itemsNBT(slots)
+			}), true
+		}
+		return nil, false
+	case "minecraft:hopper":
+		if h := s.peekHopper(d, pos); h != nil {
+			slots := make([]ItemStack, len(h.slots))
+			copy(slots, h.slots[:])
+			cooldown := h.cooldown
+			return blockEntityNBT(pos, spec, func(extra map[string]any) {
+				extra["Items"] = itemsNBT(slots)
+				extra["TransferCooldown"] = cooldown
+			}), true
+		}
+		return nil, false
+	case "minecraft:furnace", "minecraft:blast_furnace", "minecraft:smoker":
+		if f := s.peekFurnace(d, pos); f != nil {
+			d.furnaces.mu.Lock()
+			slots := make([]ItemStack, len(f.slots))
+			copy(slots, f.slots[:])
+			burn, burnTotal, cook, cookTotal := f.burn, f.burnTotal, f.cook, f.cookTotal
+			used := make(map[string]any, len(f.used))
+			for id, n := range f.used {
+				used[id] = n
+			}
+			d.furnaces.mu.Unlock()
+			return blockEntityNBT(pos, spec, func(extra map[string]any) {
+				extra["Items"] = itemsNBT(slots)
+				extra["lit_time_remaining"] = int16(burn)
+				extra["lit_total_time"] = int16(burnTotal)
+				extra["cooking_time_spent"] = int16(cook)
+				extra["cooking_total_time"] = int16(cookTotal)
+				extra["RecipesUsed"] = used
+			}), true
+		}
+		return nil, false
+	}
+	d.containers.mu.Lock()
+	defer d.containers.mu.Unlock()
+	if c, ok := d.containers.containers[pos]; ok {
+		slots := make([]ItemStack, len(c.slots))
+		copy(slots, c.slots[:])
+		brew, fuel, disabled := c.brewTime, c.fuel, c.disabled
+		return blockEntityNBT(pos, spec, func(extra map[string]any) {
+			extra["Items"] = itemsNBT(slots)
+			if spec.name == "minecraft:brewing_stand" {
+				extra["BrewTime"] = int16(brew)
+				extra["Fuel"] = int8(fuel)
+			}
+			if spec.name == "minecraft:crafter" {
+				extra["disabled_slots"] = disabled
+			}
+		}), true
+	}
+	return nil, false
+}
+
 // clientBlockEntity is one entry of the block entity array a chunk
 // packet carries: where the block entity is, which type it is, and the
 // NBT the real server sends for it. A nil nbt is the empty payload the
@@ -446,6 +535,7 @@ func (s *Server) restoreBlockEntity(d *dimension, be map[string]any) {
 	case "minecraft:chest", "minecraft:trapped_chest":
 		c := s.chestAt(d, pos)
 		d.chests.mu.Lock()
+		clear(c.slots[:])
 		itemsInto(be["Items"], c.slots[:])
 		d.chests.mu.Unlock()
 	case "minecraft:sign", "minecraft:hanging_sign":
@@ -461,6 +551,7 @@ func (s *Server) restoreBlockEntity(d *dimension, be map[string]any) {
 	case "minecraft:hopper":
 		h := s.hopperAt(d, pos)
 		d.hoppers.mu.Lock()
+		clear(h.slots[:])
 		itemsInto(be["Items"], h.slots[:])
 		if cd, ok := nbtNumber(be["TransferCooldown"]); ok {
 			h.cooldown = int32(cd)
@@ -471,6 +562,7 @@ func (s *Server) restoreBlockEntity(d *dimension, be map[string]any) {
 		// is created from the world rather than from the saved id.
 		f := s.furnaceAt(d, pos)
 		d.furnaces.mu.Lock()
+		clear(f.slots[:])
 		itemsInto(be["Items"], f.slots[:])
 		f.burn = nbtNumberOr(be["lit_time_remaining"], 0)
 		f.burnTotal = nbtNumberOr(be["lit_total_time"], 0)
@@ -494,6 +586,7 @@ func (s *Server) restoreBlockEntity(d *dimension, be map[string]any) {
 			return
 		}
 		d.containers.mu.Lock()
+		clear(c.slots)
 		itemsInto(be["Items"], c.slots)
 		if bt, ok := nbtNumber(be["BrewTime"]); ok {
 			c.brewTime = int32(bt)

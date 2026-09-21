@@ -875,6 +875,9 @@ func parseSNBTList(s string, i int) (*snbtTag, int, *snbtError) {
 		i += 2
 	}
 	if arrayType != 0 {
+		// The list tag carries the array letter in str so a value
+		// conversion can rebuild [B;], [I;] or [L;] from the items.
+		tag.str = string(arrayType)
 		return parseSNBTArray(s, i, arrayType, tag)
 	}
 	fresh := true

@@ -2462,3 +2462,18 @@ physics through a void dip plus a fed recovery window.
   running game loop still emit BE right after the immediate block
   update. Pinned by TestBlockEntityPiggybackParity — identical packet
   sequence and bodies vs vanilla.
+- /data block (26.2, DataCommands): get renders the block entity's save
+  NBT (minus keepPacked) via the pretty-SNBT component — aqua keys,
+  gold values, red b/s/l/f/d suffixes, HashMap bucket-order keys —
+  under commands.data.block.query with {"" -> int} pos args;
+  merge/remove/modify answer commands.data.block.modified with bare
+  int args. Missing block entity = commands.data.block.invalid, missing
+  path = arguments.nbtpath.nothing_found, failed remove/modify =
+  commands.data.merge.failed. Mutations write back through
+  restoreBlockEntity, which now clears container slots before filling
+  (vanilla load semantics — merge onto Items replaces it wholesale).
+  Sign mutations queue block_entity_data on the tick-end flush
+  (sendBlockUpdated), landing after the reply chat; chests emit none.
+  Entity scope and `modify ... from` still open. Pinned by
+  TestDataCommandParity — full per-command event sequence identical
+  vs vanilla (replies + BE packets).

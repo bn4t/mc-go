@@ -171,6 +171,11 @@ type Server struct {
 	// read at flush time. dirtyMu guards it.
 	dirtyMu     sync.Mutex
 	dirtyBlocks map[blockSectionKey]map[uint16]bool
+	// dirtyBEs holds block entities /data dirtied without a block
+	// change — the sign re-render vanilla sends out of the same
+	// tick-end broadcastChanges pass. dirtyBEOrder keeps it a queue.
+	dirtyBEs     map[dirtyBEKey]bool
+	dirtyBEOrder []dirtyBEKey
 	// ticking is set while runGameLoop is alive — block changes batch
 	// for the end-of-tick flush only then; without a ticker (unit tests
 	// driving pipes directly) broadcastBlockState writes immediately.
@@ -217,6 +222,7 @@ func New(addr string) *Server {
 		rng:                newRandState(0x5DEECE66D),
 		randSections:       map[randSectionKey]bool{},
 		dirtyBlocks:        map[blockSectionKey]map[uint16]bool{},
+		dirtyBEs:           map[dirtyBEKey]bool{},
 	}
 	if s.ViewDistance == 0 {
 		s.ViewDistance = 10

@@ -130,6 +130,49 @@ func (s *Server) blockChangesFlushStep() {
 			s.piggybackBlockEntity(d, pos)
 		}
 	}
+
+	// Block entities dirtied without a block change — /data merge on a
+	// sign — ride the same flush, vanilla's sendBlockUpdated marking
+	// the chunk dirty for ChunkHolder.broadcastChanges. They land after
+	// the command's chat reply, which already went out.
+	s.dirtyMu.Lock()
+	dirtyBEs, order := s.dirtyBEs, s.dirtyBEOrder
+	s.dirtyBEs = map[dirtyBEKey]bool{}
+	s.dirtyBEOrder = nil
+	s.dirtyMu.Unlock()
+	for _, key := range order {
+		if !dirtyBEs[key] {
+			continue
+		}
+		d := s.dims[key.dim]
+		if d == nil {
+			continue
+		}
+		s.piggybackBlockEntity(d, key.pos)
+	}
+}
+
+// dirtyBEKey is one block entity waiting on the tick-end broadcast.
+type dirtyBEKey struct {
+	dim string
+	pos world.Pos
+}
+
+// queueBlockEntityDirty schedules pos's block entity data for the
+// tick-end flush. A server that is not ticking sends it right away —
+// without a loop there is no later flush to catch it.
+func (s *Server) queueBlockEntityDirty(d *dimension, pos world.Pos) {
+	if !s.ticking.Load() {
+		s.piggybackBlockEntity(d, pos)
+		return
+	}
+	key := dirtyBEKey{dim: d.name, pos: pos}
+	s.dirtyMu.Lock()
+	if !s.dirtyBEs[key] {
+		s.dirtyBEs[key] = true
+		s.dirtyBEOrder = append(s.dirtyBEOrder, key)
+	}
+	s.dirtyMu.Unlock()
 }
 
 // piggybackBlockEntity emits block_entity_data for a changed position
