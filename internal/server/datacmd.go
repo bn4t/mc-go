@@ -91,7 +91,9 @@ func (s *Server) runData(player string, args []string) reply {
 		}
 		pretty := translatable("commands.data.block.query", append(posArgs,
 			component{extra: nbtPrettyElems(target), text: ""})...)
-		return componentReply(pretty)
+		r := componentReply(pretty)
+		r.result, r.hasResult = nbtResult(target), true
+		return r
 
 	case "merge":
 		if len(args) < 6 {
@@ -641,7 +643,7 @@ func nbtPrettyElems(v any) []component {
 	case int32:
 		return nbtNumPretty(strconv.FormatInt(int64(t), 10), "")
 	case int64:
-		return nbtNumPretty(strconv.FormatInt(t, 10), "l")
+		return nbtNumPretty(strconv.FormatInt(t, 10), "L")
 	case float32:
 		return nbtNumPretty(javaFloatStr(float64(t)), "f")
 	case float64:
@@ -724,4 +726,36 @@ func nbtArrayPretty(letter string, n int, digits func(int) string) []component {
 	}
 	out = append(out, component{emptyKey: "]"})
 	return out
+}
+
+// nbtResult is the numeric result a `data get` reports — vanilla's
+// DataCommands.getNumeric: numbers pass through truncated, collections
+// and compounds report their element count, strings parse or yield 0.
+func nbtResult(v any) int {
+	switch t := v.(type) {
+	case int8:
+		return int(t)
+	case int16:
+		return int(t)
+	case int32:
+		return int(t)
+	case int64:
+		return int(t)
+	case float32:
+		return int(t)
+	case float64:
+		return int(t)
+	case []any:
+		return len(t)
+	case map[string]any:
+		return len(t)
+	case nbt.List:
+		return len(t.Items)
+	case string:
+		if f, err := strconv.ParseFloat(t, 64); err == nil {
+			return int(f)
+		}
+		return 0
+	}
+	return 0
 }

@@ -176,10 +176,19 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 		if !ok {
 			return textReply(target + " has no score for " + objective)
 		}
-		return componentReply(translatable("commands.scoreboard.players.get.success",
-			scoreHolderComponent(target, targetSess),
-			objectiveChatComponent(objective),
-			nestedCompound{key: "", value: value}))
+		// get.success args are [holder, score, objective] — a fake
+		// holder serializes as the bare {"":name} arg, a live player as
+		// the tell-suggest component.
+		var holderArg any = scoreHolderComponent(target, targetSess)
+		if targetSess == nil {
+			holderArg = nestedCompound{key: "", value: target}
+		}
+		r := componentReply(translatable("commands.scoreboard.players.get.success",
+			holderArg,
+			nestedCompound{key: "", value: value},
+			objectiveChatComponent(objective)))
+		r.result, r.hasResult = int(value), true
+		return r
 	case "reset":
 		if scores := s.board.scores[target]; scores != nil {
 			if objective == "" {

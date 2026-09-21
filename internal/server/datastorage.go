@@ -32,9 +32,11 @@ func (s *Server) runDataStorage(player string, args []string) reply {
 				return componentReply(commandError("arguments.nbtpath.nothing_found", args[3]))
 			}
 		}
-		return componentReply(translatable("commands.data.storage.query",
+		r := componentReply(translatable("commands.data.storage.query",
 			nestedCompound{key: "", value: id},
 			component{extra: nbtPrettyElems(target), text: ""}))
+		r.result, r.hasResult = nbtResult(target), true
+		return r
 
 	case "merge":
 		if len(args) < 4 {

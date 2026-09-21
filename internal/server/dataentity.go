@@ -76,12 +76,17 @@ func (s *Server) runDataEntity(player string, args []string) reply {
 				target = scaled
 			}
 		}
+		var comp component
 		if m, ok := target.(map[string]any); ok {
-			return componentReply(translatable("commands.data.entity.query",
-				tgt.nameComp(), component{extra: nbtPrettyMapSeq(m, seq), text: ""}))
+			comp = translatable("commands.data.entity.query",
+				tgt.nameComp(), component{extra: nbtPrettyMapSeq(m, seq), text: ""})
+		} else {
+			comp = translatable("commands.data.entity.query",
+				tgt.nameComp(), component{extra: nbtPrettyElems(target), text: ""})
 		}
-		return componentReply(translatable("commands.data.entity.query",
-			tgt.nameComp(), component{extra: nbtPrettyElems(target), text: ""}))
+		r := componentReply(comp)
+		r.result, r.hasResult = nbtResult(target), true
+		return r
 
 	case "merge":
 		if len(args) < 4 {
@@ -322,7 +327,7 @@ func writeSNBTCompact(sb *strings.Builder, v any) {
 	case int32:
 		sb.WriteString(strconv.Itoa(int(t)))
 	case int64:
-		sb.WriteString(strconv.FormatInt(t, 10) + "l")
+		sb.WriteString(strconv.FormatInt(t, 10) + "L")
 	case float32:
 		sb.WriteString(javaFloatStr(float64(t)) + "f")
 	case float64:

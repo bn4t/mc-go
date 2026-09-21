@@ -2600,3 +2600,22 @@ physics through a void dip plus a fed recovery window.
   arguments.objective.notFound with NO context line. `data get
   storage` no longer creates the entry it reads. TestExecuteIfParity:
   ~60 commands green vs vanilla.
+- `execute` finishes its condition forms and gains `store`: `if blocks`
+  (int blockpos triple + all|masked — `strict` is clone-only — plus an
+  untracked-column failure modeled on session-tracked chunks), `if
+  loaded`, `if function` (every id misses — no function table),
+  and `if block`'s int-parse error shape. A chain ending on a bare
+  condition is a leaf: `conditional.pass`/`fail`, or `pass_count` with
+  `if entity`'s match count (even 1); a missing-objective `if score`
+  errors at the leaf but reads false mid-chain. `store result|success`
+  writes block (eager commands.data.block.invalid), entity (players
+  silently unwritable), score (eager arguments.objective.notFound;
+  fake holders allowed), storage (path+type+scale — `run` landing on
+  the type slot is unknown.argument) and bossbar (always
+  commands.bossbar.unknown — no bossbar table). reply carries the
+  leaf's numeric result: time query value, data-get getNumeric
+  (number/size), players get score — dead chains and parse errors
+  store nothing. Also fixed players.get.success arg order
+  [holder,score,objective] with fake holders as bare {"":name} args,
+  and the long SNBT suffix is uppercase L. TestExecuteIfParity ~100
+  commands green vs vanilla.

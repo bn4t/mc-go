@@ -23,6 +23,12 @@ type reply struct {
 	// step while the game is running, a time marker that does not exist -
 	// carry no mark and get no context message.
 	fail *failMark
+	// result is the command's numeric result — brigadier's return
+	// value, which `execute store` writes into its target. hasResult is
+	// set once the chain's leaf actually ran; parse errors and dead
+	// chains leave it off and store writes nothing.
+	result    int
+	hasResult bool
 }
 
 // failMark locates a parse failure in the input, in tokens: the token
@@ -220,11 +226,16 @@ func (s *Server) runTimeQuery(args []string) reply {
 	}
 	switch args[0] {
 	case "gametime":
-		return componentReply(translatable("commands.time.query.gametime", s.gameTime()))
+		r := componentReply(translatable("commands.time.query.gametime", s.gameTime()))
+		r.result, r.hasResult = int(s.gameTime()), true
+		return r
 	case "day", "minecraft:day":
-		return componentReply(translatable("commands.time.query.timeline",
+		v := s.timelineTime()
+		r := componentReply(translatable("commands.time.query.timeline",
 			nestedCompound{key: "", value: "minecraft:day"},
-			nestedCompound{key: "", value: s.timelineTime()}))
+			nestedCompound{key: "", value: v}))
+		r.result, r.hasResult = int(v), true
+		return r
 	}
 	name := args[0]
 	if !strings.Contains(name, ":") {

@@ -23,13 +23,29 @@ import (
 type executeContext struct {
 	dim   *dimension
 	alive bool
+	// hasCond marks that an if/unless ran; when the chain ends on one
+	// it is itself the leaf, answering conditional.pass/fail on the
+	// wire. entityCount is the last `if entity`'s match count — the
+	// count conditional.pass_count prints and `store` reads back.
+	hasCond      bool
+	entityCount  int
+	entityCountd bool
+	// condErr is a condition failure that only reports when the chain
+	// ends on it — mid-chain and `run` swallow it silently.
+	condErr *reply
 }
 
 // runExecute parses an /execute chain and runs its trailing command.
 func (s *Server) runExecute(player string, args []string) reply {
 	ctx := executeContext{dim: s.dimOf(player), alive: true}
 	bx, by, bz := s.baseBlockPos(player)
+	return s.execTail(&ctx, player, args, 1, bx, by, bz)
+}
 
+// execTail evaluates a chain fragment starting at args[0]; argTokBase
+// maps args[0] onto its token index in the full input. `store` recurses
+// here for the chain its result comes from.
+func (s *Server) execTail(ctx *executeContext, player string, args []string, argTokBase, bx, by, bz int) reply {
 	i := 0
 	for i < len(args) {
 		switch args[i] {
@@ -48,10 +64,13 @@ func (s *Server) runExecute(player string, args []string) reply {
 				return textReply("Usage: /execute if|unless <condition> ...")
 			}
 			negate := args[i] == "unless"
-			consumed, cond, err := s.executeCondition(&ctx, player, args[i+1:], bx, by, bz, i+2)
+			ctx.condErr = nil
+			consumed, cond, count, counted, err := s.executeCondition(ctx, player, args[i+1:], bx, by, bz, argTokBase+i+1)
 			if err != nil {
 				return *err
 			}
+			ctx.hasCond = true
+			ctx.entityCount, ctx.entityCountd = count, counted
 			// unless runs the chain when the condition reads false —
 			// the negation folds into the AND, not after it.
 			if negate {
@@ -59,6 +78,8 @@ func (s *Server) runExecute(player string, args []string) reply {
 			}
 			ctx.alive = ctx.alive && cond
 			i += 1 + consumed
+		case "store":
+			return s.executeStore(ctx, player, args[i+1:], argTokBase+i+1, bx, by, bz)
 		case "run":
 			sub := args[i+1:]
 			if len(sub) == 0 {
@@ -73,8 +94,33 @@ func (s *Server) runExecute(player string, args []string) reply {
 		case "positioned", "as", "at", "align", "facing", "rotated", "anchored", "summon":
 			return textReply("Unsupported execute subcommand: " + args[i])
 		default:
-			return errToken("command.unknown.argument", i+1)
+			return errToken("command.unknown.argument", argTokBase+i)
 		}
+	}
+	// Ending on a condition rather than `run` makes the condition the
+	// leaf: pass or fail, pass_count when `if entity` counted more
+	// than one match, and the result `store` writes back.
+	if ctx.hasCond {
+		if !ctx.alive {
+			if ctx.condErr != nil {
+				return *ctx.condErr
+			}
+			r := componentReply(commandError("commands.execute.conditional.fail"))
+			r.result, r.hasResult = 0, true
+			return r
+		}
+		var r reply
+		switch {
+		case ctx.entityCountd:
+			// `if entity` answers with its match count — even one.
+			r = componentReply(translatable("commands.execute.conditional.pass_count", int32(ctx.entityCount)))
+			r.result = ctx.entityCount
+		default:
+			r = componentReply(translatable("commands.execute.conditional.pass"))
+			r.result = 1
+		}
+		r.hasResult = true
+		return r
 	}
 	return textReply("Usage: /execute <subcommand> ... run <command>")
 }
@@ -83,83 +129,94 @@ func (s *Server) runExecute(player string, args []string) reply {
 // args it consumed plus the raw condition result — the caller folds
 // unless's negation into ctx.alive. The third return is a parse error
 // reply when the condition itself is malformed.
-func (s *Server) executeCondition(ctx *executeContext, player string, args []string, bx, by, bz, tokBase int) (consumed int, cond bool, err *reply) {
+func (s *Server) executeCondition(ctx *executeContext, player string, args []string, bx, by, bz, tokBase int) (consumed int, cond bool, count int, counted bool, err *reply) {
 	if len(args) == 0 {
 		r := textReply("Usage: /execute if|unless <condition> ...")
-		return 0, false, &r
+		return 0, false, 0, false, &r
 	}
 	switch args[0] {
 	case "block":
 		// if block <x> <y> <z> <block predicate>
+		x, y, z, cerr := blockPosArgs(args, bx, by, bz, tokBase)
+		if cerr != nil {
+			return 0, false, 0, false, cerr
+		}
 		if len(args) < 5 {
-			r := textReply("Usage: /execute if block <x> <y> <z> <block>")
-			return 0, false, &r
-		}
-		x, err := parseCoord(args[1], bx)
-		if err != nil {
-			r := textReply("Invalid x: " + args[1])
-			return 0, false, &r
-		}
-		y, err := parseCoord(args[2], by)
-		if err != nil {
-			r := textReply("Invalid y: " + args[2])
-			return 0, false, &r
-		}
-		z, err := parseCoord(args[3], bz)
-		if err != nil {
-			r := textReply("Invalid z: " + args[3])
-			return 0, false, &r
+			r := errToken("command.unknown.argument", tokBase+4)
+			return 0, false, 0, false, &r
 		}
 		blk, exact, okp := parseBlockSpec(args[4])
 		if !okp {
-			r := textReply("Unknown block: " + args[4])
-			return 0, false, &r
+			r := errTokenEnd("argument.block.id.invalid", tokBase+4)
+			return 0, false, 0, false, &r
 		}
 		if ctx.alive {
 			cond = s.matchesBlockPredicate(ctx.dim, world.Pos{X: x, Y: y, Z: z}, blk, exact)
 		}
-		return 5, cond, nil
+		return 5, cond, 0, false, nil
+	case "blocks":
+		// if blocks <from> <to> <dest> (all|masked) — nine int blockpos
+		// args then the mode keyword, which only accepts all/masked.
+		c, cerr := blockPosTriple(args, bx, by, bz, tokBase)
+		if cerr != nil {
+			return 0, false, 0, false, cerr
+		}
+		if len(args) < 11 || (args[10] != "all" && args[10] != "masked") {
+			r := errToken("command.unknown.argument", tokBase+10)
+			return 0, false, 0, false, &r
+		}
+		if ctx.alive {
+			cond = s.blocksMatch(ctx.dim, c, args[10] == "masked")
+		}
+		return 11, cond, 0, false, nil
 	case "entity":
 		// if entity <selector> — a selector matching nothing fails
 		// silently; a bare name matching no player is a parse error.
 		if len(args) < 2 {
 			r := textReply("Usage: /execute if entity <target>")
-			return 0, false, &r
+			return 0, false, 0, false, &r
 		}
 		if ctx.alive {
 			if len(args[1]) > 0 && args[1][0] != '@' {
 				// A bare player name reads like an empty selector —
 				// the condition fails silently on the wire.
 				cond = s.findSessionByName(args[1]) != nil
+				if cond {
+					count, counted = 1, true
+				}
 			} else {
 				cands, serr := s.selectDataEntities(s.findSessionByName(player), args[1], false)
 				if serr != nil {
-					return 0, false, serr
+					return 0, false, 0, false, serr
 				}
 				cond = len(cands) > 0
+				count, counted = len(cands), true
 			}
 		}
-		return 2, cond, nil
+		return 2, cond, count, counted, nil
 	case "items":
-		return s.executeIfItems(ctx, player, args, bx, by, bz, tokBase)
+		c, cd, e := s.executeIfItems(ctx, player, args, bx, by, bz, tokBase)
+		return c, cd, 0, false, e
 	case "data":
-		return s.executeIfData(ctx, player, args, bx, by, bz, tokBase)
+		c, cd, e := s.executeIfData(ctx, player, args, bx, by, bz, tokBase)
+		return c, cd, 0, false, e
 	case "score":
-		return s.executeIfScore(ctx, player, args, tokBase)
+		c, cd, e := s.executeIfScore(ctx, player, args, tokBase)
+		return c, cd, 0, false, e
 	case "dimension":
 		if len(args) < 2 {
 			r := textReply("Usage: /execute if dimension <id>")
-			return 0, false, &r
+			return 0, false, 0, false, &r
 		}
 		if ctx.alive && ctx.dim != nil {
 			cond = ctx.dim == s.dimensionByName(args[1])
 		}
-		return 2, cond, nil
+		return 2, cond, 0, false, nil
 	case "biome":
 		// if biome <x> <y> <z> <id> — mc-go keeps one biome per dim.
 		if len(args) < 5 {
 			r := textReply("Usage: /execute if biome <x> <y> <z> <biome>")
-			return 0, false, &r
+			return 0, false, 0, false, &r
 		}
 		if ctx.alive && ctx.dim != nil {
 			name := args[4]
@@ -168,27 +225,142 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 			}
 			cond = ctx.dim.biome == name
 		}
-		return 5, cond, nil
+		return 5, cond, 0, false, nil
 	case "predicate":
 		if len(args) < 2 {
 			r := textReply("Usage: /execute if predicate <id>")
-			return 0, false, &r
+			return 0, false, 0, false, &r
 		}
 		// mc-go loads no datapack predicates, so every id misses the
 		// registry — argument.resource_or_id.no_such_element.
 		r := errTokenEnd("argument.resource_or_id.no_such_element", tokBase+1, args[1], "minecraft:predicate")
-		return 0, false, &r
+		return 0, false, 0, false, &r
 	case "loaded":
-		// if loaded <x> <y> <z> — mc-go keeps every column it can generate.
-		if len(args) < 4 {
-			r := textReply("Usage: /execute if loaded <x> <y> <z>")
-			return 0, false, &r
+		// if loaded <x> <y> <z> — true while the column is live in the
+		// dimension, which for mc-go means a play session tracks it.
+		x, _, z, cerr := blockPosArgs(args, bx, by, bz, tokBase)
+		if cerr != nil {
+			return 0, false, 0, false, cerr
 		}
-		return 4, ctx.alive, nil
+		if ctx.alive {
+			cond = s.chunkLoaded(ctx.dim, x>>4, z>>4)
+		}
+		return 4, cond, 0, false, nil
+	case "function":
+		// if function <id> — mc-go keeps no function table, so every id
+		// (or #tag) misses and the chain dies quietly.
+		if len(args) < 2 {
+			r := errToken("command.unknown.argument", tokBase+1)
+			return 0, false, 0, false, &r
+		}
+		return 2, false, 0, false, nil
 	default:
-		r := textReply("Unknown condition: " + args[0])
-		return 0, false, &r
+		r := errToken("command.unknown.argument", tokBase)
+		return 0, false, 0, false, &r
 	}
+}
+
+// blockPosArgs reads one int blockpos (three tokens, ~ allowed) out of
+// args starting at index 1, reporting a bad or missing coordinate as
+// parsing.int.expected at that token — the shape the real server gives
+// a BlockPosArgument failure.
+func blockPosArgs(args []string, bx, by, bz, tokBase int) (x, y, z int, r *reply) {
+	base := [3]int{bx, by, bz}
+	out := [3]int{}
+	for k := 0; k < 3; k++ {
+		if 1+k >= len(args) {
+			r := errToken("parsing.int.expected", tokBase+1+k)
+			return 0, 0, 0, &r
+		}
+		v, err := parseCoord(args[1+k], base[k])
+		if err != nil {
+			r := errToken("parsing.int.expected", tokBase+1+k)
+			return 0, 0, 0, &r
+		}
+		out[k] = v
+	}
+	return out[0], out[1], out[2], nil
+}
+
+// blockPosTriple reads three blockpos in a row for `if blocks`
+// (start, end, destination) with the same error shape.
+func blockPosTriple(args []string, bx, by, bz, tokBase int) (c [9]int, r *reply) {
+	base := [3]int{bx, by, bz}
+	for k := 0; k < 9; k++ {
+		if 1+k >= len(args) {
+			r := errToken("parsing.int.expected", tokBase+1+k)
+			return c, &r
+		}
+		v, err := parseCoord(args[1+k], base[k%3])
+		if err != nil {
+			r := errToken("parsing.int.expected", tokBase+1+k)
+			return c, &r
+		}
+		c[k] = v
+	}
+	return c, nil
+}
+
+// chunkLoaded reports whether any play session in d is tracking the
+// column (cx, cz) — mc-go's notion of a live chunk.
+func (s *Server) chunkLoaded(d *dimension, cx, cz int) bool {
+	if d == nil {
+		return false
+	}
+	found := false
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() == StatePlay && sess.dimension() == d && sess.hasChunk(cx, cz) {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// blocksMatch implements `if blocks`: every offset in the source box
+// [start,end] is compared against the destination box that starts at
+// dest. `masked` skips positions where the source holds air. An
+// untracked column on either side fails the condition outright.
+func (s *Server) blocksMatch(d *dimension, c [9]int, masked bool) bool {
+	if d == nil {
+		return false
+	}
+	sx0, sx1 := minmax(c[0], c[3])
+	sy0, sy1 := minmax(c[1], c[4])
+	sz0, sz1 := minmax(c[2], c[5])
+	dx, dy, dz := sx1-sx0, sy1-sy0, sz1-sz0
+	// Both regions must sit in tracked columns.
+	for x := sx0 >> 4; x <= sx1>>4; x++ {
+		for z := sz0 >> 4; z <= sz1>>4; z++ {
+			if !s.chunkLoaded(d, x, z) {
+				return false
+			}
+		}
+	}
+	for x := c[6] >> 4; x <= (c[6]+dx)>>4; x++ {
+		for z := c[8] >> 4; z <= (c[8]+dz)>>4; z++ {
+			if !s.chunkLoaded(d, x, z) {
+				return false
+			}
+		}
+	}
+	for ox := 0; ox <= dx; ox++ {
+		for oy := 0; oy <= dy; oy++ {
+			for oz := 0; oz <= dz; oz++ {
+				src := d.w.GetBlock(world.Pos{X: sx0 + ox, Y: sy0 + oy, Z: sz0 + oz})
+				if masked && src == world.Air {
+					continue
+				}
+				dst := d.w.GetBlock(world.Pos{X: c[6] + ox, Y: c[7] + oy, Z: c[8] + oz})
+				if src != dst {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
 
 // executeIfItems evaluates `if items block <x> <y> <z> <slots> <pred>`
@@ -562,7 +734,14 @@ func (s *Server) executeIfScore(ctx *executeContext, player string, args []strin
 	}
 	s.board.mu.Lock()
 	v1, ok1 := s.board.scores[name][args[2]]
+	_, objOK := s.board.objectives[args[2]]
 	s.board.mu.Unlock()
+	// A missing objective is a real error, but only when the chain
+	// ends on this condition — mid-chain it reads false silently.
+	if !objOK {
+		r := componentReply(commandError("arguments.objective.notFound", args[2]))
+		ctx.condErr = &r
+	}
 	if args[3] == "matches" {
 		if !ok1 {
 			return 5, false, nil
@@ -1005,4 +1184,186 @@ func minmax(a, b int) (int, int) {
 		return a, b
 	}
 	return b, a
+}
+
+// executeStore handles `store (result|success) <target>`: the target's
+// args parse eagerly — a bad block entity, missing bossbar or unknown
+// objective fails before the trailing chain runs — then the tail runs
+// and its leaf's numeric result (or success bit) is written back. A
+// tail that never reached a leaf — a dead chain, a parse error —
+// propagates its reply untouched and stores nothing.
+func (s *Server) executeStore(ctx *executeContext, player string, args []string, tokBase, bx, by, bz int) reply {
+	if len(args) < 2 {
+		return errToken("command.unknown.argument", tokBase+len(args))
+	}
+	wantResult := args[0] == "result"
+	if !wantResult && args[0] != "success" {
+		return errToken("command.unknown.argument", tokBase)
+	}
+	// parseNBT type + scale tail shared by the storage/entity/block forms.
+	parseTypedPath := func(at int) (steps []nbtPathStep, typ string, scale float64, consumed int, r *reply) {
+		if len(args) <= at {
+			return nil, "", 0, 0, errp(errToken("command.unknown.argument", tokBase+at))
+		}
+		steps, ok := parseNBTPath(args[at])
+		if !ok {
+			return nil, "", 0, 0, errp(errToken("command.unknown.argument", tokBase+at))
+		}
+		if len(args) <= at+1 {
+			return nil, "", 0, 0, errp(errToken("command.unknown.argument", tokBase+at+1))
+		}
+		switch args[at+1] {
+		case "byte", "short", "int", "long", "float", "double":
+			typ = args[at+1]
+		default:
+			return nil, "", 0, 0, errp(errToken("command.unknown.argument", tokBase+at+1))
+		}
+		if len(args) <= at+2 {
+			return nil, "", 0, 0, errp(errToken("parsing.double.expected", tokBase+at+2))
+		}
+		v, err := strconv.ParseFloat(args[at+2], 64)
+		if err != nil {
+			return nil, "", 0, 0, errp(errToken("parsing.double.expected", tokBase+at+2))
+		}
+		return steps, typ, v, at + 3, nil
+	}
+
+	var write func(v int64)
+	var next int
+	switch args[1] {
+	case "storage":
+		if len(args) < 3 {
+			return errToken("command.unknown.argument", tokBase+2)
+		}
+		id := normalizeItemName(args[2])
+		steps, typ, scale, n, r := parseTypedPath(3)
+		if r != nil {
+			return *r
+		}
+		next = n
+		write = func(v int64) {
+			m := s.storageWrite(id)
+			nbtSet(m, steps, typedStoreValue(typ, v, scale))
+		}
+	case "score":
+		if len(args) < 4 {
+			return errToken("command.unknown.argument", tokBase+len(args))
+		}
+		holder := s.scoreHolderName(player, args[2])
+		objective := args[3]
+		s.board.mu.Lock()
+		_, known := s.board.objectives[objective]
+		s.board.mu.Unlock()
+		// An unknown objective fails at parse time — the leaf never runs.
+		if !known {
+			return componentReply(commandError("arguments.objective.notFound", objective))
+		}
+		if holder == "" {
+			return reply{}
+		}
+		next = 4
+		write = func(v int64) {
+			s.board.mu.Lock()
+			if s.board.scores[holder] == nil {
+				s.board.scores[holder] = map[string]int32{}
+			}
+			s.board.scores[holder][objective] = int32(v)
+			s.board.mu.Unlock()
+			s.broadcastScore(holder, objective, int32(v))
+		}
+	case "entity":
+		if len(args) < 3 {
+			return errToken("command.unknown.argument", tokBase+2)
+		}
+		sel := args[2]
+		steps, typ, scale, n, r := parseTypedPath(3)
+		if r != nil {
+			return *r
+		}
+		next = n
+		write = func(v int64) {
+			cands, serr := s.selectDataEntities(s.findSessionByName(player), sel, true)
+			if serr != nil || len(cands) == 0 || cands[0].sess != nil {
+				return // players are unwritable; no match stores nothing
+			}
+			save := cands[0].saveMap()
+			if nbtSet(save.m, steps, typedStoreValue(typ, v, scale)) {
+				s.applyDataEntity(cands[0], save)
+			}
+		}
+	case "block":
+		x, y, z, cerr := blockPosArgs(args[1:], bx, by, bz, tokBase+1)
+		if cerr != nil {
+			return *cerr
+		}
+		steps, typ, scale, n, r := parseTypedPath(5)
+		if r != nil {
+			return *r
+		}
+		pos := world.Pos{X: x, Y: y, Z: z}
+		be, ok := s.blockEntitySaveMap(ctx.dim, pos)
+		if !ok {
+			return componentReply(commandError("commands.data.block.invalid"))
+		}
+		delete(be, "keepPacked")
+		next = n
+		write = func(v int64) {
+			if nbtSet(be, steps, typedStoreValue(typ, v, scale)) {
+				s.restoreBlockEntity(ctx.dim, be)
+				s.queueBlockEntityDirty(ctx.dim, pos)
+			}
+		}
+	case "bossbar":
+		if len(args) < 4 {
+			return errToken("command.unknown.argument", tokBase+len(args))
+		}
+		if args[3] != "value" && args[3] != "max" {
+			return errToken("command.unknown.argument", tokBase+3)
+		}
+		// mc-go keeps no bossbar table, so every id is unknown.
+		return componentReply(commandError("commands.bossbar.unknown", args[2]))
+	default:
+		return errToken("command.unknown.argument", tokBase+1)
+	}
+	if len(args) <= next {
+		return errToken("command.unknown.argument", tokBase+next)
+	}
+	tail := s.execTail(ctx, player, args[next:], tokBase+next, bx, by, bz)
+	if !tail.hasResult {
+		return tail
+	}
+	v := int64(tail.result)
+	if !wantResult {
+		if tail.result != 0 {
+			v = 1
+		} else {
+			v = 0
+		}
+	}
+	write(v)
+	return tail
+}
+
+func errp(r reply) *reply { return &r }
+
+// typedStoreValue coerces a stored result into the NBT numeric type
+// the store target declared: value = trunc(result*scale), wrapped into
+// the type's width like the real server's casts.
+func typedStoreValue(typ string, v int64, scale float64) any {
+	f := float64(v) * scale
+	switch typ {
+	case "byte":
+		return int8(int64(f))
+	case "short":
+		return int16(int64(f))
+	case "int":
+		return int32(int64(f))
+	case "long":
+		return int64(f)
+	case "float":
+		return float32(f)
+	case "double":
+		return f
+	}
+	return int32(int64(f))
 }
