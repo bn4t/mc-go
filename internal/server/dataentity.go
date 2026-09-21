@@ -3,10 +3,12 @@ package server
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"sort"
 	"strconv"
 	"strings"
 
+	"mc-go/internal/data"
 	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
@@ -41,7 +43,7 @@ func (s *Server) runDataEntity(player string, args []string) reply {
 	if len(args) < 3 {
 		return componentReply(commandError("command.unknown.command"))
 	}
-	tgt, rep := s.resolveDataEntity(player, args[2])
+	tgt, rep := s.resolveDataEntity(player, args[2], 3)
 	if tgt == nil {
 		return *rep
 	}
@@ -168,7 +170,7 @@ func (s *Server) modifySource(player string, args []string) (any, *reply) {
 		wantStr := args[0] == "string"
 		switch args[1] {
 		case "entity":
-			tgt, rep := s.resolveDataEntity(player, args[2])
+			tgt, rep := s.resolveDataEntity(player, args[2], 3)
 			if tgt == nil {
 				return nil, rep
 			}
@@ -806,9 +808,9 @@ func playerSaveMap(sess *Session) map[string]any {
 
 // resolveDataEntity parses the target token — @s/@p/@a/@r/@e
 // selectors or a player name — into the single entity it names.
-func (s *Server) resolveDataEntity(player, tok string) (*dataEntity, *reply) {
+func (s *Server) resolveDataEntity(player, tok string, tokIdx int) (*dataEntity, *reply) {
 	sender := s.findSessionByName(player)
-	cands, rep := s.selectDataEntities(sender, tok, true)
+	cands, rep := s.selectDataEntities(sender, tok, tokIdx, true)
 	if rep != nil {
 		return nil, rep
 	}
@@ -823,125 +825,399 @@ func (s *Server) resolveDataEntity(player, tok string) (*dataEntity, *reply) {
 	return cands[0], nil
 }
 
-// selectorSpec is the parsed @x[...] argument list.
+// selectorSpec is the parsed @x[...] argument list. Each option the
+// vanilla parser accepts lands on a term list: repeatable options
+// (gamemode, tag, nbt, predicate, scores, advancements) accumulate;
+// single options (type, name, team, sort, limit, the position set)
+// error `argument.entity.options.inapplicable` on a repeat.
 type selectorSpec struct {
-	variable byte // 'e','a','p','r','s'
-	typeName string
-	typeNeg  bool
-	limit    int
-	hasLimit bool
-	sortBy   string
-	distMin  float64
-	distMax  float64
-	hasDist  bool
-	name     string
-	nameNeg  bool
-	hasName  bool
-	tag      string
-	tagNeg   bool
-	hasTag   bool
-	x, y, z  float64
-	hasPos   bool
+	variable   byte // 'e','a','p','r','s'
+	types      []selTerm
+	modes      []selTerm
+	names      []selTerm
+	tags       []selTerm
+	team       *selTerm
+	limit      int
+	hasLimit   bool
+	sortBy     string
+	dist       *selRange
+	level      *selRange
+	xrot       *selRange
+	yrot       *selRange
+	scores     []selScore
+	nbts       []selNBT
+	preds      []string
+	advs       []selAdv
+	x, y, z    float64
+	hasPos     bool
+	dx, dy, dz float64
+	hasVol     bool
 }
 
-// parseSelector decodes `@e[type=pig,limit=1]` style arguments.
-func parseSelector(tok string) (selectorSpec, bool) {
-	if len(tok) < 2 || tok[0] != '@' {
-		return selectorSpec{}, false
+// selTerm is a value with a leading-! negation flag.
+type selTerm struct {
+	val string
+	tag bool // type= only: the value started with #
+	neg bool
+}
+
+// selRange is `lo..hi` with either bound optional; lo/hi default to
+// the double extremes.
+type selRange struct {
+	lo, hi float64
+}
+
+func (r selRange) test(v float64) bool { return v >= r.lo && v <= r.hi }
+
+// selScore is one scores={objective=range} entry.
+type selScore struct {
+	obj string
+	r   selRange
+}
+
+// selNBT is one nbt={...} term; the value is the parsed compound.
+type selNBT struct {
+	m   map[string]any
+	neg bool
+}
+
+// selAdv is one advancements={id=...} entry: a bare id or =true asks
+// the advancement done, =false asks it not done, and ={crit=bool,...}
+// asks each criterion's progress.
+type selAdv struct {
+	id    string
+	done  *bool
+	crits []selTerm
+}
+
+// parseRangeF64 reads `a`, `a..`, `..b`, `a..b`.
+func parseRangeF64(v string) (selRange, bool) {
+	if i := strings.Index(v, ".."); i >= 0 {
+		var r selRange
+		r.lo, r.hi = math.Inf(-1), math.Inf(1)
+		if i > 0 {
+			f, err := strconv.ParseFloat(v[:i], 64)
+			if err != nil {
+				return selRange{}, false
+			}
+			r.lo = f
+		}
+		if i+2 < len(v) {
+			f, err := strconv.ParseFloat(v[i+2:], 64)
+			if err != nil {
+				return selRange{}, false
+			}
+			r.hi = f
+		}
+		return r, true
 	}
-	spec := selectorSpec{variable: tok[1], sortBy: "nearest"}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return selRange{}, false
+	}
+	return selRange{f, f}, true
+}
+
+// splitSelectorArgs splits the bracket body on top-level commas,
+// tracking {} nesting and " quotes; it returns each piece with its
+// byte offset in the original body for error cursors.
+func splitSelectorArgs(body string) ([]string, []int, bool) {
+	var parts []string
+	var offs []int
+	depth := 0
+	inQuote := false
+	esc := false
+	start := 0
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		switch {
+		case esc:
+			esc = false
+		case inQuote:
+			switch c {
+			case '\\':
+				esc = true
+			case '"':
+				inQuote = false
+			}
+		case c == '"':
+			inQuote = true
+		case c == '{' || c == '[':
+			depth++
+		case c == '}' || c == ']':
+			depth--
+		case c == ',' && depth == 0:
+			parts = append(parts, body[start:i])
+			offs = append(offs, start)
+			start = i + 1
+		}
+	}
+	if inQuote || depth != 0 {
+		return nil, nil, false
+	}
+	parts = append(parts, body[start:])
+	offs = append(offs, start)
+	return parts, offs, true
+}
+
+// parseSelector decodes `@e[type=pig,limit=1]` style arguments. It
+// returns a spec plus nil, or a parse error reply on failure — keys
+// and withs copied off the real server's messages.
+func parseSelector(tok string, tokIdx int) (selectorSpec, *reply) {
+	bad := func(key string, off int, with ...any) (selectorSpec, *reply) {
+		r := errTokenOff(key, tokIdx, off, with...)
+		return selectorSpec{}, &r
+	}
+	if len(tok) < 2 || tok[0] != '@' {
+		return bad("command.unknown.argument", 0)
+	}
+	spec := selectorSpec{variable: tok[1], sortBy: ""}
 	switch spec.variable {
 	case 'e', 'a', 'p', 'r', 's':
 	default:
-		return selectorSpec{}, false
+		return bad("command.unknown.argument", 0)
 	}
 	rest := tok[2:]
 	if rest == "" {
-		return spec, true
+		return spec, nil
 	}
 	if len(rest) < 2 || rest[0] != '[' || rest[len(rest)-1] != ']' {
-		return selectorSpec{}, false
+		return bad("command.unknown.argument", 0)
 	}
-	for _, part := range strings.Split(rest[1:len(rest)-1], ",") {
+	// The failMark offset is measured from the whole input; the
+	// selector is one token, so the reported offset is the index of
+	// the bad text inside it.
+	inner := rest[1 : len(rest)-1]
+	parts, offs, ok := splitSelectorArgs(inner)
+	if !ok {
+		return bad("command.unknown.argument", 2)
+	}
+	singleUsed := map[string]bool{}
+	for pi, part := range parts {
 		if part == "" {
 			continue
 		}
-		kv := strings.SplitN(part, "=", 2)
-		if len(kv) != 2 {
-			return selectorSpec{}, false
+		eq := strings.Index(part, "=")
+		if eq < 0 {
+			return bad("command.unknown.argument", 2+1+offs[pi])
 		}
-		key, val := kv[0], kv[1]
+		key, val := part[:eq], part[eq+1:]
+		voff := 2 + 1 + offs[pi] + eq + 1 // tok index of val's first byte
 		neg := strings.HasPrefix(val, "!")
 		if neg {
 			val = val[1:]
+			voff++
+		}
+		markSingle := func() *reply {
+			if singleUsed[key] {
+				r := errTokenOff("argument.entity.options.inapplicable", tokIdx, 2+1+offs[pi], key)
+				return &r
+			}
+			singleUsed[key] = true
+			return nil
 		}
 		switch key {
 		case "type":
-			spec.typeName = strings.TrimPrefix(val, "minecraft:")
-			spec.typeNeg = neg
+			if r := markSingle(); r != nil {
+				return selectorSpec{}, r
+			}
+			t := selTerm{neg: neg}
+			if strings.HasPrefix(val, "#") {
+				t.tag = true
+				val = val[1:]
+			}
+			t.val = strings.TrimPrefix(val, "minecraft:")
+			if !t.tag {
+				if _, ok := EntityTypeID(t.val); !ok && t.val != "player" {
+					return bad("argument.entity.options.type.invalid", voff+1, val)
+				}
+			}
+			spec.types = append(spec.types, t)
+		case "gamemode":
+			switch val {
+			case "survival", "creative", "adventure", "spectator":
+			default:
+				return bad("argument.entity.options.mode.invalid", voff, val)
+			}
+			spec.modes = append(spec.modes, selTerm{val: val, neg: neg})
 		case "limit":
+			if r := markSingle(); r != nil {
+				return selectorSpec{}, r
+			}
 			n, err := strconv.Atoi(val)
-			if err != nil {
-				return selectorSpec{}, false
+			if err != nil || n < 1 {
+				return bad("parsing.int.expected", voff)
 			}
 			spec.limit, spec.hasLimit = n, true
 		case "sort":
+			if r := markSingle(); r != nil {
+				return selectorSpec{}, r
+			}
+			switch val {
+			case "nearest", "furthest", "random", "arbitrary":
+			default:
+				return bad("argument.entity.options.sort.irreversible", voff, val)
+			}
 			spec.sortBy = val
 		case "distance":
-			spec.hasDist = true
-			if i := strings.Index(val, ".."); i >= 0 {
-				if i > 0 {
-					lo, err := strconv.ParseFloat(val[:i], 64)
-					if err != nil {
-						return selectorSpec{}, false
-					}
-					spec.distMin = lo
-				}
-				if i+2 < len(val) {
-					hi, err := strconv.ParseFloat(val[i+2:], 64)
-					if err != nil {
-						return selectorSpec{}, false
-					}
-					spec.distMax = hi
-				} else {
-					spec.distMax = math.Inf(1)
-				}
-			} else {
-				n, err := strconv.ParseFloat(val, 64)
-				if err != nil {
-					return selectorSpec{}, false
-				}
-				spec.distMin, spec.distMax = n, n
+			if r := markSingle(); r != nil {
+				return selectorSpec{}, r
 			}
-		case "x", "y", "z":
+			r, ok := parseRangeF64(val)
+			if !ok {
+				return bad("argument.range.empty", voff)
+			}
+			spec.dist = &r
+		case "level":
+			if r := markSingle(); r != nil {
+				return selectorSpec{}, r
+			}
+			r, ok := parseRangeF64(val)
+			if !ok {
+				return bad("argument.range.empty", voff)
+			}
+			spec.level = &r
+		case "x_rotation":
+			if r := markSingle(); r != nil {
+				return selectorSpec{}, r
+			}
+			r, ok := parseRangeF64(val)
+			if !ok {
+				return bad("argument.range.empty", voff)
+			}
+			spec.xrot = &r
+		case "y_rotation":
+			if r := markSingle(); r != nil {
+				return selectorSpec{}, r
+			}
+			r, ok := parseRangeF64(val)
+			if !ok {
+				return bad("argument.range.empty", voff)
+			}
+			spec.yrot = &r
+		case "x", "y", "z", "dx", "dy", "dz":
+			if r := markSingle(); r != nil {
+				return selectorSpec{}, r
+			}
 			f, err := strconv.ParseFloat(val, 64)
 			if err != nil {
-				return selectorSpec{}, false
+				return bad("parsing.double.expected", voff)
 			}
 			switch key {
 			case "x":
 				spec.x = f
 			case "y":
 				spec.y = f
-			default:
+			case "z":
 				spec.z = f
+			case "dx":
+				spec.dx = f
+			case "dy":
+				spec.dy = f
+			case "dz":
+				spec.dz = f
 			}
-			spec.hasPos = true
+			if key[0] == 'd' {
+				spec.hasVol = true
+			} else {
+				spec.hasPos = true
+			}
 		case "name":
-			spec.name, spec.nameNeg, spec.hasName = val, neg, true
+			spec.names = append(spec.names, selTerm{val: unquote(val), neg: neg})
 		case "tag":
-			spec.tag, spec.tagNeg, spec.hasTag = val, neg, true
+			spec.tags = append(spec.tags, selTerm{val: val, neg: neg})
+		case "team":
+			if r := markSingle(); r != nil {
+				return selectorSpec{}, r
+			}
+			spec.team = &selTerm{val: val, neg: neg}
+		case "scores":
+			if len(val) < 2 || val[0] != '{' || val[len(val)-1] != '}' {
+				return bad("parsing.expected", voff, "{")
+			}
+			for _, e := range strings.Split(val[1:len(val)-1], ",") {
+				if e == "" {
+					continue
+				}
+				kv := strings.SplitN(e, "=", 2)
+				if len(kv) != 2 {
+					return bad("command.unknown.argument", voff)
+				}
+				r, ok := parseRangeF64(kv[1])
+				if !ok {
+					return bad("argument.range.empty", voff+strings.Index(val, "=")+1)
+				}
+				spec.scores = append(spec.scores, selScore{obj: kv[0], r: r})
+			}
+		case "nbt":
+			tg, _, err := parseSNBTTag(val, 0)
+			if err != nil || tg == nil || tg.kind != snbtCompound {
+				return bad("argument.nbt.expected.compound", voff)
+			}
+			m, _ := snbtToValue(tg).(map[string]any)
+			spec.nbts = append(spec.nbts, selNBT{m: m, neg: neg})
+		case "advancements":
+			if len(val) < 2 || val[0] != '{' || val[len(val)-1] != '}' {
+				return bad("parsing.expected", voff, "{")
+			}
+			entries, _, ok := splitSelectorArgs(val[1 : len(val)-1])
+			if !ok {
+				return bad("command.unknown.argument", voff)
+			}
+			for _, e := range entries {
+				if e == "" {
+					continue
+				}
+				ad := selAdv{}
+				if eq2 := strings.Index(e, "="); eq2 >= 0 {
+					ad.id = e[:eq2]
+					v := e[eq2+1:]
+					if strings.HasPrefix(v, "{") {
+						for _, c := range splitKV(v[1 : len(v)-1]) {
+							ck, cv, cok := strings.Cut(c, "=")
+							_ = ck
+							want := true
+							if cok {
+								want = cv != "false"
+							}
+							ad.crits = append(ad.crits, selTerm{val: ck, neg: !want})
+						}
+					} else {
+						b := v != "false"
+						ad.done = &b
+					}
+				} else {
+					ad.id = e
+					b := true
+					ad.done = &b
+				}
+				spec.advs = append(spec.advs, ad)
+			}
+		case "predicate":
+			spec.preds = append(spec.preds, val)
 		default:
-			return selectorSpec{}, false
+			return bad("argument.entity.options.unknown", 2+1+offs[pi], key)
 		}
 	}
-	return spec, true
+	return spec, nil
+}
+
+// splitKV splits an SNBT-ish entry list on commas — criteria maps are
+// shallow, no nested braces expected.
+func splitKV(body string) []string {
+	var out []string
+	for _, e := range strings.Split(body, ",") {
+		if e != "" {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // selectDataEntities gathers the entities a selector names: sessions
 // plus dimension entities filtered by the spec. Players carry type
 // minecraft:player for @e.
-func (s *Server) selectDataEntities(sender *Session, tok string, single bool) ([]*dataEntity, *reply) {
+func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, single bool) ([]*dataEntity, *reply) {
 	if len(tok) == 0 || tok[0] != '@' {
 		if sess := s.findSessionByName(tok); sess != nil {
 			return []*dataEntity{{sess: sess}}, nil
@@ -949,18 +1225,25 @@ func (s *Server) selectDataEntities(sender *Session, tok string, single bool) ([
 		r := componentReply(commandError("argument.entity.notfound.player"))
 		return nil, &r
 	}
-	spec, ok := parseSelector(tok)
-	if !ok {
-		r := componentReply(commandError("command.unknown.argument"))
-		return nil, &r
+	spec, serr := parseSelector(tok, tokIdx)
+	if serr != nil {
+		return nil, serr
 	}
 	// A single-entity argument (/data) rejects a multi-target selector
 	// upfront unless it caps at limit=1; multi-target commands like
 	// /kill resolve whatever matches.
-	if single && (spec.variable == 'e' || spec.variable == 'a') &&
-		(!spec.hasLimit || spec.limit > 1) {
-		r := errToken("argument.entity.toomany", 0)
-		return nil, &r
+	if single {
+		maxRes := 1
+		if spec.variable == 'e' || spec.variable == 'a' {
+			maxRes = 1 << 30
+		}
+		if spec.hasLimit {
+			maxRes = spec.limit
+		}
+		if maxRes > 1 {
+			r := errToken("argument.entity.toomany", 0)
+			return nil, &r
+		}
 	}
 	if spec.variable == 's' {
 		if sender == nil {
@@ -989,29 +1272,8 @@ func (s *Server) selectDataEntities(sender *Session, tok string, single bool) ([
 	}
 	var cands []*dataEntity
 	addSess := func(sess *Session) {
-		if spec.typeName != "" {
-			if spec.typeNeg != (spec.typeName != "player") {
-				return
-			}
-		}
-		if spec.hasName {
-			if spec.nameNeg == (sess.getName() == spec.name) {
-				return
-			}
-		}
-		// No scoreboard-tag store is modeled for players yet — a
-		// session never carries tags, so tag= filters reject and
-		// tag=! filters keep it.
-		if spec.hasTag && !spec.tagNeg {
+		if !s.selMatch(&spec, &dataEntity{sess: sess}, ax, ay, az) {
 			return
-		}
-		if spec.hasDist {
-			sx, sy, sz, _, _, _ := sess.Pos()
-			dx, dy, dz := sx-ax, sy-ay, sz-az
-			d := math.Sqrt(dx*dx + dy*dy + dz*dz)
-			if d < spec.distMin || d > spec.distMax {
-				return
-			}
 		}
 		cands = append(cands, &dataEntity{sess: sess})
 	}
@@ -1028,46 +1290,24 @@ func (s *Server) selectDataEntities(sender *Session, tok string, single bool) ([
 	if spec.variable == 'e' {
 		// Dying-but-unremoved corpses still match — vanilla's selector
 		// counts them and /kill reports them in the total.
+		var mobs []*dataEntity
 		for _, e := range s.entities.All() {
 			if e.Dim != dim {
 				continue
 			}
-			ent := e
-			name, _ := EntityTypeName(ent.Type)
-			if spec.typeName != "" {
-				if spec.typeNeg != (spec.typeName != name) {
-					continue
-				}
+			if n, _ := EntityTypeName(e.Type); n == "player" {
+				// Player entity records double their session — the
+				// session candidates already cover them.
+				continue
 			}
-			if spec.hasName {
-				if spec.nameNeg == (ent.CustomName == spec.name) {
-					continue
-				}
+			if ptr, ok := s.entities.GetPtr(e.ID); ok {
+				mobs = append(mobs, &dataEntity{mob: ptr})
 			}
-			if spec.hasTag {
-				has := false
-				if tg, ok := ent.ExtraNBT["Tags"]; ok {
-					if l, ok := tg.(nbt.List); ok {
-						for _, it := range l.Items {
-							if it == spec.tag {
-								has = true
-							}
-						}
-					}
-				}
-				if spec.tagNeg == has {
-					continue
-				}
-			}
-			if spec.hasDist {
-				dx, dy, dz := ent.X-ax, ent.Y-ay, ent.Z-az
-				d := math.Sqrt(dx*dx + dy*dy + dz*dz)
-				if d < spec.distMin || d > spec.distMax {
-					continue
-				}
-			}
-			if ptr, ok := s.entities.GetPtr(ent.ID); ok {
-				cands = append(cands, &dataEntity{mob: ptr})
+		}
+		sort.Slice(mobs, func(i, j int) bool { return mobs[i].mob.ID < mobs[j].mob.ID })
+		for _, de := range mobs {
+			if s.selMatch(&spec, de, ax, ay, az) {
+				cands = append(cands, de)
 			}
 		}
 	}
@@ -1084,10 +1324,16 @@ func (s *Server) selectDataEntities(sender *Session, tok string, single bool) ([
 	switch spec.sortBy {
 	case "furthest":
 		sort.SliceStable(cands, func(i, j int) bool { return distOf(cands[i]) > distOf(cands[j]) })
-	case "arbitrary":
-		// Gather order stands.
-	default:
+	case "nearest":
 		sort.SliceStable(cands, func(i, j int) bool { return distOf(cands[i]) < distOf(cands[j]) })
+	case "random":
+		rand.Shuffle(len(cands), func(i, j int) { cands[i], cands[j] = cands[j], cands[i] })
+	default:
+		// @e/@a gather order stands unless sort names one; @p/@r
+		// carry their own implicit ordering.
+		if spec.variable == 'p' {
+			sort.SliceStable(cands, func(i, j int) bool { return distOf(cands[i]) < distOf(cands[j]) })
+		}
 	}
 	if spec.variable == 'p' || spec.variable == 'r' {
 		spec.limit, spec.hasLimit = 1, true
@@ -1096,4 +1342,308 @@ func (s *Server) selectDataEntities(sender *Session, tok string, single bool) ([
 		cands = cands[:spec.limit]
 	}
 	return cands, nil
+}
+
+// selMatch applies every parsed option to one candidate: sessions and
+// dimension mobs share the checks, with non-players failing the
+// player-bound options (gamemode, level, advancements) the way the
+// real server's instanceof tests exclude them.
+func (s *Server) selMatch(spec *selectorSpec, d *dataEntity, ax, ay, az float64) bool {
+	px, py, pz, pitch, yaw := d.posRot()
+	name := d.selName()
+	holder := d.selHolder()
+
+	for _, t := range spec.types {
+		matched := false
+		if t.tag {
+			matched = d.entityInTag(t.val)
+		} else {
+			matched = d.typeName() == t.val
+		}
+		if matched == t.neg {
+			return false
+		}
+	}
+	// gamemode/level bind to players only — non-players fail even the
+	// negated forms.
+	if len(spec.modes) > 0 || spec.level != nil {
+		if d.sess == nil {
+			return false
+		}
+		for _, m := range spec.modes {
+			if (gamemodeNameOf(d.sess) == m.val) == m.neg {
+				return false
+			}
+		}
+		if spec.level != nil && !spec.level.test(float64(d.sess.xpLevel)) {
+			return false
+		}
+	}
+	for _, n := range spec.names {
+		if (name == n.val) == n.neg {
+			return false
+		}
+	}
+	for _, t := range spec.tags {
+		if d.hasTag(t.val) == t.neg {
+			return false
+		}
+	}
+	if spec.team != nil {
+		tm := s.teamOf(holder)
+		tn := ""
+		if tm != nil {
+			tn = tm.name
+		}
+		switch {
+		case spec.team.val == "" && spec.team.neg:
+			if tn == "" {
+				return false
+			}
+		case spec.team.val == "":
+			if tn != "" {
+				return false
+			}
+		case spec.team.neg:
+			if tn == spec.team.val {
+				return false
+			}
+		default:
+			if tn != spec.team.val {
+				return false
+			}
+		}
+	}
+	for _, sc := range spec.scores {
+		scv, ok := s.board.scores[holder][sc.obj]
+		if !ok || !sc.r.test(float64(scv)) {
+			return false
+		}
+	}
+	for _, nb := range spec.nbts {
+		if d.nbtMatches(nb.m) == nb.neg {
+			return false
+		}
+	}
+	// No predicate table exists — a predicate term fails everything.
+	if len(spec.preds) > 0 {
+		return false
+	}
+	for _, ad := range spec.advs {
+		if d.sess == nil || !d.sess.advMatch(ad) {
+			return false
+		}
+	}
+	if spec.dist != nil {
+		dx, dy, dz := px-ax, py-ay, pz-az
+		if !spec.dist.test(math.Sqrt(dx*dx + dy*dy + dz*dz)) {
+			return false
+		}
+	}
+	if spec.hasVol {
+		lo := func(a, dv float64) float64 {
+			if dv < 0 {
+				return a + dv
+			}
+			return a
+		}
+		hi := func(a, dv float64) float64 {
+			if dv < 0 {
+				return a
+			}
+			return a + dv
+		}
+		if px < lo(ax, spec.dx) || py < lo(ay, spec.dy) || pz < lo(az, spec.dz) ||
+			px > hi(ax, spec.dx) || py > hi(ay, spec.dy) || pz > hi(az, spec.dz) {
+			return false
+		}
+	}
+	if spec.xrot != nil && !selRotMatch(spec.xrot, pitch) {
+		return false
+	}
+	if spec.yrot != nil && !selRotMatch(spec.yrot, yaw) {
+		return false
+	}
+	return true
+}
+
+// selRotMatch is vanilla's rotation predicate: the range bounds are
+// themselves wrapped into (-180,180] — missing ends default to 0 and
+// 359 — and a wrapped lo>hi tests the wrap-around union.
+func selRotMatch(r *selRange, v float64) bool {
+	wrap := func(f float64) float64 {
+		f = math.Mod(f, 360)
+		if f >= 180 {
+			f -= 360
+		}
+		if f < -180 {
+			f += 360
+		}
+		return f
+	}
+	lo, hi := 0.0, wrap(359)
+	if r.lo != math.Inf(-1) {
+		lo = wrap(r.lo)
+	}
+	if r.hi != math.Inf(1) {
+		hi = wrap(r.hi)
+	}
+	wv := wrap(v)
+	if lo <= hi {
+		return wv >= lo && wv <= hi
+	}
+	return wv >= lo || wv <= hi
+}
+
+// posRot reads the candidate's position and rotation.
+func (d *dataEntity) posRot() (x, y, z, pitch, yaw float64) {
+	if d.sess != nil {
+		x, y, z, yw, pt, _ := d.sess.Pos()
+		return x, y, z, float64(pt), float64(yw)
+	}
+	return d.mob.X, d.mob.Y, d.mob.Z, float64(d.mob.Pitch), float64(d.mob.Yaw)
+}
+
+// selName is the name name= matches: a player's name, a mob's custom
+// name, else the mob's type display.
+func (d *dataEntity) selName() string {
+	if d.sess != nil {
+		return d.sess.getName()
+	}
+	if d.mob.CustomName != "" {
+		return d.mob.CustomName
+	}
+	n, _ := EntityTypeName(d.mob.Type)
+	return n
+}
+
+// selHolder is the scoreboard/team lookup key — the player name, or
+// the mob's UUID string like vanilla's getScoreboardName.
+func (d *dataEntity) selHolder() string {
+	if d.sess != nil {
+		return d.sess.getName()
+	}
+	u := d.mob.UUID
+	return fmt.Sprintf("%x-%x-%x-%x-%x", u[0:4], u[4:6], u[6:8], u[8:10], u[10:16])
+}
+
+// typeName is the entity's namespaced type (player included).
+func (d *dataEntity) typeName() string {
+	if d.sess != nil {
+		return "player"
+	}
+	n, _ := EntityTypeName(d.mob.Type)
+	return n
+}
+
+// entityInTag reports whether the entity's type belongs to a named
+// entity-type tag — the subset the suite exercises is a literal table.
+var entityTags = map[string][]string{
+	"skeletons":                       {"skeleton", "stray", "wither_skeleton", "skeleton_horse", "bogged"},
+	"zombies":                         {"zombie", "zombie_villager", "husk", "drowned", "zombified_piglin", "zombie_horse"},
+	"raiders":                         {"evoker", "illusioner", "pillager", "ravager", "vindicator", "witch"},
+	"undead":                          {"drowned", "husk", "phantom", "skeleton", "skeleton_horse", "stray", "wither_skeleton", "zombie", "zombie_horse", "zombie_villager", "zombified_piglin", "zoglin"},
+	"arthropods":                      {"bee", "endermite", "silverfish", "spider", "cave_spider"},
+	"aquatic":                         {"axolotl", "cod", "dolphin", "elder_guardian", "glow_squid", "guardian", "pufferfish", "salmon", "squid", "tadpole", "tropical_fish", "turtle"},
+	"immune_to_melting":               {"stray", "polar_bear", "snow_golem", "wither", "blaze"},
+	"sensitive_to_bane_of_arthropods": {"bee", "endermite", "silverfish", "spider", "cave_spider"},
+}
+
+func (d *dataEntity) entityInTag(tag string) bool {
+	for _, t := range entityTags[strings.TrimPrefix(tag, "minecraft:")] {
+		if t == d.typeName() {
+			return true
+		}
+	}
+	return false
+}
+
+// hasTag reports scoreboard-tag membership: mobs carry it in Tags;
+// players never have tags.
+func (d *dataEntity) hasTag(tag string) bool {
+	if d.sess != nil {
+		return false
+	}
+	if tg, ok := d.mob.ExtraNBT["Tags"]; ok {
+		if l, ok := tg.(nbt.List); ok {
+			for _, it := range l.Items {
+				if it == tag {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// nbtMatches is vanilla's compareNbt partial match: every pattern key
+// must be present with an equal tag type and value; compounds and
+// lists recurse, lists comparing elementwise.
+func (d *dataEntity) nbtMatches(pattern map[string]any) bool {
+	var target map[string]any
+	if d.sess != nil {
+		target = playerSaveMap(d.sess)
+	} else {
+		target = entitySaveMap(d.mob).m
+	}
+	return nbtSubset(target, pattern)
+}
+
+func nbtSubset(target, pattern map[string]any) bool {
+	for k, pv := range pattern {
+		tv, ok := target[k]
+		if !ok || !nbtPartialEqual(tv, pv) {
+			return false
+		}
+	}
+	return true
+}
+
+func nbtPartialEqual(tv, pv any) bool {
+	tm, tok := tv.(map[string]any)
+	pm, pok := pv.(map[string]any)
+	if tok && pok {
+		return nbtSubset(tm, pm)
+	}
+	tl, tok := tv.(nbt.List)
+	pl, pok := pv.(nbt.List)
+	if tok && pok {
+		if len(pl.Items) > len(tl.Items) {
+			return false
+		}
+		for i := range pl.Items {
+			if !nbtPartialEqual(tl.Items[i], pl.Items[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	return tv == pv
+}
+
+// advMatch evaluates an advancements={...} selector term against the
+// session's advancement progress; an id the registry lacks fails
+// regardless of the requested state.
+func (sess *Session) advMatch(ad selAdv) bool {
+	if _, ok := data.Advancements()[strings.TrimPrefix(ad.id, "minecraft:")]; !ok {
+		return false
+	}
+	if len(ad.crits) > 0 {
+		for _, c := range ad.crits {
+			got := false
+			if sess.advCrits != nil {
+				_, got = sess.advCrits[ad.id][c.val]
+			}
+			if got == c.neg {
+				return false
+			}
+		}
+		return true
+	}
+	return sess.advDone[ad.id] == *ad.done
+}
+
+// gamemodeNameOf is the selector-visible mode name.
+func gamemodeNameOf(sess *Session) string {
+	return []string{"survival", "creative", "adventure", "spectator"}[sess.gameMode]
 }

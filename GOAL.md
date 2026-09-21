@@ -2641,3 +2641,32 @@ physics through a void dip plus a fed recovery window.
   entity xz centers on the block like vanilla, y stays exact. The
   summon leaf's own errors print since it redirects a single source.
   TestExecuteIfParity ~130 commands green vs vanilla.
+- Selector arguments (26.2, EntitySelectorParser): the @[...] parser is
+  now a real tokenizer — commas inside {}/[] and quotes no longer break
+  the split — with the full option set: type= (single — a repeat,
+  even negated, is argument.entity.options.inapplicable[key] spanning
+  the arg through the bracket), entity-type tags via #id (a literal
+  membership table — unknown tags simply never match), gamemode=,
+  level=, scores={obj=range}, team= (empty arg = unteamed, ! = any
+  team), advancements={id|=bool|={crit=bool}} (unknown advancement ids
+  fail the term outright), predicate= (accepted but always-false — no
+  predicate table), nbt={...} partial-match (compounds recurse, lists
+  compare elementwise, tag types must match: {Health:10} ≠ 10.0f),
+  x_rotation/y_rotation (the RANGE bounds are themselves wrapped with
+  wrapDegrees — -180..180 becomes [180,180] and misses everything —
+  and a wrapped lo>hi tests the wrap-around union; absent ends default
+  to 0 and 359), dx/dy/dz volume (the box normalizes negative deltas),
+  name= with quoting and !negation, distance=, sort= (nearest/furthest/
+  random/arbitrary) and limit=. Error keys measured per option:
+  options.unknown, options.mode.invalid, options.sort.irreversible,
+  options.type.invalid, options.inapplicable, range.empty,
+  parsing.double.expected, parsing.expected, nbt.expected.compound,
+  and parse-time argument.entity.toomany whenever a single-target
+  scope gets an effective limit≠1 — cursor at input start. The
+  implicit orderings are EntitySelectorParser's fields: @e/@a gather
+  order (mc-go's is entity-id stable now), @p nearest, @r shuffled.
+  Player-bound options (gamemode/level/advancements) exclude
+  non-players even negated, players' entity records no longer
+  double-count in @e, and non-players with no scoreboard entry fail
+  scores= unconditionally. TestSelectorArgsParity ~52 commands green
+  vs vanilla.

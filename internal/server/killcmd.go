@@ -22,7 +22,7 @@ func (s *Server) runKill(player string, args []string) reply {
 		}
 	} else {
 		var rep *reply
-		cands, rep = s.selectDataEntities(sender, tok, false)
+		cands, rep = s.selectDataEntities(sender, tok, 1, false)
 		if rep != nil {
 			return *rep
 		}
