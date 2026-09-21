@@ -2000,3 +2000,18 @@ physics through a void dip plus a fed recovery window.
   Thrower UUID to a live entity id at summon (entityIDByUUID) and
   fires the picker trigger from itemTickStep's addStack path.
   TestThrownItemPickedUpByPlayerParity green on both.
+
+- started_riding (done): vanilla javap (Entity.startRiding,
+  Boat.interact): right-clicking a vehicle mounts the player and
+  fires START_RIDING_TRIGGER for ServerPlayer riders; the criterion's
+  player predicate carries vehicle.entity_type (#minecraft:boat) and
+  vehicle.passenger.entity_type (any-match). mc-go: boats/rafts are
+  summonable non-living entities, summon honors Passengers:[{id:...}]
+  recursive spawn NBT (riders get Riding set and skip gravity/
+  wander), and entity Interact on a boat mounts the player (2-seat
+  cap, sneaking passes through — vanilla's isSecondaryUseActive gate).
+  Entity gains Passengers/Riding; rideCond parses
+  player[].predicate.vehicle.{entity_type,passenger.entity_type}
+  with #tag resolution via entityTypeTagHas. Goat summonable
+  (hp 10, box 0.9x1.3). TestStartedRidingParity mounts an
+  oak_boat carrying a goat — green vs vanilla 26.2.

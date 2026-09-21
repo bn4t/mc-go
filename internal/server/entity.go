@@ -31,6 +31,10 @@ type Entity struct {
 	// thrown_item_picked_up_by_entity for that player. Zero when the
 	// item came from a block drop or world spawn.
 	Thrower int32
+	// Passengers holds the entity ids riding this entity (vanilla's
+	// passengers list); Riding is the vehicle id on the passenger.
+	Passengers []int32
+	Riding     int32
 	// MotionX/MotionZ carry a thrown item's horizontal drift, applied
 	// each tick with vanilla's 0.98 air / ~0.55 grounded decay.
 	MotionX, MotionZ float64

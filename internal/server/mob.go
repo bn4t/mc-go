@@ -181,6 +181,7 @@ var mobHealth = map[string]float32{
 	// sulfur_cube health is 4×size; a bare /summon lands at size 1.
 	"sulfur_cube": 4,
 	"allay":       20,
+	"goat":        10,
 }
 
 // mobBoundsTable is the vanilla bounding box (width, height) per
@@ -208,6 +209,7 @@ func init() {
 		"piglin":       {0.6, 1.95},
 		"sulfur_cube":  {1.04, 1.04},
 		"allay":        {0.35, 0.6},
+		"goat":         {0.9, 1.3},
 	} {
 		if id, ok := EntityTypeID(name); ok {
 			mobBoundsTable[id] = dims
@@ -313,6 +315,35 @@ func (s *Server) runSummon(player string, args []string) reply {
 		s.broadcastEntitySpawn(nil, *e)
 		s.broadcastEntityMetadata(e.ID, encodeItemMetadata(it))
 		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft.item")))
+	}
+	// Boats/rafts are vehicles, not living mobs: Passengers NBT
+	// recursively spawns riders the way vanilla's entity load does.
+	if isBoatEntityName(name) {
+		id, ok := EntityTypeID(name)
+		if !ok {
+			return textReply("Unknown entity: " + args[0])
+		}
+		e := s.entities.Spawn(&Entity{
+			Type: id,
+			Dim:  sess.dimName(),
+			X:    x, Y: y, Z: z,
+		})
+		if tag != nil {
+			if pv, ok := tag.vals["Passengers"]; ok {
+				for _, sub := range pv.items {
+					pname := strings.TrimPrefix(sub.vals["id"].str, "minecraft:")
+					if pname == "" {
+						continue
+					}
+					if g, ok := s.summonMob(sess.dimension(), pname, x, y, z, true); ok {
+						g.Riding = e.ID
+						e.Passengers = append(e.Passengers, g.ID)
+					}
+				}
+			}
+		}
+		s.broadcastEntitySpawn(nil, *e)
+		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}
 	// Non-living summons the command still accepts: projectiles take
 	// their Motion list and fly like a bow release.
@@ -512,7 +543,9 @@ func (s *Server) mobTickStep() {
 		if e.loveTicks > 0 {
 			e.loveTicks--
 		}
-		if e.NoAI {
+		if e.NoAI || e.Riding != 0 {
+			// A passenger stays put — vanilla's entity rider has no
+			// gravity or wander of its own.
 			continue
 		}
 		// Hostile melee mobs chase the nearest player and swing on a

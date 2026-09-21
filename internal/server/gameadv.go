@@ -47,6 +47,7 @@ type advMeta struct {
 	interacts  []interactCond  // player_interacted_with_entity — a successful right-click
 	pickups    []pickupCond    // thrown_item_picked_up_by_entity — a mob took a player's drop
 	pickupsByP []pickupCond    // thrown_item_picked_up_by_player — the picker side
+	rides      []rideCond      // started_riding — a player mounted a vehicle
 	fills      []fillCond      // filled_bucket — a bucket was filled
 	sleeps     []sleepCond     // slept_in_bed — entered a bed
 	sculks     []sleepCond     // kill_mob_near_sculk_catalyst — no conditions
@@ -291,6 +292,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.pickups = append(m.pickups, parsePickupCond(cname, cm["conditions"]))
 				case "minecraft:thrown_item_picked_up_by_player":
 					m.pickupsByP = append(m.pickupsByP, parsePickupCond(cname, cm["conditions"]))
+				case "minecraft:started_riding":
+					m.rides = append(m.rides, parseRideCond(cname, cm["conditions"]))
 				case "minecraft:filled_bucket":
 					m.fills = append(m.fills, parseFillCond(cname, cm["conditions"]))
 				case "minecraft:construct_beacon":
@@ -2227,6 +2230,135 @@ func (s *Server) runPickupConds(sess *Session, it ItemStack, etype string, conds
 			continue
 		}
 		sess.grantGameCriterion(meta, pc.crit)
+	}
+}
+
+// rideCond is one started_riding criterion: the player predicate's
+// vehicle sub-predicate (vehicle.entity_type — possibly a #tag — and
+// vehicle.passenger.entity_type). Any other constraint locks it.
+type rideCond struct {
+	crit       string
+	vehTypes   map[string]bool // raw entity_type values, "#minecraft:x" allowed
+	passTypes  map[string]bool
+	impossible bool
+}
+
+// parseRideCond reduces a started_riding criterion. Vanilla's player
+// predicate is entity_properties(entity:this) whose predicate carries
+// "minecraft:vehicle" — itself an entity predicate evaluated on the
+// mounted entity, with an optional passenger sub-predicate.
+func parseRideCond(cname string, conds any) rideCond {
+	rc := rideCond{crit: cname, vehTypes: map[string]bool{}, passTypes: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "player" {
+			rc.impossible = true
+			continue
+		}
+		plist, _ := v.([]any)
+		for _, pv := range plist {
+			pm, _ := pv.(map[string]any)
+			if c, _ := pm["condition"].(string); c != "minecraft:entity_properties" {
+				rc.impossible = true
+				continue
+			}
+			pred, _ := pm["predicate"].(map[string]any)
+			for pk, pv2 := range pred {
+				if pk != "minecraft:vehicle" {
+					rc.impossible = true
+					continue
+				}
+				vm, _ := pv2.(map[string]any)
+				for vk, vv := range vm {
+					switch vk {
+					case "minecraft:entity_type":
+						if st, ok := vv.(string); ok {
+							rc.vehTypes[st] = true
+						}
+					case "minecraft:passenger":
+						pm2, _ := vv.(map[string]any)
+						for pk2, vv2 := range pm2 {
+							if pk2 != "minecraft:entity_type" {
+								rc.impossible = true
+								continue
+							}
+							if st, ok := vv2.(string); ok {
+								rc.passTypes[st] = true
+							}
+						}
+					default:
+						rc.impossible = true
+					}
+				}
+			}
+		}
+	}
+	return rc
+}
+
+// entityTypesMatch reports whether an entity type name is accepted by
+// a raw entity_type value set ("minecraft:x" or "#minecraft:tag").
+func entityTypesMatch(set map[string]bool, name string) bool {
+	for want := range set {
+		if strings.HasPrefix(want, "#") {
+			if entityTypeTagHas(strings.TrimPrefix(strings.TrimPrefix(want, "#"), "minecraft:"), name) {
+				return true
+			}
+			continue
+		}
+		if strings.TrimPrefix(want, "minecraft:") == name {
+			return true
+		}
+	}
+	return false
+}
+
+// fireStartedRiding runs the started_riding criteria when a player
+// mounts a vehicle: the vehicle predicate tests the mounted entity
+// type and (optionally) whether any passenger matches.
+func (s *Server) fireStartedRiding(sess *Session) {
+	vid := sess.riding.Load()
+	if vid == 0 {
+		return
+	}
+	s.entities.mu.RLock()
+	ve, ok := s.entities.byID[vid]
+	if !ok {
+		s.entities.mu.RUnlock()
+		return
+	}
+	vname, _ := EntityTypeName(ve.Type)
+	passengers := append([]int32(nil), ve.Passengers...)
+	s.entities.mu.RUnlock()
+	for _, meta := range gameAdvs {
+		for _, rc := range meta.rides {
+			if rc.impossible {
+				continue
+			}
+			if len(rc.vehTypes) > 0 && !entityTypesMatch(rc.vehTypes, vname) {
+				continue
+			}
+			if len(rc.passTypes) > 0 {
+				matched := false
+				s.entities.mu.RLock()
+				for _, pid := range passengers {
+					pe, ok := s.entities.byID[pid]
+					if !ok {
+						continue
+					}
+					pname, _ := EntityTypeName(pe.Type)
+					if entityTypesMatch(rc.passTypes, pname) {
+						matched = true
+						break
+					}
+				}
+				s.entities.mu.RUnlock()
+				if !matched {
+					continue
+				}
+			}
+			sess.grantGameCriterion(meta, rc.crit)
+		}
 	}
 }
 

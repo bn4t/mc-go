@@ -230,12 +230,14 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 			}
 		}
 	}
-	if _, err := r.Bool(); err != nil {
+	sneaking, err := r.Bool()
+	if err != nil {
 		return
 	}
 	s.bucketFish(sess, id, hand)
 	s.feedAnimal(sess, id, hand)
 	s.tameAnimal(sess, id, hand)
+	s.rideVehicle(sess, id, sneaking)
 	s.interactEntityAdv(sess, id, hand)
 }
 

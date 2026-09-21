@@ -94,6 +94,9 @@ type Session struct {
 	effects  map[int32]mobEffectInst
 	invState atomic.Int32
 	held     atomic.Int32
+	// riding is the entity id of the vehicle this player mounted
+	// (boat etc.) — zero when on foot.
+	riding atomic.Int32
 	// chatIndex counts this player's relayed chat messages; chatGlobal
 	// counts messages delivered to this client (Player Chat Message
 	// ordering counters).
