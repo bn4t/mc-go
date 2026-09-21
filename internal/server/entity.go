@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"math"
+	"mc-go/internal/world"
 	"sync"
 	"sync/atomic"
 
@@ -39,6 +40,24 @@ type Entity struct {
 	// FakeItem is vanilla's ItemEntity.makeFakeItem: the /give visual
 	// toss — never pickuppable, despawns on the next item tick.
 	FakeItem bool
+	// HeldItem is the allay's carried stack; LikedPlayer is the
+	// LIKED_PLAYER brain memory (the hand-off's giver and the
+	// trigger's subject); HeardNote/HeardNoteAt are the
+	// LIKED_NOTEBLOCK_POSITION memory and when it was heard.
+	HeldItem ItemStack
+	// InvItem is the allay's single-slot SimpleContainer — only
+	// inventory items (picked up, not hand-given) are thrown to a
+	// deposit target.
+	InvItem        ItemStack
+	LikedPlayer    [16]byte
+	HasLikedPlayer bool
+	HeardNote      world.Pos
+	HeardNoteAt    int64
+	HasHeardNote   bool
+	// LastThrow is the tick the allay last threw an item; vanilla's
+	// GoAndGiveItemsToTarget waits TIME_BETWEEN_ITEM_THROWS (20 ticks)
+	// between throws.
+	LastThrow int64
 	// Converting/ConversionTime/ConversionStarter model
 	// ZombieVillager's cure countdown: ConversionTime ticks down by
 	// cureProgress each game tick, and at zero finishCure replaces

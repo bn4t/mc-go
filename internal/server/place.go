@@ -248,6 +248,18 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		}
 		return
 	}
+	// A noteblock's useWithoutItem cycles its note and plays it —
+	// NOTE_BLOCK_PLAY — when the held item doesn't consume the use.
+	// mc-go tunes only with an empty hand; held non-placeable items
+	// are a GOAL gap.
+	if isNoteBlock(cur) && sess.heldStack().Empty() {
+		s.noteBlockUse(sess, d, clicked)
+		acked = true
+		if seq >= 0 {
+			s.sendBlockAck(sess, seq)
+		}
+		return
+	}
 	// Interacting with a sign dyes it, waxes it, makes its text glow,
 	// or opens its editor - it never places.
 	if isSignLikeBlock(cur) {

@@ -39,6 +39,7 @@ type advMeta struct {
 	placed     []placedCond  // placed_block — a block landed in the world
 	dims       []dimCond     // changed_dimension — crossed dimensions
 	usedOn     []usedOnCond  // item_used_on_block — tool met block
+	allayDrops []usedOnCond  // allay_drop_item_on_block — same location schema
 	travel     []travelCond  // nether_travel — portal loop distance
 	summons    []summonCond  // summoned_entity — a built entity spawned
 	loots      []lootCond    // player_generates_container_loot — chest opened
@@ -284,6 +285,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.dims = append(m.dims, parseDimCond(cname, cm["conditions"]))
 				case "minecraft:item_used_on_block":
 					m.usedOn = append(m.usedOn, parseUsedOnCond(cname, cm["conditions"]))
+				case "minecraft:allay_drop_item_on_block":
+					m.allayDrops = append(m.allayDrops, parseUsedOnCond(cname, cm["conditions"]))
 				case "minecraft:nether_travel":
 					m.travel = append(m.travel, parseTravelCond(cname, cm["conditions"]))
 				case "minecraft:summoned_entity":
@@ -1103,6 +1106,20 @@ func addUsedOnBlocks(dst map[string]bool, v any) {
 func (s *Server) fireItemUsedOnBlock(sess *Session, blockName, itemName string) {
 	for _, meta := range gameAdvs {
 		for _, uc := range meta.usedOn {
+			if uc.impossible || !uc.blocks[blockName] || !uc.toolItems[itemName] {
+				continue
+			}
+			sess.grantGameCriterion(meta, uc.crit)
+		}
+	}
+}
+
+// fireAllayDropOnBlock grants allay_drop_item_on_block criteria: the
+// block the thrown item lands on and the item share the
+// item_used_on_block location schema.
+func (s *Server) fireAllayDropOnBlock(sess *Session, blockName, itemName string) {
+	for _, meta := range gameAdvs {
+		for _, uc := range meta.allayDrops {
 			if uc.impossible || !uc.blocks[blockName] || !uc.toolItems[itemName] {
 				continue
 			}

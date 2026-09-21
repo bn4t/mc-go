@@ -242,6 +242,7 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	s.tameAnimal(sess, id, hand)
 	s.rideVehicle(sess, id, sneaking)
 	s.tradeVillager(sess, id, hand)
+	s.giveAllay(sess, id, hand)
 	s.interactEntityAdv(sess, id, hand)
 }
 

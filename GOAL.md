@@ -2170,3 +2170,23 @@ physics through a void dip plus a fed recovery window.
   (recipe_id + ingredients schema), and level events 1049 (success)
   / 1050 (no match) / 2010 (front-direction data) play.
   TestCrafterRecipeCraftedParity green vs vanilla 26.2.
+
+- allay_drop_item_on_block: the allay's equipment/inventory split is
+  real in vanilla — /item or interact-fed items land on MAINHAND
+  equipment and NEVER throw; only items it picks off the ground into
+  its single inventory slot are thrown (canThrowItemToTarget gates on
+  getInventory, not the hand). wantsToPickUp requires a NON-empty
+  hand holding an equal stack, so an unfed allay ignores ground items.
+  A played noteblock posts NOTE_BLOCK_PLAY (useWithoutItem = tune +
+  play; attack = play only), which any allay inside the 16-block
+  listener radius hears if still within 30 — LIKED_NOTEBLOCK_POSITION
+  + a 600-tick cooldown memory. The throw itself paces one inventory
+  item per 20 ticks once dist(target.above(), eyePos) < 3, tossing
+  velocity (0.2,0.3,0.2) spread 0.2 with ITEM_PICKUP_COOLDOWN=60 on the
+  thrown entity, and fires ItemUsedOnLocationTrigger-shaped
+  allay_drop_item_on_block for the LIKED_PLAYER at the target's below.
+  Deposit target falls back to the liked player when no fresh
+  noteblock memory exists. Blackbox gotcha found: vanilla drops every
+  use-on while awaitingPositionFromClient is set — tests must answer
+  player_position with teleport_confirm before interacting.
+  TestAllayDropItemOnBlockParity green vs vanilla 26.2.
