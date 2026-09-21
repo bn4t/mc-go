@@ -397,6 +397,9 @@ func (s *Server) itemTickStep() {
 				}
 				remainder, picked := sess.addStack(e.Item)
 				if picked {
+					// ServerPlayer.take -> inventory_changed; recipe
+					// unlocks (e.g. wolf_armor_dyed) gate on it.
+					s.fireInventoryChanged(sess)
 					took := e.Item.Count
 					// ServerPlayer.onItemPickup: a picked-up item
 					// whose owner resolves fires
@@ -418,6 +421,7 @@ func (s *Server) itemTickStep() {
 					s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 					sess.addItemStat(statPickedUp, e.Item.ID, took)
 				} else if remainder != e.Item {
+					s.fireInventoryChanged(sess)
 					sess.addItemStat(statPickedUp, e.Item.ID, e.Item.Count-remainder.Count)
 					e.Item = remainder
 					s.broadcastEntityMetadata(e.ID, encodeItemMetadata(remainder))

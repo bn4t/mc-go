@@ -234,6 +234,9 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
+	// Vanilla's Entity.interact resolves the shears path before any
+	// type-specific mobInteract, so it leads the chain.
+	s.shearAnimal(sess, id, hand, sneaking)
 	s.bucketFish(sess, id, hand)
 	s.feedAnimal(sess, id, hand)
 	s.tameAnimal(sess, id, hand)

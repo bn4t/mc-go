@@ -3,6 +3,7 @@ package server
 import (
 	"math"
 	"math/rand"
+	"strconv"
 	"strings"
 
 	"mc-go/internal/protocol"
@@ -282,6 +283,28 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if eq, ok := tag.vals["equipment"]; ok {
 				if sd, ok := eq.vals["saddle"]; ok && sd.vals["id"].str != "" {
 					e.Saddle = true
+				}
+				if bd, ok := eq.vals["body"]; ok {
+					if idv, ok := bd.vals["id"]; ok && idv.str != "" {
+						if iid, ok := world.ItemID(strings.TrimPrefix(idv.str, "minecraft:")); ok {
+							cnt := int32(1)
+							if cv, ok := bd.vals["count"]; ok {
+								if n, err := strconv.Atoi(strings.TrimRight(cv.num, "bBsSiIlLfFdD")); err == nil && n > 0 {
+									cnt = int32(n)
+								}
+							}
+							e.BodyItem = ItemStack{ID: iid, Count: cnt}
+						}
+					}
+				}
+			}
+			// Owner on a tameable marks it tamed by that player —
+			// TamableAnimal reads the same EntityReference, and
+			// Wolf.canShearEquipment checks ownership through it.
+			if u, ok := snbtUUID(tag, "Owner"); ok {
+				if ownerSess := s.sessionByUUID(u); ownerSess != nil {
+					e.tamed = true
+					e.owner = ownerSess.getName()
 				}
 			}
 		}

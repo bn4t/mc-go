@@ -45,6 +45,7 @@ type advMeta struct {
 	breds      []breedCond   // bred_animals — a baby was produced
 	tames      []tameCond
 	interacts  []interactCond  // player_interacted_with_entity — a successful right-click
+	sheared    []interactCond  // player_sheared_equipment — item=removed stack
 	pickups    []pickupCond    // thrown_item_picked_up_by_entity — a mob took a player's drop
 	pickupsByP []pickupCond    // thrown_item_picked_up_by_player — the picker side
 	rides      []rideCond      // started_riding — a player mounted a vehicle
@@ -291,6 +292,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.tames = append(m.tames, parseTameCond(cname, cm["conditions"]))
 				case "minecraft:player_interacted_with_entity":
 					m.interacts = append(m.interacts, parseInteractCond(cname, cm["conditions"]))
+				case "minecraft:player_sheared_equipment":
+					m.sheared = append(m.sheared, parseInteractCond(cname, cm["conditions"]))
 				case "minecraft:thrown_item_picked_up_by_entity":
 					m.pickups = append(m.pickups, parsePickupCond(cname, cm["conditions"]))
 				case "minecraft:thrown_item_picked_up_by_player":
@@ -2056,6 +2059,27 @@ func (s *Server) firePlayerInteractedEntity(sess *Session, etype, heldName strin
 				continue
 			}
 			if len(ic.items) > 0 && !ic.items[heldName] {
+				continue
+			}
+			sess.grantGameCriterion(meta, ic.crit)
+		}
+	}
+}
+
+// firePlayerShearedEquipment runs the player_sheared_equipment
+// criteria — same PlayerInteractTrigger shape as
+// player_interacted_with_entity, but item is the REMOVED stack
+// (wolf_armor), entity the sheared mob (wolf).
+func (s *Server) firePlayerShearedEquipment(sess *Session, etype, itemName string) {
+	for _, meta := range gameAdvs {
+		for _, ic := range meta.sheared {
+			if ic.impossible {
+				continue
+			}
+			if len(ic.entities) > 0 && !ic.entities[etype] {
+				continue
+			}
+			if len(ic.items) > 0 && !ic.items[itemName] {
 				continue
 			}
 			sess.grantGameCriterion(meta, ic.crit)

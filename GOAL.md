@@ -2070,3 +2070,13 @@ physics through a void dip plus a fed recovery window.
   Item SNBT note: vanilla's component map wants QUOTED enchant keys —
   trident[enchantments={"minecraft:channeling":1}]. 
   TestChanneledLightningParity green vs vanilla 26.2.
+
+- player_sheared_equipment (remove_wolf_armor): vanilla Entity.interact
+  shears branch — Items.SHEARS + canShearEquipment (Wolf: isOwnedBy)
+  + !sneaking -> shearItem: wear shears 1, clear BODY slot, drop the
+  armor, trigger with REMOVED stack + wolf entity. mc-go: shear.go
+  first in handleInteract, mob summon reads equipment.body + Owner
+  ([I;..] int array only), item predicate matches the dropped stack.
+  Also fixed: item-entity pickup never fired inventory_changed — the
+  wolf_armor pickup unlocks recipes/misc/wolf_armor_dyed on vanilla.
+  TestPlayerShearedEquipmentParity green vs vanilla 26.2.
