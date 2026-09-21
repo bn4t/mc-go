@@ -2760,3 +2760,13 @@ physics through a void dip plus a fed recovery window.
   errors (unchanged via commandError too), name/selector args reuse
   the component machinery. TestBossbarParity 43 commands green vs
   vanilla incl. the member packet stream.
+
+- /playsound /stopsound /particle: playsound sends per-target sound
+  packets (holder=inline name + category + fixed-range flag +
+  pos*8 ints + volume/pitch + random seed, seed masked in the pin),
+  stopsound packs its flag byte over source/sound, particle walks
+  particle/options -> vec3 pos -> f32 delta triple -> speed -> count
+  -> force|normal -> viewers with the all-or-nothing delta+speed+count
+  chain, invalidOptions listing each missing option key, and
+  notFound landing at input end. Delta args parse as doubles though
+  the wire writes floats. TestFxParity 48 commands green vs vanilla.

@@ -264,6 +264,7 @@ func (s *Server) registerBuiltins() {
 	s.registerTagCommand()
 	s.registerWorldBorder()
 	s.registerBossbar()
+	registerFxCommands(s)
 	s.registerComponentCommand("scoreboard", func(player string, args []string) reply {
 		return s.runScoreboard(player, args)
 	})
