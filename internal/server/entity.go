@@ -93,6 +93,10 @@ type Entity struct {
 	// tridentCreativeOnly marks a creative-thrown trident — vanilla's
 	// Pickup.CREATIVE_ONLY: it can't be picked up.
 	tridentCreativeOnly bool
+	// tridentEnch is the thrown stack's enchantments component in the
+	// canonical "name:level" encoding — the channeling check reads it
+	// on hit, matching vanilla's copy of the ItemStack into the entity.
+	tridentEnch string
 	// arrowStuck marks an arrow embedded in a block: it stops
 	// moving and colliding until it despawns, like vanilla's
 	// inGround state.

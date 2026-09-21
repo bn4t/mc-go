@@ -183,6 +183,12 @@ func (s *Server) arrowTickStep() {
 		} else {
 			collided = s.arrowCollide(e, ox, oy, oz)
 		}
+		if collided && isTrident {
+			// The channeling enchantment's post_attack effect is
+			// data-driven in 26.2: thundering + can_see_sky at the
+			// victim summons a bolt at the struck point.
+			s.channelingStrike(e.arrowShooter, e, e.X, e.Y, e.Z)
+		}
 		if collided {
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemove([]int32{e.ID})
@@ -200,10 +206,17 @@ func (s *Server) arrowTickStep() {
 				e.arrowStuck = true
 			}
 			d := s.dimensionByName(e.Dim)
-			if name, ok := blockNameAt(d, world.Pos{X: bx, Y: by, Z: bz}); ok && name == "target" {
-				signal := targetSignal(axis, hx, hy, hz)
-				if shooter := s.sessionByEntityID(e.arrowShooter); shooter != nil {
-					s.fireTargetHit(shooter, e, signal)
+			if name, ok := blockNameAt(d, world.Pos{X: bx, Y: by, Z: bz}); ok {
+				if name == "target" {
+					signal := targetSignal(axis, hx, hy, hz)
+					if shooter := s.sessionByEntityID(e.arrowShooter); shooter != nil {
+						s.fireTargetHit(shooter, e, signal)
+					}
+				}
+				// hit_block channels only onto a lightning rod, per
+				// channeling.json's block predicate.
+				if isTrident && name == "lightning_rod" {
+					s.channelingStrike(e.arrowShooter, e, hx, hy, hz)
 				}
 			}
 		}
@@ -534,6 +547,7 @@ func (s *Server) releaseTrident(sess *Session) {
 	e := s.spawnTrident(sess, x, y, z, yaw, pitch, 2.5)
 	e.tridentDamage = carry
 	e.tridentCreativeOnly = creative
+	e.tridentEnch = st.Ench
 	s.playSoundSrc(sess.dimName(), x, y, z, 1631, 1, 1.0, 1.0) // item.trident.throw, PLAYERS source
 	sess.addItemStat(statUsed, st.ID, 1)
 }
@@ -561,6 +575,56 @@ func (s *Server) spawnTrident(shooter *Session, x, y, z float64, yaw, pitch floa
 	e.arrowShooter = shooter.entityID.Load()
 	s.broadcastEntitySpawn(nil, *e)
 	return e
+}
+
+// channelingStrike runs the channeling enchantment's strike once the
+// trident's entity- or block-hit resolves: the 26.2 channeling.json
+// effect is summon_entity lightning_bolt gated by weather_check
+// thundering + can_see_sky at the hit position. The spawned bolt then
+// does what every vanilla bolt does on its first tick — collects the
+// living entities inside its ±3 box, thunderHits them (5 damage; the
+// fire component is unmodeled), fires lightning_strike for the
+// bystanders, and fires channeled_lightning on the trident's owner
+// with the struck set as victims.
+func (s *Server) channelingStrike(ownerID int32, e *Entity, x, y, z float64) {
+	shooter := s.sessionByEntityID(ownerID)
+	if shooter == nil || (ItemStack{Ench: e.tridentEnch}).enchLevel("channeling") <= 0 {
+		return
+	}
+	if !s.isThundering() {
+		return
+	}
+	d := s.dimensionByName(e.Dim)
+	if !bobberSeesSky(d, world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}) {
+		return
+	}
+	bolt := s.entities.Spawn(&Entity{
+		Type: mustEntityType("lightning_bolt"),
+		Dim:  e.Dim,
+		X:    x, Y: y, Z: z,
+	})
+	s.broadcastEntitySpawn(nil, *bolt)
+	var victims []string
+	for _, ts := range s.entities.All() {
+		if ts.ID == bolt.ID || ts.Dim != e.Dim || ts.Dying || !ts.Living {
+			continue
+		}
+		if math.Abs(ts.X-x) > 3 || math.Abs(ts.Y-y) > 3 || math.Abs(ts.Z-z) > 3 {
+			continue
+		}
+		t, ok := s.entities.GetPtr(ts.ID)
+		if !ok {
+			continue
+		}
+		s.damageMob(t, 5)
+		if tn, ok := EntityTypeName(t.Type); ok {
+			victims = append(victims, tn)
+		}
+	}
+	s.fireLightningStrike(d, x, y, z, 1)
+	s.fireChanneledLightning(shooter, victims)
+	s.entities.Remove(bolt.ID)
+	s.broadcastEntityRemoveIn(e.Dim, nil, []int32{bolt.ID})
 }
 
 // hasItem reports whether the inventory holds the named item.

@@ -64,6 +64,7 @@ type advMeta struct {
 	enters     []enterCond     // enter_block — game tree (end/enter_end_gateway)
 	falls      []fallCond      // fall_from_height — landed drops
 	lights     []lightningCond // lightning_strike — bolt struck near a bystander
+	chans      []chanCond      // channeled_lightning — channeling bolt's struck set
 	slides     []slideCond     // slide_down_block — sliding a sticky side
 	levitates  []levitateCond  // levitation — distance risen under the effect
 	beenests   []beeNestCond   // bee_nest_destroyed — silk-touch nest break
@@ -324,6 +325,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.falls = append(m.falls, parseFallCond(cname, cm["conditions"]))
 				case "minecraft:lightning_strike":
 					m.lights = append(m.lights, parseLightningCond(cname, cm["conditions"]))
+				case "minecraft:channeled_lightning":
+					m.chans = append(m.chans, parseChanCond(cname, cm["conditions"]))
 				case "minecraft:slide_down_block":
 					m.slides = append(m.slides, parseSlideCond(cname, cm["conditions"]))
 				case "minecraft:levitation":
@@ -3809,6 +3812,96 @@ func (s *Server) fireBeeNestDestroyed(sess *Session, d *dimension, pos world.Pos
 				}
 			}
 			sess.grantGameCriterion(meta, bc.crit)
+		}
+	}
+}
+
+// chanCond is one channeled_lightning criterion: victims is the
+// condition's victims list — one entity-type set per entry, since the
+// trigger requires every victims predicate to match at least one of
+// the entities the bolt struck (vanilla's allMatch over anyMatch).
+type chanCond struct {
+	crit       string
+	victims    []map[string]bool
+	impossible bool
+}
+
+// parseChanCond reduces conditions.victims: a list of context-aware
+// predicates, each a list of entity_properties conditions whose
+// predicate.entity_type the struck entity's type must satisfy.
+func parseChanCond(cname string, conds any) chanCond {
+	cc := chanCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "victims" {
+			cc.impossible = true
+			continue
+		}
+		vlist, _ := v.([]any)
+		for _, vp := range vlist {
+			types := map[string]bool{}
+			plist, _ := vp.([]any)
+			for _, pv := range plist {
+				pm, _ := pv.(map[string]any)
+				if c, _ := pm["condition"].(string); c != "minecraft:entity_properties" {
+					cc.impossible = true
+					continue
+				}
+				pred, _ := pm["predicate"].(map[string]any)
+				for pk, pv2 := range pred {
+					switch pk {
+					case "minecraft:entity_type", "entity_type", "type":
+						switch tv := pv2.(type) {
+						case string:
+							types[tv] = true
+						case []any:
+							for _, e := range tv {
+								if st, ok := e.(string); ok {
+									types[st] = true
+								}
+							}
+						}
+					default:
+						cc.impossible = true
+					}
+				}
+			}
+			cc.victims = append(cc.victims, types)
+		}
+	}
+	return cc
+}
+
+// fireChanneledLightning grants the trigger to the trident's owner:
+// struck is the type names of every entity the bolt collected, and
+// each victims predicate grants when some struck entity's type is in
+// its accepted set.
+func (s *Server) fireChanneledLightning(sess *Session, struck []string) {
+	if sess == nil || len(struck) == 0 {
+		return
+	}
+	for _, meta := range gameAdvs {
+		for _, cc := range meta.chans {
+			if cc.impossible {
+				continue
+			}
+			all := true
+			for _, types := range cc.victims {
+				found := false
+				for _, st := range struck {
+					if entityTypesMatch(types, st) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					all = false
+					break
+				}
+			}
+			if all {
+				sess.grantGameCriterion(meta, cc.crit)
+			}
 		}
 	}
 }

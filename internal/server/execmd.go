@@ -211,6 +211,9 @@ func (s *Server) registerWorldCommands() {
 	s.registerComponentCommand("fill", func(player string, args []string) reply {
 		return s.runFill(player, args)
 	})
+	s.registerComponentCommand("weather", func(player string, args []string) reply {
+		return s.runWeather(player, args)
+	})
 }
 
 // runTick implements vanilla's /tick command surface. Replies are the

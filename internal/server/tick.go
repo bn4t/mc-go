@@ -286,6 +286,7 @@ func (s *Server) GameTick() {
 	s.hopperTickStep()
 	s.scheduledTickStep()
 	s.randomTickStep()
+	s.weatherTickStep()
 	s.beaconTickStep()
 	s.mobEffectTickStep()
 	// Chunk streaming is paced on the tick, like everything else: one

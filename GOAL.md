@@ -2047,3 +2047,26 @@ physics through a void dip plus a fed recovery window.
   Measured: the creative-default join means hurtAndBreak is a no-op
   until a real gamemode switch — the test sets survival first.
   TestItemDurabilityChangedParity green vs vanilla 26.2.
+
+- channeled_lightning + /weather (done): vanilla stores one
+  server-wide WeatherData; /weather <clear|rain|thunder> [time] writes
+  the rain/thunder flags and replies commands.weather.set.<mode>.
+  Level.isThundering is NOT the flag — it's the lerped
+  thunderLevel > 0.9 ramping 0.01/tick, so the weather_check in
+  channeling's post_attack effect fails for ~90 ticks after the
+  command (measured: the advancement only grants once the ramp
+  crosses). Channeling itself is fully data-driven in 26.2:
+  enchantment.json post_attack → summon_entity lightning_bolt gated by
+  thundering + can_see_sky at the victim + direct_attacker=trident;
+  hit_block additionally requires a #lightning_rods block. The bolt
+  collects living entities in a ±3 box, thunderHits them (5 damage),
+  fires lightning_strike for bystanders, and fires
+  channeled_lightning on the trident owner with the struck set as
+  victims (summon_entity sets LightningBolt.cause from the
+  EnchantedItemInUse owner — the source entity's mainhand path).
+  mc-go: weather.go (flags + milli-scaled lerped levels + countdown),
+  Entity.tridentEnch carries the thrown stack's enchantments,
+  channelingStrike on both trident hit sites, chans chanCond parser.
+  Item SNBT note: vanilla's component map wants QUOTED enchant keys —
+  trident[enchantments={"minecraft:channeling":1}]. 
+  TestChanneledLightningParity green vs vanilla 26.2.

@@ -163,6 +163,19 @@ type Server struct {
 	// with a random-tick rule. randMu guards it.
 	randMu       sync.Mutex
 	randSections map[randSectionKey]bool
+
+	// weatherRaining/weatherThunder are the server-wide weather flags
+	// (vanilla keeps one WeatherData on the server); weatherTicks is
+	// the remaining duration counted down per tick — see weather.go.
+	// rainLevel/thunderLevel are the lerped intensities vanilla's
+	// isRaining/isThundering actually read (>0.2 / >0.9 thresholds,
+	// ramping 0.01/tick — a thunder command doesn't channel for ~90
+	// ticks).
+	weatherRaining atomic.Bool
+	weatherThunder atomic.Bool
+	weatherTicks   atomic.Int64
+	weatherRain    atomic.Int32 // rainLevel * 1000, lerped
+	weatherThundLv atomic.Int32 // thunderLevel * 1000, lerped
 }
 
 // New builds a server with its world, bus, and command registry.
