@@ -265,7 +265,7 @@ func (s *Server) registerBuiltins() {
 	s.registerComponentCommand("execute", func(player string, args []string) reply {
 		return s.runExecute(player, args)
 	})
-	s.commands.Register("scoreboard", func(player string, args []string) string {
+	s.registerComponentCommand("scoreboard", func(player string, args []string) reply {
 		return s.runScoreboard(player, args)
 	})
 	s.registerComponentCommand("kill", func(player string, args []string) reply {

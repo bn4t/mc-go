@@ -1,10 +1,12 @@
 package server
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
 
+	"mc-go/internal/data"
 	"mc-go/internal/world"
 )
 
@@ -46,17 +48,16 @@ func (s *Server) runExecute(player string, args []string) reply {
 				return textReply("Usage: /execute if|unless <condition> ...")
 			}
 			negate := args[i] == "unless"
-			consumed, ok, msg := s.executeCondition(&ctx, player, args[i+1:], bx, by, bz)
-			if msg != "" {
-				return textReply(msg)
+			consumed, cond, err := s.executeCondition(&ctx, player, args[i+1:], bx, by, bz, i+2)
+			if err != nil {
+				return *err
 			}
-			if !ok {
-				// A malformed condition short-circuits the whole chain.
-				return textReply("Usage: /execute if|unless <condition> ...")
-			}
+			// unless runs the chain when the condition reads false —
+			// the negation folds into the AND, not after it.
 			if negate {
-				ctx.alive = !ctx.alive
+				cond = !cond
 			}
+			ctx.alive = ctx.alive && cond
 			i += 1 + consumed
 		case "run":
 			sub := args[i+1:]
@@ -64,69 +65,595 @@ func (s *Server) runExecute(player string, args []string) reply {
 				return textReply("Usage: /execute ... run <command>")
 			}
 			if !ctx.alive {
-				return textReply("Test failed")
+				// A failed conditional ends the chain with no output
+				// at all — vanilla's only reply is the run command's.
+				return reply{}
 			}
 			return s.runInDimension(player, ctx.dim, sub)
 		case "positioned", "as", "at", "align", "facing", "rotated", "anchored", "summon":
 			return textReply("Unsupported execute subcommand: " + args[i])
 		default:
-			return textReply("Unknown execute subcommand: " + args[i])
+			return errToken("command.unknown.argument", i+1)
 		}
 	}
 	return textReply("Usage: /execute <subcommand> ... run <command>")
 }
 
 // executeCondition evaluates one condition and reports how many of the
-// args it consumed. It ANDs into ctx.alive, matching vanilla's
-// short-circuit behaviour where every condition in the chain must hold.
-func (s *Server) executeCondition(ctx *executeContext, player string, args []string, bx, by, bz int) (consumed int, ok bool, msg string) {
+// args it consumed plus the raw condition result — the caller folds
+// unless's negation into ctx.alive. The third return is a parse error
+// reply when the condition itself is malformed.
+func (s *Server) executeCondition(ctx *executeContext, player string, args []string, bx, by, bz, tokBase int) (consumed int, cond bool, err *reply) {
 	if len(args) == 0 {
-		return 0, false, "Usage: /execute if|unless <condition> ..."
+		r := textReply("Usage: /execute if|unless <condition> ...")
+		return 0, false, &r
 	}
 	switch args[0] {
 	case "block":
 		// if block <x> <y> <z> <block predicate>
 		if len(args) < 5 {
-			return 0, false, "Usage: /execute if block <x> <y> <z> <block>"
+			r := textReply("Usage: /execute if block <x> <y> <z> <block>")
+			return 0, false, &r
 		}
 		x, err := parseCoord(args[1], bx)
 		if err != nil {
-			return 0, false, "Invalid x: " + args[1]
+			r := textReply("Invalid x: " + args[1])
+			return 0, false, &r
 		}
 		y, err := parseCoord(args[2], by)
 		if err != nil {
-			return 0, false, "Invalid y: " + args[2]
+			r := textReply("Invalid y: " + args[2])
+			return 0, false, &r
 		}
 		z, err := parseCoord(args[3], bz)
 		if err != nil {
-			return 0, false, "Invalid z: " + args[3]
+			r := textReply("Invalid z: " + args[3])
+			return 0, false, &r
 		}
 		blk, exact, okp := parseBlockSpec(args[4])
 		if !okp {
-			return 0, false, "Unknown block: " + args[4]
+			r := textReply("Unknown block: " + args[4])
+			return 0, false, &r
 		}
 		if ctx.alive {
-			ctx.alive = s.matchesBlockPredicate(ctx.dim, world.Pos{X: x, Y: y, Z: z}, blk, exact)
+			cond = s.matchesBlockPredicate(ctx.dim, world.Pos{X: x, Y: y, Z: z}, blk, exact)
 		}
-		return 5, true, ""
+		return 5, cond, nil
 	case "entity":
-		// if entity <selector> — only the @s/@p forms mc-go can resolve.
+		// if entity <selector> — a selector matching nothing fails
+		// silently; a bare name matching no player is a parse error.
 		if len(args) < 2 {
-			return 0, false, "Usage: /execute if entity <target>"
+			r := textReply("Usage: /execute if entity <target>")
+			return 0, false, &r
 		}
 		if ctx.alive {
-			ctx.alive = s.resolveTarget(player, args[1]) != nil
+			if len(args[1]) > 0 && args[1][0] != '@' {
+				// A bare player name reads like an empty selector —
+				// the condition fails silently on the wire.
+				cond = s.findSessionByName(args[1]) != nil
+			} else {
+				cands, serr := s.selectDataEntities(s.findSessionByName(player), args[1], false)
+				if serr != nil {
+					return 0, false, serr
+				}
+				cond = len(cands) > 0
+			}
 		}
-		return 2, true, ""
+		return 2, cond, nil
+	case "items":
+		return s.executeIfItems(ctx, player, args, bx, by, bz, tokBase)
+	case "data":
+		return s.executeIfData(ctx, player, args, bx, by, bz, tokBase)
+	case "score":
+		return s.executeIfScore(ctx, player, args, tokBase)
+	case "dimension":
+		if len(args) < 2 {
+			r := textReply("Usage: /execute if dimension <id>")
+			return 0, false, &r
+		}
+		if ctx.alive && ctx.dim != nil {
+			cond = ctx.dim == s.dimensionByName(args[1])
+		}
+		return 2, cond, nil
+	case "biome":
+		// if biome <x> <y> <z> <id> — mc-go keeps one biome per dim.
+		if len(args) < 5 {
+			r := textReply("Usage: /execute if biome <x> <y> <z> <biome>")
+			return 0, false, &r
+		}
+		if ctx.alive && ctx.dim != nil {
+			name := args[4]
+			if !strings.Contains(name, ":") {
+				name = "minecraft:" + name
+			}
+			cond = ctx.dim.biome == name
+		}
+		return 5, cond, nil
+	case "predicate":
+		if len(args) < 2 {
+			r := textReply("Usage: /execute if predicate <id>")
+			return 0, false, &r
+		}
+		// mc-go loads no datapack predicates, so every id misses the
+		// registry — argument.resource_or_id.no_such_element.
+		r := errTokenEnd("argument.resource_or_id.no_such_element", tokBase+1, args[1], "minecraft:predicate")
+		return 0, false, &r
 	case "loaded":
 		// if loaded <x> <y> <z> — mc-go keeps every column it can generate.
 		if len(args) < 4 {
-			return 0, false, "Usage: /execute if loaded <x> <y> <z>"
+			r := textReply("Usage: /execute if loaded <x> <y> <z>")
+			return 0, false, &r
 		}
-		return 4, true, ""
+		return 4, ctx.alive, nil
 	default:
-		return 0, false, "Unknown condition: " + args[0]
+		r := textReply("Unknown condition: " + args[0])
+		return 0, false, &r
 	}
+}
+
+// executeIfItems evaluates `if items block <x> <y> <z> <slots> <pred>`
+// and `if items entity <sel> <slots> <pred>`. Vanilla counts the
+// matching (entity, slot) pairs over the whole slot range and reads the
+// condition true when the count is nonzero, so a wildcard slots spec
+// like weapon.* passes if either hand matches.
+func (s *Server) executeIfItems(ctx *executeContext, player string, args []string, bx, by, bz, tokBase int) (consumed int, cond bool, err *reply) {
+	if len(args) < 2 {
+		r := textReply("Usage: /execute if items <block|entity> ...")
+		return 0, false, &r
+	}
+	var stacks []ItemStack
+	var next int
+	sess := s.findSessionByName(player)
+	switch args[1] {
+	case "block":
+		if len(args) < 7 {
+			r := textReply("Usage: /execute if items block <x> <y> <z> <slots> <item>")
+			return 0, false, &r
+		}
+		x, e := parseCoord(args[2], bx)
+		if e != nil {
+			r := textReply("Invalid x: " + args[2])
+			return 0, false, &r
+		}
+		y, e := parseCoord(args[3], by)
+		if e != nil {
+			r := textReply("Invalid y: " + args[3])
+			return 0, false, &r
+		}
+		z, e := parseCoord(args[4], bz)
+		if e != nil {
+			r := textReply("Invalid z: " + args[4])
+			return 0, false, &r
+		}
+		slots, ok := expandSlotRange(args[5])
+		if !ok {
+			r := errTokenEnd("slot.unknown", tokBase+5, args[5])
+			return 0, false, &r
+		}
+		d := ctx.dim
+		if ctx.alive {
+			pos := world.Pos{X: x, Y: y, Z: z}
+			for _, id := range slots {
+				// A non-container read misses like the slot doesn't
+				// exist, the same way vanilla's container lookup just
+				// contributes zero to the count.
+				if st, _, ok := s.readItemBlock(d, pos, id); ok {
+					stacks = append(stacks, st)
+				}
+			}
+		}
+		next = 6
+	case "entity":
+		if len(args) < 5 {
+			r := textReply("Usage: /execute if items entity <sel> <slots> <item>")
+			return 0, false, &r
+		}
+		slots, ok := expandSlotRange(args[3])
+		if !ok {
+			r := errTokenEnd("slot.unknown", tokBase+3, args[3])
+			return 0, false, &r
+		}
+		if ctx.alive {
+			if len(args[2]) > 0 && args[2][0] != '@' {
+				if ts := s.findSessionByName(args[2]); ts == nil {
+					// Missing player — the slot reads contribute
+					// nothing, like an empty selector.
+				} else {
+					for _, id := range slots {
+						if st, ok := readEntitySlot(ts, id); ok {
+							stacks = append(stacks, st)
+						}
+					}
+				}
+			} else {
+				cands, serr := s.selectDataEntities(sess, args[2], false)
+				if serr != nil {
+					return 0, false, serr
+				}
+				for _, c := range cands {
+					if c.sess == nil {
+						// Mobs carry hand/armor slots vanilla reads,
+						// but mc-go doesn't model their equipment —
+						// an unmodeled slot reads empty.
+						continue
+					}
+					for _, id := range slots {
+						if st, ok := readEntitySlot(c.sess, id); ok {
+							stacks = append(stacks, st)
+						}
+					}
+				}
+			}
+		}
+		next = 4
+	default:
+		r := textReply("Usage: /execute if items <block|entity> ...")
+		return 0, false, &r
+	}
+	pred, perr := parseItemPredicate(args[next], tokBase+next)
+	if perr != nil {
+		return 0, false, perr
+	}
+	if ctx.alive {
+		for _, st := range stacks {
+			if itemPredicateMatch(pred, st) {
+				cond = true
+				break
+			}
+		}
+	}
+	return next + 1, cond, nil
+}
+
+// expandSlotRange turns a SlotsArgument token into global slot indices:
+// a plain name, or a family.* wildcard expanding to every index in the
+// family a player can hold.
+func expandSlotRange(tok string) ([]int32, bool) {
+	if id, ok := parseItemSlot(tok); ok {
+		return []int32{id}, true
+	}
+	if tok == "*" {
+		// Every index a player answers.
+		var out []int32
+		for i := int32(0); i <= 35; i++ {
+			out = append(out, i)
+		}
+		out = append(out, itemSlotMainhand, itemSlotOffhand,
+			itemSlotFeet, itemSlotLegs, itemSlotChest, itemSlotHead,
+			itemSlotBody, itemSlotCursor)
+		for i := int32(0); i <= 26; i++ {
+			out = append(out, 200+i)
+		}
+		for i := int32(0); i <= 3; i++ {
+			out = append(out, 500+i)
+		}
+		return out, true
+	}
+	prefix, ok := strings.CutSuffix(tok, ".*")
+	if !ok {
+		return nil, false
+	}
+	switch prefix {
+	case "container":
+		// container.N runs 0-53 in the registry; a player only
+		// answers the first 36, a block only its own depth.
+		var out []int32
+		for i := int32(0); i <= 53; i++ {
+			out = append(out, i)
+		}
+		return out, true
+	case "inventory":
+		var out []int32
+		for i := int32(0); i <= 26; i++ {
+			out = append(out, 9+i)
+		}
+		return out, true
+	case "hotbar":
+		var out []int32
+		for i := int32(0); i <= 8; i++ {
+			out = append(out, i)
+		}
+		return out, true
+	case "enderchest":
+		var out []int32
+		for i := int32(0); i <= 26; i++ {
+			out = append(out, 200+i)
+		}
+		return out, true
+	case "weapon":
+		return []int32{itemSlotMainhand, itemSlotOffhand}, true
+	case "armor":
+		return []int32{itemSlotFeet, itemSlotLegs, itemSlotChest, itemSlotHead, itemSlotBody}, true
+	case "player.crafting":
+		return []int32{500, 501, 502, 503}, true
+	}
+	return nil, false
+}
+
+// itemPredicate is the slice of the item_predicate grammar mc-go
+// evaluates: an item id or #tag, plus a count=N exact-count test. Any
+// other [component...] test parses but can only match components the
+// stack model carries.
+type itemPredicate struct {
+	id      string
+	tag     string
+	count   int32
+	hasCnt  bool
+	unknown bool
+}
+
+// parseItemPredicate reads `<id|#tag>[<tests>]`. A wildcard path
+// (minecraft:*) fails the id read where vanilla's reader stops — the
+// argument.item.id.invalid argument is the parsed prefix.
+func parseItemPredicate(tok string, tokNum int) (itemPredicate, *reply) {
+	var p itemPredicate
+	body := tok
+	if i := strings.IndexByte(tok, '['); i >= 0 {
+		body = tok[:i]
+	}
+	if strings.HasPrefix(body, "#") {
+		p.tag = normalizeItemName(body[1:])
+	} else {
+		id := idPrefix(body)
+		if id != body || id == "" {
+			r := errTokenOff("argument.item.id.invalid", tokNum, len(id), id)
+			return p, &r
+		}
+		id = normalizeItemName(id)
+		// ItemIDs keys bare names; any other namespace misses the
+		// registry the same way vanilla reports a bad id.
+		if _, ok := world.ItemIDs[strings.TrimPrefix(id, "minecraft:")]; !ok {
+			r := errTokenEnd("argument.item.id.invalid", tokNum, id)
+			return p, &r
+		}
+		p.id = strings.TrimPrefix(id, "minecraft:")
+	}
+	if i := strings.IndexByte(tok, '['); i >= 0 {
+		if !strings.HasSuffix(tok, "]") {
+			r := errTokenEnd("command.unknown.argument", tokNum)
+			return p, &r
+		}
+		for _, part := range strings.Split(tok[i+1:len(tok)-1], ",") {
+			kv := strings.SplitN(part, "=", 2)
+			if len(kv) == 2 && kv[0] == "count" {
+				n, err := strconv.Atoi(kv[1])
+				if err != nil {
+					r := errTokenEnd("command.unknown.argument", tokNum)
+					return p, &r
+				}
+				p.count, p.hasCnt = int32(n), true
+				continue
+			}
+			p.unknown = true
+		}
+	}
+	return p, nil
+}
+
+// itemPredicateMatch tests one stack against the predicate. An empty
+// slot never matches — vanilla's ItemPredicate.test bails on
+// ItemStack.EMPTY before checking anything, so `air` reads false too.
+func itemPredicateMatch(p itemPredicate, st ItemStack) bool {
+	if st.Count <= 0 || st.ID <= 0 {
+		return false
+	}
+	if p.unknown {
+		return false
+	}
+	name, _ := itemNameOf(st.ID)
+	if p.tag != "" && !data.HasItemTag(p.tag, name) {
+		return false
+	}
+	if p.id != "" && name != p.id {
+		return false
+	}
+	if p.hasCnt && st.Count != p.count {
+		return false
+	}
+	return true
+}
+
+// executeIfData evaluates `if data <block|entity|storage> ...` — the
+// read must resolve and any path must exist.
+func (s *Server) executeIfData(ctx *executeContext, player string, args []string, bx, by, bz, tokBase int) (consumed int, cond bool, err *reply) {
+	if len(args) < 3 {
+		r := textReply("Usage: /execute if data <block|entity|storage> ...")
+		return 0, false, &r
+	}
+	sess := s.findSessionByName(player)
+	var base any
+	exists := false
+	var next int
+	switch args[1] {
+	case "block":
+		if len(args) < 5 {
+			r := textReply("Usage: /execute if data block <x> <y> <z> [path]")
+			return 0, false, &r
+		}
+		x, e := parseCoord(args[2], bx)
+		if e != nil {
+			r := textReply("Invalid x: " + args[2])
+			return 0, false, &r
+		}
+		y, e := parseCoord(args[3], by)
+		if e != nil {
+			r := textReply("Invalid y: " + args[3])
+			return 0, false, &r
+		}
+		z, e := parseCoord(args[4], bz)
+		if e != nil {
+			r := textReply("Invalid z: " + args[4])
+			return 0, false, &r
+		}
+		next = 5
+		if ctx.alive {
+			if be, ok := s.blockEntitySaveMap(ctx.dim, world.Pos{X: x, Y: y, Z: z}); ok {
+				base, exists = be, true
+			}
+		}
+	case "entity":
+		next = 3
+		if ctx.alive {
+			cands, serr := s.selectDataEntities(sess, args[2], true)
+			if serr != nil {
+				return 0, false, serr
+			}
+			if len(cands) > 0 {
+				base, exists = cands[0].saveMap().m, true
+			}
+		}
+	case "storage":
+		if len(args) < 3 {
+			r := textReply("Usage: /execute if data storage <id> [path]")
+			return 0, false, &r
+		}
+		next = 3
+		if ctx.alive {
+			if s.storageExists(args[2]) {
+				base, exists = s.storageRead(args[2]), true
+			}
+		}
+	default:
+		r := textReply("Usage: /execute if data <block|entity|storage> ...")
+		return 0, false, &r
+	}
+	// The path arg is required — `if data storage x` swallows the
+	// next token (even `run`) as the path, and the keyword it expected
+	// then errors as an unknown argument in the chain.
+	if len(args) <= next {
+		r := errToken("command.unknown.argument", tokBase+next)
+		return 0, false, &r
+	}
+	steps, ok := parseNBTPath(args[next])
+	if !ok {
+		r := errToken("command.unknown.argument", tokBase+next)
+		return 0, false, &r
+	}
+	if exists {
+		_, cond = nbtGet(base, steps)
+	}
+	return next + 1, cond, nil
+}
+
+// executeIfScore evaluates `if score <holder> <obj> matches <range>`
+// and the binary `if score <h1> <o1> <op> <h2> <o2>` forms against the
+// scoreboard. A missing objective or score reads false, the silent
+// failure vanilla produces.
+func (s *Server) executeIfScore(ctx *executeContext, player string, args []string, tokBase int) (consumed int, cond bool, err *reply) {
+	if len(args) < 5 {
+		r := textReply("Usage: /execute if score <holder> <obj> <matches|op> ...")
+		return 0, false, &r
+	}
+	name := s.scoreHolderName(player, args[1])
+	if name == "" {
+		// An unresolvable holder reads as a failed condition.
+		return 0, false, nil
+	}
+	if !ctx.alive {
+		// Dead chain — still consume the right token count so the
+		// parser stays aligned.
+		if args[3] == "matches" {
+			return 5, false, nil
+		}
+		if len(args) >= 6 {
+			return 6, false, nil
+		}
+		return 0, false, nil
+	}
+	s.board.mu.Lock()
+	v1, ok1 := s.board.scores[name][args[2]]
+	s.board.mu.Unlock()
+	if args[3] == "matches" {
+		if !ok1 {
+			return 5, false, nil
+		}
+		lo, hi, ok := parseIntRange(args[4])
+		if !ok {
+			r := componentReply(commandError("command.unknown.argument"))
+			return 0, false, &r
+		}
+		return 5, int64(v1) >= lo && int64(v1) <= hi, nil
+	}
+	if len(args) < 6 {
+		r := textReply("Usage: /execute if score <h> <o> <op> <h2> <o2>")
+		return 0, false, &r
+	}
+	name2 := s.scoreHolderName(player, args[4])
+	if name2 == "" {
+		return 6, false, nil
+	}
+	s.board.mu.Lock()
+	v2, ok2 := s.board.scores[name2][args[5]]
+	s.board.mu.Unlock()
+	if !ok1 || !ok2 {
+		return 6, false, nil
+	}
+	switch args[3] {
+	case "=":
+		cond = v1 == v2
+	case "<":
+		cond = v1 < v2
+	case "<=":
+		cond = v1 <= v2
+	case ">":
+		cond = v1 > v2
+	case ">=":
+		cond = v1 >= v2
+	default:
+		r := componentReply(commandError("command.unknown.argument"))
+		return 0, false, &r
+	}
+	return 6, cond, nil
+}
+
+// scoreHolderName maps a score-holder token to its scoreboard key: a
+// session's name, a mob's UUID string, or a literal fake-player name.
+func (s *Server) scoreHolderName(sender, tok string) string {
+	if len(tok) == 0 {
+		return ""
+	}
+	if tok[0] != '@' {
+		return tok
+	}
+	cands, _ := s.selectDataEntities(s.findSessionByName(sender), tok, true)
+	if len(cands) == 0 {
+		return ""
+	}
+	if cands[0].sess != nil {
+		return cands[0].sess.getName()
+	}
+	// A mob's scoreboard name is its UUID string.
+	u := cands[0].mob.UUID
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		u[0:4], u[4:6], u[6:8], u[8:10], u[10:16])
+}
+
+// parseIntRange parses vanilla's IntRange forms: N, N.., ..N, N..M.
+func parseIntRange(tok string) (lo, hi int64, ok bool) {
+	if strings.Contains(tok, "..") {
+		parts := strings.SplitN(tok, "..", 2)
+		lo, hi = math.MinInt64, math.MaxInt64
+		if parts[0] != "" {
+			v, err := strconv.ParseInt(parts[0], 10, 64)
+			if err != nil {
+				return 0, 0, false
+			}
+			lo = v
+		}
+		if parts[1] != "" {
+			v, err := strconv.ParseInt(parts[1], 10, 64)
+			if err != nil {
+				return 0, 0, false
+			}
+			hi = v
+		}
+		return lo, hi, true
+	}
+	v, err := strconv.ParseInt(tok, 10, 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	return v, v, true
 }
 
 // matchesBlockPredicate reports whether the block at pos satisfies a

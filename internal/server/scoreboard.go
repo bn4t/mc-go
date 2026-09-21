@@ -8,14 +8,44 @@ import (
 	"mc-go/internal/protocol"
 )
 
-// scoreboard holds objectives, per-entity scores, and the sidebar
-// display objective.
+// scoreboard holds objectives (name -> display text) and per-holder
+// scores, plus the sidebar display slot and the team table.
 type scoreboard struct {
 	mu         sync.Mutex
 	objectives map[string]string // name -> display text
 	scores     map[string]map[string]int32
 	sidebar    string
 	teams      map[string]*team
+}
+
+// objectiveChatComponent renders an objective the way vanilla's
+// scoreboard replies do: the name wrapped in square brackets with a
+// show_text hover.
+func objectiveChatComponent(name string) component {
+	return translatable("chat.square_brackets", component{
+		text: name,
+		hover: map[string]any{
+			"action": "show_text",
+			"value":  name,
+		},
+	})
+}
+
+// scoreHolderComponent renders a score holder in a reply: a live
+// player gets the tell-suggest + show_text name; a fake name is plain.
+func scoreHolderComponent(name string, sess *Session) component {
+	if sess != nil && sess.getName() == name {
+		return component{
+			text:      name,
+			insertion: name,
+			click:     "/tell " + name + " ",
+			hover: map[string]any{
+				"action": "show_text",
+				"value":  name,
+			},
+		}
+	}
+	return literal(name)
 }
 
 // runScoreboard implements the /scoreboard command subset:
@@ -26,9 +56,9 @@ type scoreboard struct {
 //	players set <target> <objective> <value>
 //	players get <target> <objective>
 //	players reset <target> <objective>
-func (s *Server) runScoreboard(player string, args []string) string {
+func (s *Server) runScoreboard(player string, args []string) reply {
 	if len(args) < 2 {
-		return "Usage: /scoreboard <objectives|players> ..."
+		return textReply("Usage: /scoreboard <objectives|players> ...")
 	}
 	switch args[0] {
 	case "objectives":
@@ -36,17 +66,17 @@ func (s *Server) runScoreboard(player string, args []string) string {
 	case "players":
 		return s.runScoreboardPlayers(player, args[1:])
 	}
-	return "Unknown scoreboard subcommand: " + args[0]
+	return textReply("Unknown scoreboard subcommand: " + args[0])
 }
 
-func (s *Server) runScoreboardObjectives(args []string) string {
+func (s *Server) runScoreboardObjectives(args []string) reply {
 	if len(args) == 0 {
-		return "Usage: /scoreboard objectives <add|remove|setdisplay> ..."
+		return textReply("Usage: /scoreboard objectives <add|remove|setdisplay> ...")
 	}
 	switch args[0] {
 	case "add":
 		if len(args) < 2 {
-			return "Usage: /scoreboard objectives add <name> [display]"
+			return textReply("Usage: /scoreboard objectives add <name> [display]")
 		}
 		name := args[1]
 		display := name
@@ -60,20 +90,22 @@ func (s *Server) runScoreboardObjectives(args []string) string {
 		s.board.objectives[name] = display
 		s.board.mu.Unlock()
 		s.broadcastObjectiveCreate(name, display)
-		return "Created objective " + name
+		return componentReply(translatable("commands.scoreboard.objectives.add.success",
+			objectiveChatComponent(name)))
 	case "remove":
 		if len(args) < 2 {
-			return "Usage: /scoreboard objectives remove <name>"
+			return textReply("Usage: /scoreboard objectives remove <name>")
 		}
 		name := args[1]
 		s.board.mu.Lock()
 		delete(s.board.objectives, name)
 		s.board.mu.Unlock()
 		s.broadcastObjectiveRemove(name)
-		return "Removed objective " + name
+		return componentReply(translatable("commands.scoreboard.objectives.remove.success",
+			objectiveChatComponent(name)))
 	case "setdisplay":
 		if len(args) < 3 || args[1] != "sidebar" {
-			return "Usage: /scoreboard objectives setdisplay sidebar <name|->"
+			return textReply("Usage: /scoreboard objectives setdisplay sidebar <name|->")
 		}
 		name := args[2]
 		if name == "-" {
@@ -83,19 +115,21 @@ func (s *Server) runScoreboardObjectives(args []string) string {
 		s.board.sidebar = name
 		s.board.mu.Unlock()
 		s.broadcastDisplayObjective(1, name)
-		return "Set sidebar to " + name
+		return textReply("Set sidebar to " + name)
 	}
-	return "Unknown objectives subcommand: " + args[0]
+	return textReply("Unknown objectives subcommand: " + args[0])
 }
 
-func (s *Server) runScoreboardPlayers(player string, args []string) string {
+func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 	if len(args) < 2 {
-		return "Usage: /scoreboard players <set|get|reset> <target> <objective> [value]"
+		return textReply("Usage: /scoreboard players <set|get|reset> <target> <objective> [value]")
 	}
 	op := args[0]
 	target := args[1]
-	if target == "@s" || target == "@p" {
+	targetSess := s.findSessionByName(target)
+	if target == "@s" || target == "@p" || target == "@e" || target == "@r" {
 		target = player
+		targetSess = s.findSessionByName(player)
 	}
 	objective := ""
 	if len(args) > 2 {
@@ -105,16 +139,26 @@ func (s *Server) runScoreboardPlayers(player string, args []string) string {
 	if s.board.scores == nil {
 		s.board.scores = map[string]map[string]int32{}
 	}
+	// A write to an objective nobody created misses with
+	// arguments.objective.notFound, the token past the objective name.
+	objectiveKnown := func() bool {
+		_, ok := s.board.objectives[objective]
+		return ok
+	}
 	switch op {
 	case "set":
 		if len(args) < 4 {
 			s.board.mu.Unlock()
-			return "Usage: /scoreboard players set <target> <objective> <value>"
+			return textReply("Usage: /scoreboard players set <target> <objective> <value>")
+		}
+		if !objectiveKnown() {
+			s.board.mu.Unlock()
+			return componentReply(commandError("arguments.objective.notFound", objective))
 		}
 		value, err := strconv.Atoi(args[3])
 		if err != nil {
 			s.board.mu.Unlock()
-			return "Invalid value: " + args[3]
+			return textReply("Invalid value: " + args[3])
 		}
 		if s.board.scores[target] == nil {
 			s.board.scores[target] = map[string]int32{}
@@ -122,14 +166,20 @@ func (s *Server) runScoreboardPlayers(player string, args []string) string {
 		s.board.scores[target][objective] = int32(value)
 		s.board.mu.Unlock()
 		s.broadcastScore(target, objective, int32(value))
-		return "Set " + target + " " + objective + " to " + args[3]
+		return componentReply(translatable("commands.scoreboard.players.set.success.single",
+			objectiveChatComponent(objective),
+			scoreHolderComponent(target, targetSess),
+			nestedCompound{key: "", value: int32(value)}))
 	case "get":
 		value, ok := s.board.scores[target][objective]
 		s.board.mu.Unlock()
 		if !ok {
-			return target + " has no score for " + objective
+			return textReply(target + " has no score for " + objective)
 		}
-		return target + " has " + strconv.Itoa(int(value))
+		return componentReply(translatable("commands.scoreboard.players.get.success",
+			scoreHolderComponent(target, targetSess),
+			objectiveChatComponent(objective),
+			nestedCompound{key: "", value: value}))
 	case "reset":
 		if scores := s.board.scores[target]; scores != nil {
 			if objective == "" {
@@ -144,10 +194,10 @@ func (s *Server) runScoreboardPlayers(player string, args []string) string {
 			}
 		}
 		s.board.mu.Unlock()
-		return "Reset " + target
+		return textReply("Reset " + target)
 	}
 	s.board.mu.Unlock()
-	return "Unknown players subcommand: " + op
+	return textReply("Unknown players subcommand: " + op)
 }
 
 // broadcastObjectiveCreate sends Update Objectives mode 0.

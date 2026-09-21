@@ -2581,3 +2581,22 @@ physics through a void dip plus a fed recovery window.
   PrimitiveTag compact SNBT, others expected_value — measured after
   `set string` on int 1 stored "1" but UUID int-array threw.
   TestDataEntityParity +20 cases green vs both servers.
+- `execute` gains its `if`/`unless` condition forms measured on the
+  vanilla jar: `items` (block coords / entity slot, single `name.N`,
+  `name.*` families and `*`, tag `#` and `count=N` predicates, empty
+  slots never match), `data` (block/entity/storage plus a REQUIRED path
+  arg — `if data storage x run` swallows `run` as the path and errors
+  on the next keyword), `score` (`matches` int-range + `= < <= > >=`
+  holder compares, missing objective/holder → silent false), `entity`
+  (bare player miss is silent, not an error), `dimension`, `biome`,
+  `predicate` (resource error + context). A failed condition kills the
+  chain with no packets — `run` on a dead chain replies nothing.
+  `unless` was double-broken (negated the AND and flipped
+  unconditionally). Token-cursor offsets threaded through conditions
+  so error context packets underline the right token. Scoreboard
+  replies rewritten to components: objectives.add.success,
+  players.set.success.single with the bracketed hover objective and
+  tell-suggest holder; set on a missing objective is
+  arguments.objective.notFound with NO context line. `data get
+  storage` no longer creates the entry it reads. TestExecuteIfParity:
+  ~60 commands green vs vanilla.

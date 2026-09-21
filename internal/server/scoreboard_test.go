@@ -15,8 +15,8 @@ func TestScoreboardCommands(t *testing.T) {
 	drainJoinBurst(t, pr)
 	drainToQuiet(t, pr)
 
-	if out := s.runScoreboard("Alice", []string{"objectives", "add", "test", "Test", "Score"}); out != "Created objective test" {
-		t.Fatalf("add = %q", out)
+	if out := s.runScoreboard("Alice", []string{"objectives", "add", "test", "Test", "Score"}); out.comp.translate != "commands.scoreboard.objectives.add.success" {
+		t.Fatalf("add = %v", out.comp)
 	}
 	p, err := waitPacket(t, pr, IDPlayObjectiveCB)
 	if err != nil {
@@ -41,8 +41,8 @@ func TestScoreboardCommands(t *testing.T) {
 		t.Fatalf("display = %#v", comp)
 	}
 
-	if out := s.runScoreboard("Alice", []string{"players", "set", "Alice", "test", "7"}); out != "Set Alice test to 7" {
-		t.Fatalf("set = %q", out)
+	if out := s.runScoreboard("Alice", []string{"players", "set", "Alice", "test", "7"}); out.comp.translate != "commands.scoreboard.players.set.success.single" {
+		t.Fatalf("set = %v", out.comp)
 	}
 	sp, err := waitPacket(t, pr, IDPlayUpdateScore)
 	if err != nil {
@@ -56,12 +56,12 @@ func TestScoreboardCommands(t *testing.T) {
 		t.Fatalf("score = %s/%s/%d", entity, objective, value)
 	}
 
-	if out := s.runScoreboard("Alice", []string{"players", "get", "Alice", "test"}); out != "Alice has 7" {
-		t.Fatalf("get = %q", out)
+	if out := s.runScoreboard("Alice", []string{"players", "get", "Alice", "test"}); out.comp.translate != "commands.scoreboard.players.get.success" {
+		t.Fatalf("get = %v", out.comp)
 	}
 
-	if out := s.runScoreboard("Alice", []string{"objectives", "setdisplay", "sidebar", "test"}); out != "Set sidebar to test" {
-		t.Fatalf("setdisplay = %q", out)
+	if out := s.runScoreboard("Alice", []string{"objectives", "setdisplay", "sidebar", "test"}); out.text != "Set sidebar to test" {
+		t.Fatalf("setdisplay = %q", out.text)
 	}
 	dp, err := waitPacket(t, pr, IDPlayDisplayObjective)
 	if err != nil {
@@ -74,8 +74,8 @@ func TestScoreboardCommands(t *testing.T) {
 		t.Fatalf("display = %d/%q", position, sideName)
 	}
 
-	if out := s.runScoreboard("Alice", []string{"players", "reset", "Alice", "test"}); out != "Reset Alice" {
-		t.Fatalf("reset = %q", out)
+	if out := s.runScoreboard("Alice", []string{"players", "reset", "Alice", "test"}); out.text != "Reset Alice" {
+		t.Fatalf("reset = %q", out.text)
 	}
 	rp, err := waitPacket(t, pr, IDPlayResetScore)
 	if err != nil {
