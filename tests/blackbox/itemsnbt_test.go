@@ -45,6 +45,10 @@ func TestItemSNBTParity(t *testing.T) {
 	}
 }
 
+// itemSlot is the scripted player the SNBT cases replace slots on —
+// the same name on both servers so the reply text matches.
+const itemSlot = "@s"
+
 // itemSNBTScript is every case, in order, run against both servers. It
 // opens with the chest two replace cases write into.
 var itemSNBTScript = []string{

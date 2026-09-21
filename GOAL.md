@@ -2791,3 +2791,10 @@ physics through a void dip plus a fed recovery window.
   report "Infinity"), damage (damage_type registry validated,
   invulnerable gate for creative/spectator, at|by|from forms,
   death.attack.<msgId> broadcast). TestEntParity 74 commands green.
+
+- Item commands: enchant (entity selector, resource registry, level
+  cap/compat order, itemless takes the entity's literal display name —
+  no hover component) and clear (player-only arg rejects @e with a
+  whole-input underline, item id + maxCount bounds, maxCount 0 counts
+  without removing). itemnames_gen.go + entitynames_gen.go hold the
+  en_us display tables. TestInvParity 28 commands green.
