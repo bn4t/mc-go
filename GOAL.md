@@ -2282,3 +2282,31 @@ physics through a void dip plus a fed recovery window.
   finalized=true. getConversionProgress scan fixed: (int) truncation,
   exclusive <x+4 bounds, iron_bars counted alongside beds, roll before
   the +1. TestCureConversionSyncParity green vs vanilla 26.2.
+ explode packet (0x24) parity for wind charges, measured on
+ vanilla 26.2 (wire + ServerLevel.explode/ServerExplosion/WindCharge/
+ BreezeWindCharge/AbstractWindCharge/SimpleExplosionDamageCalculator
+ via CFR): burst goes to every player within distanceToSqr<4096 of the
+ center carrying center+radius+blockCount+per-recipient optional
+ knockback+particle+sound holder+empty block-particles weighted list —
+ wind_charge: radius 1.2, kbMult 1.22, GUST_EMITTER_SMALL (34),
+ sound entity.wind_charge.wind_burst (holder id 1773); breeze:
+ radius 3.0, kbMult 1.0, GUST_EMITTER_LARGE (33), sound
+ entity.breeze.wind_burst (211). blockCount = the 16³-shell-ray
+ sampler (1352 rays, per-ray power r*(0.7+rand*0.6), step 0.3,
+ decrement 0.22500001+(resistance+0.3)*0.3, every stepped in-bounds
+ position counts INCLUDING air — shouldBlockExplode is unconditional
+ true) so counts are random per burst (~60 on flat ground). Push:
+ dist=sqrt(entity.distanceToSqr(center))/(2r), direction from eye
+ (mob eye = bbHeight*0.85, player 1.62), power=(1-dist)*exposure*
+ kbMult*(1-kbResist); hitPlayers only for non-spectator
+ non-(creative&&flying) — spectators/creative-fliers get the packet
+ with no knockback field. Wire order: explode precedes the charge's
+ remove_entities. mc-go windChargeTickStep now ticks
+ breeze_wind_charge too; windBurst mirrors the vanilla layout
+ (sampler -> mob push broadcast set_entity_motion -> per-player
+ explode -> observer-side motion -> remove). TestWindChargeExplodeParity
+ green vs vanilla 26.2: same radius/particle/sound holder,
+ blockCount>0 both, victim knockback inline within 0.5, observer has
+ none, explode-before-remove. Harness note: a read deadline shared
+ across two conns starves the second reader — set each deadline
+ immediately before its drain.
