@@ -362,9 +362,19 @@ func (s *Server) itemTickStep() {
 		}
 		// Thrown items drift: horizontal motion applied each tick with
 		// vanilla's decay (0.98 airborne, block slip ~0.55 grounded).
+		// Each axis collides with walls independently — a sliding item
+		// stops at the wall face instead of passing through.
 		if e.MotionX != 0 || e.MotionZ != 0 {
-			e.X += e.MotionX
-			e.Z += e.MotionZ
+			if e.MotionX != 0 && w.GetBlock(world.Pos{X: int(math.Floor(e.X + e.MotionX)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}) == world.Air {
+				e.X += e.MotionX
+			} else {
+				e.MotionX = 0
+			}
+			if e.MotionZ != 0 && w.GetBlock(world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z + e.MotionZ))}) == world.Air {
+				e.Z += e.MotionZ
+			} else {
+				e.MotionZ = 0
+			}
 			fr := 0.98
 			if e.MotionY == 0 {
 				fr = 0.55

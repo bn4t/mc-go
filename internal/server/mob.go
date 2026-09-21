@@ -177,6 +177,9 @@ var mobHealth = map[string]float32{
 	"pillager":      24,
 	"ghast":         10,
 	"ender_dragon":  200,
+	"piglin":        16,
+	// sulfur_cube health is 4×size; a bare /summon lands at size 1.
+	"sulfur_cube": 4,
 }
 
 // mobBoundsTable is the vanilla bounding box (width, height) per
@@ -201,6 +204,8 @@ func init() {
 		"parrot":       {0.5, 0.9},
 		"ender_dragon": {16.0, 8.0},
 		"villager":     {0.6, 1.95},
+		"piglin":       {0.6, 1.95},
+		"sulfur_cube":  {1.04, 1.04},
 	} {
 		if id, ok := EntityTypeID(name); ok {
 			mobBoundsTable[id] = dims
@@ -252,7 +257,12 @@ func (s *Server) runSummon(player string, args []string) reply {
 		}
 	}
 	name := strings.TrimPrefix(args[0], "minecraft:")
-	if _, ok := s.summonMob(sess.dimension(), name, x, y, z, noAI); ok {
+	if e, ok := s.summonMob(sess.dimension(), name, x, y, z, noAI); ok {
+		if tag != nil {
+			if v, ok := tag.vals["CanPickUpLoot"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+				e.CanPickUpLoot = true
+			}
+		}
 		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}
 	// Non-living summons the command still accepts: projectiles take

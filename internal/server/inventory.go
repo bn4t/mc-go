@@ -1102,6 +1102,7 @@ func (s *Server) dropItemLocked(sess *Session, it ItemStack) {
 		MotionY:     0.2,
 		Item:        it,
 		PickupDelay: 40,
+		Thrower:     sess.entityID.Load(),
 	})
 	e.Yaw = yaw
 	s.broadcastEntitySpawn(nil, *e)

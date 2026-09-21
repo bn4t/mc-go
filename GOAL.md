@@ -1956,3 +1956,31 @@ physics through a void dip plus a fed recovery window.
   remember-before-conditions, entity_event 2, and damage events only
   when canDmg. TestSpearMobsParity drives a zombie row (1.95-tall
   boxes; a pig's 0.9 tops out below the eye ray) — green on both.
+
+- thrown_item_picked_up_by_entity (done): vanilla javap
+  (Mob.aiStep item scan, LivingEntity.onItemPickup, Piglin.
+  pickUpItem, SulfurCube.canPickUpLoot/canHoldItem/pickUpItem): the
+  mob-side sweep is the FIRST thing aiStep does — NoAI does not
+  gate it — gated by ServerLevel && canPickUpLoot && isAlive &&
+  !dead && mobGriefing, scanning ItemEntitys inside the mob's box
+  inflated by getPickupReach (Mob default (1,0,1) — horizontal only,
+  vertical stays the box height). Per item: !removed, no pickup
+  delay, non-empty stack, wantsToPickUp. A bare /summon piglin has
+  CanPickUpLoot=false (no finalizeSpawn) so the test sets the NBT;
+  sulfur_cube overrides canPickUpLoot to "body slot empty" and
+  swallows ONE #sulfur_cube_swallowable item via split(1). The
+  trigger fires for the THROWER — the item entity's Owner field —
+  when the picker is a LivingEntity. mc-go mirrors in
+  internal/server/itempickup.go (mobItemPickupStep after
+  itemTickStep in GameTick); drop now stamps Thrower=
+  entityID. TestThrownItemPickupParity pens each mob (dropped items
+  slide AND drift laterally on both servers — measured overshoots
+  past 1-wide walls), throws via the drop_item player action (not
+  /summon item, which leaves Owner unset), drains between item
+  replace/drop/teleport (vanilla eats a drop sharing a tick with a
+  teleport), and parks the player beyond the 1.425 pickup halo so a
+  resting item can't race the mob's scan. Pinned criteria:
+  nether/distract_piglin:distract_piglin (gold→piglin) and
+  husbandry/uh_oh:pick_up_dropped_tnt (tnt→cube). Also fixed while
+  here: thrown items on mc-go now collide per-axis with walls
+  instead of sliding through. Green on both.

@@ -26,6 +26,11 @@ type Entity struct {
 	Item        ItemStack
 	PickupDelay int
 	MotionY     float64
+	// Thrower is the entity id of the player who dropped/threw the
+	// item entity (vanilla's ItemEntity owner) — mob pickups fire
+	// thrown_item_picked_up_by_entity for that player. Zero when the
+	// item came from a block drop or world spawn.
+	Thrower int32
 	// MotionX/MotionZ carry a thrown item's horizontal drift, applied
 	// each tick with vanilla's 0.98 air / ~0.55 grounded decay.
 	MotionX, MotionZ float64
@@ -59,6 +64,12 @@ type Entity struct {
 	// consumes.
 	tamed bool
 	owner string
+	// CanPickUpLoot mirrors vanilla's Mob.CanPickUpLoot flag — the
+	// /summon NBT that arms the aiStep item pickup scan. Sulfur
+	// cubes ignore it (their override is "body slot empty").
+	CanPickUpLoot bool
+	// BodyItem is the sulfur_cube BODY slot: one swallowed stack.
+	BodyItem ItemStack
 	// arrowShooter is the entity id of the player who loosed an arrow;
 	// zero when unattributed.
 	arrowShooter int32

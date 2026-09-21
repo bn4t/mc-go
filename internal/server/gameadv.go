@@ -45,6 +45,7 @@ type advMeta struct {
 	breds      []breedCond   // bred_animals — a baby was produced
 	tames      []tameCond
 	interacts  []interactCond  // player_interacted_with_entity — a successful right-click
+	pickups    []pickupCond    // thrown_item_picked_up_by_entity — a mob took a player's drop
 	fills      []fillCond      // filled_bucket — a bucket was filled
 	sleeps     []sleepCond     // slept_in_bed — entered a bed
 	sculks     []sleepCond     // kill_mob_near_sculk_catalyst — no conditions
@@ -285,6 +286,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.tames = append(m.tames, parseTameCond(cname, cm["conditions"]))
 				case "minecraft:player_interacted_with_entity":
 					m.interacts = append(m.interacts, parseInteractCond(cname, cm["conditions"]))
+				case "minecraft:thrown_item_picked_up_by_entity":
+					m.pickups = append(m.pickups, parsePickupCond(cname, cm["conditions"]))
 				case "minecraft:filled_bucket":
 					m.fills = append(m.fills, parseFillCond(cname, cm["conditions"]))
 				case "minecraft:construct_beacon":
@@ -2043,6 +2046,186 @@ func (s *Server) firePlayerInteractedEntity(sess *Session, etype, heldName strin
 			sess.grantGameCriterion(meta, ic.crit)
 		}
 	}
+}
+
+// pickupCond is one thrown_item_picked_up_by_entity criterion: entity[]
+// reduces to the mob-type OR-set (flags.is_baby: false is always true —
+// mc-go mobs are adults; true locks it since babies are unmodeled),
+// item.items is the item OR-set, and player[]'s inverted armor checks
+// become forbiddenArmor — the thrower must not wear any of those items.
+type pickupCond struct {
+	crit           string
+	entities       map[string]bool
+	items          map[string]bool
+	forbiddenArmor map[string]bool
+	impossible     bool
+}
+
+// parsePickupCond reduces a thrown_item_picked_up_by_entity criterion
+// (nether/distract_piglin, husbandry/uh_oh) to its checkable parts.
+func parsePickupCond(cname string, conds any) pickupCond {
+	pc := pickupCond{crit: cname, entities: map[string]bool{}, items: map[string]bool{}, forbiddenArmor: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "entity":
+			ents, _ := v.([]any)
+			for _, ev := range ents {
+				em, _ := ev.(map[string]any)
+				if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+					pc.impossible = true
+					continue
+				}
+				pred, _ := em["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					switch pk {
+					case "minecraft:entity_type":
+						if st, ok := pv.(string); ok {
+							pc.entities[strings.TrimPrefix(st, "minecraft:")] = true
+						}
+					case "minecraft:flags":
+						fm, _ := pv.(map[string]any)
+						for fk, fv := range fm {
+							if fk != "is_baby" {
+								pc.impossible = true
+								continue
+							}
+							if want, ok := fv.(bool); ok && want {
+								// is_baby: true can never match — babies
+								// are not modeled.
+								pc.impossible = true
+							}
+						}
+					default:
+						pc.impossible = true
+					}
+				}
+			}
+		case "item":
+			im, _ := v.(map[string]any)
+			for ik, iv := range im {
+				if ik != "items" {
+					pc.impossible = true
+					continue
+				}
+				pc.addItems(iv)
+			}
+		case "player":
+			// inverted(entity_properties(equipment.<slot>.items=#tag)):
+			// the thrower must not wear a member of the tag in that
+			// slot. Reduced to a flat forbidden set — the tags used
+			// (piglin_safe_armor) apply identically per slot.
+			plist, _ := v.([]any)
+			for _, pv := range plist {
+				pm, _ := pv.(map[string]any)
+				if c, _ := pm["condition"].(string); c != "minecraft:inverted" {
+					pc.impossible = true
+					continue
+				}
+				term, _ := pm["term"].(map[string]any)
+				if c, _ := term["condition"].(string); c != "minecraft:entity_properties" {
+					pc.impossible = true
+					continue
+				}
+				pred, _ := term["predicate"].(map[string]any)
+				equip, _ := pred["minecraft:equipment"].(map[string]any)
+				for _, slotv := range equip {
+					sm, _ := slotv.(map[string]any)
+					pc.addArmor(sm["items"])
+				}
+				for pk := range pred {
+					if pk != "minecraft:equipment" {
+						pc.impossible = true
+					}
+				}
+			}
+		default:
+			pc.impossible = true
+		}
+	}
+	return pc
+}
+
+func (pc *pickupCond) addItems(v any) {
+	switch it := v.(type) {
+	case string:
+		if strings.HasPrefix(it, "#") {
+			for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(it, "#"), "minecraft:")] {
+				pc.items[m] = true
+			}
+			return
+		}
+		pc.items[strings.TrimPrefix(it, "minecraft:")] = true
+	case []any:
+		for _, e := range it {
+			if es, ok := e.(string); ok {
+				pc.addItems(es)
+			}
+		}
+	}
+}
+
+func (pc *pickupCond) addArmor(v any) {
+	switch it := v.(type) {
+	case string:
+		if strings.HasPrefix(it, "#") {
+			for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(it, "#"), "minecraft:")] {
+				pc.forbiddenArmor[m] = true
+			}
+			return
+		}
+		pc.forbiddenArmor[strings.TrimPrefix(it, "minecraft:")] = true
+	case []any:
+		for _, e := range it {
+			if es, ok := e.(string); ok {
+				pc.addArmor(es)
+			}
+		}
+	}
+}
+
+// fireThrownItemPickedUp runs the thrown_item_picked_up_by_entity
+// criteria: sess is the item's thrower (the item entity's Owner), etype
+// the picking mob's type name, iname the picked stack's item name.
+func (s *Server) fireThrownItemPickedUp(sess *Session, it ItemStack, etype string) {
+	iname, ok := world.ItemName(it.ID)
+	if !ok {
+		return
+	}
+	for _, meta := range gameAdvs {
+		for _, pc := range meta.pickups {
+			if pc.impossible {
+				continue
+			}
+			if len(pc.entities) > 0 && !pc.entities[etype] {
+				continue
+			}
+			if len(pc.items) > 0 && !pc.items[iname] {
+				continue
+			}
+			if len(pc.forbiddenArmor) > 0 && s.playerWearsAny(sess, pc.forbiddenArmor) {
+				continue
+			}
+			sess.grantGameCriterion(meta, pc.crit)
+		}
+	}
+}
+
+// playerWearsAny reports whether any of the player's armor slots holds
+// an item in the set.
+func (s *Server) playerWearsAny(sess *Session, set map[string]bool) bool {
+	sess.invMu.Lock()
+	defer sess.invMu.Unlock()
+	for slot := slotArmorStart; slot < slotArmorStart+4; slot++ {
+		it := sess.inv[slot]
+		if it.Empty() {
+			continue
+		}
+		if name, ok := world.ItemName(it.ID); ok && set[name] {
+			return true
+		}
+	}
+	return false
 }
 
 // beaconCond is one construct_beacon criterion reduced to the pyramid
