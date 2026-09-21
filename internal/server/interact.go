@@ -2,6 +2,8 @@ package server
 
 import (
 	"math"
+
+	"mc-go/internal/world"
 	"strings"
 
 	"mc-go/internal/protocol"
@@ -187,10 +189,17 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 			if dealt > 0 {
 				// Melee lands on player_hurt_entity too: the direct
 				// entity is the player and there's no projectile tag.
-				s.firePlayerHurtEntity(sess, "player", false, dealt)
+				// Vanilla's trigger reads the RAW damage amount, not
+				// the health-capped value damageMob reports.
+				mh, _ := itemNameOf(sess.heldStack().ID)
+				s.firePlayerHurtEntity(sess, "player", false, plan.damage, mh, plan.smash)
+				dmgType := "player_attack"
+				if plan.smash {
+					dmgType = "mace_smash"
+				}
 				if !graced {
 					s.broadcastDamageEvent(e.ID, damageInfo{
-						typeName: "player_attack",
+						typeName: dmgType,
 						cause:    sess.entityID.Load(),
 						direct:   sess.entityID.Load(),
 					})
@@ -203,6 +212,9 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 				}
 				if !graced {
 					s.mobAttackKnockback(sess, e.ID, plan.scale)
+				}
+				if plan.smash {
+					s.maceSmashAftermath(sess, e)
 				}
 				s.attackAftermath(sess, plan, e.ID, dealt, mobBounds(e.Type))
 			} else {
@@ -229,13 +241,26 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	// is read before the ticker resets, as in vanilla's attack().
 	plan := s.planAttack(sess)
 	s.preAttackSound(sess, plan)
-	dealt := s.damageWith(target, plan.damage, translatable("death.attack.player", literal(target.getName()), literal(sess.getName())), damageSource{
-		typeName: "player_attack",
+	dmgType := "player_attack"
+	if plan.smash {
+		dmgType = "mace_smash"
+	}
+	dealt := s.damageWith(target, plan.damage, translatable("death.attack."+dmgType, literal(target.getName()), literal(sess.getName())), damageSource{
+		typeName: dmgType,
 		cause:    sess.entityID.Load(),
 		direct:   sess.entityID.Load(),
 	})
 	if dealt > 0 {
-		s.firePlayerHurtEntity(sess, "player", false, dealt)
+		mh, _ := itemNameOf(sess.heldStack().ID)
+		s.firePlayerHurtEntity(sess, "player", false, plan.damage, mh, plan.smash)
+		if plan.smash {
+			tx, ty, tz, _, _, _ := target.Pos()
+			s.maceSmashAftermath(sess, Entity{
+				X: tx, Y: ty, Z: tz,
+				Dim: target.dimName(),
+				ID:  target.entityID.Load(),
+			})
+		}
 	}
 	sess.attackTicker = 0
 	sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
@@ -273,6 +298,7 @@ type attackPlan struct {
 	sprintKb bool
 	crit     bool
 	sweep    bool
+	smash    bool
 }
 
 // planAttack mirrors Player.attack's prelude: scale read before the
@@ -290,6 +316,14 @@ func (s *Server) planAttack(sess *Session) attackPlan {
 	// move speed attribute is 0.1, so the bound is 0.0625.
 	sweep := strong && !crit && !sprintKb && onGround && sess.lastHorizSq < 0.0625 && sess.heldIsSword()
 	damage := sess.attackDamage()
+	// MaceItem.getAttackDamageBonus adds the fall-scaled bonus to the
+	// hit before the crit multiply — vanilla's order — and
+	// canSmashAttack gates on fallDistance > 1.5 while airborne.
+	smash := false
+	if n, ok := itemNameOf(sess.heldStack().ID); ok && n == "mace" && sess.fallDistance > 1.5 && !onGround {
+		smash = true
+		damage += maceSmashBonus(sess.fallDistance)
+	}
 	if crit {
 		damage *= 1.5
 	}
@@ -300,7 +334,93 @@ func (s *Server) planAttack(sess *Session) attackPlan {
 		sprintKb: sprintKb,
 		crit:     crit,
 		sweep:    sweep,
+		smash:    smash,
 	}
+}
+
+// maceSmashBonus is vanilla MaceItem.getAttackDamageBonus's fall
+// bonus (density/breach enchant modifiers not modeled): piecewise
+// 4·fall under 3, 12+2·(fall-3) to 8, then 22+(fall-8).
+func maceSmashBonus(fall float64) float32 {
+	switch {
+	case fall <= 3:
+		return float32(4 * fall)
+	case fall <= 8:
+		return float32(12 + 2*(fall-3))
+	default:
+		return float32(22 + (fall - 8))
+	}
+}
+
+// maceSmashAftermath is the hurtEnemy tail of a mace smash: the
+// attacker's fall stops dead (velocity ~0.01 up, fall distance reset
+// so the landing deals no fall damage), the smash sound + level
+// event 2013 particles play at the impact, and every living entity
+// inside the victim's 3.5-radius blast takes the fall-proportional
+// knockback — attacker and victim excepted.
+func (s *Server) maceSmashAftermath(sess *Session, victim Entity) {
+	snd := int32(960) // item.mace.smash_ground
+	if sess.fallDistance > 5 {
+		snd = 961 // item.mace.smash_ground_heavy
+	}
+	sess.fallDistance = 0
+	sess.fallStart = false
+	s.playSoundSrc(sess.dimName(), victim.X, victim.Y, victim.Z, snd, 6, 1.0, 1.0)
+	s.broadcastLevelEvent(victim.Dim, 2013, world.Pos{X: int(math.Floor(victim.X)), Y: int(math.Floor(victim.Y)), Z: int(math.Floor(victim.Z))}, 750)
+	s.maceSmashKnockback(sess, victim)
+}
+
+// maceSmashKnockback pushes every living entity inside the victim's
+// box inflated by SMASH_ATTACK_KNOCKBACK_RADIUS (3.5): vanilla scales
+// each push by (3.5 - distance) * 0.7 * (1 - knockback resistance),
+// along the direction from the victim to the entity.
+func (s *Server) maceSmashKnockback(sess *Session, victim Entity) {
+	s.entities.mu.RLock()
+	targets := make([]*Entity, 0, len(s.entities.byID))
+	for _, e := range s.entities.byID {
+		targets = append(targets, e)
+	}
+	s.entities.mu.RUnlock()
+	for _, e := range targets {
+		if !e.Living || e.Dying || e.ID == victim.ID || e.ID == sess.entityID.Load() || e.Dim != victim.Dim {
+			continue
+		}
+		dx, dy, dz := e.X-victim.X, e.Y-victim.Y, e.Z-victim.Z
+		dist := math.Sqrt(dx*dx + dy*dy + dz*dz)
+		if dist > 3.5 || dist < 1e-9 {
+			continue
+		}
+		res := float64(0)
+		if name, ok := EntityTypeName(e.Type); ok {
+			res = mobKnockbackResistance[name]
+		}
+		power := (3.5 - dist) * 0.7 * (1 - res)
+		e.MotionX += dx / dist * power
+		e.MotionY += 0.7 * power
+		e.MotionZ += dz / dist * power
+		s.entities.SetMotion(e.ID, e.MotionX, e.MotionY, e.MotionZ)
+		s.broadcastEntityMotion(e.Dim, e.ID, e.MotionX, e.MotionY, e.MotionZ)
+	}
+}
+
+// broadcastLevelEvent sends a Level Event packet (global effects /
+// particles like the mace smash burst) to every spawned session in
+// the dimension.
+func (s *Server) broadcastLevelEvent(dim string, event int32, pos world.Pos, data int32) {
+	var b protocol.Buffer
+	b.VarInt(event)
+	b.Position(int32(pos.X), int32(pos.Y), int32(pos.Z))
+	b.Int(data)
+	b.Bool(false)
+	body := b.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || !sess.spawned.Load() || sess.dimName() != dim {
+			return true
+		}
+		_ = sess.write(sess.ids().PlayLevelEvent, body)
+		return true
+	})
 }
 
 // preAttackSound plays the sprint-knockback sound vanilla emits ahead

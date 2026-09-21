@@ -1907,3 +1907,27 @@ physics through a void dip plus a fed recovery window.
   TestThrowTridentParity grants the parent (kill_a_mob — vanilla
   hides the child until then), summons a NoAI pig 9 blocks out, and
   throws pitch-8; green on both targets.
+
+- overoverkill / mace smash (done): vanilla javap (MaceItem,
+  Player.attack 26.2): canSmashAttack = fallDistance>1.5 and not
+  fall-flying; the bonus lands BEFORE the crit multiply, piecewise —
+  fall≤3: 4·fall; fall≤8: 12+2·(fall−3); fall>8: 22+(fall−8). Mace
+  attribute damage +5 (weaponDamage entry 6), speed −3.4 (~33t).
+  On a smash the hit's damage type becomes mace_smash (an
+  is_player_attack tag member), the attacker's fall stops dead
+  (fallDistance reset → landing is damage-free), levelEvent 2013 +
+  item.mace.smash_ground[_heavy at fall>5] play at the impact, and
+  every living entity within 3.5 blocks gets pushed
+  (3.5−dist)·0.7·(1−resist) — attacker and victim excepted.
+  player_hurt_entity's `dealt` is the RAW damage, not health-capped —
+  firePlayerHurtEntity now takes (direct, proj, dealt, mainhand,
+  smash) and hurtCond parses direct_entity.equipment.mainhand.items
+  (+ #tag expansion) and the mace_smash damage-type tag; unmodeled
+  direct_entity sub-keys lock the criterion. Density/breach enchants
+  unmodeled. TestOveroverkillParity builds a ~90-block fall with
+  descending onGround=false move packets (2 blocks / 40ms — client
+  cadence) ending 2 above a NoAI pig, then attacks via the dedicated
+  Attack packet — the interact packet's action=1 route is a harness
+  gap on BOTH servers (vanilla 26.2 moved attacks to
+  ServerboundAttackPacket 0x01; mc-go's handleInteract drops
+  action=1 — worth closing later).

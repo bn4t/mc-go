@@ -100,7 +100,9 @@ type killCond struct {
 type hurtCond struct {
 	crit       string
 	direct     map[string]bool // direct_entity entity types (nil = any)
+	mainhand   map[string]bool // direct_entity.equipment.mainhand items (nil = any)
 	needsProj  bool            // damage.type.tags contains is_projectile
+	needsSmash bool            // damage.type.tags contains mace_smash
 	minDealt   float64         // damage.dealt.min (raw hearts, not half)
 	impossible bool
 }
@@ -614,21 +616,54 @@ func parseHurtCond(cname string, conds any) hurtCond {
 			case "direct_entity":
 				hc.direct = map[string]bool{}
 				if em, ok := v.(map[string]any); ok {
-					if et, ok := em["minecraft:entity_type"].(string); ok {
-						if strings.HasPrefix(et, "#") {
-							for _, m := range data.EntityTypeTags[strings.TrimPrefix(et, "#minecraft:")] {
-								hc.direct[m] = true
+					for dk, dv := range em {
+						switch dk {
+						case "minecraft:entity_type":
+							if et, ok := dv.(string); ok {
+								if strings.HasPrefix(et, "#") {
+									for _, m := range data.EntityTypeTags[strings.TrimPrefix(et, "#minecraft:")] {
+										hc.direct[m] = true
+									}
+								} else {
+									hc.direct[strings.TrimPrefix(et, "minecraft:")] = true
+								}
 							}
-						} else {
-							hc.direct[strings.TrimPrefix(et, "minecraft:")] = true
+						case "minecraft:equipment":
+							eq, _ := dv.(map[string]any)
+							mh, _ := eq["mainhand"].(map[string]any)
+							if mh == nil {
+								hc.impossible = true
+								continue
+							}
+							hc.mainhand = map[string]bool{}
+							for ek, ev := range mh {
+								if ek != "items" {
+									hc.impossible = true
+									continue
+								}
+								if it, ok := ev.(string); ok {
+									if strings.HasPrefix(it, "#") {
+										for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(it, "#"), "minecraft:")] {
+											hc.mainhand[m] = true
+										}
+									} else {
+										hc.mainhand[strings.TrimPrefix(it, "minecraft:")] = true
+									}
+								}
+							}
+						default:
+							hc.impossible = true
 						}
 					}
 				}
 			case "tags":
 				for _, tv := range v.([]any) {
 					if tm, ok := tv.(map[string]any); ok {
-						if tm["id"] == "minecraft:is_projectile" && tm["expected"] == true {
+						switch {
+						case tm["id"] == "minecraft:is_projectile" && tm["expected"] == true:
 							hc.needsProj = true
+						case tm["id"] == "minecraft:mace_smash" && tm["expected"] == true:
+							hc.needsSmash = true
 						}
 					}
 				}
@@ -711,14 +746,19 @@ func (s *Server) fireEntityHurtPlayer(sess *Session, proj, blocked bool) {
 // firePlayerHurtEntity evaluates every player_hurt_entity criterion
 // against a hit: directType is the damage's direct entity (the arrow
 // itself, or "player" for melee), proj the is_projectile tag on the
-// damage type, and dealt the post-absorb damage in half-hearts.
-func (s *Server) firePlayerHurtEntity(sess *Session, directType string, proj bool, dealt float32) {
+// damage type, smash the mace_smash tag, mainhand the attacker's held
+// item name, and dealt the raw damage amount vanilla reports (not
+// capped by the victim's remaining health).
+func (s *Server) firePlayerHurtEntity(sess *Session, directType string, proj bool, dealt float32, mainhand string, smash bool) {
 	for _, meta := range gameAdvs {
 		for _, hc := range meta.hurts {
-			if hc.impossible || (hc.needsProj && !proj) {
+			if hc.impossible || (hc.needsProj && !proj) || (hc.needsSmash && !smash) {
 				continue
 			}
 			if hc.direct != nil && !hc.direct[directType] {
+				continue
+			}
+			if hc.mainhand != nil && !hc.mainhand[mainhand] {
 				continue
 			}
 			if float64(dealt) < hc.minDealt {

@@ -386,7 +386,7 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 					direct:   e.ID,
 				})
 				if shooter != nil {
-					s.firePlayerHurtEntity(shooter, typeName, true, dealt)
+					s.firePlayerHurtEntity(shooter, typeName, true, damage, "", false)
 					if died {
 						shooter.addStat(statKilled, t.Type, 1)
 						shooter.addCustomStat("mob_kills", 1)
@@ -429,7 +429,7 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 					direct:   e.ID,
 				})
 				if dealt > 0 {
-					s.firePlayerHurtEntity(shooter, typeName, true, dealt)
+					s.firePlayerHurtEntity(shooter, typeName, true, damage, "", false)
 				}
 			} else {
 				s.damageWith(sess, damage, translatable("death.attack."+typeName,

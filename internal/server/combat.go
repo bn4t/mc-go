@@ -21,6 +21,7 @@ var weaponDamage = map[string]float32{
 	"netherite_axe":     10,
 	"golden_axe":        7,
 	"trident":           9,
+	"mace":              6, // 1 base + 5 ADD_VALUE (createAttributes)
 	"wooden_pickaxe":    2,
 	"stone_pickaxe":     3,
 	"iron_pickaxe":      4,
