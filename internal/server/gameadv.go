@@ -59,6 +59,7 @@ type advMeta struct {
 	sculks     []sleepCond     // kill_mob_near_sculk_catalyst — no conditions
 	beacons    []beaconCond    // construct_beacon — pyramid activated
 	recipes    []recipeCond    // recipe_crafted — a recipe completed
+	crafters   []recipeCond    // crafter_recipe_crafted — a powered crafter ejected
 	totems     []totemCond     // used_totem — death protection popped
 	effs       []effCond       // effects_changed — effect set transition
 	shots      []totemCond     // shot_crossbow — item predicate on the weapon
@@ -319,6 +320,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.beacons = append(m.beacons, parseBeaconCond(cname, cm["conditions"]))
 				case "minecraft:recipe_crafted":
 					m.recipes = append(m.recipes, parseRecipeCond(cname, cm["conditions"]))
+				case "minecraft:crafter_recipe_crafted":
+					m.crafters = append(m.crafters, parseRecipeCond(cname, cm["conditions"]))
 				case "minecraft:used_totem":
 					m.totems = append(m.totems, parseTotemCond(cname, cm["conditions"]))
 				case "minecraft:effects_changed":
@@ -2212,6 +2215,47 @@ func parseFallExplCond(cname string, conds any) fallExplCond {
 		}
 	}
 	return fc
+}
+
+// fireCrafterRecipeCrafted runs crafter_recipe_crafted criteria: same
+// recipe_id + ingredients schema as recipe_crafted, against the
+// crafter's pre-shrink grid.
+func (s *Server) fireCrafterRecipeCrafted(sess *Session, recipeID string, grid craftGrid) {
+	stacks := make([]ItemStack, 0, len(grid))
+	for _, st := range grid {
+		stacks = append(stacks, st)
+	}
+	for _, meta := range gameAdvs {
+		for _, rc := range meta.crafters {
+			if rc.impossible || rc.recipeID != recipeID {
+				continue
+			}
+			remaining := append([]ItemStack{}, stacks...)
+			matched := true
+			for _, set := range rc.ingredients {
+				found := false
+				for i, st := range remaining {
+					if st.Empty() {
+						continue
+					}
+					name, _ := world.ItemName(st.ID)
+					if !set[name] {
+						continue
+					}
+					remaining = append(remaining[:i], remaining[i+1:]...)
+					found = true
+					break
+				}
+				if !found {
+					matched = false
+					break
+				}
+			}
+			if matched {
+				sess.grantGameCriterion(meta, rc.crit)
+			}
+		}
+	}
 }
 
 // fireFallAfterExplosion runs the fall_after_explosion criteria when

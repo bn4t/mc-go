@@ -360,8 +360,11 @@ type containerData struct {
 	// brewed is the ingredient a running brew started with, so the brew
 	// aborts when the player swaps the ingredient, as vanilla does.
 	brewed int32
-	// disabled is the crafter's per-slot lock bitmap.
-	disabled uint16
+	// disabled is the crafter's per-slot lock bitmap; triggered is its
+	// TRIGGERED latch and craftTicks the pending craft countdown.
+	disabled   uint16
+	triggered  bool
+	craftTicks int32
 	// anvilCost is the anvil's current level cost (Container Property
 	// 0), recomputed from the inputs on every change; anvilUse is how
 	// many items the take consumes from the left and right inputs.

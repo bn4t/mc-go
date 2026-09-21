@@ -2127,10 +2127,8 @@ physics through a void dip plus a fed recovery window.
   minecraft:adventure/trade. Closing the menu returns payment slots to
   the inventory. TestVillagerTradeParity green vs vanilla 26.2.
 
-  Remaining trigger census: crafter_recipe_crafted (redstone),
-  cured_zombie_villager (multi-minute cure), allay_drop_item_on_block,
-  avoid_vibration (sculk), hero_of_the_village (raid),
-  fall_after_explosion (wind charge launch).
+  Remaining trigger census: allay_drop_item_on_block,
+  avoid_vibration (sculk), hero_of_the_village (raid).
 
 - cured_zombie_villager: a zombie_villager's ConversionTime NBT
   (-1 default) starts the cure countdown with an optional
@@ -2157,3 +2155,18 @@ physics through a void dip plus a fed recovery window.
   needs 7. The explode packet's particle/sound payload is still
   unsent (victims get set_entity_motion instead of the explode
   knockback field). TestFallAfterExplosionParity green vs 26.2.
+
+- crafter_recipe_crafted: a neighboring signal source
+  (redstone_block/torch, powered lever/button/observer state) rising
+  edge arms the crafter for 4 ticks and latches its TRIGGERED block
+  property; a falling edge clears it, and a queued tick still crafts
+  (vanilla scheduleTick can't be cancelled). The craft matches the
+  3x3 grid through the shared recipe table with disabled slots read
+  as empty, then shrinks EVERY non-empty slot by one — disabled slots
+  included, a vanilla quirk of the post-craft forEach(shrink). The
+  result inserts into the container the front face points at, else
+  spawns as an item entity at center+0.7*front with a small toss;
+  every player inside the 17x17x17 AABB earns the trigger
+  (recipe_id + ingredients schema), and level events 1049 (success)
+  / 1050 (no match) / 2010 (front-direction data) play.
+  TestCrafterRecipeCraftedParity green vs vanilla 26.2.

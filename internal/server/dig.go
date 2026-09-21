@@ -80,6 +80,9 @@ func (s *Server) setBlockAndBroadcast(player string, pos world.Pos, blk world.Bl
 	// Placing or breaking a block changes what the fluids around it can
 	// do, so they are re-evaluated on their own next tick.
 	s.wakeFluids(d, pos)
+	// A power source appearing or vanishing re-evaluates adjacent
+	// crafters — vanilla's neighborChanged runs from the same write.
+	s.crafterNeighborCheck(d, pos)
 	return affectedSections(d, oldTop, newTop)
 }
 

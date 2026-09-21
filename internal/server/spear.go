@@ -14,6 +14,7 @@ import (
 //   - damage:   holder look-speed >= dmgMinSpd (9..14 b/s — riding only)
 //   - knockback: holder look-speed >= 5.1
 //   - dismount:  relative closing speed >= 4.6
+//
 // stabAttack applies whichever flags passed; the spear_mobs trigger
 // counts every entity in the remembered set.
 type kineticWeapon struct {
