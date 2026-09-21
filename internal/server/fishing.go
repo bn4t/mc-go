@@ -139,11 +139,13 @@ func encodeBobberMetadata(hookedID int32, biting bool) []byte {
 // playSoundAt broadcasts a positioned Sound packet at fractional
 // coordinates (bobber sounds are entity-positioned NEUTRAL events).
 func (s *Server) playSoundAt(dim string, x, y, z float64, soundID int32, vol, pitch float32) {
-	s.playSoundSrc(dim, x, y, z, soundID, 6, vol, pitch)
+	s.playSoundSrc(dim, x, y, z, soundID, 6, vol, pitch, nil)
 }
 
-// playSoundSrc is playSoundAt with an explicit SoundSource id.
-func (s *Server) playSoundSrc(dim string, x, y, z float64, soundID, src int32, vol, pitch float32) {
+// playSoundSrc is playSoundAt with an explicit SoundSource id and an
+// optional exclusion — vanilla's playSound(except, ...) leaves the
+// causer's own client to play the sound locally.
+func (s *Server) playSoundSrc(dim string, x, y, z float64, soundID, src int32, vol, pitch float32, except *Session) {
 	var b protocol.Buffer
 	b.VarInt(soundID + 1)
 	b.VarInt(src)
@@ -156,10 +158,32 @@ func (s *Server) playSoundSrc(dim string, x, y, z float64, soundID, src int32, v
 	body := b.Bytes()
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
-		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
+		if other == except || other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
 			return true
 		}
 		_ = other.write(other.ids().PlaySound, body)
+		return true
+	})
+}
+
+// playSoundEntity broadcasts a Sound Entity packet anchored on
+// entityID — vanilla's entity-positioned playSound path — excluding
+// `except`.
+func (s *Server) playSoundEntity(dim string, entityID int32, soundID, src int32, vol, pitch float32, except *Session) {
+	var b protocol.Buffer
+	b.VarInt(soundID + 1)
+	b.VarInt(src)
+	b.VarInt(entityID)
+	b.Float(vol)
+	b.Float(pitch)
+	b.Long(0)
+	body := b.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other == except || other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
+			return true
+		}
+		_ = other.write(other.ids().PlaySoundEntity, body)
 		return true
 	})
 }

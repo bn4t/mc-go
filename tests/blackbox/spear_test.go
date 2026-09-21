@@ -16,7 +16,9 @@ package blackbox
 // a pig's 0.9 box tops out below it at hitbox_margin 0.125.
 
 import (
+	"bytes"
 	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -131,5 +133,103 @@ func TestSpearMobsParity(t *testing.T) {
 	}
 	if diffs := diffAdvFlush(want, got); len(diffs) > 0 {
 		t.Fatalf("spear_mobs parity: %d diffs\n%s", len(diffs), joinLines(diffs))
+	}
+}
+
+// TestSpearUseSoundParity pins vanilla's playSound(except=holder)
+// semantics for KineticWeapon.makeSound: starting a spear use plays
+// item.spear.use as a positioned sound to every tracker EXCEPT the
+// holder (whose client plays it locally). A second observer client
+// must see exactly one sound packet with the spear sound id; the
+// holder must see none. makeLocalHitSound dispatches to
+// Level.playLocalSound — a dedicated-server no-op — so hits emit no
+// packet either.
+func TestSpearUseSoundParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("Spear"),
+	}, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	defer targets.cleanup()
+
+	const useWire = 1526 + 1 // holder-ref sound id on the wire
+	run := func(addr string) (holderHits, obsHits [][]byte) {
+		hc, hpr, hpw := joinPlayBlackbox(t, addr, "Spear")
+		defer hc.Close()
+		oc, opr, opw := joinPlayBlackbox(t, addr, "Watcher")
+		defer oc.Close()
+		_ = hc.SetDeadline(time.Time{})
+		_ = oc.SetDeadline(time.Time{})
+		_ = hpw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+
+		collect := func(_ string, c net.Conn, pr *protocol.Reader, pw *protocol.Writer, d time.Duration) [][]byte {
+			var out [][]byte
+			end := time.Now().Add(d)
+			for time.Now().Before(end) {
+				_ = c.SetReadDeadline(time.Now().Add(time.Until(end)))
+				p, err := pr.ReadPacket()
+				if err != nil {
+					return out
+				}
+				switch p.ID {
+				case server.IDPlayKeepAliveCB:
+					var kb protocol.Buffer
+					kb.Raw(p.Data)
+					_ = pw.WritePacket(server.IDPlayKeepAliveSB, kb.Bytes())
+				case server.IDPlaySyncPos:
+					r := protocol.NewPacketReader(p.Data)
+					if id, err := r.VarInt(); err == nil {
+						var b protocol.Buffer
+						b.VarInt(id)
+						_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes())
+					}
+				case 0x74, 0x75: // sound_entity / sound
+					r := protocol.NewPacketReader(p.Data)
+					if sid, err := r.VarInt(); err == nil && sid == useWire {
+						out = append(out, p.Data)
+					}
+				}
+			}
+			return out
+		}
+
+		// Continuous collection from before the commands through the
+		// jab window so no sound packet lands in a drain gap.
+		done := make(chan [][]byte, 1)
+		go func() { done <- collect("obs", oc, opr, opw, 2600*time.Millisecond) }()
+		hall := make(chan [][]byte, 1)
+		go func() { hall <- collect("hldr", hc, hpr, hpw, 2600*time.Millisecond) }()
+
+		time.Sleep(400 * time.Millisecond)
+		sendCommand(t, hpw, "item replace entity @s weapon.mainhand with minecraft:iron_spear")
+		sendCommand(t, hpw, "tp @s 8.5 -59 15.0 180 0")
+		time.Sleep(600 * time.Millisecond)
+		var ub protocol.Buffer
+		ub.VarInt(0)
+		ub.VarInt(0)
+		ub.Float(180)
+		ub.Float(0)
+		_ = hpw.WritePacket(server.IDPlayUseItemSB, ub.Bytes())
+		holderHits = <-hall
+		obsHits = <-done
+		return holderHits, obsHits
+	}
+
+	vh, vo := run(targets.vanilla)
+	mh, mo := run(targets.mcgo)
+	if len(vh) != 0 {
+		t.Fatalf("vanilla holder got %d use-sound packets; want 0", len(vh))
+	}
+	if len(vo) != 1 {
+		t.Fatalf("vanilla observer got %d use-sound packets; want 1", len(vo))
+	}
+	if len(mh) != len(vh) || len(mo) != len(vo) {
+		t.Fatalf("mc-go: holder=%d observer=%d sound packets; vanilla=%d/%d",
+			len(mh), len(mo), len(vh), len(vo))
+	}
+	// Vanilla seeds each sound with a random Long — compare the
+	// packet body minus the trailing 8-byte seed.
+	if !bytes.Equal(mo[0][:len(mo[0])-8], vo[0][:len(vo[0])-8]) {
+		t.Fatalf("observer sound body differs:\nvanilla %x\nmc-go    %x", vo[0], mo[0])
 	}
 }

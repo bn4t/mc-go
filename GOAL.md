@@ -2438,3 +2438,16 @@ physics through a void dip plus a fed recovery window.
   and a bare literal in an extra list serializes as a TAG_String
   element. Pinned by new TestItemCommandParity cases covering epic,
   rare, uncommon, enchanted-bump, custom-name and damage hovers.
+- spear/trident sound exclusion + anchoring: `KineticWeapon.makeSound`
+  is `Level.playSound(except=holder,...)` — positioned `sound` packet to
+  every tracker EXCEPT the holder (client plays it locally);
+  `makeLocalHitSound` calls `Level.playLocalSound` — an empty stub on
+  the dedicated server, so spear hits emit no packet. Same shape for
+  trident: throw is a `sound_entity` packet anchored on the thrower
+  with the thrower excluded; hit_ground is positioned to all. Also
+  pinned: player-sourced sounds use SoundSource PLAYERS (7), and
+  vanilla seeds every sound packet with a random Long. mc-go:
+  `playSoundSrc`/`playSoundEntity` gained `except`, `src` fixed to 7
+  on player-cause calls, spear hit broadcast removed. Pinned by
+  TestSpearUseSoundParity (two-client holder-vs-observer delivery +
+  body compare minus seed).

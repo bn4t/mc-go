@@ -373,7 +373,7 @@ func (s *Server) maceSmashAftermath(sess *Session, victim Entity) {
 	}
 	sess.fallDistance = 0
 	sess.fallStart = false
-	s.playSoundSrc(sess.dimName(), victim.X, victim.Y, victim.Z, snd, 6, 1.0, 1.0)
+	s.playSoundSrc(sess.dimName(), victim.X, victim.Y, victim.Z, snd, 6, 1.0, 1.0, nil)
 	s.broadcastLevelEvent(victim.Dim, 2013, world.Pos{X: int(math.Floor(victim.X)), Y: int(math.Floor(victim.Y)), Z: int(math.Floor(victim.Z))}, 750)
 	s.maceSmashKnockback(sess, victim)
 }

@@ -55,7 +55,9 @@ func (s *Server) spearStart(sess *Session, itemID int32, name string) {
 	sess.spearStartTick = s.TickCount()
 	sess.stabbed = map[int32]int64{}
 	x, y, z, _, _, _ := sess.Pos()
-	s.playSoundSrc(sess.dimName(), x, y, z, kw.useSnd, 1, 1.0, 1.0)
+	// playSound(except=holder): the holder's client plays the use sound
+	// locally, so the packet goes to everyone else.
+	s.playSoundSrc(sess.dimName(), x, y, z, kw.useSnd, 7, 1.0, 1.0, sess)
 }
 
 // spearJabTick is the per-tick tail of a held spear use —
@@ -152,7 +154,8 @@ func (s *Server) spearJabTick(sess *Session) {
 		// canDismount would stopRiding(); mc-go has no riding yet.
 	}
 	if hitAny {
-		s.playSoundSrc(sess.dimName(), x, y, z, kw.hitSnd, 1, 1.0, 1.0)
+		// Vanilla makeLocalHitSound is Level.playLocalSound — an empty
+		// stub on the dedicated server, so no packet goes out here.
 		s.broadcastEntityEvent(sess.entityID.Load(), 2)
 		s.fireSpearMobs(sess, len(sess.stabbed))
 	}

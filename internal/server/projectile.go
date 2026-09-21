@@ -201,7 +201,7 @@ func (s *Server) arrowTickStep() {
 			e.MotionX, e.MotionY, e.MotionZ = 0, 0, 0
 			if isTrident {
 				e.tridentStuck = true
-				s.playSoundSrc(e.Dim, hx, hy, hz, 1626, 6, 1.0, 1.0) // item.trident.hit_ground
+				s.playSoundSrc(e.Dim, hx, hy, hz, 1626, 6, 1.0, 1.0, nil) // item.trident.hit_ground
 			} else {
 				e.arrowStuck = true
 			}
@@ -548,7 +548,7 @@ func (s *Server) releaseTrident(sess *Session) {
 	e.tridentDamage = carry
 	e.tridentCreativeOnly = creative
 	e.tridentEnch = st.Ench
-	s.playSoundSrc(sess.dimName(), x, y, z, 1631, 1, 1.0, 1.0) // item.trident.throw, PLAYERS source
+	s.playSoundEntity(sess.dimName(), sess.entityID.Load(), 1631, 7, 1.0, 1.0, sess) // item.trident.throw, PLAYERS source
 	sess.addItemStat(statUsed, st.ID, 1)
 }
 
