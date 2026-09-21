@@ -398,6 +398,19 @@ func (s *Server) itemTickStep() {
 				remainder, picked := sess.addStack(e.Item)
 				if picked {
 					took := e.Item.Count
+					// ServerPlayer.onItemPickup: a picked-up item
+					// whose owner resolves fires
+					// thrown_item_picked_up_by_player for the picker
+					// (allay_deliver_item_to_player).
+					if e.Thrower != 0 {
+						if oe, ok := s.entities.Get(e.Thrower); ok {
+							if tname, ok := EntityTypeName(oe.Type); ok {
+								s.fireThrownItemPickedUpByPlayer(sess, e.Item, tname)
+							}
+						} else if s.sessionByEntityID(e.Thrower) != nil {
+							s.fireThrownItemPickedUpByPlayer(sess, e.Item, "player")
+						}
+					}
 					// Vanilla tells the client the item flies to
 					// the collector before it disappears.
 					s.broadcastTakeItem(e.Dim, e.ID, sess.entityID.Load(), e.Item.Count)

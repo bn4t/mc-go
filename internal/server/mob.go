@@ -180,6 +180,7 @@ var mobHealth = map[string]float32{
 	"piglin":        16,
 	// sulfur_cube health is 4×size; a bare /summon lands at size 1.
 	"sulfur_cube": 4,
+	"allay":       20,
 }
 
 // mobBoundsTable is the vanilla bounding box (width, height) per
@@ -206,6 +207,7 @@ func init() {
 		"villager":     {0.6, 1.95},
 		"piglin":       {0.6, 1.95},
 		"sulfur_cube":  {1.04, 1.04},
+		"allay":        {0.35, 0.6},
 	} {
 		if id, ok := EntityTypeID(name); ok {
 			mobBoundsTable[id] = dims
@@ -262,8 +264,55 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if v, ok := tag.vals["CanPickUpLoot"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
 				e.CanPickUpLoot = true
 			}
+			// UUID:[I;a,b,c,d] — honored like vanilla's summon NBT so
+			// tests can mint a known entity id for references
+			// (e.g. an item entity's Thrower).
+			if u, ok := snbtUUID(tag, "UUID"); ok {
+				e.UUID = u
+			}
 		}
 		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
+	}
+	// A dropped stack on the ground: Item holds the stack, Thrower
+	// the EntityReference getOwner resolves, PickupDelay the no-grab
+	// window.
+	if name == "item" {
+		it := ItemStack{Count: 1}
+		if tag != nil {
+			if iv, ok := tag.vals["Item"]; ok {
+				if idv, ok := iv.vals["id"]; ok && idv.str != "" {
+					if iid, ok := world.ItemID(strings.TrimPrefix(idv.str, "minecraft:")); ok {
+						it.ID = iid
+					}
+				}
+				if cv, ok := iv.vals["count"]; ok {
+					if n := int32(snbtNum(cv)); n > 0 {
+						it.Count = n
+					}
+				}
+			}
+		}
+		if it.ID == 0 {
+			return textReply("Can't spawn empty item")
+		}
+		e := &Entity{
+			Type: mustEntityType("item"),
+			Dim:  sess.dimName(),
+			X:    x, Y: y, Z: z,
+			Item: it,
+		}
+		if tag != nil {
+			if pv, ok := tag.vals["PickupDelay"]; ok {
+				e.PickupDelay = int(snbtNum(pv))
+			}
+			if u, ok := snbtUUID(tag, "Thrower"); ok {
+				e.Thrower = s.entityIDByUUID(u)
+			}
+		}
+		s.entities.Spawn(e)
+		s.broadcastEntitySpawn(nil, *e)
+		s.broadcastEntityMetadata(e.ID, encodeItemMetadata(it))
+		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft.item")))
 	}
 	// Non-living summons the command still accepts: projectiles take
 	// their Motion list and fly like a bow release.
@@ -286,15 +335,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		// Owner:[I;a,b,c,d] stores an EntityReference to the shooter —
 		// its kills credit that player (advancements, death messages).
 		if tag != nil {
-			if ov, ok := tag.vals["Owner"]; ok && len(ov.items) == 4 {
-				var u [16]byte
-				for i := 0; i < 4; i++ {
-					v := int32(snbtNum(ov.items[i]))
-					u[i*4] = byte(v >> 24)
-					u[i*4+1] = byte(v >> 16)
-					u[i*4+2] = byte(v >> 8)
-					u[i*4+3] = byte(v)
-				}
+			if u, ok := snbtUUID(tag, "Owner"); ok {
 				if owner := s.sessionByUUID(u); owner != nil {
 					e.arrowShooter = owner.entityID.Load()
 				}
@@ -327,6 +368,40 @@ func (s *Server) runSummon(player string, args []string) reply {
 		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft.lightning_bolt")))
 	}
 	return textReply("Unknown entity: " + args[0])
+}
+
+// snbtUUID reads a [I;a,b,c,d] int array tag into a 16-byte UUID.
+func snbtUUID(t *snbtTag, key string) ([16]byte, bool) {
+	v, ok := t.vals[key]
+	if !ok || len(v.items) != 4 {
+		return [16]byte{}, false
+	}
+	var u [16]byte
+	for i := 0; i < 4; i++ {
+		n := int32(snbtNum(v.items[i]))
+		u[i*4] = byte(n >> 24)
+		u[i*4+1] = byte(n >> 16)
+		u[i*4+2] = byte(n >> 8)
+		u[i*4+3] = byte(n)
+	}
+	return u, true
+}
+
+// entityIDByUUID resolves a UUID to a live entity id — a spawned
+// entity, or a player session's entity. Zero when unresolvable.
+func (s *Server) entityIDByUUID(u [16]byte) int32 {
+	s.entities.mu.RLock()
+	for id, e := range s.entities.byID {
+		if e.UUID == u {
+			s.entities.mu.RUnlock()
+			return id
+		}
+	}
+	s.entities.mu.RUnlock()
+	if sess := s.sessionByUUID(u); sess != nil {
+		return sess.entityID.Load()
+	}
+	return 0
 }
 
 // summonMob spawns one living entity at pos in dimension d and fans it

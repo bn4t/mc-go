@@ -46,6 +46,7 @@ type advMeta struct {
 	tames      []tameCond
 	interacts  []interactCond  // player_interacted_with_entity — a successful right-click
 	pickups    []pickupCond    // thrown_item_picked_up_by_entity — a mob took a player's drop
+	pickupsByP []pickupCond    // thrown_item_picked_up_by_player — the picker side
 	fills      []fillCond      // filled_bucket — a bucket was filled
 	sleeps     []sleepCond     // slept_in_bed — entered a bed
 	sculks     []sleepCond     // kill_mob_near_sculk_catalyst — no conditions
@@ -288,6 +289,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.interacts = append(m.interacts, parseInteractCond(cname, cm["conditions"]))
 				case "minecraft:thrown_item_picked_up_by_entity":
 					m.pickups = append(m.pickups, parsePickupCond(cname, cm["conditions"]))
+				case "minecraft:thrown_item_picked_up_by_player":
+					m.pickupsByP = append(m.pickupsByP, parsePickupCond(cname, cm["conditions"]))
 				case "minecraft:filled_bucket":
 					m.fills = append(m.fills, parseFillCond(cname, cm["conditions"]))
 				case "minecraft:construct_beacon":
@@ -2188,26 +2191,42 @@ func (pc *pickupCond) addArmor(v any) {
 // criteria: sess is the item's thrower (the item entity's Owner), etype
 // the picking mob's type name, iname the picked stack's item name.
 func (s *Server) fireThrownItemPickedUp(sess *Session, it ItemStack, etype string) {
+	for _, meta := range gameAdvs {
+		s.runPickupConds(sess, it, etype, meta.pickups, meta)
+	}
+}
+
+// fireThrownItemPickedUpByPlayer runs the
+// thrown_item_picked_up_by_player criteria: sess is the picking
+// player, etype the owner entity's type name (allay for
+// allay_deliver_item_to_player).
+func (s *Server) fireThrownItemPickedUpByPlayer(sess *Session, it ItemStack, etype string) {
+	for _, meta := range gameAdvs {
+		s.runPickupConds(sess, it, etype, meta.pickupsByP, meta)
+	}
+}
+
+// runPickupConds grants every criterion in conds matching the picked
+// stack, the other entity's type, and the inverted-armor predicate.
+func (s *Server) runPickupConds(sess *Session, it ItemStack, etype string, conds []pickupCond, meta *advMeta) {
 	iname, ok := world.ItemName(it.ID)
 	if !ok {
 		return
 	}
-	for _, meta := range gameAdvs {
-		for _, pc := range meta.pickups {
-			if pc.impossible {
-				continue
-			}
-			if len(pc.entities) > 0 && !pc.entities[etype] {
-				continue
-			}
-			if len(pc.items) > 0 && !pc.items[iname] {
-				continue
-			}
-			if len(pc.forbiddenArmor) > 0 && s.playerWearsAny(sess, pc.forbiddenArmor) {
-				continue
-			}
-			sess.grantGameCriterion(meta, pc.crit)
+	for _, pc := range conds {
+		if pc.impossible {
+			continue
 		}
+		if len(pc.entities) > 0 && !pc.entities[etype] {
+			continue
+		}
+		if len(pc.items) > 0 && !pc.items[iname] {
+			continue
+		}
+		if len(pc.forbiddenArmor) > 0 && s.playerWearsAny(sess, pc.forbiddenArmor) {
+			continue
+		}
+		sess.grantGameCriterion(meta, pc.crit)
 	}
 }
 

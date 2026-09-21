@@ -1984,3 +1984,19 @@ physics through a void dip plus a fed recovery window.
   husbandry/uh_oh:pick_up_dropped_tnt (tnt→cube). Also fixed while
   here: thrown items on mc-go now collide per-axis with walls
   instead of sliding through. Green on both.
+
+- thrown_item_picked_up_by_player (done): vanilla javap
+  (ServerPlayer.onItemPickup, ItemEntity.getOwner): the trigger
+  fires for the PICKER whenever the picked item entity's
+  Thrower (an EntityReference — serialized as a UUID int array)
+  resolves to a live entity; the criterion's "entity" predicate is
+  evaluated on that owner (allay for
+  husbandry/allay_deliver_item_to_player). The natural allay
+  delivery path is full AI — the test instead mints the owner:
+  summon honors UUID:[I;...] and /summon item accepts
+  {Item:{id,count}, Thrower:[I;...], PickupDelay} (all vanilla NBT
+  keys). The item lands on the player with delay 0 and is picked
+  before a nearby allay's own scan can race it. mc-go resolves the
+  Thrower UUID to a live entity id at summon (entityIDByUUID) and
+  fires the picker trigger from itemTickStep's addStack path.
+  TestThrownItemPickedUpByPlayerParity green on both.
