@@ -396,6 +396,36 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 		}
 		return true
 	})
+	// World entities spawned before this player joined must be sent
+	// too — vanilla tracks every entity in range, not just players.
+	// Ridden vehicles follow with their passenger list so the client
+	// attaches the riders.
+	playerType := sess.ids().EntityTypePlayer
+	s.entities.mu.RLock()
+	ents := make([]Entity, 0, len(s.entities.byID))
+	for _, e := range s.entities.byID {
+		if e.Dim != dim || e.Dying || e.Type == playerType {
+			continue
+		}
+		ents = append(ents, *e)
+	}
+	s.entities.mu.RUnlock()
+	for _, e := range ents {
+		if err := sess.write(sess.ids().PlaySpawnEntity, encodeSpawn(&e)); err != nil && first == nil {
+			first = err
+		}
+		if len(e.Passengers) > 0 {
+			var b protocol.Buffer
+			b.VarInt(e.ID)
+			b.VarInt(int32(len(e.Passengers)))
+			for _, pid := range e.Passengers {
+				b.VarInt(pid)
+			}
+			if err := sess.write(sess.ids().PlaySetPassengers, b.Bytes()); err != nil && first == nil {
+				first = err
+			}
+		}
+	}
 	return first
 }
 

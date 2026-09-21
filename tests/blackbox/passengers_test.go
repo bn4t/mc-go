@@ -168,3 +168,73 @@ func TestSetPassengersParity(t *testing.T) {
 		t.Fatalf("vanilla shape unexpected: %v", wn)
 	}
 }
+
+// TestJoinSeesExistingEntities summons a wolf while only one player is
+// online, then joins a second player and checks the newcomer receives
+// the wolf's add_entity — vanilla's entity tracker pairs every tracked
+// entity to a joining player, not just other players.
+func TestJoinSeesExistingEntities(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("First", "Second"),
+	}, nil)
+	defer targets.cleanup()
+
+	run := func(addr string) bool {
+		ac, apr, apw := joinPlayBlackbox(t, addr, "First")
+		defer ac.Close()
+		_ = ac.SetDeadline(time.Time{})
+		sendCommand(t, apw, "summon minecraft:wolf 8.5 -60 8.5 {NoAI:1b}")
+		sendCommand(t, apw, "tp @s 8.5 -60 4.5 180 0")
+		drainChunkWindow(t, "first", ac, apr, apw, 900*time.Millisecond)
+
+		bc, bpr, bpw := joinPlayBlackbox(t, addr, "Second")
+		defer bc.Close()
+		_ = bc.SetDeadline(time.Time{})
+		sendCommand(t, bpw, "tp @s 8.5 -60 4.5 180 0")
+
+		seen := false
+		end := time.Now().Add(12 * time.Second)
+		for time.Now().Before(end) {
+			_ = bc.SetReadDeadline(time.Now().Add(time.Until(end)))
+			p, err := bpr.ReadPacket()
+			if err != nil {
+				break
+			}
+			switch p.ID {
+			case server.IDPlayKeepAliveCB:
+				var kb protocol.Buffer
+				kb.Raw(p.Data)
+				_ = bpw.WritePacket(server.IDPlayKeepAliveSB, kb.Bytes())
+			case server.IDPlaySyncPos:
+				if id, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
+					var tb protocol.Buffer
+					tb.VarInt(id)
+					_ = bpw.WritePacket(server.IDPlayTeleportConfirmSB, tb.Bytes())
+				}
+			case server.IDPlaySpawnEntity:
+				r := protocol.NewPacketReader(p.Data)
+				if _, e1 := r.VarInt(); e1 != nil {
+					continue
+				}
+				if _, e2 := r.Read(16); e2 != nil {
+					continue
+				}
+				typ, e3 := r.VarInt()
+				if e3 == nil && typ == 149 { // wolf
+					seen = true
+				}
+			}
+			if seen {
+				break
+			}
+		}
+		return seen
+	}
+
+	if !run(targets.vanilla) {
+		t.Fatalf("vanilla: joining player never saw the pre-summoned wolf")
+	}
+	if !run(targets.mcgo) {
+		t.Fatalf("mc-go: joining player never saw the pre-summoned wolf")
+	}
+}

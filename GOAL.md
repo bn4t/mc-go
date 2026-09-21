@@ -2089,3 +2089,10 @@ physics through a void dip plus a fed recovery window.
   (untrack), and vehicle death (rideTickStep clears the stale id).
   TestSetPassengersParity: watcher client records mount riders=1 and
   dismount riders=0 identically on vanilla 26.2 and mc-go.
+
+- Join-time entity visibility: sendEntitySpawnsTo only sent other
+  players — a newcomer never saw entities summoned before they
+  joined. Now every live non-player entity in the joiner's dimension
+  gets an add_entity, and vehicles already carrying passengers get a
+  set_passengers follow-up. TestJoinSeesExistingEntities: player B
+  joins after a wolf summon and sees it on both servers.
