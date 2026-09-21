@@ -2451,3 +2451,14 @@ physics through a void dip plus a fed recovery window.
   on player-cause calls, spear hit broadcast removed. Pinned by
   TestSpearUseSoundParity (two-client holder-vs-observer delivery +
   body compare minus seed).
+- Block-entity piggyback on the flush (26.2, ChunkHolder.broadcastChanges):
+  block_entity_data now rides the tick-end block-change flush and lands
+  right after the block update — previously syncBlockEntities broadcast
+  it eagerly at write time, which inverted the vanilla order
+  (BE-before-block). Measured: setblock on chest/furnace emits only
+  block_update (no BE packet — their getUpdatePacket fires on contents
+  changes, not placement), setblock on a sign emits block_update then
+  block_entity_data with byte-identical payload. Servers without a
+  running game loop still emit BE right after the immediate block
+  update. Pinned by TestBlockEntityPiggybackParity — identical packet
+  sequence and bodies vs vanilla.

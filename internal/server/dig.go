@@ -105,6 +105,7 @@ func (s *Server) blockChangesFlushStep() {
 				_ = sess.write(sess.ids().PlayBlockUpdateCB, body)
 				return true
 			})
+			s.piggybackBlockEntity(d, pos)
 			continue
 		}
 		var b protocol.Buffer
@@ -124,6 +125,23 @@ func (s *Server) blockChangesFlushStep() {
 			_ = sess.write(sess.ids().PlaySectionBlocksUpdate, body)
 			return true
 		})
+		for _, lp := range locals {
+			pos := world.Pos{X: cx*16 + int(lp>>8&15), Y: key.y*16 + int(lp&15), Z: cz*16 + int(lp>>4&15)}
+			s.piggybackBlockEntity(d, pos)
+		}
+	}
+}
+
+// piggybackBlockEntity emits block_entity_data for a changed position
+// riding the flush — vanilla ChunkHolder.broadcastChanges sends it
+// right after the block update for any changed state whose block
+// entity produces an update packet. On the dedicated server that is
+// only signs: chests and furnaces produce no placement packet.
+func (s *Server) piggybackBlockEntity(d *dimension, pos world.Pos) {
+	if spec, ok := signSpecOf(d.w.GetBlock(pos)); ok {
+		if st, ok := s.signAt(d, pos); ok {
+			s.broadcastBlockEntityData(d, pos, spec.id, signNBT(st))
+		}
 	}
 }
 
@@ -180,8 +198,12 @@ func (s *Server) setBlockAndBroadcast(player string, pos world.Pos, blk world.Bl
 func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block) {
 	if spec, ok := signSpecOf(blk); ok {
 		s.ensureSign(d, pos)
-		if st, ok := s.signAt(d, pos); ok {
-			s.broadcastBlockEntityData(d, pos, spec.id, signNBT(st))
+		if !s.ticking.Load() {
+			// No end-of-tick flush will run — emit the piggybacked
+			// block-entity update immediately, after the block update.
+			if st, ok := s.signAt(d, pos); ok {
+				s.broadcastBlockEntityData(d, pos, spec.id, signNBT(st))
+			}
 		}
 	} else {
 		s.clearSign(d, pos)
