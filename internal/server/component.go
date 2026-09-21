@@ -107,14 +107,7 @@ func (c component) nested() map[string]any {
 		m["color"] = c.color
 	}
 	if len(c.extra) > 0 {
-		items := componentsNBT(c.extra)
-		elem := byte(nbt.TagCompound)
-		if _, ok := items[0].(string); ok {
-			// Vanilla's component codec serializes a bare literal as a
-			// string, so an all-literal extra list is a String list.
-			elem = nbt.TagString
-		}
-		m["extra"] = nbt.List{Elem: elem, Items: items}
+		m["extra"] = componentsNBT(c.extra)
 	}
 	if c.italic {
 		m["italic"] = int8(1)
@@ -219,18 +212,35 @@ func (c component) content() []byte {
 	return buf.Bytes()
 }
 
-// componentsNBT renders a list of components: each stays a compound
-// unless it is a bare literal, which NBT-serializes as a plain string.
-func componentsNBT(cs []component) []any {
-	out := make([]any, 0, len(cs))
+// componentsNBT renders a list of components as its NBT list tag.
+// Vanilla decides the element type per list: an all-literal list is a
+// String list, but a compound anywhere makes every element a compound —
+// a bare literal then takes its empty-key form {"": text}.
+func componentsNBT(cs []component) nbt.List {
+	compound := false
 	for _, c := range cs {
-		if c.isPlain() {
-			out = append(out, c.text)
-		} else {
-			out = append(out, c.nested())
+		if !c.isPlain() {
+			compound = true
+			break
 		}
 	}
-	return out
+	items := make([]any, 0, len(cs))
+	for _, c := range cs {
+		if c.isPlain() {
+			if compound {
+				items = append(items, map[string]any{"": c.text})
+			} else {
+				items = append(items, c.text)
+			}
+		} else {
+			items = append(items, c.nested())
+		}
+	}
+	elem := byte(nbt.TagCompound)
+	if !compound {
+		elem = nbt.TagString
+	}
+	return nbt.List{Elem: elem, Items: items}
 }
 
 // argumentList builds the "with" list, whose element type comes from the

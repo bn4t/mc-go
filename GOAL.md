@@ -2477,3 +2477,14 @@ physics through a void dip plus a fed recovery window.
   Entity scope and `modify ... from` still open. Pinned by
   TestDataCommandParity — full per-command event sequence identical
   vs vanilla (replies + BE packets).
+- Selector expansion in message text (26.2, MessageArgument.resolve):
+  /msg, /say and /me now resolve embedded selectors server-side: a
+  match becomes the entity's decorated name component (suggest_command
+  click, show_entity hover, insertion), several comma-join in gray,
+  none collapse to an empty literal; chunks between selectors move to
+  extra as plain literals ({"": text} once any element is compound —
+  componentsNBT now picks the element type per list, matching the
+  vanilla codec). Selector args evaluated: type= (player only —
+  non-player entities have no display-name model yet), limit=, sort=,
+  distance=. Player lists resolve in join order. Pinned by
+  TestMsgSelectorParity — identical content trees on both recipients.

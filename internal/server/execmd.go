@@ -187,7 +187,7 @@ func (s *Server) registerWorldCommands() {
 		if sess := s.findSessionByName(player); sess != nil {
 			name = playerChatName(sess)
 		}
-		s.broadcastDisguisedChat("say_command", name, literal(strings.Join(args, " ")))
+		s.broadcastDisguisedChat("say_command", name, s.messageText(player, strings.Join(args, " ")))
 		// The sender has already been given the line by the broadcast.
 		return ""
 	})
@@ -199,7 +199,7 @@ func (s *Server) registerWorldCommands() {
 		if sess := s.findSessionByName(player); sess != nil {
 			name = playerChatName(sess)
 		}
-		s.broadcastDisguisedChat("emote_command", name, literal(strings.Join(args, " ")))
+		s.broadcastDisguisedChat("emote_command", name, s.messageText(player, strings.Join(args, " ")))
 		return ""
 	})
 	msgCmd := func(player string, args []string) string {
@@ -215,7 +215,7 @@ func (s *Server) registerWorldCommands() {
 		if sender != nil {
 			name = playerChatName(sender)
 		}
-		content := literal(strings.Join(args[1:], " "))
+		content := s.messageText(player, strings.Join(args[1:], " "))
 		incoming := registryEntryID("minecraft:chat_type", "minecraft:msg_command_incoming")
 		outgoing := registryEntryID("minecraft:chat_type", "minecraft:msg_command_outgoing")
 		for _, target := range targets {
