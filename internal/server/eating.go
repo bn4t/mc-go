@@ -79,6 +79,12 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 	if !ok {
 		return
 	}
+	if name == "fishing_rod" {
+		// FishingRodItem.use is not a hold-use: each use either casts
+		// a new bobber or retrieves the live one.
+		s.useFishingRod(sess)
+		return
+	}
 	if name == "bow" {
 		// Vanilla bows draw on use even in creative (which skips the
 		// arrow check until release); the shot lands on release.

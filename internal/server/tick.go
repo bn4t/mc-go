@@ -278,6 +278,7 @@ func (s *Server) GameTick() {
 	s.itemTickStep()
 	s.mobTickStep()
 	s.arrowTickStep()
+	s.fishTickStep()
 	s.sleepTickStep()
 	s.furnaceTickStep()
 	s.containerTickStep()

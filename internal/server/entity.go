@@ -70,7 +70,10 @@ type Entity struct {
 	// moving and colliding until it despawns, like vanilla's
 	// inGround state.
 	arrowStuck bool
-	Grounded   bool
+	// fishing is non-nil on a fishing_bobber: the per-hook catch state
+	// machine (owner link, timers, parked surface).
+	fishing  *fishBobber
+	Grounded bool
 }
 
 // Manager owns entity ids and the live set. All methods are safe for
@@ -206,6 +209,15 @@ func (m *Manager) Get(id int32) (Entity, bool) {
 		return Entity{}, false
 	}
 	return *e, true
+}
+
+// GetPtr returns the live entity pointer — for callers that mutate
+// fields the manager does not guard (the bobber's catch state).
+func (m *Manager) GetPtr(id int32) (*Entity, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	e, ok := m.byID[id]
+	return e, ok
 }
 
 // All snapshots the live entity set — entity copies, so mutating a

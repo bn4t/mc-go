@@ -1851,3 +1851,35 @@ physics through a void dip plus a fed recovery window.
   Harness note: Container Property is excluded from the click settle
   set — a ticking menu streams it every tick, so it can never hold
   the quiet window open.
+- 2026-09-21: fishing_rod_hooked (husbandry/fishy_business) and the
+  full bobber state machine. use() on a rod with no bobber spawns a
+  fishing_bobber (entity 157, Data=ownerID+1, idx9 biting=false) with
+  vanilla's shootFromRotation vector *0.6 + triangle(0,0.0103365) per
+  axis and the 641 throw sound; a second use() retrieves. The bobber
+  integrates gravity -0.03 + drag 0.92 until it hits water, parks at
+  surface-0.15, then rolls lured 100..600 -> hooked 20..80 -> splash
+  + nibble 20..40 with DATA_BITING -> re-roll; the per-tick decrement
+  is vanilla's probabilistic 1 + (r<0.25 && rainingAt) - (r<0.5 &&
+  !canSeeSky) where canSeeSky lets FLUIDS through (water above the
+  bobber does not block sky — measured the hard way). Reeling during
+  the nibble window costs 1 rod durability, evaluates
+  calculateOpenWater (5x5 layers at bobberY-1..+1: air/lily_pad =
+  ABOVE, source water = INSIDE, anything else or ABOVE-first or
+  INSIDE-after-ABOVE = INVALID), rolls the fishing loot table
+  (fish85/junk10/treasure5 with the datapack functions applied:
+  set_count 10 on ink_sac, set_potion water on the junk potion,
+  set_damage 0..0.9*max junk / 0..0.25*max treasure via
+  damageableItems, book->enchanted_book — the enchant itself is NOT
+  generated, gap), and spawns item entities flying toward the player
+  with the 639 retrieve sound. fishy_business's per-fish criteria
+  match conditions.item.items (single name, list, or #tag-expanded)
+  against every caught stack, any-match grants; criteria carrying
+  rod/entity/unmodeled keys are impossible per convention. The bite
+  requires nibble>0 — early reeling discards empty-handed. Entity-
+  hooking (idx8 hooked entity, hurtAndBreak 3/5) is not modeled.
+  TestFishingParity gives every lootable item up front (caught junk
+  can't diverge recipe unlocks), collapses the four fish criteria to
+  any-fish (which fish rolled is luck), and retries up to 4 casts —
+  green on both targets. Harness note: a `fill` that stops at the
+  surface y leaves water UNDER grass and the bobber never bites;
+  canSeeSky-style checks must treat fluids as sky-open.

@@ -150,6 +150,9 @@ type Session struct {
 	// that fires instead of drawing again. Early release cancels.
 	crossbowStartTick int64
 	crossbowCharged   bool
+	// fishingBobber is the entity id of the player's live bobber, or
+	// 0; vanilla keeps the same link as Player.fishing.
+	fishingBobber int32
 	// usingItemID is the item id currently in continuous use
 	// (spyglass scope); 0 when nothing is in use. Vanilla fires
 	// using_item every tick while set.

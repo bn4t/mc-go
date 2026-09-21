@@ -63,6 +63,7 @@ type advMeta struct {
 	beenests   []beeNestCond   // bee_nest_destroyed — silk-touch nest break
 	enchanteds []enchantCond   // enchanted_item — a table enchant landed
 	breweds    []brewedCond    // brewed_potion — a brewed stack left the stand
+	fished     []fishCond      // fishing_rod_hooked — a bite was reeled in
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -308,6 +309,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.enchanteds = append(m.enchanteds, parseEnchantCond(cname, cm["conditions"]))
 				case "minecraft:brewed_potion":
 					m.breweds = append(m.breweds, parseBrewedCond(cname, cm["conditions"]))
+				case "minecraft:fishing_rod_hooked":
+					m.fished = append(m.fished, parseFishCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -1707,6 +1710,88 @@ func parseBrewedCond(cname string, conds any) brewedCond {
 		}
 	}
 	return bc
+}
+
+// fishCond is one fishing_rod_hooked criterion reduced to the item
+// predicate over the caught stacks: conditions.item.items as an OR-set
+// (tag #names expand). rod and entity predicates are not modeled —
+// their presence locks the criterion the same way an unmatched
+// predicate does on vanilla.
+type fishCond struct {
+	crit       string
+	items      map[string]bool
+	impossible bool
+}
+
+func parseFishCond(cname string, conds any) fishCond {
+	fc := fishCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "item":
+			im, _ := v.(map[string]any)
+			for ik, iv := range im {
+				if ik != "items" {
+					fc.impossible = true
+					continue
+				}
+				add := func(name string) {
+					if fc.items == nil {
+						fc.items = map[string]bool{}
+					}
+					if strings.HasPrefix(name, "#") {
+						for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(name, "#"), "minecraft:")] {
+							fc.items[m] = true
+						}
+						return
+					}
+					fc.items[strings.TrimPrefix(name, "minecraft:")] = true
+				}
+				switch lst := iv.(type) {
+				case string:
+					add(lst)
+				case []any:
+					for _, e := range lst {
+						if es, ok := e.(string); ok {
+							add(es)
+						}
+					}
+				default:
+					fc.impossible = true
+				}
+			}
+		case "rod", "entity":
+			fc.impossible = true
+		default:
+			fc.impossible = true
+		}
+	}
+	return fc
+}
+
+// fireFishingRodHooked grants fishing_rod_hooked criteria when a bite
+// is reeled in: each caught stack is tested against the criterion's
+// item predicate (vanilla's TriggerInstance.matches iterates the same
+// collection).
+func (s *Server) fireFishingRodHooked(sess *Session, hook *Entity, drops []ItemStack) {
+	for _, meta := range gameAdvs {
+		for _, fc := range meta.fished {
+			if fc.impossible {
+				continue
+			}
+			for _, it := range drops {
+				name, ok := itemNameOf(it.ID)
+				if !ok {
+					continue
+				}
+				name = strings.TrimPrefix(name, "minecraft:")
+				if fc.items == nil || fc.items[name] {
+					sess.grantGameCriterion(meta, fc.crit)
+					break
+				}
+			}
+		}
+	}
 }
 
 // fireBrewedPotion grants brewed_potion criteria when a stack carrying
