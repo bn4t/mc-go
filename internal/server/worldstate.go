@@ -190,9 +190,11 @@ func (s *Server) dispatchCommandText(sess *Session, text string) {
 	if !ok {
 		r = reply{comp: unknownCommand(), styled: true, fail: &failMark{}}
 	}
-	s.sendReply(sess, r)
-	if r.fail != nil {
-		s.sendSystemChatComponent(sess, errorContext(input, r.fail.cursor(input)))
+	if s.gameRuleBool("minecraft:send_command_feedback") {
+		s.sendReply(sess, r)
+		if r.fail != nil {
+			s.sendSystemChatComponent(sess, errorContext(input, r.fail.cursor(input)))
+		}
 	}
 }
 

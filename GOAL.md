@@ -2714,3 +2714,13 @@ physics through a void dip plus a fed recovery window.
   cross-dimension); /setworldspawn updates the world spawn and fans
   Set Default Spawn Position out only when the point actually changed.
   TestSpawnCommandParity 27 commands green vs vanilla.
+
+- /gamerule + send_command_feedback: query/set replies carry
+  [name, value] strings; minecraft:-prefixed names resolve to the bare
+  rule; bool rules fail parsing.bool.invalid on other literals, int
+  rules fail parsing.int.expected / parsing.int.invalid (overflow keeps
+  the literal) / argument.integer.low[i(0),i(-1)]; bad rule names are
+  unknown.argument at the token. Setting send_command_feedback false
+  suppresses every later command reply — including the set's own — and
+  error context, gated at both dispatch sites. TestGameRuleParity 23
+  commands green vs vanilla.

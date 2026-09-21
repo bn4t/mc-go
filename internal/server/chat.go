@@ -69,9 +69,13 @@ func (s *Server) handleChat(sess *Session, p protocol.Packet, command bool) {
 			// past the start of the input.
 			r = reply{comp: unknownCommand(), styled: true, fail: &failMark{}}
 		}
-		s.sendReply(sess, r)
-		if r.fail != nil {
-			s.sendSystemChatComponent(sess, errorContext(input, r.fail.cursor(input)))
+		// send_command_feedback gates every message a command emits —
+		// replies and parse-error context alike.
+		if s.gameRuleBool("minecraft:send_command_feedback") {
+			s.sendReply(sess, r)
+			if r.fail != nil {
+				s.sendSystemChatComponent(sess, errorContext(input, r.fail.cursor(input)))
+			}
 		}
 		return
 	}
