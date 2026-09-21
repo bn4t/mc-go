@@ -149,7 +149,12 @@ type Server struct {
 	// dimension's minecraft: name.
 	borderMu sync.Mutex
 	borders  map[string]*border
-	OpsRequired bool
+
+	// bossbars holds the /bossbar bars in creation order.
+	bossbarMu    sync.Mutex
+	bossbars     map[string]*bossBar
+	bossbarOrder []string
+	OpsRequired  bool
 	// savedPlayers holds login-time snapshots restored from DataPath.
 	// untrack writes it from each connection goroutine and join reads
 	// it, so every access runs under savedPlayersMu.
@@ -242,7 +247,8 @@ func New(addr string) *Server {
 		difficulty:         DifficultyNormal,
 		gameRules:          defaultGameRules(),
 		ops:                map[string]int{},
-		borders:             map[string]*border{},
+		borders:            map[string]*border{},
+		bossbars:           map[string]*bossBar{},
 		ticks:              newTickScheduler(),
 		rng:                newRandState(0x5DEECE66D),
 		randSections:       map[randSectionKey]bool{},

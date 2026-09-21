@@ -2749,3 +2749,14 @@ physics through a void dip plus a fed recovery window.
   %.2f with float.low. The join-time initialize_world_border now
   carries the real per-dimension state. TestWorldBorderParity 36
   commands green vs vanilla, border packets 0x58-0x5c included.
+
+- /bossbar: bars keyed by normalized minecraft: id with a random v4
+  uuid; create/list/get/set/remove replies carry the hoverable
+  [name] label (square_brackets + show_text + insertion) colored by
+  the bar's chat formatting (purple -> dark_blue). boss_event emits
+  op0 add/op1 remove/op2 progress/op3 name/op4 style to members:
+  hiding or clearing players sends remove, re-showing resends the full
+  add, progress clamps to 1.0. unchanged/unknown/dup failures are red
+  errors (unchanged via commandError too), name/selector args reuse
+  the component machinery. TestBossbarParity 43 commands green vs
+  vanilla incl. the member packet stream.

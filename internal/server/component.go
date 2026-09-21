@@ -321,6 +321,8 @@ func argumentValue(a any) (any, byte) {
 		return map[string]any{v.key: value}, nbt.TagCompound
 	case component:
 		return v.nested(), nbt.TagCompound
+	case map[string]any:
+		return v, nbt.TagCompound
 	}
 	return "", nbt.TagString
 }
