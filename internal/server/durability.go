@@ -14,10 +14,15 @@ import (
 // the slot is resynced so the client sees the new damage value or
 // the empty slot.
 func (s *Server) wearHeld(sess *Session, damage int32) {
+	s.wearSlot(sess, invSlotForHotbar(sess.held.Load()), damage)
+}
+
+// wearSlot is wearHeld for an arbitrary inventory slot — the offhand
+// use of a food-on-a-stick wears that stack instead of the main one.
+func (s *Server) wearSlot(sess *Session, slot int16, damage int32) {
 	if damage <= 0 || sess.mode() != GameModeSurvival {
 		return
 	}
-	slot := invSlotForHotbar(sess.held.Load())
 	sess.invMu.Lock()
 	it := sess.inv[slot]
 	name, ok := world.ItemName(it.ID)
@@ -37,6 +42,11 @@ func (s *Server) wearHeld(sess *Session, damage int32) {
 	cur := sess.inv[slot]
 	sess.invState.Add(1)
 	sess.invMu.Unlock()
+
+	// Vanilla fires ITEM_DURABILITY_CHANGED inside hurtAndBreak with
+	// the stack and the new damage value before setDamageValue lands —
+	// the criterion's item predicate only reads the stack's identity.
+	s.fireItemDurabilityChanged(sess, it)
 
 	if empt {
 		// Vanilla's onEquippedItemBroken: the entity event (players

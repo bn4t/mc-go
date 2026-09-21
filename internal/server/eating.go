@@ -73,6 +73,10 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 		sess.blocking.Store(true)
 		return
 	}
+	if un, ok := itemNameOf(st.ID); ok && !st.Empty() && strings.HasSuffix(un, "_on_a_stick") {
+		s.useFoodOnAStick(sess, hand)
+		return
+	}
 	held := sess.heldStack()
 	if held.Empty() {
 		return

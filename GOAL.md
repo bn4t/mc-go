@@ -2031,3 +2031,19 @@ physics through a void dip plus a fed recovery window.
   commands.teleport.success.location.single/.multiple.
   TestRideEntityInLavaParity teleports the ridden strider 60 blocks
   along a lava trench — green vs vanilla 26.2.
+
+- item_durability_changed (done): vanilla FoodOnAStickItem.use —
+  while the player controls a saddled ItemSteerable (strider/pig:
+  getControlledVehicle means first passenger + saddled), use wears
+  the stick via hurtAndConvertOnBreak which routes to the
+  ServerLevel hurtAndBreak → ITEM_DURABILITY_CHANGED(stack, new
+  damage); ride_strider's criterion is item=warped_fungus_on_a_stick
+  + vehicle.entity_type=strider. mc-go: wearSlot generalizes
+  wearHeld to any slot and fires the trigger on every wear (mining,
+  hits, stick use), matching vanilla's placement inside hurtAndBreak;
+  useFoodOnAStick gates on riding+saddled+controlling and wears the
+  packet's hand. /gamemode now replies even when the mode is
+  unchanged (vanilla always sends commands.gamemode.success.self).
+  Measured: the creative-default join means hurtAndBreak is a no-op
+  until a real gamemode switch — the test sets survival first.
+  TestItemDurabilityChangedParity green vs vanilla 26.2.

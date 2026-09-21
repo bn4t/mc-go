@@ -53,9 +53,8 @@ func (s *Server) runGamemode(player string, args []string) reply {
 	if len(args) > 2 {
 		return errToken("command.unknown.argument", 3)
 	}
-	if target.mode() == mode {
-		return reply{}
-	}
+	// Vanilla answers even when the mode is already the requested one —
+	// "Set own game mode to Survival Mode" still goes out.
 	old := target.mode()
 	target.setMode(mode)
 	if mode != GameModeCreative && mode != GameModeSpectator {

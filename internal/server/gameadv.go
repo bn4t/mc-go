@@ -49,6 +49,7 @@ type advMeta struct {
 	pickupsByP []pickupCond    // thrown_item_picked_up_by_player — the picker side
 	rides      []rideCond      // started_riding — a player mounted a vehicle
 	rideLava   []rideLavaCond  // ride_entity_in_lava — distance on a lava vehicle
+	durs       []durCond       // item_durability_changed — a stack wore while riding
 	fills      []fillCond      // filled_bucket — a bucket was filled
 	sleeps     []sleepCond     // slept_in_bed — entered a bed
 	sculks     []sleepCond     // kill_mob_near_sculk_catalyst — no conditions
@@ -297,6 +298,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.rides = append(m.rides, parseRideCond(cname, cm["conditions"]))
 				case "minecraft:ride_entity_in_lava":
 					m.rideLava = append(m.rideLava, parseRideLavaCond(cname, cm["conditions"]))
+				case "minecraft:item_durability_changed":
+					m.durs = append(m.durs, parseDurCond(cname, cm["conditions"]))
 				case "minecraft:filled_bucket":
 					m.fills = append(m.fills, parseFillCond(cname, cm["conditions"]))
 				case "minecraft:construct_beacon":
@@ -2478,6 +2481,104 @@ func (s *Server) fireRideInLava(sess *Session) {
 				continue
 			}
 			sess.grantGameCriterion(meta, rc.crit)
+		}
+	}
+}
+
+// durCond is one item_durability_changed criterion: the item
+// predicate's items set plus the player predicate's vehicle type
+// (ride_strider wants a strider-mounted fungus-stick wear).
+type durCond struct {
+	crit       string
+	items      map[string]bool
+	vehTypes   map[string]bool
+	impossible bool
+}
+
+func parseDurCond(cname string, conds any) durCond {
+	dc := durCond{crit: cname, items: map[string]bool{}, vehTypes: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "item":
+			im, _ := v.(map[string]any)
+			for ik, iv := range im {
+				if ik != "items" {
+					dc.impossible = true
+					continue
+				}
+				switch itv := iv.(type) {
+				case string:
+					dc.items[itv] = true
+				case []any:
+					for _, e := range itv {
+						if st, ok := e.(string); ok {
+							dc.items[st] = true
+						}
+					}
+				}
+			}
+		case "player":
+			plist, _ := v.([]any)
+			for _, pv := range plist {
+				pm, _ := pv.(map[string]any)
+				if c, _ := pm["condition"].(string); c != "minecraft:entity_properties" {
+					dc.impossible = true
+					continue
+				}
+				pred, _ := pm["predicate"].(map[string]any)
+				for pk, pv2 := range pred {
+					if pk != "minecraft:vehicle" {
+						dc.impossible = true
+						continue
+					}
+					vm, _ := pv2.(map[string]any)
+					for vk, vv := range vm {
+						if vk != "minecraft:entity_type" {
+							dc.impossible = true
+							continue
+						}
+						if st, ok := vv.(string); ok {
+							dc.vehTypes[st] = true
+						}
+					}
+				}
+			}
+		default:
+			dc.impossible = true
+		}
+	}
+	return dc
+}
+
+// fireItemDurabilityChanged runs the criteria when hurtAndBreak
+// applies wear to a player's stack: the item predicate matches the
+// damaged stack, the vehicle predicate the ridden entity's type.
+func (s *Server) fireItemDurabilityChanged(sess *Session, it ItemStack) {
+	iname, ok := world.ItemName(it.ID)
+	if !ok {
+		return
+	}
+	vname := ""
+	if vid := sess.riding.Load(); vid != 0 {
+		s.entities.mu.RLock()
+		if veh, ok := s.entities.byID[vid]; ok {
+			vname, _ = EntityTypeName(veh.Type)
+		}
+		s.entities.mu.RUnlock()
+	}
+	for _, meta := range gameAdvs {
+		for _, dc := range meta.durs {
+			if dc.impossible {
+				continue
+			}
+			if len(dc.items) > 0 && !dc.items["minecraft:"+iname] && !dc.items[iname] {
+				continue
+			}
+			if len(dc.vehTypes) > 0 && (vname == "" || !entityTypesMatch(dc.vehTypes, vname)) {
+				continue
+			}
+			sess.grantGameCriterion(meta, dc.crit)
 		}
 	}
 }

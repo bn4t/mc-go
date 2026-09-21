@@ -106,6 +106,38 @@ func (s *Server) rideTickStep(sess *Session) {
 	s.fireRideInLava(sess)
 }
 
+// useFoodOnAStick is FoodOnAStickItem.use: while the packet's hand
+// holds a *_on_a_stick and the player controls a saddled steerable
+// (strider or pig — vanilla's getControlledVehicle means the first
+// passenger), the stick takes 1 durability of wear and the vehicle
+// boosts (boost travel itself is not modeled).
+func (s *Server) useFoodOnAStick(sess *Session, hand int32) {
+	vid := sess.riding.Load()
+	if vid == 0 {
+		return
+	}
+	s.entities.mu.RLock()
+	veh, ok := s.entities.byID[vid]
+	s.entities.mu.RUnlock()
+	if !ok || veh.Dying || !veh.Saddle {
+		return
+	}
+	name, ok := EntityTypeName(veh.Type)
+	if !ok || (name != "strider" && name != "pig") {
+		return
+	}
+	// Only the controlling passenger's use damages the stick —
+	// Strider.getControllingPassenger is the first rider.
+	if len(veh.Passengers) == 0 || veh.Passengers[0] != sess.entityID.Load() {
+		return
+	}
+	slot := invSlotForHotbar(sess.held.Load())
+	if hand == 1 {
+		slot = slotOffhand
+	}
+	s.wearSlot(sess, slot, 1)
+}
+
 // entityInLava reports whether any block under the entity's bounding
 // box is lava — vanilla's Entity.isInLava (fluidHeight on lava > 0).
 func (s *Server) entityInLava(sess *Session, e *Entity) bool {
