@@ -65,6 +65,7 @@ type advMeta struct {
 	enchanteds []enchantCond   // enchanted_item — a table enchant landed
 	breweds    []brewedCond    // brewed_potion — a brewed stack left the stand
 	fished     []fishCond      // fishing_rod_hooked — a bite was reeled in
+	spears     []spearCond     // spear_mobs — a jab's distinct-stabbed count
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
@@ -104,6 +105,14 @@ type hurtCond struct {
 	needsProj  bool            // damage.type.tags contains is_projectile
 	needsSmash bool            // damage.type.tags contains mace_smash
 	minDealt   float64         // damage.dealt.min (raw hearts, not half)
+	impossible bool
+}
+
+// spearCond is one spear_mobs criterion: vanilla's trigger checks the
+// holder's stabbedEntities count against the condition's count floor.
+type spearCond struct {
+	crit       string
+	count      int
 	impossible bool
 }
 
@@ -316,6 +325,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.breweds = append(m.breweds, parseBrewedCond(cname, cm["conditions"]))
 				case "minecraft:fishing_rod_hooked":
 					m.fished = append(m.fished, parseFishCond(cname, cm["conditions"]))
+				case "minecraft:spear_mobs":
+					m.spears = append(m.spears, parseSpearCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				}
@@ -1854,6 +1865,35 @@ func parseFishCond(cname string, conds any) fishCond {
 		}
 	}
 	return fc
+}
+
+// parseSpearCond reads the spear_mobs condition's count floor;
+// vanilla's TriggerInstance grants when stabbed >= count.
+func parseSpearCond(cname string, conds any) spearCond {
+	sc := spearCond{crit: cname, count: 1}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "count" {
+			sc.impossible = true
+			continue
+		}
+		if f, ok := v.(float64); ok {
+			sc.count = int(f)
+		}
+	}
+	return sc
+}
+
+// fireSpearMobs grants spear_mobs criteria when a jab tick lands a
+// stab: count is the holder's distinct recently-stabbed entity count.
+func (s *Server) fireSpearMobs(sess *Session, count int) {
+	for _, meta := range gameAdvs {
+		for _, sc := range meta.spears {
+			if !sc.impossible && count >= sc.count {
+				sess.grantGameCriterion(meta, sc.crit)
+			}
+		}
+	}
 }
 
 // fireFishingRodHooked grants fishing_rod_hooked criteria when a bite

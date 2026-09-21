@@ -1,6 +1,8 @@
 package server
 
 import (
+	"strings"
+
 	"time"
 
 	"mc-go/internal/protocol"
@@ -89,6 +91,10 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 		// Vanilla bows draw on use even in creative (which skips the
 		// arrow check until release); the shot lands on release.
 		sess.bowStartTick = s.TickCount()
+		return
+	}
+	if strings.HasSuffix(name, "_spear") {
+		s.spearStart(sess, held.ID, name)
 		return
 	}
 	if name == "trident" {

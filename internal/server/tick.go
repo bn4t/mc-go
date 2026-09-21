@@ -328,6 +328,7 @@ func (s *Server) playerTick() {
 		}
 		if sess.usingItemID != 0 {
 			s.fireUsingItem(sess)
+			s.spearJabTick(sess)
 		}
 		if sess.levitationStart != nil {
 			s.fireLevitation(sess)

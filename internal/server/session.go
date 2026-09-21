@@ -186,7 +186,14 @@ type Session struct {
 	// packet — vanilla's knownMovement, which gates the sweep attack
 	// (it must stay under (movement speed * 2.5)²).
 	lastHorizSq float64
-	lastHurt    float32
+	// lastDelta is the full per-packet move vector — the spear jab
+	// reads the holder's forward speed from it.
+	lastDelta [3]float64
+	// spearStartTick gates the kinetic jab's delay; stabbed is the
+	// holder's recentKineticEnemies (entity id -> game tick).
+	spearStartTick int64
+	stabbed        map[int32]int64
+	lastHurt       float32
 	// lastHurtBy is the entity id of the most recent damage source's
 	// attacker, for killed_by/kill-score stat attribution.
 	lastHurtBy int32

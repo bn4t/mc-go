@@ -22,6 +22,13 @@ var weaponDamage = map[string]float32{
 	"golden_axe":        7,
 	"trident":           9,
 	"mace":              6, // 1 base + 5 ADD_VALUE (createAttributes)
+	"wooden_spear":      1,
+	"golden_spear":      1,
+	"stone_spear":       2,
+	"copper_spear":      2,
+	"iron_spear":        3,
+	"diamond_spear":     4,
+	"netherite_spear":   5,
 	"wooden_pickaxe":    2,
 	"stone_pickaxe":     3,
 	"iron_pickaxe":      4,

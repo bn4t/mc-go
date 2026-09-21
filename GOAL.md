@@ -1931,3 +1931,28 @@ physics through a void dip plus a fed recovery window.
   gap on BOTH servers (vanilla 26.2 moved attacks to
   ServerboundAttackPacket 0x01; mc-go's handleInteract drops
   action=1 — worth closing later).
+
+- spear_many_mobs / kinetic_weapon jab (done): vanilla javap
+  (KineticWeapon.damageEntities, LivingEntity.stabAttack,
+  ProjectileUtil.getHitEntitiesAlong, ServerGamePacketListenerImpl
+  26.2): a held right-use keeps the item in use for 72000 ticks;
+  after delay_ticks (f4·20: iron 12) every tick sweeps the eye ray
+  along the head-look segment [eye+look·minReach .. eye+look·(maxReach
+  +max(0,knownMovement·look))] — reach 2.0..4.5 (creative 2.0..6.5),
+  entity clip vs AABB inflated hitbox_margin 0.125. Speeds come from
+  getMotion = lastKnownClientMovement·20, which vanilla fills from
+  the ACCEPTED per-packet move delta in handleMovePlayer (zeroed at
+  client_tick_end with no movement — we send none, so it persists).
+  Each collected entity is remembered for contact_cooldown_ticks=10
+  BEFORE conditions run, and spear_mobs trigger count = that
+  remembered-set size — stationary jab ticks park in-ray entities in
+  cooldown, which is why the test walks immediately after use_item.
+  Conditions: dismount (hot<=f9·20 && relSpeed>=4.6), knockback
+  (hot<=f7·20 && holderSpeed>=5.1), damage (hot<=f5·20 &&
+  holderSpeed>=9..14 — unreachable on foot, riding-only by design).
+  stabAttack applies the passed flags (hurtServer/push/stopRiding);
+  on any stab the holder gets entity_event 2 and the hit sound plays.
+  mc-go mirrors: per-tier tables in internal/server/spear.go,
+  remember-before-conditions, entity_event 2, and damage events only
+  when canDmg. TestSpearMobsParity drives a zombie row (1.95-tall
+  boxes; a pig's 0.9 tops out below the eye ray) — green on both.
