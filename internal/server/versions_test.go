@@ -87,7 +87,7 @@ func TestVersionTableMatchesConstants(t *testing.T) {
 	// is the assertion: officialID panics on a name the report does not
 	// contain, so a typo fails here rather than shipping a wrong id.
 	reportPinned := map[string]string{
-		"PlayTagQueryCB": "tag_query", "PlayPongResponseCB": "pong_response",
+		"PlayTagQueryCB": "tag_query", "PlayPongResponseCB": "pong_response", "PlayUpdateTags": "update_tags",
 		"PlayCommandSuggestionsCB": "command_suggestions", "PlayGameRuleValuesCB": "game_rule_values",
 		"PlayStartConfiguration": "start_configuration", "PlayChangeDifficultyCB": "change_difficulty",
 		"PlaySetCursorItem": "set_cursor_item", "PlaySetPlayerInventory": "set_player_inventory",

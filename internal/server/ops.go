@@ -21,17 +21,8 @@ func (s *Server) registerOps() {
 	s.registerComponentCommand("teleport", func(player string, args []string) reply {
 		return s.runTp(player, args)
 	})
-	s.commands.Register("save-all", func(player string, args []string) string {
-		if err := s.SaveWorld(); err != nil {
-			return "Save failed: " + err.Error()
-		}
-		return "Saved the game"
-	})
-	s.commands.Register("stop", func(player string, args []string) string {
-		// Async: the reply is already queued ahead of the kicks, so
-		// the issuer sees it before the disconnect lands.
-		go s.Shutdown("Server closed")
-		return "Stopping the server"
+	s.registerComponentCommand("save-all", func(player string, args []string) reply {
+		return s.runSaveAll(args)
 	})
 }
 

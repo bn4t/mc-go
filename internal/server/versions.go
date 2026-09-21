@@ -120,6 +120,7 @@ type ProtoIDs struct {
 	PlayTickingStep       int32
 	PlayUpdateAdvance     int32
 	PlayUpdateRecipes     int32
+	PlayUpdateTags        int32
 	PlayUpdateTime        int32
 
 	// Responses and world-state packets used by the serverbound
@@ -320,6 +321,7 @@ var supportedVersions = []Version{
 			PlayTickingStep:       IDPlayTickingStep,
 			PlayUpdateAdvance:     IDPlayUpdateAdvance,
 			PlayUpdateRecipes:     IDPlayUpdateRecipes,
+			PlayUpdateTags:        cb("update_tags"),
 			PlayUpdateTime:        IDPlayUpdateTime,
 
 			// The rest of the clientbound surface is resolved from

@@ -211,15 +211,18 @@ func (s *Server) runSetIdleTimeout(args []string) reply {
 	}
 	n, err := strconv.Atoi(args[0])
 	if err != nil {
-		return errToken("parsing.integer.expected", 1)
+		return errToken("parsing.int.expected", 1)
 	}
 	if n < 0 {
-		return errTokenEnd("argument.integer.low", 1, int32(0), int32(n))
+		return errToken("argument.integer.low", 1, int32(0), int32(n))
 	}
 	if len(args) > 1 {
 		return errToken("command.unknown.argument", 2)
 	}
 	s.idleTimeoutMinutes.Store(int32(n))
+	if n == 0 {
+		return componentReply(translatable("commands.setidletimeout.success.disabled"))
+	}
 	return componentReply(translatable("commands.setidletimeout.success", int32(n)))
 }
 

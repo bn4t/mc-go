@@ -2770,3 +2770,14 @@ physics through a void dip plus a fed recovery window.
   chain, invalidOptions listing each missing option key, and
   notFound landing at input end. Delta args parse as doubles though
   the wire writes floats. TestFxParity 48 commands green vs vanilla.
+
+- Misc server commands: save-all/off/on (saving+success pair,
+  alreadyOff/alreadyOn, save.failed when the world has no path),
+  defaultgamemode, setidletimeout (0 -> disabled reply), reload
+  resending update_tags + update_recipes + recipe_book_settings in
+  vanilla's live-reload registry order (bodies captured; packet
+  presence and length pinned since the map order is not stable),
+  debug/perf/jfr profiling shells with alreadyRunning/notRunning
+  edges, trigger's objective.notFound, random value|roll ranges,
+  spectate (self/not_spectator/entity resolution) and transfer's
+  transfer packet + port bounds. TestMiscParity 69 commands green.

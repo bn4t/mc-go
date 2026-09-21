@@ -63,6 +63,12 @@ type Server struct {
 	// implemented. idleTimeoutMinutes is the /setidletimeout value.
 	whitelistOn        atomic.Bool
 	idleTimeoutMinutes atomic.Int32
+	// autosaveOff holds the /save-off flag; debugRun and perfRun track
+	// /debug and /perf profiling windows; jfrRunning is /jfr's.
+	autosaveOff atomic.Bool
+	debugRun    profileRun
+	perfRun     profileRun
+	jfrRunning  atomic.Bool
 
 	// GenerateStructures is recorded in the world's generator settings.
 	// The zero value is false, so New sets the vanilla default (true);

@@ -102,14 +102,16 @@ func TestSaveWorldDisabledAndRoundtrip(t *testing.T) {
 	if err := s.SaveWorld(); err == nil || !strings.Contains(err.Error(), "disabled") {
 		t.Fatalf("save without path = %v", err)
 	}
-	if out, ok := s.commands.Run("save-all", "Op", nil); !ok || !strings.Contains(out, "failed") {
-		t.Fatalf("save-all disabled = %q,%v", out, ok)
+	r, ok := s.runCommand("Op", "save-all", nil)
+	if !ok || len(r.comp.extra) == 0 || r.comp.extra[0].translate != "commands.save.failed" {
+		t.Fatalf("save-all disabled = %+v,%v", r, ok)
 	}
 
 	s.WorldPath = filepath.Join(t.TempDir(), "world.json")
 	s.world.SetBlock(world.Pos{X: 8, Y: 65, Z: 8}, world.Stone)
-	if out, ok := s.commands.Run("save-all", "Op", nil); !ok || out != "Saved the game" {
-		t.Fatalf("save-all = %q,%v", out, ok)
+	r, ok = s.runCommand("Op", "save-all", nil)
+	if !ok || r.comp.translate != "commands.save.saving" {
+		t.Fatalf("save-all = %+v,%v", r, ok)
 	}
 	raw, err := os.ReadFile(s.WorldPath)
 	if err != nil || len(raw) == 0 {
@@ -373,7 +375,7 @@ func TestOpsFlowOverWire(t *testing.T) {
 	}
 
 	sendCmdPipe(t, pwa, "stop")
-	if out := readChatPipe(t, pra); !strings.Contains(out, "Stopping the server") {
+	if out := readChatPipe(t, pra); !strings.Contains(out, "commands.stop.stopping") {
 		t.Fatalf("/stop = %q", out)
 	}
 	for i := 0; i < 20; i++ {
