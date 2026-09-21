@@ -97,8 +97,10 @@ func (s *Server) cureZombieVillager(sess *Session, eid int32, hand int32) {
 }
 
 // cureProgress mirrors getConversionProgress: 1 per tick, plus a 1%
-// roll that scans the 9x9x9 box around the zombie for beds (each found
-// bed, capped at 14, adds 1 with 30% probability).
+// roll that scans the ±4-exclusive box around the zombie for iron bars
+// or beds (vanilla checks state.is(Blocks.IRON_BARS) or a BedBlock —
+// each found block, capped at 14, adds 1 with 30% probability). The
+// box origin uses Java's (int) truncation, not floor.
 func cureProgress(s *Server, e *Entity) int {
 	progress := 1
 	if rand.Float32() >= 0.01 {
@@ -108,45 +110,72 @@ func cureProgress(s *Server, e *Entity) int {
 	if w == nil {
 		return progress
 	}
-	bx, by, bz := int(math.Floor(e.X)), int(math.Floor(e.Y)), int(math.Floor(e.Z))
+	bx, by, bz := int(e.X), int(e.Y), int(e.Z)
 	found := 0
-	for x := bx - 4; x <= bx+4 && found < 14; x++ {
-		for y := by - 4; y <= by+4 && found < 14; y++ {
-			for z := bz - 4; z <= bz+4 && found < 14; z++ {
-				if isBedBlock(w.GetBlock(world.Pos{X: x, Y: y, Z: z})) {
-					found++
-					if rand.Float32() < 0.3 {
-						progress++
-					}
+	for x := bx - 4; x < bx+4 && found < 14; x++ {
+		for y := by - 4; y < by+4 && found < 14; y++ {
+			for z := bz - 4; z < bz+4 && found < 14; z++ {
+				blk := w.GetBlock(world.Pos{X: x, Y: y, Z: z})
+				name, ok := world.StateOwner(blk)
+				if !ok || (name != "iron_bars" && !isBedBlock(blk)) {
+					continue
 				}
+				if rand.Float32() < 0.3 {
+					progress++
+				}
+				found++
 			}
 		}
 	}
 	return progress
 }
 
-// finishCure replaces the zombie villager with a villager (new entity
-// id, same position/villager data/offers), fires the advancement
-// trigger for the curing player, and plays the cure level event.
+// finishCure replaces the zombie villager with a villager — vanilla's
+// convertTo restores the new entity from the old one's NBT save, so
+// position, NoAI, villagerdata, offers, equipment and the live
+// effects map all carry over (the wire shows the copied strength plus
+// the fresh nausea in the villager's first dirty resend). A villager
+// created from restored data always packs villagerDataFinalized —
+// readAdditionalSaveData forces it when VillagerData is present. The
+// pairing burst for the villager precedes the zombie's
+// remove_entities, matching vanilla's end-of-tick tracker order.
 func (s *Server) finishCure(e *Entity) {
+	var effects map[int32]mobEffectInst
+	if e.Effects != nil {
+		effects = make(map[int32]mobEffectInst, len(e.Effects))
+		for k, inst := range e.Effects {
+			effects[k] = inst
+		}
+	}
+	v := s.entities.Spawn(&Entity{
+		Type:              mustEntityType("villager"),
+		Dim:               e.Dim,
+		X:                 e.X,
+		Y:                 e.Y,
+		Z:                 e.Z,
+		Yaw:               e.Yaw,
+		Pitch:             e.Pitch,
+		Living:            true,
+		Health:            mobHealth["villager"],
+		MaxHealth:         mobHealth["villager"],
+		NoAI:              e.NoAI,
+		Silent:            e.Silent,
+		Profession:        e.Profession,
+		Offers:            e.Offers,
+		Baby:              e.Baby,
+		Equips:            e.Equips,
+		Effects:           effects,
+		VillagerTypeID:    e.VillagerTypeID,
+		VillagerProfID:    e.VillagerProfID,
+		VillagerLevel:     e.VillagerLevel,
+		VillagerFinalized: true,
+	})
+	s.broadcastFreshMob(v)
 	s.entities.Remove(e.ID)
 	s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
-
-	v := s.entities.Spawn(&Entity{
-		Type:       mustEntityType("villager"),
-		Dim:        e.Dim,
-		X:          e.X,
-		Y:          e.Y,
-		Z:          e.Z,
-		Yaw:        e.Yaw,
-		Pitch:      e.Pitch,
-		Living:     true,
-		NoAI:       e.NoAI,
-		Profession: e.Profession,
-		Offers:     e.Offers,
-		Baby:       e.Baby,
-	})
-	s.broadcastEntitySpawn(nil, *v)
+	if nausea, ok := MobEffectID("nausea"); ok {
+		mobAddEffect(v, nausea, 0, s.clock.count+200)
+	}
 
 	if e.HasConvStarter {
 		if sess := s.sessionByUUID(e.ConversionStarter); sess != nil {

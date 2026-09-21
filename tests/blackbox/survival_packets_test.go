@@ -583,7 +583,7 @@ func TestSurvivalPlaceConsumesPackets(t *testing.T) {
 
 // TestMobSummonAttackPackets proves the mob lifecycle at the packet
 // level: /summon emits Spawn Entity for the pig type plus health
-// metadata, each attack emits a hurt Entity Event and updated health
+// metadata, each landed attack emits a Damage Event and updated health
 // metadata, and the tenth hit removes the entity.
 func TestMobSummonAttackPackets(t *testing.T) {
 	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
@@ -593,9 +593,9 @@ func TestMobSummonAttackPackets(t *testing.T) {
 	defer c.Close()
 	drainToJoinBlackbox(t, "hunter", pr)
 	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
-	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = c.SetDeadline(time.Now().Add(20 * time.Second))
 
-	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "summon pig")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "summon minecraft:pig ~ ~ ~ {NoAI:1b}")
 
 	// Spawn Entity: pig type; capture the id.
 	pigType, _ := server.EntityTypeID("pig")
@@ -650,45 +650,78 @@ func TestMobSummonAttackPackets(t *testing.T) {
 		break
 	}
 
-	// Hit it ten times; watch health fall and the removal arrive.
-	for hit := 1; hit <= 10; hit++ {
-		var atk protocol.Buffer
-		atk.VarInt(pigEID)
-		if err := pw.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
-			t.Fatal(err)
+	// Past the tick-1 dirty-resend, then hit it ten times spaced past
+	// the 10-tick post-hit invulnerability window so every hit lands.
+	drainToQuietBlackbox(t, c, pr, 500*time.Millisecond)
+	_ = c.SetDeadline(time.Now().Add(20 * time.Second))
+	go func() {
+		for hit := 1; hit <= 10; hit++ {
+			var atk protocol.Buffer
+			atk.VarInt(pigEID)
+			if err := pw.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
+				return
+			}
+			time.Sleep(650 * time.Millisecond)
 		}
-	}
-	sawHurt, sawRemove := false, false
+	}()
+	// One collection loop: the pig's damage events, falling health
+	// metadata, its removal (after the twenty-tick death animation),
+	// and the porkchop drop's spawn + metadata all interleave —
+	// vacuumed drops remove other entity ids along the way.
+	itemType, _ := server.EntityTypeID("item")
+	sawHurt, sawRemove, sawDropMeta := false, false, false
 	var lastHealth float32 = 10
-	for !sawHurt || !sawRemove {
+	var dropEID int32
+	for !sawHurt || !sawRemove || !sawDropMeta {
 		p, err := pr.ReadPacket()
 		if err != nil {
-			t.Fatalf("waiting combat (hurt=%v remove=%v): %v", sawHurt, sawRemove, err)
+			t.Fatalf("waiting combat (hurt=%v remove=%v dropmeta=%v): %v", sawHurt, sawRemove, sawDropMeta, err)
 		}
 		switch p.ID {
-		case server.IDPlayEntityEvent:
+		case server.IDPlayDamageEvent:
 			r := protocol.NewPacketReader(p.Data)
-			eid, err1 := r.Int()
-			status, err2 := r.Byte()
-			if err1 == nil && err2 == nil && eid == pigEID && status == 2 {
+			eid, err := r.VarInt()
+			if err == nil && eid == pigEID {
 				sawHurt = true
+			}
+		case server.IDPlaySpawnEntity:
+			r := protocol.NewPacketReader(p.Data)
+			eid, _ := r.VarInt()
+			if _, err := r.UUID(); err != nil {
+				continue
+			}
+			if typ, err := r.VarInt(); err == nil && typ == itemType {
+				dropEID = eid
 			}
 		case server.IDPlayEntityMetadata:
 			r := protocol.NewPacketReader(p.Data)
 			eid, _ := r.VarInt()
-			if eid != pigEID {
-				continue
+			index, _ := r.Byte()
+			typ, _ := r.VarInt()
+			switch eid {
+			case pigEID:
+				h, err := r.Float()
+				if err != nil {
+					t.Fatalf("health metadata: %v", err)
+				}
+				if h >= lastHealth {
+					t.Fatalf("health did not drop: %v -> %v", lastHealth, h)
+				}
+				lastHealth = h
+			case dropEID:
+				if dropEID == 0 || index != 8 || typ != 7 {
+					t.Fatalf("loot metadata = index %d type %d", index, typ)
+				}
+				count, err := r.VarInt()
+				if err != nil || count < 1 || count > 3 {
+					t.Fatalf("porkchop count = %d, err %v", count, err)
+				}
+				id, err := r.VarInt()
+				if err != nil || id != world.ItemIDs["porkchop"] {
+					t.Fatalf("loot item = %d, err %v (want porkchop %d)", id, err, world.ItemIDs["porkchop"])
+				}
+				sawDropMeta = true
 			}
-			_, _ = r.Byte() // index
-			_, _ = r.VarInt()
-			h, err := r.Float()
-			if err != nil {
-				t.Fatalf("health metadata: %v", err)
-			}
-			if h >= lastHealth {
-				t.Fatalf("health did not drop: %v -> %v", lastHealth, h)
-			}
-			lastHealth = h
 		case server.IDPlayRemoveEntity:
 			r := protocol.NewPacketReader(p.Data)
 			n, err := r.VarInt()
@@ -696,66 +729,16 @@ func TestMobSummonAttackPackets(t *testing.T) {
 				t.Fatalf("remove count = %d, err %v", n, err)
 			}
 			id, err := r.VarInt()
-			if err != nil || id != pigEID {
-				t.Fatalf("remove id = %d, err %v (want %d)", id, err, pigEID)
+			if err != nil {
+				t.Fatalf("remove id: %v", err)
 			}
-			sawRemove = true
+			if id == pigEID {
+				sawRemove = true
+			}
 		}
 	}
 	if lastHealth > 1 {
 		t.Fatalf("final health = %v, want <= 1", lastHealth)
-	}
-
-	// The pig drops porkchop as an item entity after removal.
-	itemType, _ := server.EntityTypeID("item")
-	var dropEID int32
-	for {
-		p, err := pr.ReadPacket()
-		if err != nil {
-			t.Fatalf("waiting loot: %v", err)
-		}
-		if p.ID != server.IDPlaySpawnEntity {
-			continue
-		}
-		r := protocol.NewPacketReader(p.Data)
-		eid, _ := r.VarInt()
-		if _, err := r.UUID(); err != nil {
-			t.Fatalf("loot uuid: %v", err)
-		}
-		typ, err := r.VarInt()
-		if err != nil || typ != itemType {
-			continue
-		}
-		dropEID = eid
-		break
-	}
-	for {
-		p, err := pr.ReadPacket()
-		if err != nil {
-			t.Fatalf("waiting loot metadata: %v", err)
-		}
-		if p.ID != server.IDPlayEntityMetadata {
-			continue
-		}
-		r := protocol.NewPacketReader(p.Data)
-		eid, _ := r.VarInt()
-		if eid != dropEID {
-			continue
-		}
-		index, _ := r.Byte()
-		typ, _ := r.VarInt()
-		if index != 8 || typ != 7 {
-			t.Fatalf("loot metadata = index %d type %d", index, typ)
-		}
-		count, err := r.VarInt()
-		if err != nil || count < 1 || count > 3 {
-			t.Fatalf("porkchop count = %d, err %v", count, err)
-		}
-		id, err := r.VarInt()
-		if err != nil || id != world.ItemIDs["porkchop"] {
-			t.Fatalf("loot item = %d, err %v (want porkchop %d)", id, err, world.ItemIDs["porkchop"])
-		}
-		break
 	}
 }
 
@@ -832,9 +815,12 @@ func TestMobXPOrbPackets(t *testing.T) {
 	defer c.Close()
 	drainToJoinBlackbox(t, "learner", pr)
 	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
-	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = c.SetDeadline(time.Now().Add(20 * time.Second))
 
-	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "summon pig")
+	// A netherite axe one-shots the pig; burst bare-hand hits would be
+	// swallowed by the 10-tick post-hit invulnerability window.
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "item replace entity @s weapon.mainhand with netherite_axe")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "summon minecraft:pig ~ ~ ~ {NoAI:1b}")
 
 	orbType, _ := server.EntityTypeID("experience_orb")
 	// Wait for the pig spawn, learn its id, then kill it.
@@ -859,15 +845,19 @@ func TestMobXPOrbPackets(t *testing.T) {
 		pigEID = eid
 		break
 	}
-	for i := 0; i < 10; i++ {
-		var atk protocol.Buffer
-		atk.VarInt(pigEID)
-		if err := pw.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
-			t.Fatal(err)
+	go func() {
+		for i := 0; i < 3; i++ {
+			var atk protocol.Buffer
+			atk.VarInt(pigEID)
+			if err := pw.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
+				return
+			}
+			time.Sleep(650 * time.Millisecond)
 		}
-	}
+	}()
 
-	// The orb spawns after the pig's removal.
+	// The orb spawns after the pig's removal; attacks spaced past the
+	// 10-tick post-hit invulnerability window so every hit lands.
 	var orbEID, orbValue int32
 	for {
 		p, err := pr.ReadPacket()

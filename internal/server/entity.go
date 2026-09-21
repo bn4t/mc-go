@@ -100,6 +100,32 @@ type Entity struct {
 	// every loaded slot, and the next mob tick's
 	// detectEquipmentUpdates resends the set to trackers.
 	EquipDirty bool
+	// MetaDirty/AttrDirty/PosDirty model ServerEntity's post-attach
+	// dirty sync: pairing leaves every loaded entry dirty, so the next
+	// mob tick resends the full metadata set (now including the
+	// freshly-computed effect particles) and the syncable attributes;
+	// SyncCount counts sync ticks since attach so a zero-delta
+	// move_entity_pos goes out every 60 like vanilla's tickCount%60.
+	MetaDirty bool
+	AttrDirty bool
+	PosDirty  bool
+	SyncCount int64
+	// ParticlesSent is the last-broadcast DATA_EFFECT_PARTICLES value
+	// bytes — dirty packs emit index 10 whenever it changes.
+	ParticlesSent []byte
+	// VillagerTypeID/VillagerProfID/VillagerLevel are the entity's
+	// villagerdata as registry protocol ids (zombie_villager metadata
+	// index 20, villager index 19). VillagerProfDefault is the
+	// defined-default profession id — a zombie villager's is random
+	// per vanilla's define(), a villager's is fixed none — and the
+	// villagerdata entry packs only when the value differs from
+	// {plains, VillagerProfDefault, 1}. VillagerFinalized packs the
+	// finalized bool (loaded from NBT or set by conversion).
+	VillagerTypeID      int32
+	VillagerProfID      int32
+	VillagerLevel       int32
+	VillagerProfDefault int32
+	VillagerFinalized   bool
 	// MotionX/MotionZ carry a thrown item's horizontal drift, applied
 	// each tick with vanilla's 0.98 air / ~0.55 grounded decay.
 	MotionX, MotionZ float64
@@ -483,7 +509,7 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 		case e.Item.ID != 0:
 			meta = encodeItemMetadata(e.Item)
 		case e.Living:
-			meta = encodeLivingMetadata(&e)
+			meta = encodeLivingMetadata(&e, nil)
 		}
 		if meta != nil {
 			var mb protocol.Buffer

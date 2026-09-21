@@ -341,11 +341,31 @@ func (s *Server) runSummon(player string, args []string) reply {
 				}
 			}
 			// VillagerData.profession + Offers.Recipes drive the
-			// merchant menu; Age<0 marks a baby (no trading).
+			// merchant menu; Age<0 marks a baby (no trading). The
+			// registry-id trio also packs into entity metadata —
+			// presence of VillagerData (or VillagerDataFinalized) sets
+			// the finalized flag per VillagerDataHolder's NBT read.
 			if vd, ok := tag.vals["VillagerData"]; ok {
 				if pv, ok := vd.vals["profession"]; ok && pv.str != "" {
 					e.Profession = strings.TrimPrefix(pv.str, "minecraft:")
+					if id, ok2 := VillagerProfessionID(e.Profession); ok2 {
+						e.VillagerProfID = id
+					}
+					e.VillagerFinalized = true
 				}
+				if tv, ok := vd.vals["type"]; ok && tv.str != "" {
+					if id, ok2 := VillagerTypeID(strings.TrimPrefix(tv.str, "minecraft:")); ok2 {
+						e.VillagerTypeID = id
+					}
+					e.VillagerFinalized = true
+				}
+				if lv, ok := vd.vals["level"]; ok {
+					e.VillagerLevel = int32(snbtNum(lv))
+					e.VillagerFinalized = true
+				}
+			}
+			if fv, ok := tag.vals["VillagerDataFinalized"]; ok && (fv.num == "1b" || fv.num == "1" || fv.str == "true") {
+				e.VillagerFinalized = true
 			}
 			if ov, ok := tag.vals["Offers"]; ok {
 				if rc, ok := ov.vals["Recipes"]; ok {
@@ -388,13 +408,22 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 			// ConversionTime != -1 starts the zombie-villager cure
 			// countdown; ConversionPlayer is the EntityReference the
-			// trigger fires for. Silent mutes the cure sound.
+			// trigger fires for. Silent mutes the cure sound. Vanilla's
+			// startConverting also strips weakness and grants strength
+			// for the duration — its entity_event(16) broadcast fires
+			// before the tracker attach so no client ever sees it.
 			if cv, ok := tag.vals["ConversionTime"]; ok && int32(snbtNum(cv)) != -1 {
 				e.Converting = true
 				e.ConversionTime = int32(snbtNum(cv))
 				if u, ok := snbtUUID(tag, "ConversionPlayer"); ok {
 					e.ConversionStarter = u
 					e.HasConvStarter = true
+				}
+				if w, ok2 := MobEffectID("weakness"); ok2 {
+					mobRemoveEffect(e, w)
+				}
+				if st, ok2 := MobEffectID("strength"); ok2 {
+					mobAddEffect(e, st, 0, s.clock.count+int64(e.ConversionTime))
 				}
 			}
 			if sv, ok := tag.vals["Silent"]; ok && (sv.num == "1b" || sv.num == "1" || sv.str == "true") {
@@ -635,7 +664,7 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI b
 	if !known {
 		return nil, false
 	}
-	return s.entities.Spawn(&Entity{
+	e := s.entities.Spawn(&Entity{
 		Type:      id,
 		Dim:       d.name,
 		X:         x,
@@ -645,7 +674,20 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI b
 		Health:    health,
 		MaxHealth: health,
 		NoAI:      noAI,
-	}), true
+	})
+	// Villager carriers start at their defined default: a zombie
+	// villager's DATA_VILLAGER_DATA is randomized at construction
+	// (plains/random-profession/1) while a villager's is fixed
+	// plains/none/1 — the difference in which value packs on the wire.
+	if name == "zombie_villager" || name == "villager" {
+		e.VillagerTypeID, _ = VillagerTypeID("plains")
+		e.VillagerLevel = 1
+		if name == "zombie_villager" {
+			e.VillagerProfID = int32(rand.Intn(len(villagerProfessionIDs)))
+		}
+		e.VillagerProfDefault = e.VillagerProfID
+	}
+	return e, true
 }
 
 // broadcastFreshMob is vanilla's tracker-attach burst: spawn packet,
@@ -655,7 +697,15 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI b
 // replays that second burst on the next mob tick.
 func (s *Server) broadcastFreshMob(e *Entity) {
 	s.broadcastEntitySpawn(nil, *e)
-	s.broadcastEntityMetadata(e.ID, encodeLivingMetadata(e))
+	s.broadcastEntityMetadata(e.ID, encodeLivingMetadata(e, nil))
+	if mobPairingAttrTypes[e.Type] {
+		s.broadcastMobAttrs(e)
+	}
+	e.MetaDirty = true
+	e.AttrDirty = true
+	e.PosDirty = true
+	e.SyncCount = 0
+	e.ParticlesSent = nil
 	if slots := armorStandEquipAll(e); len(slots) > 0 {
 		e.EquipDirty = true
 		body := encodeEquipment(e.ID, slots)
@@ -685,20 +735,95 @@ func encodeArmorStandFlags(e *Entity) byte {
 }
 
 // encodeLivingMetadata builds the Set Entity Data body for a living
-// entity: health at index 9 (float), terminated.
-func encodeLivingMetadata(e *Entity) []byte {
+// entity's non-default entries, index-ascending like vanilla's
+// SynchedEntityData.pack: health (9, float), effect particles (10 —
+// only in tick resends, never in pairing — pass nil there), Mob's
+// DATA_MOB_FLAGS (15, byte — bit0 = NoAI), then per-type entries:
+// zombie_villager packs converting (19), villagerdata (20 — only when
+// it differs from the per-entity random default), finalized (21);
+// villager packs villagerdata (19) and finalized (20). The armor
+// stand keeps its CLIENT_FLAGS at index 15 instead (it isn't a Mob).
+func encodeLivingMetadata(e *Entity, particles []byte) []byte {
+	var b protocol.Buffer
+	b.Byte(9) // index: health
+	b.Byte(3) // type: float
+	b.Float(e.Health)
 	if e.Type == mustEntityType("armor_stand") {
-		var b protocol.Buffer
-		b.Byte(9) // index: health
-		b.Byte(3) // type: float
-		b.Float(e.Health)
 		b.Byte(15) // index: armor-stand client flags
 		b.Byte(0)  // type: byte
 		b.Byte(encodeArmorStandFlags(e))
 		b.Byte(0xFF)
 		return b.Bytes()
 	}
-	return encodeLivingHealth(e.Health)
+	if len(particles) > 0 {
+		b.Byte(10)
+		b.Byte(17) // PARTICLES serializer
+		b.Raw(particles)
+	}
+	if flags := mobFlagsByte(e); flags != 0 {
+		b.Byte(15)
+		b.Byte(0) // type: byte
+		b.Byte(flags)
+	}
+	if name, ok := EntityTypeName(e.Type); ok {
+		switch name {
+		case "zombie_villager":
+			if e.Converting {
+				b.Byte(19)
+				b.Byte(8) // type: bool
+				b.Bool(true)
+			}
+			if !villagerDataIsDefault(e, e.VillagerProfDefault) {
+				b.Byte(20)
+				b.Byte(18) // type: villager_data
+				encodeVillagerDataValue(&b, e)
+			}
+			if e.VillagerFinalized {
+				b.Byte(21)
+				b.Byte(8)
+				b.Bool(true)
+			}
+		case "villager":
+			// A villager's defined default is fixed plains/none/1;
+			// a conversion always carries finalized data.
+			if !villagerDataIsDefault(e, 0) {
+				b.Byte(19)
+				b.Byte(18)
+				encodeVillagerDataValue(&b, e)
+			}
+			if e.VillagerFinalized {
+				b.Byte(20)
+				b.Byte(8)
+				b.Bool(true)
+			}
+		}
+	}
+	b.Byte(0xFF)
+	return b.Bytes()
+}
+
+// mobFlagsByte is Mob's DATA_MOB_FLAGS byte: bit0 = NoAI.
+func mobFlagsByte(e *Entity) byte {
+	var flags byte
+	if e.NoAI {
+		flags |= 0x01
+	}
+	return flags
+}
+
+// villagerDataIsDefault reports whether the entity's villagerdata still
+// equals its defined default — {plains, definedProf, 1} — so the entry
+// stays unpacked like vanilla's non-default-only pack().
+func villagerDataIsDefault(e *Entity, definedProf int32) bool {
+	return e.VillagerTypeID == 2 && e.VillagerProfID == definedProf && e.VillagerLevel == 1
+}
+
+// encodeVillagerDataValue writes the villager_data serializer value:
+// three VarInts — villager_type, villager_profession, level.
+func encodeVillagerDataValue(b *protocol.Buffer, e *Entity) {
+	b.VarInt(e.VillagerTypeID)
+	b.VarInt(e.VillagerProfID)
+	b.VarInt(e.VillagerLevel)
 }
 
 // encodeLivingHealth encodes the health metadata entry alone.
@@ -786,6 +911,7 @@ func (s *Server) mobTickStep() {
 				})
 			}
 		}
+		s.mobSyncFlush(e)
 		if e.invulnTicks > 0 {
 			e.invulnTicks--
 		}

@@ -2990,3 +2990,184 @@ func MobEffectName(id int32) (string, bool) {
 	}
 	return "", false
 }
+
+// villagerTypeIDs / villagerProfessionIDs map the villagerdata
+// name parts (without the minecraft: prefix) to their registry
+// protocol ids — the three VarInts a villager_data metadata entry
+// carries.
+var villagerTypeIDs = map[string]int32{
+	"desert": 0,
+	"jungle": 1,
+	"plains": 2,
+	"savanna": 3,
+	"snow": 4,
+	"swamp": 5,
+	"taiga": 6,
+}
+
+// VillagerTypeID returns the registry id for a villager_type name.
+func VillagerTypeID(name string) (int32, bool) {
+	id, ok := villagerTypeIDs[name]
+	return id, ok
+}
+
+var villagerProfessionIDs = map[string]int32{
+	"armorer": 1,
+	"butcher": 2,
+	"cartographer": 3,
+	"cleric": 4,
+	"farmer": 5,
+	"fisherman": 6,
+	"fletcher": 7,
+	"leatherworker": 8,
+	"librarian": 9,
+	"mason": 10,
+	"nitwit": 11,
+	"none": 0,
+	"shepherd": 12,
+	"toolsmith": 13,
+	"weaponsmith": 14,
+}
+
+// VillagerProfessionID returns the registry id for a
+// villager_profession name.
+func VillagerProfessionID(name string) (int32, bool) {
+	id, ok := villagerProfessionIDs[name]
+	return id, ok
+}
+
+// ParticleTypeID returns the registry id for a particle_type
+// name — the VarInt a particles-list metadata entry prefixes each
+// particle with.
+var particleTypeIDs = map[string]int32{
+	"angry_villager": 0,
+	"ash": 91,
+	"block": 1,
+	"block_crumble": 122,
+	"block_marker": 2,
+	"bubble": 3,
+	"bubble_column_up": 81,
+	"bubble_pop": 79,
+	"campfire_cosy_smoke": 84,
+	"campfire_signal_smoke": 85,
+	"cherry_leaves": 41,
+	"cloud": 11,
+	"composter": 51,
+	"copper_fire_flame": 12,
+	"crimson_spore": 92,
+	"crit": 13,
+	"current_down": 80,
+	"damage_indicator": 14,
+	"dolphin": 83,
+	"dragon_breath": 15,
+	"dripping_dripstone_lava": 102,
+	"dripping_dripstone_water": 104,
+	"dripping_honey": 86,
+	"dripping_lava": 16,
+	"dripping_obsidian_tear": 95,
+	"dripping_water": 19,
+	"dust": 21,
+	"dust_color_transition": 22,
+	"dust_pillar": 118,
+	"dust_plume": 114,
+	"effect": 23,
+	"egg_crack": 113,
+	"elder_guardian": 24,
+	"electric_spark": 110,
+	"enchant": 26,
+	"enchanted_hit": 25,
+	"end_rod": 27,
+	"entity_effect": 28,
+	"explosion": 30,
+	"explosion_emitter": 29,
+	"falling_dripstone_lava": 103,
+	"falling_dripstone_water": 105,
+	"falling_dust": 36,
+	"falling_honey": 87,
+	"falling_lava": 17,
+	"falling_nectar": 89,
+	"falling_obsidian_tear": 96,
+	"falling_spore_blossom": 90,
+	"falling_water": 20,
+	"firefly": 123,
+	"firework": 37,
+	"fishing": 38,
+	"flame": 39,
+	"flash": 49,
+	"geyser": 7,
+	"geyser_base": 8,
+	"geyser_plume": 10,
+	"geyser_poof": 9,
+	"glow": 107,
+	"glow_squid_ink": 106,
+	"gust": 31,
+	"gust_emitter_large": 33,
+	"gust_emitter_small": 34,
+	"happy_villager": 50,
+	"heart": 52,
+	"infested": 40,
+	"instant_effect": 53,
+	"item": 54,
+	"item_cobweb": 60,
+	"item_slime": 59,
+	"item_snowball": 61,
+	"landing_honey": 88,
+	"landing_lava": 18,
+	"landing_obsidian_tear": 97,
+	"large_smoke": 62,
+	"lava": 63,
+	"mycelium": 64,
+	"nautilus": 82,
+	"note": 65,
+	"noxious_gas": 5,
+	"noxious_gas_cloud": 6,
+	"ominous_spawning": 119,
+	"pale_oak_leaves": 42,
+	"pause_mob_growth": 57,
+	"poof": 66,
+	"portal": 67,
+	"raid_omen": 120,
+	"rain": 68,
+	"reset_mob_growth": 58,
+	"reverse_portal": 98,
+	"scrape": 111,
+	"sculk_charge": 45,
+	"sculk_charge_pop": 46,
+	"sculk_soul": 44,
+	"shriek": 112,
+	"small_flame": 100,
+	"small_gust": 32,
+	"smoke": 69,
+	"sneeze": 71,
+	"snowflake": 101,
+	"sonic_boom": 35,
+	"soul": 48,
+	"soul_fire_flame": 47,
+	"spit": 72,
+	"splash": 77,
+	"spore_blossom_air": 94,
+	"squid_ink": 73,
+	"sulfur_bubbles": 4,
+	"sulfur_cube_goo": 124,
+	"sweep_attack": 74,
+	"tinted_leaves": 43,
+	"totem_of_undying": 75,
+	"trail": 56,
+	"trial_omen": 121,
+	"trial_spawner_detection": 115,
+	"trial_spawner_detection_ominous": 116,
+	"underwater": 76,
+	"vault_connection": 117,
+	"vibration": 55,
+	"warped_spore": 93,
+	"wax_off": 109,
+	"wax_on": 108,
+	"white_ash": 99,
+	"white_smoke": 70,
+	"witch": 78,
+}
+
+func ParticleTypeID(name string) (int32, bool) {
+	id, ok := particleTypeIDs[name]
+	return id, ok
+}

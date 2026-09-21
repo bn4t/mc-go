@@ -2250,3 +2250,35 @@ physics through a void dip plus a fed recovery window.
   detectEquipmentUpdates' dirty-flag resend (mc-go: EquipDirty ->
   mobTickStep). swing anim id is 0 for the main hand, 3 for the off
   hand. TestArmorStandInteractParity green vs vanilla 26.2.
+
+- mob dirty-sync model (ServerEntity.sendChanges / SynchedEntityData):
+  pairing (sendPairingData at tracker attach) emits spawn, then
+  set_entity_data with every NON-DEFAULT metadata entry — effect
+  particles (index 10, serializer 17) are never in it because
+  updateDirtyEffects hasn't run — then update_attributes ONLY for mobs
+  whose attribute map materialized pre-attach (zombie family yes,
+  villager no — measured per type), then set_equipment/passengers.
+  Dirty flags survive pairing, so the next tick's sendChanges resends
+  the full data set plus newly-dirtied entries (effect particles land
+  then), the syncable attributes again, and — because summon snapTo
+  marks the position dirty — a zero-delta move_entity_pos; every 60
+  sync ticks (tickCount%60) another zero-delta pos goes out. mc-go:
+  MetaDirty/AttrDirty/PosDirty + SyncCount + ParticlesSent on Entity,
+  flushed in mobSyncFlush each mob tick. LivingEntity metadata now
+  emits per-type non-default entries: health(9), DATA_MOB_FLAGS(15,
+  bit0=NoAI), zombie_villager converting(19)/villagerdata(20, packed
+  only when differing from its randomized-at-define default)/
+  finalized(21), villager villagerdata(19)/finalized(20).
+  DATA_EFFECT_PARTICLES = one entity_effect particle (registry 28,
+  Int32-BE ARGB color from MobEffects' register() arg — full 40-entry
+  table extracted) per live effect; an expired-but-unswept instance
+  stays listed for one tick, then shrinks — the dirty pack that
+  carries only idx10. ZombieVillager.readAdditionalSaveData treats
+  ConversionTime != -1 as startConverting (weakness removed, strength
+  added for the duration; the entity_event(16) broadcast fires before
+  attach so nobody sees it), and VillagerData presence OR
+  VillagerDataFinalized:true forces finalized — conversion copies the
+  zombie's data and the villager's NBT-restore path always packs
+  finalized=true. getConversionProgress scan fixed: (int) truncation,
+  exclusive <x+4 bounds, iron_bars counted alongside beds, roll before
+  the +1. TestCureConversionSyncParity green vs vanilla 26.2.

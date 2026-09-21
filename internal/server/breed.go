@@ -99,7 +99,7 @@ func (s *Server) feedAnimal(sess *Session, eid int32, hand int32) {
 		MaxHealth: mobHealth[name],
 	})
 	s.broadcastEntitySpawn(nil, *baby)
-	s.broadcastEntityMetadata(baby.ID, encodeLivingMetadata(baby))
+	s.broadcastEntityMetadata(baby.ID, encodeLivingMetadata(baby, nil))
 	s.fireBredAnimal(sess, name)
 }
 
