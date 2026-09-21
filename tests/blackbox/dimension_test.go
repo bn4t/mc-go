@@ -319,8 +319,11 @@ func TestMcGoOnlyPortalTravel(t *testing.T) {
 }
 
 // TestMcGoOnlyPortalCooldownExpiry proves the cooldown decays and a
-// second travel fires after it lapses. The cooldown is 300 ticks; the
-// test waits ~6s inside the portal.
+// second travel fires after it lapses. Vanilla's player
+// dimension-changing delay is 10 ticks, and stepping into a portal
+// while cooling re-arms it — the test first confirms a couple of
+// seconds inside the portal never fire, then steps out to drain the
+// cooldown and re-enters.
 func TestMcGoOnlyPortalCooldownExpiry(t *testing.T) {
 	addr := requireMcGoOnlyCfg(t, func(s *server.Server) { s.GameMode = server.GameModeCreative })
 	c, pr, pw := joinPlayBlackbox(t, addr, "Looper")
@@ -346,8 +349,29 @@ func TestMcGoOnlyPortalCooldownExpiry(t *testing.T) {
 	if first.dim != "minecraft:the_nether" {
 		t.Fatalf("first travel dim = %q", first.dim)
 	}
-	// Step into the freshly built portal and wait out the 300-tick
-	// cooldown (~15s), then the return trip must fire.
+	// Step into the freshly built portal right away: entering while the
+	// 10-tick travel cooldown holds re-arms it, so standing inside can
+	// never fire — confirm quiet for a couple of seconds.
+	if err := sendMovePosRot(pw, 8.5, 34, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			break // timed out inside the portal: cooldown re-arm held
+		}
+		if p.ID == server.IDPlayRespawn {
+			t.Fatal("travel fired while the re-armed cooldown held")
+		}
+	}
+	// Step out, wait past the 10-tick cooldown, step back in — the
+	// return trip now fires.
+	_ = c.SetDeadline(time.Now().Add(30 * time.Second))
+	if err := sendMovePosRot(pw, 10.5, 34, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second)
 	if err := sendMovePosRot(pw, 8.5, 34, 0.5); err != nil {
 		t.Fatal(err)
 	}

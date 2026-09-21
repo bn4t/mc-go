@@ -114,18 +114,50 @@ func isSetblockConfirmBlackbox(t *testing.T, data []byte) bool {
 }
 
 // chatTextBlackbox decodes an NBT text component payload to its plain
-// text form.
+// text form. Command replies arrive either as a bare string root or as
+// a component object (translate/text/extra), so both decode.
 func chatTextBlackbox(t *testing.T, data []byte) string {
 	t.Helper()
 	root, err := nbt.ReadUnnamed(bytes.NewReader(data))
 	if err != nil {
 		t.Fatalf("chat nbt: %v", err)
 	}
-	text, ok := root.(string)
-	if !ok {
-		t.Fatalf("chat root = %T, want string", root)
+	return componentPlain(root)
+}
+
+// componentPlain flattens an NBT-decoded text component to its visible
+// text: a bare string returns itself, objects contribute their
+// text/translate/with/extra parts in order.
+func componentPlain(v any) string {
+	switch c := v.(type) {
+	case string:
+		return c
+	case map[string]any:
+		var sb strings.Builder
+		if t, ok := c["text"].(string); ok {
+			sb.WriteString(t)
+		} else if tr, ok := c["translate"].(string); ok {
+			sb.WriteString(tr)
+		}
+		for _, key := range []string{"with", "extra"} {
+			sb.WriteString(componentPlain(c[key]))
+		}
+		return sb.String()
+	case nbt.List:
+		var sb strings.Builder
+		for _, item := range c.Items {
+			sb.WriteString(componentPlain(item))
+		}
+		return sb.String()
+	case []any:
+		var sb strings.Builder
+		for _, item := range c {
+			sb.WriteString(componentPlain(item))
+		}
+		return sb.String()
+	default:
+		return ""
 	}
-	return text
 }
 
 // prConn is a best-effort hook: blackbox readers wrap a net.Conn but
@@ -516,13 +548,16 @@ func TestMcGoOnlyOpsCommands(t *testing.T) {
 		return readSystemChatBlackbox(t, pr, 10*time.Second)
 	}
 
-	if out := runCmd(pwa, pra, "tp 100 70 100"); out != "Teleported to 100.50 70.00 100.50" {
+	// /tp replies are vanilla's translatable components; flattening
+	// yields the key plus any nested text (numeric args contribute
+	// nothing).
+	if out := runCmd(pwa, pra, "tp 100 70 100"); !strings.Contains(out, "commands.teleport.success.location.single") {
 		t.Fatalf("/tp coords = %q", out)
 	}
 	if out := runCmd(pwa, pra, "pos"); !strings.HasPrefix(out, "100.50 70.00 100.50") {
 		t.Fatalf("/pos after tp = %q", out)
 	}
-	if out := runCmd(pwa, pra, "tp Bob"); out != "Teleported to Bob" {
+	if out := runCmd(pwa, pra, "tp Bob"); !strings.Contains(out, "commands.teleport.success.entity.single") || !strings.Contains(out, "Bob") {
 		t.Fatalf("/tp player = %q", out)
 	}
 	// Bob has never moved, so teleporting to him lands on the world

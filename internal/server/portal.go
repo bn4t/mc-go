@@ -54,23 +54,33 @@ func (s *Server) portalTickStep() {
 		d := sess.dimension()
 		feet := world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}
 		insidePortal := isNetherPortal(d.w.GetBlock(feet))
-		// Vanilla's post-travel cooldown only counts down OUTSIDE a
-		// portal: standing in one freezes it, so re-travel means
-		// stepping out, waiting it off, and stepping back in.
-		if !insidePortal && sess.portalCooldownTicks > 0 {
+		// Vanilla (Entity.handlePortal + setAsInsidePortal +
+		// PortalProcessor): the cooldown decrements every tick; while a
+		// cooling entity stands inside a portal, entry re-arms the
+		// cooldown to the full dimension-changing delay instead of
+		// marking the processor inside — travel can only fire after
+		// stepping out long enough for the cooldown to drain. Outside a
+		// portal the accumulated portal time decays 4/tick rather than
+		// resetting. A player's dimension-changing delay is 10 ticks;
+		// non-players get 300 (only players travel here).
+		const playerPortalCooldown = 10
+		if insidePortal && sess.portalCooldownTicks > 0 {
+			sess.portalCooldownTicks = playerPortalCooldown
+		} else if sess.portalCooldownTicks > 0 {
 			sess.portalCooldownTicks--
 		}
-		if !insidePortal {
-			sess.portalTicks = 0
+		if !insidePortal || sess.portalCooldownTicks > 0 {
+			if sess.portalTicks > 4 {
+				sess.portalTicks -= 4
+			} else {
+				sess.portalTicks = 0
+			}
 			return true
 		}
-		// In a portal: spectators are excluded above; check the
-		// game rule and the dimension pair (nether portals bridge
-		// overworld and nether only).
+		// In a portal off cooldown: check the game rule and the
+		// dimension pair (nether portals bridge overworld and nether
+		// only).
 		if !s.gameRuleBool("minecraft:allow_entering_nether_using_portals") {
-			return true
-		}
-		if sess.portalCooldownTicks > 0 {
 			return true
 		}
 		sess.portalTicks++
@@ -125,7 +135,10 @@ func (s *Server) travelNetherPortal(sess *Session, feet world.Pos) {
 	}
 	px, pz := int(tx), int(tz)
 	py := s.findPortalOrGround(dst, px, pz)
-	sess.portalCooldownTicks = 300 // vanilla's post-travel portal cooldown
+	// Player.getDimensionChangingDelay is 10 ticks; Entity's 300 only
+	// applies to non-player travelers (a ridden vehicle defers to its
+	// player passenger).
+	sess.portalCooldownTicks = 10
 	s.changeDimension(sess, dst, float64(px)+1.5, float64(py), float64(pz)+0.5, -1)
 	if cur.name == dimNether && sess.portalEntrySet {
 		dx := float64(px) + 1.5 - sess.portalEntryX

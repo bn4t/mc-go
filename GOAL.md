@@ -2365,3 +2365,21 @@ physics through a void dip plus a fed recovery window.
   Pre-existing failures unrelated to this change, observed on clean
   master: TestMcGoOnlyOpsCommands (chat root decode), 
   TestMcGoOnlyPortalCooldownExpiry (respawn 30s timeout).
+- Portal cooldown slice (26.2, measured via javap/CFR on
+  Entity.handlePortal/setAsInsidePortal/PortalProcessor): the previous
+  model froze the 300-tick cooldown while inside a portal and cleared
+  portal-time instantly on stepping out; vanilla instead (a) uses a
+  10-TICK player cooldown (Player.getDimensionChangingDelay=10; the 300
+  is Entity's default for non-players / defers to a player passenger),
+  (b) decrements portalCooldown every tick unconditionally, (c)
+  RE-ARMS it to full whenever a cooling entity is inside a portal —
+  continuous occupancy can never re-fire, re-travel needs stepping out
+  ~0.5s, and (d) decays accumulated portal time 4/tick outside rather
+  than resetting. portalTickStep now mirrors all four.
+  TestMcGoOnlyPortalCooldownExpiry rewritten to the real semantics
+  (inside-hold stays quiet, step-out+re-enter fires) and passes; it
+  previously timed out — pre-existing break, now fixed. Also fixed
+  TestMcGoOnlyOpsCommands, broken since command replies became
+  vanilla-shaped translatable components: chatTextBlackbox now flattens
+  component roots (text/translate/with/extra) and the /tp assertions
+  check the translation keys + target names.
