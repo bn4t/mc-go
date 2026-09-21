@@ -9,6 +9,7 @@ package server
 
 import (
 	"math"
+	"strings"
 
 	"mc-go/internal/world"
 )
@@ -393,6 +394,7 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 							vx, vz := t.X, t.Z
 							ax, _, az, _, _, _ := shooter.Pos()
 							s.firePlayerKilledEntityDamage(shooter, tn, vx, vz, ax, az, true, typeName)
+							s.fireKillNearSculk(shooter, t.X, t.Y, t.Z, t.Dim)
 							if e.arrowWeapon != "" {
 								s.fireKilledByArrow(shooter, tn, e.arrowWeapon)
 							}
@@ -562,6 +564,8 @@ func (s *Server) spawnTrident(shooter *Session, x, y, z float64, yaw, pitch floa
 }
 
 // hasItem reports whether the inventory holds the named item.
+// itemNameOf returns the prefixed minecraft: name; callers pass the
+// bare name, so compare on the stripped form.
 func (sess *Session) hasItem(item string) bool {
 	sess.invMu.Lock()
 	defer sess.invMu.Unlock()
@@ -570,7 +574,7 @@ func (sess *Session) hasItem(item string) bool {
 		if it.Empty() {
 			continue
 		}
-		if n, ok := itemNameOf(it.ID); ok && n == item {
+		if n, ok := itemNameOf(it.ID); ok && strings.TrimPrefix(n, "minecraft:") == item {
 			return true
 		}
 	}
@@ -587,7 +591,7 @@ func (sess *Session) takeOneOf(item string) bool {
 		if it.Empty() {
 			continue
 		}
-		if n, ok := itemNameOf(it.ID); ok && n == item {
+		if n, ok := itemNameOf(it.ID); ok && strings.TrimPrefix(n, "minecraft:") == item {
 			sess.inv[i].Count--
 			if sess.inv[i].Count <= 0 {
 				sess.inv[i] = ItemStack{}

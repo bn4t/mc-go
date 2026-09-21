@@ -47,6 +47,7 @@ type advMeta struct {
 	interacts  []interactCond  // player_interacted_with_entity — a successful right-click
 	fills      []fillCond      // filled_bucket — a bucket was filled
 	sleeps     []sleepCond     // slept_in_bed — entered a bed
+	sculks     []sleepCond     // kill_mob_near_sculk_catalyst — no conditions
 	beacons    []beaconCond    // construct_beacon — pyramid activated
 	recipes    []recipeCond    // recipe_crafted — a recipe completed
 	totems     []totemCond     // used_totem — death protection popped
@@ -305,6 +306,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.beenests = append(m.beenests, parseBeeNestCond(cname, cm["conditions"]))
 				case "minecraft:slept_in_bed":
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
+				case "minecraft:kill_mob_near_sculk_catalyst":
+					m.sculks = append(m.sculks, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:enchanted_item":
 					m.enchanteds = append(m.enchanteds, parseEnchantCond(cname, cm["conditions"]))
 				case "minecraft:brewed_potion":
@@ -1489,6 +1492,7 @@ func (s *Server) onPlayerKilledMob(sess *Session, e Entity) {
 	}
 	ax, _, az, _, _, _ := sess.Pos()
 	s.firePlayerKilledEntity(sess, name, e.X, e.Z, ax, az)
+	s.fireKillNearSculk(sess, e.X, e.Y, e.Z, e.Dim)
 }
 
 // tameCond is one tame_animal criterion reduced to the tamed entity's
@@ -1599,6 +1603,49 @@ func parseSleepCond(cname string, conds any) sleepCond {
 		sc.impossible = true
 	}
 	return sc
+}
+
+// fireKillNearSculk grants kill_mob_near_sculk_catalyst criteria when
+// a sculk_catalyst block lies within vanilla's 8-block listener range
+// of the death position (block-center distSqr <= 64). The bloom
+// itself — sculk patch spread + XP suppression — is not modeled.
+func (s *Server) fireKillNearSculk(sess *Session, x, y, z float64, dim string) {
+	if !s.sculkCatalystNear(x, y, z, dim) {
+		return
+	}
+	for _, meta := range gameAdvs {
+		for _, sc := range meta.sculks {
+			if sc.impossible {
+				continue
+			}
+			sess.grantGameCriterion(meta, sc.crit)
+		}
+	}
+}
+
+// sculkCatalystNear reports whether any sculk_catalyst state is within
+// 8 blocks of (x,y,z) — vanilla SculkCatalystListener's notify range
+// measured on block centers.
+func (s *Server) sculkCatalystNear(x, y, z float64, dimName string) bool {
+	d := s.dimensionByName(dimName)
+	if d == nil {
+		return false
+	}
+	bx, by, bz := int(math.Floor(x)), int(math.Floor(y)), int(math.Floor(z))
+	for dy := -8; dy <= 8; dy++ {
+		for dx := -8; dx <= 8; dx++ {
+			for dz := -8; dz <= 8; dz++ {
+				cx, cy, cz := float64(bx+dx)+0.5, float64(by+dy)+0.5, float64(bz+dz)+0.5
+				if (cx-x)*(cx-x)+(cy-y)*(cy-y)+(cz-z)*(cz-z) > 64 {
+					continue
+				}
+				if name, ok := world.StateOwner(d.w.GetBlock(world.Pos{X: bx + dx, Y: by + dy, Z: bz + dz})); ok && name == "sculk_catalyst" {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // fireSleptInBed grants slept_in_bed criteria on bed entry.
