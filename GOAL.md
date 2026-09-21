@@ -117,8 +117,9 @@ Mojang server over the wire.
   auto-unlocks; vanilla emits added/progress entries in identity-hash
   order which varies per run, so the test compares them as sets while
   per-criterion order — String-hash buckets seeded by a fastutil set —
-  matches exactly. Non-recipe advancement triggers, scoreboard,
-  teams remain open)
+  matches exactly. Non-recipe advancement triggers and scoreboard
+  objectives remain open; scoreboard teams are implemented and
+  parity-tested)
 - [~] Statistics (Award Statistics on Client Status 1: counters for
   mined/crafted/used/broken/picked_up/dropped/killed/killed_by and the
   custom family — ticked play_time/total_world_time/time_since_death/
@@ -2423,8 +2424,7 @@ physics through a void dip plus a fed recovery window.
   insertion + show_entity hover (name/action/id/uuid int array). Both
   packets compare byte-exact vs vanilla (TestSayCommandParity,
   TestMsgCommandParity — offline UUIDs are name-derived, so the whole
-  body collates). TeamMsgCommand's team_msg_command pair stays open
-  (needs scoreboard teams).
+  body collates).
 - Item reply components (26.2): the /item (and /give-family) bracket
   name now matches ItemStack.getDisplayName — the outer component
   takes the effective rarity's ChatFormatting color (a generated
@@ -2488,3 +2488,28 @@ physics through a void dip plus a fed recovery window.
   non-player entities have no display-name model yet), limit=, sort=,
   distance=. Player lists resolve in join order. Pinned by
   TestMsgSelectorParity — identical content trees on both recipients.
+- Scoreboard teams + /teammsg (26.2, TeamCommand / TeamMsgCommand):
+  /team add|remove|join|leave|empty|list|modify implemented against
+  ServerScoreboard semantics. Wire: SetPlayerTeam (0x6d) create emits
+  display=name then a full update carries the real display; join/leave
+  send method-4-then-3 pairs (re-join keeps the member's list slot);
+  Parameters = display+prefix+suffix comps, nameTagVisibility +
+  collisionRule enum varints (ALWAYS,NEVER,... declaration order),
+  optional ChatFormatting color byte+varint, flags byte —
+  deathMessageVisibility is state-only, absent from the packet.
+  Replies: team names render as chat.square_brackets over
+  {text:display, insertion:name, show_text:name hover}; option echoes
+  go to other ops as chat.type.admin except prefix/suffix which
+  vanilla skips; the sender name resolves pre-mutation
+  (Entity.getDisplayName wraps prefix/name/suffix extras only when
+  teamed). Enforced keys: option.name/color/nametagVisibility/
+  deathMessageVisibility/collisionRule .unchanged, friendlyFire/
+  seeFriendlyInvisibles .alreadyEnabled|.alreadyDisabled,
+  empty.unchanged, list.teams.empty; color reset =>
+  color.clear.success; bad bool/color/enum/option values raise
+  failMark'd parse errors with vanilla cursor positions. /teammsg
+  sends one outgoing disguised_chat to the sender and incoming to each
+  other member with binding name=formatted sender, target=brackets
+  comp carrying /teammsg click + chat.type.team.hover. Pinned by
+  TestTeamCommandParity: 37 commands, every packet body and reply tree
+  byte/tree-identical on both connections.

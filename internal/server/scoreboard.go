@@ -15,6 +15,7 @@ type scoreboard struct {
 	objectives map[string]string // name -> display text
 	scores     map[string]map[string]int32
 	sidebar    string
+	teams      map[string]*team
 }
 
 // runScoreboard implements the /scoreboard command subset:

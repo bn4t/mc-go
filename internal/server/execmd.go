@@ -244,6 +244,15 @@ func (s *Server) registerWorldCommands() {
 	s.registerComponentCommand("data", func(player string, args []string) reply {
 		return s.runData(player, args)
 	})
+	s.registerComponentCommand("team", func(player string, args []string) reply {
+		return s.runTeam(player, args)
+	})
+	s.registerComponentCommand("teammsg", func(player string, args []string) reply {
+		return s.runTeamMsg(player, args)
+	})
+	s.registerComponentCommand("tm", func(player string, args []string) reply {
+		return s.runTeamMsg(player, args)
+	})
 	s.registerComponentCommand("gamemode", func(player string, args []string) reply {
 		return s.runGamemode(player, args)
 	})
