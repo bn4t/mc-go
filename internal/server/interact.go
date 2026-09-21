@@ -84,6 +84,14 @@ func (s *Server) handlePlayerActionExtras(sess *Session, p protocol.Packet) bool
 		return true
 	case actionReleaseUse:
 		sess.blocking.Store(false)
+		// stopUsingItem posts ITEM_INTERACT_FINISH whenever a use was
+		// in progress — a sneaking player's emission every sculk
+		// sensor in earshot dampens, earning the sneak
+		// avoid_vibration.
+		if sess.sneaking && (sess.bowStartTick != 0 || sess.crossbowStartTick != 0 || sess.tridentStartTick != 0 || sess.eatingTicks > 0) {
+			x, y, z, _, _, _ := sess.Pos()
+			s.fireAvoidVibration(sess, x, y, z, sess.dimName())
+		}
 		s.releaseBow(sess)
 		s.releaseTrident(sess)
 		s.releaseCrossbow(sess)

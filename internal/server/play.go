@@ -277,6 +277,13 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 		dx, dz := x-ox, z-oz
 		sess.addExhaustion(0.1 * float32(math.Sqrt(dx*dx+dz*dz)))
 	}
+	// Sneaking drops step emissions at the source (getMovementEmission
+	// is NONE), but checkFallDamage posts HIT_GROUND unconditionally on
+	// landing — a sensor in earshot dampens it and the sneak earns
+	// avoid_vibration.
+	if sess.sneaking && onGround && sess.fallDistance > 0 {
+		s.fireAvoidVibration(sess, x, y, z, sess.dimName())
+	}
 	// Fall-distance tracking for survival fall damage.
 	if y < oy && !onGround {
 		if !sess.fallStart {

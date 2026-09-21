@@ -58,6 +58,7 @@ type advMeta struct {
 	fills      []fillCond      // filled_bucket — a bucket was filled
 	sleeps     []sleepCond     // slept_in_bed — entered a bed
 	sculks     []sleepCond     // kill_mob_near_sculk_catalyst — no conditions
+	vibrates   []sleepCond     // avoid_vibration — a sneaking emission a sensor heard
 	beacons    []beaconCond    // construct_beacon — pyramid activated
 	recipes    []recipeCond    // recipe_crafted — a recipe completed
 	crafters   []recipeCond    // crafter_recipe_crafted — a powered crafter ejected
@@ -355,6 +356,8 @@ func loadGameAdvs() map[string]*advMeta {
 					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:kill_mob_near_sculk_catalyst":
 					m.sculks = append(m.sculks, parseSleepCond(cname, cm["conditions"]))
+				case "minecraft:avoid_vibration":
+					m.vibrates = append(m.vibrates, parseSleepCond(cname, cm["conditions"]))
 				case "minecraft:enchanted_item":
 					m.enchanteds = append(m.enchanteds, parseEnchantCond(cname, cm["conditions"]))
 				case "minecraft:brewed_potion":
@@ -1748,6 +1751,51 @@ func (s *Server) sculkCatalystNear(x, y, z float64, dimName string) bool {
 		}
 	}
 	return false
+}
+
+// fireAvoidVibration grants avoid_vibration when a sneaking player's
+// step/hit_ground/swim-style emission lands inside a sculk sensor's
+// listener radius — the listener skips the event (the sensor stays
+// silent) but the player earns the criterion. Vanilla's radii: 8 for
+// sculk_sensor, 16 for calibrated_sculk_sensor; the warden's 16 is a
+// GOAL gap (mc-go has no warden).
+func (s *Server) fireAvoidVibration(sess *Session, x, y, z float64, dimName string) {
+	d := s.dimensionByName(dimName)
+	if d == nil {
+		return
+	}
+	bx, by, bz := int(math.Floor(x)), int(math.Floor(y)), int(math.Floor(z))
+	found := false
+	for dy := -16; dy <= 16 && !found; dy++ {
+		for dx := -16; dx <= 16 && !found; dx++ {
+			for dz := -16; dz <= 16 && !found; dz++ {
+				pos := world.Pos{X: bx + dx, Y: by + dy, Z: bz + dz}
+				name, ok := world.StateOwner(d.w.GetBlock(pos))
+				if !ok || (name != "sculk_sensor" && name != "calibrated_sculk_sensor") {
+					continue
+				}
+				radius := 8.0
+				if name == "calibrated_sculk_sensor" {
+					radius = 16
+				}
+				cx, cy, cz := float64(pos.X)+0.5, float64(pos.Y)+0.5, float64(pos.Z)+0.5
+				if (cx-x)*(cx-x)+(cy-y)*(cy-y)+(cz-z)*(cz-z) <= radius*radius {
+					found = true
+				}
+			}
+		}
+	}
+	if !found {
+		return
+	}
+	for _, meta := range gameAdvs {
+		for _, vc := range meta.vibrates {
+			if vc.impossible {
+				continue
+			}
+			sess.grantGameCriterion(meta, vc.crit)
+		}
+	}
 }
 
 // fireSleptInBed grants slept_in_bed criteria on bed entry.

@@ -2127,8 +2127,7 @@ physics through a void dip plus a fed recovery window.
   minecraft:adventure/trade. Closing the menu returns payment slots to
   the inventory. TestVillagerTradeParity green vs vanilla 26.2.
 
-  Remaining trigger census: allay_drop_item_on_block,
-  avoid_vibration (sculk), hero_of_the_village (raid).
+  Remaining trigger census: hero_of_the_village (raid).
 
 - cured_zombie_villager: a zombie_villager's ConversionTime NBT
   (-1 default) starts the cure countdown with an optional
@@ -2190,3 +2189,23 @@ physics through a void dip plus a fed recovery window.
   use-on while awaitingPositionFromClient is set — tests must answer
   player_position with teleport_confirm before interacting.
   TestAllayDropItemOnBlockParity green vs vanilla 26.2.
+
+- avoid_vibration: the sneak-suppression gate runs inside
+  VibrationSystem$User.isValidVibration — a sneaking source
+  (isSteppingCarefully = shift key down) emitting an event in
+  ignore_vibrations_sneaking (hit_ground, projectile_shoot, step,
+  swim, item_interact_start, item_interact_finish) triggers
+  AVOID_VIBRATION and the listener skips the receipt — but ONLY if the
+  event is in the listener's vibrations tag at all, so
+  item_interact_start (not in the tag) can never reach a sculk
+  sensor's check. The reachable sneak drives: draw+release a bow
+  (stopUsingItem posts ITEM_INTERACT_FINISH; a fired arrow posts
+  PROJECTILE_SHOOT) or land with fallDistance>0 (checkFallDamage posts
+  HIT_GROUND unconditionally — sneaking only suppresses STEP via
+  getMovementEmission=NONE, not landings). Listener radii: sculk_sensor
+  8, calibrated_sculk_sensor 16. Command-sourced events (e.g.
+  /setblock) carry no player source and never qualify; a
+  player-placed block does activate the sensor. mc-go scans ±16 around
+  the emission for sensors and grants each non-impossible
+  avoid_vibration criterion. TestAvoidVibrationParity green vs
+  vanilla 26.2.
