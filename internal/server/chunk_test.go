@@ -15,7 +15,7 @@ func testOverworld(w *world.World) *dimension {
 	return &dimension{
 		name: dimOverworld, typeID: 0, w: w,
 		seaLevel: -63, flat: true, coordScale: 1,
-		minY: MinY, height: Height, skylight: true, biome: "minecraft:plains",
+		minY: MinY, height: Height, skylight: true, biome: "minecraft:the_void",
 	}
 }
 
@@ -230,7 +230,7 @@ func TestChunkRoundTrip(t *testing.T) {
 		}
 		vals := decodeContainer(t, dr, 4096, 4)
 		bio := decodeContainer(t, dr, 64, 1)
-		if got := bio[0]; got != biomeID("minecraft:plains") {
+		if got := bio[0]; got != biomeID("minecraft:the_void") {
 			t.Fatalf("section %d biome = %d", sy, got)
 		}
 		at := func(x, y, z int) int32 { return vals[(y*16+z)*16+x] }

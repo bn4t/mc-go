@@ -352,7 +352,7 @@ func TestSurvivalDeathRespawnPackets(t *testing.T) {
 			if err != nil {
 				t.Fatalf("combat death message: %v", err)
 			}
-			if !bytes.Contains(rest, []byte("Killed by Mortal")) {
+			if !bytes.Contains(rest, []byte("death.attack.genericKill")) {
 				t.Fatalf("combat death message lacks kill text: %x", rest)
 			}
 			sawCombat = true

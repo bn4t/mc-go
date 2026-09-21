@@ -9,6 +9,7 @@ import (
 
 	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
+	"mc-go/internal/world"
 )
 
 // /data entity — get, merge, remove, modify — against live entities,
@@ -117,29 +118,227 @@ func (s *Server) runDataEntity(player string, args []string) reply {
 			return componentReply(commandError("command.unknown.command"))
 		}
 		op := args[4]
-		if args[5] != "value" {
-			return componentReply(commandError("command.unknown.command"))
-		}
+		rest := args[5:]
 		var insertIdx int
 		if op == "insert" {
-			v, err := strconv.Atoi(args[6])
-			if err != nil || len(args) < 8 {
+			v, err := strconv.Atoi(rest[0])
+			if err != nil || len(rest) < 2 {
 				return componentReply(commandError("command.unknown.command"))
 			}
 			insertIdx = v
-			args = append(args[:6], args[7:]...)
+			rest = rest[1:]
 		}
-		tg, _, perr := parseSNBTTag(args[len(args)-1], 0)
-		if perr != nil || tg == nil {
-			return componentReply(commandError("command.unknown.command"))
+		val, serr := s.modifySource(player, rest)
+		if serr != nil {
+			return *serr
 		}
-		if !nbtModify(save.m, steps, op, insertIdx, snbtToValue(tg)) {
+		if !nbtModify(save.m, steps, op, insertIdx, val) {
 			return componentReply(commandError("commands.data.merge.failed"))
 		}
 		s.applyDataEntity(tgt, save)
 		return componentReply(translatable("commands.data.entity.modified", tgt.nameComp()))
 	}
 	return componentReply(commandError("command.unknown.command"))
+}
+
+// modifySource parses a data modify source: `value <snbt>`, or
+// `from`/`string` <entity sel|block x y z|storage id> [path]. `string`
+// needs the resolved value to be a string tag — anything else throws
+// commands.data.modify.expected_value with the value's SNBT form.
+func (s *Server) modifySource(player string, args []string) (any, *reply) {
+	if len(args) < 2 {
+		r := componentReply(commandError("command.unknown.command"))
+		return nil, &r
+	}
+	var val any
+	switch args[0] {
+	case "value":
+		tg, _, perr := parseSNBTTag(args[1], 0)
+		if perr != nil || tg == nil {
+			r := componentReply(commandError("command.unknown.command"))
+			return nil, &r
+		}
+		return snbtToValue(tg), nil
+	case "from", "string":
+		wantStr := args[0] == "string"
+		switch args[1] {
+		case "entity":
+			tgt, rep := s.resolveDataEntity(player, args[2])
+			if tgt == nil {
+				return nil, rep
+			}
+			val = tgt.saveMap().m
+			if len(args) > 3 {
+				steps, ok := parseNBTPath(args[3])
+				if !ok {
+					r := componentReply(commandError("command.unknown.command"))
+					return nil, &r
+				}
+				val, ok = nbtGet(val, steps)
+				if !ok {
+					r := componentReply(commandError("arguments.nbtpath.nothing_found", args[3]))
+					return nil, &r
+				}
+			}
+		case "block":
+			if len(args) < 5 {
+				r := componentReply(commandError("command.unknown.command"))
+				return nil, &r
+			}
+			d := s.dimOf(player)
+			bx, by, bz := s.baseBlockPos(player)
+			x, err1 := parseCoord(args[2], bx)
+			y, err2 := parseCoord(args[3], by)
+			z, err3 := parseCoord(args[4], bz)
+			if err1 != nil || err2 != nil || err3 != nil {
+				r := componentReply(commandError("command.unknown.command"))
+				return nil, &r
+			}
+			be, ok := s.blockEntitySaveMap(d, world.Pos{X: x, Y: y, Z: z})
+			if !ok {
+				r := componentReply(commandError("commands.data.block.invalid"))
+				return nil, &r
+			}
+			delete(be, "keepPacked")
+			val = be
+			if len(args) > 5 {
+				steps, ok := parseNBTPath(args[5])
+				if !ok {
+					r := componentReply(commandError("command.unknown.command"))
+					return nil, &r
+				}
+				val, ok = nbtGet(val, steps)
+				if !ok {
+					r := componentReply(commandError("arguments.nbtpath.nothing_found", args[5]))
+					return nil, &r
+				}
+			}
+		default:
+			// storage is not modeled yet
+			r := componentReply(commandError("command.unknown.command"))
+			return nil, &r
+		}
+		if wantStr {
+			sv, isStr := val.(string)
+			if !isStr {
+				r := componentReply(commandError("commands.data.modify.expected_value", snbtCompact(val)))
+				return nil, &r
+			}
+			return sv, nil
+		}
+		return val, nil
+	}
+	r := componentReply(commandError("command.unknown.command"))
+	return nil, &r
+}
+
+// snbtCompact renders a value in the compact SNBT form vanilla's
+// Tag.toString produces — the expected_value error's argument.
+func snbtCompact(v any) string {
+	var sb strings.Builder
+	writeSNBTCompact(&sb, v)
+	return sb.String()
+}
+
+func writeSNBTCompact(sb *strings.Builder, v any) {
+	switch t := v.(type) {
+	case map[string]any:
+		sb.WriteByte('{')
+		for i, k := range nbt.OrderedKeys(t) {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			writeSNBTString(sb, k)
+			sb.WriteByte(':')
+			writeSNBTCompact(sb, t[k])
+		}
+		sb.WriteByte('}')
+	case nbt.List:
+		sb.WriteByte('[')
+		for i, it := range t.Items {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			writeSNBTCompact(sb, it)
+		}
+		sb.WriteByte(']')
+	case []byte:
+		sb.WriteString("[B;")
+		for i, b := range t {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(strconv.Itoa(int(b)))
+		}
+		sb.WriteByte(']')
+	case []int32:
+		sb.WriteString("[I;")
+		for i, n := range t {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(strconv.Itoa(int(n)))
+		}
+		sb.WriteByte(']')
+	case []int64:
+		sb.WriteString("[L;")
+		for i, n := range t {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(strconv.FormatInt(n, 10))
+		}
+		sb.WriteByte(']')
+	case string:
+		writeSNBTString(sb, t)
+	case int8:
+		sb.WriteString(strconv.Itoa(int(t)) + "b")
+	case int16:
+		sb.WriteString(strconv.Itoa(int(t)) + "s")
+	case int32:
+		sb.WriteString(strconv.Itoa(int(t)))
+	case int64:
+		sb.WriteString(strconv.FormatInt(t, 10) + "l")
+	case float32:
+		sb.WriteString(javaFloatStr(float64(t)) + "f")
+	case float64:
+		sb.WriteString(javaFloatStr(t) + "d")
+	default:
+		sb.WriteString("0")
+	}
+}
+
+// writeSNBTString writes a quoted SNBT string — bare when the value
+// is already a clean identifier, single-quoted when it carries a
+// double quote, double-quoted otherwise.
+func writeSNBTString(sb *strings.Builder, s string) {
+	plain := s != ""
+	for _, r := range s {
+		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' ||
+			r >= '0' && r <= '9' || r == '_' || r == '-' ||
+			r == '.' || r == '+' || r == ':'
+		if !ok {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		sb.WriteString(s)
+		return
+	}
+	q := byte('"')
+	if strings.Contains(s, "\"") && !strings.Contains(s, "'") {
+		q = '\''
+	}
+	sb.WriteByte(q)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == q || c == '\\' {
+			sb.WriteByte('\\')
+		}
+		sb.WriteByte(c)
+	}
+	sb.WriteByte(q)
 }
 
 // nbtScaleValue applies `data get ... <scale>` to numeric values.
@@ -256,9 +455,7 @@ func entitySaveMap(e *Entity) entitySave {
 		"Invulnerable":     int8(0),
 		"LeftHanded":       int8(0),
 		"Motion": nbt.List{Elem: nbt.TagDouble, Items: []any{
-			float64(e.VX) / 8000,
-			float64(e.VY) / 8000,
-			float64(e.VZ) / 8000,
+			e.MotionX, e.MotionY, e.MotionZ,
 		}},
 		"NoAI":                nbtBool(e.NoAI),
 		"OnGround":            nbtBool(e.Grounded),
@@ -290,7 +487,10 @@ func entitySaveMap(e *Entity) entitySave {
 	}
 	if extra, ok := entitySaveExtras[typeName]; ok {
 		for k, v := range extra {
-			m[k] = v
+			// Deep-copied: a /data write into an extra (say
+			// Brain.memories.zzk) must not mutate the shared table —
+			// vanilla's load drops it before the next save anyway.
+			m[k] = nbtDeepCopy(v)
 		}
 	}
 	extraKeys := nbt.OrderedKeys(e.ExtraNBT)
@@ -299,6 +499,39 @@ func entitySaveMap(e *Entity) entitySave {
 	}
 	seq := append(append([]string{}, entitySaveSeq...), extraKeys...)
 	return entitySave{m: m, seq: seq}
+}
+
+// nbtDeepCopy clones a save-map value — maps and lists share tables
+// between the per-type extras and a live save, so writes must not
+// leak through the reference.
+func nbtDeepCopy(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		m := make(map[string]any, len(t))
+		for k, vv := range t {
+			m[k] = nbtDeepCopy(vv)
+		}
+		return m
+	case nbt.List:
+		items := make([]any, len(t.Items))
+		for i, it := range t.Items {
+			items[i] = nbtDeepCopy(it)
+		}
+		return nbt.List{Elem: t.Elem, Items: items}
+	case []any:
+		out := make([]any, len(t))
+		for i, it := range t {
+			out[i] = nbtDeepCopy(it)
+		}
+		return out
+	case []byte:
+		return append([]byte{}, t...)
+	case []int32:
+		return append([]int32{}, t...)
+	case []int64:
+		return append([]int64{}, t...)
+	}
+	return v
 }
 
 // entitySaveSeq is the order vanilla's Entity.saveWithoutId writes
@@ -367,6 +600,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		}
 	}
 	if mot, ok := nbtVec3(save["Motion"]); ok {
+		e.MotionX, e.MotionY, e.MotionZ = mot[0], mot[1], mot[2]
 		e.VX = int16(mot[0] * 8000)
 		e.VY = int16(mot[1] * 8000)
 		e.VZ = int16(mot[2] * 8000)
@@ -430,15 +664,17 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	e.dataSyncAttrs = true
 }
 
-// nbtVec3 reads a three-element double list (Pos, Motion).
+// nbtVec3 reads a double list of at least three elements (Pos,
+// Motion) — a longer list applies its first three like vanilla's
+// load, which reads the head triple and resaves it.
 func nbtVec3(v any) ([3]float64, bool) {
 	l, ok := v.(nbt.List)
-	if !ok || len(l.Items) != 3 {
+	if !ok || len(l.Items) < 3 {
 		return [3]float64{}, false
 	}
 	var out [3]float64
-	for i, it := range l.Items {
-		f, ok := it.(float64)
+	for i := range out {
+		f, ok := l.Items[i].(float64)
 		if !ok {
 			return [3]float64{}, false
 		}
@@ -447,15 +683,15 @@ func nbtVec3(v any) ([3]float64, bool) {
 	return out, true
 }
 
-// nbtVec2f reads a two-element float list (Rotation).
+// nbtVec2f reads a float list of at least two elements (Rotation).
 func nbtVec2f(v any) ([2]float32, bool) {
 	l, ok := v.(nbt.List)
-	if !ok || len(l.Items) != 2 {
+	if !ok || len(l.Items) < 2 {
 		return [2]float32{}, false
 	}
 	var out [2]float32
-	for i, it := range l.Items {
-		f, ok := it.(float32)
+	for i := range out {
+		f, ok := l.Items[i].(float32)
 		if !ok {
 			return [2]float32{}, false
 		}
@@ -543,7 +779,7 @@ func playerSaveMap(sess *Session) map[string]any {
 // selectors or a player name — into the single entity it names.
 func (s *Server) resolveDataEntity(player, tok string) (*dataEntity, *reply) {
 	sender := s.findSessionByName(player)
-	cands, rep := s.selectDataEntities(sender, tok)
+	cands, rep := s.selectDataEntities(sender, tok, true)
 	if rep != nil {
 		return nil, rep
 	}
@@ -676,7 +912,7 @@ func parseSelector(tok string) (selectorSpec, bool) {
 // selectDataEntities gathers the entities a selector names: sessions
 // plus dimension entities filtered by the spec. Players carry type
 // minecraft:player for @e.
-func (s *Server) selectDataEntities(sender *Session, tok string) ([]*dataEntity, *reply) {
+func (s *Server) selectDataEntities(sender *Session, tok string, single bool) ([]*dataEntity, *reply) {
 	if len(tok) == 0 || tok[0] != '@' {
 		if sess := s.findSessionByName(tok); sess != nil {
 			return []*dataEntity{{sess: sess}}, nil
@@ -689,9 +925,10 @@ func (s *Server) selectDataEntities(sender *Session, tok string) ([]*dataEntity,
 		r := componentReply(commandError("command.unknown.argument"))
 		return nil, &r
 	}
-	// /data's entity argument accepts a single entity: a multi-target
-	// selector is rejected upfront unless it caps at limit=1.
-	if (spec.variable == 'e' || spec.variable == 'a') &&
+	// A single-entity argument (/data) rejects a multi-target selector
+	// upfront unless it caps at limit=1; multi-target commands like
+	// /kill resolve whatever matches.
+	if single && (spec.variable == 'e' || spec.variable == 'a') &&
 		(!spec.hasLimit || spec.limit > 1) {
 		r := errToken("argument.entity.toomany", 0)
 		return nil, &r
@@ -725,6 +962,20 @@ func (s *Server) selectDataEntities(sender *Session, tok string) ([]*dataEntity,
 				return
 			}
 		}
+		// No scoreboard-tag store is modeled for players yet — a
+		// session never carries tags, so tag= filters reject and
+		// tag=! filters keep it.
+		if spec.hasTag && !spec.tagNeg {
+			return
+		}
+		if spec.hasDist {
+			sx, sy, sz, _, _, _ := sess.Pos()
+			dx, dy, dz := sx-ax, sy-ay, sz-az
+			d := math.Sqrt(dx*dx + dy*dy + dz*dz)
+			if d < spec.distMin || d > spec.distMax {
+				return
+			}
+		}
 		cands = append(cands, &dataEntity{sess: sess})
 	}
 	switch spec.variable {
@@ -738,6 +989,8 @@ func (s *Server) selectDataEntities(sender *Session, tok string) ([]*dataEntity,
 		})
 	}
 	if spec.variable == 'e' {
+		// Dying-but-unremoved corpses still match — vanilla's selector
+		// counts them and /kill reports them in the total.
 		for _, e := range s.entities.All() {
 			if e.Dim != dim {
 				continue

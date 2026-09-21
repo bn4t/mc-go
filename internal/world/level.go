@@ -246,7 +246,7 @@ func worldGenSettings(d LevelData) map[string]any {
 				"generator": map[string]any{
 					"type": "minecraft:flat",
 					"settings": map[string]any{
-						"biome":    "minecraft:plains",
+						"biome":    "minecraft:the_void",
 						"features": int8(0),
 						"lakes":    int8(0),
 						"layers": nbt.List{Elem: nbt.TagCompound, Items: []any{

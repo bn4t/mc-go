@@ -82,7 +82,7 @@ type advMeta struct {
 }
 
 // locCond is a location trigger criterion reduced to its biome check:
-// the flat world is plains throughout, so biomes is the only condition
+// the flat world is the_void throughout, so biomes is the only condition
 // mc-go can satisfy. Anything else (structures, stepping_on, dimension,
 // equipment on the player predicate) leaves the criterion locked.
 type locCond struct {
@@ -618,7 +618,7 @@ func parseLocCond(cname string, conds any) locCond {
 func dimBiome(dimName string) string {
 	switch dimName {
 	case "minecraft:overworld":
-		return "plains"
+		return "the_void"
 	case "minecraft:the_nether":
 		return "nether_wastes"
 	case "minecraft:the_end":

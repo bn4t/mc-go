@@ -2540,3 +2540,35 @@ physics through a void dip plus a fed recovery window.
   and wrap mixed-list primitives as {"":x} compounds (fixes the tp
   coordinate args too). Pinned by TestDataEntityParity: 29 commands,
   replies and 0x63/0x83 packet bodies identical modulo eid/UUID.
+
+- /data modify sources + /kill entity scope (26.2): modify accepts
+  `from entity <sel> [path]`, `from block <x> <y> <z> [path]`, and
+  `string <kind> <spec> [path]` beside `value` — `string` rejects
+  non-string values with commands.data.modify.expected_value carrying
+  the compact SNBT of the resolved value; storage sources are
+  unmodeled (command.unknown.command). Oversized list writes truncate
+  on load (Motion/Pos read the first three doubles, Rotation the
+  first two floats) — the motion store now lives in float64
+  MotionX/Y/Z; the int16 V* packet fields stay synced for spawn wire
+  only. Summon NBT applies Health and Motion; entity extras merge
+  through nbtDeepCopy so one entity's edits can't leak into the
+  shared type table.
+- /kill takes an entity selector: bare names match players only
+  (argument.entity.notfound.entity on a miss), @e/@a/@p/@r/@s resolve
+  through the shared selector — which now honors tag=/tag=! and
+  distance on sessions, counts dying-but-unremoved corpses like
+  vanilla, and gates single-entity scopes (/data) but not /kill.
+  Replies: commands.kill.success.single [name comp] or .multiple with
+  a raw int arg; a player victim dies by death.attack.genericKill
+  (was wrongly death.attack.generic). Living victims run damageMob —
+  the DYING pose + health-0 dirty pack rides the next tick's
+  mobSyncFlush like vanilla's end-of-tick sendChanges so the reply
+  lands first — non-living entities are discarded outright.
+- Harness: the flat comparison world generates in the_void biome
+  (generator-settings), which kills chunk-generation animal spawns
+  that spawn-animals=false doesn't reach — ambient entity packets
+  were nondeterministically leaking into packet diffs. mc-go's
+  overworld biome follows (dimBiome + dimension.biome + level.dat),
+  keeping adventuring_time and chunk biome palettes aligned.
+  TestDataEntityParity adds a double `kill @e[type=!player]` wipe at
+  join plus kill/selector cases — 41 commands green end to end.

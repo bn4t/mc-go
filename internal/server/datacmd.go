@@ -117,8 +117,9 @@ func (s *Server) runData(player string, args []string) reply {
 		return modified()
 
 	case "modify":
-		// data modify block <pos> <path> <op>: set/merge/append/
-		// prepend/insert with a `value <nbt>` source.
+		// data modify block <pos> <path> <op> <source>: the ops are
+		// set/merge/append/prepend/insert with the same value|from|
+		// string source forms the entity scope takes.
 		if len(args) < 9 {
 			return componentReply(commandError("command.unknown.command"))
 		}
@@ -127,23 +128,20 @@ func (s *Server) runData(player string, args []string) reply {
 			return componentReply(commandError("command.unknown.command"))
 		}
 		op := args[6]
-		if args[7] != "value" {
-			return componentReply(commandError("command.unknown.command"))
-		}
+		rest := args[7:]
 		var insertIdx int
 		if op == "insert" {
-			v, err := strconv.Atoi(args[8])
-			if err != nil || len(args) < 10 {
+			v, err := strconv.Atoi(rest[0])
+			if err != nil || len(rest) < 2 {
 				return componentReply(commandError("command.unknown.command"))
 			}
 			insertIdx = v
-			args = append(args[:8], args[9:]...)
+			rest = rest[1:]
 		}
-		tg, _, perr := parseSNBTTag(args[len(args)-1], 0)
-		if perr != nil || tg == nil {
-			return componentReply(commandError("command.unknown.command"))
+		val, serr := s.modifySource(player, rest)
+		if serr != nil {
+			return *serr
 		}
-		val := snbtToValue(tg)
 		if !nbtModify(be, steps, op, insertIdx, val) {
 			return componentReply(commandError("commands.data.merge.failed"))
 		}

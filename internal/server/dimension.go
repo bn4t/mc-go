@@ -99,6 +99,10 @@ func newDimWorld(bus *event.Bus, gen func(world.Pos) world.Block, biome string) 
 // keeps the flat preset; the nether and end get the stand-in
 // generators above until the noise-terrain milestone lands.
 func (s *Server) initDimensions() {
+	// The overworld generates in the_void: its empty spawn list keeps
+	// chunk generation from placing animals, matching the comparison
+	// world's generator-settings.
+	s.world.SetBiome("minecraft:the_void")
 	s.dims = map[string]*dimension{
 		dimOverworld: {
 			name:       dimOverworld,
@@ -110,7 +114,7 @@ func (s *Server) initDimensions() {
 			minY:       MinY,
 			height:     Height,
 			skylight:   true,
-			biome:      "minecraft:plains",
+			biome:      "minecraft:the_void",
 			arrivalY:   -60,
 		},
 		dimNether: {

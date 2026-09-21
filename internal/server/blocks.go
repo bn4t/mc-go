@@ -268,18 +268,8 @@ func (s *Server) registerBuiltins() {
 	s.commands.Register("scoreboard", func(player string, args []string) string {
 		return s.runScoreboard(player, args)
 	})
-	s.commands.Register("kill", func(player string, args []string) string {
-		target := player
-		if len(args) > 0 {
-			target = args[0]
-		}
-		sess := s.findSessionByName(target)
-		if sess == nil {
-			return "Unknown player: " + target
-		}
-		s.broadcastDamageEvent(sess.entityID.Load(), damageInfo{typeName: "generic_kill"})
-		s.killPlayer(sess, translatable("death.attack.generic", literal(sess.getName())))
-		return "Killed " + target
+	s.registerComponentCommand("kill", func(player string, args []string) reply {
+		return s.runKill(player, args)
 	})
 }
 

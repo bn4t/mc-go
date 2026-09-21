@@ -29,10 +29,12 @@ import (
 // int-array form a rendered save compound shows.
 var uuidRe = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 var uuidArrRe = regexp.MustCompile(`(\{"color": "red", "text": "I"\}, \{"": ";"\}, \{"": " "\}, )(\{"color": "gold", "text": "-?\d+"\}(?:, \{"": ","\}, \{"": " "\}, )?)+`)
+var uuidSNBTRe = regexp.MustCompile(`\[I;-?\d+(,-?\d+){3}\]`)
 
 func maskUUID(s string) string {
 	s = uuidRe.ReplaceAllString(s, "<uuid>")
-	return uuidArrRe.ReplaceAllString(s, "${1}<uuid-ints>")
+	s = uuidArrRe.ReplaceAllString(s, "${1}<uuid-ints>")
+	return uuidSNBTRe.ReplaceAllString(s, "[I;<uuid>]")
 }
 
 // stripVarInt drops a leading VarInt (entity id) from a raw packet body.
@@ -51,10 +53,13 @@ func TestDataEntityParity(t *testing.T) {
 	defer targets.cleanup()
 
 	tag := fmt.Sprintf("probe%d", time.Now().UnixNano()%1_000_000)
+	tag2 := tag + "b"
 	sel := fmt.Sprintf("@e[type=minecraft:pig,tag=%s,limit=1]", tag)
+	sel2 := fmt.Sprintf("@e[type=minecraft:pig,tag=%s,limit=1]", tag2)
 	selAny := fmt.Sprintf("@e[tag=%s]", tag)
 	cmds := []string{
 		"summon minecraft:pig 9.5 -59 10.5 {NoAI:1b,CustomName:'{\"text\":\"Babe\"}',Tags:[\"" + tag + "\"]}",
+		"summon minecraft:pig 12.5 -59 10.5 {NoAI:1b,Tags:[\"" + tag2 + "\"],Health:3f}",
 		"data get entity " + sel,
 		"data get entity " + sel + " Health",
 		"data get entity " + sel + " Pos[1]",
@@ -73,6 +78,18 @@ func TestDataEntityParity(t *testing.T) {
 		"data get entity " + sel + " Health",
 		"data modify entity " + sel + " Motion set value [0.5d,-0.2d,0.5d]",
 		"data get entity " + sel + " Motion",
+		"data modify entity " + sel + " Health set from entity " + sel2 + " Health",
+		"data get entity " + sel + " Health",
+		"data modify entity " + sel + " CustomName set from entity " + sel2 + " Health",
+		"data get entity " + sel + " CustomName",
+		"data modify entity " + sel + " Brain.memories.zzk set value 7",
+		"data get entity " + sel + " Brain.memories",
+		"data modify entity " + sel + " Motion prepend value 0.25d",
+		"data get entity " + sel + " Motion",
+		"data modify entity " + sel + " Motion insert 1 value 9d",
+		"data get entity " + sel + " Motion",
+		"data modify entity " + sel + " Health set string entity " + sel2 + " UUID",
+		"data merge block 1 -60 1 {KeepPacked:99b}",
 		"teleport @s 9.5 -59.25 10.5",
 		"data get entity @s Pos",
 		"data get entity @p Health",
@@ -82,6 +99,17 @@ func TestDataEntityParity(t *testing.T) {
 		"data merge entity @e[limit=2] {Health:5f}",
 		"data get entity " + selAny,
 		"data get entity @e[limit=2]",
+		// Kills come last so the pigs' deaths can't disturb the data
+		// reads above: notfound replies, a single kill's name-comp
+		// reply + pose/health death pack, and a multi kill. Tag
+		// selectors — not type — pin the multi case so untagged
+		// entities elsewhere in the world can't inflate the count.
+		"summon minecraft:pig 14.5 -59 10.5 {NoAI:1b,Tags:[\"" + tag2 + "\"]}",
+		"kill @e[type=minecraft:creeper,tag=" + tag + "]",
+		"kill nosuchplayer",
+		"kill " + sel,
+		"kill @e[tag=" + tag2 + "]",
+		"kill @e[tag=" + tag + "none]",
 	}
 
 	run := func(addr string) [][]string {
@@ -92,6 +120,15 @@ func TestDataEntityParity(t *testing.T) {
 		sink := newChatSink(pr, pw)
 		sink.cap = 1 << 20
 		time.Sleep(400 * time.Millisecond)
+		// Chunk-generated animals wander into the flat vanilla world
+		// and emit entity packets on their own schedule. Wipe every
+		// non-player entity — twice, so the first pass's drops/orbs go
+		// too — and let the death animations drain before comparing.
+		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
+		time.Sleep(1400 * time.Millisecond)
+		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
+		time.Sleep(800 * time.Millisecond)
+		sink.take()
 		var out [][]string
 		for _, cmd := range cmds {
 			sink.take()
@@ -102,7 +139,14 @@ func TestDataEntityParity(t *testing.T) {
 				// Entity-data / update_attributes bodies compare minus
 				// the leading VarInt entity id.
 				if strings.HasPrefix(line, "0x63:") || strings.HasPrefix(line, "0x83:") {
-					evs = append(evs, "pkt "+line[:4]+" "+maskUUID(fmt.Sprintf("%q", stripVarInt(line[5:]))))
+					body := stripVarInt(line[5:])
+					// Mob kills spawn loot items and XP orbs; their
+					// index-8 metadata (item stack / orb value) is rolled
+					// per kill, so it can't pin anything.
+					if strings.HasPrefix(body, "\x08\x01") || strings.HasPrefix(body, "\x08\x07") {
+						continue
+					}
+					evs = append(evs, "pkt "+line[:4]+" "+maskUUID(fmt.Sprintf("%q", body)))
 					continue
 				}
 				if tree, ok := componentTree(line, true); ok {

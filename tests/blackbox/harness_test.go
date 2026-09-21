@@ -186,7 +186,14 @@ func writeVanillaServerDir(t *testing.T, dir string, port int, extra, files map[
 		// run silently kills its window and drains the run's diffs into
 		// noise. Tests needing a mob summon it explicitly.
 		"spawn-monsters=false",
+		// Same rationale: ambient animal spawns emit entity packets on
+		// their own schedule and poison packet-level diffs. The flag
+		// only stops the per-tick spawn cycle, so the flat world also
+		// generates in the_void biome — its empty spawn list suppresses
+		// the chunk-generation animals the flag misses.
+		"spawn-animals=false",
 		"level-type=flat",
+		`generator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:dirt","height":2},{"block":"minecraft:grass_block","height":1}],"biome":"minecraft:the_void"}`,
 		"level-seed=1",
 		"view-distance=8",
 		"simulation-distance=8",

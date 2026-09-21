@@ -373,6 +373,20 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if cv, ok := tag.vals["CustomName"]; ok && cv.str != "" {
 				e.CustomName = cv.str
 			}
+			// Health and Motion land like vanilla's Entity.load — the
+			// spawn's dirty pack carries the moved entries after the
+			// summon reply.
+			if hv, ok := tag.vals["Health"]; ok {
+				e.Health = float32(snbtNum(hv))
+			}
+			if mv, ok := tag.vals["Motion"]; ok && mv.kind == snbtList && len(mv.items) == 3 {
+				e.MotionX = snbtNum(mv.items[0])
+				e.MotionY = snbtNum(mv.items[1])
+				e.MotionZ = snbtNum(mv.items[2])
+				e.VX = int16(e.MotionX * 8000)
+				e.VY = int16(e.MotionY * 8000)
+				e.VZ = int16(e.MotionZ * 8000)
+			}
 			// Tags list — @e[tag=...] selection and the save map.
 			if tv, ok := tag.vals["Tags"]; ok && tv.kind == snbtList {
 				var items []any
@@ -873,6 +887,21 @@ func encodeLivingHealth(health float32) []byte {
 	return b.Bytes()
 }
 
+// encodeDyingLivingMetadata is the dirty pack a living entity's die()
+// pushes: pose flips to DYING (index 6, pose serializer 20, value 7)
+// and health lands on zero.
+func encodeDyingLivingMetadata() []byte {
+	var b protocol.Buffer
+	b.Byte(6)
+	b.Byte(20)
+	b.VarInt(7)
+	b.Byte(9)
+	b.Byte(3)
+	b.Float(0)
+	b.Byte(0xFF)
+	return b.Bytes()
+}
+
 // damageMob applies damage to a living mob and syncs metadata. It
 // reports the damage actually dealt — zero when the hit was swallowed
 // by the post-hit invulnerability window — whether the hit ran inside
@@ -884,10 +913,14 @@ func (s *Server) damageMob(e *Entity, amount float32) (dealt float32, graced, di
 		return 0, gr, false
 	}
 	if health <= 0 {
-		// die(): the corpse event and loot/XP fire immediately, the
-		// entity lingers twenty ticks, then poofs (event 60) and is
-		// removed — all inside mobTickStep's per-mob pass.
+		// die(): pose DYING + health 0 go out on the tracker, the
+		// corpse event and loot/XP fire immediately, the entity
+		// lingers twenty ticks, then poofs (event 60) and is removed —
+		// all inside mobTickStep's per-mob pass.
 		s.entities.SetDying(e.ID)
+		// The death pack rides the next tick's sendChanges like any
+		// dirty metadata — a /kill reply reaches the client first.
+		e.dataSync = encodeDyingLivingMetadata()
 		s.broadcastEntityEventTo(nil, e.Dim, e.ID, 3)
 		if name, ok := EntityTypeName(e.Type); ok {
 			s.spawnMobLoot(e.Dim, name, e.X, e.Y, e.Z)
@@ -925,6 +958,11 @@ func (s *Server) mobTickStep() {
 	s.entities.mu.RUnlock()
 	for _, e := range mobs {
 		if e.Dying {
+			if len(e.dataSync) > 0 {
+				data := e.dataSync
+				e.dataSync = nil
+				s.broadcastEntityMetadata(e.ID, data)
+			}
 			if s.entities.TickDeath(e.ID) {
 				s.broadcastEntityEventTo(nil, e.Dim, e.ID, 60)
 				s.entities.Remove(e.ID)
