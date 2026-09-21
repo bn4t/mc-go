@@ -118,6 +118,69 @@ func (s *Server) broadcastPlayerChat(sender *Session, text string) {
 	})
 }
 
+// playerChatName is the decorated display name vanilla's
+// Entity.getDisplayName produces for a player — the literal name plus
+// a /tell suggestion click event, shift-click insertion, and a
+// show_entity hover. The chat commands (/say, /me, /msg) bind it as
+// their sender name.
+func playerChatName(sess *Session) component {
+	name := sess.getName()
+	u := sess.getUUID()
+	return component{
+		text:      name,
+		click:     "/tell " + name + " ",
+		insertion: name,
+		hover: map[string]any{
+			"action": "show_entity",
+			"id":     "minecraft:player",
+			"name":   name,
+			"uuid": []int32{
+				int32(u[0])<<24 | int32(u[1])<<16 | int32(u[2])<<8 | int32(u[3]),
+				int32(u[4])<<24 | int32(u[5])<<16 | int32(u[6])<<8 | int32(u[7]),
+				int32(u[8])<<24 | int32(u[9])<<16 | int32(u[10])<<8 | int32(u[11]),
+				int32(u[12])<<24 | int32(u[13])<<16 | int32(u[14])<<8 | int32(u[15]),
+			},
+		},
+	}
+}
+
+// sendDisguisedChat emits one Disguised Chat packet to a session —
+// vanilla's wire path for the unsigned system-sender messages /say,
+// /me and /msg produce. The content travels as a component and the
+// chat_type binding (registry ref + sender name + optional target
+// name) decorates it on the client.
+func sendDisguisedChat(sess *Session, chatType int32, name component, content component, target *component) {
+	var b protocol.Buffer
+	b.Raw(content.content())
+	b.VarInt(chatType + 1) // holder ref: registry id + 1
+	b.Raw(name.content())
+	if target != nil {
+		b.Bool(true)
+		b.Raw(target.content())
+	} else {
+		b.Bool(false)
+	}
+	_ = sess.write(sess.ids().PlayDisguisedChat, b.Bytes())
+}
+
+// broadcastDisguisedChat delivers a decorated message to every
+// play-state session — the /say and /me shape.
+func (s *Server) broadcastDisguisedChat(msgType string, name component, content component) {
+	chatType := registryEntryID("minecraft:chat_type", "minecraft:"+msgType)
+	if chatType < 0 {
+		s.broadcastSystemChat(name.text + " " + content.text)
+		return
+	}
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay {
+			return true
+		}
+		sendDisguisedChat(sess, chatType, name, content, nil)
+		return true
+	})
+}
+
 // sendSystemChatComponent delivers a component to one session, which
 // is how the built-in commands answer: vanilla words their replies as
 // translatable components.

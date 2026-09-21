@@ -2411,3 +2411,17 @@ physics through a void dip plus a fed recovery window.
   vanilla pairing burst ends in. Pinned by TestMobMovePacketFamilyParity
   (family + no teleports + delta range on both servers) and
   TestMobWanderPackets now reads the delta family.
+- Decorated chat commands (26.2): /say, /me and /msg|tell|w now ride
+  the Disguised Chat packet the way PlayerChatMessage.system +
+  OutgoingChatMessage.Disguised do — literal content component plus a
+  ChatType.Bound (registry ref id+1, decorated sender name, optional
+  target name). /say binds say_command and broadcasts to everyone;
+  /me binds emote_command; /msg sends msg_command_incoming to each
+  target and msg_command_outgoing (target name filled) back to the
+  sender. The sender name component is Entity.getDisplayName's shape:
+  literal name + suggest_command "/tell <name> " click event +
+  insertion + show_entity hover (name/action/id/uuid int array). Both
+  packets compare byte-exact vs vanilla (TestSayCommandParity,
+  TestMsgCommandParity — offline UUIDs are name-derived, so the whole
+  body collates). TeamMsgCommand's team_msg_command pair stays open
+  (needs scoreboard teams).
