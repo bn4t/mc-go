@@ -152,6 +152,12 @@ func (s *Server) budUpdate(d *dimension, pos, changed world.Pos, b world.Block) 
 // (Level.setBlock), the new one for command writes
 // (updateNeighboursOnBlockSet).
 func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos, notify world.Block) {
+	if pos != changed {
+		// updateShape runs before neighbourChanged: the connection
+		// family (fences, panes, bars) rewrites its prop toward the
+		// changed cell first.
+		s.connectionUpdate(d, pos, changed)
+	}
 	b := d.w.GetBlock(pos)
 	name, ok := world.StateOwner(b)
 	if !ok {

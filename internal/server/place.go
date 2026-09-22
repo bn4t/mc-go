@@ -347,6 +347,9 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	if !ok {
 		return // not a placeable block-item: ack only
 	}
+	// getStateForPlacement folds the connection props (fence/pane/bars)
+	// of a placed block before the write.
+	blk = s.connectPlaceState(d, target, blk)
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
 	sess.addItemStat(statUsed, item, 1)
 	if bname, ok := world.StateOwner(blk); ok {

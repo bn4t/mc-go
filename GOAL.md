@@ -179,7 +179,8 @@ Mojang server over the wire.
   index-0 byte flags (bit 0x08). /summon now parses vec3 + NBT —
   NoAI freezes gravity and wander entirely. `TestKnockbackParity`
   scripts fist hits on a player and a NoAI pig on both servers.
-  Crit (fallDistance rules) and sweep attack remain open.
+  Crits and sweep are pinned (planAttack, TestCritSweepParity);
+  enchant damage modifiers in combat remain open.
 
 - 2026-09-20: Armor-on-hurt durability: a hit armor can absorb costs
   each equipped damageable piece max(1, post-i-frames damage/4) in
@@ -3566,3 +3567,30 @@ physics through a void dip plus a fed recovery window.
   unloaded chunks and vanilla+mc-go both drop uses until
   player_loaded, so the suite teleports into the region and sends
   IDPlayPlayerLoadedSB before the first click.
+
+- 2026-09-19: updateShape connection rewrites for the
+  CrossCollisionBlock family — fences (#fences) and panes/bars
+  (IronBarsBlock set: *_pane / *_bars). On every block write the
+  neighbour pass (checkSurvival) now runs the updateShape half first:
+  the block's prop toward the changed horizontal neighbour is
+  rewritten to connectsTo/attachsTo, and a rewrite cascades
+  setBlock-style until the connected run settles. FenceBlock joins a
+  same-family fence (matching #wooden_fences membership — oak joins
+  oak, nether_brick only nether_brick), a fence gate whose facing is
+  perpendicular to the connection direction
+  (connectsToDirection: gate.FACING.axis == dir.opposite.clockwise.axis),
+  or a sturdy non-exception side; IronBarsBlock joins panes/bars,
+  #walls members, or a sturdy non-exception side. The exception list
+  is Block.isExceptionForConnection: #leaves, barrier, the pumpkin
+  heads, melon/pumpkin, #shulker_boxes. Sturdy is the mc-go
+  approximation (non-fluid, not washed-away, minus a name-level
+  non-full-cube set in connectPartialFace) — same convention as
+  fireSturdyBelow. Player placement folds all four props via the
+  connectPlaceState getStateForPlacement half (plus waterlogged when
+  placed in water); command writes keep the exact state and only
+  neighbours update. TestConnectParity pins 18 legs: pair, sturdy,
+  thin-face no-connect, leaves exception, wood-vs-nether material,
+  both gate orientations, pane pair, pane-fence mutual no-connect,
+  bars-to-wall, a broken middle run, and the placement fold.
+  WallBlock (low/tall/up fold), stairs shapes, and chest merge remain
+  open.
