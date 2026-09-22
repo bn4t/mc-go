@@ -460,10 +460,12 @@ func (s *Server) sendHealth(sess *Session) error {
 	return s.sendSetHealth(sess, sess.health, sess.food, sess.saturation)
 }
 
-// damage applies survival damage and syncs health; a lethal hit runs
-// the death flow. Creative and spectator players are immune.
+// damage applies damage and syncs health; a lethal hit runs
+// the death flow. Creative and spectator players are immune except to
+// the bypasses_invulnerability types (void, /kill) — adventure players
+// are hurt normally.
 func (s *Server) damage(sess *Session, amount float32, message component, src damageSource) {
-	if amount <= 0 || sess.mode() != GameModeSurvival || sess.dead {
+	if amount <= 0 || sess.dead || sessInvulnerableTo(sess, src.typeName) {
 		return
 	}
 	// Absorption hearts soak damage before health — vanilla's absorb

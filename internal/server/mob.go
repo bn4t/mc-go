@@ -1097,7 +1097,8 @@ func (s *Server) mobMeleeStep(e *Entity, dmg float32) bool {
 	best := 35.0 * 35.0
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if !sess.spawned.Load() || sess.dead || sess.mode() != GameModeSurvival {
+		if !sess.spawned.Load() || sess.dead ||
+			sess.mode() == GameModeCreative || sess.mode() == GameModeSpectator {
 			return true
 		}
 		if sess.dimension().name != e.Dim {

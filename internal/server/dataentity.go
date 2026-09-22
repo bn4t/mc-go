@@ -1282,6 +1282,11 @@ func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, sin
 		s.sessions.Range(func(_, v any) bool {
 			sess := v.(*Session)
 			if sess.state.Load() == StatePlay && sess.dimName() == dim {
+				// @e runs the entity list, which drops dead players;
+				// @a/@p/@r walk the player list that still holds them.
+				if spec.variable == 'e' && sess.dead {
+					return true
+				}
 				addSess(sess)
 			}
 			return true

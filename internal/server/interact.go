@@ -174,7 +174,7 @@ func (s *Server) handleAttack(sess *Session, p protocol.Packet) {
 // Attack packet and the Interact packet's attack action so both routes
 // produce identical damage, combat, and animation packets.
 func (s *Server) attackEntity(sess *Session, targetID int32) {
-	if sess.mode() != GameModeSurvival || sess.dead {
+	if sess.mode() == GameModeSpectator || sess.dead {
 		return
 	}
 	if targetID == 0 || targetID == sess.entityID.Load() {
@@ -524,7 +524,8 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 	// Same box test over player victims (LivingEntity covers them).
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
-		if other == sess || other.state.Load() != StatePlay || other.mode() != GameModeSurvival || other.dead {
+		if other == sess || other.state.Load() != StatePlay ||
+			other.mode() == GameModeCreative || other.mode() == GameModeSpectator || other.dead {
 			return true
 		}
 		if other.entityID.Load() == victimEID {

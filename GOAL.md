@@ -2989,3 +2989,17 @@ physics through a void dip plus a fed recovery window.
   has no facing node under tp's rotation in 26.2 — trailing args
   underline from tok2. TestTpParity diffs 41 cases event-for-event,
   including error underlines.
+- Invulnerability + void-damage parity: damage gating switched from
+  "survival only" to vanilla's isInvulnerableTo — creative and
+  spectator reject every source except bypasses_invulnerability types
+  (out_of_world, generic_kill), so they still die to the void and
+  /kill; adventure takes damage normally. Gate sites unified:
+  damage(), damageWith(), voidTickStep, /damage's invulnerable reply,
+  melee attacker (spectator can't attack, creative can), mob targeting
+  and player-victim filtering (creative+spectator skipped, adventure
+  included), tool/armor durability (creative-exempt, adventure wears).
+  Void death key corrected to death.attack.outOfWorld with the player
+  chat component. Dead-player selector semantics pinned: @e drops
+  dead players (entity list filter), @a/@s still resolve them.
+  TestTpVoidDeathParity diffs the void death broadcast plus eight
+  post-death tp command replies event-for-event.

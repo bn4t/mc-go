@@ -110,6 +110,17 @@ var (
 	srcVoid    = damageSource{typeName: "out_of_world"}
 )
 
+// sessInvulnerableTo mirrors vanilla's hurtServer gate: creative and
+// spectator abilities make the player invulnerable to everything except
+// the bypasses_invulnerability damage types (void, /kill).
+func sessInvulnerableTo(sess *Session, typeName string) bool {
+	m := sess.mode()
+	if m != GameModeCreative && m != GameModeSpectator {
+		return false
+	}
+	return !damageTypeBypassesInvulnerability(typeName)
+}
+
 // voidTickStep damages players under the out-of-world band (64 blocks
 // below each dimension's floor) on every player tick; vanilla hits
 // there once a tick, and the post-hit invulnerability is what paces the
@@ -117,15 +128,15 @@ var (
 func (s *Server) voidTickStep() {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.state.Load() != StatePlay || sess.dead || sess.mode() != GameModeSurvival {
+		if sess.state.Load() != StatePlay || sess.dead {
 			return true
 		}
 		_, y, _, _, _, _ := sess.Pos()
 		if y >= float64(sess.dimension().minY-64) {
 			return true
 		}
-		s.damageWith(sess, 4, translatable("death.fell.out_of_world",
-			literal(sess.getName())), srcVoid)
+		s.damageWith(sess, 4, translatable("death.attack.outOfWorld",
+			playerChatComponent(sess)), srcVoid)
 		return true
 	})
 }
@@ -135,7 +146,7 @@ func (s *Server) voidTickStep() {
 // actually landed after armor absorbs it (0 when the hit was
 // rejected by the post-hit invulnerability window).
 func (s *Server) damageWith(sess *Session, amount float32, message component, src damageSource) float32 {
-	if sess.mode() != GameModeSurvival || sess.dead {
+	if sess.dead || sessInvulnerableTo(sess, src.typeName) {
 		return 0
 	}
 	// Vanilla grants twenty ticks of invulnerability after a hit; while

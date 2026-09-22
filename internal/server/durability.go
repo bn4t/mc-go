@@ -20,7 +20,7 @@ func (s *Server) wearHeld(sess *Session, damage int32) {
 // wearSlot is wearHeld for an arbitrary inventory slot — the offhand
 // use of a food-on-a-stick wears that stack instead of the main one.
 func (s *Server) wearSlot(sess *Session, slot int16, damage int32) {
-	if damage <= 0 || sess.mode() != GameModeSurvival {
+	if damage <= 0 || sess.mode() == GameModeCreative {
 		return
 	}
 	sess.invMu.Lock()
@@ -163,7 +163,7 @@ var armorBreakEvents = map[int]byte{
 // exhausts its durability empties the slot, snaps the break entity
 // event, and awards the item-broken statistic.
 func (s *Server) armorWear(sess *Session, src damageSource, rawDamage float32) {
-	if sess.mode() != GameModeSurvival || bypassesArmor(src.typeName) {
+	if sess.mode() == GameModeCreative || bypassesArmor(src.typeName) {
 		return
 	}
 	amount := int32(rawDamage / 4)

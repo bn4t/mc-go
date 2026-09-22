@@ -607,7 +607,7 @@ func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount 
 	}
 	if target.sess != nil {
 		sess := target.sess
-		if sess.mode() == GameModeCreative || sess.mode() == GameModeSpectator || sess.dead {
+		if sess.dead || sessInvulnerableTo(sess, dmgType) {
 			return componentReply(commandError("commands.damage.invulnerable"))
 		}
 		var msg component

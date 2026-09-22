@@ -148,3 +148,136 @@ func TestTpParity(t *testing.T) {
 		}
 	}
 }
+
+// TestTpVoidDeathParity sends the issuer below the world so void
+// damage kills it, then diffs command replies from the dead session —
+// vanilla keeps executing a dead player's commands but resolves @s
+// differently and applies its isAlive selector filters.
+func TestTpVoidDeathParity(t *testing.T) {
+	numRe := regexp.MustCompile(`d\(-?[0-9.e+]+\)|f\(-?[0-9.e+]+\)|i\(-?[0-9]+\)|b\([0-9]+\)|l\(-?[0-9]+\)|"-?[0-9]+(?:\.[0-9]+)?"`)
+
+	targets := requireBlackboxFiles(t, nil,
+		map[string]string{"ops.json": `[{"uuid":"14075747-e146-3809-a161-83abe512191e","name":"P","level":2,"bypassesPlayerLimit":false}]`},
+		func(s *server.Server) {
+			s.OpsRequired = true
+			s.SetOpLevel("P", 2)
+		})
+	defer targets.cleanup()
+
+	send := func(pw *protocol.Writer, cmd string) bool {
+		var b protocol.Buffer
+		b.String(cmd)
+		return pw.WritePacket(server.IDPlayChatCommandSB, b.Bytes()) == nil
+	}
+	collect := func(sink *chatSink, marker string, deadline time.Duration) []string {
+		var evs []string
+		end := time.Now().Add(deadline)
+		quietUntil := time.Now()
+		got := false
+		for time.Now().Before(end) {
+			for _, line := range sink.take() {
+				if strings.Contains(line, marker) {
+					got = true
+					continue
+				}
+				var ev string
+				if tree, ok := componentTree(line, true); ok {
+					ev = tree
+				} else if strings.HasPrefix(line, "0x79:") {
+					i2 := strings.Index(line, ":")
+					if root, err := nbt.ReadUnnamed(strings.NewReader(line[i2+1:])); err == nil {
+						ev = renderNBT(root, true)
+					}
+				}
+				if ev != "" {
+					evs = append(evs, numRe.ReplaceAllString(maskUUID(ev), "N"))
+					quietUntil = time.Now().Add(150 * time.Millisecond)
+				}
+			}
+			if got && time.Now().After(quietUntil) {
+				break
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+		return evs
+	}
+
+	run := func(addr string) [][]string {
+		c, pr, pw := joinPlayQuiet(t, addr, "P")
+		defer c.Close()
+		sink := newChatSink(pr, pw)
+		sink.cap = 1 << 20
+		cQ, _, _ := joinPlayQuiet(t, addr, "Q")
+		defer cQ.Close()
+		time.Sleep(1500 * time.Millisecond)
+
+		var out [][]string
+		// The kill teleport's reply plus the death broadcast when the
+		// void ticks down (~2s of 4dmg hits).
+		sink.take()
+		send(pw, "tp @s 0 -3000 0")
+		var death []string
+		end := time.Now().Add(12 * time.Second)
+		for time.Now().Before(end) {
+			for _, line := range sink.take() {
+				var ev string
+				if tree, ok := componentTree(line, true); ok {
+					ev = tree
+				} else if strings.HasPrefix(line, "0x79:") {
+					i2 := strings.Index(line, ":")
+					if root, err := nbt.ReadUnnamed(strings.NewReader(line[i2+1:])); err == nil {
+						ev = renderNBT(root, true)
+					}
+				}
+				if ev != "" {
+					death = append(death, numRe.ReplaceAllString(maskUUID(ev), "N"))
+				}
+			}
+			joined := strings.Join(death, "|")
+			if strings.Contains(joined, "outOfWorld") {
+				time.Sleep(300 * time.Millisecond)
+				for _, line := range sink.take() {
+					if tree, ok := componentTree(line, true); ok {
+						death = append(death, numRe.ReplaceAllString(maskUUID(tree), "N"))
+					}
+				}
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		out = append(out, death)
+		postDeath := []string{
+			"tp @e Q", "tp @s @s", "tp ~ ~ ~", "tp @a Q",
+			"tp P Q", "tp Q @s", "tp @e[limit=2] Q", "tp Q",
+		}
+		for i, cmd := range postDeath {
+			marker := fmt.Sprintf("ZZD%d", i)
+			sink.take()
+			if !send(pw, cmd) {
+				out = append(out, []string{"<write-failed>"})
+				continue
+			}
+			time.Sleep(150 * time.Millisecond)
+			send(pw, "me "+marker)
+			out = append(out, collect(sink, marker, 5*time.Second))
+		}
+		return out
+	}
+
+	want := run(targets.vanilla)
+	got := run(targets.mcgo)
+	if len(want) != len(got) {
+		t.Fatalf("event groups differ: %d vs %d", len(want), len(got))
+	}
+	for i := range want {
+		if len(want[i]) != len(got[i]) {
+			t.Errorf("group %d: vanilla %v\n  mc-go %v", i, want[i], got[i])
+			continue
+		}
+		for j := range want[i] {
+			if want[i][j] != got[i][j] {
+				t.Errorf("group %d event %d:\n  vanilla %s\n  mc-go   %s", i, j, want[i][j], got[i][j])
+			}
+		}
+	}
+}
