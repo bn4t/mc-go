@@ -3680,3 +3680,11 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   self-fold with the air-fold discard, so a floating
   `setblock vein[up=true]` keeps its state.
   TestNeighborFoldParity pins 5 vein legs (32 total).
+
+- 2026-09-19 (cont): SnowLayerBlock.randomTick — block light
+  strictly above 11 (torch dist 2 melts, dist 3 holds; one notch
+  stricter than ice's >10) drops the snowballs and removes the
+  layer. snow_block never ticks. RedStoneOreBlock.randomTick — a
+  lit ore (redstone_ore + deepslate variant) settles lit=false.
+  TestSnowMeltParity (8 legs) + TestRedstoneOreUnlitParity (5 legs)
+  pin both against vanilla.

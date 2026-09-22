@@ -1252,3 +1252,33 @@ func copperRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
 		s.setSilentBlock(d, pos, nb)
 	}
 }
+
+// snowMeltRule is SnowLayerBlock.randomTick: block light above 11
+// drops the snowballs and removes the layer.
+func snowMeltRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
+	if !s.blockLightAbove(d, pos, 11) {
+		return
+	}
+	layers, _ := intProp(b, "layers")
+	if layers < 1 {
+		layers = 1
+	}
+	if id, ok := world.ItemID("snowball"); ok {
+		s.spawnItemDrop(d.name, pos, ItemStack{ID: id, Count: int32(layers)})
+	}
+	s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+	s.setNaturalBlock(d, pos, world.Air)
+}
+
+// redstoneOreRule is RedStoneOreBlock.randomTick: a lit ore settles
+// back to unlit.
+func redstoneOreRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
+	lit, _ := world.StateProperty(b, "lit")
+	if lit != "true" {
+		return
+	}
+	if nb, ok := world.WithProperty(b, "lit", "false"); ok {
+		s.setSilentBlock(d, pos, nb)
+		s.connectionCascade(d, pos)
+	}
+}
