@@ -214,13 +214,13 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 			r := errToken("command.unknown.argument", tokBase+4)
 			return 0, false, 0, false, &r
 		}
-		blk, exact, okp := parseBlockSpec(args[4])
+		blk, props, okp := parseBlockSpec(args[4])
 		if !okp {
 			r := errTokenEnd("argument.block.id.invalid", tokBase+4)
 			return 0, false, 0, false, &r
 		}
 		if ctx.alive {
-			cond = s.matchesBlockPredicate(ctx.dim, world.Pos{X: x, Y: y, Z: z}, blk, exact)
+			cond = s.matchesBlockPredicate(ctx.dim, world.Pos{X: x, Y: y, Z: z}, blk, props)
 		}
 		return 5, cond, 0, false, nil
 	case "blocks":
@@ -907,19 +907,25 @@ func parseIntRange(tok string) (lo, hi int64, ok bool) {
 }
 
 // matchesBlockPredicate reports whether the block at pos satisfies a
-// predicate: an exact state when properties were given, otherwise any
-// state of that block.
-func (s *Server) matchesBlockPredicate(d *dimension, pos world.Pos, blk world.Block, exact bool) bool {
+// predicate — vanilla's BlockPredicate is a subset test: the block
+// name must match and every property the spec pinned must equal, with
+// the rest wildcarded. props is nil for a bare name.
+func (s *Server) matchesBlockPredicate(d *dimension, pos world.Pos, blk world.Block, props map[string]string) bool {
 	if d == nil {
 		return false
 	}
 	got := d.w.GetBlock(pos)
-	if exact {
-		return got == blk
-	}
 	want, ok1 := world.StateOwner(blk)
 	have, ok2 := world.StateOwner(got)
-	return ok1 && ok2 && want == have
+	if !ok1 || !ok2 || want != have {
+		return false
+	}
+	for k, v := range props {
+		if hv, ok := world.StateProperty(got, k); !ok || hv != v {
+			return false
+		}
+	}
+	return true
 }
 
 // runInDimension dispatches a command with the execute context's
@@ -1148,14 +1154,14 @@ func (s *Server) runFill(player string, args []string) reply {
 		return errTokenEnd("argument.block.id.invalid", 7)
 	}
 	var filter world.Block
+	var filterProps map[string]string
 	haveFilter := false
-	exactFilter := false
 	if len(args) >= 9 && args[7] == "replace" {
-		f, ex, ok := parseBlockSpec(args[8])
+		f, fp, ok := parseBlockSpec(args[8])
 		if !ok {
 			return errTokenEnd("argument.block.id.invalid", 8)
 		}
-		filter, exactFilter, haveFilter = f, ex, true
+		filter, filterProps, haveFilter = f, fp, true
 	}
 	d := s.dimOf(player)
 	minX, maxX := minmax(c[0], c[3])
@@ -1178,7 +1184,7 @@ func (s *Server) runFill(player string, args []string) reply {
 				}
 				pos := world.Pos{X: x, Y: y, Z: z}
 				if haveFilter {
-					if !s.matchesBlockPredicate(d, pos, filter, exactFilter) {
+					if !s.matchesBlockPredicate(d, pos, filter, filterProps) {
 						continue
 					}
 				} else if d.w.GetBlock(pos) == blk {

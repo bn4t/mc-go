@@ -22,18 +22,17 @@ type BlockChange struct {
 // an optional vanilla property list, e.g. "water[level=3]",
 // "oak_stairs[facing=east,half=top]", or a bare "stone".
 //
-// exact reports whether the token pinned every property. A bare name is
-// not exact, which is what makes it usable as a predicate: vanilla's
-// "minecraft:water" matches any water state, while
-// "minecraft:water[level=0]" matches only a source.
-func parseBlockSpec(tok string) (blk world.Block, exact bool, ok bool) {
+// props reports the properties the token pinned (nil for a bare name):
+// vanilla's BlockPredicate is a subset test, so only named properties
+// are compared and the rest are wildcards — "minecraft:cave_vines"
+// matches any cave vine and "cave_vines[age=2]" ignores berries.
+func parseBlockSpec(tok string) (blk world.Block, props map[string]string, ok bool) {
 	s := strings.ToLower(strings.TrimSpace(tok))
 	s = strings.TrimPrefix(s, "minecraft:")
 	name := s
-	var props map[string]string
 	if i := strings.IndexByte(s, '['); i >= 0 {
 		if !strings.HasSuffix(s, "]") {
-			return world.Air, false, false
+			return world.Air, nil, false
 		}
 		name = strings.TrimSpace(s[:i])
 		body := strings.TrimSpace(s[i+1 : len(s)-1])
@@ -42,7 +41,7 @@ func parseBlockSpec(tok string) (blk world.Block, exact bool, ok bool) {
 			for _, kv := range strings.Split(body, ",") {
 				k, v, ok := strings.Cut(kv, "=")
 				if !ok {
-					return world.Air, false, false
+					return world.Air, nil, false
 				}
 				props[strings.TrimSpace(k)] = strings.TrimSpace(v)
 			}
@@ -54,9 +53,9 @@ func parseBlockSpec(tok string) (blk world.Block, exact bool, ok bool) {
 	}
 	b, ok := world.BlockStateOf(name, props)
 	if !ok {
-		return world.Air, false, false
+		return world.Air, nil, false
 	}
-	return b, props != nil, true
+	return b, props, true
 }
 
 // parseBlockName resolves a token to a concrete state, the default state

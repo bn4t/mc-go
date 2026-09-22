@@ -318,6 +318,9 @@ func randRules() map[string]func(*Server, *dimension, world.Pos, world.Block) {
 			"bamboo":           bambooStalkRule,
 			"bamboo_sapling":   bambooSaplingRule,
 			"chorus_flower":    chorusFlowerRule,
+			"weeping_vines":    vineHeadRule("weeping_vines", "weeping_vines_plant", -1, false),
+			"twisting_vines":   vineHeadRule("twisting_vines", "twisting_vines_plant", 1, false),
+			"cave_vines":       vineHeadRule("cave_vines", "cave_vines_plant", -1, true),
 		}
 	})
 	return randRulesMap

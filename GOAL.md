@@ -3220,3 +3220,22 @@ physics through a void dip plus a fed recovery window.
   engine (a one-block roof fails column-opacity where vanilla's
   side leakage keeps the crop lit), so over-shaded crops surviving
   is a recorded gap.
+
+- Random tick pass 3 (growing vines, commit pending): weeping,
+  twisting, and cave vine heads grow one cell along their growth
+  direction at age < 25 on a 10% roll, the new head carrying age+1
+  (and cave vine heads an 11% berries roll). The old head's
+  conversion to its plant body rides the same write — its updateShape
+  sees a same-vine ahead — and the inverse holds too: a body whose
+  growth-side neighbor stops being the vine becomes a head again with
+  a fresh age 0..24 (berries carried through in both directions).
+  Survival is attach-side gated — a vine pops when the cell it hangs
+  or stands on is written away, cascading the cut column, and all six
+  vine blocks are tick-family so a /setblock'd unsupported vine pops
+  through the placement fold. Pinned by TestVineGrowthParity
+  (tests/blackbox/vinetick_test.go), 20 probes vs both servers.
+
+  Drive-by: block predicates now subset-match (name + only the spec's
+  pinned properties) — vanilla's BlockPredicate semantics — so
+  `if block cave_vines[age=2]` ignores berries, and the same fix
+  flows into /fill replace filters and /clone filtered.

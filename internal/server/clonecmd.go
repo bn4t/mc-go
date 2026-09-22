@@ -75,7 +75,7 @@ func (s *Server) runClone(player string, args []string) reply {
 	}
 	mask := 0 // 0 replace, 1 masked, 2 filtered
 	var filtBlk world.Block
-	var filtExact bool
+	var filtProps map[string]string
 	var filtTag string
 	if i < len(args) {
 		switch args[i] {
@@ -129,7 +129,7 @@ func (s *Server) runClone(player string, args []string) reply {
 					}
 				}
 				var ok bool
-				filtBlk, filtExact, ok = parseBlockSpec(tok)
+				filtBlk, filtProps, ok = parseBlockSpec(tok)
 				if !ok {
 					return errToken("argument.block.id.invalid", i+1, name)
 				}
@@ -225,7 +225,7 @@ func (s *Server) runClone(player string, args []string) reply {
 							}
 						}
 					} else {
-						ok = s.matchesBlockPredicate(srcDim, world.Pos{X: x, Y: y, Z: z}, filtBlk, filtExact)
+						ok = s.matchesBlockPredicate(srcDim, world.Pos{X: x, Y: y, Z: z}, filtBlk, filtProps)
 					}
 					if !ok {
 						continue

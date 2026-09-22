@@ -276,16 +276,16 @@ func TestFluidPredicatesMatchAnyLevel(t *testing.T) {
 	d := s.dims[dimOverworld]
 	p := world.Pos{X: 0, Y: -60, Z: 0}
 	s.set(d, p, water(t, 3))
-	anyWater, _, _ := parseBlockSpec("minecraft:water")
-	exactWater, _, _ := parseBlockSpec("minecraft:water[level=3]")
-	wrongLevel, _, _ := parseBlockSpec("minecraft:water[level=4]")
-	if !s.matchesBlockPredicate(d, p, anyWater, false) {
+	anyWater, anyProps, _ := parseBlockSpec("minecraft:water")
+	exactWater, exactProps, _ := parseBlockSpec("minecraft:water[level=3]")
+	wrongLevel, wrongProps, _ := parseBlockSpec("minecraft:water[level=4]")
+	if !s.matchesBlockPredicate(d, p, anyWater, anyProps) {
 		t.Fatal("a bare water predicate should match any water level")
 	}
-	if !s.matchesBlockPredicate(d, p, exactWater, true) {
+	if !s.matchesBlockPredicate(d, p, exactWater, exactProps) {
 		t.Fatal("water[level=3] should match a level 3 block")
 	}
-	if s.matchesBlockPredicate(d, p, wrongLevel, true) {
+	if s.matchesBlockPredicate(d, p, wrongLevel, wrongProps) {
 		t.Fatal("water[level=4] should not match a level 3 block")
 	}
 }

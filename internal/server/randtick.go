@@ -542,6 +542,35 @@ func posAbove(pos world.Pos, n int) world.Pos {
 	return world.Pos{X: pos.X, Y: pos.Y + n, Z: pos.Z}
 }
 
+// vineHeadRule is GrowingPlantHeadBlock.randomTick: at age < 25 a 10%
+// roll grows the vine one cell along its growth direction into air;
+// the new head carries age+1 (state.cycle) — plus an 11% berries roll
+// for cave vines. The old head's conversion to its plant body comes
+// from the write's neighbor pass: its updateShape sees a vine ahead.
+func vineHeadRule(head, body string, growthDy int, cave bool) func(*Server, *dimension, world.Pos, world.Block) {
+	return func(s *Server, d *dimension, pos world.Pos, _ world.Block) {
+		b := d.w.GetBlock(pos)
+		age, ok := intProp(b, "age")
+		if !ok || age >= 25 || s.rng.nextDouble() >= 0.1 {
+			return
+		}
+		ahead := world.Pos{X: pos.X, Y: pos.Y + growthDy, Z: pos.Z}
+		if !isAirCell(d.w.GetBlock(ahead)) {
+			return
+		}
+		nb, ok := world.WithProperty(b, "age", strconv.Itoa(age+1))
+		if !ok {
+			return
+		}
+		if cave && s.rng.nextDouble() < 0.11 {
+			if bb, ok := world.WithProperty(nb, "berries", "true"); ok {
+				nb = bb
+			}
+		}
+		s.setNaturalBlock(d, ahead, nb)
+	}
+}
+
 func sugarCaneRule(s *Server, d *dimension, pos world.Pos, _ world.Block) {
 	// Grower rules read and write back block state, so they read the
 	// live world: the section snapshot can predate a same-tick write

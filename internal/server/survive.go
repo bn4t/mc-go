@@ -1,6 +1,7 @@
 package server
 
 import (
+	"strconv"
 	"sync"
 
 	"mc-go/internal/world"
@@ -63,11 +64,17 @@ func surviveFns() map[string]func(*Server, *dimension, world.Pos, world.Block) b
 // fold). The return-air family is absent — its air fold is discarded
 // and the requested state placed.
 var popOnPlace = map[string]bool{
-	"sugar_cane":    true,
-	"cactus":        true,
-	"bamboo":        true,
-	"chorus_plant":  true,
-	"chorus_flower": true,
+	"sugar_cane":           true,
+	"cactus":               true,
+	"bamboo":               true,
+	"chorus_plant":         true,
+	"chorus_flower":        true,
+	"weeping_vines":        true,
+	"weeping_vines_plant":  true,
+	"twisting_vines":       true,
+	"twisting_vines_plant": true,
+	"cave_vines":           true,
+	"cave_vines_plant":     true,
 }
 
 // selfCheckSurvival applies BlockInput.place's side-effect: a placed
@@ -92,12 +99,97 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos) {
 	if name == "chorus_flower" && changed.Y > pos.Y {
 		return
 	}
+	if _, _, _, ok := vineSpec(name); ok {
+		s.vineUpdate(d, pos, changed, b, name)
+		return
+	}
 	fn, ok := surviveFns()[name]
 	if !ok || fn(s, d, pos, b) {
 		return
 	}
 	s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
 	s.setNaturalBlock(d, pos, world.Air)
+}
+
+// vineSpec returns a vine block's head name and growth sign (-1 grows
+// down — weeping and cave vines; +1 grows up — twisting vines). Heads
+// and bodies share the same spec.
+func vineSpec(name string) (head string, growthDy int, isHead, ok bool) {
+	switch name {
+	case "weeping_vines":
+		return "weeping_vines", -1, true, true
+	case "weeping_vines_plant":
+		return "weeping_vines", -1, false, true
+	case "twisting_vines":
+		return "twisting_vines", 1, true, true
+	case "twisting_vines_plant":
+		return "twisting_vines", 1, false, true
+	case "cave_vines":
+		return "cave_vines", -1, true, true
+	case "cave_vines_plant":
+		return "cave_vines", -1, false, true
+	}
+	return "", 0, false, false
+}
+
+// vineUpdate is the GrowingPlant updateShape. Survival is re-checked
+// only when the attach-side cell changed (the fold's direction set
+// covers it for a placement self-check, which arrives as changed ==
+// pos). Vine blocks also rewrite in place: a head seeing the same vine
+// ahead becomes its plant body, and a body whose growth-side neighbor
+// stopped being the same vine becomes a fresh-aged head.
+func (s *Server) vineUpdate(d *dimension, pos, changed world.Pos, b world.Block, name string) {
+	head, growthDy, isHead, _ := vineSpec(name)
+	body := head + "_plant"
+	cave := head == "cave_vines"
+	attach := world.Pos{X: pos.X, Y: pos.Y - growthDy, Z: pos.Z}
+	ahead := world.Pos{X: pos.X, Y: pos.Y + growthDy, Z: pos.Z}
+	if changed == attach || changed == pos {
+		// canSurvive: the attach cell is this vine's head or body, or a
+		// sturdy face (approximated by solidity).
+		behind := d.w.GetBlock(attach)
+		if !isBlockNamed(behind, head) && !isBlockNamed(behind, body) && world.NonSolid(behind) {
+			s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+			s.setNaturalBlock(d, pos, world.Air)
+			return
+		}
+	}
+	if isHead {
+		nb := d.w.GetBlock(ahead)
+		if !isBlockNamed(nb, head) && !isBlockNamed(nb, body) {
+			return
+		}
+		nb2, ok := world.BlockStateOf(body, nil)
+		if !ok {
+			return
+		}
+		if cave {
+			if berries, ok := world.StateProperty(b, "berries"); ok {
+				nb2, _ = world.WithProperty(nb2, "berries", berries)
+			}
+		}
+		s.setNaturalBlock(d, pos, nb2)
+		return
+	}
+	if changed != ahead {
+		return
+	}
+	nb := d.w.GetBlock(ahead)
+	if isBlockNamed(nb, head) || isBlockNamed(nb, body) {
+		return
+	}
+	nb2, ok := world.BlockStateOf(head, nil)
+	if !ok {
+		return
+	}
+	// getStateForPlacement: a fresh random age 0..24.
+	nb2, _ = world.WithProperty(nb2, "age", strconv.Itoa(s.rng.intn(25)))
+	if cave {
+		if berries, ok := world.StateProperty(b, "berries"); ok {
+			nb2, _ = world.WithProperty(nb2, "berries", berries)
+		}
+	}
+	s.setNaturalBlock(d, pos, nb2)
 }
 
 // neighborSurvival is the updateShape fan-out: a write at pos re-checks
