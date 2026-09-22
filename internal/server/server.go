@@ -145,11 +145,12 @@ type Server struct {
 	// clients rely on. The mc-go binary enables it.
 	ops map[string]int
 
-	// banMu guards bannedNames and bannedIPs, the /ban /pardon /ban-ip
-	// /pardon-ip tables.
+	// banMu guards bannedNames, bannedIPs and whitelisted — the /ban
+	// /pardon /ban-ip /pardon-ip and /whitelist add/remove tables.
 	banMu       sync.Mutex
 	bannedNames map[string]string
 	bannedIPs   map[string]string
+	whitelisted map[string]bool
 
 	// borders holds one world-border state per dimension, keyed by the
 	// dimension's minecraft: name.

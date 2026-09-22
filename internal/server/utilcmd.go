@@ -162,23 +162,76 @@ func (s *Server) runList(args []string) reply {
 		int32(len(sess)), int32(s.MaxPlayers), list))
 }
 
-// runWhitelist implements the measured /whitelist surface: bare is an
-// unknown-command stop at end of input; on/off flip the flag and
-// report; list reports the (empty) whitelist.
+// runWhitelist implements /whitelist on|off|add <name>|remove <name>|
+// list|reload. on/off and the name ops each have their own
+// already/failed keys; none of them broadcast to the other operators.
 func (s *Server) runWhitelist(args []string) reply {
 	if len(args) == 0 {
 		return errTokenEnd("command.unknown.command", 0)
 	}
 	var key string
 	switch args[0] {
-	case "on":
-		s.whitelistOn.Store(true)
-		key = "commands.whitelist.enabled"
-	case "off":
-		s.whitelistOn.Store(false)
-		key = "commands.whitelist.disabled"
+	case "on", "off":
+		on := args[0] == "on"
+		if s.whitelistOn.Load() == on {
+			if on {
+				return componentReply(commandError("commands.whitelist.alreadyOn"))
+			}
+			return componentReply(commandError("commands.whitelist.alreadyOff"))
+		}
+		s.whitelistOn.Store(on)
+		if on {
+			key = "commands.whitelist.enabled"
+		} else {
+			key = "commands.whitelist.disabled"
+		}
 	case "list":
-		key = "commands.whitelist.none"
+		s.banMu.Lock()
+		names := make([]string, 0, len(s.whitelisted))
+		for n := range s.whitelisted {
+			names = append(names, n)
+		}
+		s.banMu.Unlock()
+		sort.Strings(names)
+		if len(names) == 0 {
+			return componentReply(translatable("commands.whitelist.none"))
+		}
+		// The names arg rides the with list as a compound so the int
+		// count serializes as the {"":n} form vanilla's NBT codec
+		// produces for mixed lists.
+		return componentReply(translatable("commands.whitelist.list",
+			int32(len(names)), nestedCompound{key: "", value: strings.Join(names, ", ")}))
+	case "add", "remove":
+		if len(args) < 2 {
+			return errTokenEnd("command.unknown.command", 2)
+		}
+		name := args[1]
+		if sess := s.findSessionByName(name); sess != nil {
+			name = sess.getName()
+		}
+		s.banMu.Lock()
+		if s.whitelisted == nil {
+			s.whitelisted = map[string]bool{}
+		}
+		has := s.whitelisted[name]
+		if args[0] == "add" {
+			s.whitelisted[name] = true
+		} else {
+			delete(s.whitelisted, name)
+		}
+		s.banMu.Unlock()
+		if args[0] == "add" {
+			if has {
+				return componentReply(commandError("commands.whitelist.add.failed"))
+			}
+			return componentReply(translatable("commands.whitelist.add.success", name))
+		}
+		if !has {
+			return componentReply(commandError("commands.whitelist.remove.failed"))
+		}
+		return componentReply(translatable("commands.whitelist.remove.success", name))
+	case "reload":
+		key = "commands.whitelist.reloaded"
 	default:
 		return errToken("command.unknown.argument", 1)
 	}

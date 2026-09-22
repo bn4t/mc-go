@@ -46,6 +46,15 @@ func (sess *Session) opLevel() int {
 	return sess.server.permissionLevel(sess.getName())
 }
 
+// SetOpLevel records a permission level for a name the way an
+// ops.json entry does — used by the binary's ops.json load and by
+// tests seeding the table.
+func (s *Server) SetOpLevel(name string, level int) {
+	s.rulesMu.Lock()
+	defer s.rulesMu.Unlock()
+	s.ops[name] = level
+}
+
 // permissionLevel resolves a player name to a permission level.
 func (s *Server) permissionLevel(name string) int {
 	if !s.OpsRequired {

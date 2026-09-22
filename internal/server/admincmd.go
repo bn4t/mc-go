@@ -132,11 +132,18 @@ func (s *Server) runBan(player string, args []string) reply {
 		return errTokenEnd("command.unknown.command", 0)
 	}
 	name := args[0]
-	reason := component{text: "Banned by an operator."}
+	// GameProfileArgument resolves to the profile's canonical name —
+	// an online player's session name, the typed literal otherwise.
+	target := s.findSessionByName(name)
+	if target != nil {
+		name = target.getName()
+	}
+	reason := translatable("multiplayer.disconnect.banned.reason.default")
+	var reasonArg any = reason
+	reasonText := "Banned by an operator."
 	if len(args) > 1 {
-		reason = literal(strings.Join(args[1:], " "))
-	} else {
-		reason = translatable("multiplayer.disconnect.banned.reason.default")
+		reasonText = strings.Join(args[1:], " ")
+		reasonArg = reasonText
 	}
 	s.banMu.Lock()
 	if s.bannedNames == nil {
@@ -144,18 +151,45 @@ func (s *Server) runBan(player string, args []string) reply {
 	}
 	_, dup := s.bannedNames[name]
 	if !dup {
-		s.bannedNames[name] = banReasonText(reason)
+		s.bannedNames[name] = reasonText
 	}
 	s.banMu.Unlock()
 	if dup {
 		return componentReply(commandError("commands.ban.failed"))
 	}
-	if sess := s.findSessionByName(name); sess != nil && sess.state.Load() == StatePlay {
-		s.disconnectWithComponent(sess,
-			translatable("multiplayer.disconnect.banned.reason", reason))
+	success := translatable("commands.ban.success", name, reasonArg)
+	issuer := s.findSessionByName(player)
+	if issuer == nil {
+		if target != nil && target.state.Load() == StatePlay {
+			s.disconnectWithComponent(target,
+				translatable("multiplayer.disconnect.banned.reason", reason))
+		}
+		return componentReply(success)
 	}
-	return componentReply(translatable("commands.ban.success",
-		nestedCompound{key: "", value: name}, reason))
+	// The issuer's reply and the operator broadcast land before the
+	// kick — a ban on your own name still reports first.
+	s.sendReply(issuer, componentReply(success))
+	s.broadcastAdmin(issuer, success)
+	if target != nil && target.state.Load() == StatePlay {
+		s.disconnectWithComponent(target,
+			translatable("multiplayer.disconnect.banned.reason", reason))
+		s.waitUntracked(target)
+	}
+	return reply{}
+}
+
+// waitUntracked blocks until the session's read loop has untracked it
+// — the deferred disconnect close and the leave broadcast ride that
+// path — so follow-on work observes the player gone, the way vanilla's
+// sequential disconnect handling publishes each removal in order.
+func (s *Server) waitUntracked(sess *Session) {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := s.sessions.Load(sess.id); !ok {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func (s *Server) runPardon(player string, args []string) reply {
@@ -163,6 +197,9 @@ func (s *Server) runPardon(player string, args []string) reply {
 		return errTokenEnd("command.unknown.command", 0)
 	}
 	name := args[0]
+	if sess := s.findSessionByName(name); sess != nil {
+		name = sess.getName()
+	}
 	s.banMu.Lock()
 	_, was := s.bannedNames[name]
 	delete(s.bannedNames, name)
@@ -171,19 +208,6 @@ func (s *Server) runPardon(player string, args []string) reply {
 		return componentReply(commandError("commands.pardon.failed"))
 	}
 	return componentReply(translatable("commands.pardon.success", name))
-}
-
-// banReasonText flattens the reason component to the text stored in
-// the ban entry — a typed reason keeps its text, the default its
-// English expansion.
-func banReasonText(c component) string {
-	if c.text != "" {
-		return c.text
-	}
-	if c.translate == "multiplayer.disconnect.banned.reason.default" {
-		return "Banned by an operator."
-	}
-	return c.translate
 }
 
 func (s *Server) runBanIP(player string, args []string) reply {
@@ -262,17 +286,7 @@ func (s *Server) runBanIP(player string, args []string) reply {
 	for _, sess := range kicked {
 		s.disconnectWithComponent(sess,
 			translatable("multiplayer.disconnect.banned_ip.reason", reason))
-		// The leave broadcast fires on untrack, driven by the deferred
-		// close — waiting for it keeps later kicks from outracing
-		// earlier removals, the same way vanilla's sequential
-		// disconnects publish each "player left" first.
-		deadline := time.Now().Add(2 * time.Second)
-		for time.Now().Before(deadline) {
-			if _, ok := s.sessions.Load(sess.id); !ok {
-				break
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
+		s.waitUntracked(sess)
 	}
 	return reply{}
 }

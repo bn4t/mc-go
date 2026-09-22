@@ -2893,3 +2893,18 @@ physics through a void dip plus a fed recovery window.
   before the next disconnect. pardon-ip rejects non-IP literals with
   commands.pardonip.invalid and a valid-but-unbanned address with
   pardonip.failed. TestAdminCmdParity 37 commands green.
+
+- Operator-set commands round two: /ban resolves the target's
+  canonical name (session name online, typed literal offline),
+  takes a typed reason as a bare string in ban.success, broadcasts
+  the success wrap to the other operators, then kicks with the
+  leave broadcast ordered before it returns — a self-ban still
+  reports because the issuer's reply flushes inline. /pardon echoes
+  the canonical name too. /op dupes to commands.op.failed, /deop
+  removes the seeded ops entry; neither broadcasts. /whitelist grew
+  the full grammar: on|off with alreadyOn/alreadyOff, add/remove
+  with canonical names and add/remove.failed, list with
+  {"":n}-wrapped count plus joined names, reload — none broadcast.
+  TestOpsAdminParity 46 commands green; the compare splits events
+  per connection (cross-socket order is delivery racy) and sorts
+  hash-ordered name/rule listings.
