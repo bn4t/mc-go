@@ -3239,3 +3239,32 @@ physics through a void dip plus a fed recovery window.
   pinned properties) — vanilla's BlockPredicate semantics — so
   `if block cave_vines[age=2]` ignores berries, and the same fix
   flows into /fill replace filters and /clone filtered.
+
+- Random tick pass 4 (kelp, commit pending): kelp rides the same
+  GrowingPlant machinery — 14% roll into a WATER cell upward, head to
+  kelp_plant on the way up — with kelp's two twists: canAttachTo
+  rejects #cannot_support_kelp (magma_block), and its pop writes the
+  cell's fluidState legacy (a water source) instead of air. The
+  support-check predicate also corrected: vanilla's isFaceSturdy
+  rejects fluid cells, so a column whose lower cell popped to water
+  keeps cascading. TestVineGrowthParity now 31 probes.
+
+  Two fluid-model fixes fell out of it, both measured on vanilla:
+  - A cell already holding a fluid is never a spread target —
+    intrinsically-waterlogged blocks (kelp, kelp_plant, seagrass,
+    tall_seagrass, bubble_column; LiquidBlockContainer family) and
+    explicitly waterlogged states hold a water source, so
+    replaceableByFluid now excludes them. Before this, placing kelp
+    under water let the column's water flow down through it and
+    destroy it.
+  - Natural writes wake fluids: setNaturalBlock now schedules fluid
+    ticks for the cell and its neighbours, matching vanilla's
+    setBlock→neighbour-update scheduling, so a popped kelp's water
+    legacy immediately falls/spreads.
+
+  Measured but NOT yet implemented: a water source directly above
+  magma_block or soul_sand becomes a bubble_column (drag down / push
+  up) that propagates up through a column of sources — the pop of a
+  kelp sitting over magma lands water which then converts. Probe
+  evidence: vanilla's cell after `setblock magma; setblock kelp` is
+  none of water/air/kelp.

@@ -75,6 +75,8 @@ var popOnPlace = map[string]bool{
 	"twisting_vines_plant": true,
 	"cave_vines":           true,
 	"cave_vines_plant":     true,
+	"kelp":                 true,
+	"kelp_plant":           true,
 }
 
 // selfCheckSurvival applies BlockInput.place's side-effect: a placed
@@ -128,6 +130,10 @@ func vineSpec(name string) (head string, growthDy int, isHead, ok bool) {
 		return "cave_vines", -1, true, true
 	case "cave_vines_plant":
 		return "cave_vines", -1, false, true
+	case "kelp":
+		return "kelp", 1, true, true
+	case "kelp_plant":
+		return "kelp", 1, false, true
 	}
 	return "", 0, false, false
 }
@@ -146,10 +152,29 @@ func (s *Server) vineUpdate(d *dimension, pos, changed world.Pos, b world.Block,
 	ahead := world.Pos{X: pos.X, Y: pos.Y + growthDy, Z: pos.Z}
 	if changed == attach || changed == pos {
 		// canSurvive: the attach cell is this vine's head or body, or a
-		// sturdy face (approximated by solidity).
+		// sturdy face — NonSolid marks the fluid-washable decoration
+		// set, and a fluid cell itself has no sturdy face either (a
+		// kelp tip whose column popped to water must keep falling) —
+		// kelp's canAttachTo additionally rejects #cannot_support_kelp
+		// (magma_block).
 		behind := d.w.GetBlock(attach)
-		if !isBlockNamed(behind, head) && !isBlockNamed(behind, body) && world.NonSolid(behind) {
+		canAttach := true
+		if head == "kelp" {
+			behindName, _ := world.StateOwner(behind)
+			canAttach = !blockTagHas("cannot_support_kelp", behindName)
+		}
+		_, _, behindFluid := fluidOf(behind)
+		sturdy := !behindFluid && !world.NonSolid(behind)
+		if !canAttach || (!isBlockNamed(behind, head) && !isBlockNamed(behind, body) && !sturdy) {
 			s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+			// destroyBlock leaves the cell's fluid: kelp pops back to a
+			// water source, everything else to air.
+			if head == "kelp" {
+				if w, ok := world.BlockStateOf("water", nil); ok {
+					s.setNaturalBlock(d, pos, w)
+					return
+				}
+			}
 			s.setNaturalBlock(d, pos, world.Air)
 			return
 		}

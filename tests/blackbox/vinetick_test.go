@@ -51,12 +51,25 @@ func TestVineGrowthParity(t *testing.T) {
 		// Floating weeping head — no attach support — pops at
 		// placement (tick-family fold).
 		`setblock 52 -58 44 minecraft:weeping_vines[age=0]`,
+		// Kelp: a 1x1 stone shaft holding a water column; kelp on dirt
+		// climbs through the water and stops where the water ends.
+		`fill 55 -62 43 57 -55 45 minecraft:stone`,
+		`fill 56 -61 44 56 -55 44 minecraft:air`,
+		`setblock 56 -61 44 minecraft:dirt`,
+		`fill 56 -60 44 56 -57 44 minecraft:water`,
+		`setblock 56 -60 44 minecraft:kelp[age=0]`,
+		// Floating kelp head over air — attach-side canSurvive fails —
+		// pops at placement into its water legacy, which then falls
+		// into the dug-out cell below.
+		`setblock 72 -61 44 minecraft:air`,
+		`setblock 72 -60 44 minecraft:kelp[age=0]`,
 		`tp @s 44.5 -60 44.5`,
 	}
 	breaks := []string{
 		`setblock 40 -57 44 minecraft:air`,
 		`setblock 44 -59 44 minecraft:air`,
 		`setblock 48 -57 44 minecraft:air`,
+		`setblock 56 -59 44 minecraft:air`,
 	}
 	probes := []struct{ name, spec string }{
 		{"weeping top became plant", "40 -56 44 minecraft:weeping_vines_plant"},
@@ -71,6 +84,13 @@ func TestVineGrowthParity(t *testing.T) {
 		// Berries is a wildcard: the spec subset-matches just age.
 		{"cave tip head age 2", "48 -58 44 minecraft:cave_vines[age=2]"},
 		{"floating head popped", "52 -58 44 minecraft:air"},
+		{"kelp base became plant", "56 -60 44 minecraft:kelp_plant"},
+		{"kelp mid became plant", "56 -59 44 minecraft:kelp_plant"},
+		{"kelp upper became plant", "56 -58 44 minecraft:kelp_plant"},
+		{"kelp tip head age 3", "56 -57 44 minecraft:kelp[age=3]"},
+		{"kelp stopped in air", "56 -56 44 minecraft:air"},
+		{"floating kelp popped to water", "72 -60 44 minecraft:water"},
+		{"kelp water fell below", "72 -61 44 minecraft:water"},
 	}
 	cutProbes := []struct{ name, spec string }{
 		{"weeping stump is head again", "40 -56 44 minecraft:weeping_vines"},
@@ -82,6 +102,12 @@ func TestVineGrowthParity(t *testing.T) {
 		{"cave stump is head again", "48 -56 44 minecraft:cave_vines"},
 		{"cave break cell is air", "48 -57 44 minecraft:air"},
 		{"cave tip popped", "48 -58 44 minecraft:air"},
+		{"kelp stump is head again", "56 -60 44 minecraft:kelp"},
+		// Popped kelp leaves its fluid: the broken cell refills from
+		// above, and the cascade cells are water sources again.
+		{"kelp break cell refills", "56 -59 44 minecraft:water"},
+		{"kelp above popped to water", "56 -58 44 minecraft:water"},
+		{"kelp tip popped to water", "56 -57 44 minecraft:water"},
 	}
 
 	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {

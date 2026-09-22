@@ -134,8 +134,33 @@ func fluidState(k fluidKind, level int) world.Block {
 // replaceableByFluid reports whether a fluid may flow into this block.
 // Vanilla's rule is "the block can be replaced", which covers air and
 // the non-solid decoration blocks a fluid washes away - the same set a
-// heightmap looks through, so the world package owns it.
-func replaceableByFluid(b world.Block) bool { return world.NonSolid(b) }
+// heightmap looks through, so the world package owns it - except that
+// a cell already holding a fluid is never the target of a spread:
+// intrinsically-waterlogged blocks (kelp, seagrass, bubble columns)
+// answer a full water source to getFluidState, so
+// FlowingFluid.canMaybePassThrough's isSourceBlockOfThisType check
+// keeps both fluids out, and explicitly waterlogged blocks hold their
+// water the same way.
+var intrinsicWaterSource = map[string]bool{
+	"kelp":          true,
+	"kelp_plant":    true,
+	"seagrass":      true,
+	"tall_seagrass": true,
+	"bubble_column": true,
+}
+
+func replaceableByFluid(b world.Block) bool {
+	if !world.NonSolid(b) {
+		return false
+	}
+	if name, ok := world.StateOwner(b); ok && intrinsicWaterSource[name] {
+		return false
+	}
+	if wl, ok := world.StateProperty(b, "waterlogged"); ok && wl == "true" {
+		return false
+	}
+	return true
+}
 
 // The three blocks a lava/water meeting can produce, resolved once on
 // demand so a regenerated block table cannot shift them silently.
@@ -494,12 +519,13 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 // setNaturalBlock writes a natural block change (fluid flow, random
 // ticks, melt/freeze): the sharded world,
 // block-entity cleanup, the Block Update fan-out, the light update
-// for any section whose column top moved, and the updateShape-style
-// survival re-check on pos and its neighbors. It mirrors the
-// /setblock path without the player-facing event, since no player
-// caused this. Writes that correspond to vanilla's flag-2 silent
-// setBlock (no neighbor updates) use setSilentBlock instead.
+// for any section whose column top moved, fluid re-evaluation of pos
+// and its neighbours, and the updateShape-style survival re-check.
+// It mirrors vanilla's full setBlock flags for a natural write; writes
+// that correspond to flag-2 silent setBlock (no neighbor updates) use
+// setSilentBlock instead.
 func (s *Server) setNaturalBlock(d *dimension, pos world.Pos, blk world.Block) {
 	s.setSilentBlock(d, pos, blk)
+	s.wakeFluids(d, pos)
 	s.neighborSurvival(d, pos)
 }

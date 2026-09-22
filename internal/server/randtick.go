@@ -548,14 +548,20 @@ func posAbove(pos world.Pos, n int) world.Pos {
 // for cave vines. The old head's conversion to its plant body comes
 // from the write's neighbor pass: its updateShape sees a vine ahead.
 func vineHeadRule(head, body string, growthDy int, cave bool) func(*Server, *dimension, world.Pos, world.Block) {
+	prob := 0.1
+	growInto := isAirCell
+	if head == "kelp" {
+		prob = 0.14
+		growInto = func(b world.Block) bool { return isBlockNamed(b, "water") }
+	}
 	return func(s *Server, d *dimension, pos world.Pos, _ world.Block) {
 		b := d.w.GetBlock(pos)
 		age, ok := intProp(b, "age")
-		if !ok || age >= 25 || s.rng.nextDouble() >= 0.1 {
+		if !ok || age >= 25 || s.rng.nextDouble() >= prob {
 			return
 		}
 		ahead := world.Pos{X: pos.X, Y: pos.Y + growthDy, Z: pos.Z}
-		if !isAirCell(d.w.GetBlock(ahead)) {
+		if !growInto(d.w.GetBlock(ahead)) {
 			return
 		}
 		nb, ok := world.WithProperty(b, "age", strconv.Itoa(age+1))
