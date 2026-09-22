@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"strings"
 
 	"mc-go/internal/nbt"
 )
@@ -75,6 +77,101 @@ type nestedCompound struct {
 
 // literal builds a plain-text component.
 func literal(text string) component { return component{text: text} }
+
+// plain renders the component to flat text the way vanilla's sinks do
+// for non-NBT output (RCON replies, log lines): literals concatenate,
+// translate keys resolve through langEnUS, and style fields drop.
+func (c component) plain() string {
+	var b strings.Builder
+	c.writePlain(&b)
+	return b.String()
+}
+
+func (c component) writePlain(b *strings.Builder) {
+	switch {
+	case c.translate != "":
+		b.WriteString(translatePlain(c.translate, c.with))
+	case c.emptyKey != "":
+		plainArg(b, c.emptyKey)
+	default:
+		b.WriteString(c.text)
+	}
+	for i := range c.extra {
+		c.extra[i].writePlain(b)
+	}
+}
+
+// plainArg writes a translation argument's flat form: components render
+// recursively, nestedCompound renders its value, scalars go verbatim.
+func plainArg(b *strings.Builder, v any) {
+	switch v := v.(type) {
+	case component:
+		v.writePlain(b)
+	case *component:
+		v.writePlain(b)
+	case nestedCompound:
+		plainArg(b, v.value)
+	case map[string]any:
+		if k, ok := v["translate"].(string); ok {
+			b.WriteString(translatePlain(k, nil))
+		}
+	case string:
+		b.WriteString(v)
+	case nil:
+	default:
+		fmt.Fprint(b, v)
+	}
+}
+
+// translatePlain resolves a translation key to English and substitutes
+// its arguments the way vanilla's flat rendering does: "%s" consumes
+// the next argument, "%N$s" an indexed one, "%%" a literal percent. An
+// unknown key renders as the key itself, like Language.getOrDefault.
+func translatePlain(key string, with []any) string {
+	pat, ok := langEnUS[key]
+	if !ok {
+		return key
+	}
+	var b strings.Builder
+	next := 0
+	for i := 0; i < len(pat); i++ {
+		if pat[i] != '%' || i+1 >= len(pat) {
+			b.WriteByte(pat[i])
+			continue
+		}
+		j := i + 1
+		// "%N$s" — digits then $ then s
+		k := j
+		for k < len(pat) && pat[k] >= '0' && pat[k] <= '9' {
+			k++
+		}
+		if k > j && k+1 < len(pat) && pat[k] == '$' && pat[k+1] == 's' {
+			idx := 0
+			for _, c := range pat[j:k] {
+				idx = idx*10 + int(c-'0')
+			}
+			if idx-1 < len(with) {
+				plainArg(&b, with[idx-1])
+			}
+			i = k + 1
+			continue
+		}
+		switch pat[j] {
+		case '%':
+			b.WriteByte('%')
+			i = j
+		case 's':
+			if next < len(with) {
+				plainArg(&b, with[next])
+				next++
+			}
+			i = j
+		default:
+			b.WriteByte('%')
+		}
+	}
+	return b.String()
+}
 
 // translatable builds a translation component, vanilla's
 // Component.translatable.

@@ -30,6 +30,8 @@ func main() {
 	saveInterval := flag.Duration("save-interval", 5*time.Minute, "autosave period (0 disables)")
 	frontendName := flag.String("frontend", "java", "protocol frontend to serve ("+strings.Join(server.FrontendNames(), ", ")+")")
 	gameMode := flag.String("gamemode", "survival", "default game mode: survival, creative, adventure, spectator")
+	rconAddr := flag.String("rcon-addr", "", "RCON listen address (default :25575 when a password is set)")
+	rconPassword := flag.String("rcon-password", "", "RCON password; empty disables RCON like unset rcon.password")
 	flag.Parse()
 
 	s := server.New(*addr)
@@ -38,6 +40,8 @@ func main() {
 	s.WorldPath = *worldPath
 	s.WorldDir = *worldDir
 	s.ServerDir = *serverDir
+	s.RconAddr = *rconAddr
+	s.RconPassword = *rconPassword
 	s.LevelName = *levelName
 	s.WorldSeed = *seed
 	s.GenerateStructures = *generateStructures

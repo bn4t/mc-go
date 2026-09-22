@@ -101,6 +101,10 @@ type Server struct {
 	// the mc-go binary defaults to survival (vanilla's default).
 	GameMode byte
 
+	// RconAddr/RconPassword configure the RCON listener: an empty
+	// password disables it like vanilla's unset rcon.password.
+	RconAddr     string
+	RconPassword string
 	// StartFrozen starts the game clock frozen, as though /tick freeze
 	// had been issued before the first tick. It exists for tests that
 	// need a loaded world handed over untouched - a furnace's saved
@@ -408,6 +412,11 @@ func (s *Server) ServeFrontend(name string, ln net.Listener) error {
 	defer close(stop)
 	stopTicks := s.startGameTicks()
 	defer close(stopTicks)
+	stopRcon, err := s.startRcon()
+	if err != nil {
+		return err
+	}
+	defer stopRcon()
 	return fe.Serve(ln)
 }
 

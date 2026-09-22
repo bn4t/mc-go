@@ -147,7 +147,7 @@ Mojang server over the wire.
   and the whole modifier grammar is pinned case for case
   (`TestItemSNBTParity`)
 - [ ] World save format parity (region files)
-- [ ] RCON, query, properties parity
+- [~] RCON, query, properties parity
 - [ ] Performance targets under vanilla-like load
 
 ## Progress log
@@ -2954,3 +2954,14 @@ physics through a void dip plus a fed recovery window.
   replacing the old "Usage:" strings. /version's build_time with-arg
   is the real 26.2 stamp. TestCommandLevelParity now compares all
   names strictly at every level.
+- RCON: the Source-style remote console, measured on vanilla's
+  enable-rcon/rcon.password/rcon.port. Auth echoes the request id in a
+  type-2 packet, a wrong password and every packet on an
+  unauthenticated connection answer id -1 (the connection stays open),
+  type-2 commands run at level 4 and answer with the flat text of all
+  feedback messages concatenated, replies over 4096 bytes split, and
+  other types answer "Unknown request %x". Flat rendering goes through
+  component.plain against langEnUS, the jar's en_us.json generated
+  verbatim by tools/genlang into langtext_gen.go. RconAddr/
+  RconPassword configure it; -rcon-addr/-rcon-password on the binary.
+  TestRconParity compares every case byte for byte.

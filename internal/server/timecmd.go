@@ -221,7 +221,13 @@ var commandNeedsArgs = map[string]bool{
 // leveled for reports unknown, the same as an unregistered name —
 // vanilla gates the root literal the same way.
 func (s *Server) runCommand(player, name string, args []string) (reply, bool) {
-	if s.permissionLevel(player) < commandLevel(name) {
+	return s.runCommandAt(player, s.permissionLevel(player), name, args)
+}
+
+// runCommandAt is runCommand with the caller's level spelled out —
+// console sources (RCON) carry level 4 without an op entry.
+func (s *Server) runCommandAt(player string, level int, name string, args []string) (reply, bool) {
+	if level < commandLevel(name) {
 		return reply{}, false
 	}
 	if len(args) == 0 && commandNeedsArgs[name] {
