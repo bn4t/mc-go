@@ -2974,3 +2974,18 @@ physics through a void dip plus a fed recovery window.
   player_ sentinels, and unauthenticated or malformed packets are
   dropped. EnableQuery/QueryAddr on the server, -enable-query/
   -query-addr on the binary. TestQueryParity diffs every case.
+- /tp grammar parity: rewritten as a brigadier-model emulation —
+  literal children in vanilla's registration order (vec3 self, entity
+  dest, entities targets), potentials sorted by full consumption then
+  error-free then order, single-exception throw else
+  command.unknown.argument at the winning subtree's rest token.
+  Covers entity/coords forms, multi-victim .multiple replies with int
+  counts, name/UUID/@-selector resolution, victim vs source coord
+  bases (~ is source-relative, rotation ~ is victim-relative),
+  ^-local look-frame coordinates, absolute/relative yaw-pitch with
+  wrapDegrees, the isInSpawnableBounds invalidPosition check
+  (|x|,|z| < 30M, -20M <= y < 20M), notfound.entity exec errors, and
+  entity() vs entities() single/multi parse-time enforcement. Vanilla
+  has no facing node under tp's rotation in 26.2 — trailing args
+  underline from tok2. TestTpParity diffs 41 cases event-for-event,
+  including error underlines.

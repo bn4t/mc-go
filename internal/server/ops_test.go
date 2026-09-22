@@ -18,24 +18,25 @@ func TestTpCoords(t *testing.T) {
 	s := New("unused")
 	enforceSession(t, s, "Warden")
 
-	if out := s.runTp("Warden", nil); !strings.HasPrefix(out.text, "Usage:") {
-		t.Fatalf("tp usage = %q", out.text)
+	if out := s.runTp("Warden", nil); out.comp.extra[0].translate != "command.unknown.command" {
+		t.Fatalf("tp usage = %+v", out.comp)
 	}
-	if out := s.runTp("Warden", []string{"Ghost"}); out.text != "Unknown player: Ghost" {
-		t.Fatalf("tp ghost = %q", out.text)
+	if out := s.runTp("Warden", []string{"Ghost"}); out.comp.extra[0].translate != "argument.entity.notfound.entity" {
+		t.Fatalf("tp ghost = %+v", out.comp)
 	}
-	if out := s.runTp("Warden", []string{"100", "oops", "100"}); out.text != "Invalid y: oops" {
-		t.Fatalf("tp bad y = %q", out.text)
+	if out := s.runTp("Warden", []string{"100", "oops", "100"}); out.comp.extra[0].translate != "command.unknown.argument" {
+		t.Fatalf("tp bad y = %+v", out.comp)
 	}
-	if out := s.runTp("Warden", []string{"99999999", "70", "0"}); out.text != "Position outside the world" {
-		t.Fatalf("tp border = %q", out.text)
+	if out := s.runTp("Warden", []string{"99999999", "70", "0"}); out.comp.extra[0].translate != "commands.teleport.invalidPosition" {
+		t.Fatalf("tp border = %+v", out.comp)
 	}
 	out := s.runTp("Warden", []string{"100", "70", "-40"})
 	if out.comp.translate != "commands.teleport.success.location.single" {
 		t.Fatalf("tp = %+v", out.comp)
 	}
-	if len(out.comp.with) != 4 || out.comp.with[1] != "100.500000" ||
-		out.comp.with[2] != "70.000000" || out.comp.with[3] != "-39.500000" {
+	if len(out.comp.with) != 4 || out.comp.with[1].(nestedCompound).value != "100.500000" ||
+		out.comp.with[2].(nestedCompound).value != "70.000000" ||
+		out.comp.with[3].(nestedCompound).value != "-39.500000" {
 		t.Fatalf("tp coords = %v", out.comp.with)
 	}
 	st, ok := s.PlayerStateOf("Warden")
@@ -44,8 +45,9 @@ func TestTpCoords(t *testing.T) {
 	}
 	// "~" relativity resolves against the sender's exact position.
 	out = s.runTp("Warden", []string{"~1", "~", "~-1"})
-	if len(out.comp.with) != 4 || out.comp.with[1] != "101.500000" ||
-		out.comp.with[2] != "70.000000" || out.comp.with[3] != "-40.500000" {
+	if len(out.comp.with) != 4 || out.comp.with[1].(nestedCompound).value != "101.500000" ||
+		out.comp.with[2].(nestedCompound).value != "70.000000" ||
+		out.comp.with[3].(nestedCompound).value != "-40.500000" {
 		t.Fatalf("tp relative = %v", out.comp.with)
 	}
 }
@@ -63,11 +65,11 @@ func TestTpPlayerToPlayer(t *testing.T) {
 	if st.X != 50 || st.Y != 66 || st.Z != 50 {
 		t.Fatalf("state = %+v", st)
 	}
-	if out := s.runTp("Warden", []string{"Mover", "1", "65", "1", "extra"}); !strings.HasPrefix(out.text, "Usage:") {
-		t.Fatalf("tp 5 args = %q", out.text)
+	if out := s.runTp("Warden", []string{"Mover", "1", "65", "1", "extra"}); out.comp.extra[0].translate != "command.unknown.argument" {
+		t.Fatalf("tp 5 args = %+v", out.comp)
 	}
-	if out := s.runTp("Warden", []string{"Ghost", "1", "65", "1"}); out.text != "Unknown player: Ghost" {
-		t.Fatalf("tp ghost victim = %q", out.text)
+	if out := s.runTp("Warden", []string{"Ghost", "1", "65", "1"}); out.comp.extra[0].translate != "argument.entity.notfound.entity" {
+		t.Fatalf("tp ghost victim = %+v", out.comp)
 	}
 	if out := s.runTp("Warden", []string{"Mover", "1", "65", "1"}); out.comp.translate != "commands.teleport.success.location.single" {
 		t.Fatalf("tp victim = %+v", out.comp)
