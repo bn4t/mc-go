@@ -3003,3 +3003,19 @@ physics through a void dip plus a fed recovery window.
   dead players (entity list filter), @a/@s still resolve them.
   TestTpVoidDeathParity diffs the void death broadcast plus eight
   post-death tp command replies event-for-event.
+- /locate parity: structure/biome/poi now follow vanilla's argument
+  and exec-stage split. Biome arg is resource_or_tag: '#' enters tag
+  mode (missing tag -> argument.resource_tag.not_found), charset-stops
+  report resource.not_found at the stop offset with the resolved
+  "ns:path-prefix", '#' mid-token is expected.separator, and malformed
+  ids (second ':') are argument.id.invalid at the token start.
+  Structure arg is resource_or_tag_key — bad charset reports
+  expected.separator and registry misses report structure.invalid/
+  not_found at exec (no context event); tags resolve the same way.
+  POI mirrors biome. findClosestBiome3d reimplemented as the flat-world
+  specialization: uniform biome means the first spiral cell always
+  hits, so success = source block pos with Y clamped to
+  [minY+1, maxY+1] and floor(sqrt(distSqr)) distance; tag success
+  prints "#tag (resolved biome)". Tag/biome member tables mirror the
+  vanilla datapack (the_void only in without_wandering_trader_spawns).
+  TestLocateParity diffs 48 slots including underlines and Y=-3000.

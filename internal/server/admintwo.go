@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -661,6 +662,129 @@ func playerSelectorParse(tok string) *reply {
 
 // ---- locate ----
 
+// reslocRead consumes the resource-location charset [a-z0-9_./-] plus
+// ':' — the same characters vanilla's ResourceLocation.read accepts —
+// and reports how much of s is readable.
+func reslocRead(s string) int {
+	i := 0
+	for i < len(s) {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+			c == '_' || c == '/' || c == '.' || c == '-' || c == ':' {
+			i++
+			continue
+		}
+		break
+	}
+	return i
+}
+
+// reslocID normalizes a fully-read resource token into "ns:path" form
+// (ns defaults to minecraft). It reports false when the id is
+// malformed — more than one ':', or a namespace/path char outside its
+// allowed set — which vanilla reports as argument.id.invalid.
+func reslocID(tok string) (string, bool) {
+	ns, path := "minecraft", tok
+	if i := strings.IndexByte(tok, ':'); i >= 0 {
+		ns, path = tok[:i], tok[i+1:]
+		if strings.IndexByte(path, ':') >= 0 {
+			return "", false
+		}
+	}
+	for i := 0; i < len(ns); i++ {
+		c := ns[i]
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '.' && c != '-' {
+			return "", false
+		}
+	}
+	for i := 0; i < len(path); i++ {
+		c := path[i]
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '/' && c != '.' && c != '-' {
+			return "", false
+		}
+	}
+	return ns + ":" + path, true
+}
+
+// reslocPrefixID renders a partially-consumed resource token the way
+// the resource.not_found error prints it: the valid prefix gets the
+// implied minecraft namespace when it has no ':'.
+func reslocPrefixID(prefix string) string {
+	if strings.IndexByte(prefix, ':') >= 0 {
+		return prefix
+	}
+	return "minecraft:" + prefix
+}
+
+// tagsets used by /locate: the registry-tag names that exist in vanilla
+// 26.2 (a missing tag fails differently than a tag that simply does not
+// match anything nearby).
+var structureTagNames = map[string]bool{
+	"cats_spawn_as_black": true, "cats_spawn_in": true, "dolphin_located": true,
+	"eye_of_ender_located": true, "mineshaft": true, "ocean_ruin": true,
+	"on_desert_village_maps": true, "on_jungle_explorer_maps": true,
+	"on_ocean_explorer_maps": true, "on_plains_village_maps": true,
+	"on_savanna_village_maps": true, "on_snowy_village_maps": true,
+	"on_swamp_explorer_maps": true, "on_taiga_village_maps": true,
+	"on_treasure_maps": true, "on_trial_chambers_maps": true,
+	"on_woodland_explorer_maps": true, "ruined_portal": true,
+	"shipwreck": true, "village": true,
+}
+
+var biomeTagNames = map[string]bool{
+	"allows_surface_slime_spawns": true, "allows_tropical_fish_spawns_at_any_height": true,
+	"has_structure/ancient_city": true, "has_structure/bastion_remnant": true,
+	"has_structure/buried_treasure": true, "has_structure/desert_pyramid": true,
+	"has_structure/end_city": true, "has_structure/igloo": true,
+	"has_structure/jungle_temple": true, "has_structure/mineshaft": true,
+	"has_structure/mineshaft_mesa": true, "has_structure/nether_fortress": true,
+	"has_structure/nether_fossil": true, "has_structure/ocean_monument": true,
+	"has_structure/ocean_ruin_cold": true, "has_structure/ocean_ruin_warm": true,
+	"has_structure/pillager_outpost": true, "has_structure/ruined_portal_desert": true,
+	"has_structure/ruined_portal_jungle": true, "has_structure/ruined_portal_mountain": true,
+	"has_structure/ruined_portal_nether": true, "has_structure/ruined_portal_ocean": true,
+	"has_structure/ruined_portal_standard": true, "has_structure/ruined_portal_swamp": true,
+	"has_structure/shipwreck": true, "has_structure/shipwreck_beached": true,
+	"has_structure/stronghold": true, "has_structure/swamp_hut": true,
+	"has_structure/trail_ruins": true, "has_structure/trial_chambers": true,
+	"has_structure/village_desert": true, "has_structure/village_plains": true,
+	"has_structure/village_savanna": true, "has_structure/village_snowy": true,
+	"has_structure/village_taiga": true, "has_structure/woodland_mansion": true,
+	"is_badlands": true, "is_beach": true, "is_deep_ocean": true, "is_end": true,
+	"is_forest": true, "is_hill": true, "is_jungle": true, "is_mountain": true,
+	"is_nether": true, "is_ocean": true, "is_overworld": true, "is_river": true,
+	"is_savanna": true, "is_taiga": true, "mineshaft_blocking": true,
+	"more_frequent_drowned_spawns": true, "polar_bears_spawn_on_alternate_blocks": true,
+	"produces_corals_from_bonemeal": true, "reduce_water_ambient_spawns": true,
+	"required_ocean_monument_surrounding": true, "spawns_cold_variant_farm_animals": true,
+	"spawns_cold_variant_frogs": true, "spawns_coral_variant_zombie_nautilus": true,
+	"spawns_gold_rabbits": true, "spawns_snow_foxes": true,
+	"spawns_warm_variant_farm_animals": true, "spawns_warm_variant_frogs": true,
+	"spawns_white_rabbits": true, "stronghold_biased_to": true,
+	"water_on_map_outlines": true, "without_wandering_trader_spawns": true,
+	"without_zombie_sieges": true,
+}
+
+var poiTagNames = map[string]bool{
+	"acquirable_job_site": true, "bee_home": true, "village": true,
+}
+
+// biomeTagContains records, per biome tag, which of our dimensions'
+// flat biomes it covers (nested tag refs resolved). the_void is
+// overworld, nether_wastes the nether, the_end the end.
+var biomeTagContains = map[string]map[string]bool{
+	"without_wandering_trader_spawns":    {"minecraft:the_void": true},
+	"is_nether":                          {"minecraft:nether_wastes": true},
+	"spawns_warm_variant_frogs":          {"minecraft:nether_wastes": true},
+	"spawns_warm_variant_farm_animals":   {"minecraft:nether_wastes": true},
+	"has_structure/nether_fortress":      {"minecraft:nether_wastes": true},
+	"has_structure/bastion_remnant":      {"minecraft:nether_wastes": true},
+	"has_structure/ruined_portal_nether": {"minecraft:nether_wastes": true},
+	"is_end":                             {"minecraft:the_end": true},
+	"spawns_cold_variant_frogs":          {"minecraft:the_end": true},
+	"spawns_cold_variant_farm_animals":   {"minecraft:the_end": true},
+}
+
 func (s *Server) runLocate(player string, args []string) reply {
 	if len(args) == 0 {
 		return errTokenEnd("command.unknown.command", 0)
@@ -670,41 +794,139 @@ func (s *Server) runLocate(player string, args []string) reply {
 		if len(args) < 2 {
 			return errTokenEnd("command.unknown.command", 2)
 		}
-		name := normalizeID(args[1])
-		short := strings.TrimPrefix(name, "minecraft:")
-		if !structureNames[short] {
-			return componentReply(commandError("commands.locate.structure.invalid", name))
+		tok := args[1]
+		tag := strings.HasPrefix(tok, "#")
+		body := strings.TrimPrefix(tok, "#")
+		if n := reslocRead(body); n < len(body) {
+			return errTokenOff("command.expected.separator", 2, len(tok)-len(body)+n)
 		}
-		return componentReply(commandError("commands.locate.structure.not_found", name))
+		id, ok := reslocID(body)
+		if !ok {
+			return errToken("argument.id.invalid", 2)
+		}
+		if len(args) > 2 {
+			return errToken("command.unknown.argument", 3)
+		}
+		short := strings.TrimPrefix(id, "minecraft:")
+		if tag {
+			if !structureTagNames[short] {
+				return componentReply(commandError("commands.locate.structure.invalid", "#"+id))
+			}
+			return componentReply(commandError("commands.locate.structure.not_found", "#"+id))
+		}
+		if !structureNames[short] {
+			return componentReply(commandError("commands.locate.structure.invalid", id))
+		}
+		// The flat comparison world has no structures.
+		return componentReply(commandError("commands.locate.structure.not_found", id))
 	case "biome":
 		if len(args) < 2 {
 			return errTokenEnd("command.unknown.command", 2)
 		}
-		name := normalizeID(args[1])
-		short := strings.TrimPrefix(name, "minecraft:")
-		if !biomeNames[short] {
-			return errTokenEnd("argument.resource.not_found", 2, name, "minecraft:worldgen/biome")
-		}
 		sender := s.findSessionByName(player)
 		d := s.dims[sender.dimName()]
-		if d != nil && "minecraft:"+short == normalizeID(d.w.Biome()) {
-			x, y, z, _, _, _ := sender.Pos()
-			return componentReply(translatable("commands.locate.biome.success",
-				nestedCompound{key: "", value: name},
-				locatePosComp(int32(x), int32(y), int32(z)),
-				nestedCompound{key: "", value: int32(0)}))
+		worldBiome := normalizeID(d.w.Biome())
+		tok := args[1]
+		reg := "minecraft:worldgen/biome"
+		var print string // the registry argument as vanilla prints it
+		matches := false
+		if strings.HasPrefix(tok, "#") {
+			inner := tok[1:]
+			n := reslocRead(inner)
+			if n < len(inner) {
+				return errTokenOff("argument.resource_tag.not_found", 2, 1+n, reslocPrefixID(inner[:n]), reg)
+			}
+			id, ok := reslocID(inner)
+			if !ok {
+				return errToken("argument.id.invalid", 2)
+			}
+			if len(args) > 2 {
+				return errToken("command.unknown.argument", 3)
+			}
+			short := strings.TrimPrefix(id, "minecraft:")
+			if !biomeTagNames[short] {
+				return errTokenEnd("argument.resource_tag.not_found", 2, id, reg)
+			}
+			print = "#" + id
+			if members := biomeTagContains[short]; members != nil && members[worldBiome] {
+				matches = true
+				print += " (" + worldBiome + ")"
+			}
+		} else {
+			n := reslocRead(tok)
+			if n < len(tok) {
+				if tok[n] == '#' {
+					return errTokenOff("command.expected.separator", 2, n)
+				}
+				return errTokenOff("argument.resource.not_found", 2, n, reslocPrefixID(tok[:n]), reg)
+			}
+			id, ok := reslocID(tok)
+			if !ok {
+				return errToken("argument.id.invalid", 2)
+			}
+			if len(args) > 2 {
+				return errToken("command.unknown.argument", 3)
+			}
+			if !biomeNames[strings.TrimPrefix(id, "minecraft:")] {
+				return errTokenEnd("argument.resource.not_found", 2, id, reg)
+			}
+			print = id
+			matches = worldBiome == id
 		}
-		return componentReply(commandError("commands.locate.biome.not_found", name))
+		if matches {
+			// findClosestBiome3d's first sample is the source block pos
+			// with Y clamped into [minY+1, maxY+1] — always a hit in a
+			// uniform-biome world.
+			x, y, z, _, _, _ := sender.Pos()
+			bx, by, bz := int32(math.Floor(x)), int32(math.Floor(y)), int32(math.Floor(z))
+			fy := min(max(by, int32(d.minY+1)), int32(d.minY+d.height+1))
+			dy := int64(fy - by)
+			dist := int32(math.Sqrt(float64(dy * dy)))
+			return componentReply(translatable("commands.locate.biome.success",
+				nestedCompound{key: "", value: print},
+				locatePosComp(bx, fy, bz),
+				nestedCompound{key: "", value: dist}))
+		}
+		return componentReply(commandError("commands.locate.biome.not_found", print))
 	case "poi":
 		if len(args) < 2 {
 			return errTokenEnd("command.unknown.command", 2)
 		}
-		name := normalizeID(args[1])
-		short := strings.TrimPrefix(name, "minecraft:")
-		if !poiNames[short] {
-			return errTokenEnd("argument.resource.not_found", 2, name, "minecraft:point_of_interest_type")
+		tok := args[1]
+		reg := "minecraft:point_of_interest_type"
+		tag := strings.HasPrefix(tok, "#")
+		body := strings.TrimPrefix(tok, "#")
+		n := reslocRead(body)
+		if n < len(body) {
+			if !tag && body == tok && tok[n] == '#' {
+				return errTokenOff("command.expected.separator", 2, n)
+			}
+			key := "argument.resource.not_found"
+			off := n
+			if tag {
+				key = "argument.resource_tag.not_found"
+				off = n + 1
+			}
+			return errTokenOff(key, 2, off, reslocPrefixID(body[:n]), reg)
 		}
-		return componentReply(commandError("commands.locate.poi.not_found", name))
+		id, ok := reslocID(body)
+		if !ok {
+			return errToken("argument.id.invalid", 2)
+		}
+		if len(args) > 2 {
+			return errToken("command.unknown.argument", 3)
+		}
+		short := strings.TrimPrefix(id, "minecraft:")
+		if tag {
+			if !poiTagNames[short] {
+				return errTokenEnd("argument.resource_tag.not_found", 2, id, reg)
+			}
+			return componentReply(commandError("commands.locate.poi.not_found", "#"+id))
+		}
+		if !poiNames[short] {
+			return errTokenEnd("argument.resource.not_found", 2, id, reg)
+		}
+		return componentReply(commandError("commands.locate.poi.not_found", id))
 	}
 	return errToken("command.unknown.argument", 1)
 }
