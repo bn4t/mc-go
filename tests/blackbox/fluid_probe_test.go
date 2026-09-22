@@ -69,6 +69,18 @@ type chatSink struct {
 // vanilla after a few seconds, which shows up as a broken pipe on the
 // next write and silently truncates whatever was being measured.
 func newChatSink(pr *protocol.Reader, pw *protocol.Writer) *chatSink {
+	return newChatSinkOpts(pr, pw, false)
+}
+
+// newChatSinkTP is newChatSink plus real-client teleport handling: it
+// confirms the teleport and echoes the position back. Without that a
+// vanilla server never moves the entity — the position stays at spawn
+// for chunk ticking — and silently drops block actions.
+func newChatSinkTP(pr *protocol.Reader, pw *protocol.Writer) *chatSink {
+	return newChatSinkOpts(pr, pw, true)
+}
+
+func newChatSinkOpts(pr *protocol.Reader, pw *protocol.Writer, confirmTP bool) *chatSink {
 	s := &chatSink{ids: map[int32]int{}, cap: 4096}
 	var writeMu sync.Mutex
 	go func() {
@@ -94,6 +106,28 @@ func newChatSink(pr *protocol.Reader, pw *protocol.Writer) *chatSink {
 				writeMu.Lock()
 				_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
 				writeMu.Unlock()
+			}
+			if confirmTP && p.ID == server.IDPlaySyncPos {
+				r := protocol.NewPacketReader(p.Data)
+				if id, err := r.VarInt(); err == nil {
+					var b protocol.Buffer
+					b.VarInt(id)
+					writeMu.Lock()
+					_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes())
+					if x, err := r.Double(); err == nil {
+						var mb protocol.Buffer
+						mb.Double(x)
+						if y, err := r.Double(); err == nil {
+							mb.Double(y)
+						}
+						if z, err := r.Double(); err == nil {
+							mb.Double(z)
+						}
+						mb.Byte(0)
+						_ = pw.WritePacket(server.IDPlayMovePosSB, mb.Bytes())
+					}
+					writeMu.Unlock()
+				}
 			}
 		}
 	}()

@@ -57,9 +57,17 @@ Mojang server over the wire.
       against it state for state
 - [ ] Lighting engine (sky + block, incremental)
 - [~] Fluids: water and lava flow with vanilla's levels, drop-off,
-      falling columns and dry-up. Redstone, block ticks and random
-      ticks remain (the random-tick sampler and its per-section gate
-      are in place, with no block rules registered yet)
+      falling columns and dry-up. Redstone and scheduled block ticks
+      remain. Random ticks now cover the crop family — wheat/carrots/
+      potatoes/beetroots, melon/pumpkin stems (attach + fruit on tagged
+      supports), nether wart, cocoa, sweet berry bush, pitcher crop's
+      two-half growth, torchflower_crop's 1/3 pre-gate and morph into
+      torchflower at maturity, farmland moisture/revert, turf spread
+      and shade die-back, nylium reversion (the sampler and its
+      per-section gate are in place; fire spread/decay, leaves decay,
+      cactus/sugar cane/bamboo/kelp/chorus columns, saplings, mushroom
+      spread, ice/snow form-and-melt, vines, amethyst and cave vines
+      remain open)
 - [x] Block entities (chests, furnaces, signs, hoppers, barrels, ...):
       saved and loaded in the real server's own chunk format, compared
       block entity for block entity both ways
@@ -3118,3 +3126,50 @@ physics through a void dip plus a fed recovery window.
   leaves keepalive unanswered. The scripted client now services all of
   it inside the dig loop. Full go test ./internal/server green;
   TestBlockDropParity identical on vanilla and mc-go.
+
+- 2026-09-22: Random-tick crop family, measured on vanilla 26.2 bytecode
+  and pinned end-to-end by `TestCropGrowthParity` (24 probes, identical
+  converged end states on both servers): CropBlock gets the
+  rawBrightness>=9 gate, the `(25/growthSpeed)+1` roll and the full
+  getGrowthSpeed formula (3x3 farmland scan, hydrated=3/dry=1, off-axis
+  quarters, halving only on (W|E)&(N|S) or a diagonal same-crop);
+  StemBlock ages to 7 then spends the roll on a random side whose fruit
+  cell is air over a `supports_<fruit>_stem_fruit` block and swaps to
+  attached_<fruit>_stem[facing]; NetherWartBlock (10, no light), CocoaBlock
+  (5, roll before the age<2 check), SweetBerryBushBlock (5 with light
+  probed at pos.above), PitcherCropBlock (lower-half only, upper half
+  written at age>=3, canopy-checked), TorchflowerCropBlock's extra
+  nextInt(3) gate and AGE_1-capped morph into the torchflower flower;
+  FarmlandBlock moisture (9x2x9 water box incl. waterlogged, drain, and
+  dirt reversion when the block above is not in #maintains_farmland —
+  isRainingAt absent until weather exists), SpreadingSnowyBlock turf
+  spread (4 rolls into the 3x5x3 reach, target must be the base block,
+  survive check and a non-water-above gate) and shade/submersion
+  die-back, and NyliumBlock's reversion (bonemeal spread stays open).
+
+  Supporting fixes the comparison forced: the gamerule is
+  `minecraft:random_tick_speed` — the reader looked up the pre-26.x
+  camelCase key and silently returned 3; and the sampler hit a real
+  throughput wall — a block read is a shard round trip, so sampling each
+  roll live ran ~14us per draw (seconds per tick at speed 4096, ~1 tick
+  per 20s observed). The sampler now snapshots each tickable section once
+  per tick (FillBox is one round trip per shard) and rules resolve
+  in-section reads from the snapshot; the section scan also caches a
+  has-opaque bit per section so the light check skips air-only column
+  sections without a single read. And a client-side subtlety worth
+  remembering: vanilla's /tp does not move the entity until the client
+  confirms the teleport and echoes the position — an unconfirmed scripted
+  client stays at spawn for chunk-tick purposes, so the crop harness
+  sink now answers SyncPos (confirm + position echo) the way a real
+  client does.
+
+  Known residual divergences the test deliberately avoids pinning:
+  vanilla pops a crop when a neighbor update makes its support invalid
+  (observed: wheat planted on dirt breaks when the dirt grassifies —
+  mc-go has no updateShape survival re-check on block changes yet — an
+  open gap covering crops, torches, snow, cactus, ...) and the light
+  check is column-opacity, not real light propagation (a one-block cap
+  shades a crop here where vanilla's side leakage lights it — blocked
+  on the lighting engine entry). `execute if block` on mc-go also still
+  wants full-state specs for multi-property blocks where vanilla
+  subset-matches.

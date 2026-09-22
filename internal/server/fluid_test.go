@@ -19,7 +19,7 @@ func fluidSim(t *testing.T) *Server {
 
 // set places a block and lets the fluid engine notice it.
 func (s *Server) set(d *dimension, p world.Pos, b world.Block) {
-	s.setFluidBlock(d, p, b)
+	s.setNaturalBlock(d, p, b)
 	s.wakeFluids(d, p)
 }
 

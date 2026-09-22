@@ -245,7 +245,7 @@ func (s *Server) runClone(player string, args []string) reply {
 			z >= dst[2] && z <= dst[2]+maxZ-minZ
 	}
 	for _, c := range cells {
-		s.setFluidBlock(dstDim, world.Pos{
+		s.setNaturalBlock(dstDim, world.Pos{
 			X: dst[0] + c.rel[0],
 			Y: dst[1] + c.rel[1],
 			Z: dst[2] + c.rel[2]}, c.blk)
@@ -254,7 +254,7 @@ func (s *Server) runClone(player string, args []string) reply {
 		for _, c := range cells {
 			x, y, z := minX+c.rel[0], minY+c.rel[1], minZ+c.rel[2]
 			if !inDst(x, y, z) {
-				s.setFluidBlock(srcDim, world.Pos{X: x, Y: y, Z: z}, world.Air)
+				s.setNaturalBlock(srcDim, world.Pos{X: x, Y: y, Z: z}, world.Air)
 			}
 		}
 	}

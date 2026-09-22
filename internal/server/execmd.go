@@ -1184,7 +1184,7 @@ func (s *Server) runFill(player string, args []string) reply {
 				} else if d.w.GetBlock(pos) == blk {
 					continue
 				}
-				s.setFluidBlock(d, pos, blk)
+				s.setNaturalBlock(d, pos, blk)
 				touched[[2]int{x >> 4, z >> 4}] = true
 				changed++
 			}

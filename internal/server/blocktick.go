@@ -65,16 +65,17 @@ type randSectionKey struct {
 	x, y, z int
 }
 
-// sectionHasRandomTicks reports whether a section holds any block with a
-// random-tick rule, caching the answer.
-//
-// This is the difference between a live world and a stalled one: without
-// it, every tick samples three positions in every one of a chunk's 24
-// sections for all 289 chunks a player keeps loaded — twenty thousand
-// block reads a tick, nearly all of them air. Vanilla keeps the same
-// fact per section (`LevelChunkSection.isRandomlyTicking`); the cache is
-// invalidated whenever a block in the section changes.
-func (s *Server) sectionHasRandomTicks(d *dimension, sec randSectionKey) bool {
+// Section cache flag bits.
+const (
+	secTickable uint8 = 1 << iota // holds a block with a random-tick rule
+	secOpaque                     // holds a block that is neither air nor light-passable
+)
+
+// sectionFlags returns the cached flags for a section, scanning it once
+// on first use. The scan doubles as the cropLit shortcut: a section with
+// no opaque blocks can never shade a crop column, so cropLit skips it
+// without a single block read.
+func (s *Server) sectionFlags(d *dimension, sec randSectionKey) uint8 {
 	s.randMu.Lock()
 	if v, ok := s.randSections[sec]; ok {
 		s.randMu.Unlock()
@@ -86,19 +87,42 @@ func (s *Server) sectionHasRandomTicks(d *dimension, sec randSectionKey) bool {
 	max := world.Pos{X: min.X + 15, Y: min.Y + 15, Z: min.Z + 15}
 	buf := make([]world.Block, 16*16*16)
 	d.w.FillBox(min, max, buf)
-	found := false
+	var flags uint8
 	for _, b := range buf {
-		if name, ok := world.StateOwner(b); ok {
-			if _, ok := randomTickRules[name]; ok {
-				found = true
-				break
-			}
+		if b == world.Air {
+			continue
+		}
+		name, ok := world.StateOwner(b)
+		if !ok {
+			continue
+		}
+		if _, ok := randRules()[name]; ok {
+			flags |= secTickable
+		}
+		if !lightPassable[name] {
+			flags |= secOpaque
+		}
+		if flags == secTickable|secOpaque {
+			break
 		}
 	}
 	s.randMu.Lock()
-	s.randSections[sec] = found
+	s.randSections[sec] = flags
 	s.randMu.Unlock()
-	return found
+	return flags
+}
+
+// sectionHasRandomTicks reports whether a section holds any block with a
+// random-tick rule, caching the answer.
+//
+// This is the difference between a live world and a stalled one: without
+// it, every tick samples three positions in every one of a chunk's 24
+// sections for all 289 chunks a player keeps loaded — twenty thousand
+// block reads a tick, nearly all of them air. Vanilla keeps the same
+// fact per section (`LevelChunkSection.isRandomlyTicking`); the cache is
+// invalidated whenever a block in the section changes.
+func (s *Server) sectionHasRandomTicks(d *dimension, sec randSectionKey) bool {
+	return s.sectionFlags(d, sec)&secTickable != 0
 }
 
 // invalidateRandomTickSection drops the cached answer for the section a
@@ -129,7 +153,7 @@ func floorDiv(a, b int) int {
 // randomTickStep runs one tick of random block ticks across the chunks
 // that have players near them, inside the simulation distance.
 func (s *Server) randomTickStep() {
-	if s.rng == nil || len(randomTickRules) == 0 {
+	if s.rng == nil || len(randRules()) == 0 {
 		// Nothing in the registry has random-tick behavior, so there is
 		// nothing to sample for. This is not just an optimization: it is
 		// the same short-circuit vanilla gets from a section whose blocks
@@ -176,22 +200,68 @@ func (s *Server) randomTickDimension(d *dimension, speed int) {
 		return
 	}
 	sections := d.height / 16
+	buf := make([]world.Block, 16*16*16)
 	for ck := range chunks {
 		cx, cz := ck[0], ck[1]
 		for sec := 0; sec < sections; sec++ {
 			// Sections with nothing to random-tick cost one cached map
-			// lookup instead of three block reads.
+			// lookup instead of a 4096-block snapshot.
 			if !s.sectionHasRandomTicks(d, randSectionKey{dim: d.name, x: cx, y: sec, z: cz}) {
 				continue
 			}
+			// One FillBox per tickable section: a block read goes through
+			// a shard round trip, so sampling each roll against the live
+			// world costs microseconds per draw — seconds per tick at high
+			// random_tick_speed — while a snapshot costs one round trip
+			// per shard. Rules also resolve reads inside the section from
+			// the snapshot (s.randView); only cells outside it hit the
+			// live world. A cell's second roll in the same tick sees the
+			// snapshot's state, but every rule is idempotent on rewrite,
+			// which is what vanilla's live read effectively does anyway.
+			min := world.Pos{X: cx * 16, Y: d.minY + sec*16, Z: cz * 16}
+			max := world.Pos{X: min.X + 15, Y: min.Y + 15, Z: min.Z + 15}
+			d.w.FillBox(min, max, buf)
+			s.randView = &randView{min: min, buf: buf}
 			for i := 0; i < speed; i++ {
-				x := cx*16 + s.rng.intn(16)
-				z := cz*16 + s.rng.intn(16)
-				y := d.minY + sec*16 + s.rng.intn(16)
-				s.randomTickBlock(d, world.Pos{X: x, Y: y, Z: z})
+				idx := s.rng.intn(len(buf))
+				blk := buf[idx]
+				name, ok := world.StateOwner(blk)
+				if !ok {
+					continue
+				}
+				rule, ok := randRules()[name]
+				if !ok {
+					continue
+				}
+				rule(s, d, world.Pos{
+					X: min.X + (idx & 15),
+					Y: min.Y + (idx >> 8),
+					Z: min.Z + ((idx >> 4) & 15),
+				}, blk)
 			}
+			s.randView = nil
 		}
 	}
+}
+
+// randView is the active section snapshot during a section's roll loop;
+// rule reads inside its bounds resolve from it instead of the world.
+type randView struct {
+	min world.Pos
+	buf []world.Block
+}
+
+// rtBlock reads a block for a random-tick rule: positions inside the
+// section currently being rolled come from its snapshot, everything
+// else goes to the live world.
+func (s *Server) rtBlock(d *dimension, p world.Pos) world.Block {
+	if v := s.randView; v != nil &&
+		p.X >= v.min.X && p.X < v.min.X+16 &&
+		p.Y >= v.min.Y && p.Y < v.min.Y+16 &&
+		p.Z >= v.min.Z && p.Z < v.min.Z+16 {
+		return v.buf[((p.Y-v.min.Y)*16+(p.Z-v.min.Z))*16+(p.X-v.min.X)]
+	}
+	return d.w.GetBlock(p)
 }
 
 // randomTickBlock applies a block's random-tick rule, if it has one.
@@ -203,15 +273,44 @@ func (s *Server) randomTickBlock(d *dimension, pos world.Pos) {
 	if !ok {
 		return
 	}
-	if rule, ok := randomTickRules[name]; ok {
+	if rule, ok := randRules()[name]; ok {
 		rule(s, d, pos, blk)
 	}
 }
 
-// randomTickRules maps a block name to its random-tick behavior. Rules
+// randRules maps a block name to its random-tick behavior. Rules
 // are added as their milestone lands; an unknown block simply has none,
-// which is also true in vanilla for most blocks.
-var randomTickRules = map[string]func(*Server, *dimension, world.Pos, world.Block){}
+// which is also true in vanilla for most blocks. The map builds lazily:
+// a package-level initializer would form an init cycle through the rule
+// closures back into sectionFlags, which reads this same map.
+var (
+	randRulesOnce sync.Once
+	randRulesMap  map[string]func(*Server, *dimension, world.Pos, world.Block)
+)
+
+func randRules() map[string]func(*Server, *dimension, world.Pos, world.Block) {
+	randRulesOnce.Do(func() {
+		randRulesMap = map[string]func(*Server, *dimension, world.Pos, world.Block){
+			"wheat":            cropRule(7),
+			"carrots":          cropRule(7),
+			"potatoes":         cropRule(7),
+			"beetroots":        cropRule(3),
+			"torchflower_crop": torchflowerRule,
+			"melon_stem":       stemRule("melon", "attached_melon_stem", "supports_melon_stem_fruit"),
+			"pumpkin_stem":     stemRule("pumpkin", "attached_pumpkin_stem", "supports_pumpkin_stem_fruit"),
+			"nether_wart":      wartRule,
+			"cocoa":            cocoaRule,
+			"sweet_berry_bush": berryRule,
+			"pitcher_crop":     pitcherRule,
+			"farmland":         farmlandRule,
+			"grass_block":      turfRule("dirt"),
+			"mycelium":         turfRule("dirt"),
+			"crimson_nylium":   nyliumRule,
+			"warped_nylium":    nyliumRule,
+		}
+	})
+	return randRulesMap
+}
 
 // blockTick handles one scheduled (non-random) block tick. Redstone
 // and crop growth scheduling will land here; the only current client
@@ -246,7 +345,7 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 func (s *Server) randomTickSpeed() int {
 	s.rulesMu.RLock()
 	defer s.rulesMu.RUnlock()
-	v, ok := s.gameRules["randomTickSpeed"]
+	v, ok := s.gameRules["minecraft:random_tick_speed"]
 	if !ok {
 		return 3
 	}

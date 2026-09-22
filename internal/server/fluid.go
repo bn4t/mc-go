@@ -217,7 +217,7 @@ func (s *Server) wakeLava(d *dimension, pos world.Pos) {
 			continue
 		}
 		if solid, ok := s.lavaWaterContact(d, p, level); ok {
-			s.setFluidBlock(d, p, solid)
+			s.setNaturalBlock(d, p, solid)
 			for _, q := range append([]world.Pos{p}, neighbourPositions(p)...) {
 				if k2, _, ok := fluidOf(d.w.GetBlock(q)); ok {
 					s.scheduleFluidTick(d, q, k2.tickDelay(d))
@@ -310,14 +310,14 @@ func (s *Server) fluidTick(d *dimension, pos world.Pos) {
 	// cobblestone at a flow, whichever side the water came from.
 	if kind == fluidLava {
 		if solid, ok := s.lavaWaterContact(d, pos, level); ok {
-			s.setFluidBlock(d, pos, solid)
+			s.setNaturalBlock(d, pos, solid)
 			s.wakeFluids(d, pos)
 			return
 		}
 	}
 	next := s.newFluidState(d, pos, kind, level)
 	if next != cur {
-		s.setFluidBlock(d, pos, next)
+		s.setNaturalBlock(d, pos, next)
 		if next == world.Air {
 			// Dried up: neighbours lose their supply and will be
 			// re-evaluated by their own ticks.
@@ -426,14 +426,14 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 				// and the lava is then still resting, so it goes on to
 				// spread sideways below.
 				resolveSolidStates()
-				s.setFluidBlock(d, below, stoneState)
+				s.setNaturalBlock(d, below, stoneState)
 				s.wakeFluids(d, below)
 			default:
 				columnBelow = k2 == kind
 			}
 		} else if replaceableByFluid(under) {
 			canFall = true
-			s.setFluidBlock(d, below, fluidState(kind, fluidFalling))
+			s.setNaturalBlock(d, below, fluidState(kind, fluidFalling))
 			s.scheduleFluidTick(d, below, kind.tickDelay(d))
 		}
 	}
@@ -481,7 +481,7 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 		} else if !replaceableByFluid(cur) {
 			continue
 		}
-		s.setFluidBlock(d, nb, next)
+		s.setNaturalBlock(d, nb, next)
 		s.scheduleFluidTick(d, nb, kind.tickDelay(d))
 		if kind == fluidWater {
 			// Water that has just arrived beside lava wakes it, so the
@@ -491,11 +491,12 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 	}
 }
 
-// setFluidBlock writes a fluid-driven block change: the sharded world,
+// setNaturalBlock writes a natural block change (fluid flow, random
+// ticks, melt/freeze): the sharded world,
 // block-entity cleanup, the Block Update fan-out, and the light update
 // for any section whose column top moved. It mirrors the /setblock path
 // without the player-facing event, since no player caused this.
-func (s *Server) setFluidBlock(d *dimension, pos world.Pos, blk world.Block) {
+func (s *Server) setNaturalBlock(d *dimension, pos world.Pos, blk world.Block) {
 	oldTop := columnTop(d, pos.X, pos.Z)
 	d.w.SetBlock(pos, blk)
 	newTop := columnTop(d, pos.X, pos.Z)
