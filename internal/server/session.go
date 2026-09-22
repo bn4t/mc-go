@@ -130,16 +130,18 @@ type Session struct {
 	// Client settings from Client Information.
 	infoMu sync.Mutex
 	info   clientInfo
-	// Survival digging state (see digTickStep): the block being dug,
-	// how many ticks of progress it has, and whether the client has
-	// confirmed the dig with a finish (stop) action.
-	digMu        sync.Mutex
-	digPos       world.Pos
-	digBlock     world.Block
-	digTicks     int
-	digNeeded    int
-	digConfirmed bool
-	digActive    bool
+	// Survival digging state (see digTickStep): the latched dig, plus
+	// vanilla's hasDelayedDestroy arm — a stop that arrived before the
+	// progress completed still breaks the block once the tick count
+	// crosses the requirement.
+	digMu           sync.Mutex
+	digPos          world.Pos
+	digBlock        world.Block
+	digTicks        int
+	digActive       bool
+	digDelayed      bool
+	digDelayedPos   world.Pos
+	digDelayedTicks int
 	// Survival player state (touched only from the session read loop).
 	health       float32
 	food         int32

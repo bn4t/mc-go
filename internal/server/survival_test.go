@@ -28,12 +28,14 @@ func TestSurvivalDigDropsItemAfterBreakTime(t *testing.T) {
 	s.handleDigSurvival(sess, pos, digStart)
 	s.handleDigSurvival(sess, pos, digFinish)
 	// Dirt is hardness 0.5 and bare hands harvest it, so vanilla's
-	// formula gives 15 ticks of progress.
-	for i := 0; i < 14; i++ {
+	// formula gives 15 ticks of progress; the immediate stop arms the
+	// delayed destroy, which fires when the count crosses 15 — the
+	// tick the start ran on counts toward it, so that is tick 14.
+	for i := 0; i < 13; i++ {
 		s.digTickStep()
 	}
 	if got := s.world.GetBlock(pos); got != world.Dirt {
-		t.Fatalf("block broke after 14 of 15 ticks: %d", got)
+		t.Fatalf("block broke after 13 of 15 ticks: %d", got)
 	}
 	s.digTickStep()
 
@@ -112,9 +114,11 @@ func TestSurvivalAbortResetsProgress(t *testing.T) {
 	}
 }
 
-// A second start on the same block cancels the dig, as the real server
-// does (it resyncs the client instead of completing the break).
-func TestSurvivalDuplicateStartCancels(t *testing.T) {
+// A stop that arrives before the progress completes does not cancel
+// the dig: vanilla arms hasDelayedDestroy and the block still breaks
+// once the tick count crosses the requirement — even across a restart
+// on the same pos, since the delayed arm is not touched by a new start.
+func TestSurvivalEarlyStopArmsDelayedBreak(t *testing.T) {
 	s := New("unused")
 	sess := survivalSession(t, s, "Twitchy")
 	pos := world.Pos{X: 0, Y: 0, Z: 0}
@@ -125,12 +129,41 @@ func TestSurvivalDuplicateStartCancels(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		s.digTickStep()
 	}
+	// The arm survives a fresh start on the same block.
 	s.handleDigSurvival(sess, pos, digStart)
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 5; i++ {
+		s.digTickStep()
+		if got := s.world.GetBlock(pos); got != world.Dirt {
+			t.Fatalf("delayed break fired early at tick %d", 9+i)
+		}
+	}
+	s.digTickStep()
+	if got := s.world.GetBlock(pos); got != world.Air {
+		t.Fatal("delayed destroy did not break the block")
+	}
+}
+
+// A stop that arrives after the progress completed breaks the block
+// inside the action handler — no further tick is needed.
+func TestSurvivalLateStopBreaksImmediately(t *testing.T) {
+	s := New("unused")
+	sess := survivalSession(t, s, "Miner")
+	pos := world.Pos{X: 0, Y: 0, Z: 0}
+	s.world.SetBlock(pos, world.Dirt)
+
+	s.handleDigSurvival(sess, pos, digStart)
+	for i := 0; i < 14; i++ {
 		s.digTickStep()
 	}
 	if got := s.world.GetBlock(pos); got != world.Dirt {
-		t.Fatal("restarted dig completed without a finish")
+		t.Fatal("held dig broke the block on its own")
+	}
+	s.handleDigSurvival(sess, pos, digFinish)
+	if got := s.world.GetBlock(pos); got != world.Air {
+		t.Fatal("finish at full progress did not break the block")
+	}
+	if sess.digDelayed {
+		t.Fatal("full dig armed the delayed destroy")
 	}
 }
 
@@ -166,12 +199,14 @@ func TestSurvivalStoneNeedsTool(t *testing.T) {
 	s.world.SetBlock(pos, world.Stone)
 
 	s.handleDigSurvival(sess, pos, digStart)
-	s.handleDigSurvival(sess, pos, digFinish)
 	// Stone needs a pickaxe, so bare hands run at the slow rate: 150
 	// ticks, 7.5 seconds.
-	for i := 0; i < 149; i++ {
+	for i := 0; i < 148; i++ {
 		s.digTickStep()
 	}
+	s.handleDigSurvival(sess, pos, digFinish)
+	// The stop lands one tick short: it does not break, it arms the
+	// delayed destroy instead.
 	if got := s.world.GetBlock(pos); got != world.Stone {
 		t.Fatal("stone broke early without a pickaxe")
 	}

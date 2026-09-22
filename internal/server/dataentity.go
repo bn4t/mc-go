@@ -774,7 +774,7 @@ func nbtTruth(v any) bool {
 func playerSaveMap(sess *Session) map[string]any {
 	x, y, z, yaw, pitch, onGround := sess.Pos()
 	u := sess.getUUID()
-	return map[string]any{
+	m := map[string]any{
 		"AbsorptionAmount":    sess.absorb,
 		"Air":                 int16(300),
 		"DeathTime":           int16(0),
@@ -804,6 +804,31 @@ func playerSaveMap(sess *Session) map[string]any {
 			int32(u[12])<<24 | int32(u[13])<<16 | int32(u[14])<<8 | int32(u[15]),
 		},
 	}
+	// Equipment: the vanilla save compound carries the worn slots by
+	// name — mainhand excepted, it serializes as SelectedItem — with
+	// empty slots left out.
+	sess.invMu.Lock()
+	equip := map[string]any{}
+	add := func(key string, st ItemStack) {
+		if !st.Empty() {
+			equip[key] = itemNBT(st)
+		}
+	}
+	held := sess.inv[invSlotForHotbar(sess.held.Load())]
+	add("offhand", sess.inv[slotOffhand])
+	add("feet", sess.inv[slotArmorStart+3])
+	add("legs", sess.inv[slotArmorStart+2])
+	add("chest", sess.inv[slotArmorStart+1])
+	add("head", sess.inv[slotArmorStart])
+	add("body", sess.bodyArmor)
+	if len(equip) > 0 {
+		m["equipment"] = equip
+	}
+	if !held.Empty() {
+		m["SelectedItem"] = itemNBT(held)
+	}
+	sess.invMu.Unlock()
+	return m
 }
 
 // resolveDataEntity parses the target token — @s/@p/@a/@r/@e

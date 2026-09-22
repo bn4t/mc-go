@@ -4,6 +4,7 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync"
 
 	"mc-go/internal/data"
 	"mc-go/internal/world"
@@ -35,9 +36,9 @@ func (s *Server) runLoot(player string, args []string) reply {
 		playerIdx int
 		slot      int32
 		count     int
+		hasCount  bool
 	}
 	var tgt lootTarget
-	tgt.count = 0
 	i := 0
 	if i >= len(args) {
 		return errTokenEnd("command.unknown.command", i+1)
@@ -129,6 +130,7 @@ func (s *Server) runLoot(player string, args []string) reply {
 			// literal instead of erroring.
 			if n, err := strconv.ParseInt(args[i], 10, 32); err == nil {
 				tgt.count = int(n)
+				tgt.hasCount = true
 				i++
 			}
 		}
@@ -147,6 +149,8 @@ func (s *Server) runLoot(player string, args []string) reply {
 	var killIdx int
 	var minePos [3]int
 	var mineCheck bool
+	var mineTool ItemStack
+	mineHand := -2 // -2: no tool arg → source's main hand; -1: item arg
 	var fishPos [3]int
 	var fishCheck bool
 	switch args[i] {
@@ -205,12 +209,18 @@ func (s *Server) runLoot(player string, args []string) reply {
 		i += 3
 		minePos, mineCheck = pos, true
 		if i < len(args) {
-			if args[i] == "mainhand" || args[i] == "offhand" {
+			if args[i] == "mainhand" {
+				mineHand = 0
+				i++
+			} else if args[i] == "offhand" {
+				mineHand = 1
 				i++
 			} else {
-				if _, r, ok := s.parseItemStack(args, i+1); !ok {
+				st, r, ok := s.parseItemStack(args, i+1)
+				if !ok {
 					return r
 				}
+				mineTool, mineHand = st, -1
 				i++
 			}
 		}
@@ -258,13 +268,10 @@ func (s *Server) runLoot(player string, args []string) reply {
 		killEnts = ents
 	}
 
-	// Execute: resolve drops from the source. The replace count arg is
-	// the number of stacks to produce.
-	rolls := tgt.count
-	if rolls < 1 {
-		rolls = 1
-	}
+	// Execute: resolve drops from the source — rolled once; the
+	// replace count arg is the number of slots to fill, not rolls.
 	var drops []ItemStack
+	var written []ItemStack
 	var tableComp component
 	var killOk bool
 	switch {
@@ -279,34 +286,46 @@ func (s *Server) runLoot(player string, args []string) reply {
 		table = "entities/" + tname
 		tableComp = component{emptyKey: "minecraft:" + table}
 		killOk = true
-		for r := 0; r < rolls; r++ {
-			drops = append(drops, rollLootTable(table, rand.Int63())...)
-		}
+		drops = append(drops, rollLootTable(table, rand.Int63())...)
 	case mineCheck:
 		if !s.blockPosLoaded(srcDim, sender, minePos[0], minePos[1], minePos[2]) {
 			return componentReply(commandError("argument.pos.unloaded"))
 		}
-		blk := srcDim.w.GetBlock(world.Pos{X: minePos[0], Y: minePos[1], Z: minePos[2]})
+		wpos := world.Pos{X: minePos[0], Y: minePos[1], Z: minePos[2]}
+		blk := srcDim.w.GetBlock(wpos)
 		bname, _ := world.StateOwner(blk)
 		table = "blocks/" + bname
+		tableComp = component{emptyKey: "minecraft:" + table}
 		if _, ok := data.LootTables()[table]; !ok {
 			return componentReply(commandError("commands.drop.no_loot_table.block",
 				component{translate: "block.minecraft." + bname}))
 		}
-		for r := 0; r < rolls; r++ {
-			drops = append(drops, rollLootTable(table, rand.Int63())...)
+		// Vanilla getDrops takes the tool from the arg (or the
+		// source's main hand) and applies no requires-tool gate —
+		// that lives in ServerPlayerGameMode.destroyBlock only.
+		tool := mineTool
+		if mineHand >= 0 {
+			tool, _ = sender.stackForHand(int32(mineHand))
+		} else if mineHand == -2 {
+			tool = sender.heldStack()
 		}
+		ctx := &lootCtx{
+			tool:   tool,
+			block:  bname,
+			state:  blk,
+			pos:    wpos,
+			dim:    srcDim,
+			player: sender,
+		}
+		ctx.rng = rand.New(rand.NewSource(rand.Int63()))
+		drops = append(drops, rollLootDepth(ctx, table, 0)...)
 	case fishCheck:
 		if !s.blockPosLoaded(srcDim, sender, fishPos[0], fishPos[1], fishPos[2]) {
 			return componentReply(commandError("argument.pos.unloaded"))
 		}
-		for r := 0; r < rolls; r++ {
-			drops = append(drops, rollLootTable(table, rand.Int63())...)
-		}
+		drops = append(drops, rollLootTable(table, rand.Int63())...)
 	default:
-		for r := 0; r < rolls; r++ {
-			drops = append(drops, rollLootTable(table, rand.Int63())...)
-		}
+		drops = append(drops, rollLootTable(table, rand.Int63())...)
 	}
 
 	// Target application.
@@ -334,76 +353,96 @@ func (s *Server) runLoot(player string, args []string) reply {
 			return componentReply(commandError("argument.pos.unloaded"))
 		}
 		pos := world.Pos{X: tgt.pos[0], Y: tgt.pos[1], Z: tgt.pos[2]}
-		if _, ok := containerSpecFor(srcDim.w.GetBlock(pos)); !ok {
+		slots, mu, ok := s.lootBlockSlots(srcDim, pos)
+		if !ok {
 			return componentReply(commandError("commands.item.target.not_a_container",
 				int32(tgt.pos[0]), int32(tgt.pos[1]), int32(tgt.pos[2])))
 		}
-		if c := s.containerAt(srcDim, pos); c != nil {
-			for _, st := range drops {
-				moving := st
-				for i := range c.slots {
-					if insertStack(&c.slots[i], &moving) {
-						break
-					}
+		mu.Lock()
+		for _, st := range drops {
+			moving := st
+			for i := range slots {
+				if insertStack(&slots[i], &moving) {
+					break
 				}
 			}
 		}
-	case 3: // replace entity — apply to each resolved entity's slot.
+		mu.Unlock()
+	case 3: // replace entity — vanilla setSlots fills the count
+		// consecutive slot ids from the start, empties past the
+		// produced stacks; the written list drives the reply. No
+		// count arg means exactly the produced stack count.
+		count := tgt.count
+		if !tgt.hasCount {
+			count = len(drops)
+		}
 		for _, e := range tgt.entities {
 			if e.sess == nil {
 				continue
 			}
-			for _, st := range drops {
-				put := st
-				if tgt.count >= 1 {
-					put.Count = int32(tgt.count)
+			for i := 0; i < count; i++ {
+				var put ItemStack
+				if i < len(drops) {
+					put = drops[i]
 				}
-				s.writeEntitySlot(e.sess, tgt.slot, put)
+				if s.writeEntitySlot(e.sess, tgt.slot+int32(i), put) {
+					written = append(written, put)
+				}
 			}
 		}
-	case 4: // replace block
+	case 4: // replace block — same consecutive-slot fill.
 		if !s.blockPosLoaded(srcDim, sender, tgt.pos[0], tgt.pos[1], tgt.pos[2]) {
 			return componentReply(commandError("argument.pos.unloaded"))
 		}
 		pos := world.Pos{X: tgt.pos[0], Y: tgt.pos[1], Z: tgt.pos[2]}
-		if _, ok := containerSpecFor(srcDim.w.GetBlock(pos)); !ok {
+		slots, mu, ok := s.lootBlockSlots(srcDim, pos)
+		if !ok {
 			return componentReply(commandError("commands.item.target.not_a_container",
 				int32(tgt.pos[0]), int32(tgt.pos[1]), int32(tgt.pos[2])))
 		}
-		if c := s.containerAt(srcDim, pos); c != nil {
-			if n := int(tgt.slot); n >= 0 && n < len(c.slots) {
-				count := tgt.count
-				if count < 1 {
-					count = 1
-				}
-				for _, st := range drops {
-					put := st
-					put.Count = int32(count)
-					c.slots[n] = put
-				}
-			}
+		if tgt.slot < 0 || int(tgt.slot) >= len(slots) {
+			return componentReply(commandError("commands.item.target.no_such_slot", tgt.slot))
 		}
+		count := tgt.count
+		if !tgt.hasCount {
+			count = len(drops)
+		}
+		mu.Lock()
+		for i := 0; i < count; i++ {
+			n := int(tgt.slot) + i
+			if n < 0 || n >= len(slots) {
+				break
+			}
+			var put ItemStack
+			if i < len(drops) {
+				put = drops[i]
+			}
+			slots[n] = put
+			written = append(written, put)
+		}
+		mu.Unlock()
 	}
 
-	// Reply: single vs multiple is the number of produced stacks.
-	total := int32(0)
-	for _, st := range drops {
-		total += st.Count
+	// Reply: replace reports the written stacks, everything else the
+	// produced drops. multiple's arg is the stack count, not items.
+	list := drops
+	if tgt.kind == 3 || tgt.kind == 4 {
+		list = written
 	}
-	if killOk {
-		if len(drops) == 1 {
+	if killOk || mineCheck {
+		if len(list) == 1 {
 			return componentReply(translatable("commands.drop.success.single_with_table",
-				int32(drops[0].Count), itemBrackets(drops[0]), tableComp))
+				int32(list[0].Count), itemBrackets(list[0]), tableComp))
 		}
 		return componentReply(translatable("commands.drop.success.multiple_with_table",
-			int32(total), tableComp))
+			int32(len(list)), tableComp))
 	}
-	if len(drops) == 1 {
+	if len(list) == 1 {
 		return componentReply(translatable("commands.drop.success.single",
-			int32(drops[0].Count), itemBrackets(drops[0])))
+			int32(list[0].Count), itemBrackets(list[0])))
 	}
 	return componentReply(translatable("commands.drop.success.multiple",
-		int32(total)))
+		int32(len(list))))
 }
 
 // lootEntities resolves an entity argument for /loot: a bare name is
@@ -432,4 +471,31 @@ func (s *Server) lootEntities(sender *Session, tok string, tokIdx int, single bo
 
 func (s *Server) lootPlayers(sender *Session, tok string, tokIdx int) ([]*Session, *reply) {
 	return s.selectPlayers(sender, tok, tokIdx)
+}
+
+// lootBlockSlots resolves a /loot block target (insert, replace block)
+// to the live slot storage. Chests, furnaces, and hoppers keep their
+// own stores; generic menu blocks share containerData. The returned
+// mutex guards the store's map; lock it around writes.
+func (s *Server) lootBlockSlots(d *dimension, pos world.Pos) ([]ItemStack, *sync.Mutex, bool) {
+	blk := d.w.GetBlock(pos)
+	switch {
+	case isChestBlock(blk):
+		c := s.chestAt(d, pos)
+		return c.slots[:], &d.chests.mu, true
+	case isFurnaceBlock(blk):
+		f := s.furnaceAt(d, pos)
+		return f.slots[:], &d.furnaces.mu, true
+	case isHopperBlock(blk):
+		h := s.hopperAt(d, pos)
+		return h.slots[:], &d.hoppers.mu, true
+	}
+	if _, ok := containerSpecFor(blk); !ok {
+		return nil, nil, false
+	}
+	c := s.containerAt(d, pos)
+	if c == nil {
+		return nil, nil, false
+	}
+	return c.slots, &d.containers.mu, true
 }

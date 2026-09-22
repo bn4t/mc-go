@@ -2,7 +2,9 @@ package server
 
 import (
 	"math"
+	"strings"
 
+	"mc-go/internal/data"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
@@ -70,27 +72,104 @@ func hardnessOf(b world.Block) blockHardness {
 	return blockHardness{hardness: 1.0, drop: drop}
 }
 
-// digTicks is how many game ticks a break takes, straight from the
-// public breaking formula: per-tick progress is speed/hardness/30 when
-// the block can be harvested with what is held and /100 when it cannot,
-// with a bare hand's speed of 1 and every result quantized to a whole
-// tick. Verified against the real server: grass and dirt bare-handed
-// take 18 and 15 ticks, stone bare-handed 150.
-func digTicks(info blockHardness) int {
+// digTicks is how many game ticks a break takes, straight from
+// vanilla's getDestroyProgress: per-tick progress is
+// speed/hardness/30 when the held stack is the block's correct tool
+// and /100 when it is not, quantized to a whole tick. A result of 1
+// or less breaks on the action start itself, like vanilla's
+// instabreak path (grass, bamboo with a sword).
+func digTicks(info blockHardness, bname string, sess *Session) int {
 	if info.hardness < 0 {
 		return -1
 	}
+	tool := sess.heldStack()
+	speed := toolDestroySpeed(tool, bname)
+	if eff := tool.enchLevel("minecraft:efficiency"); eff > 0 && speed > 1 {
+		speed += float64(eff*eff + 1)
+	}
+	_, _, _, _, _, onGround := sess.Pos()
+	if !onGround {
+		speed /= 5
+	}
 	div := 30.0
-	if info.requiresTool {
-		// Without the right tool the player cannot harvest the block,
-		// which makes every tick of progress that much smaller.
+	if blockRequiresTool[bname] && !toolCorrectForDrops(tool, bname) {
+		// Only a requires-tool block punishes the wrong tool with the
+		// /100 divisor; anything else keeps the /30 baseline.
 		div = 100.0
 	}
-	n := int(math.Ceil(info.hardness * div))
+	n := int(math.Ceil(info.hardness * div / speed))
 	if n < 1 {
 		n = 1
 	}
 	return n
+}
+
+// toolDestroySpeed mirrors ItemStack.getDestroySpeed: the first Tool
+// component rule matching the block wins, else the base speed 1. The
+// diggers gate on their mineable tag for the tier's speed; swords
+// have the cobweb and tag rules; shears their three tag tiers.
+func toolDestroySpeed(tool ItemStack, bname string) float64 {
+	if tool.Empty() {
+		return 1
+	}
+	name, ok := world.ItemName(tool.ID)
+	if !ok {
+		return 1
+	}
+	switch {
+	case name == "shears":
+		switch {
+		case bname == "cobweb" || blockInTag("shears_extreme_breaking_speed", bname):
+			return 15
+		case blockInTag("shears_major_breaking_speed", bname):
+			return 5
+		case blockInTag("shears_minor_breaking_speed", bname):
+			return 2
+		}
+		return 1
+	case strings.HasSuffix(name, "_sword"):
+		switch {
+		case bname == "cobweb":
+			return 15
+		case blockInTag("sword_instantly_mines", bname):
+			return math.MaxFloat32
+		case blockInTag("sword_efficient", bname):
+			return 1.5
+		}
+		return 1
+	}
+	kind := ""
+	for _, k := range []string{"pickaxe", "axe", "shovel", "hoe"} {
+		if strings.HasSuffix(name, "_"+k) {
+			kind = k
+			break
+		}
+	}
+	if kind == "" || !blockInTag("mineable/"+kind, bname) {
+		return 1
+	}
+	return toolMaterialSpeed(name)
+}
+
+// toolMaterialSpeed is ToolMaterial.speed() by item-name tier.
+func toolMaterialSpeed(itemName string) float64 {
+	switch {
+	case strings.HasPrefix(itemName, "wooden_"):
+		return 2
+	case strings.HasPrefix(itemName, "stone_"):
+		return 4
+	case strings.HasPrefix(itemName, "copper_"):
+		return 5
+	case strings.HasPrefix(itemName, "iron_"):
+		return 6
+	case strings.HasPrefix(itemName, "diamond_"):
+		return 8
+	case strings.HasPrefix(itemName, "golden_"):
+		return 12
+	case strings.HasPrefix(itemName, "netherite_"):
+		return 9
+	}
+	return 1
 }
 
 // reachSurvival is the vanilla block-interaction reach in survival.
@@ -116,17 +195,15 @@ func withinReach(sess *Session, pos world.Pos, reach float64) bool {
 	return math.Sqrt(dx*dx+dy*dy+dz*dz) <= reach
 }
 
-// handleDigSurvival implements the survival branch of Player Action.
-// Vanilla's start records the block the player set out to mine, the
-// server accumulates one tick of progress per game tick (digTickStep)
-// and never trusts the client's idea of elapsed time, and the client's
-// finish only commits a dig whose progress the server measured itself.
-// Verified against the real server with a scripted client: a start on
-// its own never destroys anything, a start plus finish destroys the
-// block after exactly the hardness-derived number of ticks counted from
-// the start, an abort discards the dig, and a second start on the same
-// block restarts the timer and is answered with a resync of the true
-// block; the real client also retries finish while a dig is latched.
+// handleDigSurvival implements the survival branch of Player Action,
+// mirroring vanilla's ServerPlayerGameMode.handleBlockBreakAction.
+// A start insta-breaks when first-tick progress reaches 1, otherwise it
+// latches the block and the server counts ticks (digTickStep) — the
+// tick loop itself never destroys the block. A stop on the latched pos
+// breaks it when accumulated progress completed, otherwise it arms a
+// delayed destroy that fires on the first tick the progress reaches 1
+// (vanilla's hasDelayedDestroy, which survives the dig being unlatched).
+// An abort unlatches the dig; the delayed arm stays.
 func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) []int {
 	blk := sess.world().GetBlock(pos)
 	info := hardnessOf(blk)
@@ -138,36 +215,59 @@ func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) [
 		if !withinReach(sess, pos, reachSurvival) {
 			return nil
 		}
+		bname, _ := world.StateOwner(blk)
+		need := digTicks(info, bname, sess)
+		if need <= 1 {
+			// destroyProgress >= 1 on the first tick of a dig means the
+			// block breaks on the start action itself, no finish needed.
+			affected := s.breakBlock(sess, pos, info)
+			s.sendLightUpdate(sess.dimension(), pos.X>>4, pos.Z>>4, affected)
+			return affected
+		}
 		sess.digMu.Lock()
-		restart := sess.digActive && sess.digPos == pos
+		restart := sess.digActive
+		restartPos := sess.digPos
 		sess.digPos = pos
 		sess.digBlock = blk
 		sess.digTicks = 0
-		sess.digNeeded = digTicks(info)
-		sess.digConfirmed = false
 		sess.digActive = true
 		sess.digMu.Unlock()
 		if restart {
-			// Vanilla answers a redundant start with the truth about
-			// the block, which is what resynchronizes a client that
-			// predicted a break the server did not agree to.
-			s.sendBlockResync(sess, pos)
+			// A start while another dig was latched answers with a
+			// resync of the block that was being destroyed.
+			s.sendBlockResync(sess, restartPos)
 		}
 	case digCancel:
 		sess.digMu.Lock()
 		sess.digActive = false
 		sess.digTicks = 0
-		sess.digConfirmed = false
 		sess.digMu.Unlock()
 	case digFinish:
-		// A finish only commits the dig it belongs to, and the
-		// destruction itself happens on the tick that completes the
-		// progress (digTickStep), so a client that stops early cannot
-		// buy itself a faster break.
 		sess.digMu.Lock()
-		if sess.digActive && sess.digPos == pos {
-			sess.digConfirmed = true
+		if !sess.digActive || sess.digPos != pos {
+			sess.digMu.Unlock()
+			return nil
 		}
+		bname, _ := world.StateOwner(sess.digBlock)
+		need := digTicks(info, bname, sess)
+		if sess.digTicks+1 >= need {
+			sess.digActive = false
+			sess.digTicks = 0
+			sess.digMu.Unlock()
+			affected := s.breakBlock(sess, pos, info)
+			s.sendLightUpdate(sess.dimension(), pos.X>>4, pos.Z>>4, affected)
+			return affected
+		}
+		// Stopped early: arm the delayed destroy on the same tick
+		// counter — it still breaks the block once the total reaches
+		// the required ticks.
+		if !sess.digDelayed {
+			sess.digDelayed = true
+			sess.digDelayedPos = pos
+			sess.digDelayedTicks = sess.digTicks
+		}
+		sess.digActive = false
+		sess.digTicks = 0
 		sess.digMu.Unlock()
 	}
 	return nil
@@ -181,9 +281,11 @@ func (s *Server) sendBlockResync(sess *Session, pos world.Pos) {
 	_ = sess.write(sess.ids().PlayBlockUpdateCB, body)
 }
 
-// digTickStep advances the survival dig of every playing session by one
-// tick and destroys the blocks whose progress completes, the server
-// being the authority on break timing exactly as vanilla is.
+// digTickStep advances digging by one tick per playing session. As in
+// vanilla, the loop only counts progress: a live dig never breaks here,
+// but a delayed destroy armed by an early stop breaks once its tick
+// total crosses the requirement (hasDelayedDestroy in
+// ServerPlayerGameMode.tick).
 func (s *Server) digTickStep() {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
@@ -191,32 +293,43 @@ func (s *Server) digTickStep() {
 			return true
 		}
 		sess.digMu.Lock()
+		if sess.digDelayed {
+			sess.digDelayedTicks++
+			pos := sess.digDelayedPos
+			ticks := sess.digDelayedTicks
+			sess.digMu.Unlock()
+			cur := sess.world().GetBlock(pos)
+			if cur != world.Air {
+				cname, _ := world.StateOwner(cur)
+				// Vanilla re-reads the block state and the held tool
+				// every tick, so a swap changes when it fires.
+				if need := digTicks(hardnessOf(cur), cname, sess); ticks+1 >= need {
+					affected := s.breakBlock(sess, pos, hardnessOf(cur))
+					s.sendLightUpdate(sess.dimension(), pos.X>>4, pos.Z>>4, affected)
+					sess.digMu.Lock()
+					sess.digDelayed = false
+					sess.digMu.Unlock()
+				}
+			} else {
+				sess.digMu.Lock()
+				sess.digDelayed = false
+				sess.digMu.Unlock()
+			}
+			sess.digMu.Lock()
+		}
 		if !sess.digActive {
 			sess.digMu.Unlock()
 			return true
 		}
-		pos, want, need := sess.digPos, sess.digBlock, sess.digNeeded
+		pos := sess.digPos
 		sess.digTicks++
-		done := sess.digConfirmed && sess.digTicks >= need
-		if done {
-			sess.digActive = false
-			sess.digTicks = 0
-			sess.digConfirmed = false
-		}
 		sess.digMu.Unlock()
-
-		if cur := sess.world().GetBlock(pos); cur != want {
-			// Somebody else changed the block: the dig is stale.
+		if sess.world().GetBlock(pos) == world.Air {
+			// The block under the pick is already gone.
 			sess.digMu.Lock()
 			sess.digActive = false
 			sess.digMu.Unlock()
-			return true
 		}
-		if !done {
-			return true
-		}
-		affected := s.breakBlock(sess, pos, hardnessOf(want))
-		s.sendLightUpdate(sess.dimension(), pos.X>>4, pos.Z>>4, affected)
 		return true
 	})
 }
@@ -239,9 +352,21 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 	if isShulkerBoxBlock(broken) {
 		return affected
 	}
-	// Tool-aware drops arrive with the tool milestone; a bare hand
-	// cannot harvest requires-tool blocks, exactly like vanilla.
-	if info.drop == "" || info.requiresTool {
+	bname, _ := world.StateOwner(broken)
+	// Vanilla gates getDrops on hasCorrectToolForDrops: a
+	// requires-tool block drops nothing without a matching tool.
+	if blockRequiresTool[bname] && !toolCorrectForDrops(sess.heldStack(), bname) {
+		return affected
+	}
+	if _, ok := data.LootTables()["blocks/"+bname]; ok {
+		for _, st := range rollBlockLoot("blocks/"+bname, sess, pos, bname, broken) {
+			s.spawnItemDrop(sess.dimName(), pos, st)
+		}
+		return affected
+	}
+	// Blocks outside the generated table set keep the hand-curated
+	// drop column (e.g. monster spawner: no table, no drops).
+	if info.drop == "" {
 		return affected
 	}
 	id, ok := world.ItemID(info.drop)

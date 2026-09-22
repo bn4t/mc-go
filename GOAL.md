@@ -3091,3 +3091,30 @@ physics through a void dip plus a fed recovery window.
   trigger.failed.unprimed, and a successful write re-locks the
   score (enable releases it again). simple/add/set success replies
   carry [formattedObjective] / [formattedObjective, i(value)].
+- Survival dig state machine + break-speed parity (javap-measured on
+  26.2): the tick loop only accumulates progress and never breaks —
+  START insta-breaks when first-tick progress >= 1, otherwise latches;
+  STOP on the latched pos commits the break inside the action handler
+  when progress completed, and an early STOP arms hasDelayedDestroy
+  which still breaks the block once the counter crosses the requirement
+  (the arm survives both a re-start and an abort); ABORT unlatches the
+  dig only. digTicks now mirrors getDestroyProgress =
+  speed/hardness/(/30 if the tool passes hasCorrectToolForDrops else
+  /100): digger materials gate on mineable/<kind> tags (wood 2, stone 4,
+  copper 5, iron 6, diamond 8, gold 12, netherite 9), swords special-case
+  cobweb/15 + sword_instantly_mines/inf + sword_efficient/1.5, shears
+  take cobweb+leaves/15, wool/5, vine+glow_lichen/2; efficiency adds
+  lvl^2+1 once speed > 1 and an airborne player pays /5. A delayed arm
+  re-evaluates the held tool each tick, so swapping tools mid-dig changes
+  break time as vanilla does. TestBlockDropParity digs 12 real probes on
+  both servers end to end (tp + real timed digs + item-entity watches)
+  and pins the drop multiset: tool gating, tier denial, silk-touch
+  absence, door halves, crop age, shears-vs-bare cobweb. Harness notes
+  that surfaced: vanilla ignores dig actions until the client reports
+  loaded (player_loaded), ignores move packets that travel too far
+  (moved-too-quickly resync leaves the player at spawn — /tp instead),
+  only broadcasts block updates/entity spawns to clients that answered
+  chunk_batch_finished (chunk_batch_received), and kicks a client that
+  leaves keepalive unanswered. The scripted client now services all of
+  it inside the dig loop. Full go test ./internal/server green;
+  TestBlockDropParity identical on vanilla and mc-go.
