@@ -27,7 +27,7 @@ import (
 )
 
 func (s *Server) registerEntCommands() {
-	for _, name := range []string{"rotate", "ride", "spreadplayers", "damage"} {
+	for _, name := range []string{"rotate", "ride", "spreadplayers", "damage", "test"} {
 		n := name
 		s.registerComponentCommand(n, func(player string, args []string) reply {
 			switch n {
@@ -37,6 +37,8 @@ func (s *Server) registerEntCommands() {
 				return s.runRide(player, args)
 			case "spreadplayers":
 				return s.runSpreadPlayers(player, args)
+			case "test":
+				return s.runTest(player, args)
 			}
 			return s.runDamage(player, args)
 		})
@@ -301,15 +303,15 @@ func (s *Server) runRideMount(sender *Session, rider *dataEntity, vehTok string)
 		return *rep
 	}
 	rid, vid := entityIDOf(rider), entityIDOf(veh)
+	if cur := s.vehicleOf(rid); cur != nil {
+		return componentReply(commandError("commands.ride.already_riding",
+			rider.nameComp(), entityDisplayName(cur)))
+	}
 	if veh.sess != nil {
 		return componentReply(commandError("commands.ride.mount.failure.cant_ride_players"))
 	}
 	if rid == vid {
 		return componentReply(commandError("commands.ride.mount.failure.loop"))
-	}
-	if s.vehicleOf(rid) != nil {
-		return componentReply(commandError("commands.ride.already_riding",
-			rider.nameComp(), veh.nameComp()))
 	}
 	vehEnt := s.entityPtr(veh)
 	if vehEnt == nil {
@@ -627,4 +629,86 @@ func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount 
 	_ = died
 	return componentReply(translatable("commands.damage.success",
 		nestedCompound{key: "", value: amount}, target.nameComp()))
+}
+
+// ---- test (GameTest) ----
+
+// runTest implements /test's literal surface. There is no test
+// instance framework, so executing subcommands land on their
+// "no tests" replies, matching vanilla on an empty world.
+func (s *Server) runTest(player string, args []string) reply {
+	if len(args) == 0 {
+		return errTokenEnd("command.unknown.command", 0)
+	}
+	sender := s.findSessionByName(player)
+	// radiusTail parses the optional [radius] int every
+	// run/clear/reset literal takes.
+	radiusTail := func(done reply) reply {
+		if len(args) == 1 {
+			return done
+		}
+		if _, err := strconv.Atoi(args[1]); err != nil {
+			return errToken("parsing.int.expected", 2)
+		}
+		if len(args) == 2 {
+			return done
+		}
+		return errToken("command.unknown.argument", 3)
+	}
+	switch args[0] {
+	case "runclosest", "runthese", "runfailed", "runthat":
+		return radiusTail(componentReply(translatable("commands.test.no_tests")))
+	case "clearall", "clearthese", "clearthat",
+		"resetclosest", "resetthat", "resetthese":
+		return radiusTail(componentReply(commandError("commands.test.clear.error.no_tests")))
+	case "pos":
+		if len(args) > 2 {
+			return errToken("command.unknown.argument", 3)
+		}
+		x, y, z := int32(0), int32(0), int32(0)
+		if sender != nil {
+			fx, fy, fz, _, _, _ := sender.Pos()
+			x = int32(math.Floor(fx))
+			y = int32(math.Floor(fy))
+			z = int32(math.Floor(fz))
+		}
+		return componentReply(commandError("commands.test.error.no_test_containing_pos", x, y, z))
+	case "stop":
+		if len(args) != 1 {
+			return errTokenEnd("command.unknown.command", 1)
+		}
+		return reply{}
+	case "run", "runmultiple", "locate", "verify":
+		if len(args) == 1 {
+			return errTokenEnd("command.unknown.command", 1)
+		}
+		return errTokenEnd("argument.resource_selector.not_found", len(args)+1,
+			testResourceID(args[1]), "minecraft:test_instance")
+	case "create":
+		if len(args) == 1 {
+			return errTokenEnd("command.unknown.command", 1)
+		}
+		ok := len(args) == 2 || len(args) == 3 || len(args) == 5
+		for i := 2; ok && i < len(args); i++ {
+			if _, err := strconv.Atoi(args[i]); err != nil {
+				return errToken("parsing.int.expected", i+1)
+			}
+		}
+		if !ok {
+			return errTokenEnd("command.unknown.command", len(args))
+		}
+		return componentReply(translatable("commands.test.create.success",
+			testResourceID(args[1])))
+	default:
+		return errToken("command.unknown.argument", 1)
+	}
+}
+
+// testResourceID renders a test-instance name the way the error
+// messages do: bare names get the minecraft namespace.
+func testResourceID(name string) string {
+	if !strings.Contains(name, ":") {
+		return "minecraft:" + name
+	}
+	return name
 }

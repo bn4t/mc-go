@@ -2908,3 +2908,16 @@ physics through a void dip plus a fed recovery window.
   TestOpsAdminParity 46 commands green; the compare splits events
   per connection (cross-socket order is delivery racy) and sorts
   hash-ordered name/rule listings.
+- Entity command set completion: /damage, /ride, /rotate,
+  /spreadplayers were already present; verified end-to-end against
+  vanilla (104 probes). Fixed /ride's mount check order — vanilla
+  reports already_riding (naming the rider's CURRENT vehicle)
+  before cant_ride_players and mounting_loop. Added /test's literal
+  surface: runclosest/runthese/runfailed/runthat print
+  commands.test.no_tests plain, clear*/reset* land on
+  clear.error.no_tests, pos fails no_test_containing_pos with the
+  sender's block position, stop is silent, run/runmultiple/locate/
+  verify reject unknown test ids via resource_selector.not_found
+  with the end-of-input cursor, create succeeds with a namespaced
+  id, and every unregistered literal underlines as
+  command.unknown.argument. TestEntCmdParity green.
