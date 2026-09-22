@@ -163,6 +163,10 @@ type Server struct {
 	datapacks   map[string]bool
 	customPacks map[string]bool
 
+	// stopwatches is the /stopwatch set: resource id -> start time.
+	stopwatchMu sync.Mutex
+	stopwatches map[string]time.Time
+
 	// bossbars holds the /bossbar bars in creation order.
 	bossbarMu    sync.Mutex
 	bossbars     map[string]*bossBar

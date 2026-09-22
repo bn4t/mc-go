@@ -2810,3 +2810,28 @@ physics through a void dip plus a fed recovery window.
   version (the 10-line identity block), waypoint (list/modify color +
   style on the locator-bar waypoint), swing (entity-plural, living
   filter, animate broadcast). TestWorldCmdParity 68 commands green.
+
+- Admin/debug commands wave two: stopwatch (real elapsed-second
+  stopwatches keyed by normalized resource id), return (silent bare
+  int/fail; `run` relays the inner command's reply verbatim, unknown
+  inner name is unknown.argument), schedule (function arg normalizes
+  and misses with arguments.function.unknown, tick_count_too_low for
+  negative times, cleared.failure), function (nbt.expected.compound
+  for a bare-word tail, unknown for every name — no datapack
+  functions), fetchprofile (name/id failure for offline-unresolvable
+  lookups; entity resolves players to the four green bracket actions —
+  copy_component/give_item/summon_mannequin/copy_text — and mobs to
+  no_profile), attribute (resource registry vs minecraft:attribute,
+  per-type attribute tables, base get/set/reset and modifier
+  add/remove/value get with vanilla's argument ordering — the parsed
+  [scale] arg is ignored by base/modifier gets), dialog (players-only
+  entity arg validates before the dialog id; three vanilla dialogs:
+  custom_options/quick_actions/server_links), locate (structure/
+  biome/poi — not_found vs invalid vs resource.not_found per arg
+  kind, biome success only when the requested biome is the world's
+  uniform one), place (feature success pos ints, template/jigsaw/
+  structure invalid+failed paths). spawn_armor_trims/serverpack/
+  unpublish/raid/chase are pinned UNREGISTERED — the dedicated server
+  never registers them. adminnames_gen.go holds the attribute/poi/
+  dialog/structure/feature/pool registries from the jar.
+  TestAdmin2Parity 124 commands green.

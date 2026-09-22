@@ -161,6 +161,10 @@ type Entity struct {
 	Waypoint      bool
 	WaypointColor string
 	WaypointStyle string
+	// AttrBase holds /attribute base-value overrides by attribute name;
+	// AttrMods holds modifiers as attr -> modifier id -> modifier.
+	AttrBase map[string]float64
+	AttrMods map[string]map[string]attrMod
 	// NoAI (from the summon NBT) freezes gravity and wander like
 	// vanilla's Mob.NoAi flag — the entity still takes knockback.
 	NoAI      bool
