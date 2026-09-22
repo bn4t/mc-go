@@ -30,13 +30,13 @@ import (
 
 func registerMiscCommands(s *Server) {
 	s.registerComponentCommand("save-all", func(player string, args []string) reply {
-		return s.runSaveAll(args)
+		return s.runSaveAll(player, args)
 	})
 	s.registerComponentCommand("save-off", func(player string, args []string) reply {
-		return s.runSaveOffOn(args, false)
+		return s.runSaveOffOn(player, args, false)
 	})
 	s.registerComponentCommand("save-on", func(player string, args []string) reply {
-		return s.runSaveOffOn(args, true)
+		return s.runSaveOffOn(player, args, true)
 	})
 	s.registerComponentCommand("stop", func(player string, args []string) reply {
 		return s.runStopCmd(args)
@@ -70,22 +70,28 @@ func registerMiscCommands(s *Server) {
 	})
 }
 
-func (s *Server) runSaveAll(args []string) reply {
+func (s *Server) runSaveAll(player string, args []string) reply {
 	if len(args) > 0 {
-		if len(args) == 1 && args[0] == "flush" {
-		} else {
+		if args[0] != "flush" {
 			return errToken("command.unknown.argument", 1)
+		}
+		if len(args) > 1 {
+			return errToken("command.unknown.argument", 2)
 		}
 	}
 	if err := s.SaveWorld(); err != nil {
 		return componentReply(commandError("commands.save.failed"))
 	}
+	success := translatable("commands.save.success")
+	if iss := s.findSessionByName(player); iss != nil {
+		s.broadcastAdmin(iss, success)
+	}
 	return componentReplyWith(
 		translatable("commands.save.saving"),
-		translatable("commands.save.success"))
+		success)
 }
 
-func (s *Server) runSaveOffOn(args []string, on bool) reply {
+func (s *Server) runSaveOffOn(player string, args []string, on bool) reply {
 	if len(args) > 0 {
 		return errToken("command.unknown.argument", 1)
 	}
@@ -96,10 +102,16 @@ func (s *Server) runSaveOffOn(args []string, on bool) reply {
 		return componentReply(commandError("commands.save.alreadyOff"))
 	}
 	s.autosaveOff.Store(!on)
+	var msg component
 	if on {
-		return componentReply(translatable("commands.save.enabled"))
+		msg = translatable("commands.save.enabled")
+	} else {
+		msg = translatable("commands.save.disabled")
 	}
-	return componentReply(translatable("commands.save.disabled"))
+	if iss := s.findSessionByName(player); iss != nil {
+		s.broadcastAdmin(iss, msg)
+	}
+	return componentReply(msg)
 }
 
 func (s *Server) runStopCmd(args []string) reply {

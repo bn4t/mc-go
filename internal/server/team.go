@@ -670,7 +670,7 @@ func playerListBody(names []string) []byte {
 // sender's own team only.
 func (s *Server) runTeamMsg(player string, args []string) reply {
 	if len(args) == 0 {
-		return componentReply(commandError("commands.teammsg.failed.noteam"))
+		return errTokenEnd("command.unknown.command", 0)
 	}
 	t := s.teamOf(player)
 	if t == nil {

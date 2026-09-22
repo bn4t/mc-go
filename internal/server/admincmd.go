@@ -1,6 +1,7 @@
 package server
 
 import (
+	"sort"
 	"strings"
 	"time"
 
@@ -191,8 +192,11 @@ func (s *Server) runBanIP(player string, args []string) reply {
 	}
 	ip := args[0]
 	reason := translatable("multiplayer.disconnect.banned.reason.default")
+	var reasonArg any = reason
+	reasonText := "Banned by an operator."
 	if len(args) > 1 {
-		reason = literal(strings.Join(args[1:], " "))
+		reasonText = strings.Join(args[1:], " ")
+		reasonArg = reasonText
 	}
 	// The target is either a literal address or a player to resolve to
 	// one; a name nobody has resolves nothing.
@@ -209,23 +213,68 @@ func (s *Server) runBanIP(player string, args []string) reply {
 	}
 	_, dup := s.bannedIPs[ip]
 	if !dup {
-		s.bannedIPs[ip] = banReasonText(reason)
+		s.bannedIPs[ip] = reasonText
 	}
 	s.banMu.Unlock()
 	if dup {
 		return componentReply(commandError("commands.banip.failed"))
 	}
 	// Connected players on the address drop with the ip-ban component.
+	// The kicked list orders by join like vanilla's player list.
+	var kicked []*Session
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
 		if sess.state.Load() == StatePlay && sessionIP(sess) == ip {
-			s.disconnectWithComponent(sess,
-				translatable("multiplayer.disconnect.banned_ip.reason", reason))
+			kicked = append(kicked, sess)
 		}
 		return true
 	})
-	return componentReply(translatable("commands.banip.success",
-		nestedCompound{key: "", value: ip}, reason))
+	sort.Slice(kicked, func(i, j int) bool { return kicked[i].id < kicked[j].id })
+	success := translatable("commands.banip.success", ip, reasonArg)
+	var info component
+	if len(kicked) > 0 {
+		var parts []component
+		for i, sess := range kicked {
+			if i > 0 {
+				parts = append(parts, component{color: "gray", text: ", "})
+			}
+			parts = append(parts, entityTargetComponent(sess))
+		}
+		info = translatable("commands.banip.info",
+			int32(len(kicked)), component{text: "", extra: parts})
+	}
+	issuer := s.findSessionByName(player)
+	out := componentReply(success)
+	if len(kicked) > 0 {
+		out = componentReplyWith(success, info)
+	}
+	// A player issuer who banned their own address is kicked by this
+	// command — the replies have to land first, so they flush inline
+	// rather than through the post-dispatch reply path.
+	if issuer == nil {
+		return out
+	}
+	s.sendReply(issuer, out)
+	s.broadcastAdmin(issuer, success)
+	if len(kicked) > 0 {
+		s.broadcastAdmin(issuer, info)
+	}
+	for _, sess := range kicked {
+		s.disconnectWithComponent(sess,
+			translatable("multiplayer.disconnect.banned_ip.reason", reason))
+		// The leave broadcast fires on untrack, driven by the deferred
+		// close — waiting for it keeps later kicks from outracing
+		// earlier removals, the same way vanilla's sequential
+		// disconnects publish each "player left" first.
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, ok := s.sessions.Load(sess.id); !ok {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	return reply{}
 }
 
 func (s *Server) runPardonIP(player string, args []string) reply {
@@ -233,6 +282,9 @@ func (s *Server) runPardonIP(player string, args []string) reply {
 		return errTokenEnd("command.unknown.command", 0)
 	}
 	ip := args[0]
+	if !isIPArg(ip) {
+		return componentReply(commandError("commands.pardonip.invalid"))
+	}
 	s.banMu.Lock()
 	_, was := s.bannedIPs[ip]
 	delete(s.bannedIPs, ip)
@@ -240,7 +292,11 @@ func (s *Server) runPardonIP(player string, args []string) reply {
 	if !was {
 		return componentReply(commandError("commands.pardonip.failed"))
 	}
-	return componentReply(translatable("commands.pardonip.success", ip))
+	msg := translatable("commands.pardonip.success", ip)
+	if iss := s.findSessionByName(player); iss != nil {
+		s.broadcastAdmin(iss, msg)
+	}
+	return componentReply(msg)
 }
 
 // isIPArg recognizes a dotted-quad address the way vanilla's ban-ip
@@ -254,10 +310,15 @@ func isIPArg(tok string) bool {
 		if p == "" || len(p) > 3 {
 			return false
 		}
+		n := 0
 		for _, c := range p {
 			if c < '0' || c > '9' {
 				return false
 			}
+			n = n*10 + int(c-'0')
+		}
+		if n > 255 {
+			return false
 		}
 	}
 	return true

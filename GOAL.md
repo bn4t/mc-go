@@ -2874,3 +2874,22 @@ physics through a void dip plus a fed recovery window.
   groups, and picks the first productive alternatives child —
   conditions aren't evaluated yet (noted: silk_touch on mine).
   TestLootParity 38 commands green.
+
+- Messaging and operator-set commands: /msg /tell /w selector
+  expansion was already pinned; the grammar around it is now measured
+  — a bare /teammsg is command.unknown.command (the message arg is
+  required), and /save-all accepts only the optional flush literal
+  (a second arg fails inside it, underlined at the extra token).
+  Successful state-changing commands broadcast a gray-italic
+  chat.type.admin [issuer, message] wrap to the other operators:
+  /save-all (saving to the issuer, success broadcast), /save-off and
+  /save-on (enabled/disabled), /ban-ip and /pardon-ip. ban-ip
+  validates dotted-quad octets (999.999.999.999 is
+  commands.banip.invalid, as is an unknown player name), takes the
+  typed reason as a bare string in banip.success's with list, emits
+  commands.banip.info with the kicked-player components joined by a
+  gray ", " when anyone was connected on the address, and kicks in
+  join order — flushing each kick's replies and leave broadcast
+  before the next disconnect. pardon-ip rejects non-IP literals with
+  commands.pardonip.invalid and a valid-but-unbanned address with
+  pardonip.failed. TestAdminCmdParity 37 commands green.

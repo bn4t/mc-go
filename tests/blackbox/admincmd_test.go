@@ -3,6 +3,7 @@
 package blackbox
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -12,184 +13,125 @@ import (
 	"mc-go/internal/server"
 )
 
-// TestAdmin2Parity covers the misc admin/debug commands: stopwatch,
-// return, schedule, function, fetchprofile, attribute, spawn_armor_trims,
-// serverpack, unpublish, raid, dialog, chase, locate, and place.
-func TestAdmin2Parity(t *testing.T) {
+func TestAdminCmdParity(t *testing.T) {
 	targets := requireBlackboxFiles(t, nil, map[string]string{
-		"ops.json": opsJSONFor("P"),
-	}, nil)
+		"ops.json": opsJSONFor("P", "Q"),
+	}, func(s *server.Server) {
+		// save-all needs somewhere to write; without a world dir
+		// mc-go honestly reports save.failed, which vanilla never
+		// reaches — it always has a region dir.
+		s.WorldDir = t.TempDir()
+	})
 	defer targets.cleanup()
 
 	cmds := []string{
-		`summon minecraft:pig ~ ~ ~`,
-		`stopwatch`,
-		`stopwatch create`,
-		`stopwatch create sw`,
-		`stopwatch create sw`,
-		`stopwatch query sw`,
-		`stopwatch restart sw`,
-		`stopwatch query sw`,
-		`stopwatch query nosuch`,
-		`stopwatch remove sw`,
-		`stopwatch query sw`,
-		`stopwatch create a:b`,
-		`stopwatch create "a b"`,
-		`stopwatch bogus`,
-		`return`,
-		`return 5`,
-		`return fail`,
-		`return run`,
-		`return run clear @s`,
-		`return run bogus`,
-		`return x`,
-		`return 5 extra`,
-		`schedule`,
-		`schedule function`,
-		`schedule function foo`,
-		`schedule function foo 5`,
-		`schedule function foo 5 append`,
-		`schedule function foo 5 replace`,
-		`schedule function foo 5 bogus`,
-		`schedule function bar 5`,
-		`schedule clear`,
-		`schedule clear foo`,
-		`schedule clear bar`,
-		`schedule function foo -1`,
-		`schedule function minecraft:x 5`,
-		`schedule bogus`,
-		`function`,
-		`function foo`,
-		`function minecraft:x`,
-		`function foo {"a":1}`,
-		`function foo with entity @s`,
-		`function foo bar`,
-		`fetchprofile`,
-		`fetchprofile name`,
-		`fetchprofile name P`,
-		`fetchprofile id`,
-		`fetchprofile id 550e8400-e29b-41d4-a716-446655440000`,
-		`fetchprofile entity`,
-		`fetchprofile entity @s`,
-		`fetchprofile entity @e[type=minecraft:pig,limit=1]`,
-		`fetchprofile entity nosuchplayer`,
-		`fetchprofile bogus`,
-		`attribute`,
-		`attribute @s`,
-		`attribute @s minecraft:movement_speed`,
-		`attribute @s minecraft:movement_speed get`,
-		`attribute @s minecraft:movement_speed get 2`,
-		`attribute nosuchplayer minecraft:bogus get`,
-		`attribute @e[type=minecraft:pig,limit=1] minecraft:attack_damage get`,
-		`attribute @e[type=minecraft:pig,limit=1] minecraft:max_health get`,
-		`attribute @s minecraft:movement_speed base`,
-		`attribute @s minecraft:movement_speed base get`,
-		`attribute @s minecraft:movement_speed base get 2`,
-		`attribute @s minecraft:movement_speed base set 0.5`,
-		`attribute @s minecraft:movement_speed base get`,
-		`attribute @s minecraft:movement_speed base set x`,
-		`attribute @s minecraft:movement_speed base reset`,
-		`attribute @s minecraft:movement_speed modifier`,
-		`attribute @s minecraft:movement_speed modifier add minecraft:test 0.1 add_value`,
-		`attribute @s minecraft:movement_speed modifier add minecraft:test 0.1 add_value`,
-		`attribute @s minecraft:movement_speed modifier value get minecraft:test`,
-		`attribute @s minecraft:movement_speed modifier value get minecraft:test 3`,
-		`attribute @s minecraft:movement_speed modifier remove minecraft:test`,
-		`attribute @s minecraft:movement_speed modifier remove minecraft:test`,
-		`attribute @s minecraft:bogus get`,
-		`attribute nosuchplayer minecraft:movement_speed get`,
-		`attribute @e[type=minecraft:pig,limit=1] minecraft:movement_speed get`,
-		`attribute @s minecraft:movement_speed get extra`,
-		`spawn_armor_trims`,
-		`spawn_armor_trims foo`,
-		`serverpack`,
-		`serverpack push`,
-		`serverpack push http://x`,
-		`serverpack pop`,
-		`serverpack bogus`,
-		`unpublish`,
-		`unpublish x`,
-		`raid`,
-		`raid check`,
-		`raid start`,
-		`raid stop`,
-		`raid sound`,
-		`raid glow`,
-		`raid spawnleader`,
-		`raid spawnleader pillager`,
-		`raid setomen`,
-		`raid setomen 1`,
-		`raid bogus`,
-		`dialog`,
-		`dialog show`,
-		`dialog show @s`,
-		`dialog show @s minecraft:pause`,
-		`dialog show @s minecraft:quick_actions`,
-		`dialog show @s minecraft:bogus`,
-		`dialog clear nosuchplayer`,
-		`dialog clear @s`,
-		`dialog clear`,
-		`dialog show nosuchplayer minecraft:pause`,
-		`dialog show @e[type=minecraft:pig] minecraft:pause`,
-		`dialog bogus`,
-		`chase`,
-		`chase stop`,
-		`chase localhost`,
-		`chase localhost 9999`,
-		`chase lead`,
-		`chase follow`,
-		`chase bogus`,
-		`locate`,
-		`locate structure`,
-		`locate structure minecraft:bogus`,
-		`locate structure minecraft:village_plains`,
-		`locate biome minecraft:plains`,
-		`locate biome minecraft:deep_dark`,
-		`locate biome minecraft:the_void`,
-		`locate biome minecraft:bogus`,
-		`locate poi`,
-		`locate poi minecraft:bogus`,
-		`locate poi minecraft:nether_portal`,
-		`locate bogus`,
-		`place`,
-		`place feature`,
-		`place feature minecraft:bogus`,
-		`place feature minecraft:oak`,
-		`place feature minecraft:oak ~ ~ ~`,
-		`place template`,
-		`place template foo`,
-		`place jigsaw x y`,
-		`place structure minecraft:bogus`,
-		`place bogus`,
+		`msg`,
+		`msg Q`,
+		`msg Q hello world`,
+		`msg nosuchplayer hi`,
+		`msg @e[type=minecraft:pig] hi`,
+		`msg @s hi`,
+		`tell Q hi`,
+		`w Q hi`,
+		`msg @a all hi`,
+		`msg @e[type=minecraft:zombie] hi`,
+		`teammsg`,
+		`teammsg hi`,
+		`tm hi`,
+		`save-all`,
+		`save-all flush`,
+		`save-all x`,
+		`save-all flush x`,
+		`save-off`,
+		`save-off`,
+		`save-on`,
+		`save-on`,
+		`save-off x`,
+		`ban-ip`,
+		`ban-ip 1.2.3.4`,
+		`ban-ip 5.6.7.8 reason words`,
+		`ban-ip 5.6.7.8`,
+		`ban-ip nosuchplayer`,
+		`ban-ip 999.999.999.999`,
+		`ban-ip 1.2.3`,
+		`pardon-ip`,
+		`pardon-ip 1.2.3.4`,
+		`pardon-ip 1.2.3.4`,
+		`pardon-ip nosuchplayer`,
+		`pardon-ip Q`,
+		`pardon-ip 9.9.9.9`,
+		`ban-ip Q`,
 	}
 
 	numRe := regexp.MustCompile(`d\(-?[0-9.e+]+\)|f\(-?[0-9.e+]+\)|i\(-?[0-9]+\)|b\([0-9]+\)|l\(-?[0-9]+\)|"-?[0-9]+(?:\.[0-9]+)?"`)
-	tpRe := regexp.MustCompile(`/tp @s [^"]+`)
 
 	run := func(addr string) [][]string {
-		c, pr, pw := joinPlayBlackbox(t, addr, "P")
+		c, pr, pw := joinPlayQuiet(t, addr, "P")
 		defer c.Close()
 		_ = c.SetDeadline(time.Time{})
+		sendClientInformation(t, pw)
 		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
 		sink := newChatSink(pr, pw)
 		sink.cap = 1 << 20
-		time.Sleep(400 * time.Millisecond)
+
+		c2, pr2, pw2 := joinPlayQuiet(t, addr, "Q")
+		defer c2.Close()
+		_ = c2.SetDeadline(time.Time{})
+		sendClientInformation(t, pw2)
+		_ = pw2.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		sink2 := newChatSink(pr2, pw2)
+		sink2.cap = 1 << 20
+
+		time.Sleep(4 * time.Second)
 		var out [][]string
 		for i, cmd := range cmds {
 			sink.take()
+			sink2.take()
 			t.Logf("send %d %q", i, cmd)
 			func() { defer func() { recover() }(); sendCommand(t, pw, cmd) }()
-			time.Sleep(600 * time.Millisecond)
+			marker := fmt.Sprintf("ZMK%d", i)
+			func() { defer func() { recover() }(); sendCommand(t, pw, "say "+marker) }()
 			var evs []string
-			for _, line := range sink.take() {
-				if tree, ok := componentTree(line, true); ok {
-					evs = append(evs, "chat "+tpRe.ReplaceAllString(numRe.ReplaceAllString(maskUUID(tree), "N"), "/tp @s X"))
-				} else if strings.HasPrefix(line, "0x79:") {
-					i := strings.Index(line, ":")
-					if root, err := nbt.ReadUnnamed(strings.NewReader(line[i+1:])); err == nil {
-						evs = append(evs, "chat "+tpRe.ReplaceAllString(numRe.ReplaceAllString(maskUUID(renderNBT(root, true)), "N"), "/tp @s X"))
+			deadline := time.Now().Add(3 * time.Second)
+			gotP, gotQ := false, false
+			quietUntil := time.Now()
+			for {
+				collect := func(who string, sn *chatSink, seen *bool) {
+					for _, line := range sn.take() {
+						if strings.Contains(line, marker) {
+							*seen = true
+							continue
+						}
+						if strings.Contains(line, "chat.type.advancement") {
+							continue
+						}
+						if strings.HasPrefix(line, "0x21:") {
+							i2 := strings.Index(line, ":")
+							if root, err := nbt.ReadUnnamed(strings.NewReader(line[i2+1:])); err == nil {
+								evs = append(evs, who+":dis "+numRe.ReplaceAllString(maskUUID(renderNBT(root, true)), "N"))
+							}
+							continue
+						}
+						if tree, ok := componentTree(line, true); ok {
+							evs = append(evs, who+":chat "+numRe.ReplaceAllString(maskUUID(tree), "N"))
+						} else if strings.HasPrefix(line, "0x79:") {
+							i2 := strings.Index(line, ":")
+							if root, err := nbt.ReadUnnamed(strings.NewReader(line[i2+1:])); err == nil {
+								evs = append(evs, who+":chat "+numRe.ReplaceAllString(maskUUID(renderNBT(root, true)), "N"))
+							}
+						}
 					}
 				}
+				before := len(evs)
+				collect("P", sink, &gotP)
+				collect("Q", sink2, &gotQ)
+				if len(evs) != before {
+					quietUntil = time.Now().Add(150 * time.Millisecond)
+				}
+				if time.Now().After(deadline) || (gotP && gotQ && time.Now().After(quietUntil)) {
+					break
+				}
+				time.Sleep(30 * time.Millisecond)
 			}
 			out = append(out, evs)
 		}

@@ -22,7 +22,7 @@ func (s *Server) registerOps() {
 		return s.runTp(player, args)
 	})
 	s.registerComponentCommand("save-all", func(player string, args []string) reply {
-		return s.runSaveAll(args)
+		return s.runSaveAll(player, args)
 	})
 }
 
