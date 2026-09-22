@@ -360,9 +360,9 @@ func (s *Server) tpResolveDest(sender *Session, tok string, tokIdx int) (*dataEn
 }
 
 // tpComp renders a dataEntity as the command-feedback target component.
-func (d *dataEntity) tpComp() component {
+func (s *Server) tpComp(d *dataEntity) component {
 	if d.sess != nil {
-		return entityTargetComponent(d.sess)
+		return s.entityTargetComponent(d.sess)
 	}
 	return translatable("entity.minecraft." + d.typeName())
 }
@@ -385,10 +385,10 @@ func (s *Server) tpToEntity(player, victimsTok, destTok string) reply {
 	}
 	if len(victims) == 1 {
 		return s.tpReply(player, translatable("commands.teleport.success.entity.single",
-			victims[0].tpComp(), dest.tpComp()))
+			s.tpComp(victims[0]), s.tpComp(dest)))
 	}
 	return s.tpReply(player, translatable("commands.teleport.success.entity.multiple",
-		int32(len(victims)), dest.tpComp()))
+		int32(len(victims)), s.tpComp(dest)))
 }
 
 func (s *Server) tpVictims(issuer *Session, victimsTok string) ([]*dataEntity, *reply) {
@@ -449,7 +449,7 @@ func (s *Server) tpToPos(player, victimsTok string, coords, rot []string) reply 
 	zcomp := nestedCompound{key: "", value: sz}
 	if len(victims) == 1 {
 		return s.tpReply(player, translatable("commands.teleport.success.location.single",
-			victims[0].tpComp(), xcomp, ycomp, zcomp))
+			s.tpComp(victims[0]), xcomp, ycomp, zcomp))
 	}
 	return s.tpReply(player, translatable("commands.teleport.success.location.multiple",
 		int32(len(victims)), xcomp, ycomp, zcomp))

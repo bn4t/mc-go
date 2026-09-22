@@ -143,7 +143,7 @@ func (s *Server) recipeReply(sess *Session, give bool, n int32) reply {
 	}
 	return componentReply(translatable(key,
 		nestedCompound{key: "", value: n},
-		entityTargetComponent(sess)))
+		s.entityTargetComponent(sess)))
 }
 
 func recipeFailKey(give bool) string {

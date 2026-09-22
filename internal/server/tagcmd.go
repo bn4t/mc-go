@@ -1,5 +1,7 @@
 package server
 
+import "mc-go/internal/nbt"
+
 // registerTagCommand wires /tag — entity tags feeding [tag=...]
 // selectors.
 func (s *Server) registerTagCommand() {
@@ -164,17 +166,23 @@ func removeEntityTag(d *dataEntity, tag string) bool {
 	return false
 }
 
-// mobTags pulls the string Tags list out of an entity's ExtraNBT.
+// mobTags pulls the string Tags list out of an entity's ExtraNBT —
+// /summon stores it as an nbt.List, /tag writes it as plain []any.
 func mobTagList(e *Entity) []string {
 	if e == nil {
 		return nil
 	}
-	tv, ok := e.ExtraNBT["Tags"].([]any)
-	if !ok {
+	var items []any
+	switch tv := e.ExtraNBT["Tags"].(type) {
+	case []any:
+		items = tv
+	case nbt.List:
+		items = tv.Items
+	default:
 		return nil
 	}
-	out := make([]string, 0, len(tv))
-	for _, v := range tv {
+	out := make([]string, 0, len(items))
+	for _, v := range items {
 		if s, ok := v.(string); ok {
 			out = append(out, s)
 		}

@@ -3019,3 +3019,30 @@ physics through a void dip plus a fed recovery window.
   prints "#tag (resolved biome)". Tag/biome member tables mirror the
   vanilla datapack (the_void only in without_wandering_trader_spawns).
   TestLocateParity diffs 48 slots including underlines and Y=-3000.
+- Entity selector options parity: parseSelector rewritten to vanilla's
+  grammar — option names bind before '=', the type-repeat cursor uses
+  the two-rule form (a seen positive type errors at the option-key
+  start, negatives-then-positive at the value start), scores and
+  advancements are single-use (repeatable options are tag/nbt/
+  predicate), and inner cursors resolve via voff + Index(val,e) for
+  compound-aware comma/range splitting. parseRangeStrict keeps
+  presence flags: distance=0/..0 is an exact-zero match, the negative
+  check only fires on present bounds, '..'/'abc' ->
+  argument.range.empty, '5..3' -> argument.range.swapped (rotations
+  skip the swap check — degrees wrap). selectDataEntities now runs
+  selMatch for @s (options filter self; only limit/sort are rejected
+  as inapplicable), '@n' maps to entity domain + nearest + limit=1
+  with p/r/n defaults overridable by explicit sort/limit, name/tag/
+  team/gamemode/type/nbt store '!-stripped value + neg flag (team= is
+  no-team, team=! is has-a-team, tag= needs tagCount==0, tag=! any
+  tag), x/y/z alone re-anchor per axis with no volume, and a volume is
+  the per-axis [a+d,a]|[a,a+d+1] span moved to the anchor with
+  AABB-intersect matching via mobBounds. summon learnt the missing
+  mobHealth/mobBounds entries (husk, item, armor_stand, ...) and now
+  stores Tags as nbt.List while mobTagList reads either storage form.
+  Player displayName follows the team wrap ({text:P} bare, {text:"",
+  extra:["",P,""]} teamed) so entityTargetComponent became a *Server
+  method via s.teamOf. /kill removes a living mob immediately on death
+  (no 20-tick corpse — that's combat damage only). Pinned by the new
+  ~107-command TestSelectorOptionsParity plus the healed
+  TestSelectorArgsParity, both verbatim vs vanilla.

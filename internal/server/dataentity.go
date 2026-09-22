@@ -848,7 +848,9 @@ type selectorSpec struct {
 	nbts       []selNBT
 	preds      []string
 	advs       []selAdv
+	typePos    bool // a non-negated type= was used
 	x, y, z    float64
+	posSet     [3]bool // which of x/y/z were given
 	hasPos     bool
 	dx, dy, dz float64
 	hasVol     bool
@@ -952,7 +954,12 @@ func splitSelectorArgs(body string) ([]string, []int, bool) {
 			start = i + 1
 		}
 	}
-	if inQuote || depth != 0 {
+	if inQuote {
+		return nil, nil, false
+	}
+	// An unclosed { still splits fine — the option parser catches the
+	// real error inside the value.
+	if depth < 0 {
 		return nil, nil, false
 	}
 	parts = append(parts, body[start:])
@@ -973,7 +980,7 @@ func parseSelector(tok string, tokIdx int) (selectorSpec, *reply) {
 	}
 	spec := selectorSpec{variable: tok[1], sortBy: ""}
 	switch spec.variable {
-	case 'e', 'a', 'p', 'r', 's':
+	case 'e', 'a', 'p', 'r', 's', 'n':
 	default:
 		return bad("command.unknown.argument", 0)
 	}
@@ -993,24 +1000,36 @@ func parseSelector(tok string, tokIdx int) (selectorSpec, *reply) {
 		return bad("command.unknown.argument", 2)
 	}
 	singleUsed := map[string]bool{}
+	typeSeen := false
 	for pi, part := range parts {
 		if part == "" {
 			continue
 		}
+		optOff := 2 + 1 + offs[pi] // tok index of the option's key
 		eq := strings.Index(part, "=")
-		if eq < 0 {
-			return bad("command.unknown.argument", 2+1+offs[pi])
+		key := part
+		if eq >= 0 {
+			key = part[:eq]
 		}
-		key, val := part[:eq], part[eq+1:]
-		voff := 2 + 1 + offs[pi] + eq + 1 // tok index of val's first byte
+		// Vanilla resolves the option name before it ever looks for
+		// the `=`: an unknown name errors options.unknown, a known
+		// name without a value errors options.valueless.
+		if !selOptionNames[key] {
+			return bad("argument.entity.options.unknown", optOff, key)
+		}
+		if eq < 0 {
+			return bad("argument.entity.options.valueless", optOff, key)
+		}
+		val := part[eq+1:]
+		voff := optOff + eq + 1 // tok index of val's first byte
 		neg := strings.HasPrefix(val, "!")
+		negFree := val
 		if neg {
-			val = val[1:]
-			voff++
+			negFree = val[1:]
 		}
 		markSingle := func() *reply {
 			if singleUsed[key] {
-				r := errTokenOff("argument.entity.options.inapplicable", tokIdx, 2+1+offs[pi], key)
+				r := errTokenOff("argument.entity.options.inapplicable", tokIdx, optOff, key)
 				return &r
 			}
 			singleUsed[key] = true
@@ -1018,38 +1037,88 @@ func parseSelector(tok string, tokIdx int) (selectorSpec, *reply) {
 		}
 		switch key {
 		case "type":
+			// type= may repeat only while every use is negated. The
+			// error cursor differs by the history: once a positive
+			// type was seen the next type= errors at its key, but a
+			// positive arriving after only negatives lands the cursor
+			// on the value — the handler reads it before complaining.
+			if typeSeen {
+				if spec.typePos {
+					return bad("argument.entity.options.inapplicable", optOff, "type")
+				}
+				if !neg {
+					return bad("argument.entity.options.inapplicable", voff, "type")
+				}
+			}
+			typeSeen = true
+			if !neg {
+				spec.typePos = true
+			}
+			t := selTerm{neg: neg}
+			if strings.HasPrefix(negFree, "#") {
+				t.tag = true
+				negFree = negFree[1:]
+			}
+			if t.tag {
+				t.val = strings.TrimPrefix(negFree, "minecraft:")
+				spec.types = append(spec.types, t)
+				break
+			}
+			// A character that cannot be in an id ends the value:
+			// junk after a valid prefix is "unterminated" at the
+			// junk, a value that starts invalid - or is empty - is
+			// type.invalid naming what the id parse produced.
+			idEnd := 0
+			for idEnd < len(negFree) && isSelIDChar(negFree[idEnd]) {
+				idEnd++
+			}
+			if idEnd < len(negFree) && idEnd > 0 {
+				return bad("argument.entity.options.unterminated", voff+idEnd)
+			}
+			norm := negFree[:idEnd]
+			shown := "minecraft:"
+			if norm != "" && idEnd == len(negFree) {
+				shown = norm
+				if !strings.Contains(norm, ":") {
+					shown = "minecraft:" + norm
+				}
+			}
+			lookup := strings.TrimPrefix(shown, "minecraft:")
+			if _, ok := EntityTypeID(lookup); !ok && lookup != "player" {
+				return bad("argument.entity.options.type.invalid", voff, shown)
+			}
+			t.val = lookup
+			spec.types = append(spec.types, t)
+		case "gamemode":
 			if r := markSingle(); r != nil {
 				return selectorSpec{}, r
 			}
-			t := selTerm{neg: neg}
-			if strings.HasPrefix(val, "#") {
-				t.tag = true
-				val = val[1:]
-			}
-			t.val = strings.TrimPrefix(val, "minecraft:")
-			if !t.tag {
-				if _, ok := EntityTypeID(t.val); !ok && t.val != "player" {
-					return bad("argument.entity.options.type.invalid", voff+1, val)
-				}
-			}
-			spec.types = append(spec.types, t)
-		case "gamemode":
-			switch val {
+			switch negFree {
 			case "survival", "creative", "adventure", "spectator":
 			default:
-				return bad("argument.entity.options.mode.invalid", voff, val)
+				return bad("argument.entity.options.mode.invalid", voff, negFree)
 			}
-			spec.modes = append(spec.modes, selTerm{val: val, neg: neg})
+			spec.modes = append(spec.modes, selTerm{val: negFree, neg: neg})
 		case "limit":
+			// @s takes no shaping options.
+			if spec.variable == 's' {
+				return bad("argument.entity.options.inapplicable", optOff, "limit")
+			}
 			if r := markSingle(); r != nil {
 				return selectorSpec{}, r
 			}
 			n, err := strconv.Atoi(val)
-			if err != nil || n < 1 {
+			if err != nil {
 				return bad("parsing.int.expected", voff)
+			}
+			if n < 1 {
+				return bad("argument.entity.options.limit.toosmall", voff)
 			}
 			spec.limit, spec.hasLimit = n, true
 		case "sort":
+			if spec.variable == 's' {
+				return bad("argument.entity.options.inapplicable", optOff, "sort")
+			}
 			if r := markSingle(); r != nil {
 				return selectorSpec{}, r
 			}
@@ -1063,38 +1132,40 @@ func parseSelector(tok string, tokIdx int) (selectorSpec, *reply) {
 			if r := markSingle(); r != nil {
 				return selectorSpec{}, r
 			}
-			r, ok := parseRangeF64(val)
-			if !ok {
-				return bad("argument.range.empty", voff)
+			r, loSet, hiSet, rerr := parseRangeStrict(val)
+			if rerr != "" {
+				return bad("argument.range."+rerr, voff)
+			}
+			if (loSet && r.lo < 0) || (hiSet && r.hi < 0) {
+				return bad("argument.entity.options.distance.negative", voff)
 			}
 			spec.dist = &r
 		case "level":
 			if r := markSingle(); r != nil {
 				return selectorSpec{}, r
 			}
-			r, ok := parseRangeF64(val)
-			if !ok {
-				return bad("argument.range.empty", voff)
+			r, _, _, rerr := parseRangeStrict(val)
+			if rerr != "" {
+				return bad("argument.range."+rerr, voff)
 			}
 			spec.level = &r
-		case "x_rotation":
+		case "x_rotation", "y_rotation":
 			if r := markSingle(); r != nil {
 				return selectorSpec{}, r
 			}
-			r, ok := parseRangeF64(val)
-			if !ok {
-				return bad("argument.range.empty", voff)
+			// Rotations wrap degrees, so a lo>hi pair is legal — the
+			// range parses again without the swap check.
+			r, _, _, rerr := parseRangeStrict(val)
+			if rerr == "swapped" {
+				r, _ = parseRangeF64(val)
+			} else if rerr != "" {
+				return bad("argument.range."+rerr, voff)
 			}
-			spec.xrot = &r
-		case "y_rotation":
-			if r := markSingle(); r != nil {
-				return selectorSpec{}, r
+			if key == "x_rotation" {
+				spec.xrot = &r
+			} else {
+				spec.yrot = &r
 			}
-			r, ok := parseRangeF64(val)
-			if !ok {
-				return bad("argument.range.empty", voff)
-			}
-			spec.yrot = &r
 		case "x", "y", "z", "dx", "dy", "dz":
 			if r := markSingle(); r != nil {
 				return selectorSpec{}, r
@@ -1105,11 +1176,11 @@ func parseSelector(tok string, tokIdx int) (selectorSpec, *reply) {
 			}
 			switch key {
 			case "x":
-				spec.x = f
+				spec.x, spec.posSet[0] = f, true
 			case "y":
-				spec.y = f
+				spec.y, spec.posSet[1] = f, true
 			case "z":
-				spec.z = f
+				spec.z, spec.posSet[2] = f, true
 			case "dx":
 				spec.dx = f
 			case "dy":
@@ -1123,15 +1194,21 @@ func parseSelector(tok string, tokIdx int) (selectorSpec, *reply) {
 				spec.hasPos = true
 			}
 		case "name":
-			spec.names = append(spec.names, selTerm{val: unquote(val), neg: neg})
+			if r := markSingle(); r != nil {
+				return selectorSpec{}, r
+			}
+			spec.names = append(spec.names, selTerm{val: unquote(negFree), neg: neg})
 		case "tag":
-			spec.tags = append(spec.tags, selTerm{val: val, neg: neg})
+			spec.tags = append(spec.tags, selTerm{val: negFree, neg: neg})
 		case "team":
 			if r := markSingle(); r != nil {
 				return selectorSpec{}, r
 			}
-			spec.team = &selTerm{val: val, neg: neg}
+			spec.team = &selTerm{val: negFree, neg: neg}
 		case "scores":
+			if r := markSingle(); r != nil {
+				return selectorSpec{}, r
+			}
 			if len(val) < 2 || val[0] != '{' || val[len(val)-1] != '}' {
 				return bad("parsing.expected", voff, "{")
 			}
@@ -1139,24 +1216,33 @@ func parseSelector(tok string, tokIdx int) (selectorSpec, *reply) {
 				if e == "" {
 					continue
 				}
+				eo := voff + strings.Index(val, e)
 				kv := strings.SplitN(e, "=", 2)
 				if len(kv) != 2 {
-					return bad("command.unknown.argument", voff)
+					return bad("parsing.expected", eo+len(kv[0]), "=")
 				}
-				r, ok := parseRangeF64(kv[1])
-				if !ok {
-					return bad("argument.range.empty", voff+strings.Index(val, "=")+1)
+				r, _, _, rerr := parseRangeStrict(kv[1])
+				if rerr != "" {
+					return bad("argument.range."+rerr, eo+len(kv[0])+1)
 				}
 				spec.scores = append(spec.scores, selScore{obj: kv[0], r: r})
 			}
 		case "nbt":
-			tg, _, err := parseSNBTTag(val, 0)
-			if err != nil || tg == nil || tg.kind != snbtCompound {
-				return bad("argument.nbt.expected.compound", voff)
+			tg, _, serr := parseSNBTTag(negFree, 0)
+			if serr != nil {
+				// The snbt failure reports its own cursor past the
+				// value start; expected.compound lands at value end.
+				return bad(serr.key, voff+boolOff(neg)+serr.pos, serr.with...)
+			}
+			if tg == nil || tg.kind != snbtCompound {
+				return bad("argument.nbt.expected.compound", voff+len(val))
 			}
 			m, _ := snbtToValue(tg).(map[string]any)
 			spec.nbts = append(spec.nbts, selNBT{m: m, neg: neg})
 		case "advancements":
+			if r := markSingle(); r != nil {
+				return selectorSpec{}, r
+			}
 			if len(val) < 2 || val[0] != '{' || val[len(val)-1] != '}' {
 				return bad("parsing.expected", voff, "{")
 			}
@@ -1182,9 +1268,11 @@ func parseSelector(tok string, tokIdx int) (selectorSpec, *reply) {
 							}
 							ad.crits = append(ad.crits, selTerm{val: ck, neg: !want})
 						}
-					} else {
-						b := v != "false"
+					} else if v == "true" || v == "false" {
+						b := v == "true"
 						ad.done = &b
+					} else {
+						return bad("parsing.bool.invalid", voff+strings.Index(val, e)+eq2+1, v)
 					}
 				} else {
 					ad.id = e
@@ -1194,12 +1282,73 @@ func parseSelector(tok string, tokIdx int) (selectorSpec, *reply) {
 				spec.advs = append(spec.advs, ad)
 			}
 		case "predicate":
+			if strings.HasPrefix(negFree, "#") {
+				return bad("argument.entity.options.unterminated", voff+boolOff(neg))
+			}
 			spec.preds = append(spec.preds, val)
-		default:
-			return bad("argument.entity.options.unknown", 2+1+offs[pi], key)
 		}
 	}
 	return spec, nil
+}
+
+// selOptionNames is the vanilla selector-option registry; the lookup
+// runs before the value so `foo` and `foo=bar` both report it unknown.
+var selOptionNames = map[string]bool{
+	"x": true, "y": true, "z": true, "dx": true, "dy": true, "dz": true,
+	"distance": true, "limit": true, "sort": true, "gamemode": true,
+	"level": true, "name": true, "type": true, "team": true, "tag": true,
+	"nbt": true, "scores": true, "predicate": true, "advancements": true,
+	"x_rotation": true, "y_rotation": true,
+}
+
+// isSelIDChar covers the characters a namespaced id may contain.
+func isSelIDChar(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' ||
+		c == '_' || c == '.' || c == '/' || c == '-' || c == ':'
+}
+
+func boolOff(neg bool) int {
+	if neg {
+		return 1
+	}
+	return 0
+}
+
+// parseRangeStrict parses `a`, `a..`, `..b`, `a..b` like vanilla's
+// MinMaxBounds: no digits at all or a bad numeral is "empty", a lo>hi
+// pair is "swapped". It reports which ends were present so callers can
+// check signedness only on given bounds (`..-1` and bare `..` differ).
+func parseRangeStrict(v string) (selRange, bool, bool, string) {
+	r := selRange{math.Inf(-1), math.Inf(1)}
+	var loSet, hiSet bool
+	if i := strings.Index(v, ".."); i >= 0 {
+		if len(v) == 2 {
+			return selRange{}, false, false, "empty"
+		}
+		if i > 0 {
+			f, err := strconv.ParseFloat(v[:i], 64)
+			if err != nil {
+				return selRange{}, false, false, "empty"
+			}
+			r.lo, loSet = f, true
+		}
+		if i+2 < len(v) {
+			f, err := strconv.ParseFloat(v[i+2:], 64)
+			if err != nil {
+				return selRange{}, false, false, "empty"
+			}
+			r.hi, hiSet = f, true
+		}
+		if loSet && hiSet && r.lo > r.hi {
+			return selRange{}, false, false, "swapped"
+		}
+		return r, loSet, hiSet, ""
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return selRange{}, false, false, "empty"
+	}
+	return selRange{f, f}, true, true, ""
 }
 
 // splitKV splits an SNBT-ish entry list on commas — criteria maps are
@@ -1251,20 +1400,37 @@ func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, sin
 			return nil, &r
 		}
 		// Inside an execute fork the sender's @s is the bound executor.
+		// The executor is still filtered by the options — @s[type=pig]
+		// on a player fails rather than matching the player.
+		var self *dataEntity
 		if sender.execEnt != nil {
-			return []*dataEntity{sender.execEnt}, nil
+			self = sender.execEnt
+		} else {
+			self = &dataEntity{sess: sender}
 		}
-		return []*dataEntity{{sess: sender}}, nil
+		sx, sy, sz, _, _ := self.posRot()
+		if !s.selMatch(&spec, self, sx, sy, sz) {
+			return []*dataEntity{}, nil
+		}
+		return []*dataEntity{self}, nil
 	}
 	ax, ay, az := float64(0), float64(0), float64(0)
-	if spec.hasPos {
-		ax, ay, az = spec.x, spec.y, spec.z
-	} else if sender != nil && sender.execPos != nil {
+	if sender != nil && sender.execPos != nil {
 		ax, ay, az = sender.execPos[0], sender.execPos[1], sender.execPos[2]
 	} else if sender != nil && sender.execEnt != nil && sender.execEnt.mob != nil {
 		ax, ay, az = sender.execEnt.mob.X, sender.execEnt.mob.Y, sender.execEnt.mob.Z
 	} else if sender != nil {
 		ax, ay, az, _, _, _ = sender.Pos()
+	}
+	// x/y/z override their own axis of the anchor only.
+	if spec.posSet[0] {
+		ax = spec.x
+	}
+	if spec.posSet[1] {
+		ay = spec.y
+	}
+	if spec.posSet[2] {
+		az = spec.z
 	}
 	dim := ""
 	if sender != nil {
@@ -1278,13 +1444,13 @@ func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, sin
 		cands = append(cands, &dataEntity{sess: sess})
 	}
 	switch spec.variable {
-	case 'a', 'p', 'r', 'e':
+	case 'a', 'p', 'r', 'e', 'n':
 		s.sessions.Range(func(_, v any) bool {
 			sess := v.(*Session)
 			if sess.state.Load() == StatePlay && sess.dimName() == dim {
-				// @e runs the entity list, which drops dead players;
+				// @e/@n run the entity list, which drops dead players;
 				// @a/@p/@r walk the player list that still holds them.
-				if spec.variable == 'e' && sess.dead {
+				if (spec.variable == 'e' || spec.variable == 'n') && sess.dead {
 					return true
 				}
 				addSess(sess)
@@ -1292,7 +1458,7 @@ func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, sin
 			return true
 		})
 	}
-	if spec.variable == 'e' {
+	if spec.variable == 'e' || spec.variable == 'n' {
 		// Dying-but-unremoved corpses still match — vanilla's selector
 		// counts them and /kill reports them in the total.
 		var mobs []*dataEntity
@@ -1326,21 +1492,25 @@ func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, sin
 		dx, dy, dz := x-ax, y-ay, z-az
 		return dx*dx + dy*dy + dz*dz
 	}
-	switch spec.sortBy {
+	sortBy := spec.sortBy
+	if sortBy == "" {
+		// @p/@n default to nearest, @r to random, @e/@a to gather order.
+		switch spec.variable {
+		case 'p', 'n':
+			sortBy = "nearest"
+		case 'r':
+			sortBy = "random"
+		}
+	}
+	switch sortBy {
 	case "furthest":
 		sort.SliceStable(cands, func(i, j int) bool { return distOf(cands[i]) > distOf(cands[j]) })
 	case "nearest":
 		sort.SliceStable(cands, func(i, j int) bool { return distOf(cands[i]) < distOf(cands[j]) })
 	case "random":
 		rand.Shuffle(len(cands), func(i, j int) { cands[i], cands[j] = cands[j], cands[i] })
-	default:
-		// @e/@a gather order stands unless sort names one; @p/@r
-		// carry their own implicit ordering.
-		if spec.variable == 'p' {
-			sort.SliceStable(cands, func(i, j int) bool { return distOf(cands[i]) < distOf(cands[j]) })
-		}
 	}
-	if spec.variable == 'p' || spec.variable == 'r' {
+	if !spec.hasLimit && (spec.variable == 'p' || spec.variable == 'r' || spec.variable == 'n') {
 		spec.limit, spec.hasLimit = 1, true
 	}
 	if spec.hasLimit && spec.limit >= 0 && len(cands) > spec.limit {
@@ -1390,6 +1560,14 @@ func (s *Server) selMatch(spec *selectorSpec, d *dataEntity, ax, ay, az float64)
 		}
 	}
 	for _, t := range spec.tags {
+		// An empty value tests tag-lessness itself: tag= wants no
+		// tags at all, tag=! wants at least one.
+		if t.val == "" {
+			if (d.tagCount() == 0) == t.neg {
+				return false
+			}
+			continue
+		}
 		if d.hasTag(t.val) == t.neg {
 			return false
 		}
@@ -1441,11 +1619,14 @@ func (s *Server) selMatch(spec *selectorSpec, d *dataEntity, ax, ay, az float64)
 	}
 	if spec.dist != nil {
 		dx, dy, dz := px-ax, py-ay, pz-az
-		if !spec.dist.test(math.Sqrt(dx*dx + dy*dy + dz*dz)) {
+		if d := math.Sqrt(dx*dx + dy*dy + dz*dz); d < spec.dist.lo || d > spec.dist.hi {
 			return false
 		}
 	}
 	if spec.hasVol {
+		// Vanilla's box per axis is [a+d, a] when d<0 else
+		// [a, a+d+1], moved to the anchor; an entity matches when
+		// its bounding box intersects, not when its position is in.
 		lo := func(a, dv float64) float64 {
 			if dv < 0 {
 				return a + dv
@@ -1456,10 +1637,14 @@ func (s *Server) selMatch(spec *selectorSpec, d *dataEntity, ax, ay, az float64)
 			if dv < 0 {
 				return a
 			}
-			return a + dv
+			return a + dv + 1
 		}
-		if px < lo(ax, spec.dx) || py < lo(ay, spec.dy) || pz < lo(az, spec.dz) ||
-			px > hi(ax, spec.dx) || py > hi(ay, spec.dy) || pz > hi(az, spec.dz) {
+		w, h := d.aabbDims()
+		ex0, ey0, ez0 := px-w/2, py, pz-w/2
+		ex1, ey1, ez1 := px+w/2, py+h, pz+w/2
+		vx0, vy0, vz0 := lo(ax, spec.dx), lo(ay, spec.dy), lo(az, spec.dz)
+		vx1, vy1, vz1 := hi(ax, spec.dx), hi(ay, spec.dy), hi(az, spec.dz)
+		if vx0 >= ex1 || vx1 <= ex0 || vy0 >= ey1 || vy1 <= ey0 || vz0 >= ez1 || vz1 <= ez0 {
 			return false
 		}
 	}
@@ -1522,6 +1707,16 @@ func (d *dataEntity) selName() string {
 	return n
 }
 
+// aabbDims is the entity's bounding-box size — vanilla anchors the
+// box at the feet, centered on x/z.
+func (d *dataEntity) aabbDims() (w, h float64) {
+	if d.sess != nil {
+		return 0.6, 1.8
+	}
+	b := mobBounds(d.mob.Type)
+	return b[0], b[1]
+}
+
 // selHolder is the scoreboard/team lookup key — the player name, or
 // the mob's UUID string like vanilla's getScoreboardName.
 func (d *dataEntity) selHolder() string {
@@ -1544,14 +1739,54 @@ func (d *dataEntity) typeName() string {
 // entityInTag reports whether the entity's type belongs to a named
 // entity-type tag — the subset the suite exercises is a literal table.
 var entityTags = map[string][]string{
-	"skeletons":                       {"skeleton", "stray", "wither_skeleton", "skeleton_horse", "bogged"},
-	"zombies":                         {"zombie", "zombie_villager", "husk", "drowned", "zombified_piglin", "zombie_horse"},
+	"accepts_iron_golem_gift":         {"copper_golem"},
+	"aquatic":                         {"axolotl", "cod", "dolphin", "elder_guardian", "glow_squid", "guardian", "nautilus", "pufferfish", "salmon", "squid", "tadpole", "tropical_fish", "turtle", "zombie_nautilus"},
+	"arrows":                          {"arrow", "spectral_arrow"},
+	"arthropod":                       {"bee", "cave_spider", "endermite", "silverfish", "spider"},
+	"axolotl_always_hostiles":         {"drowned", "elder_guardian", "guardian"},
+	"axolotl_hunt_targets":            {"cod", "glow_squid", "pufferfish", "salmon", "squid", "tadpole", "tropical_fish"},
+	"beehive_inhabitors":              {"bee"},
+	"boat":                            {"acacia_boat", "bamboo_raft", "birch_boat", "cherry_boat", "dark_oak_boat", "jungle_boat", "mangrove_boat", "oak_boat", "pale_oak_boat", "spruce_boat"},
+	"burn_in_daylight":                {"bogged", "drowned", "phantom", "skeleton", "stray", "wither_skeleton", "zombie", "zombie_horse", "zombie_nautilus", "zombie_villager"},
+	"can_breathe_under_water":         {"armor_stand", "axolotl", "bogged", "camel_husk", "cod", "copper_golem", "drowned", "elder_guardian", "frog", "glow_squid", "guardian", "husk", "nautilus", "parched", "phantom", "pufferfish", "salmon", "skeleton", "skeleton_horse", "squid", "stray", "tadpole", "tropical_fish", "turtle", "wither", "wither_skeleton", "zoglin", "zombie", "zombie_horse", "zombie_nautilus", "zombie_villager", "zombified_piglin"},
+	"can_equip_harness":               {"happy_ghast"},
+	"can_equip_saddle":                {"camel", "camel_husk", "donkey", "horse", "mule", "nautilus", "pig", "skeleton_horse", "strider", "zombie_horse", "zombie_nautilus"},
+	"can_float_while_ridden":          {"camel", "camel_husk", "donkey", "horse", "mule", "zombie_horse"},
+	"can_turn_in_boats":               {"breeze"},
+	"can_wear_horse_armor":            {"horse", "zombie_horse"},
+	"can_wear_nautilus_armor":         {"nautilus", "zombie_nautilus"},
+	"candidate_for_iron_golem_gift":   {"copper_golem", "villager"},
+	"cannot_be_age_locked":            {"skeleton_horse", "villager", "zombie_horse"},
+	"cannot_be_pushed_onto_boats":     {"cod", "creaking", "dolphin", "elder_guardian", "glow_squid", "nautilus", "player", "pufferfish", "salmon", "squid", "sulfur_cube", "tadpole", "tropical_fish", "zombie_nautilus"},
+	"deflects_projectiles":            {"breeze"},
+	"dismounts_underwater":            {"camel", "chicken", "donkey", "happy_ghast", "horse", "llama", "mule", "pig", "ravager", "spider", "strider", "trader_llama", "zombie_horse"},
+	"fall_damage_immune":              {"allay", "bat", "bee", "blaze", "breeze", "cat", "chicken", "copper_golem", "ghast", "happy_ghast", "iron_golem", "magma_cube", "ocelot", "parrot", "phantom", "shulker", "snow_golem", "wither"},
+	"followable_friendly_mobs":        {"armadillo", "bee", "camel", "cat", "chicken", "cow", "donkey", "fox", "goat", "happy_ghast", "horse", "llama", "mule", "ocelot", "panda", "parrot", "pig", "polar_bear", "rabbit", "sheep", "skeleton_horse", "sniffer", "strider", "villager", "wolf"},
+	"freeze_hurts_extra_types":        {"blaze", "magma_cube", "strider"},
+	"freeze_immune_entity_types":      {"polar_bear", "snow_golem", "stray", "wither"},
+	"frog_food":                       {"magma_cube", "slime"},
+	"ignores_poison_and_regen":        {"bogged", "camel_husk", "drowned", "husk", "parched", "phantom", "skeleton", "skeleton_horse", "stray", "wither", "wither_skeleton", "zoglin", "zombie", "zombie_horse", "zombie_nautilus", "zombie_villager", "zombified_piglin"},
+	"illager":                         {"evoker", "illusioner", "pillager", "vindicator"},
+	"illager_friends":                 {"evoker", "illusioner", "pillager", "vindicator"},
+	"immune_to_infested":              {"silverfish"},
+	"immune_to_oozing":                {"slime"},
+	"impact_projectiles":              {"arrow", "breeze_wind_charge", "dragon_fireball", "egg", "fireball", "firework_rocket", "small_fireball", "snowball", "spectral_arrow", "trident", "wind_charge", "wither_skull"},
+	"inverted_healing_and_harm":       {"bogged", "camel_husk", "drowned", "husk", "parched", "phantom", "skeleton", "skeleton_horse", "stray", "wither", "wither_skeleton", "zoglin", "zombie", "zombie_horse", "zombie_nautilus", "zombie_villager", "zombified_piglin"},
+	"nautilus_hostiles":               {"pufferfish"},
+	"no_anger_from_wind_charge":       {"bogged", "breeze", "cave_spider", "husk", "skeleton", "slime", "spider", "stray", "zombie"},
+	"non_controlling_rider":           {"magma_cube", "slime", "sulfur_cube"},
+	"not_affected_by_geysers":         {"ender_dragon"},
+	"not_scary_for_pufferfish":        {"cod", "dolphin", "elder_guardian", "glow_squid", "guardian", "nautilus", "pufferfish", "salmon", "squid", "sulfur_cube", "tadpole", "tropical_fish", "turtle", "zombie_nautilus"},
+	"powder_snow_walkable_mobs":       {"endermite", "fox", "rabbit", "silverfish"},
 	"raiders":                         {"evoker", "illusioner", "pillager", "ravager", "vindicator", "witch"},
-	"undead":                          {"drowned", "husk", "phantom", "skeleton", "skeleton_horse", "stray", "wither_skeleton", "zombie", "zombie_horse", "zombie_villager", "zombified_piglin", "zoglin"},
-	"arthropods":                      {"bee", "endermite", "silverfish", "spider", "cave_spider"},
-	"aquatic":                         {"axolotl", "cod", "dolphin", "elder_guardian", "glow_squid", "guardian", "pufferfish", "salmon", "squid", "tadpole", "tropical_fish", "turtle"},
-	"immune_to_melting":               {"stray", "polar_bear", "snow_golem", "wither", "blaze"},
-	"sensitive_to_bane_of_arthropods": {"bee", "endermite", "silverfish", "spider", "cave_spider"},
+	"redirectable_projectile":         {"breeze_wind_charge", "fireball", "wind_charge"},
+	"sensitive_to_bane_of_arthropods": {"bee", "cave_spider", "endermite", "silverfish", "spider"},
+	"sensitive_to_impaling":           {"axolotl", "cod", "dolphin", "elder_guardian", "glow_squid", "guardian", "nautilus", "pufferfish", "salmon", "squid", "tadpole", "tropical_fish", "turtle", "zombie_nautilus"},
+	"sensitive_to_smite":              {"bogged", "camel_husk", "drowned", "husk", "parched", "phantom", "skeleton", "skeleton_horse", "stray", "wither", "wither_skeleton", "zoglin", "zombie", "zombie_horse", "zombie_nautilus", "zombie_villager", "zombified_piglin"},
+	"skeletons":                       {"bogged", "parched", "skeleton", "skeleton_horse", "stray", "wither_skeleton"},
+	"undead":                          {"bogged", "camel_husk", "drowned", "husk", "parched", "phantom", "skeleton", "skeleton_horse", "stray", "wither", "wither_skeleton", "zoglin", "zombie", "zombie_horse", "zombie_nautilus", "zombie_villager", "zombified_piglin"},
+	"wither_friends":                  {"bogged", "camel_husk", "drowned", "husk", "parched", "phantom", "skeleton", "skeleton_horse", "stray", "wither", "wither_skeleton", "zoglin", "zombie", "zombie_horse", "zombie_nautilus", "zombie_villager", "zombified_piglin"},
+	"zombies":                         {"camel_husk", "drowned", "husk", "zoglin", "zombie", "zombie_horse", "zombie_nautilus", "zombie_villager", "zombified_piglin"},
 }
 
 func (d *dataEntity) entityInTag(tag string) bool {
@@ -1582,6 +1817,17 @@ func (d *dataEntity) hasTag(tag string) bool {
 		}
 	}
 	return false
+}
+
+// tagCount is the size of the entity's tag set — an empty tag=
+// selector tests against it rather than against a tag named "".
+func (d *dataEntity) tagCount() int {
+	if d.sess != nil {
+		d.sess.tagMu.Lock()
+		defer d.sess.tagMu.Unlock()
+		return len(d.sess.tags)
+	}
+	return len(mobTagList(d.mob))
 }
 
 // nbtMatches is vanilla's compareNbt partial match: every pattern key

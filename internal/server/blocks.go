@@ -333,6 +333,6 @@ func (s *Server) runGive(player string, args []string) reply {
 	return reply{styled: true, comp: translatable("commands.give.success.single",
 		nestedCompound{key: "", value: st.Count},
 		itemBrackets(st),
-		entityTargetComponent(sess),
+		s.entityTargetComponent(sess),
 	)}
 }

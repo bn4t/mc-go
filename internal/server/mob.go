@@ -183,11 +183,21 @@ var mobHealth = map[string]float32{
 	"ender_dragon":     200,
 	"piglin":           16,
 	// sulfur_cube health is 4×size; a bare /summon lands at size 1.
-	"sulfur_cube": 4,
-	"allay":       20,
-	"goat":        10,
-	"strider":     20,
-	"armor_stand": 20,
+	"sulfur_cube":      4,
+	"allay":            20,
+	"goat":             10,
+	"strider":          20,
+	"armor_stand":      20,
+	"husk":             20,
+	"drowned":          20,
+	"stray":            20,
+	"wither_skeleton":  20,
+	"cave_spider":      12,
+	"enderman":         40,
+	"witch":            24,
+	"blaze":            20,
+	"phantom":          20,
+	"zombified_piglin": 20,
 }
 
 // mobBoundsTable is the vanilla bounding box (width, height) per
@@ -217,6 +227,32 @@ func init() {
 		"allay":        {0.35, 0.6},
 		"goat":         {0.9, 1.3},
 		"strider":      {0.9, 1.7},
+		// Selector volumes use these too — cover the rest of the
+		// summonable hostile set and the common non-living types.
+		"husk":             {0.6, 1.95},
+		"drowned":          {0.6, 1.95},
+		"stray":            {0.6, 1.99},
+		"wither_skeleton":  {0.7, 2.4},
+		"zombie_villager":  {0.6, 1.95},
+		"zombified_piglin": {0.6, 1.95},
+		"cave_spider":      {0.7, 0.5},
+		"enderman":         {0.6, 2.9},
+		"witch":            {0.6, 1.95},
+		"wolf":             {0.6, 0.85},
+		"cat":              {0.6, 0.7},
+		"bee":              {0.7, 0.6},
+		"slime":            {1.04, 1.04},
+		"blaze":            {0.6, 1.8},
+		"phantom":          {0.9, 0.5},
+		"armor_stand":      {0.5, 1.975},
+		"item":             {0.25, 0.25},
+		"experience_orb":   {0.5, 0.5},
+		"arrow":            {0.5, 0.5},
+		"boat":             {1.375, 0.5625},
+		"minecart":         {0.98, 0.7},
+		"falling_block":    {0.98, 0.98},
+		"tnt":              {0.98, 0.98},
+		"snow_golem":       {0.7, 1.9},
 	} {
 		if id, ok := EntityTypeID(name); ok {
 			mobBoundsTable[id] = dims
@@ -387,7 +423,8 @@ func (s *Server) runSummon(player string, args []string) reply {
 				e.VY = int16(e.MotionY * 8000)
 				e.VZ = int16(e.MotionZ * 8000)
 			}
-			// Tags list — @e[tag=...] selection and the save map.
+			// Tags list — @e[tag=...] selection and the save map;
+			// mobTagList reads either storage form.
 			if tv, ok := tag.vals["Tags"]; ok && tv.kind == snbtList {
 				var items []any
 				for _, it := range tv.items {

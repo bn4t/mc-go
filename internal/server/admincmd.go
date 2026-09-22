@@ -267,7 +267,7 @@ func (s *Server) runBanIP(player string, args []string) reply {
 			if i > 0 {
 				parts = append(parts, component{color: "gray", text: ", "})
 			}
-			parts = append(parts, entityTargetComponent(sess))
+			parts = append(parts, s.entityTargetComponent(sess))
 		}
 		info = translatable("commands.banip.info",
 			int32(len(kicked)), component{text: "", extra: parts})

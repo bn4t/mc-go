@@ -73,7 +73,7 @@ func (s *Server) runGamemode(player string, args []string) reply {
 	if target == sess {
 		selfMsg = translatable("commands.gamemode.success.self", modeName)
 	} else {
-		selfMsg = translatable("commands.gamemode.success.other", entityTargetComponent(target), modeName)
+		selfMsg = translatable("commands.gamemode.success.other", s.entityTargetComponent(target), modeName)
 	}
 	s.broadcastAdmin(sess, selfMsg)
 	if old == GameModeCreative || mode == GameModeCreative {
@@ -95,7 +95,7 @@ func (s *Server) broadcastAdmin(sender *Session, msg component) {
 		color:     "gray",
 		italic:    true,
 		translate: "chat.type.admin",
-		with:      []any{entityTargetComponent(sender), msg},
+		with:      []any{s.entityTargetComponent(sender), msg},
 	}
 	body := systemChatBody(c)
 	s.sessions.Range(func(_, v any) bool {

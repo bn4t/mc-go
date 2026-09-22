@@ -509,12 +509,10 @@ func mustItemName(id int32) string {
 // entityTargetComponent renders an /item entity target the way the real
 // server's replies name it: the player's name, clickable to message
 // them, hovering their entity id.
-func entityTargetComponent(sess *Session) component {
+func (s *Server) entityTargetComponent(sess *Session) component {
 	name := sess.getName()
 	u := sess.getUUID()
-	return component{
-		text:      name,
-		click:     "/tell " + name + " ",
+	c := component{
 		insertion: name,
 		hover: map[string]any{
 			"action": "show_entity",
@@ -528,6 +526,15 @@ func entityTargetComponent(sess *Session) component {
 			},
 		},
 	}
+	// getDisplayName: a teamless player is just their name; a teamed
+	// player wraps it in the team's empty prefix/suffix siblings.
+	if s.teamOf(name) != nil {
+		c.extra = []component{{text: ""}, {text: name}, {text: ""}}
+	} else {
+		c.text = name
+	}
+	c.click = "/tell " + name + " "
+	return c
 }
 
 // noChangedItem is the failure the real server answers a slot write the
@@ -655,7 +662,7 @@ func (s *Server) runItemModify(player string, args []string) reply {
 		st = worn
 	}
 	return componentReply(translatable("commands.item.entity.set.success.single",
-		entityTargetComponent(tgt), itemBrackets(st)))
+		s.entityTargetComponent(tgt), itemBrackets(st)))
 }
 
 // applySetDamage wears st as a bare `{"function":"set_damage",
@@ -1430,5 +1437,5 @@ func (s *Server) writeItemEntity(sess *Session, id int32, st ItemStack) reply {
 	}
 	s.writeEntitySlot(sess, id, st)
 	return componentReply(translatable("commands.item.entity.set.success.single",
-		entityTargetComponent(sess), itemBrackets(st)))
+		s.entityTargetComponent(sess), itemBrackets(st)))
 }

@@ -532,9 +532,9 @@ func (s *Server) teamFormattedName(sess *Session) component {
 	name := sess.getName()
 	t := s.teamOf(name)
 	if t == nil {
-		return entityTargetComponent(sess)
+		return s.entityTargetComponent(sess)
 	}
-	c := entityTargetComponent(sess)
+	c := s.entityTargetComponent(sess)
 	c.text = ""
 	c.extra = []component{literal(t.prefix), literal(name), literal(t.suffix)}
 	if t.color >= 0 {

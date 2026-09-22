@@ -101,7 +101,7 @@ func (s *Server) runEffectGive(player string, args []string) reply {
 	}
 	if len(targets) == 1 {
 		return componentReply(translatable("commands.effect.give.success.single",
-			effectArg(name), entityTargetComponent(targets[0])))
+			effectArg(name), s.entityTargetComponent(targets[0])))
 	}
 	return componentReply(translatable("commands.effect.give.success.multiple",
 		effectArg(name), nestedCompound{key: "", value: applied}))
@@ -135,7 +135,7 @@ func (s *Server) runEffectClear(player string, args []string) reply {
 		}
 		if len(targets) == 1 {
 			return componentReply(translatable("commands.effect.clear.everything.success.single",
-				entityTargetComponent(targets[0])))
+				s.entityTargetComponent(targets[0])))
 		}
 		return componentReply(translatable("commands.effect.clear.everything.success.multiple",
 			nestedCompound{key: "", value: removed}))
@@ -158,7 +158,7 @@ func (s *Server) runEffectClear(player string, args []string) reply {
 	}
 	if len(targets) == 1 {
 		return componentReply(translatable("commands.effect.clear.specific.success.single",
-			effectArg(name), entityTargetComponent(targets[0])))
+			effectArg(name), s.entityTargetComponent(targets[0])))
 	}
 	return componentReply(translatable("commands.effect.clear.specific.success.multiple",
 		effectArg(name), nestedCompound{key: "", value: removed}))
