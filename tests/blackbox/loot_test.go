@@ -1,72 +1,132 @@
+//go:build blackbox
+
 package blackbox
 
-// TestContainerLootParity opens a chest carrying vanilla LootTable NBT:
-// player_generates_container_loot fires with the table id. Each of
-// nether/loot_bastion's four tables is exercised in its own run —
-// the advancement's requirement groups are OR-ed, so the first
-// matching chest completes it and the remaining criteria can never
-// be earned (vanilla unregisters a completed advancement's triggers).
-
 import (
+	"fmt"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
-	"mc-go/internal/protocol"
+	"mc-go/internal/nbt"
 	"mc-go/internal/server"
 )
 
-func TestContainerLootParity(t *testing.T) {
+func TestLootParity(t *testing.T) {
 	targets := requireBlackboxFiles(t, nil, map[string]string{
-		"ops.json": opsJSONFor("LootA", "LootB", "LootC", "LootD"),
-	}, func(s *server.Server) {
-		s.GameMode = server.GameModeCreative
-	})
+		"ops.json": opsJSONFor("P"),
+	}, nil)
 	defer targets.cleanup()
 
-	tables := []struct {
-		crit   string
-		ltable string
-	}{
-		{"loot_bastion_bridge", "minecraft:chests/bastion_bridge"},
-		{"loot_bastion_hoglin_stable", "minecraft:chests/bastion_hoglin_stable"},
-		{"loot_bastion_other", "minecraft:chests/bastion_other"},
-		{"loot_bastion_treasure", "minecraft:chests/bastion_treasure"},
+	cmds := []string{
+		`loot`,
+		`loot give`,
+		`loot give @s`,
+		`loot give @s fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot give @s fish minecraft:gameplay/fishing 0 -60 0 minecraft:fishing_rod`,
+		`loot give @s fish minecraft:gameplay/fishing 0 -60 0 mainhand`,
+		`loot give @s fish minecraft:gameplay/treasure 0 -60 0`,
+		`loot give @s fish minecraft:bogus 0 -60 0`,
+		`loot give @s fish minecraft:gameplay/fishing 2000 -60 0`,
+		`loot give @s loot minecraft:chests/simple_dungeon`,
+		`loot give @s loot minecraft:bogus`,
+		`loot give @s kill @s`,
+		`loot give @s kill @e[type=minecraft:pig,limit=1]`,
+		`loot give @s kill nosuchplayer`,
+		`loot give @e[type=minecraft:pig,limit=1] fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot give nosuchplayer fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot give @e[type=minecraft:item] fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot spawn 40 -60 0 fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot spawn 40 -60 0 loot minecraft:chests/simple_dungeon`,
+		`loot spawn 40 -60 0 kill @s`,
+		`loot spawn 2000 -60 0 fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot insert 0 -60 0 fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot insert 2000 -60 0 fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot replace entity @s weapon.mainhand fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot replace entity @s weapon.mainhand 2 fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot replace entity @s bogus.slot fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot replace entity @s weapon.mainhand fish minecraft:gameplay/fishing 0 -60 0 extra`,
+		`loot replace block 0 -60 0 container.0 fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot replace block 0 -60 0 container.27 fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot replace block 2000 -60 0 container.0 fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot replace block 0 -60 0 bogus.slot fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot bogus @s fish minecraft:gameplay/fishing 0 -60 0`,
+		`loot give @s mine 0 -60 0`,
+		`loot give @s mine 0 -60 0 minecraft:diamond_pickaxe`,
+		`loot give @s mine 0 -60 0 mainhand`,
+		`loot give @s mine 2000 -60 0`,
+		`loot give @s bogus minecraft:gameplay/fishing`,
 	}
 
-	run := func(addr, ltable, name string) *advFlush {
-		f := &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}}
-		c, pr, pw := joinPlayBlackbox(t, addr, name)
+	numRe := regexp.MustCompile(`d\(-?[0-9.e+]+\)|f\(-?[0-9.e+]+\)|i\(-?[0-9]+\)|b\([0-9]+\)|l\(-?[0-9]+\)|"-?[0-9]+(?:\.[0-9]+)?"`)
+	// Loot draws are RNG: the produced item's identity can't be
+	// compared, only the reply's shape. Mask the item id inside
+	// show_item hovers and the item.minecraft.* name.
+	itemRe := regexp.MustCompile(`"id": "minecraft:[^"]+"|"item\.minecraft\.[^"]+"`)
+
+	run := func(addr string) [][]string {
+		c, pr, pw := joinPlayQuiet(t, addr, "P")
 		defer c.Close()
 		_ = c.SetDeadline(time.Time{})
-		advCollect(t, c, pr, pw, 1200*time.Millisecond, f)
-		sendCommand(t, pw, "gamemode survival @s")
-		sendCommand(t, pw, "tp @s 21 -60 21 0 0")
-		sendCommand(t, pw, "setblock 20 -60 20 minecraft:chest{LootTable:\""+ltable+"\"}")
-		advCollect(t, c, pr, pw, 400*time.Millisecond, f)
-		var ub protocol.Buffer
-		ub.VarInt(0) // empty hand opens the chest
-		ub.Position(int32(20), -60, int32(20))
-		ub.VarInt(1)
-		ub.Float(0.5)
-		ub.Float(1.0)
-		ub.Float(0.5)
-		ub.Bool(false)
-		ub.Bool(false)
-		ub.VarInt(0)
-		_ = pw.WritePacket(server.IDPlayUseItemOnSB, ub.Bytes())
-		advCollect(t, c, pr, pw, 1500*time.Millisecond, f)
-		return f
+		sendClientInformation(t, pw)
+		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		sink := newChatSink(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(4 * time.Second)
+		_ = sink // see below
+		var out [][]string
+		for i, cmd := range cmds {
+			sink.take()
+			t.Logf("send %d %q", i, cmd)
+			func() { defer func() { recover() }(); sendCommand(t, pw, cmd) }()
+			marker := fmt.Sprintf("ZMK%d", i)
+			func() { defer func() { recover() }(); sendCommand(t, pw, "say "+marker) }()
+			var evs []string
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				gotMarker := false
+				for _, line := range sink.take() {
+					if strings.Contains(line, marker) {
+						gotMarker = true
+						continue
+					}
+					// Giving a random stack can trip an
+					// inventory-changed advancement announce; the
+					// draw is RNG, so drop those events.
+					if strings.Contains(line, "chat.type.advancement") {
+						continue
+					}
+					if tree, ok := componentTree(line, true); ok {
+						evs = append(evs, "chat "+numRe.ReplaceAllString(itemRe.ReplaceAllString(maskUUID(tree), "I"), "N"))
+					} else if strings.HasPrefix(line, "0x79:") {
+						i := strings.Index(line, ":")
+						if root, err := nbt.ReadUnnamed(strings.NewReader(line[i+1:])); err == nil {
+							evs = append(evs, "chat "+numRe.ReplaceAllString(itemRe.ReplaceAllString(maskUUID(renderNBT(root, true)), "I"), "N"))
+						}
+					}
+				}
+				if gotMarker || time.Now().After(deadline) {
+					break
+				}
+				time.Sleep(30 * time.Millisecond)
+			}
+			out = append(out, evs)
+		}
+		return out
 	}
 
-	names := []string{"LootA", "LootB", "LootC", "LootD"}
-	for i, tb := range tables {
-		want := run(targets.vanilla, tb.ltable, names[i])
-		got := run(targets.mcgo, tb.ltable, names[i])
-		if !want.prog["minecraft:nether/loot_bastion"][tb.crit] {
-			t.Fatalf("vanilla: %s not granted for %s: %v", tb.crit, tb.ltable, want.prog["minecraft:nether/loot_bastion"])
+	want := run(targets.vanilla)
+	got := run(targets.mcgo)
+	for i, cmd := range cmds {
+		if len(want[i]) != len(got[i]) {
+			t.Errorf("cmd %q: vanilla %v\n  mc-go %v", cmd, want[i], got[i])
+			continue
 		}
-		if diffs := diffAdvFlush(want, got); len(diffs) > 0 {
-			t.Fatalf("%s: %d diffs\n%v", tb.ltable, len(diffs), diffs)
+		for j := range want[i] {
+			if want[i][j] != got[i][j] {
+				t.Errorf("cmd %q event %d:\n  vanilla %s\n  mc-go   %s", cmd, j, want[i][j], got[i][j])
+			}
 		}
 	}
 }

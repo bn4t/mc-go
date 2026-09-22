@@ -14,12 +14,12 @@ import (
 // mobLoot is the vanilla drop table for the mobs mc-go can summon,
 // reduced to a single guaranteed item per entry (counts beyond one are
 // rolled uniformly in [min,max]).
-type lootEntry struct {
+type mobLootEntry struct {
 	item     string
 	min, max int32
 }
 
-var mobLoot = map[string][]lootEntry{
+var mobLoot = map[string][]mobLootEntry{
 	"pig":      {{item: "porkchop", min: 1, max: 3}},
 	"cow":      {{item: "beef", min: 1, max: 3}, {item: "leather", min: 0, max: 2}},
 	"chicken":  {{item: "chicken", min: 1, max: 1}, {item: "feather", min: 0, max: 2}},

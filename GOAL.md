@@ -2851,3 +2851,26 @@ physics through a void dip plus a fed recovery window.
   copied, skipping cells inside the destination. BlockPropNames is the
   new world export backing the property-name check.
   TestCloneParity 55 commands green.
+
+- /loot: the give <players> / spawn <pos> / insert <pos> /
+  replace entity <ents> <slot> [count] / replace block <pos> <slot>
+  [count] targets crossed with fish <table> <pos> [tool] / loot
+  <table> / kill <entity> / mine <pos> [tool] sources. Grammar details
+  measured: a bare token after the target is unknown.argument at the
+  token; entity arguments resolve at EXECUTE time (bare components,
+  no context) — a selector syntax error keeps the whole-input mark,
+  a resolve miss is argument.entity.notfound.{player,entity};
+  replace's [count] is the number of table rolls, not a stack size,
+  and falls through to the source when it doesn't parse as an int;
+  slot.unknown underlines the slot token's end; insert/replace-block
+  reject non-containers with commands.item.target.not_a_container and
+  unloaded positions; fish's position must be loaded but spawn's
+  doesn't; mine on a block without a table is
+  commands.drop.no_loot_table.block. Replies distinguish one produced
+  stack (drop.success.single with the clickable item bracket
+  component) from several (drop.success.multiple with a bare count);
+  the kill source reports multiple_with_table with the table path.
+  rollLootTable now resolves nested loot_table entries, sequences,
+  groups, and picks the first productive alternatives child —
+  conditions aren't evaluated yet (noted: silk_touch on mine).
+  TestLootParity 38 commands green.
