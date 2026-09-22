@@ -3424,3 +3424,28 @@ physics through a void dip plus a fed recovery window.
   (more-oxidized walls) advance, waxed+oxidized holds, prop retention
   across the transition (stairs facing/half, bulb lit), and the
   fresh-armed less-oxidized gate vs free controls in a 40-tick window.
+- Scheduled tick pass (bubble columns): LiquidBlock.onPlace,
+  neighbourChanged and updateShape(dir==DOWN) all arm a 20-tick block
+  tick on a water cell that is a full source
+  (shouldBubbleColumnOccupy: fluid in BUBBLE_COLUMN_CAN_OCCUPY = water,
+  isSource, isFull) over soul_sand or magma_block; LiquidBlock.tick
+  and BubbleColumnBlock.tick both run BubbleColumnBlock.updateColumn —
+  derive the state from the cell below (soul_sand -> drag=false,
+  magma_block -> drag=true, a bubble cell inherits, anything else
+  writes plain water back) then setBlock(..., 2) that state into pos
+  and keep writing it upward through every occupiable cell. A bubble
+  cell's updateShape always arms a water fluid tick, plus its own
+  5-tick block tick when !canSurvive (below not bubble/soul/magma),
+  on any below-write, or when an above write opens an occupiable
+  non-bubble cell — that is what grows the column into newly placed
+  sources and what drains it to water when the base goes. The arm on
+  the water cell fires on any neighbour write, not just below ones.
+  mc-go wires it in survive.go (checkSurvival early-dispatch for water
+  and bubble_column, writeOnPlace for the self-write) and blocktick.go
+  (water -> bubbleLiquidTick, bubble_column -> bubbleColumnTick).
+  TestBubbleColumnParity seals six shafts, freezes both servers and
+  /tick sprints: soul_sand column -> drag=false, magma -> drag=true,
+  base swap flips drag in place, base removal drains to water, a fresh
+  source above a live column is pulled in at +5, lava and stone-based
+  controls stay put. NOTE for the suite: /tick step on the real server
+  does NOT process scheduled block ticks — always /tick sprint.

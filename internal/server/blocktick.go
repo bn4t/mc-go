@@ -372,6 +372,14 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		s.fireTick(d, pos, blk)
 		return
 	}
+	if short == "water" {
+		s.bubbleLiquidTick(d, pos)
+		return
+	}
+	if short == "bubble_column" {
+		s.bubbleColumnTick(d, pos)
+		return
+	}
 	if !strings.HasSuffix(short, "_button") {
 		return
 	}

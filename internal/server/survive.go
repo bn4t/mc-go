@@ -186,6 +186,12 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos, notify worl
 		s.fireNeighborChanged(d, pos, b)
 		return
 	}
+	if (name == "water" || name == "bubble_column") && changed != pos {
+		// LiquidBlock.neighbourChanged/updateShape and
+		// BubbleColumnBlock.updateShape — bubble-column scheduling.
+		s.bubbleNeighborChanged(d, pos, changed)
+		return
+	}
 	if name == "brown_mushroom" || name == "red_mushroom" {
 		// VegetationBlock.updateShape: return-air family — canSurvive
 		// is re-checked on any neighbour change.
@@ -326,6 +332,16 @@ func (s *Server) neighborSurvival(d *dimension, pos world.Pos, notify world.Bloc
 func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block) {
 	s.frostedIceOnPlace(d, pos, blk)
 	s.fireOnPlace(d, pos, blk, old)
+	// LiquidBlock.onPlace: a fresh water source over a column base
+	// arms the 20-tick conversion check itself.
+	if name, _ := world.StateOwner(blk); name == "water" {
+		if k, level, ok := fluidOf(blk); ok && k == fluidWater && level == 0 {
+			below, _ := world.StateOwner(d.w.GetBlock(posBelow(pos, 1)))
+			if below == "soul_sand" || below == "magma_block" {
+				s.scheduleBlockTick(d, pos, 20)
+			}
+		}
+	}
 }
 
 // setSilentBlock is a flag-2 write: world update plus the usual
