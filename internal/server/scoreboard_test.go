@@ -15,7 +15,7 @@ func TestScoreboardCommands(t *testing.T) {
 	drainJoinBurst(t, pr)
 	drainToQuiet(t, pr)
 
-	if out := s.runScoreboard("Alice", []string{"objectives", "add", "test", "Test", "Score"}); out.comp.translate != "commands.scoreboard.objectives.add.success" {
+	if out := s.runScoreboard("Alice", []string{"objectives", "add", "test", "dummy", `{"text":"Test Score"}`}); out.comp.translate != "commands.scoreboard.objectives.add.success" {
 		t.Fatalf("add = %v", out.comp)
 	}
 	p, err := waitPacket(t, pr, IDPlayObjectiveCB)
@@ -37,7 +37,7 @@ func TestScoreboardCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("display component: %v", err)
 	}
-	if comp != "Test Score" {
+	if m, ok := comp.(map[string]any); !ok || m["text"] != "Test Score" {
 		t.Fatalf("display = %#v", comp)
 	}
 
@@ -60,8 +60,8 @@ func TestScoreboardCommands(t *testing.T) {
 		t.Fatalf("get = %v", out.comp)
 	}
 
-	if out := s.runScoreboard("Alice", []string{"objectives", "setdisplay", "sidebar", "test"}); out.text != "Set sidebar to test" {
-		t.Fatalf("setdisplay = %q", out.text)
+	if out := s.runScoreboard("Alice", []string{"objectives", "setdisplay", "sidebar", "test"}); out.comp.translate != "commands.scoreboard.objectives.display.set" {
+		t.Fatalf("setdisplay = %v", out.comp)
 	}
 	dp, err := waitPacket(t, pr, IDPlayDisplayObjective)
 	if err != nil {
@@ -74,8 +74,8 @@ func TestScoreboardCommands(t *testing.T) {
 		t.Fatalf("display = %d/%q", position, sideName)
 	}
 
-	if out := s.runScoreboard("Alice", []string{"players", "reset", "Alice", "test"}); out.text != "Reset Alice" {
-		t.Fatalf("reset = %q", out.text)
+	if out := s.runScoreboard("Alice", []string{"players", "reset", "Alice", "test"}); out.comp.translate != "commands.scoreboard.players.reset.specific.single" {
+		t.Fatalf("reset = %v", out.comp)
 	}
 	rp, err := waitPacket(t, pr, IDPlayResetScore)
 	if err != nil {

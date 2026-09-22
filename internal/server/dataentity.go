@@ -863,6 +863,20 @@ type selTerm struct {
 	neg bool
 }
 
+// singleMaxRes is the static match cap the single-entity argument
+// types check at parse: @e/@a and explicit limits above one reject
+// with argument.entity.toomany before the selector ever runs.
+func (spec selectorSpec) singleMaxRes() int {
+	if spec.hasLimit {
+		return spec.limit
+	}
+	switch spec.variable {
+	case 'e', 'a':
+		return 1 << 30
+	}
+	return 1
+}
+
 // selRange is `lo..hi` with either bound optional; lo/hi default to
 // the double extremes.
 type selRange struct {

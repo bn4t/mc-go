@@ -3053,3 +3053,20 @@ physics through a void dip plus a fed recovery window.
   targets alike (errors still fire first). runGamemode now early-
   returns reply{} when old == mode; TestGamemodeParity's silent-
   repeat assertions pass verbatim.
+- /scoreboard rewrite to vanilla's grammar: objectives
+  list|add(criteria required, optional SNBT display)|remove|setdisplay
+  (list/sidebar/below_name/sidebar.team.<color> slots, set/cleared/
+  alreadySet/alreadyEmpty replies) and players list (all holders in
+  HashMap keySet order; single-entity form renders each score as a
+  separate entity.entry chat and accepts only single-target selector
+  shapes — @a/@e/limit>1 is a parse-time toomany at the token end) plus
+  get/set/add/remove/reset/operation with single vs multiple reply
+  shapes, fake-name holders as bare strings vs player/entity holders
+  as decorated components (tell-suggest / insertion+uuid hover), and
+  vanilla's value-added ordering (int parses before selector
+  resolution, notfound.entity at exec time). Holder-set iteration
+  pinned to java.util.HashMap spread-hash buckets and objectives to
+  fastutil descending-slot order; the blackbox test normalizes the
+  genuinely nondeterministic parts (uuid-hashed holder names,
+  identity-hashed per-holder score maps). ~85-command
+  TestScoreboardListParity passes verbatim vs vanilla.
