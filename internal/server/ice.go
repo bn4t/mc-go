@@ -1,6 +1,7 @@
 package server
 
 import (
+	"math"
 	"strconv"
 
 	"mc-go/internal/world"
@@ -184,6 +185,55 @@ func (s *Server) frostedSkyLit(d *dimension, pos world.Pos) int {
 		return 0
 	}
 	return 15
+}
+
+// frostWalkerStep is the frost_walker enchantment's location_changed
+// effect — a replace_disk entity effect (26.2 data-driven
+// enchantments): on a grounded move it freezes a disk of water one
+// layer under the feet to frosted_ice[age=0], radius clamp(3 +
+// (level-1), 0, 16). The predicate is air above, the water block, the
+// water fluid, and unobstructed — water satisfies the last two by
+// itself. The disk test is distToCenterSqr < r^2 measured from the
+// entity position, not the containing block.
+func (s *Server) frostWalkerStep(sess *Session, x, y, z float64, onGround bool) {
+	if !onGround || sess.riding.Load() != 0 || sess.gameMode == 3 {
+		return
+	}
+	sess.invMu.Lock()
+	boots := sess.inv[slotArmorStart+3]
+	sess.invMu.Unlock()
+	level := int(boots.enchLevel("frost_walker"))
+	if level <= 0 {
+		return
+	}
+	r := level + 2
+	if r > 16 {
+		r = 16
+	}
+	d := s.dimensionByName(sess.dimName())
+	if d == nil {
+		return
+	}
+	base := world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)) - 1, Z: int(math.Floor(z))}
+	r2 := float64(r) * float64(r)
+	frosted, _ := world.BlockStateOf("frosted_ice", map[string]string{"age": "0"})
+	for bx := base.X - r; bx <= base.X+r; bx++ {
+		for bz := base.Z - r; bz <= base.Z+r; bz++ {
+			dx := float64(bx) + 0.5 - x
+			dz := float64(bz) + 0.5 - z
+			if dx*dx+dz*dz >= r2 {
+				continue
+			}
+			cell := world.Pos{X: bx, Y: base.Y, Z: bz}
+			if !isAirCell(d.w.GetBlock(posAbove(cell, 1))) {
+				continue
+			}
+			if name, _ := world.StateOwner(d.w.GetBlock(cell)); name != "water" {
+				continue
+			}
+			s.setNaturalBlock(d, cell, frosted)
+		}
+	}
 }
 
 // frostedTick is FrostedIceBlock.tick — the scheduled decay tick.

@@ -3721,3 +3721,17 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   live-criteria objectives stay unset on vanilla (no polling), and
   /damage does not feed zh on either server.
   TestScoreboardCriteriaParity pins 15 legs.
+
+- 2026-09-19 (cont): Frost Walker — the 26.2 data-driven
+  location_changed effect (replace_disk in the enchantment json):
+  radius clamp(3+(level-1),0,16), height-1 layer at feet-1, disk test
+  distToCenterSqr(entity pos) < r^2, predicate air-above + water block
+  + unobstructed. Gated is_on_ground and not-a-passenger, and a
+  same-position resend does not retrigger it (measured — vanilla runs
+  it off the entity tick's change detection, not raw packet arrival).
+  mc-go hooks the move handler post-setPos on a real delta. Frozen
+  cells write frosted_ice[age=0] through setNaturalBlock so the
+  existing onPlace tick scheduling and neighbor-collapse melt run
+  unchanged. TestFrostWalkerParity pins 9 legs: bare/airborne/off-boots
+  misses, r3 boundary cells (dz 2 in, 3 exactly out — strict <), the
+  same-pos non-trigger, and the level-2 r4 flip of the boundary cell.

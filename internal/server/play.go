@@ -272,6 +272,11 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 		return
 	}
 	sess.setPos(x, y, z, yaw, pitch, onGround)
+	// location_changed fires on a real position change — a same-pos
+	// resend does not retrigger frost walker (measured).
+	if x != ox || y != oy || z != oz {
+		s.frostWalkerStep(sess, x, y, z, onGround)
+	}
 	mdx, mdz := x-ox, z-oz
 	sess.lastHorizSq = mdx*mdx + mdz*mdz
 	sess.lastDelta = [3]float64{x - ox, y - oy, z - oz}
