@@ -3665,3 +3665,18 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   folds itself against all six neighbours before landing, and an air
   fold is discarded (a floating tripwire_hook stays placed). mc-go
   selfFoldShapes covers setblock + fill.
+
+- 2026-09-19 (cont): MultifaceBlock — sculk_vein/glow_lichen/
+  resin_clump. updateShape: a state with no faces pops; a changed
+  neighbour on a set face's direction removes it when canAttachTo
+  (the attach cell's face back toward the vein is full) fails —
+  removeFace itself returns air when the last face drops, and
+  updateOrDestroy turns that air into destroyBlock (pop effect, no
+  item drop without shears). Placement iterates
+  getNearestLookingDirections (clicked face's attach side, then yaw
+  order, then pitch-ordered verticals) and sets the first attachable
+  face — folding onto the existing vein's state when the cell already
+  has one. Command writes get BlockInput.place's updateFromNeighbourShapes
+  self-fold with the air-fold discard, so a floating
+  `setblock vein[up=true]` keeps its state.
+  TestNeighborFoldParity pins 5 vein legs (32 total).

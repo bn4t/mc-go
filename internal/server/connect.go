@@ -271,6 +271,10 @@ func (s *Server) connectionUpdateNoCascade(d *dimension, pos, changed world.Pos)
 		s.hookNeighborUpdate(d, pos, changed, b)
 		return
 	}
+	if multifaceName(short) && changed != pos {
+		s.multifaceNeighborUpdate(d, pos, changed, b)
+		return
+	}
 	fam := connectFamily(short)
 	if fam == connNone {
 		return
@@ -934,7 +938,23 @@ func (s *Server) selfFoldShapes(d *dimension, pos world.Pos) {
 		if isHook && p == anchor && !s.hookCanSurvive(d, pos, f) {
 			continue
 		}
+		// Same for a vein whose only set face points at p: the
+		// removeFace air fold is discarded, not popped.
+		if multifaceName(short) {
+			dir := dirNameForDelta(p.X-pos.X, p.Y-pos.Y, p.Z-pos.Z)
+			if dir != "" {
+				if v, _ := world.StateProperty(b, dir); v == "true" && !s.faceAttachable(d, p) && multifaceOnlyFace(b, dir) {
+					continue
+				}
+			}
+		}
 		s.connectionUpdateNoCascade(d, pos, p)
+	}
+	// BlockInput.place: `if (folded.isAir()) folded = requested` —
+	// an air fold is always discarded (a vein whose last face
+	// detached, the floating hook above).
+	if cur := d.w.GetBlock(pos); cur == world.Air && b != world.Air {
+		s.setSilentBlock(d, pos, b)
 	}
 }
 
@@ -1405,6 +1425,200 @@ func (s *Server) hookPlaceState(d *dimension, pos world.Pos, blk world.Block, se
 			}
 		}
 		return out
+	}
+	return blk
+}
+
+// multifaceName is the MultifaceBlock family — sculk_vein,
+// glow_lichen, resin_clump — six face bools + waterlogged.
+func multifaceName(short string) bool {
+	return short == "sculk_vein" || short == "glow_lichen" || short == "resin_clump"
+}
+
+var multifaceFaceProps = []string{"down", "up", "north", "south", "east", "west"}
+
+func multifaceAnyFace(b world.Block) bool {
+	for _, p := range multifaceFaceProps {
+		if v, ok := world.StateProperty(b, p); ok && v == "true" {
+			return true
+		}
+	}
+	return false
+}
+
+func multifaceOnlyFace(b world.Block, face string) bool {
+	for _, p := range multifaceFaceProps {
+		v, _ := world.StateProperty(b, p)
+		if v == "true" && p != face {
+			return false
+		}
+	}
+	return true
+}
+
+// faceAttachable is canAttachTo: the attach cell's face back toward
+// the vein is full (support or collision shape — connectSturdy
+// approximates both).
+func (s *Server) faceAttachable(d *dimension, attachPos world.Pos) bool {
+	ab := d.w.GetBlock(attachPos)
+	an, ok := world.StateOwner(ab)
+	if !ok {
+		return false
+	}
+	return connectSturdy(d, attachPos, ab, strings.TrimPrefix(an, "minecraft:"))
+}
+
+// dirNameForDelta maps a single-step neighbour delta to its
+// Direction/prop name.
+func dirNameForDelta(dx, dy, dz int) string {
+	switch {
+	case dy > 0:
+		return "up"
+	case dy < 0:
+		return "down"
+	default:
+		dir, _ := connPropByDir(dx, dz)
+		return dir
+	}
+}
+
+// multifaceNeighborUpdate is MultifaceBlock.updateShape: a state with
+// no faces at all pops; a changed neighbour on a set face's direction
+// drops just that face when it can no longer attach — removeFace
+// returns air when the last face drops, and updateOrDestroy turns the
+// air fold into destroyBlock (pop effect + item drop).
+func (s *Server) multifaceNeighborUpdate(d *dimension, pos, changed world.Pos, b world.Block) {
+	if !multifaceAnyFace(b) {
+		s.multifacePop(d, pos, b)
+		return
+	}
+	dx, dy, dz := changed.X-pos.X, changed.Y-pos.Y, changed.Z-pos.Z
+	if dx*dx+dy*dy+dz*dz != 1 {
+		return
+	}
+	dir := dirNameForDelta(dx, dy, dz)
+	if dir == "" {
+		return
+	}
+	if cur, _ := world.StateProperty(b, dir); cur != "true" {
+		return
+	}
+	if s.faceAttachable(d, changed) {
+		return
+	}
+	if nb, ok := world.WithProperty(b, dir, "false"); ok {
+		if !multifaceAnyFace(nb) {
+			s.multifacePop(d, pos, b)
+			return
+		}
+		s.setSilentBlock(d, pos, nb)
+		s.connectionCascade(d, pos)
+	}
+}
+
+// multifacePop is updateOrDestroy's air path: destroyBlock with the
+// break effect. Veins drop nothing without shears, so no item spawn.
+func (s *Server) multifacePop(d *dimension, pos world.Pos, b world.Block) {
+	s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+	s.setNaturalBlock(d, pos, world.Air)
+}
+
+// multifaceCanSurvive is MultifaceBlock.canSurvive: at least one face
+// is set and every set face still attaches.
+func (s *Server) multifaceCanSurvive(d *dimension, pos world.Pos, b world.Block) bool {
+	any := false
+	for _, p := range multifaceFaceProps {
+		if v, _ := world.StateProperty(b, p); v != "true" {
+			continue
+		}
+		ap := pos
+		switch p {
+		case "down":
+			ap.Y--
+		case "up":
+			ap.Y++
+		case "north":
+			ap.Z--
+		case "south":
+			ap.Z++
+		case "east":
+			ap.X++
+		case "west":
+			ap.X--
+		}
+		if !s.faceAttachable(d, ap) {
+			return false
+		}
+		any = true
+	}
+	return any
+}
+
+// multifacePlaceState is MultifaceBlock.getStateForPlacement: iterate
+// the nearest-looking directions (clicked face's attach side first,
+// then the player's yaw order, then verticals); the first dir that
+// can attach sets its face — on the existing vein state (adding a
+// face) or the default (with waterlogged when placing into water).
+func (s *Server) multifacePlaceState(d *dimension, pos world.Pos, blk world.Block, sess *Session, face int32) world.Block {
+	name, ok := world.StateOwner(blk)
+	if !ok || !multifaceName(strings.TrimPrefix(name, "minecraft:")) {
+		return blk
+	}
+	existing := d.w.GetBlock(pos)
+	en, _ := world.StateOwner(existing)
+	same := strings.TrimPrefix(en, "minecraft:") == strings.TrimPrefix(name, "minecraft:")
+
+	var cands []string
+	if fd := faceDirName(int(face)); fd != "" {
+		cands = append(cands, dirOpposite(fd))
+	}
+	_, _, _, yaw, pitch, _ := sess.Pos()
+	yawD := yawDir(yaw)
+	for _, c := range []string{yawD, dirCCW(yawD), dirCW(yawD), dirOpposite(yawD)} {
+		cands = append(cands, c)
+	}
+	// Direction.orderedByNearest interleaves verticals by pitch;
+	// looking down puts up first.
+	if pitch > 0 {
+		cands = append(cands, "up", "down")
+	} else {
+		cands = append(cands, "down", "up")
+	}
+	seen := map[string]bool{}
+	for _, c := range cands {
+		if seen[c] {
+			continue
+		}
+		seen[c] = true
+		if same {
+			if v, _ := world.StateProperty(existing, c); v == "true" {
+				continue
+			}
+		}
+		var ap world.Pos
+		switch c {
+		case "down":
+			ap = world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
+		case "up":
+			ap = world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z}
+		default:
+			ap = shiftPos(pos, c)
+		}
+		if !s.faceAttachable(d, ap) {
+			continue
+		}
+		out := existing
+		if !same {
+			out = blk
+			if k, lv, ok2 := fluidOf(existing); ok2 && k == fluidWater && lv == 0 {
+				if w, ok3 := world.WithProperty(out, "waterlogged", "true"); ok3 {
+					out = w
+				}
+			}
+		}
+		if w, ok2 := world.WithProperty(out, c, "true"); ok2 {
+			return w
+		}
 	}
 	return blk
 }

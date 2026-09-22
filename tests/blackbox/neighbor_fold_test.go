@@ -53,6 +53,17 @@ func TestNeighborFoldParity(t *testing.T) {
 		return hit
 	}
 
+	// probeRetry is probe for folds whose landing time jitters —
+	// a miss retries once after a beat so a slow tick doesn't flake
+	// the leg.
+	probeRetry := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
+		if got := probe(pw, sink, spec, i); got == "hit" {
+			return got
+		}
+		time.Sleep(1200 * time.Millisecond)
+		return probe(pw, sink, spec, i+900)
+	}
+
 	run := func(addr string) []string {
 		c, pr, pw := joinPlayQuiet(t, addr, "P")
 		defer c.Close()
@@ -73,10 +84,10 @@ func TestNeighborFoldParity(t *testing.T) {
 		sendCommand(t, pw, "setblock 96 -59 120 grass_block")
 		sendCommand(t, pw, "setblock 96 -58 120 snow")
 		time.Sleep(300 * time.Millisecond)
-		mark("snowy_on", probe(pw, sink, "block 96 -59 120 minecraft:grass_block[snowy=true]", 10))
+		mark("snowy_on", probeRetry(pw, sink, "block 96 -59 120 minecraft:grass_block[snowy=true]", 10))
 		sendCommand(t, pw, "setblock 96 -58 120 air")
 		time.Sleep(300 * time.Millisecond)
-		mark("snowy_off", probe(pw, sink, "block 96 -59 120 minecraft:grass_block[snowy=false]", 11))
+		mark("snowy_off", probeRetry(pw, sink, "block 96 -59 120 minecraft:grass_block[snowy=false]", 11))
 		sendCommand(t, pw, "setblock 97 -58 120 snow_block")
 		sendCommand(t, pw, "setblock 97 -59 120 podzol")
 		time.Sleep(300 * time.Millisecond)
@@ -174,6 +185,29 @@ func TestNeighborFoldParity(t *testing.T) {
 		time.Sleep(400 * time.Millisecond)
 		mark("hook_pop", probe(pw, sink, "block 96 -59 130 minecraft:air", 34))
 		mark("wire_detach", probe(pw, sink, "block 97 -59 130 minecraft:tripwire[west=false]", 35))
+
+		// MultifaceBlock fold: a setblock'd vein face detaches when
+		// its attach cell's face stops being full; dropping the last
+		// face pops the block (updateOrDestroy), while a setblock'd
+		// floating vein keeps its requested state — BlockInput.place
+		// discards the air fold.
+		sendCommand(t, pw, "setblock 96 -60 140 stone")
+		sendCommand(t, pw, "setblock 96 -59 140 glow_lichen[down=true]")
+		time.Sleep(400 * time.Millisecond)
+		mark("vein_attached", probe(pw, sink, "block 96 -59 140 minecraft:glow_lichen[down=true]", 37))
+		sendCommand(t, pw, "setblock 97 -59 140 stone")
+		sendCommand(t, pw, "setblock 96 -59 140 glow_lichen[down=true,east=true]")
+		time.Sleep(400 * time.Millisecond)
+		mark("vein_two_face", probe(pw, sink, "block 96 -59 140 minecraft:glow_lichen[down=true,east=true]", 38))
+		sendCommand(t, pw, "setblock 97 -59 140 air")
+		time.Sleep(400 * time.Millisecond)
+		mark("vein_one_face", probe(pw, sink, "block 96 -59 140 minecraft:glow_lichen[down=true,east=false]", 39))
+		sendCommand(t, pw, "setblock 96 -60 140 air")
+		time.Sleep(400 * time.Millisecond)
+		mark("vein_pop", probe(pw, sink, "block 96 -59 140 minecraft:air", 40))
+		sendCommand(t, pw, "setblock 98 -59 140 sculk_vein[up=true]")
+		time.Sleep(400 * time.Millisecond)
+		mark("vein_float", probe(pw, sink, "block 98 -59 140 minecraft:sculk_vein[up=true]", 41))
 
 		return results
 	}

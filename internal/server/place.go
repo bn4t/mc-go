@@ -361,6 +361,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	blk = s.tripwirePlaceState(d, target, blk)
 	blk = s.scaffoldPlaceState(d, target, blk)
 	blk = s.hookPlaceState(d, target, blk, sess, face)
+	blk = s.multifacePlaceState(d, target, blk, sess, face)
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
 	sess.addItemStat(statUsed, item, 1)
 	if bname, ok := world.StateOwner(blk); ok {
