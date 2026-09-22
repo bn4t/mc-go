@@ -3476,3 +3476,21 @@ physics through a void dip plus a fed recovery window.
   TestSpeleothemParity pins growth, the two never-grow controls, the
   cauldron fill, mud->clay, sulfur growth with no water, the cascade
   fall on root removal, and the stalagmite pop on floor removal.
+
+- IceBlock.playerDestroy (dig melt, commit pending): a survival dig
+  on ice or frosted_ice without #prevents_ice_melting (silk touch)
+  writes a water source back over the broken cell when the block
+  below is motion-blocking or liquid; over air it stays air, and in
+  a WATER_EVAPORATES dimension removeBlock leaves it empty. Vanilla
+  gates playerDestroy behind !player.preventsBlockDrops(), so the
+  creative break path skips the melt entirely. FrostedIceBlock
+  inherits the method — packed/blue ice are plain classes and never
+  melt. Dig-side measurement that fell out of the harness: the
+  scripted client's SyncPos echo carries onGround=false, so every
+  tp'd player digs at the airborne 5x penalty until an explicit
+  grounded move packet lands; and ice's hardness was missing from
+  the dig table (defaulted to 1.0 — vanilla is 0.5, frosted/packed
+  too, blue 2.8, none requires-tool). TestIceDigMeltParity: creative
+  break stays air; survival ice-over-stone and frosted-over-stone
+  become water[level=0]; ice-over-air, packed_ice, and silk-touch
+  ice stay air; nether ice ends air.

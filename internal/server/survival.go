@@ -46,6 +46,13 @@ var blockHardnessTable = map[string]blockHardness{
 	"oak_log":                 {hardness: 2.0, drop: "oak_log"},
 	"oak_planks":              {hardness: 2.0, drop: "oak_planks"},
 	"glass":                   {hardness: 0.3, drop: ""},
+	// Ice family: strength 0.5, no requiresCorrectToolForDrops —
+	// loot tables decide the drops (ice/frosted melt or silk only,
+	// packed drops itself). Blue ice is 2.8 and drops itself.
+	"ice":         {hardness: 0.5},
+	"frosted_ice": {hardness: 0.5},
+	"packed_ice":  {hardness: 0.5},
+	"blue_ice":    {hardness: 2.8},
 	// Instant breaks: destroySpeed 0 means no dig time and no tool
 	// wear (vanilla only wears when destroySpeed != 0).
 	"torch":          {hardness: 0, drop: "torch"},
@@ -347,6 +354,7 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 	// (Block.playerDestroy), so the used stat precedes mined here.
 	s.mineWear(sess, info)
 	sess.addBlockStat(statMined, broken, 1)
+	s.iceMeltOnDestroy(sess, sess.dimension(), pos, broken)
 	// A shulker box drops itself with everything inside as one stack
 	// (see removeContainer), so the plain block item would duplicate it.
 	if isShulkerBoxBlock(broken) {
@@ -375,6 +383,32 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 	}
 	s.spawnItemDrop(sess.dimName(), pos, ItemStack{ID: id, Count: 1})
 	return affected
+}
+
+// iceMeltOnDestroy is IceBlock.playerDestroy's tail — it runs only on
+// the survival path (vanilla's destroyBlock returns before
+// playerDestroy for players whose mode prevents drops). An ice or
+// frosted_ice broken without silk touch refills the cell with water
+// when the block below could hold it (blocksMotion or a liquid); in a
+// WATER_EVAPORATES dimension the cell stays empty.
+func (s *Server) iceMeltOnDestroy(sess *Session, d *dimension, pos world.Pos, broken world.Block) {
+	name, _ := world.StateOwner(broken)
+	if name != "ice" && name != "frosted_ice" {
+		return
+	}
+	if sess.heldStack().enchLevel("silk_touch") > 0 {
+		return
+	}
+	if d.ultraWarm {
+		return
+	}
+	below := d.w.GetBlock(posBelow(pos, 1))
+	if _, _, isFluid := fluidOf(below); !isFluid && world.NonSolid(below) {
+		return
+	}
+	if w, ok := world.BlockStateOf("water", nil); ok {
+		s.setNaturalBlock(d, pos, w)
+	}
 }
 
 // spawnItemDrop creates an item entity above pos in dimension dim and
