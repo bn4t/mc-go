@@ -844,7 +844,7 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 				return *serr
 			}
 		}
-		value, perr := sbParseInt(args[4])
+		value, perr := sbParseInt(args[4], 5)
 		if perr != nil {
 			return *perr
 		}
@@ -1217,9 +1217,9 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 // sbParseInt parses a vanilla int argument: non-numeric input is
 // parsing.int.expected, digits that overflow an int32 are
 // parsing.int.invalid — both at the token's start.
-func sbParseInt(tok string) (int32, *reply) {
+func sbParseInt(tok string, tokIdx int) (int32, *reply) {
 	if tok == "" {
-		r := errToken("parsing.int.expected", 5)
+		r := errToken("parsing.int.expected", tokIdx)
 		return 0, &r
 	}
 	neg := tok[0] == '-'
@@ -1235,12 +1235,12 @@ func sbParseInt(tok string) (int32, *reply) {
 		}
 	}
 	if !allDigits {
-		r := errToken("parsing.int.expected", 5)
+		r := errToken("parsing.int.expected", tokIdx)
 		return 0, &r
 	}
 	v64, err := strconv.ParseInt(tok, 10, 64)
 	if err != nil || v64 > 2147483647 || v64 < -2147483648 {
-		r := errToken("parsing.int.invalid", 5, tok)
+		r := errToken("parsing.int.invalid", tokIdx, tok)
 		return 0, &r
 	}
 	return int32(v64), nil

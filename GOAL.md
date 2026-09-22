@@ -3084,3 +3084,10 @@ physics through a void dip plus a fed recovery window.
   Score carries the two optional overrides. Score entries are now
   sbScore{value, locked, display, format} so overrides survive the
   value write.
+- /trigger wired to the scoreboard: trigger <objective> [add|set
+  <value>] runs the caller's own score — objective missing is
+  arguments.objective.notFound, non-trigger is
+  trigger.failed.invalid, a missing or still-locked score is
+  trigger.failed.unprimed, and a successful write re-locks the
+  score (enable releases it again). simple/add/set success replies
+  carry [formattedObjective] / [formattedObjective, i(value)].

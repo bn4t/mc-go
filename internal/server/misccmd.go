@@ -57,7 +57,7 @@ func registerMiscCommands(s *Server) {
 		return s.runJfr(args)
 	})
 	s.registerComponentCommand("trigger", func(player string, args []string) reply {
-		return s.runTrigger(args)
+		return s.runTrigger(player, args)
 	})
 	s.registerComponentCommand("random", func(player string, args []string) reply {
 		return s.runRandom(player, args)
@@ -260,25 +260,76 @@ func jfrLink(t time.Time) component {
 	}
 }
 
-func (s *Server) runTrigger(args []string) reply {
+// runTrigger implements /trigger: trigger <objective> [add|set
+// <value>]. Only trigger-criteria objectives qualify, and the
+// caller's own score must have been released by
+// scoreboard players enable — a missing or locked score is
+// trigger.failed.unprimed, a non-trigger objective
+// trigger.failed.invalid. A successful trigger re-locks the score.
+func (s *Server) runTrigger(player string, args []string) reply {
 	if len(args) == 0 {
 		return errTokenEnd("command.unknown.command", len(args)+1)
 	}
 	obj := args[0]
+	mode := ""
+	var value int32
 	if len(args) >= 2 {
 		switch args[1] {
 		case "add", "set":
+			mode = args[1]
 			if len(args) < 3 {
 				return errTokenEnd("command.unknown.command", len(args)+1)
 			}
 			if len(args) > 3 {
 				return errToken("command.unknown.argument", 4)
 			}
+			v, perr := sbParseInt(args[2], 3)
+			if perr != nil {
+				return *perr
+			}
+			value = v
 		default:
 			return errToken("command.unknown.argument", 2)
 		}
 	}
-	return componentReply(commandError("arguments.objective.notFound", obj))
+	s.board.mu.Lock()
+	o, objOK := s.board.objectives[obj]
+	s.board.mu.Unlock()
+	if !objOK {
+		return componentReply(commandError("arguments.objective.notFound", obj))
+	}
+	if o.criteria != "trigger" {
+		return componentReply(commandError("commands.trigger.failed.invalid"))
+	}
+	s.board.mu.Lock()
+	e := s.board.scores[player][obj]
+	locked := e == nil || e.locked
+	s.board.mu.Unlock()
+	if locked {
+		return componentReply(commandError("commands.trigger.failed.unprimed"))
+	}
+	cur := scoreValue(e)
+	key := "commands.trigger.simple.success"
+	switch mode {
+	case "add":
+		cur += value
+		key = "commands.trigger.add.success"
+	case "set":
+		cur = value
+		key = "commands.trigger.set.success"
+	default:
+		cur++
+	}
+	s.board.mu.Lock()
+	s.board.scores[player][obj].value = cur
+	s.board.scores[player][obj].locked = true
+	s.board.mu.Unlock()
+	s.broadcastScore(player, obj, cur)
+	if mode == "" {
+		return componentReply(translatable(key, s.objectiveChatComponent(obj)))
+	}
+	return componentReply(translatable(key, s.objectiveChatComponent(obj),
+		nestedCompound{key: "", value: value}))
 }
 
 func (s *Server) runRandom(player string, args []string) reply {
