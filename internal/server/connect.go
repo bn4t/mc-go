@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"strconv"
 	"strings"
 
 	"mc-go/internal/world"
@@ -238,6 +239,36 @@ func (s *Server) connectionUpdateNoCascade(d *dimension, pos, changed world.Pos)
 	}
 	if isStairName(short) && connHorizontal(pos, changed) {
 		s.stairsNeighborUpdate(d, pos, changed, b)
+		return
+	}
+	if short == "chorus_plant" {
+		s.chorusNeighborUpdate(d, pos, changed, b)
+		return
+	}
+	if changed.Y == pos.Y+1 && changed.X == pos.X && changed.Z == pos.Z {
+		if _, hasSnowy := world.StateProperty(b, "snowy"); hasSnowy {
+			s.snowyNeighborUpdate(d, pos, changed, b)
+			return
+		}
+	}
+	if coralLive(short) && changed != pos {
+		s.coralNeighborUpdate(d, pos)
+		return
+	}
+	if short == "scaffolding" && changed != pos {
+		s.scheduleBlockTick(d, pos, 1)
+		return
+	}
+	if strings.HasSuffix(short, "_concrete_powder") && changed != pos {
+		s.powderNeighborUpdate(d, pos)
+		return
+	}
+	if short == "tripwire" && connHorizontal(pos, changed) {
+		s.tripwireNeighborUpdate(d, pos, changed, b)
+		return
+	}
+	if short == "tripwire_hook" && changed != pos {
+		s.hookNeighborUpdate(d, pos, changed, b)
 		return
 	}
 	fam := connectFamily(short)
@@ -818,4 +849,562 @@ func (s *Server) stairsPlaceState(d *dimension, pos world.Pos, blk world.Block, 
 		}
 	}
 	return out
+}
+
+// chorusNeighborUpdate is ChorusPlantBlock.updateShape: only the
+// changed direction's prop refolds — the changed cell connects when
+// it's a chorus plant or flower, and `down` also to
+// #supports_chorus_plant (end stone). Vertical changes count.
+func (s *Server) chorusNeighborUpdate(d *dimension, pos, changed world.Pos, b world.Block) {
+	dx, dy, dz := changed.X-pos.X, changed.Y-pos.Y, changed.Z-pos.Z
+	if dx*dx+dy*dy+dz*dz != 1 || changed == pos {
+		return
+	}
+	var prop string
+	switch {
+	case dy > 0:
+		prop = "up"
+	case dy < 0:
+		prop = "down"
+	default:
+		prop, _ = connPropByDir(dx, dz)
+	}
+	if prop == "" {
+		return
+	}
+	nb := d.w.GetBlock(changed)
+	nname, _ := world.StateOwner(nb)
+	nname = strings.TrimPrefix(nname, "minecraft:")
+	conn := nname == "chorus_plant" || nname == "chorus_flower" ||
+		(prop == "down" && blockTagHas("supports_chorus_plant", nname))
+	cur, _ := world.StateProperty(b, prop)
+	if cur != boolStr(conn) {
+		if nb2, ok := world.WithProperty(b, prop, boolStr(conn)); ok {
+			s.setSilentBlock(d, pos, nb2)
+			s.connectionCascade(d, pos)
+		}
+	}
+}
+
+// snowyNeighborUpdate is SnowyBlock.updateShape: a write to the cell
+// directly above sets snowy = above.is(#snow).
+func (s *Server) snowyNeighborUpdate(d *dimension, pos, changed world.Pos, b world.Block) {
+	aname, _ := world.StateOwner(d.w.GetBlock(changed))
+	aname = strings.TrimPrefix(aname, "minecraft:")
+	want := boolStr(blockTagHas("snow", aname))
+	cur, _ := world.StateProperty(b, "snowy")
+	if cur != want {
+		if nb, ok := world.WithProperty(b, "snowy", want); ok {
+			s.setSilentBlock(d, pos, nb)
+			s.connectionCascade(d, pos)
+		}
+	}
+}
+
+// selfFoldShapes mirrors Block.updateFromNeighbourShapes: a command
+// write (BlockInput.place — setblock/fill) folds the placed block
+// against each of its six neighbours before the write lands. It is
+// why a setblock'd chorus_plant reads down=true on end_stone, a
+// setblock'd tripwire reads its back-facing hooks, and a grass_block
+// under a fresh snow layer arrives snowy. Gameplay writes
+// (dig/piston/fluid flow) fold only via the neighbour fan-out.
+func (s *Server) selfFoldShapes(d *dimension, pos world.Pos) {
+	b := d.w.GetBlock(pos)
+	name, _ := world.StateOwner(b)
+	short := strings.TrimPrefix(name, "minecraft:")
+	var anchor world.Pos
+	var f string
+	isHook := short == "tripwire_hook"
+	if isHook {
+		f, _ = world.StateProperty(b, "facing")
+		anchor = hookAnchor(pos, f)
+	}
+	// UPDATE_SHAPE_ORDER: west, east, north, south, down, up.
+	for _, p := range []world.Pos{
+		{X: pos.X - 1, Y: pos.Y, Z: pos.Z},
+		{X: pos.X + 1, Y: pos.Y, Z: pos.Z},
+		{X: pos.X, Y: pos.Y, Z: pos.Z - 1},
+		{X: pos.X, Y: pos.Y, Z: pos.Z + 1},
+		posBelow(pos, 1),
+		posAbove(pos, 1),
+	} {
+		// A setblock'd hook's updateShape can fold to air on a
+		// missing anchor — BlockInput.place discards an air fold
+		// and the requested state stands.
+		if isHook && p == anchor && !s.hookCanSurvive(d, pos, f) {
+			continue
+		}
+		s.connectionUpdateNoCascade(d, pos, p)
+	}
+}
+
+// coralLive is the name-level CoralBlock/CoralPlantBlock/CoralFanBlock
+// family — dead variants don't scan.
+func coralLive(short string) bool {
+	if strings.HasPrefix(short, "dead_") {
+		return false
+	}
+	for _, c := range []string{"tube", "brain", "bubble", "fire", "horn"} {
+		if short == c+"_coral" || short == c+"_coral_block" ||
+			short == c+"_coral_fan" || short == c+"_coral_wall_fan" {
+			return true
+		}
+	}
+	return false
+}
+
+// coralWaterScan is scanForWater: any of the six neighbours' fluid is
+// water — a waterlogged block's fluid state is water too.
+func (s *Server) coralWaterScan(d *dimension, pos world.Pos) bool {
+	for _, p := range []world.Pos{
+		{X: pos.X, Y: pos.Y + 1, Z: pos.Z}, {X: pos.X, Y: pos.Y - 1, Z: pos.Z},
+		{X: pos.X, Y: pos.Y, Z: pos.Z - 1}, {X: pos.X, Y: pos.Y, Z: pos.Z + 1},
+		{X: pos.X - 1, Y: pos.Y, Z: pos.Z}, {X: pos.X + 1, Y: pos.Y, Z: pos.Z},
+	} {
+		nb := d.w.GetBlock(p)
+		if k, _, ok := fluidOf(nb); ok && k == fluidWater {
+			return true
+		}
+		if wl, ok := world.StateProperty(nb, "waterlogged"); ok && wl == "true" {
+			return true
+		}
+	}
+	return false
+}
+
+// coralNeighborUpdate is CoralBlock.updateShape: no water in contact
+// schedules the die tick at 60+rng(40).
+func (s *Server) coralNeighborUpdate(d *dimension, pos world.Pos) {
+	if !s.coralWaterScan(d, pos) {
+		s.scheduleBlockTick(d, pos, int64(60+s.rng.intn(40)))
+	}
+}
+
+// coralTick is CoralBlock.tick/tryDie: still dry → dead variant keeps
+// the facing/waterlogged props.
+func (s *Server) coralTick(d *dimension, pos world.Pos, b world.Block) {
+	name, ok := world.StateOwner(b)
+	if !ok {
+		return
+	}
+	short := strings.TrimPrefix(name, "minecraft:")
+	if !coralLive(short) || s.coralWaterScan(d, pos) {
+		return
+	}
+	dead := "dead_" + short
+	props := map[string]string{}
+	for _, p := range []string{"facing", "waterlogged"} {
+		if v, ok := world.StateProperty(b, p); ok {
+			props[p] = v
+		}
+	}
+	if nb, ok := world.BlockStateOf(dead, props); ok {
+		s.setSilentBlock(d, pos, nb)
+	}
+}
+
+// scaffoldDistance is ScaffoldingBlock.getDistance: a scaffolding below
+// shares its distance; a sturdy up-face below grounds to 0; otherwise
+// one past the nearest horizontal scaffold, capped at 7.
+func (s *Server) scaffoldDistance(d *dimension, pos world.Pos) int {
+	below := d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z})
+	bname, _ := world.StateOwner(below)
+	bname = strings.TrimPrefix(bname, "minecraft:")
+	if bname == "scaffolding" {
+		if dv, ok := world.StateProperty(below, "distance"); ok {
+			if n, err := strconv.Atoi(dv); err == nil {
+				return n
+			}
+		}
+		return 7
+	}
+	if connectSturdy(d, world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}, below, bname) {
+		return 0
+	}
+	dist := 7
+	for _, dir := range cardinalDirs {
+		nb := d.w.GetBlock(world.Pos{X: pos.X + dir.dx, Y: pos.Y, Z: pos.Z + dir.dz})
+		nname, _ := world.StateOwner(nb)
+		if strings.TrimPrefix(nname, "minecraft:") != "scaffolding" {
+			continue
+		}
+		dv, ok := world.StateProperty(nb, "distance")
+		if !ok {
+			continue
+		}
+		if n, err := strconv.Atoi(dv); err == nil && n+1 < dist {
+			dist = n + 1
+			if dist == 1 {
+				return dist
+			}
+		}
+	}
+	return dist
+}
+
+// scaffoldTick is ScaffoldingBlock.tick: distance and bottom refold; a
+// newly-arrived distance 7 drops the block as an item, one that was
+// already at 7 becomes a falling block.
+func (s *Server) scaffoldTick(d *dimension, pos world.Pos, b world.Block) {
+	name, ok := world.StateOwner(b)
+	if !ok || strings.TrimPrefix(name, "minecraft:") != "scaffolding" {
+		return
+	}
+	dist := s.scaffoldDistance(d, pos)
+	below := d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z})
+	bname, _ := world.StateOwner(below)
+	bottom := dist > 0 && strings.TrimPrefix(bname, "minecraft:") != "scaffolding"
+	oldDist, _ := world.StateProperty(b, "distance")
+	if dist == 7 {
+		if oldDist == "7" {
+			// FallingBlockEntity.fall — lands on the first sturdy
+			// cell below (or drops out of the world) and re-places.
+			y := pos.Y - 1
+			for ; y >= d.minY; y-- {
+				cb := d.w.GetBlock(world.Pos{X: pos.X, Y: y, Z: pos.Z})
+				if !replaceableByFluid(cb) {
+					break
+				}
+			}
+			if y < d.minY {
+				s.setNaturalBlock(d, pos, world.Air)
+				return
+			}
+			s.setNaturalBlock(d, pos, world.Air)
+			land := world.Pos{X: pos.X, Y: y + 1, Z: pos.Z}
+			if nb, ok := world.BlockStateOf("scaffolding", map[string]string{
+				"distance": strconv.Itoa(s.scaffoldDistance(d, land)),
+				"bottom":   "false", "waterlogged": "false",
+			}); ok {
+				below2 := d.w.GetBlock(world.Pos{X: land.X, Y: land.Y - 1, Z: land.Z})
+				b2name, _ := world.StateOwner(below2)
+				if strings.TrimPrefix(b2name, "minecraft:") != "scaffolding" {
+					nb, _ = world.WithProperty(nb, "bottom", "true")
+				}
+				s.setNaturalBlock(d, land, nb)
+			}
+			return
+		}
+		s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+		s.setNaturalBlock(d, pos, world.Air)
+		if id, ok := world.ItemID("scaffolding"); ok {
+			s.spawnItemDrop(d.name, pos, ItemStack{ID: id, Count: 1})
+		}
+		return
+	}
+	if oldDist != strconv.Itoa(dist) {
+		if nb, ok := world.BlockStateOf("scaffolding", map[string]string{
+			"distance":    strconv.Itoa(dist),
+			"bottom":      boolStr(bottom),
+			"waterlogged": propOr(b, "waterlogged", "false"),
+		}); ok {
+			s.setSilentBlock(d, pos, nb)
+			s.connectionCascade(d, pos)
+		}
+	}
+}
+
+func propOr(b world.Block, prop, def string) string {
+	if v, ok := world.StateProperty(b, prop); ok {
+		return v
+	}
+	return def
+}
+
+// powderNeighborUpdate is ConcretePowderBlock.updateShape: any
+// neighbour's fluid touching the cell (water, incl. waterlogged
+// holders) solidifies it to the concrete block.
+func (s *Server) powderNeighborUpdate(d *dimension, pos world.Pos) {
+	b := d.w.GetBlock(pos)
+	name, ok := world.StateOwner(b)
+	if !ok {
+		return
+	}
+	short := strings.TrimPrefix(name, "minecraft:")
+	if !strings.HasSuffix(short, "_concrete_powder") {
+		return
+	}
+	// touchesLiquid scans five faces — DOWN is skipped unless the
+	// powder itself holds water (powder never does), so water below
+	// never solidifies it.
+	for _, p := range []world.Pos{
+		{X: pos.X, Y: pos.Y + 1, Z: pos.Z},
+		{X: pos.X, Y: pos.Y, Z: pos.Z - 1}, {X: pos.X, Y: pos.Y, Z: pos.Z + 1},
+		{X: pos.X - 1, Y: pos.Y, Z: pos.Z}, {X: pos.X + 1, Y: pos.Y, Z: pos.Z},
+	} {
+		nb := d.w.GetBlock(p)
+		if k, _, ok := fluidOf(nb); ok && k == fluidWater {
+			if solid, ok := world.BlockStateOf(strings.TrimSuffix(short, "_powder"), nil); ok {
+				s.setSilentBlock(d, pos, solid)
+				s.connectionCascade(d, pos)
+			}
+			return
+		}
+		if wl, ok := world.StateProperty(nb, "waterlogged"); ok && wl == "true" {
+			if solid, ok := world.BlockStateOf(strings.TrimSuffix(short, "_powder"), nil); ok {
+				s.setSilentBlock(d, pos, solid)
+				s.connectionCascade(d, pos)
+			}
+			return
+		}
+	}
+}
+
+// tripwireConnects is TripWireBlock.shouldConnectTo: a tripwire cell
+// connects to a tripwire neighbour, or to a hook whose facing points
+// back along the wire's direction (hook facing = toward the wire).
+func tripwireConnects(nb world.Block, dir string) bool {
+	nname, ok := world.StateOwner(nb)
+	if !ok {
+		return false
+	}
+	nname = strings.TrimPrefix(nname, "minecraft:")
+	if nname == "tripwire_hook" {
+		f, _ := world.StateProperty(nb, "facing")
+		return f == dirOpposite(dir)
+	}
+	return nname == "tripwire"
+}
+
+// tripwireNeighborUpdate is TripWireBlock.updateShape: horizontal
+// changes refold just that direction's bool.
+func (s *Server) tripwireNeighborUpdate(d *dimension, pos, changed world.Pos, b world.Block) {
+	prop, _ := connPropByDir(changed.X-pos.X, changed.Z-pos.Z)
+	if prop == "" {
+		return
+	}
+	conn := tripwireConnects(d.w.GetBlock(changed), prop)
+	cur, _ := world.StateProperty(b, prop)
+	if cur != boolStr(conn) {
+		if nb, ok := world.WithProperty(b, prop, boolStr(conn)); ok {
+			s.setSilentBlock(d, pos, nb)
+			s.connectionCascade(d, pos)
+		}
+	}
+}
+
+// snowyPlaceState, tripwirePlaceState and scaffoldPlaceState are the
+// getStateForPlacement halves of the fold family.
+func (s *Server) snowyPlaceState(d *dimension, pos world.Pos, blk world.Block) world.Block {
+	if _, has := world.StateProperty(blk, "snowy"); !has {
+		return blk
+	}
+	aname, _ := world.StateOwner(d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z}))
+	aname = strings.TrimPrefix(aname, "minecraft:")
+	if nb, ok := world.WithProperty(blk, "snowy", boolStr(blockTagHas("snow", aname))); ok {
+		return nb
+	}
+	return blk
+}
+
+func (s *Server) tripwirePlaceState(d *dimension, pos world.Pos, blk world.Block) world.Block {
+	name, ok := world.StateOwner(blk)
+	if !ok || strings.TrimPrefix(name, "minecraft:") != "tripwire" {
+		return blk
+	}
+	out := blk
+	for _, dir := range cardinalDirs {
+		prop, _ := connPropByDir(dir.dx, dir.dz)
+		conn := tripwireConnects(d.w.GetBlock(world.Pos{X: pos.X + dir.dx, Y: pos.Y, Z: pos.Z + dir.dz}), prop)
+		if nb, ok := world.WithProperty(out, prop, boolStr(conn)); ok {
+			out = nb
+		}
+	}
+	return out
+}
+
+func (s *Server) scaffoldPlaceState(d *dimension, pos world.Pos, blk world.Block) world.Block {
+	name, ok := world.StateOwner(blk)
+	if !ok || strings.TrimPrefix(name, "minecraft:") != "scaffolding" {
+		return blk
+	}
+	dist := s.scaffoldDistance(d, pos)
+	below := d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z})
+	bname, _ := world.StateOwner(below)
+	if nb, ok := world.BlockStateOf("scaffolding", map[string]string{
+		"distance":    strconv.Itoa(dist),
+		"bottom":      boolStr(dist > 0 && strings.TrimPrefix(bname, "minecraft:") != "scaffolding"),
+		"waterlogged": propOr(blk, "waterlogged", "false"),
+	}); ok {
+		return nb
+	}
+	return blk
+}
+
+// hookAnchor is the cell a tripwire hook mounts to: the cell on the
+// side opposite its facing.
+func hookAnchor(pos world.Pos, facing string) world.Pos {
+	return shiftPos(pos, dirOpposite(facing))
+}
+
+// hookCanSurvive is TripWireHookBlock.canSurvive: the anchor's face
+// toward the hook direction is sturdy.
+func (s *Server) hookCanSurvive(d *dimension, pos world.Pos, facing string) bool {
+	a := hookAnchor(pos, facing)
+	ab := d.w.GetBlock(a)
+	aname, ok := world.StateOwner(ab)
+	if !ok {
+		return false
+	}
+	return connectSturdy(d, a, ab, strings.TrimPrefix(aname, "minecraft:"))
+}
+
+// hookNeighborUpdate is TripWireHookBlock.updateShape: a change on the
+// anchor side pops the hook; the wire cell writing beside it triggers
+// the run recalc (calculateState).
+func (s *Server) hookNeighborUpdate(d *dimension, pos, changed world.Pos, b world.Block) {
+	facing, ok := world.StateProperty(b, "facing")
+	if !ok {
+		return
+	}
+	dx, dy, dz := changed.X-pos.X, changed.Y-pos.Y, changed.Z-pos.Z
+	if dx*dx+dy*dy+dz*dz != 1 {
+		return
+	}
+	var dir string
+	switch {
+	case dy > 0:
+		dir = "up"
+	case dy < 0:
+		dir = "down"
+	default:
+		dir, _ = connPropByDir(dx, dz)
+	}
+	if dir == dirOpposite(facing) && !s.hookCanSurvive(d, pos, facing) {
+		s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+		s.setNaturalBlock(d, pos, world.Air)
+		if id, ok := world.ItemID("tripwire_hook"); ok {
+			s.spawnItemDrop(d.name, pos, ItemStack{ID: id, Count: 1})
+		}
+		return
+	}
+	s.hookRecalc(d, pos, facing)
+}
+
+// hookRecalc is TripWireHookBlock.calculateState: walk the facing run
+// (up to 42 cells); a contiguous wire run reaching an opposite-facing
+// hook attaches both ends; the walk rewrites the far hook's facing to
+// point back, and each end's powered flag ors the run's powered wires.
+func (s *Server) hookRecalc(d *dimension, pos world.Pos, facing string) {
+	contiguous := true
+	powered := false
+	partner := -1
+	for j := 1; j < 42; j++ {
+		cp := pos
+		for k := 0; k < j; k++ {
+			cp = shiftPos(cp, facing)
+		}
+		b := d.w.GetBlock(cp)
+		n, _ := world.StateOwner(b)
+		n = strings.TrimPrefix(n, "minecraft:")
+		if n == "tripwire_hook" {
+			f2, _ := world.StateProperty(b, "facing")
+			if f2 == dirOpposite(facing) {
+				partner = j
+			}
+			break
+		}
+		if n != "tripwire" {
+			contiguous = false
+			break
+		}
+		if p, _ := world.StateProperty(b, "powered"); p == "true" {
+			powered = true
+		}
+	}
+	attached := contiguous && partner > 1
+	powered = powered && attached
+	if partner > 0 {
+		hp := pos
+		for k := 0; k < partner; k++ {
+			hp = shiftPos(hp, facing)
+		}
+		nb := d.w.GetBlock(hp)
+		out := nb
+		for k, v := range map[string]string{"attached": boolStr(attached), "powered": boolStr(powered), "facing": dirOpposite(facing)} {
+			if w, ok := world.WithProperty(out, k, v); ok {
+				out = w
+			}
+		}
+		if out != nb {
+			s.setSilentBlock(d, hp, out)
+		}
+	}
+	self := d.w.GetBlock(pos)
+	out := self
+	for k, v := range map[string]string{"attached": boolStr(attached), "powered": boolStr(powered)} {
+		if w, ok := world.WithProperty(out, k, v); ok {
+			out = w
+		}
+	}
+	if out != self {
+		s.setSilentBlock(d, pos, out)
+	}
+}
+
+// tripwireHooksAround reruns calculateState on every hook whose run
+// reaches pos — called after a wire cell writes.
+func (s *Server) tripwireHooksAround(d *dimension, pos world.Pos) {
+	for _, dir := range cardinalDirs {
+		for j := 1; j < 42; j++ {
+			cp := world.Pos{X: pos.X + dir.dx*j, Y: pos.Y, Z: pos.Z + dir.dz*j}
+			b := d.w.GetBlock(cp)
+			n, _ := world.StateOwner(b)
+			n = strings.TrimPrefix(n, "minecraft:")
+			if n == "tripwire_hook" {
+				dn, _ := connPropByDir(dir.dx, dir.dz)
+				if f, ok := world.StateProperty(b, "facing"); ok && f == dirOpposite(dn) {
+					s.hookRecalc(d, cp, f)
+				}
+				break
+			}
+			if n != "tripwire" {
+				break
+			}
+		}
+	}
+}
+
+// hookPlaceState is TripWireHookBlock.getStateForPlacement: iterate
+// horizontal looking directions; facing = candidate.opposite for the
+// first candidate whose anchor cell (at candidate) is sturdy.
+func (s *Server) hookPlaceState(d *dimension, pos world.Pos, blk world.Block, sess *Session, face int32) world.Block {
+	name, ok := world.StateOwner(blk)
+	if !ok || strings.TrimPrefix(name, "minecraft:") != "tripwire_hook" {
+		return blk
+	}
+	_, _, _, yaw, _, _ := sess.Pos()
+	fdir := faceDirName(int(face))
+	var cands []string
+	if fdir == "north" || fdir == "south" || fdir == "east" || fdir == "west" {
+		cands = append(cands, fdir)
+	}
+	yawD := yawDir(yaw)
+	for _, c := range []string{yawD, dirCCW(yawD), dirCW(yawD), dirOpposite(yawD)} {
+		dup := false
+		for _, e := range cands {
+			if e == c {
+				dup = true
+			}
+		}
+		if !dup {
+			cands = append(cands, c)
+		}
+	}
+	for _, c := range cands {
+		anchor := shiftPos(pos, c)
+		ab := d.w.GetBlock(anchor)
+		an, ok := world.StateOwner(ab)
+		if !ok || !connectSturdy(d, anchor, ab, strings.TrimPrefix(an, "minecraft:")) {
+			continue
+		}
+		out := blk
+		for k, v := range map[string]string{"facing": dirOpposite(c), "powered": "false", "attached": "false"} {
+			if w, ok := world.WithProperty(out, k, v); ok {
+				out = w
+			}
+		}
+		return out
+	}
+	return blk
 }

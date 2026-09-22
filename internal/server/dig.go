@@ -225,6 +225,12 @@ func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk wo
 	// onPlace may have rewritten the cell (TNT primed on a signal
 	// self-removes) — everything downstream reads the final state.
 	blk = d.w.GetBlock(pos)
+	// BlockInput.place runs updateFromNeighbourShapes first: the
+	// written block folds itself against all six neighbours.
+	if commandWrite {
+		s.selfFoldShapes(d, pos)
+		blk = d.w.GetBlock(pos)
+	}
 	// See setSilentBlock for the skip rule: the second scan only runs
 	// when the write removed the top cell itself.
 	var newTop int32

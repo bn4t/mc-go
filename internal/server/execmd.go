@@ -1193,6 +1193,8 @@ func (s *Server) runFill(player string, args []string) reply {
 				// /fill notifies neighbours with the NEW state
 				// (updateNeighboursOnBlockSet).
 				s.setNaturalBlockNotify(d, pos, blk, blk)
+				// BlockInput.place's updateFromNeighbourShapes fold.
+				s.selfFoldShapes(d, pos)
 				s.selfCheckSurvival(d, pos, blk)
 				touched[[2]int{x >> 4, z >> 4}] = true
 				changed++

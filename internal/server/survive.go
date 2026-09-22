@@ -2,6 +2,7 @@ package server
 
 import (
 	"strconv"
+	"strings"
 	"sync"
 
 	"mc-go/internal/world"
@@ -347,6 +348,30 @@ func (s *Server) neighborSurvival(d *dimension, pos world.Pos, notify world.Bloc
 func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block) {
 	s.frostedIceOnPlace(d, pos, blk)
 	s.fireOnPlace(d, pos, blk, old)
+	// ScaffoldingBlock.onPlace: the 1-tick distance refold arms on
+	// every write (same as a neighbour updateShape).
+	if name, ok := world.StateOwner(blk); ok && strings.TrimPrefix(name, "minecraft:") == "scaffolding" {
+		s.scheduleBlockTick(d, pos, 1)
+	}
+	// CoralBlock.getStateForPlacement / updateShape: a coral with no
+	// water in contact schedules the die tick at 60+rng(40).
+	if name, ok := world.StateOwner(blk); ok {
+		short := strings.TrimPrefix(name, "minecraft:")
+		if coralLive(short) && !s.coralWaterScan(d, pos) {
+			s.scheduleBlockTick(d, pos, int64(60+s.rng.intn(40)))
+		}
+		// TripWireBlock.onPlace / TripWireHookBlock.setPlacedBy:
+		// a wire write reruns calculateState at the run's ends; a
+		// hook write recalcs its own run.
+		if short == "tripwire" {
+			s.tripwireHooksAround(d, pos)
+		}
+		if short == "tripwire_hook" {
+			if f, ok := world.StateProperty(blk, "facing"); ok {
+				s.hookRecalc(d, pos, f)
+			}
+		}
+	}
 	// TntBlock.onPlace: prime + self-remove when a neighbour carries a
 	// signal — callers re-read the cell after this hook.
 	s.tntOnPlace(d, pos, blk)

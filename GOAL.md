@@ -3639,3 +3639,29 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   player_input bit 0x20. TestConnectParity pins 10 chest legs: facing
   fold, placed pair (new=left/old=right), partner break, setblock
   stays single, trapped no-merge both ways, sneak-merge.
+
+- 2026-09-19 (cont): updateShape fold family #2 — every remaining
+  updateShape-side prop fold measured on the jar and pinned by
+  TestNeighborFoldParity (27 legs, both servers). SnowyBlock: snowy
+  refolds on the cell above (#snow = powder_snow/snow/snow_block;
+  grass/mycelium/podzol only). ChorusPlantBlock: per-direction fold
+  on any of 6 neighbours (plant/flower, down also counts
+  #supports_chorus_plant). ScaffoldingBlock: write+neighbour changes
+  schedule the 1-tick getDistance/bottom refold; distance 7 with
+  old-prop 7 becomes a falling block that re-lands on the first
+  sturdy cell below, a newly-arrived 7 pops with drop+2001.
+  CoralBlock: no water-fluid neighbour in any of 6 faces (waterlogged
+  counts) schedules the 60+rng(40) die tick → dead_ variant keeping
+  facing/waterlogged. ConcretePowderBlock: touchesLiquid solidifies
+  to the _concrete colour — five faces only; DOWN is skipped unless
+  the powder itself holds water, so water below never sets it off.
+  TripWireBlock refolds the changed side toward wires and back-facing
+  hooks; TripWireHookBlock pops (drop+2001) when its facing.opposite
+  anchor breaks, and calculateState walks up to 42 cells — a
+  contiguous wire run ending on an opposite-facing hook sets
+  attached + powered on both ends.
+  Also landed the missing half of BlockInput.place: command writes
+  (setblock/fill) run updateFromNeighbourShapes — the written block
+  folds itself against all six neighbours before landing, and an air
+  fold is discarded (a floating tripwire_hook stays placed). mc-go
+  selfFoldShapes covers setblock + fill.

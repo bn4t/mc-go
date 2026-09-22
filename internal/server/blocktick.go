@@ -382,6 +382,14 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		s.bubbleColumnTick(d, pos)
 		return
 	}
+	if short == "scaffolding" {
+		s.scaffoldTick(d, pos, blk)
+		return
+	}
+	if coralLive(short) {
+		s.coralTick(d, pos, blk)
+		return
+	}
 	if short == "pointed_dripstone" || short == "sulfur_spike" {
 		s.speleoTick(d, pos, blk)
 		return
