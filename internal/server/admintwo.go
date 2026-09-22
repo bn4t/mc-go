@@ -88,6 +88,9 @@ func (s *Server) registerAdminTwoCommands() {
 	s.registerComponentCommand("place", func(player string, args []string) reply {
 		return s.runPlace(player, args)
 	})
+	s.registerComponentCommand("clone", func(player string, args []string) reply {
+		return s.runClone(player, args)
+	})
 }
 
 // normalizeID applies the vanilla resource-location default:

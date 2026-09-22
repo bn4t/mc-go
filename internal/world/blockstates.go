@@ -166,6 +166,16 @@ func BlockProperties(b Block) map[string]string {
 	return out
 }
 
+// BlockPropNames returns the property names a block name declares,
+// nil when the name is not a block.
+func BlockPropNames(name string) []string {
+	bi, ok := blockIndexByName[name]
+	if !ok {
+		return nil
+	}
+	return blockSchemas[bi].Names
+}
+
 // StateOwner returns the block name owning a state id.
 func StateOwner(b Block) (string, bool) {
 	bi := ownerIndex(int(b))

@@ -2835,3 +2835,19 @@ physics through a void dip plus a fed recovery window.
   never registers them. adminnames_gen.go holds the attribute/poi/
   dialog/structure/feature/pool registries from the jar.
   TestAdmin2Parity 124 commands green.
+
+- /clone: the [from <dim>] <begin> <end> [to <dim>] <destination>
+  [strict] [replace|masked|filtered <block>] [normal|force|move]
+  grammar (strict is a literal before the mask; move/force/normal only
+  parse after a mask literal; a missing filter block or position is
+  command.unknown.command, an unknown filter block id.invalid with the
+  normalized name, an unknown property property.unknown underlined
+  inside the token). Execution checks dimensions, then loaded bounds,
+  then toobig against max_block_modifications, then the overlap guard
+  — which only applies to mode normal; force and move allow
+  self-overlap. masked skips air cells and filtered keeps only the
+  predicate (names, [props], and #tags); zero written cells is
+  commands.clone.failed. move erases exactly the cells that were
+  copied, skipping cells inside the destination. BlockPropNames is the
+  new world export backing the property-name check.
+  TestCloneParity 55 commands green.
