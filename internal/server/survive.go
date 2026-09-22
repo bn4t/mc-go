@@ -186,6 +186,10 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos, notify worl
 		s.fireNeighborChanged(d, pos, b)
 		return
 	}
+	if (name == "pointed_dripstone" || name == "sulfur_spike") && changed != pos {
+		s.speleoNeighborChange(d, pos, changed)
+		return
+	}
 	if (name == "water" || name == "bubble_column") && changed != pos {
 		// LiquidBlock.neighbourChanged/updateShape and
 		// BubbleColumnBlock.updateShape — bubble-column scheduling.

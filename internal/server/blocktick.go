@@ -341,6 +341,8 @@ func randRules() map[string]func(*Server, *dimension, world.Pos, world.Block) {
 		}
 		// WeatheringCopper.isRandomlyTicking = getNext().isPresent() —
 		// the oxidized stage is terminal and stays out of the table.
+		randRulesMap["pointed_dripstone"] = speleoRule
+		randRulesMap["sulfur_spike"] = speleoRule
 		for _, fam := range copperFamilies {
 			for _, n := range fam[:3] {
 				randRulesMap[n] = copperRule
@@ -378,6 +380,14 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 	}
 	if short == "bubble_column" {
 		s.bubbleColumnTick(d, pos)
+		return
+	}
+	if short == "pointed_dripstone" || short == "sulfur_spike" {
+		s.speleoTick(d, pos, blk)
+		return
+	}
+	if short == "cauldron" || short == "water_cauldron" {
+		s.cauldronDripTick(d, pos)
 		return
 	}
 	if !strings.HasSuffix(short, "_button") {

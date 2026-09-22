@@ -3449,3 +3449,30 @@ physics through a void dip plus a fed recovery window.
   source above a live column is pulled in at +5, lava and stone-based
   controls stay put. NOTE for the suite: /tick step on the real server
   does NOT process scheduled block ticks — always /tick sprint.
+
+- Random tick pass 12 (speleothems): SpeleothemBlock.randomTick
+  (0.011377778 gate on the topmost hanging cell only) +
+  growStalactiteOrStalagmiteIfPossible — canGrow (dripstone: root is
+  dripstone_block AND water one above it; sulfur_spike: sulfur), findTip
+  (same-block same-direction walk, maxScan 7 dripstone / 2 sulfur),
+  free-hanging non-waterlogged tip + canTipGrow (fluid-empty cell past
+  the tip, or an opposite-facing unmerged tip -> merged tip_merge pair),
+  then nextBoolean: grow the tip down vs growStalagmiteBelow (10-cell
+  down-scan, fluids abort, dripstone also aborts on cells a drip can't
+  pass). PointedDripstoneBlock.maybeTransferFluid rides a separate
+  earlier float: hanging start cell, root found by walking up to the
+  first non-same-block cell, fluid above it (mud reads as water);
+  thresholds 0.17578125 water / 0.05859375 lava; mud -> clay on the
+  spot, otherwise the first drippable cauldron within 10 below the tip
+  gets a block tick at 50+distance; AbstractCauldronBlock.tick re-finds
+  the tip and fluid, fills empty cauldrons to water_cauldron/
+  lava_cauldron and increments water levels (<3). updateShape port:
+  waterlogged cells re-arm their fluid tick, support-side writes that
+  break survival arm +2 (stalactite) / +1 (stalagmite) block ticks —
+  stalactites fall unconditionally, stalagmites re-check and break —
+  and any other vertical write recomputes thickness (tip/tip_merge/
+  frustum/middle/base ladder) silently. mc-go approximation: falling
+  stalactites empty the cell (no FallingBlockEntity system).
+  TestSpeleothemParity pins growth, the two never-grow controls, the
+  cauldron fill, mud->clay, sulfur growth with no water, the cascade
+  fall on root removal, and the stalagmite pop on floor removal.
