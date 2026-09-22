@@ -92,6 +92,59 @@ func (s *Server) selfCheckSurvival(d *dimension, pos world.Pos, blk world.Block)
 	}
 }
 
+// budAttachOffset maps a bud's facing prop to the offset of the cell
+// it hangs/sits on — the direction facing.getOpposite() points.
+func budAttachOffset(face string) (world.Pos, bool) {
+	switch face {
+	case "up":
+		return world.Pos{X: 0, Y: -1, Z: 0}, true
+	case "down":
+		return world.Pos{X: 0, Y: 1, Z: 0}, true
+	case "north":
+		return world.Pos{X: 0, Y: 0, Z: 1}, true
+	case "south":
+		return world.Pos{X: 0, Y: 0, Z: -1}, true
+	case "west":
+		return world.Pos{X: 1, Y: 0, Z: 0}, true
+	case "east":
+		return world.Pos{X: -1, Y: 0, Z: 0}, true
+	}
+	return world.Pos{}, false
+}
+
+// isAmethystBud covers the AmethystClusterBlock family.
+func isAmethystBud(name string) bool {
+	switch name {
+	case "small_amethyst_bud", "medium_amethyst_bud", "large_amethyst_bud", "amethyst_cluster":
+		return true
+	}
+	return false
+}
+
+// budUpdate is AmethystClusterBlock.updateShape: the return-air
+// family — the bud folds to air only when the write lands on the
+// attach side and the cell there isn't sturdy.
+func (s *Server) budUpdate(d *dimension, pos, changed world.Pos, b world.Block) {
+	face, ok := world.StateProperty(b, "facing")
+	if !ok {
+		return
+	}
+	off, ok := budAttachOffset(face)
+	if !ok {
+		return
+	}
+	attachPos := world.Pos{X: pos.X + off.X, Y: pos.Y + off.Y, Z: pos.Z + off.Z}
+	if changed != attachPos {
+		return
+	}
+	attach := d.w.GetBlock(attachPos)
+	_, _, behindFluid := fluidOf(attach)
+	if behindFluid || world.NonSolid(attach) {
+		s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+		s.setNaturalBlock(d, pos, world.Air)
+	}
+}
+
 // checkSurvival re-evaluates one cell; a failed check pops the block.
 // changed is the cell whose write triggered the check (== pos for a
 // placement self-check).
@@ -112,6 +165,10 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos) {
 	}
 	if isLeafBlock(name) {
 		s.leafShape(d, pos, changed)
+		return
+	}
+	if isAmethystBud(name) {
+		s.budUpdate(d, pos, changed, b)
 		return
 	}
 	fn, ok := surviveFns()[name]

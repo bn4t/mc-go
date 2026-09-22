@@ -577,6 +577,66 @@ func vineHeadRule(head, body string, growthDy int, cave bool) func(*Server, *dim
 	}
 }
 
+// BuddingAmethystBlock.randomTick: 20% of the time pick a random
+// face; air or a full water source there sprouts a small bud, a bud
+// already facing that direction climbs a stage (small → medium →
+// large → cluster). The write is setBlockAndUpdate — the bud carries
+// facing=dir and waterlogged=was-water.
+var amethystFacings = [6]string{"down", "up", "west", "east", "north", "south"}
+
+func amethystBudRule(s *Server, d *dimension, pos world.Pos, _ world.Block) {
+	if s.rng.intn(5) != 0 {
+		return
+	}
+	faces := neighbourPositions(pos)
+	di := s.rng.intn(6)
+	np := faces[di]
+	nb := d.w.GetBlock(np)
+	name, _ := world.StateOwner(nb)
+	face, _ := world.StateProperty(nb, "facing")
+	facing := amethystFacings[di]
+	var next string
+	switch {
+	case isAirCell(nb) || isWaterSource(nb):
+		next = "small_amethyst_bud"
+	case name == "small_amethyst_bud" && face == facing:
+		next = "medium_amethyst_bud"
+	case name == "medium_amethyst_bud" && face == facing:
+		next = "large_amethyst_bud"
+	case name == "large_amethyst_bud" && face == facing:
+		next = "amethyst_cluster"
+	default:
+		return
+	}
+	ns, ok := world.BlockStateOf(next, map[string]string{
+		"facing":      facing,
+		"waterlogged": strconv.FormatBool(cellFluidIsWater(nb)),
+	})
+	if !ok {
+		return
+	}
+	s.setNaturalBlock(d, np, ns)
+}
+
+// isWaterSource is state.is(WATER) && FluidState.isFull: a water
+// block at level 0.
+func isWaterSource(b world.Block) bool {
+	k, lv, ok := fluidOf(b)
+	return ok && k == fluidWater && lv == 0
+}
+
+// cellFluidIsWater is FluidState.is(WATER): any water block or a
+// waterlogged block.
+func cellFluidIsWater(b world.Block) bool {
+	if k, _, ok := fluidOf(b); ok {
+		return k == fluidWater
+	}
+	if wl, ok := world.StateProperty(b, "waterlogged"); ok {
+		return wl == "true"
+	}
+	return false
+}
+
 func sugarCaneRule(s *Server, d *dimension, pos world.Pos, _ world.Block) {
 	// Grower rules read and write back block state, so they read the
 	// live world: the section snapshot can predate a same-tick write

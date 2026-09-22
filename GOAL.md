@@ -3284,3 +3284,16 @@ physics through a void dip plus a fed recovery window.
   distance 1, a seven-leaf chain settles 1..7 and the far tip
   crumbles, breaking the chain's log cascades all of it to decay.
   TestLeafDecayParity green both directions.
+
+- Random tick pass 6 (amethyst, commit pending):
+  BuddingAmethystBlock.randomTick — 20% roll picks a random face;
+  air or a full water source sprouts small_amethyst_bud, a bud
+  already facing that direction climbs small → medium → large →
+  amethyst_cluster, all carrying facing=dir and waterlogged from the
+  target cell's fluid state. Buds are the return-air family:
+  updateShape folds to air only when the write lands on the attach
+  side (facing.getOpposite) and the cell isn't sturdy — placed buds
+  keep floating until then. Wrong-facing buds never upgrade (the
+  facing gate blocks it). TestAmethystParity drives all of it:
+  single-open-face fixtures for deterministic growth location,
+  waterlogged cluster on a water face, pedestal pop, floating bud.
