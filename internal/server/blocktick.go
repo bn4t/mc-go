@@ -337,6 +337,7 @@ func randRules() map[string]func(*Server, *dimension, world.Pos, world.Block) {
 			"brown_mushroom":          mushroomRule,
 			"red_mushroom":            mushroomRule,
 			"vine":                    vineRule,
+			"ice":                     iceMeltRule,
 		}
 	})
 	return randRulesMap

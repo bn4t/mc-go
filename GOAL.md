@@ -3327,3 +3327,20 @@ physics through a void dip plus a fed recovery window.
   from below, air when none remain. canSupportAtFace: sturdy side or
   a vine above holding the same face. TestWallVineParity: wall wrap,
   spread-down, ceiling-hole sprout, face pruning, spread_vines gate.
+- Random tick pass 9 (ice melt, commit pending):
+  IceBlock.randomTick: block light over 11 minus the block's own
+  dampening (ice dampens 0) thaws — sky light plays no part, so
+  sunlit ice holds. melt() is air under WATER_EVAPORATES (ultraWarm
+  dims), a water source otherwise; the water then flows on the
+  usual fluid ticks and can wash out torches before they melt
+  their neighbour. mc-go has no light engine: blockLightAbove
+  scans a curated emitter table (lit state honoured) inside
+  taxicab 15-level of the cell. TestIceMeltParity pins the 11/12
+  edge — torch at taxicab 2 delivers 12 and melts, at 4 delivers
+  10 and holds — plus dark ice and the post-melt water source.
+  Driving it surfaced a write-path stall worth its own note: every
+  setSilentBlock recomputed the chunk's 256 column tops with
+  per-cell reads (~98k shard ops, ~50ms/write) so a 4096-speed
+  tick ran for half a minute. columnTop/chunkTops now read whole
+  columns via FillBox and setSilentBlock skips the post-write
+  scan when the write cannot move the top — ~50x faster writes.

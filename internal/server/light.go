@@ -18,28 +18,47 @@ import (
 
 // chunkTops returns the highest non-air Y for each of the 256 columns
 // (index z*16+x) of chunk (cx,cz) in dimension d, or minY-1 when empty.
+// The chunk is read with one FillBox — a column-batched shard pass —
+// rather than 98k per-cell reads, which measured ~50ms per write.
 func chunkTops(d *dimension, cx, cz int) [256]int32 {
 	var tops [256]int32
-	for z := 0; z < 16; z++ {
-		for x := 0; x < 16; x++ {
-			top := int32(d.minY - 1)
-			for y := d.minY + d.height - 1; y >= d.minY; y-- {
-				if d.w.GetBlock(world.Pos{X: cx*16 + x, Y: y, Z: cz*16 + z}) != world.Air {
-					top = int32(y)
-					break
+	for i := range tops {
+		tops[i] = int32(d.minY - 1)
+	}
+	buf := make([]world.Block, 16*16*d.height)
+	d.w.FillBox(
+		world.Pos{X: cx * 16, Y: d.minY, Z: cz * 16},
+		world.Pos{X: cx*16 + 15, Y: d.minY + d.height - 1, Z: cz*16 + 15},
+		buf,
+	)
+	// FillBox order: x fastest, then z, then y.
+	for y := d.height - 1; y >= 0; y-- {
+		for z := 0; z < 16; z++ {
+			row := (y*16 + z) * 16
+			for x := 0; x < 16; x++ {
+				if buf[row+x] != world.Air && tops[z*16+x] == int32(d.minY-1) {
+					tops[z*16+x] = int32(d.minY + y)
 				}
 			}
-			tops[z*16+x] = top
 		}
 	}
 	return tops
 }
 
 // columnTop returns one column's highest non-air Y in dimension d.
+// Reads the column in one FillBox round trip: a column is one shard
+// op while per-cell reads are one shard op apiece — over a 384-cell
+// column that difference lands inside every setSilentBlock.
 func columnTop(d *dimension, x, z int) int32 {
-	for y := d.minY + d.height - 1; y >= d.minY; y-- {
-		if d.w.GetBlock(world.Pos{X: x, Y: y, Z: z}) != world.Air {
-			return int32(y)
+	buf := make([]world.Block, d.height)
+	d.w.FillBox(
+		world.Pos{X: x, Y: d.minY, Z: z},
+		world.Pos{X: x, Y: d.minY + d.height - 1, Z: z},
+		buf,
+	)
+	for y := len(buf) - 1; y >= 0; y-- {
+		if buf[y] != world.Air {
+			return int32(d.minY + y)
 		}
 	}
 	return int32(d.minY - 1)

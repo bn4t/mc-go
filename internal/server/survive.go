@@ -312,7 +312,23 @@ func (s *Server) neighborSurvival(d *dimension, pos world.Pos) {
 func (s *Server) setSilentBlock(d *dimension, pos world.Pos, blk world.Block) {
 	oldTop := columnTop(d, pos.X, pos.Z)
 	d.w.SetBlock(pos, blk)
-	newTop := columnTop(d, pos.X, pos.Z)
+	// The second scan is skippable in the common cases: anything below
+	// the top never moves it, a solid write above it sets the top to
+	// pos.Y outright, and an air write above the top writes a cell that
+	// was already air. Only removing the top cell rescans down.
+	var newTop int32
+	switch {
+	case int32(pos.Y) < oldTop || (blk != world.Air && int32(pos.Y) == oldTop):
+		newTop = oldTop
+	case int32(pos.Y) > oldTop:
+		if blk != world.Air {
+			newTop = int32(pos.Y)
+		} else {
+			newTop = oldTop
+		}
+	default:
+		newTop = columnTop(d, pos.X, pos.Z)
+	}
 	s.broadcastBlockState(d, pos, blk)
 	s.syncBlockEntities(d, pos, blk)
 	s.invalidateRandomTickSection(d, pos)
