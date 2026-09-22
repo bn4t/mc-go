@@ -28,10 +28,8 @@ func TestScoreboardCommands(t *testing.T) {
 	if name != "test" || mode != 0 {
 		t.Fatalf("objective = %q mode %d", name, mode)
 	}
-	present, _ := r.Bool()
-	if !present {
-		t.Fatal("objective display missing")
-	}
+	// add-mode body: display component NBT, render-type VarInt,
+	// optional number format.
 	rest, _ := r.Read(r.Remaining())
 	comp, err := nbt.ReadUnnamed(bytes.NewReader(rest[:]))
 	if err != nil {
@@ -83,7 +81,7 @@ func TestScoreboardCommands(t *testing.T) {
 	}
 	rr := protocol.NewPacketReader(rp.Data)
 	entity, _ = rr.String()
-	present, _ = rr.Bool()
+	present, _ := rr.Bool()
 	objective = ""
 	if present {
 		objective, _ = rr.String()

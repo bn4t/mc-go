@@ -802,9 +802,10 @@ func (s *Server) executeIfScore(ctx *executeContext, player string, args []strin
 		return 0, false, nil
 	}
 	s.board.mu.Lock()
-	v1, ok1 := s.board.scores[name][args[2]]
+	e1, ok1 := s.board.scores[name][args[2]]
 	_, objOK := s.board.objectives[args[2]]
 	s.board.mu.Unlock()
+	v1 := scoreValue(e1)
 	// A missing objective is a real error, but only when the chain
 	// ends on this condition — mid-chain it reads false silently.
 	if !objOK {
@@ -831,8 +832,9 @@ func (s *Server) executeIfScore(ctx *executeContext, player string, args []strin
 		return 6, false, nil
 	}
 	s.board.mu.Lock()
-	v2, ok2 := s.board.scores[name2][args[5]]
+	e2, ok2 := s.board.scores[name2][args[5]]
 	s.board.mu.Unlock()
+	v2 := scoreValue(e2)
 	if !ok1 || !ok2 {
 		return 6, false, nil
 	}
@@ -1280,10 +1282,7 @@ func (s *Server) executeStore(ctx *executeContext, player string, args []string,
 		next = 4
 		write = func(v int64) {
 			s.board.mu.Lock()
-			if s.board.scores[holder] == nil {
-				s.board.scores[holder] = map[string]int32{}
-			}
-			s.board.scores[holder][objective] = int32(v)
+			s.setScoreLocked(holder, objective, int32(v))
 			s.board.mu.Unlock()
 			s.broadcastScore(holder, objective, int32(v))
 		}

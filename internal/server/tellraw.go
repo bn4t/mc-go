@@ -100,7 +100,7 @@ func (s *Server) resolveComp(v any, sender *Session) any {
 			name, _ := sc["name"].(string)
 			obj, _ := sc["objective"].(string)
 			if scv, ok := s.board.scores[name][obj]; ok {
-				return strconv.Itoa(int(scv))
+				return strconv.Itoa(int(scv.value))
 			}
 			return ""
 		}

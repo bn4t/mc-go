@@ -15,7 +15,7 @@ import (
 type scoreboard struct {
 	mu         sync.Mutex
 	objectives map[string]*sbObjective // name -> objective
-	scores     map[string]map[string]int32
+	scores     map[string]map[string]*sbScore
 	// scoreOrder and holderOrder record insertion order: vanilla's
 	// per-holder score map and tracked-holder set iterate in
 	// insertion/JVM-hash order, and the wire-visible parts of that
@@ -29,10 +29,35 @@ type scoreboard struct {
 
 // sbObjective is a scoreboard objective: the criteria name is stored
 // only for the packet, display is the parsed component tree used in
-// square-bracket replies (nil means the bare name).
+// square-bracket replies (nil means the bare name), renderType,
+// numberFormat and autoUpdate carry the wire fields
+// objectives modify sets.
 type sbObjective struct {
-	criteria string
-	display  any
+	criteria     string
+	display      any
+	renderType   int // 0 integer, 1 hearts
+	numberFormat *sbNumberFormat
+	autoUpdate   bool
+}
+
+// sbScore is one holder's score in one objective: the int value plus
+// the optional display-name and number-format overrides
+// players display sets, and the locked flag trigger criteria scores
+// carry until players enable releases them.
+type sbScore struct {
+	value   int32
+	locked  bool // trigger-criteria scores start locked
+	display any
+	format  *sbNumberFormat
+}
+
+// sbNumberFormat is a number-format override the way the wire codec
+// frames it: a type id (blank=0, styled=1, fixed=2) and the payload —
+// the SNBT style map for styled, the component tree for fixed.
+type sbNumberFormat struct {
+	kind  int
+	style any
+	fixed any
 }
 
 // objectiveChatComponent renders an objective the way vanilla's
@@ -80,6 +105,18 @@ func (s *Server) objectiveDisplay(name string) any {
 		return o.display
 	}
 	return name
+}
+
+// flatWireArg applies vanilla's flat component serialization inside a
+// with list: a parsed component that is a bare {"text": x} literal
+// serializes as the string x, everything else stays a compound.
+func flatWireArg(v any) any {
+	if m, ok := v.(map[string]any); ok && len(m) == 1 {
+		if s, ok := m["text"].(string); ok {
+			return s
+		}
+	}
+	return v
 }
 
 // scoreHolderComponent renders a score holder in a reply: a live
@@ -252,17 +289,34 @@ func (s *Server) resolveHolderSingle(sender *Session, tok string, tokIdx int) (s
 // insertion order entries on first write. Callers hold board.mu.
 func (s *Server) setScoreLocked(holder, objective string, value int32) {
 	if s.board.scores == nil {
-		s.board.scores = map[string]map[string]int32{}
+		s.board.scores = map[string]map[string]*sbScore{}
 		s.board.scoreOrder = map[string][]string{}
 	}
 	if s.board.scores[holder] == nil {
-		s.board.scores[holder] = map[string]int32{}
+		s.board.scores[holder] = map[string]*sbScore{}
 		s.board.holderOrder = append(s.board.holderOrder, holder)
 	}
-	if _, ok := s.board.scores[holder][objective]; !ok {
+	e := s.board.scores[holder][objective]
+	if e == nil {
+		e = &sbScore{}
+		// Trigger-criteria scores start locked until
+		// scoreboard players enable releases them.
+		if o := s.board.objectives[objective]; o != nil && o.criteria == "trigger" {
+			e.locked = true
+		}
+		s.board.scores[holder][objective] = e
 		s.board.scoreOrder[holder] = append(s.board.scoreOrder[holder], objective)
 	}
-	s.board.scores[holder][objective] = value
+	e.value = value
+}
+
+// scoreValue reads a score entry's int, treating absent as 0 the way
+// vanilla's getScore does for an untracked objective.
+func scoreValue(e *sbScore) int32 {
+	if e == nil {
+		return 0
+	}
+	return e.value
 }
 
 // removeScoreLocked drops one score and the holder itself once it has
@@ -449,9 +503,10 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 			s.board.mu.Unlock()
 			return componentReply(commandError("commands.scoreboard.objectives.add.duplicate"))
 		}
-		s.board.objectives[name] = &sbObjective{criteria: criteria, display: display}
+		o := &sbObjective{criteria: criteria, display: display}
+		s.board.objectives[name] = o
 		s.board.mu.Unlock()
-		s.broadcastObjectiveCreate(name, display)
+		s.broadcastObjectiveCreate(name, o)
 		return componentReply(translatable("commands.scoreboard.objectives.add.success",
 			s.objectiveChatComponent(name)))
 	case "remove":
@@ -473,6 +528,11 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 		}
 		if s.board.sidebar == name {
 			s.board.sidebar = ""
+		}
+		for slot, n := range s.board.displaySlots {
+			if n == name {
+				s.board.displaySlots[slot] = ""
+			}
 		}
 		s.board.mu.Unlock()
 		s.broadcastObjectiveRemove(name)
@@ -534,8 +594,160 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 		return componentReply(translatable(
 			"commands.scoreboard.objectives.display.set",
 			args[2], s.objectiveDisplay(name)))
+	case "modify":
+		return s.runScoreboardModify(args)
 	}
 	return errToken("command.unknown.argument", 2)
+}
+
+// runScoreboardModify implements objectives modify <objective> <op>:
+// displayname <component>, displayautoupdate <bool>, numberformat
+// [blank|fixed <component>|styled <style>] and rendertype
+// <integer|hearts>.
+func (s *Server) runScoreboardModify(args []string) reply {
+	if len(args) < 4 {
+		return errTokenEnd("command.unknown.command", len(args))
+	}
+	name := args[2]
+	s.board.mu.Lock()
+	o, objOK := s.board.objectives[name]
+	s.board.mu.Unlock()
+	if !objOK {
+		return componentReply(commandError("arguments.objective.notFound", name))
+	}
+	switch args[3] {
+	case "displayname":
+		if len(args) < 5 {
+			return errTokenEnd("command.unknown.command", len(args))
+		}
+		joined := strings.Join(args[4:], " ")
+		v, end, perr := parseComponentArg(joined)
+		if perr != nil {
+			return errAbsCmd(perr.key, compAbsOff(len("scoreboard "), args, 4, perr.pos), perr.with...)
+		}
+		if extra := strings.TrimSpace(joined[end:]); extra != "" {
+			return errToken("command.unknown.argument", 5+componentTokAfter(args, joined, end))
+		}
+		s.board.mu.Lock()
+		o.display = v
+		s.board.mu.Unlock()
+		s.broadcastObjectiveChange(name, o)
+		return componentReply(translatable(
+			"commands.scoreboard.objectives.modify.displayname",
+			name, s.objectiveChatComponent(name)))
+	case "displayautoupdate":
+		if len(args) < 5 {
+			return errTokenEnd("command.unknown.command", len(args))
+		}
+		if len(args) > 5 {
+			return errToken("command.unknown.argument", 6)
+		}
+		var flag bool
+		switch args[4] {
+		case "true":
+			flag = true
+		case "false":
+		default:
+			return errToken("parsing.bool.invalid", 5, args[4])
+		}
+		s.board.mu.Lock()
+		o.autoUpdate = flag
+		s.board.mu.Unlock()
+		key := "commands.scoreboard.objectives.modify.displayAutoUpdate.disable"
+		if flag {
+			key = "commands.scoreboard.objectives.modify.displayAutoUpdate.enable"
+		}
+		return componentReply(translatable(key, name, s.objectiveChatComponent(name)))
+	case "numberformat":
+		format, rep := parseNumberFormatArgs(args, 4)
+		if rep != nil {
+			return *rep
+		}
+		s.board.mu.Lock()
+		o.numberFormat = format
+		s.board.mu.Unlock()
+		s.broadcastObjectiveChange(name, o)
+		key := "commands.scoreboard.objectives.modify.objectiveFormat.set"
+		if format == nil {
+			key = "commands.scoreboard.objectives.modify.objectiveFormat.clear"
+		}
+		return componentReply(translatable(key, name))
+	case "rendertype":
+		if len(args) < 5 {
+			return errTokenEnd("command.unknown.command", len(args))
+		}
+		if len(args) > 5 {
+			return errToken("command.unknown.argument", 6)
+		}
+		rt := 0
+		switch args[4] {
+		case "integer":
+		case "hearts":
+			rt = 1
+		default:
+			return errToken("command.unknown.argument", 5)
+		}
+		s.board.mu.Lock()
+		o.renderType = rt
+		s.board.mu.Unlock()
+		s.broadcastObjectiveChange(name, o)
+		return componentReply(translatable(
+			"commands.scoreboard.objectives.modify.rendertype",
+			s.objectiveChatComponent(name)))
+	}
+	return errToken("command.unknown.argument", 4)
+}
+
+// parseNumberFormatArgs parses the shared numberformat tail used by
+// objectives modify and players display numberformat: nothing at all
+// clears, blank is kind 0, fixed carries a component, styled an SNBT
+// style map. start is the args index of the first format token.
+func parseNumberFormatArgs(args []string, start int) (*sbNumberFormat, *reply) {
+	if len(args) == start {
+		return nil, nil // bare numberformat clears the format
+	}
+	switch args[start] {
+	case "blank":
+		if len(args) > start+1 {
+			r := errToken("command.unknown.argument", start+2)
+			return nil, &r
+		}
+		return &sbNumberFormat{kind: 0}, nil
+	case "fixed":
+		if len(args) == start+1 {
+			r := errTokenEnd("command.unknown.command", start+1)
+			return nil, &r
+		}
+		joined := strings.Join(args[start+1:], " ")
+		v, end, perr := parseComponentArg(joined)
+		if perr != nil {
+			r := errAbsCmd(perr.key, compAbsOff(len("scoreboard "), args, start+1, perr.pos), perr.with...)
+			return nil, &r
+		}
+		if extra := strings.TrimSpace(joined[end:]); extra != "" {
+			r := errToken("command.unknown.argument", start+2+componentTokAfter(args, joined, end))
+			return nil, &r
+		}
+		return &sbNumberFormat{kind: 2, fixed: v}, nil
+	case "styled":
+		if len(args) == start+1 {
+			r := errTokenEnd("command.unknown.command", start+1)
+			return nil, &r
+		}
+		joined := strings.Join(args[start+1:], " ")
+		tag, end, serr := parseSNBTTag(joined, 0)
+		if serr != nil {
+			r := errAbsCmd(serr.key, compAbsOff(len("scoreboard "), args, start+1, serr.pos), serr.with...)
+			return nil, &r
+		}
+		if extra := strings.TrimSpace(joined[end:]); extra != "" {
+			r := errToken("command.unknown.argument", start+2+componentTokAfter(args, joined, end))
+			return nil, &r
+		}
+		return &sbNumberFormat{kind: 1, style: snbtToValue(tag)}, nil
+	}
+	r := errToken("command.unknown.argument", start+1)
+	return nil, &r
 }
 
 func (s *Server) runScoreboardPlayers(player string, args []string) reply {
@@ -584,7 +796,7 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 		var extra []component
 		for _, obj := range order {
 			extra = append(extra, translatable("commands.scoreboard.players.list.entity.entry",
-				s.objectiveChatComponent(obj), nestedCompound{key: "", value: scores[obj]}))
+				s.objectiveChatComponent(obj), nestedCompound{key: "", value: scoreValue(scores[obj])}))
 		}
 		return componentReplyWith(head, extra...)
 	case "get":
@@ -601,7 +813,7 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 		objective := args[3]
 		s.board.mu.Lock()
 		_, objOK := s.board.objectives[objective]
-		value, ok := s.board.scores[h.name][objective]
+		e, ok := s.board.scores[h.name][objective]
 		s.board.mu.Unlock()
 		if !objOK {
 			return componentReply(commandError("arguments.objective.notFound", objective))
@@ -610,6 +822,7 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 			return componentReply(commandError("commands.scoreboard.players.get.null",
 				objective, h.arg()))
 		}
+		value := e.value
 		r := componentReply(translatable("commands.scoreboard.players.get.success",
 			h.arg(),
 			nestedCompound{key: "", value: value},
@@ -651,20 +864,20 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 			v := int32(value)
 			switch args[1] {
 			case "add":
-				v = s.board.scores[h.name][objective] + v
+				v = scoreValue(s.board.scores[h.name][objective]) + v
 			case "remove":
-				v = s.board.scores[h.name][objective] - v
+				v = scoreValue(s.board.scores[h.name][objective]) - v
 			}
 			s.setScoreLocked(h.name, objective, v)
 		}
 		s.board.mu.Unlock()
 		for _, h := range holders {
-			s.broadcastScore(h.name, objective, s.board.scores[h.name][objective])
+			s.broadcastScore(h.name, objective, scoreValue(s.board.scores[h.name][objective]))
 		}
 		objComp := s.objectiveChatComponent(objective)
 		if len(holders) == 1 {
 			h := holders[0]
-			total := s.board.scores[h.name][objective]
+			total := scoreValue(s.board.scores[h.name][objective])
 			switch args[1] {
 			case "set":
 				return componentReply(translatable("commands.scoreboard.players.set.success.single",
@@ -798,10 +1011,10 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 		default:
 			return componentReply(commandError("arguments.operation.invalid"))
 		}
-		srcVal := s.board.scores[src.name][sourceObj]
+		srcVal := scoreValue(s.board.scores[src.name][sourceObj])
 		s.board.mu.Lock()
 		for _, h := range holders {
-			cur := s.board.scores[h.name][targetObj]
+			cur := scoreValue(s.board.scores[h.name][targetObj])
 			v := cur
 			switch op {
 			case "=":
@@ -836,10 +1049,10 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 			}
 			s.setScoreLocked(h.name, targetObj, v)
 		}
-		result := s.board.scores[holders[0].name][targetObj]
+		result := scoreValue(s.board.scores[holders[0].name][targetObj])
 		s.board.mu.Unlock()
 		for _, h := range holders {
-			s.broadcastScore(h.name, targetObj, s.board.scores[h.name][targetObj])
+			s.broadcastScore(h.name, targetObj, scoreValue(s.board.scores[h.name][targetObj]))
 		}
 		if len(holders) == 1 {
 			return componentReply(translatable("commands.scoreboard.players.operation.success.single",
@@ -848,6 +1061,155 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 		}
 		return componentReply(translatable("commands.scoreboard.players.operation.success.multiple",
 			s.objectiveChatComponent(targetObj), nestedCompound{key: "", value: len(holders)}))
+	case "enable":
+		// enable <targets> <objective> — releases the locked flag on
+		// trigger-criteria scores; the objective must be a trigger.
+		if len(args) < 4 {
+			return errTokenEnd("command.unknown.command", len(args))
+		}
+		if len(args) > 4 {
+			return errToken("command.unknown.argument", 5)
+		}
+		if len(args[2]) > 0 && args[2][0] == '@' {
+			if _, serr := parseSelector(args[2], 3); serr != nil {
+				return *serr
+			}
+		}
+		holders, rep := s.resolveHoldersPlural(sess, args[2], 3)
+		if rep != nil {
+			return *rep
+		}
+		objective := args[3]
+		s.board.mu.Lock()
+		o, objOK := s.board.objectives[objective]
+		s.board.mu.Unlock()
+		if !objOK {
+			return componentReply(commandError("arguments.objective.notFound", objective))
+		}
+		if o.criteria != "trigger" {
+			return componentReply(commandError(
+				"commands.scoreboard.players.enable.invalid"))
+		}
+		var enabled []sbHolder
+		s.board.mu.Lock()
+		for _, h := range holders {
+			s.setScoreLocked(h.name, objective, scoreValue(s.board.scores[h.name][objective]))
+			e := s.board.scores[h.name][objective]
+			if e.locked {
+				e.locked = false
+				enabled = append(enabled, h)
+			}
+		}
+		s.board.mu.Unlock()
+		for _, h := range holders {
+			s.broadcastScore(h.name, objective, scoreValue(s.board.scores[h.name][objective]))
+		}
+		if len(enabled) == 0 {
+			return componentReply(commandError("commands.scoreboard.players.enable.failed"))
+		}
+		if len(enabled) == 1 {
+			return componentReply(translatable("commands.scoreboard.players.enable.success.single",
+				s.objectiveChatComponent(objective), enabled[0].arg()))
+		}
+		return componentReply(translatable("commands.scoreboard.players.enable.success.multiple",
+			s.objectiveChatComponent(objective), len(enabled)))
+	case "display":
+		// display name|numberformat <targets> <objective> [<value>] —
+		// per-score overrides shipped on every Update Score.
+		if len(args) < 3 {
+			return errTokenEnd("command.unknown.command", len(args))
+		}
+		sub := args[2]
+		if sub != "name" && sub != "numberformat" {
+			return errToken("command.unknown.argument", 3)
+		}
+		if len(args) < 5 {
+			return errTokenEnd("command.unknown.command", len(args))
+		}
+		targetsTok, objective := args[3], args[4]
+		if len(targetsTok) > 0 && targetsTok[0] == '@' {
+			if _, serr := parseSelector(targetsTok, 4); serr != nil {
+				return *serr
+			}
+		}
+		holders, rep := s.resolveHoldersPlural(sess, targetsTok, 4)
+		if rep != nil {
+			return *rep
+		}
+		s.board.mu.Lock()
+		_, objOK := s.board.objectives[objective]
+		s.board.mu.Unlock()
+		if !objOK {
+			return componentReply(commandError("arguments.objective.notFound", objective))
+		}
+		if sub == "name" {
+			var display any
+			if len(args) > 5 {
+				joined := strings.Join(args[5:], " ")
+				v, end, perr := parseComponentArg(joined)
+				if perr != nil {
+					return errAbsCmd(perr.key, compAbsOff(len("scoreboard "), args, 5, perr.pos), perr.with...)
+				}
+				if extra := strings.TrimSpace(joined[end:]); extra != "" {
+					return errToken("command.unknown.argument", 6+componentTokAfter(args, joined, end))
+				}
+				display = v
+			}
+			s.board.mu.Lock()
+			for _, h := range holders {
+				s.setScoreLocked(h.name, objective, scoreValue(s.board.scores[h.name][objective]))
+				s.board.scores[h.name][objective].display = display
+			}
+			s.board.mu.Unlock()
+			for _, h := range holders {
+				s.broadcastScore(h.name, objective, scoreValue(s.board.scores[h.name][objective]))
+			}
+			objComp := s.objectiveChatComponent(objective)
+			if len(holders) == 1 {
+				if display == nil {
+					return componentReply(translatable(
+						"commands.scoreboard.players.display.name.clear.success.single",
+						holders[0].arg(), objComp))
+				}
+				return componentReply(translatable(
+					"commands.scoreboard.players.display.name.set.success.single",
+					nestedCompound{key: "", value: flatWireArg(display)}, holders[0].arg(), objComp))
+			}
+			if display == nil {
+				return componentReply(translatable(
+					"commands.scoreboard.players.display.name.clear.success.multiple",
+					len(holders), objComp))
+			}
+			return componentReply(translatable(
+				"commands.scoreboard.players.display.name.set.success.multiple",
+				nestedCompound{key: "", value: flatWireArg(display)}, len(holders), objComp))
+		}
+		format, rep := parseNumberFormatArgs(args, 5)
+		if rep != nil {
+			return *rep
+		}
+		s.board.mu.Lock()
+		for _, h := range holders {
+			s.setScoreLocked(h.name, objective, scoreValue(s.board.scores[h.name][objective]))
+			s.board.scores[h.name][objective].format = format
+		}
+		s.board.mu.Unlock()
+		for _, h := range holders {
+			s.broadcastScore(h.name, objective, scoreValue(s.board.scores[h.name][objective]))
+		}
+		objComp := s.objectiveChatComponent(objective)
+		kind := "set"
+		if format == nil {
+			kind = "clear"
+		}
+		if len(holders) == 1 {
+			return componentReply(translatable(
+				"commands.scoreboard.players.display.numberFormat."+kind+".success.single",
+				holders[0].arg(), objComp))
+		}
+		return componentReply(translatable(
+			"commands.scoreboard.players.display.numberFormat."+kind+".success.multiple",
+			len(holders), objComp))
 	}
 	return errToken("command.unknown.argument", 2)
 }
@@ -884,21 +1246,59 @@ func sbParseInt(tok string) (int32, *reply) {
 	return int32(v64), nil
 }
 
-// broadcastObjectiveCreate sends Update Objectives mode 0.
-func (s *Server) broadcastObjectiveCreate(name string, display any) {
+// broadcastObjectiveCreate sends Update Objectives mode 0 (create).
+func (s *Server) broadcastObjectiveCreate(name string, o *sbObjective) {
+	s.sendObjective(name, 0, o)
+}
+
+// broadcastObjectiveChange sends Update Objectives mode 2 (change),
+// re-shipping display name, render type and number format.
+func (s *Server) broadcastObjectiveChange(name string, o *sbObjective) {
+	s.sendObjective(name, 2, o)
+}
+
+// sendObjective writes an Update Objectives packet: the name and mode
+// byte always go out; add and change modes carry the display name as
+// an unconditional component, the render-type enum, and the optional
+// number format.
+func (s *Server) sendObjective(name string, mode byte, o *sbObjective) {
 	var b protocol.Buffer
 	b.String(name)
-	b.Byte(0) // create
-	b.Bool(true)
-	if display == nil {
-		b.Raw(textComponentContent(name))
-	} else {
+	b.Byte(mode)
+	if mode != 1 {
+		display := any(name)
+		if o != nil && o.display != nil {
+			display = o.display
+		}
 		b.Raw(componentAnyContent(display))
+		rt := 0
+		var format *sbNumberFormat
+		if o != nil {
+			rt = o.renderType
+			format = o.numberFormat
+		}
+		b.VarInt(int32(rt))
+		writeNumberFormat(&b, format)
+	}
+	s.broadcastToPlay(IDPlayObjectiveCB, b.Bytes())
+}
+
+// writeNumberFormat writes an Optional<NumberFormat>: absent or the
+// type id (blank=0, styled=1, fixed=2) plus the payload — the style
+// compound for styled, the component for fixed.
+func writeNumberFormat(b *protocol.Buffer, f *sbNumberFormat) {
+	if f == nil {
+		b.Bool(false)
+		return
 	}
 	b.Bool(true)
-	b.VarInt(0) // integer
-	b.Bool(false)
-	s.broadcastToPlay(IDPlayObjectiveCB, b.Bytes())
+	b.VarInt(int32(f.kind))
+	switch f.kind {
+	case 1:
+		b.Raw(componentAnyContent(f.style))
+	case 2:
+		b.Raw(componentAnyContent(f.fixed))
+	}
 }
 
 // componentAnyContent serializes a parsed component tree (or a plain
@@ -927,14 +1327,27 @@ func (s *Server) broadcastDisplayObjective(position int32, name string) {
 	s.broadcastToPlay(IDPlayDisplayObjective, b.Bytes())
 }
 
-// broadcastScore sends Update Score.
+// broadcastScore sends Update Score: value plus the per-score
+// display-name and number-format overrides players display installs.
 func (s *Server) broadcastScore(entity, objective string, value int32) {
+	s.board.mu.Lock()
+	e := s.board.scores[entity][objective]
+	s.board.mu.Unlock()
 	var b protocol.Buffer
 	b.String(entity)
 	b.String(objective)
 	b.VarInt(value)
-	b.Bool(false) // no display name override
-	b.Bool(false) // no number format
+	if e != nil && e.display != nil {
+		b.Bool(true)
+		b.Raw(componentAnyContent(e.display))
+	} else {
+		b.Bool(false)
+	}
+	if e != nil {
+		writeNumberFormat(&b, e.format)
+	} else {
+		b.Bool(false)
+	}
 	s.broadcastToPlay(IDPlayUpdateScore, b.Bytes())
 }
 

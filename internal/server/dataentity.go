@@ -1613,7 +1613,7 @@ func (s *Server) selMatch(spec *selectorSpec, d *dataEntity, ax, ay, az float64)
 	}
 	for _, sc := range spec.scores {
 		scv, ok := s.board.scores[holder][sc.obj]
-		if !ok || !sc.r.test(float64(scv)) {
+		if !ok || !sc.r.test(float64(scv.value)) {
 			return false
 		}
 	}

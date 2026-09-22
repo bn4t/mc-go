@@ -3070,3 +3070,17 @@ physics through a void dip plus a fed recovery window.
   genuinely nondeterministic parts (uuid-hashed holder names,
   identity-hashed per-holder score maps). ~85-command
   TestScoreboardListParity passes verbatim vs vanilla.
+- scoreboard objectives modify + players enable/display: modify gains
+  displayname (component, re-ships mode-2 Update Objectives),
+  displayautoupdate (parsing.bool.invalid at token start for junk),
+  numberformat (bare clears; blank/fixed <component>/styled <style>)
+  and rendertype integer|hearts; players enable releases the
+  trigger-score locked flag (non-trigger -> enable.invalid, nothing
+  left to enable -> enable.failed); players display
+  name|numberformat set/clear writes the per-score overrides that
+  ride on every Update Score. Update Objectives packet corrected to
+  vanilla's layout (unconditional display component + render-type
+  enum + optional number format — no presence bools) and Update
+  Score carries the two optional overrides. Score entries are now
+  sbScore{value, locked, display, format} so overrides survive the
+  value write.
