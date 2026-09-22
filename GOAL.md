@@ -3533,3 +3533,36 @@ physics through a void dip plus a fed recovery window.
   destroys dirt and spawns item drops, obsidian holds at 1200 resist,
   player damage inside the predicted band via a scoreboarded Health
   probe, the TNT->TNT chain with short fuse, and tnt_explodes=false.
+- Igniter items + portal lighting (commit pending):
+  FlintAndSteelItem.useOn / FireChargeItem.useOn measured and
+  implemented (internal/server/fireplace.go): the clicked block's
+  light branch fires on #campfires|#candles && !waterlogged && !lit
+  or #candle_cakes && !lit — playSound (flintandsteel.use 642 /
+  firecharge.use 626, source BLOCKS, vanilla pitch formulas), the LIT
+  write is flag 11 + gameevent, flint wears 1 / charge shrinks.
+  Otherwise the held useOn targets clicked+face and gates on
+  BaseFireBlock.canBePlacedAt — air cell && (getState.canSurvive ||
+  isPortal) — then writes BaseFireBlock.getState (soul_fire over
+  #soul_fire_base_blocks, else FireBlock.getStateForPlacement's
+  direction-folded face props) with flag 11 + PLACED_BLOCK trigger +
+  the same wear/consume. FAIL acks and does nothing. useTnt's
+  gamerule-off path now returns false so the packet falls through to
+  the igniter (vanilla PASS semantics). BaseFireBlock.onPlace: in a
+  portal dimension (overworld|nether) a fresh fire runs
+  PortalShape.findEmptyPortalShape on axis X (falling back to Z —
+  vanilla's findPortalShape tries the opposite axis when the first
+  misses) and createPortalBlocks fills the interior with
+  nether_portal[axis] flag 18; survive-pop only when the cell is
+  still fire afterward. PortalShape itself is the measured
+  bottomLeft-sink + edge-scan + top-frame check (width 2..21, height
+  3..21, frame=obsidian, interior air|#fire|nether_portal).
+  FireBlock.checkBurnOut's tail primes an adjacent TntBlock — the
+  prime carries its own tnt_explodes gate. TestFireIgniteParity pins
+  all of it over the wire: plain fire, soul_fire on soul_sand, the
+  direction-folded face prop, the no-survive fail, campfire/candle
+  lighting, fire_charge, both portal axes (nether_portal[axis=x|z]
+  inside the frame, obsidian intact), and the gamerule-off fire on
+  TNT. Test harness note carved in code: vanilla's /fill refuses
+  unloaded chunks and vanilla+mc-go both drop uses until
+  player_loaded, so the suite teleports into the region and sends
+  IDPlayPlayerLoadedSB before the first click.

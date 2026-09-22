@@ -314,6 +314,15 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		}
 		return
 	}
+	// FlintAndSteelItem/FireChargeItem.useOn — held-item useOn runs
+	// only after the clicked block's own use path passed.
+	if s.useIgniter(sess, d, clicked, face) {
+		acked = true
+		if seq >= 0 {
+			s.sendBlockAck(sess, seq)
+		}
+		return
+	}
 	target := world.Pos{X: int(x + dx), Y: int(y + dy), Z: int(z + dz)}
 	if target.Y < d.minY || target.Y > d.minY+d.height-1 {
 		return

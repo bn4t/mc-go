@@ -393,9 +393,10 @@ func (s *Server) useTnt(sess *Session, d *dimension, pos world.Pos) bool {
 	}
 	if s.primeTntBlock(d, pos, tntFuseTicks) == nil {
 		// tnt_explodes=false: vanilla shows the disabled overlay and
-		// returns without consuming or clearing.
+		// returns InteractionResult.PASS — the use falls through to the
+		// item's own useOn, so flint_and_steel still places fire.
 		s.sendActionBar(sess, component{translate: "block.minecraft.tnt.disabled"})
-		return true
+		return false
 	}
 	s.setNaturalBlock(d, pos, world.Air)
 	if flint {

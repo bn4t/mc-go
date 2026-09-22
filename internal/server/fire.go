@@ -64,25 +64,32 @@ var fireFaceDirs = [5]fireFaceDir{
 func (s *Server) fireTickDelay() int { return 30 + s.rng.intn(10) }
 
 // fireOnPlace is BaseFireBlock.onPlace + FireBlock's scheduleTick
-// tail: when the cell wasn't already the same block, vanilla tries to
-// light a portal (unmodeled — mc-go has no portal blocks) and pops the
-// fire outright when it can't survive. FireBlock then schedules the
-// first tick 30-40 out; soul fire never schedules (its tick is
+// tail: a fresh fire (old cell wasn't the same block) first tries to
+// light a portal — inPortalDimension plus an empty shape closes the
+// frame and fills it, replacing the fire outright — and otherwise pops
+// the fire when it can't survive. FireBlock then schedules the first
+// tick 30-40 out; soul fire never schedules (its tick is
 // BlockBehaviour's no-op).
 func (s *Server) fireOnPlace(d *dimension, pos world.Pos, blk, old world.Block) {
 	name, ok := world.StateOwner(blk)
 	if !ok {
 		return
 	}
-	switch strings.TrimPrefix(name, "minecraft:") {
-	case "fire":
-		if !isBlockNamed(old, "fire") && !fireCanSurvive(d, pos, blk) {
-			s.setNaturalBlock(d, pos, world.Air)
+	short := strings.TrimPrefix(name, "minecraft:")
+	switch short {
+	case "fire", "soul_fire":
+		if !isBlockNamed(old, short) {
+			if firePortalDim(d) {
+				if p := s.findEmptyPortalShape(d, pos, true); p != nil {
+					s.createPortalBlocks(d, p)
+				}
+			}
+			if d.w.GetBlock(pos) == blk && !fireCanSurvive(d, pos, blk) {
+				s.setNaturalBlock(d, pos, world.Air)
+			}
 		}
-		s.scheduleBlockTick(d, pos, int64(s.fireTickDelay()))
-	case "soul_fire":
-		if !isBlockNamed(old, "soul_fire") && !fireCanSurvive(d, pos, blk) {
-			s.setNaturalBlock(d, pos, world.Air)
+		if short == "fire" {
+			s.scheduleBlockTick(d, pos, int64(s.fireTickDelay()))
 		}
 	}
 }
@@ -367,8 +374,7 @@ func (s *Server) fireTick(d *dimension, pos world.Pos, blk world.Block) {
 
 // fireCheckBurnOut is checkBurnOut: a burn-odds roll at the cell; on
 // hit the cell relights as fire (age+10 roll <5 and dry) or is removed,
-// and vanilla primes TNT — mc-go has no primed TNT entity, so the TNT
-// branch is a no-op here.
+// and a TNT cell primes afterwards either way.
 func (s *Server) fireCheckBurnOut(d *dimension, pos world.Pos, chance, age int) {
 	if s.rng.intn(chance) >= fireBurnOdds(d.w.GetBlock(pos)) {
 		return
@@ -378,6 +384,9 @@ func (s *Server) fireCheckBurnOut(d *dimension, pos world.Pos, chance, age int) 
 		s.setNaturalBlock(d, pos, fireStateWithAge(d, pos, a))
 	} else {
 		s.setNaturalBlock(d, pos, world.Air)
+	}
+	if isBlockNamed(d.w.GetBlock(pos), "tnt") {
+		s.primeTntBlock(d, pos, tntFuseTicks)
 	}
 }
 

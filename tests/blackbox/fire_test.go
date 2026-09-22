@@ -12,179 +12,36 @@ import (
 	"mc-go/internal/server"
 )
 
-// TestFireParity drives FireBlock's scheduled tick: onPlace pops an
-// unsupported fire outright and arms a 30-40-tick tick that re-arms
-// itself, ages the fire (min(15, age + nextInt(3)/2)), removes it when
-// the site is invalid (no sturdy floor, no flammable neighbour, age>3)
-// or aged out (15 + nextInt(4)==0 + unburnable floor), rolls burnout
-// on the six neighbours (300 sides / 250 below+above), and spreads
-// into empty cells of the [-1,1]x[-1,4]x[-1,1] box whose neighbours
-// carry ignite odds. updateShape refolds the five face properties and
-// pops unsupported fire on any neighbour write, command or gameplay.
-// Rain and spread probes are count-based: per-cell rolls are odds-
-// driven, so the assertions are bands a correct implementation lands
-// inside on both servers.
-func TestFireParity(t *testing.T) {
-	targets := requireBlackboxFiles(t, map[string]string{
-		"simulation-distance": "3",
-	}, map[string]string{
+// TestFireIgniteParity covers the igniter-item slice measured on the
+// 26.2 jar: FlintAndSteelItem/FireChargeItem.useOn light campfires,
+// candles and candle cakes (lit=true, tag-gated), and otherwise write
+// BaseFireBlock.getState at clicked+face — soul_fire over
+// #soul_fire_base_blocks, direction-folded fire otherwise — gated by
+// canBePlacedAt (air + canSurvive-or-portal). A fresh fire inside an
+// obsidian frame runs PortalShape.findEmptyPortalShape/createPortalBlocks,
+// and tnt_explodes=false falls through to useOn so flint still lays
+// fire next to the TNT.
+func TestFireIgniteParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
 		"ops.json": opsJSONFor("P"),
-	}, func(s *server.Server) {
-		s.SimulationDistance = 3
-	})
+	}, nil)
 	defer targets.cleanup()
 
-	setup := []string{
-		`weather clear`,
-		`time set noon`,
-		`fill 44 -60 60 76 -60 90 minecraft:stone`,
-		`fill 44 -59 60 76 -50 90 minecraft:air`,
-		// Floating fire pops inside the write (BaseFireBlock.onPlace).
-		`setblock 46 -57 61 minecraft:fire`,
-		// Age-15 fire on plain stone dies at its first tick: invalid
-		// site + age > 3. Netherrack's is infiniburn and lives on.
-		`setblock 48 -59 61 minecraft:fire[age=15]`,
-		`setblock 50 -60 61 minecraft:netherrack`,
-		`setblock 50 -59 61 minecraft:fire[age=15]`,
-		// Soul fire survives only on its base blocks.
-		`setblock 55 -60 61 minecraft:soul_sand`,
-		`setblock 55 -59 61 minecraft:soul_fire`,
-		`setblock 56 -59 61 minecraft:soul_fire`,
-		// Floating fire with two flammable faces survives; losing them
-		// pops it via updateShape.
-		`setblock 62 -58 61 minecraft:oak_planks`,
-		`setblock 64 -58 61 minecraft:oak_leaves[persistent=true]`,
-		`setblock 63 -58 61 minecraft:fire`,
-		// One plank of support, instantly removed.
-		`setblock 66 -58 61 minecraft:oak_planks`,
-		`setblock 66 -57 61 minecraft:fire`,
-		`setblock 66 -58 61 minecraft:air`,
-		// Face fold: fire floats next to a plank; a later write beside
-		// it refolds east=true.
-		`setblock 69 -58 61 minecraft:oak_planks`,
-		`setblock 68 -58 61 minecraft:fire`,
-		`setblock 67 -58 61 minecraft:stone`,
-	}
-	// Burnout row: fire on netherrack next to grass — burn odds 100
-	// out of 300 consume it in ~10 ticks; the cell relights to fire
-	// half the time, so probes assert "not grass". A stone control
-	// never burns.
-	for i := 0; i < 8; i++ {
-		x := 60 + 2*i
-		setup = append(setup,
-			fmt.Sprintf(`setblock %d -60 71 minecraft:dirt`, x),
-			fmt.Sprintf(`setblock %d -59 71 minecraft:short_grass`, x),
-			fmt.Sprintf(`setblock %d -60 72 minecraft:netherrack`, x),
-			fmt.Sprintf(`setblock %d -59 72 minecraft:fire`, x),
-		)
-	}
-	setup = append(setup,
-		`setblock 60 -60 74 minecraft:stone`,
-		`setblock 60 -59 74 minecraft:fire`,
-		`setblock 60 -59 73 minecraft:stone`,
-	)
-	// Spread row: two logs feed each fire so the spread race outlives
-	// one fuel burnout; each probes an air cell above one log.
-	for i := 0; i < 8; i++ {
-		x := 60 + 2*i
-		setup = append(setup,
-			fmt.Sprintf(`setblock %d -60 80 minecraft:netherrack`, x),
-			fmt.Sprintf(`setblock %d -59 80 minecraft:fire`, x),
-			fmt.Sprintf(`setblock %d -59 79 minecraft:oak_log`, x),
-			fmt.Sprintf(`setblock %d -59 81 minecraft:oak_log`, x),
-		)
-	}
-	// Rain row: fire on stone beside two coals (valid site, not
-	// infiniburn) under open sky. The world is the_void, whose
-	// precipitation is NONE — /weather rain must not kill fires on
-	// either server; two supports keep fuel-burnout flakes ~zero.
-	for i := 0; i < 8; i++ {
-		x := 60 + 2*i
-		setup = append(setup,
-			fmt.Sprintf(`setblock %d -59 86 minecraft:fire`, x),
-			fmt.Sprintf(`setblock %d -59 85 minecraft:coal_block`, x),
-			fmt.Sprintf(`setblock %d -59 87 minecraft:coal_block`, x),
-		)
-	}
-	for i := 0; i < 4; i++ {
-		x := 60 + 2*i
-		setup = append(setup,
-			fmt.Sprintf(`setblock %d -59 90 minecraft:fire`, x),
-			fmt.Sprintf(`setblock %d -59 89 minecraft:coal_block`, x),
-			fmt.Sprintf(`setblock %d -59 91 minecraft:coal_block`, x),
-			fmt.Sprintf(`fill %d -57 88 %d -57 91 minecraft:stone`, x-1, x+1),
-		)
-	}
-	setup = append(setup, `tp @s 63 -55 75`)
-
-	// want is the expected probe verdict: hit (state matches), miss
-	// (anything else — a consumed cell may be air OR relit fire), or
-	// "" for count-banded cells asserted by group, not per probe.
-	type probeDef struct{ name, spec, want string }
-	early := []probeDef{
-		{"face folded east", "68 -58 61 minecraft:fire[east=true]", "hit"},
-		{"face not west", "68 -58 61 minecraft:fire[west=true]", "miss"},
-		{"two-support fire sits", "63 -58 61 minecraft:fire", "hit"},
-		{"floating fire pops", "46 -57 61 minecraft:air", "hit"},
-		{"netherrack fire stays 15", "50 -59 61 minecraft:fire[age=15]", "hit"},
-		{"soul fire on base sits", "55 -59 61 minecraft:soul_fire", "hit"},
-		{"soul fire off base pops", "56 -59 61 minecraft:air", "hit"},
-		{"deprived fire pops", "66 -57 61 minecraft:air", "hit"},
-	}
-	mid := []probeDef{
-		{"stone fire aged out", "48 -59 61 minecraft:air", "hit"},
-		{"netherrack fire persists", "50 -59 61 minecraft:fire[age=15]", "hit"},
-	}
-	burnout := []probeDef{}
-	for i := 0; i < 8; i++ {
-		burnout = append(burnout, probeDef{
-			fmt.Sprintf("grass %d burned", i),
-			fmt.Sprintf("%d -59 71 minecraft:short_grass", 60+2*i), "miss"})
-	}
-	burnout = append(burnout, probeDef{"stone control holds", "60 -59 73 minecraft:stone", "hit"})
-	spread := []probeDef{}
-	for i := 0; i < 8; i++ {
-		x := 60 + 2*i
-		spread = append(spread, probeDef{
-			fmt.Sprintf("spread %d up-n", i),
-			fmt.Sprintf("%d -58 79 minecraft:fire", x), ""})
-		spread = append(spread, probeDef{
-			fmt.Sprintf("spread %d west-n", i),
-			fmt.Sprintf("%d -59 79 minecraft:fire", x-1), ""})
-		spread = append(spread, probeDef{
-			fmt.Sprintf("spread %d up-s", i),
-			fmt.Sprintf("%d -58 81 minecraft:fire", x), ""})
-		spread = append(spread, probeDef{
-			fmt.Sprintf("spread %d east-s", i),
-			fmt.Sprintf("%d -59 81 minecraft:fire", x+1), ""})
-	}
-	rain := []probeDef{}
-	for i := 0; i < 8; i++ {
-		rain = append(rain, probeDef{
-			fmt.Sprintf("void-rain holds %d", i),
-			fmt.Sprintf("%d -59 86 minecraft:fire", 60+2*i), ""})
-	}
-	for i := 0; i < 4; i++ {
-		rain = append(rain, probeDef{
-			fmt.Sprintf("roofed %d holds", i),
-			fmt.Sprintf("%d -59 90 minecraft:fire", 60+2*i), "hit"})
-	}
-
 	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
-		sendCommand(t, pw, fmt.Sprintf("execute if block %s run say ZF-ok-%d", spec, i))
-		sendCommand(t, pw, fmt.Sprintf("execute unless block %s run say ZF-miss-%d", spec, i))
-		sendCommand(t, pw, fmt.Sprintf("say ZFK%d", i))
+		sendCommand(t, pw, fmt.Sprintf("execute if %s run say ZB-ok-%d", spec, i))
+		sendCommand(t, pw, fmt.Sprintf("execute unless %s run say ZB-miss-%d", spec, i))
+		sendCommand(t, pw, fmt.Sprintf("say ZBK%d", i))
 		hit := "none"
 		deadline := time.Now().Add(8 * time.Second)
 		for time.Now().Before(deadline) {
 			for _, line := range sink.take() {
-				if strings.Contains(line, fmt.Sprintf("ZFK%d", i)) {
+				if strings.Contains(line, fmt.Sprintf("ZBK%d", i)) {
 					return hit
 				}
-				if strings.Contains(line, fmt.Sprintf("ZF-ok-%d", i)) {
+				if strings.Contains(line, fmt.Sprintf("ZB-ok-%d", i)) {
 					hit = "hit"
 				}
-				if strings.Contains(line, fmt.Sprintf("ZF-miss-%d", i)) {
+				if strings.Contains(line, fmt.Sprintf("ZB-miss-%d", i)) {
 					hit = "miss"
 				}
 			}
@@ -193,118 +50,146 @@ func TestFireParity(t *testing.T) {
 		return hit
 	}
 
-	run := func(addr string) map[string]string {
+	run := func(addr string) []string {
 		c, pr, pw := joinPlayQuiet(t, addr, "P")
 		defer c.Close()
 		_ = c.SetDeadline(time.Time{})
-		sendClientInformation(t, pw)
 		sink := newChatSinkTP(pr, pw)
-		sink.cap = 1 << 20
-		time.Sleep(4 * time.Second)
-		sink.take()
-		for _, cmd := range setup {
-			sendCommand(t, pw, cmd)
+		if err := pw.WritePacket(server.IDPlayPlayerLoadedSB, nil); err != nil {
+			t.Fatal(err)
 		}
-		sendCommand(t, pw, `say ZSYNC`)
-		deadline := time.Now().Add(15 * time.Second)
-		for time.Now().Before(deadline) {
-			found := false
-			for _, line := range sink.take() {
-				if strings.Contains(line, "ZSYNC") {
-					found = true
-				}
-			}
-			if found {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
+
+		var results []string
+		mark := func(name, got string) { results = append(results, name+"="+got) }
+
+		sendCommand(t, pw, "gamemode creative @s")
+		// Vanilla's /fill refuses to write unloaded chunks: move the
+		// player into the test area first so the pads actually exist.
+		sendCommand(t, pw, "tp @s 96.5 -59 81.5")
+		time.Sleep(500 * time.Millisecond)
+		// Flat pads: z=80..84 sturdy stone; the torch cells break the
+		// floor's sturdiness for the face-prop and fail legs.
+		sendCommand(t, pw, "fill 92 -60 78 126 -60 96 stone")
+		sendCommand(t, pw, "item replace entity @s hotbar.0 with minecraft:flint_and_steel 1")
+		time.Sleep(400 * time.Millisecond)
+		mark("pad_placed", probe(pw, sink, "block 96 -60 80 minecraft:stone", 30))
+
+		seq := int32(1)
+		click := func(x, y, z, face int32) {
+			sendUseItemOn(t, pw, x, y, z, face, seq)
+			seq++
 		}
-		out := map[string]string{}
-		// Early probes run inside the first tick window — fires arm at
-		// 30-40 ticks, so ~2s of probing is safe.
-		time.Sleep(1500 * time.Millisecond)
-		for i, p := range early {
-			out[p.name] = probe(pw, sink, p.spec, i)
-		}
-		// ~50s of real ticks covers ~25 fire ticks.
-		time.Sleep(48 * time.Second)
-		n := len(early)
-		for i, p := range mid {
-			out[p.name] = probe(pw, sink, p.spec, n+i)
-		}
-		n += len(mid)
-		for i, p := range burnout {
-			out[p.name] = probe(pw, sink, p.spec, n+i)
-		}
-		n += len(burnout)
-		for i, p := range spread {
-			out[p.name] = probe(pw, sink, p.spec, n+i)
-		}
-		// Rain last: it sweeps every open-sky fire — except here the
-		// biome is the_void (precipitation NONE), so a correct server
-		// kills nothing. Rewriting age 0 keeps the fixtures under the
-		// sturdy-floor grace (age<=3) for a ~3-tick window.
-		n += len(spread)
-		for i := 0; i < 8; i++ {
-			sendCommand(t, pw, fmt.Sprintf(`setblock %d -59 86 minecraft:fire[age=0]`, 60+2*i))
-		}
-		for i := 0; i < 4; i++ {
-			sendCommand(t, pw, fmt.Sprintf(`setblock %d -59 90 minecraft:fire[age=0]`, 60+2*i))
-		}
-		sendCommand(t, pw, `weather rain`)
-		time.Sleep(6 * time.Second)
-		for i, p := range rain {
-			out[p.name] = probe(pw, sink, p.spec, n+i)
-		}
-		sendCommand(t, pw, `weather clear`)
-		return out
+
+		// Leg A: plain fire on a sturdy floor — click the pad's top
+		// face so the target is the air cell above it.
+		sendCommand(t, pw, "tp @s 96.5 -59 81.5")
+		time.Sleep(800 * time.Millisecond)
+		click(96, -60, 80, 1)
+		time.Sleep(300 * time.Millisecond)
+		mark("plain_fire", probe(pw, sink, "block 96 -59 80 minecraft:fire", 0))
+
+		// Leg B: soul base picks soul_fire.
+		sendCommand(t, pw, "setblock 98 -60 80 soul_sand")
+		sendCommand(t, pw, "tp @s 98.5 -59 81.5")
+		time.Sleep(250 * time.Millisecond)
+		click(98, -60, 80, 1)
+		time.Sleep(300 * time.Millisecond)
+		mark("soul_fire", probe(pw, sink, "block 98 -59 80 minecraft:soul_fire", 1))
+
+		// Leg C: flammable neighbor, non-sturdy floor — the placement
+		// state folds the neighbor's direction prop (south=+z).
+		sendCommand(t, pw, "setblock 100 -60 82 torch")
+		sendCommand(t, pw, "setblock 100 -59 83 oak_planks")
+		time.Sleep(250 * time.Millisecond)
+		click(100, -60, 82, 1)
+		time.Sleep(300 * time.Millisecond)
+		mark("face_prop", probe(pw, sink, "block 100 -59 82 minecraft:fire[south=true]", 2))
+
+		// Leg D: nothing sturdy below, nothing burnable adjacent —
+		// canBePlacedAt fails, the cell stays air.
+		sendCommand(t, pw, "setblock 98 -60 84 torch")
+		sendCommand(t, pw, "tp @s 98.5 -59 85.5")
+		time.Sleep(250 * time.Millisecond)
+		click(98, -60, 84, 1)
+		time.Sleep(300 * time.Millisecond)
+		mark("fail_no_fire", probe(pw, sink, "block 98 -59 84 minecraft:air", 3))
+
+		// Leg E/F: light branch — unlit campfire and candle go lit,
+		// clicked block itself.
+		sendCommand(t, pw, "setblock 102 -59 80 campfire[lit=false]")
+		sendCommand(t, pw, "setblock 104 -59 80 candle[lit=false]")
+		sendCommand(t, pw, "tp @s 103.5 -59 81.5")
+		time.Sleep(250 * time.Millisecond)
+		click(102, -59, 80, 1)
+		click(104, -59, 80, 1)
+		time.Sleep(400 * time.Millisecond)
+		mark("campfire_lit", probe(pw, sink, "block 102 -59 80 minecraft:campfire[lit=true]", 4))
+		mark("candle_lit", probe(pw, sink, "block 104 -59 80 minecraft:candle[lit=true]", 5))
+
+		// Leg G: fire charge places fire and shrinks even-1 stack to
+		// empty (survival). shrink is unconditional on vanilla — this
+		// leg only needs the block probe.
+		sendCommand(t, pw, "tp @s 106.5 -59 81.5")
+		sendCommand(t, pw, "item replace entity @s hotbar.0 with minecraft:fire_charge 1")
+		time.Sleep(250 * time.Millisecond)
+		click(106, -60, 80, 1)
+		time.Sleep(300 * time.Millisecond)
+		mark("charge_fire", probe(pw, sink, "block 106 -59 80 minecraft:fire", 6))
+		sendCommand(t, pw, "item replace entity @s hotbar.0 with minecraft:flint_and_steel 1")
+
+		// Leg H: nether portal lighting, X axis. 4x5 obsidian wall in
+		// the x direction, 2x3 air interior.
+		sendCommand(t, pw, "fill 110 -60 90 113 -56 90 obsidian")
+		sendCommand(t, pw, "fill 111 -59 90 112 -57 90 air")
+		sendCommand(t, pw, "tp @s 111.5 -59 88.5")
+		time.Sleep(300 * time.Millisecond)
+		click(111, -60, 90, 1)
+		time.Sleep(400 * time.Millisecond)
+		mark("portal_x_low", probe(pw, sink, "block 111 -59 90 minecraft:nether_portal[axis=x]", 7))
+		mark("portal_x_high", probe(pw, sink, "block 112 -57 90 minecraft:nether_portal[axis=x]", 8))
+		mark("portal_frame", probe(pw, sink, "block 110 -59 90 minecraft:obsidian", 9))
+
+		// Leg I: same frame in the z plane -> axis=z.
+		sendCommand(t, pw, "fill 120 -60 92 120 -56 95 obsidian")
+		sendCommand(t, pw, "fill 120 -59 93 120 -57 94 air")
+		sendCommand(t, pw, "tp @s 119.5 -59 93.5")
+		time.Sleep(300 * time.Millisecond)
+		click(120, -60, 93, 1)
+		time.Sleep(400 * time.Millisecond)
+		mark("portal_z_low", probe(pw, sink, "block 120 -59 93 minecraft:nether_portal[axis=z]", 10))
+		mark("portal_z_high", probe(pw, sink, "block 120 -57 94 minecraft:nether_portal[axis=z]", 11))
+
+		// Leg J: tnt_explodes=false — the TNT use returns PASS, so
+		// flint's useOn still lays fire above the block.
+		sendCommand(t, pw, "gamerule tnt_explodes false")
+		sendCommand(t, pw, "setblock 96 -59 86 tnt")
+		sendCommand(t, pw, "tp @s 96.5 -59 87.5")
+		time.Sleep(300 * time.Millisecond)
+		click(96, -59, 86, 1)
+		time.Sleep(400 * time.Millisecond)
+		mark("tnt_off_fire", probe(pw, sink, "block 96 -58 86 minecraft:fire", 12))
+		mark("tnt_off_stays", probe(pw, sink, "block 96 -59 86 minecraft:tnt", 13))
+		sendCommand(t, pw, "gamerule tnt_explodes true")
+		// Clean the fire so its block tick can't matter later.
+		sendCommand(t, pw, "setblock 96 -58 86 air")
+		sendCommand(t, pw, "setblock 96 -59 86 air")
+
+		return results
 	}
 
-	vanilla := run(targets.vanilla)
-	mcgo := run(targets.mcgo)
-
-	groups := [][]probeDef{early, mid, burnout, spread, rain}
-	for _, g := range groups {
-		for _, p := range g {
-			v, m := vanilla[p.name], mcgo[p.name]
-			t.Logf("%-28s vanilla=%-4s mcgo=%-4s want=%s", p.name, v, m, p.want)
-			if p.want != "" && (v != p.want || m != p.want) {
-				t.Errorf("probe %q: want %s, vanilla=%s mc-go=%s", p.name, p.want, v, m)
-			}
+	va := run(targets.vanilla)
+	mc := run(targets.mcgo)
+	if len(va) != len(mc) {
+		t.Fatalf("leg counts differ: vanilla=%v mcgo=%v", va, mc)
+	}
+	bad := 0
+	for i := range va {
+		if va[i] != mc[i] {
+			t.Logf("leg %d diverged: vanilla=%s mcgo=%s", i, va[i], mc[i])
+			bad++
 		}
 	}
-	// Count-banded rows: per-cell rolls are odds-driven, so each server
-	// must land inside the band rather than per-probe equality.
-	count := func(out map[string]string, rows []probeDef, want string) int {
-		n := 0
-		for _, p := range rows {
-			if out[p.name] == want {
-				n++
-			}
-		}
-		return n
-	}
-	for _, res := range []struct {
-		name string
-		out  map[string]string
-	}{
-		{"vanilla", vanilla}, {"mc-go", mcgo},
-	} {
-		// Grass burnout: ~99.9% consumed per cell over ~25 ticks —
-		// allow one straggler.
-		if n := count(res.out, burnout[:8], "miss"); n < 7 {
-			t.Errorf("%s: %d/8 grass cells burned, want >=7", res.name, n)
-		}
-		// Spread: each of the 32 targets ignites at ~1.5%/tick while a
-		// fuel neighbor lives — band brackets nobody-lit/all-lit flakes.
-		if n := count(res.out, spread, "hit"); n < 2 || n > 31 {
-			t.Errorf("%s: %d/32 spread targets lit, want 2..31", res.name, n)
-		}
-		// Void-rain row: the_void has no precipitation so fires must
-		// all survive; two supports leave ~0 residual flake — allow
-		// one unlucky support-burnout pop.
-		if n := count(res.out, rain[:8], "hit"); n < 7 {
-			t.Errorf("%s: %d/8 void-rain fires survived, want >=7", res.name, n)
-		}
+	if bad > 0 {
+		t.Fatalf("%d legs diverged", bad)
 	}
 }
