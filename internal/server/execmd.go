@@ -1190,7 +1190,9 @@ func (s *Server) runFill(player string, args []string) reply {
 				} else if d.w.GetBlock(pos) == blk {
 					continue
 				}
-				s.setNaturalBlock(d, pos, blk)
+				// /fill notifies neighbours with the NEW state
+				// (updateNeighboursOnBlockSet).
+				s.setNaturalBlockNotify(d, pos, blk, blk)
 				s.selfCheckSurvival(d, pos, blk)
 				touched[[2]int{x >> 4, z >> 4}] = true
 				changed++

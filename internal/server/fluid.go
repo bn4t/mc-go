@@ -525,7 +525,16 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 // that correspond to flag-2 silent setBlock (no neighbor updates) use
 // setSilentBlock instead.
 func (s *Server) setNaturalBlock(d *dimension, pos world.Pos, blk world.Block) {
+	// Gameplay writes hand neighbourChanged the OLD state.
+	s.setNaturalBlockNotify(d, pos, blk, d.w.GetBlock(pos))
+}
+
+// setNaturalBlockNotify is setNaturalBlock with an explicit notify
+// block: the state vanilla hands each neighbour's neighbourChanged.
+// Command writes (setblock/fill/clone) pass the NEW state — their
+// updateNeighboursOnBlockSet reads the cell post-write.
+func (s *Server) setNaturalBlockNotify(d *dimension, pos world.Pos, blk, notify world.Block) {
 	s.setSilentBlock(d, pos, blk)
 	s.wakeFluids(d, pos)
-	s.neighborSurvival(d, pos)
+	s.neighborSurvival(d, pos, notify)
 }

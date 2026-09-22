@@ -245,16 +245,18 @@ func (s *Server) runClone(player string, args []string) reply {
 			z >= dst[2] && z <= dst[2]+maxZ-minZ
 	}
 	for _, c := range cells {
-		s.setNaturalBlock(dstDim, world.Pos{
+		// Clone writes notify neighbours with the NEW state
+		// (updateNeighboursOnBlockSet).
+		s.setNaturalBlockNotify(dstDim, world.Pos{
 			X: dst[0] + c.rel[0],
 			Y: dst[1] + c.rel[1],
-			Z: dst[2] + c.rel[2]}, c.blk)
+			Z: dst[2] + c.rel[2]}, c.blk, c.blk)
 	}
 	if mode == 2 {
 		for _, c := range cells {
 			x, y, z := minX+c.rel[0], minY+c.rel[1], minZ+c.rel[2]
 			if !inDst(x, y, z) {
-				s.setNaturalBlock(srcDim, world.Pos{X: x, Y: y, Z: z}, world.Air)
+				s.setNaturalBlockNotify(srcDim, world.Pos{X: x, Y: y, Z: z}, world.Air, world.Air)
 			}
 		}
 	}

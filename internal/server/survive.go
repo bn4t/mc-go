@@ -88,7 +88,7 @@ func (s *Server) selfCheckSurvival(d *dimension, pos world.Pos, blk world.Block)
 		return
 	}
 	if popOnPlace[name] || isLeafBlock(name) {
-		s.checkSurvival(d, pos, pos)
+		s.checkSurvival(d, pos, pos, blk)
 	}
 }
 
@@ -147,8 +147,11 @@ func (s *Server) budUpdate(d *dimension, pos, changed world.Pos, b world.Block) 
 
 // checkSurvival re-evaluates one cell; a failed check pops the block.
 // changed is the cell whose write triggered the check (== pos for a
-// placement self-check).
-func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos) {
+// placement self-check). notify is the block vanilla passes the
+// neighbourChanged callback — the old state for gameplay writes
+// (Level.setBlock), the new one for command writes
+// (updateNeighboursOnBlockSet).
+func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos, notify world.Block) {
 	b := d.w.GetBlock(pos)
 	name, ok := world.StateOwner(b)
 	if !ok {
@@ -173,6 +176,10 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos) {
 	}
 	if name == "vine" {
 		s.vinePrune(d, pos, changed, b)
+		return
+	}
+	if name == "frosted_ice" && changed != pos {
+		s.frostedNeighborChange(d, pos, notify)
 		return
 	}
 	if name == "brown_mushroom" || name == "red_mushroom" {
@@ -299,11 +306,13 @@ func (s *Server) vineUpdate(d *dimension, pos, changed world.Pos, b world.Block,
 // neighborSurvival is the updateShape fan-out: a write at pos re-checks
 // its six face neighbors. The written cell is not self-checked here —
 // that belongs to the command-placement path (selfCheckSurvival).
-func (s *Server) neighborSurvival(d *dimension, pos world.Pos) {
-	s.checkSurvival(d, posAbove(pos, 1), pos)
-	s.checkSurvival(d, posBelow(pos, 1), pos)
+// notify is what vanilla hands each neighbourChanged: the old block on
+// gameplay writes, the new block on command writes.
+func (s *Server) neighborSurvival(d *dimension, pos world.Pos, notify world.Block) {
+	s.checkSurvival(d, posAbove(pos, 1), pos, notify)
+	s.checkSurvival(d, posBelow(pos, 1), pos, notify)
 	for _, dir := range cardinalDirs {
-		s.checkSurvival(d, world.Pos{X: pos.X + dir.dx, Y: pos.Y, Z: pos.Z + dir.dz}, pos)
+		s.checkSurvival(d, world.Pos{X: pos.X + dir.dx, Y: pos.Y, Z: pos.Z + dir.dz}, pos, notify)
 	}
 }
 
@@ -312,6 +321,7 @@ func (s *Server) neighborSurvival(d *dimension, pos world.Pos) {
 func (s *Server) setSilentBlock(d *dimension, pos world.Pos, blk world.Block) {
 	oldTop := columnTop(d, pos.X, pos.Z)
 	d.w.SetBlock(pos, blk)
+	s.frostedIceOnPlace(d, pos, blk)
 	// The second scan is skippable in the common cases: anything below
 	// the top never moves it, a solid write above it sets the top to
 	// pos.Y outright, and an air write above the top writes a cell that

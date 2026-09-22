@@ -205,10 +205,37 @@ func (s *Server) broadcastBlockUpdateIn(dimName string, pos world.Pos, blk world
 // dimension is the acting player's; nameless actors land in the
 // overworld.
 func (s *Server) setBlockAndBroadcast(player string, pos world.Pos, blk world.Block) []int {
+	return s.setBlockAndBroadcastNotify(player, pos, blk, false)
+}
+
+// setBlockAndBroadcastNotify is setBlockAndBroadcast with the
+// neighbourChanged flavour picked: gameplay writes (dig, place) hand
+// neighbours the OLD state; command writes (/setblock — vanilla's
+// updateNeighboursOnBlockSet) hand them the NEW one.
+func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk world.Block, commandWrite bool) []int {
 	d := s.dimOf(player)
 	oldTop := columnTop(d, pos.X, pos.Z)
+	notify := blk
+	if !commandWrite {
+		notify = d.w.GetBlock(pos)
+	}
 	d.w.SetBlock(pos, blk)
-	newTop := columnTop(d, pos.X, pos.Z)
+	s.frostedIceOnPlace(d, pos, blk)
+	// See setSilentBlock for the skip rule: the second scan only runs
+	// when the write removed the top cell itself.
+	var newTop int32
+	switch {
+	case int32(pos.Y) < oldTop || (blk != world.Air && int32(pos.Y) == oldTop):
+		newTop = oldTop
+	case int32(pos.Y) > oldTop:
+		if blk != world.Air {
+			newTop = int32(pos.Y)
+		} else {
+			newTop = oldTop
+		}
+	default:
+		newTop = columnTop(d, pos.X, pos.Z)
+	}
 	if s.bus != nil {
 		// Snapshot the actor's position for reach checks; the
 		// session read loop may move them before a plugin reacts.
@@ -234,7 +261,7 @@ func (s *Server) setBlockAndBroadcast(player string, pos world.Pos, blk world.Bl
 	// updateShape: a change re-checks support for pos's neighbors; the
 	// placed block self-checks only in the scheduleTick family (the
 	// BlockInput.place fold's surviving side-effect).
-	s.neighborSurvival(d, pos)
+	s.neighborSurvival(d, pos, notify)
 	s.selfCheckSurvival(d, pos, blk)
 	return affectedSections(d, oldTop, newTop)
 }

@@ -357,6 +357,10 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		s.leafDistanceTick(d, pos)
 		return
 	}
+	if short == "frosted_ice" {
+		s.frostedTick(d, pos, blk)
+		return
+	}
 	if !strings.HasSuffix(short, "_button") {
 		return
 	}

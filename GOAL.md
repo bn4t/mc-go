@@ -64,10 +64,9 @@ Mojang server over the wire.
       two-half growth, torchflower_crop's 1/3 pre-gate and morph into
       torchflower at maturity, farmland moisture/revert, turf spread
       and shade die-back, nylium reversion (the sampler and its
-      per-section gate are in place; fire spread/decay, leaves decay,
-      cactus/sugar cane/bamboo/kelp/chorus columns, saplings, mushroom
-      spread, ice/snow form-and-melt, vines, amethyst and cave vines
-      remain open)
+      per-section gate are in place; fire spread/decay,
+      cactus/sugar cane/bamboo/chorus columns, saplings, snow
+      form-and-melt, frosted ice and cave vines remain open)
 - [x] Block entities (chests, furnaces, signs, hoppers, barrels, ...):
       saved and loaded in the real server's own chunk format, compared
       block entity for block entity both ways
@@ -3344,3 +3343,30 @@ physics through a void dip plus a fed recovery window.
   tick ran for half a minute. columnTop/chunkTops now read whole
   columns via FillBox and setSilentBlock skips the post-write
   scan when the write cannot move the top — ~50x faster writes.
+- Random tick pass 10 (frosted ice + notify semantics):
+  FrostedIceBlock is NOT random-ticking — its decay is a scheduled
+  chain: onPlace arms 60-120 ticks; each tick slightly-melts (age
+  bumps to 3 via flag-2 writes, then a liquid write) when
+  nextInt(3)==0 or the cell keeps <4 frosted neighbours, gated on
+  brightness > 11 - age - dampening. getLightDampening resolves to
+  1 for ice/frosted (noOcclusion without propagatesSkylightDown),
+  so the gate is really light >= 11 - age — a torch at taxicab 3
+  (11) melts, at 4 (10) holds; plain ice's melt threshold is
+  likewise 11, not 12. slightlyMelt's full melt cascades to frosted
+  neighbours and re-arms the ones that only aged in 20-40.
+  neighbourChanged melts a sparse cell (<2 frosted neighbours)
+  outright when the notified block is frosted — and vanilla hands
+  the callback the OLD state on gameplay writes (Level.setBlock
+  reads the setBlockState return) but the NEW state on command
+  writes (updateNeighboursOnBlockSet reads the cell post-write, and
+  only setblock/fill/clone call it). A /setblock'd frosted pair in
+  the dark collapses BOTH cells instantly: arrival melts the donor,
+  its departure melts the writer. mc-go threads a notify block
+  through neighborSurvival/checkSurvival: gameplay paths capture
+  the pre-write state, runSetblock/runFill/clone pass the new one.
+  TestFrostedIceParity (17 probes): sky/dark/torch-2/3/4 gate, the
+  pair's instant double collapse, a 3-line departure chain (head
+  and mid water, tail holds), midnight hold to noon melt.
+  Dampening fix also applied to IceBlock's melt gate.
+  Known nearby gap: IceBlock.playerDestroy melts to water on dig —
+  mc-go digs to air today.
