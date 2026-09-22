@@ -236,6 +236,10 @@ func (s *Server) connectionUpdateNoCascade(d *dimension, pos, changed world.Pos)
 		s.chestNeighborUpdate(d, pos, changed, b)
 		return
 	}
+	if isStairName(short) && connHorizontal(pos, changed) {
+		s.stairsNeighborUpdate(d, pos, changed, b)
+		return
+	}
 	fam := connectFamily(short)
 	if fam == connNone {
 		return
@@ -701,4 +705,117 @@ func yawDir(yaw float32) string {
 		return "east"
 	}
 	return "south"
+}
+
+// StairBlock.updateShape — a horizontal neighbour write re-evaluates
+// the whole shape prop (vertical changes don't touch it).
+func (s *Server) stairsNeighborUpdate(d *dimension, pos, changed world.Pos, b world.Block) {
+	_ = changed
+	if shape, ok := s.stairsShapeAt(d, pos, b); ok {
+		cur, _ := world.StateProperty(b, "shape")
+		if cur != shape {
+			if nb, ok := world.WithProperty(b, "shape", shape); ok {
+				s.setSilentBlock(d, pos, nb)
+				s.connectionCascade(d, pos)
+			}
+		}
+	}
+}
+
+func isStairName(name string) bool { return strings.HasSuffix(name, "_stairs") }
+
+// stairsShapeAt is getStairsShape: the front stair (facing-side) makes
+// an outer corner when it faces perpendicular and isn't claimed by an
+// identically-oriented stair on its far side; the back stair makes an
+// inner corner under the same rule.
+func (s *Server) stairsShapeAt(d *dimension, pos world.Pos, b world.Block) (string, bool) {
+	facing, ok := world.StateProperty(b, "facing")
+	if !ok {
+		return "", false
+	}
+	half, _ := world.StateProperty(b, "half")
+	front := d.w.GetBlock(shiftPos(pos, facing))
+	if fname, ok := world.StateOwner(front); ok && isStairName(strings.TrimPrefix(fname, "minecraft:")) {
+		fh, _ := world.StateProperty(front, "half")
+		ff, _ := world.StateProperty(front, "facing")
+		if fh == half && dirAxisX(ff) != dirAxisX(facing) &&
+			s.stairCanTake(d, pos, b, dirOpposite(ff)) {
+			if ff == dirCCW(facing) {
+				return "outer_left", true
+			}
+			return "outer_right", true
+		}
+	}
+	back := d.w.GetBlock(shiftPos(pos, dirOpposite(facing)))
+	if bname, ok := world.StateOwner(back); ok && isStairName(strings.TrimPrefix(bname, "minecraft:")) {
+		bh, _ := world.StateProperty(back, "half")
+		bf, _ := world.StateProperty(back, "facing")
+		if bh == half && dirAxisX(bf) != dirAxisX(facing) &&
+			s.stairCanTake(d, pos, b, bf) {
+			if bf == dirCCW(facing) {
+				return "inner_left", true
+			}
+			return "inner_right", true
+		}
+	}
+	return "straight", true
+}
+
+// stairCanTake is canTakeShape: a corner is free for self unless the
+// stair in that offset faces and halves exactly like self (then that
+// stair is the corner instead).
+func (s *Server) stairCanTake(d *dimension, pos world.Pos, self world.Block, dir string) bool {
+	n := d.w.GetBlock(shiftPos(pos, dir))
+	nname, ok := world.StateOwner(n)
+	if !ok || !isStairName(strings.TrimPrefix(nname, "minecraft:")) {
+		return true
+	}
+	sf, _ := world.StateProperty(self, "facing")
+	sh, _ := world.StateProperty(self, "half")
+	nf, _ := world.StateProperty(n, "facing")
+	nh, _ := world.StateProperty(n, "half")
+	return nf != sf || nh != sh
+}
+
+// stairsPlaceState is StairBlock.getStateForPlacement: facing is the
+// player's horizontal direction, half is bottom on the top face / top
+// on the bottom face / by click height on side faces, then the shape
+// fold runs on the placed state.
+func (s *Server) stairsPlaceState(d *dimension, pos world.Pos, blk world.Block, sess *Session, face int32, cursorY float64) world.Block {
+	name, ok := world.StateOwner(blk)
+	if !ok || !isStairName(strings.TrimPrefix(name, "minecraft:")) {
+		return blk
+	}
+	_, _, _, yaw, _, _ := sess.Pos()
+	out := blk
+	if nb, ok := world.WithProperty(out, "facing", yawDir(yaw)); ok {
+		out = nb
+	}
+	half := "bottom"
+	switch face {
+	case 0: // clicked bottom face: stair hangs top-down
+		half = "top"
+	case 1:
+		half = "bottom"
+	default:
+		if cursorY > 0.5 {
+			half = "top"
+		}
+	}
+	if nb, ok := world.WithProperty(out, "half", half); ok {
+		out = nb
+	}
+	if shape, ok := s.stairsShapeAt(d, pos, out); ok {
+		if nb, ok2 := world.WithProperty(out, "shape", shape); ok2 {
+			out = nb
+		}
+	}
+	if _, hasWL := world.StateProperty(out, "waterlogged"); hasWL {
+		if _, level, isFluid := fluidOf(d.w.GetBlock(pos)); isFluid && level == 0 {
+			if nb, ok := world.WithProperty(out, "waterlogged", "true"); ok {
+				out = nb
+			}
+		}
+	}
+	return out
 }

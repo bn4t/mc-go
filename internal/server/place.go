@@ -189,10 +189,13 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
+	var cursor [3]float64
 	for i := 0; i < 3; i++ {
-		if _, err := r.Float(); err != nil { // cursor
+		f, err := r.Float()
+		if err != nil { // cursor
 			return
 		}
+		cursor[i] = float64(f)
 	}
 	if _, err := r.Bool(); err != nil { // inside block
 		return
@@ -353,6 +356,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// of a placed block before the write; chests fold facing + type.
 	blk = s.connectPlaceState(d, target, blk)
 	blk = s.chestPlaceState(d, target, blk, sess, face)
+	blk = s.stairsPlaceState(d, target, blk, sess, face, cursor[1])
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
 	sess.addItemStat(statUsed, item, 1)
 	if bname, ok := world.StateOwner(blk); ok {

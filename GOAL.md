@@ -3612,7 +3612,11 @@ physics through a void dip plus a fed recovery window.
   state. TestConnectParity pins it: wall pairs with posts, the
   flattened middle of a three-run, tall sides + post under a solid
   block, torch-on-wall post override, and wall<->pane two-way attach.
-  Stairs shapes remain open.
+  Stairs shapes done: StairBlock.getStairsShape fold (front→outer,
+back→inner, perpendicular-axis + same-half + canTakeShape gates),
+updateShape re-folds on horizontal change, placement folds
+facing=player-dir + half (top-face→bottom, bottom-face→top, else
+cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
 
 - 2026-09-19 (cont): Chest merge — ChestBlock.updateShape joins two
   chest halves. A neighbour becoming a non-single same-name,

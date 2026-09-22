@@ -63,6 +63,16 @@ func TestConnectParity(t *testing.T) {
 		var results []string
 		mark := func(name, got string) { results = append(results, name+"="+got) }
 
+		// probeShape resolves a stair's shape prop on the wire.
+		probeShape := func(pw *protocol.Writer, sink *chatSink, x, y, z int32, i int) string {
+			for _, sh := range []string{"straight", "inner_left", "inner_right", "outer_left", "outer_right"} {
+				if probe(pw, sink, fmt.Sprintf("block %d %d %d minecraft:oak_stairs[shape=%s]", x, y, z, sh), i*16+1) == "hit" {
+					return sh
+				}
+			}
+			return "?"
+		}
+
 		sendCommand(t, pw, "gamemode creative @s")
 		// Vanilla's /fill refuses unloaded chunks: land the player in
 		// the region before writing pads.
@@ -253,7 +263,40 @@ func TestConnectParity(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Leg L: player placement folds getStateForPlacement — a
+		// Leg X: stair shape fold.
+		sendCommand(t, pw, "setblock 96 -59 100 oak_stairs[facing=north]")
+		time.Sleep(300 * time.Millisecond)
+		mark("stair_straight", probeShape(pw, sink, 96, -59, 100, 40))
+		sendCommand(t, pw, "setblock 96 -59 101 oak_stairs[facing=east]")
+		time.Sleep(300 * time.Millisecond)
+		mark("stair_inner", probeShape(pw, sink, 96, -59, 100, 41))
+		sendCommand(t, pw, "setblock 97 -59 100 oak_stairs[facing=north]")
+		time.Sleep(300 * time.Millisecond)
+		mark("stair_inner_blocked", probeShape(pw, sink, 96, -59, 100, 42))
+		sendCommand(t, pw, "setblock 97 -59 100 air")
+		sendCommand(t, pw, "setblock 96 -59 101 air")
+		time.Sleep(300 * time.Millisecond)
+		mark("stair_back_to_straight", probeShape(pw, sink, 96, -59, 100, 43))
+		sendCommand(t, pw, "setblock 96 -59 99 oak_stairs[facing=east]")
+		time.Sleep(300 * time.Millisecond)
+		mark("stair_outer", probeShape(pw, sink, 96, -59, 100, 44))
+		sendCommand(t, pw, "setblock 96 -59 99 air")
+
+		// Leg Y: player placement folds facing/half/shape. Clicking
+		// a top face gives a bottom stair facing the player's
+		// direction; clicking the upper half of a side face gives a
+		// top stair.
+		sendCommand(t, pw, "item replace entity @s hotbar.0 with minecraft:oak_stairs 2")
+		sendCommand(t, pw, "tp @s 100.5 -59 101.5 180 0")
+		time.Sleep(400 * time.Millisecond)
+		sendUseItemOn(t, pw, 100, -60, 100, 1, 105)
+		time.Sleep(400 * time.Millisecond)
+		mark("stair_place", probe(pw, sink, "block 100 -59 100 minecraft:oak_stairs[facing=north,half=bottom,shape=straight]", 45))
+		sendCommand(t, pw, "setblock 102 -59 101 stone")
+		sendUseItemOnCursor(t, pw, 102, -59, 101, 2, 0.5, 0.8, 0.5, 106)
+		time.Sleep(400 * time.Millisecond)
+		mark("stair_place_top", probe(pw, sink, "block 102 -59 100 minecraft:oak_stairs[half=top]", 46))
+
 		// fence placed next to a fence writes its own prop on entry.
 		sendCommand(t, pw, "setblock 121 -59 80 oak_fence")
 		sendCommand(t, pw, "item replace entity @s hotbar.0 with minecraft:oak_fence 1")
@@ -282,5 +325,24 @@ func TestConnectParity(t *testing.T) {
 	}
 	if bad > 0 {
 		t.Fatalf("%d legs diverged", bad)
+	}
+}
+
+// sendUseItemOnCursor sends a use-on-block click with explicit cursor
+// fractions — stairs read the click height for the half prop.
+func sendUseItemOnCursor(t *testing.T, pw *protocol.Writer, x, y, z, face int32, cx, cy, cz float32, seq int32) {
+	t.Helper()
+	var b protocol.Buffer
+	b.VarInt(0)
+	b.Position(x, y, z)
+	b.VarInt(face)
+	b.Float(cx)
+	b.Float(cy)
+	b.Float(cz)
+	b.Bool(false)
+	b.Bool(false)
+	b.VarInt(seq)
+	if err := pw.WritePacket(server.IDPlayUseItemOnSB, b.Bytes()); err != nil {
+		t.Fatal(err)
 	}
 }
