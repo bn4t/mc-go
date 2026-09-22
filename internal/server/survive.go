@@ -171,6 +171,15 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos) {
 		s.budUpdate(d, pos, changed, b)
 		return
 	}
+	if name == "brown_mushroom" || name == "red_mushroom" {
+		// VegetationBlock.updateShape: return-air family — canSurvive
+		// is re-checked on any neighbour change.
+		if !mushroomCanSurvive(s, d, pos) {
+			s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+			s.setNaturalBlock(d, pos, world.Air)
+		}
+		return
+	}
 	fn, ok := surviveFns()[name]
 	if !ok || fn(s, d, pos, b) {
 		return

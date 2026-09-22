@@ -637,6 +637,83 @@ func cellFluidIsWater(b world.Block) bool {
 	return false
 }
 
+// MushroomBlock.randomTick: 1/25 roll spreads into a random-walk
+// target (dx,dz∈±1, dy = nextInt(2)-nextInt(2)); four hops, each
+// moving the walk when the target is empty and survivable, then the
+// spread lands if the final target survives. A 9×3×9 box holding 5+
+// of the same mushroom aborts the whole thing.
+func mushroomRule(s *Server, d *dimension, pos world.Pos, _ world.Block) {
+	b := d.w.GetBlock(pos)
+	name, ok := world.StateOwner(b)
+	if !ok || s.rng.intn(25) != 0 {
+		return
+	}
+	s.mushroomSpread(d, pos, b, name)
+}
+
+// mushroomSpread is the spread body of MushroomBlock.randomTick,
+// past the 1/25 roll.
+func (s *Server) mushroomSpread(d *dimension, pos world.Pos, b world.Block, name string) {
+	same := 0
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -4; dx <= 4; dx++ {
+			for dz := -4; dz <= 4; dz++ {
+				if isBlockNamed(d.w.GetBlock(world.Pos{X: pos.X + dx, Y: pos.Y + dy, Z: pos.Z + dz}), name) {
+					same++
+					if same >= 5 {
+						return
+					}
+				}
+			}
+		}
+	}
+	walk := pos
+	target := mushroomOffset(s, walk)
+	for i := 0; i < 4; i++ {
+		if isAirCell(d.w.GetBlock(target)) && mushroomCanSurvive(s, d, target) {
+			walk = target
+		}
+		target = mushroomOffset(s, walk)
+	}
+	if isAirCell(d.w.GetBlock(target)) && mushroomCanSurvive(s, d, target) {
+		s.setNaturalBlock(d, target, b)
+	}
+}
+
+func mushroomOffset(s *Server, p world.Pos) world.Pos {
+	return world.Pos{
+		X: p.X + s.rng.intn(3) - 1,
+		Y: p.Y + s.rng.intn(2) - s.rng.intn(2),
+		Z: p.Z + s.rng.intn(3) - 1,
+	}
+}
+
+// mushroomCanSurvive is MushroomBlock.canSurvive: an
+// overrides_mushroom_light_requirement soil (mycelium, podzol,
+// nylium) always allows it; otherwise the cell needs
+// getRawBrightness < 13 on a solid-render floor. mc-go has no light
+// engine — brightness is approximated by sky exposure alone: any
+// non-translucent block overhead keeps the cell dark.
+func mushroomCanSurvive(s *Server, d *dimension, pos world.Pos) bool {
+	below := d.w.GetBlock(posBelow(pos, 1))
+	name, _ := world.StateOwner(below)
+	if blockTagHas("overrides_mushroom_light_requirement", name) {
+		return true
+	}
+	if !d.skylight {
+		return !world.NonSolid(below)
+	}
+	// Sky-exposed reads as full daylight (15 ≥ 13): a mushroom there
+	// fails canSurvive, which is also what pops sunlit mushrooms on a
+	// neighbour write. An opaque block overhead reads as darkness.
+	for y := pos.Y; y < d.minY+d.height; y++ {
+		if !world.NonSolid(d.w.GetBlock(world.Pos{X: pos.X, Y: y, Z: pos.Z})) {
+			return !world.NonSolid(below)
+		}
+	}
+	return false
+}
+
 func sugarCaneRule(s *Server, d *dimension, pos world.Pos, _ world.Block) {
 	// Grower rules read and write back block state, so they read the
 	// live world: the section snapshot can predate a same-tick write

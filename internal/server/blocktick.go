@@ -334,6 +334,8 @@ func randRules() map[string]func(*Server, *dimension, world.Pos, world.Block) {
 			"azalea_leaves":           leafDecayRule,
 			"flowering_azalea_leaves": leafDecayRule,
 			"budding_amethyst":        amethystBudRule,
+			"brown_mushroom":          mushroomRule,
+			"red_mushroom":            mushroomRule,
 		}
 	})
 	return randRulesMap

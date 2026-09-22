@@ -3297,3 +3297,17 @@ physics through a void dip plus a fed recovery window.
   facing gate blocks it). TestAmethystParity drives all of it:
   single-open-face fixtures for deterministic growth location,
   waterlogged cluster on a water face, pedestal pop, floating bud.
+
+- Random tick pass 7 (mushrooms, commit pending):
+  MushroomBlock.randomTick — 1/25 roll, spread via a 4-hop random
+  walk (dx,dz ±1, dy = nextInt(2)-nextInt(2)); each hop sticks only
+  where the target is empty and canSurvive. A 9×3×9 box holding 5+
+  same-type mushrooms aborts. canSurvive: a soil in
+  #overrides_mushroom_light_requirement (mycelium, podzol, nylium)
+  always allows it; otherwise rawBrightness < 13 on a solid-render
+  floor — approximated as sky-occluded (any solid block overhead)
+  since mc-go has no light engine yet. VegetationBlock.updateShape
+  pops on ANY neighbour change when canSurvive fails — a setblock'd
+  mushroom on grass in daylight dies on its first neighbour write.
+  TestMushroomSpreadParity: mycelium spread, saturated box,
+  roofed-dark spread, sunlit pop, floor-break pop.
