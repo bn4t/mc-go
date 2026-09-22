@@ -3370,3 +3370,38 @@ physics through a void dip plus a fed recovery window.
   Dampening fix also applied to IceBlock's melt gate.
   Known nearby gap: IceBlock.playerDestroy melts to water on dig —
   mc-go digs to air today.
+- Scheduled tick family: FIRE (FireBlock + BaseFireBlock + SoulFireBlock
+  semantics, all javap-verified). onPlace pops unsupported writes
+  instantly (old.is(this) skips, portal-lighting unmodeled — no portal
+  blocks) and arms 30-40 ticks; soul_fire shares the survive check but
+  never schedules. tick: reschedule -> canSpreadFireAround
+  (fire_spread_radius_around_player rule, default 128, -1=always) ->
+  !canSurvive removeBlock WITHOUT return (the removed fire still runs
+  the whole tick — the age write resurrects it and onPlace re-pops;
+  bytecode-confirmed) -> infiniburn from below via the dimension tag
+  (overworld/nether {netherrack,magma}, end +bedrock) -> rain gate
+  0.2+0.03*age gated on isRaining && isNearRain (pos + 4 horizontals),
+  itself heightmap+biome-gated — the_void never precipitates ->
+  newAge=min(15,age+nextInt(3)/2) flag-260 write -> !infiniburn:
+  !validLocation pops when !sturdyBelow||age>3 (always returns);
+  age==15 && nextInt(4)==0 && !canBurn(below) pops and RETURNS.
+  checkBurnOut x6 (E W below above N S, 300 sides / 250 vert, +bonus
+  -50 nether unmodeled): nextInt(chance)<burnOdds -> relight cell as
+  fire[min(15,age+nextInt(5)/4)] when nextInt(age+10)<5 and dry, else
+  air; TNT priming unmodeled. Spread box x,z in [-1,1], y in [-1,4],
+  maxT=100+(dy-1)*100 for dy>1; target odds = max igniteOdds of the
+  air cell's 6 neighbors (0 if occupied); spread=(odds+40+diff*7)/
+  (age+30), halved in nether; skip when nextInt(maxT)>spread or rain
+  at target; write getStateWithAge(min(15,age+nextInt(5)/4)) flag 3.
+  Flammability table (firetable_gen.go) is the 175-entry javap dump —
+  ignite/burn pairs; waterlogged->0. updateShape = canSurvive ?
+  getStateWithAge(age) : air on every neighbor write. Fire odds key
+  off bare names; wool/carpets are NOT flammable in 26.2.
+  TestFireParity pins: instant pop on unsupported write, age-15 stone
+  pop vs netherrack persist, soul-fire base on/off, deprive-pop,
+  face-fold via later write, 8-cell grass burnout row, 32-cell spread
+  band (2..31), and the void-biome rain pin (fires survive /weather
+  rain — a correct isRainingAt must answer NONE there).
+  Notable fix in passing: tick's early-outs now match the bytecode —
+  the survive-pop does NOT return (dead fires still tick/spread and
+  can resurrect via the age write), while the age-15 pop does.

@@ -361,6 +361,10 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		s.frostedTick(d, pos, blk)
 		return
 	}
+	if short == "fire" {
+		s.fireTick(d, pos, blk)
+		return
+	}
 	if !strings.HasSuffix(short, "_button") {
 		return
 	}

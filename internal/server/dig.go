@@ -215,12 +215,13 @@ func (s *Server) setBlockAndBroadcast(player string, pos world.Pos, blk world.Bl
 func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk world.Block, commandWrite bool) []int {
 	d := s.dimOf(player)
 	oldTop := columnTop(d, pos.X, pos.Z)
+	old := d.w.GetBlock(pos)
 	notify := blk
 	if !commandWrite {
-		notify = d.w.GetBlock(pos)
+		notify = old
 	}
 	d.w.SetBlock(pos, blk)
-	s.frostedIceOnPlace(d, pos, blk)
+	s.writeOnPlace(d, pos, blk, old)
 	// See setSilentBlock for the skip rule: the second scan only runs
 	// when the write removed the top cell itself.
 	var newTop int32

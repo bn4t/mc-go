@@ -813,9 +813,11 @@ func cactusCanSurvive(s *Server, d *dimension, pos world.Pos) bool {
 		if !blockTagHas("supports_cactus", name) {
 			return false
 		}
-		if _, _, ok := fluidOf(d.w.GetBlock(posAbove(pos, 1))); ok {
-			return false
-		}
+	}
+	// The liquid-above check applies whether the support is a cactus
+	// or the tag.
+	if _, _, ok := fluidOf(d.w.GetBlock(posAbove(pos, 1))); ok {
+		return false
 	}
 	return true
 }

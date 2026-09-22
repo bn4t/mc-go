@@ -182,6 +182,10 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos, notify worl
 		s.frostedNeighborChange(d, pos, notify)
 		return
 	}
+	if (name == "fire" || name == "soul_fire") && changed != pos {
+		s.fireNeighborChanged(d, pos, b)
+		return
+	}
 	if name == "brown_mushroom" || name == "red_mushroom" {
 		// VegetationBlock.updateShape: return-air family — canSurvive
 		// is re-checked on any neighbour change.
@@ -316,12 +320,21 @@ func (s *Server) neighborSurvival(d *dimension, pos world.Pos, notify world.Bloc
 	}
 }
 
+// writeOnPlace is the onPlace hook vanilla fires inside
+// LevelChunk.setBlockState on every write: scheduled-tick blocks arm
+// their first tick here (frosted ice, fire, ...).
+func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block) {
+	s.frostedIceOnPlace(d, pos, blk)
+	s.fireOnPlace(d, pos, blk, old)
+}
+
 // setSilentBlock is a flag-2 write: world update plus the usual
 // fan-out, but no neighbor survival pass.
 func (s *Server) setSilentBlock(d *dimension, pos world.Pos, blk world.Block) {
 	oldTop := columnTop(d, pos.X, pos.Z)
+	old := d.w.GetBlock(pos)
 	d.w.SetBlock(pos, blk)
-	s.frostedIceOnPlace(d, pos, blk)
+	s.writeOnPlace(d, pos, blk, old)
 	// The second scan is skippable in the common cases: anything below
 	// the top never moves it, a solid write above it sets the top to
 	// pos.Y outright, and an air write above the top writes a cell that
