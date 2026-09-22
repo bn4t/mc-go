@@ -3196,3 +3196,27 @@ physics through a void dip plus a fed recovery window.
 
   Same residual divergences as pass 1 apply here: no updateShape
   survival pops, no scheduled ticks (kelp etc.), no real light.
+
+- updateShape survival pops (commit pending): neighbor-write support
+  re-checks for the full canSurvive family — sugar cane, cactus,
+  bamboo stalk + sapling, chorus plant + flower, crops (wheat,
+  carrots, potatoes, beetroots), nether wart, torch, snow layer. A
+  write at pos re-checks its six face neighbors and pops failures
+  with the 2001 block-break effect; chorus flower keeps vanilla's
+  direction==UP skip, and flag-2 silent writes (chorus growth's
+  internal rewrites) skip the pass entirely. Pinned by
+  TestSupportPopParity (tests/blackbox/poptick_test.go), 13 probes
+  vs both servers.
+
+  The differential forced the real placement semantics out of
+  BlockInput.place: /setblock and /fill fold the requested state
+  through updateFromNeighbourShapes, but an air result is discarded
+  in favor of the requested block — so the return-air family (crops,
+  torch, snow, ...) NEVER pops on placement, while the scheduleTick
+  family (cane, cactus, bamboo, chorus) still pops one tick later
+  via the fold's side-effect tick. Internal writes don't self-check
+  at all. cropCanSurvive keeps only the structural half
+  (#supports_crops): the hasSufficientLight term needs the lighting
+  engine (a one-block roof fails column-opacity where vanilla's
+  side leakage keeps the crop lit), so over-shaded crops surviving
+  is a recorded gap.

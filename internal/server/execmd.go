@@ -1185,6 +1185,7 @@ func (s *Server) runFill(player string, args []string) reply {
 					continue
 				}
 				s.setNaturalBlock(d, pos, blk)
+				s.selfCheckSurvival(d, pos, blk)
 				touched[[2]int{x >> 4, z >> 4}] = true
 				changed++
 			}

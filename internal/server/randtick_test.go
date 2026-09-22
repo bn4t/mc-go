@@ -230,7 +230,10 @@ func TestRandTickSpeedGameRule(t *testing.T) {
 
 func TestRandTickSugarCaneColumn(t *testing.T) {
 	s, d := randSim(t)
+	// Cane needs water (or frosted ice) beside its base block to
+	// survive the neighbor-update check on writes.
 	randPut(t, d, 90, -61, 50, "dirt", nil)
+	randPut(t, d, 90, -61, 51, "frosted_ice", nil)
 	randPut(t, d, 90, -60, 50, "sugar_cane", map[string]string{"age": "15"})
 	// Age 15 spends its tick growing up and resetting.
 	rule := randRules()["sugar_cane"]
@@ -243,6 +246,7 @@ func TestRandTickSugarCaneColumn(t *testing.T) {
 	}
 	// A capped cane never even ages: the above-air check runs first.
 	randPut(t, d, 91, -61, 50, "dirt", nil)
+	randPut(t, d, 91, -61, 51, "frosted_ice", nil)
 	randPut(t, d, 91, -60, 50, "sugar_cane", map[string]string{"age": "0"})
 	randPut(t, d, 91, -59, 50, "stone", nil)
 	randRoll(s, d, world.Pos{X: 91, Y: -60, Z: 50}, "sugar_cane", 300, func() bool {
@@ -253,6 +257,7 @@ func TestRandTickSugarCaneColumn(t *testing.T) {
 	}
 	// A full column stops at three.
 	randPut(t, d, 92, -61, 50, "dirt", nil)
+	randPut(t, d, 92, -61, 51, "frosted_ice", nil)
 	randPut(t, d, 92, -60, 50, "sugar_cane", nil)
 	randPut(t, d, 92, -59, 50, "sugar_cane", nil)
 	randPut(t, d, 92, -58, 50, "sugar_cane", map[string]string{"age": "15"})

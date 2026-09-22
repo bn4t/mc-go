@@ -493,17 +493,13 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 
 // setNaturalBlock writes a natural block change (fluid flow, random
 // ticks, melt/freeze): the sharded world,
-// block-entity cleanup, the Block Update fan-out, and the light update
-// for any section whose column top moved. It mirrors the /setblock path
-// without the player-facing event, since no player caused this.
+// block-entity cleanup, the Block Update fan-out, the light update
+// for any section whose column top moved, and the updateShape-style
+// survival re-check on pos and its neighbors. It mirrors the
+// /setblock path without the player-facing event, since no player
+// caused this. Writes that correspond to vanilla's flag-2 silent
+// setBlock (no neighbor updates) use setSilentBlock instead.
 func (s *Server) setNaturalBlock(d *dimension, pos world.Pos, blk world.Block) {
-	oldTop := columnTop(d, pos.X, pos.Z)
-	d.w.SetBlock(pos, blk)
-	newTop := columnTop(d, pos.X, pos.Z)
-	s.broadcastBlockState(d, pos, blk)
-	s.syncBlockEntities(d, pos, blk)
-	s.invalidateRandomTickSection(d, pos)
-	if affected := affectedSections(d, oldTop, newTop); len(affected) > 0 {
-		s.sendLightUpdate(d, pos.X>>4, pos.Z>>4, affected)
-	}
+	s.setSilentBlock(d, pos, blk)
+	s.neighborSurvival(d, pos)
 }

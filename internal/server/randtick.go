@@ -821,7 +821,7 @@ func chorusFlowerRule(s *Server, d *dimension, pos world.Pos, _ world.Block) {
 		// connections; without a neighbor-update pass the same end state
 		// comes from placing the flower first.
 		s.placeGrownChorus(d, above, age)
-		s.setNaturalBlock(d, pos, chorusPlantState(s, d, pos))
+		s.setSilentBlock(d, pos, chorusPlantState(s, d, pos))
 		return
 	}
 	if age < 4 {
@@ -846,7 +846,7 @@ func chorusFlowerRule(s *Server, d *dimension, pos world.Pos, _ world.Block) {
 			grew = true
 		}
 		if grew {
-			s.setNaturalBlock(d, pos, chorusPlantState(s, d, pos))
+			s.setSilentBlock(d, pos, chorusPlantState(s, d, pos))
 		} else {
 			s.placeDeadChorus(d, pos)
 		}
@@ -905,14 +905,14 @@ func chorusPlantState(s *Server, d *dimension, pos world.Pos) world.Block {
 // grow sound.
 func (s *Server) placeGrownChorus(d *dimension, pos world.Pos, age int) {
 	if nb, ok := world.BlockStateOf("chorus_flower", map[string]string{"age": strconv.Itoa(age)}); ok {
-		s.setNaturalBlock(d, pos, nb)
+		s.setSilentBlock(d, pos, nb)
 	}
 	s.broadcastLevelEvent(d.name, 1033, pos, 0)
 }
 
 func (s *Server) placeDeadChorus(d *dimension, pos world.Pos) {
 	if nb, ok := world.BlockStateOf("chorus_flower", map[string]string{"age": "5"}); ok {
-		s.setNaturalBlock(d, pos, nb)
+		s.setSilentBlock(d, pos, nb)
 	}
 	s.broadcastLevelEvent(d.name, 1034, pos, 0)
 }

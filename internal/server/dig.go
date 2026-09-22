@@ -231,6 +231,11 @@ func (s *Server) setBlockAndBroadcast(player string, pos world.Pos, blk world.Bl
 	// A power source appearing or vanishing re-evaluates adjacent
 	// crafters — vanilla's neighborChanged runs from the same write.
 	s.crafterNeighborCheck(d, pos)
+	// updateShape: a change re-checks support for pos's neighbors; the
+	// placed block self-checks only in the scheduleTick family (the
+	// BlockInput.place fold's surviving side-effect).
+	s.neighborSurvival(d, pos)
+	s.selfCheckSurvival(d, pos, blk)
 	return affectedSections(d, oldTop, newTop)
 }
 
