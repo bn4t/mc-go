@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"strings"
 
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
@@ -363,6 +364,14 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	blk = s.hookPlaceState(d, target, blk, sess, face)
 	blk = s.multifacePlaceState(d, target, blk, sess, face)
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
+	// TripWireHookBlock.setPlacedBy: a placed hook runs its
+	// calculateState — attaches/powers the run it lands on. Command
+	// writes never reach this path on vanilla.
+	if n, ok := world.StateOwner(blk); ok && strings.TrimPrefix(n, "minecraft:") == "tripwire_hook" {
+		if f, ok := world.StateProperty(blk, "facing"); ok {
+			s.hookRecalc(d, target, f)
+		}
+	}
 	sess.addItemStat(statUsed, item, 1)
 	if bname, ok := world.StateOwner(blk); ok {
 		s.firePlacedBlock(sess, bname)

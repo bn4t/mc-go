@@ -401,6 +401,10 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		s.cauldronDripTick(d, pos)
 		return
 	}
+	if short == "tripwire" {
+		s.tripwireTick(d, pos, blk)
+		return
+	}
 	if !strings.HasSuffix(short, "_button") {
 		return
 	}

@@ -290,6 +290,7 @@ func (s *Server) GameTick() {
 	s.containerTickStep()
 	s.hopperTickStep()
 	s.scheduledTickStep()
+	s.entityInsideStep()
 	s.randomTickStep()
 	s.weatherTickStep()
 	s.beaconTickStep()

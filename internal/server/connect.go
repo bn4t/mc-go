@@ -1362,29 +1362,6 @@ func (s *Server) hookRecalc(d *dimension, pos world.Pos, facing string) {
 	}
 }
 
-// tripwireHooksAround reruns calculateState on every hook whose run
-// reaches pos — called after a wire cell writes.
-func (s *Server) tripwireHooksAround(d *dimension, pos world.Pos) {
-	for _, dir := range cardinalDirs {
-		for j := 1; j < 42; j++ {
-			cp := world.Pos{X: pos.X + dir.dx*j, Y: pos.Y, Z: pos.Z + dir.dz*j}
-			b := d.w.GetBlock(cp)
-			n, _ := world.StateOwner(b)
-			n = strings.TrimPrefix(n, "minecraft:")
-			if n == "tripwire_hook" {
-				dn, _ := connPropByDir(dir.dx, dir.dz)
-				if f, ok := world.StateProperty(b, "facing"); ok && f == dirOpposite(dn) {
-					s.hookRecalc(d, cp, f)
-				}
-				break
-			}
-			if n != "tripwire" {
-				break
-			}
-		}
-	}
-}
-
 // hookPlaceState is TripWireHookBlock.getStateForPlacement: iterate
 // horizontal looking directions; facing = candidate.opposite for the
 // first candidate whose anchor cell (at candidate) is sturdy.

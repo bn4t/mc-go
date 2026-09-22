@@ -3688,3 +3688,20 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   lit ore (redstone_ore + deepslate variant) settles lit=false.
   TestSnowMeltParity (8 legs) + TestRedstoneOreUnlitParity (5 legs)
   pin both against vanilla.
+
+- 2026-09-19 (cont): Entity.checkInsideBlocks landed as
+  entityInsideStep — per entity per tick, cells under its box run the
+  block's inside effect (a curated width x height table; 0.6x1.8
+  default; spectator players never trigger). TripWireBlock's pair:
+  entityInside powers an unpowered wire with no pending recheck;
+  checkPressed flips powered (flags 3), runs updateSource — south and
+  west walks only, recalcing the hook that faces back at the run —
+  and arms a 10-tick recheck that releases when the cell empties.
+  Wire shape is a 2.5px column attached / 8px loose, so a standing
+  entity only presses a wire at its feet cell.
+  Found while measuring: vanilla calculateState runs from wire
+  onPlace/affectNeighborsAfterRemoval (updateSource) and hook
+  setPlacedBy/tick — a setblock'd hook NEVER recalcs, so mc-go's
+  every-write hook recalc over-attached; moved to the placement path.
+  TestTripwirePoweredParity pins press/release/hooks; a killed pig's
+  dropped porkchops keep the wire pressed on vanilla (items press).

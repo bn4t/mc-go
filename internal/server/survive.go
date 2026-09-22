@@ -357,19 +357,18 @@ func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block)
 	// water in contact schedules the die tick at 60+rng(40).
 	if name, ok := world.StateOwner(blk); ok {
 		short := strings.TrimPrefix(name, "minecraft:")
+		oldName, _ := world.StateOwner(old)
+		oldShort := strings.TrimPrefix(oldName, "minecraft:")
 		if coralLive(short) && !s.coralWaterScan(d, pos) {
 			s.scheduleBlockTick(d, pos, int64(60+s.rng.intn(40)))
 		}
-		// TripWireBlock.onPlace / TripWireHookBlock.setPlacedBy:
-		// a wire write reruns calculateState at the run's ends; a
-		// hook write recalcs its own run.
-		if short == "tripwire" {
-			s.tripwireHooksAround(d, pos)
-		}
-		if short == "tripwire_hook" {
-			if f, ok := world.StateProperty(blk, "facing"); ok {
-				s.hookRecalc(d, pos, f)
-			}
+		// TripWireBlock.onPlace / affectNeighborsAfterRemoval: a wire
+		// write or removal reruns calculateState from the run's
+		// south/west-side hook (updateSource). A hook write does not —
+		// hooks attach via getStateForPlacement/setPlacedBy, which are
+		// item-placement paths only.
+		if short == "tripwire" != (oldShort == "tripwire") {
+			s.tripwireUpdateSource(d, pos, blk)
 		}
 	}
 	// TntBlock.onPlace: prime + self-remove when a neighbour carries a
