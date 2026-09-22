@@ -268,6 +268,7 @@ func (s *Server) registerBuiltins() {
 	registerMiscCommands(s)
 	s.registerEntCommands()
 	s.registerInvCommands()
+	s.registerWorldStateCommands()
 	s.registerComponentCommand("scoreboard", func(player string, args []string) reply {
 		return s.runScoreboard(player, args)
 	})

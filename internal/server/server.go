@@ -156,6 +156,13 @@ type Server struct {
 	borderMu sync.Mutex
 	borders  map[string]*border
 
+	// forcedChunks is /forceload's per-dimension forced-chunk set.
+	forcedChunks forcedChunkSet
+	// datapacks is the enabled set /datapack mutates (seeded with the
+	// vanilla pack); customPacks are packs /datapack create registered.
+	datapacks   map[string]bool
+	customPacks map[string]bool
+
 	// bossbars holds the /bossbar bars in creation order.
 	bossbarMu    sync.Mutex
 	bossbars     map[string]*bossBar

@@ -51,6 +51,9 @@ func (w *World) BlockEntities() []map[string]any { return w.blockEntities }
 // mc-go chunks are single-biome until the noise generator lands.
 func (w *World) SetBiome(name string) { w.biome = name }
 
+// Biome is the dimension's single biome name (the flat world palette).
+func (w *World) Biome() string { return w.biomeName() }
+
 // New builds a sharded world with live workers generating the vanilla
 // flat preset. shards<=0 defaults to 8.
 func New(bus *event.Bus, shards int) *World {

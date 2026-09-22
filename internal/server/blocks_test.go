@@ -442,9 +442,11 @@ func TestBuiltinListAndHelp(t *testing.T) {
 		t.Fatalf("list = %q", got)
 	}
 	sendChat(t, pw, IDPlayChatCommandSB, "help")
-	if got := readSystemChat(t, pr); !strings.Contains(got, "setblock") {
+	// Vanilla /help emits one bare-string System Chat per root usage.
+	if got := readSystemChat(t, pr); got != helpUsageLines[0] {
 		t.Fatalf("help = %q", got)
 	}
+	drainToQuiet(t, pr)
 	sendChat(t, pw, IDPlayChatCommandSB, "pos")
 	if got := readSystemChat(t, pr); !strings.Contains(got, "0.50") {
 		t.Fatalf("pos = %q", got)

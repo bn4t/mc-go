@@ -155,6 +155,12 @@ type Entity struct {
 	dataSyncAttrs bool
 	// Living mobs carry health and take damage from attacks.
 	Living bool
+	// Waypoint marks an entity that broadcasts a locator-bar waypoint;
+	// WaypointColor / WaypointStyle are the /waypoint-modify overrides
+	// (empty = the vanilla defaults).
+	Waypoint      bool
+	WaypointColor string
+	WaypointStyle string
 	// NoAI (from the summon NBT) freezes gravity and wander like
 	// vanilla's Mob.NoAi flag — the entity still takes knockback.
 	NoAI      bool

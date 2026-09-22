@@ -2798,3 +2798,15 @@ physics through a void dip plus a fed recovery window.
   whole-input underline, item id + maxCount bounds, maxCount 0 counts
   without removing). itemnames_gen.go + entitynames_gen.go hold the
   en_us display tables. TestInvParity 28 commands green.
+
+- World-state commands: forceload (pos2d + 256-chunk bound + clamped
+  30M, add/remove single|multiple|failure, query list sorted by
+  ChunkPos.toLong, added.none on empty), fillbiome (quart-quantized
+  volume bound from max_block_modifications, unloaded before toobig,
+  resource.not_found with the worldgen/biome registry key, count =
+  quart cells), datapack (enabled/available two-line list, decorated
+  pack components, enable/disable/create edges), help (bare-string
+  per-root usage table captured from vanilla, smart-usage overrides),
+  version (the 10-line identity block), waypoint (list/modify color +
+  style on the locator-bar waypoint), swing (entity-plural, living
+  filter, animate broadcast). TestWorldCmdParity 68 commands green.
