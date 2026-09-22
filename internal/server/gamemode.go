@@ -53,9 +53,12 @@ func (s *Server) runGamemode(player string, args []string) reply {
 	if len(args) > 2 {
 		return errToken("command.unknown.argument", 3)
 	}
-	// Vanilla answers even when the mode is already the requested one —
-	// "Set own game mode to Survival Mode" still goes out.
+	// Vanilla's setGameMode returns false on an unchanged mode and the
+	// command emits nothing at all — no chat, no packets.
 	old := target.mode()
+	if old == mode {
+		return reply{}
+	}
 	target.setMode(mode)
 	if mode != GameModeCreative && mode != GameModeSpectator {
 		// Leaving a flighted mode grounds the player: a later switch

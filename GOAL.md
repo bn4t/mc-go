@@ -3046,3 +3046,10 @@ physics through a void dip plus a fed recovery window.
   (no 20-tick corpse — that's combat damage only). Pinned by the new
   ~107-command TestSelectorOptionsParity plus the healed
   TestSelectorArgsParity, both verbatim vs vanilla.
+- /gamemode unchanged-mode silence: vanilla's setGameMode returns
+  false when the target already has the requested mode and the
+  command emits nothing — no success chat, no GameEvent, no
+  abilities/info updates, no admin broadcast — for self and other
+  targets alike (errors still fire first). runGamemode now early-
+  returns reply{} when old == mode; TestGamemodeParity's silent-
+  repeat assertions pass verbatim.
