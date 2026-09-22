@@ -171,6 +171,10 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos) {
 		s.budUpdate(d, pos, changed, b)
 		return
 	}
+	if name == "vine" {
+		s.vinePrune(d, pos, changed, b)
+		return
+	}
 	if name == "brown_mushroom" || name == "red_mushroom" {
 		// VegetationBlock.updateShape: return-air family — canSurvive
 		// is re-checked on any neighbour change.

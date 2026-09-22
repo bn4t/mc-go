@@ -3311,3 +3311,19 @@ physics through a void dip plus a fed recovery window.
   mushroom on grass in daylight dies on its first neighbour write.
   TestMushroomSpreadParity: mycelium spread, saturated box,
   roofed-dark spread, sunlit pop, floor-break pop.
+
+- Random tick pass 8 (regular vines, commit pending):
+  VineBlock is its own five-face multiface block (up + four sides).
+  randomTick: spread_vines gamerule, then 1/4 and a random direction.
+  An unheld horizontal face either wraps around a corner — clockwise
+  or counter-clockwise, into the flanking cell or the next-over one
+  with the opposite face — or (cell already facing a wall on that
+  side) gains the face onto a solid neighbour. Up grows an `up` face
+  under a ceiling or sprouts a thinned copy of the cell above (each
+  face kept on a coin flip only if the new cell can support it).
+  Down (and any already-held face) copies random horizontal faces
+  into the cell below. canSpread caps at five vines per 9x3x9 box.
+  updateShape prunes every unsupported face on any write not coming
+  from below, air when none remain. canSupportAtFace: sturdy side or
+  a vine above holding the same face. TestWallVineParity: wall wrap,
+  spread-down, ceiling-hole sprout, face pruning, spread_vines gate.
