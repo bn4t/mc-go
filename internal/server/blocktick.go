@@ -51,6 +51,12 @@ func (r *randState) intn(n int) int {
 	return int(r.next() % uint64(n))
 }
 
+// nextDouble returns a uniform value in [0, 1) — Java's 53-bit
+// RandomSource.nextDouble.
+func (r *randState) nextDouble() float64 {
+	return float64(r.next()>>11) * (1.0 / 9007199254740992.0)
+}
+
 // chance reports a 1-in-n draw.
 func (r *randState) chance(n int) bool {
 	if n <= 1 {
@@ -307,6 +313,11 @@ func randRules() map[string]func(*Server, *dimension, world.Pos, world.Block) {
 			"mycelium":         turfRule("dirt"),
 			"crimson_nylium":   nyliumRule,
 			"warped_nylium":    nyliumRule,
+			"sugar_cane":       sugarCaneRule,
+			"cactus":           cactusRule,
+			"bamboo":           bambooStalkRule,
+			"bamboo_sapling":   bambooSaplingRule,
+			"chorus_flower":    chorusFlowerRule,
 		}
 	})
 	return randRulesMap

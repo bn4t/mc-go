@@ -3173,3 +3173,26 @@ physics through a void dip plus a fed recovery window.
   on the lighting engine entry). `execute if block` on mc-go also still
   wants full-state specs for multi-property blocks where vanilla
   subset-matches.
+
+- Random tick pass 2 (upward growers, commit pending): sugar cane,
+  cactus (+ the age-8 cactus_flower roll, 0.1 / 0.25 at height 3, and
+  its canSurvive gate), bamboo stalk + sapling (leaf cascade, the
+  height-11+ 25% / height-15 terminal stage ramp, and the downward
+  age-1 ripple vanilla gets via updateShape — a grown column ends
+  all-age-1, and the tip caps stochastically at 12..16 rather than
+  16), and chorus flower (up-growth is free when the plant run below
+  is < 2, throttled run <= nextInt(5 grounded / 4) after that, dead
+  flower at age 5, grown/dead level events 1033/1034) + the
+  connection-mapped chorus_plant write. Pinned by
+  TestColumnGrowthParity (tests/blackbox/coltick_test.go), 23 probes
+  vs both servers.
+
+  Two fixes the differential forced: grower rules must read the live
+  world, not the section snapshot — the snapshot is one FillBox per
+  section per tick, so a write-then-read-back (bamboo's demote-then-
+  ripple) clobbers fresh state with stale when async shard sets land
+  after the next snapshot. And chorus up-growth was inverted: run < 2
+  always climbs; only deeper runs roll, never at run 5+.
+
+  Same residual divergences as pass 1 apply here: no updateShape
+  survival pops, no scheduled ticks (kelp etc.), no real light.

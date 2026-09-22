@@ -446,6 +446,13 @@ var lightPassable = map[string]bool{
 	"glass_pane":            true,
 	"brown_mushroom":        true,
 	"red_mushroom":          true,
+	"sugar_cane":            true,
+	"cactus":                true,
+	"cactus_flower":         true,
+	"bamboo":                true,
+	"bamboo_sapling":        true,
+	"chorus_flower":         true,
+	"chorus_plant":          true,
 }
 
 // cropGrowthSpeed is CropBlock.getGrowthSpeed: 1.0 plus farmland scores
@@ -493,6 +500,421 @@ func cropGrowthSpeed(s *Server, d *dimension, pos world.Pos, cropName string) fl
 func cropAtIs(s *Server, d *dimension, pos world.Pos, name string) bool {
 	n, _ := world.StateOwner(s.rtBlock(d, pos))
 	return n == name
+}
+
+// Column growers, each one measured against vanilla's bytecode:
+//
+//   - SugarCaneBlock: air above and a column shorter than 3; the top
+//     cane's age clocks to 15 and then spends a tick placing a fresh
+//     cane above and resetting its own age to 0.
+//   - CactusBlock: same column growth, plus an age==8 side roll that
+//     places a cactus_flower on top (nextDouble < 0.25 once the column
+//     is three tall, else 0.1) when a cactus could survive there.
+//   - BambooStalkBlock: only stage==0 stalks tick; a nextInt(3)==0 roll,
+//     air above, brightness>=9 at the cell above, and a column under 16
+//     feeds growBamboo, which writes the new top with the leaf cascade
+//     (top=large, demoting the stalks below) and an age/stage ramp that
+//     stops the column growing.
+//   - BambooSaplingBlock: nextInt(3)==0, air and brightness>=9 above,
+//     then a small-leaf bamboo stalk appears above.
+//   - ChorusFlowerBlock: up-growth or sideways branching with the
+//     plant-block rewrite, ending in the age-5 dead flower.
+
+// isAirCell is Level.isEmptyBlock: air and its dimension variants.
+func isAirCell(b world.Block) bool {
+	if b == world.Air {
+		return true
+	}
+	name, _ := world.StateOwner(b)
+	return name == "cave_air" || name == "void_air"
+}
+
+func isBlockNamed(b world.Block, name string) bool {
+	n, _ := world.StateOwner(b)
+	return n == name
+}
+
+func posBelow(pos world.Pos, n int) world.Pos {
+	return world.Pos{X: pos.X, Y: pos.Y - n, Z: pos.Z}
+}
+
+func posAbove(pos world.Pos, n int) world.Pos {
+	return world.Pos{X: pos.X, Y: pos.Y + n, Z: pos.Z}
+}
+
+func sugarCaneRule(s *Server, d *dimension, pos world.Pos, _ world.Block) {
+	// Grower rules read and write back block state, so they read the
+	// live world: the section snapshot can predate a same-tick write
+	// and WithProperty would clobber it back.
+	b := d.w.GetBlock(pos)
+	above := posAbove(pos, 1)
+	if !isAirCell(d.w.GetBlock(above)) {
+		return
+	}
+	height := 1
+	for isBlockNamed(d.w.GetBlock(posBelow(pos, height)), "sugar_cane") {
+		height++
+	}
+	if height >= 3 {
+		return
+	}
+	age, ok := intProp(b, "age")
+	if !ok {
+		return
+	}
+	if age == 15 {
+		if nb, ok := world.BlockStateOf("sugar_cane", nil); ok {
+			s.setNaturalBlock(d, above, nb)
+		}
+		if nb, ok := world.WithProperty(b, "age", "0"); ok {
+			s.setNaturalBlock(d, pos, nb)
+		}
+		return
+	}
+	if nb, ok := world.WithProperty(b, "age", strconv.Itoa(age+1)); ok {
+		s.setNaturalBlock(d, pos, nb)
+	}
+}
+
+// cactusRule is CactusBlock.randomTick: identical column growth to
+// sugar cane, plus the age-8 flower roll on top.
+func cactusRule(s *Server, d *dimension, pos world.Pos, _ world.Block) {
+	b := d.w.GetBlock(pos)
+	above := posAbove(pos, 1)
+	if !isAirCell(d.w.GetBlock(above)) {
+		return
+	}
+	age, ok := intProp(b, "age")
+	if !ok {
+		return
+	}
+	// Vanilla's loop exits early: a column that reaches three while the
+	// top is at age 15 stops ticking instead of growing.
+	height := 1
+	for isBlockNamed(d.w.GetBlock(posBelow(pos, height)), "cactus") {
+		height++
+		if height == 3 && age == 15 {
+			return
+		}
+	}
+	if age == 8 {
+		chance := 0.1
+		if height >= 3 {
+			chance = 0.25
+		}
+		if cactusCanSurvive(s, d, above) && s.rng.nextDouble() < chance {
+			if fb, ok := world.BlockStateOf("cactus_flower", nil); ok {
+				s.setNaturalBlock(d, above, fb)
+			}
+		}
+	} else if age == 15 && height < 3 {
+		if nb, ok := world.BlockStateOf("cactus", nil); ok {
+			s.setNaturalBlock(d, above, nb)
+		}
+		if nb, ok := world.WithProperty(b, "age", "0"); ok {
+			s.setNaturalBlock(d, pos, nb)
+		}
+	}
+	if age < 15 {
+		if nb, ok := world.WithProperty(b, "age", strconv.Itoa(age+1)); ok {
+			s.setNaturalBlock(d, pos, nb)
+		}
+	}
+}
+
+// cactusCanSurvive is CactusBlock.canSurvive for a cell above a cactus:
+// no solid or lava-bearing neighbor horizontally, and the block below
+// is a cactus or in #supports_cactus with a non-liquid cell above.
+func cactusCanSurvive(s *Server, d *dimension, pos world.Pos) bool {
+	for _, dir := range cardinalDirs {
+		nb := d.w.GetBlock(world.Pos{X: pos.X + dir.dx, Y: pos.Y, Z: pos.Z + dir.dz})
+		if !world.NonSolid(nb) {
+			return false
+		}
+		if kind, _, ok := fluidOf(nb); ok && kind == fluidLava {
+			return false
+		}
+	}
+	below := d.w.GetBlock(posBelow(pos, 1))
+	if !isBlockNamed(below, "cactus") {
+		name, _ := world.StateOwner(below)
+		if !blockTagHas("supports_cactus", name) {
+			return false
+		}
+		if _, _, ok := fluidOf(d.w.GetBlock(posAbove(pos, 1))); ok {
+			return false
+		}
+	}
+	return true
+}
+
+func bambooStalkRule(s *Server, d *dimension, pos world.Pos, _ world.Block) {
+	b := d.w.GetBlock(pos)
+	if stage, ok := intProp(b, "stage"); !ok || stage != 0 {
+		return
+	}
+	if s.rng.intn(3) != 0 {
+		return
+	}
+	above := posAbove(pos, 1)
+	if !isAirCell(d.w.GetBlock(above)) {
+		return
+	}
+	// getRawBrightness(above) >= 9, same column approximation as crops.
+	if !s.cropLit(d, above) {
+		return
+	}
+	// getHeightBelowUpToMax counts the bamboo run below, capped at 16.
+	height := 1
+	for height <= 16 && isBlockNamed(d.w.GetBlock(posBelow(pos, height)), "bamboo") {
+		height++
+	}
+	if height >= 16 {
+		return
+	}
+	s.growBamboo(d, pos, b, height)
+}
+
+// growBamboo is BambooStalkBlock.growBamboo: the new top's leaves are
+// large when the stalk below already carried leaves (demoting it and
+// the one beneath), small over anything else; age propagates the thick
+// flag, and stage flips to 1 — the terminal state that stops ticking —
+// always at height 15, or 25% of the time once height reaches 11.
+func (s *Server) growBamboo(d *dimension, pos world.Pos, state world.Block, height int) {
+	below1Pos := posBelow(pos, 1)
+	below2Pos := posBelow(pos, 2)
+	below1 := d.w.GetBlock(below1Pos)
+	below2 := d.w.GetBlock(below2Pos)
+
+	leaves := "none"
+	if height >= 1 {
+		l1, _ := world.StateProperty(below1, "leaves")
+		if !isBlockNamed(below1, "bamboo") || l1 == "none" {
+			leaves = "small"
+		} else {
+			leaves = "large"
+			if isBlockNamed(below2, "bamboo") {
+				if nb, ok := world.WithProperty(below1, "leaves", "small"); ok {
+					s.setNaturalBlock(d, below1Pos, nb)
+				}
+				if nb, ok := world.WithProperty(below2, "leaves", "none"); ok {
+					s.setNaturalBlock(d, below2Pos, nb)
+				}
+			}
+		}
+	}
+	age, _ := intProp(state, "age")
+	newAge := 0
+	if age == 1 || isBlockNamed(below2, "bamboo") {
+		newAge = 1
+	}
+	newStage := 0
+	if height == 15 || (height >= 11 && s.rng.nextDouble() < 0.25) {
+		newStage = 1
+	}
+	if nb, ok := world.BlockStateOf("bamboo", map[string]string{
+		"age":    strconv.Itoa(newAge),
+		"leaves": leaves,
+		"stage":  strconv.Itoa(newStage),
+	}); ok {
+		s.setNaturalBlock(d, posAbove(pos, 1), nb)
+	}
+	// BambooStalkBlock.updateShape cycles a stalk's age to 1 when the
+	// stalk above it is thicker — landing an age-1 top ripples down the
+	// whole column through the neighbor-update chain. Reads are live,
+	// not the section snapshot, so the walk sees the writes above.
+	for bp := pos; ; bp = posBelow(bp, 1) {
+		bb := d.w.GetBlock(bp)
+		ab := d.w.GetBlock(posAbove(bp, 1))
+		if !isBlockNamed(bb, "bamboo") || !isBlockNamed(ab, "bamboo") {
+			break
+		}
+		ba, _ := intProp(bb, "age")
+		aa, _ := intProp(ab, "age")
+		if aa <= ba {
+			break
+		}
+		if nb, ok := world.WithProperty(bb, "age", "1"); ok {
+			s.setNaturalBlock(d, bp, nb)
+		}
+	}
+}
+
+// bambooSaplingRule is BambooSaplingBlock.randomTick: a 1-in-3 roll on
+// a lit sapling with air above grows the first stalk. The sapling's
+// own updateShape turns it into the column's base stalk when a stalk
+// lands above — reproduced here as a direct write.
+func bambooSaplingRule(s *Server, d *dimension, pos world.Pos, _ world.Block) {
+	if s.rng.intn(3) != 0 {
+		return
+	}
+	above := posAbove(pos, 1)
+	if !isAirCell(d.w.GetBlock(above)) || !s.cropLit(d, above) {
+		return
+	}
+	if nb, ok := world.BlockStateOf("bamboo", map[string]string{"leaves": "small"}); ok {
+		s.setNaturalBlock(d, above, nb)
+	}
+	if nb, ok := world.BlockStateOf("bamboo", nil); ok {
+		s.setNaturalBlock(d, pos, nb)
+	}
+}
+
+// chorusFlowerRule is ChorusFlowerBlock.randomTick: the flower grows
+// one block up when it sits on end stone, air, or a long-enough plant
+// column; otherwise it scatters same-age+1 flowers sideways into air
+// pockets and turns itself into a plant block — or dies at age 5 when
+// nothing it tried was placeable.
+func chorusFlowerRule(s *Server, d *dimension, pos world.Pos, _ world.Block) {
+	b := d.w.GetBlock(pos)
+	above := posAbove(pos, 1)
+	if !isAirCell(d.w.GetBlock(above)) || above.Y >= d.minY+d.height {
+		return
+	}
+	age, ok := intProp(b, "age")
+	if !ok || age >= 5 {
+		return
+	}
+	canGrowUp := false
+	hasGround := false
+	below := d.w.GetBlock(posBelow(pos, 1))
+	belowName, _ := world.StateOwner(below)
+	if blockTagHas("supports_chorus_flower", belowName) {
+		canGrowUp = true
+	} else if belowName == "chorus_plant" {
+		// Walk down up to four plant blocks looking for the support
+		// block; a run of 2+ plants gives a length-scaled chance to
+		// grow up instead of branching.
+		run := 1
+		for i := 0; i < 4; i++ {
+			bb := d.w.GetBlock(posBelow(pos, run+1))
+			bbName, _ := world.StateOwner(bb)
+			if bbName == "chorus_plant" {
+				run++
+			} else {
+				if blockTagHas("supports_chorus_flower", bbName) {
+					hasGround = true
+				}
+				break
+			}
+		}
+		// Bytecode: run < 2 always grows up; longer runs grow only when
+		// run <= nextInt(5 grounded / 4 otherwise), so run >= 5 never
+		// climbs and the flower must branch or die instead.
+		if run < 2 {
+			canGrowUp = true
+		} else {
+			bound := 4
+			if hasGround {
+				bound = 5
+			}
+			if run <= s.rng.intn(bound) {
+				canGrowUp = true
+			}
+		}
+	} else if isAirCell(below) {
+		canGrowUp = true
+	}
+	if canGrowUp && s.chorusNeighborsEmpty(d, above, -1) &&
+		isAirCell(d.w.GetBlock(posAbove(pos, 2))) {
+		// Vanilla writes the plant first and lets updateShape fix its
+		// connections; without a neighbor-update pass the same end state
+		// comes from placing the flower first.
+		s.placeGrownChorus(d, above, age)
+		s.setNaturalBlock(d, pos, chorusPlantState(s, d, pos))
+		return
+	}
+	if age < 4 {
+		tries := s.rng.intn(4)
+		if hasGround {
+			tries++
+		}
+		grew := false
+		for i := 0; i < tries; i++ {
+			di := s.rng.intn(4)
+			dir := cardinalDirs[di]
+			t := world.Pos{X: pos.X + dir.dx, Y: pos.Y, Z: pos.Z + dir.dz}
+			if !isAirCell(d.w.GetBlock(t)) || !isAirCell(d.w.GetBlock(posBelow(t, 1))) {
+				continue
+			}
+			// cardinalDirs pairs each direction with its opposite, so the
+			// direction back toward the flower is the paired index.
+			if !s.chorusNeighborsEmpty(d, t, di^1) {
+				continue
+			}
+			s.placeGrownChorus(d, t, age+1)
+			grew = true
+		}
+		if grew {
+			s.setNaturalBlock(d, pos, chorusPlantState(s, d, pos))
+		} else {
+			s.placeDeadChorus(d, pos)
+		}
+		return
+	}
+	s.placeDeadChorus(d, pos)
+}
+
+// chorusNeighborsEmpty is allNeighborsEmpty: every horizontal neighbor
+// of pos must be empty, except the direction the caller came from
+// (-1 when there is none).
+func (s *Server) chorusNeighborsEmpty(d *dimension, pos world.Pos, except int) bool {
+	for i, dir := range cardinalDirs {
+		if i == except {
+			continue
+		}
+		if !isAirCell(d.w.GetBlock(world.Pos{X: pos.X + dir.dx, Y: pos.Y, Z: pos.Z + dir.dz})) {
+			return false
+		}
+	}
+	return true
+}
+
+// chorusPlantState is ChorusPlantBlock.getStateWithConnections: each of
+// the six direction props is set when that neighbor is a chorus plant
+// or flower, with `down` also connecting to #supports_chorus_plant.
+// Reads are live: the caller has already written the flower this plant
+// connects to, and vanilla reaches the same end state through its
+// updateShape pass.
+func chorusPlantState(s *Server, d *dimension, pos world.Pos) world.Block {
+	connects := func(p world.Pos, down bool) bool {
+		nb := d.w.GetBlock(p)
+		if isBlockNamed(nb, "chorus_plant") || isBlockNamed(nb, "chorus_flower") {
+			return true
+		}
+		if down {
+			name, _ := world.StateOwner(nb)
+			return blockTagHas("supports_chorus_plant", name)
+		}
+		return false
+	}
+	props := map[string]string{
+		"down":  strconv.FormatBool(connects(posBelow(pos, 1), true)),
+		"up":    strconv.FormatBool(connects(posAbove(pos, 1), false)),
+		"north": strconv.FormatBool(connects(world.Pos{X: pos.X, Y: pos.Y, Z: pos.Z - 1}, false)),
+		"south": strconv.FormatBool(connects(world.Pos{X: pos.X, Y: pos.Y, Z: pos.Z + 1}, false)),
+		"east":  strconv.FormatBool(connects(world.Pos{X: pos.X + 1, Y: pos.Y, Z: pos.Z}, false)),
+		"west":  strconv.FormatBool(connects(world.Pos{X: pos.X - 1, Y: pos.Y, Z: pos.Z}, false)),
+	}
+	b, _ := world.BlockStateOf("chorus_plant", props)
+	return b
+}
+
+// placeGrownChorus is ChorusFlowerBlock.placeGrownFlower: the flower at
+// the new position keeps the passed age, and level event 1033 plays the
+// grow sound.
+func (s *Server) placeGrownChorus(d *dimension, pos world.Pos, age int) {
+	if nb, ok := world.BlockStateOf("chorus_flower", map[string]string{"age": strconv.Itoa(age)}); ok {
+		s.setNaturalBlock(d, pos, nb)
+	}
+	s.broadcastLevelEvent(d.name, 1033, pos, 0)
+}
+
+func (s *Server) placeDeadChorus(d *dimension, pos world.Pos) {
+	if nb, ok := world.BlockStateOf("chorus_flower", map[string]string{"age": "5"}); ok {
+		s.setNaturalBlock(d, pos, nb)
+	}
+	s.broadcastLevelEvent(d.name, 1034, pos, 0)
 }
 
 func intProp(b world.Block, prop string) (int, bool) {
