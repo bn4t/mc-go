@@ -3592,5 +3592,24 @@ physics through a void dip plus a fed recovery window.
   thin-face no-connect, leaves exception, wood-vs-nether material,
   both gate orientations, pane pair, pane-fence mutual no-connect,
   bars-to-wall, a broken middle run, and the placement fold.
-  WallBlock (low/tall/up fold), stairs shapes, and chest merge remain
-  open.
+
+- 2026-09-19 (cont): WallBlock joined the connection fold — the
+  richer updateShape with none/low/tall sides plus the up post.
+  sideUpdate keeps the unchanged directions' connect flags and only
+  re-evaluates the changed one; topUpdate (dir UP) keeps all four and
+  just re-folds; a change below is ignored. connectsTo reaches
+  #walls, sturdy non-exception sides, IronBarsBlock (panes/bars), and
+  perpendicular fence gates. makeWallState gives tall when the above
+  block's bottom face covers that direction's test strip, else low;
+  shouldRaisePost keeps up on wall-on-wall tops, lone/corner/T
+  patterns, drops it on straight runs and flat-topped crosses unless
+  the above block is #wall_post_override (torches, signs, banners,
+  pressure plates, tripwire) or covers the centre post. The bottom-
+  face coverage tests approximate isCovered's VoxelShape check by
+  name: full cubes cover, bottom slabs/stairs and closed bottom
+  trapdoors cover, the partial-face set doesn't. Placement folds all
+  four sides + up + waterlogged; command writes place the exact
+  state. TestConnectParity pins it: wall pairs with posts, the
+  flattened middle of a three-run, tall sides + post under a solid
+  block, torch-on-wall post override, and wall<->pane two-way attach.
+  Stairs shapes and chest merge remain open.

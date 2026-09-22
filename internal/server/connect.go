@@ -27,17 +27,21 @@ const (
 	connNone  connectFam = iota
 	connFence            // FenceBlock: fences (wooden + nether_brick)
 	connBars             // IronBarsBlock: panes + bars (incl. copper bars)
+	connWall             // WallBlock: #walls, low/tall side props + up
 )
 
 // connectFamily reports the family of a block by registry name: the
-// #fences tag for fences, and the IronBarsBlock class set — every
-// *_pane / *_bars name — for bars.
+// #fences tag for fences, the IronBarsBlock class set — every *_pane
+// / *_bars name — for bars, and the #walls tag for walls.
 func connectFamily(name string) connectFam {
 	if blockTagHas("fences", name) {
 		return connFence
 	}
 	if strings.HasSuffix(name, "_pane") || strings.HasSuffix(name, "_bars") {
 		return connBars
+	}
+	if blockTagHas("walls", name) {
+		return connWall
 	}
 	return connNone
 }
@@ -158,6 +162,14 @@ func (s *Server) connects(d *dimension, fam connectFam, selfName string, changed
 	case connBars:
 		return sturdy || strings.HasSuffix(nname, "_pane") ||
 			strings.HasSuffix(nname, "_bars") || blockTagHas("walls", nname)
+	case connWall:
+		// WallBlock.connectsTo reaches further than the fence's:
+		// #walls, sturdy non-exception sides, IronBarsBlock, and the
+		// same perpendicular-gate rule.
+		gate := strings.HasSuffix(nname, "_fence_gate") &&
+			(dz != 0) == fenceGateFacingAxisX(nb)
+		return blockTagHas("walls", nname) || sturdy ||
+			strings.HasSuffix(nname, "_pane") || strings.HasSuffix(nname, "_bars") || gate
 	}
 	return false
 }
@@ -167,37 +179,11 @@ func (s *Server) connects(d *dimension, fam connectFam, selfName string, changed
 // changed, and a rewrite cascades (vanilla's setBlock on the cell
 // fans out again) until the connected run settles.
 func (s *Server) connectionUpdate(d *dimension, pos, changed world.Pos) {
-	b := d.w.GetBlock(pos)
-	name, ok := world.StateOwner(b)
-	if !ok {
-		return
+	before := d.w.GetBlock(pos)
+	s.connectionUpdateNoCascade(d, pos, changed)
+	if d.w.GetBlock(pos) != before {
+		s.connectionCascade(d, pos)
 	}
-	fam := connectFamily(strings.TrimPrefix(name, "minecraft:"))
-	if fam == connNone {
-		return
-	}
-	if !connHorizontal(pos, changed) {
-		return // updateShape only rewrites horizontal neighbours
-	}
-	prop, ok := connPropByDir(changed.X-pos.X, changed.Z-pos.Z)
-	if !ok {
-		return
-	}
-	want := s.connects(d, fam, strings.TrimPrefix(name, "minecraft:"), changed, changed.X-pos.X, changed.Z-pos.Z)
-	cur, _ := world.StateProperty(b, prop)
-	wantStr := "false"
-	if want {
-		wantStr = "true"
-	}
-	if cur == wantStr {
-		return
-	}
-	nb, ok := world.WithProperty(b, prop, wantStr)
-	if !ok {
-		return
-	}
-	s.setSilentBlock(d, pos, nb)
-	s.connectionCascade(d, pos)
 }
 
 // connectionCascade re-runs the horizontal updateShape pass around a
@@ -221,6 +207,18 @@ func (s *Server) connectionCascade(d *dimension, pos world.Pos) {
 				queue = append(queue, n)
 			}
 		}
+		for _, dy := range []int{1, -1} {
+			n := world.Pos{X: cur.X, Y: cur.Y + dy, Z: cur.Z}
+			if seen[n] {
+				continue
+			}
+			before := d.w.GetBlock(n)
+			s.connectionUpdateNoCascade(d, n, cur)
+			if d.w.GetBlock(n) != before {
+				seen[n] = true
+				queue = append(queue, n)
+			}
+		}
 	}
 }
 
@@ -233,7 +231,14 @@ func (s *Server) connectionUpdateNoCascade(d *dimension, pos, changed world.Pos)
 		return
 	}
 	fam := connectFamily(strings.TrimPrefix(name, "minecraft:"))
-	if fam == connNone || !connHorizontal(pos, changed) {
+	if fam == connNone {
+		return
+	}
+	if fam == connWall {
+		s.wallNeighborUpdate(d, pos, changed, b)
+		return
+	}
+	if !connHorizontal(pos, changed) {
 		return
 	}
 	prop, ok := connPropByDir(changed.X-pos.X, changed.Z-pos.Z)
@@ -254,6 +259,138 @@ func (s *Server) connectionUpdateNoCascade(d *dimension, pos, changed world.Pos)
 	}
 }
 
+// wallNeighborUpdate is WallBlock.updateShape: DOWN is ignored, UP
+// re-runs the fold keeping the four current side bools (topUpdate),
+// and a horizontal change replaces just that side's connect flag
+// before the shared fold (sideUpdate).
+func (s *Server) wallNeighborUpdate(d *dimension, pos, changed world.Pos, b world.Block) {
+	n, e, so, w := wallSideBools(b)
+	dx, dy, dz := changed.X-pos.X, changed.Y-pos.Y, changed.Z-pos.Z
+	switch {
+	case dy > 0:
+		// topUpdate: block above changed — keep side connectivity.
+	case dy < 0:
+		return
+	case !connHorizontal(pos, changed):
+		return
+	default:
+		want := s.connects(d, connWall, "", changed, dx, dz)
+		switch {
+		case dz == -1:
+			n = want
+		case dz == 1:
+			so = want
+		case dx == 1:
+			e = want
+		default:
+			w = want
+		}
+	}
+	s.wallFold(d, pos, b, n, e, so, w)
+}
+
+// wallSideBools is WallBlock.isConnected over the four props: a side
+// counts as connected when it isn't "none".
+func wallSideBools(b world.Block) (n, e, so, w bool) {
+	get := func(prop string) bool {
+		v, _ := world.StateProperty(b, prop)
+		return v != "none"
+	}
+	return get("north"), get("east"), get("south"), get("west")
+}
+
+// wallAboveCovers approximates "the above block's bottom face covers
+// the wall's test shape" — TEST_SHAPES_WALL's 2x16x9 strip per side
+// and TEST_SHAPE_POST's 2x2 centre column both reduce to a full
+// bottom face. Bottom-half slabs/stairs and closed bottom trapdoors
+// genuinely have full bottom faces; the rest fall back to the same
+// non-full-cube name set the horizontal side check uses.
+func wallAboveCovers(b world.Block, name string) bool {
+	if strings.HasSuffix(name, "_slab") {
+		t, _ := world.StateProperty(b, "type")
+		return t == "bottom" || t == "double"
+	}
+	if strings.HasSuffix(name, "_stairs") {
+		h, _ := world.StateProperty(b, "half")
+		return h == "bottom"
+	}
+	if strings.HasSuffix(name, "_trapdoor") {
+		open, _ := world.StateProperty(b, "open")
+		h, _ := world.StateProperty(b, "half")
+		return open != "true" && h == "bottom"
+	}
+	if _, _, isFluid := fluidOf(b); isFluid {
+		return false
+	}
+	if world.NonSolid(b) {
+		return false
+	}
+	return !connectPartialFace(name)
+}
+
+// wallFold is WallBlock's private updateShape: each side becomes
+// tall when connected and covered by the block above's bottom face,
+// low when connected but not covered, none otherwise; then
+// shouldRaisePost decides the up prop.
+func (s *Server) wallFold(d *dimension, pos world.Pos, b world.Block, n, e, so, w bool) {
+	abovePos := world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z}
+	ab := d.w.GetBlock(abovePos)
+	aname, _ := world.StateOwner(ab)
+	covers := wallAboveCovers(ab, strings.TrimPrefix(aname, "minecraft:"))
+	out := b
+	setSide := func(prop string, conn bool) {
+		v := "none"
+		if conn {
+			if covers {
+				v = "tall"
+			} else {
+				v = "low"
+			}
+		}
+		if nb, ok := world.WithProperty(out, prop, v); ok {
+			out = nb
+		}
+	}
+	setSide("north", n)
+	setSide("east", e)
+	setSide("south", so)
+	setSide("west", w)
+	up := wallRaisePost(out, ab, strings.TrimPrefix(aname, "minecraft:"), covers)
+	if nb, ok := world.WithProperty(out, "up", boolStr(up)); ok {
+		out = nb
+	}
+	if out != b {
+		s.setSilentBlock(d, pos, out)
+	}
+}
+
+// wallRaisePost is shouldRaisePost: a wall topped by an up-raised
+// wall keeps its post; a lone post, a corner, or a T junction raises
+// one; a straight or flat-topped run drops it unless the block above
+// is in #wall_post_override or covers the centre post shape.
+func wallRaisePost(newState, above world.Block, aboveName string, aboveCovers bool) bool {
+	av, _ := world.StateProperty(above, "up")
+	if blockTagHas("walls", aboveName) && av == "true" {
+		return true
+	}
+	side := func(prop string) string {
+		v, _ := world.StateProperty(newState, prop)
+		return v
+	}
+	n, e, so, w := side("north"), side("east"), side("south"), side("west")
+	nN, sN, eN, wN := n == "none", so == "none", e == "none", w == "none"
+	if nN && sN && wN && eN {
+		return true
+	}
+	if nN != sN || wN != eN {
+		return true
+	}
+	if (n == "tall" && so == "tall") || (e == "tall" && w == "tall") {
+		return false
+	}
+	return blockTagHas("wall_post_override", aboveName) || aboveCovers
+}
+
 // connectPlaceState is the getStateForPlacement half: a placed
 // connectable block folds its four horizontal props from the current
 // neighbours (and waterlogged from the cell's fluid), exactly what
@@ -270,18 +407,50 @@ func (s *Server) connectPlaceState(d *dimension, pos world.Pos, blk world.Block)
 		return blk
 	}
 	out := blk
-	for _, dir := range cardinalDirs {
-		prop, ok := connPropByDir(dir.dx, dir.dz)
-		if !ok {
-			continue
+	if fam == connWall {
+		n, e, so, w := s.connects(d, connWall, short, world.Pos{X: pos.X, Y: pos.Y, Z: pos.Z - 1}, 0, -1),
+			s.connects(d, connWall, short, world.Pos{X: pos.X + 1, Y: pos.Y, Z: pos.Z}, 1, 0),
+			s.connects(d, connWall, short, world.Pos{X: pos.X, Y: pos.Y, Z: pos.Z + 1}, 0, 1),
+			s.connects(d, connWall, short, world.Pos{X: pos.X - 1, Y: pos.Y, Z: pos.Z}, -1, 0)
+		abovePos := world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z}
+		ab := d.w.GetBlock(abovePos)
+		aname, _ := world.StateOwner(ab)
+		covers := wallAboveCovers(ab, strings.TrimPrefix(aname, "minecraft:"))
+		setSide := func(prop string, conn bool) {
+			v := "none"
+			if conn {
+				if covers {
+					v = "tall"
+				} else {
+					v = "low"
+				}
+			}
+			if nb, ok := world.WithProperty(out, prop, v); ok {
+				out = nb
+			}
 		}
-		n := world.Pos{X: pos.X + dir.dx, Y: pos.Y, Z: pos.Z + dir.dz}
-		want := "false"
-		if s.connects(d, fam, short, n, dir.dx, dir.dz) {
-			want = "true"
-		}
-		if nb, ok := world.WithProperty(out, prop, want); ok {
+		setSide("north", n)
+		setSide("east", e)
+		setSide("south", so)
+		setSide("west", w)
+		up := wallRaisePost(out, ab, strings.TrimPrefix(aname, "minecraft:"), covers)
+		if nb, ok := world.WithProperty(out, "up", boolStr(up)); ok {
 			out = nb
+		}
+	} else {
+		for _, dir := range cardinalDirs {
+			prop, ok := connPropByDir(dir.dx, dir.dz)
+			if !ok {
+				continue
+			}
+			n := world.Pos{X: pos.X + dir.dx, Y: pos.Y, Z: pos.Z + dir.dz}
+			want := "false"
+			if s.connects(d, fam, short, n, dir.dx, dir.dz) {
+				want = "true"
+			}
+			if nb, ok := world.WithProperty(out, prop, want); ok {
+				out = nb
+			}
 		}
 	}
 	if _, hasWL := world.StateProperty(out, "waterlogged"); hasWL {

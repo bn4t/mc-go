@@ -152,6 +152,50 @@ func TestConnectParity(t *testing.T) {
 		mark("break_a", probe(pw, sink, "block 112 -59 80 minecraft:oak_fence[east=false]", 14))
 		mark("break_c", probe(pw, sink, "block 114 -59 80 minecraft:oak_fence[west=false]", 15))
 
+		// Leg M: wall pair — endpoints keep a raised post, sides are
+		// low under open sky.
+		sendCommand(t, pw, "setblock 96 -59 92 cobblestone_wall")
+		sendCommand(t, pw, "setblock 97 -59 92 cobblestone_wall")
+		time.Sleep(300 * time.Millisecond)
+		mark("wall_a_east", probe(pw, sink, "block 96 -59 92 minecraft:cobblestone_wall[east=low]", 20))
+		mark("wall_a_up", probe(pw, sink, "block 96 -59 92 minecraft:cobblestone_wall[up=true]", 21))
+
+		// Leg N: a three-wall run flattens the middle post; the ends
+		// keep theirs.
+		sendCommand(t, pw, "setblock 100 -59 92 cobblestone_wall")
+		sendCommand(t, pw, "setblock 101 -59 92 cobblestone_wall")
+		sendCommand(t, pw, "setblock 102 -59 92 cobblestone_wall")
+		time.Sleep(300 * time.Millisecond)
+		mark("wall_mid_up", probe(pw, sink, "block 101 -59 92 minecraft:cobblestone_wall[up=false]", 22))
+		mark("wall_mid_e", probe(pw, sink, "block 101 -59 92 minecraft:cobblestone_wall[east=low]", 23))
+		mark("wall_end_up", probe(pw, sink, "block 100 -59 92 minecraft:cobblestone_wall[up=true]", 24))
+
+		// Leg O: a solid block above raises sides to tall and keeps
+		// the post.
+		sendCommand(t, pw, "setblock 105 -59 92 cobblestone_wall")
+		sendCommand(t, pw, "setblock 106 -59 92 cobblestone_wall")
+		sendCommand(t, pw, "setblock 105 -58 92 stone")
+		time.Sleep(400 * time.Millisecond)
+		mark("wall_tall_e", probe(pw, sink, "block 105 -59 92 minecraft:cobblestone_wall[east=tall]", 25))
+		mark("wall_tall_up", probe(pw, sink, "block 105 -59 92 minecraft:cobblestone_wall[up=true]", 26))
+
+		// Leg P: a torch on top overrides the post on a straight run.
+		sendCommand(t, pw, "setblock 109 -59 92 cobblestone_wall")
+		sendCommand(t, pw, "setblock 110 -59 92 cobblestone_wall")
+		sendCommand(t, pw, "setblock 111 -59 92 cobblestone_wall")
+		time.Sleep(250 * time.Millisecond)
+		sendCommand(t, pw, "setblock 110 -58 92 torch")
+		time.Sleep(400 * time.Millisecond)
+		mark("wall_torch_up", probe(pw, sink, "block 110 -59 92 minecraft:cobblestone_wall[up=true]", 27))
+
+		// Leg Q: walls attach to panes and gates — wall side becomes
+		// low toward a pane; the pane connects back via #walls.
+		sendCommand(t, pw, "setblock 114 -59 92 cobblestone_wall")
+		sendCommand(t, pw, "setblock 115 -59 92 glass_pane")
+		time.Sleep(300 * time.Millisecond)
+		mark("wall_pane", probe(pw, sink, "block 114 -59 92 minecraft:cobblestone_wall[east=low]", 28))
+		mark("pane_wall", probe(pw, sink, "block 115 -59 92 minecraft:glass_pane[west=true]", 29))
+
 		// Leg L: player placement folds getStateForPlacement — a
 		// fence placed next to a fence writes its own prop on entry.
 		sendCommand(t, pw, "setblock 121 -59 80 oak_fence")
