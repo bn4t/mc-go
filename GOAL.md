@@ -2947,3 +2947,10 @@ physics through a void dip plus a fed recovery window.
   answers redirect aliases like `help tp` with silence).
   TestCommandLevelParity drives all registered names plus help-arg
   cases at levels 0/2/3 against both servers.
+- Bare-command replies: roots with no bare executable (data, execute,
+  fill, give, scoreboard, setblock, summon, team, teleport, tellraw,
+  title, tp) now answer a bare call with command.unknown.command and
+  the root literal underlined — vanilla's parser-exhaustion shape —
+  replacing the old "Usage:" strings. /version's build_time with-arg
+  is the real 26.2 stamp. TestCommandLevelParity now compares all
+  names strictly at every level.

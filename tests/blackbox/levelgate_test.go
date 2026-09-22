@@ -41,16 +41,6 @@ func TestCommandLevelParity(t *testing.T) {
 	for _, e := range extra {
 		names = append(names, e)
 	}
-	// Commands whose bare-call replies are known-divergent "Usage:"-style
-	// output — a separate arg-parse parity slice. At level 0 they are
-	// still gated on both sides and so ARE compared.
-	allowedDivergent := map[string]bool{
-		"data": true, "execute": true, "fill": true, "give": true,
-		"scoreboard": true, "setblock": true, "summon": true,
-		"team": true, "teleport": true, "tellraw": true,
-		"title": true, "tp": true, "version": true,
-	}
-
 	numRe := regexp.MustCompile(`d\(-?[0-9.e+]+\)|f\(-?[0-9.e+]+\)|i\(-?[0-9]+\)|b\([0-9]+\)|l\(-?[0-9]+\)|"-?[0-9]+(?:\.[0-9]+)?"`)
 	ops := func(level int) map[string]string {
 		if level == 0 {
@@ -149,9 +139,6 @@ func TestCommandLevelParity(t *testing.T) {
 		want := run(targets.vanilla)
 		got := run(targets.mcgo)
 		for i, cmd := range names {
-			if level >= 2 && allowedDivergent[strings.Fields(cmd)[0]] {
-				continue
-			}
 			if len(want[i]) != len(got[i]) {
 				t.Errorf("level %d cmd %q: vanilla %v\n  mc-go %v", level, cmd, want[i], got[i])
 				continue

@@ -205,6 +205,17 @@ func commandLevel(name string) int {
 	return 2
 }
 
+// commandNeedsArgs marks roots with no bare executable — vanilla's
+// parser reaches the end of the name with nothing to run and reports
+// command.unknown.command underlining the name, same shape as a
+// gated command. Measured on 26.2 for the commands that diverged.
+var commandNeedsArgs = map[string]bool{
+	"data": true, "execute": true, "fill": true, "give": true,
+	"scoreboard": true, "setblock": true, "summon": true,
+	"team": true, "teleport": true, "tellraw": true,
+	"title": true, "tp": true,
+}
+
 // runCommand runs any registered command - component command or plugin
 // command - and reports whether it existed. A command the player is not
 // leveled for reports unknown, the same as an unregistered name —
@@ -212,6 +223,9 @@ func commandLevel(name string) int {
 func (s *Server) runCommand(player, name string, args []string) (reply, bool) {
 	if s.permissionLevel(player) < commandLevel(name) {
 		return reply{}, false
+	}
+	if len(args) == 0 && commandNeedsArgs[name] {
+		return errTokenEnd("command.unknown.command", 0), true
 	}
 	if fn := s.componentCommand(name); fn != nil {
 		return fn(player, args), true

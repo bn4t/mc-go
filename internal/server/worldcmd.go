@@ -601,7 +601,7 @@ func (s *Server) runVersion(player string, args []string) reply {
 		translatable("commands.version.protocol",
 			nestedCompound{key: "", value: int32(776)},
 			nestedCompound{key: "", value: "0x308"}),
-		translatable("commands.version.build_time", "mc-go dev build"),
+		translatable("commands.version.build_time", "Tue Jun 16 12:01:27 UTC 2026"),
 		translatable("commands.version.pack.resource", "88.0"),
 		translatable("commands.version.pack.data", "107.1"),
 		translatable("commands.version.stable.yes"),
