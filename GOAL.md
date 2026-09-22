@@ -2965,3 +2965,12 @@ physics through a void dip plus a fed recovery window.
   verbatim by tools/genlang into langtext_gen.go. RconAddr/
   RconPassword configure it; -rcon-addr/-rcon-password on the binary.
   TestRconParity compares every case byte for byte.
+- GameSpy4 query: enable-query/query.port measured on vanilla's
+  QueryThreadGs4 — handshake echoes the request's ident bytes and a
+  random challenge (valid 30s, pruned on receive), stat answers reuse
+  the handshake ident rather than the packet's sid field, a request of
+  exactly 15 bytes triggers the full stat (any other padding falls back
+  to basic), the full answer is key/value pairs between splitnum and
+  player_ sentinels, and unauthenticated or malformed packets are
+  dropped. EnableQuery/QueryAddr on the server, -enable-query/
+  -query-addr on the binary. TestQueryParity diffs every case.

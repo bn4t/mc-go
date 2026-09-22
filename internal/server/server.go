@@ -105,6 +105,11 @@ type Server struct {
 	// password disables it like vanilla's unset rcon.password.
 	RconAddr     string
 	RconPassword string
+	// EnableQuery/QueryAddr configure the GameSpy4 UDP listener;
+	// an empty QueryAddr binds the main port like vanilla's
+	// query.port default.
+	EnableQuery bool
+	QueryAddr   string
 	// StartFrozen starts the game clock frozen, as though /tick freeze
 	// had been issued before the first tick. It exists for tests that
 	// need a loaded world handed over untouched - a furnace's saved
@@ -417,6 +422,11 @@ func (s *Server) ServeFrontend(name string, ln net.Listener) error {
 		return err
 	}
 	defer stopRcon()
+	stopQuery, err := s.startQuery()
+	if err != nil {
+		return err
+	}
+	defer stopQuery()
 	return fe.Serve(ln)
 }
 

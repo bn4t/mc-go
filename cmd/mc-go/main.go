@@ -32,6 +32,8 @@ func main() {
 	gameMode := flag.String("gamemode", "survival", "default game mode: survival, creative, adventure, spectator")
 	rconAddr := flag.String("rcon-addr", "", "RCON listen address (default :25575 when a password is set)")
 	rconPassword := flag.String("rcon-password", "", "RCON password; empty disables RCON like unset rcon.password")
+	enableQuery := flag.Bool("enable-query", false, "enable the GameSpy4 query listener")
+	queryAddr := flag.String("query-addr", "", "query listen address (default: the server address, like unset query.port)")
 	flag.Parse()
 
 	s := server.New(*addr)
@@ -42,6 +44,8 @@ func main() {
 	s.ServerDir = *serverDir
 	s.RconAddr = *rconAddr
 	s.RconPassword = *rconPassword
+	s.EnableQuery = *enableQuery
+	s.QueryAddr = *queryAddr
 	s.LevelName = *levelName
 	s.WorldSeed = *seed
 	s.GenerateStructures = *generateStructures
