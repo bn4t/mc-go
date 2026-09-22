@@ -73,7 +73,6 @@ func (sess *Session) addStat(category, id, delta int32) {
 		return
 	}
 	sess.statMu.Lock()
-	defer sess.statMu.Unlock()
 	st := sess.ensureStats()
 	k := statKey{category, id}
 	next := st.counts[k] + delta
@@ -88,6 +87,8 @@ func (sess *Session) addStat(category, id, delta int32) {
 		st.dirty[k] = true
 		st.dirtyOrder = append(st.dirtyOrder, k)
 	}
+	sess.statMu.Unlock()
+	sess.server.feedStatCriteria(sess, category, id, next)
 }
 
 // setStat forces one counter's value (respawn resets, loads).

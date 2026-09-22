@@ -4,10 +4,10 @@ import (
 	"strconv"
 )
 
-// Minimal /xp: set <targets> <amount> levels|points. This exists so
-// blackbox setups (and operators) can grant exact levels; the reply
+// Minimal /xp: add|set <targets> <amount> levels|points. This exists
+// so blackbox setups (and operators) can grant exact levels; the reply
 // text is a placeholder until measured against vanilla (TODO: xp reply
-// parity, query/add forms, points-vs-levels clamping).
+// parity, query form, points-vs-levels clamping).
 func (s *Server) runXp(player string, args []string) reply {
 	sess := s.findSessionByName(player)
 	if sess == nil || sess.opLevel() < 2 {
@@ -16,7 +16,12 @@ func (s *Server) runXp(player string, args []string) reply {
 	if len(args) == 0 {
 		return errTokenEnd("command.unknown.command", 1)
 	}
-	if args[0] != "set" {
+	add := false
+	switch args[0] {
+	case "set":
+	case "add":
+		add = true
+	default:
 		return errToken("command.unknown.argument", 1)
 	}
 	if len(args) < 4 {
@@ -33,9 +38,17 @@ func (s *Server) runXp(player string, args []string) reply {
 	}
 	switch args[3] {
 	case "levels":
-		target.xpLevel = int32(amount)
+		if add {
+			target.xpLevel += int32(amount)
+		} else {
+			target.xpLevel = int32(amount)
+		}
 	case "points":
-		target.xpTotal += int32(amount)
+		if !add {
+			target.xpTotal = int32(amount)
+		} else {
+			target.xpTotal += int32(amount)
+		}
 		level, progress := experienceLevel(target.xpTotal)
 		target.xpLevel = level
 		target.xpProgress = progress

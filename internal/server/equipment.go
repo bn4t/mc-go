@@ -55,6 +55,7 @@ func encodeEquipment(eid int32, entries []struct {
 // broadcastEquipment sends one player's equipment to every other
 // spawned session in their dimension.
 func (s *Server) broadcastEquipment(sess *Session) {
+	s.criteriaFeed(sess, "armor")
 	eid := sess.entityID.Load()
 	if eid == 0 {
 		return

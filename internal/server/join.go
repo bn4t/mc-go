@@ -294,6 +294,7 @@ func (s *Server) sendEntityHealthMetadata(sess *Session, eid int32, health float
 
 // sendSetExperience syncs the XP bar, level, and total.
 func (s *Server) sendSetExperience(sess *Session, bar float32, level, total int32) error {
+	s.criteriaFeed(sess, "xp", "level")
 	var b protocol.Buffer
 	b.Float(bar)
 	b.VarInt(level)
@@ -303,6 +304,7 @@ func (s *Server) sendSetExperience(sess *Session, bar float32, level, total int3
 
 // sendSetHealth syncs health, food level, and saturation.
 func (s *Server) sendSetHealth(sess *Session, health float32, food int32, saturation float32) error {
+	s.criteriaFeed(sess, "health", "food")
 	var b protocol.Buffer
 	b.Float(health)
 	b.VarInt(food)

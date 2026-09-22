@@ -165,6 +165,12 @@ type Session struct {
 	xpTotal    int32
 	xpLevel    int32
 	xpProgress float32
+	// criteriaLast snapshots the last live-criteria value each read-only
+	// scoreboard criterion was observed at — objectives read the delta:
+	// vanilla writes a live criterion only when its value changed since
+	// the objective's baseline (creation or the last write), not on
+	// every event.
+	criteriaLast map[string]int32
 	// enchantSeed is the player's enchantment seed, rerolled on every
 	// table enchant; it starts at 0 for a fresh player like vanilla's.
 	enchantSeed int32

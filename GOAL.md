@@ -3705,3 +3705,19 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   every-write hook recalc over-attached; moved to the placement path.
   TestTripwirePoweredParity pins press/release/hooks; a killed pig's
   dropped porkchops keep the wire pressed on vanilla (items press).
+
+- 2026-09-19 (cont): Scoreboard criteria feeds — stat awards write the
+  stat's new total into every objective tracking
+  minecraft.<type>:minecraft.<value>, plus the custom-stat fixed
+  criteria (deathCount←deaths, playerKillCount←player_kills,
+  totalKillCount←player_kills+mob_kills). Live criteria
+  (health/xp/level/food/air/armor) are event-driven, not ticked: each
+  baselines its live value at objective creation and writes only on
+  real change — health/food feed from sendSetHealth, xp/level from
+  sendSetExperience, armor from equipment writes. The six are
+  read-only: players set/add/remove/operation reply
+  "Scoreboard objective '%s' is read-only" (reset works). /xp gained
+  the add form and set-points now sets (was +=). Measured: fresh
+  live-criteria objectives stay unset on vanilla (no polling), and
+  /damage does not feed zh on either server.
+  TestScoreboardCriteriaParity pins 15 legs.

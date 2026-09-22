@@ -2,12 +2,14 @@ package server
 
 import (
 	"bytes"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
 
 	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
+	"mc-go/internal/world"
 )
 
 // scoreboard holds objectives (name -> def) and per-holder scores,
@@ -506,6 +508,25 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 		o := &sbObjective{criteria: criteria, display: display}
 		s.board.objectives[name] = o
 		s.board.mu.Unlock()
+		if criteriaReadOnly(criteria) {
+			// Live criteria baseline at the objective's creation:
+			// each online player snapshots its current value without
+			// writing a score, so a later event writes only real
+			// change (measured: fresh health/level objectives stay
+			// unset until the value moves).
+			s.board.mu.Lock()
+			s.sessions.Range(func(_, v any) bool {
+				other := v.(*Session)
+				if lv, ok := s.liveCriteriaValue(other, criteria); ok {
+					if other.criteriaLast == nil {
+						other.criteriaLast = map[string]int32{}
+					}
+					other.criteriaLast[criteria] = lv
+				}
+				return true
+			})
+			s.board.mu.Unlock()
+		}
 		s.broadcastObjectiveCreate(name, o)
 		return componentReply(translatable("commands.scoreboard.objectives.add.success",
 			s.objectiveChatComponent(name)))
@@ -854,10 +875,13 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 		}
 		objective := args[3]
 		s.board.mu.Lock()
-		_, objOK := s.board.objectives[objective]
+		o, objOK := s.board.objectives[objective]
 		s.board.mu.Unlock()
 		if !objOK {
 			return componentReply(commandError("arguments.objective.notFound", objective))
+		}
+		if criteriaReadOnly(o.criteria) {
+			return componentReply(commandError("arguments.objective.readonly", objective))
 		}
 		s.board.mu.Lock()
 		for _, h := range holders {
@@ -993,11 +1017,14 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 			return *rep
 		}
 		s.board.mu.Lock()
-		_, tOK := s.board.objectives[targetObj]
+		tObj, tOK := s.board.objectives[targetObj]
 		_, sOK := s.board.objectives[sourceObj]
 		s.board.mu.Unlock()
 		if !tOK {
 			return componentReply(commandError("arguments.objective.notFound", targetObj))
+		}
+		if criteriaReadOnly(tObj.criteria) {
+			return componentReply(commandError("arguments.objective.readonly", targetObj))
 		}
 		src, rep2 := s.resolveHolderSingle(sess, args[5], 6)
 		if rep2 != nil {
@@ -1374,4 +1401,164 @@ func (s *Server) broadcastToPlay(packetID int32, body []byte) {
 		_ = sess.write(packetID, body)
 		return true
 	})
+}
+
+// --- criteria feeds -------------------------------------------------
+// Vanilla scores for tracked criteria are the stat/attribute values
+// themselves: a stat award writes the new total into every objective
+// whose criterion names it, and the live criteria (health, food, xp,
+// level, air, armor) refresh on the tick. Manual players set/add
+// writes land normally and are overwritten by the next stat award.
+
+// statCriteriaName builds the criterion name a (category, id) stat
+// feeds: minecraft.<type>:minecraft.<value>.
+func statCriteriaName(category, id int32) string {
+	var vname string
+	var ok bool
+	switch category {
+	case statMined:
+		vname, ok = blockIDName(id)
+	case statCrafted, statUsed, statBroken, statPickedUp, statDropped:
+		vname, ok = world.ItemName(id)
+	case statKilled, statKilledBy:
+		vname, ok = EntityTypeName(id)
+	case statCustom:
+		vname, ok = customStatName(id)
+	}
+	if !ok || category < 0 || int(category) >= len(statTypeNames) {
+		return ""
+	}
+	return "minecraft." + statTypeNames[category] + ":minecraft." + vname
+}
+
+// feedStatCriteria writes a stat's new total into every objective
+// tracking it — plus the fixed criteria backed by custom stats
+// (deathCount from deaths, playerKillCount and the composed
+// totalKillCount from player_kills/mob_kills).
+func (s *Server) feedStatCriteria(sess *Session, category, id int32, total int32) {
+	name := sess.getName()
+	criteria := statCriteriaName(category, id)
+	targets := map[string]int32{}
+	if criteria != "" {
+		targets[criteria] = total
+	}
+	if category == statCustom {
+		if vname, ok := customStatName(id); ok {
+			switch vname {
+			case "deaths":
+				targets["deathCount"] = total
+			case "player_kills":
+				targets["playerKillCount"] = total
+				targets["totalKillCount"] = total + sess.statCount(statCustom, int32(mustCustomStatID("mob_kills")))
+			case "mob_kills":
+				targets["totalKillCount"] = total + sess.statCount(statCustom, int32(mustCustomStatID("player_kills")))
+			}
+		}
+	}
+	s.board.mu.Lock()
+	var writes []struct {
+		obj string
+		val int32
+	}
+	for objName, o := range s.board.objectives {
+		v, ok := targets[o.criteria]
+		if !ok {
+			continue
+		}
+		cur := s.board.scores[name][objName]
+		if cur != nil && cur.value == v {
+			continue
+		}
+		s.setScoreLocked(name, objName, v)
+		writes = append(writes, struct {
+			obj string
+			val int32
+		}{objName, v})
+	}
+	s.board.mu.Unlock()
+	for _, w := range writes {
+		s.broadcastScore(name, w.obj, w.val)
+	}
+}
+
+func mustCustomStatID(name string) int32 {
+	if id, ok := CustomStatID(name); ok {
+		return id
+	}
+	return -1
+}
+
+// liveCriteriaValue is the value a live (read-only) criterion reads
+// for a player right now: health/xp/level/food/air/armor — armor is
+// the armor-defense sum, air a flat 300 without a breath model.
+func (s *Server) liveCriteriaValue(sess *Session, criteria string) (int32, bool) {
+	switch criteria {
+	case "health":
+		return int32(math.Ceil(float64(sess.health))), true
+	case "xp":
+		return sess.xpTotal, true
+	case "level":
+		return int32(sess.xpLevel), true
+	case "food":
+		return int32(sess.food), true
+	case "air":
+		return 300, true
+	case "armor":
+		return int32(sess.armorDefense()), true
+	}
+	return 0, false
+}
+
+// criteriaReadOnly is vanilla's ReadOnlyCriterion set — the live
+// criteria reject /scoreboard players set/add/remove/operation.
+func criteriaReadOnly(criteria string) bool {
+	switch criteria {
+	case "health", "xp", "level", "food", "air", "armor":
+		return true
+	}
+	return false
+}
+
+// criteriaFeed refreshes this session's scores on live-criteria
+// objectives, restricted to the named criteria and writing only on
+// change. Vanilla feeds these from the events that mutate them —
+// health/food on SetHealth, xp/level on SetExperience, armor on
+// equipment writes — so they are event-driven rather than ticked.
+func (s *Server) criteriaFeed(sess *Session, criteria ...string) {
+	name := sess.getName()
+	type write struct {
+		obj string
+		val int32
+	}
+	var writes []write
+	s.board.mu.Lock()
+	for _, c := range criteria {
+		v, ok := s.liveCriteriaValue(sess, c)
+		if !ok {
+			continue
+		}
+		last, seen := sess.criteriaLast[c]
+		if seen && last == v {
+			continue
+		}
+		if sess.criteriaLast == nil {
+			sess.criteriaLast = map[string]int32{}
+		}
+		sess.criteriaLast[c] = v
+		for objName, o := range s.board.objectives {
+			if o.criteria != c {
+				continue
+			}
+			cur := s.board.scores[name][objName]
+			if cur != nil && cur.value == v {
+				continue
+			}
+			s.setScoreLocked(name, objName, v)
+			writes = append(writes, write{objName, v})
+		}
+	}
+	s.board.mu.Unlock()
+	for _, w := range writes {
+		s.broadcastScore(name, w.obj, w.val)
+	}
 }
