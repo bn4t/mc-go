@@ -1,6 +1,7 @@
 package server
 
 import (
+	"math"
 	"strings"
 
 	"mc-go/internal/world"
@@ -230,7 +231,12 @@ func (s *Server) connectionUpdateNoCascade(d *dimension, pos, changed world.Pos)
 	if !ok {
 		return
 	}
-	fam := connectFamily(strings.TrimPrefix(name, "minecraft:"))
+	short := strings.TrimPrefix(name, "minecraft:")
+	if short == "chest" || short == "trapped_chest" {
+		s.chestNeighborUpdate(d, pos, changed, b)
+		return
+	}
+	fam := connectFamily(short)
 	if fam == connNone {
 		return
 	}
@@ -461,4 +467,238 @@ func (s *Server) connectPlaceState(d *dimension, pos world.Pos, blk world.Block)
 		}
 	}
 	return out
+}
+
+// Chest merge — ChestBlock.updateShape: a chest that gains a
+// same-name, same-facing partner chest takes the opposite type, and a
+// chest that loses its partner returns to single. Only horizontal
+// neighbours participate. getConnectedDirection: type left points
+// clockwise of facing, right (and single) counter-clockwise.
+func chestConnDir(typ, facing string) string {
+	if typ == "left" {
+		return dirCW(facing)
+	}
+	return dirCCW(facing)
+}
+
+// dirCW/CCW/opposite on the four horizontal directions, viewed from
+// above — vanilla Direction semantics.
+func dirCW(d string) string {
+	switch d {
+	case "north":
+		return "east"
+	case "east":
+		return "south"
+	case "south":
+		return "west"
+	}
+	return "north"
+}
+
+func dirCCW(d string) string {
+	switch d {
+	case "north":
+		return "west"
+	case "west":
+		return "south"
+	case "south":
+		return "east"
+	}
+	return "north"
+}
+
+func dirOpposite(d string) string {
+	switch d {
+	case "north":
+		return "south"
+	case "south":
+		return "north"
+	case "east":
+		return "west"
+	}
+	return "east"
+}
+
+// dirByName maps a horizontal face delta to its direction name.
+func dirName(dx, dz int) string {
+	switch {
+	case dz == -1:
+		return "north"
+	case dz == 1:
+		return "south"
+	case dx == 1:
+		return "east"
+	default:
+		return "west"
+	}
+}
+
+// chestNeighborUpdate applies ChestBlock.updateShape to the chest at
+// pos when changed is a neighbour.
+func (s *Server) chestNeighborUpdate(d *dimension, pos, changed world.Pos, b world.Block) {
+	selfName, ok := world.StateOwner(b)
+	if !ok {
+		return
+	}
+	selfName = strings.TrimPrefix(selfName, "minecraft:")
+	typ, _ := world.StateProperty(b, "type")
+	facing, _ := world.StateProperty(b, "facing")
+	nb := d.w.GetBlock(changed)
+	nname, ok := world.StateOwner(nb)
+	if !ok {
+		nname = "air"
+	}
+	nname = strings.TrimPrefix(nname, "minecraft:")
+	dx, dz := changed.X-pos.X, changed.Z-pos.Z
+	dir := dirName(dx, dz)
+	if nname == selfName && connHorizontal(pos, changed) {
+		nt, _ := world.StateProperty(nb, "type")
+		nf, _ := world.StateProperty(nb, "facing")
+		if typ == "single" && nt != "single" && facing == nf &&
+			chestConnDir(nt, nf) == dirOpposite(dir) {
+			if nb, ok := world.WithProperty(b, "type", dirOpposite2(nt)); ok {
+				s.setSilentBlock(d, pos, nb)
+				s.connectionCascade(d, pos)
+			}
+		}
+		return
+	}
+	if chestConnDir(typ, facing) == dir && connHorizontal(pos, changed) {
+		if nb, ok := world.WithProperty(b, "type", "single"); ok {
+			s.setSilentBlock(d, pos, nb)
+			s.connectionCascade(d, pos)
+		}
+	}
+}
+
+// dirOpposite2 is ChestType.getOpposite: left<->right.
+func dirOpposite2(t string) string {
+	if t == "left" {
+		return "right"
+	}
+	if t == "right" {
+		return "left"
+	}
+	return "single"
+}
+
+// chestCandidateFacing is candidatePartnerFacing: the block dir-wise
+// of pos that is the same chest block and still single yields its
+// facing.
+func chestCandidateFacing(d *dimension, pos world.Pos, selfName, dir string) string {
+	nb := d.w.GetBlock(shiftPos(pos, dir))
+	nname, ok := world.StateOwner(nb)
+	if !ok || strings.TrimPrefix(nname, "minecraft:") != selfName {
+		return ""
+	}
+	if t, _ := world.StateProperty(nb, "type"); t != "single" {
+		return ""
+	}
+	f, _ := world.StateProperty(nb, "facing")
+	return f
+}
+
+func shiftPos(pos world.Pos, dir string) world.Pos {
+	switch dir {
+	case "north":
+		pos.Z--
+	case "south":
+		pos.Z++
+	case "east":
+		pos.X++
+	case "west":
+		pos.X--
+	}
+	return pos
+}
+
+func dirAxisX(dir string) bool { return dir == "east" || dir == "west" }
+
+// chestPlaceState is ChestBlock.getStateForPlacement: the chest faces
+// the player, and pairs with a neighbouring single same-facing chest
+// — or, while sneaking on a horizontal face of a single chest, with
+// that clicked chest (taking its facing and the side-appropriate
+// type).
+func (s *Server) chestPlaceState(d *dimension, pos world.Pos, blk world.Block, sess *Session, face int32) world.Block {
+	name, ok := world.StateOwner(blk)
+	if !ok {
+		return blk
+	}
+	short := strings.TrimPrefix(name, "minecraft:")
+	if short != "chest" && short != "trapped_chest" {
+		return blk
+	}
+	_, _, _, yaw, _, _ := sess.Pos()
+	facing := dirOpposite(yawDir(yaw))
+	typ := "single"
+	faceDir := faceDirName(int(face))
+	if sess.sneaking && faceDir != "" {
+		// candidatePartnerFacing(level, pos, face.opposite) — the
+		// clicked block itself.
+		if pf := chestCandidateFacing(d, pos, short, dirOpposite(faceDir)); pf != "" && dirAxisX(pf) != dirAxisX(faceDir) {
+			facing = pf
+			if dirCCW(pf) == dirOpposite(faceDir) {
+				typ = "right"
+			} else {
+				typ = "left"
+			}
+		}
+	}
+	if typ == "single" && !sess.sneaking {
+		if pf := chestCandidateFacing(d, pos, short, dirCW(facing)); pf == facing {
+			typ = "left"
+		} else if pf := chestCandidateFacing(d, pos, short, dirCCW(facing)); pf == facing {
+			typ = "right"
+		}
+	}
+	out := blk
+	if nb, ok := world.WithProperty(out, "facing", facing); ok {
+		out = nb
+	}
+	if nb, ok := world.WithProperty(out, "type", typ); ok {
+		out = nb
+	}
+	if _, hasWL := world.StateProperty(out, "waterlogged"); hasWL {
+		if _, level, isFluid := fluidOf(d.w.GetBlock(pos)); isFluid && level == 0 {
+			if nb, ok := world.WithProperty(out, "waterlogged", "true"); ok {
+				out = nb
+			}
+		}
+	}
+	return out
+}
+
+// shiftPosBack steps pos against the given face direction.
+func shiftPosBack(pos world.Pos, dir string) world.Pos {
+	return shiftPos(pos, dirOpposite(dir))
+}
+
+// yawDir maps yaw to the horizontal direction the player faces
+// (0=south, 1=west, 2=north, 3=east in vanilla's GetNearest).
+// faceDirName maps a clicked-face protocol id (0=-Y 1=+Y 2=-Z
+// 3=+Z 4=-X 5=+X) to a horizontal direction name; "" for vertical.
+func faceDirName(face int) string {
+	switch face {
+	case 2:
+		return "north"
+	case 3:
+		return "south"
+	case 4:
+		return "west"
+	case 5:
+		return "east"
+	}
+	return ""
+}
+
+func yawDir(yaw float32) string {
+	switch int(math.Floor(float64(yaw)*4.0/360.0+0.5)) & 3 {
+	case 1:
+		return "west"
+	case 2:
+		return "north"
+	case 3:
+		return "east"
+	}
+	return "south"
 }

@@ -3612,4 +3612,26 @@ physics through a void dip plus a fed recovery window.
   state. TestConnectParity pins it: wall pairs with posts, the
   flattened middle of a three-run, tall sides + post under a solid
   block, torch-on-wall post override, and wall<->pane two-way attach.
-  Stairs shapes and chest merge remain open.
+  Stairs shapes remain open.
+
+- 2026-09-19 (cont): Chest merge — ChestBlock.updateShape joins two
+  chest halves. A neighbour becoming a non-single same-name,
+  same-facing chest whose connected direction points back flips this
+  chest to the opposite type (left<->right); losing the neighbour on
+  its connected direction (left=cw(facing), right=ccw) drops it back
+  to single — vertical neighbours never merge. Trapped chests merge
+  only with trapped chests (chestCanConnectTo is same-block).
+  Placement folds ChestBlock.getStateForPlacement: facing is the
+  player's opposite, and a non-sneaking place pairs with a
+  neighbouring single same-facing chest (cw-side partner -> left,
+  ccw-side -> right). Sneaking on a horizontal face of a single chest
+  merges with that clicked chest instead — the placed chest takes the
+  partner's facing and right/left by ccw(partner) ==
+  face.opposite. The same slice adds vanilla's isSecondaryUseActive
+  gate to handleUseItem: sneaking with any non-empty stack skips the
+  whole block-use dispatch (TNT prime, bed, noteblock, sign, menus) —
+  the held item's useOn still runs, which is what lets sneak-clicks
+  place blocks on containers. Sneak now round-trips through
+  player_input bit 0x20. TestConnectParity pins 10 chest legs: facing
+  fold, placed pair (new=left/old=right), partner break, setblock
+  stays single, trapped no-merge both ways, sneak-merge.

@@ -244,9 +244,11 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 			}
 		}
 	}
-	// TntBlock.useItemOn intercepts flint_and_steel and fire_charge:
-	// the block primes and clears instead of placing or igniting.
-	if name, _ := world.StateOwner(cur); name == "tnt" && s.useTnt(sess, d, clicked) {
+	// A sneaking player with an item in hand skips the clicked block's
+	// whole use dispatch (vanilla isSecondaryUseActive): no TNT prime,
+	// no bed, no sign, no menu — the held item's useOn runs instead.
+	blockUse := !(sess.sneaking && !sess.heldStack().Empty())
+	if name, _ := world.StateOwner(cur); blockUse && name == "tnt" && s.useTnt(sess, d, clicked) {
 		acked = true
 		if seq >= 0 {
 			s.sendBlockAck(sess, seq)
@@ -255,7 +257,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	}
 	// A bed click sleeps — it never places the held item, even
 	// holding blocks. slept_in_bed fires when the gate passes.
-	if isBedBlock(cur) {
+	if blockUse && isBedBlock(cur) {
 		s.useBed(sess, clicked)
 		acked = true
 		if seq >= 0 {
@@ -267,7 +269,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// NOTE_BLOCK_PLAY — when the held item doesn't consume the use.
 	// mc-go tunes only with an empty hand; held non-placeable items
 	// are a GOAL gap.
-	if isNoteBlock(cur) && sess.heldStack().Empty() {
+	if blockUse && isNoteBlock(cur) && sess.heldStack().Empty() {
 		s.noteBlockUse(sess, d, clicked)
 		acked = true
 		if seq >= 0 {
@@ -277,7 +279,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	}
 	// Interacting with a sign dyes it, waxes it, makes its text glow,
 	// or opens its editor - it never places.
-	if isSignLikeBlock(cur) {
+	if blockUse && isSignLikeBlock(cur) {
 		s.useSign(sess, d, clicked, cur)
 		acked = true
 		if seq >= 0 {
@@ -290,7 +292,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// out-of-reach uses die silently, unconfirmed ones get the
 	// build.tooHigh action bar. Measured on vanilla 26.2; the
 	// denials still ack the sequence.
-	if opensMenu(cur) {
+	if blockUse && opensMenu(cur) {
 		if !useMenuReachOK(sess, clicked) {
 			acked = true
 			if seq >= 0 {
@@ -307,7 +309,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 			return
 		}
 	}
-	if s.openBlockMenu(sess, cur, clicked) {
+	if blockUse && s.openBlockMenu(sess, cur, clicked) {
 		acked = true
 		if seq >= 0 {
 			s.sendBlockAck(sess, seq)
@@ -348,8 +350,9 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		return // not a placeable block-item: ack only
 	}
 	// getStateForPlacement folds the connection props (fence/pane/bars)
-	// of a placed block before the write.
+	// of a placed block before the write; chests fold facing + type.
 	blk = s.connectPlaceState(d, target, blk)
+	blk = s.chestPlaceState(d, target, blk, sess, face)
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
 	sess.addItemStat(statUsed, item, 1)
 	if bname, ok := world.StateOwner(blk); ok {

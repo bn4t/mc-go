@@ -196,6 +196,63 @@ func TestConnectParity(t *testing.T) {
 		mark("wall_pane", probe(pw, sink, "block 114 -59 92 minecraft:cobblestone_wall[east=low]", 28))
 		mark("pane_wall", probe(pw, sink, "block 115 -59 92 minecraft:glass_pane[west=true]", 29))
 
+		// Leg R: a player-placed chest faces the player (opposite of
+		// horizontal facing) and starts single.
+		sendCommand(t, pw, "item replace entity @s hotbar.0 with minecraft:chest 2")
+		sendCommand(t, pw, "tp @s 96.5 -59 98.5 180 0") // faces north
+		time.Sleep(400 * time.Millisecond)
+		sendUseItemOn(t, pw, 96, -60, 96, 1, 101)
+		time.Sleep(400 * time.Millisecond)
+		mark("chest_facing", probe(pw, sink, "block 96 -59 96 minecraft:chest[facing=south,type=single]", 30))
+
+		// Leg S: a second chest placed adjacent pairs — the new chest
+		// is the left half (its partner lies on its clockwise side)
+		// and the existing single flips to right via updateShape.
+		sendUseItemOn(t, pw, 97, -60, 96, 1, 102)
+		time.Sleep(400 * time.Millisecond)
+		mark("chest_new_left", probe(pw, sink, "block 97 -59 96 minecraft:chest[type=left]", 31))
+		mark("chest_old_right", probe(pw, sink, "block 96 -59 96 minecraft:chest[type=right]", 32))
+
+		// Leg T: breaking the partner returns a chest to single.
+		sendCommand(t, pw, "setblock 97 -59 96 air")
+		time.Sleep(400 * time.Millisecond)
+		mark("chest_unmerge", probe(pw, sink, "block 96 -59 96 minecraft:chest[type=single]", 33))
+
+		// Leg U: setblock writes the exact state — two adjacent
+		// default chests never merge.
+		sendCommand(t, pw, "setblock 104 -59 96 chest[facing=south]")
+		sendCommand(t, pw, "setblock 105 -59 96 chest[facing=south]")
+		time.Sleep(300 * time.Millisecond)
+		mark("sb_chest_a", probe(pw, sink, "block 104 -59 96 minecraft:chest[type=single]", 34))
+		mark("sb_chest_b", probe(pw, sink, "block 105 -59 96 minecraft:chest[type=single]", 35))
+
+		// Leg V: a trapped chest is a different block — no merge.
+		sendCommand(t, pw, "setblock 107 -59 96 trapped_chest[facing=south]")
+		sendCommand(t, pw, "tp @s 108.5 -59 98.5 180 0")
+		time.Sleep(400 * time.Millisecond)
+		sendUseItemOn(t, pw, 108, -60, 96, 1, 103)
+		time.Sleep(400 * time.Millisecond)
+		mark("trapped_no", probe(pw, sink, "block 108 -59 96 minecraft:chest[type=single]", 36))
+		mark("trapped_kept", probe(pw, sink, "block 107 -59 96 minecraft:trapped_chest[type=single]", 37))
+
+		// Leg W: sneaking and clicking a single chest's east face
+		// merges with it — the new chest takes the partner's facing
+		// and the side-appropriate type.
+		sendCommand(t, pw, "setblock 110 -59 96 chest[facing=south]")
+		sendCommand(t, pw, "tp @s 111.5 -59 98.5 0 0")
+		time.Sleep(400 * time.Millisecond)
+		if err := pw.WritePacket(server.IDPlayPlayerInputSB, []byte{0x20}); err != nil { // sneak
+			t.Fatal(err)
+		}
+		time.Sleep(150 * time.Millisecond)
+		sendUseItemOn(t, pw, 110, -59, 96, 5, 104) // east face of the chest
+		time.Sleep(400 * time.Millisecond)
+		mark("sneak_new", probe(pw, sink, "block 111 -59 96 minecraft:chest[facing=south,type=left]", 38))
+		mark("sneak_old", probe(pw, sink, "block 110 -59 96 minecraft:chest[type=right]", 39))
+		if err := pw.WritePacket(server.IDPlayPlayerInputSB, []byte{0x00}); err != nil { // sneak off
+			t.Fatal(err)
+		}
+
 		// Leg L: player placement folds getStateForPlacement — a
 		// fence placed next to a fence writes its own prop on entry.
 		sendCommand(t, pw, "setblock 121 -59 80 oak_fence")
