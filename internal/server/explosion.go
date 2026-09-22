@@ -254,6 +254,15 @@ func (s *Server) windBurst(src *Entity, x, y, z float64) {
 // The explode packet's blockCount is the set's size; the same set feeds
 // interactWithBlocks.
 func (s *Server) explodeBlockPositions(dim string, cx, cy, cz float64, radius float32) []world.Pos {
+	return s.explodeBlockPositionsRes(dim, cx, cy, cz, radius, func(w *world.World, pos world.Pos) (float32, bool) {
+		return explosionResistance(w.GetBlock(pos))
+	})
+}
+
+// explodeBlockPositionsRes is the sampler with the caller's
+// ExplosionDamageCalculator resistance lookup — wind charges pass the
+// barrier/bedrock-only calculator, TNT the real per-block table.
+func (s *Server) explodeBlockPositionsRes(dim string, cx, cy, cz float64, radius float32, resFn func(*world.World, world.Pos) (float32, bool)) []world.Pos {
 	w := s.dimWorld(dim)
 	if w == nil {
 		return nil
@@ -277,7 +286,7 @@ func (s *Server) explodeBlockPositions(dim string, cx, cy, cz float64, radius fl
 					if pos.Y < -64 || pos.Y > 319 {
 						continue ray
 					}
-					if res, ok := explosionResistance(w.GetBlock(pos)); ok {
+					if res, ok := resFn(w, pos); ok {
 						power -= float64((res + 0.3) * 0.3)
 					}
 					if power > 0 {

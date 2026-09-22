@@ -153,6 +153,9 @@ type Entity struct {
 	// sendChanges running at tick end.
 	dataSync      []byte
 	dataSyncAttrs bool
+	// Fuse is a PrimedTnt's remaining fuse ticks — DATA_FUSE_ID,
+	// counting down one per tick until the entity discards and explodes.
+	Fuse int32
 	// Living mobs carry health and take damage from attacks.
 	Living bool
 	// Waypoint marks an entity that broadcasts a locator-bar waypoint;

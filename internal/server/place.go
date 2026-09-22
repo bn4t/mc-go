@@ -229,6 +229,12 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	if cur == world.Air {
 		return // no block targeted: ack only
 	}
+	// Vanilla gates every use_item_on on isWithinBlockInteractionRange
+	// (pos, 1.0): eye to the clicked block's AABB under
+	// block_interaction_range (4.5) + 1 = 5.5.
+	if !withinReach(sess, clicked, reachSurvival+1.0) {
+		return
+	}
 	// item_used_on_block fires on the interaction itself — vanilla
 	// evaluates it inside useOn before the use's outcome is known.
 	if bname, ok := world.StateOwner(cur); ok {
@@ -237,6 +243,15 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 				s.fireItemUsedOnBlock(sess, bname, iname)
 			}
 		}
+	}
+	// TntBlock.useItemOn intercepts flint_and_steel and fire_charge:
+	// the block primes and clears instead of placing or igniting.
+	if name, _ := world.StateOwner(cur); name == "tnt" && s.useTnt(sess, d, clicked) {
+		acked = true
+		if seq >= 0 {
+			s.sendBlockAck(sess, seq)
+		}
+		return
 	}
 	// A bed click sleeps — it never places the held item, even
 	// holding blocks. slept_in_bed fires when the gate passes.

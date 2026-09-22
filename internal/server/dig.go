@@ -222,6 +222,9 @@ func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk wo
 	}
 	d.w.SetBlock(pos, blk)
 	s.writeOnPlace(d, pos, blk, old)
+	// onPlace may have rewritten the cell (TNT primed on a signal
+	// self-removes) — everything downstream reads the final state.
+	blk = d.w.GetBlock(pos)
 	// See setSilentBlock for the skip rule: the second scan only runs
 	// when the write removed the top cell itself.
 	var newTop int32

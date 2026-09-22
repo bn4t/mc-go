@@ -190,6 +190,11 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos, notify worl
 		s.speleoNeighborChange(d, pos, changed)
 		return
 	}
+	// TntBlock.neighborChanged: re-check hasNeighborSignal and prime.
+	if name == "tnt" && changed != pos {
+		s.tntNeighborChanged(d, pos)
+		return
+	}
 	if (name == "water" || name == "bubble_column") && changed != pos {
 		// LiquidBlock.neighbourChanged/updateShape and
 		// BubbleColumnBlock.updateShape — bubble-column scheduling.
@@ -336,6 +341,9 @@ func (s *Server) neighborSurvival(d *dimension, pos world.Pos, notify world.Bloc
 func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block) {
 	s.frostedIceOnPlace(d, pos, blk)
 	s.fireOnPlace(d, pos, blk, old)
+	// TntBlock.onPlace: prime + self-remove when a neighbour carries a
+	// signal — callers re-read the cell after this hook.
+	s.tntOnPlace(d, pos, blk)
 	// LiquidBlock.onPlace: a fresh water source over a column base
 	// arms the 20-tick conversion check itself.
 	if name, _ := world.StateOwner(blk); name == "water" {
@@ -355,6 +363,9 @@ func (s *Server) setSilentBlock(d *dimension, pos world.Pos, blk world.Block) {
 	old := d.w.GetBlock(pos)
 	d.w.SetBlock(pos, blk)
 	s.writeOnPlace(d, pos, blk, old)
+	// onPlace may have rewritten the cell (TNT primed on a signal
+	// self-removes) — everything downstream reads the final state.
+	blk = d.w.GetBlock(pos)
 	// The second scan is skippable in the common cases: anything below
 	// the top never moves it, a solid write above it sets the top to
 	// pos.Y outright, and an air write above the top writes a cell that

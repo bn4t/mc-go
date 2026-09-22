@@ -20,6 +20,10 @@ type lootCtx struct {
 	dim    *dimension
 	rng    *rand.Rand
 	player *Session // "this" entity for entity_properties
+	// explosionRadius > 0 means the roll is inside an explosion and
+	// carries vanilla's EXPLOSION_RADIUS loot param — the
+	// survives_explosion condition then drops at 1/radius.
+	explosionRadius float64
 }
 
 // rollLootTable draws one chest's contents from a vanilla loot table.
@@ -49,6 +53,21 @@ func rollBlockLoot(table string, sess *Session, pos world.Pos, bname string, sta
 		dim:    sess.dimension(),
 		rng:    rand.New(rand.NewSource(rand.Int63())),
 		player: sess,
+	}
+	return rollLootDepth(ctx, table, 0)
+}
+
+// rollExplosionLoot draws drops for a block destroyed by an explosion:
+// vanilla builds the params with TOOL=empty and EXPLOSION_RADIUS set,
+// which is what the survives_explosion condition reads.
+func rollExplosionLoot(table string, state world.Block, pos world.Pos, d *dimension, radius float32) []ItemStack {
+	ctx := &lootCtx{
+		block:           table[len("blocks/"):],
+		state:           state,
+		pos:             pos,
+		dim:             d,
+		rng:             rand.New(rand.NewSource(rand.Int63())),
+		explosionRadius: float64(radius),
 	}
 	return rollLootDepth(ctx, table, 0)
 }
@@ -188,8 +207,13 @@ func lootCondsOK(v any, ctx *lootCtx) bool {
 func lootCondOK(cm map[string]any, ctx *lootCtx) bool {
 	switch c, _ := cm["condition"].(string); c {
 	case "minecraft:survives_explosion", "survives_explosion":
-		// No explosion context exists yet: every drop survives.
-		return true
+		// EXPLOSION_RADIUS absent → always survives. Present →
+		// vanilla's 1/radius chance (LootItemRandomChanceCondition
+		// with NumberProviders.constant(1/radius)).
+		if ctx.explosionRadius <= 0 {
+			return true
+		}
+		return ctx.rng.Float64() < 1.0/ctx.explosionRadius
 	case "minecraft:entity_properties", "entity_properties":
 		// Only used with an empty predicate against "this" — the
 		// digging/command player.

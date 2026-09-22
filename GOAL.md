@@ -3494,3 +3494,42 @@ physics through a void dip plus a fed recovery window.
   break stays air; survival ice-over-stone and frosted-over-stone
   become water[level=0]; ice-over-air, packed_ice, and silk-touch
   ice stay air; nether ice ends air.
+
+- TNT (commit pending): TntBlock.useItemOn primes on
+  flint_and_steel or fire_charge — ServerLevel + tnt_explodes gate,
+  PrimedTnt entity spawns at (x+0.5, y, z+0.5) with fuse 80 and the
+  ctor nudge vel=(-sin θ·0.02, 0.2, -cos θ·0.02), the block clears
+  (flag 11 semantics), flint wears 1 / charge shrinks (creative
+  exempt), ITEM_USED lands; gamerule-off shows the disabled overlay
+  and leaves everything. onPlace/neighbourChanged re-check
+  hasNeighborSignal and prime+remove — reachable today only through
+  adjacent button/lever state via explodeHasNeighborSignal (no
+  redstone engine). PrimedTnt.tick: gravity 0.04, move, air drag
+  0.98, grounded bounce ×(0.7,-0.5,0.7), fuse--, at <=0 the entity
+  discards and explodes at y+0.0625 with power 4.0. ServerExplosion
+  reuses the measured 16³ shell-ray sampler now parameterized on the
+  calculator: the TNT calculator resolves max(block, fluid 100)
+  resistance per cell — generated blastResistance table from
+  Blocks.<clinit> strength/instabreak/explosionResistance args plus
+  the helper factories (log/leaves/piston/button/pot/stem/candle/
+  shulker) and ofLegacyCopy/ofFullCopy chains — absent iff the cell
+  is air holding no fluid. DESTROY_WITH_DECAY: shuffle positions,
+  per-cell onExplosionHit drops loot with EXPLOSION_RADIUS set
+  (survives_explosion = 1/radius — first real consumer of that loot
+  param), writes air flag 3, calls wasExploded — TNT cells skip loot
+  and re-prime with getRandomShortFuse nextInt(20)+10. hurtEntities
+  damages every living entity in the 2r box
+  ((impact²+impact)/2·7·radius+1 where impact=(1-dist/2r)·seen)
+  and pushes along eye->centre at impact·(1-kbResist) with the +0.5
+  upward bias; the explode packet carries the victim's knockback
+  inline (spectator and flying creative excluded) and everyone within
+  64 blocks gets the explosion_emitter particle + generic.explode
+  sound. Explosion death type "explosion" (player_explosion for a
+  player-ignited chain is a tracked gap). Also landed the measured
+  packet-level gate: handleUseItemOn rejects clicks where
+  eye->block-AABB distance² >= (block_interaction_range+1)² = 5.5² —
+  the reach check vanilla runs before useItemOn ever dispatches.
+  TestTNTParity pins priming (cell clears, entity spawns), blast
+  destroys dirt and spawns item drops, obsidian holds at 1200 resist,
+  player damage inside the predicted band via a scoreboarded Health
+  probe, the TNT->TNT chain with short fuse, and tnt_explodes=false.

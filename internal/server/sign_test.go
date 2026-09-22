@@ -82,6 +82,9 @@ func TestUseItemOnSignOpensEditor(t *testing.T) {
 	drainToQuiet(t, pr)
 
 	sess := s.findSessionByName("Signer")
+	// The packet-level use gate checks eye->block-AABB reach — stand
+	// next to the sign.
+	sess.setPos(8.5, -60, 0.5, 0, 0, true)
 	pos := world.Pos{X: 8, Y: -61, Z: 0}
 	sign, _ := world.BlockState("oak_sign")
 	s.setBlockAndBroadcast("Signer", pos, sign)
