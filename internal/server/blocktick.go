@@ -339,6 +339,13 @@ func randRules() map[string]func(*Server, *dimension, world.Pos, world.Block) {
 			"vine":                    vineRule,
 			"ice":                     iceMeltRule,
 		}
+		// WeatheringCopper.isRandomlyTicking = getNext().isPresent() —
+		// the oxidized stage is terminal and stays out of the table.
+		for _, fam := range copperFamilies {
+			for _, n := range fam[:3] {
+				randRulesMap[n] = copperRule
+			}
+		}
 	})
 	return randRulesMap
 }

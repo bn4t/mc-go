@@ -2,6 +2,7 @@ package server
 
 import (
 	"strconv"
+	"sync"
 
 	"mc-go/internal/data"
 	"mc-go/internal/world"
@@ -1123,4 +1124,131 @@ var cardinalDirs = []cardDir{
 	{"south", 0, 1},
 	{"west", -1, 0},
 	{"east", 1, 0},
+}
+
+// copperFamilies are the fifteen WeatheringCopperCollection groups in
+// 26.2, each listed as unaffected -> exposed -> weathered -> oxidized.
+// Waxed variants are not weathering copper: they neither random-tick
+// nor count in the neighbourhood scan.
+var copperFamilies = [][4]string{
+	{"copper_block", "exposed_copper", "weathered_copper", "oxidized_copper"},
+	{"cut_copper", "exposed_cut_copper", "weathered_cut_copper", "oxidized_cut_copper"},
+	{"chiseled_copper", "exposed_chiseled_copper", "weathered_chiseled_copper", "oxidized_chiseled_copper"},
+	{"cut_copper_slab", "exposed_cut_copper_slab", "weathered_cut_copper_slab", "oxidized_cut_copper_slab"},
+	{"cut_copper_stairs", "exposed_cut_copper_stairs", "weathered_cut_copper_stairs", "oxidized_cut_copper_stairs"},
+	{"copper_door", "exposed_copper_door", "weathered_copper_door", "oxidized_copper_door"},
+	{"copper_trapdoor", "exposed_copper_trapdoor", "weathered_copper_trapdoor", "oxidized_copper_trapdoor"},
+	{"copper_bars", "exposed_copper_bars", "weathered_copper_bars", "oxidized_copper_bars"},
+	{"copper_grate", "exposed_copper_grate", "weathered_copper_grate", "oxidized_copper_grate"},
+	{"copper_bulb", "exposed_copper_bulb", "weathered_copper_bulb", "oxidized_copper_bulb"},
+	{"copper_lantern", "exposed_copper_lantern", "weathered_copper_lantern", "oxidized_copper_lantern"},
+	{"copper_chest", "exposed_copper_chest", "weathered_copper_chest", "oxidized_copper_chest"},
+	{"copper_golem_statue", "exposed_copper_golem_statue", "weathered_copper_golem_statue", "oxidized_copper_golem_statue"},
+	{"lightning_rod", "exposed_lightning_rod", "weathered_lightning_rod", "oxidized_lightning_rod"},
+	{"copper_chain", "exposed_copper_chain", "weathered_copper_chain", "oxidized_copper_chain"},
+}
+
+var (
+	copperNextOnce sync.Once
+	copperNextMap  map[string]string
+	copperStageMap map[string]int
+)
+
+// copperStage returns the weather-state ordinal of a weathering copper
+// block (0=unaffected .. 3=oxidized) and whether the block is one.
+func copperStage(name string) (int, bool) {
+	copperNextOnce.Do(func() {
+		copperNextMap = make(map[string]string)
+		copperStageMap = make(map[string]int)
+		for _, fam := range copperFamilies {
+			for i, n := range fam {
+				copperStageMap[n] = i
+				if i+1 < len(fam) {
+					copperNextMap[n] = fam[i+1]
+				}
+			}
+		}
+	})
+	st, ok := copperStageMap[name]
+	return st, ok
+}
+
+// copperRule is ChangeOverTimeBlock.changeOverTime, shared by every
+// WeatheringCopper block class (they all answer the same WeatherState
+// enum, so a weathered lantern still counts a bare copper block).
+// changeOverTime gates on nextFloat() < 0.05688889 before running
+// getNextState; getNextState scans positions within manhattan 4 —
+// skipping the origin — and counts neighbours that are weathering
+// copper too. A less-oxidized neighbour aborts the roll outright;
+// otherwise ratio = (more+1)/(more+same+1), the final roll is
+// nextFloat() < ratio^2 * chanceModifier with chanceModifier 0.75 on
+// the unaffected stage and 1.0 past it, and a pass writes the next
+// stage via setBlock(..., 2), keeping the state's shared properties
+// (Block.withPropertiesOf).
+func copperRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
+	if s.rng.nextDouble() >= 0.05688889 {
+		return
+	}
+	name, ok := world.StateOwner(b)
+	if !ok {
+		return
+	}
+	stage, ok := copperStage(name)
+	if !ok {
+		return
+	}
+	more, same := 0, 0
+	for dx := -4; dx <= 4; dx++ {
+		for dy := -4; dy <= 4; dy++ {
+			for dz := -4; dz <= 4; dz++ {
+				dist := absi(dx) + absi(dy) + absi(dz)
+				if dist == 0 || dist > 4 {
+					continue
+				}
+				nn, ok := world.StateOwner(s.rtBlock(d, world.Pos{X: pos.X + dx, Y: pos.Y + dy, Z: pos.Z + dz}))
+				if !ok {
+					continue
+				}
+				o2, ok := copperStage(nn)
+				if !ok {
+					continue
+				}
+				if o2 < stage {
+					return
+				}
+				if o2 > stage {
+					more++
+				} else {
+					same++
+				}
+			}
+		}
+	}
+	ratio := float64(more+1) / float64(more+same+1)
+	mod := 1.0
+	if stage == 0 {
+		mod = 0.75
+	}
+	if s.rng.nextDouble() >= ratio*ratio*mod {
+		return
+	}
+	next, ok := copperNextMap[name]
+	if !ok {
+		return
+	}
+	// withPropertiesOf: carry over the properties the next block
+	// declares; everything else falls back to defaults.
+	keep := map[string]bool{}
+	for _, p := range world.BlockPropNames(next) {
+		keep[p] = true
+	}
+	props := map[string]string{}
+	for k, v := range world.BlockProperties(b) {
+		if keep[k] {
+			props[k] = v
+		}
+	}
+	if nb, ok := world.BlockStateOf(next, props); ok {
+		s.setSilentBlock(d, pos, nb)
+	}
 }

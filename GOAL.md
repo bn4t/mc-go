@@ -3405,3 +3405,22 @@ physics through a void dip plus a fed recovery window.
   Notable fix in passing: tick's early-outs now match the bytecode —
   the survive-pop does NOT return (dead fires still tick/spread and
   can resurrect via the age write), while the age-15 pop does.
+- Random tick pass 11 (weathering copper): every WeatheringCopper*
+  block class runs ChangeOverTimeBlock.changeOverTime — javap-verified:
+  an outer nextFloat()<0.05688889 gate, then getNextState scans all
+  positions within manhattan 4 (origin skipped): a less-oxidized
+  weathering-copper neighbour aborts outright, otherwise
+  ratio=(more+1)/(more+same+1) and the final roll is
+  nextFloat()<ratio^2*chanceModifier with 0.75 on UNAFFECTED and 1.0
+  past it. The write is setBlock(..., 2) carrying shared properties
+  (Block.withPropertiesOf). 26.2 restructured the table into
+  WeatheringCopperCollection — 15 families x 4 stages (block, cut,
+  chiseled, slab, stairs, door, trapdoor, bars, grate, bulb, lantern,
+  chest, golem statue, lightning rod, chain); waxed and oxidized
+  blocks are not ChangeOverTimeBlock and neither tick nor count in the
+  scan (so oxidized stays out of randRules, matching
+  isRandomlyTicking). TestCopperOxidizeParity freezes both servers and
+  uses /tick sprint for exact roll counts: lone-row advance, boosted
+  (more-oxidized walls) advance, waxed+oxidized holds, prop retention
+  across the transition (stairs facing/half, bulb lit), and the
+  fresh-armed less-oxidized gate vs free controls in a 40-tick window.

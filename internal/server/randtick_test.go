@@ -415,3 +415,27 @@ func TestRandTickChorusFlower(t *testing.T) {
 		t.Fatalf("capped flower aged to %d", a)
 	}
 }
+
+func TestCopperRuleDirect(t *testing.T) {
+	s, d := randSim(t)
+	randPut(t, d, 40, -60, 30, "copper_block", nil)
+	if !randRoll(s, d, world.Pos{X: 40, Y: -60, Z: 30}, "copper_block", 2000,
+		func() bool { return randName(d, 40, -60, 30) == "exposed_copper" }) {
+		t.Fatalf("lone copper_block never oxidized; state=%s", randName(d, 40, -60, 30))
+	}
+}
+
+func TestCopperSectionTickable(t *testing.T) {
+	s, d := randSim(t)
+	randPut(t, d, 40, -60, 30, "copper_block", nil)
+	key := randSectionKey{dim: d.name, x: floorDiv(40, 16), y: floorDiv(-60-d.minY, 16), z: floorDiv(30, 16)}
+	if !s.sectionHasRandomTicks(d, key) {
+		t.Fatalf("copper section not tickable")
+	}
+	if r := randRules()["copper_block"]; r == nil {
+		t.Fatalf("copper_block has no rule")
+	}
+	if r := randRules()["exposed_copper"]; r == nil {
+		t.Fatalf("exposed_copper has no rule")
+	}
+}
