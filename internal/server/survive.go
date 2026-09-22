@@ -80,9 +80,14 @@ var popOnPlace = map[string]bool{
 }
 
 // selfCheckSurvival applies BlockInput.place's side-effect: a placed
-// tick-family block that fails canSurvive schedules its pop tick.
+// tick-family block that fails canSurvive schedules its pop tick, and
+// a placed leaf schedules its distance recompute.
 func (s *Server) selfCheckSurvival(d *dimension, pos world.Pos, blk world.Block) {
-	if name, ok := world.StateOwner(blk); ok && popOnPlace[name] {
+	name, ok := world.StateOwner(blk)
+	if !ok {
+		return
+	}
+	if popOnPlace[name] || isLeafBlock(name) {
 		s.checkSurvival(d, pos, pos)
 	}
 }
@@ -103,6 +108,10 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos) {
 	}
 	if _, _, _, ok := vineSpec(name); ok {
 		s.vineUpdate(d, pos, changed, b, name)
+		return
+	}
+	if isLeafBlock(name) {
+		s.leafShape(d, pos, changed)
 		return
 	}
 	fn, ok := surviveFns()[name]

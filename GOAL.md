@@ -3268,3 +3268,19 @@ physics through a void dip plus a fed recovery window.
   kelp sitting over magma lands water which then converts. Probe
   evidence: vanilla's cell after `setblock magma; setblock kelp` is
   none of water/air/kelp.
+
+- Random tick pass 5 (leaves, commit pending): leaf decay is
+  LeavesBlock's two-part dance — a neighbour write near a leaf
+  schedules a +1 block tick that rewrites distance to
+  min(six neighbours' getDistanceAt)+1 (log/wood/stem/hyphae via
+  #prevents_nearby_leaf_decay read 0; anything with a `distance`
+  property — scaffolding included, same vanilla quirk — reads it;
+  everything else reads 7), with flags-3 writes cascading the
+  recompute down a chain. isRandomlyTicking gates on distance==7 &&
+  !persistent; the random tick then drops the leaf. Placement folds
+  through the same updateShape, so setblock'd leaves settle distance
+  and, being persistent=false by default, decay; persistent leaves
+  hold. Differential test: floating leaf decays, leaf-on-log holds at
+  distance 1, a seven-leaf chain settles 1..7 and the far tip
+  crumbles, breaking the chain's log cascades all of it to decay.
+  TestLeafDecayParity green both directions.

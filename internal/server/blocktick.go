@@ -297,31 +297,42 @@ var (
 func randRules() map[string]func(*Server, *dimension, world.Pos, world.Block) {
 	randRulesOnce.Do(func() {
 		randRulesMap = map[string]func(*Server, *dimension, world.Pos, world.Block){
-			"wheat":            cropRule(7),
-			"carrots":          cropRule(7),
-			"potatoes":         cropRule(7),
-			"beetroots":        cropRule(3),
-			"torchflower_crop": torchflowerRule,
-			"melon_stem":       stemRule("melon", "attached_melon_stem", "supports_melon_stem_fruit"),
-			"pumpkin_stem":     stemRule("pumpkin", "attached_pumpkin_stem", "supports_pumpkin_stem_fruit"),
-			"nether_wart":      wartRule,
-			"cocoa":            cocoaRule,
-			"sweet_berry_bush": berryRule,
-			"pitcher_crop":     pitcherRule,
-			"farmland":         farmlandRule,
-			"grass_block":      turfRule("dirt"),
-			"mycelium":         turfRule("dirt"),
-			"crimson_nylium":   nyliumRule,
-			"warped_nylium":    nyliumRule,
-			"sugar_cane":       sugarCaneRule,
-			"cactus":           cactusRule,
-			"bamboo":           bambooStalkRule,
-			"bamboo_sapling":   bambooSaplingRule,
-			"chorus_flower":    chorusFlowerRule,
-			"weeping_vines":    vineHeadRule("weeping_vines", "weeping_vines_plant", -1, false),
-			"twisting_vines":   vineHeadRule("twisting_vines", "twisting_vines_plant", 1, false),
-			"cave_vines":       vineHeadRule("cave_vines", "cave_vines_plant", -1, true),
-			"kelp":             vineHeadRule("kelp", "kelp_plant", 1, false),
+			"wheat":                   cropRule(7),
+			"carrots":                 cropRule(7),
+			"potatoes":                cropRule(7),
+			"beetroots":               cropRule(3),
+			"torchflower_crop":        torchflowerRule,
+			"melon_stem":              stemRule("melon", "attached_melon_stem", "supports_melon_stem_fruit"),
+			"pumpkin_stem":            stemRule("pumpkin", "attached_pumpkin_stem", "supports_pumpkin_stem_fruit"),
+			"nether_wart":             wartRule,
+			"cocoa":                   cocoaRule,
+			"sweet_berry_bush":        berryRule,
+			"pitcher_crop":            pitcherRule,
+			"farmland":                farmlandRule,
+			"grass_block":             turfRule("dirt"),
+			"mycelium":                turfRule("dirt"),
+			"crimson_nylium":          nyliumRule,
+			"warped_nylium":           nyliumRule,
+			"sugar_cane":              sugarCaneRule,
+			"cactus":                  cactusRule,
+			"bamboo":                  bambooStalkRule,
+			"bamboo_sapling":          bambooSaplingRule,
+			"chorus_flower":           chorusFlowerRule,
+			"weeping_vines":           vineHeadRule("weeping_vines", "weeping_vines_plant", -1, false),
+			"twisting_vines":          vineHeadRule("twisting_vines", "twisting_vines_plant", 1, false),
+			"cave_vines":              vineHeadRule("cave_vines", "cave_vines_plant", -1, true),
+			"kelp":                    vineHeadRule("kelp", "kelp_plant", 1, false),
+			"oak_leaves":              leafDecayRule,
+			"spruce_leaves":           leafDecayRule,
+			"birch_leaves":            leafDecayRule,
+			"jungle_leaves":           leafDecayRule,
+			"acacia_leaves":           leafDecayRule,
+			"dark_oak_leaves":         leafDecayRule,
+			"mangrove_leaves":         leafDecayRule,
+			"cherry_leaves":           leafDecayRule,
+			"pale_oak_leaves":         leafDecayRule,
+			"azalea_leaves":           leafDecayRule,
+			"flowering_azalea_leaves": leafDecayRule,
 		}
 	})
 	return randRulesMap
@@ -337,6 +348,10 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		return
 	}
 	short := strings.TrimPrefix(name, "minecraft:")
+	if isLeafBlock(short) {
+		s.leafDistanceTick(d, pos)
+		return
+	}
 	if !strings.HasSuffix(short, "_button") {
 		return
 	}
