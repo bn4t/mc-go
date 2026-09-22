@@ -45,6 +45,11 @@ func (s *Server) handleLogin(sess *Session) {
 		s.sendLoginDisconnect(sess, reason)
 		return
 	}
+	if s.whitelistOn.Load() && !s.onWhitelist(name) {
+		s.sendLoginDisconnect(sess,
+			`{"translate":"multiplayer.disconnect.not_whitelisted"}`)
+		return
+	}
 	s.online.Add(1)
 	if s.bus != nil {
 		s.bus.Publish(event.TopicPlayerLogin, map[string]string{"name": name})

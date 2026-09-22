@@ -139,18 +139,28 @@ type Server struct {
 	spawnPos             [3]int
 	spawnYaw, spawnPitch float32
 	haveSpawn            bool
+	// ServerDir holds the vanilla-format admin files (ops.json,
+	// whitelist.json, banned-players.json, banned-ips.json); empty
+	// disables their load/save.
+	ServerDir string
+
 	// ops maps player name to permission level (1-4), from ops.json.
 	// OpsRequired turns on vanilla's gating: without it every player is
 	// level 4, which is what library embeddings and the scripted test
 	// clients rely on. The mc-go binary enables it.
-	ops map[string]int
+	ops     map[string]int
+	opsList []adminOpEntry
 
 	// banMu guards bannedNames, bannedIPs and whitelisted — the /ban
-	// /pardon /ban-ip /pardon-ip and /whitelist add/remove tables.
-	banMu       sync.Mutex
-	bannedNames map[string]string
-	bannedIPs   map[string]string
-	whitelisted map[string]bool
+	// /pardon /ban-ip /pardon-ip and /whitelist add/remove tables —
+	// plus the list order the json files keep them in.
+	banMu         sync.Mutex
+	bannedNames   map[string]string
+	bannedIPs     map[string]string
+	whitelisted   map[string]bool
+	whitelistList []adminWLEntry
+	bansList      []adminBanEntry
+	ipBansList    []adminIPBanEntry
 
 	// borders holds one world-border state per dimension, keyed by the
 	// dimension's minecraft: name.

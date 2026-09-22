@@ -58,6 +58,7 @@ func (s *Server) runOp(player string, args []string) reply {
 	_, already := s.ops[name]
 	if !already {
 		s.ops[name] = 4
+		s.opListAdd(name, 4)
 	}
 	s.rulesMu.Unlock()
 	if already {
@@ -82,6 +83,7 @@ func (s *Server) runDeop(player string, args []string) reply {
 	_, was := s.ops[name]
 	if was {
 		delete(s.ops, name)
+		s.opListDel(name)
 	}
 	s.rulesMu.Unlock()
 	if !was {
@@ -152,6 +154,7 @@ func (s *Server) runBan(player string, args []string) reply {
 	_, dup := s.bannedNames[name]
 	if !dup {
 		s.bannedNames[name] = reasonText
+		s.banListAdd(name, reasonText, player)
 	}
 	s.banMu.Unlock()
 	if dup {
@@ -203,6 +206,7 @@ func (s *Server) runPardon(player string, args []string) reply {
 	s.banMu.Lock()
 	_, was := s.bannedNames[name]
 	delete(s.bannedNames, name)
+	s.banListDel(name)
 	s.banMu.Unlock()
 	if !was {
 		return componentReply(commandError("commands.pardon.failed"))
@@ -238,6 +242,7 @@ func (s *Server) runBanIP(player string, args []string) reply {
 	_, dup := s.bannedIPs[ip]
 	if !dup {
 		s.bannedIPs[ip] = reasonText
+		s.ipBanListAdd(ip, reasonText, player)
 	}
 	s.banMu.Unlock()
 	if dup {
@@ -302,6 +307,7 @@ func (s *Server) runPardonIP(player string, args []string) reply {
 	s.banMu.Lock()
 	_, was := s.bannedIPs[ip]
 	delete(s.bannedIPs, ip)
+	s.ipBanListDel(ip)
 	s.banMu.Unlock()
 	if !was {
 		return componentReply(commandError("commands.pardonip.failed"))

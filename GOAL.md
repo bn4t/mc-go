@@ -2921,3 +2921,17 @@ physics through a void dip plus a fed recovery window.
   with the end-of-input cursor, create succeeds with a namespaced
   id, and every unregistered literal underlines as
   command.unknown.argument. TestEntCmdParity green.
+- Admin file persistence: mc-go gained a ServerDir holding vanilla's
+  four admin files byte-for-byte — ops.json, whitelist.json,
+  banned-players.json, banned-ips.json — created as [] at boot,
+  rewritten pretty-printed on each /op /deop /whitelist add-remove /
+  ban /pardon /ban-ip /pardon-ip, and reloaded at startup and on
+  /whitelist reload. Entries keep vanilla's HashMap iteration order
+  (String hash of the dashed-uuid key over buckets, insertion inside
+  a bucket), the "yyyy-MM-dd HH:mm:ss -0700" created stamp, the
+  issuer-name source, and "forever" expires. The whitelist flag now
+  rejects unlisted logins with not_whitelisted. The binary's new
+  -server-dir flag defaults to "." like a real server's workdir;
+  leaving it empty disables the files for library embeds. Vanilla's
+  white-list=true server.properties rewrite is not mirrored — mc-go
+  has no properties file. TestAdminFilesParity diffs the files.

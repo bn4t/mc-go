@@ -23,6 +23,7 @@ func main() {
 	maxPlayers := flag.Int("max-players", server.MaxPlayers, "status max players and login cap")
 	worldPath := flag.String("world", "world.json", "block-override save file (empty disables persistence)")
 	worldDir := flag.String("world-dir", "", "vanilla-format world directory (level.dat + region files); takes precedence over -world")
+	serverDir := flag.String("server-dir", ".", "directory for the vanilla-format admin files (ops.json, whitelist.json, banned-*.json); empty disables them")
 	levelName := flag.String("level-name", "", "level name written into level.dat (empty uses the directory name)")
 	seed := flag.Int64("seed", 1, "world seed written into the generator settings")
 	generateStructures := flag.Bool("generate-structures", true, "whether the world generates structures (recorded in the generator settings)")
@@ -36,6 +37,7 @@ func main() {
 	s.MaxPlayers = *maxPlayers
 	s.WorldPath = *worldPath
 	s.WorldDir = *worldDir
+	s.ServerDir = *serverDir
 	s.LevelName = *levelName
 	s.WorldSeed = *seed
 	s.GenerateStructures = *generateStructures
@@ -56,6 +58,9 @@ func main() {
 	}
 	if err := s.LoadServerData(); err != nil {
 		log.Fatalf("load server data: %v", err)
+	}
+	if err := s.LoadAdminFiles(); err != nil {
+		log.Fatalf("load admin files: %v", err)
 	}
 	if err := s.InitPlugins(); err != nil {
 		log.Fatal(err)

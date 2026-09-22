@@ -216,8 +216,10 @@ func (s *Server) runWhitelist(args []string) reply {
 		has := s.whitelisted[name]
 		if args[0] == "add" {
 			s.whitelisted[name] = true
+			s.whitelistAdd(name)
 		} else {
 			delete(s.whitelisted, name)
+			s.whitelistRemove(name)
 		}
 		s.banMu.Unlock()
 		if args[0] == "add" {
@@ -231,6 +233,7 @@ func (s *Server) runWhitelist(args []string) reply {
 		}
 		return componentReply(translatable("commands.whitelist.remove.success", name))
 	case "reload":
+		s.reloadWhitelist()
 		key = "commands.whitelist.reloaded"
 	default:
 		return errToken("command.unknown.argument", 1)
