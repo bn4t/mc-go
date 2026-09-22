@@ -55,7 +55,16 @@ const (
 // with the full command milestone; literals let the client suggest and
 // complete exact command names today.
 func (s *Server) sendCommands(sess *Session) error {
-	names := s.commands.Names()
+	// The tree carries only the commands the player's level may run —
+	// vanilla builds the client the same filtered view.
+	level := sess.opLevel()
+	all := s.helpNames()
+	names := all[:0]
+	for _, n := range all {
+		if commandLevel(n) <= level {
+			names = append(names, n)
+		}
+	}
 	sort.Strings(names)
 
 	var b protocol.Buffer

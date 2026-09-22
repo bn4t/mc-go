@@ -181,9 +181,38 @@ func (s *Server) helpNames() []string {
 	return append(names, extra...)
 }
 
+// commandLevels is vanilla's required permission level for each root
+// literal, measured against the 26.2 server: everyone gets the
+// zero-level set, world commands take 2, multiplayer administration
+// takes 3, and server lifecycle takes 4. Unlisted commands need 2.
+var commandLevels = map[string]int{
+	"help": 0, "list": 0, "me": 0, "msg": 0, "random": 0,
+	"teammsg": 0, "tell": 0, "tm": 0, "trigger": 0, "w": 0,
+
+	"ban": 3, "ban-ip": 3, "banlist": 3, "debug": 3, "deop": 3,
+	"kick": 3, "op": 3, "pardon": 3, "pardon-ip": 3,
+	"setidletimeout": 3, "tick": 3, "transfer": 3, "whitelist": 3,
+
+	"jfr": 4, "perf": 4, "save-all": 4, "save-off": 4,
+	"save-on": 4, "stop": 4,
+}
+
+// commandLevel reports the permission level a command needs.
+func commandLevel(name string) int {
+	if lvl, ok := commandLevels[name]; ok {
+		return lvl
+	}
+	return 2
+}
+
 // runCommand runs any registered command - component command or plugin
-// command - and reports whether it existed.
+// command - and reports whether it existed. A command the player is not
+// leveled for reports unknown, the same as an unregistered name —
+// vanilla gates the root literal the same way.
 func (s *Server) runCommand(player, name string, args []string) (reply, bool) {
+	if s.permissionLevel(player) < commandLevel(name) {
+		return reply{}, false
+	}
 	if fn := s.componentCommand(name); fn != nil {
 		return fn(player, args), true
 	}

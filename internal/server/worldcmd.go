@@ -527,15 +527,46 @@ var helpSubUsage = map[string]string{
 	"help":   "/help [<command>]",
 }
 
+// helpLines returns the usage lines a player at level sees — vanilla
+// emits the smart usage of each root the level unlocks, in the
+// registration order captured by helpUsageLines. /random and /datapack
+// keep runnable-at-level-0/3 subcommands out of their usage text.
+func helpLines(level int) []string {
+	var out []string
+	for _, u := range helpUsageLines {
+		rest := strings.TrimPrefix(u, "/")
+		root := rest
+		if i := strings.IndexByte(rest, ' '); i >= 0 {
+			root = rest[:i]
+		}
+		if commandLevel(root) > level {
+			continue
+		}
+		switch {
+		case root == "random" && level < 2:
+			u = "/random (value|roll)"
+		case root == "datapack" && level < 4:
+			u = "/datapack (enable|disable|list)"
+		}
+		out = append(out, u)
+	}
+	return out
+}
+
 func (s *Server) runHelp(player string, args []string) reply {
+	level := s.permissionLevel(player)
 	if len(args) == 0 {
-		cs := make([]component, len(helpUsageLines)-1)
-		for i, u := range helpUsageLines[1:] {
+		lines := helpLines(level)
+		cs := make([]component, len(lines)-1)
+		for i, u := range lines[1:] {
 			cs[i] = literal(u)
 		}
-		return componentReplyWith(literal(helpUsageLines[0]), cs...)
+		return componentReplyWith(literal(lines[0]), cs...)
 	}
 	name := strings.TrimPrefix(args[0], "/")
+	if commandLevel(name) > level {
+		return componentReply(commandError("commands.help.failed"))
+	}
 	if u, ok := helpSubUsage[name]; ok {
 		return componentReply(literal(u))
 	}
@@ -546,6 +577,9 @@ func (s *Server) runHelp(player string, args []string) reply {
 			root = rest[:i]
 		}
 		if root == name {
+			if strings.Contains(u, " -> ") {
+				return reply{} // vanilla emits nothing for redirect aliases
+			}
 			return componentReply(literal(u))
 		}
 	}

@@ -2935,3 +2935,15 @@ physics through a void dip plus a fed recovery window.
   leaving it empty disables the files for library embeds. Vanilla's
   white-list=true server.properties rewrite is not mirrored — mc-go
   has no properties file. TestAdminFilesParity diffs the files.
+- Per-command op-level gating: vanilla's measured level map (0:
+  help/list/me/msg+tell+w/random/teammsg+tm/trigger; 3: ban, ban-ip,
+  banlist, debug, deop, kick, op, pardon, pardon-ip, setidletimeout,
+  tick, transfer, whitelist; 4: jfr, perf, save-all/off/on, stop;
+  2: everything else) now lives in commandLevels. runCommand reports
+  gated names as unknown.command with the root literal underlined —
+  the same shape as an unregistered command — and the commands-tree
+  packet and /help both filter to the caller's level (help drops
+  /random's reset and /datapack's create below their levels, and
+  answers redirect aliases like `help tp` with silence).
+  TestCommandLevelParity drives all registered names plus help-arg
+  cases at levels 0/2/3 against both servers.

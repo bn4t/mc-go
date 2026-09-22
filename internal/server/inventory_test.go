@@ -233,7 +233,7 @@ func TestCommandTreeListsBuiltins(t *testing.T) {
 	if err != nil || nodes < 2 {
 		t.Fatalf("nodes = %d, err %v", nodes, err)
 	}
-	names := s.commands.Names()
+	names := s.helpNames()
 	if len(names) == 0 {
 		t.Fatal("no builtin commands registered")
 	}
