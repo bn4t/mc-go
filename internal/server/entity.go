@@ -108,6 +108,16 @@ type Entity struct {
 	fleeX      float64
 	fleeZ      float64
 	fleeSprint float64
+	// Creeper swell state: Swell counts toward MaxSwell (NBT Fuse,
+	// default 30), SwellDir is ±1 (metadata idx 18), Powered doubles
+	// explosionRadius in explodeCreeper (NBT powered), Ignited is the
+	// flint/NBT fuse-light that forces swellDir +1.
+	Swell      int32
+	SwellDir   int32
+	MaxSwell   int32
+	BlastPower int32
+	Powered    bool
+	Ignited    bool
 	// Passengers holds the entity ids riding this entity (vanilla's
 	// passengers list); Riding is the vehicle id on the passenger.
 	Passengers []int32

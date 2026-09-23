@@ -4447,3 +4447,36 @@ summon armor-populate + enchantment rolls + drowned chance slots,
 horse chest/container slots, guardian flop/beam, per-damage-type hurt
 variants, witch.drink, scoreboard objectives, region save, online
 mode, redstone, terrain gen, lighting, .dat persistence.
+
+## Slice 2026-09-23f — creeper swell/explode
+
+Creeper lands its defining behavior: SwellGoal flips DATA_SWELL_DIR to
++1 while the target is inside 7 blocks with line of sight, -1 outside
+(deflating only — once lit past 0 it stays lit while the goal keeps
+running); the hiss is entity.creeper.primed at the first rising tick,
+pitch 0.5. The fuse itself is Creeper.tick bookkeeping, moved outside
+the NoAI gate so `summon creeper ... {ignited:1b,NoAI:1b}` still blows
+up — 30 ticks (NBT Fuse resizes) to explodeCreeper: discard + a MOB
+explosion at feet, radius = ExplosionRadius (default 3) doubled when
+powered (NBT powered, metadata idx 17).
+
+tntExplode generalized to explodePower(src, x,y,z, radius, grief) — the
+16³ raycast sampler, hurtEntities impact formula, and explode packet
+now serve both TNT (grief=tnt_explodes) and creepers (mob_griefing).
+The explode packet's particle picks explosion_emitter at radius>=2,
+explosion below — isSmall's cutoff.
+
+TestCreeperBoomParity pins four legs vs both servers: swell→explode→
+radius-3 packet + player damage + dirt carve (execute-if-block air
+probe), powered → radius 6, and the NoAI+ignited boom. The summon
+leg for leg 1 (stone_sword) earlier proved the same populate-defaults
+machinery on skeletons.
+
+Open items remaining: crossbow/piglin ranged variants
+(RangedCrossbowAttackGoal), stray/bogged tipped arrows,
+RestrictSunGoal/FleeSunGoal sun-avoidance, summon armor-populate +
+enchantment rolls + drowned chance slots, charged-creeper
+skull drops, spawnLingeringCloud for effect-carrying creepers, horse
+chest/container slots, guardian flop/beam, per-damage-type hurt
+variants, witch.drink, scoreboard objectives, region save, online
+mode, redstone, terrain gen, lighting, .dat persistence.

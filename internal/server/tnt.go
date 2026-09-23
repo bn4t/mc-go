@@ -132,20 +132,31 @@ func (s *Server) tntEntityTick(e *Entity) {
 	}
 }
 
-// tntExplode is ServerLevel.explode for the TNT interaction: the block
+// tntExplode wraps explodePower at TNT's fixed power 4 — vanilla's
+// TNT interaction reads tnt_explodes for its destroy type.
+func (s *Server) tntExplode(src *Entity, x, y, z float64) {
+	s.explodePower(src, x, y, z, primedTntPower, s.gameRuleBool("minecraft:tnt_explodes"))
+}
+
+// explodePower is ServerLevel.explode for a MOB interaction: the block
 // sampler runs with the real per-block/fluid explosion resistance,
 // hurtEntities damages and knocks back entities in the 2·radius box,
 // interactWithBlocks runs onExplosionHit per sampled cell
 // (DESTROY_WITH_DECAY semantics — 1/radius drop decay, TNT cells
 // chain-prime), and one explode packet per in-range player carries
 // that player's knockback inline.
-func (s *Server) tntExplode(src *Entity, x, y, z float64) {
+// grief is the interaction's destroy-type gate — mob_griefing for a
+// mob blast, tnt_explodes for TNT. When false nothing carves and the
+// packet's block count is 0 (KEEP).
+func (s *Server) explodePower(src *Entity, x, y, z float64, radius float32, grief bool) {
 	d := s.dims[src.Dim]
 	if d == nil {
 		return
 	}
-	const radius = primedTntPower
-	positions := s.explodeBlockPositionsRes(src.Dim, x, y, z, radius, explosionResistFor)
+	var positions []world.Pos
+	if grief {
+		positions = s.explodeBlockPositionsRes(src.Dim, x, y, z, radius, explosionResistFor)
+	}
 	blockCount := len(positions)
 
 	// hurtEntities: every living entity inside 2r takes
@@ -224,7 +235,11 @@ func (s *Server) tntExplode(src *Entity, x, y, z float64) {
 
 	// One explode packet per player within 64 blocks; the victim's own
 	// packet carries the knockback vector, everyone else's omits it.
-	particleID := int32(29) // explosion_emitter (radius 4 >= 2.0)
+	// isSmall picks the single puff below radius 2, emitter at/above.
+	particleID := int32(30) // explosion
+	if radius >= 2.0 {
+		particleID = 29 // explosion_emitter
+	}
 	s.sessions.Range(func(_, v any) bool {
 		sess, ok := v.(*Session)
 		if !ok || sess.state.Load() != StatePlay || sess.dimName() != src.Dim {

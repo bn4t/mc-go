@@ -727,6 +727,24 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if v, ok := tag.vals["DisabledSlots"]; ok {
 				e.DisabledSlots = int32(snbtNum(v))
 			}
+			// Creeper's addAdditionalSaveData keys: powered doubles
+			// the blast, Fuse resizes the 30-tick swell window,
+			// ExplosionRadius scales it, ignited lights the fuse at
+			// spawn.
+			if name == "creeper" {
+				if v, ok := tag.vals["powered"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+					e.Powered = true
+				}
+				if v, ok := tag.vals["Fuse"]; ok {
+					e.MaxSwell = int32(snbtNum(v))
+				}
+				if v, ok := tag.vals["ExplosionRadius"]; ok {
+					e.BlastPower = int32(snbtNum(v))
+				}
+				if v, ok := tag.vals["ignited"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+					e.Ignited = true
+				}
+			}
 
 		}
 		// Vanilla's /summon runs finalizeSpawn after the NBT load —
@@ -1114,6 +1132,19 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(8)
 				b.Bool(true)
 			}
+		case "creeper":
+			// powered (17, bool) and swell_dir (18, int — non-default
+			// only while the fuse runs up).
+			if e.Powered {
+				b.Byte(17)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			if e.SwellDir > 0 {
+				b.Byte(18)
+				b.Byte(1) // type: varint
+				b.VarInt(1)
+			}
 		}
 	}
 	b.Byte(0xFF)
@@ -1472,6 +1503,30 @@ func (s *Server) mobTickStep() {
 				s.piglinAlert(e)
 			}
 		}
+		// Creeper.tick's fuse bookkeeping sits outside the goal
+		// system — an ignited fuse runs even under NoAI.
+		if ambName == "creeper" {
+			if e.Ignited && e.SwellDir != 1 {
+				e.SwellDir = 1
+				e.MetaDirty = true
+			}
+			if e.SwellDir > 0 && e.Swell == 0 {
+				// entity.creeper.primed at fuse start, pitch 0.5.
+				s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 481, 5, 1, 0.5, nil)
+			}
+			e.Swell += e.SwellDir
+			if e.Swell < 0 {
+				e.Swell = 0
+			}
+			maxSwell := e.MaxSwell
+			if maxSwell <= 0 {
+				maxSwell = 30
+			}
+			if e.Swell >= maxSwell {
+				s.explodeCreeper(e)
+				continue
+			}
+		}
 		if !e.NoAI && e.Riding == 0 {
 			// A passenger stays put — vanilla's entity rider has no
 			// gravity or wander of its own. Hostile melee mobs chase
@@ -1489,6 +1544,8 @@ func (s *Server) mobTickStep() {
 				} else {
 					goalActed = s.mobMeleeStep(e)
 				}
+			} else if mobSwell[ambName] {
+				goalActed = s.mobSwellStep(e, ambName)
 			} else if mobMelee[e.Type] {
 				goalActed = s.mobMeleeStep(e)
 			}
@@ -1866,6 +1923,67 @@ func (s *Server) mobFleeStep(e *Entity, kn string) bool {
 	e.X += dx / dist * speed
 	e.Z += dz / dist * speed
 	return true
+}
+
+// mobSwell is the SwellGoal set — creepers only.
+var mobSwell = map[string]bool{"creeper": true}
+
+// mobSwellStep is the SwellGoal half of the creeper pair: within 7
+// blocks of the target with line of sight (flat-world LOS is clear)
+// the fuse dir runs +1, outside it -1 — then MeleeAttackGoal's pathing
+// keeps the creeper sliding toward the target through the fuse (they
+// never swing). The fuse counter itself is tick bookkeeping, run for
+// every creeper before the NoAI gate.
+func (s *Server) mobSwellStep(e *Entity, kn string) bool {
+	target := s.nearestMobTarget(e, kn)
+	if target == nil {
+		if !e.Ignited {
+			e.SwellDir = -1
+		}
+		return e.Swell > 0
+	}
+	px, py, pz, _, _, _ := target.Pos()
+	d2 := (px-e.X)*(px-e.X) + (py-e.Y)*(py-e.Y) + (pz-e.Z)*(pz-e.Z)
+	if !e.Ignited {
+		if d2 > 49 {
+			e.SwellDir = -1
+		} else {
+			e.SwellDir = 1
+		}
+		e.MetaDirty = true
+	}
+	dx, dz := px-e.X, pz-e.Z
+	dist := math.Hypot(dx, dz)
+	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	e.HeadYaw = e.Yaw
+	reach := mobBounds(e.Type)[0] + 0.6 + 0.3
+	if dist > reach {
+		step := mobChaseSpeed
+		if step > dist-reach*0.8 {
+			step = dist - reach*0.8
+		}
+		if step > 0 {
+			e.X += dx / dist * step
+			e.Z += dz / dist * step
+		}
+	}
+	return true
+}
+
+// explodeCreeper is Creeper.explodeCreeper: explosionRadius (NBT,
+// default 3) doubled when powered, centered on the feet, MOB
+// interaction — then discard.
+func (s *Server) explodeCreeper(e *Entity) {
+	power := float32(3)
+	if e.BlastPower > 0 {
+		power = float32(e.BlastPower)
+	}
+	if e.Powered {
+		power *= 2
+	}
+	s.entities.Remove(e.ID)
+	s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+	s.explodePower(e, e.X, e.Y, e.Z, power, s.gameRuleBool("minecraft:mob_griefing"))
 }
 
 // mobHoldsBow is vanilla's isHoldingBow check on the main-hand stack.
