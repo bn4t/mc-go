@@ -4796,3 +4796,66 @@ horse chest/container slots, guardian flop/beam, per-damage-type
 hurt variants, witch.drink, selector nbt= arg, scoreboard
 objectives, region save, online mode, redstone, terrain gen,
 lighting, .dat persistence.
+
+## Slice 2026-09-23m — summon finalizeSpawn equipment populate
+
+Bare `/summon` runs Mob.finalizeSpawn (SummonCommand passes
+shouldFinalizeSpawn=false whenever an NBT tag is present — tagged
+summons are fully user-specified and get NO populate, no piglin
+baby roll, no patrol-leader roll). mobDefaultEquip therefore runs
+only when the summon tag is nil.
+
+Measured + implemented:
+- Monster.populateDefaultEquipmentSlots armor cascade: gate
+  rand<0.15·specialMultiplier; tier=nextInt(3) plus two 10.87%
+  upgrades (max iron; diamond unreachable); HEAD→CHEST→LEGS→FEET,
+  each next slot continues unless rand<(hard?0.1:0.25). Applies to
+  zombie/husk/zombie_villager/zombified_piglin/skeleton/stray/bogged.
+- DifficultyInstance.getSpecialMultiplier: eff = difficultyId ·
+  (0.75 + dayTime/1.44e6·0.25 + inhabited/3.6e6·(hard?1:0.75) +
+  moon·0.25 capped by the day term); easy halves the last two.
+  Fresh flat normal world → eff 1.5 → special 0: no cascade, no
+  enchant rolls (empirically confirmed: vanilla zombie bare).
+- populateDefaultEquipmentEnchantments: mainhand rand<0.25·special,
+  each armor slot rand<0.5·special, enchantItemFromProvider
+  MOB_SPAWN_EQUIPMENT by_cost_with_difficulty, cost 5+nextInt(1+
+  int(special·17)); pool is non_treasure (== mc's enchantAvailable).
+- Per-type populates: skeleton/stray/bogged cascade + unconditional
+  bow; wither_skeleton stone_sword; pillager crossbow (+1/300
+  piercing-1 crossbow via PILLAGER_SPAWN_CROSSBOW); piglin_brute
+  golden_axe; vindicator iron_axe; drowned rand>0.9 → nextInt(16)
+  <10 trident else fishing_rod + rand<0.03 offhand nautilus_shell;
+  zombie-family adds a rare mainhand: rand<(hard?0.05:0.01) →
+  nextInt(6) → 0=iron_sword, 1=iron_spear, else iron_shovel;
+  zombified_piglin golden_spear 1/20 else golden_sword.
+- Piglin.finalizeSpawn (reason != STRUCTURE): rand<0.2 → baby,
+  else adult gets createSpawnWeapon (0.5 crossbow / nextInt(10)==0
+  golden_spear / golden_sword); armor populate is adult-gated,
+  maybeWearArmor 10% per golden piece.
+- PatrollingMonster.finalizeSpawn: reason ∉ {PATROL, EVENT,
+  STRUCTURE} → rand<0.06 && canBeLeader → PatrolLeader + ominous
+  white_banner on HEAD with drop_chance 2.0 (witch/ravager can't
+  lead; pillager/vindicator/evoker/illusioner can). mc emits
+  PatrolLeader + drop_chances{head:2.0f} on patrolling types and
+  loads PatrolLeader from summon NBT (tagged path: flag but no
+  banner, since finalizeSpawn is skipped).
+
+New TestSummonEquipmentParity (segmented parser: flattened SNBT
+glues `components{...}count<N>idminecraft:` together, so slot
+segments split on `slot(count|components)` and count/id extract
+inside each segment): piglin 40 — ~80% weapons, ~50% crossbow,
+≤10%/slot gold; drowned 48 — trident/rod ≤14 total, nautilus ≤5,
+zero armor; zombie 30 — ≤2 slots (rare iron weapon allowed);
+pillager 60 — 60 crossbows, ≤10 white_banner heads; skeleton 10
+bows; zero "enchant" anywhere (special=0). Green on both targets
+(van piglin 20/0/14 + 12 gold, mc 15/1/17 + 6; van zombie bare,
+mc rolled shovel+spear; banners 4 van / 3 mc).
+
+Open items remaining: piglin zombification timer (TimeInOverworld
+→ zombified_piglin at ~15s overworld), crossbow/piglin ranged
+variants, RestrictSunGoal wander bias, leftHanded 5% + follow-range
+triangle(0,0.11485) modifier (no mc modifier model yet), cloud
+entity metadata on wire, horse chest/container slots, guardian
+flop/beam, per-damage-type hurt variants, witch.drink, selector
+nbt= arg, scoreboard objectives, region save, online mode,
+redstone, terrain gen, lighting, .dat persistence.

@@ -668,6 +668,12 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if bv, ok := tag.vals["IsBaby"]; ok && snbtNum(bv) > 0 && isBabyTypes[name] {
 				e.Baby = true
 			}
+			// Tagged summons skip finalizeSpawn, so an explicit
+			// PatrolLeader flag loads the flag without the banner the
+			// spawn-time roll would have placed.
+			if bv, ok := tag.vals["PatrolLeader"]; ok && snbtNum(bv) > 0 && patrollingTypes[name] {
+				e.PatrolLeader = true
+			}
 			// active_effects loads the mob's live status effects —
 			// {id, duration (ticks; -1 infinite), amplifier}; lazily
 			// expiry-checked like session effects.
@@ -754,10 +760,13 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 
 		}
-		// Vanilla's /summon runs finalizeSpawn after the NBT load —
-		// populateDefaultEquipmentSlots fills an empty mainhand with
-		// the type's natural weapon. Explicit equipment NBT wins.
-		mobDefaultEquip(e)
+		// Vanilla's /summon runs finalizeSpawn only on the bare form:
+		// SummonCommand passes shouldFinalizeSpawn=false whenever an
+		// NBT tag is present, so a tagged summon never populates
+		// equipment or rolls piglin's 20% baby.
+		if tag == nil {
+			s.mobDefaultEquip(e)
+		}
 		s.broadcastFreshMob(e)
 		return componentReply(translatable("commands.summon.success", entityDisplayName(e)))
 	}
@@ -2466,50 +2475,224 @@ func (s *Server) mobHoldsBow(e *Entity) bool {
 	return ok && e.Equips[equipMainHand].ID == bow
 }
 
-// mobDefaultEquip runs the unconditional mainhand half of vanilla's
-// populateDefaultEquipmentSlots: on /summon (finalizeSpawn), these
-// mobs draw their natural weapon when the hand is still empty.
-// Chance rolls verified against 26.2 bytecode; the armor-populate and
-// enchantment steps are a follow-up.
-func mobDefaultEquip(e *Entity) {
-	if e.Baby || !e.Equips[equipMainHand].Empty() {
+// mobArmorMaterials is getEquipmentForSlot's six-tier ladder: the
+// rolled tier index picks one material used for every armor slot.
+var mobArmorMaterials = []string{"leather", "copper", "golden", "chainmail", "iron", "diamond"}
+
+var mobArmorSuffix = map[int32]string{
+	equipHelmet: "helmet", equipChest: "chestplate",
+	equipLegs: "leggings", equipBoots: "boots",
+}
+
+// specialMultiplier is DifficultyInstance.getSpecialMultiplier: the
+// effective difficulty is id·(0.75 + day + inhabited·k + moon) with
+// day = clamp((dayTime−72000)/1440000)·0.25 and the moon term capped
+// by the day term; below 2 the multiplier is 0 (fresh flat worlds
+// never roll gear), above 4 it saturates at 1. mc-go tracks no
+// per-chunk inhabited time, so that term stays 0.
+func (s *Server) specialMultiplier() float64 {
+	if s.difficulty == DifficultyPeaceful {
+		return 0
+	}
+	day := float64(s.dayTime())
+	g := math.Min(1, math.Max(0, (day-72000)/1440000)) * 0.25
+	moon := [...]float64{1, 0.75, 0.5, 0.25, 0, 0.25, 0.5, 0.75}[int(s.dayTime()/24000/8)%8]
+	h := math.Min(math.Max(moon*0.25, 0), g)
+	if s.difficulty == DifficultyEasy {
+		h *= 0.5
+	}
+	eff := float64(s.difficulty) * (0.75 + g + h)
+	switch {
+	case eff < 2:
+		return 0
+	case eff > 4:
+		return 1
+	default:
+		return (eff - 2) / 2
+	}
+}
+
+// mobEquipSlot sets a slot to a stack when it is still empty —
+// setItemSlot in populate paths never overwrites NBT-placed gear.
+func mobEquipSlot(e *Entity, slot int32, item string) {
+	iid, ok := world.ItemID(item)
+	if !ok {
 		return
 	}
+	if e.Equips == nil {
+		e.Equips = map[int32]ItemStack{}
+	}
+	if e.Equips[slot].Empty() {
+		e.Equips[slot] = ItemStack{ID: iid, Count: 1}
+	}
+}
+
+// mobDefaultEquip is Mob.finalizeSpawn's equipment tail:
+// populateDefaultEquipmentSlots then populateDefaultEquipment-
+// Enchantments. Per-type layouts measured on 26.2:
+//
+//   - zombie/husk/zombie_villager/skeleton/stray/bogged run the
+//     generic armor cascade — a 0.15·special gate, a tier roll
+//     (0-2 plus two 10.87% upgrades), then HEAD→CHEST→LEGS→FEET
+//     each continuing with 1−0.1(hard)|0.25 — before the family's
+//     own mainhand draw (skeleton bow, zombie none, drowned skips
+//     the cascade entirely and rolls trident/rod instead).
+//   - drowned: 10% weapon (10/16 trident else fishing rod), 3%
+//     offhand nautilus shell, never armor.
+//   - piglin: adults only — each armor slot a 10% golden piece and
+//     a mainhand of crossbow 50% / golden spear 1-in-10 of the rest /
+//     golden sword.
+//   - pillager/vindicator/piglin_brute/wither_skeleton: fixed weapon
+//     only, no armor cascade.
+//
+// Enchantment rolls ride the same special multiplier (mainhand
+// 0.25·special, each armor piece 0.5·special, cost 5+rand(0,
+// special·17) through the on_mob_spawn_equipment table); on a fresh
+// world special is 0 and nothing enchants. Pillagers add a flat
+// 1/300 piercing-1 crossbow upgrade.
+func (s *Server) mobDefaultEquip(e *Entity) {
 	name, _ := EntityTypeName(e.Type)
-	var item string
+	special := s.specialMultiplier()
+
+	cascade := false
 	switch name {
+	case "zombie", "husk", "zombie_villager", "zombified_piglin",
+		"skeleton", "stray", "bogged":
+		cascade = true
+	}
+	// PatrollingMonster.finalizeSpawn: on non-patrol/event/structure
+	// spawns a leader-capable type rolls 6% into a patrol leader —
+	// the ominous banner lands on HEAD carrying a 2.0 drop chance.
+	// Witch and ravager canBeLeader()=false.
+	switch name {
+	case "pillager", "vindicator", "evoker", "illusioner":
+		if rand.Float64() < 0.06 {
+			e.PatrolLeader = true
+			if wb, ok := world.ItemID("white_banner"); ok {
+				if e.Equips == nil {
+					e.Equips = map[int32]ItemStack{}
+				}
+				e.Equips[equipHelmet] = ItemStack{ID: wb, Count: 1}
+			}
+		}
+	}
+
+	if cascade && rand.Float64() < 0.15*special {
+		tier := rand.Intn(3)
+		for i := 0; i < 2 && rand.Float64() < 0.1087; i++ {
+			tier++
+		}
+		stop := 0.25
+		if s.difficulty == DifficultyHard {
+			stop = 0.1
+		}
+		first := true
+		for _, slot := range []int32{equipHelmet, equipChest, equipLegs, equipBoots} {
+			if !first && rand.Float64() < stop {
+				break
+			}
+			first = false
+			if tier <= 5 {
+				mobEquipSlot(e, slot, mobArmorMaterials[tier]+"_"+mobArmorSuffix[slot])
+			}
+		}
+	}
+
+	switch name {
+	case "zombie", "husk", "zombie_villager":
+		// Zombie.populateDefaultEquipmentSlots adds a rare weapon:
+		// 5% on hard, 1% otherwise, then nextInt(6) picks sword /
+		// spear / shovel (4/6). Drowned overrides the whole method.
+		weaponChance := 0.01
+		if s.difficulty == DifficultyHard {
+			weaponChance = 0.05
+		}
+		if rand.Float64() < weaponChance {
+			switch rand.Intn(6) {
+			case 0:
+				mobEquipSlot(e, equipMainHand, "iron_sword")
+			case 1:
+				mobEquipSlot(e, equipMainHand, "iron_spear")
+			default:
+				mobEquipSlot(e, equipMainHand, "iron_shovel")
+			}
+		}
 	case "skeleton", "stray", "bogged":
-		item = "bow"
+		mobEquipSlot(e, equipMainHand, "bow")
 	case "zombified_piglin":
 		if rand.Intn(20) == 0 {
-			item = "golden_spear"
+			mobEquipSlot(e, equipMainHand, "golden_spear")
 		} else {
-			item = "golden_sword"
+			mobEquipSlot(e, equipMainHand, "golden_sword")
 		}
 	case "wither_skeleton":
-		item = "stone_sword"
+		mobEquipSlot(e, equipMainHand, "stone_sword")
 	case "pillager":
-		item = "crossbow"
+		mobEquipSlot(e, equipMainHand, "crossbow")
 	case "piglin_brute":
-		item = "golden_axe"
+		mobEquipSlot(e, equipMainHand, "golden_axe")
 	case "vindicator":
-		item = "iron_axe"
+		mobEquipSlot(e, equipMainHand, "iron_axe")
+	case "drowned":
+		if rand.Float64() > 0.9 {
+			if rand.Intn(16) < 10 {
+				mobEquipSlot(e, equipMainHand, "trident")
+			} else {
+				mobEquipSlot(e, equipMainHand, "fishing_rod")
+			}
+		}
+		if rand.Float64() < 0.03 {
+			mobEquipSlot(e, equipOffHand, "nautilus_shell")
+		}
 	case "piglin":
-		if rand.Intn(2) == 0 {
-			item = "crossbow"
-		} else if rand.Intn(10) == 0 {
-			item = "golden_spear"
-		} else {
-			item = "golden_sword"
+		// Piglin.finalizeSpawn (reason != STRUCTURE): 20% baby roll
+		// first; only when the roll misses and the piglin is an adult
+		// does the weapon land. Armor populate is adult-gated too.
+		if rand.Float64() < 0.2 {
+			e.Baby = true
+		} else if !e.Baby {
+			if rand.Float64() < 0.5 {
+				mobEquipSlot(e, equipMainHand, "crossbow")
+			} else if rand.Intn(10) == 0 {
+				mobEquipSlot(e, equipMainHand, "golden_spear")
+			} else {
+				mobEquipSlot(e, equipMainHand, "golden_sword")
+			}
 		}
-	default:
-		return
+		if !e.Baby {
+			for slot, piece := range map[int32]string{
+				equipHelmet: "golden_helmet", equipChest: "golden_chestplate",
+				equipLegs: "golden_leggings", equipBoots: "golden_boots",
+			} {
+				if rand.Float64() < 0.1 {
+					mobEquipSlot(e, slot, piece)
+				}
+			}
+		}
 	}
-	if iid, ok := world.ItemID(item); ok {
-		if e.Equips == nil {
-			e.Equips = map[int32]ItemStack{}
+
+	// populateDefaultEquipmentEnchantments: mainhand 0.25·special,
+	// each armor slot 0.5·special, cost 5+rand(0, special·17)
+	// through the on_mob_spawn_equipment table.
+	cost := func() int {
+		return 5 + rand.Intn(1+int(special*17))
+	}
+	if st := e.Equips[equipMainHand]; !st.Empty() && rand.Float64() < 0.25*special {
+		e.Equips[equipMainHand] = enchantApply(st, selectEnchantment(rand.New(rand.NewSource(rand.Int63())), st, cost()))
+	}
+	for _, slot := range []int32{equipHelmet, equipChest, equipLegs, equipBoots} {
+		if st := e.Equips[slot]; !st.Empty() && rand.Float64() < 0.5*special {
+			e.Equips[slot] = enchantApply(st, selectEnchantment(rand.New(rand.NewSource(rand.Int63())), st, cost()))
 		}
-		e.Equips[equipMainHand] = ItemStack{ID: iid, Count: 1}
+	}
+	// Pillager.enchantSpawnedWeapon adds a 1/300 piercing-1 crossbow.
+	if name == "pillager" {
+		if st := e.Equips[equipMainHand]; !st.Empty() && rand.Intn(300) == 0 {
+			cb, _ := world.ItemID("crossbow")
+			if st.ID == cb {
+				e.Equips[equipMainHand] = enchantApply(st, []enchantInstance{{"piercing", 1}})
+			}
+		}
 	}
 }
 

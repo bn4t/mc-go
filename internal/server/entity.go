@@ -301,6 +301,10 @@ type Entity struct {
 	// /summon NBT that arms the aiStep item pickup scan. Sulfur
 	// cubes ignore it (their override is "body slot empty").
 	CanPickUpLoot bool
+	// PatrolLeader mirrors PatrollingMonster.patrolLeader — a
+	// finalizeSpawn roll on non-patrol/event/structure spawns puts
+	// the ominous banner on the leader's head with a 2.0 drop.
+	PatrolLeader bool
 	// BodyItem is the sulfur_cube BODY slot: one swallowed stack.
 	BodyItem ItemStack
 	// arrowShooter is the entity id of the player who loosed an arrow;

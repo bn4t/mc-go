@@ -536,6 +536,14 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 	if len(equipMob) > 0 {
 		m["equipment"] = equipMob
 	}
+	// PatrollingMonster declares PatrolLeader; the leader head slot's
+	// 2.0 drop chance writes a drop_chances override compound.
+	if patrollingTypes[typeName] {
+		m["PatrolLeader"] = nbtBool(e.PatrolLeader)
+	}
+	if e.PatrolLeader {
+		m["drop_chances"] = map[string]any{"head": float32(2)}
+	}
 	if typeName == "item" && !e.Item.Empty() {
 		// ItemEntity.addAdditionalSaveData: the carried stack and the
 		// pickup-delay countdown; Owner/Thrower only serialize when set.
@@ -616,6 +624,14 @@ var entitySaveSeq = []string{
 	"FallFlying", "PersistenceRequired", "CanPickUpLoot",
 	"LeftHanded", "NoAI", "equipment", "Age", "ForcedAge",
 	"InLove", "AgeLocked", "variant", "sound_variant",
+	"PatrolLeader", "drop_chances",
+}
+
+// patrollingTypes are PatrollingMonster's mc-side summonable types —
+// the PatrolLeader save key only exists on that hierarchy.
+var patrollingTypes = map[string]bool{
+	"pillager": true, "vindicator": true, "evoker": true,
+	"illusioner": true, "witch": true, "ravager": true,
 }
 
 // tamableWildHealth is the wild max_health that
