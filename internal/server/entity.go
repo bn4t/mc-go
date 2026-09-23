@@ -80,6 +80,10 @@ type Entity struct {
 	Offers     []merchantOffer
 	Profession string
 	Baby       bool
+	// Age is AgeableMob.age: babies count up toward 0 (grown at 0),
+	// adults count a breeding cooldown down. Zombie-family babies use
+	// the IsBaby flag instead and never age.
+	Age int32
 	// Passengers holds the entity ids riding this entity (vanilla's
 	// passengers list); Riding is the vehicle id on the passenger.
 	Passengers []int32
@@ -211,6 +215,10 @@ type Entity struct {
 	// inLove countdown plus the player who fed it last.
 	loveTicks int32
 	loveCause string
+	// ambientSoundTime is Mob.ambientSoundTime — climbs each living
+	// tick, fires the ambient voice when random.nextInt(1000) is under
+	// it, then resets to -getAmbientSoundInterval.
+	ambientSoundTime int32
 	// tamed/owner are the TamableAnimal state the tame_animal trigger
 	// consumes.
 	tamed bool

@@ -4296,3 +4296,49 @@ slots, ambient mob voices, guardian flop/beam, per-damage-type hurt
 variants, baby-pitch voicePitch, witch.drink, scoreboard objectives,
 region save, online mode, redstone, terrain gen, lighting, .dat
 persistence.
+
+## Slice 2026-09-23b — ambient voices, daylight burn, Age/IsBaby keys
+
+Mob.baseTick's ambient voice is wired: ambientSoundTime climbs once
+per living tick, fires when random.nextInt(1000) < count, resets to
+-getAmbientSoundInterval(); playHurtSound resets it first. The
+generated table (74 types, tools/genmobambient +
+testdata/vanilla-26.2/ambient_sounds.tsv) carries the sound id, the
+baby-specific sound id where 26.2's *_sound_variant datapack defines
+one (pig -> entity.baby_pig.ambient & friends), the per-type interval
+(80 default, 120 Animal, 400 horse family, 900 ocelot, 200 turtle, 160
+guardian, 6 happy_ghast) and volume (bat 0.1, cows 0.4, ghast/dragon
+5.0, warden 4.0). voicePitchE centers babies at 1.5 — and the baby
+sound-variant id pins the second half of vanilla's baby voice model.
+
+Mob.aiStep's daylight burn follows: #minecraft:burn_in_daylight
+(skeleton, stray, wither_skeleton, bogged, zombie, zombie_horse,
+zombie_villager, drowned, zombie_nautilus, phantom — husk absent) run
+isSunBurnTick every living tick, NoAI or not: MONSTERS_BURN
+(overworld daylight outside the 12542-23459 sleep window, rain off),
+sky visible at the eye block, rand*30 < (light-0.4)*2 (~4%/tick at
+full sky light), dry. A bare head ignites for 160t with max()
+semantics; a helmet absorbs it at nextInt(2) wear per qualifying tick
+and snaps with entity_event 49 (HEAD on 26.2's break table). One wire
+bug surfaced fixing the burn's own flag broadcast:
+broadcastMobSharedFlags was embedding the eid inside the metadata
+payload on top of broadcastEntityMetadata's own prepend, so
+set_entity_data went out with a doubled id.
+
+Summon NBT key scoping is corrected: Age is only read by AgeableMob
+types (52 leaf types incl. cubemobs and nautiluses) and IsBaby only by
+the Zombie/AbstractPiglin/Zoglin hierarchies — an IsBaby pig is an
+adult on vanilla. Age ticks like vanilla's: babies count up and grow
+up at 0, adults count a breeding cooldown down; the live value lands
+in the entity save map.
+
+TestAmbientVoiceParity (night leg, pigs day leg) and
+TestUndeadSunBurnParity (noon ignite+helmet, night quiet) pass vs both
+servers. The test pumps answer keepalives now — vanilla kicks a silent
+client mid-leg at ~30s.
+
+Open items remaining: entity AI beyond the chase-melee step (ranged
+attacks, flee, neutral-mob provoke state), horse chest/container
+slots, guardian flop/beam, per-damage-type hurt variants, witch.drink,
+scoreboard objectives, region save, online mode, redstone, terrain
+gen, lighting, .dat persistence.

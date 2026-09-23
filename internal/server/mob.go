@@ -650,10 +650,15 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.Offers = parseMerchantOffers(rc.items)
 				}
 			}
-			if av, ok := tag.vals["Age"]; ok && snbtNum(av) < 0 {
-				e.Baby = true
+			// Age is AgeableMob's key — a zombie or piglin ignores it.
+			if av, ok := tag.vals["Age"]; ok && ageableTypes[name] {
+				e.Age = int32(snbtNum(av))
+				e.Baby = e.Age < 0
 			}
-			if bv, ok := tag.vals["IsBaby"]; ok && snbtNum(bv) > 0 {
+			// Vanilla only reads IsBaby where the class declares the
+			// key — zombie family, piglin family, zoglin. An IsBaby
+			// summon on an AgeableMob (pig & friends) stays adult.
+			if bv, ok := tag.vals["IsBaby"]; ok && snbtNum(bv) > 0 && isBabyTypes[name] {
 				e.Baby = true
 			}
 			// active_effects loads the mob's live status effects —
@@ -1204,7 +1209,6 @@ func (s *Server) broadcastMobSharedFlags(eid int32, onFire bool) {
 		flags |= 0x01
 	}
 	var b protocol.Buffer
-	b.VarInt(eid)
 	b.Byte(0) // index: shared flags
 	b.Byte(0) // type: byte
 	b.Byte(flags)
@@ -1400,6 +1404,40 @@ func (s *Server) mobTickStep() {
 		}
 		if e.loveTicks > 0 {
 			e.loveTicks--
+		}
+		ambName, _ := EntityTypeName(e.Type)
+		// AgeableMob.baseTick's age step: babies count up toward grown
+		// at 0, adults count a breeding cooldown down.
+		if ageableTypes[ambName] && e.Age != 0 {
+			if e.Age < 0 {
+				e.Age++
+				if e.Age == 0 {
+					e.Baby = false
+					e.MetaDirty = true
+				}
+			} else {
+				e.Age--
+			}
+		}
+		// Mob.baseTick's ambient voice — independent of NoAI: counter
+		// climbs from 0, fires when random < count, resets to
+		// -interval. playHurtSound also resets the counter.
+		if a, ok := mobAmbient[ambName]; ok {
+			e.ambientSoundTime++
+			if rand.Int31n(1000) < e.ambientSoundTime {
+				e.ambientSoundTime = -a.interval
+				snd := a.snd
+				if e.Baby && a.babySnd != 0 {
+					snd = a.babySnd
+				}
+				s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd,
+					mobVoiceOf(e).src(), a.vol, voicePitchE(e), nil)
+			}
+		}
+		// Mob.aiStep's daylight burn runs on every living tick too —
+		// aiStep has no isEffectiveAi gate, so NoAI mobs ignite.
+		if burnDaylight[ambName] {
+			s.mobSunBurn(e, ambName)
 		}
 		if !e.NoAI && e.Riding == 0 {
 			// A passenger stays put — vanilla's entity rider has no
@@ -1784,6 +1822,11 @@ func mobVoiceOf(e *Entity) mobVoice {
 // packet at the entity's feet.
 func (s *Server) mobHurtSound(e *Entity, res DamageResult) {
 	v := mobVoiceOf(e)
+	// playHurtSound's first act is resetAmbientSoundTime — an ambient
+	// voice can't overlap the hurt bark.
+	if a, ok := mobAmbient[func() string { n, _ := EntityTypeName(e.Type); return n }()]; ok {
+		e.ambientSoundTime = -a.interval
+	}
 	snd := v.hurt
 	if snd == 0 {
 		return
@@ -1807,11 +1850,143 @@ func (s *Server) mobDeathSound(e *Entity) {
 		death = v.deathLand
 	}
 	if death != 0 {
-		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, death, v.src(), v.vol, voicePitch(), nil)
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, death, v.src(), v.vol, voicePitchE(e), nil)
 	}
 	if v.secondDeath != 0 {
-		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, v.secondDeath, v.src(), v.vol, voicePitch(), nil)
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, v.secondDeath, v.src(), v.vol, voicePitchE(e), nil)
 	}
+}
+
+// ageableTypes is vanilla 26.2's AgeableMob leaf set — every type
+// whose readAdditionalSaveData honors Age (Animal, AbstractVillager,
+// AgeableWaterCreature, cubemobs, nautiluses). Babies of these types
+// count Age up toward 0 and grow up on arrival.
+var ageableTypes = map[string]bool{
+	"armadillo": true, "axolotl": true, "bee": true, "camel": true,
+	"camel_husk": true, "chicken": true, "cow": true, "mooshroom": true,
+	"dolphin": true, "donkey": true, "horse": true, "llama": true,
+	"mule": true, "skeleton_horse": true, "trader_llama": true,
+	"zombie_horse": true, "cat": true, "ocelot": true, "fox": true,
+	"frog": true, "goat": true, "happy_ghast": true, "nautilus": true,
+	"zombie_nautilus": true, "panda": true, "parrot": true, "pig": true,
+	"polar_bear": true, "rabbit": true, "sheep": true, "sniffer": true,
+	"glow_squid": true, "squid": true, "turtle": true, "wolf": true,
+	"strider": true, "magma_cube": true, "slime": true,
+	"sulfur_cube": true, "hoglin": true, "villager": true,
+	"wandering_trader": true,
+}
+
+// isBabyTypes is the set of types whose readAdditionalSaveData honors
+// the IsBaby key on 26.2 — the Zombie and AbstractPiglin hierarchies
+// plus Zoglin. AgeableMob types (and zombie_nautilus, an animal) read
+// Age instead.
+var isBabyTypes = map[string]bool{
+	"zombie":          true,
+	"zombie_villager": true,
+	"drowned":         true,
+	"husk":            true,
+	"piglin":          true,
+	"piglin_brute":    true,
+	"zoglin":          true,
+}
+
+// burnDaylight is vanilla 26.2's #minecraft:burn_in_daylight entity
+// tag — husk is deliberately absent (desert zombies never burn).
+var burnDaylight = map[string]bool{
+	"skeleton":        true,
+	"stray":           true,
+	"wither_skeleton": true,
+	"bogged":          true,
+	"zombie":          true,
+	"zombie_horse":    true,
+	"zombie_villager": true,
+	"drowned":         true,
+	"zombie_nautilus": true,
+	"phantom":         true,
+}
+
+// mobSunEyeHeights is the eye height per #burn_in_daylight type —
+// vanilla's canSeeSky check reads the block containing the eye, not
+// the feet. Values are the type's EntityDimensions eye height where
+// it differs from height*0.85.
+var mobSunEyeHeights = map[string]float64{
+	"zombie":          1.74,
+	"zombie_villager": 1.74,
+	"drowned":         1.74,
+	"skeleton":        1.74,
+	"stray":           1.74,
+	"bogged":          1.74,
+	"wither_skeleton": 2.1,
+	"zombie_horse":    1.52 * 0.85,
+	"zombie_nautilus": 1.0,
+	"phantom":         0.175,
+}
+
+// mobSunBurn is Mob.burnUndead: when a sun tick rolls true a bare
+// head ignites for eight seconds — igniteForSeconds keeps the larger
+// of the remaining and new countdowns — while a helmet absorbs the
+// burn at nextInt(2) durability per tick and eventually snaps with
+// the HEAD break event (49 on 26.2's entityEventForEquipmentBreak).
+func (s *Server) mobSunBurn(e *Entity, name string) {
+	if !s.sunBurnTick(e, name) {
+		return
+	}
+	helm := e.Equips[equipHelmet]
+	if !helm.Empty() {
+		if name, ok := itemNameOf(helm.ID); ok {
+			if maxDmg, dmgOK := damageableItems[name]; dmgOK {
+				helm.Damage += rand.Int31n(2)
+				if helm.Damage >= maxDmg {
+					delete(e.Equips, equipHelmet)
+					e.EquipDirty = true
+					s.broadcastEntityEvent(e.ID, 49)
+				} else {
+					e.Equips[equipHelmet] = helm
+				}
+			}
+		}
+		return
+	}
+	if e.FireTicks < 160 {
+		s.igniteMob(e, 160)
+	}
+}
+
+// sunBurnTick is Mob.isSunBurnTick: the MONSTERS_BURN environment
+// attribute (overworld daylight, rain off), sky light over the eye
+// above 0.5, a nextFloat*30 < (light-0.4)*2 roll, not standing in
+// water/rain/powder snow, and open sky above the eye block. mc-go's
+// lighting pass is unmodelled, so sky visibility stands in for the
+// light level: under open daylight sky the value is 1.
+func (s *Server) sunBurnTick(e *Entity, name string) bool {
+	d := s.dims[e.Dim]
+	if d == nil || !d.skylight {
+		return false
+	}
+	// MONSTERS_BURN is off over the same window the overworld lets
+	// players sleep — daytime 12542..23459 (bed.go's bounds).
+	dt := s.dayTime() % 24000
+	if dt < 0 {
+		dt += 24000
+	}
+	if dt >= 12542 && dt <= 23459 {
+		return false
+	}
+	if s.weatherRaining.Load() {
+		return false
+	}
+	if rand.Float32()*30 >= 1.2 {
+		return false
+	}
+	eye := world.Pos{
+		X: int(math.Floor(e.X)),
+		Y: int(math.Floor(e.Y + mobSunEyeHeights[name])),
+		Z: int(math.Floor(e.Z)),
+	}
+	if !s.cropLit(d, eye) {
+		return false
+	}
+	return !s.mobInWater(e) && !s.fireRainingAt(d, eye)
 }
 
 // mobInWater is Entity.isInWater approximated at the feet block —
@@ -1831,4 +2006,12 @@ func (s *Server) mobInWater(e *Entity) bool {
 // voicePitch is LivingEntity.getVoicePitch: (rng - rng) * 0.2 + 1.
 func voicePitch() float32 {
 	return (rand.Float32()-rand.Float32())*0.2 + 1
+}
+
+// voicePitchE is getVoicePitch for an entity: babies center at 1.5.
+func voicePitchE(e *Entity) float32 {
+	if e != nil && e.Baby {
+		return (rand.Float32()-rand.Float32())*0.2 + 1.5
+	}
+	return voicePitch()
 }

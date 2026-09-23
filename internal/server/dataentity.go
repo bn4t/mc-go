@@ -551,6 +551,10 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 			// vanilla's load drops it before the next save anyway.
 			m[k] = nbtDeepCopy(v)
 		}
+		// Age reads the live counter, not the template's 0.
+		if _, has := extra["Age"]; has {
+			m["Age"] = e.Age
+		}
 	}
 	extraKeys := nbt.OrderedKeys(e.ExtraNBT)
 	for k, v := range e.ExtraNBT {
