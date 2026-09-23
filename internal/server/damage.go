@@ -179,6 +179,19 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 		s.fireEntityHurtPlayer(sess, true, true)
 		return 0
 	}
+	// DAMAGES_HELMET types (falling_anvil/block/stalactite): hurtHelmet
+	// wears the head piece on the post-grace amount, then a flat 25%
+	// absorbs before the armor formula — vanilla runs both inside
+	// hurtServer ahead of getDamageAfterArmorAbsorb.
+	if damagesHelmet(src.typeName) {
+		sess.invMu.Lock()
+		hasHelmet := !sess.inv[slotArmorStart].Empty()
+		sess.invMu.Unlock()
+		if hasHelmet {
+			s.hurtHelmet(sess, src, amount)
+			amount *= 0.75
+		}
+	}
 	// A hit that armor can absorb wears the equipped pieces first —
 	// on the amount still standing after the i-frames delta — and is
 	// then reduced by the armor formula. The defense value is the

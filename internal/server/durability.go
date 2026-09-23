@@ -222,6 +222,21 @@ var armorBreakEvents = map[int]byte{
 // exhausts its durability empties the slot, snaps the break entity
 // event, and awards the item-broken statistic.
 func (s *Server) armorWear(sess *Session, src damageSource, rawDamage float32) {
+	// Vanilla's doHurtEquipment walks feet, legs, chest, head, so the
+	// break events leave in that order; the client's slot resyncs are
+	// the inventory change broadcast, which walks slots ascending.
+	s.doHurtEquipment(sess, src, rawDamage,
+		[]int{slotArmorStart + 3, slotArmorStart + 2, slotArmorStart + 1, slotArmorStart})
+}
+
+// hurtHelmet is Player.hurtHelmet: doHurtEquipment scoped to HEAD,
+// invoked by hurtServer for the damages_helmet damage types before
+// the 0.75 absorb.
+func (s *Server) hurtHelmet(sess *Session, src damageSource, rawDamage float32) {
+	s.doHurtEquipment(sess, src, rawDamage, []int{slotArmorStart})
+}
+
+func (s *Server) doHurtEquipment(sess *Session, src damageSource, rawDamage float32, slots []int) {
 	if sess.mode() == GameModeCreative || bypassesArmor(src.typeName) {
 		return
 	}
@@ -231,10 +246,7 @@ func (s *Server) armorWear(sess *Session, src damageSource, rawDamage float32) {
 	}
 	broke := false
 	dirty := map[int]ItemStack{}
-	// Vanilla's doHurtEquipment walks feet, legs, chest, head, so the
-	// break events leave in that order; the client's slot resyncs are
-	// the inventory change broadcast, which walks slots ascending.
-	for _, slot := range []int{slotArmorStart + 3, slotArmorStart + 2, slotArmorStart + 1, slotArmorStart} {
+	for _, slot := range slots {
 		sess.invMu.Lock()
 		it := sess.inv[slot]
 		name, ok := world.ItemName(it.ID)
@@ -340,4 +352,15 @@ func (s *Server) broadcastItemParticles(dim, itemName string, x, y, z, xd, yd, z
 		_ = other.write(other.ids().PlayLevelParticles, body)
 		return true
 	})
+}
+
+// damagesHelmet mirrors vanilla's minecraft:damages_helmet tag —
+// hurtServer wears the head piece and bleeds 25% of the hit through
+// when one is worn and the type is in this set.
+func damagesHelmet(typeName string) bool {
+	switch typeName {
+	case "falling_anvil", "falling_block", "falling_stalactite":
+		return true
+	}
+	return false
 }

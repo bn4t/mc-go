@@ -4039,3 +4039,18 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   emitted nothing (thorns retaliation, /kill, on_fire, magic
   harming). mobHurtSound currently covers the wolf only; other mobs'
   hurt/death/ambient sound tables remain open.
+
+- **damages_helmet player path**: hurtServer's helmet branch — when
+  the damage type is in the damages_helmet tag (falling_anvil,
+  falling_block, falling_stalactite) and the head slot is nonempty,
+  Player.hurtHelmet runs doHurtEquipment on HEAD (max(1, raw/4) wear
+  on the post-grace amount) and then multiplies the hit by 0.75
+  BEFORE getDamageAfterArmorAbsorb — and hurtArmor still walks all
+  four armor slots, so the helmet wears twice on those hits (verified
+  verbatim: 8-anvil on a leather helmet lands damage 3, not 2). The
+  pre-break armor value is the post-wear one: the breaking hit
+  reduces through zero armor but still gets the 25%. armorWear was
+  factored into a slot-scoped doHurtEquipment so armorWear and
+  hurtHelmet share the walk. TestHelmetWearParity diffs a 15-leg
+  transcript (damage path, equipment.head, Health) on both servers —
+  including the break leg, where nothing_found must match.

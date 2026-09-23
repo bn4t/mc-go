@@ -372,3 +372,66 @@ func TestWolfArmorFeedbackParity(t *testing.T) {
 		}
 	}
 }
+
+// TestHelmetWearParity pins the damages_helmet path on the player:
+// for falling_anvil/falling_block/falling_stalactite hits with a
+// helmet on, vanilla's hurtServer runs hurtHelmet (doHurtEquipment on
+// HEAD — max(1, raw/4) wear) and bleeds a flat 25% through BEFORE the
+// armor formula — and then hurtArmor still walks all four slots, so
+// the helmet wears twice. A non-helmet type wears it once through
+// hurtArmor with no 25% absorb.
+func TestHelmetWearParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	legs := []string{
+		"damage @s 8 minecraft:falling_anvil", // hurtHelmet 2 + hurtArmor 1, x0.75
+		"damage @s 4 minecraft:falling_block", // hurtHelmet 1 + hurtArmor 1
+		"damage @s 3 minecraft:mob_attack",    // hurtArmor 1, no absorb
+		`item modify entity @s armor.head {"function":"minecraft:set_damage","damage":0.98}`,
+		"damage @s 8 minecraft:falling_anvil", // break: event 49, then x0.75 at armor 0
+	}
+	dmgPath := `equipment.head.components."minecraft:damage"`
+
+	run := func(addr string) []string {
+		c, pr, pw := joinPlayBlackbox(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		sink := newChatSink(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(400 * time.Millisecond)
+		sendCommand(t, pw, "gamemode survival @s")
+		sendCommand(t, pw, "item replace entity @s armor.head with minecraft:leather_helmet")
+		time.Sleep(400 * time.Millisecond)
+		var out []string
+		for _, cmd := range legs {
+			func() { defer func() { recover() }(); sendCommand(t, pw, cmd) }()
+			time.Sleep(1200 * time.Millisecond)
+			out = append(out, dataGetLine(t, sink, pw, "@s", dmgPath))
+			out = append(out, dataGetLine(t, sink, pw, "@s", "equipment.head"))
+			out = append(out, dataGetLine(t, sink, pw, "@s", "Health"))
+		}
+		return out
+	}
+
+	want := run(targets.vanilla)
+	got := run(targets.mcgo)
+	for i := range want {
+		if want[i] == got[i] {
+			continue
+		}
+		wt, okW := componentTree(want[i], true)
+		gt, okG := componentTree(got[i], true)
+		if !okW || !okG || maskUUID(wt) != maskUUID(gt) {
+			t.Errorf("leg %d:\n  vanilla %s\n  mc-go   %s", i, want[i], got[i])
+		}
+	}
+	// Anchors: leather helmet wore exactly 3+2+1 then survived; the
+	// break leg's nothing_found must show on both sides.
+	if lastNumber(want[0]) != 3 {
+		t.Fatalf("first anvil hit did not wear the helmet twice on vanilla: %q", want[0])
+	}
+}
