@@ -672,6 +672,11 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if bv, ok := tag.vals["LeftHanded"]; ok && snbtNum(bv) > 0 {
 				e.LeftHanded = true
 			}
+			// Fire is Entity.load's remaining burn ticks — a
+			// burning mob ignites on the next baseTick.
+			if fv, ok := tag.vals["Fire"]; ok {
+				e.FireTicks = int32(snbtNum(fv))
+			}
 			// Tagged summons skip finalizeSpawn, so an explicit
 			// PatrolLeader flag loads the flag without the banner the
 			// spawn-time roll would have placed.
@@ -1328,6 +1333,11 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 	if !res.Exists || (res.Dealt <= 0 && !res.Absorbed) {
 		return 0, res.Graced, false
 	}
+	// Vanilla stores lastDamageSource on every landed hurt — the
+	// witch's fire-resistance roll reads it through IS_FIRE.
+	if ep, ok := s.entities.GetPtr(e.ID); ok {
+		ep.LastDamageType = typeName
+	}
 	// The graced-excess branch (hurt returned inside invulnerableTime)
 	// sets b8=false in vanilla: no damage_event, no hurt/death sound —
 	// only the health meta moves, and die() still runs if it killed.
@@ -1584,6 +1594,12 @@ func (s *Server) mobTickStep() {
 				s.explodeCreeper(e)
 				continue
 			}
+		}
+		// Witch.aiStep's drink check sits above super.aiStep — it runs
+		// even for NoAI witches (isEffectiveAi only gates the goal
+		// selector inside customServerAiStep).
+		if ambName == "witch" {
+			s.witchDrinkStep(e, s.dims[e.Dim])
 		}
 		if !e.NoAI && e.Riding == 0 {
 			// Drowned/stray conversion bookkeeping — inside the NoAI
@@ -2102,6 +2118,155 @@ func (s *Server) mobConvertTick(e *Entity, d *dimension, ambName string) bool {
 		}
 	}
 	return false
+}
+
+// witchDrinkStep is Witch.aiStep's potion state machine: while
+// drinking, usingTime counts down from the 32-tick use duration and
+// the finish applies the potion, empties the mainhand, and lifts the
+// SPEED_MODIFIER_DRINKING slowdown; while idle the four rolls run in
+// vanilla's order — water-breathing under water (0.15), fire-
+// resistance when burning (0.15), healing when hurt (0.05), and
+// swiftness when the target stands over eleven blocks out (0.5).
+func (s *Server) witchDrinkStep(e *Entity, d *dimension) {
+	if e.WitchDrink {
+		e.WitchDrinkTime--
+		if e.WitchDrinkTime > 0 {
+			return
+		}
+		e.WitchDrink = false
+		it := e.Equips[equipMainHand]
+		delete(e.Equips, equipMainHand)
+		e.markEquipDelta(0)
+		if it.Potion != "" {
+			if pid, ok := world.ItemID("potion"); !ok || it.ID == pid {
+				s.witchApplyPotion(e, it.Potion)
+			}
+		}
+		s.mobAttrModRemove(e, "movement_speed", "minecraft:drinking")
+		return
+	}
+	var potion string
+	switch {
+	case rand.Float64() < 0.15 && s.mobEyeInWater(e, d) &&
+		!s.mobHasEff(e, "water_breathing"):
+		potion = "water_breathing"
+	case rand.Float64() < 0.15 &&
+		(e.FireTicks > 0 || isFireDamage[e.LastDamageType]) &&
+		!s.mobHasEff(e, "fire_resistance"):
+		potion = "fire_resistance"
+	case rand.Float64() < 0.05 && e.Health < float32(mobAttrSupplierBase("witch", "max_health")):
+		potion = "healing"
+	case rand.Float64() < 0.5 && s.witchFarTarget(e) &&
+		!s.mobHasEff(e, "speed"):
+		potion = "swiftness"
+	}
+	if potion == "" {
+		return
+	}
+	pid, ok := world.ItemID("potion")
+	if !ok {
+		return
+	}
+	if e.Equips == nil {
+		e.Equips = map[int32]ItemStack{}
+	}
+	e.Equips[equipMainHand] = ItemStack{ID: pid, Count: 1, Potion: potion}
+	e.markEquipDelta(0)
+	e.WitchDrink = true
+	e.WitchDrinkTime = 32 // ItemStack.getUseDuration for a potion
+	if !e.Silent {
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 1777, mobVoiceOf(e).src(), 1,
+			float32(0.8+rand.Float64()*0.4), nil)
+	}
+	s.mobAttrModAdd(e, "movement_speed", "minecraft:drinking", -0.25, 0)
+}
+
+// witchApplyPotion applies the finished potion's contents the way
+// PotionContents.forEachEffect does: the timed effects get their
+// potion duration, instant_health applies immediately and heals
+// four hearts' halves (4 damage points at amplifier 0).
+func (s *Server) witchApplyPotion(e *Entity, potion string) {
+	switch potion {
+	case "water_breathing":
+		if id, ok := MobEffectID("water_breathing"); ok {
+			mobAddEffect(e, id, 0, s.clock.count+3600)
+		}
+	case "fire_resistance":
+		if id, ok := MobEffectID("fire_resistance"); ok {
+			mobAddEffect(e, id, 0, s.clock.count+3600)
+		}
+	case "healing":
+		max := float32(mobAttrSupplierBase("witch", "max_health"))
+		if e.MaxHealth > 0 {
+			max = e.MaxHealth
+		}
+		e.Health += 4
+		if e.Health > max {
+			e.Health = max
+		}
+		s.broadcastEntityMetadata(e.ID, encodeLivingHealth(e.Health))
+	case "swiftness":
+		if id, ok := MobEffectID("speed"); ok {
+			mobAddEffect(e, id, 0, s.clock.count+3600)
+		}
+	}
+	e.MetaDirty = true
+}
+
+// witchFarTarget is the swiftness roll's target test: a target from
+// the raider's player acquisition more than eleven blocks away.
+func (s *Server) witchFarTarget(e *Entity) bool {
+	t := s.nearestMobTarget(e, "witch")
+	if t == nil {
+		return false
+	}
+	px, py, pz, _, _, _ := t.Pos()
+	dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
+	return dx*dx+dy*dy+dz*dz > 121
+}
+
+// mobEyeInWater is isEyeInFluid(FluidTags.WATER): the block at the
+// entity's eye height is water. Witch eye height is its standing
+// dimensions (1.95) times 0.85.
+func (s *Server) mobEyeInWater(e *Entity, d *dimension) bool {
+	if d == nil {
+		return false
+	}
+	eye := world.Pos{
+		X: int(math.Floor(e.X)),
+		Y: int(math.Floor(e.Y + 1.95*0.85)),
+		Z: int(math.Floor(e.Z)),
+	}
+	k, _, ok := fluidOf(d.w.GetBlock(eye))
+	return ok && k == fluidWater
+}
+
+// mobHasEff is mobHasEffect by name.
+func (s *Server) mobHasEff(e *Entity, name string) bool {
+	id, ok := MobEffectID(name)
+	return ok && mobHasEffect(s, e, id)
+}
+
+// mobAttrModAdd/Remove mirror AttributeInstance's modifier set on the
+// entity's pack state; the wire resend rides the next attr sync.
+func (s *Server) mobAttrModAdd(e *Entity, attr, id string, value float64, op int) {
+	e.markAttrTouched(attr)
+	if e.AttrMods == nil {
+		e.AttrMods = map[string]map[string]attrMod{}
+	}
+	if e.AttrMods[attr] == nil {
+		e.AttrMods[attr] = map[string]attrMod{}
+	}
+	e.AttrMods[attr][id] = attrMod{value: value, op: op}
+	e.AttrDirty = true
+}
+
+func (s *Server) mobAttrModRemove(e *Entity, attr, id string) {
+	if e.AttrMods == nil {
+		return
+	}
+	delete(e.AttrMods[attr], id)
+	e.AttrDirty = true
 }
 
 // mobConvert is Mob.convertTo with ConversionParams.single(mob, true,

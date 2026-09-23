@@ -297,6 +297,17 @@ type Entity struct {
 	// consumes.
 	tamed bool
 	owner string
+	// WitchDrink/WitchDrinkTime are Witch.aiStep's using-item state:
+	// while drinking the mainhand shows the potion and the timer
+	// counts down from the 32-tick use duration; at zero the potion's
+	// effects apply, the slot empties, and the drinking speed
+	// modifier comes off.
+	WitchDrink     bool
+	WitchDrinkTime int32
+	// LastDamageType is the minecraft:damage_type name of the most
+	// recent landed hurt — vanilla's lastDamageSource, which the
+	// witch's fire-resistance roll reads through DamageTypeTags.
+	LastDamageType string
 	// CanPickUpLoot mirrors vanilla's Mob.CanPickUpLoot flag — the
 	// /summon NBT that arms the aiStep item pickup scan. Sulfur
 	// cubes ignore it (their override is "body slot empty").

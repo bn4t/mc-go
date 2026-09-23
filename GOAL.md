@@ -4923,3 +4923,36 @@ chest/container slots, guardian flop/beam, per-damage-type hurt
 variants, witch.drink, selector nbt= arg, scoreboard objectives,
 region save, online mode, redstone, terrain gen, lighting, .dat
 persistence.
+
+## Slice 2026-09-23p — witch potion drinking
+
+Witch.aiStep's using-item state machine, measured off the bytecode:
+while `usingTime` (32-tick potion use duration) counts down the
+mainhand holds a potion + SPEED_MODIFIER_DRINKING (-0.25 add_value,
+id minecraft:drinking) sits on movement_speed; at zero the contents
+apply, the slot empties, the modifier lifts. The pick runs every
+idle tick in vanilla's order: rand<0.15 && eye-in-water &&
+!water_breathing → water_breathing; rand<0.15 && (onFire ||
+lastDamageSource in IS_FIRE) && !fire_resistance → fire_resistance;
+rand<0.05 && health<max → healing (instant_health, +4); rand<0.5 &&
+target && dist²>121 && !speed → swiftness. The aiStep block has no
+isEffectiveAi gate — a NoAI witch still drinks. New entity state:
+WitchDrink/WitchDrinkTime, and LastDamageType which damageMob now
+records (lastDamageSource). Summon NBT reads Fire (Entity.load's
+remaining burn ticks — was ignored) and itemComponentsNBT emits
+minecraft:potion_contents for stacks carrying a potion id.
+
+TestWitchDrinkParity: burning witch gains fire_resistance, a
+10-damage witch heals back above 17, a survival player 13 blocks
+out drives the swiftness drink — all three asserted via
+active_effects/Health reads on both servers. Green identical.
+
+Open items remaining: crossbow/piglin ranged variants
+(RangedCrossbowAttackGoal), witch ranged attack (RangedAttackGoal
+splash throws), RestrictSunGoal wander bias, ominous-banner item
+components on wire (banner_patterns/item_name/tooltip_display),
+living hand-active metadata byte on wire (witch drink state),
+cloud entity metadata on wire, horse chest/container slots,
+guardian flop/beam, per-damage-type hurt variants, scoreboard
+objectives, region save, online mode, redstone, terrain gen,
+lighting, .dat persistence.

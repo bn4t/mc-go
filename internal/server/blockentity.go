@@ -495,6 +495,11 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 			comps["minecraft:enchantments"] = lvls
 		}
 	}
+	if it.Potion != "" {
+		comps["minecraft:potion_contents"] = map[string]any{
+			"potion": "minecraft:" + it.Potion,
+		}
+	}
 	if it.Contents == nil {
 		return comps
 	}
