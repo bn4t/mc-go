@@ -198,6 +198,7 @@ var mobHealth = map[string]float32{
 	"blaze":            20,
 	"phantom":          20,
 	"zombified_piglin": 20,
+	"turtle":           30,
 }
 
 // mobBoundsTable is the vanilla bounding box (width, height) per
@@ -235,6 +236,7 @@ func init() {
 		"wither_skeleton":  {0.7, 2.4},
 		"zombie_villager":  {0.6, 1.95},
 		"zombified_piglin": {0.6, 1.95},
+		"turtle":           {1.2, 0.4},
 		"cave_spider":      {0.7, 0.5},
 		"enderman":         {0.6, 2.9},
 		"witch":            {0.6, 1.95},
@@ -944,8 +946,15 @@ func encodeDyingLivingMetadata() []byte {
 // by the post-hit invulnerability window — whether the hit ran inside
 // that window (vanilla then skips the damage event and knockback), and
 // whether the hit killed the mob.
-func (s *Server) damageMob(e *Entity, amount float32) (dealt float32, graced, died bool) {
-	health, d, ok, gr := s.entities.Damage(e.ID, amount)
+// damageMob runs vanilla's LivingEntity.hurt tail for a mob hit:
+// armor (natural base + worn pieces) absorbs unless the damage type
+// bypasses it, then the health loss lands inside the grace rules.
+func (s *Server) damageMob(e *Entity, amount float32, typeName string) (dealt float32, graced, died bool) {
+	var armor float32
+	if !bypassesArmor(typeName) {
+		armor = mobArmor(e)
+	}
+	health, d, ok, gr := s.entities.Damage(e.ID, amount, armor)
 	if !ok || d <= 0 {
 		return 0, gr, false
 	}

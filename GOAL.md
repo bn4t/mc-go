@@ -3769,3 +3769,22 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   loop at speed 4096 and marginal legs flaked. TestPrecipitationParity
   pins 11 legs incl. both cauldron fills, the plains-vs-snowy split,
   and layers=8 saturation.
+
+- 2026-09-23: Enchanted damage model + mob armor attribute. Melee hits
+  fold the weapon's damage-component enchants in scaled linearly by
+  the attack charge after the crit multiply (sharpness 1+0.5·(l-1)
+  unconditional; smite/bane/impaling 2.5·l vs undead/arthropod/
+  aquatic). The victim's protection EPF (protection 1/l, typed 2/l,
+  feather_falling 3/l, cap 20, skipped only for bypasses_enchantments)
+  shaves epf/25 post-armor; frost_walker boots negate
+  burn_from_stepping outright. Mobs now carry their vanilla ARMOR
+  attribute — the zombie family's natural 2 and the wither's 4, plus
+  worn armor pieces — and armor absorbs inside the same grace-window
+  pipeline as players (absorb applies to the post-delta amount);
+  Manager.Damage takes the armor value so every path (melee, sweep,
+  spear, arrow, lightning, /damage, TNT, /kill) routes one formula.
+  Turtle became summonable (health 30, bounds 1.2x0.4).
+  TestEnchantDamageParity pins 10 legs vs vanilla — sharpness/smite/
+  bane/impaling hits on players + armored mobs, feather_falling/
+  protection EPF, and the frost_walker immunity — with natural regen
+  switched off so the health timeline is only the scripted hits.

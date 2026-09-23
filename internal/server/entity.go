@@ -303,11 +303,13 @@ func (m *Manager) SetMotion(id int32, x, y, z float64) bool {
 
 // Damage applies damage to a living entity: the hit lands fully
 // outside the post-hit grace window; inside it only the excess over
-// the last hit applies (vanilla's invulnerableTime rule). It reports
-// the remaining health, the amount dealt, whether the entity exists,
-// and whether the hit ran inside the grace window — vanilla skips the
-// damage event and knockback on that excess path.
-func (m *Manager) Damage(id int32, amount float32) (float32, float32, bool, bool) {
+// the last hit applies (vanilla's invulnerableTime rule). Armor
+// absorbs what the grace delta left standing — vanilla's absorb runs
+// on the post-delta amount inside hurt. It reports the remaining
+// health, the amount dealt, whether the entity exists, and whether
+// the hit ran inside the grace window — vanilla skips the damage
+// event and knockback on that excess path.
+func (m *Manager) Damage(id int32, amount, armor float32) (float32, float32, bool, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.byID[id]
@@ -324,6 +326,7 @@ func (m *Manager) Damage(id int32, amount float32) (float32, float32, bool, bool
 	}
 	e.lastHurt = orig
 	e.invulnTicks = 20
+	amount = reduceDamage(amount, armor)
 	// Vanilla's damage_dealt is the health the target actually lost:
 	// the hit's amount clamped to the pre-hit health.
 	if amount > e.Health {

@@ -116,7 +116,10 @@ var (
 func sessInvulnerableTo(sess *Session, typeName string) bool {
 	m := sess.mode()
 	if m != GameModeCreative && m != GameModeSpectator {
-		return false
+		// Non-creative invulnerability also comes from equipment —
+		// vanilla's isInvulnerableTo folds in the enchantment
+		// damage_immunity component (frost walker vs burn_from_stepping).
+		return sess.enchantImmunity(typeName)
 	}
 	return !damageTypeBypassesInvulnerability(typeName)
 }
@@ -180,6 +183,18 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 		defense := sess.armorDefense()
 		s.armorWear(sess, src, amount)
 		amount = reduceDamage(amount, defense)
+	}
+	// getDamageAfterEnchantAbsorb: the EPF from protection-family
+	// enchantments shaves min(20, epf)/25 off what armor left standing.
+	// Only sonic_boom bypasses enchantments.
+	if src.typeName != "sonic_boom" {
+		if epf := sess.enchantProtection(src.typeName); epf > 0 {
+			red := epf
+			if red > 20 {
+				red = 20
+			}
+			amount *= 1 - red/25
+		}
 	}
 	// Vanilla counts damage in tenths of a heart.
 	sess.addCustomStat("damage_taken", int32(amount*10))

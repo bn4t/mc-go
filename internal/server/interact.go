@@ -191,9 +191,13 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 				return
 			}
 			plan := s.planAttack(sess)
+			// Vanilla's enchanted-damage difference folds in scaled
+			// linearly by the charge (f6 = scale * (enchanted - base)).
+			vType, _ := EntityTypeName(e.Type)
+			plan.damage += plan.scale * enchantDamageBonus(sess.heldStack(), vType)
 			s.preAttackSound(sess, plan)
 			sess.attackTicker = 0
-			dealt, graced, died := s.damageMob(&e, plan.damage)
+			dealt, graced, died := s.damageMob(&e, plan.damage, "player_attack")
 			if dealt > 0 {
 				// Melee lands on player_hurt_entity too: the direct
 				// entity is the player and there's no projectile tag.
@@ -248,6 +252,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	// damage_dealt counts the post-absorb amount. The cooldown scale
 	// is read before the ticker resets, as in vanilla's attack().
 	plan := s.planAttack(sess)
+	plan.damage += plan.scale * enchantDamageBonus(sess.heldStack(), "player")
 	s.preAttackSound(sess, plan)
 	dmgType := "player_attack"
 	if plan.smash {
@@ -501,7 +506,7 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 		if name, ok2 := EntityTypeName(e.Type); ok2 {
 			res = mobKnockbackResistance[name]
 		}
-		if dealt, graced, died := s.damageMob(&e, dmg); dealt > 0 {
+		if dealt, graced, died := s.damageMob(&e, dmg, "player_attack"); dealt > 0 {
 			if !graced {
 				s.broadcastDamageEvent(e.ID, damageInfo{
 					typeName: "player_attack",

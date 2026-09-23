@@ -191,7 +191,7 @@ func (s *Server) tntExplode(src *Entity, x, y, z float64) {
 			continue
 		}
 		dmg := float32((impact*impact+impact)/2*7*float64(radius) + 1)
-		s.entities.Damage(e.ID, dmg)
+		s.entities.Damage(e.ID, dmg, mobArmor(e))
 		pushedMobs = append(pushedMobs, struct {
 			eid int32
 			kb  [3]float64

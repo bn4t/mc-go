@@ -350,7 +350,7 @@ func TestSummonAndKillMob(t *testing.T) {
 	}
 	for i := 0; i < 10; i++ {
 		e.invulnTicks = 0 // bypass the post-hit grace window
-		s.damageMob(e, 1)
+		s.damageMob(e, 1, "generic")
 	}
 	// die() leaves a twenty-tick corpse; tick the poof through.
 	for i := 0; i < 20; i++ {
@@ -370,7 +370,7 @@ func TestPigDropsPorkchop(t *testing.T) {
 	}
 	for i := 0; i < 10; i++ {
 		e.invulnTicks = 0 // bypass the post-hit grace window
-		s.damageMob(e, 1)
+		s.damageMob(e, 1, "generic")
 	}
 	s.entities.mu.RLock()
 	var drop *Entity
@@ -509,7 +509,7 @@ func TestMobDeathSpawnsXPOrb(t *testing.T) {
 	}
 	for i := 0; i < 10; i++ {
 		e.invulnTicks = 0 // bypass the post-hit grace window
-		s.damageMob(e, 1)
+		s.damageMob(e, 1, "generic")
 	}
 	orbType := mustEntityType("experience_orb")
 	found := false
