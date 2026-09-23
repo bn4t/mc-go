@@ -4186,3 +4186,48 @@ reconstructs the SNBT before parsing.
 
 Known flake fixed mid-run: the test's own SNBT list parser could loop
 unbounded at EOF — capped loops + anchored parse now.
+
+## Slice 2026-09-19e — i-frame grace suppression + entity-id offset + sim-distance gate
+
+Measured `LivingEntity.hurtServer` on 26.2 (javap) and fixed the
+graced-hit tail: a hit landing inside the 10-tick grace window now
+deals only the excess over `lastHurt` with NO damage_event, NO hurt
+sound, NO knockback, and — the subtle part — does NOT refresh
+`invulnerableTime` (grace branch leaves the original window running;
+only the full-hit arm sets 20). Applied to both `Manager.Damage`
+(mobs) and `Session.damageWith` (players): `DamageResult.Graced`,
+broadcasts/hurt voice/knockback all gated on `!graced`, health
+metadata still emitted (vanilla updates Health on graced hits). Death
+still runs on graced hits; `mobDie` gained a `silent` arm for the
+b8=false path (no death sound/voice). Pinned by TestCritSweepParity.
+
+Entity ids: the global eid counter now starts at 1 like vanilla (first
+joiner = 1); it was 2 ("entity 1 is the player" assumption) so every
+spawned entity was +1 across the whole wire. Three compensating `+1`s
+removed from spawn-packet `Data` fields (fishing bobber + projectiles)
+— vanilla writes the raw id there; `damage_event`'s `+1` is wire-level
+cause/direct encoding (0 = absent) and stays.
+
+Simulation distance: entity ticks (move, gravity, fire, invuln decay,
+death linger) are now gated on the mob's chunk being inside a live
+non-spectator player's Chebyshev simulation-distance window — measured
+`<= simDistance` on vanilla 26.2 (chunk 8 ticks at sim=8, chunk 9
+never; summons into unloaded chunks just don't materialize). Mobs
+outside the window freeze completely, matching vanilla — which also
+means `movement_speed` only joins the attributes pack once the entity
+actually ticks inside the window (lazy AttributeMap instantiation on
+first use), so `summonAttrTouches` no longer pre-touches it;
+`mobTickStep` touches it on each live tick instead. With no eligible
+sessions the gate opens — unit-test worlds keep ticking.
+
+Test-side: TestAttrSavePackParity now `damage ... 1`-pokes each
+summoned mob before reading so vanilla's first-travel ms touch fires
+deterministically, and moved the AI passives back inside range on a
+separate z-row from the hostiles. chatTextPieces resyncs past bogus
+tag headers inside non-String fields instead of truncating the tail.
+
+Also fixed: TestWeaponDamagePackets was a test bug, not a server bug
+— Bob attacked ~30 ms after equipping the sword, so attack-strength
+cooldown scaling (which mc-go already implements correctly, matching
+vanilla) cut the hit to ~1.3 instead of 6. The test now waits 750 ms
+(sword = 1.6 attack speed → 625 ms cooldown) before attacking.

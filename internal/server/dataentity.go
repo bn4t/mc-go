@@ -430,7 +430,7 @@ func (d *dataEntity) saveMap(now int64) entitySave {
 func (s *Server) applyDataEntity(d *dataEntity, save entitySave) {
 	s.applyEntitySave(d.mob, save.m)
 	if d.mob != nil && d.mob.Health <= 0 {
-		s.mobDie(d.mob, nil)
+		s.mobDie(d.mob, nil, false)
 	}
 }
 

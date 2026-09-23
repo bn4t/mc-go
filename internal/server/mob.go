@@ -1215,11 +1215,14 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 	if !res.Exists || (res.Dealt <= 0 && !res.Absorbed) {
 		return 0, res.Graced, false
 	}
-	if info != nil {
+	// The graced-excess branch (hurt returned inside invulnerableTime)
+	// sets b8=false in vanilla: no damage_event, no hurt/death sound —
+	// only the health meta moves, and die() still runs if it killed.
+	if info != nil && !res.Graced {
 		s.broadcastDamageEvent(e.ID, *info)
 	}
 	health, d := res.Health, res.Dealt
-	if health > 0 {
+	if health > 0 && !res.Graced {
 		s.mobHurtSound(e, res)
 	}
 	// Vanilla's killed_by_player window: a player-caused hurt keeps
@@ -1232,7 +1235,7 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 		s.thornsMobWear(e, killer)
 	}
 	if health <= 0 {
-		s.mobDie(e, killer)
+		s.mobDie(e, killer, res.Graced)
 		return d, res.Graced, true
 	}
 	if d > 0 {
@@ -1246,8 +1249,12 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 // twenty-tick corpse linger before removal — all inside mobTickStep's
 // per-mob pass. It fires from damageMob and from a /data merge that
 // pushes Health to zero.
-func (s *Server) mobDie(e *Entity, killer *Session) {
-	s.mobDeathSound(e)
+// silent is hurt()'s b8=false arm: a graced hit that kills runs die()
+// without makeSound(getDeathSound)/playSecondaryHurtSound.
+func (s *Server) mobDie(e *Entity, killer *Session, silent bool) {
+	if !silent {
+		s.mobDeathSound(e)
+	}
 	s.entities.SetDying(e.ID)
 	// The death pack rides the next tick's sendChanges like any dirty
 	// metadata — a /kill reply reaches the client first.
@@ -1288,6 +1295,12 @@ func (s *Server) mobTickStep() {
 	}
 	s.entities.mu.RUnlock()
 	for _, e := range mobs {
+		// Entities outside a non-spectator's simulation-distance chunk
+		// window are never ticked on vanilla — gravity, fire, the
+		// invulnerability countdown and the death linger all pause.
+		if !s.mobInSimulationRange(e) {
+			continue
+		}
 		if e.Dying {
 			if len(e.dataSync) > 0 {
 				data := e.dataSync
@@ -1348,6 +1361,10 @@ func (s *Server) mobTickStep() {
 				return true
 			})
 		}
+		// LivingEntity.travel reads movement_speed every living tick —
+		// the lazy AttributeMap instantiates it on that first read, so
+		// the attribute joins the save pack once the mob has ticked.
+		e.markAttrTouched("movement_speed")
 		// Entity.baseTick's fire pass: while the countdown runs, the
 		// multiples of twenty each deal a point of on_fire damage and
 		// the counter decrements; reaching zero relights the shared
@@ -1384,6 +1401,43 @@ func (s *Server) mobTickStep() {
 		}
 		s.mobSyncFlush(e)
 	}
+}
+
+// mobInSimulationRange reports whether the mob's chunk sits inside
+// any in-play, non-spectator player's simulation distance — the
+// Chebyshev chunk window that carries entity-ticking tickets.
+func (s *Server) mobInSimulationRange(e *Entity) bool {
+	limit := s.SimulationDistance
+	if limit == 0 {
+		limit = 10
+	}
+	// Vanilla's entity-ticking ticket lands on the chunk at Chebyshev
+	// distance <= simulationDistance; measured: chunk 8 ticks at
+	// sim=8, chunk 9 never does.
+	inRange, sawEligible := false, false
+	s.sessions.Range(func(_, v any) bool {
+		p := v.(*Session)
+		if p.state.Load() != StatePlay || p.mode() == GameModeSpectator {
+			return true
+		}
+		sawEligible = true
+		if p.dimName() != e.Dim {
+			return true
+		}
+		px, _, pz, _, _, _ := p.Pos()
+		dx := math.Abs(math.Floor(e.X/16) - math.Floor(px/16))
+		dz := math.Abs(math.Floor(e.Z/16) - math.Floor(pz/16))
+		if int(math.Max(dx, dz)) <= limit {
+			inRange = true
+			return false
+		}
+		return true
+	})
+	if !sawEligible {
+		// No live players (unit-test worlds, pre-login): nothing gates.
+		return true
+	}
+	return inRange
 }
 
 // mobMoveStep is the gravity + wander half of a mob tick: falling until

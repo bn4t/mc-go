@@ -132,7 +132,7 @@ func (s *Server) spawnArrow(shooter *Session, x, y, z float64, yaw, pitch float3
 		VX:   int16(dx * speed * 8000),
 		VY:   int16(dy * speed * 8000),
 		VZ:   int16(dz * speed * 8000),
-		Data: shooter.entityID.Load() + 1,
+		Data: shooter.entityID.Load(),
 	})
 	e.arrowShooter = shooter.entityID.Load()
 	e.arrowWeapon = "bow"
@@ -569,7 +569,7 @@ func (s *Server) spawnTrident(shooter *Session, x, y, z float64, yaw, pitch floa
 		VX:   int16(dx * speed * 8000),
 		VY:   int16(dy * speed * 8000),
 		VZ:   int16(dz * speed * 8000),
-		Data: shooter.entityID.Load() + 1,
+		Data: shooter.entityID.Load(),
 	})
 	e.arrowShooter = shooter.entityID.Load()
 	s.broadcastEntitySpawn(nil, *e)

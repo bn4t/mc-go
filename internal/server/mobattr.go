@@ -49,14 +49,15 @@ var mobZombieFamily = map[string]bool{
 
 // summonAttrTouches applies the attribute-instance side effects of a
 // /summon: vanilla's AttributeMap packs only instances that were
-// touched. movement_speed is always touched; max_health for tamables
-// (setTame re-asserts the wild base). init is true only when the
-// summon carried no NBT argument — vanilla then calls
-// Mob.finalizeSpawn, which rolls follow_range's random_spawn_bonus
-// and the zombie family's reinforcement/knockback touches. A summon
-// with NBT skips finalizeSpawn entirely.
+// touched. max_health is touched for tamables (setTame re-asserts the
+// wild base). init is true only when the summon carried no NBT
+// argument — vanilla then calls Mob.finalizeSpawn, which rolls
+// follow_range's random_spawn_bonus and the zombie family's
+// reinforcement/knockback touches. A summon with NBT skips
+// finalizeSpawn entirely. movement_speed is NOT touched here — it is
+// lazily instantiated on the mob's first living tick (the travel read),
+// which only happens inside simulation distance.
 func summonAttrTouches(e *Entity, name string, init bool) {
-	e.markAttrTouched("movement_speed")
 	if _, ok := tamableWildHealth[name]; ok {
 		e.markAttrTouched("max_health")
 	}

@@ -158,16 +158,22 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 	}
 	// Vanilla grants twenty ticks of invulnerability after a hit; while
 	// more than half remains, a hit no stronger than the last is ignored
-	// and a stronger one lands only for its excess.
+	// and a stronger one lands only for its excess. That excess branch
+	// (hurt's b8=false arm) runs actuallyHurt alone: no damage event,
+	// no hurt sound, no knockback, no fresh invulnerability window —
+	// but die() and the stats/post-attack tail still fire.
+	graced := sess.invulnTicks > 10
 	orig := amount
-	if sess.invulnTicks > 10 {
+	if graced {
 		if orig <= sess.lastHurt {
 			return 0
 		}
 		amount = orig - sess.lastHurt
 	}
 	sess.lastHurt = orig
-	sess.invulnTicks = 20
+	if !graced {
+		sess.invulnTicks = 20
+	}
 	sess.lastHurtBy = src.cause
 	// A raised shield negates projectile damage outright: vanilla swaps
 	// the damage event for the blocked-by-shield type, plays the shield
@@ -217,18 +223,22 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 	sess.addCustomStat("damage_taken", int32(amount*10))
 	eid := sess.entityID.Load()
 	x, y, z, _, _, _ := sess.Pos()
-	s.broadcastDamageEvent(eid, damageInfo{
-		typeName: src.typeName,
-		cause:    src.cause,
-		direct:   src.direct,
-		hasPos:   src.cause != 0,
-		x:        x, y: y, z: z,
-	})
+	if !graced {
+		s.broadcastDamageEvent(eid, damageInfo{
+			typeName: src.typeName,
+			cause:    src.cause,
+			direct:   src.direct,
+			hasPos:   src.cause != 0,
+			x:        x, y: y, z: z,
+		})
+	}
 	// damage_dealt-style accounting counts health lost, not the raw
 	// hit: an overkill blow still reports only what remained.
 	healthBefore := sess.health
 	s.damage(sess, amount, message, src)
-	s.playerHurtVoice(sess, src)
+	if !graced {
+		s.playerHurtVoice(sess, src)
+	}
 	if amount > healthBefore {
 		amount = healthBefore
 	}
@@ -241,7 +251,7 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 	// flag that tells hurtServer the attack applies knockback itself
 	// (playerAttackKnockback owns that push).
 	if src.cause != 0 && src.cause != eid && !noKnockback(src.typeName) &&
-		src.typeName != "player_attack" {
+		src.typeName != "player_attack" && !graced {
 		s.playerHurtKnockback(sess, src.cause)
 	}
 	// EnchantmentHelper.doPostAttackEffects, enchanted=victim side:

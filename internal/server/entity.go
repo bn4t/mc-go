@@ -259,10 +259,11 @@ type Manager struct {
 	nextID atomic.Int32
 }
 
-// NewManager starts player-adjacent ids at 2 (entity 1 is the player).
+// NewManager starts ids at 1 — vanilla's global entity counter hands
+// the first joiner (or first spawned entity) id 1 and increments.
 func NewManager() *Manager {
 	m := &Manager{byID: make(map[int32]*Entity)}
-	m.nextID.Store(2)
+	m.nextID.Store(1)
 	return m
 }
 
@@ -367,7 +368,11 @@ func (m *Manager) Damage(id int32, amount float32, typeName string, breachLevel 
 		amount = orig - e.lastHurt
 	}
 	e.lastHurt = orig
-	e.invulnTicks = 20
+	// The graced branch does not touch invulnerableTime — only a
+	// full hit restarts the twenty-tick window.
+	if !res.Graced {
+		e.invulnTicks = 20
+	}
 	mobName, _ := EntityTypeName(e.Type)
 	var armor, toughness float32
 	armored := !bypassesArmor(typeName)

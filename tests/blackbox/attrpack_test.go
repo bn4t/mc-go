@@ -19,6 +19,10 @@ import (
 type snbtReader struct {
 	s string
 	i int
+	// truncated sticks once any container exits its loop without
+	// reaching the closer — a partial reconstruction the caller
+	// should retry rather than compare.
+	truncated bool
 }
 
 func (r *snbtReader) ws() {
@@ -76,9 +80,11 @@ func (r *snbtReader) compound() map[string]any {
 			r.i++
 		}
 		if r.i <= before {
+			r.truncated = true
 			return m
 		}
 	}
+	r.truncated = true
 	return m
 }
 
@@ -96,9 +102,11 @@ func (r *snbtReader) list() []any {
 			r.i++
 		}
 		if r.i <= before {
+			r.truncated = true
 			return out
 		}
 	}
+	r.truncated = true
 	return out
 }
 
@@ -155,15 +163,19 @@ func chatTextPieces(line string) string {
 			continue
 		}
 		nl := int(line[i+1])<<8 | int(line[i+2])
+		// A 0x08 byte inside a non-String field reads as a bogus header —
+		// skip it (resync) instead of truncating the tail of the line.
 		if i+3+nl+2 > len(line) {
-			break
+			i++
+			continue
 		}
 		name := line[i+3 : i+3+nl]
 		vi := i + 3 + nl
 		vl := int(line[vi])<<8 | int(line[vi+1])
 		vi += 2
 		if vi+vl > len(line) {
-			break
+			i++
+			continue
 		}
 		if nl == 0 || name == "text" {
 			b.WriteString(line[vi : vi+vl])
@@ -174,15 +186,17 @@ func chatTextPieces(line string) string {
 }
 
 // parseSNBT parses the SNBT value inside a `data get` chat line —
-// the reconstructed reply text's first bracketed value.
-func parseSNBT(line string) any {
+// the reconstructed reply text's first bracketed value. ok is false
+// when the value never reached its closer (truncated text).
+func parseSNBT(line string) (any, bool) {
 	text := chatTextPieces(line)
 	i := strings.IndexAny(text, "[{")
 	if i < 0 {
-		return nil
+		return nil, false
 	}
 	r := &snbtReader{s: text, i: i}
-	return r.value()
+	v := r.value()
+	return v, !r.truncated
 }
 
 // normAttrPack turns a `data get ... attributes` payload into a
@@ -264,17 +278,26 @@ func TestAttrSavePackParity(t *testing.T) {
 			out = append(out, tag+"="+strings.Join(normAttrPack(v), ";"))
 		}
 		get := func(tp, tag string) {
-			// A stray line occasionally buries the reply before the
-			// say-ZEND flush arrives — retry the query once rather
-			// than compare an empty leg.
+			// movement_speed joins the pack on the mob's first real
+			// travel — for a fresh summon that means its first move,
+			// which idle animals reach only on RandomStroll's dice. A
+			// tap of /damage panics the mob and lands the touch
+			// deterministically on both servers.
+			sendCommand(t, pw, fmt.Sprintf(
+				"damage @e[type=minecraft:%s,limit=1,sort=nearest] 1", tp))
+			time.Sleep(600 * time.Millisecond)
 			var v any
+			var ok bool
 			for i := 0; i < 3; i++ {
 				sink.take()
-				v = parseSNBT(dataGetLine(t, sink, pw,
+				v, ok = parseSNBT(dataGetLine(t, sink, pw,
 					`@e[type=minecraft:`+tp+`,limit=1,sort=nearest]`, "attributes"))
-				if v != nil {
+				if v != nil && ok {
 					break
 				}
+			}
+			if !ok {
+				v = nil
 			}
 			emit(tag, v)
 		}
@@ -300,15 +323,15 @@ func TestAttrSavePackParity(t *testing.T) {
 		// random_spawn_bonus where the supplier has it, plus the
 		// zombie family's reinforcement/knockback rolls.
 		leg("kill @e[type=!minecraft:player]")
-		// Passive mobs parked far from the hostiles — a loose wolf
-		// hunts skeletons, zombies hunt the player, and a get after a
-		// death is a flake.
-		leg("summon minecraft:wolf 130.5 -60 30.5",
-			"summon minecraft:pig 134.5 -60 34.5",
-			"summon minecraft:zombie 38.5 -60 38.5",
-			"summon minecraft:husk 42.5 -60 42.5",
-			"summon minecraft:zombie_villager 46.5 -60 46.5",
-			"summon minecraft:skeleton 50.5 -60 50.5")
+		// Passives on the z=30 row, hostiles far north on the z=60 row —
+		// every mob still sits inside simulation distance but nobody
+		// hunts anybody (wolf-vs-skeleton, zombie-vs-player).
+		leg("summon minecraft:wolf 30.5 -60 30.5",
+			"summon minecraft:pig 34.5 -60 34.5",
+			"summon minecraft:zombie 38.5 -60 60.5",
+			"summon minecraft:husk 42.5 -60 64.5",
+			"summon minecraft:zombie_villager 46.5 -60 68.5",
+			"summon minecraft:skeleton 50.5 -60 72.5")
 		get("wolf", "wolf-ai")
 		get("pig", "pig-ai")
 		get("zombie", "zombie-ai")

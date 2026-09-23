@@ -2544,6 +2544,11 @@ func TestWeaponDamagePackets(t *testing.T) {
 	if err := pwb.WritePacket(server.IDPlayHeldChangeSB, held.Bytes()); err != nil {
 		t.Fatal(err)
 	}
+	// Switching items starts the attack-strength cooldown: an iron
+	// sword at 1.6 attack speed needs 20/1.6 = 12.5 ticks ≈ 625 ms to
+	// reach full charge, on vanilla as much as on mc-go. Hit early and
+	// the scaled damage is a fraction of 6.
+	time.Sleep(750 * time.Millisecond)
 	var atk protocol.Buffer
 	atk.VarInt(aliceEID)
 	if err := pwb.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {

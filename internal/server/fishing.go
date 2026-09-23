@@ -101,7 +101,7 @@ func (s *Server) castBobber(sess *Session, x, y, z float64, yaw, pitch float32) 
 		Yaw:  yaw, Pitch: pitch,
 		MotionX: vx, MotionY: vy, MotionZ: vz,
 		VX: int16(vx * 8000), VY: int16(vy * 8000), VZ: int16(vz * 8000),
-		Data: sess.entityID.Load() + 1, // spawn packet owner field
+		Data: sess.entityID.Load(), // spawn packet owner field
 	})
 	fb := &fishBobber{owner: sess}
 	e.fishing = fb
