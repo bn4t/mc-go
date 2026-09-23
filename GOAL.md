@@ -5109,3 +5109,42 @@ cloud entity metadata on wire, horse chest/container slots, guardian
 squid/axolotl targeting + knockback on beam melee, per-damage-type
 hurt variants, scoreboard objectives, region save, online mode,
 redstone, terrain gen, lighting, .dat persistence.
+## Slice 2026-09-23u — elder guardian curse
+
+ElderGuardian.customServerAiStep, measured on the jar: every
+(tickCount + entityId) % 1200 == 0 — once a minute, phased per elder —
+MobEffectUtil.addEffectToPlayersAround pushes
+MobEffectInstance(mining_fatigue, 6000t, amplifier 2) to every player
+who is isSurvival() (survival or adventure), not allied, and strictly
+inside 50 blocks; the predicate re-applies only when the player lacks
+the effect, holds a weaker amplifier, or the live instance
+endsWithin(1199) — a fresh amp-2 cast isn't re-pushed. Each affected
+player then gets ClientboundGameEventPacket(GUARDIAN_ELDER_EFFECT,
+silent ? 0 : 1) — Type id 10 per the enum's static init — the ghost
+render + curse sound. The same method also calls setHomeTo(pos, 16)
+when homeless; mc has no mob-home wander restriction so that half is
+noted only.
+
+Wire: update_mob_effect [eid, VarInt 3, amp 2, VarInt 6000, flags]
+then game_event [byte 10][float 1.0] — both self-referenced to the
+cursed player so no entity tracking is needed.
+
+mc-go: mobGuardianStep now calls elderCurseStep for the elder kind —
+it runs under the same NoAI/sim-range gate as vanilla's
+customServerAiStep, using e.SyncCount+e.ID for the 1200-tick phase and
+the same survival/50-block/refresh predicates before
+playerGiveEffect + sendGameEvent(10).
+
+TestElderCurseParity summons the elder ~20 blocks out (inside the 50-
+block curse radius, outside follow_range 16 so no beam interferes) and
+pumps up to 72s for the game event and the effect packet. Green
+identical: event param 1.0, amp 2, duration 6000 on both servers
+(128s wall — the 60s curse period dominates).
+
+Open items remaining: witch raider-heal throw (blocked on raids),
+RestrictSunGoal wander bias, ominous-banner item components on wire,
+cloud entity metadata on wire, horse chest/container slots, elder
+setHomeTo(pos,16) home restriction, guardian squid/axolotl targeting +
+knockback on beam melee, per-damage-type hurt variants, scoreboard
+objectives, region save, online mode, redstone, terrain gen,
+lighting, .dat persistence.

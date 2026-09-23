@@ -3834,6 +3834,47 @@ func (s *Server) broadcastGuardianBeam(e *Entity, targetID int32) {
 	s.broadcastEntityMetadata(e.ID, b.Bytes())
 }
 
+// elderCurseStep runs the ElderGuardian.customServerAiStep curse: every
+// 1200 ticks phased by the entity id ((tickCount+id)%1200==0) each
+// survival-mode player within 50 blocks gets Mining Fatigue III for
+// 6000 ticks and the GUARDIAN_ELDER_EFFECT game event (param 0 when
+// the elder is silent). addEffectToPlayersAround refreshes only a
+// weaker instance or one ending within 1199 ticks — a fresh amp-2
+// cast isn't re-pushed.
+func (s *Server) elderCurseStep(e *Entity) {
+	if (e.SyncCount+int64(e.ID))%1200 != 0 {
+		return
+	}
+	id, ok := MobEffectID("mining_fatigue")
+	if !ok {
+		return
+	}
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || !sess.spawned.Load() ||
+			sess.dead || sess.dimName() != e.Dim ||
+			(sess.mode() != GameModeSurvival && sess.mode() != GameModeAdventure) {
+			return true
+		}
+		px, py, pz, _, _, _ := sess.Pos()
+		dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
+		if dx*dx+dy*dy+dz*dz >= 2500 { // closerThan(50) is strict
+			return true
+		}
+		if cur, live := sessEffect(sess, id, s.clock.count); live &&
+			cur.amplifier >= 2 && cur.expiry-s.clock.count > 1199 {
+			return true
+		}
+		s.playerGiveEffect(sess, id, 2, 6000, false)
+		param := float32(1)
+		if e.Silent {
+			param = 0
+		}
+		_ = s.sendGameEvent(sess, 10, param) // GUARDIAN_ELDER_EFFECT
+		return true
+	})
+}
+
 // mobGuardianStep runs GuardianAttackGoal: on acquiring a living target
 // the beam charges for getAttackDuration ticks (80, elder 60) then
 // zaps — an indirect_magic hit (1.0, +2 on hard, +2 for the elder)
@@ -3845,6 +3886,9 @@ func (s *Server) broadcastGuardianBeam(e *Entity, targetID int32) {
 // -10→0), the zap, and the id clearing to 0 on release.
 func (s *Server) mobGuardianStep(e *Entity, kn string) bool {
 	elder := kn == "elder_guardian"
+	if elder {
+		s.elderCurseStep(e)
+	}
 	var target *Session
 	if e.beamTarget != 0 {
 		if t := s.sessionByEntityID(e.beamTarget); t != nil &&
