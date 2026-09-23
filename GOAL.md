@@ -5356,3 +5356,35 @@ home restriction, per-damage-type hurt variants, scoreboard
 objectives, online mode, redstone, terrain gen, lighting, player
 .dat format (mc-go still writes its JSON store into a vanilla
 world — playerdata/<uuid>.dat round-trip is open).
+
+## Slice 2026-09-23zc — player files (players/data/<uuid>.dat)
+
+WorldDir mode now speaks vanilla's player store end to end:
+players/data/<uuid>.dat (gzip NBT) is written on disconnect and on
+save-all, read back into the saved-player table keyed by uuid
+(applySavedPlayer falls back from the JSON store's name key). The
+compound is the measured 26.2 field set — Inventory with vanilla
+slot numbering (hotbar 0-8, main 9-35), equipment{head,chest,legs,
+feet,offhand,body}, cursor, EnderItems, abilities, attributes,
+recipeBook (names for unlocked, toBeDisplayed for unseen),
+playerGameType/previousPlayerGameType, Xp*/food*/fire(-20 rest),
+warden_spawn_tracker, Brain.memories. playerPersist grew the fields
+that back it (yaw/pitch/onGround restore too — rejoin now lands
+looking the same way the player left), and Session tracks
+prevGameMode per vanilla's previousPlayerGameType. The /data read
+surface gained Inventory and EnderItems lists in the same slot
+numbering, so the reload is checkable on the wire.
+
+TestPlayerDatSaveParity: vanilla equips+teleports a player → mc-go
+loads the world and reports sword/helmet/ender-apple/XP 7/
+adventure/pos+rotation through /data get; then mc-go saves → vanilla
+loads it back with the same report. The .dat file itself is asserted
+non-empty on both writes.
+
+Open items remaining: witch raider-heal throw (blocked on raids),
+RestrictSunGoal wander bias, patrol-captain ominous gear + bottle
+drops (needs natural patrol spawn/raids), elder setHomeTo(pos,16)
+home restriction, per-damage-type hurt variants, players/
+advancements+<uuid>.json + stats/<uuid>.json (vanilla's other two
+player stores — advancements/stats still live only in the JSON
+store), online mode, redstone, terrain gen, lighting.

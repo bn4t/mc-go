@@ -512,19 +512,25 @@ func (s *Server) untrack(sess *Session) {
 		}
 	}
 	// Persist the leaving player's state so a reconnect resumes it —
-	// in memory always, to disk when a data path is configured.
+	// in memory always, to disk when a data path is configured. A
+	// vanilla-layout world writes the player's .dat here, the same file
+	// vanilla's PlayerList.save touches on disconnect.
 	if sess.state.Load() == StatePlay {
 		sess.addCustomStat("leave_game", 1)
 		s.savedPlayersMu.Lock()
 		if s.savedPlayers == nil {
 			s.savedPlayers = make(map[string]playerPersist)
 		}
-		s.savedPlayers[name] = snapshotPlayer(sess)
+		p := snapshotPlayer(sess)
+		s.savedPlayers[name] = p
 		s.savedPlayersMu.Unlock()
 		if s.dataPath() != "" {
 			if err := s.SaveServerData(); err != nil && s.dataSaveErr == nil {
 				s.dataSaveErr = err
 			}
+		}
+		if err := s.savePlayerFile(p); err != nil && s.dataSaveErr == nil {
+			s.dataSaveErr = err
 		}
 	}
 }

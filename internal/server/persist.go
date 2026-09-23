@@ -32,6 +32,30 @@ type playerPersist struct {
 	X          float64              `json:"x,omitempty"`
 	Y          float64              `json:"y,omitempty"`
 	Z          float64              `json:"z,omitempty"`
+	// The fields below back the vanilla-format player file
+	// (players/data/<uuid>.dat); the JSON store carries them too.
+	UUID           [16]byte `json:"uuid,omitempty"`
+	Yaw, Pitch     float32  `json:",omitempty"`
+	OnGround       bool     `json:"on_ground,omitempty"`
+	FallFlying     bool     `json:"fall_flying,omitempty"`
+	Flying         bool     `json:"flying,omitempty"`
+	Absorb         float32  `json:"absorb,omitempty"`
+	Exhaustion     float32  `json:"exhaustion,omitempty"`
+	FoodTick       int32    `json:"food_tick,omitempty"`
+	XPSeed         int32    `json:"xp_seed,omitempty"`
+	Fire           int32    `json:"fire"`
+	SleepTimer     int32    `json:"sleep_timer,omitempty"`
+	PortalCooldown int32    `json:"portal_cooldown,omitempty"`
+	FallDistance   float32  `json:"fall_distance,omitempty"`
+	Held           int32    `json:"held,omitempty"`
+	GameMode       int32    `json:"game_mode"`
+	// GameModeSaved marks entries that genuinely recorded a mode;
+	// JSON files from before game-mode persistence carry a zero here
+	// and must not force survival on their players.
+	GameModeSaved bool `json:"game_mode_saved,omitempty"`
+	// PrevGameMode is vanilla's previousPlayerGameType: the mode held
+	// before the last switch, or -1 when the player never switched.
+	PrevGameMode int32 `json:"prev_game_mode"`
 	// Stats carries the player's counters, keyed "category:id". The
 	// StatsOrder list preserves the stat table's insertion history —
 	// it is what a vanilla stats file's key order reproduces, and the
@@ -126,11 +150,28 @@ func snapshotPlayer(sess *Session) playerPersist {
 	p.XPTotal = sess.xpTotal
 	p.XPLevel = sess.xpLevel
 	p.XPProgress = sess.xpProgress
+	p.XPSeed = sess.enchantSeed
 	p.Health = sess.health
 	p.Food = sess.food
 	p.Saturation = sess.saturation
+	p.Exhaustion = sess.exhaustion
+	p.FoodTick = int32(sess.foodTickTimer)
+	p.Fire = int32(sess.fireTicks)
+	if p.Fire <= 0 {
+		p.Fire = -20
+	}
+	p.Absorb = sess.absorb
+	p.PortalCooldown = int32(sess.portalCooldownTicks)
+	p.Flying = sess.flying
+	p.UUID = sess.getUUID()
 	p.Dim = sess.dimName()
-	p.X, p.Y, p.Z, _, _, _ = sess.Pos()
+	p.X, p.Y, p.Z, p.Yaw, p.Pitch, p.OnGround = sess.Pos()
+	p.Held = sess.held.Load()
+	sess.modeMu.RLock()
+	p.GameMode = int32(sess.gameMode)
+	p.GameModeSaved = true
+	p.PrevGameMode = sess.prevGameMode
+	sess.modeMu.RUnlock()
 	sess.statMu.Lock()
 	if st := sess.stats; st != nil && len(st.counts) > 0 {
 		p.Stats = make(map[string]int32, len(st.counts))
@@ -316,10 +357,14 @@ func (s *Server) LoadServerData() error {
 }
 
 // applySavedPlayer loads a player's stored state into a joining
-// session, if any.
+// session, if any. Entries keyed by player name come from the JSON
+// store; entries a vanilla-format world loaded come keyed by uuid.
 func (s *Server) applySavedPlayer(sess *Session) {
 	s.savedPlayersMu.Lock()
 	p, ok := s.savedPlayers[sess.getName()]
+	if !ok {
+		p, ok = s.savedPlayers[DashUUID(sess.getUUID())]
+	}
 	s.savedPlayersMu.Unlock()
 	if !ok {
 		return
@@ -333,9 +378,27 @@ func (s *Server) applySavedPlayer(sess *Session) {
 	sess.xpTotal = p.XPTotal
 	sess.xpLevel = p.XPLevel
 	sess.xpProgress = p.XPProgress
+	sess.enchantSeed = p.XPSeed
 	sess.health = p.Health
 	sess.food = p.Food
 	sess.saturation = p.Saturation
+	sess.exhaustion = p.Exhaustion
+	sess.foodTickTimer = int(p.FoodTick)
+	if p.Fire > 0 {
+		sess.fireTicks = p.Fire
+	}
+	sess.absorb = p.Absorb
+	sess.portalCooldownTicks = int(p.PortalCooldown)
+	sess.flying = p.Flying
+	if p.Held >= 0 && p.Held <= 8 {
+		sess.held.Store(p.Held)
+	}
+	if p.GameModeSaved && p.GameMode >= GameModeSurvival && p.GameMode <= GameModeSpectator {
+		sess.modeMu.Lock()
+		sess.gameMode = byte(p.GameMode)
+		sess.prevGameMode = p.PrevGameMode
+		sess.modeMu.Unlock()
+	}
 	if len(p.Advancements) > 0 {
 		sess.pendingAdv = p.Advancements
 	}
@@ -378,6 +441,6 @@ func (s *Server) applySavedPlayer(sess *Session) {
 	// position both restore.
 	if d := s.dimensionByName(p.Dim); d != nil && p.Y != 0 {
 		sess.dim.Store(d)
-		sess.setPos(p.X, p.Y, p.Z, 0, 0, false)
+		sess.setPos(p.X, p.Y, p.Z, p.Yaw, p.Pitch, p.OnGround)
 	}
 }

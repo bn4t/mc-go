@@ -305,6 +305,9 @@ type Session struct {
 	// guarded by modeMu because the tick and fan-out paths read it.
 	modeMu   sync.RWMutex
 	gameMode byte
+	// prevGameMode is vanilla's previousPlayerGameType: the mode held
+	// before the last change, or -1 until the first switch.
+	prevGameMode int32
 	// Recipe book UI toggles per vanilla RecipeBookType (crafting,
 	// furnace, blast furnace, smoker: open then filtering) and the set
 	// of recipes the player has seen, from the recipe book packets.

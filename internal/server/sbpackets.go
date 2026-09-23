@@ -77,6 +77,9 @@ func (sess *Session) mode() byte {
 
 func (sess *Session) setMode(m byte) {
 	sess.modeMu.Lock()
+	if sess.gameMode != m {
+		sess.prevGameMode = int32(sess.gameMode)
+	}
 	sess.gameMode = m
 	sess.modeMu.Unlock()
 }

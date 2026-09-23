@@ -933,6 +933,28 @@ func playerSaveMap(sess *Session) map[string]any {
 	if !held.Empty() {
 		m["SelectedItem"] = itemNBT(held)
 	}
+	// Inventory answers in vanilla's slot numbering: hotbar 0-8, main
+	// 9-35. EnderItems numbers 0-26.
+	inv := nbt.List{Elem: nbt.TagCompound}
+	for slot := slotMainStart; slot < slotCount-1; slot++ {
+		it := sess.inv[slot]
+		if it.Empty() {
+			continue
+		}
+		vanilla := slot
+		if slot >= slotHotbarStart {
+			vanilla = slot - slotHotbarStart
+		}
+		inv.Items = append(inv.Items, itemNBTSlotted(it, int8(vanilla)))
+	}
+	m["Inventory"] = inv
+	ender := nbt.List{Elem: nbt.TagCompound}
+	for i, it := range sess.ender {
+		if !it.Empty() {
+			ender.Items = append(ender.Items, itemNBTSlotted(it, int8(i)))
+		}
+	}
+	m["EnderItems"] = ender
 	sess.invMu.Unlock()
 	sess.effMu.Lock()
 	if len(sess.effects) > 0 {

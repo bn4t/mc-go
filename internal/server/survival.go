@@ -738,7 +738,10 @@ const (
 
 // initSurvival initializes a joining player's survival state.
 func (sess *Session) initSurvival() {
-	sess.setMode(sess.server.GameMode)
+	// A first join writes previousPlayerGameType -1 no matter the
+	// server's default mode; seeding is not a switch.
+	sess.prevGameMode = -1
+	sess.gameMode = sess.server.GameMode
 	sess.health = defaultHealth
 	sess.food = defaultFood
 	sess.saturation = defaultSaturation

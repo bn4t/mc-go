@@ -140,6 +140,9 @@ func (s *Server) saveWorldDir() error {
 			return err
 		}
 	}
+	// Player files land at players/data/<uuid>.dat like vanilla's
+	// PlayerList.save on save-all.
+	s.savePlayerFiles()
 	return nil
 }
 
@@ -193,6 +196,9 @@ func (s *Server) loadWorldDir() error {
 	s.restoreBlockEntities()
 	for _, d := range s.dims {
 		s.restoreEntities(d)
+	}
+	if err := s.loadPlayerFiles(); err != nil {
+		return err
 	}
 	return nil
 }
