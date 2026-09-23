@@ -4261,3 +4261,38 @@ bee, warden, elder_guardian, bogged, breeze, panda, dolphin,
 armadillo, villager, witch): summon + `/attribute <attr> base get`
 touches the instance inside vanilla's lazy map, then the `data get
 attributes` pack exposes the bases verbatim on both servers.
+
+## Slice 2026-09-23a — doHurtTarget post-attack riders + melee damage table
+
+Vanilla's per-type doHurtTarget overrides are now wired off the melee
+step (mobPostAttack, runs when the hit lands — hurtServer's flag is
+still true on excess-inside-iframe hits):
+
+- husk: hunger for round(effectiveDifficulty*140) ticks — the flat
+  harness world's regional factor resolves effectiveDifficulty to half
+  the difficulty id (140t at NORMAL), amp 0, flags 0x0E (bit 3 = blend).
+- cave_spider: poison 140t at NORMAL, 300t at HARD, none below.
+- iron_golem: attackAnimationTick=10 + broadcastEntityEvent(this,4)
+  fired on the swing, entity.iron_golem.attack plays unconditionally
+  (even on misses), and a landed hit launches the victim
+  dv.y += 0.4*(1-kbr) with damage rolled attack_damage/2 +
+  nextInt(attack_damage) — 7.5..21.5 at the 15 base.
+
+mobMelee's hand table is gone: damage reads the generated
+entityAttrBases attack_damage (fixing spider/cave_spider 3->2 and
+zombified_piglin 8->5), and the chase follow-range cutoff now uses the
+type's supplier follow_range (35 zombie-family, 16 spider) instead of
+a flat 35.
+
+TestMobPostAttackParity pins all three legs vs vanilla — summon ~2 ~ ~
+beside a survival player with a fat absorb pool (a dead player anchors
+no relative summon and gets no entity stream), provoke the golem with
+a bare attack, then compare the update_mob_effect / entity_event /
+launch predicates. entity_event's eid is a raw int32, not VarInt.
+
+Open items remaining: entity AI beyond the chase-melee step (ranged
+attacks, flee, neutral-mob provoke state), horse chest/container
+slots, ambient mob voices, guardian flop/beam, per-damage-type hurt
+variants, baby-pitch voicePitch, witch.drink, scoreboard objectives,
+region save, online mode, redstone, terrain gen, lighting, .dat
+persistence.

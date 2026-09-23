@@ -1406,7 +1406,7 @@ func (s *Server) mobTickStep() {
 			// gravity or wander of its own. Hostile melee mobs chase
 			// the nearest player and swing on a vanilla-paced cooldown;
 			// a successful chase replaces the wander step.
-			if dmg, ok := mobMelee[e.Type]; ok && s.mobMeleeStep(e, dmg) {
+			if mobMelee[e.Type] && s.mobMeleeStep(e) {
 				s.mobSyncFlush(e)
 				continue
 			}
@@ -1507,27 +1507,33 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	e.X, e.Z = nx, nz
 }
 
-// mobMelee is the melee attack damage (vanilla attackDamage) for the
-// hostile mobs mc-go simulates. Follow range is vanilla's
-// followRange (35 for zombies) — skeletons shoot rather than melee and
-// creepers explode, so neither is in the table.
-var mobMelee = map[int32]float32{}
+// mobMeleeTypes are the hostile mobs mc-go's chase-melee AI drives.
+// The swung damage is the supplier's attack_damage — the generated
+// entityAttrBases table — not a hand list (that had the spider at 3
+// vs vanilla's 2 and the zombified piglin at 8 vs 5).
+var mobMelee = map[int32]bool{}
 
 func init() {
-	for name, dmg := range map[string]float32{
-		"zombie":           3,
-		"husk":             3,
-		"drowned":          3,
-		"zombie_villager":  3,
-		"zombified_piglin": 8,
-		"spider":           3,
-		"cave_spider":      3,
-		"iron_golem":       15,
+	for _, name := range []string{
+		"zombie", "husk", "drowned", "zombie_villager",
+		"zombified_piglin", "spider", "cave_spider", "iron_golem",
 	} {
 		if id, ok := EntityTypeID(name); ok {
-			mobMelee[id] = dmg
+			mobMelee[id] = true
 		}
 	}
+}
+
+// mobMeleeDamage reads the attack_damage supplier base, with the iron
+// golem's doHurtTarget override: vanilla rolls
+// attackDamage/2 + random.nextInt(attackDamage) per swing — 7.5..22.5
+// at the 15 base, not a flat 15.
+func mobMeleeDamage(name string) float32 {
+	base, _ := entityAttrBases[name]["attack_damage"]
+	if name == "iron_golem" {
+		return float32(base)/2 + float32(rand.Intn(int(base)))
+	}
+	return float32(base)
 }
 
 // mobChaseSpeed is the vanilla zombie-family movement speed in
@@ -1538,9 +1544,16 @@ const mobChaseSpeed = 0.23
 // survival player inside follow range; within reach, swing (the animate
 // broadcast) and land attackDamage on the vanilla 20-tick cooldown.
 // Reports whether the mob had a target — true replaces wander.
-func (s *Server) mobMeleeStep(e *Entity, dmg float32) bool {
+func (s *Server) mobMeleeStep(e *Entity) bool {
 	var target *Session
+	kn, _ := EntityTypeName(e.Type)
+	dmg := mobMeleeDamage(kn)
+	// Vanilla's MeleeAttackGoal targets inside followRange — the
+	// generated supplier base (35 for the zombie family, 16 spider).
 	best := 35.0 * 35.0
+	if fr, ok := entityAttrBases[kn]["follow_range"]; ok {
+		best = fr * fr
+	}
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
 		if !sess.spawned.Load() || sess.dead ||
@@ -1587,15 +1600,60 @@ func (s *Server) mobMeleeStep(e *Entity, dmg float32) bool {
 	if dist <= reach && dy < 2.5 {
 		e.attackCooldown = 20
 		s.broadcastEntityAnimation(nil, e.ID, 0) // swing main hand
-		kn, _ := EntityTypeName(e.Type)
-		s.damageWith(target, dmg, translatable("death.attack.mob",
+		if kn == "iron_golem" {
+			// IronGolem.doHurtTarget plays the attack whoosh on every
+			// swing — landed or not.
+			s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 897, srcNeutral, 1, 1, nil)
+		}
+		dealt := s.damageWith(target, dmg, translatable("death.attack.mob",
 			literal(target.getName()), literal(mobDisplayName(kn))), damageSource{
 			typeName: "mob_attack",
 			cause:    e.ID,
 			direct:   e.ID,
 		})
+		if dealt > 0 {
+			s.mobPostAttack(e, kn, target)
+		}
 	}
 	return true
+}
+
+// mobPostAttack is the post-damage tail of vanilla's doHurtTarget
+// overrides — the innate per-type rider that runs when the hit landed
+// (excess-inside-iframe hits count: hurtServer's flag is still true).
+func (s *Server) mobPostAttack(e *Entity, name string, target *Session) {
+	switch name {
+	case "husk":
+		// Husk.doHurtTarget: bare hands only — hunger for
+		// round(effectiveDifficulty * 140) ticks. The flat harness
+		// world's regional factor resolves the effective difficulty
+		// to half the difficulty id (140 ticks at normal).
+		dur := int32(math.Round(float64(s.difficulty) * 0.5 * 140))
+		if dur > 0 {
+			id, _ := MobEffectID("hunger")
+			s.playerGiveEffect(target, id, 0, dur, false)
+		}
+	case "cave_spider":
+		// CaveSpider.doHurtTarget: poison only on normal+ —
+		// 7 seconds at NORMAL, 15 at HARD.
+		var dur int32
+		switch s.difficulty {
+		case DifficultyNormal:
+			dur = 140
+		case DifficultyHard:
+			dur = 300
+		}
+		if dur > 0 {
+			id, _ := MobEffectID("poison")
+			s.playerGiveEffect(target, id, 0, dur, false)
+		}
+	case "iron_golem":
+		// IronGolem.doHurtTarget: attackAnimationTick=10 + the
+		// entity-event-4 broadcast, then dv.y += 0.4 * (1 - kbr) — a
+		// launch, not a push. Player knockback_resistance is 0.
+		s.broadcastEntityEvent(e.ID, 4)
+		s.broadcastEntityMotion(target.dimName(), target.entityID.Load(), 0, 0.4, 0)
+	}
 }
 
 // mobDisplayName is the entity type's death-message name — vanilla
