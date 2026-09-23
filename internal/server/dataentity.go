@@ -52,7 +52,7 @@ func (s *Server) runDataEntity(player string, args []string) reply {
 	if tgt.sess != nil && args[0] != "get" {
 		return componentReply(commandError("commands.data.entity.invalid"))
 	}
-	save := tgt.saveMap()
+	save := tgt.saveMap(s.clock.count)
 
 	switch args[0] {
 	case "get":
@@ -174,7 +174,7 @@ func (s *Server) modifySource(player string, args []string) (any, *reply) {
 			if tgt == nil {
 				return nil, rep
 			}
-			val = tgt.saveMap().m
+			val = tgt.saveMap(s.clock.count).m
 			if len(args) > 3 {
 				steps, ok := parseNBTPath(args[3])
 				if !ok {
@@ -416,11 +416,11 @@ type entitySave struct {
 }
 
 // saveMap produces the entity's editable compound.
-func (d *dataEntity) saveMap() entitySave {
+func (d *dataEntity) saveMap(now int64) entitySave {
 	if d.sess != nil {
 		return entitySave{m: playerSaveMap(d.sess)}
 	}
-	return entitySaveMap(d.mob)
+	return entitySaveMap(d.mob, now)
 }
 
 // applyDataEntity writes the merged save map back and resyncs trackers
@@ -472,7 +472,7 @@ func entityDisplayName(e *Entity) component {
 // fields, and the type's extras. Keys absent from the entity model
 // (Invulnerable, Air, ...) emit their summon defaults; ExtraNBT then
 // overlays any data-written extras.
-func entitySaveMap(e *Entity) entitySave {
+func entitySaveMap(e *Entity, now int64) entitySave {
 	typeName, _ := EntityTypeName(e.Type)
 	m := map[string]any{
 		"AbsorptionAmount": float32(0),
@@ -526,6 +526,11 @@ func entitySaveMap(e *Entity) entitySave {
 		m["attributes"] = nbt.List{Elem: nbt.TagCompound, Items: []any{
 			map[string]any{"id": "minecraft:movement_speed", "base": speed},
 		}}
+	}
+	// LivingEntity.save adds active_effects after attributes; it is
+	// absent entirely when the effect map is empty.
+	if len(e.Effects) > 0 {
+		m["active_effects"] = mobEffectsNBT(e.Effects, now)
 	}
 	if extra, ok := entitySaveExtras[typeName]; ok {
 		for k, v := range extra {
@@ -839,6 +844,11 @@ func playerSaveMap(sess *Session) map[string]any {
 		m["SelectedItem"] = itemNBT(held)
 	}
 	sess.invMu.Unlock()
+	sess.effMu.Lock()
+	if len(sess.effects) > 0 {
+		m["active_effects"] = mobEffectsNBT(sess.effects, sess.server.clock.count)
+	}
+	sess.effMu.Unlock()
 	return m
 }
 
@@ -1654,7 +1664,7 @@ func (s *Server) selMatch(spec *selectorSpec, d *dataEntity, ax, ay, az float64)
 		}
 	}
 	for _, nb := range spec.nbts {
-		if d.nbtMatches(nb.m) == nb.neg {
+		if d.nbtMatches(nb.m, s.clock.count) == nb.neg {
 			return false
 		}
 	}
@@ -1883,12 +1893,12 @@ func (d *dataEntity) tagCount() int {
 // nbtMatches is vanilla's compareNbt partial match: every pattern key
 // must be present with an equal tag type and value; compounds and
 // lists recurse, lists comparing elementwise.
-func (d *dataEntity) nbtMatches(pattern map[string]any) bool {
+func (d *dataEntity) nbtMatches(pattern map[string]any, now int64) bool {
 	var target map[string]any
 	if d.sess != nil {
 		target = playerSaveMap(d.sess)
 	} else {
-		target = entitySaveMap(d.mob).m
+		target = entitySaveMap(d.mob, now).m
 	}
 	return nbtSubset(target, pattern)
 }

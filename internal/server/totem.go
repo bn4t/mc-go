@@ -9,6 +9,7 @@ package server
 // Entity Event 35 plays the pop animation for every viewer.
 
 import (
+	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
@@ -106,6 +107,43 @@ func shorterDur(this, other mobEffectInst, now int64) bool {
 		otherDur = other.expiry - now
 	}
 	return this.expiry-now <= otherDur
+}
+
+// mobEffectsNBT is the active_effects list of the entity save: each
+// instance serializes id, duration (always; -1 = infinite),
+// amplifier (omitted at 0 — a /data get of it replies
+// nothing_found on vanilla), ambient/show_particles (default-omitted),
+// show_icon, and a nested hidden_effect for a queued instance.
+func mobEffectsNBT(effects map[int32]mobEffectInst, now int64) nbt.List {
+	if len(effects) == 0 {
+		return nbt.List{Elem: nbt.TagEnd}
+	}
+	items := make([]any, 0, len(effects))
+	for id, e := range effects {
+		items = append(items, mobEffectNBT(id, e, now))
+	}
+	return nbt.List{Elem: nbt.TagCompound, Items: items}
+}
+
+func mobEffectNBT(id int32, e mobEffectInst, now int64) map[string]any {
+	name, _ := MobEffectName(id)
+	m := map[string]any{"id": "minecraft:" + name}
+	if e.amplifier != 0 {
+		m["amplifier"] = int8(e.amplifier)
+	}
+	dur := int64(-1)
+	if e.expiry >= 0 {
+		dur = e.expiry - now
+	}
+	m["duration"] = int32(dur)
+	if e.hide {
+		m["show_particles"] = int8(0)
+	}
+	m["show_icon"] = int8(1)
+	if e.hidden != nil {
+		m["hidden_effect"] = mobEffectNBT(id, *e.hidden, now)
+	}
+	return m
 }
 
 // stashHiddenEffect stores a weaker-but-longer instance under the

@@ -8,6 +8,7 @@ package blackbox
 import (
 	"math"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,13 +68,28 @@ func TestInstantEffectParity(t *testing.T) {
 			sendCommand(t, pwc, "effect give A minecraft:speed 30 0")
 			time.Sleep(300 * time.Millisecond)
 			sendCommand(t, pwc, "effect give A minecraft:speed 3 1")
+			// active_effects is part of the entity save: the indexed
+			// amplifier query hits while amp 1 is active — but only
+			// because it is nonzero; amplifier omits at 0.
+			if st, got := dataGetAmp(t, sinkC, pwc, "active_effects[0].amplifier"); st != "query" || got != 1 {
+				t.Fatalf("%s active_effects[0].amplifier mid-leg: %q/%v, want query/1", s.label, st, got)
+			}
 			if got := pumpSpeedAmp(t, ca, pra, pwA, 1200*time.Millisecond); got != 1 {
 				t.Fatalf("%s speed amplifier mid-leg: %v, want 1", s.label, got)
 			}
-			// The 3s amp-1 instance ends ~2.2s in; wait past it and
+			// The 3s amp-1 instance ends ~2s in; wait past it and
 			// require the resumed amp-0 update packet.
 			if got := pumpSpeedAmp(t, ca, pra, pwA, 3000*time.Millisecond); got != 0 {
 				t.Fatalf("%s speed amplifier after downgrade: %v, want 0", s.label, got)
+			}
+			// Resumed instance is amplifier 0 — the field is omitted
+			// from the save compound, so the indexed query comes back
+			// nothing_found on both servers.
+			if st := dataGetState(t, sinkC, pwc, "active_effects[0].amplifier"); st != "nothing_found" {
+				t.Fatalf("%s amplifier@0 state: %q, want nothing_found", s.label, st)
+			}
+			if st := dataGetState(t, sinkC, pwc, "active_effects[0].hidden_effect"); st != "nothing_found" {
+				t.Fatalf("%s hidden_effect state: %q, want nothing_found", s.label, st)
 			}
 		})
 	}
@@ -115,4 +131,65 @@ func pumpSpeedAmp(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Wr
 	}
 	_ = c.SetReadDeadline(time.Time{})
 	return amp
+}
+
+// dataGetState classifies the /data get reply for a path:
+// "query" when a value came back, "nothing_found" for the path-miss
+// error, "invalid" for a parse-level failure, "" for silence.
+func dataGetState(t *testing.T, sink *chatSink, pw *protocol.Writer, path string) string {
+	t.Helper()
+	sendCommand(t, pw, "data get entity A "+path)
+	sendCommand(t, pw, "say ZEND")
+	deadline := time.Now().Add(6 * time.Second)
+	got := ""
+	for time.Now().Before(deadline) {
+		end := false
+		for _, line := range sink.take() {
+			if strings.Contains(line, "data.entity.query") {
+				got = "query"
+			}
+			if strings.Contains(line, "nbtpath.nothing_found") {
+				got = "nothing_found"
+			}
+			if strings.Contains(line, "data.entity.invalid") {
+				got = "invalid"
+			}
+			if strings.Contains(line, "ZEND") {
+				end = true
+			}
+		}
+		if end {
+			break
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	return got
+}
+
+// dataGetAmp is dataGetState plus the parsed numeric value.
+func dataGetAmp(t *testing.T, sink *chatSink, pw *protocol.Writer, path string) (string, float64) {
+	t.Helper()
+	sendCommand(t, pw, "data get entity A "+path)
+	sendCommand(t, pw, "say ZEND")
+	deadline := time.Now().Add(6 * time.Second)
+	st, val := "", -1.0
+	for time.Now().Before(deadline) {
+		end := false
+		for _, line := range sink.take() {
+			if i := strings.Index(line, "data.entity.query"); i >= 0 {
+				st, val = "query", lastNumber(line[:i])
+			}
+			if strings.Contains(line, "nbtpath.nothing_found") {
+				st = "nothing_found"
+			}
+			if strings.Contains(line, "ZEND") {
+				end = true
+			}
+		}
+		if end {
+			break
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	return st, val
 }

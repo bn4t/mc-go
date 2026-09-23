@@ -3918,3 +3918,13 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   open: entity NBT `active_effects` on players (vanilla answers
   `data get entity P active_effects`, mc-go returns
   nothing_found) and mob targets for /effect (undead inversion).
+
+- **Entity NBT `active_effects`**: the save compound now carries
+  live status effects on both players (playerSaveMap) and mobs
+  (entitySaveMap), serialized the way MobEffectInstance's codec
+  writes them — id, duration always (-1 = infinite), amplifier
+  omitted at 0 (so `active_effects[0].amplifier` on an amp-0
+  instance replies nothing_found), show_particles only when hidden,
+  show_icon, and a nested hidden_effect when an instance is queued.
+  The indexed-path query and the nothing_found replies are pinned
+  on both servers by TestInstantEffectParity.
