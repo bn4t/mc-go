@@ -4626,10 +4626,20 @@ assert).
 Cloud effect application on entities inside the radius is still open;
 the entity itself + its 10/300 countdown are in.
 
+Follow-up inside the same slice: AreaEffectCloud.serverTick
+measured — discard at age>=wait+duration, waiting while age<wait,
+radius+=radiusPerTick per tick (discard <0.5), and every 5 ticks the
+potion contents (at potionDurationScale 0.25) dose living entities
+inside the XZ radius, minus victims on the 20-tick reapplication
+cooldown, minus radiusOnUse=-0.5 per dose. cloudTickStep implements
+all of it for mobs and players (mobGiveEffect / playerGiveEffect so
+the update-gate and instant arms apply). Leg E pins a survival
+player catching the slowness — 5 legs green on both.
+
 Open items remaining: crossbow/piglin ranged variants
 (RangedCrossbowAttackGoal), RestrictSunGoal wander bias, summon
 armor-populate + enchantment rolls + drowned chance slots,
-area_effect_cloud effect application + cloud meta on the wire,
+cloud entity metadata on the wire (radius/potion particles),
 horse chest/container slots, guardian flop/beam, per-damage-type
 hurt variants, witch.drink, scoreboard objectives, region save,
 online mode, redstone, terrain gen, lighting, .dat persistence.

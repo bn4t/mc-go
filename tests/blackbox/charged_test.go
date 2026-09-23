@@ -73,6 +73,9 @@ func TestChargedCreeperParity(t *testing.T) {
 		c, pr, pw := joinPlayBlackbox(t, addr, "P")
 		_ = c.SetDeadline(time.Now().Add(300 * time.Second))
 		obs := &convObs{}
+		// Creative staging: immune to the blasts and never picks up
+		// items. Leg E flips to survival only for the cloud dose —
+		// a powered blast at staging range is lethal in survival.
 		sendCommand(t, pw, "gamemode creative P")
 		sendCommand(t, pw, "time set 18000")
 		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
@@ -127,6 +130,31 @@ func TestChargedCreeperParity(t *testing.T) {
 		convPump(t, c, pr, pw, obs, 2800*time.Millisecond)
 		noCloud := !convHasEntity(t, c, pr, pw, obs, "@e[type=minecraft:area_effect_cloud,distance=..3,x=104.5,z=8.5]")
 		out = append(out, fmt.Sprintf("cloud yes=%v no=%v", cloud, noCloud))
+		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
+		convPump(t, c, pr, pw, obs, 600*time.Millisecond)
+
+		// Leg E: a player standing inside the cloud catches the
+		// scaled effect — creeper carried slowness 30s, the cloud's
+		// potionDurationScale 0.25 lands ~150 ticks on the victim.
+		sendCommand(t, pw, "tp P 140.5 -60 0.5")
+		sendCommand(t, pw, "summon minecraft:creeper 146.5 -60 0.5 {ignited:1b,NoAI:1b}")
+		sendCommand(t, pw, "effect give @e[type=minecraft:creeper] minecraft:slowness 30")
+		convPump(t, c, pr, pw, obs, 2800*time.Millisecond)
+		// Blast is over — step inside as survival so potion effects
+		// apply, then read active_effects.
+		sendCommand(t, pw, "gamemode survival P")
+		sendCommand(t, pw, "tp P 146.5 -60 0.5")
+		convPump(t, c, pr, pw, obs, 1600*time.Millisecond)
+		sendCommand(t, pw, "data get entity P active_effects")
+		convPump(t, c, pr, pw, obs, 800*time.Millisecond)
+		dosed := false
+		for i := len(obs.chats) - 8; i < len(obs.chats); i++ {
+			if i >= 0 && strings.Contains(obs.chats[i], "slowness") {
+				dosed = true
+			}
+		}
+		out = append(out, fmt.Sprintf("dose slowness=%v", dosed))
+		sendCommand(t, pw, "effect clear P")
 		return out
 	}
 

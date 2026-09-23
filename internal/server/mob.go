@@ -2275,14 +2275,18 @@ func (s *Server) spawnLingeringCloud(e *Entity) {
 		effects[id] = inst
 	}
 	cloud := s.entities.Spawn(&Entity{
-		Type:          cloudType,
-		Dim:           e.Dim,
-		X:             e.X,
-		Y:             e.Y,
-		Z:             e.Z,
-		CloudWait:     10,
-		CloudDuration: 300,
-		Effects:       effects,
+		Type:               cloudType,
+		Dim:                e.Dim,
+		X:                  e.X,
+		Y:                  e.Y,
+		Z:                  e.Z,
+		CloudWait:          10,
+		CloudDuration:      300,
+		CloudRadius:        2.5,
+		CloudRadiusPerTick: -2.5 / 300,
+		CloudRadiusOnUse:   -0.5,
+		CloudVictims:       map[int32]int32{},
+		Effects:            effects,
 	})
 	s.broadcastEntitySpawn(nil, *cloud)
 }
@@ -2321,27 +2325,119 @@ func (s *Server) chargedCreeperSkull(src, victim *Entity) {
 	src.DroppedSkulls = true
 }
 
-// cloudTickStep advances AreaEffectCloud entities: the waitTime
-// countdown runs first, then the duration — at zero the cloud
-// discards. Effect application on entities inside the shrinking
-// radius is a follow-up.
+// cloudTickStep is AreaEffectCloud.serverTick: the entity discards
+// when its age passes wait+duration, waits out waitTime, then shrinks
+// by radiusPerTick every tick. Every five ticks it doses living
+// entities whose XZ distance sits inside the radius — the victim
+// cooldown (reapplicationDelay 20) and the radiusOnUse shrink apply
+// per dose; the potion contents run at potionDurationScale 0.25.
 func (s *Server) cloudTickStep() {
+	cloudType, cok := EntityTypeID("area_effect_cloud")
+	if !cok {
+		return
+	}
 	for _, e := range s.entities.All() {
-		if e.CloudDuration <= 0 {
+		if e.Type != cloudType || e.CloudDuration == 0 {
 			continue
 		}
 		ep, ok := s.entities.GetPtr(e.ID)
 		if !ok {
 			continue
 		}
-		if ep.CloudWait > 0 {
-			ep.CloudWait--
-			continue
-		}
-		ep.CloudDuration--
-		if ep.CloudDuration == 0 {
+		discard := func() {
 			s.entities.Remove(ep.ID)
 			s.broadcastEntityRemoveIn(ep.Dim, nil, []int32{ep.ID})
+		}
+		ep.CloudAge++
+		if ep.CloudAge-ep.CloudWait >= ep.CloudDuration {
+			discard()
+			continue
+		}
+		if ep.CloudAge < ep.CloudWait {
+			continue
+		}
+		ep.CloudRadius += ep.CloudRadiusPerTick
+		if ep.CloudRadius < 0.5 {
+			discard()
+			continue
+		}
+		if ep.CloudAge%5 != 0 {
+			continue
+		}
+		for id, until := range ep.CloudVictims {
+			if ep.CloudAge >= until {
+				delete(ep.CloudVictims, id)
+			}
+		}
+		if len(ep.Effects) == 0 {
+			continue
+		}
+		r2 := float64(ep.CloudRadius) * float64(ep.CloudRadius)
+		now := s.gameTime()
+		dose := func(mobOrSess *Entity) bool {
+			dx, dz := mobOrSess.X-ep.X, mobOrSess.Z-ep.Z
+			if dx*dx+dz*dz > r2 {
+				return true
+			}
+			ep.CloudVictims[mobOrSess.ID] = ep.CloudAge + 20
+			for id, inst := range ep.Effects {
+				ticks := int32(-1)
+				if inst.expiry >= 0 {
+					ticks = int32((inst.expiry - now) / 4) // 0.25 scale
+				}
+				s.mobGiveEffect(mobOrSess, id, inst.amplifier, ticks, inst.hide)
+			}
+			ep.CloudRadius += ep.CloudRadiusOnUse
+			return ep.CloudRadius >= 0.5
+		}
+		dead := false
+		for _, v := range s.entities.All() {
+			if !v.Living || v.Dying || v.Dim != ep.Dim || v.Type == cloudType {
+				continue
+			}
+			if _, onCd := ep.CloudVictims[v.ID]; onCd {
+				continue
+			}
+			vp, ok := s.entities.GetPtr(v.ID)
+			if !ok {
+				continue
+			}
+			if !dose(vp) {
+				dead = true
+				break
+			}
+		}
+		if dead || ep.CloudRadius < 0.5 {
+			discard()
+			continue
+		}
+		s.sessions.Range(func(_, vs any) bool {
+			sess := vs.(*Session)
+			if sess.state.Load() != StatePlay || sess.dimName() != ep.Dim || sess.mode() == GameModeSpectator || sess.dead {
+				return true
+			}
+			eid := sess.entityID.Load()
+			if _, onCd := ep.CloudVictims[eid]; onCd {
+				return true
+			}
+			px, _, pz, _, _, _ := sess.Pos()
+			dx, dz := px-ep.X, pz-ep.Z
+			if dx*dx+dz*dz > r2 {
+				return true
+			}
+			ep.CloudVictims[eid] = ep.CloudAge + 20
+			for id, inst := range ep.Effects {
+				ticks := int32(-1)
+				if inst.expiry >= 0 {
+					ticks = int32((inst.expiry - now) / 4)
+				}
+				s.playerGiveEffect(sess, id, inst.amplifier, ticks, inst.hide)
+			}
+			ep.CloudRadius += ep.CloudRadiusOnUse
+			return ep.CloudRadius >= 0.5
+		})
+		if ep.CloudRadius < 0.5 {
+			discard()
 		}
 	}
 }
