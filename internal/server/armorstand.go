@@ -231,5 +231,12 @@ func armorStandEquipAll(e *Entity) []struct {
 			}{byte(i), it})
 		}
 	}
+	// EquipmentSlot.BODY is wire slot 6 — horse armor, wolf armor.
+	if !e.BodyItem.Empty() {
+		out = append(out, struct {
+			slot  byte
+			stack ItemStack
+		}{6, e.BodyItem})
+	}
 	return out
 }

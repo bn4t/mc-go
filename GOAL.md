@@ -3948,3 +3948,13 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   servers (undead + normal instant arms, modifier amounts across
   give/downgrade/clear, zero effect packets to trackers,
   clear.everything.failed on an empty set).
+
+- **Mob equipment.body**: the wolf/horse BODY slot now round-trips —
+  summon NBT already read it into BodyItem; the save compound emits it
+  (equipment.body after head, before saddle — EquipmentSlot order) and
+  the spawn/attach set_equipment packet carries wire slot 6.
+  TestEquipBodyParity pins a wolf+wolf_armor summon: slot-6 stack on
+  the wire plus `equipment.body[.id]` data queries on both servers.
+  Still open: /item entity on mobs (player-session-only slots today),
+  wolf_armor's absorb-damage behavior, and un-summonable mob types
+  (mobHealth table coverage, e.g. horse).

@@ -153,12 +153,18 @@ func dataGetSel(t *testing.T, sink *chatSink, pw *protocol.Writer, sel, path str
 // returning that entity id. Retries because cold-chunk tracking can lag.
 func summonTracked(t *testing.T, c net.Conn, pr *protocol.Reader, pw, pwc *protocol.Writer, mob string, x, y, z float64) int32 {
 	t.Helper()
+	return summonTrackedNBT(t, c, pr, pw, pwc, mob, x, y, z, "{NoAI:1b}")
+}
+
+// summonTrackedNBT is summonTracked with explicit summon NBT.
+func summonTrackedNBT(t *testing.T, c net.Conn, pr *protocol.Reader, pw, pwc *protocol.Writer, mob string, x, y, z float64, nbt string) int32 {
+	t.Helper()
 	typeID, ok := server.EntityTypeID(strings.TrimPrefix(mob, "minecraft:"))
 	if !ok {
 		t.Fatalf("unknown entity type %s", mob)
 	}
 	for tries := 0; tries < 8; tries++ {
-		sendCommand(t, pwc, fmt.Sprintf("summon %s %v %v %v {NoAI:1b}", mob, x, y, z))
+		sendCommand(t, pwc, fmt.Sprintf("summon %s %v %v %v %s", mob, x, y, z, nbt))
 		deadline := time.Now().Add(2500 * time.Millisecond)
 		found := int32(-1)
 		for time.Now().Before(deadline) && found < 0 {

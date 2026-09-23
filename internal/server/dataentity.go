@@ -516,6 +516,10 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 			equipMob[name] = itemNBT(it)
 		}
 	}
+	// EquipmentSlot order: BODY after HEAD, SADDLE last.
+	if !e.BodyItem.Empty() {
+		equipMob["body"] = itemNBT(e.BodyItem)
+	}
 	if e.Saddle {
 		equipMob["saddle"] = map[string]any{"id": "minecraft:saddle", "count": int32(1)}
 	}
