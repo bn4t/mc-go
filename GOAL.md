@@ -4440,6 +4440,26 @@ TestMobFleeParity pins three legs vs both servers: creeper↔cat and
 skeleton↔wolf separate past 6 blocks, rabbit↔player past 8. Unit
 suite 38.5s.
 
+## Slice 2026-09-23k — creeper SwellGoal freeze, real blast damage
+
+SwellGoal measured: the fuse arms only inside 3 blocks (canUse
+dist2<9), holds while the target stays within 7 (tick defuses
+beyond 49 or on lost LOS), and the goal claims Flag.MOVE — a
+swelling creeper FREEZES in place instead of walking into its
+target. mobSwellStep now arms <3, defuses >7 with the 3-7 band
+keeping the current dir, and stops all movement while swelling or
+primed inside 3 (Minecraft's MeleeAttackGoal is mutex'd out).
+Alongside: ServerExplosion.getEntityDamageAmount multiplies by
+2*radius not radius — every mc-go explosion dealt HALF vanilla
+damage (creeper: 9.7 vs 18.9 at dist 2.7). Fixed to 7*2r, and the
++0.5 knockback y-bias was removed — 26.2 pushes pure eye-direction
+scale((1-d0)*seen*kbMult*(1-kbResist)). Also fixed: instant_health
+/instant_damage amplifier shifts — Java's ishl masks &31, Go's <<
+does not, so amp 200 healed 0 instead of 1024. New
+TestCreeperSwellParity: leg A samples the freeze point (~2.75 both)
++ post-blast health band (vanilla 1.10, mc-go 1.68), leg B teleports
+the target 15.5 out mid-fuse and pins defuse+survival. Green both.
+
 Open items remaining: crossbow/piglin ranged variants
 (RangedCrossbowAttackGoal) and stray/bogged tipped arrows, creeper
 swell/explode approach, RestrictSunGoal/FleeSunGoal sun-avoidance,
@@ -4471,6 +4491,26 @@ radius-3 packet + player damage + dirt carve (execute-if-block air
 probe), powered → radius 6, and the NoAI+ignited boom. The summon
 leg for leg 1 (stone_sword) earlier proved the same populate-defaults
 machinery on skeletons.
+
+## Slice 2026-09-23k — creeper SwellGoal freeze, real blast damage
+
+SwellGoal measured: the fuse arms only inside 3 blocks (canUse
+dist2<9), holds while the target stays within 7 (tick defuses
+beyond 49 or on lost LOS), and the goal claims Flag.MOVE — a
+swelling creeper FREEZES in place instead of walking into its
+target. mobSwellStep now arms <3, defuses >7 with the 3-7 band
+keeping the current dir, and stops all movement while swelling or
+primed inside 3 (Minecraft's MeleeAttackGoal is mutex'd out).
+Alongside: ServerExplosion.getEntityDamageAmount multiplies by
+2*radius not radius — every mc-go explosion dealt HALF vanilla
+damage (creeper: 9.7 vs 18.9 at dist 2.7). Fixed to 7*2r, and the
++0.5 knockback y-bias was removed — 26.2 pushes pure eye-direction
+scale((1-d0)*seen*kbMult*(1-kbResist)). Also fixed: instant_health
+/instant_damage amplifier shifts — Java's ishl masks &31, Go's <<
+does not, so amp 200 healed 0 instead of 1024. New
+TestCreeperSwellParity: leg A samples the freeze point (~2.75 both)
++ post-blast health band (vanilla 1.10, mc-go 1.68), leg B teleports
+the target 15.5 out mid-fuse and pins defuse+survival. Green both.
 
 Open items remaining: crossbow/piglin ranged variants
 (RangedCrossbowAttackGoal), stray/bogged tipped arrows,
@@ -4504,6 +4544,26 @@ TestMobSunFleeParity pins three legs vs both servers: a burning
 skeleton drifts east into the only shaded patch under a stone roof
 (east >= 5 by 10s), a burning zombie never seeks, and a helmeted
 skeleton never ignites.
+
+## Slice 2026-09-23k — creeper SwellGoal freeze, real blast damage
+
+SwellGoal measured: the fuse arms only inside 3 blocks (canUse
+dist2<9), holds while the target stays within 7 (tick defuses
+beyond 49 or on lost LOS), and the goal claims Flag.MOVE — a
+swelling creeper FREEZES in place instead of walking into its
+target. mobSwellStep now arms <3, defuses >7 with the 3-7 band
+keeping the current dir, and stops all movement while swelling or
+primed inside 3 (Minecraft's MeleeAttackGoal is mutex'd out).
+Alongside: ServerExplosion.getEntityDamageAmount multiplies by
+2*radius not radius — every mc-go explosion dealt HALF vanilla
+damage (creeper: 9.7 vs 18.9 at dist 2.7). Fixed to 7*2r, and the
++0.5 knockback y-bias was removed — 26.2 pushes pure eye-direction
+scale((1-d0)*seen*kbMult*(1-kbResist)). Also fixed: instant_health
+/instant_damage amplifier shifts — Java's ishl masks &31, Go's <<
+does not, so amp 200 healed 0 instead of 1024. New
+TestCreeperSwellParity: leg A samples the freeze point (~2.75 both)
++ post-blast health band (vanilla 1.10, mc-go 1.68), leg B teleports
+the target 15.5 out mid-fuse and pins defuse+survival. Green both.
 
 Open items remaining: crossbow/piglin ranged variants
 (RangedCrossbowAttackGoal), stray/bogged tipped arrows,
@@ -4541,6 +4601,26 @@ now emitted too.
 TestMobConvertParity pins both legs on both servers: drowned appears
 + zombie gone + ev1040, stray appears + skeleton gone + ev1048.
 
+## Slice 2026-09-23k — creeper SwellGoal freeze, real blast damage
+
+SwellGoal measured: the fuse arms only inside 3 blocks (canUse
+dist2<9), holds while the target stays within 7 (tick defuses
+beyond 49 or on lost LOS), and the goal claims Flag.MOVE — a
+swelling creeper FREEZES in place instead of walking into its
+target. mobSwellStep now arms <3, defuses >7 with the 3-7 band
+keeping the current dir, and stops all movement while swelling or
+primed inside 3 (Minecraft's MeleeAttackGoal is mutex'd out).
+Alongside: ServerExplosion.getEntityDamageAmount multiplies by
+2*radius not radius — every mc-go explosion dealt HALF vanilla
+damage (creeper: 9.7 vs 18.9 at dist 2.7). Fixed to 7*2r, and the
++0.5 knockback y-bias was removed — 26.2 pushes pure eye-direction
+scale((1-d0)*seen*kbMult*(1-kbResist)). Also fixed: instant_health
+/instant_damage amplifier shifts — Java's ishl masks &31, Go's <<
+does not, so amp 200 healed 0 instead of 1024. New
+TestCreeperSwellParity: leg A samples the freeze point (~2.75 both)
++ post-blast health band (vanilla 1.10, mc-go 1.68), leg B teleports
+the target 15.5 out mid-fuse and pins defuse+survival. Green both.
+
 Open items remaining: crossbow/piglin ranged variants
 (RangedCrossbowAttackGoal), stray/bogged tipped arrows,
 RestrictSunGoal wander bias, summon armor-populate + enchantment
@@ -4576,6 +4656,26 @@ worth a follow-up pin.
 TestTippedArrowParity pins arrows>0 + update_mob_effect(id=1,dur=600)
 for stray, (id=18,dur=100) for bogged, and no effect packet at all
 for a plain skeleton — green on both servers.
+
+## Slice 2026-09-23k — creeper SwellGoal freeze, real blast damage
+
+SwellGoal measured: the fuse arms only inside 3 blocks (canUse
+dist2<9), holds while the target stays within 7 (tick defuses
+beyond 49 or on lost LOS), and the goal claims Flag.MOVE — a
+swelling creeper FREEZES in place instead of walking into its
+target. mobSwellStep now arms <3, defuses >7 with the 3-7 band
+keeping the current dir, and stops all movement while swelling or
+primed inside 3 (Minecraft's MeleeAttackGoal is mutex'd out).
+Alongside: ServerExplosion.getEntityDamageAmount multiplies by
+2*radius not radius — every mc-go explosion dealt HALF vanilla
+damage (creeper: 9.7 vs 18.9 at dist 2.7). Fixed to 7*2r, and the
++0.5 knockback y-bias was removed — 26.2 pushes pure eye-direction
+scale((1-d0)*seen*kbMult*(1-kbResist)). Also fixed: instant_health
+/instant_damage amplifier shifts — Java's ishl masks &31, Go's <<
+does not, so amp 200 healed 0 instead of 1024. New
+TestCreeperSwellParity: leg A samples the freeze point (~2.75 both)
++ post-blast health band (vanilla 1.10, mc-go 1.68), leg B teleports
+the target 15.5 out mid-fuse and pins defuse+survival. Green both.
 
 Open items remaining: crossbow/piglin ranged variants
 (RangedCrossbowAttackGoal), RestrictSunGoal wander bias, summon
@@ -4635,6 +4735,26 @@ cooldown, minus radiusOnUse=-0.5 per dose. cloudTickStep implements
 all of it for mobs and players (mobGiveEffect / playerGiveEffect so
 the update-gate and instant arms apply). Leg E pins a survival
 player catching the slowness — 5 legs green on both.
+
+## Slice 2026-09-23k — creeper SwellGoal freeze, real blast damage
+
+SwellGoal measured: the fuse arms only inside 3 blocks (canUse
+dist2<9), holds while the target stays within 7 (tick defuses
+beyond 49 or on lost LOS), and the goal claims Flag.MOVE — a
+swelling creeper FREEZES in place instead of walking into its
+target. mobSwellStep now arms <3, defuses >7 with the 3-7 band
+keeping the current dir, and stops all movement while swelling or
+primed inside 3 (Minecraft's MeleeAttackGoal is mutex'd out).
+Alongside: ServerExplosion.getEntityDamageAmount multiplies by
+2*radius not radius — every mc-go explosion dealt HALF vanilla
+damage (creeper: 9.7 vs 18.9 at dist 2.7). Fixed to 7*2r, and the
++0.5 knockback y-bias was removed — 26.2 pushes pure eye-direction
+scale((1-d0)*seen*kbMult*(1-kbResist)). Also fixed: instant_health
+/instant_damage amplifier shifts — Java's ishl masks &31, Go's <<
+does not, so amp 200 healed 0 instead of 1024. New
+TestCreeperSwellParity: leg A samples the freeze point (~2.75 both)
++ post-blast health band (vanilla 1.10, mc-go 1.68), leg B teleports
+the target 15.5 out mid-fuse and pins defuse+survival. Green both.
 
 Open items remaining: crossbow/piglin ranged variants
 (RangedCrossbowAttackGoal), RestrictSunGoal wander bias, summon

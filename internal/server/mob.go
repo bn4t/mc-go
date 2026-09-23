@@ -2198,30 +2198,48 @@ func (s *Server) mobWalkTo(e *Entity, x, z float64) {
 // mobSwell is the SwellGoal set — creepers only.
 var mobSwell = map[string]bool{"creeper": true}
 
-// mobSwellStep is the SwellGoal half of the creeper pair: within 7
-// blocks of the target with line of sight (flat-world LOS is clear)
-// the fuse dir runs +1, outside it -1 — then MeleeAttackGoal's pathing
-// keeps the creeper sliding toward the target through the fuse (they
-// never swing). The fuse counter itself is tick bookkeeping, run for
-// every creeper before the NoAI gate.
+// mobSwellStep is the SwellGoal half of the creeper pair. Vanilla arms
+// the fuse only inside 3 blocks (canUse: dist²<9), keeps it lit while
+// the target stays within 7 (tick defuses beyond 49), and claims the
+// MOVE flag the whole time — navigation.stop() freezes the creeper in
+// place as it hisses. A defused creeper inside the 3-block arm radius
+// stays frozen too (canUse re-triggers until the target leaves). The
+// fuse counter itself is tick bookkeeping, run for every creeper
+// before the NoAI gate; flat-world LOS is always clear.
 func (s *Server) mobSwellStep(e *Entity, kn string) bool {
 	target := s.nearestMobTarget(e, kn)
-	if target == nil {
-		if !e.Ignited {
-			e.SwellDir = -1
-		}
-		return e.Swell > 0
+	var px, py, pz float64
+	d2 := math.MaxFloat64
+	if target != nil {
+		px, py, pz, _, _, _ = target.Pos()
+		dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
+		d2 = dx*dx + dy*dy + dz*dz
 	}
-	px, py, pz, _, _, _ := target.Pos()
-	d2 := (px-e.X)*(px-e.X) + (py-e.Y)*(py-e.Y) + (pz-e.Z)*(pz-e.Z)
 	if !e.Ignited {
-		if d2 > 49 {
+		switch {
+		case target == nil || d2 > 49:
 			e.SwellDir = -1
-		} else {
+		case e.SwellDir > 0 || d2 < 9:
 			e.SwellDir = 1
 		}
 		e.MetaDirty = true
 	}
+	if e.SwellDir > 0 || d2 < 9 {
+		// SwellGoal is in use (swelling, or primed inside 3 blocks):
+		// the MOVE flag is claimed so the creeper stands its ground
+		// and just faces the target — LookAtPlayerGoal.
+		if target != nil {
+			dx, dz := px-e.X, pz-e.Z
+			e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+			e.HeadYaw = e.Yaw
+		}
+		return true
+	}
+	if target == nil {
+		return false
+	}
+	// Fuse cold and target outside the arm radius — MeleeAttackGoal
+	// pathing walks the creeper in (they never swing).
 	dx, dz := px-e.X, pz-e.Z
 	dist := math.Hypot(dx, dz)
 	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)

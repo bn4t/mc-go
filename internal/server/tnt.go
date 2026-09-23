@@ -160,11 +160,11 @@ func (s *Server) explodePower(src *Entity, x, y, z float64, radius float32, grie
 	blockCount := len(positions)
 
 	// hurtEntities: every living entity inside 2r takes
-	// ((impact²+impact)/2 · 7 · radius + 1) damage where
+	// ((impact²+impact)/2 · 7 · 2r + 1) damage where
 	// impact = (1-dist/2r)·seenPercent (seen is 1 in the flat test
-	// world), plus the normalized-direction push scaled by the same
-	// factor — knockback multiplier 1.0, plus the +0.5 upward bias is
-	// part of vanilla's velocity write for living entities.
+	// world — getSeenPercent multiplies both damage and push), plus
+	// the normalized eye-direction push scaled by the same factor —
+	// knockback multiplier 1.0, no upward bias on 26.2.
 	doubleR := 2 * float64(radius)
 	hitPlayers := map[int32][3]float64{}
 	var pushedMobs []struct {
@@ -191,7 +191,7 @@ func (s *Server) explodePower(src *Entity, x, y, z float64, radius float32, grie
 		}
 		impact := 1 - dist
 		power := impact * (1 - kbResist)
-		vx, vy, vz := dx/n*power, dy/n*power+0.5*impact, dz/n*power
+		vx, vy, vz := dx/n*power, dy/n*power, dz/n*power
 		s.entities.SetMotion(eid, vx, vy, vz)
 		return impact, [3]float64{vx, vy, vz}, true
 	}
@@ -201,7 +201,7 @@ func (s *Server) explodePower(src *Entity, x, y, z float64, radius float32, grie
 		if !ok {
 			continue
 		}
-		dmg := float32((impact*impact+impact)/2*7*float64(radius) + 1)
+		dmg := float32((impact*impact+impact)/2*7*doubleR + 1)
 		res := s.entities.Damage(e.ID, dmg, "explosion", 0)
 		s.mobHurtWireFX(e, res)
 		if res.Health <= 0 {
@@ -230,7 +230,7 @@ func (s *Server) explodePower(src *Entity, x, y, z float64, radius float32, grie
 		sess.explodeCause = src.Type
 		if sess.mode() != GameModeSpectator && !(sess.mode() == GameModeCreative && sess.flying) {
 			hitPlayers[sess.entityID.Load()] = kb
-			dmg := float32((impact*impact+impact)/2*7*float64(radius) + 1)
+			dmg := float32((impact*impact+impact)/2*7*doubleR + 1)
 			s.damageWith(sess, dmg, translatable("death.attack.explosion",
 				playerChatComponent(sess)), damageSource{typeName: "explosion", cause: src.ID})
 		}

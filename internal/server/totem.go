@@ -244,19 +244,19 @@ func (s *Server) applyMobEffectFlags(sess *Session, id, amplifier int32, duratio
 
 // applyInstantEffect is MobEffectInstance.onEffectStarted's
 // instantenous arm (HealOrHarmMobEffect): instant_health heals
-// 4<<amplifier, instant_damage hurts 6<<amplifier as magic. The
-// int32<<level shifts wrap exactly like Java's int math — large
-// amplifiers land on nonpositive amounts that max(...,0) drops.
+// 4<<amplifier, instant_damage hurts 6<<amplifier as magic. Java's
+// ishl masks the shift to 5 bits (amplifier&31) — Go's << does not,
+// so the mask is explicit: amp 200 lands on 4<<8=1024 like vanilla.
 func (s *Server) applyInstantEffect(sess *Session, id, amplifier int32) {
 	switch id {
 	case effectInstantHealth:
 		if !sess.dead {
-			amount := max(int32(4)<<amplifier, 0)
+			amount := max(int32(4)<<(amplifier&31), 0)
 			sess.health = min(sess.health+float32(amount), defaultHealth)
 			sess.healthDirty.Store(true)
 		}
 	case effectInstantDamage:
-		amount := max(int32(6)<<amplifier, 0)
+		amount := max(int32(6)<<(amplifier&31), 0)
 		s.damageWith(sess, float32(amount), translatable("death.attack.magic", literal(sess.getName())),
 			damageSource{typeName: "magic"})
 	}
@@ -333,7 +333,8 @@ func (s *Server) mobGiveEffect(e *Entity, id, amplifier, ticks int32, hidePartic
 // mobInstantEffect is HealOrHarmMobEffect.applyInstantenousEffect for
 // world entities: heal 4<<amplifier / magic-hurt 6<<amplifier, with the
 // inverted_healing_and_harm tag flipping the arm for undead mobs
-// (isHarm == isInverted picks heal).
+// (isHarm == isInverted picks heal). Java's ishl masks the shift to 5
+// bits; Go's << needs it explicit — amp 200 lands on <<8 like vanilla.
 func (s *Server) mobInstantEffect(e *Entity, id, amplifier int32) {
 	if id != effectInstantHealth && id != effectInstantDamage {
 		return
@@ -341,13 +342,13 @@ func (s *Server) mobInstantEffect(e *Entity, id, amplifier int32) {
 	d := &dataEntity{mob: e}
 	inverted := d.entityInTag("inverted_healing_and_harm")
 	if (id == effectInstantDamage) == inverted {
-		amount := int32(4) << amplifier
+		amount := int32(4) << (amplifier & 31)
 		if amount > 0 {
 			s.entities.Heal(e.ID, float32(amount))
 		}
 		return
 	}
-	if amount := int32(6) << amplifier; amount > 0 {
+	if amount := int32(6) << (amplifier & 31); amount > 0 {
 		s.damageMob(e, float32(amount), "magic", nil, &damageInfo{typeName: "magic"})
 	}
 }
