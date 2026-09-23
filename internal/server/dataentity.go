@@ -454,6 +454,11 @@ func entityDisplayName(e *Entity) component {
 		comp = component{text: e.CustomName}
 	} else {
 		key := "entity.minecraft." + typeName
+		// An item entity's display name is its stack's: dirt names
+		// itself block.minecraft.dirt, not entity.minecraft.item.
+		if typeName == "item" && !e.Item.Empty() {
+			key = itemDisplayKey(mustItemName(e.Item.ID))
+		}
 		nameArg = map[string]any{"translate": key}
 		comp = component{translate: key}
 	}

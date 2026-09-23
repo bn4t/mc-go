@@ -39,6 +39,7 @@ const (
 	itemSlotChest    = 102
 	itemSlotHead     = 103
 	itemSlotBody     = 105
+	itemSlotSaddle   = 106
 	itemSlotCursor   = 499
 )
 
@@ -99,6 +100,8 @@ func parseItemSlot(tok string) (int32, bool) {
 		return itemSlotHead, true
 	case "armor.body":
 		return itemSlotBody, true
+	case "saddle":
+		return itemSlotSaddle, true
 	case "player.cursor":
 		return itemSlotCursor, true
 	}
@@ -599,6 +602,7 @@ func (s *Server) runItemModify(player string, args []string) reply {
 	if args[1] == "entity" {
 		slotArg, modArg, modTok = 3, 4, 5
 	}
+	var targets []*dataEntity
 	if args[1] == "block" {
 		if len(args) < 6 {
 			return errTokenEnd("command.unknown.command", len(args))
@@ -610,9 +614,14 @@ func (s *Server) runItemModify(player string, args []string) reply {
 		if len(args) < 4 {
 			return errTokenEnd("command.unknown.command", len(args))
 		}
-		if s.resolveTarget(player, args[2]) == nil {
+		tg, rep := s.selectDataEntities(s.findSessionByName(player), args[2], 2, false)
+		if rep != nil {
+			return *rep
+		}
+		if len(tg) == 0 {
 			return componentReply(commandError("argument.entity.notfound.entity"))
 		}
+		targets = tg
 	}
 	if _, ok := parseItemSlot(args[slotArg]); !ok {
 		return errTokenEnd("slot.unknown", slotArg+1, args[slotArg])
@@ -649,20 +658,34 @@ func (s *Server) runItemModify(player string, args []string) reply {
 			nestedCompound{key: "", value: int32(z)},
 			itemBrackets(st)))
 	}
-	tgt := s.resolveTarget(player, args[2])
 	id := mustParseItemSlot(args[slotArg])
-	// A modify writes nothing, so a slot the target refuses fails with
+	// A modify writes nothing, so a slot no target carries fails with
 	// no_changes naming only the slot: container.40 ends there.
-	if !playerSlotValid(id) {
+	applied := 0
+	var single *dataEntity
+	var lastSt ItemStack
+	for _, d := range targets {
+		st, ok := s.itemRead(d, id)
+		if !ok {
+			continue
+		}
+		if worn, wok := applySetDamage(args[modArg], st); wok {
+			s.itemWrite(d, id, worn)
+			st = worn
+		}
+		applied++
+		single = d
+		lastSt = st
+	}
+	if applied == 0 {
 		return componentReply(noUnchangedSlot(id))
 	}
-	st, _ := readEntitySlot(tgt, id)
-	if worn, ok := applySetDamage(args[modArg], st); ok {
-		s.writeEntitySlot(tgt, id, worn)
-		st = worn
+	if applied == 1 {
+		return componentReply(translatable("commands.item.entity.set.success.single",
+			single.nameComp(), itemBrackets(lastSt)))
 	}
-	return componentReply(translatable("commands.item.entity.set.success.single",
-		s.entityTargetComponent(tgt), itemBrackets(st)))
+	return componentReply(translatable("commands.item.entity.set.success.multiple",
+		int32(applied), itemBrackets(lastSt)))
 }
 
 // applySetDamage wears st as a bare `{"function":"set_damage",
@@ -912,7 +935,7 @@ func errTokenOffReply(tokNum int, tok string, pos int, with ...any) reply {
 type itemSource struct {
 	block   bool
 	x, y, z int
-	target  *Session
+	target  *dataEntity
 	slot    int32
 }
 
@@ -947,15 +970,18 @@ func (s *Server) parseItemSource(player string, args []string, at int) (itemSour
 		if len(args) < at+3 {
 			return src, 0, errTokenEnd("command.unknown.command", len(args)), false
 		}
-		tgt := s.resolveTarget(player, args[at+1])
-		if tgt == nil {
+		tg, rep := s.selectDataEntities(s.findSessionByName(player), args[at+1], at+1, true)
+		if rep != nil {
+			return src, 0, *rep, false
+		}
+		if len(tg) == 0 {
 			return src, 0, componentReply(commandError("argument.entity.notfound.entity")), false
 		}
 		id, ok := parseItemSlot(args[at+2])
 		if !ok {
 			return src, 0, errTokenEnd("slot.unknown", at+3, args[at+2]), false
 		}
-		src = itemSource{target: tgt, slot: id}
+		src = itemSource{target: tg[0], slot: id}
 		return src, at + 3, reply{}, true
 	}
 	return src, 0, errToken("command.unknown.argument", at+1), false
@@ -1014,8 +1040,12 @@ func (s *Server) runItemReplace(player string, args []string) reply {
 	if len(args) < 4 {
 		return errTokenEnd("command.unknown.command", len(args))
 	}
-	tgt := s.resolveTarget(player, args[2])
-	if tgt == nil {
+	sender := s.findSessionByName(player)
+	targets, rep := s.selectDataEntities(sender, args[2], 2, false)
+	if rep != nil {
+		return *rep
+	}
+	if len(targets) == 0 {
 		return componentReply(commandError("argument.entity.notfound.entity"))
 	}
 	id, ok := parseItemSlot(args[3])
@@ -1031,7 +1061,12 @@ func (s *Server) runItemReplace(player string, args []string) reply {
 		if !ok {
 			return r
 		}
-		return s.writeItemEntity(tgt, id, st)
+		// The stack's own cap is a parse-time failure on the real
+		// server: it fires before any target's slot is consulted.
+		if !st.Empty() && st.Count > maxStackOfID(st.ID) {
+			return componentReply(overstackedItem(st))
+		}
+		return s.writeItemTargets(targets, id, st)
 	case "from":
 		src, next, r, ok := s.parseItemSource(player, args, 5)
 		if !ok {
@@ -1052,7 +1087,7 @@ func (s *Server) runItemReplace(player string, args []string) reply {
 		if !ok {
 			return r
 		}
-		return s.writeItemEntity(tgt, id, st)
+		return s.writeItemTargets(targets, id, st)
 	}
 	return errToken("command.unknown.argument", 5)
 }
@@ -1272,10 +1307,7 @@ func (s *Server) readItemSource(d *dimension, src itemSource) (ItemStack, reply,
 		}
 		return st, reply{}, true
 	}
-	if !playerSlotValid(src.slot) {
-		return ItemStack{}, componentReply(commandError("commands.item.source.no_such_slot", src.slot)), false
-	}
-	st, ok := readEntitySlot(src.target, src.slot)
+	st, ok := s.itemRead(src.target, src.slot)
 	if !ok {
 		return ItemStack{}, componentReply(commandError("commands.item.source.no_such_slot", src.slot)), false
 	}
@@ -1418,24 +1450,153 @@ func overstackedItem(st ItemStack) component {
 		nestedCompound{key: "", value: maxStackOfID(st.ID)})
 }
 
-// writeItemEntity writes one of a player's slots: out-of-range indices
-// and armor writes the slot refuses fail with the item the slot would
-// have held, and a stack larger than the item takes is refused with the
-// cap named.
-func (s *Server) writeItemEntity(sess *Session, id int32, st ItemStack) reply {
-	if !playerSlotValid(id) {
+// mobItemSlot reports whether the slot exists on a LivingEntity: the
+// command surface maps every EquipmentSlot (the two hands, the four
+// armor pieces, and body) plus the saddle slot onto a mob, while the
+// container/crafting/cursor families stay player-only.
+func mobItemSlot(id int32) bool {
+	switch id {
+	case itemSlotMainhand, itemSlotOffhand, itemSlotFeet, itemSlotLegs,
+		itemSlotChest, itemSlotHead, itemSlotBody, itemSlotSaddle:
+		return true
+	}
+	return false
+}
+
+// mobEquipIndex maps an /item slot id onto the equipment table index
+// the wire and NBT share (0 mainhand, 1 offhand, 2-5 feet..head).
+func mobEquipIndex(id int32) int32 {
+	switch id {
+	case itemSlotMainhand:
+		return equipMainHand
+	case itemSlotOffhand:
+		return equipOffHand
+	case itemSlotFeet:
+		return equipBoots
+	case itemSlotLegs:
+		return equipLegs
+	case itemSlotChest:
+		return equipChest
+	case itemSlotHead:
+		return equipHelmet
+	}
+	return -1
+}
+
+// readMobSlot reads one equipment slot off a world entity.
+func readMobSlot(e *Entity, id int32) ItemStack {
+	if i := mobEquipIndex(id); i >= 0 {
+		return e.Equips[i]
+	}
+	switch id {
+	case itemSlotBody:
+		return e.BodyItem
+	case itemSlotSaddle:
+		if e.Saddle {
+			if sid, ok := world.ItemID("saddle"); ok {
+				return ItemStack{ID: sid, Count: 1}
+			}
+		}
+	}
+	return ItemStack{}
+}
+
+// writeMobSlot writes one equipment slot on a world entity and marks it
+// for the next equipment update broadcast. ItemCommands applies no
+// item filter on mob slots - the real server takes wolf_armor onto a
+// zombie the same as onto a wolf.
+func (s *Server) writeMobSlot(e *Entity, id int32, st ItemStack) {
+	if i := mobEquipIndex(id); i >= 0 {
+		if e.Equips == nil {
+			e.Equips = map[int32]ItemStack{}
+		}
+		if st.Empty() {
+			delete(e.Equips, i)
+		} else {
+			e.Equips[i] = st
+		}
+	}
+	switch id {
+	case itemSlotBody:
+		e.BodyItem = st
+	case itemSlotSaddle:
+		e.Saddle = !st.Empty()
+	}
+	e.EquipDirty = true
+}
+
+// itemRead reads one slot off an entity target, reporting whether the
+// slot exists there at all.
+func (s *Server) itemRead(d *dataEntity, id int32) (ItemStack, bool) {
+	if d.sess != nil {
+		return readEntitySlot(d.sess, id)
+	}
+	if d.mob != nil && mobLiving(d.mob) && mobItemSlot(id) {
+		return readMobSlot(d.mob, id), true
+	}
+	return ItemStack{}, false
+}
+
+// itemAccepts reports whether a `with`/`from` write lands on the
+// target: the slot has to exist, and on players the armor filter has
+// to take the item.
+func (s *Server) itemAccepts(d *dataEntity, id int32, st ItemStack) bool {
+	if d.sess != nil {
+		if !playerSlotValid(id) {
+			return false
+		}
+		if !st.Empty() {
+			name := mustItemName(st.ID)
+			if (id >= itemSlotFeet && id <= itemSlotHead || id == itemSlotBody) && !armorSlotAccepts(id, name) {
+				return false
+			}
+		}
+		return true
+	}
+	return d.mob != nil && mobLiving(d.mob) && mobItemSlot(id)
+}
+
+// mobLiving is the equipment-slot precondition on a world entity:
+// vanilla exposes /item's entity slots on LivingEntity only, which in
+// this codebase is every summonable type the health table knows.
+func mobLiving(e *Entity) bool {
+	name, _ := EntityTypeName(e.Type)
+	_, ok := mobHealth[name]
+	return ok
+}
+
+// itemWrite applies a slot write itemAccepts already vetted.
+func (s *Server) itemWrite(d *dataEntity, id int32, st ItemStack) {
+	if d.sess != nil {
+		s.writeEntitySlot(d.sess, id, st)
+		return
+	}
+	s.writeMobSlot(d.mob, id, st)
+}
+
+// writeItemTargets applies a replace ... with/from write across every
+// entity the selector produced and shapes the reply on how many
+// accepted it: zero fails no_changed naming the item, one names itself,
+// more report a count.
+func (s *Server) writeItemTargets(targets []*dataEntity, id int32, st ItemStack) reply {
+	var single *dataEntity
+	applied := 0
+	for _, d := range targets {
+		if !s.itemAccepts(d, id, st) {
+			continue
+		}
+		s.itemWrite(d, id, st)
+		applied++
+		single = d
+	}
+	switch {
+	case applied == 0:
 		return componentReply(noChangedItem(st, id))
+	case applied == 1:
+		return componentReply(translatable("commands.item.entity.set.success.single",
+			single.nameComp(), itemBrackets(st)))
+	default:
+		return componentReply(translatable("commands.item.entity.set.success.multiple",
+			int32(applied), itemBrackets(st)))
 	}
-	if !st.Empty() {
-		name := mustItemName(st.ID)
-		if (id >= itemSlotFeet && id <= itemSlotHead || id == itemSlotBody) && !armorSlotAccepts(id, name) {
-			return componentReply(noChangedItem(st, id))
-		}
-		if st.Count > maxStackOfID(st.ID) {
-			return componentReply(overstackedItem(st))
-		}
-	}
-	s.writeEntitySlot(sess, id, st)
-	return componentReply(translatable("commands.item.entity.set.success.single",
-		s.entityTargetComponent(sess), itemBrackets(st)))
 }

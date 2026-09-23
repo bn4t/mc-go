@@ -761,7 +761,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		s.entities.Spawn(e)
 		s.broadcastEntitySpawn(nil, *e)
 		s.broadcastEntityMetadata(e.ID, encodeItemMetadata(it))
-		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft.item")))
+		return componentReply(translatable("commands.summon.success", entityDisplayName(e)))
 	}
 	// Boats/rafts are vehicles, not living mobs: Passengers NBT
 	// recursively spawns riders the way vanilla's entity load does.

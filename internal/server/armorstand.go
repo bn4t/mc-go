@@ -2,6 +2,8 @@ package server
 
 import (
 	"strings"
+
+	"mc-go/internal/world"
 )
 
 // Armor stand equipment and the interact_at swap, measured on vanilla
@@ -237,6 +239,15 @@ func armorStandEquipAll(e *Entity) []struct {
 			slot  byte
 			stack ItemStack
 		}{6, e.BodyItem})
+	}
+	// SADDLE is wire slot 7 — the last EquipmentSlot.
+	if e.Saddle {
+		if sid, ok := world.ItemID("saddle"); ok {
+			out = append(out, struct {
+				slot  byte
+				stack ItemStack
+			}{7, ItemStack{ID: sid, Count: 1}})
+		}
 	}
 	return out
 }

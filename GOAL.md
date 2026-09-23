@@ -3958,3 +3958,20 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   Still open: /item entity on mobs (player-session-only slots today),
   wolf_armor's absorb-damage behavior, and un-summonable mob types
   (mobHealth table coverage, e.g. horse).
+
+- **/item on world entities**: `item replace|modify ... entity` now
+  resolves any LivingEntity through the shared selector path, not just
+  sessions. Mob slots are the six equipment entries (weapon.*, armor.*),
+  armor.body, and saddle — all unfiltered (wolf_armor on a husk, a
+  saddle on one too), while container/crafting/cursor names and
+  non-living entities fail no_changed. Selectors that hit several
+  entities aggregate into set.success.multiple; `from` copies between
+  mobs, and the stack cap is a parse-time error ahead of any slot
+  check. Two supporting fixes fell out: the SNBT pretty printer quotes
+  compound keys outside [0-9a-zA-Z_.+-] the way vanilla does
+  ("minecraft:damage" inside components), and a summoned item entity
+  names its stack, not entity.minecraft.item. TestItemMobParity diffs
+  a 27-leg transcript verbatim on both servers. Still open: worn gear
+  taking durability on hurt (the husk keeps legs deterministic), the
+  per-slot delta vanilla's broadcastEquipmentUpdates sends (mc-go
+  resends the whole set), and horse-style chest/container mob slots.

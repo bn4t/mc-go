@@ -669,9 +669,19 @@ func nbtPrettyMapSeq(t map[string]any, seq []string) []component {
 		keys = nbt.OrderedKeys(t)
 	}
 	for i, k := range keys {
+		out = append(out, component{emptyKey: "", forceCompound: true})
+		// A key outside SNBT's unquoted-name alphabet ([0-9a-zA-Z_.+-])
+		// prints quoted: vanilla emits text:"\"" with the aqua key and
+		// the closing quote as extra children.
+		if !nbtUnquotedKey(k) {
+			out = append(out, component{text: "\"", extra: []component{
+				{color: "aqua", text: k},
+				{emptyKey: "\""},
+			}})
+		} else {
+			out = append(out, component{color: "aqua", text: k})
+		}
 		out = append(out,
-			component{emptyKey: "", forceCompound: true},
-			component{color: "aqua", text: k},
 			component{emptyKey: ":"},
 			component{emptyKey: " "})
 		out = append(out, nbtPrettyElems(t[k])...)
@@ -681,6 +691,23 @@ func nbtPrettyMapSeq(t map[string]any, seq []string) []component {
 	}
 	out = append(out, component{emptyKey: "}"})
 	return out
+}
+
+// nbtUnquotedKey is vanilla's isAllowedInUnquotedName: digits, ASCII
+// letters, and _ - . + print bare; anything else quotes the key.
+func nbtUnquotedKey(k string) bool {
+	if k == "" {
+		return false
+	}
+	for i := 0; i < len(k); i++ {
+		c := k[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'z' ||
+			c >= 'A' && c <= 'Z' || c == '_' || c == '-' ||
+			c == '.' || c == '+') {
+			return false
+		}
+	}
+	return true
 }
 
 // javaFloatStr formats like Float/Double.toString: the shortest
