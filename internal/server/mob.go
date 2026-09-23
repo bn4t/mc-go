@@ -1104,6 +1104,16 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 	if name, ok := EntityTypeName(e.Type); ok {
 		switch name {
 		case "zombie_villager":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			if e.WaterConv {
+				b.Byte(17)
+				b.Byte(8)
+				b.Bool(true)
+			}
 			if e.Converting {
 				b.Byte(19)
 				b.Byte(8) // type: bool
@@ -1129,6 +1139,26 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 			}
 			if e.VillagerFinalized {
 				b.Byte(20)
+				b.Byte(8)
+				b.Bool(true)
+			}
+		case "zombie", "husk", "drowned":
+			// 16 = baby (DATA_BABY_ID), 17 = is_under_water_converting
+			// — zombie_villager's cure flag already lives at 19.
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			if e.WaterConv {
+				b.Byte(17)
+				b.Byte(8)
+				b.Bool(true)
+			}
+		case "skeleton":
+			// 16 = is_freeze_converting (DATA_STRAY_CONVERSION_ID).
+			if e.FreezeConv {
+				b.Byte(16)
 				b.Byte(8)
 				b.Bool(true)
 			}
@@ -1528,6 +1558,11 @@ func (s *Server) mobTickStep() {
 			}
 		}
 		if !e.NoAI && e.Riding == 0 {
+			// Drowned/stray conversion bookkeeping — inside the NoAI
+			// gate like vanilla's aiStep/tick placement.
+			if s.mobConvertTick(e, s.dims[e.Dim], ambName) {
+				continue
+			}
 			// A passenger stays put — vanilla's entity rider has no
 			// gravity or wander of its own. Hostile melee mobs chase
 			// the nearest player and swing on a vanilla-paced cooldown;
@@ -1927,6 +1962,139 @@ func (s *Server) mobFleeStep(e *Entity, kn string) bool {
 	e.X += dx / dist * speed
 	e.Z += dz / dist * speed
 	return true
+}
+
+// mobWaterConverts is Zombie.doUnderWaterConversion's chain — husk
+// hops to zombie first (Husk overrides convertToZombieType with
+// ZOMBIE), zombies and zombie villagers go straight to drowned. The
+// eye must sit in water for 600 ticks before the 300-tick conversion
+// starts; once started it finishes even out of water.
+var mobWaterConverts = map[string]string{
+	"zombie":          "drowned",
+	"zombie_villager": "drowned",
+	"husk":            "zombie",
+}
+
+// mobFreezeConverts is Skeleton.tick's powder-snow chain — 140 ticks
+// in snow, then a 300-tick conversion that cancels if the mob steps
+// out.
+var mobFreezeConverts = map[string]string{"skeleton": "stray"}
+
+// mobConvertTick runs both environment conversions' bookkeeping —
+// inside the NoAI gate like vanilla's aiStep/tick placement. Returns
+// true when the entity was replaced (the caller must skip it).
+func (s *Server) mobConvertTick(e *Entity, d *dimension, ambName string) bool {
+	if dst, ok := mobWaterConverts[ambName]; ok {
+		if e.WaterConv {
+			e.ConversionTime--
+			if e.ConversionTime < 0 {
+				s.mobConvert(e, dst, 1040)
+				return true
+			}
+		} else {
+			eyeH := mobSunEyeHeights[ambName]
+			if eyeH == 0 {
+				eyeH = 1.74
+			}
+			eye := world.Pos{
+				X: int(math.Floor(e.X)),
+				Y: int(math.Floor(e.Y + eyeH)),
+				Z: int(math.Floor(e.Z)),
+			}
+			w := s.dimWorld(e.Dim)
+			if w != nil {
+				if k, _, ok := fluidOf(w.GetBlock(eye)); ok && k == fluidWater {
+					e.inWaterTime++
+					if e.inWaterTime >= 600 {
+						e.WaterConv = true
+						e.ConversionTime = 300
+						e.MetaDirty = true
+					}
+				} else {
+					e.inWaterTime = -1
+				}
+			}
+		}
+	}
+	if dst, ok := mobFreezeConverts[ambName]; ok {
+		w := s.dimWorld(e.Dim)
+		feet := world.Pos{
+			X: int(math.Floor(e.X)),
+			Y: int(math.Floor(e.Y)),
+			Z: int(math.Floor(e.Z)),
+		}
+		inSnow := false
+		if w != nil {
+			bn, _ := blockNameAt(d, feet)
+			inSnow = bn == "powder_snow"
+		}
+		if inSnow {
+			if e.FreezeConv {
+				e.ConversionTime--
+				if e.ConversionTime < 0 {
+					s.mobConvert(e, dst, 1048)
+					return true
+				}
+			} else {
+				e.inPowderSnowTime++
+				if e.inPowderSnowTime >= 140 {
+					e.FreezeConv = true
+					e.ConversionTime = 300
+					e.MetaDirty = true
+				}
+			}
+		} else {
+			e.inPowderSnowTime = -1
+			if e.FreezeConv {
+				e.FreezeConv = false
+				e.MetaDirty = true
+			}
+		}
+	}
+	return false
+}
+
+// mobConvert is Mob.convertTo with ConversionParams.single(mob, true,
+// true) — spawn the converted entity first (addFreshEntity), then
+// discard the old, keeping equipment, custom name, baby flag, and
+// health the target type allows. levelEvent carries the conversion
+// sound (0 = none) — suppressed when the mob is silent.
+func (s *Server) mobConvert(e *Entity, targetName string, levelEvent int32) {
+	nt, ok := EntityTypeID(targetName)
+	if !ok {
+		return
+	}
+	ne := &Entity{
+		Type: nt,
+		Dim:  e.Dim,
+		X:    e.X, Y: e.Y, Z: e.Z,
+		Yaw: e.Yaw, Pitch: e.Pitch, HeadYaw: e.HeadYaw,
+		Health:     e.Health,
+		MaxHealth:  e.MaxHealth,
+		CustomName: e.CustomName,
+		Baby:       e.Baby,
+		Silent:     e.Silent,
+		NoAI:       e.NoAI,
+		Powered:    e.Powered,
+	}
+	if e.Equips != nil {
+		ne.Equips = map[int32]ItemStack{}
+		for k, v := range e.Equips {
+			ne.Equips[k] = v
+		}
+	}
+	if ne.MaxHealth > 0 && ne.Health > ne.MaxHealth {
+		ne.Health = ne.MaxHealth
+	}
+	s.entities.Spawn(ne)
+	s.entities.Remove(e.ID)
+	s.broadcastFreshMob(ne)
+	s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+	if !e.Silent && levelEvent != 0 {
+		s.broadcastLevelEvent(e.Dim, levelEvent, world.Pos{
+			X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z)),
+		}, 0)
+	}
 }
 
 // mobSunFlees is FleeSunGoal's type set — only the four

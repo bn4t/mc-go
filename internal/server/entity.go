@@ -63,8 +63,19 @@ type Entity struct {
 	// cureProgress each game tick, and at zero finishCure replaces
 	// the entity with a villager and fires cured_zombie_villager for
 	// the starter. Silent suppresses the cure level event.
-	Converting        bool
-	ConversionTime    int32
+	Converting     bool
+	ConversionTime int32
+	// WaterConv/FreezeConv carry the drowned/stray conversion
+	// countdowns' on-the-wire flag (Converting stays the zombie
+	// villager CURE flag — different accessors in vanilla).
+	WaterConv  bool
+	FreezeConv bool
+	// inWaterTime/inPowderSnowTime count the submerged/frozen ticks
+	// toward the zombie->drowned (600+300) and skeleton->stray
+	// (140+300) conversions; Converting/ConversionTime carry the
+	// countdown itself.
+	inWaterTime       int32
+	inPowderSnowTime  int32
 	ConversionStarter [16]byte
 	HasConvStarter    bool
 	Silent            bool

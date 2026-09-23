@@ -4513,3 +4513,40 @@ spawnLingeringCloud for effect-carrying creepers, horse chest/
 container slots, guardian flop/beam, per-damage-type hurt variants,
 witch.drink, scoreboard objectives, region save, online mode,
 redstone, terrain gen, lighting, .dat persistence.
+
+## Slice 2026-09-23h — mob environment conversions
+
+Zombie.doUnderWaterConversion (measured): eye in water 600 ticks
+starts a 300-tick conversion that finishes even if the mob surfaces;
+zombie/zombie_villager -> drowned, husk -> zombie first (a two-hop
+chain — the fresh zombie then drowns again). Skeleton.tick's freeze
+chain: 140 ticks in powder snow, then a 300-tick countdown that
+CANCELS on stepping out; skeleton -> stray. Both sit inside the NoAI
+gate.
+
+mobConvert is Mob.convertTo(single(keepEquipment, preserveName)):
+spawn the converted entity (fresh EID/uuid) carrying position, look,
+clamped health, baby flag, equipment map — then discard the old, so
+the wire shows spawn-then-remove. Non-silent mobs emit level events
+1040 (drowned) / 1048 (stray) at the mob position.
+
+Wire fix found by the test: ClientboundLevelEventPacket's event and
+data fields are raw int32s — broadcastLevelEvent was writing VarInt,
+malforming every level event (block-break particles, anvil sounds,
+conversions). Entity metadata: zombie-family idx17 is
+is_under_water_converting (zombie_villager's cure flag stays at 19),
+skeleton idx16 is is_freeze_converting; zombie-family idx16 baby is
+now emitted too.
+
+TestMobConvertParity pins both legs on both servers: drowned appears
++ zombie gone + ev1040, stray appears + skeleton gone + ev1048.
+
+Open items remaining: crossbow/piglin ranged variants
+(RangedCrossbowAttackGoal), stray/bogged tipped arrows,
+RestrictSunGoal wander bias, summon armor-populate + enchantment
+rolls + drowned chance slots, charged-creeper skull drops,
+spawnLingeringCloud for effect-carrying creepers, horse chest/
+container slots, guardian flop/beam, per-damage-type hurt variants,
+witch.drink, zombie->drowned equipment copy edge cases, scoreboard
+objectives, region save, online mode, redstone, terrain gen,
+lighting, .dat persistence.

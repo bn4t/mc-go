@@ -435,7 +435,8 @@ func (s *Server) maceSmashKnockback(sess *Session, victim Entity) {
 // the dimension.
 func (s *Server) broadcastLevelEvent(dim string, event int32, pos world.Pos, data int32) {
 	var b protocol.Buffer
-	b.VarInt(event)
+	// event and data are raw int32s on the wire, not VarInts.
+	b.Int(event)
 	b.Position(int32(pos.X), int32(pos.Y), int32(pos.Z))
 	b.Int(data)
 	b.Bool(false)
