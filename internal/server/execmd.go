@@ -742,7 +742,7 @@ func (s *Server) executeIfData(ctx *executeContext, player string, args []string
 				return 0, false, serr
 			}
 			if len(cands) > 0 {
-				base, exists = cands[0].saveMap().m, true
+				base, exists = cands[0].saveMap(s.clock.count).m, true
 			}
 		}
 	case "storage":
@@ -1314,7 +1314,7 @@ func (s *Server) executeStore(ctx *executeContext, player string, args []string,
 			if serr != nil || len(cands) == 0 || cands[0].sess != nil {
 				return // players are unwritable; no match stores nothing
 			}
-			save := cands[0].saveMap()
+			save := cands[0].saveMap(s.clock.count)
 			if nbtSet(save.m, steps, typedStoreValue(typ, v, scale)) {
 				s.applyDataEntity(cands[0], save)
 			}
