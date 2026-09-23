@@ -4956,3 +4956,49 @@ cloud entity metadata on wire, horse chest/container slots,
 guardian flop/beam, per-damage-type hurt variants, scoreboard
 objectives, region save, online mode, redstone, terrain gen,
 lighting, .dat persistence.
+
+## Slice 2026-09-23q — witch ranged attack (splash potion throw)
+
+Witch.performRangedAttack + ThrowableProjectile/SplashPotion physics,
+measured off the bytecode:
+
+- RangedAttackGoal(this,1.0,60,10.0): attackTime starts -1, ticks
+  down; ==0 fires and resets to floor(lerp(dist/radius,60,60))=60;
+  <0 resets. performRangedAttack early-returns while drinking.
+- Aim: dx/dz at the target's position + delta, dy = target.eyeY-1.1
+  - self.y, then +dist*0.2 before normalize; velocity 0.75 (0.45 at
+  dist≤2), inaccuracy 8.0 — shared shoot().
+- Potion pick order: Raider target → health≤4 healing else
+  regeneration (and clears target); dist≥8 && !slowness → slowness;
+  health≥8 && !poison → poison; dist≤3 && !weakness && rand<0.25 →
+  weakness; else harming. (Raider branch noted, not wired — no
+  raider-target plumbing yet.)
+- ThrowableProjectile: gravity 0.03 (arrows use 0.05), same 0.99
+  drag; entity collide → splash at entity pos; block hit → splash at
+  the contact point; never stuck.
+- Splash (onHitAsPotion): everything living within ~4 blocks gets
+  the contents — timed effects at duration*proximity, instant ones
+  scaled on the amount (instant_damage 6*prox as indirect_magic
+  sourced at the thrower, instant_health 4*prox heal); level event
+  2002 plays break particles/sound with the potion's packed color.
+- Potions registry entries measured: slowness 1800, poison 900,
+  weakness 1800, regeneration 900, speed/water_breathing/
+  fire_resistance 3600; harming/healing instant amp0.
+
+The splash_potion entity rides the arrow flight path with its own
+collide (no damage on contact) and splash on either hit kind; the
+spawn carries the thrower as owner and the potion_contents item.
+
+TestWitchThrowParity: 12-block survival target → slowness lands;
+healthy 6-block target → poison lands; damaged to <8 → harming (death
+broadcast or a sub-6 Health read — resistance cleared first so the
+`damage` amount is real). Green identical on both servers.
+
+Open items remaining: crossbow/piglin ranged variants
+(RangedCrossbowAttackGoal), witch raider-heal throw branch,
+RestrictSunGoal wander bias, ominous-banner item components on wire,
+living hand-active metadata byte on wire (witch drink state), cloud
+entity metadata on wire, horse chest/container slots, guardian
+flop/beam, per-damage-type hurt variants, scoreboard objectives,
+region save, online mode, redstone, terrain gen, lighting, .dat
+persistence.

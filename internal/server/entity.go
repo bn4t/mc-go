@@ -352,6 +352,11 @@ type Entity struct {
 	// at full duration (a mob-made arrow stack carries no
 	// potion_duration_scale component, so forEachEffect runs at 1.0).
 	arrowEffects []arrowEffect
+	// splashPotion is the potion id inside a thrown splash_potion's
+	// potion_contents — the witch's performRangedAttack pick
+	// (harming/slowness/poison/weakness) rides the projectile until
+	// impact.
+	splashPotion string
 	// arrowStuck marks an arrow embedded in a block: it stops
 	// moving and colliding until it despawns, like vanilla's
 	// inGround state.

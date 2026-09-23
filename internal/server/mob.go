@@ -1625,6 +1625,8 @@ func (s *Server) mobTickStep() {
 				}
 			} else if mobSwell[ambName] {
 				goalActed = s.mobSwellStep(e, ambName)
+			} else if ambName == "witch" {
+				goalActed = s.mobWitchAttackStep(e)
 			} else if mobMelee[e.Type] {
 				goalActed = s.mobMeleeStep(e)
 			}
@@ -2223,6 +2225,106 @@ func (s *Server) witchFarTarget(e *Entity) bool {
 	px, py, pz, _, _, _ := t.Pos()
 	dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
 	return dx*dx+dy*dy+dz*dz > 121
+}
+
+// mobWitchAttackStep runs the witch's RangedAttackGoal(1.0, 60, 10):
+// the attackTime countdown starts unset (-1 → 60-tick arm), fires one
+// splash potion at zero when the target is inside the ten-block
+// radius, and the throw skips while a drink is running
+// (performRangedAttack returns early on isDrinkingPotion).
+func (s *Server) mobWitchAttackStep(e *Entity) bool {
+	t := s.nearestMobTarget(e, "witch")
+	if t == nil {
+		return false
+	}
+	px, py, pz, _, _, _ := t.Pos()
+	dx, dz := px-e.X, pz-e.Z
+	dist := math.Hypot(dx, dz)
+	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	e.HeadYaw = e.Yaw
+	const radius = 10.0
+	if dist > radius {
+		step := mobChaseSpeed
+		if mv, ok := entityAttrBases["witch"]["movement_speed"]; ok {
+			step = mv
+		}
+		if step > dist-radius {
+			step = dist - radius
+		}
+		e.X += dx / dist * step
+		e.Z += dz / dist * step
+	}
+	e.rangedAttack--
+	if e.rangedAttack < 0 {
+		e.rangedAttack = 60
+	} else if e.rangedAttack == 0 {
+		if !e.WitchDrink && dist <= radius {
+			s.witchThrow(e, t, px, py, pz, dist)
+		}
+		e.rangedAttack = 60
+	}
+	return true
+}
+
+// witchThrow is Witch.performRangedAttack: the potion pick — healing
+// or regeneration for a Raider target (with setTarget(null)), slowness
+// for a far one, poison for a healthy one, a 25% weakness roll up
+// close, harming otherwise — then the splash_potion spawns a hair
+// below the witch's eye on the vanilla lob (dy + horizontal*0.2) at
+// 0.75 blocks/tick (0.45 under two blocks).
+func (s *Server) witchThrow(e *Entity, t *Session, px, py, pz, dist float64) {
+	potion := "harming"
+	switch {
+	case dist >= 8 && !sessMobHasEff(t, "slowness"):
+		potion = "slowness"
+	case t.health >= 8 && !sessMobHasEff(t, "poison"):
+		potion = "poison"
+	case dist <= 3 && !sessMobHasEff(t, "weakness") && rand.Float64() < 0.25:
+		potion = "weakness"
+	}
+	pt, ok := EntityTypeID("splash_potion")
+	if !ok {
+		return
+	}
+	eyeY := e.Y + 1.55 // getEyeHeight - 0.1 like spawnProjectileUsingShoot
+	dx, dz := px-e.X, pz-e.Z
+	dy := py + 1.62 - 1.1 - eyeY
+	aimY := dy + dist*0.2
+	vel := 0.75
+	if dist <= 2 {
+		vel = 0.45
+	}
+	mag := math.Sqrt(dx*dx + aimY*aimY + dz*dz)
+	if mag < 1e-6 {
+		return
+	}
+	vx, vy, vz := dx/mag*vel, aimY/mag*vel, dz/mag*vel
+	pe := s.entities.Spawn(&Entity{
+		Type: pt,
+		Dim:  e.Dim,
+		X:    e.X, Y: eyeY, Z: e.Z,
+		Yaw:     e.Yaw,
+		MotionX: vx, MotionY: vy, MotionZ: vz,
+		VX: int16(vx * 8000), VY: int16(vy * 8000), VZ: int16(vz * 8000),
+		Data: e.ID,
+	})
+	pe.arrowShooter = e.ID
+	pe.splashPotion = potion
+	s.broadcastEntitySpawn(nil, *pe)
+	if it, ok := world.ItemID("splash_potion"); ok {
+		s.broadcastEntityMetadata(pe.ID, encodeItemMetadata(
+			ItemStack{ID: it, Count: 1, Potion: potion}))
+	}
+	if !e.Silent {
+		s.playSoundSrc(e.Dim, e.X, eyeY, e.Z, 1779, mobVoiceOf(e).src(), 1,
+			float32(0.8+rand.Float64()*0.4), nil)
+	}
+}
+
+// sessMobHasEff is sessHasEffect by potion-name.
+func sessMobHasEff(t *Session, name string) bool {
+	id, ok := MobEffectID(name)
+	return ok && sessHasEffect(t, id)
 }
 
 // mobEyeInWater is isEyeInFluid(FluidTags.WATER): the block at the

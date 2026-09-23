@@ -151,14 +151,15 @@ func (s *Server) arrowTickStep() {
 		if e.Dying {
 			continue
 		}
-		if name, ok := EntityTypeName(e.Type); ok && (name == "arrow" || name == "trident") {
+		if name, ok := EntityTypeName(e.Type); ok && (name == "arrow" || name == "trident" || name == "splash_potion") {
 			arrows = append(arrows, e)
 		}
 	}
 	s.entities.mu.RUnlock()
 	for _, e := range arrows {
-		trident, _ := EntityTypeName(e.Type)
-		isTrident := trident == "trident"
+		name, _ := EntityTypeName(e.Type)
+		isTrident := name == "trident"
+		isPotion := name == "splash_potion"
 		if e.arrowStuck || e.tridentStuck {
 			if isTrident {
 				s.tridentPickupStep(e)
@@ -169,7 +170,13 @@ func (s *Server) arrowTickStep() {
 		e.X += e.MotionX
 		e.Y += e.MotionY
 		e.Z += e.MotionZ
-		e.MotionY -= arrowGravity
+		// ThrowableProjectile's default gravity is 0.03 vs the
+		// arrow's 0.05; the 0.99 air drag is shared.
+		grav := arrowGravity
+		if isPotion {
+			grav = 0.03
+		}
+		e.MotionY -= grav
 		e.MotionX *= arrowAirDrag
 		e.MotionY *= arrowAirDrag
 		e.MotionZ *= arrowAirDrag
@@ -178,7 +185,9 @@ func (s *Server) arrowTickStep() {
 		// tick's movement segment — a point check at the new tip tunnels
 		// straight through at full draw speed (3 blocks/tick).
 		var collided bool
-		if isTrident {
+		if isPotion {
+			collided = s.potionCollide(e, ox, oy, oz)
+		} else if isTrident {
 			collided = s.projectileCollide(e, ox, oy, oz, tridentHitDamage, "trident")
 		} else {
 			collided = s.arrowCollide(e, ox, oy, oz)
@@ -190,6 +199,9 @@ func (s *Server) arrowTickStep() {
 			s.channelingStrike(e.arrowShooter, e, e.X, e.Y, e.Z)
 		}
 		if collided {
+			if isPotion {
+				s.potionSplash(e, e.X, e.Y, e.Z)
+			}
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemove([]int32{e.ID})
 			continue
@@ -199,6 +211,12 @@ func (s *Server) arrowTickStep() {
 		if bx, by, bz, axis, hx, hy, hz, hit := s.arrowBlockHit(e, ox, oy, oz); hit {
 			e.X, e.Y, e.Z = hx, hy, hz
 			e.MotionX, e.MotionY, e.MotionZ = 0, 0, 0
+			if isPotion {
+				s.potionSplash(e, hx, hy, hz)
+				s.entities.Remove(e.ID)
+				s.broadcastEntityRemove([]int32{e.ID})
+				continue
+			}
 			if isTrident {
 				e.tridentStuck = true
 				s.playSoundSrc(e.Dim, hx, hy, hz, 1626, 6, 1.0, 1.0, nil) // item.trident.hit_ground
@@ -679,4 +697,222 @@ func (sess *Session) takeOneOf(item string) bool {
 		}
 	}
 	return false
+}
+
+// potionCollide is ThrowableItemProjectile's entity hit: the first
+// living entity along the tick's segment (the thrower excluded —
+// Projectile.canHitEntity skips the owner until it leaves). A potion
+// never damages on contact; the caller splashes.
+func (s *Server) potionCollide(e *Entity, ox, oy, oz float64) bool {
+	s.entities.mu.RLock()
+	targets := make([]*Entity, 0, len(s.entities.byID))
+	for _, t := range s.entities.byID {
+		targets = append(targets, t)
+	}
+	s.entities.mu.RUnlock()
+	for _, t := range targets {
+		if !t.Living || t.Dying || t.ID == e.ID || t.ID == e.arrowShooter || t.Dim != e.Dim {
+			continue
+		}
+		bb := mobBounds(t.Type)
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+			return true
+		}
+	}
+	hit := false
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || sess.dead ||
+			sess.mode() == GameModeSpectator || sess.dimName() != e.Dim ||
+			sess.entityID.Load() == e.arrowShooter {
+			return true
+		}
+		px, py, pz, _, _, _ := sess.Pos()
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, px, py, pz, 0.6, 1.8) {
+			hit = true
+			return false
+		}
+		return true
+	})
+	return hit
+}
+
+// splashEffect is one potion-content entry: effect name, base
+// duration ticks (0 = instantaneous), amplifier.
+type splashEffect struct {
+	name string
+	dur  int32
+	amp  int32
+}
+
+// splashPotionContents is the Potions registry entries a thrown or
+// drunk splash can carry (26.2 values, javap-measured).
+var splashPotionContents = map[string][]splashEffect{
+	"harming":         {{"instant_damage", 0, 0}},
+	"healing":         {{"instant_health", 0, 0}},
+	"slowness":        {{"slowness", 1800, 0}},
+	"poison":          {{"poison", 900, 0}},
+	"weakness":        {{"weakness", 1800, 0}},
+	"regeneration":    {{"regeneration", 900, 0}},
+	"swiftness":       {{"speed", 3600, 0}},
+	"water_breathing": {{"water_breathing", 3600, 0}},
+	"fire_resistance": {{"fire_resistance", 3600, 0}},
+}
+
+// splashPotionColors are PotionContents.getColor's packed RGB per
+// potion id — the level-event 2002 data field clients read.
+var splashPotionColors = map[string]int32{
+	"harming":         0x430A09,
+	"healing":         0xF82423,
+	"slowness":        0x5A6C81,
+	"poison":          0x4E9331,
+	"weakness":        0x484D48,
+	"regeneration":    0xCD5CAB,
+	"swiftness":       0x7CAFC6,
+	"water_breathing": 0x2E5299,
+	"fire_resistance": 0xE49A3A,
+}
+
+// potionSplash is ThrownPotion.onHitAsPotion: every living entity
+// within four blocks of the impact gets each effect — timed effects
+// scaled by the 1 - dist/4 proximity factor, instant ones applied
+// with the same scale on the amount. The 2002 level event plays the
+// splash particles and glass crack.
+func (s *Server) potionSplash(e *Entity, x, y, z float64) {
+	effects := splashPotionContents[e.splashPotion]
+	if len(effects) == 0 {
+		return
+	}
+	s.broadcastLevelEvent(e.Dim, 2002, world.Pos{
+		X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z)),
+	}, splashPotionColors[e.splashPotion])
+
+	s.entities.mu.RLock()
+	mobs := make([]*Entity, 0, len(s.entities.byID))
+	for _, t := range s.entities.byID {
+		mobs = append(mobs, t)
+	}
+	s.entities.mu.RUnlock()
+	for _, t := range mobs {
+		if !t.Living || t.Dying || t.Dim != e.Dim {
+			continue
+		}
+		bb := mobBounds(t.Type)
+		// Vanilla measures AABB-to-AABB distance — half-width + half-
+		// height approximates it close enough for the ±4 window.
+		dx, dy, dz := x-t.X, y-(t.Y+bb[1]/2), z-t.Z
+		dist := math.Sqrt(dx*dx+dy*dy+dz*dz) - math.Max(bb[0], bb[1])/2
+		if dist < 0 {
+			dist = 0
+		}
+		prox := 1 - dist/4
+		if prox <= 0 {
+			continue
+		}
+		s.splashApplyMob(e, t, effects, prox)
+	}
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || sess.dead ||
+			sess.mode() == GameModeSpectator || sess.dimName() != e.Dim {
+			return true
+		}
+		px, py, pz, _, _, _ := sess.Pos()
+		dx, dy, dz := x-px, y-(py+0.9), z-pz
+		dist := math.Sqrt(dx*dx+dy*dy+dz*dz) - 0.75
+		if dist < 0 {
+			dist = 0
+		}
+		prox := 1 - dist/4
+		if prox <= 0 {
+			return true
+		}
+		s.splashApplyPlayer(e, sess, effects, prox)
+		return true
+	})
+}
+
+// splashApplyMob lands the scaled contents on one mob.
+func (s *Server) splashApplyMob(e, t *Entity, effects []splashEffect, prox float64) {
+	for _, eff := range effects {
+		id, ok := MobEffectID(eff.name)
+		if !ok {
+			continue
+		}
+		if eff.dur <= 0 {
+			switch eff.name {
+			case "instant_health":
+				heal := float32(math.Round(4 * float64(int(1)<<uint(eff.amp)) * prox))
+				name, _ := EntityTypeName(t.Type)
+				max := float32(mobAttrSupplierBase(name, "max_health"))
+				if heal > 0 && max > 0 {
+					t.Health += heal
+					if t.Health > max {
+						t.Health = max
+					}
+					s.broadcastEntityMetadata(t.ID, encodeLivingHealth(t.Health))
+				}
+			case "instant_damage":
+				dmg := float32(math.Round(6 * float64(int(1)<<uint(eff.amp)) * prox))
+				if dmg > 0 {
+					s.damageMob(t, dmg, "indirect_magic",
+						s.sessionByEntityID(e.arrowShooter),
+						&damageInfo{typeName: "indirect_magic",
+							cause: e.arrowShooter, direct: e.ID})
+				}
+			}
+			continue
+		}
+		dur := int32(math.Round(float64(eff.dur) * prox))
+		if dur < 1 {
+			continue
+		}
+		mobAddEffect(t, id, eff.amp, s.clock.count+int64(dur))
+		t.MetaDirty = true
+	}
+}
+
+// splashApplyPlayer lands the scaled contents on one player.
+func (s *Server) splashApplyPlayer(e *Entity, sess *Session, effects []splashEffect, prox float64) {
+	for _, eff := range effects {
+		id, ok := MobEffectID(eff.name)
+		if !ok {
+			continue
+		}
+		if eff.dur <= 0 {
+			switch eff.name {
+			case "instant_health":
+				heal := float32(math.Round(4 * float64(int(1)<<uint(eff.amp)) * prox))
+				if heal > 0 && sess.health < 20 {
+					sess.health += heal
+					if sess.health > 20 {
+						sess.health = 20
+					}
+					s.sendHealth(sess)
+				}
+			case "instant_damage":
+				dmg := float32(math.Round(6 * float64(int(1)<<uint(eff.amp)) * prox))
+				if dmg > 0 {
+					attacker := "Splash Potion"
+					if sh, ok := s.entities.Get(e.arrowShooter); ok {
+						if n, ok2 := EntityTypeName(sh.Type); ok2 {
+							attacker = "entity.minecraft." + n
+						}
+					}
+					s.damageWith(sess, dmg, translatable("death.attack.indirectMagic",
+						literal(sess.getName()), translatable(attacker)), damageSource{
+						typeName: "indirect_magic",
+						cause:    e.arrowShooter,
+						direct:   e.ID,
+					})
+				}
+			}
+			continue
+		}
+		dur := int32(math.Round(float64(eff.dur) * prox))
+		if dur < 1 {
+			continue
+		}
+		s.applyMobEffectFlags(sess, id, eff.amp, dur, false)
+	}
 }
