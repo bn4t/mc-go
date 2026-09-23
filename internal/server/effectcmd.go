@@ -51,10 +51,8 @@ func (s *Server) runEffectGive(player string, args []string) reply {
 	// resource first and accepts the literal "infinite" for -1 ticks.
 	seconds := int32(30)
 	ticks := int32(600)
-	infinite := false
 	if len(args) > 2 {
 		if args[2] == "infinite" {
-			infinite = true
 			ticks = -1
 		} else {
 			n, err := strconv.Atoi(args[2])
@@ -83,15 +81,34 @@ func (s *Server) runEffectGive(player string, args []string) reply {
 	if len(targets) == 0 {
 		return errTokenEnd("command.unknown.argument", 0)
 	}
-	// Vanilla's addEffect declines when an equal-or-stronger instance
-	// is already running: stronger amplifier wins outright, and at the
-	// same amplifier only a strictly longer remaining time lets the
-	// new instance update in place.
+	// Vanilla's addEffect routes through MobEffectInstance.update:
+	// a stronger amplifier replaces outright, an equal amplifier only
+	// updates when the new duration is longer-or-equal (durations are
+	// compared remaining-vs-new, infinite counting as -1), and a
+	// weaker one never applies but is stashed into the hiddenEffect
+	// chain when it outlasts the current — all other re-gives fail
+	// the whole command with give.failed.
 	applied := 0
 	for _, t := range targets {
-		if e, live := sessEffect(t, id, s.clock.count); live &&
-			(e.amplifier > amplifier || (e.amplifier == amplifier && !infinite && e.expiry >= 0 && e.expiry-s.clock.count >= int64(ticks))) {
-			continue
+		now := s.clock.count
+		if e, live := sessEffect(t, id, now); live {
+			newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks)}
+			switch {
+			case amplifier > e.amplifier:
+				// fall through and apply
+			case amplifier == e.amplifier && shorterDur(e, newInst, now):
+				// duration update — apply
+			case amplifier < e.amplifier && shorterDur(e, newInst, now):
+				s.stashHiddenEffect(t, id, newInst)
+				s.applyInstantEffect(t, id, amplifier)
+				continue
+			default:
+				// Declined stores still run onEffectStarted — instant
+				// effects apply (measured: a shorter re-give heals
+				// while replying give.failed).
+				s.applyInstantEffect(t, id, amplifier)
+				continue
+			}
 		}
 		s.applyMobEffectFlags(t, id, amplifier, ticks, hideParticles)
 		applied++

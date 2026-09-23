@@ -185,6 +185,11 @@ func TestPlayJoinParity(t *testing.T) {
 func joinPlayBlackbox(t *testing.T, addr, name string) (net.Conn, *protocol.Reader, *protocol.Writer) {
 	t.Helper()
 	c, pr, pw := joinPlayQuiet(t, addr, name)
+	// The login deadline protects the handshake/config phase; once the
+	// client is in play the keepalive-answering drain loops and the
+	// callers' own read deadlines bound things, so lift it — a write past
+	// the 10s mark otherwise fails with an i/o timeout.
+	_ = c.SetDeadline(time.Time{})
 	// A moment for the server to finish entering the play stage, then the
 	// report.
 	time.Sleep(50 * time.Millisecond)

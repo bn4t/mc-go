@@ -3892,3 +3892,29 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   when the source carries a weapon — and the victim's vy component
   follows the client's on_ground flag (mc-go) vs server physics
   (vanilla), which the scripted client never asserts.
+
+- **Instant effects and the MobEffectInstance update/hidden chain**:
+  /effect give of instant_health / instant_damage now applies
+  (HealOrHarmMobEffect.onEffectStarted — heals 4<<amplifier clamped
+  to max health, hurts 6<<amplifier as magic, amplifier shifts wrap
+  like Java int math). The deeper parity was in update(): a same
+  amplifier re-give only succeeds when the new duration is
+  longer-or-equal to the remaining (inclusive — vanilla's
+  isShorterDurationThan is `<=`), a strictly stronger instance
+  replaces outright and — when shorter — pushes the old instance
+  into the new one's hiddenEffect chain, a weaker-but-longer give
+  fails the command yet still stashes itself in that chain, and the
+  hidden instance keeps decaying and RESUMES on the stronger one's
+  expiry (downgradeToHiddenEffect emits an Update Mob Effect with
+  the lower amplifier). onEffectStarted — where the instant apply
+  lives — fires even on a declined store, so a failed re-give of
+  instant_health still heals while replying give.failed.
+  mobEffectInst carries hide+hidden; mobEffectTickStep downgrades
+  instead of removing when a hidden is pending. TestInstantEffectParity
+  pins health byte-equal across a 6-leg sequence plus the amp
+  downgrade on the wire. Harness fix: client() sets a 10s absolute
+  deadline covering writes — cleared once play state is entered
+  (joinPlayBlackbox) so long tests don't hit i/o timeouts. Still
+  open: entity NBT `active_effects` on players (vanilla answers
+  `data get entity P active_effects`, mc-go returns
+  nothing_found) and mob targets for /effect (undead inversion).

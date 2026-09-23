@@ -15,14 +15,22 @@ import (
 
 // mobEffectInst is one active status effect: amplifier is the
 // level-1 index (0 = level I), expiry the game tick it ends at.
+// hidden is vanilla's hiddenEffect: a lower-amplifier or replaced
+// instance that resumes when the stronger one ends; its expiry is
+// absolute too, so it keeps decaying while hidden (vanilla ticks
+// the hidden instance down alongside the active one).
 type mobEffectInst struct {
 	amplifier int32
 	expiry    int64
+	hide      bool
+	hidden    *mobEffectInst
 }
 
 // Status-effect state on Session — small fixed map, its own mutex.
 // The effect ids are the mob_effect registry protocol ids.
 const (
+	effectInstantHealth  = 5
+	effectInstantDamage  = 6
 	effectRegeneration   = 9
 	effectFireResistance = 11
 	effectAbsorption     = 21
@@ -77,6 +85,72 @@ func (s *Server) applyMobEffect(sess *Session, id, amplifier int32, duration int
 	s.applyMobEffectFlags(sess, id, amplifier, duration, false)
 }
 
+// effectExpiry converts a /effect duration to an absolute game tick;
+// negative durations are vanilla's infinite.
+func effectExpiry(now int64, ticks int32) int64 {
+	if ticks < 0 {
+		return -1
+	}
+	return now + int64(ticks)
+}
+
+// shorterDur is vanilla's MobEffectInstance.isShorterDurationThan:
+// this must be finite and its remaining duration <= the other's (an
+// infinite other counts as duration -1, so nothing is shorter).
+func shorterDur(this, other mobEffectInst, now int64) bool {
+	if this.expiry < 0 {
+		return false
+	}
+	otherDur := int64(-1)
+	if other.expiry >= 0 {
+		otherDur = other.expiry - now
+	}
+	return this.expiry-now <= otherDur
+}
+
+// stashHiddenEffect stores a weaker-but-longer instance under the
+// active one's hiddenEffect — MobEffectInstance.update's else arm.
+func (s *Server) stashHiddenEffect(sess *Session, id int32, inst mobEffectInst) {
+	sess.effMu.Lock()
+	defer sess.effMu.Unlock()
+	e, ok := sess.effects[id]
+	if !ok {
+		return
+	}
+	if e.hidden == nil {
+		e.hidden = &inst
+	} else {
+		e.hidden.mergeHidden(inst, s.clock.count)
+	}
+	sess.effects[id] = e
+}
+
+// mergeHidden applies MobEffectInstance.update to a hidden chain
+// node: stronger replaces (pushing this under it when shorter),
+// same-amplifier-longer extends, weaker-longer recurses deeper.
+func (e *mobEffectInst) mergeHidden(other mobEffectInst, now int64) {
+	switch {
+	case other.amplifier > e.amplifier:
+		keep := e.hidden
+		if shorterDur(other, *e, now) {
+			prev := *e
+			other.hidden = &prev
+			*e = other
+			return
+		}
+		*e = other
+		e.hidden = keep
+	case other.amplifier == e.amplifier && shorterDur(*e, other, now):
+		e.expiry = other.expiry
+	case other.amplifier != e.amplifier && shorterDur(*e, other, now):
+		if e.hidden == nil {
+			e.hidden = &other
+		} else {
+			e.hidden.mergeHidden(other, now)
+		}
+	}
+}
+
 // applyMobEffectFlags is applyMobEffect with the /effect hideParticles
 // flag: hiding clears bit 0x02 of vanilla's applied-effect mask 0x0E.
 // A duration < 0 is vanilla's infinite and never expires.
@@ -89,7 +163,25 @@ func (s *Server) applyMobEffectFlags(sess *Session, id, amplifier int32, duratio
 	if duration >= 0 {
 		expiry = s.clock.count + int64(duration)
 	}
-	sess.effects[id] = mobEffectInst{amplifier: amplifier, expiry: expiry}
+	inst := mobEffectInst{amplifier: amplifier, expiry: expiry, hide: hideParticles}
+	if prev, ok := sess.effects[id]; ok {
+		switch {
+		case prev.amplifier < amplifier:
+			// The stronger instance replaces the active one; when it is
+			// shorter (other.isShorterDurationThan: finite new duration
+			// <= the old remaining) vanilla pushes the old instance into
+			// the new one's hiddenEffect so it resumes afterwards.
+			if duration >= 0 && prev.expiry >= 0 && int64(duration) <= prev.expiry-s.clock.count {
+				inst.hidden = &prev
+			}
+		case prev.amplifier == amplifier:
+			// Same-amplifier update: the duration is replaced outright
+			// (the gate already ensured the new one is longer) and the
+			// hidden chain carries over untouched.
+			inst.hidden = prev.hidden
+		}
+	}
+	sess.effects[id] = inst
 	sess.effMu.Unlock()
 	if id == effectLevitation {
 		x, y, z, _, _, _ := sess.Pos()
@@ -104,20 +196,31 @@ func (s *Server) applyMobEffectFlags(sess *Session, id, amplifier int32, duratio
 			sess.absorb = pool
 		}
 	}
-	var b protocol.Buffer
-	b.VarInt(sess.entityID.Load())
-	b.VarInt(id) // bare mob_effect registry protocol id
-	b.VarInt(amplifier)
-	b.VarInt(duration)
-	flags := byte(0x0E) // particles + icon + blend — vanilla's applied-effect flags
-	if hideParticles {
-		flags &^= 0x02
-	}
-	b.Byte(flags)
-	body := b.Bytes()
-	_ = sess.write(sess.ids().PlayUpdateMobEffect, body)
-	s.broadcastToDim(sess.dimName(), sess, sess.ids().PlayUpdateMobEffect, body)
+	// onEffectStarted fires at the end of addEffect even when the
+	// store was declined — instant effects apply on every call.
+	s.applyInstantEffect(sess, id, amplifier)
+	s.sendMobEffectUpdate(sess, id, inst)
 	s.fireEffectsChanged(sess)
+}
+
+// applyInstantEffect is MobEffectInstance.onEffectStarted's
+// instantenous arm (HealOrHarmMobEffect): instant_health heals
+// 4<<amplifier, instant_damage hurts 6<<amplifier as magic. The
+// int32<<level shifts wrap exactly like Java's int math — large
+// amplifiers land on nonpositive amounts that max(...,0) drops.
+func (s *Server) applyInstantEffect(sess *Session, id, amplifier int32) {
+	switch id {
+	case effectInstantHealth:
+		if !sess.dead {
+			amount := max(int32(4)<<amplifier, 0)
+			sess.health = min(sess.health+float32(amount), defaultHealth)
+			sess.healthDirty.Store(true)
+		}
+	case effectInstantDamage:
+		amount := max(int32(6)<<amplifier, 0)
+		s.damageWith(sess, float32(amount), translatable("death.attack.magic", literal(sess.getName())),
+			damageSource{typeName: "magic"})
+	}
 }
 
 // clearMobEffects is vanilla's ClearAllStatusEffectsConsumeEffect: each
@@ -169,8 +272,37 @@ func (s *Server) broadcastToDim(dim string, except *Session, id int32, body []by
 	})
 }
 
+func mobEffectFlags(hideParticles bool) byte {
+	flags := byte(0x0E) // particles + icon + blend — vanilla's applied-effect flags
+	if hideParticles {
+		flags &^= 0x02
+	}
+	return flags
+}
+
+// sendMobEffectUpdate emits one Update Mob Effect for the live
+// instance of id — used on give and on the hidden-effect downgrade.
+func (s *Server) sendMobEffectUpdate(sess *Session, id int32, e mobEffectInst) {
+	var b protocol.Buffer
+	b.VarInt(sess.entityID.Load())
+	b.VarInt(id)
+	b.VarInt(e.amplifier)
+	remaining := e.expiry - s.clock.count
+	if e.expiry < 0 {
+		remaining = -1
+	}
+	b.VarInt(int32(remaining))
+	b.Byte(mobEffectFlags(e.hide))
+	body := b.Bytes()
+	_ = sess.write(sess.ids().PlayUpdateMobEffect, body)
+	s.broadcastToDim(sess.dimName(), sess, sess.ids().PlayUpdateMobEffect, body)
+}
+
 // mobEffectTickStep expires active effects on the game clock and emits
-// Remove Mob Effect, matching vanilla's LivingEntity.tickEffects.
+// Remove Mob Effect, matching vanilla's LivingEntity.tickEffects. When
+// the expiring instance carries a hiddenEffect the slot downgrades to
+// it instead of clearing (MobEffectInstance.downgradeToHiddenEffect),
+// which surfaces as an Update Mob Effect with the lower amplifier.
 func (s *Server) mobEffectTickStep() {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
@@ -178,9 +310,14 @@ func (s *Server) mobEffectTickStep() {
 			return true
 		}
 		sess.effMu.Lock()
-		var expired []int32
+		var expired, downgraded []int32
 		for id, e := range sess.effects {
 			if e.expiry >= 0 && s.clock.count >= e.expiry {
+				if e.hidden != nil {
+					sess.effects[id] = *e.hidden
+					downgraded = append(downgraded, id)
+					continue
+				}
 				expired = append(expired, id)
 				delete(sess.effects, id)
 			}
@@ -188,6 +325,13 @@ func (s *Server) mobEffectTickStep() {
 		sess.effMu.Unlock()
 		for _, id := range expired {
 			s.removeMobEffect(sess, id)
+		}
+		for _, id := range downgraded {
+			e, live := sessEffect(sess, id, s.clock.count)
+			if live {
+				s.sendMobEffectUpdate(sess, id, e)
+				s.fireEffectsChanged(sess)
+			}
 		}
 		return true
 	})
