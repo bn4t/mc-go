@@ -199,7 +199,7 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 	if !bypassesArmor(src.typeName) {
 		defense := sess.armorDefense()
 		s.armorWear(sess, src, amount)
-		amount = reduceDamage(amount, defense, sess.armorToughness())
+		amount = reduceDamage(amount, defense, sess.armorToughness(), s.weaponBreach(src.direct))
 	}
 	// getDamageAfterEnchantAbsorb: the EPF from protection-family
 	// enchantments shaves min(20, epf)/25 off what armor left standing.
@@ -345,4 +345,20 @@ func (s *Server) thornsAttack(victimEid, srcCause int32, victimName component) {
 			direct:   victimEid,
 		})
 	}
+}
+
+// weaponBreach resolves the breach level on the damage source's
+// weapon item — vanilla's DamageSource.getWeaponItem is the DIRECT
+// entity's mainhand (a player-held stack or a mob's Equips[0]).
+func (s *Server) weaponBreach(direct int32) float32 {
+	if direct == 0 {
+		return 0
+	}
+	if sess := s.sessionByEntityID(direct); sess != nil {
+		return float32(sess.heldStack().enchLevel("breach"))
+	}
+	if e, ok := s.entities.Get(direct); ok && len(e.Equips) > 0 {
+		return float32(e.Equips[0].enchLevel("breach"))
+	}
+	return 0
 }

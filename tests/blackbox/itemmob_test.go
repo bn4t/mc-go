@@ -435,3 +435,83 @@ func TestHelmetWearParity(t *testing.T) {
 		t.Fatalf("first anvil hit did not wear the helmet twice on vanilla: %q", want[0])
 	}
 }
+
+// TestBreachParity pins CombatRules.getDamageAfterAbsorb's
+// armor_effectiveness pass: the damage source's weapon item (the
+// DIRECT entity's mainhand) applies its breach level as -0.15/level
+// to the armor protection fraction, clamped to [0,1]. The player
+// victim path (damageWith) and the mob victim path (Manager.Damage)
+// both resolve it through the direct entity — a husk holding a
+// breach-4 mace vs a plain mace moves a 5-hit from 1.5 to 4.5 on
+// armor 20, and a breach hit on an iron-chest zombie ignores its
+// armor entirely.
+func TestBreachParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	husk := `@e[type=minecraft:husk,limit=1]`
+	creeper := `@e[type=minecraft:creeper,limit=1]`
+
+	// natural_health_regeneration off keeps health reads exact; the
+	// mob victim is a creeper because zombies spawn reinforcement
+	// allies on hurt and skeletons burn in daylight.
+	legs := []string{
+		"gamemode survival @s",
+		"gamerule natural_health_regeneration false",
+		"attribute @s minecraft:armor base set 20",
+		"summon minecraft:husk 5.5 -60 5.5 {NoAI:1b,PersistenceRequired:1b}",
+		"item replace entity " + husk + " weapon.mainhand with minecraft:mace",
+		"damage @s 5 minecraft:mob_attack by " + husk, // plain: 1.5 -> 18.5
+		"item replace entity " + husk + ` weapon.mainhand with minecraft:mace[minecraft:enchantments={"minecraft:breach":4}]`,
+		"damage @s 5 minecraft:mob_attack by " + husk, // breach 4: 4.5 -> 14
+		"summon minecraft:creeper 7.5 -60 7.5 {NoAI:1b,PersistenceRequired:1b}",
+		"item replace entity " + creeper + " armor.chest with minecraft:iron_chestplate",
+		"damage " + creeper + " 5 minecraft:mob_attack by " + husk, // breach: 5 -> 15
+		"item replace entity " + husk + " weapon.mainhand with minecraft:mace",
+		"damage " + creeper + " 5 minecraft:mob_attack by " + husk, // plain: 4.3 -> 10.7
+	}
+
+	run := func(addr string) []string {
+		c, pr, pw := joinPlayBlackbox(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		sink := newChatSink(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(400 * time.Millisecond)
+		sendCommand(t, pw, "gamemode creative @s")
+		time.Sleep(300 * time.Millisecond)
+		var out []string
+		for _, cmd := range legs {
+			func() { defer func() { recover() }(); sendCommand(t, pw, cmd) }()
+			time.Sleep(1200 * time.Millisecond)
+			out = append(out, dataGetLine(t, sink, pw, "@s", "Health"))
+			out = append(out, dataGetLine(t, sink, pw, creeper, "Health"))
+		}
+		return out
+	}
+
+	want := run(targets.vanilla)
+	got := run(targets.mcgo)
+	for i := range want {
+		if want[i] == got[i] {
+			continue
+		}
+		wt, okW := componentTree(want[i], true)
+		gt, okG := componentTree(got[i], true)
+		if !okW || !okG || maskUUID(wt) != maskUUID(gt) {
+			t.Errorf("leg %d %q:\n  vanilla %s\n  mc-go   %s", i, legs[i/2], want[i], got[i])
+		}
+	}
+	// Anchors: the measured hits must match the vanilla numbers, else
+	// the diff above is vacuous — 18.5 plain, 14 breach on the player,
+	// 15 breach / 10.7 plain on the chestplated creeper.
+	if lastNumber(want[10]) != 18.5 || lastNumber(want[14]) != 14 {
+		t.Fatalf("vanilla player-hit numbers changed: %q %q", want[10], want[14])
+	}
+	if lastNumber(want[21]) != 15 || lastNumber(want[25]) != 10.7 {
+		t.Fatalf("vanilla mob-hit numbers changed: %q %q", want[21], want[25])
+	}
+}

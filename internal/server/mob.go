@@ -1193,7 +1193,11 @@ func (s *Server) broadcastMobSharedFlags(eid int32, onFire bool) {
 // hurtServer's accepted branch, AFTER the absorb/wear side effects
 // and BEFORE hurt()'s playHurtSound.
 func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *Session, info *damageInfo) (dealt float32, graced, died bool) {
-	res := s.entities.Damage(e.ID, amount, typeName)
+	var breach float32
+	if info != nil {
+		breach = s.weaponBreach(info.direct)
+	}
+	res := s.entities.Damage(e.ID, amount, typeName, breach)
 	s.mobHurtWireFX(e, res)
 	// A graced hit whose excess is zero returns false in vanilla's
 	// hurt — none of the hurt tail (event, sound, retaliation) runs.

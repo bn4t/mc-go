@@ -3,6 +3,7 @@ package server
 import (
 	"math"
 	"math/rand"
+	"strconv"
 )
 
 // weaponDamage is the attack damage of the common weapons (vanilla
@@ -145,38 +146,74 @@ var mobNaturalArmor = map[string]float32{
 	"wither":           4,
 }
 
-// mobArmor is a mob victim's armor value — the type's natural base
-// plus the defense of any worn armor pieces.
-func mobArmor(e *Entity) float32 {
-	var total float32
-	if name, ok := EntityTypeName(e.Type); ok {
-		total += mobNaturalArmor[name]
+// attrRange clamps an attribute's computed value to its registered
+// min/max — armor and armor_toughness are RangedAttributes in vanilla
+// (0..30 and 0..20 respectively).
+func attrRange(name string, v float64) float64 {
+	switch name {
+	case "armor":
+		return max(0, min(30, v))
+	case "armor_toughness":
+		return max(0, min(20, v))
 	}
-	for _, slot := range []int32{equipHelmet, equipChest, equipLegs, equipBoots} {
-		if name, ok := itemNameOf(e.Equips[slot].ID); ok {
-			total += armorPoints[name]
-		}
-	}
-	if name, ok := itemNameOf(e.BodyItem.ID); ok {
-		total += armorPoints[name]
-	}
-	return total
+	return v
 }
 
-// mobToughness is the mob victim's armor_toughness: the worn pieces'
-// armor_toughness attributes summed over the four equipment slots and
-// the body slot (diamond/netherite body armor carry some).
-func mobToughness(e *Entity) float32 {
-	var total float32
-	for _, slot := range []int32{equipHelmet, equipChest, equipLegs, equipBoots} {
-		if name, ok := itemNameOf(e.Equips[slot].ID); ok {
-			total += armorToughness[name]
+// equipAttrMods merges an entity's AttrMods for an attribute with the
+// worn pieces' per-item values as synthetic add_value modifiers —
+// vanilla registers each equipped armor piece as an attribute modifier,
+// which is why /attribute base set and equipment compose.
+func equipAttrMods(e *Entity, attr string, table map[string]float32, worn []string) map[string]attrMod {
+	mods := make(map[string]attrMod, len(e.AttrMods[attr])+len(worn))
+	for k, m := range e.AttrMods[attr] {
+		mods[k] = m
+	}
+	for i, iname := range worn {
+		if v := table[iname]; v != 0 {
+			mods["__equip"+strconv.Itoa(i)] = attrMod{value: float64(v)}
 		}
 	}
-	if name, ok := itemNameOf(e.BodyItem.ID); ok {
-		total += armorToughness[name]
+	return mods
+}
+
+// wornItemNames lists the item names in an entity's four armor slots
+// plus the body slot.
+func wornItemNames(e *Entity) []string {
+	out := make([]string, 0, 5)
+	for _, slot := range []int32{equipHelmet, equipChest, equipLegs, equipBoots} {
+		name, _ := itemNameOf(e.Equips[slot].ID)
+		out = append(out, name)
 	}
-	return total
+	name, _ := itemNameOf(e.BodyItem.ID)
+	out = append(out, name)
+	return out
+}
+
+// mobAttrBase resolves an attribute's registered default for a mob
+// type: AttrBase overrides win, then the per-type natural table.
+func mobAttrBase(e *Entity, attr string) float64 {
+	if v, ok := e.AttrBase[attr]; ok {
+		return v
+	}
+	if name, ok := EntityTypeName(e.Type); ok && attr == "armor" {
+		return float64(mobNaturalArmor[name])
+	}
+	return 0
+}
+
+// mobArmor is a mob victim's armor value — vanilla's
+// LivingEntity.getArmorValue: the armor attribute (natural base or a
+// /attribute override) with the worn pieces folded in as modifiers.
+func mobArmor(e *Entity) float32 {
+	v := attrValue(mobAttrBase(e, "armor"), equipAttrMods(e, "armor", armorPoints, wornItemNames(e)))
+	return float32(attrRange("armor", v))
+}
+
+// mobToughness is the mob victim's armor_toughness attribute — the
+// worn pieces' contributions folded over the (usually zero) base.
+func mobToughness(e *Entity) float32 {
+	v := attrValue(mobAttrBase(e, "armor_toughness"), equipAttrMods(e, "armor_toughness", armorToughness, wornItemNames(e)))
+	return float32(attrRange("armor_toughness", v))
 }
 
 // enchantDamageBonus is the weapon's total minecraft:damage enchant
@@ -310,19 +347,45 @@ func (s *Server) mobHurtKnockback(e *Entity, srcCause int32) {
 	s.broadcastEntityMotion(e.Dim, e.ID, vx, vy, vz)
 }
 
-// armorDefense sums the armor points of a player's four armor slots.
-func (sess *Session) armorDefense() float32 {
-	total := float32(0)
+// sessArmorNames lists the item names in the session's four armor
+// slots plus the body slot.
+func (sess *Session) sessArmorNames() []string {
+	out := make([]string, 0, 5)
 	for i := slotArmorStart; i < slotArmorStart+4; i++ {
-		it := sess.stackAt(int16(i))
-		if it.Empty() {
-			continue
+		name, _ := itemNameOf(sess.stackAt(int16(i)).ID)
+		out = append(out, name)
+	}
+	name, _ := itemNameOf(sess.bodyArmor.ID)
+	out = append(out, name)
+	return out
+}
+
+// sessAttr computes a player attribute with the worn armor pieces
+// folded in as add_value modifiers — vanilla registers each piece as
+// an attribute modifier, so /attribute base set and equipment compose.
+func (sess *Session) sessAttr(attr string, table map[string]float32) float64 {
+	base := playerAttrBases[attr]
+	mods := map[string]attrMod{}
+	if e, ok := sess.server.entities.Get(sess.entityID.Load()); ok {
+		if v, is := e.AttrBase[attr]; is {
+			base = v
 		}
-		if name, ok := itemNameOf(it.ID); ok {
-			total += armorPoints[name]
+		for k, m := range e.AttrMods[attr] {
+			mods[k] = m
 		}
 	}
-	return total
+	for i, iname := range sess.sessArmorNames() {
+		if v := table[iname]; v != 0 {
+			mods["__equip"+strconv.Itoa(i)] = attrMod{value: float64(v)}
+		}
+	}
+	return attrRange(attr, attrValue(base, mods))
+}
+
+// armorDefense is the player's armor attribute value: base (or the
+// /attribute override) plus the worn pieces' defense.
+func (sess *Session) armorDefense() float32 {
+	return float32(sess.sessAttr("armor", armorPoints))
 }
 
 // armorToughness is the armor_toughness attribute each worn piece
@@ -344,21 +407,10 @@ var armorKBResist = map[string]float64{
 	"netherite_leggings": 0.1, "netherite_boots": 0.1,
 }
 
-// armorToughnessOf sums the armor_toughness of the player's four
-// worn pieces — vanilla's LivingEntity reads the attribute value,
-// which for default equipment is exactly this sum.
+// armorToughness reads the player's armor_toughness attribute the
+// same way — worn pieces as add_value modifiers over the base.
 func (sess *Session) armorToughness() float32 {
-	total := float32(0)
-	for i := slotArmorStart; i < slotArmorStart+4; i++ {
-		it := sess.stackAt(int16(i))
-		if it.Empty() {
-			continue
-		}
-		if name, ok := itemNameOf(it.ID); ok {
-			total += armorToughness[name]
-		}
-	}
-	return total
+	return float32(sess.sessAttr("armor_toughness", armorToughness))
 }
 
 // armorKBResistOf sums knockback_resistance over the worn pieces.
@@ -377,12 +429,13 @@ func (sess *Session) armorKBResist() float64 {
 }
 
 // reduceDamage applies vanilla's armor absorb (CombatRules.
-// getDamageAfterAbsorb, minus the breaching-style
-// modifyArmorEffectiveness pass which needs a weapon item):
-// effective defense is armor minus damage/(2+toughness/4), floored at
-// armor/5 and capped at 20; surviving damage scales by
-// 1 - defense/25.
-func reduceDamage(damage, armor, toughness float32) float32 {
+// getDamageAfterAbsorb): effective defense is armor minus
+// damage/(2+toughness/4), floored at armor/5 and capped at 20; the
+// surviving fraction is 1 - defense/25, which the attacker's
+// armor_effectiveness enchantment effects (breach: -0.15/level) then
+// lower, clamped to [0,1] — modifyArmorEffectiveness on the damage
+// source's weapon item.
+func reduceDamage(damage, armor, toughness, breachLevel float32) float32 {
 	if armor <= 0 || damage <= 0 {
 		return damage
 	}
@@ -393,5 +446,12 @@ func reduceDamage(damage, armor, toughness float32) float32 {
 	if defense > 20 {
 		defense = 20
 	}
-	return damage * (1 - defense/25)
+	eff := defense/25 - 0.15*breachLevel
+	if eff < 0 {
+		eff = 0
+	}
+	if eff > 1 {
+		eff = 1
+	}
+	return damage * (1 - eff)
 }

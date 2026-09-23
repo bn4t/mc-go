@@ -338,7 +338,7 @@ type DamageResult struct {
 	CrackChanged bool
 }
 
-func (m *Manager) Damage(id int32, amount float32, typeName string) DamageResult {
+func (m *Manager) Damage(id int32, amount float32, typeName string, breachLevel float32) DamageResult {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.byID[id]
@@ -409,7 +409,7 @@ func (m *Manager) Damage(id int32, amount float32, typeName string) DamageResult
 			}
 		}
 	}
-	amount = reduceDamage(amount, armor, toughness)
+	amount = reduceDamage(amount, armor, toughness, breachLevel)
 	// Vanilla's damage_dealt is the health the target actually lost:
 	// the hit's amount clamped to the pre-hit health.
 	if amount > e.Health {

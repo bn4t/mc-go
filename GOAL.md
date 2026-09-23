@@ -4054,3 +4054,18 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   hurtHelmet share the walk. TestHelmetWearParity diffs a 15-leg
   transcript (damage path, equipment.head, Health) on both servers —
   including the break leg, where nothing_found must match.
+
+- breach/armor_effectiveness + attribute armor (2026-09): `/damage ... by`
+  resolves the breach level on the direct entity's mainhand
+  (`DamageSource.getWeaponItem`) — a breach-4 mace drops an armor-20
+  player's protection from 0.7 to 0.1 (dealt 4.5 vs plain 1.5) and
+  zeroes a chestplated mob's defense. armor/armor_toughness now run
+  through the attribute pipeline on both victims: `sess.sessAttr`
+  folds the four worn pieces (plus bodyArmor) into the attribute as
+  synthetic add_value modifiers so `/attribute base set` and equipment
+  compose, and `mobArmor`/`mobToughness` do the same over
+  `e.AttrBase`/`e.AttrMods`, clamped to the attribute ranges
+  (armor 0..30, toughness 0..20). New `TestBreachParity` — husk with a
+  plain vs breach-4 mace against an attribute-armored player and a
+  chestplated creeper (creeper chosen because zombies spawn
+  reinforcements on hurt and skeletons burn in daylight).
