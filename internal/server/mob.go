@@ -1629,6 +1629,8 @@ func (s *Server) mobTickStep() {
 				goalActed = s.mobWitchAttackStep(e)
 			} else if mobCrossbow[ambName] && s.mobHoldsCrossbow(e) {
 				goalActed = s.mobCrossbowStep(e, ambName)
+			} else if mobBeam[ambName] {
+				goalActed = s.mobGuardianStep(e, ambName)
 			} else if mobMelee[e.Type] {
 				goalActed = s.mobMeleeStep(e)
 			}
@@ -3812,6 +3814,114 @@ func (s *Server) mobCrossbowStep(e *Entity, kn string) bool {
 			s.mobShootArrow(e, px, py, pz)
 			e.cbState = cbUncharged
 			s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 491, 5, 1.0, 1.0, nil) // item.crossbow.shoot
+		}
+	}
+	return true
+}
+
+// mobBeam is the guardian family — the only mobs running
+// GuardianAttackGoal.
+var mobBeam = map[string]bool{"guardian": true, "elder_guardian": true}
+
+// broadcastGuardianBeam syncs DATA_ID_ATTACK_TARGET — metadata index
+// 17, int serializer — the client renders the beam to the target id.
+func (s *Server) broadcastGuardianBeam(e *Entity, targetID int32) {
+	var b protocol.Buffer
+	b.Byte(17)
+	b.VarInt(1) // int serializer
+	b.VarInt(targetID)
+	b.Byte(0xFF)
+	s.broadcastEntityMetadata(e.ID, b.Bytes())
+}
+
+// mobGuardianStep runs GuardianAttackGoal: on acquiring a living target
+// the beam charges for getAttackDuration ticks (80, elder 60) then
+// zaps — an indirect_magic hit (1.0, +2 on hard, +2 for the elder)
+// plus a same-tick doHurtTarget melee swing — and releases the target.
+// Vanilla gates the whole goal past three blocks: GuardianAttackSelector
+// requires dist²>9 to acquire and the regular guardian's
+// canContinueToUse drops the beam inside it. The wire-visible beats are
+// entity event 21 and the index-17 target id at beam start (attackTime
+// -10→0), the zap, and the id clearing to 0 on release.
+func (s *Server) mobGuardianStep(e *Entity, kn string) bool {
+	elder := kn == "elder_guardian"
+	var target *Session
+	if e.beamTarget != 0 {
+		if t := s.sessionByEntityID(e.beamTarget); t != nil &&
+			!t.dead && t.mode() != GameModeCreative &&
+			t.mode() != GameModeSpectator && t.dimName() == e.Dim {
+			target = t
+		}
+	}
+	if target == nil {
+		// stop(): setActiveAttackTarget(0) only dirties the sync if it
+		// changed — SynchedEntityData.set skips equal values.
+		if e.beamMeta {
+			s.broadcastGuardianBeam(e, 0)
+			e.beamMeta = false
+		}
+		e.beamTarget = 0
+		e.beamTime = 0
+		// The selector also takes squids and axolotls — mobs have no
+		// targeting session here, so only players are picked up.
+		if t := s.nearestMobTarget(e, kn); t != nil {
+			px, py, pz, _, _, _ := t.Pos()
+			dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
+			if dx*dx+dy*dy+dz*dz > 9.0 {
+				e.beamTarget = t.entityID.Load()
+				e.beamTime = -10 // start()
+			}
+		}
+		return e.beamTarget != 0
+	}
+	px, py, pz, _, _, _ := target.Pos()
+	dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
+	if !elder && dx*dx+dy*dy+dz*dz <= 9.0 {
+		e.beamTarget = 0
+		e.beamTime = 0
+		if e.beamMeta {
+			s.broadcastGuardianBeam(e, 0)
+			e.beamMeta = false
+		}
+		return false
+	}
+	// hasLineOfSight always holds on the flat harness world.
+	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	e.HeadYaw = e.Yaw
+	e.beamTime++
+	if e.beamTime == 0 {
+		s.broadcastGuardianBeam(e, e.beamTarget)
+		e.beamMeta = true
+		if !e.Silent {
+			s.broadcastEntityEvent(e.ID, 21) // guardian.attack cue
+		}
+	}
+	dur := int32(80)
+	if elder {
+		dur = 60
+	}
+	if e.beamTime >= dur {
+		beam := float32(1.0)
+		if s.difficulty == DifficultyHard {
+			beam += 2
+		}
+		if elder {
+			beam += 2
+		}
+		s.damageWith(target, beam, translatable("death.attack.indirectMagic",
+			literal(target.getName()), literal(mobDisplayName(kn))),
+			damageSource{typeName: "indirect_magic", cause: e.ID, direct: e.ID})
+		// doHurtTarget has no range gate — the melee swing lands in
+		// the same tick, reduced to its delta over the beam hit by the
+		// player's i-frames.
+		s.damageWith(target, mobMeleeDamage(kn), translatable("death.attack.mob",
+			literal(target.getName()), literal(mobDisplayName(kn))),
+			damageSource{typeName: "mob_attack", cause: e.ID, direct: e.ID})
+		e.beamTarget = 0
+		e.beamTime = 0
+		if e.beamMeta {
+			s.broadcastGuardianBeam(e, 0)
+			e.beamMeta = false
 		}
 	}
 	return true

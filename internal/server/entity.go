@@ -123,6 +123,13 @@ type Entity struct {
 	cbState uint8
 	cbTime  int32
 	cbDelay int32
+	// GuardianAttackGoal state: beamTarget is the locked session
+	// entity id (0 = idle), beamTime walks -10 up to the beam
+	// duration (80 ticks, elder 60), beamMeta marks whether the
+	// index-17 DATA_ID_ATTACK_TARGET sync is live on the wire.
+	beamTarget int32
+	beamTime   int32
+	beamMeta   bool
 	// AvoidEntityGoal state: fleeUntil is the game-time deadline the
 	// goal stays armed to — vanilla's posAvoider paths to a point
 	// ~16 blocks off, so the fleer overshoots its trigger distance —

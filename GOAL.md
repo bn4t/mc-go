@@ -5066,3 +5066,46 @@ cloud entity metadata on wire, horse chest/container slots,
 guardian flop/beam, per-damage-type hurt variants, scoreboard
 objectives, region save, online mode, redstone, terrain gen,
 lighting, .dat persistence.
+## Slice 2026-09-23t — guardian attack beam
+
+GuardianAttackGoal, measured on the vanilla jar + live wire: the goal
+starts attackTime at -10 on target acquire; each tick it stops
+navigation, lookAt(90,90)s, drops the target on lost line of sight,
+and counts up. At attackTime==0 it syncs DATA_ID_ATTACK_TARGET —
+guardian metadata index 17, int serializer — to the target's entity
+id and (unless silent) broadcasts entity event 21 (the beam cue).
+At attackTime>=getAttackDuration — 80 ticks, ElderGuardian overrides
+to 60 — it zaps: hurtServer(indirectMagic(guardian,guardian), 1.0
++2*hard +2*elder) then doHurtTarget — Mob.doHurtTarget has NO range
+gate, so the melee swing lands in the same tick — then setTarget(null),
+whose stop() clears the synced id to 0.
+
+Observed vanilla wire: entity_event(int32 eid, 0x15) one tick before
+set_entity_data [eid,17,1,targetEid]; ~4.0s later (80t) the zap —
+a single damage_event indirect_magic + set_health 20→14.0: the 1.0
+magic hit opens i-frames and the 6.0 melee (attack_damage attr) lands
+its 5.0 delta — and [eid,17,1,0] clears. The cycle then repeats.
+
+Acquisition gating measured too: NearestAttackableTargetGoal's
+GuardianAttackSelector only takes Player/Squid/Axolotl at dist²>9,
+and the regular guardian's canContinueToUse drops the beam inside
+three blocks (elder keeps it). Player-side only in mc for now —
+squid/axolotl targeting noted below. Guardian aiStep's flop/tail
+animation is all behind isClientSide — nothing to mirror server-side,
+and DATA_ID_MOVING (idx 16) is never set server-side either.
+
+TestGuardianBeamParity pumps the wire for entity event 21, the idx-17
+sync set/clear around the player eid, and the zap's landing health +
+event→zap gap (~80t). Vanilla-side the leg re-summons up to 3x:
+entity tracking for a guardian summoned into a player-tp'd chunk
+silently flakes (zap still lands — damage events are self-referenced —
+but spawn/metadata never reach the client), so the leg sits near world
+spawn where tracking is reliable. Green identical on both servers:
+gap 4.005s vanilla / 4.102s mc, zap health exactly 14.0 both.
+
+Open items remaining: witch raider-heal throw (blocked on raids),
+RestrictSunGoal wander bias, ominous-banner item components on wire,
+cloud entity metadata on wire, horse chest/container slots, guardian
+squid/axolotl targeting + knockback on beam melee, per-damage-type
+hurt variants, scoreboard objectives, region save, online mode,
+redstone, terrain gen, lighting, .dat persistence.
