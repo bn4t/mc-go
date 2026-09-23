@@ -4416,3 +4416,34 @@ stray/bogged tipped arrows, horse chest/container slots, guardian
 flop/beam, per-damage-type hurt variants, witch.drink, scoreboard
 objectives, region save, online mode, redstone, terrain gen, lighting,
 .dat persistence.
+
+## Slice 2026-09-23e — AvoidEntityGoal flee + summon NBT-wins equipment
+
+AvoidEntityGoal lands with the measured flee table: creeper runs from
+ocelots and cats (6 blocks, 1.0 walk / 1.2 sprint), the AbstractSkeleton
+family from wolves, rabbits from players (8), wolves (10) and any
+Monster-superclass mob (4) at 2.2, foxes from players (16) and
+wolves/polar bears (8). Flee preempts the attack goals — vanilla's goal
+priority ordering (avoid 3 < attack 4). While the goal is armed the
+fleer keeps stepping away from the threat's position for ~40 ticks
+past the trigger window — vanilla's posAvoider paths to a point up to
+16 blocks out, so separations overshoot the trigger band.
+
+The flee pin measures with `data get entity ... Pos` read back through
+system chat (the reply flattens to bare d-suffixed doubles). First run
+taught it the hard way: a creeper summoned one block off the player
+swelled and detonated before the query — the flee pairs now stage 15+
+blocks out, and the feared mobs are NoAI-anchored so a wolf can't
+chase its own test.
+
+TestMobFleeParity pins three legs vs both servers: creeper↔cat and
+skeleton↔wolf separate past 6 blocks, rabbit↔player past 8. Unit
+suite 38.5s.
+
+Open items remaining: crossbow/piglin ranged variants
+(RangedCrossbowAttackGoal) and stray/bogged tipped arrows, creeper
+swell/explode approach, RestrictSunGoal/FleeSunGoal sun-avoidance,
+summon armor-populate + enchantment rolls + drowned chance slots,
+horse chest/container slots, guardian flop/beam, per-damage-type hurt
+variants, witch.drink, scoreboard objectives, region save, online
+mode, redstone, terrain gen, lighting, .dat persistence.

@@ -100,6 +100,14 @@ type Entity struct {
 	rangedDraw   int32
 	rangedCW     bool
 	rangedBack   bool
+	// AvoidEntityGoal state: fleeUntil is the game-time deadline the
+	// goal stays armed to — vanilla's posAvoider paths to a point
+	// ~16 blocks off, so the fleer overshoots its trigger distance —
+	// and fleeX/Z pin that running threat position plus its sprint.
+	fleeUntil  int64
+	fleeX      float64
+	fleeZ      float64
+	fleeSprint float64
 	// Passengers holds the entity ids riding this entity (vanilla's
 	// passengers list); Riding is the vehicle id on the passenger.
 	Passengers []int32

@@ -1481,7 +1481,9 @@ func (s *Server) mobTickStep() {
 			// ones fall back to MeleeAttackGoal — neither is in
 			// mobMelee, so they're dispatched by name here.
 			var goalActed bool
-			if mobRanged[ambName] {
+			if s.mobFleeStep(e, ambName) {
+				goalActed = true
+			} else if mobRanged[ambName] {
 				if s.mobHoldsBow(e) {
 					goalActed = s.mobRangedStep(e)
 				} else {
@@ -1747,6 +1749,123 @@ var mobRanged = map[string]bool{
 	"skeleton": true,
 	"stray":    true,
 	"bogged":   true,
+}
+
+// mobFlees is the measured AvoidEntityGoal table — feared class
+// ("player" and "monster" are predicates, the rest entity types),
+// trigger distance, and sprint speed modifier. Verified on the 26.2
+// jar: creeper→ocelot+cat 6.0/1.0/1.2, skeletons→wolf 6.0/1.0/1.2,
+// rabbit→player 8 / wolf 10 / monster 4 at 2.2, fox→player 16 /
+// wolf+polar_bear 8 at 1.4 sprint.
+type fleeRule struct {
+	feared string
+	dist   float64
+	sprint float64
+}
+
+var mobFlees = map[string][]fleeRule{
+	"skeleton": {{"wolf", 6.0, 1.2}},
+	"stray":    {{"wolf", 6.0, 1.2}},
+	"bogged":   {{"wolf", 6.0, 1.2}},
+	"creeper":  {{"ocelot", 6.0, 1.2}, {"cat", 6.0, 1.2}},
+	"rabbit":   {{"player", 8.0, 2.2}, {"wolf", 10.0, 2.2}, {"monster", 4.0, 2.2}},
+	"fox":      {{"player", 16.0, 1.4}, {"wolf", 8.0, 1.4}, {"polar_bear", 8.0, 1.4}},
+}
+
+// mobMonsterType approximates vanilla's Monster superclass for the
+// rabbit's predator check.
+var mobMonsterType = map[string]bool{
+	"zombie": true, "husk": true, "drowned": true, "zombie_villager": true,
+	"zombified_piglin": true, "skeleton": true, "stray": true, "bogged": true,
+	"wither_skeleton": true, "spider": true, "cave_spider": true, "creeper": true,
+	"witch": true, "slime": true, "magma_cube": true, "silverfish": true,
+	"enderman": true, "blaze": true, "ghast": true, "phantom": true,
+	"hoglin": true, "zoglin": true, "piglin": true, "piglin_brute": true,
+	"vex": true, "vindicator": true, "evoker": true, "pillager": true,
+	"ravager": true, "warden": true, "guardian": true, "elder_guardian": true,
+	"shulker": true, "endermite": true, "breeze": true, "creaking": true,
+	"wolf": true,
+}
+
+// mobFleeStep is AvoidEntityGoal: the nearest feared entity inside the
+// rule's trigger distance sends the mob away at sprint speed; the goal
+// stays armed a beat past the trigger window so the fleer overshoots —
+// vanilla's posAvoider paths to a point ~16 blocks off.
+func (s *Server) mobFleeStep(e *Entity, kn string) bool {
+	rules, ok := mobFlees[kn]
+	if !ok {
+		return false
+	}
+	var fx, fz float64
+	best := -1.0
+	sprint := 1.0
+	now := s.gameTime()
+	for _, r := range rules {
+		d2 := r.dist * r.dist
+		switch r.feared {
+		case "player":
+			s.sessions.Range(func(_, v any) bool {
+				p := v.(*Session)
+				if p.state.Load() != StatePlay || p.dead ||
+					p.mode() == GameModeCreative || p.mode() == GameModeSpectator {
+					return true
+				}
+				if p.dimName() != e.Dim {
+					return true
+				}
+				px, py, pz, _, _, _ := p.Pos()
+				dd := (px-e.X)*(px-e.X) + (py-e.Y)*(py-e.Y) + (pz-e.Z)*(pz-e.Z)
+				if dd < d2 && (best < 0 || dd < best) {
+					best = dd
+					fx, fz = px, pz
+					sprint = r.sprint
+				}
+				return true
+			})
+		default:
+			fearedID, fok := EntityTypeID(r.feared)
+			for _, o := range s.entities.All() {
+				if o.Dim != e.Dim || o.ID == e.ID {
+					continue
+				}
+				if r.feared == "monster" {
+					on, _ := EntityTypeName(o.Type)
+					if !mobMonsterType[on] {
+						continue
+					}
+				} else if !fok || o.Type != fearedID {
+					continue
+				}
+				dd := (o.X-e.X)*(o.X-e.X) + (o.Y-e.Y)*(o.Y-e.Y) + (o.Z-e.Z)*(o.Z-e.Z)
+				if dd < d2 && (best < 0 || dd < best) {
+					best = dd
+					fx, fz = o.X, o.Z
+					sprint = r.sprint
+				}
+			}
+		}
+	}
+	if best >= 0 {
+		e.fleeUntil = now + 40
+		e.fleeX, e.fleeZ, e.fleeSprint = fx, fz, sprint
+	} else if e.fleeUntil == 0 || now >= e.fleeUntil {
+		return false
+	}
+	dx, dz := e.X-e.fleeX, e.Z-e.fleeZ
+	dist := math.Hypot(dx, dz)
+	if dist == 0 {
+		dx, dz, dist = 1, 0, 1
+	}
+	speed := mobChaseSpeed
+	if mv, ok := entityAttrBases[kn]["movement_speed"]; ok {
+		speed = mv
+	}
+	speed *= e.fleeSprint
+	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	e.HeadYaw = e.Yaw
+	e.X += dx / dist * speed
+	e.Z += dz / dist * speed
+	return true
 }
 
 // mobHoldsBow is vanilla's isHoldingBow check on the main-hand stack.
