@@ -156,9 +156,21 @@ func (s *Server) playSoundSrc(dim string, x, y, z float64, soundID, src int32, v
 	b.Float(pitch)
 	b.Long(0)
 	body := b.Bytes()
+	// sendToAllNearExcept: the sound only ships to listeners within
+	// 16*max(1,volume) blocks of the position.
+	r := 16.0
+	if vol > 1 {
+		r = 16 * float64(vol)
+	}
+	r2 := r * r
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
 		if other == except || other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
+			return true
+		}
+		px, py, pz, _, _, _ := other.Pos()
+		dx, dy, dz := x-px, y-py, z-pz
+		if dx*dx+dy*dy+dz*dz >= r2 {
 			return true
 		}
 		_ = other.write(other.ids().PlaySound, body)
@@ -178,9 +190,23 @@ func (s *Server) playSoundEntity(dim string, entityID int32, soundID, src int32,
 	b.Float(pitch)
 	b.Long(0)
 	body := b.Bytes()
+	x, y, z := float64(0), float64(0), float64(0)
+	if e, ok := s.entities.Get(entityID); ok {
+		x, y, z = e.X, e.Y, e.Z
+	}
+	r := 16.0
+	if vol > 1 {
+		r = 16 * float64(vol)
+	}
+	r2 := r * r
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
 		if other == except || other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
+			return true
+		}
+		px, py, pz, _, _, _ := other.Pos()
+		dx, dy, dz := x-px, y-py, z-pz
+		if dx*dx+dy*dy+dz*dz >= r2 {
 			return true
 		}
 		_ = other.write(other.ids().PlaySoundEntity, body)

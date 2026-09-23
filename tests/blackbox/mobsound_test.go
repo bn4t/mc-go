@@ -3,6 +3,7 @@
 package blackbox
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -146,6 +147,8 @@ func TestMobHurtDeathSoundParity(t *testing.T) {
 		"allay", "goat", "strider", "armor_stand", "husk", "drowned",
 		"stray", "wither_skeleton", "cave_spider", "witch", "blaze",
 		"phantom", "zombified_piglin", "turtle", "ender_dragon",
+		// Guardians are in the dedicated land/water test below —
+		// all their voices split on isInWater.
 	}
 
 	voiceSet := map[int32]bool{1793: true, 1792: true} // wolf_armor.damage/crack stay comparable
@@ -344,5 +347,90 @@ func TestPlayerHurtSoundParity(t *testing.T) {
 	}
 	if len(want.death) != len(got.death) {
 		t.Errorf("death: listener saw %v vs %v", want.death, got.death)
+	}
+}
+
+// TestGuardianWaterVoiceParity pins the guardian family's
+// isInWater-split voices: out of water getHurtSound/getDeathSound
+// return the *_land ids, in water the base ids. Voices are compared
+// as (packet, sound id, source, pos, volume); pitch is random. Water
+// comes from a single source block at the mob's feet; the land mobs
+// sit far enough away that the flow can't reach them, and the
+// spectator teleports to each mob because vanilla only ships sounds
+// within 16*volume blocks of the position.
+func TestGuardianWaterVoiceParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	run := func(addr string) [][]voiceSound {
+		c, pr, pw := joinPlayBlackbox(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		sink := newChatSink(pr, pw)
+		sink.cap = 1 << 22
+		time.Sleep(500 * time.Millisecond)
+		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
+		sendCommand(t, pw, "gamemode spectator P")
+		time.Sleep(1200 * time.Millisecond)
+		sink.take()
+		var out [][]voiceSound
+		// Random-cadence voices (ambient calls, guardian flops, water
+		// block ambience) can't be pinned — only hurt/death ids count.
+		ambient := map[int32]bool{
+			703: true, 767: true, 768: true, 769: true, 772: true,
+			573: true, 574: true, 575: true, 578: true,
+		}
+		leg := func(cmds ...string) {
+			sink.take()
+			for _, c2 := range cmds {
+				func() { defer func() { recover() }(); sendCommand(t, pw, c2) }()
+			}
+			time.Sleep(900 * time.Millisecond)
+			var vs []voiceSound
+			for _, v := range voiceSounds(sink.take()) {
+				if v.src >= 8 || ambient[v.id] {
+					continue
+				}
+				vs = append(vs, v)
+			}
+			out = append(out, vs)
+		}
+		leg("tp P -30.5 -60 -30.5", "summon minecraft:guardian -30.5 -60 -30.5 {NoAI:1b}")
+		leg("damage @e[type=minecraft:guardian,limit=1] 1 minecraft:generic")
+		leg("kill @e[type=minecraft:guardian]")
+		leg("tp P 5.5 -60 5.5", "setblock 5 -60 5 minecraft:water",
+			"summon minecraft:guardian 5.5 -60 5.5 {NoAI:1b}")
+		leg("damage @e[type=minecraft:guardian,limit=1] 1 minecraft:generic")
+		leg("kill @e[type=minecraft:guardian]")
+		leg("tp P -40.5 -60 -40.5", "summon minecraft:elder_guardian -40.5 -60 -40.5 {NoAI:1b}")
+		leg("damage @e[type=minecraft:elder_guardian,limit=1] 1 minecraft:generic")
+		leg("kill @e[type=minecraft:elder_guardian]")
+		leg("tp P 15.5 -60 15.5", "setblock 15 -60 15 minecraft:water",
+			"summon minecraft:elder_guardian 15.5 -60 15.5 {NoAI:1b}")
+		leg("damage @e[type=minecraft:elder_guardian,limit=1] 1 minecraft:generic")
+		leg("kill @e[type=minecraft:elder_guardian]")
+		return out
+	}
+	want := run(targets.vanilla)
+	got := run(targets.mcgo)
+	legs := []string{
+		"g summon land", "g hurt land", "g death land",
+		"g summon water", "g hurt water", "g death water",
+		"e summon land", "e hurt land", "e death land",
+		"e summon water", "e hurt water", "e death water",
+	}
+	for i := range want {
+		if fmt.Sprintf("%v", want[i]) != fmt.Sprintf("%v", got[i]) {
+			t.Errorf("%s: vanilla %v != mc-go %v", legs[i], want[i], got[i])
+		}
+	}
+	// Anchors: land hurt/death = hurt_land/death_land, water = the
+	// base ids; land and water differ on both types.
+	if fmt.Sprintf("%v", want[1]) != "[{0x75 774 5 -244 -480 -244 1}]" ||
+		fmt.Sprintf("%v", want[7]) != "[{0x75 580 5 -324 -480 -324 1}]" {
+		t.Fatalf("vanilla anchors drifted: %v %v", want[1], want[7])
 	}
 }

@@ -279,6 +279,9 @@ func TestWolfArmorFeedbackParity(t *testing.T) {
 		sink.cap = 1 << 20
 		time.Sleep(400 * time.Millisecond)
 		for _, cmd := range []string{
+			// Sounds only ship within 16*vol of the position — pin the
+			// listener next to the wolf so a far spawn can't flake it.
+			"tp P 4.5 -60 4.5",
 			"summon minecraft:wolf 4.5 -60 4.5 {NoAI:1b}",
 			"item replace entity " + wolf + " armor.body with minecraft:wolf_armor",
 		} {

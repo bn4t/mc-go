@@ -203,6 +203,10 @@ func TestSpearUseSoundParity(t *testing.T) {
 		time.Sleep(400 * time.Millisecond)
 		sendCommand(t, hpw, "item replace entity @s weapon.mainhand with minecraft:iron_spear")
 		sendCommand(t, hpw, "tp @s 8.5 -59 15.0 180 0")
+		// Vanilla only ships the use sound to listeners within
+		// 16*vol blocks — park the observer next to the holder or a
+		// random far spawn flakes the leg.
+		sendCommand(t, hpw, "tp Watcher 8.5 -59 18.0 180 0")
 		time.Sleep(600 * time.Millisecond)
 		var ub protocol.Buffer
 		ub.VarInt(0)

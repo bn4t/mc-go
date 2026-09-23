@@ -377,6 +377,8 @@ var mobHealth = map[string]float32{
 	"phantom":          20,
 	"zombified_piglin": 20,
 	"turtle":           30,
+	"guardian":         30,
+	"elder_guardian":   80,
 }
 
 // mobBoundsTable is the vanilla bounding box (width, height) per
@@ -433,6 +435,8 @@ func init() {
 		"falling_block":    {0.98, 0.98},
 		"tnt":              {0.98, 0.98},
 		"snow_golem":       {0.7, 1.9},
+		"guardian":         {0.85, 0.85},
+		"elder_guardian":   {1.9975, 1.9975},
 	} {
 		if id, ok := EntityTypeID(name); ok {
 			mobBoundsTable[id] = dims
@@ -1209,9 +1213,7 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 		s.broadcastDamageEvent(e.ID, *info)
 	}
 	health, d := res.Health, res.Dealt
-	if health <= 0 {
-		s.mobDeathSound(e)
-	} else {
+	if health > 0 {
 		s.mobHurtSound(e, res)
 	}
 	// Vanilla's killed_by_player window: a player-caused hurt keeps
@@ -1562,9 +1564,13 @@ func (s *Server) mobHurtWireFX(e *Entity, res DamageResult) {
 // ambient voices remain open.
 type mobVoice struct {
 	hurt, death int32
-	secondDeath int32
-	vol         float32
-	hostile     bool
+	// Guardians and elder guardians split all voices on isInWater —
+	// hurtLand/deathLand are the dry variants, zero when the type
+	// has none.
+	hurtLand, deathLand int32
+	secondDeath         int32
+	vol                 float32
+	hostile             bool
 }
 
 var mobVoices = map[string]mobVoice{
@@ -1609,6 +1615,8 @@ var mobVoices = map[string]mobVoice{
 	"phantom":          {hurt: 1259, death: 1257, hostile: true},
 	"zombified_piglin": {hurt: 1898, death: 1897, hostile: true},
 	"turtle":           {hurt: 1662, death: 1657},
+	"guardian":         {hurt: 773, death: 770, hurtLand: 774, deathLand: 771, hostile: true},
+	"elder_guardian":   {hurt: 579, death: 576, hurtLand: 580, deathLand: 577, hostile: true},
 	// The ender dragon's /damage and /kill paths are silent — its
 	// hurt voice never reaches playHurtSound (part-based damage) and
 	// its death is a custom despawn sequence.
@@ -1646,6 +1654,9 @@ func (s *Server) mobHurtSound(e *Entity, res DamageResult) {
 	if snd == 0 {
 		return
 	}
+	if v.hurtLand != 0 && !s.mobInWater(e) {
+		snd = v.hurtLand
+	}
 	if mobName, _ := EntityTypeName(e.Type); mobName == "wolf" &&
 		res.Absorbed && !res.BodyBroke {
 		snd = sndWolfArmorDamage
@@ -1657,12 +1668,30 @@ func (s *Server) mobHurtSound(e *Entity, res DamageResult) {
 // then playSecondaryHurtSound, in place of the hurt sound.
 func (s *Server) mobDeathSound(e *Entity) {
 	v := mobVoiceOf(e)
-	if v.death != 0 {
-		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, v.death, v.src(), v.vol, voicePitch(), nil)
+	death := v.death
+	if v.deathLand != 0 && !s.mobInWater(e) {
+		death = v.deathLand
+	}
+	if death != 0 {
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, death, v.src(), v.vol, voicePitch(), nil)
 	}
 	if v.secondDeath != 0 {
 		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, v.secondDeath, v.src(), v.vol, voicePitch(), nil)
 	}
+}
+
+// mobInWater is Entity.isInWater approximated at the feet block —
+// the mob's fluid contact is water when the block under its origin
+// is a water column.
+func (s *Server) mobInWater(e *Entity) bool {
+	d := s.dims[e.Dim]
+	if d == nil {
+		return false
+	}
+	k, _, ok := fluidOf(d.w.GetBlock(world.Pos{
+		X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z)),
+	}))
+	return ok && k == fluidWater
 }
 
 // voicePitch is LivingEntity.getVoicePitch: (rng - rng) * 0.2 + 1.

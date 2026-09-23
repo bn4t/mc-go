@@ -4132,3 +4132,26 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   packed supplier list — needs the per-type supplier table; NoAI
   strips follow_range/attack_damage entries on some types, and
   tameables re-assert the wild max_health base on merge — wolf done).
+
+- **Guardian-family voices + the audible-range gate**: guardians and
+  elder guardians are summonable now (30/80 health, 0.85/1.9975
+  boxes) and carry the full isInWater voice split — hurt/death on
+  dry land ship the *_land registry ids (774/771, 580/577), in water
+  the base ids (773/770, 579/576). The bigger fix underneath: both
+  playSound paths now gate on vanilla's sendToAllNearExcept rule —
+  a sound packet only ships to listeners strictly within
+  16*max(1,volume) blocks of the position; before, every session in
+  the dimension got every sound. Also fixed a double death voice on
+  /kill (leftover call next to the mobDie extraction).
+  TestGuardianWaterVoiceParity teleports a spectator to each mob
+  (the range gate itself is what makes distant-mob legs silent) and
+  diffs land/water hurt+kill legs byte-for-byte. Still open:
+  ambient voices (random cadence — measured 573/574 for elders but
+  not pin-able per-tick), guardian flop, the beam attack sound.
+
+  Known-failing: TestCritSweepParity's weak leg diverges (vanilla
+  deals ~2.08 to weakB with no damage_event packet seen, mc-go ~1.77
+  with the event) and mc-go entity ids run +1 vs vanilla's (counter
+  starts at 2 — "entity 1 is the player" assumed a single player).
+  Failed identically before and after the sound-range change —
+  pre-existing, needs a mid-recharge swing-formula measurement slice.
