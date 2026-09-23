@@ -95,8 +95,21 @@ func (s *shard) start() {
 					op.resp <- b
 				} else {
 					if s.tops != nil {
-						if t, ok := s.tops[[2]int{op.pos.X, op.pos.Z}]; ok && op.pos.Y >= t {
-							delete(s.tops, [2]int{op.pos.X, op.pos.Z})
+						key := [2]int{op.pos.X, op.pos.Z}
+						if t, ok := s.tops[key]; ok {
+							switch {
+							case op.del && op.pos.Y >= t:
+								delete(s.tops, key)
+							case op.pos.Y > t:
+								// Above the surface a write can only
+								// raise the top, and only if it blocks.
+								if motionBlockingBlock(op.val) {
+									s.tops[key] = op.pos.Y
+								}
+							case op.pos.Y == t && !motionBlockingBlock(op.val):
+								// The surface cell itself unblocked.
+								delete(s.tops, key)
+							}
 						}
 					}
 					if op.del {

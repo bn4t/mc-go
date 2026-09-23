@@ -30,7 +30,10 @@ func TestPrecipitationParity(t *testing.T) {
 		`fill 104 -61 112 111 -61 127 minecraft:air`,
 		`fill 112 -61 112 115 -61 115 minecraft:water`,
 		`fill 104 -60 112 111 -56 127 minecraft:air`,
+		`setblock 106 -61 124 minecraft:cauldron`,
+		`setblock 120 -61 118 minecraft:cauldron`,
 		`fillbiome 96 -64 112 111 -55 127 minecraft:snowy_plains`,
+		`fillbiome 112 -64 112 127 -55 127 minecraft:plains`,
 		`weather rain`,
 		`gamerule minecraft:max_snow_accumulation_height 8`,
 		`gamerule minecraft:random_tick_speed 4096`,
@@ -46,10 +49,12 @@ func TestPrecipitationParity(t *testing.T) {
 		{"snow landed", `execute if block 106 -61 120 minecraft:snow run say ZP-ok-%d`},
 		{"snow landed 2", `execute if block 109 -61 125 minecraft:snow run say ZP-ok-%d`},
 		{"snow piled 8", `execute if block 106 -61 120 minecraft:snow[layers=8] run say ZP-ok-%d`},
+		{"snow cauldron", `execute if block 106 -61 124 minecraft:powder_snow_cauldron run say ZP-ok-%d`},
+		{"rain cauldron", `execute if block 120 -61 118 minecraft:water_cauldron run say ZP-ok-%d`},
 		{"control water stays", `execute if block 113 -61 113 minecraft:water run say ZP-ok-%d`},
 		{"control no snow", `execute unless block 118 -61 118 minecraft:snow run say ZP-ok-%d`},
 		{"biome override", `execute if biome 106 -61 120 minecraft:snowy_plains run say ZP-ok-%d`},
-		{"biome control", `execute if biome 118 -61 118 minecraft:the_void run say ZP-ok-%d`},
+		{"biome control", `execute if biome 118 -61 118 minecraft:plains run say ZP-ok-%d`},
 	}
 
 	run := func(addr string) []string {
@@ -65,8 +70,9 @@ func TestPrecipitationParity(t *testing.T) {
 			sendCommand(t, pw, cmd)
 		}
 		// Let the precipitation rolls saturate: 4096 speed * 1/48 *
-		// ~20 tps over the window hits every column many times.
-		time.Sleep(16 * time.Second)
+		// ~20 tps over the window hits every column many times, and
+		// the 5% cauldron roll needs a comfortable margin.
+		time.Sleep(26 * time.Second)
 		sendCommand(t, pw, `gamerule minecraft:random_tick_speed 3`)
 
 		var out []string

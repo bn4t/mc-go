@@ -3751,3 +3751,21 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   tick loop at speed 4096 (~24k shard round-trips per tick) and snow
   never piled. TestPrecipitationParity pins 9 legs incl. the cold-vs-
   void control and layers=8 saturation.
+
+- 2026-09-19 (cont): Cauldron precipitation — tickPrecipitation's third
+  leg, on pos1 (the surface cell): gated by isRaining + the biome's
+  getPrecipitationAt != NONE (rain biomes count too). Empty cauldron
+  fills to water (RAIN, 5% roll) or powder_snow (SNOW, 10%); a layered
+  cauldron whose precipitationType matches gains a level to 3. The
+  biome cold checks are now table-driven from a generated climate table
+  (66 biomes, temperature + has_precipitation, tools from the datapack
+  jsons) with the height-adjusted temperature rule (seaLevel+17
+  boundary, -0.00125/block; the +-8-block noise term is dropped — it
+  shifts the boundary under 0.01 degrees). Freeze now also requires
+  source water (level 0). Column surface reads go through a
+  shard-cached MOTION_BLOCKING top that updates in place on writes
+  (raises on blocking writes above, rescans only when the surface cell
+  unblocks) — without it the per-roll column scan starved the tick
+  loop at speed 4096 and marginal legs flaked. TestPrecipitationParity
+  pins 11 legs incl. both cauldron fills, the plains-vs-snowy split,
+  and layers=8 saturation.

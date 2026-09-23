@@ -2,7 +2,6 @@ package server
 
 import (
 	"strconv"
-	"strings"
 
 	"mc-go/internal/world"
 )
@@ -30,48 +29,116 @@ func (s *Server) tickPrecipitation(d *dimension, cx, cz int) {
 	surface := d.w.TopMotionBlocking(x, z, d.minY, d.minY+d.height-1)
 	pos1 := world.Pos{X: x, Y: surface, Z: z}
 	pos2 := posAbove(pos1, 1)
-	if biomeFreezes(s.biomeAt(d, pos1)) {
-		if name, _ := world.StateOwner(d.w.GetBlock(pos1)); name == "water" {
+	if biomeFreezes(s.biomeAt(d, pos1), pos1.Y, int(d.seaLevel)) {
+		cur := d.w.GetBlock(pos1)
+		name, _ := world.StateOwner(cur)
+		// shouldFreeze only takes source water (level 0), not flowing.
+		if lvl, _ := world.StateProperty(cur, "level"); name == "water" && lvl == "0" {
 			ice, _ := world.BlockStateOf("ice", nil)
 			s.setNaturalBlock(d, pos1, ice)
 		}
 	}
-	if !s.weatherRaining.Load() || !biomeSnows(s.biomeAt(d, pos2)) {
+	if !s.weatherRaining.Load() {
 		return
 	}
 	maxAcc := s.gameRuleInt("minecraft:max_snow_accumulation_height")
-	if maxAcc <= 0 {
-		return
-	}
-	cur := d.w.GetBlock(pos2)
-	if name, _ := world.StateOwner(cur); name == "snow" {
-		layers, _ := intProp(cur, "layers")
-		if layers < min(maxAcc, 8) {
-			if nb, ok := world.WithProperty(cur, "layers", strconv.Itoa(layers+1)); ok {
-				s.setNaturalBlock(d, pos2, nb)
+	if maxAcc > 0 && biomeSnows(s.biomeAt(d, pos2), pos2.Y, int(d.seaLevel)) {
+		cur := d.w.GetBlock(pos2)
+		if name, _ := world.StateOwner(cur); name == "snow" {
+			layers, _ := intProp(cur, "layers")
+			if layers < min(maxAcc, 8) {
+				if nb, ok := world.WithProperty(cur, "layers", strconv.Itoa(layers+1)); ok {
+					s.setNaturalBlock(d, pos2, nb)
+				}
 			}
+		} else {
+			snow, _ := world.BlockStateOf("snow", nil)
+			s.setNaturalBlock(d, pos2, snow)
 		}
-		return
 	}
-	snow, _ := world.BlockStateOf("snow", nil)
-	s.setNaturalBlock(d, pos2, snow)
+	// The cauldron leg acts on the surface cell itself: any biome with
+	// precipitation rolls to fill a cauldron exposed there.
+	s.cauldronPrecipitation(d, pos1)
 }
 
-// biomeSnows reports whether the dimension's biome accumulates snow —
-// vanilla's shouldSnow is the cold half of the precipitation table
-// (snowy plains and colder, plus the frozen/mountain set).
-func biomeSnows(biome string) bool {
-	switch strings.TrimPrefix(biome, "minecraft:") {
-	case "snowy_plains", "ice_spikes", "snowy_taiga", "snowy_beach",
-		"frozen_ocean", "deep_frozen_ocean", "frozen_river",
-		"grove", "snowy_slopes", "jagged_peaks", "frozen_peaks":
-		return true
+// cauldronPrecipitation is the handlePrecipitation dispatch on the
+// surface block: an empty cauldron turns into water (rain, 5% roll)
+// or powder_snow (snow, 10% roll); a layered one matching the
+// precipitation type gains a level up to 3.
+func (s *Server) cauldronPrecipitation(d *dimension, pos world.Pos) {
+	prec := s.precipitationAt(d, pos)
+	if prec == "none" {
+		return
 	}
-	return false
+	chance := 0.05
+	if prec == "snow" {
+		chance = 0.1
+	}
+	if s.rng.nextDouble() >= chance {
+		return
+	}
+	cur := d.w.GetBlock(pos)
+	name, _ := world.StateOwner(cur)
+	switch name {
+	case "cauldron":
+		target := "water_cauldron"
+		if prec == "snow" {
+			target = "powder_snow_cauldron"
+		}
+		nb, _ := world.BlockStateOf(target, nil)
+		s.setNaturalBlock(d, pos, nb)
+	case "water_cauldron", "powder_snow_cauldron":
+		want := "rain"
+		if name == "powder_snow_cauldron" {
+			want = "snow"
+		}
+		if prec != want {
+			return
+		}
+		level, _ := intProp(cur, "level")
+		if level >= 3 {
+			return
+		}
+		if nb, ok := world.WithProperty(cur, "level", strconv.Itoa(level+1)); ok {
+			s.setNaturalBlock(d, pos, nb)
+		}
+	}
+}
+
+// precipitationAt is Biome.getPrecipitationAt: none when the biome has
+// no precipitation, snow when it is cold enough at this height, else
+// rain. The height adjustment skips vanilla's +-8-block noise term —
+// it moves the boundary by under a degree-hundredth of temperature.
+func (s *Server) precipitationAt(d *dimension, pos world.Pos) string {
+	c, ok := biomeClimates[s.biomeAt(d, pos)]
+	if !ok || !c.precip {
+		return "none"
+	}
+	if adjustedTemp(c.temp, pos.Y, int(d.seaLevel)) < 0.15 {
+		return "snow"
+	}
+	return "rain"
+}
+
+// adjustedTemp is Biome.getHeightAdjustedTemperature: above seaLevel+17
+// the temperature decays 0.00125 per block climbed.
+func adjustedTemp(temp float32, y, seaLevel int) float32 {
+	boundary := seaLevel + 17
+	if y > boundary {
+		temp -= float32(y-boundary) * 0.00125
+	}
+	return temp
+}
+
+// biomeSnows is Biome.shouldSnow: precipitation exists and the
+// height-adjusted temperature falls under the 0.15 freezing line.
+func biomeSnows(biome string, y, seaLevel int) bool {
+	c, ok := biomeClimates[biome]
+	return ok && c.precip && adjustedTemp(c.temp, y, seaLevel) < 0.15
 }
 
 // biomeFreezes reports whether the biome turns surface water to ice —
-// the same cold set drives shouldFreeze.
-func biomeFreezes(biome string) bool {
-	return biomeSnows(biome)
+// vanilla's shouldFreeze uses the same cold test.
+func biomeFreezes(biome string, y, seaLevel int) bool {
+	return biomeSnows(biome, y, seaLevel)
 }
