@@ -2,6 +2,7 @@ package server
 
 import (
 	"math/rand"
+	"strings"
 	"sync"
 
 	"mc-go/internal/protocol"
@@ -214,6 +215,138 @@ func mountInventoryColumns(e *Entity) int {
 	return 0
 }
 
+// mountSaddleable is the entity_type tag can_equip_saddle intersected
+// with the mount-screen family — llama and trader_llama take a carpet
+// in the body slot instead of a saddle.
+var mountSaddleable = map[string]bool{
+	"horse": true, "zombie_horse": true, "skeleton_horse": true,
+	"donkey": true, "mule": true, "camel": true,
+}
+
+// mountBodySlot active-set: can_wear_horse_armor (horse and
+// zombie_horse) plus the llamas, whose body slot takes wool carpets.
+var mountBodyArmorTypes = map[string]bool{
+	"horse": true, "zombie_horse": true,
+}
+var llamaDecorTypes = map[string]bool{
+	"llama": true, "trader_llama": true,
+}
+
+// mountMenuStack reads one mount-menu cell: slot 0 the saddle, slot 1
+// the body slot, 2.. the chest cells on a chested pack animal.
+func mountMenuStack(e *Entity, slot int) ItemStack {
+	switch {
+	case slot == 0:
+		if e.Saddle {
+			if sid, ok := world.ItemID("saddle"); ok {
+				return ItemStack{ID: sid, Count: 1}
+			}
+		}
+	case slot == 1:
+		return e.BodyItem
+	default:
+		if i := slot - 2; i >= 0 && i < len(e.MountInv) {
+			return e.MountInv[i]
+		}
+	}
+	return ItemStack{}
+}
+
+// setMountMenuStack writes one mount-menu cell and flags the equipment
+// delta when the saddle or body slot moved — the entity broadcast
+// picks it up as a set_equipment (saddle=7, body=6).
+func setMountMenuStack(e *Entity, slot int, it ItemStack) {
+	switch {
+	case slot == 0:
+		e.Saddle = !it.Empty()
+		e.markEquipDelta(7)
+	case slot == 1:
+		e.BodyItem = it
+		e.markEquipDelta(6)
+	default:
+		if i := slot - 2; i >= 0 && i < len(e.MountInv) {
+			e.MountInv[i] = it
+		}
+	}
+}
+
+// mountMayPlace is the menu slot's mayPlace/isActive pair: slot 0
+// takes a saddle on the can_equip_saddle types, slot 1 takes horse
+// armor on can_wear_horse_armor types or a carpet on llamas, chest
+// cells accept anything on a chested animal.
+func mountMayPlace(e *Entity, slot int, it ItemStack) bool {
+	name, _ := EntityTypeName(e.Type)
+	iname, _ := itemNameOf(it.ID)
+	switch {
+	case slot == 0:
+		return mountSaddleable[name] && iname == "saddle"
+	case slot == 1:
+		if mountBodyArmorTypes[name] {
+			return strings.HasSuffix(iname, "_horse_armor")
+		}
+		return llamaDecorTypes[name] && strings.HasSuffix(iname, "_carpet")
+	default:
+		return e.HasChest && slot-2 < len(e.MountInv)
+	}
+}
+
+// handleMountClick applies click modes on a mount screen. Only the
+// pickup/place modes are wired; anything else resyncs the menu.
+func (s *Server) handleMountClick(sess *Session, w *openWindow, slot int16, button byte, mode int32) {
+	if slot < 0 || int(slot) >= w.menuSize() {
+		return
+	}
+	if mode != 0 {
+		s.sendChestContent(sess)
+		return
+	}
+	sess.invMu.RLock()
+	cur := sess.carried
+	sess.invMu.RUnlock()
+
+	e := w.mount
+	mountSide := int(slot) < w.containerSize()
+	target := sess.menuStack(int(slot))
+	switch {
+	case button != 0:
+		ncur, ntgt := clickRight(cur, target)
+		if mountSide && !ntgt.Empty() && ntgt != target && !mountMayPlace(e, int(slot), ntgt) {
+			break
+		}
+		cur, target = ncur, ntgt
+	case cur.Empty():
+		cur, target = target, ItemStack{}
+	case target.Empty():
+		if mountSide && !mountMayPlace(e, int(slot), cur) {
+			break
+		}
+		cur, target = ItemStack{}, cur
+	case !target.Stackable(cur):
+		if mountSide && !mountMayPlace(e, int(slot), cur) {
+			break
+		}
+		cur, target = target, cur
+	default:
+		// Same-stack merge — chest cells only; equipment slots cap at 1.
+		if mountSide && slot < 2 {
+			break
+		}
+		room := maxStackOfID(target.ID) - target.Count
+		move := cur.Count
+		if move > room {
+			move = room
+		}
+		target.Count += move
+		cur.Count -= move
+		if cur.Count <= 0 {
+			cur = ItemStack{}
+		}
+	}
+	sess.setMenuStack(int(slot), target)
+	s.setCarriedLocked(sess, cur)
+	s.syncContainerMenuSlots(sess, w, []int{int(slot)})
+}
+
 // openMountInventory is AbstractHorse.mobInteract's tamed+sneak branch:
 // mount_screen_open carries (containerId, inventoryColumns, entityId
 // as a plain int32) then container_set_content lays out the menu —
@@ -222,8 +355,8 @@ func (s *Server) openMountInventory(sess *Session, eid int32, sneaking bool) {
 	if !sneaking {
 		return
 	}
-	e := s.entityByID(eid)
-	if e == nil || e.Dying || e.Dim != sess.dimName() {
+	e, ok := s.entities.GetPtr(eid)
+	if !ok || e == nil || e.Dying || e.Dim != sess.dimName() {
 		return
 	}
 	name, ok := EntityTypeName(e.Type)
@@ -232,6 +365,11 @@ func (s *Server) openMountInventory(sess *Session, eid int32, sneaking bool) {
 	}
 	cols := mountInventoryColumns(e)
 	inv := 2 + 3*cols // AbstractMountInventoryMenu.getInventorySize
+	if cells := 3 * cols; len(e.MountInv) != cells {
+		next := make([]ItemStack, cells)
+		copy(next, e.MountInv)
+		e.MountInv = next
+	}
 	id := sess.server.nextWindow.Add(1)
 	sess.windowMu.Lock()
 	sess.window = &openWindow{id: id, dim: sess.dimension(), mount: e, mountSlots: inv}
@@ -311,15 +449,7 @@ func (sess *Session) menuStack(slot int) ItemStack {
 			return w.merchant.slots[slot]
 		}
 		if w.mount != nil {
-			// Slot 0 is the saddle; the rest of the mount inventory
-			// (body armor for horses, chest cells for chested mobs)
-			// is empty until mount storage lands.
-			if slot == 0 && w.mount.Saddle {
-				if sid, ok := world.ItemID("saddle"); ok {
-					return ItemStack{ID: sid, Count: 1}
-				}
-			}
-			return ItemStack{}
+			return mountMenuStack(w.mount, slot)
 		}
 		if w.ender != nil {
 			sess.invMu.RLock()
@@ -365,6 +495,10 @@ func (sess *Session) setMenuStack(slot int, it ItemStack) {
 		}
 		if w.merchant != nil {
 			w.merchant.slots[slot] = it
+			return
+		}
+		if w.mount != nil {
+			setMountMenuStack(w.mount, slot, it)
 			return
 		}
 		if w.furnace != nil {

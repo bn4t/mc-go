@@ -5296,3 +5296,36 @@ drops (needs natural patrol spawn/raids), mount-inventory slot edits
 (saddle/chest cell writes), elder setHomeTo(pos,16) home restriction,
 per-damage-type hurt variants, scoreboard objectives, region save,
 online mode, redstone, terrain gen, lighting, .dat persistence.
+
+## Slice 2026-09-23za — mount-inventory slot writes
+
+container_click on a mount screen now lands. The packet gate dropped
+any window without a container or merchant — mount windows have
+neither. handleMountClick wires mode-0 pickup/place through
+menuStack/setMenuStack's new mount branches (slot 0 saddle →
+Entity.Saddle, slot 1 body → BodyItem, 2.. → MountInv cells) with the
+measured mayPlace gates: saddle slot active on the can_equip_saddle
+intersect (horse/zombie_horse/skeleton_horse/donkey/mule/camel — not
+llamas), body slot on can_wear_horse_armor + llama carpets.
+
+Wire shape, measured: pickup echoes container_set_slot clearing the
+slot plus set_cursor_item carrying the saddle; a valid-state place
+answers container_set_slot slot-0 saddle (state++) then set_equipment
+carries wire slot 7. A stale stateId still earns a full
+container_set_content resync — checkClickState's default branch now
+covers mount windows.
+
+openMountInventory switches entityByID's copy for GetPtr — the
+equip-delta marks must land on the managed entity or the mob-sync
+flush never sees them.
+
+TestMountClickParity: saddle give → tamed chested donkey → sneak-open
+→ pickup hotbar → place slot 0; both servers emit the same
+set_slot/set_cursor_item/set_equipment sequence.
+
+Open items remaining: witch raider-heal throw (blocked on raids),
+RestrictSunGoal wander bias, patrol-captain ominous gear + bottle
+drops (needs natural patrol spawn/raids), elder setHomeTo(pos,16)
+home restriction, per-damage-type hurt variants, scoreboard
+objectives, region save, online mode, redstone, terrain gen,
+lighting, .dat persistence.

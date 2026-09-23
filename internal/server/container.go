@@ -902,7 +902,7 @@ func (s *Server) handleContainerClickPacket(sess *Session, p protocol.Packet) {
 	sess.windowMu.Lock()
 	w := sess.window
 	sess.windowMu.Unlock()
-	if w == nil || (w.container == nil && w.merchant == nil) || w.id != win {
+	if w == nil || (w.container == nil && w.merchant == nil && w.mount == nil) || w.id != win {
 		return
 	}
 	st, err := r.VarInt() // state id
@@ -930,6 +930,10 @@ func (s *Server) handleContainerClickPacket(sess *Session, p protocol.Packet) {
 	}
 	if w.merchant != nil {
 		s.handleMerchantClick(sess, w, slot, button, mode)
+		return
+	}
+	if w.mount != nil {
+		s.handleMountClick(sess, w, slot, button, mode)
 		return
 	}
 	if openWindowKindAnvil(w) {

@@ -187,6 +187,9 @@ type Entity struct {
 	// HasChest is AbstractChestedHorse's ChestedHorse flag — a chested
 	// donkey/mule/llama's mount inventory gains 15 slots (5 columns).
 	HasChest bool
+	// MountInv is the chested mount's cell contents — mount window
+	// slots 2..2+3*columns, sized at window open.
+	MountInv []ItemStack
 	// Small/ShowArms/DisabledSlots are the armor stand's
 	// ArmorStand.CLIENT_FLAG bits and NBT; Equips is the entity
 	// equipment map keyed by vanilla equipment index
