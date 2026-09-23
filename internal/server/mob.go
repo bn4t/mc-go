@@ -3884,20 +3884,34 @@ func (s *Server) elderCurseStep(e *Entity) {
 // canContinueToUse drops the beam inside it. The wire-visible beats are
 // entity event 21 and the index-17 target id at beam start (attackTime
 // -10→0), the zap, and the id clearing to 0 on release.
+// GuardianAttackSelector's allowed classes — Player or Squid/Axolotl
+// living entities. The >3-block gate lives on the selector itself.
+var mobBeamMobKinds = map[string]bool{"squid": true, "axolotl": true}
+
+func beamMobKind(m *Entity) bool {
+	name, _ := EntityTypeName(m.Type)
+	return mobBeamMobKinds[name]
+}
+
 func (s *Server) mobGuardianStep(e *Entity, kn string) bool {
 	elder := kn == "elder_guardian"
 	if elder {
 		s.elderCurseStep(e)
 	}
 	var target *Session
+	var mobTarget *Entity
 	if e.beamTarget != 0 {
-		if t := s.sessionByEntityID(e.beamTarget); t != nil &&
-			!t.dead && t.mode() != GameModeCreative &&
-			t.mode() != GameModeSpectator && t.dimName() == e.Dim {
-			target = t
+		if t := s.sessionByEntityID(e.beamTarget); t != nil {
+			if !t.dead && t.mode() != GameModeCreative &&
+				t.mode() != GameModeSpectator && t.dimName() == e.Dim {
+				target = t
+			}
+		} else if m := s.entityByID(e.beamTarget); m != nil &&
+			m.Dim == e.Dim && m.Health > 0 && beamMobKind(m) {
+			mobTarget = m
 		}
 	}
-	if target == nil {
+	if target == nil && mobTarget == nil {
 		// stop(): setActiveAttackTarget(0) only dirties the sync if it
 		// changed — SynchedEntityData.set skips equal values.
 		if e.beamMeta {
@@ -3906,8 +3920,13 @@ func (s *Server) mobGuardianStep(e *Entity, kn string) bool {
 		}
 		e.beamTarget = 0
 		e.beamTime = 0
-		// The selector also takes squids and axolotls — mobs have no
-		// targeting session here, so only players are picked up.
+		// NearestAttackableTargetGoal picks the nearest selector match
+		// inside follow_range — players and squid/axolotl compete by
+		// distanceToSqr, and each candidate must sit past 3 blocks.
+		best := 16.0 * 16.0
+		if fr, ok := entityAttrBases[kn]["follow_range"]; ok {
+			best = fr * fr
+		}
 		if t := s.nearestMobTarget(e, kn); t != nil {
 			px, py, pz, _, _, _ := t.Pos()
 			dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
@@ -3916,10 +3935,40 @@ func (s *Server) mobGuardianStep(e *Entity, kn string) bool {
 				e.beamTime = -10 // start()
 			}
 		}
+		s.entities.mu.RLock()
+		for _, m := range s.entities.byID {
+			if m == e || !beamMobKind(m) || m.Dim != e.Dim || m.Health <= 0 {
+				continue
+			}
+			dx, dy, dz := m.X-e.X, m.Y-e.Y, m.Z-e.Z
+			if d2 := dx*dx + dy*dy + dz*dz; d2 > 9.0 && d2 < best {
+				best = d2
+				mobTarget = m
+			}
+		}
+		s.entities.mu.RUnlock()
+		if mobTarget != nil {
+			if target != nil {
+				px, py, pz, _, _, _ := target.Pos()
+				dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
+				if dx*dx+dy*dy+dz*dz <= best {
+					mobTarget = nil
+				}
+			}
+			if mobTarget != nil {
+				e.beamTarget = mobTarget.ID
+				e.beamTime = -10
+			}
+		}
 		return e.beamTarget != 0
 	}
-	px, py, pz, _, _, _ := target.Pos()
-	dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
+	var tx, ty, tz float64
+	if target != nil {
+		tx, ty, tz, _, _, _ = target.Pos()
+	} else {
+		tx, ty, tz = mobTarget.X, mobTarget.Y, mobTarget.Z
+	}
+	dx, dy, dz := tx-e.X, ty-e.Y, tz-e.Z
 	if !elder && dx*dx+dy*dy+dz*dz <= 9.0 {
 		e.beamTarget = 0
 		e.beamTime = 0
@@ -3952,15 +4001,22 @@ func (s *Server) mobGuardianStep(e *Entity, kn string) bool {
 		if elder {
 			beam += 2
 		}
-		s.damageWith(target, beam, translatable("death.attack.indirectMagic",
-			literal(target.getName()), literal(mobDisplayName(kn))),
-			damageSource{typeName: "indirect_magic", cause: e.ID, direct: e.ID})
-		// doHurtTarget has no range gate — the melee swing lands in
-		// the same tick, reduced to its delta over the beam hit by the
-		// player's i-frames.
-		s.damageWith(target, mobMeleeDamage(kn), translatable("death.attack.mob",
-			literal(target.getName()), literal(mobDisplayName(kn))),
-			damageSource{typeName: "mob_attack", cause: e.ID, direct: e.ID})
+		if target != nil {
+			s.damageWith(target, beam, translatable("death.attack.indirectMagic",
+				literal(target.getName()), literal(mobDisplayName(kn))),
+				damageSource{typeName: "indirect_magic", cause: e.ID, direct: e.ID})
+			// doHurtTarget has no range gate — the melee swing lands in
+			// the same tick, reduced to its delta over the beam hit by the
+			// target's i-frames.
+			s.damageWith(target, mobMeleeDamage(kn), translatable("death.attack.mob",
+				literal(target.getName()), literal(mobDisplayName(kn))),
+				damageSource{typeName: "mob_attack", cause: e.ID, direct: e.ID})
+		} else {
+			s.damageMob(mobTarget, beam, "indirect_magic", nil,
+				&damageInfo{typeName: "indirect_magic", cause: e.ID, direct: e.ID})
+			s.damageMob(mobTarget, mobMeleeDamage(kn), "mob_attack", nil,
+				&damageInfo{typeName: "mob_attack", cause: e.ID, direct: e.ID})
+		}
 		e.beamTarget = 0
 		e.beamTime = 0
 		if e.beamMeta {

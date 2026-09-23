@@ -5148,3 +5148,34 @@ setHomeTo(pos,16) home restriction, guardian squid/axolotl targeting +
 knockback on beam melee, per-damage-type hurt variants, scoreboard
 objectives, region save, online mode, redstone, terrain gen,
 lighting, .dat persistence.
+## Slice 2026-09-23v — guardian beams squid/axolotl targets
+
+GuardianAttackSelector measured earlier admits Player OR Squid OR
+Axolotl (each candidate past dist²>9, all competing by distanceToSqr
+inside follow_range). Probed vanilla live: guardian summoned beside a
+squid beams it — event 21, idx-17 sync = the squid's entity id, the
+zap lands as damage_event on the squid, then idx-17 → 0. A 10-hp
+squid dies on the second zap (1.0 indirect_magic + 5.0 melee delta
+through i-frames per zap).
+
+mc-go: beamTarget now resolves session ids first then manager entity
+ids; acquisition scans s.entities.byID for squid/axolotl (3D dist,
+>3 blocks, inside follow_range) and competes them against the nearest
+player candidate — nearest wins. Zap splits: players keep the
+damageWith pair, mobs take damageMob(indirect_magic) +
+damageMob(mob_attack) with cause=direct=guardian, same i-frame fold.
+Non-elder >3-block drop applies to mob targets too.
+
+TestGuardianSquidBeamParity: creative player (can never win the
+selector), guardian + squid summoned 5 blocks apart near spawn —
+asserts event 21, idx-17 == the squid eid, ≥1 damage_event on the
+squid, idx-17 → 0. Identical on both servers: 2 zaps each (squid
+dies mid-second cycle), 44s wall.
+
+Open items remaining: witch raider-heal throw (blocked on raids),
+RestrictSunGoal wander bias, ominous-banner item components on wire,
+cloud entity metadata on wire, horse chest/container slots, elder
+setHomeTo(pos,16) home restriction, beam-melee knockback on the
+target, per-damage-type hurt variants, scoreboard objectives,
+region save, online mode, redstone, terrain gen, lighting, .dat
+persistence.
