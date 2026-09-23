@@ -4859,3 +4859,32 @@ entity metadata on wire, horse chest/container slots, guardian
 flop/beam, per-damage-type hurt variants, witch.drink, selector
 nbt= arg, scoreboard objectives, region save, online mode,
 redstone, terrain gen, lighting, .dat persistence.
+
+## Slice 2026-09-23n — leftHanded 5% + IsBaby/PatrolLeader emit
+
+Mob.finalizeSpawn's remaining flat pieces: rand<0.05 →
+setLeftHanded(true) on every mob (now rolled in
+summonAttrTouches's init path and emitted as LeftHanded:1b in the
+save map instead of a hardcoded 0b); the follow_range
+random_spawn_bonus triangle(0,0.11485) add_multiplied_base
+modifier and zombie-family reinforcement rolls were already wired.
+IsBaby now emits for the Zombie/AbstractPiglin/Zoglin set (was
+read but never written — piglin baby rolls were invisible to
+`data get`), and PatrolLeader + drop_chances{head:2.0f} emit for
+the PatrollingMonster set.
+
+TestSummonEquipmentParity gained a flagScan leg: piglin IsBaby
+∈[2,16]/40 (~20%) and zombie LeftHanded ≤8/30 (~5%). Note: a
+tagged summon skips ALL of this — PatrolLeader:1b in summon NBT
+loads the flag without the banner finalizeSpawn would place.
+Green on both (babies 6/6, lefties 3/2, banners 5/5).
+
+Open items remaining: piglin zombification timer (TimeInOverworld
+→ zombified_piglin at ~15s overworld), crossbow/piglin ranged
+variants, RestrictSunGoal wander bias, ominous-banner item
+components on wire (banner_patterns/item_name/tooltip_display —
+mc emits plain white_banner), cloud entity metadata on wire,
+horse chest/container slots, guardian flop/beam, per-damage-type
+hurt variants, witch.drink, selector nbt= arg, scoreboard
+objectives, region save, online mode, redstone, terrain gen,
+lighting, .dat persistence.

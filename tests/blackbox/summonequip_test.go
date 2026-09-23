@@ -70,6 +70,21 @@ func itoaF(f float64) string {
 	return strconv.FormatFloat(f, 'f', 1, 64)
 }
 
+// flagScan counts entities of typ whose scalar NBT key reads 1b.
+func flagScan(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writer, obs *fleeObs, typ, key string) int {
+	t.Helper()
+	sendCommand(t, pw, "execute as @e[type=minecraft:"+typ+"] run data get entity @s "+key)
+	base := len(obs.chats)
+	fleePump(t, c, pr, pw, obs, 1200*time.Millisecond)
+	n := 0
+	for _, ln := range obs.chats[base:] {
+		if strings.Contains(ln, "entity.minecraft."+typ) && strings.HasSuffix(ln, "1b") {
+			n++
+		}
+	}
+	return n
+}
+
 // finalizeSpawn equipment on /summon. Vanilla's generic armor cascade
 // is gated by specialMultiplier=0 on a fresh flat world (effective
 // difficulty id·0.75 < 2), so zombies/skeletons never wear armor and
@@ -85,7 +100,7 @@ func TestSummonEquipmentParity(t *testing.T) {
 	type row map[string]map[string]int
 	type result struct {
 		piglin, drowned, zombie, pillager, skeleton row
-		enchanted                                   int
+		babies, lefties                             int
 	}
 	run := func(addr string) result {
 		var r result
@@ -104,15 +119,12 @@ func TestSummonEquipmentParity(t *testing.T) {
 		// bare-handed. Piglins zombify at ~15s; the scan finishes
 		// well before conversion.
 		r.piglin = equipScan(t, c, pr, pw, obs, "piglin", 40, "")
+		r.babies = flagScan(t, c, pr, pw, obs, "piglin", "IsBaby")
 		r.drowned = equipScan(t, c, pr, pw, obs, "drowned", 48, "")
 		r.zombie = equipScan(t, c, pr, pw, obs, "zombie", 30, "")
 		r.pillager = equipScan(t, c, pr, pw, obs, "pillager", 60, "")
 		r.skeleton = equipScan(t, c, pr, pw, obs, "skeleton", 10, "")
-		for _, ln := range obs.chats {
-			if strings.Contains(ln, "enchant") {
-				r.enchanted++
-			}
-		}
+		r.lefties = flagScan(t, c, pr, pw, obs, "zombie", "LeftHanded")
 		return r
 	}
 
@@ -182,8 +194,13 @@ func TestSummonEquipmentParity(t *testing.T) {
 		if n := r.skeleton["mainhand"]["bow"]; n != 10 {
 			t.Errorf("%s skeleton bows=%d/10", name, n)
 		}
-		if r.enchanted > 0 {
-			t.Errorf("%s saw %d enchanted lines — special=0 must gate all", name, r.enchanted)
+
+		// Piglin 20% baby roll; zombie-family 5% left-handed roll.
+		if r.babies < 2 || r.babies > 16 {
+			t.Errorf("%s piglin babies=%d/40 outside ~20%% band", name, r.babies)
+		}
+		if r.lefties > 8 {
+			t.Errorf("%s zombie left-handed=%d/30 outside ~5%% band", name, r.lefties)
 		}
 	}
 }

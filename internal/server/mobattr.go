@@ -35,6 +35,10 @@ func summonAttrTouches(e *Entity, name string, init bool) {
 	if !init {
 		return
 	}
+	// Mob.finalizeSpawn tail: the 5% left-handed roll.
+	if rand.Float64() < 0.05 {
+		e.LeftHanded = true
+	}
 	if _, ok := entityAttrBases[name]["follow_range"]; ok {
 		e.markAttrTouched("follow_range")
 		// Mob.finalizeSpawn: random_spawn_bonus is a triangle

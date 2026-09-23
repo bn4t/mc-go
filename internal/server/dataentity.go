@@ -494,7 +494,7 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 		"Health":           e.Health,
 		"HurtTime":         int16(0),
 		"Invulnerable":     int8(0),
-		"LeftHanded":       int8(0),
+		"LeftHanded":       nbtBool(e.LeftHanded),
 		"Motion": nbt.List{Elem: nbt.TagDouble, Items: []any{
 			e.MotionX, e.MotionY, e.MotionZ,
 		}},
@@ -535,6 +535,11 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 	}
 	if len(equipMob) > 0 {
 		m["equipment"] = equipMob
+	}
+	// The Zombie/AbstractPiglin/Zoglin hierarchies declare IsBaby —
+	// AgeableMob types carry Age instead.
+	if isBabyTypes[typeName] {
+		m["IsBaby"] = nbtBool(e.Baby)
 	}
 	// PatrollingMonster declares PatrolLeader; the leader head slot's
 	// 2.0 drop chance writes a drop_chances override compound.
@@ -624,7 +629,7 @@ var entitySaveSeq = []string{
 	"FallFlying", "PersistenceRequired", "CanPickUpLoot",
 	"LeftHanded", "NoAI", "equipment", "Age", "ForcedAge",
 	"InLove", "AgeLocked", "variant", "sound_variant",
-	"PatrolLeader", "drop_chances",
+	"PatrolLeader", "drop_chances", "IsBaby",
 }
 
 // patrollingTypes are PatrollingMonster's mc-side summonable types —

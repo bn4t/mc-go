@@ -305,6 +305,9 @@ type Entity struct {
 	// finalizeSpawn roll on non-patrol/event/structure spawns puts
 	// the ominous banner on the leader's head with a 2.0 drop.
 	PatrolLeader bool
+	// LeftHanded is Mob's 5% finalizeSpawn roll — a left-handed mob
+	// renders its mainhand item in the other hand.
+	LeftHanded bool
 	// BodyItem is the sulfur_cube BODY slot: one swallowed stack.
 	BodyItem ItemStack
 	// arrowShooter is the entity id of the player who loosed an arrow;

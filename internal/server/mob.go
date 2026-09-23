@@ -668,6 +668,10 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if bv, ok := tag.vals["IsBaby"]; ok && snbtNum(bv) > 0 && isBabyTypes[name] {
 				e.Baby = true
 			}
+			// LeftHanded is a Mob key — all living mobs read it.
+			if bv, ok := tag.vals["LeftHanded"]; ok && snbtNum(bv) > 0 {
+				e.LeftHanded = true
+			}
 			// Tagged summons skip finalizeSpawn, so an explicit
 			// PatrolLeader flag loads the flag without the banner the
 			// spawn-time roll would have placed.
