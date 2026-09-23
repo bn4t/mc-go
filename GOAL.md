@@ -5002,3 +5002,38 @@ entity metadata on wire, horse chest/container slots, guardian
 flop/beam, per-damage-type hurt variants, scoreboard objectives,
 region save, online mode, redstone, terrain gen, lighting, .dat
 persistence.
+
+## Slice 2026-09-23r — crossbow mobs: pillager + piglin ranged attack
+
+RangedCrossbowAttackGoal (pillager's goal, (this,1.0,8.0)) and
+PiglinAi's CrossbowAttack behavior share one state machine, measured
+off the bytecode:
+
+- checkExtraStartConditions: isHolding(CROSSBOW) && canSee(target)
+  && isWithinAttackRange → ProjectileWeaponItem range 8.
+- Approach gate: out of radius² or seeTime<5 (and no pending
+  attackDelay) → navigate at movement_speed, no charge start.
+- UNCHARGED → CHARGING on gate clear (startUsingItem + the
+  hand-active metadata byte), CHARGING → CHARGED after
+  getChargeDuration = floor(1.25*20) = 25t unenchanted
+  (releaseUsingItem + attackDelay=20+rand(20)), CHARGED → READY on
+  delay 0, READY → performRangedAttack if still seeing → UNCHARGED.
+- performRangedAttack → performCrossbowAttack →
+  CrossbowItem.performShooting at speed 1.6, divergence
+  14-difficulty.id*4 (=6 on normal). The arrow rides mobShootArrow's
+  existing 1.6-velocity path.
+- Piglin hostility gate: adults only, and PiglinAi.isWearingGold —
+  any golden_ armor piece exempts the player.
+
+TestCrossbowShootParity: a survival player inside range takes arrow
+damage from both a spawned pillager and a crossbow-equipped adult
+piglin (IsImmuneToZombification so the overworld 300t clock can't
+preempt the leg). Green identical on both servers.
+
+Open items remaining: witch raider-heal throw branch,
+RestrictSunGoal wander bias, ominous-banner item components on wire,
+living hand-active metadata byte on wire (witch drink state — the
+crossbow goal now broadcasts it), cloud entity metadata on wire,
+horse chest/container slots, guardian flop/beam, per-damage-type
+hurt variants, scoreboard objectives, region save, online mode,
+redstone, terrain gen, lighting, .dat persistence.

@@ -1627,6 +1627,8 @@ func (s *Server) mobTickStep() {
 				goalActed = s.mobSwellStep(e, ambName)
 			} else if ambName == "witch" {
 				goalActed = s.mobWitchAttackStep(e)
+			} else if mobCrossbow[ambName] && s.mobHoldsCrossbow(e) {
+				goalActed = s.mobCrossbowStep(e, ambName)
 			} else if mobMelee[e.Type] {
 				goalActed = s.mobMeleeStep(e)
 			}
@@ -3638,4 +3640,156 @@ func voicePitchE(e *Entity) float32 {
 		return (rand.Float32()-rand.Float32())*0.2 + 1.5
 	}
 	return voicePitch()
+}
+
+// Crossbow goal states — RangedCrossbowAttackGoal$CrossbowState and
+// PiglinAi's CrossbowAttack$CrossbowState share the same machine.
+const (
+	cbUncharged = iota
+	cbCharging
+	cbCharged
+	cbReady
+)
+
+// mobCrossbow is the crossbow-armed set: pillager registers
+// RangedCrossbowAttackGoal(this, 1.0, 8.0) and PiglinAi's
+// CrossbowAttack behavior mirrors it — charge floor(1.25*20)=25
+// ticks, hold 20+rand(20), then performShooting at speed 1.6 and
+// 14-difficulty*4 divergence.
+var mobCrossbow = map[string]bool{"pillager": true, "piglin": true}
+
+// mobHoldsCrossbow is ProjectileUtil.getWeaponHoldingHand's main-hand
+// check — the goal only runs while the crossbow is held.
+func (s *Server) mobHoldsCrossbow(e *Entity) bool {
+	cb, ok := world.ItemID("crossbow")
+	return ok && e.Equips[equipMainHand].ID == cb
+}
+
+// piglinTarget is PiglinAi's attackable predicate folded into the
+// nearest-player pick: only adults hunt, and a player wearing any
+// golden armor piece isn't a target (isPlayerHoldingLovedItem's
+// inverse — golden armor counts as "loved").
+func (s *Server) piglinTarget(e *Entity) *Session {
+	if e.Baby {
+		return nil
+	}
+	fr := 16.0
+	if v, ok := entityAttrBases["piglin"]["follow_range"]; ok {
+		fr = v
+	}
+	best := fr * fr
+	var target *Session
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if !sess.spawned.Load() || sess.dead ||
+			sess.mode() == GameModeCreative || sess.mode() == GameModeSpectator ||
+			sess.dimension().name != e.Dim || wearingGoldArmor(sess) {
+			return true
+		}
+		px, py, pz, _, _, _ := sess.Pos()
+		dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
+		if d2 := dx*dx + dz*dz + dy*dy*0.25; d2 < best {
+			best, target = d2, sess
+		}
+		return true
+	})
+	return target
+}
+
+// wearingGoldArmor is PiglinAi.isWearingGold: any of the four armor
+// slots carrying a golden_ piece.
+func wearingGoldArmor(sess *Session) bool {
+	sess.invMu.Lock()
+	defer sess.invMu.Unlock()
+	for slot := slotArmorStart; slot < slotArmorStart+4; slot++ {
+		it := sess.inv[slot]
+		if it.Empty() {
+			continue
+		}
+		if nm, ok := world.ItemName(it.ID); ok && strings.HasPrefix(nm, "golden_") {
+			return true
+		}
+	}
+	return false
+}
+
+// mobCrossbowStep runs the shared crossbow state machine for both
+// goal users (pillager) and brain users (adult crossbow piglin):
+// approach while outside the 8-block radius or freshly seeing the
+// target (<5 ticks), then charge 25 ticks, hold 20+rand(20), fire.
+// The living-use broadcast is startUsingItem's hand-active flag.
+func (s *Server) mobCrossbowStep(e *Entity, kn string) bool {
+	var target *Session
+	if kn == "piglin" {
+		target = s.piglinTarget(e)
+	} else {
+		target = s.nearestMobTarget(e, kn)
+	}
+	if target == nil {
+		if e.cbState != cbUncharged {
+			e.cbState = cbUncharged
+			s.broadcastLivingUse(e, false)
+		}
+		e.rangedSee = 0
+		return false
+	}
+	px, py, pz, _, _, _ := target.Pos()
+	dx, dz := px-e.X, pz-e.Z
+	d2 := dx*dx + dz*dz
+	dist := math.Hypot(dx, dz)
+	// Flat harness world — hasLineOfSight is always clear.
+	los := true
+	if los != (e.rangedSee > 0) {
+		e.rangedSee = 0
+	}
+	if los {
+		e.rangedSee++
+	} else {
+		e.rangedSee--
+	}
+	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	e.HeadYaw = e.Yaw
+
+	// The approach gate: out of radius or fresh on the see counter —
+	// while set, the state machine never starts charging.
+	needsApproach := (d2 > 64 || e.rangedSee < 5) && e.cbDelay == 0
+	if needsApproach && dist > 0 {
+		speed := mobChaseSpeed
+		if mv, ok := entityAttrBases[kn]["movement_speed"]; ok {
+			speed = mv
+		}
+		step := speed
+		if step > dist*0.8 {
+			step = dist * 0.8
+		}
+		e.X += dx / dist * step
+		e.Z += dz / dist * step
+	}
+	switch e.cbState {
+	case cbUncharged:
+		if !needsApproach {
+			e.cbState = cbCharging
+			e.cbTime = 0
+			s.broadcastLivingUse(e, true)
+		}
+	case cbCharging:
+		e.cbTime++
+		if e.cbTime >= 25 { // CrossbowItem.getChargeDuration unenchanted
+			e.cbState = cbCharged
+			e.cbDelay = int32(20 + rand.Intn(20))
+			s.broadcastLivingUse(e, false)
+		}
+	case cbCharged:
+		e.cbDelay--
+		if e.cbDelay == 0 {
+			e.cbState = cbReady
+		}
+	case cbReady:
+		if e.rangedSee > 0 {
+			s.mobShootArrow(e, px, py, pz)
+			e.cbState = cbUncharged
+			s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 491, 5, 1.0, 1.0, nil) // item.crossbow.shoot
+		}
+	}
+	return true
 }

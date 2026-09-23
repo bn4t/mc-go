@@ -115,6 +115,14 @@ type Entity struct {
 	rangedDraw   int32
 	rangedCW     bool
 	rangedBack   bool
+	// RangedCrossbowAttackGoal / CrossbowAttack behavior state for
+	// crossbow-armed mobs (pillager, piglin): cbState walks
+	// UNCHARGED→CHARGING→CHARGED→READY_TO_ATTACK, cbTime counts the
+	// 25-tick charge (CrossbowItem.getChargeDuration unenchanted),
+	// cbDelay is the 20+rand(20) post-charge hold.
+	cbState uint8
+	cbTime  int32
+	cbDelay int32
 	// AvoidEntityGoal state: fleeUntil is the game-time deadline the
 	// goal stays armed to — vanilla's posAvoider paths to a point
 	// ~16 blocks off, so the fleer overshoots its trigger distance —
