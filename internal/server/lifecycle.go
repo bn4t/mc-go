@@ -136,6 +136,9 @@ func (s *Server) saveWorldDir() error {
 		}); err != nil {
 			return err
 		}
+		if err := s.saveEntityRegions(d); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -188,6 +191,9 @@ func (s *Server) loadWorldDir() error {
 	// The chunks brought their block entities with them; without this a
 	// loaded chest would stand there open and empty.
 	s.restoreBlockEntities()
+	for _, d := range s.dims {
+		s.restoreEntities(d)
+	}
 	return nil
 }
 

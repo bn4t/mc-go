@@ -5329,3 +5329,30 @@ drops (needs natural patrol spawn/raids), elder setHomeTo(pos,16)
 home restriction, per-damage-type hurt variants, scoreboard
 objectives, region save, online mode, redstone, terrain gen,
 lighting, .dat persistence.
+
+## Slice 2026-09-23zb — entity persistence (entities/*.mca)
+
+Mobs and item entities now survive a restart through the real
+server's own format: saveWorldDir writes
+dimensions/<ns>/<path>/entities/r.<rx>.<rz>.mca — the Anvil
+container with per-chunk records {Position int[2], DataVersion,
+Entities} — and loadWorldDir respawns each compound via
+summonMobRaw + applyEntitySave, so vanilla-only fields ride back
+through ExtraNBT untouched. Two write-side fixes were measured the
+hard way: the save compound needs an explicit `id` (entitySaveMap's
+/data callers add it themselves), and peaceful difficulty silently
+drops hostile entities at vanilla load (allowedInPeaceful gate in
+loadEntityRecursive), which masqueraded as a format bug.
+
+TestEntitySaveParity: vanilla saves a zombie+pig → mc-go loads it
+(spawn positions pinned through add_entity), then mc-go saves →
+vanilla loads it back. TestWorldSaveParity's chunk coverage stays
+separate.
+
+Open items remaining: witch raider-heal throw (blocked on raids),
+RestrictSunGoal wander bias, patrol-captain ominous gear + bottle
+drops (needs natural patrol spawn/raids), elder setHomeTo(pos,16)
+home restriction, per-damage-type hurt variants, scoreboard
+objectives, online mode, redstone, terrain gen, lighting, player
+.dat format (mc-go still writes its JSON store into a vanilla
+world — playerdata/<uuid>.dat round-trip is open).
