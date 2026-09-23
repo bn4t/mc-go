@@ -2147,6 +2147,10 @@ func (s *Server) witchDrinkStep(e *Entity, d *dimension) {
 			}
 		}
 		s.mobAttrModRemove(e, "movement_speed", "minecraft:drinking")
+		// Witch.setUsingItem(false): DATA_USING_ITEM (idx 17) clears
+		// with the potion — the witch never touches the shared
+		// living-flags byte for drinking.
+		s.broadcastWitchUsing(e, false)
 		return
 	}
 	var potion string
@@ -2178,6 +2182,9 @@ func (s *Server) witchDrinkStep(e *Entity, d *dimension) {
 	e.markEquipDelta(0)
 	e.WitchDrink = true
 	e.WitchDrinkTime = 32 // ItemStack.getUseDuration for a potion
+	// setUsingItem(true) raises the witch's own DATA_USING_ITEM
+	// flag at metadata index 17.
+	s.broadcastWitchUsing(e, true)
 	if !e.Silent {
 		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 1777, mobVoiceOf(e).src(), 1,
 			float32(0.8+rand.Float64()*0.4), nil)
@@ -3125,6 +3132,22 @@ func (s *Server) broadcastLivingUse(e *Entity, active bool) {
 	var b protocol.Buffer
 	b.Byte(8) // index: living entity flags
 	b.Byte(0) // type: byte
+	b.Byte(v)
+	b.Byte(0xFF)
+	s.broadcastEntityMetadata(e.ID, b.Bytes())
+}
+
+// broadcastWitchUsing emits the witch's DATA_USING_ITEM — metadata
+// index 17, boolean serializer — which vanilla toggles around the
+// 32-tick potion drink.
+func (s *Server) broadcastWitchUsing(e *Entity, on bool) {
+	var v byte
+	if on {
+		v = 1
+	}
+	var b protocol.Buffer
+	b.Byte(17)
+	b.Byte(8) // boolean serializer
 	b.Byte(v)
 	b.Byte(0xFF)
 	s.broadcastEntityMetadata(e.ID, b.Bytes())

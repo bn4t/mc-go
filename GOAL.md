@@ -5037,3 +5037,32 @@ crossbow goal now broadcasts it), cloud entity metadata on wire,
 horse chest/container slots, guardian flop/beam, per-damage-type
 hurt variants, scoreboard objectives, region save, online mode,
 redstone, terrain gen, lighting, .dat persistence.
+
+## Slice 2026-09-23s — witch DATA_USING_ITEM on wire
+
+The witch's drink state isn't the shared living-flags byte —
+Witch.defineSynchedData adds its own DATA_USING_ITEM boolean after
+Raider's fields, landing at metadata index 17 (boolean serializer
+type 8). Measured on the wire: drink start emits [17,8,1], finish
+[17,8,0]; mc now broadcasts the same from broadcastWitchUsing.
+(living hand-active idx8 stays correct for bow/crossbow draws —
+startUsingItem writes that field instead.)
+
+Also measured while in here: the raider-heal throw branch needs
+NearestHealableRaiderTargetGoal.canUse's hasActiveRaid() — no raid
+system → the branch is correctly unreachable on both servers for
+now; note it under raid work, not witch work.
+
+TestWitchHandUseParity scans set_entity_data packets for the witch's
+idx-17 flag toggling 1→0 across a fire-triggered drink. Green on
+both. (TestWitchDrinkParity's swiftness leg widened to 15 blocks +
+9s — vanilla's target-acquire delay plus the dist²>121 drink gate
+made the old 13-block/5s window marginal; probing showed the drink
+fires ~6s in.)
+
+Open items remaining: witch raider-heal throw (blocked on raids),
+RestrictSunGoal wander bias, ominous-banner item components on wire,
+cloud entity metadata on wire, horse chest/container slots,
+guardian flop/beam, per-damage-type hurt variants, scoreboard
+objectives, region save, online mode, redstone, terrain gen,
+lighting, .dat persistence.

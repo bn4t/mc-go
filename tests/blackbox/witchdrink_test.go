@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mc-go/internal/protocol"
+	"mc-go/internal/server"
 )
 
 // Witch.aiStep drinks: underwater → water_breathing (0.15/tick),
@@ -85,12 +88,15 @@ func TestWitchDrinkParity(t *testing.T) {
 		sendCommand(t, pw, "kill @e[type=minecraft:witch]")
 		fleePump(t, c, pr, pw, obs, 500*time.Millisecond)
 
-		// Survival player 13 blocks out → swiftness drink.
+		// Survival player 15 blocks out → swiftness drink. The pick
+		// needs dist²>121, so the drink can only start while the
+		// witch is still approaching — the wider window means ~20
+		// ticks of the 0.5 roll before it settles at range 10.
 		sendCommand(t, pw, "effect give P minecraft:resistance 60 4")
 		sendCommand(t, pw, "gamemode survival P")
-		sendCommand(t, pw, "tp P 117.5 -59 0.5")
+		sendCommand(t, pw, "tp P 115.5 -59 0.5")
 		sendCommand(t, pw, "summon minecraft:witch 130.5 -59 0.5")
-		fleePump(t, c, pr, pw, obs, 5000*time.Millisecond)
+		fleePump(t, c, pr, pw, obs, 9000*time.Millisecond)
 		r.speed = strings.Contains(effects(), "speed")
 		sendCommand(t, pw, "gamemode creative P")
 		return r
@@ -109,6 +115,104 @@ func TestWitchDrinkParity(t *testing.T) {
 		}
 		if !r.speed {
 			t.Errorf("%s far-target witch never gained speed", name)
+		}
+	}
+}
+
+// witchUsingByte scans a set_entity_data payload for the witch's
+// DATA_USING_ITEM entry — index 17, boolean serializer 8 — anywhere
+// the pair appears (the flag is the only idx-17 writer on a witch).
+func witchUsingByte(data []byte) (byte, bool) {
+	for i := 0; i+2 < len(data); i++ {
+		if data[i] == 0x11 && data[i+1] == 0x08 && data[i+2] <= 1 {
+			return data[i+2], true
+		}
+	}
+	return 0, false
+}
+
+// TestWitchHandUseParity pins Witch.setUsingItem's DATA_USING_ITEM
+// flag — metadata index 17, boolean serializer (type 8): a witch
+// mid-drink broadcasts 1 and clears to 0 when the potion lands.
+func TestWitchHandUseParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil,
+		map[string]string{"ops.json": opsJSONFor("P")}, nil)
+	defer targets.cleanup()
+
+	witchID, _ := server.EntityTypeID("witch")
+	run := func(addr string) [2]bool {
+		var sawUp, sawDown bool
+		c, pr, pw := joinPlayBlackbox(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Now().Add(120 * time.Second))
+		obs := &fleeObs{}
+		sendCommand(t, pw, "gamemode creative P")
+		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
+		sendCommand(t, pw, "tp P 100.5 -60 0.5")
+		fleePump(t, c, pr, pw, obs, 600*time.Millisecond)
+		sendCommand(t, pw, "summon minecraft:witch 106.5 -59 0.5 {Fire:100s}")
+
+		var witchEID int32 = -1
+		upAt, downAt := -1, -1
+		deadline := time.Now().Add(9 * time.Second)
+		for time.Now().Before(deadline) && !(sawUp && sawDown) {
+			_ = c.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
+			p, err := pr.ReadPacket()
+			if err != nil {
+				continue
+			}
+			switch p.ID {
+			case server.IDPlayKeepAliveCB:
+				_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+			case server.IDPlaySyncPos:
+				r := protocol.NewPacketReader(p.Data)
+				if id, err := r.VarInt(); err == nil {
+					var b protocol.Buffer
+					b.VarInt(id)
+					_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes())
+				}
+			case server.IDPlaySpawnEntity:
+				r := protocol.NewPacketReader(p.Data)
+				id, _ := r.VarInt()
+				r.UUID()
+				typ, _ := r.VarInt()
+				if typ == witchID {
+					witchEID = id
+				}
+			case server.IDPlayEntityMetadata:
+				r := protocol.NewPacketReader(p.Data)
+				eid, err := r.VarInt()
+				if err != nil || eid != witchEID {
+					continue
+				}
+				v, ok := witchUsingByte(p.Data)
+				if !ok {
+					continue
+				}
+				if v == 1 && upAt < 0 {
+					upAt = len(obs.chats)
+					sawUp = true
+				}
+				if v == 0 && sawUp && downAt < 0 {
+					downAt = len(obs.chats)
+					sawDown = true
+				}
+			case server.IDPlaySystemChatCB:
+				obs.chats = append(obs.chats, chatTextBlackbox(t, p.Data))
+			}
+		}
+		return [2]bool{sawUp, sawDown}
+	}
+
+	van := run(targets.vanilla)
+	mc := run(targets.mcgo)
+	t.Logf("van %v mc %v", van, mc)
+	for name, r := range map[string][2]bool{"vanilla": van, "mc-go": mc} {
+		if !r[0] {
+			t.Errorf("%s witch never broadcast hand-active during drink", name)
+		}
+		if !r[1] {
+			t.Errorf("%s witch hand-active byte never cleared", name)
 		}
 	}
 }
