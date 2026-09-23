@@ -645,7 +645,7 @@ func nbtPrettyElems(v any) []component {
 	case int64:
 		return nbtNumPretty(strconv.FormatInt(t, 10), "L")
 	case float32:
-		return nbtNumPretty(javaFloatStr(float64(t)), "f")
+		return nbtNumPretty(javaFloatStr32(t), "f")
 	case float64:
 		return nbtNumPretty(javaFloatStr(t), "d")
 	case []byte:
@@ -714,6 +714,18 @@ func nbtUnquotedKey(k string) bool {
 // round-trip digits, always carrying a decimal point (3.0, not 3).
 func javaFloatStr(f float64) string {
 	s := strconv.FormatFloat(f, 'g', -1, 64)
+	if strings.IndexAny(s, ".eENnI") < 0 {
+		s += ".0"
+	}
+	return s
+}
+
+// javaFloatStr32 mirrors Java's Float.toString: the shortest decimal
+// that parses back to the same float32. Formatting the float64
+// widening instead would print the long tail (94.88f ->
+// 94.87999725341797).
+func javaFloatStr32(f float32) string {
+	s := strconv.FormatFloat(float64(f), 'g', -1, 32)
 	if strings.IndexAny(s, ".eENnI") < 0 {
 		s += ".0"
 	}

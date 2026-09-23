@@ -1,3 +1,5 @@
+//go:build blackbox
+
 package blackbox
 
 // TestEquipBodyParity pins the mob BODY equipment slot: a wolf summoned

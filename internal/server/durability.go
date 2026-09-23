@@ -174,6 +174,20 @@ func bypassesArmor(typeName string) bool {
 	return false
 }
 
+// bypassesWolfArmor is vanilla's minecraft:bypasses_wolf_armor tag
+// (bypasses_invulnerability's members plus the listed types): a hit
+// of one of these types ignores wolf armor's absorb entirely and
+// runs the normal armor formula instead.
+func bypassesWolfArmor(typeName string) bool {
+	switch typeName {
+	case "out_of_world", "generic_kill", "cramming", "drown",
+		"dry_out", "freeze", "in_wall", "indirect_magic", "magic",
+		"outside_border", "starve", "thorns", "wither":
+		return true
+	}
+	return false
+}
+
 // noKnockback mirrors vanilla's minecraft:no_knockback damage-type
 // tag — hurts of these types skip dealDefaultKnockback entirely.
 func noKnockback(typeName string) bool {

@@ -3988,3 +3988,31 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   husk landing hits on an armored survival player keeps
   equipment.mainhand verbatim-pristine on both servers while the
   target's health drops (the hits-landed anchor).
+
+- **Mob BODY-slot armor — wolf absorb shield + hurtArmor wear**: the
+  earlier "hurtArmor only Player" claim was incomplete — Wolf and
+  Horse (literal Horse, not AbstractHorse) also override it, for the
+  BODY slot only. Wolf.actuallyHurt first runs its full-absorb
+  shield: when the body item is minecraft:wolf_armor and the damage
+  type is NOT in bypasses_wolf_armor (invulnerability pair + cramming,
+  drown, dry_out, freeze, in_wall, indirect_magic, magic,
+  outside_border, starve, thorns, wither), the wolf takes 0 damage and
+  the armor eats hurtAndBreak(ceil(raw)) — measured 8+12 hits wore
+  exactly 20. Bypass types fall to the normal path: body armor enters
+  reduceDamage (wolf_armor = 11 armor) AND doHurtEquipment wears
+  max(1, raw/4) — gated on equippable.damage_on_hurt (wolf armor yes,
+  all horse/nautilus armor NO), isDamageableItem, and canBeHurtBy.
+  mc-go implements all of it inside Manager.Damage: wolf absorb
+  branch, wolf/horse body-slot wear, armor+toughness attribute credit
+  from BodyItem (armorPoints/armorToughness extended for the 13 horse/
+  nautilus materials), and the new body-equipment-break entity event
+  65. TestMobBodyArmorParity diffs a 7-leg transcript (wolf absorb,
+  horse /4 wear = 1 on diamond, thorns bypass, Health legs)
+  verbatim on both servers. Two supporting fixes: SNBT floats now
+  print shortest-round-trip at tag width (94.88 not
+  94.87999725341797 — javaFloatStr32), and "horse" joined mobHealth
+  (vanilla rolls 15-30 at spawn; mc-go fixes 25, so its Health leg is
+  excluded). Still open: WOLF_ARMOR_CRACK sound + armadillo_scute
+  particle burst + WOLF_ARMOR_DAMAGE hurt-sound swap on crackiness
+  transitions, and knockback/last-hurt bookkeeping on absorb hits
+  (mc-go returns early before the retaliation hooks).

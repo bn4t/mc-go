@@ -154,3 +154,88 @@ func TestMobWeaponWearParity(t *testing.T) {
 		t.Errorf("mc-go husk never hit the player: Health %v", gotHealth)
 	}
 }
+
+// TestMobBodyArmorParity pins the wolf-armor absorb model and the
+// body-slot wear rules measured on vanilla: while a wolf's body slot
+// holds wolf_armor and the damage type isn't in bypasses_wolf_armor,
+// Wolf.actuallyHurt folds the whole hit into the armor —
+// hurtAndBreak(ceil(amount)), wolf health untouched. A bypassing
+// type (magic) instead runs the normal armor formula, where the
+// armor attribute still absorbs and hurtArmor wears the body piece
+// max(1, raw/4). Horse armor's equippable.damage_on_hurt is false —
+// a horse's armor never wears. Non-wolf mobs holding wolf_armor
+// absorb via the armor attribute but never wear either.
+func TestMobBodyArmorParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	wolf := `@e[type=minecraft:wolf,limit=1]`
+	husk := `@e[type=minecraft:husk,limit=1]`
+	horse := `@e[type=minecraft:horse,limit=1]`
+
+	dmgPath := `equipment.body.components."minecraft:damage"`
+
+	run := func(addr string) []string {
+		c, pr, pw := joinPlayBlackbox(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		sink := newChatSink(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(400 * time.Millisecond)
+		for _, cmd := range []string{
+			"summon minecraft:wolf 4.5 -60 4.5 {NoAI:1b}",
+			"summon minecraft:husk 6.5 -60 6.5 {NoAI:1b}",
+			"summon minecraft:horse 8.5 -60 8.5 {NoAI:1b}",
+			"item replace entity " + wolf + " armor.body with minecraft:wolf_armor",
+			"item replace entity " + husk + " armor.body with minecraft:wolf_armor",
+			"item replace entity " + horse + " armor.body with minecraft:diamond_horse_armor",
+		} {
+			func() { defer func() { recover() }(); sendCommand(t, pw, cmd) }()
+			time.Sleep(400 * time.Millisecond)
+		}
+		// mob_attack absorbs (8+12 wear on the wolf's armor, zero
+		// health lost); thorns bypasses wolf armor but not the
+		// armor tag — normal formula, /4 wear. Each spaced past
+		// the 20-tick grace.
+		sendCommand(t, pw, "damage "+wolf+" 8 minecraft:mob_attack")
+		time.Sleep(1200 * time.Millisecond)
+		sendCommand(t, pw, "damage "+husk+" 8 minecraft:mob_attack")
+		time.Sleep(1200 * time.Millisecond)
+		sendCommand(t, pw, "damage "+horse+" 8 minecraft:mob_attack")
+		time.Sleep(1200 * time.Millisecond)
+		sendCommand(t, pw, "damage "+wolf+" 12 minecraft:mob_attack")
+		time.Sleep(1200 * time.Millisecond)
+		sendCommand(t, pw, "damage "+wolf+" 8 minecraft:thorns")
+		time.Sleep(1200 * time.Millisecond)
+		var out []string
+		for _, sel := range []string{wolf, husk, horse} {
+			out = append(out, dataGetLine(t, sink, pw, sel, dmgPath))
+			out = append(out, dataGetLine(t, sink, pw, sel, "equipment.body"))
+		}
+		// Horse Health is a rolled 15-30 attribute at spawn — only
+		// wolf/husk get a verbatim Health leg.
+		out = append(out, dataGetLine(t, sink, pw, wolf, "Health"))
+		out = append(out, dataGetLine(t, sink, pw, husk, "Health"))
+		return out
+	}
+
+	want := run(targets.vanilla)
+	got := run(targets.mcgo)
+	for i := range want {
+		if want[i] == got[i] {
+			continue
+		}
+		wt, okW := componentTree(want[i], true)
+		gt, okG := componentTree(got[i], true)
+		if !okW || !okG || maskUUID(wt) != maskUUID(gt) {
+			t.Errorf("reply %d:\n  vanilla %s\n  mc-go   %s", i, want[i], got[i])
+		}
+	}
+	// Anchor: wolf armor wear = 8+12+max(1,8/4) = 22.
+	if lastNumber(want[0]) != 22 {
+		t.Errorf("vanilla wolf armor wear not 22: %q", want[0])
+	}
+}

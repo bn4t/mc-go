@@ -346,6 +346,7 @@ var mobHealth = map[string]float32{
 	"spider":           16,
 	"sniffer":          14,
 	"iron_golem":       100,
+	"horse":            25, // vanilla rolls 15-30 at spawn
 	"wolf":             8,
 	"cat":              10,
 	"ocelot":           10,
@@ -1189,11 +1190,11 @@ func (s *Server) broadcastMobSharedFlags(eid int32, onFire bool) {
 // armor (natural base + worn pieces) absorbs unless the damage type
 // bypasses it, then the health loss lands inside the grace rules.
 func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *Session) (dealt float32, graced, died bool) {
-	var armor float32
-	if !bypassesArmor(typeName) {
-		armor = mobArmor(e)
+	health, d, ok, gr, bodyBroke := s.entities.Damage(e.ID, amount, typeName)
+	if bodyBroke {
+		// onEquippedItemBroken: entity event 65 = equipment break, body.
+		s.broadcastEntityEventTo(nil, e.Dim, e.ID, 65)
 	}
-	health, d, ok, gr := s.entities.Damage(e.ID, amount, armor)
 	if !ok || d <= 0 {
 		return 0, gr, false
 	}

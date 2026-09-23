@@ -317,27 +317,69 @@ func (m *Manager) SetMotion(id int32, x, y, z float64) bool {
 // health, the amount dealt, whether the entity exists, and whether
 // the hit ran inside the grace window — vanilla skips the damage
 // event and knockback on that excess path.
-func (m *Manager) Damage(id int32, amount, armor float32) (float32, float32, bool, bool) {
+func (m *Manager) Damage(id int32, amount float32, typeName string) (float32, float32, bool, bool, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.byID[id]
 	if !ok || e.Dying {
-		return 0, 0, false, false
+		return 0, 0, false, false, false
 	}
 	orig := amount
 	graced := e.invulnTicks > 10
 	if graced {
 		if orig <= e.lastHurt {
-			return e.Health, 0, true, true
+			return e.Health, 0, true, true, false
 		}
 		amount = orig - e.lastHurt
 	}
 	e.lastHurt = orig
 	e.invulnTicks = 20
-	// Mob armor_toughness is always 0 — no entity's default
-	// attributes carry it, and summoned NBT attributes aren't read
-	// into the item model yet.
-	amount = reduceDamage(amount, armor, 0)
+	mobName, _ := EntityTypeName(e.Type)
+	var armor, toughness float32
+	armored := !bypassesArmor(typeName)
+	if armored {
+		armor = mobArmor(e)
+		toughness = mobToughness(e)
+	}
+	bodyBroke := false
+	if mobName == "wolf" && !bypassesWolfArmor(typeName) {
+		// Wolf.actuallyHurt's armor-absorb branch: while the body
+		// slot holds wolf_armor and the damage type doesn't bypass
+		// wolf armor, the armor eats the whole hit — the wolf's
+		// health never moves — wearing ceil(amount) durability.
+		if iname, iok := itemNameOf(e.BodyItem.ID); iok && iname == "wolf_armor" {
+			it := e.BodyItem
+			it.Damage += unbreakingReduce(it, iname, int32(math.Ceil(float64(amount))))
+			if it.Damage >= damageableItems[iname] {
+				e.BodyItem = ItemStack{}
+				bodyBroke = true
+			} else {
+				e.BodyItem = it
+			}
+			e.EquipDirty = true
+			return e.Health, 0, true, graced, bodyBroke
+		}
+	}
+	if armored && (mobName == "wolf" || mobName == "horse") && !e.BodyItem.Empty() {
+		// Wolf.hurtArmor / Horse.hurtArmor — the only non-player
+		// overrides: the body slot wears max(1, rawDamage/4) per hit
+		// (unbreaking rolls apply); equippable.damage_on_hurt=false
+		// pieces (every horse armor) never wear.
+		if iname, iok := itemNameOf(e.BodyItem.ID); iok {
+			if maxD, dok := damageableItems[iname]; dok && itemHurtWearExempt[iname] == 0 {
+				it := e.BodyItem
+				it.Damage += unbreakingReduce(it, iname, max(int32(amount/4), 1))
+				if it.Damage >= maxD {
+					e.BodyItem = ItemStack{}
+					bodyBroke = true
+				} else {
+					e.BodyItem = it
+				}
+				e.EquipDirty = true
+			}
+		}
+	}
+	amount = reduceDamage(amount, armor, toughness)
 	// Vanilla's damage_dealt is the health the target actually lost:
 	// the hit's amount clamped to the pre-hit health.
 	if amount > e.Health {
@@ -347,7 +389,7 @@ func (m *Manager) Damage(id int32, amount, armor float32) (float32, float32, boo
 	if e.Health < 0 {
 		e.Health = 0
 	}
-	return e.Health, amount, true, graced
+	return e.Health, amount, true, graced, bodyBroke
 }
 
 // Heal raises a mob's health up to its vanilla max, reporting the

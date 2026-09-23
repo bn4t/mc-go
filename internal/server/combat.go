@@ -50,6 +50,14 @@ var armorPoints = map[string]float32{
 	"diamond_boots": 3, "diamond_leggings": 6, "diamond_chestplate": 8, "diamond_helmet": 3,
 	"netherite_boots": 3, "netherite_leggings": 6, "netherite_chestplate": 8, "netherite_helmet": 3,
 	"turtle_helmet": 2,
+	// Body-slot armor (equippable slot=body): wolf armor and the
+	// horse/nautilus sets. Any living mob holding one gets the armor
+	// attribute — the slot is unfiltered on the real server.
+	"wolf_armor":          11,
+	"leather_horse_armor": 3, "copper_horse_armor": 4, "iron_horse_armor": 5,
+	"golden_horse_armor": 7, "diamond_horse_armor": 11, "netherite_horse_armor": 19,
+	"copper_nautilus_armor": 4, "iron_nautilus_armor": 5,
+	"golden_nautilus_armor": 7, "diamond_nautilus_armor": 11, "netherite_nautilus_armor": 19,
 }
 
 // heldAttackDamage resolves the main-hand attack damage.
@@ -148,6 +156,25 @@ func mobArmor(e *Entity) float32 {
 		if name, ok := itemNameOf(e.Equips[slot].ID); ok {
 			total += armorPoints[name]
 		}
+	}
+	if name, ok := itemNameOf(e.BodyItem.ID); ok {
+		total += armorPoints[name]
+	}
+	return total
+}
+
+// mobToughness is the mob victim's armor_toughness: the worn pieces'
+// armor_toughness attributes summed over the four equipment slots and
+// the body slot (diamond/netherite body armor carry some).
+func mobToughness(e *Entity) float32 {
+	var total float32
+	for _, slot := range []int32{equipHelmet, equipChest, equipLegs, equipBoots} {
+		if name, ok := itemNameOf(e.Equips[slot].ID); ok {
+			total += armorToughness[name]
+		}
+	}
+	if name, ok := itemNameOf(e.BodyItem.ID); ok {
+		total += armorToughness[name]
 	}
 	return total
 }
@@ -306,6 +333,8 @@ var armorToughness = map[string]float32{
 	"diamond_leggings": 2, "diamond_boots": 2,
 	"netherite_helmet": 3, "netherite_chestplate": 3,
 	"netherite_leggings": 3, "netherite_boots": 3,
+	"diamond_horse_armor": 2, "netherite_horse_armor": 3,
+	"diamond_nautilus_armor": 2, "netherite_nautilus_armor": 3,
 }
 
 // armorKBResist is the knockback_resistance attribute per piece —
