@@ -30,6 +30,7 @@ type mobEffectInst struct {
 // Status-effect state on Session — small fixed map, its own mutex.
 // The effect ids are the mob_effect registry protocol ids.
 const (
+	effectSpeed          = 0
 	effectInstantHealth  = 5
 	effectInstantDamage  = 6
 	effectRegeneration   = 9
@@ -261,6 +262,130 @@ func (s *Server) applyInstantEffect(sess *Session, id, amplifier int32) {
 	}
 }
 
+// playerGiveEffect runs the player half of LivingEntity.addEffect for
+// /effect give: the update() gate decides whether the store applies —
+// declines and weaker-but-longer stash paths still fire the instant arm
+// (vanilla calls onEffectStarted unconditionally at the end of
+// addEffect). True reports the store took the instance.
+func (s *Server) playerGiveEffect(t *Session, id, amplifier, ticks int32, hideParticles bool) bool {
+	now := s.clock.count
+	if e, live := sessEffect(t, id, now); live {
+		newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks)}
+		switch {
+		case amplifier > e.amplifier:
+			// fall through and apply
+		case amplifier == e.amplifier && shorterDur(e, newInst, now):
+			// duration update — apply
+		case amplifier < e.amplifier && shorterDur(e, newInst, now):
+			s.stashHiddenEffect(t, id, newInst)
+			s.applyInstantEffect(t, id, amplifier)
+			return false
+		default:
+			// Declined stores still run onEffectStarted — instant
+			// effects apply (measured: a shorter re-give heals
+			// while replying give.failed).
+			s.applyInstantEffect(t, id, amplifier)
+			return false
+		}
+	}
+	s.applyMobEffectFlags(t, id, amplifier, ticks, hideParticles)
+	return true
+}
+
+// mobGiveEffect is the world-entity arm of LivingEntity.addEffect: the
+// same update() gate on e.Effects, update_mob_effect out to trackers,
+// and the instant arm routed through the mob heal/hurt helpers.
+func (s *Server) mobGiveEffect(e *Entity, id, amplifier, ticks int32, hideParticles bool) bool {
+	now := s.clock.count
+	newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks), hide: hideParticles}
+	if e.Effects == nil {
+		e.Effects = map[int32]mobEffectInst{}
+	}
+	if prev, ok := e.Effects[id]; ok && (prev.expiry < 0 || prev.expiry > now) {
+		switch {
+		case amplifier > prev.amplifier:
+			if ticks >= 0 && prev.expiry >= 0 && int64(ticks) <= prev.expiry-now {
+				prevCopy := prev
+				newInst.hidden = &prevCopy
+			}
+		case amplifier == prev.amplifier && shorterDur(prev, newInst, now):
+			newInst.hidden = prev.hidden
+		case amplifier < prev.amplifier && shorterDur(prev, newInst, now):
+			prev.mergeHidden(newInst, now)
+			e.Effects[id] = prev
+			s.mobInstantEffect(e, id, amplifier)
+			return false
+		default:
+			s.mobInstantEffect(e, id, amplifier)
+			return false
+		}
+	}
+	e.Effects[id] = newInst
+	s.mobInstantEffect(e, id, amplifier)
+	// LivingEntity.onEffectAdded sends update_mob_effect to passengers
+	// only; trackers see the effect through entity data (particles) and
+	// the attribute-modifier resend on the next sendChanges.
+	e.MetaDirty = true
+	e.AttrDirty = true
+	return true
+}
+
+// mobInstantEffect is HealOrHarmMobEffect.applyInstantenousEffect for
+// world entities: heal 4<<amplifier / magic-hurt 6<<amplifier, with the
+// inverted_healing_and_harm tag flipping the arm for undead mobs
+// (isHarm == isInverted picks heal).
+func (s *Server) mobInstantEffect(e *Entity, id, amplifier int32) {
+	if id != effectInstantHealth && id != effectInstantDamage {
+		return
+	}
+	d := &dataEntity{mob: e}
+	inverted := d.entityInTag("inverted_healing_and_harm")
+	if (id == effectInstantDamage) == inverted {
+		amount := int32(4) << amplifier
+		if amount > 0 {
+			s.entities.Heal(e.ID, float32(amount))
+		}
+		return
+	}
+	if amount := int32(6) << amplifier; amount > 0 {
+		s.damageMob(e, float32(amount), "magic", nil)
+	}
+}
+
+// mobLiveEffectCount / mobHasLiveEffect mirror the session side's
+// "expired-but-unflushed counts as gone" rule for world entities.
+func mobLiveEffectCount(e *Entity, now int64) int {
+	n := 0
+	for _, inst := range e.Effects {
+		if inst.expiry < 0 || inst.expiry > now {
+			n++
+		}
+	}
+	return n
+}
+
+func mobHasLiveEffect(e *Entity, id int32, now int64) bool {
+	inst, ok := e.Effects[id]
+	return ok && (inst.expiry < 0 || inst.expiry > now)
+}
+
+// mobClearAllEffects is LivingEntity.removeAllEffects for world
+// entities; the removal surfaces on the next sendChanges metadata and
+// attribute resend, not on remove_mob_effect (vanilla sends that packet
+// to passengers only).
+func (s *Server) mobClearAllEffects(e *Entity) {
+	e.Effects = nil
+	e.MetaDirty = true
+	e.AttrDirty = true
+}
+
+// mobClearEffect removes one live instance the same way.
+func (s *Server) mobClearEffect(e *Entity, id int32) {
+	delete(e.Effects, id)
+	e.MetaDirty = true
+	e.AttrDirty = true
+}
+
 // clearMobEffects is vanilla's ClearAllStatusEffectsConsumeEffect: each
 // active effect leaves with a Remove Mob Effect packet.
 func (s *Server) clearMobEffects(sess *Session) {
@@ -373,4 +498,31 @@ func (s *Server) mobEffectTickStep() {
 		}
 		return true
 	})
+	// The world-entity arm of LivingEntity.tickEffects: the same
+	// expiry/downgrade pass on e.Effects, remove_mob_effect /
+	// update_mob_effect out to trackers instead of the session write.
+	for _, e := range s.entities.All() {
+		if e.Dying || len(e.Effects) == 0 {
+			continue
+		}
+		ep, ok := s.entities.GetPtr(e.ID)
+		if !ok {
+			continue
+		}
+		changed := false
+		for id, inst := range ep.Effects {
+			if inst.expiry >= 0 && s.clock.count >= inst.expiry {
+				if inst.hidden != nil {
+					ep.Effects[id] = *inst.hidden
+				} else {
+					delete(ep.Effects, id)
+				}
+				changed = true
+			}
+		}
+		if changed {
+			ep.MetaDirty = true
+			ep.AttrDirty = true
+		}
+	}
 }

@@ -350,6 +350,30 @@ func (m *Manager) Damage(id int32, amount, armor float32) (float32, float32, boo
 	return e.Health, amount, true, graced
 }
 
+// Heal raises a mob's health up to its vanilla max, reporting the
+// amount actually applied — LivingEntity.heal's clamp. A dying or
+// missing entity reports 0.
+func (m *Manager) Heal(id int32, amount float32) float32 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.byID[id]
+	if !ok || e.Dying {
+		return 0
+	}
+	maxHealth := e.MaxHealth
+	if maxHealth <= 0 {
+		if name, ok := EntityTypeName(e.Type); ok {
+			maxHealth = mobHealth[name]
+		}
+	}
+	if e.Health >= maxHealth {
+		return 0
+	}
+	e.Health = min(e.Health+amount, maxHealth)
+	e.MetaDirty = true
+	return amount
+}
+
 // SetFireTicks stores a mob's burning countdown.
 func (m *Manager) SetFireTicks(id int32, ticks int32) {
 	m.mu.Lock()

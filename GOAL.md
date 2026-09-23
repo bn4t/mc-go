@@ -3928,3 +3928,23 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   show_icon, and a nested hidden_effect when an instance is queued.
   The indexed-path query and the nothing_found replies are pinned
   on both servers by TestInstantEffectParity.
+
+- **/effect on world entities**: `effect give`/`effect clear` now
+  resolve LivingEntity targets (mobs + players) via the shared
+  selector union — the same update()/hiddenEffect gate runs on
+  Entity.Effects, instant arms route through the undead
+  inverted_healing_and_harm tag (heal 4<<amp / hurt 6<<amp swap on
+  undead), and trackers see the vanilla surface: entity-data particle
+  resends + update_attributes carrying the effect.speed modifier
+  (0.2*(amplifier+1), add_multiplied_total). Vanilla sends
+  update_mob_effect/remove_mob_effect only to passengers — mc-go now
+  drops the tracker broadcast for mobs. Duration fix from EffectCommands
+  bytecode: instantaneous effects take the duration arg raw (ticks,
+  not seconds) and default to a single tick, so stored instants expire
+  after one tick instead of lingering. mobEffectTickStep's world-entity
+  arm expires/downgrades mob instances like tickEffects. Fixed a real
+  wire bug found mid-pin: mobSyncAttrs had dropped the attribute-count
+  VarInt. TestEffectMobParity pins all of it byte-equal on both
+  servers (undead + normal instant arms, modifier amounts across
+  give/downgrade/clear, zero effect packets to trackers,
+  clear.everything.failed on an empty set).

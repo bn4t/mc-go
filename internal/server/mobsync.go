@@ -34,6 +34,7 @@ var mobSyncableSpeed = map[string]float64{
 	"villager":        0.5,
 	"pig":             0.25,
 	"zombie":          0.23000000417232513,
+	"husk":            0.23000000417232513,
 }
 
 func init() {
@@ -43,8 +44,10 @@ func init() {
 }
 
 // mobSyncAttrs builds update_attributes' body for a mob: one
-// movement_speed entry, no modifiers.
-func mobSyncAttrs(e *Entity) []byte {
+// movement_speed entry, carrying the effect.speed attribute modifier
+// while a live speed instance is active (vanilla's
+// SpeedEffect modifier is 0.2*(amplifier+1) add_multiplied_total).
+func mobSyncAttrs(e *Entity, now int64) []byte {
 	name, ok := EntityTypeName(e.Type)
 	if !ok {
 		return nil
@@ -53,17 +56,23 @@ func mobSyncAttrs(e *Entity) []byte {
 	if !ok {
 		return nil
 	}
+	var mods []attrModifier
+	if inst, ok := e.Effects[effectSpeed]; ok && (inst.expiry < 0 || inst.expiry > now) {
+		mods = append(mods, attrModifier{
+			key:    "minecraft:effect.speed",
+			amount: 0.2 * float64(inst.amplifier+1),
+			op:     2, // add_multiplied_total
+		})
+	}
 	var b protocol.Buffer
 	b.VarInt(e.ID)
-	b.VarInt(1)  // attribute count
-	b.VarInt(26) // minecraft:movement_speed registry id
-	b.Double(speed)
-	b.VarInt(0) // modifiers
+	b.VarInt(1)                            // attribute count — one movement_speed entry
+	writeAttrEntry(&b, 26, speed, mods...) // minecraft:movement_speed
 	return b.Bytes()
 }
 
 func (s *Server) broadcastMobAttrs(e *Entity) {
-	body := mobSyncAttrs(e)
+	body := mobSyncAttrs(e, s.clock.count)
 	if body == nil {
 		return
 	}

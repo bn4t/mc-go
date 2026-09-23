@@ -41,7 +41,11 @@ func (s *Server) runEffectGive(player string, args []string) reply {
 	if len(args) < 2 {
 		return errTokenEnd("command.unknown.command", len(args))
 	}
-	targets := s.resolveTargets(player, args[0])
+	sender := s.findSessionByName(player)
+	targets, rep := s.selectDataEntities(sender, args[0], 0, false)
+	if rep != nil {
+		return *rep
+	}
 	name := strings.TrimPrefix(args[1], "minecraft:")
 	id, ok := MobEffectID(name)
 	if !ok {
@@ -49,8 +53,13 @@ func (s *Server) runEffectGive(player string, args []string) reply {
 	}
 	// Seconds, then "infinite": vanilla parses the duration token as a
 	// resource first and accepts the literal "infinite" for -1 ticks.
-	seconds := int32(30)
+	// For instantaneous effects the arg is the tick count itself —
+	// giveEffect skips the *20, and the default is a single tick.
+	instant := id == effectInstantHealth || id == effectInstantDamage
 	ticks := int32(600)
+	if instant {
+		ticks = 1
+	}
 	if len(args) > 2 {
 		if args[2] == "infinite" {
 			ticks = -1
@@ -59,8 +68,10 @@ func (s *Server) runEffectGive(player string, args []string) reply {
 			if err != nil || n < 0 {
 				return errTokenEnd("command.unknown.argument", 2)
 			}
-			seconds = int32(n)
-			ticks = seconds * 20
+			ticks = int32(n)
+			if !instant {
+				ticks *= 20
+			}
 		}
 	}
 	amplifier := int32(0)
@@ -90,35 +101,28 @@ func (s *Server) runEffectGive(player string, args []string) reply {
 	// the whole command with give.failed.
 	applied := 0
 	for _, t := range targets {
-		now := s.clock.count
-		if e, live := sessEffect(t, id, now); live {
-			newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks)}
-			switch {
-			case amplifier > e.amplifier:
-				// fall through and apply
-			case amplifier == e.amplifier && shorterDur(e, newInst, now):
-				// duration update — apply
-			case amplifier < e.amplifier && shorterDur(e, newInst, now):
-				s.stashHiddenEffect(t, id, newInst)
-				s.applyInstantEffect(t, id, amplifier)
-				continue
-			default:
-				// Declined stores still run onEffectStarted — instant
-				// effects apply (measured: a shorter re-give heals
-				// while replying give.failed).
-				s.applyInstantEffect(t, id, amplifier)
-				continue
+		if t.sess != nil {
+			if s.playerGiveEffect(t.sess, id, amplifier, ticks, hideParticles) {
+				applied++
+			}
+		} else if t.mob != nil {
+			if s.mobGiveEffect(t.mob, id, amplifier, ticks, hideParticles) {
+				applied++
 			}
 		}
-		s.applyMobEffectFlags(t, id, amplifier, ticks, hideParticles)
-		applied++
 	}
 	if applied == 0 {
 		return componentReply(commandError("commands.effect.give.failed"))
 	}
 	if len(targets) == 1 {
+		var targetComp component
+		if targets[0].sess != nil {
+			targetComp = s.entityTargetComponent(targets[0].sess)
+		} else {
+			targetComp = targets[0].nameComp()
+		}
 		return componentReply(translatable("commands.effect.give.success.single",
-			effectArg(name), s.entityTargetComponent(targets[0])))
+			effectArg(name), targetComp))
 	}
 	return componentReply(translatable("commands.effect.give.success.multiple",
 		effectArg(name), nestedCompound{key: "", value: applied}))
@@ -133,26 +137,45 @@ func (s *Server) runEffectClear(player string, args []string) reply {
 			// clear <targets> <effect>
 		}
 	}
-	targets := s.resolveTargets(player, targetTok)
+	sender := s.findSessionByName(player)
+	targets, rep := s.selectDataEntities(sender, targetTok, 0, false)
+	if rep != nil {
+		return *rep
+	}
 	if len(targets) == 0 {
 		return errTokenEnd("command.unknown.argument", 0)
 	}
+	targetComp := func(d *dataEntity) component {
+		if d.sess != nil {
+			return s.entityTargetComponent(d.sess)
+		}
+		return d.nameComp()
+	}
+	now := s.clock.count
 	if len(args) == 0 {
 		// Strip everything; fails flat when nobody has an effect.
 		removed := 0
 		for _, t := range targets {
-			if sessEffectCount(t) == 0 {
-				continue
+			if t.sess != nil {
+				if sessEffectCount(t.sess) == 0 {
+					continue
+				}
+				s.clearMobEffects(t.sess)
+				removed++
+			} else if t.mob != nil {
+				if mobLiveEffectCount(t.mob, now) == 0 {
+					continue
+				}
+				s.mobClearAllEffects(t.mob)
+				removed++
 			}
-			s.clearMobEffects(t)
-			removed++
 		}
 		if removed == 0 {
 			return componentReply(commandError("commands.effect.clear.everything.failed"))
 		}
 		if len(targets) == 1 {
 			return componentReply(translatable("commands.effect.clear.everything.success.single",
-				s.entityTargetComponent(targets[0])))
+				targetComp(targets[0])))
 		}
 		return componentReply(translatable("commands.effect.clear.everything.success.multiple",
 			nestedCompound{key: "", value: removed}))
@@ -164,18 +187,26 @@ func (s *Server) runEffectClear(player string, args []string) reply {
 	}
 	removed := 0
 	for _, t := range targets {
-		if !sessHasEffect(t, id) {
-			continue
+		if t.sess != nil {
+			if !sessHasEffect(t.sess, id) {
+				continue
+			}
+			s.removeMobEffect(t.sess, id)
+			removed++
+		} else if t.mob != nil {
+			if !mobHasLiveEffect(t.mob, id, now) {
+				continue
+			}
+			s.mobClearEffect(t.mob, id)
+			removed++
 		}
-		s.removeMobEffect(t, id)
-		removed++
 	}
 	if removed == 0 {
 		return componentReply(commandError("commands.effect.clear.specific.failed"))
 	}
 	if len(targets) == 1 {
 		return componentReply(translatable("commands.effect.clear.specific.success.single",
-			effectArg(name), s.entityTargetComponent(targets[0])))
+			effectArg(name), targetComp(targets[0])))
 	}
 	return componentReply(translatable("commands.effect.clear.specific.success.multiple",
 		effectArg(name), nestedCompound{key: "", value: removed}))
