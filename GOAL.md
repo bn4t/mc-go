@@ -4585,3 +4585,51 @@ creepers, horse chest/container slots, guardian flop/beam,
 per-damage-type hurt variants, witch.drink, scoreboard objectives,
 region save, online mode, redstone, terrain gen, lighting, .dat
 persistence.
+
+## Slice 2026-09-23j — charged-creeper explosion riders + blast-lethal die() wiring
+
+javap on Creeper:
+- explodeCreeper: level.explode() → spawnLingeringCloud() →
+  triggerOnDeathMobEffects → discard — the explode packet lands BEFORE
+  the removal (ours sent remove first).
+- spawnLingeringCloud: getActiveEffects() non-empty → AreaEffectCloud
+  at the blast point, radius 2.5 / radiusOnUse -0.5 / waitTime 10 /
+  duration 300 / potionDurationScale 0.25 / radiusPerTick -2.5/300,
+  copying each MobEffectInstance.
+- killedEntity: shouldDropLoot (the CREEPER's own !baby && doMobLoot)
+  && isPowered && !droppedSkulls → victim.dropFromLootTable
+  (CHARGED_CREEPER, consumer sets droppedSkulls=true). The root loot
+  table routes on the victim's entity_type; zombie->zombie_head,
+  skeleton->skeleton_skull, creeper->creeper_head, piglin->piglin_head,
+  wither_skeleton->wither_skeleton_skull. One head max per creeper —
+  an unmapped victim never latches the flag.
+
+Found while implementing: explodePower damaged mobs with
+entities.Damage directly and never ran the lethal arm — explosion
+kills left mobs at Health 0 forever, no death event, no drops. Now
+res.Health<=0 → mobDie(silent on graced hits) → chargedCreeperSkull.
+Also entities.Item never serialized to data-NBT — added
+Item/PickupDelay on the item arm of entitySaveMap so `data get entity
+@e[type=item] Item.id` works.
+
+TestChargedCreeperParity (4 legs, green on both):
+powered-kill drops exactly one zombie_head; two victims in one blast
+still produce one head (droppedSkulls latch); unpowered blast kills
+the victim but drops nothing; an effect-carrying creeper leaves an
+area_effect_cloud while a clean one leaves none. Staging: NoAI
+everywhere (vanilla ignited creepers still pathfind), Health:1f
+victims so any impact is lethal regardless of blast-power math,
+creative player + `execute as @e[type=item] run data get entity @s
+Item.id` for the ground-item multiset (survival pickup races the
+assert).
+
+Cloud effect application on entities inside the radius is still open;
+the entity itself + its 10/300 countdown are in.
+
+Open items remaining: crossbow/piglin ranged variants
+(RangedCrossbowAttackGoal), RestrictSunGoal wander bias, summon
+armor-populate + enchantment rolls + drowned chance slots,
+area_effect_cloud effect application + cloud meta on the wire,
+horse chest/container slots, guardian flop/beam, per-damage-type
+hurt variants, witch.drink, scoreboard objectives, region save,
+online mode, redstone, terrain gen, lighting, .dat persistence.

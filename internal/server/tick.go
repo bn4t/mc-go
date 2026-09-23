@@ -276,6 +276,7 @@ func (s *Server) StopSprint() {
 // connection-tick work is deliberately not here: see playerTick.
 func (s *Server) GameTick() {
 	s.itemTickStep()
+	s.cloudTickStep()
 	s.tntTickStep()
 	s.mobItemPickupStep()
 	s.mobTickStep()

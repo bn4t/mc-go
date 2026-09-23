@@ -136,6 +136,16 @@ type Entity struct {
 	BlastPower int32
 	Powered    bool
 	Ignited    bool
+	// DroppedSkulls latches after the powered creeper's blast
+	// produces its first skull — killedEntity's CHARGED_CREEPER
+	// loot-table drop runs once per creeper.
+	DroppedSkulls bool
+	// AreaEffectCloud state: CloudWait is the 10-tick pre-activation
+	// pause (setWaitTime), CloudDuration the 300-tick lifetime to
+	// discard (setDuration). The copied potion contents ride in
+	// Effects.
+	CloudWait     int32
+	CloudDuration int32
 	// Passengers holds the entity ids riding this entity (vanilla's
 	// passengers list); Riding is the vehicle id on the passenger.
 	Passengers []int32

@@ -185,21 +185,7 @@ func (s *Server) spawnMobLoot(e *Entity, killer *Session) {
 		smelts = held.enchLevel("fire_aspect") > 0
 	}
 	spawnItem := func(item string, count int32) {
-		id, ok := world.ItemID(item)
-		if !ok || count <= 0 {
-			return
-		}
-		it := s.entities.Spawn(&Entity{
-			Type:        mustEntityType("item"),
-			Dim:         e.Dim,
-			X:           e.X,
-			Y:           e.Y + 0.25,
-			Z:           e.Z,
-			Item:        ItemStack{ID: id, Count: count},
-			PickupDelay: 10,
-		})
-		s.broadcastEntitySpawn(nil, *it)
-		s.broadcastEntityMetadata(it.ID, encodeItemMetadata(it.Item))
+		s.spawnMobItem(e, item, count)
 	}
 	for _, p := range mobLoot[name] {
 		if p.playerKill && !byPlayer {
@@ -234,6 +220,27 @@ func (s *Server) spawnMobLoot(e *Entity, killer *Session) {
 			spawnItem(item, count)
 		}
 	}
+}
+
+// spawnMobItem drops one item stack at the mob's position — vanilla's
+// spawnAtLocation: the entity lands 0.25 above the feet with the
+// standard 10-tick pickup delay.
+func (s *Server) spawnMobItem(e *Entity, item string, count int32) {
+	id, ok := world.ItemID(item)
+	if !ok || count <= 0 {
+		return
+	}
+	it := s.entities.Spawn(&Entity{
+		Type:        mustEntityType("item"),
+		Dim:         e.Dim,
+		X:           e.X,
+		Y:           e.Y + 0.25,
+		Z:           e.Z,
+		Item:        ItemStack{ID: id, Count: count},
+		PickupDelay: 10,
+	})
+	s.broadcastEntitySpawn(nil, *it)
+	s.broadcastEntityMetadata(it.ID, encodeItemMetadata(it.Item))
 }
 
 // mobXP is the experience orb count range for each mob, and hostile
@@ -2244,9 +2251,99 @@ func (s *Server) explodeCreeper(e *Entity) {
 	if e.Powered {
 		power *= 2
 	}
+	s.explodePower(e, e.X, e.Y, e.Z, power, s.gameRuleBool("minecraft:mob_griefing"))
+	s.spawnLingeringCloud(e)
 	s.entities.Remove(e.ID)
 	s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
-	s.explodePower(e, e.X, e.Y, e.Z, power, s.gameRuleBool("minecraft:mob_griefing"))
+}
+
+// spawnLingeringCloud is Creeper.explodeCreeper's effect rider: a
+// creeper carrying active potion effects leaves an AreaEffectCloud at
+// the blast point — radius 2.5 shrinking to zero over the 300-tick
+// duration, 10-tick wait, potionDurationScale 0.25, and a copy of
+// each active effect.
+func (s *Server) spawnLingeringCloud(e *Entity) {
+	if len(e.Effects) == 0 {
+		return
+	}
+	cloudType, ok := EntityTypeID("area_effect_cloud")
+	if !ok {
+		return
+	}
+	effects := make(map[int32]mobEffectInst, len(e.Effects))
+	for id, inst := range e.Effects {
+		effects[id] = inst
+	}
+	cloud := s.entities.Spawn(&Entity{
+		Type:          cloudType,
+		Dim:           e.Dim,
+		X:             e.X,
+		Y:             e.Y,
+		Z:             e.Z,
+		CloudWait:     10,
+		CloudDuration: 300,
+		Effects:       effects,
+	})
+	s.broadcastEntitySpawn(nil, *cloud)
+}
+
+// chargedCreeperHeads is the CHARGED_CREEPER loot table's victim→head
+// map (minecraft:charged_creeper/root.json, 26.2 datapack).
+var chargedCreeperHeads = map[string]string{
+	"creeper":         "creeper_head",
+	"skeleton":        "skeleton_skull",
+	"zombie":          "zombie_head",
+	"piglin":          "piglin_head",
+	"wither_skeleton": "wither_skeleton_skull",
+}
+
+// chargedCreeperSkull is Creeper.killedEntity's rider: a powered
+// creeper whose explosion kills a mapped victim drops that victim's
+// head at the victim's position, once per creeper (droppedSkulls).
+// shouldDropLoot — the creeper's own !baby && doMobLoot — gates it.
+func (s *Server) chargedCreeperSkull(src, victim *Entity) {
+	cn, ok := EntityTypeName(src.Type)
+	if !ok || cn != "creeper" || !src.Powered || src.DroppedSkulls {
+		return
+	}
+	if src.Baby || !s.gameRuleBool("minecraft:mob_drops") {
+		return
+	}
+	vn, ok := EntityTypeName(victim.Type)
+	if !ok {
+		return
+	}
+	head, ok := chargedCreeperHeads[vn]
+	if !ok {
+		return
+	}
+	s.spawnMobItem(victim, head, 1)
+	src.DroppedSkulls = true
+}
+
+// cloudTickStep advances AreaEffectCloud entities: the waitTime
+// countdown runs first, then the duration — at zero the cloud
+// discards. Effect application on entities inside the shrinking
+// radius is a follow-up.
+func (s *Server) cloudTickStep() {
+	for _, e := range s.entities.All() {
+		if e.CloudDuration <= 0 {
+			continue
+		}
+		ep, ok := s.entities.GetPtr(e.ID)
+		if !ok {
+			continue
+		}
+		if ep.CloudWait > 0 {
+			ep.CloudWait--
+			continue
+		}
+		ep.CloudDuration--
+		if ep.CloudDuration == 0 {
+			s.entities.Remove(ep.ID)
+			s.broadcastEntityRemoveIn(ep.Dim, nil, []int32{ep.ID})
+		}
+	}
 }
 
 // mobHoldsBow is vanilla's isHoldingBow check on the main-hand stack.

@@ -202,7 +202,15 @@ func (s *Server) explodePower(src *Entity, x, y, z float64, radius float32, grie
 			continue
 		}
 		dmg := float32((impact*impact+impact)/2*7*float64(radius) + 1)
-		s.mobHurtWireFX(e, s.entities.Damage(e.ID, dmg, "explosion", 0))
+		res := s.entities.Damage(e.ID, dmg, "explosion", 0)
+		s.mobHurtWireFX(e, res)
+		if res.Health <= 0 {
+			// hurtServer's lethal arm: die() (silent on a graced
+			// hit), then the killer's killedEntity — a powered
+			// creeper banks the victim's head.
+			s.mobDie(e, nil, res.Graced)
+			s.chargedCreeperSkull(src, e)
+		}
 		pushedMobs = append(pushedMobs, struct {
 			eid int32
 			kb  [3]float64

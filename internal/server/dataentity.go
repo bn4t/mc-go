@@ -536,6 +536,12 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 	if len(equipMob) > 0 {
 		m["equipment"] = equipMob
 	}
+	if typeName == "item" && !e.Item.Empty() {
+		// ItemEntity.addAdditionalSaveData: the carried stack and the
+		// pickup-delay countdown; Owner/Thrower only serialize when set.
+		m["Item"] = itemNBT(e.Item)
+		m["PickupDelay"] = int16(e.PickupDelay)
+	}
 	if items := mobAttrPack(e, typeName); len(items) > 0 {
 		m["attributes"] = nbt.List{Elem: nbt.TagCompound, Items: items}
 	}
