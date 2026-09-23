@@ -173,6 +173,12 @@ type Entity struct {
 	// AttrMods holds modifiers as attr -> modifier id -> modifier.
 	AttrBase map[string]float64
 	AttrMods map[string]map[string]attrMod
+	// AttrTouched is the lazy AttributeMap membership: vanilla only
+	// packs attribute instances that were getInstance'd at least once
+	// — summon reads movement_speed for every living mob, setTame
+	// re-asserts tamable max_health, and a non-NoAI Mob.finalizeSpawn
+	// rolls the spawn bonuses.
+	AttrTouched map[string]bool
 	// NoAI (from the summon NBT) freezes gravity and wander like
 	// vanilla's Mob.NoAi flag — the entity still takes knockback.
 	NoAI      bool
@@ -472,6 +478,16 @@ func (m *Manager) SetDying(id int32) {
 }
 
 // Remove deletes an entity, reporting whether it existed.
+// markAttrTouched adds an attribute instance to the lazy map — the
+// summon touches and every /attribute or attribute-list write go
+// through here so `data get attributes` mirrors vanilla's pack.
+func (e *Entity) markAttrTouched(name string) {
+	if e.AttrTouched == nil {
+		e.AttrTouched = map[string]bool{}
+	}
+	e.AttrTouched[name] = true
+}
+
 // markEquipDelta flags one wire equipment slot for the next
 // detectEquipmentUpdates flush.
 func (e *Entity) markEquipDelta(slot byte) {

@@ -488,7 +488,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		}
 	}
 	name := strings.TrimPrefix(args[0], "minecraft:")
-	if e, ok := s.summonMobRaw(sess.dimension(), name, x, y, z, noAI); ok {
+	if e, ok := s.summonMobRaw(sess.dimension(), name, x, y, z, noAI, tag == nil); ok {
 		if tag != nil {
 			if v, ok := tag.vals["CanPickUpLoot"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
 				e.CanPickUpLoot = true
@@ -910,6 +910,10 @@ func (s *Server) entityIDByUUID(u [16]byte) int32 {
 // summonMob spawns one living entity at pos in dimension d and fans it
 // out with its health metadata. Unknown entity types are rejected.
 func (s *Server) summonMob(d *dimension, name string, x, y, z float64, noAI bool) (*Entity, bool) {
+	return s.summonMobInit(d, name, x, y, z, noAI, true)
+}
+
+func (s *Server) summonMobInit(d *dimension, name string, x, y, z float64, noAI, init bool) (*Entity, bool) {
 	id, ok := EntityTypeID(name)
 	if !ok {
 		return nil, false
@@ -929,6 +933,7 @@ func (s *Server) summonMob(d *dimension, name string, x, y, z float64, noAI bool
 		MaxHealth: health,
 		NoAI:      noAI,
 	})
+	summonAttrTouches(e, name, init)
 	s.broadcastFreshMob(e)
 	return e, true
 }
@@ -936,7 +941,7 @@ func (s *Server) summonMob(d *dimension, name string, x, y, z float64, noAI bool
 // summonMobRaw is summonMob without the broadcast: the caller applies
 // summon NBT first so the tracker-attach burst carries the final
 // metadata and equipment. summonMob stays for callers with no NBT.
-func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI bool) (*Entity, bool) {
+func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, init bool) (*Entity, bool) {
 	id, ok := EntityTypeID(name)
 	if !ok {
 		return nil, false
@@ -968,6 +973,7 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI b
 		}
 		e.VillagerProfDefault = e.VillagerProfID
 	}
+	summonAttrTouches(e, name, init)
 	return e, true
 }
 

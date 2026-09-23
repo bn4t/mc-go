@@ -53,6 +53,37 @@ var playerAttrBases = map[string]float64{
 	"waypoint_transmit_range":        0,
 }
 
+// livingAttrBases is vanilla's LivingEntity.createLivingAttributes()
+// supplier — every living entity carries it, then a per-type builder
+// adds/overrides. Only attributes with a non-zero vanilla default
+// carry their value; the rest exist (has=true) at default 0/1.
+var livingAttrBases = map[string]float64{
+	"max_health":                     20,
+	"knockback_resistance":           0,
+	"movement_speed":                 0.7,
+	"armor":                          0,
+	"armor_toughness":                0,
+	"max_absorption":                 0,
+	"step_height":                    0.6,
+	"scale":                          1,
+	"gravity":                        0.08,
+	"safe_fall_distance":             3,
+	"fall_damage_multiplier":         1,
+	"jump_strength":                  0.41999998688697815,
+	"entity_interaction_range":       3,
+	"oxygen_bonus":                   0,
+	"water_movement_efficiency":      0,
+	"movement_efficiency":            0,
+	"burning_time":                   1,
+	"explosion_knockback_resistance": 0,
+	"bounciness":                     0,
+	"name_tag_distance":              64,
+	"below_name_distance":            0,
+	"camera_distance":                4,
+	"waypoint_transmit_range":        0,
+	"air_drag_modifier":              0,
+}
+
 // mobAttrBases are the per-type attribute tables for the mobs the
 // sandbox can summon; vanilla's per-type DefaultAttributes builders.
 var mobAttrBases = map[string]map[string]float64{
@@ -386,6 +417,11 @@ func (s *Server) attrInstance(t *dataEntity, name string) (e *Entity, base float
 		table = mobAttrBases[n]
 	}
 	base, has = table[name]
+	if !has {
+		if v, ok2 := livingAttrBases[name]; ok2 && (t.sess != nil || e.Living) {
+			base, has = v, true
+		}
+	}
 	if v, ok := e.AttrBase[name]; ok {
 		base, has = v, true
 	}
@@ -488,10 +524,12 @@ func (s *Server) runAttribute(player string, args []string) reply {
 				e.AttrBase = map[string]float64{}
 			}
 			e.AttrBase[short] = v
+			e.markAttrTouched(short)
 			return componentReply(translatable("commands.attribute.base_value.set.success",
 				attrComp, nameArg, nestedCompound{key: "", value: v}))
 		case "reset":
 			delete(e.AttrBase, short)
+			e.markAttrTouched(short)
 			def := base
 			if t.sess != nil {
 				def = playerAttrBases[short]
@@ -543,6 +581,7 @@ func (s *Server) runAttribute(player string, args []string) reply {
 					nestedCompound{key: "", value: id}, attrComp, nameArg))
 			}
 			mods[id] = attrMod{value: v, op: op}
+			e.markAttrTouched(short)
 			return componentReply(translatable("commands.attribute.modifier.add.success",
 				nestedCompound{key: "", value: id}, attrComp, nameArg))
 		case "remove":
@@ -556,6 +595,7 @@ func (s *Server) runAttribute(player string, args []string) reply {
 					attrComp, nameArg, nestedCompound{key: "", value: id}))
 			}
 			delete(mods, id)
+			e.markAttrTouched(short)
 			return componentReply(translatable("commands.attribute.modifier.remove.success",
 				nestedCompound{key: "", value: id}, attrComp, nameArg))
 		case "value":

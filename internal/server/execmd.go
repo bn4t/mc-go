@@ -1535,7 +1535,7 @@ func (s *Server) executeSummon(ctx *executeContext, player string, args []string
 		return errTokenEnd("command.unknown.command", tokBase+len(args))
 	}
 	name := strings.TrimPrefix(normalizeItemName(args[0]), "minecraft:")
-	e, ok := s.summonMobRaw(ctx.dim, name, ctx.pos[0], ctx.pos[1], ctx.pos[2], false)
+	e, ok := s.summonMobRaw(ctx.dim, name, ctx.pos[0], ctx.pos[1], ctx.pos[2], false, true)
 	if !ok {
 		return errTokenEnd("argument.resource.not_found", tokBase, args[0], "minecraft:entity_type")
 	}

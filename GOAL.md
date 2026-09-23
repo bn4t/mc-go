@@ -4155,3 +4155,34 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   starts at 2 — "entity 1 is the player" assumed a single player).
   Failed identically before and after the sound-range change —
   pre-existing, needs a mid-recharge swing-formula measurement slice.
+
+## Slice 2026-09-19d — `attributes` save-pack (touched-instance set)
+
+`data get entity X attributes` now emits the lazy AttributeMap's
+touched set, matching vanilla's pack semantics measured on 26.2:
+
+- Every /summon touches `movement_speed`; tamables (wolf) also touch
+  `max_health` via the setTame side effect.
+- `Mob.finalizeSpawn` runs ONLY when the summon carried no NBT arg
+  (`SummonCommand` passes init=true for the bare form, false for the
+  NBT form — any tag, even `{Tags:[a]}`, suppresses the rolls).
+  finalizeSpawn touches `follow_range` + a `random_spawn_bonus`
+  `add_multiplied_base` triangle(0,0.11485) roll for types whose
+  supplier carries it (wolf 16, pig 16, skeleton 16, zombie-family 35),
+  and `Zombie.handleAttributes` adds `spawn_reinforcements` base
+  (rand*0.1) + `knockback_resistance` `add_value` (rand*0.05) for
+  zombie/husk/zombie_villager.
+- `/attribute` writes and `data merge` attribute lists join the pack;
+  the merge now also APPLIES the packed list (it was silently dropped).
+- `livingAttrBases` mirrors LivingEntity.createLivingAttributes so
+  `/attribute` accepts the shared living supplier (e.g. armor on pig).
+- Pack order on vanilla is fastutil identity-hash order — unstable
+  across JVM runs — so the test compares normalized sets and masks the
+  random amounts.
+
+Pinned by TestAttrSavePackParity (12 legs, both servers). Test-side:
+`data get` replies are fragmented styled `text` fields — chatTextPieces
+reconstructs the SNBT before parsing.
+
+Known flake fixed mid-run: the test's own SNBT list parser could loop
+unbounded at EOF — capped loops + anchored parse now.

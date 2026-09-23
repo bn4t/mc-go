@@ -536,10 +536,8 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 	if len(equipMob) > 0 {
 		m["equipment"] = equipMob
 	}
-	if speed, ok := mobSyncableSpeed[typeName]; ok {
-		m["attributes"] = nbt.List{Elem: nbt.TagCompound, Items: []any{
-			map[string]any{"id": "minecraft:movement_speed", "base": speed},
-		}}
+	if items := mobAttrPack(e, typeName); len(items) > 0 {
+		m["attributes"] = nbt.List{Elem: nbt.TagCompound, Items: items}
 	}
 	// LivingEntity.save adds active_effects after attributes; it is
 	// absent entirely when the effect map is empty.
@@ -662,6 +660,11 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			e.AttrBase["max_health"] = wild
 		}
 	}
+	// attributes:[{id,base,modifiers?}] — AttributeInstance.apply
+	// writes baseValue directly (no clamp, no dirty) and replaces the
+	// permanent modifier set outright; each entry also creates the
+	// instance, so it joins the touched set.
+	applyPackedAttrs(e, save["attributes"])
 	if v, ok := nbtFloat(save["Health"]); ok {
 		// setHealth clamps to [0, getMaxHealth] — the attribute's
 		// effective value — so a merged {Health:0f} marks the mob
