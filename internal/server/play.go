@@ -494,8 +494,8 @@ func (s *Server) sendAbilities(sess *Session) error {
 func (s *Server) sendJoinGame(sess *Session) error {
 	var b protocol.Buffer
 	b.Int(sess.entityID.Load()) // entity id — vanilla sends the real one
-	b.Bool(false) // hardcore
-	b.VarInt(3)   // dimension names, in vanilla's Join Game order
+	b.Bool(false)               // hardcore
+	b.VarInt(3)                 // dimension names, in vanilla's Join Game order
 	b.String("minecraft:overworld")
 	b.String("minecraft:the_end")
 	b.String("minecraft:the_nether")
