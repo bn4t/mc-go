@@ -4550,3 +4550,38 @@ container slots, guardian flop/beam, per-damage-type hurt variants,
 witch.drink, zombie->drowned equipment copy edge cases, scoreboard
 objectives, region save, online mode, redstone, terrain gen,
 lighting, .dat persistence.
+
+## Slice 2026-09-23i — stray/bogged tipped arrows
+
+Stray.getArrow and Bogged.getArrow (javap-measured) each addEffect on
+the released arrow: MobEffectInstance(SLOWNESS, 600) and
+MobEffectInstance(POISON, 100). Arrow.customEffects lands in
+potion_contents.custom_effects; on a hurting hit forEachEffect runs
+at the stack's potion_duration_scale — a mob-built stack has no such
+component, so victims get the FULL duration (stray slowness is the
+long 30s shot).
+
+Entity.arrowEffects carries the pair; projectileCollide applies them
+to mob hits (mobAddEffect) and player hits (playerGiveEffect →
+update_mob_effect) only when the hit dealt damage. The arrow's
+DATA_ID_EFFECT_COLOR (meta idx 9, int serializer) is emitted after
+spawn — slowness 9154528, poison 8889187.
+
+Test wrinkle measured on vanilla: `summon stray ~8 ~ ~ {}` with an
+explicit empty compound arrives BARE-HANDED and melee-walks the
+player, while `summon stray ~8 ~ ~` (no NBT) gets the populate bow —
+an explicit-NBT summon skips something in vanilla's finalizeSpawn
+worth a follow-up pin.
+
+TestTippedArrowParity pins arrows>0 + update_mob_effect(id=1,dur=600)
+for stray, (id=18,dur=100) for bogged, and no effect packet at all
+for a plain skeleton — green on both servers.
+
+Open items remaining: crossbow/piglin ranged variants
+(RangedCrossbowAttackGoal), RestrictSunGoal wander bias, summon
+armor-populate + enchantment rolls + drowned chance slots,
+charged-creeper skull drops, spawnLingeringCloud for effect-carrying
+creepers, horse chest/container slots, guardian flop/beam,
+per-damage-type hurt variants, witch.drink, scoreboard objectives,
+region save, online mode, redstone, terrain gen, lighting, .dat
+persistence.

@@ -2455,10 +2455,50 @@ func (s *Server) mobShootArrow(e *Entity, tx, ty, tz float64) {
 	})
 	ae.arrowShooter = e.ID
 	ae.arrowWeapon = "bow"
+	// Stray/Bogged getArrow each addEffect on the fresh arrow —
+	// slowness 600 / poison 100 ticks, applied at full strength on
+	// hit (mob arrows carry no potion_duration_scale).
+	kn, _ := EntityTypeName(e.Type)
+	switch kn {
+	case "stray":
+		if id, ok := MobEffectID("slowness"); ok {
+			ae.arrowEffects = []arrowEffect{{id, 600}}
+		}
+	case "bogged":
+		if id, ok := MobEffectID("poison"); ok {
+			ae.arrowEffects = []arrowEffect{{id, 100}}
+		}
+	}
 	s.broadcastEntitySpawn(nil, *ae)
+	if len(ae.arrowEffects) > 0 {
+		// Arrow.DATA_ID_EFFECT_COLOR (idx 9, int): the customEffects
+		// blend — vanilla sends it with the first sync.
+		var mb protocol.Buffer
+		mb.VarInt(ae.ID)
+		mb.Byte(9)
+		mb.Byte(1) // type: int (varint)
+		mb.VarInt(arrowEffectColor(ae.arrowEffects))
+		s.broadcastEntityMetadata(ae.ID, mb.Bytes())
+	}
 	// entity.skeleton.shoot — the bow-release sound the mob plays,
 	// source HOSTILE (SoundSource 5).
 	s.playSoundSrc(e.Dim, e.X, eyeY, e.Z, 1491, 5, 1, 1, nil)
+}
+
+// arrowEffectColor is PotionContents.getColor — with a single custom
+// effect it's the effect's own mob-effect color.
+var arrowEffectColors = map[int32]int32{
+	// slowness 9154528, poison 8889187 — MobEffects constants.
+	1: 9154528, 18: 8889187,
+}
+
+func arrowEffectColor(effs []arrowEffect) int32 {
+	for _, e := range effs {
+		if c, ok := arrowEffectColors[e.id]; ok {
+			return c
+		}
+	}
+	return -1
 }
 
 // mobPostAttack is the post-damage tail of vanilla's doHurtTarget

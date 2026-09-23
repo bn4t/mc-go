@@ -301,6 +301,11 @@ type Entity struct {
 	// canonical "name:level" encoding — the channeling check reads it
 	// on hit, matching vanilla's copy of the ItemStack into the entity.
 	tridentEnch string
+	// arrowEffects is Arrow's customEffects list — the stray/bogged
+	// potion shots each addEffect on the arrow; on a hit they apply
+	// at full duration (a mob-made arrow stack carries no
+	// potion_duration_scale component, so forEachEffect runs at 1.0).
+	arrowEffects []arrowEffect
 	// arrowStuck marks an arrow embedded in a block: it stops
 	// moving and colliding until it despawns, like vanilla's
 	// inGround state.
@@ -920,4 +925,11 @@ func angleByte(deg float32) byte {
 		v += 256
 	}
 	return byte(v)
+}
+
+// arrowEffect is one custom potion instance on an arrow —
+// (mob_effect id, tick duration).
+type arrowEffect struct {
+	id  int32
+	dur int32
 }

@@ -397,6 +397,9 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 				direct:   e.ID,
 			})
 			if dealt > 0 {
+				for _, eff := range e.arrowEffects {
+					mobAddEffect(t, eff.id, 0, s.gameTime()+int64(eff.dur))
+				}
 				if shooter != nil {
 					s.firePlayerHurtEntity(shooter, typeName, true, damage, "", false)
 					if died {
@@ -442,13 +445,21 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 				})
 				if dealt > 0 {
 					s.firePlayerHurtEntity(shooter, typeName, true, damage, "", false)
+					for _, eff := range e.arrowEffects {
+						s.playerGiveEffect(sess, eff.id, 0, eff.dur, false)
+					}
 				}
 			} else {
-				s.damageWith(sess, damage, translatable("death.attack."+typeName,
+				dealt := s.damageWith(sess, damage, translatable("death.attack."+typeName,
 					literal(sess.getName())), damageSource{
 					typeName: typeName,
 					direct:   e.ID,
 				})
+				if dealt > 0 {
+					for _, eff := range e.arrowEffects {
+						s.playerGiveEffect(sess, eff.id, 0, eff.dur, false)
+					}
+				}
 			}
 		}
 		return true
