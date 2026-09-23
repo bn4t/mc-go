@@ -91,6 +91,15 @@ type Entity struct {
 	AngryAt     [16]byte
 	AngryUntil  int64
 	nextAlertAt int64
+	// RangedBowAttackGoal state for the AbstractSkeleton family:
+	// seeTime walks up/down on line of sight, attackTime is the
+	// draw-restart cooldown, drawTicks counts the 20-tick pull.
+	rangedSee    int32
+	rangedStrafe int32
+	rangedAttack int32
+	rangedDraw   int32
+	rangedCW     bool
+	rangedBack   bool
 	// Passengers holds the entity ids riding this entity (vanilla's
 	// passengers list); Riding is the vehicle id on the passenger.
 	Passengers []int32

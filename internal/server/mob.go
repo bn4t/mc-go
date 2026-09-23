@@ -729,6 +729,10 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 
 		}
+		// Vanilla's /summon runs finalizeSpawn after the NBT load —
+		// populateDefaultEquipmentSlots fills an empty mainhand with
+		// the type's natural weapon. Explicit equipment NBT wins.
+		mobDefaultEquip(e)
 		s.broadcastFreshMob(e)
 		return componentReply(translatable("commands.summon.success", entityDisplayName(e)))
 	}
@@ -1472,8 +1476,21 @@ func (s *Server) mobTickStep() {
 			// A passenger stays put — vanilla's entity rider has no
 			// gravity or wander of its own. Hostile melee mobs chase
 			// the nearest player and swing on a vanilla-paced cooldown;
-			// a successful chase replaces the wander step.
-			if mobMelee[e.Type] && s.mobMeleeStep(e) {
+			// a successful chase replaces the wander step. Bow-armed
+			// AbstractSkeletons run RangedBowAttackGoal; bare-handed
+			// ones fall back to MeleeAttackGoal — neither is in
+			// mobMelee, so they're dispatched by name here.
+			var goalActed bool
+			if mobRanged[ambName] {
+				if s.mobHoldsBow(e) {
+					goalActed = s.mobRangedStep(e)
+				} else {
+					goalActed = s.mobMeleeStep(e)
+				}
+			} else if mobMelee[e.Type] {
+				goalActed = s.mobMeleeStep(e)
+			}
+			if goalActed {
 				s.mobSyncFlush(e)
 				continue
 			}
@@ -1624,14 +1641,12 @@ func mobMeleeDamage(name string) float32 {
 // blocks per tick (movementSpeed attribute 0.23).
 const mobChaseSpeed = 0.23
 
-// mobMeleeStep runs one hostile-melee tick: chase the nearest living
-// survival player inside follow range; within reach, swing (the animate
-// broadcast) and land attackDamage on the vanilla 20-tick cooldown.
-// Reports whether the mob had a target — true replaces wander.
-func (s *Server) mobMeleeStep(e *Entity) bool {
+// nearestMobTarget picks the nearest survival-mode session inside the
+// mob's follow_range — the shared pick for the melee and ranged goals.
+// Neutral mobs only see the player they're angry at; spiders also see
+// everyone when the eye block is dark.
+func (s *Server) nearestMobTarget(e *Entity, kn string) *Session {
 	var target *Session
-	kn, _ := EntityTypeName(e.Type)
-	dmg := mobMeleeDamage(kn)
 	// Vanilla's MeleeAttackGoal targets inside followRange — the
 	// generated supplier base (35 for the zombie family, 16 spider).
 	best := 35.0 * 35.0
@@ -1667,6 +1682,17 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 		}
 		return true
 	})
+	return target
+}
+
+// mobMeleeStep runs one hostile-melee tick: chase the nearest living
+// survival player inside follow range; within reach, swing (the animate
+// broadcast) and land attackDamage on the vanilla 20-tick cooldown.
+// Reports whether the mob had a target — true replaces wander.
+func (s *Server) mobMeleeStep(e *Entity) bool {
+	kn, _ := EntityTypeName(e.Type)
+	dmg := mobMeleeDamage(kn)
+	target := s.nearestMobTarget(e, kn)
 	if target == nil {
 		return false
 	}
@@ -1712,6 +1738,227 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 		}
 	}
 	return true
+}
+
+// mobRanged is the AbstractSkeleton family: with a bow in mainhand
+// they run RangedBowAttackGoal, bare-handed they run MeleeAttackGoal
+// (reassessWeaponGoal swaps the two on equipment change).
+var mobRanged = map[string]bool{
+	"skeleton": true,
+	"stray":    true,
+	"bogged":   true,
+}
+
+// mobHoldsBow is vanilla's isHoldingBow check on the main-hand stack.
+func (s *Server) mobHoldsBow(e *Entity) bool {
+	bow, ok := world.ItemID("bow")
+	return ok && e.Equips[equipMainHand].ID == bow
+}
+
+// mobDefaultEquip runs the unconditional mainhand half of vanilla's
+// populateDefaultEquipmentSlots: on /summon (finalizeSpawn), these
+// mobs draw their natural weapon when the hand is still empty.
+// Chance rolls verified against 26.2 bytecode; the armor-populate and
+// enchantment steps are a follow-up.
+func mobDefaultEquip(e *Entity) {
+	if e.Baby || !e.Equips[equipMainHand].Empty() {
+		return
+	}
+	name, _ := EntityTypeName(e.Type)
+	var item string
+	switch name {
+	case "skeleton", "stray", "bogged":
+		item = "bow"
+	case "zombified_piglin":
+		if rand.Intn(20) == 0 {
+			item = "golden_spear"
+		} else {
+			item = "golden_sword"
+		}
+	case "wither_skeleton":
+		item = "stone_sword"
+	case "pillager":
+		item = "crossbow"
+	case "piglin_brute":
+		item = "golden_axe"
+	case "vindicator":
+		item = "iron_axe"
+	case "piglin":
+		if rand.Intn(2) == 0 {
+			item = "crossbow"
+		} else if rand.Intn(10) == 0 {
+			item = "golden_spear"
+		} else {
+			item = "golden_sword"
+		}
+	default:
+		return
+	}
+	if iid, ok := world.ItemID(item); ok {
+		if e.Equips == nil {
+			e.Equips = map[int32]ItemStack{}
+		}
+		e.Equips[equipMainHand] = ItemStack{ID: iid, Count: 1}
+	}
+}
+
+// mobRangedStep runs RangedBowAttackGoal's tick: approach while the
+// target is outside the 15-block attack radius or unseen 20 ticks,
+// then navigation.stop and strafe; a draw pulls for 20 ticks and
+// releases one arrow, and the next draw waits the attack interval —
+// 40 ticks on normal (AbstractSkeleton.getAttackInterval), 20 hard.
+func (s *Server) mobRangedStep(e *Entity) bool {
+	kn, _ := EntityTypeName(e.Type)
+	target := s.nearestMobTarget(e, kn)
+	if target == nil {
+		return false
+	}
+	px, py, pz, _, _, _ := target.Pos()
+	dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
+	d2 := dx*dx + dy*dy + dz*dz
+	// hasLineOfSight on the flat harness world is always clear.
+	los := true
+	if los != (e.rangedSee > 0) {
+		e.rangedSee = 0
+	}
+	if los {
+		e.rangedSee++
+	} else {
+		e.rangedSee--
+	}
+	dist := math.Hypot(dx, dz)
+	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	e.HeadYaw = e.Yaw
+	const radius2 = 15.0 * 15.0
+	speed := mobChaseSpeed
+	if mv, ok := entityAttrBases[kn]["movement_speed"]; ok {
+		speed = mv
+	}
+	if d2 <= radius2 && e.rangedSee >= 20 {
+		e.rangedStrafe++
+	} else if dist > 0 {
+		step := speed
+		if step > dist*0.8 {
+			step = dist * 0.8
+		}
+		e.X += dx / dist * step
+		e.Z += dz / dist * step
+		e.rangedStrafe = -1
+	}
+	if e.rangedStrafe >= 20 {
+		if rand.Float32() < 0.3 {
+			e.rangedCW = !e.rangedCW
+		}
+		if rand.Float32() < 0.3 {
+			e.rangedBack = !e.rangedBack
+		}
+		e.rangedStrafe = 0
+	}
+	if e.rangedStrafe > -1 && dist > 0 {
+		if d2 > radius2*0.75 {
+			e.rangedBack = false
+		}
+		if d2 < radius2*0.25 {
+			e.rangedBack = true
+		}
+		nx, nz := dx/dist, dz/dist
+		sgn := 1.0
+		if !e.rangedCW {
+			sgn = -1
+		}
+		// moveControl.strafe(±0.5 sideways, ±0.5 forward) — the
+		// diagonal input normalizes to a speed-length step.
+		f := 0.5
+		if e.rangedBack {
+			f = -0.5
+		}
+		vx := -nz*sgn*0.5 + nx*f
+		vz := nx*sgn*0.5 + nz*f
+		if m := math.Hypot(vx, vz); m > 0 {
+			e.X += vx / m * speed
+			e.Z += vz / m * speed
+		}
+	}
+	if e.rangedDraw > 0 {
+		e.rangedDraw++
+		if e.rangedDraw > 20 && los {
+			e.rangedDraw = 0
+			s.broadcastLivingUse(e, false)
+			s.mobShootArrow(e, px, py, pz)
+			e.rangedAttack = s.rangedAttackInterval()
+		}
+		return true
+	}
+	e.rangedAttack--
+	if e.rangedAttack <= 0 && e.rangedSee >= -60 {
+		e.rangedDraw = 1
+		s.broadcastLivingUse(e, true)
+	}
+	return true
+}
+
+// rangedAttackInterval is AbstractSkeleton's goal interval: 20 ticks
+// on hard difficulty, 40 otherwise.
+func (s *Server) rangedAttackInterval() int32 {
+	if s.difficulty == DifficultyHard {
+		return 20
+	}
+	return 40
+}
+
+// broadcastLivingUse writes the LivingEntity index-8 byte — bit 0x01
+// "hand active" sets while a bow draw runs, cleared on release.
+func (s *Server) broadcastLivingUse(e *Entity, active bool) {
+	var v byte
+	if active {
+		v = 0x01
+	}
+	var b protocol.Buffer
+	b.Byte(8) // index: living entity flags
+	b.Byte(0) // type: byte
+	b.Byte(v)
+	b.Byte(0xFF)
+	s.broadcastEntityMetadata(e.ID, b.Bytes())
+}
+
+// mobShootArrow is AbstractSkeleton.shootArrow's release: the arrow
+// spawns a hair below the mob's eye, aims at the target's lower third
+// (getY(0.333…) ≈ feet+0.6 for a player) plus the +0.2 per horizontal
+// block gravity compensation, at 1.6 blocks/tick — a full 20-tick
+// pull gives getPowerForTime 1.0.
+func (s *Server) mobShootArrow(e *Entity, tx, ty, tz float64) {
+	arrowID, ok := EntityTypeID("arrow")
+	if !ok {
+		return
+	}
+	eyeY := e.Y + 1.64
+	dx, dz := tx-e.X, tz-e.Z
+	dy := ty + 0.6 - eyeY
+	vy := dy + math.Hypot(dx, dz)*0.2
+	mag := math.Sqrt(dx*dx + vy*vy + dz*dz)
+	if mag < 1e-6 {
+		return
+	}
+	const spd = 1.6
+	vx, vyN, vz := dx/mag*spd, vy/mag*spd, dz/mag*spd
+	ae := s.entities.Spawn(&Entity{
+		Type:    arrowID,
+		Dim:     e.Dim,
+		X:       e.X,
+		Y:       eyeY,
+		Z:       e.Z,
+		Yaw:     float32(math.Atan2(-dx, dz) * 180 / math.Pi),
+		Pitch:   float32(math.Asin(-vy/mag) * 180 / math.Pi),
+		MotionX: vx, MotionY: vyN, MotionZ: vz,
+		VX: int16(vx * 8000), VY: int16(vyN * 8000), VZ: int16(vz * 8000),
+		Data: e.ID,
+	})
+	ae.arrowShooter = e.ID
+	ae.arrowWeapon = "bow"
+	s.broadcastEntitySpawn(nil, *ae)
+	// entity.skeleton.shoot — the bow-release sound the mob plays,
+	// source HOSTILE (SoundSource 5).
+	s.playSoundSrc(e.Dim, e.X, eyeY, e.Z, 1491, 5, 1, 1, nil)
 }
 
 // mobPostAttack is the post-damage tail of vanilla's doHurtTarget

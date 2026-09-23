@@ -4374,3 +4374,45 @@ TestNeutralProvokeParity pins six legs vs both servers: piglin/spider/
 golem calm-then-provoked at noon, spider hostile at night and under a
 deep shade slab, and the two-piglin herd alert. TestMobPostAttackParity
 and the ambient/burn tests still pass; unit suite 38.5s.
+
+## Slice 2026-09-23d — skeleton ranged attack + summon default equipment
+
+RangedBowAttackGoal lands for the AbstractSkeleton family
+(skeleton/stray/bogged): while the target is beyond the 15-block
+attack radius or hasn't been seen 20 ticks the skeleton pathfinds in
+(chase speed from entityAttrBases), then navigation.stop and strafes —
+±0.5 move/strafe inputs with the 20-tick 30%-flip rolls for clockwise
+and back-off direction, and the radius-quartile back-off reset. The
+draw cycle is vanilla's: attackTime counts down, a 20-tick bow draw
+(living_entity_use metadata flag 0x01 broadcast to the tracker), then
+mobShootArrow releases an arrow entity aimed at the target's 1/3-height
+with the horizontal-distance gravity fudge, 1.6 b/t speed, shooter +
+weapon "bow" set, and entity.skeleton.shoot on source HOSTILE.
+attackInterval resets to 40 (20 on hard) per getAttackInterval —
+measured on AbstractSkeleton.bowGoal.
+
+Measuring the bare-summon leg surfaced a second gap: vanilla's /summon
+calls loadEntityRecursive then finalizeSpawn, and
+populateDefaultEquipmentSlots arms the mob — skeletons get a bow,
+which is why a "bare" summoned skeleton shoots arrows. Explicit
+equipment NBT wins (the drop-chance guarantee keeps it). mobDefaultEquip
+now fills an empty adult mainhand at summon: bow for the skeleton
+family, golden sword for zombified piglin (5% golden_spear, a 26.2
+addition), stone_sword wither_skeleton, crossbow pillager, golden_axe
+piglin_brute, iron_axe vindicator, and piglin's 50/50 crossbow vs
+sword (10% of swords are spears). Armor populate, enchantment rolls,
+and drowned's chance slots are follow-ups.
+
+TestSkeletonRangedParity pins three legs vs both servers: NBT-bow
+skeleton shoots and hits, stone-sword skeleton melees with no arrows,
+and a bare summon shoots (proving the populate). paObs.spawned is
+zeroed per leg before the summon — a previous leg's stuck arrows
+re-broadcast to a fresh tracker and polluted the spawn window.
+
+Open items remaining: entity AI beyond chase/ranged-melee (flee,
+RestrictSunGoal/FleeSunGoal sun-avoidance, AvoidEntityGoal wolf-flee),
+crossbow/piglin ranged variants (RangedCrossbowAttackGoal) and
+stray/bogged tipped arrows, horse chest/container slots, guardian
+flop/beam, per-damage-type hurt variants, witch.drink, scoreboard
+objectives, region save, online mode, redstone, terrain gen, lighting,
+.dat persistence.
