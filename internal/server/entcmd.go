@@ -632,13 +632,9 @@ func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount 
 	} else if direct != nil {
 		killer = direct.sess
 	}
+	// dealDefaultKnockback runs inside damageMob for the landed hit.
 	_, _, died := s.damageMob(mob, amount, dmgType, killer,
 		&damageInfo{typeName: dmgType, cause: causeID, direct: srcID})
-	// hurtServer's dealDefaultKnockback runs for mob victims too —
-	// the shove rides the composed delta to chunk trackers.
-	if srcID != 0 && srcID != mob.ID && !noKnockback(dmgType) {
-		s.mobHurtKnockback(mob, srcID)
-	}
 	_ = died
 	return componentReply(translatable("commands.damage.success",
 		nestedCompound{key: "", value: amount}, target.nameComp()))

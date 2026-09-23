@@ -5179,3 +5179,38 @@ setHomeTo(pos,16) home restriction, beam-melee knockback on the
 target, per-damage-type hurt variants, scoreboard objectives,
 region save, online mode, redstone, terrain gen, lighting, .dat
 persistence.
+## Slice 2026-09-23w — dealDefaultKnockback on mob victims
+
+LivingEntity.hurt's merged tail calls dealDefaultKnockback for every
+landed entity-sourced hit outside the no_knockback damage-type tag —
+graced-excess hits included — pushing the victim 0.4 away from the
+source's getEntity() (the cause, falling back to the direct entity).
+player_attack is exempted (Player.attack applies its own knockback).
+mc-go had this only for the /damage path — the caller now lives inside
+damageMob so every entity-sourced damageMob (beam zap pair, projectile
+hits, thorns procs, /damage) pushes the victim like vanilla; the
+player-victim path was already covered by playerHurtKnockback.
+
+Measured wire: 26.2's set_entity_motion carries an LpVec3 (VarInt id +
+packed low-precision vector) — not three shorts; ReadLpVec3 decodes it.
+Blackbox probe noise ruled out a flop-driven victim (squid/axolotl
+random-motion spam masks the push; a NoAI pig floats stock-still on
+vanilla — NoAI freezes even gravity — so any motion packet on it IS
+the knockback).
+
+TestDamageKnockbackParity: NoAI pig + `damage ... 1 mob_attack by @p`,
+12 blocks east → identical (0.4, 0, 0) LpVec3 push on both servers.
+
+Found while probing: vanilla /damage needs a single-entity selector
+(`@e[...]` without limit=N errors argument.entity.toomany even when
+one entity exists), `by @s`/`by <name>` fail from the chat runner,
+and a pig feet-on-bedrock (-63) takes periodic damage (likely in_wall
+at the boundary) — the -60 float avoids it.
+
+Open items remaining: witch raider-heal throw (blocked on raids),
+RestrictSunGoal wander bias, ominous-banner item components on wire,
+cloud entity metadata on wire, horse chest/container slots, elder
+setHomeTo(pos,16) home restriction, knockback vy grounded-pop on
+NoAI-frozen mobs (mc Grounded stays false), per-damage-type hurt
+variants, scoreboard objectives, region save, online mode, redstone,
+terrain gen, lighting, .dat persistence.

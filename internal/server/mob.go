@@ -1344,6 +1344,20 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 	if info != nil && !res.Graced {
 		s.broadcastDamageEvent(e.ID, *info)
 	}
+	// LivingEntity.hurt's merged tail applies dealDefaultKnockback to
+	// every landed entity-sourced hit outside no_knockback — including
+	// the graced-excess hit — as a 0.4 push away from the source's
+	// getEntity() (cause, falling back to direct like vanilla).
+	if info != nil && info.typeName != "player_attack" &&
+		!noKnockback(info.typeName) {
+		kbSrc := info.cause
+		if kbSrc == 0 {
+			kbSrc = info.direct
+		}
+		if kbSrc != 0 && kbSrc != e.ID {
+			s.mobHurtKnockback(e, kbSrc)
+		}
+	}
 	health, d := res.Health, res.Dealt
 	if health > 0 && !res.Graced {
 		s.mobHurtSound(e, res)
