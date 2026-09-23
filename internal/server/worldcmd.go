@@ -315,6 +315,29 @@ func (s *Server) runFillBiome(player string, args []string) reply {
 	if filter == "" || filter == current {
 		n = vol
 	}
+	if d != nil {
+		// Store the quart overrides gameplay reads through biomeAt;
+		// the chunk palette still ships the base biome.
+		d.biomesMu.Lock()
+		if d.biomes == nil {
+			d.biomes = map[[3]int]string{}
+		}
+		for qx := q0[0] / 4; qx <= q1[0]/4; qx++ {
+			for qy := q0[1] / 4; qy <= q1[1]/4; qy++ {
+				for qz := q0[2] / 4; qz <= q1[2]/4; qz++ {
+					key := [3]int{qx, qy, qz}
+					eff := current
+					if prev, has := d.biomes[key]; has {
+						eff = strings.TrimPrefix(prev, "minecraft:")
+					}
+					if filter == "" || eff == filter {
+						d.biomes[key] = "minecraft:" + biome
+					}
+				}
+			}
+		}
+		d.biomesMu.Unlock()
+	}
 	return componentReply(translatable("commands.fillbiome.success.count",
 		int32(n), int32(from[0]), int32(from[1]), int32(from[2]),
 		int32(to[0]), int32(to[1]), int32(to[2])))

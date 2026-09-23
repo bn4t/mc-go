@@ -3735,3 +3735,19 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   unchanged. TestFrostWalkerParity pins 9 legs: bare/airborne/off-boots
   misses, r3 boundary cells (dz 2 in, 3 exactly out — strict <), the
   same-pos non-trigger, and the level-2 r4 flip of the boundary cell.
+
+- 2026-09-19 (cont): Precipitation — ServerLevel.tickPrecipitation:
+  one 1/48 roll per random-tick-speed iteration per ticking chunk picks
+  a random column; the MOTION_BLOCKING surface decides — the surface
+  cell freezes to ice in cold biomes (NOT rain-gated), and at the free
+  cell above, snow lands/piles while raining when the biome snows and
+  max_snow_accumulation_height>0, capping at min(rule,8) layers.
+  fillbiome became real: quart-keyed per-dimension biome overrides feed
+  a biomeAt() reader now used by precipitation, fire's rain check, and
+  execute if biome. The world layer gained the live MOTION_BLOCKING
+  heightmap vanilla maintains: shards cache each column's top and drop
+  it on writes at-or-above the surface (fluid and 8-layer snow count
+  as blocking). Without it, one column FillBox per roll starved the
+  tick loop at speed 4096 (~24k shard round-trips per tick) and snow
+  never piled. TestPrecipitationParity pins 9 legs incl. the cold-vs-
+  void control and layers=8 saturation.

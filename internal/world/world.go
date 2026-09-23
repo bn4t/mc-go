@@ -155,6 +155,20 @@ func (w *World) SetBlock(p Pos, b Block) {
 	w.shardFor(p.X, p.Z).set(p, b)
 }
 
+// TopMotionBlocking returns the highest motion-blocking cell's Y in
+// the column within [minY, maxY] — the value vanilla keeps in its
+// MOTION_BLOCKING heightmap, minus one; minY-1 for an all-air column.
+func (w *World) TopMotionBlocking(x, z, minY, maxY int) int {
+	sh := w.shardFor(x, z)
+	resp := make(chan int, 1)
+	select {
+	case sh.ops <- shardOp{topQ: true, pos: Pos{X: x, Z: z}, topMinY: minY, topMaxY: maxY, topResp: resp}:
+		return <-resp
+	case <-sh.done:
+		return sh.topAt(x, z, minY, maxY)
+	}
+}
+
 // Spawn returns the flat-world spawn point, matching vanilla's for a
 // default flat world: block (0,-60,0), which the real 26.2 server
 // writes into level.dat's spawn.pos, centered on that block - the

@@ -209,6 +209,13 @@ func (s *Server) randomTickDimension(d *dimension, speed int) {
 	buf := make([]world.Block, 16*16*16)
 	for ck := range chunks {
 		cx, cz := ck[0], ck[1]
+		// tickChunk's iceandsnow pass: one 1/48 roll per speed unit
+		// picks a random column for freeze/snow-accumulate.
+		for i := 0; i < speed; i++ {
+			if s.rng.intn(48) == 0 {
+				s.tickPrecipitation(d, cx, cz)
+			}
+		}
 		for sec := 0; sec < sections; sec++ {
 			// Sections with nothing to random-tick cost one cached map
 			// lookup instead of a 4096-block snapshot.

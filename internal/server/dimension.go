@@ -5,11 +5,24 @@ import (
 	"encoding/binary"
 	"math"
 	"strings"
+	"sync"
 
 	"mc-go/internal/event"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
+
+// biomeAt resolves the gameplay biome at pos: a /fillbiome quart
+// override when one exists, else the dimension's base biome.
+func (s *Server) biomeAt(d *dimension, pos world.Pos) string {
+	key := [3]int{pos.X >> 2, pos.Y >> 2, pos.Z >> 2}
+	d.biomesMu.RLock()
+	defer d.biomesMu.RUnlock()
+	if b, ok := d.biomes[key]; ok {
+		return b
+	}
+	return d.biome
+}
 
 // Dimension names and their dimension_type registry ids, in the
 // captured registry's order (pinned by TestDimensionTypes).
@@ -35,6 +48,12 @@ type dimension struct {
 	height     int
 	skylight   bool
 	biome      string
+	// biomes overrides the dimension's single biome at quart
+	// granularity (4x4x4 cells), written by /fillbiome — chunk encode
+	// still ships the base palette; gameplay reads go through
+	// s.biomeAt.
+	biomes   map[[3]int]string
+	biomesMu sync.RWMutex
 	// ultraWarm marks a dimension type with the ultra_warm flag (the
 	// nether): lava spreads like water there and flows ten times
 	// faster, and water evaporates.

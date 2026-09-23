@@ -222,7 +222,7 @@ func (s *Server) fireNearRain(d *dimension, pos world.Pos) bool {
 // nether and the end never do. (The motion-blocking heightmap check
 // is covered by cropLit's upward walk.)
 func (s *Server) fireRainingAt(d *dimension, pos world.Pos) bool {
-	return s.weatherRaining.Load() && biomePrecipitates(d.biome) && s.cropLit(d, pos)
+	return s.weatherRaining.Load() && biomePrecipitates(s.biomeAt(d, pos)) && s.cropLit(d, pos)
 }
 
 // biomePrecipitates reports whether the dimension's single biome can

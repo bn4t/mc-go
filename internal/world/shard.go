@@ -10,13 +10,17 @@ import (
 // through the ops channel. Single-owner-per-shard plus N shards is
 // what makes concurrent region access race-free.
 type shard struct {
-	data   map[Pos]Block
-	gen    func(Pos) Block
-	ops    chan shardOp
+	data map[Pos]Block
+	gen  func(Pos) Block
+	// tops caches each column's highest motion-blocking Y — the live
+	// MOTION_BLOCKING heightmap, populated on first query and dropped
+	// when a write lands at or above it.
+	tops     map[[2]int]int
+	ops      chan shardOp
 	stopCh   chan struct{}
 	done     chan struct{}
 	stopOnce sync.Once
-	tick   atomic.Int64
+	tick     atomic.Int64
 }
 
 type shardOp struct {
@@ -35,6 +39,12 @@ type shardOp struct {
 	colsResp chan []Block
 	// Snapshot: copy of the override map out.
 	snapResp chan map[Pos]Block
+	// Column-top query: highest motion-blocking Y in column (pos.X,
+	// pos.Z) within [topMinY, topMaxY], or topMinY-1 for all air.
+	topQ    bool
+	topMinY int
+	topMaxY int
+	topResp chan int
 }
 
 func newShard(gen func(Pos) Block) *shard {
@@ -55,7 +65,9 @@ func (s *shard) start() {
 			case <-s.stopCh:
 				return
 			case op := <-s.ops:
-				if op.snapResp != nil {
+				if op.topResp != nil {
+					op.topResp <- s.topAt(op.pos.X, op.pos.Z, op.topMinY, op.topMaxY)
+				} else if op.snapResp != nil {
 					cp := make(map[Pos]Block, len(s.data))
 					for p, b := range s.data {
 						cp[p] = b
@@ -81,14 +93,75 @@ func (s *shard) start() {
 						b = s.gen(op.pos)
 					}
 					op.resp <- b
-				} else if op.del {
-					delete(s.data, op.pos)
 				} else {
-					s.data[op.pos] = op.val
+					if s.tops != nil {
+						if t, ok := s.tops[[2]int{op.pos.X, op.pos.Z}]; ok && op.pos.Y >= t {
+							delete(s.tops, [2]int{op.pos.X, op.pos.Z})
+						}
+					}
+					if op.del {
+						delete(s.data, op.pos)
+					} else {
+						s.data[op.pos] = op.val
+					}
 				}
 			}
 		}
 	}()
+}
+
+// topAt scans the column top-down once and caches the highest
+// motion-blocking cell's Y; later writes at or above it invalidate.
+// minY-1 reports a column with nothing blocking at all.
+func (s *shard) topAt(x, z, minY, maxY int) int {
+	if s.tops == nil {
+		s.tops = make(map[[2]int]int)
+	}
+	key := [2]int{x, z}
+	if t, ok := s.tops[key]; ok {
+		return t
+	}
+	for y := maxY; y >= minY; y-- {
+		p := Pos{x, y, z}
+		b, ok := s.data[p]
+		if !ok {
+			b = s.gen(p)
+		}
+		if motionBlockingBlock(b) {
+			s.tops[key] = y
+			return y
+		}
+	}
+	s.tops[key] = minY - 1
+	return minY - 1
+}
+
+// motionBlockingBlock is the MOTION_BLOCKING heightmap predicate: a
+// collision shape or a fluid. Full snow collides; thinner layers do
+// not. Waterlogged non-solids carry a fluid either way.
+func motionBlockingBlock(b Block) bool {
+	if b == Air {
+		return false
+	}
+	name, ok := StateOwner(b)
+	if !ok {
+		return false
+	}
+	if !NonSolid(b) {
+		return true
+	}
+	if isFluid(name) {
+		return true
+	}
+	if name == "snow" {
+		if l, _ := StateProperty(b, "layers"); l == "8" {
+			return true
+		}
+	}
+	if wl, _ := StateProperty(b, "waterlogged"); wl == "true" {
+		return true
+	}
+	return false
 }
 
 // stop halts the shard worker exactly once; concurrent callers share
