@@ -1208,7 +1208,12 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 	if info != nil {
 		s.broadcastDamageEvent(e.ID, *info)
 	}
-	s.mobHurtSound(e, res)
+	health, d := res.Health, res.Dealt
+	if health <= 0 {
+		s.mobDeathSound(e)
+	} else {
+		s.mobHurtSound(e, res)
+	}
 	// Vanilla's killed_by_player window: a player-caused hurt keeps
 	// the flag hot for 100 ticks (lastHurtByPlayerMemoryTime).
 	if killer != nil {
@@ -1218,7 +1223,6 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 		// this hit is lethal).
 		s.thornsMobWear(e, killer)
 	}
-	health, d := res.Health, res.Dealt
 	if health <= 0 {
 		// die(): pose DYING + health 0 go out on the tracker, the
 		// corpse event and loot/XP fire immediately, the entity
@@ -1509,27 +1513,122 @@ func (s *Server) mobHurtWireFX(e *Entity, res DamageResult) {
 		s.broadcastEntityEventTo(nil, e.Dim, e.ID, 65)
 	}
 	if res.CrackChanged {
-		s.playSoundEntity(e.Dim, e.ID, sndWolfArmorCrack, srcNeutral, 1, 1, nil)
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, sndWolfArmorCrack, srcNeutral, 1, 1, nil)
 		s.broadcastItemParticles(e.Dim, "armadillo_scute",
 			e.X, e.Y+1, e.Z, 0.2, 0.1, 0.2, 0.1, 20)
 	}
 }
 
+// mobVoice is one summonable type's hurt/death voice — getHurtSound /
+// getDeathSound registry ids, getSoundVolume, and the SoundSource
+// (HOSTILE for Enemy types, NEUTRAL otherwise). secondDeath is the
+// playSecondaryHurtSound extra vanilla emits on death (the iron
+// golem's damage groan). A zero hurt id means the type is silent on
+// hurt (armor stands). All values measured live on vanilla 26.2;
+// ambient voices remain open.
+type mobVoice struct {
+	hurt, death int32
+	secondDeath int32
+	vol         float32
+	hostile     bool
+}
+
+var mobVoices = map[string]mobVoice{
+	"pig":              {hurt: 1269, death: 1270},
+	"cow":              {hurt: 451, death: 452, vol: 0.4},
+	"chicken":          {hurt: 357, death: 358},
+	"sheep":            {hurt: 1440, death: 1439},
+	"zombie":           {hurt: 1881, death: 1874, hostile: true},
+	"zombie_villager":  {hurt: 1904, death: 1903, hostile: true},
+	"villager":         {hurt: 1698, death: 1697},
+	"wandering_trader": {hurt: 1730, death: 1726},
+	"skeleton":         {hurt: 1490, death: 1481, hostile: true},
+	"creeper":          {hurt: 480, death: 479, hostile: true},
+	"spider":           {hurt: 1580, death: 1579, hostile: true},
+	"sniffer":          {hurt: 1555, death: 1556},
+	"iron_golem":       {hurt: 900, death: 899, secondDeath: 898},
+	"horse":            {hurt: 862, death: 857, vol: 0.8},
+	"wolf":             {hurt: 1806, death: 1804, vol: 0.4},
+	"cat":              {hurt: 291, death: 292},
+	"ocelot":           {hurt: 1187, death: 1189},
+	"parrot":           {hurt: 1213, death: 1210},
+	"armadillo":        {hurt: 55, death: 59},
+	"cod":              {hurt: 382, death: 380},
+	"salmon":           {hurt: 1395, death: 1393},
+	"pufferfish":       {hurt: 1346, death: 1344},
+	"tropical_fish":    {hurt: 1640, death: 1638},
+	"pillager":         {hurt: 1299, death: 1298, hostile: true},
+	"ghast":            {hurt: 707, death: 706, vol: 5, hostile: true},
+	"piglin":           {hurt: 1286, death: 1284, hostile: true},
+	"sulfur_cube":      {hurt: 1964, death: 1963, vol: 0.4},
+	"allay":            {hurt: 3, death: 2, vol: 0.4},
+	"goat":             {hurt: 738, death: 736},
+	"strider":          {hurt: 1541, death: 1540},
+	"husk":             {hurt: 880, death: 879, hostile: true},
+	"drowned":          {hurt: 566, death: 564, hostile: true},
+	"stray":            {hurt: 1607, death: 1606, hostile: true},
+	"wither_skeleton":  {hurt: 1787, death: 1786, hostile: true},
+	"cave_spider":      {hurt: 1580, death: 1579, hostile: true},
+	"enderman":         {hurt: 596, death: 595, hostile: true},
+	"witch":            {hurt: 1778, death: 1776, hostile: true},
+	"blaze":            {hurt: 177, death: 176, hostile: true},
+	"phantom":          {hurt: 1259, death: 1257, hostile: true},
+	"zombified_piglin": {hurt: 1898, death: 1897, hostile: true},
+	"turtle":           {hurt: 1662, death: 1657},
+	// The ender dragon's /damage and /kill paths are silent — its
+	// hurt voice never reaches playHurtSound (part-based damage) and
+	// its death is a custom despawn sequence.
+	"ender_dragon": {},
+}
+
+// mobVoiceSrc is the packet source: HOSTILE (5) for Enemy types,
+// NEUTRAL (6) for everything else.
+func (v mobVoice) src() int32 {
+	if v.hostile {
+		return 5
+	}
+	return srcNeutral
+}
+
+// mobVoiceOf resolves a mob's hurt/death voice with a default volume.
+func mobVoiceOf(e *Entity) mobVoice {
+	name, _ := EntityTypeName(e.Type)
+	v := mobVoices[name]
+	if v.vol == 0 {
+		v.vol = 1
+	}
+	return v
+}
+
 // mobHurtSound is LivingEntity.playHurtSound — hurt() runs it after
-// hurtServer accepts, so a break is already visible to getHurtSound:
-// an absorb hit with the armor still on plays item.wolf_armor.damage,
-// the breaking hit reads an empty body slot and plays
-// entity.wolf.hurt. Other mob types' hurt/death/ambient tables are
-// still open.
+// hurtServer accepts, so a wolf-armor break is already visible to
+// getHurtSound: an absorb hit with the armor still on plays
+// item.wolf_armor.damage, the breaking hit reads an empty body slot
+// and plays entity.wolf.hurt. Vanilla sends the sound as a positional
+// packet at the entity's feet.
 func (s *Server) mobHurtSound(e *Entity, res DamageResult) {
-	if mobName, _ := EntityTypeName(e.Type); mobName != "wolf" {
+	v := mobVoiceOf(e)
+	snd := v.hurt
+	if snd == 0 {
 		return
 	}
-	snd := sndWolfHurt
-	if res.Absorbed && !res.BodyBroke {
+	if mobName, _ := EntityTypeName(e.Type); mobName == "wolf" &&
+		res.Absorbed && !res.BodyBroke {
 		snd = sndWolfArmorDamage
 	}
-	s.playSoundEntity(e.Dim, e.ID, snd, srcNeutral, 1, voicePitch(), nil)
+	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd, v.src(), v.vol, voicePitch(), nil)
+}
+
+// mobDeathSound is the dying arm of hurt(): makeSound(getDeathSound)
+// then playSecondaryHurtSound, in place of the hurt sound.
+func (s *Server) mobDeathSound(e *Entity) {
+	v := mobVoiceOf(e)
+	if v.death != 0 {
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, v.death, v.src(), v.vol, voicePitch(), nil)
+	}
+	if v.secondDeath != 0 {
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, v.secondDeath, v.src(), v.vol, voicePitch(), nil)
+	}
 }
 
 // voicePitch is LivingEntity.getVoicePitch: (rng - rng) * 0.2 + 1.

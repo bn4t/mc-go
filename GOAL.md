@@ -4069,3 +4069,28 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   plain vs breach-4 mace against an attribute-armored player and a
   chestplated creeper (creeper chosen because zombies spawn
   reinforcements on hurt and skeletons burn in daylight).
+
+- **Mob hurt/death voices — the full summonable table**: every
+  summonable type's `playHurtSound`/`getDeathSound` voice now goes out
+  as a positional `sound` packet (0x75) at the entity's feet — NOT
+  `sound_entity` (0x74); the wolf-armor work had lumped both packet
+  ids so the wrong packet family hid behind the merge. Measured per
+  type live: hurt/death registry ids (witch hurts carry a random
+  extra `entity.witch.drink` from the potion mechanic — filtered as
+  nondeterministic), getSoundVolume (cow/wolf/allay/sulfur_cube 0.4,
+  horse 0.8, ghast/dragon 5, rest 1), and the SoundSource — HOSTILE
+  for Enemy types, NEUTRAL otherwise. `hurt()`'s dying arm runs
+  `makeSound(getDeathSound())` + `playSecondaryHurtSound` (iron_golem
+  adds `iron_golem.damage`) then `die()` — a lethal hit plays NO hurt
+  sound — and the sounds land AFTER `damage_event` on the wire.
+  Armor stands and the ender dragon (part-based damage, custom death
+  sequence) are silent both paths. The crack sound in the wolf-armor
+  feedback path was also positional — moved off playSoundEntity.
+  New `TestMobHurtDeathSoundParity` sweeps 38 types × (damage, kill)
+  comparing (packet, sound id, source, x, y, z, volume) tuples.
+  Left out of the sweep: enderman (teleports out of earshot), the
+  fish + sulfur cube (measured ids in the table, but the fixture
+  can't hold them reliably — fish despawn inside the leg window and
+  the cube sometimes summons at another size). Still open: ambient
+  voices, per-damage-type hurt variants (drowning/fall overrides),
+  baby-pitch voicePitch.
