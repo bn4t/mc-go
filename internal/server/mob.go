@@ -678,6 +678,14 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if bv, ok := tag.vals["PatrolLeader"]; ok && snbtNum(bv) > 0 && patrollingTypes[name] {
 				e.PatrolLeader = true
 			}
+			if overworldZombifyTypes[name] {
+				if bv, ok := tag.vals["IsImmuneToZombification"]; ok && snbtNum(bv) > 0 {
+					e.ImmuneToZombification = true
+				}
+				if bv, ok := tag.vals["TimeInOverworld"]; ok {
+					e.TimeInOverworld = int32(snbtNum(bv))
+				}
+			}
 			// active_effects loads the mob's live status effects —
 			// {id, duration (ticks; -1 infinite), amplifier}; lazily
 			// expiry-checked like session effects.
@@ -2036,6 +2044,28 @@ func (s *Server) mobConvertTick(e *Entity, d *dimension, ambName string) bool {
 			}
 		}
 	}
+	// AbstractPiglin/Hoglin.customServerAiStep: a zombifiable mob in
+	// the overworld (PIGLINS_ZOMBIFY/HOGLINS_ZOMBIFY are set there)
+	// ticks TimeInOverworld toward 300, then converts keeping
+	// equipment; a non-converting tick resets the counter to 0.
+	if conv, ok := mobOverworldZombifies[ambName]; ok {
+		if e.Dim == dimOverworld && !e.ImmuneToZombification {
+			e.TimeInOverworld++
+			if e.TimeInOverworld > 300 {
+				if !e.Silent {
+					s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, conv.snd, 5, 1, 1, nil)
+				}
+				if ne := s.mobConvert(e, conv.dst, 0); ne != nil {
+					if nid, ok := MobEffectID("nausea"); ok {
+						mobAddEffect(ne, nid, 0, s.clock.count+200)
+					}
+				}
+				return true
+			}
+		} else {
+			e.TimeInOverworld = 0
+		}
+	}
 	if dst, ok := mobFreezeConverts[ambName]; ok {
 		w := s.dimWorld(e.Dim)
 		feet := world.Pos{
@@ -2079,10 +2109,10 @@ func (s *Server) mobConvertTick(e *Entity, d *dimension, ambName string) bool {
 // discard the old, keeping equipment, custom name, baby flag, and
 // health the target type allows. levelEvent carries the conversion
 // sound (0 = none) — suppressed when the mob is silent.
-func (s *Server) mobConvert(e *Entity, targetName string, levelEvent int32) {
+func (s *Server) mobConvert(e *Entity, targetName string, levelEvent int32) *Entity {
 	nt, ok := EntityTypeID(targetName)
 	if !ok {
-		return
+		return nil
 	}
 	ne := &Entity{
 		Type: nt,
@@ -2115,6 +2145,18 @@ func (s *Server) mobConvert(e *Entity, targetName string, levelEvent int32) {
 			X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z)),
 		}, 0)
 	}
+	return ne
+}
+
+// mobOverworldZombifies maps the overworld-timer mob to its
+// conversion target and converted sound event id.
+var mobOverworldZombifies = map[string]struct {
+	dst string
+	snd int32
+}{
+	"piglin":       {"zombified_piglin", 1289},
+	"piglin_brute": {"zombified_piglin", 1295},
+	"hoglin":       {"zoglin", 828},
 }
 
 // mobSunFlees is FleeSunGoal's type set — only the four

@@ -308,6 +308,12 @@ type Entity struct {
 	// LeftHanded is Mob's 5% finalizeSpawn roll — a left-handed mob
 	// renders its mainhand item in the other hand.
 	LeftHanded bool
+	// ImmuneToZombification / TimeInOverworld are the
+	// AbstractPiglin+Hoglin zombification pair: a converting mob
+	// (overworld, not NoAI) ticks TimeInOverworld to 300 then
+	// converts — piglins to zombified_piglin, hoglin to zoglin.
+	ImmuneToZombification bool
+	TimeInOverworld       int32
 	// BodyItem is the sulfur_cube BODY slot: one swallowed stack.
 	BodyItem ItemStack
 	// arrowShooter is the entity id of the player who loosed an arrow;

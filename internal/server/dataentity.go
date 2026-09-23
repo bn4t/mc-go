@@ -541,6 +541,11 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 	if isBabyTypes[typeName] {
 		m["IsBaby"] = nbtBool(e.Baby)
 	}
+	// AbstractPiglin and Hoglin declare the zombification pair.
+	if overworldZombifyTypes[typeName] {
+		m["IsImmuneToZombification"] = nbtBool(e.ImmuneToZombification)
+		m["TimeInOverworld"] = e.TimeInOverworld
+	}
 	// PatrollingMonster declares PatrolLeader; the leader head slot's
 	// 2.0 drop chance writes a drop_chances override compound.
 	if patrollingTypes[typeName] {
@@ -630,6 +635,13 @@ var entitySaveSeq = []string{
 	"LeftHanded", "NoAI", "equipment", "Age", "ForcedAge",
 	"InLove", "AgeLocked", "variant", "sound_variant",
 	"PatrolLeader", "drop_chances", "IsBaby",
+	"IsImmuneToZombification", "TimeInOverworld",
+}
+
+// overworldZombifyTypes are the mc-side types declaring the
+// IsImmuneToZombification/TimeInOverworld save keys.
+var overworldZombifyTypes = map[string]bool{
+	"piglin": true, "piglin_brute": true, "hoglin": true,
 }
 
 // patrollingTypes are PatrollingMonster's mc-side summonable types —

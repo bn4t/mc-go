@@ -4888,3 +4888,38 @@ horse chest/container slots, guardian flop/beam, per-damage-type
 hurt variants, witch.drink, selector nbt= arg, scoreboard
 objectives, region save, online mode, redstone, terrain gen,
 lighting, .dat persistence.
+
+## Slice 2026-09-23o — overworld zombification (piglin/hoglin → zoglin)
+
+AbstractPiglin.customServerAiStep / Hoglin.customServerAiStep:
+`isConverting = !IsImmuneToZombification && !NoAI &&
+envAttr(PIGLINS_ZOMBIFY @ pos)` — overworld sets that attribute
+true for every position — so `TimeInOverworld` increments while
+converting and resets to 0 otherwise; past 300 ticks the mob
+plays its convert sound (skipped on peaceful) and
+`convertTo(ZOMBIFIED_PIGLIN|ZOGLIN, keepEquipment+keepInventory)`
+fires, then 200 ticks of nausea land on the fresh convert. mc:
+`mobOverworldZombifies` map + a `mobConvertTick` branch inside
+the existing `!NoAI` gate; `mobConvert` now returns the new
+entity so nausea applies to it. Crucially `Mob.convertTo` never
+runs finalizeSpawn — equipment is copied slot-for-slot, so a
+bare baby piglin becomes a BARE zombified and the brute's
+golden_axe survives — the test discriminates exactly this.
+IsImmuneToZombification/TimeInOverworld round-trip through the
+save map and summon-tag reads.
+
+TestOverworldZombifyParity: tagged baby piglin + bare brute + two
+immune/noai survivors (PersistenceRequired+Invulnerable — a fresh
+zoglin eats nearby piglins) + two hoglins; after 18s assert
+piglin=2/brute=0/zombified=2/zoglin≥1, exactly one golden_axe
+carried over and zero repopulated weapons. Green on both.
+
+Open items remaining: crossbow/piglin ranged variants
+(RangedCrossbowAttackGoal), RestrictSunGoal wander bias,
+ominous-banner item components on wire
+(banner_patterns/item_name/tooltip_display — mc emits plain
+white_banner), cloud entity metadata on wire, horse
+chest/container slots, guardian flop/beam, per-damage-type hurt
+variants, witch.drink, selector nbt= arg, scoreboard objectives,
+region save, online mode, redstone, terrain gen, lighting, .dat
+persistence.
