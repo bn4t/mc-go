@@ -11,51 +11,227 @@ import (
 	"mc-go/internal/world"
 )
 
-// mobLoot is the vanilla drop table for the mobs mc-go can summon,
-// reduced to a single guaranteed item per entry (counts beyond one are
-// rolled uniformly in [min,max]).
-type mobLootEntry struct {
+// lootEntry is one item outcome inside a pool; a multi-entry pool
+// rolls a single entry uniformly per roll.
+type lootEntry struct {
 	item     string
 	min, max int32
+	// smeltTo is the furnace_smelt result when the victim was burning
+	// or the killer's mainhand carries a #smelts_loot enchantment
+	// (fire_aspect).
+	smeltTo string
+	// looting flags the entry carrying enchanted_count_increase —
+	// round(uniform[0,1] * level) is added to the rolled count.
+	looting bool
 }
 
-var mobLoot = map[string][]mobLootEntry{
-	"pig":      {{item: "porkchop", min: 1, max: 3}},
-	"cow":      {{item: "beef", min: 1, max: 3}, {item: "leather", min: 0, max: 2}},
-	"chicken":  {{item: "chicken", min: 1, max: 1}, {item: "feather", min: 0, max: 2}},
-	"sheep":    {{item: "mutton", min: 1, max: 2}, {item: "white_wool", min: 1, max: 1}},
-	"zombie":   {{item: "rotten_flesh", min: 0, max: 2}},
-	"skeleton": {{item: "bone", min: 0, max: 2}, {item: "arrow", min: 0, max: 2}},
-	"creeper":  {{item: "gunpowder", min: 0, max: 2}},
-	"spider":   {{item: "string", min: 0, max: 2}},
+// lootPool is one roll group of a mob's entity loot table.
+type lootPool struct {
+	rollsMin, rollsMax int32
+	// playerKill gates pools carrying killed_by_player: the victim's
+	// lastHurtByPlayer window must be live.
+	playerKill bool
+	// rare gates pools carrying random_chance_with_enchanted_bonus:
+	// rareUnenchanted at looting 0, else rareBase + rarePer·(l-1).
+	rare              bool
+	rareUnenchanted   float64
+	rareBase, rarePer float64
+	entries           []lootEntry
 }
 
-// spawnMobLoot rolls and spawns a mob's drops at its position in the
-// mob's dimension.
-func (s *Server) spawnMobLoot(dim, name string, x, y, z float64) {
-	for _, entry := range mobLoot[name] {
-		id, ok := world.ItemID(entry.item)
-		if !ok {
-			continue
+// mobLoot transcribes the 26.2 datapack entity tables for the mobs
+// mc-go can summon. Entries without enchanted_count_increase (the
+// iron_golem) simply carry looting:false.
+var mobLoot = map[string][]lootPool{
+	"pig": {{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+		{item: "porkchop", min: 1, max: 3, smeltTo: "cooked_porkchop", looting: true}}}},
+	"cow": {
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "leather", min: 0, max: 2, looting: true}}},
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "beef", min: 1, max: 3, smeltTo: "cooked_beef", looting: true}}},
+	},
+	"chicken": {
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "feather", min: 0, max: 2, looting: true}}},
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "chicken", min: 1, max: 1, smeltTo: "cooked_chicken", looting: true}}},
+	},
+	"sheep": {
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "mutton", min: 1, max: 2, smeltTo: "cooked_mutton", looting: true}}},
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "white_wool", min: 1, max: 1}}},
+	},
+	"zombie": {
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "rotten_flesh", min: 0, max: 2, looting: true}}},
+		{playerKill: true, rare: true, rareUnenchanted: 0.025, rareBase: 0.035, rarePer: 0.01,
+			rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+				{item: "iron_ingot", min: 1, max: 1},
+				{item: "carrot", min: 1, max: 1},
+				{item: "potato", min: 1, max: 1, smeltTo: "baked_potato"}}},
+	},
+	"skeleton": {
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "arrow", min: 0, max: 2, looting: true}}},
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "bone", min: 0, max: 2, looting: true}}},
+	},
+	"creeper": {{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+		{item: "gunpowder", min: 0, max: 2, looting: true}}}},
+	"spider": {
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "string", min: 0, max: 2, looting: true}}},
+		{playerKill: true, rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "spider_eye", min: -1, max: 1, looting: true}}},
+	},
+	"cave_spider": {
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "string", min: 0, max: 2, looting: true}}},
+		{playerKill: true, rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "spider_eye", min: -1, max: 1, looting: true}}},
+	},
+	"drowned": {
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "rotten_flesh", min: 0, max: 2, looting: true}}},
+		{playerKill: true, rare: true, rareUnenchanted: 0.11, rareBase: 0.13, rarePer: 0.02,
+			rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+				{item: "copper_ingot", min: 1, max: 1}}},
+	},
+	"husk": {
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "rotten_flesh", min: 0, max: 2, looting: true}}},
+		// rabbit_foot only drops while riding a camel_husk — a bare
+		// summon never meets the vehicle predicate.
+		{playerKill: true, rare: true, rareUnenchanted: 0.025, rareBase: 0.035, rarePer: 0.01,
+			rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+				{item: "iron_ingot", min: 1, max: 1},
+				{item: "carrot", min: 1, max: 1},
+				{item: "potato", min: 1, max: 1, smeltTo: "baked_potato"}}},
+	},
+	"stray": {
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "arrow", min: 0, max: 2, looting: true}}},
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "bone", min: 0, max: 2, looting: true}}},
+		// tipped_arrow keeps its set_potion function — slowness.
+		{playerKill: true, rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "tipped_arrow", min: 0, max: 1, looting: true}}},
+	},
+	"wither_skeleton": {
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "coal", min: -1, max: 1, looting: true}}},
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "bone", min: 0, max: 2, looting: true}}},
+		{playerKill: true, rare: true, rareUnenchanted: 0.025, rareBase: 0.035, rarePer: 0.01,
+			rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+				{item: "wither_skeleton_skull", min: 1, max: 1}}},
+	},
+	"enderman": {{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+		{item: "ender_pearl", min: 0, max: 1, looting: true}}}},
+	"blaze": {{playerKill: true, rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+		{item: "blaze_rod", min: 0, max: 1, looting: true}}}},
+	"witch": {
+		// rolls 1-3 over six entries, then a redstone pool.
+		{rollsMin: 1, rollsMax: 3, entries: []lootEntry{
+			{item: "glowstone_dust", min: 0, max: 2, looting: true},
+			{item: "sugar", min: 0, max: 2, looting: true},
+			{item: "spider_eye", min: 0, max: 2, looting: true},
+			{item: "glass_bottle", min: 0, max: 2, looting: true},
+			{item: "gunpowder", min: 0, max: 2, looting: true},
+			{item: "stick", min: 0, max: 2, looting: true}}},
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "redstone", min: 4, max: 8, looting: true}}},
+	},
+	"zombified_piglin": {
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "rotten_flesh", min: 0, max: 1, looting: true}}},
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "gold_nugget", min: 0, max: 1, looting: true}}},
+		{playerKill: true, rare: true, rareUnenchanted: 0.025, rareBase: 0.035, rarePer: 0.01,
+			rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+				{item: "gold_ingot", min: 1, max: 1}}},
+	},
+	"iron_golem": {
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "poppy", min: 0, max: 2}}},
+		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "iron_ingot", min: 3, max: 5}}},
+	},
+}
+
+// spawnMobLoot rolls the mob's drops at its position. Vanilla's
+// gates: shouldDropLoot is !baby && mob_drops; a pool's
+// killed_by_player reads the lastHurtByPlayer window; furnace_smelt
+// fires on a burning victim or a #smelts_loot weapon;
+// enchanted_count_increase adds round(uniform[0,1]·looting);
+// random_chance_with_enchanted_bonus scales the rare pools.
+func (s *Server) spawnMobLoot(e *Entity, killer *Session) {
+	name, ok := EntityTypeName(e.Type)
+	if !ok {
+		return
+	}
+	if e.Baby || !s.gameRuleBool("minecraft:mob_drops") {
+		return
+	}
+	byPlayer := e.LastHurtByPlayerTicks > 0
+	looting := int32(0)
+	smelts := false
+	if killer != nil {
+		held := killer.heldStack()
+		looting = held.enchLevel("looting")
+		smelts = held.enchLevel("fire_aspect") > 0
+	}
+	spawnItem := func(item string, count int32) {
+		id, ok := world.ItemID(item)
+		if !ok || count <= 0 {
+			return
 		}
-		count := entry.min
-		if entry.max > entry.min {
-			count += int32(rand.Intn(int(entry.max-entry.min) + 1))
-		}
-		if count <= 0 {
-			continue
-		}
-		e := s.entities.Spawn(&Entity{
+		it := s.entities.Spawn(&Entity{
 			Type:        mustEntityType("item"),
-			Dim:         dim,
-			X:           x,
-			Y:           y + 0.25,
-			Z:           z,
+			Dim:         e.Dim,
+			X:           e.X,
+			Y:           e.Y + 0.25,
+			Z:           e.Z,
 			Item:        ItemStack{ID: id, Count: count},
 			PickupDelay: 10,
 		})
-		s.broadcastEntitySpawn(nil, *e)
-		s.broadcastEntityMetadata(e.ID, encodeItemMetadata(e.Item))
+		s.broadcastEntitySpawn(nil, *it)
+		s.broadcastEntityMetadata(it.ID, encodeItemMetadata(it.Item))
+	}
+	for _, p := range mobLoot[name] {
+		if p.playerKill && !byPlayer {
+			continue
+		}
+		if p.rare {
+			ch := p.rareUnenchanted
+			if looting > 0 {
+				ch = p.rareBase + float64(looting-1)*p.rarePer
+			}
+			if rand.Float64() >= ch {
+				continue
+			}
+		}
+		rolls := p.rollsMin
+		if p.rollsMax > p.rollsMin {
+			rolls += int32(rand.Intn(int(p.rollsMax-p.rollsMin) + 1))
+		}
+		for i := int32(0); i < rolls; i++ {
+			ent := p.entries[rand.Intn(len(p.entries))]
+			count := ent.min
+			if ent.max > ent.min {
+				count += int32(rand.Intn(int(ent.max-ent.min) + 1))
+			}
+			if ent.looting && looting > 0 {
+				count += int32(rand.Intn(2)) * looting
+			}
+			item := ent.item
+			if ent.smeltTo != "" && (e.FireTicks > 0 || smelts) {
+				item = ent.smeltTo
+			}
+			spawnItem(item, count)
+		}
 	}
 }
 
@@ -447,6 +623,9 @@ func (s *Server) runSummon(player string, args []string) reply {
 				}
 			}
 			if av, ok := tag.vals["Age"]; ok && snbtNum(av) < 0 {
+				e.Baby = true
+			}
+			if bv, ok := tag.vals["IsBaby"]; ok && snbtNum(bv) > 0 {
 				e.Baby = true
 			}
 			// active_effects loads the mob's live status effects —
@@ -986,7 +1165,7 @@ func (s *Server) broadcastMobSharedFlags(eid int32, onFire bool) {
 // damageMob runs vanilla's LivingEntity.hurt tail for a mob hit:
 // armor (natural base + worn pieces) absorbs unless the damage type
 // bypasses it, then the health loss lands inside the grace rules.
-func (s *Server) damageMob(e *Entity, amount float32, typeName string) (dealt float32, graced, died bool) {
+func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *Session) (dealt float32, graced, died bool) {
 	var armor float32
 	if !bypassesArmor(typeName) {
 		armor = mobArmor(e)
@@ -994,6 +1173,11 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string) (dealt fl
 	health, d, ok, gr := s.entities.Damage(e.ID, amount, armor)
 	if !ok || d <= 0 {
 		return 0, gr, false
+	}
+	// Vanilla's killed_by_player window: a player-caused hurt keeps
+	// the flag hot for 100 ticks (lastHurtByPlayerMemoryTime).
+	if killer != nil {
+		e.LastHurtByPlayerTicks = 100
 	}
 	if health <= 0 {
 		// die(): pose DYING + health 0 go out on the tracker, the
@@ -1005,9 +1189,13 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string) (dealt fl
 		// dirty metadata — a /kill reply reaches the client first.
 		e.dataSync = encodeDyingLivingMetadata()
 		s.broadcastEntityEventTo(nil, e.Dim, e.ID, 3)
-		if name, ok := EntityTypeName(e.Type); ok {
-			s.spawnMobLoot(e.Dim, name, e.X, e.Y, e.Z)
-			s.spawnMobXP(e.Dim, name, e.X, e.Y, e.Z)
+		s.spawnMobLoot(e, killer)
+		// dropExperience: recent player hurt + not a baby + mob_drops.
+		if e.LastHurtByPlayerTicks > 0 && !e.Baby &&
+			s.gameRuleBool("minecraft:mob_drops") {
+			if name, ok := EntityTypeName(e.Type); ok {
+				s.spawnMobXP(e.Dim, name, e.X, e.Y, e.Z)
+			}
 		}
 		return d, gr, true
 	}
@@ -1053,6 +1241,9 @@ func (s *Server) mobTickStep() {
 			}
 			continue
 		}
+		if e.LastHurtByPlayerTicks > 0 {
+			e.LastHurtByPlayerTicks--
+		}
 		// detectEquipmentUpdates: equipment loaded from NBT stays
 		// dirty until the first tick after the tracker-attach burst.
 		if e.EquipDirty {
@@ -1075,7 +1266,7 @@ func (s *Server) mobTickStep() {
 		// flags byte without the on-fire bit.
 		if e.FireTicks > 0 {
 			if e.FireTicks%20 == 0 {
-				s.damageMob(e, 1, "on_fire")
+				s.damageMob(e, 1, "on_fire", nil)
 			}
 			ticks := e.FireTicks - 1
 			s.entities.SetFireTicks(e.ID, ticks)

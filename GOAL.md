@@ -3811,3 +3811,26 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   keep_alives and buffers its packets so long mob legs no longer let
   vanilla kick the idle victim. Thorns (15%·l rng proc), unbreaking,
   and looting still open.
+
+- **Loot/XP context gates**: mc-go now models vanilla's
+  dropAllDeathLoot rules measured from the 26.2 jar +
+  datapack: drops roll on any death when shouldDropLoot
+  (!baby && mob_drops) — no player needed, so /kill still
+  drops — while XP orbs additionally require the
+  lastHurtByPlayerMemoryTime window (100 ticks after any
+  player-caused hurt, replumbed as e.LastHurtByPlayerTicks
+  set by every damageMob caller that knows the session).
+  killed_by_player pools (spider_eye, zombie rares,
+  drowned copper, witch spread, blaze_rod) only open inside
+  the window; furnace_smelt swaps to the cooked item when
+  the victim burns or the killer's mainhand carries
+  #smelts_loot (fire_aspect); enchanted_count_increase adds
+  round(uniform[0,1]*level). mobLoot tables transcribed for
+  15 mobs (pig..iron_golem incl. sheep's wool, wither skull,
+  stray tipped_arrow). TestLootParity pins 8 legs
+  byte-identical on both servers: kill-pig drops no XP,
+  melee-pig drops + XP, baby pig nothing, fire_aspect cooks,
+  /kill zombie x6 no rares, /kill spider no eyes, looting3
+  reaches >=4 stacks in 10 pigs, mob_drops=false drops
+  nothing. Still open inside looting's model: item quality
+  per-level weights on multi-entry pools, container drops.

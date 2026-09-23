@@ -1,255 +1,243 @@
-//go:build blackbox
-
 package blackbox
 
+// TestLootParity pins vanilla 26.2's entity-loot context gating
+// (measured from the datapack tables + javap): drops roll whenever
+// shouldDropLoot (!baby && mob_drops) — no player needed — while XP
+// orbs additionally require the lastHurtByPlayer window live.
+// killed_by_player pools (spider_eye, zombie rares) only open inside
+// that window; furnace_smelt converts to the cooked variant when the
+// victim burned OR the killer's mainhand carries #smelts_loot
+// (fire_aspect); enchanted_count_increase adds round(uniform[0,1]·l).
+//
+// The legs report predicate outcomes, not raw counts — drop rolls are
+// per-server RNG so only the invariants can be byte-compared.
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
 
-	"mc-go/internal/nbt"
+	"mc-go/internal/protocol"
 	"mc-go/internal/server"
+	"mc-go/internal/world"
 )
 
 func TestLootParity(t *testing.T) {
-	targets := requireBlackboxFiles(t, nil, map[string]string{
-		"ops.json": opsJSONFor("P"),
-	}, nil)
+	targets := requireBlackboxFiles(t, nil,
+		map[string]string{"ops.json": opsJSONFor("A", "C")}, nil)
 	defer targets.cleanup()
 
-	cmds := []string{
-		`loot`,
-		`loot give`,
-		`loot give @s`,
-		`loot give @s fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot give @s fish minecraft:gameplay/fishing 0 -60 0 minecraft:fishing_rod`,
-		`loot give @s fish minecraft:gameplay/fishing 0 -60 0 mainhand`,
-		`loot give @s fish minecraft:gameplay/treasure 0 -60 0`,
-		`loot give @s fish minecraft:bogus 0 -60 0`,
-		`loot give @s fish minecraft:gameplay/fishing 2000 -60 0`,
-		`loot give @s loot minecraft:chests/simple_dungeon`,
-		`loot give @s loot minecraft:bogus`,
-		`loot give @s kill @s`,
-		`loot give @s kill @e[type=minecraft:pig,limit=1]`,
-		`loot give @s kill nosuchplayer`,
-		`loot give @e[type=minecraft:pig,limit=1] fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot give nosuchplayer fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot give @e[type=minecraft:item] fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot spawn 40 -60 0 fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot spawn 40 -60 0 loot minecraft:chests/simple_dungeon`,
-		`loot spawn 40 -60 0 kill @s`,
-		`loot spawn 2000 -60 0 fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot insert 0 -60 0 fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot insert 2000 -60 0 fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot replace entity @s weapon.mainhand fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot replace entity @s weapon.mainhand 2 fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot replace entity @s bogus.slot fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot replace entity @s weapon.mainhand fish minecraft:gameplay/fishing 0 -60 0 extra`,
-		`loot replace block 0 -60 0 container.0 fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot replace block 0 -60 0 container.27 fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot replace block 2000 -60 0 container.0 fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot replace block 0 -60 0 bogus.slot fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot bogus @s fish minecraft:gameplay/fishing 0 -60 0`,
-		`loot give @s mine 0 -60 0`,
-		`loot give @s mine 0 -60 0 minecraft:diamond_pickaxe`,
-		`loot give @s mine 0 -60 0 mainhand`,
-		`loot give @s mine 2000 -60 0`,
-		`loot give @s bogus minecraft:gameplay/fishing`,
-	}
+	itemType, _ := server.EntityTypeID("item")
+	orbType, _ := server.EntityTypeID("experience_orb")
 
-	numRe := regexp.MustCompile(`d\(-?[0-9.e+]+\)|f\(-?[0-9.e+]+\)|i\(-?[0-9]+\)|b\([0-9]+\)|l\(-?[0-9]+\)|"-?[0-9]+(?:\.[0-9]+)?"`)
-	// Loot draws are RNG: the produced item's identity can't be
-	// compared, only the reply's shape. Mask the item id inside
-	// show_item hovers and the item.minecraft.* name.
-	itemRe := regexp.MustCompile(`"id": "minecraft:[^"]+"|"(?:item|block|entity)\.minecraft\.[^"]+"`)
+	run := func(addr string) []string {
+		ca, pra, pwa := joinPlayBlackbox(t, addr, "A")
+		defer ca.Close()
+		cc, prc, pwc := joinPlayBlackbox(t, addr, "C")
+		defer cc.Close()
+		_ = ca.SetDeadline(time.Now().Add(300 * time.Second))
+		_ = cc.SetDeadline(time.Now().Add(300 * time.Second))
+		_ = newChatSinkTP(prc, pwc)
+		var posA [3]float64
+		obsA := wearObs{}
+		drainWear(t, ca, pra, pwa, &posA, 1200*time.Millisecond, &obsA, nil)
+		sendCommand(t, pwc, "tp A 4.5 -60 2.5 -90 0")
+		drainWear(t, ca, pra, pwa, &posA, 800*time.Millisecond, &obsA, nil)
 
-	run := func(addr string) [][]string {
-		c, pr, pw := joinPlayQuiet(t, addr, "P")
-		defer c.Close()
-		_ = c.SetDeadline(time.Time{})
-		sendClientInformation(t, pw)
-		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
-		sink := newChatSink(pr, pw)
-		sink.cap = 1 << 20
-		time.Sleep(4 * time.Second)
-		_ = sink // see below
-		var out [][]string
-		for i, cmd := range cmds {
-			sink.take()
-			t.Logf("send %d %q", i, cmd)
-			func() { defer func() { recover() }(); sendCommand(t, pw, cmd) }()
-			marker := fmt.Sprintf("ZMK%d", i)
-			func() { defer func() { recover() }(); sendCommand(t, pw, "say "+marker) }()
-			var evs []string
-			deadline := time.Now().Add(3 * time.Second)
-			for {
-				gotMarker := false
-				for _, line := range sink.take() {
-					if strings.Contains(line, marker) {
-						gotMarker = true
+		attack := func(eid int32) {
+			var atk protocol.Buffer
+			atk.VarInt(eid)
+			_ = pwa.WritePacket(server.IDPlayAttackSB, atk.Bytes())
+		}
+		summon := func(mob string, nbt string) int32 {
+			sendCommand(t, pwc, fmt.Sprintf("summon minecraft:%s 6.5 -60 4 %s", mob, nbt))
+			spm := map[int32]int32{}
+			drainWear(t, ca, pra, pwa, &posA, 900*time.Millisecond, &obsA, spm)
+			ty, _ := server.EntityTypeID(mob)
+			if eid := spm[ty]; eid != 0 {
+				return eid
+			}
+			t.Fatalf("%s: %s never spawned", addr, mob)
+			return 0
+		}
+		// collectDrops reads A's conn for d and folds item-entity
+		// spawns into item-name totals plus an orb spawn count.
+		collectDrops := func(d time.Duration) (items map[string]int32, orbs int) {
+			items = map[string]int32{}
+			pending := map[int32]bool{}
+			deadline := time.Now().Add(d)
+			for time.Now().Before(deadline) {
+				_ = ca.SetReadDeadline(time.Now().Add(120 * time.Millisecond))
+				p, err := pra.ReadPacket()
+				if err != nil {
+					continue
+				}
+				switch p.ID {
+				case server.IDPlayKeepAliveCB:
+					_ = pwa.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+				case server.IDPlaySpawnEntity:
+					r := protocol.NewPacketReader(p.Data)
+					eid, err := r.VarInt()
+					if err != nil {
 						continue
 					}
-					// Giving a random stack can trip an
-					// inventory-changed advancement announce; the
-					// draw is RNG, so drop those events.
-					if strings.Contains(line, "chat.type.advancement") {
+					if _, err := r.UUID(); err != nil {
 						continue
 					}
-					if tree, ok := componentTree(line, true); ok {
-						evs = append(evs, "chat "+numRe.ReplaceAllString(itemRe.ReplaceAllString(maskUUID(tree), "I"), "N"))
-					} else if strings.HasPrefix(line, "0x79:") {
-						i := strings.Index(line, ":")
-						if root, err := nbt.ReadUnnamed(strings.NewReader(line[i+1:])); err == nil {
-							evs = append(evs, "chat "+numRe.ReplaceAllString(itemRe.ReplaceAllString(maskUUID(renderNBT(root, true)), "I"), "N"))
+					ty, _ := r.VarInt()
+					if ty == itemType {
+						pending[eid] = true
+					}
+					if ty == orbType {
+						orbs++
+					}
+				case server.IDPlayEntityMetadata:
+					r := protocol.NewPacketReader(p.Data)
+					eid, err := r.VarInt()
+					if err != nil || !pending[eid] {
+						continue
+					}
+					for {
+						idx, err := r.Byte()
+						if err != nil || idx == 0xFF {
+							break
+						}
+						sty, err := r.Byte()
+						if err != nil {
+							break
+						}
+						if sty == 7 {
+							// slot value — index 8 is the item stack.
+							st, err := readSlotBB(r)
+							if err != nil {
+								break
+							}
+							if idx == 8 && st.ID != 0 {
+								if nm, ok := world.ItemName(st.ID); ok {
+									items[nm] += st.Count
+								}
+							}
+							continue
+						}
+						if !skipMetaVal(r, sty) {
+							break
 						}
 					}
 				}
-				if gotMarker || time.Now().After(deadline) {
-					break
-				}
-				time.Sleep(30 * time.Millisecond)
 			}
-			out = append(out, evs)
+			return items, orbs
 		}
+		killWith := func(eid int32, hits int) {
+			for i := 0; i < hits; i++ {
+				attack(eid)
+				time.Sleep(800 * time.Millisecond)
+			}
+		}
+		equipA := func(item string) {
+			sendCommand(t, pwc, "item replace entity A weapon.mainhand with "+item)
+			drainWear(t, ca, pra, pwa, &posA, 400*time.Millisecond, &obsA, nil)
+		}
+
+		var out []string
+		// /kill pig: drops roll anyway (no player gate), no XP.
+		summon("pig", "{NoAI:1b}")
+		sendCommand(t, pwc, "kill @e[type=minecraft:pig,limit=1]")
+		di, orbs := collectDrops(1500 * time.Millisecond)
+		out = append(out, fmt.Sprintf("kill-pig porkchop=%v,orbs=%v",
+			di["porkchop"] >= 1, orbs == 0))
+		// Player-kill pig: porkchop 1-3 + XP.
+		p2 := summon("pig", "{NoAI:1b}")
+		equipA("minecraft:diamond_sword")
+		killWith(p2, 2)
+		di, orbs = collectDrops(1500 * time.Millisecond)
+		out = append(out, fmt.Sprintf("melee-pig porkchop=%v,orbs=%v",
+			di["porkchop"] >= 1, orbs >= 1))
+		// Baby pig player-kill: nothing at all.
+		pb := summon("pig", "{NoAI:1b,Age:-24000}")
+		killWith(pb, 2)
+		di, orbs = collectDrops(1500 * time.Millisecond)
+		out = append(out, fmt.Sprintf("baby-pig items=%v,orbs=%v",
+			len(di) == 0, orbs == 0))
+		// fire_aspect kill: cooked even though the pig never burned.
+		pf := summon("pig", "{NoAI:1b}")
+		equipA("minecraft:diamond_sword[enchantments={fire_aspect:2}]")
+		killWith(pf, 2)
+		di, _ = collectDrops(1800 * time.Millisecond)
+		out = append(out, fmt.Sprintf("fire-pig cooked=%v,raw=%v",
+			di["cooked_porkchop"] >= 1, di["porkchop"] == 0))
+		// /kill zombie x6: flesh may roll, rares and XP never.
+		for i := 0; i < 6; i++ {
+			summon("zombie", "{NoAI:1b}")
+			sendCommand(t, pwc, "kill @e[type=minecraft:zombie,limit=1]")
+		}
+		di, orbs = collectDrops(1500 * time.Millisecond)
+		out = append(out, fmt.Sprintf("kill-zombie rares=%v,orbs=%v",
+			di["iron_ingot"] == 0 && di["carrot"] == 0 && di["potato"] == 0,
+			orbs == 0))
+		// /kill spider x4: spider_eye is killed_by_player-gated.
+		for i := 0; i < 4; i++ {
+			summon("spider", "{NoAI:1b}")
+			sendCommand(t, pwc, "kill @e[type=minecraft:spider,limit=1]")
+		}
+		di, orbs = collectDrops(1500 * time.Millisecond)
+		out = append(out, fmt.Sprintf("kill-spider eyes=%v,orbs=%v",
+			di["spider_eye"] == 0, orbs == 0))
+		// looting3 on ten pigs: count = [1,3] + 0-or-3, so at least one
+		// stack must reach ≥4 (per-kill miss chance 0.5 → ~0.001).
+		equipA("minecraft:diamond_sword[enchantments={looting:3}]")
+		var maxSeen int32
+		for i := 0; i < 10; i++ {
+			pl := summon("pig", "{NoAI:1b}")
+			killWith(pl, 2)
+			di, _ = collectDrops(1300 * time.Millisecond)
+			if di["porkchop"] > maxSeen {
+				maxSeen = di["porkchop"]
+			}
+		}
+		out = append(out, fmt.Sprintf("looting3 max=%v", maxSeen >= 4))
+		// mob_drops off: nothing drops at all.
+		sendCommand(t, pwc, "gamerule minecraft:mob_drops false")
+		summon("pig", "{NoAI:1b}")
+		sendCommand(t, pwc, "kill @e[type=minecraft:pig,limit=1]")
+		di, orbs = collectDrops(1500 * time.Millisecond)
+		out = append(out, fmt.Sprintf("no-mob-drops items=%v,orbs=%v",
+			len(di) == 0, orbs == 0))
+		sendCommand(t, pwc, "gamerule minecraft:mob_drops true")
 		return out
 	}
 
-	want := run(targets.vanilla)
-	got := run(targets.mcgo)
-	for i, cmd := range cmds {
-		if len(want[i]) != len(got[i]) {
-			t.Errorf("cmd %q: vanilla %v\n  mc-go %v", cmd, want[i], got[i])
-			continue
-		}
-		for j := range want[i] {
-			if want[i][j] != got[i][j] {
-				t.Errorf("cmd %q event %d:\n  vanilla %s\n  mc-go   %s", cmd, j, want[i][j], got[i][j])
-			}
+	vanilla := run(targets.vanilla)
+	mcgo := run(targets.mcgo)
+	for i := range vanilla {
+		name := strings.Fields(vanilla[i])[0]
+		t.Logf("%-14s vanilla=%s mcgo=%s", name, vanilla[i], mcgo[i])
+		if vanilla[i] != mcgo[i] {
+			t.Errorf("leg %d (%s): vanilla %s, mc-go %s", i, name, vanilla[i], mcgo[i])
 		}
 	}
+}
 
-	// Deterministic mine probes: loot the drops into a fresh chest and
-	// read the Items SNBT back — the item identity is what pins the
-	// condition/tool logic, not the drop.success chat shape. Each
-	// probe i owns chest (20,-60,i) so an empty loot write reads as
-	// an empty Items, never a stale stack. Count is masked for tables
-	// with RNG counts (wheat seeds).
-	countRe := regexp.MustCompile(`count: [0-9]+`)
-	probes := []struct{ setup, cmd string }{
-		// No tool arg → source's (empty) main hand. Vanilla's mine
-		// path applies NO requires-tool gate: bare-handed stone still
-		// drops cobblestone.
-		{"setblock 30 -60 0 minecraft:stone", "loot replace block 20 -60 0 container.0 mine 30 -60 0"},
-		{"", "data get block 20 -60 0 Items"},
-		{"setblock 30 -60 2 minecraft:glass", "loot replace block 20 -60 1 container.0 mine 30 -60 2 minecraft:diamond_pickaxe"},
-		{"", "data get block 20 -60 1 Items"},
-		{"", "loot replace block 20 -60 2 container.0 mine 30 -60 2 minecraft:diamond_pickaxe[minecraft:enchantments={\"minecraft:silk_touch\":1}]"},
-		{"", "data get block 20 -60 2 Items"},
-		{"setblock 30 -60 4 minecraft:acacia_leaves", "loot replace block 20 -60 3 container.0 mine 30 -60 4 minecraft:shears"},
-		{"", "data get block 20 -60 3 Items"},
-		// block_state_property gates the lower-half drop.
-		{"setblock 30 -60 6 minecraft:oak_door[half=lower]", "loot replace block 20 -60 4 container.0 mine 30 -60 6"},
-		{"", "data get block 20 -60 4 Items"},
-		{"setblock 30 -60 8 minecraft:oak_door[half=upper]", "loot replace block 20 -60 5 container.0 mine 30 -60 8"},
-		{"", "data get block 20 -60 5 Items"},
-		{"setblock 30 -60 10 minecraft:wheat[age=7]", "loot replace block 20 -60 6 container.0 mine 30 -60 10"},
-		{"", "data get block 20 -60 6 Items"},
-		{"setblock 30 -60 12 minecraft:wheat[age=0]", "loot replace block 20 -60 7 container.0 mine 30 -60 12"},
-		{"", "data get block 20 -60 7 Items"},
-		// A wooden pickaxe on iron_ore still yields raw_iron — the
-		// incorrect_for_*_tool deny only applies to real breaking.
-		{"setblock 30 -60 14 minecraft:iron_ore", "loot replace block 20 -60 8 container.0 mine 30 -60 14 minecraft:wooden_pickaxe"},
-		{"", "data get block 20 -60 8 Items"},
-		{"setblock 30 -60 16 minecraft:grass_block", "loot replace block 20 -60 9 container.0 mine 30 -60 16 minecraft:dirt"},
-		{"", "data get block 20 -60 9 Items"},
-		// silk touch picks the first alternatives child.
-		{"", "loot replace block 20 -60 10 container.0 mine 30 -60 16 minecraft:dirt[minecraft:enchantments={\"minecraft:silk_touch\":1}]"},
-		{"", "data get block 20 -60 10 Items"},
-		// [count] semantics: 4 into a 2-stack table — stack-size
-		// override shows [4,4], roll-count shows ~8 stacks.
-		{"", "loot replace block 20 -60 11 container.0 4 mine 30 -60 10"},
-		{"", "data get block 20 -60 11 Items"},
-		// Pin replace count on entities: wheat yields 2 stacks/roll —
-		// rolls model gives 8 stacks, slots model fills equipment.
-		{"", "loot replace entity @s weapon.mainhand 4 mine 30 -60 10"},
-		{"", "data get entity @s SelectedItem"},
-		{"", "data get entity @s equipment"},
-	}
-
-	run2 := func(addr string) [][]string {
-		c, pr, pw := joinPlayQuiet(t, addr, "P")
-		defer c.Close()
-		_ = c.SetDeadline(time.Time{})
-		sendClientInformation(t, pw)
-		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
-		sink := newChatSink(pr, pw)
-		time.Sleep(4 * time.Second)
-		sink.take()
-		var out [][]string
-		for i, p := range probes {
-			sink.take()
-			if p.setup != "" {
-				func() { defer func() { recover() }(); sendCommand(t, pw, p.setup) }()
-				sink.take()
-			}
-			if strings.HasPrefix(p.cmd, "loot ") {
-				// A fresh chest per probe: setblock on a new
-				// position always takes, unlike resetting in place
-				// (vanilla answers an unchanged block with
-				// setblock.failed and keeps the old contents).
-				func() {
-					defer func() { recover() }()
-					sendCommand(t, pw, fmt.Sprintf("setblock 20 -60 %d minecraft:chest", i/2))
-				}()
-				sink.take()
-			}
-			func() { defer func() { recover() }(); sendCommand(t, pw, p.cmd) }()
-			marker := fmt.Sprintf("ZMP%d", i)
-			func() { defer func() { recover() }(); sendCommand(t, pw, "say "+marker) }()
-			var evs []string
-			deadline := time.Now().Add(3 * time.Second)
-			for {
-				gotMarker := false
-				for _, line := range sink.take() {
-					if strings.Contains(line, marker) {
-						gotMarker = true
-						continue
-					}
-					if strings.Contains(line, "chat.type.advancement") {
-						continue
-					}
-					if tree, ok := componentTree(line, true); ok {
-						evs = append(evs, "chat "+countRe.ReplaceAllString(numRe.ReplaceAllString(maskUUID(tree), "N"), "count: N"))
-					} else if strings.HasPrefix(line, "0x79:") {
-						j := strings.Index(line, ":")
-						if root, err := nbt.ReadUnnamed(strings.NewReader(line[j+1:])); err == nil {
-							evs = append(evs, "chat "+countRe.ReplaceAllString(numRe.ReplaceAllString(maskUUID(renderNBT(root, true)), "N"), "count: N"))
-						}
-					}
-				}
-				if gotMarker || time.Now().After(deadline) {
-					break
-				}
-				time.Sleep(30 * time.Millisecond)
-			}
-			out = append(out, evs)
+// skipMetaVal advances past one entity-data value for the serializer
+// ids that can precede an item stack entry (0 byte, 1 VarInt, 3 float,
+// 4 string, 8 bool); anything else stops the scan — unknown serializer
+// on an item entity is a parse risk, not a silent miscount.
+func skipMetaVal(r *protocol.PacketReader, typ byte) bool {
+	var err error
+	switch typ {
+	case 0, 8: // byte, bool
+		_, err = r.Byte()
+	case 1, 2, 10, 11, 12, 14, 15, 16, 17, 19, 20, 21: // varint-ish
+		_, err = r.VarInt()
+	case 3: // float
+		_, err = r.Read(4)
+	case 4: // string
+		var n int32
+		n, err = r.VarInt()
+		if err == nil && n >= 0 && n < 1<<20 {
+			_, err = r.Read(int(n))
 		}
-		return out
+	default:
+		return false
 	}
-
-	want2 := run2(targets.vanilla)
-	got2 := run2(targets.mcgo)
-	for i, p := range probes {
-		if len(want2[i]) != len(got2[i]) {
-			t.Errorf("probe %q/%q: vanilla %v\n  mc-go %v", p.setup, p.cmd, want2[i], got2[i])
-			continue
-		}
-		for j := range want2[i] {
-			if want2[i][j] != got2[i][j] {
-				t.Errorf("probe %q/%q event %d:\n  vanilla %s\n  mc-go   %s", p.setup, p.cmd, j, want2[i][j], got2[i][j])
-			}
-		}
-	}
+	return err == nil
 }

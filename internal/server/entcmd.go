@@ -625,7 +625,11 @@ func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount 
 	}
 	mob := target.mob
 	s.broadcastDamageEvent(mob.ID, damageInfo{typeName: dmgType, cause: causeID, direct: srcID})
-	_, _, died := s.damageMob(mob, amount, dmgType)
+	var killer *Session
+	if cause != nil {
+		killer = cause.sess
+	}
+	_, _, died := s.damageMob(mob, amount, dmgType, killer)
 	_ = died
 	return componentReply(translatable("commands.damage.success",
 		nestedCompound{key: "", value: amount}, target.nameComp()))

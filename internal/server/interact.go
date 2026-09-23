@@ -198,7 +198,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 			plan.damage += plan.enchBonus
 			s.preAttackSound(sess, plan)
 			sess.attackTicker = 0
-			dealt, graced, died := s.damageMob(&e, plan.damage, "player_attack")
+			dealt, graced, died := s.damageMob(&e, plan.damage, "player_attack", sess)
 			if dealt > 0 {
 				// Melee lands on player_hurt_entity too: the direct
 				// entity is the player and there's no projectile tag.
@@ -529,7 +529,7 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 		vName, _ := EntityTypeName(e.Type)
 		res = mobKnockbackResistance[vName]
 		dmg := plan.scale * (sweepDmg + enchantDamageBonus(sess.heldStack(), vName))
-		if dealt, graced, died := s.damageMob(&e, dmg, "player_attack"); dealt > 0 {
+		if dealt, graced, died := s.damageMob(&e, dmg, "player_attack", sess); dealt > 0 {
 			if !graced {
 				s.broadcastDamageEvent(e.ID, damageInfo{
 					typeName: "player_attack",

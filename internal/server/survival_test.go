@@ -350,7 +350,7 @@ func TestSummonAndKillMob(t *testing.T) {
 	}
 	for i := 0; i < 10; i++ {
 		e.invulnTicks = 0 // bypass the post-hit grace window
-		s.damageMob(e, 1, "generic")
+		s.damageMob(e, 1, "generic", nil)
 	}
 	// die() leaves a twenty-tick corpse; tick the poof through.
 	for i := 0; i < 20; i++ {
@@ -370,7 +370,7 @@ func TestPigDropsPorkchop(t *testing.T) {
 	}
 	for i := 0; i < 10; i++ {
 		e.invulnTicks = 0 // bypass the post-hit grace window
-		s.damageMob(e, 1, "generic")
+		s.damageMob(e, 1, "generic", nil)
 	}
 	s.entities.mu.RLock()
 	var drop *Entity
@@ -507,9 +507,12 @@ func TestMobDeathSpawnsXPOrb(t *testing.T) {
 	if !ok {
 		t.Fatal("summon failed")
 	}
+	// Vanilla only drops XP when the last hurt came from a player
+	// (lastHurtByPlayerMemoryTime > 0), so the killer session matters.
+	killer := &Session{}
 	for i := 0; i < 10; i++ {
 		e.invulnTicks = 0 // bypass the post-hit grace window
-		s.damageMob(e, 1, "generic")
+		s.damageMob(e, 1, "generic", killer)
 	}
 	orbType := mustEntityType("experience_orb")
 	found := false

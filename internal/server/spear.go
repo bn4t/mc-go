@@ -123,7 +123,7 @@ func (s *Server) spearJabTick(sess *Session) {
 		hitAny = true
 		dmg := base + float32(math.Floor(relSpeed*kw.dmgMult))
 		if canDmg {
-			dealt, _, died := s.damageMob(e, dmg, "player_attack")
+			dealt, _, died := s.damageMob(e, dmg, "player_attack", sess)
 			if dealt > 0 {
 				s.broadcastDamageEvent(e.ID, damageInfo{
 					typeName: "spear",

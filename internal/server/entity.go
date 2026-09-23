@@ -182,6 +182,10 @@ type Entity struct {
 	// decrements every tick and burns for one on_fire damage at each
 	// multiple of twenty. Zero is unlit.
 	FireTicks int32
+	// LastHurtByPlayerTicks is vanilla's lastHurtByPlayerMemoryTime:
+	// 100 on a player-caused hurt, counting down in mobTickStep — the
+	// killed_by_player window for loot gating and XP.
+	LastHurtByPlayerTicks int32
 	// Dying mobs lie as a corpse for twenty ticks (vanilla's
 	// deathTime window) before the death-poof event and removal.
 	Dying      bool
