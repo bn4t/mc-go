@@ -189,3 +189,85 @@ func TestDataEntityParity(t *testing.T) {
 		}
 	}
 }
+
+// TestDataMergeHealthParity pins the Health write path of entity
+// /data merge: vanilla's load clamps the merged value to
+// [0, max_health] and pushes a zeroed mob through die() on the next
+// tick. The wolf leg also pins the tameable quirk — reloading a wolf
+// re-runs setTame(false), which re-asserts the wild max_health base
+// and clamps health against the reverted base, so {Health:100f}
+// lands at 8 even right after /attribute raised max_health to 40.
+// Player targets stay read-only: commands.data.entity.invalid.
+func TestDataMergeHealthParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	tag := fmt.Sprintf("dmh%d", time.Now().UnixNano()%1_000_000)
+	wolfSel := fmt.Sprintf("@e[type=minecraft:wolf,tag=%s,limit=1]", tag)
+	huskSel := fmt.Sprintf("@e[type=minecraft:husk,tag=%s,limit=1]", tag)
+	cmds := []string{
+		"summon minecraft:wolf 9.5 -59 10.5 {NoAI:1b,Tags:[\"" + tag + "\"]}",
+		"data get entity " + wolfSel + " Health",
+		"data merge entity " + wolfSel + " {Health:100f}",
+		"data get entity " + wolfSel + " Health",
+		"attribute " + wolfSel + " minecraft:max_health base set 40",
+		"attribute " + wolfSel + " minecraft:max_health base get",
+		"data merge entity " + wolfSel + " {Health:100f}",
+		"data get entity " + wolfSel + " Health",
+		"attribute " + wolfSel + " minecraft:max_health base get",
+		"data merge entity " + wolfSel + " {Health:-5f}",
+		"data get entity " + wolfSel + " Health",
+		"summon minecraft:husk 9.5 -59 10.5 {NoAI:1b,Tags:[\"" + tag + "\"]}",
+		"data merge entity " + huskSel + " {Health:100f}",
+		"data get entity " + huskSel + " Health",
+		"data merge entity " + huskSel + " {Health:0f}",
+		"data get entity " + huskSel + " Health",
+		"data merge entity @s {Health:5f}",
+		"data get entity @s Health",
+	}
+
+	run := func(addr string) [][]string {
+		c, pr, pw := joinPlayBlackbox(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		sink := newChatSink(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(400 * time.Millisecond)
+		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
+		time.Sleep(1400 * time.Millisecond)
+		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
+		time.Sleep(800 * time.Millisecond)
+		sink.take()
+		var out [][]string
+		for i, cmd := range cmds {
+			sink.take()
+			sendCommand(t, pw, cmd)
+			// The zero-health legs die and linger twenty ticks; give
+			// them longer so the notfound read sees the corpse gone.
+			wait := 450
+			if i == 9 || i == 14 {
+				wait = 1500
+			}
+			time.Sleep(time.Duration(wait) * time.Millisecond)
+			var evs []string
+			for _, line := range sink.take() {
+				if tree, ok := componentTree(line, true); ok {
+					evs = append(evs, "chat "+maskUUID(tree))
+				}
+			}
+			out = append(out, evs)
+		}
+		return out
+	}
+
+	want := run(targets.vanilla)
+	got := run(targets.mcgo)
+	for i, cmd := range cmds {
+		if fmt.Sprintf("%v", want[i]) != fmt.Sprintf("%v", got[i]) {
+			t.Errorf("cmd %q:\n  vanilla %v\n  mc-go   %v", cmd, want[i], got[i])
+		}
+	}
+}

@@ -4105,3 +4105,17 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   player's hurt, the victim hears nothing over the wire. New
   `TestPlayerHurtSoundParity` diffs 13 damage types + a kill through
   a second-session listener, asserting victim silence both sides.
+
+- **/data merge Health semantics**: the entity reload now clamps a
+  merged Health to [0, effective max_health] — {Health:100f} on a
+  wolf lands at 8, on a husk at 20 — and a merge to zero marks the
+  mob Dying so the corpse lingers like a combat death. The tameable
+  quirk is pinned too: a wolf merge re-asserts the wild max_health
+  base (TamableAnimal.setTame(false) on load), undoing an
+  /attribute base override before the clamp. Player targets still
+  fail commands.data.entity.invalid. New TestDataMergeHealthParity.
+- **/kill corpse linger**: kill on a living mob no longer removes the
+  entity instantly — die() marks it Dying and the tick pass flushes
+  the dying metadata pack and poofs it twenty ticks later, matching
+  vanilla's hurt(Float.MAX)→die() flow (fixes a TestDataEntityParity
+  regression where the 0x63 dying pack was never emitted).

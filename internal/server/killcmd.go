@@ -41,14 +41,11 @@ func (s *Server) runKill(player string, args []string) reply {
 			continue
 		}
 		if e.Living {
-			// /kill's die() removes instantly — only combat deaths
-			// linger as a corpse for the twenty-tick window.
-			_, _, died := s.damageMob(e, math.MaxFloat32, "generic_kill", nil,
+			// die() marks the mob Dying; the corpse lingers twenty
+			// ticks and flushes the dying pack before removal, like
+			// any combat death.
+			s.damageMob(e, math.MaxFloat32, "generic_kill", nil,
 				&damageInfo{typeName: "generic_kill"})
-			if died {
-				s.entities.Remove(e.ID)
-				s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
-			}
 		} else {
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})

@@ -424,9 +424,14 @@ func (d *dataEntity) saveMap(now int64) entitySave {
 }
 
 // applyDataEntity writes the merged save map back and resyncs trackers
-// with the dirtied entries, like vanilla's post-load sendChanges.
+// with the dirtied entries, like vanilla's post-load sendChanges. A
+// merge that leaves Health at zero kills the mob outright — vanilla's
+// load pushes it through die() on the next tick.
 func (s *Server) applyDataEntity(d *dataEntity, save entitySave) {
 	s.applyEntitySave(d.mob, save.m)
+	if d.mob != nil && d.mob.Health <= 0 {
+		s.mobDie(d.mob, nil)
+	}
 }
 
 // entityDisplayName builds vanilla's decorated entity name component:
@@ -605,6 +610,13 @@ var entitySaveSeq = []string{
 	"InLove", "AgeLocked", "variant", "sound_variant",
 }
 
+// tamableWildHealth is the wild max_health that
+// TamableAnimal.setTame(false) re-asserts on load — the vanilla taming
+// tables bump it back up when the entity reads an Owner.
+var tamableWildHealth = map[string]float64{
+	"wolf": 8,
+}
+
 // entitySaveExtras are the per-type save fields beyond the shared
 // living-mob set, measured per summoned entity. Types without an entry
 // emit the shared fields only.
@@ -637,8 +649,31 @@ func nbtBool(v bool) int8 {
 func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	prevHealth, prevName, prevNoAI := e.Health, e.CustomName, e.NoAI
 	name, _ := EntityTypeName(e.Type)
+	// Tamable reload quirk: vanilla's TamableAnimal.setTame(false)
+	// — run because the merged save carries no Owner — re-asserts
+	// the wild max_health base, undoing any /attribute override
+	// before the Health write clamps against it. A wolf merged with
+	// {Health:100f} ends at 8, not 40, even after base set 40.
+	if wild, ok := tamableWildHealth[name]; ok {
+		if save["Owner"] == nil {
+			if e.AttrBase == nil {
+				e.AttrBase = map[string]float64{}
+			}
+			e.AttrBase["max_health"] = wild
+		}
+	}
 	if v, ok := nbtFloat(save["Health"]); ok {
+		// setHealth clamps to [0, getMaxHealth] — the attribute's
+		// effective value — so a merged {Health:0f} marks the mob
+		// dead and {Health:100f} lands at max, not over it.
+		max := attrValue(mobAttrBase(e, "max_health"), e.AttrMods["max_health"])
 		e.Health = v
+		if e.Health > float32(max) {
+			e.Health = float32(max)
+		}
+		if e.Health < 0 {
+			e.Health = 0
+		}
 	} else {
 		e.Health = mobHealth[name]
 	}

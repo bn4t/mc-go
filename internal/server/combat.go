@@ -195,8 +195,18 @@ func mobAttrBase(e *Entity, attr string) float64 {
 	if v, ok := e.AttrBase[attr]; ok {
 		return v
 	}
-	if name, ok := EntityTypeName(e.Type); ok && attr == "armor" {
+	name, ok := EntityTypeName(e.Type)
+	if !ok {
+		return 0
+	}
+	switch attr {
+	case "armor":
 		return float64(mobNaturalArmor[name])
+	case "max_health":
+		if v, ok := mobAttrBases[name]["max_health"]; ok {
+			return v
+		}
+		return float64(mobHealth[name])
 	}
 	return 0
 }

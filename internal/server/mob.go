@@ -1224,29 +1224,35 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 		s.thornsMobWear(e, killer)
 	}
 	if health <= 0 {
-		// die(): pose DYING + health 0 go out on the tracker, the
-		// corpse event and loot/XP fire immediately, the entity
-		// lingers twenty ticks, then poofs (event 60) and is removed —
-		// all inside mobTickStep's per-mob pass.
-		s.entities.SetDying(e.ID)
-		// The death pack rides the next tick's sendChanges like any
-		// dirty metadata — a /kill reply reaches the client first.
-		e.dataSync = encodeDyingLivingMetadata()
-		s.broadcastEntityEventTo(nil, e.Dim, e.ID, 3)
-		s.spawnMobLoot(e, killer)
-		// dropExperience: recent player hurt + not a baby + mob_drops.
-		if e.LastHurtByPlayerTicks > 0 && !e.Baby &&
-			s.gameRuleBool("minecraft:mob_drops") {
-			if name, ok := EntityTypeName(e.Type); ok {
-				s.spawnMobXP(e.Dim, name, e.X, e.Y, e.Z)
-			}
-		}
+		s.mobDie(e, killer)
 		return d, res.Graced, true
 	}
 	if d > 0 {
 		s.broadcastEntityMetadata(e.ID, encodeLivingHealth(health))
 	}
 	return d, res.Graced, false
+}
+
+// mobDie runs the vanilla die() tail for a mob at zero health: pose
+// DYING + health 0 on the tracker, the corpse event, loot/XP, then a
+// twenty-tick corpse linger before removal — all inside mobTickStep's
+// per-mob pass. It fires from damageMob and from a /data merge that
+// pushes Health to zero.
+func (s *Server) mobDie(e *Entity, killer *Session) {
+	s.mobDeathSound(e)
+	s.entities.SetDying(e.ID)
+	// The death pack rides the next tick's sendChanges like any dirty
+	// metadata — a /kill reply reaches the client first.
+	e.dataSync = encodeDyingLivingMetadata()
+	s.broadcastEntityEventTo(nil, e.Dim, e.ID, 3)
+	s.spawnMobLoot(e, killer)
+	// dropExperience: recent player hurt + not a baby + mob_drops.
+	if e.LastHurtByPlayerTicks > 0 && !e.Baby &&
+		s.gameRuleBool("minecraft:mob_drops") {
+		if name, ok := EntityTypeName(e.Type); ok {
+			s.spawnMobXP(e.Dim, name, e.X, e.Y, e.Z)
+		}
+	}
 }
 
 // mobWalkSpeed is the blocks-per-tick stride of the wander AI.
