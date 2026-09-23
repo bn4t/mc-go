@@ -243,3 +243,106 @@ func TestMobHurtDeathSoundParity(t *testing.T) {
 		}
 	}
 }
+
+// TestPlayerHurtSoundParity pins the player hurt/death voice: vanilla
+// emits a positional sound at the victim's feet on the PLAYERS source
+// to every listener EXCEPT the victim — a player's own client plays
+// the hurt locally off the damage event. The damage type picks the
+// variant (drown/freeze/on_fire/sweet_berry_bush); a lethal hit plays
+// entity.player.death.
+func TestPlayerHurtSoundParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P", "Q"),
+	}, nil)
+	defer targets.cleanup()
+
+	types := []string{
+		"mob_attack", "drown", "in_fire", "on_fire", "freeze",
+		"sweet_berry_bush", "sting", "fall", "cramming", "magic",
+		"explosion", "generic", "fly_into_wall",
+	}
+	// Only player-voice ids are compared — ambient and secondary noise
+	// (e.g. the bee-sting playback) stay out of the diff.
+	pvoice := map[int32]bool{1311: true, 1312: true, 1313: true, 1314: true, 1315: true, 1316: true}
+	pfilter := func(evs []voiceSound) []voiceSound {
+		var out []voiceSound
+		for _, ev := range evs {
+			if pvoice[ev.id] {
+				out = append(out, ev)
+			}
+		}
+		return out
+	}
+
+	type result struct {
+		heard  [][]voiceSound // per damage type, as Q heard it
+		victim [][]voiceSound // what P heard of its own hits
+		death  []voiceSound
+	}
+	run := func(addr string) result {
+		c1, pr1, pw1 := joinPlayBlackbox(t, addr, "P")
+		defer c1.Close()
+		c2, pr2, pw2 := joinPlayBlackbox(t, addr, "Q")
+		defer c2.Close()
+		_ = c1.SetDeadline(time.Time{})
+		_ = c2.SetDeadline(time.Time{})
+		_ = pw1.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		_ = pw2.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		sinkP := newChatSink(pr1, pw1)
+		sinkP.cap = 1 << 22
+		sinkQ := newChatSink(pr2, pw2)
+		sinkQ.cap = 1 << 22
+		time.Sleep(600 * time.Millisecond)
+		for _, cmd := range []string{
+			"gamemode survival P", "gamemode spectator Q",
+			"tp P 0.5 -60 0.5", "tp Q 2 -60 2",
+			"attribute P minecraft:max_health base set 100",
+			"data merge entity P {Health:100f}",
+		} {
+			func() { defer func() { recover() }(); sendCommand(t, pw2, cmd) }()
+			time.Sleep(300 * time.Millisecond)
+		}
+		sinkP.take()
+		sinkQ.take()
+		var r result
+		for _, tp := range types {
+			func() { defer func() { recover() }(); sendCommand(t, pw1, "damage @s 1 minecraft:"+tp) }()
+			time.Sleep(1100 * time.Millisecond)
+			r.heard = append(r.heard, pfilter(voiceSounds(sinkQ.take())))
+			r.victim = append(r.victim, pfilter(voiceSounds(sinkP.take())))
+			// Heal back up for the next leg.
+			func() { defer func() { recover() }(); sendCommand(t, pw1, "data merge entity @s {Health:100f}") }()
+			time.Sleep(300 * time.Millisecond)
+			sinkP.take()
+			sinkQ.take()
+		}
+		func() { defer func() { recover() }(); sendCommand(t, pw1, "damage @s 1000 minecraft:generic_kill") }()
+		time.Sleep(1200 * time.Millisecond)
+		r.death = pfilter(voiceSounds(sinkQ.take()))
+		return r
+	}
+
+	want := run(targets.vanilla)
+	got := run(targets.mcgo)
+	for i, tp := range types {
+		w, g := want.heard[i], got.heard[i]
+		if len(w) != len(g) {
+			t.Errorf("%s: listener saw %v vs %v", tp, w, g)
+			continue
+		}
+		for j := range w {
+			if w[j] != g[j] {
+				t.Errorf("%s: event %d vanilla %+v != mc-go %+v", tp, j, w[j], g[j])
+			}
+		}
+		if len(w) == 0 {
+			t.Errorf("%s: vanilla emitted no player voice — anchor drifted", tp)
+		}
+		if len(want.victim[i]) != len(got.victim[i]) {
+			t.Errorf("%s: victim self-voice vanilla %v vs mc-go %v", tp, want.victim[i], got.victim[i])
+		}
+	}
+	if len(want.death) != len(got.death) {
+		t.Errorf("death: listener saw %v vs %v", want.death, got.death)
+	}
+}

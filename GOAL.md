@@ -4094,3 +4094,14 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   the cube sometimes summons at another size). Still open: ambient
   voices, per-damage-type hurt variants (drowning/fall overrides),
   baby-pitch voicePitch.
+
+- **Player hurt/death voices**: the player victim path now emits the
+  positional voice too — `entity.player.hurt` (or the drown/freeze/
+  on_fire/sweet_berry_bush variant by damage type) at the victim's
+  feet on the PLAYERS source, and `entity.player.death` on a lethal
+  hit. Crucially the packet goes to every listener EXCEPT the victim:
+  vanilla excludes the source so the victim's client plays the hurt
+  locally off the damage_event — a lone listener hears a nearby
+  player's hurt, the victim hears nothing over the wire. New
+  `TestPlayerHurtSoundParity` diffs 13 damage types + a kill through
+  a second-session listener, asserting victim silence both sides.

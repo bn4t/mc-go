@@ -228,6 +228,7 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 	// hit: an overkill blow still reports only what remained.
 	healthBefore := sess.health
 	s.damage(sess, amount, message, src)
+	s.playerHurtVoice(sess, src)
 	if amount > healthBefore {
 		amount = healthBefore
 	}
@@ -250,6 +251,43 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 		s.thornsVictimWear(sess, src.cause)
 	}
 	return amount
+}
+
+// Player sound registry ids for the hurt() voice path — the damage
+// type selects the hurt variant the way Player.getHurtSound does.
+const (
+	sndPlayerDeath     = 1311
+	sndPlayerHurt      = 1312
+	sndPlayerDrown     = 1313
+	sndPlayerFreeze    = 1314
+	sndPlayerOnFire    = 1315
+	sndPlayerBerryBush = 1316
+	srcPlayers         = 7
+)
+
+// playerHurtVoice is LivingEntity.playHurtSound on the player victim
+// path — a positional sound at the victim's feet on the PLAYERS
+// source, broadcast to every listener EXCEPT the victim (its client
+// plays the hurt locally off the damage event). A lethal hit carries
+// entity.player.death in place of the hurt sound.
+func (s *Server) playerHurtVoice(sess *Session, src damageSource) {
+	x, y, z, _, _, _ := sess.Pos()
+	snd := int32(sndPlayerHurt)
+	if sess.dead {
+		snd = sndPlayerDeath
+	} else {
+		switch src.typeName {
+		case "drown":
+			snd = sndPlayerDrown
+		case "in_fire", "on_fire":
+			snd = sndPlayerOnFire
+		case "freeze":
+			snd = sndPlayerFreeze
+		case "sweet_berry_bush":
+			snd = sndPlayerBerryBush
+		}
+	}
+	s.playSoundSrc(sess.dimName(), x, y, z, snd, srcPlayers, 1, voicePitch(), sess)
 }
 
 // playerHurtKnockback applies LivingEntity.dealDefaultKnockback to a
