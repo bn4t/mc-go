@@ -3975,3 +3975,16 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   taking durability on hurt (the husk keeps legs deterministic), the
   per-slot delta vanilla's broadcastEquipmentUpdates sends (mc-go
   resends the whole set), and horse-style chest/container mob slots.
+
+- **Mob melee equipment wear — measured, deliberately absent**: the
+  earlier "a meleeing zombie's sword accrues damage" theory was wrong.
+  Vanilla's weapon wear lives in ItemStack.postHurtEnemy (hurtAndBreak
+  of weapon.item_damage_per_attack), which only Player.attack calls;
+  Mob.doHurtTarget invokes hurtEnemy, an empty Item hook (MaceItem's
+  smash override excepted). LivingEntity.hurtArmor/hurtHelmet are
+  likewise empty — only Player.hurtArmor/helmet call doHurtEquipment —
+  so a mob's equipment is NEVER worn by combat, attacking or hurt.
+  mc-go stays wear-free there. TestMobWeaponWearParity pins it: a
+  husk landing hits on an armored survival player keeps
+  equipment.mainhand verbatim-pristine on both servers while the
+  target's health drops (the hits-landed anchor).

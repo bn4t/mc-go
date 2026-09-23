@@ -3,6 +3,7 @@
 package blackbox
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -94,5 +95,62 @@ func TestItemMobParity(t *testing.T) {
 				t.Errorf("cmd %q event %d:\n  vanilla %s\n  mc-go   %s", cmd, j, want[i][j], got[i][j])
 			}
 		}
+	}
+}
+
+// TestMobWeaponWearParity pins the mob-melee durability model: a
+// husk swinging an iron sword at an armored survival player lands
+// hits (the target's health drops) yet the weapon stays pristine —
+// weapon wear lives in ItemStack.postHurtEnemy, which only the
+// player attack path calls; Mob.doHurtTarget's hurtEnemy is an
+// empty hook and LivingEntity.hurtArmor is a no-op off the player
+// class, so mob equipment is never worn down by combat.
+func TestMobWeaponWearParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	husk := `@e[type=minecraft:husk,limit=1]`
+
+	run := func(addr string) (equip, health string) {
+		c, pr, pw := joinPlayBlackbox(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		sink := newChatSink(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(400 * time.Millisecond)
+		// Armor 30 shaves husk hits to ~0.5 so the player stays alive
+		// and in reach; cramming off so the slime swarm can't kill
+		// the husk mid-measurement.
+		sendCommand(t, pw, "gamemode survival @s")
+		sendCommand(t, pw, "attribute @s minecraft:armor base set 30")
+		sendCommand(t, pw, "gamerule max_entity_cramming 0")
+		sendCommand(t, pw, "summon minecraft:husk 5.5 -60 5.5 {PersistenceRequired:1b}")
+		sendCommand(t, pw, "item replace entity "+husk+" weapon.mainhand with minecraft:iron_sword")
+		sendCommand(t, pw, "tp @s 6.5 -60 5.5")
+		time.Sleep(5 * time.Second)
+		equip = dataGetLine(t, sink, pw, husk, "equipment.mainhand")
+		health = dataGetLine(t, sink, pw, "@s", "Health")
+		return equip, health
+	}
+
+	wantEquip, wantHealth := run(targets.vanilla)
+	gotEquip, gotHealth := run(targets.mcgo)
+
+	if lastNumber(wantHealth) >= 20 {
+		t.Fatalf("no husk hits measured on vanilla (Health %v): %q", wantHealth, wantHealth)
+	}
+	if strings.Contains(wantEquip, "damage") {
+		t.Fatalf("vanilla wore the mob weapon — measurement changed: %q", wantEquip)
+	}
+	wantTree, okW := componentTree(wantEquip, true)
+	gotTree, okG := componentTree(gotEquip, true)
+	if !okW || !okG || maskUUID(wantTree) != maskUUID(gotTree) {
+		t.Errorf("mainhand equipment after melee:\n  vanilla %s\n  mc-go   %s", wantTree, gotTree)
+	}
+	if lastNumber(gotHealth) >= 20 {
+		t.Errorf("mc-go husk never hit the player: Health %v", gotHealth)
 	}
 }
