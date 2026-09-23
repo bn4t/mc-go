@@ -624,12 +624,12 @@ func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount 
 			nestedCompound{key: "", value: amount}, target.nameComp()))
 	}
 	mob := target.mob
-	s.broadcastDamageEvent(mob.ID, damageInfo{typeName: dmgType, cause: causeID, direct: srcID})
 	var killer *Session
 	if cause != nil {
 		killer = cause.sess
 	}
-	_, _, died := s.damageMob(mob, amount, dmgType, killer)
+	_, _, died := s.damageMob(mob, amount, dmgType, killer,
+		&damageInfo{typeName: dmgType, cause: causeID, direct: srcID})
 	// hurtServer's dealDefaultKnockback runs for mob victims too —
 	// the shove rides the composed delta to chunk trackers.
 	if srcID != 0 && srcID != mob.ID && !noKnockback(dmgType) {

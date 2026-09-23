@@ -1189,15 +1189,22 @@ func (s *Server) broadcastMobSharedFlags(eid int32, onFire bool) {
 // damageMob runs vanilla's LivingEntity.hurt tail for a mob hit:
 // armor (natural base + worn pieces) absorbs unless the damage type
 // bypasses it, then the health loss lands inside the grace rules.
-func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *Session) (dealt float32, graced, died bool) {
-	health, d, ok, gr, bodyBroke := s.entities.Damage(e.ID, amount, typeName)
-	if bodyBroke {
-		// onEquippedItemBroken: entity event 65 = equipment break, body.
-		s.broadcastEntityEventTo(nil, e.Dim, e.ID, 65)
+// info carries the damage_event broadcast — vanilla emits it inside
+// hurtServer's accepted branch, AFTER the absorb/wear side effects
+// and BEFORE hurt()'s playHurtSound.
+func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *Session, info *damageInfo) (dealt float32, graced, died bool) {
+	res := s.entities.Damage(e.ID, amount, typeName)
+	s.mobHurtWireFX(e, res)
+	// A graced hit whose excess is zero returns false in vanilla's
+	// hurt — none of the hurt tail (event, sound, retaliation) runs.
+	// The wolf-armor absorb path DOES count as a landed hit.
+	if !res.Exists || (res.Dealt <= 0 && !res.Absorbed) {
+		return 0, res.Graced, false
 	}
-	if !ok || d <= 0 {
-		return 0, gr, false
+	if info != nil {
+		s.broadcastDamageEvent(e.ID, *info)
 	}
+	s.mobHurtSound(e, res)
 	// Vanilla's killed_by_player window: a player-caused hurt keeps
 	// the flag hot for 100 ticks (lastHurtByPlayerMemoryTime).
 	if killer != nil {
@@ -1207,6 +1214,7 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 		// this hit is lethal).
 		s.thornsMobWear(e, killer)
 	}
+	health, d := res.Health, res.Dealt
 	if health <= 0 {
 		// die(): pose DYING + health 0 go out on the tracker, the
 		// corpse event and loot/XP fire immediately, the entity
@@ -1225,10 +1233,12 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 				s.spawnMobXP(e.Dim, name, e.X, e.Y, e.Z)
 			}
 		}
-		return d, gr, true
+		return d, res.Graced, true
 	}
-	s.broadcastEntityMetadata(e.ID, encodeLivingHealth(health))
-	return d, gr, false
+	if d > 0 {
+		s.broadcastEntityMetadata(e.ID, encodeLivingHealth(health))
+	}
+	return d, res.Graced, false
 }
 
 // mobWalkSpeed is the blocks-per-tick stride of the wander AI.
@@ -1294,7 +1304,7 @@ func (s *Server) mobTickStep() {
 		// flags byte without the on-fire bit.
 		if e.FireTicks > 0 {
 			if e.FireTicks%20 == 0 {
-				s.damageMob(e, 1, "on_fire", nil)
+				s.damageMob(e, 1, "on_fire", nil, &damageInfo{typeName: "on_fire"})
 			}
 			ticks := e.FireTicks - 1
 			s.entities.SetFireTicks(e.ID, ticks)
@@ -1482,4 +1492,43 @@ func mobDisplayName(typ string) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// mobHurtWireFX emits the absorb-side wire feedback of a mob hit —
+// the body-equipment break event (vanilla's onEquippedItemBroken runs
+// inside hurtAndBreak) and the wolf-armor crack sound + scute
+// particle burst on a crackiness transition. These precede the
+// damage_event broadcast on the wire.
+func (s *Server) mobHurtWireFX(e *Entity, res DamageResult) {
+	if res.BodyBroke {
+		// onEquippedItemBroken: entity event 65 = equipment break, body.
+		s.broadcastEntityEventTo(nil, e.Dim, e.ID, 65)
+	}
+	if res.CrackChanged {
+		s.playSoundEntity(e.Dim, e.ID, sndWolfArmorCrack, srcNeutral, 1, 1, nil)
+		s.broadcastItemParticles(e.Dim, "armadillo_scute",
+			e.X, e.Y+1, e.Z, 0.2, 0.1, 0.2, 0.1, 20)
+	}
+}
+
+// mobHurtSound is LivingEntity.playHurtSound — hurt() runs it after
+// hurtServer accepts, so a break is already visible to getHurtSound:
+// an absorb hit with the armor still on plays item.wolf_armor.damage,
+// the breaking hit reads an empty body slot and plays
+// entity.wolf.hurt. Other mob types' hurt/death/ambient tables are
+// still open.
+func (s *Server) mobHurtSound(e *Entity, res DamageResult) {
+	if mobName, _ := EntityTypeName(e.Type); mobName != "wolf" {
+		return
+	}
+	snd := sndWolfHurt
+	if res.Absorbed && !res.BodyBroke {
+		snd = sndWolfArmorDamage
+	}
+	s.playSoundEntity(e.Dim, e.ID, snd, srcNeutral, 1, voicePitch(), nil)
+}
+
+// voicePitch is LivingEntity.getVoicePitch: (rng - rng) * 0.2 + 1.
+func voicePitch() float32 {
+	return (rand.Float32()-rand.Float32())*0.2 + 1
 }

@@ -3,10 +3,12 @@
 package blackbox
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"mc-go/internal/protocol"
 	"mc-go/internal/server"
 )
 
@@ -237,5 +239,136 @@ func TestMobBodyArmorParity(t *testing.T) {
 	// Anchor: wolf armor wear = 8+12+max(1,8/4) = 22.
 	if lastNumber(want[0]) != 22 {
 		t.Errorf("vanilla wolf armor wear not 22: %q", want[0])
+	}
+}
+
+// TestWolfArmorFeedbackParity pins the wire feedback of wolf-armor
+// hits, measured on vanilla and decompiled in Wolf.actuallyHurt +
+// LivingEntity.playHurtSound: the absorb path plays
+// item.wolf_armor.damage as the hurt sound, and a crackiness-level
+// transition (remaining fraction crossing 0.95/0.69/0.32) adds
+// item.wolf_armor.crack plus an armadillo_scute ITEM particle burst
+// (count 20, spread 0.2/0.1/0.2, speed 0.1 at y+1). A bypass hit
+// (thorns) is entity.wolf.hurt, and the break itself fires entity
+// event 65 with a final crack. Ambient wolf sounds are excluded —
+// they fire on a random timer unrelated to damage.
+func TestWolfArmorFeedbackParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	wolf := `@e[type=minecraft:wolf,limit=1]`
+	// ids the pins cover: crack, armor-damage, wolf-hurt.
+	interest := map[int32]bool{1792: true, 1793: true, 1806: true}
+
+	damageLegs := []string{
+		"damage " + wolf + " 4 minecraft:mob_attack",  // absorb: NONE->LOW crack
+		"damage " + wolf + " 4 minecraft:mob_attack",  // absorb: LOW->LOW no crack
+		"damage " + wolf + " 8 minecraft:thorns",      // bypass: wolf.hurt
+		"damage " + wolf + " 60 minecraft:mob_attack", // absorb: break
+		"damage " + wolf + " 1 minecraft:mob_attack",  // armor gone: wolf.hurt
+	}
+
+	run := func(addr string) [][]string {
+		c, pr, pw := joinPlayBlackbox(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		sink := newChatSink(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(400 * time.Millisecond)
+		for _, cmd := range []string{
+			"summon minecraft:wolf 4.5 -60 4.5 {NoAI:1b}",
+			"item replace entity " + wolf + " armor.body with minecraft:wolf_armor",
+		} {
+			func() { defer func() { recover() }(); sendCommand(t, pw, cmd) }()
+			time.Sleep(400 * time.Millisecond)
+		}
+		var legs [][]string
+		for _, cmd := range damageLegs {
+			sink.take()
+			func() { defer func() { recover() }(); sendCommand(t, pw, cmd) }()
+			time.Sleep(1200 * time.Millisecond)
+			var evs []string
+			for _, line := range sink.take() {
+				var idHex, payload string
+				if i := strings.IndexByte(line, ':'); i >= 0 {
+					idHex, payload = line[:i], line[i+1:]
+				} else {
+					continue
+				}
+				switch idHex {
+				case "0x74", "0x75": // sound_entity, sound
+					r := protocol.NewPacketReader([]byte(payload))
+					if id, err := r.VarInt(); err == nil && interest[id-1] {
+						evs = append(evs, "snd "+strconv.Itoa(int(id-1)))
+					}
+				case "0x2f": // level_particles
+					r := protocol.NewPacketReader([]byte(payload))
+					if _, err := r.Byte(); err != nil {
+						continue
+					}
+					if _, err := r.Byte(); err != nil {
+						continue
+					}
+					ok := true
+					for i := 0; i < 3 && ok; i++ {
+						_, err := r.Double()
+						ok = err == nil
+					}
+					for i := 0; i < 3 && ok; i++ {
+						_, err := r.Float()
+						ok = err == nil
+					}
+					if _, err := r.Float(); err != nil {
+						ok = false
+					}
+					var count int64
+					if n, err := r.Int(); err == nil {
+						count = int64(n)
+						_ = count
+					} else {
+						ok = false
+					}
+					if pid, err := r.VarInt(); ok && err == nil && pid == 54 {
+						// ITEM particle carries an ItemStackTemplate:
+						// VarInt item id + VarInt count + patch.
+						if iid, err := r.VarInt(); err == nil {
+							evs = append(evs, "ptcl item x"+strconv.Itoa(int(count))+" item="+strconv.Itoa(int(iid)))
+						}
+					}
+				case "0x22": // entity_event
+					r := protocol.NewPacketReader([]byte(payload))
+					if _, err := r.Int(); err != nil {
+						continue
+					}
+					if st, err := r.Byte(); err == nil && st == 65 {
+						evs = append(evs, "evt 65")
+					}
+				case "0x19": // damage_event
+					evs = append(evs, "dmg")
+				}
+			}
+			legs = append(legs, evs)
+		}
+		return legs
+	}
+
+	want := run(targets.vanilla)
+	got := run(targets.mcgo)
+	for i, cmd := range damageLegs {
+		if len(want[i]) == 0 {
+			t.Fatalf("leg %q: vanilla produced no pinned packets — measurement changed", cmd)
+		}
+		if len(want[i]) != len(got[i]) {
+			t.Errorf("leg %q:\n  vanilla %v\n  mc-go   %v", cmd, want[i], got[i])
+			continue
+		}
+		for j := range want[i] {
+			if want[i][j] != got[i][j] {
+				t.Errorf("leg %q event %d:\n  vanilla %s\n  mc-go   %s", cmd, j, want[i][j], got[i][j])
+			}
+		}
 	}
 }

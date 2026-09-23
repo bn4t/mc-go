@@ -326,6 +326,10 @@ func (s *Server) thornsAttack(victimEid, srcCause int32, victimName component) {
 	ae := s.entities.byID[srcCause]
 	s.entities.mu.RUnlock()
 	if ae != nil && ae.Living {
-		s.damageMob(ae, dmg, "thorns", s.sessionByEntityID(victimEid))
+		s.damageMob(ae, dmg, "thorns", s.sessionByEntityID(victimEid), &damageInfo{
+			typeName: "thorns",
+			cause:    victimEid,
+			direct:   victimEid,
+		})
 	}
 }

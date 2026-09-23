@@ -198,7 +198,15 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 			plan.damage += plan.enchBonus
 			s.preAttackSound(sess, plan)
 			sess.attackTicker = 0
-			dealt, graced, died := s.damageMob(&e, plan.damage, "player_attack", sess)
+			dmgType := "player_attack"
+			if plan.smash {
+				dmgType = "mace_smash"
+			}
+			dealt, graced, died := s.damageMob(&e, plan.damage, "player_attack", sess, &damageInfo{
+				typeName: dmgType,
+				cause:    sess.entityID.Load(),
+				direct:   sess.entityID.Load(),
+			})
 			if dealt > 0 {
 				// Melee lands on player_hurt_entity too: the direct
 				// entity is the player and there's no projectile tag.
@@ -206,17 +214,6 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 				// the health-capped value damageMob reports.
 				mh, _ := itemNameOf(sess.heldStack().ID)
 				s.firePlayerHurtEntity(sess, "player", false, plan.damage, mh, plan.smash)
-				dmgType := "player_attack"
-				if plan.smash {
-					dmgType = "mace_smash"
-				}
-				if !graced {
-					s.broadcastDamageEvent(e.ID, damageInfo{
-						typeName: dmgType,
-						cause:    sess.entityID.Load(),
-						direct:   sess.entityID.Load(),
-					})
-				}
 				sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
 				// post_attack enchants run inside hurt after damage:
 				// fire_aspect ignites the direct victim 4s/level.
@@ -529,13 +526,13 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 		vName, _ := EntityTypeName(e.Type)
 		res = mobKnockbackResistance[vName]
 		dmg := plan.scale * (sweepDmg + enchantDamageBonus(sess.heldStack(), vName))
-		if dealt, graced, died := s.damageMob(&e, dmg, "player_attack", sess); dealt > 0 {
+		dealt, graced, died := s.damageMob(&e, dmg, "player_attack", sess, &damageInfo{
+			typeName: "player_attack",
+			cause:    sess.entityID.Load(),
+			direct:   sess.entityID.Load(),
+		})
+		if dealt > 0 {
 			if !graced {
-				s.broadcastDamageEvent(e.ID, damageInfo{
-					typeName: "player_attack",
-					cause:    sess.entityID.Load(),
-					direct:   sess.entityID.Load(),
-				})
 				// The hit applies the default 0.4 knockback away from
 				// the attacker inside hurt, then the sweep's own 0.4
 				// along the facing — each step halves the stored delta.

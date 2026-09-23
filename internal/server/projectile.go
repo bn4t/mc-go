@@ -391,13 +391,12 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 		bb := mobBounds(t.Type)
 		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
 			hit = true
-			dealt, _, died := s.damageMob(t, damage, typeName, shooter)
+			dealt, _, died := s.damageMob(t, damage, typeName, shooter, &damageInfo{
+				typeName: typeName,
+				cause:    e.arrowShooter,
+				direct:   e.ID,
+			})
 			if dealt > 0 {
-				s.broadcastDamageEvent(t.ID, damageInfo{
-					typeName: typeName,
-					cause:    e.arrowShooter,
-					direct:   e.ID,
-				})
 				if shooter != nil {
 					s.firePlayerHurtEntity(shooter, typeName, true, damage, "", false)
 					if died {
@@ -616,7 +615,11 @@ func (s *Server) channelingStrike(ownerID int32, e *Entity, x, y, z float64) {
 		if !ok {
 			continue
 		}
-		s.damageMob(t, 5, "lightning_bolt", shooter)
+		s.damageMob(t, 5, "lightning_bolt", shooter, &damageInfo{
+			typeName: "lightning_bolt",
+			cause:    bolt.ID,
+			direct:   bolt.ID,
+		})
 		if tn, ok := EntityTypeName(t.Type); ok {
 			victims = append(victims, tn)
 		}

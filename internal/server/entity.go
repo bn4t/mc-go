@@ -317,18 +317,41 @@ func (m *Manager) SetMotion(id int32, x, y, z float64) bool {
 // health, the amount dealt, whether the entity exists, and whether
 // the hit ran inside the grace window — vanilla skips the damage
 // event and knockback on that excess path.
-func (m *Manager) Damage(id int32, amount float32, typeName string) (float32, float32, bool, bool, bool) {
+type DamageResult struct {
+	Health float32 // post-hit health
+	Dealt  float32 // health the hit removed (post-armor, health-capped)
+	Exists bool    // the entity was found and not dying
+	// Graced marks the invulnerableTime tail hit that returned
+	// false in vanilla (orig <= lastHurt): no damage event, no
+	// knockback, no hurt sound.
+	Graced bool
+	// BodyBroke fires when a wolf/horse body item hit max damage —
+	// callers broadcast equipment-break event 65.
+	BodyBroke bool
+	// Absorbed marks the wolf_armor full-absorb branch: the hit was
+	// accepted (hurtServer true — hurt sound, retaliation still run)
+	// but the armor ate all of it.
+	Absorbed bool
+	// CrackChanged fires when the absorb wear crossed a wolf-armor
+	// crackiness level — vanilla plays the crack sound + scute
+	// particles on the transition only.
+	CrackChanged bool
+}
+
+func (m *Manager) Damage(id int32, amount float32, typeName string) DamageResult {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.byID[id]
 	if !ok || e.Dying {
-		return 0, 0, false, false, false
+		return DamageResult{}
 	}
+	res := DamageResult{Exists: true}
 	orig := amount
-	graced := e.invulnTicks > 10
-	if graced {
+	res.Graced = e.invulnTicks > 10
+	if res.Graced {
 		if orig <= e.lastHurt {
-			return e.Health, 0, true, true, false
+			res.Health = e.Health
+			return res
 		}
 		amount = orig - e.lastHurt
 	}
@@ -341,7 +364,6 @@ func (m *Manager) Damage(id int32, amount float32, typeName string) (float32, fl
 		armor = mobArmor(e)
 		toughness = mobToughness(e)
 	}
-	bodyBroke := false
 	if mobName == "wolf" && !bypassesWolfArmor(typeName) {
 		// Wolf.actuallyHurt's armor-absorb branch: while the body
 		// slot holds wolf_armor and the damage type doesn't bypass
@@ -349,15 +371,23 @@ func (m *Manager) Damage(id int32, amount float32, typeName string) (float32, fl
 		// health never moves — wearing ceil(amount) durability.
 		if iname, iok := itemNameOf(e.BodyItem.ID); iok && iname == "wolf_armor" {
 			it := e.BodyItem
+			maxD := damageableItems[iname]
+			before := wolfArmorCrackLevel(it.Damage, maxD)
 			it.Damage += unbreakingReduce(it, iname, int32(math.Ceil(float64(amount))))
-			if it.Damage >= damageableItems[iname] {
+			if it.Damage >= maxD {
 				e.BodyItem = ItemStack{}
-				bodyBroke = true
+				res.BodyBroke = true
+				// byDamage on the empty slot reports NONE — a break
+				// never counts as a crack transition.
+				res.CrackChanged = wolfArmorCrackLevel(0, maxD) != before
 			} else {
 				e.BodyItem = it
+				res.CrackChanged = wolfArmorCrackLevel(it.Damage, maxD) != before
 			}
 			e.EquipDirty = true
-			return e.Health, 0, true, graced, bodyBroke
+			res.Absorbed = true
+			res.Health = e.Health
+			return res
 		}
 	}
 	if armored && (mobName == "wolf" || mobName == "horse") && !e.BodyItem.Empty() {
@@ -371,7 +401,7 @@ func (m *Manager) Damage(id int32, amount float32, typeName string) (float32, fl
 				it.Damage += unbreakingReduce(it, iname, max(int32(amount/4), 1))
 				if it.Damage >= maxD {
 					e.BodyItem = ItemStack{}
-					bodyBroke = true
+					res.BodyBroke = true
 				} else {
 					e.BodyItem = it
 				}
@@ -389,7 +419,9 @@ func (m *Manager) Damage(id int32, amount float32, typeName string) (float32, fl
 	if e.Health < 0 {
 		e.Health = 0
 	}
-	return e.Health, amount, true, graced, bodyBroke
+	res.Health = e.Health
+	res.Dealt = amount
+	return res
 }
 
 // Heal raises a mob's health up to its vanilla max, reporting the

@@ -271,3 +271,73 @@ func (s *Server) armorWear(sess *Session, src damageSource, rawDamage float32) {
 		s.broadcastEquipment(sess)
 	}
 }
+
+// wolfArmorCrackLevel is Crackiness.WOLF_ARMOR.byDamage: the bucket on
+// the remaining-durability fraction (max-damage)/max — NONE down to
+// 0.95, LOW to 0.69, MEDIUM to 0.32, HIGH below that. Crossing a
+// bucket edge is what plays the crack sound + scute burst in
+// Wolf.actuallyHurt.
+func wolfArmorCrackLevel(damage, max int32) int {
+	if max <= 0 {
+		return 0
+	}
+	switch f := float64(max-damage) / float64(max); {
+	case f < 0.32:
+		return 3 // HIGH
+	case f < 0.69:
+		return 2 // MEDIUM
+	case f < 0.95:
+		return 1 // LOW
+	default:
+		return 0 // NONE
+	}
+}
+
+// Wolf armor feedback sounds (sound_event registry ids on 26.2) and
+// the mob NEUTRAL SoundSource — wolf sounds ride sound_entity
+// packets anchored on the wolf, source NEUTRAL.
+const (
+	sndWolfArmorCrack  int32 = 1792 // item.wolf_armor.crack
+	sndWolfArmorDamage int32 = 1793 // item.wolf_armor.damage
+	sndWolfHurt        int32 = 1806 // entity.wolf.hurt
+	srcNeutral         int32 = 6
+)
+
+// broadcastItemParticles emits one level_particles burst of the ITEM
+// type — 26.2's ItemParticleOption carries an ItemStackTemplate:
+// VarInt item id + VarInt count + empty component patch.
+func (s *Server) broadcastItemParticles(dim, itemName string, x, y, z, xd, yd, zd, speed float64, count int32) {
+	itemID, ok := world.ItemID(itemName)
+	if !ok {
+		return
+	}
+	pid, ok := ParticleTypeID("item")
+	if !ok {
+		return
+	}
+	var b protocol.Buffer
+	b.Byte(0) // overrideLimiter
+	b.Byte(0) // alwaysShow
+	b.Double(x)
+	b.Double(y)
+	b.Double(z)
+	b.Float(float32(xd))
+	b.Float(float32(yd))
+	b.Float(float32(zd))
+	b.Float(float32(speed))
+	b.Int(count)
+	b.VarInt(pid)
+	b.VarInt(itemID)
+	b.VarInt(1) // template count
+	b.VarInt(0) // component patch: added
+	b.VarInt(0) // component patch: removed
+	body := b.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
+			return true
+		}
+		_ = other.write(other.ids().PlayLevelParticles, body)
+		return true
+	})
+}

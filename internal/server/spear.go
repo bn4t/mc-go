@@ -123,13 +123,12 @@ func (s *Server) spearJabTick(sess *Session) {
 		hitAny = true
 		dmg := base + float32(math.Floor(relSpeed*kw.dmgMult))
 		if canDmg {
-			dealt, _, died := s.damageMob(e, dmg, "player_attack", sess)
+			dealt, _, died := s.damageMob(e, dmg, "player_attack", sess, &damageInfo{
+				typeName: "spear",
+				cause:    sess.entityID.Load(),
+				direct:   sess.entityID.Load(),
+			})
 			if dealt > 0 {
-				s.broadcastDamageEvent(e.ID, damageInfo{
-					typeName: "spear",
-					cause:    sess.entityID.Load(),
-					direct:   sess.entityID.Load(),
-				})
 				s.firePlayerHurtEntity(sess, "player", false, dmg, name, false)
 				sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
 				if died {

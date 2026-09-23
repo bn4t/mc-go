@@ -4016,3 +4016,26 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   particle burst + WOLF_ARMOR_DAMAGE hurt-sound swap on crackiness
   transitions, and knockback/last-hurt bookkeeping on absorb hits
   (mc-go returns early before the retaliation hooks).
+
+- **Wolf-armor wire feedback — crack transition, hurt-sound swap,
+  damage_event ordering**: pinned by packet diff, not just data.
+  Vanilla's wire order on an absorbed hit is [equipment-break event 65
+  → item.wolf_armor.crack → armadillo_scute ITEM particle burst →
+  damage_event → hurt sound]: the break fires inside hurtAndBreak
+  (before the crackiness compare), and playHurtSound runs in hurt()
+  AFTER hurtServer — so the breaking hit already reads an empty body
+  slot and plays entity.wolf.hurt, not item.wolf_armor.damage.
+  Crackiness is Crackiness.WOLF_ARMOR on the remaining-durability
+  fraction (LOW below 0.95, MEDIUM below 0.69, HIGH below 0.32; a
+  break counts as -> NONE). The ITEM particle's option is an
+  ItemStackTemplate (VarInt item, VarInt count, patch), not the slot
+  codec. mc-go's Damage now returns a DamageResult (Exists/Graced/
+  BodyBroke/Absorbed/CrackChanged), damageMob gained the damageInfo
+  param so damage_event lands at the measured point, and the absorb
+  path no longer short-circuits the hurt tail (killed_by_player
+  window + thorns retaliation now run on absorbs, matching hurtServer
+  accepting). Every damageMob caller's ad-hoc broadcastDamageEvent
+  folded in — including sites that wrongly gated on dealt>0 or
+  emitted nothing (thorns retaliation, /kill, on_fire, magic
+  harming). mobHurtSound currently covers the wolf only; other mobs'
+  hurt/death/ambient sound tables remain open.

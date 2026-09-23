@@ -348,7 +348,7 @@ func (s *Server) mobInstantEffect(e *Entity, id, amplifier int32) {
 		return
 	}
 	if amount := int32(6) << amplifier; amount > 0 {
-		s.damageMob(e, float32(amount), "magic", nil)
+		s.damageMob(e, float32(amount), "magic", nil, &damageInfo{typeName: "magic"})
 	}
 }
 
