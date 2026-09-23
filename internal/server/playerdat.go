@@ -351,9 +351,10 @@ func readPlayerGzipNBT(path string) (any, error) {
 	return v, err
 }
 
-// savePlayerFiles writes a .dat for every online session and every
-// remembered player, mirroring vanilla's PlayerList.save on save-all.
-func (s *Server) savePlayerFiles() {
+// collectPlayerPersists gathers the persist for every online session
+// and every remembered player — the set vanilla's PlayerList.save
+// touches on save-all.
+func (s *Server) collectPlayerPersists() map[[16]byte]playerPersist {
 	persists := map[[16]byte]playerPersist{}
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
@@ -377,6 +378,14 @@ func (s *Server) savePlayerFiles() {
 		persists[p.UUID] = p
 	}
 	s.savedPlayersMu.Unlock()
+	return persists
+}
+
+// savePlayerFiles writes all three player stores — data/<uuid>.dat,
+// stats/<uuid>.json, advancements/<uuid>.json — for every session and
+// remembered player.
+func (s *Server) savePlayerFiles() {
+	persists := s.collectPlayerPersists()
 	for _, p := range persists {
 		if err := s.savePlayerFile(p); err != nil {
 			if s.dataSaveErr == nil {
@@ -384,6 +393,7 @@ func (s *Server) savePlayerFiles() {
 			}
 		}
 	}
+	s.savePlayerMetaFiles(persists)
 }
 
 // loadPlayerFiles reads every players/data/*.dat into the saved-player

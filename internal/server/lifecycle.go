@@ -200,6 +200,7 @@ func (s *Server) loadWorldDir() error {
 	if err := s.loadPlayerFiles(); err != nil {
 		return err
 	}
+	s.loadPlayerMetaFiles()
 	return nil
 }
 

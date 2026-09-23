@@ -28,14 +28,15 @@ func TestPlayerDatSaveParity(t *testing.T) {
 
 	// setup runs the same command list on whichever server the client
 	// just joined: a sword in hotbar slot 0, a helmet on the head, an
-	// apple in the ender chest, seven levels, adventure mode, and a
-	// fixed teleport with rotation.
+	// apple in the ender chest, seven levels, adventure mode, one
+	// advancement, and a fixed teleport with rotation.
 	setup := []string{
 		"gamemode adventure @s",
 		"give @s minecraft:diamond_sword",
 		"item replace entity @s armor.head with minecraft:diamond_helmet",
 		"item replace entity @s enderchest.0 with minecraft:apple 3",
 		"xp add @s 7 levels",
+		"advancement grant @s only minecraft:story/mine_diamond",
 		"tp @s 5.5 -60 -3.25 100 20",
 	}
 
@@ -121,6 +122,29 @@ func TestPlayerDatSaveParity(t *testing.T) {
 		if !seen {
 			t.Fatalf("%s: gamemode adventure did not restore", label)
 		}
+		// The advancement grant must ride back through the file.
+		sendCommand(t, pw, "execute if entity @a[name=P,advancements={minecraft:story/mine_diamond=true}] run say PDADV")
+		sendCommand(t, pw, "say ZEND")
+		deadline = time.Now().Add(4 * time.Second)
+		seen = false
+		for time.Now().Before(deadline) {
+			end := false
+			for _, line := range sink.take() {
+				if strings.Contains(line, "PDADV") {
+					seen = true
+				}
+				if strings.Contains(line, "ZEND") {
+					end = true
+				}
+			}
+			if end {
+				break
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+		if !seen {
+			t.Fatalf("%s: advancement story/mine_diamond did not restore", label)
+		}
 	}
 
 	// grant joins, runs the setup list, waits a moment for the
@@ -146,6 +170,33 @@ func TestPlayerDatSaveParity(t *testing.T) {
 		}
 		return matches[0]
 	}
+	// statFile returns the one players/stats/*.json body — quit bumps
+	// leave_game, so the file must always exist after a save.
+	statFile := func(t *testing.T, worldDir string) string {
+		t.Helper()
+		matches, err := filepath.Glob(filepath.Join(worldDir, "players", "stats", "*.json"))
+		if err != nil || len(matches) == 0 {
+			t.Fatalf("no stats file under %s: %v", worldDir, err)
+		}
+		raw, err := os.ReadFile(matches[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	// advFile returns the one players/advancements/*.json body.
+	advFile := func(t *testing.T, worldDir string) string {
+		t.Helper()
+		matches, err := filepath.Glob(filepath.Join(worldDir, "players", "advancements", "*.json"))
+		if err != nil || len(matches) == 0 {
+			t.Fatalf("no advancements file under %s: %v", worldDir, err)
+		}
+		raw, err := os.ReadFile(matches[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
 
 	// ---- A: the real server saves; mc-go loads ----
 	vDir := t.TempDir()
@@ -164,6 +215,12 @@ func TestPlayerDatSaveParity(t *testing.T) {
 	dat := countDats(t, filepath.Join(vDir, "world"))
 	if fi, err := os.Stat(dat); err != nil || fi.Size() == 0 {
 		t.Fatalf("vanilla player file empty: %v", err)
+	}
+	if s := statFile(t, filepath.Join(vDir, "world")); !strings.Contains(s, "minecraft:leave_game") {
+		t.Fatalf("vanilla stats file missing leave_game: %s", s)
+	}
+	if s := advFile(t, filepath.Join(vDir, "world")); !strings.Contains(s, "story/mine_diamond") {
+		t.Fatalf("vanilla advancements file missing mine_diamond: %s", s)
 	}
 
 	mDir := t.TempDir()
@@ -211,6 +268,12 @@ func TestPlayerDatSaveParity(t *testing.T) {
 	if fi, err := os.Stat(dat); err != nil || fi.Size() == 0 {
 		t.Fatalf("mc-go player file empty: %v", err)
 	}
+	if s := statFile(t, filepath.Join(m2Dir, "world")); !strings.Contains(s, "minecraft:leave_game") {
+		t.Fatalf("mc-go stats file missing leave_game: %s", s)
+	}
+	if s := advFile(t, filepath.Join(m2Dir, "world")); !strings.Contains(s, "story/mine_diamond") {
+		t.Fatalf("mc-go advancements file missing mine_diamond: %s", s)
+	}
 
 	v2Dir := t.TempDir()
 	cpWorld(t, filepath.Join(m2Dir, "world"), filepath.Join(v2Dir, "world"))
@@ -218,8 +281,21 @@ func TestPlayerDatSaveParity(t *testing.T) {
 	if !ok {
 		t.Skip("loopback binds blocked in this environment")
 	}
-	v2Addr, stop2 := startVanillaInDir(t, jar, v2Port, nil,
+	// The vanilla side needs a console too: after the verify the
+	// server saves and stops, and its rewritten stats file proves the
+	// counters loaded into its model rather than just parsing on disk.
+	v2Addr, say2, wait2 := vanillaConsole(t, jar, v2Port, nil,
 		map[string]string{"ops.json": opsJSONFor("P")}, v2Dir)
-	defer stop2()
 	verify(t, v2Addr, "vanilla-on-mc-go-world")
+	say2("save-all flush")
+	say2("stop")
+	if code := wait2(); code != 0 {
+		t.Fatalf("vanilla (reload) exited %d", code)
+	}
+	if s := statFile(t, filepath.Join(v2Dir, "world")); !strings.Contains(s, "minecraft:leave_game") {
+		t.Fatalf("vanilla dropped mc-go's stats on its own save: %s", s)
+	}
+	if s := advFile(t, filepath.Join(v2Dir, "world")); !strings.Contains(s, "story/mine_diamond") {
+		t.Fatalf("vanilla dropped mc-go's advancement on its own save: %s", s)
+	}
 }

@@ -532,5 +532,8 @@ func (s *Server) untrack(sess *Session) {
 		if err := s.savePlayerFile(p); err != nil && s.dataSaveErr == nil {
 			s.dataSaveErr = err
 		}
+		if err := s.savePlayerMetaFile(p); err != nil && s.dataSaveErr == nil {
+			s.dataSaveErr = err
+		}
 	}
 }

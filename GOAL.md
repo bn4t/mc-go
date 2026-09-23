@@ -5388,3 +5388,27 @@ home restriction, per-damage-type hurt variants, players/
 advancements+<uuid>.json + stats/<uuid>.json (vanilla's other two
 player stores — advancements/stats still live only in the JSON
 store), online mode, redstone, terrain gen, lighting.
+
+## Slice 2026-09-23zd — stats + advancements player files
+
+The other two vanilla player stores round-trip now:
+players/stats/<uuid>.json ({"stats":{<type>:{<stat>:count}},
+"DataVersion":4903}) and players/advancements/<uuid>.json ({<id>:
+{criteria:{<crit>:"2006-01-02 15:04:05 -0700"},done:b},
+"DataVersion":4903}) are written alongside the .dat on disconnect
+and save-all and read back into the same saved-player entry. Stats
+keep the file's own key sequence as StatsOrder so a reload replays
+the order vanilla iterated; advancement criterion timestamps parse
+to the same millis they were written from.
+
+TestPlayerDatSaveParity extended: vanilla writes stats+advancements
+→ mc-go restores the advancement (selector predicate proves the
+load); mc-go writes both → vanilla loads, and vanilla's own re-save
+still carries leave_game and story/mine_diamond — the counters made
+it into its model, not just past its parser.
+
+Open items remaining: witch raider-heal throw (blocked on raids),
+RestrictSunGoal wander bias, patrol-captain ominous gear + bottle
+drops (needs natural patrol spawn/raids), elder setHomeTo(pos,16)
+home restriction, per-damage-type hurt variants, online mode,
+redstone, terrain gen, lighting.
