@@ -4480,3 +4480,36 @@ skull drops, spawnLingeringCloud for effect-carrying creepers, horse
 chest/container slots, guardian flop/beam, per-damage-type hurt
 variants, witch.drink, scoreboard objectives, region save, online
 mode, redstone, terrain gen, lighting, .dat persistence.
+
+## Slice 2026-09-23g — FleeSunGoal (skeletons only)
+
+Measured in bytecode: in 26.2 only the AbstractSkeleton family
+(skeleton, stray, bogged, wither_skeleton) registers RestrictSunGoal +
+FleeSunGoal — zombies, drowned, and every other #burn_in_daylight
+type burns where it stands (Zombie.registerGoals lists BreakDoor,
+LookAtPlayer, RandomLookAround, SpearUse, ZombieAttack; no sun goals).
+
+mobSunFleeStep runs between the combat goals and the ambient wander
+for a burning bare-headed skeleton: canUse is target==nil &&
+isBrightOutside (same sleep-window day check as sunBurnTick, plus a
+rain veto) && isOnFire && canSeeSky(feet) && head slot empty. The
+shelter is getHidePos — up to ten random samples in a ±10 XZ / ±3 Y
+box, first cell with no sky view and a standable floor (air at feet
+and head, solid below) — latched on the entity so the path runs to
+completion like canContinueToUse = !navigation.isDone, then released.
+Walk speed is the goal's speedModifier 1.0 via the new mobWalkTo
+shim.
+
+TestMobSunFleeParity pins three legs vs both servers: a burning
+skeleton drifts east into the only shaded patch under a stone roof
+(east >= 5 by 10s), a burning zombie never seeks, and a helmeted
+skeleton never ignites.
+
+Open items remaining: crossbow/piglin ranged variants
+(RangedCrossbowAttackGoal), stray/bogged tipped arrows,
+RestrictSunGoal's still-daylight wander bias, summon armor-populate +
+enchantment rolls + drowned chance slots, charged-creeper skull drops,
+spawnLingeringCloud for effect-carrying creepers, horse chest/
+container slots, guardian flop/beam, per-damage-type hurt variants,
+witch.drink, scoreboard objectives, region save, online mode,
+redstone, terrain gen, lighting, .dat persistence.

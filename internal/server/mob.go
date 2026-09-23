@@ -1555,7 +1555,11 @@ func (s *Server) mobTickStep() {
 			}
 			w := s.dimWorld(e.Dim)
 			if w != nil {
-				s.mobMoveStep(e, w)
+				// FleeSunGoal fills the gap between combat goals
+				// and the ambient wander for burning skeletons.
+				if !(e.FireTicks > 0 && mobSunFlees[ambName] && s.mobSunFleeStep(e, s.dims[e.Dim], w)) {
+					s.mobMoveStep(e, w)
+				}
 			}
 		}
 		s.mobSyncFlush(e)
@@ -1923,6 +1927,97 @@ func (s *Server) mobFleeStep(e *Entity, kn string) bool {
 	e.X += dx / dist * speed
 	e.Z += dz / dist * speed
 	return true
+}
+
+// mobSunFlees is FleeSunGoal's type set — only the four
+// AbstractSkeleton subclasses register it in 26.2; zombies, drowned,
+// and every other #burn_in_daylight mob burns where it stands.
+var mobSunFlees = map[string]bool{
+	"skeleton":        true,
+	"stray":           true,
+	"bogged":          true,
+	"wither_skeleton": true,
+}
+
+// mobSunFleeStep is FleeSunGoal: a burning, bare-headed skeleton
+// standing under open sky paths to a shaded block — getHidePos takes
+// up to ten random samples in a ±10 XZ / ±3 Y box and the first one
+// with no sky view and a standable floor wins. The walk runs at the
+// goal's speedModifier 1.0 and the latched shelter holds until the
+// path ends, matching canContinueToUse = !navigation.isDone. Returns
+// false when no shelter exists — the goal can't start and the mob
+// wanders while it burns.
+func (s *Server) mobSunFleeStep(e *Entity, d *dimension, w *world.World) bool {
+	// canUse's daylight gate (level.isBrightOutside): the same
+	// sleep-window that powers sunBurnTick plus a rain veto.
+	dt := s.dayTime() % 24000
+	if dt >= 12542 && dt <= 23459 {
+		return false
+	}
+	if s.weatherRaining.Load() {
+		return false
+	}
+	if !e.Equips[equipHelmet].Empty() {
+		return false
+	}
+	if e.hideLatched {
+		if math.Hypot(e.hideX-e.X, e.hideZ-e.Z) <= 1 {
+			e.hideLatched = false
+			return true // path done — canContinueToUse ends here
+		}
+		s.mobWalkTo(e, e.hideX, e.hideZ)
+		return true
+	}
+	feet := world.Pos{
+		X: int(math.Floor(e.X)),
+		Y: int(math.Floor(e.Y)),
+		Z: int(math.Floor(e.Z)),
+	}
+	if !s.cropLit(d, feet) {
+		return true // already shaded — the goal holds position
+	}
+	for i := 0; i < 10; i++ {
+		cand := world.Pos{
+			X: feet.X + int(rand.Int31n(20)) - 10,
+			Y: feet.Y + int(rand.Int31n(6)) - 3,
+			Z: feet.Z + int(rand.Int31n(20)) - 10,
+		}
+		if s.cropLit(d, cand) {
+			continue
+		}
+		if world.NonSolid(w.GetBlock(cand)) && world.NonSolid(w.GetBlock(world.Pos{X: cand.X, Y: cand.Y + 1, Z: cand.Z})) && !world.NonSolid(w.GetBlock(world.Pos{X: cand.X, Y: cand.Y - 1, Z: cand.Z})) {
+			e.hideLatched = true
+			e.hideX = float64(cand.X) + 0.5
+			e.hideY = float64(cand.Y)
+			e.hideZ = float64(cand.Z) + 0.5
+			s.mobWalkTo(e, e.hideX, e.hideZ)
+			return true
+		}
+	}
+	return false
+}
+
+// mobWalkTo steps the mob one walk-speed tick toward (x,z), facing
+// it — the shared PathNavigation shim for goals with a point target.
+func (s *Server) mobWalkTo(e *Entity, x, z float64) {
+	dx, dz := x-e.X, z-e.Z
+	dist := math.Hypot(dx, dz)
+	if dist == 0 {
+		return
+	}
+	kn, _ := EntityTypeName(e.Type)
+	speed := mobChaseSpeed
+	if mv, ok := entityAttrBases[kn]["movement_speed"]; ok {
+		speed = mv
+	}
+	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	e.HeadYaw = e.Yaw
+	if dist <= speed {
+		e.X, e.Z = x, z
+		return
+	}
+	e.X += dx / dist * speed
+	e.Z += dz / dist * speed
 }
 
 // mobSwell is the SwellGoal set — creepers only.

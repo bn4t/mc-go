@@ -104,10 +104,17 @@ type Entity struct {
 	// goal stays armed to — vanilla's posAvoider paths to a point
 	// ~16 blocks off, so the fleer overshoots its trigger distance —
 	// and fleeX/Z pin that running threat position plus its sprint.
-	fleeUntil  int64
-	fleeX      float64
-	fleeZ      float64
-	fleeSprint float64
+	fleeUntil int64
+	fleeX     float64
+	// FleeSunGoal state: hideX/Y/Z latch the picked shelter cell —
+	// PathNavigation keeps walking there until "done" (inside 1 block),
+	// matching canContinueToUse = !navigation.isDone.
+	hideLatched bool
+	hideX       float64
+	hideY       float64
+	hideZ       float64
+	fleeZ       float64
+	fleeSprint  float64
 	// Creeper swell state: Swell counts toward MaxSwell (NBT Fuse,
 	// default 30), SwellDir is ±1 (metadata idx 18), Powered doubles
 	// explosionRadius in explodeCreeper (NBT powered), Ignited is the
