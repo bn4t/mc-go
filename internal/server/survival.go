@@ -883,6 +883,19 @@ func (s *Server) hungerTickStep() {
 		} else {
 			sess.foodTickTimer = 0
 		}
+		// Entity.baseTick's fire pass: each multiple of twenty ticks
+		// deals a point of on_fire damage (armor + fire_protection
+		// still apply) and the flags byte's on-fire bit drops at zero.
+		if sess.fireTicks > 0 {
+			if sess.fireTicks%20 == 0 {
+				s.damageWith(sess, 1, translatable("death.attack.onFire", literal(sess.getName())), damageSource{typeName: "on_fire"})
+			}
+			sess.fireTicks--
+			if sess.fireTicks <= 0 {
+				sess.fireTicks = 0
+				s.broadcastSharedFlags(sess)
+			}
+		}
 		if sess.food == 0 && sess.health > 1 {
 			sess.starveTimer++
 			if sess.starveTimer >= 80 {

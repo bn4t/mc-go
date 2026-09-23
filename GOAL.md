@@ -3788,3 +3788,26 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   bane/impaling hits on players + armored mobs, feather_falling/
   protection EPF, and the frost_walker immunity — with natural regen
   switched off so the health timeline is only the scripted hits.
+
+- 2026-09-23: Combat enchants round 2 — knockback, fire_aspect,
+  sweeping_edge. The enchant's knockback level halves into the extra
+  knockback strength (attr + l/2, plus 0.5 while sprinting) and pushes
+  along the attacker's yaw facing without needing the sprint gate;
+  both the hurt push (0.4 away-from-attacker) and the extra compose
+  through knockback()'s halve-then-subtract rule so the emitted
+  LpVec3 is byte-identical to vanilla's. fire_aspect ignites the
+  victim 80·l ticks via post_attack: Entity.FireTicks/Session
+  .fireTicks burn 1 damage at each multiple-of-twenty tick through
+  the same armor+EPF pipeline (on_fire type), the shared entity-data
+  flag bit 0x01 broadcasts while burning, and mobs marked fire-immune
+  (nether natives) never ignite. sweeping_edge adds l/(l+1) of the
+  pre-enchant attack damage to the sweep's 1.0 base and re-folds each
+  neighbor's own enchant damage bonus per victim. Vanilla's own
+  resend of the victim's set_entity_motion over ~3 ticks is captured
+  but only the tail payload is compared (the resend count is
+  resync noise). TestEnchantDamageParity now pins 15 legs — the new
+  kb2 motion bytes, the 8×1 burn chain, and the 3-pig sweep spread —
+  all byte-identical. Harness fix: a background pump answers W's
+  keep_alives and buffers its packets so long mob legs no longer let
+  vanilla kick the idle victim. Thorns (15%·l rng proc), unbreaking,
+  and looting still open.

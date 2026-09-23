@@ -218,6 +218,10 @@ type Session struct {
 	// ticks counted down on the player tick, during which only damage
 	// exceeding lastHurt lands, and only for the excess.
 	invulnTicks int32
+	// fireTicks is vanilla's remainingFireTicks on the player: each
+	// tick decrements it and multiples of twenty deal a point of
+	// on_fire damage; the shared-flags byte's on-fire bit tracks it.
+	fireTicks int32
 	// attackTicker is vanilla's attackStrengthTicker: the ticks since
 	// the last attack() call; it paces the damage cooldown scale and
 	// resets on every attack that reaches the damage code.

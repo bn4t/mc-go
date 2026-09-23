@@ -194,7 +194,8 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 			// Vanilla's enchanted-damage difference folds in scaled
 			// linearly by the charge (f6 = scale * (enchanted - base)).
 			vType, _ := EntityTypeName(e.Type)
-			plan.damage += plan.scale * enchantDamageBonus(sess.heldStack(), vType)
+			plan.enchBonus = plan.scale * enchantDamageBonus(sess.heldStack(), vType)
+			plan.damage += plan.enchBonus
 			s.preAttackSound(sess, plan)
 			sess.attackTicker = 0
 			dealt, graced, died := s.damageMob(&e, plan.damage, "player_attack")
@@ -217,6 +218,11 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 					})
 				}
 				sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
+				// post_attack enchants run inside hurt after damage:
+				// fire_aspect ignites the direct victim 4s/level.
+				if fl := sess.heldStack().enchLevel("fire_aspect"); fl > 0 {
+					s.igniteMob(&e, int32(80*fl))
+				}
 				if died {
 					sess.addStat(statKilled, e.Type, 1)
 					sess.addCustomStat("mob_kills", 1)
@@ -252,7 +258,8 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	// damage_dealt counts the post-absorb amount. The cooldown scale
 	// is read before the ticker resets, as in vanilla's attack().
 	plan := s.planAttack(sess)
-	plan.damage += plan.scale * enchantDamageBonus(sess.heldStack(), "player")
+	plan.enchBonus = plan.scale * enchantDamageBonus(sess.heldStack(), "player")
+	plan.damage += plan.enchBonus
 	s.preAttackSound(sess, plan)
 	dmgType := "player_attack"
 	if plan.smash {
@@ -279,6 +286,12 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
 	s.sendHurtAnimation(target, hurtYaw(tx, tz, ax, az))
 	if dealt > 0 {
+		// fire_aspect's post_attack ignites the victim 4s/level — the
+		// shared-flags byte picks up the on-fire bit.
+		if fl := sess.heldStack().enchLevel("fire_aspect"); fl > 0 {
+			target.fireTicks = 80 * int32(fl)
+			s.broadcastSharedFlags(target)
+		}
 		s.playerAttackKnockback(sess, target, plan.scale)
 		s.attackAftermath(sess, plan, target.entityID.Load(), dealt, [2]float64{0.6, 1.8})
 	} else {
@@ -305,13 +318,17 @@ const (
 // strong (>0.9), the sprint-knockback and crit flags, and the sweep
 // flag a strong standing sword hit earns.
 type attackPlan struct {
-	scale    float32
-	damage   float32
-	strong   bool
-	sprintKb bool
-	crit     bool
-	sweep    bool
-	smash    bool
+	scale  float32
+	damage float32
+	// enchBonus is the damage-component enchant fold f6 =
+	// scale*(enchanted - base) vanilla adds to the hit — kept
+	// separate because the sweep reads the pre-fold damage.
+	enchBonus float32
+	strong    bool
+	sprintKb  bool
+	crit      bool
+	sweep     bool
+	smash     bool
 }
 
 // planAttack mirrors Player.attack's prelude: scale read before the
@@ -488,7 +505,13 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 		vx, vy, vz, _, _, _ = target.Pos()
 	}
 	hw := float64(victimBB[0])/2 + 1
-	dmg := plan.scale // sweeping_damage_ratio is 0: 1 * scale
+	// doSweepAttack's per-victim damage is scale * enchantedDamage(
+	// neighbor, 1 + sweeping_damage_ratio * attack damage) — the
+	// sweeping_edge attribute is level/(level+1).
+	sweepDmg := float32(1)
+	if l := sess.heldStack().enchLevel("sweeping_edge"); l > 0 {
+		sweepDmg += float32(l) / float32(l+1) * (plan.damage - plan.enchBonus)
+	}
 	kx, kz := knockbackYaw(yaw)
 	for _, e := range s.entities.All() {
 		if !e.Living || e.ID == victimEID || e.ID == sess.entityID.Load() {
@@ -503,9 +526,9 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 			continue
 		}
 		res := float64(0)
-		if name, ok2 := EntityTypeName(e.Type); ok2 {
-			res = mobKnockbackResistance[name]
-		}
+		vName, _ := EntityTypeName(e.Type)
+		res = mobKnockbackResistance[vName]
+		dmg := plan.scale * (sweepDmg + enchantDamageBonus(sess.heldStack(), vName))
 		if dealt, graced, died := s.damageMob(&e, dmg, "player_attack"); dealt > 0 {
 			if !graced {
 				s.broadcastDamageEvent(e.ID, damageInfo{
@@ -543,7 +566,8 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 		if (ax-ox)*(ax-ox)+(ay-oy)*(ay-oy)+(az-oz)*(az-oz) >= 9 {
 			return true
 		}
-		dealt := s.damageWith(other, dmg, translatable("death.attack.player", literal(other.getName()), literal(sess.getName())), damageSource{
+		sweepDmgP := plan.scale * (sweepDmg + enchantDamageBonus(sess.heldStack(), "player"))
+		dealt := s.damageWith(other, sweepDmgP, translatable("death.attack.player", literal(other.getName()), literal(sess.getName())), damageSource{
 			typeName: "player_attack",
 			cause:    sess.entityID.Load(),
 			direct:   sess.entityID.Load(),
@@ -816,10 +840,12 @@ func knockbackYaw(yaw float32) (float64, float64) {
 	return math.Sin(r), -math.Cos(r)
 }
 
-// mobAttackKnockback applies vanilla's two knockback steps to a living
+// mobAttackKnockback applies vanilla's knockback steps to a living
 // mob victim: the default 0.4 push away from the attacker from inside
-// hurt, then the 0.5 sprint bonus along the attacker's facing. The
-// composed delta goes to chunk trackers as set_entity_motion.
+// hurt, then causeExtraKnockback — (attack_knockback + knockback
+// enchant)/2 plus 0.5 on a sprint hit — along the attacker's facing
+// (skipped only when the total is zero). The composed delta goes to
+// chunk trackers as set_entity_motion.
 func (s *Server) mobAttackKnockback(sess *Session, eid int32, scale float32) {
 	e, ok := s.entities.Get(eid)
 	if !ok {
@@ -831,10 +857,17 @@ func (s *Server) mobAttackKnockback(sess *Session, eid int32, scale float32) {
 	}
 	ax, _, az, yaw, _, _ := sess.Pos()
 	vx, vy, vz := knockDelta(e.MotionX, e.MotionY, e.MotionZ, 0.4, res, ax-e.X, az-e.Z, e.Grounded)
-	if sprintKnockbackHit(sess, scale) {
+	extra := float64(sess.heldStack().enchLevel("knockback")) / 2
+	sprint := sprintKnockbackHit(sess, scale)
+	if sprint {
+		extra += 0.5
+	}
+	if extra > 0 {
 		kx, kz := knockbackYaw(yaw)
-		vx, vy, vz = knockDelta(vx, vy, vz, 0.5, res, kx, kz, e.Grounded)
-		s.endSprintKnockback(sess)
+		vx, vy, vz = knockDelta(vx, vy, vz, extra, res, kx, kz, e.Grounded)
+		if sprint {
+			s.endSprintKnockback(sess)
+		}
 	}
 	s.entities.SetMotion(eid, vx, vy, vz)
 	s.broadcastEntityMotion(e.Dim, eid, vx, vy, vz)
@@ -850,10 +883,17 @@ func (s *Server) playerAttackKnockback(sess, target *Session, scale float32) {
 	_, _, _, _, _, grounded := target.Pos()
 	tx, _, tz, _, _, _ := target.Pos()
 	vx, vy, vz := knockDelta(0, 0, 0, 0.4, 0, ax-tx, az-tz, grounded)
-	if sprintKnockbackHit(sess, scale) {
+	extra := float64(sess.heldStack().enchLevel("knockback")) / 2
+	sprint := sprintKnockbackHit(sess, scale)
+	if sprint {
+		extra += 0.5
+	}
+	if extra > 0 {
 		kx, kz := knockbackYaw(yaw)
-		vx, vy, vz = knockDelta(vx, vy, vz, 0.5, 0, kx, kz, grounded)
-		s.endSprintKnockback(sess)
+		vx, vy, vz = knockDelta(vx, vy, vz, extra, 0, kx, kz, grounded)
+		if sprint {
+			s.endSprintKnockback(sess)
+		}
 	}
 	s.sendEntityMotion(target, vx, vy, vz)
 }
@@ -875,6 +915,9 @@ func (s *Server) broadcastSharedFlags(sess *Session) {
 		return
 	}
 	flags := byte(0)
+	if sess.fireTicks > 0 {
+		flags |= 0x01
+	}
 	if sess.sneaking {
 		flags |= 0x02
 	}

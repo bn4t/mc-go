@@ -946,6 +946,43 @@ func encodeDyingLivingMetadata() []byte {
 // by the post-hit invulnerability window — whether the hit ran inside
 // that window (vanilla then skips the damage event and knockback), and
 // whether the hit killed the mob.
+// mobFireImmune mirrors vanilla's per-type fireImmune flag (EntityType
+// registration): the nether natives and bosses never ignite.
+var mobFireImmune = map[string]bool{
+	"blaze": true, "ghast": true, "magma_cube": true, "strider": true,
+	"wither": true, "wither_skeleton": true, "zombified_piglin": true,
+	"hoglin": true, "zoglin": true,
+}
+
+// igniteMob sets a living mob alight for the given ticks (fire_aspect's
+// post_attack ignite): the shared-flags byte picks up the on-fire bit
+// and the burn countdown starts dealing a point at every multiple of
+// twenty.
+func (s *Server) igniteMob(e *Entity, ticks int32) {
+	if name, ok := EntityTypeName(e.Type); ok && mobFireImmune[name] {
+		return
+	}
+	s.entities.SetFireTicks(e.ID, ticks)
+	s.broadcastMobSharedFlags(e.ID, true)
+}
+
+// broadcastMobSharedFlags sends the index-0 entity-data byte — the
+// bit set vanilla's setSharedFlagOnFire flips — to every session
+// tracking the mob's dimension.
+func (s *Server) broadcastMobSharedFlags(eid int32, onFire bool) {
+	flags := byte(0)
+	if onFire {
+		flags |= 0x01
+	}
+	var b protocol.Buffer
+	b.VarInt(eid)
+	b.Byte(0) // index: shared flags
+	b.Byte(0) // type: byte
+	b.Byte(flags)
+	b.Byte(0xFF)
+	s.broadcastEntityMetadata(eid, b.Bytes())
+}
+
 // damageMob runs vanilla's LivingEntity.hurt tail for a mob hit:
 // armor (natural base + worn pieces) absorbs unless the damage type
 // bypasses it, then the health loss lands inside the grace rules.
@@ -1030,6 +1067,20 @@ func (s *Server) mobTickStep() {
 					_ = other.write(other.ids().PlaySetEquipment, body)
 					return true
 				})
+			}
+		}
+		// Entity.baseTick's fire pass: while the countdown runs, the
+		// multiples of twenty each deal a point of on_fire damage and
+		// the counter decrements; reaching zero relights the shared
+		// flags byte without the on-fire bit.
+		if e.FireTicks > 0 {
+			if e.FireTicks%20 == 0 {
+				s.damageMob(e, 1, "on_fire")
+			}
+			ticks := e.FireTicks - 1
+			s.entities.SetFireTicks(e.ID, ticks)
+			if ticks <= 0 {
+				s.broadcastMobSharedFlags(e.ID, false)
 			}
 		}
 		if e.invulnTicks > 0 {

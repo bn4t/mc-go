@@ -32,8 +32,21 @@ func TestEnchantDamageParity(t *testing.T) {
 		map[string]string{"ops.json": opsJSONFor("A", "V", "C")}, nil)
 	defer targets.cleanup()
 
-	readHealth := func(t *testing.T, pr *protocol.Reader, c net.Conn, d time.Duration) float32 {
-		t.Helper()
+	healthOf := func(p protocol.Packet) (string, bool) {
+		if p.ID != server.IDPlaySetHealth {
+			return "", false
+		}
+		r := protocol.NewPacketReader(p.Data)
+		h, err := r.Float()
+		if err != nil {
+			return "bad-health", true
+		}
+		return fmt.Sprintf("%v", h), true
+	}
+
+	// readHealth returns the float off the next set_health packet, or
+	// "no-health" — a missing leg must not abort the other legs.
+	readHealth := func(pr *protocol.Reader, c net.Conn, d time.Duration) string {
 		deadline := time.Now().Add(d)
 		for time.Now().Before(deadline) {
 			_ = c.SetReadDeadline(time.Now().Add(120 * time.Millisecond))
@@ -41,21 +54,13 @@ func TestEnchantDamageParity(t *testing.T) {
 			if err != nil {
 				continue
 			}
-			if p.ID != server.IDPlaySetHealth {
-				continue
+			if h, ok := healthOf(p); ok {
+				_ = c.SetReadDeadline(time.Time{})
+				return h
 			}
-			r := protocol.NewPacketReader(p.Data)
-			h, err := r.Float()
-			if err != nil {
-				t.Fatalf("set_health read: %v", err)
-			}
-			_ = c.SetReadDeadline(time.Time{})
-			return h
 		}
-		t.Fatalf("no set_health within %s", d)
-		return 0
+		return "no-health"
 	}
-
 	run := func(addr string) []string {
 		// A joins first so V's fresh spawn lands in A's drain. A third
 		// op console (C) issues every command — the chat sink it owns
@@ -88,6 +93,52 @@ func TestEnchantDamageParity(t *testing.T) {
 		defer cw.Close()
 		_ = cw.SetDeadline(time.Now().Add(180 * time.Second))
 		sendClientInformation(t, pww)
+
+		// W's conn is only read at the tail of the run — pump it in the
+		// background answering keep_alives so vanilla doesn't kick W for
+		// idleness, and buffer the rest for the health reads.
+		wch := make(chan protocol.Packet, 512)
+		go func() {
+			defer close(wch)
+			for {
+				p, err := prw.ReadPacket()
+				if err != nil {
+					return
+				}
+				if p.ID == server.IDPlayKeepAliveCB {
+					_ = pww.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+					continue
+				}
+				wch <- p
+			}
+		}()
+		// flushW drops buffered non-health noise so the next read sees
+		// the packet produced by the command that follows it.
+		flushW := func() {
+			for {
+				select {
+				case <-wch:
+				default:
+					return
+				}
+			}
+		}
+		readHealthW := func(d time.Duration) string {
+			deadline := time.After(d)
+			for {
+				select {
+				case p, ok := <-wch:
+					if !ok {
+						return "closed"
+					}
+					if h, is := healthOf(p); is {
+						return h
+					}
+				case <-deadline:
+					return "no-health"
+				}
+			}
+		}
 
 		sendCommand(t, pwc, "gamerule natural_health_regeneration false")
 		sendCommand(t, pwc, "tp A 4.5 -60 2.5 -90 0")
@@ -125,8 +176,11 @@ func TestEnchantDamageParity(t *testing.T) {
 		obsW := wearObs{}
 		equipW := func(item string) {
 			sendCommand(t, pwc, "item replace entity W armor.feet with "+item)
-			drainWear(t, cw, prw, pww, &posW, 300*time.Millisecond, &obsW, nil)
+			time.Sleep(300 * time.Millisecond)
+			flushW()
 		}
+		_ = posW
+		_ = obsW
 		// Summon a mob and return its entity id, read off A's spawn
 		// traffic.
 		summon := func(mob string, x, z float64, nbt string) int32 {
@@ -143,8 +197,8 @@ func TestEnchantDamageParity(t *testing.T) {
 		// mobHealth reads a mob's Health via /data get and returns the
 		// raw reply component — identical across servers iff the
 		// surviving float32 matches to the last repr digit.
-		mobHealth := func(tag, mob string) string {
-			sendCommand(t, pwc, fmt.Sprintf("data get entity @e[type=minecraft:%s,limit=1] Health", mob))
+		mobHealth := func(tag, sel string) string {
+			sendCommand(t, pwc, fmt.Sprintf("data get entity @e[%s] Health", sel))
 			sendCommand(t, pwc, "say ZEND-"+tag)
 			deadline := time.Now().Add(8 * time.Second)
 			for time.Now().Before(deadline) {
@@ -173,12 +227,12 @@ func TestEnchantDamageParity(t *testing.T) {
 		equipA("minecraft:diamond_sword[enchantments={sharpness:5}]")
 		time.Sleep(700 * time.Millisecond)
 		attack(victimEID)
-		out = append(out, fmt.Sprintf("sharp5 %v", readHealth(t, prv, cv, 4*time.Second)))
+		out = append(out, "sharp5 "+readHealth(prv, cv, 4*time.Second))
 		// smite4 iron vs player (not undead): base 6 → 10-6 = 4
 		equipA("minecraft:iron_sword[enchantments={smite:4}]")
 		time.Sleep(800 * time.Millisecond)
 		attack(victimEID)
-		out = append(out, fmt.Sprintf("smite4-on-player %v", readHealth(t, prv, cv, 4*time.Second)))
+		out = append(out, "smite4-on-player "+readHealth(prv, cv, 4*time.Second))
 
 		// --- mob-target legs (zombie carries vanilla's natural armor 2) ---
 		// smite4 diamond on zombie: 7+10 = 17 → def max(0.4,2-8.5)=0.4
@@ -188,7 +242,7 @@ func TestEnchantDamageParity(t *testing.T) {
 		time.Sleep(800 * time.Millisecond)
 		attack(z1)
 		time.Sleep(300 * time.Millisecond)
-		out = append(out, "zombie-smite "+mobHealth("z1", "zombie"))
+		out = append(out, "zombie-smite "+mobHealth("z1", "type=minecraft:zombie,limit=1"))
 		// sharpness5 diamond on a fresh zombie: 7+3 = 10 → 9.84 → 10.16
 		sendCommand(t, pwc, "kill @e[type=minecraft:zombie]")
 		z2 := summon("zombie", 6.5, 4.0, "{NoAI:1b}")
@@ -196,39 +250,110 @@ func TestEnchantDamageParity(t *testing.T) {
 		time.Sleep(800 * time.Millisecond)
 		attack(z2)
 		time.Sleep(300 * time.Millisecond)
-		out = append(out, "zombie-sharp "+mobHealth("z2", "zombie"))
+		out = append(out, "zombie-sharp "+mobHealth("z2", "type=minecraft:zombie,limit=1"))
 		// bane2 wooden sword on spider: 4 + 5 = 9 → Health 7
 		spEID := summon("spider", 6.5, 4.0, "{NoAI:1b}")
 		equipA("minecraft:wooden_sword[enchantments={bane_of_arthropods:2}]")
 		time.Sleep(800 * time.Millisecond)
 		attack(spEID)
 		time.Sleep(300 * time.Millisecond)
-		out = append(out, "spider-bane "+mobHealth("sp", "spider"))
+		out = append(out, "spider-bane "+mobHealth("sp", "type=minecraft:spider,limit=1"))
 		// impaling3 iron on turtle (aquatic): 6 + 7.5 = 13.5 → 16.5
 		tu := summon("turtle", 6.5, 4.0, "{NoAI:1b}")
 		equipA("minecraft:iron_sword[enchantments={impaling:3}]")
 		time.Sleep(800 * time.Millisecond)
 		attack(tu)
 		time.Sleep(300 * time.Millisecond)
-		out = append(out, "turtle-impale "+mobHealth("tu", "turtle"))
+		out = append(out, "turtle-impale "+mobHealth("tu", "type=minecraft:turtle,limit=1"))
 		// impaling3 iron on pig (not aquatic): base 6 → Health 4
 		pg := summon("pig", 6.5, 4.0, "{NoAI:1b}")
 		time.Sleep(800 * time.Millisecond)
 		attack(pg)
 		time.Sleep(300 * time.Millisecond)
-		out = append(out, "pig-impale "+mobHealth("pg", "pig"))
+		out = append(out, "pig-impale "+mobHealth("pg", "type=minecraft:pig,limit=1"))
+
+		// motionOf reads the victim's LAST set_entity_motion off A's
+		// conn inside the window — vanilla re-syncs the same velocity
+		// for a few ticks after a knock, and a settle resend can arrive
+		// ahead of the real one, so the tail of the window is the
+		// stable value.
+		motionOf := func(eid int32, d time.Duration) string {
+			got := ""
+			deadline := time.Now().Add(d)
+			for time.Now().Before(deadline) {
+				_ = ca.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+				p, err := pra.ReadPacket()
+				if err != nil {
+					continue
+				}
+				if p.ID != server.IDPlayEntityMotion || len(p.Data) < 7 {
+					continue
+				}
+				// Strip the VarInt entity id — it can differ between
+				// servers — and compare the LpVec3 tail verbatim.
+				off := 0
+				for off < len(p.Data) && p.Data[off]&0x80 != 0 {
+					off++
+				}
+				off++
+				r := protocol.NewPacketReader(p.Data)
+				if id, _ := r.VarInt(); id == eid {
+					got = fmt.Sprintf("%x", p.Data[off:])
+				}
+			}
+			if got == "" {
+				return "none"
+			}
+			return got
+		}
+
+		// knockback2 on a fresh zombie: the 0.4 hurt push plus the
+		// enchant's l/2 extra along A's facing — the velocity shorts
+		// pin the composed strength.
+		kb1 := summon("zombie", 6.5, 4.0, "{NoAI:1b}")
+		equipA("minecraft:wooden_sword[enchantments={knockback:2}]")
+		time.Sleep(1500 * time.Millisecond)
+		attack(kb1)
+		out = append(out, "kb2 "+motionOf(kb1, 1500*time.Millisecond))
+
+		// fire_aspect2: melee damage lands, then the ignite burns one
+		// point at each multiple-of-twenty tick — 8 hits over 160
+		// ticks. Probe after the burn completes.
+		sendCommand(t, pwc, "kill @e[type=minecraft:zombie]")
+		fa1 := summon("zombie", 6.5, 4.0, "{NoAI:1b}")
+		equipA("minecraft:wooden_sword[enchantments={fire_aspect:2}]")
+		time.Sleep(800 * time.Millisecond)
+		attack(fa1)
+		time.Sleep(9500 * time.Millisecond)
+		out = append(out, "fire2 "+mobHealth("fa", "type=minecraft:zombie,limit=1"))
+
+		// sweeping_edge3: three tagged pigs around the victim — the
+		// sides take scale*(1 + l/(l+1)*attack) = 6.25 off diamond 7.
+		sendCommand(t, pwc, "kill @e[type=!minecraft:player]")
+		p1 := summon("pig", 5.5, 4.0, "{NoAI:1b,Tags:[\"swA\"]}")
+		_ = p1
+		p2 := summon("pig", 6.2, 4.0, "{NoAI:1b,Tags:[\"swB\"]}")
+		p3 := summon("pig", 6.9, 4.0, "{NoAI:1b,Tags:[\"swC\"]}")
+		_ = p3
+		equipA("minecraft:diamond_sword[enchantments={sweeping_edge:3}]")
+		time.Sleep(800 * time.Millisecond)
+		attack(p2)
+		time.Sleep(400 * time.Millisecond)
+		out = append(out, "sweep-main "+mobHealth("swb", "tag=swB,limit=1"))
+		out = append(out, "sweep-side "+mobHealth("swa", "tag=swA,limit=1"))
+		out = append(out, "sweep-side "+mobHealth("swc", "tag=swC,limit=1"))
 
 		// --- protection legs: /damage on W, armor+EPF stacked ---
 		// feather_falling4 + fall 10: epf 12 → 10*0.52 = 5.2 → 14.8
 		equipW("minecraft:leather_boots[enchantments={feather_falling:4}]")
 		sendCommand(t, pwc, "damage W 10 minecraft:fall")
-		out = append(out, fmt.Sprintf("ff4-fall %v", readHealth(t, prw, cw, 4*time.Second)))
+		out = append(out, "ff4-fall "+readHealthW(4*time.Second))
 		time.Sleep(1100 * time.Millisecond)
 		// protection4 boots + generic 10: armor 1 → 9.92, epf 4 →
 		// 8.3328 → 6.4672
 		equipW("minecraft:leather_boots[enchantments={protection:4}]")
 		sendCommand(t, pwc, "damage W 10 minecraft:generic")
-		out = append(out, fmt.Sprintf("prot4 %v", readHealth(t, prw, cw, 4*time.Second)))
+		out = append(out, "prot4 "+readHealthW(4*time.Second))
 		time.Sleep(1100 * time.Millisecond)
 		// frost_walker2 vs hot_floor 5: immune → no damage, then a
 		// follow-up generic proves the standing health on both.
@@ -238,7 +363,7 @@ func TestEnchantDamageParity(t *testing.T) {
 		// Past the i-frames window a tiny generic hit always lands:
 		// immune → 6.4672-0.3968 ≈ 6.07, vulnerable → ~1.11.
 		sendCommand(t, pwc, "damage W 0.4 minecraft:generic")
-		out = append(out, fmt.Sprintf("frost-immune %v", readHealth(t, prw, cw, 4*time.Second)))
+		out = append(out, "frost-immune "+readHealthW(4*time.Second))
 		return out
 	}
 

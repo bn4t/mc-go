@@ -178,6 +178,10 @@ type Entity struct {
 	// exceeds the last hit by.
 	invulnTicks int32
 	lastHurt    float32
+	// FireTicks is vanilla's remainingFireTicks (NBT "Fire"): it
+	// decrements every tick and burns for one on_fire damage at each
+	// multiple of twenty. Zero is unlit.
+	FireTicks int32
 	// Dying mobs lie as a corpse for twenty ticks (vanilla's
 	// deathTime window) before the death-poof event and removal.
 	Dying      bool
@@ -337,6 +341,15 @@ func (m *Manager) Damage(id int32, amount, armor float32) (float32, float32, boo
 		e.Health = 0
 	}
 	return e.Health, amount, true, graced
+}
+
+// SetFireTicks stores a mob's burning countdown.
+func (m *Manager) SetFireTicks(id int32, ticks int32) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e, ok := m.byID[id]; ok {
+		e.FireTicks = ticks
+	}
 }
 
 // SetDying marks a living entity as dying (health exhausted).
