@@ -541,6 +541,8 @@ func (s *Server) runDamage(player string, args []string) reply {
 	}
 	dmgType := "generic"
 	var causeEnt, directEnt *dataEntity
+	var atPos [3]float64
+	hasAt := false
 	if len(args) > 2 {
 		t := strings.TrimPrefix(args[2], "minecraft:")
 		if _, ok := damageTypes[t]; !ok {
@@ -563,10 +565,13 @@ func (s *Server) runDamage(player string, args []string) reply {
 			}
 			for i := 0; i < 3; i++ {
 				base := []float64{bx, by, bz}[i]
-				if _, err := parseDouble(args[4+i], base, i != 1); err != nil {
+				v, err := parseDouble(args[4+i], base, i != 1)
+				if err != nil {
 					return errToken("parsing.double.expected", 5+i)
 				}
+				atPos[i] = v
 			}
+			hasAt = true
 		case "by":
 			if len(args) < 5 {
 				return errTokenEnd("command.unknown.command", len(args)+1)
@@ -589,13 +594,13 @@ func (s *Server) runDamage(player string, args []string) reply {
 			return errToken("command.unknown.argument", 4)
 		}
 	}
-	return s.applyDamageCommand(sender, target, amount, dmgType, directEnt, causeEnt)
+	return s.applyDamageCommand(sender, target, amount, dmgType, directEnt, causeEnt, hasAt, atPos)
 }
 
 // applyDamageCommand deals the hit and answers success/invulnerable.
 // Vanilla checks invulnerability after all parsing, so every argument
 // error above wins over it.
-func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount float32, dmgType string, direct, cause *dataEntity) reply {
+func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount float32, dmgType string, direct, cause *dataEntity, hasAt bool, atPos [3]float64) reply {
 	var srcID, causeID int32
 	if direct != nil {
 		srcID = entityIDOf(direct)
@@ -619,7 +624,8 @@ func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount 
 		} else {
 			msg = translatable("death.attack."+damageTypes[dmgType], target.nameComp())
 		}
-		s.damageWith(sess, amount, msg, damageSource{typeName: dmgType, cause: causeID, direct: srcID})
+		s.damageWith(sess, amount, msg, damageSource{typeName: dmgType, cause: causeID, direct: srcID,
+			hasPos: hasAt, x: atPos[0], y: atPos[1], z: atPos[2]})
 		return componentReply(translatable("commands.damage.success",
 			nestedCompound{key: "", value: amount}, target.nameComp()))
 	}
@@ -634,7 +640,8 @@ func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount 
 	}
 	// dealDefaultKnockback runs inside damageMob for the landed hit.
 	_, _, died := s.damageMob(mob, amount, dmgType, killer,
-		&damageInfo{typeName: dmgType, cause: causeID, direct: srcID})
+		&damageInfo{typeName: dmgType, cause: causeID, direct: srcID,
+			hasPos: hasAt, x: atPos[0], y: atPos[1], z: atPos[2]})
 	_ = died
 	return componentReply(translatable("commands.damage.success",
 		nestedCompound{key: "", value: amount}, target.nameComp()))

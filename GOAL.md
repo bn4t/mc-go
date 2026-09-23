@@ -5272,3 +5272,27 @@ equality, unreachable via /summon), mount-inventory slot edits
 (saddle/chest cell writes), elder setHomeTo(pos,16) home restriction,
 per-damage-type hurt variants, scoreboard objectives, region save,
 online mode, redstone, terrain gen, lighting, .dat persistence.
+
+## Slice 2026-09-23z — /damage `at` source position
+
+DamageSource carries an optional sourcePosition that lands verbatim
+on the damage_event tail. DamageCommand's `at <pos>` clause sets it;
+mc parsed the clause but discarded the coords. Worse, mc's player-side
+broadcast emitted hasPos=true with the VICTIM's own position whenever
+a cause entity existed — vanilla sends hasPosition=false for every
+entity-sourced hit (`by`/`from`); the client pulls direction off the
+entity itself.
+
+Measured: `by @p` → cause=direct, pos=false; `at` → cause=direct=0,
+pos=true + coords. `by @p from @e` → both ids, pos=false.
+
+damageSource grew hasPos/x/y/z; damageWith no longer fabricates the
+position from the victim. TestDamageAtPosParity pins all three forms
+byte-equal modulo entity ids on both servers.
+
+Open items remaining: witch raider-heal throw (blocked on raids),
+RestrictSunGoal wander bias, patrol-captain ominous gear + bottle
+drops (needs natural patrol spawn/raids), mount-inventory slot edits
+(saddle/chest cell writes), elder setHomeTo(pos,16) home restriction,
+per-damage-type hurt variants, scoreboard objectives, region save,
+online mode, redstone, terrain gen, lighting, .dat persistence.

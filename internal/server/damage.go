@@ -104,6 +104,8 @@ type damageSource struct {
 	typeName string
 	cause    int32
 	direct   int32
+	hasPos   bool // explicit source position (the /damage `at` form)
+	x, y, z  float64
 }
 
 var (
@@ -222,14 +224,13 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 	// Vanilla counts damage in tenths of a heart.
 	sess.addCustomStat("damage_taken", int32(amount*10))
 	eid := sess.entityID.Load()
-	x, y, z, _, _, _ := sess.Pos()
 	if !graced {
 		s.broadcastDamageEvent(eid, damageInfo{
 			typeName: src.typeName,
 			cause:    src.cause,
 			direct:   src.direct,
-			hasPos:   src.cause != 0,
-			x:        x, y: y, z: z,
+			hasPos:   src.hasPos,
+			x:        src.x, y: src.y, z: src.z,
 		})
 	}
 	// damage_dealt-style accounting counts health lost, not the raw
