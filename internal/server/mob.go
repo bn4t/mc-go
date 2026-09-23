@@ -1296,10 +1296,12 @@ func (s *Server) mobTickStep() {
 		if e.LastHurtByPlayerTicks > 0 {
 			e.LastHurtByPlayerTicks--
 		}
-		// detectEquipmentUpdates: equipment loaded from NBT stays
-		// dirty until the first tick after the tracker-attach burst.
+		// detectEquipmentUpdates: a loaded-from-NBT set replays whole
+		// (EquipDirty) once after the tracker-attach burst; after that
+		// only the slots marked by a write or wear go out.
 		if e.EquipDirty {
 			e.EquipDirty = false
+			e.EquipDelta = nil
 			if slots := armorStandEquipAll(e); len(slots) > 0 {
 				body := encodeEquipment(e.ID, slots)
 				s.sessions.Range(func(_, v any) bool {
@@ -1311,6 +1313,32 @@ func (s *Server) mobTickStep() {
 					return true
 				})
 			}
+		} else if len(e.EquipDelta) > 0 {
+			wires := make([]byte, 0, len(e.EquipDelta))
+			for slot := range e.EquipDelta {
+				wires = append(wires, slot)
+			}
+			sort.Slice(wires, func(i, j int) bool { return wires[i] < wires[j] })
+			e.EquipDelta = nil
+			var slots []struct {
+				slot  byte
+				stack ItemStack
+			}
+			for _, w := range wires {
+				slots = append(slots, struct {
+					slot  byte
+					stack ItemStack
+				}{w, mobSlotStack(e, w)})
+			}
+			body := encodeEquipment(e.ID, slots)
+			s.sessions.Range(func(_, v any) bool {
+				other := v.(*Session)
+				if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != e.Dim {
+					return true
+				}
+				_ = other.write(other.ids().PlaySetEquipment, body)
+				return true
+			})
 		}
 		// Entity.baseTick's fire pass: while the countdown runs, the
 		// multiples of twenty each deal a point of on_fire damage and

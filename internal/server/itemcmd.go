@@ -1506,6 +1506,7 @@ func readMobSlot(e *Entity, id int32) ItemStack {
 // item filter on mob slots - the real server takes wolf_armor onto a
 // zombie the same as onto a wolf.
 func (s *Server) writeMobSlot(e *Entity, id int32, st ItemStack) {
+	old := readMobSlot(e, id)
 	if i := mobEquipIndex(id); i >= 0 {
 		if e.Equips == nil {
 			e.Equips = map[int32]ItemStack{}
@@ -1522,7 +1523,17 @@ func (s *Server) writeMobSlot(e *Entity, id int32, st ItemStack) {
 	case itemSlotSaddle:
 		e.Saddle = !st.Empty()
 	}
-	e.EquipDirty = true
+	// detectChanges only marks slots that actually changed — a noop
+	// write emits no set_equipment packet at all.
+	if old != st {
+		wire := byte(mobEquipIndex(id))
+		if id == itemSlotBody {
+			wire = 6
+		} else if id == itemSlotSaddle {
+			wire = 7
+		}
+		e.markEquipDelta(wire)
+	}
 }
 
 // itemRead reads one slot off an entity target, reporting whether the

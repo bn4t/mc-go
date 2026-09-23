@@ -4119,3 +4119,16 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   the dying metadata pack and poofs it twenty ticks later, matching
   vanilla's hurt(Float.MAX)→die() flow (fixes a TestDataEntityParity
   regression where the 0x63 dying pack was never emitted).
+
+- **Per-slot equipment deltas**: world-entity equipment writes now go
+  through a dirty-slot set (EquipDelta) instead of the whole-set
+  EquipDirty flag — an /item write on a mob emits set_equipment with
+  only the changed slot, a no-op write emits nothing at all, and a
+  cleared slot rides as an empty stack. The summon-NBT burst still
+  replays whole once after attach. Wolf-armor wear marks the body
+  slot (6). TestEquipDeltaParity diffs six write/clear/noop legs on
+  a husk, slot bytes + counts + item ids byte-for-byte. Still open:
+  the `attributes` save-list (data get attributes on a mob is a
+  packed supplier list — needs the per-type supplier table; NoAI
+  strips follow_range/attack_damage entries on some types, and
+  tameables re-assert the wild max_health base on merge — wolf done).

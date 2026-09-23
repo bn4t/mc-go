@@ -100,6 +100,11 @@ type Entity struct {
 	// every loaded slot, and the next mob tick's
 	// detectEquipmentUpdates resends the set to trackers.
 	EquipDirty bool
+	// EquipDelta is the per-slot dirty set detectEquipmentUpdates
+	// actually ships: /item writes and wolf-armor wear mark the slot
+	// that changed, and the next tick's set_equipment packet carries
+	// only those slots — not the whole set.
+	EquipDelta map[byte]bool
 	// MetaDirty/AttrDirty/PosDirty model ServerEntity's post-attach
 	// dirty sync: pairing leaves every loaded entry dirty, so the next
 	// mob tick resends the full metadata set (now including the
@@ -384,7 +389,7 @@ func (m *Manager) Damage(id int32, amount float32, typeName string, breachLevel 
 				e.BodyItem = it
 				res.CrackChanged = wolfArmorCrackLevel(it.Damage, maxD) != before
 			}
-			e.EquipDirty = true
+			e.markEquipDelta(6)
 			res.Absorbed = true
 			res.Health = e.Health
 			return res
@@ -405,7 +410,7 @@ func (m *Manager) Damage(id int32, amount float32, typeName string, breachLevel 
 				} else {
 					e.BodyItem = it
 				}
-				e.EquipDirty = true
+				e.markEquipDelta(6)
 			}
 		}
 	}
@@ -467,6 +472,32 @@ func (m *Manager) SetDying(id int32) {
 }
 
 // Remove deletes an entity, reporting whether it existed.
+// markEquipDelta flags one wire equipment slot for the next
+// detectEquipmentUpdates flush.
+func (e *Entity) markEquipDelta(slot byte) {
+	if e.EquipDelta == nil {
+		e.EquipDelta = map[byte]bool{}
+	}
+	e.EquipDelta[slot] = true
+}
+
+// mobSlotStack reads the entity's current stack at a wire equipment
+// slot: 0-5 the shared table, 6 body, 7 saddle.
+func mobSlotStack(e *Entity, slot byte) ItemStack {
+	switch slot {
+	case 6:
+		return e.BodyItem
+	case 7:
+		if e.Saddle {
+			if sid, ok := world.ItemID("saddle"); ok {
+				return ItemStack{ID: sid, Count: 1}
+			}
+		}
+		return ItemStack{}
+	}
+	return e.Equips[int32(slot)]
+}
+
 func (m *Manager) Remove(id int32) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
