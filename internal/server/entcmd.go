@@ -624,9 +624,13 @@ func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount 
 			nestedCompound{key: "", value: amount}, target.nameComp()))
 	}
 	mob := target.mob
+	// Vanilla's DamageSource falls back to the direct entity when no
+	// `from` cause is given — `by @s` provokes just like a punch.
 	var killer *Session
 	if cause != nil {
 		killer = cause.sess
+	} else if direct != nil {
+		killer = direct.sess
 	}
 	_, _, died := s.damageMob(mob, amount, dmgType, killer,
 		&damageInfo{typeName: dmgType, cause: causeID, direct: srcID})

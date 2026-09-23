@@ -28,6 +28,7 @@ import (
 
 type paObs struct {
 	health   float32
+	selfEID  int32 // P's own entity id — joins_game field 0
 	dmgEvent int
 	effects  map[int32][2]int32 // effect id -> [amplifier, duration] first seen
 	effFlags map[int32]byte
@@ -60,8 +61,16 @@ func paPump(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writer, 
 			if f, err := r.Float(); err == nil {
 				obs.health = f
 			}
+		case server.IDPlayJoinGame:
+			if id, err := r.Int(); err == nil {
+				obs.selfEID = id
+			}
 		case server.IDPlayDamageEvent:
-			obs.dmgEvent++
+			// Only P's own damage events count — /kill and mob-hurt
+			// broadcasts land here too for tracked entities.
+			if eid, err := r.VarInt(); err == nil && eid == obs.selfEID {
+				obs.dmgEvent++
+			}
 		case server.IDPlayUpdateMobEffect:
 			_, _ = r.VarInt()
 			eff, _ := r.VarInt()

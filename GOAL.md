@@ -4338,7 +4338,39 @@ servers. The test pumps answer keepalives now — vanilla kicks a silent
 client mid-leg at ~30s.
 
 Open items remaining: entity AI beyond the chase-melee step (ranged
-attacks, flee, neutral-mob provoke state), horse chest/container
+attacks, flee), horse chest/container
 slots, guardian flop/beam, per-damage-type hurt variants, witch.drink,
 scoreboard objectives, region save, online mode, redstone, terrain
 gen, lighting, .dat persistence.
+
+## Slice 2026-09-23c — neutral-mob provocation (anger + darkness gates)
+
+NeutralMob provocation lands: damageMob now stamps the hurt player as
+the mob's AngryAt target — through the manager's stored pointer, since
+several call sites hand damageMob a snapshot copy (this also repairs
+LastHurtByPlayerTicks, which silently never persisted). A zombified
+piglin additionally arms persistentAngerEndTime with vanilla's
+PERSISTENT_ANGER_TIME roll of 400-780 ticks; golem and spiders run the
+open-ended HurtByTargetGoal retaliation. The tick loop expires anger
+at the timer's end, clears it when forgive_dead_players sees the
+provoker dead, and every ALERT_INTERVAL (80-120t) an angry piglin
+copies its anger to un-angry zombified piglins inside the 10-block
+alert box — alertOthers.
+
+mobMeleeStep's target pick now gates neutrals: chase only the player
+they're angry at, except spider/cave_spider which also hunt unprovoked
+under SpiderTargetGoal's light<0.5 gate — night in the 12542-23459
+window, skylight-less dims, or an opaque roof over the eye block.
+
+Two adjacent fixes the measurement surfaced: /damage ... by @s now
+passes the direct entity as killer when no `from` cause is given
+(vanilla's DamageSource does the same — so the blackbox provoke is a
+command, not a whiffable punch); and paPump's dmgEvent counter filters
+by the player's own entity id from join_game — /kill @e broadcasts a
+generic_kill damage_event per mob, which was polluting calm windows
+non-deterministically.
+
+TestNeutralProvokeParity pins six legs vs both servers: piglin/spider/
+golem calm-then-provoked at noon, spider hostile at night and under a
+deep shade slab, and the two-piglin herd alert. TestMobPostAttackParity
+and the ambient/burn tests still pass; unit suite 38.5s.

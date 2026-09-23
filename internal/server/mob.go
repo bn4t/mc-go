@@ -1248,7 +1248,19 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 	// Vanilla's killed_by_player window: a player-caused hurt keeps
 	// the flag hot for 100 ticks (lastHurtByPlayerMemoryTime).
 	if killer != nil {
-		e.LastHurtByPlayerTicks = 100
+		// Some call sites hand damageMob a snapshot copy — state
+		// writes go through the manager's stored pointer.
+		if ep, ok := s.entities.GetPtr(e.ID); ok {
+			ep.LastHurtByPlayerTicks = 100
+			// NeutralMob provocation: the hurt player becomes this
+			// mob's anger target. A zombified piglin additionally
+			// arms the persistent-anger timer (PERSISTENT_ANGER_TIME,
+			// 20-39s) so the anger outlives the goal's target loss.
+			ep.AngryAt = killer.uuid
+			if kn, _ := EntityTypeName(ep.Type); kn == "zombified_piglin" {
+				ep.AngryUntil = s.gameTime() + 400 + rand.Int63n(381)
+			}
+		}
 		// doPostAttackEffects, enchanted=victim: thorns on the mob's
 		// equipment retaliates against the attacker (runs even when
 		// this hit is lethal).
@@ -1439,6 +1451,23 @@ func (s *Server) mobTickStep() {
 		if burnDaylight[ambName] {
 			s.mobSunBurn(e, ambName)
 		}
+		// NeutralMob anger bookkeeping: a zombified piglin's
+		// persistentAngerEndTime lapses and clears the anger; a
+		// provoker who died stops being a target under
+		// forgive_dead_players; and an angry piglin alerts its herd
+		// on the 80-120 tick ALERT_INTERVAL.
+		if e.AngryAt != [16]byte{} {
+			if e.AngryUntil > 0 && s.gameTime() >= e.AngryUntil {
+				e.AngryAt = [16]byte{}
+				e.AngryUntil = 0
+			} else if s.provokerDead(e) {
+				e.AngryAt = [16]byte{}
+				e.AngryUntil = 0
+			} else if ambName == "zombified_piglin" && s.gameTime() >= e.nextAlertAt {
+				e.nextAlertAt = s.gameTime() + 80 + rand.Int63n(41)
+				s.piglinAlert(e)
+			}
+		}
 		if !e.NoAI && e.Riding == 0 {
 			// A passenger stays put — vanilla's entity rider has no
 			// gravity or wander of its own. Hostile melee mobs chase
@@ -1549,6 +1578,23 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 // The swung damage is the supplier's attack_damage — the generated
 // entityAttrBases table — not a hand list (that had the spider at 3
 // vs vanilla's 2 and the zombified piglin at 8 vs 5).
+// mobNeutral is the melee-capable set vanilla gates on provocation —
+// NeutralMob types plus the iron golem's retaliate-only targeting.
+var mobNeutral = map[string]bool{
+	"zombified_piglin": true,
+	"iron_golem":       true,
+	"spider":           true,
+	"cave_spider":      true,
+}
+
+// mobSpiderDark is the subset that also hunts unprovoked in the dark
+// — Spider$SpiderTargetGoal's getLightLevelDependentMagicValue<0.5
+// gate (night, or shade at noon).
+var mobSpiderDark = map[string]bool{
+	"spider":      true,
+	"cave_spider": true,
+}
+
 var mobMelee = map[int32]bool{}
 
 func init() {
@@ -1600,6 +1646,18 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 		}
 		if sess.dimension().name != e.Dim {
 			return true
+		}
+		// Neutrals chase only the player they're angry at — and only
+		// while an anger timer still runs (piglins roll 400-780 ticks;
+		// a 0 timer is the golem/spider's open-ended retaliation).
+		// Spiders also target unprovoked when the eye block is dark —
+		// SpiderTargetGoal's light<0.5 gate.
+		if mobNeutral[kn] {
+			angry := e.AngryAt == sess.uuid &&
+				(e.AngryUntil == 0 || s.gameTime() < e.AngryUntil)
+			if !angry && !(mobSpiderDark[kn] && s.spiderCanHunt(e)) {
+				return true
+			}
 		}
 		px, py, pz, _, _, _ := sess.Pos()
 		dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
@@ -1987,6 +2045,78 @@ func (s *Server) sunBurnTick(e *Entity, name string) bool {
 		return false
 	}
 	return !s.mobInWater(e) && !s.fireRainingAt(d, eye)
+}
+
+// spiderCanHunt is the SpiderTargetGoal brightness gate: a spider
+// picks a target only when the light level at its eye is under 0.5 —
+// the skylight-less dark of night or an opaque roof's shadow. A dim
+// without skylight counts as dark.
+func (s *Server) spiderCanHunt(e *Entity) bool {
+	d := s.dims[e.Dim]
+	if d == nil {
+		return false
+	}
+	if !d.skylight {
+		return true
+	}
+	dt := s.dayTime() % 24000
+	if dt < 0 {
+		dt += 24000
+	}
+	if dt >= 12542 && dt <= 23459 {
+		return true
+	}
+	eye := world.Pos{
+		X: int(math.Floor(e.X)),
+		Y: int(math.Floor(e.Y + 0.65)),
+		Z: int(math.Floor(e.Z)),
+	}
+	return !s.cropLit(d, eye)
+}
+
+// provokerDead implements NeutralMob's forgive_dead_players check:
+// the angered mob calms when the session carrying AngryAt is dead.
+// An offline provoker keeps the anger (the uuid target stays armed).
+func (s *Server) provokerDead(e *Entity) bool {
+	if !s.gameRuleBool("minecraft:forgive_dead_players") {
+		return false
+	}
+	dead := false
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.uuid == e.AngryAt {
+			if sess.dead {
+				dead = true
+			}
+			return false
+		}
+		return true
+	})
+	return dead
+}
+
+// piglinAlert is ZombifiedPiglin.alertOthers: every piglin in the
+// 10-block alert box that isn't angry yet picks up the same target —
+// vanilla also wants the alerter to see the target, which in the
+// harness's open flat world is always true.
+func (s *Server) piglinAlert(e *Entity) {
+	zeID, ok := EntityTypeID("zombified_piglin")
+	if !ok {
+		return
+	}
+	for _, snap := range s.entities.All() {
+		if snap.Type != zeID || snap.Dim != e.Dim || snap.ID == e.ID ||
+			snap.AngryAt != [16]byte{} {
+			continue
+		}
+		if math.Abs(snap.X-e.X) <= 10 && math.Abs(snap.Y-e.Y) <= 10 &&
+			math.Abs(snap.Z-e.Z) <= 10 {
+			if other, ok := s.entities.GetPtr(snap.ID); ok {
+				other.AngryAt = e.AngryAt
+				other.AngryUntil = e.AngryUntil
+			}
+		}
+	}
 }
 
 // mobInWater is Entity.isInWater approximated at the feet block —

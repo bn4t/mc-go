@@ -84,6 +84,13 @@ type Entity struct {
 	// adults count a breeding cooldown down. Zombie-family babies use
 	// the IsBaby flag instead and never age.
 	Age int32
+	// AngryAt/AngryUntil are NeutralMob's persistent anger: AngryAt is
+	// the provoker's uuid (zero when calm), AngryUntil the game time
+	// the anger lapses — 0 means the open-ended HurtByTargetGoal
+	// retaliation golems and spiders run.
+	AngryAt     [16]byte
+	AngryUntil  int64
+	nextAlertAt int64
 	// Passengers holds the entity ids riding this entity (vanilla's
 	// passengers list); Riding is the vehicle id on the passenger.
 	Passengers []int32
