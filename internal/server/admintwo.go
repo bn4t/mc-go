@@ -14,83 +14,39 @@ type attrMod struct {
 	op    int // 0 add_value, 1 add_multiplied_base, 2 add_multiplied_total
 }
 
-// playerAttrBases are the default attribute values vanilla's
-// DefaultAttributes.player registers; a missing entry means the
-// attribute does not exist on a player at all.
-var playerAttrBases = map[string]float64{
-	"armor":                          0,
-	"armor_toughness":                0,
-	"attack_damage":                  1,
-	"attack_knockback":               0,
-	"attack_speed":                   4,
-	"block_break_speed":              1,
-	"block_interaction_range":        4.5,
-	"burning_time":                   1,
-	"camera_distance":                4,
-	"entity_interaction_range":       3,
-	"explosion_knockback_resistance": 0,
-	"fall_damage_multiplier":         1,
-	"flying_speed":                   0.02,
-	"gravity":                        0.08,
-	"jump_strength":                  0.41999998688697815,
-	"knockback_resistance":           0,
-	"luck":                           0,
-	"max_absorption":                 0,
-	"max_health":                     20,
-	"mining_efficiency":              0,
-	"movement_efficiency":            0,
-	"movement_speed":                 0.10000000149011612,
-	"oxygen_bonus":                   0,
-	"safe_fall_distance":             3,
-	"scale":                          1,
-	"sneaking_speed":                 0.3,
-	"step_height":                    0.6,
-	"submerged_mining_speed":         0.2,
-	"sweeping_damage_ratio":          0,
-	"tempt_range":                    10,
-	"water_movement_efficiency":      0,
-	"waypoint_receive_range":         0,
-	"waypoint_transmit_range":        0,
+// playerAttrBases is vanilla's player attribute supplier —
+// DefaultAttributes registers Player.createAttributes for the player
+// entity type; see entityattr_gen.go.
+var playerAttrBases = entityAttrBases["player"]
+
+// livingAttrMembers is vanilla's LivingEntity.createLivingAttributes
+// member set — every living entity's supplier carries these, each at
+// its registered default (the builder uses the one-argument add).
+var livingAttrMembers = []string{
+	"air_drag_modifier", "armor", "armor_toughness", "attack_knockback",
+	"below_name_distance", "bounciness", "burning_time", "camera_distance",
+	"entity_interaction_range", "explosion_knockback_resistance",
+	"fall_damage_multiplier", "friction_modifier", "gravity",
+	"jump_strength", "knockback_resistance", "max_absorption",
+	"max_health", "movement_efficiency", "movement_speed",
+	"name_tag_distance", "oxygen_bonus", "safe_fall_distance", "scale",
+	"step_height", "water_movement_efficiency", "waypoint_transmit_range",
 }
 
-// livingAttrBases is vanilla's LivingEntity.createLivingAttributes()
-// supplier — every living entity carries it, then a per-type builder
-// adds/overrides. Only attributes with a non-zero vanilla default
-// carry their value; the rest exist (has=true) at default 0/1.
-var livingAttrBases = map[string]float64{
-	"max_health":                     20,
-	"knockback_resistance":           0,
-	"movement_speed":                 0.7,
-	"armor":                          0,
-	"armor_toughness":                0,
-	"max_absorption":                 0,
-	"step_height":                    0.6,
-	"scale":                          1,
-	"gravity":                        0.08,
-	"safe_fall_distance":             3,
-	"fall_damage_multiplier":         1,
-	"jump_strength":                  0.41999998688697815,
-	"entity_interaction_range":       3,
-	"oxygen_bonus":                   0,
-	"water_movement_efficiency":      0,
-	"movement_efficiency":            0,
-	"burning_time":                   1,
-	"explosion_knockback_resistance": 0,
-	"bounciness":                     0,
-	"name_tag_distance":              64,
-	"below_name_distance":            0,
-	"camera_distance":                4,
-	"waypoint_transmit_range":        0,
-	"air_drag_modifier":              0,
-}
+// livingAttrBases is the generic living-entity supplier — the living
+// member set at registered defaults, used only for living entities
+// whose type has no generated table.
+var livingAttrBases = func() map[string]float64 {
+	m := map[string]float64{}
+	for _, a := range livingAttrMembers {
+		m[a] = attrRegisteredDefaults[a]
+	}
+	return m
+}()
 
-// mobAttrBases are the per-type attribute tables for the mobs the
-// sandbox can summon; vanilla's per-type DefaultAttributes builders.
-var mobAttrBases = map[string]map[string]float64{
-	"pig":      {"max_health": 10, "movement_speed": 0.25},
-	"zombie":   {"max_health": 20, "movement_speed": 0.23000000417232513, "attack_damage": 3, "follow_range": 35, "armor": 2},
-	"villager": {"max_health": 20, "movement_speed": 0.5, "follow_range": 48},
-}
+// mobAttrBases is the per-type supplier table — generated from the
+// vanilla jar's DefaultAttributes bytecode (entityattr_gen.go).
+var mobAttrBases = entityAttrBases
 
 func (s *Server) registerAdminTwoCommands() {
 	s.registerComponentCommand("stopwatch", func(player string, args []string) reply {

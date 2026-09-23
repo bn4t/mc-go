@@ -288,7 +288,7 @@ func TestAttrSavePackParity(t *testing.T) {
 			time.Sleep(600 * time.Millisecond)
 			var v any
 			var ok bool
-			for i := 0; i < 3; i++ {
+			for i := 0; i < 5; i++ {
 				sink.take()
 				v, ok = parseSNBT(dataGetLine(t, sink, pw,
 					`@e[type=minecraft:`+tp+`,limit=1,sort=nearest]`, "attributes"))
@@ -351,6 +351,43 @@ func TestAttrSavePackParity(t *testing.T) {
 		// Modifier remove keeps the instance touched.
 		leg("attribute @e[type=minecraft:pig,limit=1] minecraft:movement_speed modifier remove minecraft:test_boost")
 		get("pig", "pig-modrm")
+
+		// Supplier sweep: /attribute base get materializes the
+		// instance inside vanilla's lazy AttributeMap too, so the
+		// save pack then exposes each type's supplier bases
+		// verbatim — pinning the generated entityAttrBases table on
+		// both servers.
+		leg("kill @e[type=!minecraft:player]")
+		sweep := []struct {
+			tp    string
+			attrs []string
+		}{
+			{"cow", []string{"movement_speed", "max_health", "tempt_range"}},
+			{"horse", []string{"max_health", "jump_strength", "step_height", "safe_fall_distance"}},
+			{"bee", []string{"flying_speed", "attack_damage"}},
+			{"warden", []string{"attack_damage", "knockback_resistance", "follow_range"}},
+			{"elder_guardian", []string{"attack_damage"}},
+			{"bogged", []string{"max_health", "movement_speed"}},
+			{"breeze", []string{"movement_speed", "follow_range"}},
+			{"panda", []string{"attack_damage", "movement_speed"}},
+			{"dolphin", []string{"movement_speed", "attack_damage"}},
+			{"armadillo", []string{"movement_speed", "tempt_range"}},
+			{"villager", []string{"movement_speed", "follow_range"}},
+			{"witch", []string{"max_health", "attack_damage"}},
+		}
+		sx := 24.5
+		for _, sw := range sweep {
+			sx += 8
+			cmds := []string{fmt.Sprintf(
+				"summon minecraft:%s %.1f -60 -30.5 {NoAI:1b}", sw.tp, sx)}
+			for _, a := range sw.attrs {
+				cmds = append(cmds, fmt.Sprintf(
+					"attribute @e[type=minecraft:%s,limit=1,sort=nearest] minecraft:%s base get",
+					sw.tp, a))
+			}
+			leg(cmds...)
+			get(sw.tp, "sweep-"+sw.tp)
+		}
 		return out
 	}
 

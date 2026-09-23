@@ -4231,3 +4231,33 @@ Also fixed: TestWeaponDamagePackets was a test bug, not a server bug
 cooldown scaling (which mc-go already implements correctly, matching
 vanilla) cut the hit to ~1.3 instead of 6. The test now waits 750 ms
 (sword = 1.6 attack speed → 625 ms cooldown) before attacking.
+
+## Slice 2026-09-19f — per-type attribute suppliers from bytecode
+
+`entityAttrBases` now carries vanilla's full supplier table: extracted
+`DefaultAttributes`' clinit (EntityType -> createAttributes factory)
+from the 26.2 jar and walked each factory's bytecode, chaining
+`getstatic Attributes.X` + `ldc2_w` pairs through `Builder.add`, with
+`Builder.add(Holder)` resolving to the attribute's registered default
+(40 defaults mined from `Attributes.<clinit>`'s
+`register(id, RangedAttribute)` calls) and inherited factories
+resolved up the class hierarchy. 91 types, 2385 entries — includes
+the player row (waypoint transmit/receive 6e7) and exact float32
+bases like zombie ms 0.23000000417232513.
+
+The generated table now feeds: `attrInstance` (replaces the three-row
+hand `mobAttrBases`; `livingAttrBases` stays as the generic fallback,
+corrected to registered defaults — air_drag_modifier is 1.0, not 0),
+`mobAttrSupplierBase`, the follow_range rsb-roll gate (membership in
+the supplier, matching Mob.finalizeSpawn), and the zombie-family
+handleAttributes gate (spawn_reinforcements membership — exactly
+zombie/husk/zombie_villager/zombified_piglin/drowned). /summon now
+accepts every type with a supplier — max_health supplier base is the
+spawn health except where mobHealth overrides (horse rolls 15-30,
+sulfur_cube 4*size). Witch health corrected 24 -> 26.
+
+TestAttrSavePackParity gained a 12-type sweep leg set (cow, horse,
+bee, warden, elder_guardian, bogged, breeze, panda, dolphin,
+armadillo, villager, witch): summon + `/attribute <attr> base get`
+touches the instance inside vanilla's lazy map, then the `data get
+attributes` pack exposes the bases verbatim on both servers.

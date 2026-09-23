@@ -8,43 +8,14 @@ import (
 	"mc-go/internal/nbt"
 )
 
-// mobMoveSpeedBase is the supplier default for movement_speed per
-// type — every living mob touches the instance at spawn, so it is
-// the one attribute the save pack always carries.
-var mobMoveSpeedBase = map[string]float64{
-	"pig":             0.25,
-	"zombie_villager": 0.23000000417232513,
-	"villager":        0.5,
-	"zombie":          0.23000000417232513,
-	"husk":            0.23000000417232513,
-	"wolf":            0.30000001192092896,
-	"skeleton":        0.25,
-}
-
-// mobFollowRangeBase is the supplier default for follow_range for
-// types whose supplier carries it — a Mob.finalizeSpawn touches the
-// instance and adds the triangular random_spawn_bonus modifier when
-// the mob isn't NoAI. Types not listed haven't been measured for a
-// follow_range supplier yet.
-var mobFollowRangeBase = map[string]float64{
-	"wolf":            16,
-	"pig":             16,
-	"skeleton":        16,
-	"zombie":          35,
-	"husk":            35,
-	"zombie_villager": 35,
-}
-
 // mobZombieFamily are the Zombie subclasses that run
 // Zombie.handleAttributes at finalizeSpawn: spawn_reinforcements gets
 // a fresh base of rand*0.1 and knockback_resistance an add_value
-// random_spawn_bonus of rand*0.05.
-var mobZombieFamily = map[string]bool{
-	"zombie":           true,
-	"husk":             true,
-	"zombie_villager":  true,
-	"zombified_piglin": true,
-	"drowned":          true,
+// random_spawn_bonus of rand*0.05. Membership is the supplier itself
+// — only the zombie family's table carries spawn_reinforcements.
+func mobZombieFamily(name string) bool {
+	_, ok := entityAttrBases[name]["spawn_reinforcements"]
+	return ok
 }
 
 // summonAttrTouches applies the attribute-instance side effects of a
@@ -64,7 +35,7 @@ func summonAttrTouches(e *Entity, name string, init bool) {
 	if !init {
 		return
 	}
-	if _, ok := mobFollowRangeBase[name]; ok {
+	if _, ok := entityAttrBases[name]["follow_range"]; ok {
 		e.markAttrTouched("follow_range")
 		// Mob.finalizeSpawn: random_spawn_bonus is a triangle
 		// distribution around 0 with deviation 0.11485.
@@ -81,7 +52,7 @@ func summonAttrTouches(e *Entity, name string, init bool) {
 			op:    1, // add_multiplied_base
 		}
 	}
-	if mobZombieFamily[name] {
+	if mobZombieFamily(name) {
 		// Zombie.handleAttributes: spawn_reinforcements base rolls
 		// rand*0.1, knockback_resistance takes a rand*0.05 add_value
 		// random_spawn_bonus modifier.
@@ -109,19 +80,13 @@ func summonAttrTouches(e *Entity, name string, init bool) {
 // mobAttrSupplierBase is the supplier default for one attribute on
 // one type — the value a fresh instance packs before overrides.
 func mobAttrSupplierBase(name, attr string) float64 {
-	switch attr {
-	case "movement_speed":
-		return mobMoveSpeedBase[name]
-	case "follow_range":
-		return mobFollowRangeBase[name]
-	case "max_health":
-		if b, ok := mobAttrBases[name]["max_health"]; ok {
-			return b
-		}
-		return float64(mobHealth[name])
-	default:
-		return mobAttrBases[name][attr]
+	if v, ok := entityAttrBases[name][attr]; ok {
+		return v
 	}
+	if attr == "max_health" {
+		return float64(mobHealth[name])
+	}
+	return livingAttrBases[attr]
 }
 
 var attrOpNames = []string{"add_value", "add_multiplied_base", "add_multiplied_total"}

@@ -372,7 +372,7 @@ var mobHealth = map[string]float32{
 	"wither_skeleton":  20,
 	"cave_spider":      12,
 	"enderman":         40,
-	"witch":            24,
+	"witch":            26,
 	"blaze":            20,
 	"phantom":          20,
 	"zombified_piglin": 20,
@@ -920,7 +920,15 @@ func (s *Server) summonMobInit(d *dimension, name string, x, y, z float64, noAI,
 	}
 	health, known := mobHealth[name]
 	if !known {
-		return nil, false
+		// Supplier-carried max_health doubles as the summon gate:
+		// any type with a generated attribute supplier spawns at the
+		// supplier's base. mobHealth only overrides where spawn
+		// health differs (horse rolls 15-30, sulfur_cube 4*size).
+		b, ok := entityAttrBases[name]["max_health"]
+		if !ok || b <= 0 {
+			return nil, false
+		}
+		health = float32(b)
 	}
 	e := s.entities.Spawn(&Entity{
 		Type:      id,
@@ -948,7 +956,15 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, 
 	}
 	health, known := mobHealth[name]
 	if !known {
-		return nil, false
+		// Supplier-carried max_health doubles as the summon gate:
+		// any type with a generated attribute supplier spawns at the
+		// supplier's base. mobHealth only overrides where spawn
+		// health differs (horse rolls 15-30, sulfur_cube 4*size).
+		b, ok := entityAttrBases[name]["max_health"]
+		if !ok || b <= 0 {
+			return nil, false
+		}
+		health = float32(b)
 	}
 	e := s.entities.Spawn(&Entity{
 		Type:      id,
