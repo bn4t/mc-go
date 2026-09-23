@@ -186,7 +186,7 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 	if !bypassesArmor(src.typeName) {
 		defense := sess.armorDefense()
 		s.armorWear(sess, src, amount)
-		amount = reduceDamage(amount, defense)
+		amount = reduceDamage(amount, defense, sess.armorToughness())
 	}
 	// getDamageAfterEnchantAbsorb: the EPF from protection-family
 	// enchantments shaves min(20, epf)/25 off what armor left standing.
@@ -219,6 +219,17 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 		amount = healthBefore
 	}
 	s.fireEntityHurtPlayer(sess, src.typeName == "arrow", false)
+	// dealDefaultKnockback: an entity-sourced hurt that isn't in
+	// no_knockback shoves the victim 0.4 away from the source's
+	// position, scaled by the victim's knockback_resistance (a
+	// netherite set eats 40%). /damage ... by takes this path too.
+	// player_attack skips it — Player.attack's hurt call carries the
+	// flag that tells hurtServer the attack applies knockback itself
+	// (playerAttackKnockback owns that push).
+	if src.cause != 0 && src.cause != eid && !noKnockback(src.typeName) &&
+		src.typeName != "player_attack" {
+		s.playerHurtKnockback(sess, src.cause)
+	}
 	// EnchantmentHelper.doPostAttackEffects, enchanted=victim side:
 	// every thorns piece the victim wears rolls its 15%·level proc
 	// against the hurt's source entity (nil sources don't retaliate).
@@ -226,6 +237,29 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 		s.thornsVictimWear(sess, src.cause)
 	}
 	return amount
+}
+
+// playerHurtKnockback applies LivingEntity.dealDefaultKnockback to a
+// player victim: 0.4 of push directly away from the damage source's
+// position. The hurt-marked delta sync reaches every tracker —
+// vanilla also ships the packet to the victim itself. The victim's
+// standing delta is treated as zero, matching playerAttackKnockback
+// (vanilla folds whatever the client last reported, which for a
+// stationary target is zero anyway).
+func (s *Server) playerHurtKnockback(sess *Session, srcCause int32) {
+	var sx, sz float64
+	if cs := s.sessionByEntityID(srcCause); cs != nil {
+		sx, _, sz, _, _, _ = cs.Pos()
+	} else {
+		e, ok := s.entities.Get(srcCause)
+		if !ok {
+			return
+		}
+		sx, sz = e.X, e.Z
+	}
+	px, _, pz, _, _, grounded := sess.Pos()
+	vx, vy, vz := knockDelta(0, 0, 0, 0.4, sess.armorKBResist(), sx-px, sz-pz, grounded)
+	s.broadcastEntityMotion(sess.dimName(), sess.entityID.Load(), vx, vy, vz)
 }
 
 // thornsVictimWear is runIterationOnEquipment over the victim's

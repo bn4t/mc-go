@@ -573,9 +573,13 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 			direct:   sess.entityID.Load(),
 		})
 		if dealt > 0 {
-			mx, my, mz := knockDelta(0, 0, 0, 0.4, 0, ax-ox, az-oz, og)
-			mx, my, mz = knockDelta(mx, my, mz, 0.4, 0, kx, kz, og)
-			s.sendEntityMotion(other, mx, my, mz)
+			// Sweep kb is hurt-kb (away from the attacker) plus the
+			// sweep push along the attacker's facing, folded by the
+			// victim's knockback_resistance like every other push.
+			ores := other.armorKBResist()
+			mx, my, mz := knockDelta(0, 0, 0, 0.4, ores, ax-ox, az-oz, og)
+			mx, my, mz = knockDelta(mx, my, mz, 0.4, ores, kx, kz, og)
+			s.broadcastEntityMotion(other.dimName(), other.entityID.Load(), mx, my, mz)
 		}
 		return true
 	})
@@ -882,7 +886,14 @@ func (s *Server) playerAttackKnockback(sess, target *Session, scale float32) {
 	ax, _, az, yaw, _, _ := sess.Pos()
 	_, _, _, _, _, grounded := target.Pos()
 	tx, _, tz, _, _, _ := target.Pos()
-	vx, vy, vz := knockDelta(0, 0, 0, 0.4, 0, ax-tx, az-tz, grounded)
+	// The victim's knockback_resistance folds every push — netherite
+	// armor resists on top of the default zero.
+	res := target.armorKBResist()
+	// Player.attack applies exactly one push — hurtServer skips its
+	// dealDefaultKnockback when the source was a direct melee attack
+	// (the flag is set on the Player.attack call site), so the 0.4
+	// away from the attacker plus extras is the whole composed delta.
+	vx, vy, vz := knockDelta(0, 0, 0, 0.4, res, ax-tx, az-tz, grounded)
 	extra := float64(sess.heldStack().enchLevel("knockback")) / 2
 	sprint := sprintKnockbackHit(sess, scale)
 	if sprint {
@@ -890,12 +901,12 @@ func (s *Server) playerAttackKnockback(sess, target *Session, scale float32) {
 	}
 	if extra > 0 {
 		kx, kz := knockbackYaw(yaw)
-		vx, vy, vz = knockDelta(vx, vy, vz, extra, 0, kx, kz, grounded)
+		vx, vy, vz = knockDelta(vx, vy, vz, extra, res, kx, kz, grounded)
 		if sprint {
 			s.endSprintKnockback(sess)
 		}
 	}
-	s.sendEntityMotion(target, vx, vy, vz)
+	s.broadcastEntityMotion(target.dimName(), target.entityID.Load(), vx, vy, vz)
 }
 
 // endSprintKnockback performs vanilla's sprint-hit aftermath: the
@@ -948,10 +959,19 @@ func (s *Server) broadcastSharedFlags(sess *Session) {
 // broadcastEntityMotion sends set_entity_motion to every play-state
 // session tracking the entity's dimension.
 func (s *Server) broadcastEntityMotion(dim string, eid int32, vx, vy, vz float64) {
+	s.broadcastEntityMotionExcept(dim, eid, nil, vx, vy, vz)
+}
+
+// broadcastEntityMotionExcept is broadcastEntityMotion skipping one
+// session — a player victim never receives its own hurt knockback:
+// vanilla's delta sync only reaches chunk trackers, and the victim's
+// client derives the lurch from the damage_event's source position
+// instead. Sending it anyway would double the shove on a real client.
+func (s *Server) broadcastEntityMotionExcept(dim string, eid int32, except *Session, vx, vy, vz float64) {
 	body := encodeEntityMotion(eid, vx, vy, vz)
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
-		if other.state.Load() != StatePlay || !other.spawned.Load() {
+		if other == except || other.state.Load() != StatePlay || !other.spawned.Load() {
 			return true
 		}
 		if other.dimName() != dim {
@@ -960,11 +980,6 @@ func (s *Server) broadcastEntityMotion(dim string, eid int32, vx, vy, vz float64
 		_ = other.write(other.ids().PlaySetEntityMotion, body)
 		return true
 	})
-}
-
-// sendEntityMotion delivers set_entity_motion to one session.
-func (s *Server) sendEntityMotion(sess *Session, vx, vy, vz float64) {
-	_ = sess.write(sess.ids().PlaySetEntityMotion, encodeEntityMotion(sess.entityID.Load(), vx, vy, vz))
 }
 
 // encodeEntityMotion builds set_entity_motion: 26.2 ships the delta

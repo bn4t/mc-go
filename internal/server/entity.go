@@ -334,7 +334,10 @@ func (m *Manager) Damage(id int32, amount, armor float32) (float32, float32, boo
 	}
 	e.lastHurt = orig
 	e.invulnTicks = 20
-	amount = reduceDamage(amount, armor)
+	// Mob armor_toughness is always 0 — no entity's default
+	// attributes carry it, and summoned NBT attributes aren't read
+	// into the item model yet.
+	amount = reduceDamage(amount, armor, 0)
 	// Vanilla's damage_dealt is the health the target actually lost:
 	// the hit's amount clamped to the pre-hit health.
 	if amount > e.Health {

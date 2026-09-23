@@ -258,6 +258,31 @@ func knockDelta(vx, vy, vz, strength, resistance, dx, dz float64, grounded bool)
 	return vx/2 - kbx, ny, vz/2 - kbz
 }
 
+// mobHurtKnockback is LivingEntity.dealDefaultKnockback for a mob
+// victim: the 0.4 push away from the damage source's position, folded
+// by the type's knockback_resistance and composed into the entity's
+// delta, which the tracker then ships as set_entity_motion.
+func (s *Server) mobHurtKnockback(e *Entity, srcCause int32) {
+	var sx, sz float64
+	if cs := s.sessionByEntityID(srcCause); cs != nil {
+		sx, _, sz, _, _, _ = cs.Pos()
+	} else {
+		se, ok := s.entities.Get(srcCause)
+		if !ok {
+			return
+		}
+		sx, sz = se.X, se.Z
+	}
+	res := float64(0)
+	if name, ok := EntityTypeName(e.Type); ok {
+		res = mobKnockbackResistance[name]
+	}
+	vx, vy, vz := knockDelta(e.MotionX, e.MotionY, e.MotionZ, 0.4, res,
+		sx-e.X, sz-e.Z, e.Grounded)
+	s.entities.SetMotion(e.ID, vx, vy, vz)
+	s.broadcastEntityMotion(e.Dim, e.ID, vx, vy, vz)
+}
+
 // armorDefense sums the armor points of a player's four armor slots.
 func (sess *Session) armorDefense() float32 {
 	total := float32(0)
@@ -273,16 +298,66 @@ func (sess *Session) armorDefense() float32 {
 	return total
 }
 
+// armorToughness is the armor_toughness attribute each worn piece
+// contributes — only diamond (2) and netherite (3) carry any, per
+// 26.2's ArmorMaterials constants.
+var armorToughness = map[string]float32{
+	"diamond_helmet": 2, "diamond_chestplate": 2,
+	"diamond_leggings": 2, "diamond_boots": 2,
+	"netherite_helmet": 3, "netherite_chestplate": 3,
+	"netherite_leggings": 3, "netherite_boots": 3,
+}
+
+// armorKBResist is the knockback_resistance attribute per piece —
+// netherite's 0.1 each (a full set resists 40% of knockback).
+var armorKBResist = map[string]float64{
+	"netherite_helmet": 0.1, "netherite_chestplate": 0.1,
+	"netherite_leggings": 0.1, "netherite_boots": 0.1,
+}
+
+// armorToughnessOf sums the armor_toughness of the player's four
+// worn pieces — vanilla's LivingEntity reads the attribute value,
+// which for default equipment is exactly this sum.
+func (sess *Session) armorToughness() float32 {
+	total := float32(0)
+	for i := slotArmorStart; i < slotArmorStart+4; i++ {
+		it := sess.stackAt(int16(i))
+		if it.Empty() {
+			continue
+		}
+		if name, ok := itemNameOf(it.ID); ok {
+			total += armorToughness[name]
+		}
+	}
+	return total
+}
+
+// armorKBResistOf sums knockback_resistance over the worn pieces.
+func (sess *Session) armorKBResist() float64 {
+	total := float64(0)
+	for i := slotArmorStart; i < slotArmorStart+4; i++ {
+		it := sess.stackAt(int16(i))
+		if it.Empty() {
+			continue
+		}
+		if name, ok := itemNameOf(it.ID); ok {
+			total += armorKBResist[name]
+		}
+	}
+	return total
+}
+
 // reduceDamage applies vanilla's armor absorb (CombatRules.
-// getDamageAfterAbsorb): effective defense is armor minus
-// damage/(2+toughness/4), floored at armor/5 and capped at 20; the
-// surviving damage scales by 1 - defense/25. Toughness is always 0
-// here — no armor on this server carries armor_toughness yet.
-func reduceDamage(damage, armor float32) float32 {
+// getDamageAfterAbsorb, minus the breaching-style
+// modifyArmorEffectiveness pass which needs a weapon item):
+// effective defense is armor minus damage/(2+toughness/4), floored at
+// armor/5 and capped at 20; surviving damage scales by
+// 1 - defense/25.
+func reduceDamage(damage, armor, toughness float32) float32 {
 	if armor <= 0 || damage <= 0 {
 		return damage
 	}
-	defense := armor - damage/2
+	defense := armor - damage/(2+toughness/4)
 	if floor := armor * 0.2; defense < floor {
 		defense = floor
 	}

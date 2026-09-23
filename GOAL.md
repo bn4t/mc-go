@@ -3860,3 +3860,35 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   post_attack effects (channeling is hit_effect, not post), mob
   bodies (horse armor slot), and the >128-unit normal-approximation
   branch vanilla switches to inside RemoveBinomial.
+
+- **Armor attributes, hurt knockback, and the no_knockback gate
+  (player side)**: re-measured CombatRules.getDamageAfterAbsorb off
+  the 26.2 jar — the real formula is
+  `defense = clamp(armor - dmg/(2+toughness/4), armor*0.2, 20)` with
+  `damage*(1-defense/25)`, so armor_toughness shrinks the defense
+  the hit removes rather than adding reduction; hurtArmor now feeds
+  it `(armorValue, armorToughness)`. mc-go learned armorToughness
+  (diamond 2/piece, netherite 3) and armorKBResist (netherite 0.1/
+  piece) summed over the four armor slots, and dealDefaultKnockback
+  was wired in for entity-sourced hurts: `damage A N <type> by E`
+  and mob melee shove the victim 0.4 away from the source, folded by
+  the victim's knockback_resistance and gated by the damage-type
+  `no_knockback` tag (`generic` is in it, `mob_attack` is not).
+  player_attack skips that push — the attack call site applies its
+  own 0.4 (plus knockback-ench/2 and the 0.5 sprint bonus along the
+  attacker's facing) — and sweep victims take hurt-kb + facing push.
+  Two wire-parity corrections fell out of the blackbox probing:
+  join_game now ships the player's real entity id (it was hardcoded
+  1, so trackers' add_entity never matched), and the hurt-motion
+  packet goes to the victim as well as its trackers (vanilla sends
+  the delta to both). Mobs got mobHurtKnockback the same way, with
+  per-type knockback_resistance (iron_golem 1.0). TestArmorAttrParity
+  pins it all on both servers: health drop for a 20-point mob_attack
+  is 8.0 diamond / 7.2 netherite / 16.0 iron / 18.88 leather
+  byte-for-byte, a 4-point mob_attack by an armor stand shoves the
+  victim ~0.4 (0.24 through netherite), generic moves nobody, and a
+  real zombie melee registers. Still open: armor_breach —
+  getDamageAfterAbsorb has an optional modifyArmorEffectiveness pass
+  when the source carries a weapon — and the victim's vy component
+  follows the client's on_ground flag (mc-go) vs server physics
+  (vanilla), which the scripted client never asserts.

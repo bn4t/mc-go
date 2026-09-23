@@ -493,7 +493,7 @@ func (s *Server) sendAbilities(sess *Session) error {
 // protocol docs; dimension names lists every dimension on the server.
 func (s *Server) sendJoinGame(sess *Session) error {
 	var b protocol.Buffer
-	b.Int(1)      // entity id
+	b.Int(sess.entityID.Load()) // entity id — vanilla sends the real one
 	b.Bool(false) // hardcore
 	b.VarInt(3)   // dimension names, in vanilla's Join Game order
 	b.String("minecraft:overworld")

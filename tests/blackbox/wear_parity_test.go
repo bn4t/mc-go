@@ -46,6 +46,11 @@ func drainWear(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Write
 			var kb protocol.Buffer
 			kb.Raw(p.Data)
 			_ = pw.WritePacket(server.IDPlayKeepAliveSB, kb.Bytes())
+		case server.IDPlayChunkBatchDone:
+			// Vanilla does not count a chunk as watched — no entity
+			// spawns reach the client — until it answers
+			// chunk_batch_finished.
+			_ = ackChunkBatch(pw)
 		case server.IDPlaySyncPos:
 			r := protocol.NewPacketReader(p.Data)
 			if id, err := r.VarInt(); err == nil {

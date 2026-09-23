@@ -489,7 +489,7 @@ func TestArmorReducesDamage(t *testing.T) {
 
 	bob.attackTicker = 200
 	s.handleAttack(bob, attackPacket(t, alice.entityID.Load()))
-	want := float32(20) - reduceDamage(1, 15)
+	want := float32(20) - reduceDamage(1, 15, alice.armorToughness())
 	if alice.health != want {
 		t.Fatalf("alice health = %v, want %v", alice.health, want)
 	}

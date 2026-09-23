@@ -164,7 +164,28 @@ func (s *Server) attackWear(sess *Session) {
 // never reduces through armor and never wears it.
 func bypassesArmor(typeName string) bool {
 	switch typeName {
-	case "generic", "generic_kill", "fall", "starve", "out_of_world":
+	case "on_fire", "in_wall", "cramming", "drown", "fly_into_wall",
+		"generic", "wither", "dragon_breath", "starve", "fall",
+		"ender_pearl", "freeze", "stalagmite", "magic",
+		"indirect_magic", "out_of_world", "generic_kill",
+		"sonic_boom", "outside_border":
+		return true
+	}
+	return false
+}
+
+// noKnockback mirrors vanilla's minecraft:no_knockback damage-type
+// tag — hurts of these types skip dealDefaultKnockback entirely.
+func noKnockback(typeName string) bool {
+	switch typeName {
+	case "explosion", "player_explosion", "bad_respawn_point",
+		"in_fire", "lightning_bolt", "on_fire", "lava",
+		"hot_floor", "sulfur_cube_hot", "in_wall", "cramming",
+		"drown", "starve", "cactus", "fall", "ender_pearl",
+		"fly_into_wall", "out_of_world", "generic", "magic",
+		"wither", "dragon_breath", "dry_out", "sweet_berry_bush",
+		"freeze", "stalagmite", "outside_border", "generic_kill",
+		"campfire", "spear":
 		return true
 	}
 	return false

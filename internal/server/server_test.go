@@ -215,7 +215,7 @@ func TestLoginJoinFlow(t *testing.T) {
 		t.Fatalf("play id = %#x, want join game", join.ID)
 	}
 	eid, err := protocol.NewPacketReader(join.Data).Int()
-	if err != nil || eid != 1 {
+	if err != nil || eid < 1 {
 		t.Fatalf("entity id = %d, err %v", eid, err)
 	}
 
