@@ -1,9 +1,33 @@
 package server
 
 import (
+	"math/rand"
+
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
+
+// unbreakingReduce is vanilla's item_damage enchantment pass
+// (remove_binomial): every durability point is independently dropped
+// with the level-based chance — armor 2l/(5l+5), everything else
+// l/(l+1), as the unbreaking datapack entry defines.
+func unbreakingReduce(it ItemStack, name string, amount int32) int32 {
+	l := it.enchLevel("unbreaking")
+	if l <= 0 || amount <= 0 {
+		return amount
+	}
+	p := float64(l) / float64(l+1)
+	if armorPoints[name] > 0 {
+		p = 2 * float64(l) / (5*float64(l) + 5)
+	}
+	kept := amount
+	for i := int32(0); i < amount; i++ {
+		if rand.Float64() < p {
+			kept--
+		}
+	}
+	return kept
+}
 
 // wearHeld applies damage durability points to the held stack, the
 // ItemStack.hurtAndBreak path for the main hand: only damageable
@@ -31,7 +55,7 @@ func (s *Server) wearSlot(sess *Session, slot int16, damage int32) {
 		sess.invMu.Unlock()
 		return
 	}
-	it.Damage += damage
+	it.Damage += unbreakingReduce(it, name, damage)
 	var empt bool
 	if it.Damage >= maxDmg {
 		sess.inv[slot] = ItemStack{}
@@ -184,7 +208,7 @@ func (s *Server) armorWear(sess *Session, src damageSource, rawDamage float32) {
 			sess.invMu.Unlock()
 			continue
 		}
-		it.Damage += amount
+		it.Damage += unbreakingReduce(it, name, amount)
 		var empt bool
 		if it.Damage >= maxDmg {
 			sess.inv[slot] = ItemStack{}

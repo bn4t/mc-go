@@ -506,10 +506,21 @@ func entitySaveMap(e *Entity) entitySave {
 	if e.CustomName != "" {
 		m["CustomName"] = e.CustomName
 	}
-	if e.Saddle {
-		m["equipment"] = map[string]any{
-			"saddle": map[string]any{"id": "minecraft:saddle", "count": int32(1)},
+	equipMob := map[string]any{}
+	for slot, name := range map[int32]string{
+		equipMainHand: "mainhand", equipOffHand: "offhand",
+		equipBoots: "feet", equipLegs: "legs",
+		equipChest: "chest", equipHelmet: "head",
+	} {
+		if it := e.Equips[slot]; !it.Empty() {
+			equipMob[name] = itemNBT(it)
 		}
+	}
+	if e.Saddle {
+		equipMob["saddle"] = map[string]any{"id": "minecraft:saddle", "count": int32(1)}
+	}
+	if len(equipMob) > 0 {
+		m["equipment"] = equipMob
 	}
 	if speed, ok := mobSyncableSpeed[typeName]; ok {
 		m["attributes"] = nbt.List{Elem: nbt.TagCompound, Items: []any{

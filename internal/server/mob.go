@@ -3,6 +3,7 @@ package server
 import (
 	"math"
 	"math/rand"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -530,7 +531,29 @@ func (s *Server) runSummon(player string, args []string) reply {
 					if e.Equips == nil {
 						e.Equips = map[int32]ItemStack{}
 					}
-					e.Equips[slot] = ItemStack{ID: iid, Count: cnt}
+					it := ItemStack{ID: iid, Count: cnt}
+					// components.minecraft:enchantments rides as either
+					// the bare level map or wrapped under "levels" —
+					// accept both NBT spellings.
+					if comps, ok := sd.vals["components"]; ok {
+						if en, ok := comps.vals["minecraft:enchantments"]; ok {
+							lvls := en.vals
+							if lm, ok := en.vals["levels"]; ok {
+								lvls = lm.vals
+							}
+							parts := make([]string, 0, len(lvls))
+							for ename, lv := range lvls {
+								if n, err := strconv.Atoi(strings.TrimRight(lv.num, "bBsSiIlLfFdD")); err == nil && n > 0 {
+									parts = append(parts, strings.TrimPrefix(ename, "minecraft:")+":"+strconv.Itoa(n))
+								}
+							}
+							if len(parts) > 0 {
+								sort.Strings(parts)
+								it.Ench = strings.Join(parts, ",")
+							}
+						}
+					}
+					e.Equips[slot] = it
 				}
 				if bd, ok := eq.vals["body"]; ok {
 					if idv, ok := bd.vals["id"]; ok && idv.str != "" {
@@ -1178,6 +1201,10 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 	// the flag hot for 100 ticks (lastHurtByPlayerMemoryTime).
 	if killer != nil {
 		e.LastHurtByPlayerTicks = 100
+		// doPostAttackEffects, enchanted=victim: thorns on the mob's
+		// equipment retaliates against the attacker (runs even when
+		// this hit is lethal).
+		s.thornsMobWear(e, killer)
 	}
 	if health <= 0 {
 		// die(): pose DYING + health 0 go out on the tracker, the

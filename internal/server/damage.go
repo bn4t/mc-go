@@ -1,6 +1,10 @@
 package server
 
-import "mc-go/internal/protocol"
+import (
+	"math/rand"
+
+	"mc-go/internal/protocol"
+)
 
 // damageInfo describes one damage source for the Damage Event packet.
 type damageInfo struct {
@@ -215,5 +219,79 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 		amount = healthBefore
 	}
 	s.fireEntityHurtPlayer(sess, src.typeName == "arrow", false)
+	// EnchantmentHelper.doPostAttackEffects, enchanted=victim side:
+	// every thorns piece the victim wears rolls its 15%·level proc
+	// against the hurt's source entity (nil sources don't retaliate).
+	if src.cause != 0 {
+		s.thornsVictimWear(sess, src.cause)
+	}
 	return amount
+}
+
+// thornsVictimWear is runIterationOnEquipment over the victim's
+// equipment (hands first, then feet..head like EquipmentSlot): each
+// stack with thorns independently rolls 0.15·level; a proc hurts the
+// attacker and costs that piece a flat 2 durability (the datapack's
+// change_item_damage 2, which itself passes through unbreaking).
+func (s *Server) thornsVictimWear(sess *Session, srcCause int32) {
+	slots := [6]int16{
+		invSlotForHotbar(sess.held.Load()), slotOffhand,
+		slotArmorStart + 3, slotArmorStart + 2, slotArmorStart + 1, slotArmorStart,
+	}
+	for _, sl := range slots {
+		it := sess.stackAt(sl)
+		l := it.enchLevel("thorns")
+		if l <= 0 || rand.Float32() >= 0.15*float32(l) {
+			continue
+		}
+		s.thornsAttack(sess.entityID.Load(), srcCause, literal(sess.getName()))
+		s.wearSlot(sess, sl, 2)
+	}
+}
+
+// thornsMobWear is the same pass for a mob victim: proc per equipped
+// thorns stack, attacker hurt, the piece wears 2 and can break.
+func (s *Server) thornsMobWear(e *Entity, attacker *Session) {
+	for slot, it := range e.Equips {
+		l := it.enchLevel("thorns")
+		if l <= 0 || rand.Float32() >= 0.15*float32(l) {
+			continue
+		}
+		kn, _ := EntityTypeName(e.Type)
+		s.thornsAttack(e.ID, attacker.entityID.Load(), literal(mobDisplayName(kn)))
+		if name, ok := itemNameOf(it.ID); ok {
+			if maxDmg, dmgOK := damageableItems[name]; dmgOK {
+				it.Damage += unbreakingReduce(it, name, 2)
+				if it.Damage >= maxDmg {
+					delete(e.Equips, slot)
+				} else {
+					e.Equips[slot] = it
+				}
+			}
+		}
+	}
+}
+
+// thornsAttack deals one thorns proc to the hurt's source entity:
+// uniform[1,5) damage with the victim as the causing entity, exactly
+// the damage_entity effect in the thorns datapack entry. Chains are
+// vanilla-legal — a thorns-armored attacker can proc the victim's
+// thorns right back.
+func (s *Server) thornsAttack(victimEid, srcCause int32, victimName component) {
+	if srcCause == 0 || srcCause == victimEid {
+		return
+	}
+	dmg := 1 + rand.Float32()*4
+	src := damageSource{typeName: "thorns", cause: victimEid, direct: victimEid}
+	if as := s.sessionByEntityID(srcCause); as != nil {
+		s.damageWith(as, dmg, translatable("death.attack.thorns",
+			literal(as.getName()), victimName), src)
+		return
+	}
+	s.entities.mu.RLock()
+	ae := s.entities.byID[srcCause]
+	s.entities.mu.RUnlock()
+	if ae != nil && ae.Living {
+		s.damageMob(ae, dmg, "thorns", s.sessionByEntityID(victimEid))
+	}
 }

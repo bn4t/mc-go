@@ -3834,3 +3834,29 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   reaches >=4 stacks in 10 pigs, mob_drops=false drops
   nothing. Still open inside looting's model: item quality
   per-level weights on multi-entry pools, container drops.
+
+- **Thorns + unbreaking (post_attack / item_damage enchantment
+  passes)**: measured off the 26.2 datapack + jar — thorns is a
+  per-equipment-piece roll (random_chance linear 0.15+0.15/lvl) that
+  deals the attacker uniform[1,5) thorns damage with the victim as
+  the damage-source entity and wears the procced piece a flat 2;
+  unbreaking is RemoveBinomial — every durability point is removed
+  independently with p = l/(l+1) on tools, 2l/(5l+5) on armor
+  (#enchantable/armor). mc-go: damageWith tails into
+  thornsVictimWear over hotbar+offhand+armor slots (procced piece
+  also runs wearSlot 2 through unbreaking), damageMob runs
+  thornsMobWear over e.Equips with the same roll, and wearSlot /
+  armorWear now route durability through unbreakingReduce. Mob
+  equipment now serializes into /data get entity NBT (vanilla's
+  equipment map: mainhand/offhand/feet/legs/chest/head + saddle)
+  and item stacks emit the damage + enchantments components.
+  TestThornsUnbreakingParity pins 6 legs on both servers — thorns
+  proc on a mob victim (absorb drop + chest damage exactly 16 =
+  8 hits x flat-2 at thorns10, which forces every roll), thorns on
+  a player victim (zombie dies to the reflect, A's chestplate wears
+  hits+2/proc), unbreaking3 weapon stays in the binomial(30,0.25)
+  band while a plain sword wears exactly 30, and armor likewise
+  (binomial(200,0.7) bound vs exactly 200). Still open: the other
+  post_attack effects (channeling is hit_effect, not post), mob
+  bodies (horse armor slot), and the >128-unit normal-approximation
+  branch vanilla switches to inside RemoveBinomial.

@@ -2,6 +2,7 @@ package server
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"mc-go/internal/nbt"
@@ -468,11 +469,32 @@ func itemNBT(it ItemStack) map[string]any {
 	return m
 }
 
-// itemComponentsNBT renders a stack's data components. mc-go models
-// one of them: the items stored inside a shulker box, which travel
-// with the item and are what a box dropped on the ground still holds.
+// itemComponentsNBT renders a stack's data components the way 26.2
+// stores them: damage, enchantments, and the items inside a shulker
+// box, which travel with the item and are what a dropped box holds.
 func itemComponentsNBT(it ItemStack) map[string]any {
 	comps := map[string]any{}
+	// Vanilla serializes the durability and enchantment components
+	// into the stack's NBT as minecraft:damage (int) and
+	// minecraft:enchantments (flat name->level map).
+	if it.Damage > 0 {
+		comps["minecraft:damage"] = it.Damage
+	}
+	if it.Ench != "" {
+		lvls := map[string]any{}
+		for _, e := range strings.Split(it.Ench, ",") {
+			n, lv, ok := strings.Cut(e, ":")
+			if !ok || n == "" {
+				continue
+			}
+			if v, err := strconv.Atoi(lv); err == nil {
+				lvls["minecraft:"+n] = int32(v)
+			}
+		}
+		if len(lvls) > 0 {
+			comps["minecraft:enchantments"] = lvls
+		}
+	}
 	if it.Contents == nil {
 		return comps
 	}
