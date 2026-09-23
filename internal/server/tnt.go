@@ -327,10 +327,31 @@ func (s *Server) explodeDestroyBlocks(src *Entity, positions []world.Pos, radius
 		isTnt := name == "tnt"
 		if !isTnt {
 			for _, st := range rollExplosionLoot("blocks/"+name, cur, pos, d, radius) {
-				drops = append(drops, struct {
-					pos   world.Pos
-					stack ItemStack
-				}{pos, st})
+				// addOrAppendStack: the incoming stack pours into the
+				// first collectors that still merge (each capped at
+				// 16 via ItemEntity.merge); only overflow founds a new
+				// collector at this cell.
+				for i := range drops {
+					dr := &drops[i]
+					if !dr.stack.Stackable(st) || dr.stack.Count >= 16 {
+						continue
+					}
+					move := 16 - dr.stack.Count
+					if move > st.Count {
+						move = st.Count
+					}
+					dr.stack.Count += move
+					st.Count -= move
+					if st.Count <= 0 {
+						break
+					}
+				}
+				if st.Count > 0 {
+					drops = append(drops, struct {
+						pos   world.Pos
+						stack ItemStack
+					}{pos, st})
+				}
 			}
 		}
 		s.setNaturalBlock(d, pos, world.Air)

@@ -11,6 +11,7 @@ package blackbox
 import (
 	"bytes"
 	"crypto/md5"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -155,6 +156,10 @@ func componentPlain(v any) string {
 			sb.WriteString(componentPlain(item))
 		}
 		return sb.String()
+	case int8, int16, int32, int64, float32, float64:
+		// Numeric `with` args (e.g. /fill's count) arrive as raw NBT
+		// numbers — render them so count-bearing replies are usable.
+		return fmt.Sprint(c)
 	default:
 		return ""
 	}

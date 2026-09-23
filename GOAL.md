@@ -4763,3 +4763,36 @@ cloud entity metadata on the wire (radius/potion particles),
 horse chest/container slots, guardian flop/beam, per-damage-type
 hurt variants, witch.drink, scoreboard objectives, region save,
 online mode, redstone, terrain gen, lighting, .dat persistence.
+
+## Slice 2026-09-23l — explosion drop pooling + item-entity merge
+
+The dirt-drop divergence was NOT decay rate or crater size (both
+already parity: ~185 vs ~187 cells) — it was StackCollector:
+ServerExplosion.interactWithBlocks feeds every destroyed cell's
+rolled stack through addOrAppendStack, which pours it into the first
+collector whose stack is mergable via ItemEntity.merge(a,b,16) —
+drops pool into 16-count entities popped at the contributing cell.
+Vanilla's powered blast leaves 2 entities holding 16+4; mc-go
+spawned ~30 singles. explodeDestroyBlocks now pools identically,
+and spawnItemDrop adopted popResource's real spawn shape: cell
+center ±0.25 scatter, (rand·0.2−0.1, 0.2, rand·0.2−0.1) toss.
+Runtime ItemEntity.mergeWithNeighbours is in too: merge cadence
+2 ticks after a block-boundary crossing else 40, isMergable gates
+(pickupDelay≠32767, age<6000, count<maxStack, owner equality),
+box inflate(0.5,0,0.5) → |dx|,|dz|≤0.75 |dy|≤0.5, larger stack
+absorbs smaller with tie → neighbour, max(pickupDelay)/min(age)
+on the survivor, ItemAge drives the 6000-tick despawn, and
+Entity.moveTowardsClosestSpace slides wall-trapped items toward
+the nearest open N/S/W/E/UP face (0.1-0.3 push, others ×0.75).
+New TestItemDropMergeParity: A) two co-located dirt merge to one
+count-2 entity; B) powered blast leaves ≤8 entities all ≤16-count
+(van 16+4, mc 16+16). Green both; charged+swell suites still green.
+
+Open items remaining: crossbow/piglin ranged variants
+(RangedCrossbowAttackGoal), RestrictSunGoal wander bias, summon
+armor-populate + enchantment rolls + drowned chance slots,
+cloud entity metadata on the wire (radius/potion particles),
+horse chest/container slots, guardian flop/beam, per-damage-type
+hurt variants, witch.drink, selector nbt= arg, scoreboard
+objectives, region save, online mode, redstone, terrain gen,
+lighting, .dat persistence.

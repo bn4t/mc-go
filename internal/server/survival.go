@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"math/rand"
 	"strings"
 
 	"mc-go/internal/data"
@@ -411,8 +412,10 @@ func (s *Server) iceMeltOnDestroy(sess *Session, d *dimension, pos world.Pos, br
 	}
 }
 
-// spawnItemDrop creates an item entity above pos in dimension dim and
-// fans it out.
+// spawnItemDrop is Block.popResource: the item entity spawns at the
+// cell center scattered ±0.25 on each axis (item height 0.25 halves
+// out of the y), tossed on a (rand·0.2−0.1, 0.2, rand·0.2−0.1)
+// delta — the drift is what lets neighbour merges chain.
 func (s *Server) spawnItemDrop(dim string, pos world.Pos, stack ItemStack) *Entity {
 	if stack.Empty() {
 		return nil
@@ -424,10 +427,13 @@ func (s *Server) spawnItemDrop(dim string, pos world.Pos, stack ItemStack) *Enti
 	e := s.entities.Spawn(&Entity{
 		Type:        itemType,
 		Dim:         dim,
-		X:           float64(pos.X) + 0.5,
-		Y:           float64(pos.Y) + 0.25,
-		Z:           float64(pos.Z) + 0.5,
+		X:           float64(pos.X) + 0.5 + rand.Float64()*0.5 - 0.25,
+		Y:           float64(pos.Y) + 0.5 + rand.Float64()*0.5 - 0.25 - 0.125,
+		Z:           float64(pos.Z) + 0.5 + rand.Float64()*0.5 - 0.25,
 		VY:          0,
+		MotionX:     rand.Float64()*0.2 - 0.1,
+		MotionY:     0.2,
+		MotionZ:     rand.Float64()*0.2 - 0.1,
 		Item:        stack,
 		PickupDelay: 10,
 	})
@@ -526,10 +532,61 @@ func (s *Server) itemTickStep() {
 		if moved {
 			s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, 0, 0, true)
 		}
+		// Entity.moveTowardsClosestSpace: an item whose feet cell is a
+		// full block slides out toward the least-distant open face —
+		// the scan covers N/S/W/E/UP (never down) and the push is
+		// 0.1-0.3 along that axis while the others keep 75% of motion.
+		feet := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}
+		if cb := w.GetBlock(feet); cb != world.Air && !world.NonSolid(cb) {
+			fx := e.X - float64(feet.X)
+			fy := e.Y - float64(feet.Y)
+			fz := e.Z - float64(feet.Z)
+			best := math.MaxFloat64
+			axis, sign := 'y', 1.0
+			for _, d := range [5][4]int{{0, 0, -1, 'z'}, {0, 0, 1, 'z'}, {-1, 0, 0, 'x'}, {1, 0, 0, 'x'}, {0, 1, 0, 'y'}} {
+				nb := world.Pos{X: feet.X + d[0], Y: feet.Y + d[1], Z: feet.Z + d[2]}
+				if b := w.GetBlock(nb); b != world.Air && !world.NonSolid(b) {
+					continue
+				}
+				var dist float64
+				switch d[3] {
+				case 'x':
+					dist = fx
+				case 'y':
+					dist = fy
+				default:
+					dist = fz
+				}
+				s := 1.0
+				if d[0]+d[1]+d[2] < 0 {
+					s = -1.0
+				} else {
+					dist = 1.0 - dist
+				}
+				if dist < best {
+					best = dist
+					axis = rune(d[3])
+					sign = s
+				}
+			}
+			push := 0.1 + rand.Float64()*0.2
+			e.MotionX *= 0.75
+			e.MotionY *= 0.75
+			e.MotionZ *= 0.75
+			switch axis {
+			case 'x':
+				e.MotionX = push * sign
+			case 'y':
+				e.MotionY = push * sign
+			default:
+				e.MotionZ = push * sign
+			}
+		}
 		// Thrown items drift: horizontal motion applied each tick with
 		// vanilla's decay (0.98 airborne, block slip ~0.55 grounded).
 		// Each axis collides with walls independently — a sliding item
 		// stops at the wall face instead of passing through.
+		prevX, prevZ := e.X, e.Z
 		if e.MotionX != 0 || e.MotionZ != 0 {
 			if e.MotionX != 0 && w.GetBlock(world.Pos{X: int(math.Floor(e.X + e.MotionX)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}) == world.Air {
 				e.X += e.MotionX
@@ -552,6 +609,33 @@ func (s *Server) itemTickStep() {
 			} else {
 				moved = true
 			}
+		}
+		// ItemEntity.mergeWithNeighbours: every 2 ticks when the item
+		// crossed a block boundary this tick, else every 40 — the
+		// bigger stack absorbs the smaller into its own entity.
+		if !orb && e.Item.Empty() {
+			continue // absorbed by a merge earlier this tick
+		}
+		if !orb && itemMergable(e) {
+			interval := int32(40)
+			if int(math.Floor(e.X)) != int(math.Floor(prevX)) ||
+				int(math.Floor(e.Z)) != int(math.Floor(prevZ)) {
+				interval = 2
+			}
+			if e.ItemAge%interval == 0 {
+				s.itemMergeWithNeighbours(e, items)
+				if e.Item.Empty() {
+					continue // absorbed into a neighbour
+				}
+			}
+		}
+		// ItemEntity.tick tail: age advances each tick and the item
+		// discards at 6000 (five minutes).
+		e.ItemAge++
+		if e.ItemAge >= 6000 {
+			s.entities.Remove(e.ID)
+			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+			continue
 		}
 		if e.PickupDelay <= 0 {
 			if sess := s.pickupTarget(e); sess != nil {
@@ -593,6 +677,54 @@ func (s *Server) itemTickStep() {
 					s.broadcastEntityMetadata(e.ID, encodeItemMetadata(remainder))
 				}
 			}
+		}
+	}
+}
+
+// itemMergable is ItemEntity.isMergable: alive, unpinned pickup delay,
+// under the despawn age, and the stack has room.
+func itemMergable(e *Entity) bool {
+	return !e.Item.Empty() && e.PickupDelay != 32767 &&
+		e.ItemAge < 6000 && e.Item.Count < maxStackOfID(e.Item.ID)
+}
+
+// itemMergeWithNeighbours is ItemEntity.mergeWithNeighbours: every
+// mergable item entity whose bounding box inflated (0.5,0,0.5) reaches
+// this one's gets tried — same item+components, combined count inside
+// the stack cap, and an owner match (setTarget) — then the larger
+// stack absorbs the smaller, ties going to the neighbour; the survivor
+// takes max(pickupDelay) and min(age), the loser discards.
+func (s *Server) itemMergeWithNeighbours(e *Entity, items []*Entity) {
+	for _, o := range items {
+		if o == e || !itemMergable(o) || o.Dim != e.Dim {
+			continue
+		}
+		// inflate(0.5,0,0.5) on the 0.25-wide/tall item box reaches
+		// neighbours ~0.75 across and half a block vertically.
+		if math.Abs(o.X-e.X) > 0.75 || math.Abs(o.Z-e.Z) > 0.75 || math.Abs(o.Y-e.Y) > 0.5 {
+			continue
+		}
+		if o.HasOwner != e.HasOwner || o.Owner != e.Owner {
+			continue
+		}
+		if !o.Item.Stackable(e.Item) || o.Item.Count+e.Item.Count > maxStackOfID(e.Item.ID) {
+			continue
+		}
+		keep, gone := e, o
+		if o.Item.Count < e.Item.Count {
+			keep, gone = e, o
+		} else {
+			keep, gone = o, e
+		}
+		keep.Item.Count += gone.Item.Count
+		gone.Item = ItemStack{}
+		keep.PickupDelay = max(keep.PickupDelay, gone.PickupDelay)
+		keep.ItemAge = min(keep.ItemAge, gone.ItemAge)
+		s.entities.Remove(gone.ID)
+		s.broadcastEntityRemoveIn(e.Dim, nil, []int32{gone.ID})
+		s.broadcastEntityMetadata(keep.ID, encodeItemMetadata(keep.Item))
+		if gone == e {
+			return // self absorbed — this entity is gone
 		}
 	}
 }

@@ -27,6 +27,10 @@ type Entity struct {
 	Item        ItemStack
 	PickupDelay int
 	MotionY     float64
+	// ItemAge is ItemEntity.age — drives the 6000-tick despawn and
+	// the merge cadence (every 2 ticks after a block crossing, else
+	// 40), and a merge takes the survivor's minimum.
+	ItemAge int32
 	// Thrower is the entity id of the player who dropped/threw the
 	// item entity (vanilla's ItemEntity owner) — mob pickups fire
 	// thrown_item_picked_up_by_entity for that player. Zero when the
