@@ -757,6 +757,71 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if v, ok := tag.vals["DisabledSlots"]; ok {
 				e.DisabledSlots = int32(snbtNum(v))
 			}
+			// AreaEffectCloud's readAdditionalSaveData keys — Radius/
+			// Duration/WaitTime/RadiusOnUse/RadiusPerTick feed the
+			// synced radius and the tick loop; potion_contents'
+			// custom_effects seed the dose map (vanilla stores them
+			// as a PotionContents codec).
+			if name == "area_effect_cloud" {
+				if v, ok := tag.vals["Radius"]; ok {
+					r := float32(snbtNum(v))
+					if r < 0 {
+						r = 0
+					}
+					if r > 32 {
+						r = 32
+					}
+					e.CloudRadius = r
+				}
+				if v, ok := tag.vals["Duration"]; ok {
+					e.CloudDuration = int32(snbtNum(v))
+				}
+				if v, ok := tag.vals["WaitTime"]; ok {
+					e.CloudWait = int32(snbtNum(v))
+				}
+				if v, ok := tag.vals["RadiusOnUse"]; ok {
+					e.CloudRadiusOnUse = float32(snbtNum(v))
+				}
+				if v, ok := tag.vals["RadiusPerTick"]; ok {
+					e.CloudRadiusPerTick = float32(snbtNum(v))
+				}
+				if v, ok := tag.vals["Age"]; ok {
+					e.CloudAge = int32(snbtNum(v))
+				}
+				if pc, ok := tag.vals["potion_contents"]; ok {
+					if ce, ok := pc.vals["custom_effects"]; ok {
+						for _, inst := range ce.items {
+							if inst == nil || inst.vals == nil {
+								continue
+							}
+							iv, ok := inst.vals["id"]
+							if !ok || iv.str == "" {
+								continue
+							}
+							eid, ok := MobEffectID(strings.TrimPrefix(iv.str, "minecraft:"))
+							if !ok {
+								continue
+							}
+							dur := int64(-1)
+							if dv, ok := inst.vals["duration"]; ok {
+								dur = int64(snbtNum(dv))
+							}
+							var amp int32
+							if av, ok := inst.vals["amplifier"]; ok {
+								amp = int32(snbtNum(av))
+							}
+							expiry := int64(-1)
+							if dur >= 0 {
+								expiry = s.clock.count + dur
+							}
+							if e.Effects == nil {
+								e.Effects = map[int32]mobEffectInst{}
+							}
+							e.Effects[eid] = mobEffectInst{amplifier: amp, expiry: expiry}
+						}
+					}
+				}
+			}
 			// Creeper's addAdditionalSaveData keys: powered doubles
 			// the blast, Fuse resizes the 30-tick swell window,
 			// ExplosionRadius scales it, ignited lights the fuse at
@@ -1014,6 +1079,24 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, 
 	if !ok {
 		return nil, false
 	}
+	// AreaEffectCloud is an Entity, not a LivingEntity — the
+	// max_health gate below would reject it. Its constructor
+	// defaults: duration -1 (infinite), waitTime 20,
+	// reapplicationDelay 20, radiusOnUse/radiusPerTick 0.
+	if name == "area_effect_cloud" {
+		e := s.entities.Spawn(&Entity{
+			Type:          id,
+			Dim:           d.name,
+			X:             x,
+			Y:             y,
+			Z:             z,
+			CloudWait:     20,
+			CloudDuration: -1,
+			CloudVictims:  map[int32]int32{},
+		})
+		e.CloudRadius = 3.0
+		return e, true
+	}
 	health, known := mobHealth[name]
 	if !known {
 		// Supplier-carried max_health doubles as the summon gate:
@@ -1060,6 +1143,19 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, 
 // replays that second burst on the next mob tick.
 func (s *Server) broadcastFreshMob(e *Entity) {
 	s.broadcastEntitySpawn(nil, *e)
+	if cn, ok := EntityTypeName(e.Type); ok && cn == "area_effect_cloud" {
+		// The cloud's pairing dirty-pack carries only the synced
+		// entries its summon NBT touched — radius differs from the
+		// 3.0 defineSynchedData default, potion_contents seeds the
+		// entity_effect particle holder.
+		if meta := encodeCloudMeta(e); len(meta) > 0 {
+			s.broadcastEntityMetadata(e.ID, meta)
+		}
+		e.MetaDirty = true
+		e.PosDirty = true
+		e.SyncCount = 0
+		return
+	}
 	s.broadcastEntityMetadata(e.ID, encodeLivingMetadata(e, nil))
 	if mobPairingAttrTypes[e.Type] {
 		s.broadcastMobAttrs(e)
@@ -2654,6 +2750,9 @@ func (s *Server) spawnLingeringCloud(e *Entity) {
 		Effects:            effects,
 	})
 	s.broadcastEntitySpawn(nil, *cloud)
+	if meta := encodeCloudMeta(cloud); len(meta) > 0 {
+		s.broadcastEntityMetadata(cloud.ID, meta)
+	}
 }
 
 // chargedCreeperHeads is the CHARGED_CREEPER loot table's victim→head
@@ -2714,11 +2813,20 @@ func (s *Server) cloudTickStep() {
 			s.broadcastEntityRemoveIn(ep.Dim, nil, []int32{ep.ID})
 		}
 		ep.CloudAge++
-		if ep.CloudAge-ep.CloudWait >= ep.CloudDuration {
+		// Vanilla's duration default is -1 — an infinite cloud never
+		// ages out (tickCount - waitTime >= duration only when set).
+		if ep.CloudDuration >= 0 && ep.CloudAge-ep.CloudWait >= ep.CloudDuration {
 			discard()
 			continue
 		}
-		if ep.CloudAge < ep.CloudWait {
+		// DATA_WAITING (idx 9) flips on for the wait window and back
+		// off the first active tick — each transition is a dirty pack.
+		waiting := ep.CloudAge < ep.CloudWait
+		if waiting != ep.CloudWaiting {
+			ep.CloudWaiting = waiting
+			s.broadcastEntityMetadata(ep.ID, encodeCloudWaiting(waiting))
+		}
+		if waiting {
 			continue
 		}
 		ep.CloudRadius += ep.CloudRadiusPerTick

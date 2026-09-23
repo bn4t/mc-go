@@ -179,6 +179,75 @@ func encodeParticlesEntry(value []byte) []byte {
 	return b.Bytes()
 }
 
+// encodeCloudMeta packs AreaEffectCloud's non-default synced entries —
+// DATA_RADIUS (index 8, float serializer 3) when the radius differs
+// from the 3.0 defineSynchedData default, and DATA_PARTICLE (index 10,
+// particle serializer 16) as an entity_effect holder carrying the
+// mixed potion ARGB when the cloud carries effects. A bare cloud's
+// packDirty is empty and vanilla sends no set_entity_data at all.
+func encodeCloudMeta(e *Entity) []byte {
+	var b protocol.Buffer
+	if e.CloudRadius != 3.0 {
+		b.Byte(8)
+		b.Byte(3)
+		b.Float(e.CloudRadius)
+	}
+	if len(e.Effects) > 0 {
+		entityEffect, _ := ParticleTypeID("entity_effect")
+		b.Byte(10)
+		b.Byte(16)
+		b.VarInt(entityEffect)
+		b.Int(cloudParticleARGB(e.Effects))
+	}
+	if b.Len() == 0 {
+		return nil
+	}
+	b.Byte(0xFF)
+	return b.Bytes()
+}
+
+// encodeCloudWaiting packs the single-entry dirty pack for
+// DATA_WAITING (index 9, bool serializer 8) flipping at a wait-phase
+// boundary.
+func encodeCloudWaiting(w bool) []byte {
+	var b protocol.Buffer
+	b.Byte(9)
+	b.Byte(8)
+	if w {
+		b.Byte(1)
+	} else {
+		b.Byte(0)
+	}
+	b.Byte(0xFF)
+	return b.Bytes()
+}
+
+// cloudParticleARGB mixes the cloud's effect colors the way
+// PotionContents.getColor does — a per-channel integer average over
+// the live effects with a fully-opaque alpha.
+func cloudParticleARGB(effects map[int32]mobEffectInst) int32 {
+	ids := make([]int32, 0, len(effects))
+	for id := range effects {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	var r, g, b, n int32
+	for _, id := range ids {
+		color := int32(0)
+		if name, ok := MobEffectName(id); ok {
+			color = mobEffectColors[name]
+		}
+		r += (color >> 16) & 0xFF
+		g += (color >> 8) & 0xFF
+		b += color & 0xFF
+		n++
+	}
+	if n > 0 {
+		r, g, b = r/n, g/n, b/n
+	}
+	return int32(uint32(0xFF000000) | uint32(r<<16) | uint32(g<<8) | uint32(b))
+}
+
 // mobUpdateInterval is vanilla's per-entity-type tracker cadence; the
 // builder's default (3) covers every living mob mc-go simulates.
 const mobUpdateInterval = 3

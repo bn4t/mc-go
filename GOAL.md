@@ -5214,3 +5214,35 @@ setHomeTo(pos,16) home restriction, knockback vy grounded-pop on
 NoAI-frozen mobs (mc Grounded stays false), per-damage-type hurt
 variants, scoreboard objectives, region save, online mode, redstone,
 terrain gen, lighting, .dat persistence.
+## Slice 2026-09-23x — area_effect_cloud summon + wire metadata
+
+/summon of a cloud now works: it is an Entity (not LivingEntity), so
+the max_health summon gate rejected it outright. The cloud path gets
+vanilla's constructor defaults (duration -1 = infinite, waitTime 20,
+reapplicationDelay 20, radiusOnUse/radiusPerTick 0) and the summon
+NBT keys vanilla's readAdditionalSaveData reads: Radius (clamped
+0..32 by setRadius), Duration, WaitTime, RadiusOnUse, RadiusPerTick,
+Age, and potion_contents.custom_effects seeding the dose map.
+
+Wire parity measured: the tracker-attach dirty pack carries only the
+synced entries the NBT touched — DATA_RADIUS (idx 8, float) when it
+differs from the 3.0 defineSynchedData default, and DATA_PARTICLE
+(idx 10, single-particle serializer 16) as an entity_effect holder
+with the mixed potion ARGB (per-channel integer average; speed's
+0x33EBFF lands as ff33ebff). DATA_WAITING (idx 9, bool) flips on for
+the wait window and back off on the first active tick — each
+transition its own set_entity_data packet. The creeper lingering
+cloud (radius 2.5 shrinking) emits the same pairing entries now.
+Duration -1 no longer ages out immediately: the discard check gates
+on CloudDuration >= 0.
+
+TestCloudMetaParity asserts radius/particle/waiting byte-equal on
+both servers (van idx8=40a00000, idx10=1cff33ebff, idx9 t8).
+
+Open items remaining: witch raider-heal throw (blocked on raids),
+RestrictSunGoal wander bias, patrol-captain ominous gear + bottle
+drops (isCaptain is head-item equality — unreachable via /summon;
+needs natural patrol spawn or raids), horse chest/container slots,
+elder setHomeTo(pos,16) home restriction, per-damage-type hurt
+variants, scoreboard objectives, region save, online mode, redstone,
+terrain gen, lighting, .dat persistence.

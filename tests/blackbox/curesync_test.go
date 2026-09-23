@@ -42,6 +42,10 @@ func decodeMetaEntries(t *testing.T, body []byte) map[int]metaEnt {
 		case 8: // bool
 			b, _ := r.Read(1)
 			e.val = b
+		case 0x10: // single particle holder: VarInt id + Int32 payload
+			pid, _ := r.VarInt()
+			b, _ := r.Read(4)
+			e.val = append([]byte{byte(pid)}, b...)
 		case 0x11: // particles list: VarInt count + (VarInt id + Int32) each
 			n, _ := r.VarInt()
 			for i := int32(0); i < n; i++ {

@@ -168,6 +168,7 @@ type Entity struct {
 	// copied potion contents ride in Effects.
 	CloudWait          int32
 	CloudDuration      int32
+	CloudWaiting       bool
 	CloudAge           int32
 	CloudRadius        float32
 	CloudRadiusPerTick float32
