@@ -117,6 +117,11 @@ type openWindow struct {
 	// merchant is the trading menu's state for this open window, nil
 	// until an entity-bound merchant screen opens (villager/trader).
 	merchant *merchantState
+	// mount is the entity whose mount inventory this window shows
+	// (AbstractHorse sneak-interact); mountSlots is its inventory
+	// size — saddle + body armor + 3*columns chest cells.
+	mount      *Entity
+	mountSlots int
 }
 
 // containerSize is the number of container-side slots (before the
@@ -131,6 +136,8 @@ func (w *openWindow) containerSize() int {
 		return 1 + craftTableGrid
 	case w.merchant != nil:
 		return len(w.merchant.slots)
+	case w.mount != nil:
+		return w.mountSlots
 	case w.container != nil:
 		return w.container.spec.slots
 	}
@@ -180,6 +187,64 @@ func (s *Server) openChest(sess *Session, pos world.Pos) {
 	b.VarInt(menuGeneric9x3)
 	b.Raw(menuTitle("container.chest"))
 	_ = sess.write(sess.ids().PlayOpenScreen, b.Bytes())
+	s.sendChestContent(sess)
+}
+
+// mountScreenTypes is the AbstractHorse family — sneak-interacting a
+// tamed member opens the mount inventory (AbstractHorse.mobInteract's
+// isTamed && isSecondaryUseActive → openCustomInventoryScreen).
+var mountScreenTypes = map[string]bool{
+	"horse": true, "zombie_horse": true, "skeleton_horse": true,
+	"donkey": true, "mule": true, "llama": true, "trader_llama": true,
+	"camel": true,
+}
+
+// chestedMountTypes is the AbstractChestedHorse family — a chested
+// member's inventory reports 5 columns (15 slots).
+var chestedMountTypes = map[string]bool{
+	"donkey": true, "mule": true, "llama": true, "trader_llama": true,
+}
+
+// mountInventoryColumns is AbstractHorse.getInventoryColumns: 0 for
+// horses, 5 for a chested pack animal.
+func mountInventoryColumns(e *Entity) int {
+	if e.HasChest {
+		return 5
+	}
+	return 0
+}
+
+// openMountInventory is AbstractHorse.mobInteract's tamed+sneak branch:
+// mount_screen_open carries (containerId, inventoryColumns, entityId
+// as a plain int32) then container_set_content lays out the menu —
+// 2 + 3*columns mount slots plus the 36 player rows.
+func (s *Server) openMountInventory(sess *Session, eid int32, sneaking bool) {
+	if !sneaking {
+		return
+	}
+	e := s.entityByID(eid)
+	if e == nil || e.Dying || e.Dim != sess.dimName() {
+		return
+	}
+	name, ok := EntityTypeName(e.Type)
+	if !ok || !mountScreenTypes[name] || !e.Tamed {
+		return
+	}
+	cols := mountInventoryColumns(e)
+	inv := 2 + 3*cols // AbstractMountInventoryMenu.getInventorySize
+	id := sess.server.nextWindow.Add(1)
+	sess.windowMu.Lock()
+	sess.window = &openWindow{id: id, dim: sess.dimension(), mount: e, mountSlots: inv}
+	// Vanilla's first container_set_content after openMenu carries
+	// stateId 1 — initializeMenu increments the container's counter.
+	sess.windowState = 1
+	sess.windowMu.Unlock()
+
+	var b protocol.Buffer
+	b.VarInt(id)
+	b.VarInt(int32(cols))
+	b.Int(e.ID)
+	_ = sess.write(sess.ids().PlayMountScreenOpen, b.Bytes())
 	s.sendChestContent(sess)
 }
 
@@ -244,6 +309,17 @@ func (sess *Session) menuStack(slot int) ItemStack {
 	case slot < container:
 		if w.merchant != nil {
 			return w.merchant.slots[slot]
+		}
+		if w.mount != nil {
+			// Slot 0 is the saddle; the rest of the mount inventory
+			// (body armor for horses, chest cells for chested mobs)
+			// is empty until mount storage lands.
+			if slot == 0 && w.mount.Saddle {
+				if sid, ok := world.ItemID("saddle"); ok {
+					return ItemStack{ID: sid, Count: 1}
+				}
+			}
+			return ItemStack{}
 		}
 		if w.ender != nil {
 			sess.invMu.RLock()

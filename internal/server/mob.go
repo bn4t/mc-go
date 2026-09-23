@@ -506,6 +506,14 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if u, ok := snbtUUID(tag, "UUID"); ok {
 				e.UUID = u
 			}
+			// AbstractHorse's Tame flag (AbstractHorse.readAdditional
+			// SaveData) and AbstractChestedHorse's ChestedHorse.
+			if v, ok := tag.vals["Tame"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") && mountScreenTypes[name] {
+				e.Tamed = true
+			}
+			if v, ok := tag.vals["ChestedHorse"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") && chestedMountTypes[name] {
+				e.HasChest = true
+			}
 			// Saddleable mounts take the saddle either by the legacy
 			// Saddle flag or by the 1.21.6+ equipment.saddle slot.
 			if v, ok := tag.vals["Saddle"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
@@ -1071,6 +1079,13 @@ func (s *Server) summonMobInit(d *dimension, name string, x, y, z float64, noAI,
 	return e, true
 }
 
+// summonHealthDefault covers the types whose attribute supplier skips
+// max_health because finalizeSpawn randomizes it — they still summon
+// at the attribute default (LivingEntity's 20).
+var summonHealthDefault = map[string]bool{
+	"donkey": true, "mule": true, "llama": true, "trader_llama": true,
+}
+
 // summonMobRaw is summonMob without the broadcast: the caller applies
 // summon NBT first so the tracker-attach burst carries the final
 // metadata and equipment. summonMob stays for callers with no NBT.
@@ -1105,9 +1120,17 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, 
 		// health differs (horse rolls 15-30, sulfur_cube 4*size).
 		b, ok := entityAttrBases[name]["max_health"]
 		if !ok || b <= 0 {
-			return nil, false
+			// Chested horses randomize max_health in finalizeSpawn
+			// (15-30 natural roll); a tagged summon skips the roll
+			// and falls back to the attribute's own default of 20.
+			if summonHealthDefault[name] {
+				health = 20
+			} else {
+				return nil, false
+			}
+		} else {
+			health = float32(b)
 		}
-		health = float32(b)
 	}
 	e := s.entities.Spawn(&Entity{
 		Type:      id,

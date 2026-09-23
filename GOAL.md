@@ -5246,3 +5246,29 @@ needs natural patrol spawn or raids), horse chest/container slots,
 elder setHomeTo(pos,16) home restriction, per-damage-type hurt
 variants, scoreboard objectives, region save, online mode, redstone,
 terrain gen, lighting, .dat persistence.
+## Slice 2026-09-23y — tamed mount sneak-inventory
+
+AbstractHorse.mobInteract's `isTamed && isSecondaryUseActive` branch
+now opens the mount inventory: mount_screen_open(0x29) carries
+(containerId VarInt, inventoryColumns VarInt, entityId int32 — a plain
+big-endian int, not a VarInt) then container_set_content lays out
+2+3*columns mount slots plus the 36 player rows with stateId 1
+(initializeMenu increments the container counter). A chested pack
+animal's getInventoryColumns is 5 — the donkey menu is 53 slots.
+
+Summon-NBT: Tame and ChestedHorse now load for the AbstractHorse /
+AbstractChestedHorse families. The donkey/mule/llama/trader_llama
+summon gate unblocked: those suppliers carry no max_health because
+finalizeSpawn randomizes it (15-30) — a tagged summon falls back to
+the attribute default 20.
+
+TestMountScreenParity: cid=1, cols=5, eid, 53 slots, stateId 1 — all
+byte-identical on both servers.
+
+Open items remaining: witch raider-heal throw (blocked on raids),
+RestrictSunGoal wander bias, patrol-captain ominous gear + bottle
+drops (needs natural patrol spawn/raids — isCaptain is head-item
+equality, unreachable via /summon), mount-inventory slot edits
+(saddle/chest cell writes), elder setHomeTo(pos,16) home restriction,
+per-damage-type hurt variants, scoreboard objectives, region save,
+online mode, redstone, terrain gen, lighting, .dat persistence.

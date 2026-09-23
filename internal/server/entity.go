@@ -181,6 +181,12 @@ type Entity struct {
 	// Saddle is the equipment.saddle slot on saddleable mounts
 	// (strider, pig, horse family): vanilla gates mounting on it.
 	Saddle bool
+	// Tamed is AbstractHorse's tamed flag (NBT Tame) — a tamed mount's
+	// sneak-interact opens the mount inventory screen.
+	Tamed bool
+	// HasChest is AbstractChestedHorse's ChestedHorse flag — a chested
+	// donkey/mule/llama's mount inventory gains 15 slots (5 columns).
+	HasChest bool
 	// Small/ShowArms/DisabledSlots are the armor stand's
 	// ArmorStand.CLIENT_FLAG bits and NBT; Equips is the entity
 	// equipment map keyed by vanilla equipment index

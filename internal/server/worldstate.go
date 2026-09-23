@@ -227,6 +227,7 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	s.bucketFish(sess, id, hand)
 	s.feedAnimal(sess, id, hand)
 	s.tameAnimal(sess, id, hand)
+	s.openMountInventory(sess, id, sneaking)
 	s.rideVehicle(sess, id, sneaking)
 	s.tradeVillager(sess, id, hand)
 	s.giveAllay(sess, id, hand)
