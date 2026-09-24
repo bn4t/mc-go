@@ -5665,6 +5665,40 @@ peaceful purges the persistent zombie too (peaceful check precedes
 persistence) but not the pig. The sprint had to run at night —
 daylight burns the test zombies before the window ends.
 
+## Slice 2026-09-24f — elder home + Mob home pair + NoGravity
+
+Vanilla 26.2 measured (javap + live jar probes):
+
+- ElderGuardian.customServerAiStep tail: `if (!hasHome())
+  setHomeTo(blockPosition(), 16)` — latches on the first tick.
+- Mob home pair is `homePosition` + `homeRadius` — `hasHome()` is
+  `homeRadius != -1` (so home_radius:-2 counts, -1 doesn't).
+- Mob.addAdditionalSaveData writes home_radius + home_pos (BlockPos
+  codec [I;x,y,z]) only while hasHome; readAdditionalSaveData reads
+  home_radius getIntOr(-1) then home_pos when >= 0 (ZERO default).
+- addEffectToPlayersAround predicate (curse target): survival-or-
+  adventure game mode required, !isAlliedTo, closerThan(50), and the
+  replace rule !hasEffect || getEffect.endsWithin(1199) — a fresh
+  amp-2 cast is not re-pushed.
+- GUARDIAN_ELDER_EFFECT is game_event type 10, param isSilent?0:1
+  (already pinned by TestElderCurseParity).
+- Entity.saveWithoutId writes Silent and NoGravity bytes only while
+  set (ifeq-skipped) — Glowing likewise under hasGlowingTag.
+
+mc-go side: Entity.HomePos/HomeRadius/HasHome fields; the elder
+branch of mobGuardianStep plants the home after elderCurseStep;
+summon NBT + applyEntitySave honor home_radius/home_pos with the
+-1 means homeless rule; entitySaveMap emits the pair only while
+HasHome; Entity.NoGravity added end to end (summon NBT, mobGrounded
+skip — ai keeps running, save/load round-trip); Silent joined the
+conditional save keys; nbtGet indexes [B;]/[I;]/[L;] arrays.
+
+TestElderHomeParity on both legs: a bare NoGravity elder plants
+home_pos [20,-59,0] + home_radius 16 within a tick of summon; a
+{home_radius:5,home_pos:[I;9,10,11]} summon keeps its own values
+(latch never overwrites). Elements are queried by index because
+vanilla's flattened chat drops IntArray separators entirely.
+
 Open items remaining: witch raider-heal throw, RestrictSunGoal
-wander bias, elder setHomeTo(pos,16), per-damage-type hurt variants,
-online mode, redstone, terrain gen, lighting.
+wander bias, per-damage-type hurt variants, online mode, redstone,
+terrain gen, lighting.

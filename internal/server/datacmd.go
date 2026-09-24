@@ -216,12 +216,32 @@ func nbtGet(root any, steps []nbtPathStep) (any, bool) {
 	cur := root
 	for _, st := range steps {
 		if st.isIndex {
+			// CompoundTag path resolution indexes typed arrays the
+			// same as lists — [B;]/[I;]/[L;] elements get by index.
 			var items []any
 			switch l := cur.(type) {
 			case nbt.List:
 				items = l.Items
 			case []any:
 				items = l
+			case []byte:
+				if st.index < 0 || st.index >= len(l) {
+					return nil, false
+				}
+				cur = int8(l[st.index])
+				continue
+			case []int32:
+				if st.index < 0 || st.index >= len(l) {
+					return nil, false
+				}
+				cur = l[st.index]
+				continue
+			case []int64:
+				if st.index < 0 || st.index >= len(l) {
+					return nil, false
+				}
+				cur = l[st.index]
+				continue
 			default:
 				return nil, false
 			}

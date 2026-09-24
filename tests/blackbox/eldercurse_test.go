@@ -1,6 +1,9 @@
 package blackbox
 
 import (
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,6 +109,115 @@ func TestElderCurseParity(t *testing.T) {
 			if r.dur < 5900 || r.dur > 6000 {
 				t.Errorf("%s: mining_fatigue duration %d, want 6000", name, r.dur)
 			}
+		}
+	}
+}
+
+// ElderGuardian.customServerAiStep's tail: an elder without a home
+// plants it at its block position with radius 16 on the first tick —
+// hasHome latches, so a summon carrying the home pair keeps its own
+// values. Observed via data get on the save keys home_radius/home_pos
+// (Mob.addAdditionalSaveData emits them only while hasHome).
+func TestElderHomeParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil,
+		map[string]string{"ops.json": opsJSONFor("Cap2")}, nil)
+	defer targets.cleanup()
+
+	// Vanilla's flattened data.entity.query reply drops every
+	// punctuation component, so an IntArray would come back as an
+	// unparseable digit run — ask for each element by index
+	// (home_pos[0]) and read the trailing int instead.
+	trailIntRe := regexp.MustCompile(`(-?\d+)\s*$`)
+
+	run := func(addr string) (autoPos, taggedPos [3]int, autoR, taggedR int, ok bool) {
+		obs, pump, pw, done := patrolLeg(t, addr)
+		defer done()
+		patrolSetup(t, pw, pump)
+		sendCommand(t, pw, "gamemode creative Cap2")
+		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
+		sendCommand(t, pw, "tp Cap2 0.5 -60 0.5")
+		pump(600 * time.Millisecond)
+		// The plain summon gets the auto-planted home on its first
+		// customServerAiStep; the tagged one must keep its NBT.
+		// NoGravity keeps y at -59 so the planted block pos is
+		// deterministic whichever way gravity and the ai step order.
+		sendCommand(t, pw, "summon minecraft:elder_guardian 20.5 -59 0.5 {NoGravity:1b}")
+		sendCommand(t, pw, "summon minecraft:elder_guardian 30.5 -59 0.5 {NoGravity:1b,home_radius:5,home_pos:[I;9,10,11]}")
+		pump(1500 * time.Millisecond) // ≥1 tick of customServerAiStep
+
+		getInt := func(sel, path string) (int, bool) {
+			start := len(obs.chat)
+			sendCommand(t, pw, "data get entity "+sel+" "+path)
+			sendCommand(t, pw, "say ZEND")
+			deadline := time.Now().Add(8 * time.Second)
+			idx := start
+			for time.Now().Before(deadline) {
+				pump(300 * time.Millisecond)
+				end := false
+				for ; idx < len(obs.chat); idx++ {
+					line := obs.chat[idx]
+					if strings.Contains(line, "data.entity.query") {
+						if m := trailIntRe.FindStringSubmatch(line); m != nil {
+							v, _ := strconv.Atoi(m[1])
+							return v, true
+						}
+					}
+					if strings.Contains(line, "ZEND") {
+						end = true
+					}
+				}
+				if end {
+					break
+				}
+			}
+			return 0, false
+		}
+
+		getPos := func(radius int) ([3]int, bool) {
+			var out [3]int
+			sel := "@e[type=minecraft:elder_guardian,nbt={home_radius:" + strconv.Itoa(radius) + "},limit=1]"
+			for i := 0; i < 3; i++ {
+				v, ok := getInt(sel, "home_pos["+strconv.Itoa(i)+"]")
+				if !ok {
+					return out, false
+				}
+				out[i] = v
+			}
+			return out, true
+		}
+
+		autoSel := "@e[type=minecraft:elder_guardian,nbt={home_radius:16},limit=1]"
+		taggedSel := "@e[type=minecraft:elder_guardian,nbt={home_radius:5},limit=1]"
+		var okAuto, okTag bool
+		autoPos, okAuto = getPos(16)
+		taggedPos, okTag = getPos(5)
+		autoR, _ = getInt(autoSel, "home_radius")
+		taggedR, _ = getInt(taggedSel, "home_radius")
+		return autoPos, taggedPos, autoR, taggedR, okAuto && okTag
+	}
+
+	vanAuto, vanTagged, vanR, vanTR, vanOK := run(targets.vanilla)
+	mcAuto, mcTagged, mcR, mcTR, mcOK := run(targets.mcgo)
+	t.Logf("van auto=%v r=%d tagged=%v r=%d ok=%v", vanAuto, vanR, vanTagged, vanTR, vanOK)
+	t.Logf("mc  auto=%v r=%d tagged=%v r=%d ok=%v", mcAuto, mcR, mcTagged, mcTR, mcOK)
+	for name, res := range map[string]struct {
+		auto, tagged [3]int
+		r, tr        int
+		ok           bool
+	}{"vanilla": {vanAuto, vanTagged, vanR, vanTR, vanOK},
+		"mc-go": {mcAuto, mcTagged, mcR, mcTR, mcOK}} {
+		if !res.ok {
+			t.Errorf("%s: home_pos data get returned no IntArray reply", name)
+			continue
+		}
+		if res.auto != [3]int{20, -59, 0} {
+			t.Errorf("%s: auto home_pos %v, want [20 -59 0] (summon block pos)", name, res.auto)
+		}
+		if res.tagged != [3]int{9, 10, 11} {
+			t.Errorf("%s: tagged home_pos %v, want [9 10 11] (NBT latched)", name, res.tagged)
+		}
+		if res.r != 16 || res.tr != 5 {
+			t.Errorf("%s: home_radius auto=%d tagged=%d, want 16/5", name, res.r, res.tr)
 		}
 	}
 }

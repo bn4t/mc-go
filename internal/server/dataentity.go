@@ -558,6 +558,21 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 			}
 		}
 	}
+	// Entity.saveWithoutId writes Silent/NoGravity only while set.
+	if e.Silent {
+		m["Silent"] = int8(1)
+	}
+	if e.NoGravity {
+		m["NoGravity"] = int8(1)
+	}
+	// Mob.addAdditionalSaveData writes the home pair only while
+	// hasHome — home_radius int plus the home_pos BlockPos list.
+	if e.HasHome {
+		m["home_radius"] = e.HomeRadius
+		m["home_pos"] = []int32{
+			int32(e.HomePos.X), int32(e.HomePos.Y), int32(e.HomePos.Z),
+		}
+	}
 	if e.PatrolLeader {
 		m["drop_chances"] = map[string]any{"head": float32(2)}
 	}
@@ -636,13 +651,14 @@ var entitySaveSeq = []string{
 	"Pos", "Motion", "Rotation", "fall_distance", "Fire", "Air",
 	"OnGround", "Invulnerable", "PortalCooldown",
 	"current_impulse_context_reset_grace_time", "UUID", "Tags",
-	"CustomName", "Silent", "Health", "HurtTime", "DeathTime",
+	"CustomName", "Silent", "NoGravity", "Health", "HurtTime", "DeathTime",
 	"AbsorptionAmount", "attributes", "active_effects", "Brain",
 	"FallFlying", "PersistenceRequired", "CanPickUpLoot",
 	"LeftHanded", "NoAI", "equipment", "Age", "ForcedAge",
 	"InLove", "AgeLocked", "variant", "sound_variant",
 	"PatrolLeader", "drop_chances", "IsBaby",
 	"IsImmuneToZombification", "TimeInOverworld",
+	"home_radius", "home_pos",
 }
 
 // overworldZombifyTypes are the mc-side types declaring the
@@ -738,6 +754,17 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	e.NoAI = nbtTruth(save["NoAI"])
 	e.CanPickUpLoot = nbtTruth(save["CanPickUpLoot"])
 	e.PersistenceRequired = nbtTruth(save["PersistenceRequired"])
+	// Mob.readAdditionalSaveData — getIntOr defaults homeRadius to
+	// -1, so an absent/-1 key clears hasHome; a non-negative one
+	// also reads the home_pos BlockPos (ZERO when absent).
+	r, _ := nbtInt32(save["home_radius"])
+	e.HasHome = r != -1
+	e.HomeRadius = r
+	if r >= 0 {
+		if pos, ok := nbtIntVec3(save["home_pos"]); ok {
+			e.HomePos = pos
+		}
+	}
 	if pos, ok := nbtVec3(save["Pos"]); ok {
 		if e.X != pos[0] || e.Y != pos[1] || e.Z != pos[2] {
 			e.X, e.Y, e.Z = pos[0], pos[1], pos[2]
@@ -755,6 +782,8 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		e.PosDirty = true
 	}
 	e.Grounded = nbtTruth(save["OnGround"])
+	e.Silent = nbtTruth(save["Silent"])
+	e.NoGravity = nbtTruth(save["NoGravity"])
 
 	known := map[string]bool{
 		"AbsorptionAmount": true, "Air": true, "CanPickUpLoot": true,
@@ -765,7 +794,8 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"PortalCooldown": true, "Pos": true, "Rotation": true,
 		"UUID": true, "current_impulse_context_reset_grace_time": true,
 		"fall_distance": true, "id": true, "equipment": true,
-		"attributes": true,
+		"attributes": true, "home_radius": true, "home_pos": true,
+		"NoGravity": true, "Silent": true,
 	}
 	if extra, ok := entitySaveExtras[name]; ok {
 		for k := range extra {
@@ -862,6 +892,35 @@ func nbtFloat(v any) (float32, bool) {
 		return float32(n), true
 	}
 	return 0, false
+}
+
+// nbtInt32 reads an NBT number as an int32.
+func nbtInt32(v any) (int32, bool) {
+	switch n := v.(type) {
+	case int8:
+		return int32(n), true
+	case int16:
+		return int32(n), true
+	case int32:
+		return n, true
+	case int64:
+		return int32(n), true
+	case float32:
+		return int32(n), true
+	case float64:
+		return int32(n), true
+	}
+	return 0, false
+}
+
+// nbtIntVec3 reads an IntArray of at least three elements
+// (BlockPos codec shape).
+func nbtIntVec3(v any) (world.Pos, bool) {
+	l, ok := v.([]int32)
+	if !ok || len(l) < 3 {
+		return world.Pos{}, false
+	}
+	return world.Pos{X: int(l[0]), Y: int(l[1]), Z: int(l[2])}, true
 }
 
 // nbtTruth reads a numeric/bool-ish NBT value as a flag.

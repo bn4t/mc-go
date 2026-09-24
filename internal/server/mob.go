@@ -777,6 +777,24 @@ func (s *Server) runSummon(player string, args []string) reply {
 				}
 				e.HasPatrolTarget = true
 			}
+			// Mob.readAdditionalSaveData's home pair — any
+			// home_radius != -1 latches hasHome; a non-negative one
+			// also reads the home_pos [I;x,y,z] BlockPos.
+			if rv, ok := tag.vals["home_radius"]; ok {
+				if r := int32(snbtNum(rv)); r != -1 {
+					e.HomeRadius = r
+					e.HasHome = true
+					if r >= 0 {
+						if lv, ok := tag.vals["home_pos"]; ok && len(lv.items) == 3 {
+							e.HomePos = world.Pos{
+								X: int(snbtNum(lv.items[0])),
+								Y: int(snbtNum(lv.items[1])),
+								Z: int(snbtNum(lv.items[2])),
+							}
+						}
+					}
+				}
+			}
 			if overworldZombifyTypes[name] {
 				if bv, ok := tag.vals["IsImmuneToZombification"]; ok && snbtNum(bv) > 0 {
 					e.ImmuneToZombification = true
@@ -838,6 +856,9 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 			if sv, ok := tag.vals["Silent"]; ok && (sv.num == "1b" || sv.num == "1" || sv.str == "true") {
 				e.Silent = true
+			}
+			if sv, ok := tag.vals["NoGravity"]; ok && (sv.num == "1b" || sv.num == "1" || sv.str == "true") {
+				e.NoGravity = true
 			}
 			// Armor stand NBT: Small halves the click-height bands,
 			// ShowArms unlocks the hand slots, DisabledSlots is the
@@ -1991,8 +2012,12 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 }
 
 // mobGrounded is the falling half of a mob tick: gravity until a solid
-// block is underfoot. True once the mob rests on ground.
+// block is underfoot. True once the mob rests on ground — NoGravity
+// mobs hang midair and are treated as grounded so ai keeps running.
 func mobGrounded(e *Entity, w *world.World) bool {
+	if e.NoGravity {
+		return true
+	}
 	below := world.Pos{
 		X: int(math.Floor(e.X)),
 		Y: int(math.Floor(e.Y)) - 1,
@@ -4232,6 +4257,16 @@ func (s *Server) mobGuardianStep(e *Entity, kn string) bool {
 	elder := kn == "elder_guardian"
 	if elder {
 		s.elderCurseStep(e)
+		// customServerAiStep's tail: an elder without a home claims
+		// its block position with radius 16 — latches, so only the
+		// first tick plants it.
+		if !e.HasHome {
+			e.HomePos = world.Pos{
+				X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z)),
+			}
+			e.HomeRadius = 16
+			e.HasHome = true
+		}
 	}
 	var target *Session
 	var mobTarget *Entity

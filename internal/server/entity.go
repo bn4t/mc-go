@@ -83,6 +83,10 @@ type Entity struct {
 	ConversionStarter [16]byte
 	HasConvStarter    bool
 	Silent            bool
+	// NoGravity mirrors Entity's NoGravity — summon NBT; gravity
+	// never pulls the entity while set. Saved as a byte only when
+	// true, matching Entity.saveWithoutId.
+	NoGravity bool
 	// Effects is the mob's active status effects, mob_effect registry
 	// id -> instance (summon active_effects / cure strength). Expiry
 	// is checked lazily against the server clock, the way sessEffect
@@ -359,6 +363,14 @@ type Entity struct {
 	// the leader has one from spawn; companions only get theirs when
 	// the leader's LongDistancePatrolGoal pushes its waypoint over.
 	HasPatrolTarget bool
+	// HomePos / HomeRadius / HasHome mirror Mob's homePosition /
+	// homeRadius pair — hasHome() is homeRadius != -1. The elder
+	// guardian's first customServerAiStep plants its home at its
+	// block position with radius 16; the pair saves as
+	// home_pos / home_radius.
+	HomePos    world.Pos
+	HomeRadius int32
+	HasHome    bool
 	// LeftHanded is Mob's 5% finalizeSpawn roll — a left-handed mob
 	// renders its mainhand item in the other hand.
 	LeftHanded bool
