@@ -40,7 +40,13 @@ func (s *Server) shearAnimal(sess *Session, eid int32, hand int32, sneaking bool
 	}
 	t := *e
 	s.entities.mu.RUnlock()
-	if !t.Living || t.Dying || t.BodyItem.Empty() {
+	if !t.Living || t.Dying {
+		return
+	}
+	if t.BodyItem.Empty() {
+		// No shearable equipment — the item's interactLivingEntity
+		// shear branch is next in vanilla's chain.
+		s.shearMob(sess, t, hand)
 		return
 	}
 	// canShearEquipment: wolves answer isOwnedBy; every other mob
@@ -68,6 +74,83 @@ func (s *Server) shearAnimal(sess *Session, eid int32, hand int32, sneaking bool
 	iname, _ := itemNameOf(armor.ID)
 	etype, _ := EntityTypeName(t.Type)
 	s.firePlayerShearedEquipment(sess, etype, iname)
+}
+
+// shearMob is the Shearable half of ShearsItem.interactLivingEntity:
+// a shears right-click on a shearable mob runs its shear() — the same
+// drop/flag work the dispenser path does — then wears the shears.
+func (s *Server) shearMob(sess *Session, t Entity, hand int32) {
+	tn, _ := EntityTypeName(t.Type)
+	switch tn {
+	case "sheep":
+		if t.Sheared {
+			return
+		}
+		if p, ok := s.entities.GetPtr(t.ID); ok {
+			p.Sheared = true
+			s.broadcastEntityMetadata(t.ID, encodeLivingMetadata(p, nil))
+		}
+		pos := world.Pos{X: int(math.Floor(t.X)), Y: int(math.Floor(t.Y)), Z: int(math.Floor(t.Z))}
+		if wid, ok := world.ItemIDs["white_wool"]; ok {
+			s.spawnItemDrop(t.Dim, pos, ItemStack{ID: wid, Count: int32(1 + s.rng.intn(3))})
+		}
+	case "snow_golem":
+		if !t.Pumpkin {
+			return
+		}
+		if p, ok := s.entities.GetPtr(t.ID); ok {
+			p.Pumpkin = false
+			s.broadcastEntityMetadata(t.ID, encodeLivingMetadata(p, nil))
+		}
+		pos := world.Pos{X: int(math.Floor(t.X)), Y: int(math.Floor(t.Y)), Z: int(math.Floor(t.Z))}
+		if pid, ok := world.ItemIDs["carved_pumpkin"]; ok {
+			s.spawnItemDrop(t.Dim, pos, ItemStack{ID: pid, Count: 1})
+		}
+	case "bogged":
+		if t.Sheared {
+			return
+		}
+		if p, ok := s.entities.GetPtr(t.ID); ok {
+			p.Sheared = true
+			s.broadcastEntityMetadata(t.ID, encodeLivingMetadata(p, nil))
+		}
+		pos := world.Pos{X: int(math.Floor(t.X)), Y: int(math.Floor(t.Y)), Z: int(math.Floor(t.Z))}
+		for i := 0; i < 2; i++ {
+			for _, iname := range []string{"brown_mushroom", "red_mushroom"} {
+				if pid, ok := world.ItemIDs[iname]; ok {
+					s.spawnItemDrop(t.Dim, pos, ItemStack{ID: pid, Count: 1})
+				}
+			}
+		}
+	case "mooshroom":
+		pos := world.Pos{X: int(math.Floor(t.X)), Y: int(math.Floor(t.Y)), Z: int(math.Floor(t.Z))}
+		s.entities.Remove(t.ID)
+		s.broadcastEntityRemoveIn(t.Dim, nil, []int32{t.ID})
+		if et, ok := EntityTypeID("cow"); ok {
+			cow := s.entities.Spawn(&Entity{
+				Type:      et,
+				Dim:       t.Dim,
+				X:         t.X,
+				Y:         t.Y,
+				Z:         t.Z,
+				Living:    true,
+				Health:    10,
+				MaxHealth: 10,
+				NoAI:      t.NoAI,
+			})
+			s.broadcastEntitySpawnIn(t.Dim, nil, *cow)
+		}
+		if pid, ok := world.ItemIDs["red_mushroom"]; ok {
+			for i := 0; i < 5; i++ {
+				s.spawnItemDrop(t.Dim, pos, ItemStack{ID: pid, Count: 1})
+			}
+		}
+	default:
+		return
+	}
+	held2, hslot := sess.stackForHand(hand)
+	s.wearSlot(sess, hslot, 1)
+	sess.addItemStat(statUsed, held2.ID, 1)
 }
 
 // shearables lists BODY-slot equipment vanilla's canBeSheared marks

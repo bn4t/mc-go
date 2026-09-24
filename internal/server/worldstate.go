@@ -221,6 +221,11 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
+	// Vanilla drops the interact entirely when the eye-to-entity-box
+	// distance exceeds entity_interaction_range (base 3.0) + 3.0.
+	if !s.withinInteractRange(sess, id) {
+		return
+	}
 	// Vanilla's Entity.interact resolves the shears path before any
 	// type-specific mobInteract, so it leads the chain.
 	s.shearAnimal(sess, id, hand, sneaking)
@@ -234,6 +239,50 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	s.cureZombieVillager(sess, id, hand)
 	s.armorStandInteract(sess, id, hand, clickY)
 	s.interactEntityAdv(sess, id, hand)
+}
+
+// withinInteractRange is ServerGamePacketListenerImpl.handleInteract's
+// isWithinEntityInteractionRange gate: the eye position's distance to
+// the entity's bounding box must be under attribute
+// entity_interaction_range (base 3.0, unmodified here) plus a fixed
+// 3.0 of slack — 6.0 blocks to the nearest box face.
+func (s *Server) withinInteractRange(sess *Session, eid int32) bool {
+	px, py, pz, _, _, _ := sess.Pos()
+	s.entities.mu.RLock()
+	e, ok := s.entities.byID[eid]
+	var t Entity
+	if ok {
+		t = *e
+	}
+	s.entities.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	name, _ := EntityTypeName(t.Type)
+	bw, bh := entityBox(name)
+	ex, ey, ez := px-t.X, py+1.62-(t.Y+bh/2), pz-t.Z
+	// Nearest point on the box to the eye: clamp each axis.
+	hw := bw / 2
+	if ex > hw {
+		ex = hw
+	} else if ex < -hw {
+		ex = -hw
+	}
+	hh := bh / 2
+	if ey > hh {
+		ey = hh
+	} else if ey < -hh {
+		ey = -hh
+	}
+	if ez > hw {
+		ez = hw
+	} else if ez < -hw {
+		ez = -hw
+	}
+	dx := px - (t.X + ex)
+	dy := py + 1.62 - (t.Y + bh/2 + ey)
+	dz := pz - (t.Z + ez)
+	return dx*dx+dy*dy+dz*dz < 36
 }
 
 // handlePlayerCommand processes Player Command (0x2A): sneak, sprint,

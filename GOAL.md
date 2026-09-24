@@ -4156,6 +4156,22 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   Failed identically before and after the sound-range change —
   pre-existing, needs a mid-recharge swing-formula measurement slice.
 
+## Slice — held-shears mob shear + interact range gate
+
+- `handleInteract` now applies vanilla's
+  `isWithinEntityInteractionRange` gate: the interact is dropped when
+  the eye→entity-box distance exceeds `entity_interaction_range`
+  (base 3.0) + 3.0 — measured live: vanilla silently ignores shears
+  clicks past ~6 blocks to the box.
+- `shearAnimal` falls through to `shearMob` when there's no shearable
+  BODY equipment — `ShearsItem.interactLivingEntity` →
+  `Shearable.shear` on all four shearable mobs: sheep wool + Sheared
+  flag, snow golem pumpkin pop, bogged mushrooms + `sheared` flag,
+  mooshroom `convertTo(COW)` + 5 red mushrooms — all wearing the
+  shears by 1 and counting `item_used`.
+- New `TestShearMobParity` tps beside each summoned mob and sends a
+  raw Interact packet — all nine probes hit/hit.
+
 ## Slice — dispenser shear cascade (bogged + mooshroom)
 
 - `DispenseItemBehavior` shears now shear the remaining Shearable
