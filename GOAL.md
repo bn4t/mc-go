@@ -6405,3 +6405,18 @@ dispense now wires `st.Potion` through `splashPotionContents` into
 fixture (`potion_contents={potion:"minecraft:poison"}`), fire_charge
 facing-east + facing-up cells, probes for cloud formation and the
 miss/miss ignite rule.
+
+## Slice 2026-09-25c — bone meal dispense ($5)
+
+`bone_meal` now runs `bonemealGrow` at the mouth: CropBlock family
+(wheat/carrots/potatoes 7, beetroots 3, melon/pumpkin stems 7,
+torchflower_crop 2→morphs to torchflower) advances `age+nextInt(2,5)`
+clamped to max; cocoa/sweet_berry_bush/pitcher_crop advance +1 (their
+own performBonemeal bodies — measured). Nether wart is NOT
+bonemealable (no BonemealableBlock impl — verified in bytecode).
+Success consumes + event 1505(front,15) + 1000/2000; a non-target or
+max-age front is a silent optional-fail keeping the item (event 1001 —
+OptionalDispenseItemBehavior extends Default but its dispenseItem never
+throws on fail). Player-use bonemeal (BoneMealItem.useOn) still
+unimplemented — same helper, entry point differs. Grass/moss/nylium/
+sapling/seagrass bonemeal paths deferred (bigger tables).

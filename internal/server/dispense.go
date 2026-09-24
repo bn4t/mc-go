@@ -359,6 +359,19 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			}
 			return
 		}
+	case itemName == "bone_meal":
+		// DispenseItemBehavior$5: BoneMealItem.growCrop at the mouth.
+		// Success consumes one meal and fires event 1505 (particles,
+		// data 15); a non-target front is a silent optional-fail.
+		if s.bonemealGrow(d, front) {
+			s.dispenseConsume(d, pos, c, slot)
+			s.broadcastLevelEvent(d.name, 1505, front, 15)
+			s.broadcastLevelEvent(d.name, 1000, pos, 0)
+			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+		} else {
+			s.broadcastLevelEvent(d.name, 1001, pos, 0)
+		}
+		return
 	case itemName == "flint_and_steel":
 		// FlintAndSteelDispenseItemBehavior: prime a TNT/explosive
 		// entity at the mouth, else place fire where it can burn,
@@ -667,4 +680,72 @@ var dispenseWaxable = func() map[string]bool {
 
 var dispenseToMud = map[string]bool{
 	"dirt": true, "coarse_dirt": true, "rooted_dirt": true,
+}
+
+// bonemealAgeTable — blocks where performBonemeal advances an `age`
+// property: CropBlock family grows age+nextInt(2,5) clamped to the
+// block's max; cocoa/sweet_berry/pitcher grow exactly +1 (their own
+// performBonemeal bodies). Nether wart, saplings, grass/moss/nylium and
+// seagrass paths stay unimplemented.
+var bonemealAgeInc25 = map[string]int{
+	"wheat":            7,
+	"carrots":          7,
+	"potatoes":         7,
+	"beetroots":        3,
+	"melon_stem":       7,
+	"pumpkin_stem":     7,
+	"torchflower_crop": 2,
+}
+var bonemealAgeInc1 = map[string]int{
+	"cocoa":            2,
+	"sweet_berry_bush": 3,
+	"pitcher_crop":     4,
+}
+
+// bonemealGrow — CropBlock.performBonemeal (+2..5, clamped at max) or the
+// +1 family. torchflower_crop reaching age 2 morphs into the torchflower
+// flower block, mirroring TorchflowerCropBlock.getStateForAge.
+func (s *Server) bonemealGrow(d *dimension, pos world.Pos) bool {
+	b := d.w.GetBlock(pos)
+	name, ok := world.StateOwner(b)
+	if !ok {
+		return false
+	}
+	age, ok := intProp(b, "age")
+	if !ok {
+		return false
+	}
+	if max, ok := bonemealAgeInc25[name]; ok {
+		if age >= max {
+			return false
+		}
+		newAge := age + 2 + s.rng.intn(4)
+		if newAge > max {
+			newAge = max
+		}
+		if name == "torchflower_crop" && newAge >= 2 {
+			if fb, ok := world.BlockStateOf("torchflower", nil); ok {
+				s.setNaturalBlock(d, pos, fb)
+			}
+			return true
+		}
+		if nb, ok := world.WithProperty(b, "age", strconv.Itoa(newAge)); ok {
+			s.setNaturalBlock(d, pos, nb)
+		}
+		return true
+	}
+	if max, ok := bonemealAgeInc1[name]; ok {
+		if age >= max {
+			return false
+		}
+		newAge := age + 1
+		if newAge > max {
+			newAge = max
+		}
+		if nb, ok := world.WithProperty(b, "age", strconv.Itoa(newAge)); ok {
+			s.setNaturalBlock(d, pos, nb)
+		}
+		return true
+	}
+	return false
 }
