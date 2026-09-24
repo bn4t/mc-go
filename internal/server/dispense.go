@@ -13,6 +13,7 @@ package server
 import (
 	"math/rand"
 	"mc-go/internal/world"
+	"strconv"
 	"strings"
 )
 
@@ -263,6 +264,75 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			}
 		}
 		return
+	case itemName == "glass_bottle":
+		// DispenseItemBehavior$9: a water source at the mouth fills
+		// the bottle (beehive honey handled by honey bottles later).
+		fk, lvl, isFl := fluidOf(d.w.GetBlock(front))
+		if isFl && fk == fluidWater && lvl == 0 {
+			s.setSilentBlock(d, front, world.Air)
+			s.rsNeighborFanOut(d, front)
+			if fid, ok := world.ItemIDs["potion"]; ok {
+				d.containers.mu.Lock()
+				removeOne(&c.slots[slot])
+				rem := ItemStack{ID: fid, Count: 1, Potion: "water"}
+				slotsInsert(c.slots, &rem)
+				d.containers.mu.Unlock()
+				if rem.Count > 0 {
+					s.spawnItemDrop(d.name, front, rem)
+				}
+			}
+			s.rsContainerChanged(d, pos)
+			s.broadcastLevelEvent(d.name, 1000, pos, 0)
+			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+			return
+		}
+	case itemName == "glowstone":
+		// DispenseItemBehavior$10: charge a respawn anchor at the
+		// mouth (charge < 4) and shrink.
+		fb := d.w.GetBlock(front)
+		if bn, ok := blockNameAt(d, front); ok && bn == "respawn_anchor" {
+			if cv, err := strconv.Atoi(rsPropsOf(fb)("charges")); err == nil && cv < 4 {
+				if nb, ok := world.WithProperty(fb, "charges", strconv.Itoa(cv+1)); ok {
+					s.rsWriteBlockFlag2(d, front, nb)
+					s.dispenseConsume(d, pos, c, slot)
+				}
+				s.broadcastLevelEvent(d.name, 1000, pos, 0)
+				s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+				return
+			}
+			return
+		}
+	case itemName == "honeycomb":
+		// DispenseItemBehavior$12: wax a waxable copper variant at
+		// the mouth (same name with the waxed_ prefix).
+		if bn, ok := blockNameAt(d, front); ok && dispenseWaxable[bn] {
+			if nb, ok := world.BlockStateOf("waxed_"+bn, nil); ok {
+				s.rsWriteBlockFlag2(d, front, nb)
+				s.dispenseConsume(d, pos, c, slot)
+				s.broadcastLevelEvent(d.name, 1000, pos, 0)
+				s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+				return
+			}
+		}
+		return
+	case itemName == "shears":
+		// ShearsDispenseItemBehavior: shear a full beehive/nest at
+		// the mouth → honeycomb drop + honey_level reset.
+		fb := d.w.GetBlock(front)
+		if bn, ok := blockNameAt(d, front); ok && (bn == "beehive" || bn == "bee_nest") {
+			if hl, err := strconv.Atoi(rsPropsOf(fb)("honey_level")); err == nil && hl >= 5 {
+				if nb, ok := world.WithProperty(fb, "honey_level", "0"); ok {
+					s.rsWriteBlockFlag2(d, front, nb)
+				}
+				if hid, ok := world.ItemIDs["honeycomb"]; ok {
+					s.spawnItemDrop(d.name, front, ItemStack{ID: hid, Count: 3})
+				}
+				s.broadcastLevelEvent(d.name, 1000, pos, 0)
+				s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+				return
+			}
+			return
+		}
 	case itemName == "flint_and_steel":
 		// FlintAndSteelDispenseItemBehavior: prime a TNT/explosive
 		// entity at the mouth, else place fire where it can burn,
@@ -533,3 +603,25 @@ func (s *Server) spawnDispensedBoat(d *dimension, target world.Pos, entName stri
 func frontCenter(pos world.Pos) [3]float64 {
 	return [3]float64{float64(pos.X) + 0.5, float64(pos.Y) + 0.5, float64(pos.Z) + 0.5}
 }
+
+// dispenseWaxable — HoneycombItem.getWaxed: copper-family names that
+// take a waxed_ variant (signs included).
+var dispenseWaxable = func() map[string]bool {
+	m := map[string]bool{}
+	// The copper family: base + 3 oxidation stages per shape.
+	shapes := []string{
+		"copper_block", "cut_copper", "cut_copper_stairs",
+		"cut_copper_slab", "chiseled_copper", "copper_grate",
+		"copper_bulb", "copper_door", "copper_trapdoor",
+	}
+	prefixes := []string{"", "exposed_", "weathered_", "oxidized_"}
+	for _, p := range prefixes {
+		for _, sh := range shapes {
+			name := p + sh
+			if world.BlockHasName(name) && world.BlockHasName("waxed_"+name) {
+				m[name] = true
+			}
+		}
+	}
+	return m
+}()

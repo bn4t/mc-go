@@ -6361,3 +6361,17 @@ More of `DispenseItemBehavior.bootStrap`, all pinned by
 - ShulkerBoxDispenseBehavior (`*_shulker_box`): places the box as a
   block at a replaceable mouth; solid mouth fails silently.
 - Same `TestDispenseBehaviorParity` run, now 27 probes.
+
+## Slice 2026-09-24z — dispense behaviors: bottle/anchor/wax/shear
+
+- DispenseItemBehavior$9 (glass_bottle): water source at the mouth →
+  `potion` with potion_contents=water. The cell refloods from
+  neighbour flow (probes pin the slot, not the cell — reflow timing
+  differs under mc-go's fluid engine; deferred).
+- DispenseItemBehavior$10 (glowstone): respawn_anchor at the mouth
+  charges +1 (max 4) and shrinks the stack.
+- DispenseItemBehavior$12 (honeycomb): waxes any copper-family
+  block (waxed_ prefix variant).
+- ShearsDispenseItemBehavior: full beehive/bee_nest → honey_level 0
+  + 3 honeycomb drop (entity-shear path deferred).
+- TestDispenseBehaviorParity now 33 probes.

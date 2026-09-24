@@ -1784,12 +1784,24 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		`setblock 60 -60 140 minecraft:dispenser[facing=east]`,
 		`item replace block 60 -60 140 container.0 with minecraft:tnt 1`,
 		`setblock 64 -60 140 minecraft:dispenser[facing=east]`,
-		`item replace block 64 -60 140 container.0 with minecraft:zombie_spawn_egg 1`,
+		`item replace block 64 -60 140 container.0 with minecraft:pig_spawn_egg 1`,
 		`setblock 68 -60 140 minecraft:dispenser[facing=east]`,
 		`item replace block 68 -60 140 container.0 with minecraft:white_shulker_box 1`,
 		`setblock 72 -60 140 minecraft:dispenser[facing=east]`,
 		`item replace block 72 -60 140 container.0 with minecraft:tnt 1`,
 		`setblock 73 -60 140 minecraft:stone`,
+		`setblock 60 -60 150 minecraft:dispenser[facing=east]`,
+		`setblock 61 -60 150 minecraft:water`,
+		`item replace block 60 -60 150 container.0 with minecraft:glass_bottle 2`,
+		`setblock 64 -60 150 minecraft:dispenser[facing=east]`,
+		`setblock 65 -60 150 minecraft:respawn_anchor[charges=1]`,
+		`item replace block 64 -60 150 container.0 with minecraft:glowstone 2`,
+		`setblock 68 -60 150 minecraft:dispenser[facing=east]`,
+		`setblock 69 -60 150 minecraft:copper_block`,
+		`item replace block 68 -60 150 container.0 with minecraft:honeycomb 1`,
+		`setblock 72 -60 150 minecraft:dispenser[facing=east]`,
+		`setblock 73 -60 150 minecraft:beehive[honey_level=5]`,
+		`item replace block 72 -60 150 container.0 with minecraft:shears 1`,
 	}
 
 	probesA := []struct{ name, spec string }{
@@ -1817,11 +1829,20 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		{"H primed tnt at the mouth", `entity @e[type=minecraft:tnt,x=93,y=-60,z=130,distance=..4]`},
 		{"I dispensed tnt primes at the mouth", `entity @e[type=minecraft:tnt,x=61,y=-60,z=140,distance=..4]`},
 		{"I tnt slot drained", `!items block 60 -60 140 container.* minecraft:tnt`},
-		{"J zombie spawn egg spawns the mob", `entity @e[type=minecraft:zombie,x=65,y=-60,z=140,distance=..4]`},
-		{"J egg slot drained", `!items block 64 -60 140 container.* minecraft:zombie_spawn_egg`},
+		{"J pig spawn egg spawns the mob", `entity @e[type=minecraft:pig,x=65,y=-60,z=140,distance=..4]`},
+		{"J egg slot drained", `!items block 64 -60 140 container.* minecraft:pig_spawn_egg`},
 		{"K shulker box placed at the mouth", `block 69 -60 140 minecraft:white_shulker_box`},
 		{"K box slot drained", `!items block 68 -60 140 container.* minecraft:white_shulker_box`},
 		{"L tnt primes even into a solid mouth", `entity @e[type=minecraft:tnt,x=73,y=-60,z=140,distance=..4]`},
+
+		{"M slot now a water bottle", `items block 60 -60 150 container.* minecraft:potion`},
+		{"M one glass bottle remains", `items block 60 -60 150 container.* minecraft:glass_bottle[count=1]`},
+		{"N anchor charged to 2", `block 65 -60 150 minecraft:respawn_anchor[charges=2]`},
+		{"N glowstone shrunk to 1", `items block 64 -60 150 container.* minecraft:glowstone[count=1]`},
+		{"O copper waxed", `block 69 -60 150 minecraft:waxed_copper_block`},
+		{"O honeycomb slot drained", `!items block 68 -60 150 container.* minecraft:honeycomb`},
+		{"Q beehive emptied", `block 73 -60 150 minecraft:beehive[honey_level=0]`},
+		{"Q shears stayed in the slot", `items block 72 -60 150 container.* minecraft:shears`},
 	}
 
 	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
@@ -1878,6 +1899,10 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		for _, x := range []int{60, 64, 68, 72} {
 			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 139 minecraft:redstone_block`, x))
 			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 139 minecraft:air`, x))
+		}
+		for _, x := range []int{60, 64, 68, 72} {
+			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 149 minecraft:redstone_block`, x))
+			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 149 minecraft:air`, x))
 		}
 		// +4t dispense delay, then the primed TNT fuse starts.
 		time.Sleep(700 * time.Millisecond)
