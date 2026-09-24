@@ -511,17 +511,20 @@ func (sess *Session) setMenuStack(slot int, it ItemStack) {
 				w.furnace.refreshCookTotal()
 			}
 			w.dim.furnaces.mu.Unlock()
+			sess.server.rsContainerChanged(w.dim, w.pos)
 			return
 		}
 		if w.container != nil {
 			w.dim.containers.mu.Lock()
 			w.container.slots[slot] = it
 			w.dim.containers.mu.Unlock()
+			sess.server.rsContainerChanged(w.dim, w.pos)
 			return
 		}
 		w.dim.chests.mu.Lock()
 		w.chest.slots[slot] = it
 		w.dim.chests.mu.Unlock()
+		sess.server.rsContainerChanged(w.dim, w.pos)
 	case slot < container+27:
 		sess.setStack(int16(slotMainStart+(slot-container)), it)
 	default:

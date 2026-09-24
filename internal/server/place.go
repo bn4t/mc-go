@@ -329,6 +329,29 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 				}
 				return
 			}
+		case short == "comparator":
+			// ComparatorBlock.useWithoutItem: mayBuild gates the MODE
+			// cycle; the comparator_click pitch keys off the NEW mode
+			// (0.55 subtract, 0.5 compare), the write is flag-2, and a
+			// still-standing comparator refreshes its output at once.
+			if sess.mode() != GameModeSpectator && sess.mode() != GameModeAdventure {
+				next, pitch := "compare", float32(0.5)
+				if rsPropsOf(cur)("mode") == "compare" {
+					next, pitch = "subtract", 0.55
+				}
+				s.explodeBlockSound(d, clicked, "comparator.click", 0.3, pitch)
+				if nb, ok := world.WithProperty(cur, "mode", next); ok {
+					s.rsWriteBlockFlag2(d, clicked, nb)
+					if rsIsComparator(d.w.GetBlock(clicked)) {
+						s.rsCompRefresh(d, clicked, nb)
+					}
+				}
+				acked = true
+				if seq >= 0 {
+					s.sendBlockAck(sess, seq)
+				}
+				return
+			}
 		case s.rsToggleOpenable(d, clicked, short):
 			acked = true
 			if seq >= 0 {
@@ -424,7 +447,11 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// writes never reach setPlacedBy — like the hook above).
 	if n, ok := world.StateOwner(blk); ok {
 		if short := strings.TrimPrefix(n, "minecraft:"); short == "repeater" || short == "comparator" {
-			if rsDiodeShouldOn(d, target, d.w.GetBlock(target)) {
+			on := rsDiodeShouldOn(d, target, d.w.GetBlock(target))
+			if short == "comparator" {
+				on = rsCompShouldOn(d, target, d.w.GetBlock(target))
+			}
+			if on {
 				s.ticks.schedulePrio(schedKey{dim: d.name, pos: target, kind: tickBlock}, s.TickCount()+1, tickPrioNormal)
 			}
 		}

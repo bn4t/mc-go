@@ -275,6 +275,12 @@ func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk wo
 	// updateNeighborsAt: every face neighbour re-evaluates its
 	// redstone signal (lamp, rails, torches, doors, TNT, ...).
 	s.rsNeighborFanOut(d, pos)
+	// updateNeighbourForOutputSignal: a write to an analog block
+	// (flag&1, after the ring) wakes comparators reading it — one
+	// cell adjacent, or two through a conductor.
+	if rsHasAnalog(blk) {
+		s.rsOutputSignalWake(d, pos)
+	}
 	// updateShape: a change re-checks support for pos's neighbors; the
 	// placed block self-checks only in the scheduleTick family (the
 	// BlockInput.place fold's surviving side-effect).
@@ -325,6 +331,18 @@ func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block)
 	s.syncBeacon(d, pos, blk)
 	if !isBeeNestBlock(blk) {
 		delete(d.bees, pos)
+	}
+	// ComparatorBlockEntity: a comparator's stored output lives and
+	// dies with the block.
+	if rsIsComparator(blk) {
+		if d.comparatorOut == nil {
+			d.comparatorOut = map[world.Pos]int{}
+		}
+		if _, ok := d.comparatorOut[pos]; !ok {
+			d.comparatorOut[pos] = 0
+		}
+	} else {
+		delete(d.comparatorOut, pos)
 	}
 }
 

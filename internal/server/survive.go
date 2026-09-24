@@ -217,8 +217,8 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos, notify worl
 		}
 		return
 	}
-	if name == "repeater" {
-		s.repeaterUpdateShape(d, pos, changed, b)
+	if name == "repeater" || name == "comparator" {
+		s.diodeUpdateShape(d, pos, changed, b, name == "repeater")
 		return
 	}
 	fn, ok := surviveFns()[name]
@@ -390,6 +390,13 @@ func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block,
 		}
 		if (oldShort == "repeater" || oldShort == "comparator") && oldShort != short {
 			s.rsDiodeUpdateInFront(d, pos, old)
+		}
+		// Containers.updateNeighboursAfterDestroy: removing a
+		// container block wakes comparators reading it — the ring
+		// doesn't reach the two-deep read, so a chest broken through
+		// a conductor still unpowers the comparator behind it.
+		if oldShort != short && rsRemovalWakes(oldShort) {
+			s.rsOutputSignalWake(d, pos)
 		}
 		// RedStoneWireBlock.getStateForPlacement / onPlace /
 		// affectNeighborsAfterRemoval: a fresh wire folds its sides
@@ -592,13 +599,15 @@ func snowLayerCanSurvive(_ *Server, d *dimension, pos world.Pos, _ world.Block) 
 	return !world.NonSolid(below)
 }
 
-// repeaterUpdateShape is RepeaterBlock.updateShape: a change arriving
-// from below re-checks canSurviveOn (dropResources + removeBlock +
-// ring-2 fan-out when the support is gone); a change on any other
-// axis than FACING's rewrites the LOCKED display prop in place.
-// Both write at flags&~34 — silent, no broadcast — the client folds
-// LOCKED itself from the triggering block update.
-func (s *Server) repeaterUpdateShape(d *dimension, pos, changed world.Pos, b world.Block) {
+// diodeUpdateShape is the diode family's updateShape: a change
+// arriving from below re-checks canSurviveOn (dropResources +
+// removeBlock + ring-2 fan-out when the support is gone). For a
+// repeater a change on any other axis than FACING's also rewrites the
+// LOCKED display prop in place — ComparatorBlock has no LOCKED and
+// stops at the survival check. The LOCKED write lands at flags&~34 —
+// silent, no broadcast — the client folds LOCKED itself from the
+// triggering block update.
+func (s *Server) diodeUpdateShape(d *dimension, pos, changed world.Pos, b world.Block, repeater bool) {
 	facing, ok := rsDiodeFacing(b)
 	if !ok {
 		return
@@ -631,7 +640,7 @@ func (s *Server) repeaterUpdateShape(d *dimension, pos, changed world.Pos, b wor
 	default: // dz != 0
 		same = !facingX
 	}
-	if same {
+	if same || !repeater {
 		return
 	}
 	locked := rsDiodeLocked(d, pos, "repeater", b)

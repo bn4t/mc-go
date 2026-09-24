@@ -6091,3 +6091,56 @@ support-loss pop, and the hand-use delay cycle — all matching vanilla.
 
 Deferred: comparator's analog half (output prop, container read,
 updateNeighbourForOutputSignal) shares the diode shell.
+
+## Slice 2026-09-24q — comparators (analog redstone)
+
+Measured on vanilla 26.2 (javap + live probes): ComparatorBlock on top
+of the DiodeBlock shell.
+
+- The output lives on the block entity (ComparatorBlockEntity.output,
+  persisted as OutputSignal NBT): getSignal emits it only while
+  powered, only toward the output face. mc-go's per-dim
+  comparatorOut map stands in.
+- checkTickOnNeighbor (comparator's own): willTickThisTick→return;
+  schedule +2 at HIGH (shouldPrioritize — front is a diode pointing
+  elsewhere) or NORMAL when calc != stored output OR powered !=
+  shouldTurnOn. tick = refreshOutputState: store calc, flag-2 flip
+  powered when it disagrees with shouldTurnOn, then
+  updateNeighborsInFront — skipped wholesale when calc is unchanged
+  in COMPARE mode.
+- getInputSignal override: the input cell's own
+  getAnalogOutputSignal replaces the plain signal, or — when the
+  input is a non-analog conductor — the same read one cell deeper
+  (item-frame entity read not implemented; mc-go has no item frames).
+- getAnalogOutputSignal by block: container fill floor(avgFill*14)+1
+  over the chest/furnace/hopper/generic-container stores, composter
+  LEVEL, cake (7-bites)*2, respawn_anchor charges*15/4, layered
+  cauldrons LEVEL, lava_cauldron 3, bee nest/hive HONEY_LEVEL,
+  end_portal_frame eye?15:0, crafter's occupied|disabled slot count,
+  lectern book slot. Jukebox/chiseled_bookshelf/decorated_pot/
+  command blocks have the analog capability flag but read 0 (contents
+  not modelled).
+- updateNeighbourForOutputSignal: on flag-1 writes where the new
+  state hasAnalogOutputSignal, and on removal of the container set
+  (Containers.updateNeighboursAfterDestroy — the comparator two cells
+  deep behind a conductor learns a chest break), wake the comparator
+  facing the cell horizontally or one deeper through a conductor.
+  BlockEntity.setChanged does the same for content writes — wired
+  through setMenuStack, /item replace, hopper push+pull, furnace
+  smelt, brew completion, crafter eject.
+- shouldTurnOn: input>alt, or input==alt in COMPARE; side inputs use
+  the full getControlInputSignal (sideInputDiodesOnly=false — a plain
+  dust chain feeds it, unlike the repeater's lock read).
+- useWithoutItem: !mayBuild→PASS, else cycle MODE flag-2,
+  comparator_click 0.3 at pitch 0.55 (subtract) / 0.5 (compare), then
+  refreshOutputState in place. updateShape keeps only the DOWN
+  support-loss pop (no LOCKED).
+- setPlacedBy dispatches on the override: comparators use their own
+  shouldTurnOn for the 1-tick first-arm.
+
+TestComparatorParity pins it — 19 probes: powered passthrough,
+composter level, COMPARE 15-vs-10, SUBTRACT side-wins dark, the
+conductor deep read through stone, chest-fill wake via /item replace
+(block-entity setChanged — no block write at all), the hand-use mode
+cycle recomputing 15→5 in place, full-chest 15, and the removal wake
+unpowering a comparator behind a conductor — all matching vanilla.

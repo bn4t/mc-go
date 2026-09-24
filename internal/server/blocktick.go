@@ -412,8 +412,13 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		s.tripwireTick(d, pos, blk)
 		return
 	}
-	if short == "repeater" || short == "comparator" {
+	if short == "repeater" {
 		s.rsDiodeTick(d, pos, blk, short)
+		return
+	}
+	if short == "comparator" {
+		// ComparatorBlock.tick = refreshOutputState.
+		s.rsCompRefresh(d, pos, blk)
 		return
 	}
 	if short == "redstone_lamp" {

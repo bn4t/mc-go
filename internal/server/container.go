@@ -1144,6 +1144,9 @@ func (s *Server) brewingTick(d *dimension, pos world.Pos, c *containerData) {
 	if brewDone {
 		s.brewFinished(d, pos, slots, remainderDrop, remainder)
 	}
+	if len(touched) > 0 {
+		s.rsContainerChanged(d, pos)
+	}
 	if bitsChanged := s.updateBrewBlockState(d, pos, potionBits); bitsChanged {
 		changed = true
 	}

@@ -571,3 +571,166 @@ func TestRepeaterParity(t *testing.T) {
 		}
 	}
 }
+
+// TestComparatorParity pins ComparatorBlock's analog path: the
+// block-entity-backed output level (emission is the stored calc, not
+// a constant 15), container/analog input reads, the conductor deep
+// read plus the updateNeighbourForOutputSignal wake that feeds it,
+// side-signal COMPARE vs SUBTRACT, and the use-cycle that recomputes
+// on the spot.
+func TestComparatorParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	setup := []string{
+		`gamerule send_command_feedback true`,
+
+		// A @71,z60: plain powered passthrough — block input gives
+		// 15, dust on the output reads the stored 15.
+		`setblock 71 -60 60 minecraft:comparator[facing=west]`,
+		`setblock 72 -60 60 minecraft:redstone_wire`,
+		`setblock 70 -60 60 minecraft:redstone_block`,
+
+		// B @81,z60: analog read of a composter's level prop.
+		`setblock 81 -60 60 minecraft:comparator[facing=west]`,
+		`setblock 82 -60 60 minecraft:redstone_wire`,
+		`setblock 80 -60 60 minecraft:composter[level=3]`,
+
+		// C @90,z60: COMPARE with a weaker side signal — a six-cell
+		// dust chain off a block feeds 10 into the north side while
+		// the input block gives 15.
+		`setblock 90 -60 60 minecraft:comparator[facing=west]`,
+		`setblock 91 -60 60 minecraft:redstone_wire`,
+		`setblock 89 -60 60 minecraft:redstone_block`,
+		`setblock 90 -60 53 minecraft:redstone_block`,
+		`setblock 90 -60 54 minecraft:redstone_wire`,
+		`setblock 90 -60 55 minecraft:redstone_wire`,
+		`setblock 90 -60 56 minecraft:redstone_wire`,
+		`setblock 90 -60 57 minecraft:redstone_wire`,
+		`setblock 90 -60 58 minecraft:redstone_wire`,
+		`setblock 90 -60 59 minecraft:redstone_wire`,
+
+		// D @96,z60: SUBTRACT with the side dominating — input 4 from
+		// a composter, side 15 from a block, output stays dark.
+		`setblock 96 -60 60 minecraft:comparator[facing=west,mode=subtract]`,
+		`setblock 97 -60 60 minecraft:redstone_wire`,
+		`setblock 95 -60 60 minecraft:composter[level=4]`,
+		`setblock 96 -60 59 minecraft:redstone_block`,
+
+		// E @99..102,z60: the conductor deep read — comparator ->
+		// stone -> chest, plus the output-signal wake when the
+		// chest's contents change with no neighbour block write.
+		`setblock 101 -60 60 minecraft:comparator[facing=west]`,
+		`setblock 102 -60 60 minecraft:redstone_wire`,
+		`setblock 100 -60 60 minecraft:stone`,
+		`setblock 99 -60 60 minecraft:chest`,
+	}
+	probesA := []struct{ name, spec string }{
+		{"A powered", "71 -60 60 minecraft:comparator[powered=true]"},
+		{"A dust power 15", "72 -60 60 minecraft:redstone_wire[power=15]"},
+		{"B powered on composter 3", "81 -60 60 minecraft:comparator[powered=true]"},
+		{"B dust power 3", "82 -60 60 minecraft:redstone_wire[power=3]"},
+		{"C powered compare 15>10", "90 -60 60 minecraft:comparator[powered=true]"},
+		{"C dust power 15", "91 -60 60 minecraft:redstone_wire[power=15]"},
+		{"D subtract side wins: dark", "96 -60 60 minecraft:comparator[powered=false]"},
+		{"D dust power 0", "97 -60 60 minecraft:redstone_wire[power=0]"},
+		{"E chest empty: dark", "101 -60 60 minecraft:comparator[powered=false]"},
+		{"E dust power 0", "102 -60 60 minecraft:redstone_wire[power=0]"},
+	}
+	poke1 := []string{
+		`item replace block 99 -60 60 container.0 with minecraft:dirt 64`,
+	}
+	probesB := []struct{ name, spec string }{
+		{"E powered after fill", "101 -60 60 minecraft:comparator[powered=true]"},
+		{"E dust power 1", "102 -60 60 minecraft:redstone_wire[power=1]"},
+		{"C mode cycled subtract", "90 -60 60 minecraft:comparator[mode=subtract]"},
+		{"C dust power 5 subtracted", "91 -60 60 minecraft:redstone_wire[power=5]"},
+	}
+	probesC := []struct{ name, spec string }{
+		{"E dust power 15 full", "102 -60 60 minecraft:redstone_wire[power=15]"},
+		{"E dark after chest break", "101 -60 60 minecraft:comparator[powered=false]"},
+		{"E dust collapsed", "102 -60 60 minecraft:redstone_wire[power=0]"},
+		{"D still dark", "96 -60 60 minecraft:comparator[powered=false]"},
+	}
+
+	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
+		sendCommand(t, pw, fmt.Sprintf("execute if block %s run say ZC-ok-%d", spec, i))
+		sendCommand(t, pw, fmt.Sprintf("execute unless block %s run say ZC-miss-%d", spec, i))
+		sendCommand(t, pw, fmt.Sprintf("say ZCK%d", i))
+		marker := fmt.Sprintf("ZCK%d", i)
+		hit := "none"
+		deadline := time.Now().Add(4 * time.Second)
+		for time.Now().Before(deadline) {
+			for _, line := range sink.take() {
+				if strings.Contains(line, marker) {
+					return hit
+				}
+				if strings.Contains(line, fmt.Sprintf("ZC-ok-%d", i)) {
+					hit = "hit"
+				}
+				if strings.Contains(line, fmt.Sprintf("ZC-miss-%d", i)) {
+					hit = "miss"
+				}
+			}
+			time.Sleep(40 * time.Millisecond)
+		}
+		return hit
+	}
+
+	run := func(addr string) []string {
+		c, pr, pw := joinPlayQuiet(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		sendClientInformation(t, pw)
+		sink := newChatSinkTP(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(4 * time.Second)
+		sink.take()
+		var out []string
+		for _, cmd := range setup {
+			sendCommand(t, pw, cmd)
+		}
+		time.Sleep(1500 * time.Millisecond)
+		for i, p := range probesA {
+			out = append(out, probe(pw, sink, p.spec, i))
+		}
+		for _, cmd := range poke1 {
+			sendCommand(t, pw, cmd)
+		}
+		// Hand-use: click the C comparator's top face within reach —
+		// useWithoutItem cycles the mode and refreshes in place.
+		sendCommand(t, pw, `tp @s 90 -59 62`)
+		time.Sleep(400 * time.Millisecond)
+		sendUseItemOn(t, pw, 90, -60, 60, 1, 30)
+		time.Sleep(1200 * time.Millisecond)
+		for i, p := range probesB {
+			out = append(out, probe(pw, sink, p.spec, 100+i))
+		}
+		for slot := 1; slot <= 26; slot++ {
+			sendCommand(t, pw, fmt.Sprintf("item replace block 99 -60 60 container.%d with minecraft:dirt 64", slot))
+		}
+		time.Sleep(1200 * time.Millisecond)
+		out = append(out, probe(pw, sink, probesC[0].spec, 200))
+		sendCommand(t, pw, `setblock 99 -60 60 minecraft:air`)
+		time.Sleep(1200 * time.Millisecond)
+		for i, p := range probesC[1:] {
+			out = append(out, probe(pw, sink, p.spec, 201+i))
+		}
+		return out
+	}
+
+	vanilla := run(targets.vanilla)
+	mcgo := run(targets.mcgo)
+	all := append(append(append(probesA, probesB...), probesC[0]), probesC[1:]...)
+	for i, p := range all {
+		t.Logf("%-42s vanilla=%s mcgo=%s", p.name, vanilla[i], mcgo[i])
+		if vanilla[i] == "hit" && mcgo[i] != "hit" {
+			t.Errorf("probe %q: vanilla hit, mc-go %s", p.name, mcgo[i])
+		}
+		if mcgo[i] == "hit" && vanilla[i] != "hit" {
+			t.Errorf("probe %q: mc-go hit, vanilla %s", p.name, vanilla[i])
+		}
+	}
+}

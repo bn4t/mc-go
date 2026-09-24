@@ -148,12 +148,18 @@ func rsPropInt(v string) int {
 // carve-outs each source applies.
 func rsGetSignal(d *dimension, pos world.Pos, dir rsDir) int {
 	blk := d.w.GetBlock(pos)
+	owner, _ := world.StateOwner(blk)
+	name := strings.TrimPrefix(owner, "minecraft:")
 	sig := rsOwnSignal(blk)
+	if name == "comparator" {
+		// ComparatorBlock's ownSignal is powered ? the block
+		// entity's stored output : 0 — the level lives on the BE,
+		// not in state.
+		sig = rsCompOwn(d, pos, blk)
+	}
 	if sig == 0 {
 		return 0
 	}
-	owner, _ := world.StateOwner(blk)
-	name := strings.TrimPrefix(owner, "minecraft:")
 	// getBlockSignal silences wires while it samples neighbour
 	// signal so dust can't feed itself through getSignal.
 	if name == "redstone_wire" && d.rsSilenceWire {
@@ -446,7 +452,11 @@ func (s *Server) rsNeighborChanged(d *dimension, pos world.Pos) {
 			}
 			return
 		}
-		s.rsDiodeCheckTick(d, pos, name, blk)
+		if name == "comparator" {
+			s.rsCompCheckTick(d, pos, blk)
+		} else {
+			s.rsDiodeCheckTick(d, pos, name, blk)
+		}
 	case name == "redstone_wire":
 		// RedStoneWireBlock.neighborChanged: canSurvive gates the
 		// power recompute; a wire over air drops.
@@ -546,6 +556,9 @@ func (s *Server) rsWriteBlock(d *dimension, pos world.Pos, nb, notify world.Bloc
 	d.rsWriteDepth++
 	s.setSilentBlock(d, pos, nb)
 	s.rsNeighborFanOutNow(d, pos, -1)
+	if rsHasAnalog(nb) {
+		s.rsOutputSignalWake(d, pos)
+	}
 	s.neighborSurvival(d, pos, nb)
 	if extra != nil {
 		extra()
@@ -1161,13 +1174,14 @@ func rsDiodeLocked(d *dimension, pos world.Pos, name string, blk world.Block) bo
 	return rsDiodeAlt(d, pos, facing, true) > 0
 }
 
-// rsDiodeDelay is the getDelay override: RepeaterBlock = DELAY*2 ticks,
-// ComparatorBlock = constant 1.
+// rsDiodeDelay is RepeaterBlock.getDelay = DELAY*2 ticks.
+// ComparatorBlock never consults getDelay — its checkTickOnNeighbor
+// schedules a constant 2.
 func rsDiodeDelay(name string, blk world.Block) int64 {
 	if name == "repeater" {
 		return int64(rsPropInt(rsPropsOf(blk)("delay"))) * 2
 	}
-	return 1
+	return 2
 }
 
 // rsDiodeInput is DiodeBlock.getInputSignal: the input cell's getSignal

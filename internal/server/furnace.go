@@ -410,6 +410,7 @@ func (s *Server) furnaceTick(d *dimension, pos world.Pos, f *furnaceData) {
 	d.furnaces.mu.Lock()
 	_, recipe, result, canSmelt := smeltable(f)
 	changed := false
+	slotsDirty := false
 	if f.burn > 0 {
 		f.burn--
 		changed = true
@@ -425,6 +426,7 @@ func (s *Server) furnaceTick(d *dimension, pos world.Pos, f *furnaceData) {
 					}
 					f.burn, f.burnTotal = ticks, ticks
 					changed = true
+					slotsDirty = true
 				}
 			}
 		}
@@ -454,6 +456,7 @@ func (s *Server) furnaceTick(d *dimension, pos world.Pos, f *furnaceData) {
 			} else {
 				f.slots[furnaceOutput].Count++
 			}
+			slotsDirty = true
 		}
 		changed = true
 	} else if f.cook != 0 {
@@ -463,6 +466,9 @@ func (s *Server) furnaceTick(d *dimension, pos world.Pos, f *furnaceData) {
 	props := [4]int32{f.burn, f.burnTotal, f.cook, f.cookTotal}
 	slots := f.slots
 	d.furnaces.mu.Unlock()
+	if slotsDirty {
+		s.rsContainerChanged(d, pos)
+	}
 	if !changed {
 		return
 	}

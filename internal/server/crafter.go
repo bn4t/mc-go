@@ -124,6 +124,7 @@ func (s *Server) crafterCraft(d *dimension, pos world.Pos) {
 		}
 	}
 	d.containers.mu.Unlock()
+	s.rsContainerChanged(d, pos)
 
 	// Eject toward the crafter's front face: into a container there
 	// when one exists, else as a tossed item.
@@ -134,6 +135,7 @@ func (s *Server) crafterCraft(d *dimension, pos world.Pos) {
 		d.containers.mu.Lock()
 		slotsInsert(fc.slots, &rest)
 		d.containers.mu.Unlock()
+		s.rsContainerChanged(d, front)
 	}
 	if !rest.Empty() {
 		dx, dy, dz := float64(front.X-pos.X), float64(front.Y-pos.Y), float64(front.Z-pos.Z)

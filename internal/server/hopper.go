@@ -143,6 +143,12 @@ func (sess *Session) setHopperMenuStack(h *hopperData, slot int, it ItemStack) {
 		d.hoppers.mu.Lock()
 		h.slots[slot] = it
 		d.hoppers.mu.Unlock()
+		sess.windowMu.Lock()
+		w := sess.window
+		sess.windowMu.Unlock()
+		if w != nil {
+			sess.server.rsContainerChanged(d, w.pos)
+		}
 	case slot < hopperSlots+27:
 		sess.setStack(int16(slotMainStart+(slot-hopperSlots)), it)
 	default:
@@ -398,6 +404,14 @@ func (s *Server) hopperTickStep() {
 			}
 			if moved {
 				e.h.cooldown = hopperTransferEvery
+				// setChanged on each touched container — the hopper
+				// itself plus whichever of the push target or the pull
+				// source actually took part.
+				s.rsContainerChanged(d, e.pos)
+				s.rsContainerChanged(d, target)
+				if face != hopperUp {
+					s.rsContainerChanged(d, world.Pos{X: e.pos.X, Y: e.pos.Y + 1, Z: e.pos.Z})
+				}
 			}
 		}
 	}

@@ -68,6 +68,9 @@ type dimension struct {
 	hoppers    hopperStore
 	containers containerStore
 	beacons    map[world.Pos]*beaconEnt
+	// comparatorOut is ComparatorBlockEntity.output by position —
+	// the analog level a powered comparator last published.
+	comparatorOut map[world.Pos]int
 	// bees is a nest or hive's occupant count — the block entity's
 	// Bees list length, tracked only as a count because the trigger
 	// that reads it (bee_nest_destroyed's num_bees_inside) sees no

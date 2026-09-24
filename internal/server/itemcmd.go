@@ -1434,6 +1434,9 @@ func (s *Server) writeItemBlock(d *dimension, pos world.Pos, id int32, st ItemSt
 		c.slots[id] = st
 		d.containers.mu.Unlock()
 	}
+	// BlockEntity.setChanged on the slot write wakes comparators
+	// reading this block's analog level.
+	s.rsContainerChanged(d, pos)
 	return componentReply(translatable("commands.item.block.set.success",
 		nestedCompound{key: "", value: x},
 		nestedCompound{key: "", value: y},
