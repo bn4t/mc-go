@@ -507,6 +507,31 @@ func init() {
 	}
 }
 
+// mobCrammingStep mirrors LivingEntity.pushEntities' cramming gate:
+// count the pushable entities whose bounding boxes intersect this
+// mob's (itself and passengers excluded); when more than
+// max_entity_cramming-1 share the space, a 1-in-4 tick roll deals
+// cramming 6 to the whole pile. Vanilla counts passengers' hosts
+// but not the riding passengers themselves.
+func (s *Server) mobCrammingStep(e *Entity, maxCram int) {
+	ew, eh := mobBounds(e.Type)[0], mobBounds(e.Type)[1]
+	count := 0
+	for _, o := range s.entities.All() {
+		if o.ID == e.ID || o.Dim != e.Dim || o.Riding != 0 || o.Health <= 0 {
+			continue
+		}
+		ow, oh := mobBounds(o.Type)[0], mobBounds(o.Type)[1]
+		half := (ew + ow) / 2
+		if math.Abs(o.X-e.X) < half && math.Abs(o.Z-e.Z) < half &&
+			e.Y < o.Y+oh && o.Y < e.Y+eh {
+			count++
+		}
+	}
+	if count > maxCram-1 && rand.Intn(4) == 0 {
+		s.damageMob(e, 6, "cramming", nil, &damageInfo{typeName: "cramming"})
+	}
+}
+
 // mobBounds returns the (width, height) bounding box for an entity
 // type, defaulting to the player's box.
 func mobBounds(typeID int32) [2]float64 {
@@ -1862,6 +1887,11 @@ func (s *Server) mobTickStep() {
 		// placement — they fire for NoAI golems too.
 		if ambName == "snow_golem" {
 			s.snowGolemStep(e, s.dims[e.Dim], s.dimWorld(e.Dim))
+		}
+		// LivingEntity.pushEntities' cramming check is in the same
+		// aiStep region — every living tick regardless of NoAI.
+		if mc := s.gameRuleInt("minecraft:max_entity_cramming"); mc > 0 {
+			s.mobCrammingStep(e, mc)
 		}
 		// NeutralMob anger bookkeeping: a zombified piglin's
 		// persistentAngerEndTime lapses and clears the anger; a

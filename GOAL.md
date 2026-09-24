@@ -5866,3 +5866,30 @@ on both legs.
 
 Open items still ahead: block→SoundType fall-sound table, online
 mode, redstone, terrain gen, lighting.
+
+## Slice 2026-09-24l — entity cramming (max_entity_cramming)
+
+Vanilla 26.2 (LivingEntity.pushEntities, called from aiStep — no
+isEffectiveAi gate, so NoAI mobs still cramp): each living tick a mob
+counts pushable entities whose bounding boxes intersect its own
+(itself excluded; riding passengers excluded from the count but their
+hosts count); above max_entity_cramming-1 neighbors and a 1-in-4 tick
+roll, that mob takes cramming 6. A pile therefore thins to at most
+the cap; the gate `> max-1` means a pile exactly at the cap is safe,
+and max_entity_cramming 0 disables the whole check. doPush's shove-
+apart follows in the same method (not implemented — cages hold test
+piles together).
+
+mc-go: mobCrammingStep beside snowGolemStep in the every-living-tick
+region — AABB overlap via mobBoundsTable, count>cap-1 && 1-in-4 →
+damageMob(e, 6, "cramming").
+
+TestEntityCrammingParity: three 1×1 stone cells each stacked with 8
+NoAI chickens (0.4×0.7 boxes all intersect at one point) under caps
+4 / 8 / 0 → survivors 4 / 8 / 8 on vanilla AND mc-go. Counts read
+back via `execute store result storage z:cram n int 1 run execute if
+entity @e[tag=…]` + `data get storage z:cram n` (translate key
+commands.data.storage.query).
+
+Open items still ahead: block→SoundType fall-sound table, online
+mode, redstone, terrain gen, lighting.
