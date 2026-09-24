@@ -1595,3 +1595,154 @@ func TestDispenserDropperParity(t *testing.T) {
 		}
 	}
 }
+
+// TestDispenseProjectileParity pins the registerProjectileBehavior
+// items: ProjectileDispenseBehavior spawns the projectile entity at
+// center + facing*0.7 + (0,0.1,0) and shoots it along the facing
+// (power 1.1). Up-facing dispensers give every type a long flight —
+// phase A probes mid-flight existence, phase B pins the landing
+// behaviour: arrows/spectral stick, thrown items break, the rocket
+// pops on its fuse, and the armor stand (DispenseItemBehavior$1)
+// appears in the mouth cell.
+func TestDispenseProjectileParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	items := []struct {
+		x         int
+		item, ent string
+	}{
+		{60, "arrow", "arrow"},
+		{64, "spectral_arrow", "spectral_arrow"},
+		{68, "egg", "egg"},
+		{72, "snowball", "snowball"},
+		{76, "experience_bottle", "experience_bottle"},
+		{80, "splash_potion", "splash_potion"},
+		{84, "lingering_potion", "lingering_potion"},
+		{88, "fire_charge", "small_fireball"},
+		{92, "wind_charge", "wind_charge"},
+		{96, "firework_rocket", "firework_rocket"},
+	}
+	setup := []string{`gamerule send_command_feedback true`}
+	for _, it := range items {
+		count := "4"
+		if it.item == "splash_potion" || it.item == "lingering_potion" {
+			// Stack size 1 — vanilla rejects the overstacked fill.
+			count = "1"
+		}
+		setup = append(setup,
+			fmt.Sprintf(`setblock %d -60 120 minecraft:dispenser[facing=up]`, it.x),
+			fmt.Sprintf(`item replace block %d -60 120 container.0 with minecraft:%s %s`, it.x, it.item, count),
+		)
+	}
+	// The armor stand is not a projectile — it spawns in the mouth
+	// cell (DispenseItemBehavior$1), so its dispenser faces east.
+	setup = append(setup,
+		`setblock 100 -60 120 minecraft:dispenser[facing=east]`,
+		`item replace block 100 -60 120 container.0 with minecraft:armor_stand 4`,
+	)
+
+	probesA := []struct{ name, spec string }{}
+	for _, it := range items {
+		probesA = append(probesA, struct{ name, spec string }{
+			it.item + " mid-flight",
+			fmt.Sprintf("entity @e[type=minecraft:%s]", it.ent),
+		})
+	}
+	probesA = append(probesA,
+		struct{ name, spec string }{
+			"armor_stand spawned",
+			"entity @e[type=minecraft:armor_stand,x=101,y=-60,z=120,distance=..2]",
+		})
+	probesB := []struct{ name, spec string }{
+		{"arrow stuck stays", "entity @e[type=minecraft:arrow]"},
+		{"spectral stuck stays", "entity @e[type=minecraft:spectral_arrow]"},
+		{"egg broke", "!entity @e[type=minecraft:egg]"},
+		{"snowball broke", "!entity @e[type=minecraft:snowball]"},
+		{"xp bottle broke", "!entity @e[type=minecraft:experience_bottle]"},
+		{"splash broke", "!entity @e[type=minecraft:splash_potion]"},
+		{"lingering broke", "!entity @e[type=minecraft:lingering_potion]"},
+		{"rocket popped", "!entity @e[type=minecraft:firework_rocket]"},
+		{"fireball still flying", "entity @e[type=minecraft:small_fireball]"},
+		{"armor_stand persists", "entity @e[type=minecraft:armor_stand,x=101,y=-60,z=120,distance=..2]"},
+		{"drain arrow", "!items block 60 -60 120 container.* minecraft:arrow[count=4]"},
+		{"drain egg", "!items block 68 -60 120 container.* minecraft:egg[count=4]"},
+	}
+
+	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
+		if strings.HasPrefix(spec, "!") {
+			spec = spec[1:]
+			sendCommand(t, pw, fmt.Sprintf("execute unless %s run say ZP-ok-%d", spec, i))
+			sendCommand(t, pw, fmt.Sprintf("execute if %s run say ZP-miss-%d", spec, i))
+		} else {
+			sendCommand(t, pw, fmt.Sprintf("execute if %s run say ZP-ok-%d", spec, i))
+			sendCommand(t, pw, fmt.Sprintf("execute unless %s run say ZP-miss-%d", spec, i))
+		}
+		deadline := time.Now().Add(4 * time.Second)
+		hit := ""
+		for time.Now().Before(deadline) {
+			for _, line := range sink.take() {
+				if strings.Contains(line, fmt.Sprintf("ZP-ok-%d", i)) {
+					hit = "hit"
+				}
+				if strings.Contains(line, fmt.Sprintf("ZP-miss-%d", i)) {
+					hit = "miss"
+				}
+			}
+			if hit != "" {
+				break
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+		return hit
+	}
+
+	run := func(addr string) []string {
+		c, pr, pw := joinPlayQuiet(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		sendClientInformation(t, pw)
+		sink := newChatSinkTP(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(4 * time.Second)
+		sink.take()
+		var out []string
+		for _, cmd := range setup {
+			sendCommand(t, pw, cmd)
+		}
+		time.Sleep(400 * time.Millisecond)
+		for _, it := range items {
+			sendCommand(t, pw, fmt.Sprintf(`setblock %d -61 120 minecraft:redstone_block`, it.x))
+		}
+		sendCommand(t, pw, `setblock 100 -61 120 minecraft:redstone_block`)
+		// Mid-flight window: +4t dispense, ~450ms later everything is
+		// still airborne (or, for the fireball/wind charge, flying).
+		time.Sleep(500 * time.Millisecond)
+		for i, p := range probesA {
+			out = append(out, probe(pw, sink, p.spec, i))
+		}
+		// Landing outcomes need the projectiles to have come down —
+		// power 1.1 up takes ~3.7s of rise+fall; 4.5s covers it plus
+		// the rocket fuse.
+		time.Sleep(4200 * time.Millisecond)
+		for i, p := range probesB {
+			out = append(out, probe(pw, sink, p.spec, 100+i))
+		}
+		return out
+	}
+
+	vanilla := run(targets.vanilla)
+	mcgo := run(targets.mcgo)
+	all := append(append([]struct{ name, spec string }{}, probesA...), probesB...)
+	for i, p := range all {
+		t.Logf("%-44s vanilla=%s mcgo=%s", p.name, vanilla[i], mcgo[i])
+		if vanilla[i] == "hit" && mcgo[i] != "hit" {
+			t.Errorf("probe %q: vanilla hit, mc-go %s", p.name, mcgo[i])
+		}
+		if mcgo[i] == "hit" && vanilla[i] != "hit" {
+			t.Errorf("probe %q: mc-go hit, vanilla %s", p.name, vanilla[i])
+		}
+	}
+}

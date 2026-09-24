@@ -25,6 +25,16 @@ const (
 	arrowAirDrag = 0.99
 )
 
+// projectileTickTypes — the entity names arrowTickStep integrates:
+// player-fired plus dispenser-spawned projectiles. Wind charges run
+// their own step (windChargeTickStep) because they burst, not stick.
+var projectileTickTypes = map[string]bool{
+	"arrow": true, "spectral_arrow": true, "trident": true,
+	"splash_potion": true, "lingering_potion": true,
+	"egg": true, "snowball": true, "experience_bottle": true,
+	"small_fireball": true, "firework_rocket": true,
+}
+
 // bowStartTick timestamps a draw begun by Use Item on a bow so the
 // release can measure the charge; zero means not drawing.
 func (sess *Session) drawingBow() bool { return sess.bowStartTick != 0 }
@@ -151,7 +161,7 @@ func (s *Server) arrowTickStep() {
 		if e.Dying {
 			continue
 		}
-		if name, ok := EntityTypeName(e.Type); ok && (name == "arrow" || name == "trident" || name == "splash_potion") {
+		if name, ok := EntityTypeName(e.Type); ok && projectileTickTypes[name] {
 			arrows = append(arrows, e)
 		}
 	}
@@ -159,22 +169,41 @@ func (s *Server) arrowTickStep() {
 	for _, e := range arrows {
 		name, _ := EntityTypeName(e.Type)
 		isTrident := name == "trident"
-		isPotion := name == "splash_potion"
+		isPotion := name == "splash_potion" || name == "lingering_potion"
+		// Arrows, spectral arrows and tridents stick in the block they
+		// hit; the thrown items and hurting projectiles just despawn.
+		sticks := name == "arrow" || name == "spectral_arrow" || isTrident
 		if e.arrowStuck || e.tridentStuck {
 			if isTrident {
 				s.tridentPickupStep(e)
 			}
 			continue
 		}
+		if name == "firework_rocket" {
+			// FireworkRocketEntity.tick: the fuse (a few dozen ticks
+			// on an uncharged rocket) ends in the pop; here just the
+			// despawn is modelled.
+			e.Fuse--
+			if e.Fuse <= 0 {
+				s.entities.Remove(e.ID)
+				s.broadcastEntityRemove([]int32{e.ID})
+				continue
+			}
+		}
 		ox, oy, oz := e.X, e.Y, e.Z
 		e.X += e.MotionX
 		e.Y += e.MotionY
 		e.Z += e.MotionZ
 		// ThrowableProjectile's default gravity is 0.03 vs the
-		// arrow's 0.05; the 0.99 air drag is shared.
+		// arrow's 0.05; hurting projectiles and rockets fly flat
+		// (no gravity). The 0.99 air drag is shared.
 		grav := arrowGravity
-		if isPotion {
+		switch name {
+		case "egg", "snowball", "experience_bottle",
+			"splash_potion", "lingering_potion":
 			grav = 0.03
+		case "small_fireball", "firework_rocket", "wind_charge":
+			grav = 0
 		}
 		e.MotionY -= grav
 		e.MotionX *= arrowAirDrag
@@ -185,13 +214,18 @@ func (s *Server) arrowTickStep() {
 		// tick's movement segment — a point check at the new tip tunnels
 		// straight through at full draw speed (3 blocks/tick).
 		var collided bool
-		if isPotion {
+		switch {
+		case isPotion:
 			collided = s.potionCollide(e, ox, oy, oz)
-		} else if isTrident {
+		case isTrident:
 			collided = s.projectileCollide(e, ox, oy, oz, tridentHitDamage, "trident")
-		} else {
+		case sticks:
 			collided = s.arrowCollide(e, ox, oy, oz)
 		}
+		// Thrown items (egg/snowball/xp bottle) and hurting
+		// projectiles skip the entity-AABB pass here — their impact
+		// effects are a separate slice; the block hit below still
+		// applies.
 		if collided && isTrident {
 			// The channeling enchantment's post_attack effect is
 			// data-driven in 26.2: thundering + can_see_sky at the
@@ -213,6 +247,14 @@ func (s *Server) arrowTickStep() {
 			e.MotionX, e.MotionY, e.MotionZ = 0, 0, 0
 			if isPotion {
 				s.potionSplash(e, hx, hy, hz)
+				s.entities.Remove(e.ID)
+				s.broadcastEntityRemove([]int32{e.ID})
+				continue
+			}
+			if !sticks {
+				// Egg/snowball/xp bottle/fireball/rocket: the block hit
+				// is terminal — the entity despawns (ThrownEgg's 1/8
+				// chick hatch and the fireball ignite stay deferred).
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemove([]int32{e.ID})
 				continue

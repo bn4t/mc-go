@@ -6302,3 +6302,29 @@ TestDispenserDropperParity (19 probes, both servers).
   update. setBlockAndBroadcastNotify now skips broadcast/neighbour
   work when the folded result equals the old state (self-fold still
   runs, matching updateFromNeighbourShapes ordering).
+
+## Slice 2026-09-24w — dispense projectile behaviors (ProjectileDispenseBehavior)
+
+Measured on the jar (DispenseItemBehavior.bootStrap,
+ProjectileDispenseBehavior, ProjectileItem$DispenseConfig) and pinned
+by TestDispenseProjectileParity (23 probes, both servers).
+
+- Projectile items spawn their entity at pos.center + facing*0.7 +
+  (0,0.1,0) shot along the facing at power 1.1 (uncertainty jitter
+  0.0172275*uncertainty, triangle); sound is levelEvent 1002 with
+  per-item overrides (fire_charge/wind_charge 1018, rocket 1004).
+- Item → entity map: arrow/tipped_arrow→arrow, spectral_arrow→
+  spectral_arrow, egg variants→egg, snowball, experience_bottle,
+  splash_potion/lingering_potion, fire_charge→small_fireball,
+  wind_charge, firework_rocket — DispenseItemBehavior$1 covers
+  armor_stand (spawns in the mouth cell, yaw = dispenser facing).
+- arrowTickStep gained the whole family: thrown items use gravity
+  0.03, arrows/trident 0.05, hurting projectiles + rockets 0; arrows
+  stick on block hit, everything else despawns. Firework rockets
+  despawn on a 40-tick fuse. Egg chick-hatch, lingering clouds,
+  fireball ignite and thrown-entity damage stay deferred.
+- Fixes found by the differential: itemTickStep keyed on
+  `Item.ID != 0`, so any entity carrying an item (all the thrown
+  projectiles) got dragged into item physics and froze on a block —
+  now gated on the item/xp-orb entity types. (Same class as the
+  identical-setblock early-out shipped last slice.)

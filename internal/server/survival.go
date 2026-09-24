@@ -484,10 +484,14 @@ func (s *Server) broadcastEntityMetadata(eid int32, payload []byte) {
 // player pickup, and position sync.
 func (s *Server) itemTickStep() {
 	orbType := mustEntityType("experience_orb")
+	itemType := mustEntityType("item")
 	s.entities.mu.RLock()
 	items := make([]*Entity, 0, len(s.entities.byID))
 	for _, e := range s.entities.byID {
-		if e.Item.ID != 0 || e.Type == orbType {
+		// Item physics belong to ItemEntity + XP orbs alone — a
+		// thrown projectile (egg/snowball/potion) also carries an
+		// Item field for rendering but flies on projectile rules.
+		if e.Type == itemType || e.Type == orbType {
 			items = append(items, e)
 		}
 	}
