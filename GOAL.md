@@ -5991,3 +5991,52 @@ lamp latch+unlatch, torch quirk (powered mount alone doesn't wake a
 2-away torch), torch self-unlatch through the ring-2 notify, iron
 door, rail, TNT priming, and hand-press lever + 20t stone button
 release — all matching vanilla.
+
+## Slice 2026-09-24o — redstone wire power + connection model + update queue
+
+Measured DefaultRedstoneWireEvaluator / RedStoneWireBlock off the jar
+and implemented:
+
+- updatePowerStrength (`rsWireUpdate`): target = max(best non-wire
+  neighbour signal with dust silenced via shouldSignal, best
+  neighbouring wire power −1); flag-2 power write only while the cell
+  still holds the wire, then updateNeighborsAt on pos plus all six
+  neighbours.
+- getIncomingWireSignal: same-level wires, the wire above a
+  conducting neighbour (climb), and the wire below a non-conducting
+  one (drop) — decayed one per cell.
+- getConnectingSide / getConnectionState (`rsConnectingSide` /
+  `rsWireFold`): up-arm when the wire can climb a sturdy neighbour,
+  side-arms toward connectables (wire, repeater facing its axis,
+  observer facing the wire, any signal source), plus the
+  survivor-arm quirk — a wire with exactly one connected axis sprouts
+  the opposite arm when the perpendicular pair is empty.
+- RedStoneWireBlock overrides: updateShape (DOWN pops over no
+  support, UP refolds, horizontal re-arms or refolds),
+  updateIndirectNeighbourShapes (the diagonal corner-wire fold),
+  onPlace (power recompute + vertical neighbours +
+  updateNeighborsOfNeighboringWires), affectNeighborsAfterRemoval.
+- `rsPending`/`rsWriteDepth`: inside a block write,
+  updateNeighborsAt fan-outs queue instead of running synchronously —
+  vanilla's CollectingNeighborUpdater runs chained updates only after
+  the write's own neighbour pass and updateNeighbourShapes fold —
+  and the outermost setBlockAndBroadcastNotify drains them FIFO.
+  This is what lets a lever write fold a dot dust's survivor arm to
+  SIDE before the dust's power change reaches the rail next to it.
+- `rsWriteBlock` gives the same layered ordering to writes outside
+  the shared path: lever/button/door hand flips and the scheduled
+  torch/lamp/button toggles now run updateNeighborsAt +
+  updateNeighbourShapes + the attached-mount ring, so a hand flip
+  folds dust arms just like a setblock does.
+- Default wire state (setblock) stays a dot; hand-place folds from
+  crossState via getStateForPlacement.
+
+Deferred: rail 9-chain (findPoweredRailSignal), torch burnout,
+comparator output fanout, `useExperimentalEvaluator`.
+
+TestRedstoneWireParity pins it — 23 probes covering decay over a
+15-chain, lamp at chain end, dot→cross folding both orders, wire
+climbing a ledge, mount-powered drop, power collapse on removal,
+corner-arm fold, rail lit via the survivor arm (both setblock
+orderings), hand-placed cross, and a hand-flipped lever folding the
+dot before powering the rail — all matching vanilla.

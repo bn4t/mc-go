@@ -420,8 +420,7 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 			return
 		}
 		if nb, ok := world.WithProperty(blk, "lit", "false"); ok {
-			d.w.SetBlock(pos, nb)
-			s.broadcastBlockState(d, pos, nb)
+			s.rsWriteBlock(d, pos, nb, nb, nil)
 		}
 		return
 	}
@@ -433,8 +432,7 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 			return
 		}
 		if nb, ok := world.WithProperty(blk, "lit", boolStr(lit != "true")); ok {
-			d.w.SetBlock(pos, nb)
-			s.broadcastBlockState(d, pos, nb)
+			s.rsWriteBlock(d, pos, nb, nb, nil)
 		}
 		return
 	}
@@ -450,10 +448,10 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 	if !ok {
 		return
 	}
-	d.w.SetBlock(pos, nb)
-	s.broadcastBlockState(d, pos, nb)
 	// checkPressed(): setBlock -> updateNeighbours -> click_off.
-	s.explodeUpdateNeighboursAttached(d, pos, nb)
+	s.rsWriteBlock(d, pos, nb, nb, func() {
+		s.explodeUpdateNeighboursAttached(d, pos, nb)
+	})
 	s.explodeBlockSound(d, pos, windSoundFamily(short)+"_button.click_off", 1, 1)
 }
 

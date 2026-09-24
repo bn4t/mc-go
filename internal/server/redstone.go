@@ -22,6 +22,7 @@ package server
 // http://minecraft.wiki/Redstone_mechanics
 import (
 	"math/rand"
+	"strconv"
 	"strings"
 
 	"mc-go/internal/world"
@@ -151,6 +152,11 @@ func rsGetSignal(d *dimension, pos world.Pos, dir rsDir) int {
 	}
 	owner, _ := world.StateOwner(blk)
 	name := strings.TrimPrefix(owner, "minecraft:")
+	// getBlockSignal silences wires while it samples neighbour
+	// signal so dust can't feed itself through getSignal.
+	if name == "redstone_wire" && d.rsSilenceWire {
+		return 0
+	}
 	prop := rsPropsOf(blk)
 	switch name {
 	case "redstone_torch":
@@ -409,17 +415,70 @@ func (s *Server) rsNeighborChanged(d *dimension, pos world.Pos) {
 		if sig {
 			s.tntNeighborChanged(d, pos)
 		}
+	case name == "redstone_wire":
+		// RedStoneWireBlock.neighborChanged: canSurvive gates the
+		// power recompute; a wire over air drops.
+		below := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
+		if !rsFaceSturdyUp(d.w.GetBlock(below)) {
+			s.broadcastLevelEvent(d.name, 2001, pos, int32(blk))
+			s.setNaturalBlock(d, pos, world.Air)
+			return
+		}
+		s.rsWireUpdate(d, pos, blk)
 	}
 }
 
 // rsNeighborFanOut mirrors updateNeighborsAt: every neighbour of a
-// written block runs its neighborChanged. Called from the shared
-// write path (setBlockAndBroadcastNotify) and the face-control
-// toggles via explodeUpdateNeighboursAttached.
+// written block runs its neighborChanged. While a block write is in
+// flight the call only enqueues — vanilla's CollectingNeighborUpdater
+// drains chained updates after the write's own neighbour pass and the
+// updateNeighbourShapes fold, so e.g. a wire that powers up mid-write
+// notifies the rail beside it only once that write's updateShape has
+// folded the wire's arms. The outermost write drains the queue FIFO
+// (setBlockAndBroadcastNotify); calls outside a write run at once.
 func (s *Server) rsNeighborFanOut(d *dimension, pos world.Pos) {
+	if d.rsWriteDepth > 0 {
+		d.rsPending = append(d.rsPending, pos)
+		return
+	}
+	s.rsNeighborFanOutNow(d, pos)
+}
+
+func (s *Server) rsNeighborFanOutNow(d *dimension, pos world.Pos) {
 	for _, o := range rsOff {
 		s.rsNeighborChanged(d, world.Pos{X: pos.X + o.X, Y: pos.Y + o.Y, Z: pos.Z + o.Z})
 	}
+}
+
+// rsDrainPending flushes the queued updateNeighborsAt fan-outs FIFO;
+// fan-outs chained mid-drain append and run in order.
+func (s *Server) rsDrainPending(d *dimension) {
+	for len(d.rsPending) > 0 {
+		next := d.rsPending[0]
+		d.rsPending = d.rsPending[1:]
+		s.rsNeighborFanOutNow(d, next)
+	}
+	d.rsPending = d.rsPending[:0]
+}
+
+// rsWriteBlock is markAndNotifyBlock for writes that bypass
+// setBlockAndBroadcastNotify (hand flips, scheduled toggles): the
+// silent write + onPlace hooks, then updateNeighborsAt and
+// updateNeighbourShapes in order, then extra() for per-block extras
+// (a lever's updateNeighbours mount ring), with the queued chained
+// updates draining last.
+func (s *Server) rsWriteBlock(d *dimension, pos world.Pos, nb, notify world.Block, extra func()) {
+	d.rsWriteDepth++
+	s.setSilentBlock(d, pos, nb)
+	s.rsNeighborFanOutNow(d, pos)
+	s.neighborSurvival(d, pos, nb)
+	if extra != nil {
+		extra()
+	}
+	if d.rsWriteDepth == 1 {
+		s.rsDrainPending(d)
+	}
+	d.rsWriteDepth--
 }
 
 // rsTorchNotify is RedstoneTorchBlock.notifyNeighbors: a torch's
@@ -439,9 +498,9 @@ func (s *Server) rsButtonPress(d *dimension, pos world.Pos, name string, blk wor
 	if !ok {
 		return
 	}
-	d.w.SetBlock(pos, nb)
-	s.broadcastBlockState(d, pos, nb)
-	s.explodeUpdateNeighboursAttached(d, pos, nb)
+	s.rsWriteBlock(d, pos, nb, nb, func() {
+		s.explodeUpdateNeighboursAttached(d, pos, nb)
+	})
 	fam := windSoundFamily(name)
 	stay := int64(30)
 	if fam == "stone" {
@@ -459,9 +518,9 @@ func (s *Server) rsLeverPull(d *dimension, pos world.Pos, blk world.Block) {
 	if !ok {
 		return
 	}
-	d.w.SetBlock(pos, nb)
-	s.broadcastBlockState(d, pos, nb)
-	s.explodeUpdateNeighboursAttached(d, pos, nb)
+	s.rsWriteBlock(d, pos, nb, nb, func() {
+		s.explodeUpdateNeighboursAttached(d, pos, nb)
+	})
 	pitch := float32(0.5)
 	if powered != "true" {
 		pitch = 0.6
@@ -499,12 +558,418 @@ func (s *Server) rsToggleOpenable(d *dimension, pos world.Pos, name string) bool
 	if !ok {
 		return false
 	}
-	d.w.SetBlock(pos, nb)
-	s.broadcastBlockState(d, pos, nb)
+	s.rsWriteBlock(d, pos, nb, nb, nil)
 	snd := fam + ".open"
 	if open == "true" {
 		snd = fam + ".close"
 	}
 	s.explodeBlockSound(d, pos, snd, 1, rand.Float32()*0.1+0.9)
 	return true
+}
+
+// ---- RedStoneWireBlock: connections and the DefaultRedstoneWireEvaluator ----
+
+var rsHoriz = [4]rsDir{rsNorth, rsSouth, rsWest, rsEast}
+
+// rsIsSignalSource is BlockState.isSignalSource: every block that can
+// emit a signal counts — dust connects to it.
+func rsIsSignalSource(blk world.Block) bool {
+	owner, ok := world.StateOwner(blk)
+	if !ok {
+		return false
+	}
+	name := strings.TrimPrefix(owner, "minecraft:")
+	if rsSignalSourceNames[name] {
+		return true
+	}
+	for _, suf := range rsSignalSourceSuffix {
+		if strings.HasSuffix(name, suf) {
+			return true
+		}
+	}
+	return false
+}
+
+// rsSignalSourceNames is the vanilla isSignalSource=true set (26.2):
+// every source block dust connects to. DiodeBlock covers repeater +
+// comparator, PoweredBlock the redstone block; the rest override
+// isSignalSource directly. Powered rails/lamps/pistons are NOT
+// sources — dust does not fold an arm toward them.
+var rsSignalSourceNames = map[string]bool{
+	"redstone_wire": true, "redstone_torch": true, "redstone_wall_torch": true,
+	"redstone_block": true, "lever": true, "daylight_detector": true,
+	"comparator": true, "repeater": true, "observer": true,
+	"target": true, "tripwire_hook": true, "lectern": true,
+	"lightning_rod": true, "sculk_sensor": true, "calibrated_sculk_sensor": true,
+	"detector_rail": true, "trapped_chest": true,
+}
+
+var rsSignalSourceSuffix = []string{"_button", "_pressure_plate"}
+
+// rsShouldConnectTo is RedStoneWireBlock.shouldConnectTo(state, dir):
+// wire connects to other wire, to a repeater looking at/away from it,
+// to an observer facing it, and to any signal source.
+func rsShouldConnectTo(d *dimension, pos world.Pos, dir rsDir) bool {
+	blk := d.w.GetBlock(pos)
+	owner, ok := world.StateOwner(blk)
+	if !ok {
+		return false
+	}
+	name := strings.TrimPrefix(owner, "minecraft:")
+	switch name {
+	case "redstone_wire":
+		return true
+	case "repeater":
+		f, _ := world.StateProperty(blk, "facing")
+		fd, ok := rsDirOfName[f]
+		return ok && (fd == dir || rsOpposite(fd) == dir)
+	case "observer":
+		f, _ := world.StateProperty(blk, "facing")
+		fd, ok := rsDirOfName[f]
+		return ok && fd == dir
+	}
+	return rsIsSignalSource(blk)
+}
+
+// rsFaceSturdyUp approximates isFaceSturdy(_, UP): the block's top is a
+// full square — conductors plus the transparent full cubes and the
+// non-full blocks whose top face is still complete.
+func rsFaceSturdyUp(blk world.Block) bool {
+	if rsConductor(blk) {
+		return true
+	}
+	owner, ok := world.StateOwner(blk)
+	if !ok {
+		return false
+	}
+	name := strings.TrimPrefix(owner, "minecraft:")
+	switch name {
+	case "glass", "tinted_glass", "ice", "packed_ice", "blue_ice",
+		"frosted_ice", "glowstone", "sea_lantern", "barrier",
+		"slime_block", "honey_block", "farmland", "dirt_path",
+		"soul_sand", "mud", "hopper", "mangrove_roots",
+		"muddy_mangrove_roots", "trial_spawner", "vault",
+		"creaking_heart", "copper_bulb":
+		return true
+	}
+	if strings.HasSuffix(name, "_stained_glass") {
+		return true
+	}
+	// Top slabs and upside-down stairs still present a full top.
+	if strings.HasSuffix(name, "_slab") {
+		if t, _ := world.StateProperty(blk, "type"); t == "top" {
+			return true
+		}
+	}
+	if strings.HasSuffix(name, "_stairs") {
+		if h, _ := world.StateProperty(blk, "half"); h == "top" {
+			return true
+		}
+	}
+	return false
+}
+
+// rsConnectingSide is getConnectingSide: climb to the wire on top of
+// the neighbour when allowed, connect sideways into a connectable or
+// down onto the wire under a non-conductor.
+func (s *Server) rsConnectingSide(d *dimension, pos world.Pos, dir rsDir) string {
+	o := rsOff[dir]
+	n := world.Pos{X: pos.X + o.X, Y: pos.Y + o.Y, Z: pos.Z + o.Z}
+	nb := d.w.GetBlock(n)
+	canGoUp := !rsConductor(d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z}))
+	if canGoUp && rsFaceSturdyUp(nb) {
+		up := world.Pos{X: n.X, Y: n.Y + 1, Z: n.Z}
+		if rsShouldConnectTo(d, up, dir) {
+			// Wire climbs the sturdy face: UP when the neighbour's
+			// side toward the wire is sturdy, else SIDE.
+			return "up"
+		}
+	}
+	if rsShouldConnectTo(d, n, dir) ||
+		(!rsConductor(nb) && rsShouldConnectTo(d, world.Pos{X: n.X, Y: n.Y - 1, Z: n.Z}, dir)) {
+		return "side"
+	}
+	return "none"
+}
+
+// rsWireSidesConnected reports which horizontal side props are
+// connected (side or up).
+func rsWireSidesConnected(blk world.Block) (conn [4]bool) {
+	for i, h := range rsHoriz {
+		v, _ := world.StateProperty(blk, rsDirName(h))
+		conn[i] = v == "side" || v == "up"
+	}
+	return
+}
+
+// rsWireFold is getConnectionState: reset the four sides, recompute
+// each missing connection, and — unless the wire was and stays a dot —
+// add the survivor arms (a wire connected on no E/W arm gains both
+// when it has no N/S connections, and vice versa).
+func (s *Server) rsWireFold(d *dimension, pos world.Pos, blk world.Block) world.Block {
+	conn := rsWireSidesConnected(blk)
+	wasDot := !conn[0] && !conn[1] && !conn[2] && !conn[3]
+	for _, h := range rsHoriz {
+		i := int(h) - 2 // rsHoriz indexes 2..5 → slot 0..3
+		if !conn[i] {
+			nb, ok := world.WithProperty(blk, rsDirName(h), s.rsConnectingSide(d, pos, h))
+			if ok {
+				blk = nb
+			}
+		}
+	}
+	conn = rsWireSidesConnected(blk)
+	isDot := !conn[0] && !conn[1] && !conn[2] && !conn[3]
+	if wasDot && isDot {
+		return blk
+	}
+	noNS := !conn[0] && !conn[1]
+	noEW := !conn[2] && !conn[3]
+	set := func(h rsDir, want bool) {
+		if !want {
+			return
+		}
+		if nb, ok := world.WithProperty(blk, rsDirName(h), "side"); ok {
+			blk = nb
+		}
+	}
+	set(rsWest, !conn[2] && noNS)
+	set(rsEast, !conn[3] && noNS)
+	set(rsNorth, !conn[0] && noEW)
+	set(rsSouth, !conn[1] && noEW)
+	return blk
+}
+
+// rsWirePowerOf reads the wire's power prop (0 for non-wire).
+func rsWirePowerOf(blk world.Block) int {
+	owner, ok := world.StateOwner(blk)
+	if !ok || strings.TrimPrefix(owner, "minecraft:") != "redstone_wire" {
+		return 0
+	}
+	p, _ := world.StateProperty(blk, "power")
+	return rsPropInt(p)
+}
+
+// rsIncomingWireSignal is RedstoneWireEvaluator.getIncomingWireSignal:
+// the best neighbour wire power — same-level wires, the wire on top of
+// a conducting neighbour, or the wire below a non-conducting one —
+// decayed by one.
+func rsIncomingWireSignal(d *dimension, pos world.Pos) int {
+	best := 0
+	upBlk := d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z})
+	upCond := rsConductor(upBlk)
+	for _, h := range rsHoriz {
+		o := rsOff[h]
+		n := world.Pos{X: pos.X + o.X, Y: pos.Y + o.Y, Z: pos.Z + o.Z}
+		nb := d.w.GetBlock(n)
+		if v := rsWirePowerOf(nb); v > best {
+			best = v
+		}
+		if rsConductor(nb) {
+			if !upCond {
+				if v := rsWirePowerOf(d.w.GetBlock(world.Pos{X: n.X, Y: n.Y + 1, Z: n.Z})); v > best {
+					best = v
+				}
+			}
+		} else if v := rsWirePowerOf(d.w.GetBlock(world.Pos{X: n.X, Y: n.Y - 1, Z: n.Z})); v > best {
+			best = v
+		}
+	}
+	if best > 0 {
+		return best - 1
+	}
+	return 0
+}
+
+// rsWireTarget is DefaultRedstoneWireEvaluator.calculateTargetStrength:
+// the best non-wire signal (wires are silenced so dust doesn't feed
+// itself through getSignal), short-circuiting at 15, or the incoming
+// wire strength when higher.
+func (s *Server) rsWireTarget(d *dimension, pos world.Pos) int {
+	d.rsSilenceWire = true
+	best := rsBestNeighborSignal(d, pos)
+	d.rsSilenceWire = false
+	if best == 15 {
+		return 15
+	}
+	if w := rsIncomingWireSignal(d, pos); w > best {
+		return w
+	}
+	return best
+}
+
+// rsWireUpdate is updatePowerStrength: when the wire's power prop
+// differs from the target, the wire rewrites (flag 2 — no neighbour
+// fan-out from the write itself) and then pos plus all six neighbours
+// run updateNeighborsAt.
+func (s *Server) rsWireUpdate(d *dimension, pos world.Pos, blk world.Block) {
+	target := s.rsWireTarget(d, pos)
+	power := rsWirePowerOf(blk)
+	if power == target {
+		return
+	}
+	// updatePowerStrength writes only while the cell still holds the
+	// wire it was asked about (a neighbourChanged re-entry may have
+	// replaced it).
+	if d.w.GetBlock(pos) == blk {
+		if nb, ok := world.WithProperty(blk, "power", strconv.Itoa(target)); ok {
+			d.w.SetBlock(pos, nb)
+			s.broadcastBlockState(d, pos, nb)
+		}
+	}
+	s.rsNeighborFanOut(d, pos)
+	for i := range rsOff {
+		s.rsNeighborFanOut(d, world.Pos{X: pos.X + rsOff[i].X, Y: pos.Y + rsOff[i].Y, Z: pos.Z + rsOff[i].Z})
+	}
+}
+
+// rsCheckCornerChange is checkCornerChangeAt: a wire at p re-fans its
+// neighbours plus the neighbours' neighbours — the ring-2 reach a
+// power-carrying dust actually feeds.
+func (s *Server) rsCheckCornerChange(d *dimension, p world.Pos) {
+	blk := d.w.GetBlock(p)
+	owner, ok := world.StateOwner(blk)
+	if !ok || strings.TrimPrefix(owner, "minecraft:") != "redstone_wire" {
+		return
+	}
+	s.rsNeighborFanOut(d, p)
+	for i := range rsOff {
+		s.rsNeighborFanOut(d, world.Pos{X: p.X + rsOff[i].X, Y: p.Y + rsOff[i].Y, Z: p.Z + rsOff[i].Z})
+	}
+}
+
+// rsUpdateNeighborsOfNeighboringWires is updateNeighborsOfNeighboringWires:
+// horizontal neighbour wires plus the wire around their corner.
+func (s *Server) rsUpdateNeighborsOfNeighboringWires(d *dimension, pos world.Pos) {
+	for _, h := range rsHoriz {
+		o := rsOff[h]
+		s.rsCheckCornerChange(d, world.Pos{X: pos.X + o.X, Y: pos.Y + o.Y, Z: pos.Z + o.Z})
+	}
+	for _, h := range rsHoriz {
+		o := rsOff[h]
+		n := world.Pos{X: pos.X + o.X, Y: pos.Y + o.Y, Z: pos.Z + o.Z}
+		if rsConductor(d.w.GetBlock(n)) {
+			s.rsCheckCornerChange(d, world.Pos{X: n.X, Y: n.Y + 1, Z: n.Z})
+		} else {
+			s.rsCheckCornerChange(d, world.Pos{X: n.X, Y: n.Y - 1, Z: n.Z})
+		}
+	}
+}
+
+// rsWireOnPlace is RedStoneWireBlock.onPlace: recompute own power,
+// updateNeighborsAt the vertical neighbours, then the
+// neighbouring-wires pass.
+func (s *Server) rsWireOnPlace(d *dimension, pos world.Pos, blk world.Block) {
+	s.rsWireUpdate(d, pos, blk)
+	s.rsNeighborFanOut(d, world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z})
+	s.rsNeighborFanOut(d, world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z})
+	s.rsUpdateNeighborsOfNeighboringWires(d, pos)
+}
+
+// rsWireAfterRemoval is affectNeighborsAfterRemoval: all six
+// neighbours update, the vacated pos recomputes (writes nothing since
+// the wire is gone), then the neighbouring-wires pass.
+func (s *Server) rsWireAfterRemoval(d *dimension, pos world.Pos) {
+	for i := range rsOff {
+		s.rsNeighborFanOut(d, world.Pos{X: pos.X + rsOff[i].X, Y: pos.Y + rsOff[i].Y, Z: pos.Z + rsOff[i].Z})
+	}
+	s.rsUpdateNeighborsOfNeighboringWires(d, pos)
+}
+
+// rsWireIsCross is isCross: all four sides connected and none up.
+func rsWireIsCross(blk world.Block) bool {
+	conn := rsWireSidesConnected(blk)
+	if !conn[0] || !conn[1] || !conn[2] || !conn[3] {
+		return false
+	}
+	for _, h := range rsHoriz {
+		if v, _ := world.StateProperty(blk, rsDirName(h)); v == "up" {
+			return false
+		}
+	}
+	return true
+}
+
+// rsWireUpdateShape is RedStoneWireBlock.updateShape: DOWN pops when
+// the support is gone, UP re-runs the whole fold, and a horizontal
+// change updates just that side — a conn-ness flip or a cross wire
+// triggers the full fold instead.
+func (s *Server) rsWireUpdateShape(d *dimension, pos, changed world.Pos) {
+	blk := d.w.GetBlock(pos)
+	dx, dy, dz := changed.X-pos.X, changed.Y-pos.Y, changed.Z-pos.Z
+	if dy == -1 {
+		if !rsFaceSturdyUp(d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z})) {
+			s.setSilentBlock(d, pos, world.Air)
+		}
+		return
+	}
+	if dy == 1 {
+		if nb := s.rsWireFold(d, pos, blk); nb != blk {
+			s.setSilentBlock(d, pos, nb)
+		}
+		return
+	}
+	dir := rsUp
+	for _, h := range rsHoriz {
+		o := rsOff[h]
+		if dx == o.X && dz == o.Z {
+			dir = h
+		}
+	}
+	s.rsWireUpdateArm(d, pos, dir, blk)
+}
+
+// rsWireUpdateArm recomputes one horizontal side: when the
+// connection-ness is unchanged and the wire isn't a cross only that
+// arm rewrites; otherwise the whole connection state refolds.
+func (s *Server) rsWireUpdateArm(d *dimension, pos world.Pos, dir rsDir, blk world.Block) {
+	newSide := s.rsConnectingSide(d, pos, dir)
+	oldSide, _ := world.StateProperty(blk, rsDirName(dir))
+	oldConn := oldSide == "side" || oldSide == "up"
+	newConn := newSide != "none"
+	if oldConn == newConn && !rsWireIsCross(blk) {
+		if newSide != oldSide {
+			if nb, ok := world.WithProperty(blk, rsDirName(dir), newSide); ok {
+				s.setSilentBlock(d, pos, nb)
+			}
+		}
+		return
+	}
+	if nb := s.rsWireFold(d, pos, blk); nb != blk {
+		s.setSilentBlock(d, pos, nb)
+	}
+}
+
+// rsWireIndirectShapes is RedStoneWireBlock.updateIndirectNeighbourShapes:
+// for each horizontal neighbour that is NOT a wire itself, the wires
+// one block below and above it (the diagonal corner cells) get an
+// updateShape toward the written block's side.
+func (s *Server) rsWireIndirectShapes(d *dimension, pos world.Pos) {
+	for _, h := range rsHoriz {
+		o := rsOff[h]
+		n := world.Pos{X: pos.X + o.X, Y: pos.Y + o.Y, Z: pos.Z + o.Z}
+		nb := d.w.GetBlock(n)
+		owner, _ := world.StateOwner(nb)
+		if strings.TrimPrefix(owner, "minecraft:") == "redstone_wire" {
+			continue
+		}
+		for _, dy := range []int{-1, 1} {
+			c := world.Pos{X: n.X, Y: n.Y + dy, Z: n.Z}
+			cb := d.w.GetBlock(c)
+			cOwner, _ := world.StateOwner(cb)
+			if strings.TrimPrefix(cOwner, "minecraft:") == "redstone_wire" {
+				s.rsWireUpdateArm(d, c, rsOpposite(h), cb)
+			}
+		}
+	}
+}
+
+// rsWireCross is crossState: every horizontal arm at SIDE.
+func rsWireCross(blk world.Block) world.Block {
+	for _, h := range rsHoriz {
+		if nb, ok := world.WithProperty(blk, rsDirName(h), "side"); ok {
+			blk = nb
+		}
+	}
+	return blk
 }

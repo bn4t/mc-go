@@ -275,6 +275,13 @@ func (s *Server) connectionUpdateNoCascade(d *dimension, pos, changed world.Pos)
 		s.multifaceNeighborUpdate(d, pos, changed, b)
 		return
 	}
+	if short == "redstone_wire" && changed != pos {
+		// RedStoneWireBlock.updateShape: DOWN pops over missing
+		// support, UP refolds everything, a horizontal change
+		// re-evaluates that side.
+		s.rsWireUpdateShape(d, pos, changed)
+		return
+	}
 	fam := connectFamily(short)
 	if fam == connNone {
 		return

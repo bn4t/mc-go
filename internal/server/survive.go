@@ -345,7 +345,7 @@ func (s *Server) neighborSurvival(d *dimension, pos world.Pos, notify world.Bloc
 // writeOnPlace is the onPlace hook vanilla fires inside
 // LevelChunk.setBlockState on every write: scheduled-tick blocks arm
 // their first tick here (frosted ice, fire, ...).
-func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block) {
+func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block, commandWrite bool) {
 	s.frostedIceOnPlace(d, pos, blk)
 	s.fireOnPlace(d, pos, blk, old)
 	// ScaffoldingBlock.onPlace: the 1-tick distance refold arms on
@@ -377,6 +377,33 @@ func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block)
 			oldShort == "redstone_torch" || oldShort == "redstone_wall_torch" {
 			s.rsTorchNotify(d, pos)
 		}
+		// RedStoneWireBlock.getStateForPlacement / onPlace /
+		// affectNeighborsAfterRemoval: a fresh wire folds its sides
+		// (command writes re-fold in selfFoldShapes), recomputes its
+		// own power, and wakes the wires around its neighbours; a
+		// removed wire fans out and its old neighbours re-evaluate.
+		if short == "redstone_wire" {
+			// updateIndirectNeighbourShapes: a wire write also
+			// updateShapes the wires around its corners — the dust
+			// a block higher or lower on a non-wire neighbour.
+			s.rsWireIndirectShapes(d, pos)
+			if oldShort != "redstone_wire" {
+				if !commandWrite {
+					// getStateForPlacement folds from crossState: a
+					// lone hand-placed dust lands as a +, while a
+					// setblock'd one (folded by updateShape from the
+					// written dot) stays a dot.
+					if nb := s.rsWireFold(d, pos, rsWireCross(blk)); nb != blk {
+						d.w.SetBlock(pos, nb)
+						s.broadcastBlockState(d, pos, nb)
+						blk = nb
+					}
+				}
+				s.rsWireOnPlace(d, pos, blk)
+			}
+		} else if oldShort == "redstone_wire" && short != "redstone_wire" {
+			s.rsWireAfterRemoval(d, pos)
+		}
 	}
 	// TntBlock.onPlace: prime + self-remove when a neighbour carries a
 	// signal — callers re-read the cell after this hook.
@@ -403,7 +430,7 @@ func (s *Server) setSilentBlock(d *dimension, pos world.Pos, blk world.Block) {
 	oldTop := columnTop(d, pos.X, pos.Z)
 	old := d.w.GetBlock(pos)
 	d.w.SetBlock(pos, blk)
-	s.writeOnPlace(d, pos, blk, old)
+	s.writeOnPlace(d, pos, blk, old, false)
 	// onPlace may have rewritten the cell (TNT primed on a signal
 	// self-removes) — everything downstream reads the final state.
 	blk = d.w.GetBlock(pos)

@@ -77,6 +77,17 @@ type dimension struct {
 	// positions (beds, bells) a villager claimed, keyed to the
 	// claimant's entity id. Raids require occupied POIs nearby.
 	claimedPOIs map[world.Pos]int32
+	// rsSilenceWire is RedStoneWireBlock.shouldSignal=false: held
+	// while a wire recomputes its target so getBlockSignal ignores
+	// dust emitters.
+	rsSilenceWire bool
+	// rsWriteDepth/rsPending are the neighbor-updater queue: inside a
+	// block write, updateNeighborsAt fan-outs collect instead of
+	// running synchronously (CollectingNeighborUpdater runs a write's
+	// chained updates only after its own neighbour pass and shape
+	// fold), and the outermost write drains them FIFO.
+	rsWriteDepth int
+	rsPending    []world.Pos
 	// raids is the dimension's active raid map (Raids.raidMap); the
 	// next id is a per-dimension counter like vanilla's getUniqueId.
 	raids    map[int]*raid
