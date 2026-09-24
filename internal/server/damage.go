@@ -239,6 +239,14 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 	s.damage(sess, amount, message, src)
 	if !graced {
 		s.playerHurtVoice(sess, src)
+		// LivingEntity.hurt's secondary hurt sound: thorns damage
+		// additionally plays enchant.thorns.hit — on the PLAYERS
+		// source for a player victim — at flat volume and pitch,
+		// and unlike the hurt voice it is NOT excluded for the victim.
+		if src.typeName == "thorns" {
+			x, y, z, _, _, _ := sess.Pos()
+			s.playSoundSrc(sess.dimName(), x, y, z, sndThornsHit, srcPlayers, 1, 1, nil)
+		}
 	}
 	if amount > healthBefore {
 		amount = healthBefore
@@ -273,30 +281,43 @@ const (
 	sndPlayerFreeze    = 1314
 	sndPlayerOnFire    = 1315
 	sndPlayerBerryBush = 1316
+	sndThornsHit       = 1622 // enchant.thorns.hit
+	srcHostile         = 5
 	srcPlayers         = 7
 )
+
+// damageTypeEffects is each damage_type's datapack `effects` field —
+// the Player.getHurtSound dispatch reads it through
+// DamageEffects.sound(). Types absent from the map use the default
+// `hurt` effect; `thorns` deliberately maps to PLAYER_HURT too
+// (DamageEffects.THORNS.sound() is PLAYER_HURT in 26.2).
+var damageTypeEffects = map[string]int32{
+	// burning
+	"campfire": sndPlayerOnFire, "fireball": sndPlayerOnFire,
+	"hot_floor": sndPlayerOnFire, "in_fire": sndPlayerOnFire,
+	"lava": sndPlayerOnFire, "on_fire": sndPlayerOnFire,
+	"sulfur_cube_hot": sndPlayerOnFire, "unattributed_fireball": sndPlayerOnFire,
+	// drowning
+	"drown": sndPlayerDrown,
+	// freezing
+	"freeze": sndPlayerFreeze,
+	// poking
+	"sweet_berry_bush": sndPlayerBerryBush,
+}
 
 // playerHurtVoice is LivingEntity.playHurtSound on the player victim
 // path — a positional sound at the victim's feet on the PLAYERS
 // source, broadcast to every listener EXCEPT the victim (its client
 // plays the hurt locally off the damage event). A lethal hit carries
-// entity.player.death in place of the hurt sound.
+// entity.player.death in place of the hurt sound. getHurtSound picks
+// by the damage type's effects field, not the type name.
 func (s *Server) playerHurtVoice(sess *Session, src damageSource) {
 	x, y, z, _, _, _ := sess.Pos()
 	snd := int32(sndPlayerHurt)
 	if sess.dead {
 		snd = sndPlayerDeath
-	} else {
-		switch src.typeName {
-		case "drown":
-			snd = sndPlayerDrown
-		case "in_fire", "on_fire":
-			snd = sndPlayerOnFire
-		case "freeze":
-			snd = sndPlayerFreeze
-		case "sweet_berry_bush":
-			snd = sndPlayerBerryBush
-		}
+	} else if v, ok := damageTypeEffects[src.typeName]; ok {
+		snd = v
 	}
 	s.playSoundSrc(sess.dimName(), x, y, z, snd, srcPlayers, 1, voicePitch(), sess)
 }

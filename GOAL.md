@@ -5750,3 +5750,30 @@ Test-harness lesson baked in: a scripted client must ack
 chunk_batch_done AND echo its position back on teleport or vanilla
 never moves the server-side entity and chunk watching never reaches
 the village — the bed claim then silently never happens.
+
+## Slice 2026-09-24h — per-damage-type hurt sounds + thorns secondary
+
+Player.getHurtSound dispatches on the damage_type's `effects` field,
+not the type name — DamageEffects: HURT/THORNS→player_hurt,
+DROWNING→hurt_drown, BURNING→hurt_on_fire, POKING→hurt_berry_bush,
+FREEZING→hurt_freeze (measured: Player.getHurtSound =
+`source.type().effects().sound()`; mobs' getHurtSound ignores the
+source). damageTypeEffects in damage.go now mirrors the datapack
+field — mc-go previously only special-cased drown/freeze/berry, so
+campfire/fireball/hot_floor/lava/sulfur_cube_hot/unattributed_fireball
+played the generic hurt. hurt() also runs playSecondaryHurtSound
+after the hurt voice on every accepted hit: DamageTypes.THORNS →
+enchant.thorns.hit (id 1622) on PLAYERS source for players, HOSTILE
+for mobs, flat vol/pitch, and NOT excluded for the victim.
+
+The hurt voice packet is a positional `sound` (0x75) on PLAYERS
+source broadcast to everyone EXCEPT the victim (client synthesizes
+locally); reach is volume*16 = 16 blocks, so test players must be
+pinned together — spawn scatter in a fresh void world can exceed it.
+
+TestDamageTypeHurtSoundParity: 14 /damage types on a victim while an
+observer session collects holder ids — asserts vanilla's map AND
+mc-go's both equal the expected table (identical output on both legs).
+
+Open items still ahead: RestrictSunGoal wander bias, online mode,
+redstone, terrain gen, lighting.

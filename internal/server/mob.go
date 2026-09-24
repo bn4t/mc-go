@@ -1603,6 +1603,12 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 	if health > 0 && !res.Graced {
 		s.mobHurtSound(e, res)
 	}
+	// LivingEntity.playSecondaryHurtSound — a thorns hit also plays
+	// enchant.thorns.hit on the HOSTILE source (PLAYERS for player
+	// victims, handled in damageWith), dead or alive.
+	if typeName == "thorns" && !res.Graced {
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, sndThornsHit, srcHostile, 1, 1, nil)
+	}
 	// Vanilla's killed_by_player window: a player-caused hurt keeps
 	// the flag hot for 100 ticks (lastHurtByPlayerMemoryTime).
 	if killer != nil {
