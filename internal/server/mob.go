@@ -1858,6 +1858,11 @@ func (s *Server) mobTickStep() {
 		if burnDaylight[ambName] {
 			s.mobSunBurn(e, ambName)
 		}
+		// SnowGolem.aiStep's trail + melt ride the same every-tick
+		// placement — they fire for NoAI golems too.
+		if ambName == "snow_golem" {
+			s.snowGolemStep(e, s.dims[e.Dim], s.dimWorld(e.Dim))
+		}
 		// NeutralMob anger bookkeeping: a zombified piglin's
 		// persistentAngerEndTime lapses and clears the anger; a
 		// provoker who died stops being a target under

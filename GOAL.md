@@ -5800,3 +5800,39 @@ the shaded blocks (van 1.8,4.2 / mc-go 1.3,0.1 — block x/z in -6..6
 never sees sky, center bounded to |coord| < 7.9).
 
 Open items still ahead: online mode, redstone, terrain gen, lighting.
+
+## Slice 2026-09-24j — golem construction patterns + snow trail
+
+CarvedPumpkinBlock.onPlace (every block write, /setblock included)
+tries three patterns in order — snow "^,#,#" (pumpkin over two
+snow_block), iron "~^~,###,~#~" (pumpkin apex over a 3-iron crossbar
+plus one below, ~ = real air, crossbar along X or Z), copper
+"^,#" over the #minecraft:copper tag. A match airs every cell with a
+2001 block-break level event, spawns TRIGGERED at the bottom-cell
+anchor (+0.5/+0.05/+0.5) — copper instead replacing its block with
+the matching-weathering copper_chest and spawning atop it.
+WitherSkullBlock.checkSpawn instead hangs off setPlacedBy: only an
+item-place of wither_skeleton_[wall_]skull completing "^^^,###,~#~"
+(### = #wither_summon_base_blocks, soul center below) summons the
+wither at +0.55 — /setblock'd Ts stay silent.
+
+SnowGolem.aiStep (no isEffectiveAi gate, so NoAI too): the
+mobGriefing-gated trail drops snow_layer in any air feet cell where
+a layer survives (solid below — no onGround check in 26.2), and the
+gameplay/snow_golem_melts env attribute (hot biomes: desert, both
+savannas, all badlands; plus the whole nether) ticks 1 on_fire
+damage.
+
+mc-go: golem.go dispatches from writeOnPlace (pumpkins) and the
+item-place path (wither skulls); snowGolemStep rides the every-tick
+mob region beside the daylight burn.
+
+TestGolemBuildParity builds all four structures per leg via
+/setblock, then re-places the last wither skull through a real
+IDPlayUseItemOnSB — 12-field parity incl. chest swap and the
+setblock silence. The suite's build region is air-filled first
+(generated terrain puts grass where `~` needs air) and the snow
+golem is caged — its own trail otherwise spoils sibling patterns.
+
+Open items still ahead: online mode, redstone, terrain gen,
+lighting.

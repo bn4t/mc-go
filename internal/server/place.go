@@ -375,6 +375,13 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	sess.addItemStat(statUsed, item, 1)
 	if bname, ok := world.StateOwner(blk); ok {
 		s.firePlacedBlock(sess, bname)
+		// WitherSkullBlock.setPlacedBy: placing the skull item that
+		// completes the soul T spawns the wither. Command writes never
+		// trigger it — vanilla's checkSpawn only runs here.
+		if short := strings.TrimPrefix(bname, "minecraft:"); short == "wither_skeleton_skull" ||
+			short == "wither_skeleton_wall_skull" {
+			s.golemTryWither(d, target)
+		}
 	}
 	// A bee nest placed from a stack carrying a bees component keeps the
 	// occupants on the block (vanilla applies the item's implicit

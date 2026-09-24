@@ -374,6 +374,10 @@ func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block)
 	// TntBlock.onPlace: prime + self-remove when a neighbour carries a
 	// signal — callers re-read the cell after this hook.
 	s.tntOnPlace(d, pos, blk)
+	// CarvedPumpkinBlock.onPlace / WitherSkullBlock.checkSpawn: a
+	// pumpkin or wither skull completing a golem pattern spawns the
+	// golem and airs the cells — callers re-read after this hook too.
+	s.golemOnPlace(d, pos, blk)
 	// LiquidBlock.onPlace: a fresh water source over a column base
 	// arms the 20-tick conversion check itself.
 	if name, _ := world.StateOwner(blk); name == "water" {
