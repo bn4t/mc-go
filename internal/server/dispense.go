@@ -343,7 +343,9 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 		return
 	case itemName == "shears":
 		// ShearsDispenseItemBehavior: shear a full beehive/nest at
-		// the mouth → honeycomb drop + honey_level reset.
+		// the mouth → honeycomb drop + honey_level reset; otherwise a
+		// Shearable entity in the mouth cell (sheep only for now —
+		// mooshroom/snow-golem/bogged shear paths deferred).
 		fb := d.w.GetBlock(front)
 		if bn, ok := blockNameAt(d, front); ok && (bn == "beehive" || bn == "bee_nest") {
 			if hl, err := strconv.Atoi(rsPropsOf(fb)("honey_level")); err == nil && hl >= 5 {
@@ -359,6 +361,22 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			}
 			return
 		}
+		if sheep := s.livingAtMouth(d, front, "sheep"); sheep != nil && !sheep.Sheared {
+			sheep.Sheared = true
+			// SHEAR_SHEEP loot table: 1-3 wool of the sheep's color
+			// (mc-go sheep are always white).
+			n := int32(1 + s.rng.intn(3))
+			if wid, ok := world.ItemIDs["white_wool"]; ok {
+				s.spawnItemDrop(d.name, world.Pos{X: int(sheep.X), Y: int(sheep.Y), Z: int(sheep.Z)},
+					ItemStack{ID: wid, Count: n})
+			}
+			s.wearContainerSlot(d, pos, c, slot, 1)
+			s.broadcastLevelEvent(d.name, 1000, pos, 0)
+			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+			return
+		}
+		s.broadcastLevelEvent(d.name, 1001, pos, 0)
+		return
 	case itemName == "bone_meal":
 		// DispenseItemBehavior$5: BoneMealItem.growCrop at the mouth.
 		// Success consumes one meal and fires event 1505 (particles,
@@ -414,6 +432,32 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
 			return
 		}
+	case itemName == "brush":
+		// DispenseItemBehavior$11: brushOffScute on each armadillo in
+		// the mouth cell — the ARMADILLO_BRUSH loot drops one scute at
+		// the animal and the brush stack hurts by 16 (breaking at 64).
+		arm := s.livingAtMouth(d, front, "armadillo")
+		if arm == nil {
+			s.broadcastLevelEvent(d.name, 1001, pos, 0)
+			return
+		}
+		if sid, ok := world.ItemIDs["armadillo_scute"]; ok {
+			s.spawnItemDrop(d.name, world.Pos{X: int(arm.X), Y: int(arm.Y), Z: int(arm.Z)},
+				ItemStack{ID: sid, Count: 1})
+		}
+		d.containers.mu.Lock()
+		it := c.slots[slot]
+		it.Damage += 16
+		if it.Damage >= damageableItems["brush"] {
+			c.slots[slot] = ItemStack{}
+		} else {
+			c.slots[slot] = it
+		}
+		d.containers.mu.Unlock()
+		s.rsContainerChanged(d, pos)
+		s.broadcastLevelEvent(d.name, 1000, pos, 0)
+		s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+		return
 	case itemName == "flint_and_steel":
 		// FlintAndSteelDispenseItemBehavior: prime a TNT/explosive
 		// entity at the mouth, else place fire where it can burn,
@@ -828,23 +872,7 @@ func (s *Server) dispenseEquip(d *dimension, mouth world.Pos, itemName string, s
 	if !ok || slot == 0 {
 		return false
 	}
-	var target *Entity
-	s.entities.mu.RLock()
-	for _, e := range s.entities.byID {
-		if !e.Living || e.Dying || e.Dim != d.name {
-			continue
-		}
-		name, _ := EntityTypeName(e.Type)
-		w, h := entityBox(name)
-		hw := w / 2
-		if e.X-hw < float64(mouth.X)+1 && e.X+hw > float64(mouth.X) &&
-			e.Z-hw < float64(mouth.Z)+1 && e.Z+hw > float64(mouth.Z) &&
-			e.Y < float64(mouth.Y)+1 && e.Y+h > float64(mouth.Y) {
-			target = e
-			break
-		}
-	}
-	s.entities.mu.RUnlock()
+	target := s.livingAtMouth(d, mouth, "")
 	if target == nil {
 		return false
 	}
@@ -855,4 +883,50 @@ func (s *Server) dispenseEquip(d *dimension, mouth world.Pos, itemName string, s
 	one.Count = 1
 	target.Equips[slot] = one
 	return true
+}
+
+// livingAtMouth — the entity scan behind dispenseEquip and the brush
+// case: first living entity of the given type ("" = any) whose hitbox
+// intersects the mouth cell's AABB.
+func (s *Server) livingAtMouth(d *dimension, mouth world.Pos, wantType string) *Entity {
+	var target *Entity
+	s.entities.mu.RLock()
+	for _, e := range s.entities.byID {
+		if !e.Living || e.Dying || e.Dim != d.name {
+			continue
+		}
+		name, _ := EntityTypeName(e.Type)
+		if wantType != "" && name != wantType {
+			continue
+		}
+		w, h := entityBox(name)
+		hw := w / 2
+		if e.X-hw < float64(mouth.X)+1 && e.X+hw > float64(mouth.X) &&
+			e.Z-hw < float64(mouth.Z)+1 && e.Z+hw > float64(mouth.Z) &&
+			e.Y < float64(mouth.Y)+1 && e.Y+h > float64(mouth.Y) {
+			target = e
+			break
+		}
+	}
+	s.entities.mu.RUnlock()
+	return target
+}
+
+// wearContainerSlot — hurtAndBreak on a container stack: damage the
+// item by n, emptying the slot when it reaches max durability.
+func (s *Server) wearContainerSlot(d *dimension, pos world.Pos, c *containerData, slot int, n int32) {
+	d.containers.mu.Lock()
+	it := c.slots[slot]
+	if name, ok := world.ItemName(it.ID); ok {
+		if maxDmg, dmgOK := damageableItems[name]; dmgOK {
+			it.Damage += n
+			if it.Damage >= maxDmg {
+				c.slots[slot] = ItemStack{}
+			} else {
+				c.slots[slot] = it
+			}
+		}
+	}
+	d.containers.mu.Unlock()
+	s.rsContainerChanged(d, pos)
 }

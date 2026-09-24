@@ -1679,8 +1679,8 @@ func TestDispenseProjectileParity(t *testing.T) {
 		{"fireball still flying", "entity @e[type=minecraft:small_fireball]"},
 		{"armor_stand persists", "entity @e[type=minecraft:armor_stand,x=101,y=-60,z=120,distance=..2]"},
 		{"lingering cloud formed", "entity @e[type=minecraft:area_effect_cloud]"},
-		{"!dispenser fireball never ignites", "!block 85 -59 140 minecraft:fire"},
-		{"!under-log shot stays dark", "!block 90 -59 140 minecraft:fire"},
+		{"fireball ignites the log face", "block 85 -59 140 minecraft:fire"},
+		{"under-log shot ignites below", "block 90 -59 140 minecraft:fire"},
 		{"drain arrow", "!items block 60 -60 120 container.* minecraft:arrow[count=4]"},
 		{"drain egg", "!items block 68 -60 120 container.* minecraft:egg[count=4]"},
 	}
@@ -1781,6 +1781,11 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		`item replace block 64 -60 134 container.0 with minecraft:lava_bucket 1`,
 		`setblock 68 -60 130 minecraft:dispenser[facing=east]`,
 		`setblock 69 -60 130 minecraft:water`,
+		// pen the source — open water floods east onto the rail
+		// cell before the bucket pickup fires.
+		`setblock 70 -60 130 minecraft:stone`,
+		`setblock 69 -60 129 minecraft:stone`,
+		`setblock 69 -60 131 minecraft:stone`,
 		`item replace block 68 -60 130 container.0 with minecraft:bucket 2`,
 		`setblock 72 -60 130 minecraft:dispenser[facing=east]`,
 		`setblock 73 -60 130 minecraft:powered_rail`,
@@ -1810,9 +1815,18 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		`setblock 90 -61 140 minecraft:farmland`,
 		`setblock 90 -60 140 minecraft:wheat[age=6]`,
 		`item replace block 89 -60 140 container.0 with minecraft:bone_meal 1`,
+		// tryShearEntity: a sheep in the mouth loses its wool.
+		`summon minecraft:sheep 85.5 -60 141.5 {NoAI:1b}`,
+		`setblock 84 -60 141 minecraft:dispenser[facing=east]`,
+		`item replace block 84 -60 141 container.0 with minecraft:shears 1`,
+		// $11: brushing an armadillo drops one scute and wears the
+		// brush by 16.
+		`summon minecraft:armadillo 86.5 -60 140.5 {NoAI:1b}`,
+		`setblock 85 -60 140 minecraft:dispenser[facing=east]`,
+		`item replace block 85 -60 140 container.0 with minecraft:brush 1`,
 		// EquipmentDispenseItemBehavior: a living entity in the mouth
 		// cell wears the dispensed armor.
-		`summon minecraft:pig 80.5 -60 140.5`,
+		`summon minecraft:pig 80.5 -60 140.5 {NoAI:1b}`,
 		`setblock 79 -60 140 minecraft:dispenser[facing=east]`,
 		`item replace block 79 -60 140 container.0 with minecraft:iron_helmet 2`,
 		// $8: a carved pumpkin that completes the snow column spawns a
@@ -1910,6 +1924,10 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		{"U max-age wheat: meal kept", `items block 88 -60 150 container.* minecraft:bone_meal`},
 		{"T bonemeal clamps wheat to max", `block 90 -60 140 minecraft:wheat[age=7]`},
 		{"T meal consumed", `!items block 89 -60 140 container.* minecraft:bone_meal`},
+		{"Z wool dropped at sheep", `entity @e[type=minecraft:item,x=85,y=-60,z=141,distance=..3]`},
+		{"Z shears stay (238 max)", `items block 84 -60 141 container.* minecraft:shears`},
+		{"Y scute dropped at armadillo", `entity @e[type=minecraft:item,x=86,y=-60,z=140,distance=..3]`},
+		{"Y brush stays (worn, not broken)", `items block 85 -60 140 container.* minecraft:brush`},
 		{"X pig wears the helmet", `items entity @e[type=minecraft:pig,x=80,y=-60,z=140,distance=..2] armor.head minecraft:iron_helmet`},
 		{"X one helmet left", `items block 79 -60 140 container.* minecraft:iron_helmet[count=1]`},
 		{"V snow golem spawned", `entity @e[type=minecraft:snow_golem]`},
@@ -1958,7 +1976,7 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		// Spawn sits ~100 blocks from the fixture rows — hover the probe
 		// client over their middle so every cell lands inside the loaded
 		// chunk ring (otherwise edge cells silently refuse setblock).
-		sendCommand(t, pw, `tp @s 80 -59 135`)
+		sendCommand(t, pw, `tp @s 80 -59 140`)
 		time.Sleep(4 * time.Second)
 		sink.take()
 		var out []string
@@ -1984,6 +2002,8 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		// for the two down-facing golem dispensers.
 		sendCommand(t, pw, `setblock 89 -61 140 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 79 -61 140 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 85 -61 140 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 84 -61 141 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 83 -59 140 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 87 -59 140 minecraft:redstone_block`)
 		for _, x := range []int{60, 64, 68, 72, 76, 80} {

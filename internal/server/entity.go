@@ -27,6 +27,9 @@ type Entity struct {
 	Item        ItemStack
 	PickupDelay int
 	MotionY     float64
+	// Sheared is the Shearable readyForShearing complement — sheep
+	// sheared by shears/dispensers regrow wool on grass-eat ticks.
+	Sheared bool
 	// ItemAge is ItemEntity.age — drives the 6000-tick despawn and
 	// the merge cadence (every 2 ticks after a block crossing, else
 	// 40), and a merge takes the survivor's minimum.

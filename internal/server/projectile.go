@@ -261,11 +261,11 @@ func (s *Server) arrowTickStep() {
 				s.broadcastEntityRemove([]int32{e.ID})
 				continue
 			}
-			if name == "small_fireball" && s.fireballOwnerLiving(e) {
-				// SmallFireball.onHitBlock: the ignite only runs when
-				// the owner is a living entity (dispenser shots skip
-				// it) and mob_griefing holds. The face cell must be
-				// empty — getState writes the plain fire state.
+			if name == "small_fireball" && s.fireballIgnites(e) {
+				// SmallFireball.onHitBlock: ignite unless the owner is
+				// a Mob and mob_griefing is off — dispenser shots have
+				// no owner, so they always ignite. The face cell must
+				// be empty — getState writes the plain fire state.
 				fp := world.Pos{X: bx, Y: by, Z: bz}
 				switch axis {
 				case 0:
@@ -1038,19 +1038,17 @@ func fireballHitDir(hit float64, cell int) int {
 	return -1
 }
 
-// fireballOwnerLiving — SmallFireball's ignite gate: the shot
-// ignites only when a living owner fired it (mob_griefing must also
-// hold; dispenser-fired shots have no owner and never ignite).
-func (s *Server) fireballOwnerLiving(e *Entity) bool {
-	if e.arrowShooter == 0 {
-		return false
+// fireballIgnites — SmallFireball.onHitBlock's gate:
+// !(owner instanceof Mob) || mob_griefing. A dispenser-fired shot has
+// no owner so it always ignites; a mob-fired shot ignites only when
+// mob_griefing holds. (Ownerless entities and player sessions both
+// take the "not a Mob" branch.)
+func (s *Server) fireballIgnites(e *Entity) bool {
+	ownerIsMob := false
+	if e.arrowShooter != 0 {
+		if owner, ok := s.entities.GetPtr(e.arrowShooter); ok && owner.Living {
+			ownerIsMob = true
+		}
 	}
-	if !s.gameRuleBool("minecraft:mob_griefing") {
-		return false
-	}
-	owner, ok := s.entities.GetPtr(e.arrowShooter)
-	if !ok {
-		return false
-	}
-	return owner.Living
+	return !ownerIsMob || s.gameRuleBool("minecraft:mob_griefing")
 }

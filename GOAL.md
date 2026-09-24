@@ -6458,3 +6458,32 @@ x≥~84) sit at the 8-chunk simulation edge and unfired bursts were the
 dominant flake. Still residual: rare whole-row unfired on vanilla and
 one observed mc-go double-fire (triggered-latch re-arm race suspected,
 not yet reproduced in-process).
+
+## Slice 2026-09-25f — shears entity-shear + brush + fireball ignite
+
+DispenseItemBehavior.bootStrap, continued:
+
+- `ShearsDispenseItemBehavior.tryShearEntity`: after the beehive
+  branch, a Shearable entity in the mouth AABB is sheared — sheep
+  drop 1-3 white_wool (the `shearing/sheep/white` table) and set
+  `Entity.Sheared` (new field; no metadata broadcast yet — deferred
+  with wool regrowth). Shears take 1 damage (wearContainerSlot).
+- `DispenseItemBehavior$11` brush: armadillo in the mouth AABB →
+  1 armadillo_scute drop (the `shearing` loot shape) and the brush
+  wears by 16/64.
+- Bug found by the suite, not by javap: summoned mobs wander out of
+  the mouth cell during the powered window — fixtures now summon
+  `{NoAI:1b}` (parity convention already used elsewhere).
+- `SmallFireball.onHitBlock` re-read: the gate is
+  `!(owner instanceof Mob) || mob_griefing` — dispenser shots have NO
+  owner so they DO ignite the empty face cell (earlier read had it
+  backwards; fixed `fireballIgnites`).
+- Fixture lesson: an open water source 4 cells from a rail floods it
+  during the ~1s power window (water tickDelay=5, pickup races the
+  spread); the bucket-pickup source is now penned on three sides.
+- tp recentered to (80,-59,140) — row-3 (z=150) unfired flaking on
+  vanilla when centered at 135.
+
+Deferred from bootStrap: llama chest/saddle ($2), mob equip
+persistence+guaranteedDrop, shearOffAllLeashConnections, wool
+regrow on grass-eat, mooshroom/snow-golem/bogged shear paths.
