@@ -385,6 +385,55 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			}
 			return
 		}
+		if bog := s.livingAtMouth(d, front, "bogged"); bog != nil && !bog.Sheared {
+			// Bogged.shear: BOGGED_SHEAR loot (2 rolls x {1 brown +
+			// 1 red mushroom}) at the bogged + DATA_SHEARED set.
+			bog.Sheared = true
+			s.broadcastEntityMetadata(bog.ID, encodeLivingMetadata(bog, nil))
+			at := world.Pos{X: int(bog.X), Y: int(bog.Y), Z: int(bog.Z)}
+			for i := 0; i < 2; i++ {
+				for _, iname := range []string{"brown_mushroom", "red_mushroom"} {
+					if pid, ok := world.ItemIDs[iname]; ok {
+						s.spawnItemDrop(d.name, at, ItemStack{ID: pid, Count: 1})
+					}
+				}
+			}
+			s.wearContainerSlot(d, pos, c, slot, 1)
+			s.broadcastLevelEvent(d.name, 1000, pos, 0)
+			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+			return
+		}
+		if mush := s.livingAtMouth(d, front, "mooshroom"); mush != nil {
+			// MushroomCow.shear: convertTo(COW) at the same spot —
+			// the mooshroom despawns, a cow spawns — and the
+			// shearing table (red variant) drops 5 red mushrooms.
+			at := world.Pos{X: int(mush.X), Y: int(mush.Y), Z: int(mush.Z)}
+			s.entities.Remove(mush.ID)
+			s.broadcastEntityRemoveIn(d.name, nil, []int32{mush.ID})
+			if et, ok := EntityTypeID("cow"); ok {
+				cow := s.entities.Spawn(&Entity{
+					Type:      et,
+					Dim:       d.name,
+					X:         mush.X,
+					Y:         mush.Y,
+					Z:         mush.Z,
+					Living:    true,
+					Health:    10,
+					MaxHealth: 10,
+					NoAI:      mush.NoAI,
+				})
+				s.broadcastEntitySpawnIn(d.name, nil, *cow)
+			}
+			for i := 0; i < 5; i++ {
+				if pid, ok := world.ItemIDs["red_mushroom"]; ok {
+					s.spawnItemDrop(d.name, at, ItemStack{ID: pid, Count: 1})
+				}
+			}
+			s.wearContainerSlot(d, pos, c, slot, 1)
+			s.broadcastLevelEvent(d.name, 1000, pos, 0)
+			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+			return
+		}
 		if sg := s.livingAtMouth(d, front, "snow_golem"); sg != nil && sg.Pumpkin {
 			// SnowGolem.shear: SHEAR_SNOW_GOLEM drops the carved
 			// pumpkin at the golem and clears the pumpkin flag.

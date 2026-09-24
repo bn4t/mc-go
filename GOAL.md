@@ -4156,6 +4156,21 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   Failed identically before and after the sound-range change —
   pre-existing, needs a mid-recharge swing-formula measurement slice.
 
+## Slice — dispenser shear cascade (bogged + mooshroom)
+
+- `DispenseItemBehavior` shears now shear the remaining Shearable
+  mobs at the mouth:
+  - `bogged` — `Bogged.shear` drops `BOGGED_SHEAR` (2 rolls × {1
+    brown + 1 red mushroom}) and sets `DATA_SHEARED` — measured at
+    entity-data index 16 as a *boolean* (NBT key `sheared`);
+  - `mooshroom` — `MushroomCow.shear` runs `convertTo(COW)`: the
+    mooshroom despawns, a cow spawns at the same spot (inheriting
+    NoAI), and the red-variant shearing table drops 5
+    `red_mushroom`s; shears take 1 wear.
+- Pinned by `TestDispenseBehaviorParity` probes — drops,
+  `nbt={sheared:1b}`, cow-spawned/mooshroom-gone — hit/hit vs
+  vanilla.
+
 ## Slice — dispenser shear cascade (snow golem)
 
 - `DispenseItemBehavior` shears now shear a `snow_golem` at the mouth:

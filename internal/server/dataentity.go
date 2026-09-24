@@ -551,6 +551,10 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 	if typeName == "snow_golem" {
 		m["Pumpkin"] = nbtBool(e.Pumpkin)
 	}
+	// Bogged.addAdditionalSaveData writes the lowercase "sheared" tag.
+	if typeName == "bogged" {
+		m["sheared"] = nbtBool(e.Sheared)
+	}
 	// AbstractPiglin and Hoglin declare the zombification pair.
 	if overworldZombifyTypes[typeName] {
 		m["IsImmuneToZombification"] = nbtBool(e.ImmuneToZombification)
@@ -825,6 +829,11 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			e.Pumpkin = true
 		}
 	}
+	if name == "bogged" {
+		if v, ok := save["sheared"]; ok {
+			e.Sheared = nbtTruth(v)
+		}
+	}
 	// Raider.readAdditionalSaveData: Wave int, CanJoinRaid bool,
 	// and RaidId re-joins the raid when it still exists.
 	if raidRaiderType(name) {
@@ -855,6 +864,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"NoGravity": true, "Silent": true, "Wave": true,
 		"CanJoinRaid": true, "RaidId": true,
 		"Sheared": true, "Color": true, "Pumpkin": true,
+		"sheared": true,
 	}
 	if extra, ok := entitySaveExtras[name]; ok {
 		for k := range extra {
@@ -901,6 +911,16 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		b.Byte(0)
 		v := byte(0)
 		if e.Pumpkin {
+			v = 1
+		}
+		b.Byte(v)
+	}
+	if prevSheared != e.Sheared && name == "bogged" {
+		// Bogged's DATA_SHEARED sits at index 16 as a boolean.
+		b.Byte(16)
+		b.Byte(8) // type: boolean
+		v := byte(0)
+		if e.Sheared {
 			v = 1
 		}
 		b.Byte(v)

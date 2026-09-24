@@ -1417,6 +1417,14 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(0) // type: byte
 				b.Byte(0)
 			}
+		case "bogged":
+			// Bogged's DATA_SHEARED (index 16, boolean) packs only
+			// when the mushrooms are off.
+			if e.Sheared {
+				b.Byte(16)
+				b.Byte(8) // type: boolean
+				b.Byte(1)
+			}
 		case "zombie_villager":
 			if e.Baby {
 				b.Byte(16)
