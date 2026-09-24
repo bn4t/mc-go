@@ -127,6 +127,14 @@ type Entity struct {
 	cbState uint8
 	cbTime  int32
 	cbDelay int32
+	// NearestHealableRaiderTargetGoal state for the witch:
+	// witchHealCd is the 200-tick cooldown the heal goal's start()
+	// sets — Witch.aiStep decrements it and bars player targeting
+	// while it runs (setCanAttack(false)); witchHealTgt is the
+	// locked raider's entity id, cleared by the throw's
+	// setTarget(null).
+	witchHealCd  int32
+	witchHealTgt int32
 	// GuardianAttackGoal state: beamTarget is the locked session
 	// entity id (0 = idle), beamTime walks -10 up to the beam
 	// duration (80 ticks, elder 60), beamMeta marks whether the
@@ -424,6 +432,11 @@ type Entity struct {
 	// through Raid.joinRaid, drop on death or 112 blocks past center.
 	Raid *raid
 	Wave int32
+	// CanJoinRaid is Raider.canJoinRaid: false by default, set true
+	// by finalizeSpawn for non-NATURAL spawns (bare /summon is a
+	// COMMAND spawn, so a tagged summon leaves it false) and by
+	// Raid.joinRaid itself. Gates the every-20-ticks auto-join.
+	CanJoinRaid bool
 	// POIPos is a villager's claimed bed/bell position; POITicks
 	// throttles the brain's re-scan, and HasPOI keeps the claim out of
 	// the village's available set until release.

@@ -857,6 +857,12 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if sv, ok := tag.vals["Silent"]; ok && (sv.num == "1b" || sv.num == "1" || sv.str == "true") {
 				e.Silent = true
 			}
+			// Raider.readAdditionalSaveData: CanJoinRaid loads as a
+			// plain bool — a tagged summon skipped finalizeSpawn, so
+			// this is the only way a witch it applies to gets set.
+			if cv, ok := tag.vals["CanJoinRaid"]; ok && raidRaiderType(name) {
+				e.CanJoinRaid = cv.num == "1b" || cv.num == "1" || cv.str == "true"
+			}
 			if sv, ok := tag.vals["NoGravity"]; ok && (sv.num == "1b" || sv.num == "1" || sv.str == "true") {
 				e.NoGravity = true
 			}
@@ -963,6 +969,12 @@ func (s *Server) runSummon(player string, args []string) reply {
 		// equipment or rolls piglin's 20% baby.
 		if tag == nil {
 			s.mobDefaultEquip(e)
+			// Raider.finalizeSpawn: CanJoinRaid = !isWitch || reason
+			// != NATURAL — COMMAND is not NATURAL, so every bare-summon
+			// raider (witch included) flags true.
+			if raidRaiderType(name) {
+				e.CanJoinRaid = true
+			}
 		}
 		s.broadcastFreshMob(e)
 		return componentReply(translatable("commands.summon.success", entityDisplayName(e)))
@@ -1796,10 +1808,11 @@ func (s *Server) mobTickStep() {
 				s.villagerPOIStep(vd, e)
 			}
 		}
-		// Raider.aiStep: every 20 ticks an unjoined raider inside a
-		// raid's radius flags in at the current wave — the /raid
-		// spawnleader captain lands in the raid it guards.
-		if e.Raid == nil && raidRaiderType(ambName) && int64(e.ID)%20 == s.clock.count%20 {
+		// Raider.aiStep: on the shared gameTime%20 tick an unjoined
+		// raider with canJoinRaid inside a raid's radius flags in at
+		// the current wave — the /raid spawnleader captain lands in
+		// the raid it guards.
+		if e.Raid == nil && raidRaiderType(ambName) && e.CanJoinRaid && s.clock.count%20 == 0 {
 			if vd := s.dimensionByName(e.Dim); vd != nil {
 				if r := vd.raidAt(int(math.Floor(e.X)), int(math.Floor(e.Y)), int(math.Floor(e.Z))); r != nil && r.status == raidOngoing {
 					s.raidJoin(r, r.spawned, e)
@@ -2542,7 +2555,31 @@ func (s *Server) witchFarTarget(e *Entity) bool {
 // splash potion at zero when the target is inside the ten-block
 // radius, and the throw skips while a drink is running
 // (performRangedAttack returns early on isDrinkingPotion).
+//
+// Witch.aiStep ticks NearestHealableRaiderTargetGoal's cooldown first;
+// while it runs the player target goal is barred (setCanAttack false).
+// Off cooldown, an in-raid witch coin-flips a scan each tick for the
+// nearest non-witch Raider inside follow_range 16 — a hit becomes the
+// attack target (priority 2 beats the player goal's 3) and starts the
+// 200-tick cooldown.
 func (s *Server) mobWitchAttackStep(e *Entity) bool {
+	e.witchHealCd--
+	if rt := e.witchHealTgt; rt != 0 {
+		if m := s.entityByID(rt); m != nil && !m.Dying && m.Dim == e.Dim {
+			return s.witchRaiderStep(e, m)
+		}
+		e.witchHealTgt = 0
+	}
+	if e.witchHealCd <= 0 && e.Raid != nil && e.Raid.status == raidOngoing && rand.Intn(2) == 0 {
+		if rt := s.witchHealTarget(e); rt != nil {
+			e.witchHealTgt = rt.ID
+			e.witchHealCd = 200
+			return s.witchRaiderStep(e, rt)
+		}
+	}
+	if e.witchHealCd > 0 {
+		return false
+	}
 	t := s.nearestMobTarget(e, "witch")
 	if t == nil {
 		return false
@@ -2576,12 +2613,73 @@ func (s *Server) mobWitchAttackStep(e *Entity) bool {
 	return true
 }
 
-// witchThrow is Witch.performRangedAttack: the potion pick — healing
-// or regeneration for a Raider target (with setTarget(null)), slowness
-// for a far one, poison for a healthy one, a 25% weakness roll up
-// close, harming otherwise — then the splash_potion spawns a hair
-// below the witch's eye on the vanilla lob (dy + horizontal*0.2) at
-// 0.75 blocks/tick (0.45 under two blocks).
+// witchHealTarget is the heal goal's findTarget: the nearest living
+// non-witch Raider inside the witch's 16-block follow_range. The
+// candidate's own raid membership is not required — the selector only
+// gates on the witch's hasActiveRaid plus !is(WITCH).
+func (s *Server) witchHealTarget(e *Entity) *Entity {
+	var best *Entity
+	bestD := 16.0 * 16.0
+	s.entities.mu.RLock()
+	for _, m := range s.entities.byID {
+		if m.ID == e.ID || m.Dying || !m.Living || m.Dim != e.Dim {
+			continue
+		}
+		name, _ := EntityTypeName(m.Type)
+		if name == "witch" || !raidRaiderType(name) {
+			continue
+		}
+		dx, dy, dz := m.X-e.X, m.Y-e.Y, m.Z-e.Z
+		if d := dx*dx + dy*dy + dz*dz; d < bestD {
+			best, bestD = m, d
+		}
+	}
+	s.entities.mu.RUnlock()
+	return best
+}
+
+// witchRaiderStep drives the locked heal target's RangedAttackGoal at
+// it — same 60-tick timer and 10-block throw radius as the player
+// path; the raider pick is healing below five hearts, regeneration
+// otherwise, and the throw clears the target (setTarget(null)).
+func (s *Server) witchRaiderStep(e, rt *Entity) bool {
+	dx, dz := rt.X-e.X, rt.Z-e.Z
+	dist := math.Hypot(dx, dz)
+	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	e.HeadYaw = e.Yaw
+	const radius = 10.0
+	if dist > radius {
+		step := mobChaseSpeed
+		if mv, ok := entityAttrBases["witch"]["movement_speed"]; ok {
+			step = mv
+		}
+		if step > dist-radius {
+			step = dist - radius
+		}
+		e.X += dx / dist * step
+		e.Z += dz / dist * step
+	}
+	e.rangedAttack--
+	if e.rangedAttack < 0 {
+		e.rangedAttack = 60
+	} else if e.rangedAttack == 0 {
+		if !e.WitchDrink && dist <= radius {
+			potion := "regeneration"
+			if rt.Health <= 4 {
+				potion = "healing"
+			}
+			bb := mobBounds(rt.Type)
+			s.witchThrowAt(e, rt.X, rt.Y+bb[1]*0.85, rt.Z, dist, potion)
+			e.witchHealTgt = 0
+		}
+		e.rangedAttack = 60
+	}
+	return true
+}
+
+// witchThrow is Witch.performRangedAttack's player branch: the potion
+// pick — slowness for a far one, poison for a healthy one, a 25%
+// weakness roll up close, harming otherwise.
 func (s *Server) witchThrow(e *Entity, t *Session, px, py, pz, dist float64) {
 	potion := "harming"
 	switch {
@@ -2592,13 +2690,21 @@ func (s *Server) witchThrow(e *Entity, t *Session, px, py, pz, dist float64) {
 	case dist <= 3 && !sessMobHasEff(t, "weakness") && rand.Float64() < 0.25:
 		potion = "weakness"
 	}
+	s.witchThrowAt(e, px, py+1.62, pz, dist, potion)
+}
+
+// witchThrowAt is the throw half of performRangedAttack: the
+// splash_potion spawns a hair below the witch's eye on the vanilla lob
+// (dy + horizontal*0.2 past the target eye) at 0.75 blocks/tick
+// (0.45 under two blocks).
+func (s *Server) witchThrowAt(e *Entity, tx, eyeTy, tz, dist float64, potion string) {
 	pt, ok := EntityTypeID("splash_potion")
 	if !ok {
 		return
 	}
 	eyeY := e.Y + 1.55 // getEyeHeight - 0.1 like spawnProjectileUsingShoot
-	dx, dz := px-e.X, pz-e.Z
-	dy := py + 1.62 - 1.1 - eyeY
+	dx, dz := tx-e.X, tz-e.Z
+	dy := eyeTy - 1.1 - eyeY
 	aimY := dy + dist*0.2
 	vel := 0.75
 	if dist <= 2 {

@@ -5699,6 +5699,54 @@ home_pos [20,-59,0] + home_radius 16 within a tick of summon; a
 (latch never overwrites). Elements are queried by index because
 vanilla's flattened chat drops IntArray separators entirely.
 
-Open items remaining: witch raider-heal throw, RestrictSunGoal
+Open items remaining: RestrictSunGoal
 wander bias, per-damage-type hurt variants, online mode, redstone,
 terrain gen, lighting.
+
+## Slice 2026-09-24g — witch NearestHealableRaiderTargetGoal + CanJoinRaid
+
+Vanilla 26.2 measured:
+
+- Witch registers NearestHealableRaiderTargetGoal(this, Raider.class,
+  mustSee=true, selector) at targetSelector priority 2 (HurtByTarget 1,
+  attackPlayers 3); the selector is witch.hasActiveRaid() &&
+  !target.is(WITCH) — the TARGET's raid membership is NOT required,
+  only the Raider class. canUse: cooldown<=0 && rand.nextBoolean() &&
+  hasActiveRaid() && findTarget()!=null; start() sets cooldown to
+  reducedTickDelay(200); aiStep decrements every tick and bars
+  player targeting while it runs (attackPlayersGoal.setCanAttack).
+- Witch.performRangedAttack on a Raider target picks healing when
+  health <= 4.0f else regeneration, then setTarget(null). Splash
+  aim: dy = targetEyeY - 1.1 - eyeY, vertical lead dist*0.2,
+  speed 0.75 (0.45 within 2 blocks).
+- Raider.canJoinRaid: ctor false; finalizeSpawn sets
+  !isWitch || reason != NATURAL (so a bare /summon — COMMAND — flags
+  it, a tagged /summon skips finalizeSpawn entirely and it stays
+  false); Raid.joinRaid latches it true; Raider.aiStep auto-joins an
+  unjoined canJoinRaid raider inside an ongoing raid on the shared
+  level.getGameTime()%20 tick. Raider save map writes Wave +
+  CanJoinRaid always, RaidId only while in a raid; load reads them
+  back and rejoins by id.
+
+mc-go side: Entity.CanJoinRaid field; bare summon sets it for
+raidRaiderType, tagged summon reads the NBT bool; the auto-join gate
+moved from a per-id stagger to the real gameTime%20 tick plus the
+field; raidJoin latches CanJoinRaid. Witch heal goal added to
+mobWitchAttackStep — witchHealCd decrement, a locked witchHealTgt
+that survives between ticks until the throw's setTarget(null)
+equivalent clears it, chase-to-10 rangedAttack countdown, then
+witchThrowAt picks regeneration/healing on the raider's health.
+witchThrow now shares witchThrowAt with the player path. Entity save
+map writes Wave/CanJoinRaid/RaidId for raiders and load rejoins the
+raid by id.
+
+TestWitchHealParity on both legs: village + bad_omen raid, bare
+witch summon + tagged NoAI pillager, then damage the pillager to 3hp.
+Both servers threw splash_potions carrying potion_contents ids for
+regeneration while the pillager was healthy and healing once below
+4 (van [h31 h31 h24 h24], mc-go [h31 h24]).
+
+Test-harness lesson baked in: a scripted client must ack
+chunk_batch_done AND echo its position back on teleport or vanilla
+never moves the server-side entity and chunk watching never reaches
+the village — the bed claim then silently never happens.

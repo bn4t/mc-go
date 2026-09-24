@@ -573,6 +573,19 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 			int32(e.HomePos.X), int32(e.HomePos.Y), int32(e.HomePos.Z),
 		}
 	}
+	// Raider.addAdditionalSaveData writes Wave + CanJoinRaid always
+	// and RaidId only while the raider is flagged into a raid.
+	if raidRaiderType(typeName) {
+		m["Wave"] = e.Wave
+		if e.CanJoinRaid {
+			m["CanJoinRaid"] = int8(1)
+		} else {
+			m["CanJoinRaid"] = int8(0)
+		}
+		if e.Raid != nil {
+			m["RaidId"] = int32(e.Raid.id)
+		}
+	}
 	if e.PatrolLeader {
 		m["drop_chances"] = map[string]any{"head": float32(2)}
 	}
@@ -658,7 +671,7 @@ var entitySaveSeq = []string{
 	"InLove", "AgeLocked", "variant", "sound_variant",
 	"PatrolLeader", "drop_chances", "IsBaby",
 	"IsImmuneToZombification", "TimeInOverworld",
-	"home_radius", "home_pos",
+	"home_radius", "home_pos", "Wave", "CanJoinRaid", "RaidId",
 }
 
 // overworldZombifyTypes are the mc-side types declaring the
@@ -784,6 +797,22 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	e.Grounded = nbtTruth(save["OnGround"])
 	e.Silent = nbtTruth(save["Silent"])
 	e.NoGravity = nbtTruth(save["NoGravity"])
+	// Raider.readAdditionalSaveData: Wave int, CanJoinRaid bool,
+	// and RaidId re-joins the raid when it still exists.
+	if raidRaiderType(name) {
+		if w, ok := nbtInt32(save["Wave"]); ok {
+			e.Wave = w
+		}
+		e.CanJoinRaid = nbtTruth(save["CanJoinRaid"])
+		if rid, ok := nbtInt32(save["RaidId"]); ok {
+			if d := s.dimensionByName(e.Dim); d != nil {
+				if r := d.raids[int(rid)]; r != nil {
+					e.Raid = r
+					r.raiders[e.ID] = true
+				}
+			}
+		}
+	}
 
 	known := map[string]bool{
 		"AbsorptionAmount": true, "Air": true, "CanPickUpLoot": true,
@@ -795,7 +824,8 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"UUID": true, "current_impulse_context_reset_grace_time": true,
 		"fall_distance": true, "id": true, "equipment": true,
 		"attributes": true, "home_radius": true, "home_pos": true,
-		"NoGravity": true, "Silent": true,
+		"NoGravity": true, "Silent": true, "Wave": true,
+		"CanJoinRaid": true, "RaidId": true,
 	}
 	if extra, ok := entitySaveExtras[name]; ok {
 		for k := range extra {

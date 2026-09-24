@@ -105,6 +105,7 @@ const (
 // in range), raiders is the flat eid set across waves, and heroes
 // records the players who damaged raiders (hero_of_the_village targets).
 type raid struct {
+	id          int
 	center      world.Pos
 	omen        int32
 	numGroups   int32
@@ -376,6 +377,7 @@ func (s *Server) createOrExtendRaid(sess *Session, d *dimension, pos world.Pos) 
 		d.raids = map[int]*raid{}
 	}
 	d.raidNext++
+	r.id = d.raidNext
 	d.raids[d.raidNext] = r
 	s.absorbRaidOmen(sess, r)
 	return r
@@ -633,6 +635,7 @@ func raidRaiderType(name string) bool {
 func (s *Server) raidJoin(r *raid, wave int32, e *Entity) {
 	e.Raid = r
 	e.Wave = wave
+	e.CanJoinRaid = true // joinRaid latches the flag itself
 	r.raiders[e.ID] = true
 	r.totalHealth += e.Health
 }
