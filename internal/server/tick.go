@@ -299,6 +299,9 @@ func (s *Server) GameTick() {
 	// Raids tick once per level tick after the living-entity pass —
 	// cooldown, wave spawns, the event bar, victory.
 	s.raidTickStep()
+	// CustomSpawners tick with the level — the natural patrol cycle is
+	// the first one implemented.
+	s.patrolTickStep()
 	// Chunk streaming is paced on the tick, like everything else: one
 	// batch per tick per player, at the rate their client asked for.
 	s.chunkTickStep()

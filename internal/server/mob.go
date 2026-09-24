@@ -2690,13 +2690,9 @@ var mobSunFlees = map[string]bool{
 // false when no shelter exists — the goal can't start and the mob
 // wanders while it burns.
 func (s *Server) mobSunFleeStep(e *Entity, d *dimension, w *world.World) bool {
-	// canUse's daylight gate (level.isBrightOutside): the same
+	// canUse's daylight gate is level.isBrightOutside — the same
 	// sleep-window that powers sunBurnTick plus a rain veto.
-	dt := s.dayTime() % 24000
-	if dt >= 12542 && dt <= 23459 {
-		return false
-	}
-	if s.weatherRaining.Load() {
+	if !s.isBrightOutside() {
 		return false
 	}
 	if !e.Equips[equipHelmet].Empty() {
@@ -3060,7 +3056,11 @@ var mobArmorSuffix = map[int32]string{
 // by the day term; below 2 the multiplier is 0 (fresh flat worlds
 // never roll gear), above 4 it saturates at 1. mc-go tracks no
 // per-chunk inhabited time, so that term stays 0.
-func (s *Server) specialMultiplier() float64 {
+// effectiveDifficulty is DifficultyInstance.getEffectiveDifficulty —
+// difficulty * (0.75 + dayfactor + moonclamp). (Vanilla also blends a
+// per-chunk inhabited-time term; mc-go's flat world doesn't track
+// inhabited time yet.)
+func (s *Server) effectiveDifficulty() float64 {
 	if s.difficulty == DifficultyPeaceful {
 		return 0
 	}
@@ -3071,7 +3071,11 @@ func (s *Server) specialMultiplier() float64 {
 	if s.difficulty == DifficultyEasy {
 		h *= 0.5
 	}
-	eff := float64(s.difficulty) * (0.75 + g + h)
+	return float64(s.difficulty) * (0.75 + g + h)
+}
+
+func (s *Server) specialMultiplier() float64 {
+	eff := s.effectiveDifficulty()
 	switch {
 	case eff < 2:
 		return 0
@@ -3121,13 +3125,35 @@ func mobEquipSlot(e *Entity, slot int32, item string) {
 // world special is 0 and nothing enchants. Pillagers add a flat
 // 1/300 piercing-1 crossbow upgrade.
 func (s *Server) mobDefaultEquip(e *Entity) {
-	s.mobDefaultEquipOpt(e, false)
+	s.mobDefaultEquipReason(e, spawnDefault)
 }
 
-// mobDefaultEquipOpt is mobDefaultEquip with vanilla's spawn-reason
-// split: EVENT spawns (raid waves, /raid spawnleader) never roll the
-// 6% patrol-leader banner — Raid.spawnGroup flags its own leader.
+// mobDefaultEquipOpt is kept for callers that only distinguish raid
+// spawns: EVENT maps to vanilla's EntitySpawnReason.EVENT.
 func (s *Server) mobDefaultEquipOpt(e *Entity, eventSpawn bool) {
+	if eventSpawn {
+		s.mobDefaultEquipReason(e, spawnEvent)
+		return
+	}
+	s.mobDefaultEquipReason(e, spawnDefault)
+}
+
+// spawnKind mirrors the EntitySpawnReason values that change
+// PatrollingMonster.finalizeSpawn: the 6% patrol-leader roll runs on
+// every reason EXCEPT patrol/event/structure, the leader's head takes
+// the ominous banner whenever the flag is already set, and PATROL
+// additionally marks the mob patrolling.
+type spawnKind byte
+
+const (
+	spawnDefault spawnKind = iota // command/natural path — the roll applies
+	spawnEvent                    // raid waves: no roll
+	spawnPatrol                   // PatrolSpawner: no roll, patrolling=true
+)
+
+// mobDefaultEquipReason is mobDefaultEquip with vanilla's spawn-reason
+// split threaded through.
+func (s *Server) mobDefaultEquipReason(e *Entity, reason spawnKind) {
 	name, _ := EntityTypeName(e.Type)
 	special := s.specialMultiplier()
 
@@ -3137,23 +3163,30 @@ func (s *Server) mobDefaultEquipOpt(e *Entity, eventSpawn bool) {
 		"skeleton", "stray", "bogged":
 		cascade = true
 	}
-	// PatrollingMonster.finalizeSpawn: on non-patrol/event/structure
-	// spawns a leader-capable type rolls 6% into a patrol leader —
-	// the ominous banner lands on HEAD carrying a 2.0 drop chance.
-	// Witch and ravager canBeLeader()=false.
-	if !eventSpawn {
+	// PatrollingMonster.finalizeSpawn: when the spawn reason is not
+	// patrol/event/structure a leader-capable type rolls 6% into a
+	// patrol leader; witch and ravager canBeLeader()=false.
+	if reason == spawnDefault {
 		switch name {
 		case "pillager", "vindicator", "evoker", "illusioner":
 			if rand.Float64() < 0.06 {
 				e.PatrolLeader = true
-				if wb, ok := world.ItemID("white_banner"); ok {
-					if e.Equips == nil {
-						e.Equips = map[int32]ItemStack{}
-					}
-					e.Equips[equipHelmet] = ItemStack{ID: wb, Count: 1, Ominous: true}
-				}
 			}
 		}
+	}
+	// isPatrolLeader() → head takes the ominous banner with its 2.0
+	// drop chance — this runs for forced leaders too (PatrolSpawner's
+	// first member, raid setLeader), not only the roll's winners.
+	if e.PatrolLeader {
+		if wb, ok := world.ItemID("white_banner"); ok {
+			if e.Equips == nil {
+				e.Equips = map[int32]ItemStack{}
+			}
+			e.Equips[equipHelmet] = ItemStack{ID: wb, Count: 1, Ominous: true}
+		}
+	}
+	if reason == spawnPatrol {
+		e.Patrolling = true
 	}
 
 	if cascade && rand.Float64() < 0.15*special {

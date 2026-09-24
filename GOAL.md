@@ -5519,3 +5519,58 @@ Open items remaining: witch raider-heal throw, RestrictSunGoal
 wander bias, natural patrol spawn cycle (PatrolSpawner), elder
 setHomeTo(pos,16), per-damage-type hurt variants, online mode,
 redstone, terrain gen, lighting.
+
+## Slice 2026-09-24c — natural patrol spawn cycle (PatrolSpawner)
+
+PatrolSpawner.tick is live and pinned on both servers. Measured on the
+jar:
+
+- Gate chain: ServerChunkCache.tickChunks wraps the WHOLE
+  customSpawners pass in the spawn_mobs gamerule (so the patrol
+  countdown freezes under it, not just natural chunk spawning), then
+  PatrolSpawner.tick takes the spawn-monsters property as its
+  spawnEnemies arg, then SPAWN_PATROLS, then --nextTick with a
+  12000+rand(1200) rearm — the first patrol can't roll before ~10 min.
+- Per rearmed cycle: isBrightOutside (day window + rain veto), the
+  1-in-5 roll, a random overworld player, spectator veto,
+  isCloseToVillage(pos,2) on claimed POI sections, ±(24..47) signed
+  axis offsets, hasChunksAt(±10), and the CAN_PILLAGER_PATROL_SPAWN
+  environment attribute — which the early_game timeline ANDs false
+  until the overworld clock reaches tick 120000 (5 days). That last
+  one cost two test runs: `time set 1000` re-pins BELOW the timeline
+  flip, so the attribute read false forever.
+- Group: count = ceil(getEffectiveDifficulty)+1 pillagers (3 on a
+  fresh NORMAL world), first spawned = leader (findPatrolTarget picks
+  a ±500 wander anchor and sets patrolling), each member re-samples
+  MOTION_BLOCKING_NO_LEAVES then jitters XZ by rand(5)-rand(5).
+- spawnPatrolMember = isValidEmptySpawnBlock(feet) +
+  checkPatrollingMonsterSpawnRules (block light ≤8, difficulty veto,
+  AABB obstruction) + PILLAGER.create + finalizeSpawn(PATROL).
+- finalizeSpawn's 6% leader roll is reason-INVERTED from the naive
+  read: it runs on every spawn reason EXCEPT patrol/event/structure —
+  a bare /summon pillager really does roll captain — while the ominous
+  head lands whenever patrolLeader is already set (forced leader,
+  raid setLeader), and PATROL also sets patrolling.
+
+mc-go side: patrolTickStep in GameTick (after raidTickStep, where
+vanilla ticks customSpawners in the level pass), the spawn_mobs outer
+gate, dayTime>=120000 for the early_game timeline, patrolNearVillage
+over claimedPOIs, and mobDefaultEquipReason threading
+spawnDefault/spawnEvent/spawnPatrol through the equip pass. Entity
+gains Patrolling + PatrolTarget.
+
+TestPatrolParity accelerates with /tick rate 5000 — advance_time must
+stay ON (tickTime gates tickChunks entirely), spawn-monsters=true on
+the vanilla props (the spawnEnemies arg), random_tick_speed 0 keeps
+mc-go's tick affordable (randomTickStep iterates the 17×17-chunk sim
+window at ~17ms/tick — the tick-rate bottleneck, worth revisiting if
+fast-forward parity tests multiply), phantoms/traders off. `time set
+122000` re-pinned every poll holds day 5+ morning so the early_game
+gate stays open. Both legs: 3 pillagers, exactly one ominous-head
+leader [9 12 18 72], every member crossbow'd.
+
+Open items remaining: witch raider-heal throw, RestrictSunGoal
+wander bias, patrol LongDistancePatrolGoal movement (leader walks
+PatrolTarget, members follow), elder setHomeTo(pos,16),
+per-damage-type hurt variants, online mode, redstone, terrain gen,
+lighting.

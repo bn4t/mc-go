@@ -341,6 +341,12 @@ type Entity struct {
 	// finalizeSpawn roll on non-patrol/event/structure spawns puts
 	// the ominous banner on the leader's head with a 2.0 drop.
 	PatrolLeader bool
+	// Patrolling mirrors PatrollingMonster.patrolling — set when the
+	// spawn reason is PATROL or findPatrolTarget ran.
+	Patrolling bool
+	// PatrolTarget is PatrollingMonster.patrolTarget — the leader's
+	// wander anchor, picked ±500 blocks out when the patrol spawns.
+	PatrolTarget world.Pos
 	// LeftHanded is Mob's 5% finalizeSpawn roll — a left-handed mob
 	// renders its mainhand item in the other hand.
 	LeftHanded bool
