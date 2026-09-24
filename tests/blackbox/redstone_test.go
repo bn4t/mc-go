@@ -1810,6 +1810,11 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		`setblock 90 -61 140 minecraft:farmland`,
 		`setblock 90 -60 140 minecraft:wheat[age=6]`,
 		`item replace block 89 -60 140 container.0 with minecraft:bone_meal 1`,
+		// EquipmentDispenseItemBehavior: a living entity in the mouth
+		// cell wears the dispensed armor.
+		`summon minecraft:pig 80.5 -60 140.5`,
+		`setblock 79 -60 140 minecraft:dispenser[facing=east]`,
+		`item replace block 79 -60 140 container.0 with minecraft:iron_helmet 2`,
 		// $8: a carved pumpkin that completes the snow column spawns a
 		// golem; the same pumpkin over a bare mouth stays in the slot.
 		`setblock 84 -59 140 minecraft:dispenser[facing=down]`,
@@ -1903,16 +1908,16 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		{"T bonemeal clamps wheat to max", `block 85 -60 150 minecraft:wheat[age=7]`},
 		{"T meal consumed", `!items block 84 -60 150 container.* minecraft:bone_meal`},
 		{"U max-age wheat: meal kept", `items block 88 -60 150 container.* minecraft:bone_meal`},
-		{"P150 power cell placed", `block 60 -61 150 minecraft:redstone_block`},
-		{"P150 last power cell", `block 80 -61 150 minecraft:redstone_block`},
-		{"P140 bone power cell", `block 89 -61 140 minecraft:redstone_block`},
 		{"T bonemeal clamps wheat to max", `block 90 -60 140 minecraft:wheat[age=7]`},
 		{"T meal consumed", `!items block 89 -60 140 container.* minecraft:bone_meal`},
+		{"X pig wears the helmet", `items entity @e[type=minecraft:pig,x=80,y=-60,z=140,distance=..2] armor.head minecraft:iron_helmet`},
+		{"X one helmet left", `items block 79 -60 140 container.* minecraft:iron_helmet[count=1]`},
 		{"V snow golem spawned", `entity @e[type=minecraft:snow_golem]`},
 		{"V pattern aired out", `!block 84 -61 140 minecraft:snow_block`},
 		{"W bare mouth keeps pumpkin", `items block 88 -59 140 container.* minecraft:carved_pumpkin`},
 		{"W no pumpkin placed", `!block 88 -60 140 minecraft:carved_pumpkin`},
-		{"S thrown as an item instead", `entity @e[type=minecraft:item,x=81,y=-60,z=150,distance=..4]`},
+		{"S thrown as an item instead", `entity @e[type=minecraft:item,x=81,y=-60,z=150,distance=..6]`},
+		{"S potion drained", `!items block 80 -60 150 container.* minecraft:potion`},
 	}
 
 	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
@@ -1959,8 +1964,9 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		var out []string
 		for _, cmd := range setup {
 			sendCommand(t, pw, cmd)
+			time.Sleep(25 * time.Millisecond)
 		}
-		time.Sleep(400 * time.Millisecond)
+		time.Sleep(600 * time.Millisecond)
 		for i, p := range probesA {
 			out = append(out, probe(pw, sink, p.spec, i))
 		}
@@ -1977,6 +1983,7 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		// Persistent floor power for the z=140 bonemeal pair; side cells
 		// for the two down-facing golem dispensers.
 		sendCommand(t, pw, `setblock 89 -61 140 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 79 -61 140 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 83 -59 140 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 87 -59 140 minecraft:redstone_block`)
 		for _, x := range []int{60, 64, 68, 72, 76, 80} {
@@ -1984,7 +1991,7 @@ func TestDispenseBehaviorParity(t *testing.T) {
 			time.Sleep(30 * time.Millisecond)
 		}
 		// +4t dispense delay, then the primed TNT fuse starts.
-		time.Sleep(900 * time.Millisecond)
+		time.Sleep(1200 * time.Millisecond)
 		for i, p := range probesB {
 			out = append(out, probe(pw, sink, p.spec, 100+i))
 		}

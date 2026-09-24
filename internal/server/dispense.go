@@ -404,6 +404,16 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			s.broadcastLevelEvent(d.name, 1001, pos, 0)
 		}
 		return
+	case dispenseEquipSlot[itemName] != 0:
+		// EquipmentDispenseItemBehavior: the first LivingEntity whose
+		// box intersects the mouth AABB takes one item in the matching
+		// slot; no target falls through to the default throw.
+		if s.dispenseEquip(d, front, itemName, st) {
+			s.dispenseConsume(d, pos, c, slot)
+			s.broadcastLevelEvent(d.name, 1000, pos, 0)
+			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+			return
+		}
 	case itemName == "flint_and_steel":
 		// FlintAndSteelDispenseItemBehavior: prime a TNT/explosive
 		// entity at the mouth, else place fire where it can burn,
@@ -781,4 +791,68 @@ func (s *Server) bonemealGrow(d *dimension, pos world.Pos) bool {
 		return true
 	}
 	return false
+}
+
+// dispenseEquipSlot — the EquippableComponent slot each dispensable
+// equippable maps to (mc-go slot ids: 2 boots, 3 legs, 4 chest, 5 head).
+// Saddles/harnesses (body slot) and the chests-on-llama path ($2) are
+// deferred — they take the default throw for now.
+var dispenseEquipSlot = map[string]int32{
+	"carved_pumpkin": equipHelmet,
+	"elytra":         equipChest,
+	"shield":         equipOffHand,
+}
+
+func init() {
+	for _, m := range []string{"leather", "copper", "chainmail", "iron", "golden", "diamond", "netherite", "turtle"} {
+		dispenseEquipSlot[m+"_helmet"] = equipHelmet
+		dispenseEquipSlot[m+"_chestplate"] = equipChest
+		dispenseEquipSlot[m+"_leggings"] = equipLegs
+		dispenseEquipSlot[m+"_boots"] = equipBoots
+	}
+	// Mob heads + skull items all equip to the head slot. The
+	// wither_skeleton_skull item never reaches this case — the $7
+	// wither-pattern behavior owns it.
+	for _, h := range []string{"zombie_head", "creeper_head", "piglin_head", "player_head", "dragon_head", "skeleton_skull"} {
+		dispenseEquipSlot[h] = equipHelmet
+	}
+}
+
+// dispenseEquip — EquipmentDispenseItemBehavior.dispenseEquipment:
+// the first living entity whose hitbox intersects the mouth cell takes
+// stack.split(1) into its slot. Mob targets would also gain
+// persistence + a guaranteed drop — mc-go has no per-slot drop table
+// yet, so that half is deferred.
+func (s *Server) dispenseEquip(d *dimension, mouth world.Pos, itemName string, st ItemStack) bool {
+	slot, ok := dispenseEquipSlot[itemName]
+	if !ok || slot == 0 {
+		return false
+	}
+	var target *Entity
+	s.entities.mu.RLock()
+	for _, e := range s.entities.byID {
+		if !e.Living || e.Dying || e.Dim != d.name {
+			continue
+		}
+		name, _ := EntityTypeName(e.Type)
+		w, h := entityBox(name)
+		hw := w / 2
+		if e.X-hw < float64(mouth.X)+1 && e.X+hw > float64(mouth.X) &&
+			e.Z-hw < float64(mouth.Z)+1 && e.Z+hw > float64(mouth.Z) &&
+			e.Y < float64(mouth.Y)+1 && e.Y+h > float64(mouth.Y) {
+			target = e
+			break
+		}
+	}
+	s.entities.mu.RUnlock()
+	if target == nil {
+		return false
+	}
+	if target.Equips == nil {
+		target.Equips = map[int32]ItemStack{}
+	}
+	one := st
+	one.Count = 1
+	target.Equips[slot] = one
+	return true
 }

@@ -6439,3 +6439,22 @@ runs). Mitigations: probe client now `tp`s over the fixture field
 edge), power writes are paced 30ms apart, settle 900ms. Saw one mc-go
 double-fire (bottle count 0) — suspected `triggered` unlatch race on a
 transient unpowered read; not yet reproduced deterministically.
+
+## Slice 2026-09-25e — EquipmentDispenseItemBehavior
+
+Equippable items (armor family, elytra, shield→offhand, carved_pumpkin,
+mob heads/skulls) dispense onto the first LivingEntity whose hitbox
+intersects the mouth cell — `dispenseEquip` maps item→slot via
+`dispenseEquipSlot` (vanilla's getEquipmentSlotForItem table, armor +
+head + chest/offhand specials only; saddles/harness and the $2
+chest-on-llama path deferred). Vanilla semantics measured: split(1),
+overwrite any existing slot, mob targets also gain persistence + a
+guaranteed drop (no per-slot drop table in mc-go — deferred). Probe:
+pig in the mouth cell wears the iron_helmet (`items entity ... armor.head`).
+
+Test-harness note: fixture commands are now paced 25ms and the probe
+client teleports over the fixture field — the far-row cells (z≥140,
+x≥~84) sit at the 8-chunk simulation edge and unfired bursts were the
+dominant flake. Still residual: rare whole-row unfired on vanilla and
+one observed mc-go double-fire (triggered-latch re-arm race suspected,
+not yet reproduced in-process).
