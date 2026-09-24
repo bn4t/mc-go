@@ -389,6 +389,15 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		}
 		return
 	}
+	// BoneMealItem.useOn — a bonemealable target grows, consuming one
+	// meal in survival (creative keeps it, like the igniter path).
+	if s.useBonemeal(sess, d, clicked) {
+		acked = true
+		if seq >= 0 {
+			s.sendBlockAck(sess, seq)
+		}
+		return
+	}
 	// FlintAndSteelItem/FireChargeItem.useOn — held-item useOn runs
 	// only after the clicked block's own use path passed.
 	if s.useIgniter(sess, d, clicked, face) {
@@ -617,4 +626,28 @@ func observerPlaceState(blk world.Block, sess *Session) world.Block {
 		blk = nb
 	}
 	return blk
+}
+
+// useBonemeal — BoneMealItem.useOn: a bonemealable clicked block
+// grows (bonemealGrow, same table the dispenser case drives), one
+// meal is consumed in survival, and the 1505 growth event plays at
+// the clicked cell. Returns whether the use was consumed.
+func (s *Server) useBonemeal(sess *Session, d *dimension, clicked world.Pos) bool {
+	held := sess.heldStack()
+	if held.Empty() {
+		return false
+	}
+	iname, ok := itemNameOf(held.ID)
+	if !ok || strings.TrimPrefix(iname, "minecraft:") != "bone_meal" {
+		return false
+	}
+	if !s.bonemealGrow(d, clicked) {
+		return false
+	}
+	sess.addItemStat(statUsed, held.ID, 1)
+	if sess.mode() != GameModeCreative {
+		sess.consumeHeld(1)
+	}
+	s.broadcastLevelEvent(d.name, 1505, clicked, 15)
+	return true
 }

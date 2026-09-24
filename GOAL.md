@@ -6511,3 +6511,21 @@ regrow on grass-eat, mooshroom/snow-golem/bogged shear paths.
 Deferred: shearOffAllLeashConnections, wool regrow on grass-eat,
 mooshroom/snow-golem/bogged shear paths, happy-ghast harness,
 mob equip persistence/guaranteed-drop.
+
+## Slice 2026-09-25h — BoneMealItem.useOn (player-use path)
+
+- `useBonemeal` in the use_item_on chain (after the clicked block's
+  own use, before the igniter): held bone_meal + a bonemealable cell
+  → `bonemealGrow` (the same crop/cocoa/berry table the dispenser
+  $5 drives), `consumeHeld(1)` in survival only, `levelEvent 1505`.
+- TestBoneMealUseParity: survival clicks — wheat 6→7 clamp + consume,
+  max-age and non-crop clicks consume nothing, empty/stone hands are
+  no-ops, nether_wart verified NOT bonemealable on both servers.
+- Fixture lessons: vanilla's setblock refuses chunks that are still
+  streaming after a tp — fixtures now wait 1.5s post-tp + 60ms per
+  write. Wheat needs farmland, wart needs soul_sand — mc-go's
+  setblock skipped the support check vanilla enforces (a gap of its
+  own, noted).
+- Deferred bonemeal targets: sapling→tree, grass-block patch spread,
+  moss→moss patch, nylium, seagrass, sea_pickle, pink_petals,
+  glow_berry, rooted/watered plants.
