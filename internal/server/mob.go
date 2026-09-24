@@ -758,6 +758,20 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if bv, ok := tag.vals["PatrolLeader"]; ok && snbtNum(bv) > 0 && patrollingTypes[name] {
 				e.PatrolLeader = true
 			}
+			// PatrollingMonster.readAdditionalSaveData's remaining
+			// pair: the Patrolling flag and the patrol_target
+			// [I;x,y,z] block position.
+			if bv, ok := tag.vals["Patrolling"]; ok && snbtNum(bv) > 0 && patrollingTypes[name] {
+				e.Patrolling = true
+			}
+			if lv, ok := tag.vals["patrol_target"]; ok && patrollingTypes[name] && len(lv.items) == 3 {
+				e.PatrolTarget = world.Pos{
+					X: int(snbtNum(lv.items[0])),
+					Y: int(snbtNum(lv.items[1])),
+					Z: int(snbtNum(lv.items[2])),
+				}
+				e.HasPatrolTarget = true
+			}
 			if overworldZombifyTypes[name] {
 				if bv, ok := tag.vals["IsImmuneToZombification"]; ok && snbtNum(bv) > 0 {
 					e.ImmuneToZombification = true
@@ -1644,6 +1658,14 @@ func (s *Server) mobTickStep() {
 		if !s.mobInSimulationRange(e) {
 			continue
 		}
+		// PatrollingMonster.removeWhenFarAway — a patrolling mob that
+		// drifts past 128 blocks while still in a ticking chunk
+		// discards on the spot (non-patrolling raiders are exempt).
+		if s.patrolFarDiscard(e) {
+			s.entities.Remove(e.ID)
+			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+			continue
+		}
 		if e.Dying {
 			if len(e.dataSync) > 0 {
 				data := e.dataSync
@@ -1874,9 +1896,11 @@ func (s *Server) mobTickStep() {
 			}
 			w := s.dimWorld(e.Dim)
 			if w != nil {
-				// FleeSunGoal fills the gap between combat goals
-				// and the ambient wander for burning skeletons.
-				if !(e.FireTicks > 0 && mobSunFlees[ambName] && s.mobSunFleeStep(e, s.dims[e.Dim], w)) {
+				// Goal priority order once combat has declined:
+				// LongDistancePatrolGoal (4) ahead of FleeSunGoal (5)
+				// ahead of the ambient wander.
+				if !s.mobPatrolStep(e, s.dims[e.Dim], w) &&
+					!(e.FireTicks > 0 && mobSunFlees[ambName] && s.mobSunFleeStep(e, s.dims[e.Dim], w)) {
 					s.mobMoveStep(e, w)
 				}
 			}
@@ -1927,24 +1951,9 @@ func (s *Server) mobInSimulationRange(e *Entity) bool {
 // refuses to walk off a ledge. It only mutates entity state — the wire
 // emission is mobSyncFlush's sendChanges selection.
 func (s *Server) mobMoveStep(e *Entity, w *world.World) {
-	below := world.Pos{
-		X: int(math.Floor(e.X)),
-		Y: int(math.Floor(e.Y)) - 1,
-		Z: int(math.Floor(e.Z)),
-	}
-	grounded := w.GetBlock(below) != world.Air
-	if !grounded {
-		e.Grounded = false
-		e.MotionY -= 0.08
-		if e.MotionY < -1.0 {
-			e.MotionY = -1.0
-		}
-		e.Y += e.MotionY
+	if !mobGrounded(e, w) {
 		return
 	}
-	e.MotionY = 0
-	e.Y = math.Floor(e.Y)
-	e.Grounded = true
 	e.WanderTicks++
 	// Change heading every 40 steps; walk otherwise.
 	if e.WanderTicks%40 == 1 {
@@ -1971,6 +1980,29 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 		return
 	}
 	e.X, e.Z = nx, nz
+}
+
+// mobGrounded is the falling half of a mob tick: gravity until a solid
+// block is underfoot. True once the mob rests on ground.
+func mobGrounded(e *Entity, w *world.World) bool {
+	below := world.Pos{
+		X: int(math.Floor(e.X)),
+		Y: int(math.Floor(e.Y)) - 1,
+		Z: int(math.Floor(e.Z)),
+	}
+	if w.GetBlock(below) == world.Air {
+		e.Grounded = false
+		e.MotionY -= 0.08
+		if e.MotionY < -1.0 {
+			e.MotionY = -1.0
+		}
+		e.Y += e.MotionY
+		return false
+	}
+	e.MotionY = 0
+	e.Y = math.Floor(e.Y)
+	e.Grounded = true
+	return true
 }
 
 // mobMeleeTypes are the hostile mobs mc-go's chase-melee AI drives.
@@ -2738,15 +2770,22 @@ func (s *Server) mobSunFleeStep(e *Entity, d *dimension, w *world.World) bool {
 // mobWalkTo steps the mob one walk-speed tick toward (x,z), facing
 // it — the shared PathNavigation shim for goals with a point target.
 func (s *Server) mobWalkTo(e *Entity, x, z float64) {
-	dx, dz := x-e.X, z-e.Z
-	dist := math.Hypot(dx, dz)
-	if dist == 0 {
-		return
-	}
 	kn, _ := EntityTypeName(e.Type)
 	speed := mobChaseSpeed
 	if mv, ok := entityAttrBases[kn]["movement_speed"]; ok {
 		speed = mv
+	}
+	s.mobWalkToSpeed(e, x, z, speed)
+}
+
+// mobWalkToSpeed is mobWalkTo with a caller-picked stride — goals whose
+// speedModifier scales movement_speed (patrol's 0.595/0.7) step at that
+// product instead of the raw attribute.
+func (s *Server) mobWalkToSpeed(e *Entity, x, z, speed float64) {
+	dx, dz := x-e.X, z-e.Z
+	dist := math.Hypot(dx, dz)
+	if dist == 0 {
+		return
 	}
 	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
 	e.HeadYaw = e.Yaw

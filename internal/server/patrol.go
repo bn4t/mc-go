@@ -93,12 +93,16 @@ func (s *Server) patrolTickStep() {
 // and checkPatrollingMonsterSpawnRules requires block light ≤ 8 — the
 // flat world carries no light engine, so block light is 0 and the gate
 // can't fail — plus checkAnyLightMonsterSpawnRules' difficulty veto and
-// the AABB obstruction check (untestable on an empty surface).
+// its isUnobstructed check: a jittered cell whose pillager AABB
+// (~0.6×1.95) overlaps a live entity silently skips that member.
 func (s *Server) spawnPatrolMember(d *dimension, pos world.Pos, leader bool) bool {
 	if !patrolSpawnBlockFree(d.w.GetBlock(pos)) {
 		return false
 	}
 	if s.difficulty == DifficultyPeaceful {
+		return false
+	}
+	if s.patrolSpawnObstructed(d, pos) {
 		return false
 	}
 	// EntityType.create + setPos: vanilla places the mob at the block
@@ -109,13 +113,7 @@ func (s *Server) spawnPatrolMember(d *dimension, pos world.Pos, leader bool) boo
 	}
 	if leader {
 		e.PatrolLeader = true
-		// findPatrolTarget: patrolTarget is up to ±500 blocks on each
-		// axis at the mob's own y, and patrolling starts now.
-		e.PatrolTarget = world.Pos{
-			X: pos.X - 500 + rand.Intn(1000),
-			Y: pos.Y,
-			Z: pos.Z - 500 + rand.Intn(1000),
-		}
+		s.patrolFindTarget(e)
 	}
 	// finalizeSpawn(PATROL): no 6% leader roll (patrol/event/structure
 	// spawns skip it), the banner lands because PatrolLeader is set,
@@ -123,6 +121,29 @@ func (s *Server) spawnPatrolMember(d *dimension, pos world.Pos, leader bool) boo
 	s.mobDefaultEquipReason(e, spawnPatrol)
 	s.broadcastFreshMob(e)
 	return true
+}
+
+// patrolSpawnObstructed is the isUnobstructed half of vanilla's spawn
+// rules: the new pillager's AABB can't overlap a live entity's. Vanilla
+// shapes the box from the type's dimensions centered on the cell;
+// pillagers are 0.6 wide × 1.95 tall, so ±0.3 on x/z and a 1.95-high
+// column is the collision window against entity centers.
+func (s *Server) patrolSpawnObstructed(d *dimension, pos world.Pos) bool {
+	px, py, pz := float64(pos.X)+0.5, float64(pos.Y), float64(pos.Z)+0.5
+	var hit bool
+	s.entities.mu.RLock()
+	for _, o := range s.entities.byID {
+		if !o.Living || o.Dying || o.Dim != d.name {
+			continue
+		}
+		if math.Abs(o.X-px) < 0.6 && math.Abs(o.Z-pz) < 0.6 &&
+			o.Y < py+1.95 && o.Y+1.95 > py {
+			hit = true
+			break
+		}
+	}
+	s.entities.mu.RUnlock()
+	return hit
 }
 
 // patrolSpawnBlockFree is NaturalSpawner.isValidEmptySpawnBlock on the
@@ -163,6 +184,146 @@ func (d *dimension) patrolNearVillage(pos world.Pos) bool {
 		return true
 	}
 	return false
+}
+
+// patrolClass is the PatrollingMonster hierarchy — the class filter of
+// findPatrolCompanions' getEntitiesOfClass. Every subclass returns true
+// from canJoinPatrol, so membership alone is the predicate.
+var patrolClass = map[string]bool{
+	"pillager":   true,
+	"vindicator": true,
+	"evoker":     true,
+	"illusioner": true,
+	"witch":      true,
+	"ravager":    true,
+}
+
+// patrolFindTarget is PatrollingMonster.findPatrolTarget: patrolTarget
+// lands up to ±500 blocks out on each axis at the mob's own y, and the
+// mob is patrolling from now on.
+func (s *Server) patrolFindTarget(e *Entity) {
+	e.PatrolTarget = world.Pos{
+		X: int(math.Floor(e.X)) - 500 + rand.Intn(1000),
+		Y: int(math.Floor(e.Y)),
+		Z: int(math.Floor(e.Z)) - 500 + rand.Intn(1000),
+	}
+	e.Patrolling = true
+	e.HasPatrolTarget = true
+}
+
+// patrolCompanions is LongDistancePatrolGoal.findPatrolCompanions:
+// every PatrollingMonster-class mob whose bounding box sits inside the
+// walker's, inflated by 16 — mc-go's ±16 position box is the same
+// window up to half a mob width.
+func (s *Server) patrolCompanions(e *Entity) []*Entity {
+	var out []*Entity
+	s.entities.mu.RLock()
+	for _, o := range s.entities.byID {
+		if o == e || o.Dim != e.Dim {
+			continue
+		}
+		kn, _ := EntityTypeName(o.Type)
+		if !patrolClass[kn] {
+			continue
+		}
+		if math.Abs(o.X-e.X) <= 16 && math.Abs(o.Y-e.Y) <= 16 && math.Abs(o.Z-e.Z) <= 16 {
+			out = append(out, o)
+		}
+	}
+	s.entities.mu.RUnlock()
+	return out
+}
+
+// mobPatrolStep is PatrollingMonster.LongDistancePatrolGoal (goal
+// priority 4 — it only owns the tick once every combat goal above it
+// has declined, so it sits between them and the ambient wander).
+// canUse: patrolling, a live patrolTarget, no controlling passenger
+// (Riding is vetted by the caller). tick: vanilla runs the body when
+// navigation reports done; mc-go's walk is stepwise, so the body runs
+// every tick. A patrol alone in its companion box stops patrolling; a
+// leader within 10 of the target's center re-rolls it ±500 via
+// findPatrolTarget. Otherwise the step heads for a waypoint pushed 10
+// blocks toward the target with the rotated 0.4 skew — yRot(90) is
+// radians in vanilla (a ~117° sweep, not the 90° the literal suggests)
+// — at 0.595 for the leader and 0.7 for companions, each scaled by
+// movement_speed. Every leader step writes the waypoint block back to
+// each companion's patrolTarget. Vanilla's moveRandomly fallback and
+// its 200-tick cooldown have no analogue: this walk can't fail.
+func (s *Server) mobPatrolStep(e *Entity, d *dimension, w *world.World) bool {
+	if !e.Patrolling || !e.HasPatrolTarget {
+		return false
+	}
+	companions := s.patrolCompanions(e)
+	if len(companions) == 0 {
+		e.Patrolling = false
+		return true
+	}
+	if !mobGrounded(e, w) {
+		return true
+	}
+	// atBottomCenterOf: x/z get +0.5, y stays the block's own y.
+	pvx, pvy, pvz := float64(e.PatrolTarget.X)+0.5, float64(e.PatrolTarget.Y), float64(e.PatrolTarget.Z)+0.5
+	if e.PatrolLeader {
+		dx, dy, dz := pvx-e.X, pvy+0.5-e.Y, pvz-e.Z
+		if dx*dx+dy*dy+dz*dz < 100 {
+			s.patrolFindTarget(e)
+			return true
+		}
+	}
+	dirx, diry, dirz := e.X-pvx, e.Y-pvy, e.Z-pvz
+	c, sn := math.Cos(90.0), math.Sin(90.0)
+	wx := pvx + (dirx*c+dirz*sn)*0.4
+	wy := pvy + diry*0.4
+	wz := pvz + (dirz*c-dirx*sn)*0.4
+	tx, ty, tz := wx-e.X, wy-e.Y, wz-e.Z
+	if n := math.Sqrt(tx*tx + ty*ty + tz*tz); n > 0 {
+		tx, ty, tz = e.X+tx/n*10, e.Y+ty/n*10, e.Z+tz/n*10
+	} else {
+		tx, ty, tz = e.X, e.Y, e.Z
+	}
+	bp := world.Pos{X: int(math.Floor(tx)), Y: int(math.Floor(ty)), Z: int(math.Floor(tz))}
+	bp.Y = d.w.TopMotionBlocking(bp.X, bp.Z, d.minY, d.minY+d.height) + 1
+	speed := 0.7
+	if e.PatrolLeader {
+		speed = 0.595
+	}
+	kn, _ := EntityTypeName(e.Type)
+	if mv, ok := entityAttrBases[kn]["movement_speed"]; ok {
+		speed *= mv
+	}
+	s.mobWalkToSpeed(e, float64(bp.X)+0.5, float64(bp.Z)+0.5, speed)
+	if e.PatrolLeader {
+		for _, o := range companions {
+			o.PatrolTarget = bp
+			o.HasPatrolTarget = true
+		}
+	}
+	return true
+}
+
+// patrolFarDiscard is PatrollingMonster.removeWhenFarAway: a patrolling
+// mob discards once it sits past 128 blocks from the nearest live,
+// non-spectator player in its dimension. Non-patrolling raiders are
+// despawn-exempt entirely (the check returns false when !patrolling).
+func (s *Server) patrolFarDiscard(e *Entity) bool {
+	if !e.Patrolling {
+		return false
+	}
+	far := true
+	s.sessions.Range(func(_, v any) bool {
+		p := v.(*Session)
+		if p.state.Load() != StatePlay || p.mode() == GameModeSpectator || p.dimName() != e.Dim {
+			return true
+		}
+		px, py, pz, _, _, _ := p.Pos()
+		dx, dy, dz := e.X-px, e.Y-py, e.Z-pz
+		if dx*dx+dy*dy+dz*dz <= 16384 {
+			far = false
+			return false
+		}
+		return true
+	})
+	return far
 }
 
 // isBrightOutside is ServerLevel.isBrightOutside (skyDarken < 4): the

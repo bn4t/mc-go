@@ -347,6 +347,10 @@ type Entity struct {
 	// PatrolTarget is PatrollingMonster.patrolTarget — the leader's
 	// wander anchor, picked ±500 blocks out when the patrol spawns.
 	PatrolTarget world.Pos
+	// HasPatrolTarget mirrors hasPatrolTarget() (patrolTarget != null):
+	// the leader has one from spawn; companions only get theirs when
+	// the leader's LongDistancePatrolGoal pushes its waypoint over.
+	HasPatrolTarget bool
 	// LeftHanded is Mob's 5% finalizeSpawn roll — a left-handed mob
 	// renders its mainhand item in the other hand.
 	LeftHanded bool

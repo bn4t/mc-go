@@ -5574,3 +5574,57 @@ wander bias, patrol LongDistancePatrolGoal movement (leader walks
 PatrolTarget, members follow), elder setHomeTo(pos,16),
 per-damage-type hurt variants, online mode, redstone, terrain gen,
 lighting.
+
+## Slice 2026-09-24d — LongDistancePatrolGoal + patrol NBT + 128 despawn
+
+Vanilla side (javap on PatrollingMonster$LongDistancePatrolGoal,
+PatrollingMonster, DifficultyInstance):
+
+- Goal priority 4 in registerGoals, speedModifier 0.7 (leader 0.595),
+  MOVE flag, cooldownUntil=-1. canUse: gameTime>=cooldownUntil &&
+  isPatrolling && getTarget()==null && !hasControllingPassenger &&
+  hasPatrolTarget. tick is gated on navigation.isDone().
+- tick: companions = getEntitiesOfClass(PatrollingMonster,
+  aabb.inflate(16), canJoinPatrol && !=self); patrolling &&
+  companions empty -> setPatrolling(false). Leader within 10 of the
+  patrol target's center (strict <, distToCenterSqr vs +0.5/+0.5/+0.5)
+  re-rolls it via findPatrolTarget (±500 xz, sets patrolling).
+- Waypoint: atBottomCenterOf(target) + yRot(90.0F)(pos-target)*0.4 —
+  and yRot's argument is RADIANS (goes straight into Mth.cos/sin), so
+  the sweep is ~117deg, not 90. walkPt = pos + normalize(waypoint-pos)
+  *10; bp = heightmapPos(MOTION_BLOCKING_NO_LEAVES, containing(walkPt));
+  nav.moveTo(bp, leader?0.595:0.7). On success a leader pushes bp to
+  every companion's patrolTarget; on failure moveRandomly (±8 xz
+  heightmap wander) + cooldownUntil=gameTime+200.
+- removeWhenFarAway = patrolling && distSqr>16384: a patrolling mob
+  >128 blocks from every non-spectator player in its dim discards
+  instantly; non-patrolling raiders are despawn-exempt. Sim-distance
+  (8 chunks <= 143 blocks) means a mob at 129-143 is ticked AND far
+  enough to die.
+- NBT round trip: addAdditionalSaveData writes patrol_target
+  (BlockPos.CODEC int array [I;x,y,z]), PatrolLeader, Patrolling;
+  readAdditionalSaveData reads the same three keys — summon NBT works.
+
+mc-go side: mobPatrolStep in the goal cascade (patrol(4) ahead of
+sunflee(5) ahead of wander), mobGrounded extracted out of
+mobMoveStep's gravity preamble, mobWalkToSpeed threading the
+speedModifier*movement_speed product, patrolCompanions' 16-block
+PatrollingMonster-class box, patrolFindTarget, patrolFarDiscard in
+mobTickStep (sim-range gated like vanilla), Entity.HasPatrolTarget,
+and entity save data emitting Patrolling + patrol_target [I;]. Summon
+NBT learned Patrolling/patrol_target to mirror readAdditionalSaveData.
+
+Blackbox: TestPatrolSpawnParity keeps the natural cycle (tick rate
+2000 pacing — NOT sprint, whose reply batching hides a mid-burst
+spawn until it's marched past the despawn radius — tp-hop every poll
+keeps the player glued to the leader so the group can't cross 128);
+TestPatrolMoveParity summons a deterministic pair (leader + member,
+patrol_target due east) in creative — no target acquisition, despawn
+anchored — and pins the skewed march heading (~east-positive, slight
++z), Patrolling round-trip, and member trailing. The 128-block
+despawn rule is also why every observation tp-anchors first.
+
+Open items remaining: witch raider-heal throw, RestrictSunGoal
+wander bias, elder setHomeTo(pos,16), per-damage-type hurt variants,
+generic monster despawn (only the patrolling rule exists now),
+online mode, redstone, terrain gen, lighting.

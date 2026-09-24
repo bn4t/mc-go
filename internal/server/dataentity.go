@@ -546,10 +546,17 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 		m["IsImmuneToZombification"] = nbtBool(e.ImmuneToZombification)
 		m["TimeInOverworld"] = e.TimeInOverworld
 	}
-	// PatrollingMonster declares PatrolLeader; the leader head slot's
-	// 2.0 drop chance writes a drop_chances override compound.
+	// PatrollingMonster declares PatrolLeader/Patrolling and the
+	// nullable patrol_target BlockPos; the leader head slot's 2.0 drop
+	// chance writes a drop_chances override compound.
 	if patrollingTypes[typeName] {
 		m["PatrolLeader"] = nbtBool(e.PatrolLeader)
+		m["Patrolling"] = nbtBool(e.Patrolling)
+		if e.HasPatrolTarget {
+			m["patrol_target"] = []int32{
+				int32(e.PatrolTarget.X), int32(e.PatrolTarget.Y), int32(e.PatrolTarget.Z),
+			}
+		}
 	}
 	if e.PatrolLeader {
 		m["drop_chances"] = map[string]any{"head": float32(2)}
