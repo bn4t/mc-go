@@ -9,6 +9,8 @@ package server
 // Entity Event 35 plays the pop animation for every viewer.
 
 import (
+	"math"
+
 	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
@@ -24,7 +26,10 @@ type mobEffectInst struct {
 	amplifier int32
 	expiry    int64
 	hide      bool
-	hidden    *mobEffectInst
+	// flags pins the wire flags byte when nonzero; zero derives the
+	// byte from hide (mobEffectFlags).
+	flags  byte
+	hidden *mobEffectInst
 }
 
 // Status-effect state on Session — small fixed map, its own mutex.
@@ -36,7 +41,11 @@ const (
 	effectRegeneration   = 9
 	effectFireResistance = 11
 	effectAbsorption     = 21
+	effectGlowing        = 23
 	effectLevitation     = 24
+	effectBadOmen        = 30
+	effectHeroOfVillage  = 31
+	effectRaidOmen       = 34
 )
 
 // damageTypeBypassesInvulnerability is the vanilla damage-type tag
@@ -194,6 +203,14 @@ func (e *mobEffectInst) mergeHidden(other mobEffectInst, now int64) {
 // flag: hiding clears bit 0x02 of vanilla's applied-effect mask 0x0E.
 // A duration < 0 is vanilla's infinite and never expires.
 func (s *Server) applyMobEffectFlags(sess *Session, id, amplifier int32, duration int32, hideParticles bool) {
+	s.applyMobEffectWire(sess, id, amplifier, duration, hideParticles, 0)
+}
+
+// applyMobEffectWire is applyMobEffectFlags with the packet's flags
+// byte pinned — vanilla constructs some instances with flag
+// combinations the hide-derived mask can't express (raid-victory hero
+// status is icon-only: ambient=false, visible=false, showIcon=true).
+func (s *Server) applyMobEffectWire(sess *Session, id, amplifier int32, duration int32, hideParticles bool, flags byte) {
 	sess.effMu.Lock()
 	if sess.effects == nil {
 		sess.effects = map[int32]mobEffectInst{}
@@ -202,7 +219,7 @@ func (s *Server) applyMobEffectFlags(sess *Session, id, amplifier int32, duratio
 	if duration >= 0 {
 		expiry = s.clock.count + int64(duration)
 	}
-	inst := mobEffectInst{amplifier: amplifier, expiry: expiry, hide: hideParticles}
+	inst := mobEffectInst{amplifier: amplifier, expiry: expiry, hide: hideParticles, flags: flags}
 	if prev, ok := sess.effects[id]; ok {
 		switch {
 		case prev.amplifier < amplifier:
@@ -456,7 +473,11 @@ func (s *Server) sendMobEffectUpdate(sess *Session, id int32, e mobEffectInst) {
 		remaining = -1
 	}
 	b.VarInt(int32(remaining))
-	b.Byte(mobEffectFlags(e.hide))
+	flags := e.flags
+	if flags == 0 {
+		flags = mobEffectFlags(e.hide)
+	}
+	b.Byte(flags)
 	body := b.Bytes()
 	_ = sess.write(sess.ids().PlayUpdateMobEffect, body)
 	s.broadcastToDim(sess.dimName(), sess, sess.ids().PlayUpdateMobEffect, body)
@@ -472,6 +493,24 @@ func (s *Server) mobEffectTickStep() {
 		sess := v.(*Session)
 		if sess.state.Load() != StatePlay {
 			return true
+		}
+		// Per-tick applyEffectTick hooks run before the expiry sweep —
+		// MobEffectInstance.tick applies the effect while it still has
+		// duration, so a conversion at remaining>0 preempts removal.
+		sess.effMu.Lock()
+		badOmen, hasBadOmen := sess.effects[effectBadOmen]
+		raidOmen, hasRaidOmen := sess.effects[effectRaidOmen]
+		raidOmenDue := hasRaidOmen && raidOmen.expiry >= 0 && raidOmen.expiry-s.clock.count == 1
+		sess.effMu.Unlock()
+		if hasBadOmen {
+			s.badOmenTick(sess, badOmen)
+		}
+		if raidOmenDue && sess.raidOmenPos != nil {
+			// RaidOmenMobEffect fires exactly once, on the last live
+			// tick of the 600-tick instance.
+			pos := *sess.raidOmenPos
+			sess.raidOmenPos = nil
+			s.createOrExtendRaid(sess, sess.dimension(), pos)
 		}
 		sess.effMu.Lock()
 		var expired, downgraded []int32
@@ -526,4 +565,47 @@ func (s *Server) mobEffectTickStep() {
 			ep.AttrDirty = true
 		}
 	}
+}
+
+// badOmenTick is BadOmenMobEffect.applyEffectTick — runs every tick the
+// effect is live: a non-spectator on non-peaceful difficulty inside a
+// village converts Bad Omen into a 600-tick Raid Omen at the same
+// amplifier and records the position the raid will anchor to. The one
+// skip is a raid at that position already at max omen level. The
+// return-false in vanilla removes Bad Omen the same tick.
+func (s *Server) badOmenTick(sess *Session, inst mobEffectInst) {
+	if sess.gameMode == 3 || int32(s.difficulty) == 0 {
+		return
+	}
+	x, y, z, _, _, _ := sess.Pos()
+	d := sess.dimension()
+	pos := world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}
+	if !d.raidIsVillage(pos) {
+		return
+	}
+	if ex := d.raidAt(pos.X, pos.Y, pos.Z); ex != nil && ex.omen >= raidOmenMax {
+		return
+	}
+	s.applyMobEffectWire(sess, effectRaidOmen, inst.amplifier, 600, false, 0)
+	// Vanilla emits a second Update Mob Effect for the fresh Raid
+	// Omen in the same tick — an onEffectUpdated frame identical to
+	// the add except the blend bit is clear (0x06 vs 0x0E).
+	s.sendMobEffectUpdateFlags(sess, effectRaidOmen, inst.amplifier, 600, 0x06)
+	sess.raidOmenPos = &pos
+	s.removeMobEffect(sess, effectBadOmen)
+}
+
+// sendMobEffectUpdateFlags emits one Update Mob Effect with the flags
+// byte spelled out — ServerPlayer.onEffectUpdated always sends the
+// no-blend form, which is what the extra raid-omen frame is.
+func (s *Server) sendMobEffectUpdateFlags(sess *Session, id, amplifier, duration int32, flags byte) {
+	var b protocol.Buffer
+	b.VarInt(sess.entityID.Load())
+	b.VarInt(id)
+	b.VarInt(amplifier)
+	b.VarInt(duration)
+	b.Byte(flags)
+	body := b.Bytes()
+	_ = sess.write(sess.ids().PlayUpdateMobEffect, body)
+	s.broadcastToDim(sess.dimName(), sess, sess.ids().PlayUpdateMobEffect, body)
 }

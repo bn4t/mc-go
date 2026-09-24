@@ -296,6 +296,9 @@ func (s *Server) GameTick() {
 	s.weatherTickStep()
 	s.beaconTickStep()
 	s.mobEffectTickStep()
+	// Raids tick once per level tick after the living-entity pass —
+	// cooldown, wave spawns, the event bar, victory.
+	s.raidTickStep()
 	// Chunk streaming is paced on the tick, like everything else: one
 	// batch per tick per player, at the rate their client asked for.
 	s.chunkTickStep()

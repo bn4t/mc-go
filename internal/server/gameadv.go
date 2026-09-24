@@ -59,6 +59,8 @@ type advMeta struct {
 	sleeps     []sleepCond     // slept_in_bed — entered a bed
 	sculks     []sleepCond     // kill_mob_near_sculk_catalyst — no conditions
 	vibrates   []sleepCond     // avoid_vibration — a sneaking emission a sensor heard
+	heros      []sleepCond     // hero_of_the_village — a defended-raid victory
+	omens      []sleepCond     // voluntary_exile — a raid_omen absorbed into a raid
 	beacons    []beaconCond    // construct_beacon — pyramid activated
 	recipes    []recipeCond    // recipe_crafted — a recipe completed
 	crafters   []recipeCond    // crafter_recipe_crafted — a powered crafter ejected
@@ -368,6 +370,10 @@ func loadGameAdvs() map[string]*advMeta {
 					m.spears = append(m.spears, parseSpearCond(cname, cm["conditions"]))
 				case "minecraft:location":
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
+				case "minecraft:hero_of_the_village":
+					m.heros = append(m.heros, parseSleepCond(cname, cm["conditions"]))
+				case "minecraft:voluntary_exile":
+					m.omens = append(m.omens, parseSleepCond(cname, cm["conditions"]))
 				}
 			}
 		}
@@ -1802,6 +1808,32 @@ func (s *Server) fireAvoidVibration(sess *Session, x, y, z float64, dimName stri
 func (s *Server) fireSleptInBed(sess *Session) {
 	for _, meta := range gameAdvs {
 		for _, sc := range meta.sleeps {
+			if sc.impossible {
+				continue
+			}
+			sess.grantGameCriterion(meta, sc.crit)
+		}
+	}
+}
+
+// fireHeroOfVillage grants hero_of_the_village criteria — vanilla's
+// RAID_WIN trigger fires on each hero at victory time.
+func (s *Server) fireHeroOfVillage(sess *Session) {
+	for _, meta := range gameAdvs {
+		for _, sc := range meta.heros {
+			if sc.impossible {
+				continue
+			}
+			sess.grantGameCriterion(meta, sc.crit)
+		}
+	}
+}
+
+// fireRaidOmen grants voluntary_exile criteria — vanilla's RAID_OMEN
+// trigger fires when a player's raid_omen absorbs into a raid.
+func (s *Server) fireRaidOmen(sess *Session) {
+	for _, meta := range gameAdvs {
+		for _, sc := range meta.omens {
 			if sc.impossible {
 				continue
 			}

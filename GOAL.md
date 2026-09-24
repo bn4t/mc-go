@@ -5412,3 +5412,51 @@ RestrictSunGoal wander bias, patrol-captain ominous gear + bottle
 drops (needs natural patrol spawn/raids), elder setHomeTo(pos,16)
 home restriction, per-damage-type hurt variants, online mode,
 redstone, terrain gen, lighting.
+
+## Slice 2026-09-24a — organic raids end-to-end
+
+The full organic raid lifecycle is live and pinned against vanilla:
+villager POI claims (claimedPOIs is the PoiManager occupied set —
+a claimed bed keeps the position out of raidIsVillage's available
+scan), Bad Omen → Raid Omen conversion in the tick pass
+(BadOmenMobEffect.applyEffectTick: spectator/peaceful/isVillage/
+omen<max guards, 600-tick instance at the same amplifier, position
+latched to ServerPlayer.raidOmenPosition), RaidOmenMobEffect firing
+exactly at duration==1 → createOrExtendRaid (POI 64-block centroid,
+fallback to the omen position when the scan is empty; the
+spectator/RAIDS-gamerule/CAN_START_RAID env-attribute guards sit
+ahead of it), the 300-tick cooldown driving the event bar progress
+(prog = (300-cd)/300), wave spawns on the ~98-block ring, raider
+auto-join through Raid.joinRaid, and the victory/defeat renames.
+
+Measured on the jar this slice: the raid bar is a ServerBossEvent
+with the compound translatable name {"translate":"event.minecraft.raid"},
+RED + NOTCHED_10 — mc-go's writer was collapsing the component to a
+bare "" (componentBytes has no struct arm; the raid path now goes
+through component.content() like every other sender). The conversion
+also emits a second Update Mob Effect for the fresh raid_omen in the
+same tick — identical to the add except blend bit clear (0x06 vs
+0x0E, ServerPlayer.onEffectUpdated's hardcoded full=false) — and
+/effect give's success.single/multiple replies carry a third arg,
+duration/20 as a raw Integer. Raid-victory Hero of the Village is
+the icon-only wire form (flags 0x04) at omen-1 amplifier for 48000t;
+RAID_OMEN (voluntary_exile) and RAID_WIN (hero_of_the_village)
+criteria triggers fire at absorbRaidOmen / victory. /raid exists
+mc-go-side only — vanilla's RaidCommand is gated behind
+CommandSelection.INTEGRATED so the dedicated jar never registers it;
+its replies are pinned off javap literals (level 3, needs args).
+
+TestRaidParity drives the organic flow on BOTH targets — bed at
+foot level for the ~1s AcquirePoi claim, effect give bad_omen,
+poll active_effects for the id-34 swap, collect until the bar add
+shows the translate key, then a pillager probe + kill — and diffs
+the flat (eff/eff-/chat/bars) streams: byte-identical now, and a
+length-only mismatch errors instead of silently dumping.
+
+Open items remaining: witch raider-heal throw, RestrictSunGoal
+wander bias, patrol-captain bottle drops + voluntary_exile
+equipment-predicate kill condition (ominous banner stack itself is
+wired — getBannerComponentPatch's four components are on the
+white_banner slot form), elder setHomeTo(pos,16) home restriction,
+per-damage-type hurt variants, online mode, redstone, terrain gen,
+lighting.

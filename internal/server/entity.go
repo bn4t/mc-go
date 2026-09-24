@@ -390,6 +390,19 @@ type Entity struct {
 	// machine (owner link, timers, parked surface).
 	fishing  *fishBobber
 	Grounded bool
+	// Raid / Wave mirror Raider's currentRaid + wave: raiders flag in
+	// through Raid.joinRaid, drop on death or 112 blocks past center.
+	Raid *raid
+	Wave int32
+	// POIPos is a villager's claimed bed/bell position; POITicks
+	// throttles the brain's re-scan, and HasPOI keeps the claim out of
+	// the village's available set until release.
+	POIPos   world.Pos
+	HasPOI   bool
+	POITicks int32
+	// GlowUntil is the entity flag's glowing bit expiry — /raid glow
+	// applies GLOWING for 1000 ticks.
+	GlowUntil int64
 }
 
 // Manager owns entity ids and the live set. All methods are safe for

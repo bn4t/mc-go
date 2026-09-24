@@ -73,6 +73,14 @@ type dimension struct {
 	// that reads it (bee_nest_destroyed's num_bees_inside) sees no
 	// more than that.
 	bees map[world.Pos]int32
+	// claimedPOIs is the PoiManager's occupied set — village POI
+	// positions (beds, bells) a villager claimed, keyed to the
+	// claimant's entity id. Raids require occupied POIs nearby.
+	claimedPOIs map[world.Pos]int32
+	// raids is the dimension's active raid map (Raids.raidMap); the
+	// next id is a per-dimension counter like vanilla's getUniqueId.
+	raids    map[int]*raid
+	raidNext int
 }
 
 // sections is the chunk section count for this dimension.

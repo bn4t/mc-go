@@ -190,7 +190,7 @@ var commandLevels = map[string]int{
 	"teammsg": 0, "tell": 0, "tm": 0, "trigger": 0, "w": 0,
 
 	"ban": 3, "ban-ip": 3, "banlist": 3, "debug": 3, "deop": 3,
-	"kick": 3, "op": 3, "pardon": 3, "pardon-ip": 3,
+	"kick": 3, "op": 3, "pardon": 3, "pardon-ip": 3, "raid": 3,
 	"setidletimeout": 3, "tick": 3, "transfer": 3, "whitelist": 3,
 
 	"jfr": 4, "perf": 4, "save-all": 4, "save-off": 4,
@@ -211,7 +211,7 @@ func commandLevel(name string) int {
 // gated command. Measured on 26.2 for the commands that diverged.
 var commandNeedsArgs = map[string]bool{
 	"data": true, "execute": true, "fill": true, "give": true,
-	"scoreboard": true, "setblock": true, "summon": true,
+	"raid": true, "scoreboard": true, "setblock": true, "summon": true,
 	"team": true, "teleport": true, "tellraw": true,
 	"title": true, "tp": true,
 }

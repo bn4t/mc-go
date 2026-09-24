@@ -1414,16 +1414,19 @@ func (s *Server) igniteMob(e *Entity, ticks int32) {
 		return
 	}
 	s.entities.SetFireTicks(e.ID, ticks)
-	s.broadcastMobSharedFlags(e.ID, true)
+	s.broadcastMobSharedFlags(e.ID, true, e.GlowUntil > s.gameTime())
 }
 
 // broadcastMobSharedFlags sends the index-0 entity-data byte — the
-// bit set vanilla's setSharedFlagOnFire flips — to every session
-// tracking the mob's dimension.
-func (s *Server) broadcastMobSharedFlags(eid int32, onFire bool) {
+// bits vanilla's setSharedFlag flips: 0x01 on_fire, 0x40 glowing — to
+// every session tracking the mob's dimension.
+func (s *Server) broadcastMobSharedFlags(eid int32, onFire, glowing bool) {
 	flags := byte(0)
 	if onFire {
 		flags |= 0x01
+	}
+	if glowing {
+		flags |= 0x40
 	}
 	var b protocol.Buffer
 	b.Byte(0) // index: shared flags
@@ -1488,6 +1491,11 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 		// writes go through the manager's stored pointer.
 		if ep, ok := s.entities.GetPtr(e.ID); ok {
 			ep.LastHurtByPlayerTicks = 100
+			if ep.Raid != nil {
+				// Raid.updateHeroes: landing damage on a raider
+				// makes the attacker a hero-of-the-village target.
+				ep.Raid.heroes[killer.uuid] = true
+			}
 			// NeutralMob provocation: the hurt player becomes this
 			// mob's anger target. A zombified piglin additionally
 			// arms the persistent-anger timer (PERSISTENT_ANGER_TIME,
@@ -1577,6 +1585,9 @@ func (s *Server) mobTickStep() {
 			}
 			if s.entities.TickDeath(e.ID) {
 				s.broadcastEntityEventTo(nil, e.Dim, e.ID, 60)
+				if vd := s.dimensionByName(e.Dim); vd != nil {
+					s.releasePOI(vd, e)
+				}
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 			}
@@ -1644,8 +1655,14 @@ func (s *Server) mobTickStep() {
 			ticks := e.FireTicks - 1
 			s.entities.SetFireTicks(e.ID, ticks)
 			if ticks <= 0 {
-				s.broadcastMobSharedFlags(e.ID, false)
+				s.broadcastMobSharedFlags(e.ID, false, e.GlowUntil > s.gameTime())
 			}
+		}
+		// The GLOWING instance /raid glow applies expires after its
+		// 1000 ticks — same shared-flags byte, bit 0x40 off.
+		if e.GlowUntil != 0 && e.GlowUntil <= s.gameTime() {
+			e.GlowUntil = 0
+			s.broadcastMobSharedFlags(e.ID, e.FireTicks > 0, false)
 		}
 		if e.invulnTicks > 0 {
 			e.invulnTicks--
@@ -1654,6 +1671,23 @@ func (s *Server) mobTickStep() {
 			e.loveTicks--
 		}
 		ambName, _ := EntityTypeName(e.Type)
+		// Villager brain: AcquirePoi claims the nearest unclaimed bed
+		// or bell inside 48 blocks — the raid-start precondition.
+		if ambName == "villager" {
+			if vd := s.dimensionByName(e.Dim); vd != nil {
+				s.villagerPOIStep(vd, e)
+			}
+		}
+		// Raider.aiStep: every 20 ticks an unjoined raider inside a
+		// raid's radius flags in at the current wave — the /raid
+		// spawnleader captain lands in the raid it guards.
+		if e.Raid == nil && raidRaiderType(ambName) && int64(e.ID)%20 == s.clock.count%20 {
+			if vd := s.dimensionByName(e.Dim); vd != nil {
+				if r := vd.raidAt(int(math.Floor(e.X)), int(math.Floor(e.Y)), int(math.Floor(e.Z))); r != nil && r.status == raidOngoing {
+					s.raidJoin(r, r.spawned, e)
+				}
+			}
+		}
 		// AgeableMob.baseTick's age step: babies count up toward grown
 		// at 0, adults count a breeding cooldown down.
 		if ageableTypes[ambName] && e.Age != 0 {
@@ -3020,6 +3054,13 @@ func mobEquipSlot(e *Entity, slot int32, item string) {
 // world special is 0 and nothing enchants. Pillagers add a flat
 // 1/300 piercing-1 crossbow upgrade.
 func (s *Server) mobDefaultEquip(e *Entity) {
+	s.mobDefaultEquipOpt(e, false)
+}
+
+// mobDefaultEquipOpt is mobDefaultEquip with vanilla's spawn-reason
+// split: EVENT spawns (raid waves, /raid spawnleader) never roll the
+// 6% patrol-leader banner — Raid.spawnGroup flags its own leader.
+func (s *Server) mobDefaultEquipOpt(e *Entity, eventSpawn bool) {
 	name, _ := EntityTypeName(e.Type)
 	special := s.specialMultiplier()
 
@@ -3033,15 +3074,17 @@ func (s *Server) mobDefaultEquip(e *Entity) {
 	// spawns a leader-capable type rolls 6% into a patrol leader —
 	// the ominous banner lands on HEAD carrying a 2.0 drop chance.
 	// Witch and ravager canBeLeader()=false.
-	switch name {
-	case "pillager", "vindicator", "evoker", "illusioner":
-		if rand.Float64() < 0.06 {
-			e.PatrolLeader = true
-			if wb, ok := world.ItemID("white_banner"); ok {
-				if e.Equips == nil {
-					e.Equips = map[int32]ItemStack{}
+	if !eventSpawn {
+		switch name {
+		case "pillager", "vindicator", "evoker", "illusioner":
+			if rand.Float64() < 0.06 {
+				e.PatrolLeader = true
+				if wb, ok := world.ItemID("white_banner"); ok {
+					if e.Equips == nil {
+						e.Equips = map[int32]ItemStack{}
+					}
+					e.Equips[equipHelmet] = ItemStack{ID: wb, Count: 1}
 				}
-				e.Equips[equipHelmet] = ItemStack{ID: wb, Count: 1}
 			}
 		}
 	}

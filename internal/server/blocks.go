@@ -265,6 +265,7 @@ func (s *Server) registerBuiltins() {
 	s.registerTagCommand()
 	s.registerWorldBorder()
 	s.registerBossbar()
+	s.registerRaidCommand()
 	registerFxCommands(s)
 	registerMiscCommands(s)
 	s.registerEntCommands()

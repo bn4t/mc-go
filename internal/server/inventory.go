@@ -68,6 +68,11 @@ type ItemStack struct {
 	// custom-name fields are not modeled — brewed potions never set
 	// them.
 	Potion string `json:"potion,omitempty"`
+	// Ominous marks the raid-captain ominous banner: a white_banner
+	// carrying getBannerComponentPatch — banner_patterns (8 layers),
+	// tooltip_display hiding them, item_name block.minecraft.ominous_banner,
+	// and rarity uncommon.
+	Ominous bool `json:"ominous,omitempty"`
 }
 
 // Empty reports whether the slot holds nothing.
@@ -84,7 +89,7 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.Damage == other.Damage && it.RepairCost == other.RepairCost &&
 		it.Name == other.Name && it.Ench == other.Ench &&
 		it.StoredEnch == other.StoredEnch && it.Bees == other.Bees &&
-		it.Potion == other.Potion
+		it.Potion == other.Potion && it.Ominous == other.Ominous
 }
 
 // enchLevel reports the stack's level of one enchantment, or 0 when
@@ -146,6 +151,16 @@ const (
 	// bytes — custom color, custom effects list (VarInt 0), custom
 	// name.
 	compPotionContents = 51
+	// The ominous-banner patch components: banner_patterns carries a
+	// layer list of (pattern holder, dye ordinal) pairs; tooltip_display
+	// is a hide bool plus a HolderSet of hidden component types;
+	// item_name is a text component (NBT); rarity an enum VarInt
+	// (common=0, uncommon=1).
+	compBannerPatterns = 72
+	compTooltipDisplay = 18
+	compItemName       = 9
+	compRarity         = 12
+	rarityUncommon     = 1
 )
 
 // potionNamesByID inverts data.PotionIDs for the decode path; the
@@ -186,6 +201,9 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 	}
 	if it.Potion != "" {
 		add++
+	}
+	if it.Ominous {
+		add += 4
 	}
 	b.VarInt(add)
 	b.VarInt(0) // components to remove
@@ -240,6 +258,53 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 		b.VarInt(compRepairCost)
 		b.VarInt(it.RepairCost)
 	}
+	if it.Ominous {
+		// getBannerComponentPatch's insertion order: banner_patterns,
+		// tooltip_display, item_name, rarity. Holder encoding is the
+		// registry id +1 (0 is the named-tag form); pattern ids are the
+		// sorted datapack order, dye ids the DyeColor ordinals
+		// (light_gray 8, cyan 9, gray 7, black 15).
+		b.VarInt(compBannerPatterns)
+		b.VarInt(8)
+		for _, l := range ominousBannerLayers {
+			b.VarInt(l.pattern + 1)
+			b.VarInt(l.color)
+		}
+		b.VarInt(compTooltipDisplay)
+		b.Byte(0)   // hide_tooltip false
+		b.VarInt(1) // hidden_components: one holder
+		b.VarInt(compBannerPatterns + 1)
+		b.VarInt(compItemName)
+		// A translatable component writes as an NBT compound:
+		// {translate:"block.minecraft.ominous_banner"}.
+		b.Byte(0x0A)
+		b.Byte(0x08)
+		b.UShort(9)
+		b.Raw([]byte("translate"))
+		b.UShort(uint16(len("block.minecraft.ominous_banner")))
+		b.Raw([]byte("block.minecraft.ominous_banner"))
+		b.Byte(0)
+		b.VarInt(compRarity)
+		b.VarInt(rarityUncommon)
+	}
+}
+
+// ominousBannerLayers is the ominous banner's 8-layer pattern list
+// (Raid.getOminousBannerInstance / getBannerComponentPatch): pattern
+// registry ids are the sorted datapack file order, colors the DyeColor
+// ordinals.
+var ominousBannerLayers = [...]struct {
+	pattern int32
+	color   int32
+}{
+	{23, 9},  // rhombus cyan
+	{31, 8},  // stripe_bottom light_gray
+	{32, 7},  // stripe_center gray
+	{1, 8},   // border light_gray
+	{36, 15}, // stripe_middle black
+	{17, 8},  // half_horizontal light_gray
+	{3, 8},   // circle light_gray
+	{1, 15},  // border black
 }
 
 // readSlot reads one Slot value, decoding the minecraft:damage and

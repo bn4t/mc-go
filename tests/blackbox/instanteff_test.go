@@ -1,3 +1,5 @@
+//go:build blackbox
+
 package blackbox
 
 // TestInstantEffectParity pins instant_health / instant_damage on

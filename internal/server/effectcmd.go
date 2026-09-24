@@ -122,10 +122,10 @@ func (s *Server) runEffectGive(player string, args []string) reply {
 			targetComp = targets[0].nameComp()
 		}
 		return componentReply(translatable("commands.effect.give.success.single",
-			effectArg(name), targetComp))
+			effectArg(name), targetComp, int32(ticks/20)))
 	}
 	return componentReply(translatable("commands.effect.give.success.multiple",
-		effectArg(name), nestedCompound{key: "", value: applied}))
+		effectArg(name), nestedCompound{key: "", value: applied}, int32(ticks/20)))
 }
 
 func (s *Server) runEffectClear(player string, args []string) reply {

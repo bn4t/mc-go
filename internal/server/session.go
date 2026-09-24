@@ -109,10 +109,13 @@ type Session struct {
 	bodyArmor ItemStack
 	// effects is the active mob-effect map (totem pops apply the
 	// death_protection component's death effects).
-	effMu    sync.Mutex
-	effects  map[int32]mobEffectInst
-	invState atomic.Int32
-	held     atomic.Int32
+	effMu   sync.Mutex
+	effects map[int32]mobEffectInst
+	// raidOmenPos is the village position Bad Omen converted at — the
+	// raid_omen instance consumes it to anchor the raid on expiry.
+	raidOmenPos *world.Pos
+	invState    atomic.Int32
+	held        atomic.Int32
 	// riding is the entity id of the vehicle this player mounted
 	// (boat etc.) — zero when on foot.
 	riding atomic.Int32
