@@ -17,24 +17,25 @@ import (
 // Every pattern is a vertical aisle — the pumpkin/skull row on top —
 // that can rotate around Y so a crossbar runs along X or Z. `~`
 // cells must be air.
-func (s *Server) golemOnPlace(d *dimension, pos world.Pos, blk world.Block) {
+func (s *Server) golemOnPlace(d *dimension, pos world.Pos, blk world.Block) bool {
 	name, ok := world.StateOwner(blk)
 	if !ok {
-		return
+		return false
 	}
 	switch strings.TrimPrefix(name, "minecraft:") {
 	case "carved_pumpkin", "jack_o_lantern":
 		if s.golemTrySnow(d, pos) {
-			return
+			return true
 		}
 		if s.golemTryIron(d, pos) {
-			return
+			return true
 		}
-		s.golemTryCopper(d, pos, blk)
+		return s.golemTryCopper(d, pos, blk)
 	}
 	// WitherSkullBlock.checkSpawn hangs off setPlacedBy — an item-place
 	// hook — so a /setblock'd skull never spawns the wither on vanilla.
 	// place.go calls golemTryWither directly from the use-item path.
+	return false
 }
 
 // blockAt is the name lookup a pattern cell needs.

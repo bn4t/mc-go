@@ -1806,6 +1806,18 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		`setblock 72 -60 140 minecraft:dispenser[facing=east]`,
 		`item replace block 72 -60 140 container.0 with minecraft:tnt 1`,
 		`setblock 73 -60 140 minecraft:stone`,
+		`setblock 89 -60 140 minecraft:dispenser[facing=east]`,
+		`setblock 90 -61 140 minecraft:farmland`,
+		`setblock 90 -60 140 minecraft:wheat[age=6]`,
+		`item replace block 89 -60 140 container.0 with minecraft:bone_meal 1`,
+		// $8: a carved pumpkin that completes the snow column spawns a
+		// golem; the same pumpkin over a bare mouth stays in the slot.
+		`setblock 84 -59 140 minecraft:dispenser[facing=down]`,
+		`setblock 84 -61 140 minecraft:snow_block`,
+		`setblock 84 -62 140 minecraft:snow_block`,
+		`item replace block 84 -59 140 container.0 with minecraft:carved_pumpkin 1`,
+		`setblock 88 -59 140 minecraft:dispenser[facing=down]`,
+		`item replace block 88 -59 140 container.0 with minecraft:carved_pumpkin 1`,
 		`setblock 60 -60 150 minecraft:dispenser[facing=east]`,
 		`setblock 61 -60 150 minecraft:water`,
 		`item replace block 60 -60 150 container.0 with minecraft:glass_bottle 2`,
@@ -1832,6 +1844,14 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		`setblock 89 -61 150 minecraft:farmland`,
 		`setblock 89 -60 150 minecraft:wheat[age=7]`,
 		`item replace block 88 -60 150 container.0 with minecraft:bone_meal 1`,
+		// $8: carved pumpkin that completes the snow column spawns a
+		// golem; the same pumpkin over a bare mouth stays in the slot.
+		`setblock 92 -59 150 minecraft:dispenser[facing=down]`,
+		`setblock 92 -60 150 minecraft:snow_block`,
+		`setblock 92 -61 150 minecraft:snow_block`,
+		`item replace block 92 -59 150 container.0 with minecraft:carved_pumpkin 1`,
+		`setblock 96 -59 150 minecraft:dispenser[facing=down]`,
+		`item replace block 96 -59 150 container.0 with minecraft:carved_pumpkin 1`,
 	}
 
 	probesA := []struct{ name, spec string }{
@@ -1883,7 +1903,15 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		{"T bonemeal clamps wheat to max", `block 85 -60 150 minecraft:wheat[age=7]`},
 		{"T meal consumed", `!items block 84 -60 150 container.* minecraft:bone_meal`},
 		{"U max-age wheat: meal kept", `items block 88 -60 150 container.* minecraft:bone_meal`},
-		{"U wheat stays maxed", `block 89 -60 150 minecraft:wheat[age=7]`},
+		{"P150 power cell placed", `block 60 -61 150 minecraft:redstone_block`},
+		{"P150 last power cell", `block 80 -61 150 minecraft:redstone_block`},
+		{"P140 bone power cell", `block 89 -61 140 minecraft:redstone_block`},
+		{"T bonemeal clamps wheat to max", `block 90 -60 140 minecraft:wheat[age=7]`},
+		{"T meal consumed", `!items block 89 -60 140 container.* minecraft:bone_meal`},
+		{"V snow golem spawned", `entity @e[type=minecraft:snow_golem]`},
+		{"V pattern aired out", `!block 84 -61 140 minecraft:snow_block`},
+		{"W bare mouth keeps pumpkin", `items block 88 -59 140 container.* minecraft:carved_pumpkin`},
+		{"W no pumpkin placed", `!block 88 -60 140 minecraft:carved_pumpkin`},
 		{"S thrown as an item instead", `entity @e[type=minecraft:item,x=81,y=-60,z=150,distance=..4]`},
 	}
 
@@ -1922,6 +1950,10 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		sendClientInformation(t, pw)
 		sink := newChatSinkTP(pr, pw)
 		sink.cap = 1 << 20
+		// Spawn sits ~100 blocks from the fixture rows — hover the probe
+		// client over their middle so every cell lands inside the loaded
+		// chunk ring (otherwise edge cells silently refuse setblock).
+		sendCommand(t, pw, `tp @s 80 -59 135`)
 		time.Sleep(4 * time.Second)
 		sink.take()
 		var out []string
@@ -1942,11 +1974,17 @@ func TestDispenseBehaviorParity(t *testing.T) {
 			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 139 minecraft:redstone_block`, x))
 			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 139 minecraft:air`, x))
 		}
-		for _, x := range []int{60, 64, 68, 72, 76, 80, 84, 88} {
+		// Persistent floor power for the z=140 bonemeal pair; side cells
+		// for the two down-facing golem dispensers.
+		sendCommand(t, pw, `setblock 89 -61 140 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 83 -59 140 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 87 -59 140 minecraft:redstone_block`)
+		for _, x := range []int{60, 64, 68, 72, 76, 80} {
 			sendCommand(t, pw, fmt.Sprintf(`setblock %d -61 150 minecraft:redstone_block`, x))
+			time.Sleep(30 * time.Millisecond)
 		}
 		// +4t dispense delay, then the primed TNT fuse starts.
-		time.Sleep(700 * time.Millisecond)
+		time.Sleep(900 * time.Millisecond)
 		for i, p := range probesB {
 			out = append(out, probe(pw, sink, p.spec, 100+i))
 		}

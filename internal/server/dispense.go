@@ -372,6 +372,38 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			s.broadcastLevelEvent(d.name, 1001, pos, 0)
 		}
 		return
+	case itemName == "carved_pumpkin" || itemName == "wither_skeleton_skull":
+		// DispenseItemBehavior$7/$8: the head leaves the slot only when
+		// the mouth cell completes a golem/wither pattern
+		// (CarvedPumpkinBlock.canSpawnGolem / WitherSkullBlock
+		// .canSpawnMob). The write then fires the spawn hook; on a bare
+		// mouth the item stays (optional-fail, event 1001).
+		if d.w.GetBlock(front) == world.Air {
+			nb, _ := world.BlockStateOf(itemName, map[string]string{
+				"facing": "north", "rotation": "0",
+			})
+			if nb == 0 {
+				nb, _ = world.BlockStateOf(itemName, nil)
+			}
+			s.setSilentBlock(d, front, nb)
+			var spawned bool
+			if itemName == "wither_skeleton_skull" {
+				spawned = s.golemTryWither(d, front)
+			} else {
+				spawned = s.golemOnPlace(d, front, nb)
+			}
+			if spawned {
+				s.dispenseConsume(d, pos, c, slot)
+				s.broadcastLevelEvent(d.name, 1000, pos, 0)
+				s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+			} else {
+				s.setSilentBlock(d, front, world.Air)
+				s.broadcastLevelEvent(d.name, 1001, pos, 0)
+			}
+		} else {
+			s.broadcastLevelEvent(d.name, 1001, pos, 0)
+		}
+		return
 	case itemName == "flint_and_steel":
 		// FlintAndSteelDispenseItemBehavior: prime a TNT/explosive
 		// entity at the mouth, else place fire where it can burn,
@@ -711,6 +743,7 @@ func (s *Server) bonemealGrow(d *dimension, pos world.Pos) bool {
 	if !ok {
 		return false
 	}
+	name = strings.TrimPrefix(name, "minecraft:")
 	age, ok := intProp(b, "age")
 	if !ok {
 		return false

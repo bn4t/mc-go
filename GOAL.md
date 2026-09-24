@@ -6420,3 +6420,22 @@ OptionalDispenseItemBehavior extends Default but its dispenseItem never
 throws on fail). Player-use bonemeal (BoneMealItem.useOn) still
 unimplemented — same helper, entry point differs. Grass/moss/nylium/
 sapling/seagrass bonemeal paths deferred (bigger tables).
+
+## Slice 2026-09-25d — golem-head dispense ($7/$8) + fixture pacing
+
+`carved_pumpkin` and `wither_skeleton_skull` dispense only when the
+mouth cell completes a pattern (canSpawnGolem / canSpawnMob): the head
+writes silently, the existing `golemOnPlace`/`golemTryWither` hooks run
+(`golemOnPlace` now returns whether a mob spawned), and the block is
+restored to air on a bare mouth — the head never lands without spawning.
+`jack_o_lantern` is NOT registered in vanilla's bootStrap $8 — dispenser
+keeps the default throw for it. Blackbox: two down-facing dispensers at
+z=140 spawn a snow golem / keep the pumpkin, both pinned.
+
+Root-caused the recurring fixture flake: far-out cells intermittently
+never schedule vanilla's dispense (power write lands, +4t tick never
+runs). Mitigations: probe client now `tp`s over the fixture field
+(view/simulation distance is 8 — far cells sit at the chunk-ticket
+edge), power writes are paced 30ms apart, settle 900ms. Saw one mc-go
+double-fire (bottle count 0) — suspected `triggered` unlatch race on a
+transient unpowered read; not yet reproduced deterministically.
