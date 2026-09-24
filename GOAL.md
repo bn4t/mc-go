@@ -6350,3 +6350,14 @@ More of `DispenseItemBehavior.bootStrap`, all pinned by
 - FlintAndSteelDispenseItemBehavior: TNT at the mouth primes in
   place; else fire where it can burn; else `lit=true` on a
   campfire/candle; else silent fail (the item stays).
+
+## Slice 2026-09-24y — dispense behaviors: tnt, spawn eggs, shulker box
+
+- DispenseItemBehavior$6 (tnt): primed-tnt entity at the mouth
+  centre — the item never throws; `tnt_explodes=false` fails it
+  silently. A solid mouth still spawns the entity (measured).
+- SpawnEggItemBehavior (`*_spawn_egg`): the mob spawns at the mouth
+  cell, slot drains.
+- ShulkerBoxDispenseBehavior (`*_shulker_box`): places the box as a
+  block at a replaceable mouth; solid mouth fails silently.
+- Same `TestDispenseBehaviorParity` run, now 27 probes.

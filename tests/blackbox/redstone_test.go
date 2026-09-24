@@ -1781,6 +1781,15 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		`setblock 92 -60 130 minecraft:dispenser[facing=east]`,
 		`setblock 93 -60 130 minecraft:tnt`,
 		`item replace block 92 -60 130 container.0 with minecraft:flint_and_steel 1`,
+		`setblock 60 -60 140 minecraft:dispenser[facing=east]`,
+		`item replace block 60 -60 140 container.0 with minecraft:tnt 1`,
+		`setblock 64 -60 140 minecraft:dispenser[facing=east]`,
+		`item replace block 64 -60 140 container.0 with minecraft:zombie_spawn_egg 1`,
+		`setblock 68 -60 140 minecraft:dispenser[facing=east]`,
+		`item replace block 68 -60 140 container.0 with minecraft:white_shulker_box 1`,
+		`setblock 72 -60 140 minecraft:dispenser[facing=east]`,
+		`item replace block 72 -60 140 container.0 with minecraft:tnt 1`,
+		`setblock 73 -60 140 minecraft:stone`,
 	}
 
 	probesA := []struct{ name, spec string }{
@@ -1806,6 +1815,13 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		{"G boat thrown as an item", `entity @e[type=minecraft:item,x=85,y=-60,z=130,distance=..4]`},
 		{"H TNT block primed away", `block 93 -60 130 minecraft:air`},
 		{"H primed tnt at the mouth", `entity @e[type=minecraft:tnt,x=93,y=-60,z=130,distance=..4]`},
+		{"I dispensed tnt primes at the mouth", `entity @e[type=minecraft:tnt,x=61,y=-60,z=140,distance=..4]`},
+		{"I tnt slot drained", `!items block 60 -60 140 container.* minecraft:tnt`},
+		{"J zombie spawn egg spawns the mob", `entity @e[type=minecraft:zombie,x=65,y=-60,z=140,distance=..4]`},
+		{"J egg slot drained", `!items block 64 -60 140 container.* minecraft:zombie_spawn_egg`},
+		{"K shulker box placed at the mouth", `block 69 -60 140 minecraft:white_shulker_box`},
+		{"K box slot drained", `!items block 68 -60 140 container.* minecraft:white_shulker_box`},
+		{"L tnt primes even into a solid mouth", `entity @e[type=minecraft:tnt,x=73,y=-60,z=140,distance=..4]`},
 	}
 
 	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
@@ -1859,6 +1875,10 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		}
 		sendCommand(t, pw, `setblock 64 -60 133 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 64 -60 133 minecraft:air`)
+		for _, x := range []int{60, 64, 68, 72} {
+			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 139 minecraft:redstone_block`, x))
+			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 139 minecraft:air`, x))
+		}
 		// +4t dispense delay, then the primed TNT fuse starts.
 		time.Sleep(700 * time.Millisecond)
 		for i, p := range probesB {

@@ -220,6 +220,49 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
 			return
 		}
+	case itemName == "tnt":
+		// DispenseItemBehavior$6: the TNT item primes an entity at
+		// the mouth (tnt_explodes=false fails it silently).
+		if s.gameRuleBool("minecraft:tnt_explodes") {
+			fc := frontCenter(front)
+			s.primeTntAt(d, fc[0], fc[1], fc[2], tntFuseTicks)
+			s.dispenseConsume(d, pos, c, slot)
+			s.broadcastLevelEvent(d.name, 1000, pos, 0)
+			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+		}
+		return
+	case strings.HasSuffix(itemName, "_spawn_egg"):
+		// SpawnEggItemBehavior: the mob spawns at the mouth cell.
+		entName := strings.TrimSuffix(itemName, "_spawn_egg")
+		if et, ok := EntityTypeID(entName); ok {
+			e := s.entities.Spawn(&Entity{
+				Type: et,
+				Dim:  d.name,
+				X:    float64(front.X) + 0.5,
+				Y:    float64(front.Y),
+				Z:    float64(front.Z) + 0.5,
+			})
+			s.broadcastEntitySpawn(nil, *e)
+			s.dispenseConsume(d, pos, c, slot)
+			s.broadcastLevelEvent(d.name, 1000, pos, 0)
+			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+			return
+		}
+	case itemName == "shulker_box" || strings.HasSuffix(itemName, "_shulker_box"):
+		// ShulkerBoxDispenseBehavior — the box places as a block at
+		// the mouth when the cell is replaceable.
+		fb := d.w.GetBlock(front)
+		if fb == world.Air || world.NonSolid(fb) {
+			if nb, ok := world.BlockStateOf(itemName, nil); ok {
+				s.setSilentBlock(d, front, nb)
+				s.rsNeighborFanOut(d, front)
+				s.dispenseConsume(d, pos, c, slot)
+				s.broadcastLevelEvent(d.name, 1000, pos, 0)
+				s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+				return
+			}
+		}
+		return
 	case itemName == "flint_and_steel":
 		// FlintAndSteelDispenseItemBehavior: prime a TNT/explosive
 		// entity at the mouth, else place fire where it can burn,
@@ -483,4 +526,10 @@ func (s *Server) spawnDispensedBoat(d *dimension, target world.Pos, entName stri
 		Z:    float64(target.Z) + 0.5,
 	})
 	s.broadcastEntitySpawn(nil, *e)
+}
+
+// frontCenter — the block-centre point one step out from the
+// dispenser, where primed TNT spawns.
+func frontCenter(pos world.Pos) [3]float64 {
+	return [3]float64{float64(pos.X) + 0.5, float64(pos.Y) + 0.5, float64(pos.Z) + 0.5}
 }
