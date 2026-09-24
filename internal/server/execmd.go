@@ -515,9 +515,14 @@ func (s *Server) executeIfItems(ctx *executeContext, player string, args []strin
 				}
 				for _, c := range cands {
 					if c.sess == nil {
-						// Mobs carry hand/armor slots vanilla reads,
-						// but mc-go doesn't model their equipment —
-						// an unmodeled slot reads empty.
+						if c.mob == nil {
+							continue
+						}
+						for _, id := range slots {
+							if st := readMobSlot(c.mob, id); !st.Empty() {
+								stacks = append(stacks, st)
+							}
+						}
 						continue
 					}
 					for _, id := range slots {

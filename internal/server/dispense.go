@@ -291,8 +291,32 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			}
 		}
 	case itemName == "glass_bottle":
-		// DispenseItemBehavior$9: a water source at the mouth fills
-		// the bottle (beehive honey handled by honey bottles later).
+		// DispenseItemBehavior$9: BEEHIVES tag + honey_level>=5 at
+		// the mouth → honey_bottle + releaseBeesAndResetHoneyLevel
+		// (bee spawn deferred — hives don't track occupants yet);
+		// otherwise a water source fills the bottle to water.
+		fb := d.w.GetBlock(front)
+		if bn, ok := blockNameAt(d, front); ok && (bn == "beehive" || bn == "bee_nest") {
+			if hl, err := strconv.Atoi(rsPropsOf(fb)("honey_level")); err == nil && hl >= 5 {
+				if nb, ok := world.WithProperty(fb, "honey_level", "0"); ok {
+					s.rsWriteBlockFlag2(d, front, nb)
+				}
+				if fid, ok := world.ItemIDs["honey_bottle"]; ok {
+					d.containers.mu.Lock()
+					removeOne(&c.slots[slot])
+					rem := ItemStack{ID: fid, Count: 1}
+					slotsInsert(c.slots, &rem)
+					d.containers.mu.Unlock()
+					if rem.Count > 0 {
+						s.spawnItemDrop(d.name, front, rem)
+					}
+				}
+				s.rsContainerChanged(d, pos)
+				s.broadcastLevelEvent(d.name, 1000, pos, 0)
+				s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+				return
+			}
+		}
 		fk, lvl, isFl := fluidOf(d.w.GetBlock(front))
 		if isFl && fk == fluidWater && lvl == 0 {
 			s.setSilentBlock(d, front, world.Air)
@@ -427,6 +451,28 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 		// box intersects the mouth AABB takes one item in the matching
 		// slot; no target falls through to the default throw.
 		if s.dispenseEquip(d, front, itemName, st) {
+			s.dispenseConsume(d, pos, c, slot)
+			s.broadcastLevelEvent(d.name, 1000, pos, 0)
+			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+			return
+		}
+	case itemName == "saddle":
+		// Saddle via EquippableComponent(slot=saddle): the first
+		// saddleable mount in the mouth cell takes it (pig, strider,
+		// the horse family). Already-saddled or non-mounts → throw.
+		if m := s.livingAtMouthPred(d, front, dispenseSaddleable); m != nil && !m.Saddle {
+			m.Saddle = true
+			s.dispenseConsume(d, pos, c, slot)
+			s.broadcastLevelEvent(d.name, 1000, pos, 0)
+			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+			return
+		}
+	case itemName == "chest":
+		// DispenseItemBehavior$2: a tamed, chestless
+		// AbstractChestedHorse in the mouth cell gets slot 499 — the
+		// ChestedHorse flag — and the stack shrinks by one.
+		if m := s.livingAtMouthPred(d, front, chestedMountTypes); m != nil && m.Tamed && !m.HasChest {
+			m.HasChest = true
 			s.dispenseConsume(d, pos, c, slot)
 			s.broadcastLevelEvent(d.name, 1000, pos, 0)
 			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
@@ -929,4 +975,42 @@ func (s *Server) wearContainerSlot(d *dimension, pos world.Pos, c *containerData
 	}
 	d.containers.mu.Unlock()
 	s.rsContainerChanged(d, pos)
+}
+
+// dispenseSaddleable — the EntityTypes whose EquippableComponent
+// accepts the saddle slot (Saddleable mobs): pig, strider, and the
+// mountScreenTypes family (camel + horses + llamas). Happy-ghast
+// harnesses and nautilus armor are separate equip items.
+var dispenseSaddleable = func() map[string]bool {
+	m := map[string]bool{"pig": true, "strider": true}
+	for k := range mountScreenTypes {
+		m[k] = true
+	}
+	return m
+}()
+
+// livingAtMouthPred — the mouth-AABB entity scan keyed by a type set
+// (empty set = any living entity); same walk as livingAtMouth.
+func (s *Server) livingAtMouthPred(d *dimension, mouth world.Pos, want map[string]bool) *Entity {
+	var target *Entity
+	s.entities.mu.RLock()
+	for _, e := range s.entities.byID {
+		if !e.Living || e.Dying || e.Dim != d.name {
+			continue
+		}
+		name, _ := EntityTypeName(e.Type)
+		if len(want) != 0 && !want[name] {
+			continue
+		}
+		w, h := entityBox(name)
+		hw := w / 2
+		if e.X-hw < float64(mouth.X)+1 && e.X+hw > float64(mouth.X) &&
+			e.Z-hw < float64(mouth.Z)+1 && e.Z+hw > float64(mouth.Z) &&
+			e.Y < float64(mouth.Y)+1 && e.Y+h > float64(mouth.Y) {
+			target = e
+			break
+		}
+	}
+	s.entities.mu.RUnlock()
+	return target
 }

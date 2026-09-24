@@ -1819,6 +1819,19 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		`summon minecraft:sheep 85.5 -60 141.5 {NoAI:1b}`,
 		`setblock 84 -60 141 minecraft:dispenser[facing=east]`,
 		`item replace block 84 -60 141 container.0 with minecraft:shears 1`,
+		// bottle half of $9: honey_level>=5 fills a honey_bottle and
+		// resets the hive (bee release deferred).
+		`setblock 88 -60 141 minecraft:dispenser[facing=east]`,
+		`setblock 89 -60 141 minecraft:beehive[honey_level=5]`,
+		`item replace block 88 -60 141 container.0 with minecraft:glass_bottle 1`,
+		// Equippable saddle slot → Saddle flag on a saddleable mount.
+		`summon minecraft:pig 85.5 -60 142.5 {NoAI:1b}`,
+		`setblock 84 -60 142 minecraft:dispenser[facing=east]`,
+		`item replace block 84 -60 142 container.0 with minecraft:saddle 1`,
+		// $2: chest → ChestedHorse flag on a TAMED chestless donkey.
+		`summon minecraft:donkey 89.5 -60 142.5 {NoAI:1b,Tame:1b}`,
+		`setblock 88 -60 142 minecraft:dispenser[facing=east]`,
+		`item replace block 88 -60 142 container.0 with minecraft:chest 1`,
 		// $11: brushing an armadillo drops one scute and wears the
 		// brush by 16.
 		`summon minecraft:armadillo 86.5 -60 140.5 {NoAI:1b}`,
@@ -1926,6 +1939,12 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		{"T meal consumed", `!items block 89 -60 140 container.* minecraft:bone_meal`},
 		{"Z wool dropped at sheep", `entity @e[type=minecraft:item,x=85,y=-60,z=141,distance=..3]`},
 		{"Z shears stay (238 max)", `items block 84 -60 141 container.* minecraft:shears`},
+		{"Zz hive emptied", `block 89 -60 141 minecraft:beehive[honey_level=0]`},
+		{"Zz honey bottle back", `items block 88 -60 141 container.* minecraft:honey_bottle`},
+		{"Zz bottle drained", `!items block 88 -60 141 container.* minecraft:glass_bottle`},
+		{"Aa pig saddled", `items entity @e[type=minecraft:pig,x=85,y=-60,z=142,distance=..2] saddle minecraft:saddle`},
+		{"Aa saddle consumed", `!items block 84 -60 142 container.* minecraft:saddle`},
+		{"Ab chest consumed", `!items block 88 -60 142 container.* minecraft:chest`},
 		{"Y scute dropped at armadillo", `entity @e[type=minecraft:item,x=86,y=-60,z=140,distance=..3]`},
 		{"Y brush stays (worn, not broken)", `items block 85 -60 140 container.* minecraft:brush`},
 		{"X pig wears the helmet", `items entity @e[type=minecraft:pig,x=80,y=-60,z=140,distance=..2] armor.head minecraft:iron_helmet`},
@@ -2004,6 +2023,9 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		sendCommand(t, pw, `setblock 79 -61 140 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 85 -61 140 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 84 -61 141 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 88 -61 141 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 84 -61 142 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 88 -61 142 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 83 -59 140 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 87 -59 140 minecraft:redstone_block`)
 		for _, x := range []int{60, 64, 68, 72, 76, 80} {

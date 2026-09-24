@@ -6487,3 +6487,27 @@ DispenseItemBehavior.bootStrap, continued:
 Deferred from bootStrap: llama chest/saddle ($2), mob equip
 persistence+guaranteedDrop, shearOffAllLeashConnections, wool
 regrow on grass-eat, mooshroom/snow-golem/bogged shear paths.
+
+## Slice 2026-09-25g — bottle honey, saddle equip, chest-on-mount
+
+- `DispenseItemBehavior$9` second half: glass_bottle vs a
+  beehive/bee_nest at honey_level>=5 → honey_level reset +
+  honey_bottle back into the dispenser (overflow drops). The bee
+  release half of releaseBeesAndResetHoneyLevel is deferred — hives
+  don't track occupants.
+- Saddle: `EquippableComponent(slot=saddle)` via
+  EquipmentDispenseItemBehavior — first saddleable mount in the
+  mouth cell (pig/strider/horse family, camel) gets Saddle=true.
+- `DispenseItemBehavior$2`: chest onto a TAMED chestless
+  AbstractChestedHorse (donkey/mule/llama) sets HasChest; untamed
+  or already-chested mounts make it keep the item (throw fallthrough
+  is the same as before).
+- Probe-side fix: `execute if items entity` now reads mob slots via
+  readMobSlot (was player-only) — the saddle slot reports the
+  Saddle flag as a 1-count stack like vanilla.
+- NOTE: `Entity.Sheared` has no metadata write yet — sheared sheep
+  still LOOK woolly to clients until the metadata half lands.
+
+Deferred: shearOffAllLeashConnections, wool regrow on grass-eat,
+mooshroom/snow-golem/bogged shear paths, happy-ghast harness,
+mob equip persistence/guaranteed-drop.
