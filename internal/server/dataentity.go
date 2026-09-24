@@ -547,6 +547,10 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 		m["Sheared"] = nbtBool(e.Sheared)
 		m["Color"] = int8(0)
 	}
+	// SnowGolem.writeAdditionalSaveData carries the Pumpkin flag.
+	if typeName == "snow_golem" {
+		m["Pumpkin"] = nbtBool(e.Pumpkin)
+	}
 	// AbstractPiglin and Hoglin declare the zombification pair.
 	if overworldZombifyTypes[typeName] {
 		m["IsImmuneToZombification"] = nbtBool(e.ImmuneToZombification)
@@ -732,6 +736,7 @@ func nbtBool(v bool) int8 {
 func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	prevHealth, prevName, prevNoAI := e.Health, e.CustomName, e.NoAI
 	prevSheared := e.Sheared
+	prevPumpkin := e.Pumpkin
 	name, _ := EntityTypeName(e.Type)
 	// Tamable reload quirk: vanilla's TamableAnimal.setTame(false)
 	// — run because the merged save carries no Owner — re-asserts
@@ -811,6 +816,15 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			e.Sheared = nbtTruth(v)
 		}
 	}
+	if name == "snow_golem" {
+		// SnowGolem.readAdditionalSaveData: absent Pumpkin reads
+		// as the default (true).
+		if v, ok := save["Pumpkin"]; ok {
+			e.Pumpkin = nbtTruth(v)
+		} else {
+			e.Pumpkin = true
+		}
+	}
 	// Raider.readAdditionalSaveData: Wave int, CanJoinRaid bool,
 	// and RaidId re-joins the raid when it still exists.
 	if raidRaiderType(name) {
@@ -840,7 +854,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"attributes": true, "home_radius": true, "home_pos": true,
 		"NoGravity": true, "Silent": true, "Wave": true,
 		"CanJoinRaid": true, "RaidId": true,
-		"Sheared": true, "Color": true,
+		"Sheared": true, "Color": true, "Pumpkin": true,
 	}
 	if extra, ok := entitySaveExtras[name]; ok {
 		for k := range extra {
@@ -879,6 +893,15 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		v := byte(0)
 		if e.Sheared {
 			v = 0x10
+		}
+		b.Byte(v)
+	}
+	if prevPumpkin != e.Pumpkin && name == "snow_golem" {
+		b.Byte(16)
+		b.Byte(0)
+		v := byte(0)
+		if e.Pumpkin {
+			v = 1
 		}
 		b.Byte(v)
 	}

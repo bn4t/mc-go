@@ -1832,6 +1832,10 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		`summon minecraft:donkey 89.5 -60 142.5 {NoAI:1b,Tame:1b}`,
 		`setblock 88 -60 142 minecraft:dispenser[facing=east]`,
 		`item replace block 88 -60 142 container.0 with minecraft:chest 1`,
+		// snow_golem.shear: the carved pumpkin pops off as an item.
+		`summon minecraft:snow_golem 85.5 -60 143.5 {NoAI:1b}`,
+		`setblock 84 -60 143 minecraft:dispenser[facing=east]`,
+		`item replace block 84 -60 143 container.0 with minecraft:shears 1`,
 		// $11: brushing an armadillo drops one scute and wears the
 		// brush by 16.
 		`summon minecraft:armadillo 86.5 -60 140.5 {NoAI:1b}`,
@@ -1946,6 +1950,8 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		{"Aa pig saddled", `items entity @e[type=minecraft:pig,x=85,y=-60,z=142,distance=..2] saddle minecraft:saddle`},
 		{"Aa saddle consumed", `!items block 84 -60 142 container.* minecraft:saddle`},
 		{"Ab chest consumed", `!items block 88 -60 142 container.* minecraft:chest`},
+		{"Ac pumpkin popped", `entity @e[type=minecraft:item,x=85,y=-60,z=143,distance=..3]`},
+		{"Ac golem reads pumpkinless", `entity @e[type=minecraft:snow_golem,nbt={Pumpkin:0b},x=85,y=-60,z=143,distance=..2]`},
 		{"Y scute dropped at armadillo", `entity @e[type=minecraft:item,x=86,y=-60,z=140,distance=..3]`},
 		{"Y brush stays (worn, not broken)", `items block 85 -60 140 container.* minecraft:brush`},
 		{"X pig wears the helmet", `items entity @e[type=minecraft:pig,x=80,y=-60,z=140,distance=..2] armor.head minecraft:iron_helmet`},
@@ -2027,6 +2033,7 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		sendCommand(t, pw, `setblock 88 -61 141 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 84 -61 142 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 88 -61 142 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 84 -61 143 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 83 -59 140 minecraft:redstone_block`)
 		sendCommand(t, pw, `setblock 87 -59 140 minecraft:redstone_block`)
 		for _, x := range []int{60, 64, 68, 72, 76, 80} {

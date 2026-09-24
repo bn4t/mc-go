@@ -4156,6 +4156,20 @@ cursorY>0.5→top) + shape. Pinned by TestConnectParity (stair_* legs).
   Failed identically before and after the sound-range change —
   pre-existing, needs a mid-recharge swing-formula measurement slice.
 
+## Slice — dispenser shear cascade (snow golem)
+
+- `DispenseItemBehavior` shears now shear a `snow_golem` at the mouth:
+  `SnowGolem.shear` pops its carved pumpkin (`SHEAR_SNOW_GOLEM` = 1×
+  `carved_pumpkin` dropped at the entity) and clears the pumpkin flag;
+  the shears take 1 durability.
+- New `Entity.Pumpkin` flag models `SnowGolem`'s `DATA_PUMPKIN_ID` —
+  live-measured as entity-data index 16 (byte, bit `1` = head on). It
+  packs only when cleared (vanilla default 1 doesn't ship at spawn),
+  in both the attach burst and `data merge {Pumpkin:0b}` dirty packs;
+  `/data get` round-trips `Pumpkin` via SnowGolem's save key.
+- Pinned by `TestDispenseBehaviorParity` probes (item drop +
+  `nbt={Pumpkin:0b}` selector) — hit/hit vs vanilla.
+
 ## Slice 2026-09-19d — `attributes` save-pack (touched-instance set)
 
 `data get entity X attributes` now emits the lazy AttributeMap's

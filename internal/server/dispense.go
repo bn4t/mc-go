@@ -385,6 +385,20 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			}
 			return
 		}
+		if sg := s.livingAtMouth(d, front, "snow_golem"); sg != nil && sg.Pumpkin {
+			// SnowGolem.shear: SHEAR_SNOW_GOLEM drops the carved
+			// pumpkin at the golem and clears the pumpkin flag.
+			sg.Pumpkin = false
+			s.broadcastEntityMetadata(sg.ID, encodeLivingMetadata(sg, nil))
+			if pid, ok := world.ItemIDs["carved_pumpkin"]; ok {
+				s.spawnItemDrop(d.name, world.Pos{X: int(sg.X), Y: int(sg.Y), Z: int(sg.Z)},
+					ItemStack{ID: pid, Count: 1})
+			}
+			s.wearContainerSlot(d, pos, c, slot, 1)
+			s.broadcastLevelEvent(d.name, 1000, pos, 0)
+			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+			return
+		}
 		if sheep := s.livingAtMouth(d, front, "sheep"); sheep != nil && !sheep.Sheared {
 			sheep.Sheared = true
 			s.broadcastEntityMetadata(sheep.ID, encodeLivingMetadata(sheep, nil))

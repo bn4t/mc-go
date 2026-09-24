@@ -1217,6 +1217,7 @@ func (s *Server) summonMobInit(d *dimension, name string, x, y, z float64, noAI,
 		Health:    health,
 		MaxHealth: health,
 		NoAI:      noAI,
+		Pumpkin:   name == "snow_golem",
 	})
 	summonAttrTouches(e, name, init)
 	s.broadcastFreshMob(e)
@@ -1286,6 +1287,7 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, 
 		Health:    health,
 		MaxHealth: health,
 		NoAI:      noAI,
+		Pumpkin:   name == "snow_golem",
 	})
 	// Villager carriers start at their defined default: a zombie
 	// villager's DATA_VILLAGER_DATA is randomized at construction
@@ -1406,6 +1408,14 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(18)
 				b.Byte(0) // type: byte
 				b.Byte(0x10)
+			}
+		case "snow_golem":
+			// SnowGolem's DATA_PUMPKIN_ID (index 16, byte): bit 1 =
+			// pumpkin head. Default on, so it packs only when off.
+			if !e.Pumpkin {
+				b.Byte(16)
+				b.Byte(0) // type: byte
+				b.Byte(0)
 			}
 		case "zombie_villager":
 			if e.Baby {

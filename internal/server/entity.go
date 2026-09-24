@@ -30,6 +30,9 @@ type Entity struct {
 	// Sheared is the Shearable readyForShearing complement — sheep
 	// sheared by shears/dispensers regrow wool on grass-eat ticks.
 	Sheared bool
+	// Pumpkin is SnowGolem's DATA_PUMPKIN_ID flag — a sheared snow
+	// golem loses its carved-pumpkin head (default true at spawn).
+	Pumpkin bool
 	// ItemAge is ItemEntity.age — drives the 6000-tick despawn and
 	// the merge cadence (every 2 ticks after a block crossing, else
 	// 40), and a merge takes the survivor's minimum.
