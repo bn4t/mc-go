@@ -1802,6 +1802,12 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		`setblock 72 -60 150 minecraft:dispenser[facing=east]`,
 		`setblock 73 -60 150 minecraft:beehive[honey_level=5]`,
 		`item replace block 72 -60 150 container.0 with minecraft:shears 1`,
+		`setblock 76 -60 150 minecraft:dispenser[facing=east]`,
+		`setblock 77 -60 150 minecraft:dirt`,
+		`item replace block 76 -60 150 container.0 with minecraft:potion[minecraft:potion_contents={potion:"minecraft:water"}] 1`,
+		`setblock 80 -60 150 minecraft:dispenser[facing=east]`,
+		`setblock 81 -60 150 minecraft:dirt`,
+		`item replace block 80 -60 150 container.0 with minecraft:potion[minecraft:potion_contents={potion:"minecraft:leaping"}] 1`,
 	}
 
 	probesA := []struct{ name, spec string }{
@@ -1809,6 +1815,8 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		{"C water source waiting", `block 69 -60 130 minecraft:water`},
 		{"D rail in place", `block 73 -60 130 minecraft:powered_rail`},
 		{"H TNT waiting", `block 93 -60 130 minecraft:tnt`},
+		{"R0 water potion loaded", `items block 76 -60 150 container.* minecraft:potion`},
+		{"S0 leaping potion loaded", `items block 80 -60 150 container.* minecraft:potion`},
 	}
 	probesB := []struct{ name, spec string }{
 		{"A water at the mouth", `block 61 -60 130 minecraft:water`},
@@ -1843,6 +1851,10 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		{"O honeycomb slot drained", `!items block 68 -60 150 container.* minecraft:honeycomb`},
 		{"Q beehive emptied", `block 73 -60 150 minecraft:beehive[honey_level=0]`},
 		{"Q shears stayed in the slot", `items block 72 -60 150 container.* minecraft:shears`},
+		{"R dirt became mud", `block 77 -60 150 minecraft:mud`},
+		{"R slot holds the empty bottle", `items block 76 -60 150 container.* minecraft:glass_bottle`},
+		{"!S non-water potion: no mud", `!block 81 -60 150 minecraft:mud`},
+		{"S thrown as an item instead", `entity @e[type=minecraft:item,x=81,y=-60,z=150,distance=..4]`},
 	}
 
 	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
@@ -1900,9 +1912,9 @@ func TestDispenseBehaviorParity(t *testing.T) {
 			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 139 minecraft:redstone_block`, x))
 			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 139 minecraft:air`, x))
 		}
-		for _, x := range []int{60, 64, 68, 72} {
-			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 149 minecraft:redstone_block`, x))
-			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 149 minecraft:air`, x))
+		for _, x := range []int{60, 64, 68, 72, 76, 80} {
+			sendCommand(t, pw, fmt.Sprintf(`setblock %d -61 150 minecraft:redstone_block`, x))
+			sendCommand(t, pw, fmt.Sprintf(`setblock %d -61 150 minecraft:stone`, x))
 		}
 		// +4t dispense delay, then the primed TNT fuse starts.
 		time.Sleep(700 * time.Millisecond)

@@ -6375,3 +6375,15 @@ More of `DispenseItemBehavior.bootStrap`, all pinned by
 - ShearsDispenseItemBehavior: full beehive/bee_nest → honey_level 0
   + 3 honeycomb drop (entity-shear path deferred).
 - TestDispenseBehaviorParity now 33 probes.
+
+## Slice 2026-09-25a — dispense: potion→mud; test row power hardening
+
+- DispenseItemBehavior$13: a `potion_contents=water` potion at a
+  convertable_to_mud mouth (dirt/coarse/rooted) → `mud` +
+  glass_bottle remainder. Other potions fall back to the throw.
+- The z=150 fixture row powers from the floor cell (y=-61) — mouth
+  water otherwise floods the y=-60 power cells on vanilla.
+- Dispense registry remaining deferred: $5 bone meal (needs crop
+  growth), $7/$8 golem patterns, $11 brush, chest-saddle,
+  EquipmentDispenseItemBehavior (needs mob slot reads for probes),
+  shears entity-shear, SulfurCubeBlock.

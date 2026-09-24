@@ -264,6 +264,32 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			}
 		}
 		return
+	case itemName == "potion":
+		// DispenseItemBehavior$13: a water potion converts a
+		// convertable_to_mud block at the mouth to mud and leaves a
+		// glass bottle.
+		if st.Potion == "water" {
+			if bn, ok := blockNameAt(d, front); ok && dispenseToMud[bn] {
+				if nb, ok := world.BlockStateOf("mud", nil); ok {
+					s.setSilentBlock(d, front, nb)
+					s.rsNeighborFanOut(d, front)
+				}
+				if bid, ok := world.ItemIDs["glass_bottle"]; ok {
+					d.containers.mu.Lock()
+					removeOne(&c.slots[slot])
+					rem := ItemStack{ID: bid, Count: 1}
+					slotsInsert(c.slots, &rem)
+					d.containers.mu.Unlock()
+					if rem.Count > 0 {
+						s.spawnItemDrop(d.name, front, rem)
+					}
+				}
+				s.rsContainerChanged(d, pos)
+				s.broadcastLevelEvent(d.name, 1000, pos, 0)
+				s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+				return
+			}
+		}
 	case itemName == "glass_bottle":
 		// DispenseItemBehavior$9: a water source at the mouth fills
 		// the bottle (beehive honey handled by honey bottles later).
@@ -625,3 +651,7 @@ var dispenseWaxable = func() map[string]bool {
 	}
 	return m
 }()
+
+var dispenseToMud = map[string]bool{
+	"dirt": true, "coarse_dirt": true, "rooted_dirt": true,
+}
