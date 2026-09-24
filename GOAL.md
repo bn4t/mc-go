@@ -5836,3 +5836,33 @@ golem is caged — its own trail otherwise spoils sibling patterns.
 
 Open items still ahead: online mode, redstone, terrain gen,
 lighting.
+
+## Slice 2026-09-24k — mob fall damage (causeFallDamage)
+
+LivingEntity.causeFallDamage: floor((fallDistance + 1e-6 -
+safe_fall_distance) * fall_damage_multiplier) — both attributes read
+from the entityAttrBases supplier table — lands as minecraft:fall
+damage with the full hurt tail. #fall_damage_immune (the 18-type
+tag: golems, wither, flyers, slime family) skips outright. The fall
+sound is getFallDamageSound — damage > 4 picks big — over the
+type's Fallsounds pair: Monsters emit entity.hostile.small/big_fall,
+everyone else entity.generic.small/big_fall; Entity.playSound's
+coordinate overload makes it the positional 0x75 packet. Water
+contact resets fallDistance silently (vanilla zeroes it per tick in
+fluid). Note: LivingEntity.aiStep gates travel() itself on
+isEffectiveAi — a NoAI mob is fully physics-frozen on vanilla, it
+never falls.
+
+mc-go: mobGrounded (now a Server method, also shared by patrol)
+accumulates fallDistance per downward step, folds the final residual
+to the floor top in on the landing edge, then mobFallDamage runs
+the measured tail. playBlockFallSound (the landed block's
+SoundType.fallSound) stays open — needs a block→SoundType table.
+
+TestMobFallDamageParity: tagged zombie at 4 (dmg 1, hostile small),
+zombie at 10 (dmg 7, hostile big), pig at 10 (dmg 7, generic big),
+chicken at 10 (immune) — Health + captured 0x75 holder ids identical
+on both legs.
+
+Open items still ahead: block→SoundType fall-sound table, online
+mode, redstone, terrain gen, lighting.

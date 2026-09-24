@@ -2004,7 +2004,7 @@ func (s *Server) mobInSimulationRange(e *Entity) bool {
 // refuses to walk off a ledge. It only mutates entity state — the wire
 // emission is mobSyncFlush's sendChanges selection.
 func (s *Server) mobMoveStep(e *Entity, w *world.World) {
-	if !mobGrounded(e, w) {
+	if !s.mobGrounded(e, w) {
 		return
 	}
 	e.WanderTicks++
@@ -2057,9 +2057,11 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 }
 
 // mobGrounded is the falling half of a mob tick: gravity until a solid
-// block is underfoot. True once the mob rests on ground — NoGravity
-// mobs hang midair and are treated as grounded so ai keeps running.
-func mobGrounded(e *Entity, w *world.World) bool {
+// block is underfoot — accumulating fallDistance on every downward
+// step — then Entity.checkFallDamage's landing edge. True once the
+// mob rests on ground — NoGravity mobs hang midair and are treated
+// as grounded so ai keeps running.
+func (s *Server) mobGrounded(e *Entity, w *world.World) bool {
 	if e.NoGravity {
 		return true
 	}
@@ -2070,17 +2072,82 @@ func mobGrounded(e *Entity, w *world.World) bool {
 	}
 	if w.GetBlock(below) == world.Air {
 		e.Grounded = false
+		prevY := e.Y
 		e.MotionY -= 0.08
 		if e.MotionY < -1.0 {
 			e.MotionY = -1.0
 		}
 		e.Y += e.MotionY
+		// Entity.updateFallDistance: downward travel accumulates.
+		if dy := prevY - e.Y; dy > 0 {
+			e.FallDist += dy
+		}
 		return false
+	}
+	// Landing edge. Vanilla's fallDistance counts the whole drop —
+	// the residual down to the floor top is part of the last tick's
+	// travel — so fold e.Y's fractional remainder in first. Water
+	// contact zeroes it instead (vanilla resets per tick in fluid).
+	if !e.Grounded && e.FallDist > 0 {
+		if _, _, fluid := fluidOf(w.GetBlock(below)); !fluid {
+			e.FallDist += e.Y - math.Floor(e.Y)
+			s.mobFallDamage(e)
+		}
+		e.FallDist = 0
 	}
 	e.MotionY = 0
 	e.Y = math.Floor(e.Y)
 	e.Grounded = true
 	return true
+}
+
+// mobFallDamageImmune is the 26.2 #fall_damage_immune entity_type
+// tag — these types return early from Entity.causeFallDamage.
+var mobFallDamageImmune = map[string]bool{
+	"copper_golem": true, "iron_golem": true, "snow_golem": true,
+	"shulker": true, "allay": true, "bat": true, "bee": true,
+	"blaze": true, "cat": true, "chicken": true, "ghast": true,
+	"happy_ghast": true, "phantom": true, "magma_cube": true,
+	"ocelot": true, "parrot": true, "wither": true, "breeze": true,
+}
+
+// mobFallDamage is Entity.checkFallDamage's damage tail for mobs:
+// LivingEntity.causeFallDamage turns fallDistance into
+// floor((fallDistance + 1e-6 - safe_fall_distance) * multiplier *
+// fall_damage_multiplier), plays the type's Fallsounds pair (damage
+// >4 picks big), then runs the normal hurt tail (damage_event, hurt
+// voice, death on a lethal landing).
+func (s *Server) mobFallDamage(e *Entity) {
+	name, _ := EntityTypeName(e.Type)
+	if mobFallDamageImmune[name] {
+		return
+	}
+	safe := 3.0
+	if v, ok := entityAttrBases[name]["safe_fall_distance"]; ok {
+		safe = v
+	}
+	mult := 1.0
+	if v, ok := entityAttrBases[name]["fall_damage_multiplier"]; ok {
+		mult = v
+	}
+	dmg := int(math.Floor((e.FallDist + 1e-6 - safe) * mult))
+	if dmg <= 0 {
+		return
+	}
+	// LivingEntity.getFallSounds: Monsters get the hostile pair,
+	// everything else the generic one.
+	small, big := int32(702), int32(694) // entity.generic.small/big_fall
+	if mobVoiceOf(e).hostile {
+		small, big = 874, 871 // entity.hostile.small/big_fall
+	}
+	snd := small
+	if dmg > 4 {
+		snd = big
+	}
+	// Entity.playSound's coordinate overload — the positional
+	// clientbound sound packet at the mob's feet.
+	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd, mobVoiceOf(e).src(), 1, 1, nil)
+	s.damageMob(e, float32(dmg), "fall", nil, &damageInfo{typeName: "fall"})
 }
 
 // mobMeleeTypes are the hostile mobs mc-go's chase-melee AI drives.

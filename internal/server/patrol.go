@@ -258,7 +258,7 @@ func (s *Server) mobPatrolStep(e *Entity, d *dimension, w *world.World) bool {
 		e.Patrolling = false
 		return true
 	}
-	if !mobGrounded(e, w) {
+	if !s.mobGrounded(e, w) {
 		return true
 	}
 	// atBottomCenterOf: x/z get +0.5, y stays the block's own y.

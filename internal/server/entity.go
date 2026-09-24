@@ -428,6 +428,10 @@ type Entity struct {
 	// machine (owner link, timers, parked surface).
 	fishing  *fishBobber
 	Grounded bool
+	// FallDist is Entity.fallDistance for mobs: the accumulated
+	// downward travel since the last landing, consumed by
+	// mobFallDamage.
+	FallDist float64
 	// Raid / Wave mirror Raider's currentRaid + wave: raiders flag in
 	// through Raid.joinRaid, drop on death or 112 blocks past center.
 	Raid *raid
