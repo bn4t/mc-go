@@ -268,6 +268,9 @@ func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk wo
 	// A power source appearing or vanishing re-evaluates adjacent
 	// crafters — vanilla's neighborChanged runs from the same write.
 	s.crafterNeighborCheck(d, pos)
+	// updateNeighborsAt: every face neighbour re-evaluates its
+	// redstone signal (lamp, rails, torches, doors, TNT, ...).
+	s.rsNeighborFanOut(d, pos)
 	// updateShape: a change re-checks support for pos's neighbors; the
 	// placed block self-checks only in the scheduleTick family (the
 	// BlockInput.place fold's surviving side-effect).

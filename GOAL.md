@@ -5940,3 +5940,54 @@ for thin blocks is part of the larger collision-height gap.
 
 Open items still ahead: online mode, redstone, terrain gen,
 lighting.
+
+## Slice 2026-09-24n — redstone signal graph (sources + consumers)
+
+Measured the 26.2 `SignalGetter` model off the jar and implemented it
+in internal/server/redstone.go:
+
+- `getSignal(N, dir)` = `state(N).getSignal(N, dir)` (ownSignal minus
+  per-source direction carve-outs) or, when N is a redstone
+  conductor, `getDirectSignalTo(N)` — the strong power pushed into N.
+  `hasNeighborSignal(P)` ORs that over the six directions;
+  `hasSignal(P, d)` evaluates a single one (the torch's check).
+- ownSignal sources: redstone_block 15; wire/daylight `power` prop;
+  plates power|powered; lit torches 15; powered levers/buttons/
+  observer/lectern/lightning_rod/hooks/sculk sensors/detector rail 15.
+- getSignal carve-outs: floor torch emits 0 toward DOWN (never powers
+  its mount), wall torch 0 toward facing; wire emits 0 DOWN, full UP,
+  and horizontally only where the `side[dir.opposite]` prop is
+  side|up.
+- getDirectSignal (strong power): lever/button 15 only toward their
+  pointing direction (getConnectedDirection = opposite the mount, so
+  only the mount's query matches), plates UP, torches DOWN
+  (powers the block above), wire = getSignal.
+- Consumer dispatch (`rsNeighborChanged`, fanned out from
+  setBlockAndBroadcastNotify + the face-control updateNeighbours):
+  doors/trapdoors/gates keep explodeNeighborChanged's powered+open
+  sync (now sensing the real signal model), lamp latches lit
+  instantly and unlatches on a 4-tick tick, powered/activator/
+  detector rails sync powered, torches schedule a 2-tick toggle when
+  lit==signal, TNT primes.
+- Torch place/remove fires notifyNeighbors — updateNeighborsAt at
+  every neighbour of the torch, which reaches back and re-triggers
+  the torch itself (that's how a torch setblock'd onto a powered
+  mount turns off).
+- Hand use: lever/button/door/trapdoor/gate useWithoutItem wired in
+  handleUseItem — shares rsButtonPress / rsLeverPull /
+  rsToggleOpenable with the wind-charge trigger path (explosion.go
+  emit table deleted; explodeEmitSignal/explodeHasNeighborSignal
+  call sites all read the rs model).
+- isRedstoneConductor approximated by name (vanilla's flag ≈
+  canOcclude): transparent solids + non-full shapes excluded.
+
+Deferred: wire power propagation (`updatePowerStrength` /
+ExperimentalRedstoneWireEvaluator), rail 9-chain, torch burnout
+(RECENT_TOGGLES, 1502 event + 160t restart), comparator output
+fanout (`updateNeighbourForOutputSignal`).
+
+TestRedstoneParity pins all of it: 18 probes covering instant/4t
+lamp latch+unlatch, torch quirk (powered mount alone doesn't wake a
+2-away torch), torch self-unlatch through the ring-2 notify, iron
+door, rail, TNT priming, and hand-press lever + 20t stone button
+release — all matching vanilla.

@@ -365,37 +365,9 @@ func (s *Server) explodeTriggerBlock(d *dimension, pos world.Pos, name string, b
 		if prop("powered") == "true" {
 			return
 		}
-		nb, ok := world.WithProperty(blk, "powered", "true")
-		if !ok {
-			return
-		}
-		d.w.SetBlock(pos, nb)
-		s.broadcastBlockState(d, pos, nb)
-		// press(): setBlock -> updateNeighbours -> scheduleTick -> sound.
-		s.explodeUpdateNeighboursAttached(d, pos, nb)
-		fam := windSoundFamily(name)
-		// Wooden buttons hold 30 ticks, stone and polished_blackstone 20.
-		stay := int64(30)
-		if fam == "stone" {
-			stay = 20
-		}
-		s.ticks.schedule(schedKey{dim: d.name, pos: pos, kind: tickBlock}, s.TickCount()+stay)
-		s.explodeBlockSound(d, pos, fam+"_button.click_on", 1, 1)
+		s.rsButtonPress(d, pos, name, blk)
 	case name == "lever":
-		powered := prop("powered") == "true"
-		nb, ok := world.WithProperty(blk, "powered", boolStr(!powered))
-		if !ok {
-			return
-		}
-		d.w.SetBlock(pos, nb)
-		s.broadcastBlockState(d, pos, nb)
-		// pull(): setBlock -> updateNeighbours -> playSound.
-		s.explodeUpdateNeighboursAttached(d, pos, nb)
-		pitch := float32(0.5)
-		if !powered {
-			pitch = 0.6
-		}
-		s.explodeBlockSound(d, pos, "lever.click", 0.3, pitch)
+		s.rsLeverPull(d, pos, blk)
 	case name == "candle" || strings.HasSuffix(name, "_candle"):
 		if prop("lit") != "true" {
 			return
@@ -572,38 +544,9 @@ func mobExplosionKBResist(typ int32) float64 {
 // the signal they sense — the mechanism vanilla wind-charge bursts lean
 // on when a pressed button ends up reclosing a flipped door.
 
-// explodeEmitSignal is the ownSignal half of Level.getSignal: the
-// redstone power a block pushes toward all six neighbours. Only the
-// emitters the trigger-block path can produce are modeled (powered
-// buttons and levers, 15); wire, torches and powered solids don't exist
-// here yet.
-func explodeEmitSignal(blk world.Block) int {
-	owner, ok := world.StateOwner(blk)
-	if !ok {
-		return 0
-	}
-	name := strings.TrimPrefix(owner, "minecraft:")
-	if strings.HasSuffix(name, "_button") || name == "lever" {
-		if p, _ := world.StateProperty(blk, "powered"); p == "true" {
-			return 15
-		}
-	}
-	return 0
-}
-
+// explodeNeighborOffsets lists the six face directions.
 var explodeNeighborOffsets = [6][3]int{
 	{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1},
-}
-
-// explodeHasNeighborSignal is Level.hasNeighborSignal: true when any
-// adjacent block emits a signal toward pos.
-func (s *Server) explodeHasNeighborSignal(d *dimension, pos world.Pos) bool {
-	for _, o := range explodeNeighborOffsets {
-		if explodeEmitSignal(d.w.GetBlock(world.Pos{X: pos.X + o[0], Y: pos.Y + o[1], Z: pos.Z + o[2]})) > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // explodeUpdateNeighboursAttached mirrors the shared updateNeighbours
@@ -613,7 +556,7 @@ func (s *Server) explodeHasNeighborSignal(d *dimension, pos world.Pos) bool {
 // behind for wall — runs it too.
 func (s *Server) explodeUpdateNeighboursAttached(d *dimension, pos world.Pos, blk world.Block) {
 	for _, o := range explodeNeighborOffsets {
-		s.explodeNeighborChanged(d, world.Pos{X: pos.X + o[0], Y: pos.Y + o[1], Z: pos.Z + o[2]})
+		s.rsNeighborChanged(d, world.Pos{X: pos.X + o[0], Y: pos.Y + o[1], Z: pos.Z + o[2]})
 	}
 	attached := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
 	switch face, _ := world.StateProperty(blk, "face"); face {
@@ -635,7 +578,7 @@ func (s *Server) explodeUpdateNeighboursAttached(d *dimension, pos world.Pos, bl
 		}
 	}
 	for _, o := range explodeNeighborOffsets {
-		s.explodeNeighborChanged(d, world.Pos{X: attached.X + o[0], Y: attached.Y + o[1], Z: attached.Z + o[2]})
+		s.rsNeighborChanged(d, world.Pos{X: attached.X + o[0], Y: attached.Y + o[1], Z: attached.Z + o[2]})
 	}
 }
 
@@ -662,13 +605,13 @@ func (s *Server) explodeNeighborChanged(d *dimension, pos world.Pos) {
 		} else if half == "upper" {
 			other = world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
 		}
-		signal = s.explodeHasNeighborSignal(d, pos) || s.explodeHasNeighborSignal(d, other)
+		signal = rsHasNeighborSignal(d, pos) || rsHasNeighborSignal(d, other)
 		base = windSoundFamily(name) + "_door"
 	case strings.HasSuffix(name, "_trapdoor"):
-		signal = s.explodeHasNeighborSignal(d, pos)
+		signal = rsHasNeighborSignal(d, pos)
 		base = windSoundFamily(name) + "_trapdoor"
 	case strings.HasSuffix(name, "_fence_gate"):
-		signal = s.explodeHasNeighborSignal(d, pos)
+		signal = rsHasNeighborSignal(d, pos)
 		base = windGateSoundFam(name)
 	default:
 		return

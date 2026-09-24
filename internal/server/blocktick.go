@@ -412,6 +412,32 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		s.tripwireTick(d, pos, blk)
 		return
 	}
+	if short == "redstone_lamp" {
+		// RedstoneLampBlock.tick: the unlatch lands 4 ticks after the
+		// signal dropped — but only if it's still dropped.
+		lit, _ := world.StateProperty(blk, "lit")
+		if lit != "true" || rsHasNeighborSignal(d, pos) {
+			return
+		}
+		if nb, ok := world.WithProperty(blk, "lit", "false"); ok {
+			d.w.SetBlock(pos, nb)
+			s.broadcastBlockState(d, pos, nb)
+		}
+		return
+	}
+	if short == "redstone_torch" || short == "redstone_wall_torch" {
+		// RedstoneTorchBlock.tick: toggle lit when lit still agrees
+		// with the mount's signal after the 2-tick delay.
+		lit, _ := world.StateProperty(blk, "lit")
+		if lit == "" || (lit == "true") != rsTorchSeesSignal(d, pos, blk) {
+			return
+		}
+		if nb, ok := world.WithProperty(blk, "lit", boolStr(lit != "true")); ok {
+			d.w.SetBlock(pos, nb)
+			s.broadcastBlockState(d, pos, nb)
+		}
+		return
+	}
 	if !strings.HasSuffix(short, "_button") {
 		return
 	}

@@ -291,6 +291,37 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		}
 		return
 	}
+	// Face controls answer useWithoutItem first: a button presses and
+	// schedules its release, a lever flips powered. Both consume the
+	// click regardless of the held stack (vanilla runs the block's
+	// use before the item's when the item has no useOn override).
+	if cname, _ := world.StateOwner(cur); blockUse && cname != "" {
+		short := strings.TrimPrefix(cname, "minecraft:")
+		switch {
+		case strings.HasSuffix(short, "_button"):
+			if p, _ := world.StateProperty(cur, "powered"); p != "true" {
+				s.rsButtonPress(d, clicked, short, cur)
+			}
+			acked = true
+			if seq >= 0 {
+				s.sendBlockAck(sess, seq)
+			}
+			return
+		case short == "lever":
+			s.rsLeverPull(d, clicked, cur)
+			acked = true
+			if seq >= 0 {
+				s.sendBlockAck(sess, seq)
+			}
+			return
+		case s.rsToggleOpenable(d, clicked, short):
+			acked = true
+			if seq >= 0 {
+				s.sendBlockAck(sess, seq)
+			}
+			return
+		}
+	}
 	// Container blocks open their menu instead of placing, but only
 	// in reach and only once every server teleport is confirmed:
 	// out-of-reach uses die silently, unconfirmed ones get the

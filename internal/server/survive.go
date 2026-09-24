@@ -370,6 +370,13 @@ func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block)
 		if short == "tripwire" != (oldShort == "tripwire") {
 			s.tripwireUpdateSource(d, pos, blk)
 		}
+		// RedstoneTorchBlock.onPlace / affectNeighborsAfterRemoval:
+		// a torch write notifies the neighbours OF each neighbour —
+		// the ring its emitted signal actually reaches.
+		if short == "redstone_torch" || short == "redstone_wall_torch" ||
+			oldShort == "redstone_torch" || oldShort == "redstone_wall_torch" {
+			s.rsTorchNotify(d, pos)
+		}
 	}
 	// TntBlock.onPlace: prime + self-remove when a neighbour carries a
 	// signal — callers re-read the cell after this hook.

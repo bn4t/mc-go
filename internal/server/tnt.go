@@ -398,7 +398,7 @@ func (s *Server) tntOnPlace(d *dimension, pos world.Pos, blk world.Block) {
 	if name != "tnt" {
 		return
 	}
-	if !s.explodeHasNeighborSignal(d, pos) {
+	if !rsHasNeighborSignal(d, pos) {
 		return
 	}
 	d.w.SetBlock(pos, world.Air)
@@ -413,7 +413,7 @@ func (s *Server) tntNeighborChanged(d *dimension, pos world.Pos) {
 	if name != "tnt" {
 		return
 	}
-	if !s.explodeHasNeighborSignal(d, pos) {
+	if !rsHasNeighborSignal(d, pos) {
 		return
 	}
 	s.setNaturalBlock(d, pos, world.Air)
