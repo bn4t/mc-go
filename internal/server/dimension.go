@@ -91,6 +91,10 @@ type dimension struct {
 	// fold), and the outermost write drains them FIFO.
 	rsWriteDepth int
 	rsPending    []rsUpdate
+	// rsTorchToggles is RedstoneTorchBlock.RECENT_TOGGLES — one shared
+	// list per level, pruned lazily from the front (oldest first)
+	// whenever a torch tick runs.
+	rsTorchToggles []rsTorchToggle
 	// raids is the dimension's active raid map (Raids.raidMap); the
 	// next id is a per-dimension counter like vanilla's getUniqueId.
 	raids    map[int]*raid

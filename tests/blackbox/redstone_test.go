@@ -1126,3 +1126,109 @@ func TestPoweredRailChainParity(t *testing.T) {
 		}
 	}
 }
+
+// TestTorchBurnoutParity pins RedstoneTorchBlock.RECENT_TOGGLES: the
+// 8th lit→dark flip inside a 60-tick window burns the torch out —
+// levelEvent 1502 + a 160-tick restart. While the window is saturated
+// a relight is refused even unpowered; once it expires the restart
+// tick relights. Toggling the mount cell (stone <-> redstone_block)
+// drives the flips with plain setblock writes.
+func TestTorchBurnoutParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	setup := []string{
+		`gamerule send_command_feedback true`,
+		// D @50,z90: the burner — floor torch on a mount we flip.
+		`setblock 50 -60 90 minecraft:redstone_torch`,
+		// E @53,z90: a control that toggles only 3 times — under the
+		// cap, so it always relights.
+		`setblock 53 -60 90 minecraft:redstone_torch`,
+	}
+	probesA := []struct{ name, spec string }{
+		{"D burnt out dark", "50 -60 90 minecraft:redstone_torch[lit=false]"},
+		{"E control relit", "53 -60 90 minecraft:redstone_torch[lit=true]"},
+	}
+	probesB := []struct{ name, spec string }{
+		{"D relit after restart", "50 -60 90 minecraft:redstone_torch[lit=true]"},
+	}
+
+	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
+		sendCommand(t, pw, fmt.Sprintf("execute if block %s run say ZT-ok-%d", spec, i))
+		sendCommand(t, pw, fmt.Sprintf("execute unless block %s run say ZT-miss-%d", spec, i))
+		deadline := time.Now().Add(4 * time.Second)
+		hit := ""
+		for time.Now().Before(deadline) {
+			for _, line := range sink.take() {
+				if strings.Contains(line, fmt.Sprintf("ZT-ok-%d", i)) {
+					hit = "hit"
+				}
+				if strings.Contains(line, fmt.Sprintf("ZT-miss-%d", i)) {
+					hit = "miss"
+				}
+			}
+			if hit != "" {
+				break
+			}
+			time.Sleep(40 * time.Millisecond)
+		}
+		return hit
+	}
+
+	run := func(addr string) []string {
+		c, pr, pw := joinPlayQuiet(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		sendClientInformation(t, pw)
+		sink := newChatSinkTP(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(4 * time.Second)
+		sink.take()
+		var out []string
+		for _, cmd := range setup {
+			sendCommand(t, pw, cmd)
+		}
+		time.Sleep(400 * time.Millisecond)
+		// 8 off-transitions within the 60-tick (3s) window. Each
+		// redstone_block write powers the mount → the torch flips
+		// dark 2t later and records a toggle.
+		for i := 0; i < 8; i++ {
+			sendCommand(t, pw, `setblock 50 -61 90 minecraft:redstone_block`)
+			time.Sleep(140 * time.Millisecond)
+			sendCommand(t, pw, `setblock 50 -61 90 minecraft:stone`)
+			time.Sleep(140 * time.Millisecond)
+		}
+		// Control: 3 toggles — relights fine.
+		for i := 0; i < 3; i++ {
+			sendCommand(t, pw, `setblock 53 -61 90 minecraft:redstone_block`)
+			time.Sleep(140 * time.Millisecond)
+			sendCommand(t, pw, `setblock 53 -61 90 minecraft:stone`)
+			time.Sleep(140 * time.Millisecond)
+		}
+		time.Sleep(700 * time.Millisecond)
+		for i, p := range probesA {
+			out = append(out, probe(pw, sink, p.spec, i))
+		}
+		// The restart lands ~160t (8s) after the last burnout flip.
+		time.Sleep(8500 * time.Millisecond)
+		for i, p := range probesB {
+			out = append(out, probe(pw, sink, p.spec, 100+i))
+		}
+		return out
+	}
+
+	vanilla := run(targets.vanilla)
+	mcgo := run(targets.mcgo)
+	all := append(append([]struct{ name, spec string }{}, probesA...), probesB...)
+	for i, p := range all {
+		t.Logf("%-44s vanilla=%s mcgo=%s", p.name, vanilla[i], mcgo[i])
+		if vanilla[i] == "hit" && mcgo[i] != "hit" {
+			t.Errorf("probe %q: vanilla hit, mc-go %s", p.name, mcgo[i])
+		}
+		if mcgo[i] == "hit" && vanilla[i] != "hit" {
+			t.Errorf("probe %q: mc-go hit, vanilla %s", p.name, vanilla[i])
+		}
+	}
+}

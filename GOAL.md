@@ -6215,3 +6215,24 @@ negative — all matching vanilla.
 
 Deferred still: torch burnout (RECENT_TOGGLES), piston moving-block
 intermediates + entity push, useExperimentalEvaluator.
+
+## Slice 2026-09-24t — redstone torch burnout (RECENT_TOGGLES)
+
+Measured on the jar (RedstoneTorchBlock.tick + isToggledTooFrequently,
+PoweredRailBlock already done) and pinned by TestTorchBurnoutParity.
+
+- RECENT_TOGGLES is one shared list per level (WeakHashMap keyed on
+  Level); toggles older than RECENT_TOGGLE_TIMER=60 prune lazily from
+  the head on every torch tick.
+- Only the lit→dark transition records a toggle. When the count at
+  the torch's pos reaches MAX_RECENT_TOGGLES=8, the off-flip also
+  fires levelEvent 1502 (fizz+smoke) and re-arms a
+  RESTART_DELAY=160-tick tick.
+- The dark→lit path checks the count without recording — a saturated
+  window refuses the relight even unpowered. Once the 60-tick window
+  has drained the toggles, the restart tick relights the torch.
+- Pin: 8 mount-cell power flips (stone<->redstone_block under a floor
+  torch) inside the window → dark and refused relight while the window
+  holds; a control torch toggled 3 times relights immediately; the
+  burnt-out torch relights on its own ~160t later — both servers
+  match.

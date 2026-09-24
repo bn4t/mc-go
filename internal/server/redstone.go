@@ -1434,3 +1434,46 @@ func rsRailLinkPowered(d *dimension, pos world.Pos, src world.Block, fwd bool, d
 	}
 	return rsHasNeighborSignal(d, pos) || rsRailChainStep(d, pos, st, fwd, dist+1)
 }
+
+// rsTorchToggle is RedstoneTorchBlock$Toggle — a lit→dark flip's
+// timestamp for the burnout window.
+type rsTorchToggle struct {
+	pos world.Pos
+	at  int64
+}
+
+const (
+	rsTorchToggleWindow = int64(60) // RECENT_TOGGLE_TIMER
+	rsTorchToggleMax    = 8         // MAX_RECENT_TOGGLES
+)
+
+// rsTorchPruneToggles drops toggles older than the 60-tick window —
+// vanilla prunes from the head of the shared list at the top of every
+// torch tick.
+func (s *Server) rsTorchPruneToggles(d *dimension) {
+	now := s.TickCount()
+	l := d.rsTorchToggles
+	for len(l) > 0 && now-l[0].at > rsTorchToggleWindow {
+		l = l[1:]
+	}
+	d.rsTorchToggles = l
+}
+
+// rsTorchTooOften is isToggledTooFrequently: optionally record this
+// pos's toggle, then count the list's entries at it — true at the
+// 8-toggle cap.
+func (s *Server) rsTorchTooOften(d *dimension, pos world.Pos, add bool) bool {
+	if add {
+		d.rsTorchToggles = append(d.rsTorchToggles, rsTorchToggle{pos: pos, at: s.TickCount()})
+	}
+	n := 0
+	for _, t := range d.rsTorchToggles {
+		if t.pos == pos {
+			n++
+			if n >= rsTorchToggleMax {
+				return true
+			}
+		}
+	}
+	return false
+}

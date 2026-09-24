@@ -434,13 +434,36 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		return
 	}
 	if short == "redstone_torch" || short == "redstone_wall_torch" {
-		// RedstoneTorchBlock.tick: toggle lit when lit still agrees
-		// with the mount's signal after the 2-tick delay.
+		// RedstoneTorchBlock.tick: prune toggles older than
+		// RECENT_TOGGLE_TIMER(60), then flip if lit still agrees with
+		// the mount's signal after the 2-tick delay. Going dark records
+		// a toggle — the 8th inside the window fires the burnout
+		// (levelEvent 1502) and re-arms a 160-tick restart; relights
+		// are refused while the count stays at the cap.
 		lit, _ := world.StateProperty(blk, "lit")
-		if lit == "" || (lit == "true") != rsTorchSeesSignal(d, pos, blk) {
+		if lit == "" {
 			return
 		}
-		if nb, ok := world.WithProperty(blk, "lit", boolStr(lit != "true")); ok {
+		s.rsTorchPruneToggles(d)
+		sig := rsTorchSeesSignal(d, pos, blk)
+		if lit == "true" != sig {
+			return
+		}
+		if lit == "true" {
+			if nb, ok := world.WithProperty(blk, "lit", "false"); ok {
+				s.rsWriteBlock(d, pos, nb, nb, nil)
+			}
+			if s.rsTorchTooOften(d, pos, true) {
+				s.broadcastLevelEvent(d.name, 1502, pos, 0)
+				s.ticks.schedule(schedKey{dim: d.name, pos: pos, kind: tickBlock},
+					s.TickCount()+160)
+			}
+			return
+		}
+		if s.rsTorchTooOften(d, pos, false) {
+			return
+		}
+		if nb, ok := world.WithProperty(blk, "lit", "true"); ok {
 			s.rsWriteBlock(d, pos, nb, nb, nil)
 		}
 		return
