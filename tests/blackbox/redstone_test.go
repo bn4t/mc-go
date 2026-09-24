@@ -734,3 +734,263 @@ func TestComparatorParity(t *testing.T) {
 		}
 	}
 }
+
+// TestPistonParity pins PistonBaseBlock + PistonStructureResolver:
+// quasi-connectivity power, extend/retract through the tick-tail
+// block event queue, the 12-block push cap, DESTROY pops, BLOCK
+// vetoes (obsidian, block entities, extended pistons), PUSH_ONLY
+// glazed terracotta, slime/honey drag-and-branch, and the sticky
+// pull. Fixtures all sit inside ticking range of spawn.
+func TestPistonParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	setup := []string{
+		`gamerule send_command_feedback true`,
+
+		// A @70,z70: plain powered extension.
+		`setblock 70 -60 70 minecraft:piston[facing=east]`,
+		`setblock 69 -60 70 minecraft:lever[face=floor,powered=true]`,
+
+		// B @73,z70: a lone stone is pushed one cell.
+		`setblock 73 -60 70 minecraft:piston[facing=east]`,
+		`setblock 74 -60 70 minecraft:stone`,
+		`setblock 72 -60 70 minecraft:lever[face=floor,powered=true]`,
+
+		// C @76,z70: obsidian vetoes the move entirely.
+		`setblock 76 -60 70 minecraft:piston[facing=east]`,
+		`setblock 77 -60 70 minecraft:obsidian`,
+		`setblock 76 -60 71 minecraft:lever[face=floor,powered=true]`,
+
+		// D @79,z70: a torch in the path is destroyed, not pushed.
+		`setblock 79 -60 70 minecraft:piston[facing=east]`,
+		`setblock 80 -60 70 minecraft:torch`,
+		`setblock 78 -60 70 minecraft:lever[face=floor,powered=true]`,
+
+		// E @82,z70: a 12-deep chain still moves.
+		`setblock 82 -60 70 minecraft:piston[facing=east]`,
+		`setblock 83 -60 70 minecraft:stone`,
+		`setblock 84 -60 70 minecraft:stone`,
+		`setblock 85 -60 70 minecraft:stone`,
+		`setblock 86 -60 70 minecraft:stone`,
+		`setblock 87 -60 70 minecraft:stone`,
+		`setblock 88 -60 70 minecraft:stone`,
+		`setblock 89 -60 70 minecraft:stone`,
+		`setblock 90 -60 70 minecraft:stone`,
+		`setblock 91 -60 70 minecraft:stone`,
+		`setblock 92 -60 70 minecraft:stone`,
+		`setblock 93 -60 70 minecraft:stone`,
+		`setblock 94 -60 70 minecraft:stone`,
+		`setblock 81 -60 70 minecraft:lever[face=floor,powered=true]`,
+
+		// F @97,z70: the 13th block is over the cap — nothing moves.
+		`setblock 97 -60 70 minecraft:piston[facing=east]`,
+		`setblock 98 -60 70 minecraft:stone`,
+		`setblock 99 -60 70 minecraft:stone`,
+		`setblock 100 -60 70 minecraft:stone`,
+		`setblock 101 -60 70 minecraft:stone`,
+		`setblock 102 -60 70 minecraft:stone`,
+		`setblock 103 -60 70 minecraft:stone`,
+		`setblock 104 -60 70 minecraft:stone`,
+		`setblock 105 -60 70 minecraft:stone`,
+		`setblock 106 -60 70 minecraft:stone`,
+		`setblock 107 -60 70 minecraft:stone`,
+		`setblock 108 -60 70 minecraft:stone`,
+		`setblock 109 -60 70 minecraft:stone`,
+		`setblock 110 -60 70 minecraft:stone`,
+		`setblock 96 -60 70 minecraft:lever[face=floor,powered=true]`,
+
+		// G @70,z74: a sticky piston pulls its block back.
+		`setblock 70 -60 74 minecraft:sticky_piston[facing=east]`,
+		`setblock 71 -60 74 minecraft:stone`,
+		`setblock 69 -60 74 minecraft:lever[face=floor,powered=true]`,
+
+		// H @74,z74: glazed terracotta pushes but never pulls.
+		`setblock 74 -60 74 minecraft:sticky_piston[facing=east]`,
+		`setblock 75 -60 74 minecraft:white_glazed_terracotta`,
+		`setblock 73 -60 74 minecraft:lever[face=floor,powered=true]`,
+
+		// I @78,z74: slime drags its perpendicular neighbours along —
+		// the slime above and the stone north of it — but honey never
+		// sticks to slime. The whole row floats one cell up so the
+		// slime does not drag the floor row over the push cap.
+		`setblock 78 -59 74 minecraft:piston[facing=east]`,
+		`setblock 79 -59 74 minecraft:slime_block`,
+		`setblock 79 -58 74 minecraft:slime_block`,
+		`setblock 79 -59 73 minecraft:stone`,
+		`setblock 79 -59 75 minecraft:honey_block`,
+		`setblock 77 -60 74 minecraft:stone`,
+		`setblock 77 -59 74 minecraft:lever[face=floor,powered=true]`,
+
+		// J @82,z74: a chest is unpushable (it carries a block
+		// entity) — the piston stays closed.
+		`setblock 82 -60 74 minecraft:piston[facing=east]`,
+		`setblock 83 -60 74 minecraft:chest`,
+		`setblock 81 -60 74 minecraft:lever[face=floor,powered=true]`,
+
+		// K @86,z74: an unextended piston is itself pushable.
+		`setblock 86 -60 74 minecraft:piston[facing=east]`,
+		`setblock 87 -60 74 minecraft:piston[facing=east]`,
+		`setblock 85 -60 74 minecraft:lever[face=floor,powered=true]`,
+
+		// L @92,z74: quasi-connectivity — a power source two cells up
+		// powers the ring above the piston, but the piston only sees it
+		// after a neighbour update (the dummy stone write).
+		`setblock 92 -60 74 minecraft:piston[facing=east]`,
+		`setblock 92 -58 74 minecraft:redstone_block`,
+		`setblock 92 -60 73 minecraft:stone`,
+
+		// M @97,z74: an already-extended piston is unpushable — B's
+		// own power keeps it out, so A can never open.
+		`setblock 97 -60 74 minecraft:piston[facing=east]`,
+		`setblock 98 -60 74 minecraft:piston[facing=east]`,
+		`setblock 98 -59 74 minecraft:redstone_block`,
+		`setblock 96 -60 74 minecraft:lever[face=floor,powered=true]`,
+	}
+	probesA := []struct{ name, spec string }{
+		{"A extended", "70 -60 70 minecraft:piston[extended=true]"},
+		{"A head placed", "71 -60 70 minecraft:piston_head[facing=east,type=normal]"},
+		{"B stone pushed +1", "75 -60 70 minecraft:stone"},
+		{"B head fills origin", "74 -60 70 minecraft:piston_head[facing=east]"},
+		{"C obsidian vetoes", "76 -60 70 minecraft:piston[extended=false]"},
+		{"C obsidian still", "77 -60 70 minecraft:obsidian"},
+		{"D torch destroyed", "80 -60 70 minecraft:piston_head[facing=east]"},
+		{"D extended", "79 -60 70 minecraft:piston[extended=true]"},
+		{"E 12-deep tail lands", "95 -60 70 minecraft:stone"},
+		{"E head over origin", "83 -60 70 minecraft:piston_head[facing=east]"},
+		{"E far end stays empty", "96 -60 70 minecraft:lever[powered=true]"},
+		{"F 13-deep: closed", "97 -60 70 minecraft:piston[extended=false]"},
+		{"F chain untouched", "98 -60 70 minecraft:stone"},
+		{"F tail untouched", "110 -60 70 minecraft:stone"},
+		{"G stone pushed to +2", "72 -60 74 minecraft:stone"},
+		{"G sticky head", "71 -60 74 minecraft:piston_head[type=sticky]"},
+		{"H terracotta pushed", "76 -60 74 minecraft:white_glazed_terracotta"},
+		{"H sticky head", "75 -60 74 minecraft:piston_head[type=sticky]"},
+		{"I slime front lands", "80 -59 74 minecraft:slime_block"},
+		{"I slime above dragged", "80 -58 74 minecraft:slime_block"},
+		{"I stone side-dragged", "80 -59 73 minecraft:stone"},
+		{"I honey unstuck", "79 -59 75 minecraft:honey_block"},
+		{"J chest unpushable", "82 -60 74 minecraft:piston[extended=false]"},
+		{"J chest still", "83 -60 74 minecraft:chest"},
+		{"K piston pushed east", "88 -60 74 minecraft:piston[facing=east,extended=false]"},
+		{"K head at origin", "87 -60 74 minecraft:piston_head[facing=east]"},
+		{"L QC extended", "92 -60 74 minecraft:piston[extended=true]"},
+		{"L QC head", "93 -60 74 minecraft:piston_head[facing=east]"},
+		{"M A cannot push B", "97 -60 74 minecraft:piston[extended=false]"},
+		{"M B stayed extended", "98 -60 74 minecraft:piston[extended=true]"},
+		{"M B head", "99 -60 74 minecraft:piston_head[facing=east]"},
+	}
+	unpower := []string{
+		`setblock 69 -60 70 minecraft:lever[face=floor,powered=false]`,
+		`setblock 72 -60 70 minecraft:lever[face=floor,powered=false]`,
+		`setblock 69 -60 74 minecraft:lever[face=floor,powered=false]`,
+		`setblock 73 -60 74 minecraft:lever[face=floor,powered=false]`,
+	}
+	probesQc := []struct{ name, spec string }{
+		{"L QC latched extended", "92 -60 74 minecraft:piston[extended=true]"},
+	}
+	qcPoke := []string{
+		`setblock 92 -60 73 minecraft:air`,
+	}
+	probesB := []struct{ name, spec string }{
+		{"A retracted", "70 -60 70 minecraft:piston[extended=false]"},
+		{"A head gone", "71 -60 70 minecraft:air"},
+		{"B retracted", "73 -60 70 minecraft:piston[extended=false]"},
+		{"B stone stays out", "75 -60 70 minecraft:stone"},
+		{"B head gone", "74 -60 70 minecraft:air"},
+		{"G stone pulled back", "71 -60 74 minecraft:stone"},
+		{"G +2 cell cleared", "72 -60 74 minecraft:air"},
+		{"G retracted", "70 -60 74 minecraft:sticky_piston[extended=false]"},
+		{"H terracotta NOT pulled", "76 -60 74 minecraft:white_glazed_terracotta"},
+		{"H head cell empty", "75 -60 74 minecraft:air"},
+		{"L QC retracted", "92 -60 74 minecraft:piston[extended=false]"},
+		{"L head gone", "93 -60 74 minecraft:air"},
+	}
+	// probesC run after a hand-placement: a piston placed while
+	// looking straight down points up.
+	probePlace := struct{ name, spec string }{
+		"placed looking down faces up", "60 -60 74 minecraft:piston[facing=up]",
+	}
+
+	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
+		sendCommand(t, pw, fmt.Sprintf("execute if block %s run say ZP-ok-%d", spec, i))
+		sendCommand(t, pw, fmt.Sprintf("execute unless block %s run say ZP-miss-%d", spec, i))
+		deadline := time.Now().Add(4 * time.Second)
+		hit := ""
+		for time.Now().Before(deadline) {
+			for _, line := range sink.take() {
+				if strings.Contains(line, fmt.Sprintf("ZP-ok-%d", i)) {
+					hit = "hit"
+				}
+				if strings.Contains(line, fmt.Sprintf("ZP-miss-%d", i)) {
+					hit = "miss"
+				}
+			}
+			if hit != "" {
+				break
+			}
+			time.Sleep(40 * time.Millisecond)
+		}
+		return hit
+	}
+
+	run := func(addr string) []string {
+		c, pr, pw := joinPlayQuiet(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		sendClientInformation(t, pw)
+		sink := newChatSinkTP(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(4 * time.Second)
+		sink.take()
+		var out []string
+		for _, cmd := range setup {
+			sendCommand(t, pw, cmd)
+		}
+		time.Sleep(1500 * time.Millisecond)
+		for i, p := range probesA {
+			out = append(out, probe(pw, sink, p.spec, i))
+		}
+		for _, cmd := range unpower {
+			sendCommand(t, pw, cmd)
+		}
+		// Removing QC power alone must not retract — the piston only
+		// re-checks when a neighbour update lands.
+		sendCommand(t, pw, `setblock 92 -58 74 minecraft:air`)
+		time.Sleep(1500 * time.Millisecond)
+		for i, p := range probesQc {
+			out = append(out, probe(pw, sink, p.spec, 150+i))
+		}
+		for _, cmd := range qcPoke {
+			sendCommand(t, pw, cmd)
+		}
+		time.Sleep(1500 * time.Millisecond)
+		for i, p := range probesB {
+			out = append(out, probe(pw, sink, p.spec, 100+i))
+		}
+		// Hand placement: hold a piston on hotbar.0, stand on the
+		// pad looking straight down, click the grass top.
+		sendCommand(t, pw, `item replace entity @s hotbar.0 with minecraft:piston 1`)
+		sendCommand(t, pw, `tp @s 60 -59 74 -90 90`)
+		time.Sleep(400 * time.Millisecond)
+		sendUseItemOn(t, pw, 60, -61, 74, 1, 40)
+		time.Sleep(1200 * time.Millisecond)
+		out = append(out, probe(pw, sink, probePlace.spec, 300))
+		return out
+	}
+
+	vanilla := run(targets.vanilla)
+	mcgo := run(targets.mcgo)
+	all := append(append(append(append([]struct{ name, spec string }{}, probesA...), probesQc...), probesB...), probePlace)
+	for i, p := range all {
+		t.Logf("%-44s vanilla=%s mcgo=%s", p.name, vanilla[i], mcgo[i])
+		if vanilla[i] == "hit" && mcgo[i] != "hit" {
+			t.Errorf("probe %q: vanilla hit, mc-go %s", p.name, mcgo[i])
+		}
+		if mcgo[i] == "hit" && vanilla[i] != "hit" {
+			t.Errorf("probe %q: mc-go hit, vanilla %s", p.name, vanilla[i])
+		}
+	}
+}

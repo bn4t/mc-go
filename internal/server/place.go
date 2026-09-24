@@ -433,6 +433,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	blk = s.hookPlaceState(d, target, blk, sess, face)
 	blk = s.multifacePlaceState(d, target, blk, sess, face)
 	blk = s.diodePlaceState(d, target, blk, sess)
+	blk = pistonPlaceState(blk, sess)
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
 	// TripWireHookBlock.setPlacedBy: a placed hook runs its
 	// calculateState — attaches/powers the run it lands on. Command
@@ -547,4 +548,54 @@ func (s *Server) diodePlaceState(d *dimension, pos world.Pos, blk world.Block, s
 		}
 	}
 	return out
+}
+
+// pistonPlaceState is PistonBaseBlock.getStateForPlacement: FACING is
+// the player's nearest look direction flipped — look down and the
+// piston points up. EXTENDED starts false.
+func pistonPlaceState(blk world.Block, sess *Session) world.Block {
+	name, ok := world.StateOwner(blk)
+	if !ok {
+		return blk
+	}
+	short := strings.TrimPrefix(name, "minecraft:")
+	if short != "piston" && short != "sticky_piston" {
+		return blk
+	}
+	_, _, _, yaw, pitch, _ := sess.Pos()
+	dir := nearestLookDir(yaw, pitch)
+	if nb, ok := world.WithProperty(blk, "facing", dirOpposite(dir)); ok {
+		blk = nb
+	}
+	if nb, ok := world.WithProperty(blk, "extended", "false"); ok {
+		blk = nb
+	}
+	return blk
+}
+
+// nearestLookDir is Direction.getNearest — the dominant axis of the
+// view vector.
+func nearestLookDir(yaw, pitch float32) string {
+	yr := float64(yaw) * math.Pi / 180
+	pr := float64(pitch) * math.Pi / 180
+	lx := -math.Sin(yr) * math.Cos(pr)
+	ly := -math.Sin(pr)
+	lz := math.Cos(yr) * math.Cos(pr)
+	ax, ay, az := math.Abs(lx), math.Abs(ly), math.Abs(lz)
+	if ax >= ay && ax >= az {
+		if lx > 0 {
+			return "east"
+		}
+		return "west"
+	}
+	if ay >= az {
+		if ly > 0 {
+			return "up"
+		}
+		return "down"
+	}
+	if lz > 0 {
+		return "south"
+	}
+	return "north"
 }

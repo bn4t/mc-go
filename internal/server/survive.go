@@ -221,6 +221,16 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos, notify worl
 		s.diodeUpdateShape(d, pos, changed, b, name == "repeater")
 		return
 	}
+	if name == "piston_head" && changed != pos {
+		// PistonHeadBlock.neighborChanged → canSurvive: the head
+		// survives only while the cell behind it holds an extended
+		// piston of the matching type facing the same way.
+		if !rsHeadSupported(d, pos, b) {
+			s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+			s.setNaturalBlock(d, pos, world.Air)
+		}
+		return
+	}
 	fn, ok := surviveFns()[name]
 	if !ok || fn(s, d, pos, b) {
 		return
@@ -390,6 +400,12 @@ func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block,
 		}
 		if (oldShort == "repeater" || oldShort == "comparator") && oldShort != short {
 			s.rsDiodeUpdateInFront(d, pos, old)
+		}
+		// PistonBaseBlock.onPlace: a fresh piston checks power right
+		// away (a write of piston over piston skips it — the is(this)
+		// guard).
+		if (short == "piston" || short == "sticky_piston") && oldShort != short {
+			s.rsPistonCheck(d, pos)
 		}
 		// Containers.updateNeighboursAfterDestroy: removing a
 		// container block wakes comparators reading it — the ring

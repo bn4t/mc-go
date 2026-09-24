@@ -241,6 +241,9 @@ type Server struct {
 	// read at flush time. dirtyMu guards it.
 	dirtyMu     sync.Mutex
 	dirtyBlocks map[blockSectionKey]map[uint16]bool
+	// blockEvents is Level.blockEvent's queue — piston moves fire at
+	// the tail of the tick (ServerLevel.tickBlockEvents).
+	blockEvents []rsBlockEvent
 	// dirtyBEs holds block entities /data dirtied without a block
 	// change — the sign re-render vanilla sends out of the same
 	// tick-end broadcastChanges pass. dirtyBEOrder keeps it a queue.

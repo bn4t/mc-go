@@ -6144,3 +6144,43 @@ conductor deep read through stone, chest-fill wake via /item replace
 (block-entity setChanged — no block write at all), the hand-use mode
 cycle recomputing 15→5 in place, full-chest 15, and the removal wake
 unpowering a comparator behind a conductor — all matching vanilla.
+
+## Slice 2026-09-24r — pistons (PistonBaseBlock + PistonStructureResolver)
+
+Measured on the 26.2 jar (javap: PistonBaseBlock, PistonHeadBlock,
+MovingPistonBlock, PistonStructureResolver, SignalGetter) and pinned by
+TestPistonParity against both servers — 44 probes.
+
+- checkIfExtend: hasNeighborSignal is getNeighborSignal —
+  quasi-connectivity. The piston reads every neighbour except its own
+  facing at cell level, its own cell with dir=DOWN (the conductor
+  strong-power read — a piston is a conductor), then the ring around
+  pos.above skipping DOWN. A power source two cells up fires it only
+  after some neighbour update lands — the QC latch is pinned: power
+  removed without a touch leaves it extended.
+- Extend/contract are block events drained at tick tail. The trigger
+  re-reads power at fire time: a stale extend under lost power is
+  dropped, a stale contract under power re-latches EXTENDED.
+- The resolver walks push chains with the 12-block cap
+  (MAX_PUSH_DEPTH), DESTROY fronts (torch pops, head lands on the
+  cell), BLOCK vetoes (obsidian, crying obsidian, respawn anchors,
+  reinforced deepslate, unbreakable-destroySpeed, any block entity —
+  chest stays), PUSH_ONLY glazed terracotta (pushes but never pulls),
+  and slime/honey branching: sticky blocks drag every perpendicular
+  neighbour that sticks, honey never sticks to slime.
+- moveBlocks(extend=false) clears the front piston_head before the
+  pull resolver runs — without that the head vetoes the pull.
+- Writes land directly (no moving_piston intermediates — the settle
+  state is identical at probe granularity; the client-side animation,
+  entity pushing, and the block_event packet stay on the deferred
+  list).
+- PistonHeadBlock.canSurvive: the head pops when the cell behind is
+  no longer an extended piston of its type facing its way.
+- getStateForPlacement: facing = getNearest of the look direction
+  flipped — looking down places an up piston (dirOpposite gained the
+  vertical cases for this).
+
+TestPistonParity: extend+head, push-1, obsidian/chest/extended-piston
+vetoes, torch destroy, 12-vs-13 cap, sticky pull, terracotta no-pull,
+slime branch+drag, slime/honey non-stick, QC power + latch + retract,
+piston-pushes-piston, and hand placement facing — all matching.

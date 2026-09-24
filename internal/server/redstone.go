@@ -317,6 +317,7 @@ var rsNonConductor = map[string]bool{
 	"big_dripleaf": true, "small_dripleaf": true, "scaffolding": true,
 	"chest": true, "trapped_chest": true, "ender_chest": true,
 	"enchanting_table": true, "brewing_stand": true, "snow": true,
+	"piston_head": true, "moving_piston": true,
 }
 
 // rsSignalAt is SignalGetter.getSignal(N, dir): the block at N's own
@@ -457,6 +458,11 @@ func (s *Server) rsNeighborChanged(d *dimension, pos world.Pos) {
 		} else {
 			s.rsDiodeCheckTick(d, pos, name, blk)
 		}
+	case name == "piston" || name == "sticky_piston":
+		// PistonBaseBlock.neighborChanged → checkIfExtend: the
+		// quasi-powered read decides, and the move itself goes through
+		// the tick-tail blockEvent queue.
+		s.rsPistonCheck(d, pos)
 	case name == "redstone_wire":
 		// RedStoneWireBlock.neighborChanged: canSurvive gates the
 		// power recompute; a wire over air drops.

@@ -561,6 +561,10 @@ func dirOpposite(d string) string {
 		return "north"
 	case "east":
 		return "west"
+	case "up":
+		return "down"
+	case "down":
+		return "up"
 	}
 	return "east"
 }
