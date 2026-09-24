@@ -556,6 +556,11 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if v, ok := tag.vals["CanPickUpLoot"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
 				e.CanPickUpLoot = true
 			}
+			// Mob.readAdditionalSaveData — persistenceRequired exempts
+			// the mob from every checkDespawn branch.
+			if v, ok := tag.vals["PersistenceRequired"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+				e.PersistenceRequired = true
+			}
 			// UUID:[I;a,b,c,d] — honored like vanilla's summon NBT so
 			// tests can mint a known entity id for references
 			// (e.g. an item entity's Thrower).
@@ -1658,10 +1663,13 @@ func (s *Server) mobTickStep() {
 		if !s.mobInSimulationRange(e) {
 			continue
 		}
-		// PatrollingMonster.removeWhenFarAway — a patrolling mob that
-		// drifts past 128 blocks while still in a ticking chunk
-		// discards on the spot (non-patrolling raiders are exempt).
-		if s.patrolFarDiscard(e) {
+		// Mob.checkDespawn, ticking order matched to serverAiStep:
+		// noActionTime counts up first, then the despawn rules run —
+		// peaceful purge, persistence exemption, the >128 instant
+		// discard (PatrollingMonster's removeWhenFarAway re-keys on
+		// patrolling), and the >32 idle 1-in-800 roll.
+		e.NoActionTime++
+		if s.mobCheckDespawn(e) {
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 			continue

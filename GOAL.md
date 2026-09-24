@@ -5628,3 +5628,43 @@ Open items remaining: witch raider-heal throw, RestrictSunGoal
 wander bias, elder setHomeTo(pos,16), per-damage-type hurt variants,
 generic monster despawn (only the patrolling rule exists now),
 online mode, redstone, terrain gen, lighting.
+
+## Slice 2026-09-24e — Mob.checkDespawn (generic despawn rules)
+
+Vanilla side (javap Mob.checkDespawn + MobCategory + Animal):
+
+- Order: peaceful && !allowedInPeaceful -> discard; else
+  isPersistenceRequired || requiresCustomPersistence (isPassenger ||
+  isLeashed) -> noActionTime=0, return; else nearest =
+  getNearestPlayer(this,-1) and if none, return.
+- dist > category.despawnDistance && removeWhenFarAway -> discard.
+  despawnDistance = 128 for every category except WATER_AMBIENT (64).
+- noActionTime > 600 && rand(800)==0 && dist > 32 &&
+  removeWhenFarAway -> discard. dist < 32 -> noActionTime = 0.
+- serverAiStep unconditionally noActionTime++ per tick.
+- MobCategory: noDespawnDistance is a hardcoded 32 for ALL categories;
+  despawnDistance rides the ctor (128 everywhere but 64 water_ambient).
+- removeWhenFarAway: Mob base returns true unconditionally; Animal
+  overrides it false; PatrollingMonster = patrolling && dist>16384.
+- PersistenceRequired is the save/load key (already in mc-go's shared
+  save fields, was hardcoded 0 — now a real Entity field + summon NBT
+  + load round-trip).
+
+mc-go side: mobCheckDespawn in the mobTickStep sim-range window
+(replacing the standalone patrolFarDiscard call — its >128 branch is
+literally removeWhenFarAway), NoActionTime++ per tick,
+mobRemoveWhenFarAway dispatching patrolling/animal/base,
+despawnAnimalTypes, despawnWaterAmbientTypes (fish 64),
+despawnPeacefulBans, mobDespawnKinds (Mob-subclass gate — armor
+stands are LivingEntities, not Mobs).
+
+TestDespawnParity on both legs: tp 140 east instant-discards a plain
+zombie; PersistenceRequired zombie + pig survive (exempt paths); a
+6000-tick sprint idle-rolls a >32 zombie away (~99.9%); difficulty
+peaceful purges the persistent zombie too (peaceful check precedes
+persistence) but not the pig. The sprint had to run at night —
+daylight burns the test zombies before the window ends.
+
+Open items remaining: witch raider-heal throw, RestrictSunGoal
+wander bias, elder setHomeTo(pos,16), per-damage-type hurt variants,
+online mode, redstone, terrain gen, lighting.

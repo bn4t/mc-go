@@ -301,15 +301,100 @@ func (s *Server) mobPatrolStep(e *Entity, d *dimension, w *world.World) bool {
 	return true
 }
 
-// patrolFarDiscard is PatrollingMonster.removeWhenFarAway: a patrolling
-// mob discards once it sits past 128 blocks from the nearest live,
-// non-spectator player in its dimension. Non-patrolling raiders are
-// despawn-exempt entirely (the check returns false when !patrolling).
-func (s *Server) patrolFarDiscard(e *Entity) bool {
-	if !e.Patrolling {
+// despawnAnimalTypes are the Animal subclasses mc-go summons —
+// Animal.removeWhenFarAway returns false, so neither distance branch
+// of checkDespawn ever discards them.
+var despawnAnimalTypes = map[string]bool{
+	"pig": true, "cow": true, "chicken": true, "sheep": true,
+	"sniffer": true, "horse": true, "donkey": true, "mule": true,
+	"llama": true, "trader_llama": true, "wolf": true, "cat": true,
+	"ocelot": true, "parrot": true, "armadillo": true, "goat": true,
+	"turtle": true, "strider": true,
+}
+
+// despawnWaterAmbientTypes are MobCategory.WATER_AMBIENT — the one
+// category whose despawnDistance is 64 rather than 128
+// (noDespawnDistance is 32 for every category).
+var despawnWaterAmbientTypes = map[string]bool{
+	"cod": true, "salmon": true, "pufferfish": true,
+	"tropical_fish": true, "tadpole": true,
+}
+
+// despawnPeacefulBans are the types whose EntityType.allowedInPeaceful
+// is false — checkDespawn's first branch discards them the moment the
+// difficulty flips to peaceful.
+var despawnPeacefulBans = map[string]bool{
+	"zombie": true, "zombie_villager": true, "husk": true, "drowned": true,
+	"skeleton": true, "stray": true, "bogged": true, "wither_skeleton": true,
+	"creeper": true, "spider": true, "cave_spider": true, "enderman": true,
+	"witch": true, "blaze": true, "phantom": true, "zombified_piglin": true,
+	"piglin": true, "piglin_brute": true, "guardian": true, "elder_guardian": true,
+	"ghast": true, "ender_dragon": true, "sulfur_cube": true,
+	"pillager": true, "vindicator": true, "evoker": true, "illusioner": true,
+	"ravager": true, "vex": true, "silverfish": true, "slime": true,
+	"magma_cube": true, "hoglin": true, "zoglin": true, "warden": true,
+	"shulker": true, "endermite": true, "breeze": true, "creaking": true,
+}
+
+// mobDespawnKinds are the Living types that are Entity subclasses of
+// Mob — checkDespawn only runs on them (armor stands and clouds are
+// LivingEntities, not Mobs).
+var mobDespawnKinds = map[string]bool{}
+
+func init() {
+	for name := range mobHealth {
+		if name != "armor_stand" {
+			mobDespawnKinds[name] = true
+		}
+	}
+	for name := range summonHealthDefault {
+		mobDespawnKinds[name] = true
+	}
+	for name := range patrollingTypes {
+		mobDespawnKinds[name] = true
+	}
+}
+
+// mobRemoveWhenFarAway is Mob.removeWhenFarAway: the base answer is
+// unconditional true; Animal overrides it false; PatrollingMonster
+// re-keys it on patrolling && dist²>16384.
+func (s *Server) mobRemoveWhenFarAway(e *Entity, distSqr float64) bool {
+	name, _ := EntityTypeName(e.Type)
+	if patrollingTypes[name] {
+		return e.Patrolling && distSqr > 16384
+	}
+	if despawnAnimalTypes[name] {
 		return false
 	}
-	far := true
+	return true
+}
+
+// mobCheckDespawn is Mob.checkDespawn, run once per tick for every mob
+// inside the simulation-range gate: peaceful discards
+// non-peaceful-allowed types outright; persistence (flag, passenger,
+// leash) clears the idle counter and returns; otherwise the nearest
+// non-spectator player's distance decides — beyond the category's
+// despawnDistance (128, 64 for water ambient) the mob discards when
+// removeWhenFarAway allows it, and beyond 32 the 1-in-800-per-tick
+// idle roll applies once noActionTime passes 600. Within 32 the idle
+// counter resets.
+func (s *Server) mobCheckDespawn(e *Entity) bool {
+	name, _ := EntityTypeName(e.Type)
+	if !mobDespawnKinds[name] {
+		return false
+	}
+	if s.difficulty == DifficultyPeaceful && despawnPeacefulBans[name] {
+		return true
+	}
+	// isPersistenceRequired || requiresCustomPersistence (passenger
+	// or leashed — mc-go has no leash).
+	if e.PersistenceRequired || e.Riding != 0 {
+		e.NoActionTime = 0
+		return false
+	}
+	// level.getNearestPlayer(this, -1): nearest live non-spectator in
+	// the dimension, unbounded.
+	nearest, found := math.MaxFloat64, false
 	s.sessions.Range(func(_, v any) bool {
 		p := v.(*Session)
 		if p.state.Load() != StatePlay || p.mode() == GameModeSpectator || p.dimName() != e.Dim {
@@ -317,13 +402,29 @@ func (s *Server) patrolFarDiscard(e *Entity) bool {
 		}
 		px, py, pz, _, _, _ := p.Pos()
 		dx, dy, dz := e.X-px, e.Y-py, e.Z-pz
-		if dx*dx+dy*dy+dz*dz <= 16384 {
-			far = false
-			return false
+		if d := dx*dx + dy*dy + dz*dz; d < nearest {
+			nearest = d
 		}
+		found = true
 		return true
 	})
-	return far
+	if !found {
+		return false
+	}
+	despawnDist := 128.0
+	if despawnWaterAmbientTypes[name] {
+		despawnDist = 64
+	}
+	if nearest > despawnDist*despawnDist && s.mobRemoveWhenFarAway(e, nearest) {
+		return true
+	}
+	if e.NoActionTime > 600 && rand.Intn(800) == 0 && nearest > 32*32 && s.mobRemoveWhenFarAway(e, nearest) {
+		return true
+	}
+	if nearest < 32*32 {
+		e.NoActionTime = 0
+	}
+	return false
 }
 
 // isBrightOutside is ServerLevel.isBrightOutside (skyDarken < 4): the

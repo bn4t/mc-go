@@ -337,6 +337,14 @@ type Entity struct {
 	// /summon NBT that arms the aiStep item pickup scan. Sulfur
 	// cubes ignore it (their override is "body slot empty").
 	CanPickUpLoot bool
+	// PersistenceRequired mirrors Mob.persistenceRequired — the
+	// summon NBT (and trade/breed/name paths) set it; checkDespawn
+	// leaves such mobs alone.
+	PersistenceRequired bool
+	// NoActionTime is Mob.noActionTime — ticks since checkDespawn
+	// last saw a player inside the 32-block no-despawn radius; the
+	// random despawn roll needs it above 600.
+	NoActionTime int32
 	// PatrolLeader mirrors PatrollingMonster.patrolLeader — a
 	// finalizeSpawn roll on non-patrol/event/structure spawns puts
 	// the ominous banner on the leader's head with a 2.0 drop.

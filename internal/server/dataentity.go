@@ -500,7 +500,7 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 		}},
 		"NoAI":                nbtBool(e.NoAI),
 		"OnGround":            nbtBool(e.Grounded),
-		"PersistenceRequired": int8(0),
+		"PersistenceRequired": nbtBool(e.PersistenceRequired),
 		"PortalCooldown":      int32(0),
 		"Pos":                 nbt.List{Elem: nbt.TagDouble, Items: []any{e.X, e.Y, e.Z}},
 		"Rotation":            nbt.List{Elem: nbt.TagFloat, Items: []any{e.Yaw, e.Pitch}},
@@ -737,6 +737,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	}
 	e.NoAI = nbtTruth(save["NoAI"])
 	e.CanPickUpLoot = nbtTruth(save["CanPickUpLoot"])
+	e.PersistenceRequired = nbtTruth(save["PersistenceRequired"])
 	if pos, ok := nbtVec3(save["Pos"]); ok {
 		if e.X != pos[0] || e.Y != pos[1] || e.Z != pos[2] {
 			e.X, e.Y, e.Z = pos[0], pos[1], pos[2]
