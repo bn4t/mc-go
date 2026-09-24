@@ -1746,3 +1746,137 @@ func TestDispenseProjectileParity(t *testing.T) {
 		}
 	}
 }
+
+// TestDispenseBehaviorParity pins the non-projectile dispense
+// behaviors: filled buckets emptyContents at the mouth, empty
+// buckets BucketPickup against a source, minecarts need a rail at
+// the mouth (else the item throws), boats need water (else the
+// item throws), and flint&steel primes TNT or lights fire.
+func TestDispenseBehaviorParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	setup := []string{`gamerule send_command_feedback true`,
+		`setblock 60 -60 130 minecraft:dispenser[facing=east]`,
+		`item replace block 60 -60 130 container.0 with minecraft:water_bucket 1`,
+		`setblock 64 -60 134 minecraft:dispenser[facing=south]`,
+		`item replace block 64 -60 134 container.0 with minecraft:lava_bucket 1`,
+		`setblock 68 -60 130 minecraft:dispenser[facing=east]`,
+		`setblock 69 -60 130 minecraft:water`,
+		`item replace block 68 -60 130 container.0 with minecraft:bucket 2`,
+		`setblock 72 -60 130 minecraft:dispenser[facing=east]`,
+		`setblock 73 -60 130 minecraft:powered_rail`,
+		`item replace block 72 -60 130 container.0 with minecraft:minecart 1`,
+		`setblock 76 -60 130 minecraft:dispenser[facing=east]`,
+		`item replace block 76 -60 130 container.0 with minecraft:chest_minecart 1`,
+		`setblock 80 -60 130 minecraft:dispenser[facing=east]`,
+		`setblock 81 -60 130 minecraft:water`,
+		`item replace block 80 -60 130 container.0 with minecraft:oak_boat 1`,
+		`setblock 84 -60 130 minecraft:dispenser[facing=east]`,
+		`item replace block 84 -60 130 container.0 with minecraft:spruce_boat 1`,
+		`setblock 88 -60 130 minecraft:dispenser[facing=east]`,
+		`item replace block 88 -60 130 container.0 with minecraft:flint_and_steel 1`,
+		`setblock 92 -60 130 minecraft:dispenser[facing=east]`,
+		`setblock 93 -60 130 minecraft:tnt`,
+		`item replace block 92 -60 130 container.0 with minecraft:flint_and_steel 1`,
+	}
+
+	probesA := []struct{ name, spec string }{
+		{"A bucket still loaded", `items block 60 -60 130 container.* minecraft:water_bucket`},
+		{"C water source waiting", `block 69 -60 130 minecraft:water`},
+		{"D rail in place", `block 73 -60 130 minecraft:powered_rail`},
+		{"H TNT waiting", `block 93 -60 130 minecraft:tnt`},
+	}
+	probesB := []struct{ name, spec string }{
+		{"A water at the mouth", `block 61 -60 130 minecraft:water`},
+		{"A slot now an empty bucket", `items block 60 -60 130 container.* minecraft:bucket`},
+		{"B lava at the mouth", `block 64 -60 135 minecraft:lava`},
+		{"!C source consumed (reflood is flowing)", `!block 69 -60 130 minecraft:water[level=0]`},
+		{"C slot now a water bucket", `items block 68 -60 130 container.* minecraft:water_bucket`},
+		{"C one empty bucket remains", `items block 68 -60 130 container.* minecraft:bucket[count=1]`},
+		{"D minecart on the rail", `entity @e[type=minecraft:minecart,x=73,y=-60,z=130,distance=..4]`},
+		{"D slot drained", `!items block 72 -60 130 container.* minecraft:minecart`},
+		{"!E no rail: no cart entity", `!entity @e[type=minecraft:chest_minecart,x=77,y=-60,z=130,distance=..4]`},
+		{"E cart thrown as an item", `entity @e[type=minecraft:item,x=77,y=-60,z=130,distance=..4]`},
+		{"F boat floats on the mouth water", `entity @e[type=minecraft:oak_boat,x=81,y=-60,z=130,distance=..4]`},
+		{"F boat slot drained", `!items block 80 -60 130 container.* minecraft:oak_boat`},
+		{"!G dry mouth: no spruce boat", `!entity @e[type=minecraft:spruce_boat,x=85,y=-60,z=130,distance=..4]`},
+		{"G boat thrown as an item", `entity @e[type=minecraft:item,x=85,y=-60,z=130,distance=..4]`},
+		{"H TNT block primed away", `block 93 -60 130 minecraft:air`},
+		{"H primed tnt at the mouth", `entity @e[type=minecraft:tnt,x=93,y=-60,z=130,distance=..4]`},
+	}
+
+	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
+		if strings.HasPrefix(spec, "!") {
+			spec = spec[1:]
+			sendCommand(t, pw, fmt.Sprintf("execute unless %s run say ZD2-ok-%d", spec, i))
+			sendCommand(t, pw, fmt.Sprintf("execute if %s run say ZD2-miss-%d", spec, i))
+		} else {
+			sendCommand(t, pw, fmt.Sprintf("execute if %s run say ZD2-ok-%d", spec, i))
+			sendCommand(t, pw, fmt.Sprintf("execute unless %s run say ZD2-miss-%d", spec, i))
+		}
+		deadline := time.Now().Add(4 * time.Second)
+		hit := ""
+		for time.Now().Before(deadline) {
+			for _, line := range sink.take() {
+				if strings.Contains(line, fmt.Sprintf("ZD2-ok-%d", i)) {
+					hit = "hit"
+				}
+				if strings.Contains(line, fmt.Sprintf("ZD2-miss-%d", i)) {
+					hit = "miss"
+				}
+			}
+			if hit != "" {
+				break
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+		return hit
+	}
+
+	run := func(addr string) []string {
+		c, pr, pw := joinPlayQuiet(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		sendClientInformation(t, pw)
+		sink := newChatSinkTP(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(4 * time.Second)
+		sink.take()
+		var out []string
+		for _, cmd := range setup {
+			sendCommand(t, pw, cmd)
+		}
+		time.Sleep(400 * time.Millisecond)
+		for i, p := range probesA {
+			out = append(out, probe(pw, sink, p.spec, i))
+		}
+		for _, x := range []int{60, 68, 72, 76, 80, 84, 88, 92} {
+			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 129 minecraft:redstone_block`, x))
+			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 129 minecraft:air`, x))
+		}
+		sendCommand(t, pw, `setblock 64 -60 133 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 64 -60 133 minecraft:air`)
+		// +4t dispense delay, then the primed TNT fuse starts.
+		time.Sleep(700 * time.Millisecond)
+		for i, p := range probesB {
+			out = append(out, probe(pw, sink, p.spec, 100+i))
+		}
+		return out
+	}
+
+	vanilla := run(targets.vanilla)
+	mcgo := run(targets.mcgo)
+	all := append(append([]struct{ name, spec string }{}, probesA...), probesB...)
+	for i, p := range all {
+		t.Logf("%-44s vanilla=%s mcgo=%s", p.name, vanilla[i], mcgo[i])
+		if vanilla[i] == "hit" && mcgo[i] != "hit" {
+			t.Errorf("probe %q: vanilla hit, mc-go %s", p.name, mcgo[i])
+		}
+		if mcgo[i] == "hit" && vanilla[i] != "hit" {
+			t.Errorf("probe %q: mc-go hit, vanilla %s", p.name, vanilla[i])
+		}
+	}
+}

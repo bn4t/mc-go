@@ -6328,3 +6328,25 @@ by TestDispenseProjectileParity (23 probes, both servers).
   projectiles) got dragged into item physics and froze on a block —
   now gated on the item/xp-orb entity types. (Same class as the
   identical-setblock early-out shipped last slice.)
+
+## Slice 2026-09-24x — dispense behaviors: buckets, minecarts, boats, flint&steel
+
+More of `DispenseItemBehavior.bootStrap`, all pinned by
+`TestDispenseBehaviorParity` (z=130 fixtures, 20 probes both sides):
+- DispenseItemBehavior$3 (`DispensibleContainerItem`):
+  water/lava/powder_snow/fish buckets place their fluid block at the
+  mouth and consume-with-remainder to an empty `bucket` (remainder
+  inserts or throws). Fish buckets' mob half is deferred.
+- DispenseItemBehavior$4 (`bucket`): BucketPickup at the mouth —
+  water/lava source (level=0) → the filled bucket, `powder_snow` →
+  powder_snow_bucket. Reflood from neighbours is real flowing water,
+  not the source — pinned via `!water[level=0]`.
+- MinecartDispenseItemBehavior (6 cart items): the mouth or the
+  cell below it must be a rail (flat → y+0.1, slope → +0.6 /
+  below-rail → −0.9/−0.4); anything else falls back to the item
+  throw.
+- BoatDispenseItemBehavior (21 boats/rafts): the mouth must be
+  water, or air over water — dry mouth falls back to the throw.
+- FlintAndSteelDispenseItemBehavior: TNT at the mouth primes in
+  place; else fire where it can burn; else `lit=true` on a
+  campfire/candle; else silent fail (the item stays).
