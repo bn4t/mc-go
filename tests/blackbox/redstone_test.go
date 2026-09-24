@@ -392,3 +392,182 @@ func TestRedstoneWireParity(t *testing.T) {
 		}
 	}
 }
+
+// TestRepeaterParity pins the 26.2 DiodeBlock/RepeaterBlock model:
+//
+//   - powered flips go through the scheduled-tick queue (2t × DELAY),
+//     armed by neighborChanged — a setblock'd diode does NOT re-check
+//     its input until some neighbour write wakes it (the quirk)
+//   - emission is direction-gated (getSignal: FACING == dir): dust on
+//     the output side reads 15, a block on the output side never feeds
+//     the input, side cells read nothing
+//   - onPlace → updateNeighborsInFront runs on EVERY write: the output
+//     dust's power refreshes on the powered flip itself
+//   - RepeaterBlock locking: a powered side-diode sets LOCKED and
+//     freezes powered; unlocking re-arms the pending flip
+//   - support loss pops the diode (updateShape DOWN / neighborChanged
+//     canSurvive) to air
+//   - useWithoutItem cycles DELAY 1→2 on a hand click
+//
+// All reads are `execute if block` — state on the wire is the probe,
+// identical against vanilla and mc-go.
+func TestRepeaterParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	setup := []string{
+		`gamerule send_command_feedback true`,
+
+		// A @41,z60: the source block's own write fans out and NCs the
+		// diode — flips on 2t later, dust on the output reads 15.
+		`setblock 41 -60 60 minecraft:repeater[facing=west]`,
+		`setblock 42 -60 60 minecraft:redstone_wire`,
+		`setblock 40 -60 60 minecraft:redstone_block`,
+
+		// B @45,z60: input AND dust written before the diode — the
+		// diode's own write never self-NCs, so it stays dark until a
+		// side poke. Its setblock is LAST so no later write wakes it.
+		`setblock 44 -60 60 minecraft:redstone_block`,
+		`setblock 46 -60 60 minecraft:redstone_wire`,
+
+		// C @49,z60: a block on the OUTPUT side is not an input.
+		`setblock 49 -60 60 minecraft:repeater[facing=west]`,
+		`setblock 50 -60 60 minecraft:redstone_block`,
+
+		// D @53,z60: locking. Side diode @53,59 facing=north outputs
+		// south into the main diode's side; block @53,58 powers it.
+		`setblock 53 -60 60 minecraft:repeater[facing=west]`,
+		`setblock 53 -60 59 minecraft:repeater[facing=north]`,
+		`setblock 53 -60 58 minecraft:redstone_block`,
+
+		// E @56,-58: diode on a removable stone pedestal.
+		`setblock 56 -59 60 minecraft:stone`,
+		`setblock 56 -58 60 minecraft:repeater[facing=west]`,
+
+		// F @59,z64: useWithoutItem delay-cycle target.
+		`setblock 59 -60 64 minecraft:repeater[facing=west]`,
+
+		// B's diode is the last write — every setup write after it
+		// would NC it and arm the flip, defeating the quirk probe.
+		`setblock 45 -60 60 minecraft:repeater[facing=west]`,
+	}
+	probesA := []struct{ name, spec string }{
+		{"A diode powered", "41 -60 60 minecraft:repeater[powered=true]"},
+		{"A dust power 15", "42 -60 60 minecraft:redstone_wire[power=15]"},
+		{"B diode still dark (no self-NC)", "45 -60 60 minecraft:repeater[powered=false]"},
+		{"B dust unpowered", "46 -60 60 minecraft:redstone_wire[power=0]"},
+		{"C output-side block not input", "49 -60 60 minecraft:repeater[powered=false]"},
+		{"D side diode powered", "53 -60 59 minecraft:repeater[powered=true]"},
+		{"D main locked", "53 -60 60 minecraft:repeater[locked=true]"},
+		{"D main dark while locked", "53 -60 60 minecraft:repeater[powered=false]"},
+		{"E diode on pedestal", "56 -58 60 minecraft:repeater"},
+	}
+	poke1 := []string{
+		`setblock 45 -60 61 minecraft:stone`,          // wakes B
+		`setblock 52 -60 60 minecraft:redstone_block`, // D main input — locked, stays off
+	}
+	probesB := []struct{ name, spec string }{
+		{"B powered after poke", "45 -60 60 minecraft:repeater[powered=true]"},
+		{"B dust power 15", "46 -60 60 minecraft:redstone_wire[power=15]"},
+		{"D input ignored while locked", "53 -60 60 minecraft:repeater[powered=false]"},
+		{"D still locked", "53 -60 60 minecraft:repeater[locked=true]"},
+	}
+	poke2 := []string{
+		`setblock 53 -60 58 minecraft:air`, // unlock D — side diode dies
+		`setblock 56 -59 60 minecraft:air`, // E support gone
+		`setblock 40 -60 60 minecraft:air`, // A input off
+	}
+	probesC := []struct{ name, spec string }{
+		{"D unlocked", "53 -60 60 minecraft:repeater[locked=false]"},
+		{"D powered after unlock", "53 -60 60 minecraft:repeater[powered=true]"},
+		{"E popped to air", "56 -58 60 minecraft:air"},
+		{"A unpowered", "41 -60 60 minecraft:repeater[powered=false]"},
+		{"A dust collapsed", "42 -60 60 minecraft:redstone_wire[power=0]"},
+	}
+	probesD := []struct{ name, spec string }{
+		{"F delay cycled to 2", "59 -60 64 minecraft:repeater[delay=2]"},
+	}
+
+	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
+		sendCommand(t, pw, fmt.Sprintf("execute if block %s run say ZD-ok-%d", spec, i))
+		sendCommand(t, pw, fmt.Sprintf("execute unless block %s run say ZD-miss-%d", spec, i))
+		sendCommand(t, pw, fmt.Sprintf("say ZDK%d", i))
+		marker := fmt.Sprintf("ZDK%d", i)
+		hit := "none"
+		deadline := time.Now().Add(4 * time.Second)
+		for time.Now().Before(deadline) {
+			for _, line := range sink.take() {
+				if strings.Contains(line, marker) {
+					return hit
+				}
+				if strings.Contains(line, fmt.Sprintf("ZD-ok-%d", i)) {
+					hit = "hit"
+				}
+				if strings.Contains(line, fmt.Sprintf("ZD-miss-%d", i)) {
+					hit = "miss"
+				}
+			}
+			time.Sleep(40 * time.Millisecond)
+		}
+		return hit
+	}
+
+	run := func(addr string) []string {
+		c, pr, pw := joinPlayQuiet(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		sendClientInformation(t, pw)
+		sink := newChatSinkTP(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(4 * time.Second)
+		sink.take()
+		var out []string
+		for _, cmd := range setup {
+			sendCommand(t, pw, cmd)
+		}
+		// Diode flips land on the tick queue (2t at DELAY=1); the side
+		// diode's write then folds LOCKED into the main diode.
+		time.Sleep(1500 * time.Millisecond)
+		for i, p := range probesA {
+			out = append(out, probe(pw, sink, p.spec, i))
+		}
+		for _, cmd := range poke1 {
+			sendCommand(t, pw, cmd)
+		}
+		time.Sleep(1200 * time.Millisecond)
+		for i, p := range probesB {
+			out = append(out, probe(pw, sink, p.spec, 100+i))
+		}
+		for _, cmd := range poke2 {
+			sendCommand(t, pw, cmd)
+		}
+		time.Sleep(1500 * time.Millisecond)
+		for i, p := range probesC {
+			out = append(out, probe(pw, sink, p.spec, 200+i))
+		}
+		// Hand-use: click the F repeater's top face within reach.
+		sendCommand(t, pw, `tp @s 59 -59 66`)
+		time.Sleep(400 * time.Millisecond)
+		sendUseItemOn(t, pw, 59, -60, 64, 1, 30)
+		time.Sleep(500 * time.Millisecond)
+		for i, p := range probesD {
+			out = append(out, probe(pw, sink, p.spec, 300+i))
+		}
+		return out
+	}
+
+	vanilla := run(targets.vanilla)
+	mcgo := run(targets.mcgo)
+	all := append(append(append(probesA, probesB...), probesC...), probesD...)
+	for i, p := range all {
+		t.Logf("%-42s vanilla=%s mcgo=%s", p.name, vanilla[i], mcgo[i])
+		if vanilla[i] == "hit" && mcgo[i] != "hit" {
+			t.Errorf("probe %q: vanilla hit, mc-go %s", p.name, mcgo[i])
+		}
+		if mcgo[i] == "hit" && vanilla[i] != "hit" {
+			t.Errorf("probe %q: mc-go hit, vanilla %s", p.name, vanilla[i])
+		}
+	}
+}

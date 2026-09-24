@@ -6040,3 +6040,54 @@ climbing a ledge, mount-powered drop, power collapse on removal,
 corner-arm fold, rail lit via the survivor arm (both setblock
 orderings), hand-placed cross, and a hand-flipped lever folding the
 dot before powering the rail — all matching vanilla.
+
+## Slice 2026-09-24p — redstone diodes (RepeaterBlock + DiodeBlock)
+
+Measured DiodeBlock/RepeaterBlock off the jar (javap + live probes on
+the 26.2 dedicated server) and implemented:
+
+- Scheduling model: checkTickOnNeighbor arms the powered flip at
+  getDelay (DELAY×2 for repeater) when unlocked and powered !=
+  shouldTurnOn and !willTickThisTick; priority is EXTREMELY_HIGH when
+  the front diode faces a different direction (shouldPrioritize),
+  VERY_HIGH when turning off, HIGH when turning on. The scheduler now
+  carries a per-entry priority ordering the poll batch (keep-earliest
+  dedup retained; latest priority wins).
+- tick: locked diodes sit still; powered&&!shouldOn writes
+  powered=false, !powered writes powered=true and re-arms at VERY_HIGH
+  when the input died mid-delay. Both flips are flag-2 writes
+  (`rsWriteBlockFlag2`): broadcast + onPlace + the shape fold, no
+  updateNeighborsAt ring — the diode's own onPlace announces only its
+  output side.
+- Emission: getSignal/getDirectSignal are dir-gated FACING==dir →
+  powered?15:0 (FACING names the INPUT side; output is FACING.opp).
+  getInputSignal = getSignal(input, FACING) with the wire-POWER
+  fallback; getAlternateSignal/max-of-cw+ccw getControlInputSignal with
+  sideInputDiodesOnly for the repeater's isLocked.
+- updateNeighborsInFront runs on EVERY write (onPlace fires on the
+  powered flip too — that is how the front dust learns the output
+  changed) and on removal (affectNeighborsAfterRemoval, old facing).
+  The pending-update queue now carries single-position NCs and a
+  skip-direction for updateNeighborsAtExceptFromFacing, and the NC
+  ring iterates vanilla's UPDATE_ORDER (W,E,D,U,N,S).
+- neighborChanged: re-checks the live state (is(this)), pops via
+  dropResources-equivalent + removeBlock + the six updateNeighborsAt
+  rings when the support below isn't sturdy, else checkTickOnNeighbor.
+- RepeaterBlock.updateShape: DOWN against a lost support pops;
+  off-axis changes silently rewrite LOCKED (the display prop — the
+  client folds it too, so no broadcast).
+- Placement: getStateForPlacement sets facing=look.opposite and
+  LOCKED=isLocked; setPlacedBy schedules the 1-tick flip when the
+  input is already powered; useWithoutItem cycles DELAY (mayBuild
+  gate: spectator/adventure pass through).
+- Fixture-range finding: far-away setblocks fail `argument.pos.
+  unloaded` silently and un-ticked chunks never fire scheduled ticks —
+  blackbox fixtures must sit inside ticking range (near spawn works).
+
+TestRepeaterParity pins it — 19 probes covering the wake-by-NC flip,
+dust power on the output, the no-self-NC setblock quirk, the
+output-side non-input gate, locking/unlocking through a side diode,
+support-loss pop, and the hand-use delay cycle — all matching vanilla.
+
+Deferred: comparator's analog half (output prop, container read,
+updateNeighbourForOutputSignal) shares the diode shell.

@@ -281,14 +281,9 @@ func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk wo
 	s.neighborSurvival(d, pos, notify)
 	s.selfCheckSurvival(d, pos, blk)
 	if d.rsWriteDepth == 1 {
-		// Drain the collected updateNeighborsAt FIFO — chained
-		// fan-outs append mid-drain, matching the updater's layers.
-		for len(d.rsPending) > 0 {
-			next := d.rsPending[0]
-			d.rsPending = d.rsPending[1:]
-			s.rsNeighborFanOutNow(d, next)
-		}
-		d.rsPending = d.rsPending[:0]
+		// Drain the collected neighbour updates FIFO — chained
+		// updates append mid-drain, matching the updater's layers.
+		s.rsDrainPending(d)
 	}
 	d.rsWriteDepth--
 	return affectedSections(d, oldTop, newTop)

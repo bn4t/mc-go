@@ -412,6 +412,10 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		s.tripwireTick(d, pos, blk)
 		return
 	}
+	if short == "repeater" || short == "comparator" {
+		s.rsDiodeTick(d, pos, blk, short)
+		return
+	}
 	if short == "redstone_lamp" {
 		// RedstoneLampBlock.tick: the unlatch lands 4 ticks after the
 		// signal dropped — but only if it's still dropped.

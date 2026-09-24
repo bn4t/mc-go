@@ -217,6 +217,10 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos, notify worl
 		}
 		return
 	}
+	if name == "repeater" {
+		s.repeaterUpdateShape(d, pos, changed, b)
+		return
+	}
 	fn, ok := surviveFns()[name]
 	if !ok || fn(s, d, pos, b) {
 		return
@@ -376,6 +380,16 @@ func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block,
 		if short == "redstone_torch" || short == "redstone_wall_torch" ||
 			oldShort == "redstone_torch" || oldShort == "redstone_wall_torch" {
 			s.rsTorchNotify(d, pos)
+		}
+		// DiodeBlock.onPlace: every write — including powered flips —
+		// announces the output side. A diode replaced by a non-diode
+		// announces from the OLD state's facing instead
+		// (affectNeighborsAfterRemoval, gated on the block type change).
+		if short == "repeater" || short == "comparator" {
+			s.rsDiodeUpdateInFront(d, pos, blk)
+		}
+		if (oldShort == "repeater" || oldShort == "comparator") && oldShort != short {
+			s.rsDiodeUpdateInFront(d, pos, old)
 		}
 		// RedStoneWireBlock.getStateForPlacement / onPlace /
 		// affectNeighborsAfterRemoval: a fresh wire folds its sides
@@ -576,4 +590,55 @@ func snowLayerCanSurvive(_ *Server, d *dimension, pos world.Pos, _ world.Block) 
 		return layers == 8
 	}
 	return !world.NonSolid(below)
+}
+
+// repeaterUpdateShape is RepeaterBlock.updateShape: a change arriving
+// from below re-checks canSurviveOn (dropResources + removeBlock +
+// ring-2 fan-out when the support is gone); a change on any other
+// axis than FACING's rewrites the LOCKED display prop in place.
+// Both write at flags&~34 — silent, no broadcast — the client folds
+// LOCKED itself from the triggering block update.
+func (s *Server) repeaterUpdateShape(d *dimension, pos, changed world.Pos, b world.Block) {
+	facing, ok := rsDiodeFacing(b)
+	if !ok {
+		return
+	}
+	dx, dy, dz := changed.X-pos.X, changed.Y-pos.Y, changed.Z-pos.Z
+	if dx == 0 && dy == 0 && dz == 0 {
+		return // updateShape is neighbour-directed; self-checks skip
+	}
+	if dy < 0 && dx == 0 && dz == 0 {
+		// Direction.DOWN: the support face went away — canSurviveOn
+		// is isFaceSturdy(UP, RIGID).
+		if !rsFaceSturdyUp(d.w.GetBlock(changed)) {
+			s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+			s.setNaturalBlock(d, pos, world.Air)
+			for _, o := range rsOff {
+				s.rsNeighborFanOut(d, world.Pos{X: pos.X + o.X, Y: pos.Y + o.Y, Z: pos.Z + o.Z})
+			}
+			return
+		}
+	}
+	// dir.getAxis() != FACING.getAxis() → refresh LOCKED. Vertical
+	// changes (axis Y) always differ; horizontal ones differ when the
+	// changed cell sits off the facing axis.
+	facingX := facing == rsWest || facing == rsEast
+	same := false
+	switch {
+	case dy != 0:
+	case dx != 0:
+		same = facingX
+	default: // dz != 0
+		same = !facingX
+	}
+	if same {
+		return
+	}
+	locked := rsDiodeLocked(d, pos, "repeater", b)
+	if cur := rsPropsOf(b)("locked") == "true"; cur == locked {
+		return
+	}
+	if nb, ok := world.WithProperty(b, "locked", boolStr(locked)); ok {
+		d.w.SetBlock(pos, nb)
+	}
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"strconv"
 	"strings"
 
 	"mc-go/internal/protocol"
@@ -314,6 +315,20 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 				s.sendBlockAck(sess, seq)
 			}
 			return
+		case short == "repeater":
+			// RepeaterBlock.useWithoutItem: mayBuild gates the DELAY
+			// cycle (spectator/adventure pass through to the item).
+			if sess.mode() != GameModeSpectator && sess.mode() != GameModeAdventure {
+				delay := rsPropInt(rsPropsOf(cur)("delay"))
+				if nb, ok := world.WithProperty(cur, "delay", strconv.Itoa(delay%4+1)); ok {
+					s.rsWriteBlock(d, clicked, nb, nb, nil)
+				}
+				acked = true
+				if seq >= 0 {
+					s.sendBlockAck(sess, seq)
+				}
+				return
+			}
 		case s.rsToggleOpenable(d, clicked, short):
 			acked = true
 			if seq >= 0 {
@@ -394,6 +409,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	blk = s.scaffoldPlaceState(d, target, blk)
 	blk = s.hookPlaceState(d, target, blk, sess, face)
 	blk = s.multifacePlaceState(d, target, blk, sess, face)
+	blk = s.diodePlaceState(d, target, blk, sess)
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
 	// TripWireHookBlock.setPlacedBy: a placed hook runs its
 	// calculateState — attaches/powers the run it lands on. Command
@@ -401,6 +417,16 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	if n, ok := world.StateOwner(blk); ok && strings.TrimPrefix(n, "minecraft:") == "tripwire_hook" {
 		if f, ok := world.StateProperty(blk, "facing"); ok {
 			s.hookRecalc(d, target, f)
+		}
+	}
+	// DiodeBlock.setPlacedBy: a hand-placed diode that already sees a
+	// powered input schedules its first flip one tick out (command
+	// writes never reach setPlacedBy — like the hook above).
+	if n, ok := world.StateOwner(blk); ok {
+		if short := strings.TrimPrefix(n, "minecraft:"); short == "repeater" || short == "comparator" {
+			if rsDiodeShouldOn(d, target, d.w.GetBlock(target)) {
+				s.ticks.schedulePrio(schedKey{dim: d.name, pos: target, kind: tickBlock}, s.TickCount()+1, tickPrioNormal)
+			}
 		}
 	}
 	sess.addItemStat(statUsed, item, 1)
@@ -468,4 +494,30 @@ func (sess *Session) consumeHeld(n int32) {
 	sess.inv[slot] = it
 	sess.invMu.Unlock()
 	_ = sess.server.sendContainerSlot(sess, slot, it)
+}
+
+// diodePlaceState is DiodeBlock.getStateForPlacement +
+// RepeaterBlock's LOCKED snapshot: FACING is the horizontal look
+// direction's opposite (the input side faces the player), and LOCKED
+// carries the live isLocked read at place time.
+func (s *Server) diodePlaceState(d *dimension, pos world.Pos, blk world.Block, sess *Session) world.Block {
+	name, ok := world.StateOwner(blk)
+	if !ok {
+		return blk
+	}
+	short := strings.TrimPrefix(name, "minecraft:")
+	if short != "repeater" && short != "comparator" {
+		return blk
+	}
+	_, _, _, yaw, _, _ := sess.Pos()
+	out := blk
+	if nb, ok := world.WithProperty(out, "facing", dirOpposite(yawDir(yaw))); ok {
+		out = nb
+	}
+	if short == "repeater" {
+		if nb, ok := world.WithProperty(out, "locked", boolStr(rsDiodeLocked(d, pos, short, out))); ok {
+			out = nb
+		}
+	}
+	return out
 }

@@ -87,7 +87,7 @@ type dimension struct {
 	// chained updates only after its own neighbour pass and shape
 	// fold), and the outermost write drains them FIFO.
 	rsWriteDepth int
-	rsPending    []world.Pos
+	rsPending    []rsUpdate
 	// raids is the dimension's active raid map (Raids.raidMap); the
 	// next id is a per-dimension counter like vanilla's getUniqueId.
 	raids    map[int]*raid

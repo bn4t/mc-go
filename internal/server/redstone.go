@@ -121,6 +121,8 @@ func rsOwnSignal(blk world.Block) int {
 		case "lever", "observer", "lectern", "lightning_rod",
 			"tripwire_hook", "sculk_sensor", "calibrated_sculk_sensor":
 			return 15
+		case "repeater":
+			return 15 // DiodeBlock.getOutputSignal — constant
 		default:
 			if strings.HasSuffix(name, "_button") ||
 				name == "detector_rail" {
@@ -183,6 +185,15 @@ func rsGetSignal(d *dimension, pos world.Pos, dir rsDir) int {
 				return 0
 			}
 		}
+	case "repeater", "comparator":
+		// DiodeBlock.getSignal: emits only toward the output side —
+		// a reader there asks with dir == FACING (FACING names the
+		// input side; output is FACING.opposite, which is where the
+		// consumer sits when its consumer-to-emitter dir is FACING).
+		f, ok := rsDirOfName[prop("facing")]
+		if !ok || dir != f {
+			return 0
+		}
 	}
 	return sig
 }
@@ -224,6 +235,10 @@ func rsGetDirectSignal(d *dimension, pos world.Pos, dir rsDir) int {
 			return rsGetSignal(d, pos, dir)
 		}
 	case name == "redstone_wire":
+		return rsGetSignal(d, pos, dir)
+	case name == "repeater" || name == "comparator":
+		// DiodeBlock.getDirectSignal delegates to getSignal — the
+		// diode's output is strong power for the block it faces.
 		return rsGetSignal(d, pos, dir)
 	}
 	return 0
@@ -415,6 +430,23 @@ func (s *Server) rsNeighborChanged(d *dimension, pos world.Pos) {
 		if sig {
 			s.tntNeighborChanged(d, pos)
 		}
+	case name == "repeater" || name == "comparator":
+		// DiodeBlock.neighborChanged: the live state already read at
+		// top is the is(this) re-check; an unsupported diode drops
+		// and rings its own neighbours, else the flip goes through
+		// the tick queue (checkTickOnNeighbor).
+		below := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
+		if !rsFaceSturdyUp(d.w.GetBlock(below)) {
+			s.broadcastLevelEvent(d.name, 2001, pos, int32(blk))
+			s.setNaturalBlock(d, pos, world.Air)
+			// Level.removeBlock's own ring: updateNeighborsAt runs
+			// around each neighbour of the popped diode.
+			for _, o := range rsOff {
+				s.rsNeighborFanOut(d, world.Pos{X: pos.X + o.X, Y: pos.Y + o.Y, Z: pos.Z + o.Z})
+			}
+			return
+		}
+		s.rsDiodeCheckTick(d, pos, name, blk)
 	case name == "redstone_wire":
 		// RedStoneWireBlock.neighborChanged: canSurvive gates the
 		// power recompute; a wire over air drops.
@@ -428,6 +460,20 @@ func (s *Server) rsNeighborChanged(d *dimension, pos world.Pos) {
 	}
 }
 
+// rsUpdate is one queued neighbour notification. single targets just
+// pos (Level.neighborChanged); otherwise it is an updateNeighborsAt
+// ring over pos's six neighbours, optionally skipping one direction
+// (updateNeighborsAtExceptFromFacing — skip == -1 for none).
+type rsUpdate struct {
+	pos    world.Pos
+	skip   rsDir
+	single bool
+}
+
+// rsUpdateOrder is NeighborUpdater.UPDATE_ORDER — the direction order
+// updateNeighborsAt fans out in.
+var rsUpdateOrder = [6]rsDir{rsWest, rsEast, rsDown, rsUp, rsNorth, rsSouth}
+
 // rsNeighborFanOut mirrors updateNeighborsAt: every neighbour of a
 // written block runs its neighborChanged. While a block write is in
 // flight the call only enqueues — vanilla's CollectingNeighborUpdater
@@ -437,26 +483,55 @@ func (s *Server) rsNeighborChanged(d *dimension, pos world.Pos) {
 // folded the wire's arms. The outermost write drains the queue FIFO
 // (setBlockAndBroadcastNotify); calls outside a write run at once.
 func (s *Server) rsNeighborFanOut(d *dimension, pos world.Pos) {
-	if d.rsWriteDepth > 0 {
-		d.rsPending = append(d.rsPending, pos)
-		return
-	}
-	s.rsNeighborFanOutNow(d, pos)
+	s.rsNeighborPush(d, rsUpdate{pos: pos, skip: -1})
 }
 
-func (s *Server) rsNeighborFanOutNow(d *dimension, pos world.Pos) {
-	for _, o := range rsOff {
+// rsNeighborFanOutExcept is updateNeighborsAtExceptFromFacing — the
+// ring minus the direction back to the source block.
+func (s *Server) rsNeighborFanOutExcept(d *dimension, pos world.Pos, skip rsDir) {
+	s.rsNeighborPush(d, rsUpdate{pos: pos, skip: skip})
+}
+
+// rsNeighborNotify is the queued form of a single-position
+// Level.neighborChanged — used by block callbacks that notify one
+// specific neighbour (DiodeBlock.updateNeighborsInFront's output cell).
+func (s *Server) rsNeighborNotify(d *dimension, pos world.Pos) {
+	s.rsNeighborPush(d, rsUpdate{pos: pos, single: true, skip: -1})
+}
+
+func (s *Server) rsNeighborPush(d *dimension, u rsUpdate) {
+	if d.rsWriteDepth > 0 {
+		d.rsPending = append(d.rsPending, u)
+		return
+	}
+	s.rsRunUpdate(d, u)
+}
+
+func (s *Server) rsRunUpdate(d *dimension, u rsUpdate) {
+	if u.single {
+		s.rsNeighborChanged(d, u.pos)
+		return
+	}
+	s.rsNeighborFanOutNow(d, u.pos, u.skip)
+}
+
+func (s *Server) rsNeighborFanOutNow(d *dimension, pos world.Pos, skip rsDir) {
+	for _, dir := range rsUpdateOrder {
+		if dir == skip {
+			continue
+		}
+		o := rsOff[dir]
 		s.rsNeighborChanged(d, world.Pos{X: pos.X + o.X, Y: pos.Y + o.Y, Z: pos.Z + o.Z})
 	}
 }
 
-// rsDrainPending flushes the queued updateNeighborsAt fan-outs FIFO;
-// fan-outs chained mid-drain append and run in order.
+// rsDrainPending flushes the queued neighbour updates FIFO; updates
+// chained mid-drain append and run in order.
 func (s *Server) rsDrainPending(d *dimension) {
 	for len(d.rsPending) > 0 {
 		next := d.rsPending[0]
 		d.rsPending = d.rsPending[1:]
-		s.rsNeighborFanOutNow(d, next)
+		s.rsRunUpdate(d, next)
 	}
 	d.rsPending = d.rsPending[:0]
 }
@@ -470,7 +545,7 @@ func (s *Server) rsDrainPending(d *dimension) {
 func (s *Server) rsWriteBlock(d *dimension, pos world.Pos, nb, notify world.Block, extra func()) {
 	d.rsWriteDepth++
 	s.setSilentBlock(d, pos, nb)
-	s.rsNeighborFanOutNow(d, pos)
+	s.rsNeighborFanOutNow(d, pos, -1)
 	s.neighborSurvival(d, pos, nb)
 	if extra != nil {
 		extra()
@@ -972,4 +1047,248 @@ func rsWireCross(blk world.Block) world.Block {
 		}
 	}
 	return blk
+}
+
+// ---- DiodeBlock (the repeater family; the comparator's analog half
+// is a separate slice — it shares this shell) ----
+
+// rsIsDiode is DiodeBlock.isDiode.
+func rsIsDiode(blk world.Block) bool {
+	owner, ok := world.StateOwner(blk)
+	if !ok {
+		return false
+	}
+	name := strings.TrimPrefix(owner, "minecraft:")
+	return name == "repeater" || name == "comparator"
+}
+
+// rsDiodeFacing reads FACING — the direction from the diode toward its
+// INPUT side. Its output sits at FACING.opposite.
+func rsDiodeFacing(blk world.Block) (rsDir, bool) {
+	f, ok := world.StateProperty(blk, "facing")
+	if !ok {
+		return 0, false
+	}
+	dir, ok := rsDirOfName[f]
+	return dir, ok
+}
+
+func rsShiftPos(pos world.Pos, dir rsDir) world.Pos {
+	o := rsOff[dir]
+	return world.Pos{X: pos.X + o.X, Y: pos.Y + o.Y, Z: pos.Z + o.Z}
+}
+
+// rsDirCW/rsDirCCW are Direction.getClockWise/getCounterClockWise on
+// the horizontal ring: N→E→S→W clockwise seen from above.
+func rsDirCW(dir rsDir) rsDir {
+	switch dir {
+	case rsNorth:
+		return rsEast
+	case rsEast:
+		return rsSouth
+	case rsSouth:
+		return rsWest
+	case rsWest:
+		return rsNorth
+	}
+	return dir
+}
+
+func rsDirCCW(dir rsDir) rsDir {
+	switch dir {
+	case rsNorth:
+		return rsWest
+	case rsWest:
+		return rsSouth
+	case rsSouth:
+		return rsEast
+	case rsEast:
+		return rsNorth
+	}
+	return dir
+}
+
+// rsControlSignal is SignalGetter.getControlInputSignal: the signal a
+// perpendicular side block feeds a diode. diodesOnly reads only other
+// diodes' direct output — RepeaterBlock locking.
+func rsControlSignal(d *dimension, pos world.Pos, dir rsDir, diodesOnly bool) int {
+	blk := d.w.GetBlock(pos)
+	owner, ok := world.StateOwner(blk)
+	if !ok {
+		return 0
+	}
+	name := strings.TrimPrefix(owner, "minecraft:")
+	if diodesOnly {
+		if !rsIsDiode(blk) {
+			return 0
+		}
+		return rsGetDirectSignal(d, pos, dir)
+	}
+	switch {
+	case name == "redstone_block":
+		return 15
+	case name == "redstone_wire":
+		return rsPropInt(rsPropsOf(blk)("power"))
+	case rsIsSignalSource(blk):
+		return rsGetDirectSignal(d, pos, dir)
+	}
+	return 0
+}
+
+// rsDiodeAlt is DiodeBlock.getAlternateSignal: the strongest of the two
+// perpendicular (clockwise/counter-clockwise of FACING) control inputs.
+func rsDiodeAlt(d *dimension, pos world.Pos, facing rsDir, diodesOnly bool) int {
+	cw, ccw := rsDirCW(facing), rsDirCCW(facing)
+	a := rsControlSignal(d, rsShiftPos(pos, cw), cw, diodesOnly)
+	b := rsControlSignal(d, rsShiftPos(pos, ccw), ccw, diodesOnly)
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// rsDiodeLocked is the isLocked override: RepeaterBlock locks while a
+// side diode pushes in; DiodeBlock's base (comparator) never locks.
+// The LOCKED prop is display-only — this is the live recompute.
+func rsDiodeLocked(d *dimension, pos world.Pos, name string, blk world.Block) bool {
+	if name != "repeater" {
+		return false
+	}
+	facing, ok := rsDiodeFacing(blk)
+	if !ok {
+		return false
+	}
+	return rsDiodeAlt(d, pos, facing, true) > 0
+}
+
+// rsDiodeDelay is the getDelay override: RepeaterBlock = DELAY*2 ticks,
+// ComparatorBlock = constant 1.
+func rsDiodeDelay(name string, blk world.Block) int64 {
+	if name == "repeater" {
+		return int64(rsPropInt(rsPropsOf(blk)("delay"))) * 2
+	}
+	return 1
+}
+
+// rsDiodeInput is DiodeBlock.getInputSignal: the input cell's getSignal
+// toward the diode, with the wire-power fallback (a wire reads its own
+// POWER prop even when its emission to us is 0).
+func rsDiodeInput(d *dimension, pos world.Pos, facing rsDir) int {
+	in := rsShiftPos(pos, facing)
+	sig := rsSignalAt(d, in, facing)
+	if sig >= 15 {
+		return sig
+	}
+	ib := d.w.GetBlock(in)
+	if on, _ := world.StateOwner(ib); on == "minecraft:redstone_wire" {
+		if w := rsPropInt(rsPropsOf(ib)("power")); w > sig {
+			return w
+		}
+	}
+	return sig
+}
+
+// rsDiodeShouldOn is DiodeBlock.shouldTurnOn.
+func rsDiodeShouldOn(d *dimension, pos world.Pos, blk world.Block) bool {
+	facing, ok := rsDiodeFacing(blk)
+	if !ok {
+		return false
+	}
+	return rsDiodeInput(d, pos, facing) > 0
+}
+
+// rsDiodePrioritizes is DiodeBlock.shouldPrioritize: the front block
+// (output side) is a diode pointing anywhere but back along our output
+// direction.
+func rsDiodePrioritizes(d *dimension, pos world.Pos, blk world.Block) bool {
+	facing, ok := rsDiodeFacing(blk)
+	if !ok {
+		return false
+	}
+	out := rsOpposite(facing)
+	front := d.w.GetBlock(rsShiftPos(pos, out))
+	if !rsIsDiode(front) {
+		return false
+	}
+	ff, ok := rsDiodeFacing(front)
+	return ok && ff != out
+}
+
+// rsDiodeCheckTick is DiodeBlock.checkTickOnNeighbor: unlocked and
+// powered != shouldTurnOn, and not already due this tick → schedule
+// the flip at getDelay with EXTREMELY_HIGH (back-to-back diode),
+// VERY_HIGH (turning off), or HIGH (turning on) priority.
+func (s *Server) rsDiodeCheckTick(d *dimension, pos world.Pos, name string, blk world.Block) {
+	if rsDiodeLocked(d, pos, name, blk) {
+		return
+	}
+	powered := rsPropsOf(blk)("powered") == "true"
+	if powered == rsDiodeShouldOn(d, pos, blk) {
+		return
+	}
+	key := schedKey{dim: d.name, pos: pos, kind: tickBlock}
+	if at, ok := s.ticks.queuedAt(key); ok && at <= s.TickCount() {
+		return // willTickThisTick
+	}
+	prio := tickPrioHigh
+	if rsDiodePrioritizes(d, pos, blk) {
+		prio = tickPrioExtremelyHigh
+	} else if powered {
+		prio = tickPrioVeryHigh
+	}
+	s.ticks.schedulePrio(key, s.TickCount()+rsDiodeDelay(name, blk), prio)
+}
+
+// rsDiodeTick is DiodeBlock.tick: locked diodes sit still; a powered
+// diode that lost its input writes powered=false; an unpowered one
+// writes powered=true and — if the input died in the delay window —
+// re-arms itself to flip back at VERY_HIGH.
+func (s *Server) rsDiodeTick(d *dimension, pos world.Pos, blk world.Block, name string) {
+	if rsDiodeLocked(d, pos, name, blk) {
+		return
+	}
+	powered := rsPropsOf(blk)("powered") == "true"
+	shouldOn := rsDiodeShouldOn(d, pos, blk)
+	switch {
+	case powered && !shouldOn:
+		if nb, ok := world.WithProperty(blk, "powered", "false"); ok {
+			s.rsWriteBlockFlag2(d, pos, nb)
+		}
+	case !powered:
+		if nb, ok := world.WithProperty(blk, "powered", "true"); ok {
+			s.rsWriteBlockFlag2(d, pos, nb)
+		}
+		if !shouldOn {
+			s.ticks.schedulePrio(schedKey{dim: d.name, pos: pos, kind: tickBlock},
+				s.TickCount()+rsDiodeDelay(name, blk), tickPrioVeryHigh)
+		}
+	}
+}
+
+// rsWriteBlockFlag2 is the flag-2 write path (broadcast + onPlace +
+// updateNeighbourShapes, no updateNeighborsAt ring): DiodeBlock.tick's
+// powered flips announce only their output side — via onPlace's
+// updateNeighborsInFront — not the whole ring.
+func (s *Server) rsWriteBlockFlag2(d *dimension, pos world.Pos, nb world.Block) {
+	d.rsWriteDepth++
+	s.setSilentBlock(d, pos, nb)
+	s.neighborSurvival(d, pos, nb)
+	if d.rsWriteDepth == 1 {
+		s.rsDrainPending(d)
+	}
+	d.rsWriteDepth--
+}
+
+// rsDiodeUpdateInFront is DiodeBlock.updateNeighborsInFront — runs on
+// every write (onPlace) and on removal (affectNeighborsAfterRemoval):
+// neighborChanged on the output block, then updateNeighborsAtExcept
+// FromFacing over it (its ring minus the direction back to the diode).
+func (s *Server) rsDiodeUpdateInFront(d *dimension, pos world.Pos, blk world.Block) {
+	facing, ok := rsDiodeFacing(blk)
+	if !ok {
+		return
+	}
+	out := rsShiftPos(pos, rsOpposite(facing))
+	s.rsNeighborNotify(d, out)
+	s.rsNeighborFanOutExcept(d, out, facing)
 }
