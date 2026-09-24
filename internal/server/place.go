@@ -434,6 +434,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	blk = s.multifacePlaceState(d, target, blk, sess, face)
 	blk = s.diodePlaceState(d, target, blk, sess)
 	blk = pistonPlaceState(blk, sess)
+	blk = observerPlaceState(blk, sess)
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
 	// TripWireHookBlock.setPlacedBy: a placed hook runs its
 	// calculateState — attaches/powers the run it lands on. Command
@@ -598,4 +599,22 @@ func nearestLookDir(yaw, pitch float32) string {
 		return "south"
 	}
 	return "north"
+}
+
+// observerPlaceState is ObserverBlock.getStateForPlacement: facing is
+// the look direction itself (nearestLooking.opposite.opposite) — the
+// sensor points where the player looks; output exits the back.
+func observerPlaceState(blk world.Block, sess *Session) world.Block {
+	name, ok := world.StateOwner(blk)
+	if !ok || strings.TrimPrefix(name, "minecraft:") != "observer" {
+		return blk
+	}
+	_, _, _, yaw, pitch, _ := sess.Pos()
+	if nb, ok := world.WithProperty(blk, "facing", nearestLookDir(yaw, pitch)); ok {
+		blk = nb
+	}
+	if nb, ok := world.WithProperty(blk, "powered", "false"); ok {
+		blk = nb
+	}
+	return blk
 }

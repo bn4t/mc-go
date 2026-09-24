@@ -1232,3 +1232,176 @@ func TestTorchBurnoutParity(t *testing.T) {
 		}
 	}
 }
+
+// TestObserverParity pins ObserverBlock: updateShape arms a 2-tick
+// scheduleTick when the cell the sensor faces changes while unpowered;
+// the tick flips powered on, re-arms the off-tick 2t out, then flips
+// off — flag-2 writes with updateNeighborsInFront doing the notify, so
+// the pulse only reaches the cell behind the sensor. getSignal emits
+// 15 toward FACING (the reader sits behind). Command writes also pulse
+// — BlockInput.place folds the requested state through
+// updateFromNeighbourShapes, and the dir==FACING step arms it — while
+// a hand-placed observer stays dark. onPlace snaps a powered=true
+// write back to unpowered.
+func TestObserverParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	setup := []string{
+		`gamerule send_command_feedback true`,
+		// A @60,z100: setblock'd observer facing east watches (61);
+		// the write itself self-folds and pulses, driving the south
+		// piston at the back cell — the stone lands one south before
+		// the trigger even runs.
+		`setblock 60 -60 100 minecraft:observer[facing=east]`,
+		`setblock 59 -60 100 minecraft:piston[facing=south]`,
+		`setblock 59 -60 101 minecraft:stone`,
+
+		// B @64,z100: same rig — its setup pulse also lands. The
+		// trigger then writes ABOVE the sensor (not the watched cell)
+		// which must NOT arm a second pulse.
+		`setblock 64 -60 100 minecraft:observer[facing=east]`,
+		`setblock 63 -60 100 minecraft:piston[facing=south]`,
+		`setblock 63 -60 101 minecraft:stone`,
+
+		// C @67,z100: back cell piston+stone; the powered=true
+		// setblock in the trigger phase snaps dark without pulsing.
+		`setblock 67 -60 100 minecraft:piston[facing=south]`,
+		`setblock 67 -60 101 minecraft:stone`,
+
+		// D @73..75,z100: hand-placed observer rig — a placement does
+		// NOT self-fold, so the piston stays put until the watched
+		// cell (the clicked stone at 75) is rewritten.
+		`setblock 75 -60 100 minecraft:stone`,
+		`setblock 73 -60 100 minecraft:piston[facing=south]`,
+		`setblock 73 -60 101 minecraft:stone`,
+
+		// E @79,z100: watched-cell air write pulses the same way.
+		`setblock 80 -60 100 minecraft:observer[facing=east]`,
+		`setblock 81 -60 100 minecraft:stone`,
+		`setblock 79 -60 100 minecraft:piston[facing=south]`,
+		`setblock 79 -60 101 minecraft:stone`,
+	}
+	// probesA run after the trigger writes + settle. A refilled front
+	// cell lets the watched-write pulse move the chain again — the
+	// second stone landing at 103 is the witness.
+	probesA := []struct{ name, spec string }{
+		{"A setup pulse pushed", "59 -60 102 minecraft:stone"},
+		{"A second pulse chain", "59 -60 103 minecraft:stone"},
+		{"A front emptied", "59 -60 101 minecraft:air"},
+		{"A piston retracted", "59 -60 100 minecraft:piston[extended=false]"},
+		{"A observer dark", "60 -60 100 minecraft:observer[powered=false]"},
+
+		{"B setup pulse pushed", "63 -60 102 minecraft:stone"},
+		{"B above-write: no pulse", "63 -60 103 minecraft:air"},
+		{"B stone still", "63 -60 101 minecraft:stone"},
+		{"B piston closed", "63 -60 100 minecraft:piston[extended=false]"},
+		{"B observer dark", "64 -60 100 minecraft:observer[powered=false]"},
+
+		{"C powered snaps off", "68 -60 100 minecraft:observer[powered=false]"},
+		{"C no push", "67 -60 102 minecraft:air"},
+		{"C stone still", "67 -60 101 minecraft:stone"},
+
+		{"E setup pulse pushed", "79 -60 102 minecraft:stone"},
+		{"E air write chain", "79 -60 103 minecraft:stone"},
+		{"E front emptied", "79 -60 101 minecraft:air"},
+		{"E observer dark", "80 -60 100 minecraft:observer[powered=false]"},
+	}
+	// probesMid check the hand-placed observer BEFORE the poke: the
+	// placement itself must not have pulsed.
+	probesMid := []struct{ name, spec string }{
+		{"D placed faces east", "74 -60 100 minecraft:observer[facing=east]"},
+		{"D place did NOT pulse", "73 -60 101 minecraft:stone"},
+		{"D back cell quiet", "73 -60 102 minecraft:air"},
+	}
+	probesB := []struct{ name, spec string }{
+		{"D watched write pushed", "73 -60 102 minecraft:stone"},
+		{"D observer dark", "74 -60 100 minecraft:observer[powered=false]"},
+	}
+
+	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
+		sendCommand(t, pw, fmt.Sprintf("execute if block %s run say ZO-ok-%d", spec, i))
+		sendCommand(t, pw, fmt.Sprintf("execute unless block %s run say ZO-miss-%d", spec, i))
+		deadline := time.Now().Add(4 * time.Second)
+		hit := ""
+		for time.Now().Before(deadline) {
+			for _, line := range sink.take() {
+				if strings.Contains(line, fmt.Sprintf("ZO-ok-%d", i)) {
+					hit = "hit"
+				}
+				if strings.Contains(line, fmt.Sprintf("ZO-miss-%d", i)) {
+					hit = "miss"
+				}
+			}
+			if hit != "" {
+				break
+			}
+			time.Sleep(40 * time.Millisecond)
+		}
+		return hit
+	}
+
+	run := func(addr string) []string {
+		c, pr, pw := joinPlayQuiet(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		sendClientInformation(t, pw)
+		sink := newChatSinkTP(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(4 * time.Second)
+		sink.take()
+		var out []string
+		for _, cmd := range setup {
+			sendCommand(t, pw, cmd)
+		}
+		time.Sleep(1500 * time.Millisecond)
+		// A: refill the front cell, then the watched write pulses.
+		sendCommand(t, pw, `setblock 59 -60 101 minecraft:stone`)
+		sendCommand(t, pw, `setblock 61 -60 100 minecraft:stone`)
+		// B: refill, then write ABOVE the sensor — must not arm.
+		sendCommand(t, pw, `setblock 63 -60 101 minecraft:stone`)
+		sendCommand(t, pw, `setblock 64 -59 100 minecraft:stone`)
+		// C: powered=true write snaps back dark.
+		sendCommand(t, pw, `setblock 68 -60 100 minecraft:observer[facing=east,powered=true]`)
+		// E: refill, then an air write on the watched cell pulses.
+		sendCommand(t, pw, `setblock 79 -60 101 minecraft:stone`)
+		sendCommand(t, pw, `setblock 81 -60 100 minecraft:air`)
+		time.Sleep(1500 * time.Millisecond)
+		for i, p := range probesA {
+			out = append(out, probe(pw, sink, p.spec, i))
+		}
+		// D: hand-place the observer looking east on the stone's west
+		// face — the sensor reads the look direction; the placement
+		// itself must not pulse.
+		sendCommand(t, pw, `item replace entity @s hotbar.0 with minecraft:observer 1`)
+		sendCommand(t, pw, `tp @s 72.5 -60 100.5 -90 0`)
+		time.Sleep(400 * time.Millisecond)
+		sendUseItemOn(t, pw, 75, -60, 100, 4, 40)
+		time.Sleep(1200 * time.Millisecond)
+		for i, p := range probesMid {
+			out = append(out, probe(pw, sink, p.spec, 100+i))
+		}
+		// Now the watched-cell write fires the placed observer.
+		sendCommand(t, pw, `setblock 75 -60 100 minecraft:dirt`)
+		time.Sleep(1500 * time.Millisecond)
+		for i, p := range probesB {
+			out = append(out, probe(pw, sink, p.spec, 200+i))
+		}
+		return out
+	}
+
+	vanilla := run(targets.vanilla)
+	mcgo := run(targets.mcgo)
+	all := append(append(append([]struct{ name, spec string }{}, probesA...), probesMid...), probesB...)
+	for i, p := range all {
+		t.Logf("%-44s vanilla=%s mcgo=%s", p.name, vanilla[i], mcgo[i])
+		if vanilla[i] == "hit" && mcgo[i] != "hit" {
+			t.Errorf("probe %q: vanilla hit, mc-go %s", p.name, mcgo[i])
+		}
+		if mcgo[i] == "hit" && vanilla[i] != "hit" {
+			t.Errorf("probe %q: mc-go hit, vanilla %s", p.name, vanilla[i])
+		}
+	}
+}

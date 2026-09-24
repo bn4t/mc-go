@@ -200,6 +200,13 @@ func rsGetSignal(d *dimension, pos world.Pos, dir rsDir) int {
 		if !ok || dir != f {
 			return 0
 		}
+	case "observer":
+		// ObserverBlock.getSignal: the pulse exits the back cell —
+		// a reader behind the sensor asks with dir == FACING.
+		f, ok := rsDirOfName[prop("facing")]
+		if !ok || dir != f {
+			return 0
+		}
 	}
 	return sig
 }
@@ -242,9 +249,10 @@ func rsGetDirectSignal(d *dimension, pos world.Pos, dir rsDir) int {
 		}
 	case name == "redstone_wire":
 		return rsGetSignal(d, pos, dir)
-	case name == "repeater" || name == "comparator":
+	case name == "repeater" || name == "comparator" || name == "observer":
 		// DiodeBlock.getDirectSignal delegates to getSignal — the
 		// diode's output is strong power for the block it faces.
+		// ObserverBlock's does too: the pulse drives a conductor.
 		return rsGetSignal(d, pos, dir)
 	}
 	return 0

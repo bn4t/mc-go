@@ -221,6 +221,17 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos, notify worl
 		s.diodeUpdateShape(d, pos, changed, b, name == "repeater")
 		return
 	}
+	if name == "observer" && changed != pos {
+		// ObserverBlock.updateShape: a write to the watched cell
+		// (the FACING side) arms the 2-tick pulse while unpowered.
+		if f, ok := rsDirOfName[rsPropsOf(b)("facing")]; ok &&
+			rsShiftPos(pos, f) == changed &&
+			rsPropsOf(b)("powered") != "true" {
+			s.ticks.schedule(schedKey{dim: d.name, pos: pos, kind: tickBlock},
+				s.TickCount()+2)
+		}
+		return
+	}
 	if name == "piston_head" && changed != pos {
 		// PistonHeadBlock.neighborChanged → canSurvive: the head
 		// survives only while the cell behind it holds an extended
@@ -406,6 +417,33 @@ func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block,
 		// guard).
 		if (short == "piston" || short == "sticky_piston") && oldShort != short {
 			s.rsPistonCheck(d, pos)
+		}
+		// ObserverBlock: BlockInput.place folds the REQUESTED state
+		// through updateShape before the write lands — the direction
+		// ==FACING step arms the 2-tick pulse, so a command-written
+		// observer always fires once. onPlace then snaps a powered=true
+		// write back to unpowered (flag 18) and notifies the back cell;
+		// affectNeighborsAfterRemoval does the same for a powered
+		// observer removed mid-pulse.
+		if short == "observer" {
+			powered := rsPropsOf(blk)("powered") == "true"
+			switch {
+			case commandWrite && !powered:
+				s.ticks.schedule(schedKey{dim: d.name, pos: pos, kind: tickBlock},
+					s.TickCount()+2)
+			case powered && oldShort != short &&
+				!s.ticks.hasScheduled(schedKey{dim: d.name, pos: pos, kind: tickBlock}):
+				if nb, ok := world.WithProperty(blk, "powered", "false"); ok {
+					s.rsWriteBlockFlag2(d, pos, nb)
+					s.rsDiodeUpdateInFront(d, pos, nb)
+					blk = nb
+				}
+			}
+		}
+		if oldShort == "observer" && oldShort != short &&
+			rsPropsOf(old)("powered") == "true" &&
+			s.ticks.hasScheduled(schedKey{dim: d.name, pos: pos, kind: tickBlock}) {
+			s.rsDiodeUpdateInFront(d, pos, old)
 		}
 		// Containers.updateNeighboursAfterDestroy: removing a
 		// container block wakes comparators reading it — the ring

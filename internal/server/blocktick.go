@@ -433,6 +433,22 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		}
 		return
 	}
+	if short == "observer" {
+		// ObserverBlock.tick: a powered observer unpowers; an
+		// unpowered one powers and re-arms the un-power 2 ticks out —
+		// the 2-tick pulse. Both write flag 2 then
+		// updateNeighborsInFront.
+		powered := rsPropsOf(blk)("powered") == "true"
+		if nb, ok := world.WithProperty(blk, "powered", boolStr(!powered)); ok {
+			s.rsWriteBlockFlag2(d, pos, nb)
+		}
+		if !powered {
+			s.ticks.schedule(schedKey{dim: d.name, pos: pos, kind: tickBlock},
+				s.TickCount()+2)
+		}
+		s.rsDiodeUpdateInFront(d, pos, blk)
+		return
+	}
 	if short == "redstone_torch" || short == "redstone_wall_torch" {
 		// RedstoneTorchBlock.tick: prune toggles older than
 		// RECENT_TOGGLE_TIMER(60), then flip if lit still agrees with

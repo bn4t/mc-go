@@ -6236,3 +6236,39 @@ PoweredRailBlock already done) and pinned by TestTorchBurnoutParity.
   holds; a control torch toggled 3 times relights immediately; the
   burnt-out torch relights on its own ~160t later — both servers
   match.
+
+## Slice 2026-09-24u — observers (ObserverBlock)
+
+Measured on the jar (ObserverBlock + BlockInput.place +
+updateFromNeighbourShapes) and pinned by TestObserverParity
+(22 probes, both servers).
+
+- updateShape arms the 2-tick pulse: `dir == FACING && !POWERED` →
+  startSignal → scheduleTick(+2), dedup'd by hasScheduledTick.
+- tick(): powered → flag-2 write powered=false; unpowered → powered=true
+  + re-arm the off-tick +2. Both flips then updateNeighborsInFront:
+  neighborChanged on the back cell (pos - facing) + the
+  updateNeighborsAtExceptFromFacing ring there skipping the facing dir.
+- getSignal/getDirectSignal emit ownSignal (15 when powered) only
+  toward dir==FACING — the consumer sits behind the sensor; the back
+  cell is strongly powered, so the pulse drives a conductor.
+- Placement arm asymmetry: BlockInput.place (setblock/fill/structure
+  writes) folds the REQUESTED state through updateFromNeighbourShapes
+  — the dir==FACING self-fold arms the pulse, so a setblock'd observer
+  always fires once, while a powered=true request never arms (the fold
+  gates on the parsed prop before onPlace runs). Hand placement is
+  placeBlock → setBlock(11) with NO self-fold — a placed observer does
+  not pulse.
+- onPlace: powered=true write over a non-observer + no queued tick →
+  snaps to powered=false (flag 18) + updateNeighborsInFront.
+  affectNeighborsAfterRemoval: powered observer replaced mid-pulse
+  notifies the back cell once.
+- mc-go: arm lives in checkSurvival (the updateShape pass) + the
+  command-write arm in writeOnPlace keyed on commandWrite reading the
+  requested powered prop; tick arm in blocktick.go; emission carved in
+  rsGetSignal/rsGetDirectSignal; tickScheduler.hasScheduled added.
+- Witness trick: a south piston at the back cell pushes a stone — the
+  pushed chain (stone landing two/three cells out, head popped,
+  observer dark at settle) is the durable pulse witness.
+
+Deferred: none new — observers complete.

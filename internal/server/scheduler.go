@@ -149,3 +149,12 @@ func (t *tickScheduler) queuedAt(k schedKey) (int64, bool) {
 	at, ok := t.queued[k]
 	return at, ok
 }
+
+// hasScheduled is LevelTickAccess.hasScheduledTick — true while the
+// same pos+kind entry is still queued.
+func (t *tickScheduler) hasScheduled(k schedKey) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	_, ok := t.queued[k]
+	return ok
+}
