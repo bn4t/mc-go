@@ -1405,3 +1405,193 @@ func TestObserverParity(t *testing.T) {
 		}
 	}
 }
+
+// TestDispenserDropperParity pins DispenserBlock.neighborChanged +
+// dispenseFrom and the DropperBlock override: a rising signal edge
+// (hasNeighborSignal on the cell OR the QC cell above) while
+// TRIGGERED=false latches triggered and schedules the dispense 4
+// ticks out; the falling edge clears the latch. The tick picks a
+// random non-empty slot — empty stores fire the 1001 click and
+// nothing else. A dropper inserts one item into the container at its
+// mouth; a dispenser throws the item as an entity. Firing once per
+// edge and the QC power read are the pinned behaviours; the per-item
+// DispenseItemBehavior table is not part of this slice.
+func TestDispenserDropperParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	setup := []string{
+		`gamerule send_command_feedback true`,
+		// A @60,z110: dropper east into a chest — one item per edge.
+		`setblock 60 -60 110 minecraft:dropper[facing=east]`,
+		`setblock 61 -60 110 minecraft:chest`,
+		`item replace block 60 -60 110 container.0 with minecraft:stone 4`,
+		// B @64,z110: dispenser east into open air — the item leaves
+		// as an entity; the slot still drains by one.
+		`setblock 64 -60 110 minecraft:dispenser[facing=east]`,
+		`item replace block 64 -60 110 container.0 with minecraft:dirt 4`,
+		// C @68,z110: the triggered latch — power held steady fires
+		// once; a refill while powered does NOT refire.
+		`setblock 68 -60 110 minecraft:dropper[facing=east]`,
+		`setblock 69 -60 110 minecraft:chest`,
+		`item replace block 68 -60 110 container.0 with minecraft:stone 4`,
+		// D @72,z110: quasi-connectivity — a source two cells up
+		// only powers the dropper when a separate update reaches it
+		// (the stone kick below it); the latch then persists until a
+		// powered update lands.
+		`setblock 72 -60 110 minecraft:dropper[facing=east]`,
+		`setblock 73 -60 110 minecraft:chest`,
+		`item replace block 72 -60 110 container.0 with minecraft:stone 4`,
+		// E @76,z110: dispenser — powers while empty (the 1001 click
+		// fires nothing); a refill while powered still holds because
+		// TRIGGERED never cleared; on repower it throws, not inserts.
+		`setblock 76 -60 110 minecraft:dispenser[facing=east]`,
+		`setblock 77 -60 110 minecraft:chest`,
+	}
+	probesA := []struct{ name, spec string }{
+		{"A chest got one", "items block 61 -60 110 container.* minecraft:stone"},
+		{"A dropper drained 1", "items block 60 -60 110 container.0 minecraft:stone[count=3]"},
+		{"A triggered latched", "block 60 -60 110 minecraft:dropper[triggered=true]"},
+		{"B dispenser drained 1", "items block 64 -60 110 container.0 minecraft:dirt[count=3]"},
+		{"B triggered latched", "block 64 -60 110 minecraft:dispenser[triggered=true]"},
+		{"B mouth is air", "block 65 -60 110 minecraft:air"},
+		{"C one edge one item", "items block 69 -60 110 container.* minecraft:stone"},
+		{"C drained 1", "items block 68 -60 110 container.0 minecraft:stone[count=3]"},
+		{"D QC fired", "items block 73 -60 110 container.* minecraft:stone"},
+		{"D drained 1", "items block 72 -60 110 container.0 minecraft:stone[count=3]"},
+		{"E chest untouched", "!items block 77 -60 110 container.* minecraft:stone"},
+		{"E triggered latched", "block 76 -60 110 minecraft:dispenser[triggered=true]"},
+	}
+	probesMid := []struct{ name, spec string }{
+		// E's refill while powered must NOT fire — the latch held
+		// through it.
+		{"E refill held", "items block 76 -60 110 container.0 minecraft:stone[count=4]"},
+	}
+	probesB1 := []struct{ name, spec string }{
+		// The identical-state rewrite below the dropper carries no
+		// update: TRIGGERED still holds after unpowering.
+		{"D identical noop", "block 72 -60 110 minecraft:dropper[triggered=true]"},
+	}
+	probesB := []struct{ name, spec string }{
+		{"C repower fired", "items block 68 -60 110 container.0 minecraft:stone[count=2]"},
+		{"C chest total 2", "items block 69 -60 110 container.* minecraft:stone[count=2]"},
+		{"D triggered cleared", "block 72 -60 110 minecraft:dropper[triggered=false]"},
+		{"E repower threw 1", "items block 76 -60 110 container.0 minecraft:stone[count=3]"},
+		{"E chest still empty", "!items block 77 -60 110 container.* minecraft:stone"},
+	}
+
+	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
+		// A leading '!' pins the negative: the "ok" line comes from
+		// execute unless instead of if.
+		if strings.HasPrefix(spec, "!") {
+			spec = spec[1:]
+			sendCommand(t, pw, fmt.Sprintf("execute unless %s run say ZD-ok-%d", spec, i))
+			sendCommand(t, pw, fmt.Sprintf("execute if %s run say ZD-miss-%d", spec, i))
+		} else {
+			sendCommand(t, pw, fmt.Sprintf("execute if %s run say ZD-ok-%d", spec, i))
+			sendCommand(t, pw, fmt.Sprintf("execute unless %s run say ZD-miss-%d", spec, i))
+		}
+		deadline := time.Now().Add(4 * time.Second)
+		hit := ""
+		for time.Now().Before(deadline) {
+			for _, line := range sink.take() {
+				if strings.Contains(line, fmt.Sprintf("ZD-ok-%d", i)) {
+					hit = "hit"
+				}
+				if strings.Contains(line, fmt.Sprintf("ZD-miss-%d", i)) {
+					hit = "miss"
+				}
+			}
+			if hit != "" {
+				break
+			}
+			time.Sleep(40 * time.Millisecond)
+		}
+		return hit
+	}
+
+	run := func(addr string) []string {
+		c, pr, pw := joinPlayQuiet(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		sendClientInformation(t, pw)
+		sink := newChatSinkTP(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(4 * time.Second)
+		sink.take()
+		var out []string
+		for _, cmd := range setup {
+			sendCommand(t, pw, cmd)
+		}
+		time.Sleep(400 * time.Millisecond)
+		// Power A/B/C/E adjacent; D gets its QC source two up plus a
+		// kick update directly below so the dropper re-evaluates.
+		for _, cmd := range []string{
+			`setblock 60 -61 110 minecraft:redstone_block`,
+			`setblock 64 -61 110 minecraft:redstone_block`,
+			`setblock 68 -61 110 minecraft:redstone_block`,
+			`setblock 72 -58 110 minecraft:redstone_block`,
+			`setblock 72 -61 110 minecraft:stone`,
+			`setblock 76 -61 110 minecraft:redstone_block`,
+		} {
+			sendCommand(t, pw, cmd)
+		}
+		time.Sleep(1500 * time.Millisecond)
+		for i, p := range probesA {
+			out = append(out, probe(pw, sink, p.spec, i))
+		}
+		// Refill E while powered — the held latch keeps it from
+		// firing (probesMid) — then unpower everything. D's source
+		// goes away but the dropper only learns of it through the
+		// fresh kick below (rewriting the stone there), which also
+		// drops its triggered latch without a fire.
+		sendCommand(t, pw, `item replace block 76 -60 110 container.0 with minecraft:stone 4`)
+		time.Sleep(1500 * time.Millisecond)
+		for i, p := range probesMid {
+			out = append(out, probe(pw, sink, p.spec, 100+i))
+		}
+		for _, cmd := range []string{
+			`setblock 60 -61 110 minecraft:stone`,
+			`setblock 64 -61 110 minecraft:stone`,
+			`setblock 68 -61 110 minecraft:stone`,
+			`setblock 72 -58 110 minecraft:stone`,
+			// Identical-state setblock: vanilla's chunk write
+			// early-outs — no update reaches the dropper, so the
+			// latch must still hold (probesB2).
+			`setblock 72 -61 110 minecraft:stone`,
+			`setblock 76 -61 110 minecraft:stone`,
+		} {
+			sendCommand(t, pw, cmd)
+		}
+		time.Sleep(800 * time.Millisecond)
+		for i, p := range probesB1 {
+			out = append(out, probe(pw, sink, p.spec, 200+i))
+		}
+		// A real state change (stone→dirt) finally updates the
+		// dropper: powered is gone, the latch clears, no fire.
+		sendCommand(t, pw, `setblock 72 -61 110 minecraft:dirt`)
+		sendCommand(t, pw, `setblock 68 -61 110 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 76 -61 110 minecraft:redstone_block`)
+		time.Sleep(1500 * time.Millisecond)
+		for i, p := range probesB {
+			out = append(out, probe(pw, sink, p.spec, 300+i))
+		}
+		return out
+	}
+
+	vanilla := run(targets.vanilla)
+	mcgo := run(targets.mcgo)
+	all := append(append(append(append([]struct{ name, spec string }{},
+		probesA...), probesMid...), probesB1...), probesB...)
+	for i, p := range all {
+		t.Logf("%-44s vanilla=%s mcgo=%s", p.name, vanilla[i], mcgo[i])
+		if vanilla[i] == "hit" && mcgo[i] != "hit" {
+			t.Errorf("probe %q: vanilla hit, mc-go %s", p.name, mcgo[i])
+		}
+		if mcgo[i] == "hit" && vanilla[i] != "hit" {
+			t.Errorf("probe %q: mc-go hit, vanilla %s", p.name, vanilla[i])
+		}
+	}
+}

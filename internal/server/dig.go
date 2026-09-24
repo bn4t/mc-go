@@ -235,6 +235,14 @@ func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk wo
 		s.selfFoldShapes(d, pos)
 		blk = d.w.GetBlock(pos)
 	}
+	if commandWrite && blk == old {
+		// LevelChunk.setBlockState early-outs on an identical state:
+		// the fold above already ran, but no block update, neighbour
+		// fan-out, or broadcast ever fires. (A stone→stone setblock
+		// is NOT an update — measured.)
+		d.rsWriteDepth--
+		return nil
+	}
 	// See setSilentBlock for the skip rule: the second scan only runs
 	// when the write removed the top cell itself.
 	var newTop int32

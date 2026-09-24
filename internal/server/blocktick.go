@@ -433,6 +433,10 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		}
 		return
 	}
+	if short == "dispenser" || short == "dropper" {
+		s.dispenseFrom(d, pos, blk)
+		return
+	}
 	if short == "observer" {
 		// ObserverBlock.tick: a powered observer unpowers; an
 		// unpowered one powers and re-arms the un-power 2 ticks out —

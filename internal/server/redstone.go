@@ -454,6 +454,8 @@ func (s *Server) rsNeighborChanged(d *dimension, pos world.Pos) {
 		if lit := rsPropsOf(blk)("lit") == "true"; lit == rsTorchSeesSignal(d, pos, blk) {
 			s.ticks.schedule(schedKey{dim: d.name, pos: pos, kind: tickBlock}, s.TickCount()+2)
 		}
+	case name == "dispenser" || name == "dropper":
+		s.rsDispenserNeighbor(d, pos, blk)
 	case name == "tnt":
 		if sig {
 			s.tntNeighborChanged(d, pos)

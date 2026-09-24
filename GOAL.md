@@ -6272,3 +6272,33 @@ updateFromNeighbourShapes) and pinned by TestObserverParity
   observer dark at settle) is the durable pulse witness.
 
 Deferred: none new — observers complete.
+
+## Slice 2026-09-24v — dispensers + droppers (DispenserBlock/DropperBlock)
+
+Measured on the jar (DispenserBlock, DropperBlock,
+DefaultDispenseItemBehavior, HopperBlockEntity.addItem) and pinned by
+TestDispenserDropperParity (19 probes, both servers).
+
+- neighborChanged (shared by DropperBlock): powered =
+  hasNeighborSignal(pos) || hasNeighborSignal(pos.above()) — the QC
+  cell — and a rising edge while triggered=false latches TRIGGERED and
+  scheduleTick(+4); the falling edge clears TRIGGERED. Both writes are
+  flag-2 (no neighbour fan-out).
+- tick → dispenseFrom: getRandomSlot picks uniformly among non-empty
+  slots; an empty store only fires the 1001 click. Otherwise one item
+  leaves the slot.
+- Dropper override: a container at the mouth eats the item via
+  HopperBlockEntity.addItem (sided insert, silent) — mc-go reuses
+  hopperInsert; no container → the default entity throw.
+- Dispenser default: DefaultDispenseItemBehavior throws one item as an
+  entity at the mouth + levelEvent 1000 (click) and 2000 (stream
+  animation). Per-item behaviors (projectiles, buckets, boats, spawn
+  eggs, …) deferred to the dispense-behavior registry slice.
+- QC caveat measured live: a source two cells up only powers the
+  device when a separate update reaches it; the latch then persists
+  through the source's removal until another update lands.
+- Adjacent fix pinned by the same test: LevelChunk.setBlockState
+  early-outs on an identical state — a stone→stone setblock carries no
+  update. setBlockAndBroadcastNotify now skips broadcast/neighbour
+  work when the folded result equals the old state (self-fold still
+  runs, matching updateFromNeighbourShapes ordering).
