@@ -503,6 +503,19 @@ func (s *Server) spawnDispensedProjectile(d *dimension, pos world.Pos, facing rs
 		e.Item = one
 		s.broadcastEntityMetadata(e.ID, encodeItemMetadata(one))
 	}
+	// Potions carry their contents into the splash/cloud fields.
+	if entName == "splash_potion" || entName == "lingering_potion" {
+		e.splashPotion = st.Potion
+		for _, eff := range splashPotionContents[st.Potion] {
+			if eid, ok := MobEffectID(eff.name); ok {
+				if e.Effects == nil {
+					e.Effects = map[int32]mobEffectInst{}
+				}
+				e.Effects[eid] = mobEffectInst{amplifier: eff.amp,
+					expiry: s.gameTime() + int64(eff.dur)}
+			}
+		}
+	}
 }
 
 // spawnDispensedArmorStand is DispenseItemBehavior$1: the stand lands

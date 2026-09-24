@@ -1632,9 +1632,13 @@ func TestDispenseProjectileParity(t *testing.T) {
 			// Stack size 1 — vanilla rejects the overstacked fill.
 			count = "1"
 		}
+		spec := fmt.Sprintf("minecraft:%s", it.item)
+		if it.item == "lingering_potion" {
+			spec = `minecraft:lingering_potion[minecraft:potion_contents={potion:"minecraft:poison"}]`
+		}
 		setup = append(setup,
 			fmt.Sprintf(`setblock %d -60 120 minecraft:dispenser[facing=up]`, it.x),
-			fmt.Sprintf(`item replace block %d -60 120 container.0 with minecraft:%s %s`, it.x, it.item, count),
+			fmt.Sprintf(`item replace block %d -60 120 container.0 with %s %s`, it.x, spec, count),
 		)
 	}
 	// The armor stand is not a projectile — it spawns in the mouth
@@ -1642,6 +1646,13 @@ func TestDispenseProjectileParity(t *testing.T) {
 	setup = append(setup,
 		`setblock 100 -60 120 minecraft:dispenser[facing=east]`,
 		`item replace block 100 -60 120 container.0 with minecraft:armor_stand 4`,
+		// Fireball ignite: east-facing dispenser with a wall two out.
+		`setblock 84 -60 140 minecraft:dispenser[facing=east]`,
+		`setblock 86 -59 140 minecraft:oak_log`,
+		`item replace block 84 -60 140 container.0 with minecraft:fire_charge 1`,
+		`setblock 90 -60 140 minecraft:dispenser[facing=up]`,
+		`setblock 90 -58 140 minecraft:oak_log`,
+		`item replace block 90 -60 140 container.0 with minecraft:fire_charge 1`,
 	)
 
 	probesA := []struct{ name, spec string }{}
@@ -1667,6 +1678,9 @@ func TestDispenseProjectileParity(t *testing.T) {
 		{"rocket popped", "!entity @e[type=minecraft:firework_rocket]"},
 		{"fireball still flying", "entity @e[type=minecraft:small_fireball]"},
 		{"armor_stand persists", "entity @e[type=minecraft:armor_stand,x=101,y=-60,z=120,distance=..2]"},
+		{"lingering cloud formed", "entity @e[type=minecraft:area_effect_cloud]"},
+		{"!dispenser fireball never ignites", "!block 85 -59 140 minecraft:fire"},
+		{"!under-log shot stays dark", "!block 90 -59 140 minecraft:fire"},
 		{"drain arrow", "!items block 60 -60 120 container.* minecraft:arrow[count=4]"},
 		{"drain egg", "!items block 68 -60 120 container.* minecraft:egg[count=4]"},
 	}
@@ -1717,6 +1731,8 @@ func TestDispenseProjectileParity(t *testing.T) {
 			sendCommand(t, pw, fmt.Sprintf(`setblock %d -61 120 minecraft:redstone_block`, it.x))
 		}
 		sendCommand(t, pw, `setblock 100 -61 120 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 84 -61 140 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 90 -61 140 minecraft:redstone_block`)
 		// Mid-flight window: +4t dispense, ~450ms later everything is
 		// still airborne (or, for the fireball/wind charge, flying).
 		time.Sleep(500 * time.Millisecond)
@@ -1843,6 +1859,8 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		{"K box slot drained", `!items block 68 -60 140 container.* minecraft:white_shulker_box`},
 		{"L tnt primes even into a solid mouth", `entity @e[type=minecraft:tnt,x=73,y=-60,z=140,distance=..4]`},
 
+		{"M0 dispenser exists", `block 60 -60 150 minecraft:dispenser`},
+		{"M0c bottle count (fired→1,unfired→2)", `items block 60 -60 150 container.* minecraft:glass_bottle[count=2]`},
 		{"M slot now a water bottle", `items block 60 -60 150 container.* minecraft:potion`},
 		{"M one glass bottle remains", `items block 60 -60 150 container.* minecraft:glass_bottle[count=1]`},
 		{"N anchor charged to 2", `block 65 -60 150 minecraft:respawn_anchor[charges=2]`},
@@ -1914,7 +1932,6 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		}
 		for _, x := range []int{60, 64, 68, 72, 76, 80} {
 			sendCommand(t, pw, fmt.Sprintf(`setblock %d -61 150 minecraft:redstone_block`, x))
-			sendCommand(t, pw, fmt.Sprintf(`setblock %d -61 150 minecraft:stone`, x))
 		}
 		// +4t dispense delay, then the primed TNT fuse starts.
 		time.Sleep(700 * time.Millisecond)

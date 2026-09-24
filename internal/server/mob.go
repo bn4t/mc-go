@@ -3231,9 +3231,6 @@ func (s *Server) explodeCreeper(e *Entity) {
 // duration, 10-tick wait, potionDurationScale 0.25, and a copy of
 // each active effect.
 func (s *Server) spawnLingeringCloud(e *Entity) {
-	if len(e.Effects) == 0 {
-		return
-	}
 	cloudType, ok := EntityTypeID("area_effect_cloud")
 	if !ok {
 		return

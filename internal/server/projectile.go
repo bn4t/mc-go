@@ -221,11 +221,15 @@ func (s *Server) arrowTickStep() {
 			collided = s.projectileCollide(e, ox, oy, oz, tridentHitDamage, "trident")
 		case sticks:
 			collided = s.arrowCollide(e, ox, oy, oz)
+		case name == "egg" || name == "snowball" ||
+			name == "experience_bottle":
+			// ThrowableItemProjectile.onHitEntity — hurt(0): the hit
+			// flashes the hurt animation and knockback but deals
+			// nothing (snowballs do 3 to blazes).
+			collided = s.thrownCollide(e, ox, oy, oz, name)
 		}
-		// Thrown items (egg/snowball/xp bottle) and hurting
-		// projectiles skip the entity-AABB pass here — their impact
-		// effects are a separate slice; the block hit below still
-		// applies.
+		// Hurting projectiles (fireball/wind_charge/rocket) keep
+		// their own impact paths; the block hit below still applies.
 		if collided && isTrident {
 			// The channeling enchantment's post_attack effect is
 			// data-driven in 26.2: thundering + can_see_sky at the
@@ -235,6 +239,9 @@ func (s *Server) arrowTickStep() {
 		if collided {
 			if isPotion {
 				s.potionSplash(e, e.X, e.Y, e.Z)
+				if name == "lingering_potion" {
+					s.spawnLingeringCloud(e)
+				}
 			}
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemove([]int32{e.ID})
@@ -247,9 +254,33 @@ func (s *Server) arrowTickStep() {
 			e.MotionX, e.MotionY, e.MotionZ = 0, 0, 0
 			if isPotion {
 				s.potionSplash(e, hx, hy, hz)
+				if name == "lingering_potion" {
+					s.spawnLingeringCloud(e)
+				}
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemove([]int32{e.ID})
 				continue
+			}
+			if name == "small_fireball" && s.fireballOwnerLiving(e) {
+				// SmallFireball.onHitBlock: the ignite only runs when
+				// the owner is a living entity (dispenser shots skip
+				// it) and mob_griefing holds. The face cell must be
+				// empty — getState writes the plain fire state.
+				fp := world.Pos{X: bx, Y: by, Z: bz}
+				switch axis {
+				case 0:
+					fp.X += fireballHitDir(hx, bx)
+				case 1:
+					fp.Y += fireballHitDir(hy, by)
+				case 2:
+					fp.Z += fireballHitDir(hz, bz)
+				}
+				if d := s.dimensionByName(e.Dim); d != nil && d.w.GetBlock(fp) == world.Air {
+					if nb, ok := world.BlockStateOf("fire", nil); ok {
+						s.setSilentBlock(d, fp, nb)
+						s.rsNeighborFanOut(d, fp)
+					}
+				}
 			}
 			if !sticks {
 				// Egg/snowball/xp bottle/fireball/rocket: the block hit
@@ -957,4 +988,69 @@ func (s *Server) splashApplyPlayer(e *Entity, sess *Session, effects []splashEff
 		}
 		s.applyMobEffectFlags(sess, id, eff.amp, dur, false)
 	}
+}
+
+// thrownCollide is ThrowableItemProjectile.onHitEntity for the plain
+// thrown items: the hurt amount is 0 (a knockback/animation-only hit)
+// except a snowball's 3 damage to blazes.
+func (s *Server) thrownCollide(e *Entity, ox, oy, oz float64, name string) bool {
+	shooter := s.sessionByEntityID(e.arrowShooter)
+	hit := false
+	s.entities.mu.RLock()
+	targets := make([]*Entity, 0, len(s.entities.byID))
+	for _, t := range s.entities.byID {
+		targets = append(targets, t)
+	}
+	s.entities.mu.RUnlock()
+	for _, t := range targets {
+		if hit || !t.Living || t.Dying || t.ID == e.ID || t.ID == e.arrowShooter {
+			continue
+		}
+		if t.Dim != e.Dim {
+			continue
+		}
+		bb := mobBounds(t.Type)
+		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+			continue
+		}
+		hit = true
+		dmg := float32(0)
+		if name == "snowball" {
+			if tn, ok := EntityTypeName(t.Type); ok && tn == "blaze" {
+				dmg = 3
+			}
+		}
+		s.damageMob(t, dmg, "thrown_item_projectile", shooter, &damageInfo{
+			typeName: "thrown_item_projectile",
+			cause:    e.arrowShooter,
+			direct:   e.ID,
+		})
+	}
+	return hit
+}
+
+// fireballHitDir picks the side of the struck block the hit point
+// sits on (+1/-1 along the axis).
+func fireballHitDir(hit float64, cell int) int {
+	if hit-float64(cell) > 0.5 {
+		return 1
+	}
+	return -1
+}
+
+// fireballOwnerLiving — SmallFireball's ignite gate: the shot
+// ignites only when a living owner fired it (mob_griefing must also
+// hold; dispenser-fired shots have no owner and never ignite).
+func (s *Server) fireballOwnerLiving(e *Entity) bool {
+	if e.arrowShooter == 0 {
+		return false
+	}
+	if !s.gameRuleBool("minecraft:mob_griefing") {
+		return false
+	}
+	owner, ok := s.entities.GetPtr(e.arrowShooter)
+	if !ok {
+		return false
+	}
+	return owner.Living
 }

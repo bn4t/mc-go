@@ -6387,3 +6387,21 @@ More of `DispenseItemBehavior.bootStrap`, all pinned by
   growth), $7/$8 golem patterns, $11 brush, chest-saddle,
   EquipmentDispenseItemBehavior (needs mob slot reads for probes),
   shears entity-shear, SulfurCubeBlock.
+
+## Slice 2026-09-25b — projectile-impact aftermath
+
+Thrown-hurt: egg/snowball/experience_bottle now run `thrownCollide` on
+entity contact — dmg 0, snowball vs blaze 3, type
+`thrown_item_projectile` with a `damageInfo` carrying the shooter's
+position. Lingering potions spawn their `area_effect_cloud` on both
+entity-hit and block-hit (`spawnLingeringCloud`; its empty-Effects early
+return removed — vanilla always emits the cloud). `small_fireball`
+block-hit writes plain `fire` into the face cell — gated on
+`fireballOwnerLiving` (owner is a living entity + mob_griefing);
+dispenser-fired shots have no owner and never ignite (measured: oak_log
+west-face and under-log hits both leave air on vanilla). Splash/lingering
+dispense now wires `st.Potion` through `splashPotionContents` into
+`e.Effects` + `e.splashPotion`. `TestDispenseProjectileParity`: +lingering
+fixture (`potion_contents={potion:"minecraft:poison"}`), fire_charge
+facing-east + facing-up cells, probes for cloud formation and the
+miss/miss ignite rule.
