@@ -2011,6 +2011,27 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	dx, _, dz := lookVector(e.Yaw, 0)
 	nx := e.X + dx*mobWalkSpeed
 	nz := e.Z + dz*mobWalkSpeed
+	// RestrictSunGoal: the AbstractSkeleton family latches avoidSun
+	// while daylight is bright and the head slot is bare, and
+	// GroundPathNavigation.trimPath then cuts every path at the first
+	// sky-visible node — but only while the mob itself is under cover
+	// (a sunlit skeleton walks free; FleeSunGoal carries it to shade).
+	// mc-go has no path graph, so the wander step refuses the same
+	// shade-to-sun crossing: the step is skipped and the heading
+	// re-aimed, pinning the skeleton along the shadow's edge.
+	if mobSunFlees[func() string { n, _ := EntityTypeName(e.Type); return n }()] &&
+		s.isBrightOutside() && e.Equips[equipHelmet].Empty() {
+		if d := s.dims[e.Dim]; d != nil && d.skylight {
+			midY := int(math.Floor(e.Y + 0.5))
+			cur := world.Pos{X: int(math.Floor(e.X)), Y: midY, Z: int(math.Floor(e.Z))}
+			nxt := world.Pos{X: int(math.Floor(nx)), Y: midY, Z: int(math.Floor(nz))}
+			if !s.cropLit(d, cur) && s.cropLit(d, nxt) {
+				e.Yaw += 90
+				e.HeadYaw = e.Yaw
+				return
+			}
+		}
+	}
 	nextBelow := world.Pos{
 		X: int(math.Floor(nx)),
 		Y: int(math.Floor(e.Y)) - 1,

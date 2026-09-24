@@ -5777,3 +5777,26 @@ mc-go's both equal the expected table (identical output on both legs).
 
 Open items still ahead: RestrictSunGoal wander bias, online mode,
 redstone, terrain gen, lighting.
+
+## Slice 2026-09-24i — RestrictSunGoal / avoidSun path trim
+
+Measured: RestrictSunGoal lives only on AbstractSkeleton (skeleton,
+stray, bogged, wither_skeleton); canUse = isBrightOutside + bare head
++ ground navigation, and start/stop just toggle
+GroundPathNavigation.avoidSun. The bite is in trimPath: while the
+mob's own position (y+0.5 block) can't see sky, every computed path
+is walked node-by-node and truncated at the first sky-visible node —
+a shaded skeleton never paths into the sun. Once sunlit, no trim at
+all (it can still reach shade, and FleeSunGoal owns the burn-driven
+dash).
+
+mc-go has no path graph, so mobMoveStep refuses the same crossing:
+sun-shy skeleton type + bright + bare head + currently shaded +
+next-step block sees sky → skip the step and re-aim the heading.
+
+TestRestrictSunParity roofs a 13x13 footprint over a summoned
+skeleton at noon; after 25s of wandering both legs report Pos inside
+the shaded blocks (van 1.8,4.2 / mc-go 1.3,0.1 — block x/z in -6..6
+never sees sky, center bounded to |coord| < 7.9).
+
+Open items still ahead: online mode, redstone, terrain gen, lighting.
