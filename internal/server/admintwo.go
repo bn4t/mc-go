@@ -242,8 +242,32 @@ func (s *Server) runFunction(player string, args []string) reply {
 		if !strings.HasPrefix(rest, "{") && args[1] != "with" {
 			return errTokenEnd("argument.nbt.expected.compound", 2)
 		}
+		return componentReply(commandError("commands.function.instantiationFailure", fn, ""))
 	}
-	return componentReply(commandError("arguments.function.unknown", fn))
+	lines, ok := s.functions[fn]
+	if !ok {
+		return componentReply(commandError("arguments.function.unknown", fn))
+	}
+	// Each line runs as its own command with the caller as source at
+	// the function-permission-level; per-line feedback stays out of
+	// chat the way vanilla's function execution sinks it, and a
+	// failing line aborts the call with that command's own error.
+	// Vanilla's /function reply is the scheduled key: execution is
+	// deferred to the enclosing command's queue.
+	for _, ln := range lines {
+		fields := splitCommandArgs(ln)
+		if len(fields) == 0 {
+			continue
+		}
+		r, ok := s.runCommandAt(player, functionPermLevel, fields[0], fields[1:])
+		if !ok {
+			return componentReply(commandError("command.unknown.command"))
+		}
+		if r.fail != nil {
+			return r
+		}
+	}
+	return componentReply(translatable("commands.function.scheduled.single", fn))
 }
 
 // ---- fetchprofile ----

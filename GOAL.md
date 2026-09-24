@@ -5460,3 +5460,62 @@ wired — getBannerComponentPatch's four components are on the
 white_banner slot form), elder setHomeTo(pos,16) home restriction,
 per-damage-type hurt variants, online mode, redstone, terrain gen,
 lighting.
+
+## Slice 2026-09-24b — patrol captain gear + ominous bottle drops + datapack /function
+
+TestCaptainParity pins the raid-captain slice on both servers: a
+deterministic captain summon (equipment.head carrying the
+getBannerComponentPatch four-component set + drop_chances{head:2.0f}
++ PatrolLeader), its set_equipment patch on the wire ([9 12 18 72]),
+the kill drops (exactly one ominous banner + one ominous_bottle with
+amplifier uniform 0-4), the voluntary_exile advancement grant, and a
+non-captain pillager leg that must show none of it.
+
+Measured this slice:
+
+- The 256-byte serverbound command cap is real on both ends (vanilla
+  fails argument.literal.incorrect; mc-go truncated silently — same
+  cap, already there). The ~800-char captain summon therefore runs
+  through a datapack function on BOTH legs.
+- Packrat SNBT quirk: inside a .mcfunction the summon NBT only parses
+  when `equipment` leads the compound — `drop_chances`-first variants
+  with a full component map fail "Expected literal" at end of input.
+- Raider.isCaptain = head ItemStack matching
+  Raid.getOminousBannerInstance AND patrolLeader — not the flag alone.
+- dropAllDeathLoot: shouldDropLoot (!baby + mob_drops) gates
+  dropFromLootTable + dropCustomDeathLoot; dropEquipment is a stub —
+  Mob.dropCustomDeathLoot owns the per-slot roll (dropChance 0 → skip,
+  preserved >1 + hitByPlayer bypasses the killer check, random<f).
+  Pillager is the only raider with a captain loot pool:
+  type_specific/raider {is_captain:true} → 1 ominous_bottle +
+  set_ominous_bottle_amplifier uniform 0-4, no killed_by_player gate.
+  Captain death = head-slot banner (dropChance 2.0) + bottle — no
+  second banner (verified live via `data get` on spawned items).
+- voluntary_exile.json = player_killed_entity on #minecraft:raiders
+  with entity predicate equipment.head = the ominous patch. (The
+  sibling `minecraft:raid_omen` trigger handles raid absorption; a
+  `minecraft:voluntary_exile` trigger literal does not exist — mc-go
+  maps it onto raid_omen's fire path.)
+- Component wire shapes re-verified: item_name is a full unnamed NBT
+  tag; tooltip_display hidden_components are RAW component-type ids
+  (not holder+1); rarity VarInt ordinal; ominous_bottle_amplifier a
+  bare VarInt (id 63).
+- Vanilla's /function reply is commands.function.scheduled.single
+  (functions run through the deferred execution queue); inner-command
+  feedback still reaches the player.
+- Summoned pillagers pick up a dropped ominous banner into head and
+  become captains (ObtainRaidLeaderBannerGoal/pickUpItem) — the test
+  clears ground items between legs or every retry rolls captain.
+
+mc-go side: loadFunctions scans WorldDir/datapacks/*/data/
+<ns>/function/**.mcfunction at world load (pack.mcmeta required, same
+as vanilla's folder pack source), /function executes lines through
+runCommandAt at the function-permission-level (2), and summon NBT's
+equipment block lands head-slot ItemStacks incl. the Ominous marker
+the loot-pool captain gate and set_equipment patch emit. writeSlot's
+tooltip_display now writes raw component ids (was holder+1).
+
+Open items remaining: witch raider-heal throw, RestrictSunGoal
+wander bias, natural patrol spawn cycle (PatrolSpawner), elder
+setHomeTo(pos,16), per-damage-type hurt variants, online mode,
+redstone, terrain gen, lighting.

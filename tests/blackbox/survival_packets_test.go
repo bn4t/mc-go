@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
 	"mc-go/internal/server"
 	"mc-go/internal/world"
@@ -1936,95 +1937,105 @@ func readSlotBB(r *protocol.PacketReader) (server.ItemStack, error) {
 // carrying an unmodeled component (enchantments, a custom name) stays
 // a loud parse error instead of a silent desync.
 func readSlotBBFull(r *protocol.PacketReader) (server.ItemStack, int32, bool, error) {
+	it, dmg, hasDmg, _, err := readSlotBBComps(r)
+	return it, dmg, hasDmg, err
+}
+
+// readSlotBBComps is readSlotBBFull plus the emitted component-type id
+// list — tests asserting the exact patch shape (the captain banner's
+// 4-component set, the bottle amplifier) read it.
+func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, []int32, error) {
 	count, err := r.VarInt()
 	if err != nil || count <= 0 {
-		return server.ItemStack{}, 0, false, err
+		return server.ItemStack{}, 0, false, nil, err
 	}
 	id, err := r.VarInt()
 	if err != nil {
-		return server.ItemStack{}, 0, false, err
+		return server.ItemStack{}, 0, false, nil, err
 	}
 	nadd, err := r.VarInt() // components to add
 	if err != nil {
-		return server.ItemStack{}, 0, false, err
+		return server.ItemStack{}, 0, false, nil, err
 	}
 	nrem, err := r.VarInt() // components to remove (types only, no payload)
 	if err != nil {
-		return server.ItemStack{}, 0, false, err
+		return server.ItemStack{}, 0, false, nil, err
 	}
 	var dmg int32
 	hasDmg := false
+	var comps []int32
 	it := server.ItemStack{}
 	for ; nadd > 0; nadd-- {
 		typ, err := r.VarInt()
 		if err != nil {
-			return server.ItemStack{}, 0, false, err
+			return server.ItemStack{}, 0, false, nil, err
 		}
+		comps = append(comps, typ)
 		switch typ {
 		case 3: // minecraft:damage, VarInt payload (measured 26.2)
 			dmg, err = r.VarInt()
 			if err != nil {
-				return server.ItemStack{}, 0, false, err
+				return server.ItemStack{}, 0, false, nil, err
 			}
 			it.Damage = dmg
 			hasDmg = true
 		case 6: // minecraft:custom_name, NBT string tag (measured 26.2)
 			tag, terr := r.Byte()
 			if terr != nil {
-				return server.ItemStack{}, 0, false, terr
+				return server.ItemStack{}, 0, false, nil, terr
 			}
 			if tag != 0x08 {
-				return server.ItemStack{}, 0, false, fmt.Errorf("blackbox: custom_name tag %d is not a string", tag)
+				return server.ItemStack{}, 0, false, nil, fmt.Errorf("blackbox: custom_name tag %d is not a string", tag)
 			}
 			n, terr2 := r.UShort()
 			if terr2 != nil {
-				return server.ItemStack{}, 0, false, terr2
+				return server.ItemStack{}, 0, false, nil, terr2
 			}
 			raw, terr3 := r.Read(int(n))
 			if terr3 != nil {
-				return server.ItemStack{}, 0, false, terr3
+				return server.ItemStack{}, 0, false, nil, terr3
 			}
 			it.Name = string(raw)
 		case 19: // minecraft:repair_cost, VarInt payload (measured 26.2)
 			if it.RepairCost, err = r.VarInt(); err != nil {
-				return server.ItemStack{}, 0, false, err
+				return server.ItemStack{}, 0, false, nil, err
 			}
 		case 51: // minecraft:potion_contents (measured 26.2): holder bool+id,
 			// then absent custom_color / effects list / custom_name.
 			if tag, terr := r.Byte(); terr != nil {
-				return server.ItemStack{}, 0, false, terr
+				return server.ItemStack{}, 0, false, nil, terr
 			} else if tag != 0 {
 				pid, terr := r.VarInt()
 				if terr != nil {
-					return server.ItemStack{}, 0, false, terr
+					return server.ItemStack{}, 0, false, nil, terr
 				}
 				it.Potion = fmt.Sprintf("h%d", pid)
 			}
 			if _, terr := r.Byte(); terr != nil { // custom_color
-				return server.ItemStack{}, 0, false, terr
+				return server.ItemStack{}, 0, false, nil, terr
 			}
 			if n, terr := r.VarInt(); terr != nil { // custom_effects
-				return server.ItemStack{}, 0, false, terr
+				return server.ItemStack{}, 0, false, nil, terr
 			} else if n != 0 {
-				return server.ItemStack{}, 0, false, fmt.Errorf("blackbox: potion custom_effects %d", n)
+				return server.ItemStack{}, 0, false, nil, fmt.Errorf("blackbox: potion custom_effects %d", n)
 			}
 			if _, terr := r.Byte(); terr != nil { // custom_name
-				return server.ItemStack{}, 0, false, terr
+				return server.ItemStack{}, 0, false, nil, terr
 			}
 		case 13, 42: // minecraft:enchantments / stored_enchantments: VarInt map of enchant id to level (measured 26.2)
 			n, err := r.VarInt()
 			if err != nil {
-				return server.ItemStack{}, 0, false, err
+				return server.ItemStack{}, 0, false, nil, err
 			}
 			var pairs []string
 			for ; n > 0; n-- {
 				eid, err := r.VarInt()
 				if err != nil {
-					return server.ItemStack{}, 0, false, err
+					return server.ItemStack{}, 0, false, nil, err
 				}
 				lv, err := r.VarInt()
 				if err != nil {
-					return server.ItemStack{}, 0, false, err
+					return server.ItemStack{}, 0, false, nil, err
 				}
 				pairs = append(pairs, fmt.Sprintf("%d:%d", eid, lv))
 			}
@@ -2033,18 +2044,75 @@ func readSlotBBFull(r *protocol.PacketReader) (server.ItemStack, int32, bool, er
 			} else {
 				it.StoredEnch = strings.Join(pairs, ",")
 			}
+		case 72: // minecraft:banner_patterns: VarInt layer count, then
+			// (pattern holder VarInt, dye ordinal VarInt) pairs — the
+			// captain banner writes 8.
+			n, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			for ; n > 0; n-- {
+				if _, err := r.VarInt(); err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				if _, err := r.VarInt(); err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+			}
+			it.Ominous = true
+		case 18: // minecraft:tooltip_display: hide byte then a VarInt
+			// holder list of hidden component types.
+			if _, err := r.Byte(); err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			n, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			for ; n > 0; n-- {
+				if _, err := r.VarInt(); err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+			}
+		case 9: // minecraft:item_name: an NBT text component — the
+			// captain banner ships a {translate:} compound; string form
+			// is legal too. ReadUnnamed consumes the tag byte itself.
+			if _, terr := nbt.ReadUnnamed(pktReader{r}); terr != nil {
+				return server.ItemStack{}, 0, false, nil, terr
+			}
+		case 12: // minecraft:rarity, enum VarInt
+			if _, err := r.VarInt(); err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+		case 63: // minecraft:ominous_bottle_amplifier, VarInt
+			amp, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			it.BottleAmpSet = true
+			it.BottleAmp = amp
 		default:
-			return server.ItemStack{}, 0, false, fmt.Errorf("blackbox: unknown added component type %d on item %d", typ, id)
+			return server.ItemStack{}, 0, false, nil, fmt.Errorf("blackbox: unknown added component type %d on item %d", typ, id)
 		}
 	}
 	for ; nrem > 0; nrem-- {
 		if _, err := r.VarInt(); err != nil { // removed types carry no payload
-			return server.ItemStack{}, 0, false, err
+			return server.ItemStack{}, 0, false, nil, err
 		}
 	}
 	it.ID = id
 	it.Count = count
-	return it, dmg, hasDmg, nil
+	return it, dmg, hasDmg, comps, nil
+}
+
+// pktReader adapts PacketReader to io.Reader so nbt.ReadUnnamed can
+// consume a mid-stream compound.
+type pktReader struct{ r *protocol.PacketReader }
+
+func (p pktReader) Read(b []byte) (int, error) {
+	d, err := p.r.Read(len(b))
+	n := copy(b, d)
+	return n, err
 }
 
 // TestEquipmentPackets proves armor sync at the packet level: equipping

@@ -426,7 +426,7 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 						if tn, ok := EntityTypeName(t.Type); ok {
 							vx, vz := t.X, t.Z
 							ax, _, az, _, _, _ := shooter.Pos()
-							s.firePlayerKilledEntityDamage(shooter, tn, vx, vz, ax, az, true, typeName)
+							s.firePlayerKilledEntityDamage(shooter, tn, vx, vz, ax, az, true, typeName, t.Equips[equipHelmet].Ominous)
 							s.fireKillNearSculk(shooter, t.X, t.Y, t.Z, t.Dim)
 							if e.arrowWeapon != "" {
 								s.fireKilledByArrow(shooter, tn, e.arrowWeapon)

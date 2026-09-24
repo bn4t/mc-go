@@ -24,6 +24,9 @@ type lootEntry struct {
 	// looting flags the entry carrying enchanted_count_increase —
 	// round(uniform[0,1] * level) is added to the rolled count.
 	looting bool
+	// bottleAmp is set_ominous_bottle_amplifier — the drop rolls a
+	// uniform 0-4 amplifier into an ominous_bottle stack.
+	bottleAmp bool
 }
 
 // lootPool is one roll group of a mob's entity loot table.
@@ -32,6 +35,10 @@ type lootPool struct {
 	// playerKill gates pools carrying killed_by_player: the victim's
 	// lastHurtByPlayer window must be live.
 	playerKill bool
+	// captain gates the type_specific/raider {is_captain:true} pools —
+	// vanilla's Raider.isCaptain reads the head slot matching the
+	// ominous banner, so the check here is Equips[head].Ominous.
+	captain bool
 	// rare gates pools carrying random_chance_with_enchanted_bonus:
 	// rareUnenchanted at looting 0, else rareBase + rarePer·(l-1).
 	rare              bool
@@ -160,6 +167,12 @@ var mobLoot = map[string][]lootPool{
 		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
 			{item: "iron_ingot", min: 3, max: 5}}},
 	},
+	// pillager carries only the captain pool — no killed_by_player
+	// gate, one bottle, amplifier uniform 0-4.
+	"pillager": {
+		{captain: true, rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+			{item: "ominous_bottle", min: 1, max: 1, bottleAmp: true}}},
+	},
 }
 
 // spawnMobLoot rolls the mob's drops at its position. Vanilla's
@@ -173,10 +186,25 @@ func (s *Server) spawnMobLoot(e *Entity, killer *Session) {
 	if !ok {
 		return
 	}
-	if e.Baby || !s.gameRuleBool("minecraft:mob_drops") {
-		return
-	}
 	byPlayer := e.LastHurtByPlayerTicks > 0
+	// dropFromLootTable is gated by shouldDropLoot (not-baby) and the
+	// mob_drops gamerule; the equipment pass below is not.
+	if !e.Baby && s.gameRuleBool("minecraft:mob_drops") {
+		s.spawnMobLootPools(e, killer, name, byPlayer)
+	}
+	// dropEquipment runs unconditionally — vanilla drops every
+	// equipment slot by its dropChance even when mob_drops is false.
+	// Only the captain banner's unconditional 2.0 is modeled; the
+	// default 0.085 slots are not.
+	if head := e.Equips[equipHelmet]; head.Ominous {
+		s.spawnMobStack(e, head)
+	}
+}
+
+// spawnMobLootPools rolls the mob's loot-table drops at its position.
+// The type_specific/raider is_captain condition reads the ominous
+// head banner.
+func (s *Server) spawnMobLootPools(e *Entity, killer *Session, name string, byPlayer bool) {
 	looting := int32(0)
 	smelts := false
 	if killer != nil {
@@ -189,6 +217,9 @@ func (s *Server) spawnMobLoot(e *Entity, killer *Session) {
 	}
 	for _, p := range mobLoot[name] {
 		if p.playerKill && !byPlayer {
+			continue
+		}
+		if p.captain && !mobIsCaptain(e) {
 			continue
 		}
 		if p.rare {
@@ -217,9 +248,27 @@ func (s *Server) spawnMobLoot(e *Entity, killer *Session) {
 			if ent.smeltTo != "" && (e.FireTicks > 0 || smelts) {
 				item = ent.smeltTo
 			}
+			if ent.bottleAmp {
+				if id, ok := world.ItemID(item); ok && count > 0 {
+					s.spawnMobStack(e, ItemStack{
+						ID:           id,
+						Count:        count,
+						BottleAmpSet: true,
+						BottleAmp:    int32(rand.Intn(5)),
+					})
+				}
+				continue
+			}
 			spawnItem(item, count)
 		}
 	}
+}
+
+// mobIsCaptain is Raider.isCaptain: the head slot carries the ominous
+// banner — vanilla checks ItemStack.matches(head, ominousBannerInstance),
+// which mc-go's Ominous flag stands in for.
+func mobIsCaptain(e *Entity) bool {
+	return e.Equips[equipHelmet].Ominous
 }
 
 // spawnMobItem drops one item stack at the mob's position — vanilla's
@@ -230,13 +279,20 @@ func (s *Server) spawnMobItem(e *Entity, item string, count int32) {
 	if !ok || count <= 0 {
 		return
 	}
+	s.spawnMobStack(e, ItemStack{ID: id, Count: count})
+}
+
+// spawnMobStack is spawnMobItem for a fully-formed stack — the captain
+// banner and ominous bottle carry components that item+count can't
+// express.
+func (s *Server) spawnMobStack(e *Entity, st ItemStack) {
 	it := s.entities.Spawn(&Entity{
 		Type:        mustEntityType("item"),
 		Dim:         e.Dim,
 		X:           e.X,
 		Y:           e.Y + 0.25,
 		Z:           e.Z,
-		Item:        ItemStack{ID: id, Count: count},
+		Item:        st,
 		PickupDelay: 10,
 	})
 	s.broadcastEntitySpawn(nil, *it)
@@ -556,6 +612,17 @@ func (s *Server) runSummon(player string, args []string) reply {
 					// the bare level map or wrapped under "levels" —
 					// accept both NBT spellings.
 					if comps, ok := sd.vals["components"]; ok {
+						// A white_banner head carrying banner_patterns +
+						// item_name block.minecraft.ominous_banner is the
+						// captain patch — Raider.isCaptain matches on it.
+						if slot == equipHelmet {
+							_, pat := comps.vals["minecraft:banner_patterns"]
+							nm := comps.vals["minecraft:item_name"].vals["translate"].str
+							if pat && nm == "block.minecraft.ominous_banner" &&
+								strings.TrimPrefix(idv.str, "minecraft:") == "white_banner" {
+								it.Ominous = true
+							}
+						}
 						if en, ok := comps.vals["minecraft:enchantments"]; ok {
 							lvls := en.vals
 							if lm, ok := en.vals["levels"]; ok {
@@ -3083,7 +3150,7 @@ func (s *Server) mobDefaultEquipOpt(e *Entity, eventSpawn bool) {
 					if e.Equips == nil {
 						e.Equips = map[int32]ItemStack{}
 					}
-					e.Equips[equipHelmet] = ItemStack{ID: wb, Count: 1}
+					e.Equips[equipHelmet] = ItemStack{ID: wb, Count: 1, Ominous: true}
 				}
 			}
 		}

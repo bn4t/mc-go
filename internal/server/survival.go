@@ -807,7 +807,7 @@ func (s *Server) killPlayer(sess *Session, message component) {
 		// advancement's killed_something criterion matches any entity.
 		vx, _, vz, _, _, _ := sess.Pos()
 		ax, _, az, _, _, _ := src.Pos()
-		s.firePlayerKilledEntity(src, "player", vx, vz, ax, az)
+		s.firePlayerKilledEntity(src, "player", vx, vz, ax, az, false)
 	}
 	// entity_killed_player is the victim-side trigger (killed_by_-
 	// something on adventure/root): fires whenever an entity did the

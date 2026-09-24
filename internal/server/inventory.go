@@ -73,6 +73,12 @@ type ItemStack struct {
 	// tooltip_display hiding them, item_name block.minecraft.ominous_banner,
 	// and rarity uncommon.
 	Ominous bool `json:"ominous,omitempty"`
+	// BottleAmpSet/BottleAmp carry minecraft:ominous_bottle_amplifier —
+	// set_ominous_bottle_amplifier rolls uniform 0-4 into the bottle a
+	// raid captain drops. Amplifier 0 is a legal value, so presence
+	// needs its own flag.
+	BottleAmpSet bool  `json:"bottle_amp_set,omitempty"`
+	BottleAmp    int32 `json:"bottle_amp,omitempty"`
 }
 
 // Empty reports whether the slot holds nothing.
@@ -89,7 +95,8 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.Damage == other.Damage && it.RepairCost == other.RepairCost &&
 		it.Name == other.Name && it.Ench == other.Ench &&
 		it.StoredEnch == other.StoredEnch && it.Bees == other.Bees &&
-		it.Potion == other.Potion && it.Ominous == other.Ominous
+		it.Potion == other.Potion && it.Ominous == other.Ominous &&
+		it.BottleAmpSet == other.BottleAmpSet && it.BottleAmp == other.BottleAmp
 }
 
 // enchLevel reports the stack's level of one enchantment, or 0 when
@@ -161,6 +168,9 @@ const (
 	compItemName       = 9
 	compRarity         = 12
 	rarityUncommon     = 1
+	// ominous_bottle_amplifier is a bare VarInt, registered 64th in the
+	// data_component_type registry (measured on 26.2).
+	compOminousBottleAmplifier = 63
 )
 
 // potionNamesByID inverts data.PotionIDs for the decode path; the
@@ -204,6 +214,9 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 	}
 	if it.Ominous {
 		add += 4
+	}
+	if it.BottleAmpSet {
+		add++
 	}
 	b.VarInt(add)
 	b.VarInt(0) // components to remove
@@ -272,8 +285,8 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 		}
 		b.VarInt(compTooltipDisplay)
 		b.Byte(0)   // hide_tooltip false
-		b.VarInt(1) // hidden_components: one holder
-		b.VarInt(compBannerPatterns + 1)
+		b.VarInt(1) // hidden_components count
+		b.VarInt(compBannerPatterns)
 		b.VarInt(compItemName)
 		// A translatable component writes as an NBT compound:
 		// {translate:"block.minecraft.ominous_banner"}.
@@ -286,6 +299,11 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 		b.Byte(0)
 		b.VarInt(compRarity)
 		b.VarInt(rarityUncommon)
+	}
+	if it.BottleAmpSet {
+		// OminousBottleAmplifier.STREAM_CODEC is a bare VarInt.
+		b.VarInt(compOminousBottleAmplifier)
+		b.VarInt(it.BottleAmp)
 	}
 }
 

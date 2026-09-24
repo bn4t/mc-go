@@ -60,7 +60,7 @@ type advMeta struct {
 	sculks     []sleepCond     // kill_mob_near_sculk_catalyst — no conditions
 	vibrates   []sleepCond     // avoid_vibration — a sneaking emission a sensor heard
 	heros      []sleepCond     // hero_of_the_village — a defended-raid victory
-	omens      []sleepCond     // voluntary_exile — a raid_omen absorbed into a raid
+	omens      []sleepCond     // raid_omen — absorbed into a raid (all_effects)
 	beacons    []beaconCond    // construct_beacon — pyramid activated
 	recipes    []recipeCond    // recipe_crafted — a recipe completed
 	crafters   []recipeCond    // crafter_recipe_crafted — a powered crafter ejected
@@ -94,18 +94,22 @@ type locCond struct {
 }
 
 // killCond is one criterion's player_killed_entity condition reduced to
-// what mc-go can evaluate: the victim's entity type and the horizontal
-// distance between victim and killer. Anything else in the condition
-// (equipment, entity tags beyond type, mob effects, ...) sets impossible
+// what mc-go can evaluate: the victim's entity type, the horizontal
+// distance between victim and killer, and the ominous-banner head
+// equipment predicate voluntary_exile uses. Anything else in the
+// condition (entity tags beyond type, mob effects, ...) sets impossible
 // so the criterion stays locked — the same as vanilla when the predicate
 // does not match.
 type killCond struct {
-	crit       string
-	types      map[string]bool // nil = any entity
-	minDist    float64         // conditions.entity[].distance.horizontal.min
-	needsProj  bool            // killing_blow.tags contains is_projectile
-	direct     map[string]bool // killing_blow.direct_entity entity types
-	impossible bool
+	crit      string
+	types     map[string]bool // nil = any entity
+	minDist   float64         // conditions.entity[].distance.horizontal.min
+	needsProj bool            // killing_blow.tags contains is_projectile
+	direct    map[string]bool // killing_blow.direct_entity entity types
+	// headOminous is equipment.head matching the captain patch —
+	// white_banner + banner_patterns + item_name ominous_banner.
+	headOminous bool
+	impossible  bool
 }
 
 // hurtCond is one player_hurt_entity criterion reduced to what mc-go
@@ -372,7 +376,7 @@ func loadGameAdvs() map[string]*advMeta {
 					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
 				case "minecraft:hero_of_the_village":
 					m.heros = append(m.heros, parseSleepCond(cname, cm["conditions"]))
-				case "minecraft:voluntary_exile":
+				case "minecraft:raid_omen":
 					m.omens = append(m.omens, parseSleepCond(cname, cm["conditions"]))
 				}
 			}
@@ -493,6 +497,17 @@ func parseKillCond(cname string, conds any) killCond {
 						}
 					}
 				}
+			case "minecraft:equipment":
+				// Only the voluntary_exile shape is modeled: head matches
+				// the ominous captain banner. Any other slot predicate
+				// locks the criterion.
+				em2, _ := v.(map[string]any)
+				hm, _ := em2["head"].(map[string]any)
+				if hm != nil && killHeadIsOminous(hm) && len(em2) == 1 {
+					kc.headOminous = true
+				} else {
+					kc.impossible = true
+				}
 			default:
 				kc.impossible = true
 			}
@@ -524,13 +539,36 @@ func parseKillCond(cname string, conds any) killCond {
 	return kc
 }
 
+// killHeadIsOminous reports whether an equipment.head item predicate is
+// the captain banner shape — items white_banner plus a components map
+// carrying banner_patterns and item_name block.minecraft.ominous_banner
+// (vanilla's exact ItemStack.matches stand-in).
+func killHeadIsOminous(hm map[string]any) bool {
+	itemsOK := false
+	switch iv := hm["items"].(type) {
+	case string:
+		itemsOK = strings.TrimPrefix(iv, "minecraft:") == "white_banner"
+	case []any:
+		for _, s := range iv {
+			if strings.TrimPrefix(asJSONString(s), "minecraft:") == "white_banner" {
+				itemsOK = true
+			}
+		}
+	}
+	comps, _ := hm["components"].(map[string]any)
+	_, hasPat := comps["minecraft:banner_patterns"]
+	nm, _ := comps["minecraft:item_name"].(map[string]any)
+	return itemsOK && hasPat && nm["translate"] == "block.minecraft.ominous_banner"
+}
+
 // firePlayerKilledEntity evaluates every player_killed_entity criterion
-// against a kill: victimType is the entity's registry name and (vx,vz vs
-// ax,az) the horizontal distance between victim and attacker. Melee has
+// against a kill: victimType is the entity's registry name, (vx,vz vs
+// ax,az) the horizontal distance between victim and attacker, and
+// headOminous whether the victim wore the captain banner. Melee has
 // no projectile/direct entity, so criteria that require either never
 // match.
-func (s *Server) firePlayerKilledEntity(sess *Session, victimType string, vx, vz, ax, az float64) {
-	s.firePlayerKilledEntityDamage(sess, victimType, vx, vz, ax, az, false, "")
+func (s *Server) firePlayerKilledEntity(sess *Session, victimType string, vx, vz, ax, az float64, headOminous bool) {
+	s.firePlayerKilledEntityDamage(sess, victimType, vx, vz, ax, az, false, "", headOminous)
 }
 
 // firePlayerKilledEntityDamage is firePlayerKilledEntity carrying the
@@ -538,7 +576,7 @@ func (s *Server) firePlayerKilledEntity(sess *Session, victimType string, vx, vz
 // directType the direct entity's name ("arrow", "trident"; empty for a
 // plain melee strike, which has no direct entity separate from the
 // attacker).
-func (s *Server) firePlayerKilledEntityDamage(sess *Session, victimType string, vx, vz, ax, az float64, proj bool, directType string) {
+func (s *Server) firePlayerKilledEntityDamage(sess *Session, victimType string, vx, vz, ax, az float64, proj bool, directType string, headOminous bool) {
 	dx, dz := vx-ax, vz-az
 	distSq := dx*dx + dz*dz
 	for _, meta := range gameAdvs {
@@ -556,6 +594,9 @@ func (s *Server) firePlayerKilledEntityDamage(sess *Session, victimType string, 
 				continue
 			}
 			if kc.minDist > 0 && distSq < kc.minDist*kc.minDist {
+				continue
+			}
+			if kc.headOminous && !headOminous {
 				continue
 			}
 			sess.grantGameCriterion(meta, kc.crit)
@@ -1601,7 +1642,7 @@ func (s *Server) onPlayerKilledMob(sess *Session, e Entity) {
 		return
 	}
 	ax, _, az, _, _, _ := sess.Pos()
-	s.firePlayerKilledEntity(sess, name, e.X, e.Z, ax, az)
+	s.firePlayerKilledEntity(sess, name, e.X, e.Z, ax, az, e.Equips[equipHelmet].Ominous)
 	s.fireKillNearSculk(sess, e.X, e.Y, e.Z, e.Dim)
 }
 
@@ -1829,7 +1870,7 @@ func (s *Server) fireHeroOfVillage(sess *Session) {
 	}
 }
 
-// fireRaidOmen grants voluntary_exile criteria — vanilla's RAID_OMEN
+// fireRaidOmen grants raid_omen criteria — vanilla's RAID_OMEN
 // trigger fires when a player's raid_omen absorbs into a raid.
 func (s *Server) fireRaidOmen(sess *Session) {
 	for _, meta := range gameAdvs {

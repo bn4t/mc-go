@@ -182,6 +182,9 @@ type Server struct {
 	// vanilla pack); customPacks are packs /datapack create registered.
 	datapacks   map[string]bool
 	customPacks map[string]bool
+	// functions is the datapack function table loadFunctions fills from
+	// WorldDir/datapacks: resource id -> command lines.
+	functions map[string][]string
 
 	// stopwatches is the /stopwatch set: resource id -> start time.
 	stopwatchMu sync.Mutex
