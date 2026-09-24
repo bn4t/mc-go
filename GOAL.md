@@ -6184,3 +6184,34 @@ TestPistonParity: extend+head, push-1, obsidian/chest/extended-piston
 vetoes, torch destroy, 12-vs-13 cap, sticky pull, terracotta no-pull,
 slime branch+drag, slime/honey non-stick, QC power + latch + retract,
 piston-pushes-piston, and hand placement facing — all matching.
+
+## Slice 2026-09-24s — powered rail 9-chain (findPoweredRailSignal)
+
+Measured on the jar (PoweredRailBlock, PoweredRailBlock$1 switch,
+DetectorRailBlock) and pinned by TestPoweredRailChainParity — 13 probes.
+
+- updateState: powered = hasNeighborSignal(pos) || chain(true,0) ||
+  chain(false,0). On a flip vanilla setBlock's flag-3 fan-out runs
+  plus updateNeighborsAt(below) and — for a slope shape —
+  updateNeighborsAt(above).
+- findPoweredRailSignal steps one cell along the track's own axis per
+  link, capped at 8 hops (the lit rail up to 8 away counts). A level
+  step checks the moved-to cell AND the cell below it — that is how a
+  chain follows a rail that descends one block — while an ascending
+  step climbs and checks only the elevated cell.
+- isSameRailWithPower: the link must be the same block (powered_rail
+  never hops through activator_rail), on a compatible axis (an
+  EW-axis walk rejects north_south and the NS ascending shapes), and
+  already powered — then it either carries a direct neighbour signal
+  or the walk continues through it.
+- DetectorRailBlock.neighborChanged is only checkPressed (the
+  minecart AABB scan) — an adjacent lever does nothing; the earlier
+  mc-go code wrongly let a direct signal light it.
+
+Probes: direct-lit source, links 7 and 8 lit, links 9 and 10 dark,
+the flat→ascending→elevated climb staying lit both directions of the
+walk, the collapse wave on power removal, and the detector-rail
+negative — all matching vanilla.
+
+Deferred still: torch burnout (RECENT_TOGGLES), piston moving-block
+intermediates + entity push, useExperimentalEvaluator.

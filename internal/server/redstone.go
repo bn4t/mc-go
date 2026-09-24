@@ -415,17 +415,30 @@ func (s *Server) rsNeighborChanged(d *dimension, pos world.Pos) {
 			d.w.SetBlock(pos, nb)
 			s.broadcastBlockState(d, pos, nb)
 		}
-	case name == "powered_rail" || name == "activator_rail" ||
-		name == "detector_rail":
-		// BaseRailBlock.neighborChanged: powered follows the sensed
-		// signal (the 9-rail chain is a later slice).
-		if rsPropsOf(blk)("powered") == boolStr(sig) {
+	case name == "powered_rail" || name == "activator_rail":
+		// PoweredRailBlock.updateState: powered when a direct signal
+		// lands OR a lit same-block rail sits within 8 links of the
+		// connected track (findPoweredRailSignal, both directions).
+		pow := sig || rsRailChainPowered(d, pos, blk)
+		if rsPropsOf(blk)("powered") == boolStr(pow) {
 			return
 		}
-		if nb, ok := world.WithProperty(blk, "powered", boolStr(sig)); ok {
+		if nb, ok := world.WithProperty(blk, "powered", boolStr(pow)); ok {
+			// setBlock flag 3 + updateNeighborsAt(below) +, for a
+			// slope, updateNeighborsAt(above).
 			d.w.SetBlock(pos, nb)
 			s.broadcastBlockState(d, pos, nb)
+			s.rsNeighborFanOut(d, pos)
+			s.rsNeighborFanOut(d, world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z})
+			switch rsPropsOf(nb)("shape") {
+			case "ascending_east", "ascending_west",
+				"ascending_north", "ascending_south":
+				s.rsNeighborFanOut(d, world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z})
+			}
 		}
+	case name == "detector_rail":
+		// DetectorRailBlock.neighborChanged is checkPressed — a
+		// minecart scan only. A neighbouring signal never lights it.
 	case name == "redstone_torch" || name == "redstone_wall_torch":
 		// RedstoneTorchBlock.neighborChanged: when lit agrees with
 		// the mount's signal (lit while powered, dark while clear), a
@@ -1311,4 +1324,113 @@ func (s *Server) rsDiodeUpdateInFront(d *dimension, pos world.Pos, blk world.Blo
 	out := rsShiftPos(pos, rsOpposite(facing))
 	s.rsNeighborNotify(d, out)
 	s.rsNeighborFanOutExcept(d, out, facing)
+}
+
+// rsRailChainPowered is PoweredRailBlock's two-way
+// findPoweredRailSignal search: the rail lights when a lit same-block
+// rail sits within 8 links along the connected track in either
+// direction — the 9-rail power boost.
+func rsRailChainPowered(d *dimension, pos world.Pos, blk world.Block) bool {
+	return rsRailChainStep(d, pos, blk, true, 0) ||
+		rsRailChainStep(d, pos, blk, false, 0)
+}
+
+// rsRailChainStep is findPoweredRailSignal for one direction: move one
+// cell along the track (a slope climbs when walking uphill), then
+// check the cell — plus the cell below it when the step stayed level,
+// which is how a chain follows a downhill rail.
+func rsRailChainStep(d *dimension, pos world.Pos, blk world.Block, fwd bool, dist int) bool {
+	if dist >= 8 {
+		return false
+	}
+	x, y, z := pos.X, pos.Y, pos.Z
+	shape := rsPropsOf(blk)("shape")
+	axis := shape
+	level := true
+	switch shape {
+	case "north_south":
+		if fwd {
+			z++
+		} else {
+			z--
+		}
+	case "east_west":
+		if fwd {
+			x--
+		} else {
+			x++
+		}
+	case "ascending_east":
+		if fwd {
+			x--
+		} else {
+			x++
+			y++
+			level = false
+		}
+		axis = "east_west"
+	case "ascending_west":
+		if fwd {
+			x--
+			y++
+			level = false
+		} else {
+			x++
+		}
+		axis = "east_west"
+	case "ascending_north":
+		if fwd {
+			z++
+		} else {
+			z--
+			y++
+			level = false
+		}
+		axis = "north_south"
+	case "ascending_south":
+		if fwd {
+			z++
+			y++
+			level = false
+		} else {
+			z--
+		}
+		axis = "north_south"
+	default:
+		return false
+	}
+	if rsRailLinkPowered(d, world.Pos{X: x, Y: y, Z: z}, blk, fwd, dist, axis) {
+		return true
+	}
+	if level && rsRailLinkPowered(d, world.Pos{X: x, Y: y - 1, Z: z}, blk, fwd, dist, axis) {
+		return true
+	}
+	return false
+}
+
+// rsRailLinkPowered is isSameRailWithPower: the link must be the same
+// rail block on a compatible axis and already POWERED, then either
+// carry a direct signal or keep walking.
+func rsRailLinkPowered(d *dimension, pos world.Pos, src world.Block, fwd bool, dist int, axis string) bool {
+	st := d.w.GetBlock(pos)
+	owner, ok := world.StateOwner(st)
+	sOwner, ok2 := world.StateOwner(src)
+	if !ok || !ok2 || owner != sOwner {
+		return false
+	}
+	link := rsPropsOf(st)("shape")
+	switch axis {
+	case "east_west":
+		if link == "north_south" || link == "ascending_north" || link == "ascending_south" {
+			return false
+		}
+	case "north_south":
+		if link == "east_west" || link == "ascending_east" || link == "ascending_west" {
+			return false
+		}
+	}
+	if rsPropsOf(st)("powered") != "true" {
+		return false
+	}
+	return rsHasNeighborSignal(d, pos) || rsRailChainStep(d, pos, st, fwd, dist+1)
 }

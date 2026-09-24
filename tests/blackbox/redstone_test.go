@@ -994,3 +994,135 @@ func TestPistonParity(t *testing.T) {
 		}
 	}
 }
+
+// TestPoweredRailChainParity pins PoweredRailBlock.findPoweredRailSignal:
+// a rail lights when a lit same-block rail sits within 8 links along
+// the connected track — the 9-rail boost. Covers the flat reach, the
+// 8-link cap, the slope climb (ascending shape steps up; a level step
+// also checks the cell below), and the source's own flip on removal.
+func TestPoweredRailChainParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P"),
+	}, nil)
+	defer targets.cleanup()
+
+	setup := []string{
+		`gamerule send_command_feedback true`,
+
+		// A @70..80,z80: an 11-long flat EW chain with the lever
+		// driving rail 70 — power reaches 8 links, the 9th stays dark.
+		`setblock 70 -60 80 minecraft:powered_rail[shape=east_west]`,
+		`setblock 71 -60 80 minecraft:powered_rail[shape=east_west]`,
+		`setblock 72 -60 80 minecraft:powered_rail[shape=east_west]`,
+		`setblock 73 -60 80 minecraft:powered_rail[shape=east_west]`,
+		`setblock 74 -60 80 minecraft:powered_rail[shape=east_west]`,
+		`setblock 75 -60 80 minecraft:powered_rail[shape=east_west]`,
+		`setblock 76 -60 80 minecraft:powered_rail[shape=east_west]`,
+		`setblock 77 -60 80 minecraft:powered_rail[shape=east_west]`,
+		`setblock 78 -60 80 minecraft:powered_rail[shape=east_west]`,
+		`setblock 79 -60 80 minecraft:powered_rail[shape=east_west]`,
+		`setblock 80 -60 80 minecraft:powered_rail[shape=east_west]`,
+		`setblock 69 -60 80 minecraft:lever[face=floor,powered=true]`,
+
+		// B @85..91,z82: the chain climbs — a level step also probes
+		// the cell below, an ascending step climbs one.
+		`setblock 85 -60 82 minecraft:powered_rail[shape=east_west]`,
+		`setblock 86 -60 82 minecraft:powered_rail[shape=east_west]`,
+		`setblock 87 -60 82 minecraft:powered_rail[shape=east_west]`,
+		`setblock 88 -60 82 minecraft:powered_rail[shape=east_west]`,
+		`setblock 89 -60 82 minecraft:powered_rail[shape=east_west]`,
+		`setblock 90 -60 82 minecraft:powered_rail[shape=ascending_east]`,
+		`setblock 91 -60 82 minecraft:stone`,
+		`setblock 91 -59 82 minecraft:powered_rail[shape=east_west]`,
+		`setblock 84 -60 82 minecraft:lever[face=floor,powered=true]`,
+
+		// C @95,z84: a detector rail never answers a direct signal —
+		// its neighborChanged is the minecart scan only.
+		`setblock 95 -60 84 minecraft:detector_rail[shape=north_south]`,
+		`setblock 94 -60 84 minecraft:lever[face=floor,powered=true]`,
+	}
+	probesA := []struct{ name, spec string }{
+		{"A source lit", "70 -60 80 minecraft:powered_rail[powered=true]"},
+		{"A link 7 lit", "77 -60 80 minecraft:powered_rail[powered=true]"},
+		{"A link 8 lit", "78 -60 80 minecraft:powered_rail[powered=true]"},
+		{"A link 9 dark", "79 -60 80 minecraft:powered_rail[powered=false]"},
+		{"A link 10 dark", "80 -60 80 minecraft:powered_rail[powered=false]"},
+		{"B flat link lit", "88 -60 82 minecraft:powered_rail[powered=true]"},
+		{"B slope link lit", "90 -60 82 minecraft:powered_rail[powered=true]"},
+		{"B climbed rail lit", "91 -59 82 minecraft:powered_rail[powered=true]"},
+		{"C detector stays dark", "95 -60 84 minecraft:detector_rail[powered=false]"},
+	}
+	unpower := []string{
+		`setblock 69 -60 80 minecraft:lever[face=floor,powered=false]`,
+		`setblock 84 -60 82 minecraft:lever[face=floor,powered=false]`,
+	}
+	probesB := []struct{ name, spec string }{
+		{"A source dark", "70 -60 80 minecraft:powered_rail[powered=false]"},
+		{"A link 8 dark", "78 -60 80 minecraft:powered_rail[powered=false]"},
+		{"B climbed rail dark", "91 -59 82 minecraft:powered_rail[powered=false]"},
+		{"B slope dark", "90 -60 82 minecraft:powered_rail[powered=false]"},
+	}
+
+	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
+		sendCommand(t, pw, fmt.Sprintf("execute if block %s run say ZR-ok-%d", spec, i))
+		sendCommand(t, pw, fmt.Sprintf("execute unless block %s run say ZR-miss-%d", spec, i))
+		deadline := time.Now().Add(4 * time.Second)
+		hit := ""
+		for time.Now().Before(deadline) {
+			for _, line := range sink.take() {
+				if strings.Contains(line, fmt.Sprintf("ZR-ok-%d", i)) {
+					hit = "hit"
+				}
+				if strings.Contains(line, fmt.Sprintf("ZR-miss-%d", i)) {
+					hit = "miss"
+				}
+			}
+			if hit != "" {
+				break
+			}
+			time.Sleep(40 * time.Millisecond)
+		}
+		return hit
+	}
+
+	run := func(addr string) []string {
+		c, pr, pw := joinPlayQuiet(t, addr, "P")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		sendClientInformation(t, pw)
+		sink := newChatSinkTP(pr, pw)
+		sink.cap = 1 << 20
+		time.Sleep(4 * time.Second)
+		sink.take()
+		var out []string
+		for _, cmd := range setup {
+			sendCommand(t, pw, cmd)
+		}
+		// The lit wave runs one rail per neighbour pass.
+		time.Sleep(2500 * time.Millisecond)
+		for i, p := range probesA {
+			out = append(out, probe(pw, sink, p.spec, i))
+		}
+		for _, cmd := range unpower {
+			sendCommand(t, pw, cmd)
+		}
+		time.Sleep(2500 * time.Millisecond)
+		for i, p := range probesB {
+			out = append(out, probe(pw, sink, p.spec, 100+i))
+		}
+		return out
+	}
+
+	vanilla := run(targets.vanilla)
+	mcgo := run(targets.mcgo)
+	all := append(append([]struct{ name, spec string }{}, probesA...), probesB...)
+	for i, p := range all {
+		t.Logf("%-44s vanilla=%s mcgo=%s", p.name, vanilla[i], mcgo[i])
+		if vanilla[i] == "hit" && mcgo[i] != "hit" {
+			t.Errorf("probe %q: vanilla hit, mc-go %s", p.name, mcgo[i])
+		}
+		if mcgo[i] == "hit" && vanilla[i] != "hit" {
+			t.Errorf("probe %q: mc-go hit, vanilla %s", p.name, vanilla[i])
+		}
+	}
+}
