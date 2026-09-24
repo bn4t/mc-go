@@ -2121,7 +2121,7 @@ func (s *Server) mobGrounded(e *Entity, w *world.World) bool {
 	if !e.Grounded && e.FallDist > 0 {
 		if _, _, fluid := fluidOf(w.GetBlock(below)); !fluid {
 			e.FallDist += e.Y - math.Floor(e.Y)
-			s.mobFallDamage(e)
+			s.mobFallDamage(e, s.dims[e.Dim], below)
 		}
 		e.FallDist = 0
 	}
@@ -2147,20 +2147,71 @@ var mobFallDamageImmune = map[string]bool{
 // fall_damage_multiplier), plays the type's Fallsounds pair (damage
 // >4 picks big), then runs the normal hurt tail (damage_event, hurt
 // voice, death on a lethal landing).
-func (s *Server) mobFallDamage(e *Entity) {
+func (s *Server) mobFallDamage(e *Entity, dm *dimension, below world.Pos) {
 	name, _ := EntityTypeName(e.Type)
 	if mobFallDamageImmune[name] {
+		return
+	}
+	// Block.fallOn dispatches on the landed block: slime nullifies the
+	// landing (multiplier 0 — mobs never suppress bounce), honey and
+	// hay soften it to 0.2 (honey additionally slides and re-plays
+	// its fall sound), beds halve the fallDistance, an up-pointing
+	// dripstone tip impales with (d+2.5, mult 2, stalagmite), and
+	// powder snow harms nothing — it just plays the Fallsounds pair.
+	fallDist := e.FallDist
+	dmgMult := 1.0
+	dmgType := "fall"
+	honeyReplay := false
+	// `below` is the support block — mobGrounded's landing edge fires
+	// the tick floor(feet)-1 is non-air, so feet stop exactly on its
+	// top and vanilla's floor(y-0.2) resolves to the same pos.
+	landedName, _ := blockNameAt(dm, below)
+	switch {
+	case landedName == "slime_block":
+		return
+	case landedName == "honey_block":
+		if snd, ok := soundEventIDs["block.honey_block.slide"]; ok {
+			s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd, mobVoiceOf(e).src(), 1, 1, nil)
+		}
+		dmgMult = 0.2
+		honeyReplay = true
+	case landedName == "hay_block":
+		dmgMult = 0.2
+	case strings.HasSuffix(landedName, "_bed"):
+		fallDist *= 0.5
+	case landedName == "pointed_dripstone":
+		if blk := dm.w.GetBlock(below); blk != 0 {
+			thick, _ := world.StateProperty(blk, "thickness")
+			dir, _ := world.StateProperty(blk, "vertical_direction")
+			if thick == "tip" && dir == "up" {
+				fallDist += 2.5
+				dmgMult = 2.0
+				dmgType = "stalagmite"
+			}
+		}
+	case landedName == "powder_snow":
+		if fallDist >= 4 {
+			small, big := int32(702), int32(694)
+			if mobVoiceOf(e).hostile {
+				small, big = 874, 871
+			}
+			snd := small
+			if fallDist >= 7 {
+				snd = big
+			}
+			s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd, mobVoiceOf(e).src(), 1, 1, nil)
+		}
 		return
 	}
 	safe := 3.0
 	if v, ok := entityAttrBases[name]["safe_fall_distance"]; ok {
 		safe = v
 	}
-	mult := 1.0
+	mult := dmgMult
 	if v, ok := entityAttrBases[name]["fall_damage_multiplier"]; ok {
 		mult = v
 	}
-	dmg := int(math.Floor((e.FallDist + 1e-6 - safe) * mult))
+	dmg := int(math.Floor((fallDist + 1e-6 - safe) * mult))
 	if dmg <= 0 {
 		return
 	}
@@ -2177,7 +2228,36 @@ func (s *Server) mobFallDamage(e *Entity) {
 	// Entity.playSound's coordinate overload — the positional
 	// clientbound sound packet at the mob's feet.
 	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd, mobVoiceOf(e).src(), 1, 1, nil)
-	s.damageMob(e, float32(dmg), "fall", nil, &damageInfo{typeName: "fall"})
+	s.playBlockFallSound(e.Dim, e.X, e.Y, e.Z, mobVoiceOf(e).src(), below)
+	if honeyReplay {
+		// HoneyBlock.fallOn re-plays its SoundType fall sound when
+		// causeFallDamage actually hurt, on top of LivingEntity's.
+		if fsnd, ok := blockFallSounds["honey_block"]; ok {
+			s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, fsnd, mobVoiceOf(e).src(), 0.5, 0.75, nil)
+		}
+	}
+	s.damageMob(e, float32(dmg), dmgType, nil, &damageInfo{typeName: dmgType})
+}
+
+// playBlockFallSound mirrors LivingEntity.playBlockFallSound: the
+// support block — when not air — plays its SoundType.fallSound
+// positionally at the entity's coordinates at SoundType volume*0.5,
+// pitch*0.75 (blockFallSoundNames/blockFallSoundScale come from the
+// generated per-block table).
+func (s *Server) playBlockFallSound(dim string, x, y, z float64, src int32, pos world.Pos) {
+	name, ok := blockNameAt(s.dims[dim], pos)
+	if !ok || name == "air" || name == "void_air" || name == "cave_air" {
+		return
+	}
+	snd, ok := blockFallSounds[name]
+	if !ok {
+		return
+	}
+	vol, pitch := float32(1), float32(1)
+	if sc, has := blockFallSoundScale[name]; has {
+		vol, pitch = sc[0], sc[1]
+	}
+	s.playSoundSrc(dim, x, y, z, snd, src, vol*0.5, pitch*0.75, nil)
 }
 
 // mobMeleeTypes are the hostile mobs mc-go's chase-melee AI drives.

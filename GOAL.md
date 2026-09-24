@@ -5893,3 +5893,50 @@ commands.data.storage.query).
 
 Open items still ahead: block→SoundType fall-sound table, online
 mode, redstone, terrain gen, lighting.
+
+## Slice 2026-09-24m — block fall-sound table + fallOn dispatch
+
+Vanilla 26.2 (Entity.checkFallDamage → Block.fallOn →
+LivingEntity.causeFallDamage): a landing mob that takes >0 damage
+emits its Fallsounds pair, then playBlockFallSound — the support
+block's SoundType.fallSound positionally at vol*0.5, pitch*0.75.
+SoundType ctor args are (vol, pitch, break, step, place, hit, fall);
+the per-block table came out of Blocks.<clinit>: scan each register
+window (BlockItemIds/BlockIds opener → Blocks.FIELD putstatic) for
+the last SoundType getstatic, resolve ofFullCopy/Legacy/ShallowCopy
+and the colour/copper collections (ColorCollection,
+WeatheringCopperCollection) through their props lambdas via the
+BootstrapMethods table. All 1196 registry blocks landed →
+tools/genfallsounds + testdata/vanilla-26.2/block_fall_sounds.tsv →
+blockfalls_gen.go (blockFallSoundNames, blockFallSoundScale for the
+non-1.0 vol/pitch exceptions like ANVIL's 0.3, blockFallSounds
+resolved via soundEventIDs). Quirks verified by javap: doors/
+pressure plates keep STONE (open/close sounds ride on
+BlockSetType), candle_cake→WOOL, water/lava/bubble→EMPTY.
+
+Block.fallOn overrides measured too: slime nullifies the landing
+(causeFallDamage mult 0 → silent), honey slides + 0.2 + replays its
+fall sound when causeFallDamage returns true, hay 0.2, beds halve
+the fallDistance, an up-tip dripstone impales with
+(d+2.5, mult 2, stalagmite), powder snow plays only the Fallsounds
+pair (small<7) with no damage — turtle-egg trample and farmland
+trample deferred (GOAL). Player landing (applyFallDamage) got the
+same generic Fallsounds pair + block fall sound it was missing.
+
+TestBlockFallSoundParity: normal-AI zombies (NoAI is fully
+physics-frozen — they never fall) dropped ~9 blocks onto single-cell
+strips in 1x2 stone cages spaced 2 apart, P centred so every column
+sits inside vanilla's max(vol*16,16) sound broadcast radius. Caught
+per column: Fallsounds pair + the strip's fall id, vol, pitch, count
+(honey = 2 + slide), slime silent. Test pitfalls recorded in-file:
+await keys must match the *.success translate (commands.fill.failed
+/ summon.failed* contain the command name), and sink.take() mid-test
+drains packet dumps so fills/summons stash every drained line.
+
+Known remaining delta: stalagmite damage — vanilla lands on the tip
+top and deals (9+2.5-3)*2=17 while mc-go stops at the integer floor
+and dealt 8 (probe visible in the test log); damage amount parity
+for thin blocks is part of the larger collision-height gap.
+
+Open items still ahead: online mode, redstone, terrain gen,
+lighting.

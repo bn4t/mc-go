@@ -957,7 +957,20 @@ func (s *Server) applyFallDamage(sess *Session) {
 	}
 	distance := sess.fallDistance
 	sess.fallDistance = 0
-	s.damageWith(sess, float32(distance-3.0), translatable("death.fell.accident.generic", literal(sess.getName())), srcFall)
+	// LivingEntity.causeFallDamage's dmg>0 tail: the generic
+	// Fallsounds pair (big when dmg > 4) then the landed block's
+	// SoundType.fallSound — both at the player's SoundSource (7).
+	x, y, z, _, _, _ := sess.Pos()
+	dmg := distance - 3.0
+	snd := int32(702) // entity.generic.small_fall
+	if dmg > 4 {
+		snd = 694 // entity.generic.big_fall
+	}
+	s.playSoundSrc(sess.dimName(), x, y, z, snd, 7, 1, 1, nil)
+	s.playBlockFallSound(sess.dimName(), x, y, z, 7, world.Pos{
+		X: int(math.Floor(x)), Y: int(math.Floor(y)) - 1, Z: int(math.Floor(z)),
+	})
+	s.damageWith(sess, float32(dmg), translatable("death.fell.accident.generic", literal(sess.getName())), srcFall)
 }
 
 // addExhaustion accumulates activity exhaustion. The saturation/food
