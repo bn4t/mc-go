@@ -1938,6 +1938,7 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		{"T bonemeal clamps wheat to max", `block 90 -60 140 minecraft:wheat[age=7]`},
 		{"T meal consumed", `!items block 89 -60 140 container.* minecraft:bone_meal`},
 		{"Z wool dropped at sheep", `entity @e[type=minecraft:item,x=85,y=-60,z=141,distance=..3]`},
+		{"Z sheep reads sheared", `entity @e[type=minecraft:sheep,nbt={Sheared:1b},x=85,y=-60,z=141,distance=..2]`},
 		{"Z shears stay (238 max)", `items block 84 -60 141 container.* minecraft:shears`},
 		{"Zz hive emptied", `block 89 -60 141 minecraft:beehive[honey_level=0]`},
 		{"Zz honey bottle back", `items block 88 -60 141 container.* minecraft:honey_bottle`},

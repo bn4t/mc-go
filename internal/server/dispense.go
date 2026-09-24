@@ -387,6 +387,7 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 		}
 		if sheep := s.livingAtMouth(d, front, "sheep"); sheep != nil && !sheep.Sheared {
 			sheep.Sheared = true
+			s.broadcastEntityMetadata(sheep.ID, encodeLivingMetadata(sheep, nil))
 			// SHEAR_SHEEP loot table: 1-3 wool of the sheep's color
 			// (mc-go sheep are always white).
 			n := int32(1 + s.rng.intn(3))

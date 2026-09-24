@@ -541,6 +541,12 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 	if isBabyTypes[typeName] {
 		m["IsBaby"] = nbtBool(e.Baby)
 	}
+	// Sheep.writeAdditionalSaveData: Sheared + the dye Color byte —
+	// mc-go sheep are always white (0) until a dye field exists.
+	if typeName == "sheep" {
+		m["Sheared"] = nbtBool(e.Sheared)
+		m["Color"] = int8(0)
+	}
 	// AbstractPiglin and Hoglin declare the zombification pair.
 	if overworldZombifyTypes[typeName] {
 		m["IsImmuneToZombification"] = nbtBool(e.ImmuneToZombification)
@@ -725,6 +731,7 @@ func nbtBool(v bool) int8 {
 // mutation.
 func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	prevHealth, prevName, prevNoAI := e.Health, e.CustomName, e.NoAI
+	prevSheared := e.Sheared
 	name, _ := EntityTypeName(e.Type)
 	// Tamable reload quirk: vanilla's TamableAnimal.setTame(false)
 	// — run because the merged save carries no Owner — re-asserts
@@ -797,6 +804,13 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	e.Grounded = nbtTruth(save["OnGround"])
 	e.Silent = nbtTruth(save["Silent"])
 	e.NoGravity = nbtTruth(save["NoGravity"])
+	// Sheep.readAdditionalSaveData: Sheared + Color (mc-go ignores
+	// Color — sheep stay white; Sheared dirties the wool byte).
+	if name == "sheep" {
+		if v, ok := save["Sheared"]; ok {
+			e.Sheared = nbtTruth(v)
+		}
+	}
 	// Raider.readAdditionalSaveData: Wave int, CanJoinRaid bool,
 	// and RaidId re-joins the raid when it still exists.
 	if raidRaiderType(name) {
@@ -826,6 +840,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"attributes": true, "home_radius": true, "home_pos": true,
 		"NoGravity": true, "Silent": true, "Wave": true,
 		"CanJoinRaid": true, "RaidId": true,
+		"Sheared": true, "Color": true,
 	}
 	if extra, ok := entitySaveExtras[name]; ok {
 		for k := range extra {
@@ -857,6 +872,15 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		b.Byte(9)
 		b.Byte(3)
 		b.Float(e.Health)
+	}
+	if prevSheared != e.Sheared && name == "sheep" {
+		b.Byte(18)
+		b.Byte(0)
+		v := byte(0)
+		if e.Sheared {
+			v = 0x10
+		}
+		b.Byte(v)
 	}
 	if prevNoAI != e.NoAI {
 		b.Byte(15)

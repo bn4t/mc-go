@@ -1399,6 +1399,14 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 	}
 	if name, ok := EntityTypeName(e.Type); ok {
 		switch name {
+		case "sheep":
+			// Sheep's DATA_WOOL_ID (index 18, byte): low nibble is
+			// the dye color (always white=0), bit 0x10 = sheared.
+			if e.Sheared {
+				b.Byte(18)
+				b.Byte(0) // type: byte
+				b.Byte(0x10)
+			}
 		case "zombie_villager":
 			if e.Baby {
 				b.Byte(16)

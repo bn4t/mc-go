@@ -6529,3 +6529,14 @@ mob equip persistence/guaranteed-drop.
 - Deferred bonemeal targets: sapling→tree, grass-block patch spread,
   moss→moss patch, nylium, seagrass, sea_pickle, pink_petals,
   glow_berry, rooted/watered plants.
+
+## Slice 2026-09-25i — Sheared flag: save/apply/metadata
+
+- `Entity.Sheared` now round-trips: entitySaveMap emits
+  `Sheared`+`Color=0` for sheep, applyEntitySave reads `Sheared`
+  back (Color ignored — sheep stay white), and the dirty pack
+  carries the wool byte when it flips.
+- Sheep's DATA_WOOL_ID measured live: index 18, type byte, sheared
+  = 0x10 (low nibble = dye color). encodeLivingMetadata emits it
+  when Sheared; the dispenser shear path broadcasts the metadata.
+- Probe: `entity @e[type=sheep,nbt={Sheared:1b}]` hits on both.
