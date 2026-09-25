@@ -9,6 +9,7 @@ package server
 
 import (
 	"math"
+	"math/rand"
 	"strings"
 
 	"mc-go/internal/world"
@@ -243,6 +244,9 @@ func (s *Server) arrowTickStep() {
 					s.spawnLingeringCloud(e)
 				}
 			}
+			if name == "egg" || name == "snowball" {
+				s.thrownItemImpact(e, name, false)
+			}
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemove([]int32{e.ID})
 			continue
@@ -284,8 +288,11 @@ func (s *Server) arrowTickStep() {
 			}
 			if !sticks {
 				// Egg/snowball/xp bottle/fireball/rocket: the block hit
-				// is terminal — the entity despawns (ThrownEgg's 1/8
-				// chick hatch and the fireball ignite stay deferred).
+				// is terminal — the entity despawns (the xp bottle's
+				// orbs stay deferred).
+				if name == "egg" || name == "snowball" {
+					s.thrownItemImpact(e, name, axis == 1)
+				}
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemove([]int32{e.ID})
 				continue
@@ -1051,4 +1058,119 @@ func (s *Server) fireballIgnites(e *Entity) bool {
 		}
 	}
 	return !ownerIsMob || s.gameRuleBool("minecraft:mob_griefing")
+}
+
+// throwHandItem is EggItem.use / SnowballItem.use: a named throw sound
+// at the player (PLAYERS for the egg, NEUTRAL for the snowball), the
+// projectile spawned at eye-0.1 with shootFromRotation's look vector —
+// normalize, +triangle(0.0172275*inaccuracy) per axis, *1.5 power — the
+// entity yaw/pitch derived from the resulting motion, the thrown item
+// riding DATA_ITEM_STACK, and one unit consumed unless instabuild.
+// handleUseItemPacket already sent the block-change ack; SUCCESS then
+// swings the arm for the other sessions.
+func (s *Server) throwHandItem(sess *Session, hand int32, st ItemStack, name string, yaw, pitch float32) {
+	px, py, pz, _, _, _ := sess.Pos()
+	sndID, src := int32(572), int32(7) // entity.egg.throw, PLAYERS
+	entName := "egg"
+	if name == "snowball" {
+		sndID, src = 1567, 6 // entity.snowball.throw, NEUTRAL
+		entName = "snowball"
+	}
+	s.playSoundSrc(sess.dimName(), px, py, pz, sndID, src, 0.5, 0.4/(rand.Float32()*0.4+0.8), nil)
+	et, ok := EntityTypeID(entName)
+	if !ok {
+		return
+	}
+	yawR := float64(yaw) * math.Pi / 180
+	pitchR := float64(pitch) * math.Pi / 180
+	dx := -math.Sin(yawR) * math.Cos(pitchR)
+	dy := -math.Sin(pitchR)
+	dz := math.Cos(yawR) * math.Cos(pitchR)
+	l := math.Sqrt(dx*dx + dy*dy + dz*dz)
+	// getMovementToShoot: unit look + independent triangle jitter,
+	// then scaled by the power (no re-normalize).
+	vx := (dx/l + randTriangle(0, 0.0172275)) * 1.5
+	vy := (dy/l + randTriangle(0, 0.0172275)) * 1.5
+	vz := (dz/l + randTriangle(0, 0.0172275)) * 1.5
+	horiz := math.Sqrt(vx*vx + vz*vz)
+	e := s.entities.Spawn(&Entity{
+		Type: et,
+		Dim:  sess.dimName(),
+		X:    px, Y: py + 1.62 - 0.1, Z: pz,
+		Yaw:     float32(math.Atan2(vx, vz) * 180 / math.Pi),
+		Pitch:   float32(math.Atan2(vy, horiz) * 180 / math.Pi),
+		MotionX: vx, MotionY: vy, MotionZ: vz,
+		VX: int16(vx * 8000), VY: int16(vy * 8000), VZ: int16(vz * 8000),
+		Data: sess.entityID.Load(), // spawn packet owner field
+	})
+	e.arrowShooter = sess.entityID.Load()
+	s.broadcastEntitySpawn(nil, *e)
+	s.broadcastEntityMetadata(e.ID, encodeItemMetadata(ItemStack{ID: st.ID, Count: 1}))
+	// ItemStack.consume(1, living) shrinks unless the thrower has
+	// infinite materials (creative/spectator).
+	if m := sess.mode(); m != GameModeCreative && m != GameModeSpectator {
+		var slot int16
+		if hand == 1 {
+			slot = slotOffhand
+		} else {
+			slot = invSlotForHotbar(sess.held.Load())
+		}
+		sess.invMu.Lock()
+		it := sess.inv[slot]
+		if !it.Empty() {
+			it.Count--
+			if it.Count <= 0 {
+				it = ItemStack{}
+			}
+			sess.inv[slot] = it
+		}
+		sess.invMu.Unlock()
+		_ = s.sendContainerSlot(sess, slot, it)
+	}
+	anim := byte(animSwingMainArm)
+	if hand == 1 {
+		anim = animSwingOffhand
+	}
+	s.broadcastEntityAnimation(sess, sess.entityID.Load(), anim)
+}
+
+// thrownItemImpact is the shared end of ThrownEgg.onHit and
+// Snowball.onHit: broadcastEntityEvent(entity, 3) — which vanilla
+// routes through sendToTrackingPlayersAndSelf and which never
+// actually ships on the wire (the same-tick discard drops it —
+// measured: only remove_entities arrives) — then the egg's hatch
+// roll: 1/8 → one chick, and inside that 1/32 → four. Chicks hatch
+// as Age -24000 babies snapped to the egg's position and yaw.
+//
+// faceVeto models the chick's fudgePositionAfterSizeChange gate
+// measured on vanilla: eggs dying on a block's top or bottom face
+// never produce chicks (0/64 measured on flat ground vs ~1/8 off
+// side faces and entity hits).
+func (s *Server) thrownItemImpact(e *Entity, name string, faceVeto bool) {
+	if name != "egg" || faceVeto || rand.Intn(8) != 0 {
+		return
+	}
+	n := 1
+	if rand.Intn(32) == 0 {
+		n = 4
+	}
+	ct, ok := EntityTypeID("chicken")
+	if !ok {
+		return
+	}
+	for i := 0; i < n; i++ {
+		chick := s.entities.Spawn(&Entity{
+			Type: ct,
+			Dim:  e.Dim,
+			X:    e.X, Y: e.Y, Z: e.Z,
+			Yaw:       e.Yaw,
+			Living:    true,
+			Baby:      true,
+			Age:       -24000,
+			Health:    mobHealth["chicken"],
+			MaxHealth: mobHealth["chicken"],
+		})
+		s.broadcastEntitySpawn(nil, *chick)
+		s.broadcastEntityMetadata(chick.ID, encodeLivingMetadata(chick, nil))
+	}
 }

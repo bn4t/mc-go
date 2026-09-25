@@ -50,18 +50,24 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
-	if _, err := r.VarInt(); err != nil { // sequence
+	seq, err := r.VarInt()
+	if err != nil { // sequence
 		return
 	}
-	if _, err := r.Float(); err != nil { // yaw
+	yaw, err := r.Float()
+	if err != nil { // yaw
 		return
 	}
-	if _, err := r.Float(); err != nil { // pitch
+	pitch, err := r.Float()
+	if err != nil { // pitch
 		return
 	}
 	if sess.dead {
 		return
 	}
+	// ackBlockChangesUpTo runs unconditionally at the top of vanilla's
+	// handler, before the item dispatch.
+	s.sendBlockAck(sess, seq)
 	// A shield raises instead of eating/drawing; the raised flag lives
 	// until the release_use_item action. Vanilla reads the hand the
 	// packet asked for — an offhand use ignores the main hand stack.
@@ -76,6 +82,14 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 	if un, ok := itemNameOf(st.ID); ok && !st.Empty() && strings.HasSuffix(un, "_on_a_stick") {
 		s.useFoodOnAStick(sess, hand)
 		return
+	}
+	// EggItem/SnowballItem.use: an instant throw, not a hold-use.
+	if un, ok := itemNameOf(st.ID); ok && !st.Empty() {
+		switch un {
+		case "egg", "blue_egg", "brown_egg", "snowball":
+			s.throwHandItem(sess, hand, st, un, yaw, pitch)
+			return
+		}
 	}
 	held := sess.heldStack()
 	if held.Empty() {

@@ -6757,3 +6757,41 @@ wire capture:
   absence of moving_piston writes + piston BE data, settle writes,
   air at cleared origins, and the two-tick entity push summing ~4096
   dy units. Green on vanilla and mc-go.
+
+## Slice 2026-09-25n — thrown egg/snowball hand-throw + chick hatch gate
+
+- handleUseItemPacket (internal/server/eating.go): the
+  block_changed_ack (ackBlockChangesUpTo) now fires unconditionally at
+  the top of the handler like vanilla, and use_item dispatches
+  egg/blue_egg/brown_egg/snowball to throwHandItem (instant-throw
+  items, not hold-uses).
+- throwHandItem (internal/server/projectile.go) ports
+  EggItem.use/SnowballItem.use: named throw sound at the player
+  (entity.egg.throw src PLAYERS, entity.snowball.throw src NEUTRAL;
+  vol 0.5, pitch 0.4/(rand*0.4+0.8)), spawn at eyeY-0.1, look-vector +
+  per-axis triangle(0,0.0172275) jitter scaled ×1.5, entity yaw/pitch
+  derived from the resulting motion, spawn packet data=owner id,
+  DATA_ITEM_STACK metadata, consume-1 unless creative/spectator, then
+  the arm swing broadcast to other sessions.
+- arrowTickStep calls thrownItemImpact at both egg/snowball death
+  sites (entity hit and block hit). The 3-status entity_event the
+  javap shows inside onHit never reaches the wire — vanilla discards
+  the projectile the same tick, so mc-go emits remove_entities alone
+  (measured).
+- Chick hatch measured: egg 1/8 → one chick, 1/32 → four, Age -24000,
+  snapped to the egg pos+yaw, chicken type id 26, CHICKEN_VARIANT
+  component from the thrown stack (variant encoding itself still a
+  GOAL.md open item).
+- The fudgePositionAfterSizeChange veto is REAL on the wire: top/bottom
+  face (axis==1) block impacts never hatch — 0/64 measured pitched
+  onto flat ground, while side-face (axis 0/2) and entity hits hatch
+  ~1/8. implemented as faceVeto on thrownItemImpact.
+- NOT a cooldown: the earlier 16/24 use acceptance turned out to be
+  max_stack_size 16 emptying the held stack — no use_cooldown
+  component exists on egg/snowball in 26.2.
+- TestEggThrowParity (tests/blackbox/eggthrow_test.go): leg1 egg wire
+  shape (ack seq, named sound, spawn data!=0, item-stack meta, slot
+  shrink accepting either sync shape), leg2 snowball, leg3 impact
+  remove-without-event, leg4 flat-ground volley pins 0 chicks on both
+  servers, leg5 wall-face volley pins the [1,16] hatch band per 48.
+  Green on vanilla and mc-go.
