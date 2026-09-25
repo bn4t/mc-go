@@ -286,6 +286,23 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 			if eid, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
 				out = append(out, eggEvent{kind: "motion", eid: eid})
 			}
+		case 0x24: // explode: Vec3 center, Float radius, Int blockCount,
+			// Optional<Vec3> knockback, VarInt particle, VarInt sound,
+			// VarInt weighted-block-particles
+			r := protocol.NewPacketReader(p.Data)
+			_, _, _, _ = r.ReadLpVec3()
+			rad, e1 := r.Float()
+			cnt, e2 := r.Int()
+			kb, e3 := r.Byte()
+			_, e4 := r.VarInt() // particle
+			snd, e5 := r.VarInt()
+			if e1 == nil && e2 == nil && e3 == nil && e4 == nil && e5 == nil {
+				b := int32(0)
+				if kb != 0 {
+					b = 1
+				}
+				out = append(out, eggEvent{kind: "explode", etype: int32(rad * 100), data: cnt, b0: b, oval: snd, hasOval: true})
+			}
 		}
 	}
 	_ = c.SetReadDeadline(time.Time{})

@@ -33,7 +33,29 @@ func (s *Server) windChargeTickStep() {
 				continue
 			}
 		}
-		if s.windChargeHitsPlayer(e, nx, ny, nz) {
+		if hitSess := s.windChargeHitPlayer(e, nx, ny, nz); hitSess != nil {
+			// Player victims take the same hurt 1.0 — the cause is
+			// the owner when the charge has one, else nothing.
+			msg := translatable("death.attack.generic", literal(hitSess.getName()))
+			if e.arrowShooter != 0 {
+				if owner := s.sessionByEntityID(e.arrowShooter); owner != nil {
+					msg = translatable("death.attack.mob", literal(hitSess.getName()), literal(owner.getName()))
+				}
+			}
+			s.damageWith(hitSess, 1.0, msg, damageSource{
+				typeName: "wind_charge", cause: e.arrowShooter, direct: e.ID,
+			})
+			s.windBurst(e, nx, ny, nz)
+			continue
+		}
+		if hit := s.windChargeHitsMob(e, e.X, e.Y, e.Z, nx, ny, nz); hit != nil {
+			// AbstractWindCharge.onHitEntity: hurt 1.0 through the
+			// wind_charge type first — the ownerless summon wires
+			// cause 0, direct = the charge — then the burst runs at
+			// the charge's position even when the hurt was graced.
+			s.damageMob(hit, 1.0, "wind_charge", nil, &damageInfo{
+				typeName: "wind_charge", cause: e.arrowShooter, direct: e.ID,
+			})
 			s.windBurst(e, nx, ny, nz)
 			continue
 		}
@@ -66,11 +88,11 @@ func windBurstPoint(e *Entity, bp world.Pos, nx, ny, nz float64) (float64, float
 	}
 }
 
-// windChargeHitsPlayer reports whether the charge's next position
-// intersects a player body (vanilla's entity-target ray hits the 0.6
-// x 1.8 box).
-func (s *Server) windChargeHitsPlayer(e *Entity, x, y, z float64) bool {
-	hit := false
+// windChargeHitPlayer reports the player whose body the charge's next
+// position intersects (vanilla's entity-target ray hits the 0.6 x 1.8
+// box), or nil.
+func (s *Server) windChargeHitPlayer(e *Entity, x, y, z float64) *Session {
+	var hit *Session
 	s.sessions.Range(func(_, v any) bool {
 		sess, ok := v.(*Session)
 		if !ok || sess.state.Load() != StatePlay || sess.dimName() != e.Dim {
@@ -78,12 +100,44 @@ func (s *Server) windChargeHitsPlayer(e *Entity, x, y, z float64) bool {
 		}
 		px, py, pz, _, _, _ := sess.Pos()
 		if math.Abs(x-px) < 0.9 && math.Abs(z-pz) < 0.9 && y > py-0.1 && y < py+1.9 {
-			hit = true
+			hit = sess
 			return false
 		}
 		return true
 	})
 	return hit
+}
+
+// windChargeHitsMob is the mob arm of the entity hit scan —
+// AbstractWindCharge.canHitEntity admits any living entity along the
+// tick's travel segment (the same slab test the arrows use, entity
+// box inflated by 0.3). Returns the mob hit, nil when the segment
+// meets nothing living.
+func (s *Server) windChargeHitsMob(e *Entity, ox, oy, oz, nx, ny, nz float64) *Entity {
+	s.entities.mu.RLock()
+	var mobs []*Entity
+	for _, m := range s.entities.byID {
+		if m.Living && !m.Dying && m.Dim == e.Dim && m.ID != e.ID {
+			mobs = append(mobs, m)
+		}
+	}
+	s.entities.mu.RUnlock()
+	var best *Entity
+	bestT := math.MaxFloat64
+	for _, m := range mobs {
+		bw, bh := mobBounds(m.Type)[0], mobBounds(m.Type)[1]
+		if !segmentHitsBox(ox, oy, oz, nx, ny, nz, m.X, m.Y, m.Z, bw, bh) {
+			continue
+		}
+		// The entity hit result is the nearest one along the segment —
+		// closest entry point wins when several boxes clip it.
+		d := (m.X-ox)*(m.X-ox) + (m.Y-oy)*(m.Y-oy) + (m.Z-oz)*(m.Z-oz)
+		if d < bestT {
+			bestT = d
+			best = m
+		}
+	}
+	return best
 }
 
 // explodeProfile bundles the per-charge-type explode constants: blast

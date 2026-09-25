@@ -259,9 +259,15 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 	// player_attack skips it — Player.attack's hurt call carries the
 	// flag that tells hurtServer the attack applies knockback itself
 	// (playerAttackKnockback owns that push).
-	if src.cause != 0 && src.cause != eid && !noKnockback(src.typeName) &&
+	kbSrc := src.cause
+	if kbSrc == 0 {
+		// getSourcePosition falls back to the direct entity — an
+		// ownerless projectile still shoves away from where it hit.
+		kbSrc = src.direct
+	}
+	if kbSrc != 0 && kbSrc != eid && !noKnockback(src.typeName) &&
 		src.typeName != "player_attack" && !graced {
-		s.playerHurtKnockback(sess, src.cause)
+		s.playerHurtKnockback(sess, kbSrc)
 	}
 	// EnchantmentHelper.doPostAttackEffects, enchanted=victim side:
 	// every thorns piece the victim wears rolls its 15%·level proc

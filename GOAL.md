@@ -6903,3 +6903,31 @@ on the eye-line (~1.0 margin both ways — spread misses at the old
 servers), and hatched chickens are killed before legs 3 and 5 (a
 wandering hatchling can eat a projectile — same behavior exists on
 vanilla). Green on both servers, two consecutive runs.
+
+## Slice — 2026-09-25r — wind_charge entity-hit (hurt 1.0 + burst-on-hit)
+
+Vanilla (javap): AbstractWindCharge.onHitEntity sets the owner's
+lastHurtMob, hurtServer(damageSources.windCharge(charge,
+livingOwnerOrNull), 1.0) — source(WIND_CHARGE, charge, owner): an
+ownerless summon wires cause 0 and direct = charge+1 — then ALWAYS
+explodes at the charge's position, graced hit or not. The burst's
+SimpleExplosionDamageCalculator is (explodesBlocks, damagesEntities=
+false): entities in the 2r box are pushed but not hurt.
+
+mc-go: windChargeTickStep only burst on block contact and players —
+mobs now scan through windChargeHitsMob (living entities clipped by
+segmentHitsBox's 0.3-inflated slab test, nearest wins), the mob hurt
+runs damageMob(1.0, wind_charge, cause=arrowShooter, direct=charge)
+then windBurst at the charge position, and the player arm now runs
+the same damageWith(1.0) ahead of its burst (it previously burst
+with no hurt at all). damageWith's hurt knockback now anchors on
+getSourcePosition — cause falls back to direct, matching vanilla
+(ownerless projectiles still shove away from where they hit; the mob
+path had this fallback already).
+TestThrownHitParity leg 6: two summoned wind_charges at a floated
+villager — one damage_event etype=48 cause=0 direct=charge1+1, hurt
+sound + knockback motion, TWO explode packets (the graced second
+burst carries no dmg), no entity_event, no ANGRY (ownerless), both
+charges removed. Green on vanilla and mc-go;
+TestWindChargeExplodeParity + TestWindChargeTriggerBlocksParity +
+TestCreeperBoomParity re-run green.

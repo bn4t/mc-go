@@ -56,14 +56,17 @@ func TestThrownHitParity(t *testing.T) {
 				}
 				return n
 			}
-			angryCount := func(ev []eggEvent) int {
+			angryCountFor := func(eid int32, ev []eggEvent) int {
 				n := 0
 				for _, e := range ev {
-					if e.kind == "event" && e.eid == villagerID && e.b0 == 13 {
+					if e.kind == "event" && e.eid == eid && e.b0 == 13 {
 						n++
 					}
 				}
 				return n
+			}
+			angryCount := func(ev []eggEvent) int {
+				return angryCountFor(villagerID, ev)
 			}
 			assertHitWire := func(ev []eggEvent, projName string, projEid int32, seq int32) {
 				t.Helper()
@@ -252,6 +255,74 @@ func TestThrownHitParity(t *testing.T) {
 			for _, id := range fbIDs {
 				assertNoEntityEvent(t, tc.tag, ev, id)
 				assertRemoved(t, tc.tag, ev, id)
+			}
+
+			// Leg 6 — wind_charge entity hit, two back-to-back
+			// summoned charges at a fresh villager lane (leg 5's
+			// victim may be knocked, burning or dead):
+			// AbstractWindCharge.onHitEntity hurts 1.0 through the
+			// wind_charge damage type — the ownerless summon wires
+			// cause 0 — then always bursts at the charge's position
+			// (explode packet + explosion push + remove). The graced
+			// second charge produces no damage_event but still bursts.
+			sendCommand(t, pw, "summon minecraft:villager 63.5 -59.5 64.5 {NoAI:1b,NoGravity:1b}")
+			sendCommand(t, pw, "summon minecraft:wind_charge 60.5 -58.4 64.5 {Motion:[0.4d,0d,0d]}")
+			sendCommand(t, pw, "summon minecraft:wind_charge 60.5 -58.4 64.5 {Motion:[0.4d,0d,0d]}")
+			ev = eggDrainFor(t, c, pr, pw, 3000*time.Millisecond)
+			villager2 := int32(0)
+			var wcIDs []int32
+			for _, e := range ev {
+				if e.kind == "spawn" && e.etype == mustEType(t, "villager") && e.eid != villagerID {
+					villager2 = e.eid
+				}
+				if e.kind == "spawn" && e.etype == mustEType(t, "wind_charge") {
+					wcIDs = append(wcIDs, e.eid)
+				}
+			}
+			if villager2 == 0 {
+				t.Fatalf("%s: second villager never spawned", tc.tag)
+			}
+			if len(wcIDs) != 2 {
+				t.Fatalf("%s: expected 2 wind_charge spawns, got %d", tc.tag, len(wcIDs))
+			}
+			wcDmg := 0
+			var wcEvt *eggEvent
+			for i := range ev {
+				if ev[i].kind == "dmg" && ev[i].eid == villager2 && ev[i].etype == 48 {
+					wcDmg++
+					wcEvt = &ev[i]
+				}
+			}
+			if wcDmg != 1 {
+				t.Fatalf("%s: %d wind_charge damage_events for two hits — the graced second must produce none", tc.tag, wcDmg)
+			}
+			if wcEvt.data != wcIDs[0]+1 {
+				t.Fatalf("%s: wind_charge damage_event direct = %d — want charge id %d (+1 encoded)", tc.tag, wcEvt.data, wcIDs[0])
+			}
+			if wcEvt.b0 != 0 {
+				t.Fatalf("%s: wind_charge damage_event cause = %d — the ownerless summon wires no cause", tc.tag, wcEvt.b0)
+			}
+			explodes := 0
+			for _, e := range ev {
+				if e.kind == "explode" {
+					explodes++
+				}
+			}
+			if explodes != 2 {
+				t.Fatalf("%s: %d explode packets — both charges burst, even the graced one", tc.tag, explodes)
+			}
+			if countKind(ev, "motion", villager2) < 1 {
+				t.Fatalf("%s: no knockback motion on the wind-charge hit villager", tc.tag)
+			}
+			if countKind(ev, "sound", hurt+1) < 1 {
+				t.Fatalf("%s: no entity.villager.hurt sound on the wind-charge hit", tc.tag)
+			}
+			for _, id := range wcIDs {
+				assertNoEntityEvent(t, tc.tag, ev, id)
+				assertRemoved(t, tc.tag, ev, id)
+			}
+			if n := angryCountFor(villager2, ev); n != 0 {
+				t.Fatalf("%s: %d VILLAGER_ANGRY events on the ownerless wind-charge hit", tc.tag, n)
 			}
 		})
 	}
