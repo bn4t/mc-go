@@ -7063,11 +7063,16 @@ Java note: vanilla HungerMobEffect.applyEffectTick has no gamemode
 check in the bytecode; the drain gate lives in the food tick, which
 mc-go mirrors — exhaustion simply doesn't accumulate outside
 survival/adventure here (invisible either way).
-Boundary convention still pinned down only where durations dodge the
-edge: vanilla fires on PRE-decrement remaining, so a 5s regen
-(100%50==0) fires at remaining 100 AND 50 — mc-go's rem=expiry-count
-would fire once. Open item; durations 80t/60t were chosen so neither
-convention changes the count.
+Boundary convention resolved: vanilla fires on PRE-decrement
+remaining, so a 5s regen (100%50==0) fires at remaining 100 AND 50 —
+measured: 2 heals on both targets. mc-go commands run off-tick, so the
+old rem%ivl rule was a coin flip (fires at dur only when the give beat
+that tick's step). Fixed: mobEffectInst.born records the give tick —
+the step never observes an instance in its birth tick — and the fire
+check reads rem+1 (the duration vanilla sees at that observation), so
+fire positions/count are deterministic: floor(dur/ivl) fires always.
+Leg D pins it: regen 5s on a Health:10f villager ends at health 1200 —
+2 heals on both targets.
 TestEffectTickParity pins: poison 4s → exactly 3 type-27 dmg events,
 regen 4s on a Health:10f villager → health meta >= 1100, wither 3s →
 exactly 1 type-49 dmg event with cause/direct 0/0. Green on both

@@ -25,7 +25,13 @@ import (
 type mobEffectInst struct {
 	amplifier int32
 	expiry    int64
-	hide      bool
+	// born is the game clock at creation. Effects are applied mid-tick
+	// (commands run off the tick loop), so the instance's first
+	// observed tick is the step after its birth — vanilla's instance
+	// ticks on the give tick itself with duration=dur, which is why the
+	// fire checks below read rem+1 as the effective duration.
+	born int64
+	hide bool
 	// flags pins the wire flags byte when nonzero; zero derives the
 	// byte from hide (mobEffectFlags).
 	flags  byte
@@ -219,7 +225,7 @@ func (s *Server) applyMobEffectWire(sess *Session, id, amplifier int32, duration
 	if duration >= 0 {
 		expiry = s.clock.count + int64(duration)
 	}
-	inst := mobEffectInst{amplifier: amplifier, expiry: expiry, hide: hideParticles, flags: flags}
+	inst := mobEffectInst{amplifier: amplifier, expiry: expiry, born: s.clock.count, hide: hideParticles, flags: flags}
 	if prev, ok := sess.effects[id]; ok {
 		switch {
 		case prev.amplifier < amplifier:
@@ -298,7 +304,7 @@ func (s *Server) applyInstantEffect(sess *Session, id, amplifier int32, src ...d
 func (s *Server) playerGiveEffect(t *Session, id, amplifier, ticks int32, hideParticles bool, src ...damageSource) bool {
 	now := s.clock.count
 	if e, live := sessEffect(t, id, now); live {
-		newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks)}
+		newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks), born: now}
 		switch {
 		case amplifier > e.amplifier:
 			// fall through and apply
@@ -325,7 +331,7 @@ func (s *Server) playerGiveEffect(t *Session, id, amplifier, ticks int32, hidePa
 // and the instant arm routed through the mob heal/hurt helpers.
 func (s *Server) mobGiveEffect(e *Entity, id, amplifier, ticks int32, hideParticles bool, src ...*damageInfo) bool {
 	now := s.clock.count
-	newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks), hide: hideParticles}
+	newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks), born: now, hide: hideParticles}
 	if e.Effects == nil {
 		e.Effects = map[int32]mobEffectInst{}
 	}
@@ -621,22 +627,22 @@ func (s *Server) mobEffectTickStep() {
 // MobEffectInstance.tick's applyEffectTick dispatch.
 func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectInst) {
 	rem := inst.expiry - s.clock.count
-	if rem <= 0 || sess.dead {
+	if rem <= 0 || sess.dead || s.clock.count <= inst.born {
 		return
 	}
 	switch id {
 	case 19: // wither: hurt 1.0 wither() every 40>>amplifier
-		if ivl := int64(40) >> uint(inst.amplifier); ivl > 0 && rem%ivl == 0 {
+		if ivl := int64(40) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 {
 			s.damageWith(sess, 1.0, translatable("death.attack.wither", literal(sess.getName())),
 				damageSource{typeName: "wither"})
 		}
 	case 18: // poison: hurt 1.0 magic() every 25>>amplifier, never below 1 hp
-		if ivl := int64(25) >> uint(inst.amplifier); ivl > 0 && rem%ivl == 0 && sess.health > 1 {
+		if ivl := int64(25) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 && sess.health > 1 {
 			s.damageWith(sess, 1.0, translatable("death.attack.magic", literal(sess.getName())),
 				damageSource{typeName: "magic"})
 		}
 	case 9: // regeneration: heal 1.0 every 50>>amplifier below max
-		if ivl := int64(50) >> uint(inst.amplifier); ivl > 0 && rem%ivl == 0 && sess.health < defaultHealth {
+		if ivl := int64(50) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 && sess.health < defaultHealth {
 			sess.health = min(sess.health+1, defaultHealth)
 			sess.healthDirty.Store(true)
 		}
@@ -662,20 +668,20 @@ func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectI
 // entity — hunger has no mob arm (players only).
 func (s *Server) applyEffectTickEntity(ep *Entity, id int32, inst mobEffectInst) {
 	rem := inst.expiry - s.clock.count
-	if rem <= 0 {
+	if rem <= 0 || s.clock.count <= inst.born {
 		return
 	}
 	switch id {
 	case 19:
-		if ivl := int64(40) >> uint(inst.amplifier); ivl > 0 && rem%ivl == 0 {
+		if ivl := int64(40) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 {
 			s.damageMob(ep, 1.0, "wither", nil, &damageInfo{typeName: "wither"})
 		}
 	case 18:
-		if ivl := int64(25) >> uint(inst.amplifier); ivl > 0 && rem%ivl == 0 && ep.Health > 1 {
+		if ivl := int64(25) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 && ep.Health > 1 {
 			s.damageMob(ep, 1.0, "magic", nil, &damageInfo{typeName: "magic"})
 		}
 	case 9:
-		if ivl := int64(50) >> uint(inst.amplifier); ivl > 0 && rem%ivl == 0 {
+		if ivl := int64(50) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 {
 			s.entities.Heal(ep.ID, 1.0)
 		}
 	}

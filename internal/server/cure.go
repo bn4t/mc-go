@@ -43,11 +43,11 @@ func mobHasEffect(s *Server, e *Entity, id int32) bool {
 	return ok
 }
 
-func mobAddEffect(e *Entity, id int32, amplifier int32, expiry int64) {
+func mobAddEffect(e *Entity, id int32, amplifier int32, expiry, born int64) {
 	if e.Effects == nil {
 		e.Effects = map[int32]mobEffectInst{}
 	}
-	e.Effects[id] = mobEffectInst{amplifier: amplifier, expiry: expiry}
+	e.Effects[id] = mobEffectInst{amplifier: amplifier, expiry: expiry, born: born}
 }
 
 func mobRemoveEffect(e *Entity, id int32) {
@@ -90,7 +90,7 @@ func (s *Server) cureZombieVillager(sess *Session, eid int32, hand int32) {
 	if amplifier > 0 {
 		amplifier = 0
 	}
-	mobAddEffect(e, strength, amplifier, s.clock.count+int64(e.ConversionTime))
+	mobAddEffect(e, strength, amplifier, s.clock.count+int64(e.ConversionTime), s.clock.count)
 	s.entities.mu.Unlock()
 	s.broadcastEntityEventTo(nil, e.Dim, eid, 16)
 	s.broadcastEntityAnimation(sess, sess.entityID.Load(), 0)
@@ -174,7 +174,7 @@ func (s *Server) finishCure(e *Entity) {
 	s.entities.Remove(e.ID)
 	s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 	if nausea, ok := MobEffectID("nausea"); ok {
-		mobAddEffect(v, nausea, 0, s.clock.count+200)
+		mobAddEffect(v, nausea, 0, s.clock.count+200, s.clock.count)
 	}
 
 	if e.HasConvStarter {

@@ -856,7 +856,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 					if dur >= 0 {
 						expiry = s.clock.count + dur
 					}
-					mobAddEffect(e, eid, amp, expiry)
+					mobAddEffect(e, eid, amp, expiry, s.clock.count)
 				}
 			}
 			// ConversionTime != -1 starts the zombie-villager cure
@@ -876,7 +876,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 					mobRemoveEffect(e, w)
 				}
 				if st, ok2 := MobEffectID("strength"); ok2 {
-					mobAddEffect(e, st, 0, s.clock.count+int64(e.ConversionTime))
+					mobAddEffect(e, st, 0, s.clock.count+int64(e.ConversionTime), s.clock.count)
 				}
 			}
 			if sv, ok := tag.vals["Silent"]; ok && (sv.num == "1b" || sv.num == "1" || sv.str == "true") {
@@ -963,7 +963,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 							if e.Effects == nil {
 								e.Effects = map[int32]mobEffectInst{}
 							}
-							e.Effects[eid] = mobEffectInst{amplifier: amp, expiry: expiry}
+							e.Effects[eid] = mobEffectInst{amplifier: amp, expiry: expiry, born: s.clock.count}
 						}
 					}
 				}
@@ -2718,7 +2718,7 @@ func (s *Server) mobConvertTick(e *Entity, d *dimension, ambName string) bool {
 				}
 				if ne := s.mobConvert(e, conv.dst, 0); ne != nil {
 					if nid, ok := MobEffectID("nausea"); ok {
-						mobAddEffect(ne, nid, 0, s.clock.count+200)
+						mobAddEffect(ne, nid, 0, s.clock.count+200, s.clock.count)
 					}
 				}
 				return true
@@ -2841,11 +2841,11 @@ func (s *Server) witchApplyPotion(e *Entity, potion string) {
 	switch potion {
 	case "water_breathing":
 		if id, ok := MobEffectID("water_breathing"); ok {
-			mobAddEffect(e, id, 0, s.clock.count+3600)
+			mobAddEffect(e, id, 0, s.clock.count+3600, s.clock.count)
 		}
 	case "fire_resistance":
 		if id, ok := MobEffectID("fire_resistance"); ok {
-			mobAddEffect(e, id, 0, s.clock.count+3600)
+			mobAddEffect(e, id, 0, s.clock.count+3600, s.clock.count)
 		}
 	case "healing":
 		max := float32(mobAttrSupplierBase("witch", "max_health"))
@@ -2859,7 +2859,7 @@ func (s *Server) witchApplyPotion(e *Entity, potion string) {
 		s.broadcastEntityMetadata(e.ID, encodeLivingHealth(e.Health))
 	case "swiftness":
 		if id, ok := MobEffectID("speed"); ok {
-			mobAddEffect(e, id, 0, s.clock.count+3600)
+			mobAddEffect(e, id, 0, s.clock.count+3600, s.clock.count)
 		}
 	}
 	e.MetaDirty = true

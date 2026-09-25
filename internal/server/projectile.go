@@ -576,7 +576,7 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 			})
 			if dealt > 0 {
 				for _, eff := range e.arrowEffects {
-					mobAddEffect(t, eff.id, 0, s.gameTime()+int64(eff.dur))
+					mobAddEffect(t, eff.id, 0, s.gameTime()+int64(eff.dur), s.gameTime())
 				}
 				if shooter != nil {
 					s.firePlayerHurtEntity(shooter, typeName, true, damage, "", false)
@@ -1027,7 +1027,7 @@ func (s *Server) splashApplyMob(e, t *Entity, effects []splashEffect, prox float
 		if dur < 1 {
 			continue
 		}
-		mobAddEffect(t, id, eff.amp, s.clock.count+int64(dur))
+		mobAddEffect(t, id, eff.amp, s.clock.count+int64(dur), s.clock.count)
 		t.MetaDirty = true
 	}
 }
