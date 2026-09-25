@@ -33,7 +33,7 @@ var projectileTickTypes = map[string]bool{
 	"arrow": true, "spectral_arrow": true, "trident": true,
 	"splash_potion": true, "lingering_potion": true,
 	"egg": true, "snowball": true, "experience_bottle": true,
-	"small_fireball": true, "firework_rocket": true,
+	"small_fireball": true, "firework_rocket": true, "ender_pearl": true,
 }
 
 // bowStartTick timestamps a draw begun by Use Item on a bow so the
@@ -200,7 +200,7 @@ func (s *Server) arrowTickStep() {
 		// (no gravity). The 0.99 air drag is shared.
 		grav := arrowGravity
 		switch name {
-		case "egg", "snowball", "splash_potion", "lingering_potion":
+		case "egg", "snowball", "splash_potion", "lingering_potion", "ender_pearl":
 			grav = 0.03
 		case "experience_bottle":
 			// ThrownExperienceBottle.getDefaultGravity — the bottle
@@ -226,10 +226,11 @@ func (s *Server) arrowTickStep() {
 		case sticks:
 			collided = s.arrowCollide(e, ox, oy, oz)
 		case name == "egg" || name == "snowball" ||
-			name == "experience_bottle":
+			name == "experience_bottle" || name == "ender_pearl":
 			// ThrowableItemProjectile.onHitEntity — hurt(0): the hit
 			// flashes the hurt animation and knockback but deals
-			// nothing (snowballs do 3 to blazes).
+			// nothing (snowballs do 3 to blazes). The ender pearl runs
+			// the hurt twice — the grace eats the second.
 			collided = s.thrownCollide(e, ox, oy, oz, name)
 		case name == "small_fireball":
 			// SmallFireball.onHitEntity — ignite 5s + hurt(5.0)
@@ -257,6 +258,9 @@ func (s *Server) arrowTickStep() {
 			if name == "experience_bottle" {
 				// entity hit: direction = -deltaMovement
 				s.xpBottleImpact(e, -e.MotionX, -e.MotionY, -e.MotionZ)
+			}
+			if name == "ender_pearl" {
+				s.enderPearlImpact(e, ox, oy, oz)
 			}
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemove([]int32{e.ID})
@@ -315,6 +319,9 @@ func (s *Server) arrowTickStep() {
 						dz = float64(fireballHitDir(hz, bz))
 					}
 					s.xpBottleImpact(e, dx, dy, dz)
+				}
+				if name == "ender_pearl" {
+					s.enderPearlImpact(e, ox, oy, oz)
 				}
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemove([]int32{e.ID})
@@ -1170,6 +1177,9 @@ func (s *Server) throwHandItem(sess *Session, hand int32, st ItemStack, name str
 		entName = "experience_bottle"
 		// spawnProjectileFromRotation(xRotDelta -20, power 0.7)
 		pitchOff, power = -20, 0.7
+	case "ender_pearl":
+		sndID, src = 604, 6 // entity.ender_pearl.throw, NEUTRAL
+		entName = "ender_pearl"
 	}
 	s.playSoundSrc(sess.dimName(), px, py, pz, sndID, src, 0.5, 0.4/(rand.Float32()*0.4+0.8), nil)
 	et, ok := EntityTypeID(entName)
@@ -1335,4 +1345,37 @@ func xpOrbDenomination(xp int) int {
 	default:
 		return 1
 	}
+}
+
+// enderPearlImpact is ThrownEnderpearl.onHit minus the dispatch:
+// vanilla loops 32 Level.addParticle calls, but that method is an
+// empty no-op on the dedicated server — nothing lands on the wire.
+// When the owner is a living connected player it then teleports to
+// the pearl's pre-tick position, eats 5.0 hurt through the
+// entity-less ender_pearl damage type (death.attack.fall) and hears
+// entity.player.teleport. Without a teleportable owner the pearl
+// just discards. The 5% endermite roll needs monster spawning and a
+// non-peaceful difficulty, both gated like vanilla.
+func (s *Server) enderPearlImpact(e *Entity, ox, oy, oz float64) {
+	shooter := s.sessionByEntityID(e.arrowShooter)
+	if shooter == nil || !shooter.spawned.Load() || shooter.dead {
+		return
+	}
+	if rand.Float32() < 0.05 && s.difficulty != DifficultyPeaceful {
+		if et, ok := EntityTypeID("endermite"); ok {
+			px, py, pz, yaw, pitch, _ := shooter.Pos()
+			m := s.entities.Spawn(&Entity{
+				Type: et, Dim: e.Dim,
+				X: px, Y: py, Z: pz, Yaw: yaw, Pitch: pitch,
+				Living:    true,
+				Health:    mobHealth["endermite"],
+				MaxHealth: mobHealth["endermite"],
+			})
+			s.broadcastEntitySpawn(nil, *m)
+			s.broadcastEntityMetadata(m.ID, encodeLivingMetadata(m, nil))
+		}
+	}
+	s.teleportWithin(shooter, ox, oy, oz)
+	s.damageWith(shooter, 5.0, translatable("death.attack.fall", literal(shooter.getName())), damageSource{typeName: "ender_pearl"})
+	s.playSoundSrc(e.Dim, ox, oy, oz, 1322, 7, 1, 1, nil) // entity.player.teleport, PLAYERS
 }

@@ -6931,3 +6931,29 @@ burst carries no dmg), no entity_event, no ANGRY (ownerless), both
 charges removed. Green on vanilla and mc-go;
 TestWindChargeExplodeParity + TestWindChargeTriggerBlocksParity +
 TestCreeperBoomParity re-run green.
+
+## Slice — 2026-09-25s — ender_pearl throw + hit teleport
+
+Vanilla (javap): EnderpearlItem.use throws like an egg (power 1.5,
+entity.ender_pearl.throw NEUTRAL). ThrownEnderpearl.onHitEntity hurts
+the victim 0.0 through DamageSources.thrown TWICE — the second call
+is always graced, so one wire event — and onHit then runs 32
+Level.addParticle calls that are an EMPTY NO-OP on the dedicated
+server (zero particle packets on the wire), a 5% endermite roll
+(monsters+difficulty gated), and — when the owner is a living
+same-dimension player — ServerPlayer.teleport to the pearl's
+pre-tick position (rotation+delta relative), hurtServer(
+damageSources.enderPearl(), 5.0) — an entity-less source so cause 0
+and direct 0 — and entity.player.teleport at the landing.
+
+mc-go: ender_pearl joins the instant-throw items and
+projectileTickTypes (it spawned but never ticked — invisible pearl),
+gravity 0.03. enderPearlImpact teleports the owner (teleportWithin),
+runs damageWith(5.0, death.attack.fall, ender_pearl) and plays the
+teleport sound; the particle loop is correctly absent.
+TestThrownHitParity leg 7 vs vanilla: thrown hit wires
+cause=thrower/direct=pearl, one ender_pearl damage_event
+(etype 8, cause 0, direct 0), one sync_pos east, teleport sound,
+one ANGRY, no particles, pearl removed. Green on both targets;
+assertHitWire/fireball direct asserts now accept whichever of the
+paired projectiles landed (same launch order isn't guaranteed).

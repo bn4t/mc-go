@@ -68,7 +68,7 @@ func TestThrownHitParity(t *testing.T) {
 			angryCount := func(ev []eggEvent) int {
 				return angryCountFor(villagerID, ev)
 			}
-			assertHitWire := func(ev []eggEvent, projName string, projEid int32, seq int32) {
+			assertHitWire := func(ev []eggEvent, projName string, projEids []int32, seq int32) {
 				t.Helper()
 				assertAckCovers(t, tc.tag, ev, seq)
 				dmgIdx, angryIdx := -1, -1
@@ -87,8 +87,14 @@ func TestThrownHitParity(t *testing.T) {
 				if dmg.etype != 45 {
 					t.Fatalf("%s: damage_event type = %d — vanilla sends damage_type thrown (45)", tc.tag, dmg.etype)
 				}
-				if dmg.data != projEid+1 {
-					t.Fatalf("%s: damage_event direct = %d — want projectile id %d (+1 encoded)", tc.tag, dmg.data, projEid)
+				hit := false
+				for _, id := range projEids {
+					if dmg.data == id+1 {
+						hit = true
+					}
+				}
+				if !hit {
+					t.Fatalf("%s: damage_event direct = %d — want one of projectile ids %v (+1 encoded)", tc.tag, dmg.data, projEids)
 				}
 				if angryIdx < 0 {
 					t.Fatalf("%s: no VILLAGER_ANGRY (event 13) on victim %d — villager reputation hook", tc.tag, villagerID)
@@ -111,7 +117,9 @@ func TestThrownHitParity(t *testing.T) {
 				if !snd {
 					t.Fatalf("%s: no entity.villager.hurt sound on the landed hit", tc.tag)
 				}
-				assertRemoved(t, tc.tag, ev, projEid)
+				for _, id := range projEids {
+					assertRemoved(t, tc.tag, ev, id)
+				}
 			}
 
 			// Legs 1+2 — two eggs back-to-back inside one
@@ -134,7 +142,7 @@ func TestThrownHitParity(t *testing.T) {
 			if len(eggIDs) != 2 {
 				t.Fatalf("%s: expected 2 egg spawns, got %d", tc.tag, len(eggIDs))
 			}
-			assertHitWire(ev, "egg", eggIDs[0], 1)
+			assertHitWire(ev, "egg", eggIDs, 1)
 			if !hasEvent3(t, ev, eggIDs[0]) || !hasEvent3(t, ev, eggIDs[1]) {
 				t.Fatalf("%s: both eggs must broadcast entity_event 3 on impact", tc.tag)
 			}
@@ -160,7 +168,7 @@ func TestThrownHitParity(t *testing.T) {
 			sendUseItemAim(t, pw, 0, 3, -90, 0)
 			ev = eggDrainFor(t, c, pr, pw, 1500*time.Millisecond)
 			sbID := assertThrowSpawn(t, tc.tag, ev, "snowball")
-			assertHitWire(ev, "snowball", sbID, 3)
+			assertHitWire(ev, "snowball", []int32{sbID}, 3)
 			if !hasEvent3(t, ev, sbID) {
 				t.Fatalf("%s: snowball entity-hit produced no entity_event 3", tc.tag)
 			}
@@ -231,11 +239,8 @@ func TestThrownHitParity(t *testing.T) {
 			if fbDmg != 1 {
 				t.Fatalf("%s: %d fireball damage_events for two hits — the graced second must produce none", tc.tag, fbDmg)
 			}
-			if fbEvt.data != fbIDs[0]+1 {
-				t.Fatalf("%s: fireball damage_event direct = %d — want projectile id %d (+1 encoded)", tc.tag, fbEvt.data, fbIDs[0])
-			}
-			if fbEvt.b0 != fbIDs[0]+1 {
-				t.Fatalf("%s: fireball damage_event cause = %d — ownerless shots report the projectile %d", tc.tag, fbEvt.b0, fbIDs[0])
+			if (fbEvt.data != fbIDs[0]+1 && fbEvt.data != fbIDs[1]+1) || fbEvt.b0 != fbEvt.data {
+				t.Fatalf("%s: fireball damage_event cause/direct = %d/%d — ownerless shots report the hit projectile %v (+1 encoded)", tc.tag, fbEvt.b0, fbEvt.data, fbIDs)
 			}
 			fireFlag := false
 			for _, e := range ev {
@@ -324,6 +329,87 @@ func TestThrownHitParity(t *testing.T) {
 			if n := angryCountFor(villager2, ev); n != 0 {
 				t.Fatalf("%s: %d VILLAGER_ANGRY events on the ownerless wind-charge hit", tc.tag, n)
 			}
+
+			// Leg 7 — ender_pearl entity hit: ThrownEnderpearl hurts
+			// the victim twice through thrown (the grace eats the
+			// second call — one wire event + ANGRY since the thrower
+			// owns it), teleports the thrower to the pearl's pre-tick
+			// position (sync_pos), hurts them 5.0 through the
+			// entity-less ender_pearl damage type (cause 0, direct 0)
+			// and plays entity.player.teleport. Its 32 addParticle
+			// calls are a server-side no-op — no particle packets.
+			// The pearl discards.
+			sendCommand(t, pw, "tp @s 60.5 -60 64.5 -90 0")
+			sendCommand(t, pw, "clear @s")
+			sendCommand(t, pw, "give @s minecraft:ender_pearl 1")
+			eggDrainFor(t, c, pr, pw, 1500*time.Millisecond)
+			sendUseItemAim(t, pw, 0, 20, -90, 0)
+			ev = eggDrainFor(t, c, pr, pw, 3000*time.Millisecond)
+			var pearlID int32
+			for _, e := range ev {
+				if e.kind == "spawn" && e.etype == mustEType(t, "ender_pearl") {
+					pearlID = e.eid
+				}
+			}
+			if pearlID == 0 {
+				t.Fatalf("%s: ender_pearl never spawned", tc.tag)
+			}
+			// The victim's thrown hurt — cause is the player (we
+			// can't name the server-assigned id, but it must be
+			// non-zero) and direct is the pearl.
+			pearlDmg := 0
+			for i := range ev {
+				if ev[i].kind == "dmg" && ev[i].eid == villager2 && ev[i].etype == 45 {
+					pearlDmg++
+					if ev[i].data != pearlID+1 {
+						t.Fatalf("%s: pearl damage_event direct = %d — want pearl id %d (+1)", tc.tag, ev[i].data, pearlID)
+					}
+					if ev[i].b0 == 0 {
+						t.Fatalf("%s: pearl damage_event cause = 0 — the player thrower owns it", tc.tag)
+					}
+				}
+			}
+			if pearlDmg != 1 {
+				t.Fatalf("%s: %d thrown damage_events for the pearl hit — the double hurt collapses to one", tc.tag, pearlDmg)
+			}
+			// The thrower's own 5.0 ender_pearl hurt: damage type id
+			// 8, entity-less source → cause 0, direct 0.
+			selfDmg := 0
+			for _, e := range ev {
+				if e.kind == "dmg" && e.etype == 8 {
+					selfDmg++
+					if e.b0 != 0 || e.data != 0 {
+						t.Fatalf("%s: ender_pearl damage_event cause/direct = %d/%d — the source has no entities", tc.tag, e.b0, e.data)
+					}
+				}
+			}
+			if selfDmg != 1 {
+				t.Fatalf("%s: %d ender_pearl damage_events — the thrower must eat 5.0 once", tc.tag, selfDmg)
+			}
+			// Vanilla loops 32 Level.addParticle calls in onHit, but
+			// the dedicated server's addParticle is an empty no-op —
+			// zero particle packets ship on either server.
+			if n := countKind(ev, "particles", 0); n != 0 {
+				t.Fatalf("%s: %d particle packets — the dedicated server's addParticle is a no-op", tc.tag, n)
+			}
+			// The thrower teleports to the pearl's pre-tick spot —
+			// east of the 60.5 start, inside the villager lane.
+			teleports := 0
+			for _, e := range ev {
+				if e.kind == "syncpos" && e.etype > 6100 && e.etype < 6500 {
+					teleports++
+				}
+			}
+			if teleports != 1 {
+				t.Fatalf("%s: %d sync_pos teleports — the pearl must pull the thrower once", tc.tag, teleports)
+			}
+			if countKind(ev, "sound", 1323) != 1 {
+				t.Fatalf("%s: no entity.player.teleport sound at the landing", tc.tag)
+			}
+			if n := angryCountFor(villager2, ev); n != 1 {
+				t.Fatalf("%s: %d VILLAGER_ANGRY events — the player-owned pearl must anger the villager", tc.tag, n)
+			}
+			assertRemoved(t, tc.tag, ev, pearlID)
 		})
 	}
 }

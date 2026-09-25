@@ -172,10 +172,26 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 		case server.IDPlayChunkBatchDone:
 			_ = ackChunkBatch(pw)
 		case server.IDPlaySyncPos:
-			if id, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
+			r := protocol.NewPacketReader(p.Data)
+			id, e1 := r.VarInt()
+			x, e2 := r.Double()
+			y, e3 := r.Double()
+			z, e4 := r.Double()
+			if e1 == nil {
 				var b protocol.Buffer
 				b.VarInt(id)
 				_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes())
+				// Echo the position like a real client; vanilla gates
+				// later block actions on the acknowledged teleport.
+				var mb protocol.Buffer
+				mb.Double(x)
+				mb.Double(y)
+				mb.Double(z)
+				mb.Byte(0)
+				_ = pw.WritePacket(server.IDPlayMovePosSB, mb.Bytes())
+			}
+			if e1 == nil && e2 == nil && e3 == nil && e4 == nil {
+				out = append(out, eggEvent{kind: "syncpos", etype: int32(x * 100), data: int32(y * 100), b0: int32(z * 100)})
 			}
 		case 0x04: // block_changed_ack
 			if seq, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
@@ -286,6 +302,8 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 			if eid, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
 				out = append(out, eggEvent{kind: "motion", eid: eid})
 			}
+		case 0x2F: // level_particles — counted, not decoded
+			out = append(out, eggEvent{kind: "particles"})
 		case 0x24: // explode: Vec3 center, Float radius, Int blockCount,
 			// Optional<Vec3> knockback, VarInt particle, VarInt sound,
 			// VarInt weighted-block-particles

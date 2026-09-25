@@ -87,7 +87,7 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 	// not hold-uses.
 	if un, ok := itemNameOf(st.ID); ok && !st.Empty() {
 		switch un {
-		case "egg", "blue_egg", "brown_egg", "snowball", "experience_bottle":
+		case "egg", "blue_egg", "brown_egg", "snowball", "experience_bottle", "ender_pearl":
 			s.throwHandItem(sess, hand, st, un, yaw, pitch)
 			return
 		}
