@@ -34,6 +34,7 @@ var projectileTickTypes = map[string]bool{
 	"splash_potion": true, "lingering_potion": true,
 	"egg": true, "snowball": true, "experience_bottle": true,
 	"small_fireball": true, "firework_rocket": true, "ender_pearl": true,
+	"wither_skull": true,
 }
 
 // bowStartTick timestamps a draw begun by Use Item on a bow so the
@@ -206,7 +207,7 @@ func (s *Server) arrowTickStep() {
 			// ThrownExperienceBottle.getDefaultGravity — the bottle
 			// arcs down harder than the other thrown items.
 			grav = 0.07
-		case "small_fireball", "firework_rocket", "wind_charge":
+		case "small_fireball", "firework_rocket", "wind_charge", "wither_skull":
 			grav = 0
 		}
 		e.MotionY -= grav
@@ -236,6 +237,11 @@ func (s *Server) arrowTickStep() {
 			// SmallFireball.onHitEntity — ignite 5s + hurt(5.0)
 			// through the fireball damage type.
 			collided = s.fireballCollide(e, ox, oy, oz)
+		case name == "wither_skull":
+			// WitherSkull.onHitEntity — living owner: hurt 8.0
+			// wither_skull; ownerless: hurt 5.0 magic; a landed hit
+			// then applies the wither effect by difficulty.
+			collided = s.witherSkullCollide(e, ox, oy, oz)
 		}
 		// Hurting projectiles (fireball/wind_charge/rocket) keep
 		// their own impact paths; the block hit below still applies.
@@ -261,6 +267,9 @@ func (s *Server) arrowTickStep() {
 			}
 			if name == "ender_pearl" {
 				s.enderPearlImpact(e, ox, oy, oz)
+			}
+			if name == "wither_skull" {
+				s.witherSkullExplode(e)
 			}
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemove([]int32{e.ID})
@@ -322,6 +331,9 @@ func (s *Server) arrowTickStep() {
 				}
 				if name == "ender_pearl" {
 					s.enderPearlImpact(e, ox, oy, oz)
+				}
+				if name == "wither_skull" {
+					s.witherSkullExplode(e)
 				}
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemove([]int32{e.ID})
@@ -1378,4 +1390,81 @@ func (s *Server) enderPearlImpact(e *Entity, ox, oy, oz float64) {
 	s.teleportWithin(shooter, ox, oy, oz)
 	s.damageWith(shooter, 5.0, translatable("death.attack.fall", literal(shooter.getName())), damageSource{typeName: "ender_pearl"})
 	s.playSoundSrc(e.Dim, ox, oy, oz, 1322, 7, 1, 1, nil) // entity.player.teleport, PLAYERS
+}
+
+// witherSkullCollide is WitherSkull.onHitEntity: with a LivingEntity
+// owner the victim takes hurt 8.0 through witherSkull(skull, owner) —
+// and a killed target heals the shooter 5.0 — while the ownerless
+// summon arm falls back to hurt 5.0 through the entity-less magic
+// type. A landed hit then applies wither for 10s on NORMAL or 40s on
+// HARD (amplifier 1, skipped entirely on easy/peaceful).
+func (s *Server) witherSkullCollide(e *Entity, ox, oy, oz float64) bool {
+	s.entities.mu.RLock()
+	targets := make([]*Entity, 0, len(s.entities.byID))
+	for _, t := range s.entities.byID {
+		targets = append(targets, t)
+	}
+	s.entities.mu.RUnlock()
+	var hit *Entity
+	for _, t := range targets {
+		if hit != nil || !t.Living || t.Dying || t.ID == e.ID || t.ID == e.arrowShooter {
+			continue
+		}
+		if t.Dim != e.Dim {
+			continue
+		}
+		bb := mobBounds(t.Type)
+		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+			continue
+		}
+		hit = t
+	}
+	if hit == nil {
+		return false
+	}
+	var graced, died bool
+	if shooter := s.sessionByEntityID(e.arrowShooter); shooter != nil {
+		var dealt float32
+		dealt, graced, died = s.damageMob(hit, 8.0, "wither_skull", shooter, &damageInfo{
+			typeName: "wither_skull", cause: e.arrowShooter, direct: e.ID,
+		})
+		if dealt > 0 && died {
+			// The kill heals the wither's shooter — the leech arm.
+			shooter.health += 5.0
+			if shooter.health > 20 {
+				shooter.health = 20
+			}
+			shooter.healthDirty.Store(true)
+		}
+	} else {
+		_, graced, _ = s.damageMob(hit, 5.0, "magic", nil, &damageInfo{
+			typeName: "magic",
+		})
+	}
+	if !graced && hit.Living {
+		// MobEffectInstance(WITHER, seconds*20, 1) — NORMAL 10s,
+		// HARD 40s, easy/peaceful none. Vanilla gates this only on
+		// hurt returning true + Living, not on isAlive.
+		secs := int32(0)
+		switch s.difficulty {
+		case DifficultyNormal:
+			secs = 10
+		case DifficultyHard:
+			secs = 40
+		}
+		if secs > 0 {
+			if wid, ok := MobEffectID("wither"); ok {
+				s.mobGiveEffect(hit, wid, 1, secs*20, false)
+			}
+		}
+	}
+	return true
+}
+
+// witherSkullExplode is WitherSkull.onHit's tail: explode(
+// this, pos, 1.0, no fire, MOB) at the skull's position — a real
+// power-1 explosion that hurts entities and carves blocks under
+// mob_griefing — then the caller discards.
+func (s *Server) witherSkullExplode(e *Entity) {
+	s.explodePower(e, e.X, e.Y, e.Z, 1.0, s.gameRuleBool("minecraft:mob_griefing"))
 }

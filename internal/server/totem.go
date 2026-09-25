@@ -505,6 +505,21 @@ func (s *Server) mobEffectTickStep() {
 		if hasBadOmen {
 			s.badOmenTick(sess, badOmen)
 		}
+		// WitherMobEffect.applyEffectTick on the session arm: hurt 1.0
+		// through the entity-less wither() source every 40>>amplifier
+		// live ticks of a finite instance.
+		if wid, ok := MobEffectID("wither"); ok {
+			sess.effMu.Lock()
+			inst, live := sess.effects[wid]
+			sess.effMu.Unlock()
+			if live && inst.expiry >= 0 {
+				ivl := int64(40) >> uint(inst.amplifier)
+				if ivl > 0 && (inst.expiry-s.clock.count)%ivl == 0 {
+					s.damageWith(sess, 1.0, translatable("death.attack.wither", literal(sess.getName())),
+						damageSource{typeName: "wither"})
+				}
+			}
+		}
 		if raidOmenDue && sess.raidOmenPos != nil {
 			// RaidOmenMobEffect fires exactly once, on the last live
 			// tick of the 600-tick instance.
@@ -541,6 +556,10 @@ func (s *Server) mobEffectTickStep() {
 	// The world-entity arm of LivingEntity.tickEffects: the same
 	// expiry/downgrade pass on e.Effects, remove_mob_effect /
 	// update_mob_effect out to trackers instead of the session write.
+	// applyEffectTick hooks run first — WitherMobEffect hurts 1.0
+	// through the entity-less wither() source every 40>>amplifier
+	// live ticks (MobEffectInstance.tick's remaining ticks).
+	witherID, witherOK := MobEffectID("wither")
 	for _, e := range s.entities.All() {
 		if e.Dying || len(e.Effects) == 0 {
 			continue
@@ -548,6 +567,14 @@ func (s *Server) mobEffectTickStep() {
 		ep, ok := s.entities.GetPtr(e.ID)
 		if !ok {
 			continue
+		}
+		if witherOK {
+			if inst, live := ep.Effects[witherID]; live && inst.expiry >= 0 {
+				ivl := int64(40) >> uint(inst.amplifier)
+				if ivl > 0 && (inst.expiry-s.clock.count)%ivl == 0 {
+					s.damageMob(ep, 1.0, "wither", nil, &damageInfo{typeName: "wither"})
+				}
+			}
 		}
 		changed := false
 		for id, inst := range ep.Effects {

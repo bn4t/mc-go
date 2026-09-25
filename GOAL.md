@@ -6976,3 +6976,14 @@ knockback vec3 must be skipped when hasKB — the old read left garbage
 in radius/sound on every breeze packet. Also made the paired-summon
 direct-id asserts order-agnostic (either of two same-tick spawns can
 land the hurt).
+### 2026-09-25u — wither_skull entity-hit + unconditional explode + wither tick
+WitherSkull.onHitEntity: living-owner → hurt 8.0 wither_skull(+kill→heal
+owner 5.0); OWNERLESS → hurt 5.0 through the entity-less magic type
+(cause/direct 0). Landed hit → MobEffectInstance(WITHER, NORMAL 10s /
+HARD 40s, amp 1) gated only on hurt true + Living. onHit explodes
+unconditionally (power 1.0, MOB) at the skull's position then discards.
+mobEffectTickStep now runs WitherMobEffect.applyEffectTick on BOTH arms:
+hurt 1.0 via entity-less wither() every 40>>amplifier live ticks.
+Blackbox leg 9 pins: ownerless magic dmg cause/direct 0/0, graced
+second skull no event, 2 explode packets radius 1.0, ≥1 wither-type
+tick event, both skulls removed.

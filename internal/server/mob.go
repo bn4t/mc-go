@@ -1145,7 +1145,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}
 	// Wind charges fly straight (no gravity) and burst on contact.
-	if name == "wind_charge" || name == "breeze_wind_charge" {
+	if name == "wind_charge" || name == "breeze_wind_charge" || name == "wither_skull" {
 		mx, my, mz := 0.0, 0.0, 0.0
 		if tag != nil {
 			if mv, ok := tag.vals["Motion"]; ok && len(mv.items) == 3 {

@@ -469,6 +469,79 @@ func TestThrownHitParity(t *testing.T) {
 				assertNoEntityEvent(t, tc.tag, ev, id)
 				assertRemoved(t, tc.tag, ev, id)
 			}
+
+			// leg 9: two ownerless wither_skulls into the SAME
+			// villager4 — WitherSkull.onHitEntity's ownerless arm
+			// hurts 5.0 through the entity-less magic type (the
+			// living-owner arm would be 8.0 wither_skull), applies a
+			// NORMAL-difficulty 10s wither effect when the hit lands,
+			// and onHit runs an unconditional power-1.0 MOB
+			// explosion at the skull's position — both skulls
+			// explode, and the wither tick fires its 1.0 hurt every
+			// 20 ticks of remaining duration.
+			sendCommand(t, pw, "summon minecraft:villager 59.5 -60 68.5 {NoAI:1b,NoGravity:1b}")
+			sendCommand(t, pw, "summon minecraft:wither_skull 58.0 -59.7 68.5 {Motion:[1.0d,0.0d,0.0d]}")
+			sendCommand(t, pw, "summon minecraft:wither_skull 58.0 -59.7 68.5 {Motion:[1.0d,0.0d,0.0d]}")
+			ev = eggDrainFor(t, c, pr, pw, 3000*time.Millisecond)
+			var villager4 int32
+			var wsIDs []int32
+			for _, e := range ev {
+				if e.kind == "spawn" && e.etype == mustEType(t, "villager") &&
+					e.eid != villagerID && e.eid != villager2 && e.eid != villager3 {
+					villager4 = e.eid
+				}
+				if e.kind == "spawn" && e.etype == mustEType(t, "wither_skull") {
+					wsIDs = append(wsIDs, e.eid)
+				}
+			}
+			if villager4 == 0 {
+				t.Fatalf("%s: fourth villager never spawned", tc.tag)
+			}
+			if len(wsIDs) != 2 {
+				t.Fatalf("%s: expected 2 wither_skull spawns, got %d", tc.tag, len(wsIDs))
+			}
+			wsDmg := 0
+			for i := range ev {
+				if ev[i].kind == "dmg" && ev[i].eid == villager4 && ev[i].etype == 27 {
+					wsDmg++
+					if ev[i].b0 != 0 || ev[i].data != 0 {
+						t.Fatalf("%s: ownerless magic damage_event cause/direct = %d/%d — entity-less magic wires 0/0", tc.tag, ev[i].b0, ev[i].data)
+					}
+				}
+			}
+			if wsDmg != 1 {
+				for _, e := range ev {
+					if e.kind == "dmg" && e.eid == villager4 {
+						t.Logf("%s: dbg dmg %+v", tc.tag, e)
+					}
+				}
+				t.Fatalf("%s: %d magic damage_events for two skull hits — the graced second must produce none", tc.tag, wsDmg)
+			}
+			wsBoom := 0
+			for _, e := range ev {
+				if e.kind == "explode" && e.etype == 100 {
+					wsBoom++
+				}
+			}
+			if wsBoom != 2 {
+				t.Fatalf("%s: %d radius-1.0 explode packets — both skulls explode on hit", tc.tag, wsBoom)
+			}
+			witherTicks := 0
+			for _, e := range ev {
+				if e.kind == "dmg" && e.eid == villager4 && e.etype == 49 {
+					witherTicks++
+					if e.b0 != 0 || e.data != 0 {
+						t.Fatalf("%s: wither tick damage_event cause/direct = %d/%d — entity-less wither wires 0/0", tc.tag, e.b0, e.data)
+					}
+				}
+			}
+			if witherTicks < 1 {
+				t.Fatalf("%s: no wither-type damage_events — the 10s wither effect must tick 1.0/20t", tc.tag)
+			}
+			for _, id := range wsIDs {
+				assertNoEntityEvent(t, tc.tag, ev, id)
+				assertRemoved(t, tc.tag, ev, id)
+			}
 		})
 	}
 }
