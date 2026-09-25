@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"mc-go/internal/data"
+	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
@@ -61,6 +62,11 @@ type ItemStack struct {
 	// placement. Only the count matters for the triggers we model;
 	// the entity payloads are never inspected.
 	Bees int32 `json:"bees,omitempty"`
+	// BlockState is the minecraft:block_state component — the flat
+	// property map a silk-touched block item carries (a bee nest's
+	// honey_level) so placement restores it. Canonical "key=val"
+	// pairs sorted by key keeps ItemStack comparable with ==.
+	BlockState string `json:"block_state,omitempty"`
 	// Potion is the minecraft:potion_contents component's potion id,
 	// minecraft: prefix stripped; empty means the holder is absent —
 	// a bare potion item ships the component EMPTY (the uncraftable
@@ -95,6 +101,7 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.Damage == other.Damage && it.RepairCost == other.RepairCost &&
 		it.Name == other.Name && it.Ench == other.Ench &&
 		it.StoredEnch == other.StoredEnch && it.Bees == other.Bees &&
+		it.BlockState == other.BlockState &&
 		it.Potion == other.Potion && it.Ominous == other.Ominous &&
 		it.BottleAmpSet == other.BottleAmpSet && it.BottleAmp == other.BottleAmp
 }
@@ -171,6 +178,14 @@ const (
 	// ominous_bottle_amplifier is a bare VarInt, registered 64th in the
 	// data_component_type registry (measured on 26.2).
 	compOminousBottleAmplifier = 63
+	// block_state is BlockItemStateProperties' flat map — VarInt
+	// pairs of UTF8 property name to value (measured on 26.2:
+	// PROPERTIES_STREAM_CODEC is ByteBufCodecs.map of STRING_UTF8).
+	compBlockState = 76
+	// bees is a VarInt-counted list of BeehiveBlockEntity.Occupant:
+	// TypedEntityData (entity-type holder VarInt, then the entity
+	// compound tag) plus ticks_in_hive and min_ticks_in_hive VarInts.
+	compBees = 77
 )
 
 // potionNamesByID inverts data.PotionIDs for the decode path; the
@@ -216,6 +231,12 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 		add += 4
 	}
 	if it.BottleAmpSet {
+		add++
+	}
+	if it.BlockState != "" {
+		add++
+	}
+	if it.Bees > 0 {
 		add++
 	}
 	b.VarInt(add)
@@ -304,6 +325,33 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 		// OminousBottleAmplifier.STREAM_CODEC is a bare VarInt.
 		b.VarInt(compOminousBottleAmplifier)
 		b.VarInt(it.BottleAmp)
+	}
+	if it.BlockState != "" {
+		b.VarInt(compBlockState)
+		parts := strings.Split(it.BlockState, ",")
+		b.VarInt(int32(len(parts)))
+		for _, kv := range parts {
+			k, v, _ := strings.Cut(kv, "=")
+			b.String(k)
+			b.String(v)
+		}
+	}
+	if it.Bees > 0 {
+		b.VarInt(compBees)
+		b.VarInt(it.Bees)
+		for i := int32(0); i < it.Bees; i++ {
+			// TypedEntityData: entity_type holder (raw id +1), then
+			// the occupant's entity compound with id stripped — the
+			// count-only model ships an empty tag.
+			if bid, ok := EntityTypeID("bee"); ok {
+				b.VarInt(bid + 1)
+			} else {
+				b.VarInt(0)
+			}
+			_ = nbt.WriteNamed(b, "", map[string]any{})
+			b.VarInt(0)   // ticks_in_hive
+			b.VarInt(600) // min_ticks_in_hive
+		}
 	}
 }
 
@@ -489,6 +537,45 @@ func readSlot(r *protocol.PacketReader) (ItemStack, error) {
 		case compRepairCost: // minecraft:repair_cost, VarInt payload
 			if it.RepairCost, err = r.VarInt(); err != nil {
 				return ItemStack{}, err
+			}
+		case compBlockState: // minecraft:block_state, UTF8 pair map
+			n, err := r.VarInt()
+			if err != nil {
+				return ItemStack{}, err
+			}
+			parts := make([]string, 0, n)
+			for ; n > 0; n-- {
+				k, err := r.String()
+				if err != nil {
+					return ItemStack{}, err
+				}
+				v, err := r.String()
+				if err != nil {
+					return ItemStack{}, err
+				}
+				parts = append(parts, k+"="+v)
+			}
+			sort.Strings(parts)
+			it.BlockState = strings.Join(parts, ",")
+		case compBees: // minecraft:bees, occupant list — count only
+			n, err := r.VarInt()
+			if err != nil {
+				return ItemStack{}, err
+			}
+			for ; n > 0; n-- {
+				if _, err := r.VarInt(); err != nil { // entity-type holder
+					return ItemStack{}, err
+				}
+				if _, _, err := r.NamedTag(); err != nil { // entity compound
+					return ItemStack{}, err
+				}
+				if _, err := r.VarInt(); err != nil { // ticks_in_hive
+					return ItemStack{}, err
+				}
+				if _, err := r.VarInt(); err != nil { // min_ticks_in_hive
+					return ItemStack{}, err
+				}
+				it.Bees++
 			}
 		default:
 			return ItemStack{}, errUnknownComponent(typ, id)

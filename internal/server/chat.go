@@ -43,7 +43,11 @@ func (s *Server) handleChat(sess *Session, p protocol.Packet, command bool) {
 	if err != nil || text == "" {
 		return
 	}
-	if len(text) > 256 {
+	// Chat text is capped at 256 chars client-side, but the Chat Command
+	// packet's command field reads a longer string (vanilla's codec cap
+	// is the packet string limit, not the chat one) — long setblock/give
+	// lines must not be cut mid-NBT.
+	if !command && len(text) > 256 {
 		text = text[:256]
 	}
 	name := sess.getName()

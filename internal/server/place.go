@@ -469,6 +469,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	blk = s.diodePlaceState(d, target, blk, sess)
 	blk = pistonPlaceState(blk, sess)
 	blk = observerPlaceState(blk, sess)
+	blk = blockStateComponentApply(blk, sess.heldStack())
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
 	// TripWireHookBlock.setPlacedBy: a placed hook runs its
 	// calculateState — attaches/powers the run it lands on. Command
@@ -675,4 +676,25 @@ func (s *Server) useBonemeal(sess *Session, d *dimension, clicked world.Pos) boo
 	}
 	s.broadcastLevelEvent(d.name, 1505, clicked, 15)
 	return true
+}
+
+// blockStateComponentApply is BlockItem.updateBlockStateFromTag: the
+// item's minecraft:block_state component folds its property map onto
+// the state being placed, so a silk-touched nest drops back with its
+// honey_level intact. Properties the block does not declare are
+// ignored (BlockItemStateProperties.updateState is per-key).
+func blockStateComponentApply(blk world.Block, held ItemStack) world.Block {
+	if held.BlockState == "" {
+		return blk
+	}
+	for _, kv := range strings.Split(held.BlockState, ",") {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || k == "" {
+			continue
+		}
+		if nb, ok := world.WithProperty(blk, k, v); ok {
+			blk = nb
+		}
+	}
+	return blk
 }

@@ -47,6 +47,11 @@ var blockHardnessTable = map[string]blockHardness{
 	"oak_log":                 {hardness: 2.0, drop: "oak_log"},
 	"oak_planks":              {hardness: 2.0, drop: "oak_planks"},
 	"glass":                   {hardness: 0.3, drop: ""},
+	// Bee nests/hives: strength 0.3/0.6 per Blocks.java, no
+	// requiresCorrectToolForDrops — silk gating lives in the loot
+	// table's match_tool pool instead.
+	"bee_nest": {hardness: 0.3},
+	"beehive":  {hardness: 0.6},
 	// Ice family: strength 0.5, no requiresCorrectToolForDrops —
 	// loot tables decide the drops (ice/frosted melt or silk only,
 	// packed drops itself). Blue ice is 2.8 and drops itself.
@@ -352,12 +357,15 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 	// EMERGENCY. The occupant count dies with the cell, so capture it
 	// before the write; the release itself lands after the drops.
 	nestBees := int32(0)
-	if isBeeNestBlock(broken) && sess.heldStack().enchLevel("silk_touch") <= 0 {
+	if isBeeNestBlock(broken) {
+		// The write below deletes the occupant record — the silk
+		// drop's copy_components and the non-silk release both read
+		// the count captured here.
 		nestBees = sess.dimension().bees[pos]
 	}
 	s.fireBeeNestDestroyed(sess, sess.dimension(), pos, broken)
 	affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
-	if nestBees > 0 {
+	if nestBees > 0 && sess.heldStack().enchLevel("silk_touch") <= 0 {
 		defer s.beeNestDestroyed(sess.dimension(), pos, broken, nestBees, sess)
 	}
 	// Vanilla's destroyBlock wears the held tool and counts the use
@@ -378,7 +386,7 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 		return affected
 	}
 	if _, ok := data.LootTables()["blocks/"+bname]; ok {
-		for _, st := range rollBlockLoot("blocks/"+bname, sess, pos, bname, broken) {
+		for _, st := range rollBlockLoot("blocks/"+bname, sess, pos, bname, broken, nestBees) {
 			s.spawnItemDrop(sess.dimName(), pos, st)
 		}
 		return affected

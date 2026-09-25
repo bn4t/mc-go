@@ -1189,6 +1189,8 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.Ench = ""
 			case "bees":
 				it.Bees = 0
+			case "block_state":
+				it.BlockState = ""
 			case "potion_contents":
 				it.Potion = ""
 			default:
@@ -1251,6 +1253,21 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
 			it.Bees = int32(len(vtag.items))
+		case "block_state":
+			// The component is the flat property map — string keys
+			// to string values — canonicalized "k=v" sorted.
+			if vtag.kind != snbtCompound {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			parts := make([]string, 0, len(vtag.vals))
+			for k, v := range vtag.vals {
+				if v.kind != snbtString {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				parts = append(parts, k+"="+v.str)
+			}
+			sort.Strings(parts)
+			it.BlockState = strings.Join(parts, ",")
 		case "potion_contents":
 			// potion_contents accepts a bare potion id or a compound
 			// with a potion field (potion_contents={potion="water"}).

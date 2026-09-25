@@ -500,6 +500,34 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 			"potion": "minecraft:" + it.Potion,
 		}
 	}
+	if it.Bees > 0 {
+		// Bees serializes as a list of Occupant records: the
+		// TypedEntityData's type field folds back into entity_data
+		// as the id key; the count-only model ships default ticks.
+		list := nbt.List{Elem: nbt.TagCompound}
+		for i := int32(0); i < it.Bees; i++ {
+			list.Items = append(list.Items, map[string]any{
+				"entity_data":       map[string]any{"id": "minecraft:bee"},
+				"ticks_in_hive":     int32(0),
+				"min_ticks_in_hive": int32(600),
+			})
+		}
+		comps["minecraft:bees"] = list
+	}
+	if it.BlockState != "" {
+		// BlockItemStateProperties is the flat property map —
+		// string keys to string values ({honey_level:"4"}).
+		bs := map[string]any{}
+		for _, kv := range strings.Split(it.BlockState, ",") {
+			k, v, ok := strings.Cut(kv, "=")
+			if ok && k != "" {
+				bs[k] = v
+			}
+		}
+		if len(bs) > 0 {
+			comps["minecraft:block_state"] = bs
+		}
+	}
 	if it.Contents == nil {
 		return comps
 	}

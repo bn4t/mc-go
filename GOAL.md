@@ -7421,3 +7421,56 @@ no equip.
 Harness note for future tests: `say` output arrives as
 disguised_chat (0x21), not system_chat — probes must read
 eggDrainFor chat events, not raw SystemChatCB packets.
+
+### 2026-09-25zi — silk-break copy_components/copy_state; bee nest keeps occupants + honey_level through the item
+
+Datagen + javap-measured (26.2): `blocks/bee_nest` and `blocks/beehive`
+each declare ONE pool gated on `match_tool{predicates:{enchantments:
+[{enchantments:silk_touch, levels:{min:1}}]}}` whose item entry carries
+`copy_components{include:[bees], source:block_entity}` +
+`copy_state{block, properties:[honey_level]}`. A non-silk break
+therefore drops NOTHING from the table — the occupants just
+EMERGENCY-release (the block-entity bee path already shipped).
+
+Wire form (javap `DataComponents` clinit order − 1): `block_state` =
+component id 76 = `VarInt n` + n×(String key, String value) — the flat
+property map `{honey_level:"4"}`; `bees` = id 77 = `VarInt count` +
+per occupant a TypedEntityData (holder = raw registry id+1, then the
+named NBT compound of entity_data with `id` folded out) +
+`VarInt ticks_in_hive` + `VarInt min_ticks_in_hive`. NBT save form is
+`bees:[{entity_data:{id:"minecraft:bee"},ticks_in_hive,min_ticks_in_hive}]`.
+mc-go models bees as a count (the occupant entity-data round-trip is
+unmodelled beyond `id:"minecraft:bee"`); block_state is the canonical
+sorted `k=v` string like Ench.
+
+Implementation: `ItemStack.Bees` already existed for placement
+restore; added `ItemStack.BlockState`, wire + NBT + `/give` parse
+(`block_state={honey_level:"4"}` — string values only, matching
+BlockItemStateProperties's STRING codec), `!block_state` removal,
+`lootApplyFuncs` cases for both functions, and a `lootCtx.bees` field
+fed from `d.bees[pos]` captured BEFORE the break's world write deletes
+the occupant record (the silk gate no longer excludes the capture).
+Placement folds `block_state` back onto the placed state via
+`blockStateComponentApply` (BlockItem.updateBlockStateFromTag — only
+properties the block declares).
+
+Two real parity bugs the differential run exposed:
+- `handleChat` truncated EVERY chat-command line at 256 chars — the
+  Chat Command packet's command field is a longer string (vanilla
+  accepted a 277-char setblock; mc-go cut mid-NBT and replied
+  "Invalid block data"). Chat text keeps the 256 cap; commands don't.
+- `blockHardnessTable` lacked bee_nest/beehive, so they dug at the
+  default hardness 1.0 (150 ticks offground) instead of vanilla's
+  0.3/0.6 (45/90 ticks). Added measured entries.
+
+`TestNestSilkCopyParity` (nestsilk_test.go): setblock a 3-occupant
+honey_level:4 nest → silk dig → the drop carries `bees`+`block_state`
+in Item.components and releases no bees; non-silk dig drops NOTHING
+and EMERGENCY-releases 3 bees; `item replace` a component-carrying
+nest, place → the block lands as honey_level:4 and re-breaks with
+its occupants. Green on both legs (vanilla 25.6s, mc-go 23.4s).
+
+Harness note: `execute if` probes must be polled to a deadline —
+`unless`-for-fast-miss fires immediately, which races delayed-destroy
+drops. And the delayed destroy armed by an early dig-finish still
+commits the break ~45 ticks later; probes must outlive it.

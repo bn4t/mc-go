@@ -6,6 +6,8 @@ import (
 	"io"
 	"net"
 	"time"
+
+	"mc-go/internal/nbt"
 )
 
 // Packet is a single Minecraft packet payload (ID + data), without the length prefix.
@@ -280,6 +282,12 @@ func (r *PacketReader) OptionalVarInt() (int32, bool, error) {
 		return 0, false, err
 	}
 	return v, true, nil
+}
+
+// NamedTag reads one named NBT tag — the COMPOUND_TAG stream form
+// (type byte, u16 name, payload) — as written by writeNbt.
+func (r *PacketReader) NamedTag() (string, any, error) {
+	return nbt.ReadNamed(r.buf)
 }
 
 func (r *PacketReader) Read(n int) ([]byte, error) {

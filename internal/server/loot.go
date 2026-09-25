@@ -2,6 +2,7 @@ package server
 
 import (
 	"math/rand"
+	"sort"
 	"strings"
 
 	"mc-go/internal/data"
@@ -13,11 +14,14 @@ import (
 // tool/block conditions fail — matching vanilla, where the params
 // simply aren't in the context.
 type lootCtx struct {
-	tool   ItemStack   // tool=empty models the player's bare hand
-	block  string      // mined block id (block_state_property target)
-	state  world.Block // pre-break state; drops roll after removal
-	pos    world.Pos
-	dim    *dimension
+	tool  ItemStack   // tool=empty models the player's bare hand
+	block string      // mined block id (block_state_property target)
+	state world.Block // pre-break state; drops roll after removal
+	pos   world.Pos
+	dim   *dimension
+	// bees is the block entity's occupant count captured before the
+	// world write removed it — copy_components[bees] reads it.
+	bees   int32
 	rng    *rand.Rand
 	player *Session // "this" entity for entity_properties
 	// explosionRadius > 0 means the roll is inside an explosion and
@@ -44,13 +48,14 @@ func rollLootTable(table string, seed int64) []ItemStack {
 // mined block's identity and state feed block_state_property and
 // location_check conditions, and the held tool feeds match_tool,
 // table_bonus, and apply_bonus.
-func rollBlockLoot(table string, sess *Session, pos world.Pos, bname string, state world.Block) []ItemStack {
+func rollBlockLoot(table string, sess *Session, pos world.Pos, bname string, state world.Block, bees int32) []ItemStack {
 	ctx := &lootCtx{
 		tool:   sess.heldStack(),
 		block:  bname,
 		state:  state,
 		pos:    pos,
 		dim:    sess.dimension(),
+		bees:   bees,
 		rng:    rand.New(rand.NewSource(rand.Int63())),
 		player: sess,
 	}
@@ -467,8 +472,58 @@ func lootApplyFuncs(fns []any, st ItemStack, ctx *lootCtx) ItemStack {
 			}
 		case "minecraft:explosion_decay", "explosion_decay":
 			// No explosion context: decay never fires.
+		case "minecraft:copy_components", "copy_components":
+			st = lootCopyComponents(fm, st, ctx)
+		case "minecraft:copy_state", "copy_state":
+			st = lootCopyState(fm, st, ctx)
 		}
 	}
+	return st
+}
+
+// lootCopyComponents is CopyComponentsFunction's block_entity source:
+// each include name maps onto the modeled slice of the block entity's
+// components — a nest's bees occupant list. Includes our stacks do
+// not model (lock, profile, tooltip_display, …) contribute nothing.
+func lootCopyComponents(fm map[string]any, st ItemStack, ctx *lootCtx) ItemStack {
+	if src, _ := fm["source"].(string); src != "block_entity" && src != "minecraft:block_entity" {
+		return st
+	}
+	inc, _ := fm["include"].([]any)
+	for _, iv := range inc {
+		switch name, _ := iv.(string); strings.TrimPrefix(name, "minecraft:") {
+		case "bees":
+			st.Bees = ctx.bees
+		}
+	}
+	return st
+}
+
+// lootCopyState is CopyBlockState: each named property of the mined
+// block folds into the stack's minecraft:block_state component so a
+// silk-touched nest keeps its honey_level through the drop. The
+// function's own "block" field must name the mined block.
+func lootCopyState(fm map[string]any, st ItemStack, ctx *lootCtx) ItemStack {
+	if blk, _ := fm["block"].(string); blk != "" {
+		if strings.TrimPrefix(blk, "minecraft:") != ctx.block {
+			return st
+		}
+	}
+	var extra []string
+	for _, pv := range fm["properties"].([]any) {
+		prop, _ := pv.(string)
+		if val, ok := world.StateProperty(ctx.state, prop); ok {
+			extra = append(extra, prop+"="+val)
+		}
+	}
+	if len(extra) == 0 {
+		return st
+	}
+	if st.BlockState != "" {
+		extra = append(extra, strings.Split(st.BlockState, ",")...)
+	}
+	sort.Strings(extra)
+	st.BlockState = strings.Join(extra, ",")
 	return st
 }
 
