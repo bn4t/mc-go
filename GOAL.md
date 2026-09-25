@@ -7126,3 +7126,33 @@ Debug note for future probes: `enchantments={mending:1}` parses
 on both servers; `enchantments={minecraft:mending:1}` fails
 identically (unquoted namespaced keys are not SNBT) — the suite's
 enchantments syntax is the unprefixed bare name.
+### 2026-09-25zb — beehive release: harvest + break
+BeehiveBlock.useItemOn / dispenser use + BeehiveBlockEntity
+releaseAllOccupants landed:
+- honey_level>=5 gates shears and glass_bottle interact paths
+  (honeycomb x3 + beehive_shear + wear 1; bottle shrink + fill +
+  swap/add), then campfire-within-5-below (isSmokeyPos) decides
+  reset-only vs EMERGENCY release of every occupant.
+- Dispenser shears/bottle on a nest → BEE_RELEASED release (no
+  campfire check).
+- Breaking a nest without silk touch → EMERGENCY release of the
+  stored occupant count (mc-go tracks count only).
+- releaseOccupant gates: BEES_STAY_IN_HIVE env attribute
+  (night/rain/thunder) and a blocked front cell both hold the
+  release unless EMERGENCY; spawn pos+0.5+(0.55+w/2)*step,
+  feet at pos.y+0.5-bbHeight/2, beehive_exit sound per bee.
+  Measured bee hitbox for the offset: 0.55w x 0.5h.
+TestBeeReleaseParity pins five legs on both targets: shears
+interact (EMERGENCY, snap 64.325/-59.75/60.5 + shear sound +
+3 honeycomb + honey_level 0), lit campfire harvest keeps both
+bees inside, dispenser shears, dispenser bottle, and a
+survival dig on a front-blocked nest releasing at the nest
+centre.
+Debug notes for future probes: after `tp`, the next packet
+drain MUST run before use_item_on — vanilla drops block
+interactions until accept_teleportation (serverbound 0x00)
+replies to the sync-pos (0x48) teleportId. `say` broadcasts
+ride clientbound 0x21 (disguised/player chat), NOT 0x79 —
+marker probes must scan 0x21 or raw payload. Occupant NBT
+needs a large min_ticks_in_hive or vanilla's hive tick
+auto-releases occupants before the harvest lands.

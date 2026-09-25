@@ -358,6 +358,14 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 				s.sendBlockAck(sess, seq)
 			}
 			return
+		case short == "bee_nest" || short == "beehive":
+			if s.useBeehive(sess, d, clicked, cur) {
+				acked = true
+				if seq >= 0 {
+					s.sendBlockAck(sess, seq)
+				}
+				return
+			}
 		}
 	}
 	// Container blocks open their menu instead of placing, but only

@@ -132,6 +132,10 @@ type eggEvent struct {
 	data    int32  // spawn packet's data field (owner id) or level_event data
 	oval    int32  // orb value decoded from an index-8 VarInt meta entry
 	hasOval bool
+	sx      float64 // spawn packet x (spawn kind only)
+	sy      float64
+	sz      float64
+	chat    string // raw system_chat payload bytes (chat kind only)
 }
 
 func eggDrain(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writer, quiet time.Duration) []eggEvent {
@@ -212,9 +216,9 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 			if e1 != nil || e2 != nil || e3 != nil {
 				break
 			}
-			_, _ = r.Double()
-			_, _ = r.Double()
-			_, _ = r.Double()
+			sx, _ := r.Double()
+			sy, _ := r.Double()
+			sz, _ := r.Double()
 			// velocity rides the variable-length LpVec3 — skip it
 			// properly or a moving entity's bytes leak into the
 			// pitch/yaw/data reads below.
@@ -223,7 +227,7 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 			_, _ = r.Byte() // yaw
 			_, _ = r.Byte() // head yaw
 			data, _ := r.VarInt()
-			out = append(out, eggEvent{kind: "spawn", eid: eid, etype: et, data: data})
+			out = append(out, eggEvent{kind: "spawn", eid: eid, etype: et, data: data, sx: sx, sy: sy, sz: sz})
 		case 0x63: // set_entity_data
 			r := protocol.NewPacketReader(p.Data)
 			if eid, err := r.VarInt(); err == nil {
@@ -318,6 +322,10 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 			if e1 == nil && e2 == nil && e3 == nil {
 				out = append(out, eggEvent{kind: "xp", eid: int32(bar * 100), etype: lvl, data: tot})
 			}
+		case 0x79: // system_chat — command feedback (data get, test failed)
+			out = append(out, eggEvent{kind: "chat", chat: string(p.Data)})
+		case 0x21: // disguised_chat — `say` broadcasts ride here
+			out = append(out, eggEvent{kind: "chat", chat: string(p.Data)})
 		case 0x2F: // level_particles: Bool overrideLimiter, Bool
 			// alwaysShow, 3xDouble pos, 3xFloat spread, Float speed,
 			// Int count, VarInt particle id, data…

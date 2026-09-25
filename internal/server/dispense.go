@@ -293,14 +293,12 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 	case itemName == "glass_bottle":
 		// DispenseItemBehavior$9: BEEHIVES tag + honey_level>=5 at
 		// the mouth → honey_bottle + releaseBeesAndResetHoneyLevel
-		// (bee spawn deferred — hives don't track occupants yet);
+		// (BEE_RELEASED — no campfire check, no harvester);
 		// otherwise a water source fills the bottle to water.
 		fb := d.w.GetBlock(front)
 		if bn, ok := blockNameAt(d, front); ok && (bn == "beehive" || bn == "bee_nest") {
 			if hl, err := strconv.Atoi(rsPropsOf(fb)("honey_level")); err == nil && hl >= 5 {
-				if nb, ok := world.WithProperty(fb, "honey_level", "0"); ok {
-					s.rsWriteBlockFlag2(d, front, nb)
-				}
+				s.releaseBeesAndResetHoneyLevel(d, front, fb, nil, beeReleaseReleased)
 				if fid, ok := world.ItemIDs["honey_bottle"]; ok {
 					d.containers.mu.Lock()
 					removeOne(&c.slots[slot])
@@ -367,15 +365,14 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 		return
 	case itemName == "shears":
 		// ShearsDispenseItemBehavior: shear a full beehive/nest at
-		// the mouth → honeycomb drop + honey_level reset; otherwise a
-		// Shearable entity in the mouth cell (sheep only for now —
-		// mooshroom/snow-golem/bogged shear paths deferred).
+		// the mouth → honeycomb drop + releaseBeesAndResetHoneyLevel
+		// (BEE_RELEASED); otherwise a Shearable entity in the mouth
+		// cell (sheep only for now — mooshroom/snow-golem/bogged
+		// shear paths deferred).
 		fb := d.w.GetBlock(front)
 		if bn, ok := blockNameAt(d, front); ok && (bn == "beehive" || bn == "bee_nest") {
 			if hl, err := strconv.Atoi(rsPropsOf(fb)("honey_level")); err == nil && hl >= 5 {
-				if nb, ok := world.WithProperty(fb, "honey_level", "0"); ok {
-					s.rsWriteBlockFlag2(d, front, nb)
-				}
+				s.releaseBeesAndResetHoneyLevel(d, front, fb, nil, beeReleaseReleased)
 				if hid, ok := world.ItemIDs["honeycomb"]; ok {
 					s.spawnItemDrop(d.name, front, ItemStack{ID: hid, Count: 3})
 				}

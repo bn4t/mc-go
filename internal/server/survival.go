@@ -348,8 +348,18 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 	if broken == world.Air {
 		return nil
 	}
+	// BeehiveBlock.playerDestroy: a non-silk break empties the hive
+	// EMERGENCY. The occupant count dies with the cell, so capture it
+	// before the write; the release itself lands after the drops.
+	nestBees := int32(0)
+	if isBeeNestBlock(broken) && sess.heldStack().enchLevel("silk_touch") <= 0 {
+		nestBees = sess.dimension().bees[pos]
+	}
 	s.fireBeeNestDestroyed(sess, sess.dimension(), pos, broken)
 	affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
+	if nestBees > 0 {
+		defer s.beeNestDestroyed(sess.dimension(), pos, broken, nestBees)
+	}
 	// Vanilla's destroyBlock wears the held tool and counts the use
 	// (ItemStack.mineBlock) before the break statistics land
 	// (Block.playerDestroy), so the used stat precedes mined here.
