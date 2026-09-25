@@ -6585,3 +6585,46 @@ mob equip persistence/guaranteed-drop.
   = 0x10 (low nibble = dye color). encodeLivingMetadata emits it
   when Sheared; the dispenser shear path broadcasts the metadata.
 - Probe: `entity @e[type=sheep,nbt={Sheared:1b}]` hits on both.
+
+## Slice 2026-09-25j — mob shears, sheep EatBlockGoal, tick-sprint ordering
+
+- Shears on a living entity (dispenser $-behavior AND held-item
+  interact) now mirror vanilla's per-type outcomes: snow_golem →
+  `Pumpkin:0b` (DATA_PUMPKIN_ID index 16 byte — default on, packs
+  only when off) + carved_pumpkin drop; bogged → `sheared:1b`
+  (index 16 boolean) + BOGGED_SHEAR loot (2×{brown,red} mushroom);
+  mooshroom → convertTo(COW) at pos + 5×red_mushroom; sheep → wool
+  drop + Sheared flag. Held-shears path (`shearMob`) fires only
+  when BodyItem is empty — saddled/wolf-armored mobs take the
+  equipment path instead.
+- `handleInteract` gained vanilla's isWithinEntityInteractionRange
+  gate: eye→entity-box distance must stay under
+  entity_interaction_range (base 3.0) + 3.0 padding — out-of-range
+  clicks silently dropped (measured: vanilla ignores ~7-block
+  clicks).
+- Sheep's EatBlockGoal: 1/1000-tick canUse roll (1/50 for babies)
+  gated on an edible_for_sheep block underfoot or a grass_block
+  below; start sets a 40-tick anim (entity event 10); at
+  adjustedTickDelay(4) the eat lands — underfoot edible destroyed
+  or grass→dirt, both mob_griefing-gated — then ate() clears
+  Sheared (+60 age for babies). While anim runs the sheep stands
+  still. TestSheepEatGrassParity: 6-sheep grass pen vs stone pen,
+  3000-tick sprint, 4 probes hit/hit.
+- `/summon` reads the shear-family NBT keys where vanilla's
+  readAdditionalSaveData does: `Sheared` (sheep), `sheared`
+  (bogged), `Pumpkin` (snow_golem; absent → default-on).
+- `/tick sprint` runs synchronously on the command path — vanilla
+  sprints on the server thread, so the ack leaves first and every
+  queued command sees post-sprint state (fixes mid-sprint reads
+  in TestTickCountParity). finishTickSprint's report
+  (`commands.tick.sprint.report`, ticks-per-second + %.2f ms/tick)
+  now broadcasts to every player on completion or early stop —
+  tests wait on "Sprint completed" instead of wall-clock guesses.
+- Probe lessons: `drainChunkWindow` never terminates under a long
+  quiet timeout — vanilla's ~1s time_update heartbeat keeps the
+  stream non-quiet, use a fixed bounded read; a stale read-deadline
+  armed by a capture loop starves a later chatSink — clear it with
+  `SetReadDeadline(time.Time{})` before starting the sink.
+- Deferred: shearOffAllLeashConnections (no leash model), bee
+  release on honey harvest, remaining bonemeal targets, happy-ghast
+  harness, egg chick-hatch, piston entity push + block_event packet.

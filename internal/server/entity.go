@@ -33,6 +33,9 @@ type Entity struct {
 	// Pumpkin is SnowGolem's DATA_PUMPKIN_ID flag — a sheared snow
 	// golem loses its carved-pumpkin head (default true at spawn).
 	Pumpkin bool
+	// EatAnim is EatBlockGoal.eatAnimationTick — a sheep grazes for
+	// 40 ticks (entity event 10) before the eat lands.
+	EatAnim int32
 	// ItemAge is ItemEntity.age — drives the 6000-tick despawn and
 	// the merge cadence (every 2 ticks after a block crossing, else
 	// 40), and a merge takes the survivor's minimum.

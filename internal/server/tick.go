@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -220,9 +221,11 @@ func (s *Server) StepTicks(n int64) {
 	}
 }
 
-// SprintTicks runs n ticks back to back in the background, stopping
-// early if StopSprint is called. Vanilla's /tick sprint returns at once
-// and simulates as fast as the machine allows.
+// SprintTicks runs n ticks back to back, synchronously, stopping early
+// if StopSprint is called. Vanilla's /tick sprint runs on the server
+// thread: the "game is sprinting" ack leaves first, every packet queued
+// behind it waits out the sprint, and finishTickSprint's report reaches
+// all players when it ends.
 //
 // A sprint of n simulates n+1 ticks, which is the real server's own
 // count and not a rounding of it: measured on 26.2, three sprints of ten
@@ -240,25 +243,37 @@ func (s *Server) SprintTicks(n int64) {
 	n++
 	s.clock.mu.Lock()
 	s.clock.sprinting = true
+	from := s.clock.count
 	s.clock.mu.Unlock()
-	go func() {
-		defer func() {
-			s.clock.mu.Lock()
-			s.clock.sprinting = false
-			s.clock.mu.Unlock()
-		}()
-		s.clock.runMu.Lock()
-		defer s.clock.runMu.Unlock()
-		for i := int64(0); i < n; i++ {
-			s.clock.mu.Lock()
-			stop := !s.clock.sprinting
-			s.clock.mu.Unlock()
-			if stop {
-				return
-			}
-			s.GameTick()
+	started := time.Now()
+	defer func() {
+		s.clock.mu.Lock()
+		s.clock.sprinting = false
+		completed := s.clock.count - from
+		s.clock.mu.Unlock()
+		// ServerTickRateManager.finishTickSprint reports through the
+		// server's own command source — every player sees it, stopped
+		// mid-sprint or finished alike.
+		ms := float64(time.Since(started).Nanoseconds()) / 1e6
+		if ms < 1 {
+			ms = 1
 		}
+		tps := int32(float64(completed) * 1000 / ms)
+		mspt := ms / math.Max(1, float64(completed))
+		s.broadcastSystemChatComponent(translatable("commands.tick.sprint.report",
+			tps, strconv.FormatFloat(mspt, 'f', 2, 64)))
 	}()
+	s.clock.runMu.Lock()
+	defer s.clock.runMu.Unlock()
+	for i := int64(0); i < n; i++ {
+		s.clock.mu.Lock()
+		stop := !s.clock.sprinting
+		s.clock.mu.Unlock()
+		if stop {
+			return
+		}
+		s.GameTick()
+	}
 }
 
 // StopSprint halts a running /tick sprint.

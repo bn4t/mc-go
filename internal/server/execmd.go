@@ -1066,6 +1066,20 @@ func (s *Server) runTick(player string, args []string) reply {
 		if n < 1 {
 			return errTokenEnd("argument.time.tick_count_too_low", 2, int32(1), int32(n))
 		}
+		// Vanilla runs the sprint on the server thread: the ack leaves
+		// first, and everything queued behind this command — including
+		// the test's next packet — waits out the sprint. Sending the
+		// ack up front and then blocking here reproduces that wire
+		// order; a console caller (no session) takes the reply path.
+		if sess := s.findSessionByName(player); sess != nil {
+			if s.gameRuleBool("minecraft:send_command_feedback") {
+				s.sendSystemChatComponent(sess, translatable("commands.tick.status.sprinting"))
+			}
+			s.SprintTicks(n)
+			r := reply{}
+			r.result, r.hasResult = 1, true
+			return r
+		}
 		s.SprintTicks(n)
 		return componentReply(translatable("commands.tick.status.sprinting"))
 	case "rate":

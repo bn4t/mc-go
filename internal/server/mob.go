@@ -986,6 +986,24 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.Ignited = true
 				}
 			}
+			// Sheep/Bogged readAdditionalSaveData shear flags and
+			// SnowGolem's Pumpkin — each read only where the class
+			// declares the key; Pumpkin absent keeps the default-on.
+			if name == "sheep" {
+				if v, ok := tag.vals["Sheared"]; ok && snbtNum(v) > 0 {
+					e.Sheared = true
+				}
+			}
+			if name == "bogged" {
+				if v, ok := tag.vals["sheared"]; ok && snbtNum(v) > 0 {
+					e.Sheared = true
+				}
+			}
+			if name == "snow_golem" {
+				if v, ok := tag.vals["Pumpkin"]; ok {
+					e.Pumpkin = snbtNum(v) > 0
+				}
+			}
 
 		}
 		// Vanilla's /summon runs finalizeSpawn only on the bare form:
@@ -1970,6 +1988,12 @@ func (s *Server) mobTickStep() {
 			// Drowned/stray conversion bookkeeping — inside the NoAI
 			// gate like vanilla's aiStep/tick placement.
 			if s.mobConvertTick(e, s.dims[e.Dim], ambName) {
+				continue
+			}
+			// Sheep's EatBlockGoal (priority 5) — while the eat
+			// animation runs the sheep stands still.
+			if ambName == "sheep" && s.sheepEatTick(e, s.dims[e.Dim]) {
+				s.mobSyncFlush(e)
 				continue
 			}
 			// A passenger stays put — vanilla's entity rider has no
@@ -4733,4 +4757,83 @@ func (s *Server) mobGuardianStep(e *Entity, kn string) bool {
 		}
 	}
 	return true
+}
+
+// sheepEatTick is Sheep's EatBlockGoal: canUse rolls nextInt(50) for
+// babies / nextInt(1000) for adults per tick, requiring an
+// edible_for_sheep block underfoot or a grass_block below. start()
+// sets a 40-tick animation (entity event 10); when the counter hits
+// adjustedTickDelay(4) the eat lands — the underfoot edible is
+// destroyed (or grass_block below turns to dirt), both gated on
+// mob_griefing, then Mob.ate → Sheep.ate clears Sheared (+60 age for
+// babies).
+func (s *Server) sheepEatTick(e *Entity, d *dimension) bool {
+	w := s.dimWorld(e.Dim)
+	if w == nil {
+		return false
+	}
+	if e.EatAnim > 0 {
+		e.EatAnim--
+		if e.EatAnim == 4 {
+			s.sheepEat(e, d, w)
+		}
+		return true
+	}
+	roll := 1000
+	if e.Baby {
+		roll = 50
+	}
+	if s.rng.intn(roll) != 0 {
+		return false
+	}
+	pos := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}
+	if !sheepEdibleBlock(w.GetBlock(pos)) {
+		below := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
+		bn, _ := world.StateOwner(w.GetBlock(below))
+		if strings.TrimPrefix(bn, "minecraft:") != "grass_block" {
+			return false
+		}
+	}
+	e.EatAnim = 40
+	s.broadcastEntityEvent(e.ID, 10)
+	return true
+}
+
+// sheepEdibleBlock is the edible_for_sheep block tag.
+func sheepEdibleBlock(b world.Block) bool {
+	n, _ := world.StateOwner(b)
+	switch strings.TrimPrefix(n, "minecraft:") {
+	case "short_grass", "short_dry_grass", "tall_dry_grass", "fern":
+		return true
+	}
+	return false
+}
+
+// sheepEat resolves the eat tick: destroy the underfoot edible block
+// (mob_griefing-gated) or convert the grass_block below to dirt, then
+// ate() un-shears the sheep.
+func (s *Server) sheepEat(e *Entity, d *dimension, w *world.World) {
+	pos := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}
+	if sheepEdibleBlock(w.GetBlock(pos)) {
+		if s.gameRuleBool("minecraft:mob_griefing") {
+			old := w.GetBlock(pos)
+			s.broadcastLevelEvent(d.name, 2001, pos, int32(old))
+			s.setNaturalBlock(d, pos, world.Air)
+		}
+	} else {
+		below := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
+		bn, _ := world.StateOwner(w.GetBlock(below))
+		if strings.TrimPrefix(bn, "minecraft:") == "grass_block" && s.gameRuleBool("minecraft:mob_griefing") {
+			if dirt, ok := world.BlockStateOf("dirt", nil); ok {
+				s.setNaturalBlock(d, below, dirt)
+			}
+		}
+	}
+	if e.Sheared {
+		e.Sheared = false
+		s.broadcastEntityMetadata(e.ID, encodeLivingMetadata(e, nil))
+	}
+	if e.Baby {
+		e.Age += 60
+	}
 }
