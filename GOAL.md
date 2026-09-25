@@ -7106,3 +7106,23 @@ the live-orb set ends at 2 (merge victim's remove, distant stays);
 then a survival player at the spot → 3 set_experience updates (count2
 → two takes) and 0 live orbs. The drain now decodes 0x67
 set_experience.
+### 2026-09-25za — mending: repairPlayerItems on orb pickup
+ExperienceOrb.playerTouch routes the orb's value through
+repairPlayerItems before giveExperiencePoints: pick a random
+!isEmpty && isDamaged equipment item carrying REPAIR_WITH_XP
+(mending) — the slot set is both hands plus the four armor slots —
+repair min(value*durabilityPerXp, damage) (mending's component
+repairs 2 durability per xp point), then recurse with
+value - repaired*value/modified until the remainder is 0 or the
+candidates run out; only the leftover becomes experience.
+mc-go mirrors it: candidates scan the held hotbar slot, offhand,
+and armor 5-8 for damaged stacks with mending; the repaired slot
+rides container_set_slot like vanilla's inventory broadcast.
+TestMendingOrbParity pins both legs on both targets: a
+chestplate[damage=100, mending] in mainhand drinks a Value:5 orb
+completely — 0 set_experience — and a Value:60 orb over-repairs
+the remaining 90 damage leaving exactly 15 xp granted.
+Debug note for future probes: `enchantments={mending:1}` parses
+on both servers; `enchantments={minecraft:mending:1}` fails
+identically (unquoted namespaced keys are not SNBT) — the suite's
+enchantments syntax is the unprefixed bare name.

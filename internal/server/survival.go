@@ -682,14 +682,17 @@ func (s *Server) itemTickStep() {
 		if e.PickupDelay <= 0 {
 			if sess := s.pickupTarget(e, orb); sess != nil {
 				if orb {
-					// ExperienceOrb.playerTouch: the touch grants
-					// value xp and decrements count once per
-					// takeXpDelay window, discarding at zero.
+					// ExperienceOrb.playerTouch: the touch routes
+					// value through repairPlayerItems first — mending
+					// gear drinks it — then grants what's left, once
+					// per takeXpDelay window, discarding at count 0.
 					if sess.takeXpDelay > 0 {
 						continue
 					}
 					sess.takeXpDelay = 2
-					sess.addXP(e.OrbValue)
+					if remaining := s.repairPlayerItems(sess, e.OrbValue); remaining > 0 {
+						sess.addXP(remaining)
+					}
 					e.OrbCount--
 					if e.OrbCount <= 0 {
 						s.entities.Remove(e.ID)
@@ -805,6 +808,47 @@ func (s *Server) orbScanForMerges(e *Entity, items []*Entity) {
 		s.entities.Remove(o.ID)
 		s.broadcastEntityRemoveIn(e.Dim, nil, []int32{o.ID})
 	}
+}
+
+// repairPlayerItems is ExperienceOrb.repairPlayerItems: pick a random
+// damaged equipment item carrying mending (the REPAIR_WITH_XP slot set
+// is both hands plus the four armor slots), repair
+// min(value*durabilityPerXp, damage) — mending's component repairs 2
+// durability per xp point — and recurse with what the orb has left.
+// The slot update rides the same container_set_slot vanilla's
+// inventory broadcast sends.
+func (s *Server) repairPlayerItems(sess *Session, value int32) int32 {
+	var candidates []int16
+	for _, slot := range []int16{
+		invSlotForHotbar(sess.held.Load()), slotOffhand,
+		slotArmorStart, slotArmorStart + 1, slotArmorStart + 2, slotArmorStart + 3,
+	} {
+		it := sess.stackAt(slot)
+		if !it.Empty() && it.Damage > 0 && it.enchLevel("mending") > 0 {
+			candidates = append(candidates, slot)
+		}
+	}
+	if len(candidates) == 0 {
+		return value
+	}
+	slot := candidates[rand.Intn(len(candidates))]
+	it := sess.stackAt(slot)
+	modified := value * 2
+	repaired := modified
+	if it.Damage < repaired {
+		repaired = it.Damage
+	}
+	it.Damage -= repaired
+	sess.setStack(slot, it)
+	if repaired <= 0 {
+		return 0
+	}
+	sess.invState.Add(1)
+	_ = s.sendContainerSlot(sess, slot, it)
+	if remaining := value - repaired*value/modified; remaining > 0 {
+		return s.repairPlayerItems(sess, remaining)
+	}
+	return 0
 }
 
 // orbFollowingOK mirrors the latch keep condition: the followed player
