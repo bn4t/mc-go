@@ -1,9 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"math/rand"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,7 +54,7 @@ func (s *Server) runDataEntity(player string, args []string) reply {
 	if tgt.sess != nil && args[0] != "get" {
 		return componentReply(commandError("commands.data.entity.invalid"))
 	}
-	save := tgt.saveMap(s.clock.count)
+	save := tgt.saveMap(s.clock.count, s.entities)
 
 	switch args[0] {
 	case "get":
@@ -174,7 +176,7 @@ func (s *Server) modifySource(player string, args []string) (any, *reply) {
 			if tgt == nil {
 				return nil, rep
 			}
-			val = tgt.saveMap(s.clock.count).m
+			val = tgt.saveMap(s.clock.count, s.entities).m
 			if len(args) > 3 {
 				steps, ok := parseNBTPath(args[3])
 				if !ok {
@@ -416,11 +418,11 @@ type entitySave struct {
 }
 
 // saveMap produces the entity's editable compound.
-func (d *dataEntity) saveMap(now int64) entitySave {
+func (d *dataEntity) saveMap(now int64, ents *Manager) entitySave {
 	if d.sess != nil {
 		return entitySave{m: playerSaveMap(d.sess)}
 	}
-	return entitySaveMap(d.mob, now)
+	return entitySaveMap(d.mob, now, ents)
 }
 
 // applyDataEntity writes the merged save map back and resyncs trackers
@@ -481,8 +483,9 @@ func entityDisplayName(e *Entity) component {
 // what a summoned entity reports: the shared entity fields, the living
 // fields, and the type's extras. Keys absent from the entity model
 // (Invulnerable, Air, ...) emit their summon defaults; ExtraNBT then
-// overlays any data-written extras.
-func entitySaveMap(e *Entity, now int64) entitySave {
+// overlays any data-written extras. ents resolves leash holders — the
+// leash key's shape depends on the holder being a knot or an entity.
+func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	typeName, _ := EntityTypeName(e.Type)
 	m := map[string]any{
 		"AbsorptionAmount": float32(0),
@@ -642,6 +645,22 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 	extraKeys := nbt.OrderedKeys(e.ExtraNBT)
 	for k, v := range e.ExtraNBT {
 		m[k] = v
+	}
+	// LeashData.save: leash:[I;x,y,z] for a knot holder,
+	// leash:[I;a,b,c,d] (the UUID int-array) for an entity holder.
+	if e.LeashHolder != 0 && ents != nil {
+		if h, ok := ents.Get(e.LeashHolder); ok {
+			if hn, _ := EntityTypeName(h.Type); hn == "leash_knot" {
+				m["leash"] = []int32{int32(h.X), int32(h.Y), int32(h.Z)}
+			} else {
+				m["leash"] = []int32{
+					int32(h.UUID[0])<<24 | int32(h.UUID[1])<<16 | int32(h.UUID[2])<<8 | int32(h.UUID[3]),
+					int32(h.UUID[4])<<24 | int32(h.UUID[5])<<16 | int32(h.UUID[6])<<8 | int32(h.UUID[7]),
+					int32(h.UUID[8])<<24 | int32(h.UUID[9])<<16 | int32(h.UUID[10])<<8 | int32(h.UUID[11]),
+					int32(h.UUID[12])<<24 | int32(h.UUID[13])<<16 | int32(h.UUID[14])<<8 | int32(h.UUID[15]),
+				}
+			}
+		}
 	}
 	seq := append(append([]string{}, entitySaveSeq...), extraKeys...)
 	return entitySave{m: m, seq: seq}
@@ -1950,7 +1969,7 @@ func (s *Server) selMatch(spec *selectorSpec, d *dataEntity, ax, ay, az float64)
 		}
 	}
 	for _, nb := range spec.nbts {
-		if d.nbtMatches(nb.m, s.clock.count) == nb.neg {
+		if d.nbtMatches(nb.m, s.clock.count, s.entities) == nb.neg {
 			return false
 		}
 	}
@@ -2179,12 +2198,12 @@ func (d *dataEntity) tagCount() int {
 // nbtMatches is vanilla's compareNbt partial match: every pattern key
 // must be present with an equal tag type and value; compounds and
 // lists recurse, lists comparing elementwise.
-func (d *dataEntity) nbtMatches(pattern map[string]any, now int64) bool {
+func (d *dataEntity) nbtMatches(pattern map[string]any, now int64, ents *Manager) bool {
 	var target map[string]any
 	if d.sess != nil {
 		target = playerSaveMap(d.sess)
 	} else {
-		target = entitySaveMap(d.mob, now).m
+		target = entitySaveMap(d.mob, now, ents).m
 	}
 	return nbtSubset(target, pattern)
 }
@@ -2217,6 +2236,19 @@ func nbtPartialEqual(tv, pv any) bool {
 			}
 		}
 		return true
+	}
+	// Typed arrays are slices — == would panic; vanilla compares
+	// element-wise and requires the same tag type.
+	switch t := tv.(type) {
+	case []byte:
+		p, ok := pv.([]byte)
+		return ok && bytes.Equal(t, p)
+	case []int32:
+		p, ok := pv.([]int32)
+		return ok && slices.Equal(t, p)
+	case []int64:
+		p, ok := pv.([]int64)
+		return ok && slices.Equal(t, p)
 	}
 	return tv == pv
 }

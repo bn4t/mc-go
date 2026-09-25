@@ -32,7 +32,7 @@ func (s *Server) saveEntityRegions(d *dimension) error {
 		if !ok || (!e.Living && name != "item") {
 			continue
 		}
-		m := entitySaveMap(&e, now).m
+		m := entitySaveMap(&e, now, s.entities).m
 		// entitySaveMap's caller puts id on the /data reply itself;
 		// on disk it is part of the compound, and a record without
 		// one is dropped on load.

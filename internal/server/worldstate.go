@@ -226,9 +226,23 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	if !s.withinInteractRange(sess, id) {
 		return
 	}
-	// Vanilla's Entity.interact resolves the shears path before any
-	// type-specific mobInteract, so it leads the chain.
-	s.shearAnimal(sess, id, hand, sneaking)
+	// Vanilla's Player.interactOn: entity.interact first — sneak
+	// leash-transfer, leash-shears, equipment-shears, then the
+	// unleash/lead-attach pair — each returning SUCCESS to end the
+	// call; then mobInteract's handlers; the item's
+	// interactLivingEntity (wool shears) runs last.
+	if s.leashShiftTransfer(sess, id, sneaking) {
+		return
+	}
+	if s.shearOffLeashConnections(sess, id, hand) {
+		return
+	}
+	if s.shearAnimal(sess, id, hand, sneaking) {
+		return
+	}
+	if s.leashUnleashOrAttach(sess, id, hand) {
+		return
+	}
 	s.bucketFish(sess, id, hand)
 	s.feedAnimal(sess, id, hand)
 	s.tameAnimal(sess, id, hand)
@@ -238,6 +252,7 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	s.giveAllay(sess, id, hand)
 	s.cureZombieVillager(sess, id, hand)
 	s.armorStandInteract(sess, id, hand, clickY)
+	s.shearMobItemPhase(sess, id, hand, sneaking)
 	s.interactEntityAdv(sess, id, hand)
 }
 

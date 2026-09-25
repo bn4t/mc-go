@@ -7302,3 +7302,70 @@ while fire sits in pos±1 evacuates (the mark-dirty side), and a
 neighbour-write side). Vanilla probed: `setblock fire` adjacent to
 a stocked nest releases all occupants, no HasStung.
 TestBeeAngerParity leg 8 pins it differentially.
+
+### 2026-09-25zg — leash model: lead, leash_knot, tickLeash, Entity.interact chain
+
+The full leash surface, bytecode-measured on the 26.2 jar and pinned
+differentially on both targets (TestLeashParity, 7 legs):
+
+- `Entity.interact` chain order (all five branches verified at
+  bytecode level and mapped onto the consumed-style handlers):
+  (1) sneak + leashable + !baby → transfer the player's whole 32-cube
+      flock onto the clicked mob;
+  (2) shears → `shearOffAllLeashConnections` → own leash + every
+      leashable leashed TO this mob → `dropLeash()` each (lead item
+      drops) + SHEARS_SNIP at blockPos + wear 1;
+  (3) equipment shears (BODY slot, !sneak) — was already implemented
+      but sat in the wrong phase; vanilla runs it inside
+      `Entity.interact`, BEFORE the wool shear which lives in the
+      item's `interactLivingEntity` phase after `mobInteract`. Split
+      `shearAnimal` (equipment only) from `shearMobItemPhase` (runs
+      last in the chain);
+  (4) holder == player → `hasInfiniteMaterials ? removeLeash :
+      dropLeash` + LEAD_UNTIED;
+  (5) lead in hand + !(holder instanceof Player) + canHaveALeash
+      AttachedTo (other, leashable, dist<=12) → `setLeashedTo` +
+      LEAD_TIED + `stack.shrink(1)` unconditional.
+- `ClientboundSetEntityLinkPacket` wire shape: two raw int32s
+  (sourceId, destId=-1 for unlink), NOT varints, id 0x64.
+- `Leashable.canBeLeashed` = !Enemy; leashableInArea = 32-cube on
+  the holder side. `tickLeash`: holder gone + ENTITY_DROPS → dropLeash
+  else removeLeash; dist>12 → LEAD_BREAK at holder + dropLeash (lead
+  item at the mob); dist>6 → elastic pull (approximated as a capped
+  step min(0.9, (dist-6)*0.4) — vanilla's spring stiffness/damping
+  constants not replicated; deferred).
+- `LeadItem.useOn` on a `fences`-tag block → `bindPlayerMobs`: the
+  player's leashees in the 32-cube re-attach to a knot at the exact
+  fence pos (`leash_knot`, type 76); zero transfers on a fresh knot
+  → discard + PASS. `knotInteract`: player's leashees → knot, else
+  !sneak → knot's leashees → player; a knot with zero leashees
+  discards; `survives()` needs the fence still standing.
+- `leash` NBT key: knot holder → `leash:[I;x,y,z]`; entity holder →
+  `leash:[I;a,b,c,d]` UUID int-array — saveMap/nbtMatches now thread
+  the entity Manager through so the holder can be resolved.
+- Sneak-click is `isSecondaryUseActive`-gated (branch 1); baby mobs
+  refuse the transfer-target role.
+
+Also fixed two real bugs found by the run:
+
+- `nbtPartialEqual` compared `tv == pv` — any `nbt={...:[I;...]}`
+  selector panicked the whole server (uncomparable []int32). Typed
+  arrays now compare element-wise ([B;/[I;/[L;) requiring the same
+  tag type, matching vanilla.
+- Blackbox harness port collision: two consecutive `freePort` calls
+  can return the same port; mc-go then answers the vanilla readiness
+  probe and the whole "vanilla" leg silently runs against mc-go.
+  Ports are re-rolled until distinct.
+
+TestLeashParity legs: (1) attach (lead shrinks + leash key), (2)
+unleash (lead drops; player moved out of pickup range first — a
+survival player vacuums the drop before the probe), (3) fence bind
+(knot spawns + `leash:[I;12,-60,12]`), (4) knot click returns
+leashees + knot discards, (5) >12 snap drops the lead at the mob,
+(6) shears drop own leash + item, (7) sneak-transfer to a cow then
+player walks past snap distance — leash survives (holder = cow).
+All green on vanilla 26.2 and mc-go.
+
+Deferred: dying-mob lead drop (no dropLeash on die/onRemoval in the
+bytecode — the lead appears lost), elastic-spring pull fidelity,
+lead-drop item velocity (spawnAtLocation defaults used).

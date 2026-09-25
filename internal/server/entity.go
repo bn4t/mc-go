@@ -438,6 +438,10 @@ type Entity struct {
 	TimeInOverworld       int32
 	// BodyItem is the sulfur_cube BODY slot: one swallowed stack.
 	BodyItem ItemStack
+	// LeashHolder is Leashable.LeashData.leashHolder — the entity id
+	// the leash points at (a player's entity id, a leash_knot's, or
+	// another mob's for a leash chain). Zero is unleashed.
+	LeashHolder int32
 	// arrowShooter is the entity id of the player who loosed an arrow;
 	// zero when unattributed.
 	arrowShooter int32

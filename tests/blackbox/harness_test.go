@@ -79,8 +79,16 @@ func requireBlackboxFiles(t *testing.T, vanillaProps, vanillaFiles map[string]st
 	if !ok {
 		t.Skip("loopback binds blocked in this environment")
 	}
-	mPort, ok := freePort()
-	if !ok {
+	// Two consecutive freePort calls can hand back the same port; a
+	// collision makes the probe see mc-go answering on the vanilla
+	// addr and the whole vanilla leg silently runs against mc-go.
+	mPort, ok := 0, false
+	for i := 0; i < 10; i++ {
+		if mPort, ok = freePort(); ok && mPort != vPort {
+			break
+		}
+	}
+	if !ok || mPort == vPort {
 		t.Skip("loopback binds blocked in this environment")
 	}
 

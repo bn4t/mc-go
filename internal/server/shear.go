@@ -17,53 +17,58 @@ import (
 // REMOVED stack. mc-go models the BODY slot only (wolf_armor) — no
 // other shearable equipment exists.
 
-// shearAnimal runs the shears branch of Entity.interact on the
-// clicked mob. It must precede the type-specific handlers in the
-// interact chain — vanilla returns SUCCESS before mobInteract, so an
-// owned wolf being sheared does not also toggle its sit pose.
-func (s *Server) shearAnimal(sess *Session, eid int32, hand int32, sneaking bool) {
+// shearAnimal runs the shears branches on the clicked mob, split the
+// way vanilla does: the equipment slot (BODY) branch is
+// attemptToShearEquipment inside Entity.interact — it consumes the
+// interact when it fires. The mob-wool branch (ShearsItem.
+// interactLivingEntity → Shearable.shear) is the item phase, which
+// Player.interactOn reaches only when the entity's whole interact —
+// leash branches and mobInteract included — returned PASS. Two
+// separate entry points keep both halves in vanilla order.
+//
+// Returns true when the equipment-shear consumed the interact.
+func (s *Server) shearAnimal(sess *Session, eid int32, hand int32, sneaking bool) bool {
 	if sneaking {
-		return
+		return false
 	}
 	held, hslot := sess.stackForHand(hand)
 	if held.Empty() {
-		return
+		return false
 	}
 	if n, ok := itemNameOf(held.ID); !ok || n != "shears" {
-		return
+		return false
 	}
 	s.entities.mu.RLock()
 	e, ok := s.entities.byID[eid]
 	if !ok {
 		s.entities.mu.RUnlock()
-		return
+		return false
 	}
 	t := *e
 	s.entities.mu.RUnlock()
 	if !t.Living || t.Dying {
-		return
+		return false
 	}
 	if t.BodyItem.Empty() {
-		// No shearable equipment — the item's interactLivingEntity
-		// shear branch is next in vanilla's chain.
-		s.shearMob(sess, t, hand)
-		return
+		// No shearable equipment — attemptToShearEquipment can't fire;
+		// the item-phase wool shear is shearMobItemPhase.
+		return false
 	}
 	// canShearEquipment: wolves answer isOwnedBy; every other mob
 	// answers !isVehicle — mc-go's shearables are owned wolves, and a
 	// passenger-carrying mob blocks it either way.
 	if et, _ := EntityTypeName(t.Type); et == "wolf" && t.owner != sess.getName() {
-		return
+		return false
 	}
 	if len(t.Passengers) > 0 {
-		return
+		return false
 	}
 	// attemptToShearEquipment: the BODY slot's Equippable must be
 	// shearable (wolf_armor/harness are) and free of binding_curse —
 	// mc-go carries no curse component on mob equipment.
 	armor := t.BodyItem
 	if n, ok := itemNameOf(armor.ID); !ok || !shearableBody(n) {
-		return
+		return false
 	}
 	if p, ok := s.entities.GetPtr(eid); ok {
 		p.BodyItem = ItemStack{}
@@ -74,6 +79,29 @@ func (s *Server) shearAnimal(sess *Session, eid int32, hand int32, sneaking bool
 	iname, _ := itemNameOf(armor.ID)
 	etype, _ := EntityTypeName(t.Type)
 	s.firePlayerShearedEquipment(sess, etype, iname)
+	return true
+}
+
+// shearMobItemPhase is ShearsItem.interactLivingEntity: the item-side
+// right-click that runs only after the entity's interact chain —
+// sneak-transfer, leash-shear, equipment-shear, unleash/attach and
+// mobInteract all returned PASS. It re-checks the hand itself.
+func (s *Server) shearMobItemPhase(sess *Session, eid int32, hand int32, sneaking bool) {
+	if sneaking {
+		return
+	}
+	held, _ := sess.stackForHand(hand)
+	if held.Empty() {
+		return
+	}
+	if n, ok := itemNameOf(held.ID); !ok || n != "shears" {
+		return
+	}
+	e, ok := s.entities.Get(eid)
+	if !ok || !e.Living || e.Dying {
+		return
+	}
+	s.shearMob(sess, e, hand)
 }
 
 // shearMob is the Shearable half of ShearsItem.interactLivingEntity:

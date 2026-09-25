@@ -249,6 +249,23 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 			}
 		}
 	}
+	// LeadItem.useOn: the clicked block is a fences-tag block and a
+	// lead is held → bindPlayerMobs re-leashes the player's nearby
+	// leashees onto a knot at the fence. The fence has no
+	// useWithoutItem, so the item's useOn runs even while sneaking —
+	// and the lead never "places".
+	if name, _ := world.StateOwner(cur); blockTagHas("fences", name) {
+		if held := sess.heldStack(); !held.Empty() {
+			if iname, ok := itemNameOf(held.ID); ok && iname == "lead" {
+				s.bindPlayerMobs(sess, d, clicked)
+				acked = true
+				if seq >= 0 {
+					s.sendBlockAck(sess, seq)
+				}
+				return
+			}
+		}
+	}
 	// A sneaking player with an item in hand skips the clicked block's
 	// whole use dispatch (vanilla isSecondaryUseActive): no TNT prime,
 	// no bed, no sign, no menu — the held item's useOn runs instead.

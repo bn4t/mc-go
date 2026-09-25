@@ -424,6 +424,7 @@ func (s *Server) GameTick() {
 	s.blockEventStep()
 	s.movingPistonStep()
 	s.entityInsideStep()
+	s.knotTickStep()
 	s.randomTickStep()
 	s.weatherTickStep()
 	s.beaconTickStep()

@@ -1902,6 +1902,9 @@ func (s *Server) mobTickStep() {
 		if e.LastHurtByPlayerTicks > 0 {
 			e.LastHurtByPlayerTicks--
 		}
+		// Leashable.tickLeash: holder liveness → snap >12 → elastic
+		// pull >6. Runs inside aiStep for every living mob.
+		s.tickLeash(e)
 		// detectEquipmentUpdates: a loaded-from-NBT set replays whole
 		// (EquipDirty) once after the tracker-attach burst; after that
 		// only the slots marked by a write or wear go out.
