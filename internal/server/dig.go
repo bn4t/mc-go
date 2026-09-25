@@ -337,12 +337,38 @@ func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block)
 	}
 	s.syncContainerBlock(d, pos, blk)
 	s.syncBeacon(d, pos, blk)
-	if !isBeeNestBlock(blk) {
+	if isBeeNestBlock(blk) {
+		// BeehiveBlockEntity.setChanged: every mark-dirty re-checks
+		// isFireNearby — a nest written while a FireBlock sits in
+		// its 3x3x3 evacuates every occupant EMERGENCY. The player
+		// is null on this path: release only, nobody angers.
+		if d.bees[pos] > 0 && beeFireNearby(d, pos) {
+			s.releaseBeeOccupants(d, pos, blk, d.bees[pos], beeReleaseEmergency)
+			delete(d.bees, pos)
+		}
+	} else {
 		// BeehiveBlockEntity has no preRemoveSideEffects: a nest
 		// removed by any path that never calls
 		// emptyAllLivingFromHive (explosion, setblock, creative
 		// dig) loses its occupants silently — they never spawn.
 		delete(d.bees, pos)
+	}
+	if isFireBlock(blk) {
+		// The neighbour-write half of the same rule: a FireBlock
+		// appearing in a nest's 3x3x3 marks that block entity
+		// changed → the same EMERGENCY evacuation.
+		for dx := -1; dx <= 1; dx++ {
+			for dy := -1; dy <= 1; dy++ {
+				for dz := -1; dz <= 1; dz++ {
+					npos := world.Pos{X: pos.X + dx, Y: pos.Y + dy, Z: pos.Z + dz}
+					nblk := d.w.GetBlock(npos)
+					if isBeeNestBlock(nblk) && d.bees[npos] > 0 {
+						s.releaseBeeOccupants(d, npos, nblk, d.bees[npos], beeReleaseEmergency)
+						delete(d.bees, npos)
+					}
+				}
+			}
+		}
 	}
 	// ComparatorBlockEntity: a comparator's stored output lives and
 	// dies with the block.
@@ -363,6 +389,29 @@ func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block)
 func isBeeNestBlock(blk world.Block) bool {
 	name, ok := world.StateOwner(blk)
 	return ok && (name == "bee_nest" || name == "beehive")
+}
+
+// isFireBlock mirrors instanceof FireBlock: plain fire only —
+// SoulFireBlock extends BaseFireBlock, not FireBlock, so soul fire
+// does not evacuate nests.
+func isFireBlock(blk world.Block) bool {
+	name, ok := world.StateOwner(blk)
+	return ok && name == "fire"
+}
+
+// beeFireNearby is BeehiveBlockEntity.isFireNearby: any FireBlock in
+// the nest's pos±1 (3x3x3) neighbourhood.
+func beeFireNearby(d *dimension, pos world.Pos) bool {
+	for dx := -1; dx <= 1; dx++ {
+		for dy := -1; dy <= 1; dy++ {
+			for dz := -1; dz <= 1; dz++ {
+				if isFireBlock(d.w.GetBlock(world.Pos{X: pos.X + dx, Y: pos.Y + dy, Z: pos.Z + dz})) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // syncContainerBlock keeps the generic container store in step with a

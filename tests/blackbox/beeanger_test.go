@@ -279,6 +279,25 @@ func TestBeeAngerParity(t *testing.T) {
 			}
 			sendCommand(t, pw, "kill @e[type=minecraft:bee]")
 			eggDrainFor(t, c, pr, pw, 1000*time.Millisecond)
+
+			// === Leg 8: fire evacuation — BeehiveBlockEntity.
+			// setChanged evacuates EMERGENCY when isFireNearby (any
+			// FireBlock in pos±1). Player is null on this path:
+			// occupants release but nobody angers.
+			sendCommand(t, pw, "tp @s 75.5 -59.5 70.5 -90 0")
+			sendCommand(t, pw, fmt.Sprintf("setblock 75 -60 70 minecraft:bee_nest[facing=east,honey_level=5]%s", nestNBT))
+			eggDrainFor(t, c, pr, pw, 1200*time.Millisecond)
+			sendCommand(t, pw, "setblock 74 -60 70 minecraft:fire")
+			eggDrainFor(t, c, pr, pw, 2500*time.Millisecond)
+			if p := probe("entity @e[type=minecraft:bee]", 27); p != "hit" {
+				t.Fatalf("%s: fire-evacuation release probe = %s — isFireNearby must evacuate the nest", tc.tag, p)
+			}
+			eggDrainFor(t, c, pr, pw, 4000*time.Millisecond)
+			if p := probe("entity @e[type=minecraft:bee,nbt={HasStung:1b}]", 28); p != "miss" {
+				t.Fatalf("%s: fire-evacuation sting probe = %s — evacuation must not anger", tc.tag, p)
+			}
+			sendCommand(t, pw, "kill @e[type=minecraft:bee]")
+			eggDrainFor(t, c, pr, pw, 1000*time.Millisecond)
 		})
 	}
 }

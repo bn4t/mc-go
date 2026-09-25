@@ -7285,3 +7285,20 @@ the box sweep and sting); leg 5 setblock overwrite = miss; leg 6
 creative dig = miss; leg 7 setblock-destroy = miss. Vanilla passes
 every leg; mc-go matches. TestBeeReleaseParity still green both
 targets.
+
+### 2026-09-25zf — beehive fire evacuation (setChanged + isFireNearby)
+
+The last occupant-exit path: `BeehiveBlockEntity.setChanged` runs
+`isFireNearby()` on every mark-dirty — any `FireBlock` in the
+nest's 3x3x3 → `emptyAllLivingFromHive(null, EMERGENCY)`: the
+occupants release but nobody angers (the per-releasee sweep and
+angerNearbyBees both live on the block's callers, not the BE).
+`instanceof FireBlock` matches plain `fire` only — `SoulFireBlock`
+is a `BaseFireBlock`, so soul fire does NOT evacuate.
+
+mc-go: `syncBlockEntities` handles both directions — a nest write
+while fire sits in pos±1 evacuates (the mark-dirty side), and a
+`fire` write scans pos±1 for nests and evacuates each (the
+neighbour-write side). Vanilla probed: `setblock fire` adjacent to
+a stocked nest releases all occupants, no HasStung.
+TestBeeAngerParity leg 8 pins it differentially.
