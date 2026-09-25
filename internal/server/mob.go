@@ -1624,6 +1624,24 @@ func (s *Server) broadcastMobSharedFlags(eid int32, onFire, glowing bool) {
 	s.broadcastEntityMetadata(eid, b.Bytes())
 }
 
+// mobVillagerAngry is Villager.hurtServer's reputation hook: a
+// villager hurt by a player-sourced hit broadcasts VILLAGER_ANGRY
+// (entity_event 13) ahead of the damage_event. It doesn't fire when
+// the source isn't a player, when the hit lands inside the
+// invulnerability grace (hurt returns early), or when it kills.
+func (s *Server) mobVillagerAngry(e *Entity, res DamageResult, info *damageInfo) {
+	if info == nil || res.Graced || res.Health <= 0 {
+		return
+	}
+	if name, ok := EntityTypeName(e.Type); !ok || name != "villager" {
+		return
+	}
+	if s.sessionByEntityID(info.cause) == nil {
+		return
+	}
+	s.broadcastEntityEventTo(nil, e.Dim, e.ID, 13)
+}
+
 // damageMob runs vanilla's LivingEntity.hurt tail for a mob hit:
 // armor (natural base + worn pieces) absorbs unless the damage type
 // bypasses it, then the health loss lands inside the grace rules.
@@ -1641,6 +1659,25 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 	// hurt — none of the hurt tail (event, sound, retaliation) runs.
 	// The wolf-armor absorb path DOES count as a landed hit.
 	if !res.Exists || (res.Dealt <= 0 && !res.Absorbed) {
+		// hurt(source, 0) — egg/snowball/xp-bottle impacts — still
+		// lands in vanilla: the wire shows the damage_event, the
+		// knockback motion, and the hurt sound even though no health
+		// moved (measured on a zombie: type thrown, hurt voice, 0x65
+		// motion). Graced repeats ship nothing.
+		if res.Exists && !res.Graced && res.Health > 0 && info != nil {
+			s.mobVillagerAngry(e, res, info)
+			s.broadcastDamageEvent(e.ID, *info)
+			if info.typeName != "player_attack" && !noKnockback(info.typeName) {
+				kbSrc := info.cause
+				if kbSrc == 0 {
+					kbSrc = info.direct
+				}
+				if kbSrc != 0 && kbSrc != e.ID {
+					s.mobHurtKnockback(e, kbSrc)
+				}
+			}
+			s.mobHurtSound(e, res)
+		}
 		return 0, res.Graced, false
 	}
 	// Vanilla stores lastDamageSource on every landed hurt — the
@@ -1652,6 +1689,7 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 	// sets b8=false in vanilla: no damage_event, no hurt/death sound —
 	// only the health meta moves, and die() still runs if it killed.
 	if info != nil && !res.Graced {
+		s.mobVillagerAngry(e, res, info)
 		s.broadcastDamageEvent(e.ID, *info)
 	}
 	// LivingEntity.hurt's merged tail applies dealDefaultKnockback to

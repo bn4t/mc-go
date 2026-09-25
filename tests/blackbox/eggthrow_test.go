@@ -262,6 +262,19 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 			if e1 == nil && e3 == nil {
 				out = append(out, eggEvent{kind: "level", b0: evID, data: dat})
 			}
+		case 0x19: // damage_event: VarInt victim, type, cause+1, direct+1, pos?
+			r := protocol.NewPacketReader(p.Data)
+			vid, e1 := r.VarInt()
+			ty, e2 := r.VarInt()
+			cz, e3 := r.VarInt()
+			dr, e4 := r.VarInt()
+			if e1 == nil && e2 == nil && e3 == nil && e4 == nil {
+				out = append(out, eggEvent{kind: "dmg", eid: vid, etype: ty, b0: cz, data: dr})
+			}
+		case 0x65: // set_entity_motion
+			if eid, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
+				out = append(out, eggEvent{kind: "motion", eid: eid})
+			}
 		}
 	}
 	_ = c.SetReadDeadline(time.Time{})
@@ -296,6 +309,20 @@ func assertHasAck(t *testing.T, tag string, ev []eggEvent, seq int32) {
 		}
 	}
 	t.Fatalf("%s: no block_changed_ack for seq %d", tag, seq)
+}
+
+// assertAckCovers passes when any block_changed_ack carries seq >=
+// the request — vanilla's ackBlockChangesUpTo batches to one packet
+// per tick carrying the max sequence seen, so back-to-back use_item
+// packets produce a single ack for the higher seq.
+func assertAckCovers(t *testing.T, tag string, ev []eggEvent, seq int32) {
+	t.Helper()
+	for _, e := range ev {
+		if e.kind == "ack" && e.b0 >= seq {
+			return
+		}
+	}
+	t.Fatalf("%s: no block_changed_ack covering seq %d", tag, seq)
 }
 
 func assertHasSound(t *testing.T, tag string, ev []eggEvent, name string) {

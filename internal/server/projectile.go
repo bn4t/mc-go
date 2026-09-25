@@ -1040,17 +1040,29 @@ func (s *Server) thrownCollide(e *Entity, ox, oy, oz float64, name string) bool 
 			continue
 		}
 		hit = true
-		dmg := float32(0)
-		if name == "snowball" {
-			if tn, ok := EntityTypeName(t.Type); ok && tn == "blaze" {
-				dmg = 3
+		// Egg and snowball onHitEntity run hurt(source, 0); the xp
+		// bottle doesn't override onHitEntity at all — its entity hit
+		// only runs the onHit splash (no hurt tail on the wire).
+		if name != "experience_bottle" {
+			dmg := float32(0)
+			if name == "snowball" {
+				if tn, ok := EntityTypeName(t.Type); ok && tn == "blaze" {
+					dmg = 3
+				}
 			}
+			// DamageSources.thrown -> damage_type minecraft:thrown (45).
+			s.damageMob(t, dmg, "thrown", shooter, &damageInfo{
+				typeName: "thrown",
+				cause:    e.arrowShooter,
+				direct:   e.ID,
+			})
 		}
-		s.damageMob(t, dmg, "thrown_item_projectile", shooter, &damageInfo{
-			typeName: "thrown_item_projectile",
-			cause:    e.arrowShooter,
-			direct:   e.ID,
-		})
+		// Egg/Snowball.onHit broadcast entity_event 3 on the
+		// projectile — measured: ships on entity hits only, never
+		// on block hits. The xp bottle broadcasts nothing.
+		if name == "egg" || name == "blue_egg" || name == "brown_egg" || name == "snowball" {
+			s.broadcastEntityEventTo(nil, e.Dim, e.ID, 3)
+		}
 	}
 	return hit
 }

@@ -6828,3 +6828,47 @@ Measured on the 26.2 jar (javap + wire probes):
   whose index-8 values are vanilla denominations summing 3-11. Green
   on vanilla and mc-go. TestEggThrowParity re-run green on both after
   the LpVec3 decoder fix.
+
+## Slice — 2026-09-25p — thrown-item entity-hit hurt(0) + VILLAGER_ANGRY + grace + ack batching
+
+Measured on the 26.2 jar (javap + wire probes):
+
+- ThrowableItemProjectile.onHitEntity calls entity.hurt(source,0) for
+  egg/snowball — a zero-damage hit that STILL runs the landed hurt
+  tail on the wire: damage_event (damage_type minecraft:thrown = 45,
+  cause+1/direct+1 VarInts), the victim's hurt voice, and a knockback
+  set_entity_motion. Graced repeats (inside invulnerableTime>10) ship
+  nothing: no damage_event, no sound, no motion.
+- Villager's hurtServer reputation hook broadcasts VILLAGER_ANGRY
+  (entity_event 13) on the victim BEFORE the damage_event when the
+  damage source's entity is a player — every landed player-caused
+  hit on a villager, not only melee.
+- ThrownExperienceBottle never overrides onHitEntity — an entity hit
+  only runs onHit's splash (2002 + orbs): NO damage_event, no sound,
+  no motion, no ANGRY, no entity_event.
+- Egg/Snowball.onHit broadcast entity_event 3 on the projectile on
+  entity hits (never on block hits); the xp bottle broadcasts none.
+- ServerGamePacketListenerImpl.ackBlockChangesUpTo only raises a
+  pending max; the ONE block_changed_ack per tick ships in tick()
+  with the highest seq — back-to-back use_item packets produce a
+  single ack for the higher seq (mc-go still acks per-packet; the
+  suite accepts >= covers).
+- Egg impacts can hatch a chicken (spawn etype 26) — preexisting
+  mechanic; the hit test tolerates the extra spawn.
+
+mc-go: damageMob's zero-damage branch now runs the full landed tail
+(damage_event + knockback + hurt voice) for un-graced hurt(0) hits;
+mobVillagerAngry emits entity_event 13 for player-caused villager
+hits in both the zero-damage and dealt paths; thrownCollide passes
+"thrown"/cause/direct through damageInfo, skips hurt for the xp
+bottle entirely, and broadcasts entity_event 3 for all three egg
+types + snowball.
+TestThrownHitParity (tests/blackbox/thrownhit_test.go): villager
+victim — two back-to-back eggs pin one ANGRY-then-damage_event(45,
+direct=proj+1)+hurt-sound+knockback vs one graced silent break,
+both eggs' entity_event 3 + remove, one covering ack; snowball leg
+repeats the full tail; xp-bottle leg pins total hurt-tail absence +
+the 2002/orb splash. Green on vanilla and mc-go (the throw spread
+makes an occasional villager miss possible on both — inherent RNG,
+not a wire diff). TestXpBottleParity + TestEggThrowParity re-run
+green; go vet clean; go test ./internal/server green.
