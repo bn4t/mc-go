@@ -7078,3 +7078,31 @@ regen 4s on a Health:10f villager → health meta >= 1100, wither 3s →
 exactly 1 type-49 dmg event with cause/direct 0/0. Green on both
 targets (summons stay in the player's chunk — a diagonal spawn at
 ~5.4 blocks didn't reach tracking on vanilla).
+### 2026-09-25z — xp orb merge bucket, followNearbyPlayer, count pickup
+ExperienceOrb.scanForMerges runs when tickCount%20==1, absorbing every
+orb inside bbox.inflate(0.5) — but only the merge bucket: canMerge
+requires (other.id - self.id) % 40 == 0 AND equal values (the earlier
+"absorb all neighbours" port was wrong — javap shows the two gates).
+merge() adds the neighbour's count, takes min age, discards it; the
+victim's last lifecycle event is a remove. mc-go's stale items
+snapshot also ticked just-removed orbs (victim absorbed the absorber)
+— both the mid-pass tick and the canMerge victim now check
+GetPtr presence, mirroring isRemoved().
+followNearbyPlayer every tick: latch keeps while the player is
+non-spectator and within 8 (dist²<=64), else rescans nearest
+non-spectator alive player in 8; pull is normalize(dir to eye-center
+y+0.81) * (1-d/8)^2 * 0.1 onto deltaMovement.
+playerTouch: takeXpDelay!=0 skips, else takeXpDelay=2, grants
+getValue() xp once per take, count--, discards at zero — a merged
+count-2 orb pays out twice.
+Summon gaps closed along the way: /summon rejected non-living types
+(mc-go's max_health gate) — marker and experience_orb now spawn as
+plain Entities, {Value:N} wires OrbValue, orb meta encodes index-8
+value, and marker broadcast is suppressed entirely (vanilla sends no
+spawn/meta for it — observed on wire).
+TestXpOrbMergeParity pins both legs on both targets: orb + 39 markers
++ orb at the same spot (ids 40 apart → mergeable) + a distant orb →
+the live-orb set ends at 2 (merge victim's remove, distant stays);
+then a survival player at the spot → 3 set_experience updates (count2
+→ two takes) and 0 live orbs. The drain now decodes 0x67
+set_experience.

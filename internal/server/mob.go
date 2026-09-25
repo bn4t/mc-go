@@ -326,6 +326,7 @@ func (s *Server) spawnXPOrb(dim string, x, y, z float64, value int32) *Entity {
 		Z:           z,
 		PickupDelay: 0,
 		OrbValue:    value,
+		OrbCount:    1,
 	})
 	s.broadcastEntitySpawn(nil, *e)
 	s.broadcastEntityMetadata(e.ID, encodeOrbMetadata(value))
@@ -604,6 +605,13 @@ func (s *Server) runSummon(player string, args []string) reply {
 			// Saddle flag or by the 1.21.6+ equipment.saddle slot.
 			if v, ok := tag.vals["Saddle"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
 				e.Saddle = true
+			}
+			// ExperienceOrb's Value is the xp granted per take (count
+			// merges read it too — same-bucket merges need equal values).
+			if v, ok := tag.vals["Value"]; ok && name == "experience_orb" {
+				if n, err := strconv.Atoi(strings.TrimRight(v.num, "bBsSiIlLfFdD")); err == nil {
+					e.OrbValue = int32(n)
+				}
 			}
 			if eq, ok := tag.vals["equipment"]; ok {
 				if sd, ok := eq.vals["saddle"]; ok && sd.vals["id"].str != "" {
@@ -1305,6 +1313,17 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, 
 		e.CloudRadius = 3.0
 		return e, true
 	}
+	// Marker is a plain Entity — no physics, no living attributes.
+	if name == "marker" {
+		e := s.entities.Spawn(&Entity{Type: id, Dim: d.name, X: x, Y: y, Z: z})
+		return e, true
+	}
+	// ExperienceOrb likewise: count starts at 1 (merge accounting),
+	// OrbValue comes from the summon tag's Value key.
+	if name == "experience_orb" {
+		e := s.entities.Spawn(&Entity{Type: id, Dim: d.name, X: x, Y: y, Z: z, OrbCount: 1})
+		return e, true
+	}
 	health, known := mobHealth[name]
 	if !known {
 		// Supplier-carried max_health doubles as the summon gate:
@@ -1359,6 +1378,13 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, 
 // detectEquipmentUpdates tick resends the whole set — EquipDirty
 // replays that second burst on the next mob tick.
 func (s *Server) broadcastFreshMob(e *Entity) {
+	if cn, ok := EntityTypeName(e.Type); ok && cn == "marker" {
+		// Marker is a server-side-only entity — vanilla sends the
+		// client no spawn or metadata packet for it.
+		e.MetaDirty = true
+		e.PosDirty = true
+		return
+	}
 	s.broadcastEntitySpawn(nil, *e)
 	if cn, ok := EntityTypeName(e.Type); ok && cn == "area_effect_cloud" {
 		// The cloud's pairing dirty-pack carries only the synced
@@ -1368,6 +1394,13 @@ func (s *Server) broadcastFreshMob(e *Entity) {
 		if meta := encodeCloudMeta(e); len(meta) > 0 {
 			s.broadcastEntityMetadata(e.ID, meta)
 		}
+		e.MetaDirty = true
+		e.PosDirty = true
+		e.SyncCount = 0
+		return
+	}
+	if cn, ok := EntityTypeName(e.Type); ok && cn == "experience_orb" {
+		s.broadcastEntityMetadata(e.ID, encodeOrbMetadata(e.OrbValue))
 		e.MetaDirty = true
 		e.PosDirty = true
 		e.SyncCount = 0

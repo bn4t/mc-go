@@ -181,8 +181,11 @@ type Session struct {
 	exhaustion    float32
 	foodTickTimer int
 	starveTimer   int
-	sprinting     bool
-	jumping       bool
+	// takeXpDelay is Player.takeXpDelay — an xp-orb touch grants value
+	// xp and sets it to 2, so orb pickups land every other tick.
+	takeXpDelay int
+	sprinting   bool
+	jumping     bool
 	// combatTicks counts down the combat timer (300 ticks in vanilla).
 	combatTicks int32
 	// eatingTicks counts down an in-progress food use.

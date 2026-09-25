@@ -497,6 +497,9 @@ func (s *Server) itemTickStep() {
 	}
 	s.entities.mu.RUnlock()
 	for _, e := range items {
+		if _, ok := s.entities.GetPtr(e.ID); !ok {
+			continue // removed earlier in this pass (merge victim)
+		}
 		w := s.dimWorld(e.Dim)
 		if w == nil {
 			continue
@@ -614,6 +617,41 @@ func (s *Server) itemTickStep() {
 				moved = true
 			}
 		}
+		if orb && e.OrbCount < 1 {
+			e.OrbCount = 1 // orbs always carry a count of one from spawn
+		}
+		// ExperienceOrb.scanForMerges every 20 ticks: self absorbs
+		// every orb whose box reaches the inflated-0.5 scan box, age
+		// goes to the pair's minimum.
+		if orb && e.ItemAge%20 == 0 {
+			s.orbScanForMerges(e, items)
+		}
+		// ExperienceOrb.followNearbyPlayer every tick: keep the
+		// latched player while non-spectator and within 8, else rescan
+		// for the nearest non-spectator live player in 8; the pull is
+		// normalize(dir to eye-centre) * (1-d/8)^2 * 0.1 onto motion.
+		if orb {
+			if t := e.OrbFollowing; t == 0 || !s.orbFollowingOK(e, t) {
+				e.OrbFollowing = 0
+				if p := s.orbNearestPlayer(e); p != nil {
+					e.OrbFollowing = p.entityID.Load()
+				}
+			}
+			if e.OrbFollowing != 0 {
+				if p := s.sessionByEntityID(e.OrbFollowing); p != nil {
+					px, py, pz, _, _, _ := p.Pos()
+					dx, dy, dz := px-e.X, py+0.81-e.Y, pz-e.Z
+					l := math.Sqrt(dx*dx + dy*dy + dz*dz)
+					if l > 0 {
+						k := 1 - l/8
+						m := k * k * 0.1 / l
+						e.MotionX += dx * m
+						e.MotionY += dy * m
+						e.MotionZ += dz * m
+					}
+				}
+			}
+		}
 		// ItemEntity.mergeWithNeighbours: every 2 ticks when the item
 		// crossed a block boundary this tick, else every 40 — the
 		// bigger stack absorbs the smaller into its own entity.
@@ -642,11 +680,21 @@ func (s *Server) itemTickStep() {
 			continue
 		}
 		if e.PickupDelay <= 0 {
-			if sess := s.pickupTarget(e); sess != nil {
+			if sess := s.pickupTarget(e, orb); sess != nil {
 				if orb {
+					// ExperienceOrb.playerTouch: the touch grants
+					// value xp and decrements count once per
+					// takeXpDelay window, discarding at zero.
+					if sess.takeXpDelay > 0 {
+						continue
+					}
+					sess.takeXpDelay = 2
 					sess.addXP(e.OrbValue)
-					s.entities.Remove(e.ID)
-					s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+					e.OrbCount--
+					if e.OrbCount <= 0 {
+						s.entities.Remove(e.ID)
+						s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+					}
 					continue
 				}
 				remainder, picked := sess.addStack(e.Item)
@@ -731,6 +779,68 @@ func (s *Server) itemMergeWithNeighbours(e *Entity, items []*Entity) {
 			return // self absorbed — this entity is gone
 		}
 	}
+}
+
+// orbScanForMerges is ExperienceOrb.scanForMerges: each orb in this
+// one's bounding box inflated by 0.5 is absorbed into self — count
+// adds, age takes the minimum, the neighbour discards — but only for
+// the merge bucket (orb.id - self.id) % 40 == 0 with equal values.
+func (s *Server) orbScanForMerges(e *Entity, items []*Entity) {
+	orbType := mustEntityType("experience_orb")
+	for _, o := range items {
+		if o == e || o.Type != orbType || o.Dim != e.Dim {
+			continue
+		}
+		if (o.ID-e.ID)%40 != 0 || o.OrbValue != e.OrbValue {
+			continue
+		}
+		if math.Abs(o.X-e.X) > 0.75 || math.Abs(o.Y-e.Y) > 0.75 || math.Abs(o.Z-e.Z) > 0.75 {
+			continue
+		}
+		if _, ok := s.entities.GetPtr(o.ID); !ok {
+			continue // canMerge's !other.isRemoved() gate
+		}
+		e.OrbCount += o.OrbCount
+		e.ItemAge = min(e.ItemAge, o.ItemAge)
+		s.entities.Remove(o.ID)
+		s.broadcastEntityRemoveIn(e.Dim, nil, []int32{o.ID})
+	}
+}
+
+// orbFollowingOK mirrors the latch keep condition: the followed player
+// stays while non-spectator and within 8 blocks (squared 64).
+func (s *Server) orbFollowingOK(e *Entity, playerEID int32) bool {
+	p := s.sessionByEntityID(playerEID)
+	if p == nil || p.mode() == GameModeSpectator || p.dead {
+		return false
+	}
+	px, py, pz, _, _, _ := p.Pos()
+	dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
+	return dx*dx+dy*dy+dz*dz <= 64.0
+}
+
+// orbNearestPlayer is Level.getNearestPlayer(orb, 8.0): the nearest
+// non-spectator, non-dead player within 8 blocks of the orb.
+func (s *Server) orbNearestPlayer(e *Entity) *Session {
+	var best *Session
+	bestSq := 64.0
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || !sess.spawned.Load() || sess.dead {
+			return true
+		}
+		if sess.dimName() != e.Dim || sess.mode() == GameModeSpectator {
+			return true
+		}
+		px, py, pz, _, _, _ := sess.Pos()
+		d := (px-e.X)*(px-e.X) + (py-e.Y)*(py-e.Y) + (pz-e.Z)*(pz-e.Z)
+		if d < bestSq {
+			bestSq = d
+			best = sess
+		}
+		return true
+	})
+	return best
 }
 
 // defaultHealth/defaultFood are vanilla survival starting values.
@@ -997,7 +1107,13 @@ func (s *Server) hungerTickStep() {
 	regen := s.gameRuleBool("minecraft:natural_health_regeneration")
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.state.Load() != StatePlay || sess.dead || sess.mode() != GameModeSurvival {
+		if sess.state.Load() != StatePlay || sess.dead {
+			return true
+		}
+		if sess.takeXpDelay > 0 {
+			sess.takeXpDelay--
+		}
+		if sess.mode() != GameModeSurvival {
 			return true
 		}
 		changed := false
@@ -1090,7 +1206,7 @@ func (s *Server) broadcastTakeItem(dim string, itemID, collectorID, amount int32
 
 // pickupTarget returns a nearby player in e's dimension able to
 // collect it.
-func (s *Server) pickupTarget(e *Entity) *Session {
+func (s *Server) pickupTarget(e *Entity, orb bool) *Session {
 	var target *Session
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
@@ -1100,9 +1216,14 @@ func (s *Server) pickupTarget(e *Entity) *Session {
 		if sess.dimName() != e.Dim {
 			return true
 		}
-		// Vanilla pickup rule: only survival and adventure players
-		// collect item entities; creative and spectator never do.
-		if m := sess.mode(); m != GameModeSurvival && m != GameModeAdventure {
+		// Items: only survival and adventure players collect them.
+		// Orbs: ExperienceOrb.playerTouch has no mode gate — creative
+		// players absorb xp too; spectators are the only skip.
+		if orb {
+			if sess.mode() == GameModeSpectator {
+				return true
+			}
+		} else if m := sess.mode(); m != GameModeSurvival && m != GameModeAdventure {
 			return true
 		}
 		// ItemEntity.playerTouch: a targeted item (setTarget — /give

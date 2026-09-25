@@ -310,6 +310,14 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 			if eid, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
 				out = append(out, eggEvent{kind: "motion", eid: eid})
 			}
+		case 0x67: // set_experience: Float bar, VarInt level, VarInt total
+			r := protocol.NewPacketReader(p.Data)
+			bar, e1 := r.Float()
+			lvl, e2 := r.VarInt()
+			tot, e3 := r.VarInt()
+			if e1 == nil && e2 == nil && e3 == nil {
+				out = append(out, eggEvent{kind: "xp", eid: int32(bar * 100), etype: lvl, data: tot})
+			}
 		case 0x2F: // level_particles: Bool overrideLimiter, Bool
 			// alwaysShow, 3xDouble pos, 3xFloat spread, Float speed,
 			// Int count, VarInt particle id, data…

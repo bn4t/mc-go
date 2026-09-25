@@ -1360,6 +1360,7 @@ func (s *Server) xpBottleImpact(e *Entity, dx, dy, dz float64) {
 			X:    e.X, Y: e.Y, Z: e.Z,
 			Yaw:      rand.Float32() * 360,
 			OrbValue: int32(v),
+			OrbCount: 1,
 			MotionX:  vx, MotionY: vy, MotionZ: vz,
 			VX: int16(vx * 8000), VY: int16(vy * 8000), VZ: int16(vz * 8000),
 		})

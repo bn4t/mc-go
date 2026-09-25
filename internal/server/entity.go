@@ -40,6 +40,13 @@ type Entity struct {
 	// the merge cadence (every 2 ticks after a block crossing, else
 	// 40), and a merge takes the survivor's minimum.
 	ItemAge int32
+	// OrbCount is ExperienceOrb.count — orbs start at 1, merges add the
+	// neighbour's count, and each player touch grants OrbValue xp and
+	// decrements it, discarding at zero.
+	OrbCount int32
+	// OrbFollowing is ExperienceOrb.followingPlayer — the entity id of
+	// the player being pulled toward, retargeted each tick.
+	OrbFollowing int32
 	// OrbValue is ExperienceOrb's xp value (metadata index 8). Kept
 	// out of Data: vanilla sends data=0 on an orb's spawn packet —
 	// the value only rides the set_entity_data payload.
