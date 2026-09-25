@@ -200,9 +200,12 @@ func (s *Server) arrowTickStep() {
 		// (no gravity). The 0.99 air drag is shared.
 		grav := arrowGravity
 		switch name {
-		case "egg", "snowball", "experience_bottle",
-			"splash_potion", "lingering_potion":
+		case "egg", "snowball", "splash_potion", "lingering_potion":
 			grav = 0.03
+		case "experience_bottle":
+			// ThrownExperienceBottle.getDefaultGravity — the bottle
+			// arcs down harder than the other thrown items.
+			grav = 0.07
 		case "small_fireball", "firework_rocket", "wind_charge":
 			grav = 0
 		}
@@ -247,6 +250,10 @@ func (s *Server) arrowTickStep() {
 			if name == "egg" || name == "snowball" {
 				s.thrownItemImpact(e, name, false)
 			}
+			if name == "experience_bottle" {
+				// entity hit: direction = -deltaMovement
+				s.xpBottleImpact(e, -e.MotionX, -e.MotionY, -e.MotionZ)
+			}
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemove([]int32{e.ID})
 			continue
@@ -288,10 +295,22 @@ func (s *Server) arrowTickStep() {
 			}
 			if !sticks {
 				// Egg/snowball/xp bottle/fireball/rocket: the block hit
-				// is terminal — the entity despawns (the xp bottle's
-				// orbs stay deferred).
+				// is terminal — the entity despawns.
 				if name == "egg" || name == "snowball" {
 					s.thrownItemImpact(e, name, axis == 1)
+				}
+				if name == "experience_bottle" {
+					// awardWithDirection gets the hit face's unit normal.
+					dx, dy, dz := 0.0, 0.0, 0.0
+					switch axis {
+					case 0:
+						dx = float64(fireballHitDir(hx, bx))
+					case 1:
+						dy = float64(fireballHitDir(hy, by))
+					case 2:
+						dz = float64(fireballHitDir(hz, bz))
+					}
+					s.xpBottleImpact(e, dx, dy, dz)
 				}
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemove([]int32{e.ID})
@@ -1072,9 +1091,16 @@ func (s *Server) throwHandItem(sess *Session, hand int32, st ItemStack, name str
 	px, py, pz, _, _, _ := sess.Pos()
 	sndID, src := int32(572), int32(7) // entity.egg.throw, PLAYERS
 	entName := "egg"
-	if name == "snowball" {
+	pitchOff, power := float32(0), float64(1.5)
+	switch name {
+	case "snowball":
 		sndID, src = 1567, 6 // entity.snowball.throw, NEUTRAL
 		entName = "snowball"
+	case "experience_bottle":
+		sndID, src = 617, 6 // entity.experience_bottle.throw, NEUTRAL
+		entName = "experience_bottle"
+		// spawnProjectileFromRotation(xRotDelta -20, power 0.7)
+		pitchOff, power = -20, 0.7
 	}
 	s.playSoundSrc(sess.dimName(), px, py, pz, sndID, src, 0.5, 0.4/(rand.Float32()*0.4+0.8), nil)
 	et, ok := EntityTypeID(entName)
@@ -1082,16 +1108,16 @@ func (s *Server) throwHandItem(sess *Session, hand int32, st ItemStack, name str
 		return
 	}
 	yawR := float64(yaw) * math.Pi / 180
-	pitchR := float64(pitch) * math.Pi / 180
+	pitchR := float64(pitch+pitchOff) * math.Pi / 180
 	dx := -math.Sin(yawR) * math.Cos(pitchR)
 	dy := -math.Sin(pitchR)
 	dz := math.Cos(yawR) * math.Cos(pitchR)
 	l := math.Sqrt(dx*dx + dy*dy + dz*dz)
 	// getMovementToShoot: unit look + independent triangle jitter,
 	// then scaled by the power (no re-normalize).
-	vx := (dx/l + randTriangle(0, 0.0172275)) * 1.5
-	vy := (dy/l + randTriangle(0, 0.0172275)) * 1.5
-	vz := (dz/l + randTriangle(0, 0.0172275)) * 1.5
+	vx := (dx/l + randTriangle(0, 0.0172275)) * power
+	vy := (dy/l + randTriangle(0, 0.0172275)) * power
+	vz := (dz/l + randTriangle(0, 0.0172275)) * power
 	horiz := math.Sqrt(vx*vx + vz*vz)
 	e := s.entities.Spawn(&Entity{
 		Type: et,
@@ -1172,5 +1198,72 @@ func (s *Server) thrownItemImpact(e *Entity, name string, faceVeto bool) {
 		})
 		s.broadcastEntitySpawn(nil, *chick)
 		s.broadcastEntityMetadata(chick.ID, encodeLivingMetadata(chick, nil))
+	}
+}
+
+// xpBottleImpact is ThrownExperienceBottle.onHit: a level_event 2002
+// splash (particle color -13083194) at the bottle's block position,
+// then 3-11 xp split into orb denominations awarded along `dir` —
+// block hits pass the face's unit normal, entity hits the mirrored
+// deltaMovement. Each orb's initial velocity is the vanilla random
+// pop ((rand-0.5)*0.4 per horizontal axis, rand*0.4 up), flipped into
+// dir's hemisphere when dir is non-zero.
+func (s *Server) xpBottleImpact(e *Entity, dx, dy, dz float64) {
+	bp := world.Pos{
+		X: int(math.Floor(e.X)),
+		Y: int(math.Floor(e.Y)),
+		Z: int(math.Floor(e.Z)),
+	}
+	s.broadcastLevelEvent(e.Dim, 2002, bp, -13083194)
+	xp := 3 + rand.Intn(5) + rand.Intn(5)
+	for xp > 0 {
+		v := xpOrbDenomination(xp)
+		xp -= v
+		vx := (rand.Float64()*0.2 - 0.1) * 2
+		vy := rand.Float64() * 0.2 * 2
+		vz := (rand.Float64()*0.2 - 0.1) * 2
+		if dx*dx+dy*dy+dz*dz > 0 && vx*dx+vy*dy+vz*dz < 0 {
+			vx, vy, vz = -vx, -vy, -vz
+		}
+		orb := s.entities.Spawn(&Entity{
+			Type: mustEntityType("experience_orb"),
+			Dim:  e.Dim,
+			X:    e.X, Y: e.Y, Z: e.Z,
+			Yaw:      rand.Float32() * 360,
+			OrbValue: int32(v),
+			MotionX:  vx, MotionY: vy, MotionZ: vz,
+			VX: int16(vx * 8000), VY: int16(vy * 8000), VZ: int16(vz * 8000),
+		})
+		s.broadcastEntitySpawn(nil, *orb)
+		s.broadcastEntityMetadata(orb.ID, encodeOrbMetadata(int32(v)))
+	}
+}
+
+// xpOrbDenomination is ExperienceOrb.getExperienceValue: the largest
+// standard denomination not exceeding the remaining xp.
+func xpOrbDenomination(xp int) int {
+	switch {
+	case xp >= 2477:
+		return 2477
+	case xp >= 1237:
+		return 1237
+	case xp >= 617:
+		return 617
+	case xp >= 307:
+		return 307
+	case xp >= 149:
+		return 149
+	case xp >= 73:
+		return 73
+	case xp >= 37:
+		return 37
+	case xp >= 17:
+		return 17
+	case xp >= 7:
+		return 7
+	case xp >= 3:
+		return 3
+	default:
+		return 1
 	}
 }

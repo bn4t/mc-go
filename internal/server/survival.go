@@ -644,7 +644,7 @@ func (s *Server) itemTickStep() {
 		if e.PickupDelay <= 0 {
 			if sess := s.pickupTarget(e); sess != nil {
 				if orb {
-					sess.addXP(e.Data)
+					sess.addXP(e.OrbValue)
 					s.entities.Remove(e.ID)
 					s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 					continue

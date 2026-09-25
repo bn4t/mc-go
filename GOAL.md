@@ -6795,3 +6795,36 @@ wire capture:
   remove-without-event, leg4 flat-ground volley pins 0 chicks on both
   servers, leg5 wall-face volley pins the [1,16] hatch band per 48.
   Green on vanilla and mc-go.
+
+## Slice 2026-09-25o — experience bottle throw + orb award
+
+Measured on the 26.2 jar (javap + wire probes):
+
+- ExperienceBottleItem.use: entity.experience_bottle.throw at NEUTRAL,
+  vol 0.5, pitch 0.4/(rand*0.4+0.8); spawnProjectileFromRotation with
+  xRot offset -20 and power 0.7 (vs 1.5 for egg/snowball).
+- ThrownExperienceBottle.getDefaultGravity is 0.07 — the bottle drops
+  harder than every other ThrowableItemProjectile (0.03).
+- onHit: level_event 2002 at the bottle's block position with data
+  -13083194 (the splash color), then xp = 3 + nextInt(5) + nextInt(5)
+  (3-11) run through ExperienceOrb.getExperienceValue's denomination
+  ladder (>=7->7, >=3->3, else 1 at this scale) and awarded along a
+  direction — blockHitResult.getDirection().getUnitVec3() on a block
+  hit, -deltaMovement on an entity hit. Each orb's initial velocity is
+  (rand*0.2-0.1)*2 on x/z and rand*0.2*2 on y, flipped when it points
+  opposite the direction; then discard.
+- Orb spawn packet data = 0 (default getAddEntityPacket) — NOT the xp
+  value. The value only rides set_entity_data index 8 (serializer 1,
+  VarInt). Entity gained OrbValue; the spawn Data field now stays 0.
+- Vanilla emits each orb's metadata twice on spawn (bundle + tracker
+  refresh) — the test dedupes by entity id.
+- Test harness fix: the spawn_entity decoder now skips the variable-
+  length LpVec3 velocity field (ReadLpVec3) — a moving entity's data
+  field was previously misread (mattered first for orbs, which always
+  spawn with nonzero velocity).
+- TestXpBottleParity (tests/blackbox/xpbottle_test.go): wall-face and
+  ground lobs each pin ack+sound+spawn(data=shooter)+item-meta+consume+
+  remove, level_event 2002/-13083194, and 1-3 orbs with data=0 spawns
+  whose index-8 values are vanilla denominations summing 3-11. Green
+  on vanilla and mc-go. TestEggThrowParity re-run green on both after
+  the LpVec3 decoder fix.

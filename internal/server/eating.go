@@ -83,10 +83,11 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 		s.useFoodOnAStick(sess, hand)
 		return
 	}
-	// EggItem/SnowballItem.use: an instant throw, not a hold-use.
+	// EggItem/SnowballItem/ExperienceBottleItem.use: instant throws,
+	// not hold-uses.
 	if un, ok := itemNameOf(st.ID); ok && !st.Empty() {
 		switch un {
-		case "egg", "blue_egg", "brown_egg", "snowball":
+		case "egg", "blue_egg", "brown_egg", "snowball", "experience_bottle":
 			s.throwHandItem(sess, hand, st, un, yaw, pitch)
 			return
 		}

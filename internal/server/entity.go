@@ -40,6 +40,10 @@ type Entity struct {
 	// the merge cadence (every 2 ticks after a block crossing, else
 	// 40), and a merge takes the survivor's minimum.
 	ItemAge int32
+	// OrbValue is ExperienceOrb's xp value (metadata index 8). Kept
+	// out of Data: vanilla sends data=0 on an orb's spawn packet —
+	// the value only rides the set_entity_data payload.
+	OrbValue int32
 	// Thrower is the entity id of the player who dropped/threw the
 	// item entity (vanilla's ItemEntity owner) — mob pickups fire
 	// thrown_item_picked_up_by_entity for that player. Zero when the

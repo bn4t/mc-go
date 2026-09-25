@@ -518,7 +518,7 @@ func TestMobDeathSpawnsXPOrb(t *testing.T) {
 	found := false
 	s.entities.mu.RLock()
 	for _, ent := range s.entities.byID {
-		if ent.Type == orbType && ent.Data >= 1 && ent.Data <= 3 {
+		if ent.Type == orbType && ent.OrbValue >= 1 && ent.OrbValue <= 3 {
 			found = true
 		}
 	}

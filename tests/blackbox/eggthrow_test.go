@@ -125,11 +125,13 @@ func TestEggThrowParity(t *testing.T) {
 
 // eggEvent is one decoded clientbound packet relevant to this test.
 type eggEvent struct {
-	kind  string // "ack", "sound", "spawn", "meta", "event", "remove", "slot"
-	eid   int32  // entity id (spawn/event/remove) or slot number
-	b0    int32  // seq (ack), status (event), count (slot)
-	etype int32  // spawn packet's entity-type registry id
-	data  int32  // spawn packet's data field (owner id)
+	kind    string // "ack", "sound", "spawn", "meta", "event", "remove", "slot", "content", "level"
+	eid     int32  // entity id (spawn/event/remove/meta) or slot number
+	b0      int32  // seq (ack), status (event), count (slot), event id (level)
+	etype   int32  // spawn packet's entity-type registry id
+	data    int32  // spawn packet's data field (owner id) or level_event data
+	oval    int32  // orb value decoded from an index-8 VarInt meta entry
+	hasOval bool
 }
 
 func eggDrain(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writer, quiet time.Duration) []eggEvent {
@@ -197,14 +199,31 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 			_, _ = r.Double()
 			_, _ = r.Double()
 			_, _ = r.Double()
+			// velocity rides the variable-length LpVec3 — skip it
+			// properly or a moving entity's bytes leak into the
+			// pitch/yaw/data reads below.
+			_, _, _, _ = r.ReadLpVec3()
 			_, _ = r.Byte() // pitch
 			_, _ = r.Byte() // yaw
 			_, _ = r.Byte() // head yaw
 			data, _ := r.VarInt()
 			out = append(out, eggEvent{kind: "spawn", eid: eid, etype: et, data: data})
 		case 0x63: // set_entity_data
-			if eid, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
-				out = append(out, eggEvent{kind: "meta", eid: eid})
+			r := protocol.NewPacketReader(p.Data)
+			if eid, err := r.VarInt(); err == nil {
+				ev := eggEvent{kind: "meta", eid: eid}
+				// An experience orb's DATA_VALUE is index 8, serializer
+				// 1 (VarInt); pull it out when present. Other entry
+				// types aren't length-skippable, so stop there.
+				if idx, e1 := r.Byte(); e1 == nil && idx == 8 {
+					if ty, e2 := r.VarInt(); e2 == nil && ty == 1 {
+						if v, e3 := r.VarInt(); e3 == nil {
+							ev.oval = v
+							ev.hasOval = true
+						}
+					}
+				}
+				out = append(out, ev)
 			}
 		case 0x22: // entity_event: Int eid + byte status
 			r := protocol.NewPacketReader(p.Data)
@@ -235,6 +254,14 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 		case 0x12: // container_set_content — vanilla's player-inventory
 			// sync batches the shrink into a full refresh.
 			out = append(out, eggEvent{kind: "content"})
+		case 0x2E: // level_event: Int event, Long pos, Int data, Bool global
+			r := protocol.NewPacketReader(p.Data)
+			evID, e1 := r.Int()
+			_, _ = r.Long() // packed position
+			dat, e3 := r.Int()
+			if e1 == nil && e3 == nil {
+				out = append(out, eggEvent{kind: "level", b0: evID, data: dat})
+			}
 		}
 	}
 	_ = c.SetReadDeadline(time.Time{})

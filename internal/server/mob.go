@@ -325,7 +325,7 @@ func (s *Server) spawnXPOrb(dim string, x, y, z float64, value int32) *Entity {
 		Y:           y,
 		Z:           z,
 		PickupDelay: 0,
-		Data:        value,
+		OrbValue:    value,
 	})
 	s.broadcastEntitySpawn(nil, *e)
 	s.broadcastEntityMetadata(e.ID, encodeOrbMetadata(value))
