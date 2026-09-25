@@ -6987,3 +6987,17 @@ hurt 1.0 via entity-less wither() every 40>>amplifier live ticks.
 Blackbox leg 9 pins: ownerless magic dmg cause/direct 0/0, graced
 second skull no event, 2 explode packets radius 1.0, ≥1 wither-type
 tick event, both skulls removed.
+### 2026-09-25v — fireball entity-hit + ExplosionPower + setFire blast arm
+LargeFireball.onHitEntity hurts 6.0 through DamageSources.fireball —
+which picks UNATTRIBUTED_FIREBALL when the shot has no owner (cause AND
+direct both wire the ball's id +1 on the damage_event). onHit explodes
+unconditionally: explode(this, pos, explosionPower, setFire=
+MOB_GRIEFING, ExplosionInteraction.MOB). Entity.ExplosionPower reads the
+summon's ExplosionPower NBT (default 1). explodePowerFire adds the
+setFire arm — vanilla's finalizeExplosion rolls 1-in-3 to light base
+fire in every carved air-over-solid cell.
+Leg 10 pins: ownerless unattributed_fireball dmg cause==direct==ball,
+graced second ball no event, 2 radius-1.0 explode packets, knockback,
+both removed. Spawn geometry note: a 1-block fireball at -59.7 clips
+the ground as a block hit and explodes without ever reaching the
+villager — the leg aims -59.3. Green on both targets.

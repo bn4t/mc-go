@@ -149,6 +149,14 @@ func (s *Server) tntExplode(src *Entity, x, y, z float64) {
 // mob blast, tnt_explodes for TNT. When false nothing carves and the
 // packet's block count is 0 (KEEP).
 func (s *Server) explodePower(src *Entity, x, y, z float64, radius float32, grief bool) {
+	s.explodePowerFire(src, x, y, z, radius, grief, false)
+}
+
+// explodePowerFire is explodePower with vanilla's setFire arg: the
+// LargeFireball onHit blast passes MOB_GRIEFING there, letting the
+// carve light 1-in-3 air-over-solid cells on fire in the finalize
+// pass (finalizedExplosion's second loop).
+func (s *Server) explodePowerFire(src *Entity, x, y, z float64, radius float32, grief, setFire bool) {
 	d := s.dims[src.Dim]
 	if d == nil {
 		return
@@ -240,6 +248,26 @@ func (s *Server) explodePower(src *Entity, x, y, z float64, radius float32, grie
 	// interactWithBlocks, DESTROY_WITH_DECAY — the vanilla order is
 	// shuffle → per-cell onExplosionHit → popResource per dropped stack.
 	s.explodeDestroyBlocks(src, positions, radius)
+
+	// finalizeExplosion's fire pass (setFire): for every destroyed
+	// cell a 1-in-3 roll puts base fire where the cell is now air
+	// and the block below renders solid.
+	if setFire {
+		for _, pos := range positions {
+			if rand.Intn(3) != 0 {
+				continue
+			}
+			cur := d.w.GetBlock(pos)
+			if cur != world.Air {
+				continue
+			}
+			below := pos
+			below.Y--
+			if bn, ok := blockNameAt(d, below); ok && bn != "air" {
+				s.setNaturalBlock(d, pos, plainFire)
+			}
+		}
+	}
 
 	// One explode packet per player within 64 blocks; the victim's own
 	// packet carries the knockback vector, everyone else's omits it.

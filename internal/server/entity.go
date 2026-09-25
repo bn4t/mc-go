@@ -184,6 +184,11 @@ type Entity struct {
 	// produces its first skull — killedEntity's CHARGED_CREEPER
 	// loot-table drop runs once per creeper.
 	DroppedSkulls bool
+	// ExplosionPower is LargeFireball.explosionPower — the MOB
+	// explosion radius onHit (ghast shoots 1, the summon NBT
+	// ExplosionPower reads anything). Zero is treated as 1, the
+	// vanilla default, for types that carry the field.
+	ExplosionPower float32
 	// AreaEffectCloud state: CloudWait is the 10-tick pre-activation
 	// pause (setWaitTime), CloudDuration the 300-tick lifetime to
 	// discard (setDuration), CloudAge the tick counter both compare

@@ -542,6 +542,69 @@ func TestThrownHitParity(t *testing.T) {
 				assertNoEntityEvent(t, tc.tag, ev, id)
 				assertRemoved(t, tc.tag, ev, id)
 			}
+
+			// leg 10: two ownerless fireballs into the SAME villager5
+			// — LargeFireball.onHitEntity hurts 6.0 through
+			// fireball(ball, owner) unconditionally (ownerless wires
+			// cause 0, direct the ball), and onHit explodes with
+			// explosionPower=1 under ExplosionInteraction.MOB on ANY
+			// hit — both balls burst and remove.
+			sendCommand(t, pw, "summon minecraft:villager 63.5 -60 72.5 {NoAI:1b,NoGravity:1b}")
+			sendCommand(t, pw, "summon minecraft:fireball 62.0 -59.3 72.5 {Motion:[1.0d,0.0d,0.0d]}")
+			sendCommand(t, pw, "summon minecraft:fireball 60.0 -59.3 72.5 {Motion:[1.0d,0.0d,0.0d]}")
+			ev = eggDrainFor(t, c, pr, pw, 3000*time.Millisecond)
+			var villager5 int32
+			var lfbIDs []int32
+			for _, e := range ev {
+				if e.kind == "spawn" && e.etype == mustEType(t, "villager") &&
+					e.eid != villagerID && e.eid != villager2 && e.eid != villager3 && e.eid != villager4 {
+					villager5 = e.eid
+				}
+				if e.kind == "spawn" && e.etype == mustEType(t, "fireball") {
+					lfbIDs = append(lfbIDs, e.eid)
+				}
+			}
+			if villager5 == 0 {
+				t.Fatalf("%s: fifth villager never spawned", tc.tag)
+			}
+			if len(lfbIDs) != 2 {
+				t.Fatalf("%s: expected 2 fireball spawns, got %d", tc.tag, len(lfbIDs))
+			}
+			lfbDmg := 0
+			var lfbEvt *eggEvent
+			for i := range ev {
+				if ev[i].kind == "dmg" && ev[i].eid == villager5 && ev[i].etype == 47 {
+					lfbDmg++
+					lfbEvt = &ev[i]
+				}
+			}
+			if lfbDmg != 1 {
+				for _, e := range ev {
+					if e.kind == "dmg" && e.eid == villager5 {
+						t.Logf("%s: dbg dmg %+v", tc.tag, e)
+					}
+				}
+				t.Fatalf("%s: %d unattributed_fireball damage_events for two hits — the graced second must produce none", tc.tag, lfbDmg)
+			}
+			if (lfbEvt.b0 != lfbIDs[0]+1 && lfbEvt.b0 != lfbIDs[1]+1) || lfbEvt.b0 != lfbEvt.data {
+				t.Fatalf("%s: unattributed_fireball damage_event cause/direct = %d/%d — both wire the ball id %v (+1)", tc.tag, lfbEvt.b0, lfbEvt.data, lfbIDs)
+			}
+			lfbBoom := 0
+			for _, e := range ev {
+				if e.kind == "explode" && e.etype == 100 {
+					lfbBoom++
+				}
+			}
+			if lfbBoom != 2 {
+				t.Fatalf("%s: %d radius-1.0 explode packets — both fireballs burst on hit", tc.tag, lfbBoom)
+			}
+			if countKind(ev, "motion", villager5) < 1 {
+				t.Fatalf("%s: no knockback motion on the fireball-hit villager", tc.tag)
+			}
+			for _, id := range lfbIDs {
+				assertNoEntityEvent(t, tc.tag, ev, id)
+				assertRemoved(t, tc.tag, ev, id)
+			}
 		})
 	}
 }

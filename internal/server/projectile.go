@@ -34,7 +34,7 @@ var projectileTickTypes = map[string]bool{
 	"splash_potion": true, "lingering_potion": true,
 	"egg": true, "snowball": true, "experience_bottle": true,
 	"small_fireball": true, "firework_rocket": true, "ender_pearl": true,
-	"wither_skull": true,
+	"wither_skull": true, "fireball": true,
 }
 
 // bowStartTick timestamps a draw begun by Use Item on a bow so the
@@ -207,7 +207,7 @@ func (s *Server) arrowTickStep() {
 			// ThrownExperienceBottle.getDefaultGravity — the bottle
 			// arcs down harder than the other thrown items.
 			grav = 0.07
-		case "small_fireball", "firework_rocket", "wind_charge", "wither_skull":
+		case "small_fireball", "firework_rocket", "wind_charge", "wither_skull", "fireball":
 			grav = 0
 		}
 		e.MotionY -= grav
@@ -242,6 +242,10 @@ func (s *Server) arrowTickStep() {
 			// wither_skull; ownerless: hurt 5.0 magic; a landed hit
 			// then applies the wither effect by difficulty.
 			collided = s.witherSkullCollide(e, ox, oy, oz)
+		case name == "fireball":
+			// LargeFireball.onHitEntity — hurt 6.0 through
+			// fireball(ball, owner); ownerless wires cause 0.
+			collided = s.largeFireballCollide(e, ox, oy, oz)
 		}
 		// Hurting projectiles (fireball/wind_charge/rocket) keep
 		// their own impact paths; the block hit below still applies.
@@ -270,6 +274,9 @@ func (s *Server) arrowTickStep() {
 			}
 			if name == "wither_skull" {
 				s.witherSkullExplode(e)
+			}
+			if name == "fireball" {
+				s.largeFireballExplode(e)
 			}
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemove([]int32{e.ID})
@@ -334,6 +341,9 @@ func (s *Server) arrowTickStep() {
 				}
 				if name == "wither_skull" {
 					s.witherSkullExplode(e)
+				}
+				if name == "fireball" {
+					s.largeFireballExplode(e)
 				}
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemove([]int32{e.ID})
@@ -1467,4 +1477,53 @@ func (s *Server) witherSkullCollide(e *Entity, ox, oy, oz float64) bool {
 // mob_griefing — then the caller discards.
 func (s *Server) witherSkullExplode(e *Entity) {
 	s.explodePower(e, e.X, e.Y, e.Z, 1.0, s.gameRuleBool("minecraft:mob_griefing"))
+}
+
+// largeFireballCollide is LargeFireball.onHitEntity: hurt 6.0 through
+// fireball(ball, getOwner()) — the owner may be null on a summon, in
+// which case the source's cause field wires 0 and direct is the ball.
+func (s *Server) largeFireballCollide(e *Entity, ox, oy, oz float64) bool {
+	s.entities.mu.RLock()
+	targets := make([]*Entity, 0, len(s.entities.byID))
+	for _, t := range s.entities.byID {
+		targets = append(targets, t)
+	}
+	s.entities.mu.RUnlock()
+	for _, t := range targets {
+		if !t.Living || t.Dying || t.ID == e.ID || t.ID == e.arrowShooter {
+			continue
+		}
+		if t.Dim != e.Dim {
+			continue
+		}
+		bb := mobBounds(t.Type)
+		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+			continue
+		}
+		// DamageSources.fireball picks unattributed_fireball when
+		// the shot has no owner; the source's entity then reports
+		// as the projectile itself on the wire.
+		typeName := "fireball"
+		cause := e.arrowShooter
+		if cause == 0 {
+			typeName = "unattributed_fireball"
+			cause = e.ID
+		}
+		s.damageMob(t, 6.0, typeName, s.sessionByEntityID(e.arrowShooter), &damageInfo{
+			typeName: typeName, cause: cause, direct: e.ID,
+		})
+		return true
+	}
+	return false
+}
+
+// largeFireballExplode is LargeFireball.onHit's tail: explode(
+// this, pos, explosionPower, setFire=MOB_GRIEFING, MOB) then discard.
+func (s *Server) largeFireballExplode(e *Entity) {
+	power := e.ExplosionPower
+	if power == 0 {
+		power = 1
+	}
+	grief := s.gameRuleBool("minecraft:mob_griefing")
+	s.explodePowerFire(e, e.X, e.Y, e.Z, power, grief, grief)
 }
