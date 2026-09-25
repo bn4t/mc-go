@@ -1123,6 +1123,27 @@ func (s *Server) runSummon(player string, args []string) reply {
 		s.broadcastEntitySpawn(nil, *e)
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft.arrow")))
 	}
+	// A small fireball summoned with Motion flies like a dispenser
+	// shot — ownerless, no acceleration power needed for the wire.
+	if name == "small_fireball" {
+		mx, my, mz := 0.0, 0.0, 0.0
+		if tag != nil {
+			if mv, ok := tag.vals["Motion"]; ok && len(mv.items) == 3 {
+				mx = snbtNum(mv.items[0])
+				my = snbtNum(mv.items[1])
+				mz = snbtNum(mv.items[2])
+			}
+		}
+		e := s.entities.Spawn(&Entity{
+			Type: mustEntityType(name),
+			Dim:  sess.dimName(),
+			X:    x, Y: y, Z: z,
+			MotionX: mx, MotionY: my, MotionZ: mz,
+			VX: int16(mx * 8000), VY: int16(my * 8000), VZ: int16(mz * 8000),
+		})
+		s.broadcastEntitySpawn(nil, *e)
+		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
+	}
 	// Wind charges fly straight (no gravity) and burst on contact.
 	if name == "wind_charge" || name == "breeze_wind_charge" {
 		mx, my, mz := 0.0, 0.0, 0.0

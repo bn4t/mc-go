@@ -213,13 +213,24 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 			if eid, err := r.VarInt(); err == nil {
 				ev := eggEvent{kind: "meta", eid: eid}
 				// An experience orb's DATA_VALUE is index 8, serializer
-				// 1 (VarInt); pull it out when present. Other entry
-				// types aren't length-skippable, so stop there.
-				if idx, e1 := r.Byte(); e1 == nil && idx == 8 {
-					if ty, e2 := r.VarInt(); e2 == nil && ty == 1 {
-						if v, e3 := r.VarInt(); e3 == nil {
-							ev.oval = v
-							ev.hasOval = true
+				// 1 (VarInt); pull it out when present. The index-0
+				// shared-flags byte (serializer 0) rides b0 — it
+				// carries on_fire(0x01)/glowing(0x40) for the fireball
+				// hit. Other entry types aren't length-skippable, so
+				// stop after the first entry either way.
+				if idx, e1 := r.Byte(); e1 == nil {
+					if ty, e2 := r.VarInt(); e2 == nil {
+						if idx == 8 && ty == 1 {
+							if v, e3 := r.VarInt(); e3 == nil {
+								ev.oval = v
+								ev.hasOval = true
+							}
+						}
+						if idx == 0 && ty == 0 {
+							if v, e3 := r.Byte(); e3 == nil {
+								ev.b0 = int32(v)
+								ev.hasOval = true // reuse as "flag byte present"
+							}
 						}
 					}
 				}

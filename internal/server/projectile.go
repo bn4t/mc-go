@@ -231,6 +231,10 @@ func (s *Server) arrowTickStep() {
 			// flashes the hurt animation and knockback but deals
 			// nothing (snowballs do 3 to blazes).
 			collided = s.thrownCollide(e, ox, oy, oz, name)
+		case name == "small_fireball":
+			// SmallFireball.onHitEntity — ignite 5s + hurt(5.0)
+			// through the fireball damage type.
+			collided = s.fireballCollide(e, ox, oy, oz)
 		}
 		// Hurting projectiles (fireball/wind_charge/rocket) keep
 		// their own impact paths; the block hit below still applies.
@@ -1063,6 +1067,59 @@ func (s *Server) thrownCollide(e *Entity, ox, oy, oz float64, name string) bool 
 		if name == "egg" || name == "blue_egg" || name == "brown_egg" || name == "snowball" {
 			s.broadcastEntityEventTo(nil, e.Dim, e.ID, 3)
 		}
+	}
+	return hit
+}
+
+// fireballCollide is SmallFireball.onHitEntity: igniteForSeconds(5)
+// on the victim, then hurt 5.0 through DamageSources.fireball —
+// damage_type minecraft:fireball with cause falling back to the
+// projectile itself when the shot has no owner (summon/dispenser).
+// When hurt() returns false (invulnerability grace, immunity) the
+// saved remainingFireTicks are restored — the victim doesn't keep
+// the ignition.
+func (s *Server) fireballCollide(e *Entity, ox, oy, oz float64) bool {
+	shooter := s.sessionByEntityID(e.arrowShooter)
+	hit := false
+	s.entities.mu.RLock()
+	targets := make([]*Entity, 0, len(s.entities.byID))
+	for _, t := range s.entities.byID {
+		targets = append(targets, t)
+	}
+	s.entities.mu.RUnlock()
+	for _, t := range targets {
+		if hit || !t.Living || t.Dying || t.ID == e.ID || t.ID == e.arrowShooter {
+			continue
+		}
+		if t.Dim != e.Dim {
+			continue
+		}
+		bb := mobBounds(t.Type)
+		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+			continue
+		}
+		hit = true
+		prevFire := t.FireTicks
+		// DamageSources.fireball picks unattributed_fireball when
+		// the shot has no owner; the source's entity then reports
+		// as the projectile itself on the wire.
+		typeName := "fireball"
+		cause := e.arrowShooter
+		if cause == 0 {
+			typeName = "unattributed_fireball"
+			cause = e.ID
+		}
+		dealt, graced, _ := s.damageMob(t, 5.0, typeName, shooter, &damageInfo{
+			typeName: typeName,
+			cause:    cause,
+			direct:   e.ID,
+		})
+		if dealt > 0 && !graced {
+			s.entities.SetFireTicks(t.ID, 100)
+		} else {
+			s.entities.SetFireTicks(t.ID, prevFire)
+		}
+		s.broadcastMobSharedFlags(t.ID, t.FireTicks > 0, t.GlowUntil > s.gameTime())
 	}
 	return hit
 }

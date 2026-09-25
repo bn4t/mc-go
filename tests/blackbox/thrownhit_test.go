@@ -37,9 +37,11 @@ func TestThrownHitParity(t *testing.T) {
 			drainToJoinBlackbox(t, tc.tag, pr)
 			sendCommand(t, pw, "gamemode survival @s")
 			sendCommand(t, pw, "tp @s 60.5 -60 60.5 -90 0")
-			// NoAI villager 3 blocks east — tall enough for the flat
-			// eye-level throw, and cannot burn in daylight.
-			sendCommand(t, pw, "summon minecraft:villager 63.5 -60 60.5 {NoAI:1b}")
+			// NoAI + NoGravity villager 3 blocks east, floated 0.5 so
+			// its hitbox centers on the eye-line throw (~1.0 margin
+			// both ways — spread misses at the old ~0.4 top margin let
+			// a follow-up throw land as a fresh hit on either server).
+			sendCommand(t, pw, "summon minecraft:villager 63.5 -59.5 60.5 {NoAI:1b,NoGravity:1b}")
 			sendCommand(t, pw, "give @s minecraft:egg 16")
 			ev := eggDrainFor(t, c, pr, pw, 1200*time.Millisecond)
 			villagerID := findSpawn(t, tc.tag, ev, "villager")
@@ -144,6 +146,10 @@ func TestThrownHitParity(t *testing.T) {
 			}
 			assertRemoved(t, tc.tag, ev, eggIDs[1])
 
+			// A leg-1/2 egg can randomly hatch a chicken that wanders
+			// into the lane and eats later throws — clear hatchlings.
+			sendCommand(t, pw, "kill @e[type=minecraft:chicken]")
+
 			// Leg 3 — snowball, after the invulnerability window.
 			sendCommand(t, pw, "clear @s")
 			sendCommand(t, pw, "give @s minecraft:snowball 16")
@@ -184,6 +190,69 @@ func TestThrownHitParity(t *testing.T) {
 			assertRemoved(t, tc.tag, ev, xbID)
 			assertXpSplash(t, tc.tag, ev)
 			assertXpOrbs(t, tc.tag, ev)
+
+			// A leg-1/2 egg can randomly hatch a chicken that wanders
+			// into the fireball lane and eats a ball — clear any
+			// hatchlings so only the villager can be hit.
+			sendCommand(t, pw, "kill @e[type=minecraft:chicken]")
+			eggDrainFor(t, c, pr, pw, 800*time.Millisecond)
+
+			// Leg 5 — small_fireball entity hit, two back-to-back
+			// summoned shots: SmallFireball.onHitEntity ignites the
+			// victim for 5s then hurts 5.0 through
+			// unattributed_fireball (no owner on a summoned ball —
+			// the source entity reports as the projectile itself).
+			// The second ball lands inside the grace window: hurt()
+			// returns false, its fire ticks restore, and it ships no
+			// damage_event — only the remove. No entity_event ever.
+			sendCommand(t, pw, "summon minecraft:small_fireball 60.5 -58.4 60.5 {Motion:[0.4d,0d,0d]}")
+			sendCommand(t, pw, "summon minecraft:small_fireball 60.5 -58.4 60.5 {Motion:[0.4d,0d,0d]}")
+			ev = eggDrainFor(t, c, pr, pw, 2500*time.Millisecond)
+			var fbIDs []int32
+			for _, e := range ev {
+				if e.kind == "spawn" && e.etype == mustEType(t, "small_fireball") {
+					fbIDs = append(fbIDs, e.eid)
+				}
+			}
+			if len(fbIDs) != 2 {
+				t.Fatalf("%s: expected 2 small_fireball spawns, got %d", tc.tag, len(fbIDs))
+			}
+			fbDmg := 0
+			var fbEvt *eggEvent
+			for i := range ev {
+				if ev[i].kind == "dmg" && ev[i].eid == villagerID && ev[i].etype == 47 {
+					fbDmg++
+					fbEvt = &ev[i]
+				}
+			}
+			if fbDmg != 1 {
+				t.Fatalf("%s: %d fireball damage_events for two hits — the graced second must produce none", tc.tag, fbDmg)
+			}
+			if fbEvt.data != fbIDs[0]+1 {
+				t.Fatalf("%s: fireball damage_event direct = %d — want projectile id %d (+1 encoded)", tc.tag, fbEvt.data, fbIDs[0])
+			}
+			if fbEvt.b0 != fbIDs[0]+1 {
+				t.Fatalf("%s: fireball damage_event cause = %d — ownerless shots report the projectile %d", tc.tag, fbEvt.b0, fbIDs[0])
+			}
+			fireFlag := false
+			for _, e := range ev {
+				if e.kind == "meta" && e.eid == villagerID && e.hasOval && e.b0&0x01 != 0 {
+					fireFlag = true
+				}
+			}
+			if !fireFlag {
+				t.Fatalf("%s: no on_fire shared-flags byte on the victim — igniteForSeconds(5) missing", tc.tag)
+			}
+			if countKind(ev, "sound", hurt+1) < 1 {
+				t.Fatalf("%s: no entity.villager.hurt sound on the fireball hit", tc.tag)
+			}
+			if countKind(ev, "motion", villagerID) < 1 {
+				t.Fatalf("%s: no knockback motion on the fireball hit", tc.tag)
+			}
+			for _, id := range fbIDs {
+				assertNoEntityEvent(t, tc.tag, ev, id)
+				assertRemoved(t, tc.tag, ev, id)
+			}
 		})
 	}
 }

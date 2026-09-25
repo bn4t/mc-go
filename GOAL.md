@@ -6872,3 +6872,34 @@ the 2002/orb splash. Green on vanilla and mc-go (the throw spread
 makes an occasional villager miss possible on both — inherent RNG,
 not a wire diff). TestXpBottleParity + TestEggThrowParity re-run
 green; go vet clean; go test ./internal/server green.
+
+## Slice — 2026-09-25q — small_fireball entity-hit (ignite + hurt 5 + graced-restore)
+
+Vanilla (javap + live probe): SmallFireball.onHitEntity saves the
+victim's fire ticks, igniteForSeconds(5.0), then hurtServer(
+damageSources.fireball(ball, owner), 5.0) — a summoned/ownerless
+ball resolves to DamageTypes.UNATTRIBUTED_FIREBALL with the source
+entity reporting as the projectile itself (cause+1 = direct+1 =
+proj+1 on the wire). hurt() returning FALSE restores the saved fire
+ticks (the graced second ball does NOT re-ignite). No entity_event
+on the projectile ever; the ball is removed. /summon key is Motion
+(power/acceleration_power drive acceleration, not needed for flat
+flight).
+
+mc-go: /summon gains a small_fireball arm (entity spawn + Motion —
+the projectile loop already ticks it). fireballCollide implements
+the measured tail: damageMob(5.0) with typeName
+unattributed_fireball + cause=e.ID when ownerless, else fireball +
+arrowShooter; SetFireTicks(100) only when the hurt landed
+un-graced, else restores the prior ticks; the victim's shared-flags
+byte ships once with the final state.
+TestThrownHitParity leg 5: two back-to-back summoned fireballs pin
+one damage_event etype=47 cause=direct=ball1+1 + the on_fire flag
+byte + hurt sound + knockback on ball1, total silence (besides
+remove) on the graced ball2, no entity_event on either. The
+villager is now summoned floated (NoGravity) so its hitbox centers
+on the eye-line (~1.0 margin both ways — spread misses at the old
+0.43 top margin let follow-up throws land as fresh hits on both
+servers), and hatched chickens are killed before legs 3 and 5 (a
+wandering hatchling can eat a projectile — same behavior exists on
+vanilla). Green on both servers, two consecutive runs.
