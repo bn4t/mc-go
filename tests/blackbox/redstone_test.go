@@ -1851,7 +1851,7 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		`item replace block 85 -60 140 container.0 with minecraft:brush 1`,
 		// EquipmentDispenseItemBehavior: a living entity in the mouth
 		// cell wears the dispensed armor.
-		`summon minecraft:pig 80.5 -60 140.5 {NoAI:1b}`,
+		`summon minecraft:pig 80.5 -60 140.5 {NoAI:1b,CanPickUpLoot:1b}`,
 		`setblock 79 -60 140 minecraft:dispenser[facing=east]`,
 		`item replace block 79 -60 140 container.0 with minecraft:iron_helmet 2`,
 		// $8: a carved pumpkin that completes the snow column spawns a
@@ -1896,6 +1896,21 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		`item replace block 92 -59 150 container.0 with minecraft:carved_pumpkin 1`,
 		`setblock 96 -59 150 minecraft:dispenser[facing=down]`,
 		`item replace block 96 -59 150 container.0 with minecraft:carved_pumpkin 1`,
+		// $8 equipment fallback: a pumpkin that can't golem-place
+		// equips a mouth entity's head slot instead.
+		`summon minecraft:pig 97.5 -60 140.5 {NoAI:1b,CanPickUpLoot:1b}`,
+		`setblock 96 -60 140 minecraft:dispenser[facing=east]`,
+		`item replace block 96 -60 140 container.0 with minecraft:carved_pumpkin 1`,
+		// $7 fallback: same rule for the wither skeleton skull.
+		`summon minecraft:pig 101.5 -60 140.5 {NoAI:1b,CanPickUpLoot:1b}`,
+		`setblock 100 -60 140 minecraft:dispenser[facing=east]`,
+		`item replace block 100 -60 140 container.0 with minecraft:wither_skeleton_skull 1`,
+		// canDispenserEquipIntoSlot for a Mob is canPickUpLoot — a
+		// no-pickup mob can't take the item, so the equipment
+		// behavior falls through to the default throw.
+		`summon minecraft:pig 105.5 -60 140.5 {NoAI:1b}`,
+		`setblock 104 -60 140 minecraft:dispenser[facing=east]`,
+		`item replace block 104 -60 140 container.0 with minecraft:iron_helmet 1`,
 	}
 
 	probesA := []struct{ name, spec string }{
@@ -1969,12 +1984,22 @@ func TestDispenseBehaviorParity(t *testing.T) {
 		{"Y brush stays (worn, not broken)", `items block 85 -60 140 container.* minecraft:brush`},
 		{"X pig wears the helmet", `items entity @e[type=minecraft:pig,x=80,y=-60,z=140,distance=..2] armor.head minecraft:iron_helmet`},
 		{"X one helmet left", `items block 79 -60 140 container.* minecraft:iron_helmet[count=1]`},
+		{"X2 dispenser exists", `block 79 -60 140 minecraft:dispenser`},
+		{"X2 unfired: still 2 helmets", `items block 79 -60 140 container.* minecraft:iron_helmet[count=2]`},
+		{"X2 pig present", `entity @e[type=minecraft:pig,x=80,y=-60,z=140,distance=..2]`},
 		{"V snow golem spawned", `entity @e[type=minecraft:snow_golem]`},
 		{"V pattern aired out", `!block 84 -61 140 minecraft:snow_block`},
 		{"W bare mouth keeps pumpkin", `items block 88 -59 140 container.* minecraft:carved_pumpkin`},
 		{"W no pumpkin placed", `!block 88 -60 140 minecraft:carved_pumpkin`},
 		{"S thrown as an item instead", `entity @e[type=minecraft:item,x=81,y=-60,z=150,distance=..6]`},
 		{"S potion drained", `!items block 80 -60 150 container.* minecraft:potion`},
+		{"Y pig wears the pumpkin", `items entity @e[type=minecraft:pig,x=97,y=-60,z=140,distance=..2] armor.head minecraft:carved_pumpkin`},
+		{"Y pumpkin slot drained", `!items block 96 -60 140 container.* minecraft:carved_pumpkin`},
+		{"Z pig wears the skull", `items entity @e[type=minecraft:pig,x=101,y=-60,z=140,distance=..2] armor.head minecraft:wither_skeleton_skull`},
+		{"Z skull slot drained", `!items block 100 -60 140 container.* minecraft:wither_skeleton_skull`},
+		{"Yx no-pickup pig stays bare", `!items entity @e[type=minecraft:pig,x=105,y=-60,z=140,distance=..2] armor.head minecraft:iron_helmet`},
+		{"Yx helmet thrown as an item", `entity @e[type=minecraft:item,x=105,y=-60,z=140,distance=..4]`},
+		{"Yx throw drained the slot", `!items block 104 -60 140 container.* minecraft:iron_helmet`},
 	}
 
 	probe := func(pw *protocol.Writer, sink *chatSink, spec string, i int) string {
@@ -2037,6 +2062,11 @@ func TestDispenseBehaviorParity(t *testing.T) {
 			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 139 minecraft:redstone_block`, x))
 			sendCommand(t, pw, fmt.Sprintf(`setblock %d -60 139 minecraft:air`, x))
 		}
+		// The $7/$8 equip-fallback pair keep their power on — a pulse
+		// re-fire would dispense a second item and confuse the probes.
+		sendCommand(t, pw, `setblock 96 -60 139 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 100 -60 139 minecraft:redstone_block`)
+		sendCommand(t, pw, `setblock 104 -60 139 minecraft:redstone_block`)
 		// Persistent floor power for the z=140 bonemeal pair; side cells
 		// for the two down-facing golem dispensers.
 		sendCommand(t, pw, `setblock 89 -61 140 minecraft:redstone_block`)

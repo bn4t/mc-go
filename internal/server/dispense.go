@@ -476,11 +476,12 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 		}
 		return
 	case itemName == "carved_pumpkin" || itemName == "wither_skeleton_skull":
-		// DispenseItemBehavior$7/$8: the head leaves the slot only when
-		// the mouth cell completes a golem/wither pattern
+		// DispenseItemBehavior$7/$8: the head PLACES only when the mouth
+		// is empty AND completes a golem/wither pattern
 		// (CarvedPumpkinBlock.canSpawnGolem / WitherSkullBlock
-		// .canSpawnMob). The write then fires the spawn hook; on a bare
-		// mouth the item stays (optional-fail, event 1001).
+		// .canSpawnMob). Either gate failing falls back to
+		// dispenseEquipment — a LivingEntity in the mouth AABB takes the
+		// head as its helmet; still nothing → optional-fail 1001.
 		if d.w.GetBlock(front) == world.Air {
 			nb, _ := world.BlockStateOf(itemName, map[string]string{
 				"facing": "north", "rotation": "0",
@@ -499,13 +500,17 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 				s.dispenseConsume(d, pos, c, slot)
 				s.broadcastLevelEvent(d.name, 1000, pos, 0)
 				s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
-			} else {
-				s.setSilentBlock(d, front, world.Air)
-				s.broadcastLevelEvent(d.name, 1001, pos, 0)
+				return
 			}
-		} else {
-			s.broadcastLevelEvent(d.name, 1001, pos, 0)
+			s.setSilentBlock(d, front, world.Air)
 		}
+		if s.dispenseEquip(d, front, itemName, st) {
+			s.dispenseConsume(d, pos, c, slot)
+			s.broadcastLevelEvent(d.name, 1000, pos, 0)
+			s.broadcastLevelEvent(d.name, 2000, pos, int32(facing))
+			return
+		}
+		s.broadcastLevelEvent(d.name, 1001, pos, 0)
 		return
 	case dispenseEquipSlot[itemName] != 0:
 		// EquipmentDispenseItemBehavior: the first LivingEntity whose
@@ -964,7 +969,7 @@ func init() {
 	// Mob heads + skull items all equip to the head slot. The
 	// wither_skeleton_skull item never reaches this case — the $7
 	// wither-pattern behavior owns it.
-	for _, h := range []string{"zombie_head", "creeper_head", "piglin_head", "player_head", "dragon_head", "skeleton_skull"} {
+	for _, h := range []string{"zombie_head", "creeper_head", "piglin_head", "player_head", "dragon_head", "skeleton_skull", "wither_skeleton_skull"} {
 		dispenseEquipSlot[h] = equipHelmet
 	}
 }
@@ -979,7 +984,36 @@ func (s *Server) dispenseEquip(d *dimension, mouth world.Pos, itemName string, s
 	if !ok || slot == 0 {
 		return false
 	}
-	target := s.livingAtMouth(d, mouth, "")
+	// canEquipWithDispenser is the candidate filter: the slot must be
+	// EMPTY (a dispenser never swaps worn gear) and
+	// canDispenserEquipIntoSlot must hold — Mob's is canPickUpLoot
+	// (CanPickUpLoot NBT, default false), LivingEntity's is
+	// unconditional, and ArmorStand.canUseSlot additionally refuses
+	// DisabledSlots-flagged slots.
+	var target *Entity
+	s.entities.mu.RLock()
+	for _, e := range s.entities.byID {
+		if !e.Living || e.Dying || e.Dim != d.name || !e.Equips[slot].Empty() {
+			continue
+		}
+		name, _ := EntityTypeName(e.Type)
+		if name == "armor_stand" {
+			if e.DisabledSlots&(1<<armorStandFilterID(slot)) != 0 {
+				continue
+			}
+		} else if name != "player" && !s.mobCanPickUpLoot(e) {
+			continue
+		}
+		w, h := entityBox(name)
+		hw := w / 2
+		if e.X-hw < float64(mouth.X)+1 && e.X+hw > float64(mouth.X) &&
+			e.Z-hw < float64(mouth.Z)+1 && e.Z+hw > float64(mouth.Z) &&
+			e.Y < float64(mouth.Y)+1 && e.Y+h > float64(mouth.Y) {
+			target = e
+			break
+		}
+	}
+	s.entities.mu.RUnlock()
 	if target == nil {
 		return false
 	}

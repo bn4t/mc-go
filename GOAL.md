@@ -7156,3 +7156,43 @@ ride clientbound 0x21 (disguised/player chat), NOT 0x79 —
 marker probes must scan 0x21 or raw payload. Occupant NBT
 needs a large min_ticks_in_hive or vanilla's hive tick
 auto-releases occupants before the harvest lands.
+### 2026-09-25zc — dispenser $7/$8 equip fallback + canEquipWithDispenser
+DispenseItemBehavior$7 (wither_skeleton_skull) / $8 (carved_pumpkin)
+decoded and wired: on an empty mouth the head block places, the
+golem/wither pattern is attempted, and on failure the block reverts
+and the behavior falls back to EquipmentDispenseItemBehavior's
+shared dispenseEquipment — equipping the first LivingEntity whose
+box overlaps the unit cell at the mouth. OptionalDispenseItemBehavior
+semantics preserved: success -> event 1000, failure -> event 1001
+and the item is KEPT (no throw), which is why a blocked pumpkin
+stays in its slot while a failed helmet throws via
+DefaultDispenseItemBehavior.
+canEquipWithDispenser (LivingEntity.final) decoded gate-by-gate:
+isAlive && !isSpectator && equippable!=null && dispensable &&
+canUseSlot(slot) && canBeEquippedBy(typeHolder) &&
+getItemBySlot(slot).isEmpty() && canDispenserEquipIntoSlot(slot).
+The tail pair is AND'd — an occupied slot refuses everything.
+Mob.canDispenserEquipIntoSlot = canPickUpLoot() (the CanPickUpLoot
+NBT flag, default false — summoned mobs without it refuse equip);
+LivingEntity.canDispenserEquipIntoSlot = unconditional true, so
+armor stands and players always pass. ArmorStand.canUseSlot =
+slot!=BODY && slot!=SADDLE && !isDisabled — mc-go's
+armorStandFilterID+DisabledSlots mirror isDisabled. Equippable
+allowedEntities is empty for both humanoidArmor and
+equippableUnswappable (mob heads), so canBeEquippedBy passes every
+registered type. mc-go's dispenseEquip rewritten to mirror the
+predicate; wither_skeleton_skull added to the mob-heads helmet
+equip table.
+DispenseItemBehavior$8 golem-spawn legs unchanged: iron golem on a
+T of iron blocks, snow golem on two snow blocks, wither on soul
+sand T (heads left for the skull case only).
+TestDispenseBehaviorParity gained a no-pickup pig leg: pig without
+CanPickUpLoot stays bare and the iron_helmet is thrown (event
+path), while pickup pigs keep wearing pumpkin/skull.
+Debug notes for future probes: summoned entities need a tick or
+two of world time before getEntitiesOfClass sees them — immediate
+power after summon can outrun section registration (a z=140
+fixture row intermittently read as entity-blind on vanilla;
+re-verified clean at z=60). A hovering survival-mode probe client
+within pickup reach vacuums thrown dispenser items — check
+`items entity @s container.*` before concluding a throw vanished.
