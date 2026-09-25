@@ -520,20 +520,24 @@ func (s *Server) mobEffectTickStep() {
 		if hasBadOmen {
 			s.badOmenTick(sess, badOmen)
 		}
-		// WitherMobEffect.applyEffectTick on the session arm: hurt 1.0
-		// through the entity-less wither() source every 40>>amplifier
-		// live ticks of a finite instance.
-		if wid, ok := MobEffectID("wither"); ok {
-			sess.effMu.Lock()
-			inst, live := sess.effects[wid]
-			sess.effMu.Unlock()
-			if live && inst.expiry >= 0 {
-				ivl := int64(40) >> uint(inst.amplifier)
-				if ivl > 0 && (inst.expiry-s.clock.count)%ivl == 0 {
-					s.damageWith(sess, 1.0, translatable("death.attack.wither", literal(sess.getName())),
-						damageSource{typeName: "wither"})
-				}
+		// Periodic applyEffectTick hooks on the session arm —
+		// MobEffect.shouldApplyEffectTickThisTick rates: poison fires
+		// every 25>>amplifier remaining ticks (magic 1.0 while
+		// health>1), wither every 40>>amplifier, regeneration every
+		// 50>>amplifier (heal 1.0 below max), hunger every tick
+		// (0.005*(amplifier+1) exhaustion, player-only).
+		sess.effMu.Lock()
+		active := make([]mobEffectInst, 0, len(sess.effects))
+		ids := make([]int32, 0, len(sess.effects))
+		for id, inst := range sess.effects {
+			if inst.expiry >= 0 && inst.expiry-s.clock.count > 0 {
+				ids = append(ids, id)
+				active = append(active, inst)
 			}
+		}
+		sess.effMu.Unlock()
+		for i, id := range ids {
+			s.applyEffectTickSession(sess, id, active[i])
 		}
 		if raidOmenDue && sess.raidOmenPos != nil {
 			// RaidOmenMobEffect fires exactly once, on the last live
@@ -571,10 +575,8 @@ func (s *Server) mobEffectTickStep() {
 	// The world-entity arm of LivingEntity.tickEffects: the same
 	// expiry/downgrade pass on e.Effects, remove_mob_effect /
 	// update_mob_effect out to trackers instead of the session write.
-	// applyEffectTick hooks run first — WitherMobEffect hurts 1.0
-	// through the entity-less wither() source every 40>>amplifier
-	// live ticks (MobEffectInstance.tick's remaining ticks).
-	witherID, witherOK := MobEffectID("wither")
+	// applyEffectTick hooks run first — the same periodic rates as
+	// the session arm (poison 25, wither 40, regen 50 >>amplifier).
 	cloudType, cloudOK := EntityTypeID("area_effect_cloud")
 	for _, e := range s.entities.All() {
 		if e.Dying || len(e.Effects) == 0 {
@@ -590,13 +592,11 @@ func (s *Server) mobEffectTickStep() {
 		if !ok {
 			continue
 		}
-		if witherOK {
-			if inst, live := ep.Effects[witherID]; live && inst.expiry >= 0 {
-				ivl := int64(40) >> uint(inst.amplifier)
-				if ivl > 0 && (inst.expiry-s.clock.count)%ivl == 0 {
-					s.damageMob(ep, 1.0, "wither", nil, &damageInfo{typeName: "wither"})
-				}
+		for id, inst := range ep.Effects {
+			if inst.expiry < 0 || inst.expiry-s.clock.count <= 0 {
+				continue
 			}
+			s.applyEffectTickEntity(ep, id, inst)
 		}
 		changed := false
 		for id, inst := range ep.Effects {
@@ -612,6 +612,71 @@ func (s *Server) mobEffectTickStep() {
 		if changed {
 			ep.MetaDirty = true
 			ep.AttrDirty = true
+		}
+	}
+}
+
+// applyEffectTickSession fires one periodic hook for a live finite
+// effect instance on a player session — the session arm of
+// MobEffectInstance.tick's applyEffectTick dispatch.
+func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectInst) {
+	rem := inst.expiry - s.clock.count
+	if rem <= 0 || sess.dead {
+		return
+	}
+	switch id {
+	case 19: // wither: hurt 1.0 wither() every 40>>amplifier
+		if ivl := int64(40) >> uint(inst.amplifier); ivl > 0 && rem%ivl == 0 {
+			s.damageWith(sess, 1.0, translatable("death.attack.wither", literal(sess.getName())),
+				damageSource{typeName: "wither"})
+		}
+	case 18: // poison: hurt 1.0 magic() every 25>>amplifier, never below 1 hp
+		if ivl := int64(25) >> uint(inst.amplifier); ivl > 0 && rem%ivl == 0 && sess.health > 1 {
+			s.damageWith(sess, 1.0, translatable("death.attack.magic", literal(sess.getName())),
+				damageSource{typeName: "magic"})
+		}
+	case 9: // regeneration: heal 1.0 every 50>>amplifier below max
+		if ivl := int64(50) >> uint(inst.amplifier); ivl > 0 && rem%ivl == 0 && sess.health < defaultHealth {
+			sess.health = min(sess.health+1, defaultHealth)
+			sess.healthDirty.Store(true)
+		}
+	case 16: // hunger: causeFoodExhaustion every tick, players only
+		if m := sess.mode(); m == GameModeSurvival || m == GameModeAdventure {
+			sess.addExhaustion(0.005 * float32(inst.amplifier+1))
+		}
+	case 22: // saturation: FoodData.eat(amplifier+1, 1.0) every tick
+		nutr := inst.amplifier + 1
+		sess.food += nutr
+		if sess.food > defaultFood {
+			sess.food = defaultFood
+		}
+		sess.saturation += float32(nutr) * 2.0
+		if sess.saturation > float32(sess.food) {
+			sess.saturation = float32(sess.food)
+		}
+		sess.healthDirty.Store(true)
+	}
+}
+
+// applyEffectTickEntity fires the same periodic hooks on a world
+// entity — hunger has no mob arm (players only).
+func (s *Server) applyEffectTickEntity(ep *Entity, id int32, inst mobEffectInst) {
+	rem := inst.expiry - s.clock.count
+	if rem <= 0 {
+		return
+	}
+	switch id {
+	case 19:
+		if ivl := int64(40) >> uint(inst.amplifier); ivl > 0 && rem%ivl == 0 {
+			s.damageMob(ep, 1.0, "wither", nil, &damageInfo{typeName: "wither"})
+		}
+	case 18:
+		if ivl := int64(25) >> uint(inst.amplifier); ivl > 0 && rem%ivl == 0 && ep.Health > 1 {
+			s.damageMob(ep, 1.0, "magic", nil, &damageInfo{typeName: "magic"})
+		}
+	case 9:
+		if ivl := int64(50) >> uint(inst.amplifier); ivl > 0 && rem%ivl == 0 {
+			s.entities.Heal(ep.ID, 1.0)
 		}
 	}
 }

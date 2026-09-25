@@ -242,6 +242,14 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 								ev.hasOval = true
 							}
 						}
+						if idx == 9 && ty == 3 {
+							// LivingEntity DATA_HEALTH_ID: index 9,
+							// float serializer — oval is hp*100.
+							if f, e3 := r.Float(); e3 == nil {
+								ev.oval = int32(f * 100)
+								ev.hasOval = true
+							}
+						}
 						if idx == 0 && ty == 0 {
 							if v, e3 := r.Byte(); e3 == nil {
 								ev.b0 = int32(v)

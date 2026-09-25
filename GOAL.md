@@ -7049,3 +7049,27 @@ Also fixed the drain's level_particles decode: 26.2 writes two flag
 bytes before pos — now captures particle id + pos (that's how the
 block-hit EXPLOSION at the ground was identified).
 Green on both targets (vanilla leg-1 egg flake excluded).
+### 2026-09-25y — periodic applyEffectTick hooks (poison/regen/saturation)
+MobEffectInstance.tick calls shouldApplyEffectTickThisTick on every
+live tick; the session arm previously only ran wither, the entity arm
+likewise. Both arms now iterate every live finite effect and dispatch
+through applyEffectTick{Session,Entity}: wither 40>>amp (1.0 type-49
+wither), poison 25>>amp (1.0 type-27 magic, skipped at health<=1 —
+can't kill), regeneration 50>>amp (heal 1.0 below max), hunger
+0.005*(amp+1) exhaustion every tick players-only (survival+adventure
+gate), saturation FoodData.eat(amplifier+1, 1.0) every tick —
+food += amp+1, saturation += (amp+1)*2 clamped to food.
+Java note: vanilla HungerMobEffect.applyEffectTick has no gamemode
+check in the bytecode; the drain gate lives in the food tick, which
+mc-go mirrors — exhaustion simply doesn't accumulate outside
+survival/adventure here (invisible either way).
+Boundary convention still pinned down only where durations dodge the
+edge: vanilla fires on PRE-decrement remaining, so a 5s regen
+(100%50==0) fires at remaining 100 AND 50 — mc-go's rem=expiry-count
+would fire once. Open item; durations 80t/60t were chosen so neither
+convention changes the count.
+TestEffectTickParity pins: poison 4s → exactly 3 type-27 dmg events,
+regen 4s on a Health:10f villager → health meta >= 1100, wither 3s →
+exactly 1 type-49 dmg event with cause/direct 0/0. Green on both
+targets (summons stay in the player's chunk — a diagonal spawn at
+~5.4 blocks didn't reach tracking on vanilla).
