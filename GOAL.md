@@ -6719,3 +6719,41 @@ mob equip persistence/guaranteed-drop.
   BOTH servers — green, ~5s per target.
 - mc-go harness note: /save-all needs a WorldPath (the mutate hook
   sets a TempDir file; vanilla always has a world dir).
+
+## Slice 2026-09-25m — moving-piston wire surface (block_event + intermediates + entity push)
+
+The full vanilla moving-block protocol, measured by javap AND live
+wire capture:
+
+- block_event 0x07 (Pos + b0 + b1 + block registry id): fired at the
+  tick-end blockEvent drain when triggerEvent returns true; broadcast
+  same-dimension within 64.0 of the piston (PlayerList.broadcast
+  radius). b0: extend=0, retract=1, drop-in-flight-head=2; b1: the
+  piston facing's get3DDataValue (= rsDir ordinal). Stale-power events
+  no-op — trigger re-reads power at fire time, matching triggerEvent.
+- moving_piston intermediates are INVISIBLE on the wire: moveBlocks
+  writes them with UPDATE_INVISIBLE — no set_block, no beType-11
+  block_entity_data. The client re-simulates the whole slide locally
+  from the event params alone. mc-go now writes them world-side only
+  (d.w.SetBlock) and tracks live movingPiston BEs — never broadcasts.
+- Each moved/head cell wears moving_piston[facing,type] carrying the
+  arriving state for the 2-tick interlude (progress += 0.5/tick);
+  settle = finalTick's unconditional setBlock broadcast at the cell.
+- Entity push runs per BE tick: swept hitboxes slide dir*0.5 each
+  tick (vanilla's progress increment), clamping to the cell's far face
+  when the landing cell is blocked. Positions ride the normal
+  entity-sync pass — a fractional push is inside the relative-move
+  threshold, so the wire shows two ~2048-dy move_entity_pos packets.
+- Extend write order fixed: piston cell latches extended BEFORE the
+  move writes (triggerEvent's setBlock), then destroys (level_event
+  2001 + air), then mp cells + head mp, then leftover-origin airs.
+- Retract pulls ride retracting moving_pistons (facing=opposite);
+  resolver-vetoed pulls skip the event entirely (moveBlocks=false);
+  TRIGGER_DROP (front mp still extending) deletes the in-flight head
+  BE and leaves the cell air.
+- TestPistonWireParity (tests/blackbox/pistonwire_test.go) joins a
+  client on BOTH servers, decodes the raw packet stream per toggle,
+  and pins: exact block_event params (pos/b0/b1/registry id), the
+  absence of moving_piston writes + piston BE data, settle writes,
+  air at cleared origins, and the two-tick entity push summing ~4096
+  dy units. Green on vanilla and mc-go.
