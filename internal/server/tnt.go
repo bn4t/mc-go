@@ -383,6 +383,15 @@ func (s *Server) explodeDestroyBlocks(src *Entity, positions []world.Pos, radius
 			}
 		}
 		s.setNaturalBlock(d, pos, world.Air)
+		if isBeeNestBlock(cur) {
+			// BeehiveBlock.onExplosionHit tail: the 8x6x8 box sweep
+			// runs unconditionally. The occupants themselves vanish
+			// with the block entity — BeehiveBlockEntity overrides
+			// no preRemoveSideEffects and onExplosionHit never calls
+			// emptyAllLivingFromHive — so only free bees in the box
+			// get a target.
+			s.angerNearbyBees(d, pos)
+		}
 		if isTnt {
 			chains = append(chains, pos)
 		}

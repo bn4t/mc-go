@@ -7246,3 +7246,42 @@ leg 3 campfire break → bees out AND sting lands anyway (campfire
 is useItemOn-gated only, not break-gated). Vanilla passes all
 three; mc-go matches. bee_nest_destroyed advancement trigger kept
 firing before the release bookkeeping.
+
+### 2026-09-25ze — bee-nest removal matrix: occupants exit only via explicit calls
+
+Full removal-path audit of BeehiveBlockEntity vs the naive "teardown
+releases" model — bytecode-verified, then probed on vanilla:
+
+- `BeehiveBlockEntity` does NOT override `preRemoveSideEffects` —
+  the `emptyAllLivingFromHive(null, EMERGENCY)` in its dump is
+  `setChanged()` gated on `isFireNearby()` (fire evacuation, still
+  unimplemented). Occupants are NOT a generic block-entity-teardown
+  side effect at all.
+- Survival break (`playerDestroy`): the only block-removal path
+  that calls emptyAllLivingFromHive(player, EMERGENCY) — release +
+  per-releasee sweep + unconditional `angerNearbyBees`. mc-go:
+  `beeNestDestroyed` deferred after the air write.
+- Explosion carve (`onExplosionHit` → super loot +
+  angerNearbyBees): occupants VANISH with the block entity — no
+  release anywhere on the path — but the 8x6x8 sweep still runs.
+  ServerExplosion order: hurtEntities BEFORE interactWithBlocks —
+  entities near the center get flung out of the box before the
+  sweep samples it (this is why a "free bee" probe has to stand
+  beyond blast reach d>8 while staying inside the box x∈[55,71]).
+- `/setblock`/`/fill` (flag 2|256), `/clone` (flags 816 ⊃ 256),
+  `setblock ... destroy`, creative dig (`destroyBlock(pos,false)`,
+  drops off → `playerDestroy` skipped): all vanish occupants
+  silently — LevelChunk.setBlockState gates preRemoveSideEffects on
+  !(flags&256) and no path calls emptyAllLivingFromHive anyway.
+  mc-go: `syncBlockEntities` plain `delete(d.bees,pos)` — no
+  release plumbing at all.
+- Silk-touch break still carries occupants into the dropped item
+  (copy_components NBT copy — already-deferred loot gap); the
+  release is correctly skipped on that path.
+
+TestBeeAngerParity extended to 7 legs, all differential vs vanilla
+26.2: leg 4 explosion (free bees beyond blast reach get angered by
+the box sweep and sting); leg 5 setblock overwrite = miss; leg 6
+creative dig = miss; leg 7 setblock-destroy = miss. Vanilla passes
+every leg; mc-go matches. TestBeeReleaseParity still green both
+targets.

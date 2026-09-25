@@ -24,6 +24,13 @@ import (
 //     unconditionally — a lit campfire under the nest does NOT
 //     protect the breaker (the campfire gate only lives on the
 //     harvest/use branch).
+//   - An explosion carve angers free bees in the box too — the
+//     occupants themselves vanish with the block entity (vanilla
+//     releases only through the explicit emptyAllLivingFromHive
+//     calls — harvest, survival break, fire-evacuation).
+//   - Every other removal (setblock/fill overwrite, creative dig,
+//     setblock-destroy) vanishes the occupants silently: nothing
+//     calls emptyAllLivingFromHive on those paths.
 //   - Released bees >4 blocks away never anger (the sweep's distance
 //     gate).
 //
@@ -176,6 +183,102 @@ func TestBeeAngerParity(t *testing.T) {
 			if !gotSting3 {
 				t.Fatalf("%s: campfire-break sting probe missed — campfire must not protect a breaker", tc.tag)
 			}
+			sendCommand(t, pw, "kill @e[type=minecraft:bee]")
+			sendCommand(t, pw, "effect clear @s minecraft:poison")
+			eggDrainFor(t, c, pr, pw, 1500*time.Millisecond)
+
+			// === Leg 4: explosion-destroyed nest — onExplosionHit
+			// runs angerNearbyBees unconditionally (the occupants
+			// themselves vanish with the block entity — vanilla
+			// releases only via emptyAllLivingFromHive, which
+			// onExplosionHit never calls). A FREE bee summoned
+			// far enough west to survive the blast is the
+			// discriminating probe: it is no releasee — only the
+			// 8x6x8 box pass can anger it.
+			// Player AND bees must stay inside the 8x6x8 box after
+			// the blast — hurtEntities runs before the block pass
+			// and the sweep returns early on an empty player list —
+			// so everyone stands beyond blast reach (d>8).
+			sendCommand(t, pw, "tp @s 57 -59.5 80.5 -90 0")
+			sendCommand(t, pw, fmt.Sprintf("setblock 63 -60 80 minecraft:bee_nest[facing=west,honey_level=5]%s", nestNBT))
+			sendCommand(t, pw, "setblock 67 -60 80 minecraft:redstone_block")
+			eggDrainFor(t, c, pr, pw, 1200*time.Millisecond)
+			sendCommand(t, pw, "setblock 66 -60 80 minecraft:tnt")
+			// Free bees deep inside the anger box (x∈[55,71]) but
+			// beyond blast reach (damage/knockback reaches 2*power=8
+			// from 66): hurtEntities runs BEFORE interactWithBlocks,
+			// so a bee close enough to get flung lands outside the
+			// box and the sweep never sees it. Summon AFTER the fuse
+			// starts to keep wander time short.
+			sendCommand(t, pw, "summon minecraft:bee 57 -59 78")
+			sendCommand(t, pw, "summon minecraft:bee 57 -59 82")
+			// Fuse 80 (~4s), then the carve destroys the nest.
+			eggDrainFor(t, c, pr, pw, 5000*time.Millisecond)
+			if p := probe("entity @e[type=minecraft:bee]", 20); p != "hit" {
+				t.Fatalf("%s: explosion release probe = %s — want live bees", tc.tag, p)
+			}
+			gotSting4 := false
+			for i := 0; i < 30 && !gotSting4; i++ {
+				eggDrainFor(t, c, pr, pw, 500*time.Millisecond)
+				if p := probe("entity @e[type=minecraft:bee,nbt={HasStung:1b}]", 21); p == "hit" {
+					gotSting4 = true
+				}
+			}
+			if !gotSting4 {
+				t.Fatalf("%s: explosion sting probe missed — angerNearbyBees must run onExplosionHit", tc.tag)
+			}
+			sendCommand(t, pw, "kill @e[type=minecraft:bee]")
+			sendCommand(t, pw, "effect clear @s minecraft:poison")
+			eggDrainFor(t, c, pr, pw, 1500*time.Millisecond)
+
+			// === Leg 5: setblock overwrite — command writes place
+			// with flag 256, which skips preRemoveSideEffects: the
+			// block entity is removed silently and the occupants
+			// vanish — no release, no anger.
+			sendCommand(t, pw, "tp @s 75.5 -59.5 70.5 -90 0")
+			sendCommand(t, pw, fmt.Sprintf("setblock 75 -60 70 minecraft:bee_nest[facing=east,honey_level=5]%s", nestNBT))
+			eggDrainFor(t, c, pr, pw, 1200*time.Millisecond)
+			sendCommand(t, pw, "setblock 75 -60 70 air")
+			eggDrainFor(t, c, pr, pw, 2500*time.Millisecond)
+			if p := probe("entity @e[type=minecraft:bee]", 22); p != "miss" {
+				t.Fatalf("%s: setblock-overwrite release probe = %s — flag-256 place must not release occupants", tc.tag, p)
+			}
+			sendCommand(t, pw, "kill @e[type=minecraft:bee]")
+			eggDrainFor(t, c, pr, pw, 1000*time.Millisecond)
+
+			// === Leg 6: creative dig — destroyBlock with drops off
+			// skips playerDestroy entirely: no emptyAllLivingFromHive,
+			// no angerNearbyBees — the occupants vanish with the
+			// block entity and nothing spawns.
+			sendCommand(t, pw, "gamemode creative @s")
+			sendCommand(t, pw, "tp @s 75.5 -59.5 70.5 -90 0")
+			sendCommand(t, pw, fmt.Sprintf("setblock 75 -60 70 minecraft:bee_nest[facing=east,honey_level=5]%s", nestNBT))
+			eggDrainFor(t, c, pr, pw, 1200*time.Millisecond)
+			sendDig(t, pw, 0, 75, -60, 70, 20)
+			eggDrainFor(t, c, pr, pw, 2500*time.Millisecond)
+			if p := probe("block 75 -60 70 minecraft:air", 24); p != "hit" {
+				t.Fatalf("%s: creative-break probe = %s — want nest gone", tc.tag, p)
+			}
+			if p := probe("entity @e[type=minecraft:bee]", 25); p != "miss" {
+				t.Fatalf("%s: creative-break release probe = %s — occupants must vanish, not release", tc.tag, p)
+			}
+			sendCommand(t, pw, "kill @e[type=minecraft:bee]")
+			sendCommand(t, pw, "gamemode survival @s")
+			eggDrainFor(t, c, pr, pw, 1000*time.Millisecond)
+
+			// === Leg 7: setblock destroy — `setblock ... destroy`
+			// goes through destroyBlock (not BlockInput.place), so
+			// it drops + removes like a dig: still no
+			// emptyAllLivingFromHive call → occupants vanish.
+			sendCommand(t, pw, fmt.Sprintf("setblock 75 -60 70 minecraft:bee_nest[facing=east,honey_level=5]%s", nestNBT))
+			eggDrainFor(t, c, pr, pw, 1200*time.Millisecond)
+			sendCommand(t, pw, "setblock 75 -60 70 air destroy")
+			eggDrainFor(t, c, pr, pw, 2500*time.Millisecond)
+			if p := probe("entity @e[type=minecraft:bee]", 26); p != "miss" {
+				t.Fatalf("%s: setblock-destroy release probe = %s — destroy mode must not release occupants", tc.tag, p)
+			}
+			sendCommand(t, pw, "kill @e[type=minecraft:bee]")
+			eggDrainFor(t, c, pr, pw, 1000*time.Millisecond)
 		})
 	}
 }

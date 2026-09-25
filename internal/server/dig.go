@@ -338,6 +338,10 @@ func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block)
 	s.syncContainerBlock(d, pos, blk)
 	s.syncBeacon(d, pos, blk)
 	if !isBeeNestBlock(blk) {
+		// BeehiveBlockEntity has no preRemoveSideEffects: a nest
+		// removed by any path that never calls
+		// emptyAllLivingFromHive (explosion, setblock, creative
+		// dig) loses its occupants silently — they never spawn.
 		delete(d.bees, pos)
 	}
 	// ComparatorBlockEntity: a comparator's stored output lives and
@@ -452,6 +456,8 @@ func (s *Server) handleDig(sess *Session, p protocol.Packet) {
 		// which ServerPlayerGameMode.destroyBlock skips for players whose
 		// mode prevents block drops (creative): a creative break never fires
 		// the trigger — only the survival dig path does (breakBlock).
+		// The occupants vanish with the block entity: nothing calls
+		// emptyAllLivingFromHive on this path.
 		affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
 		acked = true
 		if seq >= 0 {
