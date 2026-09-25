@@ -7022,3 +7022,30 @@ explodeCreeper clouds and the ball's shooter for dragon balls.
 Leg 11 pins: 2 balls, 2 clouds, 2 level 2006, every dmg on the
 villager type 23 / cause 0 / direct = a cloud, both balls removed.
 Green on both targets.
+### 2026-09-25x — shulker_bullet impact + wander
+ShulkerBullet.onHitEntity hurts 4.0 through
+damageSources.mobProjectile(bullet, livingOwner) — ownerless /summon
+wires cause 0, direct = bullet eid+1 — then LEVITATION 200t when the
+hurt lands. onHitBlock = base block crumbs + EXPLOSION x2 +
+SHULKER_BULLET_HIT sound; onHit destroys via discard + gameEvent.
+Entity hit scan is mc-go's usual swept segment (mob + session arms).
+No-target tick: applyGravity (getDefaultGravity 0.04, NOT zero like
+the other hurting projectiles) then selectNextMoveDirection wander —
+flightSteps counts down (10 + nextInt(5)*10 per roll), re-picks a
+Direction excluding the current axis, latches targetDelta =
+step*0.15, lerps delta toward it 20%/tick. Blocked-neighbor filter
+skipped (unpinnable on flat ground). checkDespawn discards on
+peaceful — test world is normal so unpinned.
+Homing (finalTarget NBT) unimplemented — vanilla reads a UUID
+EntityReference a /summon can't express; bullets summoned targetless
+only wander.
+Leg 12 pins: single bullet, Motion-driven in through the box face —
+vanilla's swept hitscan resolves the face crossing while a bullet
+spawned already inside the box emits a degenerate ray and falls to a
+block hit instead (measured: spawn-inside died to EXPLOSION+
+remove with zero dmg). Asserts type-30 mob_projectile dmg cause 0 /
+direct bullet+1, villager levitation motion, bullet removed.
+Also fixed the drain's level_particles decode: 26.2 writes two flag
+bytes before pos — now captures particle id + pos (that's how the
+block-hit EXPLOSION at the ground was identified).
+Green on both targets (vanilla leg-1 egg flake excluded).

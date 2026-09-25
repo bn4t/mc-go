@@ -35,6 +35,7 @@ var projectileTickTypes = map[string]bool{
 	"egg": true, "snowball": true, "experience_bottle": true,
 	"small_fireball": true, "firework_rocket": true, "ender_pearl": true,
 	"wither_skull": true, "fireball": true, "dragon_fireball": true,
+	"shulker_bullet": true,
 }
 
 // bowStartTick timestamps a draw begun by Use Item on a bow so the
@@ -192,6 +193,11 @@ func (s *Server) arrowTickStep() {
 				continue
 			}
 		}
+		// ShulkerBullet has no gravity — the wander lerp owns the
+		// whole velocity vector (and must run before the move).
+		if name == "shulker_bullet" {
+			s.shulkerBulletSteer(e)
+		}
 		ox, oy, oz := e.X, e.Y, e.Z
 		e.X += e.MotionX
 		e.Y += e.MotionY
@@ -209,6 +215,10 @@ func (s *Server) arrowTickStep() {
 			grav = 0.07
 		case "small_fireball", "firework_rocket", "wind_charge", "wither_skull", "fireball", "dragon_fireball":
 			grav = 0
+		case "shulker_bullet":
+			// ShulkerBullet.getDefaultGravity — the wander lerp rides
+			// on top of a real gravity pull.
+			grav = 0.04
 		}
 		e.MotionY -= grav
 		e.MotionX *= arrowAirDrag
@@ -251,6 +261,10 @@ func (s *Server) arrowTickStep() {
 			// triggers the AreaEffectCloud spawn (base onHitEntity
 			// is empty).
 			collided = s.dragonFireballCollide(e, ox, oy, oz)
+		case name == "shulker_bullet":
+			// ShulkerBullet.onHitEntity — mobProjectile 4.0 +
+			// LEVITATION 200t when the hurt lands.
+			collided = s.shulkerBulletCollide(e, ox, oy, oz)
 		}
 		// Hurting projectiles (fireball/wind_charge/rocket) keep
 		// their own impact paths; the block hit below still applies.
@@ -355,6 +369,9 @@ func (s *Server) arrowTickStep() {
 				}
 				if name == "dragon_fireball" {
 					s.dragonFireballImpact(e)
+				}
+				if name == "shulker_bullet" {
+					s.shulkerBulletBlockHit(e)
 				}
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemove([]int32{e.ID})
@@ -1639,4 +1656,163 @@ func (s *Server) dragonFireballCollide(e *Entity, ox, oy, oz float64) bool {
 		}
 	}
 	return false
+}
+
+// shulkerBulletCollide is ShulkerBullet.onHitEntity: hurtOrSimulate
+// through damageSources.mobProjectile(this, livingOwner) for 4.0 —
+// cause = the shooter when it is a LivingEntity, 0 for /summon —
+// then LEVITATION 200t on the victim when the hurt lands.
+func (s *Server) shulkerBulletCollide(e *Entity, ox, oy, oz float64) bool {
+	shooter := s.sessionByEntityID(e.arrowShooter)
+	hit := false
+	levID, levOK := MobEffectID("levitation")
+	s.entities.mu.RLock()
+	targets := make([]*Entity, 0, len(s.entities.byID))
+	for _, t := range s.entities.byID {
+		targets = append(targets, t)
+	}
+	s.entities.mu.RUnlock()
+	for _, t := range targets {
+		if hit || !t.Living || t.Dying || t.ID == e.ID || t.ID == e.arrowShooter {
+			continue
+		}
+		if t.Dim != e.Dim {
+			continue
+		}
+		bb := mobBounds(t.Type)
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+			hit = true
+			dealt, graced, _ := s.damageMob(t, 4.0, "mob_projectile", shooter, &damageInfo{
+				typeName: "mob_projectile",
+				cause:    e.arrowShooter,
+				direct:   e.ID,
+			})
+			if dealt > 0 && !graced && levOK {
+				s.mobGiveEffect(t, levID, 0, 200, false)
+			}
+		}
+	}
+	s.sessions.Range(func(_, v any) bool {
+		if hit {
+			return false
+		}
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || sess.dead || sess.mode() == GameModeSpectator {
+			return true
+		}
+		if sess.entityID.Load() == e.arrowShooter {
+			return true
+		}
+		if sess.dimName() != e.Dim {
+			return true
+		}
+		px, py, pz, _, _, _ := sess.Pos()
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, px, py, pz, 0.6, 1.8) {
+			hit = true
+			msg := translatable("death.attack.mob_projectile", literal(sess.getName()))
+			if shooter != nil {
+				msg = translatable("death.attack.mob", literal(sess.getName()), literal(shooter.getName()))
+			}
+			dealt := s.damageWith(sess, 4.0, msg, damageSource{
+				typeName: "mob_projectile",
+				cause:    e.arrowShooter,
+				direct:   e.ID,
+			})
+			if dealt > 0 && levOK {
+				s.playerGiveEffect(sess, levID, 0, 200, false)
+			}
+		}
+		return !hit
+	})
+	return hit
+}
+
+// shulkerBulletBlockHit is ShulkerBullet.onHitBlock + onHit's
+// destroy: EXPLOSION particles x2, the SHULKER_BULLET_HIT sound, then
+// discard (the shared remove below carries that).
+func (s *Server) shulkerBulletBlockHit(e *Entity) {
+	s.broadcastParticles(e.Dim, 30, e.X, e.Y, e.Z, 0.2, 0.2, 0.2, 0, 2)
+	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, soundEventIDs["entity.shulker_bullet.hit"], 6, 1.0, 1.0, nil)
+}
+
+// shulkerBulletSteer is the no-target arm of ShulkerBullet.tick: the
+// bullet wanders — flightSteps counts down, then
+// selectNextMoveDirection re-picks a Direction (never the current
+// axis), the target-delta latches step*0.15, and the velocity lerps
+// toward it every tick (delta += (target-delta)*0.2).
+func (s *Server) shulkerBulletSteer(e *Entity) {
+	if e.ShulkerAxis == 0 && e.ShulkerSteps == 0 && e.ShulkerTdx == 0 && e.ShulkerTdy == 0 && e.ShulkerTdz == 0 {
+		e.ShulkerAxis = -1
+	}
+	e.ShulkerSteps--
+	if e.ShulkerSteps <= 0 {
+		// Vanilla excludes the current direction's axis and directions
+		// blocked by a solid neighbor; on a flat world every direction
+		// is free, so the only live filter is the axis exclusion.
+		dir := shulkerPickDirection(e.ShulkerAxis)
+		e.ShulkerAxis = shulkerDirAxis(dir)
+		e.ShulkerTdx = float64(shulkerDirStepX(dir)) * 0.15
+		e.ShulkerTdy = float64(shulkerDirStepY(dir)) * 0.15
+		e.ShulkerTdz = float64(shulkerDirStepZ(dir)) * 0.15
+		// Vanilla: flightSteps = 10 + nextInt(5)*10 ticks between
+		// direction rolls.
+		e.ShulkerSteps = 10 + int32(rand.Intn(5)*10)
+	}
+	e.MotionX += (e.ShulkerTdx - e.MotionX) * 0.2
+	e.MotionY += (e.ShulkerTdy - e.MotionY) * 0.2
+	e.MotionZ += (e.ShulkerTdz - e.MotionZ) * 0.2
+	e.VX = int16(e.MotionX * 8000)
+	e.VY = int16(e.MotionY * 8000)
+	e.VZ = int16(e.MotionZ * 8000)
+}
+
+// shulker direction ids: 0=DOWN 1=UP 2=NORTH 3=SOUTH 4=WEST 5=EAST.
+func shulkerPickDirection(excludeAxis int32) int32 {
+	for {
+		d := int32(rand.Intn(6))
+		if shulkerDirAxis(d) != excludeAxis {
+			return d
+		}
+	}
+}
+
+func shulkerDirAxis(d int32) int32 {
+	switch d {
+	case 0, 1:
+		return 0
+	case 2, 3:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func shulkerDirStepX(d int32) int32 {
+	switch d {
+	case 4:
+		return -1
+	case 5:
+		return 1
+	}
+	return 0
+}
+
+func shulkerDirStepY(d int32) int32 {
+	switch d {
+	case 0:
+		return -1
+	case 1:
+		return 1
+	}
+	return 0
+}
+
+func shulkerDirStepZ(d int32) int32 {
+	switch d {
+	case 2:
+		return -1
+	case 3:
+		return 1
+	}
+	return 0
 }

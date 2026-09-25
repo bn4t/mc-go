@@ -680,6 +680,74 @@ func TestThrownHitParity(t *testing.T) {
 				assertNoEntityEvent(t, tc.tag, ev, id)
 				assertRemoved(t, tc.tag, ev, id)
 			}
+
+			// Leg 12 — shulker_bullet: onHitEntity hurts 4.0 through
+			// mobProjectile(bullet, livingOwner) — ownerless /summon
+			// wires cause 0, direct = bullet eid+1 — then applies
+			// LEVITATION 200t when the hurt lands; onHit destroys the
+			// bullet (no explosion, just remove). The bullets wander
+			// (selectNextMoveDirection) when targetless — spawn them
+			// point-blank so the drift crosses the villager box.
+			sendCommand(t, pw, "summon minecraft:villager 59.5 -60 80.5 {NoAI:1b,NoGravity:1b}")
+			// One bullet only — bullets are pickable, so a second
+			// bullet's hitscan can destroy the first before it reaches
+			// the villager. Spawn it just outside the box face with a
+			// Motion driving it in: vanilla's swept hitscan resolves
+			// the face crossing, while a bullet spawned already inside
+			// the box produces a degenerate ray and never hits.
+			sendCommand(t, pw, "summon minecraft:shulker_bullet 60.5 -59.5 80.5 {Motion:[-0.5,0.0,0.0]}")
+			ev = eggDrainFor(t, c, pr, pw, 3500*time.Millisecond)
+			var villager7 int32
+			var sbIDs []int32
+			for _, e := range ev {
+				if e.kind == "spawn" && e.etype == mustEType(t, "villager") &&
+					e.eid != villagerID && e.eid != villager2 && e.eid != villager3 && e.eid != villager4 && e.eid != villager5 && e.eid != villager6 {
+					villager7 = e.eid
+				}
+				if e.kind == "spawn" && e.etype == mustEType(t, "shulker_bullet") {
+					sbIDs = append(sbIDs, e.eid)
+				}
+			}
+			if villager7 == 0 {
+				t.Fatalf("%s: seventh villager never spawned", tc.tag)
+			}
+			if len(sbIDs) != 1 {
+				t.Fatalf("%s: expected 1 shulker_bullet spawn, got %d", tc.tag, len(sbIDs))
+			}
+			sbDmg, levMotion := 0, 0
+			for _, e := range ev {
+				if e.kind == "dmg" && e.eid == villager7 {
+					sbDmg++
+					// mobProjectile: type 30, cause 0 (no LivingEntity
+					// owner), direct = the bullet's eid+1.
+					if e.etype != 30 {
+						t.Fatalf("%s: bullet dose type id %d — want 30 mob_projectile", tc.tag, e.etype)
+					}
+					if e.b0 != 0 {
+						t.Fatalf("%s: bullet dmg cause %d — ownerless summon wires 0", tc.tag, e.b0)
+					}
+					if e.data != sbIDs[0]+1 {
+						t.Fatalf("%s: bullet dmg direct %d — want the bullet eid+1 (%d)", tc.tag, e.data, sbIDs[0]+1)
+					}
+				}
+				if e.kind == "motion" && e.eid == villager7 {
+					levMotion++
+				}
+			}
+			if sbDmg < 1 {
+				for _, e := range ev {
+					if e.kind == "dmg" || e.kind == "spawn" || e.kind == "remove" || e.kind == "level" || e.kind == "sound" || e.kind == "particles" {
+						t.Logf("%s: dbg %+v", tc.tag, e)
+					}
+				}
+				t.Fatalf("%s: no mob_projectile damage_events — the bullets never hit the villager", tc.tag)
+			}
+			if levMotion < 1 {
+				t.Fatalf("%s: villager never got levitation motion — LEVITATION 200t should lift it", tc.tag)
+			}
+			for _, id := range sbIDs {
+				assertRemoved(t, tc.tag, ev, id)
+			}
 		})
 	}
 }

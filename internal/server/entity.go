@@ -194,6 +194,14 @@ type Entity struct {
 	// damage source wires it as the cause; the cloud itself is the
 	// direct entity.
 	CloudOwnerID int32
+	// ShulkerBullet wander state: flightSteps counts down to the next
+	// selectNextMoveDirection roll; the target-delta triple is the
+	// picked Direction's step*0.15 the velocity lerps toward;
+	// ShulkerAxis latches the picked direction's axis (excluding it on
+	// the re-roll). -1 ShulkerAxis means no direction picked yet.
+	ShulkerSteps                       int32
+	ShulkerAxis                        int32
+	ShulkerTdx, ShulkerTdy, ShulkerTdz float64
 	// AreaEffectCloud state: CloudWait is the 10-tick pre-activation
 	// pause (setWaitTime), CloudDuration the 300-tick lifetime to
 	// discard (setDuration), CloudAge the tick counter both compare

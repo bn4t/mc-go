@@ -302,8 +302,22 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 			if eid, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
 				out = append(out, eggEvent{kind: "motion", eid: eid})
 			}
-		case 0x2F: // level_particles — counted, not decoded
-			out = append(out, eggEvent{kind: "particles"})
+		case 0x2F: // level_particles: Bool overrideLimiter, Bool
+			// alwaysShow, 3xDouble pos, 3xFloat spread, Float speed,
+			// Int count, VarInt particle id, data…
+			r := protocol.NewPacketReader(p.Data)
+			_, _ = r.Bool()
+			_, _ = r.Bool()
+			px, _ := r.Double()
+			py, _ := r.Double()
+			pz, _ := r.Double()
+			_, _ = r.Float()
+			_, _ = r.Float()
+			_, _ = r.Float()
+			_, _ = r.Float()
+			_, _ = r.Int()
+			pid, _ := r.VarInt()
+			out = append(out, eggEvent{kind: "particles", etype: pid, eid: int32(px * 100), b0: int32(py * 100), data: int32(pz * 100)})
 		case 0x24: // explode: 3 doubles center, Float radius, Int
 			// blockCount, Bool hasKB [+3 doubles knockback], VarInt
 			// particle, VarInt sound, VarInt weighted-block-particles
