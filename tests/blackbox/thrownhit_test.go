@@ -301,8 +301,8 @@ func TestThrownHitParity(t *testing.T) {
 			if wcDmg != 1 {
 				t.Fatalf("%s: %d wind_charge damage_events for two hits — the graced second must produce none", tc.tag, wcDmg)
 			}
-			if wcEvt.data != wcIDs[0]+1 {
-				t.Fatalf("%s: wind_charge damage_event direct = %d — want charge id %d (+1 encoded)", tc.tag, wcEvt.data, wcIDs[0])
+			if wcEvt.data != wcIDs[0]+1 && wcEvt.data != wcIDs[1]+1 {
+				t.Fatalf("%s: wind_charge damage_event direct = %d — want a charge id %v (+1 encoded)", tc.tag, wcEvt.data, wcIDs)
 			}
 			if wcEvt.b0 != 0 {
 				t.Fatalf("%s: wind_charge damage_event cause = %d — the ownerless summon wires no cause", tc.tag, wcEvt.b0)
@@ -410,6 +410,65 @@ func TestThrownHitParity(t *testing.T) {
 				t.Fatalf("%s: %d VILLAGER_ANGRY events — the player-owned pearl must anger the villager", tc.tag, n)
 			}
 			assertRemoved(t, tc.tag, ev, pearlID)
+
+			// Leg 8 — breeze_wind_charge entity hit: same
+			// AbstractWindCharge.onHitEntity (hurt 1.0 wind_charge
+			// type + unconditional burst) but the breeze profile
+			// explodes radius 3.0 — the decoded radius field is the
+			// discriminator.
+			sendCommand(t, pw, "summon minecraft:villager 63.5 -59.5 68.5 {NoAI:1b,NoGravity:1b}")
+			sendCommand(t, pw, "summon minecraft:breeze_wind_charge 60.5 -58.4 68.5 {Motion:[0.4d,0d,0d]}")
+			sendCommand(t, pw, "summon minecraft:breeze_wind_charge 60.5 -58.4 68.5 {Motion:[0.4d,0d,0d]}")
+			ev = eggDrainFor(t, c, pr, pw, 3000*time.Millisecond)
+			villager3 := int32(0)
+			var bwcIDs []int32
+			for _, e := range ev {
+				if e.kind == "spawn" && e.etype == mustEType(t, "villager") && e.eid != villagerID && e.eid != villager2 {
+					villager3 = e.eid
+				}
+				if e.kind == "spawn" && e.etype == mustEType(t, "breeze_wind_charge") {
+					bwcIDs = append(bwcIDs, e.eid)
+				}
+			}
+			if villager3 == 0 {
+				t.Fatalf("%s: third villager never spawned", tc.tag)
+			}
+			if len(bwcIDs) != 2 {
+				t.Fatalf("%s: expected 2 breeze_wind_charge spawns, got %d", tc.tag, len(bwcIDs))
+			}
+			bwcDmg := 0
+			for i := range ev {
+				if ev[i].kind == "dmg" && ev[i].eid == villager3 && ev[i].etype == 48 {
+					bwcDmg++
+					if ev[i].b0 != 0 || (ev[i].data != bwcIDs[0]+1 && ev[i].data != bwcIDs[1]+1) {
+						t.Fatalf("%s: breeze damage_event cause/direct = %d/%d — ownerless wires cause 0, direct a charge %v", tc.tag, ev[i].b0, ev[i].data, bwcIDs)
+					}
+				}
+			}
+			if bwcDmg != 1 {
+				t.Fatalf("%s: %d wind_charge damage_events for two breeze hits — the graced second must produce none", tc.tag, bwcDmg)
+			}
+			bwcBoom := 0
+			for _, e := range ev {
+				if e.kind == "explode" && e.etype == 300 {
+					bwcBoom++
+				}
+			}
+			if bwcBoom != 2 {
+				for _, e := range ev {
+					if e.kind == "explode" || e.kind == "remove" || e.kind == "dmg" {
+						t.Logf("%s: dbg %+v", tc.tag, e)
+					}
+				}
+				t.Fatalf("%s: %d radius-3.0 explode packets — both breeze charges burst", tc.tag, bwcBoom)
+			}
+			if countKind(ev, "motion", villager3) < 1 {
+				t.Fatalf("%s: no knockback motion on the breeze-charge hit villager", tc.tag)
+			}
+			for _, id := range bwcIDs {
+				assertNoEntityEvent(t, tc.tag, ev, id)
+				assertRemoved(t, tc.tag, ev, id)
+			}
 		})
 	}
 }

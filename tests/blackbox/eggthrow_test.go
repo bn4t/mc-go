@@ -304,19 +304,26 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 			}
 		case 0x2F: // level_particles — counted, not decoded
 			out = append(out, eggEvent{kind: "particles"})
-		case 0x24: // explode: Vec3 center, Float radius, Int blockCount,
-			// Optional<Vec3> knockback, VarInt particle, VarInt sound,
-			// VarInt weighted-block-particles
+		case 0x24: // explode: 3 doubles center, Float radius, Int
+			// blockCount, Bool hasKB [+3 doubles knockback], VarInt
+			// particle, VarInt sound, VarInt weighted-block-particles
 			r := protocol.NewPacketReader(p.Data)
-			_, _, _, _ = r.ReadLpVec3()
+			_, _ = r.Double()
+			_, _ = r.Double()
+			_, _ = r.Double()
 			rad, e1 := r.Float()
 			cnt, e2 := r.Int()
-			kb, e3 := r.Byte()
+			kb, e3 := r.Bool()
+			if e3 == nil && kb {
+				_, _ = r.Double()
+				_, _ = r.Double()
+				_, _ = r.Double()
+			}
 			_, e4 := r.VarInt() // particle
 			snd, e5 := r.VarInt()
 			if e1 == nil && e2 == nil && e3 == nil && e4 == nil && e5 == nil {
 				b := int32(0)
-				if kb != 0 {
+				if kb {
 					b = 1
 				}
 				out = append(out, eggEvent{kind: "explode", etype: int32(rad * 100), data: cnt, b0: b, oval: snd, hasOval: true})

@@ -6957,3 +6957,22 @@ cause=thrower/direct=pearl, one ender_pearl damage_event
 one ANGRY, no particles, pearl removed. Green on both targets;
 assertHitWire/fireball direct asserts now accept whichever of the
 paired projectiles landed (same launch order isn't guaranteed).
+
+## Slice — 2026-09-25t — breeze_wind_charge entity-hit coverage +
+explode decode fix
+
+BreezeWindCharge inherits AbstractWindCharge.onHitEntity unchanged —
+same hurt(1.0, wind_charge) + unconditional burst — only the explode
+profile differs (radius 3.0 vs 1.2). mc-go already routes both types
+through windChargeHit*/windBurst, so the slice is pure coverage:
+TestThrownHitParity leg 8 pins two summoned breeze charges on a third
+villager lane — one dmg etype 48 (cause 0, direct a charge), two
+radius-300 explode packets, knockback motion, both removed. Green on
+both targets.
+
+Fixed a real decode bug in the shared drain's 0x24 explode case: the
+centre is three plain doubles (not an LpVec3) and the optional
+knockback vec3 must be skipped when hasKB — the old read left garbage
+in radius/sound on every breeze packet. Also made the paired-summon
+direct-id asserts order-agnostic (either of two same-tick spawns can
+land the hurt).
