@@ -250,6 +250,12 @@ type Entity struct {
 	// MountInv is the chested mount's cell contents — mount window
 	// slots 2..2+3*columns, sized at window open.
 	MountInv []ItemStack
+	// Strength is the llama family's NBT key (1-5) — a chested
+	// llama's inventory columns equal it (donkey/mule are 5).
+	Strength int32
+	// LlamaVariant is Llama's Variant enum (0-3, LEGACY_CODEC id) —
+	// written for the llama family only.
+	LlamaVariant int32
 	// Small/ShowArms/DisabledSlots are the armor stand's
 	// ArmorStand.CLIENT_FLAG bits and NBT; Equips is the entity
 	// equipment map keyed by vanilla equipment index

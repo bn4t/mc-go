@@ -539,6 +539,39 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	if len(equipMob) > 0 {
 		m["equipment"] = equipMob
 	}
+	// AbstractHorse writes Tame; AbstractChestedHorse writes
+	// ChestedHorse always and the flat Items list when chested —
+	// every non-empty inventory cell (saddle slot 0, body slot 1,
+	// chest cells 2..). The llama family adds Strength and Variant.
+	if mountScreenTypes[typeName] {
+		m["Tame"] = nbtBool(e.Tamed)
+	}
+	if chestedMountTypes[typeName] {
+		m["ChestedHorse"] = nbtBool(e.HasChest)
+		if e.HasChest {
+			var items []any
+			if e.Saddle {
+				if sid, ok := world.ItemID("saddle"); ok {
+					items = append(items, itemNBTSlotted(ItemStack{ID: sid, Count: 1}, 0))
+				}
+			}
+			if !e.BodyItem.Empty() {
+				items = append(items, itemNBTSlotted(e.BodyItem, 1))
+			}
+			for i, st := range e.MountInv {
+				if !st.Empty() {
+					items = append(items, itemNBTSlotted(st, int8(i+2)))
+				}
+			}
+			if len(items) > 0 {
+				m["Items"] = nbt.List{Elem: nbt.TagCompound, Items: items}
+			}
+		}
+	}
+	if llamaDecorTypes[typeName] {
+		m["Strength"] = e.Strength
+		m["Variant"] = e.LlamaVariant
+	}
 	// The Zombie/AbstractPiglin/Zoglin hierarchies declare IsBaby —
 	// AgeableMob types carry Age instead.
 	if isBabyTypes[typeName] {

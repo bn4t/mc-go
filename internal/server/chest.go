@@ -206,13 +206,61 @@ var chestedMountTypes = map[string]bool{
 	"donkey": true, "mule": true, "llama": true, "trader_llama": true,
 }
 
-// mountInventoryColumns is AbstractHorse.getInventoryColumns: 0 for
-// horses, 5 for a chested pack animal.
+// mountInventoryColumns is the family's getInventoryColumns: a
+// chested llama's columns equal its Strength (1-5); donkey/mule are
+// fixed 5; every non-chested animal reports 0.
 func mountInventoryColumns(e *Entity) int {
-	if e.HasChest {
-		return 5
+	if !e.HasChest {
+		return 0
 	}
-	return 0
+	if name, _ := EntityTypeName(e.Type); llamaDecorTypes[name] {
+		return int(e.Strength)
+	}
+	return 5
+}
+
+// equipMountChest is AbstractChestedHorse.mobInteract's chest branch:
+// tamed, not sneaking, not already chested, held chest → the flag
+// flips, DONKEY_CHEST/LLAMA_CHEST plays, the stack consumes one (not
+// for hasInfiniteMaterials), and the mount inventory rebuilds at the
+// new column count.
+func (s *Server) equipMountChest(sess *Session, eid int32, hand int32, sneaking bool) bool {
+	if sneaking {
+		return false
+	}
+	e, ok := s.entities.GetPtr(eid)
+	if !ok || e.Dying || e.Dim != sess.dimName() {
+		return false
+	}
+	name, _ := EntityTypeName(e.Type)
+	if !chestedMountTypes[name] || !e.Tamed || e.HasChest || e.Baby {
+		return false
+	}
+	held, hslot := sess.stackForHand(hand)
+	if held.Empty() {
+		return false
+	}
+	if iname, ok := itemNameOf(held.ID); !ok || iname != "chest" {
+		return false
+	}
+	e.HasChest = true
+	if cells := 3 * mountInventoryColumns(e); len(e.MountInv) != cells {
+		next := make([]ItemStack, cells)
+		copy(next, e.MountInv)
+		e.MountInv = next
+	}
+	snd := "entity.donkey.chest"
+	if llamaDecorTypes[name] {
+		snd = "entity.llama.chest"
+	}
+	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, soundEventIDs[snd], srcNeutral, 1.0, 1.0, nil)
+	if sess.mode() != GameModeCreative {
+		held.Count--
+		sess.setStack(hslot, held)
+		sess.invState.Add(1)
+		_ = s.sendContainerSlot(sess, hslot, held)
+	}
+	return true
 }
 
 // mountSaddleable is the entity_type tag can_equip_saddle intersected

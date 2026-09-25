@@ -199,6 +199,31 @@ func (s *Server) spawnMobLoot(e *Entity, killer *Session) {
 	if head := e.Equips[equipHelmet]; head.Ominous {
 		s.spawnMobStack(e, head)
 	}
+	// AbstractHorse.dropEquipment drops every non-empty inventory
+	// cell — saddle, body slot, chest cells — and
+	// AbstractChestedHorse then drops the chest block itself and
+	// clears the flag.
+	if mountScreenTypes[name] {
+		if e.Saddle {
+			if sid, ok := world.ItemID("saddle"); ok {
+				s.spawnMobStack(e, ItemStack{ID: sid, Count: 1})
+			}
+		}
+		if !e.BodyItem.Empty() {
+			s.spawnMobStack(e, e.BodyItem)
+		}
+		for _, st := range e.MountInv {
+			if !st.Empty() {
+				s.spawnMobStack(e, st)
+			}
+		}
+		if e.HasChest {
+			if cid, ok := world.ItemID("chest"); ok {
+				s.spawnMobStack(e, ItemStack{ID: cid, Count: 1})
+			}
+			e.HasChest = false
+		}
+	}
 }
 
 // spawnMobLootPools rolls the mob's loot-table drops at its position.
@@ -600,6 +625,83 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 			if v, ok := tag.vals["ChestedHorse"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") && chestedMountTypes[name] {
 				e.HasChest = true
+			}
+			// The llama family's Strength (setStrength clamps [1,5])
+			// and Variant enum id; finalizeSpawn runs on /summon too,
+			// so absent keys randomize: strength is 1+nextInt(3) 96%
+			// of the time and 1+nextInt(5) on the 0.04 tail, variant
+			// a uniform pick of the four.
+			if llamaDecorTypes[name] {
+				hasStr, hasVar := false, false
+				if v, ok := tag.vals["Strength"]; ok {
+					if n, err := strconv.Atoi(strings.TrimRight(v.num, "bBsSiIlLfFdD")); err == nil {
+						e.Strength = int32(max(1, min(5, n)))
+						hasStr = true
+					}
+				}
+				if v, ok := tag.vals["Variant"]; ok {
+					if n, err := strconv.Atoi(strings.TrimRight(v.num, "bBsSiIlLfFdD")); err == nil {
+						e.LlamaVariant = int32(n & 3)
+						hasVar = true
+					}
+				}
+				if !hasStr {
+					maxS := int32(3)
+					if rand.Float64() < 0.04 {
+						maxS = 5
+					}
+					e.Strength = 1 + rand.Int31n(maxS)
+				}
+				if !hasVar {
+					e.LlamaVariant = rand.Int31n(4)
+				}
+			}
+			// A chested mount's Items list is the flat
+			// ItemStackWithSlot form ({Slot:N,id,count}): slot 0 is
+			// the saddle cell, slot 1 the body cell, 2.. the chest
+			// cells. Applied only when ChestedHorse, matching
+			// readAdditionalSaveData's hasChest gate.
+			if e.HasChest {
+				if cells := 3 * mountInventoryColumns(e); len(e.MountInv) != cells {
+					e.MountInv = make([]ItemStack, cells)
+				}
+				if l, ok := tag.vals["Items"]; ok {
+					for _, it := range l.items {
+						if it.vals == nil {
+							continue
+						}
+						slot := -1
+						if sv, ok := it.vals["Slot"]; ok {
+							if n, err := strconv.Atoi(strings.TrimRight(sv.num, "bBsSiIlLfFdD")); err == nil {
+								slot = n
+							}
+						}
+						idv, ok := it.vals["id"]
+						if !ok || idv.str == "" {
+							continue
+						}
+						iid, ok := world.ItemID(strings.TrimPrefix(idv.str, "minecraft:"))
+						if !ok {
+							continue
+						}
+						cnt := int32(1)
+						if cv, ok := it.vals["count"]; ok {
+							if n, err := strconv.Atoi(strings.TrimRight(cv.num, "bBsSiIlLfFdD")); err == nil {
+								cnt = int32(n)
+							}
+						}
+						switch {
+						case slot == 0:
+							if iname, _ := itemNameOf(iid); iname == "saddle" {
+								e.Saddle = true
+							}
+						case slot == 1:
+							e.BodyItem = ItemStack{ID: iid, Count: cnt}
+						case slot >= 2 && slot-2 < len(e.MountInv):
+							e.MountInv[slot-2] = ItemStack{ID: iid, Count: cnt}
+						}
+					}
+				}
 			}
 			// Saddleable mounts take the saddle either by the legacy
 			// Saddle flag or by the 1.21.6+ equipment.saddle slot.

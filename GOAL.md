@@ -7369,3 +7369,55 @@ All green on vanilla 26.2 and mc-go.
 Deferred: dying-mob lead drop (no dropLeash on die/onRemoval in the
 bytecode — the lead appears lost), elastic-spring pull fidelity,
 lead-drop item velocity (spawnAtLocation defaults used).
+
+### 2026-09-25zh — chested mounts: equipChest, llama Strength columns, Items NBT, death drops
+
+`AbstractChestedHorse.mobInteract` (javap-measured, 26.2): the
+sneak-menu path short-circuits first (`flag3 = !baby && isTamed &&
+sneak → super.mobInteract`), then `isVehicle() || flag3 ||
+(baby && holding GOLDEN_DANDELION) → super`, then food, then
+`!isTamed → makeMad()` (SUCCESS — the wild animal never reaches the
+chest branch), then `!hasChest && stack.is(CHEST) → equipChest`
+(SUCCESS). `equipChest` = setChest(true) + playChestEquipsSound
+(DONKEY_CHEST; Llama overrides to LLAMA_CHEST) +
+`stack.consume(1, player)` + `createInventory()` which rebuilds the
+inventory at the new size and copies `min(old, new)` cells.
+`ItemStack.consume` shrinks only when `!hasInfiniteMaterials` —
+creative keeps the chest.
+
+- `getInventoryColumns`: `AbstractChestedHorse` = `hasChest ? 5 : 0`;
+  `Llama` = `hasChest ? strength : 0` (strength ∈ [1,5],
+  `setStrength` clamps). `setRandomStrength` (finalizeSpawn, so
+  /summon too): `rand < 0.04 ? 1+nextInt(5) : 1+nextInt(3)`.
+- NBT: `ChestedHorse` bool always on the chested family; `Tame` on
+  mount-screen animals; `Items` (ItemStackWithSlot codec — flat
+  `{Slot:Nb,id:"...",count:N}`) only when chested, every non-empty
+  cell — saddle slot 0, body slot 1, chest cells 2+. Llamas add
+  `Strength` int and `Variant` int (LEGACY_CODEC id 0-3).
+- `Items` on /summon reads the same slotted form (only applied when
+  ChestedHorse): slot 0 → Saddle flag, slot 1 → BodyItem, slot≥2 →
+  MountInv[slot-2].
+- Death: `AbstractHorse.dropEquipment` drops EVERY non-empty
+  inventory cell (saddle, body, chest cells; skips
+  PREVENT_EQUIPMENT_DROP stacks), then `AbstractChestedHorse`
+  additionally drops the chest block itself and clears the flag.
+- mc-go: `equipMountChest` in the interact chain after tameAnimal /
+  before openMountInventory; `mountInventoryColumns` now per-type
+  (llama → Strength, donkey/mule → 5); saveMap emits Tame,
+  ChestedHorse, Items (as `nbt.List` — a plain `[]any` never matches
+  the selector's `nbt.List` in nbtPartialEqual), Strength, Variant;
+  summon-NBT parses Strength/Variant/Items with the finalizeSpawn
+  randomizers for absent llama keys; spawnMobLoot drops the full
+  mount inventory + chest block.
+
+TestMountChestParity legs (all green on vanilla 26.2 + mc-go):
+(1) survival chest interact → ChestedHorse:1b + chest count 2→1;
+(2) llama Strength:4 + Variant:2 summon NBT + sneak-interact →
+mount_screen_open cols=4; (3) mule Items slotted NBT round-trip;
+(4) kill chested mule → chest + cobblestone items drop (player moved
+out of pickup range first); (5) untamed donkey + chest → makeMad,
+no equip.
+
+Harness note for future tests: `say` output arrives as
+disguised_chat (0x21), not system_chat — probes must read
+eggDrainFor chat events, not raw SystemChatCB packets.
