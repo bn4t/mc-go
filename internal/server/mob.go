@@ -1145,7 +1145,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}
 	// Wind charges fly straight (no gravity) and burst on contact.
-	if name == "wind_charge" || name == "breeze_wind_charge" || name == "wither_skull" || name == "fireball" {
+	if name == "wind_charge" || name == "breeze_wind_charge" || name == "wither_skull" || name == "fireball" || name == "dragon_fireball" {
 		mx, my, mz := 0.0, 0.0, 0.0
 		if tag != nil {
 			if mv, ok := tag.vals["Motion"]; ok && len(mv.items) == 3 {
@@ -3370,6 +3370,9 @@ func (s *Server) spawnLingeringCloud(e *Entity) {
 		CloudRadiusOnUse:   -0.5,
 		CloudVictims:       map[int32]int32{},
 		Effects:            effects,
+		// explodeCreeper's cloud.setOwner(this) — the creeper is a
+		// LivingEntity, so it lands as the dose's indirectMagic cause.
+		CloudOwnerID: e.ID,
 	})
 	s.broadcastEntitySpawn(nil, *cloud)
 	if meta := encodeCloudMeta(cloud); len(meta) > 0 {
@@ -3475,12 +3478,16 @@ func (s *Server) cloudTickStep() {
 				return true
 			}
 			ep.CloudVictims[mobOrSess.ID] = ep.CloudAge + 20
+			// The dose hurts through damageSources.indirectMagic(cloud,
+			// owner): indirect_magic with the cloud as direct entity and
+			// the spawning owner as cause (0 for ownerless clouds).
+			src := &damageInfo{typeName: "indirect_magic", cause: ep.CloudOwnerID, direct: ep.ID}
 			for id, inst := range ep.Effects {
 				ticks := int32(-1)
 				if inst.expiry >= 0 {
 					ticks = int32((inst.expiry - now) / 4) // 0.25 scale
 				}
-				s.mobGiveEffect(mobOrSess, id, inst.amplifier, ticks, inst.hide)
+				s.mobGiveEffect(mobOrSess, id, inst.amplifier, ticks, inst.hide, src)
 			}
 			ep.CloudRadius += ep.CloudRadiusOnUse
 			return ep.CloudRadius >= 0.5
@@ -3521,12 +3528,13 @@ func (s *Server) cloudTickStep() {
 				return true
 			}
 			ep.CloudVictims[eid] = ep.CloudAge + 20
+			psrc := damageSource{typeName: "indirect_magic", cause: ep.CloudOwnerID, direct: ep.ID}
 			for id, inst := range ep.Effects {
 				ticks := int32(-1)
 				if inst.expiry >= 0 {
 					ticks = int32((inst.expiry - now) / 4)
 				}
-				s.playerGiveEffect(sess, id, inst.amplifier, ticks, inst.hide)
+				s.playerGiveEffect(sess, id, inst.amplifier, ticks, inst.hide, psrc)
 			}
 			ep.CloudRadius += ep.CloudRadiusOnUse
 			return ep.CloudRadius >= 0.5

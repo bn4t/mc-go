@@ -34,7 +34,7 @@ var projectileTickTypes = map[string]bool{
 	"splash_potion": true, "lingering_potion": true,
 	"egg": true, "snowball": true, "experience_bottle": true,
 	"small_fireball": true, "firework_rocket": true, "ender_pearl": true,
-	"wither_skull": true, "fireball": true,
+	"wither_skull": true, "fireball": true, "dragon_fireball": true,
 }
 
 // bowStartTick timestamps a draw begun by Use Item on a bow so the
@@ -207,7 +207,7 @@ func (s *Server) arrowTickStep() {
 			// ThrownExperienceBottle.getDefaultGravity — the bottle
 			// arcs down harder than the other thrown items.
 			grav = 0.07
-		case "small_fireball", "firework_rocket", "wind_charge", "wither_skull", "fireball":
+		case "small_fireball", "firework_rocket", "wind_charge", "wither_skull", "fireball", "dragon_fireball":
 			grav = 0
 		}
 		e.MotionY -= grav
@@ -246,6 +246,11 @@ func (s *Server) arrowTickStep() {
 			// LargeFireball.onHitEntity — hurt 6.0 through
 			// fireball(ball, owner); ownerless wires cause 0.
 			collided = s.largeFireballCollide(e, ox, oy, oz)
+		case name == "dragon_fireball":
+			// DragonFireball: no direct hurt — the entity hit only
+			// triggers the AreaEffectCloud spawn (base onHitEntity
+			// is empty).
+			collided = s.dragonFireballCollide(e, ox, oy, oz)
 		}
 		// Hurting projectiles (fireball/wind_charge/rocket) keep
 		// their own impact paths; the block hit below still applies.
@@ -277,6 +282,9 @@ func (s *Server) arrowTickStep() {
 			}
 			if name == "fireball" {
 				s.largeFireballExplode(e)
+			}
+			if name == "dragon_fireball" {
+				s.dragonFireballImpact(e)
 			}
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemove([]int32{e.ID})
@@ -344,6 +352,9 @@ func (s *Server) arrowTickStep() {
 				}
 				if name == "fireball" {
 					s.largeFireballExplode(e)
+				}
+				if name == "dragon_fireball" {
+					s.dragonFireballImpact(e)
 				}
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemove([]int32{e.ID})
@@ -1526,4 +1537,106 @@ func (s *Server) largeFireballExplode(e *Entity) {
 	}
 	grief := s.gameRuleBool("minecraft:mob_griefing")
 	s.explodePowerFire(e, e.X, e.Y, e.Z, power, grief, grief)
+}
+
+// dragonFireballImpact is DragonFireball.onHit's cloud arm: a fresh
+// AreaEffectCloud at the hit spot (radius 3.0 growing toward 7.0 over
+// 600 ticks, waitTime 10, potionDurationScale 0.25, contents
+// INSTANT_DAMAGE amp 1), relocated onto the nearest living entity the
+// inflated hit box catches within 4 blocks, a levelEvent 2006
+// (data 1 — the ball isn't silent), and then the caller discards.
+func (s *Server) dragonFireballImpact(e *Entity) {
+	d := s.dims[e.Dim]
+	if d == nil {
+		return
+	}
+	cx, cy, cz := e.X, e.Y, e.Z
+	// getEntitiesOfClass(LivingEntity, box.inflate(4,2,4)) then the
+	// distanceToSqr<16 pick — the cloud teleports onto that victim.
+	s.entities.mu.RLock()
+	cands := make([]*Entity, 0, len(s.entities.byID))
+	for _, t := range s.entities.byID {
+		cands = append(cands, t)
+	}
+	s.entities.mu.RUnlock()
+	best := -1.0
+	var near *Entity
+	for _, t := range cands {
+		if !t.Living || t.Dying || t.Dim != e.Dim || t.ID == e.ID {
+			continue
+		}
+		bb := mobBounds(t.Type)
+		// Inside the 4/2/4-inflated ball box only.
+		hw, h := bb[0]+4.0, bb[1]+2.0
+		if t.X < cx-hw || t.X > cx+hw || t.Z < cz-hw || t.Z > cz+hw ||
+			t.Y+h < cy-0.5-2.0 || t.Y > cy+0.5+2.0 {
+			continue
+		}
+		dx, dy, dz := t.X-cx, t.Y-cy, t.Z-cz
+		ds := dx*dx + dy*dy + dz*dz
+		if ds < 16.0 && (best < 0 || ds < best) {
+			best, near = ds, t
+		}
+	}
+	if near != nil {
+		cx, cy, cz = near.X, near.Y, near.Z
+	}
+	cloudType, ok := EntityTypeID("area_effect_cloud")
+	if !ok {
+		return
+	}
+	effects := map[int32]mobEffectInst{}
+	if id, ok := MobEffectID("instant_damage"); ok {
+		effects[id] = mobEffectInst{amplifier: 1, expiry: -1}
+	}
+	cloud := s.entities.Spawn(&Entity{
+		Type:               cloudType,
+		Dim:                e.Dim,
+		X:                  cx,
+		Y:                  cy,
+		Z:                  cz,
+		CloudWait:          10,
+		CloudDuration:      600,
+		CloudRadius:        3.0,
+		CloudRadiusPerTick: 4.0 / 600,
+		CloudRadiusOnUse:   -0.5,
+		CloudVictims:       map[int32]int32{},
+		Effects:            effects,
+		// onHit wires the fireball's owner as the cloud owner when it
+		// is a LivingEntity — ArrowShooter is exactly that (0 for
+		// /summon, which has no owner).
+		CloudOwnerID: e.arrowShooter,
+	})
+	s.broadcastEntitySpawn(nil, *cloud)
+	if meta := encodeCloudMeta(cloud); len(meta) > 0 {
+		s.broadcastEntityMetadata(cloud.ID, meta)
+	}
+	s.broadcastLevelEvent(e.Dim, 2006, world.Pos{
+		X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z)),
+	}, 1)
+}
+
+// dragonFireballCollide runs the entity-hit scan only — onHitEntity
+// is empty on the base class, and onHit's cloud spawn is shared with
+// the block-hit arm in dragonFireballImpact.
+func (s *Server) dragonFireballCollide(e *Entity, ox, oy, oz float64) bool {
+	s.entities.mu.RLock()
+	targets := make([]*Entity, 0, len(s.entities.byID))
+	for _, t := range s.entities.byID {
+		targets = append(targets, t)
+	}
+	s.entities.mu.RUnlock()
+	for _, t := range targets {
+		if !t.Living || t.Dying || t.ID == e.ID || t.ID == e.arrowShooter {
+			continue
+		}
+		if t.Dim != e.Dim {
+			continue
+		}
+		bb := mobBounds(t.Type)
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+			return true
+		}
+	}
+	return false
 }

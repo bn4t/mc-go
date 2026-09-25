@@ -7001,3 +7001,24 @@ graced second ball no event, 2 radius-1.0 explode packets, knockback,
 both removed. Spawn geometry note: a 1-block fireball at -59.7 clips
 the ground as a block hit and explodes without ever reaching the
 villager — the leg aims -59.3. Green on both targets.
+### 2026-09-25w — dragon_fireball cloud impact + indirect_magic dose wire
+DragonFireball.onHitEntity is empty on vanilla — no direct hurt. onHit
+skips when the struck entity is the owner, else scans LivingEntity in
+the (4,2,4)-inflated ball box and spawns AreaEffectCloud at the nearest
+inside distanceToSqr<16: radius 3.0 shrinking (7-3)/600 per tick, wait
+10, duration 600, potionDurationScale 0.25, addEffect(INSTANT_DAMAGE,1)
+payload — plus level_event 2006 and discard.
+Two latent cloud bugs fixed to make it work: mobEffectTickStep's
+world-entity arm was expiring the cloud's Effects payload one tick
+after spawn (AEC isn't a LivingEntity — its effects are the dose
+template, never ticked or expired — the arm now skips clouds), and the
+dose wired "magic" 0/0 while vanilla hurts through
+damageSources.indirectMagic(cloud, owner) — type 23, direct = cloud
+eid+1, cause = owner. mobGiveEffect/mobInstantEffect/
+playerGiveEffect/applyInstantEffect now take an optional damage-source
+override; cloudTickStep passes indirect_magic{direct:ep.ID,
+cause:ep.CloudOwnerID} on both arms. CloudOwnerID is the creeper for
+explodeCreeper clouds and the ball's shooter for dragon balls.
+Leg 11 pins: 2 balls, 2 clouds, 2 level 2006, every dmg on the
+villager type 23 / cause 0 / direct = a cloud, both balls removed.
+Green on both targets.

@@ -189,6 +189,11 @@ type Entity struct {
 	// ExplosionPower reads anything). Zero is treated as 1, the
 	// vanilla default, for types that carry the field.
 	ExplosionPower float32
+	// CloudOwnerID is AreaEffectCloud.owner — the LivingEntity that
+	// spawned the cloud (0 when none). The dose's indirect_magic
+	// damage source wires it as the cause; the cloud itself is the
+	// direct entity.
+	CloudOwnerID int32
 	// AreaEffectCloud state: CloudWait is the 10-tick pre-activation
 	// pause (setWaitTime), CloudDuration the 300-tick lifetime to
 	// discard (setDuration), CloudAge the tick counter both compare

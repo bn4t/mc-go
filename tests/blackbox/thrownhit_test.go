@@ -605,6 +605,81 @@ func TestThrownHitParity(t *testing.T) {
 				assertNoEntityEvent(t, tc.tag, ev, id)
 				assertRemoved(t, tc.tag, ev, id)
 			}
+
+			// leg 11: two ownerless dragon_fireballs into the SAME
+			// villager6 — DragonFireball does NO direct hurt
+			// (onHitEntity is the empty base); each hit spawns an
+			// AreaEffectCloud (radius 3→7, duration 600, waitTime 10,
+			// INSTANT_DAMAGE amp 1) at the nearest living entity,
+			// fires levelEvent 2006 data 1, and discards. The clouds
+			// dose the villager 6<<1 = 12.0 magic per application,
+			// killing it inside the drain.
+			sendCommand(t, pw, "summon minecraft:villager 59.5 -60 76.5 {NoAI:1b,NoGravity:1b}")
+			sendCommand(t, pw, "summon minecraft:dragon_fireball 58.0 -58.6 76.5 {Motion:[1.0d,0.0d,0.0d]}")
+			sendCommand(t, pw, "summon minecraft:dragon_fireball 56.0 -58.6 76.5 {Motion:[1.0d,0.0d,0.0d]}")
+			ev = eggDrainFor(t, c, pr, pw, 3500*time.Millisecond)
+			var villager6 int32
+			var dfIDs, cloudIDs []int32
+			for _, e := range ev {
+				if e.kind == "spawn" && e.etype == mustEType(t, "villager") &&
+					e.eid != villagerID && e.eid != villager2 && e.eid != villager3 && e.eid != villager4 && e.eid != villager5 {
+					villager6 = e.eid
+				}
+				if e.kind == "spawn" && e.etype == mustEType(t, "dragon_fireball") {
+					dfIDs = append(dfIDs, e.eid)
+				}
+				if e.kind == "spawn" && e.etype == mustEType(t, "area_effect_cloud") {
+					cloudIDs = append(cloudIDs, e.eid)
+				}
+			}
+			if villager6 == 0 {
+				t.Fatalf("%s: sixth villager never spawned", tc.tag)
+			}
+			if len(dfIDs) != 2 {
+				t.Fatalf("%s: expected 2 dragon_fireball spawns, got %d", tc.tag, len(dfIDs))
+			}
+			if len(cloudIDs) != 2 {
+				t.Fatalf("%s: expected 2 area_effect_cloud spawns, got %d", tc.tag, len(cloudIDs))
+			}
+			lev := 0
+			for _, e := range ev {
+				if e.kind == "level" && e.b0 == 2006 {
+					lev++
+				}
+			}
+			if lev != 2 {
+				t.Fatalf("%s: %d level_event 2006 — each dragon ball fires one", tc.tag, lev)
+			}
+			magicDmg := 0
+			for _, e := range ev {
+				if e.kind == "dmg" && e.eid == villager6 {
+					magicDmg++
+					// Vanilla doses through damageSources.
+					// indirectMagic(cloud, owner): type 23, cause
+					// 0 (no owner on /summon), direct = the cloud.
+					if e.etype != 23 {
+						t.Fatalf("%s: cloud dose type id %d — want 23 indirect_magic", tc.tag, e.etype)
+					}
+					if e.b0 != 0 {
+						t.Fatalf("%s: cloud dose cause %d — ownerless summon wires 0", tc.tag, e.b0)
+					}
+					if e.data != cloudIDs[0]+1 && e.data != cloudIDs[1]+1 {
+						t.Fatalf("%s: cloud dose direct %d — want a cloud eid+1", tc.tag, e.data)
+					}
+				}
+			}
+			if magicDmg < 1 {
+				for _, e := range ev {
+					if e.kind == "dmg" || e.kind == "spawn" || e.kind == "level" || e.kind == "remove" {
+						t.Logf("%s: dbg %+v", tc.tag, e)
+					}
+				}
+				t.Fatalf("%s: no damage_events — the clouds never dosed the villager", tc.tag)
+			}
+			for _, id := range dfIDs {
+				assertNoEntityEvent(t, tc.tag, ev, id)
+				assertRemoved(t, tc.tag, ev, id)
+			}
 		})
 	}
 }

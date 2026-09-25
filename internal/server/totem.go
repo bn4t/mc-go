@@ -264,7 +264,11 @@ func (s *Server) applyMobEffectWire(sess *Session, id, amplifier int32, duration
 // 4<<amplifier, instant_damage hurts 6<<amplifier as magic. Java's
 // ishl masks the shift to 5 bits (amplifier&31) — Go's << does not,
 // so the mask is explicit: amp 200 lands on 4<<8=1024 like vanilla.
-func (s *Server) applyInstantEffect(sess *Session, id, amplifier int32) {
+func (s *Server) applyInstantEffect(sess *Session, id, amplifier int32, src ...damageSource) {
+	srcs := damageSource{typeName: "magic"}
+	if len(src) > 0 {
+		srcs = src[0]
+	}
 	switch id {
 	case effectInstantHealth:
 		if !sess.dead {
@@ -274,8 +278,15 @@ func (s *Server) applyInstantEffect(sess *Session, id, amplifier int32) {
 		}
 	case effectInstantDamage:
 		amount := max(int32(6)<<(amplifier&31), 0)
-		s.damageWith(sess, float32(amount), translatable("death.attack.magic", literal(sess.getName())),
-			damageSource{typeName: "magic"})
+		msg := translatable("death.attack.magic", literal(sess.getName()))
+		if srcs.cause != 0 {
+			if ce, ok := s.entities.Get(srcs.cause); ok {
+				if cn, nok := EntityTypeName(ce.Type); nok {
+					msg = translatable("death.attack.indirectMagic", literal(sess.getName()), translatable("entity.minecraft."+cn))
+				}
+			}
+		}
+		s.damageWith(sess, float32(amount), msg, srcs)
 	}
 }
 
@@ -284,7 +295,7 @@ func (s *Server) applyInstantEffect(sess *Session, id, amplifier int32) {
 // declines and weaker-but-longer stash paths still fire the instant arm
 // (vanilla calls onEffectStarted unconditionally at the end of
 // addEffect). True reports the store took the instance.
-func (s *Server) playerGiveEffect(t *Session, id, amplifier, ticks int32, hideParticles bool) bool {
+func (s *Server) playerGiveEffect(t *Session, id, amplifier, ticks int32, hideParticles bool, src ...damageSource) bool {
 	now := s.clock.count
 	if e, live := sessEffect(t, id, now); live {
 		newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks)}
@@ -295,13 +306,13 @@ func (s *Server) playerGiveEffect(t *Session, id, amplifier, ticks int32, hidePa
 			// duration update — apply
 		case amplifier < e.amplifier && shorterDur(e, newInst, now):
 			s.stashHiddenEffect(t, id, newInst)
-			s.applyInstantEffect(t, id, amplifier)
+			s.applyInstantEffect(t, id, amplifier, src...)
 			return false
 		default:
 			// Declined stores still run onEffectStarted — instant
 			// effects apply (measured: a shorter re-give heals
 			// while replying give.failed).
-			s.applyInstantEffect(t, id, amplifier)
+			s.applyInstantEffect(t, id, amplifier, src...)
 			return false
 		}
 	}
@@ -312,7 +323,7 @@ func (s *Server) playerGiveEffect(t *Session, id, amplifier, ticks int32, hidePa
 // mobGiveEffect is the world-entity arm of LivingEntity.addEffect: the
 // same update() gate on e.Effects, update_mob_effect out to trackers,
 // and the instant arm routed through the mob heal/hurt helpers.
-func (s *Server) mobGiveEffect(e *Entity, id, amplifier, ticks int32, hideParticles bool) bool {
+func (s *Server) mobGiveEffect(e *Entity, id, amplifier, ticks int32, hideParticles bool, src ...*damageInfo) bool {
 	now := s.clock.count
 	newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks), hide: hideParticles}
 	if e.Effects == nil {
@@ -330,15 +341,15 @@ func (s *Server) mobGiveEffect(e *Entity, id, amplifier, ticks int32, hidePartic
 		case amplifier < prev.amplifier && shorterDur(prev, newInst, now):
 			prev.mergeHidden(newInst, now)
 			e.Effects[id] = prev
-			s.mobInstantEffect(e, id, amplifier)
+			s.mobInstantEffect(e, id, amplifier, src...)
 			return false
 		default:
-			s.mobInstantEffect(e, id, amplifier)
+			s.mobInstantEffect(e, id, amplifier, src...)
 			return false
 		}
 	}
 	e.Effects[id] = newInst
-	s.mobInstantEffect(e, id, amplifier)
+	s.mobInstantEffect(e, id, amplifier, src...)
 	// LivingEntity.onEffectAdded sends update_mob_effect to passengers
 	// only; trackers see the effect through entity data (particles) and
 	// the attribute-modifier resend on the next sendChanges.
@@ -352,9 +363,13 @@ func (s *Server) mobGiveEffect(e *Entity, id, amplifier, ticks int32, hidePartic
 // inverted_healing_and_harm tag flipping the arm for undead mobs
 // (isHarm == isInverted picks heal). Java's ishl masks the shift to 5
 // bits; Go's << needs it explicit — amp 200 lands on <<8 like vanilla.
-func (s *Server) mobInstantEffect(e *Entity, id, amplifier int32) {
+func (s *Server) mobInstantEffect(e *Entity, id, amplifier int32, src ...*damageInfo) {
 	if id != effectInstantHealth && id != effectInstantDamage {
 		return
+	}
+	info := &damageInfo{typeName: "magic"}
+	if len(src) > 0 && src[0] != nil {
+		info = src[0]
 	}
 	d := &dataEntity{mob: e}
 	inverted := d.entityInTag("inverted_healing_and_harm")
@@ -366,7 +381,7 @@ func (s *Server) mobInstantEffect(e *Entity, id, amplifier int32) {
 		return
 	}
 	if amount := int32(6) << (amplifier & 31); amount > 0 {
-		s.damageMob(e, float32(amount), "magic", nil, &damageInfo{typeName: "magic"})
+		s.damageMob(e, float32(amount), info.typeName, nil, info)
 	}
 }
 
@@ -560,8 +575,15 @@ func (s *Server) mobEffectTickStep() {
 	// through the entity-less wither() source every 40>>amplifier
 	// live ticks (MobEffectInstance.tick's remaining ticks).
 	witherID, witherOK := MobEffectID("wither")
+	cloudType, cloudOK := EntityTypeID("area_effect_cloud")
 	for _, e := range s.entities.All() {
 		if e.Dying || len(e.Effects) == 0 {
+			continue
+		}
+		// AreaEffectCloud isn't a LivingEntity — its effects map is the
+		// dose payload, not active effects, so it never expires or
+		// apply-ticks here.
+		if cloudOK && e.Type == cloudType {
 			continue
 		}
 		ep, ok := s.entities.GetPtr(e.ID)
