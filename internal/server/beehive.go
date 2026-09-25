@@ -1,6 +1,7 @@
 package server
 
 import (
+	"math/rand"
 	"strconv"
 
 	"mc-go/internal/world"
@@ -26,8 +27,16 @@ import (
 // EMERGENCY; a non-empty collision shape in the facing cell keeps it
 // unless EMERGENCY. Survivors spawn at pos+0.5 stepped
 // 0.55+bbWidth/2 out the face (0 when blocked), beehive_exit per bee.
-// emptyAllLivingFromHive's anger pass (setTarget on the harvester
-// within 4 blocks) is deferred with the bee attack chain.
+//
+// emptyAllLivingFromHive's anger pass: every released bee within
+// 4 blocks of the harvester takes setTarget on him (mc-go's
+// AngryAt open-ended — Bee's persistent-anger timer never arms on
+// this path); a sedated nest (lit campfire under it, possible on a
+// break) swaps anger for stayOutOfHiveCountdown=400. The block then
+// layers angerNearbyBees on top: every targetless bee in the 8x6x8
+// box around the nest takes a random in-box player — the use path
+// only reaches it unsmoked, but playerDestroy and onExplosionHit run
+// it unconditionally, so a campfire never protects a breaker.
 
 type beeReleaseStatus int
 
@@ -47,12 +56,10 @@ func (s *Server) beeStayInHive() bool {
 	return s.weatherRaining.Load() || s.weatherThunder.Load()
 }
 
-// campfireSedated is CampfireBlock.isSmokeyPos: a lit campfire within
-// five blocks below the nest calms a harvest — occupants stay inside.
-// campfireSedated is CampfireBlock.isSmokeyPos: scan up to five blocks
-// below; a lit campfire answers true, and the first block whose
-// collision shape would block the smoke post ends the scan — the
-// answer is then whether the block ONE further below is a lit
+// campfireSedated is CampfireBlock.isSmokeyPos: scan up to five
+// blocks below; a lit campfire answers true, and the first block
+// whose collision shape would block the smoke post ends the scan —
+// the answer is then whether the block ONE further below is a lit
 // campfire (a campfire under a solid floor still sedates).
 func (s *Server) campfireSedated(d *dimension, pos world.Pos) bool {
 	litCampfire := func(b world.Block) bool {
@@ -84,10 +91,10 @@ var beeFacingSteps = map[string][2]int{
 
 // releaseBeeOccupants is BeehiveBlockEntity.releaseAllOccupants over a
 // count-only occupant list (mc-go stores the bees list's length, not
-// its entities). Returns the occupant count left inside.
-func (s *Server) releaseBeeOccupants(d *dimension, pos world.Pos, blk world.Block, count int32, status beeReleaseStatus) int32 {
+// its entities). Returns the spawned bees and the count left inside.
+func (s *Server) releaseBeeOccupants(d *dimension, pos world.Pos, blk world.Block, count int32, status beeReleaseStatus) ([]*Entity, int32) {
 	if count <= 0 {
-		return 0
+		return nil, 0
 	}
 	stayIn := s.beeStayInHive()
 	facing := rsPropsOf(blk)("facing")
@@ -108,7 +115,7 @@ func (s *Server) releaseBeeOccupants(d *dimension, pos world.Pos, blk world.Bloc
 	}
 	sx := float64(step[0])
 	sz := float64(step[1])
-	released := int32(0)
+	var released []*Entity
 	for i := int32(0); i < count; i++ {
 		if stayIn && status != beeReleaseEmergency {
 			break
@@ -125,21 +132,96 @@ func (s *Server) releaseBeeOccupants(d *dimension, pos world.Pos, blk world.Bloc
 			break
 		}
 		s.broadcastFreshMob(e)
-		released++
+		released = append(released, e)
 		// beehive_exit per released occupant, BLOCKS source, at the
 		// nest (not the exit cell).
 		if snd, ok := soundEventIDs["block.beehive.exit"]; ok {
 			s.playSoundSrc(d.name, float64(pos.X)+0.5, float64(pos.Y)+0.5, float64(pos.Z)+0.5, snd, 4, 1.0, 1.0, nil)
 		}
 	}
-	return count - released
+	return released, count - int32(len(released))
+}
+
+// beeAngerSweep is the tail of BeehiveBlockEntity.emptyAllLivingFromHive:
+// each released bee within 4 blocks (distanceToSqr ≤ 16) of the player
+// gets setTarget on him — mc-go's open-ended AngryAt. A sedated nest
+// (lit campfire under it) swaps anger for stayOutOfHiveCountdown=400;
+// harvest never reaches this when sedated, but a nest break does.
+func (s *Server) beeAngerSweep(d *dimension, released []*Entity, sess *Session, pos world.Pos) {
+	if sess == nil || len(released) == 0 {
+		return
+	}
+	sedated := s.campfireSedated(d, pos)
+	px, py, pz, _, _, _ := sess.Pos()
+	for _, be := range released {
+		dx, dy, dz := be.X-px, be.Y-py, be.Z-pz
+		if dx*dx+dy*dy+dz*dz > 16.0 {
+			continue
+		}
+		if sedated {
+			be.CannotEnterHive = 400
+		} else {
+			be.AngryAt = sess.uuid
+			be.AngryUntil = 0
+		}
+	}
+}
+
+// angerNearbyBees is Beehive.angerNearbyBees: every bee in the
+// AABB(pos).inflate(8,6,8) box that has no target takes a random
+// in-box player as its target. Unsmoked harvest runs it only when
+// the hive holds occupants; breaks and explosions run it
+// unconditionally — the campfire gate lives on the use branch, so
+// breaking under smoke still angers.
+func (s *Server) angerNearbyBees(d *dimension, pos world.Pos) {
+	minX, minY, minZ := float64(pos.X)-8, float64(pos.Y)-6, float64(pos.Z)-8
+	maxX, maxY, maxZ := float64(pos.X)+9, float64(pos.Y)+7, float64(pos.Z)+9
+	inBox := func(x, y, z float64) bool {
+		return x >= minX && x < maxX && y >= minY && y < maxY && z >= minZ && z < maxZ
+	}
+	var players []*Session
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if !sess.spawned.Load() || sess.dimension().name != d.name {
+			return true
+		}
+		px, py, pz, _, _, _ := sess.Pos()
+		if inBox(px, py, pz) {
+			players = append(players, sess)
+		}
+		return true
+	})
+	if len(players) == 0 {
+		return
+	}
+	for _, snap := range s.entities.All() {
+		if snap.Dim != d.name || snap.Health <= 0 {
+			continue
+		}
+		if kn, _ := EntityTypeName(snap.Type); kn != "bee" {
+			continue
+		}
+		if !inBox(snap.X, snap.Y, snap.Z) {
+			continue
+		}
+		// Bee.getTarget()!=null skips a bee already aggroed; an
+		// expired anger timer reads as no target here too.
+		if snap.AngryAt != ([16]byte{}) && (snap.AngryUntil == 0 || s.gameTime() < snap.AngryUntil) {
+			continue
+		}
+		if e, ok := s.entities.GetPtr(snap.ID); ok {
+			target := players[rand.Intn(len(players))]
+			e.AngryAt = target.uuid
+			e.AngryUntil = 0
+		}
+	}
 }
 
 // releaseBeesAndResetHoneyLevel is BeehiveBlock.releaseBeesAndResetHoneyLevel:
 // honey_level resets first (the rsWriteBlockFlag2 write carries the same
 // client+neighbour surface vanilla's setBlock flag 3 does here), then the
-// hive empties. sess is the harvester for vanilla's anger pass — the
-// nearest-bee anger sweep is deferred with the bee attack chain.
+// hive empties. sess is the harvester — the released bees run
+// emptyAllLivingFromHive's anger sweep on him.
 func (s *Server) releaseBeesAndResetHoneyLevel(d *dimension, pos world.Pos, blk world.Block, sess *Session, status beeReleaseStatus) {
 	if nb, ok := world.WithProperty(blk, "honey_level", "0"); ok {
 		s.rsWriteBlockFlag2(d, pos, nb)
@@ -148,7 +230,8 @@ func (s *Server) releaseBeesAndResetHoneyLevel(d *dimension, pos world.Pos, blk 
 	if count <= 0 {
 		return
 	}
-	left := s.releaseBeeOccupants(d, pos, blk, count, status)
+	released, left := s.releaseBeeOccupants(d, pos, blk, count, status)
+	s.beeAngerSweep(d, released, sess, pos)
 	if left <= 0 {
 		delete(d.bees, pos)
 	} else {
@@ -209,16 +292,23 @@ func (s *Server) useBeehive(sess *Session, d *dimension, pos world.Pos, blk worl
 		}
 		return true
 	}
-	// No campfire: angerNearbyBees + EMERGENCY release. The anger
-	// sweep is deferred — released and free bees carry no attack goal.
+	// No campfire: angerNearbyBees (only while the hive still holds
+	// occupants), then releaseBeesAndResetHoneyLevel(EMERGENCY) —
+	// release plus the anger sweep on the harvester.
+	if d.bees[pos] > 0 {
+		s.angerNearbyBees(d, pos)
+	}
 	s.releaseBeesAndResetHoneyLevel(d, pos, blk, sess, beeReleaseEmergency)
 	return true
 }
 
 // beeNestDestroyed is BeehiveBlock.playerDestroy's non-silk tail:
-// EMERGENCY release for every occupant (anger sweep deferred).
-// broken is the pre-write nest state; count was captured before the
-// cell turned to air.
-func (s *Server) beeNestDestroyed(d *dimension, pos world.Pos, broken world.Block, count int32) {
-	s.releaseBeeOccupants(d, pos, broken, count, beeReleaseEmergency)
+// emptyAllLivingFromHive(EMERGENCY) — release plus the anger sweep on
+// the breaker — then angerNearbyBees unconditionally: a campfire
+// never protects the breaker. broken is the pre-write nest state;
+// count was captured before the cell turned to air.
+func (s *Server) beeNestDestroyed(d *dimension, pos world.Pos, broken world.Block, count int32, sess *Session) {
+	released, _ := s.releaseBeeOccupants(d, pos, broken, count, beeReleaseEmergency)
+	s.beeAngerSweep(d, released, sess, pos)
+	s.angerNearbyBees(d, pos)
 }

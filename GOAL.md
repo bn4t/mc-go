@@ -7196,3 +7196,53 @@ fixture row intermittently read as entity-blind on vanilla;
 re-verified clean at z=60). A hovering survival-mode probe client
 within pickup reach vacuums thrown dispenser items — check
 `items entity @s container.*` before concluding a throw vanished.
+### 2026-09-25zd — bee anger: releasee sweep + nearby sweep + sting chain
+
+BeehiveBlock anger model decoded from 26.2 bytecode. Two layers:
+
+1. `BeehiveBlockEntity.emptyAllLivingFromHive` per-releasee sweep —
+   for each spawned bee with `player.position().distanceToSqr(bee)
+   <= 16.0`: `isSedated()` (CampfireBlock.isSmokeyPos on the nest
+   pos) → `setStayOutOfHiveCountdown(400)`, else `setTarget(player)`.
+   CampfireBlock.isSmokeyPos scans 1..4 blocks below for a lit
+   campfire; a campfire under a solid floor still counts (collision
+   shape intersects the smoke post).
+2. `BeehiveBlock.angerNearbyBees` — a second, separate pass on the
+   whole neighbourhood: `getEntitiesOfClass(Bee, box pos±(8,6,8))`
+   → if empty return; `getEntitiesOfClass(Player, same box)` → if
+   empty return; each `getTarget()==null` bee → `setTarget(random
+   in-box player)`.
+
+Call-site differences measured: `playerDestroy` (break) calls
+angerNearbyBees UNCONDITIONALLY — a campfire does NOT protect a
+breaker. `useItemOn` harvest gates it on `!isSmokeyPos` — a smokey
+nest only resets honey_level (bees stay inside). `onExplosionHit`
+also calls angerNearbyBees. mc-go mirrors all three paths; a
+dispenser trigger passes nil sess → the per-releasee sweep
+early-returns.
+
+Bee combat chain (Bee.doHurtTarget, measured): sting damageSource +
+attack_damage 2.0 → LivingEntity target gets `stingerCount+1` and
+POISON secs*20 ticks (NORMAL 10s, HARD 18s, else 0) → `setHasStung`
+→ `stopBeingAngry` → entity.bee.sting sound. Post-sting death
+(customServerAiStep): `timeSinceSting++`, every 5th tick a
+`nextInt(clamp(1200-t,1,1200))==0` roll hurts the bee its own
+health (generic source) — a ~60s bleed-out. Bee NBT keys now
+written: HasNectar/HasStung/TicksSincePollination/
+CannotEnterHiveTicks. mobNeutral += bee; mobAlwaysFlies added so
+bees chase in 3D (flying_speed .6, XZ path would strand them);
+bee melee chase moves along the 3D vector toward reach.
+
+Gotcha worth remembering: `s.entities.All()` returns *snapshots* —
+field writes on the loop variable silently drop. Mutations go
+through `s.entities.GetPtr(id)` (piglinAlert already did this; the
+first angerNearbyBees write lost AngryAt for exactly this reason —
+388 ticks of a "targetless" angry bee).
+
+TestBeeAngerParity (differential, both targets): leg 1 shears
+harvest → chase + sting + poison + HasStung; leg 2 player >4
+blocks from released bees → bees out, no anger target, no sting;
+leg 3 campfire break → bees out AND sting lands anyway (campfire
+is useItemOn-gated only, not break-gated). Vanilla passes all
+three; mc-go matches. bee_nest_destroyed advancement trigger kept
+firing before the release bookkeeping.

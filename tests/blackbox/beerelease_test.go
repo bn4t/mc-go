@@ -29,8 +29,8 @@ import (
 //   - playerDestroy: non-silk break empties EMERGENCY — even a
 //     blocked exit releases.
 //
-// Anger (setTarget on the harvester, free-bee sweep) is deferred —
-// bees carry no attack goal in mc-go — so the test only asserts the
+// Anger lives in beeanger_test.go (emptyAllLivingFromHive's sweep +
+// angerNearbyBees + the sting chain); this test only asserts the
 // release surface: bee spawn packets + positions, sounds, the
 // honey_level reset, and the harvest item side effects.
 func TestBeeReleaseParity(t *testing.T) {

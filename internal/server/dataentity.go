@@ -579,6 +579,16 @@ func entitySaveMap(e *Entity, now int64) entitySave {
 	if e.NoGravity {
 		m["NoGravity"] = int8(1)
 	}
+	// Bee.addAdditionalSaveData writes the bee fields always:
+	// HasNectar/HasStung bytes, TicksSincePollination and
+	// CannotEnterHiveTicks ints. mc-go doesn't pollinate — the pair
+	// stays 0b/0.
+	if typeName == "bee" {
+		m["HasNectar"] = int8(0)
+		m["HasStung"] = nbtBool(e.Stung)
+		m["TicksSincePollination"] = int32(0)
+		m["CannotEnterHiveTicks"] = e.CannotEnterHive
+	}
 	// Mob.addAdditionalSaveData writes the home pair only while
 	// hasHome — home_radius int plus the home_pos BlockPos list.
 	if e.HasHome {

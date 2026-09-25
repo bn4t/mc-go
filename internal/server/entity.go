@@ -191,6 +191,16 @@ type Entity struct {
 	// produces its first skull — killedEntity's CHARGED_CREEPER
 	// loot-table drop runs once per creeper.
 	DroppedSkulls bool
+	// Bee sting state: Stung is vanilla's hasStung — latched by
+	// doHurtTarget's landed sting, which also clears anger and starts
+	// the post-sting death clock (customServerAiStep: every 5th tick a
+	// random.nextInt(clamp(1200-timeSinceSting,1,1200))==0 roll deals
+	// the bee its own health). CannotEnterHive is
+	// Bee.stayOutOfHiveCountdown (NBT CannotEnterHiveTicks) — the
+	// sedated branch of emptyAllLivingFromHive's anger sweep.
+	Stung           bool
+	CannotEnterHive int32
+	timeSinceSting  int32
 	// ExplosionPower is LargeFireball.explosionPower — the MOB
 	// explosion radius onHit (ghast shoots 1, the summon NBT
 	// ExplosionPower reads anything). Zero is treated as 1, the

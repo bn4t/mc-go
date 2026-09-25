@@ -2055,6 +2055,29 @@ func (s *Server) mobTickStep() {
 				s.piglinAlert(e)
 			}
 		}
+		// Bee.customServerAiStep: the post-sting death clock ticks
+		// even under NoAI — every 5th tick a
+		// nextInt(clamp(1200-t,1,1200))==0 roll hurts the bee its own
+		// health (damageSources().generic). stayOutOfHiveCountdown
+		// counts down alongside.
+		if ambName == "bee" {
+			if e.CannotEnterHive > 0 {
+				e.CannotEnterHive--
+			}
+			if e.Stung {
+				e.timeSinceSting++
+				if e.timeSinceSting%5 == 0 {
+					rem := 1200 - int(e.timeSinceSting)
+					if rem < 1 {
+						rem = 1
+					}
+					if rand.Intn(rem) == 0 {
+						s.damageMob(e, e.Health, "generic", nil, nil)
+						continue
+					}
+				}
+			}
+		}
 		// Creeper.tick's fuse bookkeeping sits outside the goal
 		// system — an ignited fuse runs even under NoAI.
 		if ambName == "creeper" {
@@ -2237,6 +2260,13 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	e.X, e.Z = nx, nz
 }
 
+// mobAlwaysFlies is the airborne set: these types never take
+// gravity or wander the ground (the bee's Brain flies it — vanilla
+// gives flying mobs no fall). mobGrounded answers grounded for them.
+var mobAlwaysFlies = map[string]bool{
+	"bee": true,
+}
+
 // mobGrounded is the falling half of a mob tick: gravity until a solid
 // block is underfoot — accumulating fallDistance on every downward
 // step — then Entity.checkFallDamage's landing edge. True once the
@@ -2244,6 +2274,10 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 // as grounded so ai keeps running.
 func (s *Server) mobGrounded(e *Entity, w *world.World) bool {
 	if e.NoGravity {
+		return true
+	}
+	if kn, _ := EntityTypeName(e.Type); mobAlwaysFlies[kn] {
+		e.Grounded = false
 		return true
 	}
 	below := world.Pos{
@@ -2422,6 +2456,7 @@ var mobNeutral = map[string]bool{
 	"iron_golem":       true,
 	"spider":           true,
 	"cave_spider":      true,
+	"bee":              true,
 }
 
 // mobSpiderDark is the subset that also hunts unprovoked in the dark
@@ -2438,6 +2473,7 @@ func init() {
 	for _, name := range []string{
 		"zombie", "husk", "drowned", "zombie_villager",
 		"zombified_piglin", "spider", "cave_spider", "iron_golem",
+		"bee",
 	} {
 		if id, ok := EntityTypeID(name); ok {
 			mobMelee[id] = true
@@ -2524,7 +2560,23 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 	// Vanilla's attack reach is the mob's inflated box vs the target's;
 	// for the zombie's 0.6 box vs a player that lands ~1.5 blocks out.
 	reach := mobBounds(e.Type)[0] + 0.6 + 0.3
-	if dist > reach {
+	if kn == "bee" {
+		// Bee Brain's attack move: fly straight at the target — a
+		// full-3D approach at ~flying_speed pace (attribute 0.6).
+		dy := py - e.Y
+		d3 := math.Sqrt(dx*dx + dy*dy + dz*dz)
+		if d3 > reach {
+			step := 0.5
+			if step > d3-reach*0.8 {
+				step = d3 - reach*0.8
+			}
+			if step > 0 {
+				e.X += dx / d3 * step
+				e.Y += dy / d3 * step
+				e.Z += dz / d3 * step
+			}
+		}
+	} else if dist > reach {
 		step := mobChaseSpeed
 		if step > dist-reach*0.8 {
 			step = dist - reach*0.8
@@ -2547,9 +2599,16 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 			// swing — landed or not.
 			s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 897, srcNeutral, 1, 1, nil)
 		}
-		dealt := s.damageWith(target, dmg, translatable("death.attack.mob",
+		// Bee.doHurtTarget swings on the sting damage source
+		// (damageSources().sting → death.attack.sting), not
+		// mob_attack.
+		dmgType, deathKey := "mob_attack", "death.attack.mob"
+		if kn == "bee" {
+			dmgType, deathKey = "sting", "death.attack.sting"
+		}
+		dealt := s.damageWith(target, dmg, translatable(deathKey,
 			literal(target.getName()), literal(mobDisplayName(kn))), damageSource{
-			typeName: "mob_attack",
+			typeName: dmgType,
 			cause:    e.ID,
 			direct:   e.ID,
 		})
@@ -4101,6 +4160,27 @@ func (s *Server) mobPostAttack(e *Entity, name string, target *Session) {
 		// launch, not a push. Player knockback_resistance is 0.
 		s.broadcastEntityEvent(e.ID, 4)
 		s.broadcastEntityMotion(target.dimName(), target.entityID.Load(), 0, 0.4, 0)
+	case "bee":
+		// Bee.doHurtTarget: +1 stinger on the victim, POISON by
+		// difficulty (10s normal, 18s hard, none easy/peaceful), then
+		// setHasStung + stopBeingAngry + the BEE_STING sound — the bee
+		// keeps flying but stops attacking and dies on the post-sting
+		// clock.
+		var dur int32
+		switch s.difficulty {
+		case DifficultyNormal:
+			dur = 200
+		case DifficultyHard:
+			dur = 360
+		}
+		if dur > 0 {
+			id, _ := MobEffectID("poison")
+			s.playerGiveEffect(target, id, 0, dur, false)
+		}
+		e.Stung = true
+		e.AngryAt = [16]byte{}
+		e.AngryUntil = 0
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 160, srcNeutral, 1, 1, nil) // entity.bee.sting
 	}
 }
 

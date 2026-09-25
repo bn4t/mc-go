@@ -358,7 +358,7 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 	s.fireBeeNestDestroyed(sess, sess.dimension(), pos, broken)
 	affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
 	if nestBees > 0 {
-		defer s.beeNestDestroyed(sess.dimension(), pos, broken, nestBees)
+		defer s.beeNestDestroyed(sess.dimension(), pos, broken, nestBees, sess)
 	}
 	// Vanilla's destroyBlock wears the held tool and counts the use
 	// (ItemStack.mineBlock) before the break statistics land
