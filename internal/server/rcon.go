@@ -164,6 +164,16 @@ func (s *Server) rconRun(line string) string {
 	} else {
 		b.WriteString(r.text)
 	}
+	// RconConsoleSource is still a CommandSourceStack: a reply flagged
+	// broadcastToOps echoes to every op online as "[RCON: ...]".
+	if r.opsEcho {
+		s.sendOpsEchoNamed(nil, component{text: "RCON"}, r.comp)
+	}
+	for i, c := range r.extra {
+		if i < len(r.extraEcho) && r.extraEcho[i] {
+			s.sendOpsEchoNamed(nil, component{text: "RCON"}, c)
+		}
+	}
 	if r.fail != nil {
 		b.WriteString(errorContext(line, r.fail.cursor(line)).plain())
 	}

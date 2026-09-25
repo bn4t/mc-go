@@ -94,8 +94,7 @@ func (s *Server) runWeather(player string, args []string) reply {
 	s.weatherThunder.Store(thunder)
 	s.weatherTicks.Store(ticks)
 	msg := translatable("commands.weather.set." + args[0])
-	s.broadcastAdmin(sess, msg)
-	return componentReply(msg)
+	return opsEchoReply(msg)
 }
 
 // parseWeatherDuration reads a vanilla time argument: a bare number

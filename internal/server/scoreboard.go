@@ -528,7 +528,7 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 			s.board.mu.Unlock()
 		}
 		s.broadcastObjectiveCreate(name, o)
-		return componentReply(translatable("commands.scoreboard.objectives.add.success",
+		return opsEchoReply(translatable("commands.scoreboard.objectives.add.success",
 			s.objectiveChatComponent(name)))
 	case "remove":
 		if len(args) < 3 {
@@ -557,7 +557,7 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 		}
 		s.board.mu.Unlock()
 		s.broadcastObjectiveRemove(name)
-		return componentReply(translatable("commands.scoreboard.objectives.remove.success",
+		return opsEchoReply(translatable("commands.scoreboard.objectives.remove.success",
 			s.objectiveChatComponent(name)))
 	case "setdisplay":
 		// setdisplay <slot> [<objective>] — slot is one of list,
@@ -592,7 +592,7 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 			s.board.displaySlots[slot] = ""
 			s.board.mu.Unlock()
 			s.broadcastDisplayObjective(int32(slot), "")
-			return componentReply(translatable(
+			return opsEchoReply(translatable(
 				"commands.scoreboard.objectives.display.cleared", args[2]))
 		}
 		s.board.mu.Lock()
@@ -612,7 +612,7 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 		s.board.displaySlots[slot] = name
 		s.board.mu.Unlock()
 		s.broadcastDisplayObjective(int32(slot), name)
-		return componentReply(translatable(
+		return opsEchoReply(translatable(
 			"commands.scoreboard.objectives.display.set",
 			args[2], s.objectiveDisplay(name)))
 	case "modify":
@@ -653,7 +653,7 @@ func (s *Server) runScoreboardModify(args []string) reply {
 		o.display = v
 		s.board.mu.Unlock()
 		s.broadcastObjectiveChange(name, o)
-		return componentReply(translatable(
+		return opsEchoReply(translatable(
 			"commands.scoreboard.objectives.modify.displayname",
 			name, s.objectiveChatComponent(name)))
 	case "displayautoupdate":
@@ -678,7 +678,7 @@ func (s *Server) runScoreboardModify(args []string) reply {
 		if flag {
 			key = "commands.scoreboard.objectives.modify.displayAutoUpdate.enable"
 		}
-		return componentReply(translatable(key, name, s.objectiveChatComponent(name)))
+		return opsEchoReply(translatable(key, name, s.objectiveChatComponent(name)))
 	case "numberformat":
 		format, rep := parseNumberFormatArgs(args, 4)
 		if rep != nil {
@@ -692,7 +692,7 @@ func (s *Server) runScoreboardModify(args []string) reply {
 		if format == nil {
 			key = "commands.scoreboard.objectives.modify.objectiveFormat.clear"
 		}
-		return componentReply(translatable(key, name))
+		return opsEchoReply(translatable(key, name))
 	case "rendertype":
 		if len(args) < 5 {
 			return errTokenEnd("command.unknown.command", len(args))
@@ -712,7 +712,7 @@ func (s *Server) runScoreboardModify(args []string) reply {
 		o.renderType = rt
 		s.board.mu.Unlock()
 		s.broadcastObjectiveChange(name, o)
-		return componentReply(translatable(
+		return opsEchoReply(translatable(
 			"commands.scoreboard.objectives.modify.rendertype",
 			s.objectiveChatComponent(name)))
 	}
@@ -904,14 +904,14 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 			total := scoreValue(s.board.scores[h.name][objective])
 			switch args[1] {
 			case "set":
-				return componentReply(translatable("commands.scoreboard.players.set.success.single",
+				return opsEchoReply(translatable("commands.scoreboard.players.set.success.single",
 					objComp, h.arg(), nestedCompound{key: "", value: int32(value)}))
 			case "add":
-				return componentReply(translatable("commands.scoreboard.players.add.success.single",
+				return opsEchoReply(translatable("commands.scoreboard.players.add.success.single",
 					nestedCompound{key: "", value: int32(value)}, objComp, h.arg(),
 					nestedCompound{key: "", value: total}))
 			default:
-				return componentReply(translatable("commands.scoreboard.players.remove.success.single",
+				return opsEchoReply(translatable("commands.scoreboard.players.remove.success.single",
 					nestedCompound{key: "", value: int32(value)}, objComp, h.arg(),
 					nestedCompound{key: "", value: total}))
 			}
@@ -919,13 +919,13 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 		n := len(holders)
 		switch args[1] {
 		case "set":
-			return componentReply(translatable("commands.scoreboard.players.set.success.multiple",
+			return opsEchoReply(translatable("commands.scoreboard.players.set.success.multiple",
 				objComp, nestedCompound{key: "", value: n}, nestedCompound{key: "", value: int32(value)}))
 		case "add":
-			return componentReply(translatable("commands.scoreboard.players.add.success.multiple",
+			return opsEchoReply(translatable("commands.scoreboard.players.add.success.multiple",
 				nestedCompound{key: "", value: int32(value)}, objComp, nestedCompound{key: "", value: n}))
 		default:
-			return componentReply(translatable("commands.scoreboard.players.remove.success.multiple",
+			return opsEchoReply(translatable("commands.scoreboard.players.remove.success.multiple",
 				nestedCompound{key: "", value: int32(value)}, objComp, nestedCompound{key: "", value: n}))
 		}
 	case "reset":
@@ -976,16 +976,16 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 		if len(holders) == 1 {
 			h := holders[0]
 			if objective == "" {
-				return componentReply(translatable("commands.scoreboard.players.reset.all.single", h.arg()))
+				return opsEchoReply(translatable("commands.scoreboard.players.reset.all.single", h.arg()))
 			}
-			return componentReply(translatable("commands.scoreboard.players.reset.specific.single",
+			return opsEchoReply(translatable("commands.scoreboard.players.reset.specific.single",
 				s.objectiveChatComponent(objective), h.arg()))
 		}
 		if objective == "" {
-			return componentReply(translatable("commands.scoreboard.players.reset.all.multiple",
+			return opsEchoReply(translatable("commands.scoreboard.players.reset.all.multiple",
 				len(holders)))
 		}
-		return componentReply(translatable("commands.scoreboard.players.reset.specific.multiple",
+		return opsEchoReply(translatable("commands.scoreboard.players.reset.specific.multiple",
 			s.objectiveChatComponent(objective), len(holders)))
 	case "operation":
 		// operation <targets> <targetObjective> <op> <source> <sourceObjective>
@@ -1082,11 +1082,11 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 			s.broadcastScore(h.name, targetObj, scoreValue(s.board.scores[h.name][targetObj]))
 		}
 		if len(holders) == 1 {
-			return componentReply(translatable("commands.scoreboard.players.operation.success.single",
+			return opsEchoReply(translatable("commands.scoreboard.players.operation.success.single",
 				s.objectiveChatComponent(targetObj), holders[0].arg(),
 				nestedCompound{key: "", value: result}))
 		}
-		return componentReply(translatable("commands.scoreboard.players.operation.success.multiple",
+		return opsEchoReply(translatable("commands.scoreboard.players.operation.success.multiple",
 			s.objectiveChatComponent(targetObj), nestedCompound{key: "", value: len(holders)}))
 	case "enable":
 		// enable <targets> <objective> — releases the locked flag on
@@ -1135,10 +1135,10 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 			return componentReply(commandError("commands.scoreboard.players.enable.failed"))
 		}
 		if len(enabled) == 1 {
-			return componentReply(translatable("commands.scoreboard.players.enable.success.single",
+			return opsEchoReply(translatable("commands.scoreboard.players.enable.success.single",
 				s.objectiveChatComponent(objective), enabled[0].arg()))
 		}
-		return componentReply(translatable("commands.scoreboard.players.enable.success.multiple",
+		return opsEchoReply(translatable("commands.scoreboard.players.enable.success.multiple",
 			s.objectiveChatComponent(objective), len(enabled)))
 	case "display":
 		// display name|numberformat <targets> <objective> [<value>] —
@@ -1194,20 +1194,20 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 			objComp := s.objectiveChatComponent(objective)
 			if len(holders) == 1 {
 				if display == nil {
-					return componentReply(translatable(
+					return opsEchoReply(translatable(
 						"commands.scoreboard.players.display.name.clear.success.single",
 						holders[0].arg(), objComp))
 				}
-				return componentReply(translatable(
+				return opsEchoReply(translatable(
 					"commands.scoreboard.players.display.name.set.success.single",
 					nestedCompound{key: "", value: flatWireArg(display)}, holders[0].arg(), objComp))
 			}
 			if display == nil {
-				return componentReply(translatable(
+				return opsEchoReply(translatable(
 					"commands.scoreboard.players.display.name.clear.success.multiple",
 					len(holders), objComp))
 			}
-			return componentReply(translatable(
+			return opsEchoReply(translatable(
 				"commands.scoreboard.players.display.name.set.success.multiple",
 				nestedCompound{key: "", value: flatWireArg(display)}, len(holders), objComp))
 		}
@@ -1230,11 +1230,11 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 			kind = "clear"
 		}
 		if len(holders) == 1 {
-			return componentReply(translatable(
+			return opsEchoReply(translatable(
 				"commands.scoreboard.players.display.numberFormat."+kind+".success.single",
 				holders[0].arg(), objComp))
 		}
-		return componentReply(translatable(
+		return opsEchoReply(translatable(
 			"commands.scoreboard.players.display.numberFormat."+kind+".success.multiple",
 			len(holders), objComp))
 	}

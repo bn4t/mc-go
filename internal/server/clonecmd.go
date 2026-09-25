@@ -260,5 +260,5 @@ func (s *Server) runClone(player string, args []string) reply {
 			}
 		}
 	}
-	return componentReply(translatable("commands.clone.success", int32(len(cells))))
+	return opsEchoReply(translatable("commands.clone.success", int32(len(cells))))
 }

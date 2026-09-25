@@ -52,13 +52,7 @@ func (s *Server) runTeam(player string, args []string) reply {
 	if len(args) == 0 {
 		return textReply("Usage: /team <add|remove|join|leave|empty|list|modify> ...")
 	}
-	// The admin echo's sender name resolves before the command mutates
-	// team state — `team join red P` echoes a still-teamless P.
 	sender := s.findSessionByName(player)
-	var senderName component
-	if sender != nil {
-		senderName = s.teamFormattedName(sender)
-	}
 	switch args[0] {
 	case "add":
 		if len(args) < 2 {
@@ -84,8 +78,7 @@ func (s *Server) runTeam(player string, args []string) reply {
 		s.broadcastTeamCreate(t)
 		s.broadcastTeamUpdate(t)
 		msg := translatable("commands.team.add.success", t.brackets())
-		s.broadcastTeamAdmin(sender, senderName, msg)
-		return componentReply(msg)
+		return opsEchoReply(msg)
 	case "remove":
 		if len(args) < 2 {
 			return textReply("Usage: /team remove <team>")
@@ -99,8 +92,7 @@ func (s *Server) runTeam(player string, args []string) reply {
 		s.board.mu.Unlock()
 		s.broadcastTeamPacket(t.name, 1, nil)
 		msg := translatable("commands.team.remove.success", t.brackets())
-		s.broadcastTeamAdmin(sender, senderName, msg)
-		return componentReply(msg)
+		return opsEchoReply(msg)
 	case "join":
 		if len(args) < 2 {
 			return textReply("Usage: /team join <team> [members]")
@@ -135,8 +127,7 @@ func (s *Server) runTeam(player string, args []string) reply {
 			msg = translatable("commands.team.join.success.multiple",
 				nestedCompound{key: "", value: int32(len(names))}, t.brackets())
 		}
-		s.broadcastTeamAdmin(sender, senderName, msg)
-		return componentReply(msg)
+		return opsEchoReply(msg)
 	case "leave":
 		targets := []string{player}
 		if len(args) > 1 {
@@ -163,8 +154,7 @@ func (s *Server) runTeam(player string, args []string) reply {
 			msg = translatable("commands.team.leave.success.multiple",
 				nestedCompound{key: "", value: int32(len(names))})
 		}
-		s.broadcastTeamAdmin(sender, senderName, msg)
-		return componentReply(msg)
+		return opsEchoReply(msg)
 	case "empty":
 		if len(args) < 2 {
 			return textReply("Usage: /team empty <team>")
@@ -182,8 +172,7 @@ func (s *Server) runTeam(player string, args []string) reply {
 			s.teamDrop(t, n)
 		}
 		msg := translatable("commands.team.empty.success", nestedCompound{key: "", value: count}, t.brackets())
-		s.broadcastTeamAdmin(sender, senderName, msg)
-		return componentReply(msg)
+		return opsEchoReply(msg)
 	case "list":
 		if len(args) > 1 {
 			t := s.board.teamByName(args[1])
@@ -191,7 +180,7 @@ func (s *Server) runTeam(player string, args []string) reply {
 				return componentReply(commandError("team.notFound", args[1]))
 			}
 			if len(t.order) == 0 {
-				return componentReply(translatable(
+				return opsEchoReply(translatable(
 					"commands.team.list.members.empty", t.brackets()))
 			}
 			var names []component
@@ -205,7 +194,7 @@ func (s *Server) runTeam(player string, args []string) reply {
 			if len(names) > 1 {
 				memberList = component{text: "", extra: names}
 			}
-			return componentReply(translatable(
+			return opsEchoReply(translatable(
 				"commands.team.list.members.success",
 				t.brackets(), nestedCompound{key: "", value: int32(len(t.order))},
 				memberList))
@@ -231,7 +220,7 @@ func (s *Server) runTeam(player string, args []string) reply {
 		if len(names) > 1 {
 			teamList = component{text: "", extra: names}
 		}
-		return componentReply(translatable(
+		return opsEchoReply(translatable(
 			"commands.team.list.teams.success",
 			nestedCompound{key: "", value: int32(len(all))},
 			teamList))
@@ -243,7 +232,7 @@ func (s *Server) runTeam(player string, args []string) reply {
 		if t == nil {
 			return componentReply(commandError("team.notFound", args[1]))
 		}
-		return s.teamModify(sender, senderName, t, args)
+		return s.teamModify(sender, t, args)
 	}
 	return textReply("Unknown team subcommand: " + args[0])
 }
@@ -273,7 +262,7 @@ func sortTeams(ts []*team) {
 // suffix are the only writes that skip the other-operator echo.
 // Token indices mark where vanilla's parser would point: the property
 // is input token 3, the value token 4.
-func (s *Server) teamModify(sender *Session, senderName component, t *team, args []string) reply {
+func (s *Server) teamModify(sender *Session, t *team, args []string) reply {
 	prop := args[2]
 	value := strings.Join(args[3:], " ")
 	var msg component
@@ -378,10 +367,9 @@ func (s *Server) teamModify(sender *Session, senderName component, t *team, args
 		return errToken("command.unknown.argument", 3)
 	}
 	s.broadcastTeamUpdate(t)
-	if echo {
-		s.broadcastTeamAdmin(sender, senderName, msg)
-	}
-	return componentReply(msg)
+	r := componentReply(msg)
+	r.opsEcho = echo
+	return r
 }
 
 // teamVisID maps a visibility value to its enum ordinal: always,
@@ -573,30 +561,6 @@ func (s *Server) plainTargetName(name string) component {
 			"value":  name,
 		},
 	}
-}
-
-// broadcastTeamAdmin is broadcastAdmin with the team-formatted sender
-// name — /team's command feedback. The name is resolved by the caller
-// before team state changes so a join/leave doesn't restyle the echo.
-func (s *Server) broadcastTeamAdmin(sender *Session, senderName component, msg component) {
-	if sender == nil {
-		return
-	}
-	c := component{
-		color:     "gray",
-		italic:    true,
-		translate: "chat.type.admin",
-		with:      []any{senderName, msg},
-	}
-	body := systemChatBody(c)
-	s.sessions.Range(func(_, v any) bool {
-		other := v.(*Session)
-		if other == sender || other.state.Load() != StatePlay || other.opLevel() == 0 {
-			return true
-		}
-		_ = other.write(other.ids().PlaySystemChatCB, body)
-		return true
-	})
 }
 
 // broadcastTeamPacket sends one SetPlayerTeam packet to every

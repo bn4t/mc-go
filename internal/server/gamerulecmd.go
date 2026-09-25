@@ -62,5 +62,5 @@ func (s *Server) runGameRule(player string, args []string) reply {
 	s.rulesMu.Lock()
 	s.gameRules[key] = val
 	s.rulesMu.Unlock()
-	return componentReply(translatable("commands.gamerule.set", name, val))
+	return opsEchoReply(translatable("commands.gamerule.set", name, val))
 }

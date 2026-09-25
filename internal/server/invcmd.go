@@ -185,9 +185,9 @@ func (s *Server) runEnchant(player string, args []string) reply {
 		lastName = t.nameComp()
 	}
 	if n == 1 {
-		return componentReply(translatable("commands.enchant.success.single", enchComp, lastName))
+		return opsEchoReply(translatable("commands.enchant.success.single", enchComp, lastName))
 	}
-	return componentReply(translatable("commands.enchant.success.multiple",
+	return opsEchoReply(translatable("commands.enchant.success.multiple",
 		enchComp, nestedCompound{key: "", value: int32(n)}))
 }
 
@@ -281,7 +281,7 @@ func (s *Server) runClear(player string, args []string) reply {
 				nestedCompound{key: "", value: int32(total)},
 				playerChatComponent(targets[0])))
 		}
-		return componentReply(translatable("commands.clear.success.single",
+		return opsEchoReply(translatable("commands.clear.success.single",
 			nestedCompound{key: "", value: int32(total)},
 			playerChatComponent(targets[0])))
 	}
@@ -292,7 +292,7 @@ func (s *Server) runClear(player string, args []string) reply {
 	if testOnly {
 		key = "commands.clear.test.multiple"
 	}
-	return componentReply(translatable(key,
+	return opsEchoReply(translatable(key,
 		nestedCompound{key: "", value: int32(total)},
 		nestedCompound{key: "", value: int32(len(targets))}))
 }

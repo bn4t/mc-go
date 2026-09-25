@@ -52,8 +52,8 @@ func (s *Server) runKill(player string, args []string) reply {
 		}
 	}
 	if len(cands) == 1 {
-		return componentReply(translatable("commands.kill.success.single", cands[0].nameComp()))
+		return opsEchoReply(translatable("commands.kill.success.single", cands[0].nameComp()))
 	}
-	return componentReply(translatable("commands.kill.success.multiple",
+	return opsEchoReply(translatable("commands.kill.success.multiple",
 		int32(len(cands))))
 }

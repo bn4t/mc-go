@@ -124,7 +124,7 @@ func (s *Server) runForceLoad(player string, args []string) reply {
 			for k := range s.forcedChunks[dim] {
 				delete(s.forcedChunks[dim], k)
 			}
-			return componentReply(translatable("commands.forceload.removed.all", dim))
+			return opsEchoReply(translatable("commands.forceload.removed.all", dim))
 		}
 		fx, fz, r := parseColumnPos(sess, args, 1, 2)
 		if r != nil {
@@ -179,10 +179,10 @@ func (s *Server) runForceLoad(player string, args []string) reply {
 		case changed == 0:
 			return componentReply(commandError("commands.forceload." + verb + ".failure"))
 		case changed == 1:
-			return componentReply(translatable("commands.forceload."+verb+".single",
+			return opsEchoReply(translatable("commands.forceload."+verb+".single",
 				chunkStr(x0, z0), dim))
 		default:
-			return componentReply(translatable("commands.forceload."+verb+".multiple",
+			return opsEchoReply(translatable("commands.forceload."+verb+".multiple",
 				nestedCompound{key: "", value: int32(changed)},
 				nestedCompound{key: "", value: dim},
 				nestedCompound{key: "", value: chunkStr(x0, z0)},
@@ -338,7 +338,7 @@ func (s *Server) runFillBiome(player string, args []string) reply {
 		}
 		d.biomesMu.Unlock()
 	}
-	return componentReply(translatable("commands.fillbiome.success.count",
+	return opsEchoReply(translatable("commands.fillbiome.success.count",
 		int32(n), int32(from[0]), int32(from[1]), int32(from[2]),
 		int32(to[0]), int32(to[1]), int32(to[2])))
 }
@@ -495,13 +495,13 @@ func (s *Server) runDataPack(player string, args []string) reply {
 				return componentReply(commandError("commands.datapack.enable.failed", name))
 			}
 			s.datapacks[name] = true
-			return componentReply(translatable("commands.datapack.modify.enable", dataPackComponent(name)))
+			return opsEchoReply(translatable("commands.datapack.modify.enable", dataPackComponent(name)))
 		}
 		if !s.datapacks[name] {
 			return componentReply(commandError("commands.datapack.disable.failed", name))
 		}
 		delete(s.datapacks, name)
-		return componentReply(translatable("commands.datapack.modify.disable", dataPackComponent(name)))
+		return opsEchoReply(translatable("commands.datapack.modify.disable", dataPackComponent(name)))
 	case "create":
 		if len(args) < 2 {
 			return errTokenEnd("command.unknown.command", len(args)+1)
@@ -517,7 +517,7 @@ func (s *Server) runDataPack(player string, args []string) reply {
 			s.customPacks = map[string]bool{}
 		}
 		s.customPacks[name] = true
-		return componentReply(translatable("commands.datapack.create.success", name))
+		return opsEchoReply(translatable("commands.datapack.create.success", name))
 	}
 	return errToken("command.unknown.argument", 1)
 }
@@ -706,7 +706,7 @@ func (s *Server) runWaypoint(player string, args []string) reply {
 			switch args[3] {
 			case "reset":
 				setWaypointColor(target, "")
-				return componentReply(translatable("commands.waypoint.modify.color.reset"))
+				return opsEchoReply(translatable("commands.waypoint.modify.color.reset"))
 			case "hex":
 				if len(args) < 5 {
 					return errTokenEnd("command.unknown.command", 5)
@@ -714,7 +714,7 @@ func (s *Server) runWaypoint(player string, args []string) reply {
 				hex := args[4]
 				col := "#" + strings.ToUpper(hex)
 				setWaypointColor(target, col)
-				return componentReply(translatable("commands.waypoint.modify.color",
+				return opsEchoReply(translatable("commands.waypoint.modify.color",
 					component{color: col, text: col}))
 			default:
 				c := args[3]
@@ -722,7 +722,7 @@ func (s *Server) runWaypoint(player string, args []string) reply {
 					return errTokenEnd("argument.color.invalid", 4, c)
 				}
 				setWaypointColor(target, c)
-				return componentReply(translatable("commands.waypoint.modify.color",
+				return opsEchoReply(translatable("commands.waypoint.modify.color",
 					component{color: c, text: c}))
 			}
 		case "style":
@@ -732,13 +732,13 @@ func (s *Server) runWaypoint(player string, args []string) reply {
 			switch args[3] {
 			case "reset":
 				setWaypointStyle(target, "")
-				return componentReply(translatable("commands.waypoint.modify.style"))
+				return opsEchoReply(translatable("commands.waypoint.modify.style"))
 			case "set":
 				if len(args) < 5 {
 					return errTokenEnd("command.unknown.command", 5)
 				}
 				setWaypointStyle(target, args[4])
-				return componentReply(translatable("commands.waypoint.modify.style"))
+				return opsEchoReply(translatable("commands.waypoint.modify.style"))
 			}
 			return errToken("command.unknown.argument", 4)
 		}
@@ -872,8 +872,8 @@ func (s *Server) runSwing(player string, args []string) reply {
 		s.broadcastEntityAnimation(nil, eid, anim)
 	}
 	if len(living) == 1 {
-		return componentReply(translatable("commands.swing.success.single", living[0].nameComp()))
+		return opsEchoReply(translatable("commands.swing.success.single", living[0].nameComp()))
 	}
-	return componentReply(translatable("commands.swing.success.multiple",
+	return opsEchoReply(translatable("commands.swing.success.multiple",
 		nestedCompound{key: "", value: int32(len(living))}))
 }

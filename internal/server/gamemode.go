@@ -78,35 +78,16 @@ func (s *Server) runGamemode(player string, args []string) reply {
 	} else {
 		selfMsg = translatable("commands.gamemode.success.other", s.entityTargetComponent(target), modeName)
 	}
-	s.broadcastAdmin(sess, selfMsg)
+	// The admin echo rides the reply's opsEcho flag out through
+	// sendReply — vanilla's sendSuccess(_, broadcastToOps) shape.
 	if old == GameModeCreative || mode == GameModeCreative {
 		// The reach resync goes to the changed player only: trackers
 		// get the tab-list update, not the attributes.
 		_ = target.write(target.ids().PlayUpdateAttributes, updateAttributesMode(target.entityID.Load(), mode))
 	}
 	s.broadcastPlayerInfoGamemode(target)
-	return componentReply(selfMsg)
+	return opsEchoReply(selfMsg)
 }
 
-// broadcastAdmin relays a command's message to the other operators as
-// a gray-italic chat.type.admin broadcast naming the issuing player,
-// which is how vanilla reports one operator's command to the rest.
-// Which permission levels see it is unmeasured; mc-go shows it to all
-// operators.
-func (s *Server) broadcastAdmin(sender *Session, msg component) {
-	c := component{
-		color:     "gray",
-		italic:    true,
-		translate: "chat.type.admin",
-		with:      []any{s.entityTargetComponent(sender), msg},
-	}
-	body := systemChatBody(c)
-	s.sessions.Range(func(_, v any) bool {
-		other := v.(*Session)
-		if other == sender || other.state.Load() != StatePlay || other.opLevel() == 0 {
-			return true
-		}
-		_ = other.write(other.ids().PlaySystemChatCB, body)
-		return true
-	})
-}
+// (No broadcastAdmin: every admin echo rides a reply's opsEcho flag
+// out through sendReply → sendOpsEcho — same chat.type.admin wire.)

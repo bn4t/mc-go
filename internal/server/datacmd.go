@@ -64,7 +64,7 @@ func (s *Server) runData(player string, args []string) reply {
 		nestedCompound{key: "", value: int32(z)},
 	}
 	modified := func() reply {
-		return componentReply(translatable("commands.data.block.modified",
+		return opsEchoReply(translatable("commands.data.block.modified",
 			int32(x), int32(y), int32(z)))
 	}
 	// applyBlockEntity writes the edited map back into the stores and

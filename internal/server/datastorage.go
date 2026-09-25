@@ -15,7 +15,7 @@ func (s *Server) runDataStorage(player string, args []string) reply {
 	}
 	id := args[2]
 	modified := func() reply {
-		return componentReply(translatable("commands.data.storage.modified", id))
+		return opsEchoReply(translatable("commands.data.storage.modified", id))
 	}
 
 	switch args[0] {

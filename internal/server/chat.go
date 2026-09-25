@@ -265,7 +265,9 @@ func (s *Server) sendReply(sess *Session, r reply) {
 		}
 		if r.opsEcho {
 			s.sendOpsEcho(sess, r.comp)
-			for _, c := range r.extra {
+		}
+		for i, c := range r.extra {
+			if i < len(r.extraEcho) && r.extraEcho[i] {
 				s.sendOpsEcho(sess, c)
 			}
 		}
@@ -291,12 +293,20 @@ func (s *Server) sendSystemChat(sess *Session, text string) {
 // produced the reply; nil is the server's own source, which is what
 // the sprint report broadcasts through.
 func (s *Server) sendOpsEcho(from *Session, c component) {
-	if !s.gameRuleBool("minecraft:send_command_feedback") {
-		return
-	}
 	name := component{text: "Server"}
 	if from != nil {
-		name = component{text: from.getName()}
+		// getDisplayName resolves at echo time, so a teammate is
+		// already shown in the team's dress — formatNameForTeam.
+		name = s.teamFormattedName(from)
+	}
+	s.sendOpsEchoNamed(from, name, c)
+}
+
+// sendOpsEchoNamed is sendOpsEcho with the source name chosen by the
+// caller — RCON reports as "RCON", the server's own source as "Server".
+func (s *Server) sendOpsEchoNamed(from *Session, name, c component) {
+	if !s.gameRuleBool("minecraft:send_command_feedback") {
+		return
 	}
 	echo := component{
 		translate: "chat.type.admin",

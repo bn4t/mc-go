@@ -127,7 +127,7 @@ func spawnReply(key string, pos [3]int, yaw, pitch float32, dimName string, with
 		nestedCompound{key: "", value: dimName},
 	}
 	args = append(args, with...)
-	return componentReply(translatable(key, args...))
+	return opsEchoReply(translatable(key, args...))
 }
 
 // runSpawnpoint implements /spawnpoint [targets] [pos] [yaw pitch]:

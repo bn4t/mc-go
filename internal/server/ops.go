@@ -69,10 +69,7 @@ func (s *Server) baseExactPos(player string) (float64, float64, float64) {
 // issuer gets the translatable component, the other operators a
 // gray-italic chat.type.admin relay.
 func (s *Server) tpReply(issuer string, msg component) reply {
-	if iss := s.findSessionByName(issuer); iss != nil {
-		s.broadcastAdmin(iss, msg)
-	}
-	return componentReply(msg)
+	return opsEchoReply(msg)
 }
 
 // tpCoords renders the coordinate arguments the way vanilla's

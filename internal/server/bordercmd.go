@@ -106,7 +106,7 @@ func (s *Server) runWorldBorderCenter(sender *Session, b *border, dim string, ar
 	pkt.Double(x)
 	pkt.Double(z)
 	s.broadcastToDim(dim, nil, LatestVersion().IDs.PlaySetBorderCenter, pkt.Bytes())
-	return componentReply(translatable("commands.worldborder.center.success",
+	return opsEchoReply(translatable("commands.worldborder.center.success",
 		strconv.FormatFloat(x, 'f', 2, 64), strconv.FormatFloat(z, 'f', 2, 64)))
 }
 
@@ -152,7 +152,7 @@ func (s *Server) runWorldBorderSet(b *border, dim string, args []string, add boo
 		var pkt protocol.Buffer
 		pkt.Double(v)
 		s.broadcastToDim(dim, nil, LatestVersion().IDs.PlaySetBorderSize, pkt.Bytes())
-		return componentReply(translatable("commands.worldborder.set.immediate",
+		return opsEchoReply(translatable("commands.worldborder.set.immediate",
 			strconv.FormatFloat(v, 'f', 1, 64)))
 	}
 	var pkt protocol.Buffer
@@ -160,7 +160,7 @@ func (s *Server) runWorldBorderSet(b *border, dim string, args []string, add boo
 	pkt.Double(v)
 	pkt.VarLong(int64(ticks))
 	s.broadcastToDim(dim, nil, LatestVersion().IDs.PlaySetBorderLerpSize, pkt.Bytes())
-	return componentReply(translatable("commands.worldborder.set.grow",
+	return opsEchoReply(translatable("commands.worldborder.set.grow",
 		strconv.FormatFloat(v, 'f', 1, 64),
 		strconv.FormatFloat(float64(ticks)*0.05, 'f', 2, 64)))
 }
@@ -198,7 +198,7 @@ func (s *Server) runWorldBorderDamage(b *border, args []string) reply {
 	} else {
 		b.damageSafeZone = float32(v)
 	}
-	return componentReply(translatable(key, strconv.FormatFloat(v, 'f', 2, 32)))
+	return opsEchoReply(translatable(key, strconv.FormatFloat(v, 'f', 2, 32)))
 }
 
 // runWorldBorderWarning implements /worldborder warning time|distance
@@ -229,7 +229,7 @@ func (s *Server) runWorldBorderWarning(b *border, dim string, args []string) rep
 		var pkt protocol.Buffer
 		pkt.VarInt(t)
 		s.broadcastToDim(dim, nil, LatestVersion().IDs.PlaySetBorderWarningDelay, pkt.Bytes())
-		return componentReply(translatable("commands.worldborder.warning.time.success",
+		return opsEchoReply(translatable("commands.worldborder.warning.time.success",
 			strconv.FormatFloat(float64(t)*0.05, 'f', 2, 64)))
 	}
 	n, err := strconv.ParseInt(args[2], 10, 32)
@@ -243,6 +243,6 @@ func (s *Server) runWorldBorderWarning(b *border, dim string, args []string) rep
 	var pkt protocol.Buffer
 	pkt.VarInt(int32(n))
 	s.broadcastToDim(dim, nil, LatestVersion().IDs.PlaySetBorderWarnDistance, pkt.Bytes())
-	return componentReply(translatable("commands.worldborder.warning.distance.success",
+	return opsEchoReply(translatable("commands.worldborder.warning.distance.success",
 		int32(n)))
 }

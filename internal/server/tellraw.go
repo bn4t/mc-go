@@ -356,9 +356,9 @@ func (s *Server) runTitle(player string, args []string) reply {
 			_ = sess.write(sess.ids().PlayClearTitles, pkt)
 		}
 		if reset {
-			return componentReply(translatable("commands.title.reset"+suffix, multi()))
+			return opsEchoReply(translatable("commands.title.reset"+suffix, multi()))
 		}
-		return componentReply(translatable("commands.title.cleared"+suffix, multi()))
+		return opsEchoReply(translatable("commands.title.cleared"+suffix, multi()))
 	case "times":
 		if len(args) < 5 {
 			return errToken("command.unknown.argument", len(args))
@@ -385,7 +385,7 @@ func (s *Server) runTitle(player string, args []string) reply {
 		for _, sess := range targets {
 			_ = sess.write(sess.ids().PlaySetTitlesAnimation, pkt)
 		}
-		return componentReply(translatable("commands.title.times"+suffix, multi()))
+		return opsEchoReply(translatable("commands.title.times"+suffix, multi()))
 	case "title", "subtitle", "actionbar":
 		if len(args) < 3 {
 			return errTokenEnd("command.unknown.argument", len(args))
@@ -415,7 +415,7 @@ func (s *Server) runTitle(player string, args []string) reply {
 			}
 			_ = sess.write(pid, pkt)
 		}
-		return componentReply(translatable(key+suffix, multi()))
+		return opsEchoReply(translatable(key+suffix, multi()))
 	default:
 		return errToken("command.unknown.argument", 2)
 	}

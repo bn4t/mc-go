@@ -174,10 +174,10 @@ func (s *Server) runPlaysound(player string, args []string) reply {
 	}
 	snd := nestedCompound{key: "", value: sound}
 	if len(targets) == 1 {
-		return componentReply(translatable("commands.playsound.success.single",
+		return opsEchoReply(translatable("commands.playsound.success.single",
 			snd, playerChatComponent(targets[0])))
 	}
-	return componentReply(translatable("commands.playsound.success.multiple",
+	return opsEchoReply(translatable("commands.playsound.success.multiple",
 		snd, nestedCompound{key: "", value: int32(len(targets))}))
 }
 
@@ -226,11 +226,11 @@ func (s *Server) runStopsound(player string, args []string) reply {
 	}
 	switch {
 	case !hasSource:
-		return componentReply(translatable("commands.stopsound.success.sourceless.any"))
+		return opsEchoReply(translatable("commands.stopsound.success.sourceless.any"))
 	case !hasSound:
-		return componentReply(translatable("commands.stopsound.success.source.any", args[1]))
+		return opsEchoReply(translatable("commands.stopsound.success.source.any", args[1]))
 	default:
-		return componentReply(translatable("commands.stopsound.success.source.sound", sound, args[1]))
+		return opsEchoReply(translatable("commands.stopsound.success.source.sound", sound, args[1]))
 	}
 }
 
@@ -368,7 +368,7 @@ func (s *Server) runParticle(player string, args []string) reply {
 		p.VarInt(id)
 		_ = t.write(t.ids().PlayLevelParticles, p.Bytes())
 	}
-	return componentReply(translatable("commands.particle.success", name))
+	return opsEchoReply(translatable("commands.particle.success", name))
 }
 
 func (s *Server) allSessions() []*Session {

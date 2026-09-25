@@ -141,7 +141,7 @@ func (s *Server) recipeReply(sess *Session, give bool, n int32) reply {
 	if !give {
 		key = "commands.recipe.take.success.single"
 	}
-	return componentReply(translatable(key,
+	return opsEchoReply(translatable(key,
 		nestedCompound{key: "", value: n},
 		s.entityTargetComponent(sess)))
 }

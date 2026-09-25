@@ -1283,7 +1283,7 @@ func (s *Server) runFill(player string, args []string) reply {
 	if changed == 0 {
 		return componentReply(commandError("commands.fill.failed"))
 	}
-	return componentReply(translatable("commands.fill.success", int32(changed)))
+	return opsEchoReply(translatable("commands.fill.success", int32(changed)))
 }
 
 func minmax(a, b int) (int, int) {

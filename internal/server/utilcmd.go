@@ -74,7 +74,7 @@ func (s *Server) runDifficulty(args []string) reply {
 		return errToken("command.unknown.argument", 2)
 	}
 	s.setDifficulty(d)
-	return componentReply(translatable("commands.difficulty.success", translatable("options.difficulty."+args[0])))
+	return opsEchoReply(translatable("commands.difficulty.success", translatable("options.difficulty."+args[0])))
 }
 
 // worldSeed reports the seed the world was generated with: the
@@ -226,12 +226,12 @@ func (s *Server) runWhitelist(args []string) reply {
 			if has {
 				return componentReply(commandError("commands.whitelist.add.failed"))
 			}
-			return componentReply(translatable("commands.whitelist.add.success", name))
+			return opsEchoReply(translatable("commands.whitelist.add.success", name))
 		}
 		if !has {
 			return componentReply(commandError("commands.whitelist.remove.failed"))
 		}
-		return componentReply(translatable("commands.whitelist.remove.success", name))
+		return opsEchoReply(translatable("commands.whitelist.remove.success", name))
 	case "reload":
 		s.reloadWhitelist()
 		key = "commands.whitelist.reloaded"
@@ -241,7 +241,7 @@ func (s *Server) runWhitelist(args []string) reply {
 	if len(args) > 1 {
 		return errToken("command.unknown.argument", 2)
 	}
-	return componentReply(translatable(key))
+	return opsEchoReply(translatable(key))
 }
 
 // runBanlist implements /banlist: both forms report the empty ban
@@ -277,9 +277,9 @@ func (s *Server) runSetIdleTimeout(args []string) reply {
 	}
 	s.idleTimeoutMinutes.Store(int32(n))
 	if n == 0 {
-		return componentReply(translatable("commands.setidletimeout.success.disabled"))
+		return opsEchoReply(translatable("commands.setidletimeout.success.disabled"))
 	}
-	return componentReply(translatable("commands.setidletimeout.success", int32(n)))
+	return opsEchoReply(translatable("commands.setidletimeout.success", int32(n)))
 }
 
 // runSay implements /say <message> — the say_command disguised chat

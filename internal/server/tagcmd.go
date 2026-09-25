@@ -58,10 +58,10 @@ func (s *Server) runTag(player string, args []string) reply {
 		}
 		tagArg := nestedCompound{key: "", value: tag}
 		if len(targets) == 1 {
-			return componentReply(translatable("commands.tag.add.success.single",
+			return opsEchoReply(translatable("commands.tag.add.success.single",
 				tagArg, targets[0].nameComp()))
 		}
-		return componentReply(translatable("commands.tag.add.success.multiple",
+		return opsEchoReply(translatable("commands.tag.add.success.multiple",
 			tagArg, int32(len(changed))))
 	}
 	var changed []*dataEntity
@@ -75,10 +75,10 @@ func (s *Server) runTag(player string, args []string) reply {
 	}
 	tagArg := nestedCompound{key: "", value: tag}
 	if len(targets) == 1 {
-		return componentReply(translatable("commands.tag.remove.success.single",
+		return opsEchoReply(translatable("commands.tag.remove.success.single",
 			tagArg, targets[0].nameComp()))
 	}
-	return componentReply(translatable("commands.tag.remove.success.multiple",
+	return opsEchoReply(translatable("commands.tag.remove.success.multiple",
 		tagArg, int32(len(changed))))
 }
 

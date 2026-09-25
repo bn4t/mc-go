@@ -6690,3 +6690,32 @@ mob equip persistence/guaranteed-drop.
   remaining bonemeal targets, happy-ghast harness, egg chick-hatch,
   piston entity push + moving_piston + block_event packet, audit of
   broadcastToOps flags on other commands (time set, gamerule, etc).
+
+## Slice 2026-09-25l — broadcastToOps audit sweep (ops echo parity)
+
+- Measured every vanilla command class's sendSuccess(_,flag) on the
+  26.2 jar (javap sweep, ~60 classes): mutations broadcast (66 sites),
+  queries don't (31). Mutator replies answer the caller bare AND wrap
+  to every other op as chat.type.admin [name: msg] in gray italic.
+- Converted ~215 mc-go reply sites to opsEchoReply, reverted ~45 query
+  keys, unified the hand-rolled broadcastAdmin/broadcastTeamAdmin onto
+  sendOpsEcho semantics — which also fixed three real echo bugs:
+  * the send_command_feedback gamerule gate was missing on the manual
+    fan-outs, and
+  * opLevel()==0 leaked echoes to every player when OpsRequired was off
+    (4-for-all); the membership test now reads the ops map (isOp).
+- Echo sender name resolves at send time through teamFormattedName —
+  vanilla's getDisplayName = decorate + formatNameForTeam, so a
+  teammate's echoes carry the team dress (the old team.go resolved the
+  name BEFORE mutating team state, which vanilla does not).
+- reply.extraEcho []bool: per-line flags — save-all's "saving" stays
+  private, "success" echoes (replyEchoLast). RCON's flat-text replies
+  now echo to ops as "RCON" via sendOpsEchoNamed.
+- Surprise measured on the wire: turning send_command_feedback OFF
+  eats the toggle's own caller reply too — acceptsSuccess on a player
+  source reads the rule at send time. mc-go matched already.
+- TestOpsEchoParity (tests/blackbox/opsecho_test.go) drives two ops +
+  a non-op through mutator/query/save-all/team-dress/gamerule legs on
+  BOTH servers — green, ~5s per target.
+- mc-go harness note: /save-all needs a WorldPath (the mutate hook
+  sets a TempDir file; vanilla always has a world dir).

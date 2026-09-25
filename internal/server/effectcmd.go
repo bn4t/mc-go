@@ -121,10 +121,10 @@ func (s *Server) runEffectGive(player string, args []string) reply {
 		} else {
 			targetComp = targets[0].nameComp()
 		}
-		return componentReply(translatable("commands.effect.give.success.single",
+		return opsEchoReply(translatable("commands.effect.give.success.single",
 			effectArg(name), targetComp, int32(ticks/20)))
 	}
-	return componentReply(translatable("commands.effect.give.success.multiple",
+	return opsEchoReply(translatable("commands.effect.give.success.multiple",
 		effectArg(name), nestedCompound{key: "", value: applied}, int32(ticks/20)))
 }
 
@@ -174,10 +174,10 @@ func (s *Server) runEffectClear(player string, args []string) reply {
 			return componentReply(commandError("commands.effect.clear.everything.failed"))
 		}
 		if len(targets) == 1 {
-			return componentReply(translatable("commands.effect.clear.everything.success.single",
+			return opsEchoReply(translatable("commands.effect.clear.everything.success.single",
 				targetComp(targets[0])))
 		}
-		return componentReply(translatable("commands.effect.clear.everything.success.multiple",
+		return opsEchoReply(translatable("commands.effect.clear.everything.success.multiple",
 			nestedCompound{key: "", value: removed}))
 	}
 	name := strings.TrimPrefix(args[0], "minecraft:")
@@ -205,10 +205,10 @@ func (s *Server) runEffectClear(player string, args []string) reply {
 		return componentReply(commandError("commands.effect.clear.specific.failed"))
 	}
 	if len(targets) == 1 {
-		return componentReply(translatable("commands.effect.clear.specific.success.single",
+		return opsEchoReply(translatable("commands.effect.clear.specific.success.single",
 			effectArg(name), targetComp(targets[0])))
 	}
-	return componentReply(translatable("commands.effect.clear.specific.success.multiple",
+	return opsEchoReply(translatable("commands.effect.clear.specific.success.multiple",
 		effectArg(name), nestedCompound{key: "", value: removed}))
 }
 

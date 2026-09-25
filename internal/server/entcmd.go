@@ -104,7 +104,7 @@ func (s *Server) runRotate(player string, args []string) reply {
 		return *rr
 	}
 	s.rotateTo(target, yaw, pitch)
-	return componentReply(translatable("commands.rotate.success", target.nameComp()))
+	return opsEchoReply(translatable("commands.rotate.success", target.nameComp()))
 }
 
 // rotateTo applies an absolute look direction: a player gets the
@@ -158,7 +158,7 @@ func (s *Server) runRotateFacing(sender *Session, target *dataEntity, args []str
 			y += eyeHeightOf(src)
 		}
 		s.sendLookAtEntity(target, x, y, z, entityIDOf(src), anchor)
-		return componentReply(translatable("commands.rotate.success", target.nameComp()))
+		return opsEchoReply(translatable("commands.rotate.success", target.nameComp()))
 	}
 	if len(args) > 3 {
 		return errToken("command.unknown.argument", 6)
@@ -183,7 +183,7 @@ func (s *Server) runRotateFacing(sender *Session, target *dataEntity, args []str
 		return errToken("argument.pos3d.incomplete", 3)
 	}
 	s.sendLookAt(target, coords[0], coords[1], coords[2])
-	return componentReply(translatable("commands.rotate.success", target.nameComp()))
+	return opsEchoReply(translatable("commands.rotate.success", target.nameComp()))
 }
 
 // eyeHeightOf approximates the eyes anchor: vanilla multiplies each
@@ -293,7 +293,7 @@ func (s *Server) runRideDismount(rider *dataEntity) reply {
 		x, y, z = veh.X, veh.Y, veh.Z
 		s.teleportPlayerRot(rider.sess.getName(), x, y, z, yaw, pitch)
 	}
-	return componentReply(translatable("commands.ride.dismount.success",
+	return opsEchoReply(translatable("commands.ride.dismount.success",
 		rider.nameComp(), entityDisplayName(veh)))
 }
 
@@ -326,7 +326,7 @@ func (s *Server) runRideMount(sender *Session, rider *dataEntity, vehTok string)
 		s.teleportPlayerRot(rider.sess.getName(), vehEnt.X, vehEnt.Y, vehEnt.Z, yaw, pitch)
 	}
 	s.broadcastSetPassengers(vehEnt)
-	return componentReply(translatable("commands.ride.mount.success",
+	return opsEchoReply(translatable("commands.ride.mount.success",
 		rider.nameComp(), veh.nameComp()))
 }
 
@@ -488,7 +488,7 @@ func (s *Server) spreadTargets(sender *Session, targets []*dataEntity, cx, cz, s
 	} else {
 		distStr = fmt.Sprintf("%.2f", dist)
 	}
-	return componentReply(translatable(key,
+	return opsEchoReply(translatable(key,
 		nestedCompound{key: "", value: int32(slots)},
 		nestedCompound{key: "", value: float32(cx)},
 		nestedCompound{key: "", value: float32(cz)},
@@ -626,7 +626,7 @@ func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount 
 		}
 		s.damageWith(sess, amount, msg, damageSource{typeName: dmgType, cause: causeID, direct: srcID,
 			hasPos: hasAt, x: atPos[0], y: atPos[1], z: atPos[2]})
-		return componentReply(translatable("commands.damage.success",
+		return opsEchoReply(translatable("commands.damage.success",
 			nestedCompound{key: "", value: amount}, target.nameComp()))
 	}
 	mob := target.mob
@@ -643,7 +643,7 @@ func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount 
 		&damageInfo{typeName: dmgType, cause: causeID, direct: srcID,
 			hasPos: hasAt, x: atPos[0], y: atPos[1], z: atPos[2]})
 	_ = died
-	return componentReply(translatable("commands.damage.success",
+	return opsEchoReply(translatable("commands.damage.success",
 		nestedCompound{key: "", value: amount}, target.nameComp()))
 }
 
@@ -713,7 +713,7 @@ func (s *Server) runTest(player string, args []string) reply {
 		if !ok {
 			return errTokenEnd("command.unknown.command", len(args))
 		}
-		return componentReply(translatable("commands.test.create.success",
+		return opsEchoReply(translatable("commands.test.create.success",
 			testResourceID(args[1])))
 	default:
 		return errToken("command.unknown.argument", 1)

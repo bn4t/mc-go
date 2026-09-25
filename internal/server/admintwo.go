@@ -120,7 +120,7 @@ func (s *Server) runStopwatch(player string, args []string) reply {
 			return componentReply(commandError("commands.stopwatch.already_exists", id))
 		}
 		s.stopwatches[id] = time.Now()
-		return componentReply(translatable("commands.stopwatch.create.success", id))
+		return opsEchoReply(translatable("commands.stopwatch.create.success", id))
 	case "query", "restart", "remove":
 		if len(args) < 2 {
 			return errTokenEnd("command.unknown.command", 2)
@@ -142,10 +142,10 @@ func (s *Server) runStopwatch(player string, args []string) reply {
 				nestedCompound{key: "", value: time.Since(start).Seconds()}))
 		case "restart":
 			s.stopwatches[id] = time.Now()
-			return componentReply(translatable("commands.stopwatch.restart.success", id))
+			return opsEchoReply(translatable("commands.stopwatch.restart.success", id))
 		default:
 			delete(s.stopwatches, id)
-			return componentReply(translatable("commands.stopwatch.remove.success", id))
+			return opsEchoReply(translatable("commands.stopwatch.remove.success", id))
 		}
 	}
 	return errToken("command.unknown.argument", 1)
@@ -267,7 +267,7 @@ func (s *Server) runFunction(player string, args []string) reply {
 			return r
 		}
 	}
-	return componentReply(translatable("commands.function.scheduled.single", fn))
+	return opsEchoReply(translatable("commands.function.scheduled.single", fn))
 }
 
 // ---- fetchprofile ----
@@ -505,7 +505,7 @@ func (s *Server) runAttribute(player string, args []string) reply {
 			}
 			e.AttrBase[short] = v
 			e.markAttrTouched(short)
-			return componentReply(translatable("commands.attribute.base_value.set.success",
+			return opsEchoReply(translatable("commands.attribute.base_value.set.success",
 				attrComp, nameArg, nestedCompound{key: "", value: v}))
 		case "reset":
 			delete(e.AttrBase, short)
@@ -516,7 +516,7 @@ func (s *Server) runAttribute(player string, args []string) reply {
 			} else if n, ok := EntityTypeName(e.Type); ok {
 				def = mobAttrBases[n][short]
 			}
-			return componentReply(translatable("commands.attribute.base_value.reset.success",
+			return opsEchoReply(translatable("commands.attribute.base_value.reset.success",
 				attrComp, nameArg, nestedCompound{key: "", value: def}))
 		}
 		return errToken("command.unknown.argument", 4)
@@ -562,7 +562,7 @@ func (s *Server) runAttribute(player string, args []string) reply {
 			}
 			mods[id] = attrMod{value: v, op: op}
 			e.markAttrTouched(short)
-			return componentReply(translatable("commands.attribute.modifier.add.success",
+			return opsEchoReply(translatable("commands.attribute.modifier.add.success",
 				nestedCompound{key: "", value: id}, attrComp, nameArg))
 		case "remove":
 			if len(args) < 5 {
@@ -576,7 +576,7 @@ func (s *Server) runAttribute(player string, args []string) reply {
 			}
 			delete(mods, id)
 			e.markAttrTouched(short)
-			return componentReply(translatable("commands.attribute.modifier.remove.success",
+			return opsEchoReply(translatable("commands.attribute.modifier.remove.success",
 				nestedCompound{key: "", value: id}, attrComp, nameArg))
 		case "value":
 			if len(args) < 6 || args[4] != "get" {
@@ -638,10 +638,10 @@ func (s *Server) runDialog(player string, args []string) reply {
 			return *rep
 		}
 		if len(targets) == 1 {
-			return componentReply(translatable("commands.dialog.show.single",
+			return opsEchoReply(translatable("commands.dialog.show.single",
 				(&dataEntity{sess: targets[0]}).nameComp()))
 		}
-		return componentReply(translatable("commands.dialog.show.multiple", int32(len(targets))))
+		return opsEchoReply(translatable("commands.dialog.show.multiple", int32(len(targets))))
 	case "clear":
 		if len(args) < 2 {
 			return errTokenEnd("command.unknown.command", 2)
@@ -654,10 +654,10 @@ func (s *Server) runDialog(player string, args []string) reply {
 			return errToken("command.unknown.argument", 3)
 		}
 		if len(targets) == 1 {
-			return componentReply(translatable("commands.dialog.clear.single",
+			return opsEchoReply(translatable("commands.dialog.clear.single",
 				(&dataEntity{sess: targets[0]}).nameComp()))
 		}
-		return componentReply(translatable("commands.dialog.clear.multiple", int32(len(targets))))
+		return opsEchoReply(translatable("commands.dialog.clear.multiple", int32(len(targets))))
 	}
 	return errToken("command.unknown.argument", 1)
 }
@@ -995,14 +995,14 @@ func (s *Server) runPlace(player string, args []string) reply {
 			if len(args) > 5 {
 				return errToken("command.unknown.argument", 6)
 			}
-			return componentReply(translatable("commands.place.feature.success",
+			return opsEchoReply(translatable("commands.place.feature.success",
 				nestedCompound{key: "", value: name},
 				nestedCompound{key: "", value: int32(bp[0])},
 				nestedCompound{key: "", value: int32(bp[1])},
 				nestedCompound{key: "", value: int32(bp[2])}))
 		}
 		x, y, z, _, _, _ := sender.Pos()
-		return componentReply(translatable("commands.place.feature.success",
+		return opsEchoReply(translatable("commands.place.feature.success",
 			nestedCompound{key: "", value: name},
 			nestedCompound{key: "", value: int32(x)},
 			nestedCompound{key: "", value: int32(y)},

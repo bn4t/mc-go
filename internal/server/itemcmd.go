@@ -652,7 +652,7 @@ func (s *Server) runItemModify(player string, args []string) reply {
 			s.writeItemBlock(d, pos, mustParseItemSlot(args[slotArg]), worn)
 			st = worn
 		}
-		return componentReply(translatable("commands.item.block.set.success",
+		return opsEchoReply(translatable("commands.item.block.set.success",
 			nestedCompound{key: "", value: int32(x)},
 			nestedCompound{key: "", value: int32(y)},
 			nestedCompound{key: "", value: int32(z)},
@@ -681,10 +681,10 @@ func (s *Server) runItemModify(player string, args []string) reply {
 		return componentReply(noUnchangedSlot(id))
 	}
 	if applied == 1 {
-		return componentReply(translatable("commands.item.entity.set.success.single",
+		return opsEchoReply(translatable("commands.item.entity.set.success.single",
 			single.nameComp(), itemBrackets(lastSt)))
 	}
-	return componentReply(translatable("commands.item.entity.set.success.multiple",
+	return opsEchoReply(translatable("commands.item.entity.set.success.multiple",
 		int32(applied), itemBrackets(lastSt)))
 }
 
@@ -1437,7 +1437,7 @@ func (s *Server) writeItemBlock(d *dimension, pos world.Pos, id int32, st ItemSt
 	// BlockEntity.setChanged on the slot write wakes comparators
 	// reading this block's analog level.
 	s.rsContainerChanged(d, pos)
-	return componentReply(translatable("commands.item.block.set.success",
+	return opsEchoReply(translatable("commands.item.block.set.success",
 		nestedCompound{key: "", value: x},
 		nestedCompound{key: "", value: y},
 		nestedCompound{key: "", value: z},
@@ -1607,10 +1607,10 @@ func (s *Server) writeItemTargets(targets []*dataEntity, id int32, st ItemStack)
 	case applied == 0:
 		return componentReply(noChangedItem(st, id))
 	case applied == 1:
-		return componentReply(translatable("commands.item.entity.set.success.single",
+		return opsEchoReply(translatable("commands.item.entity.set.success.single",
 			single.nameComp(), itemBrackets(st)))
 	default:
-		return componentReply(translatable("commands.item.entity.set.success.multiple",
+		return opsEchoReply(translatable("commands.item.entity.set.success.multiple",
 			int32(applied), itemBrackets(st)))
 	}
 }

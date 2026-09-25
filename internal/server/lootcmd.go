@@ -431,17 +431,17 @@ func (s *Server) runLoot(player string, args []string) reply {
 	}
 	if killOk || mineCheck {
 		if len(list) == 1 {
-			return componentReply(translatable("commands.drop.success.single_with_table",
+			return opsEchoReply(translatable("commands.drop.success.single_with_table",
 				int32(list[0].Count), itemBrackets(list[0]), tableComp))
 		}
-		return componentReply(translatable("commands.drop.success.multiple_with_table",
+		return opsEchoReply(translatable("commands.drop.success.multiple_with_table",
 			int32(len(list)), tableComp))
 	}
 	if len(list) == 1 {
-		return componentReply(translatable("commands.drop.success.single",
+		return opsEchoReply(translatable("commands.drop.success.single",
 			int32(list[0].Count), itemBrackets(list[0])))
 	}
-	return componentReply(translatable("commands.drop.success.multiple",
+	return opsEchoReply(translatable("commands.drop.success.multiple",
 		int32(len(list))))
 }
 

@@ -207,7 +207,7 @@ func (s *Server) runSetblock(player string, args []string) reply {
 	}
 	// Success is the real server's component, three plain ints - which
 	// is what /item's own fixture setup compares.
-	return componentReply(translatable("commands.setblock.success", int32(x), int32(y), int32(z)))
+	return opsEchoReply(translatable("commands.setblock.success", int32(x), int32(y), int32(z)))
 }
 
 // broadcastChunk resends one column to every play-stage session holding
@@ -332,7 +332,7 @@ func (s *Server) runGive(player string, args []string) reply {
 		remaining -= k
 	}
 	_ = s.sendContainerContent(sess)
-	return reply{styled: true, comp: translatable("commands.give.success.single",
+	return reply{styled: true, opsEcho: true, comp: translatable("commands.give.success.single",
 		nestedCompound{key: "", value: st.Count},
 		itemBrackets(st),
 		s.entityTargetComponent(sess),

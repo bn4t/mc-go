@@ -173,7 +173,7 @@ func (s *Server) runBossbarAdd(sender *Session, args []string) reply {
 	s.bossbars[id] = b
 	s.bossbarOrder = append(s.bossbarOrder, id)
 	s.bossbarMu.Unlock()
-	return componentReply(translatable("commands.bossbar.create.success",
+	return opsEchoReply(translatable("commands.bossbar.create.success",
 		s.bossBarComp(b)))
 }
 
@@ -200,7 +200,7 @@ func (s *Server) runBossbarRemove(args []string) reply {
 		return componentReply(commandError("commands.bossbar.unknown", bossbarID(args[1])))
 	}
 	s.bossbarSend(b, 1, nil)
-	return componentReply(translatable("commands.bossbar.remove.success",
+	return opsEchoReply(translatable("commands.bossbar.remove.success",
 		s.bossBarComp(b)))
 }
 
@@ -253,7 +253,7 @@ func (s *Server) runBossbarGet(args []string) reply {
 		if !b.visible {
 			key = "commands.bossbar.get.visible.hidden"
 		}
-		return componentReply(translatable(key, bc))
+		return opsEchoReply(translatable(key, bc))
 	default:
 		return errToken("command.unknown.argument", 3)
 	}
@@ -286,12 +286,12 @@ func (s *Server) runBossbarSet(sender *Session, args []string) reply {
 		if args[2] == "max" {
 			b.max = n
 			s.bossbarUpdateProgress(b)
-			return componentReply(translatable("commands.bossbar.set.max.success",
+			return opsEchoReply(translatable("commands.bossbar.set.max.success",
 				bc(), nestedCompound{key: "", value: n}))
 		}
 		b.value = n
 		s.bossbarUpdateProgress(b)
-		return componentReply(translatable("commands.bossbar.set.value.success",
+		return opsEchoReply(translatable("commands.bossbar.set.value.success",
 			bc(), nestedCompound{key: "", value: n}))
 	case "color":
 		if _, ok := bossBarColors[args[3]]; !ok {
@@ -299,14 +299,14 @@ func (s *Server) runBossbarSet(sender *Session, args []string) reply {
 		}
 		b.color = args[3]
 		s.bossbarUpdateStyle(b)
-		return componentReply(translatable("commands.bossbar.set.color.success", bc()))
+		return opsEchoReply(translatable("commands.bossbar.set.color.success", bc()))
 	case "style":
 		if _, ok := bossBarStyles[args[3]]; !ok {
 			return errToken("command.unknown.argument", 4)
 		}
 		b.style = args[3]
 		s.bossbarUpdateStyle(b)
-		return componentReply(translatable("commands.bossbar.set.style.success", bc()))
+		return opsEchoReply(translatable("commands.bossbar.set.style.success", bc()))
 	case "visible":
 		if args[3] != "true" && args[3] != "false" {
 			return errToken("parsing.bool.invalid", 4, args[3])
@@ -323,10 +323,10 @@ func (s *Server) runBossbarSet(sender *Session, args []string) reply {
 		if v {
 			// Re-showing pushes the full ADD again.
 			s.bossbarSend(b, 0, s.bossbarAddPayload(b))
-			return componentReply(translatable("commands.bossbar.set.visible.success.visible", bc()))
+			return opsEchoReply(translatable("commands.bossbar.set.visible.success.visible", bc()))
 		}
 		s.bossbarSend(b, 1, nil)
-		return componentReply(translatable("commands.bossbar.set.visible.success.hidden", bc()))
+		return opsEchoReply(translatable("commands.bossbar.set.visible.success.hidden", bc()))
 	case "name":
 		v, _, serr := parseComponentArg(strings.Join(args[3:], " "))
 		if serr != nil {
@@ -336,7 +336,7 @@ func (s *Server) runBossbarSet(sender *Session, args []string) reply {
 		var p protocol.Buffer
 		p.Raw(componentBytes(b.name))
 		s.bossbarSend(b, 3, p.Bytes())
-		return componentReply(translatable("commands.bossbar.set.name.success", bc()))
+		return opsEchoReply(translatable("commands.bossbar.set.name.success", bc()))
 	case "players":
 		if len(args) > 4 {
 			return errToken("command.unknown.argument", 5)
@@ -362,9 +362,9 @@ func (s *Server) runBossbarSet(sender *Session, args []string) reply {
 		}
 		s.bossbarSetPlayers(b, want)
 		if len(b.players) == 0 {
-			return componentReply(translatable("commands.bossbar.set.players.success.none", bc()))
+			return opsEchoReply(translatable("commands.bossbar.set.players.success.none", bc()))
 		}
-		return componentReply(translatable("commands.bossbar.set.players.success.some",
+		return opsEchoReply(translatable("commands.bossbar.set.players.success.some",
 			bc(), nestedCompound{key: "", value: int32(len(b.players))},
 			bossbarPlayerNames(b)))
 	default:

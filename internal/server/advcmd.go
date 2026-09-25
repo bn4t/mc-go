@@ -340,8 +340,7 @@ func (s *Server) runAdvancement(player string, args []string) reply {
 	if !ok {
 		return componentReply(component{color: "red", extra: []component{msg}, text: ""})
 	}
-	s.broadcastAdmin(sess, msg)
-	return componentReply(msg)
+	return opsEchoReply(msg)
 }
 
 // literalStr wraps a command argument that vanilla passes as a plain

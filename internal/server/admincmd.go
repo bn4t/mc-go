@@ -68,7 +68,7 @@ func (s *Server) runOp(player string, args []string) reply {
 		_ = s.sendEntityEvent(sess, sess.entityID.Load(), opStatus(4))
 		_ = s.sendCommands(sess)
 	}
-	return componentReply(translatable("commands.op.success", name))
+	return opsEchoReply(translatable("commands.op.success", name))
 }
 
 func (s *Server) runDeop(player string, args []string) reply {
@@ -93,7 +93,7 @@ func (s *Server) runDeop(player string, args []string) reply {
 		_ = s.sendEntityEvent(sess, sess.entityID.Load(), opStatus(0))
 		_ = s.sendCommands(sess)
 	}
-	return componentReply(translatable("commands.deop.success", name))
+	return opsEchoReply(translatable("commands.deop.success", name))
 }
 
 // opStatus is the entity-event status byte vanilla sends a player when
@@ -125,7 +125,7 @@ func (s *Server) runKickCmd(player string, args []string) reply {
 	if len(args) > 1 {
 		reasonArg = nestedCompound{key: "", value: strings.Join(args[1:], " ")}
 	}
-	return componentReply(translatable("commands.kick.success",
+	return opsEchoReply(translatable("commands.kick.success",
 		playerChatComponent(target), reasonArg))
 }
 
@@ -167,12 +167,11 @@ func (s *Server) runBan(player string, args []string) reply {
 			s.disconnectWithComponent(target,
 				translatable("multiplayer.disconnect.banned.reason", reason))
 		}
-		return componentReply(success)
+		return opsEchoReply(success)
 	}
 	// The issuer's reply and the operator broadcast land before the
 	// kick — a ban on your own name still reports first.
-	s.sendReply(issuer, componentReply(success))
-	s.broadcastAdmin(issuer, success)
+	s.sendReply(issuer, opsEchoReply(success))
 	if target != nil && target.state.Load() == StatePlay {
 		s.disconnectWithComponent(target,
 			translatable("multiplayer.disconnect.banned.reason", reason))
@@ -211,7 +210,7 @@ func (s *Server) runPardon(player string, args []string) reply {
 	if !was {
 		return componentReply(commandError("commands.pardon.failed"))
 	}
-	return componentReply(translatable("commands.pardon.success", name))
+	return opsEchoReply(translatable("commands.pardon.success", name))
 }
 
 func (s *Server) runBanIP(player string, args []string) reply {
@@ -273,9 +272,9 @@ func (s *Server) runBanIP(player string, args []string) reply {
 			int32(len(kicked)), component{text: "", extra: parts})
 	}
 	issuer := s.findSessionByName(player)
-	out := componentReply(success)
+	out := opsEchoReply(success)
 	if len(kicked) > 0 {
-		out = componentReplyWith(success, info)
+		out = opsEchoReplyWith(success, info)
 	}
 	// A player issuer who banned their own address is kicked by this
 	// command — the replies have to land first, so they flush inline
@@ -284,10 +283,6 @@ func (s *Server) runBanIP(player string, args []string) reply {
 		return out
 	}
 	s.sendReply(issuer, out)
-	s.broadcastAdmin(issuer, success)
-	if len(kicked) > 0 {
-		s.broadcastAdmin(issuer, info)
-	}
 	for _, sess := range kicked {
 		s.disconnectWithComponent(sess,
 			translatable("multiplayer.disconnect.banned_ip.reason", reason))
@@ -313,10 +308,7 @@ func (s *Server) runPardonIP(player string, args []string) reply {
 		return componentReply(commandError("commands.pardonip.failed"))
 	}
 	msg := translatable("commands.pardonip.success", ip)
-	if iss := s.findSessionByName(player); iss != nil {
-		s.broadcastAdmin(iss, msg)
-	}
-	return componentReply(msg)
+	return opsEchoReply(msg)
 }
 
 // isIPArg recognizes a dotted-quad address the way vanilla's ban-ip

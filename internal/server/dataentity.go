@@ -100,7 +100,7 @@ func (s *Server) runDataEntity(player string, args []string) reply {
 		}
 		nbtMergeInto(save.m, snbtToValue(tg))
 		s.applyDataEntity(tgt, save)
-		return componentReply(translatable("commands.data.entity.modified", tgt.nameComp()))
+		return opsEchoReply(translatable("commands.data.entity.modified", tgt.nameComp()))
 
 	case "remove":
 		if len(args) < 4 {
@@ -114,7 +114,7 @@ func (s *Server) runDataEntity(player string, args []string) reply {
 			return componentReply(commandError("commands.data.merge.failed"))
 		}
 		s.applyDataEntity(tgt, save)
-		return componentReply(translatable("commands.data.entity.modified", tgt.nameComp()))
+		return opsEchoReply(translatable("commands.data.entity.modified", tgt.nameComp()))
 
 	case "modify":
 		if len(args) < 7 {
@@ -143,7 +143,7 @@ func (s *Server) runDataEntity(player string, args []string) reply {
 			return componentReply(commandError("commands.data.merge.failed"))
 		}
 		s.applyDataEntity(tgt, save)
-		return componentReply(translatable("commands.data.entity.modified", tgt.nameComp()))
+		return opsEchoReply(translatable("commands.data.entity.modified", tgt.nameComp()))
 	}
 	return componentReply(commandError("command.unknown.command"))
 }

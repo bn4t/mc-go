@@ -32,6 +32,10 @@ type reply struct {
 	// opsEcho is sendSuccess's broadcastToOps flag: every op but the
 	// caller also hears the reply, as the gray italic admin line.
 	opsEcho bool
+	// extraEcho is the per-line broadcastToOps for the extra messages —
+	// a command that emits several sendSuccess calls flags each one;
+	// extraEcho[i] is line extra[i]'s flag. opsEcho covers comp.
+	extraEcho []bool
 }
 
 // failMark locates a parse failure in the input, in tokens: the token
@@ -108,6 +112,25 @@ func componentReplyWith(c component, extra ...component) reply {
 // its caller and echoes to the other ops as the admin line.
 func opsEchoReply(c component) reply {
 	return reply{comp: c, styled: true, opsEcho: true}
+}
+
+// opsEchoReplyWith is opsEchoReply for multi-line replies where every
+// line echoes — the ops see the same chat.type.admin wrap per line.
+func opsEchoReplyWith(c component, extra ...component) reply {
+	echoes := make([]bool, len(extra))
+	for i := range echoes {
+		echoes[i] = true
+	}
+	return reply{comp: c, styled: true, extra: extra, opsEcho: true, extraEcho: echoes}
+}
+
+// replyEchoLast builds a reply whose only broadcastToOps line is the
+// final one — save-all's shape, where "Saving..." stays source-local
+// and "Saved the game" echoes.
+func replyEchoLast(c component, extra ...component) reply {
+	echoes := make([]bool, len(extra))
+	echoes[len(echoes)-1] = true
+	return reply{comp: c, styled: true, extra: extra, extraEcho: echoes}
 }
 
 // errToken is a parse failure at the start of a token: the real server
@@ -354,7 +377,7 @@ func (s *Server) runTimeSet(player string, args []string, add bool) reply {
 				"ResourceKey[minecraft:clock_time_marker / "+marker+"]", dim))
 		}
 		s.setDayTime(value)
-		return componentReply(translatable("commands.time.set.time_marker", dim, marker))
+		return opsEchoReply(translatable("commands.time.set.time_marker", dim, marker))
 	}
 	// Vanilla converts the float argument to whole ticks, rounding to
 	// the nearest as it goes.
@@ -364,13 +387,13 @@ func (s *Server) runTimeSet(player string, args []string, add bool) reply {
 		// and the sum is reported as a long: it is a sum with the
 		// world's existing clock.
 		s.setDayTime(s.dayTime() + saturateInt(value))
-		return componentReply(translatable("commands.time.set.absolute",
+		return opsEchoReply(translatable("commands.time.set.absolute",
 			dimCompound(dim), nestedCompound{key: "", value: s.dayTime()}))
 	}
 	// The tick count is an int, and the real server saturates rather
 	// than wrapping: "/time set 3000000000" sets 2147483647.
 	s.setDayTime(saturateInt(value))
-	return componentReply(translatable("commands.time.set.absolute",
+	return opsEchoReply(translatable("commands.time.set.absolute",
 		dimCompound(dim), nestedCompound{key: "", value: int32(saturateInt(value))}))
 }
 

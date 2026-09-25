@@ -83,10 +83,7 @@ func (s *Server) runSaveAll(player string, args []string) reply {
 		return componentReply(commandError("commands.save.failed"))
 	}
 	success := translatable("commands.save.success")
-	if iss := s.findSessionByName(player); iss != nil {
-		s.broadcastAdmin(iss, success)
-	}
-	return componentReplyWith(
+	return replyEchoLast(
 		translatable("commands.save.saving"),
 		success)
 }
@@ -108,10 +105,7 @@ func (s *Server) runSaveOffOn(player string, args []string, on bool) reply {
 	} else {
 		msg = translatable("commands.save.disabled")
 	}
-	if iss := s.findSessionByName(player); iss != nil {
-		s.broadcastAdmin(iss, msg)
-	}
-	return componentReply(msg)
+	return opsEchoReply(msg)
 }
 
 func (s *Server) runStopCmd(args []string) reply {
@@ -121,7 +115,7 @@ func (s *Server) runStopCmd(args []string) reply {
 	// The reply is queued ahead of the kicks, so the issuer sees it
 	// before the disconnect lands.
 	go s.Shutdown("Server closed")
-	return componentReply(translatable("commands.stop.stopping"))
+	return opsEchoReply(translatable("commands.stop.stopping"))
 }
 
 func (s *Server) runDefaultGamemode(args []string) reply {
@@ -136,7 +130,7 @@ func (s *Server) runDefaultGamemode(args []string) reply {
 		return errToken("command.unknown.argument", 2)
 	}
 	s.GameMode = mode
-	return componentReply(translatable("commands.defaultgamemode.success",
+	return opsEchoReply(translatable("commands.defaultgamemode.success",
 		translatable("gameMode."+args[0])))
 }
 
@@ -199,7 +193,7 @@ func (s *Server) runProfileCmd(args []string, debug bool) reply {
 		running.started.Store(true)
 		running.start = time.Now()
 		running.tick0 = s.TickCount()
-		return componentReply(translatable(prefix + "started"))
+		return opsEchoReply(translatable(prefix + "started"))
 	case "stop":
 		if !running.started.Load() {
 			return componentReply(commandError(prefix + "notRunning"))
@@ -211,7 +205,7 @@ func (s *Server) runProfileCmd(args []string, debug bool) reply {
 		if elapsed > 0 {
 			tps = float64(ticks) / elapsed
 		}
-		return componentReply(translatable(prefix+"stopped",
+		return opsEchoReply(translatable(prefix+"stopped",
 			nestedCompound{key: "", value: fmt.Sprintf("%.2f", elapsed)},
 			nestedCompound{key: "", value: int32(ticks)},
 			nestedCompound{key: "", value: fmt.Sprintf("%.2f", tps)}))
@@ -326,9 +320,9 @@ func (s *Server) runTrigger(player string, args []string) reply {
 	s.board.mu.Unlock()
 	s.broadcastScore(player, obj, cur)
 	if mode == "" {
-		return componentReply(translatable(key, s.objectiveChatComponent(obj)))
+		return opsEchoReply(translatable(key, s.objectiveChatComponent(obj)))
 	}
-	return componentReply(translatable(key, s.objectiveChatComponent(obj),
+	return opsEchoReply(translatable(key, s.objectiveChatComponent(obj),
 		nestedCompound{key: "", value: value}))
 }
 
@@ -474,9 +468,9 @@ func (s *Server) runTransfer(player string, args []string) reply {
 	hostComp := nestedCompound{key: "", value: host}
 	portComp := nestedCompound{key: "", value: int32(port)}
 	if len(live) == 1 {
-		return componentReply(translatable("commands.transfer.success.single",
+		return opsEchoReply(translatable("commands.transfer.success.single",
 			playerChatComponent(live[0]), hostComp, portComp))
 	}
-	return componentReply(translatable("commands.transfer.success.multiple",
+	return opsEchoReply(translatable("commands.transfer.success.multiple",
 		nestedCompound{key: "", value: int32(len(live))}, hostComp, portComp))
 }

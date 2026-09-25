@@ -60,5 +60,5 @@ func (s *Server) runXp(player string, args []string) reply {
 	}
 	_ = s.sendSetExperience(target, target.xpProgress, target.xpLevel, target.xpTotal)
 	// TODO(xp parity): the success component key is unmeasured.
-	return componentReply(translatable("commands.xp.success", int32(amount)))
+	return opsEchoReply(translatable("commands.xp.success", int32(amount)))
 }

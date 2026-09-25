@@ -1020,7 +1020,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 		}
 		s.broadcastFreshMob(e)
-		return componentReply(translatable("commands.summon.success", entityDisplayName(e)))
+		return opsEchoReply(translatable("commands.summon.success", entityDisplayName(e)))
 	}
 	// A dropped stack on the ground: Item holds the stack, Thrower
 	// the EntityReference getOwner resolves, PickupDelay the no-grab
@@ -1061,7 +1061,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		s.entities.Spawn(e)
 		s.broadcastEntitySpawn(nil, *e)
 		s.broadcastEntityMetadata(e.ID, encodeItemMetadata(it))
-		return componentReply(translatable("commands.summon.success", entityDisplayName(e)))
+		return opsEchoReply(translatable("commands.summon.success", entityDisplayName(e)))
 	}
 	// Boats/rafts are vehicles, not living mobs: Passengers NBT
 	// recursively spawns riders the way vanilla's entity load does.
@@ -1090,7 +1090,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 		}
 		s.broadcastEntitySpawn(nil, *e)
-		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
+		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}
 	// Non-living summons the command still accepts: projectiles take
 	// their Motion list and fly like a bow release.
@@ -1121,7 +1121,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		}
 		s.entities.Spawn(e)
 		s.broadcastEntitySpawn(nil, *e)
-		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft.arrow")))
+		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft.arrow")))
 	}
 	// Wind charges fly straight (no gravity) and burst on contact.
 	if name == "wind_charge" || name == "breeze_wind_charge" {
@@ -1141,7 +1141,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 			VX: int16(mx * 8000), VY: int16(my * 8000), VZ: int16(mz * 8000),
 		})
 		s.broadcastEntitySpawn(nil, *e)
-		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
+		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}
 	if name == "lightning_bolt" {
 		e := s.entities.Spawn(&Entity{
@@ -1163,7 +1163,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		s.fireLightningStrike(sess.dimension(), x, y, z, fires)
 		s.entities.Remove(e.ID)
 		s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
-		return componentReply(translatable("commands.summon.success", translatable("entity.minecraft.lightning_bolt")))
+		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft.lightning_bolt")))
 	}
 	return textReply("Unknown entity: " + args[0])
 }
