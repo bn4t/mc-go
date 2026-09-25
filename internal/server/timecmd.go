@@ -29,6 +29,9 @@ type reply struct {
 	// chains leave it off and store writes nothing.
 	result    int
 	hasResult bool
+	// opsEcho is sendSuccess's broadcastToOps flag: every op but the
+	// caller also hears the reply, as the gray italic admin line.
+	opsEcho bool
 }
 
 // failMark locates a parse failure in the input, in tokens: the token
@@ -99,6 +102,12 @@ func componentReply(c component) reply { return reply{comp: c, styled: true} }
 // componentReplyWith is a component reply followed by more messages.
 func componentReplyWith(c component, extra ...component) reply {
 	return reply{comp: c, styled: true, extra: extra}
+}
+
+// opsEchoReply is sendSuccess(_, broadcastToOps=true): the reply reaches
+// its caller and echoes to the other ops as the admin line.
+func opsEchoReply(c component) reply {
+	return reply{comp: c, styled: true, opsEcho: true}
 }
 
 // errToken is a parse failure at the start of a token: the real server

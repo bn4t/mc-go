@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -40,12 +41,38 @@ type tickClock struct {
 	frozenAt int64
 	// sprinting is set while /tick sprint is running.
 	sprinting bool
+	// The sprint fields mirror ServerTickRateManager: the scheduled
+	// count, the ticks the running sprint still owes (the +1 is the
+	// tick the request arrived on), the frozen flag a sprint restores
+	// when it ends, and when the current leg began — the report's
+	// elapsed, reset when a new request interrupts.
+	sprintSchedule   int64
+	sprintRemain     int64
+	sprintPrevFrozen bool
+	sprintStart      time.Time
+	// stepRemain mirrors frozenTicksToRun: a /tick step request fills
+	// it, the running step drains it a tick at a time, and step stop
+	// zeroes it early.
+	stepRemain int64
+
+	// times mirrors MinecraftServer.tickTimesNanos: a 100-entry ring
+	// of per-tick durations plus its running sum — /tick query's
+	// average and percentile lines are read off it.
+	times    [100]int64
+	timesAgg int64
+	timesIdx int64
 
 	// runMu serializes GameTick. The wall-clock loop and a synchronous
 	// /tick step (or a sprint) must never advance the world at the same
 	// time, or a stepped run would not be the deterministic N-tick run
 	// the tests depend on.
 	runMu sync.Mutex
+	// sprintMu is held for a sprint's whole run plus its finish, so
+	// stopSprinting can behave the way the real server's does — its
+	// finishTickSprint is synchronous on the caller's thread, meaning
+	// the report and the frozen restore land before the caller's next
+	// act (a freeze, an ack).
+	sprintMu sync.Mutex
 }
 
 // next decides what the game loop should do now. wait is how long to
@@ -113,8 +140,6 @@ func (c *tickClock) setFrozen(frozen bool) {
 	}
 	if frozen {
 		c.frozenAt = c.count
-	} else {
-		c.sprinting = false
 	}
 	c.frozen = frozen
 }
@@ -200,32 +225,101 @@ func (s *Server) setGameTimeBase(base int64) {
 }
 
 // SetTickRate applies /tick rate.
-func (s *Server) SetTickRate(rate float64) { s.clock.setRate(rate) }
+func (s *Server) SetTickRate(rate float64) {
+	s.clock.setRate(rate)
+	// Vanilla's setTickRate refreshes the clients on every call.
+	s.broadcastTickingState()
+}
 
 // SetFrozen halts (or resumes) the game tick loop, vanilla's
-// /tick freeze and /tick unfreeze.
-func (s *Server) SetFrozen(frozen bool) { s.clock.setFrozen(frozen) }
+// /tick freeze and /tick unfreeze. The client update goes out on
+// every call — a second /tick freeze still emits ticking_state.
+func (s *Server) SetFrozen(frozen bool) {
+	s.clock.setFrozen(frozen)
+	s.broadcastTickingState()
+}
 
 // StepTicks advances the simulation exactly n ticks, synchronously:
 // when it returns, the world has taken those n ticks and nothing else.
 // That is vanilla's /tick step, and it is how blackbox tests drive
-// mc-go deterministically against a frozen vanilla server.
+// mc-go deterministically against a frozen vanilla server. The owed
+// count lives in stepRemain, vanilla's frozenTicksToRun: the /tick
+// step path fills it, a mid-step "step stop" zeroes it early, and a
+// caller that never filled it gets a fresh n.
 func (s *Server) StepTicks(n int64) {
 	if n < 1 {
 		n = 1
 	}
 	s.clock.runMu.Lock()
 	defer s.clock.runMu.Unlock()
+	s.clock.mu.Lock()
+	if s.clock.stepRemain == 0 {
+		s.clock.stepRemain = n
+	}
+	s.clock.mu.Unlock()
 	for i := int64(0); i < n; i++ {
+		s.clock.mu.Lock()
+		if s.clock.stepRemain <= 0 {
+			s.clock.mu.Unlock()
+			return
+		}
+		s.clock.stepRemain--
+		s.clock.mu.Unlock()
+		start := time.Now()
 		s.GameTick()
+		s.recordTick(time.Since(start))
 	}
 }
 
-// SprintTicks runs n ticks back to back, synchronously, stopping early
-// if StopSprint is called. Vanilla's /tick sprint runs on the server
-// thread: the "game is sprinting" ack leaves first, every packet queued
-// behind it waits out the sprint, and finishTickSprint's report reaches
-// all players when it ends.
+// stopStep mirrors stopStepping: zero the owed ticks and refresh the
+// clients' ticking-step counter. False when no step is in progress.
+func (s *Server) stopStep() bool {
+	s.clock.mu.Lock()
+	if s.clock.stepRemain <= 0 {
+		s.clock.mu.Unlock()
+		return false
+	}
+	s.clock.stepRemain = 0
+	s.clock.mu.Unlock()
+	s.broadcastTickingStep(0)
+	return true
+}
+
+// requestSprint applies requestGameToSprint: the sprint owes the n it
+// was asked for plus the tick the request arrived on, the clock unfreezes
+// for the duration (a client-visible change), and an already-running
+// sprint keeps the caller that owns it — a second request only resets
+// what it owes and reports the interruption. True when it interrupted.
+func (s *Server) requestSprint(n int64) (interrupted bool) {
+	if n < 1 {
+		n = 1
+	}
+	s.clock.mu.Lock()
+	interrupted = s.clock.sprinting
+	s.clock.sprintSchedule = n
+	s.clock.sprintRemain = n + 1
+	s.clock.sprintPrevFrozen = s.clock.frozen
+	s.clock.sprintStart = time.Now()
+	s.clock.frozen = false
+	s.clock.sprinting = true
+	s.clock.mu.Unlock()
+	// requestGameToSprint's setFrozen(false) refreshes the clients.
+	s.broadcastTickingState()
+	return interrupted
+}
+
+// SprintTicks is requestSprint plus the run, for callers that want a
+// one-shot sprint with no interruption handling of their own.
+func (s *Server) SprintTicks(n int64) {
+	if s.requestSprint(n) {
+		return
+	}
+	s.sprintRun()
+}
+
+// sprintRun simulates the sprint the caller owns. Vanilla's sprint runs
+// on the server thread, so everything queued behind the command waits
+// it out; the deferred finish mirrors finishTickSprint.
 //
 // A sprint of n simulates n+1 ticks, which is the real server's own
 // count and not a rounding of it: measured on 26.2, three sprints of ten
@@ -234,53 +328,74 @@ func (s *Server) StepTicks(n int64) {
 // cook and burn counters of a furnace that had never been lit, which can
 // only move on a simulated tick. The command is handled inside a tick and
 // the sprint applies to the rest of that tick too, so the tick it arrived
-// on is simulated along with the n it asks for. /tick step is answered
-// the same way and simulates exactly n.
-func (s *Server) SprintTicks(n int64) {
-	if n < 1 {
-		n = 1
-	}
-	n++
-	s.clock.mu.Lock()
-	s.clock.sprinting = true
-	from := s.clock.count
-	s.clock.mu.Unlock()
-	started := time.Now()
-	defer func() {
-		s.clock.mu.Lock()
-		s.clock.sprinting = false
-		completed := s.clock.count - from
-		s.clock.mu.Unlock()
-		// ServerTickRateManager.finishTickSprint reports through the
-		// server's own command source — every player sees it, stopped
-		// mid-sprint or finished alike.
-		ms := float64(time.Since(started).Nanoseconds()) / 1e6
-		if ms < 1 {
-			ms = 1
-		}
-		tps := int32(float64(completed) * 1000 / ms)
-		mspt := ms / math.Max(1, float64(completed))
-		s.broadcastSystemChatComponent(translatable("commands.tick.sprint.report",
-			tps, strconv.FormatFloat(mspt, 'f', 2, 64)))
-	}()
+// on is simulated along with the n it asks for.
+func (s *Server) sprintRun() {
+	s.clock.sprintMu.Lock()
+	defer s.clock.sprintMu.Unlock()
+	defer s.finishSprint()
 	s.clock.runMu.Lock()
 	defer s.clock.runMu.Unlock()
-	for i := int64(0); i < n; i++ {
+	for {
 		s.clock.mu.Lock()
-		stop := !s.clock.sprinting
+		s.clock.sprintRemain--
+		done := s.clock.sprintRemain <= 0 || !s.clock.sprinting
 		s.clock.mu.Unlock()
-		if stop {
+		if done {
 			return
 		}
+		start := time.Now()
 		s.GameTick()
+		s.recordTick(time.Since(start))
 	}
 }
 
-// StopSprint halts a running /tick sprint.
-func (s *Server) StopSprint() {
+// finishSprint mirrors finishTickSprint: the report (ticks per second
+// and ms per tick, the %.2f format) goes to every op through the
+// server's own command source — broadcastToOps, so the wire form is
+// the gray italic admin line — then the frozen flag saved at request
+// time goes back on, itself a client-visible setFrozen.
+func (s *Server) finishSprint() {
 	s.clock.mu.Lock()
 	s.clock.sprinting = false
+	remaining := s.clock.sprintRemain - 1
+	if remaining < 0 {
+		remaining = 0
+	}
+	completed := s.clock.sprintSchedule - remaining
+	s.clock.sprintRemain = 0
+	start := s.clock.sprintStart
+	s.clock.frozen = s.clock.sprintPrevFrozen
 	s.clock.mu.Unlock()
+	ms := float64(time.Since(start).Nanoseconds()) / 1e6
+	if ms < 1 {
+		ms = 1
+	}
+	tps := int32(float64(completed) * 1000 / ms)
+	mspt := ms / math.Max(1, float64(completed))
+	s.sendOpsEcho(nil, translatable("commands.tick.sprint.report",
+		tps, strconv.FormatFloat(mspt, 'f', 2, 64)))
+	s.broadcastTickingState()
+}
+
+// StopSprint halts a running /tick sprint — vanilla's stopSprinting:
+// false when no sprint is in progress, otherwise the running leg ends
+// and its finish (report + frozen restore) still happens, before this
+// returns.
+func (s *Server) StopSprint() bool {
+	s.clock.mu.Lock()
+	running := s.clock.sprintRemain > 0
+	if running {
+		s.clock.sprinting = false
+	}
+	s.clock.mu.Unlock()
+	// The sprint's own goroutine does the finish — an interrupting stop
+	// still lands the report ahead of the caller's next act, which is
+	// why vanilla runs it inside stopSprinting. Waiting on the leg's
+	// lock reproduces that ordering; a leg at its finish already drains
+	// instantly.
+	s.clock.sprintMu.Lock()
+	s.clock.sprintMu.Unlock()
+	return running
 }
 
 // GameTick advances the world simulation by exactly one tick.
@@ -435,7 +550,10 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 			lastPlayerTick = time.Now()
 			s.playerTick()
 		}
-		if !run {
+		// A sprint owns every simulated tick while it runs — vanilla's
+		// server loop is the sprint — so the paced loop idles beside it
+		// rather than adding ticks of its own.
+		if !run || s.clock.isSprinting() {
 			since = 0
 			continue
 		}
@@ -444,7 +562,53 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 		s.GameTick()
 		s.clock.runMu.Unlock()
 		since = time.Since(start)
+		s.recordTick(since)
 	}
+}
+
+// recordTick adds one tick's duration to the ring — vanilla writes it
+// at the end of every simulated tick, sprint and step runs included.
+func (s *Server) recordTick(d time.Duration) {
+	s.clock.mu.Lock()
+	i := int(s.clock.timesIdx % 100)
+	s.clock.timesAgg -= s.clock.times[i]
+	s.clock.times[i] = d.Nanoseconds()
+	s.clock.timesAgg += d.Nanoseconds()
+	s.clock.timesIdx++
+	s.clock.mu.Unlock()
+}
+
+// avgTickNanos mirrors getAverageTickTimeNanos: the ring's sum over
+// min(100, ticks recorded so far).
+func (c *tickClock) avgTickNanos() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := c.timesIdx
+	if n > 100 {
+		n = 100
+	}
+	if n < 1 {
+		n = 1
+	}
+	return c.timesAgg / n
+}
+
+// tickPercentiles mirrors /tick query's percentile report: a sorted
+// copy of the ring read at len/2, len*0.95 and len*0.99, with the
+// ring's size as the sample. Unwritten slots read as zero, exactly
+// like a server younger than a hundred ticks.
+func (c *tickClock) tickPercentiles() (p50, p95, p99 string, sample int) {
+	c.mu.Lock()
+	sorted := c.times
+	c.mu.Unlock()
+	sort.Slice(sorted[:], func(i, j int) bool { return sorted[i] < sorted[j] })
+	return nanosToMillis(sorted[50]), nanosToMillis(sorted[95]), nanosToMillis(sorted[99]), 100
+}
+
+// nanosToMillis formats a duration the way the real server does in
+// /tick query replies: nanos through float32, then "%.1f".
+func nanosToMillis(n int64) string {
+	return strconv.FormatFloat(float64(float32(n)/float32(1e6)), 'f', 1, 32)
 }
 
 // startGameTicks launches the game loop. Replaces the old item-only

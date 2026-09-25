@@ -265,19 +265,48 @@ func (s *Server) sendGameEvent(sess *Session, event byte, value float32) error {
 	return sess.write(sess.ids().PlayGameEvent, b.Bytes())
 }
 
-// sendTickingState syncs the server tick rate.
+// sendTickingState syncs the server tick rate and frozen flag, the
+// ClientboundTickingStatePacket fields.
 func (s *Server) sendTickingState(sess *Session) error {
 	var b protocol.Buffer
-	b.Float(20)
-	b.Bool(false)
+	b.Float(float32(s.clock.tickRate()))
+	b.Bool(s.clock.isFrozen())
 	return sess.write(sess.ids().PlayTickingState, b.Bytes())
 }
 
-// sendTickingStep syncs the tick freeze step.
+// broadcastTickingState refreshes every play-stage client's ticking
+// state — ServerTickRateManager.updateStateToClients, which fires on
+// every setFrozen/setTickRate call, changed value or not.
+func (s *Server) broadcastTickingState() {
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay {
+			return true
+		}
+		_ = s.sendTickingState(sess)
+		return true
+	})
+}
+
+// sendTickingStep syncs the tick freeze step counter.
 func (s *Server) sendTickingStep(sess *Session, step int32) error {
 	var b protocol.Buffer
 	b.VarInt(step)
 	return sess.write(sess.ids().PlayTickingStep, b.Bytes())
+}
+
+// broadcastTickingStep refreshes every play-stage client's owed-step
+// counter — ServerTickRateManager.updateStepTicks, sent when a step
+// request lands or a step is stopped.
+func (s *Server) broadcastTickingStep(step int32) {
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay {
+			return true
+		}
+		_ = s.sendTickingStep(sess, step)
+		return true
+	})
 }
 
 // sendEntityHealthMetadata syncs the living-entity health metadata

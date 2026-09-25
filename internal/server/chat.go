@@ -263,6 +263,12 @@ func (s *Server) sendReply(sess *Session, r reply) {
 		for _, c := range r.extra {
 			s.sendSystemChatComponent(sess, c)
 		}
+		if r.opsEcho {
+			s.sendOpsEcho(sess, r.comp)
+			for _, c := range r.extra {
+				s.sendOpsEcho(sess, c)
+			}
+		}
 		return
 	}
 	if r.text != "" {
@@ -276,6 +282,45 @@ func (s *Server) sendSystemChat(sess *Session, text string) {
 	b.Raw(textComponentContent(text))
 	b.Bool(false) // overlay
 	_ = sess.write(sess.ids().PlaySystemChatCB, b.Bytes())
+}
+
+// sendOpsEcho mirrors CommandSourceStack.broadcastToAdmins: a command
+// success flagged broadcastToOps reaches every other op as the gray
+// italic admin line — chat.type.admin, [<name>: <message>] — while
+// send_command_feedback is on. from is the session whose command
+// produced the reply; nil is the server's own source, which is what
+// the sprint report broadcasts through.
+func (s *Server) sendOpsEcho(from *Session, c component) {
+	if !s.gameRuleBool("minecraft:send_command_feedback") {
+		return
+	}
+	name := component{text: "Server"}
+	if from != nil {
+		name = component{text: from.getName()}
+	}
+	echo := component{
+		translate: "chat.type.admin",
+		with:      []any{name, c},
+		color:     "gray",
+		italic:    true,
+	}
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || sess == from || !s.isOp(sess.getName()) {
+			return true
+		}
+		s.sendSystemChatComponent(sess, echo)
+		return true
+	})
+}
+
+// isOp reports whether the name holds an ops.json entry — the list
+// broadcastToAdmins sends to, regardless of OpsRequired.
+func (s *Server) isOp(name string) bool {
+	s.rulesMu.RLock()
+	defer s.rulesMu.RUnlock()
+	_, ok := s.ops[name]
+	return ok
 }
 
 // broadcastSystemChatComponent delivers a component to every play-stage

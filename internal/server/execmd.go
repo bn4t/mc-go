@@ -5,6 +5,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"mc-go/internal/data"
 	"mc-go/internal/world"
@@ -1024,15 +1025,28 @@ func (s *Server) runTick(player string, args []string) reply {
 		if len(args) > 1 {
 			return errToken("command.unknown.argument", 2)
 		}
+		// setFreeze(true) interrupts a sprint (its report still goes
+		// out) and a step before the freeze lands.
+		s.StopSprint()
+		s.stopStep()
 		s.SetFrozen(true)
-		return componentReply(translatable("commands.tick.status.frozen"))
+		return opsEchoReply(translatable("commands.tick.status.frozen"))
 	case "unfreeze":
 		if len(args) > 1 {
 			return errToken("command.unknown.argument", 2)
 		}
 		s.SetFrozen(false)
-		return componentReply(translatable("commands.tick.status.running"))
+		return opsEchoReply(translatable("commands.tick.status.running"))
 	case "step":
+		if len(args) >= 2 && args[1] == "stop" {
+			if len(args) > 2 {
+				return errToken("command.unknown.argument", 3)
+			}
+			if !s.stopStep() {
+				return componentReply(commandError("commands.tick.step.stop.fail"))
+			}
+			return opsEchoReply(translatable("commands.tick.step.stop.success"))
+		}
 		if len(args) > 2 {
 			return errToken("command.unknown.argument", 3)
 		}
@@ -1046,15 +1060,35 @@ func (s *Server) runTick(player string, args []string) reply {
 		if !s.clock.isFrozen() {
 			return componentReply(commandError("commands.tick.step.fail"))
 		}
+		// stepGameIfPaused fills the owed counter and refreshes the
+		// clients before the ack — the ticking-step packet precedes
+		// "Stepping N tick(s)" on the wire.
+		s.clock.mu.Lock()
+		s.clock.stepRemain = n
+		s.clock.mu.Unlock()
+		s.broadcastTickingStep(int32(n))
+		if sess := s.findSessionByName(player); sess != nil {
+			ack := translatable("commands.tick.step.success", int32(n))
+			if s.gameRuleBool("minecraft:send_command_feedback") {
+				s.sendSystemChatComponent(sess, ack)
+				s.sendOpsEcho(sess, ack)
+			}
+			s.StepTicks(n)
+			r := reply{}
+			r.result, r.hasResult = 1, true
+			return r
+		}
 		s.StepTicks(n)
-		return componentReply(translatable("commands.tick.step.success", int32(n)))
+		return opsEchoReply(translatable("commands.tick.step.success", int32(n)))
 	case "sprint":
 		if len(args) >= 2 && args[1] == "stop" {
-			if !s.clock.isSprinting() {
+			if len(args) > 2 {
+				return errToken("command.unknown.argument", 3)
+			}
+			if !s.StopSprint() {
 				return componentReply(commandError("commands.tick.sprint.stop.fail"))
 			}
-			s.StopSprint()
-			return componentReply(translatable("commands.tick.sprint.stop.success"))
+			return opsEchoReply(translatable("commands.tick.sprint.stop.success"))
 		}
 		if len(args) > 2 {
 			return errToken("command.unknown.argument", 3)
@@ -1067,21 +1101,33 @@ func (s *Server) runTick(player string, args []string) reply {
 			return errTokenEnd("argument.time.tick_count_too_low", 2, int32(1), int32(n))
 		}
 		// Vanilla runs the sprint on the server thread: the ack leaves
-		// first, and everything queued behind this command — including
-		// the test's next packet — waits out the sprint. Sending the
-		// ack up front and then blocking here reproduces that wire
-		// order; a console caller (no session) takes the reply path.
+		// first — "Interrupted" ahead of it when the request cut into a
+		// running sprint — and everything queued behind it waits out the
+		// run. The interrupting request itself never runs a leg: the
+		// sprint's owner keeps it and finishes once.
+		interrupted := s.requestSprint(n)
 		if sess := s.findSessionByName(player); sess != nil {
 			if s.gameRuleBool("minecraft:send_command_feedback") {
-				s.sendSystemChatComponent(sess, translatable("commands.tick.status.sprinting"))
+				if interrupted {
+					ack := translatable("commands.tick.sprint.stop.success")
+					s.sendSystemChatComponent(sess, ack)
+					s.sendOpsEcho(sess, ack)
+				}
+				ack := translatable("commands.tick.status.sprinting")
+				s.sendSystemChatComponent(sess, ack)
+				s.sendOpsEcho(sess, ack)
 			}
-			s.SprintTicks(n)
+			if !interrupted {
+				s.sprintRun()
+			}
 			r := reply{}
 			r.result, r.hasResult = 1, true
 			return r
 		}
-		s.SprintTicks(n)
-		return componentReply(translatable("commands.tick.status.sprinting"))
+		if !interrupted {
+			s.sprintRun()
+		}
+		return opsEchoReply(translatable("commands.tick.status.sprinting"))
 	case "rate":
 		if len(args) != 2 {
 			// The rate argument is required, so a bare "/tick rate"
@@ -1099,32 +1145,43 @@ func (s *Server) runTick(player string, args []string) reply {
 			return errToken("argument.float.low", 2, float32(1), float32(v))
 		}
 		s.SetTickRate(v)
-		return componentReply(translatable("commands.tick.rate.success", formatRate(s.clock.tickRate())))
+		return opsEchoReply(translatable("commands.tick.rate.success", formatRate(s.clock.tickRate())))
 	case "query":
 		return s.runTickQuery(args[1:])
 	}
 	return errToken("command.unknown.argument", 1)
 }
 
-// runTickQuery reports the clock state. The real server follows it with
-// a tick-time percentile report; mc-go does not keep tick-time history
-// yet, so it reports the state and the rate and stops there.
+// runTickQuery reports the clock state the way the real server does:
+// the status line, the rate line (the sprinting form drops the target),
+// and the P50/P95/P99 percentile line read off the tick-time ring.
 func (s *Server) runTickQuery(args []string) reply {
 	if len(args) > 0 {
 		return errToken("command.unknown.argument", 2)
 	}
 	st := s.clock.status()
-	// Two messages: the clock state, then the rate report. The real
-	// server's rate report names the fastest, average and slowest tick
-	// times over its window; mc-go reports the target rate three times
-	// until tick-time history exists.
 	rate := formatRate(st.Rate)
-	if st.Frozen {
+	avg := nanosToMillis(s.clock.avgTickNanos())
+	target := nanosToMillis(int64(float64(time.Second) / st.Rate))
+	p50, p95, p99, sample := s.clock.tickPercentiles()
+	percentiles := translatable("commands.tick.query.percentiles",
+		p50, p95, p99, int32(sample))
+	running := translatable("commands.tick.query.rate.running", rate, avg, target)
+	switch {
+	case st.Sprinting:
+		return componentReplyWith(translatable("commands.tick.status.sprinting"),
+			translatable("commands.tick.query.rate.sprinting", rate, avg), percentiles)
+	case st.Frozen:
 		return componentReplyWith(translatable("commands.tick.status.frozen"),
-			translatable("commands.tick.query.rate.frozen", rate, rate, rate))
+			running, percentiles)
+	case int64(float64(time.Second)/st.Rate) < s.clock.avgTickNanos():
+		// nanosecondsPerTick under the average: the game runs, but
+		// can't keep up with the target rate.
+		return componentReplyWith(translatable("commands.tick.status.lagging"),
+			running, percentiles)
 	}
 	return componentReplyWith(translatable("commands.tick.status.running"),
-		translatable("commands.tick.query.rate.running", rate, rate, rate))
+		running, percentiles)
 }
 
 // formatRate renders a tick rate the way the real server does in its

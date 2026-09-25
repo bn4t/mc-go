@@ -6628,3 +6628,65 @@ mob equip persistence/guaranteed-drop.
 - Deferred: shearOffAllLeashConnections (no leash model), bee
   release on honey harvest, remaining bonemeal targets, happy-ghast
   harness, egg chick-hatch, piston entity push + block_event packet.
+
+## Slice 2026-09-25k — /tick wire surface: broadcasts, ops echo, sprint interrupt
+
+- ClientboundTickingStatePacket (0x7F, rate+isFrozen) now broadcasts on
+  EVERY setFrozen/setTickRate call — vanilla's updateStateToClients is
+  unconditional, so `tick rate 8` twice emits twice; and
+  ClientboundTickingStepPacket (0x80, VarInt owed) on every
+  stepGameIfPaused/stopStepping. Both also still go to a joiner
+  (updateJoiningPlayer) with the real clock values, not constants.
+- Frozen restore: requestGameToSprint saves isFrozen (previousIsFrozen)
+  and unfreezes for the run; finishTickSprint restores it — a sprint
+  started under `tick freeze` ends back frozen ({rate,true} pair) and
+  `tick step` works again after.
+- sendOpsEcho mirrors CommandSourceStack.sendSuccess(_, broadcastToOps):
+  the caller still gets the bare line (gated on send_command_feedback);
+  every OTHER op on the wire gets it wrapped as `chat.type.admin`
+  [name, message] gray+italic — isOp = ops.json membership, so mc-go's
+  isOp reads s.ops directly (opLevel() would lie 4-for-all under the
+  open default). The sprint report broadcasts through the server source
+  ("Server" as sender name). sendFailure never echoes — verified on
+  CommandSourceStack bytecode.
+- /tick freeze/unfreeze/rate/step.success/step.stop/sprint.stop all
+  reply broadcastToOps (opsEchoReply); tick query does NOT
+  (broadcastToOps=false on all three of its sendSuccess calls — bare
+  lines to the asker only).
+- tick query takes vanilla's 3-line shape: status
+  (sprinting|frozen|lagging when nanosecondsPerTick<avg|running) +
+  rate line (query.rate.sprinting drops the target arg;
+  query.rate.running carries rate/avg/target) + query.percentiles —
+  the server now keeps the real 100-entry tickTimesNanos ring
+  (recordTick after every GameTick, sprint ticks included; avg = agg /
+  min(100,max(idx,1)); percentiles sorted[50],[95],[99], sample=100,
+  %.1f ms via float32 — matching nanosToMilisString).
+- Sprint/step semantics re-verified against bytecode: remaining>0 is
+  the liveness test for both stopSprinting and checkShouldSprintThisTick
+  (scheduled>0 is isSprinting); stopSprinting runs finishTickSprint
+  synchronously on the caller — mc-go's StopSprint drains sprintMu so
+  the report still lands before the stopper's next act.
+- TestTickingStateParity (new tests/blackbox/tickstate_test.go): two
+  op'd sessions run the whole mutator surface on BOTH servers and diff
+  the ordered ticking_state sequence, ticking_step sequence, per-wire
+  bare reply keys, and per-wire admin-echo keys — including the
+  cross-session cases (B's sprint interrupting A's, B's step-stop
+  draining A's frozen step, query mid-sprint). Hit/hit.
+- Wire lessons: vanilla's sprint/step run async on the server loop —
+  commands interleave BETWEEN sprint ticks, so a marker can return
+  mid-sprint and a frozen-only command issued then FAILS; gate on the
+  sprint.report broadcast, and let waits also accept a report that
+  beat the marker into an earlier drain (waitForKey). mc-go's model
+  keeps the sprint on the caller's handler instead — same wire
+  ordering, different interleave (queued commands on the OWNING session
+  wait out the run; other sessions' commands still interleave).
+- Harness: ops.json only lands in vanilla's dir — mc-go needs
+  SetOpLevel in the mutate hook for isOp/broadcastToAdmins parity.
+- Known diff to revisit: on vanilla a second command on the SAME
+  session still interleaves with that session's own sprint ticks
+  (single server thread); mc-go blocks the session's handler for the
+  run, so same-session commands strictly queue behind it.
+- Deferred: shearOffAllLeashConnections, bee release on honey harvest,
+  remaining bonemeal targets, happy-ghast harness, egg chick-hatch,
+  piston entity push + moving_piston + block_event packet, audit of
+  broadcastToOps flags on other commands (time set, gamerule, etc).
