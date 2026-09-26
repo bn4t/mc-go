@@ -7968,3 +7968,27 @@ leashee's detach).
 Pinned by TestPairingAttrsParity (in-bundle attr-id sets per summoned
 type + loose speed emit) and TestLeashSummonWireParity (sheep bundle →
 knot bundle → one loose set_entity_link, no spurious unlink).
+
+## Slice 2026-09-26b — non-Mob LivingEntity has no AI (armor_stand storm)
+
+The tracking legs showed mc-go emitting ~10 move_entity_pos /
+rotate_head packets per leg for a static Marker armor stand where
+vanilla emits one position sync. Cause: summonMobRaw marks every
+LivingEntity Living:true and mobTickStep runs the whole Mob.aiStep
+block — wander heading changes, ledge spins, goal steps — on the
+armor stand. Vanilla's ArmorStand is a LivingEntity, not a Mob: it
+ticks LivingEntity.tick (gravity, effects, leash, equipment sync)
+but never reaches Mob.aiStep's goal selector, so it never walks or
+turns its own head.
+
+- `nonMobLiving` name-set (armor_stand) now gates the whole AI block
+  in mobTickStep (`!e.NoAI && e.Riding == 0 && !nonMobLiving`) — the
+  Living-only tick parts (leash, fire, cramming, attr touch,
+  metadata/effect sync, despawn rules) still run.
+- summonMobRaw's max_health gate already restricts Living:true to
+  LivingEntity types, and armor_stand is the only non-Mob
+  LivingEntity — the set is complete.
+
+Leg streams after: leg0 identical ([{35}]), legs 1+2 the tolerated
+unpair-timing variants, leg3 re-pair bundle identical ([{1 99 131}])
+minus vanilla's two post-repair position packets.

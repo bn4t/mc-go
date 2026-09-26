@@ -1966,6 +1966,14 @@ func mobYawFor(id int32, step int64) float32 {
 // a solid block, then a deterministic wander step that refuses to walk
 // off a ledge. Fleeing, pathfinding, and mob-specific behaviour arrive
 // with the entity-AI milestone.
+// nonMobLiving are LivingEntity subclasses that are NOT Mob — vanilla
+// ticks them through LivingEntity.tick only (gravity, effects, leash),
+// never Mob.aiStep's goal selector: an armor stand never wanders,
+// chases, or turns its own head.
+var nonMobLiving = map[string]bool{
+	"armor_stand": true,
+}
+
 func (s *Server) mobTickStep() {
 	s.entities.mu.RLock()
 	mobs := make([]*Entity, 0, len(s.entities.byID))
@@ -2221,7 +2229,7 @@ func (s *Server) mobTickStep() {
 		if ambName == "witch" {
 			s.witchDrinkStep(e, s.dims[e.Dim])
 		}
-		if !e.NoAI && e.Riding == 0 {
+		if !e.NoAI && e.Riding == 0 && !nonMobLiving[ambName] {
 			// Drowned/stray conversion bookkeeping — inside the NoAI
 			// gate like vanilla's aiStep/tick placement.
 			if s.mobConvertTick(e, s.dims[e.Dim], ambName) {
