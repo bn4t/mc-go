@@ -36,7 +36,13 @@ Mojang server over the wire.
 - [~] Play join burst
 - [ ] Full packet ID + shape coverage for all states
 - [ ] Encryption / online mode
-- [ ] Cookie / transfer / dialog / code-of-conduct packets
+- [x] Cookie / transfer / dialog / code-of-conduct packets.
+      /transfer writes play transfer (host + port); /dialog show/clear
+      write show_dialog (Holder VarInt = registry index + 1) and
+      clear_dialog ahead of their echo - `TestDialogPacketsParity`.
+      Vanilla emits no cookie_request/store_cookie and no
+      code_of_conduct packets under the default datapack, so there is
+      nothing else on the wire to pin.
 
 ### World
 - [~] Sharded world, block overrides, persistence
