@@ -8310,3 +8310,35 @@ TestMinecartDismountParity summons a cart facing each cardinal yaw
 on both servers, mounts, sneak-dismounts, and asserts the sync_pos
 landing matches the probed block for all four (yaw0 -> N, 90 -> E,
 180 -> S, 270 -> W relative to the cart's facing-rotated-90).
+
+## Slice 2026-09-26o — minecart off-rail physics + yaw chase
+
+OldMinecartBehavior is the 26.2 default (MINECART_IMPROVEMENTS is not
+in the vanilla flag set), so the off-rail roll in comeOffTrack plus the
+yaw chase in tick() is the behavior to match:
+
+Physics (javap + live probe): gravity dy -= 0.08, horizontal clamp
++/-0.4 (0.2 in water), onGround decays the WHOLE delta vec x0.5, then
+move(SELF) axis-wise; airborne decays x0.95. A cart summoned with
+Motion:[0.3,0,0] rests at the 0.3/(1-0.5) = 0.6-block asymptote
+(probe: spawn 8.5 -> 9.0994). No kill threshold — pure geometric
+decay.
+
+Yaw (javap tick tail, correction to the earlier probe read): the
+chase is atan2(zo-z, xo-x)*180/pi — the NEGATED displacement — so a
++X slide gives 180, not 90; isFlipped adds 180 while moving; then
+wrapDegrees(yRot - yRotO) flips the cart and adds 180 whenever the
+delta reaches +/-170 (>= on the positive side only); frem-360
+normalizes. A +X slide ends yaw = 0 (probe via /data get
+Rotation[0]). setRot at spawn latches yRotO, so a summoned
+{Rotation:[180]} cart does NOT instantly flip — mc-go latches
+CartYawO the same way.
+
+Rider input does NOT move a flat-ground cart: the intent kick lives
+inside moveAlongTrack only (probe: 2s forward input, Pos unchanged).
+Rail-following itself is still unmodelled — carts standing on rail
+blocks are skipped by this tick step entirely.
+
+TestMinecartRollParity: push-slide rest pos ~=9.1 (differential via
+/data get Pos[0]), settled yaw ~=0 (Rotation[0]), and a rider's
+forward input leaves Pos[0] untouched — on both servers.

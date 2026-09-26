@@ -537,3 +537,133 @@ func (s *Server) entityInLava(sess *Session, e *Entity) bool {
 	}
 	return false
 }
+
+// railBlockNames is BaseRailBlock.isRail's block set — a minecart on
+// any of these takes moveAlongTrack, not comeOffTrack.
+var railBlockNames = map[string]bool{
+	"rail": true, "powered_rail": true, "detector_rail": true,
+	"activator_rail": true,
+}
+
+// minecartTickStep is OldMinecartBehavior.tick's off-rail half — the
+// 26.2 default (MINECART_IMPROVEMENTS is not in the default flag set):
+// applyGravity pulls dy by the 0.08 gravity attribute, then
+// comeOffTrack clamps the horizontal speed to getMaxSpeed (0.4 on
+// land, 0.2 in water — water carts are unmodelled), halves the whole
+// delta when grounded, moves with collision, and scales by the 0.95
+// air drag when airborne. A cart standing on a rail takes
+// moveAlongTrack instead — rail following is unmodelled, so those
+// carts are skipped here.
+func (s *Server) minecartTickStep() {
+	for _, e := range s.entities.All() {
+		name, ok := EntityTypeName(e.Type)
+		if !ok || !isMinecartName(name) {
+			continue
+		}
+		ep, ok := s.entities.GetPtr(e.ID)
+		if !ok || ep.Dying {
+			continue
+		}
+		w := s.dimWorld(e.Dim)
+		fx, fz := int(math.Floor(ep.X)), int(math.Floor(ep.Z))
+		fy := int(math.Floor(ep.Y))
+		// getCurrentBlockPosOrRailBelow: the rail can sit at the cart's
+		// own block pos or one block below.
+		if on, _ := world.StateOwner(w.GetBlock(world.Pos{X: fx, Y: fy, Z: fz})); railBlockNames[on] {
+			continue
+		}
+		if on, _ := world.StateOwner(w.GetBlock(world.Pos{X: fx, Y: fy - 1, Z: fz})); railBlockNames[on] {
+			continue
+		}
+		ep.MotionY -= 0.08
+		const maxSpeed = 0.4
+		ep.MotionX = math.Max(-maxSpeed, math.Min(maxSpeed, ep.MotionX))
+		ep.MotionZ = math.Max(-maxSpeed, math.Min(maxSpeed, ep.MotionZ))
+		if ep.Grounded {
+			ep.MotionX *= 0.5
+			ep.MotionY *= 0.5
+			ep.MotionZ *= 0.5
+		}
+		ox, oy, oz := ep.X, ep.Y, ep.Z
+		// move(SELF, delta): axis-wise collision cancel on x/z, then a
+		// swept floor-landing on y (the highest solid block the bottom
+		// crossed this tick is the floor it lands on).
+		if ep.MotionX != 0 && !s.entityBoxCollides(w, ep.X+ep.MotionX, ep.Y, ep.Z, 0.49, 0.7) {
+			ep.X += ep.MotionX
+		} else {
+			ep.MotionX = 0
+		}
+		if ep.MotionZ != 0 && !s.entityBoxCollides(w, ep.X, ep.Y, ep.Z+ep.MotionZ, 0.49, 0.7) {
+			ep.Z += ep.MotionZ
+		} else {
+			ep.MotionZ = 0
+		}
+		ep.Grounded = false
+		ny := ep.Y + ep.MotionY
+		if ep.MotionY <= 0 {
+			for by := int(math.Floor(oy)); by >= int(math.Floor(ny)); by-- {
+				if !world.NonSolid(w.GetBlock(world.Pos{X: fx, Y: by, Z: fz})) {
+					ny = float64(by) + 1
+					ep.MotionY = 0
+					ep.Grounded = true
+					break
+				}
+			}
+		}
+		if !ep.Grounded {
+			ep.MotionX *= 0.95
+			ep.MotionY *= 0.95
+			ep.MotionZ *= 0.95
+		}
+		ep.Y = ny
+		// tick's tail, per OldMinecartBehavior.tick: pitch zeroed, then
+		// the yaw chases atan2(zo-z, xo-x)*180/pi — the NEGATED
+		// displacement (a +X slide gives 180, not 90) — with the flip
+		// added only while moving, then the 170-degree wrap-flip every
+		// tick, then frem-360 normalization.
+		ep.Pitch = 0
+		mx, mz := ox-ep.X, oz-ep.Z
+		if mx*mx+mz*mz > 0.001 {
+			ep.Yaw = float32(math.Atan2(mz, mx) * 180 / math.Pi)
+			if ep.CartFlipped {
+				ep.Yaw += 180
+			}
+		}
+		delta := ep.Yaw - ep.CartYawO
+		for delta > 180 {
+			delta -= 360
+		}
+		for delta < -180 {
+			delta += 360
+		}
+		if delta < -170 || delta >= 170 {
+			ep.Yaw += 180
+			ep.CartFlipped = !ep.CartFlipped
+		}
+		ep.Pitch = float32(math.Mod(float64(ep.Pitch), 360))
+		ep.Yaw = float32(math.Mod(float64(ep.Yaw), 360))
+		ep.CartYawO = ep.Yaw
+		if ep.X != ox || ep.Y != oy || ep.Z != oz {
+			ep.PosDirty = true
+		}
+		s.mobSyncFlush(ep)
+	}
+}
+
+// entityBoxCollides is riderBoxCollides parametrized by the entity's
+// box: any solid block intersecting (x±half) × (y,y+h) × (z±half)
+// cancels the component move.
+func (s *Server) entityBoxCollides(w *world.World, x, y, z, half, h float64) bool {
+	minY := int(math.Floor(y))
+	maxY := int(math.Floor(y + h))
+	for bx := int(math.Floor(x - half)); bx <= int(math.Floor(x+half)); bx++ {
+		for bz := int(math.Floor(z - half)); bz <= int(math.Floor(z+half)); bz++ {
+			for by := minY; by <= maxY; by++ {
+				if !world.NonSolid(w.GetBlock(world.Pos{X: bx, Y: by, Z: bz})) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}

@@ -2,6 +2,9 @@ package blackbox
 
 import (
 	"net"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -477,6 +480,189 @@ func TestMinecartDismountParity(t *testing.T) {
 	}
 }
 
+// TestMinecartRollParity pins OldMinecartBehavior's off-rail roll
+// (26.2's default, MINECART_IMPROVEMENTS off): a cart summoned with
+// Motion slides along the ground decaying x0.5/tick until it rests at
+// the 0.3/(1-0.5)=0.6-block asymptote, reporting yaw atan2(dx,dz)
+// while moving, and a rider's forward input does NOT move a flat-
+// ground cart at all (the intent kick is rail-only).
+func TestMinecartRollParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("BOATA", "BOATB"),
+	}, nil)
+	defer targets.cleanup()
+
+	run := func(t *testing.T, tag, addr string) {
+		v := joinVehPair(t, addr)
+		drainChunkWindow(t, tag, v.ca, v.pra, v.pwa, 300*time.Millisecond)
+		drainChunkWindow(t, tag, v.cb, v.prb, v.pwb, 300*time.Millisecond)
+		sendCommand(t, v.pwa, "tp @s 6 -60 8 0 0")
+		sendCommand(t, v.pwb, "tp @s 6 -60 10.5 0 0")
+		time.Sleep(300 * time.Millisecond)
+		sendCommand(t, v.pwa, "summon minecraft:minecart 8 -60 8 {Motion:[0.3,0.0,0.0]}")
+		eid := int32(0)
+		end := time.Now().Add(3 * time.Second)
+		for time.Now().Before(end) && eid == 0 {
+			for _, s := range []struct {
+				c  net.Conn
+				pr *protocol.Reader
+				pw *protocol.Writer
+				b  bool
+			}{{v.ca, v.pra, v.pwa, false}, {v.cb, v.prb, v.pwb, true}} {
+				_ = s.c.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
+				for {
+					p, err := s.pr.ReadPacket()
+					if err != nil {
+						break
+					}
+					switch int32(p.ID) {
+					case server.IDPlayKeepAliveCB:
+						_ = s.pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+					case server.IDPlayChunkBatchDone:
+						_ = ackChunkBatch(s.pw)
+					case server.IDPlaySyncPos:
+						r := protocol.NewPacketReader(p.Data)
+						id, _ := r.VarInt()
+						var bb protocol.Buffer
+						bb.VarInt(id)
+						_ = s.pw.WritePacket(server.IDPlayTeleportConfirmSB, bb.Bytes())
+					case 1:
+						if !s.b {
+							break
+						}
+						r := protocol.NewPacketReader(p.Data)
+						e, _ := r.VarInt()
+						r.UUID()
+						ty, _ := r.VarInt()
+						if n, _ := server.EntityTypeName(ty); n == "minecart" {
+							eid = e
+						}
+					}
+				}
+			}
+		}
+		if eid == 0 {
+			t.Fatalf("%s: no minecart spawn seen", tag)
+		}
+		// Slide window: sum deltas and catch the absolute sync.
+		var dx, dz, syncX float64
+		moveN := 0
+		start := time.Now()
+		end = start.Add(4 * time.Second)
+		for time.Now().Before(end) {
+			for _, s := range []struct {
+				c  net.Conn
+				pr *protocol.Reader
+				pw *protocol.Writer
+				b  bool
+			}{{v.ca, v.pra, v.pwa, false}, {v.cb, v.prb, v.pwb, true}} {
+				_ = s.c.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
+				for {
+					p, err := s.pr.ReadPacket()
+					if err != nil {
+						break
+					}
+					switch int32(p.ID) {
+					case server.IDPlayKeepAliveCB:
+						_ = s.pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+					case server.IDPlayChunkBatchDone:
+						_ = ackChunkBatch(s.pw)
+					case server.IDPlaySyncPos:
+						r := protocol.NewPacketReader(p.Data)
+						id, _ := r.VarInt()
+						var bb protocol.Buffer
+						bb.VarInt(id)
+						_ = s.pw.WritePacket(server.IDPlayTeleportConfirmSB, bb.Bytes())
+					default:
+						if !s.b {
+							break
+						}
+						switch int32(p.ID) {
+						case 53, 54: // move_entity_pos / _pos_rot
+							r := protocol.NewPacketReader(p.Data)
+							peid, _ := r.VarInt()
+							if peid != eid {
+								break
+							}
+							sx, _ := r.Short()
+							_, _ = r.Short()
+							sz, _ := r.Short()
+							dx += float64(sx) / 4096
+							dz += float64(sz) / 4096
+							moveN++
+						case 35: // entity_position_sync
+							r := protocol.NewPacketReader(p.Data)
+							peid, _ := r.VarInt()
+							if peid != eid {
+								break
+							}
+							syncX, _ = r.Double()
+							_, _ = r.Double()
+							_, _ = r.Double()
+						}
+					}
+				}
+			}
+		}
+		if moveN == 0 {
+			t.Fatalf("%s: pushed cart never moved", tag)
+		}
+		if dz*dz > 0.01 {
+			t.Fatalf("%s: cart drifted %.4f on Z, want ~0", tag, dz)
+		}
+		_ = syncX
+		// Asymptote: 0.3/(1-0.5) = 0.6 blocks east of the 8.5 spawn →
+		// rest ≈9.1. /data get is the authoritative read — packet
+		// capture starts after the first moves already ran.
+		x, ok := dataGetFloat(t, v, "data get entity @e[type=minecart,limit=1] Pos[0]")
+		if !ok {
+			t.Fatalf("%s: Pos[0] query gave no number", tag)
+		}
+		if d := x - 9.1; d*d > 0.01 {
+			t.Fatalf("%s: cart rested at X=%.4f, want ~9.1", tag, x)
+		}
+		yaw, ok := dataGetFloat(t, v, "data get entity @e[type=minecart,limit=1] Rotation[0]")
+		if !ok {
+			t.Fatalf("%s: Rotation[0] query gave no number", tag)
+		}
+		// Vanilla's yaw chases the NEGATED displacement: a +X slide
+		// gives 180, the 170-degree flip adds 180 and frem-360 leaves
+		// the cart at ~0 (probe: vanilla Rotation[0]=0.0).
+		d := yaw
+		for d > 180 {
+			d -= 360
+		}
+		for d < -180 {
+			d += 360
+		}
+		if d*d > 100 {
+			t.Fatalf("%s: sliding +X left yaw %.1f, want ~0", tag, yaw)
+		}
+		// A rider's forward input must NOT move a flat-ground cart —
+		// vanilla's intent kick lives inside moveAlongTrack (rails).
+		sendInteractEntity(v.pwa, eid)
+		if o := vehWatch(t, v, true, eid, 1500*time.Millisecond); o.passengers != 1 {
+			t.Fatalf("%s: mount passengers=%d", tag, o.passengers)
+		}
+		sendPlayerInput(v.pwa, 0x01)
+		_ = vehWatch(t, v, true, eid, 2*time.Second)
+		// Position is the proof: periodic position syncs ride the wire
+		// for a parked cart too, so only /data get separates a real move.
+		x2, ok := dataGetFloat(t, v, "data get entity @e[type=minecart,limit=1] Pos[0]")
+		if !ok || (x2-x)*(x2-x) > 0.0025 {
+			t.Fatalf("%s: ridden cart at X=%.4f (was %.4f)", tag, x2, x)
+		}
+		sendPlayerInput(v.pwa, 0x00)
+	}
+
+	for _, tc := range []struct{ tag, addr string }{
+		{"vanilla", targets.vanilla},
+		{"mc-go", targets.mcgo},
+	} {
+		t.Run("cart_roll_"+tc.tag, func(t *testing.T) { run(t, tc.tag, tc.addr) })
+	}
+}
+
 // TestVehicleHurtParity pins VehicleEntity.hurtServer: a melee hit on a
 // boat emits a set_entity_data dirty pack carrying the wobble state —
 // DATA_ID_HURT(8)=10, DATA_ID_HURTDIR(9) sign-flipped from +1, and
@@ -587,4 +773,62 @@ func TestVehicleHurtParity(t *testing.T) {
 	} {
 		t.Run("vehicle_hurt_"+tc.tag, func(t *testing.T) { run(t, tc.tag, tc.addr) })
 	}
+}
+
+// dataGetFloat issues a /data get query on the driver conn and returns
+// the last SNBT number its reply renders ("9.0995d", "90.0f"). The
+// query's reply text is the measure: a failed query still replies, but
+// carries an error component with no d/f-suffixed number.
+var dataNumRe = regexp.MustCompile(`(-?\d+(?:\.\d+)?)[df]`)
+
+func dataGetFloat(t *testing.T, v *vehPair, query string) (float64, bool) {
+	t.Helper()
+	var b protocol.Buffer
+	b.String(query)
+	if err := v.pwa.WritePacket(server.IDPlayChatCommandSB, b.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	var text strings.Builder
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, s := range []struct {
+			c  net.Conn
+			pr *protocol.Reader
+			pw *protocol.Writer
+			a  bool
+		}{{v.ca, v.pra, v.pwa, true}, {v.cb, v.prb, v.pwb, false}} {
+			_ = s.c.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
+			for {
+				p, err := s.pr.ReadPacket()
+				if err != nil {
+					break
+				}
+				switch int32(p.ID) {
+				case server.IDPlayKeepAliveCB:
+					_ = s.pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+				case server.IDPlayChunkBatchDone:
+					_ = ackChunkBatch(s.pw)
+				case server.IDPlaySyncPos:
+					r := protocol.NewPacketReader(p.Data)
+					id, _ := r.VarInt()
+					var bb protocol.Buffer
+					bb.VarInt(id)
+					_ = s.pw.WritePacket(server.IDPlayTeleportConfirmSB, bb.Bytes())
+				case server.IDPlaySystemChatCB:
+					if s.a {
+						text.WriteString(chatTextBlackbox(t, p.Data))
+					}
+				}
+			}
+		}
+		if strings.Contains(text.String(), "commands.data.entity.query") {
+			break
+		}
+	}
+	ms := dataNumRe.FindAllStringSubmatch(text.String(), -1)
+	if len(ms) == 0 {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(ms[len(ms)-1][1], 64)
+	return f, err == nil
 }

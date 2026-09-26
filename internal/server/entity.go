@@ -256,6 +256,12 @@ type Entity struct {
 	VehDamage   float32
 	VehHurtTime int32
 	VehHurtDir  int32
+	// CartFlipped/CartYawO are OldMinecartBehavior's yaw-chase state:
+	// isFlipped adds 180 to the atan2'd travel direction (toggled when
+	// the wrapped yaw delta crosses ±170°), and CartYawO is last
+	// tick's yaw the delta is measured against.
+	CartFlipped bool
+	CartYawO    float32
 	// Saddle is the equipment.saddle slot on saddleable mounts
 	// (strider, pig, horse family): vanilla gates mounting on it.
 	Saddle bool

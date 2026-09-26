@@ -1297,6 +1297,18 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if rv, ok := tag.vals["Rotation"]; ok && len(rv.items) >= 2 {
 				e.Yaw = float32(snbtNum(rv.items[0]))
 				e.Pitch = float32(snbtNum(rv.items[1]))
+				// vanilla's setRot latches yRotO too: without it the
+				// off-rail tick's wrap-flip treats a fresh 180-degree
+				// yaw as a 170-plus turn and instantly flips the cart.
+				e.CartYawO = e.Yaw
+			}
+			if mv, ok := tag.vals["Motion"]; ok && len(mv.items) == 3 {
+				e.MotionX = snbtNum(mv.items[0])
+				e.MotionY = snbtNum(mv.items[1])
+				e.MotionZ = snbtNum(mv.items[2])
+				e.VX = int16(e.MotionX * 8000)
+				e.VY = int16(e.MotionY * 8000)
+				e.VZ = int16(e.MotionZ * 8000)
 			}
 			if pv, ok := tag.vals["Passengers"]; ok {
 				for _, sub := range pv.items {

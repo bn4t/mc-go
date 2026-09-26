@@ -411,6 +411,7 @@ func (s *Server) GameTick() {
 	s.mobItemPickupStep()
 	s.mobTickStep()
 	s.vehicleTickStep()
+	s.minecartTickStep()
 	s.cureTickStep()
 	s.windChargeTickStep()
 	s.crafterTickStep()
