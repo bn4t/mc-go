@@ -1936,6 +1936,20 @@ func readSlotBBFull(r *protocol.PacketReader) (server.ItemStack, int32, bool, er
 // readSlotBBComps is readSlotBBFull plus the emitted component-type id
 // list — tests asserting the exact patch shape (the captain banner's
 // 4-component set, the bottle amplifier) read it.
+// bbTrimMaterials / bbTrimPatterns are the captured 26.2 registry
+// orders — trim_material: alphabetical over its 11 entries,
+// trim_pattern: alphabetical over its 18 (measured on the vanilla
+// registries packet).
+var bbTrimMaterials = []string{
+	"amethyst", "copper", "diamond", "emerald", "gold", "iron",
+	"lapis", "netherite", "quartz", "redstone", "resin",
+}
+var bbTrimPatterns = []string{
+	"bolt", "coast", "dune", "eye", "flow", "host", "raiser", "rib",
+	"sentry", "shaper", "silence", "snout", "spire", "tide", "vex",
+	"ward", "wayfinder", "wild",
+}
+
 func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, []int32, error) {
 	count, err := r.VarInt()
 	if err != nil || count <= 0 {
@@ -2036,6 +2050,22 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 			} else {
 				it.StoredEnch = strings.Join(pairs, ",")
 			}
+		case 56: // minecraft:trim: material holder then pattern holder,
+			// each a registry id +1 (measured 26.2 — a lapis bolt trim
+			// emits 07 01). Names resolve against the captured orders
+			// below.
+			mid, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			pid, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			if mid < 1 || int(mid) > len(bbTrimMaterials) || pid < 1 || int(pid) > len(bbTrimPatterns) {
+				return server.ItemStack{}, 0, false, nil, fmt.Errorf("blackbox: trim holder ids %d/%d", mid, pid)
+			}
+			it.Trim = bbTrimMaterials[mid-1] + "/" + bbTrimPatterns[pid-1]
 		case 72: // minecraft:banner_patterns: VarInt layer count, then
 			// (pattern holder VarInt, dye ordinal VarInt) pairs — the
 			// captain banner writes 8.

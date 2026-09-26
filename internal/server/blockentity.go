@@ -578,6 +578,13 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 			"potion": "minecraft:" + it.Potion,
 		}
 	}
+	if it.Trim != "" {
+		mat, pat, _ := strings.Cut(it.Trim, "/")
+		comps["minecraft:trim"] = map[string]any{
+			"material": "minecraft:" + mat,
+			"pattern":  "minecraft:" + pat,
+		}
+	}
 	if it.Bees > 0 {
 		// Bees serializes as a list of Occupant records: the
 		// TypedEntityData's type field folds back into entity_data
@@ -833,6 +840,13 @@ func itemFromNBT(m map[string]any) ItemStack {
 	if comps, ok := m["components"].(map[string]any); ok {
 		it.Contents = shulkerContentsFromNBT(comps)
 		it.BookWritable, it.BookWritten = bookContentFromNBT(comps)
+		if tr, ok := comps["minecraft:trim"].(map[string]any); ok {
+			mat, _ := tr["material"].(string)
+			pat, _ := tr["pattern"].(string)
+			if mat != "" && pat != "" {
+				it.Trim = strings.TrimPrefix(mat, "minecraft:") + "/" + strings.TrimPrefix(pat, "minecraft:")
+			}
+		}
 	}
 	return it
 }

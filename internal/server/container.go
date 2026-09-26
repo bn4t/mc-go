@@ -656,7 +656,7 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 					s.setCarriedLocked(sess, taken)
 					touched = append(touched, int(slot))
 					if c.spec.menu == menuSmithing {
-						smithingConsume(sess)
+						s.smithingTake(sess)
 						touched = append(touched, smithingTemplate, smithingBase, smithingAddition)
 					}
 				}
@@ -686,7 +686,7 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		}
 		sess.setMenuStack(int(slot), moving)
 		if isResult && moving.Empty() && c.spec.menu == menuSmithing {
-			smithingConsume(sess)
+			s.smithingTake(sess)
 			touched = append(touched, smithingTemplate, smithingBase, smithingAddition)
 		}
 	case 2:
@@ -733,7 +733,7 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		s.dropFromMenu(sess, drop)
 		touched = append(touched, int(slot))
 		if isResult && it.Empty() && c.spec.menu == menuSmithing {
-			smithingConsume(sess)
+			s.smithingTake(sess)
 			touched = append(touched, smithingTemplate, smithingBase, smithingAddition)
 		}
 	default:
@@ -745,7 +745,7 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 	// step, so its update rides the same broadcast batch (and window
 	// state) as the input changes it came from.
 	if c.spec.menu == menuSmithing {
-		out := smithingCompute(sess.menuStack(smithingTemplate), sess.menuStack(smithingBase), sess.menuStack(smithingAddition))
+		out, _ := smithingCompute(sess.menuStack(smithingTemplate), sess.menuStack(smithingBase), sess.menuStack(smithingAddition))
 		if sess.menuStack(smithingResult) != out {
 			sess.setMenuStack(smithingResult, out)
 			touched = append(touched, smithingResult)

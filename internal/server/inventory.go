@@ -57,6 +57,10 @@ type ItemStack struct {
 	// StoredEnch is the minecraft:stored_enchantments component — the
 	// list an enchanted_book carries — same canonical encoding as Ench.
 	StoredEnch string `json:"stored_ench,omitempty"`
+	// Trim is the minecraft:trim component: "<material>/<pattern>" with
+	// bare registry names (a lapis bolt trim reads "lapis/bolt"),
+	// absent when empty. One plain string keeps ItemStack comparable.
+	Trim string `json:"trim,omitempty"`
 	// Bees is the minecraft:bees component's occupant count — a
 	// bee_nest/beehive item remembers how many bees it carries into
 	// placement. Only the count matters for the triggers we model;
@@ -175,6 +179,7 @@ const (
 	compEnchantments = 13
 	compRepairCost   = 19
 	compStoredEnch   = 42
+	compTrim         = 56
 	// writable_book_content / written_book_content carry the book
 	// payload a lectern (or book-and-quill editor) reads; payloads are
 	// lists of Filterable<String>/<Component> wrappers (measured 26.2).
@@ -273,6 +278,9 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		add++
 	}
 	if it.Bees > 0 {
+		add++
+	}
+	if it.Trim != "" {
 		add++
 	}
 	if it.Contents != nil {
@@ -409,6 +417,17 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 			b.VarInt(0)   // ticks_in_hive
 			b.VarInt(600) // min_ticks_in_hive
 		}
+	}
+	if it.Trim != "" {
+		// ItemTrim's holders write material first, then pattern —
+		// each a registry id +1 (measured on 26.2: a lapis bolt
+		// trim emits 07 01, lapis=6 and bolt=0). SmithingTrimRecipe
+		// sets TRIM on a copy of the base, so it lands last in the
+		// patch after whatever components the base carried.
+		mat, pat, _ := strings.Cut(it.Trim, "/")
+		b.VarInt(compTrim)
+		b.VarInt(registryEntryID("minecraft:trim_material", "minecraft:"+mat) + 1)
+		b.VarInt(registryEntryID("minecraft:trim_pattern", "minecraft:"+pat) + 1)
 	}
 }
 
@@ -631,6 +650,21 @@ func readSlotComponent(r *protocol.PacketReader, it *ItemStack, typ int32) error
 		}
 		sort.Strings(parts)
 		it.BlockState = strings.Join(parts, ",")
+	case compTrim: // minecraft:trim — material holder, then pattern holder
+		mid, err := r.VarInt()
+		if err != nil {
+			return err
+		}
+		pid, err := r.VarInt()
+		if err != nil {
+			return err
+		}
+		mat := strings.TrimPrefix(registryEntryName("minecraft:trim_material", mid-1), "minecraft:")
+		pat := strings.TrimPrefix(registryEntryName("minecraft:trim_pattern", pid-1), "minecraft:")
+		if mat == "" || pat == "" {
+			return fmt.Errorf("server: trim material/pattern ids %d/%d unknown", mid, pid)
+		}
+		it.Trim = mat + "/" + pat
 	case compBees: // minecraft:bees, occupant list — count only
 		n, err := r.VarInt()
 		if err != nil {

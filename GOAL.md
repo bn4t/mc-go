@@ -8620,6 +8620,28 @@ each target before returning the chat reply, so wire order matches.
 TestDialogPacketsParity diffs the full window (packet + echo, and
 the no_such_dialog chat-only error path) verbatim on both servers.
 
+## Slice 2026-09-26x — smithing_trim: minecraft:trim component + recipe_crafted
+
+The trim path now produces results: ItemStack.Trim models the
+minecraft:trim component as "<material>/<pattern>" (bare names),
+writeSlotPatch emits comp 56 with ItemTrim's holder order (material
+first, then pattern — each a registry id +1; measured on the wire:
+lapis bolt emits 38 07 01) appended last since
+SmithingTrimRecipe.assemble sets TRIM on a copy of the base.
+smithingCompute handles smithing_trim recipes: result = copy of the
+base + trim (material from the addition's provides_trim_material —
+the 11-item measured table — pattern from the template's
+*_armor_trim_smithing_template suffix). Take paths feed the matched
+recipe id into recipe_crafted on the pre-consume inputs, which is
+what grants the trim advancements (Crafting a New Look announced on
+the first take — measured announce=1, matched).
+
+Measured surprise: vanilla does NOT reject same-material trims —
+checkMaterialEquality compares the RECIPE ingredient's material (the
+trim_materials tag's first member) against the armor's, never the
+input stack's, so diamond-on-diamond emits [tdiamond/bolt] fine.
+Pinned in TestSmithingTrimParity including that case.
+
 ## Slice 2026-09-26w — smithing_transform menu + two latent bugs the pin exposed
 
 Wired the smithing table's result slot end to end: smithingCompute

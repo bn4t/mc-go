@@ -60,6 +60,9 @@ func stackKey(it server.ItemStack) string {
 	if it.BookWritten != "" {
 		key += fmt.Sprintf("[bwr%s]", it.BookWritten)
 	}
+	if it.Trim != "" {
+		key += fmt.Sprintf("[t%s]", it.Trim)
+	}
 	return key
 }
 
