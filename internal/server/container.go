@@ -149,6 +149,8 @@ func (spec *containerSpec) accepts(slot int, it ItemStack) bool {
 		return false
 	case spec.menu == menuBeacon:
 		return beaconPaymentItem(it)
+	case spec.menu == menuSmithing:
+		return smithingAccepts(slot, it)
 	}
 	return true
 }
@@ -204,8 +206,7 @@ var shulkerSpec = &containerSpec{
 //	                    container-to-container transfer
 //	stonecutter         the stonecutting recipe table (one input, many
 //	                    outputs)
-//	smithing_table      the smithing_transform and smithing_trim
-//	                    recipes
+//	smithing_table      the smithing_trim recipes (transforms done)
 //	anvil               the repair and rename rules: the item_name
 //	                    component, repair costs, and anvil damage
 //	enchanting_table    the enchantment registry, the seeded offer
@@ -654,6 +655,10 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 					sess.setMenuStack(int(slot), ItemStack{})
 					s.setCarriedLocked(sess, taken)
 					touched = append(touched, int(slot))
+					if c.spec.menu == menuSmithing {
+						smithingConsume(sess)
+						touched = append(touched, smithingTemplate, smithingBase, smithingAddition)
+					}
 				}
 			}
 			break
@@ -680,6 +685,10 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 			quickMoveIntoContainer(sess, c, &moving, &touched)
 		}
 		sess.setMenuStack(int(slot), moving)
+		if isResult && moving.Empty() && c.spec.menu == menuSmithing {
+			smithingConsume(sess)
+			touched = append(touched, smithingTemplate, smithingBase, smithingAddition)
+		}
 	case 2:
 		swap := w.menuSize() - 9 + int(button)
 		if isResult || swap < w.menuSize()-9 || swap >= w.menuSize() {
@@ -723,10 +732,24 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		sess.setMenuStack(int(slot), it)
 		s.dropFromMenu(sess, drop)
 		touched = append(touched, int(slot))
+		if isResult && it.Empty() && c.spec.menu == menuSmithing {
+			smithingConsume(sess)
+			touched = append(touched, smithingTemplate, smithingBase, smithingAddition)
+		}
 	default:
 		// Unsupported mode: resync the menu instead of diverging.
 		s.sendContainerMenuContent(sess)
 		return
+	}
+	// The smithing result recomputes inside the click's slotsChanged
+	// step, so its update rides the same broadcast batch (and window
+	// state) as the input changes it came from.
+	if c.spec.menu == menuSmithing {
+		out := smithingCompute(sess.menuStack(smithingTemplate), sess.menuStack(smithingBase), sess.menuStack(smithingAddition))
+		if sess.menuStack(smithingResult) != out {
+			sess.setMenuStack(smithingResult, out)
+			touched = append(touched, smithingResult)
+		}
 	}
 	s.syncContainerMenuSlots(sess, w, touched)
 	if c.spec.brew {
@@ -973,16 +996,28 @@ func (s *Server) dropFromMenu(sess *Session, it ItemStack) {
 // syncContainerMenuSlots sends Container Slot updates for touched menu
 // slots and the cursor.
 func (s *Server) syncContainerMenuSlots(sess *Session, w *openWindow, touched []int) {
-	sess.windowMu.Lock()
-	sess.windowState++
-	state := sess.windowState
-	sess.windowMu.Unlock()
+	// The window state only advances when a state-bearing packet
+	// actually goes out: a no-op click (touched empty, e.g. a take on
+	// an already-empty result slot) emits nothing, and a silent bump
+	// would desync the client's state echo on the next click.
 	seen := map[int]bool{}
+	var state int32
+	bumped := false
 	for _, slot := range touched {
 		if seen[slot] {
 			continue
 		}
 		seen[slot] = true
+		if !bumped {
+			// One increment per broadcast batch, shared by every slot
+			// update in it (vanilla's incrementStateId inside
+			// broadcastChanges).
+			bumped = true
+			sess.windowMu.Lock()
+			sess.windowState++
+			state = sess.windowState
+			sess.windowMu.Unlock()
+		}
 		var b protocol.Buffer
 		b.VarInt(w.id)
 		b.VarInt(state)

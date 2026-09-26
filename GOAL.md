@@ -8619,3 +8619,28 @@ index 2 → body 03, matching the probe. runDialog writes the packet to
 each target before returning the chat reply, so wire order matches.
 TestDialogPacketsParity diffs the full window (packet + echo, and
 the no_such_dialog chat-only error path) verbatim on both servers.
+
+## Slice 2026-09-26w — smithing_transform menu + two latent bugs the pin exposed
+
+Wired the smithing table's result slot end to end: smithingCompute
+mirrors TransmuteRecipe.assemble (result = recipe item with the base's
+whole component patch carried — renamed+enchanted diamond chestplate
+comes out renamed+enchanted netherite), recompute rides inside the
+click's slotsChanged step so its update shares the broadcast batch and
+window state, smithingConsume shrinks all three ingredient slots by
+one on any take path (hand / quick-move / throw), and
+smithingAccepts gives each input slot the union mayPlace vanilla
+builds from the recipe registry. Measured on the jar: no sound, no
+world event, no advancement announce on the take. smithing_trim
+still needs the unmodeled trim component.
+
+The pin surfaced two unrelated latent bugs, both fixed:
+- syncContainerMenuSlots bumped windowState on EVERY click including
+  no-ops that send nothing state-bearing; the client's echoed state
+  then lagged and the NEXT click arrived stale -> resync+drop.
+  The bump now happens only when a slot update actually emits
+  (vanilla's broadcastChanges semantics: state travels with packets).
+- fireGameInventoryChanged flattened multi-predicate items[] into a
+  single OR-set, granting net/netherite_armor off one piece; the
+  parse now keeps one name-set per predicate and requires every set
+  to match some slot (Cover Me in Debris needs all four).

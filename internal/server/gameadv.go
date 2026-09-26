@@ -148,12 +148,15 @@ type ehurtCond struct {
 }
 
 // invCond is one inventory_changed criterion reduced to its items[]
-// OR-list: each entry a concrete item name or an expanded item tag. The
-// slots and equipment condition shapes are not modeled, so criteria
-// that use them stay locked.
+// predicate list: each element's item names OR together, but every
+// element must match some slot for the criterion to grant — the
+// nether_armor advancement lists all four armor pieces this way and
+// only grants when the whole set is in inventory. The slots and
+// equipment condition shapes are not modeled, so criteria that use
+// them stay locked.
 type invCond struct {
 	crit       string
-	items      map[string]bool
+	sets       []map[string]bool
 	impossible bool
 }
 
@@ -871,7 +874,7 @@ func (s *Server) firePlayerHurtEntity(sess *Session, directType string, proj boo
 // the player predicate, ...) locks the criterion — matching vanilla
 // where an unmatched predicate can never grant.
 func parseInvCond(cname string, conds any) invCond {
-	ic := invCond{crit: cname, items: map[string]bool{}}
+	ic := invCond{crit: cname}
 	cm, _ := conds.(map[string]any)
 	items, _ := cm["items"].([]any)
 	for _, iv := range items {
@@ -880,6 +883,7 @@ func parseInvCond(cname string, conds any) invCond {
 			ic.impossible = true
 			continue
 		}
+		set := map[string]bool{}
 		for k, v := range im {
 			if k != "items" {
 				ic.impossible = true
@@ -888,11 +892,11 @@ func parseInvCond(cname string, conds any) invCond {
 			addItem := func(name string) {
 				if strings.HasPrefix(name, "#") {
 					for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(name, "#"), "minecraft:")] {
-						ic.items[m] = true
+						set[m] = true
 					}
 					return
 				}
-				ic.items[strings.TrimPrefix(name, "minecraft:")] = true
+				set[strings.TrimPrefix(name, "minecraft:")] = true
 			}
 			switch it := v.(type) {
 			case string:
@@ -905,6 +909,7 @@ func parseInvCond(cname string, conds any) invCond {
 				}
 			}
 		}
+		ic.sets = append(ic.sets, set)
 	}
 	for k := range cm {
 		if k != "items" {
@@ -1376,14 +1381,25 @@ func (s *Server) fireGameInventoryChanged(sess *Session) {
 	}
 	for _, meta := range gameAdvs {
 		for _, ic := range meta.inv {
-			if ic.impossible {
+			if ic.impossible || len(ic.sets) == 0 {
 				continue
 			}
-			for name := range ic.items {
-				if items[name] {
-					sess.grantGameCriterion(meta, ic.crit)
+			all := true
+			for _, set := range ic.sets {
+				hit := false
+				for name := range set {
+					if items[name] {
+						hit = true
+						break
+					}
+				}
+				if !hit {
+					all = false
 					break
 				}
+			}
+			if all {
+				sess.grantGameCriterion(meta, ic.crit)
 			}
 		}
 	}
