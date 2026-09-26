@@ -8395,3 +8395,62 @@ mid-slide; B two carts rest ~0.5 apart then repel to (8.15, 9.43)
 +-0.15; C a ridden cart plows through a NoAI pig, keeps it
 un-ridden, and leaves it Motion[0] < -0.02; D a rammer transfers
 momentum to a parked cart (vanilla 9.60/10.84, mc-go 9.95/11.19).
+
+## Slice 2026-09-26q — minecart moveAlongTrack rail-following
+
+The big deferred vehicle item: OldMinecartBehavior.moveAlongTrack
+(javap, MINECART_IMPROVEMENTS off). tick() order: applyGravity
+(dy -= 0.08) -> getCurrentBlockPosOrRailBelow (floor pos, swapped
+for y-1 when that block is a rail) -> isRail ? moveAlongTrack +
+activator branch : comeOffTrack -> yaw tail -> pushAndPickup.
+
+moveAlongTrack sequence (bytecode-verified): slope accel
++-0.0078125 toward the downhill exit (x0.2 underwater); snap
+ty = bp.y (+1 on slopes); exits pair -> vec snapped onto the
+rail axis when vec.dot(dir) flips; speed clamp |xz| -> 2.0;
+player-intent kick +0.001 skipped (no lastClientMoveIntent —
+noted gap); unpowered powered_rail brake (|xz|<0.03 -> zero,
+else *0.5); xz snap onto the a1->a2 line at param t; clamped
+move (x0.75 when ridden, maxSpeed 0.4 / 0.2 water) with real
+axis-cancel on block collision; edge-step (floor(x,z)-bp ==
+exit's (x,z) -> y += e.y); applyNaturalSlowdown
+(0.997 ridden / 0.96 unridden, x0.95 water, MotionY=0); the
+pos0/pos1 bank: getPos at tick-start and post-move, when both
+non-null d47 = (pos0y-pos1y)*0.05 rescales xz by (h+d47)/h and
+setPos(x, pos1.y, z); cross-block redirect motion ->
+h*(floor-bp); powered rail boost |xz|>0.01 -> +=unit*0.06,
+else +-0.02 kick toward an isRedstoneConductor neighbour.
+
+EXITS map verified from the static init: straight pairs,
+ascending (uphill exit plain, downhill exit .below()), the
+four curves.
+
+THE BIG MODEL CORRECTION: the raw anchor formula
+fy+0.0625+e.y*0.5 banks a cart onto a line dipped BELOW the
+ascending rail's block (-60.44 -> -59.44), which sends a
+climbing cart off-rail into a dip/fall/recover stall. Live
+probes falsified it: vanilla banks smoothly along the
+SURFACE-TO-SURFACE line (-59.9375 -> -58.9375, slope 1/block)
+and never leaves the rail's floor y. cartTrackPoint therefore
+anchors y at fy+0.0625 + e.y (+1 for slopes), i.e. downhill
+exit at this rail's surface, uphill exit at the block above's
+surface; dy = a2y-a1y (the bytecode *2 that un-halves the
+e.y*0.5 anchors is already folded into the +1 offset).
+
+Fixture lessons: powered rails revert powered->false without
+real redstone — plant a redstone_block under each powered
+rail. mc-go's execute-if-block still lacks blockstate
+predicates (separate gap, deferred).
+
+mc-go: minecartTickStep rewrite (shared gravity -> rail lookup
+below-first -> minecartOnRail/minecartOffRail -> yaw tail ->
+push/pickup) + cartTrackPoint (getPos fold + anchors + t param)
++ railExits + minecartActivatorHit (eject passengers, hurtTime
+10/damage 50/dir flip on powered activator rail).
+
+TestMinecartRailParity (differential, 5 legs, all exact):
+A powered run reaches 35.99; B unpowered powered_rail brakes
+to rest at 20.86 with mot 0; C flat rail coasts to 29.35; D
+L-curve (east_west + south_west + north_south) parks at
+(25.50, 27.51); E ascending climb banks to the top rail at
+(24.63, -58.94) — identical on vanilla and mc-go to 4 decimals.

@@ -545,15 +545,12 @@ var railBlockNames = map[string]bool{
 	"activator_rail": true,
 }
 
-// minecartTickStep is OldMinecartBehavior.tick's off-rail half — the
-// 26.2 default (MINECART_IMPROVEMENTS is not in the default flag set):
-// applyGravity pulls dy by the 0.08 gravity attribute, then
-// comeOffTrack clamps the horizontal speed to getMaxSpeed (0.4 on
-// land, 0.2 in water — water carts are unmodelled), halves the whole
-// delta when grounded, moves with collision, and scales by the 0.95
-// air drag when airborne. A cart standing on a rail takes
-// moveAlongTrack instead — rail following is unmodelled, so those
-// carts are skipped here.
+// minecartTickStep is OldMinecartBehavior.tick — the 26.2 default
+// (MINECART_IMPROVEMENTS is not in the default flag set): applyGravity
+// pulls dy by 0.08, the cart takes moveAlongTrack when its block pos
+// (or the block below) is a rail and comeOffTrack otherwise, the yaw
+// tail chases the displacement, and pushAndPickupEntities closes the
+// tick.
 func (s *Server) minecartTickStep() {
 	for _, e := range s.entities.All() {
 		name, ok := EntityTypeName(e.Type)
@@ -565,23 +562,34 @@ func (s *Server) minecartTickStep() {
 			continue
 		}
 		w := s.dimWorld(e.Dim)
+		ox, oz := ep.X, ep.Z
+		ep.MotionY -= 0.08 // applyGravity
+		// getCurrentBlockPosOrRailBelow: the rail can sit at the cart's
+		// own block pos or one block below.
 		fx, fz := int(math.Floor(ep.X)), int(math.Floor(ep.Z))
 		fy := int(math.Floor(ep.Y))
-		// getCurrentBlockPosOrRailBelow: the rail can sit at the cart's
-		// own block pos or one block below. A cart standing on a rail
-		// takes moveAlongTrack instead — rail following is unmodelled,
-		// so the physics + yaw half is skipped, but pushAndPickup
-		// still runs every tick.
-		onRail := false
-		if on, _ := world.StateOwner(w.GetBlock(world.Pos{X: fx, Y: fy, Z: fz})); railBlockNames[on] {
-			onRail = true
+		railPos := world.Pos{X: fx, Y: fy, Z: fz}
+		rb := w.GetBlock(railPos)
+		ron, _ := world.StateOwner(rb)
+		if !railBlockNames[ron] {
+			railPos.Y--
+			rb = w.GetBlock(railPos)
+			ron, _ = world.StateOwner(rb)
 		}
-		if on, _ := world.StateOwner(w.GetBlock(world.Pos{X: fx, Y: fy - 1, Z: fz})); railBlockNames[on] {
-			onRail = true
-		}
-		if !onRail {
+		if railBlockNames[ron] {
+			shape, _ := world.StateProperty(rb, "shape")
+			powered, _ := world.StateProperty(rb, "powered")
+			s.minecartOnRail(ep, w, railPos, ron, shape, powered)
+			// activateMinecart: a powered activator rail ejects riders
+			// and hits the cart with the same hurt wobble + 50 damage
+			// a player attack would.
+			if ron == "activator_rail" && powered == "true" {
+				s.minecartActivatorHit(ep)
+			}
+		} else {
 			s.minecartOffRail(ep, w, fx, fy, fz)
 		}
+		s.minecartYawTail(ep, ox, oz)
 		s.minecartPushPickup(ep, name)
 		// positionRider: every non-player passenger rides welded to
 		// the seat attachment — x/z = the cart's, y = +0.1875
@@ -610,10 +618,8 @@ func (s *Server) minecartTickStep() {
 	}
 }
 
-// minecartOffRail is comeOffTrack + the tick() yaw tail for a cart
-// standing off the rails.
+// minecartOffRail is comeOffTrack for a cart standing off the rails.
 func (s *Server) minecartOffRail(ep *Entity, w *world.World, fx, fy, fz int) {
-	ep.MotionY -= 0.08
 	const maxSpeed = 0.4
 	ep.MotionX = math.Max(-maxSpeed, math.Min(maxSpeed, ep.MotionX))
 	ep.MotionZ = math.Max(-maxSpeed, math.Min(maxSpeed, ep.MotionZ))
@@ -662,11 +668,18 @@ func (s *Server) minecartOffRail(ep *Entity, w *world.World, fx, fy, fz int) {
 		ep.MotionZ *= 0.95
 	}
 	ep.Y = ny
-	// tick's tail, per OldMinecartBehavior.tick: pitch zeroed, then
-	// the yaw chases atan2(zo-z, xo-x)*180/pi — the NEGATED
-	// displacement (a +X slide gives 180, not 90) — with the flip
-	// added only while moving, then the 170-degree wrap-flip every
-	// tick, then frem-360 normalization.
+	if ep.X != ox || ep.Y != oy || ep.Z != oz {
+		ep.PosDirty = true
+	}
+}
+
+// minecartYawTail is tick()'s rotation tail, shared by the on- and
+// off-rail branches: pitch zeroed, then the yaw chases
+// atan2(zo-z, xo-x)*180/pi — the NEGATED displacement (a +X slide
+// gives 180, not 90) — with the flip added only while moving, then
+// the 170-degree wrap-flip every tick, then frem-360 normalization.
+// ox/oz are the cart's position at tick start (xo/zo).
+func (s *Server) minecartYawTail(ep *Entity, ox, oz float64) {
 	ep.Pitch = 0
 	mx, mz := ox-ep.X, oz-ep.Z
 	if mx*mx+mz*mz > 0.001 {
@@ -689,8 +702,301 @@ func (s *Server) minecartOffRail(ep *Entity, w *world.World, fx, fy, fz int) {
 	ep.Pitch = float32(math.Mod(float64(ep.Pitch), 360))
 	ep.Yaw = float32(math.Mod(float64(ep.Yaw), 360))
 	ep.CartYawO = ep.Yaw
-	if ep.X != ox || ep.Y != oy || ep.Z != oz {
+}
+
+// railVec is AbstractMinecart.EXITS' Vec3i — an exit offset relative
+// to the rail block; a nonzero y marks the DOWNHILL exit (the cart
+// steps y+=that when it crosses into the exit's block).
+type railVec struct{ x, y, z int }
+
+// railExits is AbstractMinecart.EXITS verbatim (javap static init).
+func railExits(shape string) (railVec, railVec, bool) {
+	switch shape {
+	case "north_south":
+		return railVec{0, 0, -1}, railVec{0, 0, 1}, true
+	case "east_west":
+		return railVec{-1, 0, 0}, railVec{1, 0, 0}, true
+	case "ascending_east":
+		return railVec{-1, -1, 0}, railVec{1, 0, 0}, true
+	case "ascending_west":
+		return railVec{-1, 0, 0}, railVec{1, -1, 0}, true
+	case "ascending_north":
+		return railVec{0, 0, -1}, railVec{0, -1, 1}, true
+	case "ascending_south":
+		return railVec{0, -1, -1}, railVec{0, 0, 1}, true
+	case "south_east":
+		return railVec{0, 0, 1}, railVec{1, 0, 0}, true
+	case "south_west":
+		return railVec{0, 0, 1}, railVec{-1, 0, 0}, true
+	case "north_west":
+		return railVec{0, 0, -1}, railVec{-1, 0, 0}, true
+	case "north_east":
+		return railVec{0, 0, -1}, railVec{1, 0, 0}, true
+	}
+	return railVec{}, railVec{}, false
+}
+
+// cartTrackPoint is OldMinecartBehavior.getPos(x,y,z): the point on
+// the rail's track line under (x,y,z), with the rail surface 0.0625
+// above the block bottom and slope interpolation through the
+// (a2y-a1y)*2 term. Returns ok=false when no rail sits under the
+// position (own block or the one below).
+func cartTrackPoint(w *world.World, x, y, z float64) (float64, float64, float64, bool) {
+	fx, fy, fz := int(math.Floor(x)), int(math.Floor(y)), int(math.Floor(z))
+	if on, _ := world.StateOwner(w.GetBlock(world.Pos{X: fx, Y: fy - 1, Z: fz})); railBlockNames[on] {
+		fy--
+	}
+	rb := w.GetBlock(world.Pos{X: fx, Y: fy, Z: fz})
+	ron, _ := world.StateOwner(rb)
+	if !railBlockNames[ron] {
+		return 0, 0, 0, false
+	}
+	shape, _ := world.StateProperty(rb, "shape")
+	e1, e2, ok := railExits(shape)
+	if !ok {
+		return 0, 0, 0, false
+	}
+	// The y anchors ride from the downhill exit's rail surface to the
+	// uphill exit's: for a slope the downhill exit (e.y=-1) sits at
+	// this block's surface (fy+0.0625) and the uphill exit one block
+	// higher (fy+1.0625); flat shapes anchor flat. Vanilla's dip to
+	// fy-0.4375 predicted by the raw e.y*0.5 anchors does NOT happen
+	// live — a cart climbing an ascending rail banks smoothly from
+	// -59.9375 to -58.9375 and never leaves the rail's own floor y.
+	slope := e1.y != 0 || e2.y != 0
+	a1y := float64(fy) + 0.0625 + float64(e1.y)
+	a2y := float64(fy) + 0.0625 + float64(e2.y)
+	if slope {
+		a1y += 1
+		a2y += 1
+	}
+	a1x := float64(fx) + 0.5 + float64(e1.x)*0.5
+	a1z := float64(fz) + 0.5 + float64(e1.z)*0.5
+	a2x := float64(fx) + 0.5 + float64(e2.x)*0.5
+	a2z := float64(fz) + 0.5 + float64(e2.z)*0.5
+	dx, dy, dz := a2x-a1x, a2y-a1y, a2z-a1z
+	var t float64
+	switch {
+	case dx == 0:
+		t = z - float64(fz)
+	case dz == 0:
+		t = x - float64(fx)
+	default:
+		t = ((x-a1x)*dx + (z-a1z)*dz) * 2
+	}
+	return a1x + dx*t, a1y + dy*t, a1z + dz*t, true
+}
+
+// minecartOnRail is OldMinecartBehavior.moveAlongTrack (javap): the
+// cart's velocity is projected onto the rail's exit-to-exit axis, the
+// position snapped onto the same line, the move runs axis-clamped to
+// getMaxSpeed (0.75x when ridden), the cart steps down onto the
+// downhill neighbor when crossing a block edge, applyNaturalSlowdown
+// scales (f,0,f), getPos re-reads the track point to bank y and
+// convert the height change into speed, the delta re-points along
+// the entered block's offset, and a powered powered_rail boosts
+// (or a dead one brakes). The player intent kick
+// (getLastClientMoveIntent * 0.001 when |v|<0.1) is unmodelled —
+// mc-go does not track the player_input vector yet.
+func (s *Server) minecartOnRail(ep *Entity, w *world.World, bp world.Pos, railName, shape, powered string) {
+	mx0, my0, mz0 := ep.X, ep.Y, ep.Z
+	_, pos0y, _, pos0ok := cartTrackPoint(w, ep.X, ep.Y, ep.Z)
+	ty := float64(bp.Y)
+	flag := railName == "powered_rail" && powered == "true"
+	flag1 := railName == "powered_rail" && powered != "true"
+	slope := 0.0078125
+	inWater := s.mobInWater(ep)
+	if inWater {
+		slope *= 0.2
+	}
+	switch shape {
+	case "ascending_east":
+		ep.MotionX -= slope
+		ty++
+	case "ascending_west":
+		ep.MotionX += slope
+		ty++
+	case "ascending_north":
+		ep.MotionZ += slope
+		ty++
+	case "ascending_south":
+		ep.MotionZ -= slope
+		ty++
+	}
+	e1, e2, ok := railExits(shape)
+	if !ok {
+		return
+	}
+	dx := float64(e2.x - e1.x)
+	dz := float64(e2.z - e1.z)
+	dl := math.Hypot(dx, dz)
+	if dl == 0 {
+		dl = 1
+	}
+	if ep.MotionX*dx+ep.MotionZ*dz < 0 {
+		dx, dz = -dx, -dz
+	}
+	spd := math.Min(2, math.Hypot(ep.MotionX, ep.MotionZ))
+	ep.MotionX = spd * dx / dl
+	ep.MotionZ = spd * dz / dl
+	// unpowered powered_rail brakes: <0.03 stops dead, else halves.
+	if flag1 {
+		if h := math.Hypot(ep.MotionX, ep.MotionZ); h < 0.03 {
+			ep.MotionX, ep.MotionY, ep.MotionZ = 0, 0, 0
+		} else {
+			ep.MotionX *= 0.5
+			ep.MotionZ *= 0.5
+		}
+	}
+	// The track snap: position lands on the exit-to-exit line at the
+	// parameter t measured along it (raw axis offset for straight
+	// rails, dot*2 for curves), y = the rail block's y (+1 when the
+	// rail itself ascends).
+	a1x := float64(bp.X) + 0.5 + float64(e1.x)*0.5
+	a1z := float64(bp.Z) + 0.5 + float64(e1.z)*0.5
+	a2x := float64(bp.X) + 0.5 + float64(e2.x)*0.5
+	a2z := float64(bp.Z) + 0.5 + float64(e2.z)*0.5
+	tdx, tdz := a2x-a1x, a2z-a1z
+	var t float64
+	switch {
+	case tdx == 0:
+		t = ep.Z - float64(bp.Z)
+	case tdz == 0:
+		t = ep.X - float64(bp.X)
+	default:
+		t = ((ep.X-a1x)*tdx + (ep.Z-a1z)*tdz) * 2
+	}
+	ep.X = a1x + tdx*t
+	ep.Z = a1z + tdz*t
+	ep.Y = ty
+	// move(SELF, (clamp(adj*vx,-ms,ms), 0, clamp(adj*vz,-ms,ms))).
+	adj := 1.0
+	if len(ep.Passengers) > 0 {
+		adj = 0.75
+	}
+	ms := 0.4
+	if inWater {
+		ms = 0.2
+	}
+	mx := math.Max(-ms, math.Min(ms, adj*ep.MotionX))
+	mz := math.Max(-ms, math.Min(ms, adj*ep.MotionZ))
+	if mx != 0 && !s.entityBoxCollides(w, ep.X+mx, ep.Y, ep.Z, 0.49, 0.7) {
+		ep.X += mx
+	}
+	if mz != 0 && !s.entityBoxCollides(w, ep.X, ep.Y, ep.Z+mz, 0.49, 0.7) {
+		ep.Z += mz
+	}
+	// The downhill-exit step: when the post-move block offset equals
+	// a nonzero-y exit, y picks that exit's offset (a descending
+	// rail hands the cart to the lower block's rail).
+	efx, efz := int(math.Floor(ep.X))-bp.X, int(math.Floor(ep.Z))-bp.Z
+	if e1.y != 0 && efx == e1.x && efz == e1.z {
+		ep.Y += float64(e1.y)
+	} else if e2.y != 0 && efx == e2.x && efz == e2.z {
+		ep.Y += float64(e2.y)
+	}
+	// applyNaturalSlowdown: multiply (f,0,f), 0.96 unridden / 0.997
+	// ridden — y is zeroed outright — then water drags x0.95.
+	f := 0.96
+	if len(ep.Passengers) > 0 {
+		f = 0.997
+	}
+	ep.MotionX *= f
+	ep.MotionY = 0
+	ep.MotionZ *= f
+	if inWater {
+		ep.MotionX *= 0.95
+		ep.MotionZ *= 0.95
+	}
+	// The post-move getPos: the track point at the new pos banks the
+	// cart's y onto the rail surface; the height delta between the
+	// pre- and post-move track points converts to speed at 0.05 per
+	// block (downhill accelerates, uphill brakes).
+	_, p1y, _, p1ok := cartTrackPoint(w, ep.X, ep.Y, ep.Z)
+	if pos0ok && p1ok {
+		drop := (pos0y - p1y) * 0.05
+		if h := math.Hypot(ep.MotionX, ep.MotionZ); h > 0 {
+			k := (h + drop) / h
+			ep.MotionX *= k
+			ep.MotionZ *= k
+		}
+		ep.Y = p1y
+	}
+	// Crossing the rail block's boundary re-points the whole delta at
+	// the entered block's offset (curves turn the cart).
+	nfx, nfz := int(math.Floor(ep.X)), int(math.Floor(ep.Z))
+	if nfx != bp.X || nfz != bp.Z {
+		h := math.Hypot(ep.MotionX, ep.MotionZ)
+		ep.MotionX = h * float64(nfx-bp.X)
+		ep.MotionZ = h * float64(nfz-bp.Z)
+	}
+	// A powered powered_rail boosts +0.06 along the motion while the
+	// cart is moving; stopped carts get a 0.02 kick AWAY from a solid
+	// conductor side (the classic stop-block release).
+	if flag {
+		if h := math.Hypot(ep.MotionX, ep.MotionZ); h > 0.01 {
+			ep.MotionX += ep.MotionX / h * 0.06
+			ep.MotionZ += ep.MotionZ / h * 0.06
+		} else {
+			ndx, ndz := ep.MotionX, ep.MotionZ
+			switch shape {
+			case "east_west":
+				if !world.NonSolid(w.GetBlock(world.Pos{X: bp.X - 1, Y: bp.Y, Z: bp.Z})) {
+					ndx = 0.02
+				} else if !world.NonSolid(w.GetBlock(world.Pos{X: bp.X + 1, Y: bp.Y, Z: bp.Z})) {
+					ndx = -0.02
+				}
+			case "north_south":
+				if !world.NonSolid(w.GetBlock(world.Pos{X: bp.X, Y: bp.Y, Z: bp.Z - 1})) {
+					ndz = 0.02
+				} else if !world.NonSolid(w.GetBlock(world.Pos{X: bp.X, Y: bp.Y, Z: bp.Z + 1})) {
+					ndz = -0.02
+				}
+			}
+			ep.MotionX, ep.MotionZ = ndx, ndz
+		}
+	}
+	if ep.X != mx0 || ep.Y != my0 || ep.Z != mz0 {
 		ep.PosDirty = true
+	}
+}
+
+// minecartActivatorHit is Minecart.activateMinecart for a plain cart
+// on a powered activator rail: riders eject, and when the hurt
+// cooldown is down the cart takes the same hurtDir flip, 10-tick
+// hurtTime and 50 damage a hit applies (VehicleEntity.markHurt).
+func (s *Server) minecartActivatorHit(ep *Entity) {
+	if len(ep.Passengers) > 0 {
+		var mobs []int32
+		for _, pid := range ep.Passengers {
+			if rp, ok := s.entities.GetPtr(pid); ok {
+				rp.Riding = 0
+				mobs = append(mobs, pid)
+			}
+		}
+		ep.Passengers = ep.Passengers[:0]
+		// An ejected mob dismounts at the vehicle's position — the
+		// cart's own Pos, not the welded seat.
+		for _, pid := range mobs {
+			if rp, ok := s.entities.GetPtr(pid); ok {
+				rp.X, rp.Y, rp.Z = ep.X, ep.Y, ep.Z
+				rp.PosDirty = true
+				s.mobSyncFlush(rp)
+			}
+		}
+		s.sessions.Range(func(_, v any) bool {
+			sess := v.(*Session)
+			if sess.state.Load() == StatePlay && sess.riding.Load() == ep.ID {
+				s.dismount(sess)
+			}
+			return true
+		})
+		s.broadcastSetPassengers(ep)
+	}
+	if ep.VehHurtTime == 0 {
+		ep.VehHurtDir = -ep.VehHurtDir
+		ep.VehHurtTime = 10
+		ep.VehDamage = 50
 	}
 }
 

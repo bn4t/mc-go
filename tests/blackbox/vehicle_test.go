@@ -1,6 +1,7 @@
 package blackbox
 
 import (
+	"fmt"
 	"math"
 	"net"
 	"regexp"
@@ -932,4 +933,97 @@ func TestMinecartPushPickupParity(t *testing.T) {
 	}
 	run(t, "vanilla", targets.vanilla)
 	run(t, "mc-go", targets.mcgo)
+}
+
+// TestMinecartRailParity runs moveAlongTrack end-to-end on both
+// servers: the powered-rail boost caps at 0.4, the unpowered
+// powered rail brakes to a stop, a plain rail decays at x0.96,
+// a south_west curve turns the cart, and ascending_east climbs a
+// block onto the upper track.
+func TestMinecartRailParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("BOATA", "BOATB"),
+	}, nil)
+	defer targets.cleanup()
+	for _, tag := range []string{"vanilla", "mc-go"} {
+		addr := targets.vanilla
+		if tag == "mc-go" {
+			addr = targets.mcgo
+		}
+		v := joinVehPair(t, addr)
+		drainChunkWindow(t, tag, v.ca, v.pra, v.pwa, 300*time.Millisecond)
+		sendCommand(t, v.pwa, "tp @s 6 -60 36 0 0")
+		sendCommand(t, v.pwa, "kill @e[type=minecart]")
+		for x := 20; x <= 34; x++ {
+			// A setblock'd powered=true flips back on the next
+			// neighbor update without real redstone — a
+			// redstone_block under the rail keeps it live.
+			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -61 20 minecraft:redstone_block", x))
+			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -60 20 minecraft:powered_rail[shape=east_west,powered=true]", x))
+			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -60 22 minecraft:powered_rail[shape=east_west,powered=false]", x))
+			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -60 24 minecraft:rail[shape=east_west]", x))
+		}
+		for x := 20; x <= 24; x++ {
+			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -60 26 minecraft:rail[shape=east_west]", x))
+		}
+		sendCommand(t, v.pwa, "setblock 25 -60 26 minecraft:rail[shape=south_west]")
+		for z := 27; z <= 34; z++ {
+			sendCommand(t, v.pwa, fmt.Sprintf("setblock 25 -60 %d minecraft:rail[shape=north_south]", z))
+		}
+		for x := 20; x <= 22; x++ {
+			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -60 28 minecraft:rail[shape=east_west]", x))
+		}
+		sendCommand(t, v.pwa, "setblock 23 -60 28 minecraft:rail[shape=ascending_east]")
+		sendCommand(t, v.pwa, "setblock 24 -60 28 minecraft:stone")
+		sendCommand(t, v.pwa, "setblock 24 -59 28 minecraft:rail[shape=east_west]")
+		sendCommand(t, v.pwa, "setblock 25 -60 28 minecraft:stone")
+		sendCommand(t, v.pwa, "setblock 25 -59 28 minecraft:rail[shape=east_west]")
+		sendCommand(t, v.pwa, "setblock 26 -59 28 minecraft:rail[shape=east_west]")
+		time.Sleep(400 * time.Millisecond)
+		sendCommand(t, v.pwa, `summon minecraft:minecart 20 -60 20 {Motion:[0.05,0.0,0.0],Tags:["ta"]}`)
+		sendCommand(t, v.pwa, `summon minecraft:minecart 20 -60 22 {Motion:[0.4,0.0,0.0],Tags:["tb"]}`)
+		sendCommand(t, v.pwa, `summon minecraft:minecart 20 -60 24 {Motion:[0.4,0.0,0.0],Tags:["tc"]}`)
+		sendCommand(t, v.pwa, `summon minecraft:minecart 20 -60 26 {Motion:[0.3,0.0,0.0],Tags:["td"]}`)
+		sendCommand(t, v.pwa, `summon minecraft:minecart 20 -60 28 {Motion:[0.3,0.0,0.0],Tags:["te"]}`)
+		time.Sleep(2500 * time.Millisecond)
+		ax, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=ta,limit=1] Pos[0]")
+		bx, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=tb,limit=1] Pos[0]")
+		bm, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=tb,limit=1] Motion[0]")
+		cx, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=tc,limit=1] Pos[0]")
+		dx, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=td,limit=1] Pos[0]")
+		dz, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=td,limit=1] Pos[2]")
+		ex, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=te,limit=1] Pos[0]")
+		ey, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=te,limit=1] Pos[1]")
+		// A: +0.06/tick boost to the 0.4 cap — exits the track's end
+		// at 34.5 and coasts on.
+		if ax < 33 {
+			t.Fatalf("%s: leg A powered cart short (x=%.4f)", tag, ax)
+		}
+		// B: unpowered powered_rail brakes x0.5/tick then zeroes at
+		// <0.03 — the cart stops almost immediately.
+		if bx < 20.4 || bx > 22.5 {
+			t.Fatalf("%s: leg B braked cart at %.4f", tag, bx)
+		}
+		if math.Abs(bm) > 0.02 {
+			t.Fatalf("%s: leg B cart still moving (%.4f)", tag, bm)
+		}
+		// C: plain rail decays x0.96 — asymptote ~10 blocks in.
+		if cx < 29 || cx > 31.5 {
+			t.Fatalf("%s: leg C plain-rail rest at %.4f", tag, cx)
+		}
+		// D: the south_west corner turns the cart south onto the
+		// north_south run.
+		if dz < 27.5 || dx < 24.9 || dx > 26.1 {
+			t.Fatalf("%s: leg D curve at (%.4f, %.4f)", tag, dx, dz)
+		}
+		// E: ascending_east lifts the cart a full block onto the top
+		// rail (surface -59+0.0625 = -58.9375).
+		if ex < 23.4 || ey > -58.6 || ey < -59.3 {
+			t.Fatalf("%s: leg E climb at (%.4f, %.4f)", tag, ex, ey)
+		}
+		t.Logf("%s: A=%.3f B=(%.3f,m%.3f) C=%.3f D=(%.3f,%.3f) E=(%.3f,%.3f)",
+			tag, ax, bx, bm, cx, dx, dz, ex, ey)
+		v.ca.Close()
+		v.cb.Close()
+	}
 }
