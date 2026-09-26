@@ -75,6 +75,7 @@ func (s *Server) leashDrop(e *Entity, dropItem bool) {
 	if e.LeashHolder == 0 {
 		return
 	}
+	oldHolder := e.LeashHolder
 	e.LeashHolder = 0
 	if dropItem {
 		if lid, ok := world.ItemIDs["lead"]; ok {
@@ -82,6 +83,9 @@ func (s *Server) leashDrop(e *Entity, dropItem bool) {
 		}
 	}
 	s.broadcastEntityLink(e.Dim, e.ID, -1)
+	// Leashable notifies the previous holder on detach — a leash_knot
+	// with no remaining leashees discards itself.
+	s.notifyLeasheeRemoved(oldHolder)
 }
 
 // broadcastEntityLink sends set_entity_link — sourceId then destId,
@@ -94,6 +98,11 @@ func (s *Server) broadcastEntityLink(dim string, sourceID, destID int32) {
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
 		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
+			return true
+		}
+		// The link update is a tracker broadcast — only sessions
+		// paired with the leashed entity receive it.
+		if !other.tracksEntity(sourceID) {
 			return true
 		}
 		_ = other.write(other.ids().PlaySetEntityLink, body)
@@ -394,9 +403,11 @@ func (s *Server) leashKnotCreate(d *dimension, pos world.Pos) *Entity {
 	return knot
 }
 
-// knotTickStep is LeashFenceKnotEntity's tick: survives() needs the
-// fence still standing at the knot's block, and a knot nobody is
-// leashed to discards itself.
+// knotTickStep is LeashFenceKnotEntity's tick: BlockAttachedEntity
+// counts checkInterval to 100 and only then verifies survives() —
+// the block at the knot's pos is still a fence. A knot nobody is
+// leashed to discards itself eagerly via notifyLeasheeRemoved (see
+// leashDrop), not on this pass.
 func (s *Server) knotTickStep() {
 	for _, snap := range s.entities.All() {
 		if n, _ := EntityTypeName(snap.Type); n != "leash_knot" {
@@ -406,13 +417,11 @@ func (s *Server) knotTickStep() {
 		if !ok {
 			continue
 		}
-		alive := false
-		for _, o := range s.entities.All() {
-			if o.LeashHolder == e.ID {
-				alive = true
-				break
-			}
+		e.KnotCheckTicks++
+		if e.KnotCheckTicks < 100 {
+			continue
 		}
+		e.KnotCheckTicks = 0
 		fence := false
 		if d := s.dimensionByName(e.Dim); d != nil {
 			pos := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}
@@ -420,11 +429,32 @@ func (s *Server) knotTickStep() {
 				fence = blockTagHas("fences", bn)
 			}
 		}
-		if !alive || !fence {
+		if !fence {
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 		}
 	}
+}
+
+// notifyLeasheeRemoved is LeashFenceKnotEntity.notifyLeasheeRemoved:
+// called when a leashee detaches from a knot — a knot with no
+// remaining leashees discards itself.
+func (s *Server) notifyLeasheeRemoved(knotID int32) {
+	knot, ok := s.entities.GetPtr(knotID)
+	if !ok {
+		return
+	}
+	if n, _ := EntityTypeName(knot.Type); n != "leash_knot" {
+		return
+	}
+	for _, snap := range s.entities.All() {
+		if snap.LeashHolder == knotID {
+			return
+		}
+	}
+	dim := knot.Dim
+	s.entities.Remove(knotID)
+	s.broadcastEntityRemoveIn(dim, nil, []int32{knotID})
 }
 
 // tickLeash is Leashable.tickLeash for one mob: holder liveness first

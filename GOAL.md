@@ -7925,3 +7925,46 @@ Also measured this slice: mc-go emits set_entity_data/update_attributes
 storms the vanilla pairing + wander legs don't (e.g. leg0 mc-go 13×
 {0x53,0x54,0x83} vs vanilla's 1× {0x23}) — a dirty-metadata cadence
 diff, queued for the next slice.
+
+## Slice 2026-09-26a — lazy attribute-instance model + leash-knot pairing wire
+
+javap'd ServerEntity: sendPairingData emits
+`getSyncableAttributes` — only attribute INSTANCES that exist
+(AttributeMap materializes them lazily on first getInstance) AND are
+marked syncable. sendChanges emits `getAttributesToSync` — the dirty
+subset. Measured in-bundle sets on vanilla 26.2:
+
+- zombie/husk/drowned → [movement_speed] (setBaby's SPEED_MODIFIER_BABY
+  remove/add touches the instance — runs even for NBT summons)
+- wolf → [max_health] (setTame re-asserts the wild base)
+- horse-family → [max_health, jump_strength, movement_speed]
+  (AbstractHorse.finalizeSpawn rolls all three)
+- every other living mob → nothing in-bundle; a loose
+  [movement_speed] update_attributes follows once the first living
+  tick materializes the instance (NoAI included).
+
+Model: `Entity.AttrTouched` is the lazy instance set; `AttrTouched ∩
+attrSyncable` (the 32 setSyncable attrs from javap Attributes — notably
+NOT follow_range/attack_damage/knockback_resistance) is the pairing
+burst. `AttrsDirty` is the resend set: instance creation marks dirty,
+value writes re-dirty (markAttrDirty), repeat reads do not. summonAttrTouches
+encodes the summon-path touches (tamable max_health, zombie-family
+speed unconditionally, finalizeSpawn rolls init-only); the speed
+instance materializes on the first living mobSyncFlush for everything
+else — reproducing vanilla's [26]-in-bundle vs [26]-one-tick-later
+split per type.
+
+Leash summon: `summon sheep ~ ~ ~ {leash:[I;x,y,z]}` resolves the knot
+AFTER sendPairingData built the sheep's bundle — so the wire is sheep
+bundle → knot bundle ({0, add_entity, 0} — the knot's empty nonDefault
+set_entity_data is skipped) → loose set_entity_link. mc-go now attaches
+the NBT leash after broadcastFreshMob to match. knotTickStep mirrors
+BlockAttachedEntity.tick: the survives() fence check runs only every
+100 ticks (checkInterval), not every tick — a knot on a non-fence pos
+lives ~5s on vanilla. Empty-knot discard moved to notifyLeasheeRemoved
+called from leashDrop (vanilla discards the knot eagerly on its last
+leashee's detach).
+
+Pinned by TestPairingAttrsParity (in-bundle attr-id sets per summoned
+type + loose speed emit) and TestLeashSummonWireParity (sheep bundle →
+knot bundle → one loose set_entity_link, no spurious unlink).

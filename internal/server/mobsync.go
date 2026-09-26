@@ -22,52 +22,76 @@ import (
 //     a zero-delta move_entity_pos.
 //   - sendChanges also forces a position resend at tickCount%60.
 //
-// mobPairingAttrTypes are the entity types whose syncable attributes
-// ride inside the pairing burst; every type with syncable attributes
-// also emits update_attributes once on the first dirty tick.
-var mobPairingAttrTypes = map[int32]bool{}
-
-// mobSyncableSpeed is Attributes.MOVEMENT_SPEED's per-type base — the
-// only client-syncable attribute the measured mobs carry.
-var mobSyncableSpeed = map[string]float64{
-	"zombie_villager": 0.23000000417232513,
-	"villager":        0.5,
-	"pig":             0.25,
-	"zombie":          0.23000000417232513,
-	"husk":            0.23000000417232513,
+// attrSyncable is Attributes' client-syncable set — the attributes
+// registered with setSyncable(true). It is the filter vanilla's
+// AttributeMap.getSyncableAttributes applies over the instantiated
+// (touched) attribute set when sendPairingData builds update_attributes.
+// The rest (follow_range, attack_damage, spawn_reinforcements, ...) are
+// never client-syncable.
+var attrSyncable = map[string]bool{
+	"air_drag_modifier": true, "armor": true, "armor_toughness": true,
+	"attack_speed": true, "below_name_distance": true,
+	"block_break_speed": true, "block_interaction_range": true,
+	"bounciness": true, "burning_time": true, "camera_distance": true,
+	"explosion_knockback_resistance": true,
+	"entity_interaction_range":       true, "fall_damage_multiplier": true,
+	"flying_speed": true, "friction_modifier": true, "gravity": true,
+	"jump_strength": true, "luck": true, "max_absorption": true,
+	"max_health": true, "mining_efficiency": true,
+	"movement_efficiency": true, "movement_speed": true,
+	"name_tag_distance": true, "oxygen_bonus": true,
+	"safe_fall_distance": true, "scale": true, "sneaking_speed": true,
+	"step_height": true, "submerged_mining_speed": true,
+	"sweeping_damage_ratio": true, "water_movement_efficiency": true,
 }
 
-func init() {
-	if id, ok := EntityTypeID("zombie_villager"); ok {
-		mobPairingAttrTypes[id] = true
-	}
-}
-
-// mobSyncAttrs builds update_attributes' body for a mob: one
-// movement_speed entry, carrying the effect.speed attribute modifier
-// while a live speed instance is active (vanilla's
-// SpeedEffect modifier is 0.2*(amplifier+1) add_multiplied_total).
+// mobSyncAttrs builds update_attributes' body for a mob: every dirty
+// syncable attribute instance, at its current base, with the effect.speed
+// modifier folded into movement_speed while a live speed instance is
+// active (vanilla's SpeedEffect modifier is 0.2*(amplifier+1)
+// add_multiplied_total). Emitted names are sorted for determinism —
+// vanilla's emit order is fastutil hash order.
 func mobSyncAttrs(e *Entity, now int64) []byte {
 	name, ok := EntityTypeName(e.Type)
 	if !ok {
 		return nil
 	}
-	speed, ok := mobSyncableSpeed[name]
-	if !ok {
+	bases := entityAttrBases[name]
+	if len(bases) == 0 || len(e.AttrsDirty) == 0 {
 		return nil
 	}
-	var mods []attrModifier
-	if inst, ok := e.Effects[effectSpeed]; ok && (inst.expiry < 0 || inst.expiry > now) {
-		mods = append(mods, attrModifier{
-			key:    "minecraft:effect.speed",
-			amount: 0.2 * float64(inst.amplifier+1),
-			op:     2, // add_multiplied_total
-		})
+	names := make([]string, 0, len(e.AttrsDirty))
+	for a := range e.AttrsDirty {
+		if attrSyncable[a] {
+			if _, ok := attrIDByName[a]; ok {
+				names = append(names, a)
+			}
+		}
 	}
+	if len(names) == 0 {
+		return nil
+	}
+	sort.Strings(names)
 	var b protocol.Buffer
 	b.VarInt(e.ID)
-	b.VarInt(1)                            // attribute count — one movement_speed entry
-	writeAttrEntry(&b, 26, speed, mods...) // minecraft:movement_speed
+	b.VarInt(int32(len(names)))
+	for _, a := range names {
+		var mods []attrModifier
+		if a == "movement_speed" {
+			if inst, ok := e.Effects[effectSpeed]; ok && (inst.expiry < 0 || inst.expiry > now) {
+				mods = append(mods, attrModifier{
+					key:    "minecraft:effect.speed",
+					amount: 0.2 * float64(inst.amplifier+1),
+					op:     2, // add_multiplied_total
+				})
+			}
+		}
+		base, has := e.AttrBase[a]
+		if !has {
+			base = bases[a]
+		}
+		writeAttrEntry(&b, attrIDByName[a], base, mods...)
+	}
 	return b.Bytes()
 }
 
@@ -76,6 +100,8 @@ func (s *Server) broadcastMobAttrs(e *Entity) {
 	if body == nil {
 		return
 	}
+	// The dirty set is consumed by the broadcast.
+	e.AttrsDirty = nil
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
 		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != e.Dim {
@@ -301,9 +327,20 @@ func (s *Server) mobSyncFlush(e *Entity) {
 	if e.dataSyncAttrs {
 		e.dataSyncAttrs = false
 		s.broadcastMobAttrs(e)
+		e.AttrDirty = len(e.AttrsDirty) > 0
 	} else if e.AttrDirty {
-		e.AttrDirty = false
 		s.broadcastMobAttrs(e)
+		e.AttrDirty = len(e.AttrsDirty) > 0
+	}
+	// A living mob's first AI tick reads its movement speed — the
+	// AttributeInstance materializes then, marked dirty on creation,
+	// so vanilla emits it once on the following sendChanges.
+	if e.Living && !e.AttrTouched["movement_speed"] {
+		if name, ok := EntityTypeName(e.Type); ok {
+			if _, ok := entityAttrBases[name]["movement_speed"]; ok {
+				e.markAttrTouched("movement_speed")
+			}
+		}
 	}
 }
 

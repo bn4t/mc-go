@@ -504,12 +504,12 @@ func (s *Server) runAttribute(player string, args []string) reply {
 				e.AttrBase = map[string]float64{}
 			}
 			e.AttrBase[short] = v
-			e.markAttrTouched(short)
+			e.markAttrDirty(short)
 			return opsEchoReply(translatable("commands.attribute.base_value.set.success",
 				attrComp, nameArg, nestedCompound{key: "", value: v}))
 		case "reset":
 			delete(e.AttrBase, short)
-			e.markAttrTouched(short)
+			e.markAttrDirty(short)
 			def := base
 			if t.sess != nil {
 				def = playerAttrBases[short]
@@ -561,7 +561,7 @@ func (s *Server) runAttribute(player string, args []string) reply {
 					nestedCompound{key: "", value: id}, attrComp, nameArg))
 			}
 			mods[id] = attrMod{value: v, op: op}
-			e.markAttrTouched(short)
+			e.markAttrDirty(short)
 			return opsEchoReply(translatable("commands.attribute.modifier.add.success",
 				nestedCompound{key: "", value: id}, attrComp, nameArg))
 		case "remove":
@@ -575,7 +575,7 @@ func (s *Server) runAttribute(player string, args []string) reply {
 					attrComp, nameArg, nestedCompound{key: "", value: id}))
 			}
 			delete(mods, id)
-			e.markAttrTouched(short)
+			e.markAttrDirty(short)
 			return opsEchoReply(translatable("commands.attribute.modifier.remove.success",
 				nestedCompound{key: "", value: id}, attrComp, nameArg))
 		case "value":

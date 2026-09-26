@@ -815,6 +815,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 				e.AttrBase = map[string]float64{}
 			}
 			e.AttrBase["max_health"] = wild
+			e.markAttrDirty("max_health")
 		}
 	}
 	// attributes:[{id,base,modifiers?}] — AttributeInstance.apply

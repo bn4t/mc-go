@@ -18,19 +18,36 @@ func mobZombieFamily(name string) bool {
 	return ok
 }
 
+// horseFamilyAttrTouch is the AbstractHorse subtree — every type whose
+// finalizeSpawn rolls speed/jump/health attribute instances before the
+// pairing burst.
+var horseFamilyAttrTouch = map[string]bool{
+	"horse": true, "donkey": true, "mule": true, "llama": true,
+	"trader_llama": true, "skeleton_horse": true, "zombie_horse": true,
+	"camel": true,
+}
+
 // summonAttrTouches applies the attribute-instance side effects of a
 // /summon: vanilla's AttributeMap packs only instances that were
 // touched. max_health is touched for tamables (setTame re-asserts the
-// wild base). init is true only when the summon carried no NBT
-// argument — vanilla then calls Mob.finalizeSpawn, which rolls
-// follow_range's random_spawn_bonus and the zombie family's
-// reinforcement/knockback touches. A summon with NBT skips
-// finalizeSpawn entirely. movement_speed is NOT touched here — it is
-// lazily instantiated on the mob's first living tick (the travel read),
-// which only happens inside simulation distance.
+// wild base) and movement_speed for the zombie family (its setBaby
+// path runs outside finalizeSpawn). init is true only when the summon
+// carried no NBT argument — vanilla then calls Mob.finalizeSpawn, which
+// rolls follow_range's random_spawn_bonus, the zombie family's
+// reinforcement/knockback touches, and the equines' three randomized
+// attributes. A summon with NBT skips finalizeSpawn entirely. For every
+// other living mob, movement_speed materializes lazily on the first
+// living tick (the travel read), which only happens inside simulation
+// distance.
 func summonAttrTouches(e *Entity, name string, init bool) {
 	if _, ok := tamableWildHealth[name]; ok {
 		e.markAttrTouched("max_health")
+	}
+	if mobZombieFamily(name) {
+		// Zombie's setBaby path (invoked even outside finalizeSpawn)
+		// touches movement_speed, so the instance exists at pair time
+		// for every summoned member of the family — NBT or not.
+		e.markAttrTouched("movement_speed")
 	}
 	if !init {
 		return
@@ -59,7 +76,8 @@ func summonAttrTouches(e *Entity, name string, init bool) {
 	if mobZombieFamily(name) {
 		// Zombie.handleAttributes: spawn_reinforcements base rolls
 		// rand*0.1, knockback_resistance takes a rand*0.05 add_value
-		// random_spawn_bonus modifier.
+		// random_spawn_bonus modifier. Neither is client-syncable, so
+		// they never appear in update_attributes packets.
 		e.markAttrTouched("spawn_reinforcements")
 		e.markAttrTouched("knockback_resistance")
 		if e.AttrBase == nil {
@@ -78,6 +96,21 @@ func summonAttrTouches(e *Entity, name string, init bool) {
 			value: rand.Float64() * 0.05,
 			op:    0, // add_value
 		}
+	}
+	if horseFamilyAttrTouch[name] {
+		// AbstractHorse.finalizeSpawn rolls all three attributes via
+		// generateSpeed/generateJumpStrength/generateMaxHealth, so every
+		// equine type's pairing burst carries this set — the only case
+		// where a non-zombie-type mob emits attributes at pair time.
+		e.markAttrTouched("movement_speed")
+		e.markAttrTouched("jump_strength")
+		e.markAttrTouched("max_health")
+		if e.AttrBase == nil {
+			e.AttrBase = map[string]float64{}
+		}
+		e.AttrBase["max_health"] = float64(15 + rand.IntN(8) + rand.IntN(9))
+		e.AttrBase["jump_strength"] = 0.4 + 0.2*(rand.Float64()+rand.Float64()+rand.Float64())
+		e.AttrBase["movement_speed"] = (0.45 + 0.3*(rand.Float64()+rand.Float64()+rand.Float64())) * 0.25
 	}
 }
 
@@ -168,7 +201,7 @@ func applyPackedAttrs(e *Entity, v any) {
 		if short == "" {
 			continue
 		}
-		e.markAttrTouched(short)
+		e.markAttrDirty(short)
 		if base, ok := nbtDouble(m["base"]); ok {
 			if e.AttrBase == nil {
 				e.AttrBase = map[string]float64{}

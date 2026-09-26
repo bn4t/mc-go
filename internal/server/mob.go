@@ -1104,6 +1104,43 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 		}
 		s.broadcastFreshMob(e)
+		// Leashable.restoreLeashFromSave: a 3-int array is the knot's
+		// block pos (the knot is created when absent), a 4-int array the
+		// holder's UUID int-array. Only Leashable entities carry the
+		// field. The attach runs after the pairing broadcast went out —
+		// the leash is unresolved at sendPairingData time on vanilla, so
+		// set_entity_link rides loose behind the knot's own bundle.
+		if tag != nil {
+			if lv, ok := tag.vals["leash"]; ok && lv.kind == snbtList && s.isLeashable(e) {
+				switch len(lv.items) {
+				case 3:
+					d := sess.dimension()
+					pos := world.Pos{X: int(snbtNum(lv.items[0])), Y: int(snbtNum(lv.items[1])), Z: int(snbtNum(lv.items[2]))}
+					knot := s.leashKnotAt(d, pos)
+					if knot == nil {
+						knot = s.leashKnotCreate(d, pos)
+					}
+					if knot != nil {
+						s.leashSetTo(e, knot.ID)
+					}
+				case 4:
+					var u [16]byte
+					for i, it := range lv.items {
+						v := uint32(int32(snbtNum(it)))
+						u[i*4] = byte(v >> 24)
+						u[i*4+1] = byte(v >> 16)
+						u[i*4+2] = byte(v >> 8)
+						u[i*4+3] = byte(v)
+					}
+					for _, snap := range s.entities.All() {
+						if snap.Dim == sess.dimension().name && snap.UUID == u {
+							s.leashSetTo(e, snap.ID)
+							break
+						}
+					}
+				}
+			}
+		}
 		return opsEchoReply(translatable("commands.summon.success", entityDisplayName(e)))
 	}
 	// A dropped stack on the ground: Item holds the stack, Thrower
@@ -1483,9 +1520,6 @@ func (s *Server) broadcastFreshMob(e *Entity) {
 		return
 	}
 	s.broadcastEntityMetadata(e.ID, encodeLivingMetadata(e, nil))
-	if mobPairingAttrTypes[e.Type] {
-		s.broadcastMobAttrs(e)
-	}
 	e.MetaDirty = true
 	e.AttrDirty = true
 	e.PosDirty = true
@@ -3266,7 +3300,7 @@ func (s *Server) mobHasEff(e *Entity, name string) bool {
 // mobAttrModAdd/Remove mirror AttributeInstance's modifier set on the
 // entity's pack state; the wire resend rides the next attr sync.
 func (s *Server) mobAttrModAdd(e *Entity, attr, id string, value float64, op int) {
-	e.markAttrTouched(attr)
+	e.markAttrDirty(attr)
 	if e.AttrMods == nil {
 		e.AttrMods = map[string]map[string]attrMod{}
 	}
@@ -3274,7 +3308,6 @@ func (s *Server) mobAttrModAdd(e *Entity, attr, id string, value float64, op int
 		e.AttrMods[attr] = map[string]attrMod{}
 	}
 	e.AttrMods[attr][id] = attrMod{value: value, op: op}
-	e.AttrDirty = true
 }
 
 func (s *Server) mobAttrModRemove(e *Entity, attr, id string) {
@@ -3282,7 +3315,7 @@ func (s *Server) mobAttrModRemove(e *Entity, attr, id string) {
 		return
 	}
 	delete(e.AttrMods[attr], id)
-	e.AttrDirty = true
+	e.markAttrDirty(attr)
 }
 
 // mobConvert is Mob.convertTo with ConversionParams.single(mob, true,

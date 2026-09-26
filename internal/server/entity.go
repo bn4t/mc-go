@@ -334,6 +334,9 @@ type Entity struct {
 	// Fuse is a PrimedTnt's remaining fuse ticks — DATA_FUSE_ID,
 	// counting down one per tick until the entity discards and explodes.
 	Fuse int32
+	// KnotCheckTicks is BlockAttachedEntity.checkInterval on a
+	// leash_knot — counts to 100 between survives() (fence) checks.
+	KnotCheckTicks int32
 	// Living mobs carry health and take damage from attacks.
 	Living bool
 	// Waypoint marks an entity that broadcasts a locator-bar waypoint;
@@ -350,8 +353,10 @@ type Entity struct {
 	// packs attribute instances that were getInstance'd at least once
 	// — summon reads movement_speed for every living mob, setTame
 	// re-asserts tamable max_health, and a non-NoAI Mob.finalizeSpawn
-	// rolls the spawn bonuses.
+	// rolls the spawn bonuses. AttrsDirty is the subset pending resend
+	// (vanilla's attributesToSync): instances are dirty on creation.
 	AttrTouched map[string]bool
+	AttrsDirty  map[string]bool
 	// NoAI (from the summon NBT) freezes gravity and wander like
 	// vanilla's Mob.NoAi flag — the entity still takes knockback.
 	NoAI      bool
@@ -754,7 +759,35 @@ func (e *Entity) markAttrTouched(name string) {
 	if e.AttrTouched == nil {
 		e.AttrTouched = map[string]bool{}
 	}
+	if e.AttrTouched[name] {
+		return
+	}
 	e.AttrTouched[name] = true
+	// A freshly-created attribute instance is dirty (vanilla marks
+	// instances dirty whenever the attribute is written, and instance
+	// creation is a write). Re-reads of an existing instance do not
+	// re-dirty it.
+	if attrSyncable[name] {
+		if e.AttrsDirty == nil {
+			e.AttrsDirty = map[string]bool{}
+		}
+		e.AttrsDirty[name] = true
+		e.AttrDirty = true
+	}
+}
+
+// markAttrDirty is AttributeInstance.setDirty — a write to an
+// already-materialized instance re-arms the resend even though the
+// touch itself is a no-op.
+func (e *Entity) markAttrDirty(name string) {
+	e.markAttrTouched(name)
+	if attrSyncable[name] {
+		if e.AttrsDirty == nil {
+			e.AttrsDirty = map[string]bool{}
+		}
+		e.AttrsDirty[name] = true
+		e.AttrDirty = true
+	}
 }
 
 // markEquipDelta flags one wire equipment slot for the next
@@ -1054,15 +1087,28 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 			first = err
 		}
 	}
+	// sendPairingData ends with the leash holder — SetEntityLinkPacket
+	// (source, dest) whenever the entity isLeashed.
+	if e.LeashHolder != 0 {
+		var b protocol.Buffer
+		b.Int(e.ID)
+		b.Int(e.LeashHolder)
+		if err := sess.write(sess.ids().PlaySetEntityLink, b.Bytes()); err != nil && first == nil {
+			first = err
+		}
+	}
 	if err := sess.write(sess.ids().PlayBundleDelimiter, nil); err != nil && first == nil {
 		first = err
 	}
 	return first
 }
 
-// pairingAttrs builds the pairing-stream update_attributes body: every
-// supplier attribute at its current base, with the speed effect's
-// multiplier folded into movement_speed like mobSyncAttrs.
+// pairingAttrs builds the pairing-stream update_attributes body: the
+// entity's materialized attributes filtered to client-syncable, each
+// at its current base, with the speed effect's multiplier folded into
+// movement_speed like mobSyncAttrs. Vanilla's getSyncableAttributes
+// only returns AttributeInstances that exist — created lazily on first
+// access — so the set is AttrTouched ∩ syncable, not the supplier.
 func pairingAttrs(e *Entity, now int64) []byte {
 	name, ok := EntityTypeName(e.Type)
 	if !ok {
@@ -1072,10 +1118,12 @@ func pairingAttrs(e *Entity, now int64) []byte {
 	if len(bases) == 0 {
 		return nil
 	}
-	names := make([]string, 0, len(bases))
-	for a := range bases {
-		if _, ok := attrIDByName[a]; ok {
-			names = append(names, a)
+	names := make([]string, 0, len(e.AttrTouched))
+	for a := range e.AttrTouched {
+		if attrSyncable[a] {
+			if _, ok := attrIDByName[a]; ok {
+				names = append(names, a)
+			}
 		}
 	}
 	if len(names) == 0 {
@@ -1096,7 +1144,11 @@ func pairingAttrs(e *Entity, now int64) []byte {
 				})
 			}
 		}
-		writeAttrEntry(&b, attrIDByName[a], bases[a], mods...)
+		base, has := e.AttrBase[a]
+		if !has {
+			base = bases[a]
+		}
+		writeAttrEntry(&b, attrIDByName[a], base, mods...)
 	}
 	return b.Bytes()
 }
