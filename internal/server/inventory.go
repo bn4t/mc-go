@@ -1226,7 +1226,7 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 			sess.inv[slotCraftStart+3], {}, {},
 			{}, {},
 		}
-		want, _, built := craftResult(grid)
+		want, _, built := craftResult(grid, &sess.dimension().maps)
 		if !built {
 			want = ItemStack{}
 		}

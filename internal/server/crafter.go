@@ -141,7 +141,7 @@ func (s *Server) crafterDispenseFrom(d *dimension, pos world.Pos) {
 	}
 	d.containers.mu.Unlock()
 
-	result, recipeID, ok := craftResult(grid)
+	result, recipeID, ok := craftResult(grid, &d.maps)
 	if !ok || result.Empty() {
 		s.broadcastLevelEvent(d.name, 1050, pos, 0)
 		return

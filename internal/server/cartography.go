@@ -122,9 +122,10 @@ func (s *Server) syncInventorySlot(sess *Session, slot int16, it ItemStack) {
 
 // addStackMenu is addStack emitting on the open menu window: merge
 // hotbar-first then main inventory, then the first empty slot — the
-// same order Inventory.add uses.
+// same order Inventory.add uses. base is the window's player-slot
+// offset (containerSize covers every menu kind).
 func (s *Server) addStackMenu(sess *Session, w *openWindow, it ItemStack) {
-	base := w.container.spec.slots
+	base := w.containerSize()
 	var touched []int
 	for i := base + 27; i < base+36 && !it.Empty(); i++ {
 		other := sess.menuStack(i)

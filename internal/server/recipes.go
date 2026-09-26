@@ -368,11 +368,51 @@ func matchBookCloning(g craftGrid, filled []bool) (ItemStack, bool) {
 	return out, true
 }
 
+// matchMapExtending handles crafting_special_mapextending: a fixed
+// ShapedRecipePattern ### / #x# / ### — eight paper around a center
+// filled_map — then the saved-data gates from MapItemSavedData:
+// getSavedData non-null (a map_id pointing at real data — exploration
+// maps are never minted here so they need no check) and scale < 4.
+// Assemble keeps the map's patch and sets MAP_POST_PROCESSING=SCALE;
+// the post-processing itself mints the scale+1 id at take time.
+func matchMapExtending(g craftGrid, filled []bool, ms *mapStore) (ItemStack, bool) {
+	for i := 0; i < 9; i++ {
+		if !filled[i] {
+			return ItemStack{}, false
+		}
+		name, ok := itemNameOf(g[i].ID)
+		if !ok {
+			return ItemStack{}, false
+		}
+		if i == 4 {
+			if name != "filled_map" {
+				return ItemStack{}, false
+			}
+		} else if name != "paper" {
+			return ItemStack{}, false
+		}
+	}
+	center := g[4]
+	if center.MapID == 0 || ms == nil {
+		return ItemStack{}, false
+	}
+	md, ok := ms.get(center.MapID - 1)
+	if !ok || md.scale >= 4 {
+		return ItemStack{}, false
+	}
+	out := center
+	out.Count = 1
+	out.MapPost = mapPostScale
+	return out, true
+}
+
 // craftResult computes the grid's result stack, iterating the recipe
 // table in registry order so the first matching recipe wins like
 // vanilla's CraftingManager. It also reports the winning recipe's id —
-// recipe_crafted needs it at take time.
-func craftResult(g craftGrid) (ItemStack, string, bool) {
+// recipe_crafted needs it at take time. ms is the dimension's map
+// data store — MapExtendingRecipe reads the source map's saved data
+// (MapItem.getSavedData, its null and scale>=4 gates).
+func craftResult(g craftGrid, ms *mapStore) (ItemStack, string, bool) {
 	names, filled, ok := gridNames(g)
 	if !ok {
 		return ItemStack{}, "", false
@@ -397,6 +437,8 @@ func craftResult(g craftGrid) (ItemStack, string, bool) {
 			out, hit = matchShieldDecoration(g, filled)
 		case data.CraftingSpecialBookcloning:
 			out, hit = matchBookCloning(g, filled)
+		case data.CraftingSpecialMapextending:
+			out, hit = matchMapExtending(g, filled, ms)
 		case data.CraftingTransmute:
 			out, hit = matchTransmute(r, g, filled)
 		case data.CraftingDecoratedPot:
@@ -426,7 +468,7 @@ func (sess *Session) playerCraftGrid() craftGrid {
 // changed.
 func (s *Server) refreshCraftResult(sess *Session) {
 	grid := sess.playerCraftGrid()
-	want, _, ok := craftResult(grid)
+	want, _, ok := craftResult(grid, &sess.dimension().maps)
 	if !ok {
 		want = ItemStack{}
 	}
@@ -485,6 +527,9 @@ func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, []ItemStack, 
 			break
 		}
 		out := sess.inv[slotCraftResult]
+		// ResultSlot.onTake applies map_post_processing on the stack
+		// taken (onCraftedPostProcess): SCALE/LOCK mint a fresh map id.
+		sess.server.cartographyApplyPost(sess, &out)
 		// Consume one from every non-empty grid slot.
 		ok := false
 		for i := int16(slotCraftStart); i < slotCraftStart+4; i++ {
@@ -506,7 +551,7 @@ func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, []ItemStack, 
 			sess.inv[slotCraftStart+3], {}, {},
 			{}, {},
 		}
-		_, rid, ridOK := craftResult(grid)
+		_, rid, ridOK := craftResult(grid, &sess.dimension().maps)
 		if ridOK {
 			sess.server.fireRecipeCrafted(sess, rid, grid)
 		}
@@ -570,7 +615,7 @@ func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, []ItemStack, 
 			sess.inv[slotCraftStart+2],
 			sess.inv[slotCraftStart+3], {}, {},
 			{}, {},
-		}); ok {
+		}, &sess.dimension().maps); ok {
 			sess.inv[slotCraftResult] = next
 		}
 	}

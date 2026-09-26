@@ -106,7 +106,7 @@ func (s *Server) useEmptyMap(sess *Session, st ItemStack, slot int16) {
 		return
 	}
 	s.syncInventorySlot(sess, slot, st)
-	if w != nil && w.container != nil {
+	if w != nil {
 		s.addStackMenu(sess, w, filled)
 	} else if rest, _ := sess.addStack(filled); !rest.Empty() {
 		s.dropItemLocked(sess, rest)

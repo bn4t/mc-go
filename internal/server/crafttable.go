@@ -118,7 +118,7 @@ func (s *Server) closeCraftTable(sess *Session, table *craftTable) {
 // whether it changed.
 func (s *Server) refreshTableResult(sess *Session, table *craftTable) bool {
 	grid := craftGrid(table.slots[1:10])
-	want, _, ok := craftResult(grid)
+	want, _, ok := craftResult(grid, &sess.dimension().maps)
 	if !ok {
 		want = ItemStack{}
 	}
@@ -259,6 +259,9 @@ func (s *Server) takeTableResult(sess *Session, w *openWindow, table *craftTable
 		if result.Empty() {
 			break
 		}
+		// ResultSlot.onTake applies map_post_processing on the stack
+		// taken (onCraftedPostProcess): SCALE/LOCK mint a fresh map id.
+		s.cartographyApplyPost(sess, &result)
 		if mode == 0 {
 			if !sess.carried.Empty() && sess.carried.ID != result.ID {
 				return
@@ -279,7 +282,7 @@ func (s *Server) takeTableResult(sess *Session, w *openWindow, table *craftTable
 		// resolved — vanilla passes craftSlots.getItems() in onTake,
 		// before the ingredients are consumed.
 		grid := craftGrid(table.slots[1:10])
-		_, rid, ridOK := craftResult(grid)
+		_, rid, ridOK := craftResult(grid, &sess.dimension().maps)
 		if ridOK {
 			s.fireRecipeCrafted(sess, rid, grid)
 		}
