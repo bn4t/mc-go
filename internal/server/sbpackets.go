@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"mc-go/internal/nbt"
@@ -401,19 +402,25 @@ func (sess *Session) Brand() string {
 }
 
 // handleDebugSubscriptionRequest replaces the session's debug
-// subscription set. Subscriptions only drive the client's debug
-// renderers, so mc-go retains them for introspection and sends nothing.
+// subscription set — vanilla's ServerPlayer.updateDebugSubscribers.
+// Registry ids index vanilla's debug_subscription registry in bootstrap
+// order; 0 (dedicated_server_tick_time) is the one mc-go serves, the
+// rest are stored for the remaining debug-value streams.
 func (s *Server) handleDebugSubscriptionRequest(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
 	n, err := r.VarInt()
 	if err != nil || n < 0 || n > 4096 {
 		return
 	}
+	subs := make(map[int32]struct{}, n)
 	for i := int32(0); i < n; i++ {
-		if _, err := r.VarInt(); err != nil {
+		id, err := r.VarInt()
+		if err != nil {
 			return
 		}
+		subs[id] = struct{}{}
 	}
+	sess.debugSubs.Store(&subs)
 }
 
 // handleConfigurationAcknowledged re-runs the configuration stage when
@@ -427,6 +434,33 @@ func (s *Server) handleConfigurationAcknowledged(sess *Session, p protocol.Packe
 		return
 	}
 	s.handleConfig(sess)
+}
+
+// debugSampleTick flushes one debug_sample per wall-clock tick to every
+// subscribed session — ServerDebugSubscribers.tick for
+// dedicated_server_tick_time ships the tick's measured nanos as the
+// RemoteDebugSampleType.TICK_TIME (0) sample. It is a wall tick, not a
+// game tick: the stream keeps flowing while the game clock is frozen.
+func (s *Server) debugSampleTick(d time.Duration) {
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || !sess.spawned.Load() {
+			return true
+		}
+		subs := sess.debugSubs.Load()
+		if subs == nil {
+			return true
+		}
+		if _, ok := (*subs)[0]; !ok {
+			return true
+		}
+		var b protocol.Buffer
+		b.VarInt(1)
+		b.Long(d.Nanoseconds())
+		b.VarInt(0)
+		_ = sess.write(sess.ids().PlayDebugSample, b.Bytes())
+		return true
+	})
 }
 
 // Container button ids, from the menus that have button handlers: the

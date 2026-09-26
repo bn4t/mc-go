@@ -551,6 +551,10 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 		if time.Since(lastPlayerTick) >= period {
 			lastPlayerTick = time.Now()
 			s.playerTick()
+			// debug_sample rides the wall tick (vanilla's
+			// ServerDebugSubscribers.tick), not the game tick: subscribers
+			// keep seeing it while the world is frozen.
+			s.debugSampleTick(since)
 		}
 		// A sprint owns every simulated tick while it runs — vanilla's
 		// server loop is the sprint — so the paced loop idles beside it

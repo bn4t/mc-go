@@ -83,6 +83,16 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 		s.useFoodOnAStick(sess, hand)
 		return
 	}
+	// WritableBookItem/WrittenBookItem.use → Player.openItemGui: the
+	// packet goes out only when the stack carries written_book_content
+	// (vanilla's ServerPlayer.openItemGui gates on the component), so
+	// a bare book is a silent no-op, and either book type qualifies.
+	if un, ok := itemNameOf(st.ID); ok && !st.Empty() && (un == "written_book" || un == "writable_book") && st.BookWritten != "" {
+		var b protocol.Buffer
+		b.VarInt(hand)
+		sess.write(IDPlayOpenBook, b.Bytes())
+		return
+	}
 	// EggItem/SnowballItem/ExperienceBottleItem.use: instant throws,
 	// not hold-uses.
 	if un, ok := itemNameOf(st.ID); ok && !st.Empty() {

@@ -343,6 +343,11 @@ type Session struct {
 	// blocking is the raised-shield state: set by a use-item start on a
 	// shield (either hand), cleared by the release_use_item action.
 	blocking atomic.Bool
+	// debugSubs is the client's debug subscription set — registry ids
+	// from debug_subscription_request (0 = dedicated_server_tick_time),
+	// like ServerPlayer.debugSubscriptions. The map is immutable: a new
+	// request stores a fresh map, so the tick loop reads it lock-free.
+	debugSubs atomic.Pointer[map[int32]struct{}]
 	// Player statistics counters and the last-sent baseline.
 	statMu sync.Mutex
 	stats  *statStore

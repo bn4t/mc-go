@@ -7751,3 +7751,47 @@ comes back empty, or the predicate never matches; either way zero wire
 output). mc-go now documents this and leaves `fireFilledBucket`
 unwired so the flush matches vanilla. `TestTacticalFishingParity`
 green again.
+## Slice 2026-09-25zp — packet census + open_book + debug_sample
+
+Censused all 141 play-clientbound packet ids from
+`vanilla/reports/packets.json` against mc-go's emission sites: six
+were never emitted. Three resolved this slice:
+
+- `open_book` (0x3a): both `WritableBookItem.use` and
+  `WrittenBookItem.use` call `Player.openItemGui`, and the
+  `ServerPlayer` override gates the packet on the stack carrying the
+  `written_book_content` component — a bare book is a silent no-op.
+  mc-go's use_item dispatch now emits `open_book{hand}` under exactly
+  that gate. `TestOpenBookParity` pins both hands and the bare-book
+  negative on both servers.
+- `debug_sample` (0x1e): `ServerboundDebugSubscriptionRequestPacket`
+  stores a subscription set of registry ids; vanilla's
+  `ServerDebugSubscribers.tick` flushes `RemoteDebugSampleType`TICK_TIME`
+  (0) to `dedicated_server_tick_time` subscribers every wall tick —
+  and `debugSubscriptions()` is empty unless the player `isOp`, so
+  the stream is op-gated on the wire. mc-go stores the set
+  (immutable map behind atomic.Pointer) and emits per wall tick.
+  `TestDebugSampleParity` pins cadence (~20 Hz), the
+  `{long[], varint 0}` shape, and silence before subscribing.
+- `recipe_book_remove` (0x4b): false positive — mc-go already emits
+  it via `IDPlayRecipeBookRemove` in recipecmd.
+
+Deferred by measurement:
+- `teleport_entity` (0x7d) is emitted only by
+  `sendTeleportTransitionToRidingPlayers` — riding passengers of a
+  teleporting vehicle. It needs the vehicles/riding track, not a
+  standalone stub.
+- `debug/block_value`/`chunk_value`/`entity_value`/`event` (0x1a/1b/
+  1c/1d) are the per-event debug streams behind the other fifteen
+  subscription types (pois, paths, brains, neighbor_updates, game
+  events, ...). Each is its own producer feature; stored ids land
+  with this slice, streams are a later one.
+
+Also measured while probing `/tp @e`: vanilla un-pairs a tracked
+entity (sends `remove_entities`) when it leaves the effective
+tracking window — `min(viewDistance, clientTrackingRange) * 16`
+blocks, axis-aligned — evaluated per `TrackedEntity.update`. mc-go
+broadcasts entity packets to every in-dimension session with no
+range or pairing state — that is the next slice's work, with the
+68-type `clientTrackingRange`/`updateInterval` table extracted from
+the jar (Probe.java under tools/).
