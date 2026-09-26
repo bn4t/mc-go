@@ -2320,6 +2320,12 @@ func (s *Server) mobTickStep() {
 				s.mobSyncFlush(e)
 				continue
 			}
+			// TemptGoal (priority 3-4) outranks eat/stroll: a player
+			// holding the mob's food pulls it to 2.5 blocks.
+			if s.mobTemptStep(e, ambName) {
+				s.mobSyncFlush(e)
+				continue
+			}
 			// Sheep's EatBlockGoal (priority 5) — while the eat
 			// animation runs the sheep stands still.
 			if ambName == "sheep" && s.sheepEatTick(e, s.dims[e.Dim]) {
@@ -3071,6 +3077,113 @@ func (s *Server) mobPanicStep(e *Entity, name string) bool {
 	}
 	e.Yaw = float32(math.Atan2(-tx, tz) * 180 / math.Pi)
 	e.LookYaw = e.Yaw
+	e.X += tx / dist * step
+	e.Z += tz / dist * step
+	e.MotionX, e.MotionZ = tx/dist*step, tz/dist*step
+	return true
+}
+
+// mobTemptFood is TemptGoal's `items` predicate per animal type (the
+// FOOD item tags in the 26.2 jar) plus its speedModifier, read off the
+// registerGoals constructors: pig 1.2, sheep 1.1, cow/horse-family
+// 1.25, chicken 1.0. Rabbits and cats pass canScare=true — their
+// scurry-on-move variant is not modeled here.
+var mobTemptFood = map[string]struct {
+	speed float64
+	items map[int32]bool
+}{
+	"pig":            {1.2, temptSet("carrot", "potato", "beetroot")},
+	"sheep":          {1.1, temptSet("wheat")},
+	"cow":            {1.25, temptSet("wheat")},
+	"mooshroom":      {1.25, temptSet("wheat")},
+	"chicken":        {1.0, temptSet("wheat_seeds", "melon_seeds", "pumpkin_seeds", "beetroot_seeds", "torchflower_seeds", "pitcher_pod")},
+	"horse":          {1.25, temptSet("wheat", "sugar", "hay_block", "apple", "carrot", "golden_carrot", "golden_apple", "enchanted_golden_apple")},
+	"donkey":         {1.25, temptSet("wheat", "sugar", "hay_block", "apple", "carrot", "golden_carrot", "golden_apple", "enchanted_golden_apple")},
+	"mule":           {1.25, temptSet("wheat", "sugar", "hay_block", "apple", "carrot", "golden_carrot", "golden_apple", "enchanted_golden_apple")},
+	"llama":          {1.25, temptSet("wheat", "hay_block")},
+	"trader_llama":   {1.25, temptSet("wheat", "hay_block")},
+	"skeleton_horse": {1.25, temptSet("wheat", "sugar", "hay_block", "apple", "carrot", "golden_carrot", "golden_apple", "enchanted_golden_apple")},
+	"zombie_horse":   {1.25, temptSet("wheat", "sugar", "hay_block", "apple", "carrot", "golden_carrot", "golden_apple", "enchanted_golden_apple")},
+}
+
+// temptSet resolves the item-tag names to registry ids once.
+func temptSet(names ...string) map[int32]bool {
+	m := make(map[int32]bool, len(names))
+	for _, n := range names {
+		if id, ok := world.ItemID(n); ok {
+			m[id] = true
+		}
+	}
+	return m
+}
+
+// mobTemptStep is TemptGoal (goal priority 3-4, canScare=false):
+// while a nearby player holds one of the mob's tempting items in
+// either hand the mob navigates to the holder at speedModifier ×
+// movement_speed and stands at 2.5 blocks (the default
+// stopDistance), looking at them. Losing the item or the player
+// leaving TEMPT_RANGE (the 10.0 attribute default) ends the goal and
+// starts vanilla's reducedTickDelay(100) calm-down.
+func (s *Server) mobTemptStep(e *Entity, name string) bool {
+	spec, ok := mobTemptFood[name]
+	if !ok {
+		return false
+	}
+	if e.TemptCalm > 0 {
+		e.TemptCalm--
+		e.TemptActive = false
+		return false
+	}
+	var target *Session
+	best := 10.0 * 10.0 // TEMPT_RANGE default
+	s.sessions.Range(func(_, v any) bool {
+		p := v.(*Session)
+		if p.state.Load() != StatePlay || !p.spawned.Load() || p.dead ||
+			p.mode() == GameModeSpectator || p.dimName() != e.Dim {
+			return true
+		}
+		if !spec.items[p.heldStack().ID] && !spec.items[p.stackAt(slotOffhand).ID] {
+			return true
+		}
+		px, py, pz, _, _, _ := p.Pos()
+		d := (px-e.X)*(px-e.X) + (py-e.Y)*(py-e.Y) + (pz-e.Z)*(pz-e.Z)
+		if d < best {
+			best = d
+			target = p
+		}
+		return true
+	})
+	if target == nil {
+		if e.TemptActive {
+			e.TemptCalm = 100
+		}
+		e.TemptActive = false
+		return false
+	}
+	e.TemptActive = true
+	e.TemptTarget = target.entityID.Load()
+	px, _, pz, _, _, _ := target.Pos()
+	tx, tz := px-e.X, pz-e.Z
+	dist := math.Hypot(tx, tz)
+	e.Yaw = float32(math.Atan2(-tx, tz) * 180 / math.Pi)
+	e.LookYaw = e.Yaw
+	if dist <= 2.5 {
+		// Inside stopDistance: navigation stopped — the mob just
+		// stands and looks.
+		e.MotionX, e.MotionZ = 0, 0
+		return true
+	}
+	speed, ok := entityAttrBases[name]["movement_speed"]
+	if !ok || speed <= 0 {
+		speed = mobWalkSpeed
+	}
+	step := speed * spec.speed
+	if step > dist-2.0 {
+		step = dist - 2.0
+	}
+	if step < 0 {
+		step = 0
+	}
 	e.X += tx / dist * step
 	e.Z += tz / dist * step
 	e.MotionX, e.MotionZ = tx/dist*step, tz/dist*step

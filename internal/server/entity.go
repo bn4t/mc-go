@@ -406,6 +406,14 @@ type Entity struct {
 	PanicTX     float64
 	PanicTZ     float64
 	PanicSteps  int32
+	// TemptActive/TemptTarget model TemptGoal: an animal whose
+	// tempting item is in a nearby player's hand walks to the holder
+	// at speedModifier × movement_speed and stops at 2.5 blocks;
+	// TemptCalm is the post-stop cool-down (vanilla
+	// reducedTickDelay(100)).
+	TemptActive bool
+	TemptTarget int32
+	TemptCalm   int32
 	// attackCooldown is the hostile-melee swing timer — vanilla's
 	// twenty-tick reset after each landed blow.
 	attackCooldown int32

@@ -8081,3 +8081,24 @@ grounded↔airborne every other tick (the below-block sample at
 -0.25 lands exactly on the cell boundary at restY), storming
 set_entity_motion ~20/s/entity forever — enough packet volume to
 starve drain-based test legs. The sample now dips 0.26.
+
+## Slice 2026-09-26f
+
+TemptGoal (javap + FOOD tag JSONs): an animal within TEMPT_RANGE (10.0
+attribute default) of a player holding one of its tempting items —
+main OR off hand — navigates to the holder at speedModifier ×
+movement_speed and stands at the 2.5 default stopDistance, looking at
+them. mobTemptFood carries the tag membership (pig: carrot/potato/
+beetroot; sheep/cow/mooshroom: wheat; chicken: the six seeds;
+equines: the HORSE_FOOD set) and the per-type speedModifier off the
+registerGoals constructors (pig 1.2, sheep 1.1, cow/horses 1.25,
+chicken 1.0). Rabbit/cat canScare variants are not modeled. Ending
+the latch starts the 100-tick calm-down (vanilla
+reducedTickDelay(100)).
+
+Measured on vanilla: a pig 7.6 blocks from a carrot-holding player
+closed to 2.06 and parked (position stream stops — the goal keeps
+the mob still while latched); mc-go parks at 2.16. Pinned by
+TestMobTemptParity (tempt_test.go): the tempt leg puts a carrot in
+weapon.mainhand via /item replace and asserts closest-approach < 3.5
+on both servers; the NoAI leg asserts the pig never approaches.
