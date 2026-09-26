@@ -7735,3 +7735,19 @@ through the crafter, diffing item-entity spawn count and the
 per-dispense 1049/2010/1050 level events vs vanilla (5 spawns / 5
 crafts worth of events). `TestCraftRecipeParity` (incl. the cake
 bucket-remainder case) and the unit suite stay green.
+
+## Slice 2026-09-25zo — filled_bucket trigger: measured, kept off
+
+`Bucketable.bucketMobPickup` bytecode does call
+`FILLED_BUCKET.trigger(ServerPlayer, bucketStack)` straight-line before
+`discard()` — so wiring `fireFilledBucket` into `bucketFish` looked
+correct. It is not what the wire shows: on the 26.2 jar the pickup
+removes the fish but never lands the criterion — verified end to end by
+granting `husbandry/fishy_business` first (making `tactical_fishing`
+visible), then bucketing a second cod: `tactical_fishing/cod_bucket`
+stays `false`. The trigger call exists but the award never happens —
+an apparent vanilla regression in 26.2 (listener map for the trigger
+comes back empty, or the predicate never matches; either way zero wire
+output). mc-go now documents this and leaves `fireFilledBucket`
+unwired so the flush matches vanilla. `TestTacticalFishingParity`
+green again.

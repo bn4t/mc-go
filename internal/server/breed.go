@@ -197,8 +197,16 @@ var fishBuckets = map[string]string{
 // despawns, the fill sound plays, and the matching fish bucket lands in
 // the inventory. In creative the water bucket stays in hand (vanilla's
 // createFilledResult returns the original stack and adds the filled
-// bucket separately); survival replaces it. Measured on 26.2: no
-// filled_bucket advancement reaches the wire, so none fires.
+// bucket separately); survival replaces it.
+//
+// Vanilla 26.2's Bucketable.bucketMobPickup bytecode does fire
+// FILLED_BUCKET.trigger(ServerPlayer, bucketStack) before discard(),
+// but the criterion never lands: measured on a live jar, bucketed cod
+// leaves tactical_fishing/cod_bucket=false even after the advancement
+// was made visible by granting its parent — apparently a vanilla-side
+// trigger bug in 26.2. Wire parity is therefore to emit nothing, so the
+// fireFilledBucket call below stays commented out (keep the helper; it
+// is also the correct path for any future fixed version).
 func (s *Server) bucketFish(sess *Session, eid int32, hand int32) {
 	s.entities.mu.RLock()
 	e := s.entities.byID[eid]
@@ -235,6 +243,8 @@ func (s *Server) bucketFish(sess *Session, eid int32, hand int32) {
 		sess.setStack(hslot, ItemStack{ID: outID, Count: 1})
 		_ = s.sendContainerSlot(sess, hslot, sess.stackAt(hslot))
 	}
+	// See the note above: vanilla 26.2 never awards filled_bucket here.
+	// s.fireFilledBucket(sess, bucket)
 	s.entities.Remove(eid)
 	s.broadcastEntityRemoveIn(dim, nil, []int32{eid})
 	s.broadcastAttackSound(sess, 232) // minecraft:item.bucket.fill_fish
