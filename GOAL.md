@@ -8555,3 +8555,32 @@ fails on clean master — mc-go emits an extra set_entity_data flush
 around the /summon success chat (meta,meta,chat,meta vs vanilla
 meta,chat,meta) — same packet set, ordering + one extra flush;
 tracked here, not touched this slice.
+
+## Slice 2026-09-26t — attach-bundle meta dedup (/summon + item drops)
+
+Root cause of the TestDataEntityParity gap logged in 26s: sendEntityTo
+ships the entity's metadata INSIDE the attach bundle (vanilla's
+sendPairingData carries exactly one set_entity_data in the bundle), but
+broadcastFreshMob and eight item/living spawn sites then re-sent the
+same metadata via a standalone broadcastEntityMetadata — a duplicate
+packet vanilla never emits. Wire diff was mc-go [bundle-meta, chat,
+extra-meta, dirty] vs vanilla [bundle-meta, chat, dirty].
+
+mc-go: removed the redundant broadcastEntityMetadata at every site
+where the entity's Item/living fields were already set before
+broadcastEntitySpawn (broadcastFreshMob, spawnMobStack, runSummon's
+item path, allay/chest/fishing/furnace/hopper/inventory drop sites).
+Kept the sites where the bundle legitimately carries nil meta —
+spawnXPOrb, cloud, bobber, splash-potion without Item, dispense's
+late Item assignment — those explicit sends are the only meta on the
+wire. Kept MetaDirty=true on fresh mobs: the post-attach dirty resend
+on the next tick is also vanilla behavior.
+
+TestDataEntityParity now PASSES (was failing on clean master). The
+sweep covering every touched path (22 tests: item drops, merges,
+hoppers, furnace, chest, fishing, allay, breeding, leashing, summons,
+equipment, loot, tracking, thrown pickups, S-NBT) is clean except two
+preexisting/flaky tests: TestItemDropMergeParity (vanilla-side merge
+timing flake, passes on rerun) and TestSurvivalBreakDropPickupPackets
+(fails identically on clean master — block-break item spawn packet
+never reaches the client; real gap, next slice).

@@ -256,7 +256,6 @@ func (s *Server) allayThrowStep(e *Entity, now int64) {
 	}
 	s.entities.Spawn(it)
 	s.broadcastEntitySpawn(nil, *it)
-	s.broadcastEntityMetadata(it.ID, encodeItemMetadata(thrown))
 
 	// The trigger's block pos is the target's block position's below:
 	// for a noteblock deposit that resolves to the noteblock itself.

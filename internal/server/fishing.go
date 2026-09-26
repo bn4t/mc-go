@@ -444,7 +444,6 @@ func (s *Server) spawnCaughtItem(dim string, bx, by, bz, px, py, pz float64, it 
 	e.VY = int16(e.MotionY * 8000)
 	e.VZ = int16(e.MotionZ * 8000)
 	s.broadcastEntitySpawn(nil, *e)
-	s.broadcastEntityMetadata(e.ID, encodeItemMetadata(e.Item))
 }
 
 // fishingTable is gameplay/fishing's fish pool flattened to the 85%

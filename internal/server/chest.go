@@ -92,7 +92,6 @@ func (s *Server) removeChest(d *dimension, pos world.Pos) {
 			PickupDelay: 10,
 		})
 		s.broadcastEntitySpawn(nil, *e)
-		s.broadcastEntityMetadata(e.ID, encodeItemMetadata(e.Item))
 	}
 }
 

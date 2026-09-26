@@ -1464,7 +1464,6 @@ func (s *Server) dropItemLocked(sess *Session, it ItemStack) *Entity {
 	})
 	e.Yaw = yaw
 	s.broadcastEntitySpawn(nil, *e)
-	s.broadcastEntityMetadata(e.ID, encodeItemMetadata(it))
 	sess.addCustomStat("drop", 1)
 	sess.addItemStat(statDropped, it.ID, it.Count)
 	return e

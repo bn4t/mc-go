@@ -242,7 +242,6 @@ func (s *Server) removeFurnace(d *dimension, pos world.Pos) {
 		})
 		data.slots[i] = ItemStack{}
 		s.broadcastEntitySpawn(nil, *e)
-		s.broadcastEntityMetadata(e.ID, encodeItemMetadata(e.Item))
 	}
 }
 

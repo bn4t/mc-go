@@ -328,7 +328,8 @@ func (s *Server) spawnMobStack(e *Entity, st ItemStack) {
 		PickupDelay: 10,
 	})
 	s.broadcastEntitySpawn(nil, *it)
-	s.broadcastEntityMetadata(it.ID, encodeItemMetadata(it.Item))
+	// The pairing bundle already ships the item stack — vanilla's
+	// sendPairingData carries the one set_entity_data inside it.
 }
 
 // mobXP is the experience orb count range for each mob, and hostile
@@ -1307,7 +1308,6 @@ func (s *Server) runSummon(player string, args []string) reply {
 		}
 		s.entities.Spawn(e)
 		s.broadcastEntitySpawn(nil, *e)
-		s.broadcastEntityMetadata(e.ID, encodeItemMetadata(it))
 		return opsEchoReply(translatable("commands.summon.success", entityDisplayName(e)))
 	}
 	// Boats/rafts and minecarts are vehicles, not living mobs:
@@ -1676,7 +1676,9 @@ func (s *Server) broadcastFreshMob(e *Entity) {
 		e.SyncCount = 0
 		return
 	}
-	s.broadcastEntityMetadata(e.ID, encodeLivingMetadata(e, nil))
+	// No separate set_entity_data: evalPair's sendEntityTo already
+	// shipped the living meta inside the attach bundle — vanilla's
+	// sendPairingData carries exactly one entity data packet.
 	e.MetaDirty = true
 	e.AttrDirty = true
 	e.PosDirty = true
