@@ -237,6 +237,21 @@ func (s *Server) trackRangeBlocks(e *Entity) float64 {
 	return r
 }
 
+// entitySyncInterval is trackSpec's second column — vanilla's
+// ServerEntity.updateInterval, the sendChanges cadence per entity
+// type. Displays tick every tick, mobs every 3, projectiles every 10,
+// items/falling blocks/orbs/arrows every 20, and item frames, glow
+// item frames, end crystals, and area effect clouds use MAX_INT so
+// their move block never runs off the cadence (position still goes
+// out through needsSync/isDirty).
+func (s *Server) entitySyncInterval(e *Entity) int64 {
+	name, _ := EntityTypeName(e.Type)
+	if spec, ok := trackSpec[name]; ok {
+		return int64(spec[1])
+	}
+	return 3
+}
+
 // viewBlocks is the player's view span in blocks —
 // min(server view distance, client-requested view distance) * 16,
 // matching getPlayerViewDistance. A client that never sent Client

@@ -39,7 +39,7 @@ func trackRead(t *testing.T, tag string, c net.Conn, pr *protocol.Reader, pw *pr
 		for {
 			p, err := pr.ReadPacket()
 			if err != nil {
-				goto outer
+				break
 			}
 			switch p.ID {
 			case server.IDPlayKeepAliveCB:
@@ -77,7 +77,6 @@ func trackRead(t *testing.T, tag string, c net.Conn, pr *protocol.Reader, pw *pr
 			}
 		}
 	}
-outer:
 	return got
 }
 

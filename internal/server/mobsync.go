@@ -251,21 +251,41 @@ func cloudParticleARGB(effects map[int32]mobEffectInst) int32 {
 	return int32(uint32(0xFF000000) | uint32(r<<16) | uint32(g<<8) | uint32(b))
 }
 
-// mobUpdateInterval is vanilla's per-entity-type tracker cadence; the
-// builder's default (3) covers every living mob mc-go simulates.
-const mobUpdateInterval = 3
-
 // mobSyncFlush is the per-mob sendChanges pass: position/rotation
 // through the vanilla packet selection, the full metadata resend while
 // entries are dirty (effect particles included — vanilla computes them
 // lazily), then the attribute dirty resend.
 func (s *Server) mobSyncFlush(e *Entity) {
-	e.SyncCount++
-	// Vanilla runs sendChanges every updateInterval ticks plus any tick
-	// the entity reports needsSync or dirty entity data.
-	if e.SyncCount%mobUpdateInterval == 0 || e.PosDirty || e.MetaDirty {
+	if !e.syncInit {
+		// The spawn packet carried position and rotation, so the send
+		// baseline latches at first flush — vanilla establishes it in
+		// ServerEntity.broadcast at pairing time, before any tick runs.
+		// Latching here (not at first gate-fire) keeps an interval-20
+		// item's first emit carrying the fall since spawn.
+		e.syncInit = true
+		e.syncPX, e.syncPY, e.syncPZ = mobFixed(e.X), mobFixed(e.Y), mobFixed(e.Z)
+		e.lastYRotB = angleByte(e.Yaw)
+		e.lastXRotB = angleByte(e.Pitch)
+		e.lastYHeadB = angleByte(e.HeadYaw)
+		e.wasOnGround = e.Grounded
+	}
+	// Vanilla's sendChanges rounds the entity's own tickCount up to the
+	// next updateInterval multiple when a teleport marked it
+	// (entity.syncPosition) — the position packet rides THIS tick and
+	// the cadence phase restarts a full interval later. PosDirty is
+	// mc-go's needsSync; the >400 teleportDelay is the same latch.
+	if e.teleportDelay == 401 {
+		iv := s.entitySyncInterval(e)
+		e.SyncCount = (e.SyncCount/iv)*iv + iv
+	}
+	// Vanilla's gate reads the entity's own tickCount BEFORE this tick's
+	// increment: a fresh tracker emits on its first sendChanges
+	// (0 % interval == 0) — e.g. an item's first fall tick rides a
+	// move_entity_pos one tick after the spawn packet.
+	if e.SyncCount%s.entitySyncInterval(e) == 0 || e.PosDirty || e.MetaDirty {
 		s.mobMoveSync(e)
 	}
+	e.SyncCount++
 	if len(e.dataSync) > 0 {
 		data := e.dataSync
 		e.dataSync = nil
@@ -309,29 +329,6 @@ func mobByteDiff(a, b byte) int {
 // entity_position_sync. The head's packed yaw rides rotate_head on its
 // own slot. Runs only on sendChanges-eligible ticks.
 func (s *Server) mobMoveSync(e *Entity) {
-	if !e.syncInit {
-		// The spawn packet already carried position and rotation; the
-		// first sync tick latches the send baseline, and the summon-time
-		// position dirty (vanilla's snapTo marking) answers with the
-		// zero-delta move_entity_pos the pairing burst ends in.
-		e.syncInit = true
-		e.syncPX, e.syncPY, e.syncPZ = mobFixed(e.X), mobFixed(e.Y), mobFixed(e.Z)
-		e.lastYRotB = angleByte(e.Yaw)
-		e.lastXRotB = angleByte(e.Pitch)
-		e.lastYHeadB = angleByte(e.HeadYaw)
-		e.wasOnGround = e.Grounded
-		if e.PosDirty {
-			e.PosDirty = false
-			var b protocol.Buffer
-			b.VarInt(e.ID)
-			b.Short(0)
-			b.Short(0)
-			b.Short(0)
-			b.Bool(e.Grounded)
-			s.broadcastToTrackers(e, b.Bytes(), func(ids idSet) int32 { return ids.PlayMoveEntityPos })
-		}
-		return
-	}
 	yRotB := angleByte(e.Yaw)
 	xRotB := angleByte(e.Pitch)
 	rotChanged := mobByteDiff(yRotB, e.lastYRotB) >= 1 || mobByteDiff(xRotB, e.lastXRotB) >= 1
@@ -340,7 +337,10 @@ func (s *Server) mobMoveSync(e *Entity) {
 	dx, dy, dz := sx-e.syncPX, sy-e.syncPY, sz-e.syncPZ
 	// TrackedPosition.delta().lengthSqr() threshold, block space.
 	posChanged := float64(dx*dx+dy*dy+dz*dz)/(4096.0*4096.0) >= 7.62939453125e-6
-	pos := posChanged || e.SyncCount%60 == 0
+	// Vanilla's periodic-resync reads the ENTITY's tickCount — one past
+	// this tracker's on the first sendChanges — so it never forces a
+	// position packet on the tick-0 gate.
+	pos := posChanged || (e.SyncCount+1)%60 == 0
 	deltaTooBig := dx < -32768 || dx > 32767 || dy < -32768 || dy > 32767 || dz < -32768 || dz > 32767
 	var sentPos, sentRot bool
 	switch {

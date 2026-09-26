@@ -562,6 +562,7 @@ func (s *Server) itemTickStep() {
 		below := world.Pos{X: bx, Y: int(math.Floor(e.Y - 0.25)), Z: bz}
 		newY := e.Y + e.MotionY
 		if w.GetBlock(below) == world.Air {
+			e.Grounded = false
 			e.MotionY -= 0.04
 			if e.MotionY < -0.5 {
 				e.MotionY = -0.5
@@ -573,12 +574,13 @@ func (s *Server) itemTickStep() {
 				newY = restY
 			}
 			e.MotionY = 0
+			e.Grounded = true
 		}
-		moved := newY != e.Y
 		e.Y = newY
-		if moved {
-			s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, 0, 0, true)
-		}
+		// Item entities and XP orbs sync through the same ServerEntity
+		// pipeline as mobs — updateInterval 20 — not a teleport every
+		// moved tick.
+		s.mobSyncFlush(e)
 		// Entity.moveTowardsClosestSpace: an item whose feet cell is a
 		// full block slides out toward the least-distant open face —
 		// the scan covers N/S/W/E/UP (never down) and the push is
@@ -653,8 +655,6 @@ func (s *Server) itemTickStep() {
 			e.MotionZ *= fr
 			if math.Abs(e.MotionX) < 0.01 && math.Abs(e.MotionZ) < 0.01 {
 				e.MotionX, e.MotionZ = 0, 0
-			} else {
-				moved = true
 			}
 		}
 		if orb && e.OrbCount < 1 {

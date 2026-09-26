@@ -7849,3 +7849,50 @@ summoned_entity grant unreachable. The grant now fires from
 SUMMONED_ENTITY fans over the player list, placer or not), and the
 dead `checkSummonedEntity`/`summon.go` is gone. TestSummonedEntityParity
 3× green; the earlier flake was two pattern checkers racing.
+## Slice 2026-09-25zr — per-entity-type updateInterval cadence (ServerEntity.sendChanges)
+
+Wired the trackSpec table's second column (extracted from the jar in
+zq, never applied): vanilla's ServerEntity.sendChanges runs every tick
+but only enters the position branch when
+`entity.tickCount % updateInterval == 0 || needsSync || entityData.isDirty`.
+The interval is per entity type — displays=1, allay/evoker_fangs=2,
+eye_of_ender=4, projectiles=10, item/falling_block/experience_orb/arrow
+=20, item_frame/glow_item_frame/end_crystal/area_effect_cloud=MAX_INT,
+most mobs=3 (tools/trackprobe/trackranges.txt).
+
+- `entitySyncInterval` (track.go) reads the type's interval, default 3;
+  `mobSyncFlush` gates `mobMoveSync` on `SyncCount % iv == 0 ||
+  PosDirty || MetaDirty` — the fixed `mobUpdateInterval = 3` is gone.
+- The gate reads SyncCount BEFORE the tick's increment, matching
+  sendChanges' read of the entity's own tickCount: a fresh tracker
+  emits on its first sendChanges (0 % iv == 0), which is how vanilla's
+  summoned item answers its first fall tick with a move_entity_pos
+  ~1 tick after the spawn packet.
+- The send baseline latches at first flush (pairing/spawn position —
+  vanilla establishes it in ServerEntity.broadcast at pairing), not at
+  first gate-fire; latching mid-flight silently ate the interval-20
+  item's first emit.
+- Teleport marking (tpMove) still rounds SyncCount UP to the next
+  interval multiple — syncPosition's `tickCount = (t/I)*I + I`
+  measured from bytecode — so the position packet rides this tick and
+  the cadence phase restarts a full interval later.
+- `teleportDelay` and the %60 periodic resync stay inside the gated
+  branch, matching sendChanges: interval-20 items promote to
+  position_sync after ~8000 entity ticks of silence, not 400.
+- itemTickStep routes through mobSyncFlush (was a teleport-per-tick
+  broadcast); item entities now set Grounded on rest so the landing
+  onGround flip emits position_sync like vanilla.
+- ItemEntity merge/pickup behavior unchanged; XP orbs share the
+  interval-20 path.
+
+Pinned by TestItemSyncCadenceParity: summon an item 30 blocks over a
+flat drop, timestamp every pos-family packet naming it, and compare
+the median inter-emit interval — vanilla spaces emits ~1000 ms
+(20 ticks); mc-go must land within ±300 ms. Counts are boundary noise
+(first-emit phase + landing timing), so the test pins the spacing,
+not the count.
+
+Also fixed the collector bug in trackRead/fallCollect: a read timeout
+used to `goto outer`, ending the window after one quiet 80 ms span —
+legs now collect for their full duration (tracking legs unchanged,
+still green).
