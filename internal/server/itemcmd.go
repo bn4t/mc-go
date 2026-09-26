@@ -1209,6 +1209,10 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.BookWritable = ""
 			case "written_book_content":
 				it.BookWritten = ""
+			case "map_id":
+				it.MapID = 0
+			case "map_post_processing":
+				it.MapPost = 0
 			default:
 				return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
 			}
@@ -1262,6 +1266,29 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 			}
 			sort.Strings(parts)
 			it.Ench = strings.Join(parts, ",")
+		case "map_id":
+			// MapId is a bare int: filled_map[map_id=3].
+			if vtag.kind != snbtNumber {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			n, cerr := strconv.Atoi(strings.TrimRight(vtag.num, "bBsSiIlLfFdD"))
+			if cerr != nil || n < 0 {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			it.MapID = int32(n) + 1
+		case "map_post_processing":
+			// The enum names itself: lock or scale.
+			if vtag.kind != snbtString {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			switch strings.TrimPrefix(vtag.str, "minecraft:") {
+			case "lock":
+				it.MapPost = mapPostLock
+			case "scale":
+				it.MapPost = mapPostScale
+			default:
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
 		case "stored_enchantments":
 			// Same flat {name: level} map as enchantments, but it
 			// fills the stored_enchantments component (enchanted

@@ -107,6 +107,13 @@ type ItemStack struct {
 	// empty means the holder lacks that component.
 	BookWritable string `json:"book_writable,omitempty"`
 	BookWritten  string `json:"book_written,omitempty"`
+	// MapID is the minecraft:map_id component's MapId — stored as the
+	// map's data id +1 so the zero value means absent (vanilla's first
+	// map id is itself 0). MapPost is minecraft:map_post_processing
+	// stored likewise: 0 absent, mapPostLock / mapPostScale the
+	// internal encodings — the wire writes MapPost-1 (lock 0, scale 1).
+	MapID   int32 `json:"map_id,omitempty"`
+	MapPost int32 `json:"map_post,omitempty"`
 }
 
 // Empty reports whether the slot holds nothing.
@@ -129,7 +136,8 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.BottleAmpSet == other.BottleAmpSet && it.BottleAmp == other.BottleAmp &&
 		it.LootTable == other.LootTable && it.LootSeed == other.LootSeed &&
 		it.BookWritable == other.BookWritable && it.BookWritten == other.BookWritten &&
-		it.Trim == other.Trim
+		it.Trim == other.Trim &&
+		it.MapID == other.MapID && it.MapPost == other.MapPost
 }
 
 // enchLevel reports the stack's level of one enchantment, or 0 when
@@ -210,6 +218,11 @@ const (
 	// ominous_bottle_amplifier is a bare VarInt, registered 64th in the
 	// data_component_type registry (measured on 26.2).
 	compOminousBottleAmplifier = 63
+	// map_id is a bare VarInt (MapId wraps the data id); the map
+	// post-processing enum is a bare VarInt too — lock 0, scale 1
+	// (measured on 26.2: MapPostProcessing { LOCK, SCALE }).
+	compMapID   = 46
+	compMapPost = 48
 	// block_state is BlockItemStateProperties' flat map — VarInt
 	// pairs of UTF8 property name to value (measured on 26.2:
 	// PROPERTIES_STREAM_CODEC is ByteBufCodecs.map of STRING_UTF8).
@@ -294,6 +307,12 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		add++
 	}
 	if it.BannerPatterns != "" && !it.Ominous {
+		add++
+	}
+	if it.MapID != 0 {
+		add++
+	}
+	if it.MapPost != 0 {
 		add++
 	}
 	b.VarInt(add)
@@ -403,6 +422,14 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		// OminousBottleAmplifier.STREAM_CODEC is a bare VarInt.
 		b.VarInt(compOminousBottleAmplifier)
 		b.VarInt(it.BottleAmp)
+	}
+	if it.MapID != 0 {
+		b.VarInt(compMapID)
+		b.VarInt(it.MapID - 1)
+	}
+	if it.MapPost != 0 {
+		b.VarInt(compMapPost)
+		b.VarInt(it.MapPost - 1)
 	}
 	if it.BookWritable != "" || it.BookWritten != "" {
 		writeBookContentPatch(b, it)

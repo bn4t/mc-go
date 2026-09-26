@@ -101,6 +101,11 @@ type containerSpec struct {
 	inputs []int
 	// results are take-only: vanilla's result slots accept no placement.
 	results []int
+	// reloc is the action-menu quickMoveStack ending: a player stack
+	// whose type matches no container slot relocates across the player
+	// sections (inventory → hotbar, hotbar → inventory, both forward)
+	// instead of staying put.
+	reloc bool
 }
 
 // slotMax is a slot's stack limit — vanilla's Slot.getMaxStackSize,
@@ -159,6 +164,8 @@ func (spec *containerSpec) accepts(slot int, it ItemStack) bool {
 		return MaxDamageOfID(it.ID) > 0 || it.Ench != "" || it.StoredEnch != ""
 	case spec.menu == menuLoom:
 		return loomAccepts(slot, it)
+	case spec.menu == menuCartographyTable:
+		return cartographyAccepts(slot, it)
 	}
 	return true
 }
@@ -169,6 +176,19 @@ func (spec *containerSpec) accepts(slot int, it ItemStack) bool {
 // the fuel slot first, then the ingredient slot, then the potions, the
 // order its own quick-move uses.
 func (spec *containerSpec) dests(it ItemStack) []int {
+	if spec.menu == menuCartographyTable {
+		// quickMoveStack's type split: a filled map (has MAP_ID) moves
+		// to the map slot, paper/the empty map/glass_pane to the
+		// additional slot; anything else stays put.
+		switch {
+		case it.MapID > 0:
+			return []int{cartographyMap}
+		case itemNamed(it, "paper") || itemNamed(it, "map") ||
+			itemNamed(it, "glass_pane"):
+			return []int{cartographyAdditional}
+		}
+		return nil
+	}
 	if !spec.brew {
 		return spec.inputs
 	}
@@ -275,6 +295,7 @@ var containerSpecs = map[string]*containerSpec{
 	"cartography_table": {
 		menu: menuCartographyTable, slots: 3, title: "container.cartography_table",
 		inputs: []int{cartographyMap, cartographyAdditional}, results: []int{cartographyResult},
+		reloc: true,
 	},
 	"lectern": {
 		menu: menuLectern, slots: 1, title: "container.lectern", inputs: []int{lecternBook},
@@ -417,6 +438,10 @@ type containerData struct {
 	// the index points into (pattern names in registry order).
 	loomSel      int32
 	loomPatterns []string
+	// cartSoundTick is the cartography table's lastSoundTime — the
+	// game tick its take_result sound last played, deduping same-tick
+	// takes.
+	cartSoundTick int64
 }
 
 // containerStore keeps generic container state by position.
@@ -705,6 +730,14 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 					s.loomTake(sess, w)
 					touched = append(touched, loomBanner, loomDye)
 				}
+				if c.spec.menu == menuCartographyTable {
+					s.cartographyTake(sess, w)
+					if car := sess.carriedBuffer(); car.MapPost > 0 {
+						s.cartographyApplyPost(sess, &car)
+						s.setCarriedLocked(sess, car)
+					}
+					touched = append(touched, cartographyMap, cartographyAdditional)
+				}
 			}
 			break
 		}
@@ -723,11 +756,17 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		if moving.Empty() {
 			break
 		}
+		if isResult && c.spec.menu == menuCartographyTable && moving.MapPost > 0 {
+			// onTake resolves post-processing on the moved stack;
+			// apply it before the merge so the wire shows the
+			// derived map_id.
+			s.cartographyApplyPost(sess, &moving)
+		}
 		touched = append(touched, int(slot))
 		if containerSide {
 			quickMoveIntoPlayer(sess, c, &moving, &touched)
 		} else {
-			quickMoveIntoContainer(sess, c, &moving, &touched)
+			quickMoveIntoContainer(sess, c, &moving, &touched, int(slot))
 		}
 		sess.setMenuStack(int(slot), moving)
 		if isResult && moving.Empty() && c.spec.menu == menuSmithing {
@@ -745,6 +784,10 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		if isResult && moving.Empty() && c.spec.menu == menuLoom {
 			s.loomTake(sess, w)
 			touched = append(touched, loomBanner, loomDye)
+		}
+		if isResult && moving.Empty() && c.spec.menu == menuCartographyTable {
+			s.cartographyTake(sess, w)
+			touched = append(touched, cartographyMap, cartographyAdditional)
 		}
 	case 2:
 		swap := w.menuSize() - 9 + int(button)
@@ -786,6 +829,9 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		if it.Count <= 0 {
 			it = ItemStack{}
 		}
+		if isResult && c.spec.menu == menuCartographyTable && drop.MapPost > 0 {
+			s.cartographyApplyPost(sess, &drop)
+		}
 		sess.setMenuStack(int(slot), it)
 		s.dropFromMenu(sess, drop)
 		touched = append(touched, int(slot))
@@ -804,6 +850,13 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		if isResult && it.Empty() && c.spec.menu == menuLoom {
 			s.loomTake(sess, w)
 			touched = append(touched, loomBanner, loomDye)
+		}
+		if isResult && c.spec.menu == menuCartographyTable {
+			// onTake fires per dropped piece — a count-2 clone result
+			// decrements the inputs once per drop, even when the
+			// result slot keeps its second copy.
+			s.cartographyTake(sess, w)
+			touched = append(touched, cartographyMap, cartographyAdditional)
 		}
 	default:
 		// Unsupported mode: resync the menu instead of diverging.
@@ -842,6 +895,20 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		}
 		if fire {
 			loomSync(s, sess, w, c, &touched)
+		}
+	}
+	if c.spec.menu == menuCartographyTable {
+		// Same slotsChanged gate as the loom: the menu listens on its
+		// own input container, so player-slot traffic never fires it.
+		fire := false
+		for _, sl := range touched {
+			if sl == cartographyMap || sl == cartographyAdditional {
+				fire = true
+				break
+			}
+		}
+		if fire {
+			s.cartographySync(sess, w, &touched)
 		}
 	}
 	s.syncContainerMenuSlots(sess, w, touched)
@@ -1001,9 +1068,20 @@ func quickMoveIntoPlayer(sess *Session, c *containerData, moving *ItemStack, tou
 }
 
 // quickMoveIntoContainer moves a player stack into the container slots
-// the spec allows, merging first and then filling empty slots.
-func quickMoveIntoContainer(sess *Session, c *containerData, moving *ItemStack, touched *[]int) {
+// the spec allows, merging first and then filling empty slots. On
+// action menus a stack matching nothing relocates across the player
+// sections — quickMoveStack's inv→hotbar / hotbar→inv ending.
+func quickMoveIntoContainer(sess *Session, c *containerData, moving *ItemStack, touched *[]int, slot int) {
 	dests := c.spec.dests(*moving)
+	if len(dests) == 0 && c.spec.reloc {
+		base := c.spec.slots
+		lo, hi := base+27, base+36
+		if slot >= base+27 {
+			lo, hi = base, base+27
+		}
+		relocatePlayerSlots(sess, c, moving, lo, hi, touched)
+		return
+	}
 	for _, i := range dests {
 		if moving.Empty() {
 			break
@@ -1030,6 +1108,33 @@ func quickMoveIntoContainer(sess *Session, c *containerData, moving *ItemStack, 
 			break
 		}
 		if !c.spec.accepts(i, *moving) || !sess.menuStack(i).Empty() {
+			continue
+		}
+		placeCapped(sess, c.spec, i, moving)
+		*touched = append(*touched, i)
+	}
+}
+
+// relocatePlayerSlots moves a stack across the player side forward,
+// merging into stackable slots and then filling empty ones.
+func relocatePlayerSlots(sess *Session, c *containerData, moving *ItemStack, lo, hi int, touched *[]int) {
+	for i := lo; i < hi && !moving.Empty(); i++ {
+		other := sess.menuStack(i)
+		if !other.Stackable(*moving) {
+			continue
+		}
+		room := maxStackOfID(other.ID) - other.Count
+		move := moving.Count
+		if move > room {
+			move = room
+		}
+		other.Count += move
+		moving.Count -= move
+		sess.setMenuStack(i, other)
+		*touched = append(*touched, i)
+	}
+	for i := lo; i < hi && !moving.Empty(); i++ {
+		if !sess.menuStack(i).Empty() {
 			continue
 		}
 		placeCapped(sess, c.spec, i, moving)

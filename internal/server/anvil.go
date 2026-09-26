@@ -480,7 +480,7 @@ func (s *Server) anvilQuickMove(sess *Session, w *openWindow, c *containerData, 
 	if slot < c.spec.slots {
 		quickMoveIntoPlayer(sess, c, &moving, &touched)
 	} else {
-		quickMoveIntoContainer(sess, c, &moving, &touched)
+		quickMoveIntoContainer(sess, c, &moving, &touched, slot)
 	}
 	sess.setMenuStack(slot, moving)
 	s.anvilSyncInput(sess, w, c, touched)

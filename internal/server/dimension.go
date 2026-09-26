@@ -67,7 +67,10 @@ type dimension struct {
 	furnaces   furnaceStore
 	hoppers    hopperStore
 	containers containerStore
-	beacons    map[world.Pos]*beaconEnt
+	// maps is the dimension's MapIdDataStorage — the map_id data
+	// entries a filled_map's component points at.
+	maps    mapStore
+	beacons map[world.Pos]*beaconEnt
 	// comparatorOut is ComparatorBlockEntity.output by position —
 	// the analog level a powered comparator last published.
 	comparatorOut map[world.Pos]int

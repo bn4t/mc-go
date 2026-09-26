@@ -102,6 +102,14 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 			return
 		}
 	}
+	// EmptyMapItem.use: consume one empty map, mint a filled_map
+	// keyed to a fresh scale-0 data entry, and play the take_result
+	// sound at the player.
+	if un, ok := itemNameOf(st.ID); ok && !st.Empty() && un == "map" {
+		_, handSlot := sess.stackForHand(hand)
+		s.useEmptyMap(sess, st, handSlot)
+		return
+	}
 	held := sess.heldStack()
 	if held.Empty() {
 		return

@@ -2153,6 +2153,20 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 			}
 			it.BottleAmpSet = true
 			it.BottleAmp = amp
+		case 46: // minecraft:map_id: a bare VarInt MapId — stored +1
+			// internally so 0 keeps meaning absent.
+			id, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			it.MapID = id + 1
+		case 48: // minecraft:map_post_processing: a bare VarInt —
+			// lock 0, scale 1; stored +1 like MapID.
+			post, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			it.MapPost = post + 1
 		case 54: // minecraft:writable_book_content: VarInt page count,
 			// then Filterable<String> leaves (raw string + optional
 			// filtered string), measured on 26.2.

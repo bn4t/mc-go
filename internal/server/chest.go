@@ -910,6 +910,8 @@ func (s *Server) menuRemoved(sess *Session, w *openWindow, dropped bool) {
 		s.transientMenuReturn(sess, w, w.container, []int{smithingTemplate, smithingBase, smithingAddition})
 	} else if w.container != nil && w.container.spec.menu == menuLoom {
 		s.transientMenuReturn(sess, w, w.container, []int{loomBanner, loomDye, loomPattern})
+	} else if w.container != nil && w.container.spec.menu == menuCartographyTable {
+		s.transientMenuReturn(sess, w, w.container, []int{cartographyMap, cartographyAdditional})
 	} else if dropped {
 		s.dropCarried(sess)
 	} else {
