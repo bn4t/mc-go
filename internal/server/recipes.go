@@ -368,6 +368,74 @@ func matchBookCloning(g craftGrid, filled []bool) (ItemStack, bool) {
 	return out, true
 }
 
+// matchBannerDuplicate handles crafting_special_bannerduplicate:
+// exactly two BannerItems of the same DyeColor — one patterned
+// (1..6 layers) and one plain — refusing two patterned, two plain,
+// a >6-layer stack, or mismatched colors. The result is the
+// patterned stack's copy at count 1 (createWithOriginalComponents
+// keeps the whole patch).
+func matchBannerDuplicate(g craftGrid, filled []bool) (ItemStack, bool) {
+	var stacks []ItemStack
+	for i, f := range filled {
+		if f {
+			stacks = append(stacks, g[i])
+		}
+	}
+	if len(stacks) != 2 {
+		return ItemStack{}, false
+	}
+	var patterned ItemStack
+	var ord0, ord1 int32 = -1, -1
+	for i, st := range stacks {
+		if !loomIsBanner(st) {
+			return ItemStack{}, false
+		}
+		bname, _ := itemNameOf(st.ID)
+		ord := int32(-1)
+		for k, d := range loomDyeNames {
+			if bname == d+"_banner" {
+				ord = int32(k)
+				break
+			}
+		}
+		if i == 0 {
+			ord0 = ord
+		} else {
+			ord1 = ord
+		}
+	}
+	if ord0 < 0 || ord0 != ord1 {
+		return ItemStack{}, false
+	}
+	for _, st := range stacks {
+		n := bannerLayerCount(st)
+		if n > 6 {
+			return ItemStack{}, false
+		}
+		if n > 0 {
+			if !patterned.Empty() {
+				return ItemStack{}, false
+			}
+			patterned = st
+		}
+	}
+	if patterned.Empty() {
+		return ItemStack{}, false
+	}
+	out := patterned
+	out.Count = 1
+	return out, true
+}
+
+// bannerLayerCount is the size of the banner_patterns layer list —
+// mc-go stores the component as "pat:color,pat:color".
+func bannerLayerCount(st ItemStack) int {
+	if st.BannerPatterns == "" {
+		return 0
+	}
+	return strings.Count(st.BannerPatterns, ",") + 1
+}
+
 // matchMapExtending handles crafting_special_mapextending: a fixed
 // ShapedRecipePattern ### / #x# / ### — eight paper around a center
 // filled_map — then the saved-data gates from MapItemSavedData:
@@ -439,6 +507,8 @@ func craftResult(g craftGrid, ms *mapStore) (ItemStack, string, bool) {
 			out, hit = matchBookCloning(g, filled)
 		case data.CraftingSpecialMapextending:
 			out, hit = matchMapExtending(g, filled, ms)
+		case data.CraftingSpecialBannerduplicate:
+			out, hit = matchBannerDuplicate(g, filled)
 		case data.CraftingTransmute:
 			out, hit = matchTransmute(r, g, filled)
 		case data.CraftingDecoratedPot:

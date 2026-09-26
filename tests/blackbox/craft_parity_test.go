@@ -22,7 +22,10 @@ func TestCraftRecipeParity(t *testing.T) {
 			"CraftV15", "CraftM15", "CraftV16", "CraftM16",
 			"CraftV17", "CraftM17", "CraftV18", "CraftM18",
 			"CraftV19", "CraftM19", "CraftV20", "CraftM20",
-			"CraftV21", "CraftM21", "CraftV22", "CraftM22"),
+			"CraftV21", "CraftM21", "CraftV22", "CraftM22",
+			"CraftV23", "CraftM23", "CraftV24", "CraftM24",
+			"CraftV25", "CraftM25", "CraftV26", "CraftM26",
+			"CraftV27", "CraftM27", "CraftV28", "CraftM28"),
 	}, nil)
 	defer tg.cleanup()
 
@@ -447,6 +450,113 @@ func TestCraftRecipeParity(t *testing.T) {
 				{tag: "lift-d", slot: 38, w0: true},
 				{tag: "d3", slot: 3, w0: true},
 				{tag: "take?", slot: 0, w0: true},
+			},
+		},
+		{
+			// Special bannerduplicate: a patterned red banner plus a
+			// plain red banner yields a count-1 copy of the patterned
+			// one (createWithOriginalComponents keeps the layers).
+			name: "banner-dup", suf: "23", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", `minecraft:red_banner[minecraft:banner_patterns=[{pattern:"minecraft:creeper",color:"red"}]]`},
+				{"hotbar.1", "minecraft:red_banner"},
+			},
+			steps: []step{
+				{tag: "lift-p", slot: 36, w0: true},
+				{tag: "p1", slot: 1, w0: true},
+				{tag: "lift-b", slot: 37, w0: true},
+				{tag: "b2", slot: 2, w0: true},
+				{tag: "take", slot: 0, w0: true},
+				{tag: "park", slot: 9, w0: true},
+			},
+		},
+		{
+			// The result count is the template's 1 — a 2-stack of the
+			// patterned banner still gives a single copy.
+			name: "banner-dup-multi", suf: "24", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", `minecraft:red_banner[minecraft:banner_patterns=[{pattern:"minecraft:creeper",color:"red"}]] 2`},
+				{"hotbar.1", "minecraft:red_banner"},
+			},
+			steps: []step{
+				{tag: "lift-p", slot: 36, w0: true},
+				{tag: "p1", slot: 1, w0: true},
+				{tag: "lift-b", slot: 37, w0: true},
+				{tag: "b2", slot: 2, w0: true},
+				{tag: "take", slot: 0, w0: true},
+				{tag: "park", slot: 9, w0: true},
+			},
+		},
+		{
+			// Both banners must be the same DyeColor — a patterned red
+			// plus a plain blue never matches.
+			name: "banner-dup-color", suf: "25", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", `minecraft:red_banner[minecraft:banner_patterns=[{pattern:"minecraft:creeper",color:"red"}]]`},
+				{"hotbar.1", "minecraft:blue_banner"},
+			},
+			steps: []step{
+				{tag: "lift-p", slot: 36, w0: true},
+				{tag: "p1", slot: 1, w0: true},
+				{tag: "lift-b", slot: 37, w0: true},
+				{tag: "b2", slot: 2, w0: true},
+				{tag: "take?", slot: 0, w0: true},
+			},
+		},
+		{
+			// Exactly one patterned and one plain: two patterned (or
+			// two plain) banners of the same color refuse.
+			name: "banner-dup-same", suf: "26", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", `minecraft:red_banner[minecraft:banner_patterns=[{pattern:"minecraft:creeper",color:"red"}]]`},
+				{"hotbar.1", `minecraft:red_banner[minecraft:banner_patterns=[{pattern:"minecraft:flower",color:"white"}]]`},
+				{"hotbar.2", "minecraft:red_banner"},
+				{"hotbar.3", "minecraft:red_banner"},
+			},
+			steps: []step{
+				{tag: "lift-p1", slot: 36, w0: true},
+				{tag: "p1", slot: 1, w0: true},
+				{tag: "lift-p2", slot: 37, w0: true},
+				{tag: "p2", slot: 2, w0: true},
+				{tag: "take?a", slot: 0, w0: true},
+				{tag: "lift-b1", slot: 38, w0: true},
+				{tag: "b1", slot: 1, w0: true},
+				{tag: "lift-b2", slot: 39, w0: true},
+				{tag: "b2", slot: 2, w0: true},
+				{tag: "take?b", slot: 0, w0: true},
+			},
+		},
+		{
+			// A banner over six layers can't be the patterned input —
+			// the per-stack layers()>6 check rejects it.
+			name: "banner-dup-7layer", suf: "27", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", `minecraft:red_banner[minecraft:banner_patterns=[{pattern:"minecraft:creeper",color:"red"},{pattern:"minecraft:creeper",color:"red"},{pattern:"minecraft:creeper",color:"red"},{pattern:"minecraft:creeper",color:"red"},{pattern:"minecraft:creeper",color:"red"},{pattern:"minecraft:creeper",color:"red"},{pattern:"minecraft:creeper",color:"red"}]]`},
+				{"hotbar.1", "minecraft:red_banner"},
+			},
+			steps: []step{
+				{tag: "lift-p", slot: 36, w0: true},
+				{tag: "p1", slot: 1, w0: true},
+				{tag: "lift-b", slot: 37, w0: true},
+				{tag: "b2", slot: 2, w0: true},
+				{tag: "take?", slot: 0, w0: true},
+			},
+		},
+		{
+			// Exactly six layers is still inside the gate — the copy
+			// is produced.
+			name: "banner-dup-6layer", suf: "28", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", `minecraft:red_banner[minecraft:banner_patterns=[{pattern:"minecraft:creeper",color:"red"},{pattern:"minecraft:flower",color:"white"},{pattern:"minecraft:skull",color:"black"},{pattern:"minecraft:mojang",color:"yellow"},{pattern:"minecraft:globe",color:"blue"},{pattern:"minecraft:piglin",color:"pink"}]]`},
+				{"hotbar.1", "minecraft:red_banner"},
+			},
+			steps: []step{
+				{tag: "lift-p", slot: 36, w0: true},
+				{tag: "p1", slot: 1, w0: true},
+				{tag: "lift-b", slot: 37, w0: true},
+				{tag: "b2", slot: 2, w0: true},
+				{tag: "take", slot: 0, w0: true},
+				{tag: "park", slot: 9, w0: true},
 			},
 		},
 	}
