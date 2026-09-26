@@ -8342,3 +8342,56 @@ blocks are skipped by this tick step entirely.
 TestMinecartRollParity: push-slide rest pos ~=9.1 (differential via
 /data get Pos[0]), settled yaw ~=0 (Rotation[0]), and a rider's
 forward input leaves Pos[0] untouched — on both servers.
+
+## Slice 2026-09-26p — minecart pushAndPickupEntities + no entity collision
+
+OldMinecartBehavior.tick's tail is pushAndPickupEntities
+(box = cartBB.inflate(0.2,0,0.2); javap-verified):
+
+- isRideable && horizontalDistanceSqr >= 0.01 (moving): entities in
+  the inflated box filtered by pushableBy (isPushable + teams +
+  !spectator) are split: Player | IronGolem | AbstractMinecart |
+  cart.isVehicle() | e.isPassenger() -> e.push(cart); else
+  e.startRiding(cart) — the classic minecart mob pickup.
+- else (stationary/non-rideable): NO pushableBy filter, only other
+  pushable un-ridden carts get e.push(cart).
+
+push mechanics (javap): Entity.push -> dx=other-self over
+absMax(dx,dz), m<0.01 early-out, inv=min(1,1/sqrt(m)), pushes self
+-dx*inv*0.05 (when !isVehicle && isPushable) and other +dx*inv*0.05
+(when !isVehicle). AbstractMinecart.push overrides: d6<1e-4 gate,
+self takes -dx full, other +dx/4 — no vehicle gates. Carts hitting
+carts instead run pushOtherMinecart: dir must be within |dot|>0.8
+of the pusher's yaw, else no-op; then each side gets delta*0.2 plus
+the averaged momentum +/- the 0.05 impulse.
+
+startRiding gates measured: canRide (no sneak, boardingCooldown<=0)
++ canAddPassenger (empty passenger list); seat offset is +0.1875
+except villager/wandering_trader at 0.
+
+The BIG correction this slice: there is NO entity-vs-minecart
+collision clip. The earlier "cart stops exactly at pig's box edge"
+was push-equilibrium — the pig's own pushEntities shoving the cart
+back each tick — not a swept collider. getEntityCollisions'
+predicate is e.canBeCollidedWith(cart) and nothing in the mob chain
+overrides canBeCollidedWith (base Entity = false), so no mob is a
+move-collider: a ridden cart plows THROUGH a NoAI pig and rests
+~10.0 while the pig accumulates -1.1 Motion[0] (pushed -X once the
+cart passes it; the delta never integrates to Pos because NoAI
+mobs skip travel). LivingEntity.pushEntities itself is NOT gated
+by isEffectiveAi — NoAI mobs still push back.
+
+mc-go: minecartPushPickup (moving->scoop-or-push / still->cart-only)
++ minecartPushCart (pushOtherMinecart: 0.8 facing gate, 0.2 delta +
+avg momentum exchange) + mobPushStep now repels carts
+(AbstractMinecart.push: cart full, mob quarter, no vehicle gates)
++ per-tick rider weld (cart.X, cart.Y+0.1875-or-0, cart.Z) and
+/execute seat-tag selection support (Tags NBT applied to vehicle
+summons). Entity clamps reverted — block-only collision.
+
+TestMinecartPushPickupParity (differential, 4 legs): A a sliding
+empty cart scoops a NoAI pig and welds it at (cart.X, Y+0.1875)
+mid-slide; B two carts rest ~0.5 apart then repel to (8.15, 9.43)
++-0.15; C a ridden cart plows through a NoAI pig, keeps it
+un-ridden, and leaves it Motion[0] < -0.02; D a rammer transfers
+momentum to a parked cart (vanilla 9.60/10.84, mc-go 9.95/11.19).

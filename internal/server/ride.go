@@ -568,86 +568,291 @@ func (s *Server) minecartTickStep() {
 		fx, fz := int(math.Floor(ep.X)), int(math.Floor(ep.Z))
 		fy := int(math.Floor(ep.Y))
 		// getCurrentBlockPosOrRailBelow: the rail can sit at the cart's
-		// own block pos or one block below.
+		// own block pos or one block below. A cart standing on a rail
+		// takes moveAlongTrack instead — rail following is unmodelled,
+		// so the physics + yaw half is skipped, but pushAndPickup
+		// still runs every tick.
+		onRail := false
 		if on, _ := world.StateOwner(w.GetBlock(world.Pos{X: fx, Y: fy, Z: fz})); railBlockNames[on] {
-			continue
+			onRail = true
 		}
 		if on, _ := world.StateOwner(w.GetBlock(world.Pos{X: fx, Y: fy - 1, Z: fz})); railBlockNames[on] {
-			continue
+			onRail = true
 		}
-		ep.MotionY -= 0.08
-		const maxSpeed = 0.4
-		ep.MotionX = math.Max(-maxSpeed, math.Min(maxSpeed, ep.MotionX))
-		ep.MotionZ = math.Max(-maxSpeed, math.Min(maxSpeed, ep.MotionZ))
-		if ep.Grounded {
-			ep.MotionX *= 0.5
-			ep.MotionY *= 0.5
-			ep.MotionZ *= 0.5
+		if !onRail {
+			s.minecartOffRail(ep, w, fx, fy, fz)
 		}
-		ox, oy, oz := ep.X, ep.Y, ep.Z
-		// move(SELF, delta): axis-wise collision cancel on x/z, then a
-		// swept floor-landing on y (the highest solid block the bottom
-		// crossed this tick is the floor it lands on).
-		if ep.MotionX != 0 && !s.entityBoxCollides(w, ep.X+ep.MotionX, ep.Y, ep.Z, 0.49, 0.7) {
+		s.minecartPushPickup(ep, name)
+		// positionRider: every non-player passenger rides welded to
+		// the seat attachment — x/z = the cart's, y = +0.1875
+		// (villagers and wandering traders sit at the lowered 0.0).
+		for _, pid := range ep.Passengers {
+			rp, ok := s.entities.GetPtr(pid)
+			if !ok {
+				continue
+			}
+			rname, _ := EntityTypeName(rp.Type)
+			if rname == "player" {
+				continue
+			}
+			seat := 0.1875
+			if rname == "villager" || rname == "wandering_trader" {
+				seat = 0
+			}
+			if rp.X != ep.X || rp.Z != ep.Z || rp.Y != ep.Y+seat {
+				rp.X, rp.Z = ep.X, ep.Z
+				rp.Y = ep.Y + seat
+				rp.PosDirty = true
+				s.mobSyncFlush(rp)
+			}
+		}
+		s.mobSyncFlush(ep)
+	}
+}
+
+// minecartOffRail is comeOffTrack + the tick() yaw tail for a cart
+// standing off the rails.
+func (s *Server) minecartOffRail(ep *Entity, w *world.World, fx, fy, fz int) {
+	ep.MotionY -= 0.08
+	const maxSpeed = 0.4
+	ep.MotionX = math.Max(-maxSpeed, math.Min(maxSpeed, ep.MotionX))
+	ep.MotionZ = math.Max(-maxSpeed, math.Min(maxSpeed, ep.MotionZ))
+	if ep.Grounded {
+		ep.MotionX *= 0.5
+		ep.MotionY *= 0.5
+		ep.MotionZ *= 0.5
+	}
+	ox, oy, oz := ep.X, ep.Y, ep.Z
+	// move(SELF, delta): axis-wise block collision cancels the
+	// component outright (collideBoundingBox has no entity-shape
+	// contributors in vanilla — carts sail through mobs, the
+	// resistance is the mob's own pushEntities momentum, not a
+	// clip); then a swept floor-landing on y.
+	if ep.MotionX != 0 {
+		if !s.entityBoxCollides(w, ep.X+ep.MotionX, ep.Y, ep.Z, 0.49, 0.7) {
 			ep.X += ep.MotionX
 		} else {
 			ep.MotionX = 0
 		}
-		if ep.MotionZ != 0 && !s.entityBoxCollides(w, ep.X, ep.Y, ep.Z+ep.MotionZ, 0.49, 0.7) {
+	} else {
+		ep.MotionX = 0
+	}
+	if ep.MotionZ != 0 {
+		if !s.entityBoxCollides(w, ep.X, ep.Y, ep.Z+ep.MotionZ, 0.49, 0.7) {
 			ep.Z += ep.MotionZ
 		} else {
 			ep.MotionZ = 0
 		}
-		ep.Grounded = false
-		ny := ep.Y + ep.MotionY
-		if ep.MotionY <= 0 {
-			for by := int(math.Floor(oy)); by >= int(math.Floor(ny)); by-- {
-				if !world.NonSolid(w.GetBlock(world.Pos{X: fx, Y: by, Z: fz})) {
-					ny = float64(by) + 1
-					ep.MotionY = 0
-					ep.Grounded = true
-					break
-				}
-			}
-		}
-		if !ep.Grounded {
-			ep.MotionX *= 0.95
-			ep.MotionY *= 0.95
-			ep.MotionZ *= 0.95
-		}
-		ep.Y = ny
-		// tick's tail, per OldMinecartBehavior.tick: pitch zeroed, then
-		// the yaw chases atan2(zo-z, xo-x)*180/pi — the NEGATED
-		// displacement (a +X slide gives 180, not 90) — with the flip
-		// added only while moving, then the 170-degree wrap-flip every
-		// tick, then frem-360 normalization.
-		ep.Pitch = 0
-		mx, mz := ox-ep.X, oz-ep.Z
-		if mx*mx+mz*mz > 0.001 {
-			ep.Yaw = float32(math.Atan2(mz, mx) * 180 / math.Pi)
-			if ep.CartFlipped {
-				ep.Yaw += 180
-			}
-		}
-		delta := ep.Yaw - ep.CartYawO
-		for delta > 180 {
-			delta -= 360
-		}
-		for delta < -180 {
-			delta += 360
-		}
-		if delta < -170 || delta >= 170 {
-			ep.Yaw += 180
-			ep.CartFlipped = !ep.CartFlipped
-		}
-		ep.Pitch = float32(math.Mod(float64(ep.Pitch), 360))
-		ep.Yaw = float32(math.Mod(float64(ep.Yaw), 360))
-		ep.CartYawO = ep.Yaw
-		if ep.X != ox || ep.Y != oy || ep.Z != oz {
-			ep.PosDirty = true
-		}
-		s.mobSyncFlush(ep)
 	}
+	ep.Grounded = false
+	ny := ep.Y + ep.MotionY
+	if ep.MotionY <= 0 {
+		for by := int(math.Floor(oy)); by >= int(math.Floor(ny)); by-- {
+			if !world.NonSolid(w.GetBlock(world.Pos{X: fx, Y: by, Z: fz})) {
+				ny = float64(by) + 1
+				ep.MotionY = 0
+				ep.Grounded = true
+				break
+			}
+		}
+	}
+	if !ep.Grounded {
+		ep.MotionX *= 0.95
+		ep.MotionY *= 0.95
+		ep.MotionZ *= 0.95
+	}
+	ep.Y = ny
+	// tick's tail, per OldMinecartBehavior.tick: pitch zeroed, then
+	// the yaw chases atan2(zo-z, xo-x)*180/pi — the NEGATED
+	// displacement (a +X slide gives 180, not 90) — with the flip
+	// added only while moving, then the 170-degree wrap-flip every
+	// tick, then frem-360 normalization.
+	ep.Pitch = 0
+	mx, mz := ox-ep.X, oz-ep.Z
+	if mx*mx+mz*mz > 0.001 {
+		ep.Yaw = float32(math.Atan2(mz, mx) * 180 / math.Pi)
+		if ep.CartFlipped {
+			ep.Yaw += 180
+		}
+	}
+	delta := ep.Yaw - ep.CartYawO
+	for delta > 180 {
+		delta -= 360
+	}
+	for delta < -180 {
+		delta += 360
+	}
+	if delta < -170 || delta >= 170 {
+		ep.Yaw += 180
+		ep.CartFlipped = !ep.CartFlipped
+	}
+	ep.Pitch = float32(math.Mod(float64(ep.Pitch), 360))
+	ep.Yaw = float32(math.Mod(float64(ep.Yaw), 360))
+	ep.CartYawO = ep.Yaw
+	if ep.X != ox || ep.Y != oy || ep.Z != oz {
+		ep.PosDirty = true
+	}
+}
+
+// minecartPushPickup is pushAndPickupEntities — the tail of
+// OldMinecartBehavior.tick running for every cart every tick: the
+// sweep box is the cart's bounding box inflated 0.2 on x/z only.
+// A rideable (plain) minecart moving at horizontal speed²>=0.01
+// pushes players, iron golems, other carts and any passenger aside
+// and PICKS UP every other pushable entity (startRiding); a
+// stationary or non-rideable cart only answers cart-vs-cart pushes.
+func (s *Server) minecartPushPickup(ep *Entity, name string) {
+	moving := name == "minecart" &&
+		ep.MotionX*ep.MotionX+ep.MotionZ*ep.MotionZ >= 0.01
+	overlaps := func(ox, oy, oz, ow, oh float64) bool {
+		return math.Abs(ox-ep.X) < 0.69+ow/2 &&
+			math.Abs(oz-ep.Z) < 0.69+ow/2 &&
+			oy < ep.Y+0.7 && ep.Y < oy+oh
+	}
+	hasPassenger := func(id int32) bool {
+		for _, p := range ep.Passengers {
+			if p == id {
+				return true
+			}
+		}
+		return false
+	}
+	for _, o := range s.entities.All() {
+		if o.ID == ep.ID || o.Dim != ep.Dim || o.Riding == ep.ID ||
+			hasPassenger(o.ID) {
+			continue
+		}
+		oname, _ := EntityTypeName(o.Type)
+		isCart := isMinecartName(oname)
+		if !moving {
+			// The stationary branch only does cart-vs-cart.
+			if !isCart {
+				continue
+			}
+		} else if !(isCart || (o.Living && o.Health > 0)) {
+			// pushableBy: non-pushable entities (items, orbs) skip.
+			continue
+		}
+		ow, oh := mobBounds(o.Type)[0], mobBounds(o.Type)[1]
+		if !overlaps(o.X, o.Y, o.Z, ow, oh) {
+			continue
+		}
+		if moving && !isCart && oname != "iron_golem" &&
+			len(ep.Passengers) == 0 && o.Riding == 0 {
+			// startRiding: the moving cart scoops the mob onto its
+			// seat (the attachment point at vehY+0.1875).
+			if op, ok := s.entities.GetPtr(o.ID); ok {
+				op.Riding = ep.ID
+				op.X, op.Z = ep.X, ep.Z
+				op.Y = ep.Y + 0.1875
+				ep.Passengers = append(ep.Passengers, o.ID)
+				op.PosDirty = true
+				s.mobSyncFlush(op)
+				s.broadcastSetPassengers(ep)
+			}
+			continue
+		}
+		if isCart {
+			// e.push(cart) resolves to AbstractMinecart.push: the
+			// facing-gated cart-vs-cart momentum exchange.
+			if op, ok := s.entities.GetPtr(o.ID); ok {
+				minecartPushCart(op, ep)
+			}
+			continue
+		}
+		// Generic Entity.push (mobs, golems): both sides repel at the
+		// shared 0.05 strength while neither carries a rider.
+		dx, dz := ep.X-o.X, ep.Z-o.Z
+		m := math.Max(math.Abs(dx), math.Abs(dz))
+		if m < 0.01 {
+			continue
+		}
+		m = math.Sqrt(m)
+		dx, dz = dx/m, dz/m
+		inv := 1.0 / m
+		if inv > 1 {
+			inv = 1
+		}
+		dx, dz = dx*inv*0.05, dz*inv*0.05
+		// push(DDD) lands on deltaMovement only — the position moves
+		// when each side's own move() integrates it next tick.
+		if op, ok := s.entities.GetPtr(o.ID); ok && len(op.Passengers) == 0 {
+			op.MotionX -= dx
+			op.MotionZ -= dz
+		}
+		if len(ep.Passengers) == 0 {
+			ep.MotionX += dx
+			ep.MotionZ += dz
+		}
+	}
+	if moving {
+		s.sessions.Range(func(_, v any) bool {
+			sess := v.(*Session)
+			if sess.state.Load() != StatePlay || sess.dimName() != ep.Dim ||
+				sess.gameMode == 3 || sess.riding.Load() == ep.ID {
+				return true
+			}
+			px, py, pz, _, _, _ := sess.Pos()
+			if !overlaps(px, py, pz, 0.6, 1.8) {
+				return true
+			}
+			// Generic Entity.push against the player: the player gets
+			// pushed away (set_entity_motion) and the cart brakes on
+			// the player when it carries nobody.
+			dx, dz := px-ep.X, pz-ep.Z
+			m := math.Max(math.Abs(dx), math.Abs(dz))
+			if m < 0.01 {
+				return true
+			}
+			m = math.Sqrt(m)
+			dx, dz = dx/m, dz/m
+			inv := 1.0 / m
+			if inv > 1 {
+				inv = 1
+			}
+			dx, dz = dx*inv*0.05, dz*inv*0.05
+			_ = sess.write(sess.ids().PlaySetEntityMotion,
+				encodeEntityMotion(sess.entityID.Load(), dx, 0, dz))
+			if len(ep.Passengers) == 0 {
+				ep.MotionX -= dx
+				ep.MotionZ -= dz
+			}
+			return true
+		})
+	}
+}
+
+// minecartPushCart is AbstractMinecart.push(pusher) run on the other
+// cart: pushOtherMinecart's non-experimental path. The push fires
+// only when the pusher faces the target within ~37 degrees —
+// |unit(dir-to-target) . unit(cos yRot, sin yRot)| >= 0.8 — then
+// both carts shed 80% of their speed and take half the summed
+// momentum plus the 0.05-scaled repel along the shared axis.
+func minecartPushCart(pusher, target *Entity) {
+	dx, dz := target.X-pusher.X, target.Z-pusher.Z
+	d6 := dx*dx + dz*dz
+	if d6 < 1e-4 {
+		return
+	}
+	l := math.Sqrt(d6)
+	dx, dz = dx/l, dz/l
+	inv := 1.0 / l
+	if inv > 1 {
+		inv = 1
+	}
+	px, pz := dx*inv*0.05, dz*inv*0.05
+	fx, fz := math.Cos(float64(pusher.Yaw)*0.017453292),
+		math.Sin(float64(pusher.Yaw)*0.017453292)
+	if math.Abs(dx*fx+dz*fz) < 0.8 {
+		return
+	}
+	avx, avz := (target.MotionX+pusher.MotionX)/2, (target.MotionZ+pusher.MotionZ)/2
+	pusher.MotionX = pusher.MotionX*0.2 + avx - px
+	pusher.MotionZ = pusher.MotionZ*0.2 + avz - pz
+	target.MotionX = target.MotionX*0.2 + avx + px
+	target.MotionZ = target.MotionZ*0.2 + avz + pz
+	pusher.PosDirty = true
+	target.PosDirty = true
 }
 
 // entityBoxCollides is riderBoxCollides parametrized by the entity's

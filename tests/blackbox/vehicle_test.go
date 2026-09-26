@@ -1,6 +1,7 @@
 package blackbox
 
 import (
+	"math"
 	"net"
 	"regexp"
 	"strconv"
@@ -831,4 +832,104 @@ func dataGetFloat(t *testing.T, v *vehPair, query string) (float64, bool) {
 	}
 	f, err := strconv.ParseFloat(ms[len(ms)-1][1], 64)
 	return f, err == nil
+}
+
+// TestMinecartPushPickupParity covers pushAndPickupEntities and its
+// neighbors on flat ground: a rideable moving cart scoops a pushable
+// mob into its seat (startRiding) and welds it per-tick; a ridden
+// cart or a cart-vs-cart overlap instead pushes; and a ramming cart
+// sheds momentum into the parked one.
+func TestMinecartPushPickupParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("BOATA", "BOATB"),
+	}, nil)
+	defer targets.cleanup()
+	run := func(t *testing.T, tag, addr string) {
+		v := joinVehPair(t, addr)
+		drainChunkWindow(t, tag, v.ca, v.pra, v.pwa, 300*time.Millisecond)
+		drainChunkWindow(t, tag, v.cb, v.prb, v.pwb, 300*time.Millisecond)
+		sendCommand(t, v.pwa, "tp @s 6 -60 6 0 0")
+		sendCommand(t, v.pwb, "tp @s 6 -60 16 0 0")
+		sendCommand(t, v.pwa, "kill @e[type=minecart]")
+		sendCommand(t, v.pwa, "kill @e[type=pig]")
+		sendCommand(t, v.pwb, "kill @e[type=minecart]")
+		sendCommand(t, v.pwb, "kill @e[type=pig]")
+		time.Sleep(400 * time.Millisecond)
+
+		// Leg A: a moving plain cart scoops the pig in its path and
+		// welds it to the seat each tick.
+		sendCommand(t, v.pwb, "summon minecraft:pig 9.0 -60 10 {Tags:[\"pa\"],NoAI:1b}")
+		sendCommand(t, v.pwb, "summon minecraft:minecart 8 -60 10 {Motion:[0.5,0.0,0.0],Tags:[\"ca\"]}")
+		// Leg B: two overlapped stationary carts repel apart.
+		sendCommand(t, v.pwa, "summon minecraft:minecart 8 -60 8 {Tags:[\"cb1\"]}")
+		sendCommand(t, v.pwa, "summon minecraft:minecart 9.0 -60 8 {Tags:[\"cb2\"]}")
+		// Leg C: a ridden cart pushes the second pig aside instead of
+		// scooping it.
+		sendCommand(t, v.pwb, "summon minecraft:pig 9.0 -60 14 {Tags:[\"pc\"],NoAI:1b}")
+		sendCommand(t, v.pwb, "summon minecraft:minecart 8 -60 14 {Motion:[0.5,0.0,0.0],Passengers:[{id:\"minecraft:pig\",NoAI:1b}],Tags:[\"cc\"]}")
+		// Leg D: a sliding cart rams a parked one and sheds momentum.
+		sendCommand(t, v.pwa, "summon minecraft:minecart 10 -60 12 {Tags:[\"cd\"]}")
+		sendCommand(t, v.pwa, "summon minecraft:minecart 9.4 -60 12 {Motion:[0.4,0.0,0.0],Tags:[\"ce\"]}")
+		time.Sleep(3 * time.Second)
+
+		pigX, okP := dataGetFloat(t, v, "data get entity @e[type=pig,tag=pa,limit=1] Pos[0]")
+		pigY, _ := dataGetFloat(t, v, "data get entity @e[type=pig,tag=pa,limit=1] Pos[1]")
+		scoopX, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=ca,limit=1] Pos[0]")
+		if !okP {
+			t.Fatalf("%s: leg A pig query failed", tag)
+		}
+		if math.Abs(pigY+59.8125) > 0.02 {
+			t.Fatalf("%s: leg A pig not on the seat (y=%.4f)", tag, pigY)
+		}
+		if math.Abs(pigX-scoopX) > 0.05 {
+			t.Fatalf("%s: leg A rider not welded to cart (pig=%.4f cart=%.4f)", tag, pigX, scoopX)
+		}
+
+		lo, okL := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=cb1,limit=1] Pos[0]")
+		hi, okH := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=cb2,limit=1] Pos[0]")
+		if !okL || !okH {
+			t.Fatalf("%s: leg B cart queries failed", tag)
+		}
+		// vanilla rests at ~(8.15, 9.43); spawned at 8.5/9.0.
+		if math.Abs(lo-8.15) > 0.15 || math.Abs(hi-9.43) > 0.15 || hi-lo < 1.0 {
+			t.Fatalf("%s: leg B repel rests off (lo=%.4f hi=%.4f)", tag, lo, hi)
+		}
+
+		// A pushed NoAI mob never integrates the delta into its
+		// position (travel never runs) — Motion[0] is where the push
+		// lands on both servers.
+		p2m, _ := dataGetFloat(t, v, "data get entity @e[type=pig,tag=pc,limit=1] Motion[0]")
+		p2y, _ := dataGetFloat(t, v, "data get entity @e[type=pig,tag=pc,limit=1] Pos[1]")
+		// The ridden cart plows through and rests right of the pig,
+		// so the accumulated push is -X on both servers (it keeps
+		// growing while the boxes overlap — pin the direction).
+		if p2m > -0.02 {
+			t.Fatalf("%s: leg C second pig not pushed -X (motion=%.4f)", tag, p2m)
+		}
+		if math.Abs(p2y+60.0) > 0.02 {
+			t.Fatalf("%s: leg C second pig wrongly riding (y=%.4f)", tag, p2y)
+		}
+		riderX, _ := dataGetFloat(t, v, "execute positioned 9 -60 14 run data get entity @e[type=pig,tag=!pc,sort=nearest,limit=1] Pos[0]")
+		riderY, _ := dataGetFloat(t, v, "execute positioned 9 -60 14 run data get entity @e[type=pig,tag=!pc,sort=nearest,limit=1] Pos[1]")
+		riddenX, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=cc,limit=1] Pos[0]")
+		if math.Abs(riderY+59.8125) > 0.02 || math.Abs(riderX-riddenX) > 0.05 {
+			t.Fatalf("%s: leg C rider not on seat (pig=(%.4f,%.4f) cart=%.4f)", tag, riderX, riderY, riddenX)
+		}
+
+		still, okS := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=cd,limit=1] Pos[0]")
+		ram, okR := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=ce,limit=1] Pos[0]")
+		if !okS || !okR {
+			t.Fatalf("%s: leg D cart queries failed", tag)
+		}
+		if still < 10.65 {
+			t.Fatalf("%s: leg D parked cart not displaced (x=%.4f)", tag, still)
+		}
+		if ram >= still || ram < 9.0 {
+			t.Fatalf("%s: leg D rammer rest off (ram=%.4f still=%.4f)", tag, ram, still)
+		}
+		t.Logf("%s: A pig/cart %.4f/%.4f B %.4f/%.4f C pig2m %.4f ridden %.4f D %.4f/%.4f",
+			tag, pigX, scoopX, lo, hi, p2m, riddenX, ram, still)
+	}
+	run(t, "vanilla", targets.vanilla)
+	run(t, "mc-go", targets.mcgo)
 }

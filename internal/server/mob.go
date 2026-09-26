@@ -559,7 +559,12 @@ func vehicleBoundNames() []string {
 func (s *Server) mobPushStep(e *Entity) {
 	ew, eh := mobBounds(e.Type)[0], mobBounds(e.Type)[1]
 	for _, o := range s.entities.All() {
-		if o.ID == e.ID || o.Dim != e.Dim || !o.Living || o.Health <= 0 {
+		if o.ID == e.ID || o.Dim != e.Dim {
+			continue
+		}
+		oname, _ := EntityTypeName(o.Type)
+		oCart := isMinecartName(oname)
+		if !oCart && (!o.Living || o.Health <= 0) {
 			continue
 		}
 		if o.Riding != 0 || e.Riding != 0 {
@@ -569,6 +574,31 @@ func (s *Server) mobPushStep(e *Entity) {
 		half := (ew + ow) / 2
 		if !(math.Abs(o.X-e.X) < half && math.Abs(o.Z-e.Z) < half &&
 			e.Y < o.Y+oh && o.Y < e.Y+eh) {
+			continue
+		}
+		if oCart {
+			// cart.push(this): AbstractMinecart.push's non-cart
+			// branch — absMax normalization is replaced by the
+			// length² gate, the cart takes the full 0.05 repel, the
+			// mob a quarter of it.
+			dx, dz := e.X-o.X, e.Z-o.Z
+			d6 := dx*dx + dz*dz
+			if d6 < 1e-4 {
+				continue
+			}
+			l := math.Sqrt(d6)
+			dx, dz = dx/l, dz/l
+			inv := 1.0 / l
+			if inv > 1 {
+				inv = 1
+			}
+			px, pz := dx*inv*0.05, dz*inv*0.05
+			if op, ok := s.entities.GetPtr(o.ID); ok {
+				op.MotionX -= px
+				op.MotionZ -= pz
+			}
+			e.MotionX += px / 4
+			e.MotionZ += pz / 4
 			continue
 		}
 		dx, dz := o.X-e.X, o.Z-e.Z
@@ -1320,6 +1350,20 @@ func (s *Server) runSummon(player string, args []string) reply {
 						g.Riding = e.ID
 						e.Passengers = append(e.Passengers, g.ID)
 					}
+				}
+			}
+			if tv, ok := tag.vals["Tags"]; ok && tv.kind == snbtList {
+				var items []any
+				for _, it := range tv.items {
+					if it != nil && it.kind == snbtString {
+						items = append(items, it.str)
+					}
+				}
+				if len(items) > 0 {
+					if e.ExtraNBT == nil {
+						e.ExtraNBT = map[string]any{}
+					}
+					e.ExtraNBT["Tags"] = nbt.List{Elem: nbt.TagString, Items: items}
 				}
 			}
 		}
