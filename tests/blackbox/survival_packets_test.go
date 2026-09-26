@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -2045,6 +2046,10 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 				}
 				pairs = append(pairs, fmt.Sprintf("%d:%d", eid, lv))
 			}
+			// ItemEnchantments is an Object2IntOpenHashMap on the
+			// real server: wire order is its bucket order, not the
+			// insert order. Sort the key so equal sets read equal.
+			sort.Strings(pairs)
 			if typ == 13 {
 				it.Ench = strings.Join(pairs, ",")
 			} else {

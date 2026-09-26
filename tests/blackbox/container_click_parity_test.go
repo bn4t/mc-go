@@ -112,6 +112,11 @@ type clickDriver struct {
 	// soundIDs decodes every named-sound packet's registry id, so a
 	// test can tell a book_put from a block break.
 	soundIDs map[int32]int
+	// grindSounds counts the 1042 level event (grindstone use);
+	// orbSpawns/orbXP fold XP-orb spawns and their value metadata.
+	grindSounds int
+	orbSpawns   int
+	orbXP       int
 	// death holds the killer's entity id when a death chat arrives:
 	// a dead survival player loses its menu, which makes every later
 	// step silently diverge.
@@ -343,6 +348,9 @@ func (d *clickDriver) foldPkts(pkts []usePkt) (slotsTouched, sawCarried bool) {
 			if ev == 1043 {
 				d.pageTurns++
 			}
+			if ev == 1042 {
+				d.grindSounds++
+			}
 		case server.IDPlayContainerClose:
 			d.sawClose = true
 		case server.IDPlayBlockUpdateCB:
@@ -373,6 +381,32 @@ func (d *clickDriver) foldPkts(pkts []usePkt) (slotsTouched, sawCarried bool) {
 			}
 			d.snap.p0[w0] = stackKey(it)
 			slotsTouched = true
+		case server.IDPlaySpawnEntity:
+			r := protocol.NewPacketReader(p.data)
+			if _, err := r.VarInt(); err != nil {
+				continue
+			}
+			if _, err := r.UUID(); err != nil {
+				continue
+			}
+			if et, err := r.VarInt(); err == nil && et == 49 { // experience_orb in entity_types
+				d.orbSpawns++
+			}
+		case server.IDPlayEntityMetadata:
+			r := protocol.NewPacketReader(p.data)
+			if _, err := r.VarInt(); err != nil {
+				continue
+			}
+			// The orb's value rides as a lone index-8 VarInt entry;
+			// any other shape is not an orb payload.
+			idx, err1 := r.Byte()
+			typ, err2 := r.Byte()
+			if err1 != nil || err2 != nil || idx != 8 || typ != 1 {
+				continue
+			}
+			if v, err := r.VarInt(); err == nil {
+				d.orbXP += int(v)
+			}
 		}
 	}
 	return slotsTouched, sawCarried

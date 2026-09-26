@@ -1193,6 +1193,8 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.Name = ""
 			case "enchantments":
 				it.Ench = ""
+			case "stored_enchantments":
+				it.StoredEnch = ""
 			case "bees":
 				it.Bees = 0
 			case "block_state":
@@ -1260,6 +1262,26 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 			}
 			sort.Strings(parts)
 			it.Ench = strings.Join(parts, ",")
+		case "stored_enchantments":
+			// Same flat {name: level} map as enchantments, but it
+			// fills the stored_enchantments component (enchanted
+			// books carry their levels there).
+			if vtag.kind != snbtCompound {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			parts := make([]string, 0, len(vtag.vals))
+			for en, lv := range vtag.vals {
+				if lv.kind != snbtNumber {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				n, err := strconv.Atoi(strings.TrimRight(lv.num, "bBsSiIlLfFdD"))
+				if err != nil {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				parts = append(parts, strings.TrimPrefix(en, "minecraft:")+":"+strconv.Itoa(n))
+			}
+			sort.Strings(parts)
+			it.StoredEnch = strings.Join(parts, ",")
 		case "bees":
 			// The component is a list of occupant compounds; only the
 			// count survives our stack model.

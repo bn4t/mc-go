@@ -904,6 +904,10 @@ func (s *Server) menuRemoved(sess *Session, w *openWindow, dropped bool) {
 		s.closeBeaconMenu(sess, w, w.container, dropped)
 	} else if w.container != nil && w.container.spec.menu == menuStonecutter {
 		s.closeStonecutter(sess, w, w.container)
+	} else if w.container != nil && w.container.spec.menu == menuGrindstone {
+		s.transientMenuReturn(sess, w, w.container, []int{grindstoneTop, grindstoneBottom})
+	} else if w.container != nil && w.container.spec.menu == menuSmithing {
+		s.transientMenuReturn(sess, w, w.container, []int{smithingTemplate, smithingBase, smithingAddition})
 	} else if dropped {
 		s.dropCarried(sess)
 	} else {

@@ -151,6 +151,12 @@ func (spec *containerSpec) accepts(slot int, it ItemStack) bool {
 		return beaconPaymentItem(it)
 	case spec.menu == menuSmithing:
 		return smithingAccepts(slot, it)
+	case spec.menu == menuGrindstone:
+		// GrindstoneMenu$2/$3.mayPlace: only a damageable item or one
+		// carrying enchantments enters; anything else stays on the
+		// cursor (the stone-merge branch of mergeItems is
+		// unreachable through the slots).
+		return MaxDamageOfID(it.ID) > 0 || it.Ench != "" || it.StoredEnch != ""
 	}
 	return true
 }
@@ -675,6 +681,10 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 					s.stonecutterTake(sess, w)
 					touched = append(touched, stonecutterInput)
 				}
+				if c.spec.menu == menuGrindstone {
+					s.grindstoneTake(sess, w)
+					touched = append(touched, grindstoneTop, grindstoneBottom)
+				}
 			}
 			break
 		}
@@ -707,6 +717,10 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		if isResult && moving.Empty() && c.spec.menu == menuStonecutter {
 			s.stonecutterTake(sess, w)
 			touched = append(touched, stonecutterInput)
+		}
+		if isResult && moving.Empty() && c.spec.menu == menuGrindstone {
+			s.grindstoneTake(sess, w)
+			touched = append(touched, grindstoneTop, grindstoneBottom)
 		}
 	case 2:
 		swap := w.menuSize() - 9 + int(button)
@@ -759,6 +773,10 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 			s.stonecutterTake(sess, w)
 			touched = append(touched, stonecutterInput)
 		}
+		if isResult && it.Empty() && c.spec.menu == menuGrindstone {
+			s.grindstoneTake(sess, w)
+			touched = append(touched, grindstoneTop, grindstoneBottom)
+		}
 	default:
 		// Unsupported mode: resync the menu instead of diverging.
 		s.sendContainerMenuContent(sess)
@@ -776,6 +794,12 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 	}
 	if c.spec.menu == menuStonecutter {
 		stonecutterSync(sess, c, w, &touched)
+	}
+	if c.spec.menu == menuGrindstone {
+		if out := grindstoneCompute(sess.menuStack(grindstoneTop), sess.menuStack(grindstoneBottom)); sess.menuStack(grindstoneResult) != out {
+			sess.setMenuStack(grindstoneResult, out)
+			touched = append(touched, grindstoneResult)
+		}
 	}
 	s.syncContainerMenuSlots(sess, w, touched)
 	if c.spec.brew {

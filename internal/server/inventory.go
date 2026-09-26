@@ -122,7 +122,8 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.Potion == other.Potion && it.Ominous == other.Ominous &&
 		it.BottleAmpSet == other.BottleAmpSet && it.BottleAmp == other.BottleAmp &&
 		it.LootTable == other.LootTable && it.LootSeed == other.LootSeed &&
-		it.BookWritable == other.BookWritable && it.BookWritten == other.BookWritten
+		it.BookWritable == other.BookWritable && it.BookWritten == other.BookWritten &&
+		it.Trim == other.Trim
 }
 
 // enchLevel reports the stack's level of one enchantment, or 0 when
