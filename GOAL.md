@@ -7567,3 +7567,42 @@ re-pay → speed+regen commit (props 4,1,10, regen amp0 dur340);
 invalid pair haste+strength → disconnect; empty payment →
 disconnect; commit with no beacon menu → ignored. Green on both
 servers (~52s).
+
+## Slice 2026-09-25zk — /experience parity + independent xp model
+
+javap-measured (26.2 ExperienceCommand/Player/ServerPlayer):
+
+- Grammar: `experience add|set <targets> <amount> [points|levels]` plus
+  `query <target> points|levels`; `/xp` is a redirect alias. Bare
+  amount defaults to points, `add` takes any int (negatives remove),
+  `set` is integer(0)+.
+- The three fields are INDEPENDENT — xpProgress/xpLevel/xpTotal — total
+  is bookkeeping only, never the level source. mc-go previously
+  re-derived level+bar from total on every point grant, which pinned
+  `/xp set 30 levels` → level snapped back at the next orb.
+- Semantics: giveExperiencePoints = progress += i/needed, total clamps
+  [0,max], negative/positive carry loops walk levels (ServerPlayer:
+  n==0 early-return, no packet). giveExperienceLevels = saturated add,
+  level<0 resets all three. setExperiencePoints refuses i>=needed
+  (whole-command set.points.invalid only when EVERY target fails) and
+  clamps the bar a point shy of full; setExperienceLevels touches only
+  the level; an unchanged field sends no Set Experience. Query replies
+  are source-local; add/set broadcast to ops with
+  success.single(amount, displayName) / success.multiple(amount,
+  collection.size()) — the count, not the successes.
+- Error surfaces: bad int start → parsing.int.expected, digits+junk →
+  command.expected.separator mid-token, overflow →
+  parsing.int.invalid; missing trailing args → command.unknown.command
+  at end-of-input; EntityArgument.player() multi-selector rejection →
+  argument.player.toomany with cursor 0 (whole input underlined), while
+  entity-notfound carries NO context line at all.
+
+Orb pickup (addXP) now routes through giveExperiencePoints — same call
+vanilla's ExperienceOrb.playerTouch makes.
+
+`TestXpParity` (xp_parity_test.go): 37 legs — level/point adds, bare
+unit, negative adds crossing and draining levels through the carry
+loops, the total-reset leg, multi-target success.multiple, the partial
++ full set-fail, toomany/notfound/error cursors, plus every leg's last
+Set Experience packet compared by bar-bits/level/total. Green on both
+servers (~34s).

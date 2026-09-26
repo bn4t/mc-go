@@ -382,36 +382,10 @@ func (s *Server) spawnMobXP(dim, name string, x, y, z float64) {
 	s.spawnXPOrb(dim, x, y, z, value)
 }
 
-// addXP grants experience points, recomputing level and bar progress
-// with vanilla's thresholds, then syncs Set Experience.
+// addXP grants experience points the way ExperienceOrb.playerTouch
+// does — ServerPlayer.giveExperiencePoints.
 func (sess *Session) addXP(points int32) {
-	sess.xpTotal += points
-	level, progress := experienceLevel(sess.xpTotal)
-	sess.xpLevel = level
-	sess.xpProgress = progress
-	_ = sess.server.sendSetExperience(sess, progress, level, sess.xpTotal)
-}
-
-// experienceLevel converts total XP to the vanilla level/progress pair.
-// XP needed to advance from level l: 2l+7 (0-15), 5l-38 (16-30),
-// 9l-158 (31+); the bar fraction is progress within the current level.
-func experienceLevel(total int32) (int32, float32) {
-	level := int32(0)
-	remaining := total
-	for {
-		need := int32(2*level + 7)
-		switch {
-		case level >= 31:
-			need = 9*level - 158
-		case level >= 16:
-			need = 5*level - 38
-		}
-		if remaining < need {
-			return level, float32(remaining) / float32(need)
-		}
-		remaining -= need
-		level++
-	}
+	sess.giveExperiencePoints(points)
 }
 
 func mustEntityType(name string) int32 {

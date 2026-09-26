@@ -488,7 +488,7 @@ func TestExperienceLevelThresholds(t *testing.T) {
 		{352, 16, 0, false},
 	}
 	for _, c := range cases {
-		level, prog := experienceLevel(c.total)
+		level, prog := xpLevelForTotal(c.total)
 		if level != c.level {
 			t.Fatalf("xp %d level = %d, want %d", c.total, level, c.level)
 		}
@@ -498,6 +498,39 @@ func TestExperienceLevelThresholds(t *testing.T) {
 		if prog != c.prog {
 			t.Fatalf("xp %d progress = %v, want %v", c.total, prog, c.prog)
 		}
+	}
+
+	// The stateful giveExperiencePoints walk must land on the same
+	// level/progress a from-scratch total implies (progress to float32
+	// walk tolerance).
+	for _, c := range cases {
+		s := New("unused")
+		sess := placeSession(t, s, "XpWalk", 0.5, 2, 0.5)
+		sess.giveExperiencePoints(c.total)
+		if sess.xpLevel != c.level {
+			t.Fatalf("xp %d walked level = %d, want %d", c.total, sess.xpLevel, c.level)
+		}
+		if d := sess.xpProgress - c.prog; d < -1e-6 || d > 1e-6 {
+			t.Fatalf("xp %d walked progress = %v, want %v", c.total, sess.xpProgress, c.prog)
+		}
+		if sess.xpTotal != c.total {
+			t.Fatalf("xp %d walked total = %d", c.total, sess.xpTotal)
+		}
+	}
+}
+
+// xpLevelForTotal converts a from-scratch XP total to the level/progress
+// pair vanilla's giveExperiencePoints arrives at.
+func xpLevelForTotal(total int32) (int32, float32) {
+	level := int32(0)
+	remaining := total
+	for {
+		need := xpNeededForLevel(level)
+		if remaining < need {
+			return level, float32(remaining) / float32(need)
+		}
+		remaining -= need
+		level++
 	}
 }
 
