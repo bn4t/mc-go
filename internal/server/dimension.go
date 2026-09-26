@@ -271,6 +271,9 @@ func (s *Server) changeDimension(sess *Session, dst *dimension, x, y, z float64,
 	// Old-dimension residents drop the traveler; the client's own
 	// tracker resets with Respawn.
 	s.broadcastEntityRemoveIn(old.name, sess, []int32{eid})
+	sess.trackMu.Lock()
+	sess.trackedEnts = nil
+	sess.trackMu.Unlock()
 
 	// Vanilla reports a 10-tick client-side portal cooldown after
 	// travel (measured on the real server in creative) and keeps

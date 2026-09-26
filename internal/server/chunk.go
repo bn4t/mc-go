@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"math"
 	"sort"
 
 	"mc-go/internal/protocol"
@@ -506,7 +507,48 @@ func (s *Server) pumpChunks(sess *Session) error {
 	}
 	var done protocol.Buffer
 	done.VarInt(int32(len(batch)))
-	return sess.write(sess.ids().PlayChunkBatchDone, done.Bytes())
+	if err := sess.write(sess.ids().PlayChunkBatchDone, done.Bytes()); err != nil {
+		return err
+	}
+	s.evalChunkPairs(sess, batch)
+	return nil
+}
+
+// evalChunkPairs re-runs the pairing eval for every entity standing in
+// freshly sent columns — applyChunkTrackingView's tracked-chunk branch
+// (a static entity whose chunk was still queued at spawn time pairs as
+// soon as its column actually goes out).
+func (s *Server) evalChunkPairs(sess *Session, keys [][2]int) {
+	if len(keys) == 0 {
+		return
+	}
+	set := make(map[[2]int]bool, len(keys))
+	for _, k := range keys {
+		set[k] = true
+	}
+	s.entities.mu.RLock()
+	ents := make([]*Entity, 0, len(s.entities.byID))
+	for _, e := range s.entities.byID {
+		ents = append(ents, e)
+	}
+	s.entities.mu.RUnlock()
+	for _, e := range ents {
+		ec := e
+		s.sessions.Range(func(_, v any) bool {
+			os := v.(*Session)
+			if os.entityID.Load() == e.ID {
+				x, y, z, _, _, _ := os.Pos()
+				ec = &Entity{}
+				*ec = *e
+				ec.X, ec.Y, ec.Z = x, y, z
+			}
+			return true
+		})
+		k := [2]int{int(math.Floor(ec.X / 16)), int(math.Floor(ec.Z / 16))}
+		if set[k] {
+			s.evalPair(sess, ec)
+		}
+	}
 }
 
 // chunkTickStep streams at most one batch per tick to every player whose
@@ -589,11 +631,42 @@ func (s *Server) sendWindow(sess *Session, ccx, ccz int) error {
 	sess.sentMu.Unlock()
 	sortPairs(forgot)
 	for _, k := range forgot {
+		s.unpairChunk(sess, k[0], k[1])
+	}
+	for _, k := range forgot {
 		if err := sess.write(sess.ids().PlayForgetChunk, encodeForget(k[0], k[1])); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// unpairChunk drops pairings for entities standing in a column that
+// fell out of the session's tracking view — the drop branch of
+// applyChunkTrackingView.
+func (s *Server) unpairChunk(sess *Session, cx, cz int) {
+	s.entities.mu.RLock()
+	ents := make([]*Entity, 0, len(s.entities.byID))
+	for _, e := range s.entities.byID {
+		ents = append(ents, e)
+	}
+	s.entities.mu.RUnlock()
+	for _, e := range ents {
+		if e.Dim != sess.dimName() {
+			continue
+		}
+		ex, ez := e.X, e.Z
+		s.sessions.Range(func(_, v any) bool {
+			os := v.(*Session)
+			if os.entityID.Load() == e.ID {
+				ex, _, ez, _, _, _ = os.Pos()
+			}
+			return true
+		})
+		if int(math.Floor(ex/16)) == cx && int(math.Floor(ez/16)) == cz {
+			s.unpairEnt(sess, e.ID)
+		}
+	}
 }
 
 // queueOrder sorts one window's new columns nearest first, so the batch

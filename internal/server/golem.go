@@ -63,6 +63,19 @@ func (s *Server) golemSpawn(d *dimension, cells []world.Pos, anchor world.Pos, y
 	s.summonMob(d, mob,
 		float64(anchor.X)+0.5, float64(anchor.Y)+yoff, float64(anchor.Z)+0.5,
 		false)
+	// The summoned_entity trigger fires on every BlockPattern spawn —
+	// setblock-, fill-, dispenser-, or use-placed heads alike — and
+	// grants to every player in the dimension (vanilla's
+	// CriteriaTriggers.SUMMONED_ENTITY fans out over the player list,
+	// not the placer). Only summon_iron_golem uses it today; other mob
+	// names filter out inside fireSummonedEntity.
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() == StatePlay && sess.dimName() == d.name {
+			s.fireSummonedEntity(sess, mob)
+		}
+		return true
+	})
 }
 
 // golemTrySnow is the snowGolemFull aisle "^","#","#": pumpkin over

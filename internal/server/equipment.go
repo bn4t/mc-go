@@ -67,7 +67,7 @@ func (s *Server) broadcastEquipment(sess *Session) {
 		if other == sess || other.state.Load() != StatePlay || !other.spawned.Load() {
 			return true
 		}
-		if other.dimName() != dim {
+		if other.dimName() != dim || !other.tracksEntity(eid) {
 			return true
 		}
 		_ = other.write(other.ids().PlaySetEquipment, body)

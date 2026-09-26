@@ -81,6 +81,9 @@ func (s *Server) broadcastMobAttrs(e *Entity) {
 		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != e.Dim {
 			return true
 		}
+		if !other.tracksEntity(e.ID) {
+			return true
+		}
 		_ = other.write(IDPlayUpdateAttributes, body)
 		return true
 	})
@@ -403,7 +406,15 @@ func (s *Server) broadcastToTrackers(e *Entity, body []byte, id func(idSet) int3
 		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != e.Dim {
 			return true
 		}
-		_ = other.write(id(other.ids()), body)
+		if !other.tracksEntity(e.ID) {
+			return true
+		}
+		// sendChanges only reaches sessions still paired after the
+		// section-change eval — mob positions are live on e, so a live
+		// pairable check approximates vanilla's post-eval seenBy.
+		if s.isPlayerEntity(e.ID) || s.pairable(other, e) {
+			_ = other.write(id(other.ids()), body)
+		}
 		return true
 	})
 }

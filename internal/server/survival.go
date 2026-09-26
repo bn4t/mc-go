@@ -512,6 +512,9 @@ func (s *Server) broadcastEntityMetadata(eid int32, payload []byte) {
 		if sess.dimName() != dim {
 			return true
 		}
+		if !sess.tracksEntity(eid) && sess.entityID.Load() != eid {
+			return true
+		}
 		_ = sess.write(sess.ids().PlayEntityMetadata, body)
 		return true
 	})
@@ -1114,6 +1117,9 @@ func (s *Server) respawnPlayer(sess *Session) {
 	_ = s.sendRespawn(sess, dest, 0, 0)
 
 	sess.setPos(x, y, z, yaw, spawnPitch, false)
+	sess.trackMu.Lock()
+	sess.trackedEnts = nil
+	sess.trackMu.Unlock()
 	_ = s.sendSyncPos(sess, x, y, z)
 	_ = s.sendHealth(sess)
 	_ = s.sendContainerContent(sess)

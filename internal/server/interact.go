@@ -683,6 +683,9 @@ func (s *Server) broadcastPose(sess *Session, pose int32) {
 		if other.dimName() != dim {
 			return true
 		}
+		if !other.tracksEntity(eid) && other.entityID.Load() != eid {
+			return true
+		}
 		_ = other.write(other.ids().PlayEntityMetadata, body)
 		return true
 	})
@@ -949,6 +952,9 @@ func (s *Server) broadcastSharedFlags(sess *Session) {
 		if other.dimName() != dim {
 			return true
 		}
+		if !other.tracksEntity(eid) && other.entityID.Load() != eid {
+			return true
+		}
 		_ = other.write(other.ids().PlayEntityMetadata, body)
 		return true
 	})
@@ -973,6 +979,9 @@ func (s *Server) broadcastEntityMotionExcept(dim string, eid int32, except *Sess
 			return true
 		}
 		if other.dimName() != dim {
+			return true
+		}
+		if !other.tracksEntity(eid) && other.entityID.Load() != eid {
 			return true
 		}
 		_ = other.write(other.ids().PlaySetEntityMotion, body)

@@ -67,6 +67,12 @@ type Session struct {
 	// given, keyed by data.Recipes index; guarded by recipesMu.
 	recipesMu       sync.Mutex
 	unlockedRecipes map[int]bool
+	// trackedEnts is the session's seenBy set — entity ids currently
+	// paired, guarded by trackMu. lastTrackSect is the session's own
+	// last-evaluated 16-block section (vanilla's movedPlayers branch).
+	trackMu       sync.Mutex
+	trackedEnts   map[int32]struct{}
+	lastTrackSect [3]int
 	// tags holds the /tag labels on this player; insertion order is
 	// what /tag list echoes back.
 	tagMu sync.Mutex

@@ -515,7 +515,12 @@ func (s *Server) tpMove(v *dataEntity, x, y, z float64,
 	}
 	e := v.mob
 	e.X, e.Y, e.Z, e.Yaw, e.Pitch = x, y, z, yaw, pitch
-	s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, e.Yaw, e.Pitch, true)
+	// Vanilla's teleportSetPosition just repositions — the tracker
+	// emits entity_position_sync on the next sendChanges (its
+	// teleportDelay branch), never from the command itself —
+	// PosDirty is vanilla's needsSync, forcing sendChanges next tick.
+	e.teleportDelay = 401
+	e.PosDirty = true
 }
 
 func tpWrapDeg(f float32) float32 {

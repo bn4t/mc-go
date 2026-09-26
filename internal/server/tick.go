@@ -435,6 +435,10 @@ func (s *Server) GameTick() {
 	// CustomSpawners tick with the level — the natural patrol cycle is
 	// the first one implemented.
 	s.patrolTickStep()
+	// Entity pairing re-evaluates once entities have settled into
+	// their tick's positions — vanilla's updateEntitySections runs in
+	// ChunkMap.tick after the level tick.
+	s.entityTrackStep()
 	// Chunk streaming is paced on the tick, like everything else: one
 	// batch per tick per player, at the rate their client asked for.
 	s.chunkTickStep()

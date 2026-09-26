@@ -113,6 +113,9 @@ func (s *Server) broadcastEntityEventTo(except *Session, dim string, eid int32, 
 		if other == except || other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
 			return true
 		}
+		if !other.tracksEntity(eid) && other.entityID.Load() != eid {
+			return true
+		}
 		_ = other.write(other.ids().PlayEntityEvent, body)
 		return true
 	})

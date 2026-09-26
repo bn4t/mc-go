@@ -7795,3 +7795,57 @@ broadcasts entity packets to every in-dimension session with no
 range or pairing state — that is the next slice's work, with the
 68-type `clientTrackingRange`/`updateInterval` table extracted from
 the jar (Probe.java under tools/).
+
+## Slice 2026-09-25zq — per-player entity tracking (TrackedEntity.updatePlayer)
+
+Replaced the broadcast-to-every-in-dimension-session entity model with
+vanilla's per-player pairing state, measured end-to-end from
+`ChunkMap$TrackedEntity.updatePlayer` bytecode:
+
+- Pair condition: `dx²+dz² <= d²` where `d = min(getEffectiveRange(),
+  getPlayerViewDistance(player)*16)` — the jar operand order puts the
+  *view distance* (clamped 2..serverViewDistance, ×16) on the min's
+  left, NOT the tracking range. `getEffectiveRange` is
+  `clientTrackingRange*16` in blocks, maxed over indirect passengers.
+  Also requires `broadcastToPlayer` (always true for our entities) and
+  `isChunkTracked(entity.chunk)` — the chunk-tracking view ANDed with
+  `!chunkSender.isPending`, the not-yet-written LongSet.
+- `pairable`/`tracksEntity`/`setTracked` in track.go hold per-session
+  pairing state; `entityTrackStep` re-evaluates on the level tick
+  AFTER mobTickStep (vanilla's updateEntitySections runs after the
+  entity tick — sendChanges only reaches sessions still paired).
+- `pairEnt` re-latches the shared send baseline (VecDeltaCodec analog:
+  syncPX/Y/Z, rot bytes, wasOnGround, PosDirty, teleportDelay) so a
+  re-pair doesn't emit a residual move/sync against the stale latch.
+- `sendPairingData` stream order per javap: add_entity →
+  set_entity_data (full tracked values) → update_attributes (living
+  only, every syncable attribute) → set_equipment → set_passengers →
+  vehicle's set_passengers → set_entity_link. pairingAttrs() emits
+  the entity's full attribute-supplier set over the new generated
+  `attrIDByName` table (40 names from registries.json), folding the
+  speed effect modifier like mobSyncAttrs.
+- `removePairing` = stopSeenByPlayer + ClientboundRemoveEntitiesPacket
+  (`{count,ids[]}` — count is the first varint, not an entity id).
+- `/tp` on an entity only marks needsSync (mc-go's PosDirty +
+  teleportDelay=401): the tracker emits entity_position_sync on the
+  NEXT sendChanges, never from the command itself — measured.
+- `broadcastToTrackers`/`broadcastEntityTeleport` now gate on
+  tracksEntity + a live pairable check (player entities excepted —
+  stale byID positions make it unsafe there).
+- Vanilla's isPending race makes pair/un-pair timing nondeterministic:
+  the same 15-block cross-chunk tp produced position_sync, remove, or
+  silence across three runs. `TestEntityTrackingParity` therefore pins
+  only deterministic transitions: same-chunk move = pos packet no
+  remove; far move eventually removes; re-entering range re-pairs with
+  the full add_entity+data+attrs stream — race-tolerant on both
+  servers, 3× green.
+
+Also fixed a committed regression found bisecting this test's flake:
+`golemOnPlace` (inside writeOnPlace) matches the iron-golem pattern
+and airs the cells BEFORE `setBlockAndBroadcastNotify` reached
+`checkSummonedEntity` — the blk==old early-out made the
+summoned_entity grant unreachable. The grant now fires from
+`golemSpawn` for every session in the dim (vanilla's
+SUMMONED_ENTITY fans over the player list, placer or not), and the
+dead `checkSummonedEntity`/`summon.go` is gone. TestSummonedEntityParity
+3× green; the earlier flake was two pattern checkers racing.

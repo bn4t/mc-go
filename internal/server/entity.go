@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"mc-go/internal/world"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -21,6 +22,9 @@ type Entity struct {
 	Yaw, Pitch, HeadYaw float32
 	Data                int32
 	VX, VY, VZ          int16
+	// lastSect is the 16-block section the pairing eval last saw the
+	// entity in — vanilla's TrackedEntity.lastSectionPos.
+	lastSect [3]int
 	// Item is set on item entities (Type minecraft:item): the stack
 	// the entity represents, with a vanilla-like pickup delay and
 	// float vertical motion for drop physics.
@@ -537,6 +541,7 @@ func (m *Manager) Spawn(e *Entity) *Entity {
 	if e.Dim == "" {
 		e.Dim = dimOverworld
 	}
+	e.lastSect = sectOf(e.X, e.Y, e.Z)
 	m.mu.Lock()
 	m.byID[e.ID] = e
 	m.mu.Unlock()
@@ -948,8 +953,16 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 		if !ok {
 			return true
 		}
-		if err := sess.write(sess.ids().PlaySpawnEntity, encodeSpawn(&e)); err != nil && first == nil {
-			first = err
+		// Other players pair like any entity (player tracking range 32
+		// chunks, clipped by view distance) — the tick eval maintains
+		// it, the join burst seeds it.
+		x, y, z, yaw, pitch, _ := other.Pos()
+		e.X, e.Y, e.Z, e.Yaw, e.Pitch = x, y, z, yaw, pitch
+		if s.pairable(sess, &e) {
+			sess.setTracked(e.ID, true)
+			if err := s.sendEntityTo(sess, &e); err != nil && first == nil {
+				first = err
+			}
 		}
 		return true
 	})
@@ -967,40 +980,109 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 		ents = append(ents, *e)
 	}
 	s.entities.mu.RUnlock()
-	for _, e := range ents {
-		if err := sess.write(sess.ids().PlaySpawnEntity, encodeSpawn(&e)); err != nil && first == nil {
+	for i := range ents {
+		e := &ents[i]
+		if !s.pairable(sess, e) {
+			continue
+		}
+		sess.setTracked(e.ID, true)
+		if err := s.sendEntityTo(sess, e); err != nil && first == nil {
 			first = err
 		}
-		// Tracker pairing also carries the entity's data: item
-		// entities need their stack, living entities their health.
-		var meta []byte
-		switch {
-		case e.Item.ID != 0:
-			meta = encodeItemMetadata(e.Item)
-		case e.Living:
-			meta = encodeLivingMetadata(&e, nil)
+	}
+	return first
+}
+
+// sendEntityTo writes one entity's pairing stream to a session — the
+// add_entity plus the pairing data vanilla's sendPairingData bundles
+// into ClientboundBundlePacket: entity data (item stacks, living
+// health) and the passenger list. Syncable attributes, velocity,
+// leash and equipment ride the bundle too; mc-go ships those on their
+// own packets where implemented. Used by the join burst and the
+// tracked-entity pairing step.
+func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
+	var first error
+	if err := sess.write(sess.ids().PlaySpawnEntity, encodeSpawn(e)); err != nil {
+		first = err
+	}
+	var meta []byte
+	switch {
+	case e.Item.ID != 0:
+		meta = encodeItemMetadata(e.Item)
+	case e.Living:
+		meta = encodeLivingMetadata(e, nil)
+	}
+	if meta != nil {
+		var mb protocol.Buffer
+		mb.VarInt(e.ID)
+		mb.Raw(meta)
+		if err := sess.write(sess.ids().PlayEntityMetadata, mb.Bytes()); err != nil && first == nil {
+			first = err
 		}
-		if meta != nil {
-			var mb protocol.Buffer
-			mb.VarInt(e.ID)
-			mb.Raw(meta)
-			if err := sess.write(sess.ids().PlayEntityMetadata, mb.Bytes()); err != nil && first == nil {
-				first = err
-			}
-		}
-		if len(e.Passengers) > 0 {
-			var b protocol.Buffer
-			b.VarInt(e.ID)
-			b.VarInt(int32(len(e.Passengers)))
-			for _, pid := range e.Passengers {
-				b.VarInt(pid)
-			}
-			if err := sess.write(sess.ids().PlaySetPassengers, b.Bytes()); err != nil && first == nil {
+	}
+	// sendPairingData continues with the attribute table for living
+	// entities — vanilla streams every syncable attribute at pairing,
+	// before equipment and passengers.
+	if e.Living {
+		if attrs := pairingAttrs(e, s.clock.count); attrs != nil {
+			if err := sess.write(sess.ids().PlayUpdateAttributes, attrs); err != nil && first == nil {
 				first = err
 			}
 		}
 	}
+	if len(e.Passengers) > 0 {
+		var b protocol.Buffer
+		b.VarInt(e.ID)
+		b.VarInt(int32(len(e.Passengers)))
+		for _, pid := range e.Passengers {
+			b.VarInt(pid)
+		}
+		if err := sess.write(sess.ids().PlaySetPassengers, b.Bytes()); err != nil && first == nil {
+			first = err
+		}
+	}
 	return first
+}
+
+// pairingAttrs builds the pairing-stream update_attributes body: every
+// supplier attribute at its current base, with the speed effect's
+// multiplier folded into movement_speed like mobSyncAttrs.
+func pairingAttrs(e *Entity, now int64) []byte {
+	name, ok := EntityTypeName(e.Type)
+	if !ok {
+		return nil
+	}
+	bases := entityAttrBases[name]
+	if len(bases) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(bases))
+	for a := range bases {
+		if _, ok := attrIDByName[a]; ok {
+			names = append(names, a)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	sort.Strings(names)
+	var b protocol.Buffer
+	b.VarInt(e.ID)
+	b.VarInt(int32(len(names)))
+	for _, a := range names {
+		var mods []attrModifier
+		if a == "movement_speed" {
+			if inst, ok := e.Effects[effectSpeed]; ok && (inst.expiry < 0 || inst.expiry > now) {
+				mods = append(mods, attrModifier{
+					key:    "minecraft:effect.speed",
+					amount: 0.2 * float64(inst.amplifier+1),
+					op:     2, // add_multiplied_total
+				})
+			}
+		}
+		writeAttrEntry(&b, attrIDByName[a], bases[a], mods...)
+	}
+	return b.Bytes()
 }
 
 // broadcastEntitySpawn announces one entity to every other spawned
@@ -1010,18 +1092,15 @@ func (s *Server) broadcastEntitySpawn(except *Session, e Entity) {
 }
 
 // broadcastEntitySpawnIn announces one entity to spawned sessions in
-// dimension dim.
+// dimension dim — vanilla's addEntity path, which pairs the new entity
+// with every player in range (TrackedEntity.updatePlayers).
 func (s *Server) broadcastEntitySpawnIn(dim string, except *Session, e Entity) {
-	body := encodeSpawn(&e)
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess == except || sess.state.Load() != StatePlay || !sess.spawned.Load() {
+		if sess == except {
 			return true
 		}
-		if sess.dimName() != dim {
-			return true
-		}
-		_ = sess.write(sess.ids().PlaySpawnEntity, body)
+		s.evalPair(sess, &e)
 		return true
 	})
 }
@@ -1043,7 +1122,7 @@ func (s *Server) broadcastSetPassengers(veh *Entity) {
 		if sess.state.Load() != StatePlay || !sess.spawned.Load() {
 			return true
 		}
-		if sess.dimName() != veh.Dim {
+		if sess.dimName() != veh.Dim || !sess.tracksEntity(veh.ID) {
 			return true
 		}
 		_ = sess.write(sess.ids().PlaySetPassengers, body)
@@ -1066,7 +1145,10 @@ func (s *Server) broadcastEntityTeleport(except *Session, id int32, x, y, z floa
 		if sess == except || sess.state.Load() != StatePlay || !sess.spawned.Load() {
 			return true
 		}
-		if sess.dimName() != dim {
+		if sess.dimName() != dim || !sess.tracksEntity(id) {
+			return true
+		}
+		if e, ok := s.entities.Get(id); ok && !s.isPlayerEntity(id) && !s.pairable(sess, &e) {
 			return true
 		}
 		_ = sess.write(sess.ids().PlayEntityTeleportCB, body)
@@ -1097,6 +1179,10 @@ func (s *Server) broadcastEntityRemoveIn(dim string, except *Session, ids []int3
 			return true
 		}
 		for _, id := range ids {
+			if !sess.tracksEntity(id) {
+				continue
+			}
+			sess.setTracked(id, false)
 			_ = sess.write(sess.ids().PlayRemoveEntity, encodeRemove(id))
 		}
 		return true

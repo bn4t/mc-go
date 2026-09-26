@@ -61,6 +61,11 @@ func (s *Server) broadcastDamageEvent(eid int32, info damageInfo) {
 		if sess.dimName() != dim {
 			return true
 		}
+		// Damage events reach trackers plus the victim itself —
+		// vanilla's sendToTrackingPlayersAndSelf.
+		if !sess.tracksEntity(eid) && sess.entityID.Load() != eid {
+			return true
+		}
 		_ = sess.write(sess.ids().PlayDamageEvent, body)
 		return true
 	})

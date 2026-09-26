@@ -282,6 +282,9 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 		return
 	}
 	sess.setPos(x, y, z, yaw, pitch, onGround)
+	// ChunkMap.updatePlayerPos: a position packet re-evaluates the
+	// entity map against this player.
+	s.retrackSession(sess)
 	// location_changed fires on a real position change — a same-pos
 	// resend does not retrigger frost walker (measured).
 	if x != ox || y != oy || z != oz {
