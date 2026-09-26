@@ -157,6 +157,8 @@ func (spec *containerSpec) accepts(slot int, it ItemStack) bool {
 		// cursor (the stone-merge branch of mergeItems is
 		// unreachable through the slots).
 		return MaxDamageOfID(it.ID) > 0 || it.Ench != "" || it.StoredEnch != ""
+	case spec.menu == menuLoom:
+		return loomAccepts(slot, it)
 	}
 	return true
 }
@@ -409,6 +411,12 @@ type containerData struct {
 	stoneSel     int32
 	stoneInput   int32
 	stoneRecipes []int
+	// loomSel is the loom's selectedBannerPatternIndex DataSlot — the
+	// selected pattern index broadcast on Container Property 0, -1 when
+	// nothing is selected. loomPatterns is the selectable holder list
+	// the index points into (pattern names in registry order).
+	loomSel      int32
+	loomPatterns []string
 }
 
 // containerStore keeps generic container state by position.
@@ -561,6 +569,14 @@ func (s *Server) openContainer(sess *Session, pos world.Pos) {
 		w.dim.containers.mu.Unlock()
 		s.sendContainerProperty(sess, id, 0, pg)
 	}
+	if c.spec.menu == menuLoom {
+		// sendAllDataToRemote on open: prop 0 is the selected pattern
+		// index, a fresh standalone DataSlot's 0.
+		w.dim.containers.mu.Lock()
+		sel := c.loomSel
+		w.dim.containers.mu.Unlock()
+		s.sendContainerProperty(sess, id, 0, sel)
+	}
 	if c.spec.crafter {
 		// sendAllDataToRemote on open: properties 0-8 are the slot
 		// enables (1=SLOT_ENABLED, 0=SLOT_DISABLED), 9 is the
@@ -685,6 +701,10 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 					s.grindstoneTake(sess, w)
 					touched = append(touched, grindstoneTop, grindstoneBottom)
 				}
+				if c.spec.menu == menuLoom {
+					s.loomTake(sess, w)
+					touched = append(touched, loomBanner, loomDye)
+				}
 			}
 			break
 		}
@@ -721,6 +741,10 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		if isResult && moving.Empty() && c.spec.menu == menuGrindstone {
 			s.grindstoneTake(sess, w)
 			touched = append(touched, grindstoneTop, grindstoneBottom)
+		}
+		if isResult && moving.Empty() && c.spec.menu == menuLoom {
+			s.loomTake(sess, w)
+			touched = append(touched, loomBanner, loomDye)
 		}
 	case 2:
 		swap := w.menuSize() - 9 + int(button)
@@ -777,6 +801,10 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 			s.grindstoneTake(sess, w)
 			touched = append(touched, grindstoneTop, grindstoneBottom)
 		}
+		if isResult && it.Empty() && c.spec.menu == menuLoom {
+			s.loomTake(sess, w)
+			touched = append(touched, loomBanner, loomDye)
+		}
 	default:
 		// Unsupported mode: resync the menu instead of diverging.
 		s.sendContainerMenuContent(sess)
@@ -799,6 +827,21 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		if out := grindstoneCompute(sess.menuStack(grindstoneTop), sess.menuStack(grindstoneBottom)); sess.menuStack(grindstoneResult) != out {
 			sess.setMenuStack(grindstoneResult, out)
 			touched = append(touched, grindstoneResult)
+		}
+	}
+	if c.spec.menu == menuLoom {
+		// Vanilla runs slotsChanged only when the loom's own
+		// container (banner/dye/pattern) changed — player-slot
+		// clicks don't fire it.
+		fire := false
+		for _, sl := range touched {
+			if sl == loomBanner || sl == loomDye || sl == loomPattern {
+				fire = true
+				break
+			}
+		}
+		if fire {
+			loomSync(s, sess, w, c, &touched)
 		}
 	}
 	s.syncContainerMenuSlots(sess, w, touched)

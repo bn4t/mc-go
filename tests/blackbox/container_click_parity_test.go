@@ -63,6 +63,9 @@ func stackKey(it server.ItemStack) string {
 	if it.Trim != "" {
 		key += fmt.Sprintf("[t%s]", it.Trim)
 	}
+	if it.BannerPatterns != "" {
+		key += fmt.Sprintf("[bp%s]", it.BannerPatterns)
+	}
 	return key
 }
 

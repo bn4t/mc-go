@@ -1951,6 +1951,29 @@ var bbTrimPatterns = []string{
 	"ward", "wayfinder", "wild",
 }
 
+// bbBannerPatterns is the 26.2 banner_pattern registry order — the
+// sorted datapack file list; bbDyeNames indexes DyeColor ordinals.
+var bbBannerPatterns = []string{
+	"base", "border", "bricks", "circle", "creeper", "cross",
+	"curly_border", "diagonal_left", "diagonal_right",
+	"diagonal_up_left", "diagonal_up_right", "flow",
+	"flower", "globe", "gradient", "gradient_up", "guster",
+	"half_horizontal",
+	"half_horizontal_bottom", "half_vertical", "half_vertical_right",
+	"mojang", "piglin", "rhombus", "skull", "small_stripes",
+	"square_bottom_left", "square_bottom_right", "square_top_left",
+	"square_top_right", "straight_cross", "stripe_bottom",
+	"stripe_center", "stripe_downleft", "stripe_downright",
+	"stripe_left", "stripe_middle", "stripe_right", "stripe_top",
+	"triangle_bottom", "triangle_top", "triangles_bottom",
+	"triangles_top",
+}
+var bbDyeNames = []string{
+	"white", "orange", "magenta", "light_blue", "yellow", "lime",
+	"pink", "gray", "light_gray", "cyan", "purple", "blue", "brown",
+	"green", "red", "black",
+}
+
 func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, []int32, error) {
 	count, err := r.VarInt()
 	if err != nil || count <= 0 {
@@ -2073,20 +2096,32 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 			it.Trim = bbTrimMaterials[mid-1] + "/" + bbTrimPatterns[pid-1]
 		case 72: // minecraft:banner_patterns: VarInt layer count, then
 			// (pattern holder VarInt, dye ordinal VarInt) pairs — the
-			// captain banner writes 8.
+			// captain banner writes 8, a loom take appends one.
 			n, err := r.VarInt()
 			if err != nil {
 				return server.ItemStack{}, 0, false, nil, err
 			}
+			var layers []string
 			for ; n > 0; n-- {
-				if _, err := r.VarInt(); err != nil {
+				ph, err := r.VarInt()
+				if err != nil {
 					return server.ItemStack{}, 0, false, nil, err
 				}
-				if _, err := r.VarInt(); err != nil {
+				col, err := r.VarInt()
+				if err != nil {
 					return server.ItemStack{}, 0, false, nil, err
 				}
+				if ph < 1 || int(ph) > len(bbBannerPatterns) || col < 0 || int(col) > 15 {
+					return server.ItemStack{}, 0, false, nil, fmt.Errorf("blackbox: banner layer %d/%d", ph, col)
+				}
+				layers = append(layers, bbBannerPatterns[ph-1]+":"+bbDyeNames[col])
 			}
-			it.Ominous = true
+			if len(layers) > 0 {
+				it.BannerPatterns = strings.Join(layers, ",")
+			}
+			if n8 := len(layers); n8 == 8 {
+				it.Ominous = true
+			}
 		case 18: // minecraft:tooltip_display: hide byte then a VarInt
 			// holder list of hidden component types.
 			if _, err := r.Byte(); err != nil {

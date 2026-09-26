@@ -83,6 +83,11 @@ type ItemStack struct {
 	// tooltip_display hiding them, item_name block.minecraft.ominous_banner,
 	// and rarity uncommon.
 	Ominous bool `json:"ominous,omitempty"`
+	// BannerPatterns is the minecraft:banner_patterns component's
+	// canonical "pattern:color,..." layer list in application order
+	// (the loom appends one layer per take) — absent when empty, which
+	// is also a fresh banner's default so only loomed banners carry it.
+	BannerPatterns string `json:"banner_patterns,omitempty"`
 	// BottleAmpSet/BottleAmp carry minecraft:ominous_bottle_amplifier —
 	// set_ominous_bottle_amplifier rolls uniform 0-4 into the bottle a
 	// raid captain drops. Amplifier 0 is a legal value, so presence
@@ -120,6 +125,7 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.StoredEnch == other.StoredEnch && it.Bees == other.Bees &&
 		it.BlockState == other.BlockState &&
 		it.Potion == other.Potion && it.Ominous == other.Ominous &&
+		it.BannerPatterns == other.BannerPatterns &&
 		it.BottleAmpSet == other.BottleAmpSet && it.BottleAmp == other.BottleAmp &&
 		it.LootTable == other.LootTable && it.LootSeed == other.LootSeed &&
 		it.BookWritable == other.BookWritable && it.BookWritten == other.BookWritten &&
@@ -287,6 +293,9 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 	if it.Contents != nil {
 		add++
 	}
+	if it.BannerPatterns != "" && !it.Ominous {
+		add++
+	}
 	b.VarInt(add)
 	b.VarInt(0) // components to remove
 	if it.Damage != 0 {
@@ -368,6 +377,27 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		b.Byte(0)
 		b.VarInt(compRarity)
 		b.VarInt(rarityUncommon)
+	}
+	if it.BannerPatterns != "" && !it.Ominous {
+		// BannerPatternLayers STREAM_CODEC: a VarInt layer count and
+		// (pattern holder, dye ordinal) pairs — the holder writes its
+		// registry id +1, the dye its DyeColor ordinal.
+		layers := strings.Split(it.BannerPatterns, ",")
+		b.VarInt(compBannerPatterns)
+		b.VarInt(int32(len(layers)))
+		for _, l := range layers {
+			pat, col, _ := strings.Cut(l, ":")
+			pid, _ := loomPatternID(pat)
+			b.VarInt(pid + 1)
+			var ord int32
+			for i, d := range loomDyeNames {
+				if d == col {
+					ord = int32(i)
+					break
+				}
+			}
+			b.VarInt(ord)
+		}
 	}
 	if it.BottleAmpSet {
 		// OminousBottleAmplifier.STREAM_CODEC is a bare VarInt.

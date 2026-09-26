@@ -502,6 +502,10 @@ func (s *Server) handleContainerButtonClick(sess *Session, p protocol.Packet) {
 		s.stonecutterSelect(sess, w, button)
 		return
 	}
+	if w.container.spec.menu == menuLoom {
+		s.loomSelect(sess, w, button)
+		return
+	}
 	if w.container.spec.menu != menuLectern {
 		return
 	}
