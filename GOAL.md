@@ -7896,3 +7896,32 @@ Also fixed the collector bug in trackRead/fallCollect: a read timeout
 used to `goto outer`, ending the window after one quiet 80 ms span —
 legs now collect for their full duration (tracking legs unchanged,
 still green).
+## Slice 2026-09-25zs — pairing burst rides ClientboundBundlePacket + set_equipment in-stream
+
+javap'd addPairing: it collects sendPairingData's packet list and wraps
+the whole thing in ONE ClientboundBundlePacket — on the wire that's
+bundle_delimiter (0x00), the inner packets, bundle_delimiter. Raw
+probe on vanilla 26.2: a bare zombie's pairing burst is
+`0 1 99 131 0` (add_entity + set_entity_data + update_attributes),
+and `0 1 99 131 102 0` when the mob carries equipment.
+
+- sendEntityTo now bookends its stream with PlayBundleDelimiter —
+  covers pair, re-pair, and the join-time entity burst identically
+  (each addPairing call = one bundle).
+- set_equipment added to the pairing stream between attributes and
+  passengers (sendPairingData's order): emitted when
+  armorStandEquipAll returns non-empty — matching vanilla's
+  `!equipmentList.isEmpty()` gate. The EquipDirty post-spawn resend
+  stays loose like vanilla's detectEquipmentUpdates packet.
+- sendPairingData's remaining in-stream members (velocity,
+  vehicle's set_passengers, set_entity_link leash) are still gaps —
+  passengers ride the existing set_passengers branch.
+
+Pinned by TestPairingBundleParity: the bundle containing an equipped
+zombie's add_entity must carry the identical inner-id sequence on both
+servers ([1 99 131 102]).
+
+Also measured this slice: mc-go emits set_entity_data/update_attributes
+storms the vanilla pairing + wander legs don't (e.g. leg0 mc-go 13×
+{0x53,0x54,0x83} vs vanilla's 1× {0x23}) — a dirty-metadata cadence
+diff, queued for the next slice.

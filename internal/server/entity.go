@@ -999,10 +999,14 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 // health) and the passenger list. Syncable attributes, velocity,
 // leash and equipment ride the bundle too; mc-go ships those on their
 // own packets where implemented. Used by the join burst and the
-// tracked-entity pairing step.
+// tracked-entity pairing step. Vanilla's addPairing collects the whole
+// stream into one ClientboundBundlePacket — bundle_delimiter bookends.
 func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 	var first error
-	if err := sess.write(sess.ids().PlaySpawnEntity, encodeSpawn(e)); err != nil {
+	if err := sess.write(sess.ids().PlayBundleDelimiter, nil); err != nil {
+		first = err
+	}
+	if err := sess.write(sess.ids().PlaySpawnEntity, encodeSpawn(e)); err != nil && first == nil {
 		first = err
 	}
 	var meta []byte
@@ -1029,6 +1033,15 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 				first = err
 			}
 		}
+		// sendPairingData's non-empty equipment list rides the bundle
+		// between attributes and passengers — the EquipDirty resend
+		// that broadcasts fresh mob equipment after spawn is a
+		// separate (loose) packet on vanilla too.
+		if slots := armorStandEquipAll(e); len(slots) > 0 {
+			if err := sess.write(sess.ids().PlaySetEquipment, encodeEquipment(e.ID, slots)); err != nil && first == nil {
+				first = err
+			}
+		}
 	}
 	if len(e.Passengers) > 0 {
 		var b protocol.Buffer
@@ -1040,6 +1053,9 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 		if err := sess.write(sess.ids().PlaySetPassengers, b.Bytes()); err != nil && first == nil {
 			first = err
 		}
+	}
+	if err := sess.write(sess.ids().PlayBundleDelimiter, nil); err != nil && first == nil {
+		first = err
 	}
 	return first
 }
