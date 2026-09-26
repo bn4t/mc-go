@@ -8124,3 +8124,24 @@ Measured on vanilla: baby pig spawned 7.5 from a NoAI adult closed to
 1.84 and parked (mc-go 2.35). Pinned by TestMobFollowParentParity
 (followparent_test.go): baby_follows asserts closest approach < 3.5
 on both servers; noai_no_follow asserts a NoAI baby stays past 5.5.
+
+## Slice 2026-09-26h
+
+BreedGoal (javap): feeding only arms the love state — vanilla's pair
+then walks to each other through the goal. canUse = isInLove &&
+nearest same-species partner (bbox inflated 8 all axes, canMate:
+age == 0, not panicking); tick looks at the partner and repaths at
+speedModifier 1.0; loveTime counts the approach and the pair breeds
+once loveTime >= ~60 with dist² < 9. spawnChildFromBreeding spawns
+the baby at the breeder, clears love on both, sets the 6000-tick
+Age cooldown, drops a 1-7 xp orb, and fires bred_animals.
+
+This replaced mc-go's instant breed-at-feed within 8: feedAnimal now
+only sets loveTicks + hearts (gated on Age == 0 so babies and
+cooldown adults can't love), and mobBreedStep runs the approach and
+the breedPair aftermath at priority 2-3.
+
+Measured on vanilla: two fed pigs 4 apart produced a baby + xp orb
+inside ~4s; mc-go does the same. Pinned by TestMobBreedParity
+(breed_test.go): breed_baby asserts a third pig + orb spawn on both
+servers; noai_no_breed asserts a NoAI pair never produces one.

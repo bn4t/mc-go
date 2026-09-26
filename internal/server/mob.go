@@ -2324,6 +2324,12 @@ func (s *Server) mobTickStep() {
 				s.mobSyncFlush(e)
 				continue
 			}
+			// BreedGoal (priority 2-3): animals in love walk to their
+			// mate and breed on contact.
+			if s.mobBreedStep(e, ambName) {
+				s.mobSyncFlush(e)
+				continue
+			}
 			// TemptGoal (priority 3-4) outranks eat/stroll: a player
 			// holding the mob's food pulls it to 2.5 blocks.
 			if s.mobTemptStep(e, ambName) {
@@ -3264,6 +3270,76 @@ func (s *Server) mobFollowParentStep(e *Entity, name string) bool {
 	}
 	e.Yaw = float32(math.Atan2(-tx, tz) * 180 / math.Pi)
 	e.LookYaw = e.Yaw
+	e.X += tx / dist * step
+	e.Z += tz / dist * step
+	e.MotionX, e.MotionZ = tx/dist*step, tz/dist*step
+	return true
+}
+
+// mobBreedStep is BreedGoal (priority 2-3): an animal in love (fed
+// within the last 600 ticks) walks to the nearest in-love mate of the
+// same species inside its bbox inflated 8 on every axis —
+// canMate filters babies, panicking partners and animals on the
+// cooldown — looking at it the whole way. After ~60 ticks of approach
+// the pair breeds once the gap drops under 3 (9.0 dist²); a miss
+// resets the counter like the goal dropping and restarting.
+func (s *Server) mobBreedStep(e *Entity, name string) bool {
+	if e.loveTicks <= 0 || e.Baby || e.Age != 0 {
+		e.BreedTime = 0
+		return false
+	}
+	if _, breedable := animalFood[name]; !breedable {
+		return false
+	}
+	var mateID int32
+	var mx, mz float64
+	best := math.MaxFloat64
+	for _, o := range s.entities.All() {
+		if o.ID == e.ID || !o.Living || o.Type != e.Type || o.Dim != e.Dim {
+			continue
+		}
+		if o.loveTicks <= 0 || o.PanicActive || o.Baby || o.Age != 0 {
+			continue
+		}
+		if math.Abs(o.X-e.X) > 8.5 || math.Abs(o.Y-e.Y) > 8.5 || math.Abs(o.Z-e.Z) > 8.5 {
+			continue
+		}
+		d := (o.X-e.X)*(o.X-e.X) + (o.Y-e.Y)*(o.Y-e.Y) + (o.Z-e.Z)*(o.Z-e.Z)
+		if d < best {
+			best = d
+			mateID = o.ID
+			mx, mz = o.X, o.Z
+		}
+	}
+	if mateID == 0 {
+		e.BreedTime = 0
+		return false
+	}
+	e.BreedTime++
+	tx, tz := mx-e.X, mz-e.Z
+	dist := math.Hypot(tx, tz)
+	e.Yaw = float32(math.Atan2(-tx, tz) * 180 / math.Pi)
+	e.LookYaw = e.Yaw
+	if e.BreedTime >= 60 {
+		e.BreedTime = 0
+		if dist <= 3.0 {
+			if mp, ok := s.entities.GetPtr(mateID); ok && mp.loveTicks > 0 {
+				s.breedPair(e, mp, name)
+			}
+		}
+		return true
+	}
+	speed, ok := entityAttrBases[name]["movement_speed"]
+	if !ok || speed <= 0 {
+		speed = mobWalkSpeed
+	}
+	step := speed // speedModifier 1.0
+	if step > dist-1.5 {
+		step = dist - 1.5
+	}
+	if step < 0 {
+		step = 0
+	}
 	e.X += tx / dist * step
 	e.Z += tz / dist * step
 	e.MotionX, e.MotionZ = tx/dist*step, tz/dist*step

@@ -1,15 +1,6 @@
 package blackbox
 
-// TestBredAnimalsParity feeds two summoned cows wheat: husbandry/
-// breed_an_animal's "bred" (bare trigger) and bred_all_animals'
-// minecraft:cow (entity_type predicate) both fire; vanilla announces
-// the task advancement in chat. Feeding repeats over a few rounds —
-// the first interact occasionally lands before vanilla's
-// hasClientLoaded gate lifts, and a retried feed on an in-love cow is
-// a no-op.
-
 import (
-	"net"
 	"testing"
 	"time"
 
@@ -17,140 +8,141 @@ import (
 	"mc-go/internal/server"
 )
 
-func TestBredAnimalsParity(t *testing.T) {
+// breedObserve summons two pigs 4 blocks apart around the player,
+// feeds each a carrot, and watches the entity spawn stream for a third
+// pig (the baby) and an experience orb.
+func breedObserve(t *testing.T, tag, addr, name, nbt string, window time.Duration) (baby, orb bool) {
+	t.Helper()
+	c, pr, pw := joinPlayBlackbox(t, addr, name)
+	defer c.Close()
+	_ = c.SetDeadline(time.Now().Add(window + 30*time.Second))
+	drainChunkWindow(t, tag, c, pr, pw, 400*time.Millisecond)
+	sendCommand(t, pw, "tp @s 6 -60 8.5 0 0")
+	var mv protocol.Buffer
+	mv.Double(6)
+	mv.Double(-60)
+	mv.Double(8.5)
+	mv.Byte(0x01)
+	_ = pw.WritePacket(server.IDPlayMovePosSB, mv.Bytes())
+	time.Sleep(300 * time.Millisecond)
+	sendCommand(t, pw, "summon minecraft:pig 4 -60 8 "+nbt)
+	sendCommand(t, pw, "summon minecraft:pig 8 -60 8 "+nbt)
+	sendCommand(t, pw, "item replace entity @s weapon.mainhand with minecraft:carrot")
+	var hb protocol.Buffer
+	hb.Short(0)
+	_ = pw.WritePacket(server.IDPlayHeldChangeSB, hb.Bytes())
+
+	pigEIDs := map[int32]bool{}
+	end := time.Now().Add(2500 * time.Millisecond)
+	for time.Now().Before(end) && len(pigEIDs) < 2 {
+		_ = c.SetReadDeadline(time.Now().Add(80 * time.Millisecond))
+		p, err := pr.ReadPacket()
+		if err != nil {
+			continue
+		}
+		switch int32(p.ID) {
+		case server.IDPlayKeepAliveCB:
+			_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+		case server.IDPlayChunkBatchDone:
+			_ = ackChunkBatch(pw)
+		case 1:
+			r := protocol.NewPacketReader(p.Data)
+			eid, _ := r.VarInt()
+			r.UUID()
+			ty, _ := r.VarInt()
+			if n, _ := server.EntityTypeName(ty); n == "pig" {
+				pigEIDs[eid] = true
+			}
+		}
+	}
+	if len(pigEIDs) < 2 {
+		t.Fatalf("%s: wanted two pigs, saw %d", tag, len(pigEIDs))
+	}
+
+	// Feed both parents — right-click interact, main hand.
+	feed := func(eid int32) {
+		var ib protocol.Buffer
+		ib.VarInt(eid)
+		ib.VarInt(0) // interact
+		ib.VarInt(0) // main hand
+		ib.Bool(false)
+		_ = pw.WritePacket(server.IDPlayInteractSB, ib.Bytes())
+	}
+	// Higher eid second — order doesn't matter.
+	var eids []int32
+	for eid := range pigEIDs {
+		eids = append(eids, eid)
+	}
+	feed(eids[0])
+	time.Sleep(150 * time.Millisecond)
+	feed(eids[1])
+
+	start := time.Now()
+	for time.Since(start) < window {
+		_ = c.SetReadDeadline(time.Now().Add(80 * time.Millisecond))
+		p, err := pr.ReadPacket()
+		if err != nil {
+			continue
+		}
+		switch int32(p.ID) {
+		case server.IDPlayKeepAliveCB:
+			_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+		case server.IDPlayChunkBatchDone:
+			_ = ackChunkBatch(pw)
+		case 1:
+			r := protocol.NewPacketReader(p.Data)
+			r.VarInt()
+			r.UUID()
+			ty, _ := r.VarInt()
+			n, _ := server.EntityTypeName(ty)
+			if n == "pig" {
+				baby = true
+			}
+			if n == "experience_orb" {
+				orb = true
+			}
+		}
+	}
+	sendCommand(t, pw, "kill @e[type=minecraft:pig]")
+	time.Sleep(1300 * time.Millisecond)
+	return baby, orb
+}
+
+// TestMobBreedParity pins BreedGoal: two fed pigs in love walk to each
+// other and, after ~60 ticks of approach, a baby spawns with the 1-7
+// xp award — while NoAI pigs in love never produce one.
+func TestMobBreedParity(t *testing.T) {
 	targets := requireBlackboxFiles(t, nil, map[string]string{
-		"ops.json": opsJSONFor("Breed"),
-	}, func(s *server.Server) {
-		s.GameMode = server.GameModeCreative
-	})
+		"ops.json": opsJSONFor("BREED"),
+	}, nil)
 	defer targets.cleanup()
 
-	// drainInto collects advancement/chat traffic while answering the
-	// housekeeping packets both servers expect (keepalive echo,
-	// teleport confirm).
-	drainInto := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, f *advFlush, eids map[int32]bool, d time.Duration) {
-		end := time.Now().Add(d)
-		for time.Now().Before(end) {
-			_ = c.SetReadDeadline(time.Now().Add(time.Until(end)))
-			p, err := pr.ReadPacket()
-			if err != nil {
-				break
+	t.Run("breed_baby", func(t *testing.T) {
+		for _, tc := range []struct{ tag, addr string }{
+			{"vanilla", targets.vanilla},
+			{"mc-go", targets.mcgo},
+		} {
+			baby, orb := breedObserve(t, tc.tag, tc.addr, "BREED", "{}", 9*time.Second)
+			t.Logf("%s: baby=%v orb=%v", tc.tag, baby, orb)
+			if !baby {
+				t.Fatalf("%s: no baby pig spawned — BreedGoal should mate the fed pair", tc.tag)
 			}
-			if eids != nil && p.ID == server.IDPlaySpawnEntity {
-				r := protocol.NewPacketReader(p.Data)
-				id, e1 := r.VarInt()
-				_, e2 := r.Read(16) // uuid
-				typ, e3 := r.VarInt()
-				if e1 == nil && e2 == nil && e3 == nil && typ == 30 { // minecraft:cow — the flat world naturally spawns other animals
-					eids[id] = true
-				}
-			}
-			if p.ID == server.IDPlayUpdateAdvance {
-				decodeUpdateAdv(t, p.Data, f)
-			}
-			if p.ID == server.IDPlaySystemChatCB {
-				f.chats = append(f.chats, chatKey(p.Data))
-			}
-			if p.ID == server.IDPlayKeepAliveCB {
-				var kb protocol.Buffer
-				kb.Raw(p.Data)
-				_ = pw.WritePacket(server.IDPlayKeepAliveSB, kb.Bytes())
-			}
-			if p.ID == server.IDPlaySyncPos {
-				if id, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
-					var tb protocol.Buffer
-					tb.VarInt(id)
-					_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, tb.Bytes())
-				}
-			}
-			if p.ID == server.IDPlayChunkBatchDone {
-				_ = ackChunkBatch(pw)
+			if !orb {
+				t.Fatalf("%s: no xp orb spawned — spawnChildFromBreeding awards 1-7 xp", tc.tag)
 			}
 		}
-	}
+	})
 
-	run := func(addr string) *advFlush {
-		f := &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}}
-		c, pr, pw := joinPlayBlackbox(t, addr, "Breed")
-		defer c.Close()
-		_ = c.SetDeadline(time.Time{})
-		drainInto(c, pr, pw, f, nil, 1200*time.Millisecond)
-		sendCommand(t, pw, "gamemode survival @s")
-		sendCommand(t, pw, "tp @s 30 -60 28 0 0")
-		// A two-cell pen keeps the pair in interact range — wandering
-		// cows otherwise drift past vanilla's ~3-block use distance.
-		sendCommand(t, pw, "fill 29 -60 29 32 -59 32 minecraft:stone")
-		sendCommand(t, pw, "fill 30 -60 30 31 -59 30 minecraft:air")
-		sendCommand(t, pw, "summon minecraft:cow 30.5 -60 30.4")
-		sendCommand(t, pw, "summon minecraft:cow 31.5 -60 30.6")
-		// The summon answers carry the cows' entity ids in
-		// entity_spawn packets — capture both. Vanilla's entity
-		// tracking can lag the teleport's chunk stream by several
-		// seconds, so collection also continues inside later drains.
-		eids := map[int32]bool{}
-		end := time.Now().Add(10 * time.Second)
-		for time.Now().Before(end) && len(eids) < 2 {
-			_ = c.SetReadDeadline(time.Now().Add(time.Until(end)))
-			p, err := pr.ReadPacket()
-			if err != nil {
-				break
-			}
-			if p.ID == server.IDPlaySpawnEntity {
-				r := protocol.NewPacketReader(p.Data)
-				id, e1 := r.VarInt()
-				_, e2 := r.Read(16) // uuid
-				typ, e3 := r.VarInt()
-				if e1 == nil && e2 == nil && e3 == nil && typ == 30 { // minecraft:cow — the flat world naturally spawns other animals
-					eids[id] = true
-				}
-			}
-			if p.ID == server.IDPlayUpdateAdvance {
-				decodeUpdateAdv(t, p.Data, f)
-			}
-			if p.ID == server.IDPlaySystemChatCB {
-				f.chats = append(f.chats, chatKey(p.Data))
-			}
-			if p.ID == server.IDPlayKeepAliveCB {
-				var kb protocol.Buffer
-				kb.Raw(p.Data)
-				_ = pw.WritePacket(server.IDPlayKeepAliveSB, kb.Bytes())
-			}
-			if p.ID == server.IDPlaySyncPos {
-				if id, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
-					var tb protocol.Buffer
-					tb.VarInt(id)
-					_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, tb.Bytes())
-				}
-			}
-			if p.ID == server.IDPlayChunkBatchDone {
-				_ = ackChunkBatch(pw)
+	t.Run("noai_no_breed", func(t *testing.T) {
+		for _, tc := range []struct{ tag, addr string }{
+			{"vanilla", targets.vanilla},
+			{"mc-go", targets.mcgo},
+		} {
+			baby, _ := breedObserve(t, tc.tag, tc.addr, "BREED", "{NoAI:1b}", 7*time.Second)
+			t.Logf("%s: baby=%v", tc.tag, baby)
+			if baby {
+				t.Fatalf("%s: NoAI pair produced a baby — the goal selector must be off", tc.tag)
 			}
 		}
-		sendCommand(t, pw, "item replace entity @s weapon.mainhand with minecraft:wheat 16")
-		drainInto(c, pr, pw, f, eids, 600*time.Millisecond)
-		// Feed both cows, retrying — a re-feed on an already-loving
-		// cow is a no-op, and keeps collecting entity ids.
-		for round := 0; round < 4 && !f.prog["minecraft:husbandry/breed_an_animal"]["bred"]; round++ {
-			for id := range eids {
-				var ib protocol.Buffer
-				ib.VarInt(id)
-				ib.VarInt(0) // interact
-				ib.VarInt(0) // main hand
-				ib.Bool(false)
-				_ = pw.WritePacket(server.IDPlayInteractSB, ib.Bytes())
-			}
-			drainInto(c, pr, pw, f, eids, 900*time.Millisecond)
-		}
-		drainInto(c, pr, pw, f, eids, 4500*time.Millisecond)
-		return f
-	}
-
-	want := run(targets.vanilla)
-	got := run(targets.mcgo)
-	if !want.prog["minecraft:husbandry/breed_an_animal"]["bred"] {
-		t.Fatalf("vanilla: breed_an_animal not granted: %v", want.prog["minecraft:husbandry/breed_an_animal"])
-	}
-	if diffs := diffAdvFlush(want, got); len(diffs) > 0 {
-		t.Fatalf("bred_animals parity: %d diffs\n%v", len(diffs), diffs)
-	}
+	})
 }

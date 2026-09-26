@@ -3,7 +3,6 @@ package server
 import (
 	"mc-go/internal/world"
 
-	"math"
 	"math/rand"
 )
 
@@ -50,6 +49,11 @@ func (s *Server) feedAnimal(sess *Session, eid int32, hand int32) {
 	if !breedable {
 		return
 	}
+	// Babies and adults still on the 6000-tick breed cooldown can't
+	// love — canMate gates on age == 0.
+	if e.Age != 0 {
+		return
+	}
 	held, hslot := sess.stackForHand(hand)
 	if held.Empty() {
 		return
@@ -68,39 +72,55 @@ func (s *Server) feedAnimal(sess *Session, eid int32, hand int32) {
 	e.loveCause = sess.getName()
 	s.broadcastEntityEventTo(nil, e.Dim, e.ID, 18) // hearts
 	s.broadcastEntityAnimation(sess, sess.entityID.Load(), 0)
+	// Breeding itself is BreedGoal's: the pair walks together for
+	// ~60 ticks and the baby spawns on contact — see mobBreedStep.
+}
 
-	// A same-species mate already in love within ~8 blocks breeds.
-	s.entities.mu.RLock()
-	var mate *Entity
-	for _, other := range s.entities.byID {
-		if other.ID == e.ID || other.Dim != e.Dim || other.Type != e.Type || other.loveTicks <= 0 {
-			continue
-		}
-		dx, dy, dz := other.X-e.X, other.Y-e.Y, other.Z-e.Z
-		if math.Sqrt(dx*dx+dy*dy+dz*dz) <= 8 {
-			mate = other
-			break
-		}
-	}
-	s.entities.mu.RUnlock()
-	if mate == nil {
-		return
-	}
+// breedPair is Animal.spawnChildFromBreeding: love clears on both
+// parents and they take the 6000-tick (5-minute) cooldown, a baby of
+// their species spawns at the breeder, 1-7 xp drops at the pair, and
+// the last feeder earns bred_animals criteria.
+func (s *Server) breedPair(e, mate *Entity, name string) {
+	causer := e.loveCause
 	e.loveTicks, mate.loveTicks = 0, 0
 	e.loveCause, mate.loveCause = "", ""
+	e.Age, mate.Age = 6000, 6000
+	e.BreedTime, mate.BreedTime = 0, 0
 	baby := s.entities.Spawn(&Entity{
 		Type:      e.Type,
 		Dim:       e.Dim,
-		X:         (e.X + mate.X) / 2,
+		X:         e.X,
 		Y:         e.Y,
-		Z:         (e.Z + mate.Z) / 2,
+		Z:         e.Z,
 		Living:    true,
 		Health:    mobHealth[name],
 		MaxHealth: mobHealth[name],
+		Age:       -24000,
+		Baby:      true,
 	})
 	s.broadcastEntitySpawn(nil, *baby)
 	s.broadcastEntityMetadata(baby.ID, encodeLivingMetadata(baby, nil))
-	s.fireBredAnimal(sess, name)
+	s.broadcastEntityEventTo(nil, e.Dim, baby.ID, 18) // hearts on the newborn
+	// ExperienceOrb.award: one orb worth 1-7.
+	s.spawnXPOrb(e.Dim, e.X, e.Y, e.Z, int32(1+rand.Intn(7)))
+	if sess := s.sessionByName(causer); sess != nil {
+		s.fireBredAnimal(sess, name)
+	}
+}
+
+// sessionByName finds the play-state session with that name — the
+// loveCause bookkeeping stores names, not entity ids.
+func (s *Server) sessionByName(name string) *Session {
+	var out *Session
+	s.sessions.Range(func(_, v any) bool {
+		p := v.(*Session)
+		if p.getName() == name {
+			out = p
+			return false
+		}
+		return true
+	})
+	return out
 }
 
 // tameFood maps tameable species to the item that tames them and the

@@ -421,6 +421,10 @@ type Entity struct {
 	// inLove countdown plus the player who fed it last.
 	loveTicks int32
 	loveCause string
+	// BreedTime is BreedGoal's loveTime — ticks the pair has spent
+	// walking toward each other; the goal breeds at 60 when the gap
+	// drops under 3 (9.0 dist²).
+	BreedTime int32
 	// ambientSoundTime is Mob.ambientSoundTime — climbs each living
 	// tick, fires the ambient voice when random.nextInt(1000) is under
 	// it, then resets to -getAmbientSoundInterval.
