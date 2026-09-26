@@ -8145,3 +8145,19 @@ Measured on vanilla: two fed pigs 4 apart produced a baby + xp orb
 inside ~4s; mc-go does the same. Pinned by TestMobBreedParity
 (breed_test.go): breed_baby asserts a third pig + orb spawn on both
 servers; noai_no_breed asserts a NoAI pair never produces one.
+
+## Slice 2026-09-26i
+
+dropAllDeathLoot + dropExperience pinning. Vanilla's gates (javap,
+LivingEntity): shouldDropLoot = !isBaby && mob_drops gamerule;
+shouldDropExperience = !isBaby; the xp award additionally needs the
+lastHurtByPlayer window (100t). The sheep wool pool resolves a
+per-color sub-table gated on type_specific/sheep {sheared:false} —
+mc-go now skips the wool pool on Sheared instead of always dropping
+white_wool.
+
+Pinned by TestMobLootParity (mobloot_test.go): adult_drops asserts a
+player-killed pig emits loot + xp on both servers; sheared_no_wool
+asserts exactly one item (mutton) on a shorn sheep; baby_no_drops
+asserts a baby drops nothing. /damage ... player_attack by @s arms
+the killed-by-player window through the command path.

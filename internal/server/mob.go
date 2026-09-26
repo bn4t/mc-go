@@ -44,7 +44,11 @@ type lootPool struct {
 	rare              bool
 	rareUnenchanted   float64
 	rareBase, rarePer float64
-	entries           []lootEntry
+	// noSheared gates the wool pool: every color entry carries
+	// type_specific/sheep {sheared:false}, so a shorn sheep drops
+	// no wool.
+	noSheared bool
+	entries   []lootEntry
 }
 
 // mobLoot transcribes the 26.2 datapack entity tables for the mobs
@@ -68,7 +72,7 @@ var mobLoot = map[string][]lootPool{
 	"sheep": {
 		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
 			{item: "mutton", min: 1, max: 2, smeltTo: "cooked_mutton", looting: true}}},
-		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+		{rollsMin: 1, rollsMax: 1, noSheared: true, entries: []lootEntry{
 			{item: "white_wool", min: 1, max: 1}}},
 	},
 	"zombie": {
@@ -245,6 +249,9 @@ func (s *Server) spawnMobLootPools(e *Entity, killer *Session, name string, byPl
 			continue
 		}
 		if p.captain && !mobIsCaptain(e) {
+			continue
+		}
+		if p.noSheared && e.Sheared {
 			continue
 		}
 		if p.rare {
