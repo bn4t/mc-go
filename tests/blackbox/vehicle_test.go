@@ -835,6 +835,73 @@ func dataGetFloat(t *testing.T, v *vehPair, query string) (float64, bool) {
 	return f, err == nil
 }
 
+var dataNumLooseRe = regexp.MustCompile(`(-?\d+(?:\.\d+)?)[bBsSiIlLfFdD]?`)
+
+// dataGetNum reads the last tagged-or-plain number in a data-get
+// reply — bytes (0b), shorts (0s) and ints (-1) all count, unlike
+// dataGetFloat's d/f-only parse.
+func dataGetNum(t *testing.T, v *vehPair, query string) (float64, bool) {
+	t.Helper()
+	r := dataGetReply(t, v, query)
+	ms := dataNumLooseRe.FindAllStringSubmatch(r, -1)
+	if len(ms) == 0 {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(ms[len(ms)-1][1], 64)
+	return f, err == nil
+}
+
+// dataGetReply is dataGetFloat without the number extraction — for
+// presence assertions on keys whose value isn't numeric (Items[],
+// Command "", SpawnPotentials). An absent key replies
+// arguments.nbtpath.nothing_found.
+func dataGetReply(t *testing.T, v *vehPair, query string) string {
+	t.Helper()
+	var b protocol.Buffer
+	b.String(query)
+	if err := v.pwa.WritePacket(server.IDPlayChatCommandSB, b.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	var text strings.Builder
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, s := range []struct {
+			c  net.Conn
+			pr *protocol.Reader
+			pw *protocol.Writer
+			a  bool
+		}{{v.ca, v.pra, v.pwa, true}, {v.cb, v.prb, v.pwb, false}} {
+			_ = s.c.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
+			for {
+				p, err := s.pr.ReadPacket()
+				if err != nil {
+					break
+				}
+				switch int32(p.ID) {
+				case server.IDPlayKeepAliveCB:
+					_ = s.pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+				case server.IDPlayChunkBatchDone:
+					_ = ackChunkBatch(s.pw)
+				case server.IDPlaySyncPos:
+					r := protocol.NewPacketReader(p.Data)
+					id, _ := r.VarInt()
+					var bb protocol.Buffer
+					bb.VarInt(id)
+					_ = s.pw.WritePacket(server.IDPlayTeleportConfirmSB, bb.Bytes())
+				case server.IDPlaySystemChatCB:
+					if s.a {
+						text.WriteString(chatTextBlackbox(t, p.Data))
+					}
+				}
+			}
+		}
+		if strings.Contains(text.String(), "commands.data.entity.query") || strings.Contains(text.String(), "nothing_found") {
+			break
+		}
+	}
+	return text.String()
+}
+
 // TestMinecartPushPickupParity covers pushAndPickupEntities and its
 // neighbors on flat ground: a rideable moving cart scoops a pushable
 // mob into its seat (startRiding) and welds it per-tick; a ridden
@@ -1155,6 +1222,105 @@ func TestMinecartRiderKickParity(t *testing.T) {
 			t.Fatalf("%s: rider input never moved the cart (x=%.4f)", tag, bx)
 		}
 		t.Logf("%s: activator eject ok; rider-kick cart at %.4f", tag, bx)
+		v.ca.Close()
+		v.cb.Close()
+	}
+}
+
+// TestMinecartVariantNBTParity pins every minecart variant's
+// saveWithoutId shape — the shared cart fields plus each subtype's
+// addAdditionalSaveData keys — and that carts carry no living fields
+// (Health, NoAI, ...) at all.
+func TestMinecartVariantNBTParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("BOATA", "BOATB"),
+	}, nil)
+	defer targets.cleanup()
+	for _, tag := range []string{"vanilla", "mc-go"} {
+		addr := targets.vanilla
+		if tag == "mc-go" {
+			addr = targets.mcgo
+		}
+		v := joinVehPair(t, addr)
+		drainChunkWindow(t, tag, v.ca, v.pra, v.pwa, 300*time.Millisecond)
+		drainChunkWindow(t, tag, v.cb, v.prb, v.pwb, 300*time.Millisecond)
+		sendCommand(t, v.pwa, "tp @s 20 -60 40")
+		z := 40
+		summon := func(ty string) {
+			sendCommand(t, v.pwa, "summon minecraft:"+ty+" 20.5 -60 "+itoa(int32(z)))
+			z += 2
+		}
+		sel := func(ty string) string { return "@e[type=" + ty + ",limit=1,sort=nearest]" }
+		summon("minecart")
+		summon("chest_minecart")
+		summon("furnace_minecart")
+		summon("hopper_minecart")
+		summon("tnt_minecart")
+		summon("command_block_minecart")
+		summon("spawner_minecart")
+		summon("oak_boat")
+		time.Sleep(500 * time.Millisecond)
+
+		// Shared cart fields — every variant carries them.
+		for _, vn := range []string{"minecart", "chest_minecart", "furnace_minecart", "hopper_minecart", "tnt_minecart", "command_block_minecart", "spawner_minecart"} {
+			for _, key := range []string{"FlippedRotation", "HasTicked"} {
+				if val, ok := dataGetNum(t, v, "data get entity "+sel(vn)+" "+key); !ok || val != 0 {
+					t.Fatalf("%s: %s %s = %v ok=%v, want 0", tag, vn, key, val, ok)
+				}
+			}
+			// No living fields on carts.
+			if val, ok := dataGetNum(t, v, "data get entity "+sel(vn)+" Health"); ok {
+				t.Fatalf("%s: %s leaked living field Health=%v", tag, vn, val)
+			}
+		}
+		// Variant keys.
+		checks := []struct {
+			vn, key string
+			want    float64
+		}{
+			{"furnace_minecart", "Fuel", 0},
+			{"furnace_minecart", "PushX", 0},
+			{"furnace_minecart", "PushZ", 0},
+			{"hopper_minecart", "Enabled", 1},
+			{"tnt_minecart", "fuse", -1},
+			{"command_block_minecart", "SuccessCount", 0},
+			{"command_block_minecart", "UpdateLastExecution", 1},
+			{"command_block_minecart", "TrackOutput", 1},
+			{"spawner_minecart", "MinSpawnDelay", 200},
+			{"spawner_minecart", "MaxSpawnDelay", 800},
+			{"spawner_minecart", "SpawnCount", 4},
+			{"spawner_minecart", "MaxNearbyEntities", 6},
+			{"spawner_minecart", "RequiredPlayerRange", 16},
+			{"spawner_minecart", "SpawnRange", 4},
+		}
+		for _, c := range checks {
+			if val, ok := dataGetNum(t, v, "data get entity "+sel(c.vn)+" "+c.key); !ok || val != c.want {
+				t.Fatalf("%s: %s %s = %v ok=%v, want %v", tag, c.vn, c.key, val, ok, c.want)
+			}
+		}
+		// Delay counts down on a live spawner — vanilla randomizes
+		// it into [MinSpawnDelay, MaxSpawnDelay] on the first tick.
+		// mc-go's static extras value sits inside that window; the
+		// countdown semantics themselves stay a spawner-behavior gap.
+		if val, ok := dataGetNum(t, v, "data get entity "+sel("spawner_minecart")+" Delay"); !ok || val < 0 || val > 800 {
+			t.Fatalf("%s: spawner Delay = %v ok=%v, want 0..800", tag, val, ok)
+		}
+		// Presence-only keys (non-numeric values).
+		for _, q := range []struct{ vn, key string }{
+			{"chest_minecart", "Items"},
+			{"hopper_minecart", "Items"},
+			{"command_block_minecart", "Command"},
+			{"spawner_minecart", "SpawnPotentials"},
+		} {
+			if r := dataGetReply(t, v, "data get entity "+sel(q.vn)+" "+q.key); strings.Contains(r, "nothing_found") {
+				t.Fatalf("%s: %s missing %s (%q)", tag, q.vn, q.key, r)
+			}
+		}
+		// Boats are non-living too — no living keys on the save.
+		if val, ok := dataGetNum(t, v, "data get entity "+sel("oak_boat")+" Health"); ok {
+			t.Fatalf("%s: boat leaked living field Health=%v", tag, val)
+		}
+		t.Logf("%s: variant NBT shapes ok", tag)
 		v.ca.Close()
 		v.cb.Close()
 	}

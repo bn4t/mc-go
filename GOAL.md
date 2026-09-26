@@ -8506,3 +8506,52 @@ activator cart via right-click interact -> floatMax[10] >= 45
 the dead powered_rail cart as player B and holds forward ->
 the cart creeps past the brake run to x 23.24 (vanilla) / 23.19
 (mc-go) vs the dead stop without input.
+
+## Slice 2026-09-26s — non-living save shape + minecart variant NBT
+
+Measured: `data get entity` on a summoned minecart, every variant
+(chest/furnace/hopper/tnt/command_block/spawner) and an oak_boat on
+vanilla — NONE emit LivingEntity fields (Health, HurtTime,
+DeathTime, AbsorptionAmount, FallFlying, LeftHanded, NoAI,
+CanPickUpLoot, PersistenceRequired, equipment, attributes,
+active_effects, leash, Brain, current_impulse_context_reset_grace_time).
+mc-go leaked the whole living block onto every non-living entity.
+Variant save keys on vanilla (live dump): chest=`Items`; hopper=
+`Enabled1b`,`Items`; furnace=`Fuel0s`,`PushX/PushZ 0.0d`; tnt=
+`fuse -1` int; command_block=`Command ""`, `SuccessCount 0`,
+`UpdateLastExecution 1b`, `TrackOutput 1b`; spawner=`Delay`,
+`MinSpawnDelay200s`, `MaxSpawnDelay800s`, `SpawnCount4s`,
+`MaxNearbyEntities6s`, `RequiredPlayerRange16s`, `SpawnRange4s`,
+`SpawnPotentials[{data:{entity:{}},weight:1}]`. All carts also
+carry `FlippedRotation 0b` + `HasTicked 0b`.
+
+mc-go: entitySaveMap now emits the shared entity fields for every
+entity and gates the entire living block on e.Living — the living
+keys, equipment map, horse/sheep/pig per-type fields, bee fields,
+villager fields, attributes + active_effects, and the leash entry.
+summonMobRaw already set Living on every mob path, so mobs serialize
+unchanged. entitySaveExtras swaps the old `minecart` entry for the
+full measured per-variant table (Items/Enabled/Fuel+Push/fuse/
+command-block quad/spawner octet + SpawnPotentials). AbstractCart's
+FlippedRotation + HasTicked emit under isMinecartName.
+
+Spawner Delay is live on vanilla: randomized into
+[MinSpawnDelay, MaxSpawnDelay] on the first tick and counts down —
+the test asserts presence + range (0..800), not a value; the
+countdown itself stays a spawner-behavior gap. dataNumRe only
+matches d/f-suffixed numbers, so dataGetNum (loose suffix
+regex over dataGetReply) reads bytes/shorts/ints, and dataGetReply
+pins presence for non-numeric values (Items, Command, SpawnPotentials).
+
+TestMinecartVariantNBTParity (differential): summons all 7 cart
+types + an oak_boat on each server; per cart asserts
+FlippedRotation/HasTicked = 0 and Health absent; 15 variant
+key/value checks + 4 presence checks; boat Health absent. PASS on
+vanilla and mc-go.
+
+Notes: boats are non-living too — vanilla's oak_boat emits the
+same shared-only shape. Preexisting gap found: TestDataEntityParity
+fails on clean master — mc-go emits an extra set_entity_data flush
+around the /summon success chat (meta,meta,chat,meta vs vanilla
+meta,chat,meta) — same packet set, ordering + one extra flush;
+tracked here, not touched this slice.

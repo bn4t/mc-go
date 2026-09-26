@@ -488,123 +488,131 @@ func entityDisplayName(e *Entity) component {
 func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	typeName, _ := EntityTypeName(e.Type)
 	m := map[string]any{
-		"AbsorptionAmount": float32(0),
-		"Air":              int16(300),
-		"CanPickUpLoot":    nbtBool(e.CanPickUpLoot),
-		"DeathTime":        int16(0),
-		"FallFlying":       int8(0),
-		"Fire":             int16(0),
-		"Health":           e.Health,
-		"HurtTime":         int16(0),
-		"Invulnerable":     int8(0),
-		"LeftHanded":       nbtBool(e.LeftHanded),
+		"Air":          int16(300),
+		"Fire":         int16(0),
+		"Invulnerable": int8(0),
 		"Motion": nbt.List{Elem: nbt.TagDouble, Items: []any{
 			e.MotionX, e.MotionY, e.MotionZ,
 		}},
-		"NoAI":                nbtBool(e.NoAI),
-		"OnGround":            nbtBool(e.Grounded),
-		"PersistenceRequired": nbtBool(e.PersistenceRequired),
-		"PortalCooldown":      int32(0),
-		"Pos":                 nbt.List{Elem: nbt.TagDouble, Items: []any{e.X, e.Y, e.Z}},
-		"Rotation":            nbt.List{Elem: nbt.TagFloat, Items: []any{e.Yaw, e.Pitch}},
+		"OnGround":       nbtBool(e.Grounded),
+		"PortalCooldown": int32(0),
+		"Pos":            nbt.List{Elem: nbt.TagDouble, Items: []any{e.X, e.Y, e.Z}},
+		"Rotation":       nbt.List{Elem: nbt.TagFloat, Items: []any{e.Yaw, e.Pitch}},
 		"UUID": []int32{
 			int32(e.UUID[0])<<24 | int32(e.UUID[1])<<16 | int32(e.UUID[2])<<8 | int32(e.UUID[3]),
 			int32(e.UUID[4])<<24 | int32(e.UUID[5])<<16 | int32(e.UUID[6])<<8 | int32(e.UUID[7]),
 			int32(e.UUID[8])<<24 | int32(e.UUID[9])<<16 | int32(e.UUID[10])<<8 | int32(e.UUID[11]),
 			int32(e.UUID[12])<<24 | int32(e.UUID[13])<<16 | int32(e.UUID[14])<<8 | int32(e.UUID[15]),
 		},
-		"current_impulse_context_reset_grace_time": int32(0),
 		"fall_distance": float64(0),
+	}
+	// LivingEntity.save adds the living block — carts, boats and
+	// other non-living entities emit the shared set only.
+	if e.Living {
+		m["AbsorptionAmount"] = float32(0)
+		m["CanPickUpLoot"] = nbtBool(e.CanPickUpLoot)
+		m["DeathTime"] = int16(0)
+		m["FallFlying"] = int8(0)
+		m["Health"] = e.Health
+		m["HurtTime"] = int16(0)
+		m["LeftHanded"] = nbtBool(e.LeftHanded)
+		m["NoAI"] = nbtBool(e.NoAI)
+		m["PersistenceRequired"] = nbtBool(e.PersistenceRequired)
+		m["current_impulse_context_reset_grace_time"] = int32(0)
 	}
 	if e.CustomName != "" {
 		m["CustomName"] = e.CustomName
 	}
-	equipMob := map[string]any{}
-	for slot, name := range map[int32]string{
-		equipMainHand: "mainhand", equipOffHand: "offhand",
-		equipBoots: "feet", equipLegs: "legs",
-		equipChest: "chest", equipHelmet: "head",
-	} {
-		if it := e.Equips[slot]; !it.Empty() {
-			equipMob[name] = itemNBT(it)
-		}
-	}
-	// EquipmentSlot order: BODY after HEAD, SADDLE last.
-	if !e.BodyItem.Empty() {
-		equipMob["body"] = itemNBT(e.BodyItem)
-	}
-	if e.Saddle {
-		equipMob["saddle"] = map[string]any{"id": "minecraft:saddle", "count": int32(1)}
-	}
-	if len(equipMob) > 0 {
-		m["equipment"] = equipMob
-	}
-	// AbstractHorse writes Tame; AbstractChestedHorse writes
-	// ChestedHorse always and the flat Items list when chested —
-	// every non-empty inventory cell (saddle slot 0, body slot 1,
-	// chest cells 2..). The llama family adds Strength and Variant.
-	if mountScreenTypes[typeName] {
-		m["Tame"] = nbtBool(e.Tamed)
-	}
-	if chestedMountTypes[typeName] {
-		m["ChestedHorse"] = nbtBool(e.HasChest)
-		if e.HasChest {
-			var items []any
-			if e.Saddle {
-				if sid, ok := world.ItemID("saddle"); ok {
-					items = append(items, itemNBTSlotted(ItemStack{ID: sid, Count: 1}, 0))
-				}
-			}
-			if !e.BodyItem.Empty() {
-				items = append(items, itemNBTSlotted(e.BodyItem, 1))
-			}
-			for i, st := range e.MountInv {
-				if !st.Empty() {
-					items = append(items, itemNBTSlotted(st, int8(i+2)))
-				}
-			}
-			if len(items) > 0 {
-				m["Items"] = nbt.List{Elem: nbt.TagCompound, Items: items}
+	if e.Living {
+		equipMob := map[string]any{}
+		for slot, name := range map[int32]string{
+			equipMainHand: "mainhand", equipOffHand: "offhand",
+			equipBoots: "feet", equipLegs: "legs",
+			equipChest: "chest", equipHelmet: "head",
+		} {
+			if it := e.Equips[slot]; !it.Empty() {
+				equipMob[name] = itemNBT(it)
 			}
 		}
+		// EquipmentSlot order: BODY after HEAD, SADDLE last.
+		if !e.BodyItem.Empty() {
+			equipMob["body"] = itemNBT(e.BodyItem)
+		}
+		if e.Saddle {
+			equipMob["saddle"] = map[string]any{"id": "minecraft:saddle", "count": int32(1)}
+		}
+		if len(equipMob) > 0 {
+			m["equipment"] = equipMob
+		}
 	}
-	if llamaDecorTypes[typeName] {
-		m["Strength"] = e.Strength
-		m["Variant"] = e.LlamaVariant
-	}
-	// The Zombie/AbstractPiglin/Zoglin hierarchies declare IsBaby —
-	// AgeableMob types carry Age instead.
-	if isBabyTypes[typeName] {
-		m["IsBaby"] = nbtBool(e.Baby)
-	}
-	// Sheep.writeAdditionalSaveData: Sheared + the dye Color byte —
-	// mc-go sheep are always white (0) until a dye field exists.
-	if typeName == "sheep" {
-		m["Sheared"] = nbtBool(e.Sheared)
-		m["Color"] = int8(0)
-	}
-	// SnowGolem.writeAdditionalSaveData carries the Pumpkin flag.
-	if typeName == "snow_golem" {
-		m["Pumpkin"] = nbtBool(e.Pumpkin)
-	}
-	// Bogged.addAdditionalSaveData writes the lowercase "sheared" tag.
-	if typeName == "bogged" {
-		m["sheared"] = nbtBool(e.Sheared)
-	}
-	// AbstractPiglin and Hoglin declare the zombification pair.
-	if overworldZombifyTypes[typeName] {
-		m["IsImmuneToZombification"] = nbtBool(e.ImmuneToZombification)
-		m["TimeInOverworld"] = e.TimeInOverworld
-	}
-	// PatrollingMonster declares PatrolLeader/Patrolling and the
-	// nullable patrol_target BlockPos; the leader head slot's 2.0 drop
-	// chance writes a drop_chances override compound.
-	if patrollingTypes[typeName] {
-		m["PatrolLeader"] = nbtBool(e.PatrolLeader)
-		m["Patrolling"] = nbtBool(e.Patrolling)
-		if e.HasPatrolTarget {
-			m["patrol_target"] = []int32{
-				int32(e.PatrolTarget.X), int32(e.PatrolTarget.Y), int32(e.PatrolTarget.Z),
+	if e.Living {
+		// AbstractHorse writes Tame; AbstractChestedHorse writes
+		// ChestedHorse always and the flat Items list when chested —
+		// every non-empty inventory cell (saddle slot 0, body slot 1,
+		// chest cells 2..). The llama family adds Strength and Variant.
+		if mountScreenTypes[typeName] {
+			m["Tame"] = nbtBool(e.Tamed)
+		}
+		if chestedMountTypes[typeName] {
+			m["ChestedHorse"] = nbtBool(e.HasChest)
+			if e.HasChest {
+				var items []any
+				if e.Saddle {
+					if sid, ok := world.ItemID("saddle"); ok {
+						items = append(items, itemNBTSlotted(ItemStack{ID: sid, Count: 1}, 0))
+					}
+				}
+				if !e.BodyItem.Empty() {
+					items = append(items, itemNBTSlotted(e.BodyItem, 1))
+				}
+				for i, st := range e.MountInv {
+					if !st.Empty() {
+						items = append(items, itemNBTSlotted(st, int8(i+2)))
+					}
+				}
+				if len(items) > 0 {
+					m["Items"] = nbt.List{Elem: nbt.TagCompound, Items: items}
+				}
+			}
+		}
+		if llamaDecorTypes[typeName] {
+			m["Strength"] = e.Strength
+			m["Variant"] = e.LlamaVariant
+		}
+		// The Zombie/AbstractPiglin/Zoglin hierarchies declare IsBaby —
+		// AgeableMob types carry Age instead.
+		if isBabyTypes[typeName] {
+			m["IsBaby"] = nbtBool(e.Baby)
+		}
+		// Sheep.writeAdditionalSaveData: Sheared + the dye Color byte —
+		// mc-go sheep are always white (0) until a dye field exists.
+		if typeName == "sheep" {
+			m["Sheared"] = nbtBool(e.Sheared)
+			m["Color"] = int8(0)
+		}
+		// SnowGolem.writeAdditionalSaveData carries the Pumpkin flag.
+		if typeName == "snow_golem" {
+			m["Pumpkin"] = nbtBool(e.Pumpkin)
+		}
+		// Bogged.addAdditionalSaveData writes the lowercase "sheared" tag.
+		if typeName == "bogged" {
+			m["sheared"] = nbtBool(e.Sheared)
+		}
+		// AbstractPiglin and Hoglin declare the zombification pair.
+		if overworldZombifyTypes[typeName] {
+			m["IsImmuneToZombification"] = nbtBool(e.ImmuneToZombification)
+			m["TimeInOverworld"] = e.TimeInOverworld
+		}
+		// PatrollingMonster declares PatrolLeader/Patrolling and the
+		// nullable patrol_target BlockPos; the leader head slot's 2.0 drop
+		// chance writes a drop_chances override compound.
+		if patrollingTypes[typeName] {
+			m["PatrolLeader"] = nbtBool(e.PatrolLeader)
+			m["Patrolling"] = nbtBool(e.Patrolling)
+			if e.HasPatrolTarget {
+				m["patrol_target"] = []int32{
+					int32(e.PatrolTarget.X), int32(e.PatrolTarget.Y), int32(e.PatrolTarget.Z),
+				}
 			}
 		}
 	}
@@ -615,39 +623,41 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	if e.NoGravity {
 		m["NoGravity"] = int8(1)
 	}
-	// Bee.addAdditionalSaveData writes the bee fields always:
-	// HasNectar/HasStung bytes, TicksSincePollination and
-	// CannotEnterHiveTicks ints. mc-go doesn't pollinate — the pair
-	// stays 0b/0.
-	if typeName == "bee" {
-		m["HasNectar"] = int8(0)
-		m["HasStung"] = nbtBool(e.Stung)
-		m["TicksSincePollination"] = int32(0)
-		m["CannotEnterHiveTicks"] = e.CannotEnterHive
-	}
-	// Mob.addAdditionalSaveData writes the home pair only while
-	// hasHome — home_radius int plus the home_pos BlockPos list.
-	if e.HasHome {
-		m["home_radius"] = e.HomeRadius
-		m["home_pos"] = []int32{
-			int32(e.HomePos.X), int32(e.HomePos.Y), int32(e.HomePos.Z),
+	if e.Living {
+		// Bee.addAdditionalSaveData writes the bee fields always:
+		// HasNectar/HasStung bytes, TicksSincePollination and
+		// CannotEnterHiveTicks ints. mc-go doesn't pollinate — the pair
+		// stays 0b/0.
+		if typeName == "bee" {
+			m["HasNectar"] = int8(0)
+			m["HasStung"] = nbtBool(e.Stung)
+			m["TicksSincePollination"] = int32(0)
+			m["CannotEnterHiveTicks"] = e.CannotEnterHive
 		}
-	}
-	// Raider.addAdditionalSaveData writes Wave + CanJoinRaid always
-	// and RaidId only while the raider is flagged into a raid.
-	if raidRaiderType(typeName) {
-		m["Wave"] = e.Wave
-		if e.CanJoinRaid {
-			m["CanJoinRaid"] = int8(1)
-		} else {
-			m["CanJoinRaid"] = int8(0)
+		// Mob.addAdditionalSaveData writes the home pair only while
+		// hasHome — home_radius int plus the home_pos BlockPos list.
+		if e.HasHome {
+			m["home_radius"] = e.HomeRadius
+			m["home_pos"] = []int32{
+				int32(e.HomePos.X), int32(e.HomePos.Y), int32(e.HomePos.Z),
+			}
 		}
-		if e.Raid != nil {
-			m["RaidId"] = int32(e.Raid.id)
+		// Raider.addAdditionalSaveData writes Wave + CanJoinRaid always
+		// and RaidId only while the raider is flagged into a raid.
+		if raidRaiderType(typeName) {
+			m["Wave"] = e.Wave
+			if e.CanJoinRaid {
+				m["CanJoinRaid"] = int8(1)
+			} else {
+				m["CanJoinRaid"] = int8(0)
+			}
+			if e.Raid != nil {
+				m["RaidId"] = int32(e.Raid.id)
+			}
 		}
-	}
-	if e.PatrolLeader {
-		m["drop_chances"] = map[string]any{"head": float32(2)}
+		if e.PatrolLeader {
+			m["drop_chances"] = map[string]any{"head": float32(2)}
+		}
 	}
 	if typeName == "item" && !e.Item.Empty() {
 		// ItemEntity.addAdditionalSaveData: the carried stack and the
@@ -655,13 +665,22 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		m["Item"] = itemNBT(e.Item)
 		m["PickupDelay"] = int16(e.PickupDelay)
 	}
-	if items := mobAttrPack(e, typeName); len(items) > 0 {
-		m["attributes"] = nbt.List{Elem: nbt.TagCompound, Items: items}
+	if e.Living {
+		if items := mobAttrPack(e, typeName); len(items) > 0 {
+			m["attributes"] = nbt.List{Elem: nbt.TagCompound, Items: items}
+		}
+		// LivingEntity.save adds active_effects after attributes; it
+		// is absent entirely when the effect map is empty.
+		if len(e.Effects) > 0 {
+			m["active_effects"] = mobEffectsNBT(e.Effects, now)
+		}
 	}
-	// LivingEntity.save adds active_effects after attributes; it is
-	// absent entirely when the effect map is empty.
-	if len(e.Effects) > 0 {
-		m["active_effects"] = mobEffectsNBT(e.Effects, now)
+	// The cart family rides VehicleEntity — FlippedRotation/HasTicked
+	// come from AbstractMinecart.save; the variant fields each
+	// subtype's addAdditionalSaveData appends.
+	if isMinecartName(typeName) {
+		m["FlippedRotation"] = int8(0)
+		m["HasTicked"] = int8(0)
 	}
 	if extra, ok := entitySaveExtras[typeName]; ok {
 		for k, v := range extra {
@@ -681,7 +700,7 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	}
 	// LeashData.save: leash:[I;x,y,z] for a knot holder,
 	// leash:[I;a,b,c,d] (the UUID int-array) for an entity holder.
-	if e.LeashHolder != 0 && ents != nil {
+	if e.Living && e.LeashHolder != 0 && ents != nil {
 		if h, ok := ents.Get(e.LeashHolder); ok {
 			if hn, _ := EntityTypeName(h.Type); hn == "leash_knot" {
 				m["leash"] = []int32{int32(h.X), int32(h.Y), int32(h.Z)}
@@ -774,9 +793,41 @@ var tamableWildHealth = map[string]float64{
 // living-mob set, measured per summoned entity. Types without an entry
 // emit the shared fields only.
 var entitySaveExtras = map[string]map[string]any{
-	"minecart": {
-		"FlippedRotation": int8(0),
-		"HasTicked":       int8(0),
+	// The minecart variants' addAdditionalSaveData fields — the
+	// shared FlippedRotation/HasTicked pair rides the isMinecartName
+	// emit in entitySaveMap.
+	"chest_minecart": {
+		"Items": nbt.List{Elem: nbt.TagCompound},
+	},
+	"hopper_minecart": {
+		"Enabled": int8(1),
+		"Items":   nbt.List{Elem: nbt.TagCompound},
+	},
+	"furnace_minecart": {
+		"Fuel":  int16(0),
+		"PushX": float64(0),
+		"PushZ": float64(0),
+	},
+	"tnt_minecart": {
+		"fuse": int32(-1),
+	},
+	"command_block_minecart": {
+		"Command":             "",
+		"SuccessCount":        int32(0),
+		"UpdateLastExecution": int8(1),
+		"TrackOutput":         int8(1),
+	},
+	"spawner_minecart": {
+		"Delay":               int16(16),
+		"MinSpawnDelay":       int16(200),
+		"MaxSpawnDelay":       int16(800),
+		"SpawnCount":          int16(4),
+		"MaxNearbyEntities":   int16(6),
+		"RequiredPlayerRange": int16(16),
+		"SpawnRange":          int16(4),
+		"SpawnPotentials": nbt.List{Elem: nbt.TagCompound, Items: []any{
+			map[string]any{"data": map[string]any{"entity": map[string]any{}}, "weight": int32(1)},
+		}},
 	},
 	"pig": {
 		"AgeLocked":     int8(0),
