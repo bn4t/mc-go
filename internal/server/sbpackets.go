@@ -913,15 +913,54 @@ func wrapDegrees32(d float32) float32 {
 	return float32(v)
 }
 
-// handlePaddleBoat consumes a boat paddle input. No boats exist yet, so
-// vanilla's "ignore when not in a boat" applies.
+// handlePaddleBoat is vanilla's ServerGamePacketListenerImpl.
+// handlePaddleBoat: the controlled vehicle's AbstractBoat gets
+// setPaddleState(left, right) — metadata entries 11/12 (bool). Like
+// move_vehicle, only the first passenger's input applies, and only
+// onto boats. SynchedEntityData.set marks each entry dirty only when
+// its value actually changed, so the flush emits just the entries
+// whose paddle moved.
 func (s *Server) handlePaddleBoat(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
-	if _, err := r.Bool(); err != nil {
+	left, err := r.Bool()
+	if err != nil {
 		return
 	}
-	if _, err := r.Bool(); err != nil {
+	right, err := r.Bool()
+	if err != nil {
 		return
+	}
+	vid := sess.riding.Load()
+	if vid == 0 {
+		return
+	}
+	ep, ok := s.entities.GetPtr(vid)
+	if !ok || ep.Dying {
+		return
+	}
+	if len(ep.Passengers) == 0 || ep.Passengers[0] != sess.entityID.Load() {
+		return
+	}
+	name, ok := EntityTypeName(ep.Type)
+	if !ok || !isBoatEntityName(name) {
+		return
+	}
+	var b protocol.Buffer
+	if left != ep.PaddleL {
+		ep.PaddleL = left
+		b.Byte(11)
+		b.Byte(8) // boolean serializer
+		b.Bool(left)
+	}
+	if right != ep.PaddleR {
+		ep.PaddleR = right
+		b.Byte(12)
+		b.Byte(8)
+		b.Bool(right)
+	}
+	if b.Len() > 0 {
+		b.Byte(0xFF)
+		s.broadcastEntityMetadata(ep.ID, b.Bytes())
 	}
 }
 

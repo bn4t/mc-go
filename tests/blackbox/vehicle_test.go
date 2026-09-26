@@ -60,14 +60,24 @@ func sendPlayerInput(pw *protocol.Writer, flags byte) {
 	_ = pw.WritePacket(server.IDPlayPlayerInputSB, b.Bytes())
 }
 
+// sendPaddleBoat writes a serverbound paddle_boat (left/right bools).
+func sendPaddleBoat(pw *protocol.Writer, left, right bool) {
+	var b protocol.Buffer
+	b.Bool(left)
+	b.Bool(right)
+	_ = pw.WritePacket(server.IDPlayPaddleBoatSB, b.Bytes())
+}
+
 // vehWatch collects packets matching (eid, kind) over the window on
 // the chosen connection, while servicing BOTH sockets — the other
 // conn still needs keepalives, chunk acks and teleport confirms
 // answered or vanilla gates the driver's next move_vehicle behind
-// updateAwaitingTeleport.
-func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Duration) (moved bool, moveVeh bool, passengers int) {
+// updateAwaitingTeleport. boolMeta captures boolean metadata entries
+// (serializer 8) seen for eid in set_entity_data dirty packs.
+func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Duration) (moved bool, moveVeh bool, passengers int, boolMeta map[int]bool) {
 	t.Helper()
 	passengers = -1
+	boolMeta = map[int]bool{}
 	poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
 		_ = c.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
 		for {
@@ -106,6 +116,38 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					if peid == eid {
 						moved = true
 					}
+				case server.IDPlayEntityMetadata:
+					r := protocol.NewPacketReader(p.Data)
+					peid, _ := r.VarInt()
+					if peid != eid {
+						continue
+					}
+					// Entries are {index, serializer, value}; walk
+					// only the types needed (bool=8) — anything else
+					// ends the scan, the boat pack is tiny.
+					for {
+						idx, err := r.Byte()
+						if err != nil || idx == 0xFF {
+							break
+						}
+						ser, err := r.VarInt()
+						if err != nil {
+							break
+						}
+						switch ser {
+						case 8: // boolean
+							vv, err := r.Bool()
+							if err != nil {
+								break
+							}
+							boolMeta[int(idx)] = vv
+						case 0:
+							_, _ = r.Byte()
+						default:
+							goto done
+						}
+					}
+				done:
 				}
 			}
 		}
@@ -115,7 +157,7 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 		poll(v.ca, v.pra, v.pwa, !watchB)
 		poll(v.cb, v.prb, v.pwb, watchB)
 	}
-	return moved, moveVeh, passengers
+	return moved, moveVeh, passengers, boolMeta
 }
 
 // boatEID waits for the watcher's oak_boat add_entity, servicing both
@@ -196,14 +238,14 @@ func TestVehicleMoveParity(t *testing.T) {
 
 		eid := boatEID(t, v, 3*time.Second)
 		sendInteractEntity(v.pwa, eid)
-		_, _, passengers := vehWatch(t, v, true, eid, 2*time.Second)
+		_, _, passengers, _ := vehWatch(t, v, true, eid, 2*time.Second)
 		if passengers != 1 {
 			t.Fatalf("%s: interact mounted %d passengers, want 1", tag, passengers)
 		}
 
 		// A sane move (3 blocks) applies — watchers see the vehicle go.
 		sendMoveVehicle(v.pwa, 11, -60, 8)
-		moved, _, _ := vehWatch(t, v, true, eid, 2*time.Second)
+		moved, _, _, _ := vehWatch(t, v, true, eid, 2*time.Second)
 		if !moved {
 			t.Fatalf("%s: in-range move_vehicle never reached the watcher", tag)
 		}
@@ -211,14 +253,27 @@ func TestVehicleMoveParity(t *testing.T) {
 		// A 12-block jump overshoots the 100 dist² gate: the driver
 		// gets a move_vehicle rubber-band, the watcher sees nothing.
 		sendMoveVehicle(v.pwa, 23, -60, 8)
-		_, band, _ := vehWatch(t, v, false, eid, 2*time.Second)
+		_, band, _, _ := vehWatch(t, v, false, eid, 2*time.Second)
 		if !band {
 			t.Fatalf("%s: oversized move_vehicle drew no rubber-band", tag)
 		}
 
+		// Paddle input: the driver raises DATA_ID_PADDLE_LEFT on the
+		// boat — watchers see a set_entity_data dirty pack.
+		sendPaddleBoat(v.pwa, true, true)
+		_, _, _, meta := vehWatch(t, v, true, eid, 2*time.Second)
+		if !meta[11] || !meta[12] {
+			t.Fatalf("%s: paddle input produced metadata %v, want indices 11/12 true", tag, meta)
+		}
+		sendPaddleBoat(v.pwa, false, false)
+		_, _, _, meta = vehWatch(t, v, true, eid, 2*time.Second)
+		if v, ok := meta[11]; !ok || v {
+			t.Fatalf("%s: paddle release metadata %v, want index 11 false", tag, meta)
+		}
+
 		// Sneak dismounts: passenger count drops to zero.
 		sendPlayerInput(v.pwa, 0x20)
-		_, _, passengers = vehWatch(t, v, true, eid, 2*time.Second)
+		_, _, passengers, _ = vehWatch(t, v, true, eid, 2*time.Second)
 		if passengers != 0 {
 			t.Fatalf("%s: sneak dismount left %d passengers", tag, passengers)
 		}

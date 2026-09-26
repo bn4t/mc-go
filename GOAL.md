@@ -8193,3 +8193,13 @@ Pinned by TestVehicleMoveParity (vehicle_test.go): interact mounts
 (set_passengers n=1), a 3-block move_vehicle broadcasts the vehicle
 to a watcher on both servers, a 12-block jump draws the 0x39
 rubber-band to the driver, and sneak input dismounts (n=0).
+
+Paddle input (javap handlePaddleBoat): the controlled vehicle's
+AbstractBoat takes setPaddleState(left,right) — metadata indices
+11/12 (bool serializer), each entry dirty only when it changed, so
+the watcher-side dirty pack carries just the paddle that moved.
+Pairing mid-stroke ships the non-default entries in the attach burst
+(encodeBoatMeta). mc-go previously discarded the packet entirely;
+handlePaddleBoat now gates on first-passenger of a boat and emits the
+per-entry dirty pack. Same test asserts the release re-dirties with
+false and that the entries ride the pairing burst.

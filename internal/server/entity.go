@@ -246,6 +246,9 @@ type Entity struct {
 	// vehicle position the driver's move_vehicle was validated
 	// against. Set at mount; updated on each accepted move.
 	VehAnchor [3]float64
+	// PaddleL/PaddleR are AbstractBoat's DATA_ID_PADDLE_LEFT/RIGHT —
+	// the driver's paddle input as last reported by paddle_boat.
+	PaddleL, PaddleR bool
 	// Saddle is the equipment.saddle slot on saddleable mounts
 	// (strider, pig, horse family): vanilla gates mounting on it.
 	Saddle bool
@@ -1072,6 +1075,29 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 	return first
 }
 
+// encodeBoatMeta packs the non-default AbstractBoat entries for the
+// attach burst: indices 11/12 (bool) ride only while a paddle is down
+// — vanilla's sendPairingData ships non-default entries, and a boat
+// paired mid-stroke shows the driver paddling immediately.
+func encodeBoatMeta(e *Entity) []byte {
+	var b protocol.Buffer
+	if e.PaddleL {
+		b.Byte(11)
+		b.Byte(8)
+		b.Bool(true)
+	}
+	if e.PaddleR {
+		b.Byte(12)
+		b.Byte(8)
+		b.Bool(true)
+	}
+	if b.Len() == 0 {
+		return nil
+	}
+	b.Byte(0xFF)
+	return b.Bytes()
+}
+
 // sendEntityTo writes one entity's pairing stream to a session — the
 // add_entity plus the pairing data vanilla's sendPairingData bundles
 // into ClientboundBundlePacket: entity data (item stacks, living
@@ -1101,6 +1127,10 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 		meta = encodeItemMetadata(e.Item)
 	case e.Living:
 		meta = encodeLivingMetadata(e, nil)
+	default:
+		if name, ok := EntityTypeName(e.Type); ok && isBoatEntityName(name) {
+			meta = encodeBoatMeta(e)
+		}
 	}
 	if meta != nil {
 		var mb protocol.Buffer
