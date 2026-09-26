@@ -7474,3 +7474,50 @@ Harness note: `execute if` probes must be polled to a deadline —
 `unless`-for-fast-miss fires immediately, which races delayed-destroy
 drops. And the delayed destroy armed by an early dig-finish still
 commits the break ~45 ticks later; probes must outlive it.
+
+### 2026-09-25v — copy_components: custom_name/container/container_loot + armed-box unpack
+
+Extended the copy_components coverage to `custom_name` (the 68
+chest/trapped_chest/barrel/furnace/head/banner/copper-family tables)
+and `container`/`container_loot`/`lock`/`custom_name` (the 16 shulker
+tables), plus the block-entity `Items`/`CustomName`/`LootTable`/
+`LootTableSeed` NBT surfaces on place and break.
+
+Measured on the jar: `container` IS network-synchronized (id 75,
+`ItemContainerContents.STREAM_CODEC` = VarInt slot count + per-slot
+optional {id,count,patch} — the inner patch recurses the same shape as
+the slot patch). `container_loot` (id 80) and `lock` (id 79) are
+persistent-only — never wire-emitted. `SeededContainerLoot` CODEC =
+`{loot_table: ResourceKey-string, seed: long default 0}`. Vanilla NBT
+keys are `LootTable`/`LootTableSeed` — mc-go's container store used
+`LootSeed` on the wire tag; fixed.
+
+Vanilla drop semantics measured (ShulkerBoxBlock.playerWillDestroy):
+`be.isEmpty()` runs `unpackLootTable` BEFORE `collectComponents` — an
+armed box's `LootTable` rolls into the slots (wiping any pre-existing
+Items), so the drop carries `container` + `custom_name` and
+`container_loot` is consumed, never on the drop. Saved-NBT symmetric:
+`trySaveLootTable` writes `LootTable`/`LootTableSeed` INSTEAD of
+`Items` when armed — `data get block` on an armed box shows no Items.
+mc-go now mirrors both: `dropShulkerBox` rolls the armed table into
+Contents (seed-scattered slots) and all three BE save emitters skip
+Items when a LootTable is armed.
+
+Item side: `ItemStack.LootTable/LootSeed/Contents` + `container`
+component wire/read parse (`container=[{slot,item}]` on `/give`,
+`itemComponentsNBT` emits `container_loot:{loot_table[,seed]}`), and
+`applyImplicitComponents` order on place — container_loot re-arms
+`c.lootTable/lootSeed`, `container` restores slots, `custom_name`
+names the BE (`d.beNames` map, cleared on dig).
+
+`TestBECopyParity` (be_copy_test.go): 4 legs — named chest dig →
+named drop + contents spill; armed shulker dig → container+name on
+drop, container_loot absent; armed+named+filled shulker placed →
+LootTable/LootTableSeed/CustomName on the BE, Items hidden; named
+chest placed → CustomName on the BE. Green on both legs (~58s total).
+
+Harness note: a single START→STOP dig pair is flaky on vanilla —
+retry pairs until `unless block` says gone. And probe markers must
+never appear in a command line twice: an `execute if block
+...{NBT}` parse failure echoes the whole command (including the say
+marker) back as the error — probeAbsent saw its own marker as a hit.

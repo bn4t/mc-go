@@ -21,7 +21,11 @@ type lootCtx struct {
 	dim   *dimension
 	// bees is the block entity's occupant count captured before the
 	// world write removed it — copy_components[bees] reads it.
-	bees   int32
+	bees int32
+	// beName is the block entity's CustomName captured the same way —
+	// copy_components[custom_name] reads it. The raw serialized text
+	// component, not a parsed tree.
+	beName string
 	rng    *rand.Rand
 	player *Session // "this" entity for entity_properties
 	// explosionRadius > 0 means the roll is inside an explosion and
@@ -48,7 +52,7 @@ func rollLootTable(table string, seed int64) []ItemStack {
 // mined block's identity and state feed block_state_property and
 // location_check conditions, and the held tool feeds match_tool,
 // table_bonus, and apply_bonus.
-func rollBlockLoot(table string, sess *Session, pos world.Pos, bname string, state world.Block, bees int32) []ItemStack {
+func rollBlockLoot(table string, sess *Session, pos world.Pos, bname string, state world.Block, bees int32, beName string) []ItemStack {
 	ctx := &lootCtx{
 		tool:   sess.heldStack(),
 		block:  bname,
@@ -56,6 +60,7 @@ func rollBlockLoot(table string, sess *Session, pos world.Pos, bname string, sta
 		pos:    pos,
 		dim:    sess.dimension(),
 		bees:   bees,
+		beName: beName,
 		rng:    rand.New(rand.NewSource(rand.Int63())),
 		player: sess,
 	}
@@ -494,6 +499,8 @@ func lootCopyComponents(fm map[string]any, st ItemStack, ctx *lootCtx) ItemStack
 		switch name, _ := iv.(string); strings.TrimPrefix(name, "minecraft:") {
 		case "bees":
 			st.Bees = ctx.bees
+		case "custom_name":
+			st.Name = ctx.beName
 		}
 	}
 	return st

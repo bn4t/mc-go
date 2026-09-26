@@ -52,6 +52,21 @@ var blockHardnessTable = map[string]blockHardness{
 	// table's match_tool pool instead.
 	"bee_nest": {hardness: 0.3},
 	"beehive":  {hardness: 0.6},
+	// Storage blocks: chest family strength 2.5, shulker boxes 2.0,
+	// dispenser/dropper/hopper family 3.5/3.5/3.0. The pickaxe-required
+	// ones (dispenser, dropper, hopper, the furnaces, brewing_stand)
+	// pick that up from blockRequiresTool — this table is strength only.
+	"chest":         {hardness: 2.5},
+	"trapped_chest": {hardness: 2.5},
+	"barrel":        {hardness: 2.5},
+	"dispenser":     {hardness: 3.5},
+	"dropper":       {hardness: 3.5},
+	"hopper":        {hardness: 3.0},
+	"furnace":       {hardness: 3.5},
+	"blast_furnace": {hardness: 3.5},
+	"smoker":        {hardness: 3.5},
+	"brewing_stand": {hardness: 0.5},
+	"shulker_box":   {hardness: 2.0},
 	// Ice family: strength 0.5, no requiresCorrectToolForDrops —
 	// loot tables decide the drops (ice/frosted melt or silk only,
 	// packed drops itself). Blue ice is 2.8 and drops itself.
@@ -363,6 +378,10 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 		// the count captured here.
 		nestBees = sess.dimension().bees[pos]
 	}
+	// The same pre-write capture for the block entity's CustomName:
+	// a break drops the block-item via the loot table's
+	// copy_components[custom_name], which reads the dead cell's name.
+	beName := sess.dimension().beNames[pos]
 	s.fireBeeNestDestroyed(sess, sess.dimension(), pos, broken)
 	affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
 	if nestBees > 0 && sess.heldStack().enchLevel("silk_touch") <= 0 {
@@ -386,7 +405,7 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 		return affected
 	}
 	if _, ok := data.LootTables()["blocks/"+bname]; ok {
-		for _, st := range rollBlockLoot("blocks/"+bname, sess, pos, bname, broken, nestBees) {
+		for _, st := range rollBlockLoot("blocks/"+bname, sess, pos, bname, broken, nestBees, beName) {
 			s.spawnItemDrop(sess.dimName(), pos, st)
 		}
 		return affected

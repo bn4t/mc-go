@@ -102,16 +102,30 @@ func (s *Server) blockEntityTag(d *dimension, pos world.Pos) []byte {
 	switch base {
 	case "chest", "trapped_chest", "barrel":
 		if c := s.peekChest(d, pos); c != nil {
-			return containerNBT(name, c.slots[:])
+			return containerNBT(name, c.slots[:], d.beNames[pos], c.lootTable, c.lootSeed)
 		}
 	case "furnace", "blast_furnace", "smoker":
 		if f := s.peekFurnace(d, pos); f != nil {
-			return containerNBT(name, f.slots[:])
+			return containerNBT(name, f.slots[:], d.beNames[pos], "", 0)
 		}
 	case "hopper":
 		if h := s.peekHopper(d, pos); h != nil {
-			return containerNBT(name, h.slots[:])
+			return containerNBT(name, h.slots[:], d.beNames[pos], "", 0)
 		}
+	}
+	// The generic container store covers shulker boxes, dispensers,
+	// brewing stands, crafters and the rest — everything that routes
+	// through containerSpecFor.
+	if _, ok := containerSpecFor(blk); ok {
+		d.containers.mu.Lock()
+		c := d.containers.containers[pos]
+		d.containers.mu.Unlock()
+		if c != nil {
+			return containerNBT(name, c.slots, d.beNames[pos], c.lootTable, c.lootSeed)
+		}
+		// A container record exists only after the menu or a tag
+		// touched it; a virgin container still answers its empty NBT.
+		return containerNBT(name, nil, d.beNames[pos], "", 0)
 	}
 	return nil
 }
@@ -138,8 +152,10 @@ func (s *Server) peekHopper(d *dimension, pos world.Pos) *hopperData {
 }
 
 // containerNBT builds a container block entity's NBT: the vanilla
-// "Items" list of {Slot, id, count} compounds plus the identifying id.
-func containerNBT(id string, slots []ItemStack) []byte {
+// "Items" list of {Slot, id, count} compounds plus the identifying id,
+// with the block entity's CustomName (raw component JSON) and
+// LootTable/LootTableSeed fields when present.
+func containerNBT(id string, slots []ItemStack, customName string, lootTable string, lootSeed int64) []byte {
 	items := nbt.List{Elem: nbt.TagCompound}
 	for i, it := range slots {
 		if it.Empty() {
@@ -155,11 +171,23 @@ func containerNBT(id string, slots []ItemStack) []byte {
 			"count": int32(it.Count),
 		})
 	}
+	m := map[string]any{
+		"id": id,
+	}
+	// trySaveLootTable: an armed table replaces Items in the saved tag.
+	if lootTable != "" {
+		m["LootTable"] = lootTable
+		if lootSeed != 0 {
+			m["LootTableSeed"] = lootSeed
+		}
+	} else {
+		m["Items"] = items
+	}
+	if customName != "" {
+		m["CustomName"] = customName
+	}
 	var buf bytes.Buffer
-	_ = nbt.WriteUnnamed(&buf, map[string]any{
-		"id":    id,
-		"Items": items,
-	})
+	_ = nbt.WriteUnnamed(&buf, m)
 	return buf.Bytes()
 }
 

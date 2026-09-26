@@ -76,6 +76,12 @@ type dimension struct {
 	// that reads it (bee_nest_destroyed's num_bees_inside) sees no
 	// more than that.
 	bees map[world.Pos]int32
+	// beNames is every block entity's CustomName — the raw serialized
+	// text component ("{\"text\":\"Bob\"}") a setblock tag or a named
+	// placed item left behind (Nameable.setCustomName). Loot
+	// copy_components[custom_name] and /data get block read it; the
+	// entry dies with the block write.
+	beNames map[world.Pos]string
 	// claimedPOIs is the PoiManager's occupied set — village POI
 	// positions (beds, bells) a villager claimed, keyed to the
 	// claimant's entity id. Raids require occupied POIs nearby.

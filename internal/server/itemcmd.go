@@ -1191,6 +1191,10 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.Bees = 0
 			case "block_state":
 				it.BlockState = ""
+			case "container_loot":
+				it.LootTable, it.LootSeed = "", 0
+			case "container":
+				it.Contents = nil
 			case "potion_contents":
 				it.Potion = ""
 			default:
@@ -1268,6 +1272,68 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 			}
 			sort.Strings(parts)
 			it.BlockState = strings.Join(parts, ",")
+		case "container":
+			// ItemContainerContents is a list of {item:{id,count},slot}
+			// records — the box's stored stacks by slot index.
+			if vtag.kind != snbtList {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			box := new([shulkerSlots]ItemStack)
+			for _, e := range vtag.items {
+				if e.kind != snbtCompound {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				sv, ok := e.vals["slot"]
+				if !ok || sv.kind != snbtNumber {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				slot, err := strconv.Atoi(strings.TrimRight(sv.num, "bBsSiIlLfFdD"))
+				if err != nil || slot < 0 || slot >= shulkerSlots {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				im, ok := e.vals["item"]
+				if !ok || im.kind != snbtCompound {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				iv, ok := im.vals["id"]
+				if !ok || iv.kind != snbtString {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				id, ok := world.ItemID(strings.TrimPrefix(iv.str, "minecraft:"))
+				if !ok {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				count := int32(1)
+				if cv, ok := im.vals["count"]; ok && cv.kind == snbtNumber {
+					if n, cerr := strconv.Atoi(strings.TrimRight(cv.num, "bBsSiIlLfFdD")); cerr == nil {
+						count = int32(n)
+					}
+				}
+				box[slot] = ItemStack{ID: id, Count: count}
+			}
+			it.Contents = box
+		case "container_loot":
+			// SeededContainerLoot{loot_table, seed}: the table id is
+			// required, the seed optional (defaults to 0).
+			if vtag.kind != snbtCompound {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			lt, ok := vtag.vals["loot_table"]
+			if !ok || lt.kind != snbtString {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			it.LootTable = lt.str
+			it.LootSeed = 0
+			if sd, ok := vtag.vals["seed"]; ok {
+				if sd.kind != snbtNumber {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				n, err := strconv.ParseInt(strings.TrimRight(sd.num, "bBsSiIlLfFdD"), 10, 64)
+				if err != nil {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				it.LootSeed = n
+			}
 		case "potion_contents":
 			// potion_contents accepts a bare potion id or a compound
 			// with a potion field (potion_contents={potion="water"}).

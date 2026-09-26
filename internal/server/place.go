@@ -518,14 +518,25 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 			delete(d.bees, target)
 		}
 	}
+	// BlockItem.place → Nameable.setCustomName: a stack with
+	// minecraft:custom_name names the block entity it creates.
+	if held := sess.heldStack(); held.Name != "" {
+		if d.beNames == nil {
+			d.beNames = map[world.Pos]string{}
+		}
+		d.beNames[target] = held.Name
+	}
 	// A shulker box placed out of a stack that came with contents (it
 	// was broken with items inside) restores them, so the box keeps its
-	// contents across a move.
+	// contents across a move. container_loot re-arms the same way.
 	if isShulkerBoxBlock(blk) {
-		if held := sess.heldStack(); held.Contents != nil {
+		if held := sess.heldStack(); held.Contents != nil || held.LootTable != "" {
 			if c := s.containerAt(sess.dimension(), target); c != nil {
 				sess.dimension().containers.mu.Lock()
-				copy(c.slots, held.Contents[:])
+				if held.Contents != nil {
+					copy(c.slots, held.Contents[:])
+				}
+				c.lootTable, c.lootSeed = held.LootTable, held.LootSeed
 				sess.dimension().containers.mu.Unlock()
 			}
 		}

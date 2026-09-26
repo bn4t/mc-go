@@ -773,6 +773,22 @@ func (s *Server) executeIfData(ctx *executeContext, player string, args []string
 		r := errToken("command.unknown.argument", tokBase+next)
 		return 0, false, &r
 	}
+	// A compound pattern is a subset match on the whole tag
+	// (`if data block ~ ~ ~ {Foo:1}`), not a path — vanilla reads it
+	// as NbtUtils.compareNbt(pattern, full, partial=true).
+	if strings.HasPrefix(args[next], "{") {
+		pat, n, perr := parseSNBTTag(args[next], 0)
+		if perr != nil || pat == nil || pat.kind != snbtCompound || n != len(args[next]) {
+			r := errToken("command.unknown.argument", tokBase+next)
+			return 0, false, &r
+		}
+		if exists {
+			if m, ok := base.(map[string]any); ok {
+				cond = nbtSubset(m, snbtToValue(pat).(map[string]any))
+			}
+		}
+		return next + 1, cond, nil
+	}
 	steps, ok := parseNBTPath(args[next])
 	if !ok {
 		r := errToken("command.unknown.argument", tokBase+next)

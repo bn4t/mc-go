@@ -337,6 +337,11 @@ func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block)
 	}
 	s.syncContainerBlock(d, pos, blk)
 	s.syncBeacon(d, pos, blk)
+	// BaseEntityBlock preRemoveSideEffects: the old cell's block entity
+	// state dies on every write. CustomName clears here (after
+	// syncContainerBlock's removeContainer, which may still need it to
+	// copy a broken shulker's name onto the dropped box item).
+	delete(d.beNames, pos)
 	if isBeeNestBlock(blk) {
 		// BeehiveBlockEntity.setChanged: every mark-dirty re-checks
 		// isFireNearby — a nest written while a FireBlock sits in

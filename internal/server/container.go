@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"math/rand"
 	"strings"
 	"sync"
 
@@ -360,6 +361,11 @@ type containerData struct {
 	// brewed is the ingredient a running brew started with, so the brew
 	// aborts when the player swaps the ingredient, as vanilla does.
 	brewed int32
+	// lootTable/lootSeed are LootTableBlockEntity's ungenerated-loot
+	// fields — a shulker box carries them onto its drop as the
+	// container_loot component, and placement puts them back.
+	lootTable string
+	lootSeed  int64
 	// disabled is the crafter's per-slot lock bitmap; triggered is its
 	// TRIGGERED latch and craftTicks the pending craft countdown.
 	disabled   uint16
@@ -447,20 +453,47 @@ func (s *Server) dropShulkerBox(d *dimension, pos world.Pos, c *containerData) {
 	if c.item == 0 {
 		return
 	}
-	var stored *[shulkerSlots]ItemStack
+	// Vanilla's ShulkerBoxBlock.playerWillDestroy: be.isEmpty() unpacks
+	// an armed LootTable into the container slots first (wiping any
+	// pre-existing contents), then collectComponents emits
+	// custom_name/container — container_loot is consumed, never on the
+	// drop.
+	box := new([shulkerSlots]ItemStack)
+	if c.lootTable != "" {
+		roll := rollLootTable(strings.TrimPrefix(c.lootTable, "minecraft:"), c.lootSeed)
+		rng := rand.New(rand.NewSource(c.lootSeed))
+		for _, st := range roll {
+			if st.Empty() {
+				continue
+			}
+			for tries := 0; tries < shulkerSlots; tries++ {
+				slot := rng.Intn(shulkerSlots)
+				if box[slot].Empty() {
+					box[slot] = st
+					break
+				}
+			}
+		}
+	} else {
+		copy(box[:], c.slots)
+	}
+	stored := box
 	any := false
-	for i := range c.slots {
-		if !c.slots[i].Empty() {
+	for i := range stored {
+		if !stored[i].Empty() {
 			any = true
 			break
 		}
 	}
-	if any {
-		box := new([shulkerSlots]ItemStack)
-		copy(box[:], c.slots)
-		stored = box
+	if !any {
+		stored = nil
 	}
-	s.spawnItemDrop(d.name, pos, ItemStack{ID: c.item, Count: 1, Contents: stored})
+	s.spawnItemDrop(d.name, pos, ItemStack{
+		ID:       c.item,
+		Count:    1,
+		Contents: stored,
+		Name:     d.beNames[pos],
+	})
 }
 
 // openContainer shows one generic container's menu and contents.

@@ -184,9 +184,49 @@ func (s *Server) runSetblock(player string, args []string) reply {
 		if lt, ok := tag.vals["LootTable"]; ok && lt.kind == snbtString {
 			c.lootTable = lt.str
 		}
-		if sd, ok := tag.vals["LootSeed"]; ok && sd.kind == snbtNumber {
+		if sd, ok := tag.vals["LootTableSeed"]; ok && sd.kind == snbtNumber {
 			if n, err := strconv.ParseInt(sd.num, 10, 64); err == nil {
 				c.lootSeed = n
+			}
+		}
+		if items := snbtItems(tag); items != nil {
+			for slot, it := range items {
+				if slot < len(c.slots) {
+					c.slots[slot] = it
+				}
+			}
+		}
+	}
+	if tag != nil {
+		// BlockEntity.loadAdditional: any block entity tag may carry
+		// CustomName (Nameable.setCustomName) — the raw component JSON.
+		if cn, ok := tag.vals["CustomName"]; ok && cn.kind == snbtString {
+			if d.beNames == nil {
+				d.beNames = map[world.Pos]string{}
+			}
+			d.beNames[pos] = cn.str
+		}
+		// The same tag feeds the generic container store's loot fields
+		// (the isChestBlock branch above covered the chest store).
+		if _, ok := containerSpecFor(blk); ok {
+			if c := s.containerAt(d, pos); c != nil {
+				if lt, ok := tag.vals["LootTable"]; ok && lt.kind == snbtString {
+					c.lootTable = lt.str
+				}
+				if sd, ok := tag.vals["LootTableSeed"]; ok && sd.kind == snbtNumber {
+					if n, err := strconv.ParseInt(sd.num, 10, 64); err == nil {
+						c.lootSeed = n
+					}
+				}
+				if items := snbtItems(tag); items != nil {
+					d.containers.mu.Lock()
+					for slot, it := range items {
+						if slot < len(c.slots) {
+							c.slots[slot] = it
+						}
+					}
+					d.containers.mu.Unlock()
+				}
 			}
 		}
 	}
@@ -337,4 +377,45 @@ func (s *Server) runGive(player string, args []string) reply {
 		itemBrackets(st),
 		s.entityTargetComponent(sess),
 	)}
+}
+
+// snbtItems parses a container block entity's `Items` list — the
+// {Slot, id, count} compounds a setblock tag carries — into per-slot
+// stacks. Item components inside entries are not modeled (the Items
+// write mirrors containerNBT's emit shape).
+func snbtItems(tag *snbtTag) map[int]ItemStack {
+	list, ok := tag.vals["Items"]
+	if !ok || list.kind != snbtList {
+		return nil
+	}
+	out := map[int]ItemStack{}
+	for _, e := range list.items {
+		if e.kind != snbtCompound {
+			continue
+		}
+		sv, ok := e.vals["Slot"]
+		if !ok || sv.kind != snbtNumber {
+			continue
+		}
+		slot, err := strconv.Atoi(strings.TrimRight(sv.num, "bBsSiIlLfFdD"))
+		if err != nil || slot < 0 || slot > 255 {
+			continue
+		}
+		iv, ok := e.vals["id"]
+		if !ok || iv.kind != snbtString {
+			continue
+		}
+		id, ok := world.ItemID(strings.TrimPrefix(iv.str, "minecraft:"))
+		if !ok {
+			continue
+		}
+		count := int32(1)
+		if cv, ok := e.vals["count"]; ok && cv.kind == snbtNumber {
+			if n, cerr := strconv.Atoi(strings.TrimRight(cv.num, "bBsSiIlLfFdD")); cerr == nil {
+				count = int32(n)
+			}
+		}
+		out[slot] = ItemStack{ID: id, Count: count}
+	}
+	return out
 }

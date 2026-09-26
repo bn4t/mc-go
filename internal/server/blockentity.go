@@ -251,8 +251,21 @@ func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any
 		if c := s.peekChest(d, pos); c != nil {
 			slots := make([]ItemStack, len(c.slots))
 			copy(slots, c.slots[:])
+			lt, seed := c.lootTable, c.lootSeed
 			return blockEntityNBT(pos, spec, func(extra map[string]any) {
-				extra["Items"] = itemsNBT(slots)
+				// trySaveLootTable: an armed table replaces Items in
+				// the saved tag.
+				if lt == "" {
+					extra["Items"] = itemsNBT(slots)
+				} else {
+					extra["LootTable"] = lt
+					if seed != 0 {
+						extra["LootTableSeed"] = seed
+					}
+				}
+				if n := d.beNames[pos]; n != "" {
+					extra["CustomName"] = n
+				}
 			}), true
 		}
 		return nil, false
@@ -264,6 +277,9 @@ func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any
 			return blockEntityNBT(pos, spec, func(extra map[string]any) {
 				extra["Items"] = itemsNBT(slots)
 				extra["TransferCooldown"] = cooldown
+				if n := d.beNames[pos]; n != "" {
+					extra["CustomName"] = n
+				}
 			}), true
 		}
 		return nil, false
@@ -285,6 +301,9 @@ func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any
 				extra["cooking_time_spent"] = int16(cook)
 				extra["cooking_total_time"] = int16(cookTotal)
 				extra["RecipesUsed"] = used
+				if n := d.beNames[pos]; n != "" {
+					extra["CustomName"] = n
+				}
 			}), true
 		}
 		return nil, false
@@ -295,14 +314,25 @@ func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any
 		slots := make([]ItemStack, len(c.slots))
 		copy(slots, c.slots[:])
 		brew, fuel, disabled := c.brewTime, c.fuel, c.disabled
+		lt, seed := c.lootTable, c.lootSeed
 		return blockEntityNBT(pos, spec, func(extra map[string]any) {
-			extra["Items"] = itemsNBT(slots)
 			if spec.name == "minecraft:brewing_stand" {
 				extra["BrewTime"] = int16(brew)
 				extra["Fuel"] = int8(fuel)
 			}
 			if spec.name == "minecraft:crafter" {
 				extra["disabled_slots"] = disabled
+			}
+			if lt != "" {
+				extra["LootTable"] = lt
+				if seed != 0 {
+					extra["LootTableSeed"] = seed
+				}
+			} else {
+				extra["Items"] = itemsNBT(slots)
+			}
+			if n := d.beNames[pos]; n != "" {
+				extra["CustomName"] = n
 			}
 		}), true
 	}
@@ -527,6 +557,20 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 		if len(bs) > 0 {
 			comps["minecraft:block_state"] = bs
 		}
+	}
+	// custom_name is the literal component JSON string verbatim (the
+	// component CODEC stores the serialized text component).
+	if it.Name != "" {
+		comps["minecraft:custom_name"] = it.Name
+	}
+	// container_loot = SeededContainerLoot{loot_table, seed} — seed is
+	// an optionalFieldOf(0), which the encoder omits at the default.
+	if it.LootTable != "" {
+		cl := map[string]any{"loot_table": it.LootTable}
+		if it.LootSeed != 0 {
+			cl["seed"] = it.LootSeed
+		}
+		comps["minecraft:container_loot"] = cl
 	}
 	if it.Contents == nil {
 		return comps

@@ -85,6 +85,12 @@ type ItemStack struct {
 	// needs its own flag.
 	BottleAmpSet bool  `json:"bottle_amp_set,omitempty"`
 	BottleAmp    int32 `json:"bottle_amp,omitempty"`
+	// LootTable/LootSeed are minecraft:container_loot — the ungenerated
+	// loot reference a broken chest-type block keeps so placing it
+	// re-arms the same table. Persistent-only in vanilla (no
+	// networkSynchronized codec), so nothing wire-emits them.
+	LootTable string `json:"loot_table,omitempty"`
+	LootSeed  int64  `json:"loot_seed,omitempty"`
 }
 
 // Empty reports whether the slot holds nothing.
@@ -103,7 +109,8 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.StoredEnch == other.StoredEnch && it.Bees == other.Bees &&
 		it.BlockState == other.BlockState &&
 		it.Potion == other.Potion && it.Ominous == other.Ominous &&
-		it.BottleAmpSet == other.BottleAmpSet && it.BottleAmp == other.BottleAmp
+		it.BottleAmpSet == other.BottleAmpSet && it.BottleAmp == other.BottleAmp &&
+		it.LootTable == other.LootTable && it.LootSeed == other.LootSeed
 }
 
 // enchLevel reports the stack's level of one enchantment, or 0 when
@@ -181,6 +188,9 @@ const (
 	// block_state is BlockItemStateProperties' flat map — VarInt
 	// pairs of UTF8 property name to value (measured on 26.2:
 	// PROPERTIES_STREAM_CODEC is ByteBufCodecs.map of STRING_UTF8).
+	// container is ItemContainerContents: a VarInt length and that many
+	// optional ItemStackTemplate slots (bool + id + count + patch).
+	compContainer  = 75
 	compBlockState = 76
 	// bees is a VarInt-counted list of BeehiveBlockEntity.Occupant:
 	// TypedEntityData (entity-type holder VarInt, then the entity
@@ -208,6 +218,13 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 	}
 	b.VarInt(it.Count)
 	b.VarInt(it.ID)
+	writeSlotPatch(b, it)
+}
+
+// writeSlotPatch writes the add/remove component patch of a slot (and,
+// recursively, of each ItemStackTemplate inside a container component —
+// the nested template is id + count + this same patch shape).
+func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 	var add int32
 	if it.Damage != 0 {
 		add++
@@ -237,6 +254,9 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 		add++
 	}
 	if it.Bees > 0 {
+		add++
+	}
+	if it.Contents != nil {
 		add++
 	}
 	b.VarInt(add)
@@ -326,6 +346,21 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 		b.VarInt(compOminousBottleAmplifier)
 		b.VarInt(it.BottleAmp)
 	}
+	if it.Contents != nil {
+		b.VarInt(compContainer)
+		b.VarInt(shulkerSlots)
+		for i := 0; i < shulkerSlots; i++ {
+			inner := it.Contents[i]
+			if inner.Empty() {
+				b.Bool(false)
+				continue
+			}
+			b.Bool(true)
+			b.VarInt(inner.ID)
+			b.VarInt(inner.Count)
+			writeSlotPatch(b, inner)
+		}
+	}
 	if it.BlockState != "" {
 		b.VarInt(compBlockState)
 		parts := strings.Split(it.BlockState, ",")
@@ -402,191 +437,251 @@ func readSlot(r *protocol.PacketReader) (ItemStack, error) {
 		if err != nil {
 			return ItemStack{}, err
 		}
-		switch typ {
-		case compDamage: // minecraft:damage, VarInt payload (measured 26.2)
-			if it.Damage, err = r.VarInt(); err != nil {
-				return ItemStack{}, err
-			}
-		case compCustomName: // minecraft:custom_name, NBT string tag
-			var tag byte
-			if tag, err = r.Byte(); err != nil {
-				return ItemStack{}, err
-			}
-			if tag != 0x08 {
-				return ItemStack{}, fmt.Errorf("server: custom_name tag %d is not a string", tag)
-			}
-			var n uint16
-			if n, err = r.UShort(); err != nil {
-				return ItemStack{}, err
-			}
-			var raw []byte
-			if raw, err = r.Read(int(n)); err != nil {
-				return ItemStack{}, err
-			}
-			it.Name = string(raw)
-		case compEnchantments: // minecraft:enchantments, VarInt id->level map
-			n, err := r.VarInt()
-			if err != nil {
-				return ItemStack{}, err
-			}
-			parts := make([]string, 0, n)
-			for ; n > 0; n-- {
-				eid, err := r.VarInt()
-				if err != nil {
-					return ItemStack{}, err
-				}
-				lv, err := r.VarInt()
-				if err != nil {
-					return ItemStack{}, err
-				}
-				if name := registryEntryName("minecraft:enchantment", eid); name != "" {
-					parts = append(parts, strings.TrimPrefix(name, "minecraft:")+":"+strconv.Itoa(int(lv)))
-				}
-			}
-			sort.Strings(parts)
-			it.Ench = strings.Join(parts, ",")
-		case compStoredEnch: // minecraft:stored_enchantments, same map payload
-			n, err := r.VarInt()
-			if err != nil {
-				return ItemStack{}, err
-			}
-			parts := make([]string, 0, n)
-			for ; n > 0; n-- {
-				eid, err := r.VarInt()
-				if err != nil {
-					return ItemStack{}, err
-				}
-				lv, err := r.VarInt()
-				if err != nil {
-					return ItemStack{}, err
-				}
-				if name := registryEntryName("minecraft:enchantment", eid); name != "" {
-					parts = append(parts, strings.TrimPrefix(name, "minecraft:")+":"+strconv.Itoa(int(lv)))
-				}
-			}
-			sort.Strings(parts)
-			it.StoredEnch = strings.Join(parts, ",")
-		case compPotionContents: // minecraft:potion_contents
-			if tag, err := r.Byte(); err != nil {
-				return ItemStack{}, err
-			} else if tag != 0 {
-				pid, err := r.VarInt()
-				if err != nil {
-					return ItemStack{}, err
-				}
-				if name, ok := potionNamesByID[pid]; ok {
-					it.Potion = name
-				}
-			}
-			if tag, err := r.Byte(); err != nil {
-				return ItemStack{}, err
-			} else if tag != 0 {
-				if _, err := r.VarInt(); err != nil { // custom_color
-					return ItemStack{}, err
-				}
-			}
-			n, err := r.VarInt() // custom_effects
-			if err != nil {
-				return ItemStack{}, err
-			}
-			for ; n > 0; n-- {
-				// MobEffectInstance: id, amplifier, duration, ambient,
-				// showParticles, showIcon, hiddenEntry — read as far as
-				// the fixed fields go; brewed potions never carry this.
-				if _, err := r.VarInt(); err != nil {
-					return ItemStack{}, err
-				}
-				if _, err := r.VarInt(); err != nil {
-					return ItemStack{}, err
-				}
-				if _, err := r.VarInt(); err != nil {
-					return ItemStack{}, err
-				}
-				if _, err := r.Byte(); err != nil {
-					return ItemStack{}, err
-				}
-				if _, err := r.Byte(); err != nil {
-					return ItemStack{}, err
-				}
-				if _, err := r.Byte(); err != nil {
-					return ItemStack{}, err
-				}
-				if b, err := r.Byte(); err != nil {
-					return ItemStack{}, err
-				} else if b != 0 {
-					return ItemStack{}, errUnknownComponent(typ, id)
-				}
-			}
-			if tag, err := r.Byte(); err != nil {
-				return ItemStack{}, err
-			} else if tag != 0 {
-				// custom_name: NBT string tag
-				if t2, err := r.Byte(); err != nil {
-					return ItemStack{}, err
-				} else if t2 != 0x08 {
-					return ItemStack{}, errUnknownComponent(typ, id)
-				}
-				var nn uint16
-				if nn, err = r.UShort(); err != nil {
-					return ItemStack{}, err
-				}
-				if _, err := r.Read(int(nn)); err != nil {
-					return ItemStack{}, err
-				}
-			}
-		case compRepairCost: // minecraft:repair_cost, VarInt payload
-			if it.RepairCost, err = r.VarInt(); err != nil {
-				return ItemStack{}, err
-			}
-		case compBlockState: // minecraft:block_state, UTF8 pair map
-			n, err := r.VarInt()
-			if err != nil {
-				return ItemStack{}, err
-			}
-			parts := make([]string, 0, n)
-			for ; n > 0; n-- {
-				k, err := r.String()
-				if err != nil {
-					return ItemStack{}, err
-				}
-				v, err := r.String()
-				if err != nil {
-					return ItemStack{}, err
-				}
-				parts = append(parts, k+"="+v)
-			}
-			sort.Strings(parts)
-			it.BlockState = strings.Join(parts, ",")
-		case compBees: // minecraft:bees, occupant list — count only
-			n, err := r.VarInt()
-			if err != nil {
-				return ItemStack{}, err
-			}
-			for ; n > 0; n-- {
-				if _, err := r.VarInt(); err != nil { // entity-type holder
-					return ItemStack{}, err
-				}
-				if _, _, err := r.NamedTag(); err != nil { // entity compound
-					return ItemStack{}, err
-				}
-				if _, err := r.VarInt(); err != nil { // ticks_in_hive
-					return ItemStack{}, err
-				}
-				if _, err := r.VarInt(); err != nil { // min_ticks_in_hive
-					return ItemStack{}, err
-				}
-				it.Bees++
-			}
-		default:
-			return ItemStack{}, errUnknownComponent(typ, id)
+		if err := readSlotComponent(r, &it, typ); err != nil {
+			return ItemStack{}, err
 		}
 	}
+
 	for ; nrem > 0; nrem-- {
 		if _, err := r.VarInt(); err != nil { // removed types carry no payload
 			return ItemStack{}, err
 		}
 	}
 	return it, nil
+}
+
+// readSlotComponent decodes one component-add entry's payload into
+// *it by type id; the container case recurses for inner stacks.
+func readSlotComponent(r *protocol.PacketReader, it *ItemStack, typ int32) error {
+	var err error
+	switch typ {
+	case compDamage: // minecraft:damage, VarInt payload (measured 26.2)
+		if it.Damage, err = r.VarInt(); err != nil {
+			return err
+		}
+	case compCustomName: // minecraft:custom_name, NBT string tag
+		var tag byte
+		if tag, err = r.Byte(); err != nil {
+			return err
+		}
+		if tag != 0x08 {
+			return fmt.Errorf("server: custom_name tag %d is not a string", tag)
+		}
+		var n uint16
+		if n, err = r.UShort(); err != nil {
+			return err
+		}
+		var raw []byte
+		if raw, err = r.Read(int(n)); err != nil {
+			return err
+		}
+		it.Name = string(raw)
+	case compEnchantments: // minecraft:enchantments, VarInt id->level map
+		n, err := r.VarInt()
+		if err != nil {
+			return err
+		}
+		parts := make([]string, 0, n)
+		for ; n > 0; n-- {
+			eid, err := r.VarInt()
+			if err != nil {
+				return err
+			}
+			lv, err := r.VarInt()
+			if err != nil {
+				return err
+			}
+			if name := registryEntryName("minecraft:enchantment", eid); name != "" {
+				parts = append(parts, strings.TrimPrefix(name, "minecraft:")+":"+strconv.Itoa(int(lv)))
+			}
+		}
+		sort.Strings(parts)
+		it.Ench = strings.Join(parts, ",")
+	case compStoredEnch: // minecraft:stored_enchantments, same map payload
+		n, err := r.VarInt()
+		if err != nil {
+			return err
+		}
+		parts := make([]string, 0, n)
+		for ; n > 0; n-- {
+			eid, err := r.VarInt()
+			if err != nil {
+				return err
+			}
+			lv, err := r.VarInt()
+			if err != nil {
+				return err
+			}
+			if name := registryEntryName("minecraft:enchantment", eid); name != "" {
+				parts = append(parts, strings.TrimPrefix(name, "minecraft:")+":"+strconv.Itoa(int(lv)))
+			}
+		}
+		sort.Strings(parts)
+		it.StoredEnch = strings.Join(parts, ",")
+	case compPotionContents: // minecraft:potion_contents
+		if tag, err := r.Byte(); err != nil {
+			return err
+		} else if tag != 0 {
+			pid, err := r.VarInt()
+			if err != nil {
+				return err
+			}
+			if name, ok := potionNamesByID[pid]; ok {
+				it.Potion = name
+			}
+		}
+		if tag, err := r.Byte(); err != nil {
+			return err
+		} else if tag != 0 {
+			if _, err := r.VarInt(); err != nil { // custom_color
+				return err
+			}
+		}
+		n, err := r.VarInt() // custom_effects
+		if err != nil {
+			return err
+		}
+		for ; n > 0; n-- {
+			// MobEffectInstance: id, amplifier, duration, ambient,
+			// showParticles, showIcon, hiddenEntry — read as far as
+			// the fixed fields go; brewed potions never carry this.
+			if _, err := r.VarInt(); err != nil {
+				return err
+			}
+			if _, err := r.VarInt(); err != nil {
+				return err
+			}
+			if _, err := r.VarInt(); err != nil {
+				return err
+			}
+			if _, err := r.Byte(); err != nil {
+				return err
+			}
+			if _, err := r.Byte(); err != nil {
+				return err
+			}
+			if _, err := r.Byte(); err != nil {
+				return err
+			}
+			if b, err := r.Byte(); err != nil {
+				return err
+			} else if b != 0 {
+				return errUnknownComponent(typ, -1)
+			}
+		}
+		if tag, err := r.Byte(); err != nil {
+			return err
+		} else if tag != 0 {
+			// custom_name: NBT string tag
+			if t2, err := r.Byte(); err != nil {
+				return err
+			} else if t2 != 0x08 {
+				return errUnknownComponent(typ, -1)
+			}
+			var nn uint16
+			if nn, err = r.UShort(); err != nil {
+				return err
+			}
+			if _, err := r.Read(int(nn)); err != nil {
+				return err
+			}
+		}
+	case compRepairCost: // minecraft:repair_cost, VarInt payload
+		if it.RepairCost, err = r.VarInt(); err != nil {
+			return err
+		}
+	case compBlockState: // minecraft:block_state, UTF8 pair map
+		n, err := r.VarInt()
+		if err != nil {
+			return err
+		}
+		parts := make([]string, 0, n)
+		for ; n > 0; n-- {
+			k, err := r.String()
+			if err != nil {
+				return err
+			}
+			v, err := r.String()
+			if err != nil {
+				return err
+			}
+			parts = append(parts, k+"="+v)
+		}
+		sort.Strings(parts)
+		it.BlockState = strings.Join(parts, ",")
+	case compBees: // minecraft:bees, occupant list — count only
+		n, err := r.VarInt()
+		if err != nil {
+			return err
+		}
+		for ; n > 0; n-- {
+			if _, err := r.VarInt(); err != nil { // entity-type holder
+				return err
+			}
+			if _, _, err := r.NamedTag(); err != nil { // entity compound
+				return err
+			}
+			if _, err := r.VarInt(); err != nil { // ticks_in_hive
+				return err
+			}
+			if _, err := r.VarInt(); err != nil { // min_ticks_in_hive
+				return err
+			}
+			it.Bees++
+		}
+	case compContainer: // minecraft:container, optional-template list
+		n, err := r.VarInt()
+		if err != nil || n < 0 || n > shulkerSlots {
+			return errUnknownComponent(typ, -1)
+		}
+		box := new([shulkerSlots]ItemStack)
+		for i := int32(0); i < n; i++ {
+			present, err := r.Byte()
+			if err != nil {
+				return err
+			}
+			if present == 0 {
+				continue
+			}
+			iid, err := r.VarInt()
+			if err != nil {
+				return err
+			}
+			icount, err := r.VarInt()
+			if err != nil {
+				return err
+			}
+			inner := ItemStack{ID: iid, Count: icount}
+			iadd, err := r.VarInt()
+			if err != nil {
+				return err
+			}
+			for ; iadd > 0; iadd-- {
+				t2, err := r.VarInt()
+				if err != nil {
+					return err
+				}
+				if err := readSlotComponent(r, &inner, t2); err != nil {
+					return err
+				}
+			}
+			irem, err := r.VarInt()
+			if err != nil {
+				return err
+			}
+			for ; irem > 0; irem-- {
+				if _, err := r.VarInt(); err != nil {
+					return err
+				}
+			}
+			box[i] = inner
+		}
+		it.Contents = box
+
+	default:
+		return errUnknownComponent(typ, -1)
+	}
+	return nil
 }
 
 // setSlot records one inventory slot; count<=0 clears it.
