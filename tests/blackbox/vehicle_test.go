@@ -89,6 +89,8 @@ type vehObs struct {
 	removed    map[int32]bool  // ids seen in remove_entities
 	itemEIDs   []int32         // eids of add_entity spawns of type "item"
 	disconnect bool            // a play-stage disconnect packet arrived
+	syncSeen   bool            // a sync_pos (player teleport) arrived on either conn
+	sync       [3]float64      // last sync_pos coordinates
 }
 
 // vehWatch collects packets matching (eid, kind) over the window on
@@ -122,11 +124,16 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 			case server.IDPlayChunkBatchDone:
 				_ = ackChunkBatch(pw)
 			case server.IDPlaySyncPos:
-				if id, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
-					var b protocol.Buffer
-					b.VarInt(id)
-					_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes())
-				}
+				r := protocol.NewPacketReader(p.Data)
+				id, _ := r.VarInt()
+				x, _ := r.Double()
+				y, _ := r.Double()
+				z, _ := r.Double()
+				o.syncSeen = true
+				o.sync = [3]float64{x, y, z}
+				var b protocol.Buffer
+				b.VarInt(id)
+				_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes())
 			default:
 				if !observe {
 					continue
@@ -330,10 +337,27 @@ func TestVehicleMoveParity(t *testing.T) {
 			t.Fatalf("%s: paddle release metadata %v, want index 11 false", tag, o.boolMeta)
 		}
 
-		// Sneak dismounts: passenger count drops to zero.
+		// Sneak dismounts: passenger count drops to zero and the
+		// rider teleports to the side-escape dismount spot — a
+		// getCollisionHorizontalEscapeVector step (boat at (11,-60,8),
+		// rider yaw 0 -> +1.2723z) landing on the air floor at bpY.
 		sendPlayerInput(v.pwa, 0x20)
-		if o := vehWatch(t, v, true, eid, 2*time.Second); o.passengers != 0 {
+		o = vehWatch(t, v, true, eid, 2*time.Second)
+		if o.passengers != 0 {
 			t.Fatalf("%s: sneak dismount left %d passengers", tag, o.passengers)
+		}
+		if !o.syncSeen {
+			t.Fatalf("%s: dismount sent the rider no position sync", tag)
+		}
+		want := [3]float64{11, -60, 8 + 1.272276811962001}
+		if d := o.sync[0] - want[0]; d*d > 0.01 {
+			t.Fatalf("%s: dismount x %v, want %v", tag, o.sync, want)
+		}
+		if d := o.sync[1] - want[1]; d*d > 0.01 {
+			t.Fatalf("%s: dismount y %v, want %v", tag, o.sync, want)
+		}
+		if d := o.sync[2] - want[2]; d*d > 0.01 {
+			t.Fatalf("%s: dismount z %v, want %v", tag, o.sync, want)
 		}
 		sendCommand(t, v.pwa, "kill @e[type=minecraft:oak_boat]")
 		time.Sleep(1200 * time.Millisecond)

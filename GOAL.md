@@ -8256,3 +8256,28 @@ Same TestVehicleHurtParity test pins the kick on both servers: after
 destroying the boat, /summon a fresh item entity with a huge
 PickupDelay, attack it — the attacker's socket receives the play
 disconnect packet.
+
+## Slice 2026-09-26m — rider seat + boat dismount escape
+
+javap + live probe: positionRider seats a passenger at the vehicle's
+PASSENGER attachment minus the rider's VEHICLE attachment — the
+fallback attachments every boat/minecart/mob uses give (0, h/2, 0) -
+(0,0,0), so the rider sits at vehicle center half-height. mc-go had
+the rider AT the vehicle position, 0.28 low.
+
+Dismount is getDismountLocationForPassenger: boats (AbstractBoat
+override) run getCollisionHorizontalEscapeVector — half of
+vehW*sqrt2 + riderW + eps pushed along the RIDER's yaw, normalized
+to the longer axis — then floor candidates at the escaped column's
+block pos and below. Our collision model has no partial floors so
+non-solid blocks floor at height 0 and full blocks at 1 (rejected by
+isBlockFloorValid's h<1 gate). canDismountTo rejects candidates whose
+standing AABB intersects a collision block; water below or no valid
+candidate falls back to the vehicle's bounding-box top. Live probe
+pin: boat at (8.5,-60,8.5), rider yaw 0 -> sync_pos (8.5,-60,9.7723).
+
+The dismount emits the same three wire facts on both servers:
+set_passengers cleared, a sync_pos player teleport to the rider, and
+an entity_teleport to trackers. TestVehicleMoveParity asserts the
+coordinates on the sneak-dismount leg (boat at (11,-60,8) ->
+rider at (11,-60,9.2723)).

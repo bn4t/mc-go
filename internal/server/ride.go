@@ -108,8 +108,9 @@ func (s *Server) rideVehicle(sess *Session, eid int32, sneaking bool) {
 }
 
 // dismount is Entity.stopRiding for a player: drop the rider off the
-// vehicle's passenger list and tell trackers. Vanilla runs it from
-// Player.tick when wantsToStopRiding (shift held) is true.
+// vehicle's passenger list, place them at the dismount position, and
+// tell trackers. Vanilla runs it from Player.tick when
+// wantsToStopRiding (shift held) is true.
 func (s *Server) dismount(sess *Session) {
 	vid := sess.riding.Swap(0)
 	if vid == 0 {
@@ -128,6 +129,82 @@ func (s *Server) dismount(sess *Session) {
 	}
 	p.Passengers = out
 	s.broadcastSetPassengers(p)
+	// removeVehicle pushes the rider to the vehicle's dismount
+	// location and syncs it — the rider gets a position packet and
+	// trackers see an entity teleport (probe: 0x23 with absolute
+	// coordinates).
+	_, _, _, yaw, pitch, og := sess.Pos()
+	dx, dy, dz := s.dismountPos(sess, p, yaw)
+	sess.setPos(dx, dy, dz, yaw, pitch, og)
+	s.entities.Update(rider, dx, dy, dz, yaw, pitch, og)
+	s.broadcastEntityTeleport(sess, rider, dx, dy, dz, yaw, pitch, og)
+	_ = s.sendSyncPos(sess, dx, dy, dz)
+}
+
+// dismountPos is Entity.getDismountLocationForPassenger: the default
+// is the top of the vehicle's bounding box; AbstractBoat overrides it
+// with a side-escape search that drops the rider alongside the boat
+// (measured live: (8.5,-60,9.7723) for a boat at (8.5,-60,8.5) and a
+// south-facing rider).
+func (s *Server) dismountPos(sess *Session, veh *Entity, riderYaw float32) (float64, float64, float64) {
+	name, _ := EntityTypeName(veh.Type)
+	bb := mobBounds(veh.Type)
+	topY := veh.Y + bb[1]
+	if !isBoatEntityName(name) {
+		return veh.X, topY, veh.Z
+	}
+	w := sess.world()
+	// getCollisionHorizontalEscapeVector(vehW*sqrt2, riderW, yaw):
+	// half the summed widths pushed along the rider's facing, the
+	// vector normalized so its longest axis keeps the full length.
+	esc := (bb[0]*math.Sqrt2 + 0.6 + 1e-5) / 2
+	rad := float64(riderYaw) * math.Pi / 180
+	fs, fc := -math.Sin(rad), math.Cos(rad)
+	m := math.Max(math.Abs(fs), math.Abs(fc))
+	nx, nz := fs*esc/m, fc*esc/m
+	cx, cz := veh.X+nx, veh.Z+nz
+	bpY := int(math.Floor(topY))
+	below := world.Pos{X: int(math.Floor(cx)), Y: bpY - 1, Z: int(math.Floor(cz))}
+	if bn, ok := world.StateOwner(w.GetBlock(below)); ok && bn == "water" {
+		return veh.X, topY, veh.Z
+	}
+	// Floor candidates at the escaped column's block pos and below;
+	// our collision model has no partial floors, so a non-solid
+	// block's floor height is 0 and a solid block's is 1 (rejected
+	// by isBlockFloorValid's h<1 gate).
+	for _, py := range [2]int{bpY, bpY - 1} {
+		bp := world.Pos{X: below.X, Y: py, Z: below.Z}
+		h := 0.0
+		if !world.NonSolid(w.GetBlock(bp)) {
+			h = 1
+		}
+		if h >= 1 {
+			continue
+		}
+		dy := float64(py) + h
+		if !s.riderBoxCollides(w, cx, dy, cz) {
+			return cx, dy, cz
+		}
+	}
+	return veh.X, topY, veh.Z
+}
+
+// riderBoxCollides is DismountHelper.canDismountTo: the rider's
+// standing AABB (0.6 wide, 1.8 tall) at the candidate must not
+// intersect any block with a collision shape.
+func (s *Server) riderBoxCollides(w *world.World, x, y, z float64) bool {
+	minY := int(math.Floor(y))
+	maxY := int(math.Floor(y + 1.8))
+	for bx := int(math.Floor(x - 0.3)); bx <= int(math.Floor(x+0.3)); bx++ {
+		for bz := int(math.Floor(z - 0.3)); bz <= int(math.Floor(z+0.3)); bz++ {
+			for by := minY; by <= maxY; by++ {
+				if !world.NonSolid(w.GetBlock(world.Pos{X: bx, Y: by, Z: bz})) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // rideTickStep is the per-player-tick riding work vanilla runs in
@@ -148,10 +225,13 @@ func (s *Server) rideTickStep(sess *Session) {
 		sess.riding.Store(0)
 		return
 	}
-	// A passenger's position is the vehicle's (vanilla syncs it in
-	// positionRider); only horizontal distance matters for the trigger.
+	// positionRider seats the rider at the vehicle's PASSENGER
+	// attachment minus their VEHICLE attachment; with the fallback
+	// attachments boats and mobs all use, that is the vehicle center
+	// at half its height: (vehX, vehY + h/2, vehZ).
 	_, _, _, yaw, pitch, og := sess.Pos()
-	sess.setPos(veh.X, veh.Y, veh.Z, yaw, pitch, og)
+	bb := mobBounds(veh.Type)
+	sess.setPos(veh.X, veh.Y+bb[1]/2, veh.Z, yaw, pitch, og)
 	if !s.entityInLava(sess, veh) {
 		sess.lavaRideSet = false
 		return
