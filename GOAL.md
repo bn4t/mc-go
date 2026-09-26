@@ -8620,6 +8620,24 @@ each target before returning the chat reply, so wire order matches.
 TestDialogPacketsParity diffs the full window (packet + echo, and
 the no_such_dialog chat-only error path) verbatim on both servers.
 
+## Slice 2026-09-26y — stonecutter menu end to end
+
+The stonecutter is live: filtered stonecutting list rebuilt when the
+input item type changes (datapack recipe order, measured identical on
+the wire — stone cuts [chiseled, cobblestone, cobble_slab, cobble_stairs,
+cobble_wall, ...]), button click selects by index (out-of-range
+ignored silently), take shrinks the input by one and plays
+ui.stonecutter.take_result at the block (holder 1673 = id 1672 + 1),
+selection persists across takes while the item type holds, and the
+transient container returns its input on close. Measured quirks pinned
+in TestStonecutterParity: the input slot has NO mayPlace filter (dirt
+swaps in), select plays no wire sound. Result takes now merge onto a
+stackable cursor (doClick pickup-all). Two latent fixes the pin
+exposed: a self-deadlock when a slotsChanged hook reads menuStack
+under containers.mu, and smithing inputs also return on close via the
+same transient-container path... (smithing close-return not added —
+flagged as a likely follow-up gap).
+
 ## Slice 2026-09-26x — smithing_trim: minecraft:trim component + recipe_crafted
 
 The trim path now produces results: ItemStack.Trim models the

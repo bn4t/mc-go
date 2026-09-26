@@ -498,6 +498,10 @@ func (s *Server) handleContainerButtonClick(sess *Session, p protocol.Packet) {
 		s.enchantButton(sess, w, button)
 		return
 	}
+	if w.container.spec.menu == menuStonecutter {
+		s.stonecutterSelect(sess, w, button)
+		return
+	}
 	if w.container.spec.menu != menuLectern {
 		return
 	}

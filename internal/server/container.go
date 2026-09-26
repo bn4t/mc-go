@@ -396,6 +396,13 @@ type containerData struct {
 	// page is the lectern's Page — the book slot's current page,
 	// LecternBlockEntity's field and the menu's only property.
 	page int32
+	// stoneSel is the stonecutter's selected index into stoneRecipes
+	// (data.Recipes indexes filtered by the input item); stoneInput is
+	// the item id the list was built for — a different input item
+	// drops the selection. -1 means nothing selected / no input.
+	stoneSel     int32
+	stoneInput   int32
+	stoneRecipes []int
 }
 
 // containerStore keeps generic container state by position.
@@ -649,16 +656,24 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 	case 0:
 		if isResult {
 			// Result slots are take-only; producing a result needs the
-			// menu's own recipe data (see containerSpecs).
-			if cur.Empty() {
-				if taken := sess.menuStack(int(slot)); !taken.Empty() {
-					sess.setMenuStack(int(slot), ItemStack{})
-					s.setCarriedLocked(sess, taken)
-					touched = append(touched, int(slot))
-					if c.spec.menu == menuSmithing {
-						s.smithingTake(sess)
-						touched = append(touched, smithingTemplate, smithingBase, smithingAddition)
-					}
+			// menu's own recipe data (see containerSpecs). A stackable
+			// cursor merges the take, same as doClick's pickup-all.
+			if taken := sess.menuStack(int(slot)); !taken.Empty() && (cur.Empty() || cur.Stackable(taken)) {
+				sess.setMenuStack(int(slot), ItemStack{})
+				if cur.Empty() {
+					cur = taken
+				} else {
+					cur.Count += taken.Count
+				}
+				s.setCarriedLocked(sess, cur)
+				touched = append(touched, int(slot))
+				if c.spec.menu == menuSmithing {
+					s.smithingTake(sess)
+					touched = append(touched, smithingTemplate, smithingBase, smithingAddition)
+				}
+				if c.spec.menu == menuStonecutter {
+					s.stonecutterTake(sess, w)
+					touched = append(touched, stonecutterInput)
 				}
 			}
 			break
@@ -688,6 +703,10 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		if isResult && moving.Empty() && c.spec.menu == menuSmithing {
 			s.smithingTake(sess)
 			touched = append(touched, smithingTemplate, smithingBase, smithingAddition)
+		}
+		if isResult && moving.Empty() && c.spec.menu == menuStonecutter {
+			s.stonecutterTake(sess, w)
+			touched = append(touched, stonecutterInput)
 		}
 	case 2:
 		swap := w.menuSize() - 9 + int(button)
@@ -736,6 +755,10 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 			s.smithingTake(sess)
 			touched = append(touched, smithingTemplate, smithingBase, smithingAddition)
 		}
+		if isResult && it.Empty() && c.spec.menu == menuStonecutter {
+			s.stonecutterTake(sess, w)
+			touched = append(touched, stonecutterInput)
+		}
 	default:
 		// Unsupported mode: resync the menu instead of diverging.
 		s.sendContainerMenuContent(sess)
@@ -750,6 +773,9 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 			sess.setMenuStack(smithingResult, out)
 			touched = append(touched, smithingResult)
 		}
+	}
+	if c.spec.menu == menuStonecutter {
+		stonecutterSync(sess, c, w, &touched)
 	}
 	s.syncContainerMenuSlots(sess, w, touched)
 	if c.spec.brew {
@@ -1040,6 +1066,7 @@ func (s *Server) handleContainerClickPacket(sess *Session, p protocol.Packet) {
 	w := sess.window
 	sess.windowMu.Unlock()
 	if w == nil || (w.container == nil && w.merchant == nil && w.mount == nil) || w.id != win {
+		println("DBG click drop: w nil / kinds / id", w == nil, win)
 		return
 	}
 	st, err := r.VarInt() // state id
@@ -1047,6 +1074,7 @@ func (s *Server) handleContainerClickPacket(sess *Session, p protocol.Packet) {
 		return
 	}
 	if !s.checkClickState(sess, w, st) {
+		println("DBG click drop: stale state", st)
 		return
 	}
 	slot, err := r.Short()
