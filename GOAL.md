@@ -8281,3 +8281,32 @@ set_passengers cleared, a sync_pos player teleport to the rider, and
 an entity_teleport to trackers. TestVehicleMoveParity asserts the
 coordinates on the sneak-dismount leg (boat at (11,-60,8) ->
 rider at (11,-60,9.2723)).
+
+## Slice 2026-09-26n — minecart mount, seat, dismount scan
+
+javap + live probe on AbstractMinecart: a plain minecart is rideable
+through interact (container carts open their UI instead) — mc-go's
+mount table now admits name == "minecart" with cap 1, and /summon's
+vehicle branch covers the whole *_minecart family with Rotation NBT
+applied (it feeds the dismount scan). mc-go previously rejected the
+minecart at the summon health gate, so carts couldn't spawn at all.
+
+Seat: minecarts declare passengerAttachments(0.1875) where boats use
+the AT_HEIGHT fallback h/2 — passengerSeatY picks the declared value
+for the family.
+
+Dismount is AbstractMinecart.getDismountLocationForPassenger: the
+behavior's motion direction maps through Direction.fromYRot(yaw),
+the scan direction rotates one step clockwise (live probe: rider
+lands BEHIND the facing — yaw0 cart drops the rider on the north
+block), then offsetsForDirection walks 8 offsets
+[cw, ccw, opp+cw, opp+ccw, dir+cw, dir+ccw, opposite, dir] x
+POSE_DISMOUNT_HEIGHTS{STANDING:[0,1,-1]} x getBlockFloorHeight.
+Candidates land at upFromBottomCenterOf the block pos; our collision
+model has no partial floors so non-solid blocks floor at h=0 and
+solid blocks reject. Fallback is the vehicle bounding-box top.
+
+TestMinecartDismountParity summons a cart facing each cardinal yaw
+on both servers, mounts, sneak-dismounts, and asserts the sync_pos
+landing matches the probed block for all four (yaw0 -> N, 90 -> E,
+180 -> S, 270 -> W relative to the cart's facing-rotated-90).

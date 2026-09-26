@@ -371,6 +371,112 @@ func TestVehicleMoveParity(t *testing.T) {
 	}
 }
 
+// TestMinecartDismountParity pins AbstractMinecart's dismount scan: a
+// plain minecart is rideable via interact (container carts are not),
+// and sneak-dismount walks the direction-offset table measured live —
+// for a cart summoned facing each cardinal yaw the rider lands on the
+// block BEHIND the facing (the first preferred offset).
+func TestMinecartDismountParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("BOATA", "BOATB"),
+	}, nil)
+	defer targets.cleanup()
+
+	// Measured on vanilla: yaw -> landing block (cart at 8.5,-60,8.5).
+	legs := []struct {
+		yaw  string
+		want [3]float64
+	}{
+		{"0", [3]float64{8.5, -60, 7.5}},
+		{"90", [3]float64{9.5, -60, 8.5}},
+		{"180", [3]float64{8.5, -60, 9.5}},
+		{"270", [3]float64{7.5, -60, 8.5}},
+	}
+
+	run := func(t *testing.T, tag, addr string) {
+		v := joinVehPair(t, addr)
+		drainChunkWindow(t, tag, v.ca, v.pra, v.pwa, 300*time.Millisecond)
+		drainChunkWindow(t, tag, v.cb, v.prb, v.pwb, 300*time.Millisecond)
+		sendCommand(t, v.pwa, "tp @s 6 -60 8 0 0")
+		sendCommand(t, v.pwb, "tp @s 6 -60 10.5 0 0")
+		time.Sleep(300 * time.Millisecond)
+		for _, leg := range legs {
+			sendCommand(t, v.pwa, "summon minecraft:minecart 8 -60 8 {Rotation:["+leg.yaw+".0,0.0]}")
+			// The watcher waits for the minecart add_entity.
+			eid := int32(0)
+			end := time.Now().Add(3 * time.Second)
+			for time.Now().Before(end) && eid == 0 {
+				for _, s := range []struct {
+					c  net.Conn
+					pr *protocol.Reader
+					pw *protocol.Writer
+					b  bool
+				}{{v.ca, v.pra, v.pwa, false}, {v.cb, v.prb, v.pwb, true}} {
+					_ = s.c.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
+					for {
+						p, err := s.pr.ReadPacket()
+						if err != nil {
+							break
+						}
+						switch int32(p.ID) {
+						case server.IDPlayKeepAliveCB:
+							_ = s.pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+						case server.IDPlayChunkBatchDone:
+							_ = ackChunkBatch(s.pw)
+						case server.IDPlaySyncPos:
+							r := protocol.NewPacketReader(p.Data)
+							id, _ := r.VarInt()
+							var bb protocol.Buffer
+							bb.VarInt(id)
+							_ = s.pw.WritePacket(server.IDPlayTeleportConfirmSB, bb.Bytes())
+						case 1:
+							if !s.b {
+								break
+							}
+							r := protocol.NewPacketReader(p.Data)
+							e, _ := r.VarInt()
+							r.UUID()
+							ty, _ := r.VarInt()
+							if n, _ := server.EntityTypeName(ty); n == "minecart" {
+								eid = e
+							}
+						}
+					}
+				}
+			}
+			if eid == 0 {
+				t.Fatalf("%s yaw=%s: no minecart spawn seen", tag, leg.yaw)
+			}
+			sendInteractEntity(v.pwa, eid)
+			if o := vehWatch(t, v, true, eid, 1500*time.Millisecond); o.passengers != 1 {
+				t.Fatalf("%s yaw=%s: minecart mount passengers=%d", tag, leg.yaw, o.passengers)
+			}
+			sendPlayerInput(v.pwa, 0x20)
+			o := vehWatch(t, v, true, eid, 2*time.Second)
+			if o.passengers != 0 {
+				t.Fatalf("%s yaw=%s: dismount left %d passengers", tag, leg.yaw, o.passengers)
+			}
+			if !o.syncSeen {
+				t.Fatalf("%s yaw=%s: dismount sent no position sync", tag, leg.yaw)
+			}
+			for i := 0; i < 3; i++ {
+				if d := o.sync[i] - leg.want[i]; d*d > 0.01 {
+					t.Fatalf("%s yaw=%s: dismount at %v, want %v", tag, leg.yaw, o.sync, leg.want)
+				}
+			}
+			sendCommand(t, v.pwa, "kill @e[type=minecraft:minecart]")
+			time.Sleep(400 * time.Millisecond)
+		}
+	}
+
+	for _, tc := range []struct{ tag, addr string }{
+		{"vanilla", targets.vanilla},
+		{"mc-go", targets.mcgo},
+	} {
+		t.Run("cart_dismount_"+tc.tag, func(t *testing.T) { run(t, tc.tag, tc.addr) })
+	}
+}
+
 // TestVehicleHurtParity pins VehicleEntity.hurtServer: a melee hit on a
 // boat emits a set_entity_data dirty pack carrying the wobble state —
 // DATA_ID_HURT(8)=10, DATA_ID_HURTDIR(9) sign-flipped from +1, and

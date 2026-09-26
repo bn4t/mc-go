@@ -1280,9 +1280,10 @@ func (s *Server) runSummon(player string, args []string) reply {
 		s.broadcastEntityMetadata(e.ID, encodeItemMetadata(it))
 		return opsEchoReply(translatable("commands.summon.success", entityDisplayName(e)))
 	}
-	// Boats/rafts are vehicles, not living mobs: Passengers NBT
-	// recursively spawns riders the way vanilla's entity load does.
-	if isBoatEntityName(name) {
+	// Boats/rafts and minecarts are vehicles, not living mobs:
+	// Passengers NBT recursively spawns riders the way vanilla's
+	// entity load does, and Rotation feeds the dismount scan.
+	if isBoatEntityName(name) || isMinecartName(name) {
 		id, ok := EntityTypeID(name)
 		if !ok {
 			return textReply("Unknown entity: " + args[0])
@@ -1293,6 +1294,10 @@ func (s *Server) runSummon(player string, args []string) reply {
 			X:    x, Y: y, Z: z,
 		})
 		if tag != nil {
+			if rv, ok := tag.vals["Rotation"]; ok && len(rv.items) >= 2 {
+				e.Yaw = float32(snbtNum(rv.items[0]))
+				e.Pitch = float32(snbtNum(rv.items[1]))
+			}
 			if pv, ok := tag.vals["Passengers"]; ok {
 				for _, sub := range pv.items {
 					pname := strings.TrimPrefix(sub.vals["id"].str, "minecraft:")

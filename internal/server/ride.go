@@ -15,6 +15,13 @@ func isBoatEntityName(name string) bool {
 	return strings.HasSuffix(name, "_boat") || strings.HasSuffix(name, "_raft")
 }
 
+// isMinecartName covers the whole minecart family — the plain cart
+// and every container/special variant share AbstractMinecart's
+// bounds and dismount scan.
+func isMinecartName(name string) bool {
+	return name == "minecart" || strings.HasSuffix(name, "_minecart")
+}
+
 // entityTagHas reports whether an entity type name belongs to a
 // registry tag (minecraft:<name> without the # in callers).
 func entityTypeTagHas(tag, name string) bool {
@@ -30,6 +37,8 @@ func mountCap(name string) int {
 	switch {
 	case isBoatEntityName(name):
 		return 2 // Boat.canAddPassenger
+	case name == "minecart":
+		return 1 // Minecart.interact -> startRiding; container carts open UI instead
 	case isSteerableName(name), isEquineName(name):
 		return 1
 	}
@@ -59,7 +68,7 @@ func isEquineName(name string) bool {
 // refuse).
 func mountAllowed(name string, e *Entity) bool {
 	switch {
-	case isBoatEntityName(name):
+	case isBoatEntityName(name) || name == "minecart":
 		return true
 	case isSteerableName(name):
 		return e.Saddle
@@ -150,10 +159,13 @@ func (s *Server) dismountPos(sess *Session, veh *Entity, riderYaw float32) (floa
 	name, _ := EntityTypeName(veh.Type)
 	bb := mobBounds(veh.Type)
 	topY := veh.Y + bb[1]
+	w := sess.world()
+	if isMinecartName(name) {
+		return s.minecartDismountPos(w, veh, topY)
+	}
 	if !isBoatEntityName(name) {
 		return veh.X, topY, veh.Z
 	}
-	w := sess.world()
 	// getCollisionHorizontalEscapeVector(vehW*sqrt2, riderW, yaw):
 	// half the summed widths pushed along the rider's facing, the
 	// vector normalized so its longest axis keeps the full length.
@@ -188,6 +200,110 @@ func (s *Server) dismountPos(sess *Session, veh *Entity, riderYaw float32) (floa
 	}
 	return veh.X, topY, veh.Z
 }
+
+// passengerSeatY is the vehicle's PASSENGER attachment height: the
+// declared passengerAttachments offset where an entity type sets one
+// (minecart 0.1875), else the AT_HEIGHT fallback half the bounding
+// box.
+func passengerSeatY(veh *Entity) float64 {
+	if name, ok := EntityTypeName(veh.Type); ok && isMinecartName(name) {
+		return 0.1875
+	}
+	return mobBounds(veh.Type)[1] / 2
+}
+
+// minecartDismountPos is AbstractMinecart's dismount-location scan:
+// it walks DismountHelper.offsetsForDirection of the cart's motion
+// direction over POSE_DISMOUNT_HEIGHTS {0,1,-1} around the cart's
+// block position, returning the block-bottom-center of the first
+// candidate whose floor is valid and whose rider AABB is free.
+//
+// The effective scan base is not the facing itself: a live yaw sweep
+// (summon yaw 0/90/180/270 -> landing N/E/S/W of the cart) shows the
+// cart's motion direction resolves to the facing rotated one step
+// clockwise, so the first preferred offset drops the rider behind
+// the cart.
+func (s *Server) minecartDismountPos(w *world.World, veh *Entity, topY float64) (float64, float64, float64) {
+	dir := horizDir(veh.Yaw)
+	// offsetsForDirection: [clockwise, counterclockwise,
+	// opposite+cw, opposite+ccw, dir+cw, dir+ccw, opposite, dir] of
+	// the scan direction; the scan direction is the facing rotated
+	// clockwise (see comment above).
+	d0 := horizClockwise(dir)
+	d1 := horizClockwise(d0)
+	d2 := horizOpposite(d1)
+	d3 := horizOpposite(d0)
+	offsets := [8][2]int{
+		d1, d2,
+		{d3[0] + d1[0], d3[1] + d1[1]},
+		{d3[0] + d2[0], d3[1] + d2[1]},
+		{d0[0] + d1[0], d0[1] + d1[1]},
+		{d0[0] + d2[0], d0[1] + d2[1]},
+		d3, d0,
+	}
+	bx, by, bz := int(math.Floor(veh.X)), int(math.Floor(veh.Y)), int(math.Floor(veh.Z))
+	for _, prefH := range [3]int{0, 1, -1} {
+		for _, off := range offsets {
+			mp := world.Pos{X: bx + off[0], Y: by + prefH, Z: bz + off[1]}
+			h, ok := s.minecartFloorHeight(w, mp)
+			if !ok {
+				continue
+			}
+			dx, dy, dz := float64(mp.X)+0.5, float64(mp.Y)+h, float64(mp.Z)+0.5
+			if s.riderBoxCollides(w, dx, dy, dz) {
+				continue
+			}
+			return dx, dy, dz
+		}
+	}
+	return veh.X, topY, veh.Z
+}
+
+// minecartFloorHeight is the shape-supplier overload of
+// getBlockFloorHeight used by the cart scan: a solid block supplies
+// its collision top (always rejected by isBlockFloorValid's h<1
+// gate); a non-solid block reaches the block below and reports that
+// shape's top minus 1 — a solid floor gives 0, an empty one gives
+// -infinity and fails.
+func (s *Server) minecartFloorHeight(w *world.World, mp world.Pos) (float64, bool) {
+	if !world.NonSolid(w.GetBlock(mp)) {
+		return 1, false
+	}
+	below := world.Pos{X: mp.X, Y: mp.Y - 1, Z: mp.Z}
+	if !world.NonSolid(w.GetBlock(below)) {
+		return 0, true
+	}
+	return 0, false
+}
+
+// horizDir is Direction.fromYRot — yaw quarters map to the
+// {SOUTH,WEST,NORTH,EAST} 2D index order, returned as an (x,z) step.
+func horizDir(yaw float32) [2]int {
+	switch int(math.Floor(float64(yaw)/90+0.5)) & 3 {
+	case 1:
+		return [2]int{-1, 0} // WEST
+	case 2:
+		return [2]int{0, -1} // NORTH
+	case 3:
+		return [2]int{1, 0} // EAST
+	}
+	return [2]int{0, 1} // SOUTH
+}
+
+func horizClockwise(d [2]int) [2]int {
+	// N->E->S->W->N
+	switch d {
+	case [2]int{0, -1}:
+		return [2]int{1, 0}
+	case [2]int{1, 0}:
+		return [2]int{0, 1}
+	case [2]int{0, 1}:
+		return [2]int{-1, 0}
+	}
+	return [2]int{0, -1}
+}
+
+func horizOpposite(d [2]int) [2]int { return [2]int{-d[0], -d[1]} }
 
 // riderBoxCollides is DismountHelper.canDismountTo: the rider's
 // standing AABB (0.6 wide, 1.8 tall) at the candidate must not
@@ -226,12 +342,13 @@ func (s *Server) rideTickStep(sess *Session) {
 		return
 	}
 	// positionRider seats the rider at the vehicle's PASSENGER
-	// attachment minus their VEHICLE attachment; with the fallback
-	// attachments boats and mobs all use, that is the vehicle center
-	// at half its height: (vehX, vehY + h/2, vehZ).
+	// attachment minus the rider's VEHICLE attachment (0.6 for a
+	// player — EntityType.PLAYER declares vehicleAttachment(0.6)).
+	// The PASSENGER point is the declared passengerAttachments offset
+	// or the AT_HEIGHT fallback (0, h/2, 0). Measured live: a
+	// minecart's declared 0.1875 puts the rider at vehY-0.4125.
 	_, _, _, yaw, pitch, og := sess.Pos()
-	bb := mobBounds(veh.Type)
-	sess.setPos(veh.X, veh.Y+bb[1]/2, veh.Z, yaw, pitch, og)
+	sess.setPos(veh.X, veh.Y+passengerSeatY(veh)-0.6, veh.Z, yaw, pitch, og)
 	if !s.entityInLava(sess, veh) {
 		sess.lavaRideSet = false
 		return
