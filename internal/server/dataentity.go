@@ -420,7 +420,7 @@ type entitySave struct {
 // saveMap produces the entity's editable compound.
 func (d *dataEntity) saveMap(now int64, ents *Manager) entitySave {
 	if d.sess != nil {
-		return entitySave{m: playerSaveMap(d.sess)}
+		return entitySave{m: playerSaveMap(d.sess, now, ents)}
 	}
 	return entitySaveMap(d.mob, now, ents)
 }
@@ -774,6 +774,10 @@ var tamableWildHealth = map[string]float64{
 // living-mob set, measured per summoned entity. Types without an entry
 // emit the shared fields only.
 var entitySaveExtras = map[string]map[string]any{
+	"minecart": {
+		"FlippedRotation": int8(0),
+		"HasTicked":       int8(0),
+	},
 	"pig": {
 		"AgeLocked":     int8(0),
 		"Age":           int32(0),
@@ -1104,7 +1108,7 @@ func nbtTruth(v any) bool {
 // position/motion block, health, food, xp and the shared entity flags.
 // The full player save (inventory, abilities, recipes, ...) stays a
 // gap — path gets and mutations resolve on the modeled fields.
-func playerSaveMap(sess *Session) map[string]any {
+func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 	x, y, z, yaw, pitch, onGround := sess.Pos()
 	u := sess.getUUID()
 	m := map[string]any{
@@ -1173,6 +1177,27 @@ func playerSaveMap(sess *Session) map[string]any {
 			vanilla = slot - slotHotbarStart
 		}
 		inv.Items = append(inv.Items, itemNBTSlotted(it, int8(vanilla)))
+	}
+	// While mounted, Entity.saveWithoutId adds RootVehicle:
+	// {Entity: the vehicle's full save — id included — Attach:
+	// the vehicle's UUID int-array}. Player passengers never appear
+	// in the vehicle's own Passengers list.
+	if vid := sess.riding.Load(); vid != 0 && ents != nil {
+		if ve, ok := ents.GetPtr(vid); ok {
+			vm := entitySaveMap(ve, now, ents).m
+			if typeName, ok := EntityTypeName(ve.Type); ok {
+				vm["id"] = "minecraft:" + typeName
+			}
+			m["RootVehicle"] = map[string]any{
+				"Entity": vm,
+				"Attach": []int32{
+					int32(ve.UUID[0])<<24 | int32(ve.UUID[1])<<16 | int32(ve.UUID[2])<<8 | int32(ve.UUID[3]),
+					int32(ve.UUID[4])<<24 | int32(ve.UUID[5])<<16 | int32(ve.UUID[6])<<8 | int32(ve.UUID[7]),
+					int32(ve.UUID[8])<<24 | int32(ve.UUID[9])<<16 | int32(ve.UUID[10])<<8 | int32(ve.UUID[11]),
+					int32(ve.UUID[12])<<24 | int32(ve.UUID[13])<<16 | int32(ve.UUID[14])<<8 | int32(ve.UUID[15]),
+				},
+			}
+		}
 	}
 	m["Inventory"] = inv
 	ender := nbt.List{Elem: nbt.TagCompound}
@@ -2235,7 +2260,7 @@ func (d *dataEntity) tagCount() int {
 func (d *dataEntity) nbtMatches(pattern map[string]any, now int64, ents *Manager) bool {
 	var target map[string]any
 	if d.sess != nil {
-		target = playerSaveMap(d.sess)
+		target = playerSaveMap(d.sess, now, ents)
 	} else {
 		target = entitySaveMap(d.mob, now, ents).m
 	}

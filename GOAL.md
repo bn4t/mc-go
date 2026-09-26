@@ -8454,3 +8454,55 @@ to rest at 20.86 with mot 0; C flat rail coasts to 29.35; D
 L-curve (east_west + south_west + north_south) parks at
 (25.50, 27.51); E ascending climb banks to the top rail at
 (24.63, -58.94) — identical on vanilla and mc-go to 4 decimals.
+
+## Slice 2026-09-26r — minecart rider intent-kick + activator eject + RootVehicle
+
+Measured on 26.2 bytecode + live probes:
+
+Intent kick (OldMinecartBehavior ~449-583): controller =
+getFirstPassenger(); intent = controller instanceof ServerPlayer ?
+getLastClientMoveIntent() : Vec3.ZERO — fires iff controller is a
+Player && intent.lengthSqr()>0 && intent.normalize().lengthSqr()>0
+&& delta.horizontalDistanceSqr()<0.01: delta += (intent.x*0.001, 0,
+intent.z*0.001) AND clears the unpowered-powered_rail brake flag for
+the tick. getLastClientMoveIntent (ServerPlayer): x = left!=right ?
+(left?+1:-1) : 0; z = forward!=backward ? (forward?+1:-1) : 0; then
+getInputVector(vec,1.0,yRot): len2<1e-7->ZERO, len2>1->normalize,
+vec2=vec*scale, returns (x*cos - z*sin, y, z*cos + x*sin) with
+sin/cos(yRot*0.017453292). Input flags byte (serverbound
+player_input 0x2B): 0x01 forward 0x02 back 0x04 left 0x08 right
+0x10 jump 0x20 shift 0x40 sprint.
+
+Rider NBT probe findings (both measured live, then pinned):
+- Players never serialize into the vehicle's Passengers — the
+  mounted state is only visible on the RIDER: RootVehicle =
+  {Entity: <vehicle full save, id included>, Attach: <vehicle UUID
+  int-array>}; absent when on foot.
+- /ride mount reports success but the mount does not stick —
+  IDENTICAL on vanilla and mc-go (matching quirk, right-click
+  interact is the working mount path in tests).
+- 60-tick boardingCooldown after a dismount blocks re-mounting;
+  activator ejects count.
+- A powered activator_rail ejects EVERY tick a mounted cart sits
+  on it and stamps hurt metadata (hurtDir flip, hurtTime 10,
+  damage 50) when hurtTime hits 0 — isVehicle-gated so the damage
+  proves the mount happened.
+
+mc-go: moveInputX/Z on the session (handlePlayerInput decodes the
+flags into left/right +1/-1 x and forward/back +1/-1 z);
+moveIntentVec (getInputVector rotate); minecartOnRail's brake now
+skips on the intent kick (+0.001 xz toward rotated intent) when a
+player rider has WASD intent and the cart is near stopped;
+minecartActivatorHit already ejected (prev slice); vehicleTickStep
+emits the hurt countdown metadata per tick while dirty.
+playerSaveMap emits RootVehicle {Entity: vehicle full save + id,
+Attach: uuid-ints} while mounted — entitySaveMap reused, "id" key
+overlaid (the embedded save carries id even though data-get strips
+it). entitySaveExtras gains minecart FlippedRotation/HasTicked.
+
+TestMinecartRiderKickParity (differential): leg A mounts the
+activator cart via right-click interact -> floatMax[10] >= 45
+(damage 50 decaying) + RootVehicle gone on the rider; leg B mounts
+the dead powered_rail cart as player B and holds forward ->
+the cart creeps past the brake run to x 23.24 (vanilla) / 23.19
+(mc-go) vs the dead stop without input.

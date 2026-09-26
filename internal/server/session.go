@@ -192,6 +192,11 @@ type Session struct {
 	takeXpDelay int
 	sprinting   bool
 	jumping     bool
+	// moveInputX/Z are the lastClientInput WASD axes: x is +1 left,
+	// -1 right; z is +1 forward, -1 backward; both-or-neither keys
+	// leave 0. Feeds ServerPlayer.getLastClientMoveIntent.
+	moveInputX int8
+	moveInputZ int8
 	// combatTicks counts down the combat timer (300 ticks in vanilla).
 	combatTicks int32
 	// eatingTicks counts down an in-progress food use.

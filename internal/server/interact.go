@@ -666,6 +666,20 @@ func (s *Server) handlePlayerInput(sess *Session, p protocol.Packet) {
 	}
 	sneak := flags&inputSneak != 0
 	jump := flags&0x10 != 0
+	// lastClientInput WASD axes (Input record): x +1 left/-1 right,
+	// z +1 forward/-1 backward, both-or-neither -> 0.
+	sess.moveInputX = 0
+	if flags&0x04 != 0 && flags&0x08 == 0 {
+		sess.moveInputX = 1
+	} else if flags&0x08 != 0 && flags&0x04 == 0 {
+		sess.moveInputX = -1
+	}
+	sess.moveInputZ = 0
+	if flags&0x01 != 0 && flags&0x02 == 0 {
+		sess.moveInputZ = 1
+	} else if flags&0x02 != 0 && flags&0x01 == 0 {
+		sess.moveInputZ = -1
+	}
 	// Vanilla reads only the shift flag here; sprinting stays
 	// player_command-driven.
 	if jump && !sess.jumping {

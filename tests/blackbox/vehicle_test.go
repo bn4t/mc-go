@@ -1027,3 +1027,135 @@ func TestMinecartRailParity(t *testing.T) {
 		v.cb.Close()
 	}
 }
+
+// cartEID waits for the watcher's minecart add_entity, servicing both
+// sockets like boatEID.
+func cartEID(t *testing.T, v *vehPair, window time.Duration) int32 {
+	t.Helper()
+	found := int32(0)
+	poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
+		_ = c.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
+		for {
+			p, err := pr.ReadPacket()
+			if err != nil {
+				return
+			}
+			switch int32(p.ID) {
+			case server.IDPlayKeepAliveCB:
+				_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+			case server.IDPlayChunkBatchDone:
+				_ = ackChunkBatch(pw)
+			case server.IDPlaySyncPos:
+				if id, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
+					var b protocol.Buffer
+					b.VarInt(id)
+					_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes())
+				}
+			default:
+				if !observe {
+					continue
+				}
+				if int32(p.ID) == 1 {
+					r := protocol.NewPacketReader(p.Data)
+					eid, _ := r.VarInt()
+					r.UUID()
+					ty, _ := r.VarInt()
+					if n, _ := server.EntityTypeName(ty); n == "minecart" {
+						found = eid
+					}
+				}
+			}
+		}
+	}
+	end := time.Now().Add(window)
+	for time.Now().Before(end) && found == 0 {
+		poll(v.ca, v.pra, v.pwa, false)
+		poll(v.cb, v.prb, v.pwb, true)
+	}
+	if found == 0 {
+		t.Fatalf("no minecart spawn seen within %s", window)
+	}
+	return found
+}
+
+// TestMinecartRiderKickParity pins the two rider-driven rail
+// behaviors: a powered activator_rail ejects its passenger
+// (activateMinecart), and a player rider's forward input kicks a
+// near-stopped cart +0.001/tick while bypassing the unpowered
+// powered_rail brake (getLastClientMoveIntent).
+func TestMinecartRiderKickParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("BOATA", "BOATB"),
+	}, nil)
+	defer targets.cleanup()
+	for _, tag := range []string{"vanilla", "mc-go"} {
+		addr := targets.vanilla
+		if tag == "mc-go" {
+			addr = targets.mcgo
+		}
+		v := joinVehPair(t, addr)
+		drainChunkWindow(t, tag, v.ca, v.pra, v.pwa, 300*time.Millisecond)
+		drainChunkWindow(t, tag, v.cb, v.prb, v.pwb, 300*time.Millisecond)
+		sendCommand(t, v.pwa, "tp @s 21 -60 30.5 -90 0")
+		sendCommand(t, v.pwb, "tp @s 21.5 -60 33.2 -90 0")
+		sendCommand(t, v.pwa, "kill @e[type=minecart]")
+		// Activator eject: powered activator_rail on a redstone block.
+		sendCommand(t, v.pwa, "setblock 20 -61 32 minecraft:redstone_block")
+		sendCommand(t, v.pwa, "setblock 20 -60 32 minecraft:activator_rail[shape=east_west,powered=true]")
+		for x := 21; x <= 22; x++ {
+			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -60 32 minecraft:rail[shape=east_west]", x))
+		}
+		// Rider kick: a dead powered_rail run that normally brakes a
+		// cart dead — the intent kick skips that brake.
+		for x := 20; x <= 25; x++ {
+			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -60 34 minecraft:powered_rail[shape=east_west,powered=false]", x))
+		}
+		for x := 26; x <= 34; x++ {
+			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -60 34 minecraft:rail[shape=east_west]", x))
+		}
+		time.Sleep(400 * time.Millisecond)
+
+		// Leg A: mount the activator cart via right-click interact —
+		// the powered rail ejects within a tick and stamps
+		// DATA_ID_DAMAGE=50 (activateMinecart is isVehicle-gated, so
+		// the ~50-decaying damage metadata + cleared RootVehicle
+		// prove mount AND eject).
+		sendCommand(t, v.pwa, `summon minecraft:minecart 20.5 -60 32 {Tags:["ac"]}`)
+		acEID := cartEID(t, v, 3*time.Second)
+		sendInteractEntity(v.pwa, acEID)
+		o := vehWatch(t, v, true, acEID, 2*time.Second)
+		if o.floatMax[10] < 45 {
+			t.Fatalf("%s: activator never stamped damage (meta %v)", tag, o.floatMax)
+		}
+		// The eject clears the rider's RootVehicle — player passengers
+		// never appear in the vehicle's Passengers NBT, so the mount
+		// state is read off the rider instead.
+		if _, riding := dataGetFloat(t, v, "data get entity @e[type=player,name=BOATA,limit=1] RootVehicle"); riding {
+			t.Fatalf("%s: activator rail did not eject the rider", tag)
+		}
+
+		// Leg B: mount the dead-powered-rail cart and hold forward —
+		// the intent kick launches it past the brake run. Player B
+		// rides (A's 60-tick boardingCooldown from the leg-A eject
+		// would block a fresh mount for 3s).
+		sendCommand(t, v.pwa, `summon minecraft:minecart 21.5 -60 34 {Tags:["bc"]}`)
+		bcEID := cartEID(t, v, 3*time.Second)
+		sendInteractEntity(v.pwb, bcEID)
+		time.Sleep(400 * time.Millisecond)
+		if _, ok := dataGetFloat(t, v, "data get entity @e[type=player,name=BOATB,limit=1] RootVehicle"); !ok {
+			t.Fatalf("%s: interact never mounted cart bc", tag)
+		}
+		sendPlayerInput(v.pwb, 0x01) // forward, rider yaw -90 -> +X
+		time.Sleep(3500 * time.Millisecond)
+		sendPlayerInput(v.pwb, 0x00)
+		bx, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=bc,limit=1] Pos[0]")
+		// +0.001/tick kick on the 0.96 slowdown — a multi-block creep
+		// vs dead stop without input.
+		if bx < 21.8 {
+			t.Fatalf("%s: rider input never moved the cart (x=%.4f)", tag, bx)
+		}
+		t.Logf("%s: activator eject ok; rider-kick cart at %.4f", tag, bx)
+		v.ca.Close()
+		v.cb.Close()
+	}
+}

@@ -795,9 +795,25 @@ func cartTrackPoint(w *world.World, x, y, z float64) (float64, float64, float64,
 // scales (f,0,f), getPos re-reads the track point to bank y and
 // convert the height change into speed, the delta re-points along
 // the entered block's offset, and a powered powered_rail boosts
-// (or a dead one brakes). The player intent kick
-// (getLastClientMoveIntent * 0.001 when |v|<0.1) is unmodelled —
-// mc-go does not track the player_input vector yet.
+// (or a dead one brakes). A player rider's lastClientMoveIntent
+// nudges a slow cart (+intent*0.001 when |v|^2<0.01) and suppresses
+// the unpowered-rail brake that tick.
+// moveIntentVec is Entity.getInputVector((x,0,z), 1.0, yawDeg):
+// input axes rotate into world space by the rider's view yaw.
+func moveIntentVec(x, z, yawDeg float64) (float64, float64) {
+	l := x*x + z*z
+	if l < 1e-7 {
+		return 0, 0
+	}
+	if l > 1 {
+		n := math.Sqrt(l)
+		x, z = x/n, z/n
+	}
+	sn := math.Sin(yawDeg * 0.017453292)
+	cs := math.Cos(yawDeg * 0.017453292)
+	return x*cs - z*sn, z*cs + x*sn
+}
+
 func (s *Server) minecartOnRail(ep *Entity, w *world.World, bp world.Pos, railName, shape, powered string) {
 	mx0, my0, mz0 := ep.X, ep.Y, ep.Z
 	_, pos0y, _, pos0ok := cartTrackPoint(w, ep.X, ep.Y, ep.Z)
@@ -839,8 +855,23 @@ func (s *Server) minecartOnRail(ep *Entity, w *world.World, bp world.Pos, railNa
 	spd := math.Min(2, math.Hypot(ep.MotionX, ep.MotionZ))
 	ep.MotionX = spd * dx / dl
 	ep.MotionZ = spd * dz / dl
+	// Player intent kick: first passenger a player with live input
+	// and the cart near-stopped -> delta += intent*0.001 and the
+	// unpowered brake is skipped this tick.
+	brake := flag1
+	if len(ep.Passengers) > 0 {
+		if rs := s.sessionByEntityID(ep.Passengers[0]); rs != nil {
+			_, _, _, ryaw, _, _ := rs.Pos()
+			ix, iz := moveIntentVec(float64(rs.moveInputX), float64(rs.moveInputZ), float64(ryaw))
+			if ix*ix+iz*iz > 0 && ep.MotionX*ep.MotionX+ep.MotionZ*ep.MotionZ < 0.01 {
+				ep.MotionX += ix * 0.001
+				ep.MotionZ += iz * 0.001
+				brake = false
+			}
+		}
+	}
 	// unpowered powered_rail brakes: <0.03 stops dead, else halves.
-	if flag1 {
+	if brake {
 		if h := math.Hypot(ep.MotionX, ep.MotionZ); h < 0.03 {
 			ep.MotionX, ep.MotionY, ep.MotionZ = 0, 0, 0
 		} else {
