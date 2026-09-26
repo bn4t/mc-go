@@ -8161,3 +8161,35 @@ player-killed pig emits loot + xp on both servers; sheared_no_wool
 asserts exactly one item (mutton) on a shorn sheep; baby_no_drops
 asserts a baby drops nothing. /damage ... player_attack by @s arms
 the killed-by-player window through the command path.
+
+## Slice 2026-09-26j
+
+move_vehicle driver control (javap ServerGamePacketListenerImpl.
+handleMoveVehicle): only the root vehicle's FIRST passenger on a
+client-controllable vehicle steers — boats always; pig/strider/
+happy_ghast and the eight equines only when Saddle (isEquineName is
+mount-side Tamed&&!Baby, control-side Saddle). The packet clamps
+xz ±3.0E7 / y ±2.0E7, wraps degrees, then measures the delta against
+vehicleFirstGood — the mount-time anchor, updated per accepted move.
+dist²(delta) - vehicleDelta² > 100 rejects: server logs "moved too
+quickly" and rubber-bands the driver with a clientbound move_vehicle
+of the server position; otherwise the vehicle applies pos/yaw/ground
+and the anchor moves. Mount gates measured on the jar: boats cap 2,
+steerables need Saddle, equines need Tamed adult.
+
+Two harness + one real bug fixed along the way: (1) vanilla drops
+move_vehicle entirely while updateAwaitingTeleport is pending — the
+test's watchers now answer sync_pos/teleport_confirm on BOTH sockets
+while polling either one. (2) mc-go's send baseline latched at first
+mobSyncFlush — for unticked entities (boats) that was inside
+handleMoveVehicle AFTER the position write, so delta measured zero
+and no pos packet went out. Baseline now latches at pair time in
+sendEntityTo (ServerEntity.broadcast semantics), and
+broadcastEntitySpawnIn/join-burst pair on the LIVE entity instead of
+their snapshot copies — before this, pairing a copy meant the real
+entity's syncInit never set.
+
+Pinned by TestVehicleMoveParity (vehicle_test.go): interact mounts
+(set_passengers n=1), a 3-block move_vehicle broadcasts the vehicle
+to a watcher on both servers, a 12-block jump draws the 0x39
+rubber-band to the driver, and sneak input dismounts (n=0).

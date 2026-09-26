@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -791,29 +792,125 @@ func (s *Server) handleSetBeacon(sess *Session, p protocol.Packet) {
 	s.sendBeaconProperties(sess, w)
 }
 
-// handleMoveVehicle applies a vehicle position update. mc-go has no
-// rideable entities yet, so a client cannot be riding one; vanilla
-// ignores the packet when the player has no vehicle.
+// handleMoveVehicle is vanilla's ServerGamePacketListenerImpl.
+// handleMoveVehicle: the driver's reported vehicle position applies
+// when it stays within 100 dist² (minus the vehicle's own motion) of
+// the last accepted anchor — a bigger jump rubber-bands the driver
+// back with a clientbound move_vehicle of the server's position.
+// Only the first passenger on a client-controllable vehicle steers
+// (boats; saddled steerables).
 func (s *Server) handleMoveVehicle(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
-	if _, err := r.Double(); err != nil {
+	x, err := r.Double()
+	if err != nil {
 		return
 	}
-	if _, err := r.Double(); err != nil {
+	y, err := r.Double()
+	if err != nil {
 		return
 	}
-	if _, err := r.Double(); err != nil {
+	z, err := r.Double()
+	if err != nil {
 		return
 	}
-	if _, err := r.Float(); err != nil {
+	yaw, err := r.Float()
+	if err != nil {
 		return
 	}
-	if _, err := r.Float(); err != nil {
+	pitch, err := r.Float()
+	if err != nil {
 		return
 	}
-	if _, err := r.Bool(); err != nil {
+	onGround, err := r.Bool()
+	if err != nil {
 		return
 	}
+	vid := sess.riding.Load()
+	if vid == 0 {
+		return
+	}
+	ep, ok := s.entities.GetPtr(vid)
+	if !ok || ep.Dying {
+		return
+	}
+	// getControllingPassenger == player: the first rider only.
+	if len(ep.Passengers) == 0 || ep.Passengers[0] != sess.entityID.Load() {
+		return
+	}
+	name, ok := EntityTypeName(ep.Type)
+	if !ok || !vehicleClientDriven(name, ep) {
+		return
+	}
+	// clampHorizontal (±3.0E7 xz, ±2.0E7 y) and wrapDegrees before the
+	// delta check — the packet carries raw doubles/floats.
+	x = clampTo(x, -3.0e7, 3.0e7)
+	z = clampTo(z, -3.0e7, 3.0e7)
+	y = clampTo(y, -2.0e7, 2.0e7)
+	yaw = wrapDegrees32(yaw)
+	pitch = wrapDegrees32(pitch)
+	dx := x - ep.VehAnchor[0]
+	dy := y - ep.VehAnchor[1]
+	dz := z - ep.VehAnchor[2]
+	motion2 := ep.MotionX*ep.MotionX + ep.MotionY*ep.MotionY + ep.MotionZ*ep.MotionZ
+	if dx*dx+dy*dy+dz*dz-motion2 > 100 {
+		// "{} (vehicle of {}) moved too quickly!" — reject the move
+		// and rubber-band the driver with the server's position.
+		s.sendMoveVehicle(sess, ep)
+		return
+	}
+	ep.X, ep.Y, ep.Z = x, y, z
+	ep.Yaw, ep.Pitch = yaw, pitch
+	ep.Grounded = onGround
+	ep.VehAnchor = [3]float64{x, y, z}
+	ep.PosDirty = true
+	s.mobSyncFlush(ep)
+}
+
+// vehicleClientDriven is vanilla's isClientControllableVehicle: boats
+// always answer client moves; steerables (pig/strider/happy_ghast) and
+// saddleable equines only once saddled.
+func vehicleClientDriven(name string, e *Entity) bool {
+	if isBoatEntityName(name) {
+		return true
+	}
+	switch name {
+	case "pig", "strider", "happy_ghast",
+		"horse", "zombie_horse", "skeleton_horse",
+		"donkey", "mule", "llama", "trader_llama", "camel":
+		return e.Saddle
+	}
+	return false
+}
+
+// sendMoveVehicle emits the clientbound move_vehicle packet — the
+// driver's rubber-band after a rejected move: x/y/z doubles then
+// yaw/pitch floats, mirroring the serverbound shape.
+func (s *Server) sendMoveVehicle(sess *Session, e *Entity) {
+	var b protocol.Buffer
+	b.Double(e.X)
+	b.Double(e.Y)
+	b.Double(e.Z)
+	b.Float(e.Yaw)
+	b.Float(e.Pitch)
+	_ = sess.write(0x39, b.Bytes())
+}
+
+// clampTo is vanilla's clampHorizontal/clampVertical bound.
+func clampTo(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// wrapDegrees32 is Mth.wrapDegrees for a float32 angle.
+func wrapDegrees32(d float32) float32 {
+	v := float64(d)
+	v -= float64(math.Floor(v/360+0.5)) * 360
+	return float32(v)
 }
 
 // handlePaddleBoat consumes a boat paddle input. No boats exist yet, so

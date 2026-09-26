@@ -29,10 +29,43 @@ func mountCap(name string) int {
 	switch {
 	case isBoatEntityName(name):
 		return 2 // Boat.canAddPassenger
-	case name == "strider":
+	case isSteerableName(name), isEquineName(name):
 		return 1
 	}
 	return 0
+}
+
+// isSteerableName is the saddle-gated steerable set — pig, strider
+// and happy_ghast mount only when their saddle/harness is on.
+func isSteerableName(name string) bool {
+	return name == "pig" || name == "strider" || name == "happy_ghast"
+}
+
+// isEquineName is the AbstractHorse family — a tamed adult mounts a
+// rider bareback (the saddle gates control, not mounting).
+func isEquineName(name string) bool {
+	switch name {
+	case "horse", "zombie_horse", "skeleton_horse",
+		"donkey", "mule", "llama", "trader_llama", "camel":
+		return true
+	}
+	return false
+}
+
+// mountAllowed is the per-family interact gate: steerables need the
+// saddle (SaddleableEntity.isSaddled); equines need Tamed and an
+// adult body (a foal's isSaddleable is false and tame-untamed alike
+// refuse).
+func mountAllowed(name string, e *Entity) bool {
+	switch {
+	case isBoatEntityName(name):
+		return true
+	case isSteerableName(name):
+		return e.Saddle
+	case isEquineName(name):
+		return e.Tamed && !e.Baby
+	}
+	return false
 }
 
 // rideVehicle handles an entity Interact on a vehicle (vanilla
@@ -57,12 +90,7 @@ func (s *Server) rideVehicle(sess *Session, eid int32, sneaking bool) {
 		return
 	}
 	cap := mountCap(name)
-	if cap == 0 {
-		return
-	}
-	// Saddleable mounts refuse bareback riders (Strider.mobInteract's
-	// isSaddled && !isVehicle gate).
-	if name == "strider" && !veh.Saddle {
+	if cap == 0 || !mountAllowed(name, veh) {
 		return
 	}
 	if len(veh.Passengers) >= cap {
@@ -70,6 +98,9 @@ func (s *Server) rideVehicle(sess *Session, eid int32, sneaking bool) {
 	}
 	rider := sess.entityID.Load()
 	veh.Passengers = append(veh.Passengers, rider)
+	// vehicleFirstGood anchors at the mount position — the driver's
+	// first move_vehicle measures its delta from here.
+	veh.VehAnchor = [3]float64{veh.X, veh.Y, veh.Z}
 	sess.riding.Store(eid)
 	s.broadcastSetPassengers(veh)
 	s.fireStartedRiding(sess)

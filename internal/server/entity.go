@@ -242,6 +242,10 @@ type Entity struct {
 	// passengers list); Riding is the vehicle id on the passenger.
 	Passengers []int32
 	Riding     int32
+	// VehAnchor is the listener's vehicleFirstGood anchor: the last
+	// vehicle position the driver's move_vehicle was validated
+	// against. Set at mount; updated on each accepted move.
+	VehAnchor [3]float64
 	// Saddle is the equipment.saddle slot on saddleable mounts
 	// (strider, pig, horse family): vanilla gates mounting on it.
 	Saddle bool
@@ -1054,6 +1058,12 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 		if !s.pairable(sess, e) {
 			continue
 		}
+		// Pair on the live entity — the snapshot copy's latch would
+		// leave the real send baseline unset for entities nobody
+		// ticks.
+		if live, ok := s.entities.GetPtr(e.ID); ok {
+			e = live
+		}
 		sess.setTracked(e.ID, true)
 		if err := s.sendEntityTo(sess, e); err != nil && first == nil {
 			first = err
@@ -1077,6 +1087,13 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 	}
 	if err := sess.write(sess.ids().PlaySpawnEntity, encodeSpawn(e)); err != nil && first == nil {
 		first = err
+	}
+	if !e.syncInit {
+		// Pairing latches the send baseline (ServerEntity.broadcast):
+		// position packets for unticked entities measure from the
+		// spawned spot, not wherever the entity happens to sit when a
+		// first flush finally runs.
+		s.latchSyncBaseline(e)
 	}
 	var meta []byte
 	switch {
@@ -1198,13 +1215,20 @@ func (s *Server) broadcastEntitySpawn(except *Session, e Entity) {
 // broadcastEntitySpawnIn announces one entity to spawned sessions in
 // dimension dim — vanilla's addEntity path, which pairs the new entity
 // with every player in range (TrackedEntity.updatePlayers).
+// The snapshot copy only carries identity; pairing runs against the
+// live entity so sendEntityTo's send-baseline latch lands on the
+// object later flushes measure.
 func (s *Server) broadcastEntitySpawnIn(dim string, except *Session, e Entity) {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
 		if sess == except {
 			return true
 		}
-		s.evalPair(sess, &e)
+		if live, ok := s.entities.GetPtr(e.ID); ok {
+			s.evalPair(sess, live)
+		} else {
+			s.evalPair(sess, &e)
+		}
 		return true
 	})
 }

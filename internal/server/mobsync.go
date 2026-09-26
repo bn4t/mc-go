@@ -277,23 +277,31 @@ func cloudParticleARGB(effects map[int32]mobEffectInst) int32 {
 	return int32(uint32(0xFF000000) | uint32(r<<16) | uint32(g<<8) | uint32(b))
 }
 
+// latchSyncBaseline establishes the entity's send baseline the way
+// vanilla's ServerEntity.broadcast does at pairing: the spawn packet
+// carried position and rotation, so deltas measure from there.
+// sendEntityTo latches at pair time so entities nobody ticks (boats,
+// orbs between ticks) still measure their first flush against the
+// spawned position, not the already-moved one.
+func (s *Server) latchSyncBaseline(e *Entity) {
+	e.syncInit = true
+	e.syncPX, e.syncPY, e.syncPZ = mobFixed(e.X), mobFixed(e.Y), mobFixed(e.Z)
+	e.lastYRotB = angleByte(e.Yaw)
+	e.lastXRotB = angleByte(e.Pitch)
+	e.lastYHeadB = angleByte(e.HeadYaw)
+	e.wasOnGround = e.Grounded
+}
+
 // mobSyncFlush is the per-mob sendChanges pass: position/rotation
 // through the vanilla packet selection, the full metadata resend while
 // entries are dirty (effect particles included — vanilla computes them
 // lazily), then the attribute dirty resend.
 func (s *Server) mobSyncFlush(e *Entity) {
 	if !e.syncInit {
-		// The spawn packet carried position and rotation, so the send
-		// baseline latches at first flush — vanilla establishes it in
-		// ServerEntity.broadcast at pairing time, before any tick runs.
-		// Latching here (not at first gate-fire) keeps an interval-20
+		// Entities that never paired still latch on first flush —
+		// latching here (not at first gate-fire) keeps an interval-20
 		// item's first emit carrying the fall since spawn.
-		e.syncInit = true
-		e.syncPX, e.syncPY, e.syncPZ = mobFixed(e.X), mobFixed(e.Y), mobFixed(e.Z)
-		e.lastYRotB = angleByte(e.Yaw)
-		e.lastXRotB = angleByte(e.Pitch)
-		e.lastYHeadB = angleByte(e.HeadYaw)
-		e.wasOnGround = e.Grounded
+		s.latchSyncBaseline(e)
 	}
 	// Vanilla's sendChanges rounds the entity's own tickCount up to the
 	// next updateInterval multiple when a teleport marked it
