@@ -380,10 +380,13 @@ type containerData struct {
 	lootTable string
 	lootSeed  int64
 	// disabled is the crafter's per-slot lock bitmap; triggered is its
-	// TRIGGERED latch and craftTicks the pending craft countdown.
-	disabled   uint16
-	triggered  bool
-	craftTicks int32
+	// TRIGGERED latch, craftTicks the pending craft countdown, and
+	// craftingTicks the CRAFTING-state's 6-tick lifetime
+	// (CrafterBlockEntity.craftingTicksRemaining).
+	disabled      uint16
+	triggered     bool
+	craftTicks    int32
+	craftingTicks int32
 	// anvilCost is the anvil's current level cost (Container Property
 	// 0), recomputed from the inputs on every change; anvilUse is how
 	// many items the take consumes from the left and right inputs.
@@ -543,6 +546,28 @@ func (s *Server) openContainer(sess *Session, pos world.Pos) {
 		pg := c.page
 		w.dim.containers.mu.Unlock()
 		s.sendContainerProperty(sess, id, 0, pg)
+	}
+	if c.spec.crafter {
+		// sendAllDataToRemote on open: properties 0-8 are the slot
+		// enables (1=SLOT_ENABLED, 0=SLOT_DISABLED), 9 is the
+		// TRIGGERED latch (CrafterBlockEntity.DATA_TRIGGERED).
+		w.dim.containers.mu.Lock()
+		dis := c.disabled
+		trg := c.triggered
+		w.dim.containers.mu.Unlock()
+		for i := 0; i < 9; i++ {
+			// SLOT_DISABLED=1, SLOT_ENABLED=0 — measured on the wire.
+			v := int32(0)
+			if dis&(1<<uint(i)) != 0 {
+				v = 1
+			}
+			s.sendContainerProperty(sess, id, int16(i), v)
+		}
+		tv := int32(0)
+		if trg {
+			tv = 1
+		}
+		s.sendContainerProperty(sess, id, 9, tv)
 	}
 }
 

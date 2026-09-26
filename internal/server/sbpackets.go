@@ -514,17 +514,20 @@ func (s *Server) handleContainerSlotStateChanged(sess *Session, p protocol.Packe
 	}
 	c := w.container
 	w.dim.containers.mu.Lock()
-	// The toggle is recorded so a reload keeps the client's state; which
-	// slots the crafter may fill is only observable once it can craft.
 	if enabled {
 		c.disabled &^= 1 << uint(slot)
 	} else {
 		c.disabled |= 1 << uint(slot)
 	}
 	w.dim.containers.mu.Unlock()
-	// TODO(crafter): broadcast the crafter's block-entity data so other
-	// viewers see the new toggles, and run its 3x3 crafting dispatch
-	// when the block is triggered, which needs the redstone engine.
+	// CrafterMenu.clickMenuButton → setSlotState: the slot-enable lands
+	// in the menu's containerData and broadcasts to every viewer —
+	// SLOT_DISABLED=1, SLOT_ENABLED=0 on the wire.
+	val := int32(0)
+	if !enabled {
+		val = 1
+	}
+	s.broadcastContainerProp(c, int16(slot), val)
 }
 
 // handleCookieResponse consumes a response to a Cookie Request. mc-go

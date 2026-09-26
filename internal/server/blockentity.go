@@ -192,6 +192,7 @@ func (s *Server) chunkBlockEntities(d *dimension, cx, cz int) []map[string]any {
 		slots := make([]ItemStack, len(c.slots))
 		copy(slots, c.slots[:])
 		brew, fuel, disabled := c.brewTime, c.fuel, c.disabled
+		trg, ctr := c.triggered, c.craftingTicks
 		add(pos, blockEntityNBT(pos, spec, func(extra map[string]any) {
 			extra["Items"] = itemsNBT(slots)
 			if spec.name == "minecraft:brewing_stand" {
@@ -199,7 +200,7 @@ func (s *Server) chunkBlockEntities(d *dimension, cx, cz int) []map[string]any {
 				extra["Fuel"] = int8(fuel)
 			}
 			if spec.name == "minecraft:crafter" {
-				extra["disabled_slots"] = disabled
+				crafterNBTExtra(extra, disabled, trg, ctr)
 			}
 		}))
 	}
@@ -339,6 +340,7 @@ func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any
 		slots := make([]ItemStack, len(c.slots))
 		copy(slots, c.slots[:])
 		brew, fuel, disabled := c.brewTime, c.fuel, c.disabled
+		trg, ctr := c.triggered, c.craftingTicks
 		lt, seed := c.lootTable, c.lootSeed
 		return blockEntityNBT(pos, spec, func(extra map[string]any) {
 			if spec.name == "minecraft:beacon" {
@@ -367,7 +369,7 @@ func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any
 				extra["Fuel"] = int8(fuel)
 			}
 			if spec.name == "minecraft:crafter" {
-				extra["disabled_slots"] = disabled
+				crafterNBTExtra(extra, disabled, trg, ctr)
 			}
 			if lt != "" {
 				extra["LootTable"] = lt
@@ -779,6 +781,19 @@ func (s *Server) restoreBlockEntity(d *dimension, be map[string]any) {
 		}
 		if ds, ok := nbtNumber(be["disabled_slots"]); ok {
 			c.disabled = uint16(ds)
+		} else if arr, ok := be["disabled_slots"].([]int32); ok {
+			// vanilla writes disabled_slots as an IntArray of indices.
+			for _, i := range arr {
+				if i >= 0 && i < 9 {
+					c.disabled |= 1 << uint(i)
+				}
+			}
+		}
+		if tr, ok := nbtNumber(be["triggered"]); ok {
+			c.triggered = tr != 0
+		}
+		if ct, ok := nbtNumber(be["crafting_ticks_remaining"]); ok {
+			c.craftingTicks = int32(ct)
 		}
 		d.containers.mu.Unlock()
 	}

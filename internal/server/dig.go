@@ -277,9 +277,6 @@ func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk wo
 	// Placing or breaking a block changes what the fluids around it can
 	// do, so they are re-evaluated on their own next tick.
 	s.wakeFluids(d, pos)
-	// A power source appearing or vanishing re-evaluates adjacent
-	// crafters — vanilla's neighborChanged runs from the same write.
-	s.crafterNeighborCheck(d, pos)
 	// updateNeighborsAt: every face neighbour re-evaluates its
 	// redstone signal (lamp, rails, torches, doors, TNT, ...).
 	s.rsNeighborFanOut(d, pos)

@@ -471,6 +471,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	blk = s.diodePlaceState(d, target, blk, sess)
 	blk = pistonPlaceState(blk, sess)
 	blk = observerPlaceState(blk, sess)
+	blk = s.crafterPlaceState(d, target, blk, sess)
 	blk = blockStateComponentApply(blk, sess.heldStack())
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
 	// TripWireHookBlock.setPlacedBy: a placed hook runs its
@@ -492,6 +493,19 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 			}
 			if on {
 				s.ticks.schedulePrio(schedKey{dim: d.name, pos: target, kind: tickBlock}, s.TickCount()+1, tickPrioNormal)
+			}
+		}
+		// CrafterBlock.setPlacedBy: a crafter placed with TRIGGERED
+		// already set (the state it carries at placement) schedules its
+		// first craft 4 ticks out.
+		if strings.TrimPrefix(n, "minecraft:") == "crafter" {
+			if t, ok := world.StateProperty(blk, "triggered"); ok && t == "true" {
+				if c := s.containerAt(d, target); c != nil {
+					d.containers.mu.Lock()
+					c.craftTicks = 4
+					c.triggered = true
+					d.containers.mu.Unlock()
+				}
 			}
 		}
 	}

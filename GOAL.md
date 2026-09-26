@@ -7645,3 +7645,65 @@ Inventory/ServerGamePacketListenerImpl):
 page nav, take, pick, park, close, redstone/property/sound/levelEvent
 checks — all packet shapes compared per leg on both servers. Green
 (~35s); place-denial unit tests updated to the measured revert wire.
+
+## Slice 2026-09-25zm — crafter broadcast + craft dispatch
+
+javap-measured (26.2 CrafterBlock/CrafterBlockEntity/CrafterMenu/
+HopperBlockEntity/DefaultDispenseItemBehavior/DispenserBlock):
+
+- `rsNeighborChanged` now has a crafter case — the TRIGGERED latch on
+  rising edge (scheduleTick-style 4-tick arm + flag-2 TRIGGERED=true
+  write + containerData prop 9 to viewers) and the falling-edge clear
+  (TRIGGERED=false,CRAFTING=false one flag-2 write). The old
+  `crafterNeighborCheck` 6-scan off `setBlockAndBroadcast` is gone —
+  lever/button/wire/pending-drain fan-outs all reach it now through
+  the normal neighbor-update path. A queued craft still fires when
+  the power drops first (scheduleTick has no cancel).
+- `getStateForPlacement` parity: crafters place front-facing the
+  player (nearest look opposite), top per the
+  down→horizontal-opposite / up→horizontal / else-UP rule, and
+  TRIGGERED starts powered iff the cell already sees a signal — a
+  powered placement arms the first craft 4 ticks out
+  (`setPlacedBy` reads the placed state's TRIGGERED).
+- `dispenseFrom`: recipe miss → levelEvent 1050 and early return.
+  Hit → `craftingTicksRemaining=6` + flag-2 CRAFTING=true, then
+  `dispenseItem`, then every non-empty slot shrinks 1 (disabled
+  slots included — vanilla quirk). `serverTick` clears CRAFTING via
+  flag-3 write when the 6-tick countdown hits 0.
+- `dispenseItem`: the whole tail (item spawn + trigger + 1049 +
+  2010) is gated on the insert leaving a REMAINDER — a fully-eaten
+  result into a front chest/hopper/furnace/crafter is silent. The
+  dst picks the one-at-a-time loop when the front container is
+  itself a crafter or the stack exceeds its max size, else the
+  whole-stack loop. Crafter destinations apply the real
+  `canPlaceItem` even-fill rule (disabled slots refuse; a slot with
+  a smaller stack behind it is skipped) via `crafterContainerInsert`
+  — shared by hopper inserts too.
+- spawnItem: the tossed item spawns 0.7 blocks out the front face,
+  dips 0.125 on the Y axis (0.15625 otherwise), and takes
+  dir*j + triangle(spread=0.0172275*6) per-axis motion (j =
+  rand*0.1+0.2) — was a fixed 0.1*dir before.
+- containerData wire: props 0-8 are per-slot enables and prop 9 is
+  DATA_TRIGGERED — all 10 stream on menu open; SLOT_DISABLED=1 and
+  SLOT_ENABLED=0 measured on the wire (the opposite of the first
+  guess). The container-slot-state packet ({slotId, containerId,
+  newState} — vanilla's exact field order) toggles and pushes the
+  prop to every viewer of the open menu.
+- NBT: the crafter's save keys are now vanilla's — `disabled_slots`
+  as an IntArray of disabled indices, `triggered` int, and
+  `crafting_ticks_remaining` int (was a bare uint16 short before).
+- `broadcastContainerProp(c, prop, val)` is the new helper pushing a
+  Container Property to every session viewing a container — used by
+  the trigger latch and the slot toggle.
+- Deferred: recipe `getRemainingItems` (bucket→empty bucket style
+  remainders) — `data.Recipes`/`craftResult` carry no remainder
+  table yet.
+
+New: `TestCrafterWireParity` — opens the menu (10 props), toggles
+slot 2 off/on (prop trace), arms on a redstone_block write
+(BU sequence TRIGGERED→CRAFTING→clear + 1049/2010(front) + item
+spawn), releases on power-off (TRIGGERED=false BU), inserts the full
+result into a front chest (silent — no spawn/1049/2010), and clicks
+1050 on an empty grid. `TestCrafterRecipeCraftedParity`,
+`TestDispenserDropperParity`, `TestHopperTransferParity` and the unit
+suite stay green.
