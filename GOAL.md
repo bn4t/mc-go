@@ -8234,3 +8234,25 @@ zero in view; a second punch flips hurtDir back to +1; a
 diamond-sword hit banks >40 in one blow and the watcher sees the
 boat removed plus an oak_boat item entity; a creative punch removes
 the boat with NO item drop. Green vs vanilla and mc-go.
+
+## Slice 2026-09-26l
+
+Attack invalid-target disconnect (javap handleAttack): after the
+world-border and isWithinAttackRange gates, vanilla runs the invalid
+check — ItemEntity, ExperienceOrb, the attacker themself, or a
+non-attackable AbstractArrow — and DISCONNECTS with
+multiplayer.disconnect.invalid_entity_attacked rather than ignoring
+the packet. mc-go silently dropped all four; it now kicks with the
+same translatable, reach-gated the same way (an out-of-range poke at
+an item is still a no-op). The self-attack early return becomes a
+kick too — vanilla treats entity==player identically.
+
+Also measured in the same method, for the record: the reach gate is
+isWithinAttackRange(mainHand, box, 3.0) — the attack_range attribute
+base — and a held stack carrying PIERCING_WEAPON bypasses the
+dedicated attack packet entirely.
+
+Same TestVehicleHurtParity test pins the kick on both servers: after
+destroying the boat, /summon a fresh item entity with a huge
+PickupDelay, attack it — the attacker's socket receives the play
+disconnect packet.

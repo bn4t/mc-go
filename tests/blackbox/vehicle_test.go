@@ -87,7 +87,8 @@ type vehObs struct {
 	floatMeta  map[int]float32 // serializer-3 (Float) entries seen
 	floatMax   map[int]float32 // largest float value seen per index
 	removed    map[int32]bool  // ids seen in remove_entities
-	itemSpawns int             // add_entity packets of type "item"
+	itemEIDs   []int32         // eids of add_entity spawns of type "item"
+	disconnect bool            // a play-stage disconnect packet arrived
 }
 
 // vehWatch collects packets matching (eid, kind) over the window on
@@ -147,13 +148,15 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 						rid, _ := r.VarInt()
 						o.removed[rid] = true
 					}
+				case 0x20: // disconnect
+					o.disconnect = true
 				case 1: // add_entity — count item-entity spawns
 					r := protocol.NewPacketReader(p.Data)
-					r.VarInt()
+					peid, _ := r.VarInt()
 					r.UUID()
 					ty, _ := r.VarInt()
 					if n, _ := server.EntityTypeName(ty); n == "item" {
-						o.itemSpawns++
+						o.itemEIDs = append(o.itemEIDs, peid)
 					}
 				case 35, 53, 54, 125: // pos sync / delta / teleport
 					r := protocol.NewPacketReader(p.Data)
@@ -406,9 +409,10 @@ func TestVehicleHurtParity(t *testing.T) {
 		if !o.removed[eid] {
 			t.Fatalf("%s: a sword hit never removed the boat (damage max=%v)", tag, o.floatMax[10])
 		}
-		if o.itemSpawns == 0 {
+		if len(o.itemEIDs) == 0 {
 			t.Fatalf("%s: destroyed boat dropped no item entity", tag)
 		}
+		itemEID := o.itemEIDs[0]
 
 		// Creative hit on a fresh boat: instabuild discards it —
 		// remove_entities without an item drop.
@@ -420,10 +424,31 @@ func TestVehicleHurtParity(t *testing.T) {
 		if !o.removed[eid] {
 			t.Fatalf("%s: creative hit left the boat in place", tag)
 		}
-		if o.itemSpawns != 0 {
-			t.Fatalf("%s: creative discard spawned %d item entities, want 0", tag, o.itemSpawns)
+		if len(o.itemEIDs) != 0 {
+			t.Fatalf("%s: creative discard spawned %d item entities, want 0", tag, len(o.itemEIDs))
 		}
+
+		// Attacking an ItemEntity (or xp orb / yourself / a
+		// non-attackable arrow) is invalid: vanilla disconnects with
+		// multiplayer.disconnect.invalid_entity_attacked, reach-gated.
+		// The sword leg's drop may be picked up already, so summon a
+		// fresh stack with a huge pickup delay.
 		sendCommand(t, v.pwa, "gamemode survival BOATA")
+		sendCommand(t, v.pwa, `summon minecraft:item 7 -60 9 {Item:{id:"minecraft:oak_boat",count:1},PickupDelay:32766}`)
+		found := int32(0)
+		o = vehWatch(t, v, true, eid, 2*time.Second)
+		for _, ie := range o.itemEIDs {
+			found = ie
+		}
+		if found == 0 {
+			t.Fatalf("%s: summoned item entity never showed", tag)
+		}
+		sendAttackEntity(v.pwa, found)
+		o = vehWatch(t, v, false, eid, 2*time.Second)
+		if !o.disconnect {
+			t.Fatalf("%s: attacking an item entity did not disconnect the attacker", tag)
+		}
+		_ = itemEID
 	}
 
 	for _, tc := range []struct{ tag, addr string }{

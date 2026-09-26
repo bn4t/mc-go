@@ -177,11 +177,27 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	if sess.mode() == GameModeSpectator || sess.dead {
 		return
 	}
-	if targetID == 0 || targetID == sess.entityID.Load() {
+	if targetID == 0 {
+		return
+	}
+	// Vanilla's handleAttack disconnects on an invalid target —
+	// yourself, an ItemEntity, an ExperienceOrb, or a non-attackable
+	// AbstractArrow — checked after the reach gate, so only an
+	// in-range invalid attack kicks.
+	if targetID == sess.entityID.Load() {
+		s.disconnectWithComponent(sess, translatable("multiplayer.disconnect.invalid_entity_attacked"))
 		return
 	}
 	target := s.sessionByEntityID(targetID)
 	if target == nil {
+		if e, ok := s.entities.Get(targetID); ok {
+			if name, ok := EntityTypeName(e.Type); ok && (name == "item" || name == "experience_orb") {
+				if sess.withinAttackRange(e.X, e.Y, e.Z, mobBounds(e.Type)) {
+					s.disconnectWithComponent(sess, translatable("multiplayer.disconnect.invalid_entity_attacked"))
+				}
+				return
+			}
+		}
 		// Not a player: attack a living mob if one has this id. The
 		// reach gate is vanilla's isWithinAttackRange — the eye to the
 		// target's bounding box, not center distance.
