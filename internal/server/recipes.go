@@ -200,10 +200,13 @@ func matchDecoratedPot(r *data.Recipe, names []string, filled []bool, boxH, boxW
 	return recipeStack(r.Result)
 }
 
-// matchRepair handles crafting_special_repairitem: two of the same
-// damageable item merge into one whose damage is the sum minus the
-// max and a 5%-of-max bonus (floored at zero), exactly as vanilla's
-// RepairItemRecipe computes it.
+// matchRepair handles crafting_special_repairitem. canCombine
+// (measured): same item, count 1 each, both carrying MAX_DAMAGE and
+// DAMAGE. assemble builds a FRESH stack of the item — nothing else
+// of the patch survives — sets MAX_DAMAGE to the pair's max, damage
+// to max(0, i5-(rem1+rem2+i5·5%)) (remaining = max-damage), and
+// updateEnchantments keeps only CURSE-tagged enchantments, merged
+// at the max level of either stack.
 func matchRepair(g craftGrid, filled []bool) (ItemStack, bool) {
 	var a, b ItemStack
 	n := 0
@@ -218,18 +221,27 @@ func matchRepair(g craftGrid, filled []bool) (ItemStack, bool) {
 			b = g[i]
 		}
 	}
-	if n != 2 || a.ID != b.ID {
+	if n != 2 || a.ID != b.ID || a.Count != 1 || b.Count != 1 {
 		return ItemStack{}, false
 	}
 	max := MaxDamageOfID(a.ID)
 	if max <= 0 {
 		return ItemStack{}, false
 	}
-	dmg := a.Damage + b.Damage - max - max/20
+	i8 := max - a.Damage + max - b.Damage + max*5/100
+	dmg := max - i8
 	if dmg < 0 {
 		dmg = 0
 	}
-	return ItemStack{ID: a.ID, Count: 1, Damage: dmg}, true
+	curses := map[string]int{}
+	for _, st := range []ItemStack{a, b} {
+		for _, e := range grindstoneEnchEntries(grindstoneEnchOf(st)) {
+			if grindstoneCurses[e.name] && e.level > curses[e.name] {
+				curses[e.name] = e.level
+			}
+		}
+	}
+	return ItemStack{ID: a.ID, Count: 1, Damage: dmg, Ench: grindstoneWriteEnch(curses)}, true
 }
 
 // matchTransmute handles crafting_transmute: exactly two grid items,

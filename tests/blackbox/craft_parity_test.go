@@ -25,7 +25,8 @@ func TestCraftRecipeParity(t *testing.T) {
 			"CraftV21", "CraftM21", "CraftV22", "CraftM22",
 			"CraftV23", "CraftM23", "CraftV24", "CraftM24",
 			"CraftV25", "CraftM25", "CraftV26", "CraftM26",
-			"CraftV27", "CraftM27", "CraftV28", "CraftM28"),
+			"CraftV27", "CraftM27", "CraftV28", "CraftM28",
+			"CraftV29", "CraftM29", "CraftV30", "CraftM30"),
 	}, nil)
 	defer tg.cleanup()
 
@@ -225,6 +226,39 @@ func TestCraftRecipeParity(t *testing.T) {
 			gives: [][2]string{
 				{"hotbar.0", "minecraft:stone_pickaxe[minecraft:damage=80]"},
 				{"hotbar.1", "minecraft:stone_shovel[minecraft:damage=80]"},
+			},
+			steps: []step{
+				{tag: "lift-a", slot: 36, w0: true},
+				{tag: "a1", slot: 1, w0: true},
+				{tag: "lift-b", slot: 37, w0: true},
+				{tag: "b2", slot: 2, w0: true},
+				{tag: "take?", slot: 0, w0: true},
+			},
+		},
+		{
+			// The repair result is a FRESH stack: curses merge at max
+			// level, every other component (sharpness, name) is dropped.
+			name: "repair-curse", suf: "29", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", `minecraft:diamond_sword[minecraft:damage=100,minecraft:enchantments={"minecraft:binding_curse":1,"minecraft:sharpness":3}]`},
+				{"hotbar.1", `minecraft:diamond_sword[minecraft:damage=200,minecraft:enchantments={"minecraft:vanishing_curse":1}]`},
+			},
+			steps: []step{
+				{tag: "lift-a", slot: 36, w0: true},
+				{tag: "a1", slot: 1, w0: true},
+				{tag: "lift-b", slot: 37, w0: true},
+				{tag: "b2", slot: 2, w0: true},
+				{tag: "take", slot: 0, w0: true},
+				{tag: "park", slot: 9, w0: true},
+			},
+		},
+		{
+			// canCombine requires count 1 on both stacks: a 2-stack of
+			// damaged pickaxes plus a single one refuses.
+			name: "repair-stack", suf: "30", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:stone_pickaxe[minecraft:damage=80] 2"},
+				{"hotbar.1", "minecraft:stone_pickaxe[minecraft:damage=80]"},
 			},
 			steps: []step{
 				{tag: "lift-a", slot: 36, w0: true},
