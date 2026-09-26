@@ -66,6 +66,9 @@ func stackKey(it server.ItemStack) string {
 	if it.BannerPatterns != "" {
 		key += fmt.Sprintf("[bp%s]", it.BannerPatterns)
 	}
+	if it.BaseColor != 0 {
+		key += fmt.Sprintf("[bc%d]", it.BaseColor-1)
+	}
 	if it.MapID != 0 {
 		key += fmt.Sprintf("[mid%d]", it.MapID-1)
 	}

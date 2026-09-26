@@ -88,6 +88,10 @@ type ItemStack struct {
 	// (the loom appends one layer per take) — absent when empty, which
 	// is also a fresh banner's default so only loomed banners carry it.
 	BannerPatterns string `json:"banner_patterns,omitempty"`
+	// BaseColor is the minecraft:base_color component's DyeColor
+	// ordinal +1 (0 absent): the shield-decorating recipe copies the
+	// banner's color onto the shield.
+	BaseColor int32 `json:"base_color,omitempty"`
 	// BottleAmpSet/BottleAmp carry minecraft:ominous_bottle_amplifier —
 	// set_ominous_bottle_amplifier rolls uniform 0-4 into the bottle a
 	// raid captain drops. Amplifier 0 is a legal value, so presence
@@ -137,7 +141,8 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.LootTable == other.LootTable && it.LootSeed == other.LootSeed &&
 		it.BookWritable == other.BookWritable && it.BookWritten == other.BookWritten &&
 		it.Trim == other.Trim &&
-		it.MapID == other.MapID && it.MapPost == other.MapPost
+		it.MapID == other.MapID && it.MapPost == other.MapPost &&
+		it.BaseColor == other.BaseColor
 }
 
 // enchLevel reports the stack's level of one enchantment, or 0 when
@@ -211,6 +216,8 @@ const (
 	// item_name is a text component (NBT); rarity an enum VarInt
 	// (common=0, uncommon=1).
 	compBannerPatterns = 72
+	// base_color is a bare DyeColor ordinal VarInt, registered 73rd.
+	compBaseColor      = 73
 	compTooltipDisplay = 18
 	compItemName       = 9
 	compRarity         = 12
@@ -315,6 +322,9 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 	if it.MapPost != 0 {
 		add++
 	}
+	if it.BaseColor != 0 {
+		add++
+	}
 	b.VarInt(add)
 	b.VarInt(0) // components to remove
 	if it.Damage != 0 {
@@ -417,6 +427,10 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 			}
 			b.VarInt(ord)
 		}
+	}
+	if it.BaseColor != 0 {
+		b.VarInt(compBaseColor)
+		b.VarInt(it.BaseColor - 1)
 	}
 	if it.BottleAmpSet {
 		// OminousBottleAmplifier.STREAM_CODEC is a bare VarInt.

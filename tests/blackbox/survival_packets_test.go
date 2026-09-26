@@ -2167,6 +2167,13 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 				return server.ItemStack{}, 0, false, nil, err
 			}
 			it.MapPost = post + 1
+		case 73: // minecraft:base_color: a bare DyeColor ordinal —
+			// stored +1 like MapID so 0 means absent.
+			bc, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			it.BaseColor = bc + 1
 		case 54: // minecraft:writable_book_content: VarInt page count,
 			// then Filterable<String> leaves (raw string + optional
 			// filtered string), measured on 26.2.

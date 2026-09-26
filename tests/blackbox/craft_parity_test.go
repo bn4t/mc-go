@@ -17,7 +17,10 @@ func TestCraftRecipeParity(t *testing.T) {
 			"CraftV5", "CraftM5", "CraftV6", "CraftM6",
 			"CraftV7", "CraftM7", "CraftV8", "CraftM8",
 			"CraftV9", "CraftM9", "CraftV10", "CraftM10",
-			"CraftV11", "CraftM11"),
+			"CraftV11", "CraftM11", "CraftV12", "CraftM12",
+			"CraftV13", "CraftM13", "CraftV14", "CraftM14",
+			"CraftV15", "CraftM15", "CraftV16", "CraftM16",
+			"CraftV17", "CraftM17"),
 	}, nil)
 	defer tg.cleanup()
 
@@ -240,6 +243,116 @@ func TestCraftRecipeParity(t *testing.T) {
 				{tag: "lift-dye", slot: 37, w0: true},
 				{tag: "d2", slot: 2, button: 1, w0: true},
 				{tag: "back-dye", slot: 37, w0: true},
+				{tag: "take", slot: 0, w0: true},
+				{tag: "park", slot: 9, w0: true},
+			},
+		},
+		{
+			// Special shielddecoration: banner + shield copies the
+			// banner's layers and dye color onto the shield (the
+			// shield's own patch survives — measured assemble).
+			name: "shield-patterned", suf: "12", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", `minecraft:blue_banner[minecraft:banner_patterns=[{color:"red",pattern:"minecraft:creeper"}]]`},
+				{"hotbar.1", "minecraft:shield"},
+			},
+			steps: []step{
+				{tag: "lift-b", slot: 36, w0: true},
+				{tag: "b1", slot: 1, w0: true},
+				{tag: "lift-s", slot: 37, w0: true},
+				{tag: "s2", slot: 2, w0: true},
+				{tag: "take", slot: 0, w0: true},
+				{tag: "park", slot: 9, w0: true},
+			},
+		},
+		{
+			// A plain banner leaves only base_color on the shield
+			// (no banner_patterns component).
+			name: "shield-plain", suf: "13", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:lime_banner"},
+				{"hotbar.1", "minecraft:shield"},
+			},
+			steps: []step{
+				{tag: "lift-b", slot: 36, w0: true},
+				{tag: "b1", slot: 1, w0: true},
+				{tag: "lift-s", slot: 37, w0: true},
+				{tag: "s2", slot: 2, w0: true},
+				{tag: "take", slot: 0, w0: true},
+				{tag: "park", slot: 9, w0: true},
+			},
+		},
+		{
+			// A shield already carrying layers can't decorate
+			// again — the result slot must stay empty.
+			name: "shield-redo", suf: "14", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:white_banner"},
+				{"hotbar.1", `minecraft:shield[minecraft:base_color="blue"]`},
+			},
+			steps: []step{
+				{tag: "lift-b", slot: 36, w0: true},
+				{tag: "b1", slot: 1, w0: true},
+				{tag: "lift-s", slot: 37, w0: true},
+				{tag: "s2", slot: 2, w0: true},
+				{tag: "take?", slot: 0, w0: true},
+			},
+		},
+		{
+			// Two banners or two shields never produce a result:
+			// the recipe needs exactly one of each.
+			name: "shield-dupes", suf: "15", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:white_banner"},
+				{"hotbar.1", "minecraft:black_banner"},
+				{"hotbar.2", "minecraft:shield"},
+				{"hotbar.3", "minecraft:shield"},
+			},
+			steps: []step{
+				{tag: "lift-b1", slot: 36, w0: true},
+				{tag: "b1", slot: 1, w0: true},
+				{tag: "lift-b2", slot: 37, w0: true},
+				{tag: "b2", slot: 2, w0: true},
+				{tag: "take?", slot: 0, w0: true},
+				{tag: "lift-b1back", slot: 1, w0: true},
+				{tag: "b1-park", slot: 36, w0: true},
+				{tag: "lift-s1", slot: 39, w0: true},
+				{tag: "s1", slot: 3, w0: true},
+				{tag: "lift-s2", slot: 38, w0: true},
+				{tag: "s2", slot: 4, w0: true},
+				{tag: "take2?", slot: 0, w0: true},
+			},
+		},
+		{
+			// A banner plus a non-shield (or the other way round)
+			// matches nothing.
+			name: "shield-mismatch", suf: "16", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:white_banner"},
+				{"hotbar.1", "minecraft:cobblestone 8"},
+			},
+			steps: []step{
+				{tag: "lift-b", slot: 36, w0: true},
+				{tag: "b1", slot: 1, w0: true},
+				{tag: "lift-c", slot: 37, w0: true},
+				{tag: "c2", slot: 2, w0: true},
+				{tag: "take?", slot: 0, w0: true},
+			},
+		},
+		{
+			// The shield's own components ride along:
+			// createWithOriginalComponents keeps a renamed shield's
+			// custom_name — plus a damaged shield keeps its damage.
+			name: "shield-named", suf: "17", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", `minecraft:pink_banner[minecraft:banner_patterns=[{color:"black",pattern:"minecraft:creeper"},{color:"white",pattern:"minecraft:skull"}]]`},
+				{"hotbar.1", `minecraft:shield[minecraft:custom_name="Bulwark",minecraft:damage=30]`},
+			},
+			steps: []step{
+				{tag: "lift-b", slot: 36, w0: true},
+				{tag: "b1", slot: 1, w0: true},
+				{tag: "lift-s", slot: 37, w0: true},
+				{tag: "s2", slot: 2, w0: true},
 				{tag: "take", slot: 0, w0: true},
 				{tag: "park", slot: 9, w0: true},
 			},

@@ -1213,6 +1213,10 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.MapID = 0
 			case "map_post_processing":
 				it.MapPost = 0
+			case "banner_patterns":
+				it.BannerPatterns = ""
+			case "base_color":
+				it.BaseColor = 0
 			default:
 				return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
 			}
@@ -1289,6 +1293,42 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 			default:
 				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
+		case "banner_patterns":
+			// BannerPatternLayers: a list of {pattern, color}
+			// compounds, canonical "pattern:color,..." in order.
+			if vtag.kind != snbtList {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			parts := make([]string, 0, len(vtag.items))
+			for _, e := range vtag.items {
+				if e.kind != snbtCompound {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				pv, ok1 := e.vals["pattern"]
+				cv, ok2 := e.vals["color"]
+				if !ok1 || pv.kind != snbtString || !ok2 || cv.kind != snbtString {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				parts = append(parts,
+					strings.TrimPrefix(pv.str, "minecraft:")+":"+strings.TrimPrefix(cv.str, "minecraft:"))
+			}
+			it.BannerPatterns = strings.Join(parts, ",")
+		case "base_color":
+			// A DyeColor name — shields carry the ordinal +1.
+			if vtag.kind != snbtString {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			ord := int32(-1)
+			for i, d := range loomDyeNames {
+				if strings.TrimPrefix(vtag.str, "minecraft:") == d {
+					ord = int32(i)
+					break
+				}
+			}
+			if ord < 0 {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			it.BaseColor = ord + 1
 		case "stored_enchantments":
 			// Same flat {name: level} map as enchantments, but it
 			// fills the stored_enchantments component (enchanted

@@ -270,6 +270,62 @@ func matchTransmute(r *data.Recipe, g craftGrid, filled []bool) (ItemStack, bool
 	return input, true
 }
 
+// matchShieldDecoration handles crafting_special_shielddecoration:
+// exactly two grid items — a banner and a shield with no
+// banner_patterns layers — and the result is the shield keeping its
+// whole patch (TransmuteRecipe.createWithOriginalComponents) plus the
+// banner's layers and dye color: BANNER_PATTERNS copied, BASE_COLOR
+// set to the banner item's DyeColor.
+func matchShieldDecoration(g craftGrid, filled []bool) (ItemStack, bool) {
+	var stacks []ItemStack
+	for i, f := range filled {
+		if f {
+			stacks = append(stacks, g[i])
+		}
+	}
+	if len(stacks) != 2 {
+		return ItemStack{}, false
+	}
+	var banner, shield ItemStack
+	for _, st := range stacks {
+		switch {
+		case loomIsBanner(st):
+			if !banner.Empty() {
+				return ItemStack{}, false
+			}
+			banner = st
+		default:
+			if !shield.Empty() {
+				return ItemStack{}, false
+			}
+			shield = st
+		}
+	}
+	if banner.Empty() || shield.Empty() {
+		return ItemStack{}, false
+	}
+	name, ok := itemNameOf(shield.ID)
+	if !ok || name != "shield" {
+		return ItemStack{}, false
+	}
+	// A shield already carrying layers refuses a second decoration.
+	if shield.BannerPatterns != "" {
+		return ItemStack{}, false
+	}
+	ord := int32(0)
+	bname, _ := itemNameOf(banner.ID)
+	for i, d := range loomDyeNames {
+		if bname == d+"_banner" {
+			ord = int32(i)
+			break
+		}
+	}
+	shield.Count = 1
+	shield.BannerPatterns = banner.BannerPatterns
+	shield.BaseColor = ord + 1
+	return shield, true
+}
+
 // craftResult computes the grid's result stack, iterating the recipe
 // table in registry order so the first matching recipe wins like
 // vanilla's CraftingManager. It also reports the winning recipe's id —
@@ -295,6 +351,8 @@ func craftResult(g craftGrid) (ItemStack, string, bool) {
 			out, hit = matchShapelessRecipe(r, names, filled)
 		case data.CraftingSpecialRepairitem:
 			out, hit = matchRepair(g, filled)
+		case data.CraftingSpecialShielddecoration:
+			out, hit = matchShieldDecoration(g, filled)
 		case data.CraftingTransmute:
 			out, hit = matchTransmute(r, g, filled)
 		case data.CraftingDecoratedPot:
