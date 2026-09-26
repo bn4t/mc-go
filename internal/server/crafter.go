@@ -155,6 +155,18 @@ func (s *Server) crafterDispenseFrom(d *dimension, pos world.Pos) {
 
 	s.crafterDispenseItem(d, pos, result, recipeID, preShrink)
 
+	// getRemainingItems over the crafting input: each non-empty
+	// remainder dispenses out the front. Disabled slots read as empty
+	// in preShrink, so they yield no remainder.
+	for i := 0; i < 9; i++ {
+		if preShrink[i].Empty() {
+			continue
+		}
+		if rem, ok := craftRemainderOf(preShrink[i].ID); ok {
+			s.crafterDispenseItem(d, pos, rem, recipeID, preShrink)
+		}
+	}
+
 	d.containers.mu.Lock()
 	for i := range c.slots {
 		if !c.slots[i].Empty() {

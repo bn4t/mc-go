@@ -1163,11 +1163,12 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 func (s *Server) handleCraftResultClick(sess *Session, button byte, mode int32) {
 	switch mode {
 	case 0: // one craft to the cursor
-		carried, touched, ok := sess.takeCraftResult(1)
+		carried, touched, leftovers, ok := sess.takeCraftResult(1)
 		if !ok {
 			return
 		}
 		s.sendCraftUpdates(sess, touched, carried)
+		s.placeCraftLeftovers(sess, leftovers)
 	case 1: // shift-click: craft everything into the inventory
 		for i := 0; i < maxStack; i++ {
 			sess.invMu.Lock()
@@ -1176,10 +1177,11 @@ func (s *Server) handleCraftResultClick(sess *Session, button byte, mode int32) 
 			if empty {
 				break
 			}
-			carried, _, ok := sess.takeCraftResult(1)
+			carried, _, leftovers, ok := sess.takeCraftResult(1)
 			if !ok {
 				break
 			}
+			s.placeCraftLeftovers(sess, leftovers)
 			remainder, _ := sess.addStack(carried)
 			sess.invMu.Lock()
 			sess.carried = remainder
@@ -1191,6 +1193,17 @@ func (s *Server) handleCraftResultClick(sess *Session, button byte, mode int32) 
 		_ = s.sendContainerContent(sess)
 		_ = s.sendCarriedItem(sess, carried)
 		s.refreshCraftResult(sess)
+	}
+}
+
+// placeCraftLeftovers is ResultSlot.onTake's fallback for a crafting
+// remainder that could not land in or merge onto its grid slot:
+// Inventory.add, dropping whatever the inventory cannot take.
+func (s *Server) placeCraftLeftovers(sess *Session, leftovers []ItemStack) {
+	for _, rem := range leftovers {
+		if rest, _ := sess.addStack(rem); !rest.Empty() {
+			s.dropItemLocked(sess, rest)
+		}
 	}
 }
 

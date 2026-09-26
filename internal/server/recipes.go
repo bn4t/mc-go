@@ -355,28 +355,29 @@ func (sess *Session) consumeCraftGrid() {
 
 // takeCraftResult grants up to n crafts to the cursor and consumes the
 // grid, returning the new cursor and the touched grid slots.
-func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, bool) {
+func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, []ItemStack, bool) {
 	sess.invMu.Lock()
 	defer sess.invMu.Unlock()
 	result := sess.inv[slotCraftResult]
 	if result.Empty() || n <= 0 {
-		return sess.carried, nil, false
+		return sess.carried, nil, nil, false
 	}
 	maxCrafts := n
 	// The cursor must be empty or the same item with room.
 	if !sess.carried.Empty() {
 		if sess.carried.ID != result.ID {
-			return sess.carried, nil, false
+			return sess.carried, nil, nil, false
 		}
 		room := maxStackOfID(sess.carried.ID) - sess.carried.Count
 		if room < result.Count {
-			return sess.carried, nil, false
+			return sess.carried, nil, nil, false
 		}
 		if maxCrafts > room/result.Count {
 			maxCrafts = room / result.Count
 		}
 	}
 	var touched []int16
+	var leftovers []ItemStack
 	for c := int32(0); c < maxCrafts; c++ {
 		if sess.inv[slotCraftResult].Empty() {
 			break
@@ -416,6 +417,28 @@ func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, bool) {
 			}
 			touched = append(touched, i)
 		}
+		// ResultSlot.onTake's remainder tail: each input's crafting
+		// remainder lands in its grid slot (post-shrink), merges when
+		// the same item is still there, falls to the player inventory,
+		// then drops at the feet.
+		gridIDs := [4]int32{grid[0].ID, grid[1].ID, grid[3].ID, grid[4].ID}
+		for i, gid := range gridIDs {
+			rem, ok := craftRemainderOf(gid)
+			if !ok {
+				continue
+			}
+			s := slotCraftStart + int16(i)
+			switch {
+			case sess.inv[s].Empty():
+				sess.inv[s] = rem
+				touched = append(touched, s)
+			case sess.inv[s].Stackable(rem):
+				sess.inv[s].Count += rem.Count
+				touched = append(touched, s)
+			default:
+				leftovers = append(leftovers, rem)
+			}
+		}
 		sess.carried.Count += out.Count
 		if sess.carried.Empty() {
 			sess.carried = ItemStack{ID: out.ID, Count: out.Count}
@@ -433,5 +456,36 @@ func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, bool) {
 			sess.inv[slotCraftResult] = next
 		}
 	}
-	return sess.carried, touched, true
+	return sess.carried, touched, leftovers, true
+}
+
+// craftRemainders maps a crafting input to its remainder item — the
+// five Item.Properties.craftRemainder calls in the 26.2 Items static
+// init (javap-verified; stews and potions use usingConvertsTo, which
+// does not feed crafting). ItemStackTemplate.create() yields a plain
+// count-1 stack for all of them.
+var craftRemainders = map[string]string{
+	"water_bucket":  "bucket",
+	"lava_bucket":   "bucket",
+	"milk_bucket":   "bucket",
+	"dragon_breath": "glass_bottle",
+	"honey_bottle":  "glass_bottle",
+}
+
+// craftRemainderOf returns an input's crafting remainder stack —
+// CraftingRecipe.defaultCraftingReminder's per-slot value.
+func craftRemainderOf(id int32) (ItemStack, bool) {
+	name, ok := itemNameOf(id)
+	if !ok {
+		return ItemStack{}, false
+	}
+	rem, ok := craftRemainders[strings.TrimPrefix(name, "minecraft:")]
+	if !ok {
+		return ItemStack{}, false
+	}
+	rid, ok := world.ItemIDs[rem]
+	if !ok {
+		return ItemStack{}, false
+	}
+	return ItemStack{ID: rid, Count: 1}, true
 }

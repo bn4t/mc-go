@@ -291,6 +291,25 @@ func (s *Server) takeTableResult(sess *Session, w *openWindow, table *craftTable
 			}
 			touched = append(touched, i)
 		}
+		// ResultSlot.onTake's remainder tail: each input's crafting
+		// remainder lands in its grid slot (post-shrink), merges when
+		// the same item is still there, else Inventory.add then drop.
+		for i := 1; i <= craftTableGrid; i++ {
+			rem, ok := craftRemainderOf(grid[i-1].ID)
+			if !ok {
+				continue
+			}
+			switch {
+			case table.slots[i].Empty():
+				table.slots[i] = rem
+				touched = append(touched, i)
+			case table.slots[i].Stackable(rem):
+				table.slots[i].Count += rem.Count
+				touched = append(touched, i)
+			default:
+				s.placeCraftLeftovers(sess, []ItemStack{rem})
+			}
+		}
 		table.slots[craftTableResult] = ItemStack{}
 		s.refreshTableResult(sess, table)
 		touched = append(touched, craftTableResult)

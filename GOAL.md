@@ -7707,3 +7707,31 @@ result into a front chest (silent — no spawn/1049/2010), and clicks
 1050 on an empty grid. `TestCrafterRecipeCraftedParity`,
 `TestDispenserDropperParity`, `TestHopperTransferParity` and the unit
 suite stay green.
+
+## Slice 2026-09-25zn — recipe getRemainingItems (bucket/bottle remainders)
+
+Measured (javap): `ResultSlot.onTake` shrinks each input 1, then runs
+the remainder tail per grid slot — remainder lands in the slot when it
+drained, `grow` when the same item is still there, else `Inventory.add`
+with `player.drop` on overflow. `Item.getCraftingRemainder()` is final
+and returns the `craftRemainder` property — only 5 items set it in the
+26.2 Items static init: water/lava/milk buckets → bucket, dragon_breath
+and honey_bottle → glass_bottle (stews' `usingConvertsTo` is eat-only).
+`CrafterBlock.dispenseFrom` calls `getRemainingItems(input)` after the
+result dispense and runs `dispenseItem` per non-empty remainder —
+every remainder gets the full spawn + trigger + 1049/2010 tail.
+
+- `craftRemainders` table + `craftRemainderOf` in recipes.go — the
+  measured 5 entries.
+- `takeCraftResult` (2x2) and `takeTableResult` (3x3) now run the
+  remainder tail per craft; leftovers that can't land/merge defer to
+  `placeCraftLeftovers` (add → drop) after invMu unlocks.
+- `crafterDispenseFrom` dispenses each non-empty remainder through
+  `crafterDispenseItem` — disabled slots read empty in the input so
+  they yield none, matching vanilla's CraftingInput.
+
+New: `TestCrafterRemainderParity` — 4 honey_bottles → honey_block
+through the crafter, diffing item-entity spawn count and the
+per-dispense 1049/2010/1050 level events vs vanilla (5 spawns / 5
+crafts worth of events). `TestCraftRecipeParity` (incl. the cake
+bucket-remainder case) and the unit suite stay green.
