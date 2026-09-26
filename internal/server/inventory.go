@@ -91,6 +91,13 @@ type ItemStack struct {
 	// networkSynchronized codec), so nothing wire-emits them.
 	LootTable string `json:"loot_table,omitempty"`
 	LootSeed  int64  `json:"loot_seed,omitempty"`
+	// BookWritable / BookWritten are the minecraft:writable_book_content
+	// and minecraft:written_book_content components' canonical SNBT —
+	// {pages:[...]} and {author,generation,pages,resolved,title}. A
+	// component patch applies to any item, so a stack may carry both;
+	// empty means the holder lacks that component.
+	BookWritable string `json:"book_writable,omitempty"`
+	BookWritten  string `json:"book_written,omitempty"`
 }
 
 // Empty reports whether the slot holds nothing.
@@ -110,7 +117,8 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.BlockState == other.BlockState &&
 		it.Potion == other.Potion && it.Ominous == other.Ominous &&
 		it.BottleAmpSet == other.BottleAmpSet && it.BottleAmp == other.BottleAmp &&
-		it.LootTable == other.LootTable && it.LootSeed == other.LootSeed
+		it.LootTable == other.LootTable && it.LootSeed == other.LootSeed &&
+		it.BookWritable == other.BookWritable && it.BookWritten == other.BookWritten
 }
 
 // enchLevel reports the stack's level of one enchantment, or 0 when
@@ -167,6 +175,11 @@ const (
 	compEnchantments = 13
 	compRepairCost   = 19
 	compStoredEnch   = 42
+	// writable_book_content / written_book_content carry the book
+	// payload a lectern (or book-and-quill editor) reads; payloads are
+	// lists of Filterable<String>/<Component> wrappers (measured 26.2).
+	compWritableBook = 54
+	compWrittenBook  = 55
 	// potion_contents, measured on 26.2: presence bool, potion
 	// registry id (raw, not holder +1), then three absent-option
 	// bytes — custom color, custom effects list (VarInt 0), custom
@@ -248,6 +261,12 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		add += 4
 	}
 	if it.BottleAmpSet {
+		add++
+	}
+	if it.BookWritable != "" {
+		add++
+	}
+	if it.BookWritten != "" {
 		add++
 	}
 	if it.BlockState != "" {
@@ -345,6 +364,9 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		// OminousBottleAmplifier.STREAM_CODEC is a bare VarInt.
 		b.VarInt(compOminousBottleAmplifier)
 		b.VarInt(it.BottleAmp)
+	}
+	if it.BookWritable != "" || it.BookWritten != "" {
+		writeBookContentPatch(b, it)
 	}
 	if it.Contents != nil {
 		b.VarInt(compContainer)
@@ -776,6 +798,64 @@ func (sess *Session) heldItem() (int32, bool) {
 		return 0, false
 	}
 	return it.ID, true
+}
+
+// placeBackInInventory is vanilla's
+// Inventory.placeItemBackInInventory: the stack merges into the first
+// slot with remaining space — the flat items-list scan, hotbar then
+// main, offhand never — else the first free slot. The touched slot
+// goes out as a Set Player Inventory packet (sendUpdates=true); what
+// still does not fit drops at the player's feet.
+func (s *Server) placeBackInInventory(sess *Session, it ItemStack) {
+	if it.Empty() {
+		return
+	}
+	flat := make([]int16, 0, slotCount)
+	for i := int16(slotHotbarStart); i < slotOffhand; i++ {
+		flat = append(flat, i)
+	}
+	for i := int16(slotMainStart); i < slotHotbarStart; i++ {
+		flat = append(flat, i)
+	}
+	sess.invMu.Lock()
+	slot := int16(-1)
+	for _, sl := range flat {
+		cur := sess.inv[sl]
+		if !cur.Empty() && cur.Stackable(it) && cur.Count < maxStackOfID(cur.ID) {
+			slot = sl
+			break
+		}
+	}
+	if slot < 0 {
+		for _, sl := range flat {
+			if sess.inv[sl].Empty() {
+				slot = sl
+				break
+			}
+		}
+	}
+	var stored ItemStack
+	if slot >= 0 {
+		cur := sess.inv[slot]
+		if cur.Empty() {
+			cur = it.withCount(0)
+		}
+		room := maxStackOfID(it.ID) - cur.Count
+		move := min(room, it.Count)
+		cur.Count += move
+		it.Count -= move
+		sess.inv[slot] = cur
+		stored = cur
+	}
+	sess.invMu.Unlock()
+	if slot < 0 {
+		s.dropItemLocked(sess, it)
+		return
+	}
+	s.sendPlayerInventorySlot(sess, playerContainerIndex(slot), stored)
+	if !it.Empty() {
+		s.dropItemLocked(sess, it)
+	}
 }
 
 // sendContainerSlot syncs one inventory slot to the client.

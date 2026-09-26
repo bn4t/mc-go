@@ -421,6 +421,11 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		s.rsCompRefresh(d, pos, blk)
 		return
 	}
+	if short == "lectern" {
+		// LecternBlock.tick: the page-turn pulse's 2-tick release.
+		s.lecternTick(d, pos)
+		return
+	}
 	if short == "redstone_lamp" {
 		// RedstoneLampBlock.tick: the unlatch lands 4 ticks after the
 		// signal dropped — but only if it's still dropped.

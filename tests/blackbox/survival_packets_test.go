@@ -2091,6 +2091,86 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 			}
 			it.BottleAmpSet = true
 			it.BottleAmp = amp
+		case 54: // minecraft:writable_book_content: VarInt page count,
+			// then Filterable<String> leaves (raw string + optional
+			// filtered string), measured on 26.2.
+			n, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			var pages []string
+			for ; n > 0; n-- {
+				raw, err := r.String()
+				if err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				has, err := r.Bool()
+				if err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				fs := ""
+				if has {
+					if fs, err = r.String(); err != nil {
+						return server.ItemStack{}, 0, false, nil, err
+					}
+				}
+				pages = append(pages, fmt.Sprintf("%q/%q", raw, fs))
+			}
+			it.BookWritable = strings.Join(pages, ";")
+		case 55: // minecraft:written_book_content: Filterable<String>
+			// title, author string, generation VarInt, a list of
+			// Filterable<Component> pages (each an unnamed NBT tag),
+			// then the resolved flag.
+			title, err := r.String()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			thas, err := r.Bool()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			tfs := ""
+			if thas {
+				if tfs, err = r.String(); err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+			}
+			author, err := r.String()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			gen, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			n, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			var pages []string
+			for ; n > 0; n-- {
+				raw, terr := nbt.ReadUnnamed(pktReader{r})
+				if terr != nil {
+					return server.ItemStack{}, 0, false, nil, terr
+				}
+				has, err := r.Bool()
+				if err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				var fv any
+				if has {
+					if fv, err = nbt.ReadUnnamed(pktReader{r}); err != nil {
+						return server.ItemStack{}, 0, false, nil, err
+					}
+				}
+				pages = append(pages, fmt.Sprintf("%v/%v", raw, fv))
+			}
+			res, err := r.Bool()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			it.BookWritten = fmt.Sprintf("%q/%q|%s|%d|%s|%v",
+				title, tfs, author, gen, strings.Join(pages, ";"), res)
 		default:
 			return server.ItemStack{}, 0, false, nil, fmt.Errorf("blackbox: unknown added component type %d on item %d", typ, id)
 		}

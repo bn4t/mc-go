@@ -143,7 +143,10 @@ func (spec *containerSpec) accepts(slot int, it ItemStack) bool {
 		// component (vanilla's mayPlace reads the same field).
 		return enchantableOf(it) > 0
 	case spec.menu == menuLectern:
-		return itemNamed(it, "written_book")
+		// LecternBlockEntity's bookAccess.canPlaceItem is a flat
+		// false: the menu slot is display-only, books land via the
+		// block's useItemOn.
+		return false
 	case spec.menu == menuBeacon:
 		return beaconPaymentItem(it)
 	}
@@ -386,6 +389,9 @@ type containerData struct {
 	// many items the take consumes from the left and right inputs.
 	anvilCost int32
 	anvilUse  [2]int32
+	// page is the lectern's Page — the book slot's current page,
+	// LecternBlockEntity's field and the menu's only property.
+	page int32
 }
 
 // containerStore keeps generic container state by position.
@@ -530,6 +536,14 @@ func (s *Server) openContainer(sess *Session, pos world.Pos) {
 	if c.spec.menu == menuBeacon {
 		s.sendBeaconProperties(sess, w)
 	}
+	if c.spec.menu == menuLectern {
+		// sendAllDataToRemote on open: the lectern's one data slot is
+		// the book's current page.
+		w.dim.containers.mu.Lock()
+		pg := c.page
+		w.dim.containers.mu.Unlock()
+		s.sendContainerProperty(sess, id, 0, pg)
+	}
 }
 
 // sendContainerMenuContent syncs a whole generic container menu.
@@ -622,7 +636,7 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		target := sess.menuStack(int(slot))
 		switch {
 		case button != 0:
-			cur, target = clickRight(cur, target)
+			cur, target = clickRight(cur, target, c.spec, int(slot))
 		default:
 			cur, target = clickLeft(cur, target, c.spec, int(slot))
 		}
@@ -648,6 +662,11 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 		}
 		a := sess.menuStack(int(slot))
 		b := sess.menuStack(swap)
+		// doClick's slot.mayPlace gate: a swap into a slot that
+		// refuses the incoming stack does not happen.
+		if !menuAccepts(c.spec, int(slot), b) {
+			break
+		}
 		sess.setMenuStack(int(slot), b)
 		sess.setMenuStack(swap, a)
 		touched = append(touched, int(slot), swap)
@@ -700,6 +719,9 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 	}
 	if c.spec.menu == menuEnchantment {
 		s.enchantSlotsChanged(sess, w)
+	}
+	if c.spec.menu == menuLectern {
+		s.lecternMenuBookCheck(w)
 	}
 }
 
@@ -768,8 +790,9 @@ func clickLeft(cur, target ItemStack, spec *containerSpec, slot int) (carried, p
 }
 
 // clickRight applies a right click: split the slot onto the cursor, or
-// place one item from the cursor.
-func clickRight(cur, target ItemStack) (carried, placed ItemStack) {
+// place one item from the cursor — the deposit arm obeys the slot's
+// mayPlace the way vanilla's doClick does.
+func clickRight(cur, target ItemStack, spec *containerSpec, slot int) (carried, placed ItemStack) {
 	switch {
 	case cur.Empty():
 		if target.Empty() {
@@ -783,6 +806,9 @@ func clickRight(cur, target ItemStack) (carried, placed ItemStack) {
 		}
 		return carried, target
 	case target.Empty():
+		if !menuAccepts(spec, slot, cur) {
+			return cur, target
+		}
 		target = cur.withCount(1)
 		cur.Count--
 		if cur.Count <= 0 {
@@ -790,6 +816,9 @@ func clickRight(cur, target ItemStack) (carried, placed ItemStack) {
 		}
 		return cur, target
 	case target.Stackable(cur) && target.Count < maxStackOfID(target.ID):
+		if !menuAccepts(spec, slot, cur) {
+			return cur, target
+		}
 		target.Count++
 		cur.Count--
 		if cur.Count <= 0 {
@@ -1007,9 +1036,9 @@ func (s *Server) openBlockMenu(sess *Session, blk world.Block, pos world.Pos) bo
 	case isFurnaceBlock(blk):
 		s.openFurnace(sess, pos)
 	case isContainerBlock(blk):
-		// A lectern with no book stays silent on vanilla 26.2
-		// (measured): the use falls through to the place path
-		// instead of opening.
+		// A lectern with no book never reaches here — its useItemOn
+		// consumes the click first (see lecternUse). The slot check
+		// guards the case where has_book and the stored book disagree.
 		if name, _ := world.StateOwner(blk); name == "lectern" {
 			c := s.containerAt(sess.dimension(), pos)
 			if c == nil || c.slots[lecternBook].Empty() {

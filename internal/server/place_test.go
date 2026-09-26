@@ -124,8 +124,11 @@ func TestPlaceStone(t *testing.T) {
 	if len(acks) != 1 || acks[0] != 7 {
 		t.Fatalf("acks = %v", acks)
 	}
-	if len(updates) != 1 {
-		t.Fatalf("updates = %d, want 1", len(updates))
+	// The wire is the write's block update, then the vanilla
+	// client-prediction revert pair: BU(clicked) + BU(face, showing
+	// the placed stone).
+	if len(updates) != 3 {
+		t.Fatalf("updates = %d, want 3", len(updates))
 	}
 	r := protocol.NewPacketReader(updates[0].Data)
 	ux, uy, uz, err := r.Position()
@@ -134,6 +137,10 @@ func TestPlaceStone(t *testing.T) {
 	}
 	if st, err := r.VarInt(); err != nil || st != StateStone {
 		t.Fatalf("update state = %d err %v", st, err)
+	}
+	r = protocol.NewPacketReader(updates[1].Data)
+	if ux, uy, uz, err := r.Position(); err != nil || ux != 8 || uy != -61 || uz != 8 {
+		t.Fatalf("revert pos = %d,%d,%d err %v, want the clicked block", ux, uy, uz, err)
 	}
 	select {
 	case e := <-ch:
@@ -150,24 +157,25 @@ func TestPlaceDenials(t *testing.T) {
 	seq := int32(3)
 
 	cases := []struct {
-		name  string
-		setup func(s *Server, sess *Session)
-		pkt   protocol.Packet
+		name    string
+		setup   func(s *Server, sess *Session)
+		pkt     protocol.Packet
+		updates int
 	}{
 		{"occupied", func(s *Server, sess *Session) {
 			sess.setSlot(slotHotbarStart, int32(ItemStone), 1)
 			s.world.SetBlock(world.Pos{X: 8, Y: -60, Z: 8}, world.Stone)
-		}, useItemPkt(0, 8, -61, 8, 1, &seq)},
+		}, useItemPkt(0, 8, -61, 8, 1, &seq), 2},
 		{"unknown item", func(s *Server, sess *Session) {
 			sess.setSlot(slotHotbarStart, 999, 1)
-		}, useItemPkt(0, 8, -61, 8, 1, &seq)},
-		{"empty hand", func(s *Server, sess *Session) {}, useItemPkt(0, 8, -61, 8, 1, &seq)},
+		}, useItemPkt(0, 8, -61, 8, 1, &seq), 2},
+		{"empty hand", func(s *Server, sess *Session) {}, useItemPkt(0, 8, -61, 8, 1, &seq), 2},
 		{"bad face", func(s *Server, sess *Session) {
 			sess.setSlot(slotHotbarStart, int32(ItemStone), 1)
-		}, useItemPkt(0, 8, 64, 8, 9, &seq)},
+		}, useItemPkt(0, 8, 64, 8, 9, &seq), 0},
 		{"click air", func(s *Server, sess *Session) {
 			sess.setSlot(slotHotbarStart, int32(ItemStone), 1)
-		}, useItemPkt(0, 8, 80, 8, 1, &seq)},
+		}, useItemPkt(0, 8, 80, 8, 1, &seq), 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -180,8 +188,11 @@ func TestPlaceDenials(t *testing.T) {
 			c.setup(s, sess)
 			s.handleUseItem(sess, c.pkt)
 			updates, acks := drainAcks(sess)
-			if len(updates) != 0 {
-				t.Fatalf("denied place fanned %d updates", len(updates))
+			// Every use_item_on that reaches dispatch ends with the
+			// client-prediction revert pair, even a denied one; clicks
+			// that never reach a block (bad face, air) emit none.
+			if len(updates) != c.updates {
+				t.Fatalf("denied place fanned %d updates, want %d", len(updates), c.updates)
 			}
 			if len(acks) != 1 || acks[0] != 3 {
 				t.Fatalf("acks = %v, want [3]", acks)
@@ -216,7 +227,7 @@ func TestPlaceWithoutSeq(t *testing.T) {
 		t.Fatalf("target = %v, want dirt", got)
 	}
 	updates, acks := drainAcks(sess)
-	if len(updates) != 1 || len(acks) != 0 {
+	if len(updates) != 3 || len(acks) != 0 {
 		t.Fatalf("updates=%d acks=%v", len(updates), acks)
 	}
 }

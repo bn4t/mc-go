@@ -330,7 +330,7 @@ func (s *Server) anvilClick(sess *Session, w *openWindow, c *containerData, slot
 	}
 	target := sess.menuStack(slot)
 	if button != 0 {
-		cur, target = clickRight(cur, target)
+		cur, target = clickRight(cur, target, c.spec, slot)
 	} else {
 		cur, target = clickLeft(cur, target, c.spec, slot)
 	}

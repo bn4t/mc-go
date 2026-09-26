@@ -57,6 +57,8 @@ var blockEntitySpecs = map[string]blockEntitySpec{
 	"barrel":        {26, "minecraft:barrel"},
 	"smoker":        {27, "minecraft:smoker"},
 	"blast_furnace": {28, "minecraft:blast_furnace"},
+	"lectern":       {29, "minecraft:lectern"},
+	"comparator":    {19, "minecraft:comparator"},
 	"crafter":       {42, "minecraft:crafter"},
 }
 
@@ -234,6 +236,29 @@ func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any
 		return nil, false
 	}
 	switch spec.name {
+	case "minecraft:comparator":
+		// ComparatorBlockEntity saves its last published analog level
+		// unconditionally - OutputSignal is there even when it is 0.
+		return blockEntityNBT(pos, spec, func(extra map[string]any) {
+			extra["OutputSignal"] = int32(d.comparatorOut[pos])
+		}), true
+	case "minecraft:lectern":
+		// A lectern owns its block entity empty or full: the tag is
+		// the position frame alone until a Book is stored, then Book +
+		// Page under LecternBlockEntity.saveAdditional's !book.isEmpty().
+		d.containers.mu.Lock()
+		defer d.containers.mu.Unlock()
+		var book ItemStack
+		var pg int32
+		if c := d.containers.containers[pos]; c != nil {
+			book, pg = c.slots[lecternSlot], c.page
+		}
+		return blockEntityNBT(pos, spec, func(extra map[string]any) {
+			if !book.Empty() {
+				extra["Book"] = itemNBT(book)
+				extra["Page"] = pg
+			}
+		}), true
 	case "minecraft:sign", "minecraft:hanging_sign":
 		d.signs.mu.Lock()
 		defer d.signs.mu.Unlock()
@@ -584,6 +609,14 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 	if it.Name != "" {
 		comps["minecraft:custom_name"] = it.Name
 	}
+	// The book-content components emit in their save shape — the
+	// codec's omitted-at-default fields are already stripped.
+	if v := bookContentNBT(it, false); v != nil {
+		comps["minecraft:writable_book_content"] = v
+	}
+	if v := bookContentNBT(it, true); v != nil {
+		comps["minecraft:written_book_content"] = v
+	}
 	// container_loot = SeededContainerLoot{loot_table, seed} — seed is
 	// an optionalFieldOf(0), which the encoder omits at the default.
 	if it.LootTable != "" {
@@ -699,6 +732,36 @@ func (s *Server) restoreBlockEntity(d *dimension, be map[string]any) {
 			}
 		}
 		d.furnaces.mu.Unlock()
+	case "minecraft:lectern":
+		// LecternBlockEntity.load: the Book stack (resolved on the way
+		// in) plus Page clamped to [0, pageCount-1] — a bookless lectern
+		// clamps against pageCount 0 and lands on -1.
+		c := s.containerAt(d, pos)
+		if c == nil {
+			return
+		}
+		d.containers.mu.Lock()
+		clear(c.slots)
+		var pages int32
+		if book, ok := be["Book"].(map[string]any); ok {
+			c.slots[lecternSlot] = bookResolve(itemFromNBT(book))
+			pages = lecternPageCount(c.slots[lecternSlot])
+		}
+		pg := int32(nbtNumberOr(be["Page"], 0))
+		if pg < 0 {
+			pg = 0
+		}
+		if pg > pages-1 {
+			pg = pages - 1
+		}
+		c.page = pg
+		d.containers.mu.Unlock()
+	case "minecraft:comparator":
+		// ComparatorBlockEntity.load reads the published level back.
+		if d.comparatorOut == nil {
+			d.comparatorOut = map[world.Pos]int{}
+		}
+		d.comparatorOut[pos] = int(nbtNumberOr(be["OutputSignal"], 0))
 	case "minecraft:barrel", "minecraft:dispenser", "minecraft:dropper",
 		"minecraft:shulker_box", "minecraft:brewing_stand", "minecraft:crafter":
 		c := s.containerAt(d, pos)
@@ -754,6 +817,7 @@ func itemFromNBT(m map[string]any) ItemStack {
 	it.Count = int32(nbtNumberOr(m["count"], 1))
 	if comps, ok := m["components"].(map[string]any); ok {
 		it.Contents = shulkerContentsFromNBT(comps)
+		it.BookWritable, it.BookWritten = bookContentFromNBT(comps)
 	}
 	return it
 }

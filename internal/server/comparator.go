@@ -118,14 +118,17 @@ func rsAnalogSignal(d *dimension, pos world.Pos, blk world.Block) int {
 		if prop("has_book") != "true" {
 			return 0
 		}
-		// LecternBlockEntity.getRedstoneSignal reads its one book
-		// slot's page position; mc-go stores the book slot but no
-		// page, so the fill formula's 15-when-held approximation
-		// stands in.
+		// LecternBlockEntity.getRedstoneSignal: pageCount ≤ 1 reads 1;
+		// else floor(page/(pageCount-1)*14)+1 — the page's position in
+		// the book, scaled to the comparator's analog band.
 		d.containers.mu.Lock()
 		defer d.containers.mu.Unlock()
 		if c := d.containers.containers[pos]; c != nil {
-			return rsContainerFill(c.slots)
+			pc := lecternPageCount(c.slots[lecternSlot])
+			if pc <= 1 {
+				return 1
+			}
+			return int(c.page*14/(pc-1)) + 1
 		}
 		return 0
 	}

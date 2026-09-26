@@ -180,7 +180,8 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		return
 	}
 	r := protocol.NewPacketReader(p.Data)
-	if _, err := r.VarInt(); err != nil { // hand
+	hand, err := r.VarInt()
+	if err != nil {
 		return
 	}
 	x, y, z, err := r.Position()
@@ -211,7 +212,14 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		seq = v
 	}
 	acked := false
+	var dispatched bool
+	var sendRevert func()
+	var d *dimension
+	var clicked, facePos world.Pos
 	defer func() {
+		if dispatched && sendRevert != nil {
+			sendRevert()
+		}
 		if seq >= 0 && !acked {
 			s.sendBlockAck(sess, seq)
 		}
@@ -221,7 +229,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	if x < -border || x > border || z < -border || z > border {
 		return
 	}
-	d := sess.dimension()
+	d = sess.dimension()
 	if int(y) < d.minY || int(y) > d.minY+d.height-1 {
 		return
 	}
@@ -229,10 +237,43 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	if !ok {
 		return
 	}
-	clicked := world.Pos{X: int(x), Y: int(y), Z: int(z)}
+	clicked = world.Pos{X: int(x), Y: int(y), Z: int(z)}
 	cur := d.w.GetBlock(clicked)
 	if cur == world.Air {
 		return // no block targeted: ack only
+	}
+	facePos = world.Pos{X: int(x + dx), Y: int(y + dy), Z: int(z + dz)}
+	// handleUseItemOn's tail re-sends the live state at the clicked pos
+	// and the clicked-face neighbor to the acting player — vanilla's
+	// client-prediction revert, fired on every use_item_on that reaches
+	// dispatch (even a no-op click on plain stone). Reading the world
+	// at emit time lands the just-placed block on the face pos.
+	revertSent := false
+	sendRevert = func() {
+		if revertSent {
+			return
+		}
+		revertSent = true
+		body := encodeBlockUpdate(int32(clicked.X), int32(clicked.Y), int32(clicked.Z), blockState(d.w.GetBlock(clicked)))
+		_ = sess.write(sess.ids().PlayBlockUpdateCB, body)
+		fbody := encodeBlockUpdate(int32(facePos.X), int32(facePos.Y), int32(facePos.Z), blockState(d.w.GetBlock(facePos)))
+		_ = sess.write(sess.ids().PlayBlockUpdateCB, fbody)
+	}
+	useAck := func() {
+		if acked {
+			return
+		}
+		sendRevert()
+		acked = true
+		if seq >= 0 {
+			s.sendBlockAck(sess, seq)
+		}
+	}
+	plainAck := func() {
+		if seq >= 0 && !acked {
+			acked = true
+			s.sendBlockAck(sess, seq)
+		}
 	}
 	// Vanilla gates every use_item_on on isWithinBlockInteractionRange
 	// (pos, 1.0): eye to the clicked block's AABB under
@@ -240,6 +281,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	if !withinReach(sess, clicked, reachSurvival+1.0) {
 		return
 	}
+	dispatched = true
 	// item_used_on_block fires on the interaction itself — vanilla
 	// evaluates it inside useOn before the use's outcome is known.
 	if bname, ok := world.StateOwner(cur); ok {
@@ -258,10 +300,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		if held := sess.heldStack(); !held.Empty() {
 			if iname, ok := itemNameOf(held.ID); ok && iname == "lead" {
 				s.bindPlayerMobs(sess, d, clicked)
-				acked = true
-				if seq >= 0 {
-					s.sendBlockAck(sess, seq)
-				}
+				useAck()
 				return
 			}
 		}
@@ -271,20 +310,14 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// no bed, no sign, no menu — the held item's useOn runs instead.
 	blockUse := !(sess.sneaking && !sess.heldStack().Empty())
 	if name, _ := world.StateOwner(cur); blockUse && name == "tnt" && s.useTnt(sess, d, clicked) {
-		acked = true
-		if seq >= 0 {
-			s.sendBlockAck(sess, seq)
-		}
+		useAck()
 		return
 	}
 	// A bed click sleeps — it never places the held item, even
 	// holding blocks. slept_in_bed fires when the gate passes.
 	if blockUse && isBedBlock(cur) {
 		s.useBed(sess, clicked)
-		acked = true
-		if seq >= 0 {
-			s.sendBlockAck(sess, seq)
-		}
+		useAck()
 		return
 	}
 	// A noteblock's useWithoutItem cycles its note and plays it —
@@ -293,20 +326,14 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// are a GOAL gap.
 	if blockUse && isNoteBlock(cur) && sess.heldStack().Empty() {
 		s.noteBlockUse(sess, d, clicked)
-		acked = true
-		if seq >= 0 {
-			s.sendBlockAck(sess, seq)
-		}
+		useAck()
 		return
 	}
 	// Interacting with a sign dyes it, waxes it, makes its text glow,
 	// or opens its editor - it never places.
 	if blockUse && isSignLikeBlock(cur) {
 		s.useSign(sess, d, clicked, cur)
-		acked = true
-		if seq >= 0 {
-			s.sendBlockAck(sess, seq)
-		}
+		useAck()
 		return
 	}
 	// Face controls answer useWithoutItem first: a button presses and
@@ -320,17 +347,11 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 			if p, _ := world.StateProperty(cur, "powered"); p != "true" {
 				s.rsButtonPress(d, clicked, short, cur)
 			}
-			acked = true
-			if seq >= 0 {
-				s.sendBlockAck(sess, seq)
-			}
+			useAck()
 			return
 		case short == "lever":
 			s.rsLeverPull(d, clicked, cur)
-			acked = true
-			if seq >= 0 {
-				s.sendBlockAck(sess, seq)
-			}
+			useAck()
 			return
 		case short == "repeater":
 			// RepeaterBlock.useWithoutItem: mayBuild gates the DELAY
@@ -340,10 +361,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 				if nb, ok := world.WithProperty(cur, "delay", strconv.Itoa(delay%4+1)); ok {
 					s.rsWriteBlock(d, clicked, nb, nb, nil)
 				}
-				acked = true
-				if seq >= 0 {
-					s.sendBlockAck(sess, seq)
-				}
+				useAck()
 				return
 			}
 		case short == "comparator":
@@ -363,27 +381,26 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 						s.rsCompRefresh(d, clicked, nb)
 					}
 				}
-				acked = true
-				if seq >= 0 {
-					s.sendBlockAck(sess, seq)
-				}
+				useAck()
 				return
 			}
 		case s.rsToggleOpenable(d, clicked, short):
-			acked = true
-			if seq >= 0 {
-				s.sendBlockAck(sess, seq)
-			}
+			useAck()
 			return
 		case short == "bee_nest" || short == "beehive":
 			if s.useBeehive(sess, d, clicked, cur) {
-				acked = true
-				if seq >= 0 {
-					s.sendBlockAck(sess, seq)
-				}
+				useAck()
 				return
 			}
 		}
+	}
+	// LecternBlock.useItemOn runs before the menu path: a book stores
+	// onto a bookless lectern, and every other interact on a bookless
+	// one is vanilla's CONSUME — nothing opens and the held item does
+	// not place. A lectern holding a book falls through to the menu.
+	if blockUse && s.lecternUse(d, sess, clicked, cur, hand) {
+		useAck()
+		return
 	}
 	// Container blocks open their menu instead of placing, but only
 	// in reach and only once every server teleport is confirmed:
@@ -392,47 +409,32 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// denials still ack the sequence.
 	if blockUse && opensMenu(cur) {
 		if !useMenuReachOK(sess, clicked) {
-			acked = true
-			if seq >= 0 {
-				s.sendBlockAck(sess, seq)
-			}
+			plainAck()
 			return
 		}
 		if teleportPending(sess) {
-			acked = true
-			if seq >= 0 {
-				s.sendBlockAck(sess, seq)
-			}
+			plainAck()
 			s.sendBuildTooHigh(sess, d)
 			return
 		}
 	}
 	if blockUse && s.openBlockMenu(sess, cur, clicked) {
-		acked = true
-		if seq >= 0 {
-			s.sendBlockAck(sess, seq)
-		}
+		useAck()
 		return
 	}
 	// BoneMealItem.useOn — a bonemealable target grows, consuming one
 	// meal in survival (creative keeps it, like the igniter path).
 	if s.useBonemeal(sess, d, clicked) {
-		acked = true
-		if seq >= 0 {
-			s.sendBlockAck(sess, seq)
-		}
+		useAck()
 		return
 	}
 	// FlintAndSteelItem/FireChargeItem.useOn — held-item useOn runs
 	// only after the clicked block's own use path passed.
 	if s.useIgniter(sess, d, clicked, face) {
-		acked = true
-		if seq >= 0 {
-			s.sendBlockAck(sess, seq)
-		}
+		useAck()
 		return
 	}
-	target := world.Pos{X: int(x + dx), Y: int(y + dy), Z: int(z + dz)}
+	target := facePos
 	if target.Y < d.minY || target.Y > d.minY+d.height-1 {
 		return
 	}
@@ -541,10 +543,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 			}
 		}
 	}
-	acked = true
-	if seq >= 0 {
-		s.sendBlockAck(sess, seq)
-	}
+	useAck()
 	s.sendLightUpdate(d, target.X>>4, target.Z>>4, affected)
 	// Survival consumes one item and syncs the slot; creative keeps
 	// the stack, matching vanilla.

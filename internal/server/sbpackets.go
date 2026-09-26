@@ -466,21 +466,24 @@ func (s *Server) handleContainerButtonClick(sess *Session, p protocol.Packet) {
 	if w.container.spec.menu != menuLectern {
 		return
 	}
+	// LecternMenu.clickMenuButton: 1/2 step the page, 3 takes the
+	// book, >= 100 jumps to page-100.
 	switch button {
 	case lecternButtonTake:
-		it := sess.menuStack(lecternBook)
-		if it.Empty() {
-			return
-		}
-		sess.setMenuStack(lecternBook, ItemStack{})
-		remainder, _ := sess.addStack(it)
-		s.setCarriedLocked(sess, remainder)
-		s.syncContainerMenuSlots(sess, w, []int{lecternBook})
+		s.lecternTakeBook(sess, w)
 	case lecternButtonPrev, lecternButtonNext:
-		// TODO(book data): turning the page needs the written book's
-		// page count (the minecraft:written_book_content component), so
-		// the page stays where it is and the property is re-sent.
-		s.sendContainerProperty(sess, w.id, 0, 0)
+		delta := int32(-1)
+		if button == lecternButtonNext {
+			delta = 1
+		}
+		w.dim.containers.mu.Lock()
+		cur := w.container.page
+		w.dim.containers.mu.Unlock()
+		s.lecternSetPage(w, w.pos, cur+delta)
+	default:
+		if button >= 100 {
+			s.lecternSetPage(w, w.pos, button-100)
+		}
 	}
 }
 

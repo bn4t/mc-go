@@ -54,6 +54,12 @@ func stackKey(it server.ItemStack) string {
 	if it.Ench != "" {
 		key += fmt.Sprintf("[e%s]", it.Ench)
 	}
+	if it.BookWritable != "" {
+		key += fmt.Sprintf("[bw%s]", it.BookWritable)
+	}
+	if it.BookWritten != "" {
+		key += fmt.Sprintf("[bwr%s]", it.BookWritten)
+	}
 	return key
 }
 
@@ -90,14 +96,19 @@ type clickDriver struct {
 	// sndPkts counts clientbound sound packets (id 0x75 on 26.2 — the
 	// enchanting table's use sound).
 	sndPkts int
-	// brewDone counts level-event 1035s (brewing stand finished).
-	brewDone int
-	sounds   int
-	sawClose bool
-	invSets  int
+	// brewDone counts level-event 1035s (brewing stand finished),
+	// pageTurns level-event 1043s (lectern page changed).
+	brewDone  int
+	pageTurns int
+	sounds    int
+	sawClose  bool
+	invSets   int
 	// blkUps counts Block Update packets per position: the anvil's
 	// 12%-per-take degrade roll is a block change at the menu's pos.
 	blkUps map[[3]int32]int
+	// soundIDs decodes every named-sound packet's registry id, so a
+	// test can tell a book_put from a block break.
+	soundIDs map[int32]int
 	// death holds the killer's entity id when a death chat arrives:
 	// a dead survival player loses its menu, which makes every later
 	// step silently diverge.
@@ -220,6 +231,12 @@ func (d *clickDriver) foldPkts(pkts []usePkt) (slotsTouched, sawCarried bool) {
 		}
 		if p.id == 0x75 {
 			d.sndPkts++
+			if id, err := protocol.NewPacketReader(p.data).VarInt(); err == nil {
+				if d.soundIDs == nil {
+					d.soundIDs = map[int32]int{}
+				}
+				d.soundIDs[id]++
+			}
 		}
 		r := protocol.NewPacketReader(p.data)
 		switch p.id {
@@ -320,6 +337,9 @@ func (d *clickDriver) foldPkts(pkts []usePkt) (slotsTouched, sawCarried bool) {
 			if ev == 1035 {
 				d.brewDone++
 			}
+			if ev == 1043 {
+				d.pageTurns++
+			}
 		case server.IDPlayContainerClose:
 			d.sawClose = true
 		case server.IDPlayBlockUpdateCB:
@@ -341,6 +361,9 @@ func (d *clickDriver) foldPkts(pkts []usePkt) (slotsTouched, sawCarried bool) {
 				continue
 			}
 			d.invSets++
+			if d.debug {
+				d.t.Logf("%s SPI slot=%d it=%s", d.name, slot, stackKey(it))
+			}
 			w0 := slot
 			if slot >= 0 && slot < 9 {
 				w0 = slot + 36

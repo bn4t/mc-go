@@ -7606,3 +7606,42 @@ loops, the total-reset leg, multi-target success.multiple, the partial
 + full set-fail, toomany/notfound/error cursors, plus every leg's last
 Set Experience packet compared by bar-bits/level/total. Green on both
 servers (~34s).
+
+## Slice 2026-09-25zl — lectern books + use_item_on revert pair + placeItemBackInInventory
+
+javap-measured (26.2 LecternBlock/LecternBlockEntity/LecternMenu/
+Inventory/ServerGamePacketListenerImpl):
+
+- The lectern slice is now complete end-to-end: place-book writes
+  has_book/powered + book_put sound (id 194), the written/writable
+  book lands in the block entity with resolveBook applied
+  (resolved:1b, Filterable leaves always {raw:}), page nav
+  prev/next/direct buttons move Page within [0,pageCount), take-book
+  empties the slot and closes the menu via stillValid, and
+  signalPageChange emits powered=true + a 2-tick unpower + levelEvent
+  1043 — the redstone pulse a comparator reads. changePowered and the
+  tick are UNGUARDED: the same-state setBlock still emits a block
+  update because Level.sendBlockUpdated is unconditional.
+- `handleUseItemOn`'s tail sends every dispatched use_item_on a
+  client-prediction revert pair — BU(clicked) + BU(clicked.relative
+  (face)) reading live state — before the sequence ack. This was the
+  mystery extra BU pair on every interact (empty-hand, book-on-stone,
+  successful placements). Implemented as a deferred sendRevert in
+  handleUseItem so every early return — itemBlock fails, occupied
+  targets, empty hands — still emits it; out-of-reach never dispatches.
+- Inventory.add(i,stack) is silent, but
+  placeItemBackInInventory(stack,true) emits one
+  ClientboundSetPlayerInventoryPacket per call: slot =
+  getSlotWithRemainingSpace else getFreeSlot (flat items scan 0-35,
+  hotbar 0-8 then main 9-35, no offhand), remainder drops at the feet.
+  The lectern stillValid/removed close path now runs it, which is why
+  a picked-up book's cursor copy lands in the player inventory as one
+  SPI packet. Menu clicks never accept placement on a lectern
+  (mayPlace=false — books only enter through the block interact).
+- writeSlotPatch counted book components wrong — payloads ran past
+  the declared add count and read back component-less.
+
+`TestLecternParity` (lectern_parity_test.go): 20 legs — place, open,
+page nav, take, pick, park, close, redstone/property/sound/levelEvent
+checks — all packet shapes compared per leg on both servers. Green
+(~35s); place-denial unit tests updated to the measured revert wire.

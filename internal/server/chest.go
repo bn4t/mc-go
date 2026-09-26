@@ -357,7 +357,7 @@ func (s *Server) handleMountClick(sess *Session, w *openWindow, slot int16, butt
 	target := sess.menuStack(int(slot))
 	switch {
 	case button != 0:
-		ncur, ntgt := clickRight(cur, target)
+		ncur, ntgt := clickRight(cur, target, nil, -1)
 		if mountSide && !ntgt.Empty() && ntgt != target && !mountMayPlace(e, int(slot), ntgt) {
 			break
 		}
@@ -923,16 +923,13 @@ func (s *Server) dropCarried(sess *Session) {
 }
 
 // returnCarried moves the cursor stack back into the player inventory,
-// vanilla's answer to closing a menu with something on the cursor:
-// hotbar first, and no cursor packet when it empties. A remainder that
-// fits nowhere (a full inventory) stays on the cursor.
+// vanilla's placeItemBackInInventory on a clean menu close: the merge
+// lands silently on the cursor's old home and the slot it touched goes
+// out as Set Player Inventory. A remainder that fits nowhere drops.
 func (s *Server) returnCarried(sess *Session) {
 	if carried := sess.carriedBuffer(); !carried.Empty() {
-		rest, _ := sess.addStack(carried)
-		sess.carriedMuSet(rest)
-		if !rest.Empty() {
-			_ = s.sendCarriedItem(sess, rest)
-		}
+		sess.carriedMuSet(ItemStack{})
+		s.placeBackInInventory(sess, carried)
 	}
 }
 

@@ -195,7 +195,9 @@ func TestContainerClickTransfer(t *testing.T) {
 		{"enchanting_table", "diamond", 1, false},
 		{"brewing_stand", "blaze_powder", 4, true},
 		{"brewing_stand", "stone", 4, false},
-		{"lectern", "written_book", 0, true},
+		// The lectern menu never accepts placement — books only enter
+		// through the block interact, measured on 26.2.
+		{"lectern", "written_book", 0, false},
 		{"lectern", "stone", 0, false},
 	}
 	for _, tc := range cases {

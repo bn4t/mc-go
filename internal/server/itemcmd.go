@@ -495,6 +495,12 @@ func stackHoverComponents(st ItemStack) map[string]any {
 	if st.Potion != "" {
 		m["minecraft:potion_contents"] = map[string]any{"potion": "minecraft:" + st.Potion}
 	}
+	if v := bookContentNBT(st, false); v != nil {
+		m["minecraft:writable_book_content"] = v
+	}
+	if v := bookContentNBT(st, true); v != nil {
+		m["minecraft:written_book_content"] = v
+	}
 	if len(m) == 0 {
 		return nil
 	}
@@ -1197,6 +1203,10 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.Contents = nil
 			case "potion_contents":
 				it.Potion = ""
+			case "writable_book_content":
+				it.BookWritable = ""
+			case "written_book_content":
+				it.BookWritten = ""
 			default:
 				return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
 			}
@@ -1349,6 +1359,26 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.Potion = strings.TrimPrefix(pv.str, "minecraft:")
 			default:
 				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+		case "writable_book_content", "written_book_content":
+			// A malformed record fails the way vanilla's codec error
+			// does: Malformed '<component>' component: '<value>'.
+			written := strings.TrimPrefix(key, "minecraft:") == "written_book_content"
+			bad := vtag.kind != snbtCompound
+			content := ""
+			if !bad {
+				var ok bool
+				content, ok = bookContentFromTag(written, vtag)
+				bad = !ok
+			}
+			if bad {
+				return ItemStack{}, errToken("arguments.item.component.malformed", tokNum,
+					"minecraft:"+strings.TrimPrefix(key, "minecraft:"), val), false
+			}
+			if written {
+				it.BookWritten = content
+			} else {
+				it.BookWritable = content
 			}
 		default:
 			return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
