@@ -559,7 +559,11 @@ func (s *Server) itemTickStep() {
 		// coordinates floor (negative Y must not truncate toward zero).
 		bx := int(math.Floor(e.X))
 		bz := int(math.Floor(e.Z))
-		below := world.Pos{X: bx, Y: int(math.Floor(e.Y - 0.25)), Z: bz}
+		// Sample just past the quarter-height: at restY the naive
+		// -0.25 lands exactly on the cell boundary (floor sees air),
+		// which flips grounded↔airborne every other tick and storms
+		// set_entity_motion forever.
+		below := world.Pos{X: bx, Y: int(math.Floor(e.Y - 0.26)), Z: bz}
 		newY := e.Y + e.MotionY
 		if w.GetBlock(below) == world.Air {
 			e.Grounded = false

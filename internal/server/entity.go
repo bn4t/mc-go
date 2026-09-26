@@ -397,6 +397,15 @@ type Entity struct {
 	SentMotionY   float64
 	SentMotionZ   float64
 	SentMotionSet bool
+	// PanicActive + PanicTX/TZ model PanicGoal (priority 1): a
+	// panic-capable mob whose last damage type is in PANIC_CAUSES runs
+	// to a DefaultRandomPos target within ±5 on x/z at
+	// speedModifier × movement_speed until the navigation finishes.
+	// PanicSteps is the stall cap standing in for an unreachable path.
+	PanicActive bool
+	PanicTX     float64
+	PanicTZ     float64
+	PanicSteps  int32
 	// attackCooldown is the hostile-melee swing timer — vanilla's
 	// twenty-tick reset after each landed blow.
 	attackCooldown int32

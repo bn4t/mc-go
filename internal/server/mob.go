@@ -1970,6 +1970,32 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 		s.mobDie(e, killer, res.Graced)
 		return d, res.Graced, true
 	}
+	// PanicGoal.shouldPanic: a panic-capable mob whose last damage
+	// source is in PANIC_CAUSES finds a DefaultRandomPos target (±5
+	// horizontal, ±4 vertical) and sprints at speedModifier×speed until
+	// the navigation is done. NoAI never runs the goal selector, so it
+	// never panics. The target is biased away from the attacker when
+	// the source entity is known, else a per-entity direction.
+	if d > 0 && panicCauseTypes[typeName] {
+		if kn, _ := EntityTypeName(e.Type); mobPanicSpeed[kn] > 0 {
+			if ep, ok := s.entities.GetPtr(e.ID); ok && !ep.NoAI {
+				var dir float64
+				if killer != nil {
+					kx, _, kz, _, _, _ := killer.Pos()
+					dir = math.Atan2(ep.Z-kz, ep.X-kx)
+				} else {
+					dir = float64((uint32(ep.ID)*2654435761>>16)%360) * math.Pi / 180
+				}
+				jit := float64(int64((uint64(uint32(ep.ID))*1103515245^uint64(s.gameTime()))>>16)%91-45) * math.Pi / 180
+				r := 3.5 + float64((uint32(ep.ID)*22695477>>16)%30)/10
+				ep.PanicTX = ep.X + math.Cos(dir+jit)*r
+				ep.PanicTZ = ep.Z + math.Sin(dir+jit)*r
+				ep.PanicActive = true
+				ep.PanicSteps = 0
+				ep.Strolling = false
+			}
+		}
+	}
 	if d > 0 {
 		s.broadcastEntityMetadata(e.ID, encodeLivingHealth(health))
 	}
@@ -2286,6 +2312,12 @@ func (s *Server) mobTickStep() {
 			// Drowned/stray conversion bookkeeping — inside the NoAI
 			// gate like vanilla's aiStep/tick placement.
 			if s.mobConvertTick(e, s.dims[e.Dim], ambName) {
+				continue
+			}
+			// PanicGoal (priority 1) outranks every goal below —
+			// including sheep eat — while the panic run is live.
+			if s.mobPanicStep(e, ambName) {
+				s.mobSyncFlush(e)
 				continue
 			}
 			// Sheep's EatBlockGoal (priority 5) — while the eat
@@ -2936,6 +2968,38 @@ var mobRanged = map[string]bool{
 	"bogged":   true,
 }
 
+// mobPanicSpeed is PanicGoal's speedModifier per mob type, read off
+// the 26.2 jar's registerGoals constructors: farm animals 1.25,
+// chicken 1.4, cow/mooshroom 2.0, equines and turtle 1.2, cat 1.5,
+// wolf 1.5, parrot 1.25, rabbit and fox 2.2, panda 2.0.
+var mobPanicSpeed = map[string]float64{
+	"pig": 1.25, "sheep": 1.25, "chicken": 1.4,
+	"cow": 2.0, "mooshroom": 2.0, "panda": 2.0,
+	"horse": 1.2, "donkey": 1.2, "mule": 1.2, "llama": 1.2,
+	"trader_llama": 1.2, "skeleton_horse": 1.2, "zombie_horse": 1.2,
+	"turtle": 1.2,
+	"cat":    1.5, "wolf": 1.5,
+	"parrot": 1.25,
+	"rabbit": 2.2, "fox": 2.2,
+}
+
+// panicCauseTypes is the PANIC_CAUSES damage-type tag (26.2 jar):
+// environmental causes (fire/lava/cactus/freeze/hot floor), projectile
+// and magic types, mob attacks, and player attacks. generic, fall,
+// cramming and starvation do NOT panic.
+var panicCauseTypes = map[string]bool{
+	"cactus": true, "freeze": true, "hot_floor": true,
+	"sulfur_cube_hot": true, "in_fire": true, "lava": true,
+	"lightning_bolt": true, "on_fire": true,
+	"arrow": true, "dragon_breath": true, "explosion": true,
+	"fireball": true, "fireworks": true, "indirect_magic": true,
+	"magic": true, "mob_attack": true, "mob_projectile": true,
+	"player_explosion": true, "sonic_boom": true, "sting": true,
+	"thrown": true, "trident": true, "unattributed_fireball": true,
+	"wind_charge": true, "wither": true, "wither_skull": true,
+	"player_attack": true,
+}
+
 // mobFlees is the measured AvoidEntityGoal table — feared class
 // ("player" and "monster" are predicates, the rest entity types),
 // trigger distance, and sprint speed modifier. Verified on the 26.2
@@ -2970,6 +3034,47 @@ var mobMonsterType = map[string]bool{
 	"ravager": true, "warden": true, "guardian": true, "elder_guardian": true,
 	"shulker": true, "endermite": true, "breeze": true, "creaking": true,
 	"wolf": true,
+}
+
+// mobPanicStep is PanicGoal (goal priority 1): while armed it walks
+// the mob to its DefaultRandomPos target at speedModifier ×
+// movement_speed, mirroring the stroll's motion write so the tracked
+// delta ships on the wire — and ends on arrival (~0.5) or a 60-tick
+// stall, the same isDone semantics vanilla's navigation reports.
+func (s *Server) mobPanicStep(e *Entity, name string) bool {
+	if !e.PanicActive {
+		return false
+	}
+	mod, ok := mobPanicSpeed[name]
+	if !ok {
+		e.PanicActive = false
+		return false
+	}
+	tx, tz := e.PanicTX-e.X, e.PanicTZ-e.Z
+	dist := math.Hypot(tx, tz)
+	e.PanicSteps++
+	if dist < 0.5 || e.PanicSteps > 60 {
+		e.PanicActive = false
+		s.mobFrictionStep(e)
+		e.X += e.MotionX
+		e.Z += e.MotionZ
+		return true
+	}
+	speed, ok := entityAttrBases[name]["movement_speed"]
+	if !ok || speed <= 0 {
+		speed = mobWalkSpeed
+	}
+	speed *= mod
+	step := speed
+	if step > dist {
+		step = dist
+	}
+	e.Yaw = float32(math.Atan2(-tx, tz) * 180 / math.Pi)
+	e.LookYaw = e.Yaw
+	e.X += tx / dist * step
+	e.Z += tz / dist * step
+	e.MotionX, e.MotionZ = tx/dist*step, tz/dist*step
+	return true
 }
 
 // mobFleeStep is AvoidEntityGoal: the nearest feared entity inside the

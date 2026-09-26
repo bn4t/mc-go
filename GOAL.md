@@ -8055,3 +8055,29 @@ assert sep≤0.3 + ≥20 motion emits each on both servers; AI legs
 assert separation ≥0.8. The probe's read loop uses one absolute
 deadline — a pair of active pigs streams packets every ~25ms, so
 per-read quiet windows never fire.
+
+## Slice 2026-09-26e
+
+PanicGoal (javap + tag JSON + live probes): priority-1 goal — a
+panic-capable mob whose last damage type is in PANIC_CAUSES runs to a
+DefaultRandomPos target (±5 x/z) at speedModifier x movement_speed
+until the navigation ends. panicCauseTypes carries the whole tag
+(mob_attack, player_attack, arrow, explosion, fire causes, ...);
+mobPanicSpeed carries the per-type modifiers (pig/sheep 1.25,
+cow 2.0, rabbit 2.2, cat 1.5, ...). damageMob arms PanicTX/TZ away
+from the attacker with a hash jitter; mobPanicStep integrates X/Z,
+yaws into the heading, writes the delta for the wire, and ends on
+arrival or a 60-tick stall. It preempts stroll/eat (priority 1) and
+only runs for AI mobs.
+
+Measured on vanilla: a pig hit once sprints ~2.6 b/s for 4-14 blocks
+over ~2.5 s (sometimes two bursts). mc-go now lands 4.7 blocks in the
+same window. Pinned by TestMobPanicParity (panic_test.go): panic_run
+asserts movement in the 1-3.5 s window on both servers;
+noai_no_panic asserts a NoAI pig stays under 2.5 blocks.
+
+Fix folded in: rested item entities + XP orbs oscillated
+grounded↔airborne every other tick (the below-block sample at
+-0.25 lands exactly on the cell boundary at restY), storming
+set_entity_motion ~20/s/entity forever — enough packet volume to
+starve drain-based test legs. The sample now dips 0.26.
