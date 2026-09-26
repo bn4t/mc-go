@@ -507,6 +507,57 @@ func init() {
 	}
 }
 
+// mobPushStep is LivingEntity.pushEntities' separation half: for
+// each entity whose bounding box intersects this mob's, vanilla's
+// Entity.push normalizes the x/z separation by its abs-max, scales
+// it by min(1, 1/absMax)*0.05, and shoves both sides apart along it
+// — once per entity per tick, so a pair is pushed twice. The shove
+// lands on deltaMovement (MotionX/Z) and the position; a vehicle or
+// same-ride pair is skipped, and near-perfect overlap (absMax<0.01)
+// doesn't push at all.
+func (s *Server) mobPushStep(e *Entity) {
+	ew, eh := mobBounds(e.Type)[0], mobBounds(e.Type)[1]
+	for _, o := range s.entities.All() {
+		if o.ID == e.ID || o.Dim != e.Dim || !o.Living || o.Health <= 0 {
+			continue
+		}
+		if o.Riding != 0 || e.Riding != 0 {
+			continue
+		}
+		ow, oh := mobBounds(o.Type)[0], mobBounds(o.Type)[1]
+		half := (ew + ow) / 2
+		if !(math.Abs(o.X-e.X) < half && math.Abs(o.Z-e.Z) < half &&
+			e.Y < o.Y+oh && o.Y < e.Y+eh) {
+			continue
+		}
+		dx, dz := o.X-e.X, o.Z-e.Z
+		m := math.Max(math.Abs(dx), math.Abs(dz))
+		if m < 0.01 {
+			continue
+		}
+		m = math.Sqrt(m)
+		dx, dz = dx/m, dz/m
+		inv := 1.0 / m
+		if inv > 1 {
+			inv = 1
+		}
+		dx, dz = dx*inv*0.05, dz*inv*0.05
+		// push(DDD) lands on deltaMovement only — the position moves
+		// when travel's move() integrates it, which NoAI mobs never
+		// run: overlapping NoAI entities sit forever while their
+		// delta grows (and sends) every tick. A vehicle doesn't take
+		// the shove itself; a passenger pair is filtered out above.
+		if len(e.Passengers) == 0 {
+			e.MotionX -= dx
+			e.MotionZ -= dz
+		}
+		if len(o.Passengers) == 0 {
+			o.MotionX += dx
+			o.MotionZ += dz
+		}
+	}
+}
+
 // mobCrammingStep mirrors LivingEntity.pushEntities' cramming gate:
 // count the pushable entities whose bounding boxes intersect this
 // mob's (itself and passengers excluded); when more than
@@ -2154,8 +2205,10 @@ func (s *Server) mobTickStep() {
 		if ambName == "snow_golem" {
 			s.snowGolemStep(e, s.dims[e.Dim], s.dimWorld(e.Dim))
 		}
-		// LivingEntity.pushEntities' cramming check is in the same
-		// aiStep region — every living tick regardless of NoAI.
+		// LivingEntity.pushEntities runs every living tick regardless
+		// of NoAI: the physical separation first, then the cramming
+		// damage roll on the same overlap list.
+		s.mobPushStep(e)
 		if mc := s.gameRuleInt("minecraft:max_entity_cramming"); mc > 0 {
 			s.mobCrammingStep(e, mc)
 		}
@@ -2343,6 +2396,11 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 		// vanilla — a ~6s mean idle between strolls).
 		if e.WanderTicks%strollIntervalFor(e.ID) != 0 {
 			s.mobFrictionStep(e)
+			// travel's move(): the residual walk/push delta integrates
+			// into the position while it decays — overlapping AI mobs
+			// drift apart; NoAI mobs never reach this line.
+			e.X += e.MotionX
+			e.Z += e.MotionZ
 			return
 		}
 		// getPosition: DefaultRandomPos.getPos(mob, 10, 7) — a target
@@ -2361,6 +2419,8 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 		e.Strolling = false
 		e.WanderTicks = 0
 		s.mobFrictionStep(e)
+		e.X += e.MotionX
+		e.Z += e.MotionZ
 		return
 	}
 	name, _ := EntityTypeName(e.Type)

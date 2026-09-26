@@ -8029,3 +8029,29 @@ motion ~34-73 vs ~37-84 — all classes inside a 4x band. Pinned by
 TestWanderDensityParity (wanderCounts collector + per-class band
 asserts). TestMobWanderMovesOnGround loop now runs past the entity's
 stroll interval instead of the old continuous-walk 60 ticks.
+
+## Slice 2026-09-26d — entity collision push (LivingEntity.pushEntities)
+
+javap on LivingEntity.tick: pushEntities runs for every living entity —
+NoAI included — and Entity.push writes deltaMovement only. The position
+integrates in travel→move(), which NoAI mobs never run. mc-go now
+models it exactly:
+
+- mobPushStep (Living-level, before mobCrammingStep): iterates
+  entities whose AABBs intersect this mob's; skips same-dim failures,
+  dead, riders/ridees (isPassengerOfSameVehicle), vehicles-as-target
+  sides, and absMax<0.01 near-coincident pairs. Separation normalizes
+  by sqrt(absMax), scales min(1,1/absMax)*0.05, writes MotionX/Z on
+  both sides — never the position.
+- mobMoveStep's idle + stroll-end branches integrate X/Z from the
+  delta after mobFrictionStep, so AI mobs drift apart while NoAI mobs
+  accumulate an unbounded delta that emits set_entity_motion every
+  tick (the SentMotion drift predicate catches it).
+
+Live probe: two NoAI pigs 0.4 apart on vanilla froze at sep=0.100 with
+~119 motion emits/pig/6s; mc-go now reports sep=0.100, ~119/118 — the
+same storm. Pinned by TestMobPushParity (push_test.go): NoAI legs
+assert sep≤0.3 + ≥20 motion emits each on both servers; AI legs
+assert separation ≥0.8. The probe's read loop uses one absolute
+deadline — a pair of active pigs streams packets every ~25ms, so
+per-read quiet windows never fire.
