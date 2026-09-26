@@ -552,8 +552,12 @@ func (s *Server) mobPushStep(e *Entity) {
 			e.MotionZ -= dz
 		}
 		if len(o.Passengers) == 0 {
-			o.MotionX += dx
-			o.MotionZ += dz
+			// All() hands out copies — the neighbour's half of the
+			// shove has to go through the live pointer.
+			if op, ok := s.entities.GetPtr(o.ID); ok {
+				op.MotionX += dx
+				op.MotionZ += dz
+			}
 		}
 	}
 }
@@ -2326,6 +2330,12 @@ func (s *Server) mobTickStep() {
 				s.mobSyncFlush(e)
 				continue
 			}
+			// FollowParentGoal (priority 4-5): babies trail the
+			// nearest same-type adult at 3-16 blocks.
+			if s.mobFollowParentStep(e, ambName) {
+				s.mobSyncFlush(e)
+				continue
+			}
 			// Sheep's EatBlockGoal (priority 5) — while the eat
 			// animation runs the sheep stands still.
 			if ambName == "sheep" && s.sheepEatTick(e, s.dims[e.Dim]) {
@@ -3184,6 +3194,76 @@ func (s *Server) mobTemptStep(e *Entity, name string) bool {
 	if step < 0 {
 		step = 0
 	}
+	e.X += tx / dist * step
+	e.Z += tz / dist * step
+	e.MotionX, e.MotionZ = tx/dist*step, tz/dist*step
+	return true
+}
+
+// mobFollowParentSpeed is FollowParentGoal's speedModifier per animal
+// type, read off the 26.2 registerGoals constructors (pig/sheep/
+// chicken 1.1, cow 1.25, equines 1.0). Rabbits have no
+// FollowParentGoal.
+var mobFollowParentSpeed = map[string]float64{
+	"pig": 1.1, "sheep": 1.1, "chicken": 1.1,
+	"cow": 1.25, "mooshroom": 1.25,
+	"horse": 1.0, "donkey": 1.0, "mule": 1.0, "llama": 1.0,
+	"trader_llama": 1.0, "skeleton_horse": 1.0, "zombie_horse": 1.0,
+	"panda": 1.25, "turtle": 1.2, "cat": 1.0, "wolf": 1.1, "fox": 1.0,
+}
+
+// mobFollowParentStep is FollowParentGoal: a baby animal follows the
+// nearest adult of the SAME type while the gap sits in the
+// follow window — start when farther than 3 (9.0 dist²), keep while
+// inside 16 (256 dist²), the adults scanned out of the mob's bounding
+// box inflated (8,4,8). Vanilla repaths every ~10 ticks; the
+// straight-line walk here emits the same approach.
+func (s *Server) mobFollowParentStep(e *Entity, name string) bool {
+	if !e.Baby {
+		return false
+	}
+	mod, ok := mobFollowParentSpeed[name]
+	if !ok {
+		return false
+	}
+	var px, pz float64
+	found := false
+	best := math.MaxFloat64
+	for _, o := range s.entities.All() {
+		if o.ID == e.ID || !o.Living || o.Type != e.Type || o.Dim != e.Dim {
+			continue
+		}
+		if o.Baby || o.Age < 0 {
+			continue
+		}
+		if math.Abs(o.Y-e.Y) > 4.5 || math.Abs(o.X-e.X) > 8.5 || math.Abs(o.Z-e.Z) > 8.5 {
+			continue
+		}
+		d := (o.X-e.X)*(o.X-e.X) + (o.Y-e.Y)*(o.Y-e.Y) + (o.Z-e.Z)*(o.Z-e.Z)
+		if d < best {
+			best = d
+			px, pz = o.X, o.Z
+			found = true
+		}
+	}
+	if !found || best < 9.0 || best > 256.0 {
+		return false
+	}
+	tx, tz := px-e.X, pz-e.Z
+	dist := math.Hypot(tx, tz)
+	speed, ok := entityAttrBases[name]["movement_speed"]
+	if !ok || speed <= 0 {
+		speed = mobWalkSpeed
+	}
+	step := speed * mod
+	if step > dist-2.0 {
+		step = dist - 2.0
+	}
+	if step < 0 {
+		step = 0
+	}
+	e.Yaw = float32(math.Atan2(-tx, tz) * 180 / math.Pi)
+	e.LookYaw = e.Yaw
 	e.X += tx / dist * step
 	e.Z += tz / dist * step
 	e.MotionX, e.MotionZ = tx/dist*step, tz/dist*step

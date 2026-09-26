@@ -8102,3 +8102,25 @@ the mob still while latched); mc-go parks at 2.16. Pinned by
 TestMobTemptParity (tempt_test.go): the tempt leg puts a carrot in
 weapon.mainhand via /item replace and asserts closest-approach < 3.5
 on both servers; the NoAI leg asserts the pig never approaches.
+
+## Slice 2026-09-26g
+
+FollowParentGoal (javap): a baby animal (Age < 0) scans its bounding
+box inflated (8,4,8) for the nearest adult of the SAME type and
+follows while the gap sits in the window — start past 3 (9.0 dist²),
+keep inside 16 (256 dist²), repathing every ~10 ticks at
+speedModifier × movement_speed (pig/sheep/chicken 1.1, cow 1.25,
+equines 1.0). mobFollowParentStep recomputes the nearest parent each
+tick; the 3-block gap releases the baby to wander, exactly like the
+goal dropping.
+
+Two findings folded in: the earlier failed vanilla leg pinned the
+scan radius — a baby 9 blocks out never starts (pig bbox + inflate 8
+= ~8.45 reach). And entities.All() returns COPIES, so mobPushStep's
+neighbour half of the shove silently no-oped; the other entity's
+delta now lands through GetPtr.
+
+Measured on vanilla: baby pig spawned 7.5 from a NoAI adult closed to
+1.84 and parked (mc-go 2.35). Pinned by TestMobFollowParentParity
+(followparent_test.go): baby_follows asserts closest approach < 3.5
+on both servers; noai_no_follow asserts a NoAI baby stays past 5.5.
