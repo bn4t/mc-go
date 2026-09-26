@@ -120,6 +120,33 @@ func filterableWrapList(l nbt.List) nbt.List {
 	return l
 }
 
+// bookCanCopy is BookCloningRecipe.canCraftCopy: the written content's
+// generation must sit inside the recipe's allowedGenerations — the
+// serializer default between(0,1) since the JSON omits the field.
+func bookCanCopy(it ItemStack) bool {
+	v := bookContentValue(it, true)
+	if v == nil {
+		return false
+	}
+	gen := nbtNumberOr(v["generation"], 0)
+	return gen >= 0 && gen <= 1
+}
+
+// bookCraftCopy is WrittenBookContent.craftCopy: the same content a
+// generation up.
+func bookCraftCopy(raw string) string {
+	t, _, err := parseSNBTTag(raw, 0)
+	if err != nil || t == nil || t.kind != snbtCompound {
+		return raw
+	}
+	m, ok := snbtToValue(t).(map[string]any)
+	if !ok {
+		return raw
+	}
+	m["generation"] = int32(nbtNumberOr(m["generation"], 0) + 1)
+	return snbtCompact(m)
+}
+
 // bookResolve is LecternBlockEntity.resolveBook: the written content's
 // resolved flag flips true (vanilla resolves on setBook and on load).
 func bookResolve(it ItemStack) ItemStack {

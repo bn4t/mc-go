@@ -20,7 +20,9 @@ func TestCraftRecipeParity(t *testing.T) {
 			"CraftV11", "CraftM11", "CraftV12", "CraftM12",
 			"CraftV13", "CraftM13", "CraftV14", "CraftM14",
 			"CraftV15", "CraftM15", "CraftV16", "CraftM16",
-			"CraftV17", "CraftM17"),
+			"CraftV17", "CraftM17", "CraftV18", "CraftM18",
+			"CraftV19", "CraftM19", "CraftV20", "CraftM20",
+			"CraftV21", "CraftM21", "CraftV22", "CraftM22"),
 	}, nil)
 	defer tg.cleanup()
 
@@ -355,6 +357,96 @@ func TestCraftRecipeParity(t *testing.T) {
 				{tag: "s2", slot: 2, w0: true},
 				{tag: "take", slot: 0, w0: true},
 				{tag: "park", slot: 9, w0: true},
+			},
+		},
+		{
+			// Special bookcloning: written_book + writable_book copies
+			// the source a generation up — and the source itself is
+			// left in the grid (its count-1 remainder copy).
+			name: "book-clone", suf: "18", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", `minecraft:written_book[minecraft:written_book_content={author:"Ben",title:"Diary",generation:0,pages:["first","second"]}]`},
+				{"hotbar.1", "minecraft:writable_book"},
+			},
+			steps: []step{
+				{tag: "lift-src", slot: 36, w0: true},
+				{tag: "src1", slot: 1, w0: true},
+				{tag: "lift-w", slot: 37, w0: true},
+				{tag: "w2", slot: 2, w0: true},
+				{tag: "take", slot: 0, w0: true},
+				{tag: "park", slot: 9, w0: true},
+			},
+		},
+		{
+			// Two writable books plus the source in the 3x3 table:
+			// one result per material stack — count 2 — and the
+			// source survives the take.
+			name: "book-clone-multi", suf: "19", block: "minecraft:crafting_table", menu: 12,
+			gives: [][2]string{
+				{"hotbar.0", `minecraft:written_book[minecraft:written_book_content={author:"Q",title:"Notes",generation:1,pages:["pg"]}]`},
+				{"hotbar.1", "minecraft:writable_book"},
+				{"hotbar.2", "minecraft:writable_book"},
+			},
+			steps: []step{
+				{tag: "lift-src", slot: 37},
+				{tag: "src1", slot: 1},
+				{tag: "lift-w1", slot: 38},
+				{tag: "w2", slot: 2},
+				{tag: "lift-w2", slot: 39},
+				{tag: "w3", slot: 3},
+				{tag: "take", slot: 0},
+				{tag: "park", slot: 10},
+			},
+		},
+		{
+			// generation 2 ("copy of a copy") is outside the
+			// serializer's default allowed range — no result.
+			name: "book-clone-tattered", suf: "20", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", `minecraft:written_book[minecraft:written_book_content={author:"Ben",title:"Old",generation:2,pages:["pg"]}]`},
+				{"hotbar.1", "minecraft:writable_book"},
+			},
+			steps: []step{
+				{tag: "lift-src", slot: 36, w0: true},
+				{tag: "src1", slot: 1, w0: true},
+				{tag: "lift-w", slot: 37, w0: true},
+				{tag: "w2", slot: 2, w0: true},
+				{tag: "take?", slot: 0, w0: true},
+			},
+		},
+		{
+			// A written_book without written_book_content isn't a
+			// source — it falls to the material check and fails.
+			name: "book-clone-bare", suf: "21", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:written_book"},
+				{"hotbar.1", "minecraft:writable_book"},
+			},
+			steps: []step{
+				{tag: "lift-b", slot: 36, w0: true},
+				{tag: "b1", slot: 1, w0: true},
+				{tag: "lift-w", slot: 37, w0: true},
+				{tag: "w2", slot: 2, w0: true},
+				{tag: "take?", slot: 0, w0: true},
+			},
+		},
+		{
+			// Anything else in the grid fails the whole recipe:
+			// source + writable + dirt produces nothing.
+			name: "book-clone-extra", suf: "22", block: "minecraft:chest", menu: 2,
+			gives: [][2]string{
+				{"hotbar.0", `minecraft:written_book[minecraft:written_book_content={author:"Ben",title:"Diary",pages:["x"]}]`},
+				{"hotbar.1", "minecraft:writable_book"},
+				{"hotbar.2", "minecraft:dirt"},
+			},
+			steps: []step{
+				{tag: "lift-src", slot: 36, w0: true},
+				{tag: "src1", slot: 1, w0: true},
+				{tag: "lift-w", slot: 37, w0: true},
+				{tag: "w2", slot: 2, w0: true},
+				{tag: "lift-d", slot: 38, w0: true},
+				{tag: "d3", slot: 3, w0: true},
+				{tag: "take?", slot: 0, w0: true},
 			},
 		},
 	}

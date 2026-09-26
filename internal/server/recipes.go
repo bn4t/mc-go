@@ -326,6 +326,48 @@ func matchShieldDecoration(g craftGrid, filled []bool) (ItemStack, bool) {
 	return shield, true
 }
 
+// matchBookCloning handles crafting_special_bookcloning: at least two
+// grid items — exactly one written_book carrying written_book_content
+// whose generation sits inside the serializer's
+// DEFAULT_BOOK_GENERATION_RANGES between(0,1) (used when the recipe
+// omits allowed_generations) plus at least one writable_book — and
+// nothing else. Assemble is createWithOriginalComponents(result,
+// source, materials-1): the written_book template keeps the source's
+// whole patch at one result per material stack, then
+// written_book_content.craftCopy bumps the generation.
+func matchBookCloning(g craftGrid, filled []bool) (ItemStack, bool) {
+	var source ItemStack
+	mats := int32(0)
+	for i, f := range filled {
+		if !f {
+			continue
+		}
+		st := g[i]
+		name, ok := itemNameOf(st.ID)
+		if !ok {
+			return ItemStack{}, false
+		}
+		switch {
+		case name == "written_book" && st.BookWritten != "" && bookCanCopy(st):
+			if !source.Empty() {
+				return ItemStack{}, false
+			}
+			source = st
+		case name == "writable_book":
+			mats++
+		default:
+			return ItemStack{}, false
+		}
+	}
+	if source.Empty() || mats == 0 {
+		return ItemStack{}, false
+	}
+	out := source
+	out.Count = mats
+	out.BookWritten = bookCraftCopy(source.BookWritten)
+	return out, true
+}
+
 // craftResult computes the grid's result stack, iterating the recipe
 // table in registry order so the first matching recipe wins like
 // vanilla's CraftingManager. It also reports the winning recipe's id —
@@ -353,6 +395,8 @@ func craftResult(g craftGrid) (ItemStack, string, bool) {
 			out, hit = matchRepair(g, filled)
 		case data.CraftingSpecialShielddecoration:
 			out, hit = matchShieldDecoration(g, filled)
+		case data.CraftingSpecialBookcloning:
+			out, hit = matchBookCloning(g, filled)
 		case data.CraftingTransmute:
 			out, hit = matchTransmute(r, g, filled)
 		case data.CraftingDecoratedPot:
@@ -462,8 +506,15 @@ func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, []ItemStack, 
 			sess.inv[slotCraftStart+3], {}, {},
 			{}, {},
 		}
-		if _, rid, ridOK := craftResult(grid); ridOK {
+		_, rid, ridOK := craftResult(grid)
+		if ridOK {
 			sess.server.fireRecipeCrafted(sess, rid, grid)
+		}
+		rtype := ""
+		if ridOK {
+			if r, ok := data.RecipeByID(rid); ok {
+				rtype = r.Type
+			}
 		}
 		for i := int16(slotCraftStart); i < slotCraftStart+4; i++ {
 			if sess.inv[i].Empty() {
@@ -480,8 +531,17 @@ func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, []ItemStack, 
 		// the same item is still there, falls to the player inventory,
 		// then drops at the feet.
 		gridIDs := [4]int32{grid[0].ID, grid[1].ID, grid[3].ID, grid[4].ID}
+		gridStacks := [4]ItemStack{grid[0], grid[1], grid[3], grid[4]}
 		for i, gid := range gridIDs {
 			rem, ok := craftRemainderOf(gid)
+			if !ok && rtype == data.CraftingSpecialBookcloning &&
+				gridStacks[i].BookWritten != "" {
+				// BookCloningRecipe.getRemainingItems: a stack with
+				// written_book_content leaves a count-1 copy of
+				// itself — the source book is not consumed.
+				rem = gridStacks[i].withCount(1)
+				ok = true
+			}
 			if !ok {
 				continue
 			}

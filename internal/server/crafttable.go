@@ -1,6 +1,7 @@
 package server
 
 import (
+	"mc-go/internal/data"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
@@ -278,8 +279,15 @@ func (s *Server) takeTableResult(sess *Session, w *openWindow, table *craftTable
 		// resolved — vanilla passes craftSlots.getItems() in onTake,
 		// before the ingredients are consumed.
 		grid := craftGrid(table.slots[1:10])
-		if _, rid, ok := craftResult(grid); ok {
+		_, rid, ridOK := craftResult(grid)
+		if ridOK {
 			s.fireRecipeCrafted(sess, rid, grid)
+		}
+		rtype := ""
+		if ridOK {
+			if r, ok := data.RecipeByID(rid); ok {
+				rtype = r.Type
+			}
 		}
 		for i := 1; i <= craftTableGrid; i++ {
 			if table.slots[i].Empty() {
@@ -296,6 +304,14 @@ func (s *Server) takeTableResult(sess *Session, w *openWindow, table *craftTable
 		// the same item is still there, else Inventory.add then drop.
 		for i := 1; i <= craftTableGrid; i++ {
 			rem, ok := craftRemainderOf(grid[i-1].ID)
+			if !ok && rtype == data.CraftingSpecialBookcloning &&
+				grid[i-1].BookWritten != "" {
+				// BookCloningRecipe.getRemainingItems: a stack with
+				// written_book_content leaves a count-1 copy of
+				// itself — the source book is not consumed.
+				rem = grid[i-1].withCount(1)
+				ok = true
+			}
 			if !ok {
 				continue
 			}
