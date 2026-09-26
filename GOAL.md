@@ -8203,3 +8203,34 @@ Pairing mid-stroke ships the non-default entries in the attach burst
 handlePaddleBoat now gates on first-passenger of a boat and emits the
 per-entry dirty pack. Same test asserts the release re-dirties with
 false and that the entries ride the pairing burst.
+
+## Slice 2026-09-26k
+
+Vehicle hurt/damage (javap VehicleEntity.hurtServer): a melee attack
+on any VehicleEntity (all _boat/_raft/_chest_* + *minecart — measured
+isVehicleEntityName by name suffix) flips DATA_ID_HURTDIR(9) sign,
+re-arms DATA_ID_HURT(8) to 10, and banks amount*10 into
+DATA_ID_DAMAGE(10). The dirty pack carries only the entries set()
+marked dirty (hurtTime re-emit is skipped when a rapid second hit
+re-arms while still 10). On the tick both counters decay — hurtTime
+1/tick AND damage 1/tick to zero (probe-verified live: the wire
+shows the pair counting down in lockstep, emitted every tick not on
+the 3-tick sendChanges interval). A hit when banked damage >40
+destroys the vehicle: remove_entities plus a spawn of the same-named
+item entity at its spot. A player with instabuild (creative) instead
+discards it with no drop. shouldSourceDestroy measured false for
+boats/minecarts; chest-vehicle contents spill is unmodelled.
+
+attackEntity previously fell through for non-living targets entirely
+— boats ate hits silently. New branch gates on isVehicleEntityName
+with the same withinAttackRange bounding-box reach check, then runs
+vehicleHurt; mobBoundsTable now covers every boat/raft/minecart
+registry name (1.375x0.5625 boats, 0.98x0.7 minecarts) so the gate
+uses the real box instead of the 0.6x1.8 default.
+
+Pinned by TestVehicleHurtParity (vehicle_test.go): survival punch
+emits the {8:10,9:-1,10:10} wobble pack and both counters decay to
+zero in view; a second punch flips hurtDir back to +1; a
+diamond-sword hit banks >40 in one blow and the watcher sees the
+boat removed plus an oak_boat item entity; a creative punch removes
+the boat with NO item drop. Green vs vanilla and mc-go.

@@ -43,6 +43,13 @@ func sendMoveVehicle(pw *protocol.Writer, x, y, z float64) {
 	_ = pw.WritePacket(server.IDPlayMoveVehicleSB, b.Bytes())
 }
 
+// sendAttackEntity writes the dedicated attack packet (target id only).
+func sendAttackEntity(pw *protocol.Writer, eid int32) {
+	var b protocol.Buffer
+	b.VarInt(eid)
+	_ = pw.WritePacket(server.IDPlayAttackSB, b.Bytes())
+}
+
 // sendInteractEntity writes a plain right-click interact on eid.
 func sendInteractEntity(pw *protocol.Writer, eid int32) {
 	var b protocol.Buffer
@@ -68,16 +75,39 @@ func sendPaddleBoat(pw *protocol.Writer, left, right bool) {
 	_ = pw.WritePacket(server.IDPlayPaddleBoatSB, b.Bytes())
 }
 
+// vehObs is what vehWatch collected over a window: every observable
+// wire fact about one entity, keyed the way assertions read it.
+type vehObs struct {
+	moved      bool            // any position/delta/teleport packet for eid
+	moveVeh    bool            // move_vehicle rubber-band to the driver
+	passengers int             // latest set_passengers count, -1 unseen
+	boolMeta   map[int]bool    // serializer-8 metadata entries seen
+	intMeta    map[int]int32   // serializer-1 (VarInt) entries seen
+	intMetaMax map[int]int32   // largest int value seen per index
+	floatMeta  map[int]float32 // serializer-3 (Float) entries seen
+	floatMax   map[int]float32 // largest float value seen per index
+	removed    map[int32]bool  // ids seen in remove_entities
+	itemSpawns int             // add_entity packets of type "item"
+}
+
 // vehWatch collects packets matching (eid, kind) over the window on
 // the chosen connection, while servicing BOTH sockets — the other
 // conn still needs keepalives, chunk acks and teleport confirms
 // answered or vanilla gates the driver's next move_vehicle behind
-// updateAwaitingTeleport. boolMeta captures boolean metadata entries
-// (serializer 8) seen for eid in set_entity_data dirty packs.
-func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Duration) (moved bool, moveVeh bool, passengers int, boolMeta map[int]bool) {
+// updateAwaitingTeleport. Metadata entries {index, serializer, value}
+// are captured for the serializers this suite reads (byte=0, int=1,
+// float=3, bool=8).
+func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Duration) vehObs {
 	t.Helper()
-	passengers = -1
-	boolMeta = map[int]bool{}
+	o := vehObs{
+		passengers: -1,
+		boolMeta:   map[int]bool{},
+		intMeta:    map[int]int32{},
+		intMetaMax: map[int]int32{},
+		floatMeta:  map[int]float32{},
+		floatMax:   map[int]float32{},
+		removed:    map[int32]bool{},
+	}
 	poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
 		_ = c.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
 		for {
@@ -106,15 +136,30 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					veid, _ := r.VarInt()
 					if veid == eid {
 						n, _ := r.VarInt()
-						passengers = int(n)
+						o.passengers = int(n)
 					}
 				case 0x39: // move_vehicle rubber-band to the driver
-					moveVeh = true
+					o.moveVeh = true
+				case 0x4D: // remove_entities
+					r := protocol.NewPacketReader(p.Data)
+					n, _ := r.VarInt()
+					for i := int32(0); i < n; i++ {
+						rid, _ := r.VarInt()
+						o.removed[rid] = true
+					}
+				case 1: // add_entity — count item-entity spawns
+					r := protocol.NewPacketReader(p.Data)
+					r.VarInt()
+					r.UUID()
+					ty, _ := r.VarInt()
+					if n, _ := server.EntityTypeName(ty); n == "item" {
+						o.itemSpawns++
+					}
 				case 35, 53, 54, 125: // pos sync / delta / teleport
 					r := protocol.NewPacketReader(p.Data)
 					peid, _ := r.VarInt()
 					if peid == eid {
-						moved = true
+						o.moved = true
 					}
 				case server.IDPlayEntityMetadata:
 					r := protocol.NewPacketReader(p.Data)
@@ -122,9 +167,6 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					if peid != eid {
 						continue
 					}
-					// Entries are {index, serializer, value}; walk
-					// only the types needed (bool=8) — anything else
-					// ends the scan, the boat pack is tiny.
 					for {
 						idx, err := r.Byte()
 						if err != nil || idx == 0xFF {
@@ -135,14 +177,32 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 							break
 						}
 						switch ser {
+						case 0:
+							_, _ = r.Byte()
+						case 1: // int
+							vv, err := r.VarInt()
+							if err != nil {
+								break
+							}
+							o.intMeta[int(idx)] = vv
+							if vv > o.intMetaMax[int(idx)] {
+								o.intMetaMax[int(idx)] = vv
+							}
+						case 3: // float
+							vv, err := r.Float()
+							if err != nil {
+								break
+							}
+							o.floatMeta[int(idx)] = vv
+							if vv > o.floatMax[int(idx)] {
+								o.floatMax[int(idx)] = vv
+							}
 						case 8: // boolean
 							vv, err := r.Bool()
 							if err != nil {
 								break
 							}
-							boolMeta[int(idx)] = vv
-						case 0:
-							_, _ = r.Byte()
+							o.boolMeta[int(idx)] = vv
 						default:
 							goto done
 						}
@@ -157,7 +217,7 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 		poll(v.ca, v.pra, v.pwa, !watchB)
 		poll(v.cb, v.prb, v.pwb, watchB)
 	}
-	return moved, moveVeh, passengers, boolMeta
+	return o
 }
 
 // boatEID waits for the watcher's oak_boat add_entity, servicing both
@@ -238,44 +298,39 @@ func TestVehicleMoveParity(t *testing.T) {
 
 		eid := boatEID(t, v, 3*time.Second)
 		sendInteractEntity(v.pwa, eid)
-		_, _, passengers, _ := vehWatch(t, v, true, eid, 2*time.Second)
-		if passengers != 1 {
-			t.Fatalf("%s: interact mounted %d passengers, want 1", tag, passengers)
+		if o := vehWatch(t, v, true, eid, 2*time.Second); o.passengers != 1 {
+			t.Fatalf("%s: interact mounted %d passengers, want 1", tag, o.passengers)
 		}
 
 		// A sane move (3 blocks) applies — watchers see the vehicle go.
 		sendMoveVehicle(v.pwa, 11, -60, 8)
-		moved, _, _, _ := vehWatch(t, v, true, eid, 2*time.Second)
-		if !moved {
+		if o := vehWatch(t, v, true, eid, 2*time.Second); !o.moved {
 			t.Fatalf("%s: in-range move_vehicle never reached the watcher", tag)
 		}
 
 		// A 12-block jump overshoots the 100 dist² gate: the driver
 		// gets a move_vehicle rubber-band, the watcher sees nothing.
 		sendMoveVehicle(v.pwa, 23, -60, 8)
-		_, band, _, _ := vehWatch(t, v, false, eid, 2*time.Second)
-		if !band {
+		if o := vehWatch(t, v, false, eid, 2*time.Second); !o.moveVeh {
 			t.Fatalf("%s: oversized move_vehicle drew no rubber-band", tag)
 		}
 
 		// Paddle input: the driver raises DATA_ID_PADDLE_LEFT on the
 		// boat — watchers see a set_entity_data dirty pack.
 		sendPaddleBoat(v.pwa, true, true)
-		_, _, _, meta := vehWatch(t, v, true, eid, 2*time.Second)
-		if !meta[11] || !meta[12] {
-			t.Fatalf("%s: paddle input produced metadata %v, want indices 11/12 true", tag, meta)
+		if o := vehWatch(t, v, true, eid, 2*time.Second); !o.boolMeta[11] || !o.boolMeta[12] {
+			t.Fatalf("%s: paddle input produced metadata %v, want indices 11/12 true", tag, o.boolMeta)
 		}
 		sendPaddleBoat(v.pwa, false, false)
-		_, _, _, meta = vehWatch(t, v, true, eid, 2*time.Second)
-		if v, ok := meta[11]; !ok || v {
-			t.Fatalf("%s: paddle release metadata %v, want index 11 false", tag, meta)
+		o := vehWatch(t, v, true, eid, 2*time.Second)
+		if v, ok := o.boolMeta[11]; !ok || v {
+			t.Fatalf("%s: paddle release metadata %v, want index 11 false", tag, o.boolMeta)
 		}
 
 		// Sneak dismounts: passenger count drops to zero.
 		sendPlayerInput(v.pwa, 0x20)
-		_, _, passengers, _ = vehWatch(t, v, true, eid, 2*time.Second)
-		if passengers != 0 {
-			t.Fatalf("%s: sneak dismount left %d passengers", tag, passengers)
+		if o := vehWatch(t, v, true, eid, 2*time.Second); o.passengers != 0 {
+			t.Fatalf("%s: sneak dismount left %d passengers", tag, o.passengers)
 		}
 		sendCommand(t, v.pwa, "kill @e[type=minecraft:oak_boat]")
 		time.Sleep(1200 * time.Millisecond)
@@ -286,5 +341,95 @@ func TestVehicleMoveParity(t *testing.T) {
 		{"mc-go", targets.mcgo},
 	} {
 		t.Run("ride_move_"+tc.tag, func(t *testing.T) { run(t, tc.tag, tc.addr) })
+	}
+}
+
+// TestVehicleHurtParity pins VehicleEntity.hurtServer: a melee hit on a
+// boat emits a set_entity_data dirty pack carrying the wobble state —
+// DATA_ID_HURT(8)=10, DATA_ID_HURTDIR(9) sign-flipped from +1, and
+// DATA_ID_DAMAGE(10) growing by amount*10 per hit. Past damage 40 the
+// boat is destroyed: remove_entities plus an item-entity spawn of the
+// boat item. A creative (instabuild) hit instead discards it with no
+// drop.
+func TestVehicleHurtParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("BOATA", "BOATB"),
+	}, nil)
+	defer targets.cleanup()
+
+	run := func(t *testing.T, tag, addr string) {
+		v := joinVehPair(t, addr)
+		drainChunkWindow(t, tag, v.ca, v.pra, v.pwa, 400*time.Millisecond)
+		drainChunkWindow(t, tag, v.cb, v.prb, v.pwb, 400*time.Millisecond)
+		sendCommand(t, v.pwa, "gamemode survival BOATA")
+		sendCommand(t, v.pwb, "gamemode creative BOATB")
+		sendCommand(t, v.pwa, "tp @s 6 -60 8 0 0")
+		sendCommand(t, v.pwb, "tp @s 6 -60 10.5 0 0")
+		time.Sleep(300 * time.Millisecond)
+		sendCommand(t, v.pwa, "summon minecraft:oak_boat 8 -60 8")
+
+		eid := boatEID(t, v, 3*time.Second)
+
+		// One unarmed hit: the dirty pack carries hurt=10, hurtDir
+		// flipped to -1, damage 1*10=10.
+		sendAttackEntity(v.pwa, eid)
+		o := vehWatch(t, v, true, eid, 1500*time.Millisecond)
+		if o.intMeta[9] != -1 {
+			t.Fatalf("%s: hurt hit 1: hurtDir=%d, want -1", tag, o.intMeta[9])
+		}
+		if o.intMetaMax[8] <= 0 {
+			t.Fatalf("%s: hurt hit 1: hurtTime never rose (max=%d)", tag, o.intMetaMax[8])
+		}
+		if o.floatMax[10] < 9 {
+			t.Fatalf("%s: hurt hit 1: damage max=%v, want ~10", tag, o.floatMax[10])
+		}
+
+		// Hit 2: hurtDir flips back to +1 and damage re-sets to ~10 —
+		// the first hit's 10 points fully decayed during the watch
+		// window, so the bank restarts at zero each idle gap.
+		sendAttackEntity(v.pwa, eid)
+		o = vehWatch(t, v, true, eid, 1500*time.Millisecond)
+		if o.intMeta[9] != 1 {
+			t.Fatalf("%s: hurt hit 2: hurtDir=%d, want +1", tag, o.intMeta[9])
+		}
+		if o.floatMax[10] < 9 {
+			t.Fatalf("%s: hurt hit 2: damage max=%v, want ~10", tag, o.floatMax[10])
+		}
+
+		// Banked damage decays 1/tick, so unarmed pokes never add up.
+		// A diamond sword hits for 8 → +80 damage in one blow: the boat
+		// breaks — watcher sees remove_entities plus the item spawn.
+		sendCommand(t, v.pwa, "item replace entity BOATA weapon.mainhand with minecraft:diamond_sword")
+		time.Sleep(600 * time.Millisecond)
+		sendAttackEntity(v.pwa, eid)
+		o = vehWatch(t, v, true, eid, 2*time.Second)
+		if !o.removed[eid] {
+			t.Fatalf("%s: a sword hit never removed the boat (damage max=%v)", tag, o.floatMax[10])
+		}
+		if o.itemSpawns == 0 {
+			t.Fatalf("%s: destroyed boat dropped no item entity", tag)
+		}
+
+		// Creative hit on a fresh boat: instabuild discards it —
+		// remove_entities without an item drop.
+		sendCommand(t, v.pwa, "gamemode creative BOATA")
+		sendCommand(t, v.pwa, "summon minecraft:oak_boat 8 -60 8")
+		eid = boatEID(t, v, 3*time.Second)
+		sendAttackEntity(v.pwa, eid)
+		o = vehWatch(t, v, true, eid, 1500*time.Millisecond)
+		if !o.removed[eid] {
+			t.Fatalf("%s: creative hit left the boat in place", tag)
+		}
+		if o.itemSpawns != 0 {
+			t.Fatalf("%s: creative discard spawned %d item entities, want 0", tag, o.itemSpawns)
+		}
+		sendCommand(t, v.pwa, "gamemode survival BOATA")
+	}
+
+	for _, tc := range []struct{ tag, addr string }{
+		{"vanilla", targets.vanilla},
+		{"mc-go", targets.mcgo},
+	} {
+		t.Run("vehicle_hurt_"+tc.tag, func(t *testing.T) { run(t, tc.tag, tc.addr) })
 	}
 }

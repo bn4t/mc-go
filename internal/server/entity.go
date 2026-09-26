@@ -249,6 +249,13 @@ type Entity struct {
 	// PaddleL/PaddleR are AbstractBoat's DATA_ID_PADDLE_LEFT/RIGHT —
 	// the driver's paddle input as last reported by paddle_boat.
 	PaddleL, PaddleR bool
+	// VehDamage/VehHurtTime/VehHurtDir are VehicleEntity's
+	// DATA_ID_DAMAGE(10)/DATA_ID_HURT(8)/DATA_ID_HURTDIR(9): damage
+	// accumulates amount*10 per hit and destroys past 40; hurtTime is
+	// set to 10 per hit and hurtDir flips sign each hit.
+	VehDamage   float32
+	VehHurtTime int32
+	VehHurtDir  int32
 	// Saddle is the equipment.saddle slot on saddleable mounts
 	// (strider, pig, horse family): vanilla gates mounting on it.
 	Saddle bool

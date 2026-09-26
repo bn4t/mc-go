@@ -512,6 +512,40 @@ func init() {
 			mobBoundsTable[id] = dims
 		}
 	}
+	// 26.2 vehicles carry the family in the type name — every boat,
+	// raft, and chest variant shares AbstractBoat's 1.375x0.5625 box
+	// and every minecart shares 0.98x0.7 — so the names can't be
+	// enumerated one by one in the table above.
+	for _, name := range vehicleBoundNames() {
+		dims := [2]float64{0.98, 0.7}
+		if isBoatEntityName(name) {
+			dims = [2]float64{1.375, 0.5625}
+		}
+		if id, ok := EntityTypeID(name); ok {
+			mobBoundsTable[id] = dims
+		}
+	}
+}
+
+// vehicleBoundNames lists every summonable VehicleEntity type name in
+// the registry so mobBounds covers them all.
+func vehicleBoundNames() []string {
+	var names []string
+	for name := range map[string]struct{}{
+		"oak_boat": {}, "spruce_boat": {}, "birch_boat": {}, "jungle_boat": {},
+		"acacia_boat": {}, "dark_oak_boat": {}, "cherry_boat": {}, "mangrove_boat": {},
+		"pale_oak_boat": {}, "bamboo_raft": {},
+		"oak_chest_boat": {}, "spruce_chest_boat": {}, "birch_chest_boat": {},
+		"jungle_chest_boat": {}, "acacia_chest_boat": {}, "dark_oak_chest_boat": {},
+		"cherry_chest_boat": {}, "mangrove_chest_boat": {}, "pale_oak_chest_boat": {},
+		"bamboo_chest_raft": {}, "chest_boat": {},
+		"minecart": {}, "chest_minecart": {}, "furnace_minecart": {},
+		"tnt_minecart": {}, "hopper_minecart": {}, "command_block_minecart": {},
+		"spawner_minecart": {},
+	} {
+		names = append(names, name)
+	}
+	return names
 }
 
 // mobPushStep is LivingEntity.pushEntities' separation half: for

@@ -185,6 +185,24 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 		// Not a player: attack a living mob if one has this id. The
 		// reach gate is vanilla's isWithinAttackRange — the eye to the
 		// target's bounding box, not center distance.
+		if e, ok := s.entities.Get(targetID); ok && !e.Living {
+			// VehicleEntity takes its own hurt path — wobble metadata,
+			// banked damage, break-and-drop — instead of LivingEntity
+			// damage. The reach gate is the same bounding-box test.
+			if name, ok := EntityTypeName(e.Type); ok && isVehicleEntityName(name) {
+				bb := mobBounds(e.Type)
+				if !sess.withinAttackRange(e.X, e.Y, e.Z, bb) {
+					return
+				}
+				plan := s.planAttack(sess)
+				sess.attackTicker = 0
+				s.preAttackSound(sess, plan)
+				if ep, ok := s.entities.GetPtr(targetID); ok {
+					s.vehicleHurt(sess, ep, plan.damage)
+				}
+				return
+			}
+		}
 		if e, ok := s.entities.Get(targetID); ok && e.Living {
 			bb := mobBounds(e.Type)
 			if !sess.withinAttackRange(e.X, e.Y, e.Z, bb) {

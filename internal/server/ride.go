@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 
+	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
 
@@ -192,6 +193,134 @@ func (s *Server) useFoodOnAStick(sess *Session, hand int32) {
 		slot = slotOffhand
 	}
 	s.wearSlot(sess, slot, 1)
+}
+
+// isVehicleEntityName covers every VehicleEntity type — the
+// #minecraft:boat family (boats, rafts, chest variants) plus every
+// *minecart. These take VehicleEntity.hurtServer damage, not
+// LivingEntity damage.
+func isVehicleEntityName(name string) bool {
+	return isBoatEntityName(name) || strings.HasSuffix(name, "minecart")
+}
+
+// vehicleHurt is VehicleEntity.hurtServer: each melee hit flips the
+// wobble direction (DATA_ID_HURTDIR flips sign), resets the wobble
+// countdown (DATA_ID_HURT = 10), and banks amount*10 into
+// DATA_ID_DAMAGE. A hit lands only when the entity is in reach; the
+// caller runs the reach gate. When banked damage passes 40 the
+// vehicle breaks and drops its item; a player in instabuild
+// (creative) instead discards it with no drop — matching vanilla's
+// !canDestroy && damage>40 || canDestroy branch (shouldSourceDestroy
+// is false for boats and minecarts). SynchedEntityData.set marks
+// only entries whose value actually changed, so the dirty pack
+// carries just the entries this hit moved.
+func (s *Server) vehicleHurt(sess *Session, ep *Entity, amount float32) {
+	if ep.VehHurtDir == 0 {
+		// DATA_ID_HURTDIR defaults to +1 (defined with value 1);
+		// a fresh entity starts there so the first flip reads -1.
+		ep.VehHurtDir = 1
+	}
+	oldTime, oldDir, oldDmg := ep.VehHurtTime, ep.VehHurtDir, ep.VehDamage
+	ep.VehHurtDir = -ep.VehHurtDir
+	ep.VehHurtTime = 10
+	ep.VehDamage += amount * 10
+	var b protocol.Buffer
+	if ep.VehHurtTime != oldTime {
+		b.Byte(8)
+		b.Byte(1) // INT serializer
+		b.VarInt(ep.VehHurtTime)
+	}
+	if ep.VehHurtDir != oldDir {
+		b.Byte(9)
+		b.Byte(1) // INT serializer
+		b.VarInt(ep.VehHurtDir)
+	}
+	if ep.VehDamage != oldDmg {
+		b.Byte(10)
+		b.Byte(3) // FLOAT serializer
+		b.Float(ep.VehDamage)
+	}
+	if b.Len() > 0 {
+		b.Byte(0xFF)
+		s.broadcastEntityMetadata(ep.ID, b.Bytes())
+	}
+	creative := sess.mode() == GameModeCreative
+	switch {
+	case !creative && ep.VehDamage > 40:
+		s.vehicleDestroy(ep)
+	case creative:
+		// instabuild hits discard the vehicle: removed, no drop.
+		s.entities.Remove(ep.ID)
+		s.broadcastEntityRemove([]int32{ep.ID})
+	}
+}
+
+// vehicleDestroy is VehicleEntity.destroy: the vehicle is removed and
+// its drop item spawns where it sat. A chest vehicle would also spill
+// its contents — unmodelled, contents are empty in practice.
+func (s *Server) vehicleDestroy(ep *Entity) {
+	s.entities.Remove(ep.ID)
+	s.broadcastEntityRemove([]int32{ep.ID})
+	name, ok := EntityTypeName(ep.Type)
+	if !ok {
+		return
+	}
+	if itemID, ok := world.ItemID(name); ok {
+		s.spawnItemDrop(ep.Dim, world.Pos{
+			X: int(math.Floor(ep.X)),
+			Y: int(math.Floor(ep.Y)),
+			Z: int(math.Floor(ep.Z)),
+		}, ItemStack{ID: itemID, Count: 1})
+	}
+}
+
+// vehicleTickStep is VehicleEntity.tick's wobble countdown: while
+// positive, DATA_ID_HURT decrements 1/tick and DATA_ID_DAMAGE decays
+// 1/tick, each marking its entity-data entry dirty; the dirty values
+// ship on the entity's sendChanges interval, so observers see the
+// current value at interval boundaries rather than every decrement.
+func (s *Server) vehicleTickStep() {
+	for _, e := range s.entities.All() {
+		if e.VehHurtTime <= 0 && e.VehDamage <= 0 {
+			continue
+		}
+		ep, ok := s.entities.GetPtr(e.ID)
+		if !ok {
+			continue
+		}
+		dirtyTime, dirtyDamage := false, false
+		if ep.VehHurtTime > 0 {
+			ep.VehHurtTime--
+			dirtyTime = true
+		}
+		if ep.VehDamage > 0 {
+			ep.VehDamage--
+			if ep.VehDamage < 0 {
+				ep.VehDamage = 0
+			}
+			dirtyDamage = true
+		}
+		ep.SyncCount++
+		// The live probe against 26.2 shows vanilla shipping this
+		// dirty pack every tick through the countdown, not on the
+		// boat's 3-tick sendChanges interval — the countdown entries
+		// ride a more eager path. Emit per tick while dirty.
+		if dirtyTime || dirtyDamage {
+			var b protocol.Buffer
+			if dirtyTime {
+				b.Byte(8)
+				b.Byte(1) // INT serializer
+				b.VarInt(ep.VehHurtTime)
+			}
+			if dirtyDamage {
+				b.Byte(10)
+				b.Byte(3) // FLOAT serializer
+				b.Float(ep.VehDamage)
+			}
+			b.Byte(0xFF)
+			s.broadcastEntityMetadata(ep.ID, b.Bytes())
+		}
+	}
 }
 
 // entityInLava reports whether any block under the entity's bounding
