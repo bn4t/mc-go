@@ -38,6 +38,9 @@ var (
 	configRegs []configRegistry
 	// biomeIDs is the captured worldgen/biome name -> index map.
 	biomeIDs entryIDs
+	// dialogIDs is the captured minecraft:dialog name -> index map;
+	// a show_dialog body references its dialog by index+1.
+	dialogIDs entryIDs
 )
 
 // loadConfigData parses the embedded captures once. A corrupt capture
@@ -67,17 +70,26 @@ func loadConfigData() {
 			configRegs = append(configRegs, configRegistry{key: key, body: body})
 		}
 		for _, r := range configRegs {
-			if r.key != "minecraft:worldgen/biome" {
-				continue
+			switch r.key {
+			case "minecraft:worldgen/biome":
+				_, ids, err := parseRegistryBody(r.body)
+				if err != nil {
+					panic(fmt.Sprintf("mc-go: biome capture: %v", err))
+				}
+				biomeIDs = ids
+			case "minecraft:dialog":
+				_, ids, err := parseRegistryBody(r.body)
+				if err != nil {
+					panic(fmt.Sprintf("mc-go: dialog capture: %v", err))
+				}
+				dialogIDs = ids
 			}
-			_, ids, err := parseRegistryBody(r.body)
-			if err != nil {
-				panic(fmt.Sprintf("mc-go: biome capture: %v", err))
-			}
-			biomeIDs = ids
 		}
 		if biomeIDs == nil {
 			panic("mc-go: worldgen/biome capture missing")
+		}
+		if dialogIDs == nil {
+			panic("mc-go: dialog capture missing")
 		}
 	})
 }

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"mc-go/internal/protocol"
 )
 
 // attrMod is one /attribute modifier instance: amount plus operation.
@@ -637,6 +639,14 @@ func (s *Server) runDialog(player string, args []string) reply {
 		if rep != nil {
 			return *rep
 		}
+		// The show_dialog holder lands before the echo — vanilla's
+		// DialogCommand runs the packet send inside the command's own
+		// source step, ahead of its sendSuccess chat.
+		for _, t := range targets {
+			var b protocol.Buffer
+			b.VarInt(dialogIDs[dlg] + 1)
+			_ = t.write(t.ids().PlayShowDialog, b.Bytes())
+		}
 		if len(targets) == 1 {
 			return opsEchoReply(translatable("commands.dialog.show.single",
 				(&dataEntity{sess: targets[0]}).nameComp()))
@@ -652,6 +662,9 @@ func (s *Server) runDialog(player string, args []string) reply {
 		}
 		if len(args) > 2 {
 			return errToken("command.unknown.argument", 3)
+		}
+		for _, t := range targets {
+			_ = t.write(t.ids().PlayClearDialog, nil)
 		}
 		if len(targets) == 1 {
 			return opsEchoReply(translatable("commands.dialog.clear.single",

@@ -8599,3 +8599,17 @@ bundle first, block update at the tick flush — exactly mc-go's
 (broadcastBlockState dirties the section, sendEntityTo writes
 directly). Test rewritten to collect block update + spawn + item
 meta in arrival order; all three with the same field checks.
+
+## Slice 2026-09-26v — /dialog show_dialog + clear_dialog packets
+
+runDialog only echoed sendSuccess chat — vanilla's DialogCommand also
+writes the client-bound packets ahead of the echo (wire probe on the
+26.2 jar: show → show_dialog then chat; clear → clear_dialog then
+chat). show_dialog's body is a Holder: one VarInt, registry index + 1
+(the all-elements holder encodes element i as i+1). registry.go now
+keeps a dialogIDs entry map parsed from the captured
+026-minecraft_dialog.bin next to biomeIDs — server_links lands at
+index 2 → body 03, matching the probe. runDialog writes the packet to
+each target before returning the chat reply, so wire order matches.
+TestDialogPacketsParity diffs the full window (packet + echo, and
+the no_such_dialog chat-only error path) verbatim on both servers.
