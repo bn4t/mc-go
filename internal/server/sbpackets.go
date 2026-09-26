@@ -682,8 +682,11 @@ func (s *Server) handleRenameItem(sess *Session, p protocol.Packet) {
 // handleSelectTrade is implemented in trade.go (MerchantMenu's
 // setSelectionHint + tryMoveItems).
 
-// handleSetBeacon stores a beacon's chosen effects. Vanilla ignores the
-// packet when no beacon menu is open.
+// handleSetBeacon is BeaconMenu.updateEffects: the packet applies only
+// while the player has a beacon menu open whose payment slot holds an
+// item, the chosen effects must pass validateEffects against the
+// pyramid's current level, and a success commits them onto the block
+// entity and consumes one payment item.
 func (s *Server) handleSetBeacon(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
 	primary, hasPrimary, err := r.OptionalVarInt()
@@ -697,17 +700,55 @@ func (s *Server) handleSetBeacon(sess *Session, p protocol.Packet) {
 	sess.windowMu.Lock()
 	w := sess.window
 	sess.windowMu.Unlock()
+	// Vanilla ignores the packet unless the open menu is a beacon the
+	// player is still in range of (AbstractContainerMenu.stillValid).
 	if w == nil || w.container == nil || w.container.spec.menu != menuBeacon {
+		return
+	}
+	if !containerStillValid(sess, w.pos) {
 		return
 	}
 	c := w.container
 	w.dim.containers.mu.Lock()
-	c.beaconPrimary, c.hasBeaconPrimary = primary, hasPrimary
-	c.beaconSecondary, c.hasBeaconSecondary = secondary, hasSecondary
+	hasPayment := !c.slots[beaconPayment].Empty()
 	w.dim.containers.mu.Unlock()
-	// TODO(beacon effects): apply the chosen effects to nearby players,
-	// which needs the mob-effect registry, the beacon beam block state,
-	// and the pyramid scan that decides how many effect tiers are open.
+	var primaryName, secondaryName string
+	if hasPrimary {
+		if n, ok := MobEffectName(primary); ok {
+			primaryName = n
+		}
+	}
+	if hasSecondary {
+		if n, ok := MobEffectName(secondary); ok {
+			secondaryName = n
+		}
+	}
+	be := w.dim.beacons[w.pos]
+	lv := 0
+	if be != nil {
+		lv = be.levels
+	}
+	// updateEffects returning false — no payment item, or a pair that
+	// fails validateEffects — disconnects the client outright.
+	if !hasPayment || !validateBeaconEffects(primaryName, secondaryName, lv) {
+		s.disconnectWithComponent(sess, translatable("multiplayer.disconnect.generic"))
+		return
+	}
+	if be != nil {
+		be.primary, be.secondary = primaryName, secondaryName
+	}
+	// paymentSlot.remove(1): one item of the payment stack is consumed.
+	w.dim.containers.mu.Lock()
+	st := c.slots[beaconPayment]
+	if st.Count > 1 {
+		st.Count--
+		c.slots[beaconPayment] = st
+	} else {
+		c.slots[beaconPayment] = ItemStack{}
+	}
+	w.dim.containers.mu.Unlock()
+	s.syncContainerMenuSlots(sess, w, []int{beaconPayment})
+	s.sendBeaconProperties(sess, w)
 }
 
 // handleMoveVehicle applies a vehicle position update. mc-go has no

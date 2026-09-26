@@ -881,6 +881,18 @@ func (s *Server) handleCloseContainer(sess *Session, p protocol.Packet) {
 	}
 	sess.window = nil
 	sess.windowMu.Unlock()
+	s.menuRemoved(sess, w, false)
+	// No Container Close echo: the real server never answers a
+	// client-initiated close (four anvil closes, zero 0x11), the
+	// client already retired its own window.
+}
+
+// menuRemoved runs the open menu's removal cleanup — vanilla's
+// AbstractContainerMenu.removed(player): menu inputs and the cursor
+// stack go back to the player — dropped as items when the menu died
+// with the session (kick, disconnect), placed in the inventory on a
+// client close.
+func (s *Server) menuRemoved(sess *Session, w *openWindow, dropped bool) {
 	if w.merchant != nil {
 		s.merchantClose(sess, w)
 	} else if w.craft != nil {
@@ -889,12 +901,25 @@ func (s *Server) handleCloseContainer(sess *Session, p protocol.Packet) {
 		// The anvil keeps no storage: its inputs come back to the
 		// player and the cursor stays where it is, measured on 26.2.
 		s.closeAnvil(sess, w, w.container)
+	} else if w.container != nil && w.container.spec.menu == menuBeacon {
+		s.closeBeaconMenu(sess, w, w.container, dropped)
+	} else if dropped {
+		s.dropCarried(sess)
 	} else {
 		s.returnCarried(sess)
 	}
-	// No Container Close echo: the real server never answers a
-	// client-initiated close (four anvil closes, zero 0x11), the
-	// client already retired its own window.
+}
+
+// dropCarried drops the cursor stack as an item entity — the
+// dropOrPlaceInInventory branch a removed player takes (kick,
+// disconnect), versus the placeItemBackInInventory on a clean close.
+func (s *Server) dropCarried(sess *Session) {
+	carried := sess.carriedBuffer()
+	if carried.Empty() {
+		return
+	}
+	sess.carriedMuSet(ItemStack{})
+	s.dropItemLocked(sess, carried)
 }
 
 // returnCarried moves the cursor stack back into the player inventory,

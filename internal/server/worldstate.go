@@ -112,6 +112,8 @@ func (s *Server) blockEntityTag(d *dimension, pos world.Pos) []byte {
 		if h := s.peekHopper(d, pos); h != nil {
 			return containerNBT(name, h.slots[:], d.beNames[pos], "", 0)
 		}
+	case "beacon":
+		return beaconNBT(name, d, pos)
 	}
 	// The generic container store covers shulker boxes, dispensers,
 	// brewing stands, crafters and the rest — everything that routes
@@ -185,6 +187,30 @@ func containerNBT(id string, slots []ItemStack, customName string, lootTable str
 	}
 	if customName != "" {
 		m["CustomName"] = customName
+	}
+	var buf bytes.Buffer
+	_ = nbt.WriteUnnamed(&buf, m)
+	return buf.Bytes()
+}
+
+// beaconNBT renders a beacon block entity's tag the way the real
+// server saves it: Levels plus the chosen effect ids. The payment slot
+// lives on the menu container, so the block entity never carries Items.
+func beaconNBT(id string, d *dimension, pos world.Pos) []byte {
+	m := map[string]any{"id": id}
+	levels := int32(0)
+	if be := d.beacons[pos]; be != nil {
+		levels = int32(be.levels)
+		if be.primary != "" {
+			m["primary_effect"] = "minecraft:" + be.primary
+		}
+		if be.secondary != "" {
+			m["secondary_effect"] = "minecraft:" + be.secondary
+		}
+	}
+	m["Levels"] = levels
+	if n := d.beNames[pos]; n != "" {
+		m["CustomName"] = n
 	}
 	var buf bytes.Buffer
 	_ = nbt.WriteUnnamed(&buf, m)

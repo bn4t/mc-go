@@ -7521,3 +7521,49 @@ retry pairs until `unless block` says gone. And probe markers must
 never appear in a command line twice: an `execute if block
 ...{NBT}` parse failure echoes the whole command (including the say
 marker) back as the error — probeAbsent saw its own marker as a hit.
+
+### 2026-09-25zj — beacon effects: commit/validate/kick + payment-slot cap + menu-removed teardown + duplicate-login kick
+
+`handleSetBeacon` is now vanilla's `handleSetBeaconPacket` end to end:
+menu must be the beacon menu (silent return otherwise), the menu must
+still be valid (`stillValid`: dist²≤64 from player FEET to the block —
+measured; was previously ungated), `updateEffects` runs
+payment→levels→`validateEffects` and any false kicks the client with
+`multiplayer.disconnect.generic` (empty payment included — the kick is
+not just for invalid pairs). On pass: `beaconData` props
+[levels, primary+1, secondary+1] land async via the next broadcast tick
+(menu props + slot removal alike — tests poll), paymentSlot.remove(1),
+setChanged. `validateEffects` table pinned: secondary only at 4,
+required-level ≤ levels, primary never needs 4, secondary in tiers
+1-3 must equal primary, both-empty still consumes the payment.
+
+`PaymentSlot.getMaxStackSize()=1` — the beacon payment takes ONE item
+even from a stack: `containerSpec.slotMax` now feeds clickLeft's
+place/merge, `placeCapped` and `quickMoveIntoContainer`. And
+`BeaconMenu.removed` drops the payment stack as an item entity on ANY
+close (never the inventory), plus drop-or-place for the cursor stack
+(dropped on disconnect/kick, placed back on client close) — wired as
+`menuRemoved(sess, w, dropped)` from both `handleCloseContainer` and
+`untrack`, so menu teardown now runs on disconnect too (was skipped —
+a kicked player's payment leaked into the shared container state).
+
+Two adjacent measured fixes:
+- Duplicate login: `handlePlay` disconnects the OLDER same-name
+  session with `multiplayer.disconnect.duplicate_login`
+  (PlayerList.placeNewPlayer). mc-go previously coexisted, which also
+  poisoned `findSessionByName`: `@s`-style name lookups could resolve
+  the dying session — `/tp @s` moved the kicked player while the
+  issuer stayed at spawn and out-of-reach uses silently dropped.
+  Sessions closing down are marked (`closing` flag in the kick paths
+  + closeQueue) and `findSessionByName` skips them.
+- `containerStillValid` measured: dist²≤64 from feet, i.e. an 8-block
+  sphere around the block the menu belongs to; Set Beacon ignores
+  commits from a stale menu rather than kicking.
+
+`TestBeaconEffectsParity` (beacon_parity_test.go): 4 legs —
+happy path lv4 pyramid → pay 1 → speed+speed commit (props 4,1,1,
+UpdateMobEffect amp1 dur340, NBT primary/secondary both speed) →
+re-pay → speed+regen commit (props 4,1,10, regen amp0 dur340);
+invalid pair haste+strength → disconnect; empty payment →
+disconnect; commit with no beacon menu → ignored. Green on both
+servers (~52s).

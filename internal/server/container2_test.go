@@ -216,11 +216,17 @@ func TestContainerClickTransfer(t *testing.T) {
 
 		got := sess.menuStack(tc.slot)
 		if tc.allowed {
-			if got.ID != world.ItemIDs[tc.item] || got.Count != 3 {
-				t.Fatalf("%s slot %d = %+v, want the placed stack", tc.block, tc.slot, got)
+			// The beacon's payment slot caps at getMaxStackSize=1, so
+			// a 3-stack places one and keeps two on the cursor.
+			wantPlaced, wantCarried := int32(3), int32(0)
+			if tc.block == "beacon" {
+				wantPlaced, wantCarried = 1, 2
 			}
-			if !sess.carried.Empty() {
-				t.Fatalf("%s carried = %+v after a full place", tc.block, sess.carried)
+			if got.ID != world.ItemIDs[tc.item] || got.Count != wantPlaced {
+				t.Fatalf("%s slot %d = %+v, want %s x%d", tc.block, tc.slot, got, tc.item, wantPlaced)
+			}
+			if sess.carried.Count != wantCarried || (wantCarried > 0 && sess.carried.ID != world.ItemIDs[tc.item]) {
+				t.Fatalf("%s carried = %+v after place, want x%d", tc.block, sess.carried, wantCarried)
 			}
 		} else {
 			if !got.Empty() {
@@ -824,21 +830,32 @@ func TestContainerRenameAndBeaconSelection(t *testing.T) {
 		t.Fatalf("anvil rename = %q", name)
 	}
 
+	// stillValid keeps the commit inside the menu's 8-block radius.
+	sess.setPos(6, 4.5, 4.5, 0, 0, true)
 	beaconPos := world.Pos{X: 8, Y: 4, Z: 4}
 	beacon := containerPlace(t, s, "beacon", beaconPos)
 	s.openContainer(sess, beaconPos)
+	// updateEffects gates on a payment item and a pyramid that unlocks
+	// the chosen effects; stand in for the rescan by pinning both.
+	beacon.slots[0] = ItemStack{ID: world.ItemIDs["iron_ingot"], Count: 2}
+	be := s.dims[dimOverworld].beacons[beaconPos]
+	if be == nil {
+		t.Fatalf("beacon block created no beacon entity state")
+	}
+	be.levels = 4
 	// The effect ids are prefixed optionals: a presence flag, then the
 	// id when present.
 	var bb protocol.Buffer
 	bb.Bool(true)
-	bb.VarInt(1)
-	bb.Bool(false)
+	bb.VarInt(0) // speed
+	bb.Bool(true)
+	bb.VarInt(0) // boosted secondary
 	s.handleSetBeacon(sess, protocol.Packet{ID: IDPlaySetBeaconSB, Data: bb.Bytes()})
-	s.dims[dimOverworld].containers.mu.Lock()
-	primary, hasPrimary := beacon.beaconPrimary, beacon.hasBeaconPrimary
-	s.dims[dimOverworld].containers.mu.Unlock()
-	if !hasPrimary || primary != 1 {
-		t.Fatalf("beacon primary = %d, set %v", primary, hasPrimary)
+	if be.primary != "speed" || be.secondary != "speed" {
+		t.Fatalf("beacon powers = %q,%q", be.primary, be.secondary)
+	}
+	if beacon.slots[0].Count != 1 {
+		t.Fatalf("payment consumed to %d", beacon.slots[0].Count)
 	}
 }
 

@@ -11,6 +11,8 @@ package server
 // the same 80-tick cadence.
 
 import (
+	"math"
+
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
@@ -32,9 +34,60 @@ const (
 )
 
 // beaconEnt is the per-position activation state mc-go tracks for a
-// placed beacon — the vanilla block entity's `levels` field.
+// placed beacon — the vanilla block entity's `levels` field plus the
+// chosen powers (primaryPower/secondaryPower, "" when unset).
 type beaconEnt struct {
-	levels int
+	levels    int
+	primary   string
+	secondary string
+}
+
+// beaconEffectTiers is vanilla BEACON_EFFECTS: the pyramid tier
+// (1..4) that unlocks each power.
+var beaconEffectTiers = [][]string{
+	{"speed", "haste"},
+	{"resistance", "jump_boost"},
+	{"strength"},
+	{"regeneration"},
+}
+
+// beaconRequiredLevels is BeaconBlockEntity.getRequiredLevelsFor: the
+// 1-based tier an effect needs, 0 for an empty selection, and an
+// unreachable level for an effect the beacon cannot supply.
+func beaconRequiredLevels(name string) int {
+	if name == "" {
+		return 0
+	}
+	for i, tier := range beaconEffectTiers {
+		for _, e := range tier {
+			if e == name {
+				return i + 1
+			}
+		}
+	}
+	return math.MaxInt32
+}
+
+// validateBeaconEffects mirrors BeaconBlockEntity.validateEffects, the
+// gate BeaconMenu.updateEffects runs before committing a selection:
+// any secondary needs a maxed pyramid, each effect's tier must fit the
+// level, the primary can never be a tier-4 power, and a tier-1..3
+// secondary must boost the primary by matching it.
+func validateBeaconEffects(primary, secondary string, levels int) bool {
+	if secondary != "" && levels < 4 {
+		return false
+	}
+	reqP, reqS := beaconRequiredLevels(primary), beaconRequiredLevels(secondary)
+	if reqP > levels || reqS > levels {
+		return false
+	}
+	if reqP >= 4 {
+		return false
+	}
+	if reqS != 0 && reqS < 4 && primary != secondary {
+		return false
+	}
+	return true
 }
 
 // syncBeacon keeps the dimension's beacon set in step with a block
@@ -86,6 +139,118 @@ func (s *Server) beaconRescan(d *dimension, pos world.Pos, be *beaconEnt) {
 	}
 	if active {
 		s.playSoundIn(d.name, pos, sndBeaconAmbient)
+		s.beaconApplyEffects(d, pos, be)
+	}
+	s.beaconPropsChanged(d, pos)
+}
+
+// beaconApplyEffects is BeaconBlockEntity.applyEffects on the 80-tick
+// rescan cadence: every player inside the power box gets the chosen
+// primary re-applied, and at level 4 a distinct secondary alongside it.
+// The box is the block pos inflated by levels*10+10 then stretched to
+// the top of the world, so a player anywhere above the beacon but not
+// deeper than the base is in range. Duration is (9+levels*2)*20 ticks —
+// long enough to bridge the 80-tick gap — and the amplifier climbs to 1
+// only when the secondary slot boosts the same effect on a maxed
+// pyramid.
+func (s *Server) beaconApplyEffects(d *dimension, pos world.Pos, be *beaconEnt) {
+	if be.primary == "" {
+		return
+	}
+	pid, ok := MobEffectID(be.primary)
+	if !ok {
+		return
+	}
+	duration := int32((9 + be.levels*2) * 20)
+	dist := float64(be.levels*10 + 10)
+	amp := int32(0)
+	if be.levels >= 4 && be.secondary == be.primary {
+		amp = 1
+	}
+	sid, hasSec := int32(0), false
+	if be.levels >= 4 && be.secondary != "" && be.secondary != be.primary {
+		if id, ok := MobEffectID(be.secondary); ok {
+			sid, hasSec = id, true
+		}
+	}
+	xMin, xMax := float64(pos.X)-dist, float64(pos.X)+1+dist
+	zMin, zMax := float64(pos.Z)-dist, float64(pos.Z)+1+dist
+	yMin, yMax := float64(pos.Y)-dist, float64(pos.Y)+1+dist+float64(d.height)
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || !sess.spawned.Load() || sess.dimName() != d.name {
+			return true
+		}
+		x, y, z, _, _, _ := sess.Pos()
+		if x < xMin || x > xMax || z < zMin || z > zMax || y < yMin || y > yMax {
+			return true
+		}
+		// The ambient+visible instance the vanilla beacon hands out
+		// shows as flags 0x07: ambient(1) | visible(2) | icon(4).
+		s.applyMobEffectWire(sess, pid, amp, duration, false, 0x07)
+		if hasSec {
+			s.applyMobEffectWire(sess, sid, 0, duration, false, 0x07)
+		}
+		return true
+	})
+}
+
+// beaconPropsChanged pushes the beacon menu's three data slots to every
+// viewer of that beacon's menu: vanilla's setChanged lands these on
+// the same rescan the levels moved.
+func (s *Server) beaconPropsChanged(d *dimension, pos world.Pos) {
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay {
+			return true
+		}
+		sess.windowMu.Lock()
+		w := sess.window
+		sess.windowMu.Unlock()
+		if w == nil || w.container == nil || w.container.spec.menu != menuBeacon || w.dim != d || w.pos != pos {
+			return true
+		}
+		s.sendBeaconProperties(sess, w)
+		return true
+	})
+}
+
+// sendBeaconProperties pushes the beacon menu's data slots —
+// levels, primary, secondary — each effect the mob-effect registry
+// id + 1, 0 marking "no effect" (BeaconMenu.encodeEffect).
+func (s *Server) sendBeaconProperties(sess *Session, w *openWindow) {
+	be := w.dim.beacons[w.pos]
+	props := [3]int32{}
+	if be != nil {
+		props[0] = int32(be.levels)
+		if id, ok := MobEffectID(be.primary); ok {
+			props[1] = id + 1
+		}
+		if id, ok := MobEffectID(be.secondary); ok {
+			props[2] = id + 1
+		}
+	}
+	for i, v := range props {
+		s.sendContainerProperty(sess, w.id, int16(i), v)
+	}
+}
+
+// closeBeaconMenu is BeaconMenu.removed: the carried stack goes back
+// first — dropped when the menu died with the session, placed back in
+// the inventory on a client close — and the payment slot's whole
+// stack is dropped at the player either way.
+func (s *Server) closeBeaconMenu(sess *Session, w *openWindow, c *containerData, dropped bool) {
+	if dropped {
+		s.dropCarried(sess)
+	} else {
+		s.returnCarried(sess)
+	}
+	w.dim.containers.mu.Lock()
+	st := c.slots[beaconPayment]
+	c.slots[beaconPayment] = ItemStack{}
+	w.dim.containers.mu.Unlock()
+	if !st.Empty() {
+		s.dropItemLocked(sess, st)
 	}
 }
 

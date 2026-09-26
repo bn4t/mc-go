@@ -316,6 +316,27 @@ func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any
 		brew, fuel, disabled := c.brewTime, c.fuel, c.disabled
 		lt, seed := c.lootTable, c.lootSeed
 		return blockEntityNBT(pos, spec, func(extra map[string]any) {
+			if spec.name == "minecraft:beacon" {
+				// A beacon has no Items: its payment slot lives on the
+				// menu, and the block entity saves only its pyramid
+				// level and chosen powers.
+				be := d.beacons[pos]
+				levels := int32(0)
+				if be != nil {
+					levels = int32(be.levels)
+					if be.primary != "" {
+						extra["primary_effect"] = "minecraft:" + be.primary
+					}
+					if be.secondary != "" {
+						extra["secondary_effect"] = "minecraft:" + be.secondary
+					}
+				}
+				extra["Levels"] = levels
+				if n := d.beNames[pos]; n != "" {
+					extra["CustomName"] = n
+				}
+				return
+			}
 			if spec.name == "minecraft:brewing_stand" {
 				extra["BrewTime"] = int16(brew)
 				extra["Fuel"] = int8(fuel)

@@ -91,6 +91,11 @@ func (s *Server) findSessionByName(name string) *Session {
 	var found *Session
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
+		// A session whose disconnect was issued keeps resolving
+		// nowhere: the same-named fresh join must win the name.
+		if sess.gone() {
+			return true
+		}
 		if sess.getName() == name {
 			found = sess
 			return false
@@ -226,6 +231,20 @@ func (s *Server) runSetblock(player string, args []string) reply {
 						}
 					}
 					d.containers.mu.Unlock()
+				}
+			}
+		}
+		// A beacon block entity's own fields: the chosen powers land on
+		// beaconEnt (loadAdditional reads primary_effect/secondary_effect
+		// as resource locations; the payment slot is menu state, so an
+		// Items list on a beacon tag is ignored).
+		if name, _ := world.StateOwner(blk); name == "beacon" {
+			if be := d.beacons[pos]; be != nil {
+				if e, ok := tag.vals["primary_effect"]; ok && e.kind == snbtString {
+					be.primary = strings.TrimPrefix(e.str, "minecraft:")
+				}
+				if e, ok := tag.vals["secondary_effect"]; ok && e.kind == snbtString {
+					be.secondary = strings.TrimPrefix(e.str, "minecraft:")
 				}
 			}
 		}

@@ -14,6 +14,16 @@ import (
 // Chat/keep-alive handling lands with the signed-chat milestone;
 // unknown play packets are ignored so the session stays up.
 func (s *Server) handlePlay(sess *Session) {
+	// A new login under a name already online disconnects the older
+	// session, never the new one (PlayerList.placeNewPlayer).
+	name := sess.getName()
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other != sess && other.getName() == name {
+			s.disconnectWithComponent(other, translatable("multiplayer.disconnect.duplicate_login"))
+		}
+		return true
+	})
 	overworld := s.dims[dimOverworld]
 	sess.dim.Store(overworld)
 	// Joining opens the interaction gate; the client lifts it by
@@ -543,6 +553,7 @@ func (s *Server) sendSyncPos(sess *Session, x, y, z float64) error {
 
 // SendPlayDisconnect kicks a play-stage session with a chat message.
 func (s *Server) SendPlayDisconnect(sess *Session, reason string) {
+	sess.closing.Store(true)
 	var b protocol.Buffer
 	b.String(reason)
 	_ = sess.write(sess.ids().PlayDisconnect, b.Bytes())

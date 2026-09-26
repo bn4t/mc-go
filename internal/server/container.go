@@ -103,6 +103,16 @@ type containerSpec struct {
 	results []int
 }
 
+// slotMax is a slot's stack limit — vanilla's Slot.getMaxStackSize,
+// which most menus inherit as the item's own maximum but a few cap
+// lower (the beacon payment slot is 1).
+func (spec *containerSpec) slotMax(slot int, it ItemStack) int32 {
+	if spec.menu == menuBeacon && slot == beaconPayment {
+		return 1
+	}
+	return maxStackOfID(it.ID)
+}
+
 // accepts reports whether the slot takes a stack placed by the player.
 // The default is the whole container side minus the result slots; the
 // menus whose slots are typed override this below.
@@ -376,13 +386,6 @@ type containerData struct {
 	// many items the take consumes from the left and right inputs.
 	anvilCost int32
 	anvilUse  [2]int32
-	// beaconPrimary/beaconSecondary are the beacon's chosen effects,
-	// recorded until the menus that act on them exist (see the TODOs in
-	// the packet handlers).
-	beaconPrimary      int32
-	hasBeaconPrimary   bool
-	beaconSecondary    int32
-	hasBeaconSecondary bool
 }
 
 // containerStore keeps generic container state by position.
@@ -523,6 +526,9 @@ func (s *Server) openContainer(sess *Session, pos world.Pos) {
 	}
 	if c.spec.menu == menuEnchantment {
 		s.enchantSlotsChanged(sess, w)
+	}
+	if c.spec.menu == menuBeacon {
+		s.sendBeaconProperties(sess, w)
 	}
 }
 
@@ -730,9 +736,18 @@ func clickLeft(cur, target ItemStack, spec *containerSpec, slot int) (carried, p
 		if !menuAccepts(spec, slot, cur) {
 			return cur, target
 		}
-		return ItemStack{}, cur
+		move := cur.Count
+		if max := spec.slotMax(slot, cur); move > max {
+			move = max
+		}
+		placed := cur.withCount(move)
+		cur.Count -= move
+		if cur.Count <= 0 {
+			cur = ItemStack{}
+		}
+		return cur, placed
 	case target.Stackable(cur):
-		room := maxStackOfID(target.ID) - target.Count
+		room := spec.slotMax(slot, target) - target.Count
 		move := cur.Count
 		if move > room {
 			move = room
@@ -810,7 +825,7 @@ func quickMoveIntoPlayer(sess *Session, c *containerData, moving *ItemStack, tou
 		if !sess.menuStack(i).Empty() {
 			continue
 		}
-		placeCapped(sess, i, moving)
+		placeCapped(sess, c.spec, i, moving)
 		*touched = append(*touched, i)
 	}
 }
@@ -830,7 +845,7 @@ func quickMoveIntoContainer(sess *Session, c *containerData, moving *ItemStack, 
 		if !other.Stackable(*moving) {
 			continue
 		}
-		room := maxStackOfID(other.ID) - other.Count
+		room := c.spec.slotMax(i, *moving) - other.Count
 		move := moving.Count
 		if move > room {
 			move = room
@@ -847,7 +862,7 @@ func quickMoveIntoContainer(sess *Session, c *containerData, moving *ItemStack, 
 		if !c.spec.accepts(i, *moving) || !sess.menuStack(i).Empty() {
 			continue
 		}
-		placeCapped(sess, i, moving)
+		placeCapped(sess, c.spec, i, moving)
 		*touched = append(*touched, i)
 	}
 }
@@ -855,9 +870,9 @@ func quickMoveIntoContainer(sess *Session, c *containerData, moving *ItemStack, 
 // placeCapped moves a quick-move remainder into an empty menu slot, one
 // capped stack at a time: 64 pickaxes fill 64 slots of one, the way the
 // real server's shift-click spreads what a slot cannot take.
-func placeCapped(sess *Session, i int, moving *ItemStack) {
+func placeCapped(sess *Session, spec *containerSpec, i int, moving *ItemStack) {
 	put := moving.Count
-	if limit := maxStackOfID(moving.ID); put > limit {
+	if limit := spec.slotMax(i, *moving); put > limit {
 		put = limit
 	}
 	sess.setMenuStack(i, moving.withCount(put))
@@ -1077,6 +1092,18 @@ func brewable(c *containerData, ingredient ItemStack) bool {
 		}
 	}
 	return false
+}
+
+// containerStillValid mirrors AbstractContainerMenu.stillValid: the
+// menu's packets are honored only while the player stays within 8
+// blocks of the block the menu opened on (measured from the player's
+// feet, not eye height).
+func containerStillValid(sess *Session, pos world.Pos) bool {
+	x, y, z, _, _, _ := sess.Pos()
+	dx := x - (float64(pos.X) + 0.5)
+	dy := y - (float64(pos.Y) + 0.5)
+	dz := z - (float64(pos.Z) + 0.5)
+	return dx*dx+dy*dy+dz*dz <= 64
 }
 
 // containerTickStep advances every brewing stand one tick, in every

@@ -27,6 +27,7 @@ func (s *Server) KickPlayer(name, reason string) bool {
 	if sess == nil || sess.state.Load() != StatePlay {
 		return false
 	}
+	sess.closing.Store(true)
 	js, _ := json.Marshal(map[string]string{"text": reason})
 	var b protocol.Buffer
 	b.String(string(js))

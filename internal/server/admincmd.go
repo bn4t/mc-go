@@ -348,13 +348,16 @@ func sessionIP(sess *Session) string {
 // disconnectWithComponent kicks a play session with a component
 // reason, the shape vanilla's disconnect packet carries.
 func (s *Server) disconnectWithComponent(sess *Session, c component) {
+	sess.closing.Store(true)
 	var b protocol.Buffer
 	b.Raw(c.content())
 	_ = sess.write(sess.ids().PlayDisconnect, b.Bytes())
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		_ = sess.conn.Close()
-	}()
+	if sess.conn != nil {
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			_ = sess.conn.Close()
+		}()
+	}
 }
 
 // bannedReason reports the login-disconnect JSON for a banned name or

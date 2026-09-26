@@ -364,6 +364,10 @@ type Session struct {
 	done      chan struct{}
 	closeOnce sync.Once
 	wg        sync.WaitGroup
+	// closing marks a session whose disconnect was issued — kicked or
+	// answered-closed — so name lookups stop resolving it before the
+	// socket finishes tearing down.
+	closing atomic.Bool
 	// inflight counts socket writes in progress; flush() waits for
 	// both an empty queue and no in-flight write, so a queued packet
 	// is actually on the wire (not just dequeued) before short-lived
@@ -505,7 +509,22 @@ func (s *Server) handleConn(c net.Conn) {
 
 // closeQueue signals the writer to exit (idempotent).
 func (sess *Session) closeQueue() {
+	sess.closing.Store(true)
 	sess.closeOnce.Do(func() { close(sess.done) })
+}
+
+// gone reports whether the session is closing or already torn down —
+// name lookups must skip it so a same-named fresh session resolves.
+func (sess *Session) gone() bool {
+	if sess.closing.Load() {
+		return true
+	}
+	select {
+	case <-sess.done:
+		return true
+	default:
+		return false
+	}
 }
 
 // write enqueues one packet, safe from any goroutine. It never blocks
