@@ -147,103 +147,95 @@ func TestSurvivalBreakDropPickupPackets(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 	_ = c.SetReadDeadline(deadline)
 
-	// 1. Block Update for (8,-61,0) with state 0 (air).
-	for {
-		p, err := pr.ReadPacket()
-		if err != nil {
-			t.Fatalf("waiting block update: %v", err)
-		}
-		if p.ID != server.IDPlayBlockUpdateCB {
-			continue
-		}
-		r := protocol.NewPacketReader(p.Data)
-		x, y, z, err := r.Position()
-		if err != nil {
-			t.Fatalf("block update position: %v", err)
-		}
-		state, err := r.VarInt()
-		if err != nil {
-			t.Fatalf("block update state: %v", err)
-		}
-		if x != 8 || y != -61 || z != 0 {
-			t.Fatalf("block update pos = %d,%d,%d, want 8,-61,0", x, y, z)
-		}
-		if state != int32(world.Air) {
-			t.Fatalf("block update state = %d, want air", state)
-		}
-		break
-	}
-
-	// 2. Spawn Entity for an item entity; capture its id and UUID.
+	// Steps 1-3 collect the break's three packets in whatever order
+	// they land: popResource's pairing bundle (bundle_delimiter,
+	// add_entity, set_entity_data, bundle_delimiter) writes the
+	// moment the drop spawns, while the block_update queues on the
+	// chunk's dirty set and flushes at the end-of-tick broadcast —
+	// the same split vanilla makes between sendPairingData and
+	// ChunkHolder.broadcastChanges.
 	var itemEID int32
-	for {
+	var metaEID int32 = -1
+	sawBlock, sawSpawn, sawMeta := false, false, false
+	for !(sawBlock && sawSpawn && sawMeta) {
 		p, err := pr.ReadPacket()
 		if err != nil {
-			t.Fatalf("waiting item spawn: %v", err)
+			t.Fatalf("waiting break packets (block=%v spawn=%v meta=%v): %v", sawBlock, sawSpawn, sawMeta, err)
 		}
-		if p.ID != server.IDPlaySpawnEntity {
-			continue
+		switch p.ID {
+		case server.IDPlayBlockUpdateCB:
+			r := protocol.NewPacketReader(p.Data)
+			x, y, z, err := r.Position()
+			if err != nil {
+				t.Fatalf("block update position: %v", err)
+			}
+			state, err := r.VarInt()
+			if err != nil {
+				t.Fatalf("block update state: %v", err)
+			}
+			if x != 8 || y != -61 || z != 0 {
+				continue
+			}
+			if state != int32(world.Air) {
+				t.Fatalf("block update state = %d, want air", state)
+			}
+			sawBlock = true
+		case server.IDPlaySpawnEntity:
+			r := protocol.NewPacketReader(p.Data)
+			eid, err := r.VarInt()
+			if err != nil {
+				t.Fatalf("spawn entity id: %v", err)
+			}
+			if _, err := r.UUID(); err != nil {
+				t.Fatalf("spawn uuid: %v", err)
+			}
+			typ, err := r.VarInt()
+			if err != nil {
+				t.Fatalf("spawn type: %v", err)
+			}
+			wantType, _ := server.EntityTypeID("item")
+			if typ != wantType {
+				continue
+			}
+			itemEID = eid
+			sawSpawn = true
+		case server.IDPlayEntityMetadata:
+			r := protocol.NewPacketReader(p.Data)
+			eid, err := r.VarInt()
+			if err != nil {
+				t.Fatalf("metadata eid: %v", err)
+			}
+			index, err := r.Byte()
+			if err != nil || index != 8 {
+				continue
+			}
+			typ, err := r.Byte()
+			if err != nil || typ != 7 {
+				continue
+			}
+			count, err := r.VarInt()
+			if err != nil || count != 1 {
+				t.Fatalf("item count = %d, err %v", count, err)
+			}
+			id, err := r.VarInt()
+			if err != nil || id != world.ItemIDs["dirt"] {
+				t.Fatalf("item id = %d, err %v (want dirt %d)", id, err, world.ItemIDs["dirt"])
+			}
+			if a, err := r.VarInt(); err != nil || a != 0 {
+				t.Fatalf("components to add = %d, err %v", a, err)
+			}
+			if rm, err := r.VarInt(); err != nil || rm != 0 {
+				t.Fatalf("components to remove = %d, err %v", rm, err)
+			}
+			if term, err := r.Byte(); err != nil || term != 0xFF {
+				t.Fatalf("metadata terminator = %#x, err %v", term, err)
+			}
+			metaEID = eid
+			sawMeta = true
 		}
-		r := protocol.NewPacketReader(p.Data)
-		eid, err := r.VarInt()
-		if err != nil {
-			t.Fatalf("spawn entity id: %v", err)
-		}
-		if _, err := r.UUID(); err != nil {
-			t.Fatalf("spawn uuid: %v", err)
-		}
-		typ, err := r.VarInt()
-		if err != nil {
-			t.Fatalf("spawn type: %v", err)
-		}
-		wantType, _ := server.EntityTypeID("item")
-		if typ != wantType {
-			t.Fatalf("spawn type = %d, want item (%d)", typ, wantType)
-		}
-		itemEID = eid
-		break
 	}
-
-	// 3. Set Entity Data: index 8, type 7 (slot), dirt x1.
-	for {
-		p, err := pr.ReadPacket()
-		if err != nil {
-			t.Fatalf("waiting item metadata: %v", err)
-		}
-		if p.ID != server.IDPlayEntityMetadata {
-			continue
-		}
-		r := protocol.NewPacketReader(p.Data)
-		eid, err := r.VarInt()
-		if err != nil || eid != itemEID {
-			t.Fatalf("metadata eid = %d, err %v (want %d)", eid, err, itemEID)
-		}
-		index, err := r.Byte()
-		if err != nil || index != 8 {
-			t.Fatalf("metadata index = %d, err %v (want 8 = item)", index, err)
-		}
-		typ, err := r.Byte()
-		if err != nil || typ != 7 {
-			t.Fatalf("metadata type = %d, err %v (want 7 = slot)", typ, err)
-		}
-		count, err := r.VarInt()
-		if err != nil || count != 1 {
-			t.Fatalf("item count = %d, err %v", count, err)
-		}
-		id, err := r.VarInt()
-		if err != nil || id != world.ItemIDs["dirt"] {
-			t.Fatalf("item id = %d, err %v (want dirt %d)", id, err, world.ItemIDs["dirt"])
-		}
-		if a, err := r.VarInt(); err != nil || a != 0 {
-			t.Fatalf("components to add = %d, err %v", a, err)
-		}
-		if rm, err := r.VarInt(); err != nil || rm != 0 {
-			t.Fatalf("components to remove = %d, err %v", rm, err)
-		}
-		if term, err := r.Byte(); err != nil || term != 0xFF {
-			t.Fatalf("metadata terminator = %#x, err %v", term, err)
-		}
-		break
+	if metaEID != itemEID {
+		t.Fatalf("item metadata eid = %d, want %d", metaEID, itemEID)
 	}
 
 	// 4. After the pickup delay, Take Item Entity then Remove Entities

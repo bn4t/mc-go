@@ -8584,3 +8584,18 @@ preexisting/flaky tests: TestItemDropMergeParity (vanilla-side merge
 timing flake, passes on rerun) and TestSurvivalBreakDropPickupPackets
 (fails identically on clean master — block-break item spawn packet
 never reaches the client; real gap, next slice).
+
+## Slice 2026-09-26u — break-flow packet order (test fix, not a server gap)
+
+TestSurvivalBreakDropPickupPackets asserted block_update BEFORE the
+item spawn bundle — failing on clean master. Bytecode check on the
+26.2 jar shows vanilla defers it instead: ServerPlayerGameMode.
+destroyBlock → removeBlock → markAndNotifyBlock → ChunkHolder.
+blockChanged only APPENDS to changedBlocksPerSection (the packet
+lands at the end-of-tick broadcastChanges), while playerDestroy →
+popResource → addFreshEntity → sendPairingData writes the
+delimiter/spawn/meta bundle immediately. Vanilla's wire order is
+bundle first, block update at the tick flush — exactly mc-go's
+(broadcastBlockState dirties the section, sendEntityTo writes
+directly). Test rewritten to collect block update + spawn + item
+meta in arrival order; all three with the same field checks.
