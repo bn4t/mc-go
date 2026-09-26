@@ -7992,3 +7992,40 @@ turns its own head.
 Leg streams after: leg0 identical ([{35}]), legs 1+2 the tolerated
 unpair-timing variants, leg3 re-pair bundle identical ([{1 99 131}])
 minus vanilla's two post-repair position packets.
+
+## Slice 2026-09-26c — episodic wander: RandomStrollGoal + look goals + tracked motion
+
+The 30s wander probe showed mc-go's continuous crawl emitting ~3.4x
+vanilla's position packets with zero set_entity_motion, while vanilla
+emits ~40-80 of each class. javap'd the oracle:
+
+- RandomStrollGoal: 1/120 roll per idle tick (reducedTickDelay(120)),
+  target = DefaultRandomPos.getPos(mob, 10, 7), walks at the
+  movement_speed attribute until navigation is done.
+- ServerEntity.sendChanges emits set_entity_motion when
+  distanceToSqr(currentDelta, lastSentMovement) > 1e-7, or when the
+  delta just turned exactly zero — per-tick emits while accel/decel,
+  none at cruise.
+- LookAtPlayerGoal + RandomLookAroundGoal re-aim the head on a ~20-40
+  tick cadence; LookControl lerps the turn so one look change lands as
+  several rotate_head emits.
+
+mc-go now models all three:
+
+- mobMoveStep is episodic: deterministic per-entity stroll interval
+  (100-140 ticks via eid hash — kills test flakes), ±10 target pick,
+  walk at entityAttrBases movement_speed, ends on arrival (<0.4),
+  ledge/obstacle/sun-trim (goal gives up), or a 160-tick stall.
+- Entity.SentMotionX/Y/Z mirror lastSentMovement; mobSyncFlush emits
+  set_entity_motion on the same drift>1e-7 or became-zero edge.
+  MotionX/Z now carry the walking delta; mobFrictionStep decays it
+  0.8/tick when idle.
+- mobLookStep re-aims e.LookYaw every 20-40 ticks (nearest player
+  within 6 blocks, else ±90 offset) and lerps HeadYaw 10°/tick —
+  rotate_head count went from ~1 to vanilla's ~30-55 per 30s.
+
+Pig 30s after: pos 49 vs vanilla ~57-102, rotate_head ~24-55 vs ~30-55,
+motion ~34-73 vs ~37-84 — all classes inside a 4x band. Pinned by
+TestWanderDensityParity (wanderCounts collector + per-class band
+asserts). TestMobWanderMovesOnGround loop now runs past the entity's
+stroll interval instead of the old continuous-walk 60 ticks.

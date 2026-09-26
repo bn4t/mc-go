@@ -332,6 +332,23 @@ func (s *Server) mobSyncFlush(e *Entity) {
 		s.broadcastMobAttrs(e)
 		e.AttrDirty = len(e.AttrsDirty) > 0
 	}
+	// TrackedDeltaMovement (ServerEntity.sendChanges): emit
+	// set_entity_motion when the current delta drifts farther than
+	// 1e-7 squared from the last sent one, or when it just turned
+	// exactly zero — a walking mob emits on accel/decel and stop,
+	// not per tick at cruise.
+	if !e.SentMotionSet {
+		e.SentMotionSet = true
+		e.SentMotionX, e.SentMotionY, e.SentMotionZ = e.MotionX, e.MotionY, e.MotionZ
+	} else {
+		dx, dy, dz := e.MotionX-e.SentMotionX, e.MotionY-e.SentMotionY, e.MotionZ-e.SentMotionZ
+		drift := dx*dx + dy*dy + dz*dz
+		curLen := e.MotionX*e.MotionX + e.MotionY*e.MotionY + e.MotionZ*e.MotionZ
+		if drift > 1e-7 || (drift > 0 && curLen == 0) {
+			e.SentMotionX, e.SentMotionY, e.SentMotionZ = e.MotionX, e.MotionY, e.MotionZ
+			s.broadcastEntityMotion(e.Dim, e.ID, e.MotionX, e.MotionY, e.MotionZ)
+		}
+	}
 	// A living mob's first AI tick reads its movement speed — the
 	// AttributeInstance materializes then, marked dirty on creation,
 	// so vanilla emits it once on the following sendChanges.

@@ -380,8 +380,23 @@ type Entity struct {
 	Dying      bool
 	deathTicks int32
 	// WanderTicks counts AI steps; the wander angle derives from it so
-	// movement is deterministic for tests.
-	WanderTicks int64
+	// movement is deterministic for tests. Strolling/StrollTX/StrollTZ
+	// model vanilla's RandomStrollGoal: idle ~interval ticks between
+	// strolls, then walk to a picked target until arrival or give-up.
+	// SentMotionX/Y/Z are ServerEntity.lastSentMovement — the delta last
+	// shipped as set_entity_motion; the emit fires when the current delta
+	// drifts past 1e-7 squared, or just turned exactly zero.
+	WanderTicks   int64
+	WanderTicks2  int64
+	LookYaw       float32
+	Strolling     bool
+	StrollTX      float64
+	StrollTZ      float64
+	StrollSteps   int32
+	SentMotionX   float64
+	SentMotionY   float64
+	SentMotionZ   float64
+	SentMotionSet bool
 	// attackCooldown is the hostile-melee swing timer — vanilla's
 	// twenty-tick reset after each landed blow.
 	attackCooldown int32

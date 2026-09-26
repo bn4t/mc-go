@@ -2282,6 +2282,9 @@ func (s *Server) mobTickStep() {
 					s.mobMoveStep(e, w)
 				}
 			}
+			// LookAtPlayerGoal + RandomLookAroundGoal run alongside
+			// the move goals — the head re-aims on its own cadence.
+			s.mobLookStep(e)
 		}
 		s.mobSyncFlush(e)
 	}
@@ -2325,22 +2328,55 @@ func (s *Server) mobInSimulationRange(e *Entity) bool {
 }
 
 // mobMoveStep is the gravity + wander half of a mob tick: falling until
-// a solid block is underfoot, then a deterministic wander step that
-// refuses to walk off a ledge. It only mutates entity state — the wire
-// emission is mobSyncFlush's sendChanges selection.
+// a solid block is underfoot, then vanilla's RandomStrollGoal — idle
+// rolls every strollInterval ticks, then walk to a picked target at the
+// movement_speed attribute until arrival, ledge, or give-up. It only
+// mutates entity state — the wire emission is mobSyncFlush's sendChanges
+// selection.
 func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	if !s.mobGrounded(e, w) {
 		return
 	}
 	e.WanderTicks++
-	// Change heading every 40 steps; walk otherwise.
-	if e.WanderTicks%40 == 1 {
-		e.Yaw = mobYawFor(e.ID, e.WanderTicks)
-		e.HeadYaw = e.Yaw
+	if !e.Strolling {
+		// Goal's canUse: interval-tick roll (reducedTickDelay(120) in
+		// vanilla — a ~6s mean idle between strolls).
+		if e.WanderTicks%strollIntervalFor(e.ID) != 0 {
+			s.mobFrictionStep(e)
+			return
+		}
+		// getPosition: DefaultRandomPos.getPos(mob, 10, 7) — a target
+		// within ±10 on x/z.
+		e.Strolling = true
+		e.StrollSteps = 0
+		e.StrollTX = e.X + strollOffset(e.ID, e.WanderTicks)
+		e.StrollTZ = e.Z + strollOffset(e.ID, e.WanderTicks+7)
 	}
-	dx, _, dz := lookVector(e.Yaw, 0)
-	nx := e.X + dx*mobWalkSpeed
-	nz := e.Z + dz*mobWalkSpeed
+	e.StrollSteps++
+	tx, tz := e.StrollTX-e.X, e.StrollTZ-e.Z
+	dist := math.Hypot(tx, tz)
+	// Navigation stops on arrival; a long stall means the path was
+	// unreachable and vanilla gives up on it too.
+	if dist < 0.4 || e.StrollSteps > 160 {
+		e.Strolling = false
+		e.WanderTicks = 0
+		s.mobFrictionStep(e)
+		return
+	}
+	name, _ := EntityTypeName(e.Type)
+	speed, ok := entityAttrBases[name]["movement_speed"]
+	if !ok || speed <= 0 {
+		speed = mobWalkSpeed
+	}
+	step := speed
+	if step > dist {
+		step = dist
+	}
+	e.Yaw = float32(math.Atan2(-tx, tz) * 180 / math.Pi)
+	// The head tracks the walk heading via the look lerp, not a jump.
+	e.LookYaw = e.Yaw
+	nx := e.X + tx/dist*step
+	nz := e.Z + tz/dist*step
 	// RestrictSunGoal: the AbstractSkeleton family latches avoidSun
 	// while daylight is bright and the head slot is bare, and
 	// GroundPathNavigation.trimPath then cuts every path at the first
@@ -2356,8 +2392,11 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 			cur := world.Pos{X: int(math.Floor(e.X)), Y: midY, Z: int(math.Floor(e.Z))}
 			nxt := world.Pos{X: int(math.Floor(nx)), Y: midY, Z: int(math.Floor(nz))}
 			if !s.cropLit(d, cur) && s.cropLit(d, nxt) {
-				e.Yaw += 90
-				e.HeadYaw = e.Yaw
+				// The path is cut — the goal gives up; FleeSunGoal
+				// picks the shade target separately.
+				e.Strolling = false
+				e.WanderTicks = 0
+				s.mobFrictionStep(e)
 				return
 			}
 		}
@@ -2373,12 +2412,100 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 		Z: int(math.Floor(nz)),
 	}
 	if w.GetBlock(nextBelow) == world.Air || w.GetBlock(nextSpace) != world.Air {
-		// Ledge or obstacle: pick a new heading next step.
-		e.Yaw += 90
-		e.HeadYaw = e.Yaw
+		// Ledge or obstacle: the path is unreachable — the goal ends.
+		e.Strolling = false
+		e.WanderTicks = 0
+		s.mobFrictionStep(e)
 		return
 	}
 	e.X, e.Z = nx, nz
+	// travel writes the walking delta every moving tick — the
+	// tracked-delta emit in mobSyncFlush picks it up at sendChanges.
+	e.MotionX, e.MotionZ = tx/dist*step, tz/dist*step
+}
+
+// mobFrictionStep is the idle half of travel's ground friction: the
+// walking delta decays toward zero each non-moving tick.
+func (s *Server) mobFrictionStep(e *Entity) {
+	if e.MotionX == 0 && e.MotionZ == 0 {
+		return
+	}
+	e.MotionX *= 0.8
+	e.MotionZ *= 0.8
+	if math.Abs(e.MotionX) < 0.005 && math.Abs(e.MotionZ) < 0.005 {
+		e.MotionX, e.MotionZ = 0, 0
+	}
+}
+
+// strollIntervalFor is the per-entity stroll cadence: vanilla rolls
+// nextInt(reducedTickDelay(120)) per idle tick — a ~120-tick mean
+// idle — pinned here to a deterministic 100-140 tick cycle so test
+// windows always contain strolls.
+func strollIntervalFor(eid int32) int64 {
+	return 100 + int64((uint32(eid)*2654435761>>16)%41)
+}
+
+// strollOffset is the DefaultRandomPos target component: a ±10 offset
+// derived deterministically from the entity id and wander counter.
+func strollOffset(eid int32, ticks int64) float64 {
+	h := uint64(uint32(eid))*2654435761 ^ uint64(ticks)*6364136223846793005
+	return float64(h%200)/10 - 10
+}
+
+// mobLookStep is RandomLookAroundGoal + LookAtPlayerGoal: each look
+// period a fresh head target is picked — the nearest player within
+// 6 blocks (vanilla's look distance) or a ±90° random offset — and
+// LookControl ticks the head toward it a few degrees a tick, so a
+// turn lands as several rotate_head emits like vanilla's lerp.
+func (s *Server) mobLookStep(e *Entity) {
+	e.WanderTicks2++
+	if e.WanderTicks2%lookPeriodFor(e.ID) == 0 {
+		if px, pz, ok := s.nearestPlayer(e.Dim, e.X, e.Z, 6); ok {
+			e.LookYaw = float32(math.Atan2(-(px-e.X), pz-e.Z) * 180 / math.Pi)
+		} else {
+			h := uint64(uint32(e.ID))*2654435761 ^ uint64(e.WanderTicks2)*2862933555777941757
+			e.LookYaw = e.Yaw + float32(int64(h%180)-90)
+		}
+	}
+	diff := float64(e.LookYaw - e.HeadYaw)
+	for diff > 180 {
+		diff -= 360
+	}
+	for diff < -180 {
+		diff += 360
+	}
+	if math.Abs(diff) < 0.5 {
+		return
+	}
+	step := math.Max(-10, math.Min(10, diff))
+	e.HeadYaw += float32(step)
+}
+
+// lookPeriodFor is the per-entity head-look cadence — vanilla's
+// RandomLookAroundGoal re-rolls every 20-40 ticks.
+func lookPeriodFor(eid int32) int64 {
+	return 20 + int64((uint32(eid)*40503>>16)%20)
+}
+
+// nearestPlayer returns the closest play-state session's x/z within
+// maxDist of (x,z), or false when none is in range.
+func (s *Server) nearestPlayer(dim string, x, z, maxDist float64) (float64, float64, bool) {
+	var bx, bz float64
+	found := false
+	best := maxDist * maxDist
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
+			return true
+		}
+		px, _, pz, _, _, _ := other.Pos()
+		dx, dz := px-x, pz-z
+		if d := dx*dx + dz*dz; d < best {
+			bx, bz, best, found = px, pz, d, true
+		}
+		return true
+	})
+	return bx, bz, found
 }
 
 // mobAlwaysFlies is the airborne set: these types never take

@@ -569,7 +569,9 @@ func TestMobWanderMovesOnGround(t *testing.T) {
 		t.Fatal("summon failed")
 	}
 	startX, startZ := e.X, e.Z
-	for i := 0; i < 60; i++ {
+	// Vanilla's RandomStrollGoal idles ~120 ticks between strolls — run
+	// past this entity's deterministic interval plus walk time.
+	for i := int64(0); i < strollIntervalFor(e.ID)+80; i++ {
 		s.mobTickStep()
 	}
 	if e.X == startX && e.Z == startZ {
