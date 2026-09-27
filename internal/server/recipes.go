@@ -244,6 +244,36 @@ func matchRepair(g craftGrid, filled []bool) (ItemStack, bool) {
 	return ItemStack{ID: a.ID, Count: 1, Damage: dmg, Ench: grindstoneWriteEnch(curses)}, true
 }
 
+// matchImbue handles crafting_imbue (tipped_arrow): the whole 3x3
+// filled — the center slot takes the source ingredient (a lingering
+// potion), the eight ring slots the material (arrows). assemble
+// copies the source's POTION_CONTENTS onto a fresh result template;
+// the source leaves no crafting remainder.
+func matchImbue(r *data.Recipe, g craftGrid, names []string, filled []bool) (ItemStack, bool) {
+	if len(filled) != 9 {
+		return ItemStack{}, false
+	}
+	for _, f := range filled {
+		if !f {
+			return ItemStack{}, false
+		}
+	}
+	if !r.Input.Accepts(names[4]) {
+		return ItemStack{}, false
+	}
+	for i := 0; i < 9; i++ {
+		if i != 4 && !r.Material.Accepts(names[i]) {
+			return ItemStack{}, false
+		}
+	}
+	out, ok := recipeStack(r.Result)
+	if !ok {
+		return ItemStack{}, false
+	}
+	out.Potion = g[4].Potion
+	return out, true
+}
+
 // matchTransmute handles crafting_transmute: exactly two grid items,
 // the input and the material in either order; the result is the input
 // stack retyped to the result item so carried components (a shulker
@@ -529,6 +559,8 @@ func craftResult(g craftGrid, ms *mapStore) (ItemStack, string, bool) {
 			out, hit = matchFireworkRocket(g, filled)
 		case data.CraftingDye:
 			out, hit = matchCraftingDye(r, g, filled)
+		case data.CraftingImbue:
+			out, hit = matchImbue(r, g, names, filled)
 		case data.CraftingTransmute:
 			out, hit = matchTransmute(r, g, filled)
 		case data.CraftingDecoratedPot:

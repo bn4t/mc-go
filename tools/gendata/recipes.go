@@ -116,15 +116,20 @@ func parseRecipe(fileName string, m map[string]any, tags map[string][]string) (r
 		if r.ResultCount == 0 {
 			r.ResultCount = 1
 		}
-	case "crafting_transmute", "crafting_dye":
+	case "crafting_transmute":
 		r.Input = ingredientNames(m["input"], tags)
 		r.Material = ingredientNames(m["material"], tags)
 		if mc := asMap(m["material_count"]); mc != nil {
 			r.MaterialMax = int(asInt(mc["max"], 0))
 			r.MaterialMin = int(asInt(mc["min"], 0))
 		}
+	case "crafting_dye":
+		// The dyeable item is the "target", the dye slot "dye".
+		r.Input = ingredientNames(m["target"], tags)
+		r.Material = ingredientNames(m["dye"], tags)
 	case "crafting_imbue":
-		r.Input = ingredientNames(m["input"], tags)
+		// The potion in the grid center is the "source".
+		r.Input = ingredientNames(m["source"], tags)
 		r.Material = ingredientNames(m["material"], tags)
 	case "smithing_transform", "smithing_trim":
 		r.Template = ingredientNames(m["template"], tags)
