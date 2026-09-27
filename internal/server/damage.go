@@ -122,6 +122,7 @@ var (
 	srcLava    = damageSource{typeName: "lava"}
 	srcDrown   = damageSource{typeName: "drown"}
 	srcInFire  = damageSource{typeName: "in_fire"}
+	srcInWall  = damageSource{typeName: "in_wall"}
 )
 
 // sessInvulnerableTo mirrors vanilla's hurtServer gate: creative and

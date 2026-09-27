@@ -210,6 +210,61 @@ func TestPlayerFluidParity(t *testing.T) {
 			if fire <= 0 {
 				t.Fatalf("%s: creative-in-lava Fire=%d want >0 (ignite is not invuln-gated)", s.label, fire)
 			}
+
+			// in_wall suffocation: Entity.isInWall probes a
+			// width*0.8-by-1e-6 plane at the eye position for a non-air
+			// block that isSuffocating. Stone at eye level hurts one
+			// heart per grace-pacing; leaves — not suffocating — do
+			// nothing. Fire is cleared through the water column first
+			// so the burn can't confound the reads.
+			sendCommand(t, pw, "gamemode survival @s")
+			sendCommand(t, pw, "tp @s 14.5 -61.5 14.5")
+			var eb protocol.Buffer
+			eb.Double(14.7)
+			eb.Double(-61.5)
+			eb.Double(14.5)
+			eb.Byte(1)
+			_ = pw.WritePacket(server.IDPlayMovePosSB, eb.Bytes())
+			sendCommand(t, pw, "effect give @s minecraft:instant_health 10 10 true")
+			sendCommand(t, pw, "fill 26 -60 26 26 -56 26 minecraft:stone")
+			sendCommand(t, pw, "tp @s 26.5 -59.0 26.5")
+			_ = sink.take() // drop earlier traffic
+			sendCommand(t, pw, "tick sprint 25")
+			time.Sleep(400 * time.Millisecond)
+			wallHits := 0
+			for _, line := range sink.take() {
+				if strings.HasPrefix(line, "0x19:") {
+					r := protocol.NewPacketReader([]byte(line[5:]))
+					vid, _ := r.VarInt()
+					ty, _ := r.VarInt()
+					if ty == 22 { // damage_type in_wall
+						wallHits++
+					}
+					_ = vid
+				}
+			}
+			dump = dataGetAll(t, sink, pw, "@s")
+			hp, _ = snbtFloat(t, dump, "Health")
+			t.Logf("%s buried-25: Health=%v wallHits=%d", s.label, hp, wallHits)
+			if wallHits == 0 {
+				t.Fatalf("%s: buried-in-stone saw no in_wall damage events", s.label)
+			}
+			if hp >= 20 {
+				t.Fatalf("%s: buried-in-stone Health=%v want <20", s.label, hp)
+			}
+
+			// Leaves cover the eye cell but are not suffocating.
+			sendCommand(t, pw, "effect give @s minecraft:instant_health 10 10 true")
+			sendCommand(t, pw, "fill 28 -60 28 28 -56 28 minecraft:oak_leaves")
+			sendCommand(t, pw, "tp @s 28.5 -59.0 28.5")
+			_ = sink.take()
+			sendCommand(t, pw, "tick sprint 25")
+			time.Sleep(400 * time.Millisecond)
+			dump = dataGetAll(t, sink, pw, "@s")
+			hp2, _ = snbtFloat(t, dump, "Health")
+			if hp2 < 19.5 {
+				t.Fatalf("%s: in-leaves Health=%v want ~20 (healed); leaves are not suffocating", s.label, hp2)
+			}
 			sendCommand(t, pw, "tp @s 30.5 -50.3 30.5")
 		})
 	}

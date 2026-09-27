@@ -1452,11 +1452,42 @@ func (s *Server) playerFluidTickStep() {
 		// The invulnerability window paces the hits; each accepted move
 		// packet scans once more on its own.
 		s.playerInsideBlocks(sess)
+		// LivingEntity.baseTick's suffocation arm: isInWall scans the
+		// eye plane (a width*0.8 box one microblock tall, centered on
+		// the eye position) for a non-air block that isSuffocating —
+		// opaque full cubes only, slabs/leaves/glass don't count.
+		if s.playerInWall(sess, d, x, y, z, eye) {
+			s.damageWith(sess, 1, translatable("death.attack.inWall",
+				playerChatComponent(sess)), srcInWall)
+		}
 		// updateFluidInteraction — the LAVA tracker — is tick-driven
 		// like the air pass; it feeds the fire pass's in-lava skip.
 		sess.inLava = sessInFluidCell(sess, d, x, y, z, "lava", "lava_cauldron")
 		return true
 	})
+}
+
+// playerInWall mirrors Entity.isInWall: the probe is a plane centered
+// on the eye position, width*0.8 = 0.48 across (0.6*0.8) and 1e-6
+// tall, so a full-cube opaque block covering the eye cell suffocates.
+func (s *Server) playerInWall(sess *Session, d *dimension, x, y, z, eye float64) bool {
+	if d == nil {
+		return false
+	}
+	const half = 0.24 // width 0.6 * 0.8 / 2
+	ey := int(math.Floor(y + eye))
+	for bx := int(math.Floor(x - half)); bx <= int(math.Floor(x+half)); bx++ {
+		for bz := int(math.Floor(z - half)); bz <= int(math.Floor(z+half)); bz++ {
+			b := d.w.GetBlock(world.Pos{X: bx, Y: ey, Z: bz})
+			if b == world.Air {
+				continue
+			}
+			if name, ok := world.StateOwner(b); ok && suffocatingBlocks[strings.TrimPrefix(name, "minecraft:")] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // sessInFluidCell reports whether any cell of the player's inside
