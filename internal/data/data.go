@@ -15,35 +15,39 @@ import (
 )
 
 // ItemStack is one item id plus a count, mirroring the wire stack.
+// StewEffects carries the result's suspicious_stew_effects component
+// ("name:dur,..." in list order) — the only result.components the 26.2
+// data pack defines lives on the suspicious_stew recipes.
 type ItemStack struct {
-	Item  string
-	Count int32
+	Item        string
+	Count       int32
+	StewEffects string
 }
 
 // Recipe type constants. The values match the data pack's "type"
 // discriminator with the minecraft: prefix dropped.
 const (
-	CraftingShaped                = "crafting_shaped"
-	CraftingShapeless             = "crafting_shapeless"
-	CraftingTransmute             = "crafting_transmute"
-	CraftingDye                   = "crafting_dye"
-	CraftingImbue                 = "crafting_imbue"
-	CraftingDecoratedPot          = "crafting_decorated_pot"
-	CraftingSpecialBannerduplicate = "crafting_special_bannerduplicate"
+	CraftingShaped                  = "crafting_shaped"
+	CraftingShapeless               = "crafting_shapeless"
+	CraftingTransmute               = "crafting_transmute"
+	CraftingDye                     = "crafting_dye"
+	CraftingImbue                   = "crafting_imbue"
+	CraftingDecoratedPot            = "crafting_decorated_pot"
+	CraftingSpecialBannerduplicate  = "crafting_special_bannerduplicate"
 	CraftingSpecialShielddecoration = "crafting_special_shielddecoration"
-	CraftingSpecialRepairitem     = "crafting_special_repairitem"
-	CraftingSpecialMapextending   = "crafting_special_mapextending"
+	CraftingSpecialRepairitem       = "crafting_special_repairitem"
+	CraftingSpecialMapextending     = "crafting_special_mapextending"
 	CraftingSpecialFireworkStarFade = "crafting_special_firework_star_fade"
-	CraftingSpecialFireworkStar   = "crafting_special_firework_star"
-	CraftingSpecialFireworkRocket = "crafting_special_firework_rocket"
-	CraftingSpecialBookcloning    = "crafting_special_bookcloning"
-	Smelting                      = "smelting"
-	Blasting                      = "blasting"
-	Smoking                       = "smoking"
-	CampfireCooking               = "campfire_cooking"
-	Stonecutting                  = "stonecutting"
-	SmithingTransform             = "smithing_transform"
-	SmithingTrim                  = "smithing_trim"
+	CraftingSpecialFireworkStar     = "crafting_special_firework_star"
+	CraftingSpecialFireworkRocket   = "crafting_special_firework_rocket"
+	CraftingSpecialBookcloning      = "crafting_special_bookcloning"
+	Smelting                        = "smelting"
+	Blasting                        = "blasting"
+	Smoking                         = "smoking"
+	CampfireCooking                 = "campfire_cooking"
+	Stonecutting                    = "stonecutting"
+	SmithingTransform               = "smithing_transform"
+	SmithingTrim                    = "smithing_trim"
 )
 
 // Ingredient is one recipe input. Items is the flattened membership
@@ -80,16 +84,16 @@ type Recipe struct {
 	Type        string
 	Group       string
 	Category    string
-	Pattern     []string             // shaped: one string per row
-	Key         map[byte]Ingredient  // shaped: rune -> ingredient
-	Ingredients []Ingredient         // shapeless, cooking, stonecutting inputs
-	Input       Ingredient           // transmute/dye/imbue base item
-	Material    Ingredient           // transmute/dye/imbue applied item
-	MaterialMax int                  // transmute: material_count.max (0 = single)
-	MaterialMin int                  // transmute: material_count.min
-	Template    Ingredient           // smithing template
-	Base        Ingredient           // smithing base
-	Addition    Ingredient           // smithing addition
+	Pattern     []string            // shaped: one string per row
+	Key         map[byte]Ingredient // shaped: rune -> ingredient
+	Ingredients []Ingredient        // shapeless, cooking, stonecutting inputs
+	Input       Ingredient          // transmute/dye/imbue base item
+	Material    Ingredient          // transmute/dye/imbue applied item
+	MaterialMax int                 // transmute: material_count.max (0 = single)
+	MaterialMin int                 // transmute: material_count.min
+	Template    Ingredient          // smithing template
+	Base        Ingredient          // smithing base
+	Addition    Ingredient          // smithing addition
 	Result      ItemStack
 	CookingTime int
 	Experience  float64

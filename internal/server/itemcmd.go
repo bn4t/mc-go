@@ -1225,6 +1225,8 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.Dye = 0
 			case "dyed_color":
 				it.DyedColor = 0
+			case "suspicious_stew_effects":
+				it.StewEffects = ""
 			default:
 				return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
 			}
@@ -1519,6 +1521,37 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 			default:
 				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
+		case "suspicious_stew_effects":
+			// [{id:"effect",duration:N},...] — a list of compounds,
+			// joined "name:dur,...".
+			if vtag.kind != snbtList {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			var parts []string
+			bad := false
+			for _, e := range vtag.items {
+				if e.kind != snbtCompound {
+					bad = true
+					break
+				}
+				idv, ok1 := e.vals["id"]
+				dv, ok2 := e.vals["duration"]
+				if !ok1 || !ok2 || idv.kind != snbtString || dv.kind != snbtNumber {
+					bad = true
+					break
+				}
+				dur, err := strconv.ParseInt(strings.TrimRight(dv.num, "bBsSiIlLfFdD"), 10, 64)
+				if err != nil {
+					bad = true
+					break
+				}
+				parts = append(parts, strings.TrimPrefix(idv.str, "minecraft:")+":"+strconv.FormatInt(dur, 10))
+			}
+			if bad {
+				return ItemStack{}, errToken("arguments.item.component.malformed", tokNum,
+					"minecraft:suspicious_stew_effects", val), false
+			}
+			it.StewEffects = strings.Join(parts, ",")
 		case "writable_book_content", "written_book_content":
 			// A malformed record fails the way vanilla's codec error
 			// does: Malformed '<component>' component: '<value>'.

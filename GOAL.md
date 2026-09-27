@@ -8754,3 +8754,8 @@ Measured on the 26.2 jar (ImbueRecipe bytecode): matches wants width==3 && heigh
 Also fixed a generator gap: gendata read `input`/`material` for crafting_dye and crafting_imbue while the data pack spells them `target`/`dye` and `source`/`material` — the generated rows carried empty ingredient lists. Regenerated: dye recipes now carry their target+dyes, tipped_arrow its source+arrows.
 mc-go: `matchImbue` in `internal/server/recipes.go` — all nine filled, center `r.Input`, ring `r.Material`, fresh result template with the source stack's `Potion` field copied.
 `TestCraftRecipeParity` gains three differential cases vs BOTH servers: a harming-lingering imbuement (result carries [p"harming"] via stackKey's existing bracket), an eight-slots-only refusal, and a splash-potion-center refusal.
+
+## Slice 2026-09-27l — result.components (suspicious_stew_effects, comp 53)
+The 26.2 data pack's only `result.components` payloads live on the seventeen suspicious_stew_from_<flower> recipes: `{suspicious_stew_effects: [{id, duration}]}`. SuspiciousStewEffects' STREAM_CODEC (javap-verified) is a VarInt entry count then (MobEffect holder id, duration VarInt) pairs.
+mc-go: `ItemStack.StewEffects` ("name:dur,..." in list order), comp-53 emit+read, `!`/`=` give support, `data.ItemStack.StewEffects` threaded through `recipeStack`. The generator now reads `result.components` (it previously dropped it entirely — the regenerated rows carry e.g. `saturation:7` for dandelion, `wither:140` for wither_rose).
+`TestCraftRecipeParity` gains two differential cases (dandelion→saturation:7, wither_rose→wither:140) — caught a real first-run bug: the emit wrote the component but `writeSlotPatch`'s patch count forgot to include it, so the slot shipped bare.

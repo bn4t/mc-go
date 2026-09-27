@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -24,6 +25,7 @@ type recipeOut struct {
 	Ingredients []ingredient          // shapeless / cooking / stonecutting inputs
 	ResultName  string
 	ResultCount int
+	StewEffects string
 	MaterialMax int
 	MaterialMin int
 	HideNotify  bool
@@ -92,6 +94,18 @@ func parseRecipe(fileName string, m map[string]any, tags map[string][]string) (r
 	res := asMap(m["result"])
 	r.ResultName = name(asString(res["id"]))
 	r.ResultCount = int(asInt(res["count"], 1))
+	if comps := asMap(res["components"]); comps != nil {
+		// The only result.components the 26.2 pack emits is
+		// suspicious_stew_effects on the stew recipes: a list of
+		// {id, duration} entries joined "name:dur,...".
+		var parts []string
+		for _, e := range asList(comps["minecraft:suspicious_stew_effects"]) {
+			em := asMap(e)
+			parts = append(parts, name(asString(em["id"]))+":"+
+				strconv.Itoa(int(asInt(em["duration"], 160))))
+		}
+		r.StewEffects = strings.Join(parts, ",")
+	}
 	r.CookingTime = int(asInt(m["cookingtime"], 0))
 	if sn, ok := m["show_notification"].(bool); ok && !sn {
 		r.HideNotify = true
@@ -294,7 +308,12 @@ func writeRecipe(b *strings.Builder, r recipeOut) {
 	if r.HideNotify {
 		fmt.Fprintf(b, "HideNotification: true, ")
 	}
-	fmt.Fprintf(b, "Result: ItemStack{Item: %s, Count: %d}", gostr(r.ResultName), r.ResultCount)
+	result := fmt.Sprintf("ItemStack{Item: %s, Count: %d", gostr(r.ResultName), r.ResultCount)
+	if r.StewEffects != "" {
+		result += fmt.Sprintf(", StewEffects: %s", gostr(r.StewEffects))
+	}
+	result += "}"
+	fmt.Fprintf(b, "Result: %s", result)
 	if r.CookingTime != 0 {
 		fmt.Fprintf(b, ", CookingTime: %d", r.CookingTime)
 	}

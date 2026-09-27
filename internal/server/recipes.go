@@ -69,7 +69,7 @@ func recipeStack(out data.ItemStack) (ItemStack, bool) {
 	if !ok {
 		return ItemStack{}, false
 	}
-	return ItemStack{ID: id, Count: out.Count}, true
+	return ItemStack{ID: id, Count: out.Count, StewEffects: out.StewEffects}, true
 }
 
 // matchShapelessRecipe reports whether the grid's contents are exactly

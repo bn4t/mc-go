@@ -35,7 +35,8 @@ func TestCraftRecipeParity(t *testing.T) {
 			"CraftV41", "CraftM41", "CraftV42", "CraftM42",
 			"CraftV43", "CraftM43", "CraftV44", "CraftM44",
 			"CraftV45", "CraftM45", "CraftV46", "CraftM46",
-			"CraftV47", "CraftM47"),
+			"CraftV47", "CraftM47", "CraftV48", "CraftM48",
+			"CraftV49", "CraftM49"),
 	}, nil)
 	defer tg.cleanup()
 
@@ -976,6 +977,51 @@ func TestCraftRecipeParity(t *testing.T) {
 				{tag: "lift-h", slot: 45},
 				{tag: "h9", slot: 9},
 				{tag: "take?", slot: 0},
+			},
+		},
+		{
+			// A stew flower on the right recipe: the result carries
+			// suspicious_stew_effects decoded from result.components.
+			name: "stew-dandelion", suf: "48", block: "minecraft:crafting_table", menu: 12,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:bowl"},
+				{"hotbar.1", "minecraft:brown_mushroom"},
+				{"hotbar.2", "minecraft:red_mushroom"},
+				{"hotbar.3", "minecraft:dandelion"},
+			},
+			steps: []step{
+				{tag: "lift-b", slot: 37},
+				{tag: "b1", slot: 1},
+				{tag: "lift-m", slot: 38},
+				{tag: "m2", slot: 2},
+				{tag: "lift-r", slot: 39},
+				{tag: "r3", slot: 3},
+				{tag: "lift-d", slot: 40},
+				{tag: "d4", slot: 4},
+				{tag: "take", slot: 0},
+				{tag: "park", slot: 10},
+			},
+		},
+		{
+			// A different flower -> a different stew effect id.
+			name: "stew-wither", suf: "49", block: "minecraft:crafting_table", menu: 12,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:bowl"},
+				{"hotbar.1", "minecraft:brown_mushroom"},
+				{"hotbar.2", "minecraft:red_mushroom"},
+				{"hotbar.3", "minecraft:wither_rose"},
+			},
+			steps: []step{
+				{tag: "lift-b", slot: 37},
+				{tag: "b1", slot: 1},
+				{tag: "lift-m", slot: 38},
+				{tag: "m2", slot: 2},
+				{tag: "lift-r", slot: 39},
+				{tag: "r3", slot: 3},
+				{tag: "lift-w", slot: 40},
+				{tag: "w4", slot: 4},
+				{tag: "take", slot: 0},
+				{tag: "park", slot: 10},
 			},
 		},
 	}

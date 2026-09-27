@@ -48,6 +48,9 @@ func stackKey(it server.ItemStack) string {
 	if it.Potion != "" {
 		key += fmt.Sprintf("[p%s]", it.Potion)
 	}
+	if it.StewEffects != "" {
+		key += fmt.Sprintf("[stw%s]", it.StewEffects)
+	}
 	if it.StoredEnch != "" {
 		key += fmt.Sprintf("[se%s]", it.StoredEnch)
 	}

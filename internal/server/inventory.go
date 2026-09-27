@@ -78,6 +78,9 @@ type ItemStack struct {
 	// custom-name fields are not modeled — brewed potions never set
 	// them.
 	Potion string `json:"potion,omitempty"`
+	// StewEffects is the minecraft:suspicious_stew_effects component:
+	// "name:dur,..." in list order. Empty means the component is absent.
+	StewEffects string `json:"stew_effects,omitempty"`
 	// Ominous marks the raid-captain ominous banner: a white_banner
 	// carrying getBannerComponentPatch — banner_patterns (8 layers),
 	// tooltip_display hiding them, item_name block.minecraft.ominous_banner,
@@ -156,7 +159,8 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.Name == other.Name && it.Ench == other.Ench &&
 		it.StoredEnch == other.StoredEnch && it.Bees == other.Bees &&
 		it.BlockState == other.BlockState &&
-		it.Potion == other.Potion && it.Ominous == other.Ominous &&
+		it.Potion == other.Potion && it.StewEffects == other.StewEffects &&
+		it.Ominous == other.Ominous &&
 		it.BannerPatterns == other.BannerPatterns &&
 		it.BottleAmpSet == other.BottleAmpSet && it.BottleAmp == other.BottleAmp &&
 		it.LootTable == other.LootTable && it.LootSeed == other.LootSeed &&
@@ -233,6 +237,7 @@ const (
 	// bytes — custom color, custom effects list (VarInt 0), custom
 	// name.
 	compPotionContents = 51
+	compStewEffects    = 53
 	// The ominous-banner patch components: banner_patterns carries a
 	// layer list of (pattern holder, dye ordinal) pairs; tooltip_display
 	// is a hide bool plus a HolderSet of hidden component types;
@@ -319,6 +324,9 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		add++
 	}
 	if it.Potion != "" {
+		add++
+	}
+	if it.StewEffects != "" {
 		add++
 	}
 	if it.Ominous {
@@ -416,6 +424,20 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 			b.Byte(0)   // custom_color absent
 			b.VarInt(0) // custom_effects empty
 			b.Byte(0)   // custom_name absent
+		}
+	}
+	if it.StewEffects != "" {
+		// SuspiciousStewEffects STREAM_CODEC: VarInt count, then
+		// (MobEffect holder id, duration VarInt) pairs.
+		parts := strings.Split(it.StewEffects, ",")
+		b.VarInt(compStewEffects)
+		b.VarInt(int32(len(parts)))
+		for _, p := range parts {
+			n, dur, _ := strings.Cut(p, ":")
+			eid, _ := MobEffectID(n)
+			b.VarInt(eid)
+			d, _ := strconv.Atoi(dur)
+			b.VarInt(int32(d))
 		}
 	}
 	if it.RepairCost != 0 {
@@ -829,6 +851,28 @@ func readSlotComponent(r *protocol.PacketReader, it *ItemStack, typ int32) error
 				return err
 			}
 		}
+	case compStewEffects: // minecraft:suspicious_stew_effects
+		n, err := r.VarInt()
+		if err != nil {
+			return err
+		}
+		var parts []string
+		for ; n > 0; n-- {
+			eid, err := r.VarInt()
+			if err != nil {
+				return err
+			}
+			dur, err := r.VarInt()
+			if err != nil {
+				return err
+			}
+			name, ok := MobEffectName(eid)
+			if !ok {
+				name = strconv.Itoa(int(eid))
+			}
+			parts = append(parts, name+":"+strconv.Itoa(int(dur)))
+		}
+		it.StewEffects = strings.Join(parts, ",")
 	case compRepairCost: // minecraft:repair_cost, VarInt payload
 		if it.RepairCost, err = r.VarInt(); err != nil {
 			return err

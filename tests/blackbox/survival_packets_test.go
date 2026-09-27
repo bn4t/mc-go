@@ -2110,6 +2110,25 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 			if _, terr := r.Byte(); terr != nil { // custom_name
 				return server.ItemStack{}, 0, false, nil, terr
 			}
+		case 53: // minecraft:suspicious_stew_effects: VarInt count, then
+			// (effect holder id, duration) VarInt pairs.
+			n, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			var parts []string
+			for ; n > 0; n-- {
+				eid, err := r.VarInt()
+				if err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				dur, err := r.VarInt()
+				if err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				parts = append(parts, fmt.Sprintf("e%d:%d", eid, dur))
+			}
+			it.StewEffects = strings.Join(parts, ",")
 		case 13, 42: // minecraft:enchantments / stored_enchantments: VarInt map of enchant id to level (measured 26.2)
 			n, err := r.VarInt()
 			if err != nil {
