@@ -1466,10 +1466,23 @@ func (s *Server) playerFluidTickStep() {
 		// entity takes the freeze damage every forty ticks. The player
 		// type isn't freeze-immune — the hurt itself is mode-gated
 		// inside damageWith.
-		if pe, ok := s.entities.GetPtr(sess.entityID.Load()); ok &&
-			pe.TicksFrozen >= 140 && pe.SyncCount%40 == 0 {
-			s.damageWith(sess, 1, translatable("death.attack.frozen",
-				playerChatComponent(sess)), srcFreeze)
+		if pe, ok := s.entities.GetPtr(sess.entityID.Load()); ok {
+			if pe.TicksFrozen >= 140 && pe.SyncCount%40 == 0 {
+				s.damageWith(sess, 1, translatable("death.attack.frozen",
+					playerChatComponent(sess)), srcFreeze)
+			}
+			// LivingEntity.baseTick's frost pass: the record's
+			// MOVEMENT_SPEED gains -0.05*percentFrozen while frozen on
+			// a non-air on-block; a change syncs to the client via
+			// update_attributes.
+			s.frostPass(pe, d.w)
+			pm := pe.AttrMods["movement_speed"]
+			mod, has := pm["minecraft:powder_snow"]
+			if has != sess.frostActive || (has && mod.value != sess.frostSent) {
+				_ = sess.write(sess.ids().PlayUpdateAttributes,
+					updateAttributesSpeed(pe.ID, pm))
+				sess.frostActive, sess.frostSent = has, mod.value
+			}
 		}
 		// updateFluidInteraction — the LAVA tracker — is tick-driven
 		// like the air pass; it feeds the fire pass's in-lava skip.

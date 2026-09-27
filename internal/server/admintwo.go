@@ -12,8 +12,13 @@ import (
 
 // attrMod is one /attribute modifier instance: amount plus operation.
 type attrMod struct {
-	value float64
-	op    int // 0 add_value, 1 add_multiplied_base, 2 add_multiplied_total
+	value     float64
+	op        int // 0 add_value, 1 add_multiplied_base, 2 add_multiplied_total
+	// permanent mirrors vanilla's permanentModifiers map — only
+	// permanent modifiers serialize into the attributes save list;
+	// transient ones (powder_snow frost, drinking) still reach the
+	// wire and the effective value.
+	permanent bool
 }
 
 // playerAttrBases is vanilla's player attribute supplier —
@@ -562,7 +567,7 @@ func (s *Server) runAttribute(player string, args []string) reply {
 				return componentReply(commandError("commands.attribute.failed.modifier_already_present",
 					nestedCompound{key: "", value: id}, attrComp, nameArg))
 			}
-			mods[id] = attrMod{value: v, op: op}
+			mods[id] = attrMod{value: v, op: op, permanent: true}
 			e.markAttrDirty(short)
 			return opsEchoReply(translatable("commands.attribute.modifier.add.success",
 				nestedCompound{key: "", value: id}, attrComp, nameArg))

@@ -277,6 +277,7 @@ func TestPlayerFluidParity(t *testing.T) {
 			sendCommand(t, pw, "tick sprint 170")
 			time.Sleep(500 * time.Millisecond)
 			freezeHits := 0
+			frostWire := false
 			for _, line := range sink.take() {
 				if strings.HasPrefix(line, "0x19:") {
 					r := protocol.NewPacketReader([]byte(line[5:]))
@@ -286,6 +287,14 @@ func TestPlayerFluidParity(t *testing.T) {
 						freezeHits++
 					}
 					_ = vid
+				}
+				// LivingEntity.baseTick's tryAddFrost: while frozen the
+				// server emits update_attributes carrying the transient
+				// minecraft:powder_snow MOVEMENT_SPEED modifier (-0.05 *
+				// percentFrozen). It is transient — absent from the save
+				// — so the wire emit is the observable pin.
+				if strings.HasPrefix(line, "0x83:") && strings.Contains(line, "minecraft:powder_snow") {
+					frostWire = true
 				}
 			}
 			dump = dataGetAll(t, sink, pw, "@s")
@@ -297,6 +306,9 @@ func TestPlayerFluidParity(t *testing.T) {
 			}
 			if hp >= 20 {
 				t.Fatalf("%s: powder-snow Health=%v want <20", s.label, hp)
+			}
+			if !frostWire {
+				t.Fatalf("%s: frozen player saw no update_attributes with the powder_snow modifier", s.label)
 			}
 			sendCommand(t, pw, "tp @s 30.5 -50.3 30.5")
 		})

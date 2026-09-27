@@ -249,6 +249,12 @@ type Session struct {
 	// in a water cell, refills by four anywhere else; reaching -20
 	// resets it to zero with the drown-particle event and 2 damage.
 	airSupply int32
+	// frostActive/frostSent track the last update_attributes the
+	// session was sent for the powder_snow MOVEMENT_SPEED modifier:
+	// the packet emits only when the modifier appears, changes
+	// amount, or disappears.
+	frostActive bool
+	frostSent   float64
 	// inLava is vanilla's fluid-interaction LAVA tracker on the
 	// player: the inside-block scan sets it each player tick and the
 	// fire pass reads it — while in lava the on_fire tick is skipped

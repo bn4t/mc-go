@@ -180,9 +180,13 @@ func mobAttrPack(e *Entity, name string) []any {
 			"base": base,
 		}
 		if mods := e.AttrMods[a]; len(mods) > 0 {
+			// The save pack serializes the permanent modifier set
+			// only — transient mods (frost, drinking) never appear.
 			ids := make([]string, 0, len(mods))
-			for id := range mods {
-				ids = append(ids, id)
+			for id, m := range mods {
+				if m.permanent {
+					ids = append(ids, id)
+				}
 			}
 			sort.Strings(ids)
 			var list []any
@@ -198,9 +202,92 @@ func mobAttrPack(e *Entity, name string) []any {
 					"operation": op,
 				})
 			}
-			ent["modifiers"] = nbt.List{Elem: nbt.TagCompound, Items: list}
+			if len(list) > 0 {
+				ent["modifiers"] = nbt.List{Elem: nbt.TagCompound, Items: list}
+			}
 		}
 		items = append(items, ent)
+	}
+	return items
+}
+
+// playerAttrPack is the player save's attributes list, measured on
+// 26.2: the attribute map instantiates lazily — a ticked player ends
+// up with exactly these five instances (the tick code's getAttribute
+// queries), each serialized with base plus the PERMANENT modifier
+// set. Attributes touched through /attribute or the entity record
+// join the instantiated set.
+var playerInstantiatedAttrs = []string{
+	"block_interaction_range",
+	"entity_interaction_range",
+	"movement_speed",
+	"oxygen_bonus",
+	"waypoint_transmit_range",
+}
+
+func playerAttrPack(sess *Session, ents *Manager) nbt.List {
+	items := nbt.List{Elem: nbt.TagCompound}
+	seen := map[string]bool{}
+	for _, a := range playerInstantiatedAttrs {
+		seen[a] = true
+	}
+	var e *Entity
+	if ents != nil {
+		if eid := sess.entityID.Load(); eid != 0 {
+			if ent, ok := ents.GetPtr(eid); ok {
+				e = ent
+			}
+		}
+	}
+	if e != nil {
+		for a := range e.AttrTouched {
+			seen[a] = true
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for a := range seen {
+		names = append(names, a)
+	}
+	sort.Strings(names)
+	for _, a := range names {
+		base := float64(playerAttrBases[a])
+		if e != nil {
+			if v, has := e.AttrBase[a]; has {
+				base = v
+			}
+		}
+		ent := map[string]any{
+			"id":   "minecraft:" + a,
+			"base": base,
+		}
+		if e != nil {
+			if mods := e.AttrMods[a]; len(mods) > 0 {
+				ids := make([]string, 0, len(mods))
+				for id, m := range mods {
+					if m.permanent {
+						ids = append(ids, id)
+					}
+				}
+				sort.Strings(ids)
+				var list []any
+				for _, id := range ids {
+					m := mods[id]
+					op := "add_value"
+					if m.op >= 0 && m.op < len(attrOpNames) {
+						op = attrOpNames[m.op]
+					}
+					list = append(list, map[string]any{
+						"amount":    m.value,
+						"id":        id,
+						"operation": op,
+					})
+				}
+				if len(list) > 0 {
+					ent["modifiers"] = nbt.List{Elem: nbt.TagCompound, Items: list}
+				}
+			}
+		}
+		items.Items = append(items.Items, ent)
 	}
 	return items
 }
@@ -255,7 +342,7 @@ func applyPackedAttrs(e *Entity, v any) {
 							op = i
 						}
 					}
-					mods[mid] = attrMod{value: amt, op: op}
+					mods[mid] = attrMod{value: amt, op: op, permanent: true}
 				}
 			}
 			e.AttrMods[short] = mods

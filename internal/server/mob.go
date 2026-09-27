@@ -2508,6 +2508,11 @@ func (s *Server) mobTickStep() {
 			}
 			s.damageMob(e, dmg, "freeze", nil, &damageInfo{typeName: "freeze"})
 		}
+		// LivingEntity.baseTick's frost pass: removeFrost drops the
+		// modifier unconditionally, then tryAddFrost re-adds it while
+		// the entity is frozen and its on-block is non-air — the
+		// -0.05*getPercentFrozen ADD_VALUE on MOVEMENT_SPEED.
+		s.frostPass(e, s.dimWorld(e.Dim))
 		// LivingEntity.baseTick's air block: an eye-level water cell
 		// (a bubble column counts as out-of-water here) drains
 		// airSupply one per tick while the mob can't breathe under
@@ -4232,7 +4237,7 @@ func (s *Server) witchDrinkStep(e *Entity, d *dimension) {
 		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 1777, mobVoiceOf(e).src(), 1,
 			float32(0.8+rand.Float64()*0.4), nil)
 	}
-	s.mobAttrModAdd(e, "movement_speed", "minecraft:drinking", -0.25, 0)
+	s.mobAttrModAddTransient(e, "movement_speed", "minecraft:drinking", -0.25, 0)
 }
 
 // witchApplyPotion applies the finished potion's contents the way
@@ -4514,7 +4519,23 @@ func (s *Server) mobHasEff(e *Entity, name string) bool {
 
 // mobAttrModAdd/Remove mirror AttributeInstance's modifier set on the
 // entity's pack state; the wire resend rides the next attr sync.
+// Adds land in the permanent set — spawn bonuses and /attribute
+// writes; transient effects use mobAttrModAddTransient.
 func (s *Server) mobAttrModAdd(e *Entity, attr, id string, value float64, op int) {
+	e.markAttrDirty(attr)
+	if e.AttrMods == nil {
+		e.AttrMods = map[string]map[string]attrMod{}
+	}
+	if e.AttrMods[attr] == nil {
+		e.AttrMods[attr] = map[string]attrMod{}
+	}
+	e.AttrMods[attr][id] = attrMod{value: value, op: op, permanent: true}
+}
+
+// mobAttrModAddTransient is AttributeInstance.addTransientModifier:
+// the modifier affects the value and syncs to clients but is absent
+// from the save pack.
+func (s *Server) mobAttrModAddTransient(e *Entity, attr, id string, value float64, op int) {
 	e.markAttrDirty(attr)
 	if e.AttrMods == nil {
 		e.AttrMods = map[string]map[string]attrMod{}
@@ -4529,8 +4550,30 @@ func (s *Server) mobAttrModRemove(e *Entity, attr, id string) {
 	if e.AttrMods == nil {
 		return
 	}
-	delete(e.AttrMods[attr], id)
+	mods := e.AttrMods[attr]
+	if _, ok := mods[id]; !ok {
+		return
+	}
+	delete(mods, id)
 	e.markAttrDirty(attr)
+}
+
+// frostPass is LivingEntity.baseTick's removeFrost+tryAddFrost pair:
+// the powder_snow MOVEMENT_SPEED modifier drops unconditionally, then
+// re-adds as -0.05*getPercentFrozen ADD_VALUE while the entity is
+// frozen and its on-block is non-air.
+func (s *Server) frostPass(e *Entity, w *world.World) {
+	s.mobAttrModRemove(e, "movement_speed", "minecraft:powder_snow")
+	if e.TicksFrozen <= 0 || w == nil {
+		return
+	}
+	on := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y - 0.2)), Z: int(math.Floor(e.Z))}
+	bn, ok := world.StateOwner(w.GetBlock(on))
+	if !ok || bn == "minecraft:air" || bn == "minecraft:cave_air" || bn == "minecraft:void_air" {
+		return
+	}
+	pct := math.Min(float64(e.TicksFrozen), 140) / 140
+	s.mobAttrModAddTransient(e, "movement_speed", "minecraft:powder_snow", -0.05*pct, 0)
 }
 
 // mobConvert is Mob.convertTo with ConversionParams.single(mob, true,

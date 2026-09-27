@@ -1,6 +1,8 @@
 package server
 
 import (
+	"sort"
+
 	"mc-go/internal/protocol"
 )
 
@@ -112,6 +114,28 @@ func updateAttributesMode(eid int32, mode byte) []byte {
 		writeAttrEntry(&b, attrEntityInteractionRange, 3.0)
 		writeAttrEntry(&b, attrBlockInteractionRange, 4.5)
 	}
+	return b.Bytes()
+}
+
+// updateAttributesSpeed rebuilds the movement-speed entry alone —
+// vanilla emits update_attributes whenever a live modifier flips:
+// the powder_snow frost modifier appears, slides with percentFrozen,
+// and disappears as the entity freezes and thaws.
+func updateAttributesSpeed(eid int32, mods map[string]attrMod) []byte {
+	var b protocol.Buffer
+	b.VarInt(eid)
+	b.VarInt(1)
+	ids := make([]string, 0, len(mods))
+	for id := range mods {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	ams := make([]attrModifier, 0, len(ids))
+	for _, id := range ids {
+		m := mods[id]
+		ams = append(ams, attrModifier{id, m.value, int32(m.op)})
+	}
+	writeAttrEntry(&b, attrMovementSpeed, float64(float32(0.1)), ams...)
 	return b.Bytes()
 }
 

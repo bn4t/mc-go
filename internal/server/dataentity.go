@@ -1318,6 +1318,10 @@ func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 			}
 		}
 	}
+	// Player.save serializes every instantiated attribute — the full
+	// supplier set — with base overrides and transient modifiers
+	// folded in from the record (powder_snow frost, /attribute sets).
+	m["attributes"] = playerAttrPack(sess, ents)
 	// Equipment: the vanilla save compound carries the worn slots by
 	// name — mainhand excepted, it serializes as SelectedItem — with
 	// empty slots left out.
