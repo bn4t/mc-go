@@ -1483,6 +1483,15 @@ func (s *Server) playerFluidTickStep() {
 					updateAttributesSpeed(pe.ID, pm))
 				sess.frostActive, sess.frostSent = has, mod.value
 			}
+			// ServerEntity.sendChanges' hurtMarked tail on the player
+			// record: a landed hurt flushes the entity's delta
+			// self-inclusively — vanilla's
+			// sendToTrackingPlayersAndSelf reaches the victim's own
+			// connection, drift gate bypassed.
+			if pe.HurtMarked {
+				pe.HurtMarked = false
+				s.broadcastEntityMotion(pe.Dim, pe.ID, pe.MotionX, pe.MotionY, pe.MotionZ)
+			}
 		}
 		// updateFluidInteraction — the LAVA tracker — is tick-driven
 		// like the air pass; it feeds the fire pass's in-lava skip.

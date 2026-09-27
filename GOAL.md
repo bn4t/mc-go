@@ -8992,3 +8992,30 @@ Measured on the 26.2 jar (`LivingEntity.baseTick` → `removeFrost`/`tryAddFrost
 mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient set): `mobAttrModAdd` stays permanent (spawn bonuses, /attribute writes, applyPackedAttrs loads), new `mobAttrModAddTransient` carries drinking and powder_snow frost; `mobAttrPack` now serializes permanent-only; `playerAttrPack` emits the measured instantiated-five plus any touched attribute, permanent modifiers only. `frostPass` runs the removeFrost/tryAddFrost pair per tick for living records (mobTickStep freeze block) and for the session player inside playerFluidTickStep — where a wire flip emits `update_attributes` id-26 with the current modifier set (one packet per change, matching vanilla's dirty-per-tick cadence while percentFrozen slides).
 
 `TestPlayerFluidParity` powder phase now also scans the sprint window's clientbound stream for a 0x83 update_attributes packet carrying `minecraft:powder_snow` — both legs emit it (the save-side pin is impossible: transient mods never serialize). Green vs vanilla and mc-go.
+
+## Slice 2026-09-27as — hurtMarked: unconditional hurt motion emit
+
+- **Measured (jar)**: `LivingEntity.hurt` calls `Entity.markHurt()`
+  on every landed hit outside `damage_type:no_impact` (tag = `drown`
+  only) — le.txt:349, gate `!NO_IMPACT && (b7 || dmg>0)`, so even a
+  zero-damage thrown impact marks. `ServerEntity.sendChanges`' last
+  block clears the flag after emitting
+  `ClientboundSetEntityMotionPacket` via
+  `sendToTrackingPlayersAndSelf` — self-inclusive, no drift gate, no
+  updateInterval cadence. `Player.attack` additionally sends the
+  victim-player's motion immediately when its `hurtMarked` is set.
+- **Implemented**: `Entity.HurtMarked` (entity.go). `markHurt(e,
+  typeName)` skips `drown`, sets via `GetPtr` with snapshot fallback
+  (mob.go:2139); called from `damageMob` on both landed paths
+  (zero-damage impact + damage) and from `damageWith` for session
+  players (damage.go). Emit sites: `mobSyncFlush` tail for entity
+  records (mobsync.go — unconditional, syncs SentMotion), and the
+  `playerFluidTickStep` freeze-arm block for player records
+  (survival.go) — `broadcastEntityMotion` already self-includes the
+  victim session via the entityID check.
+- **Pinned**: `TestHurtMarkedMotionParity` — NoAI pig damaged with
+  `generic` (in `no_knockback`, so delta stays ~0 and the hurtMarked
+  arm is the only possible emitter) then `damage @s 1 generic` for
+  the self-inclusive player arm. Both legs emitted exactly 1 pig
+  motion + 1 self motion.
+- **Commit**: server + test.

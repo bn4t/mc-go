@@ -2132,6 +2132,21 @@ func (s *Server) mobVillagerAngry(e *Entity, res DamageResult, info *damageInfo)
 	s.broadcastEntityEventTo(nil, e.Dim, e.ID, 13)
 }
 
+// markHurt is vanilla's Entity.markHurt: it latches hurtMarked on
+// every landed hurt outside the damage_type: no_impact tag (drown
+// only). sendChanges' tail then flushes the entity's current delta
+// unconditionally — even when the drift gate would suppress it.
+func (s *Server) markHurt(e *Entity, typeName string) {
+	if typeName == "drown" {
+		return
+	}
+	if ep, ok := s.entities.GetPtr(e.ID); ok {
+		ep.HurtMarked = true
+	} else {
+		e.HurtMarked = true
+	}
+}
+
 // damageMob runs vanilla's LivingEntity.hurt tail for a mob hit:
 // armor (natural base + worn pieces) absorbs unless the damage type
 // bypasses it, then the health loss lands inside the grace rules.
@@ -2168,6 +2183,7 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 			}
 			s.mobHurtSound(e, res)
 		}
+		s.markHurt(e, typeName)
 		return 0, res.Graced, false
 	}
 	// Vanilla stores lastDamageSource on every landed hurt — the
@@ -2175,6 +2191,7 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 	if ep, ok := s.entities.GetPtr(e.ID); ok {
 		ep.LastDamageType = typeName
 	}
+	s.markHurt(e, typeName)
 	// The graced-excess branch (hurt returned inside invulnerableTime)
 	// sets b8=false in vanilla: no damage_event, no hurt/death sound —
 	// only the health meta moves, and die() still runs if it killed.

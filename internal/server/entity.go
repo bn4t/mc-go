@@ -423,6 +423,13 @@ type Entity struct {
 	// landed hit (hurt flash duration), counted down in the living
 	// baseTick, and saved as the HurtTime NBT key.
 	HurtTime int16
+	// HurtMarked is vanilla's Entity.hurtMarked: LivingEntity.hurt
+	// marks it on every landed hit outside the no_impact tag (only
+	// drown), and ServerEntity.sendChanges' tail clears it after
+	// emitting set_entity_motion unconditionally — the drift gate is
+	// bypassed so even a no-knockback hurt flushes the delta to
+	// trackers and, for a player victim, to the victim itself.
+	HurtMarked bool
 	// TicksFrozen is vanilla's DATA_TICKS_FROZEN (NBT "TicksFrozen"):
 	// powder snow accrues one per tick up to 140
 	// (getTicksRequiredToFreeze), out-of-snow entities thaw at two

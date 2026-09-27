@@ -350,6 +350,16 @@ func (s *Server) mobSyncFlush(e *Entity) {
 			}
 		}
 	}
+	// ServerEntity.sendChanges' last block: a hurt-marked entity
+	// flushes set_entity_motion unconditionally — the drift gate and
+	// the updateInterval cadence are both bypassed, and the emit is
+	// self-inclusive (sendToTrackingPlayersAndSelf) so a player
+	// victim's own session receives it too.
+	if e.HurtMarked {
+		e.HurtMarked = false
+		e.SentMotionX, e.SentMotionY, e.SentMotionZ = e.MotionX, e.MotionY, e.MotionZ
+		s.broadcastEntityMotion(e.Dim, e.ID, e.MotionX, e.MotionY, e.MotionZ)
+	}
 }
 
 // mobFixed is the tracker's fixed-point position scale: one block is

@@ -256,6 +256,13 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 		amount = healthBefore
 	}
 	s.fireEntityHurtPlayer(sess, src.typeName == "arrow", false)
+	// Entity.markHurt: every landed hurt outside damage_type's
+	// no_impact tag (drown only) latches hurtMarked — the player
+	// record's next sendChanges then flushes set_entity_motion to the
+	// victim self-inclusively, drift gate bypassed.
+	if pe, ok := s.entities.GetPtr(eid); ok && src.typeName != "drown" {
+		pe.HurtMarked = true
+	}
 	// dealDefaultKnockback: an entity-sourced hurt that isn't in
 	// no_knockback shoves the victim 0.4 away from the source's
 	// position, scaled by the victim's knockback_resistance (a
