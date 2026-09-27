@@ -9877,3 +9877,26 @@ TestFrogspawnHatchParity: water pad floats the egg, stone egg is dry;
 `tick sprint 13000` covers the full delay range on both legs —
 7 probes symmetric (both eggs gone, tadpoles present + persistent +
 absent near the stone egg), tadpole count in [2,5] per leg (4/4).
+
+## Slice: sniffer_egg scheduled-tick hatch parity
+
+javap SnifferEggBlock (26.2): NOT random-ticking — onPlace arms
+scheduleTick at (boosted ? 12000 : 24000)/3 + nextInt(300) where
+boosted is #sniffer_egg_hatch_boost (moss_block) below; boosted writes
+also levelEvent 3009, and every write gameEvents BLOCK_PLACE — the
+flag-2 bump writes re-arm through the same path (the delay is a total
+split across three crack stages, not per-stage). tick: hatch < 2 →
+sniffer_egg.crack (1565) + hatch+1 flags 2; hatch == 2 →
+sniffer_egg.hatch (1566) + destroyBlock(false) (2001 + air) + one
+baby sniffer snapped to the egg center, yaw wrapDegrees(nextFloat*360).
+Sniffer babies spawn at Age=-48000 (Sniffer.class ldc #121), not the
+Animal default -24000. Implemented as snifferEggBoost/snifferEggOnPlace
+(randtick.go — called from writeOnPlace) + snifferEggTick dispatched
+in blockTick.
+
+TestSnifferEggHatchParity: moss vs stone fixture legs pin the 2x boost
+differentially — sprint 13000 hatches boosted eggs (max ~12897) while
+the unboosted egg sits deterministically at hatch=1, sprint +12000
+completes the unboosted three-stage max (~24897). All 11 probes
+hit/hit, global sniffer count 4/4, baby Age in (-48000,0) both legs
+(-47204/-47321).

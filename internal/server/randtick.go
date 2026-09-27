@@ -1414,6 +1414,91 @@ func (s *Server) frogspawnTick(d *dimension, pos world.Pos) {
 	}
 }
 
+// sniffer egg sounds — block.sniffer_egg.crack / .hatch in the 26.2
+// sound registry.
+const (
+	sndSnifferEggCrack = 1565
+	sndSnifferEggHatch = 1566
+)
+
+// snifferEggBoost is SnifferEggBlock.hatchBoost: the block below in
+// #sniffer_egg_hatch_boost (moss_block only).
+func (s *Server) snifferEggBoost(d *dimension, pos world.Pos) bool {
+	name, _ := world.StateOwner(d.w.GetBlock(posBelow(pos, 1)))
+	return blockTagHas("sniffer_egg_hatch_boost", name)
+}
+
+// snifferEggOnPlace is SnifferEggBlock.onPlace: a boosted write
+// levelEvents 3009 server-side, every write fires gameEvent
+// BLOCK_PLACE, and the next crack stage arms at (boosted ? 12000 :
+// 24000)/3 + nextInt(300) — the self bump writes re-arm through the
+// same path.
+func (s *Server) snifferEggOnPlace(d *dimension, pos world.Pos) {
+	boosted := s.snifferEggBoost(d, pos)
+	if boosted {
+		s.broadcastLevelEvent(d.name, 3009, pos, 0)
+	}
+	s.emitGameEvent(d, "block_place", float64(pos.X)+0.5,
+		float64(pos.Y)+0.5, float64(pos.Z)+0.5, nil, "sniffer_egg")
+	period := int64(8000)
+	if boosted {
+		period = 4000
+	}
+	s.scheduleBlockTick(d, pos, period+int64(s.rng.intn(300)))
+}
+
+// snifferEggTick is SnifferEggBlock.tick: hatch < 2 plays the crack
+// sound and bumps HATCH (flag-2 write); hatch == 2 plays the hatch
+// sound, destroyBlocks the egg (2001 + air), and spawns one baby
+// sniffer at the egg center with a wrapDegrees(nextFloat*360) yaw.
+func (s *Server) snifferEggTick(d *dimension, pos world.Pos) {
+	b := d.w.GetBlock(pos)
+	if !isBlockNamed(b, "sniffer_egg") {
+		return
+	}
+	hatch, ok := intProp(b, "hatch")
+	if !ok {
+		return
+	}
+	x := float64(pos.X) + 0.5
+	y := float64(pos.Y) + 0.5
+	z := float64(pos.Z) + 0.5
+	if hatch < 2 {
+		s.playSoundSrc(d.name, x, y, z, sndSnifferEggCrack, 4, 0.7,
+			float32(0.9+0.2*s.rng.nextDouble()), nil)
+		if nb, ok := world.WithProperty(b, "hatch", strconv.Itoa(hatch+1)); ok {
+			s.setSilentBlock(d, pos, nb)
+		}
+		return
+	}
+	s.playSoundSrc(d.name, x, y, z, sndSnifferEggHatch, 4, 0.7,
+		float32(0.9+0.2*s.rng.nextDouble()), nil)
+	s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+	s.setNaturalBlock(d, pos, world.Air)
+	et, hasType := EntityTypeID("sniffer")
+	if !hasType {
+		return
+	}
+	yaw := float32(s.rng.nextDouble() * 360.0)
+	if yaw >= 180 {
+		yaw -= 360
+	}
+	sn := s.entities.Spawn(&Entity{
+		Type:      et,
+		Dim:       d.name,
+		X:         x,
+		Y:         y,
+		Z:         z,
+		Yaw:       yaw,
+		Living:    true,
+		Health:    mobHealth["sniffer"],
+		MaxHealth: mobHealth["sniffer"],
+		Age:       -48000,
+		Baby:      true,
+	})
+	s.broadcastEntitySpawnIn(d.name, nil, *sn)
+}
+
 // redstoneOreRule is RedStoneOreBlock.randomTick: a lit ore settles
 // back to unlit.
 func redstoneOreRule(s *Server, d *dimension, pos world.Pos, b world.Block) {

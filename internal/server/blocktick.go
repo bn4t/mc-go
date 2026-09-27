@@ -443,6 +443,10 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		s.frogspawnTick(d, pos)
 		return
 	}
+	if short == "sniffer_egg" {
+		s.snifferEggTick(d, pos)
+		return
+	}
 	if short == "repeater" {
 		s.rsDiodeTick(d, pos, blk, short)
 		return

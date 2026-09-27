@@ -414,6 +414,12 @@ func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block,
 		if short == "frogspawn" {
 			s.scheduleBlockTick(d, pos, int64(3600+s.rng.intn(8400)))
 		}
+		// SnifferEggBlock.onPlace: 3009 on a boosted write,
+		// BLOCK_PLACE gameEvent, and the crack tick re-arms at
+		// delay/3 + nextInt(300) on every write (bumps included).
+		if short == "sniffer_egg" {
+			s.snifferEggOnPlace(d, pos)
+		}
 		// TripWireBlock.onPlace / affectNeighborsAfterRemoval: a wire
 		// write or removal reruns calculateState from the run's
 		// south/west-side hook (updateSource). A hook write does not —
