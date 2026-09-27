@@ -9291,3 +9291,38 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
 - **Known gap**: vanilla teleports the sleeper to a bedside stand
   position on wake (`stopSleepInBed` → findStandUpPosition) — noted
   in `stopSleeping`, not yet implemented.
+
+## Slice 2026-09-27bf — sleep position snap + stand-up restore
+
+- **Measured** (26.2 bytecode): `LivingEntity.startSleeping` does a
+  single `setBlock(sleepingPos, OCCUPIED=true)` — only the HEAD half
+  flips — then `setPosToBed` snaps the entity to the head center at
+  +0.6875, zeroes delta, latches needsSync. `stopSleeping`'s bed
+  lambda (skipped entirely when the bed is gone) clears head
+  OCCUPIED, runs `BedBlock.findStandUpPosition`, snaps the entity to
+  the pick, and re-aims the yaw toward the bed center with xRot=0 —
+  before the STANDING pose + sleeping_pos clear. `useWithoutItem`
+  checks OCCUPIED before the sleep-window gate (occupied beats
+  no_sleep). `findStandUpPosition` picks the stand side as
+  facing.clockwise flipped by `Direction.isFacingAngle(yaw)`, walks a
+  fixed 12-offset ring (10 surround + on-head + on-foot) through
+  `DismountHelper.findSafeDismountLocation` twice — strict pass then
+  loose; a candidate needs a floor (shape top in cell <1.0, else
+  below's top-1 ≥0), a clear 0.6×1.8 box, and on the strict pass no
+  burning/wither/berry/cactus/powder cell or floor and no
+  invalid_spawn_inside (end_portal/gateway). Bunk-bed branch noted,
+  not implemented.
+- **Implemented**: `useBed` snaps the session + entity record to
+  bed-center+0.6875 (broadcast to trackers, no SyncPos — the client
+  predicts it); `stopSleeping` frees the head only, runs the same
+  offset search via a `collisionInterval` shape approximation
+  (partial-height table: slabs, carpets, snow, path/farmland, chests,
+  fences/walls at 1.5, trapdoors, no-collision attachables), falls
+  back to on-bed+0.1, swings yaw to face the bed, and leaves the bed
+  alone when it was broken mid-sleep. Occupied gate reordered before
+  the day gate to match `useWithoutItem`.
+- **Pinned**: `TestSleepBedParity` extended — `data get Pos` on the
+  sleeper reads head-center+0.6875 while asleep and the computed
+  stand-up cell after the skip (both deterministic on flat ground);
+  the occupied flip asserts a block update at the head pos in either
+  0x08 or 0x54 form. Green on both servers.
