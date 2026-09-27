@@ -561,44 +561,21 @@ func (s *Server) itemTickStep() {
 		if e.PickupDelay > 0 {
 			e.PickupDelay--
 		}
-		// Simple gravity until the entity rests on a solid top. Block
-		// coordinates floor (negative Y must not truncate toward zero).
-		bx := int(math.Floor(e.X))
-		bz := int(math.Floor(e.Z))
-		// Sample just past the quarter-height: at restY the naive
-		// -0.25 lands exactly on the cell boundary (floor sees air),
-		// which flips grounded↔airborne every other tick and storms
-		// set_entity_motion forever.
-		below := world.Pos{X: bx, Y: int(math.Floor(e.Y - 0.26)), Z: bz}
-		newY := e.Y + e.MotionY
-		if w.GetBlock(below) == world.Air {
-			e.Grounded = false
-			e.MotionY -= 0.04
-			if e.MotionY < -0.5 {
-				e.MotionY = -0.5
-			}
-			newY = e.Y + e.MotionY
-		} else {
-			restY := float64(below.Y) + 1.25
-			if newY < restY {
-				newY = restY
-			}
-			e.MotionY = 0
-			e.Grounded = true
+		prevX, prevZ := e.X, e.Z
+		// ItemEntity.tick's noPhysics branch: when the entity box —
+		// shrunk by 1e-7 — overlaps a collision shape, vanilla calls
+		// moveTowardsClosestSpace on the box center (not the feet cell)
+		// and skips the move chain. An entity resting on a shape top
+		// merely touches, so it never lands here.
+		halfBox, heightBox := 0.125, 0.25
+		if orb {
+			halfBox, heightBox = 0.25, 0.5
 		}
-		e.Y = newY
-		// Item entities and XP orbs sync through the same ServerEntity
-		// pipeline as mobs — updateInterval 20 — not a teleport every
-		// moved tick.
-		s.mobSyncFlush(e)
-		// Entity.moveTowardsClosestSpace: an item whose feet cell is a
-		// full block slides out toward the least-distant open face —
-		// the scan covers N/S/W/E/UP (never down) and the push is
-		// 0.1-0.3 along that axis while the others keep 75% of motion.
-		feet := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}
-		if cb := w.GetBlock(feet); cb != world.Air && !world.NonSolid(cb) {
+		if entityInsideSolid(w, e.X, e.Y, e.Z, halfBox, heightBox) {
+			centerY := e.Y + heightBox/2
+			feet := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(centerY)), Z: int(math.Floor(e.Z))}
 			fx := e.X - float64(feet.X)
-			fy := e.Y - float64(feet.Y)
+			fy := centerY - float64(feet.Y)
 			fz := e.Z - float64(feet.Z)
 			best := math.MaxFloat64
 			axis, sign := 'y', 1.0
@@ -640,47 +617,30 @@ func (s *Server) itemTickStep() {
 			default:
 				e.MotionZ = push * sign
 			}
-		}
-		// Thrown items drift: horizontal motion applied each tick with
-		// vanilla's decay (0.98 airborne, block slip ~0.55 grounded).
-		// Each axis collides with walls independently — a sliding item
-		// stops at the wall face instead of passing through.
-		prevX, prevZ := e.X, e.Z
-		if e.MotionX != 0 || e.MotionZ != 0 {
-			if e.MotionX != 0 && w.GetBlock(world.Pos{X: int(math.Floor(e.X + e.MotionX)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}) == world.Air {
-				e.X += e.MotionX
-			} else {
-				e.MotionX = 0
+		} else if orb {
+			// ExperienceOrb.tick: gravity (0.03) → scanForMerges every
+			// 20 → followNearbyPlayer's homing pull → move →
+			// applyEffectsFromBlocks → delta *= airDrag(+blockFriction
+			// grounded) on all axes → the orb's own bounce: the
+			// stored delta.y flips to -incoming*0.4 when the floor
+			// clamps a fall (overriding the shared restitution the
+			// move already ran).
+			if !e.NoGravity {
+				e.MotionY -= 0.03
 			}
-			if e.MotionZ != 0 && w.GetBlock(world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z + e.MotionZ))}) == world.Air {
-				e.Z += e.MotionZ
-			} else {
-				e.MotionZ = 0
+			if e.OrbCount < 1 {
+				e.OrbCount = 1 // orbs always carry a count of one from spawn
 			}
-			fr := 0.98
-			if e.MotionY == 0 {
-				fr = 0.55
+			// scanForMerges: tickCount % 20 == 1 — self absorbs every
+			// orb whose box reaches the inflated-0.5 scan box, age
+			// goes to the pair's minimum.
+			if e.ItemAge%20 == 1 {
+				s.orbScanForMerges(e, items)
 			}
-			e.MotionX *= fr
-			e.MotionZ *= fr
-			if math.Abs(e.MotionX) < 0.01 && math.Abs(e.MotionZ) < 0.01 {
-				e.MotionX, e.MotionZ = 0, 0
-			}
-		}
-		if orb && e.OrbCount < 1 {
-			e.OrbCount = 1 // orbs always carry a count of one from spawn
-		}
-		// ExperienceOrb.scanForMerges every 20 ticks: self absorbs
-		// every orb whose box reaches the inflated-0.5 scan box, age
-		// goes to the pair's minimum.
-		if orb && e.ItemAge%20 == 0 {
-			s.orbScanForMerges(e, items)
-		}
-		// ExperienceOrb.followNearbyPlayer every tick: keep the
-		// latched player while non-spectator and within 8, else rescan
-		// for the nearest non-spectator live player in 8; the pull is
-		// normalize(dir to eye-centre) * (1-d/8)^2 * 0.1 onto motion.
-		if orb {
+			// followNearbyPlayer: keep the latched player while
+			// non-spectator and within 8, else rescan for the nearest
+			// non-spectator live player in 8; the pull is normalize
+			// (dir to eye-centre) * (1-d/8)^2 * 0.1 onto motion.
 			if t := e.OrbFollowing; t == 0 || !s.orbFollowingOK(e, t) {
 				e.OrbFollowing = 0
 				if p := s.orbNearestPlayer(e); p != nil {
@@ -701,7 +661,53 @@ func (s *Server) itemTickStep() {
 					}
 				}
 			}
+			s.entityMove(e, w, 0.25, 0.5, e.MotionX, e.MotionY, e.MotionZ, 0.03, 0.98, false)
+			f := 0.98
+			if e.Grounded {
+				f *= entityFrictionBelow(w, e.X, e.Y, e.Z)
+			}
+			e.MotionX *= f
+			e.MotionY *= f
+			e.MotionZ *= f
+			// ExperienceOrb.tick's rest-bounce gates on the post-move
+			// delta (onGround && delta.y < -gravity): restitution has
+			// already zeroed delta.y on non-bounce blocks, so the flip
+			// never fires on stone/honey — only slime's >0 restitution
+			// skips it identically.
+			if e.Grounded && e.MotionY < -0.03 {
+				e.MotionY = -e.MotionY * 0.4
+			}
+		} else {
+			// ItemEntity.tick: gravity (0.04) → the rest-skip gate —
+			// grounded, dead-slow items only run the physics on
+			// (tickCount+id)%4==0 — → move → applyEffectsFromBlocks →
+			// delta *= (f3, airDrag, f3) where f3 is airDrag times the
+			// supporting block's friction when grounded → the grounded
+			// rest-bounce: a residual downward motion flips to -0.5×.
+			if !e.NoGravity {
+				e.MotionY -= 0.04
+			}
+			resting := e.Grounded &&
+				e.MotionX*e.MotionX+e.MotionZ*e.MotionZ <= 1e-5 &&
+				(e.ItemAge+e.ID)%4 != 0
+			if !resting {
+				s.entityMove(e, w, 0.125, 0.25, e.MotionX, e.MotionY, e.MotionZ, 0.04, 0.98, false)
+				f3 := 0.98
+				if e.Grounded {
+					f3 *= entityFrictionBelow(w, e.X, e.Y, e.Z)
+				}
+				e.MotionX *= f3
+				e.MotionY *= 0.98
+				e.MotionZ *= f3
+				if e.Grounded && e.MotionY < 0 {
+					e.MotionY = -e.MotionY * 0.5
+				}
+			}
 		}
+		// Item entities and XP orbs sync through the same ServerEntity
+		// pipeline as mobs — updateInterval 20 — not a teleport every
+		// moved tick.
+		s.mobSyncFlush(e)
 		// ItemEntity.mergeWithNeighbours: every 2 ticks when the item
 		// crossed a block boundary this tick, else every 40 — the
 		// bigger stack absorbs the smaller into its own entity.

@@ -1321,6 +1321,19 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if u, ok := snbtUUID(tag, "Thrower"); ok {
 				e.Thrower = s.entityIDByUUID(u)
 			}
+			// Entity.load reads Motion and NoGravity for every type —
+			// a {Motion:[..]} summon throws the item like a toss.
+			if mv, ok := tag.vals["Motion"]; ok && mv.kind == snbtList && len(mv.items) == 3 {
+				e.MotionX = snbtNum(mv.items[0])
+				e.MotionY = snbtNum(mv.items[1])
+				e.MotionZ = snbtNum(mv.items[2])
+				e.VX = int16(e.MotionX * 8000)
+				e.VY = int16(e.MotionY * 8000)
+				e.VZ = int16(e.MotionZ * 8000)
+			}
+			if nv, ok := tag.vals["NoGravity"]; ok && (nv.num == "1b" || nv.num == "1" || nv.str == "true") {
+				e.NoGravity = true
+			}
 		}
 		s.entities.Spawn(e)
 		s.broadcastEntitySpawn(nil, *e)

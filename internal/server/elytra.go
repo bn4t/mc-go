@@ -219,7 +219,16 @@ func (s *Server) clampBoxAxis(wd *world.World, span [2]float64, d float64, axis 
 	if d < 0 {
 		face = span[0]
 	}
-	blocked := func(c int) bool {
+	// blocked reports whether the shape in cell c intersects the box's
+	// other-axis spans. A horizontal axis sweep sees a cell's shape only
+	// where it actually overlaps the box's vertical span — a block
+	// standing lower than the box's minY (soul sand at 14/16, honey at
+	// 15/16) doesn't bind. For the downward case the scan needs the
+	// shape's top rather than a bool, so blockedTop(c) returns the
+	// highest collision top over the span cells or 0 when nothing
+	// binds.
+	shapeTop := func(c int) float64 {
+		top := 0.0
 		for b1 := int(math.Floor(o1min)); float64(b1) < o1max; b1++ {
 			for b2 := int(math.Floor(o2min)); float64(b2) < o2max; b2++ {
 				var p world.Pos
@@ -232,11 +241,33 @@ func (s *Server) clampBoxAxis(wd *world.World, span [2]float64, d float64, axis 
 					p = world.Pos{X: b1, Y: b2, Z: c}
 				}
 				if b := wd.GetBlock(p); !world.NonSolid(b) && !moveNoCollision(b) {
-					return true
+					if axis == 1 {
+						if t := collisionTopOf(b); t > top {
+							top = t
+						}
+						continue
+					}
+					// For horizontal sweeps the y row is b1 on axis 0
+					// (o1 is the y span) and b2 on axis 2 (o2 is it):
+					// skip cells whose shape top stays below the box's
+					// minY — resting on top slides free.
+					row, ymin := b1, o1min
+					if axis == 2 {
+						row, ymin = b2, o2min
+					}
+					if float64(row)+collisionTopOf(b) > ymin {
+						return -1
+					}
 				}
 			}
 		}
-		return false
+		return top
+	}
+	blocked := func(c int) bool {
+		if axis == 1 {
+			return shapeTop(c) > 0
+		}
+		return shapeTop(c) < 0
 	}
 	// Vanilla binds a shape only when its entry face is at or ahead of
 	// the box face (minX >= box.maxX), so a face already inside a cell
@@ -248,6 +279,19 @@ func (s *Server) clampBoxAxis(wd *world.World, span [2]float64, d float64, axis 
 			}
 		}
 		return d
+	}
+	if axis == 1 {
+		// Downward binds at each cell's collision-shape top rather
+		// than its integer ceiling, so partial columns stop the box
+		// at their real top face.
+		best := d
+		for c := int(math.Floor(face)); float64(c)+1.0 > face+d; c-- {
+			top := float64(c) + shapeTop(c)
+			if shapeTop(c) > 0 && top <= face && top > face+d && top-face > best {
+				best = top - face
+			}
+		}
+		return best
 	}
 	for b := int(math.Floor(face)); float64(b) > face+d; b-- {
 		if blocked(b - 1) {
