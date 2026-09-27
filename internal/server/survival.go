@@ -561,6 +561,9 @@ func (s *Server) itemTickStep() {
 		if e.PickupDelay > 0 {
 			e.PickupDelay--
 		}
+		// ItemEntity.tick snapshots getDeltaMovement at the head of the
+		// tick; the tail flags needsSync when the net change exceeds 0.1.
+		preDX, preDY, preDZ := e.MotionX, e.MotionY, e.MotionZ
 		prevX, prevZ := e.X, e.Z
 		// ItemEntity.tick's noPhysics branch: when the entity box —
 		// shrunk by 1e-7 — overlaps a collision shape, vanilla calls
@@ -616,6 +619,11 @@ func (s *Server) itemTickStep() {
 				e.MotionY = push * sign
 			default:
 				e.MotionZ = push * sign
+			}
+			if orb {
+				// ExperienceOrb.tick flags needsSync inside its
+				// moveTowardsClosestSpace branch — the only orb sync bypass.
+				e.PosDirty = true
 			}
 		} else if orb {
 			// ExperienceOrb.tick: gravity (0.03) → scanForMerges every
@@ -702,6 +710,14 @@ func (s *Server) itemTickStep() {
 				if e.Grounded && e.MotionY < 0 {
 					e.MotionY = -e.MotionY * 0.5
 				}
+			}
+		}
+		if !orb {
+			// ItemEntity.tick's intra-tick needsSync: a >0.1 net delta
+			// change bypasses the updateInterval gate and emits now.
+			ddx, ddy, ddz := e.MotionX-preDX, e.MotionY-preDY, e.MotionZ-preDZ
+			if ddx*ddx+ddy*ddy+ddz*ddz > 0.01 {
+				e.PosDirty = true
 			}
 		}
 		// Item entities and XP orbs sync through the same ServerEntity
