@@ -9782,3 +9782,30 @@ breaks and one flaky test:
 Also verified `rewards.recipes` is a non-path on 26.2: no game
 advancement declares recipe rewards (only recipe advancements
 self-unlock, already implemented), so nothing to wire.
+
+## Slice: witch heal-goal parity — cooldown halving + throw scatter
+
+Third preexisting regression from the dirty-pack batch. mc-go threw
+regeneration forever, never healing; vanilla threw [regen regen heal
+heal]. Two measured divergences, both fixed:
+
+- `NearestHealableRaiderTargetGoal.start()` sets cooldown =
+  `adjustedTickDelay(200)` — the goal isn't requiresUpdateEveryTick,
+  so that's `reducedTickDelay(200)` = `positiveCeilDiv(200,2)` = **100**
+  wall ticks (decremented in Witch.aiStep every tick). mc-go locked at
+  200 → re-locks always arrived after the regen splash had already
+  ticked the raider past the ≤4hp heal window. Now 100.
+- `Witch.performRangedAttack`'s `spawnProjectileUsingShoot(..., F)`
+  passes uncertainty **8.0**: `getMovementToShoot` normalizes the aim
+  vector then adds `random.triangle(0, 0.0172275·u)` per axis before
+  scaling by velocity. mc-go lobbed perfectly, so every regen splash
+  applied at near-full prox — raider healed past 4hp and every later
+  pick stayed regen. The 8.0 scatter lands some splashes far enough
+  that duration×prox <50t → zero heal ticks → the ≤4hp window stays
+  open for a healing throw. Implemented in witchThrowAt.
+- Heal-goal selector left unfiltered (javap: lambda is
+  `hasActiveRaid && !is(WITCH)` — no health check on the target; the
+  health gate lives only in the performRangedAttack potion pick,
+  `health <= 4.0 → HEALING else REGENERATION`, which mc-go already
+  matched).
+- TestWitchHealParity green: van [h31 h31 h24 h24], mc [h31 h24].

@@ -5128,7 +5128,10 @@ func (s *Server) mobWitchAttackStep(e *Entity) bool {
 	if e.witchHealCd <= 0 && e.Raid != nil && e.Raid.status == raidOngoing && rand.Intn(2) == 0 {
 		if rt := s.witchHealTarget(e); rt != nil {
 			e.witchHealTgt = rt.ID
-			e.witchHealCd = 200
+			// adjustedTickDelay: the heal goal isn't an every-tick goal,
+			// so vanilla's start() cooldown is reducedTickDelay(200) =
+			// positiveCeilDiv(200, 2) = 100, not 200.
+			e.witchHealCd = 100
 			return s.witchRaiderStep(e, rt)
 		}
 	}
@@ -5244,7 +5247,11 @@ func (s *Server) witchThrow(e *Entity, t *Session, px, py, pz, dist float64) {
 // witchThrowAt is the throw half of performRangedAttack: the
 // splash_potion spawns a hair below the witch's eye on the vanilla lob
 // (dy + horizontal*0.2 past the target eye) at 0.75 blocks/tick
-// (0.45 under two blocks).
+// (0.45 under two blocks). Projectile.shoot jitters the normalized
+// direction by triangle(0, 0.0172275*uncertainty) per axis — the
+// witch's 8.0 scatter sometimes misses the raider entirely, which is
+// why a heal splash actually reaches a raider vanilla would have
+// peppered with off-target regen.
 func (s *Server) witchThrowAt(e *Entity, tx, eyeTy, tz, dist float64, potion string) {
 	pt, ok := EntityTypeID("splash_potion")
 	if !ok {
@@ -5262,7 +5269,12 @@ func (s *Server) witchThrowAt(e *Entity, tx, eyeTy, tz, dist float64, potion str
 	if mag < 1e-6 {
 		return
 	}
-	vx, vy, vz := dx/mag*vel, aimY/mag*vel, dz/mag*vel
+	// RandomSource.triangle(0, 0.0172275*8) per axis, added AFTER the
+	// normalize like Projectile.shoot, then scaled by the velocity.
+	const jitter = 0.0172275 * 8
+	tri := func() float64 { return jitter * (rand.Float64() - rand.Float64()) }
+	ux, uy, uz := dx/mag+tri(), aimY/mag+tri(), dz/mag+tri()
+	vx, vy, vz := ux*vel, uy*vel, uz*vel
 	pe := s.entities.Spawn(&Entity{
 		Type: pt,
 		Dim:  e.Dim,
