@@ -518,6 +518,9 @@ type Entity struct {
 	// friction-influenced speed for its input.
 	WalkSpeed float64
 	WalkZZA   float64
+	// WalkXXA is the lateral half of the input pair — MoveControl's
+	// STRAFE tick lands xxa here and it decays alongside WalkZZA.
+	WalkXXA float64
 	// PanicActive + PanicTX/TZ model PanicGoal (priority 1): a
 	// panic-capable mob whose last damage type is in PANIC_CAUSES runs
 	// to a DefaultRandomPos target within ±5 on x/z at

@@ -9434,3 +9434,44 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   failure message — that check flakes on vanilla timing (the flip
   sometimes lands outside the 2.2s capture window); pre-existing,
   unrelated to this slice.
+
+## Slice 2026-09-27cj — Skeleton bow strafe through the travel friction chain
+
+- **Measured** (`RangedBowAttackGoal.tick` + `MoveControl` STRAFE tick
+  + `isWalkable`, 26.2 javap): seeTime ±1/tick, reset 0 on visibility-
+  flag change; `d2 <= attackRadiusSqr && seeTime >= 20` →
+  `navigation.stop()` + strafingTime++, else moveTo + strafingTime=-1;
+  strafingTime>=20 → 30% flips on strafingClockwise/Backwards; while
+  strafing, edge overrides at 0.75/0.25·rSqr, then
+  `moveControl.strafe(back?-0.5:0.5, cw?0.5:-0.5)`. The STRAFE tick
+  scales the ±0.5 pair to speedModifier·movement_speed (m<1 floor →
+  ±0.125/±0.125 for a 0.25-speed skeleton), yaw-rotates the pair for
+  `isWalkable` — a non-WALKABLE probe (fluid, void edge, wall) reverts
+  to raw strafeForwards=1/strafeRight=0 — and lands zza/xxa on the
+  travel input pair, NOT a position write.
+- **Implemented**: `WalkXXA` on Entity; `mobTravelStep` refactored to
+  `mobTravelStepPair(e,w,speed,zIn,xIn)` — both inputs decay ×0.98,
+  the pair is length-capped at 1 (inputDirectionVector semantics) and
+  rotated `x'=xxa·cos−zza·sin, z'=xxa·sin+zza·cos` in all three travel
+  branches; the 3-arg wrapper keeps zza-only callers. New
+  `strafeWalkable` approximates the node evaluator: feet non-solid
+  over a non-solid-or-fluid-free below cell. The `mobRangedStep`
+  strafe arm now builds the scaled pair, probes the rotated step, and
+  drives `mobTravelStepPair` — momentum and floor friction carry the
+  skeleton sideways instead of a direct ±0.177 delta.
+- **Pinned**: `TestSkeletonStrafeParity` — night + spawning off,
+  bow via `item replace` (summon runs no equipment populate),
+  survival player 10 blocks on +x. 9s of `data get Pos` sampling:
+  lateral z spread 7.82 on vanilla / 4.88 on mc-go (a standing or
+  straight-chasing skeleton stays <1), and the draw→fire chain lands
+  arrows — pinned as the player's Health dipping below 20 (arrows
+  that hit despawn on impact, so the entity probe alone can't see
+  them). Green on both servers.
+- **Harness lessons**: the comparison world joins players CREATIVE —
+  `gamemode survival` is required before a hostile mob will target at
+  all (without it the "strafe" readings were just RandomStrollGoal
+  wander). Arrow entities hit→despawn instantly, so probe the damage,
+  not the projectile count.
+- **Surfaced gap** (unpinned): `execute if entity @e[type=#minecraft:
+  arrows]` on mc-go never matched its own arrow entity — entity-type
+  tag selectors are a separate gap from the strafe chain.

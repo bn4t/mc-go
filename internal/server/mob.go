@@ -3148,6 +3148,15 @@ func mobTurnToward(e *Entity, tx, tz, maxDeg float64) {
 // blockFriction·0.91. drive 0 is the idle case: no input, but residual
 // momentum still integrates and decays.
 func (s *Server) mobTravelStep(e *Entity, w *world.World, speed float64) {
+	s.mobTravelStepPair(e, w, speed, speed, 0)
+}
+
+// mobTravelStepPair is the same travel pass with the full input pair:
+// MoveControl's STRAFE tick sets zza/xxa while MOVE_TO drives only the
+// forward half. When speed > 0 the drive sets the speed field and the
+// input pair; the pair is length-capped at 1 the way vanilla's
+// inputDirectionVector normalizes, then rotated by the body yaw.
+func (s *Server) mobTravelStepPair(e *Entity, w *world.World, speed, zIn, xIn float64) {
 	if w == nil {
 		return
 	}
@@ -3166,23 +3175,22 @@ func (s *Server) mobTravelStep(e *Entity, w *world.World, speed float64) {
 		if inWater && wDepth > 0 {
 			e.FallDist = 0
 			e.WalkZZA *= 0.98
+			e.WalkXXA *= 0.98
 			if speed > 0 {
 				e.WalkSpeed = speed
-				e.WalkZZA = speed
+				e.WalkZZA = zIn
+				e.WalkXXA = xIn
 			}
-			// moveRelative normalizes the input past 1 before scaling
-			// by the 0.02 speed.
-			input := e.WalkZZA
-			if input > 1 {
-				input = 1
-			} else if input < -1 {
-				input = -1
+			zx, xx := e.WalkZZA, e.WalkXXA
+			if l := math.Hypot(zx, xx); l > 1 {
+				zx /= l
+				xx /= l
 			}
 			falling := e.MotionY <= 0
 			y0 := e.Y
 			yr := float64(e.Yaw) * math.Pi / 180
-			e.MotionX += -0.02 * input * math.Sin(yr)
-			e.MotionZ += 0.02 * input * math.Cos(yr)
+			e.MotionX += 0.02 * (xx*math.Cos(yr) - zx*math.Sin(yr))
+			e.MotionZ += 0.02 * (xx*math.Sin(yr) + zx*math.Cos(yr))
 			if e.NoGravity {
 				gravity = 0
 			}
@@ -3211,21 +3219,22 @@ func (s *Server) mobTravelStep(e *Entity, w *world.World, speed float64) {
 		lDepth, inLava, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, bounds[0]/2, bounds[1], fluidLava)
 		if inLava && lDepth > 0 {
 			e.WalkZZA *= 0.98
+			e.WalkXXA *= 0.98
 			if speed > 0 {
 				e.WalkSpeed = speed
-				e.WalkZZA = speed
+				e.WalkZZA = zIn
+				e.WalkXXA = xIn
 			}
-			input := e.WalkZZA
-			if input > 1 {
-				input = 1
-			} else if input < -1 {
-				input = -1
+			zx, xx := e.WalkZZA, e.WalkXXA
+			if l := math.Hypot(zx, xx); l > 1 {
+				zx /= l
+				xx /= l
 			}
 			falling := e.MotionY <= 0
 			y0 := e.Y
 			yr := float64(e.Yaw) * math.Pi / 180
-			e.MotionX += -0.02 * input * math.Sin(yr)
-			e.MotionZ += 0.02 * input * math.Cos(yr)
+			e.MotionX += 0.02 * (xx*math.Cos(yr) - zx*math.Sin(yr))
+			e.MotionZ += 0.02 * (xx*math.Sin(yr) + zx*math.Cos(yr))
 			if e.NoGravity {
 				gravity = 0
 			}
@@ -3266,9 +3275,11 @@ func (s *Server) mobTravelStep(e *Entity, w *world.World, speed float64) {
 	// likewise persists at the last drive until a stopInPlace zeroes
 	// it — idle ticks keep driving the decaying residue.
 	e.WalkZZA *= 0.98
+	e.WalkXXA *= 0.98
 	if speed > 0 {
 		e.WalkSpeed = speed
-		e.WalkZZA = speed
+		e.WalkZZA = zIn
+		e.WalkXXA = xIn
 	}
 	f3 := 1.0
 	f := 0.02
@@ -3279,10 +3290,14 @@ func (s *Server) mobTravelStep(e *Entity, w *world.World, speed float64) {
 			f = e.WalkSpeed * 0.21600002 / (f3 * f3 * f3)
 		}
 	}
-	input := e.WalkZZA * f
+	zx, xx := e.WalkZZA, e.WalkXXA
+	if l := math.Hypot(zx, xx); l > 1 {
+		zx /= l
+		xx /= l
+	}
 	yr := float64(e.Yaw) * math.Pi / 180
-	e.MotionX += -input * math.Sin(yr)
-	e.MotionZ += input * math.Cos(yr)
+	e.MotionX += f * (xx*math.Cos(yr) - zx*math.Sin(yr))
+	e.MotionZ += f * (xx*math.Sin(yr) + zx*math.Cos(yr))
 	s.entityMove(e, w, bounds[0]/2, bounds[1], e.MotionX, e.MotionY, e.MotionZ, gravity, 0.98, true)
 	e.MotionY = (e.MotionY - gravity) * 0.98
 	drag := f3 * 0.91
@@ -5607,23 +5622,32 @@ func (s *Server) mobRangedStep(e *Entity) bool {
 		if d2 < radius2*0.25 {
 			e.rangedBack = true
 		}
-		nx, nz := dx/dist, dz/dist
-		sgn := 1.0
-		if !e.rangedCW {
-			sgn = -1
-		}
-		// moveControl.strafe(±0.5 sideways, ±0.5 forward) — the
-		// diagonal input normalizes to a speed-length step.
-		f := 0.5
+		// MoveControl.strafe(fwd, lat): the STRAFE tick scales the
+		// ±0.5 inputs to length speedModifier·movement_speed (the m<1
+		// floor keeps ±0.5/±0.5 at 0.125·√2), yaw-rotates them for
+		// the isWalkable probe — an unwalkable probe reverts to a
+		// plain forward zza=1 — then zza/xxa land on travel's input
+		// pair and the friction chain carries them.
+		fwd, lat := 0.5, 0.5
 		if e.rangedBack {
-			f = -0.5
+			fwd = -0.5
 		}
-		vx := -nz*sgn*0.5 + nx*f
-		vz := nx*sgn*0.5 + nz*f
-		if m := math.Hypot(vx, vz); m > 0 {
-			e.X += vx / m * speed
-			e.Z += vz / m * speed
+		if !e.rangedCW {
+			lat = -0.5
 		}
+		m := math.Hypot(fwd, lat)
+		if m < 1 {
+			m = 1
+		}
+		zIn := fwd * speed / m
+		xIn := lat * speed / m
+		yr := float64(e.Yaw) * math.Pi / 180
+		wx := zIn*math.Cos(yr) - xIn*math.Sin(yr)
+		wz := xIn*math.Cos(yr) + zIn*math.Sin(yr)
+		if !s.strafeWalkable(s.dimWorld(e.Dim), e, wx, wz) {
+			zIn, xIn = 1, 0
+		}
+		s.mobTravelStepPair(e, s.dimWorld(e.Dim), speed, zIn, xIn)
 	}
 	if e.rangedDraw > 0 {
 		e.rangedDraw++
@@ -5641,6 +5665,30 @@ func (s *Server) mobRangedStep(e *Entity) bool {
 		s.broadcastLivingUse(e, true)
 	}
 	return true
+}
+
+// strafeWalkable approximates MoveControl.isWalkable: the node
+// evaluator's getPathType at the cell one rotated strafe-step ahead
+// must be WALKABLE — on flat ground that means open feet over a
+// standable floor. Water, lava, void edges and walls all fail it.
+func (s *Server) strafeWalkable(w *world.World, e *Entity, wx, wz float64) bool {
+	if w == nil {
+		return false
+	}
+	px := int(math.Floor(e.X + wx))
+	py := int(math.Floor(e.Y))
+	pz := int(math.Floor(e.Z + wz))
+	feet := w.GetBlock(world.Pos{X: px, Y: py, Z: pz})
+	below := w.GetBlock(world.Pos{X: px, Y: py - 1, Z: pz})
+	// Fluids aren't in the NonSolid decoration set — a water or lava
+	// cell is its own PathType (WATER/LAVA), never WALKABLE.
+	if k, _, ok := fluidOf(feet); ok && k != fluidNone {
+		return false
+	}
+	if k, _, ok := fluidOf(below); ok && k != fluidNone {
+		return false
+	}
+	return world.NonSolid(feet) && !world.NonSolid(below)
 }
 
 // rangedAttackInterval is AbstractSkeleton's goal interval: 20 ticks
