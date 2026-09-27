@@ -995,6 +995,9 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		e.VX = int16(mot[0] * 8000)
 		e.VY = int16(mot[1] * 8000)
 		e.VZ = int16(mot[2] * 8000)
+		// Entity.load sets needsSync after reading Motion — the stored
+		// velocity re-emits at the next sendChanges gate.
+		e.PosDirty = true
 	}
 	if rot, ok := nbtVec2f(save["Rotation"]); ok {
 		e.Yaw, e.Pitch = rot[0], rot[1]

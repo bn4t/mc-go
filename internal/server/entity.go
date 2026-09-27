@@ -317,7 +317,11 @@ type Entity struct {
 	MetaDirty bool
 	AttrDirty bool
 	PosDirty  bool
-	SyncCount int64
+	// FallFlying is LivingEntity.isFallFlying — shared-flag 7. No mob
+	// models elytra flight yet, so it only wires the motion-emit
+	// bypass in ServerEntity.sendChanges' velocity branch.
+	FallFlying bool
+	SyncCount  int64
 	// ServerEntity position/rotation send state: the fixed-point
 	// (1/4096) base the last position packet was computed from, the
 	// last packed rotation bytes, ticks since the last

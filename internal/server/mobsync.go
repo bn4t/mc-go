@@ -374,18 +374,23 @@ func mobByteDiff(a, b byte) int {
 // entity_position_sync. The head's packed yaw rides rotate_head on its
 // own slot. Runs only on sendChanges-eligible ticks.
 func (s *Server) mobMoveSync(e *Entity) {
-	// TrackedDeltaMovement (ServerEntity.sendChanges): emit
-	// set_entity_motion when the current delta drifts farther than
-	// 1e-7 squared from the last sent one, or when it just turned
-	// exactly zero — a walking mob emits on accel/decel and stop,
-	// not per tick at cruise. Vanilla runs this INSIDE the
-	// tickCount%updateInterval gate, so an interval-20 item resting
-	// on the ground emits at most once per interval — its per-tick
-	// gravity-restitution delta noise never crosses the threshold.
+	// TrackedDeltaMovement (ServerEntity.sendChanges): the motion
+	// branch itself is gated — it only runs when needsSync is flagged,
+	// the type is one of EntityType.trackDeltas' ten, or a living
+	// entity is fall-flying. Inside it, emit set_entity_motion when
+	// the current delta drifts farther than 1e-7 squared from the last
+	// sent one, or when it just turned exactly zero — a walking mob
+	// emits on accel/decel and stop, not per tick at cruise.
+	motionGate := e.PosDirty || (e.Living && e.FallFlying)
+	if !motionGate {
+		if tn, ok := EntityTypeName(e.Type); ok {
+			motionGate = trackDeltaTypes[tn]
+		}
+	}
 	if !e.SentMotionSet {
 		e.SentMotionSet = true
 		e.SentMotionX, e.SentMotionY, e.SentMotionZ = e.MotionX, e.MotionY, e.MotionZ
-	} else {
+	} else if motionGate {
 		dx, dy, dz := e.MotionX-e.SentMotionX, e.MotionY-e.SentMotionY, e.MotionZ-e.SentMotionZ
 		drift := dx*dx + dy*dy + dz*dz
 		curLen := e.MotionX*e.MotionX + e.MotionY*e.MotionY + e.MotionZ*e.MotionZ

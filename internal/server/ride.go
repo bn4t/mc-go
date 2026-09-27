@@ -1156,14 +1156,17 @@ func (s *Server) minecartPushPickup(ep *Entity, name string) {
 		}
 		dx, dz = dx*inv*0.05, dz*inv*0.05
 		// push(DDD) lands on deltaMovement only — the position moves
-		// when each side's own move() integrates it next tick.
+		// when each side's own move() integrates it next tick — and
+		// flags needsSync on both sides so the velocity emits now.
 		if op, ok := s.entities.GetPtr(o.ID); ok && len(op.Passengers) == 0 {
 			op.MotionX -= dx
 			op.MotionZ -= dz
+			op.PosDirty = true
 		}
 		if len(ep.Passengers) == 0 {
 			ep.MotionX += dx
 			ep.MotionZ += dz
+			ep.PosDirty = true
 		}
 	}
 	if moving {

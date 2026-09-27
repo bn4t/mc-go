@@ -597,9 +597,11 @@ func (s *Server) mobPushStep(e *Entity) {
 			if op, ok := s.entities.GetPtr(o.ID); ok {
 				op.MotionX -= px
 				op.MotionZ -= pz
+				op.PosDirty = true
 			}
 			e.MotionX += px / 4
 			e.MotionZ += pz / 4
+			e.PosDirty = true
 			continue
 		}
 		dx, dz := o.X-e.X, o.Z-e.Z
@@ -622,6 +624,8 @@ func (s *Server) mobPushStep(e *Entity) {
 		if len(e.Passengers) == 0 {
 			e.MotionX -= dx
 			e.MotionZ -= dz
+			// Entity.push flags needsSync on the pushed side.
+			e.PosDirty = true
 		}
 		if len(o.Passengers) == 0 {
 			// All() hands out copies — the neighbour's half of the
@@ -629,6 +633,7 @@ func (s *Server) mobPushStep(e *Entity) {
 			if op, ok := s.entities.GetPtr(o.ID); ok {
 				op.MotionX += dx
 				op.MotionZ += dz
+				op.PosDirty = true
 			}
 		}
 	}

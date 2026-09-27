@@ -109,9 +109,9 @@ func (s *Server) restoreEntities(d *dimension) {
 		s.applyEntitySave(e, save)
 		// The merge left a dirty pack queued as if a /data edit had
 		// landed; a loaded entity has no prior client state, so the
-		// tracker-attach burst alone describes it.
+		// tracker-attach burst alone describes it. PosDirty survives:
+		// Entity.load's needsSync re-emits stored Motion once.
 		e.dataSync = nil
 		e.MetaDirty = false
-		e.PosDirty = false
 	}
 }

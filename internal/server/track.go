@@ -237,6 +237,16 @@ func (s *Server) trackRangeBlocks(e *Entity) float64 {
 	return r
 }
 
+// trackDeltaTypes is EntityType.trackDeltas' hardcoded set — the ten
+// types whose ServerEntity always runs the motion-emit branch inside
+// sendChanges (needsSync||trackDelta||fallFlying). Every other type
+// emits set_entity_motion only when needsSync (PosDirty) is flagged.
+var trackDeltaTypes = map[string]bool{
+	"player": true, "llama_spit": true, "wither": true, "bat": true,
+	"item_frame": true, "glow_item_frame": true, "leash_knot": true,
+	"painting": true, "end_crystal": true, "evoker_fangs": true,
+}
+
 // entitySyncInterval is trackSpec's second column — vanilla's
 // ServerEntity.updateInterval, the sendChanges cadence per entity
 // type. Displays tick every tick, mobs every 3, projectiles every 10,
