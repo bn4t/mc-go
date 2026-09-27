@@ -55,7 +55,7 @@ func (s *Server) resolveSingleEntity(sender *Session, tok string, tokIdx int) (*
 		r := componentReply(commandError("argument.entity.notfound.entity"))
 		return nil, &r
 	}
-	targets, rep := s.selectDataEntities(sender, tok, tokIdx, true)
+	targets, rep := s.selectDataEntities(sender, tok, tokIdx, true, nil)
 	if rep != nil {
 		return nil, rep
 	}
@@ -414,7 +414,7 @@ func (s *Server) runSpreadPlayers(player string, args []string) reply {
 	if len(tok) == 0 || (tok[0] != '@' && s.findSessionByName(tok) == nil) {
 		return componentReply(commandError("argument.entity.notfound.entity"))
 	}
-	targets, rep := s.selectDataEntities(sender, tok, 6, false)
+	targets, rep := s.selectDataEntities(sender, tok, 6, false, nil)
 	if rep != nil {
 		return *rep
 	}

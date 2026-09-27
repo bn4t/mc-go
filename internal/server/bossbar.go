@@ -344,7 +344,7 @@ func (s *Server) runBossbarSet(sender *Session, args []string) reply {
 		want := map[*Session]bool{}
 		if len(args) == 4 {
 			if args[3][0] == '@' {
-				targets, rep := s.selectDataEntities(sender, args[3], 4, false)
+				targets, rep := s.selectDataEntities(sender, args[3], 4, false, nil)
 				if rep != nil {
 					return *rep
 				}

@@ -1422,7 +1422,9 @@ func (s *Server) runSummon(player string, args []string) reply {
 				e.CanJoinRaid = true
 			}
 		}
-		s.broadcastFreshMob(e)
+		if !e.Dormant {
+			s.broadcastFreshMob(e)
+		}
 		// Leashable.restoreLeashFromSave: a 3-int array is the knot's
 		// block pos (the knot is created when absent), a 4-int array the
 		// holder's UUID int-array. Only Leashable entities carry the
@@ -1722,6 +1724,23 @@ func (s *Server) summonMob(d *dimension, name string, x, y, z float64, noAI bool
 }
 
 func (s *Server) summonMobInit(d *dimension, name string, x, y, z float64, noAI, init bool) (*Entity, bool) {
+	e, ok := s.summonMobInitSpawn(d, name, x, y, z, noAI, init)
+	if !ok {
+		return nil, false
+	}
+	// Vanilla parks an entity spawned into a dimension holding no
+	// players: its chunk never tickets, so it sits dormant —
+	// invisible to @e selectors and the tracker — until a player
+	// arrives (measured: `execute in nether run summon` produces an
+	// entity no selector can read).
+	e.Dormant = s.shouldPark(d.name)
+	if !e.Dormant {
+		s.broadcastFreshMob(e)
+	}
+	return e, true
+}
+
+func (s *Server) summonMobInitSpawn(d *dimension, name string, x, y, z float64, noAI, init bool) (*Entity, bool) {
 	id, ok := EntityTypeID(name)
 	if !ok {
 		return nil, false
@@ -1751,7 +1770,6 @@ func (s *Server) summonMobInit(d *dimension, name string, x, y, z float64, noAI,
 		Pumpkin:   name == "snow_golem",
 	})
 	summonAttrTouches(e, name, init)
-	s.broadcastFreshMob(e)
 	return e, true
 }
 
@@ -1766,6 +1784,18 @@ var summonHealthDefault = map[string]bool{
 // summon NBT first so the tracker-attach burst carries the final
 // metadata and equipment. summonMob stays for callers with no NBT.
 func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, init bool) (*Entity, bool) {
+	e, ok := s.summonMobRawSpawn(d, name, x, y, z, noAI, init)
+	if !ok {
+		return nil, false
+	}
+	// A summon landing in a player-less dimension parks like vanilla's
+	// unloaded-chunk entity: `execute in nether run summon` creates a
+	// mob no selector resolves until someone travels there.
+	e.Dormant = s.shouldPark(d.name)
+	return e, true
+}
+
+func (s *Server) summonMobRawSpawn(d *dimension, name string, x, y, z float64, noAI, init bool) (*Entity, bool) {
 	id, ok := EntityTypeID(name)
 	if !ok {
 		return nil, false
@@ -2099,6 +2129,11 @@ func (s *Server) mobRemovedPassengerCleanup(e *Entity) {
 // detectEquipmentUpdates tick resends the whole set — EquipDirty
 // replays that second burst on the next mob tick.
 func (s *Server) broadcastFreshMob(e *Entity) {
+	if e.Dormant {
+		// Parked in an unticketed chunk — nothing tracks it, so the
+		// attach burst has no destination.
+		return
+	}
 	if cn, ok := EntityTypeName(e.Type); ok && cn == "marker" {
 		// Marker is a server-side-only entity — vanilla sends the
 		// client no spawn or metadata packet for it.
@@ -2720,7 +2755,9 @@ func (s *Server) mobTickStep() {
 		// Entities outside a non-spectator's simulation-distance chunk
 		// window are never ticked on vanilla — gravity, fire, the
 		// invulnerability countdown and the death linger all pause.
-		if !s.mobInSimulationRange(e) {
+		// A dormant entity is parked in an unticketed chunk and never
+		// ticks either, even when no player gates the range check.
+		if e.Dormant || !s.mobInSimulationRange(e) {
 			continue
 		}
 		// Mob.checkDespawn, ticking order matched to serverAiStep:
@@ -5069,6 +5106,8 @@ func (s *Server) mobConvert(e *Entity, targetName string, levelEvent int32) *Ent
 	ne.FallFlying = e.FallFlying
 	ne.HurtTime = e.HurtTime
 	ne.PortalCooldown = e.PortalCooldown
+	// A parked entity converts parked — its chunk stays unticketed.
+	ne.Dormant = e.Dormant
 	// setAbsorptionAmount clamps to the max_absorption attribute —
 	// base 0 on every mob — so a merged absorption never survives
 	// the convert even though convertCommon calls the setter.

@@ -324,6 +324,11 @@ type Session struct {
 	// dim is the player's current dimension; set on play entry and by
 	// dimension changes. nil means the overworld.
 	dim atomic.Pointer[dimension]
+	// dimSwapPrev is the dimension the session really stands in while
+	// an execute `in` fork has dim swapped to the forked level —
+	// chunk-ticketing checks (dimHasLiveSession) read the real one.
+	dimSwapPrev  atomic.Pointer[dimension]
+	dimSwapDepth atomic.Int32
 	// Portal state: consecutive ticks standing in a nether portal and
 	// the post-travel re-entry cooldown.
 	portalTicks         int

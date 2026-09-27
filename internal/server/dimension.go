@@ -301,11 +301,102 @@ func (s *Server) changeDimension(sess *Session, dst *dimension, x, y, z float64,
 	s.sendCenterChunk(sess, scx, scz)
 	_ = s.sendWindow(sess, scx, scz)
 
+	// Entities parked here wake: a traveler's presence tickets the
+	// dimension's chunks, activating anything addDuringTeleport or a
+	// cross-dim summon had parked (measured: a pig tp'd into an
+	// empty nether sits dormant until a player arrives).
+	s.wakeDormant(dst.name)
+	// And the dimension they left unloads with them: everything still
+	// live there goes dormant again (vanilla's chunk unload).
+	s.reparkDim(from)
+
 	// New-dimension entities (players and mobs) spawn for the
 	// traveler; the traveler spawns for them.
 	_ = s.sendEntitySpawnsTo(sess)
 	if e, ok := playerEntity(sess); ok {
 		s.broadcastEntitySpawnIn(dst.name, sess, e)
+	}
+}
+
+// dimHasLiveSession reports whether any non-spectator play session
+// stands in the named dimension — the proxy for "the dimension's
+// chunks are ticketed" used by dormant-entity rules.
+func (s *Server) dimHasLiveSession(dim string) bool {
+	has := false
+	s.sessions.Range(func(_, v any) bool {
+		p := v.(*Session)
+		if p.state.Load() == StatePlay && p.mode() != GameModeSpectator {
+			name := p.dimName()
+			if prev := p.dimSwapPrev.Load(); prev != nil {
+				// Inside an execute `in` fork dim reads as the forked
+				// level — the player's chunks still ticket its real
+				// dimension, so presence counts there, not here.
+				name = prev.name
+			}
+			if name == dim {
+				has = true
+				return false
+			}
+		}
+		return true
+	})
+	return has
+}
+
+// anyLiveSession reports whether any non-spectator play session
+// exists anywhere on the server. Vanilla keeps an entity ticking in a
+// chunk that is ticketed by something — the spawn chunks stay loaded
+// even on an empty server — so an entity only parks when someone is
+// online but NOT in its dimension: a mob spawned into a session-less
+// world behaves like one inside the always-ticketed spawn chunks.
+func (s *Server) anyLiveSession() bool {
+	has := false
+	s.sessions.Range(func(_, v any) bool {
+		p := v.(*Session)
+		if p.state.Load() == StatePlay && p.mode() != GameModeSpectator {
+			has = true
+			return false
+		}
+		return true
+	})
+	return has
+}
+
+// shouldPark reports whether an entity landing in dim parks dormant:
+// vanilla's unloaded-chunk semantics — someone is online, just not in
+// this dimension, so nothing tickets the chunk.
+func (s *Server) shouldPark(dim string) bool {
+	return s.anyLiveSession() && !s.dimHasLiveSession(dim)
+}
+
+// reparkDim returns an emptied dimension's live entities to dormant —
+// the last player leaving unloads the dimension's chunks on vanilla,
+// parking everything in them again.
+func (s *Server) reparkDim(dim string) {
+	if !s.shouldPark(dim) {
+		return
+	}
+	for _, e := range s.entities.All() {
+		if e.Dormant || e.Dying || e.Dim != dim {
+			continue
+		}
+		if ptr, ok := s.entities.GetPtr(e.ID); ok {
+			ptr.Dormant = true
+		}
+	}
+}
+
+// wakeDormant activates every entity parked in the named dimension —
+// the way a player's arrival tickets the chunk vanilla had parked it
+// in. All() snapshots copies, so the flag writes through GetPtr.
+func (s *Server) wakeDormant(dim string) {
+	for _, e := range s.entities.All() {
+		if !e.Dormant || e.Dim != dim {
+			continue
+		}
+		if ptr, ok := s.entities.GetPtr(e.ID); ok {
+			ptr.Dormant = false
+		}
 	}
 }
 

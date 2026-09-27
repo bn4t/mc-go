@@ -255,7 +255,7 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 					count, counted = 1, true
 				}
 			} else {
-				cands, serr := s.selectDataEntities(s.findSessionByName(player), args[1], tokBase+1, false)
+				cands, serr := s.selectDataEntities(s.findSessionByName(player), args[1], tokBase+1, false, ctx.dim)
 				if serr != nil {
 					return 0, false, 0, false, serr
 				}
@@ -510,7 +510,7 @@ func (s *Server) executeIfItems(ctx *executeContext, player string, args []strin
 					}
 				}
 			} else {
-				cands, serr := s.selectDataEntities(sess, args[2], tokBase+2, false)
+				cands, serr := s.selectDataEntities(sess, args[2], tokBase+2, false, ctx.dim)
 				if serr != nil {
 					return 0, false, serr
 				}
@@ -828,7 +828,7 @@ func (s *Server) executeIfData(ctx *executeContext, player string, args []string
 	case "entity":
 		next = 3
 		if ctx.alive {
-			cands, serr := s.selectDataEntities(sess, args[2], tokBase+2, true)
+			cands, serr := s.selectDataEntities(sess, args[2], tokBase+2, true, ctx.dim)
 			if serr != nil {
 				return 0, false, serr
 			}
@@ -974,7 +974,7 @@ func (s *Server) scoreHolderName(sender, tok string) string {
 	if tok[0] != '@' {
 		return tok
 	}
-	cands, _ := s.selectDataEntities(s.findSessionByName(sender), tok, 0, true)
+	cands, _ := s.selectDataEntities(s.findSessionByName(sender), tok, 0, true, nil)
 	if len(cands) == 0 {
 		return ""
 	}
@@ -1056,7 +1056,15 @@ func (s *Server) runInDimension(player string, d *dimension, sub []string) reply
 	if sess != nil && d != nil {
 		prev := sess.dimension()
 		sess.dim.Store(d)
-		defer sess.dim.Store(prev)
+		if sess.dimSwapDepth.Add(1) == 1 {
+			sess.dimSwapPrev.Store(prev)
+		}
+		defer func() {
+			sess.dim.Store(prev)
+			if sess.dimSwapDepth.Add(-1) == 0 {
+				sess.dimSwapPrev.Store(nil)
+			}
+		}()
 	}
 	if r, ok := s.runCommand(player, sub[0], sub[1:]); ok {
 		return r
@@ -1526,7 +1534,7 @@ func (s *Server) executeStore(ctx *executeContext, player string, args []string,
 		}
 		next = n
 		write = func(v int64) {
-			cands, serr := s.selectDataEntities(s.findSessionByName(player), sel, tokBase+2, true)
+			cands, serr := s.selectDataEntities(s.findSessionByName(player), sel, tokBase+2, true, ctx.dim)
 			if serr != nil || len(cands) == 0 || cands[0].sess != nil {
 				return // players are unwritable; no match stores nothing
 			}
@@ -1707,7 +1715,7 @@ func (s *Server) executeFork(ctx *executeContext, player, kind string, args []st
 		}
 	} else {
 		var serr *reply
-		cands, serr = s.selectDataEntities(sess, args[0], tokBase, false)
+		cands, serr = s.selectDataEntities(sess, args[0], tokBase, false, ctx.dim)
 		if serr != nil {
 			return *serr
 		}
@@ -1788,7 +1796,7 @@ func (s *Server) executePositioned(ctx *executeContext, player string, args []st
 			return errToken("command.unknown.argument", tokBase+1)
 		}
 		sess := s.findSessionByName(player)
-		cands, serr := s.selectDataEntities(sess, args[1], tokBase+1, false)
+		cands, serr := s.selectDataEntities(sess, args[1], tokBase+1, false, ctx.dim)
 		if serr != nil {
 			return *serr
 		}
@@ -1878,7 +1886,7 @@ func (s *Server) forkOver(ctx *executeContext, player string, args []string, tok
 		return errToken("command.unknown.argument", tokBase)
 	}
 	sess := s.findSessionByName(player)
-	cands, serr := s.selectDataEntities(sess, args[0], tokBase, false)
+	cands, serr := s.selectDataEntities(sess, args[0], tokBase, false, ctx.dim)
 	if serr != nil {
 		return *serr
 	}

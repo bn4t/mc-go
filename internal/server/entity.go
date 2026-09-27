@@ -494,6 +494,14 @@ type Entity struct {
 	// deathTime window) before the death-poof event and removal.
 	Dying      bool
 	deathTicks int32
+	// Dormant marks an entity parked the way vanilla parks one whose
+	// chunk never loads: a mob teleported or summoned into a
+	// dimension holding no players. It exists, keeps its fields, and
+	// persists — but it is invisible to @e selectors, never spawns
+	// to a session, and never ticks. It wakes when a session enters
+	// its dimension, the way vanilla's entity activates once a player
+	// tickets its chunk.
+	Dormant bool
 	// WanderTicks counts AI steps; the wander angle derives from it so
 	// movement is deterministic for tests. Strolling/StrollTX/StrollTZ
 	// model vanilla's RandomStrollGoal: idle ~interval ticks between
@@ -1212,7 +1220,7 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 	s.entities.mu.RLock()
 	ents := make([]Entity, 0, len(s.entities.byID))
 	for _, e := range s.entities.byID {
-		if e.Dim != dim || e.Dying || e.Type == playerType {
+		if e.Dim != dim || e.Dying || e.Dormant || e.Type == playerType {
 			continue
 		}
 		ents = append(ents, *e)

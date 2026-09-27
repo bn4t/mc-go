@@ -327,7 +327,9 @@ func (s *Server) pairable(sess *Session, e *Entity) bool {
 	if sess.entityID.Load() == e.ID {
 		return false // updatePlayer early-outs on player == entity
 	}
-	if e.Dying || e.Dim != sess.dimName() {
+	// A dormant entity is parked in an unticketed chunk — vanilla
+	// keeps it out of the tracker until its chunk loads.
+	if e.Dying || e.Dormant || e.Dim != sess.dimName() {
 		return false
 	}
 	px, _, pz, _, _, _ := sess.Pos()

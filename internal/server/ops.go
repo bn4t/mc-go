@@ -307,7 +307,7 @@ func tpFloatToken(tok string) bool {
 // machinery for @-forms, name/UUID lookups otherwise.
 func (s *Server) tpResolveVictims(sender *Session, tok string, tokIdx int) ([]*dataEntity, *reply) {
 	if len(tok) > 0 && tok[0] == '@' {
-		ds, serr := s.selectDataEntities(sender, tok, tokIdx, false)
+		ds, serr := s.selectDataEntities(sender, tok, tokIdx, false, nil)
 		if serr != nil {
 			return nil, serr
 		}
@@ -347,7 +347,7 @@ func (s *Server) sessionUUIDs(tok string) []*Session {
 // tpResolveDest resolves a single-entity destination argument.
 func (s *Server) tpResolveDest(sender *Session, tok string, tokIdx int) (*dataEntity, *reply) {
 	if len(tok) > 0 && tok[0] == '@' {
-		ds, serr := s.selectDataEntities(sender, tok, tokIdx, true)
+		ds, serr := s.selectDataEntities(sender, tok, tokIdx, true, nil)
 		if serr != nil {
 			return nil, serr
 		}
@@ -388,8 +388,17 @@ func (s *Server) tpToEntity(player, victimsTok, destTok string) reply {
 		return *r
 	}
 	dx, dy, dz, _, _ := dest.posRot()
+	// A tp-to-entity crosses dimensions when the destination entity
+	// stands in another one — vanilla resolves targetLevel off the
+	// destination, not the source.
+	tdim := ""
+	if dest.sess != nil {
+		tdim = dest.sess.dimName()
+	} else if dest.mob != nil {
+		tdim = dest.mob.Dim
+	}
 	for _, v := range victims {
-		s.tpMove(v, dx, dy, dz, nil)
+		s.tpMove(v, dx, dy, dz, nil, tdim)
 	}
 	if len(victims) == 1 {
 		return s.tpReply(player, translatable("commands.teleport.success.entity.single",
@@ -448,8 +457,15 @@ func (s *Server) tpToPos(player, victimsTok string, coords, rot []string) reply 
 			return tpWrapDeg(yaw), tpWrapDeg(pitch)
 		}
 	}
+	// teleportTo resolves its target level off the command source —
+	// under `execute in <dim>` that is the forked dimension (the
+	// issuer's swapped dim), not each victim's own.
+	tdim := ""
+	if issuer != nil {
+		tdim = issuer.dimName()
+	}
 	for _, vic := range victims {
-		s.tpMove(vic, x, y, z, rotFn)
+		s.tpMove(vic, x, y, z, rotFn, tdim)
 	}
 	sx, sy, sz := tpCoords(x, y, z)
 	xcomp := nestedCompound{key: "", value: sx}
@@ -507,9 +523,10 @@ func tpResolveCoords(toks []string, bx, by, bz float64, issuer *Session) (x, y, 
 }
 
 // tpMove applies a resolved teleport to one entity: sessions go
-// through the player teleport path, mobs move and broadcast.
+// through the player teleport path, mobs move and broadcast. tdim is
+// the teleport's target level — the execute context's dimension.
 func (s *Server) tpMove(v *dataEntity, x, y, z float64,
-	rotFn func(vyaw, vpitch float32) (float32, float32),
+	rotFn func(vyaw, vpitch float32) (float32, float32), tdim string,
 ) {
 	var yaw, pitch float32
 	if v.sess != nil {
@@ -525,6 +542,10 @@ func (s *Server) tpMove(v *dataEntity, x, y, z float64,
 		return
 	}
 	e := v.mob
+	if tdim != "" && tdim != e.Dim {
+		s.tpCrossDimension(e, tdim, x, y, z, yaw, pitch)
+		return
+	}
 	e.X, e.Y, e.Z, e.Yaw, e.Pitch = x, y, z, yaw, pitch
 	// Vanilla's teleportSetPosition just repositions — the tracker
 	// emits entity_position_sync on the next sendChanges (its
@@ -533,6 +554,29 @@ func (s *Server) tpMove(v *dataEntity, x, y, z float64,
 	e.teleportDelay = 401
 	e.PosDirty = true
 	e.NeedsSync = true
+}
+
+// tpCrossDimension is Entity.teleportCrossDimension: the entity leaves
+// its level for the target dimension — passengers eject, the entity
+// despawns for the old dimension's trackers and respawns for the new
+// one's. When the destination holds no players the entity parks
+// dormant the way vanilla's addDuringTeleport parks it inside an
+// unticketed chunk: it exists, it persists, but no selector reaches it
+// until a player tickets the chunk (measured: a pig tp'd into an empty
+// nether is gone from @e in every dimension).
+func (s *Server) tpCrossDimension(e *Entity, tdim string, x, y, z float64, yaw, pitch float32) {
+	oldDim := e.Dim
+	// ejectPassengers + each passenger's own calculatePassenger
+	// Transition: riders hop too on vanilla, but the measurement
+	// surface only pins the unmounted base case — eject at the seat.
+	s.mobRemovedPassengerCleanup(e)
+	e.Dim = tdim
+	e.X, e.Y, e.Z, e.Yaw, e.Pitch = x, y, z, yaw, pitch
+	e.Dormant = s.shouldPark(tdim)
+	s.broadcastEntityRemoveIn(oldDim, nil, []int32{e.ID})
+	if !e.Dormant {
+		s.broadcastEntitySpawnIn(tdim, nil, *e)
+	}
 }
 
 func tpWrapDeg(f float32) float32 {

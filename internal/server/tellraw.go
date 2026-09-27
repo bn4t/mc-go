@@ -48,7 +48,7 @@ func (s *Server) playerTargets(player string, args []string, tokIdx int) ([]*Ses
 		r := errToken("argument.player.entities", 0)
 		return nil, &r
 	}
-	cands, rep := s.selectDataEntities(s.findSessionByName(player), args[0], tokIdx, false)
+	cands, rep := s.selectDataEntities(s.findSessionByName(player), args[0], tokIdx, false, nil)
 	if rep != nil {
 		return nil, rep
 	}
@@ -126,7 +126,7 @@ func (s *Server) resolveComp(v any, sender *Session) any {
 // the entity-name wire form vanilla sends — the decorated name for a
 // match, an empty string for none, comma-siblings for many.
 func (s *Server) selectorComponent(sender *Session, sel string) any {
-	cands, rep := s.selectDataEntities(sender, sel, 0, false)
+	cands, rep := s.selectDataEntities(sender, sel, 0, false, nil)
 	if rep != nil || len(cands) == 0 {
 		return ""
 	}

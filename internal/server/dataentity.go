@@ -1542,7 +1542,7 @@ func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 // selectors or a player name — into the single entity it names.
 func (s *Server) resolveDataEntity(player, tok string, tokIdx int) (*dataEntity, *reply) {
 	sender := s.findSessionByName(player)
-	cands, rep := s.selectDataEntities(sender, tok, tokIdx, true)
+	cands, rep := s.selectDataEntities(sender, tok, tokIdx, true, nil)
 	if rep != nil {
 		return nil, rep
 	}
@@ -1586,6 +1586,12 @@ type selectorSpec struct {
 	hasPos     bool
 	dx, dy, dz float64
 	hasVol     bool
+	// worldLimited mirrors EntitySelector.worldLimited: set once any
+	// of x/y/z/dx/dy/dz/distance parse. A world-limited selector
+	// searches only the source's level (the execute-fork `in`
+	// dimension); a free selector searches every level on the
+	// server — an `in <dim>` fork never narrows it.
+	worldLimited bool
 }
 
 // selTerm is a value with a leading-! negation flag.
@@ -1886,6 +1892,7 @@ func parseSelector(tok string, tokIdx int) (selectorSpec, *reply) {
 				return bad("argument.entity.options.distance.negative", voff)
 			}
 			spec.dist = &r
+			spec.worldLimited = true
 		case "level":
 			if r := markSingle(); r != nil {
 				return selectorSpec{}, r
@@ -1939,6 +1946,7 @@ func parseSelector(tok string, tokIdx int) (selectorSpec, *reply) {
 			} else {
 				spec.hasPos = true
 			}
+			spec.worldLimited = true
 		case "name":
 			if r := markSingle(); r != nil {
 				return selectorSpec{}, r
@@ -2111,8 +2119,10 @@ func splitKV(body string) []string {
 
 // selectDataEntities gathers the entities a selector names: sessions
 // plus dimension entities filtered by the spec. Players carry type
-// minecraft:player for @e.
-func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, single bool) ([]*dataEntity, *reply) {
+// minecraft:player for @e. srcDim is the command source's level — the
+// level a world-limited selector scopes to — and defaults to the
+// sender's current dimension when nil.
+func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, single bool, srcDim *dimension) ([]*dataEntity, *reply) {
 	if len(tok) == 0 || tok[0] != '@' {
 		if sess := s.findSessionByName(tok); sess != nil {
 			return []*dataEntity{{sess: sess}}, nil
@@ -2179,7 +2189,9 @@ func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, sin
 		az = spec.z
 	}
 	dim := ""
-	if sender != nil {
+	if srcDim != nil {
+		dim = srcDim.name
+	} else if sender != nil {
 		dim = sender.dimName()
 	}
 	var cands []*dataEntity
@@ -2193,24 +2205,37 @@ func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, sin
 	case 'a', 'p', 'r', 'e', 'n':
 		s.sessions.Range(func(_, v any) bool {
 			sess := v.(*Session)
-			if sess.state.Load() == StatePlay && sess.dimName() == dim {
-				// @e/@n run the entity list, which drops dead players;
-				// @a/@p/@r walk the player list that still holds them.
-				if (spec.variable == 'e' || spec.variable == 'n') && sess.dead {
-					return true
-				}
-				addSess(sess)
+			if sess.state.Load() != StatePlay {
+				return true
 			}
+			// A world-limited selector (x/y/z/dx/dy/dz/distance given)
+			// searches only the source's level; a free selector walks
+			// the whole player list like vanilla's findPlayers does.
+			if spec.worldLimited && sess.dimName() != dim {
+				return true
+			}
+			// @e/@n run the entity list, which drops dead players;
+			// @a/@p/@r walk the player list that still holds them.
+			if (spec.variable == 'e' || spec.variable == 'n') && sess.dead {
+				return true
+			}
+			addSess(sess)
 			return true
 		})
 	}
 	if spec.variable == 'e' || spec.variable == 'n' {
 		var mobs []*dataEntity
 		for _, e := range s.entities.All() {
-			if e.Dim != dim || e.Dying {
-				// Vanilla's selector never returns a dying-but-unremoved
-				// corpse: measured on 26.2 — a dead pig's @e pick went
-				// empty while the corpse still ticked its 20-tick window.
+			// Vanilla's selector never returns a dying-but-unremoved
+			// corpse: measured on 26.2 — a dead pig's @e pick went
+			// empty while the corpse still ticked its 20-tick window.
+			// A dormant entity — teleported or summoned into a
+			// dimension holding no players — is parked with its chunk
+			// and invisible to every selector until it wakes.
+			if e.Dying || e.Dormant {
+				continue
+			}
+			if spec.worldLimited && e.Dim != dim {
 				continue
 			}
 			if n, _ := EntityTypeName(e.Type); n == "player" {

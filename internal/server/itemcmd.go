@@ -620,7 +620,7 @@ func (s *Server) runItemModify(player string, args []string) reply {
 		if len(args) < 4 {
 			return errTokenEnd("command.unknown.command", len(args))
 		}
-		tg, rep := s.selectDataEntities(s.findSessionByName(player), args[2], 2, false)
+		tg, rep := s.selectDataEntities(s.findSessionByName(player), args[2], 2, false, nil)
 		if rep != nil {
 			return *rep
 		}
@@ -976,7 +976,7 @@ func (s *Server) parseItemSource(player string, args []string, at int) (itemSour
 		if len(args) < at+3 {
 			return src, 0, errTokenEnd("command.unknown.command", len(args)), false
 		}
-		tg, rep := s.selectDataEntities(s.findSessionByName(player), args[at+1], at+1, true)
+		tg, rep := s.selectDataEntities(s.findSessionByName(player), args[at+1], at+1, true, nil)
 		if rep != nil {
 			return src, 0, *rep, false
 		}
@@ -1047,7 +1047,7 @@ func (s *Server) runItemReplace(player string, args []string) reply {
 		return errTokenEnd("command.unknown.command", len(args))
 	}
 	sender := s.findSessionByName(player)
-	targets, rep := s.selectDataEntities(sender, args[2], 2, false)
+	targets, rep := s.selectDataEntities(sender, args[2], 2, false, nil)
 	if rep != nil {
 		return *rep
 	}

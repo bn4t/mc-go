@@ -94,7 +94,7 @@ func (s *Server) runEnchant(player string, args []string) reply {
 	if len(args) < 2 {
 		return errTokenEnd("command.unknown.command", len(args)+1)
 	}
-	targets, rep := s.selectDataEntities(sender, args[0], 1, false)
+	targets, rep := s.selectDataEntities(sender, args[0], 1, false, nil)
 	if rep != nil {
 		if rep.comp.extra != nil && len(rep.comp.extra) == 1 && rep.comp.extra[0].translate == "argument.entity.notfound.player" {
 			return componentReply(commandError("argument.entity.notfound.entity"))

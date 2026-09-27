@@ -19,7 +19,7 @@ func (s *Server) runTag(player string, args []string) reply {
 	var targets []*dataEntity
 	if len(args[0]) > 0 && args[0][0] == '@' {
 		var rep *reply
-		targets, rep = s.selectDataEntities(sender, args[0], 1, false)
+		targets, rep = s.selectDataEntities(sender, args[0], 1, false, nil)
 		if rep != nil {
 			return *rep
 		}

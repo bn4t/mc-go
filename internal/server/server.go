@@ -537,6 +537,10 @@ func (s *Server) untrack(sess *Session) {
 			s.broadcastEntityRemoveIn(sess.dimName(), nil, []int32{eid})
 		}
 	}
+	// If they were the last one standing in that dimension, its chunks
+	// unload: everything still live there parks dormant until someone
+	// returns (vanilla's chunk unload on the entity side).
+	s.reparkDim(sess.dimName())
 	// Persist the leaving player's state so a reconnect resumes it —
 	// in memory always, to disk when a data path is configured. A
 	// vanilla-layout world writes the player's .dat here, the same file

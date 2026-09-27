@@ -217,7 +217,7 @@ func (s *Server) resolveHoldersPlural(sender *Session, tok string, tokIdx int) (
 		return out, nil
 	}
 	if len(tok) > 0 && tok[0] == '@' {
-		cands, rep := s.selectDataEntities(sender, tok, tokIdx, false)
+		cands, rep := s.selectDataEntities(sender, tok, tokIdx, false, nil)
 		if rep != nil {
 			return nil, rep
 		}
@@ -270,7 +270,7 @@ func (s *Server) resolveHolderSingle(sender *Session, tok string, tokIdx int) (s
 			r := errTokenEnd("argument.entity.toomany", tokIdx)
 			return sbHolder{}, &r
 		}
-		cands, rep := s.selectDataEntities(sender, tok, tokIdx, false)
+		cands, rep := s.selectDataEntities(sender, tok, tokIdx, false, nil)
 		if rep != nil {
 			return sbHolder{}, rep
 		}

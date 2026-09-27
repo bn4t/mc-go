@@ -9590,3 +9590,56 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   `data get entity @s` inside `execute at` reads the sender — the
   anchor's own data needs a separate `@e`-first form, same as
   vanilla.
+
+## Slice 2026-09-27b — cross-dim entity semantics (parked entities, worldLimited, all-dims @e)
+
+- **Gap list**: `execute in <dim>` fork scoping — what happens to an
+  entity teleported or summoned across a dimension boundary, and how
+  far a selector can reach.
+- **Measured** (javap `EntitySelector.findEntities`/`isWorldLimited` +
+  `Entity.teleportCrossDimension` + live probes on 26.2): a selector
+  is **world-limited** only when x/y/z/dx/dy/dz/distance args are
+  given — then it searches only the source's level (the `in`-fork
+  level, NOT the sender's real dim); otherwise `@e` walks EVERY level
+  (`in the_nether` + free `@e[pig]` finds an overworld pig).
+  `teleportCrossDimension` moves the entity to the target level via a
+  parked add (`addDuringTeleport` into an unticketed chunk): the pig
+  is invisible to `@e` in BOTH dimensions — never ticks, never tracks.
+  `execute in <dim> run summon` parks the spawned entity the same way.
+  A player arriving in the destination dimension wakes parked entities
+  (vanilla wakes asynchronously on chunk ticket — a tp'd pig at y=70
+  falls and may die; the visible-wake pin uses the free-@e leg plus a
+  wide fall-column probe).
+- **Implemented**: `Entity.Dormant` marks a parked entity — skipped by
+  all selectors, the tracker (`pairable`), spawn fan-out, and
+  `mobTickStep`; `wakeDormant` clears it (through `GetPtr` — `All()`
+  snapshots copies) on `changeDimension` into the dim; `reparkDim`
+  re-parks a dim's live entities when its last non-spectator leaves
+  (dimension change or disconnect) — vanilla's chunk unload;
+  `shouldPark` = someone online but not in the dim (a session-less
+  world keeps entities live, like vanilla's always-ticketed spawn
+  chunks — unit tests summon into no-session worlds); `dimSwapPrev`/
+  `dimSwapDepth` on Session record the real dim through `in`-fork
+  swaps so `dimHasLiveSession` counts the player's true level — a
+  swapped issuer can't ticket the fork dim; `selectorSpec.worldLimited`
+  set by x/y/z/dx/dy/dz/distance; `selectDataEntities` takes `srcDim`
+  (the chain's `ctx.dim` under execute, sender dim elsewhere) so
+  world-limited selectors scope to the source level and free ones walk
+  every level; `tpToEntity`/`tpToPos` thread the destination level
+  (dest entity's dim / issuer's swapped dim) into `tpMove`, whose mob
+  branch routes through `tpCrossDimension` (ejects passengers, despawn
+  in old dim, respawn in new unless parked); `broadcastFreshMob`
+  no-ops on dormant entities and conversion carries the flag.
+- **Pinned**: `TestDimHopParity` — 9 legs green on both servers:
+  free-@e under `in` resolves cross-dim, world-limited scopes to the
+  fork dim, post-tp invisibility in both dims, summon parks, wake on
+  player arrival.
+- **Surfaced gaps** (unpinned): passengers of a hopping mob eject
+  instead of re-teleporting via `calculatePassengerTransition`; a
+  player reached by `tp @e`-style multi-victim tp doesn't get the
+  cross-dim path (tpNeedsDimHop only covers simple forms); vanilla
+  wake is async chunk-ticketed while mc-go's is instant flag-clear
+  (a prompt world-limited probe can see mc-go's pig before vanilla's);
+  preexisting `TestDataEntityParity` failure confirmed on stock master
+  (extra set_entity_data flush on `data modify` + chat/packet order on
+  `kill` multi — separate slice needed).

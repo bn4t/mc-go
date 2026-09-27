@@ -827,7 +827,7 @@ func (s *Server) runSwing(player string, args []string) reply {
 			targets = []*dataEntity{{sess: sess}}
 		}
 	} else {
-		ts, rep := s.selectDataEntities(sess, args[0], 1, false)
+		ts, rep := s.selectDataEntities(sess, args[0], 1, false, nil)
 		if rep != nil {
 			if rep.comp.extra != nil && len(rep.comp.extra) == 1 &&
 				rep.comp.extra[0].translate == "argument.entity.notfound.player" {

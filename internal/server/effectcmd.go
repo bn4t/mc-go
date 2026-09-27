@@ -42,7 +42,7 @@ func (s *Server) runEffectGive(player string, args []string) reply {
 		return errTokenEnd("command.unknown.command", len(args))
 	}
 	sender := s.findSessionByName(player)
-	targets, rep := s.selectDataEntities(sender, args[0], 0, false)
+	targets, rep := s.selectDataEntities(sender, args[0], 0, false, nil)
 	if rep != nil {
 		return *rep
 	}
@@ -138,7 +138,7 @@ func (s *Server) runEffectClear(player string, args []string) reply {
 		}
 	}
 	sender := s.findSessionByName(player)
-	targets, rep := s.selectDataEntities(sender, targetTok, 0, false)
+	targets, rep := s.selectDataEntities(sender, targetTok, 0, false, nil)
 	if rep != nil {
 		return *rep
 	}

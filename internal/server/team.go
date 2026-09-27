@@ -110,7 +110,7 @@ func (s *Server) runTeam(player string, args []string) reply {
 			if len(tok) > 0 && tok[0] == '@' {
 				// Entity selectors join every match under its
 				// scoreboard name — a mob's is its UUID string.
-				cands, rep := s.selectDataEntities(sender, tok, 2, false)
+				cands, rep := s.selectDataEntities(sender, tok, 2, false, nil)
 				if rep != nil {
 					return *rep
 				}
@@ -152,7 +152,7 @@ func (s *Server) runTeam(player string, args []string) reply {
 		var names []string
 		for _, tok := range targets {
 			if len(tok) > 0 && tok[0] == '@' {
-				cands, rep := s.selectDataEntities(sender, tok, 1, false)
+				cands, rep := s.selectDataEntities(sender, tok, 1, false, nil)
 				if rep != nil {
 					return *rep
 				}

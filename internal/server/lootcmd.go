@@ -458,7 +458,7 @@ func (s *Server) lootEntities(sender *Session, tok string, tokIdx int, single bo
 		r := componentReply(commandError("argument.entity.notfound.entity"))
 		return nil, &r
 	}
-	ents, r := s.selectDataEntities(sender, tok, tokIdx, single)
+	ents, r := s.selectDataEntities(sender, tok, tokIdx, single, nil)
 	if r != nil {
 		return nil, r
 	}

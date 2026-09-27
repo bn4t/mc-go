@@ -393,7 +393,7 @@ func (s *Server) runSpectate(player string, args []string) reply {
 		// player-flavoured one.
 		return componentReply(commandError("argument.entity.notfound.entity"))
 	}
-	targets, rep := s.selectDataEntities(sender, args[0], 1, true)
+	targets, rep := s.selectDataEntities(sender, args[0], 1, true, nil)
 	if rep != nil {
 		return *rep
 	}
