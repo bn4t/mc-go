@@ -859,11 +859,19 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	prevSheared := e.Sheared
 	prevPumpkin := e.Pumpkin
 	name, _ := EntityTypeName(e.Type)
+	// attributes:[{id,base,modifiers?}] — AttributeInstance.apply
+	// writes baseValue directly (no clamp, no dirty) and replaces the
+	// permanent modifier set outright; each entry also creates the
+	// instance, so it joins the touched set.
+	applyPackedAttrs(e, save["attributes"])
 	// Tamable reload quirk: vanilla's TamableAnimal.setTame(false)
 	// — run because the merged save carries no Owner — re-asserts
 	// the wild max_health base, undoing any /attribute override
 	// before the Health write clamps against it. A wolf merged with
-	// {Health:100f} ends at 8, not 40, even after base set 40.
+	// {Health:100f} ends at 8, not 40, even after base set 40. This
+	// runs after applyPackedAttrs because vanilla applies the packed
+	// attributes first (LivingEntity.load) and reverts the base in
+	// readAdditionalSaveData.
 	if wild, ok := tamableWildHealth[name]; ok {
 		if save["Owner"] == nil {
 			if e.AttrBase == nil {
@@ -873,11 +881,6 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			e.markAttrDirty("max_health")
 		}
 	}
-	// attributes:[{id,base,modifiers?}] — AttributeInstance.apply
-	// writes baseValue directly (no clamp, no dirty) and replaces the
-	// permanent modifier set outright; each entry also creates the
-	// instance, so it joins the touched set.
-	applyPackedAttrs(e, save["attributes"])
 	if v, ok := nbtFloat(save["Health"]); ok {
 		// setHealth clamps to [0, getMaxHealth] — the attribute's
 		// effective value — so a merged {Health:0f} marks the mob
