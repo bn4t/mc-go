@@ -112,6 +112,12 @@ func (s *Server) rideVehicle(sess *Session, eid int32, sneaking bool) {
 	// first move_vehicle measures its delta from here.
 	veh.VehAnchor = [3]float64{veh.X, veh.Y, veh.Z}
 	sess.riding.Store(eid)
+	// positionRider seats the rider on mount: the server's player pos
+	// is the seat from the first ride tick, so the seat-follow never
+	// counts the mount hop as ridden distance. set_passengers carries
+	// the render — no teleport packet.
+	_, _, _, yaw, pitch, og := sess.Pos()
+	sess.setPos(veh.X, veh.Y+passengerSeatY(veh)-0.6, veh.Z, yaw, pitch, og)
 	s.broadcastSetPassengers(veh)
 	s.fireStartedRiding(sess)
 }
@@ -347,8 +353,9 @@ func (s *Server) rideTickStep(sess *Session) {
 	// The PASSENGER point is the declared passengerAttachments offset
 	// or the AT_HEIGHT fallback (0, h/2, 0). Measured live: a
 	// minecart's declared 0.1875 puts the rider at vehY-0.4125.
-	_, _, _, yaw, pitch, og := sess.Pos()
+	ox, oy, oz, yaw, pitch, og := sess.Pos()
 	sess.setPos(veh.X, veh.Y+passengerSeatY(veh)-0.6, veh.Z, yaw, pitch, og)
+	s.rideMoveStats(sess, veh, veh.X-ox, veh.Y+passengerSeatY(veh)-0.6-oy, veh.Z-oz)
 	if !s.entityInLava(sess, veh) {
 		sess.lavaRideSet = false
 		return
@@ -358,6 +365,55 @@ func (s *Server) rideTickStep(sess *Session) {
 		sess.lavaRidePos = [3]float64{veh.X, veh.Y, veh.Z}
 	}
 	s.fireRideInLava(sess)
+}
+
+// vehicleMoveStat maps a ridden vehicle's type to its *_one_cm
+// stat — vanilla's checkRidingStatistics instanceof chain:
+// AbstractMinecart, AbstractBoat, Pig, AbstractHorse, Strider,
+// HappyGhast, AbstractNautilus; anything else banks nothing.
+func vehicleMoveStat(name string) string {
+	switch {
+	case strings.HasSuffix(name, "minecart"):
+		return "minecart_one_cm"
+	case isBoatEntityName(name):
+		return "boat_one_cm"
+	case name == "pig":
+		return "pig_one_cm"
+	case name == "strider":
+		return "strider_one_cm"
+	case name == "happy_ghast":
+		return "happy_ghast_one_cm"
+	case name == "nautilus" || name == "zombie_nautilus":
+		return "nautilus_one_cm"
+	}
+	switch name {
+	case "horse", "donkey", "mule", "llama", "trader_llama",
+		"camel", "skeleton_horse", "zombie_horse":
+		return "horse_one_cm"
+	}
+	return ""
+}
+
+// rideMoveStats is ServerPlayer.rideTick's checkRidingStatistics: the
+// rider's seat-followed delta banks into the vehicle's own distance
+// stat at full 3D magnitude, and nothing else.
+func (s *Server) rideMoveStats(sess *Session, veh *Entity, dx, dy, dz float64) {
+	if s.GameMode == GameModeSpectator {
+		return
+	}
+	name, ok := EntityTypeName(veh.Type)
+	if !ok {
+		return
+	}
+	stat := vehicleMoveStat(name)
+	if stat == "" {
+		return
+	}
+	cm := int32(math.Round(math.Sqrt(dx*dx+dy*dy+dz*dz) * 100))
+	if cm <= 0 {
+		return
+	}
+	sess.addCustomStat(stat, cm)
 }
 
 // useFoodOnAStick is FoodOnAStickItem.use: while the packet's hand

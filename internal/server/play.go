@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"strings"
 	"time"
 
 	"mc-go/internal/event"
@@ -221,7 +222,7 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 	const border = 29999984.0
 	ids := sess.ids()
 	r := protocol.NewPacketReader(p.Data)
-	ox, oy, oz, yaw, pitch, _ := sess.Pos()
+	ox, oy, oz, yaw, pitch, og := sess.Pos()
 	x, y, z := ox, oy, oz
 	at := time.Now()
 	var flags byte
@@ -281,6 +282,29 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 	if x < -border || x > border || z < -border || z > border || y < -2048 || y > 2048 {
 		return
 	}
+	// A passenger's position is the vehicle's business: vanilla snaps
+	// the packet position back to the current one and only keeps the
+	// rotation (and the grounded flag) — no move handling at all.
+	if sess.riding.Load() != 0 {
+		sess.setPos(ox, oy, oz, yaw, pitch, onGround)
+		if eid := sess.entityID.Load(); eid != 0 {
+			s.entities.Update(eid, ox, oy, oz, yaw, pitch, onGround)
+			s.broadcastEntityTeleport(sess, eid, ox, oy, oz, yaw, pitch, onGround)
+		}
+		return
+	}
+	// Vanilla's "moved wrongly" gate: a position packet whose target
+	// AABB collides with a solid block it didn't already overlap is
+	// rejected — the player is teleported back and none of the move
+	// handling (stats, fall tracking, broadcast) runs.
+	if x != ox || y != oy || z != oz {
+		if s.playerBoxCollides(sess, ox, oy, oz, x, y, z) {
+			if err := s.sendSyncPos(sess, ox, oy, oz); err != nil {
+				return
+			}
+			return
+		}
+	}
 	sess.setPos(x, y, z, yaw, pitch, onGround)
 	// ChunkMap.updatePlayerPos: a position packet re-evaluates the
 	// entity map against this player.
@@ -294,6 +318,13 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 	sess.lastHorizSq = mdx*mdx + mdz*mdz
 	sess.lastDelta = [3]float64{x - ox, y - oy, z - oz}
 	s.awardMoveStats(sess, ox, oy, oz, x, y, z, onGround)
+	// handleMovePlayer's jump check: the server-side onGround flag was
+	// up, the packet reports airborne, and the move rose — that's the
+	// client's jump, so jumpFromGround banks the jump stat. Motion
+	// stays client-driven; only the counter applies.
+	if og && !onGround && y > oy {
+		sess.addCustomStat("jump", 1)
+	}
 	// Sprinting drains hunger by distance travelled.
 	if sess.sprinting && s.GameMode == GameModeSurvival {
 		dx, dz := x-ox, z-oz
@@ -356,35 +387,88 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 }
 
 // awardMoveStats buckets the travelled distance into the *_one_cm
-// counters the way vanilla's checkMovementStatistics does: climbing
-// first, then water, then grounded, then airborne.
+// counters the way vanilla's checkMovementStatistics does. The 26.2
+// branch order measured on the jar: a passenger returns early (its
+// distance lands via checkRidingStatistics), then swimming, eyes
+// under water, feet in water, climbable-up, grounded, fall-flying —
+// and every airborne remainder banks fly_one_cm once the horizontal
+// leg passes 25cm (there is no fall_one_cm anymore).
+//
+// playerBoxCollides approximates vanilla's "moved wrongly" check
+// (noCollision + isEntityCollidingWithAnythingNew): the 0.6×1.8
+// player AABB at the packet's target position is scanned for solid
+// cells that the box at the current position did not already
+// overlap — dipping a toe into already-colliding blocks is
+// tolerated, entering new ones rejects the whole move.
+func (s *Server) playerBoxCollides(sess *Session, ox, oy, oz, nx, ny, nz float64) bool {
+	const half = 0.3
+	overlapsOld := func(bx, by, bz int) bool {
+		return ox+half > float64(bx) && ox-half < float64(bx+1) &&
+			oy+1.8 > float64(by) && oy < float64(by+1) &&
+			oz+half > float64(bz) && oz-half < float64(bz+1)
+	}
+	for bx := int(math.Floor(nx - half)); float64(bx) < nx+half; bx++ {
+		for bz := int(math.Floor(nz - half)); float64(bz) < nz+half; bz++ {
+			for by := int(math.Floor(ny)); float64(by) < ny+1.8; by++ {
+				b := sess.world().GetBlock(world.Pos{X: bx, Y: by, Z: bz})
+				if world.NonSolid(b) || moveNoCollision(b) {
+					continue
+				}
+				if !overlapsOld(bx, by, bz) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// moveNoCollision adds the empty-collision-shape blocks the NonSolid
+// table doesn't cover: fluids, portals, and the attachables a player
+// moves straight through.
+func moveNoCollision(b world.Block) bool {
+	name, ok := world.StateOwner(b)
+	if !ok {
+		return false
+	}
+	switch name {
+	case "water", "lava", "bubble_column", "nether_portal", "end_portal",
+		"end_gateway", "cobweb", "powder_snow", "light", "structure_void":
+		return true
+	}
+	return strings.HasSuffix(name, "_sign") ||
+		strings.HasSuffix(name, "_hanging_sign") ||
+		strings.HasSuffix(name, "_banner") ||
+		strings.HasSuffix(name, "_button") ||
+		strings.HasSuffix(name, "_pressure_plate") ||
+		strings.HasSuffix(name, "_sapling") ||
+		name == "attached_melon_stem" || name == "attached_pumpkin_stem" ||
+		name == "melon_stem" || name == "pumpkin_stem"
+}
+
 func (s *Server) awardMoveStats(sess *Session, ox, oy, oz, x, y, z float64, onGround bool) {
-	if s.GameMode == GameModeSpectator {
+	if s.GameMode == GameModeSpectator || sess.riding.Load() != 0 {
 		return
 	}
 	dx, dy, dz := x-ox, y-oy, z-oz
 	cmXZ := int32(math.Round(math.Sqrt(dx*dx+dz*dz) * 100))
-	cmY := int32(math.Round(math.Abs(dy) * 100))
-	if cmXZ == 0 && cmY == 0 {
+	cm3 := int32(math.Round(math.Sqrt(dx*dx+dy*dy+dz*dz) * 100))
+	if cmXZ == 0 && cm3 == 0 {
 		return
 	}
-	feet := world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}
-	feetName, _ := world.StateOwner(sess.world().GetBlock(feet))
-	belowName, _ := world.StateOwner(sess.world().GetBlock(world.Pos{X: feet.X, Y: feet.Y - 1, Z: feet.Z}))
+	bx, bz := int(math.Floor(x)), int(math.Floor(z))
+	feetName, _ := world.StateOwner(sess.world().GetBlock(world.Pos{X: bx, Y: int(math.Floor(y)), Z: bz}))
+	eyeName, _ := world.StateOwner(sess.world().GetBlock(world.Pos{X: bx, Y: int(math.Floor(y + 1.62)), Z: bz}))
 	switch {
-	case isClimbableBlock(feetName) && dy != 0:
-		sess.addCustomStat("climb_one_cm", cmY)
+	case sess.sprinting && eyeName == "water":
+		sess.addCustomStat("swim_one_cm", cm3)
+	case eyeName == "water":
+		sess.addCustomStat("walk_under_water_one_cm", cm3)
 	case feetName == "water":
-		if onGround {
-			sess.addCustomStat("walk_under_water_one_cm", cmXZ)
-		} else {
-			sess.addCustomStat("swim_one_cm", cmXZ+cmY)
-		}
+		sess.addCustomStat("walk_on_water_one_cm", cmXZ)
+	case isClimbableBlock(feetName) && dy > 0:
+		sess.addCustomStat("climb_one_cm", int32(math.Round(dy*100)))
 	case onGround:
-		if belowName == "water" {
-			sess.addCustomStat("walk_on_water_one_cm", cmXZ)
-			break
-		}
 		switch {
 		case sess.sneaking:
 			sess.addCustomStat("crouch_one_cm", cmXZ)
@@ -393,10 +477,8 @@ func (s *Server) awardMoveStats(sess *Session, ox, oy, oz, x, y, z float64, onGr
 		default:
 			sess.addCustomStat("walk_one_cm", cmXZ)
 		}
-	case sess.flying:
+	case cmXZ > 25:
 		sess.addCustomStat("fly_one_cm", cmXZ)
-	case dy < 0:
-		sess.addCustomStat("fall_one_cm", cmY)
 	}
 }
 

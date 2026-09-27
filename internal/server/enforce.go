@@ -64,7 +64,11 @@ func (s *Server) teleportPlayerRot(name string, x, y, z float64, yaw, pitch floa
 	if sess == nil || sess.state.Load() != StatePlay {
 		return false
 	}
-	sess.setPos(x, y, z, yaw, pitch, false)
+	// Vanilla teleports leave the entity's onGround flag untouched —
+	// only move packets update it via setOnGroundWithMovement — so a
+	// ground→air rise right after /tp still reads as a jump.
+	_, _, _, _, _, og := sess.Pos()
+	sess.setPos(x, y, z, yaw, pitch, og)
 	if err := s.sendSyncPos(sess, x, y, z); err != nil {
 		return false
 	}

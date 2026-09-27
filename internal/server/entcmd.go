@@ -289,6 +289,7 @@ func (s *Server) runRideDismount(rider *dataEntity) reply {
 	// The rider's client snaps back to a real position once it stops
 	// riding; vanilla teleports it to the vehicle's spot.
 	if rider.sess != nil {
+		rider.sess.riding.Store(0)
 		x, y, z, yaw, pitch, _ := rider.sess.Pos()
 		x, y, z = veh.X, veh.Y, veh.Z
 		s.teleportPlayerRot(rider.sess.getName(), x, y, z, yaw, pitch)
@@ -320,10 +321,15 @@ func (s *Server) runRideMount(sender *Session, rider *dataEntity, vehTok string)
 	vehEnt.Passengers = append(append([]int32(nil), vehEnt.Passengers...), rid)
 	// The rider's client teleports onto the seat before the passenger
 	// list lands — vanilla's packet order is position then
-	// set_passengers.
+	// set_passengers. A command mount starts riding like an interact
+	// mount: rideTickStep seat-follows and banks the vehicle stat.
 	if rider.sess != nil {
+		rider.sess.riding.Store(vid)
+		vehEnt.VehAnchor = [3]float64{vehEnt.X, vehEnt.Y, vehEnt.Z}
 		_, _, _, yaw, pitch, _ := rider.sess.Pos()
-		s.teleportPlayerRot(rider.sess.getName(), vehEnt.X, vehEnt.Y, vehEnt.Z, yaw, pitch)
+		// Seat at mount like positionRider does — rideTickStep measures
+		// ride stats from the seat, not the pre-mount position.
+		s.teleportPlayerRot(rider.sess.getName(), vehEnt.X, vehEnt.Y+passengerSeatY(vehEnt)-0.6, vehEnt.Z, yaw, pitch)
 	}
 	s.broadcastSetPassengers(vehEnt)
 	return opsEchoReply(translatable("commands.ride.mount.success",
