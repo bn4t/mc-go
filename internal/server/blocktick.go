@@ -368,6 +368,7 @@ func randRules() map[string]func(*Server, *dimension, world.Pos, world.Block) {
 			"vine":                    vineRule,
 			"ice":                     iceMeltRule,
 			"snow":                    snowMeltRule,
+			"turtle_egg":              turtleEggRule,
 			"redstone_ore":            redstoneOreRule,
 			"deepslate_redstone_ore":  redstoneOreRule,
 		}

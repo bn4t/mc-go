@@ -686,6 +686,15 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 				int32(e.HomePos.X), int32(e.HomePos.Y), int32(e.HomePos.Z),
 			}
 		}
+		// Turtle.addAdditionalSaveData's home_pos is the turtle's own
+		// field, written after Mob's restriction pair and so taking
+		// the key — no home_radius rides along. has_egg follows.
+		if typeName == "turtle" {
+			m["home_pos"] = []int32{
+				int32(e.TurtleHome.X), int32(e.TurtleHome.Y), int32(e.TurtleHome.Z),
+			}
+			m["has_egg"] = nbtBool(e.HasEgg)
+		}
 		// Raider.addAdditionalSaveData writes Wave + CanJoinRaid always
 		// and RaidId only while the raider is flagged into a raid.
 		if raidRaiderType(typeName) {

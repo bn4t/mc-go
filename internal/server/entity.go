@@ -638,6 +638,13 @@ type Entity struct {
 	HomePos    world.Pos
 	HomeRadius int32
 	HasHome    bool
+	// TurtleHome is Turtle.homePos — the turtle's own home field, not
+	// the Mob restriction pair: every turtle writes it in its save
+	// (default the entity's block position at read, ZERO before), and
+	// hatched babies take the egg's position. HasEgg mirrors the
+	// entity-data HAS_EGG flag into the has_egg save key.
+	TurtleHome world.Pos
+	HasEgg     bool
 	// LeftHanded is Mob's 5% finalizeSpawn roll — a left-handed mob
 	// renders its mainhand item in the other hand.
 	LeftHanded bool

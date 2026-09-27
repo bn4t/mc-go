@@ -1272,6 +1272,76 @@ func snowMeltRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
 	s.setNaturalBlock(d, pos, world.Air)
 }
 
+// Turtle egg sounds — entity.turtle.egg_crack / egg_hatch ids in the
+// 26.2 sound registry.
+const (
+	sndTurtleEggCrack = 1660
+	sndTurtleEggHatch = 1661
+)
+
+// turtleEggRule is TurtleEggBlock.randomTick: shouldUpdateHatchLevel
+// rolls against the day timeline's turtle_egg_hatch_chance attribute
+// (constant keyframes 21062 -> 1.0, 21905 -> 0.002, the attribute
+// default) and onSand gates on a #sand block below. hatch < 2 plays
+// the crack sound and bumps the stage; hatch == 2 plays the hatch
+// sound, removes the egg, and per egg runs a 2001 break effect then
+// spawns a baby turtle at x+0.3+i*0.2 / z+0.3, age -24000, home the
+// egg position, yaw/pitch snapped to zero.
+func turtleEggRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
+	chance := 0.002
+	if dt := s.dayTime() % 24000; dt >= 21062 && dt < 21905 {
+		chance = 1.0
+	}
+	if s.rng.nextDouble() >= chance {
+		return
+	}
+	under := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
+	underName, _ := world.StateOwner(s.rtBlock(d, under))
+	if !blockTagHas("sand", underName) {
+		return
+	}
+	eggs, _ := intProp(b, "eggs")
+	hatch, ok := intProp(b, "hatch")
+	if !ok {
+		return
+	}
+	x := float64(pos.X) + 0.5
+	y := float64(pos.Y) + 0.5
+	z := float64(pos.Z) + 0.5
+	if hatch < 2 {
+		s.playSoundSrc(d.name, x, y, z, sndTurtleEggCrack, 4, 0.7,
+			float32(0.9+0.2*s.rng.nextDouble()), nil)
+		if nb, ok := world.WithProperty(b, "hatch", strconv.Itoa(hatch+1)); ok {
+			s.setSilentBlock(d, pos, nb)
+		}
+		return
+	}
+	s.playSoundSrc(d.name, x, y, z, sndTurtleEggHatch, 4, 0.7,
+		float32(0.9+0.2*s.rng.nextDouble()), nil)
+	s.setNaturalBlock(d, pos, world.Air)
+	et, hasType := EntityTypeID("turtle")
+	for i := 0; i < eggs; i++ {
+		s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+		if !hasType {
+			continue
+		}
+		t := s.entities.Spawn(&Entity{
+			Type:       et,
+			Dim:        d.name,
+			X:          float64(pos.X) + 0.3 + float64(i)*0.2,
+			Y:          float64(pos.Y),
+			Z:          float64(pos.Z) + 0.3,
+			Living:     true,
+			Health:     mobHealth["turtle"],
+			MaxHealth:  mobHealth["turtle"],
+			Age:        -24000,
+			Baby:       true,
+			TurtleHome: pos,
+		})
+		s.broadcastEntitySpawnIn(d.name, nil, *t)
+	}
+}
+
 // redstoneOreRule is RedStoneOreBlock.randomTick: a lit ore settles
 // back to unlit.
 func redstoneOreRule(s *Server, d *dimension, pos world.Pos, b world.Block) {

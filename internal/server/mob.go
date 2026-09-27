@@ -1195,6 +1195,22 @@ func (s *Server) runSummon(player string, args []string) reply {
 					}
 				}
 			}
+			// Turtle.readAdditionalSaveData reads home_pos on its
+			// own (not the Mob restriction pair), orElse'ing the
+			// entity's block position — already seeded at spawn.
+			// has_egg is the turtle's second write.
+			if name == "turtle" {
+				if lv, ok := tag.vals["home_pos"]; ok && len(lv.items) == 3 {
+					e.TurtleHome = world.Pos{
+						X: int(snbtNum(lv.items[0])),
+						Y: int(snbtNum(lv.items[1])),
+						Z: int(snbtNum(lv.items[2])),
+					}
+				}
+				if bv, ok := tag.vals["has_egg"]; ok && snbtNum(bv) > 0 {
+					e.HasEgg = true
+				}
+			}
 			if overworldZombifyTypes[name] {
 				if bv, ok := tag.vals["IsImmuneToZombification"]; ok && snbtNum(bv) > 0 {
 					e.ImmuneToZombification = true
@@ -1769,6 +1785,11 @@ func (s *Server) summonMobInitSpawn(d *dimension, name string, x, y, z float64, 
 		NoAI:      noAI,
 		Pumpkin:   name == "snow_golem",
 	})
+	if name == "turtle" {
+		// Turtle.readAdditionalSaveData's home_pos read orElse's
+		// the entity's block position — every spawn path lands it.
+		e.TurtleHome = world.Pos{X: int(e.X), Y: int(e.Y), Z: int(e.Z)}
+	}
 	summonAttrTouches(e, name, init)
 	return e, true
 }

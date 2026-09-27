@@ -9819,3 +9819,38 @@ when WorldData.getDifficulty already holds the requested value.
 mc-go reported success on every name. Added the same-value gate;
 TestUtilCommandParity gained a repeat `difficulty hard` in its
 sequence (the only place an unchanged value occurs) — green vs both.
+
+## Slice: turtle egg random-tick hatch parity
+
+javap TurtleEggBlock.randomTick (26.2): the timing gate moved into
+the environment-attribute system — shouldUpdateHatchLevel rolls
+`random.nextFloat() < envAttr(TURTLE_EGG_HATCH_CHANCE)` AND onSand
+(#minecraft:sand directly below). day.json timeline feeds constant
+keyframes 21062 -> 1.0 and 21905 -> 0.002 (the attribute default), so
+the roll is guaranteed inside [21062,21905) and 0.002 elsewhere.
+hatch < 2: egg_crack sound (BLOCKS 0.7 / 0.9+0.2f) + hatch+1 (flags 2,
+no neighbor updates) + BLOCK_CHANGE game event. hatch == 2: egg_hatch
+sound + remove + BLOCK_DESTROY + per-egg 2001 break effect and a baby
+turtle snapTo(x+0.3+i*0.2, y, z+0.3, 0, 0), age -24000, homePos = egg
+pos. Implemented in turtleEggRule (randtick.go), registered in
+randRules.
+
+Turtle NBT parity: addAdditionalSaveData writes home_pos (BlockPos
+codec, own field — separate from the Mob home restriction pair, read
+back as `read().orElse(blockPosition())` so every summon lands the
+spawn pos) and has_egg. mc-go now emits both after the Mob pair
+(write-order match), and /summon applies home_pos/has_egg SNBT plus
+defaults TurtleHome to the summon pos.
+
+TestTurtleEggHatchParity: sand pad + isolated stone pad; mature egg
+(eggs=4,hatch=2) and a fresh egg (eggs=2,hatch=0) inside the
+[21062,21905) window with random_tick_speed 4096 — both hatch to air,
+the off-sand egg stays, 6 babies per leg, baby home_pos/has_egg match,
+Age in (-24000,0) — green vs vanilla and mc-go (-23884 / -23967).
+Reply parsing note: `data get` replies arrive as
+commands.data.entity.query NBT components — decode the `with` tail,
+not ASCII digits in the raw line.
+
+Open adjacent gaps: turtle metadata accessors HAS_EGG (~17) /
+LAYING_EGG (~18) not emitted; 2001 effect asserts come for free but
+block_update order vs the per-egg event loop is unpinned.
