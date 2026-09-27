@@ -326,7 +326,12 @@ func (s *Server) mobSyncFlush(e *Entity) {
 		s.broadcastEntityMetadata(e.ID, data)
 	} else if e.MetaDirty {
 		e.MetaDirty = false
-		s.broadcastEntityMetadata(e.ID, encodeLivingMetadata(e, s.effectParticlesValue(e)))
+		// packDirty sends only the changed entries — an empty diff
+		// (a stale latch, or a merge that already dataSynced the
+		// change) means no packet at all, like vanilla's sendChanges.
+		if meta := encodeLivingMetadataDirty(e, s.effectParticlesValue(e)); len(meta) > 0 {
+			s.broadcastEntityMetadata(e.ID, meta)
+		}
 		e.ParticlesSent = s.effectParticlesValue(e)
 	} else if p := s.effectParticlesValue(e); !bytesEq(p, e.ParticlesSent) {
 		e.ParticlesSent = p

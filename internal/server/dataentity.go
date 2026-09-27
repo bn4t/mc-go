@@ -469,6 +469,13 @@ func entityDisplayName(e *Entity) component {
 		if typeName == "item" && !e.Item.Empty() {
 			key = itemDisplayKey(mustItemName(e.Item.ID))
 		}
+		// A villager's name is profession-qualified — the none
+		// profession names itself entity.minecraft.villager.none.
+		if typeName == "villager" || typeName == "zombie_villager" {
+			if prof, ok := villagerProfessionNames[e.VillagerProfID]; ok {
+				key += "." + prof
+			}
+		}
 		nameArg = map[string]any{"translate": key}
 		comp = component{translate: key}
 	}
@@ -977,6 +984,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	prevHealth, prevName, prevNoAI := e.Health, e.CustomName, e.NoAI
 	prevSheared := e.Sheared
 	prevPumpkin := e.Pumpkin
+	prevBaby := e.Baby
 	name, _ := EntityTypeName(e.Type)
 	// attributes:[{id,base,modifiers?}] — AttributeInstance.apply
 	// writes baseValue directly (no clamp, no dirty) and replaces the
@@ -1211,7 +1219,10 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	e.ExtraNBT = extras
 
 	// Dirty pack: only the entries whose tracked value moved, like
-	// SynchedEntityData.packDirty() after Entity.load.
+	// SynchedEntityData.packDirty() after Entity.load. The emitted
+	// fields stamp e.metaSent so the MetaDirty flush's diff never
+	// resends them as a second packet.
+	e.ensureMetaInit()
 	var b protocol.Buffer
 	if prevName != e.CustomName {
 		b.Byte(2)
@@ -1222,11 +1233,13 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			b.Byte(1)
 			writeComponentTag(&b, e.CustomName)
 		}
+		e.metaSent.name = e.CustomName
 	}
 	if prevHealth != e.Health {
 		b.Byte(9)
 		b.Byte(3)
 		b.Float(e.Health)
+		e.metaSent.health = e.Health
 	}
 	if prevSheared != e.Sheared && name == "sheep" {
 		b.Byte(18)
@@ -1236,6 +1249,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			v = 0x10
 		}
 		b.Byte(v)
+		e.metaSent.sheared = e.Sheared
 	}
 	if prevPumpkin != e.Pumpkin && name == "snow_golem" {
 		b.Byte(16)
@@ -1245,6 +1259,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			v = 1
 		}
 		b.Byte(v)
+		e.metaSent.pumpkin = e.Pumpkin
 	}
 	if prevSheared != e.Sheared && name == "bogged" {
 		// Bogged's DATA_SHEARED sits at index 16 as a boolean.
@@ -1255,11 +1270,19 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			v = 1
 		}
 		b.Byte(v)
+		e.metaSent.sheared = e.Sheared
+	}
+	if prevBaby != e.Baby && packsBabyAt16(name) {
+		b.Byte(16)
+		b.Byte(8) // type: boolean
+		b.Bool(e.Baby)
+		e.metaSent.baby = e.Baby
 	}
 	if prevNoAI != e.NoAI {
 		b.Byte(15)
 		b.Byte(0)
 		b.Byte(mobFlagsByte(e))
+		e.metaSent.mobFlags = mobFlagsByte(e)
 	}
 	if body := b.Bytes(); len(body) > 0 {
 		e.dataSync = append(body, 0xFF)

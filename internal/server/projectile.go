@@ -1018,6 +1018,8 @@ func (s *Server) splashApplyMob(e, t *Entity, effects []splashEffect, prox float
 						t.Health = max
 					}
 					s.broadcastEntityMetadata(t.ID, encodeLivingHealth(t.Health))
+					t.ensureMetaInit()
+					t.metaSent.health = t.Health
 				}
 			case "instant_damage":
 				dmg := float32(math.Round(6 * float64(int(1)<<uint(eff.amp)) * prox))

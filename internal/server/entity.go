@@ -378,6 +378,17 @@ type Entity struct {
 	// ParticlesSent is the last-broadcast DATA_EFFECT_PARTICLES value
 	// bytes — dirty packs emit index 10 whenever it changes.
 	ParticlesSent []byte
+	// metaSent is the metadata set as the client last received it —
+	// vanilla's SynchedEntityData dirty bookkeeping: a packDirty resend
+	// carries only the entries whose backing value changed, so every
+	// metadata emit (attach pack, surgical data-merge pack, health or
+	// dying pack, MetaDirty flush) records its sent values here.
+	// metaInited latches the defined-default baseline on first use —
+	// entries start clean at their defined value (air 300, health 1.0,
+	// pumpkin on, per-entity villagerdata), so a field sitting at its
+	// default produces no dirty entry.
+	metaSent   livingMeta
+	metaInited bool
 	// VillagerTypeID/VillagerProfID/VillagerLevel are the entity's
 	// villagerdata as registry protocol ids (zombie_villager metadata
 	// index 20, villager index 19). VillagerProfDefault is the

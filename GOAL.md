@@ -9716,3 +9716,44 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   Baby/WaterConv/FreezeConv flip emits the full non-default pack
   rather than the single changed entry, and pig's baby flag has no
   wire encoding in encodeLivingMetadata.
+
+## Slice 2026-09-27e — dirty-diff pack emit + AgeableMob DATA_BABY wire entry
+
+- **Measured** (26.2 jar, live packet capture): SynchedEntityData
+  .packDirty emits ONLY entries whose value differs from the defined
+  default AND whose dirty bit is set — the summon-time non-default set
+  stays dirty, so vanilla emits the SAME non-default pack twice (the
+  pairing/attach emit does NOT consume the dirty set; the next
+  sendChanges' packDirty replays it then clears). Empty dirty set →
+  no packet at all. Compound merges emit one index-ascending pack
+  ({Age,Health} → [9,16]). DATA_BABY_ID = index 16 boolean for every
+  AgeableMob subclass (pig/cow/sheep/chicken/wolf/villager measured,
+  plus zombie/husk/drowned/zombie_villager). LivingEntity defined
+  defaults: health 1.0f, air 300, snow-golem pumpkin true. Villager
+  display name is profession-suffixed (entity.minecraft.villager.none).
+  Frog is NOT ageable on vanilla.
+- **Implemented**: Entity.metaSent livingMeta snapshot + metaInited
+  flag; ensureMetaInit seeds the defined-default baseline.
+  encodeLivingMetadataDirty diffs each field vs metaSent and emits
+  only changed entries index-ascending, returns nil on empty —
+  replaces the full-pack resend in the MetaDirty flush arm. Attach
+  encoder emits the non-default pack WITHOUT stamping (reproduces
+  vanilla's duplicate emit via the post-attach MetaDirty latch).
+  packsBabyAt16 gates the idx-16 emit; the surgical dataSync pack
+  gained the baby entry and stamps metaSent per emitted field so the
+  flush won't re-emit. Health/dying/witch/projectile emit sites stamp
+  metaSent.health. villagerProfessionNames lazy inverse for the
+  profession-suffixed display key.
+- **Pinned**: new TestAgeableMetaParity (16 cmds) green vs both
+  servers — [16,bool] alone on Age merge, [9] alone on Health merge,
+  [9,16] one-pack compound, frog exclusion, villager/sheep attach
+  packs with the dirty-replay duplicate.
+- **Regression check**: 15-test metadata-sensitive batch — 12 green.
+  Three deterministic failures reproduce identically on stock 328f384
+  (pre-my-slice): TestCureConversionSyncParity (zombie_villager
+  emits no move_entity_pos — cured entity never wanders),
+  TestWitchHealParity (mc-go throws only regeneration h31, never
+  healing h24 — raider never drops to ≤4hp), and
+  TestPlayerShearedEquipmentParity (mc-go misses the
+  recipes/misc/wolf_armor_dyed unlock + a gamemode chat). Preexisting
+  regressions from an earlier session commit — bisect next.

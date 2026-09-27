@@ -2202,15 +2202,320 @@ func encodeArmorStandFlags(e *Entity) byte {
 	return flags
 }
 
+// livingMeta snapshots the metadata-field values a pack carries —
+// the mc-go side of SynchedEntityData's dirty set. A packDirty emit
+// (encodeLivingMetadataDirty) sends only the entries whose current
+// value differs from the last sent one; a pack emit
+// (encodeLivingMetadata, the attach burst) sends non-default entries
+// like before. Either way the emitted state is stamped back into
+// e.metaSent so the next diff measures from what the client saw.
+type livingMeta struct {
+	air        int16
+	name       string
+	nameVis    bool
+	frozen     int32
+	health     float32
+	asFlags    byte
+	mobFlags   byte
+	sheared    bool // sheep wool byte / bogged mushrooms
+	moving     bool
+	beam       int32
+	pumpkin    bool
+	baby       bool
+	waterConv  bool
+	converting bool
+	villType   int32
+	villProf   int32
+	villLevel  int32
+	villFinal  bool
+	freezeConv bool
+	powered    bool
+	swell      int32
+}
+
+// snapLivingMeta captures the metadata-field values a fresh pack would
+// encode — the post-emit baseline the next dirty diff compares to.
+func snapLivingMeta(e *Entity) livingMeta {
+	return livingMeta{
+		air:        e.AirSupply,
+		name:       e.CustomName,
+		nameVis:    e.CustomNameVisible,
+		frozen:     e.TicksFrozen,
+		health:     e.Health,
+		asFlags:    encodeArmorStandFlags(e),
+		mobFlags:   mobFlagsByte(e),
+		sheared:    e.Sheared,
+		moving:     e.Moving,
+		beam:       e.beamTarget,
+		pumpkin:    e.Pumpkin,
+		baby:       e.Baby,
+		waterConv:  e.WaterConv,
+		converting: e.Converting,
+		villType:   e.VillagerTypeID,
+		villProf:   e.VillagerProfID,
+		villLevel:  e.VillagerLevel,
+		villFinal:  e.VillagerFinalized,
+		freezeConv: e.FreezeConv,
+		powered:    e.Powered,
+		swell:      e.SwellDir,
+	}
+}
+
+// ensureMetaInit seeds the dirty baseline at the defined defaults the
+// way SynchedEntityData.define does: entries start clean at the define
+// value — air supply 300, health 1.0, a snow golem's pumpkin on, and
+// the type's villagerdata default (zombie villager's is the random
+// defined profession; a villager's is none) — so the first packDirty
+// re-emits exactly the summon-time non-default set like vanilla's
+// post-load sendChanges, not nothing or everything.
+func (e *Entity) ensureMetaInit() {
+	if e.metaInited {
+		return
+	}
+	e.metaInited = true
+	e.metaSent = livingMeta{air: 300, health: 1.0, pumpkin: true, villType: 2, villLevel: 1}
+	e.metaSent.villProf = e.VillagerProfDefault
+	if n, _ := EntityTypeName(e.Type); n == "villager" {
+		e.metaSent.villProf = 0
+	}
+}
+
+// ageableBabyTypes are the AgeableMob subclasses whose inherited
+// DATA_BABY_ID rides metadata index 16 as a boolean — measured on pig,
+// cow, sheep, chicken, wolf and villager. Types with their own
+// per-type cases below (zombie family, zombie_villager) pack the same
+// index through those cases instead.
+var ageableBabyTypes = map[string]bool{
+	"pig": true, "cow": true, "mooshroom": true, "sheep": true,
+	"chicken": true, "wolf": true, "cat": true, "ocelot": true,
+	"fox": true, "panda": true, "polar_bear": true, "rabbit": true,
+	"goat": true, "turtle": true, "axolotl": true,
+	"bee": true, "dolphin": true, "hoglin": true, "sniffer": true,
+	"camel": true, "armadillo": true, "horse": true, "donkey": true,
+	"mule": true, "llama": true, "trader_llama": true,
+	"squid": true, "glow_squid": true,
+}
+
+// packsBabyAt16 reports whether the type's metadata layout carries a
+// baby flag at index 16 — the AgeableMob family plus the zombie line
+// (zombie/husk/drowned/zombie_villager) and villager, which define
+// their own DATA_BABY at the same index.
+func packsBabyAt16(name string) bool {
+	if ageableBabyTypes[name] {
+		return true
+	}
+	switch name {
+	case "zombie", "husk", "drowned", "zombie_villager", "villager", "sheep":
+		return true
+	}
+	return false
+}
+
+// encodeLivingMetadataDirty is the packDirty counterpart of
+// encodeLivingMetadata: it emits only the entries whose value changed
+// since the last pack the client saw, records the new baseline, and
+// returns nil when nothing moved — vanilla's sendChanges skips the
+// entity-data packet entirely on an empty dirty set. Particles ride
+// the pack like the full encoder's, gated on a value change.
+func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
+	var b protocol.Buffer
+	e.ensureMetaInit()
+	last := e.metaSent
+	if e.AirSupply != last.air {
+		b.Byte(1)
+		b.Byte(1) // type: varint
+		b.VarInt(int32(e.AirSupply))
+	}
+	if e.CustomName != last.name {
+		b.Byte(2)
+		b.Byte(6) // type: optional component
+		if e.CustomName == "" {
+			b.Byte(0)
+		} else {
+			b.Byte(1)
+			writeComponentTag(&b, e.CustomName)
+		}
+	}
+	if e.CustomNameVisible != last.nameVis {
+		b.Byte(3)
+		b.Byte(8) // type: boolean
+		b.Bool(e.CustomNameVisible)
+	}
+	if e.TicksFrozen != last.frozen {
+		b.Byte(7)
+		b.Byte(1) // type: varint
+		b.VarInt(e.TicksFrozen)
+	}
+	if e.Health != last.health {
+		b.Byte(9)
+		b.Byte(3) // type: float
+		b.Float(e.Health)
+	}
+	if e.Type == mustEntityType("armor_stand") {
+		if fl := encodeArmorStandFlags(e); fl != last.asFlags {
+			b.Byte(15)
+			b.Byte(0) // type: byte
+			b.Byte(fl)
+		}
+		e.metaSent = snapLivingMeta(e)
+		if len(b.Bytes()) == 0 {
+			return nil
+		}
+		b.Byte(0xFF)
+		return b.Bytes()
+	}
+	if len(particles) > 0 && !bytesEq(particles, e.ParticlesSent) {
+		b.Byte(10)
+		b.Byte(17) // PARTICLES serializer
+		b.Raw(particles)
+	}
+	if fl := mobFlagsByte(e); fl != last.mobFlags {
+		b.Byte(15)
+		b.Byte(0) // type: byte
+		b.Byte(fl)
+	}
+	if name, ok := EntityTypeName(e.Type); ok {
+		switch {
+		case name == "sheep":
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8) // type: boolean
+				b.Bool(e.Baby)
+			}
+			if e.Sheared != last.sheared {
+				b.Byte(18)
+				b.Byte(0) // type: byte
+				v := byte(0)
+				if e.Sheared {
+					v = 0x10
+				}
+				b.Byte(v)
+			}
+		case name == "guardian" || name == "elder_guardian":
+			if e.Moving != last.moving {
+				b.Byte(16)
+				b.Byte(8) // type: boolean
+				b.Bool(e.Moving)
+			}
+			if e.beamTarget != last.beam {
+				b.Byte(17)
+				b.Byte(1) // type: varint
+				b.VarInt(e.beamTarget)
+			}
+		case name == "snow_golem":
+			if e.Pumpkin != last.pumpkin {
+				b.Byte(16)
+				b.Byte(0) // type: byte
+				v := byte(0)
+				if e.Pumpkin {
+					v = 1
+				}
+				b.Byte(v)
+			}
+		case name == "bogged":
+			if e.Sheared != last.sheared {
+				b.Byte(16)
+				b.Byte(8) // type: boolean
+				b.Bool(e.Sheared)
+			}
+		case name == "zombie_villager":
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.Baby)
+			}
+			if e.WaterConv != last.waterConv {
+				b.Byte(17)
+				b.Byte(8)
+				b.Bool(e.WaterConv)
+			}
+			if e.Converting != last.converting {
+				b.Byte(19)
+				b.Byte(8)
+				b.Bool(e.Converting)
+			}
+			if e.VillagerTypeID != last.villType || e.VillagerProfID != last.villProf || e.VillagerLevel != last.villLevel {
+				b.Byte(20)
+				b.Byte(18) // type: villager_data
+				encodeVillagerDataValue(&b, e)
+			}
+			if e.VillagerFinalized != last.villFinal {
+				b.Byte(21)
+				b.Byte(8)
+				b.Bool(e.VillagerFinalized)
+			}
+		case name == "villager":
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.Baby)
+			}
+			if e.VillagerTypeID != last.villType || e.VillagerProfID != last.villProf || e.VillagerLevel != last.villLevel {
+				b.Byte(19)
+				b.Byte(18)
+				encodeVillagerDataValue(&b, e)
+			}
+			if e.VillagerFinalized != last.villFinal {
+				b.Byte(20)
+				b.Byte(8)
+				b.Bool(e.VillagerFinalized)
+			}
+		case name == "zombie" || name == "husk" || name == "drowned":
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.Baby)
+			}
+			if e.WaterConv != last.waterConv {
+				b.Byte(17)
+				b.Byte(8)
+				b.Bool(e.WaterConv)
+			}
+		case name == "skeleton":
+			if e.FreezeConv != last.freezeConv {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.FreezeConv)
+			}
+		case name == "creeper":
+			if e.Powered != last.powered {
+				b.Byte(17)
+				b.Byte(8)
+				b.Bool(e.Powered)
+			}
+			if e.SwellDir != last.swell {
+				b.Byte(18)
+				b.Byte(1) // type: varint
+				b.VarInt(e.SwellDir)
+			}
+		case ageableBabyTypes[name]:
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8) // type: boolean
+				b.Bool(e.Baby)
+			}
+		}
+	}
+	e.metaSent = snapLivingMeta(e)
+	if len(b.Bytes()) == 0 {
+		return nil
+	}
+	b.Byte(0xFF)
+	return b.Bytes()
+}
+
 // encodeLivingMetadata builds the Set Entity Data body for a living
 // entity's non-default entries, index-ascending like vanilla's
 // SynchedEntityData.pack: health (9, float), effect particles (10 —
 // only in tick resends, never in pairing — pass nil there), Mob's
 // DATA_MOB_FLAGS (15, byte — bit0 = NoAI), then per-type entries:
-// zombie_villager packs converting (19), villagerdata (20 — only when
-// it differs from the per-entity random default), finalized (21);
-// villager packs villagerdata (19) and finalized (20). The armor
-// stand keeps its CLIENT_FLAGS at index 15 instead (it isn't a Mob).
+// DATA_BABY_ID (16, boolean) for the animal family; zombie_villager
+// packs converting (19), villagerdata (20 — only when it differs from
+// the per-entity random default), finalized (21); villager packs
+// villagerdata (19) and finalized (20). The armor stand keeps its
+// CLIENT_FLAGS at index 15 instead (it isn't a Mob). Every call also
+// stamps e.metaSent — this is a pack emit, so the dirty baseline
+// becomes exactly what the client was shown.
 func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 	var b protocol.Buffer
 	// DATA_AIR_SUPPLY_ID (index 1, int) rides the pack only while the
@@ -2260,6 +2565,11 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 	if name, ok := EntityTypeName(e.Type); ok {
 		switch name {
 		case "sheep":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8) // type: boolean
+				b.Bool(true)
+			}
 			// Sheep's DATA_WOOL_ID (index 18, byte): low nibble is
 			// the dye color (always white=0), bit 0x10 = sheared.
 			if e.Sheared {
@@ -2320,6 +2630,11 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Bool(true)
 			}
 		case "villager":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
 			// A villager's defined default is fixed plains/none/1;
 			// a conversion always carries finalized data.
 			if !villagerDataIsDefault(e, 0) {
@@ -2365,6 +2680,15 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(1) // type: varint
 				b.VarInt(1)
 			}
+		default:
+			// The rest of the AgeableMob family keeps its inherited
+			// DATA_BABY_ID at index 16 (measured: pig, cow, sheep,
+			// chicken, frog, wolf attach packs all carry it).
+			if ageableBabyTypes[name] && e.Baby {
+				b.Byte(16)
+				b.Byte(8) // type: boolean
+				b.Bool(true)
+			}
 		}
 	}
 	b.Byte(0xFF)
@@ -2389,6 +2713,17 @@ func mobFlagsByte(e *Entity) byte {
 	}
 	return flags
 }
+
+// villagerProfessionNames inverts villagerProfessionIDs — the
+// generated table is name→id only, and a villager's display name key
+// needs the profession's registry name (entity.minecraft.villager.none).
+var villagerProfessionNames = func() map[int32]string {
+	m := make(map[int32]string, len(villagerProfessionIDs))
+	for name, id := range villagerProfessionIDs {
+		m[id] = name
+	}
+	return m
+}()
 
 // villagerDataIsDefault reports whether the entity's villagerdata still
 // equals its defined default — {plains, definedProf, 1} — so the entry
@@ -2676,6 +3011,8 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 	}
 	if d > 0 {
 		s.broadcastEntityMetadata(e.ID, encodeLivingHealth(health))
+		e.ensureMetaInit()
+		e.metaSent.health = health
 	}
 	return d, res.Graced, false
 }
@@ -2699,6 +3036,8 @@ func (s *Server) mobDie(e *Entity, killer *Session, silent bool) {
 	// The death pack rides the next tick's sendChanges like any dirty
 	// metadata — a /kill reply reaches the client first.
 	e.dataSync = encodeDyingLivingMetadata()
+	e.ensureMetaInit()
+	e.metaSent.health = 0
 	e.dataSyncTick = s.dataSyncReadyTick()
 	s.broadcastEntityEventTo(nil, e.Dim, e.ID, 3)
 	s.spawnMobLoot(e, killer)
@@ -4744,6 +5083,8 @@ func (s *Server) witchApplyPotion(e *Entity, potion string) {
 			e.Health = max
 		}
 		s.broadcastEntityMetadata(e.ID, encodeLivingHealth(e.Health))
+		e.ensureMetaInit()
+		e.metaSent.health = e.Health
 	case "swiftness":
 		if id, ok := MobEffectID("speed"); ok {
 			mobAddEffect(e, id, 0, s.clock.count+3600, s.clock.count)
