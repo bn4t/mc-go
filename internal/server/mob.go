@@ -1827,6 +1827,14 @@ func encodeArmorStandFlags(e *Entity) byte {
 // stand keeps its CLIENT_FLAGS at index 15 instead (it isn't a Mob).
 func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 	var b protocol.Buffer
+	// DATA_AIR_SUPPLY_ID (index 1, int) rides the pack only while the
+	// supply sits off its 300 default — vanilla's attach burst omits
+	// the index; a drain/regen tick dirty-resends it.
+	if e.AirSupply != 300 {
+		b.Byte(1)
+		b.Byte(1) // type: varint
+		b.VarInt(int32(e.AirSupply))
+	}
 	if e.CustomName != "" {
 		b.Byte(2) // index: custom_name
 		b.Byte(6) // type: optional component
@@ -2037,6 +2045,26 @@ var mobFireImmune = map[string]bool{
 	"blaze": true, "ghast": true, "magma_cube": true, "strider": true,
 	"wither": true, "wither_skeleton": true, "zombified_piglin": true,
 	"hoglin": true, "zoglin": true,
+}
+
+// mobBreathesWater is vanilla's can_breathe_under_water entity-type
+// tag (canBreatheUnderwater): the flat members plus #undead, which
+// itself expands to #skeletons + #zombies + wither + phantom.
+var mobBreathesWater = map[string]bool{
+	"axolotl": true, "frog": true, "guardian": true,
+	"elder_guardian": true, "turtle": true, "glow_squid": true,
+	"cod": true, "pufferfish": true, "salmon": true, "squid": true,
+	"tropical_fish": true, "tadpole": true, "armor_stand": true,
+	"copper_golem": true, "nautilus": true,
+	// #undead
+	"wither": true, "phantom": true,
+	// #skeletons
+	"skeleton": true, "stray": true, "wither_skeleton": true,
+	"skeleton_horse": true, "bogged": true, "parched": true,
+	// #zombies
+	"zombie": true, "zombie_villager": true, "zombified_piglin": true,
+	"zoglin": true, "drowned": true, "husk": true,
+	"zombie_horse": true, "camel_husk": true, "zombie_nautilus": true,
 }
 
 // isFireDamageType is vanilla's is_fire damage-type tag — every
@@ -2456,6 +2484,33 @@ func (s *Server) mobTickStep() {
 				dmg = 5
 			}
 			s.damageMob(e, dmg, "freeze", nil, &damageInfo{typeName: "freeze"})
+		}
+		// LivingEntity.baseTick's air block: an eye-level water cell
+		// (a bubble column counts as out-of-water here) drains
+		// airSupply one per tick while the mob can't breathe under
+		// water; reaching -20 resets it to zero with the drown-particle
+		// event (67) and 2 drown damage. decreaseAirSupply's
+		// oxygen_bonus branch is unreachable — no mob path grants the
+		// attribute. Everywhere else the supply climbs back by
+		// increaseAirSupply's +4 per tick up to getMaxAirSupply (300) —
+		// inside the drain cell only while one of the refilling
+		// effects is on.
+		if airD := s.dims[e.Dim]; s.mobEyeInWater(e, airD) && !s.mobEyeInBubbleColumn(e, airD) {
+			if !mobBreathesWater[ambName] && !mobHasAirEffect(s, e) {
+				e.AirSupply--
+				e.MetaDirty = true
+				if e.AirSupply <= -20 {
+					e.AirSupply = 0
+					s.broadcastEntityEventTo(nil, e.Dim, e.ID, 67)
+					s.damageMob(e, 2, "drown", nil, &damageInfo{typeName: "drown"})
+				}
+			} else if e.AirSupply < 300 && mobHasAirEffect(s, e) {
+				e.AirSupply = min(e.AirSupply+4, 300)
+				e.MetaDirty = true
+			}
+		} else if e.AirSupply < 300 {
+			e.AirSupply = min(e.AirSupply+4, 300)
+			e.MetaDirty = true
 		}
 		// Villager brain: AcquirePoi claims the nearest unclaimed bed
 		// or bell inside 48 blocks — the raid-start precondition.
@@ -4277,19 +4332,44 @@ func sessMobHasEff(t *Session, name string) bool {
 }
 
 // mobEyeInWater is isEyeInFluid(FluidTags.WATER): the block at the
-// entity's eye height is water. Witch eye height is its standing
-// dimensions (1.95) times 0.85.
+// entity's eye height is water. Eye height is the type's standing
+// dimensions times 0.85 (Entity.getEyeHeight).
 func (s *Server) mobEyeInWater(e *Entity, d *dimension) bool {
 	if d == nil {
 		return false
 	}
+	bounds := mobBounds(e.Type)
 	eye := world.Pos{
 		X: int(math.Floor(e.X)),
-		Y: int(math.Floor(e.Y + 1.95*0.85)),
+		Y: int(math.Floor(e.Y + bounds[1]*0.85)),
 		Z: int(math.Floor(e.Z)),
 	}
 	k, _, ok := fluidOf(d.w.GetBlock(eye))
 	return ok && k == fluidWater
+}
+
+// mobHasAirEffect is vanilla's MobEffectUtil.hasWaterBreathing /
+// shouldEffectsRefillAirsupply — both read the same three-effect set.
+func mobHasAirEffect(s *Server, e *Entity) bool {
+	return s.mobHasEff(e, "water_breathing") ||
+		s.mobHasEff(e, "conduit_power") ||
+		s.mobHasEff(e, "breath_of_the_nautilus")
+}
+
+// mobEyeInBubbleColumn is the baseTick drain exemption: an eye cell
+// holding a bubble column refills air instead of draining it.
+func (s *Server) mobEyeInBubbleColumn(e *Entity, d *dimension) bool {
+	if d == nil {
+		return false
+	}
+	bounds := mobBounds(e.Type)
+	eye := world.Pos{
+		X: int(math.Floor(e.X)),
+		Y: int(math.Floor(e.Y + bounds[1]*0.85)),
+		Z: int(math.Floor(e.Z)),
+	}
+	n, _ := world.StateOwner(d.w.GetBlock(eye))
+	return n == "minecraft:bubble_column"
 }
 
 // mobHasEff is mobHasEffect by name.

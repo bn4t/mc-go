@@ -429,6 +429,11 @@ type Entity struct {
 	// per tick, and a fully-frozen living entity takes freeze damage
 	// every forty ticks.
 	TicksFrozen int32
+	// AirSupply is vanilla's Entity.airSupply (NBT "Air", metadata
+	// index 1): entities construct at getMaxAirSupply (300); an
+	// eye-level water block drains it one per tick and reaching -20
+	// resets it to zero with the drown damage + event-67 pass.
+	AirSupply int16
 	// IsInPowderSnow is vanilla's isInPowderSnow: reset every base
 	// tick and re-set by the powder snow FREEZE inside effect; the
 	// freeze lifecycle reads the flag from the same tick's inside
@@ -667,6 +672,8 @@ func (m *Manager) Spawn(e *Entity) *Entity {
 	if e.UUID == ([16]byte{}) {
 		e.UUID = offlineUUID(fmt.Sprintf("entity-%d", e.ID))
 	}
+	// Entity's constructor sets airSupply to getMaxAirSupply (300).
+	e.AirSupply = 300
 	if e.Dim == "" {
 		e.Dim = dimOverworld
 	}

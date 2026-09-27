@@ -485,13 +485,13 @@ func entityDisplayName(e *Entity) component {
 // entitySaveMap builds the mob save compound. The field set matches
 // what a summoned entity reports: the shared entity fields, the living
 // fields, and the type's extras. Keys absent from the entity model
-// (Invulnerable, Air, ...) emit their summon defaults; ExtraNBT then
+// (Invulnerable, ...) emit their summon defaults; ExtraNBT then
 // overlays any data-written extras. ents resolves leash holders — the
 // leash key's shape depends on the holder being a knot or an entity.
 func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	typeName, _ := EntityTypeName(e.Type)
 	m := map[string]any{
-		"Air":          int16(300),
+		"Air":          e.AirSupply,
 		"Fire":         int16(e.FireTicks),
 		"Invulnerable": nbtBool(e.Invulnerable),
 		"Motion": nbt.List{Elem: nbt.TagDouble, Items: []any{
@@ -1030,6 +1030,10 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	// read straight ints/floats; fall_flying is a byte flag.
 	if v, ok := nbtInt32(save["PortalCooldown"]); ok {
 		e.PortalCooldown = v
+	}
+	// Entity.load reads the int16 air supply straight through.
+	if v, ok := nbtInt32(save["Air"]); ok {
+		e.AirSupply = int16(v)
 	}
 	if v, ok := nbtFloat(save["AbsorptionAmount"]); ok {
 		e.AbsorptionAmount = float32(v)
