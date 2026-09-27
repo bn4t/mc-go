@@ -6,6 +6,7 @@ import (
 	"math"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1974,6 +1975,63 @@ var bbDyeNames = []string{
 	"green", "red", "black",
 }
 
+// bbFireworkShapeNames is the FireworkExplosion.Shape wire order.
+var bbFireworkShapeNames = []string{"small_ball", "large_ball", "star", "creeper", "burst"}
+
+// bbFireworkExplosion decodes one explosion to the canonical
+// "shape|c1,c2|f1,f2|trail|twinkle" the server model uses.
+func bbFireworkExplosion(r *protocol.PacketReader) (string, error) {
+	shape, err := r.VarInt()
+	if err != nil || shape < 0 || int(shape) >= len(bbFireworkShapeNames) {
+		return "", fmt.Errorf("blackbox: firework shape %d", shape)
+	}
+	rd := func() ([]int32, error) {
+		n, err := r.VarInt()
+		if err != nil || n < 0 {
+			return nil, err
+		}
+		out := make([]int32, 0, n)
+		for ; n > 0; n-- {
+			v, err := r.Int()
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, v)
+		}
+		return out, nil
+	}
+	join := func(v []int32) string {
+		parts := make([]string, len(v))
+		for i, c := range v {
+			parts[i] = strconv.Itoa(int(c))
+		}
+		return strings.Join(parts, ",")
+	}
+	colors, err := rd()
+	if err != nil {
+		return "", err
+	}
+	fades, err := rd()
+	if err != nil {
+		return "", err
+	}
+	trail, err := r.Byte()
+	if err != nil {
+		return "", err
+	}
+	twinkle, err := r.Byte()
+	if err != nil {
+		return "", err
+	}
+	b01 := func(b byte) string {
+		if b != 0 {
+			return "1"
+		}
+		return "0"
+	}
+	return bbFireworkShapeNames[shape] + "|" + join(colors) + "|" + join(fades) + "|" + b01(trail) + "|" + b01(twinkle), nil
+}
+
 func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, []int32, error) {
 	count, err := r.VarInt()
 	if err != nil || count <= 0 {
@@ -2174,6 +2232,32 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 				return server.ItemStack{}, 0, false, nil, err
 			}
 			it.BaseColor = bc + 1
+		case 68: // minecraft:firework_explosion
+			exp, err := bbFireworkExplosion(r)
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			it.FireworkExp = exp
+		case 69: // minecraft:fireworks — flight VarInt then a
+			// VarInt-counted explosion list.
+			fl, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			n, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			var sb strings.Builder
+			sb.WriteString(strconv.Itoa(int(fl)))
+			for ; n > 0; n-- {
+				exp, err := bbFireworkExplosion(r)
+				if err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				sb.WriteString(";" + exp)
+			}
+			it.Fireworks = sb.String()
 		case 54: // minecraft:writable_book_content: VarInt page count,
 			// then Filterable<String> leaves (raw string + optional
 			// filtered string), measured on 26.2.

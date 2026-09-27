@@ -521,6 +521,12 @@ func craftResult(g craftGrid, ms *mapStore) (ItemStack, string, bool) {
 			out, hit = matchMapExtending(g, filled, ms)
 		case data.CraftingSpecialBannerduplicate:
 			out, hit = matchBannerDuplicate(g, filled)
+		case data.CraftingSpecialFireworkStar:
+			out, hit = matchFireworkStar(g, filled)
+		case data.CraftingSpecialFireworkStarFade:
+			out, hit = matchFireworkStarFade(g, filled)
+		case data.CraftingSpecialFireworkRocket:
+			out, hit = matchFireworkRocket(g, filled)
 		case data.CraftingTransmute:
 			out, hit = matchTransmute(r, g, filled)
 		case data.CraftingDecoratedPot:
@@ -666,6 +672,14 @@ func (sess *Session) takeCraftResult(n int32) (ItemStack, []int16, []ItemStack, 
 				// BookCloningRecipe.getRemainingItems: a stack with
 				// written_book_content leaves a count-1 copy of
 				// itself — the source book is not consumed.
+				rem = gridStacks[i].withCount(1)
+				ok = true
+			}
+			if !ok && rtype == data.CraftingSpecialBannerduplicate &&
+				gridStacks[i].BannerPatterns != "" {
+				// BannerDuplicateRecipe.getRemainingItems: a stack
+				// carrying banner_patterns likewise leaves a count-1
+				// copy — the patterned source is not consumed.
 				rem = gridStacks[i].withCount(1)
 				ok = true
 			}

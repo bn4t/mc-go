@@ -933,6 +933,13 @@ func parseSNBTArray(s string, i int, arrayType byte, tag *snbtTag) (*snbtTag, in
 	case 'L':
 		suffix = "L"
 	}
+	if i < len(s) && s[i] == ']' {
+		// An empty typed array is legal: [I;] is an int array of
+		// no elements (measured — firework fade_colors:[I;] parses
+		// in an item patch).
+		tag.end = i + 1
+		return tag, i + 1, nil
+	}
 	for {
 		j := i
 		if j < len(s) && (s[j] == '+' || s[j] == '-') {

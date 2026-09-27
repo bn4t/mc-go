@@ -143,8 +143,10 @@ func (s *Server) handleCraftTableClick(sess *Session, w *openWindow, table *craf
 	var touched []int
 	switch mode {
 	case 0:
+		before := sess.craftMenuStack(table, int(slot))
+		carriedBefore := sess.carried
 		cur := sess.carried
-		target := sess.craftMenuStack(table, int(slot))
+		target := before
 		if button == 0 {
 			if cur.Empty() {
 				cur, target = target, ItemStack{}
@@ -180,6 +182,12 @@ func (s *Server) handleCraftTableClick(sess *Session, w *openWindow, table *craf
 				cur = ItemStack{}
 			}
 		}
+		if target == before && cur == carriedBefore {
+			// A no-op click (empty slot, empty cursor; or a right-
+			// click onto a full stack): vanilla emits nothing, so no
+			// slot update or state bump here either.
+			return
+		}
 		sess.setCraftMenuStack(table, int(slot), target)
 		sess.carried = cur
 		touched = append(touched, int(slot))
@@ -189,7 +197,6 @@ func (s *Server) handleCraftTableClick(sess *Session, w *openWindow, table *craf
 			break
 		}
 		inGrid := int(slot) >= craftTableGridOff && int(slot) < craftTableGridOff+craftTableGrid
-		touched = append(touched, int(slot))
 		for i := 0; i < craftTableSlots && !moving.Empty(); i++ {
 			destGrid := i >= craftTableGridOff && i < craftTableGridOff+craftTableGrid
 			if destGrid == inGrid || i == craftTableResult {
@@ -221,7 +228,12 @@ func (s *Server) handleCraftTableClick(sess *Session, w *openWindow, table *craf
 			touched = append(touched, i)
 			moving = ItemStack{}
 		}
-		sess.setCraftMenuStack(table, int(slot), moving)
+		if len(touched) > 0 || moving != sess.craftMenuStack(table, int(slot)) {
+			// A quick-move that found no destination emits nothing
+			// on vanilla; only touch when a stack actually moved.
+			sess.setCraftMenuStack(table, int(slot), moving)
+			touched = append(touched, int(slot))
+		}
 	case 3:
 		// Creative middle-click clone: a full stack onto the cursor,
 		// the slot unchanged. A clone carries the slot's update so the
@@ -240,6 +252,11 @@ func (s *Server) handleCraftTableClick(sess *Session, w *openWindow, table *craf
 	}
 	if s.refreshTableResult(sess, table) {
 		touched = append(touched, craftTableResult)
+	}
+	if len(touched) == 0 {
+		// Nothing moved: vanilla emits no slot traffic and no state
+		// bump, so the client's next stateId still matches.
+		return
 	}
 	s.syncCraftTableSlots(sess, w, table, touched)
 }
@@ -315,6 +332,14 @@ func (s *Server) takeTableResult(sess *Session, w *openWindow, table *craftTable
 				rem = grid[i-1].withCount(1)
 				ok = true
 			}
+			if !ok && rtype == data.CraftingSpecialBannerduplicate &&
+				grid[i-1].BannerPatterns != "" {
+				// BannerDuplicateRecipe.getRemainingItems: a stack
+				// carrying banner_patterns likewise leaves a count-1
+				// copy — the patterned source is not consumed.
+				rem = grid[i-1].withCount(1)
+				ok = true
+			}
 			if !ok {
 				continue
 			}
@@ -335,6 +360,11 @@ func (s *Server) takeTableResult(sess *Session, w *openWindow, table *craftTable
 		if mode == 0 {
 			break
 		}
+	}
+	if len(touched) == 0 {
+		// Empty result or a refused take: vanilla emits nothing —
+		// no state bump, so the next click's stateId still matches.
+		return
 	}
 	s.syncCraftTableSlots(sess, w, table, touched)
 	_ = s.sendCarriedItem(sess, sess.carriedBuffer())

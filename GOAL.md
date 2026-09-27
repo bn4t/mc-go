@@ -117,9 +117,11 @@ Mojang server over the wire.
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
   shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
   /recipe give|take + RecipeBookAdd/Remove wire-parity including the
-  1568-entry give-all blob; decorated_pot needs an unmodeled component,
-  smithing needs the menu, bookcloning/shielddecoration/fireworks/
-  mapextending need content components)
+  1568-entry give-all blob; smithing table menu, mapextending,
+  bannerduplicate, bookcloning, shielddecoration, firework_rocket/
+  firework_star/firework_star_fade all measured + differential-pinned;
+  decorated_pot still needs an unmodeled component, crafting_dye/
+  crafting_imbue/shapeless result.components still open)
 - [~] Advancements (recipe advancements: recipe_unlocked,
   inventory_changed, enter_block and the tick trigger all grant, the
   requirements-group semantics (every group needs one satisfied
@@ -8726,3 +8728,18 @@ mc-go gains: `matchBannerDuplicate` in `internal/server/recipes.go` (dispatched 
 Measured on the 26.2 jar (`RepairItemRecipe` bytecode): canCombine requires the second stack to `is(item1)` the same item, BOTH stacks at count 1, and both carrying MAX_DAMAGE and DAMAGE. assemble builds `new ItemStack(item)` — a FRESH default stack, so custom_name/lore/other patch components all drop — sets `MAX_DAMAGE = max(maxD1, maxD2)`, `damage = max(0, i5-(rem1+rem2+i5*5/100))` (rem = max-damage each), then updateEnchantments with a union merge that keeps ONLY CURSE-tagged enchantments (`minecraft:curse` = binding_curse + vanishing_curse) at the max level of either input.
 mc-go gains: `matchRepair` now enforces count-1 on both inputs (a 2-stack no longer repairs) and carries the merged curses onto the result via the shared grindstone helpers (`grindstoneCurses`, `grindstoneEnchEntries`, `grindstoneWriteEnch`); the damage formula is written the way the bytecode computes it (identical result for same-item pairs, where both maxes are the item's own).
 `TestCraftRecipeParity` gains two differential cases vs BOTH servers: repair-curse merges binding+vanishing curses while dropping sharpness and the name, and repair-stack refuses a count-2 input stack.
+
+## Slice 2026-09-27i — firework_star/firework_star_fade/firework_rocket + the vacuous-case repair
+Measured on the 26.2 jar (`FireworkStarRecipe`, `FireworkStarFadeRecipe`, `FireworkRocketRecipe`, `DyeColor` bytecode + `Items.<clinit>` defaults):
+- star: [gp + star-shape modifier? (feather→burst, fire_charge→large_ball, gold_nugget→star, #skulls→creeper, default small_ball) + 1..8 dyes + optional trail(diamond)+twinkle(glowstone_dust)] → `firework_explosion{shape, colors per dye's fireworkColor table (red=11743532 NOT the text color 11546150), fade_colors[], trail, twinkle}`; >8 dyes or >1 shape/trail/twinkle → no match.
+- fade: [star + 1..8 dyes] → appends dye colors into fade_colors; a star carrying no firework_explosion comp refuses.
+- rocket: [paper + 1..3 gunpowder + 0..N stars] → `Fireworks(fuelCount, [explosions])`; stars are OPTIONAL. The result patches comp 69 — and Fireworks(1,[]) IS the item's default, so a starless single-fuel craft drops off the wire patch entirely (bare `1272#3`) — the "which recipe wins for {paper,gp}" question moots itself: the special always wins AND produces the default.
+- Wire shapes: firework_explosion = `shape VarInt | INT-list colors | INT-list fade | trail | twinkle`; fireworks = `flight VarInt | VarInt-counted explosions`.
+mc-go gains `internal/server/firework.go` (DyeColor.fireworkColor table, shape-name table, SNBT explosion parser, the three matchers dispatched on the special-ids) plus `FireworkExp`/`Fireworks` ItemStack fields, comp-68/69 emit+read, and `!`/`=` give support.
+Fixes the new differential coverage forced out:
+- `parseSNBTArray` rejected empty typed arrays — `[I;]` (a star patching `fade_colors:[I;]`) now parses.
+- `matchFireworkRocket` skips emitting `Fireworks == "1"` (default-equal → wire-omitted).
+- `BannerDuplicateRecipe.getRemainingItems`: a stack carrying banner_patterns leaves `copyWithCount(1)` — added to both take paths.
+- SUITE-WIDE: all `menu:2`+`w0:true` cases were VACUOUS — vanilla `handleContainerClick` early-returns on containerId mismatch, so window-0 clicks while a chest menu is open are silently ignored; those cases pinned nothing. All 20 converted to `menu:12` (real craft-table menu) with remapped slots — the conversion immediately surfaced every fix above plus a no-op-click desync: a click that changes nothing must emit nothing or the client's next stateId lags; mode-0 compares before/after stacks, quick-move checks the move happened, both take paths return on empty touched.
+- The full-suite run then exposed a TEST-side pollution: every case teleports to the same spot (6,-60,2), and leftover drops pooled there got vacuumed into the next joiner's inventory — repair-stack/firework-star diffs showed foreign books/banners. `newClickDriverOn` now hashes the driver name to a per-case 32-block station offset.
+`TestCraftRecipeParity` gains four firework cases (star+flags+nofuel+fade, rocket plain/starless/2-fuel) — 37/37 green vs BOTH servers.

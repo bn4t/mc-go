@@ -118,6 +118,17 @@ type ItemStack struct {
 	// internal encodings — the wire writes MapPost-1 (lock 0, scale 1).
 	MapID   int32 `json:"map_id,omitempty"`
 	MapPost int32 `json:"map_post,omitempty"`
+	// FireworkExp is the minecraft:firework_explosion component — the
+	// one explosion a firework_star carries. Canonical string
+	// "shape|c1,c2|f1,f2|trail|twinkle" (shape name, comma-separated
+	// int color and fade lists, 0/1 flags) keeps ItemStack comparable
+	// with ==; absent when empty.
+	FireworkExp string `json:"firework_explosion,omitempty"`
+	// Fireworks is the minecraft:fireworks component on a
+	// firework_rocket: canonical "flight;exp;exp;..." — the
+	// flight_duration VarInt, then each explosion in the same
+	// canonical form as FireworkExp.
+	Fireworks string `json:"fireworks,omitempty"`
 }
 
 // Empty reports whether the slot holds nothing.
@@ -142,7 +153,8 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.BookWritable == other.BookWritable && it.BookWritten == other.BookWritten &&
 		it.Trim == other.Trim &&
 		it.MapID == other.MapID && it.MapPost == other.MapPost &&
-		it.BaseColor == other.BaseColor
+		it.BaseColor == other.BaseColor &&
+		it.FireworkExp == other.FireworkExp && it.Fireworks == other.Fireworks
 }
 
 // enchLevel reports the stack's level of one enchantment, or 0 when
@@ -230,6 +242,9 @@ const (
 	// (measured on 26.2: MapPostProcessing { LOCK, SCALE }).
 	compMapID   = 46
 	compMapPost = 48
+
+	compFireworkExp = 68
+	compFireworks   = 69
 	// block_state is BlockItemStateProperties' flat map — VarInt
 	// pairs of UTF8 property name to value (measured on 26.2:
 	// PROPERTIES_STREAM_CODEC is ByteBufCodecs.map of STRING_UTF8).
@@ -323,6 +338,12 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		add++
 	}
 	if it.BaseColor != 0 {
+		add++
+	}
+	if it.FireworkExp != "" {
+		add++
+	}
+	if it.Fireworks != "" {
 		add++
 	}
 	b.VarInt(add)
@@ -501,6 +522,84 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		b.VarInt(registryEntryID("minecraft:trim_material", "minecraft:"+mat) + 1)
 		b.VarInt(registryEntryID("minecraft:trim_pattern", "minecraft:"+pat) + 1)
 	}
+	if it.FireworkExp != "" {
+		b.VarInt(compFireworkExp)
+		writeFireworkExplosion(b, it.FireworkExp)
+	}
+	if it.Fireworks != "" {
+		b.VarInt(compFireworks)
+		// Fireworks.STREAM_CODEC: flight_duration VAR_INT, then a
+		// VarInt-counted list of FireworkExplosion (max 256).
+		parts := strings.SplitN(it.Fireworks, ";", 2)
+		fl, _ := strconv.Atoi(parts[0])
+		b.VarInt(int32(fl))
+		var exps []string
+		if len(parts) == 2 && parts[1] != "" {
+			exps = strings.Split(parts[1], ";")
+		}
+		b.VarInt(int32(len(exps)))
+		for _, e := range exps {
+			writeFireworkExplosion(b, e)
+		}
+	}
+}
+
+// writeFireworkExplosion writes one FireworkExplosion payload:
+// shape VarInt ordinal, colors as an INT list (VarInt count + 4-byte
+// ints), fade_colors likewise, then has_trail and has_twinkle bools.
+func writeFireworkExplosion(b *protocol.Buffer, exp string) {
+	shape, colors, fades, trail, twinkle := fireworkExpParse(exp)
+	b.VarInt(fireworkShapeOrd(shape))
+	b.VarInt(int32(len(colors)))
+	for _, c := range colors {
+		b.Int(c)
+	}
+	b.VarInt(int32(len(fades)))
+	for _, f := range fades {
+		b.Int(f)
+	}
+	b.Bool(trail)
+	b.Bool(twinkle)
+}
+
+// readFireworkExplosion decodes the wire payload back to canonical.
+func readFireworkExplosion(r *protocol.PacketReader) (string, error) {
+	shape, err := r.VarInt()
+	if err != nil || shape < 0 || shape >= 5 {
+		return "", err
+	}
+	rd := func() ([]int32, error) {
+		n, err := r.VarInt()
+		if err != nil || n < 0 {
+			return nil, err
+		}
+		out := make([]int32, 0, n)
+		for ; n > 0; n-- {
+			v, err := r.Int()
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, v)
+		}
+		return out, nil
+	}
+	colors, err := rd()
+	if err != nil {
+		return "", err
+	}
+	fades, err := rd()
+	if err != nil {
+		return "", err
+	}
+	trail, err := r.Byte()
+	if err != nil {
+		return "", err
+	}
+	twinkle, err := r.Byte()
+	if err != nil {
+		return "", err
+	}
+	return fireworkExpCanon(fireworkShapeNames[shape], colors, fades, trail != 0, twinkle != 0), nil
 }
 
 // ominousBannerLayers is the ominous banner's 8-layer pattern list
@@ -805,6 +904,31 @@ func readSlotComponent(r *protocol.PacketReader, it *ItemStack, typ int32) error
 			box[i] = inner
 		}
 		it.Contents = box
+	case compFireworkExp: // minecraft:firework_explosion
+		exp, err := readFireworkExplosion(r)
+		if err != nil {
+			return err
+		}
+		it.FireworkExp = exp
+	case compFireworks: // minecraft:fireworks — flight, explosion list
+		fl, err := r.VarInt()
+		if err != nil {
+			return err
+		}
+		n, err := r.VarInt()
+		if err != nil {
+			return err
+		}
+		var b strings.Builder
+		b.WriteString(strconv.Itoa(int(fl)))
+		for ; n > 0; n-- {
+			exp, err := readFireworkExplosion(r)
+			if err != nil {
+				return err
+			}
+			b.WriteString(";" + exp)
+		}
+		it.Fireworks = b.String()
 
 	default:
 		return errUnknownComponent(typ, -1)

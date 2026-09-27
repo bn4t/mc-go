@@ -75,6 +75,12 @@ func stackKey(it server.ItemStack) string {
 	if it.MapPost != 0 {
 		key += fmt.Sprintf("[mpp%d]", it.MapPost-1)
 	}
+	if it.FireworkExp != "" {
+		key += fmt.Sprintf("[fwx%s]", it.FireworkExp)
+	}
+	if it.Fireworks != "" {
+		key += fmt.Sprintf("[fw%s]", it.Fireworks)
+	}
 	return key
 }
 
@@ -173,11 +179,21 @@ func newClickDriverOn(t *testing.T, addr, name, block string, wantMenu int32, gi
 	if err := pw.WritePacket(server.IDPlayPlayerLoadedSB, nil); err != nil {
 		t.Fatal(err)
 	}
-	sendCommand(t, pw, "tp @s 6 -60 2 0 0")
+	// Each driver gets its own station: cases share one world and
+	// every tp lands a player on the same spot, so crafted leftovers
+	// dropped at the feet by earlier players would be vacuumed into
+	// the next joiner's inventory. Hash the name to a 32-block
+	// offset so drops can never mix between cases.
+	off := 0
+	for _, c := range []byte(name) {
+		off = (off*31 + int(c)) & 15
+	}
+	x0 := int32(6 + 32*off)
+	sendCommand(t, pw, fmt.Sprintf("tp @s %d -60 2 0 0", x0))
 	if !digSentinel(t, pw, d.sink, "TPOK", 10*time.Second) {
 		t.Fatalf("%s: no tp", name)
 	}
-	sendCommand(t, pw, "setblock 8 -61 0 "+block)
+	sendCommand(t, pw, fmt.Sprintf("setblock %d -61 0 %s", x0+2, block))
 	if !digSentinel(t, pw, d.sink, "SBOK", 10*time.Second) {
 		t.Fatalf("%s: no setblock", name)
 	}
@@ -198,7 +214,7 @@ func newClickDriverOn(t *testing.T, addr, name, block string, wantMenu int32, gi
 	// state and slots heal deterministically off the sync-w0 resync
 	// after close instead.
 	d.sink.take()
-	d.reopen(8, -61, 0, 11, "use-open")
+	d.reopen(x0+2, -61, 0, 11, "use-open")
 	v := judgeUse(d.opened)
 	if !v.open || v.menu != wantMenu {
 		t.Fatalf("%s: %s did not open (open=%v menu=%d)", name, block, v.open, v.menu)

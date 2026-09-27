@@ -1217,6 +1217,10 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.BannerPatterns = ""
 			case "base_color":
 				it.BaseColor = 0
+			case "firework_explosion":
+				it.FireworkExp = ""
+			case "fireworks":
+				it.Fireworks = ""
 			default:
 				return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
 			}
@@ -1329,6 +1333,42 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
 			it.BaseColor = ord + 1
+		case "firework_explosion":
+			exp, ok2 := parseFireworkExplosionSNBT(vtag)
+			if !ok2 {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			it.FireworkExp = exp
+		case "fireworks":
+			// {flight_duration:int, explosions:[<explosion>,...]} —
+			// explosions may be a list of compounds, or the
+			// "explosions" entry may carry the wrapper
+			// {explosions:[...]} shape; both parse the same here.
+			if vtag.kind != snbtCompound {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			fv, ok := vtag.vals["flight_duration"]
+			if !ok || fv.kind != snbtNumber {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			fl, err := strconv.Atoi(strings.TrimRight(fv.num, "bBsSiIlLfFdD"))
+			if err != nil {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			ev, ok := vtag.vals["explosions"]
+			if !ok || ev.kind != snbtList {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			var b strings.Builder
+			b.WriteString(strconv.Itoa(fl))
+			for _, e := range ev.items {
+				exp, ok2 := parseFireworkExplosionSNBT(e)
+				if !ok2 {
+					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+				}
+				b.WriteString(";" + exp)
+			}
+			it.Fireworks = b.String()
 		case "stored_enchantments":
 			// Same flat {name: level} map as enchantments, but it
 			// fills the stored_enchantments component (enchanted
