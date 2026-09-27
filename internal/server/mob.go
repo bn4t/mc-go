@@ -1184,6 +1184,17 @@ func (s *Server) runSummon(player string, args []string) reply {
 					}
 				}
 			}
+			// PrimedTnt's readAdditionalSaveData keys: fuse replaces the
+			// 80-tick default, explosion_power overrides the 4-power
+			// blast.
+			if name == "tnt" {
+				if v, ok := tag.vals["fuse"]; ok {
+					e.Fuse = int32(snbtNum(v))
+				}
+				if v, ok := tag.vals["explosion_power"]; ok {
+					e.BlastPower = int32(snbtNum(v))
+				}
+			}
 			// Creeper's addAdditionalSaveData keys: powered doubles
 			// the blast, Fuse resizes the 30-tick swell window,
 			// ExplosionRadius scales it, ignited lights the fuse at
@@ -1604,6 +1615,13 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, 
 	// vanilla's summoned rocket.
 	if name == "firework_rocket" {
 		e := s.entities.Spawn(&Entity{Type: id, Dim: d.name, X: x, Y: y, Z: z})
+		return e, true
+	}
+	// PrimedTnt likewise — a summoned one starts at
+	// DEFAULT_FUSE_TICKS (80) with no prime kick; {fuse:n} and
+	// {explosion_power:n} override below.
+	if name == "tnt" {
+		e := s.entities.Spawn(&Entity{Type: id, Dim: d.name, X: x, Y: y, Z: z, Fuse: tntFuseTicks})
 		return e, true
 	}
 	health, known := mobHealth[name]
@@ -2050,6 +2068,11 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 			s.mobHurtKnockback(e, kbSrc)
 		}
 	}
+	// LivingEntity.actuallyHurt posts ENTITY_DAMAGE at the hurt
+	// position — runs for every landed hit, lethal or not.
+	if d := s.dimensionByName(e.Dim); d != nil {
+		s.emitGameEvent(d, "entity_damage", e.X, e.Y, e.Z, nil, "")
+	}
 	health, d := res.Health, res.Dealt
 	if health > 0 && !res.Graced {
 		s.mobHurtSound(e, res)
@@ -2131,6 +2154,10 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 // silent is hurt()'s b8=false arm: a graced hit that kills runs die()
 // without makeSound(getDeathSound)/playSecondaryHurtSound.
 func (s *Server) mobDie(e *Entity, killer *Session, silent bool) {
+	// LivingEntity.die posts ENTITY_DEATH at the body's position.
+	if d := s.dimensionByName(e.Dim); d != nil {
+		s.emitGameEvent(d, "entity_die", e.X, e.Y, e.Z, nil, "")
+	}
 	if !silent {
 		s.mobDeathSound(e)
 	}

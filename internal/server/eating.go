@@ -235,6 +235,13 @@ func (s *Server) finishConsume(sess *Session, held ItemStack, name string, f foo
 	sess.healthDirty.Store(true)
 	x, y, z, _, _, _ := sess.Pos()
 	s.playSoundSrc(sess.dimName(), x, y, z, 1310, 7, 0.5, 0.9+rand.Float32()*0.1, nil) // entity.player.burp
+	// LivingEntity.stopUsingItem's finishUsingItem posts EAT or DRINK
+	// at the eater's feet — foodConsume.drink splits them.
+	if f.drink {
+		s.emitGameEvent(sess.dimension(), "drink", x, y, z, sess, "")
+	} else {
+		s.emitGameEvent(sess.dimension(), "eat", x, y, z, sess, "")
+	}
 
 	// PotionContents.onConsume → applyToLivingEntity: the potion's
 	// MobEffectInstance list with the default 1.0 duration scale.
@@ -363,6 +370,9 @@ func (s *Server) chorusTeleport(sess *Session) {
 			continue
 		}
 		s.teleportWithin(sess, dx, float64(by), dz)
+		// TeleportRandomlyConsumeEffect's endermanTeleport posts
+		// TELEPORT at the landing spot.
+		s.emitGameEvent(d, "teleport", dx, float64(by), dz, sess, "")
 		s.broadcastEntityEvent(sess.entityID.Load(), 46) // teleport particles
 		// ChorusFruitItem's sound: PLAYERS 1.0/1.0 at the NEW pos.
 		s.playSoundSrc(sess.dimName(), dx, float64(by), dz, 373, 7, 1.0, 1.0, nil)

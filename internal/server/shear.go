@@ -176,6 +176,10 @@ func (s *Server) shearMob(sess *Session, t Entity, hand int32) {
 	default:
 		return
 	}
+	// Shearable.shear posts SHEAR at the sheared entity's position.
+	if d := s.dimensionByName(t.Dim); d != nil {
+		s.emitGameEvent(d, "shear", t.X, t.Y, t.Z, sess, "")
+	}
 	held2, hslot := sess.stackForHand(hand)
 	s.wearSlot(sess, hslot, 1)
 	sess.addItemStat(statUsed, held2.ID, 1)

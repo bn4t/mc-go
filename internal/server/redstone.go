@@ -109,17 +109,21 @@ func rsOwnSignal(blk world.Block) int {
 		if prop("powered") == "true" {
 			return 15
 		}
+	case name == "sculk_sensor" || name == "calibrated_sculk_sensor":
+		// SculkSensorBlock.getSignal: the analog level is the power
+		// prop the vibration set — 0 on an idle/cooldown sensor.
+		return rsPropInt(prop("power"))
 	case name == "redstone_torch" || name == "redstone_wall_torch":
 		if prop("lit") == "true" {
 			return 15
 		}
 	case prop("powered") == "true":
 		// lever, *_button, observer, detector_rail, tripwire_hook,
-		// lectern, lightning_rod, sculk_sensor — every "powered" bool
-		// source emits 15.
+		// lectern, lightning_rod — every "powered" bool source
+		// emits 15.
 		switch name {
 		case "lever", "observer", "lectern", "lightning_rod",
-			"tripwire_hook", "sculk_sensor", "calibrated_sculk_sensor":
+			"tripwire_hook":
 			return 15
 		case "repeater":
 			return 15 // DiodeBlock.getOutputSignal — constant
@@ -242,6 +246,12 @@ func rsGetDirectSignal(d *dimension, pos world.Pos, dir rsDir) int {
 	case strings.HasSuffix(name, "_pressure_plate"):
 		if dir == rsUp {
 			return rsOwnSignal(blk)
+		}
+	case name == "sculk_sensor" || name == "calibrated_sculk_sensor":
+		// SculkSensorBlock.getDirectSignal: strong power only toward
+		// the block above (dir == UP).
+		if dir == rsUp {
+			return rsGetSignal(d, pos, dir)
 		}
 	case name == "redstone_torch" || name == "redstone_wall_torch":
 		if dir == rsDown {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"strings"
 	"sort"
 
 	"mc-go/internal/event"
@@ -509,6 +510,12 @@ func (s *Server) handleDig(sess *Session, p protocol.Packet) {
 		// The occupants vanish with the block entity: nothing calls
 		// emptyAllLivingFromHive on this path.
 		affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
+		// ServerLevel.destroyBlock posts BLOCK_DESTROY at the broken
+		// position with the old state as context — wool muffles it.
+		oldName, _ := world.StateOwner(broken)
+		s.emitGameEvent(d, "block_destroy",
+			float64(pos.X)+0.5, float64(pos.Y)+0.5, float64(pos.Z)+0.5,
+			sess, strings.TrimPrefix(oldName, "minecraft:"))
 		acked = true
 		if seq >= 0 {
 			s.sendBlockAck(sess, seq)

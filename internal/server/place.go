@@ -481,6 +481,13 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	blk = s.crafterPlaceState(d, target, blk, sess)
 	blk = blockStateComponentApply(blk, sess.heldStack())
 	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
+	// BlockItem.place → Level.gameEvent(BLOCK_PLACE) at the placed
+	// position with the new state as the context: wool muffles it.
+	if n, ok := world.StateOwner(blk); ok {
+		s.emitGameEvent(d, "block_place",
+			float64(target.X)+0.5, float64(target.Y)+0.5, float64(target.Z)+0.5,
+			sess, strings.TrimPrefix(n, "minecraft:"))
+	}
 	// TripWireHookBlock.setPlacedBy: a placed hook runs its
 	// calculateState — attaches/powers the run it lands on. Command
 	// writes never reach this path on vanilla.

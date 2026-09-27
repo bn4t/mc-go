@@ -329,10 +329,16 @@ func (s *Server) sendOpsEchoNamed(from *Session, name, c component) {
 }
 
 // isOp reports whether the name holds an ops.json entry — the list
-// broadcastToAdmins sends to, regardless of OpsRequired.
+// broadcastToAdmins sends to, regardless of OpsRequired. When the
+// server has no ops list at all, command permission isn't gated
+// (everyone runs at level 4), so the ops broadcast reaches everyone —
+// matching the level every unopped player effectively holds here.
 func (s *Server) isOp(name string) bool {
 	s.rulesMu.RLock()
 	defer s.rulesMu.RUnlock()
+	if len(s.ops) == 0 {
+		return true
+	}
 	_, ok := s.ops[name]
 	return ok
 }

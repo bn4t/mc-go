@@ -566,6 +566,12 @@ func (s *Server) openContainer(sess *Session, pos world.Pos) {
 	sess.windowMu.Lock()
 	sess.window = w
 	sess.windowState = 0
+	// ContainerOpenersCounter tracks openers only on barrels and
+	// shulker boxes among the generic-spec menus — the rest emit no
+	// container_open on 26.2.
+	if c.block == "barrel" || c.spec.shulker {
+		s.emitContainerOpen(sess, pos)
+	}
 	sess.windowMu.Unlock()
 
 	var b protocol.Buffer

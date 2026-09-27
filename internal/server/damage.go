@@ -233,6 +233,13 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 			amount *= 1 - red/25
 		}
 	}
+	// LivingEntity.actuallyHurt posts ENTITY_DAMAGE at the hurt
+	// position — shield-blocked hits and fully graced repeats never
+	// reach this point.
+	{
+		x, y, z, _, _, _ := sess.Pos()
+		s.emitGameEvent(sess.dimension(), "entity_damage", x, y, z, sess, "")
+	}
 	// Vanilla counts damage in tenths of a heart.
 	sess.addCustomStat("damage_taken", int32(amount*10))
 	eid := sess.entityID.Load()

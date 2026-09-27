@@ -122,6 +122,9 @@ type openWindow struct {
 	// size — saddle + body armor + 3*columns chest cells.
 	mount      *Entity
 	mountSlots int
+	// closeEmitted dedupes the container_close gameEvent between the
+	// server-initiated closeWindow path and menuRemoved.
+	closeEmitted bool
 }
 
 // containerSize is the number of container-side slots (before the
@@ -180,6 +183,7 @@ func (s *Server) openChest(sess *Session, pos world.Pos) {
 	sess.windowMu.Lock()
 	sess.window = &openWindow{id: id, pos: pos, dim: sess.dimension(), chest: s.chestAt(sess.dimension(), pos), kind: menuGeneric9x3}
 	sess.windowState = 0
+	s.emitContainerOpen(sess, pos)
 	sess.windowMu.Unlock()
 
 	var b protocol.Buffer
@@ -892,6 +896,7 @@ func (s *Server) handleCloseContainer(sess *Session, p protocol.Packet) {
 // with the session (kick, disconnect), placed in the inventory on a
 // client close.
 func (s *Server) menuRemoved(sess *Session, w *openWindow, dropped bool) {
+	s.emitContainerClose(sess, w)
 	if w.merchant != nil {
 		s.merchantClose(sess, w)
 	} else if w.craft != nil {
@@ -942,6 +947,25 @@ func (s *Server) returnCarried(sess *Session) {
 	}
 }
 
+// emitContainerClose is ContainerOpenersCounter.onClose's emission:
+// CONTAINER_CLOSE at the container block when an opener-counted
+// window retires — client close, death, respawn, or disconnect.
+// 26.2 counts openers only on chests, barrels, ender chests, and
+// shulker boxes; furnaces, hoppers, and the spec menus emit nothing.
+func (s *Server) emitContainerClose(sess *Session, w *openWindow) {
+	if w.closeEmitted {
+		return
+	}
+	w.closeEmitted = true
+	if w.chest == nil && w.ender == nil &&
+		(w.container == nil || (!w.container.spec.shulker && w.container.block != "barrel")) {
+		return
+	}
+	s.emitGameEvent(w.dim, "container_close",
+		float64(w.pos.X)+0.5, float64(w.pos.Y)+0.5, float64(w.pos.Z)+0.5,
+		sess, "")
+}
+
 // closeWindow retires any open window without waiting for the client
 // (death, disconnect, respawn).
 func (s *Server) closeWindow(sess *Session) {
@@ -952,6 +976,10 @@ func (s *Server) closeWindow(sess *Session) {
 	if w == nil {
 		return
 	}
+	// ContainerOpenersCounter.onClose → CONTAINER_CLOSE at the
+	// container block when the last viewer leaves. mc-go emits per
+	// close on every opener-counted window.
+	s.emitContainerClose(sess, w)
 	var b protocol.Buffer
 	b.VarInt(w.id)
 	_ = sess.write(sess.ids().PlayContainerClose, b.Bytes())

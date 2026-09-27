@@ -334,8 +334,10 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 	// is NONE), but checkFallDamage posts HIT_GROUND unconditionally on
 	// landing — a sensor in earshot dampens it and the sneak earns
 	// avoid_vibration.
-	if sess.sneaking && onGround && sess.fallDistance > 0 {
-		s.fireAvoidVibration(sess, x, y, z, sess.dimName())
+	if onGround && sess.fallDistance > 0 {
+		// Entity.checkFallDamage posts HIT_GROUND on landing — a
+		// sneaking faller's emission is dampened inside the listener.
+		s.emitGameEvent(sess.dimension(), "hit_ground", x, y, z, sess, "")
 	}
 	// Fall-distance tracking for survival fall damage.
 	if y < oy && !onGround {

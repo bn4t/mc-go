@@ -384,6 +384,12 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 	beName := sess.dimension().beNames[pos]
 	s.fireBeeNestDestroyed(sess, sess.dimension(), pos, broken)
 	affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
+	// ServerLevel.destroyBlock posts BLOCK_DESTROY at the broken
+	// position with the old state as context — wool muffles it.
+	oldName, _ := world.StateOwner(broken)
+	s.emitGameEvent(sess.dimension(), "block_destroy",
+		float64(pos.X)+0.5, float64(pos.Y)+0.5, float64(pos.Z)+0.5,
+		sess, strings.TrimPrefix(oldName, "minecraft:"))
 	if nestBees > 0 && sess.heldStack().enchLevel("silk_touch") <= 0 {
 		defer s.beeNestDestroyed(sess.dimension(), pos, broken, nestBees, sess)
 	}
@@ -997,6 +1003,11 @@ func (s *Server) killPlayer(sess *Session, message component) {
 	}
 	sess.dead = true
 	sess.health = 0
+	// LivingEntity.die posts ENTITY_DEATH at the body's feet.
+	{
+		x, y, z, _, _, _ := sess.Pos()
+		s.emitGameEvent(sess.dimension(), "entity_die", x, y, z, sess, "")
+	}
 	// Vanilla's die() award order: killed_by[killer], then deaths,
 	// then time_since_death resets.
 	if killer := s.entityByID(sess.lastHurtBy); killer != nil {

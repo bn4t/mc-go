@@ -384,6 +384,20 @@ func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block,
 		short := strings.TrimPrefix(name, "minecraft:")
 		oldName, _ := world.StateOwner(old)
 		oldShort := strings.TrimPrefix(oldName, "minecraft:")
+		// Sculk sensors are EntityBlocks: a sensor write creates its
+		// block entity (fresh data when the BE type changes — vanilla
+		// replaces the entity only when the new state is not valid
+		// for the stored one), a non-sensor write drops it.
+		if isSculkSensor(short) {
+			if d.sculk == nil {
+				d.sculk = map[world.Pos]*sculkSensor{}
+			}
+			if _, ok := d.sculk[pos]; !ok || oldShort != short {
+				d.sculk[pos] = newSculkSensor()
+			}
+		} else if _, ok := d.sculk[pos]; ok {
+			delete(d.sculk, pos)
+		}
 		if coralLive(short) && !s.coralWaterScan(d, pos) {
 			s.scheduleBlockTick(d, pos, int64(60+s.rng.intn(40)))
 		}

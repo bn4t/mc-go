@@ -412,6 +412,10 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		s.tripwireTick(d, pos, blk)
 		return
 	}
+	if isSculkSensor(short) {
+		s.sculkSensorTick(d, pos, blk)
+		return
+	}
 	if short == "repeater" {
 		s.rsDiodeTick(d, pos, blk, short)
 		return

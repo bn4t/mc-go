@@ -60,6 +60,8 @@ var blockEntitySpecs = map[string]blockEntitySpec{
 	"lectern":       {29, "minecraft:lectern"},
 	"comparator":    {19, "minecraft:comparator"},
 	"crafter":       {42, "minecraft:crafter"},
+	"sculk_sensor":  {34, "minecraft:sculk_sensor"},
+	"calibrated_sculk_sensor": {35, "minecraft:calibrated_sculk_sensor"},
 }
 
 // blockEntityOf resolves a block state to its block entity type. A
@@ -206,6 +208,19 @@ func (s *Server) chunkBlockEntities(d *dimension, cx, cz int) []map[string]any {
 	}
 	d.containers.mu.Unlock()
 
+	// Sculk sensors save their vibration state — the last frequency
+	// unconditionally, the listener's selector/travel data when one
+	// is pending or traveling.
+	for pos, sen := range d.sculk {
+		if sen == nil || !keep(pos) {
+			continue
+		}
+		spec, _ := blockEntityOf(d.w.GetBlock(pos))
+		add(pos, blockEntityNBT(pos, spec, func(extra map[string]any) {
+			sculkNBT(extra, sen)
+		}))
+	}
+
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i].pos, out[j].pos
 		if a.X != b.X {
@@ -295,6 +310,17 @@ func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any
 			}), true
 		}
 		return nil, false
+	case "minecraft:sculk_sensor", "minecraft:calibrated_sculk_sensor":
+		// A sensor block always carries its block entity — a
+		// never-triggered one saves the -1 default frequency and an
+		// idle listener.
+		sen := d.sculk[pos]
+		if sen == nil {
+			sen = newSculkSensor()
+		}
+		return blockEntityNBT(pos, spec, func(extra map[string]any) {
+			sculkNBT(extra, sen)
+		}), true
 	case "minecraft:hopper":
 		if h := s.peekHopper(d, pos); h != nil {
 			slots := make([]ItemStack, len(h.slots))
@@ -459,6 +485,13 @@ func (s *Server) chunkClientBlockEntities(d *dimension, cx, cz int) []clientBloc
 		add(pos, nil)
 	}
 	d.containers.mu.Unlock()
+
+	// Sculk sensor block entities carry no client payload — the
+	// chunk packet's entry exists so the client registers the
+	// listener on a freshly streamed sensor.
+	for pos := range d.sculk {
+		add(pos, nil)
+	}
 
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i].pos, out[j].pos
@@ -771,6 +804,11 @@ func (s *Server) restoreBlockEntity(d *dimension, be map[string]any) {
 			d.comparatorOut = map[world.Pos]int{}
 		}
 		d.comparatorOut[pos] = int(nbtNumberOr(be["OutputSignal"], 0))
+	case "minecraft:sculk_sensor", "minecraft:calibrated_sculk_sensor":
+		if d.sculk == nil {
+			d.sculk = map[world.Pos]*sculkSensor{}
+		}
+		d.sculk[pos] = sculkFromNBT(be)
 	case "minecraft:barrel", "minecraft:dispenser", "minecraft:dropper",
 		"minecraft:shulker_box", "minecraft:brewing_stand", "minecraft:crafter":
 		c := s.containerAt(d, pos)

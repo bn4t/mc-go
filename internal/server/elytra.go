@@ -80,6 +80,11 @@ func (s *Server) fallFlyingTick(sess *Session) {
 	if (sess.fallFlyTicks+1)%20 == 0 {
 		s.wearSlot(sess, slotArmorStart+1, 1)
 	}
+	// LivingEntity.updateFallFlying posts ELYTRA_GLIDE every 10 ticks.
+	if (sess.fallFlyTicks+1)%10 == 0 {
+		x, y, z, _, _, _ := sess.Pos()
+		s.emitGameEvent(sess.dimension(), "elytra_glide", x, y, z, sess, "")
+	}
 	s.glideCollisionTick(sess)
 }
 

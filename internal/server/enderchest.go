@@ -27,6 +27,7 @@ func (s *Server) openEnderChest(sess *Session, pos world.Pos) {
 	sess.windowMu.Lock()
 	sess.window = &openWindow{id: id, pos: pos, dim: sess.dimension(), ender: &sess.ender, kind: menuGeneric9x3}
 	sess.windowState = 0
+	s.emitContainerOpen(sess, pos)
 	sess.windowMu.Unlock()
 
 	var b protocol.Buffer

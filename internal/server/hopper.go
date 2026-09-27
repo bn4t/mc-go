@@ -89,6 +89,7 @@ func (s *Server) openHopper(sess *Session, pos world.Pos) {
 	sess.windowMu.Lock()
 	sess.window = &openWindow{id: id, pos: pos, dim: sess.dimension(), hopper: s.hopperAt(sess.dimension(), pos), kind: menuHopper}
 	sess.windowState = 0
+	// Hoppers emit no container_open — no ContainerOpenersCounter.
 	sess.windowMu.Unlock()
 
 	var b protocol.Buffer

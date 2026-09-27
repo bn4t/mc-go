@@ -45,6 +45,8 @@ func (s *Server) primeTntAt(d *dimension, x, y, z float64, fuse int32) *Entity {
 	s.broadcastEntityMetadata(e.ID, encodePrimedTntMetadata(fuse))
 	// TNT_PRIMED goes out at SoundSource.BLOCKS (4), volume 1, pitch 1.
 	s.playSoundSrc(d.name, x, y, z, 1623, 4, 1, 1, nil)
+	// TntBlock.explode posts PRIME_FUSE at the primed entity's spot.
+	s.emitGameEvent(d, "prime_fuse", x, y, z, nil, "")
 	return e
 }
 
@@ -132,10 +134,15 @@ func (s *Server) tntEntityTick(e *Entity) {
 	}
 }
 
-// tntExplode wraps explodePower at TNT's fixed power 4 — vanilla's
-// TNT interaction reads tnt_explodes for its destroy type.
+// tntExplode wraps explodePower at TNT's power — 4 by default, the
+// summon tag's explosion_power when one was given. Vanilla's TNT
+// interaction reads tnt_explodes for its destroy type.
 func (s *Server) tntExplode(src *Entity, x, y, z float64) {
-	s.explodePower(src, x, y, z, primedTntPower, s.gameRuleBool("minecraft:tnt_explodes"))
+	power := primedTntPower
+	if src != nil && src.BlastPower > 0 {
+		power = float32(src.BlastPower)
+	}
+	s.explodePower(src, x, y, z, power, s.gameRuleBool("minecraft:tnt_explodes"))
 }
 
 // explodePower is ServerLevel.explode for a MOB interaction: the block
@@ -161,6 +168,8 @@ func (s *Server) explodePowerFire(src *Entity, x, y, z float64, radius float32, 
 	if d == nil {
 		return
 	}
+	// ServerExplosion.explode posts EXPLODE at the blast centre.
+	s.emitGameEvent(d, "explode", x, y, z, nil, "")
 	var positions []world.Pos
 	if grief {
 		positions = s.explodeBlockPositionsRes(src.Dim, x, y, z, radius, explosionResistFor)

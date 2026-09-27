@@ -79,6 +79,10 @@ type dimension struct {
 	// that reads it (bee_nest_destroyed's num_bees_inside) sees no
 	// more than that.
 	bees map[world.Pos]int32
+	// sculk is every sculk sensor block entity's vibration state —
+	// the VibrationSystem$Data plus the saved last frequency. Entries
+	// are created when the sensor block is written and die with it.
+	sculk map[world.Pos]*sculkSensor
 	// beNames is every block entity's CustomName — the raw serialized
 	// text component ("{\"text\":\"Bob\"}") a setblock tag or a named
 	// placed item left behind (Nameable.setCustomName). Loot

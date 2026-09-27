@@ -70,6 +70,9 @@ func (s *Server) releaseBow(sess *Session) {
 		return
 	}
 	x, y, z, yaw, pitch, _ := sess.Pos()
+	// Projectile.spawnProjectile posts PROJECTILE_SHOOT at the
+	// shooter's feet — sneak-suppressible.
+	s.emitGameEvent(sess.dimension(), "projectile_shoot", x, y, z, sess, "")
 	y += 1.52 // vanilla spawns at eye height minus a bow-length offset
 	s.spawnArrow(sess, x, y, z, yaw, pitch, power*3.0)
 	s.wearHeld(sess, 1)
@@ -272,6 +275,11 @@ func (s *Server) arrowTickStep() {
 			s.channelingStrike(e.arrowShooter, e, e.X, e.Y, e.Z)
 		}
 		if collided {
+			// Projectile.onHit → gameEvent(PROJECTILE_LAND) at the
+			// hit result's location.
+			if d := s.dimensionByName(e.Dim); d != nil {
+				s.emitGameEvent(d, "projectile_land", e.X, e.Y, e.Z, nil, "")
+			}
 			if isPotion {
 				s.potionSplash(e, e.X, e.Y, e.Z)
 				if name == "lingering_potion" {
@@ -306,6 +314,9 @@ func (s *Server) arrowTickStep() {
 		if bx, by, bz, axis, hx, hy, hz, hit := s.arrowBlockHit(e, ox, oy, oz); hit {
 			e.X, e.Y, e.Z = hx, hy, hz
 			e.MotionX, e.MotionY, e.MotionZ = 0, 0, 0
+			if d := s.dimensionByName(e.Dim); d != nil {
+				s.emitGameEvent(d, "projectile_land", hx, hy, hz, nil, "")
+			}
 			if isPotion {
 				s.potionSplash(e, hx, hy, hz)
 				if name == "lingering_potion" {

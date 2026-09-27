@@ -252,6 +252,7 @@ func (s *Server) openFurnace(sess *Session, pos world.Pos) {
 	sess.windowMu.Lock()
 	sess.window = &openWindow{id: id, pos: pos, dim: sess.dimension(), furnace: f, kind: f.kind}
 	sess.windowState = 0
+	// Furnaces emit no container_open — no ContainerOpenersCounter.
 	sess.windowMu.Unlock()
 
 	var b protocol.Buffer
