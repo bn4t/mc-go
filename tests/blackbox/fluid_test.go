@@ -39,9 +39,15 @@ func vanillaLogTail(t *testing.T) {
 // is there instead of trusting the Block Update broadcast.
 func TestFluidParity(t *testing.T) {
 	const probe = "FluidParity"
-	tg := requireBlackboxFiles(t, nil, map[string]string{
-		"ops.json": opsJSONFor(probe),
-	}, nil)
+	// The ~130 query commands per scenario ride on the game's frozen
+	// clock — vanilla's command-spam throttle (20/packet, decay 1/tick,
+	// drops at 200) counts them anyway and silently eats the following
+	// /time query; a zero threshold disables it.
+	tg := requireBlackboxFiles(t,
+		map[string]string{"command-spam-threshold-seconds": "0"},
+		map[string]string{
+			"ops.json": opsJSONFor(probe),
+		}, nil)
 	defer tg.cleanup()
 	defer func() {
 		if t.Failed() {
