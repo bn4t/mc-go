@@ -187,6 +187,11 @@ type Entity struct {
 	beamTarget int32
 	beamTime   int32
 	beamMeta   bool
+	// Moving mirrors Guardian's DATA_ID_MOVING (metadata index 16,
+	// boolean): GuardianMoveControl latches it while a swim drive is
+	// live — it gates travelInWater's idle -0.005 sink and the client
+	// tail/spikes animation.
+	Moving bool
 	// AvoidEntityGoal state: fleeUntil is the game-time deadline the
 	// goal stays armed to — vanilla's posAvoider paths to a point
 	// ~16 blocks off, so the fleer overshoots its trigger distance —
@@ -484,12 +489,16 @@ type Entity struct {
 	// SentMotionX/Y/Z are ServerEntity.lastSentMovement — the delta last
 	// shipped as set_entity_motion; the emit fires when the current delta
 	// drifts past 1e-7 squared, or just turned exactly zero.
-	WanderTicks   int64
-	WanderTicks2  int64
-	LookYaw       float32
-	Strolling     bool
-	StrollTX      float64
-	StrollTZ      float64
+	WanderTicks  int64
+	WanderTicks2 int64
+	LookYaw      float32
+	Strolling    bool
+	StrollTX     float64
+	StrollTZ     float64
+	// StrollTY is the wander target's y component — only aquatic
+	// movers pick targets in 3D (generateRandomPosForAquatic); land
+	// strolls leave it zero.
+	StrollTY      float64
 	StrollSteps   int32
 	SentMotionX   float64
 	SentMotionY   float64

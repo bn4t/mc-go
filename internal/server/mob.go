@@ -1988,6 +1988,16 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(0) // type: byte
 				b.Byte(0x10)
 			}
+		case "guardian", "elder_guardian":
+			// Guardian defines DATA_ID_MOVING (16, boolean) and
+			// DATA_ID_ATTACK_TARGET (17, int) — both ride the pack,
+			// defaults included.
+			b.Byte(16)
+			b.Byte(8) // type: boolean
+			b.Bool(e.Moving)
+			b.Byte(17)
+			b.Byte(1) // type: varint
+			b.VarInt(e.beamTarget)
 		case "snow_golem":
 			// SnowGolem's DATA_PUMPKIN_ID (index 16, byte): bit 1 =
 			// pumpkin head. Default on, so it packs only when off.
@@ -2874,7 +2884,11 @@ func (s *Server) mobTickStep() {
 				// ahead of the ambient wander.
 				if !s.mobPatrolStep(e, s.dims[e.Dim], w) &&
 					!(e.FireTicks > 0 && mobSunFlees[ambName] && s.mobSunFleeStep(e, s.dims[e.Dim], w)) {
-					s.mobMoveStep(e, w)
+					if mobBeam[ambName] {
+						s.guardianMoveStep(e, w)
+					} else {
+						s.mobMoveStep(e, w)
+					}
 				}
 			}
 			// LookAtPlayerGoal + RandomLookAroundGoal run alongside
@@ -6490,6 +6504,134 @@ func (s *Server) guardianFlopStep(e *Entity, w *world.World) {
 	e.Yaw = rand.Float32() * 360
 	e.Grounded = false
 	e.NeedsSync = true
+}
+
+// guardianSetMoving latches Guardian.setMoving — DATA_ID_MOVING's
+// transition emits metadata index 16 as a boolean.
+func (s *Server) guardianSetMoving(e *Entity, moving bool) {
+	if e.Moving == moving {
+		return
+	}
+	e.Moving = moving
+	e.MetaDirty = true
+}
+
+// guardianTravelWater is Guardian.travelInWater, measured off the 26.2
+// jar: moveRelative(0.1, (0,0,zza)) — the input normalizes to a fixed
+// 0.1 horizontal drive along the yaw while the speed field is on —
+// then move(), then delta·0.9 on all axes. Unlike the generic
+// travelInWater there is NO gravity sink: the only downward drift is
+// the -0.005 applied to delta.y while not moving and target-free.
+func (s *Server) guardianTravelWater(e *Entity, w *world.World) {
+	bounds := mobBounds(e.Type)
+	yr := float64(e.Yaw) * math.Pi / 180
+	if e.WalkSpeed > 0 {
+		e.MotionX += -0.1 * math.Sin(yr)
+		e.MotionZ += 0.1 * math.Cos(yr)
+	}
+	s.entityMove(e, w, bounds[0]/2, bounds[1], e.MotionX, e.MotionY, e.MotionZ, 0, 1.0, true)
+	e.MotionX *= 0.9
+	e.MotionY *= 0.9
+	e.MotionZ *= 0.9
+	if !e.Moving && e.beamTarget == 0 {
+		e.MotionY -= 0.005
+	}
+}
+
+// guardianSwimIdle is GuardianMoveControl.tick's no-path tail:
+// setSpeed(0) + setMoving(false), then travelInWater still runs.
+func (s *Server) guardianSwimIdle(e *Entity, w *world.World) {
+	e.WalkSpeed = 0
+	s.guardianSetMoving(e, false)
+	s.guardianTravelWater(e, w)
+}
+
+// guardianSwimDrive is the MOVE_TO arm of GuardianMoveControl.tick:
+// the body yaw rotlerps 90°/tick toward the horizontal heading, the
+// speed field lerps 0.125 toward speedModifier·movement_speed (1.0
+// for the stroll), and the delta picks up the signature wobble — a
+// sin((tickCount+id)·0.5)·0.05 horizontal sinusoid rotated by the yaw
+// plus the bob sin((tickCount+id)·0.75)·0.05·(sin+cos)·0.25 and the
+// normalized-y drive ·speed·0.1 — then setMoving(true) and travel.
+func (s *Server) guardianSwimDrive(e *Entity, w *world.World) {
+	dx := e.StrollTX - e.X
+	dy := e.StrollTY - e.Y
+	dz := e.StrollTZ - e.Z
+	d := math.Sqrt(dx*dx + dy*dy + dz*dz)
+	if d < 0.4 || e.StrollSteps > 160 {
+		e.Strolling = false
+		e.WanderTicks = 0
+		s.guardianSwimIdle(e, w)
+		return
+	}
+	mobTurnToward(e, dx, dz, 90)
+	e.LookYaw = e.Yaw
+	name, _ := EntityTypeName(e.Type)
+	mspd := mobWalkSpeed
+	if v, ok := entityAttrBases[name]["movement_speed"]; ok {
+		mspd = v
+	}
+	e.WalkSpeed += (mspd - e.WalkSpeed) * 0.125
+	tc := float64(e.SyncCount + int64(e.ID))
+	wob := math.Sin(tc*0.5) * 0.05
+	yr := float64(e.Yaw) * math.Pi / 180
+	cy, sy := math.Cos(yr), math.Sin(yr)
+	bob := math.Sin(tc*0.75) * 0.05
+	e.MotionX += wob * cy
+	e.MotionY += bob*(sy+cy)*0.25 + e.WalkSpeed*(dy/d)*0.1
+	e.MotionZ += wob * sy
+	s.guardianSetMoving(e, true)
+	s.guardianTravelWater(e, w)
+}
+
+// guardianMoveStep is the non-beam half of a guardian tick. Out of
+// water there is no navigation — MoveControl sees an empty path and
+// just zeroes the speed/moving flags while the flop (already run in
+// aiStep order) and gravity do the work. In water RandomStrollGoal
+// (speed 1.0, fixed 80-tick interval) rolls a 3D aquatic target — the
+// vanilla pick is confined to water cells — and the MOVE_TO drive
+// runs until arrival or the stall cap.
+func (s *Server) guardianMoveStep(e *Entity, w *world.World) {
+	bounds := mobBounds(e.Type)
+	e.NeedsSync = true
+	wDepth, inWater, _, _ := entityFluidTick(w, s.dims[e.Dim], e, bounds[0]/2, bounds[1])
+	if !(inWater && wDepth > 0) {
+		s.guardianSetMoving(e, false)
+		// The same grounded-or-falling chain mobMoveStep runs, minus
+		// the land wander: mobGrounded owns the air fall (arc of the
+		// flop hop), and while grounded a zero-input travel integrates
+		// the flop's XZ delta with friction.
+		if s.mobGrounded(e, w) {
+			s.mobTravelStep(e, w, 0)
+		}
+		return
+	}
+	e.FallDist = 0
+	e.WanderTicks++
+	if !e.Strolling {
+		if e.WanderTicks%80 != 0 {
+			s.guardianSwimIdle(e, w)
+			return
+		}
+		// generateRandomPosForAquatic: a ±10 x/z, ±7 y pick that must
+		// land in water — a dry cell aborts the stroll like a failed
+		// vanilla pathfinding probe.
+		tx := e.X + strollOffset(e.ID, e.WanderTicks)
+		tz := e.Z + strollOffset(e.ID, e.WanderTicks+7)
+		ty := e.Y + strollOffset(e.ID, e.WanderTicks+13)*0.7
+		k, _, ok := fluidOf(w.GetBlock(world.Pos{
+			X: int(math.Floor(tx)), Y: int(math.Floor(ty)), Z: int(math.Floor(tz)),
+		}))
+		if !ok || k != fluidWater {
+			s.guardianSwimIdle(e, w)
+			return
+		}
+		e.Strolling = true
+		e.StrollSteps = 0
+		e.StrollTX, e.StrollTY, e.StrollTZ = tx, ty, tz
+	}
+	e.StrollSteps++
+	s.guardianSwimDrive(e, w)
 }
 
 func (s *Server) mobGuardianStep(e *Entity, kn string) bool {

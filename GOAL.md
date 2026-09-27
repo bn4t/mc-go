@@ -9366,3 +9366,39 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   branch, per-damage-type hurt variants, selector nbt= arg,
   non-recipe advancement triggers, enchanting/brewing/beacon/lectern
   menus, real-client playtest at end.
+
+## Slice 2026-09-27ch — Guardian swim chain (MoveControl + travelInWater)
+
+- **Measured** (`Guardian$GuardianMoveControl.tick` + `Guardian.travelInWater`,
+  26.2 javap): the MOVE_TO arm rotlerps the body yaw 90°/tick toward the
+  horizontal heading, lerps the speed field 0.125 toward
+  `speedModifier·movement_speed` (1.0 · 0.5 for the stroll), adds the
+  sin wobble `sin((tick+id)·0.5)·0.05` rotated by yaw, the bob
+  `sin((tick+id)·0.75)·0.05·(sin+cos)·0.25`, and the normalized-y drive
+  `·speed·0.1`, then `setMoving(true)`. travelInWater is
+  `moveRelative(0.1, (0,0,zza))` — a FIXED 0.1 horizontal drive along
+  yaw while the speed field is on — then `move()`, then `delta·0.9` on
+  all axes: no gravity, only `-0.005` on delta.y while `!moving &&
+  target==null`. Out of water the control just zeroes speed+moving.
+  `DATA_ID_MOVING` = meta index 16 boolean; `DATA_ID_ATTACK_TARGET` =
+  index 17 int (already emitted at beam start, now also rides the
+  guardian attach/dirty pack).
+- **Implemented**: `guardianMoveStep` (dispatched for mobBeam types in
+  place of `mobMoveStep`): out of water → `guardianSetMoving(false)` +
+  the same `mobGrounded`/`mobTravelStep(0)` chain the flop's delta
+  integrates through; in water → WanderTicks, fixed 80-tick interval,
+  3D aquatic target via `strollOffset` x/z ±10, y ±7·0.7 confined to
+  `fluidOf==water` cells (a dry pick aborts like a failed vanilla
+  probe), `guardianSwimDrive` (dist<0.4 or >160-step stall → idle),
+  `guardianTravelWater` (0.1 yaw drive, entityMove, ·0.9, idle
+  −0.005), `guardianSetMoving` latching `Entity.Moving`+`MetaDirty`.
+  `Entity` grew `Moving bool` (idx16) and `StrollTY float64`.
+- **Pinned**: `TestGuardianSwimParity` — both servers: a guardian
+  summoned mid-pool (20×8×20 water shell above min-y) reaches ≥1.5
+  horizontal displacement and ≥0.8 vertical range inside 18s, while a
+  same-pool zombie sinks ≥3.5 blocks to the bed. Green on both.
+  `TestGuardianFlopParity` + `TestNoAIMobHoverParity` re-run green.
+- **False lead corrected**: the first deep-pool run plummeted BOTH
+  servers' guardians into the void at terminal velocity — the shell
+  was below world min-y (-64) and `/fill` silently no-ops those cells,
+  so the summons landed in void air. Geometry pinned to legal depth.
