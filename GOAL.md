@@ -120,8 +120,9 @@ Mojang server over the wire.
   1568-entry give-all blob; smithing table menu, mapextending,
   bannerduplicate, bookcloning, shielddecoration, firework_rocket/
   firework_star/firework_star_fade all measured + differential-pinned;
-  decorated_pot still needs an unmodeled component, crafting_dye/
-  crafting_imbue/shapeless result.components still open)
+  decorated_pot (pot_decorations assemble), crafting_dye (applyDyes
+  channel mix) and crafting_imbue (potion ringed by material) all
+  measured + pinned)
 - [~] Advancements (recipe advancements: recipe_unlocked,
   inventory_changed, enter_block and the tick trigger all grant, the
   requirements-group semantics (every group needs one satisfied
@@ -146,8 +147,8 @@ Mojang server over the wire.
   byte-for-byte, pinned by TestStatsParity and TestStatEmitOrder.
   Stats persist in the data file; item-break (broken) is emitted when
   a tool's durability is exhausted — pinned by TestToolWearParity —
-  and exotic distance buckets (vehicles, walk_under_water edge cases)
-  remain open)
+  and the exotic distance buckets (vehicle ride stats, water arms,
+  tick-physics jump/fall) are pinned by TestMoveStatParity)
 - [x] Player data persistence (position, dimension, inventory, ender
   chest, xp, health, food restore on rejoin — plus statistics; world
   block data ships in the save file; per-player .dat files and
@@ -9926,3 +9927,51 @@ on precipitation stays unmeasured — no weather system.
 TestSnowMeltParity (tests/blackbox/snowmelt_test.go): six fixtures
 across the 12/13 arrival edge at layers 2/3/8 with torch (14) and
 glowstone (15) sources — 14 probes hit/hit, both melt sites empty.
+
+## Slice: move-stat exotic buckets — water arms, fly XZ, tick-og jump, fall landing
+
+javap (26.2) `ServerPlayer.checkMovementStatistics` /
+`handleMovePlayer` / `Player.causeFallDamage` /
+`Entity.checkFallDamage` / `Entity.updateSwimming`:
+
+- The fly arm reads the 2D XZ leg only (`sqrt(dx²+dz²)·100 > 25`) —
+  a pure rise banks NOTHING there (a straight drop banks fly only
+  through its XZ component). Earlier "3D leg" assumption was wrong;
+  measured `+0.5y` rise → zero stat on vanilla.
+- The jump check reads the tick-physics onGround flag: the entity
+  settles onto its support between packets server-side, so an
+  airborne-flag packet that rises after a grounded entity
+  (`fly-x` then `+0.5y`) counts JUMP and then banks nothing —
+  the packet flag would say fly. mc-go now recomputes the flag as
+  `supportedBelow(last pos)` once a tick has elapsed since the
+  previous move (`sess.lastMoveAt`, ≥50ms).
+- `updateSwimming` asymmetry: enter needs sprint + eye-in-water +
+  feet-in-water (a shallow-water sprint stays walk_on_water); stay
+  only needs sprint + feet water (`sess.swimming` latch).
+- isCrouching is the CROUCHING pose (latched per tick), not the
+  sneak flag — a same-tick sneak+move still banks walk.
+- fall_one_cm lives in `Player.causeFallDamage` on the landing
+  edge (`fallDistance ≥ 2.0` → round(fd·100), mayfly gate):
+  accumulation is `!isInWater && dy<0` — including the landing
+  packet's own descent — water legs accumulate nothing.
+- `checkRidingStatistics` (rideTick path) already mapped; added
+  camel_husk to the horse arm.
+
+mc-go (`internal/server/play.go`, `session.go`, `ride.go`):
+`awardMoveStats` rewritten to the measured order — swim(3D) →
+eye-in-water(3D) → feet-in-water(XZ) → climbable&&dy>0(dy) →
+grounded sprint/crouch/walk(XZ, sprint wins) → fall-flying(3D) →
+fly(XZ>25). Jump og is the ≥1-tick support estimate; fall stat
+fires in the landing branch before the damage gate; exhaustion
+folded into the water/sprint arms (creative exempt).
+
+The rig is a stone shell with a 3x3 hollow at y=200 — an open pool
+refilled from its own border flow between legs and polluted every
+post-air-fill bucket with isInWater (the earlier -60 aquifer rig
+did the same). Probes confirmed leg-by-leg dumps on BOTH servers.
+
+`TestMoveStatParity` legs: walk / feet-water on_water / shallow
+sprint on_water (NOT swim) / submerged under_water+3D-XZ split /
+sprint-submerged swim / sneak-latched crouch / sneak+sprint sprint /
+fly-x fly / fly-y nothing+jump / 4m descend+land fall_one_cm /
+minecart ride (value-exempt). Green vs BOTH servers.

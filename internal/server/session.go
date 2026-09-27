@@ -170,6 +170,15 @@ type Session struct {
 	explodeCause  int32
 	sneaking      bool
 	flying        bool
+	// swimming is Entity's shared-flag-4 swim state, updated by
+	// awardMoveStats' updateSwimming port (enter only while
+	// submerged; stay while feet touch water).
+	swimming bool
+	// lastMoveAt stamps the last accepted move packet — vanilla's
+	// entity tick resolves the onGround flag from collision once a
+	// tick has passed, so the jump check reads the support state,
+	// not the previous packet's claim.
+	lastMoveAt time.Time
 	// Experience tracked from orbs (vanilla /xp levels ride later).
 	xpTotal    int32
 	xpLevel    int32

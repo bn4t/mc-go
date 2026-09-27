@@ -592,7 +592,7 @@ func vehicleMoveStat(name string) string {
 	}
 	switch name {
 	case "horse", "donkey", "mule", "llama", "trader_llama",
-		"camel", "skeleton_horse", "zombie_horse":
+		"camel", "camel_husk", "skeleton_horse", "zombie_horse":
 		return "horse_one_cm"
 	}
 	return ""

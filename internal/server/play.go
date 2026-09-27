@@ -323,17 +323,21 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 	sess.lastHorizSq = mdx*mdx + mdz*mdz
 	sess.lastDelta = [3]float64{x - ox, y - oy, z - oz}
 	s.awardMoveStats(sess, ox, oy, oz, x, y, z, onGround)
+	// Vanilla's entity tick runs physics between move packets: a
+	// resting entity settles onto its support and the onGround flag
+	// resolves from that collision — so once a tick has elapsed, the
+	// flag the jump check reads is support-derived, not the previous
+	// packet's claim.
+	if at.Sub(sess.lastMoveAt) >= 50*time.Millisecond {
+		og = s.supportedBelow(sess, ox, oy, oz)
+	}
+	sess.lastMoveAt = at
 	// handleMovePlayer's jump check: the server-side onGround flag was
 	// up, the packet reports airborne, and the move rose — that's the
 	// client's jump, so jumpFromGround banks the jump stat. Motion
 	// stays client-driven; only the counter applies.
 	if og && !onGround && y > oy {
 		sess.addCustomStat("jump", 1)
-	}
-	// Sprinting drains hunger by distance travelled.
-	if sess.sprinting && s.GameMode == GameModeSurvival {
-		dx, dz := x-ox, z-oz
-		sess.addExhaustion(0.1 * float32(math.Sqrt(dx*dx+dz*dz)))
 	}
 	// Sneaking drops step emissions at the source (getMovementEmission
 	// is NONE), but checkFallDamage posts HIT_GROUND unconditionally on
@@ -344,8 +348,14 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 		// sneaking faller's emission is dampened inside the listener.
 		s.emitGameEvent(sess.dimension(), "hit_ground", x, y, z, sess, "")
 	}
-	// Fall-distance tracking for survival fall damage.
-	if y < oy && !onGround {
+	// Fall-distance tracking: Entity.checkFallDamage accumulates
+	// downward travel only outside water (wasTouchingWater), whatever
+	// the packet's grounded claim — even the landing packet's own
+	// descent counts before the edge resets it.
+	fallFeetName, _ := world.StateOwner(sess.world().GetBlock(world.Pos{
+		X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z)),
+	}))
+	if y < oy && fallFeetName != "water" {
 		if !sess.fallStart {
 			sess.fallStart = true
 			sess.fallStartY = oy
@@ -362,9 +372,16 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 		}
 		sess.fallDistance += oy - y
 		s.fireSlideDown(sess, x, y, z)
-	} else if onGround {
+	}
+	if onGround {
 		if sess.fallDistance > 0 && sess.fallStart {
 			s.fireFallFromHeight(sess, sess.fallStartY, y)
+		}
+		// Player.causeFallDamage banks the drop once it clears 2m —
+		// before the damage threshold — and returns early under
+		// mayfly (creative/spectator abilities).
+		if m := sess.mode(); sess.fallDistance >= 2 && m != GameModeCreative && m != GameModeSpectator {
+			sess.addCustomStat("fall_one_cm", int32(math.Round(float64(sess.fallDistance)*100)))
 		}
 		sess.fallStart = false
 		s.applyFallDamage(sess)
@@ -396,10 +413,15 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 // awardMoveStats buckets the travelled distance into the *_one_cm
 // counters the way vanilla's checkMovementStatistics does. The 26.2
 // branch order measured on the jar: a passenger returns early (its
-// distance lands via checkRidingStatistics), then swimming, eyes
-// under water, feet in water, climbable-up, grounded, fall-flying —
-// and every airborne remainder banks fly_one_cm once the horizontal
-// leg passes 25cm (there is no fall_one_cm anymore).
+// distance lands via checkRidingStatistics), then the swimming flag
+// (updateSwimming's enter/stay asymmetry — enter only while
+// submerged), eyes under water, feet in water, climbable-up,
+// grounded sprint/crouch/walk (sprint wins over crouch), fall-flying —
+// and every airborne remainder banks fly_one_cm on a 2D XZ leg
+// over 25cm — the fly arm ignores dY, so a pure rise banks nothing
+// (fall_one_cm lives in causeFallDamage on the landing edge, not
+// here). The water arms and the sprint arm also credit food
+// exhaustion.
 //
 // playerBoxCollides approximates vanilla's "moved wrongly" check
 // (noCollision + isEntityCollidingWithAnythingNew): the 0.6×1.8
@@ -424,6 +446,27 @@ func (s *Server) playerBoxCollides(sess *Session, ox, oy, oz, nx, ny, nz float64
 				if !overlapsOld(bx, by, bz) {
 					return true
 				}
+			}
+		}
+	}
+	return false
+}
+
+// supportedBelow reports whether a thin slab under the player's box
+// bottom overlaps collision — the state vanilla's tick-resolved
+// onGround flag settles into once physics has had a tick to land the
+// entity on its footing.
+func (s *Server) supportedBelow(sess *Session, x, y, z float64) bool {
+	const half = 0.3
+	by := int(math.Floor(y - 1e-4))
+	if float64(by+1) < y-1e-4 {
+		return false
+	}
+	for bx := int(math.Floor(x - half)); float64(bx) < x+half; bx++ {
+		for bz := int(math.Floor(z - half)); float64(bz) < z+half; bz++ {
+			b := sess.world().GetBlock(world.Pos{X: bx, Y: by, Z: bz})
+			if !world.NonSolid(b) && !moveNoCollision(b) {
+				return true
 			}
 		}
 	}
@@ -466,27 +509,54 @@ func (s *Server) awardMoveStats(sess *Session, ox, oy, oz, x, y, z float64, onGr
 	bx, bz := int(math.Floor(x)), int(math.Floor(z))
 	feetName, _ := world.StateOwner(sess.world().GetBlock(world.Pos{X: bx, Y: int(math.Floor(y)), Z: bz}))
 	eyeName, _ := world.StateOwner(sess.world().GetBlock(world.Pos{X: bx, Y: int(math.Floor(y + 1.62)), Z: bz}))
+	// Entity.updateSwimming: entering the swim flag needs sprint +
+	// eyes under water + water at the feet cell (a shallow sprint
+	// stays on the walk_on_water arm); staying in it only needs
+	// sprint + water at the feet.
+	if sess.swimming {
+		sess.swimming = sess.sprinting && feetName == "water"
+	} else {
+		sess.swimming = sess.sprinting && eyeName == "water" && feetName == "water"
+	}
+	// causeFoodExhaustion is gated by invulnerable in vanilla —
+	// creative and spectator never accumulate exhaustion; spectator
+	// already returned above.
+	exhaust := s.GameMode != GameModeCreative
 	switch {
-	case sess.sprinting && eyeName == "water":
+	case sess.swimming:
 		sess.addCustomStat("swim_one_cm", cm3)
+		if exhaust {
+			sess.addExhaustion(0.01 * float32(cm3) * 0.01)
+		}
 	case eyeName == "water":
 		sess.addCustomStat("walk_under_water_one_cm", cm3)
+		if exhaust {
+			sess.addExhaustion(0.01 * float32(cm3) * 0.01)
+		}
 	case feetName == "water":
 		sess.addCustomStat("walk_on_water_one_cm", cmXZ)
+		if exhaust {
+			sess.addExhaustion(0.01 * float32(cmXZ) * 0.01)
+		}
 	case isClimbableBlock(feetName) && dy > 0:
 		sess.addCustomStat("climb_one_cm", int32(math.Round(dy*100)))
 	case onGround:
 		switch {
-		case sess.sneaking:
-			sess.addCustomStat("crouch_one_cm", cmXZ)
 		case sess.sprinting:
 			sess.addCustomStat("sprint_one_cm", cmXZ)
+			if exhaust {
+				sess.addExhaustion(0.1 * float32(cmXZ) * 0.01)
+			}
+		case sess.sneaking:
+			sess.addCustomStat("crouch_one_cm", cmXZ)
 		default:
 			sess.addCustomStat("walk_one_cm", cmXZ)
 		}
 	case sess.fallFlying:
 		sess.addCustomStat("aviate_one_cm", cm3)
 	case cmXZ > 25:
+		// The fly arm reads only the horizontal leg — a straight
+		// rise banks nothing (measured on vanilla).
 		sess.addCustomStat("fly_one_cm", cmXZ)
 	}
 }
