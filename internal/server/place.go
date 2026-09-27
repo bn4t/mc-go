@@ -434,6 +434,13 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		useAck()
 		return
 	}
+	// FireworkRocketItem.useOn — a gliding user gets vanilla's PASS;
+	// otherwise a free rocket spawns at the click + face·0.15 point
+	// and the stack shrinks one in every gamemode.
+	if s.useFireworkPlace(sess, hand, x, y, z, dx, dy, dz, cursor) {
+		useAck()
+		return
+	}
 	target := facePos
 	if target.Y < d.minY || target.Y > d.minY+d.height-1 {
 		return

@@ -105,6 +105,13 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 				s.addCooldown(sess, un, int32(f.cooldown))
 			}
 			return
+		case "firework_rocket":
+			// FireworkRocketItem.use acts only while the sender is
+			// fall-flying — a grounded use is vanilla's PASS no-op.
+			if sess.fallFlying {
+				s.useFireworkBoost(sess, st, hand)
+			}
+			return
 		}
 	}
 	// EmptyMapItem.use: consume one empty map, mint a filled_map

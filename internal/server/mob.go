@@ -719,6 +719,11 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if u, ok := snbtUUID(tag, "UUID"); ok {
 				e.UUID = u
 			}
+			// FireworkRocketEntity.readAdditionalSaveData — Life,
+			// LifeTime, ShotAtAngle, and the FireworksItem stack.
+			if name == "firework_rocket" {
+				applyRocketSummonNBT(e, tag)
+			}
 			// AbstractHorse's Tame flag (AbstractHorse.readAdditional
 			// SaveData) and AbstractChestedHorse's ChestedHorse.
 			if v, ok := tag.vals["Tame"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") && mountScreenTypes[name] {
@@ -1592,6 +1597,13 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, 
 	// OrbValue comes from the summon tag's Value key.
 	if name == "experience_orb" {
 		e := s.entities.Spawn(&Entity{Type: id, Dim: d.name, X: x, Y: y, Z: z, OrbCount: 1})
+		return e, true
+	}
+	// FireworkRocketEntity likewise — life and lifetime stay 0
+	// without NBT, so a bare summon pops on the first tick like
+	// vanilla's summoned rocket.
+	if name == "firework_rocket" {
+		e := s.entities.Spawn(&Entity{Type: id, Dim: d.name, X: x, Y: y, Z: z})
 		return e, true
 	}
 	health, known := mobHealth[name]

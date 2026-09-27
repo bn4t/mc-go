@@ -525,6 +525,15 @@ type Entity struct {
 	// vanilla's default; "crossbow" when a crossbow loosed it) —
 	// killed_by_arrow's fired_from_weapon predicate reads it.
 	arrowWeapon string
+	// AttachedTo is FireworkRocketEntity.DATA_ATTACHED_TO_TARGET —
+	// the living entity id a boost-use rocket rides (0 = free flight).
+	AttachedTo int32
+	// ShotAtAngle is DATA_SHOT_AT_ANGLE — dispenser-fired rockets
+	// skip the free-flight horizontal acceleration.
+	ShotAtAngle bool
+	// RocketLife is FireworkRocketEntity.life — ticks since launch;
+	// the rocket explodes when it exceeds Fuse (its lifetime).
+	RocketLife int32
 	// tridentStuck marks a thrown trident embedded in a block; the
 	// owner walks over it to get the stack back.
 	tridentStuck bool
@@ -1141,6 +1150,10 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 	}
 	var meta []byte
 	switch {
+	case e.Type == mustEntityType("firework_rocket"):
+		// A firework rocket pairs its own data — fireworks item,
+		// attached target, shot-at-angle — not the item-entity slot.
+		meta = encodeRocketMetadata(e)
 	case e.Item.ID != 0:
 		meta = encodeItemMetadata(e.Item)
 	case e.Living:

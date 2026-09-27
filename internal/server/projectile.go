@@ -183,15 +183,12 @@ func (s *Server) arrowTickStep() {
 			continue
 		}
 		if name == "firework_rocket" {
-			// FireworkRocketEntity.tick: the fuse (a few dozen ticks
-			// on an uncharged rocket) ends in the pop; here just the
-			// despawn is modelled.
-			e.Fuse--
-			if e.Fuse <= 0 {
-				s.entities.Remove(e.ID)
-				s.broadcastEntityRemove([]int32{e.ID})
-				continue
-			}
+			// FireworkRocketEntity.tick runs its own whole path —
+			// launch sound, attached-entity riding, free-flight
+			// accel, fuse-end explode — none of the generic
+			// move/gravity/collide code applies.
+			s.fireworkTick(e)
+			continue
 		}
 		// ShulkerBullet has no gravity — the wander lerp owns the
 		// whole velocity vector (and must run before the move).
@@ -213,7 +210,7 @@ func (s *Server) arrowTickStep() {
 			// ThrownExperienceBottle.getDefaultGravity — the bottle
 			// arcs down harder than the other thrown items.
 			grav = 0.07
-		case "small_fireball", "firework_rocket", "wind_charge", "wither_skull", "fireball", "dragon_fireball":
+		case "small_fireball", "wind_charge", "wither_skull", "fireball", "dragon_fireball":
 			grav = 0
 		case "shulker_bullet":
 			// ShulkerBullet.getDefaultGravity — the wander lerp rides

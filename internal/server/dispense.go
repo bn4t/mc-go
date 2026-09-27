@@ -689,21 +689,32 @@ func (s *Server) spawnDispensedProjectile(d *dimension, pos world.Pos, facing rs
 	vy := (float64(o.Y) + (rand.Float64()-rand.Float64())*u) * 1.1
 	vz := (float64(o.Z) + (rand.Float64()-rand.Float64())*u) * 1.1
 	var fuse int32
+	var atAngle bool
 	if entName == "firework_rocket" {
-		fuse = 40
+		// Dispensed rockets come from asProjectile — shot-at-angle,
+		// lifetime rolled off the stack's flight duration.
+		fuse = rocketLifetime(st)
+		atAngle = true
 	}
 	e := s.entities.Spawn(&Entity{
-		Type:    et,
-		Dim:     d.name,
-		X:       px,
-		Y:       py,
-		Z:       pz,
-		MotionX: vx,
-		MotionY: vy,
-		MotionZ: vz,
-		Fuse:    fuse,
+		Type:        et,
+		Dim:         d.name,
+		X:           px,
+		Y:           py,
+		Z:           pz,
+		MotionX:     vx,
+		MotionY:     vy,
+		MotionZ:     vz,
+		Fuse:        fuse,
+		ShotAtAngle: atAngle,
 	})
 	s.broadcastEntitySpawn(nil, *e)
+	// The dispensed rocket carries its item and shot-at-angle flag
+	// in entity data.
+	if entName == "firework_rocket" {
+		e.Item = st
+		s.broadcastEntityMetadata(e.ID, encodeRocketMetadata(e))
+	}
 	// ThrownItemEntity carries its item for rendering; the arrow
 	// types take no entity data.
 	switch entName {
