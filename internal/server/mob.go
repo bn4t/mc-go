@@ -2778,32 +2778,45 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	// Entity.tick's updateFluidInteraction runs for every entity —
 	// isPushedByFluid is default-true, so the current push applies to
 	// mobs too (items/orbs take their own path in itemTickStep).
-	wDepth, inWater, _, inLava := entityFluidTick(w, s.dims[e.Dim], e, bounds[0]/2, bounds[1])
+	wDepth, inWater, lDepth, inLava := entityFluidTick(w, s.dims[e.Dim], e, bounds[0]/2, bounds[1])
 	// FloatGoal.canUse: deep water (submersion past the eye-level
 	// jump threshold) or any lava activates the priority-0 goal —
 	// its tick jumps on an 80% roll, and LivingEntity.aiStep's jump
 	// branch converts the flag into fluid climb or a floor hop.
+	// Only the mobHasFloatGoal types register the goal; the rest
+	// sink (a wither_skeleton sits at the lava bed).
 	thresh := floatJumpThreshold(e, bounds)
-	if (inWater && wDepth > thresh) || inLava {
+	name, _ := EntityTypeName(e.Type)
+	if mobHasFloatGoal[name] && ((inWater && wDepth > thresh) || inLava) {
 		if floatGoalRoll(e.ID, e.WanderTicks2) {
 			e.Jumping = true
 		}
 	}
+	// aiStep's jump chain (measured on 26.2): the fluid probe h takes
+	// LAVA's height first when both tags match, b1 is the deep-water
+	// test, then a three-arm if — jumpInLiquid(WATER) when swimming
+	// (off ground or deeper than the threshold), jumpInLiquid(LAVA)
+	// when in lava and off ground or past the shallow line, and
+	// jumpFromGround otherwise. A mob resting at the lava bed gets
+	// only the +0.04 climbs while ungrounded — roughly canceling the
+	// g/4 lava sink, which is why vanilla mobs sit at the bed instead
+	// of bobbing the surface.
 	if e.Jumping {
+		h := wDepth
+		if inLava {
+			h = lDepth
+		}
+		b1 := inWater && h > 0
 		switch {
-		case inWater && wDepth > 0:
-			if wDepth <= thresh {
-				// jumpInLiquid: a fixed +0.04 climb while shallow.
-				e.MotionY += 0.04
-			} else if e.HColl && s.entityBoxFree(w, e.MotionX, e.MotionY+0.6-e.Y+thresh, e.MotionZ, bounds[0]/2, bounds[1]) {
-				// jumpOutOfFluid: a wall-scaled hop clears the lip.
-				e.MotionY = 0.3
-			}
-		case inLava:
+		case b1 && (!e.Grounded || h > thresh):
+			// jumpInLiquid(WATER): a fixed +0.04 climb.
 			e.MotionY += 0.04
-		case e.Grounded && e.NoJumpDelay == 0:
-			// jumpFromGround: the floor hop a submerged mob bounces
-			// on — jump_strength (0.42 base) then the 10-tick delay.
+		case inLava && (!e.Grounded || lDepth > thresh):
+			// jumpInLiquid(LAVA): the same +0.04 climb.
+			e.MotionY += 0.04
+		case (e.Grounded || (b1 && h <= thresh)) && e.NoJumpDelay == 0:
+			// jumpFromGround: the floor hop — jump_strength (0.42
+			// base) then the 10-tick delay.
 			name, _ := EntityTypeName(e.Type)
 			jump := 0.42
 			if j, ok := entityAttrBases[name]["jump_strength"]; ok {
@@ -2812,15 +2825,19 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 			e.MotionY = jump
 			e.NoJumpDelay = 10
 		}
+	} else {
+		// not jumping: vanilla clears the cooldown outright.
+		e.NoJumpDelay = 0
 	}
 	e.Jumping = false
 	if e.NoJumpDelay > 0 {
 		e.NoJumpDelay--
 	}
-	// shouldTravelInFluid: a mob whose box touches water travels by
-	// the water chain regardless of grounded state — the slow -g/16
-	// sink replaces the air fall, so mobGrounded never runs.
-	if !(inWater && wDepth > 0) && !s.mobGrounded(e, w) {
+	// shouldTravelInFluid: a mob whose box touches water or lava
+	// travels by the fluid chain regardless of grounded state — the
+	// slow fluid sink replaces the air fall, so mobGrounded never
+	// runs. entityFluidTick already scanned both tags this tick.
+	if !(inWater && wDepth > 0) && !(inLava && lDepth > 0) && !s.mobGrounded(e, w) {
 		return
 	}
 	e.WanderTicks++
@@ -2852,7 +2869,6 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 		s.mobTravelStep(e, w, 0)
 		return
 	}
-	name, _ := EntityTypeName(e.Type)
 	speed, ok := entityAttrBases[name]["movement_speed"]
 	if !ok || speed <= 0 {
 		speed = mobWalkSpeed
@@ -2989,6 +3005,7 @@ func (s *Server) mobTravelStep(e *Entity, w *world.World, speed float64) {
 				input = -1
 			}
 			falling := e.MotionY <= 0
+			y0 := e.Y
 			yr := float64(e.Yaw) * math.Pi / 180
 			e.MotionX += -0.02 * input * math.Sin(yr)
 			e.MotionZ += 0.02 * input * math.Cos(yr)
@@ -3005,6 +3022,59 @@ func (s *Server) mobTravelStep(e *Entity, w *world.World, speed float64) {
 				dy = -0.003
 			}
 			e.MotionY = dy
+			// travelInWater's tail calls jumpOutOfFluid(y0) every tick —
+			// not the threshold — checking headroom at the post-move
+			// extrapolation for the wall hop that pops a mob out at the
+			// pool edge.
+			s.mobJumpOutOfFluid(w, e, y0, bounds)
+			return
+		}
+		// travelInLava — same dispatch: moveRelative(0.02), move(),
+		// then the shallow split on isInShallowFluid(LAVA) (depth ≤ the
+		// fluid jump threshold): shallow damps {0.5,0.8,0.5} plus the
+		// fall adjust, deep scales 0.5; effectiveGravity bites at d/4
+		// — four times water's d/16 — and jumpOutOfFluid(y0) tails it.
+		lDepth, inLava, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, bounds[0]/2, bounds[1], fluidLava)
+		if inLava && lDepth > 0 {
+			e.WalkZZA *= 0.98
+			if speed > 0 {
+				e.WalkSpeed = speed
+				e.WalkZZA = speed
+			}
+			input := e.WalkZZA
+			if input > 1 {
+				input = 1
+			} else if input < -1 {
+				input = -1
+			}
+			falling := e.MotionY <= 0
+			y0 := e.Y
+			yr := float64(e.Yaw) * math.Pi / 180
+			e.MotionX += -0.02 * input * math.Sin(yr)
+			e.MotionZ += 0.02 * input * math.Cos(yr)
+			if e.NoGravity {
+				gravity = 0
+			}
+			s.entityMove(e, w, bounds[0]/2, bounds[1], e.MotionX, e.MotionY, e.MotionZ, gravity, 1.0, true)
+			thresh := floatJumpThreshold(e, bounds)
+			if lDepth <= thresh {
+				e.MotionX *= 0.5
+				e.MotionY *= 0.8
+				e.MotionZ *= 0.5
+				dy := e.MotionY - gravity/16
+				if falling && math.Abs(e.MotionY-0.005) < 0.003 && math.Abs(e.MotionY-gravity/16) < 0.003 {
+					dy = -0.003
+				}
+				e.MotionY = dy
+			} else {
+				e.MotionX *= 0.5
+				e.MotionY *= 0.5
+				e.MotionZ *= 0.5
+			}
+			if gravity != 0 {
+				e.MotionY -= gravity / 4
+			}
+			s.mobJumpOutOfFluid(w, e, y0, bounds)
 			return
 		}
 	}
@@ -3046,6 +3116,26 @@ func (s *Server) mobTravelStep(e *Entity, w *world.World, speed float64) {
 	e.MotionZ *= drag
 }
 
+// mobHasFloatGoal is the registerGoals set measured off the 26.2
+// jar: only these types add FloatGoal (priority 0), so only they get
+// the aiStep jump-in-liquid climbs. Zombies, skeletons, piglins and
+// most other monsters do NOT register it — they sink to the bed of
+// any fluid, which is why a vanilla wither_skeleton sits at the
+// bottom of a lava pool instead of bobbing the surface.
+var mobHasFloatGoal = map[string]bool{
+	"bee": true, "chicken": true, "cow": true, "mooshroom": true,
+	"horse": true, "donkey": true, "mule": true, "camel": true,
+	"skeleton_horse": true, "zombie_horse": true, "llama": true,
+	"trader_llama": true, "cat": true, "ocelot": true, "fox": true,
+	"happy_ghast": true, "panda": true, "parrot": true, "pig": true,
+	"polar_bear": true, "rabbit": true, "sheep": true, "wolf": true,
+	"creeper": true, "enderman": true, "endermite": true,
+	"ravager": true, "silverfish": true, "vex": true, "witch": true,
+	"slime": true, "magma_cube": true, "evoker": true,
+	"illusioner": true, "pillager": true, "vindicator": true,
+	"spider": true, "cave_spider": true, "wandering_trader": true,
+}
+
 // floatGoalRoll is FloatGoal.tick's `nextFloat() < 0.8` — the 80%
 // per-tick jump roll while the goal is active, keyed off the look
 // counter like the other deterministic goal rolls.
@@ -3079,6 +3169,22 @@ func (s *Server) entityBoxFree(w *world.World, x, y, z, half, height float64) bo
 		}
 	}
 	return true
+}
+
+// mobJumpOutOfFluid is LivingEntity.jumpOutOfFluid(arg): while
+// horizontally colliding, an entity whose box moved by the vector
+// (delta.x, delta.y + 0.6 - getY() + arg, delta.z) hits nothing gets
+// its vertical velocity snapped to 0.3 — the tail call in
+// travelInWater/travelInLava passes the pre-move Y, the aiStep jump
+// branch passes getFluidJumpThreshold. isFree translates the box by
+// the vector, so the absolute probe is (x+dx, dy+0.6+arg, z+dz).
+func (s *Server) mobJumpOutOfFluid(w *world.World, e *Entity, arg float64, bounds [2]float64) {
+	if !e.HColl {
+		return
+	}
+	if s.entityBoxFree(w, e.X+e.MotionX, e.MotionY+0.6+arg, e.Z+e.MotionZ, bounds[0]/2, bounds[1]) {
+		e.MotionY = 0.3
+	}
 }
 
 // strollIntervalFor is the per-entity stroll cadence: vanilla rolls
