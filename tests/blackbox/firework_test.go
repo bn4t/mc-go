@@ -396,7 +396,14 @@ func TestFireworkBoostParity(t *testing.T) {
 		} else {
 			res = append(res, "starred pop:quiet")
 		}
-		res = append(res, fmt.Sprintf("area damage:%v", nbtFloatOf(t, sinkP, pwP, "@e[type=minecraft:pig,limit=1]", "Health")))
+		// The launch jitter is unseeded RNG on both servers, so the
+		// explode position — and the sqrt falloff — drifts run to
+		// run; pin hurt vs safe, not the exact float.
+		if h := nbtFloatOf(t, sinkP, pwP, "@e[type=minecraft:pig,limit=1]", "Health"); h < 20 && h >= 0 {
+			res = append(res, "area damage:hurt")
+		} else {
+			res = append(res, fmt.Sprintf("area damage:safe %.1f", h))
+		}
 		sinkQ.take()
 		sendCommand(t, pwP, "summon minecraft:firework_rocket 4 -59 4 {ShotAtAngle:1b,LifeTime:60}")
 		time.Sleep(500 * time.Millisecond)
@@ -412,6 +419,245 @@ func TestFireworkBoostParity(t *testing.T) {
 	want := run(tg.vanilla, "vanilla")
 	got := run(tg.mcgo, "mcgo")
 	_ = healthPrefix // reserved for future legs
+	if len(want) != len(got) {
+		t.Fatalf("leg count differs: vanilla=%v mcgo=%v", want, got)
+	}
+	for i := range want {
+		if want[i] != got[i] {
+			t.Errorf("leg %d: vanilla=%q mcgo=%q", i, want[i], got[i])
+		}
+	}
+}
+
+// TestFireworkRocketHitParity pins the rocket's onHit pipeline and the
+// attached-boost mechanics — measured on the 26.2 jar
+// (FireworkRocketEntity.tick/onHitEntity/onHitBlock,
+// ProjectileUtil.getHitResultOnMoveVector/computeMargin,
+// Entity.getHandHoldingItemAngle):
+//
+//   - BOTH the attached and free branches run the move-vector hit
+//     scan: block clip first, then the nearest entity box inflated by
+//     computeMargin (0→0.3 over 22 ticks). onHitEntity explodes
+//     unconditionally — even a starless rocket pops on an entity;
+//     onHitBlock explodes only when the rocket has explosions.
+//   - The explosion's area damage runs a two-ray LOS check — rocket →
+//     victim feet and rocket → victim mid; both blocked means safe.
+//   - While the owner fall-flies the rocket's delta copies the
+//     owner's and the owner gains look·0.1 + (look·1.5−d)·0.5 each
+//     tick (the boost converges to ~1.7·look); the rocket rides at
+//     getHandHoldingItemAngle — view(0°, yaw±80°)·0.5.
+func TestFireworkRocketHitParity(t *testing.T) {
+	tg := requireBlackboxFiles(t, map[string]string{"gamemode": "survival"}, map[string]string{
+		"ops.json": opsJSONFor("P", "Q"),
+	}, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	defer tg.cleanup()
+
+	eventPrefix := fmt.Sprintf("%#x:", server.IDPlayEntityEvent)
+
+	readVarInt := func(body string, i int) (int, int) {
+		v := 0
+		for k := 0; k < 5 && i+k < len(body); k++ {
+			v |= int(body[i+k]&0x7F) << (7 * k)
+			if body[i+k]&0x80 == 0 {
+				return v, i + k + 1
+			}
+		}
+		return v, -1
+	}
+	rocketPops := func(lines []string) int {
+		n := 0
+		for _, l := range lines {
+			if !strings.HasPrefix(l, eventPrefix) {
+				continue
+			}
+			body := l[len(eventPrefix):]
+			if _, i := readVarInt(body, 0); i >= 0 && i < len(body) && body[i] == 17 {
+				n++
+			}
+		}
+		return n
+	}
+
+	starItem := `FireworksItem:{id:"minecraft:firework_rocket",count:1,components:{"minecraft:fireworks":{flight_duration:1,explosions:[{shape:"small_ball",colors:[11743532]}]}}}`
+
+	run := func(addr, name string) []string {
+		var res []string
+		cP, prP, pwP := joinPlayBlackbox(t, addr, "P")
+		defer cP.Close()
+		sinkP := newChatSinkTP(prP, pwP)
+		defer func() {
+			if t.Failed() {
+				t.Logf("%s P stream: %s", name, sinkP.health())
+			}
+		}()
+		cQ, prQ, pwQ := joinPlayBlackbox(t, addr, "Q")
+		defer cQ.Close()
+		sinkQ := newChatSinkTP(prQ, pwQ)
+		defer func() {
+			if t.Failed() {
+				t.Logf("%s Q stream: %s", name, sinkQ.health())
+				logs, _ := filepath.Glob(filepath.Join(os.TempDir(), "TestFireworkRocketHitParity*", "*", "vanilla.log"))
+				for _, p := range logs {
+					if b, err := os.ReadFile(p); err == nil {
+						s := string(b)
+						if len(s) > 12000 {
+							s = s[len(s)-12000:]
+						}
+						t.Logf("%s vanilla.log tail:\n%s", name, s)
+					}
+				}
+			}
+		}()
+		time.Sleep(500 * time.Millisecond)
+		sinkP.take()
+		sinkQ.take()
+
+		action6 := func() {
+			var b protocol.Buffer
+			b.VarInt(0)
+			b.VarInt(6)
+			b.VarInt(0)
+			if err := pwP.WritePacket(server.IDPlayPlayerCommandSB, b.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		moveRot := func(x, y, z float64, yaw, pitch float32, og bool) {
+			var b protocol.Buffer
+			b.Double(x)
+			b.Double(y)
+			b.Double(z)
+			b.Float(yaw)
+			b.Float(pitch)
+			var f byte
+			if og {
+				f = 0x01
+			}
+			b.Byte(f)
+			if err := pwP.WritePacket(server.IDPlayMovePosRotSB, b.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		useAir := func() {
+			var b protocol.Buffer
+			b.VarInt(0)
+			b.VarInt(0)
+			b.Float(0)
+			b.Float(0)
+			if err := pwP.WritePacket(server.IDPlayUseItemSB, b.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		sendCommand(t, pwP, "time set 18000")
+		sendCommand(t, pwP, "gamemode survival P")
+		sendCommand(t, pwP, "effect give P minecraft:instant_health 1 10")
+		sendCommand(t, pwP, "tp P 30 -60 30")
+		time.Sleep(400 * time.Millisecond)
+
+		// === Leg A: entity hit — a starred shot-at-angle rocket
+		// crossing a pillager's box explodes on contact and hurts it.
+		sendCommand(t, pwP, "summon minecraft:pillager 20.5 -60 8.5 {NoAI:1b}")
+		time.Sleep(300 * time.Millisecond)
+		sinkQ.take()
+		sendCommand(t, pwP, "summon minecraft:firework_rocket 16.5 -59.5 8.5 {ShotAtAngle:1b,Motion:[0.8d,0.0d,0.0d],"+starItem+"}")
+		time.Sleep(1200 * time.Millisecond)
+		if rocketPops(sinkQ.take()) > 0 {
+			res = append(res, "entity hit:pop")
+		} else {
+			res = append(res, "entity hit:quiet")
+		}
+		if h := nbtFloatOf(t, sinkP, pwP, "@e[type=minecraft:pillager,limit=1]", "Health"); h < 20 && h >= 0 {
+			res = append(res, fmt.Sprintf("entity hit:hurt %.1f", h))
+		} else {
+			res = append(res, fmt.Sprintf("entity hit:safe %.1f", h))
+		}
+		sendCommand(t, pwP, "kill @e[type=minecraft:pillager]")
+
+		// === Leg B: block hit — starred explodes on the wall face,
+		// starless keeps pushing till its fuse.
+		sendCommand(t, pwP, "fill 24 -60 14 24 -55 18 minecraft:stone")
+		sinkQ.take()
+		sendCommand(t, pwP, "summon minecraft:firework_rocket 16.5 -59.5 16 {ShotAtAngle:1b,Motion:[0.8d,0.0d,0.0d],"+starItem+"}")
+		time.Sleep(900 * time.Millisecond)
+		if rocketPops(sinkQ.take()) > 0 {
+			res = append(res, "block hit starred:pop")
+		} else {
+			res = append(res, "block hit starred:quiet")
+		}
+		sendCommand(t, pwP, "summon minecraft:firework_rocket 16.5 -59.5 16 {ShotAtAngle:1b,Motion:[0.8d,0.0d,0.0d],LifeTime:120}")
+		time.Sleep(700 * time.Millisecond)
+		if rocketPops(sinkQ.take()) == 0 {
+			res = append(res, "block hit starless:quiet")
+		} else {
+			res = append(res, "block hit starless:pop")
+		}
+		time.Sleep(1500 * time.Millisecond)
+		sinkQ.take()
+
+		// === Leg C: LOS — a starred pop behind a two-thick ceiling
+		// deals nothing; the same pop in open air hurts.
+		sendCommand(t, pwP, "fill 29 -58 29 31 -57 31 minecraft:stone")
+		sendCommand(t, pwP, "summon minecraft:firework_rocket 30 -55.5 30 {Life:200b,"+starItem+"}")
+		time.Sleep(800 * time.Millisecond)
+		sinkQ.take()
+		if h := nbtFloatOf(t, sinkP, pwP, "P", "Health"); h >= 20 {
+			res = append(res, "los blocked:safe")
+		} else {
+			res = append(res, fmt.Sprintf("los blocked:hurt %.1f", h))
+		}
+		sendCommand(t, pwP, "fill 29 -58 29 31 -57 31 minecraft:air")
+		sendCommand(t, pwP, "effect give P minecraft:instant_health 1 10")
+		time.Sleep(500 * time.Millisecond)
+		sendCommand(t, pwP, "summon minecraft:firework_rocket 30 -55.5 30 {Life:200b,"+starItem+"}")
+		time.Sleep(800 * time.Millisecond)
+		sinkQ.take()
+		if h := nbtFloatOf(t, sinkP, pwP, "P", "Health"); h < 20 {
+			res = append(res, fmt.Sprintf("los open:hurt %.1f", h))
+		} else {
+			res = append(res, fmt.Sprintf("los open:safe %.1f", h))
+		}
+		sendCommand(t, pwP, "effect give P minecraft:instant_health 1 10")
+
+		// === Leg D+E: boost — the attached rocket rides at the
+		// getHandHoldingItemAngle offset (view(0,yaw+80)·0.5) and the
+		// owner's glide delta converges toward 1.7·look.
+		sendCommand(t, pwP, "item replace entity P armor.chest with minecraft:elytra")
+		sendCommand(t, pwP, "item replace entity P weapon.mainhand with minecraft:firework_rocket")
+		sendCommand(t, pwP, "tp P 15 -56 30")
+		moveRot(15, -56, 30, -90, -30, false)
+		action6()
+		time.Sleep(600 * time.Millisecond)
+		for i := 0; i < 10; i++ {
+			moveRot(15, -56, 30, -90, -30, false)
+			time.Sleep(70 * time.Millisecond)
+		}
+		sinkQ.take()
+		useAir()
+		moveRot(15, -56, 30, -90, -30, false)
+		time.Sleep(600 * time.Millisecond)
+		sinkQ.take()
+		// view(0, -90+80=-10°)·0.5 = (0.087, 0, 0.492) — vanilla moves
+		// the riding rocket with relative-move packets, so probe its
+		// Pos through /data get rather than decoding the wire.
+		rx := nbtFloatOf(t, sinkP, pwP, "@e[type=minecraft:firework_rocket,limit=1]", "Pos[0]")
+		rz := nbtFloatOf(t, sinkP, pwP, "@e[type=minecraft:firework_rocket,limit=1]", "Pos[2]")
+		if math.Abs(rx-(15+0.087)) < 0.15 && math.Abs(rz-(30+0.492)) < 0.15 {
+			res = append(res, "hand offset:hit")
+		} else {
+			res = append(res, fmt.Sprintf("hand offset:miss %.3f,%.3f", rx, rz))
+		}
+		if mx := nbtFloatOf(t, sinkP, pwP, "P", "Motion[0]"); mx > 1.0 {
+			res = append(res, fmt.Sprintf("boost delta:%.2f", mx))
+		} else {
+			res = append(res, fmt.Sprintf("boost delta:LOW %.2f", mx))
+		}
+		return res
+	}
+
+	want := run(tg.vanilla, "vanilla")
+	got := run(tg.mcgo, "mcgo")
 	if len(want) != len(got) {
 		t.Fatalf("leg count differs: vanilla=%v mcgo=%v", want, got)
 	}

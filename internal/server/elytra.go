@@ -184,10 +184,17 @@ func updateFallFlyingDelta(d [3]float64, lx, ly, lz, pitchRad, gravity float64) 
 // returning the clamped delta and whether either horizontal axis
 // collided. The FALL_FLYING pose box is 0.6 wide and 0.6 high.
 func (s *Server) sweepGlideBox(sess *Session, x, y, z, dx, dy, dz float64) (cx, cy, cz float64, hColl bool) {
-	const half, height = 0.3, 0.6
-	cy = s.clampBoxAxis(sess, [2]float64{y, y + height}, dy, 1, x-half, x+half, z-half, z+half)
-	cx = s.clampBoxAxis(sess, [2]float64{x - half, x + half}, dx, 0, y+cy, y+height+cy, z-half, z+half)
-	cz = s.clampBoxAxis(sess, [2]float64{z - half, z + half}, dz, 2, x-half+cx, x+half+cx, y+cy, y+height+cy)
+	return s.sweepEntityBox(sess.world(), x, y, z, 0.3, 0.6, dx, dy, dz)
+}
+
+// sweepEntityBox resolves a bounding box move in vanilla's
+// collideWithShapes order — Y on the raw box, X on the Y-displaced
+// box, Z on the (X,Y)-displaced box — returning the clamped
+// displacement and whether a horizontal axis bound.
+func (s *Server) sweepEntityBox(wd *world.World, x, y, z, half, height, dx, dy, dz float64) (cx, cy, cz float64, hColl bool) {
+	cy = s.clampBoxAxis(wd, [2]float64{y, y + height}, dy, 1, x-half, x+half, z-half, z+half)
+	cx = s.clampBoxAxis(wd, [2]float64{x - half, x + half}, dx, 0, y+cy, y+height+cy, z-half, z+half)
+	cz = s.clampBoxAxis(wd, [2]float64{z - half, z + half}, dz, 2, x-half+cx, x+half+cx, y+cy, y+height+cy)
 	return cx, cy, cz, cx != dx || cz != dz
 }
 
@@ -199,7 +206,7 @@ func (s *Server) sweepGlideBox(sess *Session, x, y, z, dx, dy, dz float64) (cx, 
 // entry face. span is the box's extent on the moving axis; o1/o2 are
 // its extents on the other two axes (displaced by resolved axes).
 // axis: 0=x, 1=y, 2=z.
-func (s *Server) clampBoxAxis(sess *Session, span [2]float64, d float64, axis int, o1min, o1max, o2min, o2max float64) float64 {
+func (s *Server) clampBoxAxis(wd *world.World, span [2]float64, d float64, axis int, o1min, o1max, o2min, o2max float64) float64 {
 	if d == 0 {
 		return 0
 	}
@@ -207,7 +214,6 @@ func (s *Server) clampBoxAxis(sess *Session, span [2]float64, d float64, axis in
 	if d < 0 {
 		face = span[0]
 	}
-	wd := sess.world()
 	blocked := func(c int) bool {
 		for b1 := int(math.Floor(o1min)); float64(b1) < o1max; b1++ {
 			for b2 := int(math.Floor(o2min)); float64(b2) < o2max; b2++ {

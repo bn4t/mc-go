@@ -534,6 +534,10 @@ type Entity struct {
 	// RocketLife is FireworkRocketEntity.life — ticks since launch;
 	// the rocket explodes when it exceeds Fuse (its lifetime).
 	RocketLife int32
+	// rocketHColl is Entity.horizontalCollision for a free rocket —
+	// latched by the box sweep each tick; a horizontal collision
+	// switches the draft factor from 1.15 to 1.0.
+	rocketHColl bool
 	// tridentStuck marks a thrown trident embedded in a block; the
 	// owner walks over it to get the stack back.
 	tridentStuck bool
