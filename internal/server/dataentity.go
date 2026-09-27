@@ -431,7 +431,10 @@ func (d *dataEntity) saveMap(now int64, ents *Manager) entitySave {
 // load pushes it through die() on the next tick.
 func (s *Server) applyDataEntity(d *dataEntity, save entitySave) {
 	s.applyEntitySave(d.mob, save.m)
-	if d.mob != nil && d.mob.Health <= 0 {
+	// Vanilla's merge-then-die applies to LivingEntity — non-living
+	// entities have no Health, so nothing gates on it (a merged item
+	// must not die just because Health happened to sit at 0).
+	if d.mob != nil && d.mob.Living && d.mob.Health <= 0 {
 		s.mobDie(d.mob, nil, false)
 	}
 }
@@ -933,8 +936,11 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		if e.Health < 0 {
 			e.Health = 0
 		}
-	} else {
-		e.Health = mobHealth[name]
+	} else if e.Living {
+		// Absent Health on a living entity defaults to
+		// getMaxHealth() — LivingEntity.load's getFloatOr — while
+		// non-living entities carry no health semantic at all.
+		e.Health = float32(attrValue(mobAttrBase(e, "max_health"), e.AttrMods["max_health"]))
 	}
 	if v, ok := save["CustomName"].(string); ok {
 		e.CustomName = v
