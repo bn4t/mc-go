@@ -9188,3 +9188,25 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   (sound event 696/name) while a pig burns in lava on both legs,
   cadence stops with the corpse.
 - **Commit**: server + test.
+## Slice 2026-09-27bb — player `data get` key set
+
+- **Measured (jar + live)**: `data get entity @s` on a fresh player
+  reports the Entity base set + LivingEntity block + Player/Avatar
+  (Inventory, SelectedItemSlot, SleepTimer, Xp quad, Score,
+  abilities, EnderItems, food quad) + ServerPlayer
+  (warden_spawn_tracker, seenCredits, recipeBook, Dimension,
+  playerGameType, DataVersion=4903). Exact value shapes probed:
+  recipeBook = {recipes,toBeDisplayed} lists only; abilities seven
+  fields; warden tracker {warning_level,ticks_since_last_warning,
+  cooldown_ticks}.
+- **Implemented**: `playerSaveMap` gained the 11 missing keys —
+  DataVersion 4903, Dimension, FallFlying, Score, SleepTimer,
+  seenCredits, playerGameType (+previousPlayerGameType when set),
+  current_impulse_context_reset_grace_time, abilities from the
+  live mode/flying state, warden_spawn_tracker, and the real
+  recipeBook built from unlockedRecipes + seenRecipes.
+- **Pinned**: `TestPlayerDataParity` — 44-key presence vector,
+  conditional keys (CustomName, sleeping_pos, Passengers, respawn,
+  entered_nether_pos, active_effects, RootVehicle…) pinned absent
+  too; identical on both legs.
+- **Commit**: server + test.

@@ -1361,6 +1361,60 @@ func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 			}
 		}
 	}
+	// Player/ServerPlayer's unconditional keys: the version stamp,
+	// dimension resource loc, and the always-on counters and flags.
+	m["DataVersion"] = int32(4903)
+	m["Dimension"] = sess.dimName()
+	m["FallFlying"] = int8(0)
+	m["Score"] = int32(0)
+	m["SleepTimer"] = int16(0)
+	m["seenCredits"] = int8(0)
+	m["playerGameType"] = int32(sess.gameMode)
+	if sess.prevGameMode >= 0 {
+		m["previousPlayerGameType"] = sess.prevGameMode
+	}
+	m["current_impulse_context_reset_grace_time"] = int32(0)
+	// Abilities.save: the four flags follow the mode, the two speeds
+	// are fixed, flying is live state.
+	sess.modeMu.RLock()
+	gm := sess.gameMode
+	sess.modeMu.RUnlock()
+	m["abilities"] = map[string]any{
+		"invulnerable": nbtBool(gm == 1 || gm == 3),
+		"mayfly":       nbtBool(gm == 1 || gm == 3),
+		"instabuild":   nbtBool(gm == 1),
+		"walkSpeed":    float32(0.1),
+		"mayBuild":     nbtBool(gm <= 1),
+		"flying":       nbtBool(sess.flying),
+		"flySpeed":     float32(0.05),
+	}
+	m["warden_spawn_tracker"] = map[string]any{
+		"warning_level":             int32(0),
+		"ticks_since_last_warning":  int32(0),
+		"cooldown_ticks":            int32(0),
+	}
+	// The recipe book's two lists, same shape the persist writer
+	// emits: every unlocked name, then the not-yet-shown subset.
+	recipes := nbt.List{Elem: nbt.TagString}
+	toShow := nbt.List{Elem: nbt.TagString}
+	names := make([]string, 0, len(sess.unlockedRecipes))
+	for idx := range sess.unlockedRecipes {
+		if idx >= 0 && idx < len(data.Recipes) {
+			names = append(names, "minecraft:"+data.Recipes[idx].ID)
+		}
+	}
+	sort.Strings(names)
+	for _, full := range names {
+		recipes.Items = append(recipes.Items, full)
+		short := strings.TrimPrefix(full, "minecraft:")
+		if idx, ok := recipeIndex[short]; !ok || !sess.seenRecipes[int32(idx)] {
+			toShow.Items = append(toShow.Items, full)
+		}
+	}
+	m["recipeBook"] = map[string]any{
+		"recipes":       recipes,
+		"toBeDisplayed": toShow,
+	}
 	// Player.save serializes every instantiated attribute — the full
 	// supplier set — with base overrides and transient modifiers
 	// folded in from the record (powder_snow frost, /attribute sets).
