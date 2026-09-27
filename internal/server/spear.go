@@ -132,7 +132,8 @@ func (s *Server) spearJabTick(sess *Session) {
 				s.firePlayerHurtEntity(sess, "player", false, dmg, name, false)
 				sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
 				if died {
-					sess.addStat(statKilled, e.Type, 1)
+					// killed:<type> lands inside die() on the
+					// credited hurter, not at the hit site.
 					s.onPlayerKilledMob(sess, *e)
 				}
 			}

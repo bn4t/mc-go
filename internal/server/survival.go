@@ -1067,8 +1067,10 @@ func (s *Server) killPlayer(sess *Session, message component) {
 		x, y, z, _, _, _ := sess.Pos()
 		s.emitGameEvent(sess.dimension(), "entity_die", x, y, z, sess, "")
 	}
-	// Vanilla's die() award order: killed_by[killer], then deaths,
-	// then time_since_death resets.
+	// Vanilla's die() award order: the deathCount score write rides
+	// forAllObjectives ahead of the stats — then killed_by[killer],
+	// the killer's awardKillScore, deaths, and the two time resets.
+	s.bumpCriteria(sess.getName(), "deathCount", 1)
 	if killer := s.entityByID(sess.lastHurtBy); killer != nil {
 		sess.addStat(statKilledBy, killer.Type, 1)
 	}
@@ -1103,6 +1105,7 @@ func (s *Server) killPlayer(sess *Session, message component) {
 	}
 	sess.addCustomStat("deaths", 1)
 	sess.setStat(statCustom, int32(CustomStatIDs["time_since_death"]), 0)
+	sess.setStat(statCustom, int32(CustomStatIDs["time_since_rest"]), 0)
 	s.closeWindow(sess)
 	// Survival drops the whole inventory at the death spot.
 	if s.GameMode == GameModeSurvival {
@@ -1446,6 +1449,10 @@ func (s *Server) playerFluidTickStep() {
 			}
 			s.broadcastAirSupply(sess, air)
 		}
+		// ServerPlayer.doTick tails with the read-only criteria poll:
+		// health/food/air/armor/xp/level each carry a last-recorded
+		// snapshot and write one score packet per objective on change.
+		s.criteriaFeed(sess, "health", "food", "air", "armor", "xp", "level")
 		// aiStep's travel->move chain feeds the inside-block scan every
 		// entity tick, not just on client packets — a player standing
 		// still in lava still burns (measured: ~4 hits per 30 ticks).

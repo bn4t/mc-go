@@ -88,13 +88,16 @@ func (sess *Session) addStat(category, id, delta int32) {
 		st.dirtyOrder = append(st.dirtyOrder, k)
 	}
 	sess.statMu.Unlock()
-	sess.server.feedStatCriteria(sess, category, id, next)
+	// Vanilla's awardStat feeds the scoreboard the raw delta; the
+	// stat-store clamp does not carry into the score write.
+	sess.server.feedStatCriteria(sess, category, id, delta)
 }
 
 // setStat forces one counter's value (respawn resets, loads).
+// Vanilla's resetStat also zeroes every objective tracking the
+// stat — loads run pre-play where that hook stays silent.
 func (sess *Session) setStat(category, id, value int32) {
 	sess.statMu.Lock()
-	defer sess.statMu.Unlock()
 	st := sess.ensureStats()
 	k := statKey{category, id}
 	if _, seen := st.counts[k]; !seen {
@@ -104,6 +107,10 @@ func (sess *Session) setStat(category, id, value int32) {
 	if !st.dirty[k] {
 		st.dirty[k] = true
 		st.dirtyOrder = append(st.dirtyOrder, k)
+	}
+	sess.statMu.Unlock()
+	if value == 0 && sess.state.Load() == StatePlay {
+		sess.server.resetStatCriteria(sess, category, id)
 	}
 }
 
@@ -133,16 +140,6 @@ func (sess *Session) addCustomStat(name string, delta int32) {
 		return
 	}
 	sess.addStat(statCustom, id, delta)
-}
-
-// statCount reads one counter.
-func (sess *Session) statCount(category, id int32) int32 {
-	sess.statMu.Lock()
-	defer sess.statMu.Unlock()
-	if sess.stats == nil {
-		return 0
-	}
-	return sess.stats.counts[statKey{category, id}]
 }
 
 // markAllStatsDirty flags every existing counter dirty, the way

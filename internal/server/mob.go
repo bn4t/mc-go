@@ -3070,12 +3070,15 @@ func (s *Server) mobDie(e *Entity, killer *Session, silent bool) {
 			s.spawnMobXP(e.Dim, name, e.X, e.Y, e.Z)
 		}
 	}
-	// getKillCredit().awardKillScore: the last player to hurt within
-	// the 100-tick window earns the scoreboard kill criteria, whoever
+	// getKillCredit()'s award pair: the killed:<type> stat lands on
+	// the credited player first (die() bytecode: awardStat then
+	// awardKillScore), then the scoreboard kill criteria — the last
+	// player to hurt within the 100-tick window earns both, whoever
 	// landed the final blow — Entity's empty override means mob
 	// killers never bump scores.
 	if e.LastHurtByPlayerTicks > 0 {
 		if src := s.sessionByUUID(e.LastHurtByPlayerUUID); src != nil {
+			src.addStat(statKilled, e.Type, 1)
 			s.awardKillScore(src, sprintUUID(e.UUID), false)
 		}
 	}

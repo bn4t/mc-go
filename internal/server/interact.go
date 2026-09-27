@@ -254,7 +254,8 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 					s.igniteMob(&e, int32(80*fl))
 				}
 				if died {
-					sess.addStat(statKilled, e.Type, 1)
+					// killed:<type> lands inside die() on the
+					// credited hurter, not at the hit site.
 					s.onPlayerKilledMob(sess, e)
 				}
 				if !graced {

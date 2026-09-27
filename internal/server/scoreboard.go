@@ -372,18 +372,23 @@ func (s *Server) killCreditPlayer(sess *Session) *Session {
 }
 
 // awardKillScore runs ServerPlayer.awardKillScore on the credited
-// player: the kill-count stats (which feedStatCriteria mirrors onto
-// totalKillCount/playerKillCount objectives — bumping them directly
-// would double-count), teamkill.<victim's team color> on the killer,
-// and killedByTeam.<killer's team color> on the victim's holder.
+// player: totalKillCount, the kill stat (whose own stat criteria
+// feed runs inside addStat), playerKillCount for a player victim,
+// then teamkill.<victim's team color> on the killer and
+// killedByTeam.<killer's team color> on the victim's holder.
 // victim==killer earns nothing. Mob killers run Entity's empty
 // override, so they never reach here.
 func (s *Server) awardKillScore(killer *Session, victimHolder string, victimPlayer bool) {
 	if victimHolder == killer.getName() {
 		return
 	}
+	// Vanilla order: KILL_COUNT_ALL bumps first, then the kill stat
+	// (which feeds its own stat criteria), KILL_COUNT_PLAYERS for a
+	// player victim, then the two team maps.
+	s.bumpCriteria(killer.getName(), "totalKillCount", 1)
 	if victimPlayer {
 		killer.addCustomStat("player_kills", 1)
+		s.bumpCriteria(killer.getName(), "playerKillCount", 1)
 	} else {
 		killer.addCustomStat("mob_kills", 1)
 	}
@@ -1505,66 +1510,53 @@ func statCriteriaName(category, id int32) string {
 	return "minecraft." + statTypeNames[category] + ":minecraft." + vname
 }
 
-// feedStatCriteria writes a stat's new total into every objective
-// tracking it — plus the fixed criteria backed by custom stats
-// (deathCount from deaths, playerKillCount and the composed
-// totalKillCount from player_kills/mob_kills).
-func (s *Server) feedStatCriteria(sess *Session, category, id int32, total int32) {
-	name := sess.getName()
+// feedStatCriteria is vanilla's awardStat scoreboard hook:
+// forAllObjectives(stat, holder, access -> access.add(amount)) —
+// every objective whose criterion IS this (type, value) stat gains
+// the awarded DELTA, not the stat's new total (a stat objective
+// created after awards only counts forward from creation). The
+// simple kill/death criteria ride their own call sites instead
+// (die's deathCount, awardKillScore's totalKillCount/
+// playerKillCount).
+func (s *Server) feedStatCriteria(sess *Session, category, id int32, delta int32) {
 	criteria := statCriteriaName(category, id)
-	targets := map[string]int32{}
-	if criteria != "" {
-		targets[criteria] = total
+	if criteria == "" {
+		return
 	}
-	if category == statCustom {
-		if vname, ok := customStatName(id); ok {
-			switch vname {
-			case "deaths":
-				targets["deathCount"] = total
-			case "player_kills":
-				targets["playerKillCount"] = total
-				targets["totalKillCount"] = total + sess.statCount(statCustom, int32(mustCustomStatID("mob_kills")))
-			case "mob_kills":
-				targets["totalKillCount"] = total + sess.statCount(statCustom, int32(mustCustomStatID("player_kills")))
-			}
-		}
+	s.bumpCriteria(sess.getName(), criteria, delta)
+}
+
+// resetStatCriteria is vanilla's resetStat scoreboard hook:
+// forAllObjectives(stat, holder, access -> access.set(0)) — every
+// objective tracking the stat drops to zero.
+func (s *Server) resetStatCriteria(sess *Session, category, id int32) {
+	criteria := statCriteriaName(category, id)
+	if criteria == "" {
+		return
 	}
-	s.board.mu.Lock()
+	name := sess.getName()
 	var writes []struct {
 		obj string
-		val int32
 	}
+	s.board.mu.Lock()
 	for objName, o := range s.board.objectives {
-		v, ok := targets[o.criteria]
-		if !ok {
+		if o.criteria != criteria {
 			continue
 		}
-		cur := s.board.scores[name][objName]
-		if cur != nil && cur.value == v {
-			continue
-		}
-		s.setScoreLocked(name, objName, v)
+		s.setScoreLocked(name, objName, 0)
 		writes = append(writes, struct {
 			obj string
-			val int32
-		}{objName, v})
+		}{objName})
 	}
 	s.board.mu.Unlock()
 	for _, w := range writes {
-		s.broadcastScore(name, w.obj, w.val)
+		s.broadcastScore(name, w.obj, 0)
 	}
-}
-
-func mustCustomStatID(name string) int32 {
-	if id, ok := CustomStatID(name); ok {
-		return id
-	}
-	return -1
 }
 
 // liveCriteriaValue is the value a live (read-only) criterion reads
 // for a player right now: health/xp/level/food/air/armor — armor is
-// the armor-defense sum, air a flat 300 without a breath model.
+// the armor-defense sum, air the breath meter's current supply.
 func (s *Server) liveCriteriaValue(sess *Session, criteria string) (int32, bool) {
 	switch criteria {
 	case "health":
@@ -1576,7 +1568,7 @@ func (s *Server) liveCriteriaValue(sess *Session, criteria string) (int32, bool)
 	case "food":
 		return int32(sess.food), true
 	case "air":
-		return 300, true
+		return sess.airSupply, true
 	case "armor":
 		return int32(sess.armorDefense()), true
 	}

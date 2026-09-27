@@ -133,9 +133,14 @@ Mojang server over the wire.
   auto-unlocks; vanilla emits added/progress entries in identity-hash
   order which varies per run, so the test compares them as sets while
   per-criterion order — String-hash buckets seeded by a fastutil set —
-  matches exactly. Non-recipe advancement triggers and scoreboard
-  objectives remain open; scoreboard teams are implemented and
-  parity-tested)
+  matches exactly. Scoreboard objectives are parity-tested end-to-end:
+  the full criteria registry (dummy/trigger/kill/death counts, the
+  live health/xp/level/food/air/armor feed, teamkill/killedByTeam,
+  and every stat-backed minecraft.<type>:<id> form) with vanilla's
+  per-tick doTick poll, the add-delta stat feed (no backfill, sums
+  onto manual sets), and resetStat's zero write. Non-recipe
+  advancement triggers remain open; scoreboard teams are implemented
+  and parity-tested)
 - [~] Statistics (Award Statistics on Client Status 1: counters for
   mined/crafted/used/broken/picked_up/dropped/killed/killed_by and the
   custom family — ticked play_time/total_world_time/time_since_death/
@@ -9975,3 +9980,50 @@ sprint on_water (NOT swim) / submerged under_water+3D-XZ split /
 sprint-submerged swim / sneak-latched crouch / sneak+sprint sprint /
 fly-x fly / fly-y nothing+jump / 4m descend+land fall_one_cm /
 minecart ride (value-exempt). Green vs BOTH servers.
+
+## Slice: scoreboard criteria wiring — stat feeds, live poll, kill/death, reset
+
+javap (26.2) `ServerPlayer`/`Scoreboard`/`ObjectiveCriteria`:
+
+- `Stat extends ObjectiveCriteria` — every awardStat calls
+  `scoreboard.forAllObjectives(stat, holder, access ->
+  access.add(amount))`: stat objectives gain the awarded DELTA, not
+  the stat total — they count forward from creation (no backfill)
+  and sum onto manual `players set` writes.
+- `resetStat(stat)` → `forAllObjectives(stat, holder, access ->
+  access.set(0))` — a getOrCreate zero write broadcast to trackers
+  even when the score never existed.
+- die() order: `forAllObjectives(DEATH_COUNT, +1)` BEFORE the
+  stats — then `credit.awardStat(ENTITY_KILLED.get(victimType))`,
+  `credit.awardKillScore(victim, src)` (KILL_COUNT_ALL first, then
+  the kill stat — which feeds its own criteria — KILL_COUNT_PLAYERS
+  for player victims, then TEAM_KILL/KILLED_BY_TEAM), then
+  `awardStat(DEATHS)`, then `resetStat(TIME_SINCE_DEATH)` and
+  `resetStat(TIME_SINCE_REST)` — mc-go only reset the first.
+- ServerPlayer.doTick tails the read-only poll per tick in order
+  HEALTH(+absorption), FOOD, AIR(real airSupply), ARMOR,
+  EXPERIENCE(totalXp), LEVEL — each behind a per-player
+  lastRecorded gate, one update_score per change; objective
+  creation does NOT emit (an objective created mid-session stays
+  unset until the value next moves).
+- Real gap surfaced: die()'s `credit.awardStat(ENTITY_KILLED.get
+  (type))` was only modeled at hit sites (melee/projectile/spear)
+  — `/damage by`, env finishes, and credit-window kills never fed
+  `minecraft.killed:<type>` objectives (and missed the stat
+  itself). The award moved into die()'s credit resolution where it
+  belongs; the three hit-site awards were redundant.
+
+mc-go: `feedStatCriteria` switched to delta-add via the existing
+bumpCriteria; `resetStatCriteria` (zero write) wired inside
+`setStat` for play-state calls; `awardKillScore` reordered to
+vanilla's sequence; `playerDied` gains the leading deathCount bump
+plus the missing time_since_rest reset; `playerFluidTickStep`
+polls all six live criteria per tick (creation seeds the
+per-criteria snapshot so only changes emit — same gate shape as
+lastRecorded); `air` reads the real `sess.airSupply`.
+
+`TestScoreboardCriteriaParity` adds legs: stat feed hit,
+manual-set-then-award sums (7+1=8, 3+1=4), fresh objective never
+backfills, submerged air feed, and the death reset's zero write.
+`TestKillScoreParity` exercises the reordered kill path. Both
+green vs BOTH servers.

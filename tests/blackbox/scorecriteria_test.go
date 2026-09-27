@@ -12,8 +12,10 @@ import (
 // TestScoreboardCriteriaParity pins the criteria feeds: the live
 // criteria (health/xp/level/food/air/armor) are event-driven — they
 // stay unset until the event that owns them fires — a stat award
-// writes the new total into every tracking objective, and an
-// untouched tracked criterion stays unset.
+// ADDS its delta into every tracking objective (stat objectives
+// count forward from creation, never backfill, and add on top of a
+// manual /scoreboard players set), a stat reset writes score 0 into
+// tracking objectives, and an untouched tracked criterion stays unset.
 func TestScoreboardCriteriaParity(t *testing.T) {
 	targets := requireBlackboxFiles(t, nil,
 		map[string]string{
@@ -31,6 +33,8 @@ func TestScoreboardCriteriaParity(t *testing.T) {
 		`scoreboard objectives add zair air`,
 		`scoreboard objectives add zpt minecraft.custom:minecraft.play_time`,
 		`scoreboard objectives add zmn minecraft.mined:minecraft.stone`,
+		`scoreboard objectives add zkz minecraft.killed:minecraft.zombie`,
+		`scoreboard objectives add zt minecraft.custom:minecraft.time_since_death`,
 	}
 
 	// legs run in order; each is a command whose `execute if score`
@@ -56,6 +60,36 @@ func TestScoreboardCriteriaParity(t *testing.T) {
 		{"zh 17", nil, `execute if score P zh matches 17 run say ZC-ok-%d`},
 		{"readonly set", []string{`scoreboard players set P zfd 5`}, `execute if score P zfd matches 5 run say ZC-ok-%d`},
 		{"play_time counts", nil, `execute if score P zpt matches 1.. run say ZC-ok-%d`},
+		// The stat feed ADDS the awarded delta on top of whatever the
+		// score currently is — a manual players set stays in the sum.
+		{"zombie stat feed", []string{
+			`summon minecraft:zombie ~ ~-2 ~ {NoAI:1b,Tags:["zka"]}`,
+			`damage @e[type=minecraft:zombie,tag=zka,limit=1] 100 minecraft:mob_attack by P`,
+		}, `execute if score P zkz matches 1 run say ZC-ok-%d`},
+		{"stat set then award", []string{
+			`scoreboard players set P zkz 7`,
+			`summon minecraft:zombie ~ ~-2 ~ {NoAI:1b,Tags:["zkb"]}`,
+			`damage @e[type=minecraft:zombie,tag=zkb,limit=1] 100 minecraft:mob_attack by P`,
+		}, `execute if score P zkz matches 8 run say ZC-ok-%d`},
+		// An objective created after the kills sees none of them —
+		// stat criteria never backfill.
+		{"no backfill", []string{
+			`scoreboard objectives add zkz2 minecraft.killed:minecraft.zombie`,
+		}, `execute unless score P zkz2 matches -2147483648..2147483647 run say ZC-ok-%d`},
+		{"late set then award", []string{
+			`scoreboard players set P zkz2 3`,
+			`summon minecraft:zombie ~ ~-2 ~ {NoAI:1b,Tags:["zkc"]}`,
+			`damage @e[type=minecraft:zombie,tag=zkc,limit=1] 100 minecraft:mob_attack by P`,
+		}, `execute if score P zkz2 matches 4 run say ZC-ok-%d`},
+		// Submerged, the air meter drops and feeds its criterion.
+		{"air drop", []string{
+			`execute at P run fill ~-1 ~-1 ~-1 ~1 ~1 ~1 minecraft:water`,
+		}, `execute unless score P zair matches 300 run say ZC-ok-%d`},
+		// resetStat writes score 0 into tracking objectives — even one
+		// the player never scored on (getOrCreate + set(0) broadcasts).
+		{"death reset writes zero", []string{
+			`kill P`,
+		}, `execute if score P zt matches ..40 run say ZC-ok-%d`},
 	}
 
 	run := func(addr string) []string {
