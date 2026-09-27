@@ -9854,3 +9854,26 @@ not ASCII digits in the raw line.
 Open adjacent gaps: turtle metadata accessors HAS_EGG (~17) /
 LAYING_EGG (~18) not emitted; 2001 effect asserts come for free but
 block_update order vs the per-egg event loop is unpinned.
+
+## Slice: frogspawn scheduled-tick hatch parity
+
+javap FrogspawnBlock (26.2): NOT random-ticking — onPlace arms
+scheduleTick(pos, this, nextInt(3600,12000)) on every write; the due
+tick re-checks canSurvive → mayPlaceOn(level, below): fluid@below in
+#supports_frogspawn (water only) OR block@below in the empty block tag,
+plus fluid@pos EMPTY (always true — frogspawn is a plain block). Fail
+→ destroyBlock (2001 + drops); pass → hatchFrogspawn:
+destroyBlock(pos,false) + block.frogspawn.hatch (677, BLOCKS 1.0/1.0)
++ nextInt(2,6) tadpoles at snapTo(x+clamp(nextDouble,0.2,0.8), y-0.5,
+z+clamp(...)), yaw nextInt(1,361), setPersistenceRequired, reason
+BREEDING. updateShape re-checks canSurvive unconditionally and folds
+to air silently (no 2001); entityInside pops under a falling_block.
+Implemented in frogspawnTick/frogspawnCanSurvive (randtick.go), armed
+in writeOnPlace, dispatched in blockTick, plus the silent updateShape
+branch in checkSurvival and the falling-block inside case. mobHealth
+gained tadpole=6.
+
+TestFrogspawnHatchParity: water pad floats the egg, stone egg is dry;
+`tick sprint 13000` covers the full delay range on both legs —
+7 probes symmetric (both eggs gone, tadpoles present + persistent +
+absent near the stone egg), tadpole count in [2,5] per leg (4/4).

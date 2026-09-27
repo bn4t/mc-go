@@ -208,6 +208,14 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos, notify worl
 		s.bubbleNeighborChanged(d, pos, changed)
 		return
 	}
+	if name == "frogspawn" {
+		// FrogspawnBlock.updateShape: an unconditional canSurvive
+		// re-check that folds the cell to air — silently, no 2001.
+		if !s.frogspawnCanSurvive(d, pos) {
+			s.setNaturalBlock(d, pos, world.Air)
+		}
+		return
+	}
 	if name == "brown_mushroom" || name == "red_mushroom" {
 		// VegetationBlock.updateShape: return-air family — canSurvive
 		// is re-checked on any neighbour change.
@@ -400,6 +408,11 @@ func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block,
 		}
 		if coralLive(short) && !s.coralWaterScan(d, pos) {
 			s.scheduleBlockTick(d, pos, int64(60+s.rng.intn(40)))
+		}
+		// FrogspawnBlock.onPlace: the hatch tick arms on every write —
+		// nextInt(3600, 12000).
+		if short == "frogspawn" {
+			s.scheduleBlockTick(d, pos, int64(3600+s.rng.intn(8400)))
 		}
 		// TripWireBlock.onPlace / affectNeighborsAfterRemoval: a wire
 		// write or removal reruns calculateState from the run's

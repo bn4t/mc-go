@@ -439,6 +439,10 @@ func (s *Server) blockTick(d *dimension, pos world.Pos) {
 		s.sculkSensorTick(d, pos, blk)
 		return
 	}
+	if short == "frogspawn" {
+		s.frogspawnTick(d, pos)
+		return
+	}
 	if short == "repeater" {
 		s.rsDiodeTick(d, pos, blk, short)
 		return

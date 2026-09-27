@@ -1342,6 +1342,78 @@ func turtleEggRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
 	}
 }
 
+// frogspawnHatchSound — block.frogspawn.hatch in the 26.2 sound
+// registry.
+const sndFrogspawnHatch = 677
+
+// frogspawnCanSurvive is FrogspawnBlock.canSurvive → mayPlaceOn on
+// the cell below: the block below must carry a SUPPORTS_FROGSPAWN
+// fluid (water) or be in the (empty) #supports_frogspawn block tag,
+// and the egg cell itself must be fluid-free — a frogspawn cell is a
+// plain block, so the second half always holds.
+func (s *Server) frogspawnCanSurvive(d *dimension, pos world.Pos) bool {
+	below := posBelow(pos, 1)
+	if kind, _, ok := fluidOf(d.w.GetBlock(below)); ok && kind == fluidWater {
+		return true
+	}
+	name, _ := world.StateOwner(d.w.GetBlock(below))
+	return blockTagHas("supports_frogspawn", name)
+}
+
+// frogspawnTick is FrogspawnBlock.tick: a fresh canSurvive — fail and
+// the egg pops via destroyBlock (2001 + air), pass and hatchFrogspawn
+// runs the same destroy plus the hatch sound and 2-5 tadpoles.
+func (s *Server) frogspawnTick(d *dimension, pos world.Pos) {
+	b := d.w.GetBlock(pos)
+	if !isBlockNamed(b, "frogspawn") {
+		return
+	}
+	if !s.frogspawnCanSurvive(d, pos) {
+		s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+		s.setNaturalBlock(d, pos, world.Air)
+		return
+	}
+	s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+	s.setNaturalBlock(d, pos, world.Air)
+	s.playSoundSrc(d.name, float64(pos.X)+0.5, float64(pos.Y)+0.5,
+		float64(pos.Z)+0.5, sndFrogspawnHatch, 4, 1.0, 1.0, nil)
+	// spawnTadpoles: nextInt(2,6) tadpoles, each snapped to
+	// (x+clamp(nextDouble,0.2,0.8), y-0.5, z+clamp(...)) with yaw
+	// nextInt(1,361) and persistenceRequired set (spawn reason
+	// BREEDING).
+	et, hasType := EntityTypeID("tadpole")
+	for i, n := 0, 2+s.rng.intn(4); i < n; i++ {
+		if !hasType {
+			break
+		}
+		ox := s.rng.nextDouble()
+		if ox < 0.2 {
+			ox = 0.2
+		} else if ox > 0.8 {
+			ox = 0.8
+		}
+		oz := s.rng.nextDouble()
+		if oz < 0.2 {
+			oz = 0.2
+		} else if oz > 0.8 {
+			oz = 0.8
+		}
+		tp := s.entities.Spawn(&Entity{
+			Type:                et,
+			Dim:                 d.name,
+			X:                   float64(pos.X) + ox,
+			Y:                   float64(pos.Y) - 0.5,
+			Z:                   float64(pos.Z) + oz,
+			Yaw:                 float32(1 + s.rng.intn(360)),
+			Living:              true,
+			Health:              mobHealth["tadpole"],
+			MaxHealth:           mobHealth["tadpole"],
+			PersistenceRequired: true,
+		})
+		s.broadcastEntitySpawnIn(d.name, nil, *tp)
+	}
+}
+
 // redstoneOreRule is RedStoneOreBlock.randomTick: a lit ore settles
 // back to unlit.
 func redstoneOreRule(s *Server, d *dimension, pos world.Pos, b world.Block) {

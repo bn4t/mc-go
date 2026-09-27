@@ -177,6 +177,14 @@ func (s *Server) entityInsideStep() {
 						if name != "player" {
 							s.fireBlockInside(e, name, 2)
 						}
+					case "frogspawn":
+						// FrogspawnBlock.entityInside: a falling
+						// block landing on the egg breaks it
+						// (destroyBlock → 2001 + drops).
+						if name == "falling_block" {
+							s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
+							s.setNaturalBlock(d, pos, world.Air)
+						}
 					case "lava", "lava_cauldron":
 						// Player records: the session-side fluid pass
 						// in playerFluidTickStep owns ignite, damage and

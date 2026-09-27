@@ -528,6 +528,7 @@ var mobHealth = map[string]float32{
 	"turtle":           30,
 	"guardian":         30,
 	"elder_guardian":   80,
+	"tadpole":          6,
 }
 
 // mobBoundsTable is the vanilla bounding box (width, height) per
