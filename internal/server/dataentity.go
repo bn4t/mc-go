@@ -720,7 +720,20 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		}
 	}
 	if neutralAngryTypes[typeName] {
-		m["anger_end_time"] = int64(0)
+		// NeutralMob.addPersistentAngerSaveData: anger_end_time is the
+		// absolute game-time the persistent anger lapses, NO_ANGER_END_TIME
+		// (-1) while unarmed; angry_at rides only while a provocation
+		// target reference exists (EntityReference -> UUID [I;4]).
+		if e.AngryUntil > 0 {
+			m["anger_end_time"] = e.AngryUntil
+		} else {
+			m["anger_end_time"] = int64(-1)
+		}
+		// Anger arming rides HurtByTargetGoal on vanilla — a NoAI mob
+		// provoked by /damage keeps both keys unarmed.
+		if e.AngryAt != ([16]byte{}) && !e.NoAI {
+			m["angry_at"] = uuidInts(e.AngryAt)
+		}
 	}
 	if e.Living {
 		// Mob.addAdditionalSaveData serializes the brain for every
@@ -933,11 +946,16 @@ var entitySaveExtras = map[string]map[string]any{
 	},
 }
 
-// neutralAngryTypes are the NeutralMob types whose save carries
-// anger_end_time — ZombifiedPiglin and Zoglin among the summons.
+// neutralAngryTypes are vanilla's NeutralMob implementors — the
+// types whose save carries anger_end_time/angry_at (measured: piglin,
+// hoglin and zoglin do NOT emit them).
 var neutralAngryTypes = map[string]bool{
 	"zombified_piglin": true,
-	"zoglin":           true,
+	"bee":              true,
+	"enderman":         true,
+	"wolf":             true,
+	"polar_bear":       true,
+	"iron_golem":       true,
 }
 
 // nbtBool renders a bool as vanilla's byte tag.

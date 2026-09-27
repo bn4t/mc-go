@@ -9229,3 +9229,27 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   client's stream; assert index 9 float=20.0 and index 16 byte=0x7f.
   Identical on both legs.
 - **Commit**: server + test.
+
+## Slice 2026-09-27bd — NeutralMob persistent-anger NBT
+
+- **Measured** (jar interfaces + live `/data get`): `anger_end_time` /
+  `angry_at` come from `NeutralMob.addPersistentAngerSaveData` — the
+  implementor set is {zombified_piglin, bee, enderman, wolf,
+  polar_bear, iron_golem}; piglin/hoglin/zoglin do NOT emit (mc-go had
+  wrongly included zoglin). Unarmed reads `anger_end_time=-1L`
+  (NO_ANGER_END_TIME), no `angry_at`. Armed reads the absolute
+  game-time end and `angry_at` as the provoker's UUID `[I;4]`
+  (EntityReference = UUIDUtil.CODEC). All six roll
+  `rangeOfSeconds(20,39)` (= mc-go's 400+rand381). Arming rides
+  HurtByTargetGoal — a NoAI mob provoked by `/damage` stays unarmed;
+  an iron golem arms universal anger at monsters even under NoAI.
+- **Implemented**: `neutralAngryTypes` now matches the measured set;
+  `anger_end_time` emits `AngryUntil` or -1 (was hardcoded 0);
+  `angry_at` emits `uuidInts(AngryAt)` only when armed and !NoAI;
+  `AngryUntil` arms for every NeutralMob type (was zombified_piglin
+  only) and respects the NoAI gate.
+- **Pinned**: `TestAngerNBTParity` — -1L/absent unarmed vectors for
+  all six + zoglin absent, then an AI-on piglin provoked by the
+  player: `angry_at` == player UUID ints, `anger_end_time` positive.
+  Identical on both legs.
+- **Commit**: server + test.

@@ -2341,11 +2341,12 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 				ep.Raid.heroes[killer.uuid] = true
 			}
 			// NeutralMob provocation: the hurt player becomes this
-			// mob's anger target. A zombified piglin additionally
-			// arms the persistent-anger timer (PERSISTENT_ANGER_TIME,
-			// 20-39s) so the anger outlives the goal's target loss.
+			// mob's anger target. NeutralMob types additionally arm
+			// the persistent-anger timer (PERSISTENT_ANGER_TIME,
+			// rangeOfSeconds(20,39) everywhere) so the anger outlives
+			// the goal's target loss.
 			ep.AngryAt = killer.uuid
-			if kn, _ := EntityTypeName(ep.Type); kn == "zombified_piglin" {
+			if kn, _ := EntityTypeName(ep.Type); neutralAngryTypes[kn] && !ep.NoAI {
 				ep.AngryUntil = s.gameTime() + 400 + rand.Int63n(381)
 			}
 		}
