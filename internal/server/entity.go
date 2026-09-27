@@ -1213,6 +1213,41 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 	return first
 }
 
+// encodePlayerAttachMeta packs the player entity's attach-burst
+// entries: health (index 9, float — the player's real health rides the
+// record-less player entity) and DATA_PLAYER_MODE_CUSTOMISATION (index
+// 16, byte) — vanilla marks skin parts dirty when client information
+// applies, so the pairing stream ships 0x7f (all parts shown).
+// DATA_PLAYER_MAIN_HAND (index 15) sits at its right-hand default and
+// stays off the wire.
+func encodePlayerAttachMeta(health float32) []byte {
+	var b protocol.Buffer
+	b.Byte(9)  // index: DATA_HEALTH_ID
+	b.Byte(3)  // type: float
+	b.Float(health)
+	b.Byte(16) // index: skin parts
+	b.Byte(0)  // type: byte
+	b.Byte(0x7f)
+	b.Byte(0xFF)
+	return b.Bytes()
+}
+
+// playerAttachHealth resolves the health a player entity's attach meta
+// carries: the owning session's live value, falling back to full
+// health when the session isn't visible (record-only entities).
+func (s *Server) playerAttachHealth(e *Entity) float32 {
+	health := float32(20)
+	s.sessions.Range(func(_, v any) bool {
+		os := v.(*Session)
+		if os.entityID.Load() == e.ID {
+			health = os.health
+			return false
+		}
+		return true
+	})
+	return health
+}
+
 // encodeBoatMeta packs the non-default AbstractBoat entries for the
 // attach burst: indices 11/12 (bool) ride only while a paddle is down
 // — vanilla's sendPairingData ships non-default entries, and a boat
@@ -1267,6 +1302,8 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 		meta = encodeRocketMetadata(e)
 	case e.Item.ID != 0:
 		meta = encodeItemMetadata(e.Item)
+	case e.Type == sess.ids().EntityTypePlayer:
+		meta = encodePlayerAttachMeta(s.playerAttachHealth(e))
 	case e.Living:
 		meta = encodeLivingMetadata(e, nil)
 	default:

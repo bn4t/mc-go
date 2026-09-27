@@ -9210,3 +9210,22 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   entered_nether_pos, active_effects, RootVehicle…) pinned absent
   too; identical on both legs.
 - **Commit**: server + test.
+
+## Slice 2026-09-27bc — player entity attach metadata
+
+- **Measured** (live wire, two clients on vanilla): a player entity's
+  pairing stream carries set_entity_data with index 9 (DATA_HEALTH_ID,
+  float — the session's real health, 20.0 fresh) and index 16
+  (DATA_PLAYER_MODE_CUSTOMISATION, byte 0x7f — client information
+  dirty-marks skin parts at join). DATA_PLAYER_MAIN_HAND (index 15)
+  sits at its right-hand default and stays off the wire. mc-go sent no
+  set_entity_data at all on player attach.
+- **Implemented**: `encodePlayerAttachMeta` emits index 9 health (the
+  owning session's live value via `playerAttachHealth`, 20 fallback)
+  + index 16 0x7f; `sendEntityTo` selects it for the player entity
+  type ahead of the Living branch (player records aren't Living).
+- **Pinned**: `TestPlayerAttachMetaParity` — second client join,
+  capture the spawn eid + set_entity_data entries on the first
+  client's stream; assert index 9 float=20.0 and index 16 byte=0x7f.
+  Identical on both legs.
+- **Commit**: server + test.
