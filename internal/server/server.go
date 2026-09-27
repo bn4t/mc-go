@@ -229,10 +229,6 @@ type Server struct {
 	// with a random-tick rule. randMu guards it.
 	randMu       sync.Mutex
 	randSections map[randSectionKey]uint8
-	// randView is non-nil while a section's roll loop runs: it is the
-	// section snapshot rtBlock resolves in-bounds reads from. Only the
-	// game tick touches it.
-	randView *randView
 
 	// dirtyBlocks accumulates changed block positions per chunk
 	// section across a tick; blockChangesFlushStep emits them the way

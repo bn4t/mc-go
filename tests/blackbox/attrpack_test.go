@@ -280,11 +280,15 @@ func TestAttrSavePackParity(t *testing.T) {
 		get := func(tp, tag string) {
 			// movement_speed joins the pack on the mob's first real
 			// travel — for a fresh summon that means its first move,
-			// which idle animals reach only on RandomStroll's dice. A
-			// tap of /damage panics the mob and lands the touch
-			// deterministically on both servers.
+			// which idle animals reach only on RandomStroll's dice.
+			// `attribute base get` materializes the instance
+			// deterministically on both servers — a /damage tap also
+			// works but drops health, which lets the witch's
+			// aiStep healing-potion roll (5%/tick) fire
+			// nondeterministically and leak a drinking modifier into
+			// the pack.
 			sendCommand(t, pw, fmt.Sprintf(
-				"damage @e[type=minecraft:%s,limit=1,sort=nearest] 1", tp))
+				"attribute @e[type=minecraft:%s,limit=1,sort=nearest] minecraft:movement_speed base get", tp))
 			time.Sleep(600 * time.Millisecond)
 			var v any
 			var ok bool
@@ -375,9 +379,14 @@ func TestAttrSavePackParity(t *testing.T) {
 			{"villager", []string{"movement_speed", "follow_range"}},
 			{"witch", []string{"max_health", "attack_damage"}},
 		}
-		sx := 24.5
+		// Keep every summon well inside the ticking radius — past
+		// ~112 blocks vanilla unloads the entity between the summon
+		// and the data get, while mc-go keeps it (entities never
+		// unload), and the leg mismatches on "entity missing" rather
+		// than the pack shape being compared.
+		sx := 16.5
 		for _, sw := range sweep {
-			sx += 8
+			sx += 6
 			cmds := []string{fmt.Sprintf(
 				"summon minecraft:%s %.1f -60 -30.5 {NoAI:1b}", sw.tp, sx)}
 			for _, a := range sw.attrs {

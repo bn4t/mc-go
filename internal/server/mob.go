@@ -3121,10 +3121,8 @@ func (s *Server) nearestMobTarget(e *Entity, kn string) *Session {
 	var target *Session
 	// Vanilla's MeleeAttackGoal targets inside followRange — the
 	// generated supplier base (35 for the zombie family, 16 spider).
-	best := 35.0 * 35.0
-	if fr, ok := entityAttrBases[kn]["follow_range"]; ok {
-		best = fr * fr
-	}
+	best := s.mobAttr(e, kn, "follow_range", 35.0)
+	best *= best
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
 		if !sess.spawned.Load() || sess.dead ||
@@ -4637,11 +4635,83 @@ const (
 	spawnPatrol                   // PatrolSpawner: no roll, patrolling=true
 )
 
+// mobAttr resolves a mob attribute's effective value: the AttrBase
+// override, else the generated supplier default, through the vanilla
+// modifier passes (attrValue).
+func (s *Server) mobAttr(e *Entity, kn, attr string, def float64) float64 {
+	base, ok := e.AttrBase[attr]
+	if !ok {
+		base, ok = entityAttrBases[kn][attr]
+		if !ok {
+			base = def
+		}
+	}
+	return attrValue(base, e.AttrMods[attr])
+}
+
+// mobFinalizeAttributes is the attribute-and-flag half of vanilla's
+// finalizeSpawn, measured on 26.2. Mob.finalizeSpawn:
+//
+//   - follow_range gains random_spawn_bonus = triangle(0, 0.11485)
+//     multiplied_base, skipped when the attribute already carries a
+//     modifier under that id;
+//   - nextFloat < 0.05 sets LeftHanded.
+//
+// Zombie.finalizeSpawn then rolls setCanPickUpLoot(nextFloat <
+// 0.55·special) (skipped for CONVERSION spawns, which arrive via
+// mobConvert and never reach this path) and the 5% baby odds, and its
+// handleAttributes(special, reason) tail:
+//
+//   - spawn_reinforcements base = nextDouble·0.1;
+//   - knockback_resistance gains random_spawn_bonus = nextDouble·0.05
+//     add_value;
+//   - d3 = nextDouble·1.5·special > 1 adds zombie_random_spawn_bonus d3
+//     multiplied_total to follow_range;
+//   - the nextFloat < special·0.05 leader roll adds leader_zombie_bonus
+//     (0.5+nextDouble·0.25 add_value on reinforcements, 1+nextDouble·3
+//     multiplied_total on max_health) and heals to the new max.
+func (s *Server) mobFinalizeAttributes(e *Entity) {
+	name, _ := EntityTypeName(e.Type)
+	if _, has := e.AttrMods["follow_range"]["minecraft:random_spawn_bonus"]; !has {
+		s.mobAttrModAdd(e, "follow_range", "minecraft:random_spawn_bonus",
+			0.11485*(rand.Float64()-rand.Float64()), 1)
+	}
+	e.LeftHanded = rand.Float64() < 0.05
+	switch name {
+	case "zombie", "husk", "zombie_villager", "zombified_piglin", "drowned":
+		special := s.specialMultiplier()
+		e.CanPickUpLoot = rand.Float64() < 0.55*special
+		if rand.Float64() < 0.05 {
+			e.Baby = true
+		}
+		if e.AttrBase == nil {
+			e.AttrBase = map[string]float64{}
+		}
+		// randomizeReinforcementsChance: setBaseValue materializes the
+		// instance, so the save pack carries it.
+		e.AttrBase["spawn_reinforcements"] = rand.Float64() * 0.1
+		e.markAttrTouched("spawn_reinforcements")
+		s.mobAttrModAdd(e, "knockback_resistance", "minecraft:random_spawn_bonus",
+			rand.Float64()*0.05, 0)
+		if d3 := rand.Float64() * 1.5 * special; d3 > 1 {
+			s.mobAttrModAdd(e, "follow_range", "minecraft:zombie_random_spawn_bonus", d3, 2)
+		}
+		if rand.Float64() < special*0.05 {
+			s.mobAttrModAdd(e, "spawn_reinforcements", "minecraft:leader_zombie_bonus",
+				rand.Float64()*0.25+0.5, 0)
+			s.mobAttrModAdd(e, "max_health", "minecraft:leader_zombie_bonus",
+				rand.Float64()*3+1, 2)
+			e.Health = float32(attrValue(mobAttrBase(e, "max_health"), e.AttrMods["max_health"]))
+		}
+	}
+}
+
 // mobDefaultEquipReason is mobDefaultEquip with vanilla's spawn-reason
 // split threaded through.
 func (s *Server) mobDefaultEquipReason(e *Entity, reason spawnKind) {
 	name, _ := EntityTypeName(e.Type)
 	special := s.specialMultiplier()
+	s.mobFinalizeAttributes(e)
 
 	cascade := false
 	switch name {
@@ -5488,10 +5558,7 @@ func (s *Server) piglinTarget(e *Entity) *Session {
 	if e.Baby {
 		return nil
 	}
-	fr := 16.0
-	if v, ok := entityAttrBases["piglin"]["follow_range"]; ok {
-		fr = v
-	}
+	fr := s.mobAttr(e, "piglin", "follow_range", 16.0)
 	best := fr * fr
 	var target *Session
 	s.sessions.Range(func(_, v any) bool {
@@ -5723,10 +5790,8 @@ func (s *Server) mobGuardianStep(e *Entity, kn string) bool {
 		// NearestAttackableTargetGoal picks the nearest selector match
 		// inside follow_range — players and squid/axolotl compete by
 		// distanceToSqr, and each candidate must sit past 3 blocks.
-		best := 16.0 * 16.0
-		if fr, ok := entityAttrBases[kn]["follow_range"]; ok {
-			best = fr * fr
-		}
+		best := s.mobAttr(e, kn, "follow_range", 16.0)
+		best *= best
 		if t := s.nearestMobTarget(e, kn); t != nil {
 			px, py, pz, _, _, _ := t.Pos()
 			dx, dy, dz := px-e.X, py-e.Y, pz-e.Z

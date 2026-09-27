@@ -340,23 +340,6 @@ func (s *Server) mobSyncFlush(e *Entity) {
 		s.broadcastMobAttrs(e)
 		e.AttrDirty = len(e.AttrsDirty) > 0
 	}
-	// TrackedDeltaMovement (ServerEntity.sendChanges): emit
-	// set_entity_motion when the current delta drifts farther than
-	// 1e-7 squared from the last sent one, or when it just turned
-	// exactly zero — a walking mob emits on accel/decel and stop,
-	// not per tick at cruise.
-	if !e.SentMotionSet {
-		e.SentMotionSet = true
-		e.SentMotionX, e.SentMotionY, e.SentMotionZ = e.MotionX, e.MotionY, e.MotionZ
-	} else {
-		dx, dy, dz := e.MotionX-e.SentMotionX, e.MotionY-e.SentMotionY, e.MotionZ-e.SentMotionZ
-		drift := dx*dx + dy*dy + dz*dz
-		curLen := e.MotionX*e.MotionX + e.MotionY*e.MotionY + e.MotionZ*e.MotionZ
-		if drift > 1e-7 || (drift > 0 && curLen == 0) {
-			e.SentMotionX, e.SentMotionY, e.SentMotionZ = e.MotionX, e.MotionY, e.MotionZ
-			s.broadcastEntityMotion(e.Dim, e.ID, e.MotionX, e.MotionY, e.MotionZ)
-		}
-	}
 	// A living mob's first AI tick reads its movement speed — the
 	// AttributeInstance materializes then, marked dirty on creation,
 	// so vanilla emits it once on the following sendChanges.
@@ -391,6 +374,26 @@ func mobByteDiff(a, b byte) int {
 // entity_position_sync. The head's packed yaw rides rotate_head on its
 // own slot. Runs only on sendChanges-eligible ticks.
 func (s *Server) mobMoveSync(e *Entity) {
+	// TrackedDeltaMovement (ServerEntity.sendChanges): emit
+	// set_entity_motion when the current delta drifts farther than
+	// 1e-7 squared from the last sent one, or when it just turned
+	// exactly zero — a walking mob emits on accel/decel and stop,
+	// not per tick at cruise. Vanilla runs this INSIDE the
+	// tickCount%updateInterval gate, so an interval-20 item resting
+	// on the ground emits at most once per interval — its per-tick
+	// gravity-restitution delta noise never crosses the threshold.
+	if !e.SentMotionSet {
+		e.SentMotionSet = true
+		e.SentMotionX, e.SentMotionY, e.SentMotionZ = e.MotionX, e.MotionY, e.MotionZ
+	} else {
+		dx, dy, dz := e.MotionX-e.SentMotionX, e.MotionY-e.SentMotionY, e.MotionZ-e.SentMotionZ
+		drift := dx*dx + dy*dy + dz*dz
+		curLen := e.MotionX*e.MotionX + e.MotionY*e.MotionY + e.MotionZ*e.MotionZ
+		if drift > 1e-7 || (drift > 0 && curLen == 0) {
+			e.SentMotionX, e.SentMotionY, e.SentMotionZ = e.MotionX, e.MotionY, e.MotionZ
+			s.broadcastEntityMotion(e.Dim, e.ID, e.MotionX, e.MotionY, e.MotionZ)
+		}
+	}
 	yRotB := angleByte(e.Yaw)
 	xRotB := angleByte(e.Pitch)
 	rotChanged := mobByteDiff(yRotB, e.lastYRotB) >= 1 || mobByteDiff(xRotB, e.lastXRotB) >= 1

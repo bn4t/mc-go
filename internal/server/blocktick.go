@@ -206,7 +206,6 @@ func (s *Server) randomTickDimension(d *dimension, speed int) {
 		return
 	}
 	sections := d.height / 16
-	buf := make([]world.Block, 16*16*16)
 	for ck := range chunks {
 		cx, cz := ck[0], ck[1]
 		// tickChunk's iceandsnow pass: one 1/48 roll per speed unit
@@ -222,22 +221,20 @@ func (s *Server) randomTickDimension(d *dimension, speed int) {
 			if !s.sectionHasRandomTicks(d, randSectionKey{dim: d.name, x: cx, y: sec, z: cz}) {
 				continue
 			}
-			// One FillBox per tickable section: a block read goes through
-			// a shard round trip, so sampling each roll against the live
-			// world costs microseconds per draw — seconds per tick at high
-			// random_tick_speed — while a snapshot costs one round trip
-			// per shard. Rules also resolve reads inside the section from
-			// the snapshot (s.randView); only cells outside it hit the
-			// live world. A cell's second roll in the same tick sees the
-			// snapshot's state, but every rule is idempotent on rewrite,
-			// which is what vanilla's live read effectively does anyway.
+			// Each roll is one uniform position inside the section read
+			// live, exactly what vanilla's chunkSource.tickChunk does —
+			// speed point reads against the world per section per tick.
+			// (Snapshotting the whole section just to roll three cells
+			// made the tick do ~4096 shard reads per chunk and starved
+			// the loop under load.)
 			min := world.Pos{X: cx * 16, Y: d.minY + sec*16, Z: cz * 16}
-			max := world.Pos{X: min.X + 15, Y: min.Y + 15, Z: min.Z + 15}
-			d.w.FillBox(min, max, buf)
-			s.randView = &randView{min: min, buf: buf}
 			for i := 0; i < speed; i++ {
-				idx := s.rng.intn(len(buf))
-				blk := buf[idx]
+				p := world.Pos{
+					X: min.X + s.rng.intn(16),
+					Y: min.Y + s.rng.intn(16),
+					Z: min.Z + s.rng.intn(16),
+				}
+				blk := d.w.GetBlock(p)
 				name, ok := world.StateOwner(blk)
 				if !ok {
 					continue
@@ -246,34 +243,14 @@ func (s *Server) randomTickDimension(d *dimension, speed int) {
 				if !ok {
 					continue
 				}
-				rule(s, d, world.Pos{
-					X: min.X + (idx & 15),
-					Y: min.Y + (idx >> 8),
-					Z: min.Z + ((idx >> 4) & 15),
-				}, blk)
+				rule(s, d, p, blk)
 			}
-			s.randView = nil
 		}
 	}
 }
 
-// randView is the active section snapshot during a section's roll loop;
-// rule reads inside its bounds resolve from it instead of the world.
-type randView struct {
-	min world.Pos
-	buf []world.Block
-}
-
-// rtBlock reads a block for a random-tick rule: positions inside the
-// section currently being rolled come from its snapshot, everything
-// else goes to the live world.
+// rtBlock reads a block for a random-tick rule against the live world.
 func (s *Server) rtBlock(d *dimension, p world.Pos) world.Block {
-	if v := s.randView; v != nil &&
-		p.X >= v.min.X && p.X < v.min.X+16 &&
-		p.Y >= v.min.Y && p.Y < v.min.Y+16 &&
-		p.Z >= v.min.Z && p.Z < v.min.Z+16 {
-		return v.buf[((p.Y-v.min.Y)*16+(p.Z-v.min.Z))*16+(p.X-v.min.X)]
-	}
 	return d.w.GetBlock(p)
 }
 
