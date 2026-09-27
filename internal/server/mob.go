@@ -2498,7 +2498,10 @@ func (s *Server) mobTickStep() {
 				e.MetaDirty = true
 			}
 		}
-		if e.SyncCount%40 == 0 && e.TicksFrozen >= 140 && !freezeImmuneTypes[ambName] {
+		// Player records' freeze damage runs session-side in
+		// playerFluidTickStep — a record-level damageMob here would
+		// drain the record's health instead of the session's.
+		if e.SyncCount%40 == 0 && e.TicksFrozen >= 140 && !freezeImmuneTypes[ambName] && ambName != "player" {
 			dmg := float32(1)
 			if freezeHurtsExtraTypes[ambName] {
 				dmg = 5

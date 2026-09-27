@@ -1460,6 +1460,17 @@ func (s *Server) playerFluidTickStep() {
 			s.damageWith(sess, 1, translatable("death.attack.inWall",
 				playerChatComponent(sess)), srcInWall)
 		}
+		// The freeze arm: the player record's TicksFrozen accrues via
+		// entityInsideStep's powder_snow inside effect (capped at 140)
+		// and thaws two a tick out of snow; a fully frozen living
+		// entity takes the freeze damage every forty ticks. The player
+		// type isn't freeze-immune — the hurt itself is mode-gated
+		// inside damageWith.
+		if pe, ok := s.entities.GetPtr(sess.entityID.Load()); ok &&
+			pe.TicksFrozen >= 140 && pe.SyncCount%40 == 0 {
+			s.damageWith(sess, 1, translatable("death.attack.frozen",
+				playerChatComponent(sess)), srcFreeze)
+		}
 		// updateFluidInteraction — the LAVA tracker — is tick-driven
 		// like the air pass; it feeds the fire pass's in-lava skip.
 		sess.inLava = sessInFluidCell(sess, d, x, y, z, "lava", "lava_cauldron")

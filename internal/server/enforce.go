@@ -69,6 +69,12 @@ func (s *Server) teleportPlayerRot(name string, x, y, z float64, yaw, pitch floa
 	// ground→air rise right after /tp still reads as a jump.
 	_, _, _, _, _, og := sess.Pos()
 	sess.setPos(x, y, z, yaw, pitch, og)
+	// Vanilla's teleportSetPosition repositions the entity itself —
+	// the record follows immediately, before the client echoes back.
+	if eid := sess.entityID.Load(); eid != 0 {
+		s.entities.Update(eid, x, y, z, yaw, pitch, og)
+		s.broadcastEntityTeleport(sess, eid, x, y, z, yaw, pitch, og)
+	}
 	if err := s.sendSyncPos(sess, x, y, z); err != nil {
 		return false
 	}

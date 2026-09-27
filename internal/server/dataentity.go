@@ -1309,6 +1309,15 @@ func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 			int32(u[12])<<24 | int32(u[13])<<16 | int32(u[14])<<8 | int32(u[15]),
 		},
 	}
+	// LivingEntity.save's TicksFrozen lives on the entity record —
+	// the session's fluid work reads it back through entityID.
+	if ents != nil {
+		if eid := sess.entityID.Load(); eid != 0 {
+			if e, ok := ents.Get(eid); ok && e.TicksFrozen > 0 {
+				m["TicksFrozen"] = e.TicksFrozen
+			}
+		}
+	}
 	// Equipment: the vanilla save compound carries the worn slots by
 	// name — mainhand excepted, it serializes as SelectedItem — with
 	// empty slots left out.

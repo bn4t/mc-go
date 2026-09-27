@@ -137,6 +137,10 @@ func (s *Server) entityInsideStep() {
 		maxY := int(math.Floor(e.Y + float64(h)))
 		minZ := int(math.Floor(e.Z - float64(w)/2))
 		maxZ := int(math.Floor(e.Z + float64(w)/2))
+		// Vanilla's inside pass dedupes by effect applier: cells sharing
+		// a block state apply once per tick, so a two-cell box in powder
+		// snow still accrues +1 TicksFrozen, not +2.
+		applied := map[string]bool{}
 		for x := minX; x <= maxX; x++ {
 			for y := minY; y <= maxY; y++ {
 				for z := minZ; z <= maxZ; z++ {
@@ -146,7 +150,11 @@ func (s *Server) entityInsideStep() {
 					if !ok {
 						continue
 					}
-					switch strings.TrimPrefix(bn, "minecraft:") {
+					on := strings.TrimPrefix(bn, "minecraft:")
+					if applied[on] {
+						continue
+					}
+					switch on {
 					case "tripwire":
 						// The inside shape only covers the column's
 						// low band — 0.15625 attached, 0.5 loose.
@@ -181,6 +189,7 @@ func (s *Server) entityInsideStep() {
 							s.extinguishInside(e)
 						}
 					}
+					applied[on] = true
 				}
 			}
 		}

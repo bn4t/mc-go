@@ -265,6 +265,39 @@ func TestPlayerFluidParity(t *testing.T) {
 			if hp2 < 19.5 {
 				t.Fatalf("%s: in-leaves Health=%v want ~20 (healed); leaves are not suffocating", s.label, hp2)
 			}
+
+			// Powder snow: the inside effect accrues TicksFrozen up to
+			// the 140-tick requirement (the record's own inside pass);
+			// LivingEntity.baseTick then hurts a fully frozen living
+			// entity one heart every forty ticks.
+			sendCommand(t, pw, "effect give @s minecraft:instant_health 10 10 true")
+			sendCommand(t, pw, "fill 33 -60 33 33 -56 33 minecraft:powder_snow")
+			sendCommand(t, pw, "tp @s 33.5 -59.0 33.5")
+			_ = sink.take()
+			sendCommand(t, pw, "tick sprint 170")
+			time.Sleep(500 * time.Millisecond)
+			freezeHits := 0
+			for _, line := range sink.take() {
+				if strings.HasPrefix(line, "0x19:") {
+					r := protocol.NewPacketReader([]byte(line[5:]))
+					vid, _ := r.VarInt()
+					ty, _ := r.VarInt()
+					if ty == 17 { // damage_type freeze
+						freezeHits++
+					}
+					_ = vid
+				}
+			}
+			dump = dataGetAll(t, sink, pw, "@s")
+			hp, _ = snbtFloat(t, dump, "Health")
+			tf, _ := snbtInt(t, dump, "TicksFrozen")
+			t.Logf("%s powder-170: Health=%v freezeHits=%d TicksFrozen=%d", s.label, hp, freezeHits, tf)
+			if freezeHits == 0 {
+				t.Fatalf("%s: powder-snow saw no freeze damage events", s.label)
+			}
+			if hp >= 20 {
+				t.Fatalf("%s: powder-snow Health=%v want <20", s.label, hp)
+			}
 			sendCommand(t, pw, "tp @s 30.5 -50.3 30.5")
 		})
 	}
