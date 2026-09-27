@@ -131,6 +131,7 @@ func (s *Server) entityMove(e *Entity, w *world.World, half, height, dx, dy, dz,
 	vCollBelow = vColl && dy < 0
 	e.Grounded = vColl
 	hColl := xCol || zCol
+	e.HColl = hColl
 	// vanilla gates restitution on canSimulateMovement && ((|rawY|>0
 	// && verticalCollision) || horizontalCollision).
 	if (dy != 0 && vColl) || hColl {

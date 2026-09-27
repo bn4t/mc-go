@@ -329,6 +329,14 @@ type Entity struct {
 	// ConversionType.convertCommon.
 	PortalCooldown   int32
 	AbsorptionAmount float32
+	// Jumping is LivingEntity.jumping — the flag FloatGoal's
+	// JumpControl latches while a mob is deep in fluid; the aiStep
+	// jump branch consumes it. NoJumpDelay is the 10-tick
+	// jumpFromGround cooldown. HColl records the last move's
+	// horizontalCollision for the fluid wall-climb branch.
+	Jumping     bool
+	NoJumpDelay int
+	HColl       bool
 	// ServerEntity position/rotation send state: the fixed-point
 	// (1/4096) base the last position packet was computed from, the
 	// last packed rotation bytes, ticks since the last

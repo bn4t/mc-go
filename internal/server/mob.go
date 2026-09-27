@@ -2719,7 +2719,53 @@ func (s *Server) mobInSimulationRange(e *Entity) bool {
 // mutates entity state — the wire emission is mobSyncFlush's sendChanges
 // selection.
 func (s *Server) mobMoveStep(e *Entity, w *world.World) {
-	if !s.mobGrounded(e, w) {
+	bounds := mobBounds(e.Type)
+	// Entity.tick's updateFluidInteraction runs for every entity —
+	// isPushedByFluid is default-true, so the current push applies to
+	// mobs too (items/orbs take their own path in itemTickStep).
+	wDepth, inWater, _, inLava := entityFluidTick(w, s.dims[e.Dim], e, bounds[0]/2, bounds[1])
+	// FloatGoal.canUse: deep water (submersion past the eye-level
+	// jump threshold) or any lava activates the priority-0 goal —
+	// its tick jumps on an 80% roll, and LivingEntity.aiStep's jump
+	// branch converts the flag into fluid climb or a floor hop.
+	thresh := floatJumpThreshold(e, bounds)
+	if (inWater && wDepth > thresh) || inLava {
+		if floatGoalRoll(e.ID, e.WanderTicks2) {
+			e.Jumping = true
+		}
+	}
+	if e.Jumping {
+		switch {
+		case inWater && wDepth > 0:
+			if wDepth <= thresh {
+				// jumpInLiquid: a fixed +0.04 climb while shallow.
+				e.MotionY += 0.04
+			} else if e.HColl && s.entityBoxFree(w, e.MotionX, e.MotionY+0.6-e.Y+thresh, e.MotionZ, bounds[0]/2, bounds[1]) {
+				// jumpOutOfFluid: a wall-scaled hop clears the lip.
+				e.MotionY = 0.3
+			}
+		case inLava:
+			e.MotionY += 0.04
+		case e.Grounded && e.NoJumpDelay == 0:
+			// jumpFromGround: the floor hop a submerged mob bounces
+			// on — jump_strength (0.42 base) then the 10-tick delay.
+			name, _ := EntityTypeName(e.Type)
+			jump := 0.42
+			if j, ok := entityAttrBases[name]["jump_strength"]; ok {
+				jump = j
+			}
+			e.MotionY = jump
+			e.NoJumpDelay = 10
+		}
+	}
+	e.Jumping = false
+	if e.NoJumpDelay > 0 {
+		e.NoJumpDelay--
+	}
+	// shouldTravelInFluid: a mob whose box touches water travels by
+	// the water chain regardless of grounded state — the slow -g/16
+	// sink replaces the air fall, so mobGrounded never runs.
+	if !(inWater && wDepth > 0) && !s.mobGrounded(e, w) {
 		return
 	}
 	e.WanderTicks++
@@ -2799,11 +2845,23 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 		Y: int(math.Floor(e.Y)),
 		Z: int(math.Floor(nz)),
 	}
-	if w.GetBlock(nextBelow) == world.Air || w.GetBlock(nextSpace) != world.Air {
+	// A fluid cell is swimmable, not an obstacle — the wander walks
+	// into water the way vanilla's random pos targets cross it.
+	spaceBlocked := false
+	if nb := w.GetBlock(nextSpace); nb != world.Air && !moveNoCollision(nb) {
+		spaceBlocked = true
+	}
+	if w.GetBlock(nextBelow) == world.Air || spaceBlocked {
 		// Ledge or obstacle: the path is unreachable — the goal ends.
+		// In water the swim drive keeps pressing the block — the wall
+		// contact is what lets FloatGoal's hop fire next tick.
+		if inWater && wDepth > 0 {
+			s.mobTravelStep(e, w, speed)
+		} else {
+			s.mobTravelStep(e, w, 0)
+		}
 		e.Strolling = false
 		e.WanderTicks = 0
-		s.mobTravelStep(e, w, 0)
 		return
 	}
 	// MOVE_TO's walk drive: zza lands on the delta and travel carries
@@ -2851,6 +2909,50 @@ func (s *Server) mobTravelStep(e *Entity, w *world.World, speed float64) {
 	name, _ := EntityTypeName(e.Type)
 	bounds := mobBounds(e.Type)
 	gravity := 0.08
+	// shouldTravelInFluid: the box overlapping water flips travel to
+	// travelInWater — measured off 26.2 bytecode: moveRelative(0.02,
+	// zza-drive) (a mob's water_movement_efficiency is 0), then
+	// Entity.move, then delta·(0.8,0.8,0.8) and the
+	// getFluidFallingAdjustedMovement sink — dy -= effectiveGravity/16
+	// (0.005), terminal ≈ -0.025, so land mobs sink slowly and walk
+	// the bed rather than floating.
+	if d := s.dims[e.Dim]; d != nil {
+		wDepth, inWater, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, bounds[0]/2, bounds[1], fluidWater)
+		if inWater && wDepth > 0 {
+			e.FallDist = 0
+			e.WalkZZA *= 0.98
+			if speed > 0 {
+				e.WalkSpeed = speed
+				e.WalkZZA = speed
+			}
+			// moveRelative normalizes the input past 1 before scaling
+			// by the 0.02 speed.
+			input := e.WalkZZA
+			if input > 1 {
+				input = 1
+			} else if input < -1 {
+				input = -1
+			}
+			falling := e.MotionY <= 0
+			yr := float64(e.Yaw) * math.Pi / 180
+			e.MotionX += -0.02 * input * math.Sin(yr)
+			e.MotionZ += 0.02 * input * math.Cos(yr)
+			if e.NoGravity {
+				gravity = 0
+			}
+			s.entityMove(e, w, bounds[0]/2, bounds[1], e.MotionX, e.MotionY, e.MotionZ, gravity, 1.0, true)
+			e.MotionX *= 0.8
+			e.MotionZ *= 0.8
+			e.MotionY *= 0.8
+			dy := e.MotionY - gravity/16
+			// getFluidFallingAdjustedMovement's near-terminal snap.
+			if falling && math.Abs(e.MotionY-0.005) < 0.003 && math.Abs(e.MotionY-gravity/16) < 0.003 {
+				dy = -0.003
+			}
+			e.MotionY = dy
+			return
+		}
+	}
 	if g, ok := entityAttrBases[name]["gravity"]; ok {
 		gravity = g
 	}
@@ -2887,6 +2989,41 @@ func (s *Server) mobTravelStep(e *Entity, w *world.World, speed float64) {
 	drag := f3 * 0.91
 	e.MotionX *= drag
 	e.MotionZ *= drag
+}
+
+// floatGoalRoll is FloatGoal.tick's `nextFloat() < 0.8` — the 80%
+// per-tick jump roll while the goal is active, keyed off the look
+// counter like the other deterministic goal rolls.
+func floatGoalRoll(eid int32, ticks int64) bool {
+	h := uint64(uint32(eid))*40503 ^ uint64(ticks)*1099511628211
+	return float64(h%1000)/1000 < 0.8
+}
+
+// floatJumpThreshold is LivingEntity.getFluidJumpThreshold — the
+// submersion depth that switches jumpInLiquid to the wall-climb
+// hop: 0.4 unless the eye sits below 0.4.
+func floatJumpThreshold(e *Entity, bounds [2]float64) float64 {
+	if bounds[1]*0.85 < 0.4 {
+		return 0
+	}
+	return 0.4
+}
+
+// entityBoxFree is Entity.isFree(x, y, z) — whether a bounding box
+// placed at the absolute position has no solid-cell overlap. The
+// jumpOutOfFluid branch queries the escape space above the lip.
+func (s *Server) entityBoxFree(w *world.World, x, y, z, half, height float64) bool {
+	for bx := int(math.Floor(x - half)); float64(bx) <= x+half; bx++ {
+		for by := int(math.Floor(y)); float64(by) <= y+height; by++ {
+			for bz := int(math.Floor(z - half)); float64(bz) <= z+half; bz++ {
+				b := w.GetBlock(world.Pos{X: bx, Y: by, Z: bz})
+				if !world.NonSolid(b) && !moveNoCollision(b) && float64(by)+collisionTopOf(b) > y {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
 
 // strollIntervalFor is the per-entity stroll cadence: vanilla rolls
