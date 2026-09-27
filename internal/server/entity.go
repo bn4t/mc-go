@@ -111,6 +111,15 @@ type Entity struct {
 	// never pulls the entity while set. Saved as a byte only when
 	// true, matching Entity.saveWithoutId.
 	NoGravity bool
+	// CustomNameVisible is Entity's DATA_CUSTOM_NAME_VISIBLE flag —
+	// summon NBT; the save writes the byte only while true.
+	CustomNameVisible bool
+	// CanBreakDoors is Zombie's door-breaking flag — summon NBT on
+	// the zombie family, carried through ConversionType.convert.
+	CanBreakDoors bool
+	// Invulnerable is Entity's invulnerable flag — summon NBT;
+	// saved always as a byte on mobs.
+	Invulnerable bool
 	// Effects is the mob's active status effects, mob_effect registry
 	// id -> instance (summon active_effects / cure strength). Expiry
 	// is checked lazily against the server clock, the way sessEffect

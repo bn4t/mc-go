@@ -168,3 +168,152 @@ func TestMobConvertParity(t *testing.T) {
 		}
 	}
 }
+
+// TestConvertCarryParity pins which fields ConversionType.convert
+// carries onto the new entity — measured on vanilla 26.2: the flag
+// block (NoGravity/Silent/LeftHanded/PersistenceRequired/
+// CanPickUpLoot/IsBaby/CustomNameVisible/CanBreakDoors/Invulnerable),
+// the custom name, entity tags, motion, active_effects, Pos/Rotation
+// — while Health, AbsorptionAmount, UUID and attributes reset fresh.
+func snbtFromChat(line string) string {
+	var sb strings.Builder
+	for i := 0; i+5 < len(line); i++ {
+		if line[i:i+5] == "text\x00" {
+			var n int
+			l := i + 5
+			for l < len(line) {
+				n = n<<7 | int(line[l]&0x7f)
+				if line[l]&0x80 == 0 {
+					l++
+					break
+				}
+				l++
+			}
+			end := l + n
+			if end > len(line) {
+				end = len(line)
+			}
+			sb.WriteString(line[l:end])
+			i = end
+		}
+	}
+	return sb.String()
+}
+
+func dataGetAll(t *testing.T, sink *chatSink, pw *protocol.Writer, sel string) string {
+	t.Helper()
+	sendCommand(t, pw, "data get entity "+sel)
+	sendCommand(t, pw, "say ZEND")
+	deadline := time.Now().Add(6 * time.Second)
+	out := ""
+	for time.Now().Before(deadline) {
+		end := false
+		for _, line := range sink.take() {
+			if strings.Contains(line, "data.entity.query") {
+				out = snbtFromChat(line)
+			}
+			if strings.Contains(line, "ZEND") {
+				end = true
+			}
+		}
+		if end {
+			break
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	return out
+}
+
+func wantKeys(t *testing.T, label, what, dump string, keys []string) {
+	t.Helper()
+	if dump == "" {
+		t.Errorf("%s %s: no entity matched", label, what)
+		return
+	}
+	for _, k := range keys {
+		if !strings.Contains(dump, k) {
+			t.Errorf("%s %s: missing %q in %s", label, what, k, dump)
+		}
+	}
+}
+
+func TestConvertCarryParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil,
+		map[string]string{"ops.json": opsJSONFor("CV")}, nil)
+	defer targets.cleanup()
+
+	for _, s := range []struct{ label, addr string }{
+		{"vanilla", targets.vanilla}, {"mcgo", targets.mcgo},
+	} {
+		t.Run(s.label, func(t *testing.T) {
+			ca, pra, pwA, _ := joinPlayEid(t, s.addr, "CV")
+			defer ca.Close()
+			sink := newChatSinkTP(pra, pwA)
+			sink.cap = 1 << 20 // full entity NBT replies are >4KB
+			sendCommand(t, pwA, "tp CV 0.5 -60 0.5")
+
+			// Piglin → zombified_piglin after 300 overworld ticks.
+			sendCommand(t, pwA, `summon minecraft:piglin 4 -60 4 {LeftHanded:1b,Silent:1b,NoGravity:1b,PersistenceRequired:1b,CanPickUpLoot:1b,Health:9f,AbsorptionAmount:6f,IsBaby:0b,CustomNameVisible:1b,CustomName:'{"text":"CVP"}',Tags:["convtag"],active_effects:[{id:"minecraft:speed",amplifier:2,duration:1500}]}`)
+			time.Sleep(500 * time.Millisecond)
+			t.Logf("%s piglin pre: %s", s.label, dataGetAll(t, sink, pwA, "@e[type=minecraft:piglin,limit=1]"))
+			sendCommand(t, pwA, "tick sprint 320")
+			time.Sleep(1200 * time.Millisecond)
+			zp := dataGetAll(t, sink, pwA, "@e[type=minecraft:zombified_piglin,limit=1]")
+			t.Logf("%s zpiglin post: %s", s.label, zp)
+			wantKeys(t, s.label, "zpiglin", zp, []string{
+				"NoGravity1b", "IsBaby0b", "Silent1b", "LeftHanded1b",
+				"PersistenceRequired1b", "CanPickUpLoot1b",
+				"CustomName", `"CVP"`, "CustomNameVisible1b", "convtag",
+				"active_effects", "minecraft:speed", "minecraft:nausea",
+				"Health20.0f", "AbsorptionAmount0.0f", "Brain",
+				"CanBreakDoors", "InWaterTime", "DrownedConversionTime",
+				"anger_end_time", "minecraft:movement_speed",
+			})
+
+			// Zombie → drowned: readAdditionalSaveData honors
+			// DrownedConversionTime — it restarts the countdown via
+			// startUnderWaterConversion, which then runs to the end
+			// even out of water. Deterministic and fast; the live
+			// 600-wet-tick accrual is covered by TestMobConvertParity.
+			sendCommand(t, pwA, `summon minecraft:zombie 20 -60 20 {CanBreakDoors:1b,LeftHanded:1b,DrownedConversionTime:10}`)
+			sendCommand(t, pwA, "tick sprint 40")
+			time.Sleep(800 * time.Millisecond)
+			dw := dataGetAll(t, sink, pwA, "@e[type=minecraft:drowned,limit=1]")
+			t.Logf("%s drowned post: %s", s.label, dw)
+			t.Logf("%s zombie post: %s", s.label, dataGetAll(t, sink, pwA, "@e[type=minecraft:zombie,limit=1]"))
+			wantKeys(t, s.label, "drowned", dw, []string{
+				"CanBreakDoors1b", "LeftHanded1b", "Health",
+				"Brain", "InWaterTime", "DrownedConversionTime",
+				// convertTo() finalizeSpawns the new mob — the
+				// zombie-family attribute rolls land on it.
+				"minecraft:spawn_reinforcements",
+			})
+
+			// Skeleton → stray in powder snow (140 + 300): walled
+			// so it can't step out of the snow cell mid-timer.
+			for _, f := range []string{
+				"fill 11 -61 11 11 -57 11 minecraft:stone",
+				"fill 14 -61 11 14 -57 14 minecraft:stone",
+				"fill 11 -61 11 14 -57 11 minecraft:stone",
+				"fill 11 -61 14 14 -57 14 minecraft:stone",
+				"fill 11 -57 11 14 -57 14 minecraft:stone",
+				"fill 12 -60 12 13 -60 13 minecraft:powder_snow",
+			} {
+				sendCommand(t, pwA, f)
+			}
+			// The freeze countdown cancels on the first tick the
+			// skeleton isn't registered as in-snow, so arm it after
+			// it settles rather than on the summon.
+			sendCommand(t, pwA, `summon minecraft:skeleton 12.5 -60 12.5 {CustomName:'{"text":"CVS"}'}`)
+			time.Sleep(400 * time.Millisecond)
+			sendCommand(t, pwA, `data merge entity @e[type=minecraft:skeleton,limit=1] {StrayConversionTime:10}`)
+			sendCommand(t, pwA, "tick sprint 40")
+			time.Sleep(800 * time.Millisecond)
+			st := dataGetAll(t, sink, pwA, "@e[type=minecraft:stray,limit=1]")
+			t.Logf("%s stray post: %s", s.label, st)
+			wantKeys(t, s.label, "stray", st, []string{
+				"CustomName", `"CVS"`, "Brain", "Health20.0f",
+			})
+		})
+	}
+}

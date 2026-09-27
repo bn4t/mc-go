@@ -490,7 +490,7 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	m := map[string]any{
 		"Air":          int16(300),
 		"Fire":         int16(0),
-		"Invulnerable": int8(0),
+		"Invulnerable": nbtBool(e.Invulnerable),
 		"Motion": nbt.List{Elem: nbt.TagDouble, Items: []any{
 			e.MotionX, e.MotionY, e.MotionZ,
 		}},
@@ -616,12 +616,16 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 			}
 		}
 	}
-	// Entity.saveWithoutId writes Silent/NoGravity only while set.
+	// Entity.saveWithoutId writes Silent/NoGravity/CustomNameVisible
+	// only while set.
 	if e.Silent {
 		m["Silent"] = int8(1)
 	}
 	if e.NoGravity {
 		m["NoGravity"] = int8(1)
+	}
+	if e.CustomNameVisible {
+		m["CustomNameVisible"] = int8(1)
 	}
 	if e.Living {
 		// Bee.addAdditionalSaveData writes the bee fields always:
@@ -665,7 +669,26 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		m["Item"] = itemNBT(e.Item)
 		m["PickupDelay"] = int16(e.PickupDelay)
 	}
+	// The Zombie hierarchy writes CanBreakDoors plus the live
+	// water-conversion pair; NeutralMob types carry anger_end_time.
+	if zombieTypes[typeName] {
+		m["CanBreakDoors"] = nbtBool(e.CanBreakDoors)
+		m["InWaterTime"] = e.inWaterTime
+		if e.WaterConv {
+			m["DrownedConversionTime"] = e.ConversionTime
+		} else {
+			m["DrownedConversionTime"] = int32(-1)
+		}
+	}
+	if neutralAngryTypes[typeName] {
+		m["anger_end_time"] = int64(0)
+	}
 	if e.Living {
+		// Mob.addAdditionalSaveData serializes the brain for every
+		// Mob — always an empty memories compound on mc-go.
+		if typeName != "armor_stand" {
+			m["Brain"] = map[string]any{"memories": map[string]any{}}
+		}
 		if items := mobAttrPack(e, typeName); len(items) > 0 {
 			m["attributes"] = nbt.List{Elem: nbt.TagCompound, Items: items}
 		}
@@ -838,6 +861,19 @@ var entitySaveExtras = map[string]map[string]any{
 		"sound_variant": "minecraft:classic",
 		"variant":       "minecraft:temperate",
 	},
+	// Piglin.addAdditionalSaveData: CannotHunt byte and the always-
+	// present (possibly empty) picked-up-item Inventory.
+	"piglin": {
+		"CannotHunt": int8(0),
+		"Inventory":  nbt.List{Elem: nbt.TagCompound},
+	},
+}
+
+// neutralAngryTypes are the NeutralMob types whose save carries
+// anger_end_time — ZombifiedPiglin and Zoglin among the summons.
+var neutralAngryTypes = map[string]bool{
+	"zombified_piglin": true,
+	"zoglin":           true,
 }
 
 // nbtBool renders a bool as vanilla's byte tag.
@@ -904,6 +940,35 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	e.NoAI = nbtTruth(save["NoAI"])
 	e.CanPickUpLoot = nbtTruth(save["CanPickUpLoot"])
 	e.PersistenceRequired = nbtTruth(save["PersistenceRequired"])
+	e.Invulnerable = nbtTruth(save["Invulnerable"])
+	e.CustomNameVisible = nbtTruth(save["CustomNameVisible"])
+	if zombieTypes[name] {
+		e.CanBreakDoors = nbtTruth(save["CanBreakDoors"])
+		if iv, ok := nbtInt32(save["InWaterTime"]); ok {
+			e.inWaterTime = iv
+		}
+		// DrownedConversionTime restarts the countdown via
+		// startUnderWaterConversion; -1 clears the flag.
+		if iv, ok := nbtInt32(save["DrownedConversionTime"]); ok {
+			if iv != -1 {
+				e.WaterConv = true
+				e.ConversionTime = iv
+				e.MetaDirty = true
+			} else {
+				e.WaterConv = false
+				e.MetaDirty = true
+			}
+		}
+	}
+	// Skeleton's StrayConversionTime restarts the freeze countdown —
+	// it converts only while the mob stays in powder snow.
+	if name == "skeleton" {
+		if iv, ok := nbtInt32(save["StrayConversionTime"]); ok && iv != -1 {
+			e.FreezeConv = true
+			e.ConversionTime = iv
+			e.MetaDirty = true
+		}
+	}
 	// Mob.readAdditionalSaveData — getIntOr defaults homeRadius to
 	// -1, so an absent/-1 key clears hasHome; a non-negative one
 	// also reads the home_pos BlockPos (ZERO when absent).
@@ -985,7 +1050,12 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"NoGravity": true, "Silent": true, "Wave": true,
 		"CanJoinRaid": true, "RaidId": true,
 		"Sheared": true, "Color": true, "Pumpkin": true,
-		"sheared": true,
+		"sheared": true, "CustomNameVisible": true,
+		"CanBreakDoors": true, "InWaterTime": true,
+		"DrownedConversionTime": true, "anger_end_time": true,
+		"Brain": true, "Inventory": true, "CannotHunt": true,
+		"IsBaby": true, "IsImmuneToZombification": true,
+		"TimeInOverworld": true, "StrayConversionTime": true,
 	}
 	if extra, ok := entitySaveExtras[name]; ok {
 		for k := range extra {

@@ -999,6 +999,43 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if bv, ok := tag.vals["LeftHanded"]; ok && snbtNum(bv) > 0 {
 				e.LeftHanded = true
 			}
+			// Entity.load's remaining flag trio: CustomNameVisible
+			// (the name-tag render bit), Invulnerable and Zombie's
+			// CanBreakDoors.
+			if bv, ok := tag.vals["CustomNameVisible"]; ok && snbtNum(bv) > 0 {
+				e.CustomNameVisible = true
+			}
+			if bv, ok := tag.vals["Invulnerable"]; ok && snbtNum(bv) > 0 {
+				e.Invulnerable = true
+			}
+			if bv, ok := tag.vals["CanBreakDoors"]; ok && snbtNum(bv) > 0 && zombieTypes[name] {
+				e.CanBreakDoors = true
+			}
+			// Zombie.readAdditionalSaveData's water pair: InWaterTime
+			// loads the wet counter, and DrownedConversionTime != -1
+			// restarts the countdown via startUnderWaterConversion —
+			// it then runs to completion even out of water.
+			if zombieTypes[name] {
+				if iv, ok := tag.vals["InWaterTime"]; ok {
+					e.inWaterTime = int32(snbtNum(iv))
+				}
+				if iv, ok := tag.vals["DrownedConversionTime"]; ok {
+					if c := int32(snbtNum(iv)); c != -1 {
+						e.WaterConv = true
+						e.ConversionTime = c
+						e.MetaDirty = true
+					}
+				}
+			}
+			// Skeleton.readAdditionalSaveData's StrayConversionTime
+			// restarts the freeze countdown — it converts only while
+			// the mob stays in powder snow (vanilla cancels it on
+			// the first dry tick).
+			if bv, ok := tag.vals["StrayConversionTime"]; ok && name == "skeleton" {
+				e.FreezeConv = true
+				e.ConversionTime = int32(snbtNum(bv))
+				e.MetaDirty = true
+			}
 			// Fire is Entity.load's remaining burn ticks — a
 			// burning mob ignites on the next baseTick.
 			if fv, ok := tag.vals["Fire"]; ok {
@@ -1580,13 +1617,6 @@ func (s *Server) summonMobInit(d *dimension, name string, x, y, z float64, noAI,
 		NoAI:      noAI,
 		Pumpkin:   name == "snow_golem",
 	})
-	// Random spawn yaw — same wrapDegrees(random·360) as the summon
-	// path: every vanilla entity creation snaps to a random facing.
-	e.Yaw = float32(rand.Float64() * 360)
-	if e.Yaw > 180 {
-		e.Yaw -= 360
-	}
-	e.HeadYaw, e.LookYaw = e.Yaw, e.Yaw
 	summonAttrTouches(e, name, init)
 	s.broadcastFreshMob(e)
 	return e, true
@@ -1682,15 +1712,10 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, 
 		NoAI:      noAI,
 		Pumpkin:   name == "snow_golem",
 	})
-	// EntityType.create snaps every summon to a random yaw
-	// (wrapDegrees(random·360), pitch 0) — no Rotation NBT means the
-	// mob faces a random direction, then MOVE_TO's rotlerp turns it
-	// toward its target at ≤90°/tick — the curving walk start vanilla
-	// shows.
-	e.Yaw = float32(rand.Float64() * 360)
-	if e.Yaw > 180 {
-		e.Yaw -= 360
-	}
+	// /summon defaults Rotation to [0,0] — vanilla's EntityType.create
+	// keeps the fresh entity's zeroed rotation when the SNBT has none.
+	// The random facing on natural spawns is the mob's wander goal
+	// picking a heading, not the summon.
 	e.HeadYaw, e.LookYaw = e.Yaw, e.Yaw
 	// Villager carriers start at their defined default: a zombie
 	// villager's DATA_VILLAGER_DATA is randomized at construction
@@ -1794,6 +1819,11 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 		b.Byte(6) // type: optional component
 		b.Byte(1) // present
 		writeComponentTag(&b, e.CustomName)
+	}
+	if e.CustomNameVisible {
+		b.Byte(3) // index: custom_name_visible
+		b.Byte(8) // type: boolean
+		b.Byte(1)
 	}
 	b.Byte(9) // index: health
 	b.Byte(3) // type: float
@@ -3724,7 +3754,7 @@ func (s *Server) mobConvertTick(e *Entity, d *dimension, ambName string) bool {
 		inSnow := false
 		if w != nil {
 			bn, _ := blockNameAt(d, feet)
-			inSnow = bn == "powder_snow"
+			inSnow = strings.TrimPrefix(bn, "minecraft:") == "powder_snow"
 		}
 		if inSnow {
 			if e.FreezeConv {
@@ -4103,18 +4133,43 @@ func (s *Server) mobConvert(e *Entity, targetName string, levelEvent int32) *Ent
 	if !ok {
 		return nil
 	}
+	// ConversionType.convert (vanilla bytecode): the new entity
+	// spawns fresh — full type health, fresh UUID, attributes and
+	// absorption reset — then convert() copies over the measured
+	// carry list. The finalizeSpawn attribute rolls (spawn_
+	// reinforcements, random_spawn_bonus) run BEFORE the carries so
+	// the copied flags win — vanilla keeps a leftHanded piglin
+	// left-handed through zombification while re-rolling the zombie
+	// family's spawn attributes. Health is NOT carried (piglin at
+	// 9hp converts to a full-20hp zombified piglin).
 	ne := &Entity{
 		Type: nt,
 		Dim:  e.Dim,
 		X:    e.X, Y: e.Y, Z: e.Z,
 		Yaw: e.Yaw, Pitch: e.Pitch, HeadYaw: e.HeadYaw,
-		Health:     e.Health,
-		MaxHealth:  e.MaxHealth,
-		CustomName: e.CustomName,
-		Baby:       e.Baby,
-		Silent:     e.Silent,
-		NoAI:       e.NoAI,
-		Powered:    e.Powered,
+		MotionX: e.MotionX, MotionY: e.MotionY, MotionZ: e.MotionZ,
+		Living:    e.Living,
+		Health:    mobHealth[targetName],
+		MaxHealth: mobHealth[targetName],
+	}
+	s.mobFinalizeAttributes(ne)
+	ne.Baby = e.Baby
+	ne.CustomName = e.CustomName
+	ne.CustomNameVisible = e.CustomNameVisible
+	ne.Silent = e.Silent
+	ne.NoAI = e.NoAI
+	ne.NoGravity = e.NoGravity
+	ne.LeftHanded = e.LeftHanded
+	ne.PersistenceRequired = e.PersistenceRequired
+	ne.CanPickUpLoot = e.CanPickUpLoot
+	ne.FireTicks = e.FireTicks
+	ne.CanBreakDoors = e.CanBreakDoors
+	ne.Invulnerable = e.Invulnerable
+	if len(e.Effects) > 0 {
+		ne.Effects = make(map[int32]mobEffectInst, len(e.Effects))
+		for k, v := range e.Effects {
+			ne.Effects[k] = v
+		}
 	}
 	if e.Equips != nil {
 		ne.Equips = map[int32]ItemStack{}
@@ -4122,8 +4177,8 @@ func (s *Server) mobConvert(e *Entity, targetName string, levelEvent int32) *Ent
 			ne.Equips[k] = v
 		}
 	}
-	if ne.MaxHealth > 0 && ne.Health > ne.MaxHealth {
-		ne.Health = ne.MaxHealth
+	if t, ok := e.ExtraNBT["Tags"]; ok {
+		ne.ExtraNBT = map[string]any{"Tags": t}
 	}
 	s.entities.Spawn(ne)
 	s.entities.Remove(e.ID)
@@ -5327,6 +5382,20 @@ var isBabyTypes = map[string]bool{
 	"piglin":          true,
 	"piglin_brute":    true,
 	"zoglin":          true,
+	// ZombifiedPiglin extends Zombie — vanilla emits its IsBaby
+	// byte like every other zombie-family type.
+	"zombified_piglin": true,
+}
+
+// zombieTypes is vanilla's Zombie hierarchy — the types that
+// declare CanBreakDoors/InWaterTime/DrownedConversionTime in their
+// addAdditionalSaveData.
+var zombieTypes = map[string]bool{
+	"zombie":           true,
+	"zombie_villager":  true,
+	"drowned":          true,
+	"husk":             true,
+	"zombified_piglin": true,
 }
 
 // burnDaylight is vanilla 26.2's #minecraft:burn_in_daylight entity
