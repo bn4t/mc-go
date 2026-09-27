@@ -44,6 +44,7 @@ type playerPersist struct {
 	FoodTick       int32    `json:"food_tick,omitempty"`
 	XPSeed         int32    `json:"xp_seed,omitempty"`
 	Fire           int32    `json:"fire"`
+	Air            int32    `json:"air,omitempty"`
 	SleepTimer     int32    `json:"sleep_timer,omitempty"`
 	PortalCooldown int32    `json:"portal_cooldown,omitempty"`
 	FallDistance   float32  `json:"fall_distance,omitempty"`
@@ -160,6 +161,7 @@ func snapshotPlayer(sess *Session) playerPersist {
 	if p.Fire <= 0 {
 		p.Fire = -20
 	}
+	p.Air = int32(sess.airSupply)
 	p.Absorb = sess.absorb
 	p.PortalCooldown = int32(sess.portalCooldownTicks)
 	p.Flying = sess.flying
@@ -387,6 +389,9 @@ func (s *Server) applySavedPlayer(sess *Session) {
 	sess.foodTickTimer = int(p.FoodTick)
 	if p.Fire > 0 {
 		sess.fireTicks = p.Fire
+	}
+	if p.Air > 0 {
+		sess.airSupply = p.Air
 	}
 	sess.absorb = p.Absorb
 	sess.portalCooldownTicks = int(p.PortalCooldown)

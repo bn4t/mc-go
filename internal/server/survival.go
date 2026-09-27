@@ -1010,6 +1010,10 @@ func (sess *Session) initSurvival() {
 	sess.saturation = defaultSaturation
 	sess.dead = false
 	sess.fallDistance = 0
+	sess.airSupply = 300
+	// Vanilla entities spawn with -20 remainingFireTicks — the
+	// unlit baseline, not zero — and /data reads it back verbatim.
+	sess.fireTicks = -20
 }
 
 // sendHealth syncs the current health, food, and saturation.
@@ -1288,7 +1292,7 @@ func (s *Server) hungerTickStep() {
 		if sess.takeXpDelay > 0 {
 			sess.takeXpDelay--
 		}
-		if sess.mode() != GameModeSurvival {
+		if m := sess.mode(); m != GameModeSurvival && m != GameModeAdventure {
 			return true
 		}
 		changed := false
@@ -1326,19 +1330,6 @@ func (s *Server) hungerTickStep() {
 		} else {
 			sess.foodTickTimer = 0
 		}
-		// Entity.baseTick's fire pass: each multiple of twenty ticks
-		// deals a point of on_fire damage (armor + fire_protection
-		// still apply) and the flags byte's on-fire bit drops at zero.
-		if sess.fireTicks > 0 {
-			if sess.fireTicks%20 == 0 {
-				s.damageWith(sess, 1, translatable("death.attack.onFire", literal(sess.getName())), damageSource{typeName: "on_fire"})
-			}
-			sess.fireTicks--
-			if sess.fireTicks <= 0 {
-				sess.fireTicks = 0
-				s.broadcastSharedFlags(sess)
-			}
-		}
 		if sess.food == 0 && sess.health > 1 {
 			sess.starveTimer++
 			if sess.starveTimer >= 80 {
@@ -1351,6 +1342,237 @@ func (s *Server) hungerTickStep() {
 		if changed {
 			sess.healthDirty.Store(true)
 		}
+		return true
+	})
+}
+
+// playerFluidTickStep runs the player's fluid half of the living tick
+// once per connection tick: LivingEntity.baseTick's water-air pass,
+// then Entity.checkInsideBlocks' fluid cells — lava ignites and hits
+// four, water extinguishes, fire blocks ignite and hit in_fire. Air
+// changes resend metadata index 1 to every tracker, self included.
+func (s *Server) playerFluidTickStep() {
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || sess.dead || !sess.spawned.Load() {
+			return true
+		}
+		d := sess.dimension()
+		if d == nil {
+			return true
+		}
+		x, y, z, _, _, _ := sess.Pos()
+		// Entity.baseTick's onBelowWorld: one four-damage hit per
+		// entity tick under the out-of-world band; the post-hit grace
+		// paces the visible damage to roughly every ten.
+		if y < float64(d.minY-64) {
+			s.damageWith(sess, 4, translatable("death.attack.outOfWorld",
+				playerChatComponent(sess)), srcVoid)
+		}
+		// LivingEntity.baseTick's air block: an eye-level water cell
+		// (a bubble column counts as out-of-water here) drains
+		// airSupply one per tick while the player can't breathe under
+		// water — creative and spectator count as abilities.invulnerable
+		// — while the refilling effects tick it back up instead.
+		// Reaching -20 resets the supply to zero with the
+		// drown-particle event (67) and 2 drown damage. Everywhere else
+		// it climbs back by four up to the 300 max. decreaseAirSupply's
+		// oxygen_bonus roll is unmodelled — players only get that
+		// attribute from respiration, which has no pipeline yet.
+		eye := 1.62
+		if sess.sneaking {
+			eye = 1.27
+		}
+		if sess.fallFlying {
+			eye = 0.4
+		}
+		epos := world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y + eye)), Z: int(math.Floor(z))}
+		eb := d.w.GetBlock(epos)
+		kind, _, fluid := fluidOf(eb)
+		eyeWater := fluid && kind == fluidWater
+		eyeBubble := false
+		if bn, ok := world.StateOwner(eb); ok && strings.TrimPrefix(bn, "minecraft:") == "bubble_column" {
+			eyeBubble = true
+		}
+		// Entity.baseTick's fire pass: each multiple of twenty ticks
+		// deals a point of on_fire damage (armor + fire_protection
+		// still apply) and the flags byte's on-fire bit drops at zero.
+		// It runs for every mode — the hit itself is invulnerability-
+		// gated inside damageWith, while the countdown isn't. The
+		// isInLava check skips the on_fire tick while inside lava:
+		// the four-damage lava hit covers it there.
+		if sess.fireTicks > 0 {
+			if sess.fireTicks%20 == 0 && !sess.inLava {
+				s.damageWith(sess, 1, translatable("death.attack.onFire", literal(sess.getName())), damageSource{typeName: "on_fire"})
+			}
+			sess.fireTicks--
+			if sess.fireTicks <= 0 {
+				sess.fireTicks = 0
+				s.broadcastSharedFlags(sess)
+			}
+		}
+		// ServerPlayer.tick's grace counters are entity-tick business:
+		// they decay under sprint and step and keep running while the
+		// world is frozen, exactly like the air pass beside them.
+		if sess.invulnTicks > 0 {
+			sess.invulnTicks--
+		}
+		if sess.lastHurtPlayerTicks > 0 {
+			sess.lastHurtPlayerTicks--
+		}
+		air := sess.airSupply
+		if eyeWater && !eyeBubble {
+			invulnerable := sess.mode() == GameModeCreative || sess.mode() == GameModeSpectator
+			refill := sessMobHasEff(sess, "water_breathing") ||
+				sessMobHasEff(sess, "conduit_power") ||
+				sessMobHasEff(sess, "breath_of_the_nautilus")
+			if !invulnerable && !refill {
+				air--
+				if air <= -20 {
+					air = 0
+					s.broadcastEntityEvent(sess.entityID.Load(), 67)
+					s.damageWith(sess, 2, translatable("death.attack.drown", literal(sess.getName())), srcDrown)
+				}
+			} else if air < 300 && refill {
+				air = min(air+4, 300)
+			}
+		} else if air < 300 {
+			air = min(air+4, 300)
+		}
+		if air != sess.airSupply {
+			sess.airSupply = air
+			if pe, ok := s.entities.GetPtr(sess.entityID.Load()); ok {
+				pe.AirSupply = int16(air)
+			}
+			s.broadcastAirSupply(sess, air)
+		}
+		// aiStep's travel->move chain feeds the inside-block scan every
+		// entity tick, not just on client packets — a player standing
+		// still in lava still burns (measured: ~4 hits per 30 ticks).
+		// The invulnerability window paces the hits; each accepted move
+		// packet scans once more on its own.
+		s.playerInsideBlocks(sess)
+		// updateFluidInteraction — the LAVA tracker — is tick-driven
+		// like the air pass; it feeds the fire pass's in-lava skip.
+		sess.inLava = sessInFluidCell(sess, d, x, y, z, "lava", "lava_cauldron")
+		return true
+	})
+}
+
+// sessInFluidCell reports whether any cell of the player's inside
+// box holds one of the named block owners — the per-tick fluid
+// tracker scan.
+func sessInFluidCell(sess *Session, d *dimension, x, y, z float64, names ...string) bool {
+	for bx := int(math.Floor(x - 0.3)); bx <= int(math.Floor(x+0.3)); bx++ {
+		for by := int(math.Floor(y)); by <= int(math.Floor(y+1.8)); by++ {
+			for bz := int(math.Floor(z - 0.3)); bz <= int(math.Floor(z+0.3)); bz++ {
+				bn, ok := world.StateOwner(d.w.GetBlock(world.Pos{X: bx, Y: by, Z: bz}))
+				if !ok {
+					continue
+				}
+				for _, want := range names {
+					if strings.TrimPrefix(bn, "minecraft:") == want {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// playerInsideBlocks is Entity.move's applyEffectsFromBlocks for the
+// player: vanilla players only run the inside-block scan when the
+// client sends a move packet — handleMovePlayer calls player.move —
+// so a stationary client takes no lava, fire or extinguish effect at
+// all. Each call is one move()'s worth of effects: lava ignites
+// fifteen seconds and lands the four-damage lavaHurt, fire blocks
+// ignite eight and hit in_fire, water-family cells extinguish.
+func (s *Server) playerInsideBlocks(sess *Session) {
+	if sess.state.Load() != StatePlay || sess.dead || !sess.spawned.Load() {
+		return
+	}
+	d := sess.dimension()
+	if d == nil {
+		return
+	}
+	x, y, z, _, _, _ := sess.Pos()
+	lava := false
+	wet, burn := false, float32(0)
+	for bx := int(math.Floor(x - 0.3)); bx <= int(math.Floor(x+0.3)); bx++ {
+		for by := int(math.Floor(y)); by <= int(math.Floor(y+1.8)); by++ {
+			for bz := int(math.Floor(z - 0.3)); bz <= int(math.Floor(z+0.3)); bz++ {
+				bn, ok := world.StateOwner(d.w.GetBlock(world.Pos{X: bx, Y: by, Z: bz}))
+				if !ok {
+					continue
+				}
+				switch strings.TrimPrefix(bn, "minecraft:") {
+				case "lava", "lava_cauldron":
+					lava = true
+				case "water", "bubble_column", "water_cauldron", "powder_snow_cauldron":
+					wet = true
+				case "fire":
+					burn = 1
+				case "soul_fire":
+					burn = 2
+				}
+			}
+		}
+	}
+	if lava {
+		// lavaIgnite -> igniteForSeconds(15) -> igniteForTicks(300):
+		// remainingFireTicks is set to 300 outright when shorter.
+		if sess.fireTicks < 300 {
+			sess.fireTicks = 300
+			s.broadcastSharedFlags(sess)
+		}
+		s.damageWith(sess, 4, translatable("death.attack.lava", literal(sess.getName())), srcLava)
+	}
+	if burn > 0 {
+		// FireBlock's entityInside -> igniteForSeconds(8) ->
+		// igniteForTicks(160): the same plain set at 160.
+		if sess.fireTicks < 160 {
+			sess.fireTicks = 160
+			s.broadcastSharedFlags(sess)
+		}
+		s.damageWith(sess, burn, translatable("death.attack.inFire", literal(sess.getName())), srcInFire)
+	}
+	if wet && sess.fireTicks > 0 {
+		// EXTINGUISH -> Entity.clearFire: remainingFireTicks drops to
+		// min(0, it) — a negative baseline stays untouched.
+		sess.fireTicks = 0
+		s.broadcastSharedFlags(sess)
+	}
+}
+
+// broadcastAirSupply resends metadata index 1 (the air supply int) to
+// every session tracking the player, the subject included — vanilla's
+// SynchedEntityData resends the entry each tick setAirSupply ran.
+func (s *Server) broadcastAirSupply(sess *Session, air int32) {
+	eid := sess.entityID.Load()
+	if eid == 0 {
+		return
+	}
+	var b protocol.Buffer
+	b.VarInt(eid)
+	b.Byte(1) // index: air supply
+	b.Byte(1) // type: varint
+	b.VarInt(air)
+	b.Byte(0xFF)
+	body := b.Bytes()
+	dim := sess.dimName()
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() {
+			return true
+		}
+		if other.dimName() != dim {
+			return true
+		}
+		if !other.tracksEntity(eid) && other.entityID.Load() != eid {
+			return true
+		}
+		_ = other.write(other.ids().PlayEntityMetadata, body)
 		return true
 	})
 }

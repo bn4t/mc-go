@@ -517,8 +517,6 @@ func raidEffectRmBody(body string) string {
 	return fmt.Sprintf("eff- id=%d", eid)
 }
 
-
-
 // raidNormalizeDigits flattens every digit run in an event to '#',
 // for replies whose counts ride a random roll.
 func raidNormalizeDigits(ev string) string {

@@ -244,6 +244,16 @@ type Session struct {
 	// tick decrements it and multiples of twenty deal a point of
 	// on_fire damage; the shared-flags byte's on-fire bit tracks it.
 	fireTicks int32
+	// airSupply is vanilla's entityData air supply (NBT "Air",
+	// metadata index 1): 300 full, drains one per tick with the eyes
+	// in a water cell, refills by four anywhere else; reaching -20
+	// resets it to zero with the drown-particle event and 2 damage.
+	airSupply int32
+	// inLava is vanilla's fluid-interaction LAVA tracker on the
+	// player: the inside-block scan sets it each player tick and the
+	// fire pass reads it — while in lava the on_fire tick is skipped
+	// (the 4.0 lava hit covers it), one tick stale like the tracker.
+	inLava bool
 	// attackTicker is vanilla's attackStrengthTicker: the ticks since
 	// the last attack() call; it paces the damage cooldown scale and
 	// resets on every attack that reaches the damage code.

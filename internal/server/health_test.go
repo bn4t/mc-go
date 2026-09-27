@@ -406,7 +406,7 @@ func TestVoidDamage(t *testing.T) {
 	sess.setPos(0, float64(int32(MinY-64))-5, 0, 0, 0, false)
 
 	for i := 0; i < 10; i++ {
-		s.voidTickStep()
+		s.playerFluidTickStep()
 	}
 	if sess.health != 16 {
 		t.Fatalf("health = %v, want 16 after one void tick", sess.health)
@@ -433,10 +433,11 @@ func TestVoidDamageKills(t *testing.T) {
 	s.GameMode = GameModeSurvival
 	sess := survivalSession(t, s, "Void")
 	sess.setPos(0, float64(int32(MinY-64))-5, 0, 0, 0, false)
-	// The void lives on the player tick; post-hit invulnerability paces
-	// the hits to roughly every ten ticks, so sixty ticks is lethal.
+	// The void lives on the entity tick (baseTick's onBelowWorld);
+	// post-hit invulnerability paces the hits to roughly every ten
+	// ticks, so sixty ticks is lethal.
 	for i := 0; i < 60; i++ {
-		s.playerTick()
+		s.playerFluidTickStep()
 	}
 	if !sess.dead {
 		t.Fatalf("player survived the void: health %v", sess.health)

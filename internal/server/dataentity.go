@@ -1281,9 +1281,9 @@ func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 	u := sess.getUUID()
 	m := map[string]any{
 		"AbsorptionAmount":    sess.absorb,
-		"Air":                 int16(300),
+		"Air":                 int16(sess.airSupply),
 		"DeathTime":           int16(0),
-		"Fire":                int16(0),
+		"Fire":                int16(sess.fireTicks),
 		"Health":              sess.health,
 		"HurtTime":            int16(0),
 		"Invulnerable":        int8(0),

@@ -28,7 +28,7 @@ import (
 func playerDatCompound(p playerPersist) map[string]any {
 	m := map[string]any{
 		"AbsorptionAmount":              p.Absorb,
-		"Air":                           int16(300),
+		"Air":                           int16(p.Air),
 		"Brain":                         map[string]any{"memories": map[string]any{}},
 		"DataVersion":                   int32(world.DataVersion26_2),
 		"DeathTime":                     int16(0),

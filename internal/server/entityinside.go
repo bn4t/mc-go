@@ -161,13 +161,25 @@ func (s *Server) entityInsideStep() {
 					case "powder_snow":
 						s.powderSnowInside(e, d, pos, name)
 					case "fire":
-						s.fireBlockInside(e, name, 1)
+						if name != "player" {
+							s.fireBlockInside(e, name, 1)
+						}
 					case "soul_fire":
-						s.fireBlockInside(e, name, 2)
+						if name != "player" {
+							s.fireBlockInside(e, name, 2)
+						}
 					case "lava", "lava_cauldron":
-						s.lavaInside(e, name)
+						// Player records: the session-side fluid pass
+						// in playerFluidTickStep owns ignite, damage and
+						// extinguish for players — a record-level ignite
+						// would broadcast its own index-0 beside it.
+						if name != "player" {
+							s.lavaInside(e, name)
+						}
 					case "water", "bubble_column", "water_cauldron", "powder_snow_cauldron":
-						s.extinguishInside(e)
+						if name != "player" {
+							s.extinguishInside(e)
+						}
 					}
 				}
 			}

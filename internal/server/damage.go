@@ -119,6 +119,9 @@ var (
 	srcStarve  = damageSource{typeName: "starve"}
 	srcKill    = damageSource{typeName: "generic_kill"}
 	srcVoid    = damageSource{typeName: "out_of_world"}
+	srcLava    = damageSource{typeName: "lava"}
+	srcDrown   = damageSource{typeName: "drown"}
+	srcInFire  = damageSource{typeName: "in_fire"}
 )
 
 // sessInvulnerableTo mirrors vanilla's hurtServer gate: creative and
@@ -133,26 +136,6 @@ func sessInvulnerableTo(sess *Session, typeName string) bool {
 		return sess.enchantImmunity(typeName)
 	}
 	return !damageTypeBypassesInvulnerability(typeName)
-}
-
-// voidTickStep damages players under the out-of-world band (64 blocks
-// below each dimension's floor) on every player tick; vanilla hits
-// there once a tick, and the post-hit invulnerability is what paces the
-// visible damage to roughly every ten.
-func (s *Server) voidTickStep() {
-	s.sessions.Range(func(_, v any) bool {
-		sess := v.(*Session)
-		if sess.state.Load() != StatePlay || sess.dead {
-			return true
-		}
-		_, y, _, _, _, _ := sess.Pos()
-		if y >= float64(sess.dimension().minY-64) {
-			return true
-		}
-		s.damageWith(sess, 4, translatable("death.attack.outOfWorld",
-			playerChatComponent(sess)), srcVoid)
-		return true
-	})
 }
 
 // damageWith applies damage with an explicit source, emitting the

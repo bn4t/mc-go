@@ -411,6 +411,11 @@ func (s *Server) StopSprint() bool {
 // the world deterministically instead of sleeping and hoping. Per-player
 // connection-tick work is deliberately not here: see playerTick.
 func (s *Server) GameTick() {
+	// LivingEntity.baseTick's air pass plus the inside-block fluid
+	// cells run on the entity game tick: a sprint or step advances
+	// them, and players are exempt from /tick freeze so the loop
+	// still calls this step on frozen wall ticks.
+	s.playerFluidTickStep()
 	s.itemTickStep()
 	s.cloudTickStep()
 	s.tntTickStep()
@@ -470,27 +475,21 @@ func (s *Server) GameTick() {
 	s.clock.mu.Unlock()
 }
 
-// playerTick is the per-player connection tick, which vanilla runs
-// from the packet listener once per wall-clock tick: it is NOT part of
-// the freeze-gated game tick, so it keeps running under /tick freeze
-// and /tick step never advances it. Measured on 26.2: a player parked
-// in the void while the game was frozen died in seconds, and a hurt
-// player healed nothing across hundreds of stepped ticks.
+// playerTick is the per-player connection tick, driven from the packet
+// listener once per wall-clock tick: it is NOT part of the freeze-gated
+// game tick, so it keeps running under /tick freeze and /tick step
+// never advances it. Measured on 26.2: a hurt player healed nothing
+// across hundreds of stepped ticks. Void damage is not here: vanilla's
+// onBelowWorld is entity baseTick business, so it lives in
+// playerFluidTickStep alongside the rest of the entity-tick pass.
 func (s *Server) playerTick() {
 	s.digTickStep()
 	s.hungerTickStep()
 	s.combatTickStep()
 	s.eatTickStep()
-	s.voidTickStep()
 	s.portalTickStep()
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.invulnTicks > 0 {
-			sess.invulnTicks--
-		}
-		if sess.lastHurtPlayerTicks > 0 {
-			sess.lastHurtPlayerTicks--
-		}
 		if sess.attackTicker < 200 {
 			sess.attackTicker++
 		}
@@ -583,6 +582,13 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 		// frozen now — a stale run=true must not fire one extra tick
 		// per sprint boundary.
 		if !run || s.clock.isSprinting() || s.clock.isFrozen() {
+			// /tick freeze skips the level's entity and block ticks
+			// but not the players' — tickRateManager only freezes
+			// non-player entities — so their fluid pass still runs
+			// once per wall tick while the world is frozen.
+			if s.clock.isFrozen() && !s.clock.isSprinting() {
+				s.playerFluidTickStep()
+			}
 			since = 0
 			continue
 		}

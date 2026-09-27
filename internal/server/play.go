@@ -306,6 +306,11 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 		}
 	}
 	sess.setPos(x, y, z, yaw, pitch, onGround)
+	// handleMovePlayer's player.move applies the inside-block scan on
+	// every accepted move packet — a same-position resend still scans
+	// the occupied cells (measured: a teleport echo into lava lands
+	// the ignite and the four-damage hit).
+	s.playerInsideBlocks(sess)
 	// ChunkMap.updatePlayerPos: a position packet re-evaluates the
 	// entity map against this player.
 	s.retrackSession(sess)
