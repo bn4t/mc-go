@@ -4224,6 +4224,30 @@ func (s *Server) mobConvert(e *Entity, targetName string, levelEvent int32) *Ent
 	ne.FireTicks = e.FireTicks
 	ne.CanBreakDoors = e.CanBreakDoors
 	ne.Invulnerable = e.Invulnerable
+	// The rest of ConversionType.convertCommon + the keepInventory
+	// convert(): live-state fields that are not part of the fresh
+	// spawn — grounded/fallFlying/hurtTime carry the motion state,
+	// portalCooldown and absorptionAmount the counters, Age the
+	// AgeableMob pair.
+	ne.Grounded = e.Grounded
+	ne.FallFlying = e.FallFlying
+	ne.HurtTime = e.HurtTime
+	ne.PortalCooldown = e.PortalCooldown
+	// setAbsorptionAmount clamps to the max_absorption attribute —
+	// base 0 on every mob — so a merged absorption never survives
+	// the convert even though convertCommon calls the setter.
+	ne.AbsorptionAmount = e.AbsorptionAmount
+	if max := float32(attrValue(mobAttrBase(ne, "max_absorption"), ne.AttrMods["max_absorption"])); ne.AbsorptionAmount > max {
+		ne.AbsorptionAmount = max
+	}
+	ne.Age = e.Age
+	ne.LeashHolder = e.LeashHolder
+	// convert() re-rides every passenger onto the new entity — the
+	// ids move over; each passenger's Riding repoints below once
+	// Spawn assigns the new id.
+	if len(e.Passengers) > 0 {
+		ne.Passengers = append([]int32(nil), e.Passengers...)
+	}
 	if len(e.Effects) > 0 {
 		ne.Effects = make(map[int32]mobEffectInst, len(e.Effects))
 		for k, v := range e.Effects {
@@ -4240,6 +4264,11 @@ func (s *Server) mobConvert(e *Entity, targetName string, levelEvent int32) *Ent
 		ne.ExtraNBT = map[string]any{"Tags": t}
 	}
 	s.entities.Spawn(ne)
+	for _, pid := range ne.Passengers {
+		if p, ok := s.entities.GetPtr(pid); ok {
+			p.Riding = ne.ID
+		}
+	}
 	s.entities.Remove(e.ID)
 	s.broadcastFreshMob(ne)
 	s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})

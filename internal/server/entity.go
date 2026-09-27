@@ -322,6 +322,13 @@ type Entity struct {
 	// bypass in ServerEntity.sendChanges' velocity branch.
 	FallFlying bool
 	SyncCount  int64
+	// PortalCooldown is Entity.portalCooldown — the ticks before the
+	// entity may use a portal again. AbsorptionAmount is
+	// LivingEntity.absorptionAmount — absorption hearts above the
+	// health pool. Both persist through the entity save and
+	// ConversionType.convertCommon.
+	PortalCooldown   int32
+	AbsorptionAmount float32
 	// ServerEntity position/rotation send state: the fixed-point
 	// (1/4096) base the last position packet was computed from, the
 	// last packed rotation bytes, ticks since the last

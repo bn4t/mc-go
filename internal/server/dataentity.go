@@ -498,7 +498,7 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 			e.MotionX, e.MotionY, e.MotionZ,
 		}},
 		"OnGround":       nbtBool(e.Grounded),
-		"PortalCooldown": int32(0),
+		"PortalCooldown": e.PortalCooldown,
 		"Pos":            nbt.List{Elem: nbt.TagDouble, Items: []any{e.X, e.Y, e.Z}},
 		"Rotation":       nbt.List{Elem: nbt.TagFloat, Items: []any{e.Yaw, e.Pitch}},
 		"UUID": []int32{
@@ -516,14 +516,21 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	// LivingEntity.save adds the living block — carts, boats and
 	// other non-living entities emit the shared set only.
 	if e.Living {
-		m["AbsorptionAmount"] = float32(0)
+		m["AbsorptionAmount"] = e.AbsorptionAmount
 		m["CanPickUpLoot"] = nbtBool(e.CanPickUpLoot)
 		m["DeathTime"] = int16(0)
 		m["FallFlying"] = int8(0)
+		if e.FallFlying {
+			m["FallFlying"] = int8(1)
+		}
 		m["Health"] = e.Health
 		m["HurtTime"] = e.HurtTime
 		m["LeftHanded"] = nbtBool(e.LeftHanded)
-		m["NoAI"] = nbtBool(e.NoAI)
+		// Mob.addAdditionalSaveData writes NoAI only while set —
+		// the absent key reads back as the false default.
+		if e.NoAI {
+			m["NoAI"] = nbtBool(true)
+		}
 		m["PersistenceRequired"] = nbtBool(e.PersistenceRequired)
 		m["current_impulse_context_reset_grace_time"] = int32(0)
 	}
@@ -680,7 +687,14 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	// water-conversion pair; NeutralMob types carry anger_end_time.
 	if zombieTypes[typeName] {
 		m["CanBreakDoors"] = nbtBool(e.CanBreakDoors)
-		m["InWaterTime"] = e.inWaterTime
+		// Vanilla's inWaterTime field defaults to -1 and only counts
+		// while the conversion is armed — a non-converting zombie
+		// saves -1, not 0.
+		if e.WaterConv {
+			m["InWaterTime"] = e.inWaterTime
+		} else {
+			m["InWaterTime"] = int32(-1)
+		}
 		if e.WaterConv {
 			m["DrownedConversionTime"] = e.ConversionTime
 		} else {
@@ -1012,6 +1026,15 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	e.Grounded = nbtTruth(save["OnGround"])
 	e.Silent = nbtTruth(save["Silent"])
 	e.NoGravity = nbtTruth(save["NoGravity"])
+	// Entity.load: portalCooldown and the living absorptionAmount
+	// read straight ints/floats; fall_flying is a byte flag.
+	if v, ok := nbtInt32(save["PortalCooldown"]); ok {
+		e.PortalCooldown = v
+	}
+	if v, ok := nbtFloat(save["AbsorptionAmount"]); ok {
+		e.AbsorptionAmount = float32(v)
+	}
+	e.FallFlying = nbtTruth(save["FallFlying"])
 	// Sheep.readAdditionalSaveData: Sheared + Color (mc-go ignores
 	// Color — sheep stay white; Sheared dirties the wool byte).
 	if name == "sheep" {

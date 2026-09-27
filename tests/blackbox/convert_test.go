@@ -266,9 +266,16 @@ func TestConvertCarryParity(t *testing.T) {
 				"CustomName", `"CVP"`, "CustomNameVisible1b", "convtag",
 				"active_effects", "minecraft:speed", "minecraft:nausea",
 				"Health20.0f", "AbsorptionAmount0.0f", "Brain",
-				"CanBreakDoors", "InWaterTime", "DrownedConversionTime",
+				"CanBreakDoors", "DrownedConversionTime",
 				"anger_end_time", "minecraft:movement_speed",
+				// Vanilla's inWaterTime sentinel is -1 while the
+				// conversion isn't armed — the fresh zombified
+				// piglin keeps it.
+				"InWaterTime-1",
 			})
+			if strings.Contains(zp, "NoAI") {
+				t.Errorf("%s zpiglin dump has NoAI — vanilla writes it only while set", s.label)
+			}
 
 			// Zombie → drowned: readAdditionalSaveData honors
 			// DrownedConversionTime — it restarts the countdown via
@@ -283,7 +290,7 @@ func TestConvertCarryParity(t *testing.T) {
 			t.Logf("%s zombie post: %s", s.label, dataGetAll(t, sink, pwA, "@e[type=minecraft:zombie,limit=1]"))
 			wantKeys(t, s.label, "drowned", dw, []string{
 				"CanBreakDoors1b", "LeftHanded1b", "Health",
-				"Brain", "InWaterTime", "DrownedConversionTime",
+				"Brain", "InWaterTime-1", "DrownedConversionTime",
 				// convertTo() finalizeSpawns the new mob — the
 				// zombie-family attribute rolls land on it.
 				"minecraft:spawn_reinforcements",
