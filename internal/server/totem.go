@@ -49,6 +49,7 @@ const (
 	effectAbsorption     = 21
 	effectGlowing        = 23
 	effectLevitation     = 24
+	effectSlowFalling    = 27
 	effectBadOmen        = 30
 	effectHeroOfVillage  = 31
 	effectRaidOmen       = 34

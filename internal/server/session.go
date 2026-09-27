@@ -282,6 +282,16 @@ type Session struct {
 	// glide tick wears the glider one damage point.
 	fallFlying   bool
 	fallFlyTicks int32
+	// glideDelta is the server-side deltaMovement the fall-flying
+	// sim carries between ticks (vanilla keeps it on the entity even
+	// though the player's position stays packet-driven — collisions
+	// against it pay fly_into_wall damage).
+	glideDelta [3]float64
+	// glideSim is the entity position the glide sim integrates: vanilla's
+	// move() advances the entity by the clamped delta each tick while
+	// accepted move packets snap it back — the box drifts into a wall
+	// between claims until its face sits on the block and speed dies.
+	glideSim [3]float64
 	// healthDirty marks health/food/saturation changes to sync. Vanilla
 	// sends at most one Set Health per player per tick, carrying the
 	// end-of-tick values, so tick-side writers set this instead of
@@ -506,6 +516,10 @@ func (sess *Session) setPos(x, y, z float64, yaw, pitch float32, onGround bool) 
 	sess.px, sess.py, sess.pz = x, y, z
 	sess.yaw, sess.pitch = yaw, pitch
 	sess.onGround = onGround
+	// Vanilla's Entity.move() applies the collision-clamped delta to the
+	// entity position each tick while accepted packets snap it back —
+	// the glide sim drifts from the latest claim the same way.
+	sess.glideSim = [3]float64{x, y, z}
 }
 
 // markAlive records a client response for the timeout watchdog.

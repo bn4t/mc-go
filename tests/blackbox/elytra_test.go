@@ -4,6 +4,8 @@ package blackbox
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -79,6 +81,16 @@ func TestElytraParity(t *testing.T) {
 		defer func() {
 			if t.Failed() {
 				t.Logf("%s P stream: %s", name, sinkP.health())
+				logs, _ := filepath.Glob(filepath.Join(os.TempDir(), "TestElytraParity*", "*", "vanilla.log"))
+				for _, p := range logs {
+					if b, err := os.ReadFile(p); err == nil {
+						s := string(b)
+						if len(s) > 8000 {
+							s = s[len(s)-8000:]
+						}
+						t.Logf("%s vanilla.log tail:\n%s", name, s)
+					}
+				}
 			}
 		}()
 		cQ, prQ, pwQ := joinPlayBlackbox(t, addr, "Q")
@@ -113,6 +125,22 @@ func TestElytraParity(t *testing.T) {
 			}
 			b.Byte(f)
 			if err := pwP.WritePacket(server.IDPlayMovePosSB, b.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		moveRot := func(x, y, z float64, yaw, pitch float32, og bool) {
+			var b protocol.Buffer
+			b.Double(x)
+			b.Double(y)
+			b.Double(z)
+			b.Float(yaw)
+			b.Float(pitch)
+			var f byte
+			if og {
+				f = 0x01
+			}
+			b.Byte(f)
+			if err := pwP.WritePacket(server.IDPlayMovePosRotSB, b.Bytes()); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -293,6 +321,77 @@ func TestElytraParity(t *testing.T) {
 		}
 		move(8.5, -60, 8.5, true)
 		flags(500 * time.Millisecond)
+
+		// fly_into_wall: while flag-7 is set the server sim runs
+		// updateFallFlyingMovement each tick — the delta builds
+		// unclamped, Entity.move sweeps it against the world, and
+		// restituteMovementAfterCollisions zeroes the components on
+		// axes that hit. handleFallFlyingCollisions pays
+		// (oldH-newH)·10-3 when horizontalCollision and the loss
+		// tops 0.3. Hovering pressed to the wall never hits: the
+		// delta dies every collide tick and can't rebuild (measured
+		// on vanilla — Motion[0] stays 0, no damage events). A real
+		// client hits by arriving with speed — claims advance into
+		// the wall. So build speed in open air, then advance claims
+		// to the stone at x=20 like an approaching client would.
+		sendCommand(t, pwP, "gamemode survival P")
+		sendCommand(t, pwP, "fill 20 -61 4 20 -50 12 minecraft:stone")
+		sendCommand(t, pwP, "effect give P minecraft:instant_health 1 10")
+		// /tp relocations: a move packet jumping >10 blocks is
+		// rejected as "moved too quickly" on vanilla.
+		sendCommand(t, pwP, "tp P 15 -56 8")
+		moveRot(15, -56, 8, -90, -30, false)
+		action6()
+		flags(400 * time.Millisecond)
+		// ~1s of buildup ticks to reach terminal glide speed, then a
+		// ~4-block approach ending pressed on the wall face.
+		for i := 0; i < 12; i++ {
+			moveRot(15, -56, 8, -90, -30, false)
+			time.Sleep(80 * time.Millisecond)
+		}
+		for _, x := range []float64{15.7, 16.4, 17.1, 17.8, 18.5, 19.1, 19.7, 19.7, 19.7, 19.7} {
+			moveRot(x, -56, 8, -90, -30, false)
+			time.Sleep(80 * time.Millisecond)
+		}
+		// Damage events, not health — regen masks small hits by the
+		// time /data get reads it. Bucketed: the hit count depends
+		// on packet/tick phasing, whether it hit doesn't.
+		de := 0
+		for _, l := range sinkP.take() {
+			if strings.HasPrefix(l, fmt.Sprintf("%#x:", server.IDPlayDamageEvent)) {
+				de++
+			}
+		}
+		if de > 0 {
+			res = append(res, "fly_into_wall:hit")
+		} else {
+			res = append(res, "fly_into_wall:safe")
+		}
+		// The same approach in open air collides with nothing.
+		sendCommand(t, pwP, "effect give P minecraft:instant_health 1 10")
+		sendCommand(t, pwP, "tp P 15 -56 30")
+		moveRot(15, -56, 30, -90, -30, false)
+		time.Sleep(300 * time.Millisecond)
+		for i := 0; i < 12; i++ {
+			moveRot(15, -56, 30, -90, -30, false)
+			time.Sleep(80 * time.Millisecond)
+		}
+		for _, x := range []float64{15.7, 16.4, 17.1, 17.8, 18.5, 19.1, 19.7, 19.7, 19.7, 19.7} {
+			moveRot(x, -56, 30, -90, -30, false)
+			time.Sleep(80 * time.Millisecond)
+		}
+		de = 0
+		for _, l := range sinkP.take() {
+			if strings.HasPrefix(l, fmt.Sprintf("%#x:", server.IDPlayDamageEvent)) {
+				de++
+			}
+		}
+		if de > 0 {
+			res = append(res, "open glide:hit")
+		} else {
+			res = append(res, "open glide:safe")
+		}
+
 		return res
 	}
 
