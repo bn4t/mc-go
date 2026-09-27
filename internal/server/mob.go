@@ -1041,6 +1041,14 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if fv, ok := tag.vals["Fire"]; ok {
 				e.FireTicks = int32(snbtNum(fv))
 			}
+			// TicksFrozen is Entity.load's DATA_TICKS_FROZEN read.
+			if fv, ok := tag.vals["TicksFrozen"]; ok {
+				e.TicksFrozen = int32(snbtNum(fv))
+			}
+			// HurtTime is LivingEntity.load's hurt flash countdown.
+			if fv, ok := tag.vals["HurtTime"]; ok {
+				e.HurtTime = int16(snbtNum(fv))
+			}
 			// Tagged summons skip finalizeSpawn, so an explicit
 			// PatrolLeader flag loads the flag without the banner the
 			// spawn-time roll would have placed.
@@ -1825,6 +1833,11 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 		b.Byte(8) // type: boolean
 		b.Byte(1)
 	}
+	if e.TicksFrozen > 0 {
+		b.Byte(7) // index: DATA_TICKS_FROZEN
+		b.Byte(1) // type: varint
+		b.VarInt(e.TicksFrozen)
+	}
 	b.Byte(9) // index: health
 	b.Byte(3) // type: float
 	b.Float(e.Health)
@@ -2019,6 +2032,14 @@ var mobFireImmune = map[string]bool{
 	"blaze": true, "ghast": true, "magma_cube": true, "strider": true,
 	"wither": true, "wither_skeleton": true, "zombified_piglin": true,
 	"hoglin": true, "zoglin": true,
+}
+
+// isFireDamageType is vanilla's is_fire damage-type tag — every
+// source a fireImmune entity is invulnerable to.
+var isFireDamageType = map[string]bool{
+	"in_fire": true, "campfire": true, "on_fire": true, "lava": true,
+	"hot_floor": true, "sulfur_cube_hot": true,
+	"unattributed_fireball": true, "fireball": true,
 }
 
 // igniteMob sets a living mob alight for the given ticks (fire_aspect's
@@ -2371,18 +2392,25 @@ func (s *Server) mobTickStep() {
 		// the lazy AttributeMap instantiates it on that first read, so
 		// the attribute joins the save pack once the mob has ticked.
 		e.markAttrTouched("movement_speed")
-		// Entity.baseTick's fire pass: while the countdown runs, the
-		// multiples of twenty each deal a point of on_fire damage and
-		// the counter decrements; reaching zero relights the shared
-		// flags byte without the on-fire bit.
+		// Entity.baseTick's fire pass: a fire-immune entity clearFire()s
+		// instead of burning; otherwise the multiples of twenty each
+		// deal a point of on_fire damage — skipped while the entity is
+		// in lava — and the counter decrements; reaching zero relights
+		// the shared flags byte without the on-fire bit.
+		fireName, _ := EntityTypeName(e.Type)
 		if e.FireTicks > 0 {
-			if e.FireTicks%20 == 0 {
-				s.damageMob(e, 1, "on_fire", nil, &damageInfo{typeName: "on_fire"})
-			}
-			ticks := e.FireTicks - 1
-			s.entities.SetFireTicks(e.ID, ticks)
-			if ticks <= 0 {
+			if mobFireImmune[fireName] {
+				e.FireTicks = 0
 				s.broadcastMobSharedFlags(e.ID, false, e.GlowUntil > s.gameTime())
+			} else {
+				if e.FireTicks%20 == 0 && !entityInLavaWorld(s.dimWorld(e.Dim), e) {
+					s.damageMob(e, 1, "on_fire", nil, &damageInfo{typeName: "on_fire"})
+				}
+				ticks := e.FireTicks - 1
+				s.entities.SetFireTicks(e.ID, ticks)
+				if ticks <= 0 {
+					s.broadcastMobSharedFlags(e.ID, false, e.GlowUntil > s.gameTime())
+				}
 			}
 		}
 		// The GLOWING instance /raid glow applies expires after its
@@ -2394,10 +2422,36 @@ func (s *Server) mobTickStep() {
 		if e.invulnTicks > 0 {
 			e.invulnTicks--
 		}
+		// LivingEntity.baseTick's hurtTime countdown.
+		if e.HurtTime > 0 {
+			e.HurtTime--
+		}
 		if e.loveTicks > 0 {
 			e.loveTicks--
 		}
 		ambName, _ := EntityTypeName(e.Type)
+		// LivingEntity.baseTick's freeze block: an entity out of
+		// powder snow — or one that can't freeze — thaws at two ticks
+		// per tick; a fully frozen freezable living entity takes the
+		// freeze damage every forty ticks (×5 for
+		// freeze_hurts_extra_types, folded by hurtServer's source
+		// adjustment).
+		if !e.IsInPowderSnow || freezeImmuneTypes[ambName] {
+			if e.TicksFrozen > 0 {
+				e.TicksFrozen -= 2
+				if e.TicksFrozen < 0 {
+					e.TicksFrozen = 0
+				}
+				e.MetaDirty = true
+			}
+		}
+		if e.SyncCount%40 == 0 && e.TicksFrozen >= 140 && !freezeImmuneTypes[ambName] {
+			dmg := float32(1)
+			if freezeHurtsExtraTypes[ambName] {
+				dmg = 5
+			}
+			s.damageMob(e, dmg, "freeze", nil, &damageInfo{typeName: "freeze"})
+		}
 		// Villager brain: AcquirePoi claims the nearest unclaimed bed
 		// or bell inside 48 blocks — the raid-start precondition.
 		if ambName == "villager" {
@@ -5481,6 +5535,12 @@ func (s *Server) sunBurnTick(e *Entity, name string) bool {
 		return false
 	}
 	if s.weatherRaining.Load() {
+		return false
+	}
+	// isSunBurnTick's isInPowderSnow veto — the inside-step flag is
+	// one tick stale here, which matches vanilla reading it inside
+	// the same tick the snow set it.
+	if e.IsInPowderSnow {
 		return false
 	}
 	if rand.Float32()*30 >= 1.2 {

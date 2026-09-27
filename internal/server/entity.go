@@ -400,6 +400,21 @@ type Entity struct {
 	// decrements every tick and burns for one on_fire damage at each
 	// multiple of twenty. Zero is unlit.
 	FireTicks int32
+	// HurtTime is vanilla's LivingEntity.hurtTime: set to 10 on every
+	// landed hit (hurt flash duration), counted down in the living
+	// baseTick, and saved as the HurtTime NBT key.
+	HurtTime int16
+	// TicksFrozen is vanilla's DATA_TICKS_FROZEN (NBT "TicksFrozen"):
+	// powder snow accrues one per tick up to 140
+	// (getTicksRequiredToFreeze), out-of-snow entities thaw at two
+	// per tick, and a fully-frozen living entity takes freeze damage
+	// every forty ticks.
+	TicksFrozen int32
+	// IsInPowderSnow is vanilla's isInPowderSnow: reset every base
+	// tick and re-set by the powder snow FREEZE inside effect; the
+	// freeze lifecycle reads the flag from the same tick's inside
+	// pass.
+	IsInPowderSnow bool
 	// LastHurtByPlayerTicks is vanilla's lastHurtByPlayerMemoryTime:
 	// 100 on a player-caused hurt, counting down in mobTickStep — the
 	// killed_by_player window for loot gating and XP.
@@ -717,6 +732,14 @@ func (m *Manager) Damage(id int32, amount float32, typeName string, breachLevel 
 		return DamageResult{}
 	}
 	res := DamageResult{Exists: true}
+	// Entity.isInvulnerableToBase: a fireImmune entity is invulnerable
+	// to every is_fire-tagged source — the hit never lands (no
+	// damage event, knockback, or sound).
+	if name, _ := EntityTypeName(e.Type); mobFireImmune[name] && isFireDamageType[typeName] {
+		res.Health = e.Health
+		res.Graced = true
+		return res
+	}
 	orig := amount
 	res.Graced = e.invulnTicks > 10
 	if res.Graced {
@@ -794,6 +817,9 @@ func (m *Manager) Damage(id int32, amount float32, typeName string, breachLevel 
 	if e.Health < 0 {
 		e.Health = 0
 	}
+	// LivingEntity.damageApplied sets the hurt-flash countdown on
+	// every landed hit — including the graced-excess branch.
+	e.HurtTime = 10
 	res.Health = e.Health
 	res.Dealt = amount
 	return res

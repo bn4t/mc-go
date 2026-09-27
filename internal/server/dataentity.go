@@ -489,7 +489,7 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	typeName, _ := EntityTypeName(e.Type)
 	m := map[string]any{
 		"Air":          int16(300),
-		"Fire":         int16(0),
+		"Fire":         int16(e.FireTicks),
 		"Invulnerable": nbtBool(e.Invulnerable),
 		"Motion": nbt.List{Elem: nbt.TagDouble, Items: []any{
 			e.MotionX, e.MotionY, e.MotionZ,
@@ -506,6 +506,10 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		},
 		"fall_distance": float64(0),
 	}
+	// Entity.save writes TicksFrozen only while above zero.
+	if e.TicksFrozen > 0 {
+		m["TicksFrozen"] = e.TicksFrozen
+	}
 	// LivingEntity.save adds the living block — carts, boats and
 	// other non-living entities emit the shared set only.
 	if e.Living {
@@ -514,7 +518,7 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		m["DeathTime"] = int16(0)
 		m["FallFlying"] = int8(0)
 		m["Health"] = e.Health
-		m["HurtTime"] = int16(0)
+		m["HurtTime"] = e.HurtTime
 		m["LeftHanded"] = nbtBool(e.LeftHanded)
 		m["NoAI"] = nbtBool(e.NoAI)
 		m["PersistenceRequired"] = nbtBool(e.PersistenceRequired)
@@ -1056,6 +1060,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"Brain": true, "Inventory": true, "CannotHunt": true,
 		"IsBaby": true, "IsImmuneToZombification": true,
 		"TimeInOverworld": true, "StrayConversionTime": true,
+		"TicksFrozen": true,
 	}
 	if extra, ok := entitySaveExtras[name]; ok {
 		for k := range extra {

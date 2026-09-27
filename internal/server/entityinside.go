@@ -112,7 +112,13 @@ func (s *Server) entityInsideStep() {
 		}
 		return true
 	})
-	for _, e := range s.entities.All() {
+	s.entities.mu.RLock()
+	es := make([]*Entity, 0, len(s.entities.byID))
+	for _, e := range s.entities.byID {
+		es = append(es, e)
+	}
+	s.entities.mu.RUnlock()
+	for _, e := range es {
 		if spectator[e.ID] {
 			continue
 		}
@@ -121,6 +127,9 @@ func (s *Server) entityInsideStep() {
 			continue
 		}
 		name, _ := EntityTypeName(e.Type)
+		// Entity.baseTick clears isInPowderSnow before the inside
+		// pass re-sets it for this tick's powder-snow overlap.
+		e.IsInPowderSnow = false
 		w, h := entityBox(name)
 		minX := int(math.Floor(e.X - float64(w)/2))
 		maxX := int(math.Floor(e.X + float64(w)/2))
@@ -134,22 +143,135 @@ func (s *Server) entityInsideStep() {
 					pos := world.Pos{X: x, Y: y, Z: z}
 					b := d.w.GetBlock(pos)
 					bn, ok := world.StateOwner(b)
-					if !ok || strings.TrimPrefix(bn, "minecraft:") != "tripwire" {
+					if !ok {
 						continue
 					}
-					// The inside shape only covers the column's low
-					// band — 0.15625 attached, 0.5 loose.
-					band := 0.5
-					if at, _ := world.StateProperty(b, "attached"); at == "true" {
-						band = 0.15625
+					switch strings.TrimPrefix(bn, "minecraft:") {
+					case "tripwire":
+						// The inside shape only covers the column's
+						// low band — 0.15625 attached, 0.5 loose.
+						band := 0.5
+						if at, _ := world.StateProperty(b, "attached"); at == "true" {
+							band = 0.15625
+						}
+						if e.Y >= float64(y)+band || e.Y+float64(h) <= float64(y) {
+							continue
+						}
+						s.tripwireInside(d, pos, b)
+					case "powder_snow":
+						s.powderSnowInside(e, d, pos, name)
+					case "fire":
+						s.fireBlockInside(e, name, 1)
+					case "soul_fire":
+						s.fireBlockInside(e, name, 2)
+					case "lava", "lava_cauldron":
+						s.lavaInside(e, name)
+					case "water", "bubble_column", "water_cauldron", "powder_snow_cauldron":
+						s.extinguishInside(e)
 					}
-					if e.Y >= float64(y)+band || e.Y+float64(h) <= float64(y) {
-						continue
-					}
-					s.tripwireInside(d, pos, b)
 				}
 			}
 		}
+	}
+}
+
+// entityInLavaWorld is Entity.isInLava for mobs: any bounding-box
+// cell holding a lava fluid state. The session-scoped variant in
+// ride.go delegates here via the dimension's world.
+func entityInLavaWorld(w *world.World, e *Entity) bool {
+	if w == nil {
+		return false
+	}
+	bb := mobBounds(e.Type)
+	half := bb[0] / 2
+	for bx := int(math.Floor(e.X - half)); bx <= int(math.Floor(e.X+half)); bx++ {
+		for by := int(math.Floor(e.Y)); by <= int(math.Floor(e.Y+bb[1])); by++ {
+			for bz := int(math.Floor(e.Z - half)); bz <= int(math.Floor(e.Z+half)); bz++ {
+				if name, ok := world.StateOwner(w.GetBlock(world.Pos{X: bx, Y: by, Z: bz})); ok && strings.TrimPrefix(name, "minecraft:") == "lava" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// freezeImmuneTypes is vanilla's freeze_immune_entity_types tag —
+// types whose canFreeze returns false; they never accrue
+// TicksFrozen and always thaw.
+var freezeImmuneTypes = map[string]bool{
+	"stray": true, "polar_bear": true, "snow_golem": true, "wither": true,
+}
+
+// freezeHurtsExtraTypes is vanilla's freeze_hurts_extra_types tag —
+// the nether natives take five times the freeze damage.
+var freezeHurtsExtraTypes = map[string]bool{
+	"strider": true, "blaze": true, "magma_cube": true,
+}
+
+// extinguishInside is InsideBlockEffectType.EXTINGUISH: clearFire
+// clamps remainingFireTicks to ≤0 — a burning entity's countdown
+// stops and its shared-flags on-fire bit drops.
+func (s *Server) extinguishInside(e *Entity) {
+	if e.FireTicks > 0 {
+		e.FireTicks = 0
+		s.broadcastMobSharedFlags(e.ID, false, e.GlowUntil > s.gameTime())
+	}
+}
+
+// powderSnowInside is PowderSnowBlock.entityInside: runBefore
+// EXTINGUISH melts the snow block when a burning entity that may
+// interact steps in (mob_griefing for mobs), FREEZE sets
+// isInPowderSnow and accrues TicksFrozen by one up to the 140-tick
+// requirement for entities that can freeze, and EXTINGUISH puts the
+// burn out.
+func (s *Server) powderSnowInside(e *Entity, d *dimension, pos world.Pos, name string) {
+	if e.FireTicks > 0 {
+		// The melt λ gates on mobGriefing for non-player entities.
+		if s.gameRuleBool("minecraft:mob_griefing") || name == "player" {
+			s.setNaturalBlock(d, pos, world.Air)
+		}
+	}
+	e.IsInPowderSnow = true
+	if !freezeImmuneTypes[name] && e.TicksFrozen < 140 {
+		e.TicksFrozen++
+		if e.Living {
+			e.MetaDirty = true
+		}
+	}
+	s.extinguishInside(e)
+}
+
+// fireBlockInside is BaseFireBlock.entityInside: CLEAR_FREEZE zeroes
+// TicksFrozen, FIRE_IGNITE runs fireIgnite (a remaining tick below
+// zero counts up one, a non-negative countdown ignites for eight
+// seconds — the +random(1,3) ServerPlayer branch is player-only and
+// players never reach this path as mobs), and the runAfter consumer
+// deals the in_fire damage — one heart on fire, two on soul fire.
+func (s *Server) fireBlockInside(e *Entity, name string, dmg float32) {
+	e.TicksFrozen = 0
+	if e.FireTicks < 0 {
+		e.FireTicks++
+	}
+	if e.FireTicks >= 0 && !mobFireImmune[name] {
+		s.igniteMob(e, 160)
+	}
+	if e.Living {
+		s.damageMob(e, dmg, "in_fire", nil, &damageInfo{typeName: "in_fire"})
+	}
+}
+
+// lavaInside is LavaFluid/LavaCauldronBlock.entityInside:
+// CLEAR_FREEZE, LAVA_IGNITE (fire-immune entities skip the
+// fifteen-second ignite), and the runAfter lavaHurt — four damage
+// plus the GENERIC_BURN sound.
+func (s *Server) lavaInside(e *Entity, name string) {
+	e.TicksFrozen = 0
+	if !mobFireImmune[name] {
+		s.igniteMob(e, 300)
+	}
+	if e.Living {
+		s.damageMob(e, 4, "lava", nil, &damageInfo{typeName: "lava"})
 	}
 }
 

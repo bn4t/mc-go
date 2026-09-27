@@ -579,19 +579,7 @@ func (s *Server) vehicleTickStep() {
 // entityInLava reports whether any block under the entity's bounding
 // box is lava — vanilla's Entity.isInLava (fluidHeight on lava > 0).
 func (s *Server) entityInLava(sess *Session, e *Entity) bool {
-	w := sess.world()
-	bb := mobBounds(e.Type)
-	half := bb[0] / 2
-	for bx := int(math.Floor(e.X - half)); bx <= int(math.Floor(e.X+half)); bx++ {
-		for by := int(math.Floor(e.Y)); by <= int(math.Floor(e.Y+bb[1])); by++ {
-			for bz := int(math.Floor(e.Z - half)); bz <= int(math.Floor(e.Z+half)); bz++ {
-				if name, ok := world.StateOwner(w.GetBlock(world.Pos{X: bx, Y: by, Z: bz})); ok && name == "lava" {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	return entityInLavaWorld(sess.world(), e)
 }
 
 // railBlockNames is BaseRailBlock.isRail's block set — a minecart on

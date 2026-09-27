@@ -1,8 +1,8 @@
 package server
 
 import (
-	"strings"
 	"sort"
+	"strings"
 
 	"mc-go/internal/event"
 	"mc-go/internal/protocol"
