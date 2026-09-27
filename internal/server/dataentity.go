@@ -1037,12 +1037,19 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		// startUnderWaterConversion; -1 clears the flag.
 		if iv, ok := nbtInt32(save["DrownedConversionTime"]); ok {
 			if iv != -1 {
+				// Vanilla's entityData.set marks dirty only on an
+				// actual change — restarting the countdown alone
+				// does not resend the converting flag.
+				if !e.WaterConv {
+					e.MetaDirty = true
+				}
 				e.WaterConv = true
 				e.ConversionTime = iv
-				e.MetaDirty = true
 			} else {
+				if e.WaterConv {
+					e.MetaDirty = true
+				}
 				e.WaterConv = false
-				e.MetaDirty = true
 			}
 		}
 	}
@@ -1050,9 +1057,11 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	// it converts only while the mob stays in powder snow.
 	if name == "skeleton" {
 		if iv, ok := nbtInt32(save["StrayConversionTime"]); ok && iv != -1 {
+			if !e.FreezeConv {
+				e.MetaDirty = true
+			}
 			e.FreezeConv = true
 			e.ConversionTime = iv
-			e.MetaDirty = true
 		}
 	}
 	// Mob.readAdditionalSaveData — getIntOr defaults homeRadius to
@@ -1131,8 +1140,13 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	if ageableTypes[name] {
 		if v, ok := nbtFloat(save["Age"]); ok {
 			e.Age = int32(v)
-			e.Baby = e.Age < 0
-			e.MetaDirty = true
+			// setBabyDirty only when the baby flag actually flips —
+			// the save always carries Age, so an unconditional mark
+			// would resend the non-default pack on every /data op.
+			if baby := e.Age < 0; baby != e.Baby {
+				e.Baby = baby
+				e.MetaDirty = true
+			}
 		}
 		if v, ok := nbtFloat(save["ForcedAge"]); ok {
 			e.ForcedAge = int32(v)
@@ -1250,6 +1264,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	if body := b.Bytes(); len(body) > 0 {
 		e.dataSync = append(body, 0xFF)
 	}
+	e.dataSyncTick = s.dataSyncReadyTick()
 	e.dataSyncAttrs = true
 }
 

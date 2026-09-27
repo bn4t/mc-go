@@ -70,6 +70,12 @@ type Server struct {
 	perfRun     profileRun
 	jfrRunning  atomic.Bool
 
+	// inGameTick is set for the duration of each GameTick — a dirty
+	// pack queued from inside the tick flushes on this tick's
+	// boundary like vanilla's sendChanges, while one queued off-thread
+	// (a command dispatch) waits for the next.
+	inGameTick atomic.Bool
+
 	// GenerateStructures is recorded in the world's generator settings.
 	// The zero value is false, so New sets the vanilla default (true);
 	// it does not change the flat terrain, which has no structures to

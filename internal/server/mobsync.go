@@ -320,7 +320,7 @@ func (s *Server) mobSyncFlush(e *Entity) {
 		s.mobMoveSync(e)
 	}
 	e.SyncCount++
-	if len(e.dataSync) > 0 {
+	if len(e.dataSync) > 0 && s.gameTime() >= e.dataSyncTick {
 		data := e.dataSync
 		e.dataSync = nil
 		s.broadcastEntityMetadata(e.ID, data)
@@ -332,11 +332,15 @@ func (s *Server) mobSyncFlush(e *Entity) {
 		e.ParticlesSent = p
 		s.broadcastEntityMetadata(e.ID, encodeParticlesEntry(p))
 	}
-	if e.dataSyncAttrs {
+	if e.dataSyncAttrs && s.gameTime() >= e.dataSyncTick {
 		e.dataSyncAttrs = false
 		s.broadcastMobAttrs(e)
 		e.AttrDirty = len(e.AttrsDirty) > 0
-	} else if e.AttrDirty {
+	} else if e.AttrDirty && !(e.dataSyncAttrs && s.gameTime() < e.dataSyncTick) {
+		// A pending dataSyncAttrs resend holds the attr emit for the
+		// same boundary as the meta pack — vanilla's sendChanges
+		// flushes the dirty set and the attribute table together,
+		// meta first.
 		s.broadcastMobAttrs(e)
 		e.AttrDirty = len(e.AttrsDirty) > 0
 	}

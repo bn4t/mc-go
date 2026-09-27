@@ -9643,3 +9643,38 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   preexisting `TestDataEntityParity` failure confirmed on stock master
   (extra set_entity_data flush on `data modify` + chat/packet order on
   `kill` multi — separate slice needed).
+
+## Slice 2026-09-27c — dirty-pack ordering + dirty-on-change gate
+
+- **Gap list**: the `TestDataEntityParity` failure logged last slice —
+  an extra set_entity_data flush after every /data op, plus a
+  chat-vs-packet interleave on multi-victim /kill. Confirmed
+  preexisting on stock master (4d2ca9b), not from the dim-hop slice.
+- **Measured**: vanilla's SynchedEntityData.set marks an entry dirty
+  only when its value changes, and packDirty emits just the dirty
+  entries at the end-of-tick sendChanges — after the command's own
+  reply (command dispatch runs inside the tick, sendChanges at the
+  boundary), so a multi-kill wires [chat, dying-pack, dying-pack].
+  mc-go emitted the full non-default pack one tick later (the merged
+  save always carries Age, and the ageable read marked MetaDirty
+  unconditionally), and a tick boundary landing mid-command flushed a
+  victim's dying pack between the kills and the chat.
+- **Implemented**: applyEntitySave marks MetaDirty only on an actual
+  wire-visible change (Age→Baby flip, WaterConv/FreezeConv toggles —
+  a restarted countdown alone doesn't resend). Entity.dataSyncTick
+  stamps the flush-ready tick: dataSyncReadyTick() returns gameTime()
+  inside GameTick (same-tick sendChanges like vanilla's tick-internal
+  writes) and gameTime()+1 off-thread (command path — the pack waits
+  one full boundary so the chat lands first). Both flush sites
+  (mobTickStep dying branch, mobSyncFlush) gate on it, and
+  dataSyncAttrs/AttrDirty hold with it so meta+attrs keep vanilla's
+  same-packet order.
+- **Pinned**: TestDataEntityParity green on both servers again (was
+  failing on stock); TestDimHopParity, TestKillAdvParity,
+  TestKillScoreParity, TestDataMergeHealthParity green.
+- **Surfaced gaps** (unpinned): TestDataCommandParity fails on stock
+  too — /data get block appends a stray "block_entity_data" + sign
+  NBT dump after the chest query component (unrelated to this slice);
+  a real Baby/WaterConv/FreezeConv flip still emits the full
+  non-default pack rather than the single changed entry; pig's baby
+  flag has no wire encoding in encodeLivingMetadata at all.

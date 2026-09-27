@@ -194,6 +194,20 @@ func (c *tickClock) status() tickStatus {
 // synced with. It stops while the game is frozen, as vanilla's does.
 func (s *Server) gameTime() int64 { return s.TickCount() }
 
+// dataSyncReadyTick returns the game tick a freshly queued dirty pack
+// may flush from. Vanilla's sendChanges runs at the end of the tick
+// that dispatched the mutation, so a write from inside the tick loop
+// can go out on this tick's boundary; a command-path write must wait
+// for the next one so the command's own reply reaches the client
+// first — otherwise a boundary landing mid-command interleaves the
+// pack with the chat (the multi-kill ordering).
+func (s *Server) dataSyncReadyTick() int64 {
+	if s.inGameTick.Load() {
+		return s.gameTime()
+	}
+	return s.gameTime() + 1
+}
+
 // dayTime is the world's daytime counter, in ticks since the world
 // began. /time set and /time add move it, and the client's sky follows
 // it.
@@ -411,6 +425,8 @@ func (s *Server) StopSprint() bool {
 // the world deterministically instead of sleeping and hoping. Per-player
 // connection-tick work is deliberately not here: see playerTick.
 func (s *Server) GameTick() {
+	s.inGameTick.Store(true)
+	defer s.inGameTick.Store(false)
 	// LivingEntity.baseTick's air pass plus the inside-block fluid
 	// cells run on the entity game tick: a sprint or step advances
 	// them, and players are exempt from /tick freeze so the loop

@@ -408,6 +408,11 @@ type Entity struct {
 	// sendChanges running at tick end.
 	dataSync      []byte
 	dataSyncAttrs bool
+	// dataSyncTick is the game tick the pending pack may flush from:
+	// command-path writes stamp the next boundary so the command's
+	// reply reaches the client first, like vanilla's queue order
+	// (sendChanges runs after command dispatch inside the tick).
+	dataSyncTick int64
 	// Fuse is a PrimedTnt's remaining fuse ticks — DATA_FUSE_ID,
 	// counting down one per tick until the entity discards and explodes.
 	Fuse int32

@@ -2699,6 +2699,7 @@ func (s *Server) mobDie(e *Entity, killer *Session, silent bool) {
 	// The death pack rides the next tick's sendChanges like any dirty
 	// metadata — a /kill reply reaches the client first.
 	e.dataSync = encodeDyingLivingMetadata()
+	e.dataSyncTick = s.dataSyncReadyTick()
 	s.broadcastEntityEventTo(nil, e.Dim, e.ID, 3)
 	s.spawnMobLoot(e, killer)
 	// dropExperience: recent player hurt + not a baby + mob_drops.
@@ -2778,7 +2779,7 @@ func (s *Server) mobTickStep() {
 			continue
 		}
 		if e.Dying {
-			if len(e.dataSync) > 0 {
+			if len(e.dataSync) > 0 && s.gameTime() >= e.dataSyncTick {
 				data := e.dataSync
 				e.dataSync = nil
 				s.broadcastEntityMetadata(e.ID, data)
