@@ -606,6 +606,16 @@ func (s *Server) sendWindow(sess *Session, ccx, ccz int) error {
 	queueOrder(fresh, ccx, ccz)
 	sess.pending = append(sess.pending, fresh...)
 	sess.sentMu.Unlock()
+	// Warm the random-tick section flags for the fresh columns off the
+	// tick path — this call site is a packet-handler thread, and each
+	// section's flag build is a 4096-block read vanilla does once when
+	// its LevelChunkSection materializes. Doing it here keeps GameTick
+	// from paying ~10k scans in the one tick after a join or teleport.
+	if d := sess.dimension(); d != nil {
+		for _, k := range fresh {
+			s.warmSectionFlags(d, k[0], k[1])
+		}
+	}
 	// The batch that goes out now precedes the forgets for columns that
 	// dropped out of the window, as it did before the throttle: the
 	// queue is filled first so the pump can pick the new columns up.

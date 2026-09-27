@@ -668,16 +668,18 @@ func (s *Server) mushroomSpread(d *dimension, pos world.Pos, b world.Block, name
 			}
 		}
 	}
-	walk := pos
-	target := mushroomOffset(s, walk)
+	// Vanilla rolls four candidates around the seed itself, not a
+	// chained walk: mutable takes the last candidate that survives, so
+	// the spread lands within ±1 of the seed rather than drifting.
+	land := pos
 	for i := 0; i < 4; i++ {
+		target := mushroomOffset(s, pos)
 		if isAirCell(d.w.GetBlock(target)) && mushroomCanSurvive(s, d, target) {
-			walk = target
+			land = target
 		}
-		target = mushroomOffset(s, walk)
 	}
-	if isAirCell(d.w.GetBlock(target)) && mushroomCanSurvive(s, d, target) {
-		s.setNaturalBlock(d, target, b)
+	if isAirCell(d.w.GetBlock(land)) && mushroomCanSurvive(s, d, land) {
+		s.setNaturalBlock(d, land, b)
 	}
 }
 

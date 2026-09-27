@@ -9678,3 +9678,41 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   a real Baby/WaterConv/FreezeConv flip still emits the full
   non-default pack rather than the single changed entry; pig's baby
   flag has no wire encoding in encodeLivingMetadata at all.
+
+## Slice 2026-09-27d — cold section scans + mushroom walk
+
+- **Measured**: the preexisting TestDataCommandParity failure was a
+  313ms GameTick, not a wiring bug — the first randomTickStep after
+  join built random-tick flags for every cold section in the
+  simulation window (each costs a 4096-block FillBox, ~10,584 of
+  them), so the setblock sign's queued block_entity_data waited for
+  that tick's end-of-tick flush and landed ~50ms past the test's
+  300ms setup drain. Vanilla has no equivalent hitch: its
+  LevelChunkSection.isRandomlyTicking is computed when the section
+  materializes, off the tick.
+- **Implemented**: sendWindow now warms the random-tick/light flag
+  cache for every column entering a session's view (packet-handler
+  thread, never GameTick), and randomTickDimension scans at most
+  randScanBudget=64 remaining cold sections per tick — cold stragglers
+  are skipped as untickable that tick and join on later ticks.
+  blockChangesFlushStep moved ahead of chunkTickStep so a queued
+  update never waits behind a chunk-batch encode.
+- **Measured+fixed**: MushroomBlock's spread walk was chained — each
+  hop offset from the previous cell, so spreads drifted ±5 (observed
+  landings at x=63..72 around a seed at 67). Vanilla rolls all four
+  candidates as offsets from the seed and keeps the last survivable
+  one — the spread lands within ±1. mushroomSpread now matches.
+- **Pinned**: TestDataCommandParity green on both servers (was failing
+  on stock); TestMushroomSpreadParity green (ring counts now match:
+  4=4, 2=1); TestCropGrowthParity, TestIceMeltParity,
+  TestLeafDecayParity green.
+- **Surfaced gaps** (unpinned): mc-go's overall random-tick throughput
+  still runs below vanilla's at huge tick speeds — at
+  random_tick_speed 4096 a single tick costs ~1-2s because every
+  tickable section (all grass_block surface sections) does 4096
+  GetBlock rolls, so a 30s window simulates ~15 ticks vs vanilla's
+  ~600; the >0 spread assertions mask it, but a rate-parity probe
+  would show the gap. Also still open from 2026-09-27c: a real
+  Baby/WaterConv/FreezeConv flip emits the full non-default pack
+  rather than the single changed entry, and pig's baby flag has no
+  wire encoding in encodeLivingMetadata.

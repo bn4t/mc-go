@@ -131,6 +131,38 @@ func (s *Server) sectionHasRandomTicks(d *dimension, sec randSectionKey) bool {
 	return s.sectionFlags(d, sec)&secTickable != 0
 }
 
+// sectionFlagsWarm reads the cached flags without ever scanning. The
+// random-tick pass uses it to keep a cold join cheap: building a flag
+// costs a 4096-block FillBox, and a freshly streamed window holds on
+// the order of ten thousand cold sections — scanning them all in one
+// tick stalls the whole world for several hundred milliseconds. The
+// pass therefore warms only randScanBudget cold sections per call and
+// treats the rest as untickable for that tick; they join on later ticks.
+func (s *Server) sectionFlagsWarm(sec randSectionKey) (uint8, bool) {
+	s.randMu.Lock()
+	v, ok := s.randSections[sec]
+	s.randMu.Unlock()
+	return v, ok
+}
+
+// randScanBudget caps how many cold section-flag scans one tick pays
+// for. Sixty-four scans ≈ 2ms — the whole fresh-window warmup drains
+// over a few seconds of normal ticking instead of one stalled tick.
+const randScanBudget = 64
+
+// warmSectionFlags builds the cached random-tick/light flags for every
+// section of column (cx, cz) that lacks them. sendWindow calls it for
+// columns entering a session's view so the tick pass finds its targets
+// already warm; callers run on packet-handler threads, not GameTick.
+func (s *Server) warmSectionFlags(d *dimension, cx, cz int) {
+	if s.randSections == nil {
+		return
+	}
+	for sec := 0; sec < d.height/16; sec++ {
+		s.sectionFlags(d, randSectionKey{dim: d.name, x: cx, y: sec, z: cz})
+	}
+}
+
 // invalidateRandomTickSection drops the cached answer for the section a
 // block write touched.
 func (s *Server) invalidateRandomTickSection(d *dimension, pos world.Pos) {
@@ -206,6 +238,7 @@ func (s *Server) randomTickDimension(d *dimension, speed int) {
 		return
 	}
 	sections := d.height / 16
+	scans := randScanBudget
 	for ck := range chunks {
 		cx, cz := ck[0], ck[1]
 		// tickChunk's iceandsnow pass: one 1/48 roll per speed unit
@@ -217,8 +250,20 @@ func (s *Server) randomTickDimension(d *dimension, speed int) {
 		}
 		for sec := 0; sec < sections; sec++ {
 			// Sections with nothing to random-tick cost one cached map
-			// lookup instead of a 4096-block snapshot.
-			if !s.sectionHasRandomTicks(d, randSectionKey{dim: d.name, x: cx, y: sec, z: cz}) {
+			// lookup instead of a 4096-block snapshot. A cold section
+			// costs a scan of that snapshot, so only a bounded number
+			// warm per tick (see randScanBudget); the rest are skipped
+			// as if untickable and join on later ticks.
+			key := randSectionKey{dim: d.name, x: cx, y: sec, z: cz}
+			flags, warm := s.sectionFlagsWarm(key)
+			if !warm {
+				if scans <= 0 {
+					continue
+				}
+				scans--
+				flags = s.sectionFlags(d, key)
+			}
+			if flags&secTickable == 0 {
 				continue
 			}
 			// Each roll is one uniform position inside the section read

@@ -471,14 +471,17 @@ func (s *Server) GameTick() {
 	// their tick's positions — vanilla's updateEntitySections runs in
 	// ChunkMap.tick after the level tick.
 	s.entityTrackStep()
-	// Chunk streaming is paced on the tick, like everything else: one
-	// batch per tick per player, at the rate their client asked for.
-	s.chunkTickStep()
 	// Vanilla flushes each chunk's accumulated block changes at the end
 	// of the tick (ChunkHolder.broadcastChanges) — after entities and
 	// block ticks ran, so the explode packet precedes the flips' section
-	// update on the wire.
+	// update on the wire. It runs before chunk streaming: during the
+	// join burst the batch encode can stretch a tick past 50ms, and a
+	// queued piggyback (a sign's block_entity_data) would otherwise
+	// land several wall ticks late.
 	s.blockChangesFlushStep()
+	// Chunk streaming is paced on the tick, like everything else: one
+	// batch per tick per player, at the rate their client asked for.
+	s.chunkTickStep()
 
 	s.clock.mu.Lock()
 	s.clock.count++
