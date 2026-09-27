@@ -9135,3 +9135,23 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   zombified_piglin, hoglin→zoglin), IsImmuneToZombification and
   NoAI each block conversion with the counter pinned at 0.
 - **Commit**: server + test.
+## Slice 2026-09-27ay — item-entity lava burn
+
+- **Measured (jar)**: `Entity.lavaHurt` runs fireImmune →
+  hurt(lava, 4.0) → GENERIC_BURN at vol 0.4 / pitch 2+rand·0.4
+  while `shouldPlayLavaHurtSound` (health>0 || tickCount%10==0)
+  and !silent. `ItemEntity.health=5`; hurtServer drains it int-wise
+  → `ItemStack.onDestroyed` + discard at ≤0 — a common item burns
+  one tick then dies on the second. `ItemEntity.fireImmune` =
+  stack `canBeHurtBy(inFire)` — the `damage_resistant:#is_fire`
+  component measured on 16 items (netherite tools/armor/ingot/
+  scrap/block/spear/horse+nautilus armor, ancient_debris;
+  nether_star is explosion-immune only).
+- **Implemented**: `lavaInside` gained the item branch —
+  ItemHP field (lazy 5), −4/lava-tick, GENERIC_BURN ride each
+  hurt tick (srcNeutral), discard at ≤0; `itemFireImmuneNames`
+  is the measured 16-item set.
+- **Pinned**: `TestItemBurnParity` — stone item gone after 20
+  lava ticks on both legs; netherite_ingot + ancient_debris still
+  riding at 80.
+- **Commit**: server + test.

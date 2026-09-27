@@ -44,6 +44,10 @@ type Entity struct {
 	// the merge cadence (every 2 ticks after a block crossing, else
 	// 40), and a merge takes the survivor's minimum.
 	ItemAge int32
+	// ItemHP is ItemEntity.health — 5 from spawn, drained 4/tick by
+	// lava (items burn in one tick then die). Lazily seeded on the
+	// first lava touch since nothing else wounds item entities.
+	ItemHP int32
 	// OrbCount is ExperienceOrb.count — orbs start at 1, merges add the
 	// neighbour's count, and each player touch grants OrbValue xp and
 	// decrements it, discarding at zero.

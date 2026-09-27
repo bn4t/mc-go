@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"math/rand"
 	"strings"
 
 	"mc-go/internal/world"
@@ -291,9 +292,52 @@ func (s *Server) lavaInside(e *Entity, name string) {
 	if !mobFireImmune[name] {
 		s.igniteMob(e, 300)
 	}
+	if name == "item" {
+		// ItemEntity.lavaHurt: hurt(lava, 4) — health 5 → burns a
+		// tick then dies on the second. GENERIC_BURN rides each
+		// hurt tick while health > 0; damage_resistant:#is_fire
+		// items (netherite family, ancient_debris) are fireImmune.
+		if itemFireImmune(e) {
+			return
+		}
+		if e.ItemHP == 0 {
+			e.ItemHP = 5
+		}
+		e.ItemHP -= 4
+		if !e.Silent {
+			s.playSoundSrc(e.Dim, e.X, e.Y, e.Z,
+				soundEventIDs["entity.generic.burn"], srcNeutral,
+				0.4, 2+rand.Float32()*0.4, nil)
+		}
+		if e.ItemHP <= 0 {
+			s.entities.Remove(e.ID)
+			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+		}
+		return
+	}
 	if e.Living {
 		s.damageMob(e, 4, "lava", nil, &damageInfo{typeName: "lava"})
 	}
+}
+
+// itemFireImmune is ItemEntity.fireImmune: the stack's
+// damage_resistant:#is_fire component — measured on 26.2 as the
+// netherite family (tools, armor, ingot, scrap, block, spears,
+// horse armor, nautilus armor) plus ancient_debris.
+func itemFireImmune(e *Entity) bool {
+	n, _ := itemNameOf(e.Item.ID)
+	return itemFireImmuneNames[n]
+}
+
+var itemFireImmuneNames = map[string]bool{
+	"netherite_pickaxe": true, "netherite_ingot": true,
+	"netherite_sword": true, "netherite_chestplate": true,
+	"netherite_scrap": true, "netherite_axe": true,
+	"netherite_shovel": true, "netherite_leggings": true,
+	"netherite_boots": true, "netherite_helmet": true,
+	"netherite_horse_armor": true, "netherite_block": true,
+	"netherite_hoe": true, "netherite_nautilus_armor": true,
+	"netherite_spear": true, "ancient_debris": true,
 }
 
 // tripwireInside is TripWireBlock.entityInside: an unpowered wire
