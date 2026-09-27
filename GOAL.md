@@ -9170,3 +9170,21 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   3 on death, entity_event 60 + remove_entities ~1s (20 ticks)
   later, on both legs.
 - **Commit**: server + test.
+## Slice 2026-09-27ba — GENERIC_BURN lava-hurt cadence
+
+- **Measured (jar + wire)**: `Entity.lavaHurt` plays GENERIC_BURN
+  (vol 0.4, pitch 2+rand·0.4, entity's own getSoundSource) on every
+  landed lava tick — `shouldPlayLavaHurtSound` is true for all
+  living entities (ItemEntity's `health>0||tick%10` is the only
+  override). Wire capture: a 10hp pig takes 3 lava ticks → hurt(1270)
+  + burn(696 = holder id+1) per tick, then death+event3+event60.
+  Per-type getSoundSource: Monster→HOSTILE, Player→PLAYERS,
+  ItemEntity→AMBIENT (measured override, was srcNeutral), the rest
+  NEUTRAL.
+- **Implemented**: `lavaInside`'s living branch plays GENERIC_BURN
+  on the mob's own `v.src()` when the hurt lands; the item branch
+  now rides srcAmbient.
+- **Pinned**: `TestLavaBurnSoundParity` — ≥2 GENERIC_BURN packets
+  (sound event 696/name) while a pig burns in lava on both legs,
+  cadence stops with the corpse.
+- **Commit**: server + test.

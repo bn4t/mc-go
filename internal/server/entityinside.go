@@ -305,8 +305,9 @@ func (s *Server) lavaInside(e *Entity, name string) {
 		}
 		e.ItemHP -= 4
 		if !e.Silent {
+			// ItemEntity.getSoundSource overrides to AMBIENT.
 			s.playSoundSrc(e.Dim, e.X, e.Y, e.Z,
-				soundEventIDs["entity.generic.burn"], srcNeutral,
+				soundEventIDs["entity.generic.burn"], srcAmbient,
 				0.4, 2+rand.Float32()*0.4, nil)
 		}
 		if e.ItemHP <= 0 {
@@ -316,7 +317,16 @@ func (s *Server) lavaInside(e *Entity, name string) {
 		return
 	}
 	if e.Living {
-		s.damageMob(e, 4, "lava", nil, &damageInfo{typeName: "lava"})
+		dealt, _, _ := s.damageMob(e, 4, "lava", nil, &damageInfo{typeName: "lava"})
+		// Entity.lavaHurt: GENERIC_BURN rides each landed lava hit —
+		// shouldPlayLavaHurtSound is true for every living entity
+		// (ItemEntity's health>0||tick%10 is the only override).
+		if dealt > 0 && !e.Silent {
+			v := mobVoiceOf(e)
+			s.playSoundSrc(e.Dim, e.X, e.Y, e.Z,
+				soundEventIDs["entity.generic.burn"], v.src(),
+				0.4, 2+rand.Float32()*0.4, nil)
+		}
 	}
 }
 
