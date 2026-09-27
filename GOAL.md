@@ -9114,3 +9114,24 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   `data get` path queries (full-entity SNBT exceeds the chat
   path), all three emission classes match.
 - **Commit**: server + test.
+
+## Slice 2026-09-27ax — overworld zombification timer
+
+- **Measured (jar + live)**: `AbstractPiglin.customServerAiStep` and
+  `Hoglin`'s equivalent tick `TimeInOverworld` while
+  `isConverting()` = `!IsImmuneToZombification && !NoAI &&
+  envAttr(PIGLINS_ZOMBIFY,pos)` (default true; nether overrides
+  false). Past 300 ticks the mob converts — piglin/piglin_brute →
+  zombified_piglin, hoglin → zoglin — through ConversionType's full
+  carry list (baby flag, Age/forcedAge, effects, leftHanded,
+  equipment, CanPickUpLoot, LeashHolder, Passengers re-ride). Both
+  NBT keys emit unconditionally on save.
+- **Implemented**: the zombify tick/convert/save path already
+  existed; the live sweep surfaced one real gap — mc-go's gate
+  missed vanilla's `!isNoAi()` condition, so a NoAI piglin would
+  still zombify. Fixed.
+- **Pinned**: `TestOverworldZombifyParity` — counter non-zero at
+  ~200 ticks, type flips past ~300 on both legs (piglin→
+  zombified_piglin, hoglin→zoglin), IsImmuneToZombification and
+  NoAI each block conversion with the counter pinned at 0.
+- **Commit**: server + test.

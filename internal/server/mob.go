@@ -4238,7 +4238,7 @@ func (s *Server) mobConvertTick(e *Entity, d *dimension, ambName string) bool {
 	// ticks TimeInOverworld toward 300, then converts keeping
 	// equipment; a non-converting tick resets the counter to 0.
 	if conv, ok := mobOverworldZombifies[ambName]; ok {
-		if e.Dim == dimOverworld && !e.ImmuneToZombification {
+		if e.Dim == dimOverworld && !e.ImmuneToZombification && !e.NoAI {
 			e.TimeInOverworld++
 			if e.TimeInOverworld > 300 {
 				if !e.Silent {
