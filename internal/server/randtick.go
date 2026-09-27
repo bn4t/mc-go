@@ -1255,20 +1255,20 @@ func copperRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
 	}
 }
 
-// snowMeltRule is SnowLayerBlock.randomTick: block light above 11
-// drops the snowballs and removes the layer.
+// snowMeltRule is SnowLayerBlock.randomTick: the stored block light
+// must top 11, and the step into the snow cell costs 1 + the layer's
+// own lightBlock (1 for partial layers) — so melt is emission minus
+// taxicab > 12 (measured: arrival 12 holds, 13 melts) while layers=8
+// is opaque and can never store enough. dropResources runs on melt
+// but every pool in blocks/snow.json is entity:this-gated and the
+// bare block context binds no entity — a silent air write only.
 func snowMeltRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
-	if !s.blockLightAbove(d, pos, 11) {
+	if layers, _ := intProp(b, "layers"); layers >= 8 {
 		return
 	}
-	layers, _ := intProp(b, "layers")
-	if layers < 1 {
-		layers = 1
+	if !s.blockLightAbove(d, pos, 12) {
+		return
 	}
-	if id, ok := world.ItemID("snowball"); ok {
-		s.spawnItemDrop(d.name, pos, ItemStack{ID: id, Count: int32(layers)})
-	}
-	s.broadcastLevelEvent(d.name, 2001, pos, int32(b))
 	s.setNaturalBlock(d, pos, world.Air)
 }
 

@@ -9900,3 +9900,29 @@ the unboosted egg sits deterministically at hatch=1, sprint +12000
 completes the unboosted three-stage max (~24897). All 11 probes
 hit/hit, global sniffer count 4/4, baby Age in (-48000,0) both legs
 (-47204/-47321).
+
+## Slice: snow-layer random-tick melt parity
+
+javap SnowLayerBlock.randomTick (26.2):
+getBrightness(LightLayer.BLOCK, pos) > 11 → dropResources(state,
+level, pos) + removeBlock(pos, false). No dampening term (unlike
+frosted ice's 11 - age - dampening), no 2001 — removeBlock is a
+silent air write, not destroyBlock.
+
+The differential pinned the real propagation semantics: the step
+into the snow cell costs 1 + the layer's own lightBlock (1 for
+partial layers, 15 for layers=8), so melt = emission - taxicab > 12
+for layers 1..7 — arrival 12 (torch taxicab-2, layers=2) holds,
+arrival 13 (adjacent torch layers=2 OR layers=3) melts — and a full
+layers=8 layer can never melt this way (adjacent glowstone held on
+vanilla). dropResources yields NOTHING on melt: every pool in
+blocks/snow.json is entity:this-gated and the bare block context
+binds no entity — measured absence of any item entity at melted
+cells. Existing snowMeltRule was corrected from broadcast 2001 +
+snowball drops + naive >11 gate to the measured shape (layers>=8
+early-out, blockLightAbove(12), no effect, no drop). Snow formation
+on precipitation stays unmeasured — no weather system.
+
+TestSnowMeltParity (tests/blackbox/snowmelt_test.go): six fixtures
+across the 12/13 arrival edge at layers 2/3/8 with torch (14) and
+glowstone (15) sources — 14 probes hit/hit, both melt sites empty.
