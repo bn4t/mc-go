@@ -71,8 +71,8 @@ func TestGuardianFlopParity(t *testing.T) {
 
 		// Land leg: guardians on dry flat ground ~45 blocks out — far
 		// outside follow_range (16), so no beam acquires the player.
-		sendCommand(t, pwA, "summon minecraft:guardian 40.5 -60 40.5")
-		sendCommand(t, pwA, "summon minecraft:elder_guardian 43.5 -60 40.5")
+		sendCommand(t, pwA, "summon minecraft:guardian 40.5 -60 40.5 {PersistenceRequired:1b}")
+		sendCommand(t, pwA, "summon minecraft:elder_guardian 43.5 -60 40.5 {PersistenceRequired:1b}")
 		gSel := "@e[type=minecraft:guardian,limit=1]"
 		eSel := "@e[type=minecraft:elder_guardian,limit=1]"
 		time.Sleep(700 * time.Millisecond)
@@ -139,7 +139,7 @@ func TestGuardianFlopParity(t *testing.T) {
 		sendCommand(t, pwA, "kill "+gSel)
 		sendCommand(t, pwA, "kill "+eSel)
 		sendCommand(t, pwA, "setblock 47 -60 40 water")
-		sendCommand(t, pwA, "summon minecraft:guardian 47.5 -60 40.5")
+		sendCommand(t, pwA, "summon minecraft:guardian 47.5 -60 40.5 {PersistenceRequired:1b}")
 		wSel := "@e[type=minecraft:guardian,limit=1]"
 		time.Sleep(700 * time.Millisecond)
 		air, ok := flopQueryNum(t, sinkA, pwA, wSel, "Air")

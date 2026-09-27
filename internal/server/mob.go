@@ -6467,9 +6467,10 @@ func beamMobKind(m *Entity) bool {
 // horizontal and +0.5 up added to the delta, a random yaw, grounded
 // cleared so the hop arcs instead of re-firing midair. The added
 // delta integrates through the regular move chain (mobMoveStep's
-// grounded/air paths); a NoAI guardian still mutates but mc-go's
-// NoAI mobs never integrate motion at all (vanilla falls under NoAI)
-// — the flop then latches airborne after one hop, matching that gap.
+// grounded/air paths). Under NoAI the flop still mutates once — the
+// delta add fires — then latches airborne forever, because
+// LivingEntity.aiStep only calls travel under isEffectiveAi: vanilla
+// NoAI mobs genuinely hover, and so does mc-go's.
 func (s *Server) guardianFlopStep(e *Entity, w *world.World) {
 	if w == nil {
 		return

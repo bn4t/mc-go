@@ -9349,11 +9349,15 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   + elder outside follow_range reach Pos[1] > floor+0.3 within a 6s
   window, Motion reads nonzero while airborne, Rotation[0] jitters;
   water-summoned guardian reads Air = 300. Green on both servers.
-- **New gap noted**: mc-go NoAI mobs never integrate motion — vanilla
-  NoAI entities still run LivingEntity.tick's travel/gravity (a NoAI
-  guardian flops on land on vanilla; mc-go latches airborne after one
-  hop because nothing applies the delta). Fix needs a NoAI-side
-  gravity/travel pass for mobs.
+- **Correction — NoAI hover is parity, not a gap**: LivingEntity.aiStep
+  calls `travel` only under `isEffectiveAi` — measured on the jar and
+  live: a `{NoAI:1b}` zombie 10 blocks up stays at its summon pos
+  forever on vanilla too (the classic floating-NoAI behavior). mc-go's
+  missing NoAI motion integration is *correct*; the flop's single-hop
+  latch under NoAI matches. `TestNoAIMobHoverParity` pins the hover:
+  Pos[1] stays within 0.5 of the summon height for a 10s window on
+  both servers. (An earlier version of this note claimed vanilla NoAI
+  mobs fall — wrong.)
 - **Still open**: online mode, terrain gen, lighting, region/.dat
   persistence, GuardianMoveControl swim (above), chicken-jockey,
   nav-malus + moveTo nav.speedModifier, per-type needsSync writers,
