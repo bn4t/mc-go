@@ -3407,7 +3407,7 @@ func (s *Server) lookedAtLivingType(sess *Session) string {
 		if e.Dying || !e.Living || e.Dim != sess.dimName() {
 			continue
 		}
-		bb := mobBounds(e.Type)
+		bb := entityBBDims(e)
 		half := bb[0] / 2
 		t := rayAABB(x, y, z, dx, dy, dz,
 			e.X-half, e.Y, e.Z-half,

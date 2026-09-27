@@ -125,7 +125,7 @@ func (s *Server) windChargeHitsMob(e *Entity, ox, oy, oz, nx, ny, nz float64) *E
 	var best *Entity
 	bestT := math.MaxFloat64
 	for _, m := range mobs {
-		bw, bh := mobBounds(m.Type)[0], mobBounds(m.Type)[1]
+		bw, bh := entityBBDims(m)[0], entityBBDims(m)[1]
 		if !segmentHitsBox(ox, oy, oz, nx, ny, nz, m.X, m.Y, m.Z, bw, bh) {
 			continue
 		}
@@ -209,7 +209,7 @@ func (s *Server) windBurst(src *Entity, x, y, z float64) {
 	for _, e := range mobs {
 		// Mob eye height is the vanilla LivingEntity default: 0.85 of
 		// the bounding-box height.
-		eyeY := e.Y + mobBounds(e.Type)[1]*0.85
+		eyeY := e.Y + entityBBDims(e)[1]*0.85
 		kb, ok := push(e.ID, e.X, e.Y, e.Z, eyeY, mobExplosionKBResist(e.Type))
 		if !ok {
 			continue

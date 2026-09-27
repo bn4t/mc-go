@@ -636,7 +636,7 @@ func vehicleBoundNames() []string {
 // same-ride pair is skipped, and near-perfect overlap (absMax<0.01)
 // doesn't push at all.
 func (s *Server) mobPushStep(e *Entity) {
-	ew, eh := mobBounds(e.Type)[0], mobBounds(e.Type)[1]
+	ew, eh := entityBBDims(e)[0], entityBBDims(e)[1]
 	for _, o := range s.entities.All() {
 		if o.ID == e.ID || o.Dim != e.Dim {
 			continue
@@ -649,7 +649,7 @@ func (s *Server) mobPushStep(e *Entity) {
 		if o.Riding != 0 || e.Riding != 0 {
 			continue
 		}
-		ow, oh := mobBounds(o.Type)[0], mobBounds(o.Type)[1]
+		ow, oh := entityBBDims(&o)[0], entityBBDims(&o)[1]
 		half := (ew + ow) / 2
 		if !(math.Abs(o.X-e.X) < half && math.Abs(o.Z-e.Z) < half &&
 			e.Y < o.Y+oh && o.Y < e.Y+eh) {
@@ -728,13 +728,13 @@ func (s *Server) mobPushStep(e *Entity) {
 // cramming 6 to the whole pile. Vanilla counts passengers' hosts
 // but not the riding passengers themselves.
 func (s *Server) mobCrammingStep(e *Entity, maxCram int) {
-	ew, eh := mobBounds(e.Type)[0], mobBounds(e.Type)[1]
+	ew, eh := entityBBDims(e)[0], entityBBDims(e)[1]
 	count := 0
 	for _, o := range s.entities.All() {
 		if o.ID == e.ID || o.Dim != e.Dim || o.Riding != 0 || o.Health <= 0 {
 			continue
 		}
-		ow, oh := mobBounds(o.Type)[0], mobBounds(o.Type)[1]
+		ow, oh := entityBBDims(&o)[0], entityBBDims(&o)[1]
 		half := (ew + ow) / 2
 		if math.Abs(o.X-e.X) < half && math.Abs(o.Z-e.Z) < half &&
 			e.Y < o.Y+oh && o.Y < e.Y+eh {
@@ -1390,6 +1390,23 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.Pumpkin = snbtNum(v) > 0
 				}
 			}
+			// Chicken.readAdditionalSaveData: IsChickenJockey gates the
+			// aiStep egg lay, EggLayTime loads the countdown.
+			if name == "chicken" {
+				if v, ok := tag.vals["IsChickenJockey"]; ok && snbtNum(v) > 0 {
+					e.ChickenJockey = true
+				}
+				if v, ok := tag.vals["EggLayTime"]; ok {
+					e.EggLayTime = int32(snbtNum(v))
+				}
+			}
+			// Entity.load's Passengers list: each compound is an entity
+			// NBT spawned recursively — the rider mounts like
+			// startRiding, so the summon ends with the vehicle's
+			// set_passengers packet behind its own bundle.
+			if pv, ok := tag.vals["Passengers"]; ok && pv.kind == snbtList {
+				s.summonPassengers(sess, e, pv.items)
+			}
 
 		}
 		// Vanilla's /summon runs finalizeSpawn only on the bare form:
@@ -1845,8 +1862,214 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, 
 		}
 		e.VillagerProfDefault = e.VillagerProfID
 	}
+	// Chicken's constructor seeds eggTime — the lay countdown runs
+	// from creation like any spawned chicken.
+	if name == "chicken" {
+		e.EggLayTime = 6000 + rand.Int31n(6000)
+	}
 	summonAttrTouches(e, name, init)
 	return e, true
+}
+
+// summonPassengers is Entity.load's Passengers recursion for the
+// living-mob summon path: each compound loads its own id + NBT
+// (mirroring the top-level keys this summon arm reads) and rides the
+// new vehicle like startRiding — the rider welds to the rotated
+// PASSENGER attachment immediately, then set_passengers ships.
+func (s *Server) summonPassengers(sess *Session, veh *Entity, items []*snbtTag) {
+	d := sess.dimension()
+	for _, sub := range items {
+		if sub == nil {
+			continue
+		}
+		pname := strings.TrimPrefix(sub.vals["id"].str, "minecraft:")
+		if pname == "" {
+			continue
+		}
+		noAI := false
+		if v, ok := sub.vals["NoAI"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+			noAI = true
+		}
+		g, ok := s.summonMobRaw(d, pname, veh.X, veh.Y, veh.Z, noAI, false)
+		if !ok {
+			continue
+		}
+		// The passenger key set mirrors the rider-load keys vanilla's
+		// Entity.load passes through: IsBaby where the class reads it,
+		// Age/InLove on AgeableMobs, Health, Motion, Rotation, Silent,
+		// PersistenceRequired — then a nested Passengers list stacks
+		// another vehicle level.
+		if v, ok := sub.vals["IsBaby"]; ok && snbtNum(v) > 0 && isBabyTypes[pname] {
+			g.Baby = true
+		}
+		if v, ok := sub.vals["Age"]; ok && ageableTypes[pname] {
+			g.Age = int32(snbtNum(v))
+			g.Baby = g.Age < 0
+		}
+		if v, ok := sub.vals["Health"]; ok {
+			g.Health = float32(snbtNum(v))
+		}
+		if v, ok := sub.vals["PersistenceRequired"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+			g.PersistenceRequired = true
+		}
+		if v, ok := sub.vals["Silent"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+			g.Silent = true
+		}
+		if v, ok := sub.vals["IsChickenJockey"]; ok && snbtNum(v) > 0 && pname == "chicken" {
+			g.ChickenJockey = true
+		}
+		if pv, ok := sub.vals["Passengers"]; ok && pv.kind == snbtList {
+			s.summonPassengers(sess, g, pv.items)
+		}
+		// startRiding + positionRider: link both ends, weld the rider
+		// at vehicle pos + rotated PASSENGER attach − rider's own
+		// VEHICLE attach (AT_FEET → 0).
+		g.Riding = veh.ID
+		veh.Passengers = append(veh.Passengers, g.ID)
+		g.X, g.Y, g.Z = passengerSeatPos(veh, g)
+		s.broadcastFreshMob(g)
+	}
+	if len(veh.Passengers) > 0 {
+		s.broadcastSetPassengers(veh)
+	}
+}
+
+// spawnChickenJockey is Zombie.finalizeSpawn's jockey block: gated
+// on ZombieGroupData(isBaby && canSpawnJockey), a first 5% roll
+// grabs the first non-ridden chicken inside the rider's
+// inflate(5,3,5) bounding box; when it misses a second 5% spawns a
+// fresh JOCKEY-reason chicken and rides it. Both paths flag
+// setChickenJockey so the mount stops laying eggs.
+func (s *Server) spawnChickenJockey(e *Entity) {
+	const w, h = 0.6, 1.95 // zombie bounding box
+	if rand.Float64() < 0.05 {
+		// getEntitiesOfClass(Chicken, bb.inflate(5,3,5), NOT_RIDDEN):
+		// AABB intersect — the candidate's own box overlaps the
+		// inflated zombie box.
+		var mountID int32
+		found := false
+		for _, o := range s.entities.All() {
+			oname, _ := EntityTypeName(o.Type)
+			if oname != "chicken" || o.Dim != e.Dim || o.Dying ||
+				o.Riding != 0 || len(o.Passengers) > 0 {
+				continue
+			}
+			const cw, ch = 0.4, 0.7
+			if o.X+cw/2 < e.X-w/2-5 || o.X-cw/2 > e.X+w/2+5 ||
+				o.Z+cw/2 < e.Z-w/2-5 || o.Z-cw/2 > e.Z+w/2+5 ||
+				o.Y+ch < e.Y-3 || o.Y > e.Y+h+3 {
+				continue
+			}
+			mountID = o.ID
+			found = true
+			break
+		}
+		if !found {
+			return
+		}
+		if mp, ok := s.entities.GetPtr(mountID); ok {
+			s.rideMobOnto(e, mp)
+		}
+		return
+	}
+	if rand.Float64() >= 0.05 {
+		return
+	}
+	d := s.dimensionByName(e.Dim)
+	if d == nil {
+		return
+	}
+	chicken, ok := s.summonMobRaw(d, "chicken", e.X, e.Y, e.Z, false, true)
+	if !ok {
+		return
+	}
+	chicken.Yaw = e.Yaw
+	chicken.HeadYaw, chicken.LookYaw = e.Yaw, e.Yaw
+	s.broadcastFreshMob(chicken)
+	s.rideMobOnto(e, chicken)
+}
+
+// rideMobOnto is the mount side of startRiding for a mob passenger:
+// flag the chicken mount, link both ends, weld the rider onto the
+// rotated PASSENGER attachment, ship set_passengers.
+func (s *Server) rideMobOnto(rider, mount *Entity) {
+	if mname, _ := EntityTypeName(mount.Type); mname == "chicken" {
+		mount.ChickenJockey = true
+	}
+	rider.Riding = mount.ID
+	mount.Passengers = append(mount.Passengers, rider.ID)
+	rider.X, rider.Y, rider.Z = passengerSeatPos(mount, rider)
+	rider.PosDirty = true
+	rider.NeedsSync = true
+	s.mobSyncFlush(rider)
+	s.broadcastSetPassengers(mount)
+}
+
+// chickenLayEgg is the dropFromGiftLootTable(CHICKEN_LAY) half of
+// Chicken.aiStep: an egg ItemEntity at the mob's own position
+// (spawnAtLocation lifts it half the bounding height), the
+// entity.chicken.egg sound, and a pickup delay of 40.
+func (s *Server) chickenLayEgg(e *Entity) {
+	egg, ok := world.ItemID("egg")
+	if !ok {
+		return
+	}
+	itemType, ok := EntityTypeID("item")
+	if !ok {
+		return
+	}
+	ie := s.entities.Spawn(&Entity{
+		Type:        itemType,
+		Dim:         e.Dim,
+		X:           e.X,
+		Y:           e.Y + entityBBDims(e)[1]*0.5,
+		Z:           e.Z,
+		MotionX:     rand.Float64()*0.2 - 0.1,
+		MotionY:     0.2,
+		MotionZ:     rand.Float64()*0.2 - 0.1,
+		Item:        ItemStack{ID: egg, Count: 1},
+		PickupDelay: 40,
+	})
+	s.broadcastEntitySpawn(nil, *ie)
+	// ENTITY_PLACE's game-event half is a no-op on the flat harness
+	// (no listeners) — the sound is the observable half.
+	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 352, mobVoiceOf(e).src(), 1.0, voicePitchE(e), nil)
+}
+
+// mobRemovedPassengerCleanup is Entity.remove's passenger half:
+// ejectPassengers drops each rider with the 60-tick boardingCooldown
+// (rider position already equals the welded seat — no lift), and
+// removePassenger pulls the dying entity out of its vehicle's
+// set_passengers list.
+func (s *Server) mobRemovedPassengerCleanup(e *Entity) {
+	for _, pid := range e.Passengers {
+		if rp, ok := s.entities.GetPtr(pid); ok {
+			// LivingEntity.dismountVehicle for a removed vehicle:
+			// the rider keeps (riderX, max(riderY, vehY), riderZ) —
+			// welded already — and falls from there.
+			rp.Riding = 0
+			if e.Y > rp.Y {
+				rp.Y = e.Y
+			}
+			rp.BoardingCooldown = 60
+			rp.PosDirty = true
+			s.mobSyncFlush(rp)
+		}
+	}
+	e.Passengers = e.Passengers[:0]
+	if e.Riding != 0 {
+		if veh, ok := s.entities.GetPtr(e.Riding); ok {
+			keep := veh.Passengers[:0]
+			for _, pid := range veh.Passengers {
+				if pid != e.ID {
+					keep = append(keep, pid)
+				}
+			}
+			veh.Passengers = keep
+			s.broadcastSetPassengers(veh)
+		}
+		e.Riding = 0
+	}
 }
 
 // broadcastFreshMob is vanilla's tracker-attach burst: spawn packet,
@@ -2491,6 +2714,7 @@ func (s *Server) mobTickStep() {
 			e.BoardingCooldown--
 		}
 		if s.mobCheckDespawn(e) {
+			s.mobRemovedPassengerCleanup(e)
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 			continue
@@ -2506,6 +2730,7 @@ func (s *Server) mobTickStep() {
 				if vd := s.dimensionByName(e.Dim); vd != nil {
 					s.releasePOI(vd, e)
 				}
+				s.mobRemovedPassengerCleanup(e)
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 			}
@@ -2810,6 +3035,17 @@ func (s *Server) mobTickStep() {
 		if mobBeam[ambName] {
 			s.guardianFlopStep(e, s.dimWorld(e.Dim))
 		}
+		// Chicken.aiStep's egg block: isAlive && !isBaby &&
+		// !isChickenJockey && --eggTime <= 0 lays an egg at the mob's
+		// position (CHICKEN_LAY's single-egg gift), plays
+		// entity.chicken.egg, then resets to 6000+rand(6000).
+		if ambName == "chicken" && !e.Baby && !e.ChickenJockey {
+			e.EggLayTime--
+			if e.EggLayTime <= 0 {
+				s.chickenLayEgg(e)
+				e.EggLayTime = 6000 + rand.Int31n(6000)
+			}
+		}
 		if !e.NoAI && e.Riding == 0 && !nonMobLiving[ambName] {
 			// Drowned/stray conversion bookkeeping — inside the NoAI
 			// gate like vanilla's aiStep/tick placement.
@@ -2887,7 +3123,7 @@ func (s *Server) mobTickStep() {
 					if mobBeam[ambName] {
 						s.guardianMoveStep(e, w)
 					} else {
-						s.mobMoveStep(e, w)
+						s.mobMoveStep(e, w, false)
 					}
 				}
 			}
@@ -2895,7 +3131,42 @@ func (s *Server) mobTickStep() {
 			// the move goals — the head re-aims on its own cadence.
 			s.mobLookStep(e)
 		}
+		if e.NoAI && e.Riding == 0 && !nonMobLiving[ambName] {
+			// Vanilla's NoAI gates only the goal selector — travel,
+			// gravity and fluid drift in aiStep still run, so a NoAI
+			// mob falls to the ground and a welded rider that just
+			// dismounted drops like any other entity.
+			if w := s.dimWorld(e.Dim); w != nil {
+				s.mobMoveStep(e, w, true)
+			}
+		}
 		s.mobSyncFlush(e)
+	}
+	// Entity.tick's positionRider pass: every living vehicle welds
+	// its non-player passengers to the rotated PASSENGER attachment
+	// after the vehicle's own move — a jockey zombie rides welded to
+	// the chicken's (0,0.7,-0.1) seat. Players are seated by
+	// rideTickStep instead.
+	for _, e := range mobs {
+		if len(e.Passengers) == 0 {
+			continue
+		}
+		for _, pid := range e.Passengers {
+			rp, ok := s.entities.GetPtr(pid)
+			if !ok || rp.Dying {
+				continue
+			}
+			if rname, _ := EntityTypeName(rp.Type); rname == "player" {
+				continue
+			}
+			nx, ny, nz := passengerSeatPos(e, rp)
+			if rp.X != nx || rp.Y != ny || rp.Z != nz {
+				rp.X, rp.Y, rp.Z = nx, ny, nz
+				rp.PosDirty = true
+				rp.NeedsSync = true
+				s.mobSyncFlush(rp)
+			}
+		}
 	}
 }
 
@@ -2941,9 +3212,11 @@ func (s *Server) mobInSimulationRange(e *Entity) bool {
 // rolls every strollInterval ticks, then walk to a picked target at the
 // movement_speed attribute until arrival, ledge, or give-up. It only
 // mutates entity state — the wire emission is mobSyncFlush's sendChanges
-// selection.
-func (s *Server) mobMoveStep(e *Entity, w *world.World) {
-	bounds := mobBounds(e.Type)
+// selection. physicsOnly runs just the travel/gravity half — vanilla's
+// LivingEntity.aiStep still moves a NoAI mob, it only skips the goal
+// selector — so a NoAI mob falls, drifts, and sinks like any other.
+func (s *Server) mobMoveStep(e *Entity, w *world.World, physicsOnly bool) {
+	bounds := entityBBDims(e)
 	// LivingEntity.aiStep's tail pushes the walk input via
 	// Entity.push every tick — even all-zero — and push() latches
 	// needsSync, so a living mob is motion-emit eligible on every
@@ -2961,7 +3234,10 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	// sink (a wither_skeleton sits at the lava bed).
 	thresh := floatJumpThreshold(e, bounds)
 	name, _ := EntityTypeName(e.Type)
-	if mobHasFloatGoal[name] && ((inWater && wDepth > thresh) || inLava) {
+	// FloatGoal is a goal — its canUse/tick never runs under NoAI
+	// (physicsOnly); the externally-set Jumping flag below is aiStep
+	// physics and still applies.
+	if !physicsOnly && mobHasFloatGoal[name] && ((inWater && wDepth > thresh) || inLava) {
 		if floatGoalRoll(e.ID, e.WanderTicks2) {
 			e.Jumping = true
 		}
@@ -3012,6 +3288,9 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	// slow fluid sink replaces the air fall, so mobGrounded never
 	// runs. entityFluidTick already scanned both tags this tick.
 	if !(inWater && wDepth > 0) && !(inLava && lDepth > 0) && !s.mobGrounded(e, w) {
+		return
+	}
+	if physicsOnly {
 		return
 	}
 	e.WanderTicks++
@@ -3161,7 +3440,7 @@ func (s *Server) mobTravelStepPair(e *Entity, w *world.World, speed, zIn, xIn fl
 		return
 	}
 	name, _ := EntityTypeName(e.Type)
-	bounds := mobBounds(e.Type)
+	bounds := entityBBDims(e)
 	gravity := 0.08
 	// shouldTravelInFluid: the box overlapping water flips travel to
 	// travelInWater — measured off 26.2 bytecode: moveRelative(0.02,
@@ -3749,7 +4028,7 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 	e.HeadYaw = e.Yaw
 	// Vanilla's attack reach is the mob's inflated box vs the target's;
 	// for the zombie's 0.6 box vs a player that lands ~1.5 blocks out.
-	reach := mobBounds(e.Type)[0] + 0.6 + 0.3
+	reach := entityBBDims(e)[0] + 0.6 + 0.3
 	if kn == "bee" {
 		// Bee Brain's attack move: fly straight at the target — a
 		// full-3D approach at ~flying_speed pace (attribute 0.6).
@@ -4551,7 +4830,7 @@ func (s *Server) witchRaiderStep(e, rt *Entity) bool {
 			if rt.Health <= 4 {
 				potion = "healing"
 			}
-			bb := mobBounds(rt.Type)
+			bb := entityBBDims(rt)
 			s.witchThrowAt(e, rt.X, rt.Y+bb[1]*0.85, rt.Z, dist, potion)
 			e.witchHealTgt = 0
 		}
@@ -4633,7 +4912,7 @@ func (s *Server) mobEyeInWater(e *Entity, d *dimension) bool {
 	if d == nil {
 		return false
 	}
-	bounds := mobBounds(e.Type)
+	bounds := entityBBDims(e)
 	eye := world.Pos{
 		X: int(math.Floor(e.X)),
 		Y: int(math.Floor(e.Y + bounds[1]*0.85)),
@@ -4657,7 +4936,7 @@ func (s *Server) mobEyeInBubbleColumn(e *Entity, d *dimension) bool {
 	if d == nil {
 		return false
 	}
-	bounds := mobBounds(e.Type)
+	bounds := entityBBDims(e)
 	eye := world.Pos{
 		X: int(math.Floor(e.X)),
 		Y: int(math.Floor(e.Y + bounds[1]*0.85)),
@@ -4981,7 +5260,7 @@ func (s *Server) mobSwellStep(e *Entity, kn string) bool {
 	dist := math.Hypot(dx, dz)
 	mobTurnToward(e, dx, dz, 30)
 	e.HeadYaw = e.Yaw
-	reach := mobBounds(e.Type)[0] + 0.6 + 0.3
+	reach := entityBBDims(e)[0] + 0.6 + 0.3
 	if dist > reach {
 		s.mobTravelStep(e, s.dimWorld(e.Dim), mobChaseSpeed)
 	}
@@ -5387,6 +5666,14 @@ func (s *Server) mobFinalizeAttributes(e *Entity) {
 		e.CanPickUpLoot = rand.Float64() < 0.55*special
 		if rand.Float64() < 0.05 {
 			e.Baby = true
+		}
+		// Zombie.finalizeSpawn's jockey pair (baby && canSpawnJockey):
+		// a 5% roll that hijacks a nearby free chicken, else a second
+		// 5% that spawns a fresh JOCKEY-reason chicken under the
+		// rider. Only plain zombie is jockey-eligible on vanilla —
+		// husk/zombie_villager/drowned skip the block.
+		if e.Baby && name == "zombie" {
+			s.spawnChickenJockey(e)
 		}
 		if e.AttrBase == nil {
 			e.AttrBase = map[string]float64{}
@@ -6022,7 +6309,7 @@ func (s *Server) mobHurtSound(e *Entity, res DamageResult) {
 		res.Absorbed && !res.BodyBroke {
 		snd = sndWolfArmorDamage
 	}
-	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd, v.src(), v.vol, voicePitch(), nil)
+	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd, v.src(), v.vol, voicePitchE(e), nil)
 }
 
 // mobDeathSound is the dying arm of hurt(): makeSound(getDeathSound)
@@ -6545,7 +6832,7 @@ func (s *Server) guardianFlopStep(e *Entity, w *world.World) {
 	if w == nil {
 		return
 	}
-	bounds := mobBounds(e.Type)
+	bounds := entityBBDims(e)
 	_, inWater, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, bounds[0]/2, bounds[1], fluidWater)
 	if inWater {
 		e.AirSupply = 300
@@ -6579,7 +6866,7 @@ func (s *Server) guardianSetMoving(e *Entity, moving bool) {
 // travelInWater there is NO gravity sink: the only downward drift is
 // the -0.005 applied to delta.y while not moving and target-free.
 func (s *Server) guardianTravelWater(e *Entity, w *world.World) {
-	bounds := mobBounds(e.Type)
+	bounds := entityBBDims(e)
 	yr := float64(e.Yaw) * math.Pi / 180
 	if e.WalkSpeed > 0 {
 		e.MotionX += -0.1 * math.Sin(yr)
@@ -6648,7 +6935,7 @@ func (s *Server) guardianSwimDrive(e *Entity, w *world.World) {
 // vanilla pick is confined to water cells — and the MOVE_TO drive
 // runs until arrival or the stall cap.
 func (s *Server) guardianMoveStep(e *Entity, w *world.World) {
-	bounds := mobBounds(e.Type)
+	bounds := entityBBDims(e)
 	e.NeedsSync = true
 	wDepth, inWater, _, _ := entityFluidTick(w, s.dims[e.Dim], e, bounds[0]/2, bounds[1])
 	if !(inWater && wDepth > 0) {

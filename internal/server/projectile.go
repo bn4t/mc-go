@@ -574,7 +574,7 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 		if t.Dim != e.Dim {
 			continue
 		}
-		bb := mobBounds(t.Type)
+		bb := entityBBDims(t)
 		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
 			hit = true
 			dealt, _, died := s.damageMob(t, damage, typeName, shooter, &damageInfo{
@@ -881,7 +881,7 @@ func (s *Server) potionCollide(e *Entity, ox, oy, oz float64) bool {
 		if !t.Living || t.Dying || t.ID == e.ID || t.ID == e.arrowShooter || t.Dim != e.Dim {
 			continue
 		}
-		bb := mobBounds(t.Type)
+		bb := entityBBDims(t)
 		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
 			return true
 		}
@@ -964,7 +964,7 @@ func (s *Server) potionSplash(e *Entity, x, y, z float64) {
 		if !t.Living || t.Dying || t.Dim != e.Dim {
 			continue
 		}
-		bb := mobBounds(t.Type)
+		bb := entityBBDims(t)
 		// Vanilla measures AABB-to-AABB distance — half-width + half-
 		// height approximates it close enough for the ±4 window.
 		dx, dy, dz := x-t.X, y-(t.Y+bb[1]/2), z-t.Z
@@ -1103,7 +1103,7 @@ func (s *Server) thrownCollide(e *Entity, ox, oy, oz float64, name string) bool 
 		if t.Dim != e.Dim {
 			continue
 		}
-		bb := mobBounds(t.Type)
+		bb := entityBBDims(t)
 		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
 			continue
 		}
@@ -1158,7 +1158,7 @@ func (s *Server) fireballCollide(e *Entity, ox, oy, oz float64) bool {
 		if t.Dim != e.Dim {
 			continue
 		}
-		bb := mobBounds(t.Type)
+		bb := entityBBDims(t)
 		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
 			continue
 		}
@@ -1462,7 +1462,7 @@ func (s *Server) witherSkullCollide(e *Entity, ox, oy, oz float64) bool {
 		if t.Dim != e.Dim {
 			continue
 		}
-		bb := mobBounds(t.Type)
+		bb := entityBBDims(t)
 		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
 			continue
 		}
@@ -1535,7 +1535,7 @@ func (s *Server) largeFireballCollide(e *Entity, ox, oy, oz float64) bool {
 		if t.Dim != e.Dim {
 			continue
 		}
-		bb := mobBounds(t.Type)
+		bb := entityBBDims(t)
 		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
 			continue
 		}
@@ -1593,7 +1593,7 @@ func (s *Server) dragonFireballImpact(e *Entity) {
 		if !t.Living || t.Dying || t.Dim != e.Dim || t.ID == e.ID {
 			continue
 		}
-		bb := mobBounds(t.Type)
+		bb := entityBBDims(t)
 		// Inside the 4/2/4-inflated ball box only.
 		hw, h := bb[0]+4.0, bb[1]+2.0
 		if t.X < cx-hw || t.X > cx+hw || t.Z < cz-hw || t.Z > cz+hw ||
@@ -1661,7 +1661,7 @@ func (s *Server) dragonFireballCollide(e *Entity, ox, oy, oz float64) bool {
 		if t.Dim != e.Dim {
 			continue
 		}
-		bb := mobBounds(t.Type)
+		bb := entityBBDims(t)
 		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
 			return true
 		}
@@ -1690,7 +1690,7 @@ func (s *Server) shulkerBulletCollide(e *Entity, ox, oy, oz float64) bool {
 		if t.Dim != e.Dim {
 			continue
 		}
-		bb := mobBounds(t.Type)
+		bb := entityBBDims(t)
 		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
 			hit = true
 			dealt, graced, _ := s.damageMob(t, 4.0, "mob_projectile", shooter, &damageInfo{

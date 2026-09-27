@@ -204,7 +204,7 @@ func entityInLavaWorld(w *world.World, e *Entity) bool {
 	if w == nil {
 		return false
 	}
-	bb := mobBounds(e.Type)
+	bb := entityBBDims(e)
 	half := bb[0] / 2
 	for bx := int(math.Floor(e.X - half)); bx <= int(math.Floor(e.X+half)); bx++ {
 		for by := int(math.Floor(e.Y)); by <= int(math.Floor(e.Y+bb[1])); by++ {

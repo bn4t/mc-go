@@ -30,7 +30,7 @@ func (s *Server) mobItemPickupStep() {
 		if m.Dying {
 			continue
 		}
-		bb := mobBounds(m.Type)
+		bb := entityBBDims(m)
 		half := bb[0]/2 + 1 // inflate(1,0,1) reach, vanilla default
 		for _, it := range items {
 			if it.Item.ID == 0 || it.Dim != m.Dim || it.PickupDelay > 0 {

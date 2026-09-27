@@ -9482,3 +9482,68 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   the 1.6 scale; mc-go now occasionally misses and leaves ground-
   stuck arrows (the `#arrows` tag probe fires — `type=#` selectors
   were already implemented, not a gap).
+
+## Slice 2026-09-25a — Chicken-jockey seat model, NoAI physics, dismount
+
+- **Gap list**: the welded-seat model for living vehicles (Entity.
+  positionRider's PASSENGER-attach rotation − rider VEHICLE-attach
+  offset) + the two follow-on gaps the differential probe rooted out:
+  baby-mob bb dims at every bb-construction site, NoAI mobs never ran
+  gravity, and vehicle removal never placed the dismounted rider.
+- **Measured** (javap Entity.positionRider +
+  LivingEntity.dismountVehicle + findFreePosition, live tp-echo +
+  data-get probes on 26.2): seat = veh.pos + yRot-rotated PASSENGER
+  attach − rider's VEHICLE attach, in Vec3.add/subtract op order
+  (parens matter — `veh.X + (rx0+rx1)`, not `(veh.X + rx0) + rx1`).
+  Baby-zombie-on-chicken welds to (vehX+0, vehY+0.5125, vehZ−0.1);
+  adult zombie to (vehX+0, vehY, vehZ−0.1). Rider VEHICLE attach is
+  0.6 player / per-type baby table (zombie 0.1875) / adult
+  vehicleAttachY / 0. `Entity.getDimensions` for a baby resolves
+  declared BABY_DIMENSIONS → `mobBounds·babyDimsScale` (armadillo
+  0.6, happy_ghast 0.2375, armor_stand 0.5) → `mobBounds·0.5`
+  (ageScale); adults use `mobBounds`. Vanilla's dismount chain:
+  rider's rideTick sees `vehicle.isRemoved()` → stopRiding →
+  LivingEntity.dismountVehicle → removed-vehicle path keeps
+  `(riderX, max(riderY, vehY), riderZ)` then `findFreePosition`
+  (deterministic Shapes.join ONLY_FIRST closest-point, bb inflated
+  half-spreads — the welded spot is already free, returns itself) →
+  dismountTo. LivingEntity.tickDeath removes the corpse at
+  deathTime≥20 (rider stays welded through the linger), then the
+  rider falls; a still-registered dead vehicle bb pushes it ~0.9
+  diagonal off the weld — push direction is ill-conditioned (centers
+  nearly coincide) and varies per run, so the pin is an envelope,
+  not a point. NoAI gates only the goal selector — aiStep travel/
+  gravity/jump-chain still runs under NoAI (a welded-then-ejected
+  NoAI rider falls like any entity); FloatGoal canUse does NOT run
+  under NoAI.
+- **Implemented**: `entityBBDims(e)` (babyDimsTable → babyDimsScale →
+  ·0.5 fallback) at every bb-construction site (ride, mob push/
+  cramming, dataentity aabb, entityinside, explosion, firework,
+  interact, itempickup, projectile, spear, tnt, gameadv);
+  `passengerSeatPos(veh,rider)` in exact op order; riders emit the
+  real welded Pos in entity NBT; `mobMoveStep` gained `physicsOnly`
+  (fluid tick + aiStep jump chain + mobGrounded fall, skips FloatGoal
+  activation + wander tail) called for `NoAI && Riding==0` mobs;
+  `mobRemovedPassengerCleanup` applies `max(riderY, vehY)` on eject.
+- **Pinned**: `TestChickenJockeyParity` — 10 probes, green on both
+  servers: IsChickenJockey flag + set_passengers wire, welded-seat
+  `distance=..0.05`/`..0.005` pins, baby-bb band hit + top miss
+  (0.49×0.98 vs adult 0.6×1.95), rider stays alive after `kill
+  @e[type=chicken]` and lands in the ground-band envelope near the
+  weld, EggLayTime lay + jockey-laying suppression.
+- **Harness lessons**: `nbt=` Pos pins are ulp-fragile (vanilla
+  serializes welded doubles at different bits than the literal —
+  use `distance=`); existential list-nbt compare makes Pos probes
+  vacuous in multi-entity worlds; mc-go `execute as @e` `@s` and
+  `data get` on mobs return nothing (logged gap — probe via
+  distance/box selectors instead); exact welded positions of a
+  dying vehicle's rider vary per run on vanilla (corpse push) —
+  pin region envelopes.
+- **Surfaced gaps** (unpinned): `execute as @e … tp @s`/`data get`
+  on mobs silent on mc-go; vanilla's own Pos double bits differ
+  from literal NBT; entity-type `#tag` selectors verified working
+  (earlier note was stale); dead-entity 20-tick linger + corpse
+  push-apart not modeled (dismount lands inside envelope anyway);
+  NoAI mobs still skip `mobLookStep` (head aim is a goal — correct)
+  but also skip the fluid `entityFluidTick` push specifics of
+  boats/minecarts (non-living path unchanged).

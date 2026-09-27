@@ -191,7 +191,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	if target == nil {
 		if e, ok := s.entities.Get(targetID); ok {
 			if name, ok := EntityTypeName(e.Type); ok && (name == "item" || name == "experience_orb") {
-				if sess.withinAttackRange(e.X, e.Y, e.Z, mobBounds(e.Type)) {
+				if sess.withinAttackRange(e.X, e.Y, e.Z, entityBBDims(&e)) {
 					s.disconnectWithComponent(sess, translatable("multiplayer.disconnect.invalid_entity_attacked"))
 				}
 				return
@@ -205,7 +205,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 			// banked damage, break-and-drop — instead of LivingEntity
 			// damage. The reach gate is the same bounding-box test.
 			if name, ok := EntityTypeName(e.Type); ok && isVehicleEntityName(name) {
-				bb := mobBounds(e.Type)
+				bb := entityBBDims(&e)
 				if !sess.withinAttackRange(e.X, e.Y, e.Z, bb) {
 					return
 				}
@@ -219,7 +219,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 			}
 		}
 		if e, ok := s.entities.Get(targetID); ok && e.Living {
-			bb := mobBounds(e.Type)
+			bb := entityBBDims(&e)
 			if !sess.withinAttackRange(e.X, e.Y, e.Z, bb) {
 				return
 			}
@@ -263,7 +263,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 				if plan.smash {
 					s.maceSmashAftermath(sess, e)
 				}
-				s.attackAftermath(sess, plan, e.ID, dealt, mobBounds(e.Type))
+				s.attackAftermath(sess, plan, e.ID, dealt, entityBBDims(&e))
 			} else {
 				s.broadcastAttackSound(sess, sndAttackNodamage)
 			}
@@ -547,7 +547,7 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 		if !e.Living || e.ID == victimEID || e.ID == sess.entityID.Load() {
 			continue
 		}
-		nb := mobBounds(e.Type)
+		nb := entityBBDims(&e)
 		if math.Abs(e.X-vx) > hw || math.Abs(e.Z-vz) > hw ||
 			e.Y+float64(nb[1]) < vy-0.25 || e.Y > vy+float64(victimBB[1])+0.25 {
 			continue

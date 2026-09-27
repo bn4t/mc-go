@@ -213,7 +213,7 @@ func (s *Server) explodePowerFire(src *Entity, x, y, z float64, radius float32, 
 		return impact, [3]float64{vx, vy, vz}, true
 	}
 	for _, e := range mobs {
-		eyeY := e.Y + mobBounds(e.Type)[1]*0.85
+		eyeY := e.Y + entityBBDims(e)[1]*0.85
 		impact, kb, ok := push(e.ID, e.X, e.Y, e.Z, eyeY, mobExplosionKBResist(e.Type))
 		if !ok {
 			continue

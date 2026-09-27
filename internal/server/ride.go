@@ -163,7 +163,7 @@ func (s *Server) dismount(sess *Session) {
 // south-facing rider).
 func (s *Server) dismountPos(sess *Session, veh *Entity, riderYaw float32) (float64, float64, float64) {
 	name, _ := EntityTypeName(veh.Type)
-	bb := mobBounds(veh.Type)
+	bb := entityBBDims(veh)
 	topY := veh.Y + bb[1]
 	w := sess.world()
 	if isMinecartName(name) {
@@ -207,15 +207,219 @@ func (s *Server) dismountPos(sess *Session, veh *Entity, riderYaw float32) (floa
 	return veh.X, topY, veh.Z
 }
 
+// passengerAttachY is the y-only half of the attachment table:
+// EntityType.Builder.passengerAttachments(float...) declares a seat
+// offset of Vec3(0, f, 0). Measured from EntityTypes' 26.2 static
+// bootstrap.
+var passengerAttachY = map[string]float64{
+	"cat": 0.5125, "ocelot": 0.6375, "parrot": 0.4625,
+	"minecart": 0.1875, "chest_minecart": 0.1875, "furnace_minecart": 0.1875,
+	"hopper_minecart": 0.1875, "tnt_minecart": 0.1875, "spawner_minecart": 0.1875,
+	"command_block_minecart": 0.1875,
+	"cow":                    1.36875, "mooshroom": 1.36875, "sheep": 1.2375, "pig": 0.86875,
+	"goat": 1.1125, "sniffer": 2.09375,
+	"donkey": 1.1125, "mule": 1.2125, "horse": 1.44375,
+	"skeleton_horse": 1.31875, "zombie_horse": 1.31875,
+	"nautilus": 1.1375, "zombie_nautilus": 1.1375,
+	"drowned": 2.0125, "husk": 2.075, "zombie": 2.0125, "zombie_villager": 2.125,
+	"zombified_piglin": 2, "piglin": 2.0125, "piglin_brute": 2.0125,
+	"evoker": 2, "illusioner": 2, "pillager": 2, "vindicator": 2, "witch": 2.2625,
+	"enderman": 2.80625, "endermite": 0.2375, "silverfish": 0.2375,
+	"ender_dragon": 3, "ghast": 4.0625, "guardian": 0.975, "elder_guardian": 2.350625,
+	"hoglin": 1.49375, "zoglin": 1.49375, "phantom": 0.3375, "spider": 0.765,
+	"vex": 0.7375, "warden": 3.15,
+}
+
+// passengerAttachVec declares the types whose passengerAttachments
+// carry a full Vec3 (the yaw-rotated seat offset), measured from the
+// same 26.2 bootstrap. happy_ghast's four seats are yaw-quarter
+// rotations — seat index 0 rides the declared first point.
+var passengerAttachVec = map[string][3]float64{
+	"chicken": {0, 0.7, -0.1}, "fox": {0, 0.6375, -0.25},
+	"llama": {0, 1.37, -0.3}, "trader_llama": {0, 1.37, -0.3},
+	"ravager": {0, 2.2625, -0.0625}, "turtle": {0, 0.55625, -0.25},
+	"wolf": {0, 0.81875, -0.0625}, "happy_ghast": {0, 4, 1.7},
+}
+
+// passengerAttach is EntityAttachments.getClamped(PASSENGER, 0, yRot)
+// before the rotation: the declared seat Vec3 where the type has one,
+// the y-only declaration lifted to (0,y,0), else the AT_HEIGHT
+// fallback — a single point at the bounding box's full height.
+//
+// A baby vehicle's dims replace that table: types whose BABY_DIMENSIONS
+// declare their own PASSENGER attach use babyPassAttachVec; types whose
+// baby dims are type.getDimensions().scale(s) carry the adult attach
+// scaled by s (babyDimsScale); every other baby built from fresh
+// EntityDimensions.scalable falls back to AT_HEIGHT on the baby box
+// (babyDimsTable), with adult·0.5 as the approximation when the baby
+// dims were not measured.
+func passengerAttach(veh *Entity) [3]float64 {
+	name, _ := EntityTypeName(veh.Type)
+	if veh.Baby {
+		if v, ok := babyPassAttachVec[name]; ok {
+			return v
+		}
+		if sc, ok := babyDimsScale[name]; ok {
+			a := passengerAttachAdult(name, veh.Type)
+			return [3]float64{a[0] * sc, a[1] * sc, a[2] * sc}
+		}
+		if d, ok := babyDimsTable[name]; ok {
+			return [3]float64{0, d[1], 0}
+		}
+		return [3]float64{0, entityBBDims(veh)[1] * 0.5, 0}
+	}
+	return passengerAttachAdult(name, veh.Type)
+}
+
+// entityBBDims is the entity's effective bounding-box (width,height) —
+// Entity.getDimensions: babies resolve their declared BABY_DIMENSIONS
+// (babyDimsTable), the scaled-dims types scale the adult box
+// (babyDimsScale), and every other baby uses LivingEntity's ageScale
+// factor (adult·0.5).
+func entityBBDims(e *Entity) [2]float64 {
+	b := mobBounds(e.Type)
+	if e.Baby {
+		name, _ := EntityTypeName(e.Type)
+		if d, ok := babyDimsTable[name]; ok {
+			return d
+		}
+		if sc, ok := babyDimsScale[name]; ok {
+			return [2]float64{b[0] * sc, b[1] * sc}
+		}
+		return [2]float64{b[0] * 0.5, b[1] * 0.5}
+	}
+	return b
+}
+
+// passengerAttachAdult is the non-baby half of passengerAttach: the
+// declared vec, the declared y lifted to (0,y,0), else AT_HEIGHT.
+func passengerAttachAdult(name string, typeID int32) [3]float64 {
+	if v, ok := passengerAttachVec[name]; ok {
+		return v
+	}
+	if y, ok := passengerAttachY[name]; ok {
+		return [3]float64{0, y, 0}
+	}
+	return [3]float64{0, mobBounds(typeID)[1], 0}
+}
+
+// babyPassAttachVec is the PASSENGER attach declared on BABY_DIMENSIONS
+// built via EntityDimensions.scalable+withAttachments (26.2 clinits).
+// Types absent here but present in babyDimsScale inherit the adult
+// attach scaled; all others fall back to AT_HEIGHT on the baby box.
+var babyPassAttachVec = map[string][3]float64{
+	"axolotl": {0, 0.1875, 0}, "chicken": {0, 0.375, 0},
+	"cow": {0, 0.75, 0}, "mooshroom": {0, 0.75, 0},
+	"cat": {0, 0.3125, 0}, "ocelot": {0, 0.3125, 0},
+	"goat": {0, 0.53125, 0},
+	"pig":  {0, 0.5, 0}, "polar_bear": {0, 0.625, 0},
+	"sheep": {0, 0.5625, 0}, "wolf": {0, 0.4375, 0},
+	"strider": {0, 0.65625, 0}, "zoglin": {0, 0.875, 0},
+	"hoglin": {0, 0.875, 0},
+	// dims built as getDimensions→withAttachments→scale: the declared
+	// point itself picks up the trailing scale factor.
+	"dolphin": {0, 0.203125, 0}, "fox": {0, 0.225, 0},
+	"horse": {0, 0.0875, 0}, "skeleton_horse": {0, 0.175, 0},
+	"zombie_horse": {0, 0.175, 0}, "llama": {0, 0.125, -0.15},
+	"nautilus": {0, 0.25, 0}, "panda": {0, 0.28125, 0},
+	"turtle": {0, 0.12, -0.075},
+}
+
+// babyDimsScale marks the types whose baby dims come from
+// type.getDimensions().scale(s) *without* a withAttachments call —
+// the attachments stay on the dims and scale with them. Types that
+// call withAttachments replace the attachment set entirely, so their
+// undeclared kinds (VEHICLE especially) fall back instead of scaling.
+var babyDimsScale = map[string]float64{
+	"armadillo": 0.6, "happy_ghast": 0.2375, "armor_stand": 0.5,
+}
+
+// babyDimsTable is the (width,height) of BABY_DIMENSIONS built from
+// EntityDimensions.scalable — used for the AT_HEIGHT attach fallback
+// when a baby vehicle declares no PASSENGER point.
+var babyDimsTable = map[string][2]float64{
+	"pig": {0.45, 0.45}, "chicken": {0.3, 0.4}, "cow": {0.45, 0.7},
+	"mooshroom": {0.45, 0.7}, "sheep": {0.45, 0.65}, "wolf": {0.3, 0.425},
+	"cat": {0.3, 0.35}, "ocelot": {0.3, 0.35}, "goat": {0.45, 0.65},
+	"rabbit": {0.24, 0.4}, "squid": {0.5, 0.5}, "polar_bear": {0.7, 0.7},
+	"strider": {0.45, 0.85}, "zoglin": {0.75, 0.85}, "hoglin": {0.75, 0.85},
+	"zombie": {0.49, 0.98}, "drowned": {0.49, 0.98}, "husk": {0.49, 0.98},
+	"zombie_villager": {0.49, 0.98}, "zombified_piglin": {0.49, 0.98},
+	"piglin": {0.49, 0.98}, "axolotl": {0.375, 0.21},
+}
+
+// vehicleAttachY is the rider's own VEHICLE attachment: the point
+// Entity.getVehicleAttachmentPoint returns and positionRider subtracts
+// from the seat so the rider sits on the mount rather than at its feet.
+// EntityType.Builder.ridingOffset(f) declares it as attach(VEHICLE,
+// 0, -f, 0); PLAYER and mannequin use Avatar's
+// DEFAULT_VEHICLE_ATTACHMENT (0,0.6,0). Undeclared → AT_FEET (0,0,0).
+var vehicleAttachY = map[string]float64{
+	"allay": -0.04, "vex": -0.04,
+	"bogged": 0.7, "drowned": 0.7, "husk": 0.7, "parched": 0.7,
+	"parrot": 0.7, "piglin": 0.7, "piglin_brute": 0.7,
+	"skeleton": 0.7, "stray": 0.7, "zombie": 0.7,
+	"zombie_villager": 0.7, "zombified_piglin": 0.7,
+	"end_crystal": 0.6, "evoker": 0.6, "illusioner": 0.6,
+	"pillager": 0.6, "vindicator": 0.6, "mannequin": 0.6,
+	"wither_skeleton": 0.875, "giant": 3.75,
+	"ghast": -0.5, "happy_ghast": -0.5, "phantom": 0.125,
+}
+
+// babyVehicleAttachY is the VEHICLE attach declared on the zombie
+// family's BABY_DIMENSIONS — the one set of baby dims that carries an
+// explicit VEHICLE point instead of falling back to AT_FEET.
+var babyVehicleAttachY = map[string]float64{
+	"zombie": 0.1875, "drowned": 0.1875, "husk": 0.1875,
+	"zombified_piglin": 0.1875, "piglin": 0.1875,
+	"zombie_villager": 0.125,
+}
+
+// riderVehicleAttachY is Entity.getVehicleAttachmentPoint for the
+// rider: the y component of its VEHICLE attach. A nil rider is a
+// player — Avatar.DEFAULT_VEHICLE_ATTACHMENT is (0,0.6,0). Babies use
+// their own dims' attach: an explicit baby override, the scaled adult
+// attach for babyDimsScale types, else AT_FEET (0) for every
+// fresh-scalable baby dims.
+func riderVehicleAttachY(rider *Entity) float64 {
+	if rider == nil {
+		return 0.6
+	}
+	name, _ := EntityTypeName(rider.Type)
+	if rider.Baby {
+		if v, ok := babyVehicleAttachY[name]; ok {
+			return v
+		}
+		if sc, ok := babyDimsScale[name]; ok {
+			return vehicleAttachY[name] * sc
+		}
+		return 0
+	}
+	return vehicleAttachY[name]
+}
+
+// passengerSeatPos is positionRider's welded rider position:
+// getPassengerRidingPosition() — vehicle pos + rotated PASSENGER
+// attach — minus the rider's own VEHICLE attach (mf.accept(entity,
+// ridingPos.subtract(attach))). The seat point runs through
+// Vec3.yRot(-yRot*DEG2RAD), which sends (x,z) to (x·cos+z·sin,
+// z·cos−x·sin). The operation order matches Vec3.add/subtract so the
+// emitted doubles are bit-identical to vanilla's; every measured
+// VEHICLE attach is (0,y,0), so its x/z terms vanish.
+func passengerSeatPos(veh *Entity, rider *Entity) (float64, float64, float64) {
+	att := passengerAttach(veh)
+	a := -float64(veh.Yaw) * math.Pi / 180
+	sn, cs := math.Sin(a), math.Cos(a)
+	rva := riderVehicleAttachY(rider)
+	return veh.X + (att[0]*cs + att[2]*sn), (veh.Y + att[1]) - rva, veh.Z + (att[2]*cs - att[0]*sn)
+}
+
 // passengerSeatY is the vehicle's PASSENGER attachment height: the
 // declared passengerAttachments offset where an entity type sets one
 // (minecart 0.1875), else the AT_HEIGHT fallback half the bounding
 // box.
 func passengerSeatY(veh *Entity) float64 {
-	if name, ok := EntityTypeName(veh.Type); ok && isMinecartName(name) {
-		return 0.1875
-	}
-	return mobBounds(veh.Type)[1] / 2
+	return passengerAttach(veh)[1]
 }
 
 // minecartDismountPos is AbstractMinecart's dismount-location scan:
@@ -1121,7 +1325,7 @@ func (s *Server) minecartPushPickup(ep *Entity, name string) {
 			// pushableBy: non-pushable entities (items, orbs) skip.
 			continue
 		}
-		ow, oh := mobBounds(o.Type)[0], mobBounds(o.Type)[1]
+		ow, oh := entityBBDims(&o)[0], entityBBDims(&o)[1]
 		if !overlaps(o.X, o.Y, o.Z, ow, oh) {
 			continue
 		}

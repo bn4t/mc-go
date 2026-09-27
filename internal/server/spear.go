@@ -105,7 +105,7 @@ func (s *Server) spearJabTick(sess *Session) {
 		if last, ok := sess.stabbed[e.ID]; ok && tick-last < spearContactCooldown {
 			continue
 		}
-		bb := mobBounds(e.Type)
+		bb := entityBBDims(e)
 		if !segmentHitsBoxMargin(x, eye, z, tx, ty, tz, e.X, e.Y, e.Z, bb[0], bb[1], 0.125) {
 			continue
 		}

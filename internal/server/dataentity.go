@@ -615,6 +615,14 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 			m["Sheared"] = nbtBool(e.Sheared)
 			m["Color"] = int8(0)
 		}
+		// Chicken.writeAdditionalSaveData: the jockey flag + the egg
+		// countdown live alongside the sheep pair. Vanilla also emits
+		// variant/sound_variant — mc-go has no variant field yet, so
+		// the keyed pair is what read/write parity can assert.
+		if typeName == "chicken" {
+			m["IsChickenJockey"] = nbtBool(e.ChickenJockey)
+			m["EggLayTime"] = e.EggLayTime
+		}
 		// SnowGolem.writeAdditionalSaveData carries the Pumpkin flag.
 		if typeName == "snow_golem" {
 			m["Pumpkin"] = nbtBool(e.Pumpkin)
@@ -789,17 +797,10 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 			}
 		}
 	}
-	// Entity.saveWithoutId's tail: a riding entity's Pos reads the
-	// vehicle's X/Z with its own Y (RootVehicle rides on the
-	// passenger-save path instead — data get on a mounted mob
-	// measures no RootVehicle key), and a vehicle emits Passengers
-	// only while non-empty (each child through saveAsPassenger: own
-	// save + "id").
-	if e.Riding != 0 && ents != nil {
-		if ve, ok := ents.GetPtr(e.Riding); ok {
-			m["Pos"] = nbt.List{Elem: nbt.TagDouble, Items: []any{ve.X, e.Y, ve.Z}}
-		}
-	}
+	// A vehicle emits Passengers only while non-empty (each child
+	// through saveAsPassenger: own save + "id"). A rider's own Pos
+	// needs no special-casing — positionRider welds its X/Y/Z each
+	// tick, so the generic emit already carries the seat offset.
 	if len(e.Passengers) > 0 && ents != nil {
 		list := nbt.List{Elem: nbt.TagCompound}
 		for _, pid := range e.Passengers {
@@ -2439,7 +2440,7 @@ func (d *dataEntity) aabbDims() (w, h float64) {
 	if d.sess != nil {
 		return 0.6, 1.8
 	}
-	b := mobBounds(d.mob.Type)
+	b := entityBBDims(d.mob)
 	return b[0], b[1]
 }
 

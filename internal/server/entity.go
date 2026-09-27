@@ -40,6 +40,13 @@ type Entity struct {
 	// EatAnim is EatBlockGoal.eatAnimationTick — a sheep grazes for
 	// 40 ticks (entity event 10) before the eat lands.
 	EatAnim int32
+	// ChickenJockey is Chicken.isChickenJockey — a ridden-as-mount
+	// flag that suppresses egg laying and marks the chicken as a
+	// zombie mount (NBT IsChickenJockey).
+	ChickenJockey bool
+	// EggLayTime is Chicken.eggTime — counts down from a
+	// 6000+rand(6000) roll toward the next egg lay.
+	EggLayTime int32
 	// ItemAge is ItemEntity.age — drives the 6000-tick despawn and
 	// the merge cadence (every 2 ticks after a block crossing, else
 	// 40), and a merge takes the survivor's minimum.

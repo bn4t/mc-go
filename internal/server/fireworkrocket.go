@@ -368,7 +368,7 @@ func (s *Server) rocketHitScan(e *Entity) (hit rocketHit) {
 		if m.ID == e.arrowShooter && !leftOwner {
 			continue
 		}
-		b := mobBounds(m.Type)
+		b := entityBBDims(m)
 		dist := segmentBoxT(e.X, e.Y, e.Z, ex, ey, ez,
 			m.X-b[0]/2-margin, m.Y-margin, m.Z-b[0]/2-margin,
 			m.X+b[0]/2+margin, m.Y+b[1]+margin, m.Z+b[0]/2+margin)
@@ -417,7 +417,7 @@ func (s *Server) rocketOwnerLeftOwner(e *Entity) bool {
 	} else {
 		s.entities.mu.RLock()
 		if m, ok := s.entities.byID[e.arrowShooter]; ok {
-			b := mobBounds(m.Type)
+			b := entityBBDims(m)
 			ox, oy, oz = m.X, m.Y, m.Z
 			hw, h = b[0]/2, b[1]
 			found = true
@@ -591,7 +591,7 @@ func (s *Server) rocketExplode(e *Entity) {
 			if d2 > 25 {
 				continue
 			}
-			if !los(m.X, m.Y, m.Z) && !los(m.X, m.Y+mobBounds(m.Type)[1]*0.5, m.Z) {
+			if !los(m.X, m.Y, m.Z) && !los(m.X, m.Y+entityBBDims(m)[1]*0.5, m.Z) {
 				continue
 			}
 			f := dmg * float32(math.Sqrt((5.0-math.Sqrt(d2))/5.0))
