@@ -9475,3 +9475,10 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
 - **Surfaced gap** (unpinned): `execute if entity @e[type=#minecraft:
   arrows]` on mc-go never matched its own arrow entity — entity-type
   tag selectors are a separate gap from the strafe chain.
+- **Follow-on fix in the same commit**: the mc-go leg's `arrSeen`
+  stayed false because every arrow hit — `mobShootArrow` had no
+  Projectile.shoot inaccuracy. Added `triangle(0, 0.0172275·(14 −
+  difficulty·4))` per-axis perturbation of the normalized aim before
+  the 1.6 scale; mc-go now occasionally misses and leaves ground-
+  stuck arrows (the `#arrows` tag probe fires — `type=#` selectors
+  were already implemented, not a gap).

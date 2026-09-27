@@ -5749,8 +5749,16 @@ func (s *Server) mobShootArrow(e *Entity, tx, ty, tz float64) {
 	if mag < 1e-6 {
 		return
 	}
+	// Projectile.shoot: the normalized aim is perturbed per axis by
+	// triangle(0, 0.0172275·inaccuracy) — inaccuracy is
+	// 14 − difficulty·4 (14/10/6/2 peaceful..hard), so a normal-mode
+	// skeleton still occasionally misses at range.
+	inacc := 0.0172275 * (14 - float64(s.difficulty)*4)
+	tri := func() float64 { return inacc * (rand.Float64() + rand.Float64() - 1) }
 	const spd = 1.6
-	vx, vyN, vz := dx/mag*spd, vy/mag*spd, dz/mag*spd
+	vx := (dx/mag + tri()) * spd
+	vyN := (vy/mag + tri()) * spd
+	vz := (dz/mag + tri()) * spd
 	ae := s.entities.Spawn(&Entity{
 		Type:    arrowID,
 		Dim:     e.Dim,
