@@ -871,6 +871,7 @@ func (s *Server) handleMoveVehicle(sess *Session, p protocol.Packet) {
 	ep.Grounded = onGround
 	ep.VehAnchor = [3]float64{x, y, z}
 	ep.PosDirty = true
+	ep.NeedsSync = true
 	s.mobSyncFlush(ep)
 }
 

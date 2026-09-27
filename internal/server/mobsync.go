@@ -377,11 +377,13 @@ func (s *Server) mobMoveSync(e *Entity) {
 	// TrackedDeltaMovement (ServerEntity.sendChanges): the motion
 	// branch itself is gated — it only runs when needsSync is flagged,
 	// the type is one of EntityType.trackDeltas' ten, or a living
-	// entity is fall-flying. Inside it, emit set_entity_motion when
+	// entity is fall-flying. LivingEntity.aiStep's push latches
+	// needsSync every living tick, so a mob is always gated open and
+	// the drift check decides. Inside it, emit set_entity_motion when
 	// the current delta drifts farther than 1e-7 squared from the last
 	// sent one, or when it just turned exactly zero — a walking mob
 	// emits on accel/decel and stop, not per tick at cruise.
-	motionGate := e.PosDirty || (e.Living && e.FallFlying)
+	motionGate := e.NeedsSync || (e.Living && e.FallFlying)
 	if !motionGate {
 		if tn, ok := EntityTypeName(e.Type); ok {
 			motionGate = trackDeltaTypes[tn]
@@ -455,6 +457,9 @@ func (s *Server) mobMoveSync(e *Entity) {
 	}
 	e.wasOnGround = e.Grounded
 	e.PosDirty = false
+	// ServerEntity.sendChanges' tail clears needsSync — latched
+	// again next living tick by aiStep's push.
+	e.NeedsSync = false
 	yHeadB := angleByte(e.HeadYaw)
 	if mobByteDiff(yHeadB, e.lastYHeadB) >= 1 {
 		e.lastYHeadB = yHeadB

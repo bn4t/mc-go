@@ -1008,6 +1008,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		if e.X != pos[0] || e.Y != pos[1] || e.Z != pos[2] {
 			e.X, e.Y, e.Z = pos[0], pos[1], pos[2]
 			e.PosDirty = true
+			e.NeedsSync = true
 		}
 	}
 	if mot, ok := nbtVec3(save["Motion"]); ok {
@@ -1018,10 +1019,12 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		// Entity.load sets needsSync after reading Motion — the stored
 		// velocity re-emits at the next sendChanges gate.
 		e.PosDirty = true
+		e.NeedsSync = true
 	}
 	if rot, ok := nbtVec2f(save["Rotation"]); ok {
 		e.Yaw, e.Pitch = rot[0], rot[1]
 		e.PosDirty = true
+		e.NeedsSync = true
 	}
 	e.Grounded = nbtTruth(save["OnGround"])
 	e.Silent = nbtTruth(save["Silent"])

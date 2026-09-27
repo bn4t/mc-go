@@ -521,6 +521,7 @@ func (s *Server) tpMove(v *dataEntity, x, y, z float64,
 	// PosDirty is vanilla's needsSync, forcing sendChanges next tick.
 	e.teleportDelay = 401
 	e.PosDirty = true
+	e.NeedsSync = true
 }
 
 func tpWrapDeg(f float32) float32 {

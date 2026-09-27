@@ -624,6 +624,7 @@ func (s *Server) itemTickStep() {
 				// ExperienceOrb.tick flags needsSync inside its
 				// moveTowardsClosestSpace branch — the only orb sync bypass.
 				e.PosDirty = true
+				e.NeedsSync = true
 			}
 		} else if orb {
 			// ExperienceOrb.tick: Entity.tick's updateFluidInteraction
@@ -737,12 +738,14 @@ func (s *Server) itemTickStep() {
 				w, s.dims[e.Dim], e, 0.125, 0.25)
 			if inW2 || inL2 {
 				e.PosDirty = true
+				e.NeedsSync = true
 			}
 			// ItemEntity.tick's intra-tick needsSync: a >0.1 net delta
 			// change bypasses the updateInterval gate and emits now.
 			ddx, ddy, ddz := e.MotionX-preDX, e.MotionY-preDY, e.MotionZ-preDZ
 			if ddx*ddx+ddy*ddy+ddz*ddz > 0.01 {
 				e.PosDirty = true
+				e.NeedsSync = true
 			}
 		}
 		// Item entities and XP orbs sync through the same ServerEntity

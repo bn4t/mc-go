@@ -598,10 +598,12 @@ func (s *Server) mobPushStep(e *Entity) {
 				op.MotionX -= px
 				op.MotionZ -= pz
 				op.PosDirty = true
+				op.NeedsSync = true
 			}
 			e.MotionX += px / 4
 			e.MotionZ += pz / 4
 			e.PosDirty = true
+			e.NeedsSync = true
 			continue
 		}
 		dx, dz := o.X-e.X, o.Z-e.Z
@@ -626,6 +628,7 @@ func (s *Server) mobPushStep(e *Entity) {
 			e.MotionZ -= dz
 			// Entity.push flags needsSync on the pushed side.
 			e.PosDirty = true
+			e.NeedsSync = true
 		}
 		if len(o.Passengers) == 0 {
 			// All() hands out copies — the neighbour's half of the
@@ -634,6 +637,7 @@ func (s *Server) mobPushStep(e *Entity) {
 				op.MotionX += dx
 				op.MotionZ += dz
 				op.PosDirty = true
+				op.NeedsSync = true
 			}
 		}
 	}
@@ -1757,6 +1761,7 @@ func (s *Server) broadcastFreshMob(e *Entity) {
 		// client no spawn or metadata packet for it.
 		e.MetaDirty = true
 		e.PosDirty = true
+		e.NeedsSync = true
 		return
 	}
 	s.broadcastEntitySpawn(nil, *e)
@@ -1770,6 +1775,7 @@ func (s *Server) broadcastFreshMob(e *Entity) {
 		}
 		e.MetaDirty = true
 		e.PosDirty = true
+		e.NeedsSync = true
 		e.SyncCount = 0
 		return
 	}
@@ -1777,6 +1783,7 @@ func (s *Server) broadcastFreshMob(e *Entity) {
 		s.broadcastEntityMetadata(e.ID, encodeOrbMetadata(e.OrbValue))
 		e.MetaDirty = true
 		e.PosDirty = true
+		e.NeedsSync = true
 		e.SyncCount = 0
 		return
 	}
@@ -1786,6 +1793,7 @@ func (s *Server) broadcastFreshMob(e *Entity) {
 	e.MetaDirty = true
 	e.AttrDirty = true
 	e.PosDirty = true
+	e.NeedsSync = true
 	e.SyncCount = 0
 	e.ParticlesSent = nil
 	if slots := armorStandEquipAll(e); len(slots) > 0 {
@@ -2787,6 +2795,11 @@ func (s *Server) mobInSimulationRange(e *Entity) bool {
 // selection.
 func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	bounds := mobBounds(e.Type)
+	// LivingEntity.aiStep's tail pushes the walk input via
+	// Entity.push every tick — even all-zero — and push() latches
+	// needsSync, so a living mob is motion-emit eligible on every
+	// sendChanges pass (the drift check decides, not the gate).
+	e.NeedsSync = true
 	// Entity.tick's updateFluidInteraction runs for every entity —
 	// isPushedByFluid is default-true, so the current push applies to
 	// mobs too (items/orbs take their own path in itemTickStep).

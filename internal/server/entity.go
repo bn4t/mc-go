@@ -470,6 +470,13 @@ type Entity struct {
 	SentMotionY   float64
 	SentMotionZ   float64
 	SentMotionSet bool
+	// NeedsSync is Entity.needsSync — the flag vanilla's push() and
+	// snapTo() latch (LivingEntity.aiStep pushes its walk input every
+	// tick, so living entities carry it almost constantly). Inside
+	// ServerEntity.sendChanges it both forces the pass to run early
+	// and opens the set_entity_motion emit branch; cleared at the end
+	// of each sendChanges like vanilla's `needsSync = false`.
+	NeedsSync bool
 	// WalkSpeed and WalkZZA are LivingEntity's speed field and zza
 	// input drive: a MOVE_TO tick sets both to the goal's speed
 	// (speedModifier·movement_speed), applyInput decays WalkZZA ×0.98

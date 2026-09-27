@@ -655,6 +655,7 @@ func (s *Server) minecartTickStep() {
 				rp.X, rp.Z = ep.X, ep.Z
 				rp.Y = ep.Y + seat
 				rp.PosDirty = true
+				rp.NeedsSync = true
 				s.mobSyncFlush(rp)
 			}
 		}
@@ -714,6 +715,7 @@ func (s *Server) minecartOffRail(ep *Entity, w *world.World, fx, fy, fz int) {
 	ep.Y = ny
 	if ep.X != ox || ep.Y != oy || ep.Z != oz {
 		ep.PosDirty = true
+		ep.NeedsSync = true
 	}
 }
 
@@ -1033,6 +1035,7 @@ func (s *Server) minecartOnRail(ep *Entity, w *world.World, bp world.Pos, railNa
 	}
 	if ep.X != mx0 || ep.Y != my0 || ep.Z != mz0 {
 		ep.PosDirty = true
+		ep.NeedsSync = true
 	}
 }
 
@@ -1056,6 +1059,7 @@ func (s *Server) minecartActivatorHit(ep *Entity) {
 			if rp, ok := s.entities.GetPtr(pid); ok {
 				rp.X, rp.Y, rp.Z = ep.X, ep.Y, ep.Z
 				rp.PosDirty = true
+				rp.NeedsSync = true
 				s.mobSyncFlush(rp)
 			}
 		}
@@ -1128,6 +1132,7 @@ func (s *Server) minecartPushPickup(ep *Entity, name string) {
 				op.Y = ep.Y + 0.1875
 				ep.Passengers = append(ep.Passengers, o.ID)
 				op.PosDirty = true
+				op.NeedsSync = true
 				s.mobSyncFlush(op)
 				s.broadcastSetPassengers(ep)
 			}
@@ -1162,11 +1167,13 @@ func (s *Server) minecartPushPickup(ep *Entity, name string) {
 			op.MotionX -= dx
 			op.MotionZ -= dz
 			op.PosDirty = true
+			op.NeedsSync = true
 		}
 		if len(ep.Passengers) == 0 {
 			ep.MotionX += dx
 			ep.MotionZ += dz
 			ep.PosDirty = true
+			ep.NeedsSync = true
 		}
 	}
 	if moving {
@@ -1236,7 +1243,9 @@ func minecartPushCart(pusher, target *Entity) {
 	target.MotionX = target.MotionX*0.2 + avx + px
 	target.MotionZ = target.MotionZ*0.2 + avz + pz
 	pusher.PosDirty = true
+	pusher.NeedsSync = true
 	target.PosDirty = true
+	target.NeedsSync = true
 }
 
 // entityBoxCollides is riderBoxCollides parametrized by the entity's
