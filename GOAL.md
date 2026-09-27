@@ -9402,3 +9402,35 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   servers' guardians into the void at terminal velocity — the shell
   was below world min-y (-64) and `/fill` silently no-ops those cells,
   so the summons landed in void air. Geometry pinned to legal depth.
+
+## Slice 2026-09-27ci — Bunk-bed stand-up position (BedBlock.isBunkBed)
+
+- **Measured** (`BedBlock.findStandUpPosition` +
+  `findBunkBedStandUpPosition` + both private offset-table builders,
+  26.2 javap): when `getBlock(headPos.below()) instanceof BedBlock`
+  the wake-position scan reorders — surround@head strict, surround@
+  head-1 strict, above@head strict, then the same three loose —
+  instead of the normal strict-all-12-then-loose-all-12. The two
+  builders emit 10 surround + 2 above entries identical to the
+  existing `bedWakeOffsets` table split at index 10.
+- **Implemented**: `findStandUpPosition` gained the `isBedBlock`
+  check on the cell under the head plus the six-stage scan order via
+  a `scan` closure over the existing surround/above slices; the
+  normal path is unchanged.
+- **Pinned**: `TestBunkBedStandUpParity` — stacked south beds, the
+  upper ring's head-space roofed at y=-58 (upper-ring and on-bed
+  candidates all collide; cells directly above the bed stay air or
+  vanilla reports bed_obstructed and never sleeps), flat slimes
+  killed + spawning off, one sleeper on the top bunk. Night skip
+  fires ~5.1s in; the wake teleport lands beside the LOWER bunk at
+  (43.5,-60,45.5) — first strict surround candidate at the bunk
+  level for a south bed. Green on both servers.
+- **Harness lesson**: the poll originally broke on `wy < -59.5`
+  which the tp spot already satisfies — the loop exited before sleep
+  even engaged and reported the tp pos as a phantom failure. Wake
+  detection now requires leaving the tp (x,z) too; the tp itself is
+  asserted landed before the click.
+- Also added a packet-id dump to TestSleepBedParity's occupied-flip
+  failure message — that check flakes on vanilla timing (the flip
+  sometimes lands outside the 2.2s capture window); pre-existing,
+  unrelated to this slice.

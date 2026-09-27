@@ -241,12 +241,14 @@ func bedWakeOffsets(f, d [2]int) [][2]int {
 	}
 }
 
-// findStandUpPosition is BedBlock.findStandUpPosition without the
-// bunk-bed branch (bed under a slab — a noted gap). The stand side
-// starts at the bed's clockwise side and flips to its opposite when
-// the sleeper's yaw faces that side; each candidate walks
-// DismountHelper.findSafeDismountLocation, first with the strict
-// danger checks on, then without.
+// findStandUpPosition is BedBlock.findStandUpPosition, bunk branch
+// included. The stand side starts at the bed's clockwise side and
+// flips to its opposite when the sleeper's yaw faces that side; each
+// candidate walks DismountHelper.findSafeDismountLocation, first with
+// the strict danger checks on, then without. isBunkBed (a bed cell
+// directly under the head) swaps the scan order — the vanilla bunk
+// pass tries the surround ring at the head and one level down, then
+// the above cells, before the loose repeats.
 func (s *Server) findStandUpPosition(d *dimension, head world.Pos, facing string, yaw float32) ([3]float64, bool) {
 	f := dirStep[facing]
 	side := dirClockWise[facing]
@@ -254,6 +256,38 @@ func (s *Server) findStandUpPosition(d *dimension, head world.Pos, facing string
 		side = bedFacingOpposite(side)
 	}
 	offs := bedWakeOffsets(f, dirStep[side])
+	surround, above := offs[:10], offs[10:]
+	scan := func(base world.Pos, cand [][2]int, strict bool) ([3]float64, bool) {
+		for _, o := range cand {
+			p := world.Pos{X: base.X + o[0], Y: base.Y, Z: base.Z + o[1]}
+			if v, ok := s.findSafeDismountLocation(d, p, strict); ok {
+				return v, true
+			}
+		}
+		return [3]float64{}, false
+	}
+	belowHead := world.Pos{X: head.X, Y: head.Y - 1, Z: head.Z}
+	if isBedBlock(d.w.GetBlock(belowHead)) {
+		// findBunkBedStandUpPosition — surround at head, surround at
+		// the bunk below, above at head, all strict; then the loose
+		// repeats of the first two, then the loose above.
+		if v, ok := scan(head, surround, true); ok {
+			return v, true
+		}
+		if v, ok := scan(belowHead, surround, true); ok {
+			return v, true
+		}
+		if v, ok := scan(head, above, true); ok {
+			return v, true
+		}
+		if v, ok := scan(head, surround, false); ok {
+			return v, true
+		}
+		if v, ok := scan(belowHead, surround, false); ok {
+			return v, true
+		}
+		return scan(head, above, false)
+	}
 	for _, strict := range []bool{true, false} {
 		for _, o := range offs {
 			p := world.Pos{X: head.X + o[0], Y: head.Y, Z: head.Z + o[1]}

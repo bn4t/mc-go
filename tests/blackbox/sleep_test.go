@@ -208,7 +208,11 @@ func TestSleepBedParity(t *testing.T) {
 			}
 		}
 		if !headHit {
-			t.Fatalf("%s: no block update at the bed's head pos for the occupied flip", s.label)
+			ids := map[int32]int{}
+			for _, p := range aPkts {
+				ids[p.id]++
+			}
+			t.Fatalf("%s: no block update at the bed's head pos for the occupied flip; ids %v headLong %x headLocal %x", s.label, ids, headLong, headLocal)
 		}
 		if len(dataResps) < 2 {
 			t.Fatalf("%s: sleeping NBT queries answered %d, want 2", s.label, len(dataResps))
