@@ -9092,3 +9092,25 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   inside; the pig shows no RootVehicle (vanilla-measured); dismount
   clears both.
 - **Commit**: server + test.
+
+## Slice 2026-09-27aw — AgeableMob/Animal age NBT parity
+
+- **Measured (jar + live sweep)**: `AgeableMob.addAdditionalSaveData`
+  emits `Age`/`ForcedAge`/`AgeLocked` unconditionally while
+  `canBeABaby`; `Animal` declares `InLove` separately — so
+  adult-only Animals (frog, camel_husk, parrot, zombie_nautilus)
+  emit InLove but NO age keys, and Slime is not AgeableMob at all
+  (it carries `Size`). Three distinct emission classes measured
+  live: full quad (35 types), InLove-only (4 types), none
+  (slime/magma_cube/zombie).
+- **Implemented**: Entity gains `ForcedAge`/`AgeLocked`/`InLove`;
+  `entitySaveMap` emits the age triple for `ageableTypes` and
+  `InLove` for `animalTypes`. `ageableTypes` drops slime/
+  magma_cube/sulfur_cube/frog/camel_husk/parrot/zombie_nautilus;
+  new `animalTypes` table (Animal leaves only). Summon parses
+  ForcedAge/AgeLocked (ageable) + InLove (animal) after Age.
+  Pig's templated extras lose the now-generic age quad.
+- **Pinned**: `TestAgeableNBTParity` — 43-type sweep, per-key
+  `data get` path queries (full-entity SNBT exceeds the chat
+  path), all three emission classes match.
+- **Commit**: server + test.

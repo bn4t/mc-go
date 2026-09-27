@@ -1086,6 +1086,17 @@ func (s *Server) runSummon(player string, args []string) reply {
 				e.Age = int32(snbtNum(av))
 				e.Baby = e.Age < 0
 			}
+			if fv, ok := tag.vals["ForcedAge"]; ok && ageableTypes[name] {
+				e.ForcedAge = int32(snbtNum(fv))
+			}
+			if lv, ok := tag.vals["AgeLocked"]; ok && ageableTypes[name] && snbtNum(lv) > 0 {
+				e.AgeLocked = true
+			}
+			// InLove is Animal's key — the non-Animal AgeableMobs
+			// (fish, villagers, cubes) ignore it.
+			if iv, ok := tag.vals["InLove"]; ok && animalTypes[name] {
+				e.InLove = int32(snbtNum(iv))
+			}
 			// Vanilla only reads IsBaby where the class declares the
 			// key — zombie family, piglin family, zoglin. An IsBaby
 			// summon on an AgeableMob (pig & friends) stays adult.
@@ -5956,21 +5967,37 @@ func (s *Server) mobDeathSound(e *Entity) {
 
 // ageableTypes is vanilla 26.2's AgeableMob leaf set — every type
 // whose readAdditionalSaveData honors Age (Animal, AbstractVillager,
-// AgeableWaterCreature, cubemobs, nautiluses). Babies of these types
-// count Age up toward 0 and grow up on arrival.
+// AgeableWaterCreature, nautiluses). Babies of these types count Age
+// up toward 0 and grow up on arrival. Adult-only Animals (frog,
+// camel_husk, parrot, zombie_nautilus) emit InLove but no age keys;
+// Slime+allies are not AgeableMob at all — they carry Size.
 var ageableTypes = map[string]bool{
 	"armadillo": true, "axolotl": true, "bee": true, "camel": true,
-	"camel_husk": true, "chicken": true, "cow": true, "mooshroom": true,
+	"chicken": true, "cow": true, "mooshroom": true,
 	"dolphin": true, "donkey": true, "horse": true, "llama": true,
+	"mule": true, "skeleton_horse": true, "trader_llama": true,
+	"zombie_horse": true, "cat": true, "ocelot": true, "fox": true,
+	"goat": true, "happy_ghast": true, "nautilus": true,
+	"panda": true, "pig": true,
+	"polar_bear": true, "rabbit": true, "sheep": true, "sniffer": true,
+	"glow_squid": true, "squid": true, "turtle": true, "wolf": true,
+	"strider": true, "hoglin": true, "villager": true,
+	"wandering_trader": true,
+}
+
+// animalTypes is ageableTypes minus the non-Animal AgeableMobs —
+// WaterAnimal squid family + dolphin and the AbstractVillager
+// villagers — since Animal alone declares InLove/LoveCause.
+var animalTypes = map[string]bool{
+	"armadillo": true, "axolotl": true, "bee": true, "camel": true,
+	"camel_husk": true, "chicken": true, "cow": true, "mooshroom": true,
+	"donkey": true, "horse": true, "llama": true,
 	"mule": true, "skeleton_horse": true, "trader_llama": true,
 	"zombie_horse": true, "cat": true, "ocelot": true, "fox": true,
 	"frog": true, "goat": true, "happy_ghast": true, "nautilus": true,
 	"zombie_nautilus": true, "panda": true, "parrot": true, "pig": true,
 	"polar_bear": true, "rabbit": true, "sheep": true, "sniffer": true,
-	"glow_squid": true, "squid": true, "turtle": true, "wolf": true,
-	"strider": true, "magma_cube": true, "slime": true,
-	"sulfur_cube": true, "hoglin": true, "villager": true,
-	"wandering_trader": true,
+	"turtle": true, "wolf": true, "strider": true, "hoglin": true,
 }
 
 // isBabyTypes is the set of types whose readAdditionalSaveData honors

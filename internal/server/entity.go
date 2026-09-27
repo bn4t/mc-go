@@ -136,6 +136,14 @@ type Entity struct {
 	// adults count a breeding cooldown down. Zombie-family babies use
 	// the IsBaby flag instead and never age.
 	Age int32
+	// ForcedAge/AgeLocked/InLove are AgeableMob's remaining save
+	// triple: forcedAge is the breeder's staged age, ageLocked pins
+	// baby state (a negative Age that never counts up), and inLove
+	// counts Animal's breeding window. All three write
+	// unconditionally on save, InLove only on Animal subclasses.
+	ForcedAge int32
+	AgeLocked bool
+	InLove    int32
 	// AngryAt/AngryUntil are NeutralMob's persistent anger: AngryAt is
 	// the provoker's uuid (zero when calm), AngryUntil the game time
 	// the anger lapses — 0 means the open-ended HurtByTargetGoal

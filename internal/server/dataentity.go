@@ -533,6 +533,17 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		}
 		m["PersistenceRequired"] = nbtBool(e.PersistenceRequired)
 		m["current_impulse_context_reset_grace_time"] = int32(0)
+		// AgeableMob.addAdditionalSaveData: the age triple always
+		// while canBeABaby; Animal declares InLove independently —
+		// adult-only Animals (frog, parrot, ...) emit it too.
+		if ageableTypes[typeName] {
+			m["Age"] = e.Age
+			m["ForcedAge"] = e.ForcedAge
+			m["AgeLocked"] = nbtBool(e.AgeLocked)
+		}
+		if animalTypes[typeName] {
+			m["InLove"] = e.InLove
+		}
 	}
 	if e.CustomName != "" {
 		m["CustomName"] = e.CustomName
@@ -910,11 +921,7 @@ var entitySaveExtras = map[string]map[string]any{
 		}},
 	},
 	"pig": {
-		"AgeLocked":     int8(0),
-		"Age":           int32(0),
 		"Brain":         map[string]any{"memories": map[string]any{}},
-		"ForcedAge":     int32(0),
-		"InLove":        int32(0),
 		"sound_variant": "minecraft:classic",
 		"variant":       "minecraft:temperate",
 	},
