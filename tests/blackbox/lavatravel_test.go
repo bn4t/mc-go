@@ -17,8 +17,11 @@ import (
 // (measured off the jar — skeletons, zombies and piglins omit it),
 // so nothing fires the aiStep jump arms and the mob sinks through
 // 4-deep lava and sits at the bed instead of bobbing the surface.
-// It's also fire-immune, so lava's 4-per-tick inside-effect leaves
-// its health untouched — a pig would die inside three ticks.
+// It's also fire-immune, so lava's every-tick lavaHurt (4.0 damage,
+// thinned to ~4 per 20 ticks by invulnerability frames, plus a 15s
+// reignite) leaves its health untouched — a pig in the same pool
+// burns out at ~41 ticks (4+4+4 > 10 health) and is gone by the
+// first read on both servers.
 // Measured on the 26.2 jar: reads at ~200t and ~320t both land the
 // skeleton's feet at exactly -60.0 on the pool bed.
 func TestMobLavaTravelParity(t *testing.T) {
@@ -63,6 +66,21 @@ func TestMobLavaTravelParity(t *testing.T) {
 					t.Fatalf("%s: wither skeleton summon never landed", s.label)
 				}
 			}
+			// The pig probes lavaHurt — the every-tick 4.0 hit vanilla
+			// applies to any non-fire-immune entity in lava. It burns
+			// out in ~41 ticks, so by the first read it's gone.
+			cmd = `summon minecraft:pig 10.5 -57 10.5`
+			for attempt := 0; attempt < 5; attempt++ {
+				sendCommand(t, pw, cmd)
+				time.Sleep(300 * time.Millisecond)
+				if d := dataGetAll(t, sink, pw,
+					"@e[type=minecraft:pig,limit=1,sort=nearest]"); d != "" {
+					break
+				}
+				if attempt == 4 {
+					t.Fatalf("%s: pig summon never landed", s.label)
+				}
+			}
 			readPos := func() (pos, bool) {
 				line := dataGetLine(t, sink, pw,
 					"@e[type=minecraft:wither_skeleton,limit=1,sort=nearest]", "Pos")
@@ -92,6 +110,12 @@ func TestMobLavaTravelParity(t *testing.T) {
 				t.Fatalf("%s: wither skeleton gone before mid-read", s.label)
 			}
 			mid[s.label] = p
+			// lavaHurt: the pig is dead on both servers by ~41 ticks —
+			// any survival means the contact damage never landed.
+			if d := dataGetAll(t, sink, pw,
+				"@e[type=minecraft:pig,limit=1,sort=nearest]"); d != "" {
+				t.Errorf("%s: pig survived 200 ticks in lava (still present)", s.label)
+			}
 			sendCommand(t, pw, "tick sprint 120")
 			time.Sleep(1200 * time.Millisecond)
 			p2, ok2 := readPos()

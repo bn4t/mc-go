@@ -2452,6 +2452,18 @@ func (s *Server) mobTickStep() {
 			e.GlowUntil = 0
 			s.broadcastMobSharedFlags(e.ID, e.FireTicks > 0, false)
 		}
+		// Entity.baseTick's lavaHurt: a non-fire-immune entity whose
+		// box touches lava reignites for 15 seconds every tick and
+		// takes a 4.0 lava hit — invulnerability frames inside
+		// damageMob thin that to an effective 4 per 20 ticks, so a
+		// 10-health pig dies to the contact in under two seconds.
+		if !mobFireImmune[fireName] && entityInLavaWorld(s.dimWorld(e.Dim), e) {
+			if e.FireTicks <= 0 {
+				s.broadcastMobSharedFlags(e.ID, true, e.GlowUntil > s.gameTime())
+			}
+			s.entities.SetFireTicks(e.ID, 300)
+			s.damageMob(e, 4, "lava", nil, &damageInfo{typeName: "lava"})
+		}
 		if e.invulnTicks > 0 {
 			e.invulnTicks--
 		}
