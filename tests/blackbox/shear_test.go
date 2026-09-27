@@ -25,9 +25,7 @@ import (
 func TestPlayerShearedEquipmentParity(t *testing.T) {
 	targets := requireBlackboxFiles(t, nil, map[string]string{
 		"ops.json": opsJSONFor("ShearP"),
-	}, func(s *server.Server) {
-		s.GameMode = server.GameModeSurvival
-	})
+	}, nil)
 	defer targets.cleanup()
 
 	run := func(addr string) *advFlush {
@@ -41,13 +39,18 @@ func TestPlayerShearedEquipmentParity(t *testing.T) {
 		sendCommand(t, pw, "gamemode survival @s")
 		sendCommand(t, pw, "advancement grant @s only minecraft:husbandry/tame_an_animal")
 		sendCommand(t, pw, "item replace entity @s weapon.mainhand with minecraft:shears")
-		sendCommand(t, pw, "tp @s 8.5 -60 10.5 180 0")
+		// Player 2.5z from the wolf: inside the 3.0 entity-interaction
+		// range, but the sheared armor's drop zone (floor(wolf z) ±0.25,
+		// plus ~0.3 of random motion drift) stays outside the 1.425
+		// pickup reach — take_item never fires, so the only
+		// advancement packets are the shear trigger itself.
+		sendCommand(t, pw, "tp @s 8.5 -60 10.0 180 0")
 		advCollect(t, c, pr, pw, 900*time.Millisecond, f)
 
 		// Wolf owned by the player so canShearEquipment passes, with
 		// wolf_armor already in the BODY slot.
 		u := server.OfflineUUID("ShearP")
-		sendCommand(t, pw, fmt.Sprintf(`summon minecraft:wolf 8.5 -60 8.5 {NoAI:1b,Owner:[I;%d,%d,%d,%d],equipment:{body:{id:"minecraft:wolf_armor",count:1}}}`,
+		sendCommand(t, pw, fmt.Sprintf(`summon minecraft:wolf 8.5 -60 7.5 {NoAI:1b,Owner:[I;%d,%d,%d,%d],equipment:{body:{id:"minecraft:wolf_armor",count:1}}}`,
 			int32(u[0])<<24|int32(u[1])<<16|int32(u[2])<<8|int32(u[3]),
 			int32(u[4])<<24|int32(u[5])<<16|int32(u[6])<<8|int32(u[7]),
 			int32(u[8])<<24|int32(u[9])<<16|int32(u[10])<<8|int32(u[11]),

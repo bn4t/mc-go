@@ -430,8 +430,11 @@ func (s *Server) mobMoveSync(e *Entity) {
 	posChanged := float64(dx*dx+dy*dy+dz*dz)/(4096.0*4096.0) >= 7.62939453125e-6
 	// Vanilla's periodic-resync reads the ENTITY's tickCount — one past
 	// this tracker's on the first sendChanges — so it never forces a
-	// position packet on the tick-0 gate.
-	pos := posChanged || (e.SyncCount+1)%60 == 0
+	// position packet on the tick-0 gate. PosDirty (vanilla's
+	// syncPosition needsSync, latched by snapTo at summon) forces the
+	// position branch even when the delta is zero — the pairing burst
+	// answers with a zero-delta move_entity_pos.
+	pos := posChanged || e.PosDirty || (e.SyncCount+1)%60 == 0
 	deltaTooBig := dx < -32768 || dx > 32767 || dy < -32768 || dy > 32767 || dz < -32768 || dz > 32767
 	var sentPos, sentRot bool
 	switch {

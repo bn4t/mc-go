@@ -9757,3 +9757,28 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   TestPlayerShearedEquipmentParity (mc-go misses the
   recipes/misc/wolf_armor_dyed unlock + a gamemode chat). Preexisting
   regressions from an earlier session commit — bisect next.
+
+## Slice: summon-time zero-delta move emit + shear-test determinism
+
+Regression triage after the dirty-pack slice surfaced two preexisting
+breaks and one flaky test:
+
+- `mobMoveSync`'s position gate dropped `e.PosDirty` when the
+  `!e.syncInit` latch branch moved to `latchSyncBaseline` (which clears
+  PosDirty silently). Vanilla's sendChanges forces the position branch
+  on syncPosition needsSync — snapTo's mark at summon answers the
+  pairing burst with a zero-delta move_entity_pos. Restored:
+  `pos := posChanged || e.PosDirty || period`. TestCureConversionSyncParity
+  (zombie_villager→villager wire shape) green again.
+- TestPlayerShearedEquipmentParity had a harness asymmetry — the test
+  set `s.GameMode=Survival` for mc-go while vanilla joins creative, so
+  `/gamemode survival @s` chatted on one leg only — and flaky geometry:
+  the wolf sat 2.0z from the player, close enough for the sheared
+  armor's random drop offset/drift to sometimes land inside the 1.425
+  pickup reach, emitting an extra wolf_armor_dyed advancement on one
+  leg. Both legs now join creative (matching vanilla), and the wolf
+  moved to 2.5z so the drop zone stays outside reach. Green.
+
+Also verified `rewards.recipes` is a non-path on 26.2: no game
+advancement declares recipe rewards (only recipe advancements
+self-unlock, already implemented), so nothing to wire.
