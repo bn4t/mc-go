@@ -202,6 +202,11 @@ type Session struct {
 	// eatingTicks counts down an in-progress food use.
 	eatingTicks int32
 	eatingItem  int32
+
+	// cooldowns is ServerPlayerItemCooldowns: use_cooldown group → the
+	// tick it frees (item id when the component names no group).
+	cdMu      sync.Mutex
+	cooldowns map[string]int64
 	// bowStartTick is the server tick a bow draw began on; zero means
 	// not drawing.
 	bowStartTick int64

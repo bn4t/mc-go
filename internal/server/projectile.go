@@ -1230,6 +1230,9 @@ func (s *Server) throwHandItem(sess *Session, hand int32, st ItemStack, name str
 	case "ender_pearl":
 		sndID, src = 604, 6 // entity.ender_pearl.throw, NEUTRAL
 		entName = "ender_pearl"
+	case "wind_charge":
+		sndID, src = 1773, 6 // entity.wind_charge.throw, NEUTRAL
+		entName = "wind_charge"
 	}
 	s.playSoundSrc(sess.dimName(), px, py, pz, sndID, src, 0.5, 0.4/(rand.Float32()*0.4+0.8), nil)
 	et, ok := EntityTypeID(entName)

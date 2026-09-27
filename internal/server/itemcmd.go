@@ -1227,6 +1227,9 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.DyedColor = 0
 			case "suspicious_stew_effects":
 				it.StewEffects = ""
+			case "ominous_bottle_amplifier":
+				it.BottleAmpSet = false
+				it.BottleAmp = 0
 			case "pot_decorations":
 				it.PotDeco = ""
 			default:
@@ -1507,6 +1510,18 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				}
 				it.LootSeed = n
 			}
+		case "ominous_bottle_amplifier":
+			// A bare int 0-4 (the codec bounds it — out of range is a
+			// malformed-component error).
+			if vtag.kind != snbtNumber {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			n, err := strconv.ParseInt(strings.TrimRight(vtag.num, "bBsSiIlLfFdD"), 10, 64)
+			if err != nil || n < 0 || n > 4 {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			it.BottleAmpSet = true
+			it.BottleAmp = int32(n)
 		case "potion_contents":
 			// potion_contents accepts a bare potion id or a compound
 			// with a potion field (potion_contents={potion="water"}).
@@ -1537,15 +1552,24 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 					break
 				}
 				idv, ok1 := e.vals["id"]
-				dv, ok2 := e.vals["duration"]
-				if !ok1 || !ok2 || idv.kind != snbtString || dv.kind != snbtNumber {
+				if !ok1 || idv.kind != snbtString {
 					bad = true
 					break
 				}
-				dur, err := strconv.ParseInt(strings.TrimRight(dv.num, "bBsSiIlLfFdD"), 10, 64)
-				if err != nil {
-					bad = true
-					break
+				// Entry.CODEC has duration as optionalFieldOf with
+				// SuspiciousStewEffects.DEFAULT_DURATION (160).
+				dur := int64(160)
+				if dv, ok2 := e.vals["duration"]; ok2 {
+					if dv.kind != snbtNumber {
+						bad = true
+						break
+					}
+					var err error
+					dur, err = strconv.ParseInt(strings.TrimRight(dv.num, "bBsSiIlLfFdD"), 10, 64)
+					if err != nil {
+						bad = true
+						break
+					}
 				}
 				parts = append(parts, strings.TrimPrefix(idv.str, "minecraft:")+":"+strconv.FormatInt(dur, 10))
 			}
