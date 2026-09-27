@@ -12,8 +12,8 @@ import (
 
 // attrMod is one /attribute modifier instance: amount plus operation.
 type attrMod struct {
-	value     float64
-	op        int // 0 add_value, 1 add_multiplied_base, 2 add_multiplied_total
+	value float64
+	op    int // 0 add_value, 1 add_multiplied_base, 2 add_multiplied_total
 	// permanent mirrors vanilla's permanentModifiers map — only
 	// permanent modifiers serialize into the attributes save list;
 	// transient ones (powder_snow frost, drinking) still reach the

@@ -581,6 +581,13 @@ type Entity struct {
 	// LeftHanded is Mob's 5% finalizeSpawn roll — a left-handed mob
 	// renders its mainhand item in the other hand.
 	LeftHanded bool
+	// DropChances is Mob.dropChances: per-equipment-slot drop chance
+	// overrides keyed by slot name (mainhand..saddle). Absent slots
+	// default to 0.085; a chance over 1.0 preserves the item (it
+	// drops unconditionally, undamaged). Parsed from the summon
+	// drop_chances compound and re-emitted whole when any slot
+	// differs from the default.
+	DropChances map[string]float64
 	// ImmuneToZombification / TimeInOverworld are the
 	// AbstractPiglin+Hoglin zombification pair: a converting mob
 	// (overworld, not NoAI) ticks TimeInOverworld to 300 then

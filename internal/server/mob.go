@@ -196,12 +196,44 @@ func (s *Server) spawnMobLoot(e *Entity, killer *Session) {
 	if !e.Baby && s.gameRuleBool("minecraft:mob_drops") {
 		s.spawnMobLootPools(e, killer, name, byPlayer)
 	}
-	// dropEquipment runs unconditionally — vanilla drops every
-	// equipment slot by its dropChance even when mob_drops is false.
-	// Only the captain banner's unconditional 2.0 is modeled; the
-	// default 0.085 slots are not.
-	if head := e.Equips[equipHelmet]; head.Ominous {
-		s.spawnMobStack(e, head)
+	// dropCustomDeathLoot rolls every equipment slot by its
+	// dropChance (Mob.dropCustomDeathLoot — it runs regardless of
+	// mob_drops): 0 never drops, >1.0 preserves (drops
+	// unconditionally and undamaged), otherwise the kill must be a
+	// player's and rand < chance+0.01·looting. A dropped damageable
+	// item lands nearly worn: damage = maxD − rand(1 + rand(max(1,
+	// maxD−3))).
+	var looting int32
+	if killer != nil {
+		looting = killer.heldStack().enchLevel("looting")
+	}
+	for _, ds := range equipDropSlots {
+		st, ok := e.Equips[ds.slot]
+		if !ok || st.Empty() {
+			continue
+		}
+		f := mobDropChance(e, ds.name)
+		if f == 0 {
+			continue
+		}
+		preserved := f > 1.0
+		if !byPlayer && !preserved {
+			continue
+		}
+		eff := f
+		if byPlayer && looting > 0 {
+			eff += 0.01 * float64(looting)
+		}
+		if !preserved && rand.Float64() >= eff {
+			continue
+		}
+		if !preserved {
+			if maxD := MaxDamageOfID(st.ID); maxD > 0 {
+				st.Damage = maxD - int32(rand.Intn(1+rand.Intn(int(max(1, maxD-3)))))
+			}
+		}
+		delete(e.Equips, ds.slot)
+		s.spawnMobStack(e, st)
 	}
 	// AbstractHorse.dropEquipment drops every non-empty inventory
 	// cell — saddle, body slot, chest cells — and
@@ -301,6 +333,52 @@ func (s *Server) spawnMobLootPools(e *Entity, killer *Session, name string, byPl
 // which mc-go's Ominous flag stands in for.
 func mobIsCaptain(e *Entity) bool {
 	return e.Equips[equipHelmet].Ominous
+}
+
+// equipSlotNames is EquipmentSlot.VALUES' name order — summon parse
+// and the drop_chances save emit both walk all eight.
+var equipSlotNames = []string{
+	"mainhand", "offhand", "feet", "legs", "chest", "head", "body", "saddle",
+}
+
+// equipDropSlots pairs the six shared Equips wire ids with their NBT
+// slot names in VALUES order (body/saddle live outside Equips).
+var equipDropSlots = []struct {
+	slot int32
+	name string
+}{
+	{equipMainHand, "mainhand"}, {equipOffHand, "offhand"},
+	{equipBoots, "feet"}, {equipLegs, "legs"},
+	{equipChest, "chest"}, {equipHelmet, "head"},
+}
+
+const mobDefaultDropChance = 0.085
+
+// mobDropChance is DropChances.byEquipment: the summon override when
+// present, else the patrol captain's guaranteed head drop, else the
+// 0.085 default.
+func mobDropChance(e *Entity, name string) float64 {
+	if e.DropChances != nil {
+		if v, ok := e.DropChances[name]; ok {
+			return v
+		}
+	}
+	if name == "head" && e.PatrolLeader {
+		return 2.0
+	}
+	return mobDefaultDropChance
+}
+
+// mobDropChancesOverridden reports whether any slot's chance differs
+// from DEFAULT — vanilla emits drop_chances only then (DropChances
+// equals check before the codec put).
+func mobDropChancesOverridden(e *Entity) bool {
+	for _, name := range equipSlotNames {
+		if mobDropChance(e, name) != mobDefaultDropChance {
+			return true
+		}
+	}
+	return false
 }
 
 // spawnMobItem drops one item stack at the mob's position — vanilla's
@@ -914,6 +992,16 @@ func (s *Server) runSummon(player string, args []string) reply {
 							}
 							e.BodyItem = ItemStack{ID: iid, Count: cnt}
 						}
+					}
+				}
+			}
+			if dc, ok := tag.vals["drop_chances"]; ok && e.Living {
+				for _, slot := range equipSlotNames {
+					if v, ok := dc.vals[slot]; ok {
+						if e.DropChances == nil {
+							e.DropChances = map[string]float64{}
+						}
+						e.DropChances[slot] = snbtNum(v)
 					}
 				}
 			}

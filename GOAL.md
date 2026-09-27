@@ -9046,3 +9046,27 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   drain the cart + shove the pig off the pad (bigger floor, fresh
   cart for the post-cooldown phase).
 - **Commit**: server + test.
+
+## Slice 2026-09-27au — drop_chances: per-slot equipment drop table
+
+- **Measured (jar)**: `Mob.dropCustomDeathLoot` iterates all
+  EquipmentSlot.VALUES — slot chance 0 never drops; `isPreserved`
+  (chance > 1.0) drops unconditionally and skips the wear roll;
+  otherwise the kill must be a player's and `rand < chance`, with
+  `EnchantmentHelper.processEquipmentDropChance` adding the killer's
+  looting to the chance. A dropped damageable item lands nearly worn:
+  `damage = maxD − rand(1 + rand(max(1, maxD−3)))`. `DropChances` is a
+  full eight-slot table defaulting 0.085; save emits `drop_chances`
+  (all eight keys) only while ≠ DEFAULT. `LivingEntity.dropEquipment`
+  is empty — this all lives in dropCustomDeathLoot.
+- **Implemented**: `Entity.DropChances` map parsed from the summon
+  `drop_chances` compound; `mobDropChance` (override → patrol-leader
+  head 2.0 → 0.085) feeding both the full eight-slot save emit and
+  the death loop. The death loop replaces the captain-banner-only
+  special case with the real per-slot roll: player-kill gate, preserve
+  bypass, looting bonus (+0.01/level), near-max damage randomization,
+  and slot clear on drop.
+- **Pinned**: `TestDropChancesParity` — `1.0f` emit through data get,
+  1.0+player-kill drops, 2.0 preserved drops on /kill, 1.0 gated on
+  /kill, 0.0 never drops. All four probes non-vacuous on both legs.
+- **Commit**: server + test.

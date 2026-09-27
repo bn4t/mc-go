@@ -673,8 +673,15 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 				m["RaidId"] = int32(e.Raid.id)
 			}
 		}
-		if e.PatrolLeader {
-			m["drop_chances"] = map[string]any{"head": float32(2)}
+		// Mob.saveAdditional writes drop_chances only while the table
+		// differs from DEFAULT — the codec then encodes the full
+		// eight-slot map, not just the overridden keys.
+		if mobDropChancesOverridden(e) {
+			dc := make(map[string]any, len(equipSlotNames))
+			for _, name := range equipSlotNames {
+				dc[name] = float32(mobDropChance(e, name))
+			}
+			m["drop_chances"] = dc
 		}
 	}
 	if typeName == "item" && !e.Item.Empty() {
