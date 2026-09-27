@@ -51,6 +51,7 @@ func TestUtilCommandParity(t *testing.T) {
 		`difficulty easy`,
 		`difficulty normal`,
 		`difficulty hard`,
+		`difficulty hard`,
 		`difficulty bogushard`,
 		`difficulty normal extra`,
 		`difficulty`,

@@ -73,6 +73,15 @@ func (s *Server) runDifficulty(args []string) reply {
 	if len(args) > 1 {
 		return errToken("command.unknown.argument", 2)
 	}
+	// setDifficulty throws ERROR_ALREADY_SAME_DIFFICULTY when the
+	// world's level data already holds the requested value.
+	s.rulesMu.Lock()
+	same := s.difficulty == d
+	s.rulesMu.Unlock()
+	if same {
+		return componentReply(commandError("commands.difficulty.failure",
+			translatable("options.difficulty."+args[0])))
+	}
 	s.setDifficulty(d)
 	return opsEchoReply(translatable("commands.difficulty.success", translatable("options.difficulty."+args[0])))
 }

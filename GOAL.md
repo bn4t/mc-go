@@ -9809,3 +9809,13 @@ heal]. Two measured divergences, both fixed:
   `health <= 4.0 → HEALING else REGENERATION`, which mc-go already
   matched).
 - TestWitchHealParity green: van [h31 h31 h24 h24], mc [h31 h24].
+
+## Slice: /difficulty same-value failure
+
+javap DifficultyCommand: setDifficulty throws
+ERROR_ALREADY_SAME_DIFFICULTY (commands.difficulty.failure with the
+target's display name, runtime exception — red, no parse context)
+when WorldData.getDifficulty already holds the requested value.
+mc-go reported success on every name. Added the same-value gate;
+TestUtilCommandParity gained a repeat `difficulty hard` in its
+sequence (the only place an unchanged value occurs) — green vs both.
