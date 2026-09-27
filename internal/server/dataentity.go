@@ -518,7 +518,7 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	if e.Living {
 		m["AbsorptionAmount"] = e.AbsorptionAmount
 		m["CanPickUpLoot"] = nbtBool(e.CanPickUpLoot)
-		m["DeathTime"] = int16(0)
+		m["DeathTime"] = int16(e.deathTicks)
 		m["FallFlying"] = int8(0)
 		if e.FallFlying {
 			m["FallFlying"] = int8(1)

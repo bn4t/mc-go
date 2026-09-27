@@ -9155,3 +9155,18 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   lava ticks on both legs; netherite_ingot + ancient_debris still
   riding at 80.
 - **Commit**: server + test.
+## Slice 2026-09-27az — death-pack scheduling (corpse linger)
+
+- **Measured (jar + live)**: `LivingEntity.tickDeath` is
+  `deathTime++`; at `>=20` vanilla broadcasts entity event 60 and
+  `remove(KILLED)`. `/kill` bypasses it entirely (Entity.kill =
+  remove — no corpse), and selectors never match a corpse on
+  EITHER server (mc-go already skips `Dying` in selection). The
+  `DeathTime` save key carries the live counter, not a constant.
+- **Implemented**: `data get` now emits `e.deathTicks` (was
+  hardcoded 0). Corpse linger, event 60 and the 20-tick removal
+  already existed.
+- **Pinned**: `TestDeathTimeParity` — raw-packet pin: entity_event
+  3 on death, entity_event 60 + remove_entities ~1s (20 ticks)
+  later, on both legs.
+- **Commit**: server + test.
