@@ -9019,3 +9019,30 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   the self-inclusive player arm. Both legs emitted exactly 1 pig
   motion + 1 self motion.
 - **Commit**: server + test.
+
+## Slice 2026-09-27at — boardingCooldown: 60-tick re-ride gate
+
+- **Measured (jar)**: `Entity.removePassenger` sets the departing
+  rider's `boardingCooldown = 60` (ent.txt:5685-5691); `Entity.tick`
+  decrements it unconditionally each tick (ent.txt:830-838);
+  `canRide(vehicle)` requires `!isShiftKeyDown && boardingCooldown
+  <= 0` (ent.txt:5525+), and `startRiding` consults canRide unless
+  forced. Net effect: a mob dropped off a vehicle can't be
+  re-scooped for three seconds.
+- **Implemented**: `Entity.BoardingCooldown`, counted down in the
+  living-mob tick loop ahead of `mobCheckDespawn` (mob.go). Armed at
+  both mob-dismount points: `minecartActivatorHit`'s powered-rail
+  eject and `runRideDismount` — which also fixed a latent bug where
+  `/ride @e pig dismount` cleared `veh.Passengers` but never cleared
+  the mob's own `Riding` field (the record stayed welded to the
+  cart). The scoop gate in `minecartPushPickup` now requires
+  `o.BoardingCooldown <= 0` (canRide).
+- **Pinned**: `TestBoardingCooldownParity` — a minecart lapping a
+  plain-rail loop scoops a NoAI pig off the track (one 0x6B mount
+  packet), `/ride dismount` drops it, laps inside the 60-tick window
+  emit no further mount, and a fresh cart after expiry re-scoops.
+  Vanilla needed the rig tuned twice: powered rail does NOT push a
+  stationary cart (initial `Motion` required) and lap collisions
+  drain the cart + shove the pig off the pad (bigger floor, fresh
+  cart for the post-cooldown phase).
+- **Commit**: server + test.

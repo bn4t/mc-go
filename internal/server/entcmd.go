@@ -293,6 +293,15 @@ func (s *Server) runRideDismount(rider *dataEntity) reply {
 		x, y, z, yaw, pitch, _ := rider.sess.Pos()
 		x, y, z = veh.X, veh.Y, veh.Z
 		s.teleportPlayerRot(rider.sess.getName(), x, y, z, yaw, pitch)
+	} else if rp, ok := s.entities.GetPtr(id); ok {
+		// A mob rider drops at the vehicle's position too — and
+		// Entity.removePassenger arms its 60-tick boardingCooldown.
+		rp.Riding = 0
+		rp.BoardingCooldown = 60
+		rp.X, rp.Y, rp.Z = veh.X, veh.Y, veh.Z
+		rp.PosDirty = true
+		rp.NeedsSync = true
+		s.mobSyncFlush(rp)
 	}
 	return opsEchoReply(translatable("commands.ride.dismount.success",
 		rider.nameComp(), entityDisplayName(veh)))

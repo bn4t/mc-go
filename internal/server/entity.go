@@ -430,6 +430,12 @@ type Entity struct {
 	// bypassed so even a no-knockback hurt flushes the delta to
 	// trackers and, for a player victim, to the victim itself.
 	HurtMarked bool
+	// BoardingCooldown is vanilla's Entity.boardingCooldown:
+	// removePassenger sets it to 60 on the departing rider, the
+	// entity tick counts it down, and canRide refuses a startRiding
+	// while it's still positive — an entity that just dismounted
+	// can't be re-scooped for three seconds.
+	BoardingCooldown int32
 	// TicksFrozen is vanilla's DATA_TICKS_FROZEN (NBT "TicksFrozen"):
 	// powder snow accrues one per tick up to 140
 	// (getTicksRequiredToFreeze), out-of-snow entities thaw at two

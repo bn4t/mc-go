@@ -2375,6 +2375,11 @@ func (s *Server) mobTickStep() {
 		// discard (PatrollingMonster's removeWhenFarAway re-keys on
 		// patrolling), and the >32 idle 1-in-800 roll.
 		e.NoActionTime++
+		// Entity.tick's boardingCooldown countdown — a just-dismounted
+		// mob can't be scooped again until it reaches zero.
+		if e.BoardingCooldown > 0 {
+			e.BoardingCooldown--
+		}
 		if s.mobCheckDespawn(e) {
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})

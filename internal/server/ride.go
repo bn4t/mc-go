@@ -1049,6 +1049,9 @@ func (s *Server) minecartActivatorHit(ep *Entity) {
 		for _, pid := range ep.Passengers {
 			if rp, ok := s.entities.GetPtr(pid); ok {
 				rp.Riding = 0
+				// Entity.removePassenger arms a 60-tick
+				// boardingCooldown on the departing rider.
+				rp.BoardingCooldown = 60
 				mobs = append(mobs, pid)
 			}
 		}
@@ -1123,7 +1126,7 @@ func (s *Server) minecartPushPickup(ep *Entity, name string) {
 			continue
 		}
 		if moving && !isCart && oname != "iron_golem" &&
-			len(ep.Passengers) == 0 && o.Riding == 0 {
+			len(ep.Passengers) == 0 && o.Riding == 0 && o.BoardingCooldown <= 0 {
 			// startRiding: the moving cart scoops the mob onto its
 			// seat (the attachment point at vehY+0.1875).
 			if op, ok := s.entities.GetPtr(o.ID); ok {
