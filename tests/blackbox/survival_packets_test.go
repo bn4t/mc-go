@@ -2129,6 +2129,21 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 				parts = append(parts, fmt.Sprintf("e%d:%d", eid, dur))
 			}
 			it.StewEffects = strings.Join(parts, ",")
+		case 74: // minecraft:pot_decorations: VarInt count then four
+			// item registry ids (back, left, right, front).
+			n, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			var deco []string
+			for ; n > 0; n-- {
+				iid, err := r.VarInt()
+				if err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				deco = append(deco, fmt.Sprintf("i%d", iid))
+			}
+			it.PotDeco = strings.Join(deco, ",")
 		case 13, 42: // minecraft:enchantments / stored_enchantments: VarInt map of enchant id to level (measured 26.2)
 			n, err := r.VarInt()
 			if err != nil {

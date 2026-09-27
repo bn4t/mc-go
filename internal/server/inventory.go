@@ -142,6 +142,10 @@ type ItemStack struct {
 	// record's single rgb int. 0 is a legal rgb but never occurs: the
 	// applyDyes mix divides positive channel sums, so 0 means absent.
 	DyedColor int32 `json:"dyed_color,omitempty"`
+	// PotDeco is the minecraft:pot_decorations component — the four
+	// side item names "back,left,right,front" (brick for a blank side).
+	// Empty means the component is absent.
+	PotDeco string `json:"pot_deco,omitempty"`
 }
 
 // Empty reports whether the slot holds nothing.
@@ -169,7 +173,8 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.MapID == other.MapID && it.MapPost == other.MapPost &&
 		it.BaseColor == other.BaseColor &&
 		it.FireworkExp == other.FireworkExp && it.Fireworks == other.Fireworks &&
-		it.Dye == other.Dye && it.DyedColor == other.DyedColor
+		it.Dye == other.Dye && it.DyedColor == other.DyedColor &&
+		it.PotDeco == other.PotDeco
 }
 
 // enchLevel reports the stack's level of one enchantment, or 0 when
@@ -238,6 +243,7 @@ const (
 	// name.
 	compPotionContents = 51
 	compStewEffects    = 53
+	compPotDeco        = 74
 	// The ominous-banner patch components: banner_patterns carries a
 	// layer list of (pattern holder, dye ordinal) pairs; tooltip_display
 	// is a hide bool plus a HolderSet of hidden component types;
@@ -377,6 +383,9 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 	if it.DyedColor != 0 {
 		add++
 	}
+	if it.PotDeco != "" {
+		add++
+	}
 	b.VarInt(add)
 	b.VarInt(0) // components to remove
 	if it.Damage != 0 {
@@ -438,6 +447,16 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 			b.VarInt(eid)
 			d, _ := strconv.Atoi(dur)
 			b.VarInt(int32(d))
+		}
+	}
+	if it.PotDeco != "" {
+		// PotDecorations STREAM_CODEC: ByteBufCodecs.list(4) of item
+		// registry ids — a VarInt count then four raw item ids in
+		// back, left, right, front order.
+		b.VarInt(compPotDeco)
+		b.VarInt(4)
+		for _, n := range strings.Split(it.PotDeco, ",") {
+			b.VarInt(int32(world.ItemIDs[n]))
 		}
 	}
 	if it.RepairCost != 0 {
@@ -873,6 +892,25 @@ func readSlotComponent(r *protocol.PacketReader, it *ItemStack, typ int32) error
 			parts = append(parts, name+":"+strconv.Itoa(int(dur)))
 		}
 		it.StewEffects = strings.Join(parts, ",")
+	case compPotDeco: // minecraft:pot_decorations — four item ids,
+		// back, left, right, front.
+		n, err := r.VarInt()
+		if err != nil {
+			return err
+		}
+		var parts []string
+		for ; n > 0; n-- {
+			iid, err := r.VarInt()
+			if err != nil {
+				return err
+			}
+			name, ok := itemNameOf(iid)
+			if !ok {
+				name = strconv.Itoa(int(iid))
+			}
+			parts = append(parts, name)
+		}
+		it.PotDeco = strings.Join(parts, ",")
 	case compRepairCost: // minecraft:repair_cost, VarInt payload
 		if it.RepairCost, err = r.VarInt(); err != nil {
 			return err

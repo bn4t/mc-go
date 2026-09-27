@@ -197,7 +197,13 @@ func matchDecoratedPot(r *data.Recipe, names []string, filled []bool, boxH, boxW
 			return ItemStack{}, false
 		}
 	}
-	return recipeStack(r.Result)
+	out, ok := recipeStack(r.Result)
+	if !ok {
+		return ItemStack{}, false
+	}
+	// assemble: PotDecorations(back,left,right,front) on the template.
+	out.PotDeco = names[1] + "," + names[3] + "," + names[5] + "," + names[7]
+	return out, true
 }
 
 // matchRepair handles crafting_special_repairitem. canCombine

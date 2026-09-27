@@ -36,7 +36,8 @@ func TestCraftRecipeParity(t *testing.T) {
 			"CraftV43", "CraftM43", "CraftV44", "CraftM44",
 			"CraftV45", "CraftM45", "CraftV46", "CraftM46",
 			"CraftV47", "CraftM47", "CraftV48", "CraftM48",
-			"CraftV49", "CraftM49"),
+			"CraftV49", "CraftM49", "CraftV50", "CraftM50",
+			"CraftV51", "CraftM51"),
 	}, nil)
 	defer tg.cleanup()
 
@@ -1020,6 +1021,51 @@ func TestCraftRecipeParity(t *testing.T) {
 				{tag: "r3", slot: 3},
 				{tag: "lift-w", slot: 40},
 				{tag: "w4", slot: 4},
+				{tag: "take", slot: 0},
+				{tag: "park", slot: 10},
+			},
+		},
+		{
+			// crafting_decorated_pot: the four edge middles (back,
+			// left, right, front) become pot_decorations on the pot.
+			name: "pot-deco", suf: "50", block: "minecraft:crafting_table", menu: 12,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:flow_pottery_sherd"},
+				{"hotbar.1", "minecraft:brick"},
+				{"hotbar.2", "minecraft:brick"},
+				{"hotbar.3", "minecraft:brick"},
+			},
+			steps: []step{
+				{tag: "lift-s", slot: 37},
+				{tag: "s2", slot: 2},
+				{tag: "lift-a", slot: 38},
+				{tag: "a4", slot: 4},
+				{tag: "lift-b", slot: 39},
+				{tag: "b6", slot: 6},
+				{tag: "lift-c", slot: 40},
+				{tag: "c8", slot: 8},
+				{tag: "take", slot: 0},
+				{tag: "park", slot: 10},
+			},
+		},
+		{
+			// Four sherds: every side carries its own decoration id.
+			name: "pot-sherds", suf: "51", block: "minecraft:crafting_table", menu: 12,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:angler_pottery_sherd"},
+				{"hotbar.1", "minecraft:blade_pottery_sherd"},
+				{"hotbar.2", "minecraft:mourner_pottery_sherd"},
+				{"hotbar.3", "minecraft:snort_pottery_sherd"},
+			},
+			steps: []step{
+				{tag: "lift-a", slot: 37},
+				{tag: "a2", slot: 2},
+				{tag: "lift-b", slot: 38},
+				{tag: "b4", slot: 4},
+				{tag: "lift-m", slot: 39},
+				{tag: "m6", slot: 6},
+				{tag: "lift-s", slot: 40},
+				{tag: "s8", slot: 8},
 				{tag: "take", slot: 0},
 				{tag: "park", slot: 10},
 			},

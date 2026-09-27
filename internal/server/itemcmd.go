@@ -1227,6 +1227,8 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.DyedColor = 0
 			case "suspicious_stew_effects":
 				it.StewEffects = ""
+			case "pot_decorations":
+				it.PotDeco = ""
 			default:
 				return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
 			}
@@ -1552,6 +1554,22 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 					"minecraft:suspicious_stew_effects", val), false
 			}
 			it.StewEffects = strings.Join(parts, ",")
+		case "pot_decorations":
+			// [item,item,item,item] — the four side items in
+			// back, left, right, front order.
+			if vtag.kind != snbtList || len(vtag.items) != 4 {
+				return ItemStack{}, errToken("arguments.item.component.malformed", tokNum,
+					"minecraft:pot_decorations", val), false
+			}
+			var parts []string
+			for _, e := range vtag.items {
+				if e.kind != snbtString {
+					return ItemStack{}, errToken("arguments.item.component.malformed", tokNum,
+						"minecraft:pot_decorations", val), false
+				}
+				parts = append(parts, strings.TrimPrefix(e.str, "minecraft:"))
+			}
+			it.PotDeco = strings.Join(parts, ",")
 		case "writable_book_content", "written_book_content":
 			// A malformed record fails the way vanilla's codec error
 			// does: Malformed '<component>' component: '<value>'.
