@@ -9070,3 +9070,25 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   1.0+player-kill drops, 2.0 preserved drops on /kill, 1.0 gated on
   /kill, 0.0 never drops. All four probes non-vacuous on both legs.
 - **Commit**: server + test.
+
+## Slice 2026-09-27av — Passengers save + mount back-reference
+
+- **Measured (jar + live)**: `Entity.saveWithoutId`'s tail emits
+  `Passengers` only while non-empty — each child via saveAsPassenger
+  (its own save + "id"). A passenger's Pos reads `(veh.X, ownY,
+  veh.Z)`. `save()` returns false for passengers, and `data get` on a
+  mounted mob measures NO `RootVehicle` key — that compound rides on
+  the passenger-save path (a session player's own save), not the
+  entity one.
+- **Implemented**: `entitySaveMap` now emits `Passengers` for a
+  vehicle (child saves through entitySaveMap + "id") and writes the
+  vehicle-relative Pos for a mob rider. `runRideMount` finally sets
+  the mob rider's `Riding` — it appended to `vehEnt.Passengers` but
+  never set the back-reference, so every /ride-mounted mob read as
+  dismounted (the minecart scoop path was the only place that set
+  it).
+- **Pinned**: `TestRideNBTParity` — mounted cart shows
+  `Passengers:[{id:"minecraft:pig"}]` with the pig's NoAI save
+  inside; the pig shows no RootVehicle (vanilla-measured); dismount
+  clears both.
+- **Commit**: server + test.

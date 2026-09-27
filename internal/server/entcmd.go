@@ -328,7 +328,12 @@ func (s *Server) runRideMount(sender *Session, rider *dataEntity, vehTok string)
 		return componentReply(commandError("argument.entity.notfound.entity"))
 	}
 	vehEnt.Passengers = append(append([]int32(nil), vehEnt.Passengers...), rid)
-	// The rider's client teleports onto the seat before the passenger
+	// startRiding sets both ends: the vehicle's passenger list plus
+	// the rider's own vehicle back-reference (a player rider's lives
+	// on the session record instead).
+	if rp := s.entityPtr(rider); rp != nil {
+		rp.Riding = vid
+	}
 	// list lands — vanilla's packet order is position then
 	// set_passengers. A command mount starts riding like an interact
 	// mount: rideTickStep seat-follows and banks the vehicle stat.

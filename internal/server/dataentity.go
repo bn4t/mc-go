@@ -765,6 +765,34 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 			}
 		}
 	}
+	// Entity.saveWithoutId's tail: a riding entity's Pos reads the
+	// vehicle's X/Z with its own Y (RootVehicle rides on the
+	// passenger-save path instead — data get on a mounted mob
+	// measures no RootVehicle key), and a vehicle emits Passengers
+	// only while non-empty (each child through saveAsPassenger: own
+	// save + "id").
+	if e.Riding != 0 && ents != nil {
+		if ve, ok := ents.GetPtr(e.Riding); ok {
+			m["Pos"] = nbt.List{Elem: nbt.TagDouble, Items: []any{ve.X, e.Y, ve.Z}}
+		}
+	}
+	if len(e.Passengers) > 0 && ents != nil {
+		list := nbt.List{Elem: nbt.TagCompound}
+		for _, pid := range e.Passengers {
+			pe, ok := ents.GetPtr(pid)
+			if !ok {
+				continue
+			}
+			pm := entitySaveMap(pe, now, ents).m
+			if pn, ok := EntityTypeName(pe.Type); ok {
+				pm["id"] = "minecraft:" + pn
+			}
+			list.Items = append(list.Items, pm)
+		}
+		if len(list.Items) > 0 {
+			m["Passengers"] = list
+		}
+	}
 	seq := append(append([]string{}, entitySaveSeq...), extraKeys...)
 	return entitySave{m: m, seq: seq}
 }
@@ -818,6 +846,7 @@ var entitySaveSeq = []string{
 	"PatrolLeader", "drop_chances", "IsBaby",
 	"IsImmuneToZombification", "TimeInOverworld",
 	"home_radius", "home_pos", "Wave", "CanJoinRaid", "RaidId",
+	"Passengers",
 }
 
 // overworldZombifyTypes are the mc-side types declaring the
