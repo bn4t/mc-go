@@ -257,6 +257,22 @@ func TestInsideEffectsParity(t *testing.T) {
 				sendCommand(t, pwA, "kill "+lg.pick)
 				time.Sleep(200 * time.Millisecond)
 			}
+
+			// Corpse-selector leg: kill a pig, then /data get inside the
+			// 20-tick corpse window — vanilla's @e never matches a dying
+			// entity even before removal (measured on 26.2).
+			pick := "@e[type=minecraft:pig,x=26.5,y=-60,z=10.5,distance=..2,limit=1]"
+			sendCommand(t, pwA, "setblock 26 -61 10 minecraft:stone")
+			sendCommand(t, pwA, "summon minecraft:pig 26.5 -60 10.5 {NoAI:1b}")
+			time.Sleep(300 * time.Millisecond)
+			sendCommand(t, pwA, "kill "+pick)
+			deadDump := dataGetAll(t, sink, pwA, pick)
+			t.Logf("%s corpse-selector: %s", s.label, deadDump)
+			// A dead entity matches in vanilla only if the selector still
+			// sees it — record whether any dump came back at all.
+			results[s.label]["corpse selectable"] = map[string]string{
+				"matched": map[bool]string{true: "yes", false: "no"}[deadDump != ""],
+			}
 		})
 	}
 
@@ -272,5 +288,9 @@ func TestInsideEffectsParity(t *testing.T) {
 	}
 	if blockCheck["vanilla"] != blockCheck["mcgo"] {
 		t.Errorf("melt leg block: vanilla air=%v mcgo air=%v", blockCheck["vanilla"], blockCheck["mcgo"])
+	}
+	vm, mm := results["vanilla"]["corpse selectable"], results["mcgo"]["corpse selectable"]
+	if vm["matched"] != mm["matched"] {
+		t.Errorf("corpse selectable: vanilla=%s mcgo=%s", vm["matched"], mm["matched"])
 	}
 }

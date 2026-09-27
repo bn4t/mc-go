@@ -2012,11 +2012,12 @@ func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, sin
 		})
 	}
 	if spec.variable == 'e' || spec.variable == 'n' {
-		// Dying-but-unremoved corpses still match — vanilla's selector
-		// counts them and /kill reports them in the total.
 		var mobs []*dataEntity
 		for _, e := range s.entities.All() {
-			if e.Dim != dim {
+			if e.Dim != dim || e.Dying {
+				// Vanilla's selector never returns a dying-but-unremoved
+				// corpse: measured on 26.2 — a dead pig's @e pick went
+				// empty while the corpse still ticked its 20-tick window.
 				continue
 			}
 			if n, _ := EntityTypeName(e.Type); n == "player" {
