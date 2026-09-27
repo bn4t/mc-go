@@ -9326,3 +9326,39 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   stand-up cell after the skip (both deterministic on flat ground);
   the occupied flip asserts a block update at the head pos in either
   0x08 or 0x54 form. Green on both servers.
+
+## Slice 2026-09-27cg — Guardian land flop + water air reset
+
+- **Measured** (Guardian.aiStep, server side of the isClientSide arm):
+  `isInWater()` → `setAirSupply(300)` every tick; else `onGround()` →
+  `delta += (rand·2−1)·0.4, 0.5, (rand·2−1)·0.4`, `setYRot(rand·360)`,
+  `setOnGround(false)`, `needsSync=true`. Tail: an active attack
+  target forces `yRot = yHeadRot`. The flop lives in Guardian.aiStep
+  itself — above `super.aiStep` — so it fires even under NoAI
+  (isEffectiveAi only gates serverAiStep/the goal chain). The swim
+  drive is GuardianMoveControl.tick (MOVE_TO: rotlerp 90°/tick yaw,
+  speed lerp 0.125, sin-wave bob delta, look-ahead look control) —
+  not implemented yet. ElderGuardian inherits the flop; its
+  customServerAiStep also does the Mining-Fatigue curse and the
+  home-claim — both already in.
+- **Implemented**: `guardianFlopStep` in the every-tick living section
+  (same placement as witch drink — outside the NoAI gate): water →
+  `AirSupply = 300`; grounded-on-land → the ±0.4/+0.5 delta add,
+  random yaw, grounded clear, NeedsSync latch.
+- **Pinned**: `TestGuardianFlopParity` — both servers: land guardian
+  + elder outside follow_range reach Pos[1] > floor+0.3 within a 6s
+  window, Motion reads nonzero while airborne, Rotation[0] jitters;
+  water-summoned guardian reads Air = 300. Green on both servers.
+- **New gap noted**: mc-go NoAI mobs never integrate motion — vanilla
+  NoAI entities still run LivingEntity.tick's travel/gravity (a NoAI
+  guardian flops on land on vanilla; mc-go latches airborne after one
+  hop because nothing applies the delta). Fix needs a NoAI-side
+  gravity/travel pass for mobs.
+- **Still open**: online mode, terrain gen, lighting, region/.dat
+  persistence, GuardianMoveControl swim (above), chicken-jockey,
+  nav-malus + moveTo nav.speedModifier, per-type needsSync writers,
+  player pose/swimming eye height, skeleton strafe friction-chain,
+  FallFlying real impl, resting MotionY micro-gap, bunk-bed stand-up
+  branch, per-damage-type hurt variants, selector nbt= arg,
+  non-recipe advancement triggers, enchanting/brewing/beacon/lectern
+  menus, real-client playtest at end.

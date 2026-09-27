@@ -2795,6 +2795,11 @@ func (s *Server) mobTickStep() {
 		if ambName == "witch" {
 			s.witchDrinkStep(e, s.dims[e.Dim])
 		}
+		// Guardian.aiStep's flop prelude is the same placement — above
+		// super.aiStep, so NoAI guardians flop too.
+		if mobBeam[ambName] {
+			s.guardianFlopStep(e, s.dimWorld(e.Dim))
+		}
 		if !e.NoAI && e.Riding == 0 && !nonMobLiving[ambName] {
 			// Drowned/stray conversion bookkeeping — inside the NoAI
 			// gate like vanilla's aiStep/tick placement.
@@ -6454,6 +6459,36 @@ var mobBeamMobKinds = map[string]bool{"squid": true, "axolotl": true}
 func beamMobKind(m *Entity) bool {
 	name, _ := EntityTypeName(m.Type)
 	return mobBeamMobKinds[name]
+}
+
+// guardianFlopStep runs Guardian.aiStep's land flop — measured off the
+// 26.2 bytecode: in water the air resets to getMaxAirSupply (300); out
+// of water while grounded the mob hops every tick — a random ±0.4
+// horizontal and +0.5 up added to the delta, a random yaw, grounded
+// cleared so the hop arcs instead of re-firing midair. The added
+// delta integrates through the regular move chain (mobMoveStep's
+// grounded/air paths); a NoAI guardian still mutates but mc-go's
+// NoAI mobs never integrate motion at all (vanilla falls under NoAI)
+// — the flop then latches airborne after one hop, matching that gap.
+func (s *Server) guardianFlopStep(e *Entity, w *world.World) {
+	if w == nil {
+		return
+	}
+	bounds := mobBounds(e.Type)
+	_, inWater, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, bounds[0]/2, bounds[1], fluidWater)
+	if inWater {
+		e.AirSupply = 300
+		return
+	}
+	if !e.Grounded {
+		return
+	}
+	e.MotionX += (rand.Float64()*2 - 1) * 0.4
+	e.MotionY += 0.5
+	e.MotionZ += (rand.Float64()*2 - 1) * 0.4
+	e.Yaw = rand.Float32() * 360
+	e.Grounded = false
+	e.NeedsSync = true
 }
 
 func (s *Server) mobGuardianStep(e *Entity, kn string) bool {
