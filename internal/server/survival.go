@@ -626,14 +626,18 @@ func (s *Server) itemTickStep() {
 				e.PosDirty = true
 			}
 		} else if orb {
-			// ExperienceOrb.tick: gravity (0.03) → scanForMerges every
-			// 20 → followNearbyPlayer's homing pull → move →
-			// applyEffectsFromBlocks → delta *= airDrag(+blockFriction
-			// grounded) on all axes → the orb's own bounce: the
-			// stored delta.y flips to -incoming*0.4 when the floor
-			// clamps a fall (overriding the shared restitution the
-			// move already ran).
-			if !e.NoGravity {
+			// ExperienceOrb.tick: Entity.tick's updateFluidInteraction
+			// runs the current push, then the eye-in-water branch
+			// replaces gravity — the orb formula damps xz 0.99 and
+			// caps the rise at y 0.06; otherwise gravity (0.03).
+			entityFluidTick(w, s.dims[e.Dim], e, 0.25, 0.5)
+			_, eyeInWater, _, _, _ := entityFluidScan(
+				w, e.X, e.Y+0.425, e.Z, 0, 0, fluidWater)
+			if eyeInWater {
+				e.MotionX *= 0.99
+				e.MotionY = math.Min(e.MotionY+0.0005, 0.06)
+				e.MotionZ *= 0.99
+			} else if !e.NoGravity {
 				e.MotionY -= 0.03
 			}
 			if e.OrbCount < 1 {
@@ -686,13 +690,26 @@ func (s *Server) itemTickStep() {
 				e.MotionY = -e.MotionY * 0.4
 			}
 		} else {
-			// ItemEntity.tick: gravity (0.04) → the rest-skip gate —
-			// grounded, dead-slow items only run the physics on
-			// (tickCount+id)%4==0 — → move → applyEffectsFromBlocks →
-			// delta *= (f3, airDrag, f3) where f3 is airDrag times the
-			// supporting block's friction when grounded → the grounded
-			// rest-bounce: a residual downward motion flips to -0.5×.
-			if !e.NoGravity {
+			// ItemEntity.tick: Entity.tick's updateFluidInteraction ran
+			// its current push; then the submersion branch replaces
+			// gravity — deeper than 0.1 in water or lava applies the
+			// fluid formula (xz damped 0.95, y lifted +0.0005 while
+			// under 0.06), else gravity (0.04) → the rest-skip gate →
+			// move → applyEffectsFromBlocks → delta *= (f3, airDrag,
+			// f3) where f3 is airDrag times the supporting block's
+			// friction when grounded → the grounded rest-bounce: a
+			// residual downward motion flips to -0.5×.
+			wDepth, inW, lDepth, inL := entityFluidTick(
+				w, s.dims[e.Dim], e, 0.125, 0.25)
+			submerged := inW && wDepth > 0.10000000149011612 ||
+				inL && lDepth > 0.10000000149011612
+			if submerged {
+				e.MotionX *= 0.95
+				if e.MotionY < 0.05999999865889549 {
+					e.MotionY += 0.0005
+				}
+				e.MotionZ *= 0.95
+			} else if !e.NoGravity {
 				e.MotionY -= 0.04
 			}
 			resting := e.Grounded &&
@@ -713,6 +730,14 @@ func (s *Server) itemTickStep() {
 			}
 		}
 		if !orb {
+			// ItemEntity.tick's tail runs updateFluidInteraction a
+			// second time — the current push applies again, and being
+			// in any fluid sets needsSync directly.
+			_, inW2, _, inL2 := entityFluidTick(
+				w, s.dims[e.Dim], e, 0.125, 0.25)
+			if inW2 || inL2 {
+				e.PosDirty = true
+			}
 			// ItemEntity.tick's intra-tick needsSync: a >0.1 net delta
 			// change bypasses the updateInterval gate and emits now.
 			ddx, ddy, ddz := e.MotionX-preDX, e.MotionY-preDY, e.MotionZ-preDZ
@@ -726,9 +751,14 @@ func (s *Server) itemTickStep() {
 		s.mobSyncFlush(e)
 		// ItemEntity.mergeWithNeighbours: every 2 ticks when the item
 		// crossed a block boundary this tick, else every 40 — the
-		// bigger stack absorbs the smaller into its own entity.
+		// bigger stack absorbs the smaller into its own entity. An
+		// empty stack is discarded outright (ItemEntity.tick's
+		// isEmpty -> discard) — continuing here would leave a ghost
+		// entity that never ages and never despawns.
 		if !orb && e.Item.Empty() {
-			continue // absorbed by a merge earlier this tick
+			s.entities.Remove(e.ID)
+			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+			continue
 		}
 		if !orb && itemMergable(e) {
 			interval := int32(40)

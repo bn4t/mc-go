@@ -94,7 +94,10 @@ func entityInsideSolid(w *world.World, x, y, z, half, height float64) bool {
 		for cy := int(math.Floor(minY)); cy <= int(math.Floor(maxY)); cy++ {
 			for cz := int(math.Floor(minZ)); cz <= int(math.Floor(maxZ)); cz++ {
 				b := w.GetBlock(world.Pos{X: cx, Y: cy, Z: cz})
-				if b == world.Air || world.NonSolid(b) {
+				// noCollision checks collision SHAPES — water, lava
+				// and the other shapeless cells don't count as solid
+				// (an item resting in water is not inside a solid).
+				if b == world.Air || world.NonSolid(b) || moveNoCollision(b) {
 					continue
 				}
 				if maxY > float64(cy) && minY < float64(cy)+collisionTopOf(b) {

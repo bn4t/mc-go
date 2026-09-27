@@ -1,6 +1,7 @@
 package server
 
 import (
+	"math"
 	"strconv"
 	"sync"
 
@@ -537,4 +538,129 @@ func (s *Server) setNaturalBlockNotify(d *dimension, pos world.Pos, blk, notify 
 	s.setSilentBlock(d, pos, blk)
 	s.wakeFluids(d, pos)
 	s.neighborSurvival(d, pos, notify)
+}
+
+// fluidSurfaceHeight is the rendered fluid surface inside a cell:
+// falling cells (level >= 8) read full height, flowing cells fall off
+// by level, sources sit at the top (level 0 -> 9/9 = 1).
+func fluidSurfaceHeight(level int) float64 {
+	if level >= 8 {
+		return 1.0
+	}
+	return float64(9-level) / 9
+}
+
+// entityFluidScan reads the fluid overlap for an entity box: the
+// deepest submersion (fluid surface above the feet, clamped to the
+// box), whether any cell held `kind`, and the accumulated horizontal
+// flow vector of flowing cells plus their count — the tracker state
+// EntityFluidInteraction.update builds for applyCurrentTo.
+func entityFluidScan(w *world.World, x, y, z, half, height float64, kind fluidKind) (depth float64, in bool, accX, accZ float64, accCount int) {
+	x0 := int(math.Floor(x - half))
+	x1 := int(math.Floor(x + half))
+	z0 := int(math.Floor(z - half))
+	z1 := int(math.Floor(z + half))
+	y0 := int(math.Floor(y))
+	y1 := int(math.Floor(y + height))
+	for cx := x0; cx <= x1; cx++ {
+		for cy := y0; cy <= y1; cy++ {
+			for cz := z0; cz <= z1; cz++ {
+				k, lv, ok := fluidOf(w.GetBlock(world.Pos{X: cx, Y: cy, Z: cz}))
+				if !ok || k != kind {
+					continue
+				}
+				in = true
+				surf := float64(cy) + fluidSurfaceHeight(lv)
+				if d := surf - y; d > depth {
+					depth = d
+				}
+				if lv >= 1 && lv <= fluidMaxLevel {
+					fx, fz := fluidFlowDir(w, cx, cy, cz, kind)
+					accX += fx
+					accZ += fz
+					accCount++
+				}
+			}
+		}
+	}
+	return depth, in, accX, accZ, accCount
+}
+
+// fluidFlowDir is the horizontal flow gradient of one flowing cell:
+// downhill is toward higher effective levels, with open space beside
+// the flow scoring the strongest pull (a cell off the edge). Solid
+// walls contribute nothing. The result is a unit vector; a still pool
+// edge returns zero.
+func fluidFlowDir(w *world.World, cx, cy, cz int, kind fluidKind) (float64, float64) {
+	_, lv, _ := fluidOf(w.GetBlock(world.Pos{X: cx, Y: cy, Z: cz}))
+	var dx, dz float64
+	for _, d := range [4][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}} {
+		nb := world.Pos{X: cx + d[0], Y: cy, Z: cz + d[1]}
+		nk, nlv, ok := fluidOf(w.GetBlock(nb))
+		var eff float64
+		switch {
+		case ok && nk == kind:
+			eff = float64(nlv)
+		case ok: // the other fluid — impassable like a solid wall
+			continue
+		default:
+			b := w.GetBlock(nb)
+			if b == world.Air || world.NonSolid(b) {
+				eff = float64(fluidFalling)
+			} else {
+				continue
+			}
+		}
+		w := eff - float64(lv)
+		if w <= 0 {
+			continue
+		}
+		dx += float64(d[0]) * w
+		dz += float64(d[1]) * w
+	}
+	l := math.Hypot(dx, dz)
+	if l == 0 {
+		return 0, 0
+	}
+	return dx / l, dz / l
+}
+
+// applyFluidCurrent is EntityFluidInteraction.Tracker.applyCurrentTo
+// for a non-player entity: the accumulated flow normalizes into a push
+// scaled by the tag's factor, with a floor ramp for a nearly still
+// entity in a weak current.
+func (e *Entity) applyFluidCurrent(accX, accZ float64, count int, factor float64) {
+	if count == 0 || accX*accX+accZ*accZ < 9.999999747378752e-6 {
+		return
+	}
+	l := math.Hypot(accX, accZ)
+	px, pz := accX/l*factor, accZ/l*factor
+	pl := math.Hypot(px, pz)
+	if math.Abs(e.MotionX) < 0.003 && math.Abs(e.MotionZ) < 0.003 && pl < 0.0045000000000000005 {
+		px = px / pl * 0.0045000000000000005
+		pz = pz / pl * 0.0045000000000000005
+	}
+	e.MotionX += px
+	e.MotionZ += pz
+}
+
+// entityFluidTick is Entity.updateFluidInteraction for pushable
+// entities (items, orbs): the water/lava current push plus the
+// submersion readings the tick's gravity-vs-underwater branch and the
+// needsSync arm need. The first two return values are the water depth
+// and presence; the last two the lava pair.
+func entityFluidTick(w *world.World, d *dimension, e *Entity, half, height float64) (waterDepth float64, inWater bool, lavaDepth float64, inLava bool) {
+	waterDepth, inWater, ax, az, ac := entityFluidScan(w, e.X, e.Y, e.Z, half, height, fluidWater)
+	lavaDepth, inLava, lx, lz, lc := entityFluidScan(w, e.X, e.Y, e.Z, half, height, fluidLava)
+	if inWater {
+		e.applyFluidCurrent(ax, az, ac, 0.014)
+	}
+	if inLava {
+		f := 0.0023333333333333335
+		if d != nil && d.ultraWarm {
+			f = 0.007
+		}
+		e.applyFluidCurrent(lx, lz, lc, f)
+	}
+	return waterDepth, inWater, lavaDepth, inLava
 }
