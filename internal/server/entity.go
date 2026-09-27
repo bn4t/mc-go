@@ -275,6 +275,11 @@ type Entity struct {
 	// passengers list); Riding is the vehicle id on the passenger.
 	Passengers []int32
 	Riding     int32
+	// WeldedPos marks the seat a passenger was last welded to: vanilla
+	// anchors a passenger's bounding box centered on the seat point,
+	// not at the feet, and keeps that box until the entity moves
+	// elsewhere — a NoAI rider's box stays welded forever.
+	WeldedPos *[3]float64
 	// VehAnchor is the listener's vehicleFirstGood anchor: the last
 	// vehicle position the driver's move_vehicle was validated
 	// against. Set at mount; updated on each accepted move.

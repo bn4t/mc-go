@@ -1337,6 +1337,7 @@ func (s *Server) minecartPushPickup(ep *Entity, name string) {
 				op.Riding = ep.ID
 				op.X, op.Z = ep.X, ep.Z
 				op.Y = ep.Y + 0.1875
+				op.WeldedPos = &[3]float64{op.X, op.Y, op.Z}
 				ep.Passengers = append(ep.Passengers, o.ID)
 				op.PosDirty = true
 				op.NeedsSync = true

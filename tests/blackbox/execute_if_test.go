@@ -181,6 +181,16 @@ func TestExecuteIfParity(t *testing.T) {
 		"execute as nosuchplayer run data get storage z:z",
 		"execute as @e[type=minecraft:pig,tag=" + tag + ",limit=1] if score @s nosuchobj matches 9",
 		"execute at @e[type=minecraft:pig,tag=" + tag + ",limit=1] if entity @s",
+		// tp through a forked @s moves the bound mob — the NoAI pig
+		// floats, so the destination and the follow-up Pos are
+		// deterministic on both servers.
+		"execute as @e[type=minecraft:pig,tag=" + tag + ",limit=1] run tp @s 3.5 -58 4.5",
+		"execute as @e[type=minecraft:pig,tag=" + tag + ",limit=1] run data get entity @s Pos",
+		"execute at @e[type=minecraft:pig,tag=" + tag + ",limit=1] run tp @s ~1 ~ ~-1",
+		"execute as @e[type=minecraft:pig,tag=" + tag + ",limit=1] run data get entity @s Pos",
+		"execute at @e[type=minecraft:pig,tag=" + tag + ",limit=1] run tp @s ~ ~-1 ~",
+		"execute as @e[type=minecraft:pig,tag=" + tag + ",limit=1] run data get entity @s Pos",
+		"tp @e[type=minecraft:pig,tag=" + tag + ",limit=1] 9.5 -59 10.5",
 		"execute at @s positioned 4 -59 4 run setblock ~ ~ ~ minecraft:stone",
 		"execute at @s positioned 4 -59 4 run setblock ~ ~ ~ minecraft:air",
 		"execute rotated 90 45 run data get storage z:z",

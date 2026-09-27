@@ -1125,6 +1125,25 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			e.Sheared = nbtTruth(v)
 		}
 	}
+	// AgeableMob.readAdditionalSaveData: the age triple lands on
+	// the live fields — baseTick then counts a positive Age down
+	// (breeding cooldown) or a negative one up toward grown.
+	if ageableTypes[name] {
+		if v, ok := nbtFloat(save["Age"]); ok {
+			e.Age = int32(v)
+			e.Baby = e.Age < 0
+			e.MetaDirty = true
+		}
+		if v, ok := nbtFloat(save["ForcedAge"]); ok {
+			e.ForcedAge = int32(v)
+		}
+		e.AgeLocked = nbtTruth(save["AgeLocked"])
+	}
+	if animalTypes[name] {
+		if v, ok := nbtFloat(save["InLove"]); ok {
+			e.InLove = int32(v)
+		}
+	}
 	// Raider.readAdditionalSaveData: Wave int, CanJoinRaid bool,
 	// and RaidId re-joins the raid when it still exists.
 	if raidRaiderType(name) {
@@ -1162,6 +1181,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"IsBaby": true, "IsImmuneToZombification": true,
 		"TimeInOverworld": true, "StrayConversionTime": true,
 		"TicksFrozen": true,
+		"Age":         true, "ForcedAge": true, "AgeLocked": true, "InLove": true,
 	}
 	if extra, ok := entitySaveExtras[name]; ok {
 		for k := range extra {
@@ -2369,6 +2389,25 @@ func (s *Server) selMatch(spec *selectorSpec, d *dataEntity, ax, ay, az float64)
 		w, h := d.aabbDims()
 		ex0, ey0, ez0 := px-w/2, py, pz-w/2
 		ex1, ey1, ez1 := px+w/2, py+h, pz+w/2
+		if d.mob != nil && d.mob.WeldedPos != nil {
+			wp := *d.mob.WeldedPos
+			if wp == [3]float64{px, py, pz} {
+				// A passenger welded to a seat keeps the
+				// riding box: the type's box centered on the
+				// seat point, not feet-anchored — it reaches
+				// half a bb below pos and persists after
+				// dismount until the entity moves again.
+				ab := mobBounds(d.mob.Type)
+				aw, ah := ab[0], ab[1]
+				ex0, ey0, ez0 = px-aw/2, py-ah/2, pz-aw/2
+				ex1, ey1, ez1 = px+aw/2, py+ah/2, pz+aw/2
+			} else {
+				// The entity moved off the seat — the welded
+				// box reverts to feet-anchored like vanilla's
+				// next setPos rebuild.
+				d.mob.WeldedPos = nil
+			}
+		}
 		vx0, vy0, vz0 := lo(ax, spec.dx), lo(ay, spec.dy), lo(az, spec.dz)
 		vx1, vy1, vz1 := hi(ax, spec.dx), hi(ay, spec.dy), hi(az, spec.dz)
 		if vx0 >= ex1 || vx1 <= ex0 || vy0 >= ey1 || vy1 <= ey0 || vz0 >= ez1 || vz1 <= ez0 {

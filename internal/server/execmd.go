@@ -1044,7 +1044,13 @@ func (s *Server) matchesBlockPredicate(d *dimension, pos world.Pos, blk world.Bl
 func (s *Server) runInDimension(player string, d *dimension, sub []string) reply {
 	switch sub[0] {
 	case "tp", "teleport":
-		return textReply(s.runExecuteTeleport(player, d, sub[1:]))
+		// The cross-dimension player hop is the only form the legacy
+		// stub carries: every other tp — entity targets, @s bound to a
+		// forked mob, same-dimension moves — belongs to the real
+		// command, which resolves selectors and echoes vanilla-style.
+		if s.tpNeedsDimHop(player, d, sub[1:]) {
+			return textReply(s.runExecuteTeleport(player, d, sub[1:]))
+		}
 	}
 	sess := s.findSessionByName(player)
 	if sess != nil && d != nil {
@@ -1056,6 +1062,39 @@ func (s *Server) runInDimension(player string, d *dimension, sub []string) reply
 		return r
 	}
 	return componentReply(unknownCommand())
+}
+
+// tpNeedsDimHop reports whether an execute-leaf tp is the
+// cross-dimension player form the runExecuteTeleport stub carries —
+// "tp [@s|<player>] x y z" whose resolved target is a session standing
+// in a different dimension. @s bound to a forked mob (or any mob
+// target) is not a hop: entity teleports inside a chain stay handled
+// by the real tp command.
+func (s *Server) tpNeedsDimHop(player string, d *dimension, args []string) bool {
+	if d == nil {
+		return false
+	}
+	target := player
+	if len(args) == 4 {
+		target = args[0]
+	} else if len(args) != 3 {
+		return false
+	}
+	var ts *Session
+	if target == "@s" || target == "@p" {
+		sess := s.findSessionByName(player)
+		if sess != nil && sess.execEnt != nil {
+			if sess.execEnt.sess == sess {
+				ts = sess
+			}
+			// A mob executor (or another player) is the real tp's job.
+		} else {
+			ts = sess
+		}
+	} else {
+		ts = s.findSessionByName(target)
+	}
+	return ts != nil && ts.dimension() != d
 }
 
 // resolveTarget maps a selector token to a live session.
@@ -1679,14 +1718,21 @@ func (s *Server) executeFork(ctx *executeContext, player, kind string, args []st
 	var merged reply
 	for _, c := range cands {
 		sub := *ctx
-		sub.ent = c
 		sub.forked = true
+		prevEnt, prevPos := sess.execEnt, sess.execPos
 		if kind == "at" {
+			// at re-anchors the origin only: the executing entity
+			// (@s) stays the sender — position and dimension change
+			// to the anchor's, the executor does not.
 			sub.pos = c.position()
 			sub.dim = c.dimOf(s)
+		} else {
+			// as swaps the executor AND re-anchors at it.
+			sub.ent = c
+			sub.pos = c.position()
+			sub.dim = c.dimOf(s)
+			sess.execEnt = c
 		}
-		prevEnt, prevPos := sess.execEnt, sess.execPos
-		sess.execEnt = c
 		p := sub.pos
 		sess.execPos = &p
 		r := s.execTail(&sub, player, args[1:], tokBase+1)

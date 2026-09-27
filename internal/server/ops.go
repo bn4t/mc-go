@@ -59,6 +59,17 @@ func parseDouble(tok string, base float64, center bool) (float64, error) {
 // in teleport-style arguments, falling back to world spawn.
 func (s *Server) baseExactPos(player string) (float64, float64, float64) {
 	if sess := s.findSessionByName(player); sess != nil {
+		// Inside an execute chain ~ resolves at the chain origin —
+		// the sender's spot for `as`, the entity's for `at`/
+		// positioned — same precedence as baseBlockPos.
+		if sess.execPos != nil {
+			p := sess.execPos
+			return p[0], p[1], p[2]
+		}
+		if sess.execEnt != nil && sess.execEnt.mob != nil {
+			m := sess.execEnt.mob
+			return m.X, m.Y, m.Z
+		}
 		x, y, z, _, _, _ := sess.Pos()
 		return x, y, z
 	}
@@ -361,7 +372,7 @@ func (s *Server) tpComp(d *dataEntity) component {
 	if d.sess != nil {
 		return s.entityTargetComponent(d.sess)
 	}
-	return translatable("entity.minecraft." + d.typeName())
+	return entityDisplayName(d.mob)
 }
 
 // tpToEntity is `tp <dest>` (victimsTok empty = issuer) and

@@ -1918,6 +1918,22 @@ func (s *Server) summonPassengers(sess *Session, veh *Entity, items []*snbtTag) 
 		if v, ok := sub.vals["IsChickenJockey"]; ok && snbtNum(v) > 0 && pname == "chicken" {
 			g.ChickenJockey = true
 		}
+		// Entity.load's Tags list applies to nested riders the same
+		// as the top-level summon — @e[tag=...] must see them.
+		if tv, ok := sub.vals["Tags"]; ok && tv.kind == snbtList {
+			var items []any
+			for _, it := range tv.items {
+				if it != nil && it.kind == snbtString {
+					items = append(items, it.str)
+				}
+			}
+			if len(items) > 0 {
+				if g.ExtraNBT == nil {
+					g.ExtraNBT = map[string]any{}
+				}
+				g.ExtraNBT["Tags"] = nbt.List{Elem: nbt.TagString, Items: items}
+			}
+		}
 		if pv, ok := sub.vals["Passengers"]; ok && pv.kind == snbtList {
 			s.summonPassengers(sess, g, pv.items)
 		}
@@ -1927,6 +1943,7 @@ func (s *Server) summonPassengers(sess *Session, veh *Entity, items []*snbtTag) 
 		g.Riding = veh.ID
 		veh.Passengers = append(veh.Passengers, g.ID)
 		g.X, g.Y, g.Z = passengerSeatPos(veh, g)
+		g.WeldedPos = &[3]float64{g.X, g.Y, g.Z}
 		s.broadcastFreshMob(g)
 	}
 	if len(veh.Passengers) > 0 {
@@ -1999,6 +2016,7 @@ func (s *Server) rideMobOnto(rider, mount *Entity) {
 	rider.Riding = mount.ID
 	mount.Passengers = append(mount.Passengers, rider.ID)
 	rider.X, rider.Y, rider.Z = passengerSeatPos(mount, rider)
+	rider.WeldedPos = &[3]float64{rider.X, rider.Y, rider.Z}
 	rider.PosDirty = true
 	rider.NeedsSync = true
 	s.mobSyncFlush(rider)
@@ -2051,6 +2069,9 @@ func (s *Server) mobRemovedPassengerCleanup(e *Entity) {
 			if e.Y > rp.Y {
 				rp.Y = e.Y
 			}
+			// The welded box persists at the dismount spot until the
+			// rider moves (a NoAI rider floats there forever).
+			rp.WeldedPos = &[3]float64{rp.X, rp.Y, rp.Z}
 			rp.BoardingCooldown = 60
 			rp.PosDirty = true
 			s.mobSyncFlush(rp)
@@ -3123,22 +3144,13 @@ func (s *Server) mobTickStep() {
 					if mobBeam[ambName] {
 						s.guardianMoveStep(e, w)
 					} else {
-						s.mobMoveStep(e, w, false)
+						s.mobMoveStep(e, w)
 					}
 				}
 			}
 			// LookAtPlayerGoal + RandomLookAroundGoal run alongside
 			// the move goals — the head re-aims on its own cadence.
 			s.mobLookStep(e)
-		}
-		if e.NoAI && e.Riding == 0 && !nonMobLiving[ambName] {
-			// Vanilla's NoAI gates only the goal selector — travel,
-			// gravity and fluid drift in aiStep still run, so a NoAI
-			// mob falls to the ground and a welded rider that just
-			// dismounted drops like any other entity.
-			if w := s.dimWorld(e.Dim); w != nil {
-				s.mobMoveStep(e, w, true)
-			}
 		}
 		s.mobSyncFlush(e)
 	}
@@ -3162,6 +3174,7 @@ func (s *Server) mobTickStep() {
 			nx, ny, nz := passengerSeatPos(e, rp)
 			if rp.X != nx || rp.Y != ny || rp.Z != nz {
 				rp.X, rp.Y, rp.Z = nx, ny, nz
+				rp.WeldedPos = &[3]float64{nx, ny, nz}
 				rp.PosDirty = true
 				rp.NeedsSync = true
 				s.mobSyncFlush(rp)
@@ -3212,10 +3225,10 @@ func (s *Server) mobInSimulationRange(e *Entity) bool {
 // rolls every strollInterval ticks, then walk to a picked target at the
 // movement_speed attribute until arrival, ledge, or give-up. It only
 // mutates entity state — the wire emission is mobSyncFlush's sendChanges
-// selection. physicsOnly runs just the travel/gravity half — vanilla's
-// LivingEntity.aiStep still moves a NoAI mob, it only skips the goal
-// selector — so a NoAI mob falls, drifts, and sinks like any other.
-func (s *Server) mobMoveStep(e *Entity, w *world.World, physicsOnly bool) {
+// selection. A NoAI mob never reaches it: LivingEntity.aiStep gates the
+// whole travel branch on isEffectiveAi, which NoAI makes false — a
+// NoAI entity floats where it stands, welded rider or not.
+func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	bounds := entityBBDims(e)
 	// LivingEntity.aiStep's tail pushes the walk input via
 	// Entity.push every tick — even all-zero — and push() latches
@@ -3234,10 +3247,7 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World, physicsOnly bool) {
 	// sink (a wither_skeleton sits at the lava bed).
 	thresh := floatJumpThreshold(e, bounds)
 	name, _ := EntityTypeName(e.Type)
-	// FloatGoal is a goal — its canUse/tick never runs under NoAI
-	// (physicsOnly); the externally-set Jumping flag below is aiStep
-	// physics and still applies.
-	if !physicsOnly && mobHasFloatGoal[name] && ((inWater && wDepth > thresh) || inLava) {
+	if mobHasFloatGoal[name] && ((inWater && wDepth > thresh) || inLava) {
 		if floatGoalRoll(e.ID, e.WanderTicks2) {
 			e.Jumping = true
 		}
@@ -3288,9 +3298,6 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World, physicsOnly bool) {
 	// slow fluid sink replaces the air fall, so mobGrounded never
 	// runs. entityFluidTick already scanned both tags this tick.
 	if !(inWater && wDepth > 0) && !(inLava && lDepth > 0) && !s.mobGrounded(e, w) {
-		return
-	}
-	if physicsOnly {
 		return
 	}
 	e.WanderTicks++

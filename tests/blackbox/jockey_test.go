@@ -32,7 +32,9 @@ func TestChickenJockeyParity(t *testing.T) {
 		babyTopMiss bool // standing baby's bb clears the [-59,-57.5] band
 		babyBandHit bool // a band clipping the baby bb top hits it
 		afterAlive  bool // rider survives the vehicle's death
-		afterGround bool // rider returns to ground level post-kill
+		afterFloat  bool // NoAI rider floats at the welded seat post-kill
+		afterGround bool // the welded bb dips to half a bb below seat
+		aiLands     bool // an AI rider ejects, falls, lands near weld
 		eggLay      bool // EggLayTime:3 lays an egg item nearby
 		eggSupp     bool // a jockey-flagged chicken suppresses the lay
 	}
@@ -58,6 +60,8 @@ func TestChickenJockeyParity(t *testing.T) {
 		miss := func(sel string, i int) bool { return !probe(sel, i) }
 
 		sendCommand(t, pw, "gamemode creative P")
+		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
+		time.Sleep(800 * time.Millisecond)
 		sendCommand(t, pw, "tp P 40.5 -60 40.5")
 		sendCommand(t, pw, "fill 40 -61 40 56 -61 48 minecraft:stone")
 		sendCommand(t, pw, `summon minecraft:chicken 44.5 -60 44.5 {NoAI:1b,IsChickenJockey:1b,Passengers:[{id:"minecraft:zombie",IsBaby:1b,NoAI:1b}]}`)
@@ -80,19 +84,35 @@ func TestChickenJockeyParity(t *testing.T) {
 		sendCommand(t, pw, "kill @e[type=minecraft:chicken]")
 		time.Sleep(1500 * time.Millisecond)
 		r.afterAlive = probe(`@e[type=minecraft:zombie,x=44,y=-61,z=44,dx=1,dy=3,dz=1]`, 7)
-		// The dismounted rider falls to the ground near the weld (the
-		// ~1-block horizontal drift varies run to run — vanilla pushes
-		// the still-overlapping corpse's bb apart; pin the envelope:
-		// bb intersects the ground band y[-60.05,-59] inside x/z[43,48]).
-		r.afterGround = probe(`@e[type=minecraft:zombie,x=43,y=-60.05,z=43,dx=4,dy=0.05,dz=4]`, 8)
+		// NoAI is fully passive — isEffectiveAi gates the whole
+		// travel branch, so the ejected rider floats at the welded
+		// seat forever. The welded box is centered on the seat:
+		// [-60.4625,-58.5125] for the adult 1.95 box — a high band
+		// y[-58.9,-58.7] touches its top half, a low band
+		// y[-60.1,-59.6] its bottom half.
+		r.afterFloat = probe(`@e[type=minecraft:zombie,x=44,y=-58.7,z=44,dx=1,dy=-0.2,dz=1]`, 8)
+		r.afterGround = probe(`@e[type=minecraft:zombie,x=44,y=-59.6,z=44,dx=1,dy=-0.5,dz=1]`, 9)
+		sendCommand(t, pw, "kill @e[type=minecraft:zombie]")
+		time.Sleep(400 * time.Millisecond)
+
+		// An AI rider ejects to the same welded spot, then its
+		// isEffectiveAi travel branch runs: it falls to the floor
+		// and wanders. Discriminate by position — the welded box
+		// overlaps either way, but a floating rider's pos sits
+		// 0.5125 above the floor point.
+		sendCommand(t, pw, `summon minecraft:chicken 50.5 -60 44.5 {NoAI:1b,IsChickenJockey:1b,Passengers:[{id:"minecraft:zombie",IsBaby:1b}]}`)
+		time.Sleep(400 * time.Millisecond)
+		sendCommand(t, pw, "kill @e[type=minecraft:chicken]")
+		time.Sleep(1500 * time.Millisecond)
+		r.aiLands = probe(`@e[type=minecraft:zombie,x=50.5,y=-60,z=44.4,distance=..0.45]`, 10)
 
 		sendCommand(t, pw, `summon minecraft:chicken 48.5 -60 44.5 {NoAI:1b,EggLayTime:3}`)
 		time.Sleep(900 * time.Millisecond)
-		r.eggLay = probe(`@e[type=minecraft:item,nbt={Item:{id:"minecraft:egg"}}]`, 9)
+		r.eggLay = probe(`@e[type=minecraft:item,nbt={Item:{id:"minecraft:egg"}}]`, 11)
 
 		sendCommand(t, pw, `summon minecraft:chicken 52.5 -60 44.5 {NoAI:1b,EggLayTime:3,IsChickenJockey:1b}`)
 		time.Sleep(900 * time.Millisecond)
-		r.eggSupp = miss(`@e[type=minecraft:item,nbt={Item:{id:"minecraft:egg"}},x=52,dx=2,z=44,dz=2]`, 10)
+		r.eggSupp = miss(`@e[type=minecraft:item,nbt={Item:{id:"minecraft:egg"}},x=52,dx=2,z=44,dz=2]`, 12)
 		return r
 	}
 
@@ -104,8 +124,8 @@ func TestChickenJockeyParity(t *testing.T) {
 		t.Fatalf("mismatch: vanilla %+v vs mc-go %+v", van, mc)
 	}
 	if !van.jockeyFlag || !van.vehPass || !van.seatNear || !van.seatTight ||
-		!van.babyTopMiss || !van.babyBandHit || !van.afterAlive || !van.afterGround ||
-		!van.eggLay || !van.eggSupp {
+		!van.babyTopMiss || !van.babyBandHit || !van.afterAlive || !van.afterFloat ||
+		!van.afterGround || !van.aiLands || !van.eggLay || !van.eggSupp {
 		t.Fatalf("positive legs failed on vanilla: %+v", van)
 	}
 }

@@ -9512,38 +9512,81 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   rider falls; a still-registered dead vehicle bb pushes it ~0.9
   diagonal off the weld — push direction is ill-conditioned (centers
   nearly coincide) and varies per run, so the pin is an envelope,
-  not a point. NoAI gates only the goal selector — aiStep travel/
-  gravity/jump-chain still runs under NoAI (a welded-then-ejected
-  NoAI rider falls like any entity); FloatGoal canUse does NOT run
+  not a point. NoAI is fully passive — `Mob.isEffectiveAi()` gates
+  the whole travel branch of aiStep, so a NoAI mob never runs
+  gravity at all: a welded-then-ejected NoAI rider FLOATS at the
+  seat forever (measured >3.3s). FloatGoal canUse does NOT run
   under NoAI.
 - **Implemented**: `entityBBDims(e)` (babyDimsTable → babyDimsScale →
   ·0.5 fallback) at every bb-construction site (ride, mob push/
   cramming, dataentity aabb, entityinside, explosion, firework,
   interact, itempickup, projectile, spear, tnt, gameadv);
   `passengerSeatPos(veh,rider)` in exact op order; riders emit the
-  real welded Pos in entity NBT; `mobMoveStep` gained `physicsOnly`
-  (fluid tick + aiStep jump chain + mobGrounded fall, skips FloatGoal
-  activation + wander tail) called for `NoAI && Riding==0` mobs;
-  `mobRemovedPassengerCleanup` applies `max(riderY, vehY)` on eject.
-- **Pinned**: `TestChickenJockeyParity` — 10 probes, green on both
+  real welded Pos in entity NBT; `mobRemovedPassengerCleanup`
+  applies `max(riderY, vehY)` on eject.
+- **Pinned**: `TestChickenJockeyParity` — 12 probes, green on both
   servers: IsChickenJockey flag + set_passengers wire, welded-seat
   `distance=..0.05`/`..0.005` pins, baby-bb band hit + top miss
   (0.49×0.98 vs adult 0.6×1.95), rider stays alive after `kill
-  @e[type=chicken]` and lands in the ground-band envelope near the
-  weld, EggLayTime lay + jockey-laying suppression.
+  @e[type=chicken]`, the welded bb's low band dips below the seat
+  (see 2026-09-27a for the centered-seat bb model), an AI rider
+  ejects and lands near the weld while the NoAI one floats, and
+  EggLayTime lay + jockey-laying suppression.
 - **Harness lessons**: `nbt=` Pos pins are ulp-fragile (vanilla
   serializes welded doubles at different bits than the literal —
   use `distance=`); existential list-nbt compare makes Pos probes
-  vacuous in multi-entity worlds; mc-go `execute as @e` `@s` and
-  `data get` on mobs return nothing (logged gap — probe via
-  distance/box selectors instead); exact welded positions of a
+  vacuous in multi-entity worlds; exact welded positions of a
   dying vehicle's rider vary per run on vanilla (corpse push) —
   pin region envelopes.
-- **Surfaced gaps** (unpinned): `execute as @e … tp @s`/`data get`
-  on mobs silent on mc-go; vanilla's own Pos double bits differ
+- **Surfaced gaps** (unpinned): vanilla's own Pos double bits differ
   from literal NBT; entity-type `#tag` selectors verified working
   (earlier note was stale); dead-entity 20-tick linger + corpse
   push-apart not modeled (dismount lands inside envelope anyway);
   NoAI mobs still skip `mobLookStep` (head aim is a goal — correct)
   but also skip the fluid `entityFluidTick` push specifics of
   boats/minecarts (non-living path unchanged).
+
+## Slice 2026-09-27a — execute-as/at retarget, welded-bb model, Age write
+
+- **Gap list**: the execute-fork entity semantics the earlier entry
+  logged as "silent on mobs", the welded passenger's selector-visible
+  bounding box, and the `/data`-written AgeableMob fields.
+- **Measured** (javap EntitySelector + live band sweeps + `data get`
+  probes on 26.2): vanilla `execute as @e` swaps the executor AND
+  re-anchors position/dim at the entity; `execute at @e` re-anchors
+  position/dim only — `@s` stays the sender. A welded passenger's
+  selector bb is the type's bounding box CENTERED on the seat point
+  (a baby zombie welded to -59.4875 spans [-60.4625,-58.5125] —
+  1.95 tall reaching 0.975 below pos), persisting after the
+  vehicle's death until the entity moves again. `data modify /
+  store result entity` writes to Age/ForcedAge/AgeLocked/InLove
+  land on the real AgeableMob fields — a written Age=9 counts down
+  to 0 through baseTick even under NoAI.
+- **Implemented**: `executeFork` splits the two forks (`as` sets
+  executor + re-anchors; `at` re-anchors only, `@s` stays the
+  sender); `tpNeedsDimHop` only intercepts true cross-dim player
+  hops so `execute as @e run tp @s` reaches the real tp;
+  `baseExactPos` honors the execute-context pos/entity before the
+  session pos; `summonPassengers` applies nested `Tags` lists;
+  `Entity.WeldedPos` records the last seat weld (set on summon
+  weld, cart scoop, seat-follow tick, dismount cleanup) and the
+  selector bb reads the type's box centered on it while the entity
+  still sits there — a moved entity's bb reverts to feet-anchored
+  like vanilla's next setPos rebuild; `tpComp` emits the decorated
+  entity namecomp (hover show_entity + uuid insertion) instead of
+  a bare translate; `applyEntitySave` maps Age/ForcedAge/AgeLocked
+  for ageable types and InLove for animal types to the live fields
+  (Baby resyncs from Age<0) instead of ExtraNBT.
+- **Pinned**: `TestExecuteIfParity` gains tp-fork rows (`as` moves
+  the entity, `at` moves the sender at entity-anchored coords, the
+  Pos reads and decorated feedback shape) plus the Age store/read
+  pair — green on both servers. `TestChickenJockeyParity` re-pins
+  the welded-bb low band as a positive hit on both legs and the
+  AI-rider landing by position (distance, not box).
+- **Surfaced gaps** (unpinned): `execute as @e run in <dim> run tp`
+  for a mob still can't dim-hop (only session players route the
+  intercept); the physical collision bb under a welded passenger is
+  still feet-anchored on mc-go (only the selector path measured);
+  `data get entity @s` inside `execute at` reads the sender — the
+  anchor's own data needs a separate `@e`-first form, same as
+  vanilla.
