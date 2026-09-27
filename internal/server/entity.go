@@ -395,6 +395,11 @@ type Entity struct {
 	// 100 on a player-caused hurt, counting down in mobTickStep — the
 	// killed_by_player window for loot gating and XP.
 	LastHurtByPlayerTicks int32
+	// LastHurtByPlayerUUID is the player behind that hurt — vanilla's
+	// lastHurtByPlayer reference, which getKillCredit resolves so the
+	// scoreboard kill criteria bump whoever hurt last, not whoever
+	// landed the final blow.
+	LastHurtByPlayerUUID [16]byte
 	// Dying mobs lie as a corpse for twenty ticks (vanilla's
 	// deathTime window) before the death-poof event and removal.
 	Dying      bool

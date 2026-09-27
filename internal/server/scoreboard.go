@@ -321,6 +321,80 @@ func scoreValue(e *sbScore) int32 {
 	return e.value
 }
 
+// bumpCriteria adds delta to every objective with the named criteria
+// for the holder and broadcasts each write — forAllObjectives with an
+// increment consumer, which creates the score on objectives where the
+// holder was untracked.
+func (s *Server) bumpCriteria(holder, criteria string, delta int32) {
+	type objWrite struct {
+		obj string
+		val int32
+	}
+	var writes []objWrite
+	s.board.mu.Lock()
+	for name, o := range s.board.objectives {
+		if o.criteria != criteria {
+			continue
+		}
+		v := scoreValue(s.board.scores[holder][name]) + delta
+		s.setScoreLocked(holder, name, v)
+		writes = append(writes, objWrite{name, v})
+	}
+	s.board.mu.Unlock()
+	for _, w := range writes {
+		s.broadcastScore(holder, w.obj, w.val)
+	}
+}
+
+// teamColorOf is the criteria color name of the holder's team — the
+// teamkill/killedByTeam objective suffix — empty when the holder has
+// no team or the team has no color.
+func (s *Server) teamColorOf(name string) string {
+	s.board.mu.Lock()
+	defer s.board.mu.Unlock()
+	for _, t := range s.board.teams {
+		if t.members[name] && t.color >= 0 && int(t.color) < len(vanillaTeamColors) {
+			return vanillaTeamColors[t.color]
+		}
+	}
+	return ""
+}
+
+// killCreditPlayer resolves LivingEntity.getKillCredit for a dead
+// player: the last player to hurt them inside the 100-tick window, or
+// nil when nobody did (mob kill, unattributed source, expired window,
+// killer logged off).
+func (s *Server) killCreditPlayer(sess *Session) *Session {
+	if sess.lastHurtPlayerTicks <= 0 {
+		return nil
+	}
+	return s.sessionByUUID(sess.lastHurtPlayerBy)
+}
+
+// awardKillScore runs ServerPlayer.awardKillScore on the credited
+// player: the kill-count stats (which feedStatCriteria mirrors onto
+// totalKillCount/playerKillCount objectives — bumping them directly
+// would double-count), teamkill.<victim's team color> on the killer,
+// and killedByTeam.<killer's team color> on the victim's holder.
+// victim==killer earns nothing. Mob killers run Entity's empty
+// override, so they never reach here.
+func (s *Server) awardKillScore(killer *Session, victimHolder string, victimPlayer bool) {
+	if victimHolder == killer.getName() {
+		return
+	}
+	if victimPlayer {
+		killer.addCustomStat("player_kills", 1)
+	} else {
+		killer.addCustomStat("mob_kills", 1)
+	}
+	if vc := s.teamColorOf(victimHolder); vc != "" {
+		s.bumpCriteria(killer.getName(), "teamkill."+vc, 1)
+	}
+	if kc := s.teamColorOf(killer.getName()); kc != "" {
+		s.bumpCriteria(victimHolder, "killedByTeam."+kc, 1)
+	}
+}
+
 // removeScoreLocked drops one score and the holder itself once it has
 // none left, mirroring vanilla's tracked-player set.
 func (s *Server) removeScoreLocked(holder, objective string) {

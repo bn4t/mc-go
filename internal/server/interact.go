@@ -256,7 +256,6 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 				}
 				if died {
 					sess.addStat(statKilled, e.Type, 1)
-					sess.addCustomStat("mob_kills", 1)
 					s.onPlayerKilledMob(sess, e)
 				}
 				if !graced {

@@ -2055,6 +2055,7 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 		// writes go through the manager's stored pointer.
 		if ep, ok := s.entities.GetPtr(e.ID); ok {
 			ep.LastHurtByPlayerTicks = 100
+			ep.LastHurtByPlayerUUID = killer.uuid
 			if ep.Raid != nil {
 				// Raid.updateHeroes: landing damage on a raider
 				// makes the attacker a hero-of-the-village target.
@@ -2132,6 +2133,15 @@ func (s *Server) mobDie(e *Entity, killer *Session, silent bool) {
 		s.gameRuleBool("minecraft:mob_drops") {
 		if name, ok := EntityTypeName(e.Type); ok {
 			s.spawnMobXP(e.Dim, name, e.X, e.Y, e.Z)
+		}
+	}
+	// getKillCredit().awardKillScore: the last player to hurt within
+	// the 100-tick window earns the scoreboard kill criteria, whoever
+	// landed the final blow — Entity's empty override means mob
+	// killers never bump scores.
+	if e.LastHurtByPlayerTicks > 0 {
+		if src := s.sessionByUUID(e.LastHurtByPlayerUUID); src != nil {
+			s.awardKillScore(src, sprintUUID(e.UUID), false)
 		}
 	}
 }

@@ -582,7 +582,6 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 					s.firePlayerHurtEntity(shooter, typeName, true, damage, "", false)
 					if died {
 						shooter.addStat(statKilled, t.Type, 1)
-						shooter.addCustomStat("mob_kills", 1)
 						if tn, ok := EntityTypeName(t.Type); ok {
 							vx, vz := t.X, t.Z
 							ax, _, az, _, _, _ := shooter.Pos()

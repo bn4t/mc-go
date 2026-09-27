@@ -1002,14 +1002,20 @@ func (s *Server) killPlayer(sess *Session, message component) {
 	if killer := s.entityByID(sess.lastHurtBy); killer != nil {
 		sess.addStat(statKilledBy, killer.Type, 1)
 	}
-	if src := s.sessionByEntityID(sess.lastHurtBy); src != nil {
+	// Vanilla resolves the kill credit — the last player to hurt inside
+	// the 100-tick window — not the killing blow's source.
+	if src := s.killCreditPlayer(sess); src != nil {
 		src.addStat(statKilled, mustEntityType("player"), 1)
-		src.addCustomStat("player_kills", 1)
-		// player_killed_entity fires for player victims too — the
-		// advancement's killed_something criterion matches any entity.
-		vx, _, vz, _, _, _ := sess.Pos()
-		ax, _, az, _, _, _ := src.Pos()
-		s.firePlayerKilledEntity(src, "player", vx, vz, ax, az, false)
+		// awardKillScore and its PLAYER_KILLED_ENTITY trigger skip
+		// victim==killer.
+		if src != sess {
+			s.awardKillScore(src, sess.getName(), true)
+			// player_killed_entity fires for player victims too — the
+			// advancement's killed_something criterion matches any entity.
+			vx, _, vz, _, _, _ := sess.Pos()
+			ax, _, az, _, _, _ := src.Pos()
+			s.firePlayerKilledEntity(src, "player", vx, vz, ax, az, false)
+		}
 	}
 	// entity_killed_player is the victim-side trigger (killed_by_-
 	// something on adventure/root): fires whenever an entity did the
@@ -1085,6 +1091,11 @@ func (s *Server) respawnPlayer(sess *Session) {
 	sess.food = defaultFood
 	sess.saturation = defaultSaturation
 	sess.fallDistance = 0
+	// Damage-source refs live on the dying entity — the respawned one
+	// carries no attacker memory.
+	sess.lastHurtBy = 0
+	sess.lastHurtPlayerBy = [16]byte{}
+	sess.lastHurtPlayerTicks = 0
 
 	overworld := s.dims[dimOverworld]
 	// A /spawnpoint (or bed/anchor) respawn wins over the world spawn;

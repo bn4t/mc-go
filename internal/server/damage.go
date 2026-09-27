@@ -182,6 +182,13 @@ func (s *Server) damageWith(sess *Session, amount float32, message component, sr
 		sess.invulnTicks = 20
 	}
 	sess.lastHurtBy = src.cause
+	// Vanilla marks lastHurtByPlayer only when the damage source's
+	// entity is a player — mob and unattributed hurts leave the
+	// credit window untouched.
+	if cs := s.sessionByEntityID(src.cause); cs != nil {
+		sess.lastHurtPlayerBy = cs.uuid
+		sess.lastHurtPlayerTicks = 100
+	}
 	// A raised shield negates projectile damage outright: vanilla swaps
 	// the damage event for the blocked-by-shield type, plays the shield
 	// sound, and fires entity_hurt_player with blocked=true. The hit

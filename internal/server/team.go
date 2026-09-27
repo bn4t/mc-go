@@ -107,9 +107,25 @@ func (s *Server) runTeam(player string, args []string) reply {
 		}
 		var names []string
 		for _, tok := range targets {
-			for _, sess := range s.resolveTargets(player, tok) {
-				names = append(names, sess.getName())
+			if len(tok) > 0 && tok[0] == '@' {
+				// Entity selectors join every match under its
+				// scoreboard name — a mob's is its UUID string.
+				cands, rep := s.selectDataEntities(sender, tok, 2, false)
+				if rep != nil {
+					return *rep
+				}
+				for _, d := range cands {
+					names = append(names, d.selHolder())
+				}
+				continue
 			}
+			if sess := s.findSessionByName(tok); sess != nil {
+				names = append(names, sess.getName())
+				continue
+			}
+			// ScoreHolder arguments accept free-form names — a holder
+			// need not be a live entity.
+			names = append(names, tok)
 		}
 		for _, n := range names {
 			s.teamJoin(t, n)
@@ -135,12 +151,27 @@ func (s *Server) runTeam(player string, args []string) reply {
 		}
 		var names []string
 		for _, tok := range targets {
+			if len(tok) > 0 && tok[0] == '@' {
+				cands, rep := s.selectDataEntities(sender, tok, 1, false)
+				if rep != nil {
+					return *rep
+				}
+				for _, d := range cands {
+					names = append(names, d.selHolder())
+				}
+				continue
+			}
 			if sess := s.findSessionByName(tok); sess != nil {
 				names = append(names, tok)
 				continue
 			}
+			matched := false
 			for _, sess := range s.resolveTargets(player, tok) {
 				names = append(names, sess.getName())
+				matched = true
+			}
+			if !matched {
+				names = append(names, tok)
 			}
 		}
 		for _, n := range names {

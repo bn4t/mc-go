@@ -266,6 +266,14 @@ type Session struct {
 	// lastHurtBy is the entity id of the most recent damage source's
 	// attacker, for killed_by/kill-score stat attribution.
 	lastHurtBy int32
+	// lastHurtPlayerBy/lastHurtPlayerTicks are LivingEntity's
+	// lastHurtByPlayer + lastHurtByPlayerMemoryTime: the last PLAYER to
+	// hurt this player, ticking down from 100 — getKillCredit resolves
+	// it on death for scoreboard kill criteria. Mob/unattributed hurts
+	// leave it untouched; respawn clears it with the rest of the
+	// per-entity state.
+	lastHurtPlayerBy    [16]byte
+	lastHurtPlayerTicks int32
 	// healthDirty marks health/food/saturation changes to sync. Vanilla
 	// sends at most one Set Health per player per tick, carrying the
 	// end-of-tick values, so tick-side writers set this instead of

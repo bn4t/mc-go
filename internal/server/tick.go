@@ -479,6 +479,9 @@ func (s *Server) playerTick() {
 		if sess.invulnTicks > 0 {
 			sess.invulnTicks--
 		}
+		if sess.lastHurtPlayerTicks > 0 {
+			sess.lastHurtPlayerTicks--
+		}
 		if sess.attackTicker < 200 {
 			sess.attackTicker++
 		}

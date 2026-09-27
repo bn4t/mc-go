@@ -133,7 +133,6 @@ func (s *Server) spearJabTick(sess *Session) {
 				sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
 				if died {
 					sess.addStat(statKilled, e.Type, 1)
-					sess.addCustomStat("mob_kills", 1)
 					s.onPlayerKilledMob(sess, *e)
 				}
 			}
