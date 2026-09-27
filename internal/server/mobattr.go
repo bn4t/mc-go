@@ -18,13 +18,21 @@ func mobZombieFamily(name string) bool {
 	return ok
 }
 
-// horseFamilyAttrTouch is the AbstractHorse subtree — every type whose
-// finalizeSpawn rolls speed/jump/health attribute instances before the
-// pairing burst.
-var horseFamilyAttrTouch = map[string]bool{
-	"horse": true, "donkey": true, "mule": true, "llama": true,
-	"trader_llama": true, "skeleton_horse": true, "zombie_horse": true,
-	"camel": true,
+// horseAttrRolls is the per-type randomizeAttributes call set
+// AbstractHorse.finalizeSpawn makes — each rolled attribute's instance
+// materializes before the pairing burst. Horse rolls all three, the
+// chested family (donkey/mule/llama/trader_llama) only max_health,
+// skeleton_horse only jump_strength, and zombie_horse jump_strength +
+// movement_speed on its own formulas. Camel is not an AbstractHorse —
+// vanilla rolls nothing for it.
+var horseAttrRolls = map[string][]string{
+	"horse":          {"max_health", "jump_strength", "movement_speed"},
+	"donkey":         {"max_health"},
+	"mule":           {"max_health"},
+	"llama":          {"max_health"},
+	"trader_llama":   {"max_health"},
+	"skeleton_horse": {"jump_strength"},
+	"zombie_horse":   {"jump_strength", "movement_speed"},
 }
 
 // summonAttrTouches applies the attribute-instance side effects of a
@@ -97,20 +105,39 @@ func summonAttrTouches(e *Entity, name string, init bool) {
 			op:    0, // add_value
 		}
 	}
-	if horseFamilyAttrTouch[name] {
-		// AbstractHorse.finalizeSpawn rolls all three attributes via
-		// generateSpeed/generateJumpStrength/generateMaxHealth, so every
-		// equine type's pairing burst carries this set — the only case
-		// where a non-zombie-type mob emits attributes at pair time.
-		e.markAttrTouched("movement_speed")
-		e.markAttrTouched("jump_strength")
-		e.markAttrTouched("max_health")
+	if rolls, ok := horseAttrRolls[name]; ok {
 		if e.AttrBase == nil {
 			e.AttrBase = map[string]float64{}
 		}
-		e.AttrBase["max_health"] = float64(15 + rand.IntN(8) + rand.IntN(9))
-		e.AttrBase["jump_strength"] = 0.4 + 0.2*(rand.Float64()+rand.Float64()+rand.Float64())
-		e.AttrBase["movement_speed"] = (0.45 + 0.3*(rand.Float64()+rand.Float64()+rand.Float64())) * 0.25
+		for _, attr := range rolls {
+			e.markAttrTouched(attr)
+			horseAttrRoll(e, name, attr)
+		}
+	}
+}
+
+// horseAttrRoll applies one attribute's randomizeAttributes formula.
+// The spawn health follows a rolled max_health — a horse reporting
+// MaxHealth 18 carries Health 18 too.
+func horseAttrRoll(e *Entity, name, attr string) {
+	switch {
+	case attr == "max_health":
+		// generateMaxHealth: 15 + nextInt(8) + nextInt(9).
+		e.AttrBase[attr] = float64(15 + rand.IntN(8) + rand.IntN(9))
+		e.Health = float32(e.AttrBase[attr])
+		e.MaxHealth = e.Health
+	case attr == "jump_strength" && name == "zombie_horse":
+		// generateZombieHorseJumpStrength: 0.5 + 3·rand/15.
+		e.AttrBase[attr] = 0.5 + (rand.Float64()+rand.Float64()+rand.Float64())/15
+	case attr == "jump_strength":
+		// generateJumpStrength: 0.4 + 3·rand·0.2.
+		e.AttrBase[attr] = 0.4 + 0.2*(rand.Float64()+rand.Float64()+rand.Float64())
+	case attr == "movement_speed" && name == "zombie_horse":
+		// generateZombieHorseSpeed: (9 + 3·rand)/42.16.
+		e.AttrBase[attr] = (9 + rand.Float64() + rand.Float64() + rand.Float64()) / 42.16
+	default: // movement_speed
+		// generateSpeed: (0.45 + 3·rand·0.3)·0.25.
+		e.AttrBase[attr] = (0.45 + 0.3*(rand.Float64()+rand.Float64()+rand.Float64())) * 0.25
 	}
 }
 

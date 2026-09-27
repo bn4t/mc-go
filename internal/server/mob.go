@@ -4791,6 +4791,17 @@ func (s *Server) mobFinalizeAttributes(e *Entity) {
 			0.11485*(rand.Float64()-rand.Float64()), 1)
 	}
 	e.LeftHanded = rand.Float64() < 0.05
+	// AbstractHorse.finalizeSpawn's randomizeAttributes runs on every
+	// spawn kind — the equine rolls are the same as the summon path's.
+	if rolls, ok := horseAttrRolls[name]; ok {
+		if e.AttrBase == nil {
+			e.AttrBase = map[string]float64{}
+		}
+		for _, attr := range rolls {
+			e.markAttrTouched(attr)
+			horseAttrRoll(e, name, attr)
+		}
+	}
 	switch name {
 	case "zombie", "husk", "zombie_villager", "zombified_piglin", "drowned":
 		special := s.specialMultiplier()
