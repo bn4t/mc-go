@@ -163,6 +163,7 @@ func snapshotPlayer(sess *Session) playerPersist {
 	p.Absorb = sess.absorb
 	p.PortalCooldown = int32(sess.portalCooldownTicks)
 	p.Flying = sess.flying
+	p.FallFlying = sess.fallFlying
 	p.UUID = sess.getUUID()
 	p.Dim = sess.dimName()
 	p.X, p.Y, p.Z, p.Yaw, p.Pitch, p.OnGround = sess.Pos()
@@ -390,6 +391,7 @@ func (s *Server) applySavedPlayer(sess *Session) {
 	sess.absorb = p.Absorb
 	sess.portalCooldownTicks = int(p.PortalCooldown)
 	sess.flying = p.Flying
+	sess.fallFlying = p.FallFlying
 	if p.Held >= 0 && p.Held <= 8 {
 		sess.held.Store(p.Held)
 	}

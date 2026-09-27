@@ -1,3 +1,5 @@
+//go:build blackbox
+
 package blackbox
 
 // TestEffectMobParity pins /effect give|clear on world entities:

@@ -388,11 +388,10 @@ func (s *Server) handlePlayerCommand(sess *Session, p protocol.Packet) {
 	case 5: // open vehicle inventory
 		// Requires a ridden entity; vanilla ignores it without one.
 	case 6: // start flying with elytra
-		if sess.mode() == GameModeCreative || sess.mode() == GameModeSpectator {
-			break
-		}
-		// Elytra flight needs the item; vanilla ignores the packet
-		// when the player is not wearing one.
+		// Vanilla runs tryToStartFallFlying regardless of game mode —
+		// canGlide's airborne/passenger/levitation/glider checks do
+		// the gating; a second packet while gliding toggles it off.
+		s.tryStartFallFlying(sess)
 	}
 }
 

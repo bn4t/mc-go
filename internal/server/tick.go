@@ -523,6 +523,7 @@ func (s *Server) playerTick() {
 		}
 		s.fireEnterBlock(sess)
 		s.rideTickStep(sess)
+		s.fallFlyingTick(sess)
 		s.flushAdvancements(sess)
 		return true
 	})

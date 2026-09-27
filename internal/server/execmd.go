@@ -628,6 +628,14 @@ type itemPredicate struct {
 	tag     string
 	count   int32
 	hasCnt  bool
+	damage  int32
+	hasDmg  bool
+	dmgLo   int32
+	dmgHi   int32
+	hasDmgB bool
+	durLo   int32
+	durHi   int32
+	hasDurB bool
 	unknown bool
 }
 
@@ -673,6 +681,40 @@ func parseItemPredicate(tok string, tokNum int) (itemPredicate, *reply) {
 				p.count, p.hasCnt = int32(n), true
 				continue
 			}
+			if len(kv) == 2 && (kv[0] == "damage" || kv[0] == "minecraft:damage") {
+				n, err := strconv.Atoi(kv[1])
+				if err != nil {
+					r := errTokenEnd("command.unknown.argument", tokNum)
+					return p, &r
+				}
+				p.damage, p.hasDmg = int32(n), true
+				continue
+			}
+			// The damage sub-predicate: [minecraft:damage~{damage:N}]
+			// with MinMaxBounds — a bare int is exact, {min:N}/{max:N}
+			// bound it. `durability` bounds maxDamage minus the damage.
+			// A min,max pair inside the bounds splits on the comma and
+			// stays unparsed, like other unsupported components.
+			if i := strings.IndexByte(part, '~'); i >= 0 &&
+				(part[:i] == "damage" || part[:i] == "minecraft:damage") {
+				inner := strings.TrimSuffix(strings.TrimPrefix(part[i+1:], "{"), "}")
+				fld, val, ok := strings.Cut(inner, ":")
+				if !ok || (fld != "damage" && fld != "durability") {
+					p.unknown = true
+					continue
+				}
+				lo, hi, ok := predBounds(val)
+				if !ok {
+					p.unknown = true
+					continue
+				}
+				if fld == "damage" {
+					p.dmgLo, p.dmgHi, p.hasDmgB = lo, hi, true
+				} else {
+					p.durLo, p.durHi, p.hasDurB = lo, hi, true
+				}
+				continue
+			}
 			p.unknown = true
 		}
 	}
@@ -699,7 +741,50 @@ func itemPredicateMatch(p itemPredicate, st ItemStack) bool {
 	if p.hasCnt && st.Count != p.count {
 		return false
 	}
+	if p.hasDmg && st.Damage != p.damage {
+		return false
+	}
+	if p.hasDmgB && (st.Damage < p.dmgLo || st.Damage > p.dmgHi) {
+		return false
+	}
+	if p.hasDurB {
+		max, ok := damageableItems[name]
+		remaining := int32(max) - st.Damage
+		if !ok || remaining < p.durLo || remaining > p.durHi {
+			return false
+		}
+	}
 	return true
+}
+
+// predBounds parses a MinMaxBounds.Ints body as it shows up inside the
+// damage sub-predicate: a bare int is exact, {min:N}/{max:N} bound one
+// side, and {min:N,max:M} — which never reaches here in one part —
+// would bound both.
+func predBounds(v string) (int32, int32, bool) {
+	lo, hi := int32(math.MinInt32), int32(math.MaxInt32)
+	if n, err := strconv.Atoi(v); err == nil {
+		return int32(n), int32(n), true
+	}
+	for _, kv := range strings.Split(strings.TrimSuffix(strings.TrimPrefix(v, "{"), "}"), ",") {
+		k, x, ok := strings.Cut(kv, ":")
+		if !ok {
+			return 0, 0, false
+		}
+		n, err := strconv.Atoi(x)
+		if err != nil {
+			return 0, 0, false
+		}
+		switch k {
+		case "min":
+			lo = int32(n)
+		case "max":
+			hi = int32(n)
+		default:
+			return 0, 0, false
+		}
+	}
+	return lo, hi, true
 }
 
 // executeIfData evaluates `if data <block|entity|storage> ...` — the

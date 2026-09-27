@@ -1096,6 +1096,13 @@ func (s *Server) respawnPlayer(sess *Session) {
 	sess.lastHurtBy = 0
 	sess.lastHurtPlayerBy = [16]byte{}
 	sess.lastHurtPlayerTicks = 0
+	// The respawned entity is a fresh ServerPlayer — its shared flags
+	// (shared flag 7 = elytra glide) don't carry over.
+	if sess.fallFlying {
+		sess.fallFlying = false
+		s.broadcastSharedFlags(sess)
+	}
+	sess.fallFlyTicks = 0
 
 	overworld := s.dims[dimOverworld]
 	// A /spawnpoint (or bed/anchor) respawn wins over the world spawn;

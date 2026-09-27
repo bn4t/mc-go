@@ -274,6 +274,14 @@ type Session struct {
 	// per-entity state.
 	lastHurtPlayerBy    [16]byte
 	lastHurtPlayerTicks int32
+	// fallFlying is shared flag 7 — elytra glide. Vanilla owns it
+	// server-side via LivingEntity.updateFallFlying: START_FALL_FLYING
+	// sets it through tryToStartFallFlying, and the per-tick canGlide
+	// check clears it the moment the glide conditions lapse.
+	// fallFlyTicks is vanilla's fallFlyTicks counter — every twentieth
+	// glide tick wears the glider one damage point.
+	fallFlying   bool
+	fallFlyTicks int32
 	// healthDirty marks health/food/saturation changes to sync. Vanilla
 	// sends at most one Set Health per player per tick, carrying the
 	// end-of-tick values, so tick-side writers set this instead of

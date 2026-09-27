@@ -477,6 +477,8 @@ func (s *Server) awardMoveStats(sess *Session, ox, oy, oz, x, y, z float64, onGr
 		default:
 			sess.addCustomStat("walk_one_cm", cmXZ)
 		}
+	case sess.fallFlying:
+		sess.addCustomStat("aviate_one_cm", cm3)
 	case cmXZ > 25:
 		sess.addCustomStat("fly_one_cm", cmXZ)
 	}

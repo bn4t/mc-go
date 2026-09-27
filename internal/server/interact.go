@@ -983,6 +983,9 @@ func (s *Server) broadcastSharedFlags(sess *Session) {
 	if sess.sprinting {
 		flags |= 0x08
 	}
+	if sess.fallFlying {
+		flags |= 0x80
+	}
 	dim := sess.dimName()
 	var b protocol.Buffer
 	b.VarInt(eid)
