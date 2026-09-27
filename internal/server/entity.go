@@ -422,6 +422,13 @@ type Entity struct {
 	SentMotionY   float64
 	SentMotionZ   float64
 	SentMotionSet bool
+	// WalkSpeed and WalkZZA are LivingEntity's speed field and zza
+	// input drive: a MOVE_TO tick sets both to the goal's speed
+	// (speedModifier·movement_speed), applyInput decays WalkZZA ×0.98
+	// per tick once the drive lapses, and travel multiplies zza by the
+	// friction-influenced speed for its input.
+	WalkSpeed float64
+	WalkZZA   float64
 	// PanicActive + PanicTX/TZ model PanicGoal (priority 1): a
 	// panic-capable mob whose last damage type is in PANIC_CAUSES runs
 	// to a DefaultRandomPos target within ±5 on x/z at

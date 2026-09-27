@@ -705,6 +705,12 @@ func (s *Server) runSummon(player string, args []string) reply {
 	name := strings.TrimPrefix(args[0], "minecraft:")
 	if e, ok := s.summonMobRaw(sess.dimension(), name, x, y, z, noAI, tag == nil); ok {
 		if tag != nil {
+			// Rotation:[yaw,pitch] overrides create's random snapTo yaw.
+			if rot, ok := tag.vals["Rotation"]; ok && len(rot.items) >= 2 {
+				e.Yaw = float32(snbtNum(rot.items[0]))
+				e.Pitch = float32(snbtNum(rot.items[1]))
+				e.HeadYaw, e.LookYaw = e.Yaw, e.Yaw
+			}
 			if v, ok := tag.vals["CanPickUpLoot"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
 				e.CanPickUpLoot = true
 			}
@@ -1574,6 +1580,13 @@ func (s *Server) summonMobInit(d *dimension, name string, x, y, z float64, noAI,
 		NoAI:      noAI,
 		Pumpkin:   name == "snow_golem",
 	})
+	// Random spawn yaw — same wrapDegrees(random·360) as the summon
+	// path: every vanilla entity creation snaps to a random facing.
+	e.Yaw = float32(rand.Float64() * 360)
+	if e.Yaw > 180 {
+		e.Yaw -= 360
+	}
+	e.HeadYaw, e.LookYaw = e.Yaw, e.Yaw
 	summonAttrTouches(e, name, init)
 	s.broadcastFreshMob(e)
 	return e, true
@@ -1669,6 +1682,16 @@ func (s *Server) summonMobRaw(d *dimension, name string, x, y, z float64, noAI, 
 		NoAI:      noAI,
 		Pumpkin:   name == "snow_golem",
 	})
+	// EntityType.create snaps every summon to a random yaw
+	// (wrapDegrees(random·360), pitch 0) — no Rotation NBT means the
+	// mob faces a random direction, then MOVE_TO's rotlerp turns it
+	// toward its target at ≤90°/tick — the curving walk start vanilla
+	// shows.
+	e.Yaw = float32(rand.Float64() * 360)
+	if e.Yaw > 180 {
+		e.Yaw -= 360
+	}
+	e.HeadYaw, e.LookYaw = e.Yaw, e.Yaw
 	// Villager carriers start at their defined default: a zombie
 	// villager's DATA_VILLAGER_DATA is randomized at construction
 	// (plains/random-profession/1) while a villager's is fixed
@@ -2615,12 +2638,10 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 		// Goal's canUse: interval-tick roll (reducedTickDelay(120) in
 		// vanilla — a ~6s mean idle between strolls).
 		if e.WanderTicks%strollIntervalFor(e.ID) != 0 {
-			s.mobFrictionStep(e)
-			// travel's move(): the residual walk/push delta integrates
-			// into the position while it decays — overlapping AI mobs
-			// drift apart; NoAI mobs never reach this line.
-			e.X += e.MotionX
-			e.Z += e.MotionZ
+			// travel with no goal input: the residual walk/push delta
+			// integrates into the position while it decays — overlapping
+			// AI mobs drift apart; NoAI mobs never reach this line.
+			s.mobTravelStep(e, w, 0)
 			return
 		}
 		// getPosition: DefaultRandomPos.getPos(mob, 10, 7) — a target
@@ -2638,9 +2659,7 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	if dist < 0.4 || e.StrollSteps > 160 {
 		e.Strolling = false
 		e.WanderTicks = 0
-		s.mobFrictionStep(e)
-		e.X += e.MotionX
-		e.Z += e.MotionZ
+		s.mobTravelStep(e, w, 0)
 		return
 	}
 	name, _ := EntityTypeName(e.Type)
@@ -2652,7 +2671,7 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	if step > dist {
 		step = dist
 	}
-	e.Yaw = float32(math.Atan2(-tx, tz) * 180 / math.Pi)
+	mobTurnToward(e, tx, tz, 90)
 	// The head tracks the walk heading via the look lerp, not a jump.
 	e.LookYaw = e.Yaw
 	nx := e.X + tx/dist*step
@@ -2676,7 +2695,7 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 				// picks the shade target separately.
 				e.Strolling = false
 				e.WanderTicks = 0
-				s.mobFrictionStep(e)
+				s.mobTravelStep(e, w, 0)
 				return
 			}
 		}
@@ -2695,26 +2714,90 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 		// Ledge or obstacle: the path is unreachable — the goal ends.
 		e.Strolling = false
 		e.WanderTicks = 0
-		s.mobFrictionStep(e)
+		s.mobTravelStep(e, w, 0)
 		return
 	}
-	e.X, e.Z = nx, nz
-	// travel writes the walking delta every moving tick — the
-	// tracked-delta emit in mobSyncFlush picks it up at sendChanges.
-	e.MotionX, e.MotionZ = tx/dist*step, tz/dist*step
+	// MOVE_TO's walk drive: zza lands on the delta and travel carries
+	// the momentum — the bundled-move wire in mobSyncFlush picks up
+	// whatever the chain leaves in MotionX/Z.
+	s.mobTravelStep(e, w, speed)
 }
 
-// mobFrictionStep is the idle half of travel's ground friction: the
-// walking delta decays toward zero each non-moving tick.
-func (s *Server) mobFrictionStep(e *Entity) {
-	if e.MotionX == 0 && e.MotionZ == 0 {
+// mobTurnToward is MoveControl's setYRot(rotlerp(yRot, atan2-target,
+// maxDeg)): the body yaw turns at most maxDeg° toward the wanted
+// position per tick and travel's input lands along the CURRENT yaw —
+// that's what curves vanilla walks while the mob is still turning.
+// MOVE_TO passes 90; the look-driven ranged goals pass ~30.
+func mobTurnToward(e *Entity, tx, tz, maxDeg float64) {
+	target := float32(math.Atan2(-tx, tz) * 180 / math.Pi)
+	d := target - e.Yaw
+	for d > 180 {
+		d -= 360
+	}
+	for d < -180 {
+		d += 360
+	}
+	if d > float32(maxDeg) {
+		d = float32(maxDeg)
+	} else if d < float32(-maxDeg) {
+		d = float32(-maxDeg)
+	}
+	e.Yaw += d
+}
+
+// mobTravelStep is LivingEntity.travel's grounded half for an
+// AI-driven walk, measured off 26.2 bytecode. MOVE_TO's drive enters
+// the delta as zza·f — zza is the goal's speed (speedModifier ×
+// movement_speed), f is getFrictionInfluencedSpeed (speed itself on
+// friction ≤ 0.6, speed·0.21600002/f³ on slipperier floors); the input
+// lands along the body yaw, move() sweeps the delta through blocks and
+// post-multiplies it by the containing block's speedFactor, then
+// travelInAir's tail takes gravity off y and slides x/z by
+// blockFriction·0.91. drive 0 is the idle case: no input, but residual
+// momentum still integrates and decays.
+func (s *Server) mobTravelStep(e *Entity, w *world.World, speed float64) {
+	if w == nil {
 		return
 	}
-	e.MotionX *= 0.8
-	e.MotionZ *= 0.8
-	if math.Abs(e.MotionX) < 0.005 && math.Abs(e.MotionZ) < 0.005 {
-		e.MotionX, e.MotionZ = 0, 0
+	name, _ := EntityTypeName(e.Type)
+	bounds := mobBounds(e.Type)
+	gravity := 0.08
+	if g, ok := entityAttrBases[name]["gravity"]; ok {
+		gravity = g
 	}
+	// travelInAir's friction split: grounded picks up the supporting
+	// block's friction (capped by computeModifiedFriction, identity at
+	// friction_modifier 1.0); airborne legs slide on 1.0 and drive at
+	// getFlyingSpeed — a mob's 0.02, not the attribute.
+	// applyInput decays the walk drive ×0.98 each tick, and a running
+	// MOVE_TO re-issues setSpeed → setZza every tick — so the input is
+	// zza·f where zza is the goal's speed while a goal drives and the
+	// decayed residue once it stops. f rides the speed field, which
+	// likewise persists at the last drive until a stopInPlace zeroes
+	// it — idle ticks keep driving the decaying residue.
+	e.WalkZZA *= 0.98
+	if speed > 0 {
+		e.WalkSpeed = speed
+		e.WalkZZA = speed
+	}
+	f3 := 1.0
+	f := 0.02
+	if e.Grounded {
+		f3 = entityFrictionBelow(w, e.X, e.Y, e.Z)
+		f = e.WalkSpeed
+		if f3 > 0.6 {
+			f = e.WalkSpeed * 0.21600002 / (f3 * f3 * f3)
+		}
+	}
+	input := e.WalkZZA * f
+	yr := float64(e.Yaw) * math.Pi / 180
+	e.MotionX += -input * math.Sin(yr)
+	e.MotionZ += input * math.Cos(yr)
+	s.entityMove(e, w, bounds[0]/2, bounds[1], e.MotionX, e.MotionY, e.MotionZ, gravity, 0.98, true)
+	e.MotionY = (e.MotionY - gravity) * 0.98
+	drag := f3 * 0.91
+	e.MotionX *= drag
+	e.MotionZ *= drag
 }
 
 // strollIntervalFor is the per-entity stroll cadence: vanilla rolls
@@ -2808,9 +2891,12 @@ func (s *Server) mobGrounded(e *Entity, w *world.World) bool {
 		e.Grounded = false
 		return true
 	}
+	// The supporting cell is vanilla's getOnPos(0.500001) — half a block
+	// under the feet — so a mob sunk 1/16 into honey still counts its
+	// honey cell as the support instead of the air below it.
 	below := world.Pos{
 		X: int(math.Floor(e.X)),
-		Y: int(math.Floor(e.Y)) - 1,
+		Y: int(math.Floor(e.Y - 0.500001)),
 		Z: int(math.Floor(e.Z)),
 	}
 	if w.GetBlock(below) == world.Air {
@@ -2838,8 +2924,10 @@ func (s *Server) mobGrounded(e *Entity, w *world.World) bool {
 		}
 		e.FallDist = 0
 	}
-	e.MotionY = 0
-	e.Y = math.Floor(e.Y)
+	// Y and MotionY belong to the travel chain now: entityMove leaves
+	// the feet on the block's collision top (honey −59.0625, soul_sand
+	// −59.125) and the stored gravity pull negative — snapping to the
+	// cell floor or zeroing the delta would fight the next tick's move.
 	e.Grounded = true
 	return true
 }
@@ -3083,7 +3171,7 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 	px, py, pz, _, _, _ := target.Pos()
 	dx, dz := px-e.X, pz-e.Z
 	dist := math.Hypot(dx, dz)
-	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	mobTurnToward(e, dx, dz, 30)
 	e.HeadYaw = e.Yaw
 	// Vanilla's attack reach is the mob's inflated box vs the target's;
 	// for the zombie's 0.6 box vs a player that lands ~1.5 blocks out.
@@ -3105,14 +3193,7 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 			}
 		}
 	} else if dist > reach {
-		step := mobChaseSpeed
-		if step > dist-reach*0.8 {
-			step = dist - reach*0.8
-		}
-		if step > 0 {
-			e.X += dx / dist * step
-			e.Z += dz / dist * step
-		}
+		s.mobTravelStep(e, s.dimWorld(e.Dim), mobChaseSpeed)
 	}
 	if e.attackCooldown > 0 {
 		e.attackCooldown--
@@ -3243,25 +3324,17 @@ func (s *Server) mobPanicStep(e *Entity, name string) bool {
 	e.PanicSteps++
 	if dist < 0.5 || e.PanicSteps > 60 {
 		e.PanicActive = false
-		s.mobFrictionStep(e)
-		e.X += e.MotionX
-		e.Z += e.MotionZ
+		s.mobTravelStep(e, s.dimWorld(e.Dim), 0)
 		return true
 	}
 	speed, ok := entityAttrBases[name]["movement_speed"]
 	if !ok || speed <= 0 {
 		speed = mobWalkSpeed
 	}
-	speed *= mod
-	step := speed
-	if step > dist {
-		step = dist
-	}
-	e.Yaw = float32(math.Atan2(-tx, tz) * 180 / math.Pi)
+	mobTurnToward(e, tx, tz, 90)
 	e.LookYaw = e.Yaw
-	e.X += tx / dist * step
-	e.Z += tz / dist * step
-	e.MotionX, e.MotionZ = tx/dist*step, tz/dist*step
+	// PanicGoal's drive: speedModifier·movement_speed on travel's input.
+	s.mobTravelStep(e, s.dimWorld(e.Dim), speed*mod)
 	return true
 }
 
@@ -3347,28 +3420,21 @@ func (s *Server) mobTemptStep(e *Entity, name string) bool {
 	px, _, pz, _, _, _ := target.Pos()
 	tx, tz := px-e.X, pz-e.Z
 	dist := math.Hypot(tx, tz)
-	e.Yaw = float32(math.Atan2(-tx, tz) * 180 / math.Pi)
+	mobTurnToward(e, tx, tz, 90)
 	e.LookYaw = e.Yaw
 	if dist <= 2.5 {
-		// Inside stopDistance: navigation stopped — the mob just
-		// stands and looks.
-		e.MotionX, e.MotionZ = 0, 0
+		// Inside stopDistance: navigation.stop() drops the drive, but
+		// travel still integrates and decays the residual delta.
+		s.mobTravelStep(e, s.dimWorld(e.Dim), 0)
 		return true
 	}
 	speed, ok := entityAttrBases[name]["movement_speed"]
 	if !ok || speed <= 0 {
 		speed = mobWalkSpeed
 	}
-	step := speed * spec.speed
-	if step > dist-2.0 {
-		step = dist - 2.0
-	}
-	if step < 0 {
-		step = 0
-	}
-	e.X += tx / dist * step
-	e.Z += tz / dist * step
-	e.MotionX, e.MotionZ = tx/dist*step, tz/dist*step
+	// TemptGoal's speedModifier multiplies the attribute — the drive is
+	// zza = spec.speed·movement_speed on travel's input, not a teleport.
+	s.mobTravelStep(e, s.dimWorld(e.Dim), speed*spec.speed)
 	return true
 }
 
@@ -3422,23 +3488,14 @@ func (s *Server) mobFollowParentStep(e *Entity, name string) bool {
 		return false
 	}
 	tx, tz := px-e.X, pz-e.Z
-	dist := math.Hypot(tx, tz)
 	speed, ok := entityAttrBases[name]["movement_speed"]
 	if !ok || speed <= 0 {
 		speed = mobWalkSpeed
 	}
-	step := speed * mod
-	if step > dist-2.0 {
-		step = dist - 2.0
-	}
-	if step < 0 {
-		step = 0
-	}
-	e.Yaw = float32(math.Atan2(-tx, tz) * 180 / math.Pi)
+	mobTurnToward(e, tx, tz, 90)
 	e.LookYaw = e.Yaw
-	e.X += tx / dist * step
-	e.Z += tz / dist * step
-	e.MotionX, e.MotionZ = tx/dist*step, tz/dist*step
+	// FollowParentGoal's nav drive: speedModifier·movement_speed.
+	s.mobTravelStep(e, s.dimWorld(e.Dim), speed*mod)
 	return true
 }
 
@@ -3484,7 +3541,7 @@ func (s *Server) mobBreedStep(e *Entity, name string) bool {
 	e.BreedTime++
 	tx, tz := mx-e.X, mz-e.Z
 	dist := math.Hypot(tx, tz)
-	e.Yaw = float32(math.Atan2(-tx, tz) * 180 / math.Pi)
+	mobTurnToward(e, tx, tz, 90)
 	e.LookYaw = e.Yaw
 	if e.BreedTime >= 60 {
 		e.BreedTime = 0
@@ -3499,16 +3556,8 @@ func (s *Server) mobBreedStep(e *Entity, name string) bool {
 	if !ok || speed <= 0 {
 		speed = mobWalkSpeed
 	}
-	step := speed // speedModifier 1.0
-	if step > dist-1.5 {
-		step = dist - 1.5
-	}
-	if step < 0 {
-		step = 0
-	}
-	e.X += tx / dist * step
-	e.Z += tz / dist * step
-	e.MotionX, e.MotionZ = tx/dist*step, tz/dist*step
+	// BreedGoal's nav drive: speedModifier 1.0 · movement_speed.
+	s.mobTravelStep(e, s.dimWorld(e.Dim), speed)
 	return true
 }
 
@@ -3586,10 +3635,10 @@ func (s *Server) mobFleeStep(e *Entity, kn string) bool {
 		speed = mv
 	}
 	speed *= e.fleeSprint
-	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	mobTurnToward(e, dx, dz, 90)
 	e.HeadYaw = e.Yaw
-	e.X += dx / dist * speed
-	e.Z += dz / dist * speed
+	// AvoidEntityGoal's nav drive — sprintSpeed·movement_speed.
+	s.mobTravelStep(e, s.dimWorld(e.Dim), speed)
 	return true
 }
 
@@ -3854,7 +3903,7 @@ func (s *Server) mobWitchAttackStep(e *Entity) bool {
 	px, py, pz, _, _, _ := t.Pos()
 	dx, dz := px-e.X, pz-e.Z
 	dist := math.Hypot(dx, dz)
-	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	mobTurnToward(e, dx, dz, 30)
 	e.HeadYaw = e.Yaw
 	const radius = 10.0
 	if dist > radius {
@@ -3862,11 +3911,8 @@ func (s *Server) mobWitchAttackStep(e *Entity) bool {
 		if mv, ok := entityAttrBases["witch"]["movement_speed"]; ok {
 			step = mv
 		}
-		if step > dist-radius {
-			step = dist - radius
-		}
-		e.X += dx / dist * step
-		e.Z += dz / dist * step
+		// RangedAttackGoal's approach is nav MOVE_TO — travel input.
+		s.mobTravelStep(e, s.dimWorld(e.Dim), step)
 	}
 	e.rangedAttack--
 	if e.rangedAttack < 0 {
@@ -3912,7 +3958,7 @@ func (s *Server) witchHealTarget(e *Entity) *Entity {
 func (s *Server) witchRaiderStep(e, rt *Entity) bool {
 	dx, dz := rt.X-e.X, rt.Z-e.Z
 	dist := math.Hypot(dx, dz)
-	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	mobTurnToward(e, dx, dz, 30)
 	e.HeadYaw = e.Yaw
 	const radius = 10.0
 	if dist > radius {
@@ -3920,11 +3966,7 @@ func (s *Server) witchRaiderStep(e, rt *Entity) bool {
 		if mv, ok := entityAttrBases["witch"]["movement_speed"]; ok {
 			step = mv
 		}
-		if step > dist-radius {
-			step = dist - radius
-		}
-		e.X += dx / dist * step
-		e.Z += dz / dist * step
+		s.mobTravelStep(e, s.dimWorld(e.Dim), step)
 	}
 	e.rangedAttack--
 	if e.rangedAttack < 0 {
@@ -4188,18 +4230,15 @@ func (s *Server) mobWalkTo(e *Entity, x, z float64) {
 // product instead of the raw attribute.
 func (s *Server) mobWalkToSpeed(e *Entity, x, z, speed float64) {
 	dx, dz := x-e.X, z-e.Z
-	dist := math.Hypot(dx, dz)
-	if dist == 0 {
+	if math.Hypot(dx, dz) == 0 {
 		return
 	}
-	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	mobTurnToward(e, dx, dz, 90)
 	e.HeadYaw = e.Yaw
-	if dist <= speed {
-		e.X, e.Z = x, z
-		return
-	}
-	e.X += dx / dist * speed
-	e.Z += dz / dist * speed
+	// PathNavigation's walk drive — the goal's speed lands on the delta
+	// as travel input; the mob closes on the target by momentum, never
+	// by a snap.
+	s.mobTravelStep(e, s.dimWorld(e.Dim), speed)
 }
 
 // mobSwell is the SwellGoal set — creepers only.
@@ -4249,18 +4288,11 @@ func (s *Server) mobSwellStep(e *Entity, kn string) bool {
 	// pathing walks the creeper in (they never swing).
 	dx, dz := px-e.X, pz-e.Z
 	dist := math.Hypot(dx, dz)
-	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	mobTurnToward(e, dx, dz, 30)
 	e.HeadYaw = e.Yaw
 	reach := mobBounds(e.Type)[0] + 0.6 + 0.3
 	if dist > reach {
-		step := mobChaseSpeed
-		if step > dist-reach*0.8 {
-			step = dist - reach*0.8
-		}
-		if step > 0 {
-			e.X += dx / dist * step
-			e.Z += dz / dist * step
-		}
+		s.mobTravelStep(e, s.dimWorld(e.Dim), mobChaseSpeed)
 	}
 	return true
 }
@@ -4787,7 +4819,7 @@ func (s *Server) mobRangedStep(e *Entity) bool {
 		e.rangedSee--
 	}
 	dist := math.Hypot(dx, dz)
-	e.Yaw = float32(math.Atan2(-dx, dz) * 180 / math.Pi)
+	mobTurnToward(e, dx, dz, 30)
 	e.HeadYaw = e.Yaw
 	const radius2 = 15.0 * 15.0
 	speed := mobChaseSpeed
@@ -4797,12 +4829,7 @@ func (s *Server) mobRangedStep(e *Entity) bool {
 	if d2 <= radius2 && e.rangedSee >= 20 {
 		e.rangedStrafe++
 	} else if dist > 0 {
-		step := speed
-		if step > dist*0.8 {
-			step = dist * 0.8
-		}
-		e.X += dx / dist * step
-		e.Z += dz / dist * step
+		s.mobTravelStep(e, s.dimWorld(e.Dim), speed)
 		e.rangedStrafe = -1
 	}
 	if e.rangedStrafe >= 20 {

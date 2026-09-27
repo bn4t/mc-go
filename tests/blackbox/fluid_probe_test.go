@@ -107,6 +107,14 @@ func newChatSinkOpts(pr *protocol.Reader, pw *protocol.Writer, confirmTP bool) *
 				_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
 				writeMu.Unlock()
 			}
+			// A real client answers every chunk batch; without the ack
+			// the streaming throttle holds all later packets — command
+			// replies included — behind the batch forever.
+			if p.ID == server.IDPlayChunkBatchDone {
+				writeMu.Lock()
+				_ = ackChunkBatch(pw)
+				writeMu.Unlock()
+			}
 			if confirmTP && p.ID == server.IDPlaySyncPos {
 				r := protocol.NewPacketReader(p.Data)
 				if id, err := r.VarInt(); err == nil {
@@ -348,7 +356,14 @@ func gameTimeOf(t *testing.T, pw *protocol.Writer, sink *chatSink) int64 {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("no game time reply from the server (%s)", sink.health())
+	var tail []string
+	for _, l := range sink.take() {
+		if len(l) > 160 {
+			l = l[:160]
+		}
+		tail = append(tail, l)
+	}
+	t.Fatalf("no game time reply from the server (%s) chat=%q", sink.health(), tail)
 	return 0
 }
 

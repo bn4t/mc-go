@@ -50,6 +50,9 @@ type tickClock struct {
 	sprintRemain     int64
 	sprintPrevFrozen bool
 	sprintStart      time.Time
+	// sprintRan is the GameTicks the last sprint actually ran — the
+	// report's completed count (n+1 for an uninterrupted sprint n).
+	sprintRan int64
 	// stepRemain mirrors frozenTicksToRun: a /tick step request fills
 	// it, the running step drains it a tick at a time, and step stop
 	// zeroes it early.
@@ -335,18 +338,25 @@ func (s *Server) sprintRun() {
 	defer s.finishSprint()
 	s.clock.runMu.Lock()
 	defer s.clock.runMu.Unlock()
+	var ran int64
 	for {
 		s.clock.mu.Lock()
-		s.clock.sprintRemain--
 		done := s.clock.sprintRemain <= 0 || !s.clock.sprinting
+		if !done {
+			s.clock.sprintRemain--
+		}
 		s.clock.mu.Unlock()
 		if done {
-			return
+			break
 		}
 		start := time.Now()
 		s.GameTick()
 		s.recordTick(time.Since(start))
+		ran++
 	}
+	s.clock.mu.Lock()
+	s.clock.sprintRan = ran
+	s.clock.mu.Unlock()
 }
 
 // finishSprint mirrors finishTickSprint: the report (ticks per second
@@ -357,11 +367,7 @@ func (s *Server) sprintRun() {
 func (s *Server) finishSprint() {
 	s.clock.mu.Lock()
 	s.clock.sprinting = false
-	remaining := s.clock.sprintRemain - 1
-	if remaining < 0 {
-		remaining = 0
-	}
-	completed := s.clock.sprintSchedule - remaining
+	completed := s.clock.sprintRan
 	s.clock.sprintRemain = 0
 	start := s.clock.sprintStart
 	s.clock.frozen = s.clock.sprintPrevFrozen
@@ -571,8 +577,12 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 		}
 		// A sprint owns every simulated tick while it runs — vanilla's
 		// server loop is the sprint — so the paced loop idles beside it
-		// rather than adding ticks of its own.
-		if !run || s.clock.isSprinting() {
+		// rather than adding ticks of its own. The run flag next()
+		// handed out is a snapshot: a sprint that ends while this
+		// iteration slept restores the freeze behind it, so re-read
+		// frozen now — a stale run=true must not fire one extra tick
+		// per sprint boundary.
+		if !run || s.clock.isSprinting() || s.clock.isFrozen() {
 			since = 0
 			continue
 		}
