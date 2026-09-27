@@ -237,6 +237,10 @@ type Server struct {
 	// read at flush time. dirtyMu guards it.
 	dirtyMu     sync.Mutex
 	dirtyBlocks map[blockSectionKey]map[uint16]bool
+	// sleepSkipNotified latches per dimension once the "skipping
+	// through the night" action bar has been sent for the current
+	// all-asleep window, so it is announced once rather than per tick.
+	sleepSkipNotified map[string]bool
 	// blockEvents is Level.blockEvent's queue — piston moves fire at
 	// the tail of the tick (ServerLevel.tickBlockEvents).
 	blockEvents []rsBlockEvent
@@ -306,6 +310,7 @@ func New(addr string) *Server {
 		randSections:       map[randSectionKey]uint8{},
 		dirtyBlocks:        map[blockSectionKey]map[uint16]bool{},
 		dirtyBEs:           map[dirtyBEKey]bool{},
+		sleepSkipNotified:  map[string]bool{},
 	}
 	if s.ViewDistance == 0 {
 		s.ViewDistance = 10

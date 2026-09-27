@@ -1222,8 +1222,8 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 // stays off the wire.
 func encodePlayerAttachMeta(health float32) []byte {
 	var b protocol.Buffer
-	b.Byte(9)  // index: DATA_HEALTH_ID
-	b.Byte(3)  // type: float
+	b.Byte(9) // index: DATA_HEALTH_ID
+	b.Byte(3) // type: float
 	b.Float(health)
 	b.Byte(16) // index: skin parts
 	b.Byte(0)  // type: byte

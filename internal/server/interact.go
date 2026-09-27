@@ -648,10 +648,13 @@ const (
 // broadcast. The index is verified against the real server by
 // TestSneakPoseParity.
 const (
-	metaPoseIndex = 6
-	metaPoseType  = 20
-	poseStanding  = 0
-	poseSneaking  = 5
+	metaPoseIndex        = 6
+	metaPoseType         = 20
+	metaSleepingPosIndex = 14
+	metaSleepingPosType  = 11 // OPTIONAL_BLOCK_POS
+	poseStanding         = 0
+	poseSleeping         = 2
+	poseSneaking         = 5
 )
 
 // handlePlayerInput tracks the client's movement input flags and

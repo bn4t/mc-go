@@ -9253,3 +9253,41 @@ mc-go gains `attrMod.permanent` (vanilla's permanentModifiers vs the transient s
   player: `angry_at` == player UUID ints, `anger_end_time` positive.
   Identical on both legs.
 - **Commit**: server + test.
+
+## Slice 2026-09-27be — player bed-sleep wire + skip
+
+- **Measured** (26.2 bytecode + live capture): a bed click fans out, in
+  one tick, `02` swing ×2 (tracker + sleeper), `79` `block.minecraft
+  .set_spawn` overlay=0 (sleeper-only system chat), `54`
+  SectionBlocksUpdate marking both halves `occupied=true`, and `63`
+  entity-data idx6 pose=2 (SLEEPING) + idx14 serializer 11
+  (OPTIONAL_BLOCK_POS) holding the HEAD half's packed pos. Wake
+  flips idx6=0 + idx14 absent + `occupied=false`. Night skip needs
+  every play-state player in the dimension asleep ≥100 ticks (default
+  `playersSleepingPercentage=100`), then sends `sleep.skipping_night`
+  overlay=1 (action bar) to the dimension + `71` set_time. A second
+  click on an occupied head answers `bed.occupied` (action bar,
+  sleeper-only style redirect foot→head); a day click answers
+  `bed.no_sleep`. `data get entity` on a sleeper reads `sleeping_pos
+  [I;x,y,z]` (int-array → styled `[x,-60,z]`) + `SleepTimer` short.
+- **Implemented**: `useBed` now drives the full sequence — foot→head
+  redirect, silent consume on non-bed, `bed.occupied`/`bed.no_sleep`
+  action bars, `sleeping`/`sleepingPos` session state, swing ×2,
+  `broadcastSleepMeta` (pose + optional-pos to trackers AND sleeper),
+  `setBedOccupied` on both halves, `set_spawn` chat, slept-in-bed
+  advancement. `sleepTickStep` per-dimension counts sleeping players
+  ≥100 ticks, fires `skipping_night` once when ALL are asleep, then
+  `setDayTime` morning + wake broadcast. `stopSleeping` (leave-bed
+  PlayerCommand id 0 or disconnect) clears pose/sleeping_pos and
+  frees the bed. `data get` emits `SleepTimer` + `sleeping_pos`.
+- **Pinned**: `TestSleepBedParity` — two players, two beds: swing ×2,
+  pose=2 + sleeping_pos meta head pos, `54` occupied=true, two ordered
+  `data.entity.query` reads (`-60` in sleeping_pos, `s`-suffixed
+  SleepTimer), `set_spawn` overlay=0 on the sleeper stream,
+  `bed.occupied` on a second click; then all-asleep →
+  `sleep.skipping_night` overlay=1, wake pose=0 + absent pos meta,
+  `54` occupied=false; then a day click → `bed.no_sleep`. Green on
+  both servers.
+- **Known gap**: vanilla teleports the sleeper to a bedside stand
+  position on wake (`stopSleepInBed` → findStandUpPosition) — noted
+  in `stopSleeping`, not yet implemented.

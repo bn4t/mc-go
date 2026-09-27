@@ -1385,7 +1385,12 @@ func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 	m["Dimension"] = sess.dimName()
 	m["FallFlying"] = int8(0)
 	m["Score"] = int32(0)
-	m["SleepTimer"] = int16(0)
+	m["SleepTimer"] = int16(sess.sleepTicks.Load())
+	if sess.sleeping.Load() {
+		if h, ok := sess.sleepingPos.Load().(world.Pos); ok {
+			m["sleeping_pos"] = []int32{int32(h.X), int32(h.Y), int32(h.Z)}
+		}
+	}
 	m["seenCredits"] = int8(0)
 	m["playerGameType"] = int32(sess.gameMode)
 	if sess.prevGameMode >= 0 {
@@ -1407,9 +1412,9 @@ func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 		"flySpeed":     float32(0.05),
 	}
 	m["warden_spawn_tracker"] = map[string]any{
-		"warning_level":             int32(0),
-		"ticks_since_last_warning":  int32(0),
-		"cooldown_ticks":            int32(0),
+		"warning_level":            int32(0),
+		"ticks_since_last_warning": int32(0),
+		"cooldown_ticks":           int32(0),
 	}
 	// The recipe book's two lists, same shape the persist writer
 	// emits: every unlocked name, then the not-yet-shown subset.

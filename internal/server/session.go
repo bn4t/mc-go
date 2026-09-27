@@ -398,6 +398,9 @@ type Session struct {
 	// skips the night once everyone has been under 100 ticks.
 	sleeping   atomic.Bool
 	sleepTicks atomic.Int32
+	// sleepingPos is the bed's head-half position while asleep —
+	// LivingEntity's sleeping_pos entity data + NBT key.
+	sleepingPos atomic.Value
 	// blocking is the raised-shield state: set by a use-item start on a
 	// shield (either hand), cleared by the release_use_item action.
 	blocking atomic.Bool

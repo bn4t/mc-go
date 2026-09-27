@@ -376,7 +376,7 @@ func (s *Server) handlePlayerCommand(sess *Session, p protocol.Packet) {
 	// the player_input packet.
 	switch action {
 	case 0: // stop sleeping
-		// Sleeping is not modelled; vanilla clears the sleeping flag.
+		s.stopSleeping(sess)
 	case 1: // start sprinting
 		sess.sprinting = true
 		s.broadcastSharedFlags(sess)
