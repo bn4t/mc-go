@@ -1221,6 +1221,10 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.FireworkExp = ""
 			case "fireworks":
 				it.Fireworks = ""
+			case "dye":
+				it.Dye = 0
+			case "dyed_color":
+				it.DyedColor = 0
 			default:
 				return ItemStack{}, errToken("argument.item.components.unknown", tokNum), false
 			}
@@ -1333,6 +1337,32 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
 			it.BaseColor = ord + 1
+		case "dye":
+			// A DyeColor name — stored ordinal +1 like base_color.
+			if vtag.kind != snbtString {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			ord := int32(-1)
+			for i, d := range loomDyeNames {
+				if strings.TrimPrefix(vtag.str, "minecraft:") == d {
+					ord = int32(i)
+					break
+				}
+			}
+			if ord < 0 {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			it.Dye = ord + 1
+		case "dyed_color":
+			// DyedItemColor is one rgb int.
+			if vtag.kind != snbtNumber {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			n, cerr := strconv.Atoi(strings.TrimRight(vtag.num, "bBsSiIlLfFdD"))
+			if cerr != nil {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			it.DyedColor = int32(n)
 		case "firework_explosion":
 			exp, ok2 := parseFireworkExplosionSNBT(vtag)
 			if !ok2 {

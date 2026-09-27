@@ -527,6 +527,8 @@ func craftResult(g craftGrid, ms *mapStore) (ItemStack, string, bool) {
 			out, hit = matchFireworkStarFade(g, filled)
 		case data.CraftingSpecialFireworkRocket:
 			out, hit = matchFireworkRocket(g, filled)
+		case data.CraftingDye:
+			out, hit = matchCraftingDye(r, g, filled)
 		case data.CraftingTransmute:
 			out, hit = matchTransmute(r, g, filled)
 		case data.CraftingDecoratedPot:

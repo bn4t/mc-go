@@ -81,6 +81,12 @@ func stackKey(it server.ItemStack) string {
 	if it.Fireworks != "" {
 		key += fmt.Sprintf("[fw%s]", it.Fireworks)
 	}
+	if it.Dye != 0 {
+		key += fmt.Sprintf("[dye%d]", it.Dye-1)
+	}
+	if it.DyedColor != 0 {
+		key += fmt.Sprintf("[dyc%d]", it.DyedColor)
+	}
 	return key
 }
 

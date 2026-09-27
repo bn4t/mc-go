@@ -2232,6 +2232,19 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 				return server.ItemStack{}, 0, false, nil, err
 			}
 			it.BaseColor = bc + 1
+		case 43: // minecraft:dye — a bare DyeColor VarInt; stored +1
+			// like base_color so 0 means absent.
+			d, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			it.Dye = d + 1
+		case 44: // minecraft:dyed_color — one rgb int.
+			c, err := r.Int()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			it.DyedColor = c
 		case 68: // minecraft:firework_explosion
 			exp, err := bbFireworkExplosion(r)
 			if err != nil {

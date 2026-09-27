@@ -1,6 +1,10 @@
 package server
 
-import "strings"
+import (
+	"strings"
+
+	"mc-go/internal/data"
+)
 
 // The loom applies one banner_pattern layer to a banner, dyed by the
 // dye slot. Measured on vanilla 26.2 (LoomMenu):
@@ -327,4 +331,131 @@ func loomAccepts(slot int, it ItemStack) bool {
 		return ok
 	}
 	return false
+}
+
+// dyeTextureDiffuseColors is DyeColor.getTextureDiffuseColor for the
+// sixteen dyes in loomDyeNames order — the channel values
+// DyedItemColor.applyDyes averages (measured on the 26.2 jar's
+// DyeColor.<clinit> constructor arg).
+var dyeTextureDiffuseColors = [16]int32{
+	16383998, // white
+	16351261, // orange
+	13061821, // magenta
+	3847130,  // light_blue
+	16701501, // yellow
+	8439583,  // lime
+	15961002, // pink
+	4673362,  // gray
+	10329495, // light_gray
+	1481884,  // cyan
+	8991416,  // purple
+	3949738,  // blue
+	8606770,  // brown
+	6192150,  // green
+	11546150, // red
+	1908001,  // black
+}
+
+// dyeOrdOf is the stack's effective DyeColor ordinal for the dye
+// ingredient: an explicit minecraft:dye component override wins,
+// else the item's own default (every <color>_dye item carries one).
+// -1 means the stack passes no dye slot.
+func dyeOrdOf(it ItemStack) int32 {
+	if it.Dye != 0 {
+		return it.Dye - 1
+	}
+	if ord, ok := loomDyeOf(it); ok {
+		return ord
+	}
+	return -1
+}
+
+// applyDyeMix is DyedItemColor.applyDyes: the existing dyed_color
+// (when the stack already carries one) and each dye's
+// textureDiffuseColor contribute their channels, the channels
+// average over the entry count, then each channel rescales by
+// (mean of the per-entry max channel) / (max of the mean channels).
+// float32 math mirrors the bytecode's i2f/fdiv/fmul; int(f)
+// truncates like f2i.
+func applyDyeMix(existing int32, ords []int32) int32 {
+	var sumR, sumG, sumB, sumMax, n int
+	add := func(rgb int32) {
+		r := int((rgb >> 16) & 0xff)
+		g := int((rgb >> 8) & 0xff)
+		b := int(rgb & 0xff)
+		sumMax += max(r, max(g, b))
+		sumR += r
+		sumG += g
+		sumB += b
+		n++
+	}
+	if existing != 0 {
+		add(existing)
+	}
+	for _, ord := range ords {
+		if ord >= 0 && int(ord) < len(dyeTextureDiffuseColors) {
+			add(dyeTextureDiffuseColors[ord])
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	avgR, avgG, avgB := sumR/n, sumG/n, sumB/n
+	avgMax := float32(sumMax) / float32(n)
+	maxOfAvg := float32(max(avgR, max(avgG, avgB)))
+	avgR = int(float32(avgR) * avgMax / maxOfAvg)
+	avgG = int(float32(avgG) * avgMax / maxOfAvg)
+	avgB = int(float32(avgB) * avgMax / maxOfAvg)
+	return int32(avgR<<16 | avgG<<8 | avgB)
+}
+
+// matchCraftingDye handles crafting_dye (DyeRecipe on 26.2):
+// ingredientCount>=2, exactly one stack matching the target
+// ingredient (the result item for all six dyeable-armor recipes),
+// every other filled slot a dye item, and at least one of those.
+// Assemble is createWithOriginalComponents(result, target) — the
+// target's whole patch on a count-1 result — then DYED_COLOR is set
+// to the applyDyes mix of the existing color and the dye ordinals in
+// slot order.
+func matchCraftingDye(r *data.Recipe, g craftGrid, filled []bool) (ItemStack, bool) {
+	count := 0
+	for _, f := range filled {
+		if f {
+			count++
+		}
+	}
+	if count < 2 {
+		return ItemStack{}, false
+	}
+	var target ItemStack
+	var ords []int32
+	for i, f := range filled {
+		if !f {
+			continue
+		}
+		st := g[i]
+		name, ok := itemNameOf(st.ID)
+		if !ok {
+			return ItemStack{}, false
+		}
+		if name == r.Result.Item {
+			if !target.Empty() {
+				return ItemStack{}, false
+			}
+			target = st
+			continue
+		}
+		ord := dyeOrdOf(st)
+		if ord < 0 {
+			return ItemStack{}, false
+		}
+		ords = append(ords, ord)
+	}
+	if target.Empty() || len(ords) == 0 {
+		return ItemStack{}, false
+	}
+	out := target
+	out.Count = r.Result.Count
+	out.DyedColor = applyDyeMix(target.DyedColor, ords)
+	return out, true
 }

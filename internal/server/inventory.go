@@ -129,6 +129,16 @@ type ItemStack struct {
 	// flight_duration VarInt, then each explosion in the same
 	// canonical form as FireworkExp.
 	Fireworks string `json:"fireworks,omitempty"`
+	// Dye is the minecraft:dye component — a DyeColor ordinal stored
+	// +1 so 0 means absent (the DyeColor wire codec is its bare id).
+	// Every one of the sixteen dye items carries it by default, so a
+	// normal dye never emits it; only an explicit give override lands
+	// here.
+	Dye int32 `json:"dye,omitempty"`
+	// DyedColor is the minecraft:dyed_color component — the DyedItemColor
+	// record's single rgb int. 0 is a legal rgb but never occurs: the
+	// applyDyes mix divides positive channel sums, so 0 means absent.
+	DyedColor int32 `json:"dyed_color,omitempty"`
 }
 
 // Empty reports whether the slot holds nothing.
@@ -154,7 +164,8 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.Trim == other.Trim &&
 		it.MapID == other.MapID && it.MapPost == other.MapPost &&
 		it.BaseColor == other.BaseColor &&
-		it.FireworkExp == other.FireworkExp && it.Fireworks == other.Fireworks
+		it.FireworkExp == other.FireworkExp && it.Fireworks == other.Fireworks &&
+		it.Dye == other.Dye && it.DyedColor == other.DyedColor
 }
 
 // enchLevel reports the stack's level of one enchantment, or 0 when
@@ -242,6 +253,12 @@ const (
 	// (measured on 26.2: MapPostProcessing { LOCK, SCALE }).
 	compMapID   = 46
 	compMapPost = 48
+
+	// dye is a bare DyeColor VarInt (DyeColor.STREAM_CODEC is BY_ID);
+	// dyed_color is the DyedItemColor rgb as one big-endian int
+	// (ByteBufCodecs.INT composite) — both measured on 26.2.
+	compDye       = 43
+	compDyedColor = 44
 
 	compFireworkExp = 68
 	compFireworks   = 69
@@ -344,6 +361,12 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		add++
 	}
 	if it.Fireworks != "" {
+		add++
+	}
+	if it.Dye != 0 {
+		add++
+	}
+	if it.DyedColor != 0 {
 		add++
 	}
 	b.VarInt(add)
@@ -541,6 +564,14 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		for _, e := range exps {
 			writeFireworkExplosion(b, e)
 		}
+	}
+	if it.Dye != 0 {
+		b.VarInt(compDye)
+		b.VarInt(it.Dye - 1)
+	}
+	if it.DyedColor != 0 {
+		b.VarInt(compDyedColor)
+		b.Int(it.DyedColor)
 	}
 }
 

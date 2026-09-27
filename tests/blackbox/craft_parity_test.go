@@ -30,7 +30,10 @@ func TestCraftRecipeParity(t *testing.T) {
 			"CraftV31", "CraftM31", "CraftV32", "CraftM32",
 			"CraftV33", "CraftM33", "CraftV34", "CraftM34",
 			"CraftV35", "CraftM35", "CraftV36", "CraftM36",
-			"CraftV37", "CraftM37", "CraftV38", "CraftM38"),
+			"CraftV37", "CraftM37", "CraftV38", "CraftM38",
+			"CraftV39", "CraftM39", "CraftV40", "CraftM40",
+			"CraftV41", "CraftM41", "CraftV42", "CraftM42",
+			"CraftV43", "CraftM43", "CraftV44", "CraftM44"),
 	}, nil)
 	defer tg.cleanup()
 
@@ -758,6 +761,111 @@ func TestCraftRecipeParity(t *testing.T) {
 				{tag: "c2", slot: 2},
 				{tag: "take", slot: 0},
 				{tag: "park", slot: 10},
+			},
+		},
+		{
+			// crafting_dye (DyeRecipe): one dyeable + one dye mixes the
+			// dye's textureDiffuseColor alone — an undyed target has no
+			// dyed_color component, so the mix starts from the dye only.
+			name: "dye-boots", suf: "39", block: "minecraft:crafting_table", menu: 12,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:leather_boots"},
+				{"hotbar.1", "minecraft:red_dye"},
+			},
+			steps: []step{
+				{tag: "lift-b", slot: 37},
+				{tag: "b1", slot: 1},
+				{tag: "lift-d", slot: 38},
+				{tag: "d2", slot: 2},
+				{tag: "take", slot: 0},
+				{tag: "park", slot: 10},
+			},
+		},
+		{
+			// Two dyes average their textureDiffuseColor channels and
+			// rescale by the max-channel ratio (applyDyes).
+			name: "dye-mix", suf: "40", block: "minecraft:crafting_table", menu: 12,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:leather_helmet"},
+				{"hotbar.1", "minecraft:red_dye"},
+				{"hotbar.2", "minecraft:blue_dye"},
+			},
+			steps: []step{
+				{tag: "lift-h", slot: 37},
+				{tag: "h1", slot: 1},
+				{tag: "lift-r", slot: 38},
+				{tag: "r2", slot: 2},
+				{tag: "lift-b", slot: 39},
+				{tag: "b3", slot: 3},
+				{tag: "take", slot: 0},
+				{tag: "park", slot: 10},
+			},
+		},
+		{
+			// A pre-dyed stack contributes its existing dyed_color to
+			// the mix as one more entry (applyDyes counts it too).
+			name: "dye-redye", suf: "41", block: "minecraft:crafting_table", menu: 12,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:leather_boots[minecraft:dyed_color=255]"},
+				{"hotbar.1", "minecraft:white_dye"},
+			},
+			steps: []step{
+				{tag: "lift-b", slot: 37},
+				{tag: "b1", slot: 1},
+				{tag: "lift-d", slot: 38},
+				{tag: "d2", slot: 2},
+				{tag: "take", slot: 0},
+				{tag: "park", slot: 10},
+			},
+		},
+		{
+			// wolf_armor dyes through the same recipe type.
+			name: "dye-wolf", suf: "42", block: "minecraft:crafting_table", menu: 12,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:wolf_armor"},
+				{"hotbar.1", "minecraft:green_dye"},
+			},
+			steps: []step{
+				{tag: "lift-w", slot: 37},
+				{tag: "w1", slot: 1},
+				{tag: "lift-g", slot: 38},
+				{tag: "g2", slot: 2},
+				{tag: "take", slot: 0},
+				{tag: "park", slot: 10},
+			},
+		},
+		{
+			// Two stacks matching the target ingredient refuse (the
+			// recipe wants exactly one).
+			name: "dye-twotargets", suf: "43", block: "minecraft:crafting_table", menu: 12,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:leather_boots"},
+				{"hotbar.1", "minecraft:leather_helmet"},
+				{"hotbar.2", "minecraft:red_dye"},
+			},
+			steps: []step{
+				{tag: "lift-a", slot: 37},
+				{tag: "a1", slot: 1},
+				{tag: "lift-b", slot: 38},
+				{tag: "b2", slot: 2},
+				{tag: "lift-d", slot: 39},
+				{tag: "d3", slot: 3},
+				{tag: "take?", slot: 0},
+			},
+		},
+		{
+			// No dye slot: two dyeable pieces alone never match.
+			name: "dye-targetonly", suf: "44", block: "minecraft:crafting_table", menu: 12,
+			gives: [][2]string{
+				{"hotbar.0", "minecraft:leather_boots"},
+				{"hotbar.1", "minecraft:leather_helmet"},
+			},
+			steps: []step{
+				{tag: "lift-a", slot: 37},
+				{tag: "a1", slot: 1},
+				{tag: "lift-b", slot: 38},
+				{tag: "b2", slot: 2},
+				{tag: "take?", slot: 0},
 			},
 		},
 	}
