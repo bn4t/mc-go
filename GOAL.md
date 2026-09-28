@@ -11551,3 +11551,40 @@ vanilla's ~1 ktps; the tail hits emit late) and was widened to a
 200-tick sprint so the frozen window (≥140) always covers a %40
 boundary. Green on both servers: vanilla Health=17/4 hits, mc-go
 Health=17.67/3 hits, TicksFrozen=140 both.
+
+## Slice — down-spread ends the fluid tick (sourceNeighborCount gate)
+
+`TestFluidContactParity`'s "lava source directly over water" scenario
+was the one preexisting regression left from the flow-push slice:
+vanilla settled the ring beside the source to lava level 8 while mc-go
+hardened it to stone.
+
+Vineflower on FlowingFluid.spread showed why: after a successful
+spreadTo(DOWN) — including the LavaFluid.spreadTo that hardens a water
+cell to stone — vanilla RETURNS from the tick; sideways only still
+happens when `sourceNeighborCount(level, pos) >= 3` (same-kind source
+blocks horizontally adjacent). mc-go's spreadFluid fell through to the
+side spread in the same tick, so the lava source's level-2 side flows
+at the layer above landed in the -60 ring while the water's own level-1
+flows were still mid-decay — and lava-falling-into-water makes stone.
+Vanilla waits a full lava tick (~30) for the sides, by which time the
+starved water has decayed to air and the lava lands as level-8 lava.
+
+Fix, mirroring the bytecode:
+
+- the lava-down-into-water branch returns early unless
+  `sourceNeighborCount >= 3` (new helper — horizontal same-kind source
+  neighbours, same count vanilla uses);
+- the ordinary `canFall` path applies the same gate — vanilla spreads
+  down AND out in the same tick only for the ≥3-source crowd.
+
+Step-probe before/after on mc-go now matches vanilla at every
+checkpoint (water lv7 mid-decay at +30, lava ring at +400, centre cell
+stone). `TestFluidContactParity` green end-to-end, and the whole
+fluid-adjacent sweep stays green: TestFluidParity, TestItemFluidParity,
+TestPlayerFluidParity, TestBubbleColumnParity.
+
+Noted for a later slice, not chased here: vanilla's
+LavaFluid.canBeReplacedWith lets WATER spread down into deep lava
+(height ≥ 4/9), an edge mc-go currently never takes — the obsidian
+path covers the scenarios already pinned.

@@ -508,6 +508,21 @@ func (s *Server) newFluidState(d *dimension, pos world.Pos, kind fluidKind) worl
 	return fluidState(kind, nl)
 }
 
+// sourceNeighborCount is vanilla's FlowingFluid.sourceNeighborCount:
+// how many horizontal neighbours hold a source of the same fluid.
+// Vanilla spreads sideways in the same tick a down-spread succeeded
+// only when this reaches three.
+func (s *Server) sourceNeighborCount(d *dimension, pos world.Pos, kind fluidKind) int {
+	n := 0
+	for _, dir := range horizontalDirections {
+		nb := world.Pos{X: pos.X + dir.X, Y: pos.Y, Z: pos.Z + dir.Z}
+		if k2, l2, ok := fluidOf(d.w.GetBlock(nb)); ok && k2 == kind && l2 == 0 {
+			n++
+		}
+	}
+	return n
+}
+
 // spreadLevel is the level a fluid spreads from: sources and falling
 // columns spread as if they were level 0, so both fan out seven blocks.
 func spreadLevel(level int) int {
@@ -555,12 +570,21 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 			case kind == fluidLava && k2 == fluidWater:
 				// Lava reaching down into water sets the water to stone.
 				// This is the one place the two fluids meet from opposite
-				// sides of the block: the lava stays, the water hardens,
-				// and the lava is then still resting, so it goes on to
-				// spread sideways below.
+				// sides of the block: the lava stays, the water hardens.
+				// The down-spread counts as a successful one, so vanilla's
+				// early return applies: sideways waits for the next tick
+				// unless three or more same-kind sources sit beside the
+				// cell. Dropping lava over water puts that pause between
+				// the stone and the side flows — the water's own flows
+				// get their full decay first, which is what lets the
+				// arriving lava land as lava instead of hardening the
+				// ring to stone.
 				resolveSolidStates()
 				s.setNaturalBlock(d, below, stoneState)
 				s.wakeFluids(d, below)
+				if s.sourceNeighborCount(d, pos, kind) < 3 {
+					return
+				}
 			default:
 				columnBelow = k2 == kind
 			}
@@ -579,10 +603,14 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 	// air sends down a one-block column and fans out at its own level
 	// only once that column is under it, which is a tick later. The
 	// reschedule is what gives it that next tick - the real server gets
-	// it from the block update the new falling block causes.
+	// it from the block update the new falling block causes. The only
+	// exception is the crowd: with three or more same-kind sources
+	// beside the cell vanilla spreads down AND out in the same tick.
 	if canFall {
-		s.scheduleFluidTick(d, pos, kind.tickDelay(d))
-		return
+		if s.sourceNeighborCount(d, pos, kind) < 3 {
+			s.scheduleFluidTick(d, pos, kind.tickDelay(d))
+			return
+		}
 	}
 	// Once the fluid below is the same fluid, this block is standing on
 	// its own column: a source at the top of one fans out, while the
