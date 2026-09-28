@@ -10082,3 +10082,16 @@ Residual: raw `SetBlock` write paths outside the two funnels
 recompute; horizontal sky propagation and nether update_light remain
 unmeasured; the join light body still can't distinguish a section
 object that was lit and emptied from one never created.
+
+## Slice: dig speed onGround settle — /tp'd players dig at full speed
+
+`Player.getDestroySpeed` divides destroy speed by 5 while the entity's
+onGround flag is down — vanilla's physics tick resolves that flag onto
+the footing every tick, so a player teleported onto solid ground digs
+at full speed almost immediately. mc-go's flag only moved with move
+packets, so any session that /tp'd and dug without moving paid the
+airborne penalty forever (grass 90 ticks vs vanilla's 18) —
+`TestDigParity` had every mc-go leg timing out at broke=false.
+`digTicks` now falls back to `supportedBelow` when the flag is down,
+the same settle estimate the jump-stat check uses. Green: grass
+start+stop 17.9 vs 17.1 ticks, stone bare-hand 149.2 vs 150.9.

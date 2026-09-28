@@ -106,7 +106,7 @@ func hardnessOf(b world.Block) blockHardness {
 // and /100 when it is not, quantized to a whole tick. A result of 1
 // or less breaks on the action start itself, like vanilla's
 // instabreak path (grass, bamboo with a sword).
-func digTicks(info blockHardness, bname string, sess *Session) int {
+func (s *Server) digTicks(info blockHardness, bname string, sess *Session) int {
 	if info.hardness < 0 {
 		return -1
 	}
@@ -115,8 +115,15 @@ func digTicks(info blockHardness, bname string, sess *Session) int {
 	if eff := tool.enchLevel("minecraft:efficiency"); eff > 0 && speed > 1 {
 		speed += float64(eff*eff + 1)
 	}
-	_, _, _, _, _, onGround := sess.Pos()
-	if !onGround {
+	x, y, z, _, _, og := sess.Pos()
+	if !og {
+		// Vanilla's onGround flag resolves on the entity's physics
+		// tick, so a player parked on solid footing since the last
+		// move packet still reads grounded; a free-floating digger
+		// pays the /5 penalty.
+		og = s.supportedBelow(sess, x, y, z)
+	}
+	if !og {
 		speed /= 5
 	}
 	div := 30.0
@@ -244,7 +251,7 @@ func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) [
 			return nil
 		}
 		bname, _ := world.StateOwner(blk)
-		need := digTicks(info, bname, sess)
+		need := s.digTicks(info, bname, sess)
 		if need <= 1 {
 			// destroyProgress >= 1 on the first tick of a dig means the
 			// block breaks on the start action itself, no finish needed.
@@ -277,7 +284,7 @@ func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) [
 			return nil
 		}
 		bname, _ := world.StateOwner(sess.digBlock)
-		need := digTicks(info, bname, sess)
+		need := s.digTicks(info, bname, sess)
 		if sess.digTicks+1 >= need {
 			sess.digActive = false
 			sess.digTicks = 0
@@ -331,7 +338,7 @@ func (s *Server) digTickStep() {
 				cname, _ := world.StateOwner(cur)
 				// Vanilla re-reads the block state and the held tool
 				// every tick, so a swap changes when it fires.
-				if need := digTicks(hardnessOf(cur), cname, sess); ticks+1 >= need {
+				if need := s.digTicks(hardnessOf(cur), cname, sess); ticks+1 >= need {
 					affected := s.breakBlock(sess, pos, hardnessOf(cur))
 					s.emitLightUpdate(sess.dimension(), pos, affected)
 					sess.digMu.Lock()
