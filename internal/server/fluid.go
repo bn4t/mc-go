@@ -814,7 +814,11 @@ func entityFluidScan(w *world.World, x, y, z, half, height float64, kind fluidKi
 				if d := surf - y; d > depth {
 					depth = d
 				}
-				if lv >= 1 && lv <= fluidMaxLevel {
+				// Every fluid cell contributes its getFlow — sources
+				// push too: a boundary source next to air flows
+				// outward the tick an entity grazes it (measured:
+				// a source-box edge pushes ~0.014/tick on arrows).
+				if lv <= fluidMaxLevel {
 					fx, fz := fluidFlowDir(w, cx, cy, cz, kind)
 					accX += fx
 					accZ += fz

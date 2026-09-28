@@ -11490,3 +11490,37 @@ arrow (re-measure if a slice pins entity counts against
 captured-movement semantic (AbstractHurtingProjectile.tick —
 move currently uses post-inertia delta, trajectory-level probe
 would pin it).
+
+## Slice — entity flow push: source-cell getFlow + flag-latched arrow current
+
+Measured on the 26.2 jar (Entity.updateFluidInteraction /
+EntityFluidInteraction$Tracker.applyCurrentTo + freeze+`tick step 2`
+checkpoints on a boundary-grazing arrow): the per-tick current push is
+the accumulated `getFlow` of every fluid cell the entity box covers —
+**source cells (level=0) push too**, normalized to unit ×0.014 for
+water. `entityFluidScan`'s flow gate dropped `lv >= 1` so lv 0–7 all
+contribute (falling lv=8 still excluded).
+
+Push timing is one tick behind the flag: the push at end-of-tick n
+fires only when the isInWater flag used during tick n−1 was water —
+verified to the digit: pushes at t5–t8 ends reproduce vanilla's
+motz 0.0823923 / 0.0072612 and posz −5.0780570 / −4.9602292 at steps
+6/8, while gating on the current tick's flag over-pushes by ~0.014.
+Implemented with a second latch `arrowInWaterWas` alongside
+`arrowInWater` (flag still latched end-of-tick for the next tick's
+inertia arm, moved from top-of-tick rescan to the entity-loop tail,
+mirroring where vanilla's water update runs in Entity.tick).
+
+Pinned end-to-end: `TestArrowStickParity` lane D2 — small source box
+whose edge cells flow outward; freeze → step 2×4 → `data get
+Motion/Pos` after each pair; mc-go matches vanilla at every checkpoint
+within 1e-6 (water drag + boundary push + entry-tick lag all
+composed). Interior lane D unaffected (zero-flow box).
+
+Preexisting regressions found while sweeping (reproduced on clean
+master via stash — NOT from this change): TestFluidContactParity
+("lava source directly over water" settles lava in vanilla vs stone in
+mc-go), TestLavaBurnSoundParity (mc-go keeps GENERIC_BURN cadence 4
+packets after pig death), TestPlayerFluidParity (mc-go powder-snow
+freezeHits=0 with TicksFrozen=140 vs vanilla 2 hits — likely a
+regression from an earlier slice, worth its own investigation).

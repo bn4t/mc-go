@@ -494,17 +494,12 @@ func (s *Server) arrowTickStep() {
 		// AbstractArrow.tick captures `movement` at the tick head — the
 		// pre-move applyInertia(0.6) mutates only the delta FIELD, so
 		// the displacement uses the pre-inertia value and the 0.6
-		// reaches the flight one tick late. isInWater itself latches a
-		// tick behind the fluid scan (Entity.tick's water update runs
-		// after the arrow's physics): prevInWater is last tick's flag
-		// and this rescan stores the current pos for the next tick.
+		// reaches the flight one tick late. arrowInWater is isInWater —
+		// latched by the rescan at this tick's tail, matching where
+		// Entity.tick's water update runs after the arrow's physics.
 		mvx, mvy, mvz := e.MotionX, e.MotionY, e.MotionZ
 		prevInWater := e.arrowInWater
 		if sticks {
-			if w := s.dimWorld(e.Dim); w != nil {
-				_, inW, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, 0.25, 0.5, fluidWater)
-				e.arrowInWater = inW
-			}
 			if prevInWater {
 				e.MotionX *= 0.6
 				e.MotionY *= 0.6
@@ -810,6 +805,21 @@ func (s *Server) arrowTickStep() {
 				if isTrident && name == "lightning_rod" {
 					s.channelingStrike(e.arrowShooter, e, hx, hy, hz)
 				}
+			}
+		}
+		if sticks {
+			// Entity.tick's tail — updateInWaterStateAndDoFluidPushing —
+			// scans the post-move box: the flow push gates on the flag
+			// used the PREVIOUS tick (measured: the first push lands a
+			// tick after isInWater first reports water), while the flag
+			// itself carries over to the tick that uses it.
+			if w := s.dimWorld(e.Dim); w != nil {
+				_, inW, ax, az, ac := entityFluidScan(w, e.X, e.Y, e.Z, 0.25, 0.5, fluidWater)
+				if e.arrowInWaterWas {
+					e.applyFluidCurrent(ax, az, ac, 0.014)
+				}
+				e.arrowInWaterWas = e.arrowInWater
+				e.arrowInWater = inW
 			}
 		}
 	}

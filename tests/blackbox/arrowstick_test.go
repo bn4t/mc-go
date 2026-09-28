@@ -85,6 +85,8 @@ type arrowLeg struct {
 	// Lane D — water inertia, sampled via NBT after a fixed sprint.
 	waterMot []float64
 	waterPos []float64
+	pushMot  []float64
+	pushPos  []float64
 
 	// Lane E — pickup gate.
 	takeAllowed    bool
@@ -193,6 +195,10 @@ func TestArrowStickParity(t *testing.T) {
 	// for-element within float epsilon.
 	eqEps("waterMot", van.waterMot, mine.waterMot)
 	eqEps("waterPos", van.waterPos, mine.waterPos)
+	t.Logf("pushMot van=%v mine=%v", van.pushMot, mine.pushMot)
+	t.Logf("pushPos van=%v mine=%v", van.pushPos, mine.pushPos)
+	eqEps("pushMot", van.pushMot, mine.pushMot)
+	eqEps("pushPos", van.pushPos, mine.pushPos)
 	if van.takeAllowed != mine.takeAllowed || van.takeDisallowed != mine.takeDisallowed {
 		t.Fatalf("pickup gate %v/%v vs %v/%v", van.takeAllowed, van.takeDisallowed, mine.takeAllowed, mine.takeDisallowed)
 	}
@@ -349,6 +355,27 @@ func runArrowLeg(t *testing.T, addr string) *arrowLeg {
 	selD := "@e[type=minecraft:arrow,x=29,y=-62,z=-10,dx=6,dy=6,dz=12,limit=1]"
 	leg.waterMot = dataGetFloats(t, sink, pw, selD, "Motion")
 	leg.waterPos = dataGetFloats(t, sink, pw, selD, "Pos")
+	sendCommand(t, pw, "tick unfreeze")
+
+	// Lane D2 — the current push: a small source box whose edge cells
+	// flow outward, so the arrow grazes a flowing boundary cell and
+	// takes vanilla's normalized ~0.014/tick push on the delta.
+	sendCommand(t, pw, "fill 44 -61 -10 50 -55 0 minecraft:air")
+	sendCommand(t, pw, "fill 45 -61 -6 49 -56 -2 minecraft:water")
+	sendCommand(t, pw, "tick freeze")
+	sendCommand(t, pw, "kill @e[type=minecraft:arrow]")
+	sendCommand(t, pw, "summon minecraft:arrow 46 -59 -8 {Motion:[0.0d,0.0d,0.5d]}")
+	selD2 := "@e[type=minecraft:arrow,x=44,y=-62,z=-10,dx=6,dy=6,dz=10,limit=1]"
+	for i := 0; i < 4; i++ {
+		sendCommand(t, pw, "tick step 2")
+		time.Sleep(800 * time.Millisecond)
+		dataGetLine(t, sink, pw, "@s", "Pos") // drain step echo
+		m := dataGetFloats(t, sink, pw, selD2, "Motion")
+		p := dataGetFloats(t, sink, pw, selD2, "Pos")
+		t.Logf("pushstep %d mot=%v pos=%v", (i+1)*2, m, p)
+	}
+	leg.pushMot = dataGetFloats(t, sink, pw, selD2, "Motion")
+	leg.pushPos = dataGetFloats(t, sink, pw, selD2, "Pos")
 	sendCommand(t, pw, "tick unfreeze")
 	harvest()
 

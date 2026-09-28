@@ -767,7 +767,10 @@ type Entity struct {
 	arrowStuckBlock string
 	// arrowInWater is AbstractArrow's isInWater — latched one tick
 	// behind the fluid scan like vanilla's Entity.tick water update.
-	arrowInWater bool
+	// arrowInWaterWas is the flag used the PREVIOUS tick — vanilla's
+	// flow push gates on it, landing a tick after the flag does.
+	arrowInWater    bool
+	arrowInWaterWas bool
 	// The AbstractArrow NBT tail: arrowPickup is Pickup's ordinal
 	// (0 disallow / 1 allowed / 2 creative-only), arrowDamage the
 	// baseDamage double (2.0 default), arrowCrit the ID_FLAGS crit
