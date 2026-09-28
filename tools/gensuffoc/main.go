@@ -30,6 +30,12 @@ var suffocatingTypes = map[string]bool{
 	"vault": true, "crafter": true, "weathering_copper_bulb": true,
 	"copper_bulb_block": true, "command": true, "barrel": true,
 	"loom": true, "end_portal_frame": true,
+	// Custom full-cube types the generic "block" type does not catch —
+	// each is an opaque occluder in vanilla (measured: light entering a
+	// netherrack pocket died at the wall, not inside it).
+	"netherrack": true, "redstone_ore": true, "redstone_lamp": true,
+	"jigsaw": true, "structure": true, "test": true,
+	"test_instance": true, "barrier": true, "infested_rotated_pillar": true,
 }
 
 func main() {

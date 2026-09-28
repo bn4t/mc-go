@@ -276,13 +276,37 @@ func (sess *Session) viewBlocks() float64 {
 	return float64(v * 16)
 }
 
-// chunkSeen is mc-go's isChunkTracked: the column is in the session's
-// tracking view (queued) and its chunk packet has gone out (sent).
+// chunkSeen is mc-go's isChunkTracked: the column is inside the
+// session's CURRENT tracking view around the player's chunk and its
+// chunk packet has gone out (sent) — vanilla's contains(x,z) && !isPending.
+// The view is isWithinDistance with the two-chunk shrink: for view
+// distance 2 that is the 7x7 square centred on the player — the
+// hysteresis ring queued/sent keep past the edge does not count.
 func (sess *Session) chunkSeen(cx, cz int) bool {
+	x, _, z, _, _, _ := sess.Pos()
+	pcx, pcz := int(x)>>4, int(z)>>4
+	dx, dz := cx-pcx, cz-pcz
+	if dx < 0 {
+		dx = -dx
+	}
+	if dz < 0 {
+		dz = -dz
+	}
+	dx -= 2
+	if dx < 0 {
+		dx = 0
+	}
+	dz -= 2
+	if dz < 0 {
+		dz = 0
+	}
+	dist := sess.viewRadius(sess.server.ViewDistance)
+	if dx*dx+dz*dz >= dist*dist {
+		return false
+	}
 	sess.sentMu.Lock()
 	defer sess.sentMu.Unlock()
-	k := [2]int{cx, cz}
-	return sess.queued[k] && sess.sent[k]
+	return sess.sent[[2]int{cx, cz}]
 }
 
 // tracksEntity reports whether the session's seenBy set holds id.

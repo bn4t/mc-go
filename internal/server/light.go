@@ -116,6 +116,7 @@ func lightGridSet(d *dimension, p world.Pos, v int, pre map[world.Pos]int) bool 
 		d.blockLight = map[world.Pos]uint8{}
 	}
 	d.blockLight[p] = uint8(v)
+	lightLayerMark(d, p)
 	return true
 }
 
@@ -125,8 +126,30 @@ func lightGridDel(d *dimension, p world.Pos, pre map[world.Pos]int) {
 		pre[p] = int(d.blockLight[p])
 	}
 	if d.blockLight != nil {
+		if _, lit := d.blockLight[p]; lit {
+			lightLayerMark(d, p)
+		}
 		delete(d.blockLight, p)
 	}
+}
+
+// lightLayerMark records that pos's section holds a materialized light
+// layer — the first cell write into a section allocates it (vanilla's
+// setStoredLevel copies a DataLayer in), and it stays allocated even
+// after every cell in it zeroes back out.
+func lightLayerMark(d *dimension, p world.Pos) {
+	ck := [2]int{p.X >> 4, p.Z >> 4}
+	sec := (p.Y - d.minY) / 16
+	if sec < 0 || sec >= d.sections() {
+		return
+	}
+	if d.lightLayerSecs == nil {
+		d.lightLayerSecs = map[[2]int]map[int]bool{}
+	}
+	if d.lightLayerSecs[ck] == nil {
+		d.lightLayerSecs[ck] = map[int]bool{}
+	}
+	d.lightLayerSecs[ck][sec] = true
 }
 
 type lightItem struct {
@@ -238,15 +261,31 @@ func (s *Server) blockLightChanged(d *dimension, pos world.Pos, old, blk world.B
 		if int(d.blockLight[p]) == ov {
 			continue
 		}
-		ck := [2]int{p.X >> 4, p.Z >> 4}
-		sec := (p.Y - d.minY) / 16
-		if d.lightDirty == nil {
-			d.lightDirty = map[[2]int]map[int]bool{}
+		// Each write marks every section the cell's 3x3x3 neighbourhood
+		// reaches — vanilla's SectionPos.aroundAndAtBlockPos — so a cell
+		// on a section boundary reports the sections it borders (an
+		// unlit one lands on the empty mask), including across chunk
+		// edges.
+		sx0, sx1 := (p.X-1)>>4, (p.X+1)>>4
+		sz0, sz1 := (p.Z-1)>>4, (p.Z+1)>>4
+		sy0, sy1 := (p.Y-1-d.minY)>>4, (p.Y+1-d.minY)>>4
+		for sx := sx0; sx <= sx1; sx++ {
+			for sz := sz0; sz <= sz1; sz++ {
+				ck := [2]int{sx, sz}
+				for sy := sy0; sy <= sy1; sy++ {
+					if sy < 0 || sy >= d.sections() {
+						continue
+					}
+					if d.lightDirty == nil {
+						d.lightDirty = map[[2]int]map[int]bool{}
+					}
+					if d.lightDirty[ck] == nil {
+						d.lightDirty[ck] = map[int]bool{}
+					}
+					d.lightDirty[ck][sy] = true
+				}
+			}
 		}
-		if d.lightDirty[ck] == nil {
-			d.lightDirty[ck] = map[int]bool{}
-		}
-		d.lightDirty[ck][sec] = true
 	}
 }
 
@@ -261,10 +300,11 @@ func (s *Server) emitLightUpdate(d *dimension, pos world.Pos, skySecs []int) {
 	}
 	key := [2]int{pos.X >> 4, pos.Z >> 4}
 	if !d.skylight {
-		// Update light in no-skylight dimensions is unmeasured;
-		// keep the previous behaviour of sending nothing.
-		d.lightDirty = nil
-		return
+		// No-skylight dimensions still propagate and broadcast block
+		// light (measured on 26.2: a nether torch place emits Update
+		// Light with block arrays and all-empty sky masks); only the
+		// sky side stays silent.
+		skySecs = nil
 	}
 	dirty := d.lightDirty
 	d.lightDirty = nil
@@ -384,8 +424,16 @@ func lightUpdateBody(d *dimension, tops *[256]int32, cx, cz int, skySecs, blkSec
 		if sec < 0 || sec >= d.sections() {
 			continue
 		}
-		setLongBit(&blockMask, sec+1)
-		blockArrays = append(blockArrays, blockSectionArray(d, cx, cz, sec))
+		// A section ships its array when the engine has ever written a
+		// cell into it — the layer object outlives its contents — and
+		// lands on the empty mask when the section was only affected
+		// (marked through a boundary write) but never materialized.
+		if d.lightLayerSecs[[2]int{cx, cz}][sec] {
+			setLongBit(&blockMask, sec+1)
+			blockArrays = append(blockArrays, blockSectionArray(d, cx, cz, sec))
+		} else {
+			setLongBit(&emptyBlock, sec+1)
+		}
 	}
 	var b protocol.Buffer
 	writeLongMask(&b, skyMask)
@@ -403,17 +451,39 @@ func lightUpdateBody(d *dimension, tops *[256]int32, cx, cz int, skySecs, blkSec
 	return b.Bytes()
 }
 
-// sendLightUpdate emits one Update Light packet to every session
-// tracking chunk (cx,cz) in dimension d.
+// sendLightUpdate emits one Update Light packet to every session for
+// which chunk (cx,cz) sits on the tracked border of its view: the
+// column must be seen (in the window and already sent), and at least
+// one of its eight neighbours must not be. Vanilla's
+// ChunkMap.getPlayers(pos, true) gates light updates to that border -
+// a client relights interior changes itself off the block updates it
+// already has, so an interior light write reaches nobody.
 func (s *Server) sendLightUpdate(d *dimension, cx, cz int, skySecs, blkSecs []int) {
 	if len(skySecs) == 0 && len(blkSecs) == 0 {
 		return
 	}
-	tops := chunkTops(d, cx, cz)
+	var tops [256]int32
+	if len(skySecs) > 0 {
+		tops = chunkTops(d, cx, cz)
+	}
 	body := lightUpdateBody(d, &tops, cx, cz, skySecs, blkSecs)
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.state.Load() != StatePlay || sess.dimName() != d.name || !sess.hasChunk(cx, cz) {
+		if sess.state.Load() != StatePlay || sess.dimName() != d.name || !sess.chunkSeen(cx, cz) {
+			return true
+		}
+		border := false
+		for dx := -1; dx <= 1 && !border; dx++ {
+			for dz := -1; dz <= 1 && !border; dz++ {
+				if dx == 0 && dz == 0 {
+					continue
+				}
+				if !sess.chunkSeen(cx+dx, cz+dz) {
+					border = true
+				}
+			}
+		}
+		if !border {
 			return true
 		}
 		var b protocol.Buffer

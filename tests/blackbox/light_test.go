@@ -3,6 +3,9 @@ package blackbox
 import (
 	"bytes"
 	"fmt"
+	"net"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -258,6 +261,10 @@ func collectChunkLights(t *testing.T, c interface{ SetReadDeadline(time.Time) er
 			_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
 			continue
 		}
+		if p.ID == server.IDPlayChunkBatchDone {
+			_ = ackChunkBatch(pw)
+			continue
+		}
 		if p.ID != server.IDPlayUpdateLight {
 			continue
 		}
@@ -268,7 +275,11 @@ func collectChunkLights(t *testing.T, c interface{ SetReadDeadline(time.Time) er
 		return out
 	}
 	quiet := time.Now().Add(quietFor)
-	for time.Now().Before(quiet) {
+	// Hard cap: a settling world (the nether's ambient light engine,
+	// mostly) can feed updates forever — the sweep is over once the
+	// stream quiets OR the cap is hit, never on traffic alone.
+	deadline := time.Now().Add(quietFor * 8)
+	for time.Now().Before(quiet) && time.Now().Before(deadline) && len(out) < 128 {
 		_ = c.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		p, err := pr.ReadPacket()
 		if err != nil {
@@ -276,6 +287,10 @@ func collectChunkLights(t *testing.T, c interface{ SetReadDeadline(time.Time) er
 		}
 		if p.ID == server.IDPlayKeepAliveCB {
 			_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+			continue
+		}
+		if p.ID == server.IDPlayChunkBatchDone {
+			_ = ackChunkBatch(pw)
 			continue
 		}
 		if p.ID != server.IDPlayUpdateLight {
@@ -293,16 +308,23 @@ func collectChunkLights(t *testing.T, c interface{ SetReadDeadline(time.Time) er
 // carrying ONLY block arrays for the sections it lit (the sky side
 // stays silent — a torch does not shadow its column), and breaking it
 // re-sends the same sections with all-zero arrays (the section object
-// survives a removal, so the empty mask is never used). Masks and
-// nibble arrays must match vanilla byte for byte.
+// survives a removal, so it ships an array rather than the empty
+// mask). Masks and nibble arrays must match vanilla byte for byte.
+//
+// Vanilla broadcasts an update only to players whose tracked chunk
+// set has the lit chunk on its border — ChunkMap.getPlayers(pos,
+// true) → isChunkOnTrackedBorder — so the test teleports the player
+// to (56.5,100,8.5) (chunk 3,0): the fallback 7x7 tracked window then
+// covers chunks x{0..6} x z{-3..3}, putting the torch's lit chunks
+// (0,-1) and (0,0) on the west border while (1,*) stays interior and
+// gets no wire update on either server. Chunks x<0 are outside the
+// window entirely — the spread into them is never reported.
 //
 // Measured on 26.2 (LayerLightSectionUpdate / ClientboundLightUpdatePacket):
-// place at (8,-58,0) -> the 29x29 lit region spans chunks x{-1..1},
-// z{-1..0}; each ships its own packet, blockMask bits {1,2} (sections
-// 0,1) for chunks below the spread, {1} elsewhere; remove -> the same
-// masks with all-zero arrays. Vanilla occasionally drops the centre
-// chunk's packet entirely — the comparison is over the chunks vanilla
-// actually emitted.
+// place at (8,-58,0) -> update for chunk (0,0) and (0,-1); every
+// section a lit cell's 3x3x3 neighbourhood touches is marked
+// (SectionPos.aroundAndAtBlockPos), and a marked section with no
+// materialized layer ships on emptyBlock instead of blockMask.
 func TestTorchLightParity(t *testing.T) {
 	targets := requireBlackboxFiles(t, nil,
 		map[string]string{"ops.json": opsJSONFor("LP")}, nil)
@@ -322,7 +344,11 @@ func TestTorchLightParity(t *testing.T) {
 		}
 		c, pr, pw := joinPlayBlackbox(t, addr, "LP")
 		drainToJoinBlackbox(t, "lp", pr)
-		drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+		sendCommand(t, pw, "tp @s 56.5 100 8.5")
+		streamed := settleChunks(t, c, pr, pw, 4*time.Second)
+		if !streamed[[2]int{0, 0}] {
+			t.Fatalf("%s (%s): torch chunk (0,0) was never streamed — window keys %v", addr, leg, windowKeys(streamed))
+		}
 		sendCommand(t, pw, "setblock 8 -58 0 torch")
 		legs[i].place = collectChunkLights(t, c, pr, pw, 20*time.Second, 700*time.Millisecond)
 		if len(legs[i].place) == 0 {
@@ -400,4 +426,223 @@ func TestTorchLightParity(t *testing.T) {
 		}
 		cmpSnap("remove", ck, vsnap, msnap)
 	}
+}
+
+// TestNetherTorchLightParity pins vanilla's Update Light behaviour in a
+// no-skylight dimension: block light propagates and broadcasts exactly
+// like the overworld — same mask semantics, same nibble arrays — while
+// the sky side stays silent. Measured on 26.2 inside a sealed
+// netherrack pocket (ambient lava light can't leak in): a torch place
+// emits blockMask {5} (section 4) with the 14-level spread array on the
+// torch's chunk alone, and breaking it re-sends the section with an
+// all-zero array.
+//
+// The pocket: shell at x/z 96..104, y 60..78, hollow x/z 97..103,
+// y 64..76 — the torch's spread dies against the opaque walls inside
+// chunk (6,6), so exactly one packet per write is expected.
+func TestNetherTorchLightParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil,
+		map[string]string{"ops.json": opsJSONFor("NL")}, nil)
+	defer targets.cleanup()
+	defer func() {
+		if t.Failed() {
+			vanillaLogTail(t)
+		}
+	}()
+	var legs [2]struct {
+		pre, place, remove map[[2]int]lightSnapshot
+	}
+	for i, addr := range []string{targets.vanilla, targets.mcgo} {
+		leg := "vanilla"
+		if i == 1 {
+			leg = "mc-go"
+		}
+		c, pr, pw := joinPlayBlackbox(t, addr, "NL")
+		drainToJoinBlackbox(t, "nl", pr)
+		sendCommand(t, pw, "execute in minecraft:the_nether run tp @s 100.5 70 100.5")
+		// Vanilla gates light updates to the tracked border of the
+		// client's view: a tracked column with at least one untracked
+		// neighbour (ChunkMap.getPlayers(pos, true)). A torch placed
+		// mid-view emits nothing on the wire — the client relights it
+		// locally — so the sealed pocket sits three columns east, on the
+		// edge of the client-default view-distance-2 window.
+		streamed := settleChunks(t, c, pr, pw, 4*time.Second)
+		sendCommand(t, pw, "execute in minecraft:the_nether run fill 144 60 96 152 78 104 minecraft:netherrack")
+		sendCommand(t, pw, "execute in minecraft:the_nether run fill 145 64 97 151 76 103 minecraft:air")
+		if !streamed[[2]int{9, 6}] {
+			t.Fatalf("%s (%s): chunk (9,6) never streamed (window %v)", addr, leg, windowKeys(streamed))
+		}
+		// Let the pocket's own light update pass before the torch write.
+		legs[i].pre = collectChunkLightFor(t, c, pr, pw, [2]int{9, 6}, 10*time.Second)
+
+		sendCommand(t, pw, "execute in minecraft:the_nether run setblock 148 64 100 minecraft:torch")
+		legs[i].place = collectChunkLightFor(t, c, pr, pw, [2]int{9, 6}, 30*time.Second)
+		if len(legs[i].place[[2]int{9, 6}].blockArrays) == 0 {
+			t.Fatalf("%s (%s): no update_light for chunk (9,6) after placing the nether torch (map %v)",
+				addr, leg, lightKeys(legs[i].place))
+		}
+		sendCommand(t, pw, "execute in minecraft:the_nether run setblock 148 64 100 minecraft:air")
+		legs[i].remove = collectChunkLightFor(t, c, pr, pw, [2]int{9, 6}, 30*time.Second)
+		if len(legs[i].remove[[2]int{9, 6}].blockArrays) == 0 {
+			t.Fatalf("%s (%s): no update_light for chunk (9,6) after removing the nether torch (map %v)",
+				addr, leg, lightKeys(legs[i].remove))
+		}
+		c.Close()
+	}
+	van, got := legs[0], legs[1]
+
+	// Anti-vacuous guards on the vanilla leg: chunk (9,6) must ship the
+	// sealed section's lit array on place and an all-zero array on
+	// remove.
+	want := [2]int{9, 6}
+	if snap, ok := van.place[want]; !ok || len(snap.blockArrays) == 0 || nonzeroArrays(snap.blockArrays) == 0 {
+		t.Fatalf("vanilla place: chunk (9,6) missing or unlit: %+v", van.place)
+	}
+	if snap, ok := van.remove[want]; !ok || len(snap.blockArrays) == 0 || nonzeroArrays(snap.blockArrays) != 0 {
+		t.Fatalf("vanilla remove: chunk (9,6) not cleared: %+v", van.remove)
+	}
+	// Vanilla occasionally settles ambient light in unrelated chunks —
+	// the sealed write only concerns the torch's chunk, so compare just
+	// that chunk's snapshot. Sky masks must be empty on both servers.
+	for _, phase := range []struct {
+		name string
+		m    map[[2]int]lightSnapshot
+		g    map[[2]int]lightSnapshot
+	}{
+		{"place", van.place, got.place},
+		{"remove", van.remove, got.remove},
+	} {
+		vs, vok := phase.m[want]
+		ms, mok := phase.g[want]
+		if vok != mok {
+			t.Fatalf("%s: chunk (9,6) presence mismatch vanilla=%v mc-go=%v (mc-go map %+v)",
+				phase.name, vok, mok, phase.g)
+		}
+		if !vok {
+			continue
+		}
+		if !reflect.DeepEqual(vs.skyMask, ms.skyMask) ||
+			!reflect.DeepEqual(vs.blockMask, ms.blockMask) ||
+			!reflect.DeepEqual(vs.emptySky, ms.emptySky) ||
+			!reflect.DeepEqual(vs.emptyBlock, ms.emptyBlock) {
+			t.Fatalf("%s chunk (9,6): mask mismatch\nvanilla sky=%v block=%v esky=%v eblock=%v\nmc-go   sky=%v block=%v esky=%v eblock=%v\nvanilla arrays %v\nmc-go   arrays %v",
+				phase.name,
+				vs.skyMask, vs.blockMask, vs.emptySky, vs.emptyBlock,
+				ms.skyMask, ms.blockMask, ms.emptySky, ms.emptyBlock,
+				arrayStats(vs.blockArrays), arrayStats(ms.blockArrays))
+		}
+		if len(vs.skyArrays) != 0 || len(ms.skyArrays) != 0 {
+			t.Fatalf("%s chunk (9,6): sky arrays in a no-skylight dimension: v=%d m=%d",
+				phase.name, len(vs.skyArrays), len(ms.skyArrays))
+		}
+		if !reflect.DeepEqual(vs.blockArrays, ms.blockArrays) {
+			t.Fatalf("%s chunk (9,6): block arrays mismatch (v=%d arrays m=%d)",
+				phase.name, len(vs.blockArrays), len(ms.blockArrays))
+		}
+	}
+}
+
+// settleChunks drains for a fixed window, answering keepalives and
+// chunk batches — long enough for the paced nether chunk stream to
+// reach the tracked set near the player. Returns the columns whose
+// level_chunk_with_light packets were seen.
+func settleChunks(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writer, d time.Duration) map[[2]int]bool {
+	t.Helper()
+	seen := map[[2]int]bool{}
+	end := time.Now().Add(d)
+	for time.Now().Before(end) {
+		_ = c.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+		p, err := pr.ReadPacket()
+		if err != nil {
+			continue
+		}
+		switch p.ID {
+		case server.IDPlayChunkBatchDone:
+			_ = ackChunkBatch(pw)
+		case server.IDPlayKeepAliveCB:
+			_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+		case server.IDPlayChunkData:
+			r := protocol.NewPacketReader(p.Data)
+			cx, ex := r.Int()
+			cz, ez := r.Int()
+			if ex == nil && ez == nil {
+				seen[[2]int{int(cx), int(cz)}] = true
+			}
+		}
+	}
+	return seen
+}
+
+func windowKeys(m map[[2]int]bool) string {
+	var b strings.Builder
+	for k := range m {
+		fmt.Fprintf(&b, "(%d,%d) ", k[0], k[1])
+	}
+	return b.String()
+}
+
+// collectChunkLightFor waits for an update_light packet naming the
+// target chunk (ambient light traffic on other chunks does not end the
+// wait — the settling nether floods those forever), then sweeps 700ms
+// past the last packet for that chunk to catch any follow-up sections.
+func collectChunkLightFor(t *testing.T, c interface {
+	SetReadDeadline(time.Time) error
+}, pr *protocol.Reader, pw *protocol.Writer, want [2]int, timeout time.Duration) map[[2]int]lightSnapshot {
+	t.Helper()
+	out := map[[2]int]lightSnapshot{}
+	deadline := time.Now().Add(timeout)
+	lastWant := time.Time{}
+	for time.Now().Before(deadline) {
+		if !lastWant.IsZero() && time.Since(lastWant) > 700*time.Millisecond {
+			break
+		}
+		_ = c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		p, err := pr.ReadPacket()
+		if err != nil {
+			continue
+		}
+		switch p.ID {
+		case server.IDPlayKeepAliveCB:
+			_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+			continue
+		case server.IDPlayChunkBatchDone:
+			_ = ackChunkBatch(pw)
+			continue
+		case server.IDPlayUpdateLight:
+		default:
+			continue
+		}
+		cx, cz, snap := decodeLightUpdate(t, &p)
+		k := [2]int{int(cx), int(cz)}
+		out[k] = snap
+		if k == want {
+			lastWant = time.Now()
+		}
+	}
+	return out
+}
+
+func lightKeys(m map[[2]int]lightSnapshot) string {
+	var b strings.Builder
+	for k := range m {
+		fmt.Fprintf(&b, "(%d,%d) ", k[0], k[1])
+	}
+	return b.String()
+}
+
+// arrayStats summarizes each nibble array as nonzero-nibble count —
+// tells an all-zero array (empty-mask material) from a lit one without
+// dumping 2048 bytes.
+func arrayStats(arrays [][]byte) []int {
+	out := make([]int, len(arrays))
+	for i, a := range arrays {
+		n := 0
+		for _, v := range a {
+			if v != 0 {
+				n++
+			}
+		}
+		out[i] = n
+	}
+	return out
 }

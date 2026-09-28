@@ -98,8 +98,13 @@ type dimension struct {
 	// lightDirty accumulates chunk -> sections whose block light
 	// changed mid-write; emitLightUpdate drains it into update_light
 	// packets at the emit point vanilla uses (after the caller's ack).
-	blockLight map[world.Pos]uint8
-	lightDirty map[[2]int]map[int]bool
+	// lightLayerSecs tracks which sections have a materialized light
+	// layer (at least one cell ever written) — vanilla ships those as
+	// arrays even when all-zero, while a touched section without one
+	// lands on the empty mask instead.
+	blockLight     map[world.Pos]uint8
+	lightDirty     map[[2]int]map[int]bool
+	lightLayerSecs map[[2]int]map[int]bool
 	// rsSilenceWire is RedStoneWireBlock.shouldSignal=false: held
 	// while a wire recomputes its target so getBlockSignal ignores
 	// dust emitters.

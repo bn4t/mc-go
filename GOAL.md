@@ -63,8 +63,12 @@ Mojang server over the wire.
       against it state for state
 - [~] Lighting engine: block light propagates per-cell (BFS spread,
       erase-flood removal, opacity 255/3/1) with vanilla's Update Light
-      wire semantics pinned (`TestTorchLightParity`); sky light stays
-      column-model — horizontal propagation + nether light open
+      wire semantics pinned in both dimensions — border-recipient
+      gating, around-marked sections and layer-presence masks
+      (`TestTorchLightParity`, `TestNetherTorchLightParity`); sky light
+      stays column-model — horizontal propagation open, plus nether
+      ambient light (lava-sea seeding) unmodeled so arrays only match
+      inside sealed regions
 - [~] Fluids: water and lava flow with vanilla's levels, drop-off,
       falling columns and dry-up. Redstone and scheduled block ticks
       remain. Random ticks now cover the crop family — wheat/carrots/
@@ -10095,3 +10099,50 @@ airborne penalty forever (grass 90 ticks vs vanilla's 18) —
 `digTicks` now falls back to `supportedBelow` when the flag is down,
 the same settle estimate the jump-stat check uses. Green: grass
 start+stop 17.9 vs 17.1 ticks, stone bare-hand 149.2 vs 150.9.
+
+## Slice: nether update_light — border-recipient rule, layer-presence masks
+
+Vanilla DOES broadcast block-light updates in the nether, but only to
+players for whom the lit chunk sits on the tracked border:
+`ChunkHolder.broadcastChanges` sends `ClientboundLightUpdatePacket` via
+`playerProvider.getPlayers(pos, true)` where boundaryOnly resolves to
+`isChunkOnTrackedBorder` — `isChunkTracked` (in the tracking view AND
+not pending in `PlayerChunkSender`) plus at least one of the eight
+neighbours not tracked. Interior light changes get no wire update at
+all — the client relights locally. `sendLightUpdate` now applies the
+same per-session gate.
+
+`chunkSeen` (mc-go's `isChunkTracked`) previously answered
+queued&&sent over the hysteresis ring, which keeps columns the circle
+already forgot — after a teleport that left stale "tracked" chunks
+and suppressed border emission. It now checks membership in the
+current view — `isWithinDistance` with the two-chunk shrink
+(`max(0,|d|-2)²` sums `< D²`, the 7x7 square at D=2) around the
+player's live chunk — AND sent.
+
+Vanilla marks, per written cell, every section the cell's 3x3x3
+neighbourhood reaches (`SectionPos.aroundAndAtBlockPos` →
+`sectionLightChanged` filter bits), including across chunk edges; at
+packet build a marked section ships its array when a light layer was
+materialized there (it outlives its contents — emptied sections keep
+shipping all-zero arrays) and lands on the empty mask when it never
+was. `blockLightChanged`'s dirty fold now marks the same around-set,
+`lightLayerSecs` records materialization on first write, and
+`lightUpdateBody` splits `blockMask`/`emptyBlock` on it.
+
+Two measured bugs surfaced along the way: the nether emitted nothing
+at all before (emission was gated on `d.skylight`), and `netherrack`
+was missing from `suffocatingBlocks` — the generator's type whitelist
+skipped vanilla's custom `minecraft:netherrack` block class, so light
+leaked through opaque walls (mc-go lit 584+690 nibbles where vanilla
+lit 0+301). gensuffoc now whitelists the nine occluding custom types
+(netherrack, redstone_ore/lamp, jigsaw, structure, test, test_instance,
+barrier, infested_rotated_pillar) → 375 entries, regenerated.
+
+`TestNetherTorchLightParity` seals a netherrack pocket inside border
+chunk (9,6) of a 7x7 window and pins the torch place/remove wire on
+both servers: `blockMask=[32]` with a byte-identical 301-nibble sec4
+array, `emptyBlock=[16]` for the boundary-touched unlit sec3 — on both
+legs. `TestTorchLightParity` now teleports the player so the torch
+chunk is deterministically border (spawn selection is not shared), and
+re-verified green after the gate landed.
