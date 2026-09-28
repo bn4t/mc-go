@@ -61,7 +61,10 @@ Mojang server over the wire.
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
-- [ ] Lighting engine (sky + block, incremental)
+- [~] Lighting engine: block light propagates per-cell (BFS spread,
+      erase-flood removal, opacity 255/3/1) with vanilla's Update Light
+      wire semantics pinned (`TestTorchLightParity`); sky light stays
+      column-model — horizontal propagation + nether light open
 - [~] Fluids: water and lava flow with vanilla's levels, drop-off,
       falling columns and dry-up. Redstone and scheduled block ticks
       remain. Random ticks now cover the crop family — wheat/carrots/
@@ -10027,3 +10030,55 @@ manual-set-then-award sums (7+1=8, 3+1=4), fresh objective never
 backfills, submerged air feed, and the death reset's zero write.
 `TestKillScoreParity` exercises the reordered kill path. Both
 green vs BOTH servers.
+
+## Slice: block-light propagation — per-cell grid, BFS engine, real nibble arrays
+
+Live probe on 26.2 (`/setblock torch` / `air` at (8,-58,0), flat
+overworld, watching Update Light per chunk):
+
+- The packet carries skyYMask, blockYMask, emptySkyYMask,
+  emptyBlockYMask (BitSet = VarInt long count + big-endian longs, bit
+  = section+1, bit 0 = below-world) then the per-type array counts and
+  2048-byte nibble arrays (low nibble first, index order x->z->y).
+- Torch place: `skyMask=[]`, `blockMask={1,2}` (sections 0,1), no
+  empty bits, two block arrays of 628 + 20 nonzero nibbles — the
+  packet ships ONLY the light type that changed; sky is not re-sent.
+- Torch remove: identical masks, both arrays all-zero — removal ships
+  zeroed arrays under blockMask, never the empty mask (vanilla ships
+  arrays whenever the section's light-data object exists; it is not
+  content-based).
+- The torch's 29x29x15 glow crosses six chunks — vanilla emits one
+  Update Light per affected chunk in arbitrary order, and roughly a
+  quarter of runs drops the centre chunk's packet entirely. The test
+  compares over the chunks vanilla actually emitted.
+- A torch does not move the sky heightmap: vanilla's map counts only
+  light-occluding cells (isSuffocating/canOcclude), so mc-go's old
+  "highest non-air" top counted the torch and shipped a spurious
+  skyMask. chunkTops/columnTop now scan for suffocatingBlocks cells.
+- `affectedSections` on an unmoved top returned the one-section range
+  [oldTop] — now nil, matching vanilla emitting nothing for sky.
+
+mc-go (`internal/server/light.go`, `chunk.go`, `dimension.go`):
+per-dimension `blockLight map[world.Pos]uint8` grid of nonzero cells
+plus `lightDirty` chunk->sections pending emission. `blockLightChanged`
+gates on emission/opacity deltas, then runs vanilla's algorithm: add
+BFS at `nv = cur - max(1, opacity)` (opaque 255, water 3, lava 255),
+remove as the erase flood (cells with `nv <= v - opacity` erased, the
+brighter boundary re-seeded, eaten emitters re-spread at their own
+level). All six write-path emit sites now call `emitLightUpdate`,
+which drains the dirty set into one packet per touched chunk and
+tags the column's sky sections onto the position chunk's packet —
+the same wire order as before (after the caller's ack). The
+join-time light body moves lit sections from the captured flat
+empty-Block mask into real arrays.
+
+`TestTorchLightParity` collects every Update Light for ~700ms after
+each write on BOTH legs and compares masks + full nibble arrays per
+chunk — 4/4 consecutive passes; preexisting-fail `TestDigParity`
+(mc-go never breaks, identical on clean master) logged for later.
+
+Residual: raw `SetBlock` write paths outside the two funnels
+(pistons, explosions, portals, sculk, fluids) still bypass light
+recompute; horizontal sky propagation and nether update_light remain
+unmeasured; the join light body still can't distinguish a section
+object that was lit and emptied from one never created.

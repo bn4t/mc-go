@@ -93,6 +93,13 @@ type dimension struct {
 	// positions (beds, bells) a villager claimed, keyed to the
 	// claimant's entity id. Raids require occupied POIs nearby.
 	claimedPOIs map[world.Pos]int32
+	// blockLight is the per-level block-light grid, nonzero cells
+	// only — the value vanilla's BlockLightSection stores per cell.
+	// lightDirty accumulates chunk -> sections whose block light
+	// changed mid-write; emitLightUpdate drains it into update_light
+	// packets at the emit point vanilla uses (after the caller's ack).
+	blockLight map[world.Pos]uint8
+	lightDirty map[[2]int]map[int]bool
 	// rsSilenceWire is RedStoneWireBlock.shouldSignal=false: held
 	// while a wire recomputes its target so getBlockSignal ignores
 	// dust emitters.

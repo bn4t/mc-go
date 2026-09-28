@@ -157,7 +157,7 @@ func encodeChunk(d *dimension, cx, cz int, blockEntities []clientBlockEntity) []
 		}
 		b.Raw(be.nbt)
 	}
-	b.Raw(encodeLightDataFor(d))
+	b.Raw(encodeLightDataFor(d, cx, cz))
 	return b.Bytes()
 }
 
@@ -261,25 +261,84 @@ func encodeLightData() []byte {
 	return b.Bytes()
 }
 
+// litBlockSections lists the sections of column (cx,cz) whose block
+// light grid holds any lit cell — those ship arrays on chunk send
+// the way vanilla ships its BlockLightSections, while the sections
+// chunk generation lit (and emptied again) stay on the empty mask.
+func litBlockSections(d *dimension, cx, cz int) []int {
+	var out []int
+	seen := map[int]bool{}
+	for p := range d.blockLight {
+		if p.X>>4 != cx || p.Z>>4 != cz {
+			continue
+		}
+		sec := (p.Y - d.minY) / 16
+		if sec < 0 || sec >= d.sections() || seen[sec] {
+			continue
+		}
+		seen[sec] = true
+		out = append(out, sec)
+	}
+	sort.Ints(out)
+	return out
+}
+
 // encodeLightDataFor picks the light profile per dimension: skylight
 // dimensions get the flat-overworld profile, skylight-less ones
 // (nether, end) mark every section empty so the client relies on the
-// dimension's ambient light instead.
-func encodeLightDataFor(d *dimension) []byte {
-	if d.skylight {
-		return encodeLightData()
+// dimension's ambient light instead. Sections the block-light grid
+// lit move from the empty mask to a real array.
+func encodeLightDataFor(d *dimension, cx, cz int) []byte {
+	var blockMask uint64
+	var blockArrays [][]byte
+	for _, sec := range litBlockSections(d, cx, cz) {
+		blockMask |= 1 << uint(sec+1)
+		blockArrays = append(blockArrays, blockSectionArray(d, cx, cz, sec))
 	}
-	// sections+2 light slots, all flagged empty; no arrays follow.
-	bits := d.sections() + 2
 	var b protocol.Buffer
-	b.VarInt(0) // sky light mask: no arrays
-	b.VarInt(0) // block light mask: no arrays
-	b.VarInt(1) // empty sky light mask
-	b.Long(int64(uint64(1)<<uint(bits) - 1))
-	b.VarInt(1) // empty block light mask
-	b.Long(int64(uint64(1)<<uint(bits) - 1))
-	b.VarInt(0) // sky arrays
-	b.VarInt(0) // block light arrays
+	if d.skylight {
+		// Sky mask bits 1,2 (ground section and the section above it).
+		b.VarInt(1)
+		b.Long(0x6)
+		if blockMask != 0 {
+			b.VarInt(1)
+			b.Long(int64(blockMask))
+		} else {
+			b.VarInt(0)
+		}
+		// Empty sky below the world; the flat world's generated
+		// sections keep empty block objects at bits 0,1,2.
+		b.VarInt(1)
+		b.Long(0x1)
+		b.VarInt(1)
+		b.Long(int64(uint64(0x7) &^ blockMask))
+		b.VarInt(2)
+		ground := make([]byte, 2048)
+		for i := 512; i < 2048; i++ {
+			ground[i] = 0xFF
+		}
+		writeByteArray(&b, ground)
+		writeByteArray(&b, bytes.Repeat([]byte{0xFF}, 2048))
+	} else {
+		// sections+2 light slots, all flagged empty; no arrays follow.
+		bits := d.sections() + 2
+		b.VarInt(0) // sky light mask: no arrays
+		if blockMask != 0 {
+			b.VarInt(1)
+			b.Long(int64(blockMask))
+		} else {
+			b.VarInt(0)
+		}
+		b.VarInt(1) // empty sky light mask
+		b.Long(int64(uint64(1)<<uint(bits) - 1))
+		b.VarInt(1) // empty block light mask
+		b.Long(int64((uint64(1)<<uint(bits) - 1) &^ blockMask))
+		b.VarInt(0) // sky arrays
+	}
+	b.VarInt(int32(len(blockArrays)))
+	for _, arr := range blockArrays {
+		writeByteArray(&b, arr)
+	}
 	return b.Bytes()
 }
 
@@ -302,7 +361,7 @@ func encodeLightFor(d *dimension, cx, cz int) []byte {
 	var b protocol.Buffer
 	b.VarInt(int32(cx))
 	b.VarInt(int32(cz))
-	b.Raw(encodeLightDataFor(d))
+	b.Raw(encodeLightDataFor(d, cx, cz))
 	return b.Bytes()
 }
 

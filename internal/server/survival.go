@@ -249,7 +249,7 @@ func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) [
 			// destroyProgress >= 1 on the first tick of a dig means the
 			// block breaks on the start action itself, no finish needed.
 			affected := s.breakBlock(sess, pos, info)
-			s.sendLightUpdate(sess.dimension(), pos.X>>4, pos.Z>>4, affected)
+			s.emitLightUpdate(sess.dimension(), pos, affected)
 			return affected
 		}
 		sess.digMu.Lock()
@@ -283,7 +283,7 @@ func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) [
 			sess.digTicks = 0
 			sess.digMu.Unlock()
 			affected := s.breakBlock(sess, pos, info)
-			s.sendLightUpdate(sess.dimension(), pos.X>>4, pos.Z>>4, affected)
+			s.emitLightUpdate(sess.dimension(), pos, affected)
 			return affected
 		}
 		// Stopped early: arm the delayed destroy on the same tick
@@ -333,7 +333,7 @@ func (s *Server) digTickStep() {
 				// every tick, so a swap changes when it fires.
 				if need := digTicks(hardnessOf(cur), cname, sess); ticks+1 >= need {
 					affected := s.breakBlock(sess, pos, hardnessOf(cur))
-					s.sendLightUpdate(sess.dimension(), pos.X>>4, pos.Z>>4, affected)
+					s.emitLightUpdate(sess.dimension(), pos, affected)
 					sess.digMu.Lock()
 					sess.digDelayed = false
 					sess.digMu.Unlock()

@@ -548,10 +548,10 @@ func (s *Server) setSilentBlock(d *dimension, pos world.Pos, blk world.Block) {
 	// was already air. Only removing the top cell rescans down.
 	var newTop int32
 	switch {
-	case int32(pos.Y) < oldTop || (blk != world.Air && int32(pos.Y) == oldTop):
+	case int32(pos.Y) < oldTop || (lightOpaque(blk) && int32(pos.Y) == oldTop):
 		newTop = oldTop
 	case int32(pos.Y) > oldTop:
-		if blk != world.Air {
+		if lightOpaque(blk) {
 			newTop = int32(pos.Y)
 		} else {
 			newTop = oldTop
@@ -562,9 +562,8 @@ func (s *Server) setSilentBlock(d *dimension, pos world.Pos, blk world.Block) {
 	s.broadcastBlockState(d, pos, blk)
 	s.syncBlockEntities(d, pos, blk)
 	s.invalidateRandomTickSection(d, pos)
-	if affected := affectedSections(d, oldTop, newTop); len(affected) > 0 {
-		s.sendLightUpdate(d, pos.X>>4, pos.Z>>4, affected)
-	}
+	s.blockLightChanged(d, pos, old, blk)
+	s.emitLightUpdate(d, pos, affectedSections(d, oldTop, newTop))
 }
 
 func belowIsTag(tag string) func(*Server, *dimension, world.Pos, world.Block) bool {

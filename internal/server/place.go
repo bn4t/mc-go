@@ -572,7 +572,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		}
 	}
 	useAck()
-	s.sendLightUpdate(d, target.X>>4, target.Z>>4, affected)
+	s.emitLightUpdate(d, target, affected)
 	// Survival consumes one item and syncs the slot; creative keeps
 	// the stack, matching vanilla.
 	if sess.mode() != GameModeCreative {

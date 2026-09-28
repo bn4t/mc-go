@@ -248,10 +248,10 @@ func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk wo
 	// when the write removed the top cell itself.
 	var newTop int32
 	switch {
-	case int32(pos.Y) < oldTop || (blk != world.Air && int32(pos.Y) == oldTop):
+	case int32(pos.Y) < oldTop || (lightOpaque(blk) && int32(pos.Y) == oldTop):
 		newTop = oldTop
 	case int32(pos.Y) > oldTop:
-		if blk != world.Air {
+		if lightOpaque(blk) {
 			newTop = int32(pos.Y)
 		} else {
 			newTop = oldTop
@@ -297,6 +297,10 @@ func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk wo
 		s.rsDrainPending(d)
 	}
 	d.rsWriteDepth--
+	// The queued updates may have rewritten the cell again — the
+	// light side reads the final state like everything downstream.
+	blk = d.w.GetBlock(pos)
+	s.blockLightChanged(d, pos, old, blk)
 	return affectedSections(d, oldTop, newTop)
 }
 
@@ -520,7 +524,7 @@ func (s *Server) handleDig(sess *Session, p protocol.Packet) {
 		if seq >= 0 {
 			s.sendBlockAck(sess, seq)
 		}
-		s.sendLightUpdate(d, pos.X>>4, pos.Z>>4, affected)
+		s.emitLightUpdate(d, pos, affected)
 		return
 	case GameModeSurvival:
 		// Survival digging is timed by the server's own tick loop, so
