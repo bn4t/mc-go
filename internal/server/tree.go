@@ -24,6 +24,7 @@ const (
 	canopyBlob canopyKind = iota
 	canopySpruce
 	canopyAcacia
+	canopyCherry
 )
 
 // trunkKind is the species' trunk_placer variant: the straight column
@@ -34,6 +35,7 @@ type trunkKind int
 const (
 	trunkStraight trunkKind = iota
 	trunkForking
+	trunkCherry
 )
 
 // foliageAttach is one FoliageAttachment: the cell the canopy centers
@@ -73,6 +75,10 @@ var treeShapes = map[string]treeShape{
 	"spruce_sapling": {"spruce_log", "spruce_leaves", 5, 2, 1, 0, 2, 2, trunkStraight, canopySpruce, false},
 	"jungle_sapling": {"jungle_log", "jungle_leaves", 4, 8, 0, 0, 1, 1, trunkStraight, canopyBlob, false},
 	"acacia_sapling": {"acacia_log", "acacia_leaves", 5, 2, 2, 0, 1, 2, trunkForking, canopyAcacia, false},
+	// cherry.json: base 7 + intn(2) → 7..9; two_layers upper_size 2
+	// with the default limit 1 → the column cell at y=0, the whole
+	// 5x5 from y=1 up; CherryTrunkPlacer + CherryFoliagePlacer.
+	"cherry_sapling": {"cherry_log", "cherry_leaves", 7, 1, 0, 0, 1, 2, trunkCherry, canopyCherry, false},
 }
 
 // saplingRule — SaplingBlock.randomTick: getMaxLocalRawBrightness of
@@ -173,7 +179,7 @@ func (s *Server) placeFeatureName(d *dimension, name string, pos world.Pos) bool
 	switch name {
 	case "fancy_oak":
 		return s.fancyOakFeature(d, pos)
-	case "oak", "birch", "spruce", "acacia":
+	case "oak", "birch", "spruce", "acacia", "cherry":
 		return s.treeFeature(d, pos, treeShapes[name+"_sapling"])
 	case "jungle_tree_no_vine":
 		return s.treeFeature(d, pos, treeShapes["jungle_sapling"])
@@ -243,6 +249,8 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 	switch shape.trunk {
 	case trunkForking:
 		attachments = s.forkingTrunk(d, pos, treeHeight, logState, &logs)
+	case trunkCherry:
+		attachments = s.cherryTrunk(d, pos, treeHeight, logState, &logs)
 	default:
 		for y := 0; y < treeHeight; y++ {
 			p := world.Pos{X: pos.X, Y: pos.Y + y, Z: pos.Z}
@@ -270,6 +278,8 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		s.spruceCanopy(d, top, treeHeight, placeLeaf)
 	case canopyAcacia:
 		s.acaciaCanopy(d, attachments, placeLeaf)
+	case canopyCherry:
+		s.cherryCanopy(d, attachments, leafState, &leaves)
 	default:
 		// blob (radius 2, offset 0, height 3): four layers at yo
 		// 0..-3 with radius max(2 - 1 - yo/2, 0) → 1,1,2,2 (Java's
@@ -306,6 +316,203 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 	// result the leaf distance ticks would converge to over ticks.
 	s.treeLeafDistances(d, logs, leaves)
 	return true
+}
+
+// cherryTrunk — CherryTrunkPlacer.placeTrunk: a straight column whose
+// height depends on the rolled branch count, plus one or two side
+// branches that step off the column and random-walk to their end
+// cell. cherry.json: branch_start U{-4..-3} for the first branch and
+// U{-4..-4} for the second (bumped past the first on collision),
+// branch_end U{-1..0}, horizontal length U{2..4}, and a weighted
+// 1/2/3 branch count — 3 branches adds a top-of-trunk attachment.
+func (s *Server) cherryTrunk(d *dimension, pos world.Pos, treeHeight int, logState world.Block, logs *[]world.Pos) []foliageAttach {
+	first := max(0, treeHeight-5+s.rng.intn(2))
+	second := max(0, treeHeight-5)
+	if second >= first {
+		second = first + 1
+	}
+	count := 1 + s.rng.intn(3)
+	var trunkHeight int
+	switch {
+	case count == 3:
+		trunkHeight = treeHeight
+	case count == 2:
+		trunkHeight = max(first, second) + 1
+	default:
+		trunkHeight = first + 1
+	}
+	for y := 0; y < trunkHeight; y++ {
+		p := world.Pos{X: pos.X, Y: pos.Y + y, Z: pos.Z}
+		if s.treeCanOccupy(d, p) {
+			s.setNaturalBlock(d, p, logState)
+			*logs = append(*logs, p)
+		}
+	}
+	var attachments []foliageAttach
+	if count == 3 {
+		attachments = append(attachments, foliageAttach{
+			pos: world.Pos{X: pos.X, Y: pos.Y + trunkHeight, Z: pos.Z},
+		})
+	}
+	dir := horizDirs[s.rng.intn(4)]
+	attachments = append(attachments, s.cherryBranch(d, pos, treeHeight,
+		logState, dir, first, first < trunkHeight-1, logs))
+	if count >= 2 {
+		opp := world.Pos{X: -dir.X, Y: -dir.Y, Z: -dir.Z}
+		attachments = append(attachments, s.cherryBranch(d, pos, treeHeight,
+			logState, opp, second, second < trunkHeight-1, logs))
+	}
+	return attachments
+}
+
+// cherryBranch — CherryTrunkPlacer.generateBranch: one or two
+// horizontal steps off the trunk cell at the branch offset, then a
+// random walk to the end cell — each step goes vertical with
+// probability |dy|/manhattan, horizontal otherwise; vertical cells
+// keep axis y, horizontal cells take the branch direction's axis.
+func (s *Server) cherryBranch(d *dimension, pos world.Pos, treeHeight int, logState world.Block, dir world.Pos, offset int, middleUp bool, logs *[]world.Pos) foliageAttach {
+	lp := world.Pos{X: pos.X, Y: pos.Y + offset, Z: pos.Z}
+	endOffset := treeHeight - 1 - s.rng.intn(2)
+	extend := middleUp || endOffset < offset
+	dist := 2 + s.rng.intn(3)
+	if extend {
+		dist++
+	}
+	end := world.Pos{
+		X: pos.X + dir.X*dist,
+		Y: pos.Y + endOffset,
+		Z: pos.Z + dir.Z*dist,
+	}
+	axis := "x"
+	if dir.X == 0 {
+		axis = "z"
+	}
+	dirLog, _ := world.WithProperty(logState, "axis", axis)
+	place := func(p world.Pos, st world.Block) {
+		if s.treeCanOccupy(d, p) {
+			s.setNaturalBlock(d, p, st)
+			*logs = append(*logs, p)
+		}
+	}
+	steps := 1
+	if extend {
+		steps = 2
+	}
+	for i := 0; i < steps; i++ {
+		lp = world.Pos{X: lp.X + dir.X, Y: lp.Y, Z: lp.Z + dir.Z}
+		place(lp, dirLog)
+	}
+	vertDir := -1
+	if end.Y > lp.Y {
+		vertDir = 1
+	}
+	for {
+		dman := absi(end.X-lp.X) + absi(end.Y-lp.Y) + absi(end.Z-lp.Z)
+		if dman == 0 {
+			return foliageAttach{pos: world.Pos{X: end.X, Y: end.Y + 1, Z: end.Z}}
+		}
+		if s.rng.nextDouble() < float64(absi(end.Y-lp.Y))/float64(dman) {
+			lp = world.Pos{X: lp.X, Y: lp.Y + vertDir, Z: lp.Z}
+			place(lp, logState)
+		} else {
+			lp = world.Pos{X: lp.X + dir.X, Y: lp.Y, Z: lp.Z + dir.Z}
+			place(lp, dirLog)
+		}
+	}
+}
+
+// cherryCanopy — CherryFoliagePlacer {radius 4, offset 0, height 5,
+// wide_bottom .25, corner .25, hanging .1667, hang_ext .3334}:
+// currentRadius = 4+0-1 = 3; square rows (r=1, y=2), (r=2, y=1),
+// (r=3, y=0), then the two hanging rows (r=3, y=-1) and (r=2, y=-2),
+// each of which can also drop a leaf or two below its perimeter.
+func (s *Server) cherryCanopy(d *dimension, attachments []foliageAttach, leafState world.Block, leaves *[]world.Pos) {
+	placed := map[world.Pos]bool{}
+	for _, at := range attachments {
+		fp := at.pos
+		s.cherryRow(d, fp, 1, 2, leafState, leaves, placed)
+		s.cherryRow(d, fp, 2, 1, leafState, leaves, placed)
+		s.cherryRow(d, fp, 3, 0, leafState, leaves, placed)
+		s.cherryHangRow(d, fp, 3, -1, leafState, leaves, placed)
+		s.cherryHangRow(d, fp, 2, -2, leafState, leaves, placed)
+	}
+}
+
+// cherryRow is placeLeavesRow with CherryFoliagePlacer's
+// shouldSkipLocation: on the wide bottom row (y=-1) every edge cell
+// holes out at .25, corners always hole on r>2 with the diag pairs
+// also .25, and narrow rows hole only true corners at .25.
+func (s *Server) cherryRow(d *dimension, origin world.Pos, r, y int, leafState world.Block, leaves *[]world.Pos, placed map[world.Pos]bool) {
+	for dx := -r; dx <= r; dx++ {
+		for dz := -r; dz <= r; dz++ {
+			ax, az := absi(dx), absi(dz)
+			var skip bool
+			if y == -1 && (ax == r || az == r) && s.rng.nextDouble() < 0.25 {
+				skip = true
+			} else {
+				corner := ax == r && az == r
+				if r > 2 {
+					skip = corner || ax+az > 2*r-2 && s.rng.nextDouble() < 0.25
+				} else {
+					skip = corner && s.rng.nextDouble() < 0.25
+				}
+			}
+			if skip {
+				continue
+			}
+			s.cherryLeaf(d, world.Pos{X: origin.X + dx, Y: origin.Y + y, Z: origin.Z + dz}, leafState, leaves, placed)
+		}
+	}
+}
+
+// cherryHangRow is placeLeavesRowWithHangingLeavesBelow: the row,
+// then a walk around its perimeter — under every cell whose own
+// foliage landed, a hanging leaf appears at 1/6 and one more below
+// that at 1/3, each only within Manhattan 7 of the cell under the
+// attachment.
+func (s *Server) cherryHangRow(d *dimension, origin world.Pos, r, y int, leafState world.Block, leaves *[]world.Pos, placed map[world.Pos]bool) {
+	s.cherryRow(d, origin, r, y, leafState, leaves, placed)
+	logPos := world.Pos{X: origin.X, Y: origin.Y - 1, Z: origin.Z}
+	for _, along := range horizDirs {
+		toEdge := world.Pos{X: -along.Z, Y: 0, Z: along.X} // clockwise
+		c := world.Pos{
+			X: origin.X + toEdge.X*r - along.X*r,
+			Y: origin.Y + y - 1,
+			Z: origin.Z + toEdge.Z*r - along.Z*r,
+		}
+		for off := -r; off < r; off++ {
+			above := world.Pos{X: c.X, Y: c.Y + 1, Z: c.Z}
+			if placed[above] && s.cherryExtend(d, c, logPos, 1.0/6.0, leafState, leaves, placed) {
+				below := world.Pos{X: c.X, Y: c.Y - 1, Z: c.Z}
+				s.cherryExtend(d, below, logPos, 1.0/3.0, leafState, leaves, placed)
+			}
+			c = world.Pos{X: c.X + along.X, Y: c.Y, Z: c.Z + along.Z}
+		}
+	}
+}
+
+// cherryExtend is tryPlaceExtension: the drop lands only inside the
+// Manhattan-7 bubble and on the chance roll.
+func (s *Server) cherryExtend(d *dimension, p, logPos world.Pos, chance float64, leafState world.Block, leaves *[]world.Pos, placed map[world.Pos]bool) bool {
+	if absi(p.X-logPos.X)+absi(p.Y-logPos.Y)+absi(p.Z-logPos.Z) >= 7 {
+		return false
+	}
+	if s.rng.nextDouble() >= chance {
+		return false
+	}
+	s.cherryLeaf(d, p, leafState, leaves, placed)
+	return true
+}
+
+// cherryLeaf wraps placeTreeLeaf and records which cells the setter
+// actually wrote — the hanging rows only drop below a cell the
+// foliage pass already filled.
+func (s *Server) cherryLeaf(d *dimension, p world.Pos, leafState world.Block, leaves *[]world.Pos, placed map[world.Pos]bool) {
+	before := len(*leaves)
+	s.placeTreeLeaf(d, p, leafState, leaves)
+	if len(*leaves) > before {
+		placed[p] = true
+	}
 }
 
 // placeTreeLeaf is FoliagePlacer.tryPlaceLeaf: never overwrites

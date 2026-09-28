@@ -10576,3 +10576,36 @@ clipped tree grows on both legs (the clipped shape itself is
 sampling-dependent so only the invariants are pinned). `scanNames`
 joins every matching candidate with "+" — horizontal logs read
 "oak_log+oak_log[axis=x]"; count via Contains.
+
+## Slice: cherry trees + two_layers limit=1 (CherryTrunkPlacer/FoliagePlacer)
+
+Measured on 26.2 (cherry.json + CherryTrunkPlacer/CherryFoliagePlacer/
+FoliagePlacer/TwoLayersFeatureSize decompiles):
+
+- CherryTrunkPlacer {base 7, randA 1, randB 0}: first branch start
+  max(0, h-1+U{-4..-3}), second max(0, h-1+U{-4..-4}) bumped past the
+  first on collision; weighted 1/2/3 branch count; trunkHeight = h
+  (3 branches), max(f,s)+1 (2), or first+1 (1); column y<trunkHeight,
+  plus a top attachment at count==3. Each branch: 1-2 horizontal
+  steps off the column (2 when middleContinuesUpwards or the end is
+  below the start), then a random walk to the end cell stepping
+  vertical with probability |dy|/manhattan; horizontal cells take
+  the branch direction's axis, vertical keep y.
+- CherryFoliagePlacer {radius 4, offset 0, height 5, wide_bottom .25,
+  corner .25, hanging .1667, hang_ext .3334}: currentRadius = 3;
+  square rows (1,y=2),(2,y=1),(3,y=0) then hanging rows (3,-1),
+  (2,-2) whose perimeter drops a leaf at 1/6 under each set cell and
+  one more at 1/3, within Manhattan 7 of the cell below the attach.
+  Skips: y=-1 edge cells at .25, else corner always on r>2 with
+  |dx|+|dz|>2r-2 at .25, or corner .25 on r<=2.
+- two_layers limit defaults to 1, not 0 (codec optionalFieldOf):
+  oak/birch/jungle {} check the column at y=0 then the 3x3; acacia and
+  cherry {upper_size 2} check the column at y=0 then the 5x5 — so a
+  block beside the trunk at ground level never blocks growth (cherry
+  entry corrected from limit 0).
+
+Blackbox: `TestCherryParity` — three cherries placed at 10 spacing;
+per-leg counts (cherry_log >= 3, cherry_leaves >= 30) and >= 1
+horizontal-axis cherry_log per tree (the first branch step always
+lands off-column — deterministic); stone beside the column at y=0
+grows anyway on both legs, stone inside the 5x5 at y=2 fails on both.
