@@ -143,7 +143,8 @@ func (s *Server) shearMob(sess *Session, t Entity, hand int32) {
 			s.broadcastEntityMetadata(t.ID, encodeLivingMetadata(p, nil))
 		}
 		pos := world.Pos{X: int(math.Floor(t.X)), Y: int(math.Floor(t.Y)), Z: int(math.Floor(t.Z))}
-		if wid, ok := world.ItemIDs["white_wool"]; ok {
+		// The shearing/sheep/<color> subtable: wool of the dyed color.
+		if wid, ok := world.ItemIDs[dyeColorName[t.Color&15]+"_wool"]; ok {
 			s.spawnItemDrop(t.Dim, pos, ItemStack{ID: wid, Count: int32(1 + s.rng.intn(3))})
 		}
 	case "snow_golem":

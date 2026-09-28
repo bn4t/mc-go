@@ -1402,6 +1402,11 @@ func (s *Server) runSummon(player string, args []string) reply {
 				if v, ok := tag.vals["Sheared"]; ok && snbtNum(v) > 0 {
 					e.Sheared = true
 				}
+				// Sheep.readAdditionalSaveData's Color key — the
+				// legacy numeric dye id, low nibble of the wool byte.
+				if v, ok := tag.vals["Color"]; ok {
+					e.Color = int8(snbtNum(v)) & 15
+				}
 			}
 			if name == "bogged" {
 				if v, ok := tag.vals["sheared"]; ok && snbtNum(v) > 0 {
@@ -2414,6 +2419,7 @@ type livingMeta struct {
 	asFlags    byte
 	mobFlags   byte
 	sheared    bool // sheep wool byte / bogged mushrooms
+	color      int8 // sheep wool byte low nibble
 	moving     bool
 	beam       int32
 	pumpkin    bool
@@ -2441,6 +2447,7 @@ func snapLivingMeta(e *Entity) livingMeta {
 		asFlags:    encodeArmorStandFlags(e),
 		mobFlags:   mobFlagsByte(e),
 		sheared:    e.Sheared,
+		color:      e.Color,
 		moving:     e.Moving,
 		beam:       e.beamTarget,
 		pumpkin:    e.Pumpkin,
@@ -2578,12 +2585,12 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(8) // type: boolean
 				b.Bool(e.Baby)
 			}
-			if e.Sheared != last.sheared {
+			if e.Sheared != last.sheared || e.Color != last.color {
 				b.Byte(18)
 				b.Byte(0) // type: byte
-				v := byte(0)
+				v := byte(e.Color & 15)
 				if e.Sheared {
-					v = 0x10
+					v |= 0x10
 				}
 				b.Byte(v)
 			}
@@ -2767,11 +2774,15 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Bool(true)
 			}
 			// Sheep's DATA_WOOL_ID (index 18, byte): low nibble is
-			// the dye color (always white=0), bit 0x10 = sheared.
-			if e.Sheared {
+			// the dye color, bit 0x10 = sheared.
+			if e.Sheared || e.Color != 0 {
 				b.Byte(18)
 				b.Byte(0) // type: byte
-				b.Byte(0x10)
+				v := byte(e.Color & 15)
+				if e.Sheared {
+					v |= 0x10
+				}
+				b.Byte(v)
 			}
 		case "guardian", "elder_guardian":
 			// Guardian defines DATA_ID_MOVING (16, boolean) and

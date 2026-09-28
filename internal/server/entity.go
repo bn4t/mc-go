@@ -34,6 +34,9 @@ type Entity struct {
 	// Sheared is the Shearable readyForShearing complement — sheep
 	// sheared by shears/dispensers regrow wool on grass-eat ticks.
 	Sheared bool
+	// Color is Sheep's DATA_COLOR low nibble — the dye/wool color id
+	// (0 white … 15 black); the 0x10 sheared bit shares the byte.
+	Color int8
 	// Pumpkin is SnowGolem's DATA_PUMPKIN_ID flag — a sheared snow
 	// golem loses its carved-pumpkin head (default true at spawn).
 	Pumpkin bool

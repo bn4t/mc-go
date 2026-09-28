@@ -298,6 +298,12 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 		return
 	}
 	s.bucketFish(sess, id, hand)
+	if s.milkInteract(sess, id, hand) {
+		return
+	}
+	if s.stewInteract(sess, id, hand) {
+		return
+	}
 	s.feedAnimal(sess, id, hand)
 	s.tameAnimal(sess, id, hand)
 	if s.equipMountChest(sess, id, hand, sneaking) {
@@ -309,6 +315,9 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	s.giveAllay(sess, id, hand)
 	s.cureZombieVillager(sess, id, hand)
 	s.armorStandInteract(sess, id, hand, clickY)
+	if s.dyeSheepInteract(sess, id, hand) {
+		return
+	}
 	s.shearMobItemPhase(sess, id, hand, sneaking)
 	s.interactEntityAdv(sess, id, hand)
 }

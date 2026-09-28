@@ -12133,3 +12133,42 @@ Pinned: TestLeashDeathDropParity — A: knot-leashed sheep /kill'd →
 lead item lands (both); B: entity_drops=false repeat → unlink, no
 item (both); C: fence under the knot broken → knot pops on the
 ~100t survives pass, holder gone, leashee drops leash+item (both).
+
+## Slice — animal item-interacts (milk / stew / dye / shear)
+
+Measured arms on vanilla 26.2 via live packet probes:
+- bucket→cow/mooshroom: milk_bucket + `entity.cow.milk` emitted via
+  Player.playSound → positional 0x75 src=7 (PLAYERS), self-excluded
+  (bystander hears, actor does not); goat's is `entity.goat.milk`.
+- bowl→mooshroom: mushroom_stew + `entity.mooshroom.milk` at entity
+  anchor, src=6 — also self-excluded from the actor's wire.
+- dye→sheep: `entity.dye.use` (soundEvent 571) anchored on the sheep
+  via Entity.playSound src=7 PLAYERS → bystander hears, actor does
+  not; sheep `Color` byte-18 updates; dye consumed.
+- shears on dyed sheep: drop carries the color (`red_wool`); the
+  actor standing on the mob vacuums the item before a positional
+  probe can see it on vanilla — probe must check Inventory too.
+
+mc-go: new animalinteract.go — milkInteract (cow/mooshroom snd 449,
+goat 740, playSoundSrc src7 + createFilledResult), stewInteract
+(bowl→mushroom_stew + snd 987 src6 anchor), dyeSheepInteract
+(snd 571 + Color NBT/metadata byte-18 + consumeSlot), sheep Color
+field with summon-NBT + save/load + shear.go color-aware wool drops.
+Also fixed wpTransmitters All()-snapshot race panic the test hit.
+
+Pinned: TestAnimalInteractParity — 12 probes (3 item swaps, 4 sound
+emit/absence, Color NBT, red wool drop) green vs both servers.
+
+Harness lessons (why prior legs all-missed for ~15 runs):
+- `summon minecraft:X a b c ` with a TRAILING SPACE (empty NBT slot in
+  Sprintf) → brigadier `command.unknown.argument` → summon silently
+  fails on vanilla only (mc-go trims). Build the command without it.
+- command→command ordering is strict FIFO but command→game-packet is
+  not: verify held-item with a single-shot `execute if SelectedItem`
+  probe before every interact click, and prove interact range with a
+  `distance=..3` selector probe after `tp @s @e[...]`.
+- VD=2 client_information shrinks join chunk storms ~289→25 packets
+  per conn so the serverbound queue drains in seconds.
+- Single-shot `execute if` probes evaluate state at run time — they
+  miss permanently if ordering flakes; re-issue (waitFor) only where
+  post-click state is probed.

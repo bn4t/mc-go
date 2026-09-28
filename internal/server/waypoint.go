@@ -136,8 +136,9 @@ func (s *Server) waypointUpdatePlayer(r *Session) {
 func (s *Server) wpTransmitters(r *Session) []wpSource {
 	dim := r.dimName()
 	var out []wpSource
-	for i := range s.entities.All() {
-		e := &s.entities.All()[i]
+	all := s.entities.All()
+	for i := range all {
+		e := &all[i]
 		if e.Dim != dim {
 			continue
 		}

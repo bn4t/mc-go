@@ -675,11 +675,10 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		if isBabyTypes[typeName] {
 			m["IsBaby"] = nbtBool(e.Baby)
 		}
-		// Sheep.writeAdditionalSaveData: Sheared + the dye Color byte —
-		// mc-go sheep are always white (0) until a dye field exists.
+		// Sheep.writeAdditionalSaveData: Sheared + the dye Color byte.
 		if typeName == "sheep" {
 			m["Sheared"] = nbtBool(e.Sheared)
-			m["Color"] = int8(0)
+			m["Color"] = e.Color
 		}
 		// Chicken.writeAdditionalSaveData: the jockey flag + the egg
 		// countdown live alongside the sheep pair. Vanilla also emits
@@ -1050,7 +1049,7 @@ func nbtBool(v bool) int8 {
 // mutation.
 func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	prevHealth, prevName, prevNoAI := e.Health, e.CustomName, e.NoAI
-	prevSheared := e.Sheared
+	prevSheared, prevColor := e.Sheared, e.Color
 	prevPumpkin := e.Pumpkin
 	prevBaby := e.Baby
 	name, _ := EntityTypeName(e.Type)
@@ -1220,11 +1219,16 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		e.AbsorptionAmount = float32(v)
 	}
 	e.FallFlying = nbtTruth(save["FallFlying"])
-	// Sheep.readAdditionalSaveData: Sheared + Color (mc-go ignores
-	// Color — sheep stay white; Sheared dirties the wool byte).
+	// Sheep.readAdditionalSaveData: Sheared + Color — both pack into
+	// the wool byte (low nibble dye id, 0x10 sheared).
 	if name == "sheep" {
 		if v, ok := save["Sheared"]; ok {
 			e.Sheared = nbtTruth(v)
+		}
+		if v, ok := save["Color"]; ok {
+			if ci, ok2 := nbtInt32(v); ok2 {
+				e.Color = int8(ci) & 15
+			}
 		}
 	}
 	if name == "snow_golem" {
@@ -1340,15 +1344,16 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		b.Float(e.Health)
 		e.metaSent.health = e.Health
 	}
-	if prevSheared != e.Sheared && name == "sheep" {
+	if (prevSheared != e.Sheared || prevColor != e.Color) && name == "sheep" {
 		b.Byte(18)
 		b.Byte(0)
-		v := byte(0)
+		v := byte(e.Color & 15)
 		if e.Sheared {
-			v = 0x10
+			v |= 0x10
 		}
 		b.Byte(v)
 		e.metaSent.sheared = e.Sheared
+		e.metaSent.color = e.Color
 	}
 	if prevPumpkin != e.Pumpkin && name == "snow_golem" {
 		b.Byte(16)
