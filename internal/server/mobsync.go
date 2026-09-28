@@ -290,6 +290,12 @@ func (s *Server) latchSyncBaseline(e *Entity) {
 	e.lastXRotB = angleByte(e.Pitch)
 	e.lastYHeadB = angleByte(e.HeadYaw)
 	e.wasOnGround = e.Grounded
+	// ServerEntity's constructor also latches lastSentMovement =
+	// getDeltaMovement() — the drift baseline is the attach-time
+	// delta, so a hurting projectile summoned already moving emits
+	// its power bundle at the first gate-open.
+	e.SentMotionSet = true
+	e.SentMotionX, e.SentMotionY, e.SentMotionZ = e.MotionX, e.MotionY, e.MotionZ
 }
 
 // mobSyncFlush is the per-mob sendChanges pass: position/rotation
@@ -394,8 +400,10 @@ func mobByteDiff(a, b byte) int {
 // own slot. Runs only on sendChanges-eligible ticks.
 func (s *Server) mobMoveSync(e *Entity) {
 	// TrackedDeltaMovement (ServerEntity.sendChanges): the motion
-	// branch itself is gated — it only runs when needsSync is flagged,
-	// the type is one of EntityType.trackDeltas' ten, or a living
+	// branch itself is gated — it runs when needsSync is flagged, when
+	// the entity's type is NOT one of EntityType.trackDeltas' ten
+	// exclusions (the bytecode returns false only for those — every
+	// other type runs the drift check every gate-open), or a living
 	// entity is fall-flying. LivingEntity.aiStep's push latches
 	// needsSync every living tick, so a mob is always gated open and
 	// the drift check decides. Inside it, emit set_entity_motion when
@@ -405,7 +413,7 @@ func (s *Server) mobMoveSync(e *Entity) {
 	motionGate := e.NeedsSync || (e.Living && e.FallFlying)
 	if !motionGate {
 		if tn, ok := EntityTypeName(e.Type); ok {
-			motionGate = trackDeltaTypes[tn]
+			motionGate = !trackDeltaTypes[tn]
 		}
 	}
 	if !e.SentMotionSet {
@@ -417,7 +425,14 @@ func (s *Server) mobMoveSync(e *Entity) {
 		curLen := e.MotionX*e.MotionX + e.MotionY*e.MotionY + e.MotionZ*e.MotionZ
 		if drift > 1e-7 || (drift > 0 && curLen == 0) {
 			e.SentMotionX, e.SentMotionY, e.SentMotionZ = e.MotionX, e.MotionY, e.MotionZ
-			s.broadcastEntityMotion(e.Dim, e.ID, e.MotionX, e.MotionY, e.MotionZ)
+			// ServerEntity wraps the motion emit in a bundle with
+			// projectile_power for AbstractHurtingProjectile; every
+			// other type ships the bare set_entity_motion.
+			if name, ok := EntityTypeName(e.Type); ok && hurtingProjectileTypes[name] {
+				s.broadcastHurtingMotion(e)
+			} else {
+				s.broadcastEntityMotion(e.Dim, e.ID, e.MotionX, e.MotionY, e.MotionZ)
+			}
 		}
 	}
 	yRotB := angleByte(e.Yaw)
@@ -526,4 +541,43 @@ func bytesEq(a, b []byte) bool {
 		}
 	}
 	return true
+}
+
+// hurtingProjectileTypes is AbstractHurtingProjectile's live
+// subclasses: Fireball's two concrete types, DragonFireball,
+// WitherSkull, and AbstractWindCharge's pair. Only these carry
+// accelerationPower and bundle it with their motion emits.
+var hurtingProjectileTypes = map[string]bool{
+	"fireball": true, "small_fireball": true, "dragon_fireball": true,
+	"wither_skull": true, "wind_charge": true, "breeze_wind_charge": true,
+}
+
+// broadcastHurtingMotion ships a hurting projectile's delta sync the
+// way ServerEntity.sendChanges does: one ClientboundBundlePacket
+// holding set_entity_motion(id, delta) + projectile_power(id,
+// accelerationPower), delimiters around it.
+func (s *Server) broadcastHurtingMotion(e *Entity) {
+	motion := encodeEntityMotion(e.ID, e.MotionX, e.MotionY, e.MotionZ)
+	var pb protocol.Buffer
+	pb.VarInt(e.ID)
+	pb.Double(e.AccelPower)
+	power := pb.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() {
+			return true
+		}
+		if other.dimName() != e.Dim {
+			return true
+		}
+		if !other.tracksEntity(e.ID) && other.entityID.Load() != e.ID {
+			return true
+		}
+		ids := other.ids()
+		_ = other.write(ids.PlayBundleDelimiter, nil)
+		_ = other.write(ids.PlaySetEntityMotion, motion)
+		_ = other.write(ids.PlayProjectilePower, power)
+		_ = other.write(ids.PlayBundleDelimiter, nil)
+		return true
+	})
 }

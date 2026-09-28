@@ -243,6 +243,11 @@ type Entity struct {
 	// ExplosionPower reads anything). Zero is treated as 1, the
 	// vanilla default, for types that carry the field.
 	ExplosionPower float32
+	// AccelPower is AbstractHurtingProjectile.accelerationPower —
+	// the power a hurting projectile's motion sync rides on (NBT
+	// acceleration_power, constructor + read default 0.1). Zero is
+	// treated as 0.1 for types that carry the field.
+	AccelPower float64
 	// CloudOwnerID is AreaEffectCloud.owner — the LivingEntity that
 	// spawned the cloud (0 when none). The dose's indirect_magic
 	// damage source wires it as the cause; the cloud itself is the
@@ -782,6 +787,22 @@ func (m *Manager) Spawn(e *Entity) *Entity {
 	}
 	// Entity's constructor sets airSupply to getMaxAirSupply (300).
 	e.AirSupply = 300
+	// AbstractHurtingProjectile constructs accelerationPower to
+	// INITAL_ACCELERATION_POWER (0.1); readAdditionalSaveData's
+	// getDoubleOr falls back to the same.
+	if e.AccelPower == 0 {
+		if name, ok := EntityTypeName(e.Type); ok && hurtingProjectileTypes[name] {
+			e.AccelPower = 0.1
+		}
+	}
+	// Entity.load latches needsSync unconditionally, so a summoned
+	// hurting projectile's gate opens on its first sendChanges even
+	// with no Motion tag in the SNBT (PosDirty is the outer-gate arm,
+	// NeedsSync the inner drift gate).
+	if name, ok := EntityTypeName(e.Type); ok && hurtingProjectileTypes[name] {
+		e.PosDirty = true
+		e.NeedsSync = true
+	}
 	if e.Dim == "" {
 		e.Dim = dimOverworld
 	}

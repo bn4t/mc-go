@@ -237,10 +237,12 @@ func (s *Server) trackRangeBlocks(e *Entity) float64 {
 	return r
 }
 
-// trackDeltaTypes is EntityType.trackDeltas' hardcoded set — the ten
-// types whose ServerEntity always runs the motion-emit branch inside
-// sendChanges (needsSync||trackDelta||fallFlying). Every other type
-// emits set_entity_motion only when needsSync (PosDirty) is flagged.
+// trackDeltaTypes is EntityType.trackDeltas' exclusion list — the
+// bytecode compares the type against each entry and returns FALSE on a
+// match, so these ten types' ServerEntity skips the drift emit unless
+// needsSync is flagged (their deltas ride other channels: players move
+// themselves, frames/crystals are static). Every other type — hurting
+// projectiles included — runs the drift check on every gate-open.
 var trackDeltaTypes = map[string]bool{
 	"player": true, "llama_spit": true, "wither": true, "bat": true,
 	"item_frame": true, "glow_item_frame": true, "leash_knot": true,

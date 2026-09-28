@@ -520,6 +520,11 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	if e.TicksFrozen > 0 {
 		m["TicksFrozen"] = e.TicksFrozen
 	}
+	// AbstractHurtingProjectile.addAdditionalSaveData writes
+	// acceleration_power unconditionally (read default 0.1).
+	if hurtingProjectileTypes[typeName] {
+		m["acceleration_power"] = e.AccelPower
+	}
 	// LivingEntity.save adds the living block — carts, boats and
 	// other non-living entities emit the shared set only.
 	if e.Living {
@@ -1125,6 +1130,27 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	// Entity.load reads the int16 air supply straight through.
 	if v, ok := nbtInt32(save["Air"]); ok {
 		e.AirSupply = int16(v)
+	}
+	// AbstractHurtingProjectile.readAdditionalSaveData:
+	// acceleration_power is a plain double with a 0.1 fallback; only
+	// hurting projectiles read the key.
+	if name, ok2 := EntityTypeName(e.Type); ok2 && hurtingProjectileTypes[name] {
+		if v, ok := save["acceleration_power"]; ok {
+			switch f := v.(type) {
+			case float64:
+				e.AccelPower = f
+			case float32:
+				e.AccelPower = float64(f)
+			case int8:
+				e.AccelPower = float64(f)
+			case int16:
+				e.AccelPower = float64(f)
+			case int32:
+				e.AccelPower = float64(f)
+			case int64:
+				e.AccelPower = float64(f)
+			}
+		}
 	}
 	if v, ok := nbtFloat(save["AbsorptionAmount"]); ok {
 		e.AbsorptionAmount = float32(v)

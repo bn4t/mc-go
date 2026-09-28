@@ -11128,3 +11128,44 @@ everything else.
 - `TestSelectAdvancementsTabParity`: select / re-select / display-less
   root / unknown id / close / re-open-same probes diff the raw 0x55
   bodies — green vs both servers.
+## Slice — packet: projectile_power (0x87) bundled motion emit
+
+- ServerEntity.sendChanges (decompiled): inside the gate-open body the
+  motion emit runs `if (needsSync || trackDelta || LivingEntity &&
+  isFallFlying)` — delta drift vs lastSentMovement > 1e-7 (or >0 with
+  zero current delta) → for AbstractHurtingProjectile sends
+  ClientboundBundlePacket{delimiter, SetEntityMotion,
+  ProjectilePowerPacket(id, accelerationPower), delimiter}; every
+  other type gets the bare 0x65.
+- EntityType.trackDeltas() is an EXCLUSION list (javap iconst_0 on
+  match): PLAYER, LLAMA_SPIT, WITHER, BAT, ITEM_FRAME,
+  GLOW_ITEM_FRAME, LEASH_KNOT, PAINTING, END_CRYSTAL, EVOKER_FANGS
+  return false; every other type — hurting projectiles included —
+  runs the drift check at every gate-open. mc-go's trackDeltaTypes
+  map was inverted: fixed to `!trackDeltaTypes[tn]`.
+- Outer gate = `tickCount % updateInterval == 0 || needsSync ||
+  entityData.isDirty` — JDI-confirmed updateInterval=10 on a live
+  WindCharge tracker; needsSync latches unconditionally in
+  Entity.load (summon AND /data merge), Projectile shadows it with an
+  inert field of the same name.
+- lastSentMovement latches in the ServerEntity constructor = first
+  pair-time delta, so a summoned already-moving projectile emits the
+  bundle at its first gate-open (mc-go now latches SentMotion* in
+  latchSyncBaseline).
+- accelerationPower: public field, NBT `acceleration_power`
+  (getDoubleOr 0.1, putDouble always); applyInertia adds
+  normalize(delta)*power then multiplies inertia (0.95 base, 1.0
+  wind/breeze wind charge, 0.8 liquid, 0.73 dangerous wither skull);
+  onDeflection(true)=0.1, (false)=*0.5.
+- mc-go: hurtingProjectileTypes (6: fireball, small_fireball,
+  dragon_fireball, wither_skull, wind_charge, breeze_wind_charge),
+  AccelPower field + NBT round-trip, applyHurtingInertia per tick,
+  broadcastHurtingMotion emits the bundle shape.
+- `TestProjectilePowerParity`: bundle shape pin (each 0x87 bracketed
+  {delim, 0x65 same-eid, delim}) + union of power values {0.005,
+  0.02, 0.1} across summon/merge windows — emit counts and window
+  placement are jittery (gate-boundary alignment, range exits,
+  deflections); green vs both servers.
+- Deferred: non-hurting projectiles still teleport-per-tick
+  (sendChanges conversion), liquid inertia 0.8 and dangerous-skull
+  0.73 unmodelled, onDeflection semantics unimplemented.

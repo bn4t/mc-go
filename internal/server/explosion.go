@@ -23,6 +23,11 @@ func (s *Server) windChargeTickStep() {
 	}
 	s.entities.mu.RUnlock()
 	for _, e := range charges {
+		name, _ := EntityTypeName(e.Type)
+		// applyInertia runs ahead of the move-vector raytrace on
+		// vanilla's tick — the charge gains accelerationPower along
+		// its own direction every tick (inertia 1.0, forever).
+		s.applyHurtingInertia(e, name)
 		nx, ny, nz := e.X+e.MotionX, e.Y+e.MotionY, e.Z+e.MotionZ
 		w := s.dimWorld(e.Dim)
 		if w != nil {
@@ -60,6 +65,10 @@ func (s *Server) windChargeTickStep() {
 			continue
 		}
 		s.entities.Update(e.ID, nx, ny, nz, e.Yaw, e.Pitch, false)
+		// Wind charges ride sendChanges like the other hurting
+		// projectiles — the bundled drift emit ships
+		// set_entity_motion + projectile_power together.
+		s.mobSyncFlush(e)
 	}
 }
 

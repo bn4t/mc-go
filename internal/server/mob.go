@@ -1702,14 +1702,19 @@ func (s *Server) runSummon(player string, args []string) reply {
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}
 	// A small fireball summoned with Motion flies like a dispenser
-	// shot — ownerless, no acceleration power needed for the wire.
+	// shot — ownerless; acceleration_power rides the bundled motion
+	// sync.
 	if name == "small_fireball" {
 		mx, my, mz := 0.0, 0.0, 0.0
+		accel := 0.1
 		if tag != nil {
 			if mv, ok := tag.vals["Motion"]; ok && len(mv.items) == 3 {
 				mx = snbtNum(mv.items[0])
 				my = snbtNum(mv.items[1])
 				mz = snbtNum(mv.items[2])
+			}
+			if av, ok := tag.vals["acceleration_power"]; ok {
+				accel = snbtNum(av)
 			}
 		}
 		e := s.entities.Spawn(&Entity{
@@ -1718,6 +1723,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 			X:    x, Y: y, Z: z,
 			MotionX: mx, MotionY: my, MotionZ: mz,
 			VX: int16(mx * 8000), VY: int16(my * 8000), VZ: int16(mz * 8000),
+			AccelPower: accel,
 		})
 		s.broadcastEntitySpawn(nil, *e)
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
@@ -1733,11 +1739,15 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 		}
 		// LargeFireball's ExplosionPower NBT default is the ghast
-		// power 1.
+		// power 1; acceleration_power's is 0.1.
 		power := float32(1)
+		accel := 0.1
 		if tag != nil {
 			if pv, ok := tag.vals["ExplosionPower"]; ok {
 				power = float32(snbtNum(pv))
+			}
+			if av, ok := tag.vals["acceleration_power"]; ok {
+				accel = snbtNum(av)
 			}
 		}
 		e := s.entities.Spawn(&Entity{
@@ -1747,6 +1757,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 			MotionX: mx, MotionY: my, MotionZ: mz,
 			VX: int16(mx * 8000), VY: int16(my * 8000), VZ: int16(mz * 8000),
 			ExplosionPower: power,
+			AccelPower:     accel,
 		})
 		s.broadcastEntitySpawn(nil, *e)
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))

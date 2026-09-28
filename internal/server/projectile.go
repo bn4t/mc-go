@@ -38,6 +38,31 @@ var projectileTickTypes = map[string]bool{
 	"shulker_bullet": true, "llama_spit": true,
 }
 
+// applyHurtingInertia is AbstractHurtingProjectile.applyInertia: the
+// delta gains normalize(delta)*accelerationPower, then scales by
+// getInertia — AbstractWindCharge carries inertia 1.0 (it accelerates
+// forever), the rest inherit the base 0.95. A dangerous wither skull's
+// 0.73 and the liquid inertias (0.8) are not modelled: mc-go has no
+// dangerous-skull variant and hurting projectiles rarely float.
+func (s *Server) applyHurtingInertia(e *Entity, name string) {
+	l := math.Sqrt(e.MotionX*e.MotionX + e.MotionY*e.MotionY + e.MotionZ*e.MotionZ)
+	// Vec3.normalize returns ZERO under 1e-4 — a hovering projectile
+	// gains no direction, just scales.
+	if l >= 1e-4 {
+		k := e.AccelPower / l
+		e.MotionX += e.MotionX * k
+		e.MotionY += e.MotionY * k
+		e.MotionZ += e.MotionZ * k
+	}
+	inertia := 0.95
+	if name == "wind_charge" || name == "breeze_wind_charge" {
+		inertia = 1.0
+	}
+	e.MotionX *= inertia
+	e.MotionY *= inertia
+	e.MotionZ *= inertia
+}
+
 // bowStartTick timestamps a draw begun by Use Item on a bow so the
 // release can measure the charge; zero means not drawing.
 func (sess *Session) drawingBow() bool { return sess.bowStartTick != 0 }
@@ -198,6 +223,13 @@ func (s *Server) arrowTickStep() {
 		if name == "shulker_bullet" {
 			s.shulkerBulletSteer(e)
 		}
+		// AbstractHurtingProjectile.tick's applyInertia runs before
+		// the move: the delta gains normalize(delta)*accelerationPower,
+		// then scales by getInertia — no gravity, no air drag. The
+		// other projectile types keep the generic decay path below.
+		if hurtingProjectileTypes[name] {
+			s.applyHurtingInertia(e, name)
+		}
 		ox, oy, oz := e.X, e.Y, e.Z
 		e.X += e.MotionX
 		e.Y += e.MotionY
@@ -225,10 +257,20 @@ func (s *Server) arrowTickStep() {
 			grav = 0.04
 		}
 		e.MotionY -= grav
-		e.MotionX *= arrowAirDrag
-		e.MotionY *= arrowAirDrag
-		e.MotionZ *= arrowAirDrag
-		s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, e.Yaw, e.Pitch, false)
+		if !hurtingProjectileTypes[name] {
+			e.MotionX *= arrowAirDrag
+			e.MotionY *= arrowAirDrag
+			e.MotionZ *= arrowAirDrag
+		}
+		if hurtingProjectileTypes[name] {
+			// Hurting projectiles ride vanilla's sendChanges pipeline:
+			// move deltas at the updateInterval cadence plus the bundled
+			// drift emit (set_entity_motion + projectile_power) — not
+			// the teleport-per-tick the other types still take.
+			s.mobSyncFlush(e)
+		} else {
+			s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, e.Yaw, e.Pitch, false)
+		}
 		// Vanilla clips each target's inflated AABB against the whole
 		// tick's movement segment — a point check at the new tip tunnels
 		// straight through at full draw speed (3 blocks/tick).
