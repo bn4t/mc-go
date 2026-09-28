@@ -4394,6 +4394,16 @@ var mobFallDamageImmune = map[string]bool{
 // voice, death on a lethal landing).
 func (s *Server) mobFallDamage(e *Entity, dm *dimension, below world.Pos) {
 	name, _ := EntityTypeName(e.Type)
+	landedName, _ := blockNameAt(dm, below)
+	// checkFallDamage dispatches state.fallOn BEFORE causeFallDamage —
+	// a fall-immune mob (iron golem, 5.29 volume) still runs
+	// FarmlandBlock.fallOn's trample roll even though its damage tail
+	// returns early.
+	if landedName == "farmland" {
+		bb := mobBoundsTable[e.Type]
+		s.farmlandTrample(dm, below, e.X, e.Y, e.Z, false,
+			bb[0]*bb[0]*bb[1], e.FallDist)
+	}
 	if mobFallDamageImmune[name] {
 		return
 	}
@@ -4410,7 +4420,6 @@ func (s *Server) mobFallDamage(e *Entity, dm *dimension, below world.Pos) {
 	// `below` is the support block — mobGrounded's landing edge fires
 	// the tick floor(feet)-1 is non-air, so feet stop exactly on its
 	// top and vanilla's floor(y-0.2) resolves to the same pos.
-	landedName, _ := blockNameAt(dm, below)
 	switch {
 	case landedName == "slime_block":
 		return

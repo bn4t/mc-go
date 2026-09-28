@@ -1,6 +1,7 @@
 package server
 
 import (
+	"math/rand"
 	"strconv"
 	"sync"
 
@@ -214,6 +215,26 @@ func pitcherRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
 			s.setNaturalBlock(d, above, ub)
 		}
 	}
+}
+
+// farmlandTrample is FarmlandBlock.fallOn's trample half — it runs
+// BEFORE super.fallOn's damage tail: a landing LivingEntity whose
+// bounding volume (bbW²·bbH) exceeds 0.512 turns the farmland to dirt
+// when level.getRandom().nextFloat() < fallDistance-0.5. Non-player
+// entities need the mob_griefing rule; a player always passes that
+// gate. turnToDirt writes the dirt state (with neighbor updates) and
+// posts GameEvent.BLOCK_CHANGE.
+func (s *Server) farmlandTrample(d *dimension, pos world.Pos, x, y, z float64, isPlayer bool, vol, fallDist float64) {
+	if !isPlayer && !s.gameRuleBool("minecraft:mob_griefing") {
+		return
+	}
+	if vol <= 0.512 || rand.Float64() >= fallDist-0.5 {
+		return
+	}
+	if dirt, ok := world.BlockStateOf("dirt", nil); ok {
+		s.setNaturalBlock(d, pos, dirt)
+	}
+	s.emitGameEvent(d, "block_change", x, y, z, nil, "")
 }
 
 // farmlandRule is FarmlandBlock.randomTick: moisture tracking and the

@@ -11890,3 +11890,44 @@ TestPlayerShearedEquipmentParity asserts the (79, src=6) 0x75 emit.
 Deferred: leash shearOffAll, dye/bucket/stew interact sounds, and the
 dispenser shear pin (javap-measured src=4, no live differential yet —
 the interact path pins the code shape).
+
+## Slice — farmland trample (FarmlandBlock.fallOn)
+
+Mobs and players landing on farmland never converted it to dirt.
+Measured 26.2 bytecode (FarmlandBlock.fallOn, turnToDirt,
+Entity.checkFallDamage/getOnPos) and pinned vs both servers:
+
+  - Roll: ServerLevel && rand.nextFloat() < fallDist - 0.5 &&
+    entity instanceof LivingEntity && (Player || mobGriefing) &&
+    getBbWidth()^2 * getBbHeight() > 0.512 -> turnToDirt:
+    setBlockAndUpdate(DIRT) + GameEvent.BLOCK_CHANGE.
+  - checkFallDamage dispatches state.fallOn BEFORE causeFallDamage —
+    a fall-immune mob still tramples (iron_golem volume 5.29).
+    Implemented at the top of mobFallDamage before the immunity
+    early-return; zombie (0.702) tramples, chicken (0.112) can't.
+  - Player path: handleMove's onGround landing branch rolls with
+    volume 0.36 * height (1.8 standing / 1.5 sneaking — both >0.512)
+    and the accumulated sess.fallDistance; support pos is
+    floor(y - 1e-5) (getOnPos default epsilon).
+
+REAL bug the differential surfaced: playerBoxCollides treated every
+non-air cell as a full cube, so a landing packet whose feet rest on a
+15/16 top (feet inside the cell) was always rejected "moved
+wrongly" — players could never trample farmland or stand on
+dirt_path. Vanilla's noCollision runs the real VoxelShape overlap.
+Now the gate skips a cell unless the box dips below
+collisionTopOf(b) and rises above the cell bottom; collisionTopOf
+gained farmland/dirt_path=0.9375.
+
+Pinned: TestFarmlandTrampleParity — zombie + player trample to dirt,
+chicken blocked by the 0.512 volume gate, both legs.
+
+Preexisting failure found (unrelated, on bare master):
+TestMobFallDamageParity — every mob leg takes ~1-2 extra damage vs
+vanilla including the fall-immune chicken (deterministic — likely a
+second landing/wander fall or fallDist accumulation drift). Left
+open for a later slice.
+
+Deferred: gliding-pose bb height for trample volume; turtle-egg
+trample; pushEntitiesUp part of turnToDirt (mc-go has no
+entity-on-top push path yet).

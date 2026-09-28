@@ -384,6 +384,28 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 			sess.addCustomStat("fall_one_cm", int32(math.Round(float64(sess.fallDistance)*100)))
 		}
 		sess.fallStart = false
+		// checkFallDamage hands the support block to fallOn before
+		// causeFallDamage — on farmland the trample roll (rand <
+		// fallDist-0.5, bbW²·bbH > 0.512) turns it to dirt first; a
+		// player always passes the mobGriefing gate. Pose sets the
+		// box height (sneak 1.5, else stand 1.8).
+		if sess.fallDistance > 0 {
+			if dm := s.dims[sess.dimName()]; dm != nil {
+				sup := world.Pos{
+					X: int(math.Floor(x)),
+					Y: int(math.Floor(y - 1e-5)),
+					Z: int(math.Floor(z)),
+				}
+				if n, _ := blockNameAt(dm, sup); n == "farmland" {
+					h := 1.8
+					if sess.sneaking {
+						h = 1.5
+					}
+					s.farmlandTrample(dm, sup, x, y, z, true,
+						0.6*0.6*h, sess.fallDistance)
+				}
+			}
+		}
 		s.applyFallDamage(sess)
 	} else if y > oy {
 		sess.fallDistance = 0
@@ -441,6 +463,15 @@ func (s *Server) playerBoxCollides(sess *Session, ox, oy, oz, nx, ny, nz float64
 			for by := int(math.Floor(ny)); float64(by) < ny+1.8; by++ {
 				b := sess.world().GetBlock(world.Pos{X: bx, Y: by, Z: bz})
 				if world.NonSolid(b) || moveNoCollision(b) {
+					continue
+				}
+				// Vanilla's noCollision runs the box against each cell's
+				// real VoxelShape — a move only collides when the box
+				// penetrates the shape, so along Y the box must dip below
+				// the collision top and rise above the cell bottom.
+				// Standing ON a 15/16 block (farmland, dirt_path — feet
+				// inside its cell) does not count.
+				if ny >= float64(by)+collisionTopOf(b) || ny+1.8 <= float64(by) {
 					continue
 				}
 				if !overlapsOld(bx, by, bz) {

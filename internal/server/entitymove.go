@@ -171,6 +171,8 @@ func collisionTopOf(blk world.Block) float64 {
 	switch strings.TrimPrefix(name, "minecraft:") {
 	case "honey_block":
 		return 0.9375
+	case "farmland", "dirt_path":
+		return 0.9375
 	case "soul_sand":
 		return 0.875
 	}
