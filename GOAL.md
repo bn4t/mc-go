@@ -104,7 +104,7 @@ Mojang server over the wire.
 
 ### Entities
 - [~] Entity manager, spawn/remove/teleport
-- [ ] Full entity type registry
+- [x] Full entity type registry
 - [ ] Physics, collision, AI, pathfinding
 - [ ] Damage, health, death, drops, XP
 - [ ] Projectiles, vehicles, mobs, villagers
