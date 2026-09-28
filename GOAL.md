@@ -11416,3 +11416,77 @@ Deferred: MOMENTUM_DEFLECT (no vanilla caller found — constant
 only); EntityReference for non-session owners
 (vehicles/passengers unmodelled); `rotateTowardsMovement` facing
 lerp; Owner NBT for non-projectile references (angry_at etc.).
+
+## Slice — AbstractArrow lifecycle: stick/shake/despawn/pickup/water-inertia
+
+Measured (javap -c -p + Vineflower `AbstractArrow`, `Entity`,
+`ProjectileUtil`, 26.2):
+
+- tick() head: `movement = getDeltaMovement` captured BEFORE any
+  mutation — the block-embed re-stick, `shakeTime--`,
+  `isInWaterOrRain → clearFire` all read the field later.
+- Embed re-stick: pos inside a non-air block with a nonempty
+  collision shape (top face check) → `setDeltaMovement(ZERO)` +
+  `setInGround` — summoned-in-stone arrows stick instantly.
+- inGround arm: `lastState != blockState(blockPos) &&
+  shouldFall()` → `startFalling` (inGround=false, per-axis
+  delta *= rand·0.2, life=0); `shouldFall` =
+  `noCollision(pos±0.06)` — a tip resting 0.05 off the face still
+  counts embedded, so breaking the wall does NOT immediately
+  un-stick the arrow. Otherwise `tickDespawn` (life++, discard
+  ≥1200) and `playerTouch` pickup gated by shakeTime≤0.
+- `onHitBlock` backoff: `pos = hitLoc − signum(movement)·0.05`
+  PER-AXIS on all three axes (not just the hit face) — a
+  dy<0 arrow lands +0.05 high; plus shakeTime=7, crit=false,
+  pierce=0, soundEvent=ARROW_HIT at pitch 1.2/(rand·0.2+0.9).
+- **Captured-movement semantics**: `clipIncludingBorder` /
+  `stepMoveAndHit` use `originalPosition.add(movement)` — the
+  TICK-HEAD delta — while `applyInertia` mutates the field. The
+  displacement therefore uses the PRE-inertia delta: a tick's
+  water drag (0.6) or air drag (0.99) only reaches the flight
+  one tick late, and `isInWater` itself latches one tick behind
+  the fluid scan (Entity.tick's water update runs after the
+  projectile body). Reproduced mc-go by capturing `mv` before the
+  water arm and moving by it; `arrowInWater` field latches the
+  flag. Verified tick-for-tick against the live jar via
+  freeze+step probes (van t-series posz −7.5,−7.0,−6.505,−6.208…
+  matches mc-go exactly).
+- NBT tail emit: `life` short, `inBlockState`{Name,Properties?},
+  `shake` byte, `inGround` bool, `pickup` byte, `damage` double
+  (2.0), `crit` bool, `PierceLevel` byte, `SoundEvent` string,
+  `item`{id,count:1}, `weapon` nullable.
+- Water buoyancy: in water `delta.y = delta.y·0.6 − 0.05`
+  (gravity still applies after inertia) — arrows sink to a
+  −0.125 asymptote.
+
+Pinned end-to-end: `TestArrowStickParity` — lane A wall stick
+(pos within 1e-6 of vanilla's margin-epsilon clip points, NBT
+inGround/inBlockState/shake/life/damage/crit/PierceLevel/
+SoundEvent/item all equal, the hit sound lands in range), lane B
+the shouldFall un-stick semantics (wall broken → stays stuck
+because the tip still touches → NBT/pos parity), despawn removals
+after a 1210 sprint, lane D the water arm via freeze+`tick step 8`
++ `data get Motion/Pos` (the 0x65 emit cadence is interval-latched
+and not semantic — probes go through NBT), lane E the pickup gate
+(ALLOWED take_item_entity vs DISALLOWED none).
+
+Two probe-protocol notes for future slices:
+
+- `/tick step` is NOT atomic: queued steps run over real time and
+  commands interleave into the step count — after a step request
+  you must wait the count out before probing (the world stays
+  frozen, so the post-step state is deterministic).
+- Scalar `data get` reads under freeze+step alternate fresh/stale
+  one tick late on vanilla — for one-shot probes read after all
+  steps complete; for per-tick traces treat line n as
+  end-of-tick n−1.
+
+Deferred: water `getFlow` current push on entities (boundary
+cells push ~0.014/tick — affects every entity type, own slice);
+`inGroundTime` counter (no observable consumer yet); sprint's
+n+1 clock-vs-entity-tick asymmetry observed on a freeze+summoned
+arrow (re-measure if a slice pins entity counts against
+`/tick sprint`); hurting projectiles likely share the same
+captured-movement semantic (AbstractHurtingProjectile.tick —
+move currently uses post-inertia delta, trajectory-level probe
+would pin it).

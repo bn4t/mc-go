@@ -538,6 +538,42 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		}
 		m["HasBeenShot"] = nbtBool(e.HasBeenShot)
 	}
+	// AbstractArrow.addAdditionalSaveData's tail — every key except
+	// inBlockState and weapon is unconditional: life short, shake
+	// byte, inGround/pickup/damage/crit/PierceLevel/SoundEvent/item.
+	if typeName == "arrow" || typeName == "spectral_arrow" || typeName == "trident" {
+		m["life"] = int16(e.arrowLife)
+		if e.arrowStuckBlock != "" {
+			m["inBlockState"] = map[string]any{"Name": "minecraft:" + e.arrowStuckBlock}
+		}
+		m["shake"] = int8(e.arrowShake)
+		m["inGround"] = nbtBool(e.arrowStuck || e.tridentStuck)
+		m["pickup"] = int8(e.arrowPickup)
+		dmg := e.arrowDamage
+		if dmg == 0 {
+			dmg = 2.0 // readAdditionalSaveData's getDoubleOr default.
+		}
+		m["damage"] = dmg
+		m["crit"] = nbtBool(e.arrowCrit)
+		m["PierceLevel"] = int8(e.arrowPierce)
+		snd := e.arrowSound
+		if snd == "" {
+			snd = "entity.arrow.hit"
+			if typeName == "trident" {
+				snd = "item.trident.hit_ground"
+			}
+		}
+		m["SoundEvent"] = "minecraft:" + snd
+		item := e.arrowItem
+		if item == "" {
+			item = typeName // arrow, spectral_arrow, trident —
+			// each type's pickup stack id shares its entity name.
+		}
+		m["item"] = map[string]any{"id": "minecraft:" + item, "count": int32(1)}
+		if e.arrowWeapon != "" {
+			m["weapon"] = map[string]any{"id": "minecraft:" + e.arrowWeapon, "count": int32(1)}
+		}
+	}
 	// WitherSkull's own write also emits dangerous unconditionally
 	// (putBoolean, not the is-set gate).
 	if typeName == "wither_skull" {

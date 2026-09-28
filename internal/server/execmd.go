@@ -1841,7 +1841,7 @@ func (s *Server) executePositioned(ctx *executeContext, player string, args []st
 		return errToken("parsing.double.expected", tokBase+len(args))
 	}
 	for k := 0; k < 3; k++ {
-		v, err := parseDouble(args[k], ctx.pos[k])
+		v, err := parseDouble(args[k], ctx.pos[k], k != 1)
 		if err != nil {
 			return errToken("parsing.double.expected", tokBase+k)
 		}
@@ -1877,7 +1877,9 @@ func (s *Server) executeAim(ctx *executeContext, player, kind string, args []str
 		return errToken("parsing.double.expected", tokBase+len(args))
 	}
 	for k := 0; k < need; k++ {
-		if _, err := parseDouble(args[k], 0); err != nil {
+		// rotated's yaw/pitch are RotationArgument (no centering);
+		// facing's position is vec3() — x/z center, y does not.
+		if _, err := parseDouble(args[k], 0, need == 3 && k != 1); err != nil {
 			return errToken("parsing.double.expected", tokBase+k)
 		}
 	}

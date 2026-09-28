@@ -34,20 +34,23 @@ func TestTpCoords(t *testing.T) {
 	if out.comp.translate != "commands.teleport.success.location.single" {
 		t.Fatalf("tp = %+v", out.comp)
 	}
-	if len(out.comp.with) != 4 || out.comp.with[1].(nestedCompound).value != "100.000000" ||
+	// Vanilla's vec3 arg centers bare integers on the block column:
+	// x and z land on .5, y never centers.
+	if len(out.comp.with) != 4 || out.comp.with[1].(nestedCompound).value != "100.500000" ||
 		out.comp.with[2].(nestedCompound).value != "70.000000" ||
-		out.comp.with[3].(nestedCompound).value != "-40.000000" {
+		out.comp.with[3].(nestedCompound).value != "-39.500000" {
 		t.Fatalf("tp coords = %v", out.comp.with)
 	}
 	st, ok := s.PlayerStateOf("Warden")
-	if !ok || st.X != 100 || st.Y != 70 || st.Z != -40 {
+	if !ok || st.X != 100.5 || st.Y != 70 || st.Z != -39.5 {
 		t.Fatalf("state = %+v,%v", st, ok)
 	}
-	// "~" relativity resolves against the sender's exact position.
+	// "~" relativity resolves against the sender's exact position —
+	// the centered (100.5, 70, -39.5) spot.
 	out = s.runTp("Warden", []string{"~1", "~", "~-1"})
-	if len(out.comp.with) != 4 || out.comp.with[1].(nestedCompound).value != "101.000000" ||
+	if len(out.comp.with) != 4 || out.comp.with[1].(nestedCompound).value != "101.500000" ||
 		out.comp.with[2].(nestedCompound).value != "70.000000" ||
-		out.comp.with[3].(nestedCompound).value != "-41.000000" {
+		out.comp.with[3].(nestedCompound).value != "-40.500000" {
 		t.Fatalf("tp relative = %v", out.comp.with)
 	}
 }
@@ -351,7 +354,7 @@ func TestOpsFlowOverWire(t *testing.T) {
 		t.Fatalf("/tp translate = %v", out)
 	}
 	sendCmdPipe(t, pwa, "pos")
-	if out := readChatPipe(t, pra); !strings.HasPrefix(out, "100.00 70.00 100.00") {
+	if out := readChatPipe(t, pra); !strings.HasPrefix(out, "100.50 70.00 100.50") {
 		t.Fatalf("/pos = %q", out)
 	}
 

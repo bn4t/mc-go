@@ -758,6 +758,27 @@ type Entity struct {
 	// moving and colliding until it despawns, like vanilla's
 	// inGround state.
 	arrowStuck bool
+	// arrowLife counts the stuck ticks — AbstractArrow.tickDespawn
+	// discards at 1200. arrowShake is the 7-tick embed wobble;
+	// arrowStuckBlock is lastState, the block the tip embedded in —
+	// break it and the arrow starts falling again.
+	arrowLife       int32
+	arrowShake      int32
+	arrowStuckBlock string
+	// arrowInWater is AbstractArrow's isInWater — latched one tick
+	// behind the fluid scan like vanilla's Entity.tick water update.
+	arrowInWater bool
+	// The AbstractArrow NBT tail: arrowPickup is Pickup's ordinal
+	// (0 disallow / 1 allowed / 2 creative-only), arrowDamage the
+	// baseDamage double (2.0 default), arrowCrit the ID_FLAGS crit
+	// bit, arrowPierce the PierceLevel byte, arrowSound the
+	// hit-ground SoundEvent key, arrowItem the pickup stack's id.
+	arrowPickup int32
+	arrowDamage float64
+	arrowCrit   bool
+	arrowPierce int32
+	arrowSound  string
+	arrowItem   string
 	// fishing is non-nil on a fishing_bobber: the per-hook catch state
 	// machine (owner link, timers, parked surface).
 	fishing  *fishBobber

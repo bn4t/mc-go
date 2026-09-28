@@ -383,14 +383,72 @@ func (s *Server) arrowTickStep() {
 		// Arrows, spectral arrows and tridents stick in the block they
 		// hit; the thrown items and hurting projectiles just despawn.
 		sticks := name == "arrow" || name == "spectral_arrow" || isTrident
+		if sticks && !e.arrowStuck && !e.tridentStuck {
+			// The embed check runs at the head of AbstractArrow.tick:
+			// a non-air block whose collision shape contains the
+			// position re-grounds the arrow (zeroes delta, latches
+			// inGround) — this is how summoned-in-stone arrows stick
+			// instantly and how a piston-pushed wall re-embeds one.
+			if w := s.dimWorld(e.Dim); w != nil {
+				bp := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}
+				b := w.GetBlock(bp)
+				if b != world.Air && !world.NonSolid(b) && !moveNoCollision(b) &&
+					e.Y < float64(bp.Y)+collisionTopOf(b) {
+					e.MotionX, e.MotionY, e.MotionZ = 0, 0, 0
+					if bn, ok := world.StateOwner(b); ok {
+						e.arrowStuckBlock = bn
+					}
+					if isTrident {
+						e.tridentStuck = true
+					} else {
+						e.arrowStuck = true
+					}
+				}
+			}
+		}
+		if sticks && e.arrowShake > 0 {
+			// shakeTime-- runs at the head of AbstractArrow.tick —
+			// the 7-tick embed wobble before the arrow is pickable.
+			e.arrowShake--
+		}
 		if e.arrowStuck || e.tridentStuck {
 			// Stuck arrows still run sendChanges — the AbstractArrow
 			// quirk ships a PosRot every gate-open tick even in place.
 			s.mobSyncFlush(e)
-			if isTrident {
-				s.tridentPickupStep(e)
+			// The in-collision arm: lastState no longer matches the
+			// block at the tip AND the arrow is clear of collision —
+			// shouldFall is noCollision(pos±0.06), so a tip resting
+			// 0.05 off the face still counts as embedded and keeps
+			// counting life instead. startFalling releases it with a
+			// per-axis rand·0.2 delta and life reset to 0.
+			if w := s.dimWorld(e.Dim); w != nil {
+				p := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}
+				cur, _ := world.StateOwner(w.GetBlock(p))
+				if cur != e.arrowStuckBlock && arrowShouldFall(w, e.X, e.Y, e.Z) {
+					e.arrowStuck = false
+					e.tridentStuck = false
+					e.MotionX *= float64(rand.Float32() * 0.2)
+					e.MotionY *= float64(rand.Float32() * 0.2)
+					e.MotionZ *= float64(rand.Float32() * 0.2)
+					e.arrowLife = 0
+				}
 			}
-			continue
+			if e.arrowStuck || e.tridentStuck {
+				// tickDespawn: life counts each stuck tick and
+				// discards at 1200 (60s on the wall).
+				e.arrowLife++
+				if e.arrowLife >= 1200 {
+					s.entities.Remove(e.ID)
+					s.broadcastEntityRemove([]int32{e.ID})
+					continue
+				}
+				if isTrident {
+					s.tridentPickupStep(e)
+				} else if e.arrowShake <= 0 {
+					s.arrowPickupStep(e)
+				}
+				continue
+			}
 		}
 		if name == "firework_rocket" {
 			// FireworkRocketEntity.tick runs its own whole path —
@@ -433,40 +491,77 @@ func (s *Server) arrowTickStep() {
 				continue
 			}
 		}
+		// AbstractArrow.tick captures `movement` at the tick head — the
+		// pre-move applyInertia(0.6) mutates only the delta FIELD, so
+		// the displacement uses the pre-inertia value and the 0.6
+		// reaches the flight one tick late. isInWater itself latches a
+		// tick behind the fluid scan (Entity.tick's water update runs
+		// after the arrow's physics): prevInWater is last tick's flag
+		// and this rescan stores the current pos for the next tick.
+		mvx, mvy, mvz := e.MotionX, e.MotionY, e.MotionZ
+		prevInWater := e.arrowInWater
+		if sticks {
+			if w := s.dimWorld(e.Dim); w != nil {
+				_, inW, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, 0.25, 0.5, fluidWater)
+				e.arrowInWater = inW
+			}
+			if prevInWater {
+				e.MotionX *= 0.6
+				e.MotionY *= 0.6
+				e.MotionZ *= 0.6
+				// isInWaterOrRain → clearFire: a wet arrow stops
+				// burning on the tick that finds it submerged.
+				e.FireTicks = 0
+			}
+		}
 		ox, oy, oz := e.X, e.Y, e.Z
-		e.X += e.MotionX
-		e.Y += e.MotionY
-		e.Z += e.MotionZ
+		e.X += mvx
+		e.Y += mvy
+		e.Z += mvz
 		// ThrowableProjectile's default gravity is 0.03 vs the
 		// arrow's 0.05; hurting projectiles and rockets fly flat
 		// (no gravity). The 0.99 air drag is shared and applies even
 		// to NoGravity entities.
-		grav := arrowGravity
-		switch name {
-		case "egg", "snowball", "splash_potion", "lingering_potion", "ender_pearl":
-			grav = 0.03
-		case "llama_spit":
-			// LlamaSpit.getDefaultGravity — heavier than the other
-			// thrown items.
-			grav = 0.06
-		case "experience_bottle":
-			// ThrownExperienceBottle.getDefaultGravity — the bottle
-			// arcs down harder than the other thrown items.
-			grav = 0.07
-		case "small_fireball", "wind_charge", "wither_skull", "fireball", "dragon_fireball":
-			grav = 0
-		case "shulker_bullet":
-			// ShulkerBullet.getDefaultGravity — the wander lerp rides
-			// on top of a real gravity pull.
-			grav = 0.04
-		}
-		if !e.NoGravity {
-			e.MotionY -= grav
-		}
-		if !hurtingProjectileTypes[name] {
-			e.MotionX *= arrowAirDrag
-			e.MotionY *= arrowAirDrag
-			e.MotionZ *= arrowAirDrag
+		if sticks {
+			// AbstractArrow's post-move tail applies drag THEN
+			// gravity — (v·0.99) − 0.05, and a submerged arrow
+			// already paid its 0.6 above so skips the 0.99.
+			if !prevInWater {
+				e.MotionX *= arrowAirDrag
+				e.MotionY *= arrowAirDrag
+				e.MotionZ *= arrowAirDrag
+			}
+			if !e.NoGravity {
+				e.MotionY -= arrowGravity
+			}
+		} else {
+			grav := arrowGravity
+			switch name {
+			case "egg", "snowball", "splash_potion", "lingering_potion", "ender_pearl":
+				grav = 0.03
+			case "llama_spit":
+				// LlamaSpit.getDefaultGravity — heavier than the other
+				// thrown items.
+				grav = 0.06
+			case "experience_bottle":
+				// ThrownExperienceBottle.getDefaultGravity — the bottle
+				// arcs down harder than the other thrown items.
+				grav = 0.07
+			case "small_fireball", "wind_charge", "wither_skull", "fireball", "dragon_fireball":
+				grav = 0
+			case "shulker_bullet":
+				// ShulkerBullet.getDefaultGravity — the wander lerp rides
+				// on top of a real gravity pull.
+				grav = 0.04
+			}
+			if !e.NoGravity {
+				e.MotionY -= grav
+			}
+			if !hurtingProjectileTypes[name] {
+				e.MotionX *= arrowAirDrag
+				e.MotionY *= arrowAirDrag
+				e.MotionZ *= arrowAirDrag
+			}
 		}
 		// Projectile.tick's head runs after setPos: the first tick
 		// latches hasBeenShot (vanilla also fires a projectile_shoot
@@ -594,6 +689,9 @@ func (s *Server) arrowTickStep() {
 		// Blocks are tested second, matching vanilla's hit order —
 		// a living hit consumes the arrow before the wall check runs.
 		if bx, by, bz, axis, hx, hy, hz, hit := s.arrowBlockHit(e, ox, oy, oz); hit {
+			// The tick's movement delta — onHitBlock's backoff reads
+			// its per-axis signum before the delta zeroes below.
+			mvx, mvy, mvz := e.X-ox, e.Y-oy, e.Z-oz
 			e.X, e.Y, e.Z = hx, hy, hz
 			e.MotionX, e.MotionY, e.MotionZ = 0, 0, 0
 			if d := s.dimensionByName(e.Dim); d != nil {
@@ -667,11 +765,37 @@ func (s *Server) arrowTickStep() {
 				s.broadcastEntityRemove([]int32{e.ID})
 				continue
 			}
+			// onHitBlock: pos − signum(movement)·0.05 — the backoff
+			// subtracts the movement's per-axis SIGN, not just the
+			// hit face's normal, so an arrow still climbing or
+			// dropping as it hits lands offset on the free axes
+			// too (measured: a +z arrow falling at dy<0 rests at
+			// (hitLoc.x, hitLoc.y+0.05, 7.95)). delta zeroes,
+			// shakeTime latches 7, crit and pierce reset, the
+			// hit-ground SoundEvent plays at 1.2/(rand·0.2+0.9),
+			// and the block becomes lastState for the un-stick
+			// check.
+			hx -= signumOf(mvx) * 0.05
+			hy -= signumOf(mvy) * 0.05
+			hz -= signumOf(mvz) * 0.05
+			e.X, e.Y, e.Z = hx, hy, hz
+			e.arrowShake = 7
+			e.arrowCrit = false
+			e.arrowPierce = 0
+			if d := s.dimensionByName(e.Dim); d != nil {
+				if bn, ok := world.StateOwner(d.w.GetBlock(world.Pos{X: bx, Y: by, Z: bz})); ok {
+					e.arrowStuckBlock = bn
+				}
+			}
 			if isTrident {
 				e.tridentStuck = true
+				e.arrowSound = "item.trident.hit_ground"
 				s.playSoundSrc(e.Dim, hx, hy, hz, 1626, 6, 1.0, 1.0, nil) // item.trident.hit_ground
 			} else {
 				e.arrowStuck = true
+				e.arrowSound = "entity.arrow.hit"
+				// playSound(soundEvent, 1.0, 1.2/(rand·0.2+0.9)).
+				s.playSoundSrc(e.Dim, hx, hy, hz, 85, 6, 1.0, 1.2/(rand.Float32()*0.2+0.9), nil)
 			}
 			d := s.dimensionByName(e.Dim)
 			if name, ok := blockNameAt(d, world.Pos{X: bx, Y: by, Z: bz}); ok {
@@ -727,6 +851,53 @@ func (s *Server) tridentPickupStep(e *Entity) {
 	target.addItemStat(statPickedUp, tid, 1)
 }
 
+// arrowPickupStep is AbstractArrow.playerTouch's pickup arm for the
+// plain arrows: once the embed wobble settles (shakeTime 0), a
+// reaching player takes the arrow — Pickup.ALLOWED fills the
+// inventory, CREATIVE_ONLY answers only to an infinite player,
+// DISALLOWED stays put. The trident keeps its own step.
+func (s *Server) arrowPickupStep(e *Entity) {
+	if e.arrowPickup == 0 {
+		return // Pickup.DISALLOWED — summoned arrows sit forever.
+	}
+	var target *Session
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || !sess.spawned.Load() || sess.dimName() != e.Dim {
+			return true
+		}
+		// Pickup.CREATIVE_ONLY = hasInfiniteMaterials — creative or
+		// spectator only; ALLOWED answers to everyone.
+		if e.arrowPickup == 2 && sess.mode() != GameModeCreative {
+			return true
+		}
+		x, y, z, _, _, _ := sess.Pos()
+		if abs(x-e.X) <= 1.425 && abs(z-e.Z) <= 1.425 && e.Y >= y-0.75 && e.Y <= y+2.3 {
+			target = sess
+			return false
+		}
+		return true
+	})
+	if target == nil {
+		return
+	}
+	name := e.arrowItem
+	if name == "" {
+		name = "arrow"
+		if tn, ok := EntityTypeName(e.Type); ok && tn == "spectral_arrow" {
+			name = "spectral_arrow"
+		}
+	}
+	iid, _ := world.ItemIDs[name]
+	if _, picked := target.addStack(ItemStack{ID: iid, Count: 1}); !picked {
+		return
+	}
+	s.broadcastTakeItem(e.Dim, e.ID, target.entityID.Load(), 1)
+	s.entities.Remove(e.ID)
+	s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+	target.addItemStat(statPickedUp, iid, 1)
+}
+
 // arrowBlockHit steps the tick's movement segment in small increments
 // and reports the first solid block entered: its cell, the axis of the
 // face the ray crossed (0=x,1=y,2=z), and the exact hit point on that
@@ -780,12 +951,6 @@ func (s *Server) arrowBlockHit(e *Entity, ox, oy, oz float64) (bx, by, bz, axis 
 		default:
 			axis = 2
 		}
-		// Nudge the arrow a hair back out of the face so it rests on
-		// the surface rather than inside it.
-		const eps = 0.001
-		hx -= nx * eps
-		hy -= ny * eps
-		hz -= nz * eps
 		ok = true
 		return
 	}
@@ -841,7 +1006,13 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 	shooter := s.sessionByEntityID(e.arrowShooter)
 	damage := flat
 	if damage <= 0 {
-		damage = float32(math.Ceil(math.Sqrt(e.MotionX*e.MotionX+e.MotionY*e.MotionY+e.MotionZ*e.MotionZ) * 2.0))
+		// AbstractArrow.onHitEntity: ceil(clamp(speed·baseDamage)) —
+		// baseDamage is the NBT damage double, 2.0 by default.
+		base := e.arrowDamage
+		if base == 0 {
+			base = 2.0
+		}
+		damage = float32(math.Ceil(math.Sqrt(e.MotionX*e.MotionX+e.MotionY*e.MotionY+e.MotionZ*e.MotionZ) * base))
 		if damage < 1 {
 			damage = 1
 		}
@@ -936,7 +1107,54 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 		}
 		return true
 	})
+	if hit {
+		// onHitEntity plays the arrow's soundEvent once —
+		// entity.arrow.hit, item.trident.hit on a trident, at
+		// 1.2/(rand·0.2+0.9).
+		snd := int32(85)
+		if typeName == "trident" {
+			snd = 1625
+		}
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd, 6, 1.0, 1.2/(rand.Float32()*0.2+0.9), nil)
+	}
 	return hit
+}
+
+// signumOf is Math.signum: -1, 0, +1 by the value's sign.
+func signumOf(v float64) float64 {
+	switch {
+	case v > 0:
+		return 1
+	case v < 0:
+		return -1
+	}
+	return 0
+}
+
+// arrowShouldFall is AbstractArrow.shouldFall: inGround AND
+// level.noCollision(AABB(pos,pos).inflate(0.06)) — the arrow only
+// releases its stick once no collision shape sits within 0.06 of its
+// position. A tip resting 0.05 off the hit face still touches the
+// wall's shape, so it stays embedded even after the recorded
+// lastState cell mismatches.
+func arrowShouldFall(w *world.World, x, y, z float64) bool {
+	minX, maxX := x-0.06, x+0.06
+	minY, maxY := y-0.06, y+0.06
+	minZ, maxZ := z-0.06, z+0.06
+	for cx := int(math.Floor(minX)); cx <= int(math.Floor(maxX)); cx++ {
+		for cy := int(math.Floor(minY)); cy <= int(math.Floor(maxY)); cy++ {
+			for cz := int(math.Floor(minZ)); cz <= int(math.Floor(maxZ)); cz++ {
+				b := w.GetBlock(world.Pos{X: cx, Y: cy, Z: cz})
+				if b == world.Air || world.NonSolid(b) || moveNoCollision(b) {
+					continue
+				}
+				if maxY > float64(cy) && minY < float64(cy)+collisionTopOf(b) {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
 
 // segmentHitsBox is vanilla's AABB.clip: the movement segment is

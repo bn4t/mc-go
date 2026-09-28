@@ -770,13 +770,13 @@ func (s *Server) runSummon(player string, args []string) reply {
 	x, y, z, _, _, _ := sess.Pos()
 	if len(args) >= 4 {
 		var err error
-		if x, err = parseDouble(args[1], x); err != nil {
+		if x, err = parseDouble(args[1], x, true); err != nil {
 			return textReply("Invalid position " + args[1])
 		}
-		if y, err = parseDouble(args[2], y); err != nil {
+		if y, err = parseDouble(args[2], y, false); err != nil {
 			return textReply("Invalid position " + args[2])
 		}
-		if z, err = parseDouble(args[3], z); err != nil {
+		if z, err = parseDouble(args[3], z, true); err != nil {
 			return textReply("Invalid position " + args[3])
 		}
 	}
@@ -1629,6 +1629,43 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if u, ok := snbtUUID(tag, "Owner"); ok {
 				if owner := s.sessionByUUID(u); owner != nil {
 					e.arrowShooter = owner.entityID.Load()
+				}
+			}
+			// AbstractArrow.readAdditionalSaveData's tail: a stuck
+			// arrow resumes through inGround+inBlockState; the rest
+			// round-trips plain fields into the save block.
+			if lv, ok := tag.vals["life"]; ok {
+				e.arrowLife = int32(snbtNum(lv))
+			}
+			if sv, ok := tag.vals["shake"]; ok {
+				e.arrowShake = int32(snbtNum(sv))
+			}
+			if gv, ok := tag.vals["inGround"]; ok && (gv.num == "1b" || gv.num == "1" || gv.str == "true") {
+				e.arrowStuck = true
+			}
+			if bs, ok := tag.vals["inBlockState"]; ok {
+				if bn, ok := bs.vals["Name"]; ok && bn.str != "" {
+					e.arrowStuckBlock = strings.TrimPrefix(bn.str, "minecraft:")
+				}
+			}
+			if dv, ok := tag.vals["damage"]; ok {
+				e.arrowDamage = snbtNum(dv)
+			}
+			if pv, ok := tag.vals["pickup"]; ok {
+				e.arrowPickup = int32(snbtNum(pv))
+			}
+			if cv, ok := tag.vals["crit"]; ok && (cv.num == "1b" || cv.num == "1" || cv.str == "true") {
+				e.arrowCrit = true
+			}
+			if pv, ok := tag.vals["PierceLevel"]; ok {
+				e.arrowPierce = int32(snbtNum(pv))
+			}
+			if sv, ok := tag.vals["SoundEvent"]; ok && sv.str != "" {
+				e.arrowSound = strings.TrimPrefix(sv.str, "minecraft:")
+			}
+			if iv, ok := tag.vals["item"]; ok {
+				if in, ok := iv.vals["id"]; ok && in.str != "" {
+					e.arrowItem = strings.TrimPrefix(in.str, "minecraft:")
 				}
 			}
 		}
