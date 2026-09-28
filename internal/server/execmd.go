@@ -1841,7 +1841,7 @@ func (s *Server) executePositioned(ctx *executeContext, player string, args []st
 		return errToken("parsing.double.expected", tokBase+len(args))
 	}
 	for k := 0; k < 3; k++ {
-		v, err := parseDouble(args[k], ctx.pos[k], true)
+		v, err := parseDouble(args[k], ctx.pos[k])
 		if err != nil {
 			return errToken("parsing.double.expected", tokBase+k)
 		}
@@ -1877,7 +1877,7 @@ func (s *Server) executeAim(ctx *executeContext, player, kind string, args []str
 		return errToken("parsing.double.expected", tokBase+len(args))
 	}
 	for k := 0; k < need; k++ {
-		if _, err := parseDouble(args[k], 0, true); err != nil {
+		if _, err := parseDouble(args[k], 0); err != nil {
 			return errToken("parsing.double.expected", tokBase+k)
 		}
 	}

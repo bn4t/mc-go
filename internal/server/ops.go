@@ -36,7 +36,7 @@ func (s *Server) registerOps() {
 // set (the horizontal axes of a teleport), a bare integer means the
 // block column and lands on its center — vanilla's vec3 arg centers
 // x/z on 0.5 while y stays exact.
-func parseDouble(tok string, base float64, center bool) (float64, error) {
+func parseDouble(tok string, base float64) (float64, error) {
 	if tok == "~" {
 		return base, nil
 	}
@@ -50,9 +50,6 @@ func parseDouble(tok string, base float64, center bool) (float64, error) {
 	v, err := strconv.ParseFloat(tok, 64)
 	if err != nil {
 		return 0, err
-	}
-	if center && !strings.ContainsAny(tok, ".eE") {
-		v += 0.5
 	}
 	return v, nil
 }
@@ -527,9 +524,9 @@ func tpResolveCoords(toks []string, bx, by, bz float64, issuer *Session) (x, y, 
 			by + left[1]*amts[0] + up[1]*amts[1] + fwd[1]*amts[2],
 			bz + left[2]*amts[0] + up[2]*amts[1] + fwd[2]*amts[2]
 	}
-	x, _ = parseDouble(toks[0], bx, true)
-	y, _ = parseDouble(toks[1], by, false)
-	z, _ = parseDouble(toks[2], bz, true)
+	x, _ = parseDouble(toks[0], bx)
+	y, _ = parseDouble(toks[1], by)
+	z, _ = parseDouble(toks[2], bz)
 	return x, y, z
 }
 

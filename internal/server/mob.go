@@ -770,13 +770,13 @@ func (s *Server) runSummon(player string, args []string) reply {
 	x, y, z, _, _, _ := sess.Pos()
 	if len(args) >= 4 {
 		var err error
-		if x, err = parseDouble(args[1], x, true); err != nil {
+		if x, err = parseDouble(args[1], x); err != nil {
 			return textReply("Invalid position " + args[1])
 		}
-		if y, err = parseDouble(args[2], y, false); err != nil {
+		if y, err = parseDouble(args[2], y); err != nil {
 			return textReply("Invalid position " + args[2])
 		}
-		if z, err = parseDouble(args[3], z, true); err != nil {
+		if z, err = parseDouble(args[3], z); err != nil {
 			return textReply("Invalid position " + args[3])
 		}
 	}

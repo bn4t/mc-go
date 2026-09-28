@@ -90,11 +90,11 @@ func (s *Server) runWorldBorderCenter(sender *Session, b *border, dim string, ar
 	if sender != nil {
 		bx, _, bz, _, _, _ = sender.Pos()
 	}
-	x, err := parseDouble(args[1], bx, true)
+	x, err := parseDouble(args[1], bx)
 	if err != nil {
 		return errToken("parsing.double.expected", 2)
 	}
-	z, err := parseDouble(args[2], bz, true)
+	z, err := parseDouble(args[2], bz)
 	if err != nil {
 		return errToken("parsing.double.expected", 3)
 	}

@@ -8847,7 +8847,7 @@ Not pinned (noted gap): block speed-factor multiply (honey/soul_sand slow the st
 Measured on the 26.2 jar (`FireworkRocketEntity.tick`/`onHitEntity`/`onHitBlock`, `ProjectileUtil.getHitResultOnMoveVector`/`computeMargin`, `Projectile.onHit`/`canHitEntity`/`isOutsideOwnerCollisionRange`, `Entity.getHandHoldingItemAngle`, `dealExplosionDamage` bytecode): both the attached and free branches run the move-vector hit scan each tick — block clip first (caps the segment), then nearest entity box inflated by `computeMargin = max(0, min(0.3, (tickCount-2)/20))`; `onHitEntity` explodes UNCONDITIONALLY (starless rockets pop on entities too); `onHitBlock` detonates only when `hasExplosion` (stars>0) — a starless rocket keeps its unclamped delta pushing into the wall till fuse. The attached follow: while `attached.isFallFlying`, the owner's delta gains `look·0.1 + (look·1.5−d)·0.5` (=0.5d+0.85look → converges ~1.7·look, the real boost) and the rocket rides at `getHandHoldingItemAngle` = `view(0°, yaw±80°)·0.5` (+80 main arm, −80 when only the offhand holds a rocket); the rocket's delta copies the owner's. Free flight: `!shotAtAngle || horizontalCollision` → `delta.multiply(f,1,f).add(0,0.04,0)` with f = hColl?1.0:1.15; move clamps position but the stored delta is restored UNCLAMPED. `dealExplosionDamage`'s 5-block area sweep runs a two-ray LOS gate — rocket→victim feet and rocket→victim mid; either ray reaching counts as visible. `canHitEntity` exempts the owner until the rocket's `bb.expandTowards(delta).inflate(1)` stops overlapping the owner's box (`leftOwner`), so a riding rocket can never hit its rider.
 mc-go gains all of it in `fireworkrocket.go`: `fireworkTick` rewired to vanilla order (attached boost+offset+follow → hit scan → explode-on-hit → fuse), `rocketHitScan` (new `clipSolidSegment` block clip → per-candidate `segmentBoxT` nearest-win), `rocketOwnerLeftOwner`, `rocketHandOffset` (main-arm +80 default, −80 when only offhand holds one), glide boost into `sess.glideDelta`, `rocketHColl` box-sweep latch (new generic `sweepEntityBox`/`clampBoxAxis` in elytra.go — glide wrapper unchanged), `rocketExplode` LOS gate (pose-height mid: 0.6 glide / 1.8 standing / mobBounds). Target blocks fire `targetSignal`/`fireTargetHit` on rocket impacts (vanilla's `onProjectileHit` hook).
 `TestFireworkRocketHitParity` runs 7 legs on both servers: starred shot-at-angle rocket into a pillager → pop+hurt, starred into a wall face → pop on impact, starless into the same wall → quiet until fuse, starred pop behind a two-thick ceiling → LOS safe, same pop in open air → hurt, attached boost → rocket Pos ≈ rider+view(0,yaw+80)·0.5 via /data get, boost delta → Motion[0] > 1.0. All legs identical word-for-word.
-Not pinned (noted gap): `applyEffectsFromBlocks` on the rocket (fire/lava inside), `updateRotation` yaw/pitch from delta (cosmetic), projectile deflection (`hitTargetOrDeflectSelf`'s AIM_DEFLECT — rare), onHitBlock's `entityInside` (powder snow/lava), main_arm from client_information (RIGHT assumed).
+Not pinned (noted gap): `applyEffectsFromBlocks` on the rocket (fire/lava inside), `updateRotation` yaw/pitch from delta (cosmetic), onHitBlock's `entityInside` (powder snow/lava), main_arm from client_information (RIGHT assumed).
 Also fixed: `TestFireworkBoostParity`'s `area damage` leg compared exact health floats while the launch jitter is unseeded RNG — bucketed to hurt/safe.
 
 ## Slice 2026-09-27v — sculk sensor / VibrationSystem parity (gameEvent dispatch, wool occlusion, calibrated gate, amethyst resonance, container events)
@@ -11378,12 +11378,41 @@ fireball in reach (delta := look angle, power reset to 0.1, the
 acceleration drifts on the analytic curve v_n = 1.9 − 0.9·0.95ⁿ —
 drift gates may land one tick apart between legs since the punch
 is processed mid-tick against each server's entity pass), Owner
-[I;] digit-equal, HasBeenShot/LeftOwner = 1b, wither_skull punch
-leaves Motion {0,0,0} + nodamage count equal (hurt-false arm).
+[I;] digit-equal on the punched runner (sort=furthest — the
+reversed lane answers nearest and is ownerless: REVERSE passes
+`this.owner` back), HasBeenShot/LeftOwner = 1b, wither_skull
+punch leaves Motion {0,0,0} + nodamage count equal (hurt-false
+arm). Lane C: a NoAI breeze parked at z=4 REVERSE-deflects an
+incoming fireball — delta flips to −0.5·(0,0,−0.5), accel halves
+to 0.05, and the reversed drift re-follows the 0.95ⁿ curve
+byte-equal across legs.
+
+Two real bugs the lane-C differential surfaced:
+
+- `parseDouble` added +0.5 to integer tokens lacking ".eE"
+  ("centering") — every Vec3/Vec2 command arg (summon, tp,
+  execute positioned, worldborder center…) landed half a block
+  off vanilla, whose Vec3 coords are exact. Removed the center
+  param across 19 call sites; the ops_test expectations that
+  encoded the centered values corrected to exact ones.
+- Post-deflect ordering: vanilla's `hitTargetOrDeflectSelf` runs
+  BEFORE the entity move, so after REVERSE the projectile
+  integrates the reversed delta the same tick and next tick's
+  scan starts past the deflector's inflated (+0.3) box face.
+  mc-go moved first, then deflected + snapped back — next tick's
+  segment started exactly ON the face → a phantom re-hit
+  exploded on the breeze. Fix: after `delta *= -0.5`, advance
+  position by the reversed motion before continuing.
+
+Also measured: `EntityReference.store` writes `Owner` via
+UUIDUtil.CODEC unconditionally when the ref is non-null — so a
+REVERSE-deflected ownerless projectile keeps `Owner` absent on
+both legs (the earlier "missing Owner" was the test selecting
+the wrong — nearer, reversed — fireball), and vanilla unloads
+entities past the view-distance ticket window, so the test pins
+view 24 to keep both runners loaded for the NBT probes.
 
 Deferred: MOMENTUM_DEFLECT (no vanilla caller found — constant
-only); breeze REVERSE-deflect ordering approximates "hit entity
-is a deflector" vs strict raycast-nearest; EntityReference for
-non-session owners (vehicles/passengers unmodelled);
-`rotateTowardsMovement` facing lerp; Owner NBT for non-projectile
-references (angry_at etc.).
+only); EntityReference for non-session owners
+(vehicles/passengers unmodelled); `rotateTowardsMovement` facing
+lerp; Owner NBT for non-projectile references (angry_at etc.).

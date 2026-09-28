@@ -113,7 +113,7 @@ func (s *Server) runPlaysound(player string, args []string) reply {
 	if len(args) >= 6 {
 		pos := []float64{px, py, pz}
 		for k := 0; k < 3; k++ {
-			v, err := parseDouble(args[3+k], pos[k], false)
+			v, err := parseDouble(args[3+k], pos[k])
 			if err != nil {
 				return errToken("parsing.double.expected", 4+k)
 			}
@@ -274,7 +274,7 @@ func (s *Server) runParticle(player string, args []string) reply {
 	}
 	pos := []float64{px, py, pz}
 	for k := 0; k < 3 && k < len(rest); k++ {
-		v, err := parseDouble(rest[k], pos[k], false)
+		v, err := parseDouble(rest[k], pos[k])
 		if err != nil {
 			return errToken("parsing.double.expected", base+k)
 		}
@@ -291,7 +291,7 @@ func (s *Server) runParticle(player string, args []string) reply {
 	var count int32
 	if len(rest) > 0 {
 		for k, dst := range []*float32{&dx, &dy, &dz} {
-			v, err := parseDouble(rest[k], 0, false)
+			v, err := parseDouble(rest[k], 0)
 			if err != nil {
 				return errToken("parsing.double.expected", base+3+k)
 			}

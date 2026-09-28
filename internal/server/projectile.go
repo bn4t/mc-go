@@ -494,6 +494,14 @@ func (s *Server) arrowTickStep() {
 				if hurtingProjectileTypes[name] {
 					e.AccelPower *= 0.5
 				}
+				// Vanilla's hitTargetOrDeflectSelf runs before the
+				// move: the deflect consumes the hit, then move()
+				// integrates the REVERSED delta that same tick, so
+				// the next scan starts past the deflector's inflated
+				// face instead of grazing it and exploding.
+				e.X += e.MotionX
+				e.Y += e.MotionY
+				e.Z += e.MotionZ
 				e.NeedsSync = true
 				continue
 			}

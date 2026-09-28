@@ -46,16 +46,21 @@ func joinPlayOp(t *testing.T, addr, name string) playSession {
 // settings a vanilla client uses by default.
 func sendClientInformation(t *testing.T, pw *protocol.Writer) {
 	t.Helper()
+	sendClientInformationVD(t, pw, 8)
+}
+
+func sendClientInformationVD(t *testing.T, pw *protocol.Writer, viewDist byte) {
+	t.Helper()
 	var b protocol.Buffer
 	b.String("en_us")
-	b.Byte(8)     // view distance
-	b.VarInt(0)   // chat mode: enabled
-	b.Bool(true)  // chat colors
-	b.Byte(0x7F)  // skin parts: all
-	b.VarInt(1)   // main hand: right
-	b.Bool(false) // text filtering
-	b.Bool(true)  // server listings allowed
-	b.VarInt(0)   // particle status: all
+	b.Byte(viewDist) // view distance
+	b.VarInt(0)      // chat mode: enabled
+	b.Bool(true)     // chat colors
+	b.Byte(0x7F)     // skin parts: all
+	b.VarInt(1)      // main hand: right
+	b.Bool(false)    // text filtering
+	b.Bool(true)     // server listings allowed
+	b.VarInt(0)      // particle status: all
 	if err := pw.WritePacket(server.IDPlayClientInfoSB, b.Bytes()); err != nil {
 		t.Fatal(err)
 	}

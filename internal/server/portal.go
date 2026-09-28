@@ -244,15 +244,15 @@ func (s *Server) runExecuteTeleport(player string, d *dimension, args []string) 
 		return "Unknown player: " + target
 	}
 	bx, by, bz := s.baseExactPos(target)
-	x, err := parseDouble(coords[0], bx, true)
+	x, err := parseDouble(coords[0], bx)
 	if err != nil {
 		return "Invalid x: " + coords[0]
 	}
-	y, err := parseDouble(coords[1], by, false)
+	y, err := parseDouble(coords[1], by)
 	if err != nil {
 		return "Invalid y: " + coords[1]
 	}
-	z, err := parseDouble(coords[2], bz, true)
+	z, err := parseDouble(coords[2], bz)
 	if err != nil {
 		return "Invalid z: " + coords[2]
 	}

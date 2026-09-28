@@ -173,7 +173,7 @@ func (s *Server) runRotateFacing(sender *Session, target *dataEntity, args []str
 	// pos3d.incomplete at the vector's first token.
 	for i := 0; i < len(args); i++ {
 		base := []float64{bx, by, bz}[i]
-		v, err := parseDouble(args[i], base, i != 1)
+		v, err := parseDouble(args[i], base)
 		if err != nil {
 			return errToken("parsing.double.expected", 3+i)
 		}
@@ -382,11 +382,11 @@ func (s *Server) runSpreadPlayers(player string, args []string) reply {
 	if sender != nil {
 		bx, _, bz, _, _, _ = sender.Pos()
 	}
-	cx, err := parseDouble(rest[0], bx, true)
+	cx, err := parseDouble(rest[0], bx)
 	if err != nil {
 		return errToken("parsing.double.expected", 1)
 	}
-	cz, err := parseDouble(rest[1], bz, true)
+	cz, err := parseDouble(rest[1], bz)
 	if err != nil {
 		return errToken("parsing.double.expected", 2)
 	}
@@ -587,7 +587,7 @@ func (s *Server) runDamage(player string, args []string) reply {
 			}
 			for i := 0; i < 3; i++ {
 				base := []float64{bx, by, bz}[i]
-				v, err := parseDouble(args[4+i], base, i != 1)
+				v, err := parseDouble(args[4+i], base)
 				if err != nil {
 					return errToken("parsing.double.expected", 5+i)
 				}
