@@ -62,13 +62,15 @@ Mojang server over the wire.
       schemas, generated from the official report and checked back
       against it state for state
 - [~] Lighting engine: block light propagates per-cell (BFS spread,
-      erase-flood removal, opacity 255/3/1) with vanilla's Update Light
+      erase-flood removal, opacity 255/1) with vanilla's Update Light
       wire semantics pinned in both dimensions — border-recipient
-      gating, around-marked sections and layer-presence masks
-      (`TestTorchLightParity`, `TestNetherTorchLightParity`); sky light
-      stays column-model — horizontal propagation open, plus nether
-      ambient light (lava-sea seeding) unmodeled so arrays only match
-      inside sealed regions
+      gating, around-marked sections, layer-presence masks and the full
+      measured emission table incl. state-folded entries
+      (`TestTorchLightParity`, `TestNetherTorchLightParity`,
+      `TestLightEmissionParity`); sky light stays column-model —
+      horizontal propagation open, plus nether ambient light
+      (lava-sea seeding) unmodeled so arrays only match inside sealed
+      regions
 - [~] Fluids: water and lava flow with vanilla's levels, drop-off,
       falling columns and dry-up. Redstone and scheduled block ticks
       remain. Random ticks now cover the crop family — wheat/carrots/
@@ -10099,6 +10101,39 @@ airborne penalty forever (grass 90 ticks vs vanilla's 18) —
 `digTicks` now falls back to `supportedBelow` when the flag is down,
 the same settle estimate the jump-stat check uses. Green: grass
 start+stop 17.9 vs 17.1 ticks, stone bare-hand 149.2 vs 150.9.
+
+## Slice: emission table — state-folded lightLevel lambdas, water opacity
+
+`internal/server/ice.go`'s `lightEmit` gained `stateEmission` — the
+half of vanilla's table whose lightLevel lambdas read block state:
+CaveVines.emission(14) on berries (+ plant), the sea pickle's
+waterlogged `3+3*pickles`, a lit candle's `3*candles` (+ cake at 3),
+the respawn anchor's `floor(15*charges/4)` → 3/7/11/15, and the light
+block's level prop. Missing flat entries filled: enchanting_table 7,
+sculk_catalyst 6, end_portal 15, nether_portal 11, lava_cauldron 15;
+lit-gated set extended to redstone_ore 9, redstone_torch/wall_torch 7
+and the 4 waxed copper bulbs 15 (previously emitted even unlit).
+
+Three measurement corrections surfaced while probing: the daylight
+detector's inverted and the lightning rod's powered 15s are redstone
+signal, not light — neither registration sets lightLevel (checked the
+26.2 `Blocks` bytecode directly), so both emit 0. And water's opacity
+for block light is 1, not 3 — `Properties.liquid()` sets no lightBlock,
+measured live: pickle emission spreads 15→14 into water cells.
+
+`TestLightEmissionParity` writes 26 emitter probes one at a time into
+border chunk (0,0) — sealed cavity so interior sky reads 0 on both
+engines — and diffs masks+nibble arrays per write against vanilla.
+Measured on the way: an airborne waterlogged pickle drains and dies
+(emits 0), so the wet probes run in a contained pool; cave vines
+self-destroy without an overhead block; and a dark transparent probe
+writes air→transparent — no packet on either leg, which the test
+asserts stays silent. `collectChunkLightFor` now merges multi-packet
+updates per chunk (mask-bit-keyed) instead of last-writer-wins, and
+`drainLight` waits for real silence before probing. The test caught
+two real bugs: the respawn prop is `charges` not `charge` (emission
+never applied) and the water-3 entry above.
+
 
 ## Slice: nether update_light — border-recipient rule, layer-presence masks
 

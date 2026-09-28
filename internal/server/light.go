@@ -77,16 +77,15 @@ func lightOpaque(b world.Block) bool {
 }
 
 // lightOpacity is the cost light pays entering a cell — vanilla's
-// getOpacity: opaque cubes absorb everything, water dims by 3, and
-// every other block costs 1 (the max(1, opacity) floor).
+// getOpacity: opaque cubes absorb everything and every other block
+// costs 1 (the max(1, opacity) floor; measured 15→14 entering water,
+// so a liquid() flag alone does not dim).
 func lightOpacity(b world.Block) int {
 	name, ok := world.StateOwner(b)
 	if !ok {
 		return 1
 	}
 	switch name {
-	case "water":
-		return 3
 	case "lava":
 		return 255
 	}

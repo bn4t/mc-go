@@ -243,6 +243,14 @@ func nonzero(arr []byte) int {
 	return n
 }
 
+func nonzeroArrays(arrays [][]byte) int {
+	n := 0
+	for _, a := range arrays {
+		n += nonzero(a)
+	}
+	return n
+}
+
 // collectChunkLights reads until the first Update Light arrives, then
 // sweeps stragglers for quietFor longer — vanilla emits one packet per
 // affected chunk in the same tick, in arbitrary order, and occasionally
@@ -383,29 +391,7 @@ func TestTorchLightParity(t *testing.T) {
 	}
 
 	cmpSnap := func(what string, ck [2]int, a, b lightSnapshot) {
-		t.Helper()
-		if fmt.Sprintf("%x", a.skyMask) != fmt.Sprintf("%x", b.skyMask) ||
-			fmt.Sprintf("%x", a.blockMask) != fmt.Sprintf("%x", b.blockMask) ||
-			fmt.Sprintf("%x", a.emptySky) != fmt.Sprintf("%x", b.emptySky) ||
-			fmt.Sprintf("%x", a.emptyBlock) != fmt.Sprintf("%x", b.emptyBlock) {
-			t.Fatalf("%s %v masks: vanilla sky=%s block=%s emptySky=%s emptyBlock=%s; mc-go sky=%s block=%s emptySky=%s emptyBlock=%s",
-				what, ck, maskString(a.skyMask), maskString(a.blockMask), maskString(a.emptySky), maskString(a.emptyBlock),
-				maskString(b.skyMask), maskString(b.blockMask), maskString(b.emptySky), maskString(b.emptyBlock))
-		}
-		if len(a.skyArrays) != len(b.skyArrays) || len(a.blockArrays) != len(b.blockArrays) {
-			t.Fatalf("%s %v array counts: vanilla sky=%d block=%d; mc-go sky=%d block=%d",
-				what, ck, len(a.skyArrays), len(a.blockArrays), len(b.skyArrays), len(b.blockArrays))
-		}
-		for i := range a.blockArrays {
-			if !bytes.Equal(a.blockArrays[i], b.blockArrays[i]) {
-				t.Fatalf("%s %v block array %d differs from vanilla", what, ck, i)
-			}
-		}
-		for i := range a.skyArrays {
-			if !bytes.Equal(a.skyArrays[i], b.skyArrays[i]) {
-				t.Fatalf("%s %v sky array %d differs from vanilla", what, ck, i)
-			}
-		}
+		cmpLightSnap(t, what, ck, a, b)
 	}
 	// Every chunk vanilla emitted must match mc-go's packet for the
 	// same chunk; mc-go must cover the chunks vanilla skipped too.
@@ -614,12 +600,100 @@ func collectChunkLightFor(t *testing.T, c interface {
 		}
 		cx, cz, snap := decodeLightUpdate(t, &p)
 		k := [2]int{int(cx), int(cz)}
-		out[k] = snap
+		out[k] = mergeLightSnap(out[k], snap)
 		if k == want {
 			lastWant = time.Now()
 		}
 	}
 	return out
+}
+
+// drainLight settles the light engine: vanilla keeps producing deferred
+// sky/block updates well past the 700ms sweep — a fill's propagation can
+// straggle into the next probe's window — so reads continue until the
+// wire has been silent for `quiet`.
+func drainLight(t *testing.T, c interface {
+	SetReadDeadline(time.Time) error
+}, pr *protocol.Reader, pw *protocol.Writer, quiet time.Duration) map[[2]int]lightSnapshot {
+	t.Helper()
+	out := map[[2]int]lightSnapshot{}
+	last := time.Now()
+	for time.Since(last) < quiet {
+		_ = c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		p, err := pr.ReadPacket()
+		if err != nil {
+			continue
+		}
+		switch p.ID {
+		case server.IDPlayKeepAliveCB:
+			_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+			continue
+		case server.IDPlayChunkBatchDone:
+			_ = ackChunkBatch(pw)
+			continue
+		case server.IDPlayUpdateLight:
+		default:
+			continue
+		}
+		cx, cz, snap := decodeLightUpdate(t, &p)
+		out[[2]int{int(cx), int(cz)}] = mergeLightSnap(out[[2]int{int(cx), int(cz)}], snap)
+		last = time.Now()
+	}
+	return out
+}
+
+// mergeLightSnap folds a fresh packet's snapshot into the running one:
+// vanilla may emit several update_light packets for the same chunk in a
+// window (the probe write plus a delayed sky-settle), so masks union and
+// each shipped array is keyed to its mask bit — ascending set-bit order
+// matches array order on the wire.
+func mergeLightSnap(a, b lightSnapshot) lightSnapshot {
+	secsOf := func(mask []uint64) []int {
+		var out []int
+		for i := 0; i < 40; i++ {
+			if bitSet(mask, i) {
+				out = append(out, i)
+			}
+		}
+		return out
+	}
+	keyed := func(mask []uint64, arrays [][]byte) map[int][]byte {
+		m := map[int][]byte{}
+		for i, s := range secsOf(mask) {
+			if i < len(arrays) {
+				m[s] = arrays[i]
+			}
+		}
+		return m
+	}
+	unkeyed := func(m map[int][]byte) ([]uint64, [][]byte) {
+		mask := make([]uint64, 1)
+		var arrays [][]byte
+		for s := 0; s < 40; s++ {
+			if a, ok := m[s]; ok {
+				mask[0] |= 1 << uint(s)
+				arrays = append(arrays, a)
+			}
+		}
+		return mask, arrays
+	}
+	sky := keyed(a.skyMask, a.skyArrays)
+	for s, arr := range keyed(b.skyMask, b.skyArrays) {
+		sky[s] = arr
+	}
+	blk := keyed(a.blockMask, a.blockArrays)
+	for s, arr := range keyed(b.blockMask, b.blockArrays) {
+		blk[s] = arr
+	}
+	a.skyMask, a.skyArrays = unkeyed(sky)
+	a.blockMask, a.blockArrays = unkeyed(blk)
+	for i := 0; i < len(a.emptySky) && i < len(b.emptySky); i++ {
+		a.emptySky[i] |= b.emptySky[i]
+	}
+	for i := 0; i < len(a.emptyBlock) && i < len(b.emptyBlock); i++ {
+		a.emptyBlock[i] |= b.emptyBlock[i]
+	}
+	return a
 }
 
 func lightKeys(m map[[2]int]lightSnapshot) string {
@@ -645,4 +719,212 @@ func arrayStats(arrays [][]byte) []int {
 		out[i] = n
 	}
 	return out
+}
+
+// cmpLightSnap is the per-chunk snapshot comparison every light probe
+// shares: the four masks must be bit-identical and every shipped
+// nibble array byte-identical.
+func cmpLightSnap(t *testing.T, what string, ck [2]int, a, b lightSnapshot) {
+	t.Helper()
+	if fmt.Sprintf("%x", a.skyMask) != fmt.Sprintf("%x", b.skyMask) ||
+		fmt.Sprintf("%x", a.blockMask) != fmt.Sprintf("%x", b.blockMask) ||
+		fmt.Sprintf("%x", a.emptySky) != fmt.Sprintf("%x", b.emptySky) ||
+		fmt.Sprintf("%x", a.emptyBlock) != fmt.Sprintf("%x", b.emptyBlock) {
+		t.Fatalf("%s %v masks: vanilla sky=%s block=%s emptySky=%s emptyBlock=%s; mc-go sky=%s block=%s emptySky=%s emptyBlock=%s",
+			what, ck, maskString(a.skyMask), maskString(a.blockMask), maskString(a.emptySky), maskString(a.emptyBlock),
+			maskString(b.skyMask), maskString(b.blockMask), maskString(b.emptySky), maskString(b.emptyBlock))
+	}
+	if len(a.skyArrays) != len(b.skyArrays) || len(a.blockArrays) != len(b.blockArrays) {
+		t.Fatalf("%s %v array counts: vanilla sky=%d block=%d; mc-go sky=%d block=%d",
+			what, ck, len(a.skyArrays), len(a.blockArrays), len(b.skyArrays), len(b.blockArrays))
+	}
+	for i := range a.blockArrays {
+		if !bytes.Equal(a.blockArrays[i], b.blockArrays[i]) {
+			t.Fatalf("%s %v block array %d differs from vanilla", what, ck, i)
+		}
+	}
+	for i := range a.skyArrays {
+		if !bytes.Equal(a.skyArrays[i], b.skyArrays[i]) {
+			t.Fatalf("%s %v sky array %d differs from vanilla", what, ck, i)
+		}
+	}
+}
+
+// TestLightEmissionParity pins vanilla's emission table — every
+// lightLevel lambda, constant or state-folded — by writing emitters
+// into a border chunk one probe at a time and comparing the update
+// light each produces on both servers. The player teleports to
+// (56.5,100,8.5) so chunk (0,0) sits on the west border of the 7x7
+// tracked window, exactly as the torch tests arrange.
+//
+// Measured on 26.2 (Blocks.* lightLevel registrations): the state-folded
+// entries are CaveVines.emission(14) on berries, the sea pickle's
+// waterlogged 3*(pickles+1), a lit candle's 3*candles, the respawn
+// anchor's floor(15*charge/4), the light block's level prop, an
+// inverted daylight detector and a powered lightning rod at 15 — plus
+// the flat entries for beacon/conduit/end_gateway/end_portal (15),
+// nether_portal and lava_cauldron (15/11), enchanting_table (7),
+// sculk_catalyst (6), redstone ore and torch gated on lit.
+//
+// Probing subtleties measured on vanilla: an airborne
+// waterlogged sea pickle drains its water and dies (emits 0), so the
+// wet probes go into a real contained pool; cave vines need a block
+// overhead or they self-destroy inside the tick; and a dark,
+// non-occluding probe writes air→transparent — no light change, no
+// packet — which both legs must reproduce.
+func TestLightEmissionParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil,
+		map[string]string{"ops.json": opsJSONFor("LE")}, nil)
+	defer targets.cleanup()
+	defer func() {
+		if t.Failed() {
+			vanillaLogTail(t)
+		}
+	}()
+	probes := []struct {
+		name, spec, restore string
+		wantEmpty           bool // dark+transparent: air→transparent writes nothing, both legs must emit nothing
+	}{
+		{"cave vine berries", "minecraft:cave_vines[berries=true]", "minecraft:air", false},
+		{"cave vine bare", "minecraft:cave_vines[berries=false]", "minecraft:air", true},
+		{"sea pickle dry", "minecraft:sea_pickle[pickles=3,waterlogged=false]", "minecraft:air", true},
+		{"candle x4 lit", "minecraft:candle[candles=4,lit=true]", "minecraft:air", false},
+		{"candle x1 lit", "minecraft:candle[candles=1,lit=true]", "minecraft:air", false},
+		{"candle x3 dark", "minecraft:white_candle[candles=3,lit=false]", "minecraft:air", true},
+		{"candle cake lit", "minecraft:candle_cake[lit=true]", "minecraft:air", false},
+		{"enchanting table", "minecraft:enchanting_table", "minecraft:air", false},
+		{"beacon", "minecraft:beacon", "minecraft:air", false},
+		{"end gateway", "minecraft:end_gateway", "minecraft:air", false},
+		{"end portal", "minecraft:end_portal", "minecraft:air", false},
+		{"lava cauldron", "minecraft:lava_cauldron", "minecraft:air", false},
+		{"sculk catalyst", "minecraft:sculk_catalyst", "minecraft:air", false},
+		{"respawn anchor c4", "minecraft:respawn_anchor[charges=4]", "minecraft:air", false},
+		{"respawn anchor c1", "minecraft:respawn_anchor[charges=1]", "minecraft:air", false},
+		{"redstone ore lit", "minecraft:redstone_ore[lit=true]", "minecraft:air", false},
+		{"redstone ore dark", "minecraft:redstone_ore[lit=false]", "minecraft:air", false},
+		{"redstone torch dark", "minecraft:redstone_torch[lit=false]", "minecraft:air", true},
+		{"daylight detector inverted", "minecraft:daylight_detector[inverted=true]", "minecraft:air", true},
+		{"lightning rod powered", "minecraft:lightning_rod[powered=true]", "minecraft:air", true},
+		{"light block l7", "minecraft:light[level=7]", "minecraft:air", false},
+		{"light block default", "minecraft:light", "minecraft:air", false},
+		{"amethyst cluster", "minecraft:amethyst_cluster", "minecraft:air", false},
+		{"magma", "minecraft:magma_block", "minecraft:air", false},
+	}
+	wetProbes := []struct {
+		name, spec, restore string
+		wantEmpty           bool
+	}{
+		{"sea pickle x4 wet", "minecraft:sea_pickle[pickles=4,waterlogged=true]", "minecraft:water", false},
+		{"sea pickle x2 wet", "minecraft:sea_pickle[pickles=2,waterlogged=true]", "minecraft:water", false},
+	}
+	want := [2]int{0, 0}
+	type snapPair = struct {
+		place, remove map[[2]int]lightSnapshot
+	}
+	var legs [2][]snapPair
+	for i, addr := range []string{targets.vanilla, targets.mcgo} {
+		leg := "vanilla"
+		if i == 1 {
+			leg = "mc-go"
+		}
+		c, pr, pw := joinPlayBlackbox(t, addr, "LE")
+		drainToJoinBlackbox(t, "le", pr)
+		sendCommand(t, pw, "tp @s 56.5 100 8.5")
+		streamed := settleChunks(t, c, pr, pw, 4*time.Second)
+		if !streamed[want] {
+			t.Fatalf("%s (%s): probe chunk (0,0) was never streamed — window keys %v", addr, leg, windowKeys(streamed))
+		}
+		// Sealed probe cavity: floor at y=9 for surface-sitting
+		// emitters (candles, pickles, torches) and ceiling at y=11 —
+		// cave vines fail canSurvive without a block overhead and
+		// self-destroy inside the tick, leaving marked masks over
+		// zeroed arrays. The walls make interior sky 0 on both
+		// servers: vanilla's propagated sky would still dim the
+		// cavity by a nibble that mc-go's column model can't see.
+		sendCommand(t, pw, "fill 6 9 6 10 9 10 minecraft:stone")
+		sendCommand(t, pw, "fill 6 11 6 10 11 10 minecraft:stone")
+		sendCommand(t, pw, "fill 6 10 6 6 10 10 minecraft:stone")
+		sendCommand(t, pw, "fill 10 10 6 10 10 10 minecraft:stone")
+		sendCommand(t, pw, "fill 7 10 6 9 10 6 minecraft:stone")
+		sendCommand(t, pw, "fill 7 10 10 9 10 10 minecraft:stone")
+		_ = drainLight(t, c, pr, pw, 2*time.Second)
+		var snaps []snapPair
+		run := func(name, spec, restore string, wantEmpty bool) {
+			timeout := 15 * time.Second
+			if wantEmpty {
+				timeout = 5 * time.Second
+			}
+			sendCommand(t, pw, "setblock 8 10 8 "+spec)
+			place := collectChunkLightFor(t, c, pr, pw, want, timeout)
+			sendCommand(t, pw, "setblock 8 10 8 "+restore)
+			remove := collectChunkLightFor(t, c, pr, pw, want, timeout)
+			snaps = append(snaps, snapPair{place, remove})
+		}
+		for _, probe := range probes {
+			run(probe.name, probe.spec, probe.restore, probe.wantEmpty)
+		}
+		// Contained pool for the submerged pickles: solid stone box
+		// with a water interior so the cell stays a source — airborne
+		// waterlogged drains and dies, open pools flow away.
+		sendCommand(t, pw, "fill 6 9 6 10 11 10 minecraft:stone")
+		sendCommand(t, pw, "fill 7 10 7 9 10 9 minecraft:water")
+		_ = drainLight(t, c, pr, pw, 2*time.Second)
+		for _, probe := range wetProbes {
+			run(probe.name, probe.spec, probe.restore, probe.wantEmpty)
+		}
+		legs[i] = snaps
+		c.Close()
+	}
+	van, got := legs[0], legs[1]
+	allProbes := append(append([]struct {
+		name, spec, restore string
+		wantEmpty           bool
+	}{}, probes...), wetProbes...)
+
+	// Anti-vacuous: the vanilla leg must carry lit nibbles for the real
+	// emitters (a flat-15 probe and a state-folded one).
+	for i, snap := range van {
+		switch allProbes[i].name {
+		case "beacon", "cave vine berries", "sea pickle x4 wet":
+			vsnap, ok := snap.place[want]
+			if !ok {
+				t.Fatalf("place %s: vanilla emitted nothing for probe chunk", allProbes[i].name)
+			}
+			if nonzeroArrays(vsnap.blockArrays) == 0 {
+				t.Fatalf("vanilla place %s shipped no lit nibbles", allProbes[i].name)
+			}
+		}
+	}
+
+	for i, probe := range allProbes {
+		if len(van[i].place) == 0 {
+			// Dark, non-occluding probes: air→transparent writes no
+			// light change, so vanilla emits nothing — mc-go must not
+			// either.
+			if len(got[i].place) != 0 {
+				t.Fatalf("place %s: vanilla emitted nothing but mc-go emitted %d chunks", probe.name, len(got[i].place))
+			}
+		} else {
+			for ck, vsnap := range van[i].place {
+				msnap, ok := got[i].place[ck]
+				if !ok {
+					t.Fatalf("place %s %v: vanilla emitted, mc-go did not", probe.name, ck)
+				}
+				cmpLightSnap(t, "place "+probe.name, ck, vsnap, msnap)
+			}
+		}
+		if len(van[i].remove) == 0 {
+			if len(got[i].remove) != 0 {
+				t.Fatalf("remove %s: vanilla emitted nothing but mc-go emitted %d chunks", probe.name, len(got[i].remove))
+			}
+		} else {
+			for ck, vsnap := range van[i].remove {
+				msnap, ok := got[i].remove[ck]
+				if !ok {
+					t.Fatalf("remove %s %v: vanilla emitted, mc-go did not", probe.name, ck)
+				}
+				cmpLightSnap(t, "remove "+probe.name, ck, vsnap, msnap)
+			}
+		}
+	}
 }
