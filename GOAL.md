@@ -10438,3 +10438,34 @@ recompute cascade wrote it already past 3 by probe time on both
 legs). Unit: `leaves_test.go` — place state (persistent + distance),
 decay loot (225 decays drop a sapling), the persistent/distance<7
 decay gates.
+
+## Slice: spruce sapling growth (SpruceFoliagePlacer + forking of space rules)
+
+- `spruce.json` (26.2 configured_feature): StraightTrunkPlacer
+  {base 5, randA 2, randB 1} → 5-8 logs (height = base + U(0..randA)
+  + U(0..randB) — randB was previously hardwired 0 and is now a real
+  shape field). SpruceFoliagePlacer {radius U(2..3), offset U(0..2),
+  trunk_height U(1..2)}.
+- `SpruceFoliagePlacer.createFoliage` (decompiled): the zigzag cone.
+  foliageHeight = max(4, treeHeight - U(1..2)); rows run
+  yo = offset..-foliageHeight; the row radius starts at nextInt(2),
+  counts up while under maxRadius, then drops to the running minimum
+  while maxRadius grows toward the sampled leafRadius. Corner skip is
+  `dx == radius && dz == radius && radius > 0` — no random roll like
+  the blob's. shouldSkipLocationSigned feeds it absolute dx/dz.
+- `treeShape` now carries the whole per-species table: randB, the
+  two_layers space rule (minLimit/minUpper), and a canopyKind
+  switch (blob | spruce). getMaxFreeTreeHeight runs
+  `y < limit ? 0 : upper` — spruce checks the 5x5 from y>=2 vs the
+  oak/birch 3x3 from y>=1.
+- Guaranteed-leaf pin: four below the attachment
+  (y = posY + treeHeight - 3) lands radius >= 1 for every
+  (cr0, offset, leafRadius) path, and (x±1, z) are never corners.
+
+Blackbox: `TestSpruceParity` (spruce_test.go) — four spruce grown at
+random_tick_speed 600, trunk zone + sapling cells + dirt + stones in
+the names map; per leg trunk height in [5,8], the band leaf east of
+the trunk, and a crowded spruce (stone inside its 5x5 at y+2) pinned
+as a stage-1 sapling. Green vs both servers. Unit:
+`TestSpruceCanopyShape` sweeps 200 sampled canopies for the band
+invariant.

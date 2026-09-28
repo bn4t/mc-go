@@ -14,27 +14,41 @@ import (
 // BlobFoliagePlacer.java, and the oak.json / birch.json configured
 // features.
 
+// canopyKind is the species' foliage_placer variant: the small oak /
+// birch blob or the spruce zigzag cone.
+type canopyKind int
+
+const (
+	canopyBlob canopyKind = iota
+	canopySpruce
+)
+
 // treeShape is one species' single-trunk feature: a straight log column
-// of baseHeight + intn(randA+1) + intn(randB+1) (randB is 0 for both
-// implemented species) with a blob canopy — every small oak and birch
-// shares foliage_placer {radius: 2, offset: 0, height: 3}.
+// of baseHeight + intn(randA+1) + intn(randB+1), the two-layers space
+// check (minLimit/minUpper), and one canopy placer. Every small oak and
+// birch shares foliage_placer {radius: 2, offset: 0, height: 3}; spruce
+// runs SpruceFoliagePlacer {radius U(2..3), offset U(0..2),
+// trunk_height U(1..2)}.
 type treeShape struct {
-	log, leaf         string
-	baseHeight, randA int
-	fancyChance       float64
+	log, leaf                string
+	baseHeight, randA, randB int
+	fancyChance              float64
+	minLimit, minUpper       int // two_layers_feature_size: y < limit → 0, else upper
+	canopy                   canopyKind
 }
 
 // treeShapes maps each implemented sapling to its feature config.
 // Saplings without an entry still advance their stage property (that
 // half of advanceTree is species-agnostic) but their growTree finds no
-// feature and fails — spruce/jungle/acacia/dark-oak/mangrove/cherry/
-// pale-oak placers are a measured gap, as is oak's own 10% fancy roll
+// feature and fails — jungle/acacia/dark-oak/mangrove/cherry/pale-oak
+// placers are a measured gap, as is oak's own 10% fancy roll
 // (FancyTrunkPlacer + FancyFoliagePlacer): the roll still happens and
 // fails like vanilla failing a space check, so under low ceilings the
 // absence is invisible and in the open it is the known gap.
 var treeShapes = map[string]treeShape{
-	"oak_sapling":   {"oak_log", "oak_leaves", 4, 2, 0.1},
-	"birch_sapling": {"birch_log", "birch_leaves", 5, 2, 0},
+	"oak_sapling":    {"oak_log", "oak_leaves", 4, 2, 0, 0.1, 1, 1, canopyBlob},
+	"birch_sapling":  {"birch_log", "birch_leaves", 5, 2, 0, 0, 1, 1, canopyBlob},
+	"spruce_sapling": {"spruce_log", "spruce_leaves", 5, 2, 1, 0, 2, 2, canopySpruce},
 }
 
 // saplingRule — SaplingBlock.randomTick: getMaxLocalRawBrightness of
@@ -117,7 +131,7 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 	// so the origin cell reads air for the whole place.
 	s.setSilentBlock(d, pos, world.Air)
 
-	treeHeight := shape.baseHeight + s.rng.intn(shape.randA+1)
+	treeHeight := shape.baseHeight + s.rng.intn(shape.randA+1) + s.rng.intn(shape.randB+1)
 
 	// doPlace's bounds gate: the feature refuses to run when the
 	// trunk's own origin or its top would sit outside the world's
@@ -127,14 +141,14 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 		return
 	}
 
-	// getMaxFreeTreeHeight with two_layers_feature_size defaults
-	// (limit 1, lower 0, upper 1): getSizeAtHeight is lowerSize below
-	// the limit and upperSize at it — just the trunk column at y=0 and
-	// the whole 3x3 at every layer from 1 through treeHeight+1.
+	// getMaxFreeTreeHeight with two_layers_feature_size:
+	// getSizeAtHeight is lowerSize(0) below the limit and upperSize at
+	// it — oak/birch check the trunk column at y=0 and the whole 3x3
+	// from y=1 up; spruce widens to the whole 5x5 from y=2 up.
 	clipped := treeHeight
 	for y := 0; y <= treeHeight+1; y++ {
-		r := 1
-		if y == 0 {
+		r := shape.minUpper
+		if y < shape.minLimit {
 			r = 0
 		}
 		if !s.treeSpaceFree(d, pos, y, r) {
@@ -169,47 +183,54 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 		}
 	}
 
-	// createFoliage (blob, radius 2, offset 0, height 3): the
-	// attachment sits one above the top log and places four layers at
-	// yo 0..-3 with radius max(2 - 1 - yo/2, 0) → 1,1,2,2 (Java's yo/2
-	// truncates toward zero; Go's integer division does too).
+	// createFoliage: the attachment sits one above the top log.
 	top := world.Pos{X: pos.X, Y: pos.Y + treeHeight, Z: pos.Z}
 	var leaves []world.Pos
 	leafState, _ := world.BlockStateOf(shape.leaf, map[string]string{
 		"distance": "7", "persistent": "false", "waterlogged": "false",
 	})
-	for yo := 0; yo >= -3; yo-- {
-		r := 2 - 1 - yo/2
-		if r < 0 {
-			r = 0
+	placeLeaf := func(p world.Pos) {
+		// tryPlaceLeaf: never overwrites persistent leaves or anything
+		// outside REPLACEABLE_BY_TREES (logs included).
+		cur := d.w.GetBlock(p)
+		if pv, ok := world.StateProperty(cur, "persistent"); ok && pv == "true" {
+			return
 		}
-		for dx := -r; dx <= r; dx++ {
-			for dz := -r; dz <= r; dz++ {
-				// shouldSkipLocation: the corner of the square, always
-				// skipped at yo=0 and half the time elsewhere.
-				if absi(dx) == r && absi(dz) == r && (s.rng.intn(2) == 0 || yo == 0) {
-					continue
-				}
-				p := world.Pos{X: top.X + dx, Y: top.Y + yo, Z: top.Z + dz}
-				// tryPlaceLeaf: never overwrites persistent leaves or
-				// anything outside REPLACEABLE_BY_TREES (logs included).
-				cur := d.w.GetBlock(p)
-				if pv, ok := world.StateProperty(cur, "persistent"); ok && pv == "true" {
-					continue
-				}
-				if !s.treeCanOccupy(d, p) {
-					continue
-				}
-				st := leafState
-				// The foliage provider folds waterlogged from the
-				// cell's fluid — a water source waterlogs the leaf.
-				if k, _, ok := fluidOf(cur); ok && k == fluidWater {
-					if nb, ok := world.WithProperty(st, "waterlogged", "true"); ok {
-						st = nb
+		if !s.treeCanOccupy(d, p) {
+			return
+		}
+		st := leafState
+		// The foliage provider folds waterlogged from the cell's
+		// fluid — a water source waterlogs the leaf.
+		if k, _, ok := fluidOf(cur); ok && k == fluidWater {
+			if nb, ok := world.WithProperty(st, "waterlogged", "true"); ok {
+				st = nb
+			}
+		}
+		s.setNaturalBlock(d, p, st)
+		leaves = append(leaves, p)
+	}
+	switch shape.canopy {
+	case canopySpruce:
+		s.spruceCanopy(d, top, treeHeight, placeLeaf)
+	default:
+		// blob (radius 2, offset 0, height 3): four layers at yo
+		// 0..-3 with radius max(2 - 1 - yo/2, 0) → 1,1,2,2 (Java's
+		// yo/2 truncates toward zero; Go's integer division does too).
+		for yo := 0; yo >= -3; yo-- {
+			r := 2 - 1 - yo/2
+			if r < 0 {
+				r = 0
+			}
+			for dx := -r; dx <= r; dx++ {
+				for dz := -r; dz <= r; dz++ {
+					// shouldSkipLocation: the corner of the square,
+					// always skipped at yo=0 and half the time elsewhere.
+					if absi(dx) == r && absi(dz) == r && (s.rng.intn(2) == 0 || yo == 0) {
+						continue
 					}
+					placeLeaf(world.Pos{X: top.X + dx, Y: top.Y + yo, Z: top.Z + dz})
 				}
-				s.setNaturalBlock(d, p, st)
-				leaves = append(leaves, p)
 			}
 		}
 	}
@@ -218,6 +239,41 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 	// DISTANCE=min(neighbour+1, 7) on the leaf cells at once — the same
 	// result the leaf distance ticks would converge to over ticks.
 	s.treeLeafDistances(d, pos, treeHeight, leaves)
+}
+
+// spruceCanopy — SpruceFoliagePlacer.createFoliage: the zigzag cone.
+// foliageHeight = max(4, treeHeight - U(1..2)) and leafRadius = U(2..3)
+// are sampled up front; the row loop runs yo = offset(U(0..2)) down to
+// -foliageHeight. The row radius starts at U(0..1), counts up while
+// under maxRadius, then drops to the running minimum while maxRadius
+// grows toward the sampled leaf radius — the classic spruce spire.
+// Corners are skipped whenever the radius is positive (there is no
+// random corner roll like the blob's).
+func (s *Server) spruceCanopy(d *dimension, top world.Pos, treeHeight int, placeLeaf func(world.Pos)) {
+	fH := treeHeight - 1 - s.rng.intn(2) // treeHeight - U(1..2), floored at 4
+	if fH < 4 {
+		fH = 4
+	}
+	leafR := 2 + s.rng.intn(2)
+	off := s.rng.intn(3)
+	cur, maxR, minR := s.rng.intn(2), 1, 0
+	for yo := off; yo >= -fH; yo-- {
+		for dx := -cur; dx <= cur; dx++ {
+			for dz := -cur; dz <= cur; dz++ {
+				if absi(dx) == cur && absi(dz) == cur && cur > 0 {
+					continue
+				}
+				placeLeaf(world.Pos{X: top.X + dx, Y: top.Y + yo, Z: top.Z + dz})
+			}
+		}
+		if cur >= maxR {
+			cur = minR
+			minR = 1
+			maxR = min(maxR+1, leafR)
+		} else {
+			cur++
+		}
+	}
 }
 
 // treeSpaceFree runs one layer of getMaxFreeTreeHeight: every cell in
