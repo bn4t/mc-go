@@ -36,7 +36,7 @@ func TestWaypointParity(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		out := map[string]any{"op": op, "isUUID": isUUID}
+		out := map[string]any{"op": op, "isUUID": isUUID, "raw": fmt.Sprintf("%x", raw)}
 		var uuid [16]byte
 		if isUUID {
 			if uuid, err = r.UUID(); err != nil {
@@ -64,11 +64,12 @@ func TestWaypointParity(t *testing.T) {
 		}
 		out["hasColor"] = hasColor
 		if hasColor {
-			c, err := r.Int()
+			// RGB_COLOR is 3 bytes, not an int32.
+			b3, err := r.Read(3)
 			if err != nil {
 				return nil, err
 			}
-			out["color"] = c
+			out["color"] = int32(b3[0])<<16 | int32(b3[1])<<8 | int32(b3[2])
 		}
 		kind, err := r.VarInt()
 		if err != nil {
@@ -135,6 +136,9 @@ func TestWaypointParity(t *testing.T) {
 		uuid      string // "" = wildcard
 		style     string
 		ignorePos bool // compare everything but the position
+		wantColor bool // compare the icon's hasColor/color fields
+		hasColor  bool
+		color     int32
 	}
 
 	check := func(t *testing.T, tag string, got []map[string]any, wants []expect) {
@@ -160,6 +164,14 @@ func TestWaypointParity(t *testing.T) {
 				}
 				if w.style != "" && g["style"] != w.style {
 					continue
+				}
+				if w.wantColor {
+					if hc, _ := g["hasColor"].(bool); hc != w.hasColor {
+						continue
+					}
+					if w.hasColor && g["color"] != w.color {
+						continue
+					}
 				}
 				if w.hasPos && !w.ignorePos && g["pos"] != w.pos {
 					continue
@@ -249,6 +261,44 @@ func TestWaypointParity(t *testing.T) {
 		sendCommand(t, pwB, "tp @s 8 -60 0 0 0")
 		check(t, tg.tag+" tp8back", wpWindow(t, sinkA, 1200*time.Millisecond), []expect{
 			{op: 0, kind: 1, pos: [3]int32{8, -60, 0}, hasPos: true, uuid: uuids["B"]},
+		})
+
+		// W7b: scoreboard team callbacks fire remakeConnections — every
+		// receiver's conn to the member re-creates and re-TRACKs. join wpt
+		// (gold) -> TRACK vec3i 0xFFAA00; re-join wpt2 (green) -> a
+		// remove-side TRACK (no team -> no color) + an add-side TRACK
+		// 0x55FF55; black lifts to 0x303030; color reset and leave each
+		// re-TRACK without color.
+		sendCommand(t, pwA, "team add wpt")
+		sendCommand(t, pwA, "team modify wpt color gold")
+		sendCommand(t, pwA, "team join wpt PrjB")
+		check(t, tg.tag+" team-gold", wpWindow(t, sinkA, 1400*time.Millisecond), []expect{
+			{op: 0, kind: 1, pos: [3]int32{8, -60, 0}, hasPos: true, uuid: uuids["B"],
+				wantColor: true, hasColor: true, color: 0xFFAA00},
+		})
+		sendCommand(t, pwA, "team add wpt2")
+		sendCommand(t, pwA, "team modify wpt2 color green")
+		sendCommand(t, pwA, "team join wpt2 PrjB")
+		check(t, tg.tag+" team-join2", wpWindow(t, sinkA, 1400*time.Millisecond), []expect{
+			{op: 0, kind: 1, pos: [3]int32{8, -60, 0}, hasPos: true, uuid: uuids["B"],
+				wantColor: true, hasColor: false},
+			{op: 0, kind: 1, pos: [3]int32{8, -60, 0}, hasPos: true, uuid: uuids["B"],
+				wantColor: true, hasColor: true, color: 0x55FF55},
+		})
+		sendCommand(t, pwA, "team modify wpt2 color black")
+		check(t, tg.tag+" team-black", wpWindow(t, sinkA, 1200*time.Millisecond), []expect{
+			{op: 0, kind: 1, pos: [3]int32{8, -60, 0}, hasPos: true, uuid: uuids["B"],
+				wantColor: true, hasColor: true, color: 0x303030},
+		})
+		sendCommand(t, pwA, "team modify wpt2 color reset")
+		check(t, tg.tag+" team-reset", wpWindow(t, sinkA, 1200*time.Millisecond), []expect{
+			{op: 0, kind: 1, pos: [3]int32{8, -60, 0}, hasPos: true, uuid: uuids["B"],
+				wantColor: true, hasColor: false},
+		})
+		sendCommand(t, pwA, "team leave PrjB")
+		check(t, tg.tag+" team-leave", wpWindow(t, sinkA, 1200*time.Millisecond), []expect{
+			{op: 0, kind: 1, pos: [3]int32{8, -60, 0}, hasPos: true, uuid: uuids["B"],
+				wantColor: true, hasColor: false},
 		})
 
 		// W8: a mob with transmit 0 is silent.

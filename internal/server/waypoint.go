@@ -39,6 +39,7 @@
 package server
 
 import (
+	"fmt"
 	"math"
 
 	"mc-go/internal/protocol"
@@ -254,23 +255,111 @@ func (s *Server) wpChunkVisible(chunk [2]int32, r *Session) bool {
 	return dx <= int32(vd) && dz <= int32(vd)
 }
 
+// wpRemakeConnections is ServerWaypointManager.remakeConnections:
+// the transmitter's identity changed (team join/leave/modify), so every
+// receiver re-creates its connection — a live one is replaced by a fresh
+// TRACK (no UNTRACK; Table.put drops the old silently), a dead one drops
+// with UNTRACK. Fires from the scoreboard's team callbacks.
+func (s *Server) wpRemakeConnections(e *Entity) {
+	s.sessions.Range(func(_, v any) bool {
+		r := v.(*Session)
+		if r.state.Load() != StatePlay || r.entityID.Load() == 0 || r.dimName() != e.Dim {
+			return true
+		}
+		r.wpMu.Lock()
+		s.wpRemakeFor(r, e)
+		r.wpMu.Unlock()
+		return true
+	})
+}
+
+// wpRemakeFor is createConnection on remake: self and locatorBar-off
+// receivers skip; the make result replaces any existing conn (TRACK) or
+// drops it (UNTRACK).
+func (s *Server) wpRemakeFor(r *Session, e *Entity) {
+	if e.ID == r.entityID.Load() || !s.wpLocatorBar(r) {
+		return
+	}
+	src := s.wpSourceOf(e, r)
+	x, y, z, _, _, _ := r.Pos()
+	conn := s.wpMakeConnection(r, src, x, y, z)
+	if conn == nil {
+		if old, ok := r.wpConns[e.ID]; ok {
+			s.wpSend(r, wpEncodeOp(1, old))
+			delete(r.wpConns, e.ID)
+		}
+		return
+	}
+	if r.wpConns == nil {
+		r.wpConns = map[int32]*wpConn{}
+	}
+	r.wpConns[e.ID] = conn
+	s.wpSend(r, wpEncodeOp(0, conn))
+}
+
+// wpRemakeByName remakes one holder's connections — vanilla resolves the
+// scoreboard name to an online player only (getPlayerByName), so mob
+// members and free-form names never reach here.
+func (s *Server) wpRemakeByName(name string) {
+	sess := s.findSessionByName(name)
+	if sess == nil {
+		return
+	}
+	if e, ok := s.entities.GetPtr(sess.entityID.Load()); ok {
+		s.wpRemakeConnections(e)
+	}
+}
+
+// wpRemakeTeam remakes every member's connections — the scoreboard's
+// updateTeamWaypoints for an onTeamChanged (any /team modify).
+func (s *Server) wpRemakeTeam(t *team) {
+	s.board.mu.Lock()
+	members := make([]string, 0, len(t.order))
+	members = append(members, t.order...)
+	s.board.mu.Unlock()
+	for _, n := range members {
+		s.wpRemakeByName(n)
+	}
+}
+
 // wpLocatorBar is isLocatorBarEnabledFor — the receiver's gamerule flag.
 func (s *Server) wpLocatorBar(r *Session) bool {
 	return s.gameRules["minecraft:locator_bar"] == "true"
 }
 
 // wpIconFor is locatorBarIcon.cloneAndAssignStyle: the /waypoint-modify
-// overrides, the entity's own color when set (team colors unmodelled).
+// color wins, else the holder's team color applies — vanilla lifts
+// black to 0x303030 so the icon stays readable on the dark bar.
 func (s *Server) wpIconFor(e *Entity) (style string, hasColor bool, color int32) {
 	style = "minecraft:default"
 	if e.WaypointStyle != "" {
 		style = e.WaypointStyle
 	}
 	if e.WaypointColor != "" {
-		hasColor = true
-		color = wpColorValue(e.WaypointColor)
+		return style, true, wpColorValue(e.WaypointColor)
 	}
-	return style, hasColor, color
+	if t := s.teamOf(s.wpScoreboardName(e)); t != nil && t.color >= 0 {
+		if name := chatFormattingID[t.color]; name == "black" {
+			return style, true, 0x303030
+		} else if rgb, ok := wpNamedColors[name]; ok {
+			return style, true, rgb
+		}
+	}
+	return style, false, 0
+}
+
+// wpScoreboardName is the entity's team-membership key — the player name
+// for player records, the dashed UUID string for everything else, like
+// vanilla's getScoreboardName.
+func (s *Server) wpScoreboardName(e *Entity) string {
+	if e == nil {
+		return ""
+	}
+	if sess := s.sessionByEntityID(e.ID); sess != nil {
+		return sess.getName()
+	}
+	u := e.UUID
+	return fmt.Sprintf("%x-%x-%x-%x-%x", u[0:4], u[4:6], u[6:8], u[8:10], u[10:16])
 }
 
 // wpColorValue maps a waypoint color override to its RGB int: named chat
@@ -455,7 +544,10 @@ func wpEncodeOp(op int32, conn *wpConn) []byte {
 	b.String(conn.style)
 	b.Bool(conn.hasColor)
 	if conn.hasColor {
-		b.Int(conn.color)
+		// RGB_COLOR is 3 bytes, not an int32.
+		b.Byte(byte(conn.color >> 16))
+		b.Byte(byte(conn.color >> 8))
+		b.Byte(byte(conn.color))
 	}
 	b.VarInt(conn.kind)
 	switch conn.kind {

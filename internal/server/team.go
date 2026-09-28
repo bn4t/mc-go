@@ -398,6 +398,8 @@ func (s *Server) teamModify(sender *Session, t *team, args []string) reply {
 		return errToken("command.unknown.argument", 3)
 	}
 	s.broadcastTeamUpdate(t)
+	// onTeamChanged: every online member's waypoint conns re-create.
+	s.wpRemakeTeam(t)
 	r := componentReply(msg)
 	r.opsEcho = echo
 	return r
@@ -463,6 +465,10 @@ func (s *Server) teamJoin(t *team, name string) {
 		s.broadcastTeamPacket(old.name, 4, playerListBody([]string{name}))
 		if old != t {
 			s.teamDrop(old, name)
+		} else {
+			// old==t keeps membership, but vanilla still runs the
+			// removePlayerFromTeam waypoint remake (TRACK re-emit).
+			s.wpRemakeByName(name)
 		}
 	}
 	s.board.mu.Lock()
@@ -472,6 +478,7 @@ func (s *Server) teamJoin(t *team, name string) {
 	}
 	s.board.mu.Unlock()
 	s.broadcastTeamPacket(t.name, 3, playerListBody([]string{name}))
+	s.wpRemakeByName(name)
 }
 
 // teamLeave drops a name from whatever team holds it.
@@ -482,7 +489,8 @@ func (s *Server) teamLeave(name string) {
 	}
 }
 
-// teamDrop removes a member without broadcasting.
+// teamDrop removes a member without broadcasting. The waypoint remake
+// fires for the removal like vanilla's removePlayerFromTeam listener.
 func (s *Server) teamDrop(t *team, name string) {
 	s.board.mu.Lock()
 	delete(t.members, name)
@@ -493,6 +501,7 @@ func (s *Server) teamDrop(t *team, name string) {
 		}
 	}
 	s.board.mu.Unlock()
+	s.wpRemakeByName(name)
 }
 
 // brackets is the team's display name as the square-bracketed component
