@@ -4350,7 +4350,17 @@ func (s *Server) mobGrounded(e *Entity, w *world.World) bool {
 		if e.MotionY < -1.0 {
 			e.MotionY = -1.0
 		}
-		e.Y += e.MotionY
+		// Entity.move's collide: sweep the foot face against the cells
+		// it crosses — an unchecked += lets a fast fall tunnel through
+		// the floor's collision top and ground the mob a full block
+		// deep inside the floor (the half-below support check then sees
+		// the NEXT solid cell down). clampBoxAxis stops the feet at the
+		// highest collision top in the span, exactly like vanilla.
+		bb := mobBoundsTable[e.Type]
+		half, height := bb[0]/2, bb[1]
+		cy := s.clampBoxAxis(w, [2]float64{e.Y, e.Y + height}, e.MotionY,
+			1, e.X-half, e.X+half, e.Z-half, e.Z+half)
+		e.Y += cy
 		// Entity.updateFallDistance: downward travel accumulates.
 		if dy := prevY - e.Y; dy > 0 {
 			e.FallDist += dy

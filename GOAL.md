@@ -11922,12 +11922,35 @@ gained farmland/dirt_path=0.9375.
 Pinned: TestFarmlandTrampleParity — zombie + player trample to dirt,
 chicken blocked by the 0.512 volume gate, both legs.
 
-Preexisting failure found (unrelated, on bare master):
-TestMobFallDamageParity — every mob leg takes ~1-2 extra damage vs
-vanilla including the fall-immune chicken (deterministic — likely a
-second landing/wander fall or fallDist accumulation drift). Left
-open for a later slice.
-
 Deferred: gliding-pose bb height for trample volume; turtle-egg
 trample; pushEntitiesUp part of turnToDirt (mc-go has no
 entity-on-top push path yet).
+
+## Slice — mob fall tunneling (mobGrounded collide sweep)
+
+TestMobFallDamageParity had been failing on bare master: every mob
+leg took ~1-2 extra damage vs vanilla, including the fall-immune
+chicken. Pos probe showed 10-block-fall mobs resting at feet=-62 —
+one block INSIDE the stone floor — while vanilla rests at -61.
+
+Root cause: mobGrounded applied gravity with a bare e.Y += MotionY.
+At cap -1.0 the feet swept a full cell per tick, so the support
+check at getOnPos(0.500001) — which looks at the half-below cell —
+never saw the floor the feet had already tunneled INTO: it grounded
+the mob on the next solid cell down, feet embedded a full block
+deep, and the embedded mobs then suffocated (that's the damage on
+the fall-immune chicken).
+
+Fix: the airborne step now sweeps the foot face through
+clampBoxAxis (the same VoxelShape-top sweep entityMove uses), so a
+downward step stops at the highest collision top in the span —
+mobs land at exactly -61 like vanilla. No new code path: it reuses
+the box-collision helper.
+
+Pinned: TestMobFallDamageParity green on both legs (19/13/3/4
+health + the hostile/generic fallsounds), TestFarmlandTrampleParity
+still green, mob ground/lava/item-drop/fluid suites unaffected.
+
+Deferred: chicken slow-glide (vanilla's Chicken falls at reduced
+gravity — mc-go applies the full -0.08/tick, so it lands early;
+fall-immune so no parity impact today).
