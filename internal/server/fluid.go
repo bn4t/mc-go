@@ -695,12 +695,35 @@ func (f fluidKind) slopeFindDistance(d *dimension) int {
 
 // fluidIsHole is vanilla's SpreadContext.isHole: the cell's below is
 // enterable or already the same fluid, so fluid arriving here falls on.
+// Enterable for an other-kind fluid cell is canBeReplacedWith's answer:
+// lava drops into water from above (it lands as stone), water sinks
+// into lava only where the lava is deep — a source or levels 1-4, and
+// every falling state — while the shallow tail turns it away.
 func (s *Server) fluidIsHole(d *dimension, pos world.Pos, kind fluidKind) bool {
 	below := d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z})
-	if k2, _, ok := fluidOf(below); ok && k2 == kind {
-		return true
+	if k2, l2, ok := fluidOf(below); ok {
+		if k2 == kind {
+			return true
+		}
+		return fluidEntersBelow(kind, k2, l2)
 	}
 	return fluidCanHold(below) && fluidWritable(kind, below)
+}
+
+// fluidEntersBelow is the canBeReplacedWith answer for one fluid
+// descending into a cell holding another. LavaFluid's impl checks the
+// lava's own height — getAmount()/9 >= 0.4444 — which is a source, the
+// four strongest flow levels (block levels 0-4), and every falling
+// state (block levels 8-15); WaterFluid's checks only that the
+// arrival comes from above, which is exactly this call's direction.
+func fluidEntersBelow(kind, k2 fluidKind, l2 int) bool {
+	switch {
+	case kind == fluidWater && k2 == fluidLava:
+		return l2 <= 4 || l2 >= fluidFalling
+	case kind == fluidLava && k2 == fluidWater:
+		return true
+	}
+	return false
 }
 
 // fluidSlopeDist is vanilla's getSlopeDistance: the hop distance from

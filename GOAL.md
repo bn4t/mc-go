@@ -11659,3 +11659,31 @@ villager by ~t215, glass pig untouched at 10). Green both legs.
 Test-harness note folded in from this slice: `tick step N` still
 runs at the server's ~20tps — reads must wait the real-time span
 or they sample mid-window.
+
+## Slice — water into deep lava: measured dead code + isHole depth gate
+
+The long-deferred `LavaFluid.canBeReplacedWith` edge resolved by
+measurement rather than implementation. The bytecode is exact:
+`getAmount()/9 >= 0.4444 && incoming is WATER` — a source, the four
+strongest flow levels (block levels 0-4), and every falling state
+accept water from any direction, with no direction check at all.
+But a pool probe on the 26.2 jar shows the path never fires in
+play: lava solidifies synchronously on `neighborChanged` the moment
+any water lands beside or above it (sides + above are the contact
+set; below is not), so a deep-lava cell is crust — obsidian at a
+source, cobblestone at a flow — before any water tick can select it
+as a spread target. Spread targets are by definition water-adjacent,
+so the pre-crust always wins; the water column ends on top of the
+crust, identical cell-for-cell between mc-go and vanilla across a
+9x7 probe dump of a two-deep pool.
+
+The one place the check is still reachable is `SpreadContext.isHole`
+— the slope search asks whether the cell below a traversal cell is
+enterable, a hypothetical the crust never pre-empts. mc-go treated
+every lava cell below as a hole; vanilla accepts only the deep half
+(levels 0-4 and falling), while lava sees a water cell below as a
+hole unconditionally (`WaterFluid.canBeReplacedWith` is its
+direction==DOWN arm — lava drops into water and lands as stone).
+`fluidIsHole` now routes other-kind cells through `fluidEntersBelow`
+with exactly those two rules. TestFluidParity and
+TestFluidContactParity stay green vs both servers.
