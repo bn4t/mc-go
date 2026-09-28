@@ -10400,3 +10400,41 @@ each 600-speed tick cost ~250ms wall, so the test carries
 75-second sprint (the shared helper's ten-second game-time query
 expires mid-run: the query queues behind the sprint exactly like
 vanilla's server thread).
+
+## Slice: leaf decay tail — dropResources, getStateForPlacement, hand-placement
+
+The distance-propagation and decay pipeline was already in
+(`leafShape`/`leafDistanceTick`/`leafDecayRule`, measured off
+LeavesBlock earlier); this slice finished the two missing halves.
+
+- `LeavesBlock.randomTick` calls `dropResources` before removeBlock:
+  a decaying leaf now rolls `blocks/<leaf>` through the shared loot
+  roller (no tool context — shears/silk pools skip, leaving
+  saplings ~5%, sticks ~2%, apples ~0.5%) and spawns the item
+  entities before folding to air.
+- `LeavesBlock.getStateForPlacement` forces `persistent=true` and
+  runs `updateDistance` AT PLACE TIME: a hand-placed leaf lands
+  persistent with the distance computed off its six neighbours
+  (1 beside a log, 7 in the open) — previously the item's default
+  state went in (persistent=false, distance=7) and player-placed
+  leaves crumbled.
+- `BlockInput.place` truth re-verified for the command paths: flags
+  `2 | (strict ? 816 : 256)` — non-strict runs
+  `updateFromNeighbourShapes` on the placed state, so a /setblock'd
+  leaf DOES schedule its own distance tick (mc-go's
+  `selfCheckSurvival` leaf branch was already correct parity).
+
+Blackbox: `TestLeafDecayParity` now also pins the hand placements —
+`/give` + use_item_on on a stone lands `oak_leaves[persistent=true]`
+on both servers (distance=1 next to the log), a 16x16 /fill'd patch
+of doomed leaves drops a sapling and a stick, and hand leaves never
+decay. Harness note for future interaction tests: the spawned mc-go
+runs frozen, so the 60-tick `interactionsOpen` grace never lapses —
+use_item_on needs an explicit `player_loaded` packet first (other
+tests do the same).
+
+All 21 probes hit/hit (chain-mid distance lands miss/miss — the
+recompute cascade wrote it already past 3 by probe time on both
+legs). Unit: `leaves_test.go` — place state (persistent + distance),
+decay loot (225 decays drop a sapling), the persistent/distance<7
+decay gates.

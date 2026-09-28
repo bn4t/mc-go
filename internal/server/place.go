@@ -479,6 +479,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	blk = pistonPlaceState(blk, sess)
 	blk = observerPlaceState(blk, sess)
 	blk = s.crafterPlaceState(d, target, blk, sess)
+	blk = leafPlaceState(d, target, blk)
 	blk = blockStateComponentApply(blk, sess.heldStack())
 	s.setBlockAndBroadcast(sess.getName(), target, blk)
 	// BlockItem.place → Level.gameEvent(BLOCK_PLACE) at the placed
