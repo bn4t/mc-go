@@ -11625,3 +11625,37 @@ finds the single constant shift then pins every overlapping checkpoint
 at 1e-6 (a wrong inertia or missing flag tick aligns at no shift).
 Green both legs; TestHurtingInertiaParity, TestProjectilePowerParity,
 TestArrowStickParity stay green.
+
+## Slice — mob suffocation: isInWall eye-plane arm on LivingEntity.baseTick
+
+The other half of the in_wall arm: `playerInWall` on the survival
+path already covered session players, but `LivingEntity.baseTick`
+runs the same arm for every living entity — the only missing piece
+was the mob loop. Measured on the 26.2 jar: baseTick's isAlive block
+(ServerLevel) probes `isInWall()` — a 1e-6-tall plane centred on the
+eye position, `width*0.8` across — over the cells it overlaps; a cell
+counts when it is non-air, `isSuffocating` (the opaque full-cube
+table), and its collision shape meets the plane. Every member of
+mc-go's suffocating table collides as a full cube, so the shape
+clause is implied by the table. Each true tick lands a 1.0
+`in_wall` hit, thinned inside damageMob by the twenty-tick
+invulnerability window to one accepted hit per ~10 ticks.
+
+Implementation: `mobTickStep` calls `mobInWall` (eye-plane probe
+over `entityBBDims` half-width ×0.4, eye = feet + height×0.85) and
+runs the existing `damageMob` arm — invuln cadence, hurt broadcast,
+death/linger all reuse the shared path.
+
+`TestSuffocateParity` (new, differential vs both servers): pig +
+villager + glass-covered pig summoned in open air (vanilla /summon
+refuses colliding spots), frozen, then buried under fills; stepped
+checkpoints read `data get entity … Health` per leg. The pin is
+offset-immune — each leg's mob falls a different distance before
+the freeze lands, so it compares the 10-tick cadence via
+inter-checkpoint health deltas (villager ≈3 per 30 ticks, ≈6 per
+60) plus dead/alive parity at every checkpoint (pig dead by ~t115,
+villager by ~t215, glass pig untouched at 10). Green both legs.
+
+Test-harness note folded in from this slice: `tick step N` still
+runs at the server's ~20tps — reads must wait the real-time span
+or they sample mid-window.

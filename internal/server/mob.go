@@ -3405,6 +3405,13 @@ func (s *Server) mobTickStep() {
 		if e.invulnTicks > 0 {
 			e.invulnTicks--
 		}
+		// LivingEntity.baseTick's isAlive block opens with the
+		// suffocation arm — isInWall's eye-plane probe for a
+		// suffocating non-air cell lands a 1.0 hit every tick, thinned
+		// to the twenty-tick invulnerability window inside damageMob.
+		if s.mobInWall(e, s.dimWorld(e.Dim)) {
+			s.damageMob(e, 1, "in_wall", nil, &damageInfo{typeName: "in_wall"})
+		}
 		// LivingEntity.baseTick's hurtTime countdown.
 		if e.HurtTime > 0 {
 			e.HurtTime--
@@ -5493,6 +5500,33 @@ func (s *Server) mobEyeInWater(e *Entity, d *dimension) bool {
 	}
 	k, _, ok := fluidOf(d.w.GetBlock(eye))
 	return ok && k == fluidWater
+}
+
+// mobInWall mirrors Entity.isInWall: a 1e-6-tall plane centred on
+// the eye position, width*0.8 across, over the cells it overlaps.
+// A cell counts when it is non-air, isSuffocating (the opaque
+// full-cube table), and its collision shape meets the plane — every
+// member of the suffocating set collides as a full cube, so the
+// shape clause is implied by the table.
+func (s *Server) mobInWall(e *Entity, w *world.World) bool {
+	if w == nil {
+		return false
+	}
+	bounds := entityBBDims(e)
+	half := bounds[0] * 0.4
+	ey := int(math.Floor(e.Y + bounds[1]*0.85))
+	for bx := int(math.Floor(e.X - half)); bx <= int(math.Floor(e.X+half)); bx++ {
+		for bz := int(math.Floor(e.Z - half)); bz <= int(math.Floor(e.Z+half)); bz++ {
+			b := w.GetBlock(world.Pos{X: bx, Y: ey, Z: bz})
+			if b == world.Air {
+				continue
+			}
+			if name, ok := world.StateOwner(b); ok && suffocatingBlocks[strings.TrimPrefix(name, "minecraft:")] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // mobHasAirEffect is vanilla's MobEffectUtil.hasWaterBreathing /
