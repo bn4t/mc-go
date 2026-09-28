@@ -205,6 +205,9 @@ func (s *Server) arrowTickStep() {
 		// hit; the thrown items and hurting projectiles just despawn.
 		sticks := name == "arrow" || name == "spectral_arrow" || isTrident
 		if e.arrowStuck || e.tridentStuck {
+			// Stuck arrows still run sendChanges — the AbstractArrow
+			// quirk ships a PosRot every gate-open tick even in place.
+			s.mobSyncFlush(e)
 			if isTrident {
 				s.tridentPickupStep(e)
 			}
@@ -218,6 +221,12 @@ func (s *Server) arrowTickStep() {
 			s.fireworkTick(e)
 			continue
 		}
+		// Every projectile rides vanilla's sendChanges pipeline: move
+		// deltas at the updateInterval cadence (10 or 20 by type) plus
+		// the gated motion drift emit — hurting types bundle theirs
+		// with projectile_power. The flush runs at tick head so it
+		// reads last-tick state like vanilla's tracker pass.
+		s.mobSyncFlush(e)
 		// ShulkerBullet has no gravity — the wander lerp owns the
 		// whole velocity vector (and must run before the move).
 		if name == "shulker_bullet" {
@@ -236,7 +245,8 @@ func (s *Server) arrowTickStep() {
 		e.Z += e.MotionZ
 		// ThrowableProjectile's default gravity is 0.03 vs the
 		// arrow's 0.05; hurting projectiles and rockets fly flat
-		// (no gravity). The 0.99 air drag is shared.
+		// (no gravity). The 0.99 air drag is shared and applies even
+		// to NoGravity entities.
 		grav := arrowGravity
 		switch name {
 		case "egg", "snowball", "splash_potion", "lingering_potion", "ender_pearl":
@@ -256,20 +266,13 @@ func (s *Server) arrowTickStep() {
 			// on top of a real gravity pull.
 			grav = 0.04
 		}
-		e.MotionY -= grav
+		if !e.NoGravity {
+			e.MotionY -= grav
+		}
 		if !hurtingProjectileTypes[name] {
 			e.MotionX *= arrowAirDrag
 			e.MotionY *= arrowAirDrag
 			e.MotionZ *= arrowAirDrag
-		}
-		if hurtingProjectileTypes[name] {
-			// Hurting projectiles ride vanilla's sendChanges pipeline:
-			// move deltas at the updateInterval cadence plus the bundled
-			// drift emit (set_entity_motion + projectile_power) — not
-			// the teleport-per-tick the other types still take.
-			s.mobSyncFlush(e)
-		} else {
-			s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, e.Yaw, e.Pitch, false)
 		}
 		// Vanilla clips each target's inflated AABB against the whole
 		// tick's movement segment — a point check at the new tip tunnels

@@ -11166,9 +11166,9 @@ everything else.
   0.02, 0.1} across summon/merge windows — emit counts and window
   placement are jittery (gate-boundary alignment, range exits,
   deflections); green vs both servers.
-- Deferred: non-hurting projectiles still teleport-per-tick
-  (sendChanges conversion), liquid inertia 0.8 and dangerous-skull
-  0.73 unmodelled, onDeflection semantics unimplemented.
+- Deferred: liquid inertia 0.8 and dangerous-skull 0.73 unmodelled,
+  onDeflection semantics unimplemented. (sendChanges conversion done —
+  see the projectile-sync slice below.)
 
 ## Slice — packet: tracked_waypoint (0x8A) locator bar
 
@@ -11247,3 +11247,36 @@ everything else.
 - TestWaypointParity W7b: join gold -> TRACK vec3i 0xFFAA00; re-join
   green -> remove-side no-color TRACK + add-side 0x55FF55; black ->
   0x303030; reset and leave -> no-color TRACKs — green vs BOTH.
+
+## Slice — projectile sendChanges conversion + AbstractArrow PosRot + NoGravity
+
+- Non-hurting projectiles emitted broadcastEntityTeleport every tick
+  (wrong packet, ~20x traffic); every non-firework projectile now runs
+  mobSyncFlush = vanilla ServerEntity.sendChanges: pos/motion at the
+  updateInterval cadence (arrow/trident 20, thrown 10) plus the
+  drift-gated set_entity_motion emit.
+- sendChanges emit order (javap): the pos packet is BUILT first but
+  SENT after the motion emit — motion (or the hurting bundle) precedes
+  Pos/PosRot/teleport on the wire within one call.
+- instanceof AbstractArrow quirk: arrow/spectral_arrow/trident emit
+  PosRot on EVERY outer-gate tick unconditionally — even zero-delta —
+  the Pos/Rot selection is skipped for them entirely.
+- Tracker flush sees last-tick state: vanilla call0 (outer gate
+  tickCount%interval==0) emits before the entity has ticked, so the
+  first-call drift is 0 and only the pos packet goes out. mc-go now
+  flushes at tick head (before physics), and stuck arrows keep
+  flushing (their PosRot gates still fire).
+- NoGravity: summon SNBT was parsed for mobs and thrown items but
+  never on the arrow/spectral/trident path — now parsed; the
+  projectile tick skips gravity when set while air drag still applies
+  (vanilla same).
+- TestProjectileSyncParity: NoGravity + gravity arrows over equal
+  windows pin per-family counts — identical {pos:0 moves:2 motion:1
+  teleport:0} on both legs, PosRot-only (no move_entity_pos for an
+  arrow), zero teleports inside the sub-8-block window. TestThrownHitParity
+  vanilla leg flake noted (egg spread miss, preexisting — mc-go leg
+  green).
+- Deferred: entity.syncPosition tickCount rounding edge — the pos
+  gate (SyncCount+1)%60 vs javap tracker-tickCount%60 — for
+  non-arrow types a fresh tracker would emit a zero-delta pos at call0
+  in vanilla; unmeasured.

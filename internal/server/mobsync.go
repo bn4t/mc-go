@@ -451,13 +451,20 @@ func (s *Server) mobMoveSync(e *Entity) {
 	// answers with a zero-delta move_entity_pos.
 	pos := posChanged || e.PosDirty || (e.SyncCount+1)%60 == 0
 	deltaTooBig := dx < -32768 || dx > 32767 || dy < -32768 || dy > 32767 || dz < -32768 || dz > 32767
+	// AbstractArrow (arrow, spectral_arrow, trident) always emits
+	// PosRot on a gate-open tick — vanilla's instanceof check skips
+	// the Pos/Rot selection entirely, so even a zero-delta gate ships
+	// a PosRot. For other types PosRot needs pos && rot, Pos needs
+	// pos, Rot needs rot.
+	typeName, _ := EntityTypeName(e.Type)
+	isArrow := typeName == "arrow" || typeName == "spectral_arrow" || typeName == "trident"
 	var sentPos, sentRot bool
 	switch {
 	case deltaTooBig || e.teleportDelay > 400 || e.wasOnGround != e.Grounded:
 		e.teleportDelay = 0
 		s.broadcastEntityTeleport(nil, e.ID, e.X, e.Y, e.Z, e.Yaw, e.Pitch, e.Grounded)
 		sentPos, sentRot = true, true
-	case pos && rotChanged:
+	case (pos && rotChanged) || isArrow:
 		var b protocol.Buffer
 		b.VarInt(e.ID)
 		b.Short(int16(dx))

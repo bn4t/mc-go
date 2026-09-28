@@ -1604,20 +1604,25 @@ func (s *Server) runSummon(player string, args []string) reply {
 	// their Motion list and fly like a bow release.
 	if name == "arrow" || name == "spectral_arrow" || name == "trident" {
 		mx, my, mz := 0.0, -0.1, 0.0
+		e := &Entity{
+			Type: mustEntityType(name),
+			Dim:  sess.dimName(),
+			X:    x, Y: y, Z: z,
+		}
 		if tag != nil {
 			if mv, ok := tag.vals["Motion"]; ok && len(mv.items) == 3 {
 				mx = snbtNum(mv.items[0])
 				my = snbtNum(mv.items[1])
 				mz = snbtNum(mv.items[2])
 			}
+			// Entity.load reads NoGravity for every type — a NoGravity
+			// summon flies flat while air drag still applies.
+			if nv, ok := tag.vals["NoGravity"]; ok && (nv.num == "1b" || nv.num == "1" || nv.str == "true") {
+				e.NoGravity = true
+			}
 		}
-		e := &Entity{
-			Type: mustEntityType(name),
-			Dim:  sess.dimName(),
-			X:    x, Y: y, Z: z,
-			MotionX: mx, MotionY: my, MotionZ: mz,
-			VX: int16(mx * 8000), VY: int16(my * 8000), VZ: int16(mz * 8000),
-		}
+		e.MotionX, e.MotionY, e.MotionZ = mx, my, mz
+		e.VX, e.VY, e.VZ = int16(mx*8000), int16(my*8000), int16(mz*8000)
 		// Owner:[I;a,b,c,d] stores an EntityReference to the shooter —
 		// its kills credit that player (advancements, death messages).
 		if tag != nil {
@@ -1636,20 +1641,23 @@ func (s *Server) runSummon(player string, args []string) reply {
 	// the summon SNBT's Motion list and fly on their own gravities.
 	if summonThrownNames[name] {
 		mx, my, mz := 0.0, 0.0, 0.0
+		e := &Entity{
+			Type: mustEntityType(name),
+			Dim:  sess.dimName(),
+			X:    x, Y: y, Z: z,
+		}
 		if tag != nil {
 			if mv, ok := tag.vals["Motion"]; ok && len(mv.items) == 3 {
 				mx = snbtNum(mv.items[0])
 				my = snbtNum(mv.items[1])
 				mz = snbtNum(mv.items[2])
 			}
+			if nv, ok := tag.vals["NoGravity"]; ok && (nv.num == "1b" || nv.num == "1" || nv.str == "true") {
+				e.NoGravity = true
+			}
 		}
-		e := &Entity{
-			Type: mustEntityType(name),
-			Dim:  sess.dimName(),
-			X:    x, Y: y, Z: z,
-			MotionX: mx, MotionY: my, MotionZ: mz,
-			VX: int16(mx * 8000), VY: int16(my * 8000), VZ: int16(mz * 8000),
-		}
+		e.MotionX, e.MotionY, e.MotionZ = mx, my, mz
+		e.VX, e.VY, e.VZ = int16(mx*8000), int16(my*8000), int16(mz*8000)
 		s.entities.Spawn(e)
 		s.broadcastEntitySpawn(nil, *e)
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
