@@ -10469,3 +10469,31 @@ the trunk, and a crowded spruce (stone inside its 5x5 at y+2) pinned
 as a stage-1 sapling. Green vs both servers. Unit:
 `TestSpruceCanopyShape` sweeps 200 sampled canopies for the band
 invariant.
+
+## Slice: jungle 1x1 growth — jungle_tree_NO_VINE, and the decorator trap
+
+- `TreeGrower.JUNGLE` (decompiled): the 1x1 feature is
+  `JUNGLE_TREE_NO_VINE`, not `jungle_tree` — a lone jungle sapling
+  grows StraightTrunkPlacer {4,8,0} → 4-12 logs + the shared
+  BlobFoliagePlacer, with decorators: [] — no vines, no cocoa.
+  The vine'd `jungle_tree` (cocoa 0.2, trunk_vine, leave_vine 0.25)
+  is only reachable through biome worldgen in 26.2; the 2x2 mega gets
+  `mega_jungle_tree` (trunk_vine + leave_vine 0.25).
+- The decorator family IS implemented in `jungleDecorators`
+  (CocoaDecorator 0.2 tree-gate + 0.25/log-face on the bottom three
+  logs; TrunkVineDecorator nextInt(3)>0 per log face, single-face
+  vine states; LeaveVineDecorator 0.25/leaf-face hanging down ≤4
+  cells) and wired via `treeShape.jungleDecor` — currently no entry
+  sets it; it exists for the future mega_jungle path.
+- The differential suite caught the trap before commit: the first
+  jungle_test run pinned vine *presence* from the jungle_tree config
+  — vanilla grew zero vines, which re-derived the no_vine truth from
+  the wire rather than the config file.
+- Also fixed in-tree plumbing: trunk cells are now collected into
+  `logs` during placeTrunk (the decorators' context.logs()).
+
+Blackbox: `TestJungleParity` — three jungle at 10 spacing grown at
+random_tick_speed 600; names map (trunk zone + dirt), per-leg trunk
+4-12, the guaranteed blob-canopy leaf beside the trunk top, and the
+vine ring scan pinned to ZERO on both legs. NOTE: z=-56 was outside
+the sim-distance-3 tick radius — scenario rows must stay within ±48.

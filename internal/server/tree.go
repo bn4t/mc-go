@@ -35,6 +35,7 @@ type treeShape struct {
 	fancyChance              float64
 	minLimit, minUpper       int // two_layers_feature_size: y < limit → 0, else upper
 	canopy                   canopyKind
+	jungleDecor              bool // the {cocoa, trunk_vine, leave_vine} decorator set
 }
 
 // treeShapes maps each implemented sapling to its feature config.
@@ -46,9 +47,10 @@ type treeShape struct {
 // fails like vanilla failing a space check, so under low ceilings the
 // absence is invisible and in the open it is the known gap.
 var treeShapes = map[string]treeShape{
-	"oak_sapling":    {"oak_log", "oak_leaves", 4, 2, 0, 0.1, 1, 1, canopyBlob},
-	"birch_sapling":  {"birch_log", "birch_leaves", 5, 2, 0, 0, 1, 1, canopyBlob},
-	"spruce_sapling": {"spruce_log", "spruce_leaves", 5, 2, 1, 0, 2, 2, canopySpruce},
+	"oak_sapling":    {"oak_log", "oak_leaves", 4, 2, 0, 0.1, 1, 1, canopyBlob, false},
+	"birch_sapling":  {"birch_log", "birch_leaves", 5, 2, 0, 0, 1, 1, canopyBlob, false},
+	"spruce_sapling": {"spruce_log", "spruce_leaves", 5, 2, 1, 0, 2, 2, canopySpruce, false},
+	"jungle_sapling": {"jungle_log", "jungle_leaves", 4, 8, 0, 0, 1, 1, canopyBlob, false},
 }
 
 // saplingRule — SaplingBlock.randomTick: getMaxLocalRawBrightness of
@@ -174,12 +176,15 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 
 	// placeTrunk: each trunk cell only writes when validTreePos — a
 	// log (free for space but not a placement target) truncates the
-	// visible column without failing the tree.
+	// visible column without failing the tree. The written cells are
+	// collected — the decorators' context.logs() reads them.
 	logState, _ := world.BlockStateOf(shape.log, map[string]string{"axis": "y"})
+	var logs []world.Pos
 	for y := 0; y < treeHeight; y++ {
 		p := world.Pos{X: pos.X, Y: pos.Y + y, Z: pos.Z}
 		if s.treeCanOccupy(d, p) {
 			s.setNaturalBlock(d, p, logState)
+			logs = append(logs, p)
 		}
 	}
 
@@ -235,6 +240,15 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 		}
 	}
 
+	// Tree decorators run after foliage placement and before
+	// updateLeaves. The set exists for jungle_tree-shaped features —
+	// vanilla's own 1x1 jungle sapling grows jungle_tree_no_vine
+	// (decorators: []) so no shape entry currently sets the flag; it
+	// is wired for the 2x2 mega_jungle path (trunk_vine + leave_vine).
+	if shape.jungleDecor {
+		s.jungleDecorators(d, logs, leaves)
+	}
+
 	// updateLeaves: BFS from every log inside the bounding box assigns
 	// DISTANCE=min(neighbour+1, 7) on the leaf cells at once — the same
 	// result the leaf distance ticks would converge to over ticks.
@@ -272,6 +286,95 @@ func (s *Server) spruceCanopy(d *dimension, top world.Pos, treeHeight int, place
 			maxR = min(maxR+1, leafR)
 		} else {
 			cur++
+		}
+	}
+}
+
+// vineDir is one horizontal neighbor cell and the vine face written
+// there so the vine attaches back toward the source cell.
+type vineDir struct {
+	dx, dz int
+	face   string
+}
+
+// trunkVineDirs — the four directions both TrunkVineDecorator and
+// LeaveVineDecorator walk (west, east, north, south in code order).
+var trunkVineDirs = [4]vineDir{
+	{-1, 0, "east"}, {1, 0, "west"}, {0, -1, "south"}, {0, 1, "north"},
+}
+
+// cocoaDirs — Plane.HORIZONTAL order (north, south, west, east): the
+// pod lands on the opposite side of the direction and faces back.
+var cocoaDirs = [4]vineDir{
+	{0, -1, "north"}, {0, 1, "south"}, {-1, 0, "west"}, {1, 0, "east"},
+}
+
+// jungleDecorators — the jungle decorator family: CocoaDecorator
+// (0.2 tree gate + 0.25 per bottom-log face — jungle_tree only,
+// which no sapling reaches in 26.2), TrunkVineDecorator (nextInt(3)>0
+// per log face), LeaveVineDecorator (0.25 per leaf face, hanging down
+// through air up to 4). The 2x2 mega_jungle_tree feature uses the two
+// vine decorators; jungle_tree adds cocoa.
+func (s *Server) jungleDecorators(d *dimension, logs, leaves []world.Pos) {
+	isAir := func(p world.Pos) bool {
+		n, _ := world.StateOwner(d.w.GetBlock(p))
+		return n == "minecraft:air" || n == "minecraft:cave_air" || n == "minecraft:void_air"
+	}
+	placeVine := func(p world.Pos, face string) {
+		if v, ok := world.BlockStateOf("vine", map[string]string{face: "true"}); ok {
+			s.setNaturalBlock(d, p, v)
+		}
+	}
+
+	// CocoaDecorator: one probability gate for the whole tree, then
+	// every log within three of the base rolls 0.25 per direction.
+	if s.rng.nextDouble() < 0.2 && len(logs) > 0 {
+		treeY := logs[0].Y
+		for _, lp := range logs {
+			if lp.Y-treeY > 2 {
+				continue
+			}
+			for _, cd := range cocoaDirs {
+				if s.rng.nextDouble() <= 0.25 {
+					cp := world.Pos{X: lp.X - cd.dx, Y: lp.Y, Z: lp.Z - cd.dz}
+					if isAir(cp) {
+						if c, ok := world.BlockStateOf("cocoa", map[string]string{
+							"age": strconv.Itoa(s.rng.intn(3)), "facing": cd.face}); ok {
+							s.setNaturalBlock(d, cp, c)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// TrunkVineDecorator: each direction rolls nextInt(3) > 0.
+	for _, lp := range logs {
+		for _, vd := range trunkVineDirs {
+			if s.rng.intn(3) > 0 {
+				vp := world.Pos{X: lp.X + vd.dx, Y: lp.Y, Z: lp.Z + vd.dz}
+				if isAir(vp) {
+					placeVine(vp, vd.face)
+				}
+			}
+		}
+	}
+
+	// LeaveVineDecorator: 0.25 per leaf per direction, then the vine
+	// hangs downward through air up to four more cells.
+	for _, lf := range leaves {
+		for _, vd := range trunkVineDirs {
+			if s.rng.nextDouble() < 0.25 {
+				vp := world.Pos{X: lf.X + vd.dx, Y: lf.Y, Z: lf.Z + vd.dz}
+				if isAir(vp) {
+					placeVine(vp, vd.face)
+					down := world.Pos{X: vp.X, Y: vp.Y - 1, Z: vp.Z}
+					for i := 0; i < 4 && isAir(down); i++ {
+						placeVine(down, vd.face)
+						down.Y--
+					}
+				}
+			}
 		}
 	}
 }
