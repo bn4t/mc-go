@@ -115,6 +115,9 @@ func (spec *containerSpec) slotMax(slot int, it ItemStack) int32 {
 	if spec.menu == menuBeacon && slot == beaconPayment {
 		return 1
 	}
+	if spec.menu == menuEnchantment && slot == enchantItem {
+		return 1 // EnchantmentMenu$2.getMaxStackSize
+	}
 	return maxStackOfID(it.ID)
 }
 
@@ -144,9 +147,10 @@ func (spec *containerSpec) accepts(slot int, it ItemStack) bool {
 	case spec.menu == menuEnchantment && slot == enchantLapis:
 		return itemNamed(it, "lapis_lazuli")
 	case spec.menu == menuEnchantment && slot == enchantItem:
-		// The enchant slot takes only stacks with an enchantable
-		// component (vanilla's mayPlace reads the same field).
-		return enchantableOf(it) > 0
+		// EnchantmentMenu$2 overrides only getMaxStackSize — any
+		// stack enters the item slot; non-enchantables just roll
+		// empty offers.
+		return true
 	case spec.menu == menuLectern:
 		// LecternBlockEntity's bookAccess.canPlaceItem is a flat
 		// false: the menu slot is display-only, books land via the
@@ -282,7 +286,10 @@ var containerSpecs = map[string]*containerSpec{
 	},
 	"enchanting_table": {
 		menu: menuEnchantment, slots: 2, title: "container.enchant",
+		// inputs is unused — dests special-cases this menu's
+		// lapis→slot1 / single-item→slot0 quick-move split.
 		inputs: []int{enchantItem, enchantLapis},
+		reloc:  true,
 	},
 	"grindstone": {
 		menu: menuGrindstone, slots: 3, title: "container.grindstone_title",
@@ -1078,7 +1085,21 @@ func quickMoveIntoPlayer(sess *Session, c *containerData, moving *ItemStack, tou
 // action menus a stack matching nothing relocates across the player
 // sections — quickMoveStack's inv→hotbar / hotbar→inv ending.
 func quickMoveIntoContainer(sess *Session, c *containerData, moving *ItemStack, touched *[]int, slot int) {
-	dests := c.spec.dests(*moving)
+	var dests []int
+	if c.spec.menu == menuEnchantment {
+		// EnchantmentMenu.quickMoveStack: lapis always targets slot 1;
+		// any other stack moves a single item into slot 0 but only
+		// while that slot is empty (its mayPlace is the default true);
+		// otherwise the stack relocates across the player sections.
+		switch {
+		case itemNamed(*moving, "lapis_lazuli"):
+			dests = []int{enchantLapis}
+		case sess.menuStack(enchantItem).Empty():
+			dests = []int{enchantItem}
+		}
+	} else {
+		dests = c.spec.dests(*moving)
+	}
 	if len(dests) == 0 && c.spec.reloc {
 		base := c.spec.slots
 		lo, hi := base+27, base+36

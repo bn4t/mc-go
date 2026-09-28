@@ -11806,3 +11806,54 @@ Still open: sheep shear sound (Sheep is a 0x74 caller — mc-go emits
 nothing on shear), mooshroom shear/stew, dye use, goat horn
 instrument, allay sounds, bogged shear, breeze whirl/charge/jump/land.
 
+
+## Slice — enchanting table: offer-roll parity pinned on a shared seed
+
+javap end-to-end of EnchantmentMenu + EnchantmentHelper, then a
+differential pin that eliminates the PRNG's only uncontrolled input:
+
+  - The offer pipeline is java.util.Random exactly: a full LCG port
+    (javarand.go — setSeed XOR, 48-bit state, power-of-2 fast path +
+    rejection sampling, nextFloat from next(24)) verified bit-exact
+    against a real JVM across five seeds before wiring. Menu rolls
+    re-seed the shared menu random per slot (seed, then seed+slot)
+    and the book case sheds one extra pick on the same tail stream.
+  - The candidate list iterates the in_enchanting_table tag's
+    DECLARED order (non_treasure resolution order, generated as
+    InEnchantingTableOrder) — vanilla's HolderSet stream walks tag
+    order, not registry order, and the weighted pick's index lands
+    differently under the wrong order. That ordering bug was the
+    only divergence the pin caught after the LCG was exact.
+  - BOOKSHELF_OFFSETS is betweenClosedStream(-2,0,-2, 2,1,2) — all
+    50 cells of the 5x2x5 volume, not the 32-cell ring — and the
+    transmitter check offsets (X/2, Y, Z/2) with the Y component
+    NOT halved. Both were corrected.
+  - EnchantmentMenu$2 caps the item slot at stack 1 but takes ANY
+    item (mayPlace not overridden); $3 takes lapis only. Click
+    deductions are the button tier i+1 (not the displayed cost) for
+    both xp and lapis, the negative-xp clamp zeroes progress+total,
+    and the post-enchant emit is a positional sound at the table
+    with the rolled rand*0.1+0.9 pitch.
+  - quickMoveStack: lapis always targets slot 1; any other stack
+    moves a single item into slot 0 only while it is empty;
+    otherwise the stack relocates across the player sections.
+  - XpSeed: /data can't write player NBT (commands.data.entity.invalid
+    on both servers), so offers can't be seed-pinned that way — but a
+    fresh player's ctor seed is 0 on both implementations, and
+    readAdditionalSaveData rerolls 0 -> rand on load. Fresh conns
+    therefore share seed 0, making every roll reproducible.
+
+Pinned: TestEnchantParity — fresh player per leg, diamond shovel +
+lapis: all ten container properties (three costs, seed, three clue
+enchant ids, three clue levels) match EXACTLY across vanilla and
+mc-go, plus the enchanted result stack after button 0.
+
+Grindstone test fix (same commit): orb payout probes read XpTotal=0
+on both legs — orbs spawn inside the grindstone's own collision
+shape and can never fly out (verified by Pos query: exact block
+center, both servers). They pay only on playerTouch, so the fixture
+now tp's the player onto the block; payouts land in range on both
+legs.
+
+Deferred: none for this slice; slot0 mayPlace / XpSeed reroll /
+quick-move split / bookshelf count are all pinned above.

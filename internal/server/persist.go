@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"os"
 	"strings"
 	"sync"
@@ -382,6 +383,10 @@ func (s *Server) applySavedPlayer(sess *Session) {
 	sess.xpLevel = p.XPLevel
 	sess.xpProgress = p.XPProgress
 	sess.enchantSeed = p.XPSeed
+	if sess.enchantSeed == 0 {
+		// Player.readAdditionalSaveData rerolls a zero XpSeed.
+		sess.enchantSeed = int32(rand.Uint32())
+	}
 	sess.health = p.Health
 	sess.food = p.Food
 	sess.saturation = p.Saturation

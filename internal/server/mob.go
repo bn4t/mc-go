@@ -6468,11 +6468,11 @@ func (s *Server) mobDefaultEquipReason(e *Entity, reason spawnKind) {
 		return 5 + rand.Intn(1+int(special*17))
 	}
 	if st := e.Equips[equipMainHand]; !st.Empty() && rand.Float64() < 0.25*special {
-		e.Equips[equipMainHand] = enchantApply(st, selectEnchantment(rand.New(rand.NewSource(rand.Int63())), st, cost()))
+		e.Equips[equipMainHand] = enchantApply(st, selectEnchantment(newJavaRand(rand.Int63()), st, cost()))
 	}
 	for _, slot := range []int32{equipHelmet, equipChest, equipLegs, equipBoots} {
 		if st := e.Equips[slot]; !st.Empty() && rand.Float64() < 0.5*special {
-			e.Equips[slot] = enchantApply(st, selectEnchantment(rand.New(rand.NewSource(rand.Int63())), st, cost()))
+			e.Equips[slot] = enchantApply(st, selectEnchantment(newJavaRand(rand.Int63()), st, cost()))
 		}
 	}
 	// Pillager.enchantSpawnedWeapon adds a 1/300 piercing-1 crossbow.

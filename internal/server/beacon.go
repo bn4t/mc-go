@@ -310,10 +310,16 @@ func (s *Server) fireConstructBeaconNear(d *dimension, pos world.Pos, levels int
 }
 
 // playSoundIn broadcasts a positioned block sound (SoundSource.BLOCKS)
-// to every play session in the dimension. The wire sound_event value
-// is the registry protocol id + 1 — the holder encoding reserves 0 for
-// an inline event — same convention as broadcastAttackSound.
+// to every play session in the dimension at pitch 1. playSoundInPitch
+// is the same emit with an explicit pitch (the UI-take sounds roll
+// rand*0.1+0.9). The wire sound_event value is the registry protocol
+// id + 1 — the holder encoding reserves 0 for an inline event — same
+// convention as broadcastAttackSound.
 func (s *Server) playSoundIn(dim string, pos world.Pos, soundID int32) {
+	s.playSoundInPitch(dim, pos, soundID, 1)
+}
+
+func (s *Server) playSoundInPitch(dim string, pos world.Pos, soundID int32, pitch float32) {
 	var b protocol.Buffer
 	b.VarInt(soundID + 1)
 	b.VarInt(4) // SoundSource.BLOCKS
@@ -321,7 +327,7 @@ func (s *Server) playSoundIn(dim string, pos world.Pos, soundID int32) {
 	b.Int(int32(pos.Y * 8))
 	b.Int(int32(pos.Z * 8))
 	b.Float(1)
-	b.Float(1)
+	b.Float(pitch)
 	b.Long(0)
 	body := b.Bytes()
 	s.sessions.Range(func(_, v any) bool {

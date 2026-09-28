@@ -41,16 +41,15 @@ type enchantMenuState struct {
 	sentAny bool
 }
 
-// bookshelfOffsets mirrors vanilla's BOOKSHELF_OFFSETS: the
-// max(|x|,|z|)==2 ring over y in {0,1} (32 candidates).
+// bookshelfOffsets mirrors vanilla's BOOKSHELF_OFFSETS:
+// BlockPos.betweenClosedStream(-2,0,-2, 2,1,2) — every cell of the
+// 5x2x5 volume (50 candidates, interior cells included).
 func bookshelfOffsets() []world.Pos {
 	var out []world.Pos
-	for y := 0; y <= 1; y++ {
-		for x := -2; x <= 2; x++ {
+	for x := -2; x <= 2; x++ {
+		for y := 0; y <= 1; y++ {
 			for z := -2; z <= 2; z++ {
-				if x == -2 || x == 2 || z == -2 || z == 2 {
-					out = append(out, world.Pos{X: x, Y: y, Z: z})
-				}
+				out = append(out, world.Pos{X: x, Y: y, Z: z})
 			}
 		}
 	}
@@ -76,7 +75,9 @@ func enchantPower(d *dimension, pos world.Pos) int {
 		if !ok || !providers[name] {
 			continue
 		}
-		half := world.Pos{X: pos.X + off.X/2, Y: pos.Y + off.Y/2, Z: pos.Z + off.Z/2}
+		// vanilla offsets the transmitter check by (off.X/2, off.Y,
+		// off.Z/2) — the Y component is NOT halved.
+		half := world.Pos{X: pos.X + off.X/2, Y: pos.Y + off.Y, Z: pos.Z + off.Z/2}
 		mid, ok := world.StateOwner(d.w.GetBlock(half))
 		if ok && transmitters[mid] {
 			power++
@@ -97,14 +98,14 @@ func enchantableOf(it ItemStack) int {
 
 // enchantCost mirrors EnchantmentHelper.getEnchantmentCost: the level
 // an option asks for.
-func enchantCost(r *rand.Rand, slot, power, enchantable int) int {
+func enchantCost(r *javaRand, slot, power, enchantable int) int {
 	if enchantable <= 0 {
 		return 0
 	}
 	if power > 15 {
 		power = 15
 	}
-	j := r.Intn(8) + 1 + (power >> 1) + r.Intn(power+1)
+	j := int(r.nextIntN(8)) + 1 + (power >> 1) + int(r.nextIntN(int32(power+1)))
 	switch slot {
 	case 0:
 		return max(j/3, 1)
@@ -129,21 +130,10 @@ func enchantMaxCost(e data.EnchantmentMeta, level int) int {
 	return e.MaxBase + e.MaxPerLvl*(level-1)
 }
 
-// inTableEnchants lists the in_enchanting_table members in enchantment
-// registry order once — the candidate stream vanilla iterates.
-var inTableEnchants = func() []string {
-	var names []string
-	for n, e := range data.Enchantments {
-		if e.InTable {
-			names = append(names, n)
-		}
-	}
-	sort.Slice(names, func(i, j int) bool {
-		return registryEntryID("minecraft:enchantment", "minecraft:"+names[i]) <
-			registryEntryID("minecraft:enchantment", "minecraft:"+names[j])
-	})
-	return names
-}()
+// inTableEnchants is the in_enchanting_table member list in DECLARED
+// tag order — the iteration order vanilla's HolderSet stream walks
+// (and the candidate order behind every weighted pick).
+var inTableEnchants = data.InEnchantingTableOrder
 
 // enchantsCompatible mirrors Enchantment.areCompatible: different
 // enchantments, neither contained in the other's exclusive set.
@@ -196,7 +186,7 @@ func enchantAvailable(level int, itemName string) []enchantInstance {
 }
 
 // enchantPick is WeightedRandom.getRandomItem over the candidates.
-func enchantPick(r *rand.Rand, cands []enchantInstance) (enchantInstance, bool) {
+func enchantPick(r *javaRand, cands []enchantInstance) (enchantInstance, bool) {
 	total := 0
 	for _, c := range cands {
 		total += data.Enchantments[c.name].Weight
@@ -204,9 +194,9 @@ func enchantPick(r *rand.Rand, cands []enchantInstance) (enchantInstance, bool) 
 	if total <= 0 {
 		return enchantInstance{}, false
 	}
-	roll := r.Intn(total)
+	roll := r.nextIntN(int32(total))
 	for _, c := range cands {
-		roll -= data.Enchantments[c.name].Weight
+		roll -= int32(data.Enchantments[c.name].Weight)
 		if roll < 0 {
 			return c, true
 		}
@@ -218,15 +208,15 @@ func enchantPick(r *rand.Rand, cands []enchantInstance) (enchantInstance, bool) 
 // level is bumped by the item's enchantability and jittered ±15%, the
 // candidate pool is computed once, then weighted picks repeat while a
 // halving coin keeps landing.
-func selectEnchantment(r *rand.Rand, it ItemStack, level int) []enchantInstance {
+func selectEnchantment(r *javaRand, it ItemStack, level int) []enchantInstance {
 	enchVal := enchantableOf(it)
 	if enchVal <= 0 {
 		return nil
 	}
 	name, _ := itemNameOf(it.ID)
-	e4 := enchVal/4 + 1
-	level += 1 + r.Intn(e4) + r.Intn(e4)
-	f := (r.Float32() + r.Float32() - 1) * 0.15
+	e4 := int32(enchVal)/4 + 1
+	level += 1 + int(r.nextIntN(e4)) + int(r.nextIntN(e4))
+	f := (r.nextFloat() + r.nextFloat() - 1) * 0.15
 	level = max(1, int(float64(float32(level)*(1+f)+0.5))) // Math.round
 	cands := enchantAvailable(level, name)
 	var out []enchantInstance
@@ -236,7 +226,7 @@ func selectEnchantment(r *rand.Rand, it ItemStack, level int) []enchantInstance 
 	if inst, ok := enchantPick(r, cands); ok {
 		out = append(out, inst)
 	}
-	for r.Intn(50) <= level {
+	for r.nextIntN(50) <= int32(level) {
 		if len(cands) == 0 {
 			break
 		}
@@ -262,11 +252,11 @@ func selectEnchantment(r *rand.Rand, it ItemStack, level int) []enchantInstance 
 // enchantOfferList mirrors EnchantmentMenu.getEnchantmentList: a fresh
 // seed of playerSeed+slot drives the selection, and a book sheds one
 // random pick when it rolled more than one.
-func (m *enchantMenuState) enchantOfferList(it ItemStack, slot int, cost int) ([]enchantInstance, *rand.Rand) {
-	r := rand.New(rand.NewSource(int64(m.seed) + int64(slot)))
+func (m *enchantMenuState) enchantOfferList(it ItemStack, slot int, cost int) ([]enchantInstance, *javaRand) {
+	r := newJavaRand(int64(m.seed) + int64(slot))
 	list := selectEnchantment(r, it, cost)
 	if name, _ := itemNameOf(it.ID); name == "book" && len(list) > 1 {
-		i := r.Intn(len(list))
+		i := r.nextIntN(int32(len(list)))
 		list = append(list[:i], list[i+1:]...)
 	}
 	return list, r
@@ -328,7 +318,7 @@ func (s *Server) enchantSlotsChanged(sess *Session, w *openWindow) {
 	m := w.ench
 	item := sess.menuStack(enchantItem)
 	power := enchantPower(w.dim, w.pos)
-	r := rand.New(rand.NewSource(int64(m.seed)))
+	r := newJavaRand(int64(m.seed))
 	var costs, clues, levels [3]int32
 	for i := 0; i < 3; i++ {
 		costs[i] = int32(enchantCost(r, i, power, enchantableOf(item)))
@@ -346,7 +336,7 @@ func (s *Server) enchantSlotsChanged(sess *Session, w *openWindow) {
 		if len(list) == 0 {
 			continue
 		}
-		pick := list[rr.Intn(len(list))]
+		pick := list[rr.nextIntN(int32(len(list)))]
 		clues[i] = registryEntryID("minecraft:enchantment", "minecraft:"+pick.name)
 		levels[i] = int32(pick.level)
 	}
@@ -397,12 +387,15 @@ func (s *Server) enchantButton(sess *Session, w *openWindow, btn int32) {
 	if len(list) == 0 {
 		return
 	}
-	// onEnchantmentPerformed: deduct i+1 levels, reroll the seed.
+	// onEnchantmentPerformed: deduct i+1 levels; a negative clamp also
+	// zeroes progress and total, then reroll the seed.
 	sess.xpLevel -= int32(cost)
 	if sess.xpLevel < 0 {
 		sess.xpLevel = 0
+		sess.xpProgress = 0
+		sess.xpTotal = 0
 	}
-	sess.enchantSeed = rand.Int31()
+	sess.enchantSeed = int32(rand.Uint32())
 	m.seed = sess.enchantSeed
 	out := enchantApply(item, list)
 	sess.setMenuStack(enchantItem, out)
@@ -418,7 +411,9 @@ func (s *Server) enchantButton(sess *Session, w *openWindow, btn int32) {
 	s.sendSetExperience(sess, sess.xpProgress, sess.xpLevel, sess.xpTotal)
 	s.syncContainerMenuSlots(sess, w, []int{enchantItem, enchantLapis})
 	s.enchantSlotsChanged(sess, w)
+	// level.playSound(null, tablePos, ENCHANTMENT_TABLE_USE, BLOCKS,
+	// 1, rand*0.1+0.9) — a positional sound at the table.
 	if id, ok := SoundEventID("block.enchantment_table.use"); ok {
-		s.playSoundIn(w.dim.name, w.pos, id)
+		s.playSoundInPitch(w.dim.name, w.pos, id, rand.Float32()*0.1+0.9)
 	}
 }

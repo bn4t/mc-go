@@ -11,14 +11,25 @@ import (
 // clues), inserting an enchantable item plus lapis rolls the three
 // offers, a button click enchants the item (book transmutes to
 // enchanted_book), consumes i+1 lapis and levels, re-rolls the seed,
-// and fires enchanted_item (the Enchanter announce). Offer VALUES are
-// per-player-seeded, so the compare covers shapes and bookkeeping, not
-// the rolled enchantment ids.
+// and fires enchanted_item (the Enchanter announce).
+//
+// Offer values are per-player-seeded — and a fresh player's XpSeed is
+// 0 on both servers, so for the same item+lapis+bookshelf setup the
+// rolls must come out IDENTICAL: costs, clue ids and clue levels all
+// compare exactly across legs, as does the enchanted result (the
+// offer roll is a java.util.Random LCG chain driven by seed+slot).
 func TestEnchantParity(t *testing.T) {
 	tg := requireBlackboxFiles(t, nil, map[string]string{
 		"ops.json": opsJSONFor("EnchV", "EnchM"),
 	}, nil)
 	defer tg.cleanup()
+
+	type obs struct {
+		offers  map[int16]int16 // all ten props after insert
+		slot0   string          // enchanted result
+		xpLevel int32
+	}
+	perLeg := map[string]obs{}
 
 	run := func(addr, name string) {
 		d := newClickDriverOn(t, addr, name, "minecraft:enchanting_table", 13, [][2]string{
@@ -74,6 +85,7 @@ func TestEnchantParity(t *testing.T) {
 			// fail the level check anyway, but flag it as off-script.
 			t.Fatalf("%s: cost[0]=%d implausible for power 0", name, cost)
 		}
+		perLeg[name+"offers"] = obs{offers: d.props}
 
 		// Survival so the click consumes lapis — in creative vanilla's
 		// ItemStack.consume respects infinite materials and the stack
@@ -94,7 +106,8 @@ func TestEnchantParity(t *testing.T) {
 		d.button("enchant", 0)
 		// The book is now an enchanted_book carrying stored_enchantments
 		// ([se<enchid>:<lv>]); which enchantment is seed-dependent, so
-		// assert the item id + the se marker rather than the exact roll.
+		// assert the item id + the se marker per leg, then compare the
+		// payload across legs below.
 		got := d.snap.menu[0]
 		if !strings.HasPrefix(got, "1274#1[se") || !strings.HasSuffix(got, "]") {
 			t.Fatalf("%s: slot0=%s want enchanted_book 1274#1[se...]", name, got)
@@ -119,8 +132,24 @@ func TestEnchantParity(t *testing.T) {
 		if d.sndPkts == 0 {
 			t.Fatalf("%s: no table-use sound packet", name)
 		}
+		perLeg[name+"result"] = obs{slot0: d.snap.menu[0], xpLevel: d.xpLevel}
 	}
 
 	run(tg.vanilla, "EnchV")
 	run(tg.mcgo, "EnchM")
+
+	// Same fresh seed (0), same item, same power → identical rolls:
+	// all ten offer props match exactly across the two servers.
+	vo, mo := perLeg["EnchVoffers"], perLeg["EnchMoffers"]
+	for i := int16(0); i < 10; i++ {
+		if vo.offers[i] != mo.offers[i] {
+			t.Errorf("offer prop %d: vanilla=%d mc-go=%d", i, vo.offers[i], mo.offers[i])
+		}
+	}
+	// The enchanted result carries the same stored_enchantments on
+	// both legs — the rolled list is seed-deterministic.
+	vr, mr := perLeg["EnchVresult"], perLeg["EnchMresult"]
+	if vr.slot0 != mr.slot0 {
+		t.Errorf("enchanted result: vanilla=%s mc-go=%s", vr.slot0, mr.slot0)
+	}
 }

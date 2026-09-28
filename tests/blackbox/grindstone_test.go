@@ -82,6 +82,12 @@ func TestGrindstoneParity(t *testing.T) {
 		}, nil)
 		ev := map[string]string{}
 		xps := map[string]float64{}
+		// Grindstone orbs spawn at the block's center — inside the
+		// block's own collision shape — and on both servers they can
+		// never move out; they only pay when a player touches them.
+		// Stand on the block so each take's orbs pay on spawn.
+		sendCommand(t, d.pw, "tp @s ~2.5 ~0 ~-1.5")
+		time.Sleep(300 * time.Millisecond)
 		step := func(tag string) {
 			d.fold()
 			ev[tag] = fmt.Sprintf("menu=%v|car=%q|grind=%d", d.snap.menu, d.snap.carried, d.grindSounds)

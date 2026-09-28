@@ -215,6 +215,15 @@ var Enchantments = map[string]EnchantmentMeta{
 	}
 	b.WriteString("}\n\n")
 
+	// The in_enchanting_table members in DECLARED tag order — the
+	// iteration order vanilla's HolderSet stream (and therefore the
+	// candidate list behind every weighted pick) walks.
+	b.WriteString("// InEnchantingTableOrder lists the in_enchanting_table members\n// in declared tag order (non_treasure resolution order) — the\n// iteration order vanilla's candidate stream walks.\nvar InEnchantingTableOrder = []string{\n")
+	for _, n := range inTableList {
+		fmt.Fprintf(&b, "\t%q,\n", n)
+	}
+	b.WriteString("}\n\n")
+
 	b.WriteString("// ExclusiveSets resolves one exclusive_set tag to its member\n// enchantments (compat is symmetric through either side's set).\nvar ExclusiveSets = map[string][]string{\n")
 	var setNames []string
 	for k := range sets {
