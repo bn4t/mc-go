@@ -11973,3 +11973,52 @@ drift, well inside the 0.5 band; a full-gravity fall would rest at
 exact-match.
 
 Deferred: none for this slice.
+
+## Slice — turtle egg trample (TurtleEggBlock.fallOn/stepOn)
+
+TurtleEggBlock's two break arms measured off 26.2 bytecode:
+
+- fallOn rolls destroyEgg(3) — 1/3 per landing — for any LivingEntity
+  that lands, EXCEPT the Zombie class family (instanceof Zombie:
+  zombie, husk, drowned, zombie_villager, zombified_piglin — the
+  subclass check rides the type table). No distance floor: a 0.04
+  summon-rest drop still rolls.
+- stepOn rolls destroyEgg(100) — 1% per grounded tick — on the
+  getOnPosLegacy support cell (floor(y-0.2)), every tick the entity
+  is grounded, UNLESS isSteppingCarefully (sneaking).
+- canDestroyEgg gates both: turtles and bats are always exempt, and
+  every non-player LivingEntity additionally needs mob_griefing.
+- Each accepted break plays TURTLE_EGG_BREAK at BLOCKS 0.7 /
+  0.9+r*0.2, then eggs>1 rewrites eggs-1 (vanilla flag 2 — clients
+  only, no neighbour updates) with BLOCK_DESTROY + levelEvent 2001 on
+  the pre-decrement state; eggs==1 destroyBlock(false)s the cell.
+
+mc-go: internal/server/turtleegg.go carries the mechanics;
+mobFallDamage gained the zombie-family-exempt fallOn arm next to
+farmland's (both dispatch before the fall-immunity early-return, like
+checkFallDamage's fallOn-then-causeFallDamage order); mobGrounded's
+grounded tail rolls the stepOn arm on floor(y-0.2); the player arms
+sit in handleMove's onGround fallDistance block (fallOn) and the
+per-tick player pass (stepOn gated on !sneaking). collisionTopOf
+learned the egg shapes (0.75 eggs==1, 0.4375 eggs>=2) — without it
+landings clipped like farmland's did.
+
+Test-design discovery worth keeping: a remote player whose scripted
+client jitters +-Y while standing on eggs produces micro-landings —
+every downward packet accumulates fallDistance and the next
+onGround packet rolls fallOn (sneak does not exempt it). Horizontal-
+only jitter exercises stepOn with no fallOn because fallDistance
+only accumulates on airborne downward deltas. That is how the sneak
+leg isolates cleanly.
+
+Pinned: TestTurtleEggTrampleParity — A sneaked-player x16 falls
+(fallOn), B penned zombie stand (stepOn; zombie is fallOn-exempt so
+the attribution is clean), C penned turtle (canDestroyEgg exempt),
+D sneaked jitter-stand (isSteppingCarefully exempt), E penned zombie
+under mob_griefing=false (rule gate). Vanilla 0/0/4/4/4 + sound+2001,
+mc-go 0/1/4/4/4 + sound+2001 — green.
+
+Deferred: vanilla's eggs-1 write is flag 2 (no neighbour updates);
+mc-go's setNaturalBlock sends neighbour updates — a wire-order nit
+only, same end state. turtle_egg's randomTick hatch arm is separate
+(already sliced in c29ea69).

@@ -175,6 +175,14 @@ func collisionTopOf(blk world.Block) float64 {
 		return 0.9375
 	case "soul_sand":
 		return 0.875
+	case "turtle_egg":
+		// SHAPE_SINGLE is box(3,0,7, 12,12,14)/16 = 0.75 tall;
+		// SHAPE_MULTIPLE (eggs 2-4) is column(14,7,12) = box
+		// (1,0,2, 15,7,14)/16 = 0.4375 tall.
+		if e, _ := world.StateProperty(blk, "eggs"); e == "1" {
+			return 0.75
+		}
+		return 0.4375
 	}
 	if strings.HasSuffix(strings.TrimPrefix(name, "minecraft:"), "_bed") {
 		return 0.5625

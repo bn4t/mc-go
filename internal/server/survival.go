@@ -1371,7 +1371,7 @@ func (s *Server) playerFluidTickStep() {
 		if d == nil {
 			return true
 		}
-		x, y, z, _, _, _ := sess.Pos()
+		x, y, z, _, _, onGround := sess.Pos()
 		// The player entity's tickCount — vanilla increments it in
 		// Entity.baseTick ahead of the living pass below.
 		sess.entityTicks++
@@ -1469,6 +1469,20 @@ func (s *Server) playerFluidTickStep() {
 		// The invulnerability window paces the hits; each accepted move
 		// packet scans once more on its own.
 		s.playerInsideBlocks(sess)
+		// applyEffectsFromBlocks' stepOn arm: the support block's
+		// stepOn runs every grounded tick on the getOnPosLegacy cell
+		// (0.2 below the feet) — TurtleEggBlock.stepOn rolls
+		// nextInt(100) == 0 unless the player is stepping carefully.
+		if d != nil && onGround && !sess.sneaking {
+			onPos := world.Pos{
+				X: int(math.Floor(x)),
+				Y: int(math.Floor(y - 0.2)),
+				Z: int(math.Floor(z)),
+			}
+			if onName, _ := blockNameAt(d, onPos); onName == "turtle_egg" {
+				s.turtleEggDestroy(d, onPos, nil, sess, 100)
+			}
+		}
 		// LivingEntity.baseTick's suffocation arm: isInWall scans the
 		// eye plane (a width*0.8 box one microblock tall, centered on
 		// the eye position) for a non-air block that isSuffocating —

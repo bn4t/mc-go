@@ -396,13 +396,19 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 					Y: int(math.Floor(y - 1e-5)),
 					Z: int(math.Floor(z)),
 				}
-				if n, _ := blockNameAt(dm, sup); n == "farmland" {
+				switch n, _ := blockNameAt(dm, sup); n {
+				case "farmland":
 					h := 1.8
 					if sess.sneaking {
 						h = 1.5
 					}
 					s.farmlandTrample(dm, sup, x, y, z, true,
 						0.6*0.6*h, sess.fallDistance)
+				case "turtle_egg":
+					// TurtleEggBlock.fallOn — a player is never a
+					// Zombie, so the landing always rolls
+					// destroyEgg(3).
+					s.turtleEggDestroy(dm, sup, nil, sess, 3)
 				}
 			}
 		}

@@ -4398,8 +4398,24 @@ func (s *Server) mobGrounded(e *Entity, w *world.World) bool {
 	// the feet on the block's collision top (honey −59.0625, soul_sand
 	// −59.125) and the stored gravity pull negative — snapping to the
 	// cell floor or zeroing the delta would fight the next tick's move.
+	// applyEffectsFromBlocks' stepOn arm: the support block's stepOn
+	// runs every grounded tick on the getOnPosLegacy cell (0.2 below
+	// the feet). TurtleEggBlock.stepOn rolls nextInt(100) == 0 —
+	// mobs never step carefully, so the roll always runs.
+	onPos := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y - 0.2)), Z: int(math.Floor(e.Z))}
+	if onName, _ := blockNameAt(s.dims[e.Dim], onPos); onName == "turtle_egg" {
+		s.turtleEggStepOn(s.dims[e.Dim], onPos, e)
+	}
 	e.Grounded = true
 	return true
+}
+
+// mobIsZombieFamily covers TurtleEggBlock.fallOn's
+// `entity instanceof Zombie` exemption: the whole Zombie class
+// tree — zombie, husk, drowned, zombie_villager, zombified_piglin.
+var mobIsZombieFamily = map[string]bool{
+	"zombie": true, "husk": true, "drowned": true,
+	"zombie_villager": true, "zombified_piglin": true,
 }
 
 // mobFallDamageImmune is the 26.2 #fall_damage_immune entity_type
@@ -4429,6 +4445,14 @@ func (s *Server) mobFallDamage(e *Entity, dm *dimension, below world.Pos) {
 		bb := mobBoundsTable[e.Type]
 		s.farmlandTrample(dm, below, e.X, e.Y, e.Z, false,
 			bb[0]*bb[0]*bb[1], e.FallDist)
+	}
+	// TurtleEggBlock.fallOn: !(entity instanceof Zombie) ->
+	// destroyEgg(chance=3) — the Zombie class family (zombie, husk,
+	// drowned, zombie_villager, zombified_piglin) skips the landing
+	// roll; like farmland it rides inside checkFallDamage before the
+	// immunity early-return, so a fall-immune mob still rolls.
+	if landedName == "turtle_egg" && !mobIsZombieFamily[name] {
+		s.turtleEggDestroy(dm, below, e, nil, 3)
 	}
 	if mobFallDamageImmune[name] {
 		return
