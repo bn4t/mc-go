@@ -98,13 +98,47 @@ type dimension struct {
 	// lightDirty accumulates chunk -> sections whose block light
 	// changed mid-write; emitLightUpdate drains it into update_light
 	// packets at the emit point vanilla uses (after the caller's ack).
-	// lightLayerSecs tracks which sections have a materialized light
-	// layer (at least one cell ever written) — vanilla ships those as
-	// arrays even when all-zero, while a touched section without one
-	// lands on the empty mask instead.
-	blockLight     map[world.Pos]uint8
-	lightDirty     map[[2]int]map[int]bool
-	lightLayerSecs map[[2]int]map[int]bool
+	// blkLayered tracks which sections hold a materialized block-light
+	// layer — the same eligibility set as sky — and blkStoring gates
+	// every write.
+	blockLight map[world.Pos]uint8
+	lightDirty map[[2]int]map[int]bool
+	blkLayered map[[2]int]map[int]bool
+	// blkWritten tracks which layered block-light sections have ever
+	// had a cell written — vanilla's DataLayer data!=null state, which
+	// ships its array on the data mask even when every nibble is
+	// zero (e.g. right after an erase flood). Sticky: survives dels.
+	blkWritten map[[2]int]map[int]bool
+	// skyWritten is the same bit for sky layers; non-virgin
+	// materializations (the all-15 default above the top and the
+	// repeatFirstLayer replica) count as written at creation.
+	skyWritten map[[2]int]map[int]bool
+	// skyLayers holds one 4096-nibble array per materialized sky-light
+	// section; the set is driven by block-section non-emptiness
+	// (vanilla's updateSectionStatus: a layer exists while the
+	// section or one of its 26 neighbours is non-empty). Cells in
+	// unlayered sections never store — reads virtualize (walk up to
+	// the first layer's bottom row, or 15 above the data top).
+	// lightLayered is the shared eligibility set; nonEmptyCnt caches
+	// each chunk's per-section non-air counts; skyLowestSec caches
+	// the storage-wide lowest materialized section.
+	skyLayers    map[[2]int]map[int]*[4096]byte
+	lightLayered map[[2]int]map[int]bool
+	nonEmptyCnt  map[[2]int]map[int]int
+	skyLowestSec int
+	skyLowestSet bool
+	// skyTops caches the sky heightmap per chunk (highest
+	// light-occluding cell per column); skyDirty accumulates
+	// chunk -> marked sky sections for the next update_light.
+	skyTops  map[[2]int]*[256]int32
+	skyDirty map[[2]int]map[int]bool
+	// lightMu serializes every read and write of the sectioned light
+	// state: floods run on session goroutines, the tick-end flush and
+	// the chunk-stream encoders read on other goroutines.
+	lightMu sync.Mutex
+	// skyGen marks chunks whose sky layers + steady-state values have
+	// been lazily generated.
+	skyGen map[[2]int]bool
 	// rsSilenceWire is RedStoneWireBlock.shouldSignal=false: held
 	// while a wire recomputes its target so getBlockSignal ignores
 	// dust emitters.

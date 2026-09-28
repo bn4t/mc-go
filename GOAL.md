@@ -10181,3 +10181,59 @@ array, `emptyBlock=[16]` for the boundary-touched unlit sec3 — on both
 legs. `TestTorchLightParity` now teleports the player so the torch
 chunk is deterministically border (spawn selection is not shared), and
 re-verified green after the gate landed.
+
+## Slice: sky-light sectioned storage — init-mark propagation, written-vs-virgin emit rule, tick-end batching
+
+Measured on 26.2 by decompiling `ClientboundLightUpdatePacketData`,
+`LayerLightSectionStorage`, `SkyLightSectionStorage`,
+`QueueBasedLightEngine`, `FlowingFluid` and `LiquidBlock`, plus live
+wire probes on the vanilla jar:
+
+- `prepareSectionData`: for each section in the mark set, a null data
+  layer ships **no bit at all**; `DataLayer.isEmpty()` (allocated but
+  never written — `data==null && defaultValue==0`) ships the empty
+  mask; otherwise the data mask + array, even when every nibble is
+  zero. The emit rule is layer existence + written state, not content.
+- `putSectionState`: every 0→nonzero transition runs
+  `initializeSection` → `markSectionAndNeighborsAsAffected` — the full
+  27-box on BOTH engines — including the neighbour-count bumps, so
+  init marks propagate two chunks out from any write. `removeSection`
+  only adds to `toRemove` — removals mark nothing.
+- `swapSectionMap` drains `sectionsAffectedByLightUpdates` once per
+  tick into `broadcastChanges`, which emits the light packet BEFORE
+  the block updates; marks on unlayered sections drop silently.
+
+mc-go's column-model sky is replaced by the same sectioned
+layer-storage: `lightLayered`/`blkLayered` eligibility maps, the
+`blkWritten`/`skyWritten` virgin bits (non-virgin materializations —
+the above-top full-15 default and the `repeatFirstLayer` replica —
+count as written at creation), `materializeLightSec` now emits the
+27-box marks on every materialization while `dematerializeLightSec`
+marks nothing, and `emitLightUpdate` batches per-tick behind
+`s.ticking` with the light flush ordered before `blockChangesFlushStep`
+— all serialized under `d.lightMu` because session goroutines, the
+tick flush, and chunk encoders all touch the maps.
+
+The chunk pipeline previously generated sky lazily inside
+`encodeLightDataFor`: a flood reaching an ungenerated column mid-tick
+materialized it then and there, and its init marks went out inside an
+unrelated window. Vanilla runs INITIALIZE_LIGHT on every streamed
+chunk up front, so `sendWindow` now `ensureSkyChunk`s each fresh
+column plus two chunks around it while streaming — the init emits
+land during streaming on both legs.
+
+`TestSkyPropParity` pins the wire on both servers for twelve probes —
+opaque write + undo, a 9x9 platform + undo, a torch under the platform
+(sky and block masks together), a water source's shadow as it falls
+per-section (hasData flips fan init marks ±2 chunks), a full-chunk-top
+clear, transparent torch (block-light bits appear while sky stays),
+and glass. All twelve compare chunk-for-chunk, mask-for-mask and
+array-for-array identical.
+
+Honest residuals: the fluid probes surfaced real fluid-sim divergences
+that are NOT light bugs and now have their own gap — mc-go's
+water-column drain cascade runs ~7t/cell where vanilla's is ~17t, and
+its foot spread reaches further; the undo probe sidesteps them by
+clearing the whole top. `lightSectionFlipped`'s cached-count
+bookkeeping keeps the count stale-by-one (works empirically, worth a
+second pass).

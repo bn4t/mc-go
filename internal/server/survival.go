@@ -239,25 +239,25 @@ func withinReach(sess *Session, pos world.Pos, reach float64) bool {
 // delayed destroy that fires on the first tick the progress reaches 1
 // (vanilla's hasDelayedDestroy, which survives the dig being unlatched).
 // An abort unlatches the dig; the delayed arm stays.
-func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) []int {
+func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) {
 	blk := sess.world().GetBlock(pos)
 	info := hardnessOf(blk)
 	switch status {
 	case digStart:
 		if info.hardness < 0 || blk == world.Air {
-			return nil
+			return
 		}
 		if !withinReach(sess, pos, reachSurvival) {
-			return nil
+			return
 		}
 		bname, _ := world.StateOwner(blk)
 		need := s.digTicks(info, bname, sess)
 		if need <= 1 {
 			// destroyProgress >= 1 on the first tick of a dig means the
 			// block breaks on the start action itself, no finish needed.
-			affected := s.breakBlock(sess, pos, info)
-			s.emitLightUpdate(sess.dimension(), pos, affected)
-			return affected
+			s.breakBlock(sess, pos, info)
+			s.emitLightUpdate(sess.dimension(), pos)
+			return
 		}
 		sess.digMu.Lock()
 		restart := sess.digActive
@@ -281,7 +281,7 @@ func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) [
 		sess.digMu.Lock()
 		if !sess.digActive || sess.digPos != pos {
 			sess.digMu.Unlock()
-			return nil
+			return
 		}
 		bname, _ := world.StateOwner(sess.digBlock)
 		need := s.digTicks(info, bname, sess)
@@ -289,9 +289,9 @@ func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) [
 			sess.digActive = false
 			sess.digTicks = 0
 			sess.digMu.Unlock()
-			affected := s.breakBlock(sess, pos, info)
-			s.emitLightUpdate(sess.dimension(), pos, affected)
-			return affected
+			s.breakBlock(sess, pos, info)
+			s.emitLightUpdate(sess.dimension(), pos)
+			return
 		}
 		// Stopped early: arm the delayed destroy on the same tick
 		// counter — it still breaks the block once the total reaches
@@ -305,7 +305,7 @@ func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) [
 		sess.digTicks = 0
 		sess.digMu.Unlock()
 	}
-	return nil
+	return
 }
 
 // sendBlockResync tells one client what a block really is, vanilla's
@@ -339,8 +339,8 @@ func (s *Server) digTickStep() {
 				// Vanilla re-reads the block state and the held tool
 				// every tick, so a swap changes when it fires.
 				if need := s.digTicks(hardnessOf(cur), cname, sess); ticks+1 >= need {
-					affected := s.breakBlock(sess, pos, hardnessOf(cur))
-					s.emitLightUpdate(sess.dimension(), pos, affected)
+					s.breakBlock(sess, pos, hardnessOf(cur))
+					s.emitLightUpdate(sess.dimension(), pos)
 					sess.digMu.Lock()
 					sess.digDelayed = false
 					sess.digMu.Unlock()
@@ -370,10 +370,10 @@ func (s *Server) digTickStep() {
 }
 
 // breakBlock removes a block and spawns its drops.
-func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []int {
+func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) {
 	broken := sess.world().GetBlock(pos)
 	if broken == world.Air {
-		return nil
+		return
 	}
 	// BeehiveBlock.playerDestroy: a non-silk break empties the hive
 	// EMERGENCY. The occupant count dies with the cell, so capture it
@@ -390,7 +390,7 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 	// copy_components[custom_name], which reads the dead cell's name.
 	beName := sess.dimension().beNames[pos]
 	s.fireBeeNestDestroyed(sess, sess.dimension(), pos, broken)
-	affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
+	s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
 	// ServerLevel.destroyBlock posts BLOCK_DESTROY at the broken
 	// position with the old state as context — wool muffles it.
 	oldName, _ := world.StateOwner(broken)
@@ -409,31 +409,31 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) []
 	// A shulker box drops itself with everything inside as one stack
 	// (see removeContainer), so the plain block item would duplicate it.
 	if isShulkerBoxBlock(broken) {
-		return affected
+		return
 	}
 	bname, _ := world.StateOwner(broken)
 	// Vanilla gates getDrops on hasCorrectToolForDrops: a
 	// requires-tool block drops nothing without a matching tool.
 	if blockRequiresTool[bname] && !toolCorrectForDrops(sess.heldStack(), bname) {
-		return affected
+		return
 	}
 	if _, ok := data.LootTables()["blocks/"+bname]; ok {
 		for _, st := range rollBlockLoot("blocks/"+bname, sess, pos, bname, broken, nestBees, beName) {
 			s.spawnItemDrop(sess.dimName(), pos, st)
 		}
-		return affected
+		return
 	}
 	// Blocks outside the generated table set keep the hand-curated
 	// drop column (e.g. monster spawner: no table, no drops).
 	if info.drop == "" {
-		return affected
+		return
 	}
 	id, ok := world.ItemID(info.drop)
 	if !ok {
-		return affected
+		return
 	}
 	s.spawnItemDrop(sess.dimName(), pos, ItemStack{ID: id, Count: 1})
-	return affected
+	return
 }
 
 // iceMeltOnDestroy is IceBlock.playerDestroy's tail — it runs only on

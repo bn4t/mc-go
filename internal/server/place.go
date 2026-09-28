@@ -480,7 +480,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	blk = observerPlaceState(blk, sess)
 	blk = s.crafterPlaceState(d, target, blk, sess)
 	blk = blockStateComponentApply(blk, sess.heldStack())
-	affected := s.setBlockAndBroadcast(sess.getName(), target, blk)
+	s.setBlockAndBroadcast(sess.getName(), target, blk)
 	// BlockItem.place → Level.gameEvent(BLOCK_PLACE) at the placed
 	// position with the new state as the context: wool muffles it.
 	if n, ok := world.StateOwner(blk); ok {
@@ -572,7 +572,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		}
 	}
 	useAck()
-	s.emitLightUpdate(d, target, affected)
+	s.emitLightUpdate(d, target)
 	// Survival consumes one item and syncs the slot; creative keeps
 	// the stack, matching vanilla.
 	if sess.mode() != GameModeCreative {

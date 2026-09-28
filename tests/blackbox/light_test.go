@@ -687,11 +687,19 @@ func mergeLightSnap(a, b lightSnapshot) lightSnapshot {
 	}
 	a.skyMask, a.skyArrays = unkeyed(sky)
 	a.blockMask, a.blockArrays = unkeyed(blk)
-	for i := 0; i < len(a.emptySky) && i < len(b.emptySky); i++ {
-		a.emptySky[i] |= b.emptySky[i]
+	for i := 0; i < len(b.emptySky); i++ {
+		if i < len(a.emptySky) {
+			a.emptySky[i] |= b.emptySky[i]
+		} else {
+			a.emptySky = append(a.emptySky, b.emptySky[i])
+		}
 	}
-	for i := 0; i < len(a.emptyBlock) && i < len(b.emptyBlock); i++ {
-		a.emptyBlock[i] |= b.emptyBlock[i]
+	for i := 0; i < len(b.emptyBlock); i++ {
+		if i < len(a.emptyBlock) {
+			a.emptyBlock[i] |= b.emptyBlock[i]
+		} else {
+			a.emptyBlock = append(a.emptyBlock, b.emptyBlock[i])
+		}
 	}
 	return a
 }
@@ -724,6 +732,19 @@ func arrayStats(arrays [][]byte) []int {
 // cmpLightSnap is the per-chunk snapshot comparison every light probe
 // shares: the four masks must be bit-identical and every shipped
 // nibble array byte-identical.
+// emptyLightSnap reports whether a snapshot carries no actual light
+// data: every mask bit zero and no arrays.
+func emptyLightSnap(s lightSnapshot) bool {
+	for _, m := range [4][]uint64{s.skyMask, s.blockMask, s.emptySky, s.emptyBlock} {
+		for _, w := range m {
+			if w != 0 {
+				return false
+			}
+		}
+	}
+	return len(s.skyArrays) == 0 && len(s.blockArrays) == 0
+}
+
 func cmpLightSnap(t *testing.T, what string, ck [2]int, a, b lightSnapshot) {
 	t.Helper()
 	if fmt.Sprintf("%x", a.skyMask) != fmt.Sprintf("%x", b.skyMask) ||
@@ -926,5 +947,93 @@ func TestLightEmissionParity(t *testing.T) {
 				cmpLightSnap(t, "remove "+probe.name, ck, vsnap, msnap)
 			}
 		}
+	}
+}
+
+// TestSkyPropParity pins vanilla's horizontal sky propagation: a top
+// write floods sky light around overhangs at cost max(1, opacity) per
+// step, fluids count toward the heightmap, and a recomputed write can
+// ship an update whose arrays changed nothing. Each probe writes into
+// the west-border chunk (0,0) and compares every emitted update_light
+// chunk-for-chunk, mask and nibble array identical, on both servers.
+//
+// Measured on 26.2 (javap on the extracted jar plus live wire probes):
+// a single opaque block at y=40 shadows its column to 14 forever; the
+// centre of a 9x9 platform drops to 10 (five steps to open sky); a
+// lone water cell raises its top and reads 14 (15-opacity), glass and
+// torches do not; a torch placed under the platform silently lowers
+// its own cell 10 -> 9, and a torch in open air ships a mark-only
+// update (sections pos+-1 vertically) whose arrays are all-15 either
+// way.
+func TestSkyPropParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{"ops.json": opsJSONFor("TP")}, nil)
+	defer targets.cleanup()
+	cv, prv, pwv := joinPlayBlackbox(t, targets.vanilla, "TP")
+	defer cv.Close()
+	cm, prm, pwm := joinPlayBlackbox(t, targets.mcgo, "TP")
+	defer cm.Close()
+	drainToJoinBlackbox(t, "tp", prv)
+	drainToJoinBlackbox(t, "tp", prm)
+	sendCommand(t, pwv, "tp @s 56.5 100 8.5")
+	sendCommand(t, pwm, "tp @s 56.5 100 8.5")
+	_ = settleChunks(t, cv, prv, pwv, 4*time.Second)
+	_ = settleChunks(t, cm, prm, pwm, 4*time.Second)
+	_ = drainLight(t, cv, prv, pwv, 2*time.Second)
+	_ = drainLight(t, cm, prm, pwm, 2*time.Second)
+
+	want := [2]int{0, 0}
+	compare := func(what string) {
+		t.Helper()
+		van := collectChunkLightFor(t, cv, prv, pwv, want, 15*time.Second)
+		for ck, s := range drainLight(t, cv, prv, pwv, 1200*time.Millisecond) {
+			van[ck] = mergeLightSnap(van[ck], s)
+		}
+		got := collectChunkLightFor(t, cm, prm, pwm, want, 15*time.Second)
+		for ck, s := range drainLight(t, cm, prm, pwm, 1200*time.Millisecond) {
+			got[ck] = mergeLightSnap(got[ck], s)
+		}
+		keys := map[[2]int]bool{}
+		for ck := range van {
+			keys[ck] = true
+		}
+		for ck := range got {
+			keys[ck] = true
+		}
+		for ck := range keys {
+			// Vanilla sporadically ships a content-free update for a
+			// chunk while its neighbours are still streaming in
+			// (the border check includes pending chunks) — a packet
+			// with every mask empty carries no data, so drop it from
+			// both legs before comparing.
+			if emptyLightSnap(van[ck]) && emptyLightSnap(got[ck]) {
+				continue
+			}
+			cmpLightSnap(t, what, ck, van[ck], got[ck])
+		}
+	}
+
+	probes := []struct{ name, cmd string }{
+		{"single opaque", "setblock 8 40 8 minecraft:stone"},
+		{"undo", "setblock 8 40 8 minecraft:air"},
+		{"platform", "fill 4 40 4 12 40 12 minecraft:stone"},
+		{"under-platform torch", "setblock 8 39 8 minecraft:torch"},
+		{"under-platform torch undo", "setblock 8 39 8 minecraft:air"},
+		{"undo platform", "fill 4 40 4 12 40 12 minecraft:air"},
+		{"fluid top", "setblock 8 40 8 minecraft:water"},
+		// The undo clears the chunk's top half: a falling column's
+		// drain cadence and foot spread are fluid-sim timing (vanilla
+		// ~17t/cell vs mc-go ~7t, different foot reach), so any removal
+		// that leaves residual water compares differently-lit cells.
+		// Clearing every cell makes the update deterministic.
+		{"undo fluid", "fill 0 -60 0 15 40 15 minecraft:air"},
+		{"transparent torch", "setblock 8 40 8 minecraft:torch"},
+		{"undo transparent", "setblock 8 40 8 minecraft:air"},
+		{"glass", "setblock 8 40 8 minecraft:glass"},
+		{"undo glass", "setblock 8 40 8 minecraft:air"},
+	}
+	for _, p := range probes {
+		sendCommand(t, pwv, p.cmd)
+		sendCommand(t, pwm, p.cmd)
+		compare(p.name)
 	}
 }

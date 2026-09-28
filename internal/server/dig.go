@@ -200,20 +200,20 @@ func (s *Server) broadcastBlockUpdateIn(dimName string, pos world.Pos, blk world
 }
 
 // setBlockAndBroadcast is the shared write path for /setblock and digging:
-// world update, BlockChange event, and Block Update fan-out. It returns
-// the light sections the change affects so callers can emit the Light
-// Update after their acknowledgement, matching vanilla's order. The
-// dimension is the acting player's; nameless actors land in the
-// overworld.
-func (s *Server) setBlockAndBroadcast(player string, pos world.Pos, blk world.Block) []int {
-	return s.setBlockAndBroadcastNotify(player, pos, blk, false)
+// world update, BlockChange event, and Block Update fan-out. Light
+// changes accumulate in the dimension's dirty maps so callers emit
+// the Light Update after their acknowledgement, matching vanilla's
+// order. The dimension is the acting player's; nameless actors land
+// in the overworld.
+func (s *Server) setBlockAndBroadcast(player string, pos world.Pos, blk world.Block) {
+	s.setBlockAndBroadcastNotify(player, pos, blk, false)
 }
 
 // setBlockAndBroadcastNotify is setBlockAndBroadcast with the
 // neighbourChanged flavour picked: gameplay writes (dig, place) hand
 // neighbours the OLD state; command writes (/setblock — vanilla's
 // updateNeighboursOnBlockSet) hand them the NEW one.
-func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk world.Block, commandWrite bool) []int {
+func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk world.Block, commandWrite bool) {
 	d := s.dimOf(player)
 	oldTop := columnTop(d, pos.X, pos.Z)
 	old := d.w.GetBlock(pos)
@@ -242,16 +242,16 @@ func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk wo
 		// fan-out, or broadcast ever fires. (A stone→stone setblock
 		// is NOT an update — measured.)
 		d.rsWriteDepth--
-		return nil
+		return
 	}
 	// See setSilentBlock for the skip rule: the second scan only runs
 	// when the write removed the top cell itself.
 	var newTop int32
 	switch {
-	case int32(pos.Y) < oldTop || (lightOpaque(blk) && int32(pos.Y) == oldTop):
+	case int32(pos.Y) < oldTop || (blocksSky(blk) && int32(pos.Y) == oldTop):
 		newTop = oldTop
 	case int32(pos.Y) > oldTop:
-		if lightOpaque(blk) {
+		if blocksSky(blk) {
 			newTop = int32(pos.Y)
 		} else {
 			newTop = oldTop
@@ -301,7 +301,7 @@ func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk wo
 	// light side reads the final state like everything downstream.
 	blk = d.w.GetBlock(pos)
 	s.blockLightChanged(d, pos, old, blk)
-	return affectedSections(d, oldTop, newTop)
+	s.skyLightChanged(d, pos, old, blk, oldTop, newTop)
 }
 
 // syncBlockEntities keeps the per-dimension block-entity stores in step
@@ -513,7 +513,7 @@ func (s *Server) handleDig(sess *Session, p protocol.Packet) {
 		// the trigger — only the survival dig path does (breakBlock).
 		// The occupants vanish with the block entity: nothing calls
 		// emptyAllLivingFromHive on this path.
-		affected := s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
+		s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
 		// ServerLevel.destroyBlock posts BLOCK_DESTROY at the broken
 		// position with the old state as context — wool muffles it.
 		oldName, _ := world.StateOwner(broken)
@@ -524,7 +524,7 @@ func (s *Server) handleDig(sess *Session, p protocol.Packet) {
 		if seq >= 0 {
 			s.sendBlockAck(sess, seq)
 		}
-		s.emitLightUpdate(d, pos, affected)
+		s.emitLightUpdate(d, pos)
 		return
 	case GameModeSurvival:
 		// Survival digging is timed by the server's own tick loop, so

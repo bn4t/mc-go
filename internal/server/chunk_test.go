@@ -261,8 +261,11 @@ func TestChunkRoundTrip(t *testing.T) {
 	if n, err := r.VarInt(); err != nil || n != 1 {
 		t.Fatalf("inline light sky mask longs = %d", n)
 	}
-	if m := readLong(t, r); m != 0x6 {
-		t.Fatalf("inline light sky mask = %x, want 6", m)
+	// Ground layers {0,1} + the y=70 override's newly eligible
+	// neighbourhood {7,8,9} — vanilla's sectioned model materializes
+	// one section around every non-empty block section.
+	if m := readLong(t, r); m != 0x706 {
+		t.Fatalf("inline light sky mask = %x, want 706", m)
 	}
 	if r.Remaining() == 0 {
 		t.Fatal("inline light missing")

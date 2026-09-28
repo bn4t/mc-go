@@ -478,6 +478,10 @@ func (s *Server) GameTick() {
 	// join burst the batch encode can stretch a tick past 50ms, and a
 	// queued piggyback (a sign's block_entity_data) would otherwise
 	// land several wall ticks late.
+	// Vanilla's ChunkHolder.broadcastChanges sends the light filter
+	// first, then the block updates — flush the tick's accumulated
+	// light marks just before the block changes.
+	s.lightChangesFlushStep()
 	s.blockChangesFlushStep()
 	// Chunk streaming is paced on the tick, like everything else: one
 	// batch per tick per player, at the rate their client asked for.

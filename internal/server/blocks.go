@@ -181,7 +181,8 @@ func (s *Server) runSetblock(player string, args []string) reply {
 	pos := world.Pos{X: x, Y: y, Z: z}
 	// /setblock notifies neighbours with the NEW state — vanilla's
 	// updateNeighboursOnBlockSet reads the cell post-write.
-	s.emitLightUpdate(d, pos, s.setBlockAndBroadcastNotify(player, pos, blk, true))
+	s.setBlockAndBroadcastNotify(player, pos, blk, true)
+	s.emitLightUpdate(d, pos)
 	if tag != nil && isChestBlock(blk) {
 		c := s.chestAt(d, pos)
 		if lt, ok := tag.vals["LootTable"]; ok && lt.kind == snbtString {

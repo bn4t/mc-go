@@ -283,12 +283,17 @@ func litBlockSections(d *dimension, cx, cz int) []int {
 	return out
 }
 
-// encodeLightDataFor picks the light profile per dimension: skylight
-// dimensions get the flat-overworld profile, skylight-less ones
-// (nether, end) mark every section empty so the client relies on the
-// dimension's ambient light instead. Sections the block-light grid
-// lit move from the empty mask to a real array.
+// encodeLightDataFor emits the chunk's generated light profile: the
+// materialized sky and block layers straight from the sectioned model
+// (a layer ships its array when it holds a non-zero cell, the empty
+// mask when it is all-zero), plus vanilla's below-world empty-sky
+// bit. Skylight-less dimensions (nether, end) mark every section
+// empty so the client relies on ambient light.
 func encodeLightDataFor(d *dimension, cx, cz int) []byte {
+	// The sectioned light model is shared with session-goroutine
+	// floods and the tick-end flush — serialize against them.
+	d.lightMu.Lock()
+	defer d.lightMu.Unlock()
 	var blockMask uint64
 	var blockArrays [][]byte
 	for _, sec := range litBlockSections(d, cx, cz) {
@@ -297,28 +302,50 @@ func encodeLightDataFor(d *dimension, cx, cz int) []byte {
 	}
 	var b protocol.Buffer
 	if d.skylight {
-		// Sky mask bits 1,2 (ground section and the section above it).
-		b.VarInt(1)
-		b.Long(0x6)
+		ensureSkyChunk(d, cx, cz)
+		ck := [2]int{cx, cz}
+		var skyMask, emptySky uint64
+		var skyArrays [][]byte
+		for sec := 0; sec < d.sections(); sec++ {
+			bit := uint64(1) << uint(sec+1)
+			if skyLayerNonZero(d, cx, cz, sec) {
+				skyMask |= bit
+				skyArrays = append(skyArrays, skySectionArray(d, cx, cz, sec))
+			} else if d.skyLayers[ck][sec] != nil {
+				emptySky |= bit
+			}
+		}
+		emptySky |= 0x1 // below the world
+		if skyMask != 0 {
+			b.VarInt(1)
+			b.Long(int64(skyMask))
+		} else {
+			b.VarInt(0)
+		}
 		if blockMask != 0 {
 			b.VarInt(1)
 			b.Long(int64(blockMask))
 		} else {
 			b.VarInt(0)
 		}
-		// Empty sky below the world; the flat world's generated
-		// sections keep empty block objects at bits 0,1,2.
 		b.VarInt(1)
-		b.Long(0x1)
-		b.VarInt(1)
-		b.Long(int64(uint64(0x7) &^ blockMask))
-		b.VarInt(2)
-		ground := make([]byte, 2048)
-		for i := 512; i < 2048; i++ {
-			ground[i] = 0xFF
+		b.Long(int64(emptySky))
+		emptyBlock := uint64(0)
+		for sec := 0; sec < d.sections(); sec++ {
+			bit := uint64(1) << uint(sec+1)
+			if blockMask&bit != 0 {
+				continue
+			}
+			if d.blkLayered[ck][sec] {
+				emptyBlock |= bit
+			}
 		}
-		writeByteArray(&b, ground)
-		writeByteArray(&b, bytes.Repeat([]byte{0xFF}, 2048))
+		b.VarInt(1)
+		b.Long(int64(emptyBlock))
+		b.VarInt(int32(len(skyArrays)))
+		for _, arr := range skyArrays {
+			writeByteArray(&b, arr)
+		}
 	} else {
 		// sections+2 light slots, all flagged empty; no arrays follow.
 		bits := d.sections() + 2
@@ -673,6 +700,24 @@ func (s *Server) sendWindow(sess *Session, ccx, ccz int) error {
 	if d := sess.dimension(); d != nil {
 		for _, k := range fresh {
 			s.warmSectionFlags(d, k[0], k[1])
+		}
+		// Vanilla light-initializes every streamed chunk up front
+		// (the INITIALIZE_LIGHT pipeline), so its initializeSection
+		// marks all land while the column is still streaming. Doing
+		// the same eagerly keeps light floods from lazily generating
+		// a column mid-tick and emitting its init marks long after
+		// they should have gone out. The margin covers the writes a
+		// flood can reach plus the extra chunk an init mark crosses.
+		if d.skylight {
+			d.lightMu.Lock()
+			for _, k := range fresh {
+				for dx := -2; dx <= 2; dx++ {
+					for dz := -2; dz <= 2; dz++ {
+						ensureSkyChunk(d, k[0]+dx, k[1]+dz)
+					}
+				}
+			}
+			d.lightMu.Unlock()
 		}
 	}
 	// The batch that goes out now precedes the forgets for columns that
