@@ -55,17 +55,17 @@ func (s *Server) applyHurtingInertia(e *Entity, name string) {
 		e.MotionY += e.MotionY * k
 		e.MotionZ += e.MotionZ * k
 	}
+	// Vanilla reads the isInWater flag Entity.tick latched at the
+	// PREVIOUS tick's tail — one tick behind the box position — not
+	// a fresh scan, so liquid inertia reaches the flight a tick late.
 	inertia := hurtingInertia(e, name)
-	if w := s.dimWorld(e.Dim); w != nil {
-		hw, h := hurtingProjectileDims(name)
-		if _, inWater, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, hw, h, fluidWater); inWater {
-			// The four BUBBLE addParticle calls at
-			// position()-delta*0.25 are a client-side detail:
-			// Level.addParticle is a no-op on the dedicated
-			// server, so nothing reaches the wire — the client
-			// replica runs its own applyInertia for the bubbles.
-			inertia = hurtingLiquidInertia(name)
-		}
+	if e.arrowInWater {
+		// The four BUBBLE addParticle calls at
+		// position()-delta*0.25 are a client-side detail:
+		// Level.addParticle is a no-op on the dedicated
+		// server, so nothing reaches the wire — the client
+		// replica runs its own applyInertia for the bubbles.
+		inertia = hurtingLiquidInertia(name)
 	}
 	e.MotionX *= inertia
 	e.MotionY *= inertia
@@ -807,14 +807,20 @@ func (s *Server) arrowTickStep() {
 				}
 			}
 		}
-		if sticks {
+		if sticks || hurtingProjectileTypes[name] {
 			// Entity.tick's tail — updateInWaterStateAndDoFluidPushing —
 			// scans the post-move box: the flow push gates on the flag
 			// used the PREVIOUS tick (measured: the first push lands a
 			// tick after isInWater first reports water), while the flag
-			// itself carries over to the tick that uses it.
+			// itself carries over to the tick that uses it. Hurting
+			// projectiles share the same Entity.tick water update — the
+			// latched flag is what next tick's applyInertia reads.
 			if w := s.dimWorld(e.Dim); w != nil {
-				_, inW, ax, az, ac := entityFluidScan(w, e.X, e.Y, e.Z, 0.25, 0.5, fluidWater)
+				hw, hh := 0.25, 0.5
+				if hurtingProjectileTypes[name] {
+					hw, hh = hurtingProjectileDims(name)
+				}
+				_, inW, ax, az, ac := entityFluidScan(w, e.X, e.Y, e.Z, hw, hh, fluidWater)
 				if e.arrowInWaterWas {
 					e.applyFluidCurrent(ax, az, ac, 0.014)
 				}

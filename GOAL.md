@@ -11486,10 +11486,13 @@ cells push ~0.014/tick — affects every entity type, own slice);
 `inGroundTime` counter (no observable consumer yet); sprint's
 n+1 clock-vs-entity-tick asymmetry observed on a freeze+summoned
 arrow (re-measure if a slice pins entity counts against
-`/tick sprint`); hurting projectiles likely share the same
-captured-movement semantic (AbstractHurtingProjectile.tick —
-move currently uses post-inertia delta, trajectory-level probe
-would pin it).
+`/tick sprint`); entities summoned under freeze appear not to
+tick on the first stepped tick on vanilla — arrow and
+wither_skull probes both showed the spawn state one tick late —
+but the summon-vs-step command ordering makes the mechanism
+unclear (queued-into-T+1 vs late ticklist join); reads under
+freeze+step shift ±1 tick between legs, so step-checkpoint data
+gets are only ±1-tick aligned (see the hurting-water slice).
 
 ## Slice — entity flow push: source-cell getFlow + flag-latched arrow current
 
@@ -11588,3 +11591,37 @@ Noted for a later slice, not chased here: vanilla's
 LavaFluid.canBeReplacedWith lets WATER spread down into deep lava
 (height ≥ 4/9), an edge mc-go currently never takes — the obsidian
 path covers the scenarios already pinned.
+
+## Slice — hurting projectiles: latched isInWater flag, liquid inertia + flow push
+
+The deferred "hurting projectiles likely share the captured-movement
+semantic" item turned out to have a false premise — decompiled
+AbstractHurtingProjectile.tick moves on the POST-inertia delta
+(applyInertia() first, position().add(getDeltaMovement()) second), and
+mc-go already did exactly that. But the trajectory probe wrote the
+real gap: vanilla's applyInertia reads the isInWater flag Entity.tick
+latches at the previous tick's tail — updateInWaterStateAndDoFluidPushing —
+one tick behind the box position, while mc-go re-scanned the fluid box
+live inside applyHurtingInertia and switched to liquid inertia at the
+boundary tick itself.
+
+Fix: hurting projectiles now share the arrow water model. The entity
+loop's tail scan (the former arrows-only `sticks` arm) widened to
+hurtingProjectileTypes with their own dims (fireball 1x1, skull/wind
+charge 0.3125 cube) — it latches e.arrowInWater for next tick's
+applyInertia and applies the ~0.014/tick flow push gated on the
+previous tick's flag (arrowInWaterWas), the same Entity.tick-tail
+semantics arrows already used. applyHurtingInertia reads the latch
+instead of a live scan.
+
+`TestHurtingWaterParity` (new, differential vs both servers): a
+wither_skull summoned inside a deep water box (interior sources, zero
+getFlow — pure inertia) and one grazing a small box's flowing boundary
+cells, freeze + `tick step 2` checkpoints probing Pos/Motion. The push
+lane aligns element-for-element at 1e-6; the deep lane aligns at a
+constant ±1 checkpoint shift — vanilla's summon-under-freeze lands one
+tick behind and the data gets read ±1 stale between legs, so the test
+finds the single constant shift then pins every overlapping checkpoint
+at 1e-6 (a wrong inertia or missing flag tick aligns at no shift).
+Green both legs; TestHurtingInertiaParity, TestProjectilePowerParity,
+TestArrowStickParity stay green.

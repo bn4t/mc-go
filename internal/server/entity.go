@@ -765,8 +765,9 @@ type Entity struct {
 	arrowLife       int32
 	arrowShake      int32
 	arrowStuckBlock string
-	// arrowInWater is AbstractArrow's isInWater — latched one tick
-	// behind the fluid scan like vanilla's Entity.tick water update.
+	// arrowInWater is the isInWater flag Entity.tick latches one tick
+	// behind the fluid scan — read by arrows for the water arm and by
+	// hurting projectiles for applyInertia's liquid inertia.
 	// arrowInWaterWas is the flag used the PREVIOUS tick — vanilla's
 	// flow push gates on it, landing a tick after the flag does.
 	arrowInWater    bool
