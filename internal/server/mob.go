@@ -1774,15 +1774,22 @@ func (s *Server) runSummon(player string, args []string) reply {
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}
 	// Wind charges fly straight (no gravity) and burst on contact.
-	if name == "wind_charge" || name == "breeze_wind_charge" || name == "wither_skull" || name == "fireball" || name == "dragon_fireball" || name == "shulker_bullet" {
+	if name == "wind_charge" || name == "breeze_wind_charge" || name == "wither_skull" || name == "fireball" || name == "dragon_fireball" || name == "small_fireball" || name == "shulker_bullet" {
 		mx, my, mz := 0.0, 0.0, 0.0
 		dangerous := false
 		noGrav := false
+		yaw, pitch := float32(0), float32(0)
 		if tag != nil {
 			if mv, ok := tag.vals["Motion"]; ok && len(mv.items) == 3 {
 				mx = snbtNum(mv.items[0])
 				my = snbtNum(mv.items[1])
 				mz = snbtNum(mv.items[2])
+			}
+			// Entity.load reads Rotation through setRot — each axis
+			// lands as value % 360 (truncated, like Java's frem).
+			if rot, ok := tag.vals["Rotation"]; ok && len(rot.items) >= 2 {
+				yaw = float32(math.Mod(snbtNum(rot.items[0]), 360))
+				pitch = float32(math.Mod(snbtNum(rot.items[1]), 360))
 			}
 			if name == "wither_skull" {
 				if dv, ok := tag.vals["dangerous"]; ok && (dv.num == "1b" || dv.num == "1" || dv.str == "true") {
@@ -1809,6 +1816,8 @@ func (s *Server) runSummon(player string, args []string) reply {
 			Type: mustEntityType(name),
 			Dim:  sess.dimName(),
 			X:    x, Y: y, Z: z,
+			Yaw:     yaw,
+			Pitch:   pitch,
 			MotionX: mx, MotionY: my, MotionZ: mz,
 			VX: int16(mx * 8000), VY: int16(my * 8000), VZ: int16(mz * 8000),
 			ExplosionPower: power,

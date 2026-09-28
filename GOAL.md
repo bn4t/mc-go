@@ -11687,3 +11687,33 @@ direction==DOWN arm — lava drops into water and lands as stone).
 `fluidIsHole` now routes other-kind cells through `fluidEntersBelow`
 with exactly those two rules. TestFluidParity and
 TestFluidContactParity stay green vs both servers.
+
+## Slice — hurting projectiles: rotateTowardsMovement facing lerp
+
+`AbstractHurtingProjectile.tick` eases the entity facing 20% per tick
+toward the post-inertia delta heading — `ProjectileUtil.
+rotateTowardsMovement` between the delta-add and setPos — and
+`ShulkerBullet.tick` calls the same util at 0.5. The bytecode is
+exact: yaw target `atan2(z,x)·deg+90` written through `setYRot`
+(which keeps the raw value — yRot drifts outside [0,360)), pitch
+`atan2(horiz,y)·deg−90` through `setXRot` (fmods by 360); the
+previous rotation unwraps to within ±180 of the target via ±360
+while-loops, then `lerp(f, rotO, rot)` — and a zero delta is a
+no-op. `rotateTowardsMovement` in projectile.go implements it
+verbatim (e.Yaw/e.Pitch double as yRotO/xRotO — the only per-tick
+writer), wired into arrowTickStep (0.2 hurting, 0.5 shulker) and
+windChargeTickStep.
+
+The inertia chain keeps the delta parallel to the initial heading
+(accel lands along normalize(delta)), so the facing always
+converges to the summon heading — the differential pin compares the
+remaining-gap decay (rem_cp2 = rem_cp1·0.8^20) plus the converged
+Rotation NBT, both legs identical. Three real side-gaps fixed along
+the way: the /summon hurting arm now reads `Rotation` through
+setRot semantics (each axis %360 — Rotation [370,-450] lands as
+[10,-90]), and `small_fireball` joins the summonable hurting set.
+The zero-delta guard pins a hovering projectile's rotation frozen
+on both servers. ShulkerBullet's 0.5 share is unpinnable
+differentially (the wander lerp picks directions off RandomSource —
+per-leg divergence is the generator, not behavior); the call site
+still carries it for wire parity.

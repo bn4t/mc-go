@@ -106,6 +106,41 @@ func hurtingProjectileDims(name string) (halfWidth, height float64) {
 	}
 }
 
+// rotateTowardsMovement is ProjectileUtil.rotateTowardsMovement: a
+// zero delta is a no-op; otherwise the facing targets the delta
+// heading — setYRot(atan2(z,x)·deg+90) keeps the raw value while
+// setXRot(atan2(horiz,y)·deg−90) mods by 360 — then the previous
+// rotation unwraps to within ±180 of that target via ±360 loops and
+// the rot eases f of the way in (xRot lerped, then modded again).
+// e.Yaw/e.Pitch double as vanilla's yRotO/xRotO because this call is
+// the only writer each tick. Callers: AbstractHurtingProjectile.tick
+// (f=0.2, between the delta-add and setPos — the delta here is the
+// post-applyInertia vector like vanilla's getDeltaMovement() read)
+// and ShulkerBullet.tick (f=0.5, after hitTargetOrDeflectSelf).
+func rotateTowardsMovement(e *Entity, dx, dy, dz float64, f float32) {
+	if dx*dx+dy*dy+dz*dz == 0 {
+		return
+	}
+	horiz := math.Sqrt(dx*dx + dz*dz)
+	ty := float32(math.Atan2(dz, dx)*180/math.Pi) + 90
+	tp := float32(math.Atan2(horiz, dy)*180/math.Pi) - 90
+	tp = float32(math.Mod(float64(tp), 360))
+	for tp-e.Pitch < -180 {
+		e.Pitch -= 360
+	}
+	for tp-e.Pitch >= 180 {
+		e.Pitch += 360
+	}
+	for ty-e.Yaw < -180 {
+		e.Yaw -= 360
+	}
+	for ty-e.Yaw >= 180 {
+		e.Yaw += 360
+	}
+	e.Pitch = float32(math.Mod(float64(e.Pitch+f*(tp-e.Pitch)), 360))
+	e.Yaw += f * (ty - e.Yaw)
+}
+
 // deflectingHit finds the entity this projectile's swept segment
 // would hit that carries a projectile deflection — today only the
 // breeze (deflects_projectiles tag) — honoring lastDeflectedBy: an
@@ -513,6 +548,15 @@ func (s *Server) arrowTickStep() {
 		e.X += mvx
 		e.Y += mvy
 		e.Z += mvz
+		// AbstractHurtingProjectile.tick eases the facing 0.2 of the
+		// way toward the post-inertia heading each tick (its
+		// rotateTowardsMovement runs between the delta-add and
+		// setPos); ShulkerBullet.tick's copy eases 0.5.
+		if hurtingProjectileTypes[name] {
+			rotateTowardsMovement(e, mvx, mvy, mvz, 0.2)
+		} else if name == "shulker_bullet" {
+			rotateTowardsMovement(e, mvx, mvy, mvz, 0.5)
+		}
 		// ThrowableProjectile's default gravity is 0.03 vs the
 		// arrow's 0.05; hurting projectiles and rockets fly flat
 		// (no gravity). The 0.99 air drag is shared and applies even

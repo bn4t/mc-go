@@ -38,6 +38,11 @@ func (s *Server) windChargeTickStep() {
 			continue
 		}
 		nx, ny, nz := e.X+e.MotionX, e.Y+e.MotionY, e.Z+e.MotionZ
+		// AbstractHurtingProjectile.tick eases the facing 0.2 of the
+		// way toward the post-inertia heading between the delta-add
+		// and setPos — the charge's delta is post-applyInertia here
+		// like vanilla's getDeltaMovement() read.
+		rotateTowardsMovement(e, e.MotionX, e.MotionY, e.MotionZ, 0.2)
 		// Projectile.tick's head on the post-move position: hasBeenShot
 		// latches on the first tick, leftOwner once the expanded box
 		// clears the owner's.
