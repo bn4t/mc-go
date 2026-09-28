@@ -444,6 +444,7 @@ func (s *Server) GameTick() {
 	s.crafterTickStep()
 	s.allayTickStep()
 	s.arrowTickStep()
+	s.ephemeralTickStep()
 	s.fishTickStep()
 	s.sleepTickStep()
 	s.furnaceTickStep()

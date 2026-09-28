@@ -271,6 +271,20 @@ type Entity struct {
 	CloudRadiusPerTick float32
 	CloudRadiusOnUse   float32
 	CloudVictims       map[int32]int32
+	// Ephemeral entity state for the non-living summons that run
+	// their own per-tick end conditions: FangWarmup is
+	// EvokerFangs.warmupDelayTicks (constructor 0), FangLife its
+	// lifeTicks (22); EphemeralAge counts up for eye_of_ender's
+	// life>80 discard, ominous_item_spawner's tickCount, and the
+	// hanging entities' checkInterval-100 survives pass;
+	// OminousSpawnAfter is spawnItemAfterTicks (60-120 roll);
+	// FallingBlockName is FallingBlockEntity.blockState's name
+	// (summon NBT BlockState.Name, default sand).
+	FangWarmup        int32
+	FangLife          int32
+	EphemeralAge      int32
+	OminousSpawnAfter int64
+	FallingBlockName  string
 	// Passengers holds the entity ids riding this entity (vanilla's
 	// passengers list); Riding is the vehicle id on the passenger.
 	Passengers []int32

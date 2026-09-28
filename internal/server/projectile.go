@@ -35,7 +35,7 @@ var projectileTickTypes = map[string]bool{
 	"egg": true, "snowball": true, "experience_bottle": true,
 	"small_fireball": true, "firework_rocket": true, "ender_pearl": true,
 	"wither_skull": true, "fireball": true, "dragon_fireball": true,
-	"shulker_bullet": true,
+	"shulker_bullet": true, "llama_spit": true,
 }
 
 // bowStartTick timestamps a draw begun by Use Item on a bow so the
@@ -209,6 +209,10 @@ func (s *Server) arrowTickStep() {
 		switch name {
 		case "egg", "snowball", "splash_potion", "lingering_potion", "ender_pearl":
 			grav = 0.03
+		case "llama_spit":
+			// LlamaSpit.getDefaultGravity — heavier than the other
+			// thrown items.
+			grav = 0.06
 		case "experience_bottle":
 			// ThrownExperienceBottle.getDefaultGravity — the bottle
 			// arcs down harder than the other thrown items.
@@ -236,6 +240,10 @@ func (s *Server) arrowTickStep() {
 			collided = s.projectileCollide(e, ox, oy, oz, tridentHitDamage, "trident")
 		case sticks:
 			collided = s.arrowCollide(e, ox, oy, oz)
+		case name == "llama_spit":
+			// LlamaSpit.onHitEntity hurts only through a living owner
+			// — a summoned spit just pops on contact, no hurt tail.
+			collided = s.spitCollide(e, ox, oy, oz)
 		case name == "egg" || name == "snowball" ||
 			name == "experience_bottle" || name == "ender_pearl":
 			// ThrowableItemProjectile.onHitEntity — hurt(0): the hit
@@ -1136,6 +1144,31 @@ func (s *Server) thrownCollide(e *Entity, ox, oy, oz float64, name string) bool 
 		}
 	}
 	return hit
+}
+
+// spitCollide is the ownerless arm of LlamaSpit.onHitEntity: the
+// entity overlap only marks the hit — no damage lands without a
+// living owner, and the onHit tail pops the spit like any hit.
+func (s *Server) spitCollide(e *Entity, ox, oy, oz float64) bool {
+	s.entities.mu.RLock()
+	targets := make([]*Entity, 0, len(s.entities.byID))
+	for _, t := range s.entities.byID {
+		targets = append(targets, t)
+	}
+	s.entities.mu.RUnlock()
+	for _, t := range targets {
+		if !t.Living || t.Dying || t.ID == e.ID || t.ID == e.arrowShooter {
+			continue
+		}
+		if t.Dim != e.Dim {
+			continue
+		}
+		bb := entityBBDims(t)
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+			return true
+		}
+	}
+	return false
 }
 
 // fireballCollide is SmallFireball.onHitEntity: igniteForSeconds(5)

@@ -10924,3 +10924,38 @@ age+nextInt(3)/2, invalid-location decay, checkBurnOut bases
 this slice pins it differentially: an infiniburn netherrack source
 beside a 35-plank wall, ~1000 sprinted ticks, floors fire>=3 cells
 and planks<35 per leg. Green: cells v=6 g=10, planks left v=1 g=7.
+
+## Slice — non-living /summon coverage
+
+The entity registry gap closed: all 24 non-living EntityTypes
+vanilla's EntityType.create accepts now summon (arrow arm extended to
+spectral_arrow + trident; summonThrownNames for the seven throwables;
+summonPlainNames for the rest). Per-tick fates measured from 26.2
+bytecode and run in ephemeralTickStep:
+
+- item: empty-stack ItemEntity.tick discards tick 1 (bare summon =
+  air stack).
+- fishing_bobber: getPlayerOwner()==null → discard tick 1.
+- evoker_fangs: warmup 0, life 22 → dealDamage at warmup==-8 (6.0
+  indirect_magic, AABB±0.2 horiz) → discard ~tick 23.
+- eye_of_ender: life>80 → discard (~80% drop ender_eye item).
+- ominous_item_spawner: spawnItemAfterTicks stays 0 on the summon
+  path (the 60-120 roll only runs in the static create() factory) →
+  kill tick 1; spawn_item_after_ticks NBT honored.
+- painting/item_frame/glow_item_frame: checkInterval-100 survives()
+  pass — bare summons face south, so only a sturdy -Z neighbour
+  saves them (a block below doesn't count); pop drops the item.
+- leash_knot: existing knotTickStep now drops the lead item on pop
+  (vanilla dropItem behaviour).
+- falling_block: gravity 0.04/tick → lands as its BlockState (sand
+  default, BlockState.Name honored) where the cell below stops being
+  replaceable; out-of-world drops the item.
+- llama_spit joined projectileTickTypes: gravity 0.06, discard on
+  block hit; ownerless entity-hit does no damage (spit damage needs
+  a living owner).
+
+Blackbox: tests/blackbox/summon_coverage_test.go —
+TestSummonCoverageParity summons all 25 types (24 + arrow control),
+checks summon.success + presence probes, sprints 140 ticks, and pins
+the fates: thrown/gone set, hanging pops at 100, fence knot
+persists, falling_block becomes sand. Green both legs.

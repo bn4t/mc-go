@@ -430,6 +430,10 @@ func (s *Server) knotTickStep() {
 			}
 		}
 		if !fence {
+			// dropItem: a popped knot drops its lead like vanilla.
+			if id, ok := world.ItemID("lead"); ok {
+				s.spawnItemDrop(e.Dim, world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}, ItemStack{ID: id, Count: 1})
+			}
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 		}

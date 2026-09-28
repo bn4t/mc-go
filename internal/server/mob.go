@@ -1596,7 +1596,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 	}
 	// Non-living summons the command still accepts: projectiles take
 	// their Motion list and fly like a bow release.
-	if name == "arrow" {
+	if name == "arrow" || name == "spectral_arrow" || name == "trident" {
 		mx, my, mz := 0.0, -0.1, 0.0
 		if tag != nil {
 			if mv, ok := tag.vals["Motion"]; ok && len(mv.items) == 3 {
@@ -1606,7 +1606,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 		}
 		e := &Entity{
-			Type: mustEntityType("arrow"),
+			Type: mustEntityType(name),
 			Dim:  sess.dimName(),
 			X:    x, Y: y, Z: z,
 			MotionX: mx, MotionY: my, MotionZ: mz,
@@ -1623,7 +1623,77 @@ func (s *Server) runSummon(player string, args []string) reply {
 		}
 		s.entities.Spawn(e)
 		s.broadcastEntitySpawn(nil, *e)
-		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft.arrow")))
+		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
+	}
+	// Throwable projectiles: the same Motion-NBT arm as the arrow —
+	// snowballs, eggs, pearls, potions and llama spit all spawn with
+	// the summon SNBT's Motion list and fly on their own gravities.
+	if summonThrownNames[name] {
+		mx, my, mz := 0.0, 0.0, 0.0
+		if tag != nil {
+			if mv, ok := tag.vals["Motion"]; ok && len(mv.items) == 3 {
+				mx = snbtNum(mv.items[0])
+				my = snbtNum(mv.items[1])
+				mz = snbtNum(mv.items[2])
+			}
+		}
+		e := &Entity{
+			Type: mustEntityType(name),
+			Dim:  sess.dimName(),
+			X:    x, Y: y, Z: z,
+			MotionX: mx, MotionY: my, MotionZ: mz,
+			VX: int16(mx * 8000), VY: int16(my * 8000), VZ: int16(mz * 8000),
+		}
+		s.entities.Spawn(e)
+		s.broadcastEntitySpawn(nil, *e)
+		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
+	}
+	// The rest of the registry: vanilla's EntityType.create accepts
+	// every remaining type — each one spawns at its constructor
+	// defaults and runs its own tick fate in ephemeralTickStep.
+	if summonPlainNames[name] {
+		e := &Entity{
+			Type: mustEntityType(name),
+			Dim:  sess.dimName(),
+			X:    x, Y: y, Z: z,
+		}
+		switch name {
+		case "evoker_fangs":
+			// Constructor defaults: warmupDelayTicks 0, lifeTicks 22.
+			e.FangWarmup, e.FangLife = 0, 22
+		case "ominous_item_spawner":
+			// spawnItemAfterTicks stays 0 on the summon path — the
+			// 60-120 roll only runs in the static create() factory a
+			// trial spawner calls — so a bare summon kills tick 1.
+			e.OminousSpawnAfter = 0
+		case "falling_block":
+			// FallingBlockEntity's constructor uses sand when the
+			// summon SNBT carries no BlockState.Name.
+			e.FallingBlockName = "sand"
+		}
+		if tag != nil {
+			if mv, ok := tag.vals["Motion"]; ok && len(mv.items) == 3 {
+				e.MotionX = snbtNum(mv.items[0])
+				e.MotionY = snbtNum(mv.items[1])
+				e.MotionZ = snbtNum(mv.items[2])
+				e.VX = int16(e.MotionX * 8000)
+				e.VY = int16(e.MotionY * 8000)
+				e.VZ = int16(e.MotionZ * 8000)
+			}
+			if bs, ok := tag.vals["BlockState"]; ok && name == "falling_block" {
+				if bn, ok := bs.vals["Name"]; ok && bn.str != "" {
+					e.FallingBlockName = strings.TrimPrefix(bn.str, "minecraft:")
+				}
+			}
+			if name == "ominous_item_spawner" {
+				if v, ok := tag.vals["spawn_item_after_ticks"]; ok {
+					e.OminousSpawnAfter = int64(snbtNum(v))
+				}
+			}
+		}
+		s.entities.Spawn(e)
+		s.broadcastEntitySpawn(nil, *e)
+		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}
 	// A small fireball summoned with Motion flies like a dispenser
 	// shot — ownerless, no acceleration power needed for the wire.
