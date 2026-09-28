@@ -1779,6 +1779,12 @@ func (s *Server) runSummon(player string, args []string) reply {
 			Dangerous:      dangerous,
 			NoGravity:      noGrav,
 		})
+		// readAdditionalSaveData routes dangerous through
+		// entityData.set — a non-default write dirties the synched
+		// data, which re-opens sendChanges for one extra bundle.
+		if dangerous {
+			e.MetaDirty = true
+		}
 		s.broadcastEntitySpawn(nil, *e)
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}

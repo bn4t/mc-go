@@ -201,6 +201,33 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 		// reach gate is vanilla's isWithinAttackRange — the eye to the
 		// target's bounding box, not center distance.
 		if e, ok := s.entities.Get(targetID); ok && !e.Living {
+			if name, ok := EntityTypeName(e.Type); ok && entityTypeInTag(name, "redirectable_projectile") {
+				// Player.deflectProjectile runs ahead of the damage
+				// math: a redirectable projectile takes AIM_DEFLECT —
+				// delta := the attacker's look angle, owner := the
+				// attacker — then PLAYER_ATTACK_NODAMAGE plays and the
+				// attack returns before any hurt or knockback.
+				if !sess.withinAttackRange(e.X, e.Y, e.Z, entityBBDims(&e)) {
+					return
+				}
+				if ep, ok := s.entities.GetPtr(targetID); ok {
+					s.deflectAimProjectile(sess, ep)
+					sess.attackTicker = 0
+					s.broadcastAttackSound(sess, sndAttackNodamage)
+				}
+				return
+			}
+			// A non-redirectable Projectile still can't be hurt —
+			// hurtServer returns false — so the attack falls through
+			// to the swing's failed-hurt arm: PLAYER_ATTACK_NODAMAGE.
+			if name, ok := EntityTypeName(e.Type); ok && (projectileTickTypes[name] || hurtingProjectileTypes[name]) {
+				if !sess.withinAttackRange(e.X, e.Y, e.Z, entityBBDims(&e)) {
+					return
+				}
+				sess.attackTicker = 0
+				s.broadcastAttackSound(sess, sndAttackNodamage)
+				return
+			}
 			// VehicleEntity takes its own hurt path — wobble metadata,
 			// banked damage, break-and-drop — instead of LivingEntity
 			// damage. The reach gate is the same bounding-box test.

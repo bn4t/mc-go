@@ -106,6 +106,110 @@ func hurtingProjectileDims(name string) (halfWidth, height float64) {
 	}
 }
 
+// deflectingHit finds the entity this projectile's swept segment
+// would hit that carries a projectile deflection — today only the
+// breeze (deflects_projectiles tag) — honoring lastDeflectedBy: an
+// entity that already bounced this projectile cannot deflect it
+// again and the hit lands normally instead. On a hit the projectile
+// setPos'es at the segment's box-entry point, vanilla's
+// setPos(hitResult.location).
+func (s *Server) deflectingHit(e *Entity, ox, oy, oz float64) *Entity {
+	s.entities.mu.RLock()
+	targets := make([]*Entity, 0, len(s.entities.byID))
+	for _, t := range s.entities.byID {
+		targets = append(targets, t)
+	}
+	s.entities.mu.RUnlock()
+	for _, t := range targets {
+		if !t.Living || t.Dying || t.ID == e.ID || t.ID == e.arrowShooter || t.Dim != e.Dim {
+			continue
+		}
+		if t.ID == e.LastDeflectedBy {
+			continue
+		}
+		name, ok := EntityTypeName(t.Type)
+		if !ok || !entityTypeInTag(name, "deflects_projectiles") {
+			continue
+		}
+		bb := entityBBDims(t)
+		t0, hit := segmentHitsBoxT(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1])
+		if !hit {
+			continue
+		}
+		e.X = ox + (e.X-ox)*t0
+		e.Y = oy + (e.Y-oy)*t0
+		e.Z = oz + (e.Z-oz)*t0
+		return t
+	}
+	return nil
+}
+
+// deflectAimProjectile is ProjectileDeflection.AIM_DEFLECT plus
+// Projectile.deflect's server tail: the delta becomes the
+// attacker's look angle, the attacker becomes the owner (a live
+// owner also shields the unload discard), and a hurting
+// projectile's onDeflection(flag=true) resets accelerationPower to
+// 0.1. needsSync latches the motion+power bundle onto the next
+// sendChanges gate.
+func (s *Server) deflectAimProjectile(sess *Session, e *Entity) {
+	_, _, _, yaw, pitch, _ := sess.Pos()
+	yawR := float64(yaw) * math.Pi / 180
+	pitchR := float64(pitch) * math.Pi / 180
+	e.MotionX = -math.Sin(yawR) * math.Cos(pitchR)
+	e.MotionY = -math.Sin(pitchR)
+	e.MotionZ = math.Cos(yawR) * math.Cos(pitchR)
+	e.ProjOwner = sess.getUUID()
+	e.HasProjOwner = true
+	if name, ok := EntityTypeName(e.Type); ok && hurtingProjectileTypes[name] {
+		e.AccelPower = 0.1
+	}
+	e.NeedsSync = true
+}
+
+// projOutsideOwnerRange is Projectile.isOutsideOwnerCollisionRange:
+// an ownerless projectile is always "outside" (LeftOwner latches on
+// its first tick); otherwise the projectile's box — expanded along
+// its delta then inflated by 1 — must have cleared the owner's box.
+// mc-go resolves the owner to a session player (its only producer),
+// and a missing session reads as removed.
+func (s *Server) projOutsideOwnerRange(e *Entity, x, y, z float64) bool {
+	if !e.HasProjOwner {
+		return true
+	}
+	sess := s.sessionByUUID(e.ProjOwner)
+	if sess == nil {
+		return true
+	}
+	hw := float64(0.15625)
+	h := float64(0.3125)
+	if name, ok := EntityTypeName(e.Type); ok {
+		hw, h = hurtingProjectileDims(name)
+		if !hurtingProjectileTypes[name] {
+			hw, h = 0.25, 0.25 // arrows/thrown — the 0.5-cube types
+		}
+	}
+	// expandTowards(delta) then inflate(1) on the projectile AABB.
+	lo := [3]float64{x - hw, y, z - hw}
+	hi := [3]float64{x + hw, y + h, z + hw}
+	d := [3]float64{e.MotionX, e.MotionY, e.MotionZ}
+	for i := 0; i < 3; i++ {
+		if d[i] > 0 {
+			hi[i] += d[i]
+		} else {
+			lo[i] += d[i]
+		}
+		lo[i] -= 1
+		hi[i] += 1
+	}
+	px, py, pz, _, _, _ := sess.Pos()
+	// Player AABB: 0.6 wide, 1.8 tall (CAN_BE_PICKED is the standing
+	// player — no vehicle or passenger interplay modelled here).
+	const phw, ph = 0.3, 1.8
+	return lo[0] > px+phw || hi[0] < px-phw ||
+		lo[1] > py+ph || hi[1] < py ||
+		lo[2] > pz+phw || hi[2] < pz-phw
+}
+
 // chunkTicketed is the dedicated-server form of Level.hasChunkAt: a
 // chunk is loaded only while some in-play, non-spectator session in
 // the dimension tickets it — the streamed window (viewRadius) plus
@@ -318,11 +422,12 @@ func (s *Server) arrowTickStep() {
 			// every loaded chunk — on a dedicated server a chunk is
 			// loaded only while a player tickets it, so the boundary
 			// is the streamed window plus the ticket ring's border
-			// chunk. mc-go tracks no projectile shooter, so shot
-			// projectiles read as ownerless like summons; a live
-			// owner blocking the discard is a finer edge than this
-			// check models.
-			if !s.chunkTicketed(e.Dim, e.X, e.Z) {
+			// chunk. mc-go sets ProjOwner only on AIM_DEFLECT, so
+			// shot projectiles read as ownerless like summons; a
+			// live owner blocks the discard (vanilla's
+			// owner.isRemoved() arm).
+			ownerless := !e.HasProjOwner || s.sessionByUUID(e.ProjOwner) == nil
+			if ownerless && !s.chunkTicketed(e.Dim, e.X, e.Z) {
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 				continue
@@ -363,9 +468,36 @@ func (s *Server) arrowTickStep() {
 			e.MotionY *= arrowAirDrag
 			e.MotionZ *= arrowAirDrag
 		}
+		// Projectile.tick's head runs after setPos: the first tick
+		// latches hasBeenShot (vanilla also fires a projectile_shoot
+		// game event there) and checkLeftOwner latches leftOwner once
+		// the expanded box clears the owner's.
+		e.HasBeenShot = true
+		if !e.LeftOwner {
+			e.LeftOwner = s.projOutsideOwnerRange(e, e.X, e.Y, e.Z)
+		}
 		// Vanilla clips each target's inflated AABB against the whole
 		// tick's movement segment — a point check at the new tip tunnels
 		// straight through at full draw speed (3 blocks/tick).
+		// Projectile.hitTargetOrDeflectSelf runs before onHit: a hit
+		// entity in the deflects_projectiles tag (only breeze today)
+		// bounces the projectile instead — REVERSE flips the delta at
+		// half speed, spins the facing 170-190°, and a hurting
+		// projectile's onDeflection(flag=false) halves its
+		// accelerationPower. lastDeflectedBy dedups: the same entity
+		// deflects a projectile once, later hits land normally.
+		if hurtingProjectileTypes[name] || name == "arrow" || name == "spectral_arrow" || name == "trident" {
+			if de := s.deflectingHit(e, ox, oy, oz); de != nil {
+				e.MotionX, e.MotionY, e.MotionZ = -0.5*e.MotionX, -0.5*e.MotionY, -0.5*e.MotionZ
+				e.Yaw += 170 + rand.Float32()*20
+				e.LastDeflectedBy = de.ID
+				if hurtingProjectileTypes[name] {
+					e.AccelPower *= 0.5
+				}
+				e.NeedsSync = true
+				continue
+			}
+		}
 		var collided bool
 		switch {
 		case isPotion:
@@ -803,6 +935,14 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 // slab-tested against the entity box inflated by 0.3 — the expansion
 // ProjectileUtil applies to hit targets.
 func segmentHitsBox(sx, sy, sz, ex, ey, ez, bx, by, bz, w, h float64) bool {
+	_, hit := segmentHitsBoxT(sx, sy, sz, ex, ey, ez, bx, by, bz, w, h)
+	return hit
+}
+
+// segmentHitsBoxT is segmentHitsBox plus the slab-test entry
+// parameter along the segment, for callers that need the hit point
+// itself — a deflected projectile setPos'es at the hit location.
+func segmentHitsBoxT(sx, sy, sz, ex, ey, ez, bx, by, bz, w, h float64) (float64, bool) {
 	hw := w/2 + 0.3
 	min := [3]float64{bx - hw, by - 0.3, bz - hw}
 	max := [3]float64{bx + hw, by + h + 0.3, bz + hw}
@@ -812,7 +952,7 @@ func segmentHitsBox(sx, sy, sz, ex, ey, ez, bx, by, bz, w, h float64) bool {
 	for i, a := range axes {
 		if a[1] == 0 {
 			if a[0] < min[i] || a[0] > max[i] {
-				return false
+				return 0, false
 			}
 			continue
 		}
@@ -828,10 +968,10 @@ func segmentHitsBox(sx, sy, sz, ex, ey, ez, bx, by, bz, w, h float64) bool {
 			t1 = tb
 		}
 		if t0 > t1 {
-			return false
+			return 0, false
 		}
 	}
-	return true
+	return t0, true
 }
 
 // tridentUseTicks is TridentItem.releaseUsing's hold floor: under 10

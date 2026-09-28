@@ -321,8 +321,11 @@ func (s *Server) mobSyncFlush(e *Entity) {
 	// Vanilla's gate reads the entity's own tickCount BEFORE this tick's
 	// increment: a fresh tracker emits on its first sendChanges
 	// (0 % interval == 0) — e.g. an item's first fall tick rides a
-	// move_entity_pos one tick after the spawn packet.
-	if e.SyncCount%s.entitySyncInterval(e) == 0 || e.PosDirty || e.MetaDirty {
+	// move_entity_pos one tick after the spawn packet. needsSync is in
+	// the same gate in ServerEntity.sendChanges, so a latched
+	// sync (deflect, summon load) emits on the next tracker tick,
+	// not the next interval boundary.
+	if e.SyncCount%s.entitySyncInterval(e) == 0 || e.PosDirty || e.MetaDirty || e.NeedsSync {
 		s.mobMoveSync(e)
 	}
 	e.SyncCount++
@@ -335,7 +338,18 @@ func (s *Server) mobSyncFlush(e *Entity) {
 		// packDirty sends only the changed entries — an empty diff
 		// (a stale latch, or a merge that already dataSynced the
 		// change) means no packet at all, like vanilla's sendChanges.
-		if meta := encodeLivingMetadataDirty(e, s.effectParticlesValue(e)); len(meta) > 0 {
+		var meta []byte
+		if name, ok := EntityTypeName(e.Type); ok && name == "wither_skull" {
+			// DATA_DANGEROUS — the skull's only non-living entry —
+			// emits when it is set (a reset to the false default
+			// writes an empty pack, like packDirty with no diff).
+			if e.Dangerous {
+				meta = []byte{8, 8, 1, 0xFF}
+			}
+		} else {
+			meta = encodeLivingMetadataDirty(e, s.effectParticlesValue(e))
+		}
+		if len(meta) > 0 {
 			s.broadcastEntityMetadata(e.ID, meta)
 		}
 		e.ParticlesSent = s.effectParticlesValue(e)

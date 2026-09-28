@@ -525,6 +525,19 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	if hurtingProjectileTypes[typeName] {
 		m["acceleration_power"] = e.AccelPower
 	}
+	// Projectile.addAdditionalSaveData: Owner is the [I;] uuid array
+	// while set, LeftOwner only once latched, HasBeenShot
+	// unconditionally — the shared projectile tail every
+	// arrowTickStep/windChargeTickStep type carries.
+	if hurtingProjectileTypes[typeName] || projectileTickTypes[typeName] {
+		if e.HasProjOwner {
+			m["Owner"] = uuidInts(e.ProjOwner)
+		}
+		if e.LeftOwner {
+			m["LeftOwner"] = nbtBool(true)
+		}
+		m["HasBeenShot"] = nbtBool(e.HasBeenShot)
+	}
 	// WitherSkull's own write also emits dangerous unconditionally
 	// (putBoolean, not the is-set gate).
 	if typeName == "wither_skull" {
@@ -1142,8 +1155,13 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	if name, ok2 := EntityTypeName(e.Type); ok2 && hurtingProjectileTypes[name] {
 		if name == "wither_skull" {
 			// readAdditionalSaveData's getBooleanOr("dangerous",
-			// false) — absent reads as the false default.
-			e.Dangerous = nbtTruth(save["dangerous"])
+			// false) — absent reads as the false default. The write
+			// goes through entityData.set: a value change dirties the
+			// synched data, an equal value does not.
+			if d := nbtTruth(save["dangerous"]); d != e.Dangerous {
+				e.Dangerous = d
+				e.MetaDirty = true
+			}
 		}
 		if v, ok := save["acceleration_power"]; ok {
 			switch f := v.(type) {
@@ -2664,8 +2682,15 @@ var entityTags = map[string][]string{
 }
 
 func (d *dataEntity) entityInTag(tag string) bool {
+	return entityTypeInTag(d.typeName(), tag)
+}
+
+// entityTypeInTag is the entity-type-name form of entityInTag: the
+// tag lookup code that has no dataEntity at hand (projectile tick,
+// attack dispatch) shares the same table.
+func entityTypeInTag(typeName, tag string) bool {
 	for _, t := range entityTags[strings.TrimPrefix(tag, "minecraft:")] {
-		if t == d.typeName() {
+		if t == typeName {
 			return true
 		}
 	}

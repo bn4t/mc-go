@@ -76,6 +76,22 @@ type Entity struct {
 	// from a zero uuid.
 	Owner    [16]byte
 	HasOwner bool
+	// ProjOwner is Projectile.owner — the shooter or latest
+	// deflector's UUID (vanilla's EntityReference). Set by
+	// AIM_DEFLECT; a live owner shields the ownerless
+	// hurting-projectile unload discard. HasProjOwner distinguishes
+	// "no owner" from a zero uuid.
+	ProjOwner    [16]byte
+	HasProjOwner bool
+	// LastDeflectedBy is Projectile.lastDeflectedBy — an entity may
+	// deflect the same projectile only once, later hits land.
+	LastDeflectedBy int32
+	// LeftOwner is Projectile.leftOwner — latches the first tick the
+	// projectile's expanded box clears the owner's (ownerless
+	// projectiles latch immediately). HasBeenShot is the same
+	// unconditional latch the first Projectile.tick runs.
+	LeftOwner   bool
+	HasBeenShot bool
 	// FakeItem is vanilla's ItemEntity.makeFakeItem: the /give visual
 	// toss — never pickuppable, despawns on the next item tick.
 	FakeItem bool

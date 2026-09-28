@@ -28,7 +28,23 @@ func (s *Server) windChargeTickStep() {
 		// vanilla's tick — the charge gains accelerationPower along
 		// its own direction every tick (inertia 1.0, forever).
 		s.applyHurtingInertia(e, name)
+		// AbstractHurtingProjectile.tick's ownerless discard: an
+		// unowned charge drops the tick its position leaves every
+		// player-ticketed chunk.
+		ownerless := !e.HasProjOwner || s.sessionByUUID(e.ProjOwner) == nil
+		if ownerless && !s.chunkTicketed(e.Dim, e.X, e.Z) {
+			s.entities.Remove(e.ID)
+			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+			continue
+		}
 		nx, ny, nz := e.X+e.MotionX, e.Y+e.MotionY, e.Z+e.MotionZ
+		// Projectile.tick's head on the post-move position: hasBeenShot
+		// latches on the first tick, leftOwner once the expanded box
+		// clears the owner's.
+		e.HasBeenShot = true
+		if !e.LeftOwner {
+			e.LeftOwner = s.projOutsideOwnerRange(e, nx, ny, nz)
+		}
 		w := s.dimWorld(e.Dim)
 		if w != nil {
 			bp := world.Pos{X: int(math.Floor(nx)), Y: int(math.Floor(ny)), Z: int(math.Floor(nz))}

@@ -11337,3 +11337,53 @@ other join paths suite-wide; `sendWindow`'s ~3.2 s synchronous
 light-init on the packet-handler thread (perf gap vs vanilla's
 async pipeline — it stalls command processing, which is why the
 test drains with `dataGetLine`).
+
+## Slice — projectile deflection + owner/leftOwner/hasBeenShot tail
+
+Measured (javap `Player.attack`, `Projectile`,
+`AbstractHurtingProjectile`, `ProjectileDeflection` + generated
+entity_type tag JSONs):
+
+- `Player.attack` → `deflectProjectile`: the target must be in the
+  `redirectable_projectile` tag ({fireball, wind_charge,
+  breeze_wind_charge}) and a `Projectile` — then
+  `deflect(AIM_DEFLECT, player, EntityReference.of(player), true)`
+  and the attack returns before damage math. AIM_DEFLECT sets
+  delta := attacker look angle; `deflect` also calls
+  `setOwner(attacker)` then `onDeflection(true)` — for hurting
+  projectiles that resets `acceleration_power` to 0.1 (flag=false
+  halves it). Success plays PLAYER_ATTACK_NODAMAGE.
+- `hitTargetOrDeflectSelf` (entity-hit arm, AbstractHurting-
+  Projectile.tick and AbstractArrow.tick — NOT Throwable-
+  Projectile): if the hit entity's `deflection()` != NONE — only
+  breeze carries `deflects_projectiles` — and it isn't the last
+  deflector, `deflect(REVERSE, entity, owner, false)`:
+  delta *= -0.5, yRot += 170+rand*20, lastDeflectedBy = entity.
+- `Projectile.hurtServer` always returns false, so punching a
+  non-redirectable projectile (skull, arrow, throwable) falls
+  through to the swing's failed-hurt arm: PLAYER_ATTACK_NODAMAGE
+  plays on the punch too.
+- `Projectile.tick` head: `hasBeenShot` latches on the first tick;
+  `checkLeftOwner` latches `leftOwner` once the projectile box —
+  expanded along delta and inflated by 1 — clears the owner's
+  root-vehicle CAN_BE_PICKED boxes (ownerless → latched tick 1).
+- `Projectile.addAdditionalSaveData`: `Owner` [I;] uuid ints while
+  set, `LeftOwner` bool once true, `HasBeenShot` unconditionally.
+- `sendChanges`'s outer gate also opens on `entityData.isDirty` —
+  a summon-time `dangerous:1b` (entityData.set changing the
+  default) emits one extra bundle ahead of the %10 gates.
+
+Pinned end-to-end: `TestProjectileDeflectParity` — punch a still
+fireball in reach (delta := look angle, power reset to 0.1, the
+acceleration drifts on the analytic curve v_n = 1.9 − 0.9·0.95ⁿ —
+drift gates may land one tick apart between legs since the punch
+is processed mid-tick against each server's entity pass), Owner
+[I;] digit-equal, HasBeenShot/LeftOwner = 1b, wither_skull punch
+leaves Motion {0,0,0} + nodamage count equal (hurt-false arm).
+
+Deferred: MOMENTUM_DEFLECT (no vanilla caller found — constant
+only); breeze REVERSE-deflect ordering approximates "hit entity
+is a deflector" vs strict raycast-nearest; EntityReference for
+non-session owners (vehicles/passengers unmodelled);
+`rotateTowardsMovement` facing lerp; Owner NBT for non-projectile
+references (angry_at etc.).
