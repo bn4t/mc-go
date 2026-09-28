@@ -285,6 +285,12 @@ type Session struct {
 	// locTicks paces the location advancement trigger, which vanilla
 	// fires for a player every twenty ticks (tickCount % 20).
 	locTicks int32
+	// entityTicks is the player entity's tickCount: it advances once
+	// per entity game tick (playerFluidTickStep — sprint/step ticks
+	// included, wall ticks while frozen since players are exempt),
+	// NOT on the wall-clock connection tick like locTicks. Vanilla
+	// paces LivingEntity.baseTick's freeze damage on tickCount % 40.
+	entityTicks int64
 	// lastHorizSq is the squared horizontal delta of the last move
 	// packet — vanilla's knownMovement, which gates the sweep attack
 	// (it must stay under (movement speed * 2.5)²).

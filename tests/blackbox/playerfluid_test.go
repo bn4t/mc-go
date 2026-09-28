@@ -274,8 +274,14 @@ func TestPlayerFluidParity(t *testing.T) {
 			sendCommand(t, pw, "fill 33 -60 33 33 -56 33 minecraft:powder_snow")
 			sendCommand(t, pw, "tp @s 33.5 -59.0 33.5")
 			_ = sink.take()
-			sendCommand(t, pw, "tick sprint 170")
-			time.Sleep(500 * time.Millisecond)
+			// Vanilla paces the freeze hurt on tickCount%40; the
+			// sprint must leave a frozen window wider than forty
+			// ticks (accrual caps at 140) so a boundary always lands.
+			// The wait has to outlast mc-go's slower sprint rate —
+			// the hits near the window's tail emit late, and polling
+			// the clock through the sink would eat the events.
+			sendCommand(t, pw, "tick sprint 200")
+			time.Sleep(2500 * time.Millisecond)
 			freezeHits := 0
 			frostWire := false
 			for _, line := range sink.take() {
@@ -283,6 +289,7 @@ func TestPlayerFluidParity(t *testing.T) {
 					r := protocol.NewPacketReader([]byte(line[5:]))
 					vid, _ := r.VarInt()
 					ty, _ := r.VarInt()
+					t.Logf("%s snow damage_event victim=%d type=%d", s.label, vid, ty)
 					if ty == 17 { // damage_type freeze
 						freezeHits++
 					}

@@ -11524,3 +11524,30 @@ mc-go), TestLavaBurnSoundParity (mc-go keeps GENERIC_BURN cadence 4
 packets after pig death), TestPlayerFluidParity (mc-go powder-snow
 freezeHits=0 with TicksFrozen=140 vs vanilla 2 hits — likely a
 regression from an earlier slice, worth its own investigation).
+
+## Slice — player freeze hurt paced on entity tickCount, not SyncCount
+
+`TestPlayerFluidParity`'s powder-snow lane was failing (the
+preexisting regression noted above): mc-go showed TicksFrozen=140 but
+zero freeze damage events with an over-drained Health. Instrumenting
+`damageWith` showed the hurt arm firing **every entity tick** — the
+gate read `pe.SyncCount%40`, and SyncCount only advances in
+`mobSyncFlush`, which never runs for session-player records: the
+modulo was stuck at 0, so i-frames alone throttled the visible
+cadence to ~every 10 ticks. Vanilla paces the freeze hurt in
+LivingEntity.baseTick on the entity's own `tickCount % 40`.
+
+Fix: new `sess.entityTicks` counter advanced once per session inside
+`playerFluidTickStep` (the player entity's game tick — sprint/step
+ticks included, plus wall ticks while frozen since players are
+exempt; `sess.locTicks` stays the wall-clock counter for the location
+advancement). The freeze gate now reads `sess.entityTicks%40 == 0`.
+
+Test harness lesson: `sprintTicks` polls `gameTimeOf`, which reads
+the same chat sink — polling consumed the damage-event lines mid-
+sprint and starved the later count on BOTH legs. The lane keeps a
+plain `sendCommand` + 2.5s wait (mc-go's sprint rate is well under
+vanilla's ~1 ktps; the tail hits emit late) and was widened to a
+200-tick sprint so the frozen window (≥140) always covers a %40
+boundary. Green on both servers: vanilla Health=17/4 hits, mc-go
+Health=17.67/3 hits, TicksFrozen=140 both.

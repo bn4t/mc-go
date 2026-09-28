@@ -1372,6 +1372,9 @@ func (s *Server) playerFluidTickStep() {
 			return true
 		}
 		x, y, z, _, _, _ := sess.Pos()
+		// The player entity's tickCount — vanilla increments it in
+		// Entity.baseTick ahead of the living pass below.
+		sess.entityTicks++
 		// Entity.baseTick's onBelowWorld: one four-damage hit per
 		// entity tick under the out-of-world band; the post-hit grace
 		// paces the visible damage to roughly every ten.
@@ -1481,7 +1484,11 @@ func (s *Server) playerFluidTickStep() {
 		// type isn't freeze-immune — the hurt itself is mode-gated
 		// inside damageWith.
 		if pe, ok := s.entities.GetPtr(sess.entityID.Load()); ok {
-			if pe.TicksFrozen >= 140 && pe.SyncCount%40 == 0 {
+			// Vanilla paces this on the entity's tickCount (every
+			// fortieth tick), not the sendChanges cadence — SyncCount
+			// stalls on player records, which let the arm fire every
+			// tick and lean on i-frames alone.
+			if pe.TicksFrozen >= 140 && sess.entityTicks%40 == 0 {
 				s.damageWith(sess, 1, translatable("death.attack.frozen",
 					playerChatComponent(sess)), srcFreeze)
 			}
