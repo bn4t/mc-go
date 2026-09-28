@@ -998,9 +998,9 @@ func (s *Server) arrowTickStep() {
 				if hurtingProjectileTypes[name] {
 					hw, hh = hurtingProjectileDims(name)
 				}
-				_, inW, ax, az, ac := entityFluidScan(w, e.X, e.Y, e.Z, hw, hh, fluidWater)
+				_, inW, ax, ay, az, ac := entityFluidScan(w, e.X, e.Y, e.Z, hw, hh, fluidWater)
 				if e.arrowInWaterWas {
-					e.applyFluidCurrent(ax, az, ac, 0.014)
+					e.applyFluidCurrent(ax, ay, az, ac, 0.014)
 				}
 				e.arrowInWaterWas = e.arrowInWater
 				e.arrowInWater = inW

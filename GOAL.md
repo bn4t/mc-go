@@ -11481,9 +11481,7 @@ Two probe-protocol notes for future slices:
   steps complete; for per-tick traces treat line n as
   end-of-tick n−1.
 
-Deferred: water `getFlow` current push on entities (boundary
-cells push ~0.014/tick — affects every entity type, own slice);
-`inGroundTime` counter (no observable consumer yet); sprint's
+Deferred: `inGroundTime` counter (no observable consumer yet); sprint's
 n+1 clock-vs-entity-tick asymmetry observed on a freeze+summoned
 arrow (re-measure if a slice pins entity counts against
 `/tick sprint`); entities summoned under freeze appear not to
@@ -12022,3 +12020,66 @@ Deferred: vanilla's eggs-1 write is flag 2 (no neighbour updates);
 mc-go's setNaturalBlock sends neighbour updates — a wire-order nit
 only, same end state. turtle_egg's randomTick hatch arm is separate
 (already sliced in c29ea69).
+
+## Slice — vanilla getFlow current: ownHeight differentials + armor-stand physics tick
+
+Replaced mc-go's `fluidSurfaceHeight`/`fluidFlowDir` approximations
+with the exact 26.2 model decompiled from FlowingFluid:
+
+- `getOwnHeight(state) = amount/9.0` where amount = 8 − LEVEL (source
+  and FALLING both read 8/9 — not the 1.0 mc-go first coded).
+- `getHeight(state,pos)` (the fluid top a fluid-interaction scan
+  sees) = 1.0 when the same-kind fluid sits directly above, else
+  ownHeight. `entityFluidScan`'s per-cell fluidTop now uses it and
+  cells whose top is below the box bottom are skipped outright
+  (vanilla's `!(fluidTop < box.minY)` gate — the reason items resting
+  on a surface bob never read overlap and never drift).
+- `getFlow` verbatim: per horizontal neighbor,
+  `distance = ownHeight − neighborHeight` when the neighbor holds
+  same-tag fluid; when the neighbor is empty AND doesn't block
+  motion the look drops one cell below — the below cell's ownHeight
+  minus 0.8888889 shifts the weight (the ledge-pull arm); solid
+  neighbors contribute 0. A FALLING cell with a solid face at its
+  own y or the cell above normalizes then adds (0,−6,0), and the
+  whole vector is normalized once.
+- `isSolidFace` approximation: same-fluid → false, ice → false, else
+  `!world.NonSolid(b)` — the UP special case isn't needed (getFlow
+  only asks horizontal faces).
+- Depth scale: the running tracker height is per-cell-max of
+  `fluidTop − entityY`; a cell's flow is scaled by that depth when
+  below 0.4, then accumulated — previously mc-go scaled by a global
+  depth after summing.
+
+Entity side (EntityFluidInteraction$Tracker): the scan now returns
+the 3-vector + cell count; `applyFluidCurrent` normalizes the full
+3D sum (non-player branch), floors to 0.0045 when |deltaXZ|<0.003
+and |flow|<0.0045, and addDeltaMovement's all three components —
+the −6 waterfall pull reaches entities through the y channel.
+
+Bigger gap the differential surfaced: armor stands never ticked.
+`nonMobLiving` excluded them from the mob travel path entirely —
+they're LivingEntity not Mob, so vanilla still runs
+updateFluidInteraction + aiStep's zero-input travel (gravity, fluid
+drag, current push). mobTickStep now runs that arm for nonMobLiving:
+entityFluidTick + mobTravelStep(0) + NeedsSync (aiStep's push latch).
+
+Probe-design findings worth keeping (each measured on vanilla):
+items hover with their box bottom just above the fluid top → zero
+overlap, no push; a NoGravity item escapes the column via the
+underwater-lift cap (+4.4 in 80 ticks); a NoAI zombie doesn't tick
+physics AT ALL — hung frozen mid-air over 100 ticks; a NoGravity
+arrow/armor_stand likewise never moves. A plain armor stand sinks,
+ticks, and lets the current do the talking.
+
+Pinned: TestWaterCurrentPushParity — leg A feeds a walled lane from
+both ends (the level-4 tie cell reads flow 0; the left front pushes
++x, the right −x) and the stand converges at the boundary: vanilla
+−1.432, mc-go −1.420. Leg B ends the lane in a dug sump: the level-7
+lip drops falling water, the stand rides +x, falls in, and pins
+against the cap face at the pit floor: identical (21.75, −61) on both
+legs.
+
+Deferred: the Tracker's Player branch scales the accumulated flow by
+1/count instead of normalizing — session players have no server-side
+delta integration yet (client-authoritative pos), so the arm waits
+for that substrate. applyFluidCurrent currently always normalizes.

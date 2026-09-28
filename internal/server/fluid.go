@@ -831,22 +831,27 @@ func (s *Server) setNaturalBlockNotify(d *dimension, pos world.Pos, blk, notify 
 	s.neighborSurvival(d, pos, notify)
 }
 
-// fluidSurfaceHeight is the rendered fluid surface inside a cell:
-// falling cells (level >= 8) read full height, flowing cells fall off
-// by level, sources sit at the top (level 0 -> 9/9 = 1).
-func fluidSurfaceHeight(level int) float64 {
-	if level >= 8 {
+// fluidTopHeight is FlowingFluid.getHeight: the fluid surface inside
+// a cell — a full block when the same fluid sits directly above (the
+// falling column reads solid), otherwise the cell's own height
+// (amount/9: source and falling read 8/9, flowing falls off by level).
+func fluidTopHeight(w *world.World, cx, cy, cz int, kind fluidKind, lv int) float64 {
+	k, _, ok := fluidOf(w.GetBlock(world.Pos{X: cx, Y: cy + 1, Z: cz}))
+	if ok && k == kind {
 		return 1.0
 	}
-	return float64(9-level) / 9
+	return fluidOwnHeight(lv)
 }
 
 // entityFluidScan reads the fluid overlap for an entity box: the
 // deepest submersion (fluid surface above the feet, clamped to the
-// box), whether any cell held `kind`, and the accumulated horizontal
-// flow vector of flowing cells plus their count — the tracker state
-// EntityFluidInteraction.update builds for applyCurrentTo.
-func entityFluidScan(w *world.World, x, y, z, half, height float64, kind fluidKind) (depth float64, in bool, accX, accZ float64, accCount int) {
+// box), whether any cell held `kind`, and the accumulated flow vector
+// of the overlapping cells plus their count — the tracker state
+// EntityFluidInteraction.update builds for applyCurrentTo. Each cell
+// contributes its full getFlow (the waterfall -6 y-pull included),
+// scaled by the running submersion depth while it stays under 0.4 —
+// the shallow-wading ramp.
+func entityFluidScan(w *world.World, x, y, z, half, height float64, kind fluidKind) (depth float64, in bool, accX, accY, accZ float64, accCount int) {
 	x0 := int(math.Floor(x - half))
 	x1 := int(math.Floor(x + half))
 	z0 := int(math.Floor(z - half))
@@ -860,8 +865,11 @@ func entityFluidScan(w *world.World, x, y, z, half, height float64, kind fluidKi
 				if !ok || k != kind {
 					continue
 				}
+				surf := float64(cy) + fluidTopHeight(w, cx, cy, cz, kind, lv)
+				if surf < y {
+					continue // cell's fluid top sits under the box
+				}
 				in = true
-				surf := float64(cy) + fluidSurfaceHeight(lv)
 				if d := surf - y; d > depth {
 					depth = d
 				}
@@ -869,73 +877,124 @@ func entityFluidScan(w *world.World, x, y, z, half, height float64, kind fluidKi
 				// push too: a boundary source next to air flows
 				// outward the tick an entity grazes it (measured:
 				// a source-box edge pushes ~0.014/tick on arrows).
-				if lv <= fluidMaxLevel {
-					fx, fz := fluidFlowDir(w, cx, cy, cz, kind)
-					accX += fx
-					accZ += fz
-					accCount++
+				fx, fy, fz := fluidFlowVec(w, cx, cy, cz, kind, lv)
+				if depth < 0.4 {
+					fx, fy, fz = fx*depth, fy*depth, fz*depth
 				}
+				accX += fx
+				accY += fy
+				accZ += fz
+				accCount++
 			}
 		}
 	}
-	return depth, in, accX, accZ, accCount
+	return depth, in, accX, accY, accZ, accCount
 }
 
-// fluidFlowDir is the horizontal flow gradient of one flowing cell:
-// downhill is toward higher effective levels, with open space beside
-// the flow scoring the strongest pull (a cell off the edge). Solid
-// walls contribute nothing. The result is a unit vector; a still pool
-// edge returns zero.
-func fluidFlowDir(w *world.World, cx, cy, cz int, kind fluidKind) (float64, float64) {
-	_, lv, _ := fluidOf(w.GetBlock(world.Pos{X: cx, Y: cy, Z: cz}))
+// fluidOwnHeight is FluidState.getOwnHeight — amount/9: source and
+// falling carry amount 8 (8/9); a flowing level L carries (8-L)/9.
+func fluidOwnHeight(lv int) float64 {
+	if lv == 0 || lv == fluidFalling {
+		return 8.0 / 9.0
+	}
+	return float64(8-lv) / 9.0
+}
+
+// fluidSolidFace is FlowingFluid.isSolidFace: a face is not solid when
+// the neighbour cell holds the same fluid, always solid on UP, never
+// solid on ice, otherwise it is the block's sturdy face — a full-cube
+// solid is a close read for the waterfall ledge check.
+func fluidSolidFace(w *world.World, p world.Pos, kind fluidKind) bool {
+	k, _, ok := fluidOf(w.GetBlock(p))
+	if ok && k == kind {
+		return false
+	}
+	b := w.GetBlock(p)
+	if n, _ := world.StateOwner(b); n == "minecraft:ice" || n == "ice" {
+		return false
+	}
+	return !world.NonSolid(b)
+}
+
+// fluidFlowVec is FlowingFluid.getFlow: the horizontal gradient sums
+// each neighbour's own-height deficit toward the cell (a neighbour
+// holding the other fluid is skipped entirely; an empty neighbour that
+// is not motion-blocking looks one cell below for same-kind fluid and
+// weights 0.8888889 off it), and a falling cell pressed against a
+// solid face pulls the result down by six before the whole vector
+// normalises — the waterfall edge that drags entities under.
+func fluidFlowVec(w *world.World, cx, cy, cz int, kind fluidKind, lv int) (float64, float64, float64) {
+	own := fluidOwnHeight(lv)
 	var dx, dz float64
 	for _, d := range [4][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}} {
-		nb := world.Pos{X: cx + d[0], Y: cy, Z: cz + d[1]}
-		nk, nlv, ok := fluidOf(w.GetBlock(nb))
-		var eff float64
-		switch {
-		case ok && nk == kind:
-			eff = float64(nlv)
-		case ok: // the other fluid — impassable like a solid wall
+		np := world.Pos{X: cx + d[0], Y: cy, Z: cz + d[1]}
+		nk, nlv, nok := fluidOf(w.GetBlock(np))
+		if nok && nk != kind {
 			continue
-		default:
-			b := w.GetBlock(nb)
-			if b == world.Air || world.NonSolid(b) {
-				eff = float64(fluidFalling)
-			} else {
-				continue
+		}
+		nown := 0.0
+		if nok {
+			nown = fluidOwnHeight(nlv)
+		}
+		weight := 0.0
+		if nown == 0 {
+			if nb := w.GetBlock(np); nb == world.Air || world.NonSolid(nb) {
+				bk, blv, bok := fluidOf(w.GetBlock(world.Pos{X: np.X, Y: np.Y - 1, Z: np.Z}))
+				if !bok || bk == kind {
+					if bown := fluidOwnHeight(blv); bok && bown > 0 {
+						weight = own - (bown - 0.8888889)
+					}
+				}
+			}
+		} else if nown > 0 {
+			weight = own - nown
+		}
+		if weight != 0 {
+			dx += float64(d[0]) * weight
+			dz += float64(d[1]) * weight
+		}
+	}
+	vx, vy, vz := dx, 0.0, dz
+	if lv == fluidFalling {
+		for _, d := range [4][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}} {
+			np := world.Pos{X: cx + d[0], Y: cy, Z: cz + d[1]}
+			if fluidSolidFace(w, np, kind) ||
+				fluidSolidFace(w, world.Pos{X: np.X, Y: np.Y + 1, Z: np.Z}, kind) {
+				l := math.Sqrt(vx*vx + vy*vy + vz*vz)
+				if l > 0 {
+					vx, vy, vz = vx/l, vy/l, vz/l
+				}
+				vy = -6.0
+				break
 			}
 		}
-		w := eff - float64(lv)
-		if w <= 0 {
-			continue
-		}
-		dx += float64(d[0]) * w
-		dz += float64(d[1]) * w
 	}
-	l := math.Hypot(dx, dz)
+	l := math.Sqrt(vx*vx + vy*vy + vz*vz)
 	if l == 0 {
-		return 0, 0
+		return 0, 0, 0
 	}
-	return dx / l, dz / l
+	return vx / l, vy / l, vz / l
 }
 
 // applyFluidCurrent is EntityFluidInteraction.Tracker.applyCurrentTo
 // for a non-player entity: the accumulated flow normalizes into a push
 // scaled by the tag's factor, with a floor ramp for a nearly still
-// entity in a weak current.
-func (e *Entity) applyFluidCurrent(accX, accZ float64, count int, factor float64) {
-	if count == 0 || accX*accX+accZ*accZ < 9.999999747378752e-6 {
+// entity in a weak current. The push is three-dimensional — a
+// waterfall cell's -6 pull shows up as downward delta.
+func (e *Entity) applyFluidCurrent(accX, accY, accZ float64, count int, factor float64) {
+	if count == 0 || accX*accX+accY*accY+accZ*accZ < 9.999999747378752e-6 {
 		return
 	}
-	l := math.Hypot(accX, accZ)
-	px, pz := accX/l*factor, accZ/l*factor
-	pl := math.Hypot(px, pz)
+	l := math.Sqrt(accX*accX + accY*accY + accZ*accZ)
+	px, py, pz := accX/l*factor, accY/l*factor, accZ/l*factor
+	pl := math.Sqrt(px*px + py*py + pz*pz)
 	if math.Abs(e.MotionX) < 0.003 && math.Abs(e.MotionZ) < 0.003 && pl < 0.0045000000000000005 {
 		px = px / pl * 0.0045000000000000005
+		py = py / pl * 0.0045000000000000005
 		pz = pz / pl * 0.0045000000000000005
 	}
 	e.MotionX += px
+	e.MotionY += py
 	e.MotionZ += pz
 }
 
@@ -945,17 +1004,17 @@ func (e *Entity) applyFluidCurrent(accX, accZ float64, count int, factor float64
 // needsSync arm need. The first two return values are the water depth
 // and presence; the last two the lava pair.
 func entityFluidTick(w *world.World, d *dimension, e *Entity, half, height float64) (waterDepth float64, inWater bool, lavaDepth float64, inLava bool) {
-	waterDepth, inWater, ax, az, ac := entityFluidScan(w, e.X, e.Y, e.Z, half, height, fluidWater)
-	lavaDepth, inLava, lx, lz, lc := entityFluidScan(w, e.X, e.Y, e.Z, half, height, fluidLava)
+	waterDepth, inWater, ax, ay, az, ac := entityFluidScan(w, e.X, e.Y, e.Z, half, height, fluidWater)
+	lavaDepth, inLava, lx, ly, lz, lc := entityFluidScan(w, e.X, e.Y, e.Z, half, height, fluidLava)
 	if inWater {
-		e.applyFluidCurrent(ax, az, ac, 0.014)
+		e.applyFluidCurrent(ax, ay, az, ac, 0.014)
 	}
 	if inLava {
 		f := 0.0023333333333333335
 		if d != nil && d.ultraWarm {
 			f = 0.007
 		}
-		e.applyFluidCurrent(lx, lz, lc, f)
+		e.applyFluidCurrent(lx, ly, lz, lc, f)
 	}
 	return waterDepth, inWater, lavaDepth, inLava
 }

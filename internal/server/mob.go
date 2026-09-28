@@ -3734,6 +3734,20 @@ func (s *Server) mobTickStep() {
 			// the move goals — the head re-aims on its own cadence.
 			s.mobLookStep(e)
 		}
+		if e.Riding == 0 && nonMobLiving[ambName] {
+			// LivingEntity.tick for a non-Mob: no goal selector, but
+			// the physics chain still runs — baseTick's
+			// updateFluidInteraction pushes the fluid current into
+			// the delta and aiStep's zero-input travel integrates
+			// gravity + fluid drag. An armor stand falls, sinks, and
+			// drifts with the current; it just never wanders.
+			if w := s.dimWorld(e.Dim); w != nil {
+				bounds := entityBBDims(e)
+				entityFluidTick(w, s.dims[e.Dim], e, bounds[0]/2, bounds[1])
+				e.NeedsSync = true
+				s.mobTravelStep(e, w, 0)
+			}
+		}
 		s.mobSyncFlush(e)
 	}
 	// Entity.tick's positionRider pass: every living vehicle welds
@@ -4039,7 +4053,7 @@ func (s *Server) mobTravelStepPair(e *Entity, w *world.World, speed, zIn, xIn fl
 	// (0.005), terminal ≈ -0.025, so land mobs sink slowly and walk
 	// the bed rather than floating.
 	if d := s.dims[e.Dim]; d != nil {
-		wDepth, inWater, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, bounds[0]/2, bounds[1], fluidWater)
+		wDepth, inWater, _, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, bounds[0]/2, bounds[1], fluidWater)
 		if inWater && wDepth > 0 {
 			e.FallDist = 0
 			e.WalkZZA *= 0.98
@@ -4084,7 +4098,7 @@ func (s *Server) mobTravelStepPair(e *Entity, w *world.World, speed, zIn, xIn fl
 		// fluid jump threshold): shallow damps {0.5,0.8,0.5} plus the
 		// fall adjust, deep scales 0.5; effectiveGravity bites at d/4
 		// — four times water's d/16 — and jumpOutOfFluid(y0) tails it.
-		lDepth, inLava, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, bounds[0]/2, bounds[1], fluidLava)
+		lDepth, inLava, _, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, bounds[0]/2, bounds[1], fluidLava)
 		if inLava && lDepth > 0 {
 			e.WalkZZA *= 0.98
 			e.WalkXXA *= 0.98
@@ -7524,7 +7538,7 @@ func (s *Server) guardianFlopStep(e *Entity, w *world.World) {
 		return
 	}
 	bounds := entityBBDims(e)
-	_, inWater, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, bounds[0]/2, bounds[1], fluidWater)
+	_, inWater, _, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, bounds[0]/2, bounds[1], fluidWater)
 	if inWater {
 		e.AirSupply = 300
 		return

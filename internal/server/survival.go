@@ -639,7 +639,7 @@ func (s *Server) itemTickStep() {
 			// replaces gravity — the orb formula damps xz 0.99 and
 			// caps the rise at y 0.06; otherwise gravity (0.03).
 			entityFluidTick(w, s.dims[e.Dim], e, 0.25, 0.5)
-			_, eyeInWater, _, _, _ := entityFluidScan(
+			_, eyeInWater, _, _, _, _ := entityFluidScan(
 				w, e.X, e.Y+0.425, e.Z, 0, 0, fluidWater)
 			if eyeInWater {
 				e.MotionX *= 0.99
