@@ -141,42 +141,37 @@ func rotateTowardsMovement(e *Entity, dx, dy, dz float64, f float32) {
 	e.Yaw += f * (ty - e.Yaw)
 }
 
-// deflectingHit finds the entity this projectile's swept segment
-// would hit that carries a projectile deflection — today only the
-// breeze (deflects_projectiles tag) — honoring lastDeflectedBy: an
-// entity that already bounced this projectile cannot deflect it
-// again and the hit lands normally instead. On a hit the projectile
-// setPos'es at the segment's box-entry point, vanilla's
-// setPos(hitResult.location).
-func (s *Server) deflectingHit(e *Entity, ox, oy, oz float64) *Entity {
+// entitySweepHit clips each pred-matching entity's bounding box
+// against the projectile's tick movement segment and returns the
+// closest hit with its segment t — ProjectileUtil's
+// getHitResultOnMoveVector picks the closest clip, so callers
+// compare t across candidate sets to find the one entity hit
+// vanilla would land.
+func (s *Server) entitySweepHit(e *Entity, ox, oy, oz float64, pred func(t *Entity, name string) bool) (*Entity, float64) {
 	s.entities.mu.RLock()
 	targets := make([]*Entity, 0, len(s.entities.byID))
 	for _, t := range s.entities.byID {
 		targets = append(targets, t)
 	}
 	s.entities.mu.RUnlock()
+	var best *Entity
+	bt := 2.0
 	for _, t := range targets {
-		if !t.Living || t.Dying || t.ID == e.ID || t.ID == e.arrowShooter || t.Dim != e.Dim {
-			continue
-		}
-		if t.ID == e.LastDeflectedBy {
+		if t.ID == e.ID || t.Dim != e.Dim {
 			continue
 		}
 		name, ok := EntityTypeName(t.Type)
-		if !ok || !entityTypeInTag(name, "deflects_projectiles") {
+		if !ok || !pred(t, name) {
 			continue
 		}
 		bb := entityBBDims(t)
-		t0, hit := segmentHitsBoxT(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1])
-		if !hit {
+		t0, hit := segmentHitsBoxT(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1], projectilePickMargin(e.TicksLived))
+		if !hit || t0 >= bt {
 			continue
 		}
-		e.X = ox + (e.X-ox)*t0
-		e.Y = oy + (e.Y-oy)*t0
-		e.Z = oz + (e.Z-oz)*t0
-		return t
+		best, bt = t, t0
 	}
-	return nil
+	return best, bt
 }
 
 // deflectAimProjectile is ProjectileDeflection.AIM_DEFLECT plus
@@ -199,6 +194,35 @@ func (s *Server) deflectAimProjectile(sess *Session, e *Entity) {
 		e.AccelPower = 0.1
 	}
 	e.NeedsSync = true
+}
+
+// deflectRedirectable is Projectile.onHit's redirectable arm: the
+// hit projectile takes AIM_DEFLECT — delta := the shooter's look
+// angle (the AIM lambda's ifnull skips the delta on an ownerless
+// shot) — its owner becomes the shooter's, and onDeflection's
+// flag=true arm resets accelerationPower to 0.1.
+func (s *Server) deflectRedirectable(e, re *Entity) {
+	var owner *Session
+	if e.HasProjOwner {
+		owner = s.sessionByUUID(e.ProjOwner)
+	}
+	if owner == nil {
+		owner = s.sessionByEntityID(e.arrowShooter)
+	}
+	if owner != nil {
+		_, _, _, oyaw, opit, _ := owner.Pos()
+		yawR := float64(oyaw) * math.Pi / 180
+		pitchR := float64(opit) * math.Pi / 180
+		re.MotionX = -math.Sin(yawR) * math.Cos(pitchR)
+		re.MotionY = -math.Sin(pitchR)
+		re.MotionZ = math.Cos(yawR) * math.Cos(pitchR)
+		re.ProjOwner = owner.getUUID()
+		re.HasProjOwner = true
+	}
+	if rn, ok := EntityTypeName(re.Type); ok && hurtingProjectileTypes[rn] {
+		re.AccelPower = 0.1
+	}
+	re.NeedsSync = true
 }
 
 // projOutsideOwnerRange is Projectile.isOutsideOwnerCollisionRange:
@@ -413,6 +437,9 @@ func (s *Server) arrowTickStep() {
 	s.entities.mu.RUnlock()
 	for _, e := range arrows {
 		name, _ := EntityTypeName(e.Type)
+		// Entity.tick's tickCount++ — feeds computeMargin's pick
+		// ramp on the swept entity scan below.
+		e.TicksLived++
 		isTrident := name == "trident"
 		isPotion := name == "splash_potion" || name == "lingering_potion"
 		// Arrows, spectral arrows and tridents stick in the block they
@@ -610,29 +637,136 @@ func (s *Server) arrowTickStep() {
 		if !e.LeftOwner {
 			e.LeftOwner = s.projOutsideOwnerRange(e, e.X, e.Y, e.Z)
 		}
+		// The world border is an implicit collision wall for the
+		// arrow family — shouldBounceOnWorldBorder on AbstractArrow:
+		// move() clips the entity at the border face and flags the
+		// block hit, which hitTargetOrDeflectSelf bounces as
+		// deflect(REVERSE, null, owner, false) then delta·0.2 — net
+		// −0.1 with the usual 170-190° facing spin.
+		if sticks {
+			if b := s.borderFor(e.Dim); b != nil {
+				half := b.size / 2
+				if e.X < b.centerX-half || e.X > b.centerX+half ||
+					e.Z < b.centerZ-half || e.Z > b.centerZ+half {
+					e.X = math.Max(b.centerX-half, math.Min(b.centerX+half, e.X))
+					e.Z = math.Max(b.centerZ-half, math.Min(b.centerZ+half, e.Z))
+					e.MotionX, e.MotionY, e.MotionZ = -0.1*e.MotionX, -0.1*e.MotionY, -0.1*e.MotionZ
+					e.Yaw += 170 + rand.Float32()*20
+					e.NeedsSync = true
+					continue
+				}
+			}
+		} else if hurtingProjectileTypes[name] {
+			// Non-arrow types can't bounce — shouldBounceOnWorldBorder
+			// false → hitTargetOrDeflectSelf falls through to onHit,
+			// and the border clip is a BLOCK hit: the charge/ball runs
+			// its onHitBlock impact at the face and despawns.
+			if b := s.borderFor(e.Dim); b != nil {
+				half := b.size / 2
+				if e.X < b.centerX-half || e.X > b.centerX+half ||
+					e.Z < b.centerZ-half || e.Z > b.centerZ+half {
+					e.X = math.Max(b.centerX-half, math.Min(b.centerX+half, e.X))
+					e.Z = math.Max(b.centerZ-half, math.Min(b.centerZ+half, e.Z))
+					if d := s.dimensionByName(e.Dim); d != nil {
+						s.emitGameEvent(d, "projectile_land", e.X, e.Y, e.Z, nil, "")
+					}
+					switch name {
+					case "wither_skull":
+						s.witherSkullExplode(e)
+					case "fireball":
+						s.largeFireballExplode(e)
+					case "dragon_fireball":
+						s.dragonFireballImpact(e)
+					case "shulker_bullet":
+						s.shulkerBulletBlockHit(e)
+					}
+					s.entities.Remove(e.ID)
+					s.broadcastEntityRemove([]int32{e.ID})
+					continue
+				}
+			}
+		}
 		// Vanilla clips each target's inflated AABB against the whole
 		// tick's movement segment — a point check at the new tip tunnels
-		// straight through at full draw speed (3 blocks/tick).
-		// Projectile.hitTargetOrDeflectSelf runs before onHit: a hit
-		// entity in the deflects_projectiles tag (only breeze today)
-		// bounces the projectile instead — REVERSE flips the delta at
-		// half speed, spins the facing 170-190°, and a hurting
-		// projectile's onDeflection(flag=false) halves its
-		// accelerationPower. lastDeflectedBy dedups: the same entity
-		// deflects a projectile once, later hits land normally.
+		// straight through at full draw speed (3 blocks/tick) — and the
+		// single closest entity hit picks the arm:
+		//   - a deflects_projectiles entity (only breeze today) whose
+		//     deflection(projectile) isn't NONE bounces it —
+		//     hitTargetOrDeflectSelf's REVERSE arm flips the delta at
+		//     half speed, spins the facing 170-190°, and a hurting
+		//     projectile's onDeflection(flag=false) halves its
+		//     accelerationPower. lastDeflectedBy dedups: the same entity
+		//     deflects a projectile once, later hits land normally.
+		//   - otherwise Projectile.onHit runs: a redirectable_projectile
+		//     hit takes AIM_DEFLECT (delta := the shooter's look, owner
+		//     := the shooter's, accelerationPower := 0.1), then the
+		//     shooter's own onHitEntity fires — an arrow can't hurt it
+		//     (hurtServer false) so it REVERSEs and slows ×0.2.
 		if hurtingProjectileTypes[name] || name == "arrow" || name == "spectral_arrow" || name == "trident" {
-			if de := s.deflectingHit(e, ox, oy, oz); de != nil {
+			de, dt0 := s.entitySweepHit(e, ox, oy, oz, func(t *Entity, tn string) bool {
+				if !t.Living || t.Dying || t.ID == e.arrowShooter || t.ID == e.LastDeflectedBy {
+					return false
+				}
+				if !entityTypeInTag(tn, "deflects_projectiles") {
+					return false
+				}
+				// Breeze.deflection returns NONE for both charge
+				// types — its own shots land as a normal hit.
+				return tn != "breeze" || (name != "wind_charge" && name != "breeze_wind_charge")
+			})
+			re, rt0 := s.entitySweepHit(e, ox, oy, oz, func(t *Entity, tn string) bool {
+				return t.ID != e.arrowShooter && entityTypeInTag(tn, "redirectable_projectile")
+			})
+			_, lt0 := s.entitySweepHit(e, ox, oy, oz, func(t *Entity, _ string) bool {
+				return t.Living && !t.Dying && t.ID != e.arrowShooter
+			})
+			if de != nil && (re == nil || dt0 <= rt0) && (dt0 <= lt0) {
+				// setPos at the segment's box-entry point —
+				// vanilla's setPos(hitResult.location).
+				e.X = ox + (e.X-ox)*dt0
+				e.Y = oy + (e.Y-oy)*dt0
+				e.Z = oz + (e.Z-oz)*dt0
 				e.MotionX, e.MotionY, e.MotionZ = -0.5*e.MotionX, -0.5*e.MotionY, -0.5*e.MotionZ
 				e.Yaw += 170 + rand.Float32()*20
 				e.LastDeflectedBy = de.ID
 				if hurtingProjectileTypes[name] {
 					e.AccelPower *= 0.5
 				}
+				if dn, ok := EntityTypeName(de.Type); ok && dn == "breeze" {
+					// The breeze's PROJECTILE_DEFLECTION lambda wraps
+					// REVERSE with its BREEZE_DEFLECT sound — entity-
+					// attached playSound → sound_entity on the deflector,
+					// source HOSTILE.
+					s.playSoundEntity(e.Dim, de.ID, 199, 5, 1.0, 1.0, nil)
+				}
 				// Vanilla's hitTargetOrDeflectSelf runs before the
 				// move: the deflect consumes the hit, then move()
 				// integrates the REVERSED delta that same tick, so
 				// the next scan starts past the deflector's inflated
 				// face instead of grazing it and exploding.
+				e.X += e.MotionX
+				e.Y += e.MotionY
+				e.Z += e.MotionZ
+				e.NeedsSync = true
+				continue
+			}
+			if re != nil && rt0 <= lt0 {
+				s.deflectRedirectable(e, re)
+				if hurtingProjectileTypes[name] {
+					// Fireball.onHitEntity's hurtServer fails on the
+					// redirectable — no tail, the shooter flies on.
+					continue
+				}
+				// AbstractArrow.onHitEntity's hurt-fail arm:
+				// deflect(REVERSE) then delta·0.2 — net −0.1. The
+				// near-stopped arrow's getPickupItem drop needs
+				// speed²<1e-7 — dead in practice (a still arrow
+				// can't sweep a hit), measured but unimplemented.
+				e.MotionX, e.MotionY, e.MotionZ = -0.1*e.MotionX, -0.1*e.MotionY, -0.1*e.MotionZ
+				e.Yaw += 170 + rand.Float32()*20
+				// Same-tick move: the deflect ran inside onHit,
+				// before move() — the reversed delta integrates
+				// now like the deflect arm's does.
 				e.X += e.MotionX
 				e.Y += e.MotionY
 				e.Z += e.MotionZ
@@ -1092,7 +1226,7 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 			continue
 		}
 		bb := entityBBDims(t)
-		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1], projectilePickMargin(e.TicksLived)) {
 			hit = true
 			dealt, _, died := s.damageMob(t, damage, typeName, shooter, &damageInfo{
 				typeName: typeName,
@@ -1137,7 +1271,7 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 			return true
 		}
 		px, py, pz, _, _, _ := sess.Pos()
-		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, px, py, pz, 0.6, 1.8) {
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, px, py, pz, 0.6, 1.8, projectilePickMargin(e.TicksLived)) {
 			hit = true
 			if shooter != nil {
 				dealt := s.damageWith(sess, damage, translatable("death.attack."+typeName,
@@ -1218,20 +1352,32 @@ func arrowShouldFall(w *world.World, x, y, z float64) bool {
 }
 
 // segmentHitsBox is vanilla's AABB.clip: the movement segment is
-// slab-tested against the entity box inflated by 0.3 — the expansion
-// ProjectileUtil applies to hit targets.
-func segmentHitsBox(sx, sy, sz, ex, ey, ez, bx, by, bz, w, h float64) bool {
-	_, hit := segmentHitsBoxT(sx, sy, sz, ex, ey, ez, bx, by, bz, w, h)
+// slab-tested against the entity box inflated by the pick margin —
+// the expansion ProjectileUtil applies to hit targets.
+func segmentHitsBox(sx, sy, sz, ex, ey, ez, bx, by, bz, w, h, m float64) bool {
+	_, hit := segmentHitsBoxT(sx, sy, sz, ex, ey, ez, bx, by, bz, w, h, m)
 	return hit
+}
+
+// projectilePickMargin is ProjectileUtil.computeMargin: the
+// entity-sweep pick radius ramps over the shooter's first ticks —
+// max(0, min(0.3, (tickCount-2)/20)) — so a fresh projectile clips
+// the exact (uninflated) target box and only reaches the full 0.3
+// expansion at tick 9. Entity.tick's tickCount++ runs at the END of
+// the tick (Projectile.tick is the last call in AbstractArrow.tick),
+// so during the Nth sweep vanilla's tickCount is still N-1; mc-go's
+// TicksLived counts the current tick, hence N-3 here.
+func projectilePickMargin(ticksLived int32) float64 {
+	return math.Max(0, math.Min(0.3, float64(ticksLived-3)/20))
 }
 
 // segmentHitsBoxT is segmentHitsBox plus the slab-test entry
 // parameter along the segment, for callers that need the hit point
 // itself — a deflected projectile setPos'es at the hit location.
-func segmentHitsBoxT(sx, sy, sz, ex, ey, ez, bx, by, bz, w, h float64) (float64, bool) {
-	hw := w/2 + 0.3
-	min := [3]float64{bx - hw, by - 0.3, bz - hw}
-	max := [3]float64{bx + hw, by + h + 0.3, bz + hw}
+func segmentHitsBoxT(sx, sy, sz, ex, ey, ez, bx, by, bz, w, h, m float64) (float64, bool) {
+	hw := w/2 + m
+	min := [3]float64{bx - hw, by - m, bz - hw}
+	max := [3]float64{bx + hw, by + h + m, bz + hw}
 	dx, dy, dz := ex-sx, ey-sy, ez-sz
 	t0, t1 := 0.0, 1.0
 	axes := [][2]float64{{sx, dx}, {sy, dy}, {sz, dz}}
@@ -1455,7 +1601,7 @@ func (s *Server) potionCollide(e *Entity, ox, oy, oz float64) bool {
 			continue
 		}
 		bb := entityBBDims(t)
-		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1], projectilePickMargin(e.TicksLived)) {
 			return true
 		}
 	}
@@ -1468,7 +1614,7 @@ func (s *Server) potionCollide(e *Entity, ox, oy, oz float64) bool {
 			return true
 		}
 		px, py, pz, _, _, _ := sess.Pos()
-		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, px, py, pz, 0.6, 1.8) {
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, px, py, pz, 0.6, 1.8, projectilePickMargin(e.TicksLived)) {
 			hit = true
 			return false
 		}
@@ -1679,7 +1825,7 @@ func (s *Server) thrownCollide(e *Entity, ox, oy, oz float64, name string) bool 
 			continue
 		}
 		bb := entityBBDims(t)
-		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1], projectilePickMargin(e.TicksLived)) {
 			continue
 		}
 		hit = true
@@ -1728,7 +1874,7 @@ func (s *Server) spitCollide(e *Entity, ox, oy, oz float64) bool {
 			continue
 		}
 		bb := entityBBDims(t)
-		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1], projectilePickMargin(e.TicksLived)) {
 			return true
 		}
 	}
@@ -1759,7 +1905,7 @@ func (s *Server) fireballCollide(e *Entity, ox, oy, oz float64) bool {
 			continue
 		}
 		bb := entityBBDims(t)
-		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1], projectilePickMargin(e.TicksLived)) {
 			continue
 		}
 		hit = true
@@ -2063,7 +2209,7 @@ func (s *Server) witherSkullCollide(e *Entity, ox, oy, oz float64) bool {
 			continue
 		}
 		bb := entityBBDims(t)
-		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1], projectilePickMargin(e.TicksLived)) {
 			continue
 		}
 		hit = t
@@ -2136,7 +2282,7 @@ func (s *Server) largeFireballCollide(e *Entity, ox, oy, oz float64) bool {
 			continue
 		}
 		bb := entityBBDims(t)
-		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+		if !segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1], projectilePickMargin(e.TicksLived)) {
 			continue
 		}
 		// DamageSources.fireball picks unattributed_fireball when
@@ -2262,7 +2408,7 @@ func (s *Server) dragonFireballCollide(e *Entity, ox, oy, oz float64) bool {
 			continue
 		}
 		bb := entityBBDims(t)
-		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1], projectilePickMargin(e.TicksLived)) {
 			return true
 		}
 	}
@@ -2291,7 +2437,7 @@ func (s *Server) shulkerBulletCollide(e *Entity, ox, oy, oz float64) bool {
 			continue
 		}
 		bb := entityBBDims(t)
-		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1], projectilePickMargin(e.TicksLived)) {
 			hit = true
 			dealt, graced, _ := s.damageMob(t, 4.0, "mob_projectile", shooter, &damageInfo{
 				typeName: "mob_projectile",
@@ -2318,7 +2464,7 @@ func (s *Server) shulkerBulletCollide(e *Entity, ox, oy, oz float64) bool {
 			return true
 		}
 		px, py, pz, _, _, _ := sess.Pos()
-		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, px, py, pz, 0.6, 1.8) {
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, px, py, pz, 0.6, 1.8, projectilePickMargin(e.TicksLived)) {
 			hit = true
 			msg := translatable("death.attack.mob_projectile", literal(sess.getName()))
 			if shooter != nil {

@@ -24,6 +24,9 @@ func (s *Server) windChargeTickStep() {
 	s.entities.mu.RUnlock()
 	for _, e := range charges {
 		name, _ := EntityTypeName(e.Type)
+		// Entity.tick's tickCount++ — feeds computeMargin's pick
+		// ramp on the swept entity scan below.
+		e.TicksLived++
 		// applyInertia runs ahead of the move-vector raytrace on
 		// vanilla's tick — the charge gains accelerationPower along
 		// its own direction every tick (inertia 1.0, forever).
@@ -58,6 +61,22 @@ func (s *Server) windChargeTickStep() {
 				s.windBurst(e, cx, cy, cz)
 				continue
 			}
+		}
+		// Projectile.onHit's redirectable arm ahead of the entity
+		// hits: a charge sweeping a fireball/wind_charge/breeze_
+		// wind_charge deflects THAT projectile along the shooter's
+		// aim (AIM_DEFLECT, flag=true → accelerationPower 0.1, owner
+		// := the shooter's) — then the charge's own onHitEntity
+		// hurt-fails on it and the charge flies on un-burst.
+		re, rt0 := s.entitySweepHit(e, e.X, e.Y, e.Z, func(t *Entity, tn string) bool {
+			return t.ID != e.arrowShooter && entityTypeInTag(tn, "redirectable_projectile")
+		})
+		_, lt0 := s.entitySweepHit(e, e.X, e.Y, e.Z, func(t *Entity, _ string) bool {
+			return t.Living && !t.Dying && t.ID != e.ID && t.ID != e.arrowShooter
+		})
+		if re != nil && rt0 <= lt0 {
+			s.deflectRedirectable(e, re)
+			continue
 		}
 		if hitSess := s.windChargeHitPlayer(e, nx, ny, nz); hitSess != nil {
 			// Player victims take the same hurt 1.0 — the cause is
@@ -156,7 +175,7 @@ func (s *Server) windChargeHitsMob(e *Entity, ox, oy, oz, nx, ny, nz float64) *E
 	bestT := math.MaxFloat64
 	for _, m := range mobs {
 		bw, bh := entityBBDims(m)[0], entityBBDims(m)[1]
-		if !segmentHitsBox(ox, oy, oz, nx, ny, nz, m.X, m.Y, m.Z, bw, bh) {
+		if !segmentHitsBox(ox, oy, oz, nx, ny, nz, m.X, m.Y, m.Z, bw, bh, projectilePickMargin(e.TicksLived)) {
 			continue
 		}
 		// The entity hit result is the nearest one along the segment —

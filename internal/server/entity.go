@@ -391,6 +391,12 @@ type Entity struct {
 	// bypass in ServerEntity.sendChanges' velocity branch.
 	FallFlying bool
 	SyncCount  int64
+	// TicksLived is Entity.tickCount — incremented each projectile
+	// tick. It feeds ProjectileUtil.computeMargin's pick-radius ramp
+	// (margin = min(0.3, max(0, (tickCount-2)/20))) on the swept
+	// entity-hit scan: a projectile picks nothing for its first two
+	// ticks and reaches the full 0.3 box inflation at tick 8.
+	TicksLived int32
 	// PortalCooldown is Entity.portalCooldown — the ticks before the
 	// entity may use a portal again. AbsorptionAmount is
 	// LivingEntity.absorptionAmount — absorption hearts above the

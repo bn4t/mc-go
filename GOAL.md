@@ -11717,3 +11717,50 @@ on both servers. ShulkerBullet's 0.5 share is unpinnable
 differentially (the wander lerp picks directions off RandomSource —
 per-leg divergence is the generator, not behavior); the call site
 still carries it for wire parity.
+
+## Slice — projectile-deflect hits: AIM_DEFLECT, breeze/arm deflectors, border arms, computeMargin ramp
+
+This slice lands the full `hitTargetOrDeflectSelf` shape measured
+from 26.2 bytecode. The entity sweep is three priority picks along
+the tick's segment: a `deflects_projectiles`-tagged deflector (the
+breeze — returning NON-NONE `deflection`) consumes the hit as
+deflect(REVERSE·0.5) + `lastDeflectedBy`, a `redirectable_projectile`
+(fireball, wind_charge, breeze_wind_charge) takes
+`Projectile.onHit`'s entity arm — `hitProj.deflect(AIM_DEFLECT,
+shooting projectile's owner…)` so the target inherits the SHOOTER's
+look delta + owner + accelerationPower 0.1 — then the shooter's own
+onHitEntity runs its hurt-fail tail (arrow reverses −0.1·delta,
+hurting types keep flying because Projectile.hurtServer returns
+false). `Breeze.deflection` returns NONE for the two charge types
+(its own shots land as hits — measured 1.0 hurt on the summoned
+breeze) and wraps REVERSE with the `breeze.deflect` sound otherwise;
+entity-attached `playSound` rides sound_entity (0x74), not the
+positional 0x75 — fixed both the deflect emit and the ambient-voice
+emit, which had been on the wrong packet type.
+
+The world border is an implicit wall: arrows bounce off it as
+deflect(REVERSE) then delta·0.2 (net −0.1 + the 170-190° spin),
+while hurting types take the border clip as a BLOCK hit — the face
+explosion runs at the clamped position with no tail.
+
+The deep fix is `ProjectileUtil.computeMargin`: the entity-sweep pick
+radius is `max(0, min(0.3, (tickCount-2)/20))` — zero for the first
+~3 sweeps, full 0.3 at sweep 9 — and `tickCount++` runs at the END
+of the tick (Projectile.tick is the last call in AbstractArrow.tick),
+so sweep N sees tickCount N-1. mc-go had hardcoded +0.3 on every
+entity pick, then the first-pass ramp off-by-oned a tick; a live
+probe caught an arrow sitting exactly on the fireball's box
+boundary (slab entry t0=0) that vanilla never clips. New
+`Entity.TicksLived` feeds `projectilePickMargin` on every
+segmentHitsBox/T call in the projectile + wind-charge paths.
+
+Pinned: TestProjectileDeflectParity (punch deflects, powers, owner
+NBT, breeze sounds) + new TestProjectileDeflectHitsParity — lane A
+the arrow→fireball AIM_DEFLECT (low-arrow under-flight pins the
+margin=0 clip), lane B the charge→breeze NONE-deflection hurt, lane
+C the border bounce + border explosion — all green vs both servers.
+
+Deferred: EntityReference (non-session) owners on AIM_DEFLECT;
+onDeflection for thrown-vs-redirectable hits; the near-stopped
+arrow's getPickupItem drop arm (speed²<1e-7 unreachable while
+moving); breeze deflect for its own charge types.

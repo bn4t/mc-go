@@ -17,7 +17,9 @@
 package blackbox
 
 import (
+	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -144,6 +146,12 @@ func TestProjectileDeflectParity(t *testing.T) {
 					return
 				}
 				o.sounds = append(o.sounds, snd)
+			case "0x74": // sound_entity: VarInt id(+1), source, entityID, vol, pitch, seed
+				snd, e1 := r.VarInt()
+				if e1 != nil {
+					return
+				}
+				o.sounds = append(o.sounds, snd)
 			}
 		}
 		// dataGetLine would clear the sink and eat the add_entity
@@ -218,28 +226,7 @@ func TestProjectileDeflectParity(t *testing.T) {
 		left := dataGetLine(t, sink, pw, "@e[type=minecraft:fireball,limit=1,sort=furthest]", "LeftOwner")
 		motion := dataGetLine(t, sink, pw, "@e[type=minecraft:wither_skull,limit=1,sort=nearest]", "Motion")
 		t.Logf("%s Owner=%q HasBeenShot=%q LeftOwner=%q skullMotion=%q", tg.tag, owner, shot, left, motion)
-		// The [I;] reply renders [, I, ; as separate components —
-		// compare the extracted int digits per leg instead; both
-		// servers store the same offline-player uuid.
-		intDigits := func(line string) []string {
-			var out []string
-			for m := 0; m+6 < len(line); m++ {
-				if line[m:m+5] != "text\x00" {
-					continue
-				}
-				j := m + 6
-				start := j
-				for j < len(line) && (line[j] == '-' || (line[j] >= '0' && line[j] <= '9')) {
-					j++
-				}
-				if j-start >= 2 || (j-start == 1 && line[start] != '-') {
-					out = append(out, line[start:j])
-					m = j
-				}
-			}
-			return out
-		}
-		ownerInts[tg.tag] = intDigits(owner)
+		ownerInts[tg.tag] = snbtIntDigits(owner)
 		if len(ownerInts[tg.tag]) != 4 {
 			t.Errorf("%s: fireball Owner not a 4-int uuid array (%q)", tg.tag, owner)
 		}
@@ -344,6 +331,13 @@ func TestProjectileDeflectParity(t *testing.T) {
 		t.Errorf("nodamage sound count: vanilla %d mc-go %d", countSound(mv, 1305), countSound(mg, 1305))
 		bad = true
 	}
+	// The breeze's PROJECTILE_DEFLECTION lambda wraps REVERSE with
+	// entity.breeze.deflect (id 199 → 200 on the wire) played at the
+	// deflector's position for every listener in range.
+	if countSound(mv, 200) != countSound(mg, 200) {
+		t.Errorf("breeze_deflect sound count: vanilla %d mc-go %d", countSound(mv, 200), countSound(mg, 200))
+		bad = true
+	}
 
 	// Lane C — the breeze reversal. Each leg's fb2 emit sequence
 	// splits at the sign flip: approach on the −z curve (seed 0.5,
@@ -394,5 +388,337 @@ func TestProjectileDeflectParity(t *testing.T) {
 
 	if bad {
 		t.FailNow()
+	}
+}
+
+// snbtIntDigits extracts the signed ints of an [I;] uuid array from a
+// /data get reply — the reply renders [, I, ; as separate components,
+// so the int digits land per text fragment. Both servers store the
+// same offline-player uuid, so the four ints compare across legs.
+func snbtIntDigits(line string) []string {
+	var out []string
+	for m := 0; m+6 < len(line); m++ {
+		if line[m:m+5] != "text\x00" {
+			continue
+		}
+		j := m + 6
+		start := j
+		for j < len(line) && (line[j] == '-' || (line[j] >= '0' && line[j] <= '9')) {
+			j++
+		}
+		if j-start >= 2 || (j-start == 1 && line[start] != '-') {
+			out = append(out, line[start:j])
+			m = j
+		}
+	}
+	return out
+}
+
+// dataGetVec3 reads a 3-component NBT list through /data get —
+// the sign-aware sibling of dataGetVec2 for paths that can go
+// negative (a reversed arrow's Motion).
+func dataGetVec3(t *testing.T, sink *chatSink, pw *protocol.Writer, sel, path string) [3]float64 {
+	t.Helper()
+	var out [3]float64
+	for i := 0; i < 3; i++ {
+		sendCommand(t, pw, "data get entity "+sel+" "+path+"["+strconv.Itoa(i)+"]")
+		sendCommand(t, pw, "say ZEND")
+		deadline := time.Now().Add(6 * time.Second)
+		for time.Now().Before(deadline) {
+			end := false
+			for _, line := range sink.take() {
+				if j := strings.Index(line, "data.entity.query"); j >= 0 {
+					out[i] = lastNumberSigned(line[:j])
+				}
+				if strings.Contains(line, "ZEND") {
+					end = true
+				}
+			}
+			if end {
+				break
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+	}
+	return out
+}
+
+// TestProjectileDeflectHitsParity pins the remaining deflect arms.
+// A projectile's swept segment lands on the single closest entity —
+// a redirectable_projectile target (fireball, wind_charge,
+// breeze_wind_charge) then takes AIM_DEFLECT inside
+// Projectile.onHit: delta := the shooter's look angle, owner :=
+// the shooter, accelerationPower := 0.1 — and the shooter's own
+// onHitEntity runs after: AbstractHurtingProjectile.hurtServer
+// always fails, so a hurting shooter flies on while an
+// AbstractArrow deflects REVERSE then ×0.2 (net −0.1, javap
+// measured). Breeze.deflection returns NONE for both charge types,
+// so a breeze_wind_charge landing on a breeze hurts it and bursts
+// instead of deflecting. And hitTargetOrDeflectSelf's border arm
+// bounces arrows (REVERSE ×0.2) while non-arrow types take the
+// world-border clip as a BLOCK hit and run onHitBlock at the face.
+func TestProjectileDeflectHitsParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("DeflH"),
+	}, nil)
+	defer targets.cleanup()
+
+	fbType, _ := server.EntityTypeID("fireball")
+	arType, _ := server.EntityTypeID("arrow")
+
+	type legObs struct {
+		ar1Motions []motionSample // lane-A arrow: reversed emit −0.1·delta
+		fb1Motions []motionSample // lane-A fireball: look-angle delta
+		fb1Powers  []float64
+		arMissMots []motionSample // lane-A low arrow: margin-0 under-flight
+		ar2Motions []motionSample // lane-C arrow: border bounce emit
+		sounds     []int32
+		removed    map[int32]bool
+		breezeHp   float64
+		chargeGone bool
+		fbOwner    []string
+		fb2Gone    bool
+	}
+	obs := map[string]*legObs{}
+
+	for _, tg := range []struct{ tag, addr string }{
+		{"vanilla", targets.vanilla}, {"mcgo", targets.mcgo},
+	} {
+		c, pr, pw := joinPlayBlackbox(t, tg.addr, "DeflH")
+		sink := newChatSinkTP(pr, pw)
+		sink.cap = 1 << 20
+		sendClientInformationVD(t, pw, 24)
+		sendCommand(t, pw, "tp @s 0 -59 0 0 0")
+		dataGetLine(t, sink, pw, "@s", "Pos")
+		sendCommand(t, pw, "fill -10 -62 -40 10 -54 40 minecraft:air")
+		sendCommand(t, pw, "fill -10 -61 -40 10 -61 40 minecraft:stone")
+		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
+		time.Sleep(400 * time.Millisecond)
+
+		uuidInts := snbtIntDigits(dataGetLine(t, sink, pw, "@s", "UUID"))
+		if len(uuidInts) != 4 {
+			c.Close()
+			t.Fatalf("%s: player UUID unreadable", tg.tag)
+		}
+		o := &legObs{removed: map[int32]bool{}}
+		var arrows, fbs []int32
+		collect := func(l string) {
+			pref, rest, ok := strings.Cut(l, ":")
+			if !ok {
+				return
+			}
+			r := protocol.NewPacketReader([]byte(rest))
+			switch pref {
+			case "0x1":
+				id, e1 := r.VarInt()
+				_, e2 := r.Read(16)
+				typ, e3 := r.VarInt()
+				if e1 != nil || e2 != nil || e3 != nil {
+					return
+				}
+				switch typ {
+				case arType:
+					arrows = append(arrows, id)
+				case fbType:
+					fbs = append(fbs, id)
+				}
+			case "0x65":
+				id, e1 := r.VarInt()
+				mx, my, mz, _ := decodeLpVec3(r)
+				if e1 != nil {
+					return
+				}
+				if len(arrows) > 0 && id == arrows[0] {
+					o.arMissMots = append(o.arMissMots, motionSample{mx, my, mz})
+				}
+				if len(arrows) > 1 && id == arrows[1] {
+					o.ar1Motions = append(o.ar1Motions, motionSample{mx, my, mz})
+				}
+				if len(arrows) > 2 && id == arrows[2] {
+					o.ar2Motions = append(o.ar2Motions, motionSample{mx, my, mz})
+				}
+				if len(fbs) > 0 && id == fbs[0] {
+					o.fb1Motions = append(o.fb1Motions, motionSample{mx, my, mz})
+				}
+			case "0x87":
+				id, e1 := r.VarInt()
+				p2, e2 := r.Double()
+				if e1 != nil || e2 != nil {
+					return
+				}
+				if len(fbs) > 0 && id == fbs[0] {
+					o.fb1Powers = append(o.fb1Powers, p2)
+				}
+			case "0x4d":
+				for {
+					id, e1 := r.VarInt()
+					if e1 != nil {
+						break
+					}
+					o.removed[id] = true
+				}
+			case "0x75":
+				snd, e1 := r.VarInt()
+				if e1 != nil {
+					return
+				}
+				o.sounds = append(o.sounds, snd)
+			case "0x74": // sound_entity: VarInt id(+1), source, entityID, vol, pitch, seed
+				snd, e1 := r.VarInt()
+				if e1 != nil {
+					return
+				}
+				o.sounds = append(o.sounds, snd)
+			}
+		}
+		drain := func(d time.Duration) {
+			end := time.Now().Add(d)
+			for time.Now().Before(end) {
+				for _, l := range sink.take() {
+					collect(l)
+				}
+				time.Sleep(25 * time.Millisecond)
+			}
+		}
+
+		// Lane A: an owner'd arrow sweeps a hovering fireball — the
+		// fireball takes the shooter's look (0,0,1) as its new delta
+		// at power 0.1; the arrow reverses at −0.1 of its approach.
+		// The low arrow is a computeMargin pin: a fresh projectile's
+		// pick margin is 0 for its first ~8 ticks, so the clip is
+		// the target's exact box — the center ray at the box's
+		// bottom edge drops under it and the arrow sails through.
+		sendCommand(t, pw, "summon minecraft:fireball 0 -59 4 {Motion:[0.0d,0.0d,0.0d]}")
+		sendCommand(t, pw, fmt.Sprintf(
+			"summon minecraft:arrow 0 -59 1 {Motion:[0.0d,0.0d,2.0d],Owner:[I;%s,%s,%s,%s]}",
+			uuidInts[0], uuidInts[1], uuidInts[2], uuidInts[3]))
+		sendCommand(t, pw, fmt.Sprintf(
+			"summon minecraft:arrow 0 -58.7 1 {Motion:[0.0d,0.0d,2.0d],Owner:[I;%s,%s,%s,%s]}",
+			uuidInts[0], uuidInts[1], uuidInts[2], uuidInts[3]))
+		drain(900 * time.Millisecond)
+		o.fbOwner = snbtIntDigits(dataGetLine(t, sink, pw,
+			"@e[type=minecraft:fireball,limit=1]", "Owner"))
+		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
+		drain(300 * time.Millisecond)
+
+		// Lane B: a breeze_wind_charge aimed at a breeze — the
+		// breeze's deflection is NONE for charge types, so the
+		// charge hurts it (1.0) and bursts instead of bouncing.
+		sendCommand(t, pw, "summon minecraft:breeze 0 -59 20 {NoAI:1b}")
+		sendCommand(t, pw, "summon minecraft:breeze_wind_charge 0 -59 27 {Motion:[0.0d,0.0d,-0.5d]}")
+		drain(2500 * time.Millisecond)
+		_, o.breezeHp = dataGetSel(t, sink, pw, "@e[type=minecraft:breeze,limit=1]", "Health")
+		o.chargeGone = dataGetAll(t, sink, pw, "@e[type=minecraft:breeze_wind_charge,limit=1]") == ""
+		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
+		drain(300 * time.Millisecond)
+
+		// Lane C: border wall — arrows bounce (REVERSE then ×0.2);
+		// hurting types take the clip as a block hit and explode.
+		sendCommand(t, pw, "worldborder center 0 -20")
+		sendCommand(t, pw, "worldborder set 10")
+		sendCommand(t, pw, "summon minecraft:arrow -2 -59 -20 {Motion:[4.0d,0.0d,0.0d]}")
+		sendCommand(t, pw, "summon minecraft:fireball -2 -59 -24 {Motion:[1.0d,0.0d,0.0d]}")
+		drain(2200 * time.Millisecond)
+		o.fb2Gone = dataGetAll(t, sink, pw,
+			"@e[type=minecraft:fireball,x=-10,y=-62,z=-30,dx=20,dy=8,dz=12,limit=1]") == ""
+		obs[tg.tag] = o
+		t.Logf("%s: ar1=%v fb1=%v pows=%v ar2=%v sounds=%v breezeHp=%.1f chargeGone=%v fb2Gone=%v owner=%v",
+			tg.tag, o.ar1Motions, o.fb1Motions, o.fb1Powers, o.ar2Motions,
+			o.sounds, o.breezeHp, o.chargeGone, o.fb2Gone, o.fbOwner)
+		c.Close()
+	}
+
+	v, g := obs["vanilla"], obs["mcgo"]
+
+	// Lane A — the redirectable hit deflects the fireball along the
+	// shooter's look (0,0,1) at power 0.1 and reverses the arrow.
+	for tag, o := range obs {
+		if len(o.fb1Motions) == 0 {
+			t.Errorf("%s: no fireball motion after the arrow hit", tag)
+			continue
+		}
+		if math.Abs(o.fb1Motions[0].z-1.0) > 0.15 {
+			t.Errorf("%s: fireball deflect delta %v, want ≈(0,0,1)", tag, o.fb1Motions[0])
+		}
+		if len(o.fb1Powers) == 0 || math.Abs(o.fb1Powers[0]-0.1) > 1e-6 {
+			t.Errorf("%s: deflect power %v, want 0.1", tag, o.fb1Powers)
+		}
+		rev := -1
+		for i, m := range o.ar1Motions {
+			if m.z < -0.05 {
+				rev = i
+				break
+			}
+		}
+		if rev < 0 {
+			t.Errorf("%s: arrow never reversed off the fireball (%v)", tag, o.ar1Motions)
+		} else if o.ar1Motions[rev].z < -0.35 || o.ar1Motions[rev].z > -0.1 {
+			t.Errorf("%s: reversal emit %v outside −0.1·2±decay", tag, o.ar1Motions[rev])
+		}
+		// The low arrow's center ray slides under the fireball's
+		// exact box — computeMargin is 0 that early — so it must
+		// never reverse: only forward/stuck emits allowed.
+		for _, m := range o.arMissMots {
+			if m.z < -0.05 {
+				t.Errorf("%s: low arrow reversed (%v) — pick margin should be 0 at tick 2", tag, o.arMissMots)
+				break
+			}
+		}
+	}
+	if len(v.fb1Motions) > 0 && len(g.fb1Motions) > 0 {
+		if d := math.Abs(v.fb1Motions[0].z - g.fb1Motions[0].z); d > 0.15 {
+			t.Errorf("fireball deflect delta diverged: vanilla %v mc-go %v",
+				v.fb1Motions[0], g.fb1Motions[0])
+		}
+	}
+	if len(v.fbOwner) == 4 && len(g.fbOwner) == 4 {
+		for i := 0; i < 4; i++ {
+			if v.fbOwner[i] != g.fbOwner[i] {
+				t.Errorf("fireball Owner int %d: vanilla %s mc-go %s", i, v.fbOwner[i], g.fbOwner[i])
+			}
+		}
+	} else {
+		t.Errorf("fireball Owner not a 4-int uuid: vanilla %v mc-go %v", v.fbOwner, g.fbOwner)
+	}
+
+	// Lane B — the charge lands its hit on the breeze (Health drops
+	// from 30 by the 1.0 hurt) and is consumed by the burst; the
+	// deflect sound must NOT have played for either leg.
+	for tag, o := range obs {
+		if !o.chargeGone {
+			t.Errorf("%s: breeze_wind_charge still present — it should burst on the breeze", tag)
+		}
+		if o.breezeHp >= 30 || o.breezeHp < 28 {
+			t.Errorf("%s: breeze Health %.1f, want ~29 (1.0 hurt)", tag, o.breezeHp)
+		}
+		for _, s := range o.sounds {
+			if s == 200 {
+				t.Errorf("%s: breeze_deflect sound played for a charge hit — deflection should be NONE", tag)
+			}
+		}
+	}
+	if v.breezeHp != g.breezeHp {
+		t.Errorf("breeze Health diverged: vanilla %.1f mc-go %.1f", v.breezeHp, g.breezeHp)
+	}
+
+	// Lane C — the border arrow reverses (net −0.1 of its +4
+	// approach → ≈−0.4 before drift) and the fireball explodes at
+	// the face instead of sailing through.
+	for tag, o := range obs {
+		rev := -1
+		for i, m := range o.ar2Motions {
+			if m.x < -0.05 {
+				rev = i
+				break
+			}
+		}
+		if rev < 0 {
+			t.Errorf("%s: arrow never bounced off the world border (%v)", tag, o.ar2Motions)
+		} else if o.ar2Motions[rev].x < -0.6 || o.ar2Motions[rev].x > -0.2 {
+			t.Errorf("%s: border reversal emit %v outside −0.1·4±decay", tag, o.ar2Motions[rev])
+		}
+		if !o.fb2Gone {
+			t.Errorf("%s: fireball still present past the border — should explode at the face", tag)
+		}
 	}
 }

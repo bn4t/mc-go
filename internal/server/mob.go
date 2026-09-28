@@ -1825,6 +1825,16 @@ func (s *Server) runSummon(player string, args []string) reply {
 			Dangerous:      dangerous,
 			NoGravity:      noGrav,
 		})
+		// Projectile.load's Owner — an EntityReference to the
+		// shooter; mc-go resolves it to a live session player.
+		if tag != nil {
+			if u, ok := snbtUUID(tag, "Owner"); ok {
+				if owner := s.sessionByUUID(u); owner != nil {
+					e.ProjOwner = u
+					e.HasProjOwner = true
+				}
+			}
+		}
 		// readAdditionalSaveData routes dangerous through
 		// entityData.set — a non-default write dirties the synched
 		// data, which re-opens sendChanges for one extra bundle.
@@ -3528,7 +3538,9 @@ func (s *Server) mobTickStep() {
 				if e.Baby && a.babySnd != 0 {
 					snd = a.babySnd
 				}
-				s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd,
+				// makeSound/playAmbientSound is entity-attached —
+				// the client hears it on sound_entity, not sound.
+				s.playSoundEntity(e.Dim, e.ID, snd,
 					mobVoiceOf(e).src(), a.vol, voicePitchE(e), nil)
 			}
 		}
