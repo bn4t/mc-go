@@ -11058,3 +11058,48 @@ everything else.
   bounce, apex band -57.9, rest y -59.44 matches byte-exact), pig leg
   (living: full 0.75, apex band -56.9 past the item's reach).
   Green vs both servers (234s).
+
+
+## Slice — packet: teleport_entity (0x7D) for mounted teleports
+
+- Census (`vanilla/reports/packets.json` as oracle): play phase = 141
+  clientbound + 69 serverbound ids; `IDPlayEntityTeleportCB = 0x23` is
+  entity_position_sync (mislabeled but right id), `teleport_entity` =
+  0x7D — the 12 uncovered names were waypoint, set_simulation_distance,
+  tab_list, select_advancements_tab, store_cookie,
+  resource_pack_push/pop, server_links, custom_report_details,
+  projectile_power, test_instance_block_status, teleport_entity.
+- Wire (javap STREAM_CODEC): VarInt entityId + pos 3×double + delta
+  3×double + yRot/xRot floats + int32 relatives + bool onGround.
+- Emit site (Entity.sendTeleportTransitionToRidingPlayers): only to
+  riding players of a teleported mount — getIndirectPassengers walk.
+  The controlling passenger gets PMR.of(transition) + the command's
+  relatives set; every other rider gets PMR.of(mount) + empty set.
+- getControllingPassenger per type (javap): base Entity returns null;
+  AbstractBoat = first passenger when living; Pig = saddled + Player +
+  holding carrot_on_a_stick; Strider = saddled + warped fungus stick;
+  AbstractHorse (incl. Camel) = saddled + Player; HappyGhast = body
+  armor + Player; Nautilus = saddled + Player. Minecarts and all other
+  mobs have none — an unsaddled pig's riders all see rel=0 (measured).
+- getRelatives (TeleportCommand): direction() bits for every ~ or ^
+  axis + position() bits when isDelta = same-dimension + rotation() —
+  the whole ROTATION set when the command carries no rotation arg.
+  performTeleport delta-encodes each position-relative axis (pos −
+  entity.pos) and wraps rotation deltas — the packet's pos vec is a
+  delta, not the absolute target, on ~-relative axes.
+- calculatePassengerTransition collapses: per axis the rider lands at
+  old + (transition − mount.old) whether the axis is relative or not
+  (relative arms compose client-side to the same outcome); rot slides
+  the same. Implemented once in tpPassengerTransition.
+- Boat parity found while pinning: seats were centered — vanilla boat
+  attach = (0, height/3, z): z = singlePassengerXOffset (0) for one
+  rider, +0.2 front / −0.6 rear once two ride (+0.2 more for Animal).
+  Attach y = 0.1875 puts riders at boat.y − 0.4125 (measured). Boats
+  also never latched Grounded — added boatGroundedAt (solid top under
+  box bottom) so onGround reads true once landed.
+- `TestMountTeleportParity` (oak_boat, driver + rear rider): tp
+  absolute + `~ ~1 ~` probes diff the raw 0x7D bodies (pos/delta/rot/
+  rel/og) + Pos reads — green vs both servers.
+- Known approximation: rider players still get absolute
+  player_position syncs; vanilla emits the relative-encoded form —
+  outcome-identical, wire-shape noted.

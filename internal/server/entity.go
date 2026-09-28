@@ -1603,6 +1603,26 @@ func encodeRemove(id int32) []byte {
 	return b.Bytes()
 }
 
+// encodeTeleportEntity builds a teleport_entity body (packet id 125):
+// VarInt entity id, PositionMoveRotation (pos vec3 + delta vec3 +
+// yRot/xRot floats), the int32 relatives bitmask, and onGround — the
+// exact field order of ClientboundTeleportEntityPacket's stream codec.
+func encodeTeleportEntity(id int32, x, y, z, dx, dy, dz float64, yaw, pitch float32, relatives int32, onGround bool) []byte {
+	var b protocol.Buffer
+	b.VarInt(id)
+	b.Double(x)
+	b.Double(y)
+	b.Double(z)
+	b.Double(dx)
+	b.Double(dy)
+	b.Double(dz)
+	b.Float(yaw)
+	b.Float(pitch)
+	b.Int(relatives)
+	b.Bool(onGround)
+	return b.Bytes()
+}
+
 // angleByte compresses degrees into a protocol angle byte,
 // wrapping full turns and negatives into [0, 256).
 func angleByte(deg float32) byte {

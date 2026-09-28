@@ -202,6 +202,7 @@ type ProtoIDs struct {
 	PlayServerLinks           int32
 	PlayTestInstanceStatus    int32
 	PlayProjectilePower       int32
+	PlayTeleportEntity        int32
 }
 
 // Version is one supported client version: its display name, protocol
@@ -403,6 +404,7 @@ var supportedVersions = []Version{
 			PlayServerLinks:           cb("server_links"),
 			PlayTestInstanceStatus:    cb("test_instance_block_status"),
 			PlayProjectilePower:       cb("projectile_power"),
+			PlayTeleportEntity:        cb("teleport_entity"),
 		},
 	},
 }

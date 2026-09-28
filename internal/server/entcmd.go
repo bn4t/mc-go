@@ -343,7 +343,8 @@ func (s *Server) runRideMount(sender *Session, rider *dataEntity, vehTok string)
 		_, _, _, yaw, pitch, _ := rider.sess.Pos()
 		// Seat at mount like positionRider does — rideTickStep measures
 		// ride stats from the seat, not the pre-mount position.
-		s.teleportPlayerRot(rider.sess.getName(), vehEnt.X, vehEnt.Y+passengerSeatY(vehEnt)-0.6, vehEnt.Z, yaw, pitch)
+		sx, sy, sz := playerSeatPos(vehEnt, rider.sess.entityID.Load())
+		s.teleportPlayerRot(rider.sess.getName(), sx, sy, sz, yaw, pitch)
 	}
 	s.broadcastSetPassengers(vehEnt)
 	return opsEchoReply(translatable("commands.ride.mount.success",
@@ -467,9 +468,10 @@ func (s *Server) spreadTargets(sender *Session, targets []*dataEntity, cx, cz, s
 			_, _, _, yaw, pitch, _ := t.sess.Pos()
 			s.teleportPlayerRot(t.sess.getName(), x, y, z, yaw, pitch)
 		} else {
-			t.mob.X, t.mob.Y, t.mob.Z = x, y, z
-			t.mob.teleportDelay = 401
-			s.broadcastEntityTeleport(nil, t.mob.ID, x, y, z, t.mob.Yaw, t.mob.Pitch, t.mob.Grounded)
+			// Spreadplayers lands through the same teleport transition —
+			// riders hop with the mount and hear teleport_entity — with
+			// an absolute relatives set.
+			s.tpMountTeleport(t.mob, x, y, z, t.mob.Yaw, t.mob.Pitch, 0)
 		}
 	}
 	dist := 0.0

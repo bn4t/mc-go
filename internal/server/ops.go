@@ -5,6 +5,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	"mc-go/internal/world"
 )
 
 // Vanilla-subset operator commands: /tp, /kick, /save-all, /stop.
@@ -398,7 +400,7 @@ func (s *Server) tpToEntity(player, victimsTok, destTok string) reply {
 		tdim = dest.mob.Dim
 	}
 	for _, v := range victims {
-		s.tpMove(v, dx, dy, dz, nil, tdim)
+		s.tpMove(v, dx, dy, dz, nil, tdim, 0)
 	}
 	if len(victims) == 1 {
 		return s.tpReply(player, translatable("commands.teleport.success.entity.single",
@@ -465,7 +467,16 @@ func (s *Server) tpToPos(player, victimsTok string, coords, rot []string) reply 
 		tdim = issuer.dimName()
 	}
 	for _, vic := range victims {
-		s.tpMove(vic, x, y, z, rotFn, tdim)
+		// The relatives set is resolved per victim: vanilla's isDelta
+		// arg is each entity's dimension == the target level's, which
+		// decides whether position() bits join the direction() ones.
+		vdim := ""
+		if vic.sess != nil {
+			vdim = vic.sess.dimName()
+		} else if vic.mob != nil {
+			vdim = vic.mob.Dim
+		}
+		s.tpMove(vic, x, y, z, rotFn, tdim, tpRelMask(coords, rot, vdim == tdim))
 	}
 	sx, sy, sz := tpCoords(x, y, z)
 	xcomp := nestedCompound{key: "", value: sx}
@@ -522,11 +533,62 @@ func tpResolveCoords(toks []string, bx, by, bz float64, issuer *Session) (x, y, 
 	return x, y, z
 }
 
+// Vanilla's Relative bitmask, as carried in teleport_entity's
+// relatives int: bits 0-2 are the position() set (only the
+// facing/delta command forms set it), bits 3-4 the rotation() set
+// (also implied when no rotation args are given, so the entity keeps
+// its own facing), bits 5-7 the direction() set for ~-relative and
+// ^-local coordinates, bit 8 ROTATE_DELTA.
+const (
+	relPosX        int32 = 1
+	relPosY        int32 = 2
+	relPosZ        int32 = 4
+	relYRot        int32 = 8
+	relXRot        int32 = 16
+	relDeltaX      int32 = 32
+	relDeltaY      int32 = 64
+	relDeltaZ      int32 = 128
+	relRotateDelta int32 = 256
+)
+
+// tpRelMask builds the relatives set TeleportCommand.getRelatives
+// produces for a positional tp: direction() bits for each ~-relative
+// or ^-local axis, position() bits on the same axes when the move
+// stays in one dimension (the isDelta arg is the same-dimension
+// check), and rotation() — which is the whole ROTATION set when the
+// command carried no rotation argument at all.
+func tpRelMask(coords, rot []string, sameDim bool) int32 {
+	m := int32(0)
+	for i, tok := range coords {
+		if i >= 3 {
+			break
+		}
+		if len(tok) > 0 && (tok[0] == '~' || tok[0] == '^') {
+			m |= relDeltaX << i
+			if sameDim {
+				m |= relPosX << i
+			}
+		}
+	}
+	if rot == nil {
+		m |= relYRot | relXRot
+	} else {
+		if len(rot) > 0 && strings.HasPrefix(rot[0], "~") {
+			m |= relYRot
+		}
+		if len(rot) > 1 && strings.HasPrefix(rot[1], "~") {
+			m |= relXRot
+		}
+	}
+	return m
+}
+
 // tpMove applies a resolved teleport to one entity: sessions go
 // through the player teleport path, mobs move and broadcast. tdim is
 // the teleport's target level — the execute context's dimension.
 func (s *Server) tpMove(v *dataEntity, x, y, z float64,
 	rotFn func(vyaw, vpitch float32) (float32, float32), tdim string,
+	relMask int32,
 ) {
 	var yaw, pitch float32
 	if v.sess != nil {
@@ -546,6 +608,32 @@ func (s *Server) tpMove(v *dataEntity, x, y, z float64,
 		s.tpCrossDimension(e, tdim, x, y, z, yaw, pitch)
 		return
 	}
+	s.tpMountTeleport(e, x, y, z, yaw, pitch, relMask)
+}
+
+// tpMountTeleport is Entity.teleport's same-dimension branch: a mount
+// leaves its own vehicle first (stopRiding on the non-passenger arm),
+// each direct passenger teleports through its own calculated
+// transition, the mount then repositions, and
+// sendTeleportTransitionToRidingPlayers emits teleport_entity to every
+// player anywhere in the rider stack so client-side riding keeps the
+// mount's new spot glued.
+func (s *Server) tpMountTeleport(e *Entity, x, y, z float64, yaw, pitch float32, relMask int32) {
+	s.tpTeleportTransition(e, x, y, z, yaw, pitch, relMask, false)
+}
+
+// tpTeleportTransition is the shared same-dimension transition body,
+// parameterized by whether the moving entity itself rides as a
+// passenger (nested passenger teleports skip the dismount and the
+// rider notifications — those fire once at the outermost mount).
+func (s *Server) tpTeleportTransition(e *Entity, x, y, z float64, yaw, pitch float32, relMask int32, asPassenger bool) {
+	if !asPassenger {
+		s.tpDismountVehicle(e)
+	}
+	mx, my, mz, myaw, mpitch := e.X, e.Y, e.Z, e.Yaw, e.Pitch
+	for _, pid := range append([]int32(nil), e.Passengers...) {
+		s.tpPassengerTransition(e, pid, x, y, z, yaw, pitch, relMask, mx, my, mz, myaw, mpitch)
+	}
 	e.X, e.Y, e.Z, e.Yaw, e.Pitch = x, y, z, yaw, pitch
 	// Vanilla's teleportSetPosition just repositions — the tracker
 	// emits entity_position_sync on the next sendChanges (its
@@ -554,6 +642,205 @@ func (s *Server) tpMove(v *dataEntity, x, y, z float64,
 	e.teleportDelay = 401
 	e.PosDirty = true
 	e.NeedsSync = true
+	if !asPassenger {
+		s.tpNotifyRidingPlayers(e, relMask, mx, my, mz, myaw, mpitch)
+	}
+}
+
+// tpDismountVehicle is Entity.stopRiding for a teleported mount: it
+// drops out of its own vehicle's passenger list and lands vanilla's
+// 60-tick boarding cooldown.
+func (s *Server) tpDismountVehicle(e *Entity) {
+	veh := s.vehicleOf(e.ID)
+	if veh == nil {
+		return
+	}
+	keep := veh.Passengers[:0]
+	for _, p := range veh.Passengers {
+		if p != e.ID {
+			keep = append(keep, p)
+		}
+	}
+	veh.Passengers = append([]int32(nil), keep...)
+	s.broadcastSetPassengers(veh)
+	e.Riding = 0
+	e.BoardingCooldown = 60
+}
+
+// tpPassengerTransition teleports one direct passenger the way
+// calculatePassengerTransition computes it. The two arms collapse
+// to the same outcome on every axis: a position-relative component
+// composes rider.old + (transition − mount.old) on the client, while
+// an absolute component is transition.pos + the rider's seat offset —
+// both reduce to old + mountDelta. Rotation slides the same way.
+func (s *Server) tpPassengerTransition(mount *Entity, pid int32, x, y, z float64, yaw, pitch float32, relMask int32, mx, my, mz float64, myaw, mpitch float32) {
+	if psess := s.sessionForEntityID(pid); psess != nil {
+		px, py, pz, pyaw, ppitch, _ := psess.Pos()
+		s.TeleportPlayerRot(psess.getName(),
+			px+x-mx, py+y-my, pz+z-mz,
+			pyaw+yaw-myaw, ppitch+pitch-mpitch)
+		return
+	}
+	rp, ok := s.entities.GetPtr(pid)
+	if !ok {
+		return
+	}
+	s.tpTeleportTransition(rp,
+		rp.X+x-mx, rp.Y+y-my, rp.Z+z-mz,
+		rp.Yaw+yaw-myaw, rp.Pitch+pitch-mpitch, relMask, true)
+}
+
+// tpNotifyRidingPlayers is sendTeleportTransitionToRidingPlayers:
+// every player anywhere in the rider stack receives teleport_entity
+// for the mount. The controlling passenger — when the mount type has
+// one — sees the transition's own PMR and relatives bitmask; every
+// other rider sees the mount's post-teleport PMR with an empty set.
+func (s *Server) tpNotifyRidingPlayers(e *Entity, relMask int32, ox, oy, oz float64, oyaw, opitch float32) {
+	ctrl := s.tpControllingPassenger(e)
+	// The transition PMR carries position() — delta-encoded on each
+	// axis the relatives set marks position-relative — and the
+	// transition's own rot, wrapped to ±180 like performTeleport's
+	// wrapDegrees.
+	px, py, pz := e.X, e.Y, e.Z
+	if relMask&relPosX != 0 {
+		px -= ox
+	}
+	if relMask&relPosY != 0 {
+		py -= oy
+	}
+	if relMask&relPosZ != 0 {
+		pz -= oz
+	}
+	pyaw, ppitch := e.Yaw, e.Pitch
+	if relMask&relYRot != 0 {
+		pyaw = wrapDegrees32(pyaw - oyaw)
+	}
+	if relMask&relXRot != 0 {
+		ppitch = wrapDegrees32(ppitch - opitch)
+	}
+	ctrlPMR := encodeTeleportEntity(e.ID, px, py, pz,
+		e.MotionX, e.MotionY, e.MotionZ, pyaw, ppitch, relMask, e.Grounded)
+	mountPMR := encodeTeleportEntity(e.ID, e.X, e.Y, e.Z,
+		e.MotionX, e.MotionY, e.MotionZ, e.Yaw, e.Pitch, 0, e.Grounded)
+	stack := append([]int32(nil), e.Passengers...)
+	for len(stack) > 0 {
+		pid := stack[0]
+		stack = stack[1:]
+		// Player riders resolve first: their entity ids also live in
+		// the entities map, so a GetPtr-first order would swallow them
+		// as mobs and the mount hop would never reach the wire.
+		if psess := s.sessionForEntityID(pid); psess != nil {
+			if psess.state.Load() != StatePlay {
+				continue
+			}
+			body := mountPMR
+			if ctrl != 0 && pid == ctrl {
+				body = ctrlPMR
+			}
+			_ = psess.write(psess.ids().PlayTeleportEntity, body)
+			continue
+		}
+		if rp, ok := s.entities.GetPtr(pid); ok {
+			stack = append(stack, rp.Passengers...)
+		}
+	}
+}
+
+// tpControllingPassenger is the mount's getControllingPassenger:
+// the base Entity returns null, and each mountable type adds its own
+// rule — a boat's first passenger when it is living, a steerable's
+// first rider when saddled and holding its stick, the horse family's
+// first rider when saddled, the happy_ghast's first rider when it
+// wears its harness. Everything else has no controlling rider, so a
+// mounted pig without a saddle reports none the way vanilla does.
+func (s *Server) tpControllingPassenger(veh *Entity) int32 {
+	if len(veh.Passengers) == 0 {
+		return 0
+	}
+	first := veh.Passengers[0]
+	name, ok := EntityTypeName(veh.Type)
+	if !ok {
+		return 0
+	}
+	psess := s.sessionForEntityID(first)
+	if isBoatEntityName(name) {
+		// AbstractBoat: firstPassenger instanceof LivingEntity. Player
+		// riders are living by definition; a mob rider is living when
+		// its entity record carries the flag.
+		if psess != nil {
+			return first
+		}
+		if rp, ok := s.entities.GetPtr(first); ok && rp.Living {
+			return first
+		}
+		return 0
+	}
+	if psess == nil {
+		return 0
+	}
+	switch {
+	case name == "pig":
+		if veh.Saddle && sessHoldsItem(psess, "carrot_on_a_stick") {
+			return first
+		}
+	case name == "strider":
+		if veh.Saddle && sessHoldsItem(psess, "warped_fungus_on_a_stick") {
+			return first
+		}
+	case name == "happy_ghast":
+		// isWearingBodyArmor + !isOnStillTimeout — mc-go latches the
+		// harness on Saddle and does not model the still timeout.
+		if veh.Saddle {
+			return first
+		}
+	case name == "nautilus" || name == "zombie_nautilus":
+		if veh.Saddle {
+			return first
+		}
+	case horseVehicleNames[name]:
+		if veh.Saddle {
+			return first
+		}
+	}
+	return 0
+}
+
+// horseVehicleNames is the AbstractHorse family whose
+// getControllingPassenger is the saddled first player rider (camels
+// inherit it too).
+var horseVehicleNames = map[string]bool{
+	"horse": true, "donkey": true, "mule": true,
+	"llama": true, "trader_llama": true, "camel": true,
+	"camel_husk": true, "skeleton_horse": true, "zombie_horse": true,
+}
+
+// sessHoldsItem is Player.isHolding(item): either hand carries it.
+func sessHoldsItem(sess *Session, name string) bool {
+	id, ok := world.ItemID(name)
+	if !ok {
+		return false
+	}
+	if st := sess.heldStack(); st.ID == id && st.Count > 0 {
+		return true
+	}
+	st := sess.stackAt(slotOffhand)
+	return st.ID == id && st.Count > 0
+}
+
+// sessionForEntityID resolves a session by its tracked entity id —
+// the inverse of sess.entityID used to find player passengers sitting
+// in a mount's passenger list.
+func (s *Server) sessionForEntityID(eid int32) *Session {
+	var found *Session
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.entityID.Load() == eid {
+			found = sess
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 // tpCrossDimension is Entity.teleportCrossDimension: the entity leaves

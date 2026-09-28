@@ -125,6 +125,7 @@ func TestVersionTableMatchesConstants(t *testing.T) {
 		"PlaySetSubtitleText": "set_subtitle_text", "PlayClearTitles": "clear_titles",
 		"PlayCustomReportDetails": "custom_report_details", "PlayServerLinks": "server_links",
 		"PlayTestInstanceStatus": "test_instance_block_status", "PlayProjectilePower": "projectile_power",
+		"PlayTeleportEntity": "teleport_entity",
 	}
 	rv := reflect.ValueOf(ids)
 	rt := rv.Type()

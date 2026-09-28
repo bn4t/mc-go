@@ -117,7 +117,8 @@ func (s *Server) rideVehicle(sess *Session, eid int32, sneaking bool) {
 	// counts the mount hop as ridden distance. set_passengers carries
 	// the render — no teleport packet.
 	_, _, _, yaw, pitch, og := sess.Pos()
-	sess.setPos(veh.X, veh.Y+passengerSeatY(veh)-0.6, veh.Z, yaw, pitch, og)
+	sx, sy, sz := playerSeatPos(veh, sess.entityID.Load())
+	sess.setPos(sx, sy, sz, yaw, pitch, og)
 	s.broadcastSetPassengers(veh)
 	s.fireStartedRiding(sess)
 }
@@ -300,6 +301,12 @@ func passengerAttachAdult(name string, typeID int32) [3]float64 {
 	if y, ok := passengerAttachY[name]; ok {
 		return [3]float64{0, y, 0}
 	}
+	if isBoatEntityName(name) {
+		// AbstractBoat.rideHeight: the seat sits one third of the
+		// boat's box height up — 0.1875, which welds riders 0.4125
+		// under the boat's own position.
+		return [3]float64{0, mobBounds(typeID)[1] / 3, 0}
+	}
 	return [3]float64{0, mobBounds(typeID)[1], 0}
 }
 
@@ -408,10 +415,52 @@ func riderVehicleAttachY(rider *Entity) float64 {
 // VEHICLE attach is (0,y,0), so its x/z terms vanish.
 func passengerSeatPos(veh *Entity, rider *Entity) (float64, float64, float64) {
 	att := passengerAttach(veh)
+	if name, ok := EntityTypeName(veh.Type); ok && isBoatEntityName(name) {
+		// AbstractBoat shifts each extra rider laterally — the animal
+		// instanceof test covers the breedable set mc-go models.
+		animal := false
+		if rname, ok := EntityTypeName(rider.Type); ok {
+			_, animal = animalFood[rname]
+		}
+		att[2] = boatSeatZ(veh, rider.ID, animal)
+	}
 	a := -float64(veh.Yaw) * math.Pi / 180
 	sn, cs := math.Sin(a), math.Cos(a)
 	rva := riderVehicleAttachY(rider)
 	return veh.X + (att[0]*cs + att[2]*sn), (veh.Y + att[1]) - rva, veh.Z + (att[2]*cs - att[0]*sn)
+}
+
+// boatSeatZ is AbstractBoat.getPassengerAttachmentPoint's lateral
+// offset: a lone rider takes getSinglePassengerXOffset (0 for a plain
+// rowboat), and once two or more ride together the front seat sits
+// 0.2 ahead of center and each rear seat 0.6 behind; animal riders
+// slide a further 0.2 forward. The rider's own index inside
+// Passengers decides which seat it occupies.
+func boatSeatZ(veh *Entity, riderID int32, animal bool) float64 {
+	if len(veh.Passengers) <= 1 {
+		return 0
+	}
+	z := -0.6
+	if veh.Passengers[0] == riderID {
+		z = 0.2
+	}
+	if animal {
+		z += 0.2
+	}
+	return z
+}
+
+// playerSeatPos is the session-rider half of passengerSeatPos: the
+// vehicle's pos + yaw-rotated PASSENGER attach (per-seat for boats)
+// minus the player's 0.6 VEHICLE attachment.
+func playerSeatPos(veh *Entity, pid int32) (float64, float64, float64) {
+	att := passengerAttach(veh)
+	if name, ok := EntityTypeName(veh.Type); ok && isBoatEntityName(name) {
+		att[2] = boatSeatZ(veh, pid, false)
+	}
+	a := -float64(veh.Yaw) * math.Pi / 180
+	sn, cs := math.Sin(a), math.Cos(a)
+	return veh.X + (att[0]*cs + att[2]*sn), veh.Y + att[1] - 0.6, veh.Z + (att[2]*cs - att[0]*sn)
 }
 
 // passengerSeatY is the vehicle's PASSENGER attachment height: the
@@ -557,9 +606,10 @@ func (s *Server) rideTickStep(sess *Session) {
 	// The PASSENGER point is the declared passengerAttachments offset
 	// or the AT_HEIGHT fallback (0, h/2, 0). Measured live: a
 	// minecart's declared 0.1875 puts the rider at vehY-0.4125.
+	sx, sy, sz := playerSeatPos(veh, sess.entityID.Load())
 	ox, oy, oz, yaw, pitch, og := sess.Pos()
-	sess.setPos(veh.X, veh.Y+passengerSeatY(veh)-0.6, veh.Z, yaw, pitch, og)
-	s.rideMoveStats(sess, veh, veh.X-ox, veh.Y+passengerSeatY(veh)-0.6-oy, veh.Z-oz)
+	sess.setPos(sx, sy, sz, yaw, pitch, og)
+	s.rideMoveStats(sess, veh, sx-ox, sy-oy, sz-oz)
 	if !s.entityInLava(sess, veh) {
 		sess.lavaRideSet = false
 		return
@@ -738,11 +788,20 @@ func (s *Server) vehicleDestroy(ep *Entity) {
 // current value at interval boundaries rather than every decrement.
 func (s *Server) vehicleTickStep() {
 	for _, e := range s.entities.All() {
-		if e.VehHurtTime <= 0 && e.VehDamage <= 0 {
-			continue
-		}
 		ep, ok := s.entities.GetPtr(e.ID)
 		if !ok {
+			continue
+		}
+		// AbstractBoat's onGround: a spawned boat falls until its box
+		// bottom meets a solid top, where the vertical collision flag
+		// latches. mc-go's boats never move, so the settled reading is
+		// simply "a solid block directly under the box bottom".
+		if name, ok := EntityTypeName(ep.Type); ok && isBoatEntityName(name) {
+			if d := s.dimensionByName(ep.Dim); d != nil {
+				ep.Grounded = boatGroundedAt(d.w, ep)
+			}
+		}
+		if ep.VehHurtTime <= 0 && ep.VehDamage <= 0 {
 			continue
 		}
 		dirtyTime, dirtyDamage := false, false
@@ -778,6 +837,26 @@ func (s *Server) vehicleTickStep() {
 			s.broadcastEntityMetadata(ep.ID, b.Bytes())
 		}
 	}
+}
+
+// boatGroundedAt reports whether a solid top sits directly under the
+// boat's bounding-box bottom — the reading vanilla's vertical-collision
+// onGround flag settles into once a spawned boat has had a tick to land.
+func boatGroundedAt(w *world.World, e *Entity) bool {
+	const half = 1.375 / 2
+	by := int(math.Floor(e.Y - 1e-4))
+	if float64(by+1) < e.Y-1e-4 {
+		return false
+	}
+	for bx := int(math.Floor(e.X - half)); float64(bx) < e.X+half; bx++ {
+		for bz := int(math.Floor(e.Z - half)); float64(bz) < e.Z+half; bz++ {
+			b := w.GetBlock(world.Pos{X: bx, Y: by, Z: bz})
+			if !world.NonSolid(b) && !moveNoCollision(b) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // entityInLava reports whether any block under the entity's bounding
