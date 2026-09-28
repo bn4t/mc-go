@@ -475,8 +475,11 @@ func (s *Server) tickLeash(e *Entity) {
 		return
 	}
 	holder, ok := s.leashHolderEntity(e)
-	if !ok {
-		s.leashDrop(e, true)
+	// Leashable.tickLeash's canInteractWithLevel gate: a removed OR
+	// dying holder drops the leash — the lead item only lands when
+	// the entity_drops rule is on (dropLeash vs removeLeash).
+	if !ok || holder.Dying {
+		s.leashDrop(e, s.gameRuleBool("minecraft:entity_drops"))
 		return
 	}
 	if holder.Dim != e.Dim {

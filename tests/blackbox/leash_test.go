@@ -12,6 +12,8 @@ package blackbox
 //                            set_entity_link(sheep, knot)   — loose
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,5 +71,106 @@ func TestLeashSummonWireParity(t *testing.T) {
 	}
 	if len(gotL) != len(wantL) {
 		t.Fatalf("loose set_entity_link count: vanilla=%v mc-go=%v", wantL, gotL)
+	}
+}
+
+// TestLeashDeathDropParity pins tickLeash's canInteractWithLevel gate
+// (26.2 bytecode): the tick a leashed mob OR its holder can no longer
+// interact with the level (dead, dying, or removed), the leash drops —
+// the lead item only under the entity_drops rule (dropLeash), else
+// removeLeash. The snap-distance arm drops the item unconditionally.
+//
+//   A: sheep leashed to a fence knot is killed → lead item lands.
+//   B: entity_drops=false → unlink without the item.
+//   C: the fence under the knot breaks — the knot pops, the holder
+//      vanishes, and the leashee drops its leash → lead item lands.
+
+func TestLeashDeathDropParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("LD"),
+	}, nil)
+	defer targets.cleanup()
+
+	leadProbe := `@e[type=minecraft:item,x=%d,y=-61,z=%d,dx=5,dy=3,dz=5,nbt={Item:{id:"minecraft:lead"}}]`
+
+	run := func(addr string) map[string]string {
+		c, pr, pw := joinPlayBlackbox(t, addr, "LD")
+		defer c.Close()
+		sink := newChatSinkTP(pr, pw)
+		sendCommand(t, pw, "gamerule doMobSpawning false")
+		sendCommand(t, pw, "time set 18000")
+		time.Sleep(300 * time.Millisecond)
+
+		out := map[string]string{}
+		probe := func(sel, mk string) string {
+			sendCommand(t, pw, fmt.Sprintf("execute if entity %s run say %sH", sel, mk))
+			sendCommand(t, pw, "say "+mk+"K")
+			hit := "miss"
+			end := time.Now().Add(4 * time.Second)
+			for time.Now().Before(end) {
+				stop := false
+				for _, l := range sink.take() {
+					if strings.Contains(l, mk+"H") {
+						hit = "hit"
+					}
+					if strings.Contains(l, mk+"K") {
+						stop = true
+					}
+				}
+				if stop {
+					break
+				}
+				time.Sleep(30 * time.Millisecond)
+			}
+			return hit
+		}
+
+		// Leg A: fence-knot leash, kill the sheep → lead item lands.
+		sendCommand(t, pw, "setblock 8 -60 9 minecraft:oak_fence")
+		sendCommand(t, pw, "summon minecraft:sheep 8 -60 8 {leash:[I;8,-60,9]}")
+		time.Sleep(400 * time.Millisecond)
+		sendCommand(t, pw, "kill @e[type=minecraft:sheep]")
+		time.Sleep(800 * time.Millisecond)
+		out["A"] = probe(fmt.Sprintf(leadProbe, 6, 6), "LA")
+		sendCommand(t, pw, "kill @e[type=minecraft:item]")
+		time.Sleep(200 * time.Millisecond)
+
+		// Leg B: entity_drops=false → the leash still unlinks but no
+		// item lands.
+		sendCommand(t, pw, "gamerule entity_drops false")
+		sendCommand(t, pw, "setblock 28 -60 9 minecraft:oak_fence")
+		sendCommand(t, pw, "summon minecraft:sheep 28 -60 8 {leash:[I;28,-60,9]}")
+		time.Sleep(400 * time.Millisecond)
+		sendCommand(t, pw, "kill @e[type=minecraft:sheep]")
+		time.Sleep(800 * time.Millisecond)
+		out["B"] = probe(fmt.Sprintf(leadProbe, 26, 6), "LB")
+		sendCommand(t, pw, "gamerule entity_drops true")
+		sendCommand(t, pw, "kill @e[type=minecraft:item]")
+
+		// Leg C: break the fence under the knot — the knot pops on
+		// the ~100t survives pass, the holder vanishes, and the
+		// leashee's tickLeash drops the leash (+item) next tick.
+		sendCommand(t, pw, "setblock 48 -60 9 minecraft:oak_fence")
+		sendCommand(t, pw, "summon minecraft:sheep 48.5 -60 8.5 {leash:[I;48,-60,9]}")
+		time.Sleep(400 * time.Millisecond)
+		sendCommand(t, pw, "setblock 48 -60 9 minecraft:air")
+		time.Sleep(6 * time.Second)
+		out["C"] = probe(fmt.Sprintf(leadProbe, 46, 6), "LC")
+		sendCommand(t, pw, "kill @e[type=minecraft:item]")
+		return out
+	}
+
+	van := run(targets.vanilla)
+	mc := run(targets.mcgo)
+	t.Logf("vanilla %v", van)
+	t.Logf("mc-go   %v", mc)
+	want := map[string]string{"A": "hit", "B": "miss", "C": "hit"}
+	for k, w := range want {
+		if van[k] != w {
+			t.Errorf("leg %s vanilla=%s want %s", k, van[k], w)
+		}
+		if mc[k] != van[k] {
+			t.Errorf("leg %s: vanilla=%s mc-go=%s", k, van[k], mc[k])
+		}
 	}
 }

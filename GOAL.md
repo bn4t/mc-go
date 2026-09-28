@@ -12108,3 +12108,28 @@ Pinned: TestFarmlandTrampleParity leg TR3 — an item resting on the
 farmland cell at feet -60.0625 plus a 5m zombie trampler; after the
 trample the item reads -60.0000 on both servers (identical), the
 zombie self-push reads -60.0000 both legs.
+## Slice — leash death-drop (canInteractWithLevel gate)
+
+Leashable.tickLeash's head gate: !leashee.canInteractWithLevel() ||
+!holder.canInteractWithLevel() → entity_drops ? dropLeash (item) :
+removeLeash (no item). canInteractWithLevel = isAlive && !isRemoved &&
+!isSpectator — tickLeash runs from Entity.baseTick, which keeps
+ticking through the 20t death animation, so a dying leashed mob
+self-drops its leash on death tick 1 (measured: vanilla drops the
+lead item when a knot-leashed sheep is /kill'd — intermittent probe
+misses are item-timing flakes, not a different mechanism). The same
+gate covers a dying/removed holder: leashDrop fires with dropItem
+gated on the entity_drops gamerule.
+
+mc-go: mob tick Dying branch now drops the leash first
+(LeashHolder!=0 → leashDrop(e, gameRuleBool(entity_drops))); the
+tickLeash holder gate gains holder.Dying plus the gamerule gate
+(was: drop unconditionally, only when the holder pointer vanished).
+Also Mob.startRiding's `if isLeashed() dropLeash()` — unconditional
+item drop when a leashed rider boards a vehicle — wired into
+rideMobOnto.
+
+Pinned: TestLeashDeathDropParity — A: knot-leashed sheep /kill'd →
+lead item lands (both); B: entity_drops=false repeat → unlink, no
+item (both); C: fence under the knot broken → knot pops on the
+~100t survives pass, holder gone, leashee drops leash+item (both).

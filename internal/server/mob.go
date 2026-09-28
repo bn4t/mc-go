@@ -2234,6 +2234,11 @@ func (s *Server) rideMobOnto(rider, mount *Entity) {
 	if mname, _ := EntityTypeName(mount.Type); mname == "chicken" {
 		mount.ChickenJockey = true
 	}
+	// Mob.startRiding: a leashed rider drops its leash first —
+	// dropLeash() drops the lead item unconditionally.
+	if rider.LeashHolder != 0 {
+		s.leashDrop(rider, true)
+	}
 	rider.Riding = mount.ID
 	mount.Passengers = append(mount.Passengers, rider.ID)
 	rider.X, rider.Y, rider.Z = passengerSeatPos(mount, rider)
@@ -3312,6 +3317,12 @@ func (s *Server) mobTickStep() {
 			continue
 		}
 		if e.Dying {
+			// Leashable.tickLeash keeps running for a dying mob: the
+			// moment it can't interact with the level the leash
+			// drops — lead item only under entity_drops.
+			if e.LeashHolder != 0 {
+				s.leashDrop(e, s.gameRuleBool("minecraft:entity_drops"))
+			}
 			if len(e.dataSync) > 0 && s.gameTime() >= e.dataSyncTick {
 				data := e.dataSync
 				e.dataSync = nil
