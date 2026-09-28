@@ -10913,3 +10913,14 @@ column: roots eligible ≈70 cells → ~6 expected. Floors both legs:
 oak_log>=4, azalea_leaves>=20, rooted_dirt>=30, hanging_roots>=1.
 Green: logs v=7 g=6, leaves v=58 g=52, rooted v=93 g=90, roots v=2
 g=7.
+
+## Slice — fire spread/decay blackbox pin
+
+FireBlock.tick was already implemented end-to-end (reschedule 30-40,
+canSpreadFireAround gamerule, canSurvive pop, infiniburn, rain quench,
+age+nextInt(3)/2, invalid-location decay, checkBurnOut bases
+300/250, spread box x±1 z±1 y[-1,4] with height-scaled threshold and
+(odds+40+difficulty*7)/(age+30) roll, getStateWithAge face folds) —
+this slice pins it differentially: an infiniburn netherrack source
+beside a 35-plank wall, ~1000 sprinted ticks, floors fire>=3 cells
+and planks<35 per leg. Green: cells v=6 g=10, planks left v=1 g=7.
