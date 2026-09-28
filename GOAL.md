@@ -11103,3 +11103,28 @@ everything else.
 - Known approximation: rider players still get absolute
   player_position syncs; vanilla emits the relative-encoded form —
   outcome-identical, wire-shape noted.
+
+
+## Slice — packet: select_advancements_tab (0x55) on seen_advancements
+
+- javap: ServerGamePacketListenerImpl.handleSeenAdvancements only
+  acts on OPENED_TAB — resolves the id via ServerAdvancementManager
+  (null holder = skip entirely) and calls
+  PlayerAdvancements.setSelectedTab. setSelectedTab keeps the holder
+  iff value().isRoot() && display().isPresent(), else stores null, and
+  emits ClientboundSelectAdvancementsTabPacket (writeNullable id) only
+  when the stored selection changed. CLOSED_SCREEN is a no-op —
+  lastSelectedTab survives closing the screen. mc-go's old comment
+  "vanilla echoes nothing" was wrong.
+- Root/display detection reuses the AdvDefWire table — the
+  update_advancements wire's hasParent=false + hasDisplay=true pair is
+  exactly isRoot && display present (5 selectable tabs:
+  adventure/end/husbandry/nether/story roots; recipes/root is a
+  display-less root that clears the selection).
+- handleSeenAdvancements rewritten: tab id only read for OPENED_TAB
+  (matches the SB codec), lastAdvTab tracked per session,
+  select_advancements_tab emitted on change. The ProtoIDs field and
+  test pin already existed — only the emit was missing.
+- `TestSelectAdvancementsTabParity`: select / re-select / display-less
+  root / unknown id / close / re-open-same probes diff the raw 0x55
+  bodies — green vs both servers.

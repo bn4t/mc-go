@@ -431,6 +431,9 @@ type Session struct {
 	stats  *statStore
 	// seenAdvTabs holds advancement tabs the client reported as seen.
 	seenAdvTabs map[string]bool
+	// lastAdvTab mirrors PlayerAdvancements.lastSelectedTab: the root
+	// tab the client last opened (empty = none selected).
+	lastAdvTab string
 	// chatSession is the client's signed-chat session key, from the
 	// Player Session packet; nil until the client publishes one.
 	chatSession *chatSessionKey

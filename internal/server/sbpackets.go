@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"mc-go/internal/data"
 	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
@@ -614,15 +615,14 @@ func (s *Server) handlePlayerLoaded(sess *Session, p protocol.Packet) {
 }
 
 // handleSeenAdvancements records which advancement tab the client
-// opened or closed. Vanilla echoes nothing; the state drives the
-// client's own "seen" badge.
+// opened and echoes select_advancements_tab back — vanilla's
+// handleSeenAdvancements resolves the tab id to an AdvancementHolder
+// and calls PlayerAdvancements.setSelectedTab, which emits the packet
+// whenever the stored selection changes. The tab id field is only
+// present for the OPENED_TAB action.
 func (s *Server) handleSeenAdvancements(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
 	action, err := r.VarInt()
-	if err != nil {
-		return
-	}
-	tab, err := r.String()
 	if err != nil {
 		return
 	}
@@ -632,11 +632,69 @@ func (s *Server) handleSeenAdvancements(sess *Session, p protocol.Packet) {
 	}
 	switch action {
 	case 0: // opened tab
+		tab, err := r.String()
+		if err != nil {
+			sess.bookMu.Unlock()
+			return
+		}
 		sess.seenAdvTabs[tab] = true
-	case 1: // closed screen
-		delete(sess.seenAdvTabs, tab)
+		sess.bookMu.Unlock()
+		s.advSetSelectedTab(sess, tab)
+	case 1: // closed screen — vanilla keeps lastSelectedTab
+		sess.bookMu.Unlock()
+	default:
+		sess.bookMu.Unlock()
 	}
+}
+
+// advSetSelectedTab mirrors PlayerAdvancements.setSelectedTab: an
+// unknown id leaves the selection alone, a root with a display selects
+// it, anything else clears it — and only a change emits
+// select_advancements_tab (nullable Identifier).
+func (s *Server) advSetSelectedTab(sess *Session, tab string) {
+	if data.AdvDefWire[tab] == nil {
+		return
+	}
+	next := ""
+	if advSelectableTab(tab) {
+		next = tab
+	}
+	sess.bookMu.Lock()
+	if sess.lastAdvTab == next {
+		sess.bookMu.Unlock()
+		return
+	}
+	sess.lastAdvTab = next
 	sess.bookMu.Unlock()
+	var b protocol.Buffer
+	if next == "" {
+		b.Bool(false)
+	} else {
+		b.Bool(true)
+		b.String(next)
+	}
+	_ = sess.write(sess.ids().PlaySelectAdvancementsTab, b.Bytes())
+}
+
+// advSelectableTab reports whether tab is a selectable advancement
+// tab root — vanilla's gate is value().isRoot() && display().isPresent()
+// which on the update_advancements wire is hasParent=false followed by
+// hasDisplay=true.
+func advSelectableTab(tab string) bool {
+	def := data.AdvDefWire[tab]
+	if def == nil {
+		return false
+	}
+	r := protocol.NewPacketReader(def)
+	if _, err := r.String(); err != nil { // own id
+		return false
+	}
+	hasParent, err := r.Bool()
+	if err != nil || hasParent {
+		return false
+	}
+	hasDisplay, err := r.Bool()
+	return err == nil && hasDisplay
 }
 
 // handleRecipeBookChangeSettings stores the recipe-book UI toggles and
