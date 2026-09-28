@@ -377,7 +377,7 @@ func randRules() map[string]func(*Server, *dimension, world.Pos, world.Block) {
 			"jungle_sapling":          saplingRule,
 			"acacia_sapling":          saplingRule,
 			"dark_oak_sapling":        saplingRule,
-			"mangrove_propagule":      saplingRule,
+			"mangrove_propagule":      propaguleRule,
 			"cherry_sapling":          saplingRule,
 			"pale_oak_sapling":        saplingRule,
 		}

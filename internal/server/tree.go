@@ -28,6 +28,7 @@ const (
 	canopyDarkOak
 	canopyMegaPine
 	canopyMegaJungle
+	canopyMangrove
 )
 
 // trunkKind is the species' trunk_placer variant: the straight column
@@ -42,6 +43,7 @@ const (
 	trunkDarkOak
 	trunkGiant
 	trunkMegaJungle
+	trunkMangrove
 )
 
 // decorKind is the tree's decorator set (TreeConfiguration.decorators):
@@ -54,6 +56,7 @@ const (
 	decorPodzol
 	decorJungleVines // trunk_vine + leave_vine{0.25} (mega jungle)
 	decorPaleMoss    // pale_moss{ground .8, leaves .15, trunk .4} hangers
+	decorMangrove    // {leave_vine .125, attached_to_leaves propagule, beehive .01}
 )
 
 // foliageAttach is one FoliageAttachment: the cell the canopy centers
@@ -86,8 +89,12 @@ type treeShape struct {
 	megaAltChance            float64
 	ignoreVines              bool // FeatureConfiguration.ignoreVines
 	decor                    decorKind
-	creaking                 bool // pale_oak_creaking adds creaking_heart{p=1.0}
-	crownMin, crownMax       int  // mega_pine_foliage_placer's crown_height uniform
+	creaking                 bool       // pale_oak_creaking adds creaking_heart{p=1.0}
+	secondary                *treeShape // getConfiguredFeature's secondaryFeature
+	secondaryChance          float64
+	branchStepsMax           int // upwards_branching extra_branch_steps U{1..max}
+	trunkOffMin, trunkOffMax int // root placer trunk_offset_y U{min..max}
+	crownMin, crownMax       int // mega_pine_foliage_placer's crown_height uniform
 }
 
 // twoLayers — TwoLayersFeatureSize.getSizeAtHeight: lower below
@@ -170,6 +177,7 @@ var treeShapes = map[string]treeShape{
 	// PaleOakTreeGrower's mega feature is pale_oak_bonemeal — the same
 	// dark-oak placers on pale names, ignore_vines, and NO decorators
 	// (the pale_moss set belongs to the pale_oak placed feature).
+	"mangrove_propagule": mangroveShape,
 	"pale_oak_sapling": {
 		log: "pale_oak_log", leaf: "pale_oak_leaves", baseHeight: 6, randA: 2, randB: 1,
 		minR: threeLayers(1, 1, 0, 1, 2), trunk: trunkDarkOak, canopy: canopyDarkOak,
@@ -225,6 +233,26 @@ var paleOakCreakingShape = treeShape{
 	log: "pale_oak_log", leaf: "pale_oak_leaves", baseHeight: 6, randA: 2, randB: 1,
 	minR: threeLayers(1, 1, 0, 1, 2), trunk: trunkDarkOak, canopy: canopyDarkOak,
 	ignoreVines: true, decor: decorPaleMoss, creaking: true,
+}
+
+// tallMangroveShape — tall_mangrove.json: the stilt trunk raises 3..7,
+// the column runs 4+U{0..1}+U{0..9} and branches step U{1..6}.
+var tallMangroveShape = treeShape{
+	log: "mangrove_log", leaf: "mangrove_leaves", baseHeight: 4, randA: 1, randB: 9,
+	minR: twoLayers(3, 0, 2), trunk: trunkMangrove, canopy: canopyMangrove,
+	branchStepsMax: 6, trunkOffMin: 3, trunkOffMax: 7,
+	decor: decorMangrove,
+}
+
+// mangroveShape — mangrove.json: stilt offset 1..3, column
+// 2+U{0..1}+U{0..4}, branches step U{1..4}. A propagule's 0.85
+// secondary roll replaces this spec with the tall one.
+var mangroveShape = treeShape{
+	log: "mangrove_log", leaf: "mangrove_leaves", baseHeight: 2, randA: 1, randB: 4,
+	minR: twoLayers(2, 0, 2), trunk: trunkMangrove, canopy: canopyMangrove,
+	branchStepsMax: 4, trunkOffMin: 1, trunkOffMax: 3,
+	decor:     decorMangrove,
+	secondary: &tallMangroveShape, secondaryChance: 0.85,
 }
 
 // saplingRule — SaplingBlock.randomTick: getMaxLocalRawBrightness of
@@ -318,6 +346,12 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 			return
 		}
 	}
+	// getConfiguredFeature's secondaryFeature roll — mangrove swaps
+	// its single feature for tall_mangrove at 0.85 before the fancy
+	// roll ever runs.
+	if shape.secondary != nil && s.rng.nextDouble() < shape.secondaryChance {
+		shape = *shape.secondary
+	}
 	// getConfiguredFeature: rand.nextFloat() < secondaryChance picks the
 	// secondary feature — oak's fancy tree runs FancyTrunkPlacer +
 	// FancyFoliagePlacer against its own minsize rule.
@@ -401,6 +435,10 @@ func (s *Server) placeFeatureName(d *dimension, name string, pos world.Pos) bool
 		return s.treeFeature(d, pos, paleOakMossShape)
 	case "pale_oak_creaking":
 		return s.treeFeature(d, pos, paleOakCreakingShape)
+	case "mangrove":
+		return s.treeFeature(d, pos, mangroveShape)
+	case "tall_mangrove":
+		return s.treeFeature(d, pos, tallMangroveShape)
 	case "pale_oak_bonemeal":
 		return s.treeFeature(d, pos, paleOakShape)
 	case "jungle_tree_no_vine":
@@ -446,14 +484,28 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		return false
 	}
 
-	// placeBelowTrunkBlock: the provider writes dirt under the trunk
-	// when the below block isn't already in
-	// cannot_replace_below_tree_trunk — grass/mycelium/regular blocks
-	// under a tree turn to dirt.
-	below := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
-	if bn, _ := world.StateOwner(d.w.GetBlock(below)); !dirtTagName(strings.TrimPrefix(bn, "minecraft:")) {
-		if dirt, ok := world.BlockStateOf("dirt", nil); ok {
-			s.setNaturalBlock(d, below, dirt)
+	trunkPos := pos
+	if shape.trunk == trunkMangrove {
+		// MangroveRootPlacer.getTrunkOrigin: the trunk base raises
+		// trunk_offset_y above the feature origin, and placeRoots
+		// runs before the trunk — a failed root simulation is a
+		// failed tree.
+		off := shape.trunkOffMin + s.rng.intn(shape.trunkOffMax-shape.trunkOffMin+1)
+		trunkPos = world.Pos{X: pos.X, Y: pos.Y + off, Z: pos.Z}
+		if !s.mangroveRoots(d, pos, trunkPos) {
+			return false
+		}
+	} else {
+		// placeBelowTrunkBlock: the provider writes dirt under the trunk
+		// when the below block isn't already in
+		// cannot_replace_below_tree_trunk — grass/mycelium/regular blocks
+		// under a tree turn to dirt. UpwardsBranchingTrunkPlacer never
+		// calls it, so the mangrove path writes no substrate.
+		below := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
+		if bn, _ := world.StateOwner(d.w.GetBlock(below)); !dirtTagName(strings.TrimPrefix(bn, "minecraft:")) {
+			if dirt, ok := world.BlockStateOf("dirt", nil); ok {
+				s.setNaturalBlock(d, below, dirt)
+			}
 		}
 	}
 
@@ -476,6 +528,8 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		attachments = s.giantTrunk(d, pos, treeHeight, logState, &logs)
 	case trunkMegaJungle:
 		attachments = s.megaJungleTrunk(d, pos, treeHeight, logState, &logs)
+	case trunkMangrove:
+		attachments = s.mangroveTrunk(d, trunkPos, treeHeight, shape, logState, &logs)
 	default:
 		for y := 0; y < treeHeight; y++ {
 			p := world.Pos{X: pos.X, Y: pos.Y + y, Z: pos.Z}
@@ -511,6 +565,8 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		s.megaPineCanopy(d, attachments, shape, placeLeaf)
 	case canopyMegaJungle:
 		s.megaJungleCanopy(d, attachments, placeLeaf)
+	case canopyMangrove:
+		s.mangroveCanopy(d, attachments, placeLeaf)
 	default:
 		// blob (radius 2, offset 0, height 3): four layers at yo
 		// 0..-3 with radius max(2 - 1 - yo/2, 0) → 1,1,2,2 (Java's
@@ -551,6 +607,8 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		if shape.creaking {
 			s.creakingHeartDecor(d, logs)
 		}
+	case decorMangrove:
+		s.mangroveDecorators(d, logs, leaves)
 	}
 
 	// updateLeaves: BFS from every written log assigns
@@ -1106,9 +1164,24 @@ func (s *Server) jungleVineDecorators(d *dimension, logs, leaves []world.Pos) {
 			}
 		}
 	}
+	s.leaveVines(d, leaves, 0.25)
+}
+
+// leaveVines — LeaveVineDecorator: per leaf and per horizontal
+// direction, at p, a vine with the opposite face plus a downward
+// hang of up to four more while air continues.
+func (s *Server) leaveVines(d *dimension, leaves []world.Pos, p float64) {
+	isAir := func(pos world.Pos) bool {
+		return isAirCell(d.w.GetBlock(pos))
+	}
+	placeVine := func(pos world.Pos, face string) {
+		if v, ok := world.BlockStateOf("vine", map[string]string{face: "true"}); ok {
+			s.setNaturalBlock(d, pos, v)
+		}
+	}
 	for _, lf := range leaves {
 		for _, vd := range trunkVineDirs {
-			if s.rng.nextDouble() < 0.25 {
+			if s.rng.nextDouble() < p {
 				vp := world.Pos{X: lf.X + vd.dx, Y: lf.Y, Z: lf.Z + vd.dz}
 				if isAir(vp) {
 					placeVine(vp, vd.face)
@@ -1878,4 +1951,336 @@ func (s *Server) creakingHeartDecor(d *dimension, logs []world.Pos) {
 			return
 		}
 	}
+}
+
+// mangroveLogsGrowThrough — #mangrove_logs_can_grow_through:
+// UpwardsBranchingTrunkPlacer widens validTreePos with these.
+var mangroveLogsGrowThrough = map[string]bool{
+	"mud": true, "muddy_mangrove_roots": true, "mangrove_roots": true,
+	"mangrove_leaves": true, "mangrove_log": true, "mangrove_propagule": true,
+	"moss_carpet": true, "vine": true,
+}
+
+// mangroveRootsGrowThrough — #mangrove_roots_can_grow_through: the
+// root placer's extra pass-through set.
+var mangroveRootsGrowThrough = map[string]bool{
+	"mud": true, "muddy_mangrove_roots": true, "mangrove_roots": true,
+	"moss_carpet": true, "vine": true, "mangrove_propagule": true,
+	"snow": true,
+}
+
+// mangroveTrunk — UpwardsBranchingTrunkPlacer: a vertical column at
+// the (raised) trunk origin; each placed log below the top rolls
+// 0.5 for a horizontal branch. The branch's walk starts
+// max(0, extraBranchLength − extraBranchLength − 1) — two samples of
+// the U{0..1} provider — and steps a random direction for
+// extraBranchSteps = U{1..max} placements. Every step attaches
+// foliage at its own cell; a branch ending more than one above its
+// base also attaches one and three cells above its tip. The column
+// top attaches one cell up.
+func (s *Server) mangroveTrunk(d *dimension, origin world.Pos, treeHeight int, shape treeShape, logState world.Block, logs *[]world.Pos) []foliageAttach {
+	var attachments []foliageAttach
+	for hp := 0; hp < treeHeight; hp++ {
+		y := origin.Y + hp
+		lp := world.Pos{X: origin.X, Y: y, Z: origin.Z}
+		if s.mangrovePlaceLog(d, lp, logState, logs) && hp < treeHeight-1 && s.rng.nextDouble() < 0.5 {
+			dir := horizDirs[s.rng.intn(4)]
+			branchPos := s.rng.intn(2) - s.rng.intn(2) - 1
+			if branchPos < 0 {
+				branchPos = 0
+			}
+			branchSteps := 1 + s.rng.intn(shape.branchStepsMax)
+			s.mangroveBranch(d, lp, y, treeHeight, dir, branchPos, branchSteps, logState, logs, &attachments)
+		}
+		if hp == treeHeight-1 {
+			attachments = append(attachments, foliageAttach{
+				pos: world.Pos{X: origin.X, Y: y + 1, Z: origin.Z}})
+		}
+	}
+	return attachments
+}
+
+func (s *Server) mangroveBranch(d *dimension, logPos world.Pos, currentHeight, treeHeight int, dir world.Pos, branchPos, branchSteps int, logState world.Block, logs *[]world.Pos, attachments *[]foliageAttach) {
+	heightAlong := currentHeight + branchPos
+	logX, logZ := logPos.X, logPos.Z
+	i := branchPos
+	for i < treeHeight && branchSteps > 0 {
+		if i >= 1 {
+			placementHeight := currentHeight + i
+			logX += dir.X
+			logZ += dir.Z
+			heightAlong = placementHeight
+			if s.mangrovePlaceLog(d, world.Pos{X: logX, Y: placementHeight, Z: logZ}, logState, logs) {
+				heightAlong = placementHeight + 1
+			}
+			*attachments = append(*attachments, foliageAttach{
+				pos: world.Pos{X: logX, Y: placementHeight, Z: logZ}})
+		}
+		i++
+		branchSteps--
+	}
+	if heightAlong-currentHeight > 1 {
+		fp := world.Pos{X: logX, Y: heightAlong, Z: logZ}
+		*attachments = append(*attachments, foliageAttach{pos: fp})
+		*attachments = append(*attachments, foliageAttach{
+			pos: world.Pos{X: fp.X, Y: fp.Y - 2, Z: fp.Z}})
+	}
+}
+
+// placeLogIfFree: the upwards placer's validTreePos is
+// TreeFeature.validTreePos (air || #replaceable_by_trees) OR'ed with
+// canGrowThrough(#mangrove_logs_can_grow_through).
+func (s *Server) mangrovePlaceLog(d *dimension, p world.Pos, logState world.Block, logs *[]world.Pos) bool {
+	bn, _ := world.StateOwner(d.w.GetBlock(p))
+	name := strings.TrimPrefix(bn, "minecraft:")
+	if !treeReplaceable[name] && !mangroveLogsGrowThrough[name] {
+		return false
+	}
+	s.setNaturalBlock(d, p, logState)
+	*logs = append(*logs, p)
+	return true
+}
+
+// mangroveRoots — MangroveRootPlacer.placeRoots: every column cell
+// between the feature origin and the raised trunk origin must pass
+// canPlaceRoot or the whole placement fails. The written set is the
+// cell below the trunk plus, per horizontal direction, a simulated
+// root walk seeded one step out from the trunk origin (the seed cell
+// itself is always written). A root chain reaching layer 15 or a
+// direction accumulating over 15 cells fails the feature.
+func (s *Server) mangroveRoots(d *dimension, origin, trunkOrigin world.Pos) bool {
+	canRoot := func(p world.Pos) bool {
+		bn, _ := world.StateOwner(d.w.GetBlock(p))
+		name := strings.TrimPrefix(bn, "minecraft:")
+		return treeReplaceable[name] || mangroveRootsGrowThrough[name]
+	}
+	for p := origin; p.Y < trunkOrigin.Y; p.Y++ {
+		if !canRoot(p) {
+			return false
+		}
+	}
+	positions := []world.Pos{{X: trunkOrigin.X, Y: trunkOrigin.Y - 1, Z: trunkOrigin.Z}}
+	for _, dir := range horizDirs {
+		seed := world.Pos{X: trunkOrigin.X + dir.X, Y: trunkOrigin.Y, Z: trunkOrigin.Z + dir.Z}
+		var dirPositions []world.Pos
+		if !s.simMangroveRoots(d, seed, dir, trunkOrigin, &dirPositions, 0, canRoot) {
+			return false
+		}
+		positions = append(positions, dirPositions...)
+		positions = append(positions, seed)
+	}
+	for _, rp := range positions {
+		s.placeMangroveRoot(d, rp)
+	}
+	return true
+}
+
+// simulateRoots: from each candidate the walk recurses; failing any
+// candidate's subtree fails the whole direction.
+func (s *Server) simMangroveRoots(d *dimension, pos, dir, rootOrigin world.Pos, positions *[]world.Pos, layer int, canRoot func(world.Pos) bool) bool {
+	if layer == 15 || len(*positions) > 15 {
+		return false
+	}
+	for _, np := range s.mangroveRootCandidates(pos, dir, rootOrigin) {
+		if canRoot(np) {
+			*positions = append(*positions, np)
+			if !s.simMangroveRoots(d, np, dir, rootOrigin, positions, layer+1, canRoot) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// potentialRootPositions: Manhattan distance from the trunk origin
+// picks the candidate set — past width 5 the walk can only drop;
+// inside it can skew downward at 0.2 or continue horizontally at a
+// coin flip.
+func (s *Server) mangroveRootCandidates(pos, dir, rootOrigin world.Pos) []world.Pos {
+	below := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
+	nextTo := world.Pos{X: pos.X + dir.X, Y: pos.Y, Z: pos.Z + dir.Z}
+	nextToBelow := world.Pos{X: nextTo.X, Y: nextTo.Y - 1, Z: nextTo.Z}
+	w := absi(pos.X-rootOrigin.X) + absi(pos.Y-rootOrigin.Y) + absi(pos.Z-rootOrigin.Z)
+	switch {
+	case w > 5 && w <= 8:
+		if s.rng.nextDouble() < 0.2 {
+			return []world.Pos{below, nextToBelow}
+		}
+		return []world.Pos{below}
+	case w > 8:
+		return []world.Pos{below}
+	case s.rng.nextDouble() < 0.2:
+		return []world.Pos{below}
+	default:
+		if s.rng.nextDouble() < 0.5 {
+			return []world.Pos{nextTo}
+		}
+		return []world.Pos{below}
+	}
+}
+
+// placeMangroveRoot — RootPlacer.placeRoot: in mud the
+// muddy_roots_provider writes muddy_mangrove_roots{axis:y} (the root
+// placer checks MUD and MUDDY_MANGROVE_ROOTS); anywhere else the
+// roots_provider writes mangrove_roots, waterlogged when the cell
+// held water. Then the above_root roll (0.5) drops moss_carpet on
+// the cell above when it is air.
+func (s *Server) placeMangroveRoot(d *dimension, p world.Pos) {
+	cur := d.w.GetBlock(p)
+	bn, _ := world.StateOwner(cur)
+	name := strings.TrimPrefix(bn, "minecraft:")
+	if name == "mud" || name == "muddy_mangrove_roots" {
+		if r, ok := world.BlockStateOf("muddy_mangrove_roots", map[string]string{"axis": "y"}); ok {
+			s.setNaturalBlock(d, p, s.foldWaterlogged(d, p, r))
+		}
+	} else {
+		if r, ok := world.BlockStateOf("mangrove_roots", map[string]string{"waterlogged": "false"}); ok {
+			s.setNaturalBlock(d, p, s.foldWaterlogged(d, p, r))
+		}
+	}
+	if s.rng.nextDouble() < 0.5 {
+		above := world.Pos{X: p.X, Y: p.Y + 1, Z: p.Z}
+		if isAirCell(d.w.GetBlock(above)) {
+			if c, ok := world.BlockStateOf("moss_carpet", nil); ok {
+				s.setNaturalBlock(d, above, c)
+			}
+		}
+	}
+}
+
+// foldWaterlogged — getPotentiallyWaterloggedState: a roots_provider
+// state gains waterlogged=true when the cell's fluid is water.
+func (s *Server) foldWaterlogged(d *dimension, p world.Pos, blk world.Block) world.Block {
+	if bn, _ := world.StateOwner(d.w.GetBlock(p)); strings.TrimPrefix(bn, "minecraft:") == "water" {
+		if nb, ok := world.WithProperty(blk, "waterlogged", "true"); ok {
+			return nb
+		}
+	}
+	return blk
+}
+
+// mangroveCanopy — RandomSpreadFoliagePlacer(radius 3, offset 0,
+// height 2, 70 attempts): per attachment, 70 tries at
+// origin ± (intn(r) − intn(r)) horizontally and
+// (intn(h) − intn(h)) vertically.
+func (s *Server) mangroveCanopy(d *dimension, attachments []foliageAttach, placeLeaf func(world.Pos)) {
+	for _, at := range attachments {
+		for i := 0; i < 70; i++ {
+			p := world.Pos{
+				X: at.pos.X + s.rng.intn(3) - s.rng.intn(3),
+				Y: at.pos.Y + s.rng.intn(2) - s.rng.intn(2),
+				Z: at.pos.Z + s.rng.intn(3) - s.rng.intn(3),
+			}
+			placeLeaf(p)
+		}
+	}
+}
+
+// mangroveDecorators — the mangrove decorator set:
+// {leave_vine 0.125, attached_to_leaves mangrove_propagule 0.14,
+// beehive 0.01}.
+func (s *Server) mangroveDecorators(d *dimension, logs, leaves []world.Pos) {
+	s.leaveVines(d, leaves, 0.125)
+	s.attachedPropagules(d, leaves)
+	s.beehiveDecor(d, logs, leaves)
+}
+
+// attachedPropagules — AttachedToLeavesDecorator(p 0.14, directions
+// [down]): shuffled leaves each roll the chance; a hit needs two air
+// cells along the direction, writes mangrove_propagule{age U{0..4},
+// hanging:true, stage:0, waterlogged:false} at the first, and
+// blacklists the placement cell's horizontal ring for the rest of
+// the pass.
+func (s *Server) attachedPropagules(d *dimension, leaves []world.Pos) {
+	shuffled := make([]world.Pos, len(leaves))
+	copy(shuffled, leaves)
+	for i := len(shuffled) - 1; i > 0; i-- {
+		j := s.rng.intn(i + 1)
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	}
+	blacklist := map[world.Pos]bool{}
+	for _, lf := range shuffled {
+		pp := world.Pos{X: lf.X, Y: lf.Y - 1, Z: lf.Z}
+		if blacklist[pp] || s.rng.nextDouble() >= 0.14 {
+			continue
+		}
+		pp2 := world.Pos{X: pp.X, Y: pp.Y - 1, Z: pp.Z}
+		if !isAirCell(d.w.GetBlock(pp)) || !isAirCell(d.w.GetBlock(pp2)) {
+			continue
+		}
+		for dx := -1; dx <= 1; dx++ {
+			for dz := -1; dz <= 1; dz++ {
+				blacklist[world.Pos{X: pp.X + dx, Y: pp.Y, Z: pp.Z + dz}] = true
+			}
+		}
+		age := []string{"0", "1", "2", "3", "4"}[s.rng.intn(5)]
+		if nb, ok := world.BlockStateOf("mangrove_propagule", map[string]string{
+			"age": age, "hanging": "true", "stage": "0", "waterlogged": "false",
+		}); ok {
+			s.setNaturalBlock(d, pp, nb)
+		}
+	}
+}
+
+// beehiveDecor — BeehiveDecorator(p 0.01): with leaves, the nest row
+// is max(firstLeaf.Y−1, firstLog.Y+1); without, firstLog.Y+1+U{0..2}
+// capped at the last log. Candidates are the horizontal neighbors of
+// every log at that height; the first shuffled air cell takes the
+// nest's default state.
+func (s *Server) beehiveDecor(d *dimension, logs, leaves []world.Pos) {
+	if len(logs) == 0 || s.rng.nextDouble() >= 0.01 {
+		return
+	}
+	var y int
+	if len(leaves) > 0 {
+		y = leaves[0].Y - 1
+		if logs[0].Y+1 > y {
+			y = logs[0].Y + 1
+		}
+	} else {
+		y = logs[0].Y + 1 + s.rng.intn(3)
+		if last := logs[len(logs)-1].Y; y > last {
+			y = last
+		}
+	}
+	var candidates []world.Pos
+	for _, lp := range logs {
+		if lp.Y != y {
+			continue
+		}
+		for _, dir := range horizDirs {
+			candidates = append(candidates, world.Pos{X: lp.X + dir.X, Y: lp.Y, Z: lp.Z + dir.Z})
+		}
+	}
+	for i := len(candidates) - 1; i > 0; i-- {
+		j := s.rng.intn(i + 1)
+		candidates[i], candidates[j] = candidates[j], candidates[i]
+	}
+	for _, cp := range candidates {
+		if !isAirCell(d.w.GetBlock(cp)) {
+			continue
+		}
+		if nb, ok := world.BlockStateOf("bee_nest", nil); ok {
+			s.setNaturalBlock(d, cp, nb)
+		}
+		return
+	}
+}
+
+// propaguleRule — MangrovePropaguleBlock.randomTick: a hanging
+// propagule only cycles age toward 4; a planted one grows at the
+// SaplingBlock 1/7 rate with no light check.
+func propaguleRule(s *Server, d *dimension, pos world.Pos, blk world.Block) {
+	if hanging, _ := world.StateProperty(blk, "hanging"); hanging == "true" {
+		if age, _ := world.StateProperty(blk, "age"); age != "4" {
+			if nb, ok := world.WithProperty(blk, "age", string(age[0]+1)); ok {
+				s.setNaturalBlock(d, pos, nb)
+			}
+		}
+		return
+	}
+	if s.rng.intn(7) != 0 {
+		return
+	}
+	s.advanceTree(d, pos, blk)
 }

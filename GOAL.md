@@ -10735,3 +10735,72 @@ Blackbox: `TestMegaTreeParity` extended — pale_oak_creaking batch of
 16 on a strip pad: heart>=1 per leg (~30%/tree measured on both),
 mossBlock>=5, vegetation>=1. Both legs green (v=1,g=3 hearts;
 moss 330/364; veg 128/120).
+
+## Slice — mangrove + tall_mangrove (stilt trunk, simulated roots, propagule)
+
+Oracle: UpwardsBranchingTrunkPlacer / MangroveRootPlacer /
+RandomSpreadFoliagePlacer / AttachedToLeavesDecorator /
+LeaveVineDecorator / BeehiveDecorator / MangrovePropaguleBlock
+decompiles (26.2), mangrove + tall_mangrove configured_feature JSONs,
+mangrove_logs/roots_can_grow_through + supports_(hanging_)mangrove_propagule
+tag JSONs, differential /place + randtick.
+
+- treeShape gains secondary/secondaryChance (getConfiguredFeature's
+  secondaryFeature roll — propagule's 0.85 → tall_mangrove before the
+  fancy roll), branchStepsMax, trunkOff{Min,Max}; new trunkMangrove /
+  canopyMangrove / decorMangrove kinds; mangroveShape +
+  tallMangroveShape specs; "mangrove_propagule" in treeShapes;
+  /place mangrove + tall_mangrove.
+- MangroveRootPlacer: trunkOrigin raises trunk_offset_y U{min..max};
+  the gap column must all pass canPlaceRoot (validTreePos ||
+  #mangrove_roots_can_grow_through) or the whole feature fails.
+  Written set: trunkOrigin.below() + per-4-dir walk seeded at
+  trunkOrigin+dir — simulateRoots recursion fails the feature at
+  layer 15 or >15 positions in one direction; potentialRootPositions
+  by Manhattan width: >5..8 → below[+nextTo.below at .2], >8 → below,
+  inside → .2 below else coin nextTo|below. placeRoot: muddy provider
+  (axis=y) in mud/muddy_mangrove_roots else mangrove_roots, both with
+  the waterlogged fold; above_root .5 → moss_carpet when the cell
+  above is air. Runs BEFORE the trunk; no dirt under the stilt
+  (UpwardsBranchingTrunkPlacer never calls placeBelowTrunkBlock).
+- UpwardsBranchingTrunkPlacer: vertical column; each placed log below
+  the top rolls .5 → branch walking a random horizontal dir from
+  branchPos=max(0,lenA−lenB−1) (two U{0..1} samples) for
+  extra_branch_steps U{1..max}; every step attaches foliage at its
+  own cell, and a tip >1 above its base adds +1/+3-up attachments;
+  column top attaches at +1. Logs use validTreePos OR
+  #mangrove_logs_can_grow_through.
+- RandomSpreadFoliagePlacer: 70 attempts per attachment at
+  ±(intn(3)−intn(3)) xz, ±(intn(2)−intn(2)) y.
+- Decorators: leave_vine refactored to a p-parameter (mangrove .125,
+  mega jungle .25 — identical addHangingVine verified on bytecode);
+  attached_to_leaves propagule (.14, [down]): shuffled leaves, needs
+  two air cells, blacklists the placement ring, writes
+  propagule{age U{0..4},hanging,stage:0,waterlogged:false};
+  beehive .01: horizontal neighbors of logs at max(leaf0.Y−1,
+  log0.Y+1) (or log0.Y+1+U{0..2} capped at last log), first shuffled
+  air cell → bee_nest.
+- propaguleRule replaces saplingRule for mangrove_propagule:
+  hanging → cycles age toward 4, never grows; planted →
+  SaplingBlock's 1/7 advanceTree with NO light check.
+- Neighbor updates: hanging propagule folds to air when the cell
+  above leaves #supports_hanging_mangrove_propagule (={mangrove_leaves});
+  planted propagule keeps BushBlock's unconditional canSurvive — pops
+  on any neighbor change when the floor leaves
+  #supports_mangrove_propagule (#substrate_overworld+farmland+clay).
+  Surfaced by the test's fill-order dependence: decorations must be
+  counted before their support cells.
+
+Blackbox: new tests/blackbox/mangrove_test.go — TestMangroveParity
+places 4 mangrove + 4 tall_mangrove on a dirt pad (roots need ground
+to terminate — in open air every chain hits layer 15 and fails, on
+both servers), grows 4 planted propagules via randtick, then counts
+with `fill air replace` (O(1) per type vs per-cell scans; replies
+parsed as commands.fill.success components). Floors per leg:
+logs>=5, tallLogs>=8, roots>=3, leaves>=30, prop>=1, vine>=1,
+carpet>=1; failures<=2 (root-chain layer-15 fails are legit on both).
+Green both legs (v: logs 28/78, roots 232, leaves 1934, prop 42,
+vine 772, carpet 55; g: 29/66, 221, 1645, 40, 1168, 36). Vine count
+ran ~1.5x over vanilla this run — leave-vine mechanics verified
+identical to bytecode (hang = first + up to 4 below), chalked to
+rng/hang compounding; not pinned.

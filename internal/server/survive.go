@@ -64,6 +64,17 @@ func surviveFns() map[string]func(*Server, *dimension, world.Pos, world.Block) b
 // ran against their own placement (BlockInput.place's neighbour-shapes
 // fold). The return-air family is absent — its air fold is discarded
 // and the requested state placed.
+// mangrovePropaguleSupport — #supports_mangrove_propagule =
+// #supports_vegetation (#substrate_overworld + farmland) + clay: the
+// mayPlaceOn set a planted mangrove propagule checks its floor against.
+var mangrovePropaguleSupport = map[string]bool{
+	"dirt": true, "coarse_dirt": true, "rooted_dirt": true,
+	"mud": true, "muddy_mangrove_roots": true,
+	"moss_block": true, "pale_moss_block": true,
+	"grass_block": true, "podzol": true, "mycelium": true,
+	"farmland": true, "clay": true,
+}
+
 var popOnPlace = map[string]bool{
 	"sugar_cane":           true,
 	"cactus":               true,
@@ -183,6 +194,30 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos, notify worl
 	}
 	if name == "vine" {
 		s.vinePrune(d, pos, changed, b)
+		return
+	}
+	if name == "mangrove_propagule" {
+		// MangrovePropaguleBlock.updateShape: a hanging propagule
+		// folds to air when the cell above leaves
+		// #supports_hanging_mangrove_propagule (={mangrove_leaves}).
+		if hang, _ := world.StateProperty(b, "hanging"); hang == "true" {
+			above := world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z}
+			if changed == above {
+				if an, _ := world.StateOwner(d.w.GetBlock(above)); strings.TrimPrefix(an, "minecraft:") != "mangrove_leaves" {
+					s.setNaturalBlock(d, pos, world.Air)
+				}
+			}
+			return
+		}
+		// Planted propagules keep BushBlock.updateShape's
+		// unconditional canSurvive — any neighbour change pops the
+		// propagule when the cell below leaves
+		// #supports_mangrove_propagule (#substrate_overworld +
+		// farmland + clay).
+		below := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
+		if bn, _ := world.StateOwner(d.w.GetBlock(below)); !mangrovePropaguleSupport[strings.TrimPrefix(bn, "minecraft:")] {
+			s.setNaturalBlock(d, pos, world.Air)
+		}
 		return
 	}
 	if name == "frosted_ice" && changed != pos {
