@@ -28,7 +28,9 @@ func TestPlayerShearedEquipmentParity(t *testing.T) {
 	}, nil)
 	defer targets.cleanup()
 
-	run := func(addr string) *advFlush {
+	type posSnd struct{ snd, src int32 }
+
+	run := func(addr string) (*advFlush, []posSnd) {
 		f := &advFlush{defs: map[string][]byte{}, prog: map[string]map[string]bool{}, removed: map[string]bool{}}
 		c, pr, pw := joinPlayBlackbox(t, addr, "ShearP")
 		defer c.Close()
@@ -92,16 +94,84 @@ func TestPlayerShearedEquipmentParity(t *testing.T) {
 		ib.Byte(0)   // LpVec3 zero
 		ib.Bool(false)
 		_ = pw.WritePacket(server.IDPlayInteractSB, ib.Bytes())
-		advCollect(t, c, pr, pw, 3*time.Second, f)
-		return f
+		// advCollect plus positional-sound capture: Mob.shearItem ends
+		// with this.playSound(equippable.shearingSound) — a POSITIONAL
+		// (0x75) packet at the wolf on its own (NEUTRAL) source.
+		var snds []posSnd
+		end = time.Now().Add(3 * time.Second)
+		for time.Now().Before(end) {
+			_ = c.SetReadDeadline(time.Now().Add(time.Until(end)))
+			p, err := pr.ReadPacket()
+			if err != nil {
+				break
+			}
+			switch p.ID {
+			case server.IDPlayKeepAliveCB:
+				var kb protocol.Buffer
+				kb.Raw(p.Data)
+				_ = pw.WritePacket(server.IDPlayKeepAliveSB, kb.Bytes())
+			case server.IDPlaySyncPos:
+				r := protocol.NewPacketReader(p.Data)
+				if id, err := r.VarInt(); err == nil {
+					var tb protocol.Buffer
+					tb.VarInt(id)
+					_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, tb.Bytes())
+					if x, err := r.Double(); err == nil {
+						var mb protocol.Buffer
+						mb.Double(x)
+						if y, err := r.Double(); err == nil {
+							mb.Double(y)
+						}
+						if z, err := r.Double(); err == nil {
+							mb.Double(z)
+						}
+						mb.Byte(0)
+						_ = pw.WritePacket(server.IDPlayMovePosSB, mb.Bytes())
+					}
+				}
+			case server.IDPlayChunkBatchDone:
+				_ = ackChunkBatch(pw)
+			case server.IDPlayUpdateAdvance:
+				decodeUpdateAdv(t, p.Data, f)
+			case server.IDPlaySystemChatCB:
+				f.chats = append(f.chats, chatKey(p.Data))
+			case 0x75: // positional sound: event id(+1), source, x*8,y*8,z*8, vol, pitch, seed
+				r := protocol.NewPacketReader(p.Data)
+				snd, e1 := r.VarInt()
+				src, e2 := r.VarInt()
+				if e1 == nil && e2 == nil {
+					snds = append(snds, posSnd{snd, src})
+				}
+			}
+		}
+		return f, snds
 	}
 
-	want := run(targets.vanilla)
-	got := run(targets.mcgo)
+	want, wantSnds := run(targets.vanilla)
+	got, gotSnds := run(targets.mcgo)
 	if !want.prog["minecraft:husbandry/remove_wolf_armor"]["remove_wolf_armor"] {
 		t.Fatalf("vanilla: remove_wolf_armor not obtained: %v", want.prog["minecraft:husbandry/remove_wolf_armor"])
 	}
 	if diffs := diffAdvFlush(want, got); len(diffs) > 0 {
 		t.Fatalf("player_sheared_equipment parity: %d diffs\n%s", len(diffs), joinLines(diffs))
+	}
+	// wolf_armor's equippable.shearing_sound is item.armor.unequip_wolf
+	// (registry 78, wire 79); Entity.getSoundSource is NEUTRAL (6) for a
+	// wolf. The emit is positional 0x75, not the entity-anchored 0x74 the
+	// wool-type Shearables use.
+	for _, tc := range []struct {
+		tag  string
+		snds []posSnd
+	}{{"vanilla", wantSnds}, {"mc-go", gotSnds}} {
+		found := false
+		for _, s := range tc.snds {
+			if s.snd == 79 && s.src == 6 {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: unequip_wolf positional sound (snd=79, src=6) missing: %v",
+				tc.tag, tc.snds)
+		}
 	}
 }

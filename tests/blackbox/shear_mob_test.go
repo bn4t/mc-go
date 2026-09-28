@@ -20,6 +20,31 @@ import (
 	"mc-go/internal/server"
 )
 
+// shearSnd is one parsed clientbound sound_entity packet (0x74):
+// (sound event wire id = registry id + 1, SoundSource id, entity id).
+// Ambient mob sounds also ride 0x74 — the shear emits are pinned by
+// the full tuple, not the packet's mere presence.
+type shearSnd struct{ snd, src, eid int32 }
+
+func parseEntSounds(lines []string) []shearSnd {
+	var out []shearSnd
+	for _, l := range lines {
+		i := strings.IndexByte(l, ':')
+		if i < 0 || l[:i] != "0x74" {
+			continue
+		}
+		r := protocol.NewPacketReader([]byte(l[i+1:]))
+		snd, e1 := r.VarInt()
+		src, e2 := r.VarInt()
+		eid, e3 := r.VarInt()
+		if e1 != nil || e2 != nil || e3 != nil {
+			continue
+		}
+		out = append(out, shearSnd{snd, src, eid})
+	}
+	return out
+}
+
 func TestShearMobParity(t *testing.T) {
 	targets := requireBlackboxFiles(t, nil, map[string]string{
 		"ops.json": opsJSONFor("Shear"),
@@ -40,7 +65,12 @@ func TestShearMobParity(t *testing.T) {
 		{"mooshroom shrooms", `entity @e[type=minecraft:item,x=48,y=-60,z=30,distance=..4]`},
 	}
 
-	run := func(addr string) []string {
+	type mobLeg struct {
+		hits []string
+		snds []shearSnd
+		eids map[int32]int32 // entity type → entity id
+	}
+	run := func(addr string) mobLeg {
 		c, pr, pw := joinPlayBlackbox(t, addr, "Shear")
 		defer c.Close()
 		_ = c.SetDeadline(time.Time{})
@@ -163,11 +193,10 @@ func TestShearMobParity(t *testing.T) {
 		}
 		time.Sleep(800 * time.Millisecond)
 		sink := dbg
-		for _, l := range sink.take() {
-			t.Logf("late: %.140q", l)
-		}
+		snds := parseEntSounds(sink.take())
 		t.Logf("sinkerr: %v ids:%v", sink.err, sink.ids)
 		out := make([]string, 0, len(probes))
+		leg := mobLeg{snds: snds, eids: ids}
 		for i, p := range probes {
 			sendCommand(t, pw, fmt.Sprintf("execute if %s run say SH-ok-%d", p.spec, i))
 			sendCommand(t, pw, fmt.Sprintf("execute unless %s run say SH-miss-%d", p.spec, i))
@@ -191,7 +220,8 @@ func TestShearMobParity(t *testing.T) {
 		done:
 			out = append(out, hit)
 		}
-		return out
+		leg.hits = out
+		return leg
 	}
 
 	vanilla := run(targets.vanilla)
@@ -201,12 +231,36 @@ func TestShearMobParity(t *testing.T) {
 		if p.name == "mooshroom gone" {
 			want = "miss"
 		}
-		t.Logf("%-24s vanilla=%s mcgo=%s", p.name, vanilla[i], mcgo[i])
-		if vanilla[i] != want {
-			t.Errorf("probe %q: vanilla %s, want %s", p.name, vanilla[i], want)
+		t.Logf("%-24s vanilla=%s mcgo=%s", p.name, vanilla.hits[i], mcgo.hits[i])
+		if vanilla.hits[i] != want {
+			t.Errorf("probe %q: vanilla %s, want %s", p.name, vanilla.hits[i], want)
 		}
-		if mcgo[i] != want {
-			t.Errorf("probe %q: mc-go %s, want %s", p.name, mcgo[i], want)
+		if mcgo.hits[i] != want {
+			t.Errorf("probe %q: mc-go %s, want %s", p.name, mcgo.hits[i], want)
+		}
+	}
+
+	// Each Shearable leads shear() with playSound(null, this, <its
+	// shear sound>, PLAYERS, 1, 1) — an entity-anchored 0x74 carrying
+	// source=7 (PLAYERS) and the mob's entity id. Registry id + 1 on
+	// the wire: sheep.shear=1441, snow_golem.shear=1574, bogged.shear=184,
+	// mooshroom.shear=989.
+	wantSnd := map[int32]int32{1442: 111, 1575: 121, 185: 16, 990: 86}
+	for _, lg := range []struct {
+		tag string
+		leg mobLeg
+	}{{"vanilla", vanilla}, {"mc-go", mcgo}} {
+		for wantS, wantTyp := range wantSnd {
+			found := false
+			for _, s := range lg.leg.snds {
+				if s.snd == wantS && s.src == 7 && s.eid == lg.leg.eids[wantTyp] {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("%s: shear sound %d (src=7, eid=%d) missing: snds=%v",
+					lg.tag, wantS, lg.leg.eids[wantTyp], lg.leg.snds)
+			}
 		}
 	}
 }

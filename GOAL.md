@@ -11857,3 +11857,36 @@ legs.
 
 Deferred: none for this slice; slot0 mayPlace / XpSeed reroll /
 quick-move split / bookshelf count are all pinned above.
+
+## Slice — shear sound emits (Shearable + equipment)
+
+Shearing any mob emitted zero sound; vanilla plays one per shear
+event. Measured 26.2 bytecode (Sheep.mobInteract, SnowGolem/Bogged/
+MushroomCow.shear, ShearsDispenseItemBehavior, Mob.shearItem) and
+pinned vs both servers:
+
+  - Every Shearable leads shear() with playSound(null, this, <its
+    shear sound>, source, 1, 1) — an entity-anchored 0x74. The
+    interact path passes SoundSource.PLAYERS (7): sheep.shear=1441,
+    snow_golem.shear=1574, bogged.shear=184, mooshroom.shear=989.
+    The dispenser path passes SoundSource.BLOCKS (4) through the
+    same shear() — same sounds, src=4, both legs.
+  - The emit rides inside the ready branch only: an already-sheared
+    sheep/bogged or pumpkinless golem plays nothing (mobInteract
+    returns CONSUME before shear()).
+  - mooshroom's emit precedes convertTo(COW) so the anchor entity
+    still exists when the packet goes out.
+  - Equipment shear (wolf_armor on a tamed wolf): Mob.shearItem, then
+    mob.playSound(equippable.shearingSound) — POSITIONAL 0x75 at the
+    mob, not entity-anchored; Entity.getSoundSource is NEUTRAL (6),
+    adult voice pitch (r1-r2)*0.2+1. wolf_armor's shearing_sound is
+    item.armor.unequip_wolf (registry 78, wire 79).
+
+Pinned: TestShearMobParity now asserts the four (snd, src=7, eid)
+0x74 tuples per leg (ambient mob sounds also ride 0x74 — the pin is
+the full tuple, not the packet's presence); the wolf-armor half of
+TestPlayerShearedEquipmentParity asserts the (79, src=6) 0x75 emit.
+
+Deferred: leash shearOffAll, dye/bucket/stew interact sounds, and the
+dispenser shear pin (javap-measured src=4, no live differential yet —
+the interact path pins the code shape).

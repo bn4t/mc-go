@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"math/rand"
 	"strings"
 
 	"mc-go/internal/world"
@@ -70,11 +71,17 @@ func (s *Server) shearAnimal(sess *Session, eid int32, hand int32, sneaking bool
 	if n, ok := itemNameOf(armor.ID); !ok || !shearableBody(n) {
 		return false
 	}
-	if p, ok := s.entities.GetPtr(eid); ok {
+	if p, ok := s.entities.GetPtr(t.ID); ok {
 		p.BodyItem = ItemStack{}
 	}
 	pos := world.Pos{X: int(math.Floor(t.X)), Y: int(math.Floor(t.Y)), Z: int(math.Floor(t.Z))}
 	s.spawnItemDrop(t.Dim, pos, armor)
+	// Mob.shearItem, then this.playSound(equippable.shearingSound) —
+	// the mob's own playSound → a POSITIONAL packet at the mob with
+	// the adult voice pitch (r1-r2)*0.2+1. wolf_armor's shearing
+	// sound is item.armor.unequip_wolf (78).
+	s.playSoundAt(t.Dim, t.X, t.Y, t.Z, 78, 1,
+		(rand.Float32()-rand.Float32())*0.2+1)
 	s.wearSlot(sess, hslot, 1)
 	iname, _ := itemNameOf(armor.ID)
 	etype, _ := EntityTypeName(t.Type)
@@ -104,16 +111,33 @@ func (s *Server) shearMobItemPhase(sess *Session, eid int32, hand int32, sneakin
 	s.shearMob(sess, e, hand)
 }
 
-// shearMob is the Shearable half of ShearsItem.interactLivingEntity:
-// a shears right-click on a shearable mob runs its shear() — the same
-// drop/flag work the dispenser path does — then wears the shears.
+// shearMob is the Shearable half of mobInteract (26.2 moved the wool
+// shear inside the mob's own interact, SoundSource.PLAYERS): a shears
+// right-click on a shearable mob runs its shear() — the same drop/flag
+// work the dispenser path does — then wears the shears. Every
+// Shearable leads shear() with level.playSound(null, this, <type's
+// shear sound>, source, 1, 1) — an entity-anchored sound_entity packet.
 func (s *Server) shearMob(sess *Session, t Entity, hand int32) {
 	tn, _ := EntityTypeName(t.Type)
+	// Every Shearable leads shear() with level.playSound(null, this,
+	// <type's shear sound>, source, 1, 1) — entity-anchored 0x74.
+	shearSound := map[string]int32{
+		"sheep":      1441, // entity.sheep.shear
+		"snow_golem": 1574, // entity.snow_golem.shear
+		"bogged":     184,  // entity.bogged.shear
+		"mooshroom":  989,  // entity.mooshroom.shear
+	}
+	emitShear := func() {
+		if snd, ok := shearSound[tn]; ok {
+			s.playSoundEntity(t.Dim, t.ID, snd, 7, 1, 1, nil)
+		}
+	}
 	switch tn {
 	case "sheep":
 		if t.Sheared {
 			return
 		}
+		emitShear()
 		if p, ok := s.entities.GetPtr(t.ID); ok {
 			p.Sheared = true
 			s.broadcastEntityMetadata(t.ID, encodeLivingMetadata(p, nil))
@@ -126,6 +150,7 @@ func (s *Server) shearMob(sess *Session, t Entity, hand int32) {
 		if !t.Pumpkin {
 			return
 		}
+		emitShear()
 		if p, ok := s.entities.GetPtr(t.ID); ok {
 			p.Pumpkin = false
 			s.broadcastEntityMetadata(t.ID, encodeLivingMetadata(p, nil))
@@ -138,6 +163,7 @@ func (s *Server) shearMob(sess *Session, t Entity, hand int32) {
 		if t.Sheared {
 			return
 		}
+		emitShear()
 		if p, ok := s.entities.GetPtr(t.ID); ok {
 			p.Sheared = true
 			s.broadcastEntityMetadata(t.ID, encodeLivingMetadata(p, nil))
@@ -151,6 +177,7 @@ func (s *Server) shearMob(sess *Session, t Entity, hand int32) {
 			}
 		}
 	case "mooshroom":
+		emitShear()
 		pos := world.Pos{X: int(math.Floor(t.X)), Y: int(math.Floor(t.Y)), Z: int(math.Floor(t.Z))}
 		s.entities.Remove(t.ID)
 		s.broadcastEntityRemoveIn(t.Dim, nil, []int32{t.ID})

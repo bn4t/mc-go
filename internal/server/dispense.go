@@ -383,8 +383,10 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			return
 		}
 		if bog := s.livingAtMouth(d, front, "bogged"); bog != nil && !bog.Sheared {
-			// Bogged.shear: BOGGED_SHEAR loot (2 rolls x {1 brown +
-			// 1 red mushroom}) at the bogged + DATA_SHEARED set.
+			// Bogged.shear: playSound(BOGGED_SHEAR, source) first — the
+			// dispenser passes SoundSource.BLOCKS — then the BOGGED_SHEAR
+			// loot (2 rolls x {1 brown + 1 red mushroom}) + DATA_SHEARED.
+			s.playSoundEntity(d.name, bog.ID, 184, 4, 1, 1, nil)
 			bog.Sheared = true
 			s.broadcastEntityMetadata(bog.ID, encodeLivingMetadata(bog, nil))
 			at := world.Pos{X: int(bog.X), Y: int(bog.Y), Z: int(bog.Z)}
@@ -401,9 +403,11 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			return
 		}
 		if mush := s.livingAtMouth(d, front, "mooshroom"); mush != nil {
-			// MushroomCow.shear: convertTo(COW) at the same spot —
-			// the mooshroom despawns, a cow spawns — and the
-			// shearing table (red variant) drops 5 red mushrooms.
+			// MushroomCow.shear: playSound(MOOSHROOM_SHEAR, BLOCKS),
+			// then convertTo(COW) at the same spot — the mooshroom
+			// despawns, a cow spawns — and the shearing table (red
+			// variant) drops 5 red mushrooms.
+			s.playSoundEntity(d.name, mush.ID, 989, 4, 1, 1, nil)
 			at := world.Pos{X: int(mush.X), Y: int(mush.Y), Z: int(mush.Z)}
 			s.entities.Remove(mush.ID)
 			s.broadcastEntityRemoveIn(d.name, nil, []int32{mush.ID})
@@ -432,8 +436,10 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			return
 		}
 		if sg := s.livingAtMouth(d, front, "snow_golem"); sg != nil && sg.Pumpkin {
-			// SnowGolem.shear: SHEAR_SNOW_GOLEM drops the carved
-			// pumpkin at the golem and clears the pumpkin flag.
+			// SnowGolem.shear: playSound(SNOW_GOLEM_SHEAR, BLOCKS), then
+			// SHEAR_SNOW_GOLEM drops the carved pumpkin at the golem
+			// and clears the pumpkin flag.
+			s.playSoundEntity(d.name, sg.ID, 1574, 4, 1, 1, nil)
 			sg.Pumpkin = false
 			s.broadcastEntityMetadata(sg.ID, encodeLivingMetadata(sg, nil))
 			if pid, ok := world.ItemIDs["carved_pumpkin"]; ok {
@@ -446,6 +452,10 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			return
 		}
 		if sheep := s.livingAtMouth(d, front, "sheep"); sheep != nil && !sheep.Sheared {
+			// Sheep.shear: playSound(SHEEP_SHEAR, BLOCKS), then the
+			// SHEAR_SHEEP loot table (1-3 wool of the sheep's color —
+			// mc-go sheep are always white).
+			s.playSoundEntity(d.name, sheep.ID, 1441, 4, 1, 1, nil)
 			sheep.Sheared = true
 			s.broadcastEntityMetadata(sheep.ID, encodeLivingMetadata(sheep, nil))
 			// SHEAR_SHEEP loot table: 1-3 wool of the sheep's color
