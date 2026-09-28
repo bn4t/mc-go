@@ -10609,3 +10609,48 @@ per-leg counts (cherry_log >= 3, cherry_leaves >= 30) and >= 1
 horizontal-axis cherry_log per tree (the first branch step always
 lands off-column — deterministic); stone beside the column at y=0
 grows anyway on both legs, stone inside the 5x5 at y=2 fails on both.
+## Slice: dark oak — 2x2 quad detection, leaning trunk, fringe stems
+
+Measured on 26.2 (dark_oak.json + DarkOakTrunkPlacer/
+DarkOakFoliagePlacer/GiantTrunkPlacer/ThreeLayersFeatureSize/
+TreeGrower decompiles):
+
+- TreeGrower.growTree's mega path runs BEFORE the single feature:
+  the ticked sapling scans the four quads it can anchor (dx,dz in
+  {0,-1}, order (0,0),(0,-1),(-1,0),(-1,-1)), takes the first
+  matching 2x2 of same-block saplings, clears all four to air (flags
+  260), places the mega feature at the quad's NW corner, restores on
+  failure — and a failed quad is terminal (no fall-through to a
+  single feature). dark_oak has no single feature, so a lone
+  dark_oak sapling can never grow.
+- DarkOakTrunkPlacer {base 6, randA 2, randB 1}: dirt under all four
+  column cells; a random lean direction with leanHeight=h-intn(4)
+  and leanSteps=2-intn(3) (the 2x2 shifts one cell per dy while
+  steps remain); each layer writes only when its NW cell is
+  isAirOrLeaves (air || #leaves — NOT the vine check). Top
+  attachment (leaned, doubleTrunk). Then the fringe: for each cell
+  on the ring around the ORIGIN x/z (ox,oz in [-1,2] minus the inner
+  4), a 1-in-3 roll drops a 2..4-long stem from ey-1 plus a
+  single-trunk attachment.
+- DarkOakFoliagePlacer {radius 0, offset 0}: double-trunk rows
+  (r2,y-1),(r3,y0),(r2,y1) and 50% (r0,y2); single-trunk rows
+  (r2,y-1),(r1,y0). Rows extend +1 on x/z for the double trunk; skip
+  rules — the y0 double row holes the 3x3 where both coords are on
+  the outer boundary {-r,r,r+1} (SIGNED compare), the single y-1 row
+  drops corners, the y1 row drops minDx+minDz > 2r-2 with min
+  measured around the +x/+z extension.
+- three_layers {limit 1, upper_limit 1, lower 0, middle 1, upper 2}:
+  column-only at y=0, 3x3 middle, 5x5 top two layers.
+- treeShape's minsize ints refactored to minR func(h,y) with
+  twoLayers/threeLayers helpers; mega flag on the shape routes
+  growTree through quadGrow.
+- Bug found by the slice: isAirOrLeaves compared against
+  "minecraft:air" but StateOwner returns bare names — every NW-gate
+  check failed and trunks never wrote (only fringe stems, which use
+  treeCanOccupy).
+
+Blackbox: `TestDarkOakParity` — three /place'd dark oaks; per-leg
+floors (>=20 dark_oak_log, >=60 dark_oak_leaves); stone beside the
+column at y=0 grows (limit=1), stone inside the middle 3x3 fails; a
+lone dark_oak sapling stays a sapling under random ticks while a
+2x2 quad's NW cell becomes a log.

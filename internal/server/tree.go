@@ -25,6 +25,7 @@ const (
 	canopySpruce
 	canopyAcacia
 	canopyCherry
+	canopyDarkOak
 )
 
 // trunkKind is the species' trunk_placer variant: the straight column
@@ -36,6 +37,7 @@ const (
 	trunkStraight trunkKind = iota
 	trunkForking
 	trunkCherry
+	trunkDarkOak
 )
 
 // foliageAttach is one FoliageAttachment: the cell the canopy centers
@@ -43,42 +45,74 @@ const (
 type foliageAttach struct {
 	pos          world.Pos
 	radiusOffset int
+	doubleTrunk  bool // attachment of a 2x2 trunk — the canopy row is +1 wide
 }
 
-// treeShape is one species' single-trunk feature: a straight log column
-// of baseHeight + intn(randA+1) + intn(randB+1), the two-layers space
-// check (minLimit/minUpper), and one canopy placer. Every small oak and
-// birch shares foliage_placer {radius: 2, offset: 0, height: 3}; spruce
-// runs SpruceFoliagePlacer {radius U(2..3), offset U(0..2),
-// trunk_height U(1..2)}.
+// treeShape is one species' single-trunk feature: a log column of
+// baseHeight + intn(randA+1) + intn(randB+1), the feature-size space
+// check (minR — getSizeAtHeight), and one canopy placer. Every small
+// oak and birch shares foliage_placer {radius: 2, offset: 0,
+// height: 3}; spruce runs SpruceFoliagePlacer {radius U(2..3),
+// offset U(0..2), trunk_height U(1..2)}. mega species grow from a
+// 2x2 sapling quad instead of a lone sapling.
 type treeShape struct {
 	log, leaf                string
 	baseHeight, randA, randB int
 	fancyChance              float64
-	minLimit, minUpper       int // two_layers_feature_size: y < limit → 0, else upper
+	minR                     func(h, y int) int // FeatureSize.getSizeAtHeight
 	trunk                    trunkKind
 	canopy                   canopyKind
 	jungleDecor              bool // the {cocoa, trunk_vine, leave_vine} decorator set
+	mega                     bool // grows from a 2x2 sapling quad (mega feature)
+}
+
+// twoLayers — TwoLayersFeatureSize.getSizeAtHeight: lower below
+// limit, upper at and above it.
+func twoLayers(limit, lower, upper int) func(h, y int) int {
+	return func(h, y int) int {
+		if y < limit {
+			return lower
+		}
+		return upper
+	}
+}
+
+// threeLayers — ThreeLayersFeatureSize.getSizeAtHeight: lower below
+// limit, upper from treeHeight-upperLimit, middle between.
+func threeLayers(limit, upperLimit, lower, middle, upper int) func(h, y int) int {
+	return func(h, y int) int {
+		if y < limit {
+			return lower
+		}
+		if y >= h-upperLimit {
+			return upper
+		}
+		return middle
+	}
 }
 
 // treeShapes maps each implemented sapling to its feature config.
 // Saplings without an entry still advance their stage property (that
-// half of advanceTree is species-agnostic) but their growTree finds no
-// feature and fails — jungle/acacia/dark-oak/mangrove/cherry/pale-oak
-// placers are a measured gap, as is oak's own 10% fancy roll
-// (FancyTrunkPlacer + FancyFoliagePlacer): the roll still happens and
-// fails like vanilla failing a space check, so under low ceilings the
-// absence is invisible and in the open it is the known gap.
+// half of advanceTree is species-agnostic) but their growTree finds
+// no feature and fails. Oak's 10% fancy roll runs FancyTrunkPlacer +
+// FancyFoliagePlacer against fancy_oak's own minsize rule. The
+// two_layers entries use vanilla's codec defaults (limit 1, lower 0,
+// upper 1) — a block beside the column at ground level never blocks
+// growth; acacia and cherry's {upper_size 2} check the column at
+// y=0 and the 5x5 from y=1.
 var treeShapes = map[string]treeShape{
-	"oak_sapling":    {"oak_log", "oak_leaves", 4, 2, 0, 0.1, 1, 1, trunkStraight, canopyBlob, false},
-	"birch_sapling":  {"birch_log", "birch_leaves", 5, 2, 0, 0, 1, 1, trunkStraight, canopyBlob, false},
-	"spruce_sapling": {"spruce_log", "spruce_leaves", 5, 2, 1, 0, 2, 2, trunkStraight, canopySpruce, false},
-	"jungle_sapling": {"jungle_log", "jungle_leaves", 4, 8, 0, 0, 1, 1, trunkStraight, canopyBlob, false},
-	"acacia_sapling": {"acacia_log", "acacia_leaves", 5, 2, 2, 0, 1, 2, trunkForking, canopyAcacia, false},
-	// cherry.json: base 7 + intn(2) → 7..9; two_layers upper_size 2
-	// with the default limit 1 → the column cell at y=0, the whole
-	// 5x5 from y=1 up; CherryTrunkPlacer + CherryFoliagePlacer.
-	"cherry_sapling": {"cherry_log", "cherry_leaves", 7, 1, 0, 0, 1, 2, trunkCherry, canopyCherry, false},
+	"oak_sapling":    {"oak_log", "oak_leaves", 4, 2, 0, 0.1, twoLayers(1, 0, 1), trunkStraight, canopyBlob, false, false},
+	"birch_sapling":  {"birch_log", "birch_leaves", 5, 2, 0, 0, twoLayers(1, 0, 1), trunkStraight, canopyBlob, false, false},
+	"spruce_sapling": {"spruce_log", "spruce_leaves", 5, 2, 1, 0, twoLayers(2, 0, 2), trunkStraight, canopySpruce, false, false},
+	"jungle_sapling": {"jungle_log", "jungle_leaves", 4, 8, 0, 0, twoLayers(1, 0, 1), trunkStraight, canopyBlob, false, false},
+	"acacia_sapling": {"acacia_log", "acacia_leaves", 5, 2, 2, 0, twoLayers(1, 0, 2), trunkForking, canopyAcacia, false, false},
+	"cherry_sapling": {"cherry_log", "cherry_leaves", 7, 1, 0, 0, twoLayers(1, 0, 2), trunkCherry, canopyCherry, false, false},
+	// dark_oak.json: base 6 + intn(3) + intn(2) → 6..10; three_layers
+	// {limit 1, upper_limit 1, lower 0, middle 1, upper 2} — column
+	// at y=0, 3x3 middle, 5x5 top two layers; DarkOakTrunkPlacer's
+	// leaning 2x2 with fringe stems + DarkOakFoliagePlacer. Mega only —
+	// a lone dark_oak sapling never grows.
+	"dark_oak_sapling": {"dark_oak_log", "dark_oak_leaves", 6, 2, 1, 0, threeLayers(1, 1, 0, 1, 2), trunkDarkOak, canopyDarkOak, false, true},
 }
 
 // saplingRule — SaplingBlock.randomTick: getMaxLocalRawBrightness of
@@ -150,6 +184,15 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 	if !ok {
 		return
 	}
+	// The mega feature wins over the single-tree feature: a 2x2 quad
+	// of matching saplings takes the mega path (and even a failed quad
+	// growth is terminal — vanilla never falls through to the single
+	// feature once a quad matched).
+	if shape.mega {
+		if matched, _ := s.quadGrow(d, pos, blk, shape); matched {
+			return
+		}
+	}
 	// getConfiguredFeature: rand.nextFloat() < secondaryChance picks the
 	// secondary feature — oak's fancy tree runs FancyTrunkPlacer +
 	// FancyFoliagePlacer against its own minsize rule.
@@ -169,6 +212,48 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 	}
 }
 
+// quadGrow — TreeGrower.growTree's mega branch: scan the four
+// candidate 2x2 quads the ticked sapling can anchor (dx,dz in
+// {0,-1}, first match wins), clear the quad, run the mega feature
+// at its NW corner, restore the saplings when the place fails. The
+// first return reports whether a quad matched at all — a failed
+// quad is still terminal for growTree.
+func (s *Server) quadGrow(d *dimension, pos world.Pos, blk world.Block, shape treeShape) (bool, bool) {
+	name, _ := world.StateOwner(blk)
+	for dx := 0; dx >= -1; dx-- {
+		for dz := 0; dz >= -1; dz-- {
+			o := world.Pos{X: pos.X + dx, Y: pos.Y, Z: pos.Z + dz}
+			quad := [4]world.Pos{
+				o,
+				{X: o.X + 1, Y: o.Y, Z: o.Z},
+				{X: o.X, Y: o.Y, Z: o.Z + 1},
+				{X: o.X + 1, Y: o.Y, Z: o.Z + 1},
+			}
+			allSame := true
+			for _, c := range quad {
+				if cn, _ := world.StateOwner(d.w.GetBlock(c)); cn != name {
+					allSame = false
+					break
+				}
+			}
+			if !allSame {
+				continue
+			}
+			for _, c := range quad {
+				s.setSilentBlock(d, c, world.Air)
+			}
+			if s.treeFeature(d, o, shape) {
+				return true, true
+			}
+			for _, c := range quad {
+				s.setSilentBlock(d, c, blk)
+			}
+			return true, false
+		}
+	}
+	return false, false
+}
+
 // placeFeatureName maps /place feature ids onto the implemented tree
 // features and runs doPlace at pos. Every unimplemented feature fails
 // like a failed place() — the configured-feature set on the wire
@@ -179,7 +264,7 @@ func (s *Server) placeFeatureName(d *dimension, name string, pos world.Pos) bool
 	switch name {
 	case "fancy_oak":
 		return s.fancyOakFeature(d, pos)
-	case "oak", "birch", "spruce", "acacia", "cherry":
+	case "oak", "birch", "spruce", "acacia", "cherry", "dark_oak":
 		return s.treeFeature(d, pos, treeShapes[name+"_sapling"])
 	case "jungle_tree_no_vine":
 		return s.treeFeature(d, pos, treeShapes["jungle_sapling"])
@@ -208,17 +293,14 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		return false
 	}
 
-	// getMaxFreeTreeHeight with two_layers_feature_size:
-	// getSizeAtHeight is lowerSize(0) below the limit and upperSize at
-	// it — oak/birch check the trunk column at y=0 and the whole 3x3
-	// from y=1 up; spruce widens to the whole 5x5 from y=2 up.
+	// getMaxFreeTreeHeight with the shape's feature size:
+	// getSizeAtHeight maps each layer to its check radius — oak/birch
+	// check the trunk column at y=0 and the whole 3x3 from y=1 up;
+	// spruce widens to the whole 5x5 from y=2 up; dark oak runs
+	// column/3x3/5x5-top via three_layers.
 	clipped := treeHeight
 	for y := 0; y <= treeHeight+1; y++ {
-		r := shape.minUpper
-		if y < shape.minLimit {
-			r = 0
-		}
-		if !s.treeSpaceFree(d, pos, y, r) {
+		if !s.treeSpaceFree(d, pos, y, shape.minR(treeHeight, y)) {
 			clipped = y - 2
 			break
 		}
@@ -251,6 +333,8 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		attachments = s.forkingTrunk(d, pos, treeHeight, logState, &logs)
 	case trunkCherry:
 		attachments = s.cherryTrunk(d, pos, treeHeight, logState, &logs)
+	case trunkDarkOak:
+		attachments = s.darkOakTrunk(d, pos, treeHeight, logState, &logs)
 	default:
 		for y := 0; y < treeHeight; y++ {
 			p := world.Pos{X: pos.X, Y: pos.Y + y, Z: pos.Z}
@@ -280,6 +364,8 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		s.acaciaCanopy(d, attachments, placeLeaf)
 	case canopyCherry:
 		s.cherryCanopy(d, attachments, leafState, &leaves)
+	case canopyDarkOak:
+		s.darkOakCanopy(d, attachments, placeLeaf)
 	default:
 		// blob (radius 2, offset 0, height 3): four layers at yo
 		// 0..-3 with radius max(2 - 1 - yo/2, 0) → 1,1,2,2 (Java's
@@ -512,6 +598,138 @@ func (s *Server) cherryLeaf(d *dimension, p world.Pos, leafState world.Block, le
 	s.placeTreeLeaf(d, p, leafState, leaves)
 	if len(*leaves) > before {
 		placed[p] = true
+	}
+}
+
+// darkOakTrunk — DarkOakTrunkPlacer.placeTrunk: dirt under all four
+// column cells, then a 2x2 that leans up to two cells total starting
+// at h-intn(4) (one cell per dy once the steps run out), each layer
+// written only when its NW cell is air-or-leaves. The top attachment
+// is doubleTrunk; a 1-in-3 fringe of cells on the ring around the
+// top — at the ORIGIN x/z, not the leaned top — each drops a
+// 2..4-long stem and a single-trunk attachment.
+func (s *Server) darkOakTrunk(d *dimension, pos world.Pos, treeHeight int, logState world.Block, logs *[]world.Pos) []foliageAttach {
+	for _, off := range [][2]int{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
+		below := world.Pos{X: pos.X + off[0], Y: pos.Y - 1, Z: pos.Z + off[1]}
+		if bn, _ := world.StateOwner(d.w.GetBlock(below)); !dirtTagName(strings.TrimPrefix(bn, "minecraft:")) {
+			if dirt, ok := world.BlockStateOf("dirt", nil); ok {
+				s.setNaturalBlock(d, below, dirt)
+			}
+		}
+	}
+	lean := horizDirs[s.rng.intn(4)]
+	leanHeight := treeHeight - s.rng.intn(4)
+	leanSteps := 2 - s.rng.intn(3)
+	tx, tz := pos.X, pos.Z
+	ey := pos.Y + treeHeight - 1
+	var attachments []foliageAttach
+	for dy := 0; dy < treeHeight; dy++ {
+		if dy >= leanHeight && leanSteps > 0 {
+			tx += lean.X
+			tz += lean.Z
+			leanSteps--
+		}
+		nw := world.Pos{X: tx, Y: pos.Y + dy, Z: tz}
+		if !s.airOrLeaves(d, nw) {
+			continue
+		}
+		for _, off := range [][2]int{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
+			p := world.Pos{X: nw.X + off[0], Y: nw.Y, Z: nw.Z + off[1]}
+			if s.treeCanOccupy(d, p) {
+				s.setNaturalBlock(d, p, logState)
+				*logs = append(*logs, p)
+			}
+		}
+	}
+	attachments = append(attachments, foliageAttach{
+		pos:         world.Pos{X: tx, Y: ey, Z: tz},
+		doubleTrunk: true,
+	})
+	for ox := -1; ox <= 2; ox++ {
+		for oz := -1; oz <= 2; oz++ {
+			if ox >= 0 && ox <= 1 && oz >= 0 && oz <= 1 {
+				continue
+			}
+			if s.rng.intn(3) > 0 {
+				continue
+			}
+			length := s.rng.intn(3) + 2
+			for b := 0; b < length; b++ {
+				p := world.Pos{X: pos.X + ox, Y: ey - 1 - b, Z: pos.Z + oz}
+				if s.treeCanOccupy(d, p) {
+					s.setNaturalBlock(d, p, logState)
+					*logs = append(*logs, p)
+				}
+			}
+			attachments = append(attachments, foliageAttach{
+				pos: world.Pos{X: pos.X + ox, Y: ey, Z: pos.Z + oz},
+			})
+		}
+	}
+	return attachments
+}
+
+// airOrLeaves — TreeFeature.isAirOrLeaves: air or a #leaves cell.
+func (s *Server) airOrLeaves(d *dimension, p world.Pos) bool {
+	n, _ := world.StateOwner(d.w.GetBlock(p))
+	n = strings.TrimPrefix(n, "minecraft:")
+	return n == "air" || n == "cave_air" || n == "void_air" || isLeafBlock(n)
+}
+
+// darkOakCanopy — DarkOakFoliagePlacer {radius 0, offset 0,
+// foliageHeight 4}: the double-trunk top draws (r=2,y=-1), (r=3,y=0),
+// (r=2,y=1) and half the time (r=0,y=2); each fringe stem draws
+// (r=2,y=-1) and (r=1,y=0). Rows are square, extended +1 on x/z for
+// the double trunk.
+func (s *Server) darkOakCanopy(d *dimension, attachments []foliageAttach, placeLeaf func(world.Pos)) {
+	for _, at := range attachments {
+		fp := at.pos
+		if at.doubleTrunk {
+			s.darkOakRow(fp, 2, -1, true, placeLeaf)
+			s.darkOakRow(fp, 3, 0, true, placeLeaf)
+			s.darkOakRow(fp, 2, 1, true, placeLeaf)
+			if s.rng.intn(2) == 0 {
+				s.darkOakRow(fp, 0, 2, true, placeLeaf)
+			}
+		} else {
+			s.darkOakRow(fp, 2, -1, false, placeLeaf)
+			s.darkOakRow(fp, 1, 0, false, placeLeaf)
+		}
+	}
+}
+
+// darkOakRow is placeLeavesRow with DarkOakFoliagePlacer's skips:
+// the double trunk's y=0 row holes out the 3x3 where both coords sit
+// on the outer boundary set {-r, r, r+1}; a single-trunk y=-1 row
+// drops its corners; a y=1 row drops cells with minDx+minDz > 2r-2.
+func (s *Server) darkOakRow(fp world.Pos, r, y int, doubleTrunk bool, placeLeaf func(world.Pos)) {
+	ext := 0
+	if doubleTrunk {
+		ext = 1
+	}
+	for dx := -r; dx <= r+ext; dx++ {
+		for dz := -r; dz <= r+ext; dz++ {
+			var skip bool
+			switch {
+			case y == 0 && doubleTrunk:
+				skip = !(dx != -r && dx < r) && !(dz != -r && dz < r)
+			default:
+				mdx, mdz := absi(dx), absi(dz)
+				if doubleTrunk {
+					mdx = min(absi(dx), absi(dx-1))
+					mdz = min(absi(dz), absi(dz-1))
+				}
+				switch {
+				case y == -1 && !doubleTrunk:
+					skip = mdx == r && mdz == r
+				case y == 1:
+					skip = mdx+mdz > 2*r-2
+				}
+			}
+			if !skip {
+				placeLeaf(world.Pos{X: fp.X + dx, Y: fp.Y + y, Z: fp.Z + dz})
+			}
+		}
 	}
 }
 
