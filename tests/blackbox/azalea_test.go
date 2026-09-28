@@ -16,11 +16,12 @@ import (
 )
 
 type azaleaRun struct {
-	logs       int
-	leaves     int
-	flowering  int
-	rootedDirt int
-	bushGrew   bool
+	logs         int
+	leaves       int
+	flowering    int
+	rootedDirt   int
+	hangingRoots int
+	bushGrew     bool
 }
 
 func TestAzaleaParity(t *testing.T) {

@@ -528,6 +528,8 @@ func (s *Server) placeFeatureName(d *dimension, name string, pos world.Pos) bool
 		return s.fancyOakFeature(d, pos, true)
 	case "azalea_tree":
 		return s.treeFeature(d, pos, azaleaShape)
+	case "rooted_azalea_tree":
+		return s.rootedAzaleaFeature(d, pos)
 	case "oak", "birch", "spruce", "acacia", "cherry", "dark_oak":
 		return s.treeFeature(d, pos, treeShapes[name+"_sapling"])
 	case "oak_bees_005":
@@ -2308,6 +2310,180 @@ func (s *Server) randomSpreadCanopy(d *dimension, attachments []foliageAttach, s
 			placeLeaf(p)
 		}
 	}
+}
+
+// rootedAzaleaFeature — RootSystemFeature.place for
+// rooted_azalea_tree: origin must be air; a probe walks up at most
+// root_column_max_height cells staying at or under the WORLD_SURFACE
+// heightmap looking for the first spot where allowed_tree_position
+// (air|replaceable_by_trees over #azalea_grows_on), spaceForTree (3
+// clear cells above, water only at +1), and solid non-lava ground
+// below all hold; the azalea_tree feature places there, the root
+// column between origin and the tree scatters rooted_dirt, and
+// hanging_roots drop into empty ±3xz/±2y cells under sturdy faces.
+func (s *Server) rootedAzaleaFeature(d *dimension, origin world.Pos) bool {
+	if !isAirCell(d.w.GetBlock(origin)) {
+		return false
+	}
+	// WORLD_SURFACE heightmap at the origin column: the first air
+	// cell above the highest occluding block.
+	surface := int(skyTop(d, origin.X, origin.Z)) + 1
+	probe := origin
+	for i := 0; i < 100; i++ {
+		probe.Y++
+		if surface < probe.Y {
+			return false
+		}
+		if !azaleaTreePosOK(d, probe) || !rootSpaceOK(d, probe) {
+			continue
+		}
+		below := world.Pos{X: probe.X, Y: probe.Y - 1, Z: probe.Z}
+		if fk, _, isFluid := fluidOf(d.w.GetBlock(below)); isFluid && fk.name() == "lava" {
+			return false
+		}
+		if world.NonSolid(d.w.GetBlock(below)) {
+			return false
+		}
+		if s.treeFeature(d, probe, azaleaShape) {
+			s.rootedDirtColumn(d, origin, origin.Y+i)
+			s.hangingRootsScatter(d, origin)
+			return true
+		}
+	}
+	return false
+}
+
+// azaleaTreePosOK — the all_of allowed_tree_position: the cell is in
+// air or #replaceable_by_trees and the cell below is in
+// #azalea_grows_on.
+func azaleaTreePosOK(d *dimension, p world.Pos) bool {
+	n, _ := world.StateOwner(d.w.GetBlock(p))
+	n = strings.TrimPrefix(n, "minecraft:")
+	if !isAirCell(d.w.GetBlock(p)) && !treeReplaceable[n] {
+		return false
+	}
+	bn, _ := world.StateOwner(d.w.GetBlock(world.Pos{X: p.X, Y: p.Y - 1, Z: p.Z}))
+	return azaleaGrowsOn(strings.TrimPrefix(bn, "minecraft:"))
+}
+
+// rootSpaceOK — spaceForTree with level_test_distance 0: the cells
+// probe+1..probe+3 must pass isAllowedTreeSpace — air anywhere, water
+// only at the first level (allowed_vertical_water_for_tree 2 vs the
+// level+1 index).
+func rootSpaceOK(d *dimension, p world.Pos) bool {
+	for i := 1; i <= 3; i++ {
+		c := world.Pos{X: p.X, Y: p.Y + i, Z: p.Z}
+		if isAirCell(d.w.GetBlock(c)) {
+			continue
+		}
+		fk, _, isFluid := fluidOf(d.w.GetBlock(c))
+		if !(i+1 <= 2 && isFluid && fk.name() == "water") {
+			return false
+		}
+	}
+	return true
+}
+
+// rootedDirtColumn — placeDirt: for every y of the root column
+// [origin.Y, topY), 20 attempts drop rooted_dirt on
+// #azalea_root_replaceable cells inside ±3xz of the origin column.
+func (s *Server) rootedDirtColumn(d *dimension, origin world.Pos, topY int) {
+	rd, ok := world.BlockStateOf("rooted_dirt", nil)
+	if !ok {
+		return
+	}
+	for y := origin.Y; y < topY; y++ {
+		for a := 0; a < 20; a++ {
+			p := world.Pos{
+				X: origin.X + s.rng.intn(3) - s.rng.intn(3),
+				Y: y,
+				Z: origin.Z + s.rng.intn(3) - s.rng.intn(3),
+			}
+			n, _ := world.StateOwner(d.w.GetBlock(p))
+			if azaleaRootReplaceable(strings.TrimPrefix(n, "minecraft:")) {
+				s.setNaturalBlock(d, p, rd)
+			}
+		}
+	}
+}
+
+// hangingRootsScatter — placeRoots: 20 attempts inside ±3xz/±2y of
+// the origin; an empty cell whose above is face-sturdy DOWN gets
+// hanging_roots.
+func (s *Server) hangingRootsScatter(d *dimension, origin world.Pos) {
+	hr, ok := world.BlockStateOf("hanging_roots", map[string]string{"waterlogged": "false"})
+	if !ok {
+		return
+	}
+	for a := 0; a < 20; a++ {
+		p := world.Pos{
+			X: origin.X + s.rng.intn(3) - s.rng.intn(3),
+			Y: origin.Y + s.rng.intn(2) - s.rng.intn(2),
+			Z: origin.Z + s.rng.intn(3) - s.rng.intn(3),
+		}
+		if !isAirCell(d.w.GetBlock(p)) {
+			continue
+		}
+		if !speleoSturdy(d, world.Pos{X: p.X, Y: p.Y + 1, Z: p.Z}) {
+			continue
+		}
+		s.setNaturalBlock(d, p, hr)
+	}
+}
+
+// azaleaGrowsOn — #azalea_grows_on = substrate_overworld (#dirt +
+// #mud + #moss_blocks + #grass_blocks) + #sand + #terracotta +
+// snow_block + powder_snow.
+func azaleaGrowsOn(n string) bool {
+	switch n {
+	case "dirt", "coarse_dirt", "rooted_dirt",
+		"mud", "muddy_mangrove_roots",
+		"moss_block", "pale_moss_block",
+		"grass_block", "podzol", "mycelium",
+		"sand", "red_sand", "suspicious_sand",
+		"snow_block", "powder_snow":
+		return true
+	}
+	return terracottaName(n)
+}
+
+// azaleaRootReplaceable — #azalea_root_replaceable =
+// base_stone_overworld + substrate_overworld + #terracotta +
+// red_sand + clay + gravel + sand + snow_block + powder_snow.
+func azaleaRootReplaceable(n string) bool {
+	switch n {
+	case "stone", "granite", "diorite", "andesite", "tuff", "deepslate",
+		"red_sand", "clay", "gravel", "sand",
+		"snow_block", "powder_snow":
+		return true
+	}
+	return substrateOverworld(n) || terracottaName(n)
+}
+
+// substrateOverworld — #substrate_overworld = #dirt + #mud +
+// #moss_blocks + #grass_blocks.
+func substrateOverworld(n string) bool {
+	switch n {
+	case "dirt", "coarse_dirt", "rooted_dirt",
+		"mud", "muddy_mangrove_roots",
+		"moss_block", "pale_moss_block",
+		"grass_block", "podzol", "mycelium":
+		return true
+	}
+	return false
+}
+
+func terracottaName(n string) bool {
+	switch n {
+	case "terracotta", "white_terracotta", "orange_terracotta",
+		"magenta_terracotta", "light_blue_terracotta", "yellow_terracotta",
+		"lime_terracotta", "pink_terracotta", "gray_terracotta",
+		"light_gray_terracotta", "cyan_terracotta", "purple_terracotta",
+		"blue_terracotta", "brown_terracotta", "green_terracotta",
+		"red_terracotta", "black_terracotta":
+		return true
+	}
+	return false
 }
 
 // bendingTrunk — BendingTrunkPlacer.placeTrunk: one horizontal bend

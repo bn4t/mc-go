@@ -10878,3 +10878,38 @@ never confirmed the teleport — newChatSinkTP (teleport_confirm +
 pos echo) is required for reach-gated packets. Green: logs v=35
 g=38, leaves v=297 g=423, flowering v=119 g=158, rooted v=5 g=5,
 bushGrew true/true.
+
+## Slice — rooted_azalea_tree (RootSystemFeature)
+
+Measured from the 26.2 jar (javap) + rooted_azalea_tree.json:
+
+- place(): origin must be air. placeDirtAndTree walks the probe UP
+  from origin+1 (<=root_column_max_height 100), each iteration
+  checking getHeight(WORLD_SURFACE) < probe.y → abort when the probe
+  rises above the surface. The first probe passing all three checks
+  places the tree:
+  - allowed_tree_position (all_of): cell in #air or
+    #replaceable_by_trees AND cell.below in #azalea_grows_on
+    (substrate_overworld + sand + terracotta + snow + powder_snow).
+  - spaceForTree: cells +1..+3 pass isAllowedTreeSpace — air, or
+    water only at +1 (i+1 <= allowed_vertical_water 2).
+    level_test_distance 0 skips the lateral level test.
+  - below must be non-lava fluid AND solid.
+  Then azalea_tree places at the probe; on success placeDirt runs
+  20 rooted_dirt scatter attempts per level y∈[origin.Y, origin.Y+i)
+  inside ±3xz of the origin column through
+  #azalea_root_replaceable (base_stone + substrate + terracotta +
+  red_sand + clay + gravel + sand + snows); placeRoots then drops
+  hanging_roots into 20 empty-cell attempts inside ±3xz/±2y whose
+  above is face-sturdy DOWN.
+- /place rooted_azalea_tree routes to rootedAzaleaFeature; skyTop+1
+  stands in for the WORLD_SURFACE heightmap; speleoSturdy stands in
+  for face-sturdy.
+
+Blackbox: tests/blackbox/rooted_azalea_test.go —
+TestRootedAzaleaParity builds a layered pocket (stone ground, two
+stone roofs over air bands, dirt tower) so the probe walks the full
+column: roots eligible ≈70 cells → ~6 expected. Floors both legs:
+oak_log>=4, azalea_leaves>=20, rooted_dirt>=30, hanging_roots>=1.
+Green: logs v=7 g=6, leaves v=58 g=52, rooted v=93 g=90, roots v=2
+g=7.
