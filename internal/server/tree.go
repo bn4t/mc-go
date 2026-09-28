@@ -28,7 +28,7 @@ const (
 	canopyDarkOak
 	canopyMegaPine
 	canopyMegaJungle
-	canopyMangrove
+	canopySpread // random_spread_foliage_placer (radius/height/attempts)
 )
 
 // trunkKind is the species' trunk_placer variant: the straight column
@@ -44,6 +44,7 @@ const (
 	trunkGiant
 	trunkMegaJungle
 	trunkMangrove
+	trunkBending // BendingTrunkPlacer — wobble column + full side bend (azalea)
 )
 
 // decorKind is the tree's decorator set (TreeConfiguration.decorators):
@@ -99,6 +100,14 @@ type treeShape struct {
 	flowers                  *treeShape // TreeGrower flowers variant (BEES_005 specs)
 	fancyFlowers             bool       // flowers on the secondary roll → fancy + beehive
 	beehiveP                 float64    // decorBeehive's decorator probability
+	bendMin, bendMax         int        // BendingTrunkPlacer bend_length U{min..max}
+	minLeafLevel             int        // BendingTrunkPlacer min_height_for_leaves
+	spreadRadius             int        // random_spread radius → ±U{0..r}-U{0..r}
+	spreadHeight             int        // random_spread foliage_height → ±U{0..h-1}-U{0..h-1}
+	spreadAttempts           int        // random_spread leaf_placement_attempts
+	leafAlt                  string     // weighted foliage_provider's second leaf block
+	leafW, leafAltW          int        // leaf provider weights
+	rootedDirt               bool       // below_trunk_provider rooted_dirt (azalea)
 }
 
 // twoLayers — TwoLayersFeatureSize.getSizeAtHeight: lower below
@@ -207,6 +216,11 @@ var treeShapes = map[string]treeShape{
 	// dark-oak placers on pale names, ignore_vines, and NO decorators
 	// (the pale_moss set belongs to the pale_oak placed feature).
 	"mangrove_propagule": mangroveShape,
+	// Azalea bushes grow via bonemeal into the same azalea_tree
+	// feature — TreeGrower.AZALEA has no flowers/mega/secondary
+	// variants.
+	"azalea":           azaleaShape,
+	"flowering_azalea": azaleaShape,
 	"pale_oak_sapling": {
 		log: "pale_oak_log", leaf: "pale_oak_leaves", baseHeight: 6, randA: 2, randB: 1,
 		minR: threeLayers(1, 1, 0, 1, 2), trunk: trunkDarkOak, canopy: canopyDarkOak,
@@ -268,8 +282,9 @@ var paleOakCreakingShape = treeShape{
 // the column runs 4+U{0..1}+U{0..9} and branches step U{1..6}.
 var tallMangroveShape = treeShape{
 	log: "mangrove_log", leaf: "mangrove_leaves", baseHeight: 4, randA: 1, randB: 9,
-	minR: twoLayers(3, 0, 2), trunk: trunkMangrove, canopy: canopyMangrove,
+	minR: twoLayers(3, 0, 2), trunk: trunkMangrove, canopy: canopySpread,
 	branchStepsMax: 6, trunkOffMin: 3, trunkOffMax: 7,
+	spreadRadius: 2, spreadHeight: 2, spreadAttempts: 70,
 	decor: decorMangrove,
 }
 
@@ -278,10 +293,30 @@ var tallMangroveShape = treeShape{
 // secondary roll replaces this spec with the tall one.
 var mangroveShape = treeShape{
 	log: "mangrove_log", leaf: "mangrove_leaves", baseHeight: 2, randA: 1, randB: 4,
-	minR: twoLayers(2, 0, 2), trunk: trunkMangrove, canopy: canopyMangrove,
+	minR: twoLayers(2, 0, 2), trunk: trunkMangrove, canopy: canopySpread,
 	branchStepsMax: 4, trunkOffMin: 1, trunkOffMax: 3,
+	spreadRadius: 2, spreadHeight: 2, spreadAttempts: 70,
 	decor:     decorMangrove,
 	secondary: &tallMangroveShape, secondaryChance: 0.85,
+}
+
+// azaleaShape — azalea_tree.json: BendingTrunkPlacer{base 4, randA 2,
+// bend_length U{1..2}, min_height_for_leaves 3} +
+// RandomSpreadFoliagePlacer{radius 3, offset 0, height 2,
+// attempts 50}, weighted foliage azalea_leaves 3 : flowering 1, and
+// below_trunk_provider rooted_dirt. Azalea bushes have no stage —
+// they grow on bonemeal alone.
+var azaleaShape = treeShape{
+	log: "oak_log", leaf: "azalea_leaves",
+	leafAlt: "flowering_azalea_leaves", leafW: 3, leafAltW: 1,
+	baseHeight: 4, randA: 2,
+	minR:    twoLayers(1, 0, 1),
+	trunk:   trunkBending,
+	canopy:  canopySpread,
+	bendMin: 1, bendMax: 2,
+	minLeafLevel: 3,
+	spreadRadius: 3, spreadHeight: 2, spreadAttempts: 50,
+	rootedDirt: true,
 }
 
 // saplingRule — SaplingBlock.randomTick: getMaxLocalRawBrightness of
@@ -491,6 +526,8 @@ func (s *Server) placeFeatureName(d *dimension, name string, pos world.Pos) bool
 		return s.fancyOakFeature(d, pos, false)
 	case "fancy_oak_bees_005":
 		return s.fancyOakFeature(d, pos, true)
+	case "azalea_tree":
+		return s.treeFeature(d, pos, azaleaShape)
 	case "oak", "birch", "spruce", "acacia", "cherry", "dark_oak":
 		return s.treeFeature(d, pos, treeShapes[name+"_sapling"])
 	case "oak_bees_005":
@@ -574,10 +611,15 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		// when the below block isn't already in
 		// cannot_replace_below_tree_trunk — grass/mycelium/regular blocks
 		// under a tree turn to dirt. UpwardsBranchingTrunkPlacer never
-		// calls it, so the mangrove path writes no substrate.
+		// calls it, so the mangrove path writes no substrate; azalea's
+		// below_trunk_provider is rooted_dirt instead of dirt.
 		below := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
 		if bn, _ := world.StateOwner(d.w.GetBlock(below)); !dirtTagName(strings.TrimPrefix(bn, "minecraft:")) {
-			if dirt, ok := world.BlockStateOf("dirt", nil); ok {
+			substrate := "dirt"
+			if shape.rootedDirt {
+				substrate = "rooted_dirt"
+			}
+			if dirt, ok := world.BlockStateOf(substrate, nil); ok {
 				s.setNaturalBlock(d, below, dirt)
 			}
 		}
@@ -604,6 +646,8 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		attachments = s.megaJungleTrunk(d, pos, treeHeight, logState, &logs)
 	case trunkMangrove:
 		attachments = s.mangroveTrunk(d, trunkPos, treeHeight, shape, logState, &logs)
+	case trunkBending:
+		attachments = s.bendingTrunk(d, trunkPos, treeHeight, shape, logState, &logs)
 	default:
 		for y := 0; y < treeHeight; y++ {
 			p := world.Pos{X: pos.X, Y: pos.Y + y, Z: pos.Z}
@@ -623,8 +667,18 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 	leafState, _ := world.BlockStateOf(shape.leaf, map[string]string{
 		"distance": "7", "persistent": "false", "waterlogged": "false",
 	})
+	var leafAltState world.Block
+	if shape.leafAlt != "" {
+		leafAltState, _ = world.BlockStateOf(shape.leafAlt, map[string]string{
+			"distance": "7", "persistent": "false", "waterlogged": "false",
+		})
+	}
 	placeLeaf := func(p world.Pos) {
-		s.placeTreeLeaf(d, p, leafState, &leaves)
+		ls := leafState
+		if shape.leafAlt != "" && s.rng.intn(shape.leafW+shape.leafAltW) >= shape.leafW {
+			ls = leafAltState
+		}
+		s.placeTreeLeaf(d, p, ls, &leaves)
 	}
 	switch shape.canopy {
 	case canopySpruce:
@@ -639,8 +693,8 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		s.megaPineCanopy(d, attachments, shape, placeLeaf)
 	case canopyMegaJungle:
 		s.megaJungleCanopy(d, attachments, placeLeaf)
-	case canopyMangrove:
-		s.mangroveCanopy(d, attachments, placeLeaf)
+	case canopySpread:
+		s.randomSpreadCanopy(d, attachments, shape, placeLeaf)
 	default:
 		// blob (radius 2, offset 0, height 3): four layers at yo
 		// 0..-3 with radius max(2 - 1 - yo/2, 0) → 1,1,2,2 (Java's
@@ -2239,21 +2293,57 @@ func (s *Server) foldWaterlogged(d *dimension, p world.Pos, blk world.Block) wor
 	return blk
 }
 
-// mangroveCanopy — RandomSpreadFoliagePlacer(radius 3, offset 0,
-// height 2, 70 attempts): per attachment, 70 tries at
-// origin ± (intn(r) − intn(r)) horizontally and
-// (intn(h) − intn(h)) vertically.
-func (s *Server) mangroveCanopy(d *dimension, attachments []foliageAttach, placeLeaf func(world.Pos)) {
+// randomSpreadCanopy — RandomSpreadFoliagePlacer: per attachment,
+// leaf_placement_attempts cells at ±(intn(radius+1)−intn(radius+1))
+// xz and ±(intn(height)−intn(height)) y.
+func (s *Server) randomSpreadCanopy(d *dimension, attachments []foliageAttach, shape treeShape, placeLeaf func(world.Pos)) {
+	r, h := shape.spreadRadius+1, shape.spreadHeight
 	for _, at := range attachments {
-		for i := 0; i < 70; i++ {
+		for i := 0; i < shape.spreadAttempts; i++ {
 			p := world.Pos{
-				X: at.pos.X + s.rng.intn(3) - s.rng.intn(3),
-				Y: at.pos.Y + s.rng.intn(2) - s.rng.intn(2),
-				Z: at.pos.Z + s.rng.intn(3) - s.rng.intn(3),
+				X: at.pos.X + s.rng.intn(r) - s.rng.intn(r),
+				Y: at.pos.Y + s.rng.intn(h) - s.rng.intn(h),
+				Z: at.pos.Z + s.rng.intn(r) - s.rng.intn(r),
 			}
 			placeLeaf(p)
 		}
 	}
+}
+
+// bendingTrunk — BendingTrunkPlacer.placeTrunk: one horizontal bend
+// direction up front; the column rises treeHeight−1 levels, each
+// stepping sideways when level+1 < branchesHeight+U{0..1}, attaching
+// foliage at every level >= min_height_for_leaves; then a final bend
+// walks bendLength+1 more cells sideways attaching each. placeLog
+// runs only through validTreePos.
+func (s *Server) bendingTrunk(d *dimension, pos world.Pos, treeHeight int, shape treeShape, logState world.Block, logs *[]world.Pos) []foliageAttach {
+	dir := horizDirs[s.rng.intn(4)]
+	branchesHeight := treeHeight - 1
+	var attachments []foliageAttach
+	p := pos
+	for i := 0; i <= branchesHeight; i++ {
+		if i+1 < branchesHeight+s.rng.intn(2) {
+			p = world.Pos{X: p.X + dir.X, Y: p.Y, Z: p.Z + dir.Z}
+		}
+		if s.treeCanOccupy(d, p) {
+			s.setNaturalBlock(d, p, logState)
+			*logs = append(*logs, p)
+		}
+		if i >= shape.minLeafLevel {
+			attachments = append(attachments, foliageAttach{pos: p, radiusOffset: 0})
+		}
+		p = world.Pos{X: p.X, Y: p.Y + 1, Z: p.Z}
+	}
+	bendLen := shape.bendMin + s.rng.intn(shape.bendMax-shape.bendMin+1)
+	for j := 0; j <= bendLen; j++ {
+		if s.treeCanOccupy(d, p) {
+			s.setNaturalBlock(d, p, logState)
+			*logs = append(*logs, p)
+		}
+		attachments = append(attachments, foliageAttach{pos: p, radiusOffset: 0})
+		p = world.Pos{X: p.X + dir.X, Y: p.Y, Z: p.Z + dir.Z}
+	}
+	return attachments
 }
 
 // mangroveDecorators — the mangrove decorator set:

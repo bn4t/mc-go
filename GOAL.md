@@ -10841,3 +10841,40 @@ control, plus /place of all four BEES_005 names. Pins: nests>=1 in
 the flowered run, nests==0 in the control, log floors everywhere.
 Green both legs (nests v=4 g=1, plain 0/0, flower logs v=787 g=878,
 placed v=35 g=45).
+
+## Slice — azalea tree (BendingTrunkPlacer) + bonemeal-only bush growth
+
+Measured from the 26.2 jar (javap) + configured-feature JSONs:
+- azalea_tree.json: BendingTrunkPlacer{base 4, randA 2, bend_length
+  U{1..2}, min_height_for_leaves 3}, RandomSpreadFoliagePlacer
+  {radius 3, offset 0, foliage_height 2, leaf_placement_attempts 50},
+  weighted foliage azalea_leaves:flowering_azalea_leaves = 3:1,
+  below_trunk_provider rooted_dirt, decorators [].
+- BendingTrunkPlacer.placeTrunk (javap): one horizontal direction up
+  front; the column rises treeHeight−1 levels, each stepping sideways
+  when level+1 < branchesHeight+U{0..1} BEFORE placeLog (the origin
+  cell is never a log — a grown bush keeps its azalea at origin);
+  validTreePos gates each write; foliage attaches at levels >= 3;
+  then a side bend walks bend_length+1 more cells, attaching each.
+- AzaleaBlock: isBonemealSuccess is the same 45% roll as saplings —
+  a miss still consumes the meal (growCrop shrinks unconditionally
+  once the target validates); performBonemeal then calls
+  TreeGrower.AZALEA.growTree unconditionally. Bushes have no stage
+  and never grow via random tick.
+- RandomSpreadFoliagePlacer shared with mangrove: xz ±(intn(r+1) −
+  intn(r+1)), y ±(intn(h) − intn(h)) — azalea {r 3, h 2, 50 attempts}
+  vs mangrove {r 2, h 2, 70 attempts}; mangrove canopy generalized
+  into randomSpreadCanopy.
+- placeBelowTrunkBlock writes rooted_dirt (not dirt) when the
+  substrate isn't in #cannot_replace_below_tree_trunk — grass pads
+  root, dirt pads don't.
+
+Blackbox: tests/blackbox/azalea_test.go — TestAzaleaParity /places
+four trees on grass and bonemeals a bush until rooted appears under
+it (<=10 clicks; P(10 misses)≈0.0025). Floors both legs: oak_log>=4,
+azalea_leaves>=30, flowering>=3, rooted_dirt>=2, bush grew==true.
+Surfaced a harness fact: vanilla drops use_item_on when the client
+never confirmed the teleport — newChatSinkTP (teleport_confirm +
+pos echo) is required for reach-gated packets. Green: logs v=35
+g=38, leaves v=297 g=423, flowering v=119 g=158, rooted v=5 g=5,
+bushGrew true/true.

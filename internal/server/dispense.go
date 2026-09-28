@@ -921,6 +921,15 @@ func (s *Server) bonemealGrow(d *dimension, pos world.Pos) bool {
 		return false
 	}
 	name = strings.TrimPrefix(name, "minecraft:")
+	// AzaleaBlock.isBonemealSuccess: the same 45% roll the saplings
+	// make — a miss consumes nothing and fires no event.
+	if name == "azalea" || name == "flowering_azalea" {
+		if s.rng.nextDouble() < 0.45 {
+			s.growTree(d, pos, b)
+			return true
+		}
+		return false
+	}
 	// SaplingBlock.performBonemeal: a 45% roll into advanceTree — the
 	// same stage-then-grow chain the random tick takes.
 	_, hasStage := world.StateProperty(b, "stage")
