@@ -29,6 +29,9 @@ type Session struct {
 	nameMu sync.RWMutex
 	name   string
 	uuid   [16]byte
+	// profileProps is the session-server GameProfile properties
+	// attached to Login Success in online mode; empty offline.
+	profileProps []profileProperty
 	// Negotiated client version: set to LatestVersion at accept, then
 	// to the handshake's protocol at login. Handlers dispatch packet
 	// IDs through ids() so one core serves multiple versions.

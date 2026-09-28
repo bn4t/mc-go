@@ -44,6 +44,19 @@ type Server struct {
 	// what makes a world survive a handoff between the two.
 	WorldDir string
 
+	// OnlineMode is server.properties' online-mode: when true the
+	// login stage runs the vanilla encryption handshake — a 1024-bit
+	// RSA keypair, the encryption_request hello (empty server id,
+	// X.509 public key, 4-byte challenge, shouldAuthenticate), the
+	// AES/CFB8 stream, and the session-server hasJoined lookup whose
+	// verified profile replaces the offline UUID.
+	OnlineMode bool
+
+	// HasJoinedURL is the session-server endpoint online-mode logins
+	// verify against; empty selects Mojang's. Tests point it at a
+	// stub instead of the real service.
+	HasJoinedURL string
+
 	// loadMu guards worldLoaded, which makes LoadWorld idempotent so
 	// the world a server was configured with is loaded exactly once
 	// however many times loading is asked for.

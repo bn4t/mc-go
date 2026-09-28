@@ -41,6 +41,7 @@ const (
 	IDLoginAcknowledged = 0x03
 	// Login clientbound
 	IDLoginDisconnect     = 0x00
+	IDLoginEncryptionReq  = 0x01
 	IDLoginSuccess        = 0x02
 	IDLoginSetCompression = 0x03
 	// Compression threshold, matching the vanilla default

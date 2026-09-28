@@ -35,7 +35,7 @@ Mojang server over the wire.
 - [~] Configuration: known packs, feature flags, registry data, tags
 - [~] Play join burst
 - [ ] Full packet ID + shape coverage for all states
-- [ ] Encryption / online mode
+- [x] Encryption / online mode
 - [x] Cookie / transfer / dialog / code-of-conduct packets.
       /transfer writes play transfer (host + port); /dialog show/clear
       write show_dialog (Holder VarInt = registry index + 1) and
@@ -10977,3 +10977,37 @@ TestSummonCoverageParity now also pins both not_summonable rejects
 plus presence pins for the already-summonable NBT-fed types
 (tnt{fuse:30000}, experience_orb{Value:7}, area_effect_cloud,
 marker, mannequin). Green both legs.
+
+## Slice — encryption / online-mode login
+
+Vanilla (javap on ServerLoginPacketListenerImpl + ClientboundHelloPacket
++ ServerboundKeyPacket, 26.2): with online-mode=true the login stage
+answers Login Start with encryption_request 0x01 = Utf("") +
+ByteArray(PKIX RSA-1024 pubkey) + ByteArray(Ints.toByteArray(nextInt),
+4 bytes) + Bool shouldAuthenticate; the key response is two
+ByteArrays (RSA-PKCS1v15 secret + challenge echo) where a challenge
+mismatch is "Protocol error"; the session id is
+BigInteger(SHA1(""+secret+pubDER)).toString(16); both directions then
+switch to AES/CFB8 (key==IV==secret) before compression and
+Login Success, and hasJoined supplies the real profile UUID +
+properties.
+
+mc-go: Server.OnlineMode, lazy 1024-bit keypair (PKIX DER — the diff
+caught a raw-PKCS#1 mismatch the Java getEncoded() format rules out),
+the same hello, challenge check + "Protocol error" disconnect, a
+hand-rolled CFB8 stream (Go's crypto/cipher CFB is full-width only)
+proven byte-exact against the JDK's own AES/CFB8/NoPadding, and the
+hasJoined lookup (HasJoinedURL overridable for tests) whose profile
+UUID + properties land in Login Success; compression negotiates
+inside the encrypted stream like vanilla.
+
+Tests: internal/server TestOnlineModeLogin drives the full flow
+end-to-end against an httptest session server (hello shape, key
+exchange, encrypted compression+success, property round-trip) and
+TestOnlineModeBadChallenge pins the Protocol-error disconnect;
+protocol TestCFB8MatchesJDK pins the cipher against JDK-produced
+ciphertext; tests/blackbox TestEncryptionHelloParity compares the
+encryption_request shape field-by-field against real vanilla with
+online-mode=true. The real-Mojang lookup is the one piece no
+differential can cover (needs a paid account); the stubbed path pins
+everything else.
