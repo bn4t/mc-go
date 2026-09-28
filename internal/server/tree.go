@@ -26,6 +26,8 @@ const (
 	canopyAcacia
 	canopyCherry
 	canopyDarkOak
+	canopyMegaPine
+	canopyMegaJungle
 )
 
 // trunkKind is the species' trunk_placer variant: the straight column
@@ -38,6 +40,20 @@ const (
 	trunkForking
 	trunkCherry
 	trunkDarkOak
+	trunkGiant
+	trunkMegaJungle
+)
+
+// decorKind is the tree's decorator set (TreeConfiguration.decorators):
+// none, the podzol alter_ground under mega spruces, the mega jungle's
+// trunk+leave vines, or the pale oak's pale_moss hangers.
+type decorKind int
+
+const (
+	decorNone decorKind = iota
+	decorPodzol
+	decorJungleVines // trunk_vine + leave_vine{0.25} (mega jungle)
+	decorPaleMoss    // pale_moss{ground .8, leaves .15, trunk .4} hangers
 )
 
 // foliageAttach is one FoliageAttachment: the cell the canopy centers
@@ -62,8 +78,15 @@ type treeShape struct {
 	minR                     func(h, y int) int // FeatureSize.getSizeAtHeight
 	trunk                    trunkKind
 	canopy                   canopyKind
-	jungleDecor              bool // the {cocoa, trunk_vine, leave_vine} decorator set
-	mega                     bool // grows from a 2x2 sapling quad (mega feature)
+	jungleDecor              bool       // the {cocoa, trunk_vine, leave_vine} decorator set
+	mega                     bool       // can grow from a 2x2 sapling quad (mega feature)
+	noSingle                 bool       // mega-only species: a lone sapling never grows
+	megaShape                *treeShape // the mega feature spec (nil → this entry is it)
+	megaAlt                  *treeShape // secondaryMegaFeature (spruce's pine)
+	megaAltChance            float64
+	ignoreVines              bool // FeatureConfiguration.ignoreVines
+	decor                    decorKind
+	crownMin, crownMax       int // mega_pine_foliage_placer's crown_height uniform
 }
 
 // twoLayers — TwoLayersFeatureSize.getSizeAtHeight: lower below
@@ -101,18 +124,98 @@ func threeLayers(limit, upperLimit, lower, middle, upper int) func(h, y int) int
 // growth; acacia and cherry's {upper_size 2} check the column at
 // y=0 and the 5x5 from y=1.
 var treeShapes = map[string]treeShape{
-	"oak_sapling":    {"oak_log", "oak_leaves", 4, 2, 0, 0.1, twoLayers(1, 0, 1), trunkStraight, canopyBlob, false, false},
-	"birch_sapling":  {"birch_log", "birch_leaves", 5, 2, 0, 0, twoLayers(1, 0, 1), trunkStraight, canopyBlob, false, false},
-	"spruce_sapling": {"spruce_log", "spruce_leaves", 5, 2, 1, 0, twoLayers(2, 0, 2), trunkStraight, canopySpruce, false, false},
-	"jungle_sapling": {"jungle_log", "jungle_leaves", 4, 8, 0, 0, twoLayers(1, 0, 1), trunkStraight, canopyBlob, false, false},
-	"acacia_sapling": {"acacia_log", "acacia_leaves", 5, 2, 2, 0, twoLayers(1, 0, 2), trunkForking, canopyAcacia, false, false},
-	"cherry_sapling": {"cherry_log", "cherry_leaves", 7, 1, 0, 0, twoLayers(1, 0, 2), trunkCherry, canopyCherry, false, false},
+	"oak_sapling": {
+		log: "oak_log", leaf: "oak_leaves", baseHeight: 4, randA: 2,
+		fancyChance: 0.1, minR: twoLayers(1, 0, 1),
+		trunk: trunkStraight, canopy: canopyBlob,
+	},
+	"birch_sapling": {
+		log: "birch_log", leaf: "birch_leaves", baseHeight: 5, randA: 2,
+		minR: twoLayers(1, 0, 1), trunk: trunkStraight, canopy: canopyBlob,
+	},
+	"spruce_sapling": {
+		log: "spruce_log", leaf: "spruce_leaves", baseHeight: 5, randA: 2, randB: 1,
+		minR: twoLayers(2, 0, 2), trunk: trunkStraight, canopy: canopySpruce,
+		// SpruceTreeGrower: a 2x2 quad takes the mega feature, with
+		// secondaryMegaTree MEGA_PINE rolled at 50% against
+		// MEGA_SPRUCE; the lone sapling always takes `spruce`.
+		mega: true, megaShape: &megaSpruceShape, megaAlt: &megaPineShape, megaAltChance: 0.5,
+	},
+	"jungle_sapling": {
+		log: "jungle_log", leaf: "jungle_leaves", baseHeight: 4, randA: 8,
+		minR: twoLayers(1, 0, 1), trunk: trunkStraight, canopy: canopyBlob,
+		// JungleTreeGrower: lone sapling → jungle_tree_no_vine (this
+		// entry); a 2x2 quad → mega_jungle_tree.
+		mega: true, megaShape: &megaJungleShape,
+	},
+	"acacia_sapling": {
+		log: "acacia_log", leaf: "acacia_leaves", baseHeight: 5, randA: 2, randB: 2,
+		minR: twoLayers(1, 0, 2), trunk: trunkForking, canopy: canopyAcacia,
+	},
+	"cherry_sapling": {
+		log: "cherry_log", leaf: "cherry_leaves", baseHeight: 7, randA: 1,
+		minR: twoLayers(1, 0, 2), trunk: trunkCherry, canopy: canopyCherry,
+	},
 	// dark_oak.json: base 6 + intn(3) + intn(2) → 6..10; three_layers
 	// {limit 1, upper_limit 1, lower 0, middle 1, upper 2} — column
 	// at y=0, 3x3 middle, 5x5 top two layers; DarkOakTrunkPlacer's
 	// leaning 2x2 with fringe stems + DarkOakFoliagePlacer. Mega only —
 	// a lone dark_oak sapling never grows.
-	"dark_oak_sapling": {"dark_oak_log", "dark_oak_leaves", 6, 2, 1, 0, threeLayers(1, 1, 0, 1, 2), trunkDarkOak, canopyDarkOak, false, true},
+	"dark_oak_sapling": {
+		log: "dark_oak_log", leaf: "dark_oak_leaves", baseHeight: 6, randA: 2, randB: 1,
+		minR: threeLayers(1, 1, 0, 1, 2), trunk: trunkDarkOak, canopy: canopyDarkOak,
+		mega: true, noSingle: true,
+	},
+	// PaleOakTreeGrower's mega feature is pale_oak_bonemeal — the same
+	// dark-oak placers on pale names, ignore_vines, and NO decorators
+	// (the pale_moss set belongs to the pale_oak placed feature).
+	"pale_oak_sapling": {
+		log: "pale_oak_log", leaf: "pale_oak_leaves", baseHeight: 6, randA: 2, randB: 1,
+		minR: threeLayers(1, 1, 0, 1, 2), trunk: trunkDarkOak, canopy: canopyDarkOak,
+		mega: true, noSingle: true, ignoreVines: true,
+	},
+}
+
+// megaSpruceShape — mega_spruce.json: giant trunk {13, intn(3),
+// intn(15)} → 13..29, mega_pine_foliage crown U{13..17}, podzol
+// alter_ground, two_layers {lower 1, upper 2} → 3x3 at y=0, 5x5 up.
+var megaSpruceShape = treeShape{
+	log: "spruce_log", leaf: "spruce_leaves", baseHeight: 13, randA: 2, randB: 14,
+	minR: twoLayers(1, 1, 2), trunk: trunkGiant, canopy: canopyMegaPine,
+	crownMin: 13, crownMax: 17, decor: decorPodzol,
+}
+
+// megaPineShape — mega_pine.json: same giant trunk, crown U{3..7}.
+var megaPineShape = treeShape{
+	log: "spruce_log", leaf: "spruce_leaves", baseHeight: 13, randA: 2, randB: 14,
+	minR: twoLayers(1, 1, 2), trunk: trunkGiant, canopy: canopyMegaPine,
+	crownMin: 3, crownMax: 7, decor: decorPodzol,
+}
+
+// megaJungleShape — mega_jungle_tree.json: mega_jungle trunk
+// {10, intn(3), intn(20)} → 10..31 (giant column + angled branches),
+// mega_jungle_foliage {radius 2, offset 0, height 2}, trunk_vine +
+// leave_vine{0.25} decorators, two_layers {lower 1, upper 2}.
+var megaJungleShape = treeShape{
+	log: "jungle_log", leaf: "jungle_leaves", baseHeight: 10, randA: 2, randB: 19,
+	minR: twoLayers(1, 1, 2), trunk: trunkMegaJungle, canopy: canopyMegaJungle,
+	decor: decorJungleVines,
+}
+
+// paleOakShape — pale_oak_bonemeal.json (the sapling-grown variant):
+// dark-oak placers, no decorators, ignore_vines.
+var paleOakShape = treeShape{
+	log: "pale_oak_log", leaf: "pale_oak_leaves", baseHeight: 6, randA: 2, randB: 1,
+	minR: threeLayers(1, 1, 0, 1, 2), trunk: trunkDarkOak, canopy: canopyDarkOak,
+	ignoreVines: true,
+}
+
+// paleOakMossShape — pale_oak.json (the placed feature): the
+// bonemeal spec plus the pale_moss decorator set.
+var paleOakMossShape = treeShape{
+	log: "pale_oak_log", leaf: "pale_oak_leaves", baseHeight: 6, randA: 2, randB: 1,
+	minR: threeLayers(1, 1, 0, 1, 2), trunk: trunkDarkOak, canopy: canopyDarkOak,
+	ignoreVines: true, decor: decorPaleMoss,
 }
 
 // saplingRule — SaplingBlock.randomTick: getMaxLocalRawBrightness of
@@ -187,9 +290,22 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 	// The mega feature wins over the single-tree feature: a 2x2 quad
 	// of matching saplings takes the mega path (and even a failed quad
 	// growth is terminal — vanilla never falls through to the single
-	// feature once a quad matched).
+	// feature once a quad matched). Mega-only species never reach the
+	// single path.
 	if shape.mega {
-		if matched, _ := s.quadGrow(d, pos, blk, shape); matched {
+		ms := &shape
+		if shape.megaShape != nil {
+			ms = shape.megaShape
+		}
+		// getConfiguredMegaFeature: secondaryMegaTree replaces the
+		// mega feature at secondaryChance — spruce's 50% pine roll.
+		if shape.megaAlt != nil && s.rng.nextDouble() < shape.megaAltChance {
+			ms = shape.megaAlt
+		}
+		if matched, _ := s.quadGrow(d, pos, blk, *ms); matched {
+			return
+		}
+		if shape.noSingle {
 			return
 		}
 	}
@@ -266,6 +382,16 @@ func (s *Server) placeFeatureName(d *dimension, name string, pos world.Pos) bool
 		return s.fancyOakFeature(d, pos)
 	case "oak", "birch", "spruce", "acacia", "cherry", "dark_oak":
 		return s.treeFeature(d, pos, treeShapes[name+"_sapling"])
+	case "mega_spruce":
+		return s.treeFeature(d, pos, megaSpruceShape)
+	case "mega_pine":
+		return s.treeFeature(d, pos, megaPineShape)
+	case "mega_jungle_tree":
+		return s.treeFeature(d, pos, megaJungleShape)
+	case "pale_oak":
+		return s.treeFeature(d, pos, paleOakMossShape)
+	case "pale_oak_bonemeal":
+		return s.treeFeature(d, pos, paleOakShape)
 	case "jungle_tree_no_vine":
 		return s.treeFeature(d, pos, treeShapes["jungle_sapling"])
 	case "jungle_tree":
@@ -300,7 +426,7 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 	// column/3x3/5x5-top via three_layers.
 	clipped := treeHeight
 	for y := 0; y <= treeHeight+1; y++ {
-		if !s.treeSpaceFree(d, pos, y, shape.minR(treeHeight, y)) {
+		if !s.treeSpaceFree(d, pos, y, shape.minR(treeHeight, y), shape.ignoreVines) {
 			clipped = y - 2
 			break
 		}
@@ -335,6 +461,10 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		attachments = s.cherryTrunk(d, pos, treeHeight, logState, &logs)
 	case trunkDarkOak:
 		attachments = s.darkOakTrunk(d, pos, treeHeight, logState, &logs)
+	case trunkGiant:
+		attachments = s.giantTrunk(d, pos, treeHeight, logState, &logs)
+	case trunkMegaJungle:
+		attachments = s.megaJungleTrunk(d, pos, treeHeight, logState, &logs)
 	default:
 		for y := 0; y < treeHeight; y++ {
 			p := world.Pos{X: pos.X, Y: pos.Y + y, Z: pos.Z}
@@ -366,6 +496,10 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		s.cherryCanopy(d, attachments, leafState, &leaves)
 	case canopyDarkOak:
 		s.darkOakCanopy(d, attachments, placeLeaf)
+	case canopyMegaPine:
+		s.megaPineCanopy(d, attachments, shape, placeLeaf)
+	case canopyMegaJungle:
+		s.megaJungleCanopy(d, attachments, placeLeaf)
 	default:
 		// blob (radius 2, offset 0, height 3): four layers at yo
 		// 0..-3 with radius max(2 - 1 - yo/2, 0) → 1,1,2,2 (Java's
@@ -395,6 +529,14 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 	// is wired for the 2x2 mega_jungle path (trunk_vine + leave_vine).
 	if shape.jungleDecor {
 		s.jungleDecorators(d, logs, leaves)
+	}
+	switch shape.decor {
+	case decorPodzol:
+		s.podzolDecor(d, logs)
+	case decorJungleVines:
+		s.jungleVineDecorators(d, logs, leaves)
+	case decorPaleMoss:
+		s.paleMossDecor(d, logs, leaves)
 	}
 
 	// updateLeaves: BFS from every written log assigns
@@ -733,6 +875,275 @@ func (s *Server) darkOakRow(fp world.Pos, r, y int, doubleTrunk bool, placeLeaf 
 	}
 }
 
+// giantTrunk — GiantTrunkPlacer.placeTrunk: dirt under all four
+// column cells, then a bare 2x2 whose top layer collapses to the
+// single column cell. One attachment directly above the top log,
+// doubleTrunk.
+func (s *Server) giantTrunk(d *dimension, pos world.Pos, treeHeight int, logState world.Block, logs *[]world.Pos) []foliageAttach {
+	for _, off := range [][2]int{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
+		below := world.Pos{X: pos.X + off[0], Y: pos.Y - 1, Z: pos.Z + off[1]}
+		if bn, _ := world.StateOwner(d.w.GetBlock(below)); !dirtTagName(strings.TrimPrefix(bn, "minecraft:")) {
+			if dirt, ok := world.BlockStateOf("dirt", nil); ok {
+				s.setNaturalBlock(d, below, dirt)
+			}
+		}
+	}
+	for hh := 0; hh < treeHeight; hh++ {
+		cells := [][2]int{{0, 0}}
+		if hh < treeHeight-1 {
+			cells = append(cells, [2]int{1, 0}, [2]int{1, 1}, [2]int{0, 1})
+		}
+		for _, off := range cells {
+			p := world.Pos{X: pos.X + off[0], Y: pos.Y + hh, Z: pos.Z + off[1]}
+			if s.treeFree(d, p) {
+				s.setNaturalBlock(d, p, logState)
+				*logs = append(*logs, p)
+			}
+		}
+	}
+	return []foliageAttach{{
+		pos:         world.Pos{X: pos.X, Y: pos.Y + treeHeight, Z: pos.Z},
+		doubleTrunk: true,
+	}}
+}
+
+// megaJungleTrunk — MegaJungleTrunkPlacer.placeTrunk: the giant
+// column plus angled branches — from h-2-intn(4) stepping down
+// 2..5 while above h/2, each branch walks 5 cells outward along a
+// random angle ((int)(1.5 + cos·b) truncation — cells can re-hit the
+// column) rising b/2 cells, then a single-trunk attachment at
+// radiusOffset -2.
+func (s *Server) megaJungleTrunk(d *dimension, pos world.Pos, treeHeight int, logState world.Block, logs *[]world.Pos) []foliageAttach {
+	attachments := s.giantTrunk(d, pos, treeHeight, logState, logs)
+	for branchHeight := treeHeight - 2 - s.rng.intn(4); branchHeight > treeHeight/2; branchHeight -= 2 + s.rng.intn(4) {
+		angle := s.rng.nextDouble() * math.Pi * 2
+		bx, bz := 0, 0
+		for b := 0; b < 5; b++ {
+			bx = int(1.5 + math.Cos(angle)*float64(b))
+			bz = int(1.5 + math.Sin(angle)*float64(b))
+			p := world.Pos{X: pos.X + bx, Y: pos.Y + branchHeight - 3 + b/2, Z: pos.Z + bz}
+			if s.treeCanOccupy(d, p) {
+				s.setNaturalBlock(d, p, logState)
+				*logs = append(*logs, p)
+			}
+		}
+		attachments = append(attachments, foliageAttach{
+			pos:          world.Pos{X: pos.X + bx, Y: pos.Y + branchHeight, Z: pos.Z + bz},
+			radiusOffset: -2,
+		})
+	}
+	return attachments
+}
+
+// megaPineCanopy — MegaPineFoliagePlacer {radius 0, offset 0}: a
+// crown_height-deep cone whose rows smooth from floor(yo/crown·3.5),
+// jagged +1 on even world-Y rows when the radius stalls. Rows are
+// circular with the signed dx+dz>=7 corner cut.
+func (s *Server) megaPineCanopy(d *dimension, attachments []foliageAttach, shape treeShape, placeLeaf func(world.Pos)) {
+	for _, at := range attachments {
+		fp := at.pos
+		crown := shape.crownMin
+		if shape.crownMax > shape.crownMin {
+			crown += s.rng.intn(shape.crownMax - shape.crownMin + 1)
+		}
+		prevR := 0
+		for yy := fp.Y - crown; yy <= fp.Y; yy++ {
+			yo := fp.Y - yy
+			smooth := at.radiusOffset + int(math.Floor(float64(yo)/float64(crown)*3.5))
+			r := smooth
+			if yo > 0 && smooth == prevR && yy%2 == 0 {
+				r = smooth + 1
+			}
+			s.treeRowCircular(fp, r, yy, at.doubleTrunk, placeLeaf)
+			prevR = smooth
+		}
+	}
+}
+
+// megaJungleCanopy — MegaJungleFoliagePlacer {radius 2, offset 0,
+// height 2}: rows yo=0..-leafHeight with radius 2+offset+1-yo — a
+// circular cone widening downward; leafHeight is the fixed height on
+// the double trunk and 1+intn(2) on single branches.
+func (s *Server) megaJungleCanopy(d *dimension, attachments []foliageAttach, placeLeaf func(world.Pos)) {
+	for _, at := range attachments {
+		fp := at.pos
+		leafH := 2
+		if !at.doubleTrunk {
+			leafH = 1 + s.rng.intn(2)
+		}
+		for yo := 0; yo >= -leafH; yo-- {
+			r := 2 + at.radiusOffset + 1 - yo
+			s.treeRowCircular(fp, r, fp.Y+yo, at.doubleTrunk, placeLeaf)
+		}
+	}
+}
+
+// treeRowCircular draws one MegaPine/MegaJungle row: a circular disc
+// (dx²+dz² <= r²) with the signed dx+dz >= 7 corner cut, extended +1
+// on x/z for a double trunk.
+func (s *Server) treeRowCircular(fp world.Pos, r, y int, doubleTrunk bool, placeLeaf func(world.Pos)) {
+	if r < 0 {
+		return
+	}
+	ext := 0
+	if doubleTrunk {
+		ext = 1
+	}
+	for dx := -r; dx <= r+ext; dx++ {
+		for dz := -r; dz <= r+ext; dz++ {
+			if dx+dz >= 7 || dx*dx+dz*dz > r*r {
+				continue
+			}
+			placeLeaf(world.Pos{X: fp.X + dx, Y: y, Z: fp.Z + dz})
+		}
+	}
+}
+
+// podzolDecor — AlterGroundDecorator: for every lowest-Y trunk cell,
+// four fixed podzol circles at the corner-adjacent offsets plus five
+// random border placements; each circle is a 5x5 minus its corners,
+// written top-down (dy 2..-3) at the first
+// beneath_tree_podzol_replaceable cell, tunnelling through air only.
+func (s *Server) podzolDecor(d *dimension, logs []world.Pos) {
+	if len(logs) == 0 {
+		return
+	}
+	minY := logs[0].Y
+	for _, lp := range logs {
+		if lp.Y < minY {
+			minY = lp.Y
+		}
+	}
+	podzol, _ := world.BlockStateOf("podzol", map[string]string{"snowy": "false"})
+	for _, lp := range logs {
+		if lp.Y != minY {
+			continue
+		}
+		for _, off := range [][2]int{{-1, -1}, {2, -1}, {-1, 2}, {2, 2}} {
+			s.podzolCircle(d, podzol, world.Pos{X: lp.X + off[0], Y: lp.Y, Z: lp.Z + off[1]})
+		}
+		for i := 0; i < 5; i++ {
+			placement := s.rng.intn(64)
+			xx, zz := placement%8, placement/8
+			if xx == 0 || xx == 7 || zz == 0 || zz == 7 {
+				s.podzolCircle(d, podzol, world.Pos{X: lp.X - 3 + xx, Y: lp.Y, Z: lp.Z - 3 + zz})
+			}
+		}
+	}
+}
+
+// podzolCircle is placeCircle: a 5x5 minus the four outer corners.
+func (s *Server) podzolCircle(d *dimension, podzol world.Block, pos world.Pos) {
+	for xx := -2; xx <= 2; xx++ {
+		for zz := -2; zz <= 2; zz++ {
+			if absi(xx) == 2 && absi(zz) == 2 {
+				continue
+			}
+			s.podzolAt(d, podzol, world.Pos{X: pos.X + xx, Y: pos.Y, Z: pos.Z + zz})
+		}
+	}
+}
+
+// podzolAt is placeBlockAt: scan dy=2..-3, write podzol on the first
+// substrate cell, and stop at solid ground below the surface (cells
+// at dy>=0 can't tunnel, only air passes).
+func (s *Server) podzolAt(d *dimension, podzol world.Block, pos world.Pos) {
+	for dy := 2; dy >= -3; dy-- {
+		p := world.Pos{X: pos.X, Y: pos.Y + dy, Z: pos.Z}
+		n, _ := world.StateOwner(d.w.GetBlock(p))
+		if podzolReplaceable[strings.TrimPrefix(n, "minecraft:")] {
+			s.setNaturalBlock(d, p, podzol)
+			return
+		}
+		if !treeReplaceable[strings.TrimPrefix(n, "minecraft:")] && !isAirCell(d.w.GetBlock(p)) && dy < 0 {
+			return
+		}
+	}
+}
+
+// podzolReplaceable — #beneath_tree_podzol_replaceable =
+// #substrate_overworld = dirt + mud + moss_blocks + grass_blocks.
+var podzolReplaceable = map[string]bool{
+	"dirt": true, "coarse_dirt": true, "rooted_dirt": true,
+	"mud": true, "muddy_mangrove_roots": true,
+	"moss_block": true, "pale_moss_block": true,
+	"grass_block": true, "podzol": true, "mycelium": true,
+}
+
+// jungleVineDecorators — the mega jungle's {trunk_vine, leave_vine
+// {0.25}} decorator set: same rolls as jungleDecorators without the
+// cocoa pass.
+func (s *Server) jungleVineDecorators(d *dimension, logs, leaves []world.Pos) {
+	isAir := func(p world.Pos) bool {
+		return isAirCell(d.w.GetBlock(p))
+	}
+	placeVine := func(p world.Pos, face string) {
+		if v, ok := world.BlockStateOf("vine", map[string]string{face: "true"}); ok {
+			s.setNaturalBlock(d, p, v)
+		}
+	}
+	for _, lp := range logs {
+		for _, vd := range trunkVineDirs {
+			if s.rng.intn(3) > 0 {
+				vp := world.Pos{X: lp.X + vd.dx, Y: lp.Y, Z: lp.Z + vd.dz}
+				if isAir(vp) {
+					placeVine(vp, vd.face)
+				}
+			}
+		}
+	}
+	for _, lf := range leaves {
+		for _, vd := range trunkVineDirs {
+			if s.rng.nextDouble() < 0.25 {
+				vp := world.Pos{X: lf.X + vd.dx, Y: lf.Y, Z: lf.Z + vd.dz}
+				if isAir(vp) {
+					placeVine(vp, vd.face)
+					for i := 0; i < 4; i++ {
+						vp.Y--
+						if !isAir(vp) {
+							break
+						}
+						placeVine(vp, vd.face)
+					}
+				}
+			}
+		}
+	}
+}
+
+// paleMossDecor — PaleMossDecorator: per log at 0.4 and per leaf at
+// 0.15, a pale_hanging_moss hanger descends from the cell below while
+// air continues below and a 50% roll keeps going (tip on the last
+// cell). The 0.8 ground_probability PALE_MOSS_PATCH vegetation
+// feature under the lowest log is a measured gap — the hanger set is
+// what a void-growth can pin.
+func (s *Server) paleMossDecor(d *dimension, logs, leaves []world.Pos) {
+	isAir := func(p world.Pos) bool {
+		return isAirCell(d.w.GetBlock(p))
+	}
+	hanger := func(p world.Pos) {
+		mid, _ := world.BlockStateOf("pale_hanging_moss", map[string]string{"tip": "false"})
+		tip, _ := world.BlockStateOf("pale_hanging_moss", map[string]string{"tip": "true"})
+		for isAir(world.Pos{X: p.X, Y: p.Y - 1, Z: p.Z}) && s.rng.nextDouble() >= 0.5 {
+			s.setNaturalBlock(d, p, mid)
+			p.Y--
+		}
+		s.setNaturalBlock(d, p, tip)
+	}
+	for _, lp := range logs {
+		below := world.Pos{X: lp.X, Y: lp.Y - 1, Z: lp.Z}
+		if s.rng.nextDouble() < 0.4 && isAir(below) {
+			hanger(below)
+		}
+	}
+	for _, lf := range leaves {
+		below := world.Pos{X: lf.X, Y: lf.Y - 1, Z: lf.Z}
+		if s.rng.nextDouble() < 0.15 && isAir(below) {
+			hanger(below)
+		}
+	}
+}
+
 // placeTreeLeaf is FoliagePlacer.tryPlaceLeaf: never overwrites
 // persistent leaves or anything outside REPLACEABLE_BY_TREES (logs
 // included), and folds waterlogged from the cell's fluid into the
@@ -770,7 +1181,7 @@ func (s *Server) fancyOakFeature(d *dimension, pos world.Pos) bool {
 	// getMaxFreeTreeHeight with getSizeAtHeight → 0 at every layer.
 	clipped := treeHeight
 	for y := 0; y <= treeHeight+1; y++ {
-		if !s.treeSpaceFree(d, pos, y, 0) {
+		if !s.treeSpaceFree(d, pos, y, 0, false) {
 			clipped = y - 2
 			break
 		}
@@ -1138,8 +1549,7 @@ var cocoaDirs = [4]vineDir{
 // vine decorators; jungle_tree adds cocoa.
 func (s *Server) jungleDecorators(d *dimension, logs, leaves []world.Pos) {
 	isAir := func(p world.Pos) bool {
-		n, _ := world.StateOwner(d.w.GetBlock(p))
-		return n == "minecraft:air" || n == "minecraft:cave_air" || n == "minecraft:void_air"
+		return isAirCell(d.w.GetBlock(p))
 	}
 	placeVine := func(p world.Pos, face string) {
 		if v, ok := world.BlockStateOf("vine", map[string]string{face: "true"}); ok {
@@ -1203,7 +1613,10 @@ func (s *Server) jungleDecorators(d *dimension, logs, leaves []world.Pos) {
 // treeSpaceFree runs one layer of getMaxFreeTreeHeight: every cell in
 // the ±r box at (pos + y) must satisfy isFree — validTreePos (air or
 // REPLACEABLE_BY_TREES) or a log.
-func (s *Server) treeSpaceFree(d *dimension, pos world.Pos, y, r int) bool {
+// treeSpaceFree — getMaxFreeTreeHeight's per-cell gate:
+// trunkPlacer.isFree (validTreePos or #logs) and, unless the feature
+// ignores vines, not a vine cell.
+func (s *Server) treeSpaceFree(d *dimension, pos world.Pos, y, r int, ignoreVines bool) bool {
 	for dx := -r; dx <= r; dx++ {
 		for dz := -r; dz <= r; dz++ {
 			p := world.Pos{X: pos.X + dx, Y: pos.Y + y, Z: pos.Z + dz}

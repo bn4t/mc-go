@@ -10654,3 +10654,52 @@ floors (>=20 dark_oak_log, >=60 dark_oak_leaves); stone beside the
 column at y=0 grows (limit=1), stone inside the middle 3x3 fails; a
 lone dark_oak sapling stays a sapling under random ticks while a
 2x2 quad's NW cell becomes a log.
+
+## Slice — mega trees (spruce/pine/jungle) + pale oak + decorators
+
+Oracle: GiantTrunkPlacer, MegaJungleTrunkPlacer, MegaPineFoliagePlacer,
+MegaJungleFoliagePlacer, AlterGroundDecorator, TrunkVineDecorator,
+LeaveVineDecorator, PaleMossDecorator, TreeGrower decompiles +
+configured_feature JSONs, differential /place + random-tick growth.
+
+- GiantTrunkPlacer {13,2,14}: podzol-ready dirt under all four
+  belows; per height layer the column cell always writes, the other
+  three only when hh < h-1 (top layer = single column cell);
+  attachment at origin.above(h) doubleTrunk. Cells via
+  placeLogIfFree (isFree — replaceable set, same as vanilla).
+- MegaJungleTrunkPlacer {10,2,19}: giant trunk plus the branch
+  loop — for branchHeight = h-2-intn(4); >h/2; -=2+intn(4): angle =
+  rand·2π, b=0..4 cells at int(1.5+cos·b)/int(1.5+sin·b),
+  y=branchHeight-3+b/2; attachment radiusOffset -2 single.
+- MegaPineFoliagePlacer {r0,off0,crown U{13..17}/U{3..7}}: rows
+  yy=fp.Y-crown..fp.Y, smoothR=radiusOffset+floor(yo/crown·3.5),
+  jagged +1 when yo>0 && smooth==prev && yy even. MegaJungleFoliage
+  {r2,off0,h2}: leafHeight = doubleTrunk?2:1+intn(2), rows yo=0..-h,
+  r=2+radiusOffset+1-yo (widens downward). Both circular placers
+  skip dx+dz>=7 || dx²+dz²>r² (SIGNED sum).
+- TreeGrower table: spruce mega=MEGA_SPRUCE alt MEGA_PINE at 0.5
+  (single spruce is always plain spruce); jungle mega=
+  MEGA_JUNGLE_TREE (single=jungle_tree_no_vine); dark_oak & pale_oak
+  are mega-only; mangrove 0.85→TALL_MANGROVE (noted, not sliced).
+- Decorators measured and wired: AlterGroundDecorator podzol (4
+  fixed circles at the compass offsets + 5 random border circles on
+  the 8x8 ring, 5x5-minus-corners, placeBlockAt dy=2..-3 against
+  #beneath_tree_podzol_replaceable); TrunkVineDecorator per log per
+  dir 2/3; LeaveVineDecorator p=.25 + hang≤4; PaleMossDecorator
+  hangers (log .4 / leaf .15, descend while air, tip at exit).
+- Bug found by the slice: isAir cells compared to "minecraft:air"
+  but StateOwner returns bare names — the SAME bug shape as
+  isAirOrLeaves — silently killed every vine/moss/podzol write in
+  all four decorators (incl. preexisting jungleDecorators).
+- pale_oak_sapling was missing from the randtick whitelist.
+- Measured gap (noted): PaleMossDecorator's 0.8 ground pass runs the
+  nested PALE_MOSS_PATCH vegetation feature — not implemented;
+  bonemeal-vs-sapling split (pale_oak vs pale_oak_bonemeal) pinned
+  instead.
+
+Blackbox: `TestMegaTreeParity` — /place mega_spruce ×3 (logs≥40,
+leaves≥25, podzol≥4), lower_size=1 stone adjacency blocks spruce and
+jungle (pale grows beside stone), three 2x2 quads
+(spruce/jungle/pale → NW log via random ticks), mega_jungle (logs
+≥30, leaves≥80, vines≥5), pale_oak bonemeal variant (moss≥3),
+sapling-grown pale quad must have zero moss. Both legs green.

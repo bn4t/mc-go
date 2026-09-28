@@ -427,6 +427,7 @@ var lightPassable = map[string]bool{
 	"jungle_sapling":        true,
 	"acacia_sapling":        true,
 	"dark_oak_sapling":      true,
+	"pale_oak_sapling":      true,
 	"cherry_sapling":        true,
 	"oak_leaves":            true,
 	"spruce_leaves":         true,
