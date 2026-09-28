@@ -12172,3 +12172,43 @@ Harness lessons (why prior legs all-missed for ~15 runs):
 - Single-shot `execute if` probes evaluate state at run time — they
   miss permanently if ordering flakes; re-issue (waitFor) only where
   post-click state is probed.
+
+## Slice — MushroomCow variant + stew_effects + thunder convert + variant shears (2026-09-28)
+
+Measured (jar javap + live probes on 26.2): DATA_TYPE metadata index 18
+INT (0=red,1=brown, default RED), NBT `Type` always + `stew_effects`
+pending list, bowl arm (stewEffects!=null → suspicious_stew + copied
+component + clear + suspicious_milk(988), else mushroom_stew +
+milk(987)) → shears → BROWN+adult flower arm (already-fed → 2× SMOKE
+no consume; else consume+4× EFFECT+set+MOOSHROOM_EAT vol2) → super.
+thunderHit: bolt-uuid dedupe → Type swap + MOOSHROOM_CONVERT(985,2,1)
+positional, NO super (bolt fire kills, not the strike). shear → shear
+snd(989)+convertTo(cow)+EXPLOSION particle+5× variant mushroom.
+Entity.playSound(SoundEvent) → positional 0x75 broadcast incl actor.
+LightningBolt strike box (x±3,y-3..+9,z±3); mc-go's bolt never struck.
+
+mc-go: entity.go MooshroomVariant+StewEffects fields; mob.go livingMeta
+mooVar (snap+pack idx18 int + dirty-diff idx18), summon-NBT
+Type/stew_effects parse, lightning_bolt summon strike pass (box filter
+→ variant^=1 + dirty meta + snd 985); dataentity.go Type always +
+stew_effects nbt.List write/read/allowlist; animalinteract.go
+stewInteract suspicious arm (StewEffects→suspicious_stew+component+
+clear+988 else mushroom_stew+987), mooshroomFeedInteract (brown+adult+
+flower: fed→2×SMOKE no-consume else consume+4×entity_effect+set+986),
+17-flower effect table; interact.go broadcastSpellParticles
+(entity_effect INT color+FLOAT power tail); worldstate.go wiring;
+shear.go EXPLOSION + variant mushroom drops.
+
+Pinned: TestMooshroomVariantParity — 16 probes (Type NBT, idx18 meta,
+feed/consume/stew_effects, sounds 985/986/987/988 positional src6 on
+actor+bystander, suspicious_stew swap, thunder convert, brown_mushroom
+drops) green vs both servers.
+
+Harness lessons:
+- every sink drain must accumulate into the probe buffer — waitFor
+  loops silently discard sound/metadata packets they read; drain BOTH
+  conns on every take or the bystander buffer stays empty.
+- `nbt=` subset matching compares nbt.List, not []any — save-map lists
+  must be nbt.List{Elem:TagCompound}.
+- shear/drop probes: AP parked on the mob vacuums drops — probe
+  Inventory first, item-entity fallback.

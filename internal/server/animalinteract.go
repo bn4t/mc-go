@@ -67,9 +67,10 @@ func (s *Server) milkInteract(sess *Session, eid int32, hand int32) bool {
 }
 
 // stewInteract is MushroomCow.mobInteract's bowl arm: a bowl on a
-// non-baby mooshroom swaps for mushroom_stew (suspicious_stew once the
-// mooshroom carries stewEffects from a flower eat — untracked), then
-// the mooshroom's own playSound — positional at the mob, NEUTRAL.
+// non-baby mooshroom swaps for mushroom_stew — suspicious_stew with
+// the pending stew_effects copied onto the stack (and cleared) once
+// a flower eat primed them — then the mooshroom's own playSound
+// (MOOSHROOM_MILK or _SUSPICIOUSLY), positional NEUTRAL to everyone.
 func (s *Server) stewInteract(sess *Session, eid int32, hand int32) bool {
 	e, ok := s.entities.Get(eid)
 	if !ok || !e.Living || e.Dying || e.Baby {
@@ -82,12 +83,96 @@ func (s *Server) stewInteract(sess *Session, eid int32, hand int32) bool {
 	if n, ok := itemNameOf(held.ID); !ok || n != "bowl" {
 		return false
 	}
-	stew, ok := world.ItemID("mushroom_stew")
+	snd := int32(987) // entity.mooshroom.milk
+	result := ItemStack{ID: 0, Count: 1}
+	if e.StewEffects != "" {
+		snd = 988 // entity.mooshroom.suspicious_milk
+		if st, ok2 := world.ItemID("suspicious_stew"); ok2 {
+			result.ID = st
+			result.StewEffects = e.StewEffects
+			if p, ok3 := s.entities.GetPtr(eid); ok3 {
+				p.StewEffects = ""
+			}
+		}
+	}
+	if result.ID == 0 {
+		stew, ok := world.ItemID("mushroom_stew")
+		if !ok {
+			return true
+		}
+		result.ID = stew
+	}
+	s.createFilledResult(sess, hslot, result, false)
+	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd, 6, 1, 1, nil)
+	return true
+}
+
+// flowerStewEffects is SuspiciousEffectHolder's per-flower
+// suspicious_stew_effects component: each small flower maps to one
+// (mob_effect, duration ticks) entry — the item's default component
+// data, so no stack-level tag is needed.
+var flowerStewEffects = map[string]string{
+	"allium":             "fire_resistance:60",
+	"azure_bluet":        "blindness:220",
+	"blue_orchid":        "saturation:7",
+	"closed_eyeblossom":  "nausea:140",
+	"cornflower":         "jump_boost:100",
+	"dandelion":          "saturation:7",
+	"golden_dandelion":   "saturation:7",
+	"lily_of_the_valley": "poison:220",
+	"open_eyeblossom":    "blindness:220",
+	"orange_tulip":       "weakness:140",
+	"oxeye_daisy":        "regeneration:140",
+	"pink_tulip":         "weakness:140",
+	"poppy":              "night_vision:100",
+	"red_tulip":          "weakness:140",
+	"torchflower":        "night_vision:100",
+	"white_tulip":        "weakness:140",
+	"wither_rose":        "wither:140",
+}
+
+// mooshroomFeedInteract is MushroomCow.mobInteract's flower arm,
+// reached only by a BROWN non-baby mooshroom holding-effect flowers:
+// already-fed → 2 SMOKE puffs and the item stays; else consume 1,
+// spawn 4 entity_effect puffs, record stewEffects and play
+// MOOSHROOM_EAT (positional NEUTRAL, vol 2).
+func (s *Server) mooshroomFeedInteract(sess *Session, eid int32, hand int32) bool {
+	e, ok := s.entities.Get(eid)
+	if !ok || !e.Living || e.Dying || e.Baby || e.MooshroomVariant != 1 {
+		return false
+	}
+	if name, _ := EntityTypeName(e.Type); name != "mooshroom" {
+		return false
+	}
+	held, hslot := sess.stackForHand(hand)
+	iname, ok := itemNameOf(held.ID)
 	if !ok {
+		return false
+	}
+	eff, ok := flowerStewEffects[iname]
+	if !ok {
+		return false
+	}
+	if e.StewEffects != "" {
+		for i := 0; i < 2; i++ {
+			s.broadcastParticles(e.Dim, 69, // smoke
+				e.X+float64(s.rng.intn(1024))/1024/2, e.Y+0.5,
+				e.Z+float64(s.rng.intn(1024))/1024/2,
+				0, float64(s.rng.intn(1024))/1024/5, 0, 0, 1)
+		}
 		return true
 	}
-	s.createFilledResult(sess, hslot, ItemStack{ID: stew, Count: 1}, false)
-	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 987, 6, 1, 1, nil) // entity.mooshroom.milk
+	sess.consumeSlot(hslot, 1)
+	for i := 0; i < 4; i++ {
+		s.broadcastSpellParticles(e.Dim, -1, 1,
+			e.X+float64(s.rng.intn(1024))/1024/2, e.Y+0.5,
+			e.Z+float64(s.rng.intn(1024))/1024/2,
+			0, float64(s.rng.intn(1024))/1024/5, 0, 0, 1)
+	}
+	if p, ok := s.entities.GetPtr(eid); ok {
+		p.StewEffects = eff
+	}
+	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 986, 6, 2, 1, nil) // entity.mooshroom.eat
 	return true
 }
 

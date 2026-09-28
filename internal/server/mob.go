@@ -1413,6 +1413,25 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.Sheared = true
 				}
 			}
+			// MushroomCow.readAdditionalSaveData: Type names the
+			// variant ("red"/"brown" — any other value falls to
+			// red), stew_effects the pending suspicious-stew list.
+			if name == "mooshroom" {
+				if v, ok := tag.vals["Type"]; ok && v.str == "brown" {
+					e.MooshroomVariant = 1
+				}
+				if v, ok := tag.vals["stew_effects"]; ok && v.kind == snbtList {
+					var effs []string
+					for _, it := range v.items {
+						if it.kind != snbtCompound {
+							continue
+						}
+						eid := strings.TrimPrefix(it.vals["id"].str, "minecraft:")
+						effs = append(effs, eid+":"+it.vals["duration"].num)
+					}
+					e.StewEffects = strings.Join(effs, ",")
+				}
+			}
 			if name == "snow_golem" {
 				if v, ok := tag.vals["Pumpkin"]; ok {
 					e.Pumpkin = snbtNum(v) > 0
@@ -1867,6 +1886,26 @@ func (s *Server) runSummon(player string, args []string) reply {
 			fires = 0
 		}
 		s.fireLightningStrike(sess.dimension(), x, y, z, fires)
+		// LightningBolt.tick's strikeEntities box (±3 horiz, -3..+9
+		// vert) calls thunderHit on every entity inside — only
+		// MushroomCow's convert is modeled: variant flips and
+		// MOOSHROOM_CONVERT plays positional NEUTRAL vol 2.
+		for _, oe := range s.entities.All() {
+			if oe.Dim != e.Dim || !oe.Living || oe.Dying {
+				continue
+			}
+			if math.Abs(oe.X-x) > 3 || oe.Y < y-3 || oe.Y > y+9 || math.Abs(oe.Z-z) > 3 {
+				continue
+			}
+			if on, _ := EntityTypeName(oe.Type); on != "mooshroom" {
+				continue
+			}
+			if p, ok := s.entities.GetPtr(oe.ID); ok {
+				p.MooshroomVariant ^= 1
+				s.broadcastEntityMetadata(oe.ID, encodeLivingMetadata(p, nil))
+			}
+			s.playSoundSrc(oe.Dim, oe.X, oe.Y, oe.Z, 985, 6, 2, 1, nil)
+		}
 		s.entities.Remove(e.ID)
 		s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft.lightning_bolt")))
@@ -2433,6 +2472,7 @@ type livingMeta struct {
 	freezeConv bool
 	powered    bool
 	swell      int32
+	mooVar     int32
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2593,6 +2633,18 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 					v |= 0x10
 				}
 				b.Byte(v)
+			}
+		case name == "mooshroom":
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8) // type: boolean
+				b.Bool(e.Baby)
+			}
+			// MushroomCow DATA_TYPE (index 18, int): 0 red / 1 brown.
+			if e.MooshroomVariant != last.mooVar {
+				b.Byte(18)
+				b.Byte(1) // type: varint
+				b.VarInt(e.MooshroomVariant)
 			}
 		case name == "guardian" || name == "elder_guardian":
 			if e.Moving != last.moving {
@@ -2783,6 +2835,19 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 					v |= 0x10
 				}
 				b.Byte(v)
+			}
+		case "mooshroom":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8) // type: boolean
+				b.Bool(true)
+			}
+			// MushroomCow DATA_TYPE (index 18, int): 0 red / 1 brown;
+			// the default red stays unpacked.
+			if e.MooshroomVariant != 0 {
+				b.Byte(18)
+				b.Byte(1) // type: varint
+				b.VarInt(e.MooshroomVariant)
 			}
 		case "guardian", "elder_guardian":
 			// Guardian defines DATA_ID_MOVING (16, boolean) and

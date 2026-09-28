@@ -40,6 +40,14 @@ type Entity struct {
 	// Pumpkin is SnowGolem's DATA_PUMPKIN_ID flag — a sheared snow
 	// golem loses its carved-pumpkin head (default true at spawn).
 	Pumpkin bool
+	// MooshroomVariant is MushroomCow's DATA_TYPE (index 18, int):
+	// 0 = red, 1 = brown — the brown variant eats flowers and
+	// stew_effects convert on lightning.
+	MooshroomVariant int32
+	// StewEffects is MushroomCow's stew_effects list in the wire
+	// component's "name:dur,..." order — set by a flower eat, drained
+	// by the suspicious-stew bowl swap.
+	StewEffects string
 	// EatAnim is EatBlockGoal.eatAnimationTick — a sheep grazes for
 	// 40 ticks (entity event 10) before the eat lands.
 	EatAnim int32

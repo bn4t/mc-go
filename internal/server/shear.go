@@ -179,6 +179,14 @@ func (s *Server) shearMob(sess *Session, t Entity, hand int32) {
 		}
 	case "mooshroom":
 		emitShear()
+		// finalizeConversion's lambda: EXPLOSION puff at the mob
+		// center, then the shearing/mooshroom loot — 5 of the
+		// variant's mushroom (brown gets brown_mushroom).
+		s.broadcastParticles(t.Dim, 30, t.X, t.Y+0.5, t.Z, 0, 0, 0, 0, 1) // explosion
+		mush := "red_mushroom"
+		if t.MooshroomVariant == 1 {
+			mush = "brown_mushroom"
+		}
 		pos := world.Pos{X: int(math.Floor(t.X)), Y: int(math.Floor(t.Y)), Z: int(math.Floor(t.Z))}
 		s.entities.Remove(t.ID)
 		s.broadcastEntityRemoveIn(t.Dim, nil, []int32{t.ID})
@@ -196,7 +204,7 @@ func (s *Server) shearMob(sess *Session, t Entity, hand int32) {
 			})
 			s.broadcastEntitySpawnIn(t.Dim, nil, *cow)
 		}
-		if pid, ok := world.ItemIDs["red_mushroom"]; ok {
+		if pid, ok := world.ItemIDs[mush]; ok {
 			for i := 0; i < 5; i++ {
 				s.spawnItemDrop(t.Dim, pos, ItemStack{ID: pid, Count: 1})
 			}

@@ -1148,3 +1148,32 @@ func (s *Server) broadcastParticles(dim string, id int32, x, y, z, xd, yd, zd, s
 		return true
 	})
 }
+
+// broadcastSpellParticles sends one level_particles packet of the
+// entity_effect particle (SpellParticleOption: INT color + FLOAT
+// power tail after the particle id).
+func (s *Server) broadcastSpellParticles(dim string, color int32, power float32, x, y, z, xd, yd, zd, speed float64, count int32) {
+	var b protocol.Buffer
+	b.Byte(0) // overrideLimiter
+	b.Byte(0) // alwaysShow
+	b.Double(x)
+	b.Double(y)
+	b.Double(z)
+	b.Float(float32(xd))
+	b.Float(float32(yd))
+	b.Float(float32(zd))
+	b.Float(float32(speed))
+	b.Int(count)
+	b.VarInt(28) // entity_effect
+	b.Int(color)
+	b.Float(power)
+	body := b.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
+			return true
+		}
+		_ = other.write(other.ids().PlayLevelParticles, body)
+		return true
+	})
+}

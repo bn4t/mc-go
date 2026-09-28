@@ -688,6 +688,23 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 			m["IsChickenJockey"] = nbtBool(e.ChickenJockey)
 			m["EggLayTime"] = e.EggLayTime
 		}
+		// MushroomCow.addAdditionalSaveData writes Type always and
+		// stew_effects only while a flower eat's effects are pending.
+		if typeName == "mooshroom" {
+			m["Type"] = "red"
+			if e.MooshroomVariant == 1 {
+				m["Type"] = "brown"
+			}
+			if e.StewEffects != "" {
+				var lst []any
+				for _, ef := range strings.Split(e.StewEffects, ",") {
+					n, d, _ := strings.Cut(ef, ":")
+					di, _ := strconv.Atoi(d)
+					lst = append(lst, map[string]any{"id": "minecraft:" + n, "duration": int32(di)})
+				}
+				m["stew_effects"] = nbt.List{Elem: nbt.TagCompound, Items: lst}
+			}
+		}
 		// SnowGolem.writeAdditionalSaveData carries the Pumpkin flag.
 		if typeName == "snow_golem" {
 			m["Pumpkin"] = nbtBool(e.Pumpkin)
@@ -1245,6 +1262,26 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			e.Sheared = nbtTruth(v)
 		}
 	}
+	if name == "mooshroom" {
+		if v, ok := save["Type"]; ok {
+			if s, ok2 := v.(string); ok2 && s == "brown" {
+				e.MooshroomVariant = 1
+			}
+		}
+		if v, ok := save["stew_effects"]; ok {
+			if lst, ok2 := v.([]any); ok2 {
+				var effs []string
+				for _, it := range lst {
+					if c, ok3 := it.(map[string]any); ok3 {
+						id, _ := c["id"].(string)
+						dur, _ := nbtInt32(c["duration"])
+						effs = append(effs, strings.TrimPrefix(id, "minecraft:")+":"+strconv.Itoa(int(dur)))
+					}
+				}
+				e.StewEffects = strings.Join(effs, ",")
+			}
+		}
+	}
 	// AgeableMob.readAdditionalSaveData: the age triple lands on
 	// the live fields — baseTick then counts a positive Age down
 	// (breeding cooldown) or a negative one up toward grown.
@@ -1299,6 +1336,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"NoGravity": true, "Silent": true, "Wave": true,
 		"CanJoinRaid": true, "RaidId": true,
 		"Sheared": true, "Color": true, "Pumpkin": true,
+		"Type": true, "stew_effects": true,
 		"sheared": true, "CustomNameVisible": true,
 		"CanBreakDoors": true, "InWaterTime": true,
 		"DrownedConversionTime": true, "anger_end_time": true,

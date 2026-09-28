@@ -304,6 +304,9 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	if s.stewInteract(sess, id, hand) {
 		return
 	}
+	if s.mooshroomFeedInteract(sess, id, hand) {
+		return
+	}
 	s.feedAnimal(sess, id, hand)
 	s.tameAnimal(sess, id, hand)
 	if s.equipMountChest(sess, id, hand, sneaking) {
