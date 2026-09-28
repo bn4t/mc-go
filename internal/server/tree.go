@@ -86,7 +86,8 @@ type treeShape struct {
 	megaAltChance            float64
 	ignoreVines              bool // FeatureConfiguration.ignoreVines
 	decor                    decorKind
-	crownMin, crownMax       int // mega_pine_foliage_placer's crown_height uniform
+	creaking                 bool // pale_oak_creaking adds creaking_heart{p=1.0}
+	crownMin, crownMax       int  // mega_pine_foliage_placer's crown_height uniform
 }
 
 // twoLayers — TwoLayersFeatureSize.getSizeAtHeight: lower below
@@ -216,6 +217,14 @@ var paleOakMossShape = treeShape{
 	log: "pale_oak_log", leaf: "pale_oak_leaves", baseHeight: 6, randA: 2, randB: 1,
 	minR: threeLayers(1, 1, 0, 1, 2), trunk: trunkDarkOak, canopy: canopyDarkOak,
 	ignoreVines: true, decor: decorPaleMoss,
+}
+
+// paleOakCreakingShape — pale_oak_creaking.json: the planted spec plus
+// the creaking_heart decorator (p=1.0) on top of pale_moss.
+var paleOakCreakingShape = treeShape{
+	log: "pale_oak_log", leaf: "pale_oak_leaves", baseHeight: 6, randA: 2, randB: 1,
+	minR: threeLayers(1, 1, 0, 1, 2), trunk: trunkDarkOak, canopy: canopyDarkOak,
+	ignoreVines: true, decor: decorPaleMoss, creaking: true,
 }
 
 // saplingRule — SaplingBlock.randomTick: getMaxLocalRawBrightness of
@@ -390,6 +399,8 @@ func (s *Server) placeFeatureName(d *dimension, name string, pos world.Pos) bool
 		return s.treeFeature(d, pos, megaJungleShape)
 	case "pale_oak":
 		return s.treeFeature(d, pos, paleOakMossShape)
+	case "pale_oak_creaking":
+		return s.treeFeature(d, pos, paleOakCreakingShape)
 	case "pale_oak_bonemeal":
 		return s.treeFeature(d, pos, paleOakShape)
 	case "jungle_tree_no_vine":
@@ -537,6 +548,9 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		s.jungleVineDecorators(d, logs, leaves)
 	case decorPaleMoss:
 		s.paleMossDecor(d, logs, leaves)
+		if shape.creaking {
+			s.creakingHeartDecor(d, logs)
+		}
 	}
 
 	// updateLeaves: BFS from every written log assigns
@@ -1111,15 +1125,25 @@ func (s *Server) jungleVineDecorators(d *dimension, logs, leaves []world.Pos) {
 	}
 }
 
-// paleMossDecor — PaleMossDecorator: per log at 0.4 and per leaf at
-// 0.15, a pale_hanging_moss hanger descends from the cell below while
-// air continues below and a 50% roll keeps going (tip on the last
-// cell). The 0.8 ground_probability PALE_MOSS_PATCH vegetation
-// feature under the lowest log is a measured gap — the hanger set is
-// what a void-growth can pin.
+// paleMossDecor — PaleMossDecorator: at 0.8 the PALE_MOSS_PATCH
+// vegetation feature anchors one cell above the lowest log; then per
+// log at 0.4 and per leaf at 0.15, a pale_hanging_moss hanger descends
+// from the cell below while air continues below and a 50% roll keeps
+// going (tip on the last cell).
 func (s *Server) paleMossDecor(d *dimension, logs, leaves []world.Pos) {
 	isAir := func(p world.Pos) bool {
 		return isAirCell(d.w.GetBlock(p))
+	}
+	if len(logs) > 0 {
+		lowest := logs[0]
+		for _, lp := range logs[1:] {
+			if lp.Y < lowest.Y {
+				lowest = lp
+			}
+		}
+		if s.rng.nextDouble() < 0.8 {
+			s.paleMossPatch(d, world.Pos{X: lowest.X, Y: lowest.Y + 1, Z: lowest.Z})
+		}
 	}
 	hanger := func(p world.Pos) {
 		mid, _ := world.BlockStateOf("pale_hanging_moss", map[string]string{"tip": "false"})
@@ -1733,5 +1757,125 @@ func posNeighbors(p world.Pos) [6]world.Pos {
 		{X: p.X + 1, Y: p.Y, Z: p.Z}, {X: p.X - 1, Y: p.Y, Z: p.Z},
 		{X: p.X, Y: p.Y + 1, Z: p.Z}, {X: p.X, Y: p.Y - 1, Z: p.Z},
 		{X: p.X, Y: p.Y, Z: p.Z + 1}, {X: p.X, Y: p.Y, Z: p.Z - 1},
+	}
+}
+
+// mossReplaceable is #minecraft:moss_replaceable — the ground cells a
+// vegetation patch may overwrite: base_stone_overworld + cave_vines +
+// dirt + mud + moss_blocks + grass_blocks.
+var mossReplaceable = map[string]bool{
+	"stone": true, "granite": true, "diorite": true, "andesite": true,
+	"tuff": true, "deepslate": true,
+	"cave_vines": true, "cave_vines_plant": true,
+	"dirt": true, "coarse_dirt": true, "rooted_dirt": true,
+	"mud": true, "muddy_mangrove_roots": true,
+	"moss_block": true, "pale_moss_block": true,
+	"grass_block": true, "podzol": true, "mycelium": true,
+}
+
+// paleMossPatch — VegetationPatchFeature (pale_moss_patch, surface
+// floor): radius U{2..4}+1 per axis; corner columns skipped,
+// edge-not-corner columns kept at 0.75; per surviving column descend
+// through air (<=5) then ascend through solid (<=5) to the first air
+// cell; when that cell is empty and the ground below has a sturdy UP
+// face, depth 1 writes pale_moss_block on #moss_replaceable ground and
+// the ground cell joins the surface set. Each surface cell then rolls
+// 0.3 for the pale_moss_vegetation simple_block (moss carpet 25 /
+// short_grass 25 / tall_grass 10) in the air cell above it.
+func (s *Server) paleMossPatch(d *dimension, origin world.Pos) {
+	rx := s.rng.intn(3) + 3
+	rz := s.rng.intn(3) + 3
+	var surface []world.Pos
+	for x := -rx; x <= rx; x++ {
+		edgeX := x == -rx || x == rx
+		for z := -rz; z <= rz; z++ {
+			edgeZ := z == -rz || z == rz
+			if edgeX && edgeZ {
+				continue
+			}
+			if (edgeX || edgeZ) && s.rng.nextDouble() >= 0.75 {
+				continue
+			}
+			p := world.Pos{X: origin.X + x, Y: origin.Y, Z: origin.Z + z}
+			n := 0
+			for isAirCell(d.w.GetBlock(p)) && n < 5 {
+				p.Y--
+				n++
+			}
+			n = 0
+			for !isAirCell(d.w.GetBlock(p)) && n < 5 {
+				p.Y++
+				n++
+			}
+			below := world.Pos{X: p.X, Y: p.Y - 1, Z: p.Z}
+			if !isAirCell(d.w.GetBlock(p)) || !speleoSturdy(d, below) {
+				continue
+			}
+			gn, _ := world.StateOwner(d.w.GetBlock(below))
+			if gn != "pale_moss_block" {
+				if !mossReplaceable[gn] {
+					continue
+				}
+				mb, _ := world.BlockStateOf("pale_moss_block", nil)
+				s.setNaturalBlock(d, below, mb)
+			}
+			surface = append(surface, below)
+		}
+	}
+	for _, g := range surface {
+		if s.rng.nextDouble() >= 0.3 {
+			continue
+		}
+		s.paleMossVegetation(d, world.Pos{X: g.X, Y: g.Y + 1, Z: g.Z})
+	}
+}
+
+// paleMossVegetation — pale_moss_vegetation simple_block: weighted
+// state pick (carpet 25, short_grass 25, tall_grass lower 10).
+func (s *Server) paleMossVegetation(d *dimension, p world.Pos) {
+	var props map[string]string
+	name := "tall_grass"
+	switch r := s.rng.intn(60); {
+	case r < 25:
+		name, props = "pale_moss_carpet", map[string]string{"bottom": "true"}
+	case r < 50:
+		name = "short_grass"
+	default:
+		props = map[string]string{"half": "lower"}
+	}
+	if b, ok := world.BlockStateOf(name, props); ok {
+		s.setNaturalBlock(d, p, b)
+	}
+}
+
+// creakingHeartDecor — CreakingHeartDecorator (p=1.0): shuffle the log
+// list, take the first log whose six neighbours are all #logs, and
+// replace it with creaking_heart{creaking_heart_state=dormant,
+// natural=true}.
+func (s *Server) creakingHeartDecor(d *dimension, logs []world.Pos) {
+	if len(logs) == 0 || s.rng.nextDouble() >= 1.0 {
+		return
+	}
+	sh := append([]world.Pos(nil), logs...)
+	for i := len(sh) - 1; i > 0; i-- {
+		j := s.rng.intn(i + 1)
+		sh[i], sh[j] = sh[j], sh[i]
+	}
+	dirs := [6][3]int{{0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {-1, 0, 0}, {1, 0, 0}}
+	for _, lp := range sh {
+		all := true
+		for _, o := range dirs {
+			n, _ := world.StateOwner(d.w.GetBlock(world.Pos{X: lp.X + o[0], Y: lp.Y + o[1], Z: lp.Z + o[2]}))
+			if !treeLogTag(n) {
+				all = false
+				break
+			}
+		}
+		if all {
+			if hb, ok := world.BlockStateOf("creaking_heart", map[string]string{"creaking_heart_state": "dormant", "natural": "true"}); ok {
+				s.setNaturalBlock(d, lp, hb)
+			}
+			return
+		}
 	}
 }

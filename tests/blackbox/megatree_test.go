@@ -96,12 +96,34 @@ func TestMegaTreeParity(t *testing.T) {
 	if want.moss < 3 || got.moss < 3 {
 		t.Errorf("pale_oak hangers: vanilla=%d mc-go=%d (want >=3)", want.moss, got.moss)
 	}
+	// pale_oak_creaking over the pad strip: ground patch writes
+	// pale_moss_block + vegetation; the heart decorator (p=1.0) picks
+	// a log whose six neighbours are all logs when one exists — about
+	// a third of trees have such a cell, so the floor is over a batch.
+	if want.mossBlock < 5 || got.mossBlock < 5 {
+		t.Errorf("pale_oak_creaking moss patch: vanilla=%d mc-go=%d (want >=5)", want.mossBlock, got.mossBlock)
+	}
+	if want.vegetation < 1 || got.vegetation < 1 {
+		t.Errorf("pale_oak_creaking vegetation: vanilla=%d mc-go=%d (want >=1)", want.vegetation, got.vegetation)
+	}
+	t.Logf("creaking: heart v=%d g=%d, mossBlock v=%d g=%d, veg v=%d g=%d",
+		want.heart, got.heart, want.mossBlock, got.mossBlock, want.vegetation, got.vegetation)
+	if want.heart < 1 {
+		t.Errorf("vanilla placed no creaking heart over %d trees", creakingTrees)
+	}
+	if got.heart < 1 {
+		t.Errorf("mc-go placed no creaking heart over %d trees", creakingTrees)
+	}
 	if want.mossOnBonemeal != got.mossOnBonemeal {
 		t.Errorf("bonemeal quad moss: vanilla saw=%v mc-go saw=%v", want.mossOnBonemeal, got.mossOnBonemeal)
 	}
 }
 
 const megaCount = 3
+
+// creakingTrees is the pale_oak_creaking batch size — the heart lands
+// on ~a third of trees, so the >=1 floor needs a batch, not one.
+const creakingTrees = 16
 
 type megaTreeRun struct {
 	names          map[[3]int]string
@@ -112,6 +134,9 @@ type megaTreeRun struct {
 	jungleLeaves   int
 	vines          int
 	moss           int
+	mossBlock      int
+	vegetation     int
+	heart          int
 	mossOnBonemeal bool
 	spruceBlocked  bool
 	jungleBlocked  bool
@@ -160,6 +185,25 @@ func runMegaTreeScenarios(t *testing.T, addr, name string) megaTreeRun {
 		itoa(int32(baseY))+" -44")
 	sendCmd(t, pw, "place feature minecraft:pale_oak 62 "+
 		itoa(int32(baseY))+" -44")
+	waitDrained(t, pw, sink)
+
+	// Strip pad for pale_oak_creaking's ground patch + heart batch:
+	// two rows of eight, spread along x and z.
+	for x := 80; x <= 112; x++ {
+		for z := -50; z <= -38; z++ {
+			sendCmd(t, pw, "setblock "+itoa(int32(x))+" "+itoa(int32(baseY-1))+" "+itoa(int32(z))+" minecraft:grass_block")
+		}
+	}
+	sink.take()
+	for i := 0; i < creakingTrees; i++ {
+		x := 82 + (i%8)*4
+		z := -44
+		if i >= 8 {
+			z = -38
+		}
+		sendCmd(t, pw, "place feature minecraft:pale_oak_creaking "+
+			itoa(int32(x))+" "+itoa(int32(baseY))+" "+itoa(int32(z)))
+	}
 	waitDrained(t, pw, sink)
 
 	// two_layers {lower_size 1}: a stone adjacent at y=0 sits inside
@@ -297,6 +341,35 @@ func runMegaTreeScenarios(t *testing.T, addr, name string) megaTreeRun {
 		for _, v := range names {
 			if strings.Contains(v, "pale_hanging_moss") {
 				out.moss++
+			}
+		}
+	}
+	{
+		// pale_oak_creaking strip: heart, ground-patch moss, vegetation.
+		var box [][3]int
+		for x := 78; x <= 116; x++ {
+			for z := -52; z <= -34; z++ {
+				for y := baseY - 1; y <= baseY+12; y++ {
+					box = append(box, [3]int{x, y, z})
+				}
+			}
+		}
+		names := scanNames(t, pw, sink, []string{
+			"minecraft:creaking_heart", "minecraft:pale_moss_block",
+			"minecraft:pale_moss_carpet", "minecraft:short_grass",
+			"minecraft:tall_grass",
+		}, box)
+		for _, v := range names {
+			if strings.Contains(v, "creaking_heart") {
+				out.heart++
+			}
+			if strings.Contains(v, "pale_moss_block") {
+				out.mossBlock++
+			}
+			if strings.Contains(v, "pale_moss_carpet") ||
+				strings.Contains(v, "short_grass") ||
+				strings.Contains(v, "tall_grass") {
+				out.vegetation++
 			}
 		}
 	}

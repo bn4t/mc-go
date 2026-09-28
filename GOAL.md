@@ -10703,3 +10703,35 @@ jungle (pale grows beside stone), three 2x2 quads
 (spruce/jungle/pale → NW log via random ticks), mega_jungle (logs
 ≥30, leaves≥80, vines≥5), pale_oak bonemeal variant (moss≥3),
 sapling-grown pale quad must have zero moss. Both legs green.
+
+## Slice — pale oak decorators: moss ground patch + creaking heart
+
+Oracle: PaleMossDecorator + CreakingHeartDecorator + VegetationPatch
+decompiles (26.2), pale_moss_patch / pale_moss_vegetation /
+pale_oak_creaking configured_feature JSONs, differential /place.
+
+- PaleMossDecorator ground pass (0.8): anchors the PALE_MOSS_PATCH
+  vegetation feature one cell above the lowest-Y log. Patch: radius
+  U{2..4}+1 per axis; corner columns skipped, edge columns kept at
+  .75; per column descend through air (<=5) then ascend through solid
+  (<=5) to the first air cell; isEmptyBlock + isFaceSturdy(UP) gate,
+  depth 1 writes pale_moss_block only on #moss_replaceable (17 names:
+  base_stone_overworld + cave_vines + dirt + mud + moss_blocks +
+  grass_blocks). Surface cells roll .3 for pale_moss_vegetation
+  (moss_carpet 25 / short_grass 25 / tall_grass-lower 10) in the air
+  cell above.
+- CreakingHeartDecorator (pale_oak_creaking, p=1.0): shuffle logs,
+  first log whose six neighbours are all #logs →
+  creaking_heart{creaking_heart_state=dormant, natural=true}.
+  Candidates are trunk cells hugged by fringe stems on both outer
+  sides — ~1 in 3 trees, so the pin is batch-based (16 trees).
+- Fixed the decor switch to run the heart after pale_moss; added
+  "pale_oak_creaking" to /place feature.
+- Note: four decorator air checks compared StateOwner output to
+  "minecraft:air" (bare names returned) — killed in the mega-tree
+  slice commit.
+
+Blackbox: `TestMegaTreeParity` extended — pale_oak_creaking batch of
+16 on a strip pad: heart>=1 per leg (~30%/tree measured on both),
+mossBlock>=5, vegetation>=1. Both legs green (v=1,g=3 hearts;
+moss 330/364; veg 128/120).
