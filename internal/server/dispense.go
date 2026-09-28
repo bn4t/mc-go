@@ -921,6 +921,15 @@ func (s *Server) bonemealGrow(d *dimension, pos world.Pos) bool {
 		return false
 	}
 	name = strings.TrimPrefix(name, "minecraft:")
+	// SaplingBlock.performBonemeal: a 45% roll into advanceTree — the
+	// same stage-then-grow chain the random tick takes.
+	_, hasStage := world.StateProperty(b, "stage")
+	if hasStage && (strings.HasSuffix(name, "_sapling") || name == "mangrove_propagule") {
+		if s.rng.nextDouble() < 0.45 {
+			s.advanceTree(d, pos, b)
+		}
+		return true
+	}
 	age, ok := intProp(b, "age")
 	if !ok {
 		return false

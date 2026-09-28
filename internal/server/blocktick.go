@@ -371,6 +371,15 @@ func randRules() map[string]func(*Server, *dimension, world.Pos, world.Block) {
 			"turtle_egg":              turtleEggRule,
 			"redstone_ore":            redstoneOreRule,
 			"deepslate_redstone_ore":  redstoneOreRule,
+			"oak_sapling":             saplingRule,
+			"spruce_sapling":          saplingRule,
+			"birch_sapling":           saplingRule,
+			"jungle_sapling":          saplingRule,
+			"acacia_sapling":          saplingRule,
+			"dark_oak_sapling":        saplingRule,
+			"mangrove_propagule":      saplingRule,
+			"cherry_sapling":          saplingRule,
+			"pale_oak_sapling":        saplingRule,
 		}
 		// WeatheringCopper.isRandomlyTicking = getNext().isPresent() —
 		// the oxidized stage is terminal and stays out of the table.

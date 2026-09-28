@@ -1,0 +1,346 @@
+package server
+
+import (
+	"mc-go/internal/world"
+	"strconv"
+	"strings"
+)
+
+// Tree growth — SaplingBlock.randomTick / advanceTree /
+// TreeGrower.growTree with TreeFeature.doPlace for the straight-trunk
+// blob-canopy species (small oak, birch). Measured against the 26.2
+// jar: SaplingBlock.java, TreeGrower.java, TreeFeature.java,
+// TrunkPlacer.java, StraightTrunkPlacer.java, FoliagePlacer.java,
+// BlobFoliagePlacer.java, and the oak.json / birch.json configured
+// features.
+
+// treeShape is one species' single-trunk feature: a straight log column
+// of baseHeight + intn(randA+1) + intn(randB+1) (randB is 0 for both
+// implemented species) with a blob canopy — every small oak and birch
+// shares foliage_placer {radius: 2, offset: 0, height: 3}.
+type treeShape struct {
+	log, leaf         string
+	baseHeight, randA int
+	fancyChance       float64
+}
+
+// treeShapes maps each implemented sapling to its feature config.
+// Saplings without an entry still advance their stage property (that
+// half of advanceTree is species-agnostic) but their growTree finds no
+// feature and fails — spruce/jungle/acacia/dark-oak/mangrove/cherry/
+// pale-oak placers are a measured gap, as is oak's own 10% fancy roll
+// (FancyTrunkPlacer + FancyFoliagePlacer): the roll still happens and
+// fails like vanilla failing a space check, so under low ceilings the
+// absence is invisible and in the open it is the known gap.
+var treeShapes = map[string]treeShape{
+	"oak_sapling":   {"oak_log", "oak_leaves", 4, 2, 0.1},
+	"birch_sapling": {"birch_log", "birch_leaves", 5, 2, 0},
+}
+
+// saplingRule — SaplingBlock.randomTick: getMaxLocalRawBrightness of
+// the cell above at least 9 (raw sky minus skyDarken, or the block
+// light grid — daytime open sky is the bright case) and a 1-in-7 roll.
+func saplingRule(s *Server, d *dimension, pos world.Pos, blk world.Block) {
+	above := world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z}
+	if s.saplingLight(d, above) < 9 || s.rng.intn(7) != 0 {
+		return
+	}
+	s.advanceTree(d, pos, blk)
+}
+
+// saplingLight is getMaxLocalRawBrightness: the brighter of the
+// block-light grid cell and the propagated sky value minus skyDarken.
+// The sky half reads the engine's BFS grid, so a cell shaded by a
+// single floating block still floods in at ~14 from the open columns
+// beside it — vanilla's propagation, which a line-of-sight check
+// cannot see. skyDarken is the unweathered reading: 0 by day, 4 by
+// night — a 15 cell still clears the 9 the rule needs in the dark.
+func (s *Server) saplingLight(d *dimension, pos world.Pos) int {
+	v := int(d.blockLight[pos])
+	if d.skylight {
+		if sky := skyEffective(d, pos) - s.skyDarken(); sky > v {
+			v = sky
+		}
+	}
+	return v
+}
+
+// skyDarken is vanilla's ambient darkness: 0 through the day and 4
+// through the night — the flat edges of the real celestial-angle
+// curve, with its dawn/dusk ramp folded into the ends. Weather adds
+// on top in vanilla and is unmodelled here.
+func (s *Server) skyDarken() int {
+	dt := s.dayTime() % 24000
+	if dt < 0 {
+		dt += 24000
+	}
+	if dt >= 13000 && dt < 23000 {
+		return 4
+	}
+	return 0
+}
+
+// advanceTree — SaplingBlock.advanceTree: stage 0 cycles to 1, stage 1
+// runs the tree feature. The stage write is silent in vanilla (flags
+// 260 — no neighbour updates); setSilentBlock mirrors that.
+func (s *Server) advanceTree(d *dimension, pos world.Pos, blk world.Block) {
+	if st, ok := world.StateProperty(blk, "stage"); ok && st == "0" {
+		if nb, ok := world.WithProperty(blk, "stage", "1"); ok {
+			s.setSilentBlock(d, pos, nb)
+		}
+		return
+	}
+	s.growTree(d, pos, blk)
+}
+
+// growTree — TreeGrower.growTree + TreeFeature.doPlace: pick the
+// species' feature (oak rolls fancy at 10%, which has no placer yet),
+// clear the sapling, space-check, write the trunk, the blob canopy and
+// the dirt-under-trunk, then BFS the leaf distances like updateLeaves.
+func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
+	name, ok := world.StateOwner(blk)
+	if !ok {
+		return
+	}
+	shape, ok := treeShapes[strings.TrimPrefix(name, "minecraft:")]
+	if !ok {
+		return
+	}
+	// getConfiguredFeature: rand.nextFloat() < secondaryChance picks the
+	// secondary feature — oak's fancy tree. It has no placer yet and
+	// fails like a failed place().
+	if s.rng.nextDouble() < shape.fancyChance {
+		return
+	}
+
+	// growTree clears the sapling before the feature sees the world,
+	// so the origin cell reads air for the whole place.
+	s.setSilentBlock(d, pos, world.Air)
+
+	treeHeight := shape.baseHeight + s.rng.intn(shape.randA+1)
+
+	// doPlace's bounds gate: the feature refuses to run when the
+	// trunk's own origin or its top would sit outside the world's
+	// buildable range.
+	if pos.Y < d.minY+1 || pos.Y+treeHeight+1 > d.minY+d.height {
+		s.setSilentBlock(d, pos, blk)
+		return
+	}
+
+	// getMaxFreeTreeHeight with two_layers_feature_size defaults
+	// (limit 1, lower 0, upper 1): getSizeAtHeight is lowerSize below
+	// the limit and upperSize at it — just the trunk column at y=0 and
+	// the whole 3x3 at every layer from 1 through treeHeight+1.
+	clipped := treeHeight
+	for y := 0; y <= treeHeight+1; y++ {
+		r := 1
+		if y == 0 {
+			r = 0
+		}
+		if !s.treeSpaceFree(d, pos, y, r) {
+			clipped = y - 2
+			break
+		}
+	}
+	if clipped < treeHeight {
+		s.setSilentBlock(d, pos, blk) // failed place: vanilla restores the sapling
+		return
+	}
+
+	// placeBelowTrunkBlock: the provider writes dirt under the trunk
+	// when the below block isn't already in
+	// cannot_replace_below_tree_trunk — grass/mycelium/regular blocks
+	// under a tree turn to dirt.
+	below := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
+	if bn, _ := world.StateOwner(d.w.GetBlock(below)); !dirtTagName(strings.TrimPrefix(bn, "minecraft:")) {
+		if dirt, ok := world.BlockStateOf("dirt", nil); ok {
+			s.setNaturalBlock(d, below, dirt)
+		}
+	}
+
+	// placeTrunk: each trunk cell only writes when validTreePos — a
+	// log (free for space but not a placement target) truncates the
+	// visible column without failing the tree.
+	logState, _ := world.BlockStateOf(shape.log, map[string]string{"axis": "y"})
+	for y := 0; y < treeHeight; y++ {
+		p := world.Pos{X: pos.X, Y: pos.Y + y, Z: pos.Z}
+		if s.treeCanOccupy(d, p) {
+			s.setNaturalBlock(d, p, logState)
+		}
+	}
+
+	// createFoliage (blob, radius 2, offset 0, height 3): the
+	// attachment sits one above the top log and places four layers at
+	// yo 0..-3 with radius max(2 - 1 - yo/2, 0) → 1,1,2,2 (Java's yo/2
+	// truncates toward zero; Go's integer division does too).
+	top := world.Pos{X: pos.X, Y: pos.Y + treeHeight, Z: pos.Z}
+	var leaves []world.Pos
+	leafState, _ := world.BlockStateOf(shape.leaf, map[string]string{
+		"distance": "7", "persistent": "false", "waterlogged": "false",
+	})
+	for yo := 0; yo >= -3; yo-- {
+		r := 2 - 1 - yo/2
+		if r < 0 {
+			r = 0
+		}
+		for dx := -r; dx <= r; dx++ {
+			for dz := -r; dz <= r; dz++ {
+				// shouldSkipLocation: the corner of the square, always
+				// skipped at yo=0 and half the time elsewhere.
+				if absi(dx) == r && absi(dz) == r && (s.rng.intn(2) == 0 || yo == 0) {
+					continue
+				}
+				p := world.Pos{X: top.X + dx, Y: top.Y + yo, Z: top.Z + dz}
+				// tryPlaceLeaf: never overwrites persistent leaves or
+				// anything outside REPLACEABLE_BY_TREES (logs included).
+				cur := d.w.GetBlock(p)
+				if pv, ok := world.StateProperty(cur, "persistent"); ok && pv == "true" {
+					continue
+				}
+				if !s.treeCanOccupy(d, p) {
+					continue
+				}
+				st := leafState
+				// The foliage provider folds waterlogged from the
+				// cell's fluid — a water source waterlogs the leaf.
+				if k, _, ok := fluidOf(cur); ok && k == fluidWater {
+					if nb, ok := world.WithProperty(st, "waterlogged", "true"); ok {
+						st = nb
+					}
+				}
+				s.setNaturalBlock(d, p, st)
+				leaves = append(leaves, p)
+			}
+		}
+	}
+
+	// updateLeaves: BFS from every log inside the bounding box assigns
+	// DISTANCE=min(neighbour+1, 7) on the leaf cells at once — the same
+	// result the leaf distance ticks would converge to over ticks.
+	s.treeLeafDistances(d, pos, treeHeight, leaves)
+}
+
+// treeSpaceFree runs one layer of getMaxFreeTreeHeight: every cell in
+// the ±r box at (pos + y) must satisfy isFree — validTreePos (air or
+// REPLACEABLE_BY_TREES) or a log.
+func (s *Server) treeSpaceFree(d *dimension, pos world.Pos, y, r int) bool {
+	for dx := -r; dx <= r; dx++ {
+		for dz := -r; dz <= r; dz++ {
+			p := world.Pos{X: pos.X + dx, Y: pos.Y + y, Z: pos.Z + dz}
+			if s.treeCanOccupy(d, p) {
+				continue
+			}
+			if n, _ := world.StateOwner(d.w.GetBlock(p)); treeLogTag(strings.TrimPrefix(n, "minecraft:")) {
+				continue
+			}
+			return false
+		}
+	}
+	return true
+}
+
+// treeLogTag is the minecraft:logs tag contents — TrunkPlacer.isFree
+// counts these as space-free without being placement targets. The tag
+// expands to every *_log, *_wood, *_stem and *_hyphae state including
+// the stripped variants (mangrove_roots is not a member).
+func treeLogTag(name string) bool {
+	return strings.HasSuffix(name, "_log") || strings.HasSuffix(name, "_wood") ||
+		strings.HasSuffix(name, "_stem") || strings.HasSuffix(name, "_hyphae")
+}
+
+// treeCanOccupy — TreeFeature.validTreePos: air or anything in the
+// replaceable_by_trees tag (measured from the 26.2 tag data: the whole
+// #leaves and #small_flowers tags plus the grass/vine/water families).
+func (s *Server) treeCanOccupy(d *dimension, p world.Pos) bool {
+	n, _ := world.StateOwner(d.w.GetBlock(p))
+	return treeReplaceable[strings.TrimPrefix(n, "minecraft:")]
+}
+
+var treeReplaceable = map[string]bool{
+	"air": true, "cave_air": true, "void_air": true,
+	"water": true, "seagrass": true, "tall_seagrass": true,
+	"short_grass": true, "tall_grass": true, "fern": true, "large_fern": true,
+	"dead_bush": true, "vine": true, "glow_lichen": true,
+	"sunflower": true, "lilac": true, "rose_bush": true, "peony": true,
+	"hanging_roots": true, "pitcher_plant": true, "bush": true,
+	"firefly_bush": true, "warped_roots": true, "nether_sprouts": true,
+	"crimson_roots": true, "leaf_litter": true, "pale_moss_carpet": true,
+	"short_dry_grass": true, "tall_dry_grass": true,
+	"allium": true, "azure_bluet": true, "blue_orchid": true,
+	"closed_eyeblossom": true, "cornflower": true, "dandelion": true,
+	"golden_dandelion": true, "lily_of_the_valley": true,
+	"open_eyeblossom": true, "orange_tulip": true, "oxeye_daisy": true,
+	"pink_tulip": true, "poppy": true, "red_tulip": true,
+	"torchflower": true, "white_tulip": true, "wither_rose": true,
+	"acacia_leaves": true, "azalea_leaves": true, "birch_leaves": true,
+	"cherry_leaves": true, "dark_oak_leaves": true,
+	"flowering_azalea_leaves": true, "jungle_leaves": true,
+	"mangrove_leaves": true, "oak_leaves": true, "pale_oak_leaves": true,
+	"spruce_leaves": true,
+}
+
+// dirtTagName — the cannot_replace_below_tree_trunk tag (#dirt {dirt,
+// coarse_dirt, rooted_dirt}, #mud {mud, muddy_mangrove_roots},
+// #moss_blocks {moss_block, pale_moss_block}, podzol). Grass is NOT in
+// it — a tree roots grass into dirt.
+func dirtTagName(n string) bool {
+	switch n {
+	case "dirt", "coarse_dirt", "rooted_dirt", "mud",
+		"muddy_mangrove_roots", "moss_block", "pale_moss_block", "podzol":
+		return true
+	}
+	return false
+}
+
+// treeLeafDistances replays TreeFeature.updateLeaves: a BFS seeded at
+// every written log walks the written leaf cells and sets
+// distance = min(neighbour+1, 7).
+func (s *Server) treeLeafDistances(d *dimension, origin world.Pos, treeHeight int, leaves []world.Pos) {
+	leafSet := make(map[world.Pos]bool, len(leaves))
+	for _, p := range leaves {
+		leafSet[p] = true
+	}
+	var queue []world.Pos
+	dist := make(map[world.Pos]int, len(leaves))
+	for y := 0; y < treeHeight; y++ {
+		p := world.Pos{X: origin.X, Y: origin.Y + y, Z: origin.Z}
+		if n, _ := world.StateOwner(d.w.GetBlock(p)); !strings.HasSuffix(strings.TrimPrefix(n, "minecraft:"), "_log") {
+			continue
+		}
+		for _, nb := range posNeighbors(p) {
+			if leafSet[nb] {
+				delete(leafSet, nb)
+				dist[nb] = 1
+				queue = append(queue, nb)
+			}
+		}
+	}
+	for len(queue) > 0 {
+		p := queue[0]
+		queue = queue[1:]
+		dv := dist[p]
+		if blk := d.w.GetBlock(p); dv < 7 {
+			if nb, ok := world.WithProperty(blk, "distance", strconv.Itoa(dv)); ok {
+				s.setSilentBlock(d, p, nb)
+			}
+		}
+		if dv+1 >= 7 {
+			continue
+		}
+		for _, nb := range posNeighbors(p) {
+			if leafSet[nb] {
+				delete(leafSet, nb)
+				dist[nb] = dv + 1
+				queue = append(queue, nb)
+			}
+		}
+	}
+}
+
+func posNeighbors(p world.Pos) [6]world.Pos {
+	return [6]world.Pos{
+		{X: p.X + 1, Y: p.Y, Z: p.Z}, {X: p.X - 1, Y: p.Y, Z: p.Z},
+		{X: p.X, Y: p.Y + 1, Z: p.Z}, {X: p.X, Y: p.Y - 1, Z: p.Z},
+		{X: p.X, Y: p.Y, Z: p.Z + 1}, {X: p.X, Y: p.Y, Z: p.Z - 1},
+	}
+}

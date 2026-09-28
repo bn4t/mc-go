@@ -10343,3 +10343,60 @@ Residual: `canPassThroughWall`'s merged-shape occlusion check is
 approximated open — for holdable (non-motion-blocking) cells it is
 trivially true in vanilla anyway, so the visible fluid rules all sit
 in canHoldAnyFluid/canHoldSpecificFluid.
+## Slice: saplings → trees — stage counter, two-layers space rule, blob canopy
+
+Measured on 26.2 by decompiling `SaplingBlock`, `TreeGrower`,
+`TreeFeature`, `StraightTrunkPlacer`, `BlobFoliagePlacer`,
+`TwoLayersFeatureSize` and reading `oak.json`/`birch.json` configured
+features plus `replaceable_by_trees`/`cannot_replace_below_tree_trunk`/
+`logs` tag JSONs:
+
+- `SaplingBlock.randomTick`: `getMaxLocalRawBrightness(pos.above()) >= 9`
+  and a 1/7 roll → `advanceTree`. The brightness read is max(propagated
+  sky − skyDarken, block grid) — a cell shaded by one floating block
+  still floods in at ~14 from the open columns beside it, so a
+  line-of-sight check wrongly starves it.
+- `advanceTree`: STAGE 0 cycles silently to 1 (flags 260), stage 1 runs
+  the feature. A sapling that can never place still reaches stage 1 —
+  the two-step counter is observable without growing a single log.
+- `getMaxFreeTreeHeight` loops `y = 0..treeHeight+1` calling
+  `getSizeAtHeight`: `y < limit(1) ? lowerSize(0) : upperSize(1)` — the
+  trunk column at layer 0, the whole 3x3 at EVERY layer from 1 up.
+  An earlier read had the 3x3 only in the top two layers; the real rule
+  clips trees beside any clutter at all.
+- `TrunkPlacer.isFree` (the space-check gate) is `validTreePos` OR the
+  `minecraft:logs` tag — every `*_log/_wood/_stem/_hyphae` state — so
+  trunks read as open space but never as write targets.
+- `StraightTrunkPlacer`: `placeBelowTrunkBlock` writes dirt under the
+  trunk when the cell below isn't in `cannot_replace_below_tree_trunk`
+  (dirt/mud/moss/podzol — grass is NOT, so grass roots to dirt); logs
+  y=0..treeHeight-1 each gated by validTreePos.
+- `BlobFoliagePlacer` (radius 2, offset 0, height 3): the attachment
+  sits one above the top log and places FOUR layers at yo = 0..-3 with
+  radius `max(2-1-yo/2, 0)` → 1,1,2,2; `shouldSkipLocation` always skips
+  corners on the top layer and coin-flips them below.
+- `updateLeaves` BFS-seeds DISTANCE from every log in the feature box
+  immediately after placement (cap 7).
+- `TreeGrower.growTree` clears the sapling cell to the fluid-legacy
+  block FIRST (silent), restores it when `feature.place` fails; oak
+  rolls `nextFloat() < 0.1` for `Trees.FANCY_OAK` — unimplemented, so
+  the roll happens and the residual fails like a space-check failure,
+  exactly the visible behaviour when fancy is rolled.
+
+mc-go: `internal/server/tree.go` — `saplingRule` (light ≥9 via
+`skyEffective` − `skyDarken`, 1/7), `advanceTree`, `growTree` for the
+oak/birch straight+blob features; bonemeal's 0.45 hook sits in
+`bonemealGrow`'s new sapling branch. Other species' placers
+(spruce/acacia/jungle/dark-oak/mangrove/cherry/pale-oak), 2x2 mega
+trees, the beehive `hasFlowers` variants and fancy oak are residuals.
+
+`TestSaplingParity` pins it on both servers: four birch grow with
+identical trunk-zone names maps (heights inside 5-7 and the
+measured-height leaf cell asserted per leg), and a ceilinged oak sits
+at stage=1 forever on both. The sprint drives `random_tick_speed 600`
+inside simulation-distance 3 — mc-go's shard-channel block reads make
+each 600-speed tick cost ~250ms wall, so the test carries
+`sprintTicksLoose`, a sprint poll that out-waits a synchronous
+75-second sprint (the shared helper's ten-second game-time query
+expires mid-run: the query queues behind the sprint exactly like
+vanilla's server thread).
