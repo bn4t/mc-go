@@ -10804,3 +10804,40 @@ vine 772, carpet 55; g: 29/66, 221, 1645, 40, 1168, 36). Vine count
 ran ~1.5x over vanilla this run — leave-vine mechanics verified
 identical to bytecode (hang = first + up to 4 below), chalked to
 rng/hang compounding; not pinned.
+
+## Slice — TreeGrower hasFlowers → BEES_005 variants
+
+Oracle: TreeGrower.getConfiguredFeature + BeehiveDecorator +
+TreeDecorator$Context decompiles (26.2), *_bees_005 configured_feature
+JSONs, #flowers + #small_flowers + #replaceable_by_trees tag JSONs,
+differential grown-sapling + /place.
+
+- getConfiguredFeature draws ONE roll: below secondaryChance the
+  secondary spec wins (oak→fancy_oak, mangrove→tall_mangrove), else
+  the primary — then a #flowers block anywhere in the 5x3x5
+  (x±2, y−1..+1, z±2) around the sapling swaps the chosen spec for
+  its BEES_005 variant: identical trunk/foliage/minsize with only
+  [beehive 0.05] decorators. Oak's secondaryFlowers is
+  fancy_oak_bees_005 (fancy + .05). birch/cherry grow
+  *_bees_005 directly (secondaryChance 0). New oakBees/birchBees/
+  cherryBees specs + decorBeehive(beehiveP); flowersTag = #flowers
+  (small_flowers + tall + azalea/propagule/cherry_leaves/pink_petals/
+  wildflowers/chorus/spore/cactus); /place routes all four
+  *_bees_005 names.
+- BeehiveDecorator picks leaves.get(0)/logs.get(0)/logs.last() from
+  the placement SETS — Sets.newHashSet() copied to ObjectArrayList:
+  iteration is HashMap bucket order (spread h^(h>>>16),
+  Vec3i.hashCode = x+31y+961z). Endpoints are arbitrary cells, so
+  javaSetOrder emulates first/last bucket entries. Without it
+  leaves[0] was always the first-written top leaf, the nest row sat
+  inside the canopy, and nests could never place — the blackbox diff
+  surfaced this as vanilla=4 nests vs mc-go=0; emulated run lands
+  ~equal rate (9/200).
+
+Blackbox: new tests/blackbox/beehive_tree_test.go —
+TestBeehiveTreeParity grows two birch grids (sapling columns at even
+x, dandelion columns — flowers need soil — at odd x) vs a flowerless
+control, plus /place of all four BEES_005 names. Pins: nests>=1 in
+the flowered run, nests==0 in the control, log floors everywhere.
+Green both legs (nests v=4 g=1, plain 0/0, flower logs v=787 g=878,
+placed v=35 g=45).

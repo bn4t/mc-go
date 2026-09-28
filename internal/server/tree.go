@@ -57,6 +57,7 @@ const (
 	decorJungleVines // trunk_vine + leave_vine{0.25} (mega jungle)
 	decorPaleMoss    // pale_moss{ground .8, leaves .15, trunk .4} hangers
 	decorMangrove    // {leave_vine .125, attached_to_leaves propagule, beehive .01}
+	decorBeehive     // beehive only at beehiveP — the BEES_005 flower variants
 )
 
 // foliageAttach is one FoliageAttachment: the cell the canopy centers
@@ -92,9 +93,12 @@ type treeShape struct {
 	creaking                 bool       // pale_oak_creaking adds creaking_heart{p=1.0}
 	secondary                *treeShape // getConfiguredFeature's secondaryFeature
 	secondaryChance          float64
-	branchStepsMax           int // upwards_branching extra_branch_steps U{1..max}
-	trunkOffMin, trunkOffMax int // root placer trunk_offset_y U{min..max}
-	crownMin, crownMax       int // mega_pine_foliage_placer's crown_height uniform
+	branchStepsMax           int        // upwards_branching extra_branch_steps U{1..max}
+	trunkOffMin, trunkOffMax int        // root placer trunk_offset_y U{min..max}
+	crownMin, crownMax       int        // mega_pine_foliage_placer's crown_height uniform
+	flowers                  *treeShape // TreeGrower flowers variant (BEES_005 specs)
+	fancyFlowers             bool       // flowers on the secondary roll → fancy + beehive
+	beehiveP                 float64    // decorBeehive's decorator probability
 }
 
 // twoLayers — TwoLayersFeatureSize.getSizeAtHeight: lower below
@@ -131,15 +135,39 @@ func threeLayers(limit, upperLimit, lower, middle, upper int) func(h, y int) int
 // upper 1) — a block beside the column at ground level never blocks
 // growth; acacia and cherry's {upper_size 2} check the column at
 // y=0 and the 5x5 from y=1.
+//
+// The BEES_005 flower variants — a #flowers block in the 5x3x5 around
+// the sapling swaps the base feature for the same placers plus only
+// the beehive decorator at .05 (oak/birch/cherry/fancy_oak
+// *_bees_005). TreeGrower.getConfiguredFeature draws ONE roll for
+// secondary-vs-primary before consulting hasFlowers.
+var oakBeesShape = treeShape{
+	log: "oak_log", leaf: "oak_leaves", baseHeight: 4, randA: 2,
+	minR:  twoLayers(1, 0, 1),
+	trunk: trunkStraight, canopy: canopyBlob, decor: decorBeehive, beehiveP: 0.05,
+}
+var birchBeesShape = treeShape{
+	log: "birch_log", leaf: "birch_leaves", baseHeight: 5, randA: 2,
+	minR: twoLayers(1, 0, 1), trunk: trunkStraight, canopy: canopyBlob,
+	decor: decorBeehive, beehiveP: 0.05,
+}
+var cherryBeesShape = treeShape{
+	log: "cherry_log", leaf: "cherry_leaves", baseHeight: 7, randA: 1,
+	minR: twoLayers(1, 0, 2), trunk: trunkCherry, canopy: canopyCherry,
+	decor: decorBeehive, beehiveP: 0.05,
+}
+
 var treeShapes = map[string]treeShape{
 	"oak_sapling": {
 		log: "oak_log", leaf: "oak_leaves", baseHeight: 4, randA: 2,
 		fancyChance: 0.1, minR: twoLayers(1, 0, 1),
 		trunk: trunkStraight, canopy: canopyBlob,
+		flowers: &oakBeesShape, fancyFlowers: true,
 	},
 	"birch_sapling": {
 		log: "birch_log", leaf: "birch_leaves", baseHeight: 5, randA: 2,
 		minR: twoLayers(1, 0, 1), trunk: trunkStraight, canopy: canopyBlob,
+		flowers: &birchBeesShape,
 	},
 	"spruce_sapling": {
 		log: "spruce_log", leaf: "spruce_leaves", baseHeight: 5, randA: 2, randB: 1,
@@ -163,6 +191,7 @@ var treeShapes = map[string]treeShape{
 	"cherry_sapling": {
 		log: "cherry_log", leaf: "cherry_leaves", baseHeight: 7, randA: 1,
 		minR: twoLayers(1, 0, 2), trunk: trunkCherry, canopy: canopyCherry,
+		flowers: &cherryBeesShape,
 	},
 	// dark_oak.json: base 6 + intn(3) + intn(2) → 6..10; three_layers
 	// {limit 1, upper_limit 1, lower 0, middle 1, upper 2} — column
@@ -346,29 +375,66 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 			return
 		}
 	}
-	// getConfiguredFeature's secondaryFeature roll — mangrove swaps
-	// its single feature for tall_mangrove at 0.85 before the fancy
-	// roll ever runs.
-	if shape.secondary != nil && s.rng.nextDouble() < shape.secondaryChance {
-		shape = *shape.secondary
-	}
-	// getConfiguredFeature: rand.nextFloat() < secondaryChance picks the
-	// secondary feature — oak's fancy tree runs FancyTrunkPlacer +
-	// FancyFoliagePlacer against its own minsize rule.
-	fancy := s.rng.nextDouble() < shape.fancyChance
+	// TreeGrower.getConfiguredFeature(random, hasFlowers) draws ONE
+	// roll: below secondaryChance the secondary spec wins (oak's
+	// secondary is the fancy feature, mangrove's tall_mangrove —
+	// neither species has a secondaryFlowers variant); otherwise the
+	// primary spec, swapped for its BEES_005 variant when hasFlowers
+	// found a #flowers block in the 5x3x5 around the sapling.
+	flowery := s.treeHasFlowers(d, pos)
+	roll := s.rng.nextDouble()
 
 	// growTree clears the sapling before the feature sees the world,
 	// so the origin cell reads air for the whole place.
 	s.setSilentBlock(d, pos, world.Air)
 	var grew bool
-	if fancy {
-		grew = s.fancyOakFeature(d, pos)
-	} else {
+	switch {
+	case shape.secondary != nil && roll < shape.secondaryChance:
+		grew = s.treeFeature(d, pos, *shape.secondary)
+	case roll < shape.fancyChance:
+		grew = s.fancyOakFeature(d, pos, flowery && shape.fancyFlowers)
+	case flowery && shape.flowers != nil:
+		grew = s.treeFeature(d, pos, *shape.flowers)
+	default:
 		grew = s.treeFeature(d, pos, shape)
 	}
 	if !grew {
 		s.setSilentBlock(d, pos, blk)
 	}
+}
+
+// treeHasFlowers — TreeGrower.hasFlowers: a #flowers block anywhere
+// in the 5x3x5 from (x-2,y-1,z-2) to (x+2,y+1,z+2) around the
+// sapling.
+func (s *Server) treeHasFlowers(d *dimension, pos world.Pos) bool {
+	for dx := -2; dx <= 2; dx++ {
+		for dy := -1; dy <= 1; dy++ {
+			for dz := -2; dz <= 2; dz++ {
+				bn, _ := world.StateOwner(d.w.GetBlock(world.Pos{X: pos.X + dx, Y: pos.Y + dy, Z: pos.Z + dz}))
+				if flowersTag[strings.TrimPrefix(bn, "minecraft:")] {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// flowersTag — #minecraft:flowers: #small_flowers plus the tall
+// two-block flowers and the exotic members (flowering azalea,
+// propagule, chorus flower, ...).
+var flowersTag = map[string]bool{
+	"dandelion": true, "open_eyeblossom": true, "poppy": true,
+	"blue_orchid": true, "allium": true, "azure_bluet": true,
+	"red_tulip": true, "orange_tulip": true, "white_tulip": true,
+	"pink_tulip": true, "oxeye_daisy": true, "cornflower": true,
+	"lily_of_the_valley": true, "wither_rose": true, "torchflower": true,
+	"closed_eyeblossom": true, "golden_dandelion": true,
+	"sunflower": true, "lilac": true, "peony": true, "rose_bush": true,
+	"pitcher_plant": true, "flowering_azalea_leaves": true,
+	"flowering_azalea": true, "mangrove_propagule": true,
+	"cherry_leaves": true, "pink_petals": true, "wildflowers": true,
+	"chorus_flower": true, "spore_blossom": true, "cactus_flower": true,
 }
 
 // quadGrow — TreeGrower.growTree's mega branch: scan the four
@@ -422,9 +488,17 @@ func (s *Server) quadGrow(d *dimension, pos world.Pos, blk world.Block, shape tr
 func (s *Server) placeFeatureName(d *dimension, name string, pos world.Pos) bool {
 	switch name {
 	case "fancy_oak":
-		return s.fancyOakFeature(d, pos)
+		return s.fancyOakFeature(d, pos, false)
+	case "fancy_oak_bees_005":
+		return s.fancyOakFeature(d, pos, true)
 	case "oak", "birch", "spruce", "acacia", "cherry", "dark_oak":
 		return s.treeFeature(d, pos, treeShapes[name+"_sapling"])
+	case "oak_bees_005":
+		return s.treeFeature(d, pos, oakBeesShape)
+	case "birch_bees_005":
+		return s.treeFeature(d, pos, birchBeesShape)
+	case "cherry_bees_005":
+		return s.treeFeature(d, pos, cherryBeesShape)
 	case "mega_spruce":
 		return s.treeFeature(d, pos, megaSpruceShape)
 	case "mega_pine":
@@ -609,6 +683,8 @@ func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool 
 		}
 	case decorMangrove:
 		s.mangroveDecorators(d, logs, leaves)
+	case decorBeehive:
+		s.beehiveDecor(d, logs, leaves, shape.beehiveP)
 	}
 
 	// updateLeaves: BFS from every written log assigns
@@ -1270,7 +1346,7 @@ func (s *Server) placeTreeLeaf(d *dimension, p world.Pos, leafState world.Block,
 // tree to as little as 4 cells, and a clipped fancy oak still grows
 // (unlike the main feature which fails when it can't reach its full
 // sampled height).
-func (s *Server) fancyOakFeature(d *dimension, pos world.Pos) bool {
+func (s *Server) fancyOakFeature(d *dimension, pos world.Pos, bees bool) bool {
 	treeHeight := 3 + s.rng.intn(12) + s.rng.intn(1)
 	if pos.Y < d.minY+1 || pos.Y+treeHeight+1 > d.minY+d.height {
 		return false
@@ -1323,6 +1399,10 @@ func (s *Server) fancyOakFeature(d *dimension, pos world.Pos) bool {
 				}
 			}
 		}
+	}
+	// fancy_oak_bees_005's decorators = [beehive .05].
+	if bees {
+		s.beehiveDecor(d, logs, leaves, 0.05)
 	}
 	s.treeLeafDistances(d, logs, leaves)
 	return true
@@ -2182,7 +2262,7 @@ func (s *Server) mangroveCanopy(d *dimension, attachments []foliageAttach, place
 func (s *Server) mangroveDecorators(d *dimension, logs, leaves []world.Pos) {
 	s.leaveVines(d, leaves, 0.125)
 	s.attachedPropagules(d, leaves)
-	s.beehiveDecor(d, logs, leaves)
+	s.beehiveDecor(d, logs, leaves, 0.01)
 }
 
 // attachedPropagules — AttachedToLeavesDecorator(p 0.14, directions
@@ -2222,25 +2302,30 @@ func (s *Server) attachedPropagules(d *dimension, leaves []world.Pos) {
 	}
 }
 
-// beehiveDecor — BeehiveDecorator(p 0.01): with leaves, the nest row
-// is max(firstLeaf.Y−1, firstLog.Y+1); without, firstLog.Y+1+U{0..2}
-// capped at the last log. Candidates are the horizontal neighbors of
-// every log at that height; the first shuffled air cell takes the
-// nest's default state.
-func (s *Server) beehiveDecor(d *dimension, logs, leaves []world.Pos) {
-	if len(logs) == 0 || s.rng.nextDouble() >= 0.01 {
+// beehiveDecor — BeehiveDecorator(probability): with leaves, the
+// nest row is max(leaves.get(0).Y−1, logs.get(0).Y+1); without,
+// logs.get(0).Y+1+U{0..2} capped at the last log. The decorator sees
+// the placement sets through java.util.HashSet order — endpoints are
+// bucket-ordered, so leaves.get(0) is an arbitrary canopy cell, not
+// the first row written (javaSetOrder). Candidates are the
+// horizontal neighbors of every log at that height; the first
+// shuffled air cell takes the nest's default state.
+func (s *Server) beehiveDecor(d *dimension, logs, leaves []world.Pos, p float64) {
+	if s.rng.nextDouble() >= p || len(logs) == 0 {
 		return
 	}
+	leaf0, _ := javaSetOrder(leaves)
+	log0, logLast := javaSetOrder(logs)
 	var y int
 	if len(leaves) > 0 {
-		y = leaves[0].Y - 1
-		if logs[0].Y+1 > y {
-			y = logs[0].Y + 1
+		y = leaf0.Y - 1
+		if log0.Y+1 > y {
+			y = log0.Y + 1
 		}
 	} else {
-		y = logs[0].Y + 1 + s.rng.intn(3)
-		if last := logs[len(logs)-1].Y; y > last {
-			y = last
+		y = log0.Y + 1 + s.rng.intn(3)
+		if y > logLast.Y {
+			y = logLast.Y
 		}
 	}
 	var candidates []world.Pos
@@ -2265,6 +2350,39 @@ func (s *Server) beehiveDecor(d *dimension, logs, leaves []world.Pos) {
 		}
 		return
 	}
+}
+
+// javaSetOrder returns the first and last elements a
+// java.util.HashSet<BlockPos> would iterate in — the order
+// TreeDecorator.Context lists arrive in (it copies Sets.newHashSet()
+// into ObjectArrayLists). HashMap spreads h = h^(h>>>16) and iterates
+// buckets h&(cap-1) ascending, ties in insert order; capacity is the
+// smallest power of two holding n at load 0.75 (starts 16).
+// Vec3i.hashCode() = x + 31*y + 961*z.
+func javaSetOrder(pos []world.Pos) (world.Pos, world.Pos) {
+	if len(pos) == 0 {
+		return world.Pos{}, world.Pos{}
+	}
+	first, last := pos[0], pos[0]
+	cap := 16
+	for len(pos) > cap*3/4 {
+		cap <<= 1
+	}
+	fb, lb := uint32(math.MaxUint32), uint32(0)
+	for _, p := range pos {
+		h := uint32(int32(p.X) + int32(p.Y)*31 + int32(p.Z)*961)
+		h ^= h >> 16
+		b := h & uint32(cap-1)
+		if b < fb {
+			fb = b
+			first = p
+		}
+		if b >= lb {
+			lb = b
+			last = p
+		}
+	}
+	return first, last
 }
 
 // propaguleRule — MangrovePropaguleBlock.randomTick: a hanging
