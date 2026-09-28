@@ -1,6 +1,7 @@
 package blackbox
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,6 +85,28 @@ func TestWorldSaveParity(t *testing.T) {
 	say(fmt.Sprintf("time set %d", dayTime))
 	for _, b := range saveBlocks {
 		say(b.command)
+	}
+	// forceload registers its ticket but the chunk loads over the next
+	// ticks, so a /setblock issued too soon fails "position is not
+	// loaded" and the cell simply never reaches the save. Confirm each
+	// placement through the console log and reissue it until it lands.
+	for _, b := range saveBlocks {
+		marker := fmt.Sprintf("PLACED_%d_%d_%d", b.pos[0], b.pos[1], b.pos[2])
+		placed := false
+		for try := 0; try < 40 && !placed; try++ {
+			say(fmt.Sprintf("execute if block %d %d %d %s run say %s",
+				b.pos[0], b.pos[1], b.pos[2], b.name, marker))
+			if vanillaLogHas(vanillaDir, marker) {
+				placed = true
+				break
+			}
+			if try%8 == 7 {
+				say(b.command)
+			}
+		}
+		if !placed {
+			t.Fatalf("vanilla never placed %s at %v", b.name, b.pos)
+		}
 	}
 	say("save-all flush")
 	say("stop")
@@ -183,6 +206,12 @@ func TestWorldSaveParity(t *testing.T) {
 		if lv.DayTime != dayTime {
 			t.Fatalf("mc-go saved day time %d, want %d", lv.DayTime, dayTime)
 		}
+		// Light: same world state lit on both servers, so the arrays
+		// mc-go now stores must equal the real server's byte for byte —
+		// SkyLight in the sections the engine layered, BlockLight where
+		// a block layer exists (none placed one here, so it stays
+		// empty), and the isLightOn flag on like vanilla's.
+		compareSavedLight(t, savedDir, filepath.Join(dir, "world"))
 
 		vPort, ok := freePort()
 		if !ok {
@@ -358,6 +387,9 @@ func compareChunkFormat(t *testing.T, savedDir string, blocks map[[3]int]string)
 	// The same world, built in process: the flat generator plus the
 	// test's edits, saved into a scratch directory.
 	w := world.New(nil, 8)
+	// The shared flat world generates in the_void (dimension.go's
+	// SetBiome), so the scratch copy writes the same palette.
+	w.SetBiome("minecraft:the_void")
 	for pos, name := range blocks {
 		b, ok := world.BlockState(strings.TrimPrefix(name, "minecraft:"))
 		if !ok {
@@ -369,7 +401,7 @@ func compareChunkFormat(t *testing.T, savedDir string, blocks map[[3]int]string)
 	// Through the same entry point a real save uses, so the write lands
 	// at the vanilla path (dimensions/<namespace>/<path>/region) that
 	// the read below expects.
-	if err := w.SaveDimension(outDir, "minecraft:overworld", -64, 384, nil); err != nil {
+	if err := w.SaveDimension(outDir, "minecraft:overworld", -64, 384, nil, nil); err != nil {
 		t.Fatalf("save mc-go's chunk: %v", err)
 	}
 	w.Stop()
@@ -502,6 +534,13 @@ func readChunkAt(t *testing.T, worldDir string, cx, cz int32) map[string]any {
 	return c
 }
 
+// vanillaLogHas reports whether the marker text has reached the
+// vanilla server's console log yet.
+func vanillaLogHas(dir, marker string) bool {
+	b, err := os.ReadFile(filepath.Join(dir, "vanilla.log"))
+	return err == nil && bytes.Contains(b, []byte(marker))
+}
+
 // vanillaLogTailText is vanillaLogTail for a directory the test chose
 // rather than the shared debug one.
 func vanillaLogTailText(dir string) string {
@@ -513,4 +552,63 @@ func vanillaLogTailText(dir string) string {
 		b = b[len(b)-3000:]
 	}
 	return string(b)
+}
+
+// compareSavedLight diffs the light halves of the chunk the real
+// server saved and the one mc-go saved for the same world state:
+// isLightOn, and for every section the presence and bytes of the
+// SkyLight/BlockLight arrays. The arrays are the same nibble packing
+// the update_light packet ships, so a byte-equal compare is exact.
+func compareSavedLight(t *testing.T, vanillaDir, mcgoDir string) {
+	t.Helper()
+	vc := readChunkAt(t, vanillaDir, 0, 0)
+	mc := readChunkAt(t, mcgoDir, 0, 0)
+	if v, ok := mc["isLightOn"].(int8); !ok || v != 1 {
+		t.Errorf("mc-go chunk isLightOn = %v, want 1", mc["isLightOn"])
+	}
+	vs, _ := vc["sections"].(nbt.List)
+	ms, _ := mc["sections"].(nbt.List)
+	if len(vs.Items) != len(ms.Items) {
+		t.Fatalf("sections: vanilla %d, mc-go %d", len(vs.Items), len(ms.Items))
+	}
+	lit := 0
+	for i := range vs.Items {
+		vsec, _ := vs.Items[i].(map[string]any)
+		msec, _ := ms.Items[i].(map[string]any)
+		if vsec == nil || msec == nil {
+			t.Fatalf("section %d is not a compound", i)
+		}
+		for _, key := range []string{"SkyLight", "BlockLight"} {
+			vb, vok := vsec[key].([]byte)
+			mb, mok := msec[key].([]byte)
+			if vok != mok {
+				t.Errorf("section %d %s: vanilla present=%v, mc-go present=%v", i, key, vok, mok)
+				continue
+			}
+			if !vok {
+				continue
+			}
+			lit++
+			if !bytes.Equal(vb, mb) {
+				diff := -1
+				for j := range vb {
+					if j < len(mb) && vb[j] != mb[j] {
+						diff = j
+						break
+					}
+				}
+				count := 0
+				for j := 0; j < len(vb) && j < len(mb); j++ {
+					if vb[j] != mb[j] {
+						count++
+					}
+				}
+				t.Errorf("section %d %s: arrays differ (len v=%d m=%d, first diff byte %d, %d total; v=%#02x m=%#02x)", i, key, len(vb), len(mb), diff, count, vb[diff], mb[diff])
+			}
+		}
+	}
+	if lit == 0 {
+		t.Error("neither chunk stores light, so the comparison measured nothing")
+	}
+	t.Logf("compared %d light arrays between the two saved chunks", lit)
 }

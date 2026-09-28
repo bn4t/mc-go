@@ -133,6 +133,8 @@ func (s *Server) saveWorldDir() error {
 		d := d
 		if err := d.w.SaveDimension(s.WorldDir, name, d.minY, d.height, func(cx, cz int) []map[string]any {
 			return s.chunkBlockEntities(d, cx, cz)
+		}, func(cx, cz int) *world.ChunkLight {
+			return d.savedLight(cx, cz)
 		}); err != nil {
 			return err
 		}

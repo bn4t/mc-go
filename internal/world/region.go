@@ -97,7 +97,7 @@ func packIndices(idx []int32, bpe int) []int64 {
 // at section index sy (block Y = minY + sy*16), reading blocks out of
 // the chunk's column array in the YZX order the data array uses.
 // Vanilla omits the data array when a section is single-palette.
-func sectionNBT(blocks []Block, minY, sy int, biome string) map[string]any {
+func sectionNBT(blocks []Block, minY, sy int, biome string, lights *ChunkLight) map[string]any {
 	y0 := minY + sy*16
 	palette := []Block{}
 	palIdx := map[Block]int{}
@@ -151,7 +151,7 @@ func sectionNBT(blocks []Block, minY, sy int, biome string) map[string]any {
 		}
 		states["data"] = packIndices(idx, bpe)
 	}
-	return map[string]any{
+	sec := map[string]any{
 		// The section's Y is absolute - the block Y it starts at divided
 		// by sixteen - so the overworld's lowest section is -4, not 0.
 		"Y":              int8(y0 >> 4),
@@ -160,6 +160,37 @@ func sectionNBT(blocks []Block, minY, sy int, biome string) map[string]any {
 			"palette": nbt.List{Elem: nbt.TagString, Items: []any{biome}},
 		},
 	}
+	// SkyLight/BlockLight are absent where the layer never
+	// materialized, a 2048-byte nibble array where it exists - the
+	// same byte order the update_light packet ships.
+	if lights != nil {
+		if b := lights.Sky[sy]; b != nil {
+			sec["SkyLight"] = b
+		}
+		if b := lights.Block[sy]; b != nil {
+			sec["BlockLight"] = b
+		}
+	}
+	return sec
+}
+
+// ChunkLight is one chunk's saved light: Sky and Block map 0-based
+// section indices to the 2048-byte nibble-packed layer the real
+// server stores under SkyLight/BlockLight. A section with no entry
+// writes no array, matching vanilla's absent-when-not-materialized
+// rule.
+type ChunkLight struct {
+	Sky, Block map[int][]byte
+}
+
+// isLightOn is the chunk flag vanilla sets once the engine has lit a
+// column: 1 whenever a light provider answered, else 0 so the real
+// server relights on load instead of trusting absent arrays.
+func isLightOn(l *ChunkLight) int8 {
+	if l != nil {
+		return 1
+	}
+	return 0
 }
 
 // biomeName is the single-biome palette entry for generated chunks.
@@ -190,7 +221,7 @@ func (w *World) biomeName() string {
 //     rather than omitted when there are none, and there is no
 //     `entities` key at all: 26.2 keeps a dimension's mobs in its own
 //     entities/ region files, not in the chunk.
-func chunkNBT(w *World, cx, cz, minY, height int, blockEntities func(cx, cz int) []map[string]any) map[string]any {
+func chunkNBT(w *World, cx, cz, minY, height int, blockEntities func(cx, cz int) []map[string]any, lights func(cx, cz int) *ChunkLight) map[string]any {
 	blocks := make([]Block, 16*height*16)
 	w.FillBox(
 		Pos{X: cx * 16, Y: minY, Z: cz * 16},
@@ -198,10 +229,14 @@ func chunkNBT(w *World, cx, cz, minY, height int, blockEntities func(cx, cz int)
 		blocks,
 	)
 	biome := w.biomeName()
+	var light *ChunkLight
+	if lights != nil {
+		light = lights(int(cx), int(cz))
+	}
 	sections := nbt.List{Elem: nbt.TagCompound}
 	post := nbt.List{Elem: nbt.TagList}
 	for sy := 0; sy < height/16; sy++ {
-		sections.Items = append(sections.Items, sectionNBT(blocks, minY, sy, biome))
+		sections.Items = append(sections.Items, sectionNBT(blocks, minY, sy, biome, light))
 		post.Items = append(post.Items, nbt.List{Elem: nbt.TagString})
 	}
 	be := nbt.List{Elem: nbt.TagCompound}
@@ -221,7 +256,7 @@ func chunkNBT(w *World, cx, cz, minY, height int, blockEntities func(cx, cz int)
 		// for both, which is what a freshly generated chunk holds.
 		"LastUpdate":    int64(0),
 		"InhabitedTime": int64(0),
-		"isLightOn":     int8(0),
+		"isLightOn":     isLightOn(light),
 		"sections":      sections,
 		"Heightmaps":    heightmaps(blocks, height, minY),
 		// A world with no structures has both maps empty, but they have
@@ -376,9 +411,11 @@ func SplitDimension(dimension string) (ns, path string) {
 // SaveDimension writes one dimension's chunks into a world directory,
 // under dimensions/<namespace>/<path>/region/. entities, when not nil,
 // supplies each chunk's block entity compounds - the chests and signs
-// a chunk holds - which are otherwise lost with the block they sit on.
-func (w *World) SaveDimension(worldDir, dimension string, minY, height int, entities func(cx, cz int) []map[string]any) error {
-	return w.SaveRegionEntities(DimensionDir(worldDir, dimension), minY, height, entities)
+// a chunk holds - which are otherwise lost with the block they sit on;
+// lights, when not nil, supplies the saved SkyLight/BlockLight arrays
+// and flips isLightOn on like the real server.
+func (w *World) SaveDimension(worldDir, dimension string, minY, height int, entities func(cx, cz int) []map[string]any, lights func(cx, cz int) *ChunkLight) error {
+	return w.SaveRegionEntities(DimensionDir(worldDir, dimension), minY, height, entities, lights)
 }
 
 // LoadDimension reads one dimension's chunks back out of a world
@@ -399,19 +436,19 @@ func (w *World) LoadDimension(worldDir, dimension string, minY, height int) erro
 // region files under dir/region/. minY/height bound the vertical
 // range so each dimension emits its own section count.
 func (w *World) SaveRegion(dir string, minY, height int) error {
-	return w.SaveRegionEntities(dir, minY, height, nil)
+	return w.SaveRegionEntities(dir, minY, height, nil, nil)
 }
 
 // SaveRegionEntities is SaveRegion with block entities: entities is
 // asked for each written chunk's block entity compounds.
-func (w *World) SaveRegionEntities(dir string, minY, height int, entities func(cx, cz int) []map[string]any) error {
+func (w *World) SaveRegionEntities(dir string, minY, height int, entities func(cx, cz int) []map[string]any, lights func(cx, cz int) *ChunkLight) error {
 	snap := w.Snapshot()
 	regions := regionChunksOf(snap, minY, height)
 	for r, chunks := range regions {
 		payloads := map[chunkKey][]byte{}
 		for _, c := range chunks {
 			var raw bytes.Buffer
-			if err := nbt.WriteNamed(&raw, "", chunkNBT(w, int(c.X), int(c.Z), minY, height, entities)); err != nil {
+			if err := nbt.WriteNamed(&raw, "", chunkNBT(w, int(c.X), int(c.Z), minY, height, entities, lights)); err != nil {
 				return err
 			}
 			var zc bytes.Buffer

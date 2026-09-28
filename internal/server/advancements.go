@@ -315,7 +315,11 @@ func (s *Server) flushAdvancements(sess *Session) {
 		sess.advDone = map[string]bool{}
 	}
 	sess.advDirty = nil
-	sess.advMu.Unlock()
+	// advMu stays held through the whole build: award paths mutate
+	// advDone/advDirtyOrder/advCrits/advSent under it on other
+	// goroutines, and an unlocked read here crashed the game loop.
+	// sess.write only queues onto sendCh, so holding it is cheap.
+	defer sess.advMu.Unlock()
 
 	// Dirty = progressed ∪ newly visible. Vanilla emits a def entry for
 	// every dirty advancement it has not sent before and a progress
@@ -404,11 +408,9 @@ func (s *Server) flushAdvancements(sess *Session) {
 	b.Bool(true) // showAdvancements
 	_ = sess.write(sess.ids().PlayUpdateAdvance, b.Bytes())
 
-	sess.advMu.Lock()
 	for _, id := range added {
 		sess.advSent[id] = true
 	}
-	sess.advMu.Unlock()
 }
 
 // recipeAdvByID looks up recipe advancements by namespaced id.

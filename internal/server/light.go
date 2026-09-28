@@ -70,47 +70,34 @@ func columnTop(d *dimension, x, z int) int32 {
 	return int32(d.minY - 1)
 }
 
-// lightOpaque reports whether a block state stops the column-model
-// sky heightmap — vanilla's isSuffocating/canOcclude set, the same
-// table Entity.isInWall uses.
-func lightOpaque(b world.Block) bool {
-	name, ok := world.StateOwner(b)
-	return ok && suffocatingBlocks[name]
-}
-
-// blocksSky reports whether a cell counts toward the sky heightmap —
-// vanilla's motion-blocking-style predicate measured on the wire:
-// opaque cubes count, fluids count (a lone water cell raises the top
-// and reads 14 = 15-opacity), while glass, torches and fences do not.
+// blocksSky reports whether a cell counts toward the sky top —
+// vanilla's SkyLightEngine stops its downward beam at the first cell
+// that does not propagatesSkylightDown, so every non-air block except
+// the 727 propagating ones counts: opaque cubes, fluids, and the
+// dampening-1 family like leaves and carpet. A waterlogged cell
+// counts too (VegetationBlock's rule is getFluidState().isEmpty(), so
+// a submerged plant stops propagating).
 func blocksSky(b world.Block) bool {
-	if lightOpaque(b) {
-		return true
-	}
 	name, ok := world.StateOwner(b)
 	if !ok {
 		return false
 	}
-	if name == "water" || name == "lava" {
-		return true
-	}
 	if wl, has := world.StateProperty(b, "waterlogged"); has && wl == "true" {
 		return true
 	}
-	return false
+	return !skylightPropagates[name]
 }
 
 // lightOpacity is the cost light pays entering a cell — vanilla's
-// getOpacity: opaque cubes absorb everything and every other block
-// costs 1 (the max(1, opacity) floor; measured 15→14 entering water,
-// so a liquid() flag alone does not dim).
+// getOpacity = max(1, getLightDampening), where dampening is 15 for a
+// solid-render block and 1 otherwise (a propagatesSkylightDown cell's
+// 0 floors at 1 anyway, so only solidity matters). Fluids cost 1 like
+// everything else non-solid: measured 15→14 entering water, and lava
+// is the same dampening-1 liquid in the 26.2 table.
 func lightOpacity(b world.Block) int {
 	name, ok := world.StateOwner(b)
 	if !ok {
 		return 1
-	}
-	switch name {
-	case "lava":
-		return 255
 	}
 	if suffocatingBlocks[name] {
 		return 255
@@ -1502,4 +1489,24 @@ func (s *Server) sendLightUpdate(d *dimension, cx, cz int, skySecs, blkSecs []in
 		_ = sess.write(sess.ids().PlayUpdateLight, b.Bytes())
 		return true
 	})
+}
+
+// savedLight is the dimension's ChunkLight provider for a save: a sky
+// array where a sky layer materialized (skyLayers entry), a block
+// array where the block engine layered the section (blkLayered) — the
+// same existence rules vanilla's DataLayer serialization follows.
+func (d *dimension) savedLight(cx, cz int) *world.ChunkLight {
+	ck := [2]int{cx, cz}
+	out := &world.ChunkLight{Sky: map[int][]byte{}, Block: map[int][]byte{}}
+	for sec := range d.skyLayers[ck] {
+		out.Sky[sec] = skySectionArray(d, cx, cz, sec)
+	}
+	// Vanilla stores a BlockLight array iff the section's DataLayer
+	// holds data — a layer that was only materialized never gains a
+	// key, so the predicate is the data!=null mirror blkWritten, not
+	// mere eligibility.
+	for sec := range d.blkWritten[ck] {
+		out.Block[sec] = blockSectionArray(d, cx, cz, sec)
+	}
+	return out
 }

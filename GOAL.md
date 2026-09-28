@@ -180,7 +180,7 @@ Mojang server over the wire.
   float32) match the real server reply for reply (`TestItemCommandParity`),
   and the whole modifier grammar is pinned case for case
   (`TestItemSNBTParity`)
-- [ ] World save format parity (region files)
+- [x] World save format parity (region files)
 - [~] RCON, query, properties parity
 - [ ] Performance targets under vanilla-like load
 
@@ -11011,3 +11011,32 @@ encryption_request shape field-by-field against real vanilla with
 online-mode=true. The real-Mojang lookup is the one piece no
 differential can cover (needs a paid account); the stubbed path pins
 everything else.
+
+## Slice — region save: light and biome parity
+
+- Measurement: dumped vanilla's saved `.mca` (javap
+  `SerializableChunkData$SectionData` + live NBT): `SkyLight`/`BlockLight`
+  keys appear iff the section's `DataLayer.data != null` — a real write
+  pass, not mere eligibility; `isLightOn=1` iff the chunk was lit.
+- Sky top semantics decoded via the actual 26.2 jar run as a library:
+  `propagatesSkylightDown` dumped per block from `BuiltInRegistries.BLOCK`
+  (727 blocks propagate: glass, slabs, stairs, torches, fences...).
+  The sky beam passes propagating cells at 15; the first
+  non-propagating cell is the top and stores `15-opacity` — leaves
+  count (14), glass doesn't (15). Fluids don't propagate either, so
+  water/lava still raise the top. `lightOpacity` lava 255→1 (liquid
+  dampening 1 like water). `blockskylight_gen.go` generated table.
+- region.go: `chunkNBT`/`sectionNBT` write `SkyLight`/`BlockLight`
+  byte arrays (2048 nibble-packed) keyed on the `skyLayers`/`blkWritten`
+  layer maps; `isLightOn` set when a light provider answers.
+- advancements race fix: `flushAdvancements` read `advDone`/`advSent`
+  outside `advMu` while award paths mutated them — crashed the game
+  loop (`fatal error: concurrent map read`). Now holds the lock for
+  the whole function.
+- Test fixes: the scratch world never `SetBiome`d so the region compare
+  read `plains` vs vanilla's `the_void`; vanilla `forceload`+`/setblock`
+  raced async chunk load (leaves occasionally never placed) — placement
+  now confirmed via log markers with reissue.
+- `TestWorldSaveParity` all green: chunk_format + both directions,
+  5 light arrays byte-equal.
+
