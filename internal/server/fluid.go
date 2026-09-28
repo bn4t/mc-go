@@ -2,9 +2,12 @@ package server
 
 import (
 	"math"
+	"math/rand"
 	"strconv"
+	"strings"
 	"sync"
 
+	"mc-go/internal/data"
 	"mc-go/internal/world"
 )
 
@@ -158,6 +161,36 @@ func replaceableByFluid(b world.Block) bool {
 		return false
 	}
 	if wl, ok := world.StateProperty(b, "waterlogged"); ok && wl == "true" {
+		return false
+	}
+	return true
+}
+
+// fluidCanHold is vanilla's canHoldAnyFluid: a cell a fluid may occupy.
+// A cell already holding fluid answers true — fluids do not block
+// motion — which is why a lava-flowing cell below counts as a hole for
+// water (water seeks lava to harden it, and lava seeks water the same
+// way). Over replaceableByFluid it keeps vanilla's exclusions — the
+// placeable blocks fluids are not allowed to wash into or through
+// (doors, signs, ladders and sugar cane hold their ground; portals are
+// untouchable).
+func fluidCanHold(b world.Block) bool {
+	if _, _, ok := fluidOf(b); ok {
+		return true
+	}
+	if !replaceableByFluid(b) {
+		return false
+	}
+	name, _ := world.StateOwner(b)
+	switch name {
+	case "sugar_cane", "ladder", "bubble_column", "nether_portal",
+		"end_portal", "end_gateway", "structure_void":
+		return false
+	}
+	if strings.HasSuffix(name, "_door") {
+		return false
+	}
+	if strings.HasSuffix(name, "_sign") {
 		return false
 	}
 	return true
@@ -341,7 +374,12 @@ func (s *Server) fluidTick(d *dimension, pos world.Pos) {
 			return
 		}
 	}
-	next := s.newFluidState(d, pos, kind, level)
+	var next world.Block = cur
+	// Vanilla's tick gates the recompute on !isSource — a source is
+	// permanent and never re-derives itself.
+	if level != 0 {
+		next = s.newFluidState(d, pos, kind)
+	}
 	if next != cur {
 		s.setNaturalBlock(d, pos, next)
 		if next == world.Air {
@@ -350,30 +388,59 @@ func (s *Server) fluidTick(d *dimension, pos world.Pos) {
 			s.wakeFluids(d, pos)
 			return
 		}
+		// A level change re-arms the cell itself: that is what lets a
+		// severed flow decay through its levels instead of dying in
+		// one step or stalling on a still-equal neighbour. Vanilla
+		// hands the delay to getSpreadDelay — lava's reschedule is
+		// four ticks three times in four when the new state is taller.
 		kind, level, ok = fluidOf(next)
 		if !ok {
 			return
 		}
+		s.scheduleFluidTick(d, pos, s.spreadDelay(d, pos, kind, cur, next))
 	}
 	s.spreadFluid(d, pos, kind, level)
 }
 
+// spreadDelay is vanilla's getSpreadDelay: the re-arm delay after a
+// level change. Water always takes its tick delay; lava delays four
+// times as long three times in four when it only got taller (slower
+// level), which is why lava's receding edge moves so unevenly.
+func (s *Server) spreadDelay(d *dimension, pos world.Pos, kind fluidKind, old, next world.Block) int64 {
+	delay := kind.tickDelay(d)
+	if kind != fluidLava {
+		return delay
+	}
+	_, ol, _ := fluidOf(old)
+	_, nl, _ := fluidOf(next)
+	if ol >= 1 && ol <= fluidMaxLevel && nl >= 1 && nl <= fluidMaxLevel && nl < ol && rand.Intn(4) != 0 {
+		return delay * 4
+	}
+	return delay
+}
+
+// canConvertToSource is vanilla's gamerule-gated source renewal: water
+// converts wherever water_source_conversion allows it, lava where
+// lava_source_conversion does (off by default).
+func (s *Server) canConvertToSource(kind fluidKind) bool {
+	switch kind {
+	case fluidWater:
+		return s.gameRuleBool("minecraft:water_source_conversion")
+	case fluidLava:
+		return s.gameRuleBool("minecraft:lava_source_conversion")
+	}
+	return false
+}
+
 // newFluidState derives what the fluid at pos should be, given its
-// neighbours. Sources are permanent; everything else follows supply.
-func (s *Server) newFluidState(d *dimension, pos world.Pos, kind fluidKind, level int) world.Block {
-	if level == 0 {
-		return fluidState(kind, 0) // a source stays a source
-	}
-	// Fluid directly above turns this block into falling fluid.
-	if above, _, ok := fluidOf(d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z})); ok && above == kind {
-		return fluidState(kind, fluidFalling)
-	}
-	// Otherwise take a supply from a horizontal neighbour that is
-	// strictly stronger — a lower level, with falling counting as level
-	// zero. Requiring strictness is what makes flow directional: a
-	// block's own level must come from something further upstream, so
-	// when a source is removed the flow drains outward-in rather than
-	// rearranging itself into a ring that feeds its own middle.
+// neighbours — vanilla's FlowingFluid.getNewLiquid. It is called for
+// non-source cells only; the source-stays rule lives in the caller.
+func (s *Server) newFluidState(d *dimension, pos world.Pos, kind fluidKind) world.Block {
+	// Two or more source neighbours over solid ground (or another
+	// source) merge into a new source — infinite water, and lava too
+	// when its conversion gamerule is on. The neighbour levels are
+	// gathered in the same pass vanilla uses for highestNeighbor.
+	sources := 0
 	best := -1
 	for _, dir := range horizontalDirections {
 		nb := world.Pos{X: pos.X + dir.X, Y: pos.Y, Z: pos.Z + dir.Z}
@@ -381,16 +448,33 @@ func (s *Server) newFluidState(d *dimension, pos world.Pos, kind fluidKind, leve
 		if !ok || k2 != kind {
 			continue
 		}
-		if l2 == fluidFalling {
-			l2 = 0
+		if l2 == 0 {
+			sources++
 		}
-		if l2 >= level {
-			continue // not a supplier: same strength or weaker
+		if l2 == fluidFalling {
+			l2 = 0 // a falling column counts as full strength
 		}
 		if best < 0 || l2 < best {
 			best = l2
 		}
 	}
+	if sources >= 2 && s.canConvertToSource(kind) {
+		below := d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z})
+		bk, bl, bok := fluidOf(below)
+		if (!bok && !world.NonSolid(below)) || (bok && bk == kind && bl == 0) {
+			return fluidState(kind, 0)
+		}
+	}
+	// Fluid directly above turns this block into falling fluid.
+	if above, _, ok := fluidOf(d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z})); ok && above == kind {
+		return fluidState(kind, fluidFalling)
+	}
+	// The strongest horizontal supply wins, with equal-strength
+	// neighbours still feeding: a severed cell's next state is one
+	// level weaker than its best neighbour, so a ring of equals decays
+	// through the levels rather than dying on the spot or living
+	// forever. Vanilla has no strictness check — the decay comes for
+	// free from best+dropOff being a fixed step down.
 	if best < 0 {
 		return world.Air // nothing feeds it any more
 	}
@@ -457,10 +541,14 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 			default:
 				columnBelow = k2 == kind
 			}
-		} else if replaceableByFluid(under) {
+		} else if fluidCanHold(under) {
 			canFall = true
-			s.setNaturalBlock(d, below, fluidState(kind, fluidFalling))
-			s.scheduleFluidTick(d, below, kind.tickDelay(d))
+			// spreadTo writes the below cell's own recompute — falling
+			// whenever this fluid feeds it, but a full source when two
+			// more source neighbours merge there (infinite water).
+			if nf := s.newFluidState(d, below, kind); nf != world.Air {
+				s.fluidSpreadTo(d, below, nf, kind)
+			}
 		}
 	}
 	// A fluid with somewhere to fall goes there instead of spreading
@@ -487,33 +575,153 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 	if eff+drop > fluidMaxLevel {
 		return
 	}
-	next := fluidState(kind, eff+drop)
-	for _, dir := range horizontalDirections {
+	// getSpread: a fluid does not fan out in every direction — it runs
+	// toward the nearest place it could fall, up to the fluid's slope
+	// find distance (4 for water, 2 for lava outside the nether). Each
+	// candidate direction scores the distance from the neighbour to a
+	// hole — a cell over something fluid can fall into — and only the
+	// directions tied for the smallest score take the flow. Flat ground
+	// has no holes anywhere, so every direction scores the same and the
+	// pool fans out in all four.
+	lowest := fluidSlopeNoHole
+	var nstates [4]world.Block
+	for i, dir := range horizontalDirections {
 		nb := world.Pos{X: pos.X + dir.X, Y: pos.Y, Z: pos.Z + dir.Z}
 		cur := d.w.GetBlock(nb)
-		if k2, l2, ok := fluidOf(cur); ok {
-			if k2 != kind {
-				continue
+		k2, l2, ok := fluidOf(cur)
+		if ok && k2 == kind && l2 == 0 {
+			continue // canMaybePassThrough: never into a source of the same kind
+		}
+		if !ok && !fluidCanHold(cur) {
+			continue // not traversable
+		}
+		dist := 0
+		if !s.fluidIsHole(d, nb, kind) {
+			dist = s.fluidSlopeDist(d, kind, nb, 1, oppositeDir[i])
+		}
+		if dist < lowest {
+			lowest = dist
+			nstates = [4]world.Block{}
+		}
+		if dist <= lowest {
+			lowest = dist
+			// A same-kind flow competes for the distance but is never a
+			// spread target — canBeReplacedWith only lets water be
+			// replaced from above by another fluid, so its level waits
+			// for its own scheduled tick. Other-kind fluid is likewise
+			// only traversable; lava contacts resolve through wakeLava.
+			if !ok {
+				nstates[i] = s.newFluidState(d, nb, kind)
 			}
-			// Never weaken a flow that is already stronger. A falling
-			// block is a full-height column, so it counts as the
-			// strongest supply there is, not as its literal level 8 —
-			// comparing the raw number would let a thin flow overwrite a
-			// falling block, and the two would then flip back and forth
-			// for the rest of the world's life.
-			if l2 == fluidFalling || l2 <= eff+drop {
-				continue
-			}
-		} else if !replaceableByFluid(cur) {
+		}
+	}
+	for i, dir := range horizontalDirections {
+		next := nstates[i]
+		if next == 0 || next == world.Air {
 			continue
 		}
-		s.setNaturalBlock(d, nb, next)
-		s.scheduleFluidTick(d, nb, kind.tickDelay(d))
-		if kind == fluidWater {
-			// Water that has just arrived beside lava wakes it, so the
-			// lava sets solid on its own next tick.
-			s.wakeLava(d, nb)
+		nb := world.Pos{X: pos.X + dir.X, Y: pos.Y, Z: pos.Z + dir.Z}
+		s.fluidSpreadTo(d, nb, next, kind)
+	}
+}
+
+// fluidSlopeNoHole is getSlopeDistance's "never found a hole" answer,
+// far past the deepest any search can legitimately score.
+const fluidSlopeNoHole = 1000
+
+// oppositeDir maps each horizontalDirections index to the direction
+// pointing back the way it came — Direction.getOpposite for the search.
+var oppositeDir = [4]int{3, 2, 1, 0}
+
+// slopeFindDistance is how far a fluid hunts sideways for somewhere to
+// fall: water searches four blocks, lava two outside the nether.
+func (f fluidKind) slopeFindDistance(d *dimension) int {
+	if f == fluidLava && (d == nil || !d.ultraWarm) {
+		return 2
+	}
+	return 4
+}
+
+// fluidIsHole is vanilla's SpreadContext.isHole: the cell's below is
+// enterable or already the same fluid, so fluid arriving here falls on.
+func (s *Server) fluidIsHole(d *dimension, pos world.Pos, kind fluidKind) bool {
+	below := d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z})
+	if k2, _, ok := fluidOf(below); ok && k2 == kind {
+		return true
+	}
+	return fluidCanHold(below)
+}
+
+// fluidSlopeDist is vanilla's getSlopeDistance: the hop distance from
+// pos to the nearest cell a fluid could fall through, walking only
+// fluid-traversable cells and never back the way it came.
+func (s *Server) fluidSlopeDist(d *dimension, kind fluidKind, pos world.Pos, pass, from int) int {
+	lowest := fluidSlopeNoHole
+	for i, dir := range horizontalDirections {
+		if i == from {
+			continue
 		}
+		tp := world.Pos{X: pos.X + dir.X, Y: pos.Y, Z: pos.Z + dir.Z}
+		ts := d.w.GetBlock(tp)
+		k2, l2, ok := fluidOf(ts)
+		if ok && k2 == kind && l2 == 0 {
+			continue // a same-kind source is not traversable
+		}
+		if !fluidCanHold(ts) {
+			if !ok {
+				continue
+			}
+			// A flow (of either kind) is traversable even though it can
+			// never be a spread target.
+		}
+		if s.fluidIsHole(d, tp, kind) {
+			return pass
+		}
+		if pass < kind.slopeFindDistance(d) {
+			if v := s.fluidSlopeDist(d, kind, tp, pass+1, oppositeDir[i]); v < lowest {
+				lowest = v
+			}
+		}
+	}
+	return lowest
+}
+
+// rollFluidLoot rolls a washed-away block's loot table the way
+// beforeDestroyingBlock's dropResources does: no tool, no player.
+func rollFluidLoot(table string, state world.Block, pos world.Pos, d *dimension) []ItemStack {
+	ctx := &lootCtx{
+		block: table[len("blocks/"):],
+		state: state,
+		pos:   pos,
+		dim:   d,
+		rng:   rand.New(rand.NewSource(rand.Int63())),
+	}
+	return rollLootDepth(ctx, table, 0)
+}
+
+// fluidSpreadTo is vanilla's spreadTo: write the neighbour's recomputed
+// state, destroying what stood there first — with that block's drops
+// (beforeDestroyingBlock → Block.dropResources), and arm its own tick.
+func (s *Server) fluidSpreadTo(d *dimension, nb world.Pos, next world.Block, kind fluidKind) {
+	cur := d.w.GetBlock(nb)
+	if cur != world.Air {
+		// Water washing away a plant or redstone component drops it,
+		// the same loot table a player break would roll. Fluids and
+		// unlootable cells leave nothing.
+		if name, ok := world.StateOwner(cur); ok {
+			if _, hasTable := data.LootTables()["blocks/"+name]; hasTable {
+				for _, st := range rollFluidLoot("blocks/"+name, cur, nb, d) {
+					s.spawnItemDrop(d.name, nb, st)
+				}
+			}
+		}
+	}
+	s.setNaturalBlock(d, nb, next)
+	s.scheduleFluidTick(d, nb, kind.tickDelay(d))
+	if kind == fluidWater {
+		// Water that has just arrived beside lava wakes it, so the
+		// lava sets solid on its own next tick.
+		s.wakeLava(d, nb)
 	}
 }
 

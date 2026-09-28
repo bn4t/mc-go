@@ -211,6 +211,9 @@ func scenarioNames() []string {
 		"A: water source on flat ground",
 		"B: falling column and its landing",
 		"C: lava source on flat ground",
+		"F1: severed pool decay @5",
+		"F2: severed pool decay @15",
+		"F3: severed pool decay @25",
 	}
 }
 
@@ -284,6 +287,25 @@ func runFluidScenarios(t *testing.T, addr, name string) fluidRun {
 	placeAndStep(t, pw, sink, "setblock 129 -59 128 minecraft:water[level=0]", settleTicks)
 	out.names["E: water falling onto lava"] = queryNames(t, pw, sink, fluidContactCandidates,
 		[][3]int{genSrc, genFlow, genWater, {130, -60, 128}, {129, -58, 128}, {128, -59, 128}})
+
+	// F: a settled pool with its source cut, read at three points along
+	// the decay. Vanilla slides the whole ring through its levels —
+	// each cell re-derives as its strongest neighbour minus the
+	// drop-off — so the snapshots pin the rate the ring dies at, not
+	// just the end state. Placed near the player: farther out (the
+	// first attempt at (160,160)) sits outside the ten-chunk
+	// simulation distance, where vanilla never runs scheduled ticks
+	// and the pool never even forms.
+	placeAndStep(t, pw, sink, "setblock 8 -60 -32 minecraft:water[level=0]", settleTicks)
+	sendCommand(t, pw, "setblock 8 -60 -32 minecraft:air")
+	waitDrained(t, pw, sink)
+	probe := crossPositions(8, -60, -32, 8)
+	sprintTicks(t, pw, sink, 5)
+	out.levels["F1: severed pool decay @5"] = queryLevels(t, pw, sink, "water", probe)
+	sprintTicks(t, pw, sink, 10)
+	out.levels["F2: severed pool decay @15"] = queryLevels(t, pw, sink, "water", probe)
+	sprintTicks(t, pw, sink, 10)
+	out.levels["F3: severed pool decay @25"] = queryLevels(t, pw, sink, "water", probe)
 
 	return out
 }

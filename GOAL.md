@@ -73,7 +73,10 @@ Mojang server over the wire.
       light (lava-sea seeding) remains unmodeled so arrays only match
       inside sealed regions
 - [~] Fluids: water and lava flow with vanilla's levels, drop-off,
-      falling columns and dry-up. Redstone and scheduled block ticks
+      falling columns, equal-supply ring decay, min-slope-distance
+      spread gating, source-formation gamerules and wash-away loot.
+      canPassThroughWall collision shapes and waterloggable containers
+      remain approximated. Redstone and scheduled block ticks
       remain. Random ticks now cover the crop family — wheat/carrots/
       potatoes/beetroots, melon/pumpkin stems (attach + fruit on tagged
       supports), nether wart, cocoa, sweet berry bush, pitcher crop's
@@ -10238,3 +10241,64 @@ its foot spread reaches further; the undo probe sidesteps them by
 clearing the whole top. `lightSectionFlipped`'s cached-count
 bookkeeping keeps the count stale-by-one (works empirically, worth a
 second pass).
+
+## Slice: fluid-sim parity — getNewLiquid ring decay, getSpread slope-distance gating
+
+Measured on 26.2 by decompiling `FlowingFluid`, `FlowingFluid$SpreadContext`,
+`LavaFluid`, `WaterFluid` and `LiquidBlock` (javap bytecode + Vineflower):
+
+- `getNewLiquid` has NO strictness check: one horizontal pass counts
+  `highestNeighbor` and source-neighbours; `amount = best - dropOff`
+  (≤0 → empty). Equal-level neighbours still feed a cell, so a severed
+  pool's ring decays through its levels (~tickDelay per step) instead
+  of dying on the spot — mc-go's strict-supplier rule killed flows in
+  one step, the ~3× drain-rate divergence the light probes surfaced.
+- `tick` gates the recompute on `!isSource` only, writes via
+  `getSpreadDelay` and self-reschedules on any level change — that
+  reschedule is what keeps a decaying ring stepping; `spread` runs on
+  every tick regardless.
+- `getSpreadDelay` is the tick delay for water; LavaFluid overrides it:
+  old/new both non-empty non-falling and new taller → `delay*4` with
+  probability 3/4. Water is deterministic.
+- `spreadToSides` does not fan out uniformly: `getSpread` scores each
+  direction by `getSlopeDistance` — hops from the neighbour to the
+  nearest cell a fluid could fall through (`isHole`), bounded by
+  `slopeFindDistance` (water 4, lava 2 outside ultrawarm) — and only the
+  minimum-score directions get written. Flat ground scores all four
+  1000 → equal flood. A same-kind flow competes for the score but is
+  never written (`canBeReplacedWith` only allows water-into-water from
+  above); a same-kind source is not even a candidate.
+- `isHole` = `canPassThroughWall(DOWN)` && (below-fluid same kind ||
+  `canHoldFluid(below)`); `canHoldAnyFluid` answers true for cells
+  ALREADY holding fluid (fluids never block motion) — so a lava-flowing
+  cell below is a hole for water: water seeks lava to harden it, and
+  lava seeks water the same way. Its exclusion set (doors, signs,
+  ladder, sugar_cane, bubble_column, portals, structure_void) is now
+  enforced — mc-go's set wrongly washed sugar cane.
+- Source formation: `neighbourSources >= 2 && canConvertToSource` over
+  solid ground (or a same-kind source below) merges a full source —
+  gated on `water_source_conversion` / `lava_source_conversion`
+  gamerules (true/false here, matching vanilla defaults).
+- `spreadTo` runs `beforeDestroyingBlock` → `Block.dropResources`: a
+  washed block drops its loot (session-less `lootCtx`, no tool/player).
+
+The recompute (`newFluidState`), the side-spread (score-then-write on
+the min-distance directions), the down-path (write the below cell's own
+recompute — falling, or a merged source), the lava ×4 reschedule and
+the loot-drop-on-wash now all live in `internal/server/fluid.go`.
+
+`TestFluidParity` pins all of it on both servers: A flat spread, B the
+falling column + landing, C lava's reach, D/E the water↔lava names, and
+new scenario F — a settled pool with its source cut, queried mid-decay,
+which pins the ring-decay rate rather than only the end state. Unit
+side: `TestWaterFallingOnLavaFlowMakesCobblestone` now also exercises
+the hole-seeking (water flows toward the cell above the lava source →
+obsidian).
+
+Honest residuals: `canPassThroughWall`'s collision-shape check is
+approximated open (fluid flows through any traversable cell's wall) —
+matters for fences/walls that liquids can't pass in vanilla.
+`LiquidBlockContainer.placeLiquid` (waterloggable containers absorbing
+flow) is unmodeled. Lava's `canBeReplacedWith` height ≥0.444 water-
+overwrite is routed through `wakeLava` instead of a block write — the
+net cobblestone result is the same, the in-between ticks differ.
