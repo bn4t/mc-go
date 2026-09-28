@@ -40,10 +40,11 @@ var projectileTickTypes = map[string]bool{
 
 // applyHurtingInertia is AbstractHurtingProjectile.applyInertia: the
 // delta gains normalize(delta)*accelerationPower, then scales by
-// getInertia — AbstractWindCharge carries inertia 1.0 (it accelerates
-// forever), the rest inherit the base 0.95. A dangerous wither skull's
-// 0.73 and the liquid inertias (0.8) are not modelled: mc-go has no
-// dangerous-skull variant and hurting projectiles rarely float.
+// getInertia. Underwater the scale is getLiquidInertia (0.8 base) —
+// the bytecode's four BUBBLE addParticle calls are client-only (a
+// dedicated-server no-op). AbstractWindCharge carries both inertias
+// at 1.0 (it accelerates forever); a dangerous wither skull's
+// getInertia is 0.73.
 func (s *Server) applyHurtingInertia(e *Entity, name string) {
 	l := math.Sqrt(e.MotionX*e.MotionX + e.MotionY*e.MotionY + e.MotionZ*e.MotionZ)
 	// Vec3.normalize returns ZERO under 1e-4 — a hovering projectile
@@ -54,13 +55,87 @@ func (s *Server) applyHurtingInertia(e *Entity, name string) {
 		e.MotionY += e.MotionY * k
 		e.MotionZ += e.MotionZ * k
 	}
-	inertia := 0.95
-	if name == "wind_charge" || name == "breeze_wind_charge" {
-		inertia = 1.0
+	inertia := hurtingInertia(e, name)
+	if w := s.dimWorld(e.Dim); w != nil {
+		hw, h := hurtingProjectileDims(name)
+		if _, inWater, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, hw, h, fluidWater); inWater {
+			// The four BUBBLE addParticle calls at
+			// position()-delta*0.25 are a client-side detail:
+			// Level.addParticle is a no-op on the dedicated
+			// server, so nothing reaches the wire — the client
+			// replica runs its own applyInertia for the bubbles.
+			inertia = hurtingLiquidInertia(name)
+		}
 	}
 	e.MotionX *= inertia
 	e.MotionY *= inertia
 	e.MotionZ *= inertia
+}
+
+// hurtingInertia is getInertia: AbstractWindCharge accelerates
+// forever at 1.0, a dangerous WitherSkull drags at 0.73, the rest
+// inherit the 0.95 base.
+func hurtingInertia(e *Entity, name string) float64 {
+	if name == "wind_charge" || name == "breeze_wind_charge" {
+		return 1.0
+	}
+	if name == "wither_skull" && e.Dangerous {
+		return 0.73
+	}
+	return 0.95
+}
+
+// hurtingLiquidInertia is getLiquidInertia: the 0.8 base —
+// AbstractWindCharge overrides it to return getInertia(), still 1.0.
+func hurtingLiquidInertia(name string) float64 {
+	if name == "wind_charge" || name == "breeze_wind_charge" {
+		return 1.0
+	}
+	return 0.8
+}
+
+// hurtingProjectileDims is the entity-type AABB the isInWater scan
+// reads: the fireballs are 1x1, the skulls and wind charges the
+// 0.3125 cube.
+func hurtingProjectileDims(name string) (halfWidth, height float64) {
+	switch name {
+	case "fireball", "dragon_fireball":
+		return 0.5, 1.0
+	default:
+		return 0.15625, 0.3125
+	}
+}
+
+// chunkTicketed is the dedicated-server form of Level.hasChunkAt: a
+// chunk is loaded only while some in-play, non-spectator session in
+// the dimension tickets it — the streamed window (viewRadius) plus
+// the one-chunk border ring vanilla's ticket propagation also loads.
+// With no eligible session the world is a unit-test stand-in where
+// nothing should silently vanish, so the chunk reads as ticketed.
+func (s *Server) chunkTicketed(dim string, x, z float64) bool {
+	ecx := int(math.Floor(x / 16))
+	ecz := int(math.Floor(z / 16))
+	sawEligible, covered := false, false
+	s.sessions.Range(func(_, v any) bool {
+		p := v.(*Session)
+		if p.state.Load() != StatePlay || p.mode() == GameModeSpectator {
+			return true
+		}
+		if p.dimName() != dim {
+			return true
+		}
+		sawEligible = true
+		px, _, pz, _, _, _ := p.Pos()
+		radius := p.viewRadius(s.ViewDistance) + 1
+		dx := math.Abs(float64(ecx - int(math.Floor(px/16))))
+		dz := math.Abs(float64(ecz - int(math.Floor(pz/16))))
+		if int(math.Max(dx, dz)) <= radius {
+			covered = true
+			return false
+		}
+		return true
+	})
+	return !sawEligible || covered
 }
 
 // bowStartTick timestamps a draw begun by Use Item on a bow so the
@@ -238,6 +313,20 @@ func (s *Server) arrowTickStep() {
 		// other projectile types keep the generic decay path below.
 		if hurtingProjectileTypes[name] {
 			s.applyHurtingInertia(e, name)
+			// AbstractHurtingProjectile.tick discards an ownerless
+			// hurting projectile the tick its position lands outside
+			// every loaded chunk — on a dedicated server a chunk is
+			// loaded only while a player tickets it, so the boundary
+			// is the streamed window plus the ticket ring's border
+			// chunk. mc-go tracks no projectile shooter, so shot
+			// projectiles read as ownerless like summons; a live
+			// owner blocking the discard is a finer edge than this
+			// check models.
+			if !s.chunkTicketed(e.Dim, e.X, e.Z) {
+				s.entities.Remove(e.ID)
+				s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+				continue
+			}
 		}
 		ox, oy, oz := e.X, e.Y, e.Z
 		e.X += e.MotionX
@@ -523,7 +612,11 @@ func (s *Server) arrowBlockHit(e *Entity, ox, oy, oz float64) (bx, by, bz, axis 
 			continue
 		}
 		prev = p
-		if _, has := blockNameAt(d, p); !has || world.NonSolid(d.w.GetBlock(p)) {
+		// ClipContext$Block.COLLIDER skips cells with no collision
+		// shape — fluids included: a projectile raytraced through
+		// water or lava keeps flying, it doesn't hit the surface.
+		if name, has := blockNameAt(d, p); !has || world.NonSolid(d.w.GetBlock(p)) ||
+			name == "water" || name == "lava" {
 			continue
 		}
 		bx, by, bz = p.X, p.Y, p.Z

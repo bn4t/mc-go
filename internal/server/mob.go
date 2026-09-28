@@ -1739,11 +1739,21 @@ func (s *Server) runSummon(player string, args []string) reply {
 	// Wind charges fly straight (no gravity) and burst on contact.
 	if name == "wind_charge" || name == "breeze_wind_charge" || name == "wither_skull" || name == "fireball" || name == "dragon_fireball" || name == "shulker_bullet" {
 		mx, my, mz := 0.0, 0.0, 0.0
+		dangerous := false
+		noGrav := false
 		if tag != nil {
 			if mv, ok := tag.vals["Motion"]; ok && len(mv.items) == 3 {
 				mx = snbtNum(mv.items[0])
 				my = snbtNum(mv.items[1])
 				mz = snbtNum(mv.items[2])
+			}
+			if name == "wither_skull" {
+				if dv, ok := tag.vals["dangerous"]; ok && (dv.num == "1b" || dv.num == "1" || dv.str == "true") {
+					dangerous = true
+				}
+			}
+			if nv, ok := tag.vals["NoGravity"]; ok && (nv.num == "1b" || nv.num == "1" || nv.str == "true") {
+				noGrav = true
 			}
 		}
 		// LargeFireball's ExplosionPower NBT default is the ghast
@@ -1766,6 +1776,8 @@ func (s *Server) runSummon(player string, args []string) reply {
 			VX: int16(mx * 8000), VY: int16(my * 8000), VZ: int16(mz * 8000),
 			ExplosionPower: power,
 			AccelPower:     accel,
+			Dangerous:      dangerous,
+			NoGravity:      noGrav,
 		})
 		s.broadcastEntitySpawn(nil, *e)
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))

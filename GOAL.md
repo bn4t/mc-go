@@ -11280,3 +11280,60 @@ everything else.
   gate (SyncCount+1)%60 vs javap tracker-tickCount%60 — for
   non-arrow types a fresh tracker would emit a zero-delta pos at call0
   in vanilla; unmeasured.
+
+## Slice — hurting-projectile inertia + fluid skip + dangerous skull
+
+Measured on the extracted 26.2 jar (javap `-c` of
+`AbstractHurtingProjectile`, `WitherSkullEntity`,
+`AbstractWindCharge`, `Entity.baseTick`, `ServerEntity.sendChanges`)
+plus live packet probes on the vanilla server:
+
+- `applyInertia` semantics: `if isInWater() { spawn 4 BUBBLE
+  particles; inertia=getLiquidInertia() } else
+  inertia=getInertia()`; final `delta =
+  (delta + normalize(delta)*accelerationPower) * inertia`.
+- Inertia table: base `getInertia`=0.95 / `getLiquidInertia`=0.8;
+  wind charges use 1.0 for both; `WitherSkullEntity` overrides
+  `getInertia` to `isDangerous() ? 0.73 : 0.95` but keeps
+  `getLiquidInertia`=0.8 — a dangerous skull is *faster* in water
+  (asymptote 0.4) than in air (0.27).
+- `isInWater`/`wasTouchingWater` refresh: `baseTick` runs
+  `updateFluidInteraction()` per tick over the entity-type AABB
+  deflated 0.001 — skulls/wind charges are the 0.3125 cube, the
+  fireballs 1x1.
+- `ClipContext.Block.COLLIDER` skips fluids — a hurting
+  projectile's `arrowBlockHit` must not count water/lava cells as
+  block hits.
+- `AbstractHurtingProjectile.tick` discards an ownerless hurting
+  projectile the tick its position lands outside every loaded
+  chunk — on a dedicated server, loaded == player-ticketed
+  (streamed window + the ticket ring's border chunk). mc-go tracks
+  no projectile shooter so shots read as ownerless too.
+- `WitherSkullEntity`'s `dangerous` NBT byte round-trips through
+  summon, save/load, and entity-metadata index 8 on the wire; the
+  metadata only emits when dangerous=1.
+- Drift-emit cadence: `sendChanges` emits the
+  {set_entity_motion, projectile_power} bundle when
+  `distanceToSqr(lastDelta, delta) > 1e-7` — i.e. |Δv|>3.16e-4 —
+  while the outer gate is `tickCount%updateInterval==0` (10 for
+  wither_skull). Water lanes emit exactly 3 bundles (~ticks
+  10/20/30) before convergence drops drift under the floor; air
+  lanes emit until untracked past the 64-block client-tracking
+  range (wither_skull `clientTrackingRange`=4).
+- join paths must send `client_information` — without it vanilla's
+  default view distance 2 makes entities untrack past 32 blocks.
+
+Pinned end-to-end: `TestHurtingInertiaParity` summons six
+wither_skull lanes (water/air x dangerous/plain x moving/still)
+and compares every set_entity_motion+projectile_power bundle —
+emit counts and per-emit values — between vanilla and mc-go, plus
+the `dangerous` metadata flag and NBT round-trip.
+
+Deferred: `onDeflection` semantics; dangerous-skull
+`getBlockExplosionResistance` (`min(0.8f, ...)`) and
+`isOnFire`/`shouldBurn` overrides; `Entity.syncPosition`'s
+tickCount%60 zero-delta emit; the view-distance-default hazard in
+other join paths suite-wide; `sendWindow`'s ~3.2 s synchronous
+light-init on the packet-handler thread (perf gap vs vanilla's
+async pipeline — it stalls command processing, which is why the
+test drains with `dataGetLine`).

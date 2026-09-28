@@ -525,6 +525,11 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	if hurtingProjectileTypes[typeName] {
 		m["acceleration_power"] = e.AccelPower
 	}
+	// WitherSkull's own write also emits dangerous unconditionally
+	// (putBoolean, not the is-set gate).
+	if typeName == "wither_skull" {
+		m["dangerous"] = nbtBool(e.Dangerous)
+	}
 	// LivingEntity.save adds the living block — carts, boats and
 	// other non-living entities emit the shared set only.
 	if e.Living {
@@ -1135,6 +1140,11 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	// acceleration_power is a plain double with a 0.1 fallback; only
 	// hurting projectiles read the key.
 	if name, ok2 := EntityTypeName(e.Type); ok2 && hurtingProjectileTypes[name] {
+		if name == "wither_skull" {
+			// readAdditionalSaveData's getBooleanOr("dangerous",
+			// false) — absent reads as the false default.
+			e.Dangerous = nbtTruth(save["dangerous"])
+		}
 		if v, ok := save["acceleration_power"]; ok {
 			switch f := v.(type) {
 			case float64:

@@ -248,6 +248,11 @@ type Entity struct {
 	// acceleration_power, constructor + read default 0.1). Zero is
 	// treated as 0.1 for types that carry the field.
 	AccelPower float64
+	// Dangerous is WitherSkull's DATA_DANGEROUS — the black skull
+	// variant the wither shoots. Reads from the "dangerous" NBT key,
+	// drives getInertia 0.73 (vs the 0.95 base) and ships as entity
+	// metadata index 8 in the pairing data.
+	Dangerous bool
 	// CloudOwnerID is AreaEffectCloud.owner — the LivingEntity that
 	// spawned the cloud (0 when none). The dose's indirect_magic
 	// damage source wires it as the cause; the cloud itself is the
@@ -1415,6 +1420,11 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 	default:
 		if name, ok := EntityTypeName(e.Type); ok && isBoatEntityName(name) {
 			meta = encodeBoatMeta(e)
+		} else if ok && name == "wither_skull" && e.Dangerous {
+			// DATA_DANGEROUS sits at index 8 behind the shared
+			// Entity chain — the pairing data carries the dirty
+			// BOOLEAN entry; a plain skull's pack is empty.
+			meta = []byte{8, 8, 1, 0xFF}
 		}
 	}
 	if meta != nil {
