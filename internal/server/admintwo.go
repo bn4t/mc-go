@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"mc-go/internal/protocol"
+	"mc-go/internal/world"
 )
 
 // attrMod is one /attribute modifier instance: amount plus operation.
@@ -1005,6 +1006,7 @@ func (s *Server) runPlace(player string, args []string) reply {
 		if !featureNames[short] {
 			return componentReply(commandError("commands.place.feature.invalid", name))
 		}
+		var pos world.Pos
 		if len(args) > 2 {
 			bp, rep := s.parseBlockPos(sender, args[2:], 3)
 			if rep != nil {
@@ -1013,18 +1015,20 @@ func (s *Server) runPlace(player string, args []string) reply {
 			if len(args) > 5 {
 				return errToken("command.unknown.argument", 6)
 			}
-			return opsEchoReply(translatable("commands.place.feature.success",
-				nestedCompound{key: "", value: name},
-				nestedCompound{key: "", value: int32(bp[0])},
-				nestedCompound{key: "", value: int32(bp[1])},
-				nestedCompound{key: "", value: int32(bp[2])}))
+			pos = world.Pos{X: bp[0], Y: bp[1], Z: bp[2]}
+		} else {
+			x, y, z, _, _, _ := sender.Pos()
+			pos = world.Pos{X: int(x), Y: int(y), Z: int(z)}
 		}
-		x, y, z, _, _, _ := sender.Pos()
+		d := s.dims[sender.dimName()]
+		if !s.placeFeatureName(d, short, pos) {
+			return componentReply(commandError("commands.place.feature.failed"))
+		}
 		return opsEchoReply(translatable("commands.place.feature.success",
 			nestedCompound{key: "", value: name},
-			nestedCompound{key: "", value: int32(x)},
-			nestedCompound{key: "", value: int32(y)},
-			nestedCompound{key: "", value: int32(z)}))
+			nestedCompound{key: "", value: int32(pos.X)},
+			nestedCompound{key: "", value: int32(pos.Y)},
+			nestedCompound{key: "", value: int32(pos.Z)}))
 	case "template":
 		if len(args) < 2 {
 			return errTokenEnd("command.unknown.command", 2)

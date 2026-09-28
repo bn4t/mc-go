@@ -10532,3 +10532,47 @@ unpaced variant of queryNames (per-position done-marker instead of
 if/unless pairs) — count scans over ~800-cell volumes went from
 ~16 min/leg to seconds since the probe disables the command-spam
 threshold anyway.
+
+## Slice: fancy oak + /place feature (FancyTrunkPlacer/FancyFoliagePlacer, clipped-height gate)
+
+Measured on 26.2 (`fancy_oak.json` + FancyTrunkPlacer/FancyFoliagePlacer/
+TwoLayersFeatureSize/TrunkPlacer decompiles):
+
+- fancy_oak samples trunk 3+intn(12)+intn(1) (3..14); placeTrunk runs on
+  height = clipped+2 with trunkHeight = floor(height*0.618). Foliage
+  spots: seed attach at pos+(height-5) anchored to the trunk top, then
+  per layer relY = height-5..0 where treeShape >= 0 (dead below 30% of
+  the tree, half-chord of the ellipse otherwise) one cluster at radius
+  = treeShape*(nextFloat+0.328) on a random angle — kept when the
+  upward 6-cell column AND the limb from (x=origin, branchTop) both
+  pass isFree; branchTop = min(trunkTop, trunc(attach.Y -
+  hypot(dx,dz)*0.381)).
+- makeLimb writes steps+1 cells by Java's (int)(0.5+i*d/steps) floor;
+  doPlace only writes where validTreePos; per-cell axis = dominant
+  horizontal offset from the limb start (x>=z -> x, z -> z, on-column
+  -> y) — the branch limbs are the only source of non-y oak_log.
+- isFree = validTreePos OR a #logs cell, so limbs may pass through
+  earlier logs. trimBranches drops limbs/attachments whose branch base
+  is below 20% of the tree (the trunk-top attachment always survives).
+- FancyFoliagePlacer {radius 2, offset 4, height 4}: rows yo = 4..0
+  with radius 2 on the top/bottom rows and 3 between; circular skip
+  (dx+.5)^2 + (dz+.5)^2 > r^2.
+- minsize two_layers {limit 0, upper 0, min_clipped_height 4}: the
+  space check is column-only (radius 0), capped at sampled+1 cells
+  above — an obstacle beyond the sampled height is invisible and the
+  tree grows unclipped; otherwise clipped = blockedY-2, and the tree
+  still grows when clipped >= 4 (or >= sampled).
+- /place feature <configured> now runs real doPlace for the
+  implemented trees (fancy_oak, oak, birch, spruce, acacia,
+  jungle_tree{,_no_vine}) with vanilla replies
+  commands.place.feature.{success,failed,invalid}; unimplemented names
+  fail like a real placement that could not run.
+
+Blackbox: `TestFancyOakParity` — three fancy_oak placed at 10 spacing;
+per-leg counts (oak_log >= 3, oak_leaves >= 25), >= 1 horizontal-axis
+oak_log across the grove (branch limbs), stone at pos+4 -> clipped 2 <
+4 -> failed reply on both legs, stone at pos+6 -> clipped 4 -> stubby
+clipped tree grows on both legs (the clipped shape itself is
+sampling-dependent so only the invariants are pinned). `scanNames`
+joins every matching candidate with "+" — horizontal logs read
+"oak_log+oak_log[axis=x]"; count via Contains.

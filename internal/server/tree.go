@@ -1,6 +1,8 @@
 package server
 
 import (
+	"math"
+
 	"mc-go/internal/world"
 	"strconv"
 	"strings"
@@ -129,10 +131,10 @@ func (s *Server) advanceTree(d *dimension, pos world.Pos, blk world.Block) {
 	s.growTree(d, pos, blk)
 }
 
-// growTree — TreeGrower.growTree + TreeFeature.doPlace: pick the
-// species' feature (oak rolls fancy at 10%, which has no placer yet),
-// clear the sapling, space-check, write the trunk, the blob canopy and
-// the dirt-under-trunk, then BFS the leaf distances like updateLeaves.
+// growTree — TreeGrower.growTree: pick the species' feature (oak
+// rolls fancy at 10%), clear the sapling, run the feature and restore
+// the sapling on a failed place — all inside TreeGrower, before
+// TreeFeature.doPlace ever sees the world.
 func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 	name, ok := world.StateOwner(blk)
 	if !ok {
@@ -143,24 +145,61 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 		return
 	}
 	// getConfiguredFeature: rand.nextFloat() < secondaryChance picks the
-	// secondary feature — oak's fancy tree. It has no placer yet and
-	// fails like a failed place().
-	if s.rng.nextDouble() < shape.fancyChance {
-		return
-	}
+	// secondary feature — oak's fancy tree runs FancyTrunkPlacer +
+	// FancyFoliagePlacer against its own minsize rule.
+	fancy := s.rng.nextDouble() < shape.fancyChance
 
 	// growTree clears the sapling before the feature sees the world,
 	// so the origin cell reads air for the whole place.
 	s.setSilentBlock(d, pos, world.Air)
+	var grew bool
+	if fancy {
+		grew = s.fancyOakFeature(d, pos)
+	} else {
+		grew = s.treeFeature(d, pos, shape)
+	}
+	if !grew {
+		s.setSilentBlock(d, pos, blk)
+	}
+}
 
+// placeFeatureName maps /place feature ids onto the implemented tree
+// features and runs doPlace at pos. Every unimplemented feature fails
+// like a failed place() — the configured-feature set on the wire
+// already includes the whole vanilla registry, so unsupported names
+// report "Failed to place feature" the same way vanilla reports a
+// real placement that could not run.
+func (s *Server) placeFeatureName(d *dimension, name string, pos world.Pos) bool {
+	switch name {
+	case "fancy_oak":
+		return s.fancyOakFeature(d, pos)
+	case "oak", "birch", "spruce", "acacia":
+		return s.treeFeature(d, pos, treeShapes[name+"_sapling"])
+	case "jungle_tree_no_vine":
+		return s.treeFeature(d, pos, treeShapes["jungle_sapling"])
+	case "jungle_tree":
+		// jungle_tree shares no_vine's trunk and canopy and adds the
+		// {cocoa, trunk_vine, leave_vine} decorator set.
+		shape := treeShapes["jungle_sapling"]
+		shape.jungleDecor = true
+		return s.treeFeature(d, pos, shape)
+	}
+	return false
+}
+
+// treeFeature — TreeFeature.doPlace for the small-tree features:
+// sample the trunk height, gate on bounds and the two-layers space
+// check, write dirt under the trunk, then trunk, canopy, decorators
+// and the updateLeaves distance pass. false when place() fails — the
+// caller decides whether a sapling comes back.
+func (s *Server) treeFeature(d *dimension, pos world.Pos, shape treeShape) bool {
 	treeHeight := shape.baseHeight + s.rng.intn(shape.randA+1) + s.rng.intn(shape.randB+1)
 
 	// doPlace's bounds gate: the feature refuses to run when the
 	// trunk's own origin or its top would sit outside the world's
 	// buildable range.
 	if pos.Y < d.minY+1 || pos.Y+treeHeight+1 > d.minY+d.height {
-		s.setSilentBlock(d, pos, blk)
-		return
+		return false
 	}
 
 	// getMaxFreeTreeHeight with two_layers_feature_size:
@@ -179,8 +218,7 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 		}
 	}
 	if clipped < treeHeight {
-		s.setSilentBlock(d, pos, blk) // failed place: vanilla restores the sapling
-		return
+		return false
 	}
 
 	// placeBelowTrunkBlock: the provider writes dirt under the trunk
@@ -225,25 +263,7 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 		"distance": "7", "persistent": "false", "waterlogged": "false",
 	})
 	placeLeaf := func(p world.Pos) {
-		// tryPlaceLeaf: never overwrites persistent leaves or anything
-		// outside REPLACEABLE_BY_TREES (logs included).
-		cur := d.w.GetBlock(p)
-		if pv, ok := world.StateProperty(cur, "persistent"); ok && pv == "true" {
-			return
-		}
-		if !s.treeCanOccupy(d, p) {
-			return
-		}
-		st := leafState
-		// The foliage provider folds waterlogged from the cell's
-		// fluid — a water source waterlogs the leaf.
-		if k, _, ok := fluidOf(cur); ok && k == fluidWater {
-			if nb, ok := world.WithProperty(st, "waterlogged", "true"); ok {
-				st = nb
-			}
-		}
-		s.setNaturalBlock(d, p, st)
-		leaves = append(leaves, p)
+		s.placeTreeLeaf(d, p, leafState, &leaves)
 	}
 	switch shape.canopy {
 	case canopySpruce:
@@ -285,6 +305,256 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 	// DISTANCE=min(neighbour+1, 7) on the leaf cells at once — the same
 	// result the leaf distance ticks would converge to over ticks.
 	s.treeLeafDistances(d, logs, leaves)
+	return true
+}
+
+// placeTreeLeaf is FoliagePlacer.tryPlaceLeaf: never overwrites
+// persistent leaves or anything outside REPLACEABLE_BY_TREES (logs
+// included), and folds waterlogged from the cell's fluid into the
+// written state.
+func (s *Server) placeTreeLeaf(d *dimension, p world.Pos, leafState world.Block, leaves *[]world.Pos) {
+	cur := d.w.GetBlock(p)
+	if pv, ok := world.StateProperty(cur, "persistent"); ok && pv == "true" {
+		return
+	}
+	if !s.treeCanOccupy(d, p) {
+		return
+	}
+	st := leafState
+	if k, _, ok := fluidOf(cur); ok && k == fluidWater {
+		if nb, ok := world.WithProperty(st, "waterlogged", "true"); ok {
+			st = nb
+		}
+	}
+	s.setNaturalBlock(d, p, st)
+	*leaves = append(*leaves, p)
+}
+
+// fancyOakFeature — fancy_oak.json: the oak secondary feature. Trunk
+// {base 3, randA 11, randB 0}, FancyFoliagePlacer {radius 2, offset 4,
+// height 4}, decorators [], and two_layers {limit 0, upper_size 0,
+// min_clipped_height 4} — the single-column space check may clip the
+// tree to as little as 4 cells, and a clipped fancy oak still grows
+// (unlike the main feature which fails when it can't reach its full
+// sampled height).
+func (s *Server) fancyOakFeature(d *dimension, pos world.Pos) bool {
+	treeHeight := 3 + s.rng.intn(12) + s.rng.intn(1)
+	if pos.Y < d.minY+1 || pos.Y+treeHeight+1 > d.minY+d.height {
+		return false
+	}
+	// getMaxFreeTreeHeight with getSizeAtHeight → 0 at every layer.
+	clipped := treeHeight
+	for y := 0; y <= treeHeight+1; y++ {
+		if !s.treeSpaceFree(d, pos, y, 0) {
+			clipped = y - 2
+			break
+		}
+	}
+	// clippedTreeHeight >= treeHeight || clippedTreeHeight >= 4.
+	if clipped < treeHeight && clipped < 4 {
+		return false
+	}
+
+	below := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
+	if bn, _ := world.StateOwner(d.w.GetBlock(below)); !dirtTagName(strings.TrimPrefix(bn, "minecraft:")) {
+		if dirt, ok := world.BlockStateOf("dirt", nil); ok {
+			s.setNaturalBlock(d, below, dirt)
+		}
+	}
+
+	logState, _ := world.BlockStateOf("oak_log", map[string]string{"axis": "y"})
+	var logs []world.Pos
+	attachments := s.fancyTrunk(d, pos, clipped, logState, &logs)
+
+	leafState, _ := world.BlockStateOf("oak_leaves", map[string]string{
+		"distance": "7", "persistent": "false", "waterlogged": "false",
+	})
+	var leaves []world.Pos
+	// FancyFoliagePlacer.createFoliage per attachment: five rows at
+	// yo = offset(4)..offset-foliageHeight(0) with radius 2 on the top
+	// and bottom rows and 3 between, and the circular skip
+	// (dx+.5)^2 + (dz+.5)^2 > r^2.
+	for _, at := range attachments {
+		for yo := 4; yo >= 0; yo-- {
+			r := 2
+			if yo != 4 && yo != 0 {
+				r = 3
+			}
+			for dx := -r; dx <= r; dx++ {
+				for dz := -r; dz <= r; dz++ {
+					fx, fz := float64(dx)+0.5, float64(dz)+0.5
+					if fx*fx+fz*fz > float64(r*r) {
+						continue
+					}
+					s.placeTreeLeaf(d, world.Pos{X: at.pos.X + dx, Y: at.pos.Y + yo, Z: at.pos.Z + dz}, leafState, &leaves)
+				}
+			}
+		}
+	}
+	s.treeLeafDistances(d, logs, leaves)
+	return true
+}
+
+// fancyCoord is FancyTrunkPlacer.FoliageCoords: an attachment cell and
+// the trunk-column Y its branch leaves from.
+type fancyCoord struct {
+	attach      world.Pos
+	branchBaseY int
+}
+
+// fancyTrunk — FancyTrunkPlacer.placeTrunk. height = clipped+2,
+// trunkHeight = floor(height*0.618): candidate foliage spots are
+// scanned from the crown down while two limbs pass collision checks
+// (isFree — log cells count as free), then the trunk column and one
+// limb per kept coord are written; coords whose branch base is below
+// 20% of the tree are trimmed away.
+func (s *Server) fancyTrunk(d *dimension, pos world.Pos, clipped int, logState world.Block, logs *[]world.Pos) []foliageAttach {
+	height := clipped + 2
+	trunkHeight := int(math.Floor(float64(height) * 0.618))
+	trunkTop := pos.Y + trunkHeight
+
+	coords := []fancyCoord{{
+		attach:      world.Pos{X: pos.X, Y: pos.Y + height - 5, Z: pos.Z},
+		branchBaseY: trunkTop,
+	}}
+	// clustersPerY = min(1, floor(1.382 + (height/13)^2)) is 1 for every
+	// treeHeight fancy reaches (height <= 16).
+	for relY := height - 5; relY >= 0; relY-- {
+		ts := fancyTreeShape(height, relY)
+		if ts < 0 {
+			continue
+		}
+		radius := float64(ts) * (s.rng.nextDouble() + 0.328)
+		angle := s.rng.nextDouble() * 2 * math.Pi
+		x := radius*math.Sin(angle) + 0.5
+		z := radius*math.Cos(angle) + 0.5
+		checkStart := world.Pos{
+			X: pos.X + int(math.Floor(x)),
+			Y: pos.Y + relY - 1,
+			Z: pos.Z + int(math.Floor(z)),
+		}
+		checkEnd := world.Pos{X: checkStart.X, Y: checkStart.Y + 5, Z: checkStart.Z}
+		if !s.fancyLimbFree(d, checkStart, checkEnd) {
+			continue
+		}
+		dx := pos.X - checkStart.X
+		dz := pos.Z - checkStart.Z
+		branchTop := int(float64(checkStart.Y) - math.Sqrt(float64(dx*dx+dz*dz))*0.381)
+		if branchTop > trunkTop {
+			branchTop = trunkTop
+		}
+		base := world.Pos{X: pos.X, Y: branchTop, Z: pos.Z}
+		if !s.fancyLimbFree(d, base, checkStart) {
+			continue
+		}
+		coords = append(coords, fancyCoord{attach: checkStart, branchBaseY: base.Y})
+	}
+
+	s.fancyLimb(d, pos, world.Pos{X: pos.X, Y: pos.Y + trunkHeight, Z: pos.Z}, logState, logs)
+	for _, c := range coords {
+		base := world.Pos{X: pos.X, Y: c.branchBaseY, Z: pos.Z}
+		if base != c.attach && fancyTrim(height, base.Y-pos.Y) {
+			s.fancyLimb(d, base, c.attach, logState, logs)
+		}
+	}
+
+	var attachments []foliageAttach
+	for _, c := range coords {
+		if fancyTrim(height, c.branchBaseY-pos.Y) {
+			attachments = append(attachments, foliageAttach{pos: c.attach})
+		}
+	}
+	return attachments
+}
+
+// fancyTreeShape — FancyTrunkPlacer.treeShape: -1 below 30% of the
+// tree (never tries foliage there), 0 outside the ellipsoid shell,
+// else half the chord radius at that layer.
+func fancyTreeShape(height, y int) float64 {
+	if float64(y) < float64(height)*0.3 {
+		return -1
+	}
+	r := float64(height) / 2
+	adj := r - float64(y)
+	if adj == 0 {
+		return r * 0.5
+	}
+	if math.Abs(adj) >= r {
+		return 0
+	}
+	return math.Sqrt(r*r-adj*adj) * 0.5
+}
+
+// fancyTrim — FancyTrunkPlacer.trimBranches.
+func fancyTrim(height, localY int) bool {
+	return float64(localY) >= float64(height)*0.2
+}
+
+// fancyLimbFree — makeLimb with doPlace=false: every interpolated cell
+// must be isFree (validTreePos or a #logs cell); a zero-length limb is
+// always free.
+func (s *Server) fancyLimbFree(d *dimension, start, end world.Pos) bool {
+	if start == end {
+		return true
+	}
+	dx, dy, dz := end.X-start.X, end.Y-start.Y, end.Z-start.Z
+	steps := max(absi(dx), absi(dy), absi(dz))
+	for i := 0; i <= steps; i++ {
+		bp := fancyLimbCell(start, dx, dy, dz, steps, i)
+		if !s.treeFree(d, bp) {
+			return false
+		}
+	}
+	return true
+}
+
+// fancyLimbCell is the interpolated limb cell at step i: Java's
+// (int)(0.5 + i*d/steps) floor, where a zero-length limb keeps the
+// start cell (Java's (int)NaN → 0).
+func fancyLimbCell(start world.Pos, dx, dy, dz, steps, i int) world.Pos {
+	if steps == 0 {
+		return start
+	}
+	return world.Pos{
+		X: start.X + int(math.Floor(0.5+float64(i)*float64(dx)/float64(steps))),
+		Y: start.Y + int(math.Floor(0.5+float64(i)*float64(dy)/float64(steps))),
+		Z: start.Z + int(math.Floor(0.5+float64(i)*float64(dz)/float64(steps))),
+	}
+}
+
+// fancyLimb — makeLimb with doPlace=true: each interpolated cell writes
+// a log when validTreePos, with the axis of the dominant direction of
+// the limb's start point (the branch limbs' logs lie horizontal).
+func (s *Server) fancyLimb(d *dimension, start, end world.Pos, logState world.Block, logs *[]world.Pos) {
+	dx, dy, dz := end.X-start.X, end.Y-start.Y, end.Z-start.Z
+	steps := max(absi(dx), absi(dy), absi(dz))
+	for i := 0; i <= steps; i++ {
+		bp := fancyLimbCell(start, dx, dy, dz, steps, i)
+		if !s.treeCanOccupy(d, bp) {
+			continue
+		}
+		st := logState
+		ax, az := absi(bp.X-start.X), absi(bp.Z-start.Z)
+		switch {
+		case ax == 0 && az == 0:
+		case ax >= az:
+			st, _ = world.WithProperty(st, "axis", "x")
+		default:
+			st, _ = world.WithProperty(st, "axis", "z")
+		}
+		s.setNaturalBlock(d, bp, st)
+		*logs = append(*logs, bp)
+	}
+}
+
+// treeFree — TrunkPlacer.isFree: validTreePos or a #logs cell — trunks
+// weave through other logs on both the space check and limb checks.
+func (s *Server) treeFree(d *dimension, p world.Pos) bool {
+	if s.treeCanOccupy(d, p) {
+		return true
+	}
+	n, _ := world.StateOwner(d.w.GetBlock(p))
+	return treeLogTag(strings.TrimPrefix(n, "minecraft:"))
 }
 
 // spruceCanopy — SpruceFoliagePlacer.createFoliage: the zigzag cone.
