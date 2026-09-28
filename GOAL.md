@@ -10497,3 +10497,38 @@ random_tick_speed 600; names map (trunk zone + dirt), per-leg trunk
 4-12, the guaranteed blob-canopy leaf beside the trunk top, and the
 vine ring scan pinned to ZERO on both legs. NOTE: z=-56 was outside
 the sim-distance-3 tick radius — scenario rows must stay within ±48.
+
+## Slice: acacia growth — forking trunk + flat umbrella canopy
+
+- `acacia.json` (26.2 configured_feature): ForkingTrunkPlacer
+  {base_height 5, randA 2, randB 2} → 5-9 logs. The column leans one
+  horizontal step per level for its top leanSteps(1-3) levels starting
+  at leanHeight = treeHeight - U(0..3) - 1; a second staircase branch
+  (a different random direction, skipped when the rolls coincide)
+  climbs 1-3 logs from leanHeight - U(0..1) - 1. Attachments: main tip
+  radiusOffset 1, branch tip 0.
+- AcaciaFoliagePlacer {radius 2, offset 0}: per attachment a skirt row
+  at attach-1 of radius 2+radiusOffset (3 main / 2 branch) with the
+  square's corners skipped, plus a full 3x3 cap at the attach level
+  (the measured skip predicate can never fire at radius 1).
+- minsize two_layers {upper 2} → the 5x5 space check from y>=1.
+- treeShape grew `trunk trunkKind` + `canopy canopyKind` variants and
+  `forkingTrunk` hands `foliageAttach`s to the canopy — the same
+  attachment list vanilla's placeTrunk produces for createFoliage.
+- `treeLeafDistances` now seeds its BFS at the collected written-log
+  slice, not the origin column — a leaning trunk leaves the column,
+  so distance was previously computed from a stale seed set.
+- Bug the differential caught: the attachment liveness check compared
+  a world Y against >= 0, so every tree grown below sea level silently
+  dropped its foliage (trunk only, no canopy — exactly what the leaf
+  count pins flagged).
+
+Blackbox: `TestAcaciaParity` — three acacia at 10 spacing grown at
+random_tick_speed 600 plus one crowded by a stone inside its 5x5;
+per-leg counts over the grown volume (acacia_log >= 5, acacia_leaves
+>= 25), the origin log cell, the rooted dirt, and the crowded sapling
+pinned stage-1 on both legs. Also introduced `scanNames`: the
+unpaced variant of queryNames (per-position done-marker instead of
+if/unless pairs) — count scans over ~800-cell volumes went from
+~16 min/leg to seconds since the probe disables the command-spam
+threshold anyway.

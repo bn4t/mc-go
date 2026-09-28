@@ -15,13 +15,31 @@ import (
 // features.
 
 // canopyKind is the species' foliage_placer variant: the small oak /
-// birch blob or the spruce zigzag cone.
+// birch blob, the spruce zigzag cone, or the acacia flat umbrella.
 type canopyKind int
 
 const (
 	canopyBlob canopyKind = iota
 	canopySpruce
+	canopyAcacia
 )
+
+// trunkKind is the species' trunk_placer variant: the straight column
+// every small tree shares or the acacia forking trunk (diagonal lean
+// plus an optional side branch).
+type trunkKind int
+
+const (
+	trunkStraight trunkKind = iota
+	trunkForking
+)
+
+// foliageAttach is one FoliageAttachment: the cell the canopy centers
+// on and the radiusOffset the placer adds to its sampled radius.
+type foliageAttach struct {
+	pos          world.Pos
+	radiusOffset int
+}
 
 // treeShape is one species' single-trunk feature: a straight log column
 // of baseHeight + intn(randA+1) + intn(randB+1), the two-layers space
@@ -34,6 +52,7 @@ type treeShape struct {
 	baseHeight, randA, randB int
 	fancyChance              float64
 	minLimit, minUpper       int // two_layers_feature_size: y < limit → 0, else upper
+	trunk                    trunkKind
 	canopy                   canopyKind
 	jungleDecor              bool // the {cocoa, trunk_vine, leave_vine} decorator set
 }
@@ -47,10 +66,11 @@ type treeShape struct {
 // fails like vanilla failing a space check, so under low ceilings the
 // absence is invisible and in the open it is the known gap.
 var treeShapes = map[string]treeShape{
-	"oak_sapling":    {"oak_log", "oak_leaves", 4, 2, 0, 0.1, 1, 1, canopyBlob, false},
-	"birch_sapling":  {"birch_log", "birch_leaves", 5, 2, 0, 0, 1, 1, canopyBlob, false},
-	"spruce_sapling": {"spruce_log", "spruce_leaves", 5, 2, 1, 0, 2, 2, canopySpruce, false},
-	"jungle_sapling": {"jungle_log", "jungle_leaves", 4, 8, 0, 0, 1, 1, canopyBlob, false},
+	"oak_sapling":    {"oak_log", "oak_leaves", 4, 2, 0, 0.1, 1, 1, trunkStraight, canopyBlob, false},
+	"birch_sapling":  {"birch_log", "birch_leaves", 5, 2, 0, 0, 1, 1, trunkStraight, canopyBlob, false},
+	"spruce_sapling": {"spruce_log", "spruce_leaves", 5, 2, 1, 0, 2, 2, trunkStraight, canopySpruce, false},
+	"jungle_sapling": {"jungle_log", "jungle_leaves", 4, 8, 0, 0, 1, 1, trunkStraight, canopyBlob, false},
+	"acacia_sapling": {"acacia_log", "acacia_leaves", 5, 2, 2, 0, 1, 2, trunkForking, canopyAcacia, false},
 }
 
 // saplingRule — SaplingBlock.randomTick: getMaxLocalRawBrightness of
@@ -177,14 +197,24 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 	// placeTrunk: each trunk cell only writes when validTreePos — a
 	// log (free for space but not a placement target) truncates the
 	// visible column without failing the tree. The written cells are
-	// collected — the decorators' context.logs() reads them.
+	// collected — the decorators' context.logs() reads them — and the
+	// trunk hands back its foliage attachments.
 	logState, _ := world.BlockStateOf(shape.log, map[string]string{"axis": "y"})
 	var logs []world.Pos
-	for y := 0; y < treeHeight; y++ {
-		p := world.Pos{X: pos.X, Y: pos.Y + y, Z: pos.Z}
-		if s.treeCanOccupy(d, p) {
-			s.setNaturalBlock(d, p, logState)
-			logs = append(logs, p)
+	var attachments []foliageAttach
+	switch shape.trunk {
+	case trunkForking:
+		attachments = s.forkingTrunk(d, pos, treeHeight, logState, &logs)
+	default:
+		for y := 0; y < treeHeight; y++ {
+			p := world.Pos{X: pos.X, Y: pos.Y + y, Z: pos.Z}
+			if s.treeCanOccupy(d, p) {
+				s.setNaturalBlock(d, p, logState)
+				logs = append(logs, p)
+			}
+		}
+		attachments = []foliageAttach{
+			{pos: world.Pos{X: pos.X, Y: pos.Y + treeHeight, Z: pos.Z}, radiusOffset: 0},
 		}
 	}
 
@@ -218,6 +248,8 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 	switch shape.canopy {
 	case canopySpruce:
 		s.spruceCanopy(d, top, treeHeight, placeLeaf)
+	case canopyAcacia:
+		s.acaciaCanopy(d, attachments, placeLeaf)
 	default:
 		// blob (radius 2, offset 0, height 3): four layers at yo
 		// 0..-3 with radius max(2 - 1 - yo/2, 0) → 1,1,2,2 (Java's
@@ -249,10 +281,10 @@ func (s *Server) growTree(d *dimension, pos world.Pos, blk world.Block) {
 		s.jungleDecorators(d, logs, leaves)
 	}
 
-	// updateLeaves: BFS from every log inside the bounding box assigns
+	// updateLeaves: BFS from every written log assigns
 	// DISTANCE=min(neighbour+1, 7) on the leaf cells at once — the same
 	// result the leaf distance ticks would converge to over ticks.
-	s.treeLeafDistances(d, pos, treeHeight, leaves)
+	s.treeLeafDistances(d, logs, leaves)
 }
 
 // spruceCanopy — SpruceFoliagePlacer.createFoliage: the zigzag cone.
@@ -288,6 +320,100 @@ func (s *Server) spruceCanopy(d *dimension, top world.Pos, treeHeight int, place
 			cur++
 		}
 	}
+}
+
+// acaciaCanopy — AcaciaFoliagePlacer.createFoliage: one flat
+// umbrella per trunk attachment. The skirt row sits one below the
+// attachment at radius leafRadius(2) + radiusOffset (3 on the main
+// top, 2 on the branch tip) with its corners skipped; the cap row at
+// the attachment level is radius leafRadius-1 = 1 where the skip
+// predicate (dx>1||dz>1)&&dx!=0&&dz!=0 never fires → a full 3x3.
+func (s *Server) acaciaCanopy(d *dimension, attachments []foliageAttach, placeLeaf func(world.Pos)) {
+	for _, at := range attachments {
+		// skirt: attach-1, radius 2+radiusOffset, corners skipped.
+		r := 2 + at.radiusOffset
+		for dx := -r; dx <= r; dx++ {
+			for dz := -r; dz <= r; dz++ {
+				if absi(dx) == r && absi(dz) == r && r > 0 {
+					continue
+				}
+				placeLeaf(world.Pos{X: at.pos.X + dx, Y: at.pos.Y - 1, Z: at.pos.Z + dz})
+			}
+		}
+		// cap: attach level, radius 1, no cell ever skipped.
+		for dx := -1; dx <= 1; dx++ {
+			for dz := -1; dz <= 1; dz++ {
+				placeLeaf(world.Pos{X: at.pos.X + dx, Y: at.pos.Y, Z: at.pos.Z + dz})
+			}
+		}
+	}
+}
+
+// forkingTrunk — ForkingTrunkPlacer.placeTrunk: the column leans one
+// horizontal step per level for the top leanSteps(1-3) levels from
+// leanHeight(treeHeight - U(0..3) - 1), and a second staircase branch
+// climbs from leanHeight - U(0..1) - 1 for 1-3 logs when its random
+// direction differs from the lean. Attachments: the main tip carries
+// radiusOffset 1, the branch tip 0.
+var horizDirs = [4]world.Pos{
+	{X: 0, Z: -1}, {X: 0, Z: 1}, {X: -1, Z: 0}, {X: 1, Z: 0},
+}
+
+func (s *Server) forkingTrunk(d *dimension, pos world.Pos, treeHeight int, logState world.Block, logs *[]world.Pos) []foliageAttach {
+	var attachments []foliageAttach
+	lean := horizDirs[s.rng.intn(4)]
+	leanHeight := treeHeight - s.rng.intn(4) - 1
+	leanSteps := 3 - s.rng.intn(3)
+	tx, tz := pos.X, pos.Z
+	var top world.Pos
+	hasTop := false
+	for yo := 0; yo < treeHeight; yo++ {
+		yy := pos.Y + yo
+		if yo >= leanHeight && leanSteps > 0 {
+			tx += lean.X
+			tz += lean.Z
+			leanSteps--
+		}
+		p := world.Pos{X: tx, Y: yy, Z: tz}
+		if s.treeCanOccupy(d, p) {
+			s.setNaturalBlock(d, p, logState)
+			*logs = append(*logs, p)
+			top = world.Pos{X: tx, Y: yy + 1, Z: tz}
+			hasTop = true
+		}
+	}
+	if hasTop {
+		attachments = append(attachments, foliageAttach{
+			pos: top, radiusOffset: 1})
+	}
+
+	tx, tz = pos.X, pos.Z
+	branch := horizDirs[s.rng.intn(4)]
+	if branch != lean {
+		branchPos := leanHeight - s.rng.intn(2) - 1
+		branchSteps := 1 + s.rng.intn(3)
+		hasTop = false
+		for yo := branchPos; yo < treeHeight && branchSteps > 0; yo++ {
+			if yo >= 1 {
+				yy := pos.Y + yo
+				tx += branch.X
+				tz += branch.Z
+				p := world.Pos{X: tx, Y: yy, Z: tz}
+				if s.treeCanOccupy(d, p) {
+					s.setNaturalBlock(d, p, logState)
+					*logs = append(*logs, p)
+					top = world.Pos{X: tx, Y: yy + 1, Z: tz}
+					hasTop = true
+				}
+			}
+			branchSteps--
+		}
+		if hasTop {
+			attachments = append(attachments, foliageAttach{
+				pos: top, radiusOffset: 0})
+		}
+	}
+	return attachments
 }
 
 // vineDir is one horizontal neighbor cell and the vine face written
@@ -452,20 +578,18 @@ func dirtTagName(n string) bool {
 }
 
 // treeLeafDistances replays TreeFeature.updateLeaves: a BFS seeded at
-// every written log walks the written leaf cells and sets
-// distance = min(neighbour+1, 7).
-func (s *Server) treeLeafDistances(d *dimension, origin world.Pos, treeHeight int, leaves []world.Pos) {
+// every written log cell walks the written leaf cells and sets
+// distance = min(neighbour+1, 7). The seed is the collected trunk set —
+// leaning/forked trunks leave the origin column, so scanning the column
+// would miss them.
+func (s *Server) treeLeafDistances(d *dimension, logs, leaves []world.Pos) {
 	leafSet := make(map[world.Pos]bool, len(leaves))
 	for _, p := range leaves {
 		leafSet[p] = true
 	}
 	var queue []world.Pos
 	dist := make(map[world.Pos]int, len(leaves))
-	for y := 0; y < treeHeight; y++ {
-		p := world.Pos{X: origin.X, Y: origin.Y + y, Z: origin.Z}
-		if n, _ := world.StateOwner(d.w.GetBlock(p)); !strings.HasSuffix(strings.TrimPrefix(n, "minecraft:"), "_log") {
-			continue
-		}
+	for _, p := range logs {
 		for _, nb := range posNeighbors(p) {
 			if leafSet[nb] {
 				delete(leafSet, nb)
