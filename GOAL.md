@@ -10959,3 +10959,21 @@ TestSummonCoverageParity summons all 25 types (24 + arrow control),
 checks summon.success + presence probes, sprints 140 ticks, and pins
 the fates: thrown/gone set, hanging pops at 100, fence knot
 persists, falling_block becomes sand. Green both legs.
+
+## Slice — noSummon reject set + item air-stack accept
+
+The registry sweep's tail end. Measured: EntityType.Builder.noSummon
+fires exactly twice in EntityTypes' clinit — player (sized 0.6×1.8,
+eye 1.62) and fishing_bobber (0.25×0.25) — and the refuse reply is
+the red translatable entity.not_summonable with `with:
+["minecraft:<name>"]`, not the summon.failed key. mc-go previously
+accepted fishing_bobber and answered player with "Unknown entity";
+both now return componentReply(commandError(entity.not_summonable))
+in runSummon and in `execute summon`. Separately, a bare
+`/summon item` is accepted by vanilla (ItemEntity spawns holding the
+air stack — "Summoned new Air" — and its own tick discards it next
+tick), so the dedicated item arm no longer rejects empty stacks.
+TestSummonCoverageParity now also pins both not_summonable rejects
+plus presence pins for the already-summonable NBT-fed types
+(tnt{fuse:30000}, experience_orb{Value:7}, area_effect_cloud,
+marker, mannequin). Green both legs.

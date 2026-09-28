@@ -54,7 +54,6 @@ var summonTypes = []struct {
 	{"item_frame", false, true},
 	{"glow_item_frame", false, true},
 	{"eye_of_ender", true, true},          // life > 80 → discard
-	{"fishing_bobber", false, true},       // ownerless → discard tick 1
 	{"evoker_fangs", true, true},          // warmup 0, life 22 → discard ~23t
 	{"ominous_item_spawner", false, true}, // spawnItemAfterTicks=0 → kill tick 1
 	{"falling_block", false, true},        // lands as sand
@@ -85,7 +84,7 @@ func TestSummonCoverageParity(t *testing.T) {
 		var out []string
 		collect := func() {
 			for _, line := range sink.take() {
-				for _, marker := range []string{"HAVE-", "GONE-", "PRESENT-", "KNOT-", "SAND@", "summon.success"} {
+				for _, marker := range []string{"HAVE-", "GONE-", "PRESENT-", "KNOT-", "SAND@", "summon.success", "entity.not_summonable"} {
 					if strings.Contains(line, marker) {
 						out = append(out, line)
 						break
@@ -117,6 +116,28 @@ func TestSummonCoverageParity(t *testing.T) {
 		sendCommand(t, pw, "setblock 40 -60 26 minecraft:oak_fence")
 		sendCommand(t, pw, "summon minecraft:leash_knot 40.5 -59.4 26.5")
 		time.Sleep(300 * time.Millisecond)
+		// The NBT-fed summons: a long-fused tnt and a valued xp orb
+		// persist past the sprint; a bare area_effect_cloud sits
+		// forever (duration -1); a marker is invisible but @e still
+		// selects it; a bare mannequin spawns profileless.
+		extra := [][2]string{
+			{"summon minecraft:tnt 60 -59 26.5 {fuse:30000}", "tnt"},
+			{"summon minecraft:experience_orb 62 -59 26.5 {Value:7}", "experience_orb"},
+			{"summon minecraft:area_effect_cloud 64 -59 26.5", "area_effect_cloud"},
+			{"summon minecraft:marker 66 -59 26.5", "marker"},
+			{"summon minecraft:mannequin 68 -59 26.5", "mannequin"},
+		}
+		for _, ex := range extra {
+			sendCommand(t, pw, ex[0])
+			time.Sleep(300 * time.Millisecond)
+			sendCommand(t, pw, fmt.Sprintf("execute if entity @e[type=minecraft:%s,limit=1] run say HAVE-%s", ex[1], ex[1]))
+			time.Sleep(300 * time.Millisecond)
+		}
+		// EntityType.Builder.noSummon — the only two registered
+		// types vanilla refuses, each answered entity.not_summonable.
+		sendCommand(t, pw, "summon minecraft:fishing_bobber 70 -59 26.5")
+		sendCommand(t, pw, "summon minecraft:player 72 -59 26.5")
+		time.Sleep(400 * time.Millisecond)
 		collect()
 
 		sprintTicksLoose(t, pw, sink, 140)
@@ -128,6 +149,9 @@ func TestSummonCoverageParity(t *testing.T) {
 			} else {
 				sendCommand(t, pw, fmt.Sprintf("execute if entity @e[type=minecraft:%s] run say PRESENT-%s", st.name, st.name))
 			}
+		}
+		for _, n := range []string{"tnt", "experience_orb", "area_effect_cloud", "marker", "mannequin"} {
+			sendCommand(t, pw, fmt.Sprintf("execute if entity @e[type=minecraft:%s] run say PRESENT-%s", n, n))
 		}
 		// Only the fence knot remains — its persistence is survives().
 		sendCommand(t, pw, "execute if entity @e[type=minecraft:leash_knot] run say KNOT-FENCE")
@@ -148,7 +172,7 @@ func TestSummonCoverageParity(t *testing.T) {
 	key := func(lines []string) []string {
 		var ks []string
 		for _, l := range lines {
-			for _, marker := range []string{"HAVE-", "GONE-", "PRESENT-", "KNOT-", "SAND@", "summon.success"} {
+			for _, marker := range []string{"HAVE-", "GONE-", "PRESENT-", "KNOT-", "SAND@", "summon.success", "entity.not_summonable"} {
 				if i := strings.Index(l, marker); i >= 0 {
 					end := i + len(marker)
 					for end < len(l) && l[end] != '"' && l[end] != ' ' && l[end] != ']' && l[end] != ',' {

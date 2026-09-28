@@ -791,6 +791,12 @@ func (s *Server) runSummon(player string, args []string) reply {
 		}
 	}
 	name := strings.TrimPrefix(args[0], "minecraft:")
+	// EntityType.Builder.noSummon: player (0.6×1.8 eye 1.62) and
+	// fishing_bobber (0.25×0.25) are the only two registered types
+	// vanilla refuses, answered with entity.not_summonable in red.
+	if name == "player" || name == "fishing_bobber" {
+		return componentReply(commandError("entity.not_summonable", "minecraft:"+name))
+	}
 	if e, ok := s.summonMobRaw(sess.dimension(), name, x, y, z, noAI, tag == nil); ok {
 		if tag != nil {
 			// Rotation:[yaw,pitch] overrides create's random snapTo yaw.
@@ -1500,9 +1506,9 @@ func (s *Server) runSummon(player string, args []string) reply {
 				}
 			}
 		}
-		if it.ID == 0 {
-			return textReply("Can't spawn empty item")
-		}
+		// A bare summon carries no Item key: vanilla still accepts —
+		// ItemEntity spawns with the air stack ("Summoned new Air")
+		// and its own tick discards it next tick.
 		e := &Entity{
 			Type: mustEntityType("item"),
 			Dim:  sess.dimName(),

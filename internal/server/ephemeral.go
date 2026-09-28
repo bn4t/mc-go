@@ -52,11 +52,10 @@ var summonThrownNames = map[string]bool{
 // summonPlainNames are the remaining registry types a bare summon
 // creates with only constructor defaults.
 var summonPlainNames = map[string]bool{
-	"item":          true,
 	"block_display": true, "item_display": true, "text_display": true,
 	"interaction": true, "end_crystal": true,
 	"painting": true, "item_frame": true, "glow_item_frame": true,
-	"leash_knot": true, "eye_of_ender": true, "fishing_bobber": true,
+	"leash_knot": true, "eye_of_ender": true,
 	"evoker_fangs": true, "ominous_item_spawner": true,
 	"falling_block": true,
 }

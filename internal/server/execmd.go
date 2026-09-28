@@ -1766,6 +1766,11 @@ func (s *Server) executeSummon(ctx *executeContext, player string, args []string
 		return errTokenEnd("command.unknown.command", tokBase+len(args))
 	}
 	name := strings.TrimPrefix(normalizeItemName(args[0]), "minecraft:")
+	// EntityType.Builder.noSummon: player and fishing_bobber reject
+	// with entity.not_summonable even through the execute form.
+	if name == "player" || name == "fishing_bobber" {
+		return componentReply(commandError("entity.not_summonable", "minecraft:"+name))
+	}
 	e, ok := s.summonMobRaw(ctx.dim, name, ctx.pos[0], ctx.pos[1], ctx.pos[2], false, true)
 	if !ok {
 		return errTokenEnd("argument.resource.not_found", tokBase, args[0], "minecraft:entity_type")
