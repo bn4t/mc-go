@@ -11951,6 +11951,25 @@ Pinned: TestMobFallDamageParity green on both legs (19/13/3/4
 health + the hostile/generic fallsounds), TestFarmlandTrampleParity
 still green, mob ground/lava/item-drop/fluid suites unaffected.
 
-Deferred: chicken slow-glide (vanilla's Chicken falls at reduced
-gravity — mc-go applies the full -0.08/tick, so it lands early;
-fall-immune so no parity impact today).
+## Slice — chicken wing-flap glide (Chicken.aiStep)
+
+The tunneling fix's Pos probe showed vanilla's chicken still mid-air
+at -55 long after mc-go's had landed: Chicken.aiStep damps the
+stored descent delta by Vec3.multiply(1, 0.6, 1) every airborne
+tick (after the air-travel tail's 0.98 drag — effective 0.588), so
+the glide settles near -0.114 blocks/tick instead of the -1.0 cap.
+
+Measured via javap on 26.2's Chicken.class (aiStep: !onGround &&
+delta.y < 0 -> multiply(1, 0.6, 1)); jar scan found no other class
+with the pattern, so mobSlowFalls holds only "chicken". Scale
+applied to the stored delta BEFORE the descent step is applied —
+matching vanilla's order (the damped delta IS the next tick's
+displacement).
+
+Pinned: TestChickenGlideParity — Pos[1] of a chicken dropped 21
+blocks at a fixed window: vanilla -44.290, mc-go -44.404 (0.11
+drift, well inside the 0.5 band; a full-gravity fall would rest at
+-61). TestMobFallDamageParity + TestFarmlandTrampleParity still
+exact-match.
+
+Deferred: none for this slice.

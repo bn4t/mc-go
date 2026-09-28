@@ -128,3 +128,55 @@ func TestMobFallDamageParity(t *testing.T) {
 		}
 	}
 }
+
+// TestChickenGlideParity pins Chicken.aiStep's wing-flap glide: an
+// airborne descending chicken damps its stored delta by 0.6 per
+// tick, settling the fall near -0.12 blocks/tick — so a chicken
+// dropped from a few blocks is still mid-air long after any other
+// mob has landed. Pos[1] at a fixed wall-time window is the probe;
+// y is pure gravity (wander only moves x/z), so the legs can be
+// compared in a tight band.
+func TestChickenGlideParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil,
+		map[string]string{"ops.json": opsJSONFor("P")}, nil)
+
+	awaitKey := func(sink *chatSink, key string) bool {
+		end := time.Now().Add(4 * time.Second)
+		for time.Now().Before(end) {
+			for _, line := range sink.take() {
+				if strings.Contains(line, key) {
+					return true
+				}
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+		return false
+	}
+
+	run := func(addr string) float64 {
+		cv, pr, pw := joinPlayBlackbox(t, addr, "P")
+		defer cv.Close()
+		sink := newChatSinkTP(pr, pw)
+		sendCommand(t, pw, "tp P 5 -55 4 0 0")
+		sendCommand(t, pw, "time set 18000")
+		sendCommand(t, pw, "weather clear")
+		sendCommand(t, pw, "fill -2 -62 -2 12 -35 3 minecraft:air")
+		awaitKey(sink, "fill.")
+		sendCommand(t, pw, "fill -2 -62 -2 12 -62 3 minecraft:stone")
+		awaitKey(sink, "fill.")
+		sendCommand(t, pw, `summon minecraft:chicken 5 -40 0 {Tags:["cg"]}`)
+		awaitKey(sink, "summon")
+		time.Sleep(2 * time.Second)
+		return nbtFloatOf(t, sink, pw, "@e[tag=cg,limit=1]", "Pos[1]")
+	}
+
+	van := run(targets.vanilla)
+	mc := run(targets.mcgo)
+	t.Logf("vanilla y=%v mc-go y=%v", van, mc)
+	// A full-gravity fall covers the 21 blocks in ~15 ticks — a leg
+	// resting on the floor lands around -61 while a gliding one is
+	// still high; parity is the two legs reading near-identical y.
+	if d := van - mc; d < -0.5 || d > 0.5 {
+		t.Errorf("glide y drift: vanilla=%v mc-go=%v", van, mc)
+	}
+}

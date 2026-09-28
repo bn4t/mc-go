@@ -4322,6 +4322,13 @@ var mobAlwaysFlies = map[string]bool{
 	"bee": true,
 }
 
+// mobSlowFalls is Chicken.aiStep's wing-flap glide: while airborne
+// and descending, the stored delta is damped by 0.6 per tick, which
+// settles the fall near -0.12 blocks/tick instead of the -1.0 cap.
+var mobSlowFalls = map[string]bool{
+	"chicken": true,
+}
+
 // mobGrounded is the falling half of a mob tick: gravity until a solid
 // block is underfoot — accumulating fallDistance on every downward
 // step — then Entity.checkFallDamage's landing edge. True once the
@@ -4349,6 +4356,15 @@ func (s *Server) mobGrounded(e *Entity, w *world.World) bool {
 		e.MotionY -= 0.08
 		if e.MotionY < -1.0 {
 			e.MotionY = -1.0
+		}
+		// Chicken.aiStep's wing-flap glide damps the stored descent
+		// delta by 0.6 AFTER the air-travel tail's 0.98 drag — the next
+		// descent step is the post-gravity delta scaled by 0.588, so
+		// the glide settles near -0.114 blocks/tick.
+		if e.MotionY < 0 {
+			if kn, _ := EntityTypeName(e.Type); mobSlowFalls[kn] {
+				e.MotionY *= 0.588
+			}
 		}
 		// Entity.move's collide: sweep the foot face against the cells
 		// it crosses — an unchecked += lets a fast fall tunnel through
