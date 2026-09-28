@@ -11217,3 +11217,33 @@ everything else.
   disconnect and on /kill — green vs BOTH servers.
 - Deferred: team-color icon assignment (getTeam color) unmodelled —
   players on a colored team still emit no color.
+
+## Slice — waypoint icons: 3-byte RGB, team colors, remakeConnections
+
+- Icon wire color is ByteBufCodecs.RGB_COLOR = THREE bytes, not an
+  int32 — mc-go's encoder was writing Int (a wire bug hidden because
+  uncolored icons dominated); test decoder fixed to match the live
+  vanilla bytes (01 ffaa00 + kind).
+- cloneAndAssignStyle (Vineflower on Waypoint$Icon): explicit icon
+  color wins; else the entity's team color — BLACK maps to -13619152
+  (0x303030) so it stays readable. Team lookup is by scoreboard name
+  (player name / dashed-UUID for mobs).
+- ServerScoreboard hooks (javap): addPlayerToTeam and
+  removePlayerFromTeam call updatePlayerWaypoint(name) ->
+  ServerWaypointManager.remakeConnections(player); onTeamChanged
+  calls updateTeamWaypoints(team) -> remake per online member.
+  getPlayerByName resolves ONLY online players — mob/free-form
+  members never remake.
+- remakeConnections -> createConnection per receiver: self and
+  locatorBar-off skip; a make result Table.put-REPLACES the existing
+  conn (silent drop, no UNTRACK) + TRACK emit; an empty make removes
+  the old conn + UNTRACK. Team-change re-TRACKs carry the re-cloned
+  icon.
+- mc-go: wpIconFor evaluates the team color (wpScoreboardName holder
+  key, black lift), wpRemake{Connections,For,ByName,Team} wired into
+  teamJoin (remove+add sides), teamDrop/teamLeave, and every /team
+  modify success — emission shape identical to vanilla including the
+  two-TRACK re-join window.
+- TestWaypointParity W7b: join gold -> TRACK vec3i 0xFFAA00; re-join
+  green -> remove-side no-color TRACK + add-side 0x55FF55; black ->
+  0x303030; reset and leave -> no-color TRACKs — green vs BOTH.
