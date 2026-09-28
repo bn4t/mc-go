@@ -11921,8 +11921,7 @@ Pinned: TestFarmlandTrampleParity — zombie + player trample to dirt,
 chicken blocked by the 0.512 volume gate, both legs.
 
 Deferred: gliding-pose bb height for trample volume; turtle-egg
-trample; pushEntitiesUp part of turnToDirt (mc-go has no
-entity-on-top push path yet).
+trample.
 
 ## Slice — mob fall tunneling (mobGrounded collide sweep)
 
@@ -12083,3 +12082,29 @@ Deferred: the Tracker's Player branch scales the accumulated flow by
 1/count instead of normalizing — session players have no server-side
 delta integration yet (client-authoritative pos), so the arm waits
 for that substrate. applyFluidCurrent currently always normalizes.
+
+## Slice — turnToDirt pushEntitiesUp
+
+FarmlandBlock.turnToDirt (jar-decompiled: turnToDirt → pushEntitiesUp
+→ setBlockAndUpdate → gameEvent BLOCK_CHANGE) lifts every entity whose
+box intersects the collision volume gained by the swap — for
+farmland→dirt the slab [pos.y+15/16, pos.y+1] — via
+teleportRelative(0, 1+Shapes.collide, 0): the +1-lifted box descends
+onto the slab top, so an entity standing on farmland ends its feet
+exactly on the new dirt top (a 1/16 lift). Selection is strict-AABB
+intersect of the gained slab; the trampler itself lands in the slab
+and self-pushes. Grass/mycelium→dirt reverts reach the same
+turnToDirt but their ONLY_SECOND join is empty (equal collision
+shapes) → no push — turfRule stays direct-write.
+
+mc-go gains pushEntitiesUpFarmland (randtick.go): entities via
+entities.All + GetPtr write (PosDirty+NeedsSync like a tracker sync),
+sessions via sess.setPos so the wire teleport goes out. Both
+turnToDirt call sites wired: farmlandTrample (fallOn) and
+farmlandRule's dry-out — which was also missing turnToDirt's
+gameEvent BLOCK_CHANGE, now emitted at the block center.
+
+Pinned: TestFarmlandTrampleParity leg TR3 — an item resting on the
+farmland cell at feet -60.0625 plus a 5m zombie trampler; after the
+trample the item reads -60.0000 on both servers (identical), the
+zombie self-push reads -60.0000 both legs.

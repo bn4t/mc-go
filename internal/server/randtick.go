@@ -232,9 +232,65 @@ func (s *Server) farmlandTrample(d *dimension, pos world.Pos, x, y, z float64, i
 		return
 	}
 	if dirt, ok := world.BlockStateOf("dirt", nil); ok {
+		s.pushEntitiesUpFarmland(d, pos)
 		s.setNaturalBlock(d, pos, dirt)
 	}
 	s.emitGameEvent(d, "block_change", x, y, z, nil, "")
+}
+
+// pushEntitiesUpFarmland is the pushEntitiesUp arm of
+// FarmlandBlock.turnToDirt: the gained collision volume between the
+// 15/16 farmland top and the full dirt top lifts every entity whose
+// box intersects the slab [pos.y+0.9375, pos.y+1] onto the new surface
+// via teleportRelative(0, 1+collide, 0) — the collide arm lands the
+// box exactly on the slab top. Grass/mycelium reverts never reach
+// here: same-shaped turns leave the ONLY_SECOND join empty.
+func (s *Server) pushEntitiesUpFarmland(d *dimension, pos world.Pos) {
+	slabMinY, slabTop := float64(pos.Y)+0.9375, float64(pos.Y)+1
+	push := func(ex, ey, ez, half, height float64) (float64, bool) {
+		if ex-half >= float64(pos.X)+1 || ex+half <= float64(pos.X) {
+			return 0, false
+		}
+		if ez-half >= float64(pos.Z)+1 || ez+half <= float64(pos.Z) {
+			return 0, false
+		}
+		if ey >= slabTop || ey+height <= slabMinY {
+			return 0, false
+		}
+		dm := slabTop - (ey + 1)
+		if dm > 0 {
+			dm = 0
+		} else if dm < -1 {
+			dm = -1
+		}
+		return 1 + dm, true
+	}
+	for _, e := range s.entities.All() {
+		if e.Dying || e.Dim != d.name {
+			continue
+		}
+		ptr, ok := s.entities.GetPtr(e.ID)
+		if !ok {
+			continue
+		}
+		bb := entityBBDims(ptr)
+		if dy, ok := push(ptr.X, ptr.Y, ptr.Z, bb[0], bb[1]); ok {
+			ptr.Y += dy
+			ptr.PosDirty = true
+			ptr.NeedsSync = true
+		}
+	}
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || sess.dimension() != d {
+			return true
+		}
+		x, y, z, yaw, pitch, og := sess.Pos()
+		if dy, ok := push(x, y, z, 0.3, 1.8); ok {
+			sess.setPos(x, y+dy, z, yaw, pitch, og)
+		}
+		return true
+	})
 }
 
 // farmlandRule is FarmlandBlock.randomTick: moisture tracking and the
@@ -259,8 +315,11 @@ func farmlandRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
 	aboveName, _ := world.StateOwner(s.rtBlock(d, above))
 	if !blockTagHas("maintains_farmland", aboveName) {
 		if dirt, ok := world.BlockStateOf("dirt", nil); ok {
+			s.pushEntitiesUpFarmland(d, pos)
 			s.setNaturalBlock(d, pos, dirt)
 		}
+		s.emitGameEvent(d, "block_change",
+			float64(pos.X)+0.5, float64(pos.Y)+0.5, float64(pos.Z)+0.5, nil, "")
 	}
 }
 
