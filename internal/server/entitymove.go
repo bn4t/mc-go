@@ -37,12 +37,18 @@ func blockFrictionOf(blk world.Block) float64 {
 	return 0.6
 }
 
-// blockBounceOf is Block.getBounceRestitution — slime_block is the
-// only block that sets one in 26.2 (1.0).
+// blockBounceOf is Block.getBounceRestitution — the measured 26.2
+// table: slime_block sets 1.0 and every coloured bed sets 0.75
+// (getBounceRestitution dumped per block off the jar; the only
+// registered _bed names are the 16 beds).
 func blockBounceOf(blk world.Block) float64 {
 	name, _ := world.StateOwner(blk)
-	if strings.TrimPrefix(name, "minecraft:") == "slime_block" {
+	n := strings.TrimPrefix(name, "minecraft:")
+	if n == "slime_block" {
 		return 1.0
+	}
+	if strings.HasSuffix(n, "_bed") {
+		return 0.75
 	}
 	return 0.0
 }
@@ -157,8 +163,9 @@ func (s *Server) entityMove(e *Entity, w *world.World, half, height, dx, dy, dz,
 
 // collisionTopOf is the top of a block's collision shape in
 // cell-local units — vanilla's VoxelShape column heights for the
-// partial blocks mc-go models (honey 15/16, soul sand 14/16). Every
-// other solid is a full cube.
+// partial blocks mc-go models (honey 15/16, soul sand 14/16, every
+// coloured bed's mattress column(16,3,9) at 9/16). Every other solid
+// is a full cube.
 func collisionTopOf(blk world.Block) float64 {
 	name, _ := world.StateOwner(blk)
 	switch strings.TrimPrefix(name, "minecraft:") {
@@ -166,6 +173,9 @@ func collisionTopOf(blk world.Block) float64 {
 		return 0.9375
 	case "soul_sand":
 		return 0.875
+	}
+	if strings.HasSuffix(strings.TrimPrefix(name, "minecraft:"), "_bed") {
+		return 0.5625
 	}
 	return 1.0
 }

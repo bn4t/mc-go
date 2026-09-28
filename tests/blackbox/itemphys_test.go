@@ -119,6 +119,7 @@ func TestItemPhysParity(t *testing.T) {
 		sendCommand(t, pw, "fill 8 -60 18 22 -60 20 minecraft:soul_sand")
 		sendCommand(t, pw, "fill 8 -60 22 22 -60 24 minecraft:slime_block")
 		sendCommand(t, pw, "fill 8 -60 26 22 -60 28 minecraft:honey_block")
+		sendCommand(t, pw, "fill 8 -60 30 22 -60 32 minecraft:red_bed")
 		sendCommand(t, pw, "setblock 16 -60 25 minecraft:sculk_sensor")
 		sendCommand(t, pw, "tp P 30 0 30 0 0")
 		out = append(out, "floor stone: "+blockProbe("10 -60 11 minecraft:stone", 1))
@@ -126,6 +127,7 @@ func TestItemPhysParity(t *testing.T) {
 		out = append(out, "floor soul: "+blockProbe("10 -60 19 minecraft:soul_sand", 3))
 		out = append(out, "floor slime: "+blockProbe("10 -60 23 minecraft:slime_block", 4))
 		out = append(out, "sensor: "+blockProbe("16 -60 25 minecraft:sculk_sensor", 5))
+		out = append(out, "floor bed: "+blockProbe("10 -60 31 minecraft:red_bed", 6))
 
 		item := "@e[type=minecraft:item,limit=1]"
 		// Leg A — the slide: a 0.5x toss lands on the strip and decays.
@@ -177,16 +179,19 @@ func TestItemPhysParity(t *testing.T) {
 		for _, c := range []struct {
 			name string
 			z    float64
+			drop float64 // summon y — bed's 9/16 top shortens the fall
+			wait int     // ticks before the apex scan starts
 			apex float64 // y-band center just under the first bounce apex
 		}{
-			{"slime", 23.5, -58.5},
-			{"honey drop", 27.5, -58.5},
-			{"stone drop", 11.5, -58.5},
+			{"slime", 23.5, -53.5, 14, -58.5},
+			{"bed", 31.5, -52.5, 18, -57.9},
+			{"honey drop", 27.5, -53.5, 14, -58.5},
+			{"stone drop", 11.5, -53.5, 14, -58.5},
 		} {
 			sendCommand(t, pw, "kill @e[type=minecraft:item]")
 			sendCommand(t, pw, fmt.Sprintf(
-				`summon minecraft:item 14.5 -53.5 %.1f {Item:{id:"minecraft:stone",count:1}}`, c.z))
-			sprintTicks(t, pw, sink, 14) // past the initial fall
+				`summon minecraft:item 14.5 %.1f %.1f {Item:{id:"minecraft:stone",count:1}}`, c.drop, c.z))
+			sprintTicks(t, pw, sink, c.wait) // past the initial fall
 			apexHit := "none"
 			for i := 0; i < 18 && apexHit != "hit"; i++ {
 				sprintTicks(t, pw, sink, 1)
@@ -197,6 +202,21 @@ func TestItemPhysParity(t *testing.T) {
 			p := probeVec(sink, pw, addr, item, "Pos")
 			out = append(out, fmt.Sprintf("%s: apex %s rest y%.2f", c.name, apexHit, p[1]))
 		}
+
+		// Leg B2 — a living entity on the bed keeps the block's full
+		// 0.75 restitution (getBlockBounciness's 0.8x damp only applies
+		// to non-living entities, so the pig's arc tops the item's).
+		// The band sits above the item apex, past anything the damped
+		// bounce can reach.
+		sendCommand(t, pw, `summon minecraft:pig 14.5 -52.5 31.5 {NoAI:1b}`)
+		sprintTicks(t, pw, sink, 18)
+		pigApex := "none"
+		for i := 0; i < 18 && pigApex != "hit"; i++ {
+			sprintTicks(t, pw, sink, 1)
+			pigApex = here("type=minecraft:pig,x=14.5,y=-56.9,z=31.5,distance=..0.8")
+		}
+		out = append(out, "bed pig apex "+pigApex)
+		sendCommand(t, pw, "kill @e[type=minecraft:pig]")
 
 		// Leg C — the orb: its own -incoming*0.4 bounce on any surface
 		// (apex ~0.66 over the slime), slime's restitution also applies

@@ -11040,3 +11040,21 @@ everything else.
 - `TestWorldSaveParity` all green: chunk_format + both directions,
   5 light arrays byte-equal.
 
+
+## Slice — entity move: bed restitution
+
+- Measurement (26.2 jar as a library + Entity.move bytecode):
+  `getBounceRestitution` per registered block is {slime_block 1.0,
+  all 16 beds 0.75} — mc-go's table had slime only. `suppresses_bounce`
+  block tag confirmed honey_block only. `getBlockBounciness` damps the
+  restitution 0.8x for non-living entities; `restituteMove`'s
+  gate order (entity bounce → x/z reflect → vCollBelow +
+  -dy<gravity + SUPPRESSES_BOUNCE + sneak → bounce=0, else
+  max(bounce, blockBounciness)) was already at parity.
+- BedBlock SHAPES = box(0,0,0,3,3,3) leg + column(16,3,9) mattress →
+  collision top 9/16; added every _bed to `collisionTopOf` (0.5625)
+  and `blockBounceOf` (0.75).
+- `TestItemPhysParity` extended: red_bed pad, item leg (0.8x-damped
+  bounce, apex band -57.9, rest y -59.44 matches byte-exact), pig leg
+  (living: full 0.75, apex band -56.9 past the item's reach).
+  Green vs both servers (234s).
