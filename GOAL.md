@@ -61,16 +61,17 @@ Mojang server over the wire.
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
-- [~] Lighting engine: block light propagates per-cell (BFS spread,
-      erase-flood removal, opacity 255/1) with vanilla's Update Light
-      wire semantics pinned in both dimensions — border-recipient
-      gating, around-marked sections, layer-presence masks and the full
-      measured emission table incl. state-folded entries
-      (`TestTorchLightParity`, `TestNetherTorchLightParity`,
-      `TestLightEmissionParity`); sky light stays column-model —
-      horizontal propagation open, plus nether ambient light
-      (lava-sea seeding) unmodeled so arrays only match inside sealed
-      regions
+- [~] Lighting engine: block and sky light both propagate per-cell on
+      vanilla's sectioned layer-storage model — eligibility materialization,
+      the 27-box init-mark fan-out that crosses two chunks, the
+      written-vs-virgin emit rule (never-written layers ride the empty
+      mask; written-then-emptied ship zeroed arrays), per-tick mark
+      batching emitted before block updates, border-recipient gating,
+      and the full measured emission table — all pinned byte-for-byte
+      on the wire (`TestTorchLightParity`, `TestNetherTorchLightParity`,
+      `TestLightEmissionParity`, `TestSkyPropParity`); nether ambient
+      light (lava-sea seeding) remains unmodeled so arrays only match
+      inside sealed regions
 - [~] Fluids: water and lava flow with vanilla's levels, drop-off,
       falling columns and dry-up. Redstone and scheduled block ticks
       remain. Random ticks now cover the crop family — wheat/carrots/
