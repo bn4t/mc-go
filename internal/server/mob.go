@@ -3530,7 +3530,9 @@ func (s *Server) mobTickStep() {
 		// Mob.baseTick's ambient voice — independent of NoAI: counter
 		// climbs from 0, fires when random < count, resets to
 		// -interval. playHurtSound also resets the counter.
-		if a, ok := mobAmbient[ambName]; ok {
+		// Breeze.playAmbientSound uses playLocalSound — a server-side
+		// no-op (the client schedules it locally) — so no wire emit.
+		if a, ok := mobAmbient[ambName]; ok && ambName != "breeze" {
 			e.ambientSoundTime++
 			if rand.Int31n(1000) < e.ambientSoundTime {
 				e.ambientSoundTime = -a.interval
@@ -3538,9 +3540,9 @@ func (s *Server) mobTickStep() {
 				if e.Baby && a.babySnd != 0 {
 					snd = a.babySnd
 				}
-				// makeSound/playAmbientSound is entity-attached —
-				// the client hears it on sound_entity, not sound.
-				s.playSoundEntity(e.Dim, e.ID, snd,
+				// this.playSound → level.playSound(null, x,y,z,…) —
+				// the positional clientbound sound packet.
+				s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd,
 					mobVoiceOf(e).src(), a.vol, voicePitchE(e), nil)
 			}
 		}
@@ -4468,8 +4470,7 @@ func (s *Server) mobFallDamage(e *Entity, dm *dimension, below world.Pos) {
 	if dmg > 4 {
 		snd = big
 	}
-	// Entity.playSound's coordinate overload — the positional
-	// clientbound sound packet at the mob's feet.
+	// Entity.playSound → the positional clientbound sound packet.
 	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd, mobVoiceOf(e).src(), 1, 1, nil)
 	s.playBlockFallSound(e.Dim, e.X, e.Y, e.Z, mobVoiceOf(e).src(), below)
 	if honeyReplay {
@@ -5495,7 +5496,7 @@ func (s *Server) witchThrowAt(e *Entity, tx, eyeTy, tz, dist float64, potion str
 			ItemStack{ID: it, Count: 1, Potion: potion}))
 	}
 	if !e.Silent {
-		s.playSoundSrc(e.Dim, e.X, eyeY, e.Z, 1779, mobVoiceOf(e).src(), 1,
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 1779, mobVoiceOf(e).src(), 1,
 			float32(0.8+rand.Float64()*0.4), nil)
 	}
 }
@@ -6717,7 +6718,7 @@ func (s *Server) mobShootArrow(e *Entity, tx, ty, tz float64) {
 	}
 	// entity.skeleton.shoot — the bow-release sound the mob plays,
 	// source HOSTILE (SoundSource 5).
-	s.playSoundSrc(e.Dim, e.X, eyeY, e.Z, 1491, 5, 1, 1, nil)
+	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 1491, 5, 1, 1, nil)
 }
 
 // arrowEffectColor is PotionContents.getColor — with a single custom
@@ -6919,8 +6920,8 @@ func mobVoiceOf(e *Entity) mobVoice {
 // hurtServer accepts, so a wolf-armor break is already visible to
 // getHurtSound: an absorb hit with the armor still on plays
 // item.wolf_armor.damage, the breaking hit reads an empty body slot
-// and plays entity.wolf.hurt. Vanilla sends the sound as a positional
-// packet at the entity's feet.
+// and plays entity.wolf.hurt. Vanilla anchors the sound on the entity
+// (sound_entity), not positionally.
 func (s *Server) mobHurtSound(e *Entity, res DamageResult) {
 	v := mobVoiceOf(e)
 	// playHurtSound's first act is resetAmbientSoundTime — an ambient
@@ -6939,6 +6940,7 @@ func (s *Server) mobHurtSound(e *Entity, res DamageResult) {
 		res.Absorbed && !res.BodyBroke {
 		snd = sndWolfArmorDamage
 	}
+	// playSound is entity-attached — sound_entity anchored on the mob.
 	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd, v.src(), v.vol, voicePitchE(e), nil)
 }
 

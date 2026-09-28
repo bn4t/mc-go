@@ -1462,7 +1462,7 @@ func (s *Server) releaseTrident(sess *Session) {
 	e.tridentDamage = carry
 	e.tridentCreativeOnly = creative
 	e.tridentEnch = st.Ench
-	s.playSoundEntity(sess.dimName(), sess.entityID.Load(), 1631, 7, 1.0, 1.0, sess) // item.trident.throw, PLAYERS source
+	s.playSoundEntity(sess.dimName(), sess.entityID.Load(), 1631, 7, 1.0, 1.0, nil) // item.trident.throw, PLAYERS source
 	sess.addItemStat(statUsed, st.ID, 1)
 }
 

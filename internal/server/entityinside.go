@@ -331,9 +331,11 @@ func (s *Server) lavaInside(e *Entity, name string) {
 		// (ItemEntity's health>0||tick%10 is the only override).
 		if dealt > 0 && !e.Silent {
 			v := mobVoiceOf(e)
+			// Entity.playSound → positional; for a player
+			// entity Player.playSound self-excludes.
 			s.playSoundSrc(e.Dim, e.X, e.Y, e.Z,
 				soundEventIDs["entity.generic.burn"], v.src(),
-				0.4, 2+rand.Float32()*0.4, nil)
+				0.4, 2+rand.Float32()*0.4, s.sessionByEntityID(e.ID))
 		}
 	}
 }

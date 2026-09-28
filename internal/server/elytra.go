@@ -135,7 +135,7 @@ func (s *Server) glideCollisionTick(sess *Session) {
 		if int(f) > 4 {
 			snd = int32(soundEventIDs["entity.player.big_fall"])
 		}
-		s.playSoundSrc(sess.dimName(), sx, sy, sz, snd, srcPlayers, 1, 1, nil)
+		s.playSoundSrc(sess.dimName(), sx, sy, sz, snd, srcPlayers, 1, 1, sess)
 		s.damageWith(sess, f, translatable("death.attack.flyIntoWall",
 			playerChatComponent(sess)), damageSource{typeName: "fly_into_wall"})
 	}

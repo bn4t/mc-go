@@ -125,9 +125,7 @@ func (s *Server) useFireworkBoost(sess *Session, st ItemStack, hand int32) {
 	d := sess.dimension()
 	// Entity.dropAllLeashConnections(player): every leashable the
 	// player holds drops — LEAD_BREAK plays only when one was held.
-	if s.dropPlayerLeashes(sess) {
-		s.playSoundSrc(d.name, x, y, z, soundEventIDs["item.lead.break"], srcNeutral, 1.0, 1.0, nil)
-	}
+	s.dropPlayerLeashes(sess)
 	s.spawnFireworkRocket(d, st, x, y, z, eid, eid)
 	// ItemStack.consume(1, player): hasInfiniteMaterials keeps the
 	// stack — only non-creative modes shrink.
@@ -153,6 +151,8 @@ func (s *Server) dropPlayerLeashes(sess *Session) bool {
 	s.entities.mu.RUnlock()
 	for _, l := range held {
 		s.leashDrop(l, true)
+		// Entity.dropLeash's LEASH_BREAK plays on each dropped mob.
+		s.playSoundEntity(l.Dim, l.ID, soundEventIDs["item.lead.break"], srcNeutral, 1.0, 1.0, nil)
 	}
 	return len(held) > 0
 }
@@ -216,7 +216,14 @@ func (s *Server) useFireworkPlace(sess *Session, hand int32, x, y, z int32, dx, 
 //   - life > lifetime explodes.
 func (s *Server) fireworkTick(e *Entity) {
 	if e.RocketLife == 0 && !e.Silent {
-		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, soundEventIDs["entity.firework_rocket.launch"], srcAmbient, 3.0, 1.0, nil)
+		// FireworkRocketItem's level.playSound(null, shooter,…) anchors
+		// the launch on the firing entity; fall back to the rocket
+		// itself when there's no shooter record.
+		anchor := e.ID
+		if e.arrowShooter != 0 {
+			anchor = e.arrowShooter
+		}
+		s.playSoundEntity(e.Dim, anchor, soundEventIDs["entity.firework_rocket.launch"], srcAmbient, 3.0, 1.0, nil)
 	}
 	e.RocketLife++
 	var hit rocketHit

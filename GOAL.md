@@ -11764,3 +11764,45 @@ Deferred: EntityReference (non-session) owners on AIM_DEFLECT;
 onDeflection for thrown-vs-redirectable hits; the near-stopped
 arrow's getPickupItem drop arm (speed²<1e-7 unreachable while
 moving); breeze deflect for its own charge types.
+
+## Slice — sound channel parity: positional-vs-entity overload split + Player self-exclusion
+
+javap end-to-end of the vanilla sound dispatch, plus a jar-wide caller
+sweep of the two-entity overload, established the true 0x74/0x75 model:
+
+  - Entity.playSound -> level.playSound(null, x,y,z,...) -> the
+    POSITIONAL clientbound sound packet (0x75), broadcast to everyone
+    in range. Nearly every mob/voice/item emit uses it.
+  - Player.playSound overrides it -> level.playSound(this, x,y,z,...)
+    — the player IS the except arg, so a victim never receives their
+    own hurt/fall/burn voice over the wire (the client plays it
+    locally off the damage event); bystanders still hear it.
+  - LivingEntity.die -> broadcastEntityEvent(this, 3) — the death
+    sound is client-side on entity_event, no sound packet at all.
+  - Only the explicit level.playSound(except, entity,...) overload
+    anchors a sound on an entity (sound_entity 0x74): BREEZE_DEFLECT,
+    the firework launch + LEAD_BREAK on the leashed mob, TRIDENT_THROW
+    on the thrower, map/instrument/dye/shear items and a few animal
+    behaviors — the whole rest of the jar's call sites are positional.
+  - Breeze.playAmbientSound routes through playLocalSound — a
+    server-side no-op, so mc-go now gates the ambient emit off for
+    breeze entirely.
+
+An earlier sweep that had moved ~30 sites onto playSoundEntity was
+reverted once the wire + javap proved hurt/ambient voices positional;
+the genuine two-entity callers kept entity anchoring (lead.break per
+leashable, trident throw, firework launch — now with an arrowShooter==0
+fallback — and the pre-existing map/dye sites). The hurt voice and
+elytra fall voice restored their sess exclusion to match
+Player.playSound's self-except, and the entity-inside burn voice now
+self-excludes when the burning entity is a session player.
+
+Pinned: TestEntitySoundChannelParity — two conns, one victim one
+bystander; zombie.hurt positional for both listeners, player.hurt
+absent on the victim conn and present on the bystander's, identically
+on both legs (measured: 3x zombie.hurt + 1x player.hurt per leg).
+
+Still open: sheep shear sound (Sheep is a 0x74 caller — mc-go emits
+nothing on shear), mooshroom shear/stew, dye use, goat horn
+instrument, allay sounds, bogged shear, breeze whirl/charge/jump/land.
+

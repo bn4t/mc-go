@@ -175,6 +175,8 @@ func (s *Server) leashShiftTransfer(sess *Session, eid int32, sneaking bool) boo
 		}
 	}
 	if moved {
+		// Entity.interact plays LEAD_TIED once on the interacted
+		// entity after the transfer loop.
 		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, soundEventIDs["item.lead.tied"], srcNeutral, 1.0, 1.0, nil)
 	}
 	return moved
@@ -320,6 +322,8 @@ func (s *Server) knotInteract(sess *Session, knot *Entity, hand int32) bool {
 		}
 	}
 	if moved {
+		// LeashFenceKnotEntity.interact plays LEAD_TIED once, on
+		// the knot, after the re-attach loops.
 		s.playSoundSrc(d.name, knot.X, knot.Y, knot.Z, soundEventIDs["item.lead.tied"], srcNeutral, 1.0, 1.0, nil)
 	}
 	return moved
@@ -354,8 +358,10 @@ func (s *Server) bindPlayerMobs(sess *Session, d *dimension, pos world.Pos) {
 		}
 	}
 	if moved {
+		// LeadItem.bindPlayerMobs plays LEAD_TIED once at the fence.
 		s.playSoundSrc(d.name, cx, cy, cz, soundEventIDs["item.lead.tied"], srcNeutral, 1.0, 1.0, nil)
-	} else if knot != nil && created {
+	}
+	if knot != nil && created && !moved {
 		// bindPlayerMobs discards a fresh knot nobody attached to.
 		s.entities.Remove(knot.ID)
 		s.broadcastEntityRemoveIn(d.name, nil, []int32{knot.ID})
@@ -478,6 +484,7 @@ func (s *Server) tickLeash(e *Entity) {
 	}
 	dist := s.leashDist(e, holder)
 	if dist > leashSnapDist {
+		// Leashable.tickLeash: LEAD_BREAK plays at the HOLDER position.
 		s.playSoundSrc(e.Dim, holder.X, holder.Y, holder.Z, soundEventIDs["item.lead.break"], srcNeutral, 1.0, 1.0, nil)
 		s.leashDrop(e, true)
 		return
