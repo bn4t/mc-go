@@ -76,6 +76,12 @@ type Session struct {
 	trackMu       sync.Mutex
 	trackedEnts   map[int32]struct{}
 	lastTrackSect [3]int
+	// wpConns is the session's waypoint connection table — one conn per
+	// tracked locator-bar transmitter entity id, ticked by
+	// waypointTickStep (vanilla's ServerWaypointManager row for this
+	// receiver).
+	wpMu    sync.Mutex
+	wpConns map[int32]*wpConn
 	// tags holds the /tag labels on this player; insertion order is
 	// what /tag list echoes back.
 	tagMu sync.Mutex

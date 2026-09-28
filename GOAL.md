@@ -11169,3 +11169,51 @@ everything else.
 - Deferred: non-hurting projectiles still teleport-per-tick
   (sendChanges conversion), liquid inertia 0.8 and dangerous-skull
   0.73 unmodelled, onDeflection semantics unimplemented.
+
+## Slice — packet: tracked_waypoint (0x8A) locator bar
+
+- Wire (javap ClientboundTrackedWaypointPacket + live probe):
+  op VarInt (TRACK=0, UNTRACK=1, UPDATE=2) + Either<UUID,String>
+  identifier (bool 1 + 16-byte UUID for entity transmitters) +
+  Icon{style ResourceLocation string ("minecraft:default"),
+  optional int32 RGB} + VarInt type (EMPTY=0, VEC3I=1, CHUNK=2,
+  AZIMUTH=3) + contents (VEC3I: 3 VarInts; CHUNK: 2; AZIMUTH:
+  float32 angle). UNTRACK carries the bare identifier.
+- ServerWaypointManager (javap): connections table
+  receiver->transmitter; addPlayer/trackWaypoint create conns,
+  removePlayer/untrackWaypoint drop + UNTRACK; per tick
+  updatePlayer/updateWaypoint run updateConnection (not broken ->
+  update(); broken -> remake TRACK or disconnect UNTRACK) then
+  createConnection for unconnected transmitters.
+- Kind selection (LivingEntity.makeWaypointConnectionWith): empty on
+  firstTick/self/ignore; AZIMUTH iff distanceTo > 332, else CHUNK
+  iff source chunk not in the receiver's tracking view, else VEC3I.
+- Tracking view = receiver chunk centre, radius
+  clamp(requestedViewDistance, 2, serverViewDistance); visibility is
+  CHESSBOARD <= radius (measured: chunk (2,2) VEC3I, (3,x)/(x,3)
+  CHUNK at radius 2 — the squared-sum bytecode formula did not
+  match; chessboard does).
+- doesSourceIgnoreReceiver: receiver spectator -> visible; else
+  ignored iff source spectator, receiver is an indirect passenger,
+  or distanceTo >= min(transmit_range, receive_range). Transmitters
+  are entities with waypoint_transmit_range > 0 (players 6e7, mobs
+  0 default) — /attribute base set flips a mob into a transmitter.
+- isBroken per kind: VEC3I manhattan(lastPos, blockPos)>1 or ignore;
+  CHUNK chessboard(lastChunk, chunkPos)>1 or ignore or the STORED
+  lastChunk now visible; AZIMUTH ignore or chunk visible or dist
+  <= 332. Broken -> remake (fresh TRACK) or UNTRACK.
+- Emitted angle = atan2(diff.x, -diff.z), diff = receiver - source;
+  UPDATE gates |delta| > 0.008726646 rad (0.5 deg). Verified on the
+  wire: B at x=400 emits atan2(-400,0) = -pi/2 = -1.5708 rad.
+- mc-go: waypoint.go — per-receiver conn table ticked once per
+  GameTick (waypointTickStep), wpCreateConnection/wpUpdateConnection
+  mirrors, icon {minecraft:default, /waypoint-modify overrides},
+  gamerule minecraft:locator_bar gate, firstTick on Entity cleared
+  by ClearWaypointFirstTicks, player sources read live session pos.
+- TestWaypointParity: join TRACK, VEC3I move, CHUNK flip at
+  chessboard 3, AZIMUTH at >332 with -pi/2 angle, sub-epsilon
+  silence, UPDATE azimuth on drift, VEC3I re-flip, mob silent at
+  transmit 0 then TRACK after /attribute base set, UNTRACK on
+  disconnect and on /kill — green vs BOTH servers.
+- Deferred: team-color icon assignment (getTeam color) unmodelled —
+  players on a colored team still emit no color.

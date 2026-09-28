@@ -472,6 +472,10 @@ func (s *Server) GameTick() {
 	// their tick's positions — vanilla's updateEntitySections runs in
 	// ChunkMap.tick after the level tick.
 	s.entityTrackStep()
+	// ServerWaypointManager: receivers' connection tables tick after
+	// entities moved — broken conns remake or untrack, new transmitters
+	// connect, moved contents emit UPDATE.
+	s.waypointTickStep()
 	// Vanilla flushes each chunk's accumulated block changes at the end
 	// of the tick (ChunkHolder.broadcastChanges) — after entities and
 	// block ticks ran, so the explode packet precedes the flips' section

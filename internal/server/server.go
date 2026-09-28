@@ -516,6 +516,10 @@ func (s *Server) track(sess *Session) {
 
 func (s *Server) untrack(sess *Session) {
 	s.sessions.Delete(sess.id)
+	// ServerWaypointManager.removePlayer: the leaver's receiver row is
+	// dropped; its transmitter conns unwind via the dead-source path
+	// next tick (UNTRACK to every remaining receiver).
+	s.wpDropAll(sess)
 	// The open menu is removed on disconnect as it is on a client
 	// close — only its contents drop rather than going back into the
 	// inventory (AbstractContainerMenu.removed).

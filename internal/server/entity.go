@@ -457,6 +457,10 @@ type Entity struct {
 	Waypoint      bool
 	WaypointColor string
 	WaypointStyle string
+	// firstTick is Entity.firstTick — set at Spawn, cleared at the end
+	// of the next level tick; waypoint transmitters emit nothing to
+	// receivers while it holds (makeWaypointConnectionWith's gate).
+	firstTick bool
 	// AttrBase holds /attribute base-value overrides by attribute name;
 	// AttrMods holds modifiers as attr -> modifier id -> modifier.
 	AttrBase map[string]float64
@@ -807,10 +811,22 @@ func (m *Manager) Spawn(e *Entity) *Entity {
 		e.Dim = dimOverworld
 	}
 	e.lastSect = sectOf(e.X, e.Y, e.Z)
+	e.firstTick = true
 	m.mu.Lock()
 	m.byID[e.ID] = e
 	m.mu.Unlock()
 	return e
+}
+
+// ClearWaypointFirstTicks ends Entity.firstTick for every entity the
+// level ticks — the flag suppresses waypoint connections only through
+// the spawn tick.
+func (m *Manager) ClearWaypointFirstTicks() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range m.byID {
+		e.firstTick = false
+	}
 }
 
 // SetDimension moves an entity between dimensions.
