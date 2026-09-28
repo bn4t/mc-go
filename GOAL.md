@@ -10302,3 +10302,44 @@ matters for fences/walls that liquids can't pass in vanilla.
 flow) is unmodeled. Lava's `canBeReplacedWith` height ≥0.444 water-
 overwrite is routed through `wakeLava` instead of a block write — the
 net cobblestone result is the same, the in-between ticks differ.
+
+## Slice: waterloggable containers — placeLiquid, chained source feeds
+
+Measured on 26.2 from `FlowingFluid.canHoldAnyFluid` /
+`canHoldSpecificFluid` / `isWaterHole` and `LiquidBlockContainer`:
+
+- `canHoldAnyFluid` answers true EARLY for a `LiquidBlockContainer` —
+  before the motion check — so every block carrying a `waterlogged`
+  property (fences, walls, slabs, stairs, trapdoors, doors, signs,
+  chests, panes, chains, scaffolding, candles, ...) is a cell a fluid
+  may occupy, even though the block itself blocks motion.
+- `canHoldSpecificFluid` → `container.canPlaceLiquid`: water only, and
+  only when not already waterlogged. Lava never enters a waterloggable
+  cell — it is not a spread candidate nor traversable for lava's slope
+  search, so lava flows around waterloggables rather than destroying
+  them.
+- `spreadTo` → `placeLiquid`: water entering a container writes
+  waterlogged=true on the SAME block state — no drops — and the cell
+  then reads as a water SOURCE via getFluidState (supplies neighbours
+  at full strength, feeds the next cell, counts for infinite-water
+  formation, never decays).
+- `isWaterHole` counts a non-waterlogged container below as a hole for
+  water, so a spread prefers the direction that fills a fence.
+
+mc-go: `fluidOf` reads waterlogged=true (and the intrinsic kelp-family
+set) as a water source; `fluidCanHold`/`fluidWritable`/`fluidIsHole`/
+the slope search split traversable from writable per kind;
+`fluidSpreadTo` fills the container in place instead of the loot+write
+path. A waterlogged cell's own fluid tick spreads it like any source —
+the chained feed where water re-emerges beyond a filled fence.
+
+`TestFluidParity` scenario G pins it on both servers: a fence and a
+bottom slab next to a source come back `waterlogged=true`, the cell
+between them holds water, and the slab only fills because the filled
+fence re-feeds it. Unit side: `TestWaterloggableFillsAndFeeds`,
+`TestLavaCannotEnterWaterloggable`.
+
+Residual: `canPassThroughWall`'s merged-shape occlusion check is
+approximated open — for holdable (non-motion-blocking) cells it is
+trivially true in vanilla anyway, so the visible fluid rules all sit
+in canHoldAnyFluid/canHoldSpecificFluid.

@@ -82,6 +82,10 @@ func (f fluidKind) dropOff(d *dimension) int {
 }
 
 // fluidOf reads a block state as a fluid: which fluid, and its level.
+// A cell's block and its fluid are different things in vanilla — the
+// block's getFluidState is what neighbours see: kelp and friends carry
+// an intrinsic water source, and a waterlogged container holds one
+// inside its ordinary block.
 func fluidOf(b world.Block) (fluidKind, int, bool) {
 	name, ok := world.StateOwner(b)
 	if !ok {
@@ -94,6 +98,12 @@ func fluidOf(b world.Block) (fluidKind, int, bool) {
 	case "lava":
 		k = fluidLava
 	default:
+		if intrinsicWaterSource[name] {
+			return fluidWater, 0, true
+		}
+		if wl, _ := world.StateProperty(b, "waterlogged"); wl == "true" {
+			return fluidWater, 0, true
+		}
 		return fluidNone, 0, false
 	}
 	lv, ok := world.StateProperty(b, "level")
@@ -167,30 +177,43 @@ func replaceableByFluid(b world.Block) bool {
 }
 
 // fluidCanHold is vanilla's canHoldAnyFluid: a cell a fluid may occupy.
-// A cell already holding fluid answers true — fluids do not block
-// motion — which is why a lava-flowing cell below counts as a hole for
-// water (water seeks lava to harden it, and lava seeks water the same
-// way). Over replaceableByFluid it keeps vanilla's exclusions — the
-// placeable blocks fluids are not allowed to wash into or through
-// (doors, signs, ladders and sugar cane hold their ground; portals are
-// untouchable).
+// A waterloggable block (LiquidBlockContainer — anything carrying a
+// waterlogged property) answers true first, before the motion check
+// that keeps ordinary solids out, and a cell already holding fluid
+// answers true too — fluids never block motion, which is why a
+// lava-flowing cell below counts as a hole for water (water seeks lava
+// to harden it, and lava seeks water the same way). The rest is
+// replaceableByFluid minus vanilla's exclusions: the placeable blocks
+// fluids may not wash into or through (sugar cane, ladders and portals
+// hold their ground).
 func fluidCanHold(b world.Block) bool {
-	if _, _, ok := fluidOf(b); ok {
-		return true
-	}
-	if !replaceableByFluid(b) {
-		return false
-	}
 	name, _ := world.StateOwner(b)
 	switch name {
 	case "sugar_cane", "ladder", "bubble_column", "nether_portal",
 		"end_portal", "end_gateway", "structure_void":
 		return false
 	}
-	if strings.HasSuffix(name, "_door") {
+	if world.HasProperty(b, "waterlogged") {
+		return true
+	}
+	if _, _, ok := fluidOf(b); ok {
+		return true
+	}
+	if !replaceableByFluid(b) {
 		return false
 	}
-	if strings.HasSuffix(name, "_sign") {
+	if strings.HasSuffix(name, "_door") || strings.HasSuffix(name, "_sign") {
+		return false
+	}
+	return true
+}
+
+// fluidWritable is canHoldSpecificFluid's container half —
+// canPlaceLiquid: a waterloggable block takes water only. Lava never
+// enters one: the cell is not even a spread candidate, so lava flows
+// around waterloggables rather than destroying them.
+func fluidWritable(kind fluidKind, b world.Block) bool {
+	if kind == fluidLava && world.HasProperty(b, "waterlogged") {
 		return false
 	}
 	return true
@@ -541,7 +564,7 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 			default:
 				columnBelow = k2 == kind
 			}
-		} else if fluidCanHold(under) {
+		} else if fluidCanHold(under) && fluidWritable(kind, under) {
 			canFall = true
 			// spreadTo writes the below cell's own recompute — falling
 			// whenever this fluid feeds it, but a full source when two
@@ -592,8 +615,8 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 		if ok && k2 == kind && l2 == 0 {
 			continue // canMaybePassThrough: never into a source of the same kind
 		}
-		if !ok && !fluidCanHold(cur) {
-			continue // not traversable
+		if !ok && !(fluidCanHold(cur) && fluidWritable(kind, cur)) {
+			continue // not a candidate this fluid could occupy
 		}
 		dist := 0
 		if !s.fluidIsHole(d, nb, kind) {
@@ -610,7 +633,7 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 			// replaced from above by another fluid, so its level waits
 			// for its own scheduled tick. Other-kind fluid is likewise
 			// only traversable; lava contacts resolve through wakeLava.
-			if !ok {
+			if !ok && fluidWritable(kind, cur) {
 				nstates[i] = s.newFluidState(d, nb, kind)
 			}
 		}
@@ -649,7 +672,7 @@ func (s *Server) fluidIsHole(d *dimension, pos world.Pos, kind fluidKind) bool {
 	if k2, _, ok := fluidOf(below); ok && k2 == kind {
 		return true
 	}
-	return fluidCanHold(below)
+	return fluidCanHold(below) && fluidWritable(kind, below)
 }
 
 // fluidSlopeDist is vanilla's getSlopeDistance: the hop distance from
@@ -667,13 +690,11 @@ func (s *Server) fluidSlopeDist(d *dimension, kind fluidKind, pos world.Pos, pas
 		if ok && k2 == kind && l2 == 0 {
 			continue // a same-kind source is not traversable
 		}
-		if !fluidCanHold(ts) {
-			if !ok {
-				continue
-			}
-			// A flow (of either kind) is traversable even though it can
-			// never be a spread target.
+		if !ok && !(fluidCanHold(ts) && fluidWritable(kind, ts)) {
+			continue // canPassThrough: not a cell this fluid could occupy
 		}
+		// A flow (of either kind) is traversable even though it can
+		// never be a spread target.
 		if s.fluidIsHole(d, tp, kind) {
 			return pass
 		}
@@ -705,6 +726,17 @@ func rollFluidLoot(table string, state world.Block, pos world.Pos, d *dimension)
 func (s *Server) fluidSpreadTo(d *dimension, nb world.Pos, next world.Block, kind fluidKind) {
 	cur := d.w.GetBlock(nb)
 	if cur != world.Air {
+		if kind == fluidWater && world.HasProperty(cur, "waterlogged") {
+			// placeLiquid: a waterloggable block is not destroyed — it
+			// keeps its state and fills with source water. No drops:
+			// the container survives, and now reads as a source.
+			if filled, ok := world.WithProperty(cur, "waterlogged", "true"); ok {
+				s.setNaturalBlock(d, nb, filled)
+				s.scheduleFluidTick(d, nb, kind.tickDelay(d))
+				s.wakeLava(d, nb)
+			}
+			return
+		}
 		// Water washing away a plant or redstone component drops it,
 		// the same loot table a player break would roll. Fluids and
 		// unlootable cells leave nothing.

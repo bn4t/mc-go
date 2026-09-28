@@ -214,6 +214,7 @@ func scenarioNames() []string {
 		"F1: severed pool decay @5",
 		"F2: severed pool decay @15",
 		"F3: severed pool decay @25",
+		"G: waterloggable cells",
 	}
 }
 
@@ -307,6 +308,19 @@ func runFluidScenarios(t *testing.T, addr, name string) fluidRun {
 	sprintTicks(t, pw, sink, 10)
 	out.levels["F3: severed pool decay @25"] = queryLevels(t, pw, sink, "water", probe)
 
+	// G: waterloggable blocks. Vanilla never washes a fence or a slab
+	// away — water enters the cell and the block survives as
+	// waterlogged=true, and the water inside reads as a source that can
+	// feed the next cell over. The slab two blocks out pins that
+	// chained feed: it only fills because the waterlogged fence cell
+	// re-spreads water through itself.
+	sendCommand(t, pw, "setblock 8 -60 -16 minecraft:oak_fence")
+	sendCommand(t, pw, "setblock 10 -60 -16 minecraft:oak_slab[type=bottom]")
+	waitDrained(t, pw, sink)
+	placeAndStep(t, pw, sink, "setblock 7 -60 -16 minecraft:water[level=0]", settleTicks)
+	out.names["G: waterloggable cells"] = queryNames(t, pw, sink, waterlogCandidates,
+		[][3]int{{8, -60, -16}, {9, -60, -16}, {10, -60, -16}, {7, -60, -16}})
+
 	return out
 }
 
@@ -314,6 +328,15 @@ func runFluidScenarios(t *testing.T, addr, name string) fluidRun {
 // produce, plus what the two fluids look like on their own.
 var fluidContactCandidates = []string{
 	"minecraft:lava", "minecraft:water", "minecraft:obsidian", "minecraft:cobblestone", "minecraft:air", "minecraft:stone",
+}
+
+// waterlogCandidates is what the container cells of scenario G can
+// hold — the block surviving wet or dry, or the cell having been
+// destroyed outright.
+var waterlogCandidates = []string{
+	"minecraft:oak_fence[waterlogged=true]", "minecraft:oak_fence[waterlogged=false]",
+	"minecraft:oak_slab[waterlogged=true]", "minecraft:oak_slab[waterlogged=false]",
+	"minecraft:water", "minecraft:air",
 }
 
 // placeAndStep issues a placement and advances the frozen clock by

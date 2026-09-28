@@ -371,3 +371,72 @@ func ownerName(d *dimension, p world.Pos) string {
 	n, _ := world.StateOwner(d.w.GetBlock(p))
 	return n
 }
+
+// A waterloggable block is not washed away: water flows into it and the
+// cell holds a source, from which it can feed neighbours again.
+func TestWaterloggableFillsAndFeeds(t *testing.T) {
+	s := fluidSim(t)
+	d := s.dims[dimOverworld]
+	fencePos := world.Pos{X: 1, Y: -60, Z: 0}
+	fence, ok := world.BlockStateOf("oak_fence", map[string]string{
+		"east": "false", "north": "false", "south": "false", "west": "false", "waterlogged": "false",
+	})
+	if !ok {
+		t.Fatal("oak_fence state missing")
+	}
+	s.set(d, fencePos, fence)
+	s.set(d, world.Pos{X: 0, Y: -60, Z: 0}, water(t, 0))
+	for i := 0; i < 40; i++ {
+		s.GameTick()
+	}
+	got := d.w.GetBlock(fencePos)
+	if name, _ := world.StateOwner(got); name != "oak_fence" {
+		t.Fatalf("the fence is %s, want it to survive the water", name)
+	}
+	if wl, _ := world.StateProperty(got, "waterlogged"); wl != "true" {
+		t.Fatalf("the fence is waterlogged=%s, want waterlogged=true", wl)
+	}
+	// The waterlogged cell reads as a source: it can feed a neighbour
+	// even after the original source is cut.
+	s.set(d, world.Pos{X: 0, Y: -60, Z: 0}, airBlock(t))
+	for i := 0; i < 40; i++ {
+		s.GameTick()
+	}
+	if name := ownerName(d, world.Pos{X: 2, Y: -60, Z: 0}); name != "water" {
+		t.Fatalf("beyond the waterlogged fence is %s, want the fence to feed water out", name)
+	}
+	if wl, _ := world.StateProperty(d.w.GetBlock(fencePos), "waterlogged"); wl != "true" {
+		t.Fatalf("the fence drained to waterlogged=%s, want a permanent source", wl)
+	}
+}
+
+// Lava has no way into a waterloggable block: it flows around.
+func TestLavaCannotEnterWaterloggable(t *testing.T) {
+	s := fluidSim(t)
+	d := s.dims[dimOverworld]
+	fencePos := world.Pos{X: 1, Y: -60, Z: 0}
+	fence, _ := world.BlockStateOf("oak_fence", map[string]string{
+		"east": "false", "north": "false", "south": "false", "west": "false", "waterlogged": "false",
+	})
+	s.set(d, fencePos, fence)
+	s.set(d, world.Pos{X: 0, Y: -60, Z: 0}, lava(t, 0))
+	for i := 0; i < 200; i++ {
+		s.GameTick()
+	}
+	got := d.w.GetBlock(fencePos)
+	if name, _ := world.StateOwner(got); name != "oak_fence" {
+		t.Fatalf("lava entered the fence: %s", name)
+	}
+	if wl, _ := world.StateProperty(got, "waterlogged"); wl != "false" {
+		t.Fatalf("the fence is waterlogged=%s, want dry", wl)
+	}
+}
+
+func airBlock(t *testing.T) world.Block {
+	t.Helper()
+	b, ok := world.BlockStateOf("air", nil)
+	if !ok {
+		t.Fatal("air state missing")
+	}
+	return b
+}
