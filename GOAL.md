@@ -12296,3 +12296,25 @@ names — selector behaviour is its own rabbit hole, kept as an
 informational probe only. system_chat 0x79 replies carry binary
 components; use `execute if entity nbt=... run say MARKER` probes
 instead of reading data-get output.
+
+## Slice — bogged shear mushroom rolls (2026-09-29)
+
+Bogged.shear measured on 26.2 bytecode (Bogged is under
+entity/monster/skeleton/): mobInteract = stack.is(SHEARS) &&
+readyForShearing() (!isSheared) → shear(level, PLAYERS, stack) +
+gameEvent(SHEAR) + hurtAndBreak(1) + SUCCESS. shear() =
+playSound(null,this,BOGGED_SHEAR) + spawnShearedMushrooms +
+setSheared — NO convertTo, the bogged stays a bogged. The drop is
+dropFromShearingLootTable(BOGGED_SHEAR): loot table shearing/bogged =
+rolls 2 over a 2-entry pool (brown_mushroom x1, red_mushroom x1) —
+each roll independently picks one entry, 1 item per roll, NOT one of
+each and NOT roll-per-entry.
+
+mc-go's bogged shear (both the hand path and the dispenser
+ShearsDispenseItemBehavior arm) looped `for i<2 { for {brown,red} }`
+→ 4 item spawns instead of 2. Both arms now roll the pool per roll.
+
+Pinned: TestShearMobParity gained a spawn-packet count leg —
+decodes 0x01 spawn_entity lines (id, uuid, type, x, y, z) and counts
+type-71 (item) spawns within 4 blocks of the bogged; want exactly 2
+on both servers. Green vs both.

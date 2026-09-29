@@ -390,11 +390,15 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 			bog.Sheared = true
 			s.broadcastEntityMetadata(bog.ID, encodeLivingMetadata(bog, nil))
 			at := world.Pos{X: int(bog.X), Y: int(bog.Y), Z: int(bog.Z)}
+			// shearing/bogged: rolls 2 over a 2-entry pool — each
+			// roll picks brown or red mushroom uniformly.
 			for i := 0; i < 2; i++ {
-				for _, iname := range []string{"brown_mushroom", "red_mushroom"} {
-					if pid, ok := world.ItemIDs[iname]; ok {
-						s.spawnItemDrop(d.name, at, ItemStack{ID: pid, Count: 1})
-					}
+				iname := "brown_mushroom"
+				if s.rng.intn(2) == 0 {
+					iname = "red_mushroom"
+				}
+				if pid, ok := world.ItemIDs[iname]; ok {
+					s.spawnItemDrop(d.name, at, ItemStack{ID: pid, Count: 1})
 				}
 			}
 			s.wearContainerSlot(d, pos, c, slot, 1)

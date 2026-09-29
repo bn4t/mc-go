@@ -45,6 +45,41 @@ func parseEntSounds(lines []string) []shearSnd {
 	return out
 }
 
+// countItemSpawns decodes 0x01 spawn_entity lines and counts item
+// entities (type 71) that spawned within r of (cx, cz). The packet
+// body is: VarInt id, 16B uuid, VarInt type, double x, double y,
+// double z — the tail is unparsed.
+func countItemSpawns(lines []string, cx, cz, r float64) int {
+	n := 0
+	for _, l := range lines {
+		i := strings.IndexByte(l, ':')
+		if i < 0 || l[:i] != "0x1" {
+			continue
+		}
+		pr := protocol.NewPacketReader([]byte(l[i+1:]))
+		if _, e := pr.VarInt(); e != nil {
+			continue
+		}
+		if _, e := pr.Read(16); e != nil {
+			continue
+		}
+		typ, e := pr.VarInt()
+		if e != nil || typ != 71 {
+			continue
+		}
+		x, e1 := pr.Double()
+		_, e2 := pr.Double()
+		z, e3 := pr.Double()
+		if e1 != nil || e2 != nil || e3 != nil {
+			continue
+		}
+		if x > cx-r && x < cx+r && z > cz-r && z < cz+r {
+			n++
+		}
+	}
+	return n
+}
+
 func TestShearMobParity(t *testing.T) {
 	targets := requireBlackboxFiles(t, nil, map[string]string{
 		"ops.json": opsJSONFor("Shear"),
@@ -66,9 +101,10 @@ func TestShearMobParity(t *testing.T) {
 	}
 
 	type mobLeg struct {
-		hits []string
-		snds []shearSnd
-		eids map[int32]int32 // entity type → entity id
+		hits  []string
+		snds  []shearSnd
+		eids  map[int32]int32 // entity type → entity id
+		items int
 	}
 	run := func(addr string) mobLeg {
 		c, pr, pw := joinPlayBlackbox(t, addr, "Shear")
@@ -193,10 +229,12 @@ func TestShearMobParity(t *testing.T) {
 		}
 		time.Sleep(800 * time.Millisecond)
 		sink := dbg
-		snds := parseEntSounds(sink.take())
+		lines := sink.take()
+		snds := parseEntSounds(lines)
+		items := countItemSpawns(lines, 42.5, 30.5, 4.0)
 		t.Logf("sinkerr: %v ids:%v", sink.err, sink.ids)
 		out := make([]string, 0, len(probes))
-		leg := mobLeg{snds: snds, eids: ids}
+		leg := mobLeg{snds: snds, eids: ids, items: items}
 		for i, p := range probes {
 			sendCommand(t, pw, fmt.Sprintf("execute if %s run say SH-ok-%d", p.spec, i))
 			sendCommand(t, pw, fmt.Sprintf("execute unless %s run say SH-miss-%d", p.spec, i))
@@ -261,6 +299,12 @@ func TestShearMobParity(t *testing.T) {
 				t.Errorf("%s: shear sound %d (src=7, eid=%d) missing: snds=%v",
 					lg.tag, wantS, lg.leg.eids[wantTyp], lg.leg.snds)
 			}
+		}
+		// shearing/bogged is rolls=2 over a 2-entry {brown,red} pool:
+		// exactly 2 mushroom item spawns near the bogged (the earlier
+		// roll-per-entry bug dropped 4).
+		if lg.leg.items != 2 {
+			t.Errorf("%s: bogged mushroom spawns = %d, want 2", lg.tag, lg.leg.items)
 		}
 	}
 }

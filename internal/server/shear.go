@@ -170,11 +170,15 @@ func (s *Server) shearMob(sess *Session, t Entity, hand int32) {
 			s.broadcastEntityMetadata(t.ID, encodeLivingMetadata(p, nil))
 		}
 		pos := world.Pos{X: int(math.Floor(t.X)), Y: int(math.Floor(t.Y)), Z: int(math.Floor(t.Z))}
+		// shearing/bogged: rolls 2 over a 2-entry pool — each roll
+		// picks brown or red mushroom uniformly (1 item per roll).
 		for i := 0; i < 2; i++ {
-			for _, iname := range []string{"brown_mushroom", "red_mushroom"} {
-				if pid, ok := world.ItemIDs[iname]; ok {
-					s.spawnItemDrop(t.Dim, pos, ItemStack{ID: pid, Count: 1})
-				}
+			iname := "brown_mushroom"
+			if s.rng.intn(2) == 0 {
+				iname = "red_mushroom"
+			}
+			if pid, ok := world.ItemIDs[iname]; ok {
+				s.spawnItemDrop(t.Dim, pos, ItemStack{ID: pid, Count: 1})
 			}
 		}
 	case "mooshroom":
