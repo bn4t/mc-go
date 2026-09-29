@@ -1747,22 +1747,27 @@ func (s *Server) vehicleStartJump(sess *Session, data int32) {
 	if !ok || !equineTypes[name] {
 		return
 	}
-	if name == "camel" {
+	if name == "camel" || name == "camel_husk" {
 		// Camel.handleStartJump: CAMEL_DASH positional sound +
 		// gameEvent(ENTITY_ACTION) + setDashing(true). The pitch is
-		// LivingEntity's voice roll (rand-rand)*0.2+1.
+		// LivingEntity's voice roll (rand-rand)*0.2+1. CamelHusk
+		// inherits the arm with its own sound.
+		snd := sndCamelDash
+		if name == "camel_husk" {
+			snd = sndCamelHuskDash
+		}
 		pitch := float32(1.0 + (rand.Float64()-rand.Float64())*0.2)
-		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, sndCamelDash, srcNeutral, 1.0, pitch, nil)
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd, srcNeutral, 1.0, pitch, nil)
 		s.emitGameEvent(s.dims[e.Dim], "entity_action", e.X, e.Y, e.Z, sess, "")
 		// setDashing fires the DASH data-write hook — the
-		// onSyncedDataUpdated arm rearms dashCooldown to 55 on
-		// every write that lands while it's 0.
+		// onSyncedDataUpdated arm rearms dashCooldown to 55 only
+		// on an actual flag write landing while it's 0.
 		if !e.Dashing {
 			e.Dashing = true
 			e.MetaDirty = true
-		}
-		if e.DashCooldown == 0 {
-			e.DashCooldown = 55
+			if e.DashCooldown == 0 {
+				e.DashCooldown = 55
+			}
 		}
 		return
 	}

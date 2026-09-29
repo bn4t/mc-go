@@ -13670,3 +13670,24 @@ buck check read `e.Tamed` where vanilla reads the type override). New
 `TestCamelRideParity` drives two sessions: each player's interact
 re-emits `set_passengers` with the grown passenger array — seats 1
 then 2 on both legs.
+
+## Slice — camel_husk riding + dash family coverage (2026-09-29)
+
+CamelHusk extends Camel — every riding/dash surface the camel has,
+the husk inherits (with its own sounds). mc-go treated it as a
+non-equine: couldn't be mounted by move_vehicle steering, never ran
+the dash cooldown/clear tick, wrote no camel-family metadata. All
+now covered: mountCap 2 for both camels, isEquineName /
+mountScreenTypes / mountAllowed / vehicleClientDriven (a ridden husk
+silently dropped every move_vehicle — isClientControllableVehicle
+parity), equineTypes (idx18 flags), the DASH+LAST_POSE metadata
+cases, and the tick arm (flag clear at cooldown<50 && grounded,
+dash_ready per-type sound id). Also corrected the cooldown rearm —
+vanilla's onSyncedDataUpdated hook fires only on an actual DASH
+write (SynchedEntityData.set's value-change gate), so a repeat
+START_RIDING_JUMP while DASH is already on does not rearm. Wire note
+pinned: the `sound` packet's first VarInt is a Holder<SoundEvent>
+written registry-id+1 — camel dash=262, ready=263, husk dash=251,
+ready=252. TestCamelDashParity gained camel + camel_husk lanes and a
+parked sound listener (conn B inside the 16-block hear radius — it
+was flakily missing sounds before).

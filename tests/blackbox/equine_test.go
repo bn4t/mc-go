@@ -98,9 +98,9 @@ func TestEquineMetaParity(t *testing.T) {
 	}
 }
 
-// camelEID polls for the camel's add_entity on conn B, answering
-// keepalives/chunk acks/teleport confirms on both sockets.
-func camelEID(t *testing.T, v *vehPair, window time.Duration) int32 {
+// camelEID polls for the camel-family add_entity on conn B,
+// answering keepalives/chunk acks/teleport confirms on both sockets.
+func camelEID(t *testing.T, v *vehPair, window time.Duration, mob string) int32 {
 	t.Helper()
 	found := int32(0)
 	poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
@@ -131,7 +131,7 @@ func camelEID(t *testing.T, v *vehPair, window time.Duration) int32 {
 					eid, _ := r.VarInt()
 					r.UUID()
 					ty, _ := r.VarInt()
-					if n, _ := server.EntityTypeName(ty); n == "camel" {
+					if n, _ := server.EntityTypeName(ty); n == mob {
 						found = eid
 					}
 				}
@@ -144,7 +144,7 @@ func camelEID(t *testing.T, v *vehPair, window time.Duration) int32 {
 		poll(v.cb, v.prb, v.pwb, true)
 	}
 	if found == 0 {
-		t.Fatalf("no camel spawn seen within %s", window)
+		t.Fatalf("no %s spawn seen within %s", mob, window)
 	}
 	return found
 }
@@ -177,10 +177,13 @@ func TestCamelDashParity(t *testing.T) {
 	}, nil)
 	defer targets.cleanup()
 
-	run := func(tag, addr string) {
+	dashLane := func(tag, addr, mob string, dashSnd, readySnd int32) {
 		v := joinVehPair(t, addr)
 		drainChunkWindow(t, tag, v.ca, v.pra, v.pwa, 400*time.Millisecond)
 		drainChunkWindow(t, tag, v.cb, v.prb, v.pwb, 400*time.Millisecond)
+		// The sound listener is conn B — park it within the
+		// 16-block hear radius of the camel before the lane arms.
+		sendCommand(t, v.pwa, "tp BOATB 5.5 -60 8.5")
 		sendCommand(t, v.pwa, "tp @s 6.5 -60 8.5 0 0")
 		var mv protocol.Buffer
 		mv.Double(6.5)
@@ -189,9 +192,9 @@ func TestCamelDashParity(t *testing.T) {
 		mv.Byte(0x01)
 		_ = v.pwa.WritePacket(server.IDPlayMovePosSB, mv.Bytes())
 		time.Sleep(300 * time.Millisecond)
-		sendCommand(t, v.pwa, `summon minecraft:camel 8.5 -60 8.5 {NoAI:1b,equipment:{saddle:{id:"minecraft:saddle",count:1}}}`)
+		sendCommand(t, v.pwa, `summon minecraft:`+mob+` 8.5 -60 8.5 {NoAI:1b,equipment:{saddle:{id:"minecraft:saddle",count:1}}}`)
 
-		eid := camelEID(t, v, 3*time.Second)
+		eid := camelEID(t, v, 3*time.Second, mob)
 		sendInteractEntity(v.pwa, eid)
 		if o := vehWatch(t, v, true, eid, 6*time.Second); o.passengers != 1 {
 			t.Fatalf("%s: interact mounted %d passengers, want 1", tag, o.passengers)
@@ -222,20 +225,20 @@ func TestCamelDashParity(t *testing.T) {
 		if sawOff {
 			t.Fatalf("%s: dash flag cleared mid-ride %v, want persistent (vanilla keeps it on)", tag, o.dashHist)
 		}
-		// CAMEL_DASH (262) fires at the arm; the rearmed 55-tick
+		// CAMEL_DASH fires at the arm; the rearmed 55-tick
 		// cooldown decays inside the window and fires
-		// CAMEL_DASH_READY (263) at 0.
+		// CAMEL_DASH_READY at 0.
 		sawDash, sawReady := false, false
 		for _, id := range o.soundIds {
-			if id == 262 {
+			if id == dashSnd {
 				sawDash = true
 			}
-			if id == 263 {
+			if id == readySnd {
 				sawReady = true
 			}
 		}
 		if !sawDash || !sawReady {
-			t.Fatalf("%s: sounds %v, want 262 (dash) + 263 (dash_ready)", tag, o.soundIds)
+			t.Fatalf("%s: sounds %v, want %d (dash) + %d (dash_ready)", tag, o.soundIds, dashSnd, readySnd)
 		}
 
 		// The driver's move_vehicle reports onGround=true:
@@ -262,6 +265,17 @@ func TestCamelDashParity(t *testing.T) {
 		}
 	}
 
-	run("vanilla", targets.vanilla)
-	run("mc-go", targets.mcgo)
+	for _, tc := range []struct{ tag, addr string }{
+		{"vanilla", targets.vanilla},
+		{"mc-go", targets.mcgo},
+	} {
+		t.Run(tc.tag+"_camel", func(t *testing.T) {
+			dashLane(tc.tag, tc.addr, "camel", 262, 263)
+		})
+		t.Run(tc.tag+"_camel_husk", func(t *testing.T) {
+			// wire ids are registry+1 (Holder encoding): 251=
+			// entity.camel_husk.dash, 252=dash_ready.
+			dashLane(tc.tag, tc.addr, "camel_husk", 251, 252)
+		})
+	}
 }

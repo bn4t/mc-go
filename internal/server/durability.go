@@ -335,6 +335,8 @@ const (
 	sndWolfHurt               int32 = 1806 // entity.wolf.hurt
 	sndCamelDash              int32 = 261  // entity.camel.dash
 	sndCamelDashReady         int32 = 262  // entity.camel.dash_ready
+	sndCamelHuskDash          int32 = 250  // entity.camel_husk.dash
+	sndCamelHuskDashReady     int32 = 251  // entity.camel_husk.dash_ready
 	sndDonkeyJump             int32 = 535  // entity.donkey.jump
 	sndHorseJump              int32 = 864  // entity.horse.jump
 	sndMuleJump               int32 = 1026 // entity.mule.jump

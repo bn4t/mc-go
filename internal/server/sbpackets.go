@@ -954,7 +954,8 @@ func vehicleClientDriven(name string, e *Entity) bool {
 	switch name {
 	case "pig", "strider", "happy_ghast",
 		"horse", "zombie_horse", "skeleton_horse",
-		"donkey", "mule", "llama", "trader_llama", "camel":
+		"donkey", "mule", "llama", "trader_llama",
+		"camel", "camel_husk":
 		return e.Saddle
 	}
 	return false

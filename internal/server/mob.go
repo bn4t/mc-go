@@ -3472,7 +3472,7 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 					b.Byte(1)
 					b.VarInt(e.LlamaVariant)
 				}
-			case "camel":
+			case "camel", "camel_husk":
 				// DATA_DASH (19, bool) — arms on START_RIDING_JUMP,
 				// clears on the next grounded tick.
 				if e.Dashing != last.dash {
@@ -4292,7 +4292,7 @@ func mobFlagsByte(e *Entity) byte {
 var equineTypes = map[string]bool{
 	"horse": true, "zombie_horse": true, "skeleton_horse": true,
 	"donkey": true, "mule": true, "llama": true,
-	"trader_llama": true, "camel": true,
+	"trader_llama": true, "camel": true, "camel_husk": true,
 }
 
 // equineFlagsByte packs AbstractHorse's DATA_ID_FLAGS byte (idx18):
@@ -4345,7 +4345,7 @@ func equineMetaPack(b *protocol.Buffer, e *Entity, name string) {
 			b.Byte(1)
 			b.VarInt(e.LlamaVariant)
 		}
-	case "camel":
+	case "camel", "camel_husk":
 		if e.Dashing {
 			b.Byte(19)
 			b.Byte(8) // serializer: boolean
@@ -5220,13 +5220,14 @@ func (s *Server) mobTickStep() {
 		}
 		// Camel.tick's dash tail: DASH clears once the cooldown is
 		// below 50 AND the camel registers ground (onGround ||
-		// isInLiquid || isPassenger — the latter two unmodeled);
+		// isInLiquid || isPassenger — isInLiquid unmodeled);
 		// the cooldown decays independently and fires the
 		// dash_ready positional sound at 0. A ridden camel's
 		// Grounded only reflects the driver's move_vehicle
 		// packets, so a mounted NoAI camel keeps the flag on.
-		if ambName == "camel" {
-			if e.Dashing && e.DashCooldown < 50 && e.Grounded {
+		// CamelHusk inherits the whole arm with its own sounds.
+		if ambName == "camel" || ambName == "camel_husk" {
+			if e.Dashing && e.DashCooldown < 50 && (e.Grounded || e.Riding != 0) {
 				e.Dashing = false
 				e.MetaDirty = true
 				if e.DashCooldown == 0 {
@@ -5236,7 +5237,11 @@ func (s *Server) mobTickStep() {
 			if e.DashCooldown > 0 {
 				e.DashCooldown--
 				if e.DashCooldown == 0 {
-					s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, sndCamelDashReady, srcNeutral, 1.0, 1.0, nil)
+					readySnd := sndCamelDashReady
+					if ambName == "camel_husk" {
+						readySnd = sndCamelHuskDashReady
+					}
+					s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, readySnd, srcNeutral, 1.0, 1.0, nil)
 				}
 			}
 		}
