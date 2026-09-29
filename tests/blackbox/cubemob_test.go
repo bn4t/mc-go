@@ -27,8 +27,10 @@ type cubeHopObs struct {
 	hops     int // set_entity_motion emits with vy > 0.3 on the cube
 	maxVy    float64
 	minVy    float64
-	parts    int // landing-burst particle packets (item_slime/flame)
-	soundCnt int // positioned-sound packets on the window
+	maxHoriz float64 // |v_xz| on hop emits — logged, not pinned
+	net      float64 // posNet horizontal travel summed over the window
+	parts    int     // landing-burst particle packets (item_slime/flame)
+	soundCnt int     // positioned-sound packets on the window
 	motion   map[int32]int
 }
 
@@ -73,10 +75,14 @@ func TestCubeHopParity(t *testing.T) {
 						if leg.minVy == 0 || vec[1] < leg.minVy {
 							leg.minVy = vec[1]
 						}
+						if hv := math.Hypot(vec[0], vec[2]); hv > leg.maxHoriz {
+							leg.maxHoriz = hv
+						}
 					}
 				}
 			}
 			leg.parts += 0
+			leg.net += o.posNet[eid]
 			leg.soundCnt += o.sounds
 			for k, n := range o.motion {
 				leg.motion[k] += n
@@ -154,12 +160,25 @@ func TestCubeHopParity(t *testing.T) {
 		if after >= before {
 			t.Fatalf("%s: touch damage never landed (health %.0f -> %.0f)", name, before, after)
 		}
-		t.Logf("%s: slime hops=%d vy=%.3f magma hops=%d vy=%.3f health %.0f->%.0f",
-			name, slime.hops, slime.maxVy, magma.hops, magma.maxVy, before, after)
+		t.Logf("%s: slime hops=%d vy=%.3f hz=%.3f magma hops=%d vy=%.3f hz=%.3f health %.0f->%.0f",
+			name, slime.hops, slime.maxVy, slime.maxHoriz,
+			magma.hops, magma.maxVy, magma.maxHoriz, before, after)
 	}
 
 	vSlm, vMag, vB, vA, vSlmE, vMagE := run(t, "vanilla", targets.vanilla)
 	mSlm, mMag, mB, mA, mSlmE, mMagE := run(t, "mc-go", targets.mcgo)
 	check(t, "vanilla", vSlm, vMag, vB, vA, vSlmE, vMagE)
 	check(t, "mc-go", mSlm, mMag, mB, mA, mSlmE, mMagE)
+
+	// Per-hop horizontal travel: grounded zza=drive influence plus
+	// the flat-0.02 air influence carry the hop arc; a unit-input or
+	// speed-scaled drive bug lands far outside 2x of vanilla's arc.
+	for _, pr := range [][2]cubeHopObs{{vSlm, mSlm}, {vMag, mMag}} {
+		vAvg := pr[0].net / float64(pr[0].hops)
+		mAvg := pr[1].net / float64(pr[1].hops)
+		if mAvg > vAvg*2.2 || mAvg < vAvg*0.35 {
+			t.Fatalf("hop distance off parity: vanilla %.3f/hop vs mc-go %.3f/hop", vAvg, mAvg)
+		}
+		t.Logf("hop distance: vanilla %.3f/hop, mc-go %.3f/hop", vAvg, mAvg)
+	}
 }

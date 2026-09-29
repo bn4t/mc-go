@@ -138,23 +138,22 @@ func (s *Server) cubeHopStep(e *Entity, w *world.World, name string) {
 			e.MotionY = vy
 			e.NeedsSync = true
 			s.cubeSound(e, name, "jump")
-			// This tick still drives on the ground: zza=drive at the
-			// normalized forward input — ground-friction influence.
-			s.mobTravelStepPair(e, w, drive, 1.0, 0)
+			// This tick still drives on the ground: setSpeed(drive)
+			// leaves zza=drive (input normalizes only above 1, so a
+			// sub-1 drive stays sub-1) at ground-friction influence.
+			s.mobTravelStep(e, w, drive)
 		} else {
-			// Between hops: xxa=zza=0 and speed 0 — the residual
-			// delta decays against the floor.
+			// Between hops: xxa=zza=0 — the move control zeroes the
+			// inputs outright rather than letting them decay.
+			e.WalkZZA = 0
+			e.WalkXXA = 0
 			s.mobTravelStep(e, w, 0)
 		}
 	} else {
-		// Airborne: the zza input stays latched at the wanted drive —
-		// moveRelative normalizes it to unit and applies the air
-		// influence getSpeed()*0.216 (blockFriction 1.0 arm).
-		air := drive * 0.216
-		yr := float64(e.Yaw) * math.Pi / 180
-		e.MotionX += air * -math.Sin(yr)
-		e.MotionZ += air * math.Cos(yr)
-		s.mobTravelStep(e, w, 0)
+		// Airborne: MOVE_TO stays armed, so zza keeps being re-issued
+		// at the drive each tick — the air influence is
+		// getFlyingSpeed, a flat 0.02 for a mob.
+		s.mobTravelStep(e, w, drive)
 	}
 	// wasOnGround edge after travel: a landing cube bursts
 	// size*16 particles in a width ring and plays the squish.

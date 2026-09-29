@@ -103,6 +103,8 @@ type vehObs struct {
 	blockUps   map[[3]int32]int       // block_update counts by position
 	motion     map[int32]int          // set_entity_motion counts by eid
 	motVec     map[int32][][3]float64 // set_entity_motion velocity triples by eid
+	lastPos    map[int32][3]float64   // tracked entity position base
+	posNet     map[int32]float64      // net |dx|+|dz| traveled (pos packets + teleports)
 	uuidMeta   map[[2]int32][16]byte  // serializer-13 present-uuid entries by {eid,index}
 	hookMeta   map[int32]int32        // unscoped: eid → last nonzero idx8 int metadata
 	hookHist   []string               // ordered idx8 emits as "eid:v" (spans the window)
@@ -137,6 +139,8 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 		blockUps:   map[[3]int32]int{},
 		motion:     map[int32]int{},
 		motVec:     map[int32][][3]float64{},
+		lastPos:    map[int32][3]float64{},
+		posNet:     map[int32]float64{},
 		uuidMeta:   map[[2]int32][16]byte{},
 		hookMeta:   map[int32]int32{},
 	}
@@ -241,7 +245,34 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					}
 				case 0x75: // sound — count positioned-sound packets
 					o.sounds++
-				case 35, 53, 54, 125: // pos sync / delta / teleport
+				case 53, 54: // move_entity_pos / _pos_rot — delta shorts /4096
+					r := protocol.NewPacketReader(p.Data)
+					peid, _ := r.VarInt()
+					if peid == eid {
+						o.moved = true
+					}
+					dx, _ := r.Short()
+					dy, _ := r.Short()
+					dz, _ := r.Short()
+					lp := o.lastPos[peid]
+					lp[0] += float64(dx) / 4096
+					lp[1] += float64(dy) / 4096
+					lp[2] += float64(dz) / 4096
+					o.lastPos[peid] = lp
+					o.posNet[peid] += math.Hypot(float64(dx)/4096, float64(dz)/4096)
+				case 125: // teleport_entity — VarInt eid + absolute doubles
+					r := protocol.NewPacketReader(p.Data)
+					peid, _ := r.VarInt()
+					if peid == eid {
+						o.moved = true
+					}
+					tx, _ := r.Double()
+					ty, _ := r.Double()
+					tz, _ := r.Double()
+					lp := o.lastPos[peid]
+					o.posNet[peid] += math.Hypot(tx-lp[0], tz-lp[2])
+					o.lastPos[peid] = [3]float64{tx, ty, tz}
+				case 35: // entity_position_sync — player-relative, mark moved only
 					r := protocol.NewPacketReader(p.Data)
 					peid, _ := r.VarInt()
 					if peid == eid {

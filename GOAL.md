@@ -13137,10 +13137,13 @@ friction-1.0 arm) on 26.2:
   resets (slime rand(20)+10, magma *4, /3 while aggressive), fires
   JumpControl.jumpFromGround (vy = jump_strength 0.42, magma adds
   size*0.1; magma's lava jumpInLiquid is 0.22+size*0.05) and plays
-  the jump sound; if the delay hasn't elapsed the input is zeroed
-  (slimes never slide on the ground). Airborne: the latched speed
-  keeps driving forward via moveRelative's normalized-input air
-  influence speed*0.216 — no fresh accel per tick.
+  the jump sound; if the delay hasn't elapsed the move control
+  zeroes xxa/zza outright (slimes never slide on the ground).
+  Airborne: MOVE_TO stays armed so zza keeps being re-issued at the
+  drive, and moveRelative's input only normalizes above length 1 —
+  a sub-1 drive stays sub-1 — while the air influence is
+  LivingEntity.getFlyingSpeed, a flat 0.02 for a mob (only a
+  player-controlled ride gets getSpeed()*0.1).
 - Heading: AttackGoal picks the nearest survival-mode player
   within 10 blocks and |dy|<=4 (else an iron golem inside
   follow_range) and yRot = lookAt bearing; RandomDirectionGoal
@@ -13166,8 +13169,9 @@ friction-1.0 arm) on 26.2:
   the launch vy, because sendChanges runs after the tick's gravity.
 
 mc-go gained cubemob.go: cubeHopStep reproduces the whole chain
-(jump delay, heading pick/lock, 90° rotlerp, zero-ground-input wait,
-air influence, landing particle loop + squish, touch damage),
+(jump delay, heading pick/lock, 90° rotlerp, zeroed-input wait,
+zza=drive drive at ground influence and the flat-0.02 air influence,
+landing particle loop + squish, touch damage),
 cubeJumpDelayFor/cubeDealsDamage/cubeTarget/cubeSound/cubeLand/
 cubeTouchDamage helpers, Entity fields CubeJumpDelay..CubeJumpSeq,
 and the mob.go dispatch for slime+magma_cube. vehObs gained motVec
@@ -13180,4 +13184,11 @@ emits and pin the observed vy (slime ~0.33 over 80 steps, magma
 takes the touch hit. Both legs green: vanilla slime 6 hops vy
 0.333, magma 4 hops vy 0.529, health 20->18; mc-go slime 4 hops vy
 0.333, magma 6 hops vy 0.529, health 20->17 (hop counts vary with
-the random delay — the pinned values are vy and the damage).
+the random delay — the pinned values are vy, per-hop travel within
+2x of vanilla, and the damage).
+
+Correction folded into this entry: the first pass had the input
+normalized to unit (zza=1) and the air influence at getSpeed*0.216 —
+both wrong per Entity.getInputVector (normalizes only length>1) and
+LivingEntity.getFlyingSpeed (flat 0.02). The wire pin now also sums
+posNet horizontal travel per hop and compares legs.
