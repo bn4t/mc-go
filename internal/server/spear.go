@@ -123,6 +123,7 @@ func (s *Server) spearJabTick(sess *Session) {
 		hitAny = true
 		dmg := base + float32(math.Floor(relSpeed*kw.dmgMult))
 		if canDmg {
+			headOminous := e.Equips[equipHelmet].Ominous
 			dealt, _, died := s.damageMob(e, dmg, "player_attack", sess, &damageInfo{
 				typeName: "spear",
 				cause:    sess.entityID.Load(),
@@ -134,7 +135,7 @@ func (s *Server) spearJabTick(sess *Session) {
 				if died {
 					// killed:<type> lands inside die() on the
 					// credited hurter, not at the hit site.
-					s.onPlayerKilledMob(sess, *e)
+					s.onPlayerKilledMob(sess, *e, headOminous)
 				}
 			}
 		}

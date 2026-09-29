@@ -2639,17 +2639,12 @@ func (s *Server) broadcastFreshMob(e *Entity) {
 	e.NeedsSync = true
 	e.SyncCount = 0
 	e.ParticlesSent = nil
-	if slots := armorStandEquipAll(e); len(slots) > 0 {
+	if len(armorStandEquipAll(e)) > 0 {
+		// Equipment rides the pairing bundle (sendEntityTo) and
+		// replays once via the first tick's EquipDirty flush —
+		// vanilla's sendPairingData + the empty-baseline
+		// detectEquipmentUpdates emit — so no separate emit here.
 		e.EquipDirty = true
-		body := encodeEquipment(e.ID, slots)
-		s.sessions.Range(func(_, v any) bool {
-			other := v.(*Session)
-			if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != e.Dim {
-				return true
-			}
-			_ = other.write(other.ids().PlaySetEquipment, body)
-			return true
-		})
 	}
 }
 

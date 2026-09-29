@@ -1651,14 +1651,17 @@ const (
 )
 
 // onPlayerKilledMob fires player_killed_entity for a mob the player
-// just killed (direct attack or sweep splash).
-func (s *Server) onPlayerKilledMob(sess *Session, e Entity) {
+// just killed (direct attack or sweep splash). headOminous is the
+// victim's pre-drop head flag: vanilla's trigger reads the worn gear
+// before dropAllDeathLoot empties the slots, so callers capture it
+// before damageMob runs the death drops.
+func (s *Server) onPlayerKilledMob(sess *Session, e Entity, headOminous bool) {
 	name, ok := EntityTypeName(e.Type)
 	if !ok {
 		return
 	}
 	ax, _, az, _, _, _ := sess.Pos()
-	s.firePlayerKilledEntity(sess, name, e.X, e.Z, ax, az, e.Equips[equipHelmet].Ominous)
+	s.firePlayerKilledEntity(sess, name, e.X, e.Z, ax, az, headOminous)
 	s.fireKillNearSculk(sess, e.X, e.Y, e.Z, e.Dim)
 }
 

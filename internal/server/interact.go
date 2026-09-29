@@ -262,6 +262,10 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 			if plan.smash {
 				dmgType = "mace_smash"
 			}
+			// Vanilla's kill trigger reads the victim's worn gear before
+			// dropAllDeathLoot clears the slots — capture the ominous
+			// head flag before damageMob runs the death drops.
+			headOminous := e.Equips[equipHelmet].Ominous
 			dealt, graced, died := s.damageMob(&e, plan.damage, "player_attack", sess, &damageInfo{
 				typeName: dmgType,
 				cause:    sess.entityID.Load(),
@@ -283,7 +287,7 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 				if died {
 					// killed:<type> lands inside die() on the
 					// credited hurter, not at the hit site.
-					s.onPlayerKilledMob(sess, e)
+					s.onPlayerKilledMob(sess, e, headOminous)
 				}
 				if !graced {
 					s.mobAttackKnockback(sess, e.ID, plan.scale)
@@ -587,6 +591,7 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 		vName, _ := EntityTypeName(e.Type)
 		res = mobKnockbackResistance[vName]
 		dmg := plan.scale * (sweepDmg + enchantDamageBonus(sess.heldStack(), vName))
+		headOminous := e.Equips[equipHelmet].Ominous
 		dealt, graced, died := s.damageMob(&e, dmg, "player_attack", sess, &damageInfo{
 			typeName: "player_attack",
 			cause:    sess.entityID.Load(),
@@ -603,7 +608,7 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 				s.broadcastEntityMotion(e.Dim, e.ID, mx, my, mz)
 			}
 			if died {
-				s.onPlayerKilledMob(sess, e)
+				s.onPlayerKilledMob(sess, e, headOminous)
 			}
 		}
 	}

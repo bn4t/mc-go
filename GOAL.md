@@ -12912,3 +12912,39 @@ reset() kills leftover item entities between stages.
 
 Note: TestArmorStandInteractParity fails on base master too
 (preexisting — swap-chain order/count differs), needs its own look.
+
+## Slice — armor-stand emit dedup + voluntary_exile trigger ordering (2026-09-29)
+
+Two real bugs pinned by existing differential tests, no new test file
+needed.
+
+**Spawn-time equipment emit dedup.** broadcastFreshMob ran THREE emits
+for an equipped armor stand — the pairing bundle (sendEntityTo), a
+direct sessions.Range set_equipment, and the first-tick EquipDirty
+flush — while vanilla emits exactly two (sendPairingData + the
+empty-baseline detectEquipmentUpdates). The middle emit was removed;
+EquipDirty stays so the first tick replays the packed set.
+TestArmorStandInteractParity — failing preexisting on master per the
+prior slice's note — is now green.
+
+**voluntary_exile kill trigger read the post-drop slot.** The death
+drop loop deleted each dropped slot from e.Equips
+(dropCustomDeathLoot), and the player_killed_entity dispatch read
+Equips[equipHelmet].Ominous after damageMob returned — always false.
+Vanilla fires the trigger inside die() before dropAllDeathLoot
+empties the slots. Fix: the four kill call sites (primary melee,
+sweep splash, spear, projectile) capture the head flag before
+damageMob and pass it through onPlayerKilledMob /
+firePlayerKilledEntityDamage. All three diffs in TestCaptainParity
+(missing def, missing progress, missing chat announce) collapse to
+this one cause — now green.
+
+Also measured during the same run: vanilla announces BOTH
+kill_a_mob and voluntary_exile on a captain kill — the earlier
+"extra announce" reading was the missing grant, not over-announce.
+
+Flakes noted this session, unrelated to the slice: TestKillAdvParity
+once showed mc-go granting zero on the zombie leg (entity died
+without a player-creditable source — likely suffocation at spawn);
+passes on rerun on both master and this change. TestCaptainParity's
+deterministic failure was the real bug above.

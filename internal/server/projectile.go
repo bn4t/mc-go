@@ -1228,6 +1228,7 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 		bb := entityBBDims(t)
 		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1], projectilePickMargin(e.TicksLived)) {
 			hit = true
+			headOminous := t.Equips[equipHelmet].Ominous
 			dealt, _, died := s.damageMob(t, damage, typeName, shooter, &damageInfo{
 				typeName: typeName,
 				cause:    e.arrowShooter,
@@ -1245,7 +1246,7 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 						if tn, ok := EntityTypeName(t.Type); ok {
 							vx, vz := t.X, t.Z
 							ax, _, az, _, _, _ := shooter.Pos()
-							s.firePlayerKilledEntityDamage(shooter, tn, vx, vz, ax, az, true, typeName, t.Equips[equipHelmet].Ominous)
+							s.firePlayerKilledEntityDamage(shooter, tn, vx, vz, ax, az, true, typeName, headOminous)
 							s.fireKillNearSculk(shooter, t.X, t.Y, t.Z, t.Dim)
 							if e.arrowWeapon != "" {
 								s.fireKilledByArrow(shooter, tn, e.arrowWeapon)
