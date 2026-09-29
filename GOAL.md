@@ -13450,3 +13450,16 @@ already in place; the missing piece was the interact arm itself:
   and hover names render the literal or parsed component to match.
   `TestAnimalVariantParity` pins the six summons + nine merges vs
   both servers; `TestDataEntityParity` green again.
+- Fox `Trusted` merge parity: the list-of-[I;4] codec reads into
+  DATA_TRUSTED_ID_0/1 (idx20/21, optional_living_entity_reference
+  serializer 13). addTrustedEntity fills slot 0, then slot 1, then
+  overwrites slot 1 on every further uuid; /data merge runs
+  clearTrusted first, so each entityData.set latches dirty on the
+  intermediate value — a merge carrying the entity's own uuids stays
+  clean while a changed list emits both slots. Same-value merges
+  re-emit the current uuids (per-item dirty latch, not snapshot
+  compare). Summon applies the same slot fill semantics.
+- `TestAnimalVariantParity` now pins the variant codecs + Trusted
+  slot churn vs both servers — summon {Trusted:[[I;..],[I;..]]},
+  the three-entry slot-1 overwrite, single-uuid re-merge, and
+  {Trusted:[]} clear all green.

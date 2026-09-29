@@ -514,6 +514,11 @@ type Entity struct {
 	// [I;a,b,c,d] uuid (slot 0); addAdditionalSaveData emits a
 	// list of int-arrays.
 	FoxTrusted [][16]byte
+	// foxDirty is each trusted slot's SynchedEntityData dirty latch —
+	// set() marks it when the written value differs from the slot's
+	// value at that moment (clearTrusted + addTrustedEntity inside
+	// readAdditionalSaveData), and the next diff emit discharges it.
+	foxDirty [2]bool
 	// CollarColor is the dye legacy id (0-15) behind Cat's and
 	// Wolf's CollarColor NBT byte + synced int. Vanilla's read
 	// applies the defined default RED(14) when the key is absent,

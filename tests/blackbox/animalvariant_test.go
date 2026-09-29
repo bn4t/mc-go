@@ -55,6 +55,13 @@ func TestAnimalVariantParity(t *testing.T) {
 		"data merge entity " + sel("rabbit") + " {RabbitType:2}",
 		"data merge entity " + sel("fox") + " {Sleeping:0b,Crouching:1b}",
 		"data merge entity " + sel("fox") + " {Type:\"red\"}",
+		// Trusted reads a list of [I;] uuids into slots 20/21 — a
+		// third entry overwrites slot 1 (addTrustedEntity's
+		// slot0-present branch), an empty list clears both.
+		"data merge entity " + sel("fox") + " {Trusted:[[I;1,2,3,4],[I;5,6,7,8]]}",
+		"data merge entity " + sel("fox") + " {Trusted:[[I;1,2,3,4],[I;5,6,7,8],[I;9,10,11,12]]}",
+		"data merge entity " + sel("fox") + " {Trusted:[[I;13,14,15,16]]}",
+		"data merge entity " + sel("fox") + " {Trusted:[]}",
 		"data merge entity " + sel("cow") + " {AgeLocked:0b}",
 		"data merge entity " + sel("cow") + " {AgeLocked:1b}",
 	}

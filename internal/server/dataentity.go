@@ -462,6 +462,37 @@ func repackTropicalVariant(i int32) int32 {
 	return pattern | base<<16 | pat<<24
 }
 
+// appendFoxTrusted is Fox.addTrustedEntity: the first free slot takes
+// the reference and every further reference overwrites slot 1 — the
+// read loop's forEach keeps replacing the second slot past two uuids.
+func appendFoxTrusted(sl [][16]byte, u [16]byte) [][16]byte {
+	if len(sl) == 0 {
+		return [][16]byte{u}
+	}
+	if len(sl) == 1 {
+		return append(sl, u)
+	}
+	sl[1] = u
+	return sl
+}
+
+// foxTrustedUUID decodes one Trusted element — the [I;a,b,c,d]
+// int-array uuid form EntityReference's codec expects.
+func foxTrustedUUID(v any) ([16]byte, bool) {
+	var u [16]byte
+	ints, ok := v.([]int32)
+	if !ok || len(ints) != 4 {
+		return u, false
+	}
+	for j, n := range ints {
+		u[j*4] = byte(n >> 24)
+		u[j*4+1] = byte(n >> 16)
+		u[j*4+2] = byte(n >> 8)
+		u[j*4+3] = byte(n)
+	}
+	return u, true
+}
+
 // componentFromStored parses a stored CustomName back into the
 // component vanilla keeps: a serialized component (comp) decodes its
 // SNBT/JSON form; literal storage stays the raw text — vanilla's CODEC
@@ -1650,6 +1681,40 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		if v, ok := save["Crouching"]; ok {
 			if b := nbtTruth(v); b != e.Crouching {
 				e.Crouching = b
+				e.MetaDirty = true
+			}
+		}
+		if v, ok := save["Trusted"]; ok {
+			// clearTrusted + addTrustedEntity: each entityData.set
+			// latches dirty only when the written value differs from
+			// the slot's value at that moment — a merge carrying the
+			// entity's own uuids leaves both slots clean.
+			dirty := [2]bool{}
+			for i := 0; i < 2 && i < len(e.FoxTrusted); i++ {
+				dirty[i] = true // clearTrusted: present → empty
+			}
+			var nts [][16]byte
+			if l, isL := v.(nbt.List); isL {
+				for _, it := range l.Items {
+					if u, ok2 := foxTrustedUUID(it); ok2 {
+						if len(nts) == 0 {
+							nts = [][16]byte{u}
+							dirty[0] = true
+						} else if len(nts) == 1 {
+							nts = append(nts, u)
+							dirty[1] = true
+						} else {
+							if nts[1] != u {
+								dirty[1] = true
+							}
+							nts[1] = u
+						}
+					}
+				}
+			}
+			if dirty[0] || dirty[1] {
+				e.FoxTrusted = nts
+				e.foxDirty = dirty
 				e.MetaDirty = true
 			}
 		}

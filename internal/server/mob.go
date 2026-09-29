@@ -1633,7 +1633,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 				// rejected by the codec.
 				if v, ok := tag.vals["Trusted"]; ok && v.kind == snbtList {
 					for _, it := range v.items {
-						if it == nil || len(it.items) != 4 || len(e.FoxTrusted) == 2 {
+						if it == nil || len(it.items) != 4 {
 							continue
 						}
 						var u [16]byte
@@ -1644,7 +1644,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 							u[j*4+2] = byte(n >> 8)
 							u[j*4+3] = byte(n)
 						}
-						e.FoxTrusted = append(e.FoxTrusted, u)
+						e.FoxTrusted = appendFoxTrusted(e.FoxTrusted, u)
 					}
 				}
 			}
@@ -2834,6 +2834,7 @@ type livingMeta struct {
 	ageLock    bool
 	bucket     bool
 	foxFlags   byte
+	foxTrusted [][16]byte
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2888,6 +2889,7 @@ func snapLivingMeta(e *Entity) livingMeta {
 		ageLock:    e.AgeLocked,
 		bucket:     e.FromBucket,
 		foxFlags:   foxFlagsByte(e),
+		foxTrusted: append([][16]byte{}, e.FoxTrusted...),
 	}
 }
 
@@ -3010,6 +3012,7 @@ func (e *Entity) ensureMetaInit() {
 		e.metaSent.ageLock = false
 		e.metaSent.bucket = false
 		e.metaSent.foxFlags = 0
+		e.metaSent.foxTrusted = nil
 	}
 }
 
@@ -3489,6 +3492,27 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(19)
 				b.Byte(0)
 				b.Byte(f)
+			}
+			for i := 0; i < 2; i++ {
+				var u [16]byte
+				set := i < len(e.FoxTrusted)
+				if set {
+					u = e.FoxTrusted[i]
+				}
+				var lu [16]byte
+				lset := i < len(last.foxTrusted)
+				if lset {
+					lu = last.foxTrusted[i]
+				}
+				if e.foxDirty[i] || set != lset || u != lu {
+					b.Byte(byte(20 + i))
+					b.Byte(13) // optional_living_entity_reference
+					b.Bool(set)
+					if set {
+						b.UUID(u)
+					}
+				}
+				e.foxDirty[i] = false
 			}
 		}
 	}
