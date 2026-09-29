@@ -190,6 +190,11 @@ type Session struct {
 	// awardMoveStats' updateSwimming port (enter only while
 	// submerged; stay while feet touch water).
 	swimming bool
+	// poseEmit is a deferred DATA_POSE emit: updatePlayerPose stores
+	// pose+1 and poseFlush writes the packet a playerTick later, the
+	// way vanilla's sendChanges rides the pass after the tick that
+	// dirtied the data (keeps a command's reply ahead of the emit).
+	poseEmit atomic.Int32
 	// lastMoveAt stamps the last accepted move packet — vanilla's
 	// entity tick resolves the onGround flag from collision once a
 	// tick has passed, so the jump check reads the support state,

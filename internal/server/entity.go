@@ -430,6 +430,14 @@ type Entity struct {
 	EatingHaystack bool
 	Temper         int32
 	eatingCounter  int
+	// PuffState is Pufferfish's DATA_PUFF_STATE (idx17, int 0..2 read
+	// clamped to ≤2). inflateCounter/deflateTimer are the transient
+	// tick counters: the puff goal arms inflateCounter while a scary
+	// living entity is within 2.0, tick walks state 0→1→2 at counter
+	// >40, then deflate walks it back at timer >60 / >100.
+	PuffState      int32
+	inflateCounter int
+	deflateTimer   int
 	// HasChest is AbstractChestedHorse's ChestedHorse flag — a chested
 	// donkey/mule/llama's mount inventory gains 15 slots (5 columns).
 	HasChest bool
@@ -1588,8 +1596,13 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 // applies, so the pairing stream ships 0x7f (all parts shown).
 // DATA_PLAYER_MAIN_HAND (index 15) sits at its right-hand default and
 // stays off the wire.
-func encodePlayerAttachMeta(health float32) []byte {
+func encodePlayerAttachMeta(health float32, pose int32) []byte {
 	var b protocol.Buffer
+	if pose != 0 {
+		b.Byte(6)  // index: DATA_POSE
+		b.Byte(20) // type: POSE
+		b.VarInt(pose)
+	}
 	b.Byte(9) // index: DATA_HEALTH_ID
 	b.Byte(3) // type: float
 	b.Float(health)
@@ -1671,7 +1684,7 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 	case e.Item.ID != 0:
 		meta = encodeItemMetadata(e.Item)
 	case e.Type == sess.ids().EntityTypePlayer:
-		meta = encodePlayerAttachMeta(s.playerAttachHealth(e))
+		meta = encodePlayerAttachMeta(s.playerAttachHealth(e), e.Pose)
 	case e.Living:
 		meta = encodeLivingMetadata(e, nil)
 	default:

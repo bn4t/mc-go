@@ -834,8 +834,13 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		if typeName == "axolotl" || typeName == "parrot" || typeName == "tropical_fish" {
 			m["Variant"] = e.Variant
 		}
-		if typeName == "axolotl" {
+		// AbstractFish.FromBucket — every bucketable fish writes it;
+		// axolotl's own save writes the same key (its slot is 20).
+		if abstractFishTypes[typeName] || typeName == "axolotl" {
 			m["FromBucket"] = nbtBool(e.FromBucket)
+		}
+		if typeName == "pufferfish" {
+			m["PuffState"] = e.PuffState
 		}
 		// Rabbit's pair: RabbitType + the MoreCarrotTicks countdown.
 		if typeName == "rabbit" {
@@ -1414,7 +1419,10 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	// Mob.readAdditionalSaveData — getIntOr defaults homeRadius to
 	// -1, so an absent/-1 key clears hasHome; a non-negative one
 	// also reads the home_pos BlockPos (ZERO when absent).
-	r, _ := nbtInt32(save["home_radius"])
+	r, ok := nbtInt32(save["home_radius"])
+	if !ok {
+		r = -1
+	}
 	e.HasHome = r != -1
 	e.HomeRadius = r
 	if r >= 0 {
@@ -1647,6 +1655,26 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			}
 		}
 	}
+	if abstractFishTypes[name] && name != "axolotl" {
+		if v, ok := save["FromBucket"]; ok {
+			if b := nbtTruth(v); b != e.FromBucket {
+				e.FromBucket = b
+				e.MetaDirty = true
+			}
+		}
+	}
+	if name == "pufferfish" {
+		// readAdditionalSaveData: getIntOr clamped to ≤2.
+		if v, ok := nbtInt32(save["PuffState"]); ok {
+			if v > 2 {
+				v = 2
+			}
+			if v != e.PuffState {
+				e.PuffState = v
+				e.MetaDirty = true
+			}
+		}
+	}
 	if name == "parrot" {
 		if v, ok := nbtInt32(save["Variant"]); ok {
 			v = max(0, min(4, v))
@@ -1826,7 +1854,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"TicksFrozen": true,
 		"Age":         true, "ForcedAge": true, "AgeLocked": true, "InLove": true,
 		"Variant": true, "RabbitType": true, "MoreCarrotTicks": true,
-		"FromBucket": true, "Trusted": true, "Sleeping": true,
+		"FromBucket": true, "PuffState": true, "Trusted": true, "Sleeping": true,
 		"Sitting": true, "Crouching": true,
 		"MainGene": true, "HiddenGene": true,
 		"variant": true, "sound_variant": true, "type": true,

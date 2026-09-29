@@ -13484,3 +13484,52 @@ already in place; the missing piece was the interact arm itself:
   setEating(false)) runs per tick outside the NoAI gate, plus the
   1/300 grass-below re-arm roll — pinned vs both servers in
   `TestAnimalVariantParity` (bred/tamed summons + five merges).
+
+## Slice — pufferfish DATA_PUFF_STATE + player pose + scalesWithDifficulty (26.2)
+
+- Pufferfish NBT/metadata: `PuffState` int reads clamped ≤2 on
+  summon and /data merge, rides idx17 varint; `FromBucket` rides
+  AbstractFish's idx16 bool on every bucketable type (cod, salmon,
+  pufferfish, tropical_fish, tadpole). Both keys round-trip through
+  save (`known` set — `/data get` shows them).
+- PufferfishPuffGoal live cycle: while a scary LivingEntity sits
+  inside bbox.inflate(2.0) (`not_scary_for_pufferfish` tag exempt),
+  inflateCounter >40 escalates state 0→1→2; once it leaves,
+  deflateTimer >60 steps down to 1 and >100 to 0 — pinned by
+  `TestPufferfishParity` on the sprint windows.
+- Sting arms run OUTSIDE the NoAI gate: aiStep's contact arm hits
+  every Mob inside bbox.inflate(0.3) with mobAttack 1+state + POISON
+  60*state + sting sound; playerTouch hits a damageable overlapping
+  player with the same hit plus the event-9 game_event.
+- Player.hurtServer's scalesWithDifficulty arm ported to damageWith:
+  the captured damage_type registry's `scaling` field (4 `always`,
+  47 `when_caused_by_living_non_player` — the latter only when the
+  causing entity is living non-player) scales EASY min(d/2+1,d),
+  HARD d*1.5, PEACEFUL 0 — and `damage==0` returns false outright,
+  so the sting's game_event/poison never fire at peaceful.
+- Player pose model (Player.updatePlayerPose): runs every player
+  tick while the SWIMMING box still fits; getDesiredPose resolves
+  sleeping>swimming>fallFlying>spin>sneak>stand; the fit ladder
+  keeps the desired pose for spectators/passengers, else CROUCHING
+  beats SWIMMING. canPlayerFit is blocks-plus-hard-colliders only —
+  canBeCollidedWith answers true for boats/shulkers/happy_ghasts
+  alone, so a fish overlapping the player never blocks the pose
+  (measured: vanilla emits pose=3 inside the fish's cell).
+- DATA_POSE emits once per change through a deferred flush:
+  poseEmit marks the entity-data entry dirty like setSynchedData and
+  the packet rides the next playerTick, matching vanilla's
+  sendChanges pass-after-tick — a teleport's reply always lands
+  before the emit on the wire.
+- Literal chat serialization: a bare PlainTextContents component
+  encodes its text under the empty entry name ({"": "Server"});
+  any other field keeps "text". `with` args: all-primitive lists
+  stay primitive (long list for gametime); any compound or mixed
+  types wrap EVERY arg as a {"": v} compound.
+- /fill modes measured end-to-end: REPLACE, OUTLINE (interior
+  skipped, destroy affector still counts), HOLLOW (interior→air),
+  DESTROY (level.destroyBlock drops + 2001 before the filter),
+  `keep` = REPLACE + empty-block predicate, `strict` = REPLACE +
+  flags 816 (no neighbor updates/no shape fold); same-state place
+  isn't counted.
+- `home_radius` default fixed: absent key now reads -1 like
+  getIntOr, so mobs stop leaking HasHome+home_radius:0 into saves.

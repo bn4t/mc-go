@@ -1,6 +1,7 @@
 package server
 
 import (
+	"math"
 	"math/rand"
 
 	"mc-go/internal/protocol"
@@ -147,6 +148,24 @@ func sessInvulnerableTo(sess *Session, typeName string) bool {
 func (s *Server) damageWith(sess *Session, amount float32, message component, src damageSource) float32 {
 	if sess.dead || sessInvulnerableTo(sess, src.typeName) {
 		return 0
+	}
+	// Player.hurtServer's scalesWithDifficulty arm runs before hurt
+	// proper, so the scaled figure is what lastHurt, the i-frames
+	// delta and actuallyHurt all see; a scaled-to-zero hit returns
+	// false outright — the pufferfish sting's game_event and poison
+	// never fire at peaceful.
+	if s.damageScalesWithDifficulty(src) {
+		switch s.difficulty {
+		case DifficultyPeaceful:
+			amount = 0
+		case DifficultyEasy:
+			amount = float32(math.Min(float64(amount)/2+1, float64(amount)))
+		case DifficultyHard:
+			amount *= 1.5
+		}
+		if amount == 0 {
+			return 0
+		}
 	}
 	// Vanilla grants twenty ticks of invulnerability after a hit; while
 	// more than half remains, a hit no stronger than the last is ignored
@@ -302,6 +321,50 @@ const (
 	srcHostile         = 5
 	srcPlayers         = 7
 )
+
+// damageScaling is each damage_type's datapack `scaling` field,
+// straight from the captured 26.2 damage_type registry. Types absent
+// from both sets have scaling `never`. damageScalesWithDifficulty is
+// DamageSource.scalesWithDifficulty: `always` scales unconditionally;
+// `when_caused_by_living_non_player` scales only when the causing
+// entity is a living non-player.
+var damageScalingAlways = map[string]bool{
+	"bad_respawn_point": true, "explosion": true,
+	"player_explosion": true, "sonic_boom": true,
+}
+var damageScalingNonPlayer = map[string]bool{
+	"arrow": true, "cactus": true, "campfire": true, "cramming": true,
+	"dragon_breath": true, "drown": true, "dry_out": true,
+	"ender_pearl": true, "fall": true, "falling_anvil": true,
+	"falling_block": true, "falling_stalactite": true, "fireball": true,
+	"fireworks": true, "fly_into_wall": true, "freeze": true,
+	"generic": true, "generic_kill": true, "hot_floor": true,
+	"in_fire": true, "in_wall": true, "indirect_magic": true,
+	"lava": true, "lightning_bolt": true, "mace_smash": true,
+	"magic": true, "mob_attack": true, "mob_attack_no_aggro": true,
+	"mob_projectile": true, "on_fire": true, "out_of_world": true,
+	"outside_border": true, "player_attack": true, "spear": true,
+	"spit": true, "stalagmite": true, "starve": true, "sting": true,
+	"sulfur_cube_hot": true, "sweet_berry_bush": true, "thorns": true,
+	"thrown": true, "trident": true, "unattributed_fireball": true,
+	"wind_charge": true, "wither": true, "wither_skull": true,
+}
+
+func (s *Server) damageScalesWithDifficulty(src damageSource) bool {
+	if damageScalingAlways[src.typeName] {
+		return true
+	}
+	if !damageScalingNonPlayer[src.typeName] || src.cause == 0 {
+		return false
+	}
+	if s.sessionByEntityID(src.cause) != nil {
+		return false
+	}
+	if e, ok := s.entities.Get(src.cause); ok {
+		return e.Living
+	}
+	return false
+}
 
 // damageTypeEffects is each damage_type's datapack `effects` field —
 // the Player.getHurtSound dispatch reads it through

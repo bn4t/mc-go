@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -1382,12 +1383,38 @@ func (s *Server) runFill(player string, args []string) reply {
 	var filter world.Block
 	var filterProps map[string]string
 	haveFilter := false
-	if len(args) >= 9 && args[7] == "replace" {
-		f, fp, ok := parseBlockSpec(args[8])
-		if !ok {
-			return errTokenEnd("argument.block.id.invalid", 8)
+	// The optional mode literal rides vanilla's grammar: bare,
+	// "replace [<filter>] [<mode>]", or one of keep/hollow/outline/
+	// destroy/strict. keep is REPLACE with an air-only predicate,
+	// strict is REPLACE with the no-update write; hollow/outline/
+	// destroy pick the FillCommand.Mode variant.
+	mode := ""
+	keepOnly := false
+	if len(args) >= 8 {
+		switch args[7] {
+		case "replace":
+			if len(args) >= 9 {
+				f, fp, ok := parseBlockSpec(args[8])
+				if !ok {
+					return errTokenEnd("argument.block.id.invalid", 8)
+				}
+				filter, filterProps, haveFilter = f, fp, true
+				if len(args) >= 10 {
+					switch args[9] {
+					case "hollow", "outline", "destroy", "strict":
+						mode = args[9]
+					default:
+						return errTokenEnd("command.unknown.argument", 9)
+					}
+				}
+			}
+		case "keep":
+			keepOnly = true
+		case "hollow", "outline", "destroy", "strict":
+			mode = args[7]
+		default:
+			return errTokenEnd("command.unknown.argument", 7)
 		}
-		filter, filterProps, haveFilter = f, fp, true
 	}
 	d := s.dimOf(player)
 	minX, maxX := minmax(c[0], c[3])
@@ -1400,7 +1427,6 @@ func (s *Server) runFill(player string, args []string) reply {
 	}
 	// A large fill is one operation with one column-top recompute, the
 	// same shape vanilla uses; light is refreshed per affected section.
-	touched := map[[2]int]bool{}
 	changed := 0
 	for x := minX; x <= maxX; x++ {
 		for y := minY; y <= maxY; y++ {
@@ -1409,29 +1435,90 @@ func (s *Server) runFill(player string, args []string) reply {
 					continue
 				}
 				pos := world.Pos{X: x, Y: y, Z: z}
-				if haveFilter {
-					if !s.matchesBlockPredicate(d, pos, filter, filterProps) {
-						continue
-					}
-				} else if d.w.GetBlock(pos) == blk {
+				old := d.w.GetBlock(pos)
+				if haveFilter && !s.matchesBlockPredicate(d, pos, filter, filterProps) {
 					continue
 				}
-				// /fill notifies neighbours with the NEW state
-				// (updateNeighboursOnBlockSet).
-				s.setNaturalBlockNotify(d, pos, blk, blk)
-				// BlockInput.place's updateFromNeighbourShapes fold.
-				s.selfFoldShapes(d, pos)
-				s.selfCheckSurvival(d, pos, blk)
-				touched[[2]int{x >> 4, z >> 4}] = true
+				if keepOnly && old != world.Air {
+					continue
+				}
+				// Mode.DESTROY's affector runs before the filter's
+				// placement: the cell is destroyed (2001 + drops) even
+				// when the placement turns out a no-op.
+				affected := false
+				if mode == "destroy" && old != world.Air {
+					s.fillDestroyCell(d, pos, old)
+					affected = true
+				}
+				target := blk
+				interior := x != minX && x != maxX && y != minY && y != maxY && z != minZ && z != maxZ
+				switch {
+				case mode == "hollow" && interior:
+					// Mode.HOLLOW's filter hands interior cells the
+					// HOLLOW_CORE air input.
+					target = world.Air
+				case mode == "outline" && interior:
+					// Mode.OUTLINE's filter returns null: the interior
+					// stays, counted only via the destroy affector.
+					if affected {
+						changed++
+					}
+					continue
+				}
+				// BlockInput.place's setBlock returns false on an
+				// identical state, so same-state cells are not counted —
+				// hollow air cores and keep-predicate no-ops alike.
+				if old == target {
+					if affected {
+						changed++
+					}
+					continue
+				}
+				if mode == "strict" {
+					// Mode strict: flag 816 joins 2|256 — no neighbour
+					// updates, no updateFromNeighbourShapes fold.
+					s.setSilentBlock(d, pos, target)
+				} else {
+					// /fill notifies neighbours with the NEW state
+					// (updateNeighboursOnBlockSet).
+					s.setNaturalBlockNotify(d, pos, target, target)
+					// BlockInput.place's updateFromNeighbourShapes fold.
+					s.selfFoldShapes(d, pos)
+					s.selfCheckSurvival(d, pos, target)
+				}
 				changed++
 			}
 		}
 	}
-	_ = touched
 	if changed == 0 {
 		return componentReply(commandError("commands.fill.failed"))
 	}
 	return opsEchoReply(translatable("commands.fill.success", int32(changed)))
+}
+
+// fillDestroyCell is /fill destroy's affector: vanilla's
+// level.destroyBlock(pos, true) — the block's loot drops at the cell
+// with an empty tool context (so requires-tool cells drop nothing),
+// then the destroy game event posts. The placement write lands after
+// in the caller's loop.
+func (s *Server) fillDestroyCell(d *dimension, pos world.Pos, broken world.Block) {
+	bname, _ := world.StateOwner(broken)
+	if blockRequiresTool[bname] && !toolCorrectForDrops(ItemStack{}, bname) {
+		return
+	}
+	if _, ok := data.LootTables()["blocks/"+bname]; ok {
+		ctx := &lootCtx{
+			tool:  ItemStack{},
+			block: bname,
+			state: broken,
+			pos:   pos,
+			dim:   d,
+			rng:   rand.New(rand.NewSource(rand.Int63())),
+		}
+		for _, st := range rollLootDepth(ctx, "blocks/"+bname, 0) {
+			s.spawnItemDrop(d.name, pos, st)
+		}
+	}
 }
 
 func minmax(a, b int) (int, int) {

@@ -2,16 +2,11 @@ package server
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"strings"
 
 	"mc-go/internal/nbt"
 )
-
-// errMixedArguments reports translation arguments that cannot share one
-// NBT list.
-var errMixedArguments = errors.New("server: mixed translation arguments")
 
 // component is a chat component in the shape vanilla's built-in
 // commands produce: a plain literal, or a translation key with typed
@@ -237,14 +232,20 @@ func (c component) nested() map[string]any {
 	if c.translate != "" {
 		m["translate"] = c.translate
 	}
-	// The three content forms are exclusive: a translation carries no
-	// text field at all - not even an empty one, which the real server
-	// leaves out - an empty-keyed literal puts its text under "", and
-	// anything else is a plain literal with its text spelled out.
+	// The content forms are exclusive: a translation carries no text
+	// field at all - not even an empty one, which the real server
+	// leaves out - an empty-keyed literal puts its text under "", a
+	// bare literal (no other fields) does the same, and a literal
+	// carrying any other field spells its text under "text".
 	switch {
 	case c.translate != "":
 	case c.emptyKey != "" || c.forceCompound:
 		m[""] = c.emptyKey
+	case len(m) == 0:
+		// A bare PlainTextContents literal serializes its text under
+		// the empty entry name — vanilla's {"": "Server"} — while any
+		// other field (style, click, extra) keeps the named "text".
+		m[""] = c.text
 	default:
 		m["text"] = c.text
 	}
@@ -379,32 +380,40 @@ func componentsNBT(cs []component) nbt.List {
 // and a list of compounds for a timeline, and the client's decoder
 // rejects a list that mixes tags.
 func argumentList(args []any) (nbt.List, error) {
+	if len(args) == 0 {
+		return nbt.List{}, nil
+	}
+	vals := make([]any, len(args))
+	tags := make([]byte, len(args))
 	compound := false
-	for _, a := range args {
-		switch a.(type) {
-		case nestedCompound, component:
+	mixed := false
+	for i, a := range args {
+		v, tag := argumentValue(a)
+		vals[i] = v
+		tags[i] = tag
+		if tag == nbt.TagCompound {
 			compound = true
 		}
+		if tag != tags[0] {
+			mixed = true
+		}
 	}
-	items := make([]any, 0, len(args))
-	elem := byte(0)
-	for _, a := range args {
-		v, tag := argumentValue(a)
-		// NBT lists are homogeneous: once an argument is a compound
-		// every primitive arg takes its empty-key form {"": x}, the
-		// same rule componentsNBT applies to mixed lists.
-		if compound && tag != nbt.TagCompound {
-			v, tag = map[string]any{"": v}, nbt.TagCompound
+	// NBT lists are homogeneous: once the argument types differ or any
+	// argument is a compound, every primitive arg takes its empty-key
+	// form {"": x} — vanilla's with:[{"":i(620)},{"":"1.61"}] on the
+	// tick-sprint report — while a same-type primitive list keeps its
+	// primitive element tag (the game-time long list).
+	if compound || mixed {
+		items := make([]any, 0, len(args))
+		for i, v := range vals {
+			if tags[i] != nbt.TagCompound {
+				v = map[string]any{"": v}
+			}
+			items = append(items, v)
 		}
-		if elem == 0 {
-			elem = tag
-		}
-		if tag != elem {
-			return nbt.List{}, errMixedArguments
-		}
-		items = append(items, v)
+		return nbt.List{Elem: nbt.TagCompound, Items: items}, nil
 	}
-	return nbt.List{Elem: elem, Items: items}, nil
+	return nbt.List{Elem: tags[0], Items: vals}, nil
 }
 
 // argumentValue converts one translation argument to its NBT value and

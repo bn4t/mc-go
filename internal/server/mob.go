@@ -1604,9 +1604,20 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.Variant = int32(snbtNum(v))
 				}
 			}
-			if name == "axolotl" {
+			if name == "axolotl" || abstractFishTypes[name] {
 				if v, ok := tag.vals["FromBucket"]; ok {
 					e.FromBucket = snbtNum(v) > 0
+				}
+			}
+			if name == "pufferfish" {
+				if v, ok := tag.vals["PuffState"]; ok {
+					// readAdditionalSaveData clamps the read at 2 —
+					// negatives pass through.
+					if n := snbtNum(v); n < 2 {
+						e.PuffState = int32(n)
+					} else {
+						e.PuffState = 2
+					}
 				}
 			}
 			if name == "rabbit" {
@@ -2862,6 +2873,7 @@ type livingMeta struct {
 	llamaVar   int32
 	ageLock    bool
 	bucket     bool
+	puff       int32
 	foxFlags   byte
 	foxTrusted [][16]byte
 	poseTick   int64
@@ -2918,6 +2930,7 @@ func snapLivingMeta(e *Entity) livingMeta {
 		llamaVar:   e.LlamaVariant,
 		ageLock:    e.AgeLocked,
 		bucket:     e.FromBucket,
+		puff:       e.PuffState,
 		foxFlags:   foxFlagsByte(e),
 		foxTrusted: append([][16]byte{}, e.FoxTrusted...),
 		poseTick:   e.LastPoseTick,
@@ -3165,6 +3178,11 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(8)
 				b.Bool(e.AgeLocked)
 			}
+		}
+		if abstractFishTypes[name] && e.FromBucket != last.bucket {
+			b.Byte(16)
+			b.Byte(8)
+			b.Bool(e.FromBucket)
 		}
 		switch {
 		case name == "sheep":
@@ -3522,6 +3540,13 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(1)
 				b.VarInt(e.Variant)
 			}
+		case name == "pufferfish":
+			// DATA_PUFF_STATE (17, int): 0 deflated → 2 full.
+			if e.PuffState != last.puff {
+				b.Byte(17)
+				b.Byte(1)
+				b.VarInt(e.PuffState)
+			}
 		case name == "fox":
 			// DATA_TYPE_ID (18, int): 0 red / 1 snow; DATA_FLAGS_ID
 			// (19, byte): 0x01 sitting, 0x04 crouching, 0x20 sleeping.
@@ -3648,6 +3673,14 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Bool(true)
 			}
 		}
+		// AbstractFish's FROM_BUCKET (16, bool) leads the small-fish
+		// chain the same way — cod/salmon/tropical_fish/pufferfish/
+		// tadpole all start their own data at 17.
+		if abstractFishTypes[name] && e.FromBucket {
+			b.Byte(16)
+			b.Byte(8)
+			b.Bool(true)
+		}
 		switch name {
 		case "sheep":
 			// Sheep's DATA_WOOL_ID (index 18, byte): low nibble is
@@ -3747,6 +3780,13 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(17)
 				b.Byte(1) // type: varint
 				b.VarInt(e.Variant)
+			}
+		case "pufferfish":
+			// DATA_PUFF_STATE (17, int): 0 deflated → 2 full.
+			if e.PuffState != 0 {
+				b.Byte(17)
+				b.Byte(1) // type: varint
+				b.VarInt(e.PuffState)
 			}
 		case "fox":
 			// Fox's DATA_TYPE_ID (18, int): 0 red / 1 snow;
@@ -4399,6 +4439,14 @@ var mobWaterAnimalAir = map[string]bool{
 	"axolotl": true, "nautilus": true,
 	"cod": true, "salmon": true, "tropical_fish": true, "pufferfish": true,
 	"squid": true, "glow_squid": true, "tadpole": true,
+}
+
+// abstractFishTypes is the AbstractFish subclass set — the types that
+// carry the shared FROM_BUCKET accessor (idx16): the axolotl has its
+// own FROM_BUCKET (idx20) and rides a different chain.
+var abstractFishTypes = map[string]bool{
+	"cod": true, "salmon": true, "pufferfish": true,
+	"tropical_fish": true, "tadpole": true,
 }
 
 // isFireDamageType is vanilla's is_fire damage-type tag — every
@@ -5222,7 +5270,21 @@ func (s *Server) mobTickStep() {
 				continue
 			}
 		}
+		// Pufferfish.aiStep's sting tail is NOT inside vanilla's
+		// isEffectiveAi gate — a NoAI fish with a positive puff state
+		// still pokes whatever overlaps it.
+		if ambName == "pufferfish" && e.PuffState > 0 && e.Health > 0 {
+			s.puffSting(e)
+			s.puffPlayerTouch(e)
+		}
 		if !e.NoAI && e.Riding == 0 && !nonMobLiving[ambName] {
+			// Pufferfish.tick's inflate/deflate walk runs on the
+			// counters the puff goal set last tick (isEffectiveAi
+			// gate), then the goal itself — canUse = a scary
+			// LivingEntity within 2.0 — arms or zeroes the counter.
+			if ambName == "pufferfish" && e.Health > 0 {
+				s.puffStateStep(e)
+			}
 			// Drowned/stray conversion bookkeeping — inside the NoAI
 			// gate like vanilla's aiStep/tick placement.
 			if s.mobConvertTick(e, s.dims[e.Dim], ambName) {
@@ -5965,6 +6027,198 @@ var fishWanderTypes = map[string]bool{
 	"tropical_fish": true,
 	"pufferfish":    true,
 	"tadpole":       true,
+}
+
+// puffDimScale is Pufferfish.getScale — the puff state's dimension
+// multiplier on the 0.7 base box.
+var puffDimScale = [3]float64{0.5, 0.7, 1.0}
+
+// puffStateStep is Pufferfish.tick's inflate/deflate walk +
+// PufferfishPuffGoal + Pufferfish.aiStep's sting, in vanilla order:
+// the state machine runs on the counters last tick's goal set, then
+// the goal re-arms or zeroes them, then the sting hits whatever the
+// fresh state touches. State transitions also play blow_up/blow_out
+// at the fish and fire refreshDimensions — the resize is unmodeled.
+func (s *Server) puffStateStep(e *Entity) {
+	if e.inflateCounter > 0 {
+		if e.PuffState == 0 {
+			e.PuffState = 1
+			e.MetaDirty = true
+			if id, ok := SoundEventID("entity.puffer_fish.blow_up"); ok {
+				s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, id, mobVoiceOf(e).src(), 1.0, voicePitchE(e), nil)
+			}
+		} else if e.inflateCounter > 40 && e.PuffState == 1 {
+			e.PuffState = 2
+			e.MetaDirty = true
+			if id, ok := SoundEventID("entity.puffer_fish.blow_up"); ok {
+				s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, id, mobVoiceOf(e).src(), 1.0, voicePitchE(e), nil)
+			}
+		}
+		e.inflateCounter++
+	} else if e.PuffState != 0 {
+		if e.deflateTimer > 60 && e.PuffState == 2 {
+			e.PuffState = 1
+			e.MetaDirty = true
+			if id, ok := SoundEventID("entity.puffer_fish.blow_out"); ok {
+				s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, id, mobVoiceOf(e).src(), 1.0, voicePitchE(e), nil)
+			}
+		} else if e.deflateTimer > 100 && e.PuffState == 1 {
+			e.PuffState = 0
+			e.MetaDirty = true
+			if id, ok := SoundEventID("entity.puffer_fish.blow_out"); ok {
+				s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, id, mobVoiceOf(e).src(), 1.0, voicePitchE(e), nil)
+			}
+		}
+		e.deflateTimer++
+	}
+	// PufferfishPuffGoal: canUse/canContinueToUse both test for a
+	// scary LivingEntity inside the bounding box inflated 2.0; start
+	// arms the counter and clears the deflate clock, stop zeroes it.
+	if s.puffScaryNear(e) {
+		if e.inflateCounter == 0 {
+			e.inflateCounter = 1
+			e.deflateTimer = 0
+		}
+	} else {
+		e.inflateCounter = 0
+	}
+}
+
+// puffScaryNear is the PufferfishPuffGoal.canUse target scan:
+// TARGETING_CONDITIONS is forNonCombat + ignoreInvisibility +
+// ignoreLineOfSight + the NOT_SCARY_FOR_PUFFERFISH selector, so any
+// living, non-spectator entity outside the tag inside
+// bbox.inflate(2.0) counts — creative players are still scary.
+func (s *Server) puffScaryNear(e *Entity) bool {
+	b := entityBBDims(e)
+	if e.PuffState >= 0 && e.PuffState <= 2 {
+		b[0] *= puffDimScale[e.PuffState]
+		b[1] *= puffDimScale[e.PuffState]
+	}
+	halfW := b[0]/2 + 2.0
+	top := e.Y + b[1] + 2.0
+	bot := e.Y - 2.0
+	inside := func(x, y, z float64, w, h float64) bool {
+		return math.Abs(x-e.X) < halfW+w/2 &&
+			math.Abs(z-e.Z) < halfW+w/2 &&
+			y+h > bot && y < top
+	}
+	for _, o := range s.entities.All() {
+		if o.ID == e.ID || !o.Living || o.Dim != e.Dim || o.Health <= 0 {
+			continue
+		}
+		oname, _ := EntityTypeName(o.Type)
+		if entityTypeInTag(oname, "not_scary_for_pufferfish") {
+			continue
+		}
+		ob := entityBBDims(&o)
+		if inside(o.X, o.Y, o.Z, ob[0], ob[1]) {
+			return true
+		}
+	}
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || !sess.spawned.Load() || sess.dead ||
+			sess.dimName() != e.Dim || sess.mode() == GameModeSpectator {
+			return true
+		}
+		px, py, pz, _, _, _ := sess.Pos()
+		if inside(px, py, pz, 0.6, 1.8) {
+			return false
+		}
+		return true
+	})
+	return false
+}
+
+// puffSting is Pufferfish.aiStep's contact arm: while puffed, every
+// Mob inside bbox.inflate(0.3) takes a mobAttack hit of 1+state,
+// POISON for 60*state ticks, and the sting sound — the player arm is
+// puffPlayerTouch, called from the move-packet contact path.
+func (s *Server) puffSting(e *Entity) {
+	b := entityBBDims(e)
+	scale := puffDimScale[0]
+	if e.PuffState >= 0 && e.PuffState <= 2 {
+		scale = puffDimScale[e.PuffState]
+	}
+	halfW := b[0]*scale/2 + 0.3
+	top := e.Y + b[1]*scale + 0.3
+	bot := e.Y - 0.3
+	for _, o := range s.entities.All() {
+		if o.ID == e.ID || !o.Living || o.Dim != e.Dim || o.Health <= 0 {
+			continue
+		}
+		oname, _ := EntityTypeName(o.Type)
+		if entityTypeInTag(oname, "not_scary_for_pufferfish") {
+			continue
+		}
+		ob := entityBBDims(&o)
+		if math.Abs(o.X-e.X) >= halfW+ob[0]/2 ||
+			math.Abs(o.Z-e.Z) >= halfW+ob[0]/2 ||
+			o.Y+ob[1] <= bot || o.Y >= top {
+			continue
+		}
+		dmg := float32(1 + e.PuffState)
+		dealt, _, _ := s.damageMob(&o, dmg, "mob_attack", nil, &damageInfo{
+			typeName: "mob_attack",
+			cause:    e.ID,
+			direct:   e.ID,
+		})
+		if dealt > 0 {
+			if pid, ok := MobEffectID("poison"); ok {
+				s.mobGiveEffect(&o, int32(pid), 0, 60*e.PuffState, false)
+			}
+			if id, ok := SoundEventID("entity.puffer_fish.sting"); ok {
+				s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, id, mobVoiceOf(e).src(), 1.0, 1.0, nil)
+			}
+		}
+	}
+}
+
+// puffPlayerTouch is Pufferfish.playerTouch, polled per tick over the
+// session set the way the cube-touch arm is: a puffed fish that a
+// damageable player overlaps stings them for 1+state, fires
+// ClientboundGameEventPacket.PUFFER_FISH_STING (event 9) at the
+// touched player, and applies POISON for 60*state ticks. All three
+// effects are gated on hurtServer landing — a creative spectator's
+// brush does nothing.
+func (s *Server) puffPlayerTouch(e *Entity) {
+	b := entityBBDims(e)
+	scale := puffDimScale[0]
+	if e.PuffState >= 0 && e.PuffState <= 2 {
+		scale = puffDimScale[e.PuffState]
+	}
+	halfW := b[0] * scale / 2
+	top := e.Y + b[1]*scale
+	dmg := float32(1 + e.PuffState)
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || !sess.spawned.Load() || sess.dead ||
+			sess.dimName() != e.Dim {
+			return true
+		}
+		if m := sess.mode(); m != GameModeSurvival && m != GameModeAdventure {
+			return true
+		}
+		px, py, pz, _, _, _ := sess.Pos()
+		if math.Abs(px-e.X) >= halfW+0.3 || math.Abs(pz-e.Z) >= halfW+0.3 ||
+			py+1.8 <= e.Y || py >= top {
+			return true
+		}
+		dealt := s.damageWith(sess, dmg, translatable("death.attack.mob",
+			literal(sess.getName()), literal(mobDisplayName("pufferfish"))), damageSource{
+			typeName: "mob_attack",
+			cause:    e.ID,
+			direct:   e.ID,
+		})
+		if dealt > 0 {
+			s.sendGameEvent(sess, 9, 0)
+			if pid, ok := MobEffectID("poison"); ok {
+				s.applyMobEffect(sess, int32(pid), 0, 60*e.PuffState)
+			}
+		}
+		return true
+	})
 }
 
 // tamableSitPoseStep is SitWhenOrderedToGoal (priority 2 on
