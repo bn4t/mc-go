@@ -13463,3 +13463,13 @@ already in place; the missing piece was the interact arm itself:
   slot churn vs both servers — summon {Trusted:[[I;..],[I;..]]},
   the three-entry slot-1 overwrite, single-uuid re-merge, and
   {Trusted:[]} clear all green.
+- Camel `LastPoseTick` parity: DATA_LAST_POSE_CHANGE_TICK rides
+  idx20 (LONG serializer) on both emit paths; NBT `LastPoseTick`
+  long reads through `getLongOr` — `<0` sets Pose.SITTING(10) then
+  `resetLastPoseChangeTick(v)` unconditionally. DATA_POSE moved to
+  the shared prelude (idx6 emits on pack/diff whenever pose leaves
+  STANDING) instead of the frog-only arm. Camel.isTamed() is
+  hardcoded true, so its save always writes `Tame:1b`; the next
+  /data merge re-reads it into setTamed(true), latching the equine
+  DATA_ID_FLAGS byte 0x02 at idx18 — pinned vs both servers in
+  `TestAnimalVariantParity` (sitting summon + two merges).

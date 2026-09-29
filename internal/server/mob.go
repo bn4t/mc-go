@@ -1648,6 +1648,17 @@ func (s *Server) runSummon(player string, args []string) reply {
 					}
 				}
 			}
+			// Camel.readAdditionalSaveData: LastPoseTick<0 sets
+			// Pose.SITTING(10); the tick itself always lands on
+			// DATA_LAST_POSE_CHANGE_TICK.
+			if name == "camel" {
+				if v, ok := tag.vals["LastPoseTick"]; ok {
+					e.LastPoseTick = int64(snbtNum(v))
+					if e.LastPoseTick < 0 {
+						e.Pose = 10
+					}
+				}
+			}
 			// AbstractCubeMob.readAdditionalSaveData: Size is
 			// getSize()-1 (NBT 0 = the small edible slime) — health
 			// follows setcubeMobHealth's size² max.
@@ -2835,6 +2846,7 @@ type livingMeta struct {
 	bucket     bool
 	foxFlags   byte
 	foxTrusted [][16]byte
+	poseTick   int64
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2890,6 +2902,7 @@ func snapLivingMeta(e *Entity) livingMeta {
 		bucket:     e.FromBucket,
 		foxFlags:   foxFlagsByte(e),
 		foxTrusted: append([][16]byte{}, e.FoxTrusted...),
+		poseTick:   e.LastPoseTick,
 	}
 }
 
@@ -3013,6 +3026,7 @@ func (e *Entity) ensureMetaInit() {
 		e.metaSent.bucket = false
 		e.metaSent.foxFlags = 0
 		e.metaSent.foxTrusted = nil
+		e.metaSent.poseTick = 0
 	}
 }
 
@@ -3076,6 +3090,14 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 		b.Byte(3)
 		b.Byte(8) // type: boolean
 		b.Bool(e.CustomNameVisible)
+	}
+	// DATA_POSE (6, pose serializer) — shared base-entity slot; it
+	// rides the diff on every pose transition (camel sit/stand, frog
+	// croak/tongue).
+	if e.Pose != last.pose {
+		b.Byte(6)
+		b.Byte(20) // type: pose
+		b.VarInt(e.Pose)
 	}
 	if e.TicksFrozen != last.frozen {
 		b.Byte(7)
@@ -3305,12 +3327,7 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 			}
 		case name == "frog":
 			// DATA_POSE (6) — ShootTongue's USING_TONGUE(9) during
-			// the catch/eat states.
-			if e.Pose != last.pose {
-				b.Byte(6)
-				b.Byte(20)
-				b.VarInt(e.Pose)
-			}
+			// the catch/eat states — emitted by the shared prelude.
 			if id := holderVariantIDOf(e); id != last.hVarID {
 				b.Byte(18)
 				b.Byte(27)
@@ -3417,6 +3434,13 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 					b.Byte(19)
 					b.Byte(8)
 					b.Bool(e.Dashing)
+				}
+				// DATA_LAST_POSE_CHANGE_TICK (20, long) — the
+				// pose-transition timestamp; negative while sitting.
+				if e.LastPoseTick != last.poseTick {
+					b.Byte(20)
+					b.Byte(2)
+					b.VarLong(e.LastPoseTick)
 				}
 			}
 		case name == "cow":
@@ -3556,6 +3580,13 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 		b.Byte(3) // index: custom_name_visible
 		b.Byte(8) // type: boolean
 		b.Byte(1)
+	}
+	// DATA_POSE (6) — emitted when the pose sits off STANDING(0):
+	// a camel loaded with LastPoseTick<0 arrives SITTING(10).
+	if e.Pose != 0 {
+		b.Byte(6)
+		b.Byte(20) // type: pose
+		b.VarInt(e.Pose)
 	}
 	if e.TicksFrozen > 0 {
 		b.Byte(7) // index: DATA_TICKS_FROZEN
@@ -3785,11 +3816,8 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.VarInt(id)
 			}
 		case "frog":
-			if e.Pose != 0 {
-				b.Byte(6)
-				b.Byte(20)
-				b.VarInt(e.Pose)
-			}
+			// DATA_POSE (6) rides the shared prelude; the variant
+			// holder and tongue target stay per-type.
 			// Frog's DATA_VARIANT_ID (18, frog_variant holder).
 			if id := holderVariantID("frog", e.VariantName); id != 1 {
 				b.Byte(18)
@@ -4243,6 +4271,13 @@ func equineMetaPack(b *protocol.Buffer, e *Entity, name string) {
 			b.Byte(19)
 			b.Byte(8) // serializer: boolean
 			b.Bool(true)
+		}
+		// DATA_LAST_POSE_CHANGE_TICK (20, long) — the 0L defined
+		// default stays unpacked.
+		if e.LastPoseTick != 0 {
+			b.Byte(20)
+			b.Byte(2) // serializer: long
+			b.VarLong(e.LastPoseTick)
 		}
 	}
 }

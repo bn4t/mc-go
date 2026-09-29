@@ -732,7 +732,9 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		// every non-empty inventory cell (saddle slot 0, body slot 1,
 		// chest cells 2..). The llama family adds Strength and Variant.
 		if mountScreenTypes[typeName] {
-			m["Tame"] = nbtBool(e.Tamed)
+			// Camel.isTamed() is hardcoded true — it writes 1b
+			// unconditionally; the rest take the DATA_ID_FLAGS bit.
+			m["Tame"] = nbtBool(e.Tamed || typeName == "camel")
 		}
 		if chestedMountTypes[typeName] {
 			m["ChestedHorse"] = nbtBool(e.HasChest)
@@ -833,6 +835,11 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		}
 		// Fox's Type serializes the enum NAME ("red"/"snow");
 		// Trusted and the three pose bools write unconditionally.
+		if typeName == "camel" {
+			// addAdditionalSaveData writes the pose-transition tick
+			// unconditionally.
+			m["LastPoseTick"] = e.LastPoseTick
+		}
 		if typeName == "fox" {
 			// Trusted emits as a list of int-array uuids (empty on a
 			// fox summoned without the key) — the summon tag takes a
@@ -1715,6 +1722,35 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			if dirty[0] || dirty[1] {
 				e.FoxTrusted = nts
 				e.foxDirty = dirty
+				e.MetaDirty = true
+			}
+		}
+	}
+	// Camel.readAdditionalSaveData: LastPoseTick<0 also poses the
+	// camel SITTING — the pose diff emits idx6 alongside.
+	if name == "camel" {
+		if v, ok := save["LastPoseTick"]; ok {
+			var lt int64
+			switch n := v.(type) {
+			case int64:
+				lt = n
+			case int32:
+				lt = int64(n)
+			case int16:
+				lt = int64(n)
+			case int8:
+				lt = int64(n)
+			case float64:
+				lt = int64(n)
+			case float32:
+				lt = int64(n)
+			}
+			if lt < 0 && e.Pose != 10 {
+				e.Pose = 10
+				e.MetaDirty = true
+			}
+			if lt != e.LastPoseTick {
+				e.LastPoseTick = lt
 				e.MetaDirty = true
 			}
 		}

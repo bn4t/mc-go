@@ -48,6 +48,9 @@ func TestAnimalVariantParity(t *testing.T) {
 		// Age-locked baby cow — the shared pair at 16/17 leads the
 		// pack behind the NoAI mob-flags byte at 15.
 		"summon minecraft:cow 19.5 -59 10.5 {NoAI:1b,Tags:[\"" + tag + "\"],Age:-24000,AgeLocked:1b}",
+
+		// Camel with a negative pose tick — sitting at spawn.
+		"summon minecraft:camel 14.5 -59 8.5 {NoAI:1b,Tags:[\"" + tag + "\"],LastPoseTick:-100L}",
 		// Diff merges: each emits only the touched slot.
 		"data merge entity " + sel("axolotl") + " {Variant:4}",
 		"data merge entity " + sel("parrot") + " {Variant:0}",
@@ -64,6 +67,10 @@ func TestAnimalVariantParity(t *testing.T) {
 		"data merge entity " + sel("fox") + " {Trusted:[]}",
 		"data merge entity " + sel("cow") + " {AgeLocked:0b}",
 		"data merge entity " + sel("cow") + " {AgeLocked:1b}",
+		// Camel's LastPoseTick rides idx20 (long); a negative tick
+		// poses the camel SITTING — pose@6 emits alongside.
+		"data merge entity " + sel("camel") + " {LastPoseTick:400L}",
+		"data merge entity " + sel("camel") + " {LastPoseTick:-20L}",
 	}
 
 	run := func(addr string) [][]string {

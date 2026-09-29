@@ -519,6 +519,10 @@ type Entity struct {
 	// value at that moment (clearTrusted + addTrustedEntity inside
 	// readAdditionalSaveData), and the next diff emit discharges it.
 	foxDirty [2]bool
+	// LastPoseTick is Camel's DATA_LAST_POSE_CHANGE_TICK — the
+	// game-time the current pose transition started (negative while
+	// sitting, per LastPoseTick<0 → Pose.SITTING on read).
+	LastPoseTick int64
 	// CollarColor is the dye legacy id (0-15) behind Cat's and
 	// Wolf's CollarColor NBT byte + synced int. Vanilla's read
 	// applies the defined default RED(14) when the key is absent,
