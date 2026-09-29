@@ -43,6 +43,11 @@ func decodeMetaEntries(t *testing.T, body []byte) map[int]metaEnt {
 			var vb protocol.Buffer
 			vb.VarInt(v)
 			e.val = vb.Bytes()
+		case 2: // long
+			v, _ := r.VarLong()
+			var vb protocol.Buffer
+			vb.VarLong(v)
+			e.val = vb.Bytes()
 		case 3: // float
 			b, _ := r.Read(4)
 			e.val = b

@@ -905,14 +905,12 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		// absolute game-time the persistent anger lapses, NO_ANGER_END_TIME
 		// (-1) while unarmed; angry_at rides only while a provocation
 		// target reference exists (EntityReference -> UUID [I;4]).
-		if e.AngryUntil > 0 {
-			m["anger_end_time"] = e.AngryUntil
-		} else {
-			m["anger_end_time"] = int64(-1)
-		}
+		m["anger_end_time"] = angerEndSynced(e)
 		// Anger arming rides HurtByTargetGoal on vanilla — a NoAI mob
-		// provoked by /damage keeps both keys unarmed.
-		if e.AngryAt != ([16]byte{}) && !e.NoAI {
+		// provoked by /damage keeps both keys unarmed, but the summon
+		// tag's explicit angry_at emits regardless (AngryAtSet marks
+		// the NBT path).
+		if e.AngryAt != ([16]byte{}) && (!e.NoAI || e.AngryAtSet) {
 			m["angry_at"] = uuidInts(e.AngryAt)
 		}
 	}
@@ -1040,7 +1038,8 @@ var entitySaveSeq = []string{
 	"AbsorptionAmount", "attributes", "active_effects", "Brain",
 	"FallFlying", "PersistenceRequired", "CanPickUpLoot",
 	"LeftHanded", "NoAI", "equipment", "Age", "ForcedAge",
-	"InLove", "AgeLocked", "variant", "sound_variant", "CollarColor", "type",
+	"InLove", "AgeLocked", "CollarColor", "variant", "anger_end_time", "angry_at",
+	"sound_variant", "type",
 	"PatrolLeader", "drop_chances", "IsBaby",
 	"IsImmuneToZombification", "TimeInOverworld",
 	"home_radius", "home_pos", "Wave", "CanJoinRaid", "RaidId",
@@ -1444,6 +1443,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"MainGene": true, "HiddenGene": true,
 		"variant": true, "sound_variant": true, "type": true,
 		"CollarColor": true,
+		"angry_at":    true, "AngerTime": true,
 	}
 	if extra, ok := entitySaveExtras[name]; ok {
 		for k := range extra {

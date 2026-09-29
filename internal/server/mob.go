@@ -1550,6 +1550,23 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.CollarColorSet = true
 				}
 			}
+			// NeutralMob's persistent anger: anger_end_time long,
+			// angry_at entity-reference uuid, plus the legacy
+			// AngerTime int which converts to gameTime+value on
+			// read (measured: 400 → end = current game time + 400).
+			if neutralAngryTypes[name] {
+				if v, ok := tag.vals["anger_end_time"]; ok {
+					e.AngryUntil = int64(snbtNum(v))
+					e.AngryUntilSet = true
+				} else if v, ok := tag.vals["AngerTime"]; ok {
+					e.AngryUntil = s.gameTime() + int64(snbtNum(v))
+					e.AngryUntilSet = true
+				}
+				if u, ok := snbtUUID(tag, "angry_at"); ok {
+					e.AngryAt = u
+					e.AngryAtSet = true
+				}
+			}
 			// Variant defaults when the summon NBT left the key out —
 			// each type's own spawn roll: axolotl uniform common +
 			// 1/1200 rare, parrot uniform, rabbit's biome roll
@@ -3169,14 +3186,21 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 			}
 			// Wolf's DATA_VARIANT_ID (23, wolf_variant) and
 			// DATA_SOUND_VARIANT_ID (24, wolf_sound_variant) pack
-			// off pale/classic; interested/anger follow at 25/26
-			// untracked.
+			// off pale/classic; DATA_INTERESTED_ID at 25 stays
+			// unpacked (runtime-only).
 			// DATA_COLLAR_COLOR (21, int): dye legacy id — RED(14)
 			// is the defined default and stays unpacked.
 			if c := collarColorValue(e); c != 14 {
 				b.Byte(21)
 				b.Byte(1) // type: varint
 				b.VarInt(c)
+			}
+			// DATA_ANGER_END_TIME (22, long): the -1L defined
+			// default (no persistent end) stays unpacked.
+			if end := angerEndSynced(e); end != -1 {
+				b.Byte(22)
+				b.Byte(2) // serializer: long
+				b.VarLong(end)
 			}
 			if id := holderVariantID("wolf", e.VariantName); id != 3 {
 				b.Byte(23)
@@ -3457,6 +3481,18 @@ func collarColorValue(e *Entity) int32 {
 		return 14
 	}
 	return e.CollarColor
+}
+
+// angerEndSynced is the effective anger_end_time: the summon tag's
+// explicit long (kept verbatim, including 0), a runtime-set
+// expiry, or -1 — vanilla's defined default meaning "no
+// persistent end", which also covers mc-go's open-ended
+// AngryUntil==0 sentinel.
+func angerEndSynced(e *Entity) int64 {
+	if e.AngryUntilSet || e.AngryUntil != 0 {
+		return e.AngryUntil
+	}
+	return -1
 }
 
 // mobFlagsByte is Mob's DATA_MOB_FLAGS byte: bit0 = NoAI.

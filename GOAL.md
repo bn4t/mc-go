@@ -12438,3 +12438,37 @@ Still open: pig DATA_BOOST_TIME, frog DATA_TONGUE_TARGET, cat
 IS_LYING/RELAX_STATE_ONE (idx21/22 — set at runtime, never via
 NBT), wolf interested/anger (idx25/26), addTrustedEntity via
 taming.
+## Slice — NeutralMob persistent anger (2026-09-29)
+
+Measured: NeutralMob.addPersistentAngerSaveData writes
+anger_end_time (long — absolute game-time the anger lapses, -1
+unarmed) unconditionally and angry_at (single flat [I;a,b,c,d]
+int-array uuid via EntityReference — NOT a list like fox
+Trusted) when non-null. Reads accept anger_end_time verbatim, legacy
+int AngerTime (converted to gameTime+value), and angry_at's
+single int-array (a flat uuid is NOT the list shape Trusted
+uses). Implementers: bee, enderman, iron_golem, polar_bear,
+wolf, zombified_piglin — piglin/hoglin/zoglin do NOT carry the
+keys (measured earlier). Only wolf packs DATA_ANGER_END_TIME
+on the wire (idx22, long serializer 2, default -1L); the
+zombified piglin stores the fields but has no anger accessor.
+mc-go already emitted both save keys; gaps closed: wolf wire
+accessor, the summon-tag read arms, angry_at's emit for a
+NoAI summon-set target (the runtime provocation arm correctly
+stays gated on !NoAI — a NoAI mob provoked by /damage keeps
+both keys unarmed), and known-map/extras coverage for the
+new read keys. An explicit-set sentinel (AngryUntilSet)
+keeps a verbatim 0/-1 on anger_end_time distinguishable from
+unarmed; legacy AngerTime converts to gameTime+value.
+
+Pinned: TestHolderVariantParity adds an angry wolf
+(anger_end_time:600L + angry_at flat array → idx22 "2:600"
+wire) and an angry zombified_piglin (no wire anger pack),
+plus nbt= probes for both save keys and the -1L unarmed
+emit. Green vs both.
+
+Still open: bee arm (flags + own DATA_ANGER_END_TIME idx19),
+pig DATA_BOOST_TIME (runtime-only), frog DATA_TONGUE_TARGET,
+cat IS_LYING/RELAX_STATE_ONE, wolf DATA_INTERESTED_ID,
+addTrustedEntity via taming, AngerTime→absolute conversion
+pin (gameTime-dependent — verified by read path only).

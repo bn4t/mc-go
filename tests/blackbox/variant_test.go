@@ -200,6 +200,13 @@ func TestHolderVariantParity(t *testing.T) {
 			// 21; RED(14) is the defined default and stays unpacked.
 			{"cat", `{variant:"minecraft:calico",CollarColor:5b,NoAI:1b}`},
 			{"wolf", `{sound_variant:"minecraft:grumpy",CollarColor:9b,NoAI:1b}`},
+			// NeutralMob's persistent anger: anger_end_time long +
+			// angry_at single int-array uuid (unlike fox Trusted's
+			// list). Wolf packs DATA_ANGER_END_TIME at 22 (long);
+			// zombified_piglin writes the save keys but packs no
+			// wire anger accessor.
+			{"wolf", `{anger_end_time:600L,angry_at:[I;1,2,3,4],NoAI:1b}`},
+			{"zombified_piglin", `{anger_end_time:600L,angry_at:[I;1,2,3,4],NoAI:1b}`},
 		}
 		wantMeta := []map[int]string{
 			{9: "3:10", 15: "0:1", 20: "21:5"},            // persian
@@ -214,6 +221,8 @@ func TestHolderVariantParity(t *testing.T) {
 			{9: "3:3", 15: "0:1"},                         // salmon medium
 			{9: "3:10", 15: "0:1", 20: "21:3", 23: "1:5"}, // calico + lime collar
 			{9: "3:8", 15: "0:1", 21: "1:9", 24: "26:4"},  // cyan collar + grumpy
+			{9: "3:8", 15: "0:1", 22: "2:600"},            // angry wolf
+			{9: "3:20", 15: "0:1"},                        // angry zombified piglin
 		}
 		// optMeta lists metadata entries the spawn roll MAY pack
 		// beside wantMeta: idx -> {serializer, max registry id}. Every
@@ -233,6 +242,8 @@ func TestHolderVariantParity(t *testing.T) {
 			{},
 			{24: {22, 1}}, // calico+collar: sound roll ∈ cat_sound
 			{},            // grumpy+collar: variant roll = pale in plains
+			{24: {26, 6}}, // angry wolf: sound roll ∈ wolf_sound
+			{},
 		}
 
 		for i, s := range summons {
@@ -304,6 +315,11 @@ func TestHolderVariantParity(t *testing.T) {
 			{`@e[type=minecraft:wolf,nbt={CollarColor:9b}]`, "ZWOLFC"},
 			{`@e[type=minecraft:cat,nbt={CollarColor:14b}]`, "ZZCATD"},
 			{`@e[type=minecraft:wolf,nbt={CollarColor:14b}]`, "ZWOLFD"},
+			{`@e[type=minecraft:wolf,nbt={anger_end_time:600L}]`, "ZWEND"},
+			{`@e[type=minecraft:wolf,nbt={angry_at:[I;1,2,3,4]}]`, "ZWAT"},
+			{`@e[type=minecraft:wolf,nbt={anger_end_time:-1L}]`, "ZWCALM"},
+			{`@e[type=minecraft:zombified_piglin,nbt={anger_end_time:600L}]`, "ZZPEND"},
+			{`@e[type=minecraft:zombified_piglin,nbt={angry_at:[I;1,2,3,4]}]`, "ZZPAT"},
 		}
 		for _, p := range probes {
 			sendCommand(t, pw, fmt.Sprintf("execute if entity %s run say %s", p.sel, p.mark))
@@ -343,6 +359,11 @@ func metaEntryValue(e metaEnt) string {
 		r := protocol.NewPacketReader(e.val)
 		v, _ := r.VarInt()
 		return fmt.Sprintf("1:%d", v)
+	}
+	if e.typ == 2 {
+		r := protocol.NewPacketReader(e.val)
+		v, _ := r.VarLong()
+		return fmt.Sprintf("2:%d", v)
 	}
 	return fmt.Sprintf("%d:%d", e.typ, e.val[len(e.val)-1])
 }

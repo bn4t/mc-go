@@ -186,9 +186,20 @@ type Entity struct {
 	// the provoker's uuid (zero when calm), AngryUntil the game time
 	// the anger lapses — 0 means the open-ended HurtByTargetGoal
 	// retaliation golems and spiders run.
-	AngryAt     [16]byte
-	AngryUntil  int64
-	nextAlertAt int64
+	AngryAt [16]byte
+	// AngryAtSet records that the summon NBT supplied angry_at
+	// explicitly — the save emits it even under NoAI, while the
+	// runtime provocation path (which can latch AngryAt without
+	// arming on a NoAI mob) does not.
+	AngryAtSet bool
+	AngryUntil int64
+	// AngryUntilSet records that the summon NBT supplied
+	// anger_end_time (or legacy AngerTime) explicitly — vanilla's
+	// ValueInput.read applies the value verbatim, so an explicit 0
+	// stays distinguishable from "no persistent end" (-1 on the
+	// wire / save).
+	AngryUntilSet bool
+	nextAlertAt   int64
 	// RangedBowAttackGoal state for the AbstractSkeleton family:
 	// seeTime walks up/down on line of sight, attackTime is the
 	// draw-restart cooldown, drawTicks counts the 20-tick pull.
