@@ -538,3 +538,85 @@ func enderCarryState(e *Entity) int32 {
 	}
 	return 0
 }
+
+// enderProjectileSource is DamageTypeTags.IS_PROJECTILE — a tagged
+// source (or a thrown potion's direct entity) routes a hit into
+// hurtServer's teleport-loop branch instead of the plain damage arm.
+var enderProjectileSource = map[string]bool{
+	"arrow":                 true,
+	"trident":               true,
+	"mob_projectile":        true,
+	"unattributed_fireball": true,
+	"fireball":              true,
+	"wither_skull":          true,
+	"thrown":                true,
+	"wind_charge":           true,
+}
+
+// enderHurtServer is EnderMan.hurtServer: a projectile hit or a
+// splash-potion contact rolls up to 64 teleports and lands no damage
+// at all — except the water bottle's hurtWithCleanWater, applied
+// BEFORE the teleport loop. Every other source damages normally,
+// then rolls a 9/10 teleport when the source's getEntity() isn't a
+// LivingEntity (drown, suffocation, fall, explosions...).
+func (s *Server) enderHurtServer(e *Entity, amount float32, typeName string, killer *Session, info *damageInfo) (dealt float32, graced, died bool) {
+	if e.Invulnerable {
+		return 0, false, false
+	}
+	potion := info != nil && s.entityIsThrownPotion(info.direct)
+	if !enderProjectileSource[typeName] && !potion {
+		dealt, graced, died = s.mobHurtCore(e, amount, typeName, killer, info)
+		if !s.causeIsLiving(killer, info) && rand.Intn(10) != 0 {
+			s.enderTeleportRandom(e)
+		}
+		return dealt, graced, died
+	}
+	// hurtWithCleanWater runs BEFORE the teleport loop — only a
+	// splash/lingering water bottle reaches super.hurtServer here.
+	if potion && s.potionEntityIsWater(info.direct) {
+		dealt, graced, died = s.mobHurtCore(e, amount, typeName, killer, info)
+	}
+	for i := 0; i < 64; i++ {
+		if s.enderTeleportRandom(e) {
+			return dealt, graced, died
+		}
+	}
+	return dealt, graced, died
+}
+
+// causeIsLiving reports whether a damage source's getEntity() — the
+// responsible entity — resolves to a LivingEntity: a spawned living
+// mob, or the session the cause's entity id belongs to.
+func (s *Server) causeIsLiving(killer *Session, info *damageInfo) bool {
+	if killer != nil {
+		return true
+	}
+	if info == nil || info.cause == 0 {
+		return false
+	}
+	if e, ok := s.entities.Get(info.cause); ok && e.Living {
+		return true
+	}
+	return s.sessionByEntityID(info.cause) != nil
+}
+
+// entityIsThrownPotion reports whether an entity id is a thrown
+// splash/lingering potion — vanilla's AbstractThrownPotion check on
+// the source's direct entity.
+func (s *Server) entityIsThrownPotion(eid int32) bool {
+	if e, ok := s.entities.Get(eid); ok {
+		if n, ok := EntityTypeName(e.Type); ok {
+			return n == "splash_potion" || n == "lingering_potion"
+		}
+	}
+	return false
+}
+
+// potionEntityIsWater is thrownPotion.getItem() PotionContents.is(
+// Potions.WATER) — the hurtWithCleanWater discriminator.
+func (s *Server) potionEntityIsWater(eid int32) bool {
+	if e, ok := s.entities.Get(eid); ok {
+		return e.splashPotion == "water"
+	}
+	return false
+}

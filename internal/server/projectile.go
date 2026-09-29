@@ -1649,6 +1649,16 @@ var splashPotionColors = map[string]int32{
 // splash particles and glass crack.
 func (s *Server) potionSplash(e *Entity, x, y, z float64) {
 	effects := splashPotionContents[e.splashPotion]
+	if e.splashPotion == "water" {
+		// ThrownPotion.onHit's water arm: onHitAsWater, then the
+		// shared 2002 event with PotionContents' -13083194 default
+		// color (water carries no effects).
+		s.broadcastLevelEvent(e.Dim, 2002, world.Pos{
+			X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z)),
+		}, -13083194)
+		s.potionSplashWater(e, x, y, z)
+		return
+	}
 	if len(effects) == 0 {
 		return
 	}
@@ -1697,6 +1707,56 @@ func (s *Server) potionSplash(e *Entity, x, y, z float64) {
 			return true
 		}
 		s.splashApplyPlayer(e, sess, effects, prox)
+		return true
+	})
+}
+
+// potionSplashWater is ThrownPotion.onHitAsWater: every living
+// entity inside the inflated box with a center-to-impact distance
+// under 4 either takes the water-sensitive indirect_magic hit (the
+// enderman's hurtServer turns it into a teleport) or extinguishes.
+func (s *Server) potionSplashWater(e *Entity, x, y, z float64) {
+	s.entities.mu.RLock()
+	mobs := make([]*Entity, 0, len(s.entities.byID))
+	for _, t := range s.entities.byID {
+		mobs = append(mobs, t)
+	}
+	s.entities.mu.RUnlock()
+	for _, t := range mobs {
+		if !t.Living || t.Dying || t.Dim != e.Dim {
+			continue
+		}
+		dx, dy, dz := x-t.X, y-t.Y, z-t.Z
+		if dx*dx+dy*dy+dz*dz >= 16 {
+			continue
+		}
+		// WATER_SENSITIVE_OR_ON_FIRE: the sensitive arm runs
+		// hurtServer(indirectMagic, 1), the burning arm
+		// extinguishFire.
+		if n, _ := EntityTypeName(t.Type); mobWaterSensitive[n] {
+			s.damageMob(t, 1, "indirect_magic",
+				s.sessionByEntityID(e.arrowShooter),
+				&damageInfo{typeName: "indirect_magic",
+					cause: e.arrowShooter, direct: e.ID})
+		}
+		if t.FireTicks > 0 && t.Health > 0 {
+			t.FireTicks = 0
+			t.MetaDirty = true
+		}
+	}
+	// The predicate is sensitive OR on fire — a burning player
+	// extinguishes too.
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || sess.dead ||
+			sess.dimName() != e.Dim || sess.fireTicks <= 0 {
+			return true
+		}
+		px, py, pz, _, _, _ := sess.Pos()
+		dx, dy, dz := x-px, y-py, z-pz
+		if dx*dx+dy*dy+dz*dz < 16 {
+			sess.fireTicks = 0
+		}
 		return true
 	})
 }

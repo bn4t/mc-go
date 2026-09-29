@@ -4641,7 +4641,19 @@ func (s *Server) markHurt(e *Entity, typeName string) {
 // info carries the damage_event broadcast — vanilla emits it inside
 // hurtServer's accepted branch, AFTER the absorb/wear side effects
 // and BEFORE hurt()'s playHurtSound.
+// damageMob routes a mob hurt through the type's hurtServer —
+// EnderMan's override handles the projectile-teleport tries and the
+// 9/10 contact teleport after non-projectile damage.
 func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *Session, info *damageInfo) (dealt float32, graced, died bool) {
+	if kn, _ := EntityTypeName(e.Type); kn == "enderman" {
+		return s.enderHurtServer(e, amount, typeName, killer, info)
+	}
+	return s.mobHurtCore(e, amount, typeName, killer, info)
+}
+
+// mobHurtCore is LivingEntity.hurtServer — the damage apply plus the
+// wire tail shared by every type's own hurtServer.
+func (s *Server) mobHurtCore(e *Entity, amount float32, typeName string, killer *Session, info *damageInfo) (dealt float32, graced, died bool) {
 	var breach float32
 	if info != nil {
 		breach = s.weaponBreach(info.direct)
@@ -5503,6 +5515,13 @@ func (s *Server) mobTickStep() {
 		if ambName == "pufferfish" && e.PuffState > 0 && e.Health > 0 {
 			s.puffSting(e)
 			s.puffPlayerTouch(e)
+		}
+		// LivingEntity.aiStep's tail — a water-sensitive mob in water
+		// or rain calls hurtServer(drown, 1) every tick; the enderman's
+		// own hurtServer rolls the contact teleport off it. The check
+		// sits inside isEffectiveAi only — riders still take it.
+		if !e.NoAI && mobWaterSensitive[ambName] && s.mobInWaterOrRain(e) {
+			s.damageMob(e, 1, "drown", nil, &damageInfo{typeName: "drown"})
 		}
 		if !e.NoAI && e.Riding == 0 && !nonMobLiving[ambName] {
 			// Pufferfish.tick's inflate/deflate walk runs on the
@@ -10157,6 +10176,33 @@ func (s *Server) piglinAlert(e *Entity) {
 			}
 		}
 	}
+}
+
+// mobWaterSensitive is LivingEntity.isSensitiveToWater's overrides —
+// the four types aiStep hurts drown,1.0 every tick in water or rain.
+var mobWaterSensitive = map[string]bool{
+	"enderman":   true,
+	"blaze":      true,
+	"strider":    true,
+	"snow_golem": true,
+}
+
+// mobInWaterOrRain is Entity.isInWaterOrRain — fluid contact at the
+// feet, or rain at the feet or the top of the bounding box.
+func (s *Server) mobInWaterOrRain(e *Entity) bool {
+	if s.mobInWater(e) {
+		return true
+	}
+	d := s.dims[e.Dim]
+	if d == nil {
+		return false
+	}
+	feet := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}
+	if s.fireRainingAt(d, feet) {
+		return true
+	}
+	feet.Y = int(math.Floor(e.Y + entityBBDims(e)[1]))
+	return s.fireRainingAt(d, feet)
 }
 
 // mobInWater is Entity.isInWater approximated at the feet block —

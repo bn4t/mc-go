@@ -14292,3 +14292,55 @@ no flee; unsneak → flee). Green both legs.
     both legs; TestEnderStareParity + TestEnderCarryParity rerun
     green — the carry test's midnight pen already gate the new
     branch off.
+
+## Slice — enderman water sensitivity + hurt-teleport branches (2026-09-29)
+  - **Measured** (LivingEntity.java:3185 + Entity.java:1633 +
+    EnderMan.java:241/356-381 + is_projectile tag on the 26.2
+    decomp): LivingEntity.aiStep deals `drown` 1.0 every tick to a
+    type with `isSensitiveToWater` (EnderMan, Blaze, Strider,
+    SnowGolem) while `isInWaterOrRain` — rain counts too, checked
+    at feet AND BB-top cells, and the whole check runs inside
+    isEffectiveAi (NoAI mobs never feel it). EnderMan.hurtServer:
+    invulnerable → drop; a NON-is_projectile source without a
+    thrown potion → normal damage, then `teleport()` on a 9/10
+    roll ONLY when the cause isn't a LivingEntity (environment
+    causes flee; player/zombie hits stay); a projectile or thrown
+    potion → `hurtWithCleanWater` first (real damage only for a
+    WATER potion) then the 64-attempt teleport loop — arrows land
+    zero damage, pure flee. hurtWithCleanWater reads
+    `potionContents.is(Potions.WATER)` off the thrown-potion
+    direct entity; the splash handler
+    (AbstractThrownPotion.onHitAsWater) itself delivers indirect_
+    magic 1.0 to water-sensitive mobs inside dist²<16 of a
+    water-potion impact and extinguishes burning mobs/players.
+    i-frame gate: invulnerableTime>10 (set to 20 per landed hit)
+    blocks repeat ≤lastHurt damage, so water drown lands ~every
+    10 ticks while the 9/10 flee roll still runs every tick.
+  - **Implemented**: `damageMob` renamed `mobHurtCore`; new
+    dispatcher routes endermen to `enderHurtServer` (enderstare.go)
+    implementing the measured branch order — `enderProjectileSource`
+    is the 8-entry is_projectile set, `entityIsThrownPotion` +
+    `potionEntityIsWater` cover the potion branch, `causeIsLiving`
+    falls back to a session lookup since player entity records
+    spawn Living=false. Water sensitivity: `mobWaterSensitive`
+    {enderman,blaze,strider,snow_golem} + `mobInWaterOrRain`
+    (mobInWater || fireRainingAt at feet or BB top) ticked inside
+    the !NoAI gate. `potionSplash` grew the water branch first
+    (level event 2002 @ 0x385DC6 + `potionSplashWater`: dist²<16
+    AOE indirect_magic to sensitive mobs + mob/session
+    extinguish). Player-thrown potions remain unimplemented in
+    use-item — dispenser+witch paths already store `e.splashPotion`.
+  - **Pinned**: `TestEnderWaterParity` vs both servers, 6 legs —
+    wetFled (standing in water → event-46 teleport burst inside a
+    sprint), rainFled (vacuous-invariant: neither server fled the
+    mob within 300 ticks of rain), arrowFled+arrowHurt
+    (horizontal arrow enters the BB on a crossing segment →
+    teleport, NO damage event), meleeStay/meleeHurt (player
+    /damage by @s → damage event, position unchanged — living
+    cause blocks the flee roll). Debug surfaced a real
+    divergence: a top-down arrow summoned INSIDE the mob BB froze
+    without hitting on vanilla (clip() needs a crossing segment)
+    while mc-go's segmentHitsBox counted the containment — legs
+    now spawn the arrow entering the box, which is also the only
+    geometry a vanilla player could produce. zz_arrowprobe_test.go
+    (throwaway diagnostic) deleted, never committed.

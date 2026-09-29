@@ -529,3 +529,165 @@ func TestEnderFleeParity(t *testing.T) {
 		t.Errorf("midnight pen: vanilla=%v mc-go=%v", want.fledNight, got.fledNight)
 	}
 }
+
+// TestEnderWaterParity pins EnderMan's water sensitivity
+// (isSensitiveToWater + isInWaterOrRain -> hurtServer(drown,1) per
+// tick) and hurtServer's teleport branches: a water or rain contact
+// rolls the 9/10 contact teleport every tick; an arrow hit runs the
+// up-to-64 teleport loop and lands NO damage; a mob_attack whose
+// cause is a LivingEntity applies the damage and teleports nothing.
+// All legs run inside a roofed pocket at midnight so the daylight
+// flee roll can't fire.
+func TestEnderWaterParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, map[string]string{"gamemode": "survival"}, map[string]string{
+		"ops.json": opsJSONFor("BOATA", "BOATB"),
+	}, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	defer targets.cleanup()
+
+	type legOut struct {
+		wetFled   bool // water under the feet — teleports out
+		rainFled  bool // rain overhead — teleports out
+		arrowFled bool // arrow hit — teleports
+		arrowHurt bool // arrow hit ran a damage event — want false
+		meleeStay bool // mob_attack by a living cause — stays
+		meleeHurt bool // mob_attack by a living cause — hurts
+	}
+
+	run := func(t *testing.T, addr string) (res legOut) {
+		v := joinVehPair(t, addr)
+		defer v.ca.Close()
+		defer v.cb.Close()
+		drainChunkWindow(t, "enderwater", v.ca, v.pra, v.pwa, 0)
+		sendCommand(t, v.pwa, "gamerule do_mob_spawning false")
+		sendCommand(t, v.pwa, "kill @e[type=!minecraft:player]")
+		sendCommand(t, v.pwa, "gamemode spectator BOATA")
+		sendCommand(t, v.pwa, "gamemode spectator BOATB")
+		sendCommand(t, v.pwa, "gamerule random_tick_speed 0")
+		sendCommand(t, v.pwa, "gamerule advance_time false")
+		sendCommand(t, v.pwa, "time set midnight")
+		sendCommand(t, v.pwa, "tp BOATA 20 -60 30")
+
+		seeds := map[int32][3]float64{}
+		watch := func(eid int32, window time.Duration) vehObs {
+			return vehWatch(t, v, false, eid, window, seeds)
+		}
+		summon := func(x, z int) int32 {
+			e := summonTrackedNBT(t, v.ca, v.pra, v.pwa, v.pwa,
+				"enderman", float64(x)+0.5, -60, float64(z)+0.5, "{}")
+			seeds[e] = [3]float64{float64(x) + 0.5, -60, float64(z) + 0.5}
+			return e
+		}
+		killAll := func() {
+			sendCommand(t, v.pwa, "kill @e[type=!minecraft:player]")
+			time.Sleep(250 * time.Millisecond)
+		}
+		// pen builds the same 5x5 stone pocket as the flee pin —
+		// floor -61, walls -60..-57, a 3x3 air cell; roof=false
+		// opens the top for the rain leg.
+		pen := func(x, z int, roof bool) {
+			sendCommand(t, v.pwa, fmt.Sprintf("fill %d -61 %d %d -57 %d minecraft:stone",
+				x-2, z-2, x+2, z+2))
+			sendCommand(t, v.pwa, fmt.Sprintf("fill %d -60 %d %d -58 %d minecraft:air",
+				x-1, z-1, x+1, z+1))
+			if !roof {
+				sendCommand(t, v.pwa, fmt.Sprintf("fill %d -57 %d %d -57 %d minecraft:air",
+					x-1, z-1, x+1, z+1))
+			}
+		}
+		// teleported reports whether the sprint emitted the entity
+		// event-46 teleport burst for eid — the wire-visible teleport
+		// regardless of hop distance.
+		teleported := func(o vehObs, eid int32) bool {
+			for _, ev := range o.entEvAll[eid] {
+				if ev == 46 {
+					return true
+				}
+			}
+			return false
+		}
+		damaged := func(o vehObs, eid int32) bool {
+			return len(o.dmgEv[eid]) > 0
+		}
+		// watchThen starts the packet watch BEFORE the trigger fires —
+		// a water contact or fast arrow can teleport the mob inside
+		// the first real tick, before an after-the-fact watch attach.
+		watchThen := func(eid int32, trigger string, ticks int) vehObs {
+			ch := make(chan vehObs, 1)
+			go func() { ch <- watch(eid, 25*time.Second) }()
+			if trigger != "" {
+				sendCommand(t, v.pwa, trigger)
+			}
+			sendCommand(t, v.pwa, fmt.Sprintf("tick sprint %d", ticks))
+			return <-ch
+		}
+
+		// Leg 1: a flooded roofed pocket at midnight — the drown
+		// hurtServer call rolls the 9/10 teleport every tick, so the
+		// mob is out of the pen inside a sprint.
+		pen(20, 20, true)
+		eid := summon(20, 20)
+		res.wetFled = teleported(watchThen(eid,
+			"fill 19 -60 19 21 -60 21 minecraft:water", 200), eid)
+		killAll()
+
+		// Leg 2: an open pocket at midnight in rain — isInRain
+		// reaches the same hurtServer path.
+		pen(30, 20, false)
+		eid = summon(30, 20)
+		res.rainFled = teleported(watchThen(eid, "weather rain", 300), eid)
+		sendCommand(t, v.pwa, "weather clear")
+		killAll()
+
+		// Leg 3: an arrow fired horizontally through the pocket —
+		// the IS_PROJECTILE branch teleports the mob (up to 64
+		// tries) and emits no damage event at all. The arrow must
+		// enter the BB on a crossing segment: vanilla's clip()
+		// registers no hit for a projectile spawned inside the box
+		// (measured — a top-down summon froze inside the mob).
+		pen(40, 20, true)
+		eid = summon(40, 20)
+		o := watchThen(eid,
+			"summon minecraft:arrow 39.2 -59.5 20.5 {Motion:[3.0,0.0,0.0],pickup:0b}", 100)
+		res.arrowFled = teleported(o, eid)
+		res.arrowHurt = damaged(o, eid)
+		killAll()
+
+		// Leg 4: /damage mob_attack by a zombie — the source's
+		// getEntity() IS a LivingEntity, so the hit lands and no
+		// teleport rolls.
+		pen(50, 20, true)
+		eid = summon(50, 20)
+		sendCommand(t, v.pwa,
+			"summon minecraft:zombie 51.5 -60 20.5 {NoAI:1b}")
+		o = watchThen(eid,
+			"damage @e[type=minecraft:enderman,limit=1] "+
+				"5 minecraft:mob_attack by @e[type=minecraft:zombie,limit=1]", 100)
+		res.meleeStay = !teleported(o, eid)
+		res.meleeHurt = damaged(o, eid)
+		killAll()
+
+		sendCommand(t, v.pwa, "gamerule advance_time true")
+		sendCommand(t, v.pwa, "gamerule random_tick_speed 3")
+		sendCommand(t, v.pwa, "weather clear")
+		return res
+	}
+
+	want := run(t, targets.vanilla)
+	got := run(t, targets.mcgo)
+	t.Logf("vanilla: %+v", want)
+	t.Logf("mc-go:   %+v", got)
+	for k, pair := range map[string][2]bool{
+		"water fled": {want.wetFled, got.wetFled},
+		"rain fled":  {want.rainFled, got.rainFled},
+		"arrow fled": {want.arrowFled, got.arrowFled},
+		"arrow hurt": {want.arrowHurt, got.arrowHurt},
+		"melee stay": {want.meleeStay, got.meleeStay},
+		"melee hurt": {want.meleeHurt, got.meleeHurt},
+	} {
+		if pair[0] != pair[1] {
+			t.Errorf("%s: vanilla=%v mc-go=%v", k, pair[0], pair[1])
+		}
+	}
+}
