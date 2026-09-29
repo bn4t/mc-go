@@ -36,6 +36,45 @@ func (s *Server) addCooldown(sess *Session, group string, ticks int32) {
 	_ = sess.write(sess.ids().PlayCooldown, b.Bytes())
 }
 
+// goatHornSoundIDs maps the instrument name to its sound_event
+// registry id — every goat-horn instrument shares range 256.0 and
+// use_duration 7.0 (140 ticks of cooldown).
+var goatHornSoundIDs = map[string]int32{
+	"ponder_goat_horn": 841, "sing_goat_horn": 842, "seek_goat_horn": 843,
+	"feel_goat_horn": 844, "admire_goat_horn": 845, "call_goat_horn": 846,
+	"yearn_goat_horn": 847, "dream_goat_horn": 848,
+}
+
+// useGoatHorn is InstrumentItem.use: a stack whose instrument
+// component resolves plays it — startUsingItem, the entity-anchored
+// horn sound at volume range/16 (RECORDS source, the tooter excepted),
+// the 140-tick cooldown, and CONSUME. A stack with the component
+// removed is vanilla's FAIL no-op.
+func (s *Server) useGoatHorn(sess *Session, st ItemStack, hand int32) {
+	if st.InstrumentRemoved {
+		return
+	}
+	// ItemStack.use's cooldown gate: a hot horn group is a silent
+	// PASS before InstrumentItem.use runs.
+	if !sess.cooldownReady("goat_horn", s.TickCount()) {
+		return
+	}
+	inst := st.Instrument
+	if inst == "" {
+		inst = "ponder_goat_horn" // goat_horn's default component
+	}
+	snd, ok := goatHornSoundIDs[inst]
+	if !ok {
+		return
+	}
+	sess.usingItemID = st.ID
+	// Level.playSound(player, player, event, RECORDS, range/16, 1):
+	// entity-anchored to the tooter, broadcast at 16*16=256 blocks,
+	// the tooter excluded (the client plays it locally).
+	s.playSoundEntity(sess.dimName(), sess.entityID.Load(), snd, 2, 16.0, 1.0, sess)
+	s.addCooldown(sess, "goat_horn", 140)
+}
+
 // handleUseItem processes Use Item: food begins eating; everything else
 // is acknowledged by coverage only for now. Like a use on a block it is
 // dropped until the client reports its terrain loaded.
@@ -161,6 +200,10 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 		// use" until release or deselect and fires using_item every
 		// tick in between.
 		sess.usingItemID = held.ID
+		return
+	}
+	if name == "goat_horn" {
+		s.useGoatHorn(sess, st, hand)
 		return
 	}
 	f, ok := foodTable[name]

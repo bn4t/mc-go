@@ -101,6 +101,13 @@ type ItemStack struct {
 	// needs its own flag.
 	BottleAmpSet bool  `json:"bottle_amp_set,omitempty"`
 	BottleAmp    int32 `json:"bottle_amp,omitempty"`
+	// Instrument is the minecraft:instrument component's instrument
+	// name (ponder_goat_horn, ...) — empty means the component is
+	// absent; goat_horn's default component fills ponder_goat_horn.
+	// InstrumentRemoved marks an explicit !instrument patch, which is
+	// what makes use FAIL instead of falling back to the default.
+	Instrument        string `json:"instrument,omitempty"`
+	InstrumentRemoved bool   `json:"instrument_removed,omitempty"`
 	// LootTable/LootSeed are minecraft:container_loot — the ungenerated
 	// loot reference a broken chest-type block keeps so placing it
 	// re-arms the same table. Persistent-only in vanilla (no
@@ -167,6 +174,7 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.Ominous == other.Ominous &&
 		it.BannerPatterns == other.BannerPatterns &&
 		it.BottleAmpSet == other.BottleAmpSet && it.BottleAmp == other.BottleAmp &&
+		it.Instrument == other.Instrument && it.InstrumentRemoved == other.InstrumentRemoved &&
 		it.LootTable == other.LootTable && it.LootSeed == other.LootSeed &&
 		it.BookWritable == other.BookWritable && it.BookWritten == other.BookWritten &&
 		it.Trim == other.Trim &&
@@ -243,7 +251,29 @@ const (
 	// name.
 	compPotionContents = 51
 	compStewEffects    = 53
-	compPotDeco        = 74
+	// instrument carries InstrumentComponent: a bare VarInt holder id
+	// into the minecraft:instrument registry (admire=0, call=1,
+	// dream=2, feel=3, ponder=4, seek=5, sing=6, yearn=7 in dump order).
+	compInstrument = 61
+)
+
+// instrumentIDs/instrumentNames map the minecraft:instrument registry
+// in its registry_data dump order (alphabetical: admire=0, call=1,
+// dream=2, feel=3, ponder=4, seek=5, sing=6, yearn=7).
+var instrumentIDs = map[string]int32{
+	"admire_goat_horn": 0, "call_goat_horn": 1, "dream_goat_horn": 2,
+	"feel_goat_horn": 3, "ponder_goat_horn": 4, "seek_goat_horn": 5,
+	"sing_goat_horn": 6, "yearn_goat_horn": 7,
+}
+
+var instrumentNames = map[int32]string{
+	0: "admire_goat_horn", 1: "call_goat_horn", 2: "dream_goat_horn",
+	3: "feel_goat_horn", 4: "ponder_goat_horn", 5: "seek_goat_horn",
+	6: "sing_goat_horn", 7: "yearn_goat_horn",
+}
+
+const (
+	compPotDeco = 74
 	// The ominous-banner patch components: banner_patterns carries a
 	// layer list of (pattern holder, dye ordinal) pairs; tooltip_display
 	// is a hide bool plus a HolderSet of hidden component types;
@@ -339,6 +369,9 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		add += 4
 	}
 	if it.BottleAmpSet {
+		add++
+	}
+	if it.Instrument != "" {
 		add++
 	}
 	if it.BookWritable != "" {
@@ -447,6 +480,12 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 			b.VarInt(eid)
 			d, _ := strconv.Atoi(dur)
 			b.VarInt(int32(d))
+		}
+	}
+	if it.Instrument != "" {
+		if iid, ok := instrumentIDs[it.Instrument]; ok {
+			b.VarInt(compInstrument)
+			b.VarInt(iid)
 		}
 	}
 	if it.PotDeco != "" {
@@ -892,6 +931,13 @@ func readSlotComponent(r *protocol.PacketReader, it *ItemStack, typ int32) error
 			parts = append(parts, name+":"+strconv.Itoa(int(dur)))
 		}
 		it.StewEffects = strings.Join(parts, ",")
+	case compInstrument: // minecraft:instrument — holder VarInt id
+		iid, err := r.VarInt()
+		if err != nil {
+			return err
+		}
+		it.Instrument = instrumentNames[iid]
+		it.InstrumentRemoved = false
 	case compPotDeco: // minecraft:pot_decorations — four item ids,
 		// back, left, right, front.
 		n, err := r.VarInt()

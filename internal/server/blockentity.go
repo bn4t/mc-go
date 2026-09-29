@@ -611,6 +611,9 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 			"potion": "minecraft:" + it.Potion,
 		}
 	}
+	if it.Instrument != "" {
+		comps["minecraft:instrument"] = "minecraft:" + it.Instrument
+	}
 	if it.Trim != "" {
 		mat, pat, _ := strings.Cut(it.Trim, "/")
 		comps["minecraft:trim"] = map[string]any{

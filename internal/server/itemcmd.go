@@ -1227,6 +1227,9 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.DyedColor = 0
 			case "suspicious_stew_effects":
 				it.StewEffects = ""
+			case "instrument":
+				it.Instrument = ""
+				it.InstrumentRemoved = true
 			case "ominous_bottle_amplifier":
 				it.BottleAmpSet = false
 				it.BottleAmp = 0
@@ -1538,6 +1541,13 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 			default:
 				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
+		case "instrument":
+			// Bare instrument name — the component wraps a Holder.
+			if vtag.kind != snbtString {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			it.Instrument = strings.TrimPrefix(vtag.str, "minecraft:")
+			it.InstrumentRemoved = false
 		case "suspicious_stew_effects":
 			// [{id:"effect",duration:N},...] — a list of compounds,
 			// joined "name:dur,...".
