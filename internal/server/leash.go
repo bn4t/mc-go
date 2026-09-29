@@ -493,6 +493,15 @@ func (s *Server) tickLeash(e *Entity) {
 		return
 	}
 	if dist > leashElasticDist {
+		// Camel.onElasticLeashPull: a settled sitter stands (with the
+		// stand voice) when the elastic pull fires — gated on
+		// !isInPoseTransition and canCamelChangePose like vanilla.
+		if name, _ := EntityTypeName(e.Type); (name == "camel" || name == "camel_husk") &&
+			e.LastPoseTick < 0 && !camelInTransition(e, s.gameTime()) {
+			if w := s.dimWorld(e.Dim); w != nil && s.camelCanChangePose(e, w, false) {
+				s.camelStand(e, false)
+			}
+		}
 		// Elastic pull approximation: step toward the holder, capped
 		// so the mob never crosses inside the elastic radius.
 		step := (dist - leashElasticDist) * 0.4

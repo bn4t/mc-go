@@ -855,7 +855,7 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		}
 		// Fox's Type serializes the enum NAME ("red"/"snow");
 		// Trusted and the three pose bools write unconditionally.
-		if typeName == "camel" {
+		if typeName == "camel" || typeName == "camel_husk" {
 			// addAdditionalSaveData writes the pose-transition tick
 			// unconditionally.
 			m["LastPoseTick"] = e.LastPoseTick
@@ -1819,7 +1819,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	}
 	// Camel.readAdditionalSaveData: LastPoseTick<0 also poses the
 	// camel SITTING — the pose diff emits idx6 alongside.
-	if name == "camel" {
+	if name == "camel" || name == "camel_husk" {
 		if v, ok := save["LastPoseTick"]; ok {
 			var lt int64
 			switch n := v.(type) {

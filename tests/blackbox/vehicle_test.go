@@ -127,6 +127,7 @@ type vehObs struct {
 	eqFlHist   []string               // unscoped (idx18, ser0) emits "eid:v" — AbstractHorse DATA_ID_FLAGS bytes
 	dashHist   []string               // unscoped (idx19, ser8) emits "eid:v" — camel DATA_DASH bools
 	angerHist  []string               // unscoped (idx19, ser2) emits "eid:v" — anger_end_time varlongs
+	poseTkHist []string               // unscoped (idx20, ser2) emits "eid:v" — camel LAST_POSE_CHANGE_TICK varlongs
 	spitEIDs   []int32                // add_entity eids of type llama_spit
 	slimeEIDs  []int32                // add_entity eids of type slime
 	playerEIDs []int32                // add_entity eids of type player
@@ -461,6 +462,13 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 							}
 							if int(idx) == 19 {
 								o.angerHist = append(o.angerHist,
+									strconv.Itoa(int(peid))+":"+strconv.FormatInt(lv, 10))
+							}
+							// (20, LONG) is the camel's
+							// DATA_LAST_POSE_CHANGE_TICK — negative
+							// while sitting.
+							if int(idx) == 20 {
+								o.poseTkHist = append(o.poseTkHist,
 									strconv.Itoa(int(peid))+":"+strconv.FormatInt(lv, 10))
 							}
 						case 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31:

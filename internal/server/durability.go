@@ -337,6 +337,10 @@ const (
 	sndCamelDashReady         int32 = 262  // entity.camel.dash_ready
 	sndCamelHuskDash          int32 = 250  // entity.camel_husk.dash
 	sndCamelHuskDashReady     int32 = 251  // entity.camel_husk.dash_ready
+	sndCamelHuskSit           int32 = 256  // entity.camel_husk.sit
+	sndCamelHuskStand         int32 = 257  // entity.camel_husk.stand
+	sndCamelSit               int32 = 267  // entity.camel.sit
+	sndCamelStand             int32 = 268  // entity.camel.stand
 	sndDonkeyJump             int32 = 535  // entity.donkey.jump
 	sndHorseJump              int32 = 864  // entity.horse.jump
 	sndMuleJump               int32 = 1026 // entity.mule.jump

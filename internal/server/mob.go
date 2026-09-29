@@ -1696,7 +1696,11 @@ func (s *Server) runSummon(player string, args []string) reply {
 			// Camel.readAdditionalSaveData: LastPoseTick<0 sets
 			// Pose.SITTING(10); the tick itself always lands on
 			// DATA_LAST_POSE_CHANGE_TICK.
-			if name == "camel" {
+			if name == "camel" || name == "camel_husk" {
+				// /summon replays the NBT verbatim — Camel's
+				// finalizeSpawn (which would restamp the tick
+				// max(0, t-53)) does not run on the summon path:
+				// a {LastPoseTick:-5} summon is a real sitter.
 				if v, ok := tag.vals["LastPoseTick"]; ok {
 					e.LastPoseTick = int64(snbtNum(v))
 					if e.LastPoseTick < 0 {
@@ -4619,6 +4623,11 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 	if d := s.dimensionByName(e.Dim); d != nil {
 		s.emitGameEvent(d, "entity_damage", e.X, e.Y, e.Z, nil, "")
 	}
+	// Camel.actuallyHurt's first arm is standUpInstantly — every
+	// landed hurt stands a sitting camel silently, lethal or not.
+	if n, _ := EntityTypeName(e.Type); n == "camel" || n == "camel_husk" {
+		s.camelStand(e, true)
+	}
 	health, d := res.Health, res.Dealt
 	if health > 0 && !res.Graced {
 		s.mobHurtSound(e, res)
@@ -5253,6 +5262,17 @@ func (s *Server) mobTickStep() {
 		// packets, so a mounted NoAI camel keeps the flag on.
 		// CamelHusk inherits the whole arm with its own sounds.
 		if ambName == "camel" || ambName == "camel_husk" {
+			// Camel.tick's water arm — tick()-level, so it stands a
+			// sitting camel even under NoAI: isCamelSitting &&
+			// isInWater → standUpInstantly (silent, tick-53 stamp).
+			if e.LastPoseTick < 0 {
+				if w := s.dimWorld(e.Dim); w != nil {
+					px, py, pz := int(math.Floor(e.X)), int(math.Floor(e.Y)), int(math.Floor(e.Z))
+					if blockAt(w, world.Pos{X: px, Y: py, Z: pz}) == "water" {
+						s.camelStand(e, true)
+					}
+				}
+			}
 			if e.Dashing && e.DashCooldown < 50 && (e.Grounded || e.Riding != 0) {
 				e.Dashing = false
 				e.MetaDirty = true
@@ -5735,6 +5755,14 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	// stroll for as long as the goal runs.
 	if e.FleeRidden {
 		s.equineFleeStep(e, w, name)
+		return
+	}
+	// Camel's Brain-side pose machine — RandomSitting's repick draw
+	// and the tickRidden forward-input stand; refuseToMove freezes
+	// the drive while the camel sits or transitions. The water arm
+	// already ran in mobTickStep's NoAI-free block above.
+	if (name == "camel" || name == "camel_husk") && s.camelPoseStep(e, w, inWater) {
+		s.mobTravelStep(e, w, 0)
 		return
 	}
 	if !e.Strolling {
@@ -7093,6 +7121,14 @@ var panicMalusCells = map[string]bool{
 // first accepted attempt wins.
 func (s *Server) panicRollTarget(e *Entity) {
 	w := s.dimWorld(e.Dim)
+	// CamelPanic.start's first statement is standUpInstantly — every
+	// panic activation (the hurt arm's roll and each in-window
+	// re-fire alike) restamps the camel's tick to t-53 silently, so
+	// a hurt sitting camel emits a second positive idx20 behind
+	// actuallyHurt's own instant stand.
+	if n, _ := EntityTypeName(e.Type); n == "camel" || n == "camel_husk" {
+		s.camelStand(e, true)
+	}
 	bx, by, bz := int(math.Floor(e.X)), int(math.Floor(e.Y)), int(math.Floor(e.Z))
 	cell := func(x, y, z int) (world.Block, string) {
 		b := w.GetBlock(world.Pos{X: x, Y: y, Z: z})

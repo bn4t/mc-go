@@ -1748,6 +1748,11 @@ func (s *Server) vehicleStartJump(sess *Session, data int32) {
 		return
 	}
 	if name == "camel" || name == "camel_husk" {
+		// Camel.canJump adds !refuseToMove over the saddle check —
+		// a sitting or transitioning camel declines the dash arm.
+		if camelRefuseToMove(e, s.gameTime()) {
+			return
+		}
 		// Camel.handleStartJump: CAMEL_DASH positional sound +
 		// gameEvent(ENTITY_ACTION) + setDashing(true). The pitch is
 		// LivingEntity's voice roll (rand-rand)*0.2+1. CamelHusk

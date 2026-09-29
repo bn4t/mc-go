@@ -13914,3 +13914,44 @@ no flee; unsneak → flee). Green both legs.
   `TestFrogspawnHatchParity` flaked vanilla-side twice this run —
   the stone-egg random tick missed its hatch window
   (vanilla=miss); it passes on rerun. Watch for repeats.
+
+## Slice — camel sitting parity: pose machine, RandomSitting repick, stand arms
+
+- **Gap list**: Camel's sit/stand lifecycle — the RandomSitting
+  IDLE-brain behavior plus every stand-up arm (hurt, water, leash
+  pull, panic start, ridden input). mc-go had none of it: camels
+  never sat, never carried DATA_LAST_POSE_CHANGE_TICK.
+- **Measured** (26.2 decompile `animal.camel.{Camel,CamelAi}` +
+  live-wire probes): isCamelSitting reads
+  `DATA_LAST_POSE_CHANGE_TICK < 0` — the signed tick IS the state,
+  poseTime = gameTime - |tick|. sitDown: CAMEL_SIT + pose=10 +
+  tick=-t. standUp (relaxed): CAMEL_STAND + pose=0 + tick=+t.
+  standUpInstantly (hurt/water/panic-start): silent, UNCONDITIONAL
+  tick=max(0,t-53) — a hurt sitting camel emits two positive
+  ticks (actuallyHurt then CamelPanic.start ~16t later).
+  RandomSitting: IDLE RunOne {stroll 1, lookwalk 1, sit 1,
+  DoNothing(30,60) 1} gated on poseTime≥400, ground, !water,
+  !leashed, !controlled, canCamelChangePose (target-pose box fits:
+  sitting adult 1.7×0.945, baby 0.95×0.425). While sitting the
+  walks fail conditions → effective stand pick ~1/2 per repick.
+  /summon replays LastPoseTick verbatim — no finalizeSpawn —
+  {LastPoseTick:-5} yields a real sitter (live-measured;
+  contradicts a naive finalizeSpawn ordering read).
+- **Implemented**: `camel.go` — camelPoseTime/camelInTransition/
+  camelRefuseToMove (refuseToMove = sitting || transition, gates
+  stroll look-follow ridden-input and canJump per vanilla);
+  camelSit/camelStand per above; camelPoseStep in mobMoveStep
+  (tickRidden zza>0 stand, tick()-level water arm under
+  `isCamelSitting && isInWater → standUpInstantly` — runs under
+  NoAI too, RandomSitting repicks at 60t cadence standing /
+  45t sitting with the measured conditions). canJump gate in
+  vehicleStartJump; hurt arm in damageMob's actuallyHurt site;
+  panic-start arm in panicRollTarget (every activation); elastic
+  leash-pull arm in leash.go; readAdditionalSaveData +
+  writeAdditionalSaveData cover camel+camel_husk; sitting dims in
+  camelCanChangePose.
+- **Pinned**: `TestCamelSitWireParity` — {LastPoseTick:-5} summon
+  emits pose10+tick-, data-merge sit + damage → instant stand
+  (pose0+tick+), water stand, all green vs vanilla and mc-go.
+  `TestCamelRandomSittingParity` — 150s sit window + 60s stand
+  window on a plain summon. gofmt/vet/build green.
