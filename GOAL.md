@@ -12970,3 +12970,41 @@ Closes the item_durability_changed line in the 2026-09-20 tool-wear
 slice. The same note's still-open items: attack-cooldown scaling and
 unbreaking-tier rolls (unbreakingReduce exists but the vanilla
 enchanted-reduce roll is unmeasured).
+## Slice — fishing bobber entity-hooking + retrieve parity (2026-09-29)
+
+Cast model rewritten to vanilla's FishingHook constructor, measured
+from 26.2 decompile: spawn = (x - sin(yaw)·0.3, y + 1.62, z + cos(yaw)·
+0.3) — pure-yaw horizontal offset, NOT along the look vector; initial
+delta = (-sin(yaw), clamp(-tan(pitch), ±5), cos(yaw)) scaled PER
+COMPONENT by (0.6/dist + random.triangle(0.5, 0.0103365)) with three
+independent draws — total cast speed ~0.92, not the 0.6 mc-go had.
+Bobber yaw/pitch derive from the post-jitter velocity, and the cast
+uses the use-item packet's own yaw/pitch floats, not tracked rotation.
+Vanilla emits no spawn-time idx8; the emit only fires on hook/clear.
+
+Hooking: while FLYING the movement ray's first living-or-item entity
+within the swept AABB becomes hookedIn — idx8 emits eid+1 (Vanilla
+serializer = plain VarInt). HOOKED_IN_ENTITY rides hookedIn.getY(0.8);
+when the hooked entity dies/leaves, hookedIn clears and idx8 re-emits
+0. retrieve() pulls the entity, broadcasts entity_event 31, and wears
+the rod: 5 for a mob/player, 3 for an ItemEntity.
+
+Two measured non-obvious behaviors: (a) vanilla's onGround is NOT
+latched — Entity.move() recomputes per tick, so a dry-landed bobber
+oscillates grounded↔airborne and a bank retrieve wears 0-or-2 by tick
+phase (both outcomes pinned); (b) the lured/hooked/nibble countdown
+only runs while currentState == BOBBING, which only water entry sets
+— a dry-landed bobber never ticks its timers.
+
+Test surfacing (TestFishingHookParity, green vs both): creative-mode
+hurtAndBreak is a no-op — the vanilla harness world defaults to
+gamemode=creative, so the fixture must `gamemode survival` the caster
+for rod-wear reads. Also fixed a real harness race: the chat-sink and
+vehWatch goroutines reading the same conn split framed packets and
+silently desynced BOTH readers — query commands now ride a dedicated
+third connection.
+
+Honest caveat: ItemEntity-hook (wear 3) and player-hook are
+implemented per the decompiled source but unpinned — the block clip
+truncates the ray first, so a grounded item is effectively
+unhookable, and no player-hook fixture is built.

@@ -43,12 +43,15 @@ const (
 
 // fishBobber is the per-entity catch state hanging off Entity.
 type fishBobber struct {
-	owner    *Session
-	state    fishState
-	lured    int
-	hooked   int
-	nibble   int
-	surfaceY float64 // water surface the bobber parked on
+	owner      *Session
+	state      fishState
+	lured      int
+	hooked     int
+	nibble     int
+	surfaceY   float64  // water surface the bobber parked on
+	hookedIn   int32    // eid of the entity the bobber rides, 0 none
+	hookedSess *Session // hooked player (players are sessions, not entities)
+	grounded   bool     // landed on solid blocks — retrieve costs 2
 }
 
 type fishState int
@@ -59,46 +62,53 @@ const (
 )
 
 // useFishingRod runs FishingRodItem.use: cast when no bobber is out,
-// retrieve the running one otherwise.
-func (s *Server) useFishingRod(sess *Session) {
+// retrieve the running one otherwise. The cast's rotation comes from
+// the use packet's floats (ServerGamePacketListenerImpl.handleUseItem
+// applies them before the item dispatch), not the tracked position.
+func (s *Server) useFishingRod(sess *Session, yaw, pitch float32) {
 	if sess.fishingBobber != 0 {
 		s.retrieveBobber(sess)
 		return
 	}
-	x, y, z, yaw, pitch, _ := sess.Pos()
+	x, y, z, _, _, _ := sess.Pos()
 	s.castBobber(sess, x, y, z, yaw, pitch)
 	sess.addItemStat(statUsed, fishingRodItemID, 1)
 }
 
-// castBobber spawns the bobber on the vanilla spawn point — eye height,
-// pulled back 0.3 along the look — with the shootFromRotation look
-// vector at 0.6 speed plus the triangle jitter, and plays
-// entity.fishing_bobber.throw. The hook metadata index 8 (hooked
-// entity) starts empty and index 9 (biting) starts false.
+// castBobber spawns the bobber on the vanilla spawn point — the eye
+// point shifted -0.3 on the pure-yaw horizontal components — with the
+// ctor's per-component triangle-scaled throw vector, and plays
+// entity.fishing_bobber.throw.
 func (s *Server) castBobber(sess *Session, x, y, z float64, yaw, pitch float32) {
 	yawR := float64(yaw) * math.Pi / 180
 	pitchR := float64(pitch) * math.Pi / 180
-	// Entity.shootFromRotation: f = -sin(y)cos(p), f1 = -sin(p+roll),
-	// f2 = cos(y)cos(p) with roll 0 — then normalize + jitter + speed.
-	dx := -math.Sin(yawR) * math.Cos(pitchR)
-	dy := -math.Sin(pitchR)
-	dz := math.Cos(yawR) * math.Cos(pitchR)
-	l := math.Sqrt(dx*dx + dy*dy + dz*dz)
-	vx := dx/l*fishCastSpeed + randTriangle(0, 0.0103365)
-	vy := dy/l*fishCastSpeed + randTriangle(0, 0.0103365)
-	vz := dz/l*fishCastSpeed + randTriangle(0, 0.0103365)
+	// FishingHook's ctor: the throw vector is pure-yaw x/z plus the
+	// clamped pitch tangent — (-sinYaw, clamp(-tanPitch,±5), cosYaw) —
+	// and each component is scaled by its OWN triangle draw centered
+	// on 0.5, so the mean per-component factor is 0.6/dist + 0.5.
+	mx := -math.Sin(yawR)
+	my := math.Max(-5, math.Min(5, -math.Tan(pitchR)))
+	mz := math.Cos(yawR)
+	dist := math.Sqrt(mx*mx + my*my + mz*mz)
+	vx := mx * (fishCastSpeed/dist + randTriangle(0.5, 0.0103365))
+	vy := my * (fishCastSpeed/dist + randTriangle(0.5, 0.0103365))
+	vz := mz * (fishCastSpeed/dist + randTriangle(0.5, 0.0103365))
 
 	etype, ok := EntityTypeID("fishing_bobber")
 	if !ok {
 		return
 	}
+	// Spawn: eye point shifted -0.3 on the pure-yaw horizontal
+	// components; rotation comes from the post-jitter velocity.
+	ey := y + 1.62 // standing eye height
 	e := s.entities.Spawn(&Entity{
-		Type: etype,
-		Dim:  sess.dimName(),
-		X:    x + dx/l*0.3, // spawn 0.3 ahead along the look direction
-		Y:    y + 1.52,     // eye height
-		Z:    z + dz/l*0.3,
-		Yaw:  yaw, Pitch: pitch,
+		Type:    etype,
+		Dim:     sess.dimName(),
+		X:       x - math.Sin(yawR)*0.3,
+		Y:       ey,
+		Z:       z - math.Cos(yawR)*0.3,
+		Yaw:     float32(math.Atan2(vx, vz) * 180 / math.Pi),
+		Pitch:   float32(math.Atan2(vy, math.Sqrt(vx*vx+vz*vz)) * 180 / math.Pi),
 		MotionX: vx, MotionY: vy, MotionZ: vz,
 		VX: int16(vx * 8000), VY: int16(vy * 8000), VZ: int16(vz * 8000),
 		Data: sess.entityID.Load(), // spawn packet owner field
@@ -107,7 +117,6 @@ func (s *Server) castBobber(sess *Session, x, y, z float64, yaw, pitch float32) 
 	e.fishing = fb
 	sess.fishingBobber = e.ID
 	s.broadcastEntitySpawn(nil, *e)
-	s.broadcastEntityMetadata(e.ID, encodeBobberMetadata(0, false))
 	s.playSoundAt(e.Dim, e.X, e.Y, e.Z, sndBobberThrow, 0.5, 0.4/(0.4*float32(rand.Float64())+0.8))
 }
 
@@ -245,7 +254,9 @@ func (s *Server) fishTickStep() {
 		if d == nil {
 			continue
 		}
-		if fb.state == fishFly {
+		if fb.hookedIn != 0 || fb.hookedSess != nil {
+			s.fishHookedTick(e, fb)
+		} else if fb.state == fishFly {
 			s.fishFlyTick(e, d, fb)
 		} else {
 			s.fishBobTick(e, d, fb)
@@ -260,11 +271,97 @@ func bobberHeldBy(sess *Session) bool {
 	return held.ID == fishingRodItemID && !held.Empty()
 }
 
+// fishHookedTick is FishingHook.FishHookState.HOOKED_IN_ENTITY: the
+// bobber rides the hooked entity at getY(0.8) — entity Y + 0.8·height
+// — until the entity leaves or dies, which unhooks back to FLYING
+// with DATA_HOOKED_ENTITY cleared to 0.
+func (s *Server) fishHookedTick(e *Entity, fb *fishBobber) {
+	if hs := fb.hookedSess; hs != nil {
+		if hs.state.Load() == StatePlay && hs.dimName() == e.Dim {
+			hx, hy, hz, _, _, _ := hs.Pos()
+			e.X, e.Y, e.Z = hx, hy+1.44, hz // player height 1.8 · 0.8
+		} else {
+			fb.hookedSess = nil
+			s.broadcastEntityMetadata(e.ID, encodeBobberMetadata(0, false))
+		}
+		return
+	}
+	he, ok := s.entities.GetPtr(fb.hookedIn)
+	if ok && !he.Dying && he.Dim == e.Dim {
+		bb := entityBBDims(he)
+		e.X, e.Y, e.Z = he.X, he.Y+bb[1]*0.8, he.Z
+		return
+	}
+	fb.hookedIn = 0
+	s.broadcastEntityMetadata(e.ID, encodeBobberMetadata(0, false))
+}
+
+// bobberSweepHit is FishingHook.checkCollision's entity arm:
+// ProjectileUtil.getHitResultOnMoveVector sweeps the movement ray
+// against every entity canHitEntity allows — living mobs, live
+// ItemEntity stacks, and other players, the owner excluded —
+// and returns the closest hit along the ray.
+func (s *Server) bobberSweepHit(e *Entity, fb *fishBobber) (*Entity, *Session) {
+	ox, oy, oz := e.X, e.Y, e.Z
+	ex, ey, ez := ox+e.MotionX, oy+e.MotionY, oz+e.MotionZ
+	m := projectilePickMargin(e.TicksLived)
+	var best *Entity
+	var bestSess *Session
+	bt := 2.0
+	s.entities.mu.RLock()
+	list := make([]*Entity, 0, len(s.entities.byID))
+	for _, t := range s.entities.byID {
+		list = append(list, t)
+	}
+	s.entities.mu.RUnlock()
+	for _, t := range list {
+		if t.ID == e.ID || t.Dim != e.Dim || t.Dying {
+			continue
+		}
+		name, ok := EntityTypeName(t.Type)
+		if !ok || (!t.Living && name != "item") {
+			continue
+		}
+		bb := entityBBDims(t)
+		if t0, hit := segmentHitsBoxT(ox, oy, oz, ex, ey, ez, t.X, t.Y, t.Z, bb[0], bb[1], m); hit && t0 < bt {
+			best, bestSess, bt = t, nil, t0
+		}
+	}
+	s.sessions.Range(func(_, v any) bool {
+		hs := v.(*Session)
+		if hs == fb.owner || hs.state.Load() != StatePlay || hs.dimName() != e.Dim {
+			return true
+		}
+		hx, hy, hz, _, _, _ := hs.Pos()
+		if t0, hit := segmentHitsBoxT(ox, oy, oz, ex, ey, ez, hx, hy, hz, 0.6, 1.8, m); hit && t0 < bt {
+			best, bestSess, bt = nil, hs, t0
+		}
+		return true
+	})
+	return best, bestSess
+}
+
 // fishFlyTick integrates the bobber's flight: gravity 0.03, air drag
 // 0.92, and parking the first time it enters water. The parked y is
 // the water surface (top of the block minus the bobber's half-height
 // sink, vanilla rides ~0.15 below surface).
 func (s *Server) fishFlyTick(e *Entity, d *dimension, fb *fishBobber) {
+	// Projectile's checkCollision: the first living or item entity
+	// the movement ray clips becomes hookedIn — DATA_HOOKED_ENTITY
+	// (idx8) emits eid+1 and the delta zeroes.
+	if hit, hs := s.bobberSweepHit(e, fb); hit != nil || hs != nil {
+		eid := int32(0)
+		if hit != nil {
+			fb.hookedIn = hit.ID
+			eid = hit.ID
+		} else {
+			fb.hookedSess = hs
+			eid = hs.entityID.Load()
+		}
+		s.broadcastEntityMetadata(e.ID, encodeBobberMetadata(eid+1, false))
+		e.MotionX, e.MotionY, e.MotionZ = 0, 0, 0
+		return
+	}
 	e.X += e.MotionX
 	e.Y += e.MotionY
 	e.Z += e.MotionZ
@@ -291,6 +388,7 @@ func (s *Server) fishFlyTick(e *Entity, d *dimension, fb *fishBobber) {
 	// with lured counting — matches the dead-stick case).
 	if _, has := blockNameAt(d, p); has && !world.NonSolid(d.w.GetBlock(p)) {
 		fb.state = fishBob
+		fb.grounded = true
 		fb.lured = fishLuredMin + rand.Intn(fishLuredMax-fishLuredMin+1)
 		e.MotionX, e.MotionY, e.MotionZ = 0, 0, 0
 		e.Y = float64(p.Y) + 1.0
@@ -308,9 +406,20 @@ func (s *Server) fishBobTick(e *Entity, d *dimension, fb *fishBobber) {
 	if k, _, ok := fluidOf(d.w.GetBlock(p)); ok && k == fluidWater {
 		inWater = true
 	}
-	if !inWater && fb.lured == 0 && fb.hooked == 0 && fb.nibble == 0 {
-		// Dry-landed bobber waits without a countdown (vanilla leaves
-		// the timers at zero out of water).
+	// Vanilla's onGround is not latched — Entity.move() recomputes it
+	// every tick: a dry-landed bobber has zero delta, makes no vertical
+	// collision, so the flag clears one tick, gravity re-collides it
+	// the next. retrieve() reads whichever phase it lands on, so the
+	// rod wear from a grounded retrieve is genuinely 0-or-2.
+	if inWater {
+		fb.grounded = false
+	} else {
+		fb.grounded = !fb.grounded
+	}
+	if !inWater {
+		// Dry-landed bobber waits without a countdown — vanilla's
+		// lured/hooked/nibble timers only run while currentState ==
+		// BOBBING, and only water entry can set BOBBING.
 		return
 	}
 	// Vanilla's per-tick decrement (FishingHook.tick): 1 plus a 25% roll
@@ -388,7 +497,23 @@ func (s *Server) retrieveBobber(sess *Session) {
 	}
 	fb := e.fishing
 	cost := 0
-	if fb.nibble > 0 {
+	if fb.hookedIn != 0 || fb.hookedSess != nil {
+		// FishingHook.retrieve's hooked branch: pull the entity toward
+		// the owner, fire fishing_rod_hooked with an empty caught
+		// list, entity_event 31 on the bobber; the wear is 3 for an
+		// ItemEntity and 5 for anything else.
+		cost = 5
+		if he, ok := s.entities.GetPtr(fb.hookedIn); ok && !he.Dying {
+			s.pullHookedEntity(sess, e, he)
+			if name, _ := EntityTypeName(he.Type); name == "item" {
+				cost = 3
+			}
+		} else if hs := fb.hookedSess; hs != nil && hs.state.Load() == StatePlay {
+			s.pullHookedSession(sess, e, hs)
+		}
+		s.fireFishingRodHooked(sess, e, nil)
+		s.broadcastEntityEvent(e.ID, 31)
+	} else if fb.nibble > 0 {
 		cost = 1
 		// in_open_water (the treasure gate) is evaluated once, at the
 		// bite, on the bobber's block column.
@@ -403,7 +528,16 @@ func (s *Server) retrieveBobber(sess *Session) {
 		px, py, pz, _, _, _ := sess.Pos()
 		for _, it := range drops {
 			s.spawnCaughtItem(e.Dim, e.X, e.Y, e.Z, px, py, pz, it)
+			// ExperienceOrb: one orb worth 1-6 per rolled stack at the
+			// owner's feet-half-block.
+			s.spawnXPOrb(e.Dim, px, py+0.5, pz+0.5, int32(1+rand.Intn(6)))
+			if name, ok := world.ItemName(it.ID); ok && fishingCaughtFish[name] {
+				sess.addCustomStat("fish_caught", 1)
+			}
 		}
+	}
+	if fb.grounded {
+		cost = 2 // vanilla's onGround arm overrides the roll
 	}
 	s.playSoundAt(e.Dim, e.X, e.Y, e.Z, sndBobberRetrieve, 1.0,
 		0.4/(0.4*float32(rand.Float64())+0.8))
@@ -411,6 +545,36 @@ func (s *Server) retrieveBobber(sess *Session) {
 	if cost > 0 && sess.mode() == GameModeSurvival {
 		s.wearHeld(sess, int32(cost))
 	}
+}
+
+// fishingCaughtFish is the fishing pool's share of ItemTags.FISHES —
+// the four fish items the catch table can roll, for Stats.FISH_CAUGHT.
+var fishingCaughtFish = map[string]bool{
+	"cod": true, "salmon": true, "pufferfish": true, "tropical_fish": true,
+}
+
+// pullHookedEntity is FishingHook.pullEntity on a hooked mob or item:
+// the entity's delta gains (owner − bobber) · 0.1 and the new delta
+// rides the next motion emit.
+func (s *Server) pullHookedEntity(sess *Session, bobber, he *Entity) {
+	ox, oy, oz, _, _, _ := sess.Pos()
+	he.MotionX += (ox - bobber.X) * 0.1
+	he.MotionY += (oy - bobber.Y) * 0.1
+	he.MotionZ += (oz - bobber.Z) * 0.1
+	he.VX = int16(he.MotionX * 8000)
+	he.VY = int16(he.MotionY * 8000)
+	he.VZ = int16(he.MotionZ * 8000)
+	he.NeedsSync = true
+}
+
+// pullHookedSession is pullEntity on a hooked player: the delta emits
+// as set_entity_motion to every tracker including the victim —
+// vanilla's client-side pull rides the bobber's entity_event 31, so
+// the wire carries the same new-delta packet the tracker sends.
+func (s *Server) pullHookedSession(sess *Session, bobber *Entity, hs *Session) {
+	ox, oy, oz, _, _, _ := sess.Pos()
+	s.broadcastEntityMotion(bobber.Dim, hs.entityID.Load(),
+		(ox-bobber.X)*0.1, (oy-bobber.Y)*0.1, (oz-bobber.Z)*0.1)
 }
 
 // discardBobber removes the bobber entity and clears the owner link.

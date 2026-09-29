@@ -171,8 +171,9 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 	}
 	if name == "fishing_rod" {
 		// FishingRodItem.use is not a hold-use: each use either casts
-		// a new bobber or retrieves the live one.
-		s.useFishingRod(sess)
+		// a new bobber or retrieves the live one. Vanilla casts from
+		// the use packet's own rotation floats.
+		s.useFishingRod(sess, yaw, pitch)
 		return
 	}
 	if name == "bow" {

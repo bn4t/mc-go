@@ -103,6 +103,10 @@ type vehObs struct {
 	blockUps   map[[3]int32]int      // block_update counts by position
 	motion     map[int32]int         // set_entity_motion counts by eid
 	uuidMeta   map[[2]int32][16]byte // serializer-13 present-uuid entries by {eid,index}
+	hookMeta   map[int32]int32       // unscoped: eid → last nonzero idx8 int metadata
+	hookHist   []string              // ordered idx8 emits as "eid:v" (spans the window)
+	hookEvent  int32                 // eid that carried entity_event status 31 (0 unseen)
+	bobberEIDs []int32               // add_entity eids of type fishing_bobber
 }
 
 // vehWatch collects packets matching (eid, kind) over the window on
@@ -126,6 +130,7 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 		blockUps:   map[[3]int32]int{},
 		motion:     map[int32]int{},
 		uuidMeta:   map[[2]int32][16]byte{},
+		hookMeta:   map[int32]int32{},
 	}
 	poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
 		defer c.SetReadDeadline(time.Time{})
@@ -184,6 +189,9 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					if n == "item" {
 						o.itemEIDs = append(o.itemEIDs, peid)
 					}
+					if n == "fishing_bobber" {
+						o.bobberEIDs = append(o.bobberEIDs, peid)
+					}
 				case 0x08: // block_update — count writes by position
 					r := protocol.NewPacketReader(p.Data)
 					x, y, z, err := r.Position()
@@ -201,6 +209,9 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					st, _ := r.Byte()
 					if peid == eid {
 						o.entEv = append(o.entEv, st)
+					}
+					if st == 31 {
+						o.hookEvent = peid
 					}
 				case server.IDPlayLevelEvent: // 0x2E — record event+data
 					r := protocol.NewPacketReader(p.Data)
@@ -247,6 +258,16 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 									o.intMetaMax[int(idx)] = vv
 								}
 							}
+							// hookMeta is unscoped like uuidMeta: the
+							// bobber's eid isn't known ahead of the
+							// emit that carries DATA_HOOKED_ENTITY —
+							// and the idx8 → 0 emit on unhook is a
+							// fact too, so zeros are kept.
+							if int(idx) == 8 {
+								o.hookMeta[peid] = vv
+								o.hookHist = append(o.hookHist,
+									strconv.Itoa(int(peid))+":"+strconv.Itoa(int(vv)))
+							}
 						case 3: // float
 							vv, err := r.Float()
 							if err != nil {
@@ -288,6 +309,13 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 								if vv > o.intMetaMax[int(idx)] {
 									o.intMetaMax[int(idx)] = vv
 								}
+							}
+							// idx8 with serializer 19 is the
+							// bobber's DATA_HOOKED_ENTITY (eid+1).
+							if int(idx) == 8 {
+								o.hookMeta[peid] = vv
+								o.hookHist = append(o.hookHist,
+									strconv.Itoa(int(peid))+":"+strconv.Itoa(int(vv)))
 							}
 						default:
 							goto done
