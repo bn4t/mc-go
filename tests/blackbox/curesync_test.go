@@ -78,6 +78,13 @@ func decodeMetaEntries(t *testing.T, body []byte) map[int]metaEnt {
 				v, _ := r.VarInt()
 				e.val = append(e.val, byte(v))
 			}
+		case 13: // optional_living_entity_reference: bool + 16-byte uuid
+			b, _ := r.Read(1)
+			e.val = b
+			if len(b) == 1 && b[0] == 1 {
+				u, _ := r.Read(16)
+				e.val = append(e.val, u...)
+			}
 		case 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31:
 			// Holder-variant serializers (cat/frog/wolf/pig/cow/
 			// chicken variant + sound_variant registries): a VarInt

@@ -1488,6 +1488,26 @@ func (s *Server) runSummon(player string, args []string) reply {
 				if v, ok := tag.vals["Crouching"]; ok {
 					e.Crouching = snbtNum(v) > 0
 				}
+				// Trusted reads a LIST of [I;a,b,c,d] int-array
+				// uuids (TRUSTED_LIST_CODEC = listOf) into the two
+				// entity-reference slots — the flat [I;] form is
+				// rejected by the codec.
+				if v, ok := tag.vals["Trusted"]; ok && v.kind == snbtList {
+					for _, it := range v.items {
+						if it == nil || len(it.items) != 4 || len(e.FoxTrusted) == 2 {
+							continue
+						}
+						var u [16]byte
+						for j := 0; j < 4; j++ {
+							n := int32(snbtNum(it.items[j]))
+							u[j*4] = byte(n >> 24)
+							u[j*4+1] = byte(n >> 16)
+							u[j*4+2] = byte(n >> 8)
+							u[j*4+3] = byte(n)
+						}
+						e.FoxTrusted = append(e.FoxTrusted, u)
+					}
+				}
 			}
 			// Panda's genes write as strings via Gene.CODEC.
 			if name == "panda" {
@@ -3060,6 +3080,18 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(19)
 				b.Byte(0) // type: byte
 				b.Byte(fflags)
+			}
+			// DATA_TRUSTED_ID_0/1 (20/21, optional_living_entity_reference
+			// serializer 13): bool + 16-byte uuid — vanilla packs
+			// only populated slots.
+			for i, u := range e.FoxTrusted {
+				if i > 1 {
+					break
+				}
+				b.Byte(byte(20 + i))
+				b.Byte(13)
+				b.Bool(true)
+				b.UUID(u)
 			}
 		case "panda":
 			if e.Baby {

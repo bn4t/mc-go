@@ -45,6 +45,10 @@ func TestVariantParity(t *testing.T) {
 			{"tropical_fish", `{Variant:918273,NoAI:1b}`},
 			{"fox", `{Type:"snow",Sitting:1b,Crouching:1b,NoAI:1b}`},
 			{"panda", `{MainGene:"lazy",HiddenGene:"worried",NoAI:1b}`},
+			// Trusted is a list of [I;] int-array uuids
+			// (TRUSTED_LIST_CODEC = listOf) — the flat [I;]
+			// form is rejected.
+			{"fox", `{Type:"snow",Trusted:[[I;1,2,3,4]],NoAI:1b}`},
 		}
 		// want = idx -> "type:value" for every entry vanilla's spawn
 		// burst packs beyond the always-present idx9 health / idx15
@@ -59,6 +63,10 @@ func TestVariantParity(t *testing.T) {
 			{9: "3:3", 15: "0:1", 17: "1:918273"},
 			{9: "3:10", 15: "0:1", 18: "1:1", 19: "0:5"},
 			{9: "3:20", 15: "0:1", 21: "0:1", 22: "0:2"},
+			// idx20 = optional_living_entity_reference (serializer
+			// 13): bool + uuid — rendered last byte is the uuid tail
+			// (4); the nbt probe pins the whole value.
+			{9: "3:10", 15: "0:1", 18: "1:1", 20: "13:4"},
 		}
 
 		for i, s := range summons {
@@ -125,6 +133,7 @@ func TestVariantParity(t *testing.T) {
 			{`@e[type=minecraft:tropical_fish,nbt={Variant:918273}]`, "ZZTFV"},
 			{`@e[type=minecraft:fox,nbt={Type:"snow",Sitting:1b,Crouching:1b}]`, "ZZFXV"},
 			{`@e[type=minecraft:fox,nbt={Trusted:[]}]`, "ZZFXT"},
+			{`@e[type=minecraft:fox,nbt={Trusted:[[I;1,2,3,4]]}]`, "ZZFTR"},
 			{`@e[type=minecraft:panda,nbt={MainGene:"lazy",HiddenGene:"worried"}]`, "ZZPDG"},
 		}
 		for _, p := range probes {

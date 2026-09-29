@@ -379,9 +379,13 @@ type Entity struct {
 	// raid countdown — 0 on a summoned rabbit).
 	MoreCarrotTicks int32
 	// Sleeping/Sitting/Crouching are Fox's three pose bools in
-	// addAdditionalSaveData (Trusted's UUID list is emitted but
-	// unmodelled).
+	// addAdditionalSaveData.
 	Sleeping, Sitting, Crouching bool
+	// FoxTrusted is Fox's Trusted NBT list — up to two entity
+	// reference UUIDs. The summon tag accepts a single flat
+	// [I;a,b,c,d] uuid (slot 0); addAdditionalSaveData emits a
+	// list of int-arrays.
+	FoxTrusted [][16]byte
 	// GeneMain/GeneHidden are Panda's MainGene/HiddenGene NBT
 	// strings (normal, lazy, worried, playful, brown, weak,
 	// aggressive).

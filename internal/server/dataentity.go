@@ -741,11 +741,25 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 			m["RabbitType"] = e.Variant
 			m["MoreCarrotTicks"] = e.MoreCarrotTicks
 		}
-		// Fox's Type serializes the enum NAME ("red"/"snow"); the
-		// Trusted list is empty on a summoned fox and the three pose
-		// bools write unconditionally.
+		// Fox's Type serializes the enum NAME ("red"/"snow");
+		// Trusted and the three pose bools write unconditionally.
 		if typeName == "fox" {
-			m["Trusted"] = nbt.List{Elem: nbt.TagCompound}
+			// Trusted emits as a list of int-array uuids (empty on a
+			// fox summoned without the key) — the summon tag takes a
+			// single flat [I;] uuid, the save writes the list form.
+			trusted := nbt.List{Elem: nbt.TagCompound}
+			if len(e.FoxTrusted) > 0 {
+				trusted = nbt.List{Elem: nbt.TagIntArray}
+				for _, u := range e.FoxTrusted {
+					trusted.Items = append(trusted.Items, []int32{
+						int32(u[0])<<24 | int32(u[1])<<16 | int32(u[2])<<8 | int32(u[3]),
+						int32(u[4])<<24 | int32(u[5])<<16 | int32(u[6])<<8 | int32(u[7]),
+						int32(u[8])<<24 | int32(u[9])<<16 | int32(u[10])<<8 | int32(u[11]),
+						int32(u[12])<<24 | int32(u[13])<<16 | int32(u[14])<<8 | int32(u[15]),
+					})
+				}
+			}
+			m["Trusted"] = trusted
 			m["Sleeping"] = nbtBool(e.Sleeping)
 			m["Type"] = "red"
 			if e.Variant == 1 {

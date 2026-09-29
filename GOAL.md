@@ -12393,3 +12393,25 @@ probes for the save keys. Green vs both.
 Still open: fox Trusted entity refs 20/21, cat/wolf CollarColor,
 pig DATA_BOOST_TIME, frog DATA_TONGUE_TARGET, passive passenger
 entities' rolled variants.
+## Slice — fox Trusted entity references (2026-09-29)
+
+Fox's DATA_TRUSTED_ID_0/1 (metadata idx 20/21) ride the
+optional_living_entity_reference serializer (id 13): bool + raw
+16-byte uuid (EntityReference stream codec = UUIDUtil.map). Vanilla
+packs only populated slots; the NBT side is TRUSTED_LIST_CODEC =
+EntityReference.codec().listOf() — a list of [I;a,b,c,d] int-array
+uuids, capped at two slots (addTrustedEntity fills slot0 then
+slot1). Measured live: the input must be the list form
+`Trusted:[[I;1,2,3,4]]` — the flat `[I;]` int-array is rejected by
+the codec (an earlier probe's sprintf wrapped the uuid in an extra
+bracket and made the flat form look accepted). Save emits the same
+list-of-int-arrays shape; empty keeps `Trusted:[]`.
+
+Pinned: TestVariantParity gains a snow fox with Trusted — metadata
+idx20 = serializer 13 bool+uuid (last byte 4), plus the nbt=
+probe for the save form. Green vs both.
+
+Still open: cat/wolf CollarColor, pig DATA_BOOST_TIME, frog
+DATA_TONGUE_TARGET, addTrustedEntity via taming (runtime path —
+trusted list only enters via summon NBT for now), passive
+passenger entities' rolled variants.
