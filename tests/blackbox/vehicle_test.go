@@ -119,6 +119,8 @@ type vehObs struct {
 	pose9Eid   int32                  // eid that emitted (idx6, ser20) pose 9 — USING_TONGUE
 	poseHist   []string               // unscoped (idx6, ser20) emits "eid:v" — DATA_POSE values
 	flagsHist  []string               // unscoped (idx15, ser0) emits "eid:v" — DATA_MOB_FLAGS bytes
+	beeFlHist  []string               // unscoped (idx18, ser0) emits "eid:v" — bee DATA_FLAGS bytes
+	angerHist  []string               // unscoped (idx19, ser2) emits "eid:v" — anger_end_time varlongs
 }
 
 // vehWatch collects packets matching (eid, kind) over the window on
@@ -324,6 +326,10 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 								o.flagsHist = append(o.flagsHist,
 									strconv.Itoa(int(peid))+":"+strconv.Itoa(int(bv)))
 							}
+							if int(idx) == 18 {
+								o.beeFlHist = append(o.beeFlHist,
+									strconv.Itoa(int(peid))+":"+strconv.Itoa(int(bv)))
+							}
 						case 1: // int
 							vv, err := r.VarInt()
 							if err != nil {
@@ -384,9 +390,14 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 								}
 								o.uuidMeta[[2]int32{peid, int32(idx)}] = u
 							}
-						case 2: // long — VarInt-encoded
-							if _, err := r.VarInt(); err != nil {
+						case 2: // long — VarLong-encoded
+							lv, err := r.VarLong()
+							if err != nil {
 								break
+							}
+							if int(idx) == 19 {
+								o.angerHist = append(o.angerHist,
+									strconv.Itoa(int(peid))+":"+strconv.FormatInt(lv, 10))
 							}
 						case 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31:
 							// optional_int / pose / holder-variant

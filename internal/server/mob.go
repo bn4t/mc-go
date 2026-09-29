@@ -3993,6 +3993,9 @@ func beeFlagsValue(e *Entity) byte {
 	if e.Stung {
 		v |= 0x04
 	}
+	if e.Rolling {
+		v |= 0x02
+	}
 	return v
 }
 
@@ -4285,6 +4288,9 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 			if kn, _ := EntityTypeName(ep.Type); neutralAngryTypes[kn] && !ep.NoAI {
 				ep.AngryUntil = s.gameTime() + 400 + rand.Int63n(381)
 			}
+			// DATA_ANGER_END_TIME arms on the provoke — the idx19
+			// emit only fires on the dirty gate.
+			ep.MetaDirty = true
 		}
 		// doPostAttackEffects, enchanted=victim: thorns on the mob's
 		// equipment retaliates against the attacker (runs even when
@@ -4705,9 +4711,11 @@ func (s *Server) mobTickStep() {
 			if e.AngryUntil > 0 && s.gameTime() >= e.AngryUntil {
 				e.AngryAt = [16]byte{}
 				e.AngryUntil = 0
+				e.MetaDirty = true
 			} else if s.provokerDead(e) {
 				e.AngryAt = [16]byte{}
 				e.AngryUntil = 0
+				e.MetaDirty = true
 			} else if ambName == "zombified_piglin" && s.gameTime() >= e.nextAlertAt {
 				e.nextAlertAt = s.gameTime() + 80 + rand.Int63n(41)
 				s.piglinAlert(e)
@@ -4731,6 +4739,26 @@ func (s *Server) mobTickStep() {
 			}
 			if e.CannotEnterHive > 0 {
 				e.CannotEnterHive--
+			}
+			// Bee.customServerAiStep's setRolling: rolls while angry,
+			// un-stung, and the anger target is inside 2 blocks.
+			roll := e.AngryAt != [16]byte{} && !e.Stung
+			if roll {
+				roll = false
+				s.sessions.Range(func(_, v any) bool {
+					sess := v.(*Session)
+					if sess.uuid == e.AngryAt && sess.state.Load() == StatePlay && sess.dimName() == e.Dim {
+						px, py, pz, _, _, _ := sess.Pos()
+						dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
+						roll = dx*dx+dy*dy+dz*dz < 4.0
+						return false
+					}
+					return true
+				})
+			}
+			if roll != e.Rolling {
+				e.Rolling = roll
+				e.MetaDirty = true
 			}
 			// Bee.aiStep's tail: every 20th tick a bee whose saved
 			// hive position no longer names a hive block entity
@@ -8231,6 +8259,7 @@ func (s *Server) mobPostAttack(e *Entity, name string, target *Session) {
 		e.Stung = true
 		e.AngryAt = [16]byte{}
 		e.AngryUntil = 0
+		e.MetaDirty = true
 		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 160, srcNeutral, 1, 1, nil) // entity.bee.sting
 	}
 }

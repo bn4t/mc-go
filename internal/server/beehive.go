@@ -163,6 +163,7 @@ func (s *Server) beeAngerSweep(d *dimension, released []*Entity, sess *Session, 
 		} else {
 			be.AngryAt = sess.uuid
 			be.AngryUntil = 0
+			be.MetaDirty = true
 		}
 	}
 }
@@ -213,6 +214,7 @@ func (s *Server) angerNearbyBees(d *dimension, pos world.Pos) {
 			target := players[rand.Intn(len(players))]
 			e.AngryAt = target.uuid
 			e.AngryUntil = 0
+			e.MetaDirty = true
 		}
 	}
 }

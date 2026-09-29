@@ -13265,3 +13265,22 @@ summon queued on BOATA while BOATC's data get saw zero zombies
 dependent commands must share one conn. (b) /damage dealt 1 on
 mc-go vs 2 on vanilla against a bare zombie — armor-absorb delta,
 investigate as a separate slice.
+
+## Slice — bee sting + anger metadata emits (26.2)
+
+NeutralMob provocation + the full bee-sting sequence now emits on the
+dirty gate, and `TestBeeStingParity` pins every beat vs both servers:
+
+- Provocation (real `sendAttackEntity` punch): `AngryAt`/`AngryUntil`
+  arm → `DATA_ANGER_END_TIME` idx19 varlong emit of the absolute end
+  tick — `MetaDirty` marks added at the provoke site (mob.go ~4286),
+  the lapse-clear branches (~4706), and both anger-clear sites in
+  beehive.go.
+- `Bee.customServerAiStep`'s `setRolling` implemented: bit 0x02 of
+  `DATA_FLAGS_ID` idx18 while `isAngry && !hasStung && target d²<4` —
+  vanilla emits `idx18=2` on approach before the sting.
+- Post-sting: `Stung`/`AngryAt` clear marks `MetaDirty` → vanilla packs
+  `idx18=4` + `idx19=-1` in one 18/19 packet; mc-go now emits both.
+- Harness: vehObs gained `beeFlHist` (idx18 ser0) + `angerHist`
+  (idx19 ser2 — **VarLong**, not VarInt: `-1` is a 10-byte LEB and
+  VarInt misreads/drops it, which hid vanilla's clear emit).

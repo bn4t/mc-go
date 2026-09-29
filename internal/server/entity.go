@@ -492,6 +492,10 @@ type Entity struct {
 	// old and the attack cooldown sits under half the interval.
 	Aggressive  bool
 	MobArmTicks int32
+	// Rolling rides Bee's DATA_FLAGS_ID bit 0x02 — set while the
+	// angry bee closes to within 2 blocks of its target
+	// (Bee.customServerAiStep's setRolling).
+	Rolling bool
 	// FoxTrusted is Fox's Trusted NBT list — up to two entity
 	// reference UUIDs. The summon tag accepts a single flat
 	// [I;a,b,c,d] uuid (slot 0); addAdditionalSaveData emits a
