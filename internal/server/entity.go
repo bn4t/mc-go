@@ -486,6 +486,12 @@ type Entity struct {
 	CubeWasGround bool
 	CubeDirSeq    int64
 	CubeJumpSeq   int64
+	// Aggressive rides Mob's DATA_MOB_FLAGS byte bit 4 — the melee
+	// goal's raised-arms state. MobArmTicks is ZombieAttackGoal's
+	// raiseArmTicks: the flag pulses once the goal's run is 5 ticks
+	// old and the attack cooldown sits under half the interval.
+	Aggressive  bool
+	MobArmTicks int32
 	// FoxTrusted is Fox's Trusted NBT list — up to two entity
 	// reference UUIDs. The summon tag accepts a single flat
 	// [I;a,b,c,d] uuid (slot 0); addAdditionalSaveData emits a

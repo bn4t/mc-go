@@ -116,6 +116,7 @@ type vehObs struct {
 	tongueHist []string               // unscoped (idx19, ser19) emits "eid:v" — frog tongue target
 	pose9Eid   int32                  // eid that emitted (idx6, ser20) pose 9 — USING_TONGUE
 	poseHist   []string               // unscoped (idx6, ser20) emits "eid:v" — DATA_POSE values
+	flagsHist  []string               // unscoped (idx15, ser0) emits "eid:v" — DATA_MOB_FLAGS bytes
 }
 
 // vehWatch collects packets matching (eid, kind) over the window on
@@ -305,7 +306,11 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 						idxs = append(idxs, int(idx))
 						switch ser {
 						case 0:
-							_, _ = r.Byte()
+							bv, _ := r.Byte()
+							if int(idx) == 15 {
+								o.flagsHist = append(o.flagsHist,
+									strconv.Itoa(int(peid))+":"+strconv.Itoa(int(bv)))
+							}
 						case 1: // int
 							vv, err := r.VarInt()
 							if err != nil {

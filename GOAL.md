@@ -13192,3 +13192,46 @@ normalized to unit (zza=1) and the air influence at getSpeed*0.216 —
 both wrong per Entity.getInputVector (normalizes only length>1) and
 LivingEntity.getFlyingSpeed (flat 0.02). The wire pin now also sums
 posNet horizontal travel per hop and compares legs.
+
+## Slice — melee attack goal parity: aggressive flag, reach, knockback (2026-09-29)
+
+Measured MeleeAttackGoal + ZombieAttackGoal + Mob
+(isWithinMeleeAttackRange/doHurtTarget) + LivingEntity.knockback on
+26.2:
+
+- The goal's tick: lookAt(30,30), repath on a 4+rand(7)-tick timer
+  (+10 beyond 32 blocks, +5 beyond 16, +15 on moveTo failure), then
+  attack on a 20-tick adjusted cooldown gated on
+  isWithinMeleeAttackRange — the mob's box inflated by
+  DEFAULT_ATTACK_REACH = sqrt(2.04)-0.6 ~= 0.828 on XZ only,
+  intersected against the target hitbox (full y-extents must
+  overlap). Zombie reach vs a player: 0.3+0.828+0.3 ~= 1.43.
+- doHurtTarget: swing packet + attack_damage hurt + post effects;
+  hurtServer's generic arm shoves the victim 0.4 away from the
+  attacker's position — knockback(x/2 - 0.4*dir, min(0.4, vy/2+0.4)
+  when grounded, z/2 - 0.4*dir) — the emit lands on the victim's
+  own connection as set_entity_motion.
+- ZombieAttackGoal (zombie/husk/drowned/zombie_villager/
+  zombified_piglin) pulses Mob's DATA_MOB_FLAGS byte idx15 bit2:
+  raiseArmTicks >= 5 && ticksUntilNextAttack < interval/2, reading
+  the post-attack cooldown — the byte is dark on the swing tick
+  itself and lights for the last 10 of the 20-tick cycle. Plain
+  MeleeAttackGoal latches the flag for the whole run on every melee
+  mob except the Brain-driven bee.
+- Mob.setAggressive is runtime-only — not persisted to NBT.
+
+mc-go: mobMeleeStep now computes the flag every goal tick (marked
+MetaDirty on flips so packDirty's idx15 emit fires — the emit was
+already wired but unreachable without the dirty mark), uses the
+vanilla reach formula (was width+0.6+0.3 ~= 1.5, now
+width/2+0.8284+0.3), and the y-overlap gate replaces the flat |dy|<2.5.
+Entity gained Aggressive/MobArmTicks; mobFlagsByte gained bit2;
+zombieAttackTypes maps the five ZombieAttackGoal users. vehObs
+gained flagsHist (idx15/ser0 byte emits) and posNet travel capture
+in the previous entry.
+
+Blackbox: TestMobMeleeParity — a zombie 5 blocks off a survival
+player chases in, and the window is pinned for >=3 health drops,
+the idx15 bit2 pulse (at least one set and one clear), and a
+hurt-knockback motion emit. Vanilla: hits=4 flagSet=2 flagClear=5
+knock=4; mc-go: hits=4 flagSet=5 flagClear=4 knock=4.

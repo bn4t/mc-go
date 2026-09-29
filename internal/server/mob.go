@@ -4008,11 +4008,15 @@ func angerEndSynced(e *Entity) int64 {
 	return -1
 }
 
-// mobFlagsByte is Mob's DATA_MOB_FLAGS byte: bit0 = NoAI.
+// mobFlagsByte is Mob's DATA_MOB_FLAGS byte: bit0 = NoAI, bit1 =
+// left-handed, bit2 = the melee goal's aggressive flag.
 func mobFlagsByte(e *Entity) byte {
 	var flags byte
 	if e.NoAI {
 		flags |= 0x01
+	}
+	if e.Aggressive {
+		flags |= 0x04
 	}
 	return flags
 }
@@ -5938,6 +5942,13 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 	dmg := mobMeleeDamage(kn)
 	target := s.nearestMobTarget(e, kn)
 	if target == nil {
+		// Goal stop — the aggressive flag and the arm-raise counter
+		// clear with the run.
+		if e.Aggressive {
+			e.Aggressive = false
+			e.MetaDirty = true
+		}
+		e.MobArmTicks = 0
 		return false
 	}
 	px, py, pz, _, _, _ := target.Pos()
@@ -5945,9 +5956,11 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 	dist := math.Hypot(dx, dz)
 	mobTurnToward(e, dx, dz, 30)
 	e.HeadYaw = e.Yaw
-	// Vanilla's attack reach is the mob's inflated box vs the target's;
-	// for the zombie's 0.6 box vs a player that lands ~1.5 blocks out.
-	reach := entityBBDims(e)[0] + 0.6 + 0.3
+	// isWithinMeleeAttackRange: the mob's box inflated by
+	// DEFAULT_ATTACK_REACH (sqrt(2.04)-0.6 ~= 0.828) intersects the
+	// target's hitbox — edge-to-edge on XZ, full extents on Y.
+	dims := entityBBDims(e)
+	reach := dims[0]/2 + 0.8284271 + 0.3
 	if kn == "bee" {
 		// Bee Brain's attack move: fly straight at the target — a
 		// full-3D approach at ~flying_speed pace (attribute 0.6).
@@ -5969,10 +5982,8 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 	}
 	if e.attackCooldown > 0 {
 		e.attackCooldown--
-		return true
 	}
-	dy := math.Abs(py - e.Y)
-	if dist <= reach && dy < 2.5 {
+	if e.attackCooldown <= 0 && dist <= reach && py+1.8 > e.Y && py < e.Y+dims[1] {
 		e.attackCooldown = 20
 		s.broadcastEntityAnimation(nil, e.ID, 0) // swing main hand
 		if kn == "iron_golem" {
@@ -5997,7 +6008,28 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 			s.mobPostAttack(e, kn, target)
 		}
 	}
+	// MeleeAttackGoal.start latches the DATA_MOB_FLAGS aggressive bit
+	// for every melee runner except the Brain-driven bee, and
+	// ZombieAttackGoal flips it on 5 ticks into the run only while the
+	// cooldown sits under half the interval — it reads the post-attack
+	// cooldown, so the flag is dark on the swing tick itself.
+	aggr := kn != "bee"
+	if zombieAttackTypes[kn] {
+		e.MobArmTicks++
+		aggr = e.MobArmTicks >= 5 && e.attackCooldown < 10
+	}
+	if aggr != e.Aggressive {
+		e.Aggressive = aggr
+		e.MetaDirty = true
+	}
 	return true
+}
+
+// zombieAttackTypes run ZombieAttackGoal — the goal that pulses the
+// aggressive flag by raiseArmTicks and the attack cooldown.
+var zombieAttackTypes = map[string]bool{
+	"zombie": true, "husk": true, "drowned": true,
+	"zombie_villager": true, "zombified_piglin": true,
 }
 
 // mobRanged is the AbstractSkeleton family: with a bow in mainhand
