@@ -110,6 +110,8 @@ type vehObs struct {
 	bitHist    []string              // unscoped idx9 ser-8 bool emits as "eid:v" (fishing bite)
 	metaHist   []string              // every metadata packet as "eid:i1/i2/..."
 	partHist   []int32               // particle_type ids from level_particles packets
+	tongueHist []string              // unscoped (idx19, ser19) emits "eid:v" — frog tongue target
+	pose9Eid   int32                 // eid that emitted (idx6, ser20) pose 9 — USING_TONGUE
 }
 
 // vehWatch collects packets matching (eid, kind) over the window on
@@ -325,7 +327,14 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 								}
 								o.uuidMeta[[2]int32{peid, int32(idx)}] = u
 							}
-						case 19, 20: // optional_int / pose — VarInt
+						case 2: // long — VarInt-encoded
+							if _, err := r.VarInt(); err != nil {
+								break
+							}
+						case 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31:
+							// optional_int / pose / holder-variant
+							// serializers (cat/frog/wolf/pig/cow/
+							// chicken + sound variants) — VarInt.
 							vv, err := r.VarInt()
 							if err != nil {
 								break
@@ -335,6 +344,17 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 								if vv > o.intMetaMax[int(idx)] {
 									o.intMetaMax[int(idx)] = vv
 								}
+							}
+							// (19, OPTIONAL_UNSIGNED_INT) is the
+							// frog's DATA_TONGUE_TARGET_ID —
+							// eid+1 or 0 for empty.
+							if int(idx) == 19 && ser == 19 {
+								o.tongueHist = append(o.tongueHist,
+									strconv.Itoa(int(peid))+":"+strconv.Itoa(int(vv)))
+							}
+							// (6, POSE) value 9 is USING_TONGUE.
+							if int(idx) == 6 && vv == 9 {
+								o.pose9Eid = peid
 							}
 							// idx8 with serializer 19 is the
 							// bobber's DATA_HOOKED_ENTITY (eid+1).

@@ -789,6 +789,11 @@ type Entity struct {
 	// recent landed hurt — vanilla's lastDamageSource, which the
 	// witch's fire-resistance roll reads through DamageTypeTags.
 	LastDamageType string
+	// LastDamageCause is lastDamageSource's responsible entity id
+	// (damageInfo.cause, 0 when the hurt had none) — the
+	// damage_source_properties source_entity gates in mob loot
+	// tables read it (frog-kill → froglight).
+	LastDamageCause int32
 	// CanPickUpLoot mirrors vanilla's Mob.CanPickUpLoot flag — the
 	// /summon NBT that arms the aiStep item pickup scan. Sulfur
 	// cubes ignore it (their override is "body slot empty").

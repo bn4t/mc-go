@@ -82,12 +82,15 @@ func (s *Server) frogTongueStep(e *Entity) bool {
 		}
 		return false
 	}
-	// checkExtraStartConditions: a FROG_FOOD entity at getSize()==1
-	// inside the sensor's scan — mc-go uses the follow_range attr
-	// (16) as the scan box.
+	// checkExtraStartConditions: FrogAttackablesSensor picks the
+	// NEAREST VISIBLE FROG_FOOD entity at getSize()==1 inside
+	// TARGET_DETECTION_DISTANCE 10.0 — a fixed range, not
+	// follow_range, and line-of-sight gated like every
+	// NearestVisibleLivingEntitySensor pick.
 	var t *Entity
-	best := s.mobAttr(e, "frog", "follow_range", 16.0)
-	best *= best
+	best := 10.0 * 10.0
+	frogBB := entityBBDims(e)
+	feY := e.Y + frogBB[1]*0.85
 	s.entities.mu.RLock()
 	for _, o := range s.entities.byID {
 		if o == e || o.Dim != e.Dim || o.Dying || o.Dormant {
@@ -102,6 +105,16 @@ func (s *Server) frogTongueStep(e *Entity) bool {
 		}
 		dx, dy, dz := o.X-e.X, o.Y-e.Y, o.Z-e.Z
 		if d2 := dx*dx + dy*dy + dz*dz; d2 < best {
+			// hasLineOfSight: a solid cell between the eyes
+			// keeps the target out of the visible set.
+			if d := s.dimensionByName(e.Dim); d != nil {
+				oBB := entityBBDims(o)
+				if _, _, _, _, _, _, _, hit := s.clipSolidSegment(d,
+					e.X, feY, e.Z,
+					o.X, o.Y+oBB[1]*0.85, o.Z); hit {
+					continue
+				}
+			}
 			best = d2
 			t = o
 		}

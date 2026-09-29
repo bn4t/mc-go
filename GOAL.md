@@ -13044,3 +13044,49 @@ probabilistic; the item-entity spawn is). Tease/approach particles are
 recorded but not asserted — their rates are roll-gated and noisier
 than the differential is worth. The retrieve-miss path (no bite, just
 the bobber discard) is unchanged and unpinned here.
+
+## Slice — frog ShootTongue parity: sensor, tongue emit, eat-kill loot (2026-09-29)
+
+Ported ShootTongue + FrogAttackablesSensor from the 26.2 decompile:
+the FROG_FOOD sensor is a fixed TARGET_DETECTION_DISTANCE 10.0 (not
+follow_range) + VISIBLE — nearest size-1 slime/magma_cube inside 10
+blocks with an eye-to-eye LoS (mc-go uses the collider clip as the
+LoS walk). MOVE_TO_TARGET walks at speedModifier 2.0; inside
+EATING_DISTANCE 1.75 the tongue sound plays, pose flips to
+USING_TONGUE(9), and the target is yanked at normalize·0.75; CATCH
+(6t) runs eatEntity's doHurtTarget — a mob_attack with the frog as
+direct+cause entity (frog attack_damage 10) — EAT (10t) then stop()
+clears the tongue target + pose. LastDamageCause now records the
+killer entity so loot tables can gate on it.
+
+Loot transcription: slime.json's pool is cubeSizeExact:1 with two
+entries — slime_ball 0-2+looting under the INVERTED frog-kill gate
+(damage_source_properties source_entity entity_type != frog) and a
+deterministic slime_ball x1 under the frog-kill gate — a frog-eaten
+size-1 slime always drops one slime_ball. magma_cube.json's pool:
+magma_cream uniform(-2,1)+looting gated size>=2 AND !frog-kill, plus
+pearlescent/verdant/ochre_froglight x1 gated frog-kill + the frog's
+variant holder (warm/cold/temperate). spawnMobLootPools now filters
+each entry's conditions into the valid list then weighted-picks —
+matching LootPool.addRandomItem semantics (conditioned-fail entries
+simply aren't in the draw).
+
+Blackbox: TestFrogTongueParity runs a temperate frog + size-1 slime
+and a warm frog + size-1 magma_cube on both servers and pins the
+ordered DATA_TONGUE_TARGET_ID emits (idx19 = prey eid+1, then 0 on
+stop), the USING_TONGUE(9) pose emit on the frog, the prey motion
+yank, the prey removal, and the deterministic drop id
+(slime_ball / pearlescent_froglight). Green vs vanilla and mc-go.
+
+Harness fix that mattered: vehObs's metadata parser bailed at the
+first serializer id it didn't handle (default: goto done) — the
+frog's idx18 frog_variant rides serializer 27, so any metadata packet
+carrying a variant before the tongue field silently dropped the
+tongue entry. The emit was on the wire the whole time; added the
+variant-holder serializers (21-31) and varlong (2) as VarInt reads.
+
+Known gaps still open: frog Croak pose activity (60 ticks, measured
+but unimplemented), UNREACHABLE_TONGUE_TARGETS (5-entry, 100-tick
+cooldown), and the magma_cube's own hop-AI/chase parity (the frog
+chases a hopping cube across the flat in the meantime — the eat
+still lands, slower than vanilla's discrete jump-navigation).

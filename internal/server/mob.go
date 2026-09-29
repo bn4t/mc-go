@@ -27,6 +27,15 @@ type lootEntry struct {
 	// bottleAmp is set_ominous_bottle_amplifier — the drop rolls a
 	// uniform 0-4 amplifier into an ominous_bottle stack.
 	bottleAmp bool
+	// killerType/killerVariant carry
+	// damage_source_properties.source_entity — the entity_type
+	// sub-predicate plus the frog/variant component. killerNot
+	// inverts the entity_type half alone (magma_cream drops on
+	// every non-frog kill, and on kills with no source entity).
+	killerType, killerVariant, killerNot string
+	// minCubeSize carries entity_properties(this)'s
+	// type_specific/cube_mob {size:{min:N}} predicate.
+	minCubeSize int32
 }
 
 // lootPool is one roll group of a mob's entity loot table.
@@ -48,7 +57,10 @@ type lootPool struct {
 	// type_specific/sheep {sheared:false}, so a shorn sheep drops
 	// no wool.
 	noSheared bool
-	entries   []lootEntry
+	// cubeSizeExact is the pool-level entity_properties(this)
+	// type_specific/cube_mob {size:N} exact-size gate (slime).
+	cubeSizeExact int32
+	entries       []lootEntry
 }
 
 // mobLoot transcribes the 26.2 datapack entity tables for the mobs
@@ -92,6 +104,25 @@ var mobLoot = map[string][]lootPool{
 	},
 	"creeper": {{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
 		{item: "gunpowder", min: 0, max: 2, looting: true}}}},
+	// slime.json: the whole pool is entity_properties(this)
+	// type_specific/cube_mob {size:1} — bigger cubes drop nothing.
+	// The entries split on the killer: a non-frog cause rolls
+	// slime_ball 0-2 + looting; a frog kill deterministically
+	// drops exactly one (the inverted frog gate kills the first
+	// entry, leaving the unconditional-by-variant second).
+	"slime": {{rollsMin: 1, rollsMax: 1, cubeSizeExact: 1, entries: []lootEntry{
+		{item: "slime_ball", min: 0, max: 2, killerNot: "frog", looting: true},
+		{item: "slime_ball", min: 1, max: 1, killerType: "frog"}}}},
+	// magma_cube.json: one pool whose four entries each try the
+	// draw — on a frog kill exactly one froglight matches the
+	// variant component and drops deterministically; on any other
+	// cause only magma_cream is valid (and only for size ≥2
+	// cubes), rolling a uniform −2..1 that is usually nothing.
+	"magma_cube": {{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
+		{item: "magma_cream", min: -2, max: 1, killerNot: "frog", minCubeSize: 2, looting: true},
+		{item: "pearlescent_froglight", min: 1, max: 1, killerType: "frog", killerVariant: "warm"},
+		{item: "verdant_froglight", min: 1, max: 1, killerType: "frog", killerVariant: "cold"},
+		{item: "ochre_froglight", min: 1, max: 1, killerType: "frog", killerVariant: "temperate"}}}},
 	"spider": {
 		{rollsMin: 1, rollsMax: 1, entries: []lootEntry{
 			{item: "string", min: 0, max: 2, looting: true}}},
@@ -276,6 +307,19 @@ func (s *Server) spawnMobLootPools(e *Entity, killer *Session, name string, byPl
 	spawnItem := func(item string, count int32) {
 		s.spawnMobItem(e, item, count)
 	}
+	// damage_source_properties.source_entity resolves through
+	// lastDamageSource's responsible entity — the frog behind an
+	// eat-kill, or empty when nothing caused the last hurt.
+	var killerEnt *Entity
+	if e.LastDamageCause != 0 {
+		killerEnt, _ = s.entities.GetPtr(e.LastDamageCause)
+	}
+	killerName := ""
+	killerVariant := ""
+	if killerEnt != nil {
+		killerName, _ = EntityTypeName(killerEnt.Type)
+		killerVariant = killerEnt.VariantName
+	}
 	for _, p := range mobLoot[name] {
 		if p.playerKill && !byPlayer {
 			continue
@@ -284,6 +328,9 @@ func (s *Server) spawnMobLootPools(e *Entity, killer *Session, name string, byPl
 			continue
 		}
 		if p.noSheared && e.Sheared {
+			continue
+		}
+		if p.cubeSizeExact > 0 && cubeSizeOf(e) != p.cubeSizeExact {
 			continue
 		}
 		if p.rare {
@@ -295,12 +342,34 @@ func (s *Server) spawnMobLootPools(e *Entity, killer *Session, name string, byPl
 				continue
 			}
 		}
+		// LootPool.addRandomItem filters every entry's conditions
+		// before the weighted pick — a conditioned entry that
+		// fails simply isn't in the draw.
+		valid := make([]lootEntry, 0, len(p.entries))
+		for _, ent := range p.entries {
+			if ent.killerType != "" && killerName != ent.killerType {
+				continue
+			}
+			if ent.killerNot != "" && killerName == ent.killerNot {
+				continue
+			}
+			if ent.killerVariant != "" && killerVariant != ent.killerVariant {
+				continue
+			}
+			if ent.minCubeSize > 0 && cubeSizeOf(e) < ent.minCubeSize {
+				continue
+			}
+			valid = append(valid, ent)
+		}
+		if len(valid) == 0 {
+			continue
+		}
 		rolls := p.rollsMin
 		if p.rollsMax > p.rollsMin {
 			rolls += int32(rand.Intn(int(p.rollsMax-p.rollsMin) + 1))
 		}
 		for i := int32(0); i < rolls; i++ {
-			ent := p.entries[rand.Intn(len(p.entries))]
+			ent := valid[rand.Intn(len(valid))]
 			count := ent.min
 			if ent.max > ent.min {
 				count += int32(rand.Intn(int(ent.max-ent.min) + 1))
@@ -4144,9 +4213,14 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 		return 0, res.Graced, false
 	}
 	// Vanilla stores lastDamageSource on every landed hurt — the
-	// witch's fire-resistance roll reads it through IS_FIRE.
+	// witch's fire-resistance roll reads it through IS_FIRE, and
+	// mob loot's damage_source_properties gates read the cause.
 	if ep, ok := s.entities.GetPtr(e.ID); ok {
 		ep.LastDamageType = typeName
+		ep.LastDamageCause = 0
+		if info != nil {
+			ep.LastDamageCause = info.cause
+		}
 	}
 	s.markHurt(e, typeName)
 	// The graced-excess branch (hurt returned inside invulnerableTime)
