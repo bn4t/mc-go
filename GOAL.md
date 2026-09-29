@@ -12948,3 +12948,25 @@ once showed mc-go granting zero on the zombie leg (entity died
 without a player-creditable source — likely suffocation at spawn);
 passes on rerun on both master and this change. TestCaptainParity's
 deterministic failure was the real bug above.
+
+## Slice — item_durability_changed advancement pin (2026-09-29)
+
+The trigger was already implemented end to end — fireItemDurability-
+Changed rides hurtAndBreak (durability.go) and hurtAndConvertOnBreak
+(ride.go), matching the only advancement that uses it: nether/
+ride_strider's used_warped_fungus_on_a_stick criterion (item =
+warped_fungus_on_a_stick + player.vehicle.entity_type = strider).
+What was missing was the pin.
+
+Pinned: TestRideStriderAdvParity — survival join, saddled-strider
+summon via equipment.saddle NBT, empty-hand interact mount, then
+use_item on open air. Vanilla grants def + progress + the task
+announce; the whole advFlush (defs, progress entries, system-chat
+keys) diffs clean vs mc-go. Verified: the criterion's two legs
+(item name + ridden vehicle type read through Session.riding) match
+vanilla's ItemPredicate + entity_properties(vehicle) evaluation.
+
+Closes the item_durability_changed line in the 2026-09-20 tool-wear
+slice. The same note's still-open items: attack-cooldown scaling and
+unbreaking-tier rolls (unbreakingReduce exists but the vanilla
+enchanted-reduce roll is unmeasured).
