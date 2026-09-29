@@ -126,7 +126,11 @@ func TestAnvilParity(t *testing.T) {
 		// the block after each take keeps the script deterministic —
 		// the degrade roll itself is covered by TestAnvilDegradeParity.
 		reset := func() {
-			mkSetup(d, "setblock 8 -61 0 minecraft:anvil")
+			// Thrown leftovers land near the pickup boundary and can
+			// be re-collected mid-scenario on either server — clear
+			// them so the window state stays deterministic.
+			mkSetup(d, "setblock 8 -61 0 minecraft:anvil",
+				"kill @e[type=minecraft:item]")
 			d.fold()
 		}
 		// Charged take by hand: 125+125 costs 2 of 30 levels.

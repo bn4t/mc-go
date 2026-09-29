@@ -301,7 +301,6 @@ func (s *Server) doHurtEquipment(sess *Session, src damageSource, rawDamage floa
 	}
 	if broke {
 		s.fireInventoryChanged(sess)
-		s.broadcastEquipment(sess)
 	}
 }
 

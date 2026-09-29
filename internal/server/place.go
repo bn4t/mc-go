@@ -134,7 +134,6 @@ func (s *Server) handleHeld(sess *Session, p protocol.Packet) {
 		return
 	}
 	sess.held.Store(int32(slot))
-	s.broadcastEquipment(sess)
 }
 
 // handleCreativeSlot tracks one creative-inventory slot: Short slot,

@@ -52,16 +52,113 @@ func encodeEquipment(eid int32, entries []struct {
 	return b.Bytes()
 }
 
-// broadcastEquipment sends one player's equipment to every other
-// spawned session in their dimension.
+// equipMatch is ItemStack.matches: same item + same components,
+// ignoring count — a stack that only changes count does not trigger
+// an equipment update on vanilla either.
+func equipMatch(a, b ItemStack) bool {
+	if a.Empty() {
+		a = ItemStack{}
+	}
+	if b.Empty() {
+		b = ItemStack{}
+	}
+	a.Count, b.Count = 0, 0
+	if a.Contents != nil && b.Contents != nil {
+		if *a.Contents != *b.Contents {
+			return false
+		}
+		a.Contents, b.Contents = nil, nil
+	}
+	return a == b
+}
+
+// broadcastEquipment sends one player's full equipment set to every
+// other spawned session tracking them — vanilla's pairing burst — and
+// refreshes the delta baseline detectEquipmentUpdates diffs against.
 func (s *Server) broadcastEquipment(sess *Session) {
 	s.criteriaFeed(sess, "armor")
 	eid := sess.entityID.Load()
 	if eid == 0 {
 		return
 	}
+	cur := playerEquipment(sess)
+	for _, c := range cur {
+		sess.lastEquip[c.slot] = c.stack
+	}
+	sess.equipInit = true
 	dim := sess.dimName()
-	body := encodeEquipment(eid, playerEquipment(sess))
+	body := encodeEquipment(eid, cur)
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other == sess || other.state.Load() != StatePlay || !other.spawned.Load() {
+			return true
+		}
+		if other.dimName() != dim || !other.tracksEntity(eid) {
+			return true
+		}
+		_ = other.write(other.ids().PlaySetEquipment, body)
+		return true
+	})
+}
+
+// detectEquipmentUpdates is LivingEntity.detectEquipmentUpdates for a
+// session player: each slot's stack is diffed against lastEquip and
+// only the changed slots pack into one set_equipment. When both hands
+// changed and each now matches the other's previous stack, vanilla
+// emits SWAP_HANDS (entity_event 55) instead of equipment entries.
+func (s *Server) detectEquipmentUpdates(sess *Session) {
+	eid := sess.entityID.Load()
+	if eid == 0 {
+		return
+	}
+	cur := playerEquipment(sess)
+	if !sess.equipInit {
+		for _, c := range cur {
+			sess.lastEquip[c.slot] = c.stack
+		}
+		sess.equipInit = true
+		return
+	}
+	var changed [6]bool
+	nchg := 0
+	for _, c := range cur {
+		if !equipMatch(sess.lastEquip[c.slot], c.stack) {
+			changed[c.slot] = true
+			nchg++
+		}
+	}
+	if nchg == 0 {
+		return
+	}
+	s.criteriaFeed(sess, "armor")
+	dim := sess.dimName()
+	if changed[equipMainHand] && changed[equipOffHand] &&
+		equipMatch(cur[0].stack, sess.lastEquip[equipOffHand]) &&
+		equipMatch(cur[1].stack, sess.lastEquip[equipMainHand]) {
+		// The owner is excluded — sendToTrackingPlayers only.
+		s.broadcastEntityEventTo(sess, dim, eid, 55)
+		changed[equipMainHand], changed[equipOffHand] = false, false
+		sess.lastEquip[equipMainHand] = cur[0].stack
+		sess.lastEquip[equipOffHand] = cur[1].stack
+	}
+	var slots []struct {
+		slot  byte
+		stack ItemStack
+	}
+	for _, c := range cur {
+		if !changed[c.slot] {
+			continue
+		}
+		slots = append(slots, struct {
+			slot  byte
+			stack ItemStack
+		}{c.slot, c.stack})
+		sess.lastEquip[c.slot] = c.stack
+	}
+	if len(slots) == 0 {
+		return
+	}
+	body := encodeEquipment(eid, slots)
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
 		if other == sess || other.state.Load() != StatePlay || !other.spawned.Load() {

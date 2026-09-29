@@ -12870,3 +12870,45 @@ fox's DATA_TRUSTED_ID_0/1 both populated AND the uuid set equals
 {OfflineUUID(BOATA), OfflineUUID(BOATB)}. Both legs green.
 vehWatch learned serializer 13 (bool + 16-byte uuid) captured
 per-eid unscoped — the baby's eid isn't known ahead.
+
+## Slice — per-slot equipment delta + aimed throw parity (2026-10-03)
+
+LivingEntity.detectEquipmentUpdates measured on the 26.2 jar (decomp
+LivingEntity.java:2953-3037): every living tick diffs each
+EquipmentSlot vs lastEquipmentItems via ItemStack.matches — same item
++ components, count-insensitive — packs changed slots into ONE
+ClientboundSetEquipmentPacket in enum order (MAINHAND, OFFHAND, FEET,
+LEGS, CHEST, HEAD, BODY, SADDLE), sent to tracking players only
+(owner excluded). handleHandSwap: when BOTH hands changed and each
+new stack matches the other's previous slot, the pair leaves the
+delta and vanilla emits ClientboundEntityEventPacket(this, (byte)55)
+instead, then updates the baseline — no set_equipment for the hands.
+
+mc-go's player path resend the full 6-slot set from every mutation
+site (held switch, selectHotbar, container click, durability break,
+item replace); the mob path already had EquipDelta. Now: playerTick
+runs detectEquipmentUpdates per spawned session — equipMatch
+(normalized-empty, zeroed-count, deep-compared Contents) diffs the
+baseline, the hand-swap case emits entity_event 55 to trackers, and
+remaining slots go out as one packed delta. The redundant per-site
+broadcastEquipment calls were dropped; the join path still writes
+the baseline + full set via broadcastEquipment.
+
+Pinned: TestPlayerEquipDeltaParity — held0→1 emits exactly one
+{slot0,dirt} packet; held1→2 one {slot0,empty}; empty→empty emits
+ZERO; `item replace armor.head` one {slot5,leather_helmet}; offhand
+torch + player_action SWAP_ITEM_WITH_OFFHAND (action 6 + trailing
+sequence varint — vanilla silently misparses without it) emits
+entity_event 55 and ZERO set_equipment. Both legs green.
+
+Surfaced while bisecting a TestAnvilParity regression: the failure
+was not the hook — mc-go's container THROW scattered the item with
+symmetric ±1-block drift (spawn jitter + random MotionX/Z), so a
+thrown stack occasionally wandered back inside the ~1.425 pickup
+box and re-entered inventory; vanilla's aimed throw (eye−0.3 spawn,
+velocity look*0.3 + up 0.1 + swirl ≤0.02) lands predictably ahead.
+dropFromMenu now uses vanilla's createItemStackToDrop model, and
+reset() kills leftover item entities between stages.
+
+Note: TestArmorStandInteractParity fails on base master too
+(preexisting — swap-chain order/count differs), needs its own look.

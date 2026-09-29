@@ -1192,30 +1192,38 @@ func (s *Server) setCarriedLocked(sess *Session, it ItemStack) {
 }
 
 // dropFromMenu spawns the thrown stack as an item entity tossed in
-// the player's look direction, vanilla's throw click: the thrower's
-// item starts at eye level, flies forward, and settles about a block
-// and a half ahead — far enough that a stationary player does not
-// immediately collect it again. The entity gets vanilla's thrown-item
-// pickup delay of 40 ticks.
+// the player's look direction — LivingEntity.createItemStackToDrop's
+// aimed branch: spawned at eye level minus 0.3 with velocity
+// look*0.3, a +0.1 upward bias, and a small random swirl; the entity
+// gets vanilla's thrown-item pickup delay of 40 ticks.
 func (s *Server) dropFromMenu(sess *Session, it ItemStack) {
 	if it.Empty() {
 		return
 	}
 	x, y, z, yaw, pitch, _ := sess.Pos()
 	d := sess.dimension()
-	yr := float64(yaw) * math.Pi / 180
-	pr := float64(pitch) * math.Pi / 180
-	dx := -math.Sin(yr) * math.Cos(pr)
-	dz := math.Cos(yr) * math.Cos(pr)
-	pos := world.Pos{
-		X: int(math.Floor(x + dx*1.7)),
-		Y: int(math.Floor(y + 1.4)),
-		Z: int(math.Floor(z + dz*1.7)),
+	lx, ly, lz := lookVector(yaw, pitch)
+	dir := rand.Float64() * 2 * math.Pi
+	pow2 := 0.02 * rand.Float64()
+	itemType, ok := EntityTypeID("item")
+	if !ok {
+		return
 	}
-	e := s.spawnItemDrop(d.name, pos, it)
-	if e != nil {
-		e.PickupDelay = 40
-	}
+	e := s.entities.Spawn(&Entity{
+		Type:        itemType,
+		Dim:         d.name,
+		X:           x + lx*0.3,
+		Y:           y + 1.32,
+		Z:           z + lz*0.3,
+		MotionX:     lx*0.3 + math.Cos(dir)*pow2,
+		MotionY:     ly*0.3 + 0.1 + (rand.Float64()-rand.Float64())*0.1,
+		MotionZ:     lz*0.3 + math.Sin(dir)*pow2,
+		Item:        it,
+		PickupDelay: 40,
+	})
+	e.Yaw = yaw
+	s.broadcastEntitySpawn(nil, *e)
+	s.broadcastEntityMetadata(e.ID, encodeItemMetadata(e.Item))
 }
 
 // syncContainerMenuSlots sends Container Slot updates for touched menu

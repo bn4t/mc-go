@@ -131,6 +131,13 @@ type Session struct {
 	raidOmenPos *world.Pos
 	invState    atomic.Int32
 	held        atomic.Int32
+	// lastEquip is the player's equipment baseline — the stack
+	// detectEquipmentUpdates last sent per wire slot (0-5). Vanilla's
+	// LivingEntity keeps lastEquipmentItems for the same purpose: only
+	// slots whose stack fails ItemStack.matches (item + components,
+	// count-insensitive) join the next set_equipment.
+	lastEquip [6]ItemStack
+	equipInit bool
 	// riding is the entity id of the vehicle this player mounted
 	// (boat etc.) — zero when on foot.
 	riding atomic.Int32

@@ -272,11 +272,10 @@ func readEntitySlot(sess *Session, id int32) (ItemStack, bool) {
 	return ItemStack{}, false
 }
 
-// writeEntitySlot writes one of a player's global slots and reports
-// whether equipment changed, so the caller can broadcast it the way a
-// menu click would.
+// writeEntitySlot writes one of a player's global slots; an
+// equipment-carrying slot emits through the tick-time
+// detectEquipmentUpdates like a menu click.
 func (s *Server) writeEntitySlot(sess *Session, id int32, st ItemStack) bool {
-	equip := false
 	inventory := false
 	sess.invMu.Lock()
 	switch {
@@ -285,22 +284,22 @@ func (s *Server) writeEntitySlot(sess *Session, id int32, st ItemStack) bool {
 		inventory = true
 	case id == itemSlotMainhand:
 		sess.inv[invSlotForHotbar(sess.held.Load())] = st
-		equip, inventory = true, true
+		inventory = true
 	case id == itemSlotOffhand:
 		sess.inv[slotOffhand] = st
-		equip, inventory = true, true
+		inventory = true
 	case id == itemSlotHead:
 		sess.inv[slotArmorStart] = st
-		equip, inventory = true, true
+		inventory = true
 	case id == itemSlotChest:
 		sess.inv[slotArmorStart+1] = st
-		equip, inventory = true, true
+		inventory = true
 	case id == itemSlotLegs:
 		sess.inv[slotArmorStart+2] = st
-		equip, inventory = true, true
+		inventory = true
 	case id == itemSlotFeet:
 		sess.inv[slotArmorStart+3] = st
-		equip, inventory = true, true
+		inventory = true
 	case id == itemSlotBody:
 		sess.bodyArmor = st
 	case id >= 200 && id <= 226:
@@ -315,9 +314,6 @@ func (s *Server) writeEntitySlot(sess *Session, id int32, st ItemStack) bool {
 		// The grid is the menu's grid, so its result follows the write.
 		s.refreshCraftResult(sess)
 	}
-	if equip {
-		s.broadcastEquipment(sess)
-	}
 	s.syncItemSlot(sess, id)
 	if inventory {
 		// Vanilla attaches the inventory_changed listener to the
@@ -326,7 +322,7 @@ func (s *Server) writeEntitySlot(sess *Session, id int32, st ItemStack) bool {
 		// different containers and stay quiet.
 		s.fireInventoryChanged(sess)
 	}
-	return equip
+	return inventory
 }
 
 // syncItemSlot pushes an /item write on a player slot to that player's

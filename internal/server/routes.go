@@ -156,12 +156,10 @@ func (s *Server) routePlayerAction(sess *Session, p protocol.Packet) {
 	}
 }
 
-// routeClickContainer handles a container click and re-broadcasts the
-// player's equipment when the click moved armor or the held item.
+// routeClickContainer handles a container click; any equipment slots
+// it moved are picked up by the tick-time detectEquipmentUpdates.
 func (s *Server) routeClickContainer(sess *Session, p protocol.Packet) {
-	if s.handleClickContainer(sess, p) {
-		s.broadcastEquipment(sess)
-	}
+	s.handleClickContainer(sess, p)
 }
 
 // routeChatCommandSigned is the signed Chat Command (0x08). mc-go runs

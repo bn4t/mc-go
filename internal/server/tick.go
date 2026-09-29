@@ -562,6 +562,12 @@ func (s *Server) playerTick() {
 		s.rideTickStep(sess)
 		s.fallFlyingTick(sess)
 		s.flushAdvancements(sess)
+		// LivingEntity.detectEquipmentUpdates runs every living tick —
+		// inventory mutations emit one delta carrying only the slots
+		// that failed ItemStack.matches.
+		if sess.spawned.Load() {
+			s.detectEquipmentUpdates(sess)
+		}
 		return true
 	})
 }

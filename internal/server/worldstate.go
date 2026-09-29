@@ -218,14 +218,13 @@ func beaconNBT(id string, d *dimension, pos world.Pos) []byte {
 }
 
 // selectHotbar switches the held hotbar slot and re-syncs the client's
-// selected-slot display plus the equipment broadcast.
+// selected-slot display; the equipment delta goes out on the next tick.
 func (sess *Session) selectHotbar(slot int32) {
 	if slot < 0 || slot > 8 {
 		return
 	}
 	sess.held.Store(slot)
 	_ = sess.server.sendSetHeldSlot(sess, slot)
-	sess.server.broadcastEquipment(sess)
 }
 
 // dispatchCommandText runs a slash command's text through the command

@@ -4948,8 +4948,8 @@ func (s *Server) mobStriderWarmStep(e *Entity, w *world.World, inLava bool) {
 	px := int(math.Floor(e.X))
 	py := int(math.Floor(e.Y))
 	pz := int(math.Floor(e.Z))
-	warm := blockAt(w, world.Pos{px, py, pz}) == "lava" ||
-		blockAt(w, world.Pos{px, py - 1, pz}) == "lava" ||
+	warm := blockAt(w, world.Pos{X: px, Y: py, Z: pz}) == "lava" ||
+		blockAt(w, world.Pos{X: px, Y: py - 1, Z: pz}) == "lava" ||
 		inLava
 	if !warm && e.Riding != 0 {
 		s.entities.mu.RLock()
