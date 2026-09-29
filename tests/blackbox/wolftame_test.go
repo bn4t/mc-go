@@ -19,6 +19,11 @@
 // consumes one. Divergence: wolf's same-color dye falls to
 // super.mobInteract past the toggle arm — a no-op — while cat's
 // falls INTO the owner toggle; a non-owner dye does nothing on both.
+//
+// Wolf armor (BODY slot): owner + wolf_armor equips + consumes; while
+// worn every non-bypasses_wolf_armor hit absorbs into durability —
+// wolf HP untouched; owner + armadillo_scute on a sitting wolf
+// repairs max*0.125 and plays item.wolf_armor.repair.
 package blackbox
 
 import (
@@ -39,22 +44,30 @@ func TestWolfTameParity(t *testing.T) {
 	defer targets.cleanup()
 
 	type wolfObs struct {
-		event7     bool
-		event6     int
-		ownerSeen  bool
-		flags      int // last idx18 value seen, -1 none
-		sit1       float64
-		sit2       float64
-		sit3       float64
-		ownerQ     string
-		poseFlags  int // AI wolf's last idx18, -1 none
-		collar     int32
-		collarNBT  float64
-		heldDye    float64
-		sameColor  float64 // Sitting after a same-color dye click
-		noOwnerDye float64 // CollarColor after a non-owner dye click
-		catCollar  int32
-		catSit     float64 // cat toggles sit on a same-color dye
+		event7       bool
+		event6       int
+		ownerSeen    bool
+		flags        int // last idx18 value seen, -1 none
+		sit1         float64
+		sit2         float64
+		sit3         float64
+		ownerQ       string
+		poseFlags    int // AI wolf's last idx18, -1 none
+		collar       int32
+		collarNBT    float64
+		heldDye      float64
+		sameColor    float64 // Sitting after a same-color dye click
+		noOwnerDye   float64 // CollarColor after a non-owner dye click
+		catCollar    int32
+		catSit       float64 // cat toggles sit on a same-color dye
+		bodyEquipped bool
+		armorDmg1    float64
+		armorDmg2    float64
+		wolfHP       float64
+		repairSnd    bool
+		scuteN       float64
+		unsit        float64 // Sitting after melee hits (hurtServer clears it)
+		reposed      bool    // idx18 bit0 relands after the re-sit click
 	}
 
 	run := func(t *testing.T, name, addr string) wolfObs {
@@ -223,7 +236,7 @@ func TestWolfTameParity(t *testing.T) {
 		// AI wolf: same tame flow, then SitWhenOrderedToGoal packs
 		// the pose bit — idx18 4→5 within a tick or two.
 		awolf := summonTrackedNBT(t, v.ca, v.pra, v.pwa, pwc,
-			"wolf", 12.5, -60, 8.5, "{Tags:[\"WT\"]}")
+			"wolf", 12.5, -60, 8.5, "{Tags:[\"WTAI\"]}")
 		if awolf != 0 {
 			sendCommand(t, v.pwa,
 				"item replace entity BOATA weapon.mainhand with minecraft:bone 24")
@@ -245,6 +258,82 @@ func TestWolfTameParity(t *testing.T) {
 					break
 				}
 			}
+
+			// Wolf armor: the sitting AI wolf takes wolf_armor onto
+			// BODY (equipment.body.id answers, one stack consumed),
+			// hits then absorb into durability — Health untouched,
+			// damage>0 — and armadillo_scute repairs 12.5% of the
+			// 64 max (8) with item.wolf_armor.repair (wire 1795).
+			awSel := "@e[type=minecraft:wolf,tag=WTAI,limit=1]"
+			sendCommand(t, v.pwa, "tp BOATA 11 -60 8.5")
+			sendCommand(t, v.pwa,
+				"item replace entity BOATA weapon.mainhand with minecraft:wolf_armor 1")
+			time.Sleep(300 * time.Millisecond)
+			sendInteractEntity(v.pwa, awolf)
+			watch(awolf, 300*time.Millisecond)
+			st4, _ := dataGetSel(t, sink, pwc, awSel, "equipment.body.id")
+			o.bodyEquipped = st4 == "query"
+			if st4 != "query" {
+				hq, hv := dataGetSel(t, sink, pwc, "BOATA", "SelectedItem.id")
+				cq, cv := dataGetSel(t, sink, pwc, awSel, "CollarColor")
+				sq, sv := dataGetSel(t, sink, pwc, awSel, "Sitting")
+				t.Logf("%s: equip miss held=%s:%v collar=%s:%v sit=%s:%v",
+					name, hq, hv, cq, cv, sq, sv)
+			}
+			sendCommand(t, v.pwa,
+				"item replace entity BOATA weapon.mainhand with minecraft:iron_sword")
+			time.Sleep(300 * time.Millisecond)
+			for i := 0; i < 4; i++ {
+				sendAttackEntity(v.pwa, awolf)
+				watch(awolf, 250*time.Millisecond)
+			}
+			st5, v5 := dataGetSel(t, sink, pwc, awSel,
+				`equipment.body.components."minecraft:damage"`)
+			if st5 == "query" {
+				o.armorDmg1 = v5
+			}
+			_, o.wolfHP = dataGetSel(t, sink, pwc, awSel, "Health")
+			// hurtServer clears orderedToSit on every accepted hit —
+			// the wolf stands back up even while the armor absorbs.
+			_, o.unsit = dataGetSel(t, sink, pwc, awSel, "Sitting")
+			sendCommand(t, v.pwa,
+				"item replace entity BOATA weapon.mainhand with minecraft:armadillo_scute 4")
+			time.Sleep(300 * time.Millisecond)
+			// First scute click: not in sitting pose → the repair arm
+			// misses and the click falls to the owner toggle, which
+			// re-orders the sit. Watch idx18 for the pose bit relanding.
+			sendInteractEntity(v.pwa, awolf)
+			for i := 0; i < 10; i++ {
+				lo := vehWatch(t, v, false, awolf, 200*time.Millisecond)
+				allFl = append(allFl, lo.beeFlHist...)
+				for j := len(allFl) - 1; j >= 0; j-- {
+					f := allFl[j]
+					if strings.HasPrefix(f, awStr+":") {
+						bv, _ := strconv.Atoi(strings.SplitN(f, ":", 2)[1])
+						if bv&1 != 0 {
+							o.reposed = true
+						}
+						break
+					}
+				}
+				if o.reposed {
+					break
+				}
+			}
+			// Second scute click: sitting pose → repair arm fires.
+			sendInteractEntity(v.pwa, awolf)
+			lo := vehWatch(t, v, false, awolf, 400*time.Millisecond)
+			for _, sid := range lo.soundIds {
+				if sid == 1795 { // wire id = registry+1
+					o.repairSnd = true
+				}
+			}
+			st6, v6 := dataGetSel(t, sink, pwc, awSel,
+				`equipment.body.components."minecraft:damage"`)
+			if st6 == "query" {
+				o.armorDmg2 = v6
+			}
+			_, o.scuteN = dataGetSel(t, sink, pwc, "BOATA", "SelectedItem.count")
 		}
 		return o
 	}
@@ -289,9 +378,39 @@ func TestWolfTameParity(t *testing.T) {
 		if o.catSit != 1 {
 			t.Fatalf("%s: cat same-color dye never toggled Sitting", name)
 		}
-		t.Logf("%s: ev7=%v smokes=%d owner=%v flags=%d sit=%v/%v/%v aiPose=%d collar=%d/%v dye=%v cat=%d/%v Owner=%s",
+		if !o.bodyEquipped {
+			t.Fatalf("%s: wolf_armor click never equipped BODY (equipment.body.id)", name)
+		}
+		if o.armorDmg1 <= 0 {
+			t.Fatalf("%s: armor took no damage from hits (=%v)", name, o.armorDmg1)
+		}
+		if o.wolfHP != 40 {
+			t.Fatalf("%s: wolf lost health through armor (=%v want 40)", name, o.wolfHP)
+		}
+		if o.unsit != 0 {
+			t.Fatalf("%s: hurt wolf stayed ordered-sitting (Sitting=%v)", name, o.unsit)
+		}
+		if !o.reposed {
+			t.Fatalf("%s: scute click never re-ordered the sit (idx18 bit0)", name)
+		}
+		want2 := o.armorDmg1 - 8
+		if want2 < 0 {
+			want2 = 0
+		}
+		if o.armorDmg2 != want2 {
+			t.Fatalf("%s: repair damage=%v want %v (%v-8)", name, o.armorDmg2, want2, o.armorDmg1)
+		}
+		if !o.repairSnd {
+			t.Fatalf("%s: no item.wolf_armor.repair sound on scute click", name)
+		}
+		if o.scuteN != 3 {
+			t.Fatalf("%s: scute count=%v want 3 (shrink 1)", name, o.scuteN)
+		}
+		t.Logf("%s: ev7=%v smokes=%d owner=%v flags=%d sit=%v/%v/%v aiPose=%d collar=%d/%v dye=%v cat=%d/%v armor=%v:%v→%v hp=%v unsit=%v reposed=%v snd=%v scute=%v Owner=%s",
 			name, o.event7, o.event6, o.ownerSeen, o.flags, o.sit1, o.sit2, o.sit3,
-			o.poseFlags, o.collar, o.collarNBT, o.heldDye, o.catCollar, o.catSit, o.ownerQ)
+			o.poseFlags, o.collar, o.collarNBT, o.heldDye, o.catCollar, o.catSit,
+			o.bodyEquipped, o.armorDmg1, o.armorDmg2, o.wolfHP, o.unsit, o.reposed,
+			o.repairSnd, o.scuteN, o.ownerQ)
 	}
 
 	check(t, "vanilla", run(t, "vanilla", targets.vanilla))

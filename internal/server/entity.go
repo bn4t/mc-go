@@ -1135,6 +1135,13 @@ func (m *Manager) Damage(id int32, amount float32, typeName string, breachLevel 
 		res.Graced = true
 		return res
 	}
+	// Wolf.hurtServer clears orderedToSit on every accepted hit —
+	// before actuallyHurt, so even an armor-absorbed blow stands the
+	// wolf up (and a graced tail hit reaches it too: the iframe check
+	// lives inside super.hurtServer, after this line).
+	if wname, _ := EntityTypeName(e.Type); wname == "wolf" {
+		e.Sitting = false
+	}
 	orig := amount
 	res.Graced = e.invulnTicks > 10
 	if res.Graced {

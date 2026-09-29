@@ -13354,3 +13354,29 @@ already in place; the missing piece was the interact arm itself:
 - CollarColor legacy codec = BYTE (id 0-15), RED(14) defined default;
   dataentity already emitted it unconditionally — repaint just sets
   CollarColor+Set.
+
+## Slice — wolf armor interact + hurtServer unsit + tame health
+
+- `wolfArmorInteract` in `handleInteract`'s tamable chain pins
+  `Wolf.mobInteract`'s two body-slot arms: owner + wolf_armor on a
+  tamed adult with an empty BODY equips `equipment.body` and
+  consumes one (survival/adventure only); owner + armadillo_scute on
+  a sitting wolf with damaged wolf_armor repairs
+  `int(maxDamage*0.125)` = 8 of 64, `shrink(1)`s in every mode, and
+  plays `item.wolf_armor.repair` (wire id 1795).
+- `Manager.Damage` now mirrors `Wolf.hurtServer`: every accepted hit
+  clears `orderedToSit` before `actuallyHurt` — even when the armor
+  absorbs — so a struck wolf stands (idx18 5→4) and has to be
+  re-seated before the repair arm's `isInSittingPose` gate accepts.
+- `tameAnimal` applies `Wolf.applyTamingSideEffects`: taming a wolf
+  resets max_health's base to 40 and fills it (wild base is 8).
+- `TestWolfTameParity` extends into the armor leg: equip →
+  `equipment.body.id` answers, iron-sword hits drop wolf_hp at 40
+  while `equipment.body.components."minecraft:damage"` climbs,
+  `Sitting` flips to 0 through the hits, a scute click on the
+  standing wolf falls to the owner toggle (re-orders the sit — pose
+  bit relands on the wire), and the second click repairs damage
+  7→0 with the repair sound + one scute consumed — green vs vanilla
+  (`armor=true:7→0 hp=40 unsit=0 reposed=true snd=true scute=3`)
+  and mc-go (`armor=true:9→1 hp=40 unsit=0 reposed=true snd=true
+  scute=3`).

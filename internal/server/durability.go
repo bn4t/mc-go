@@ -331,6 +331,7 @@ func wolfArmorCrackLevel(damage, max int32) int {
 const (
 	sndWolfArmorCrack  int32 = 1792 // item.wolf_armor.crack
 	sndWolfArmorDamage int32 = 1793 // item.wolf_armor.damage
+	sndWolfArmorRepair int32 = 1794 // item.wolf_armor.repair
 	sndWolfHurt        int32 = 1806 // entity.wolf.hurt
 	srcNeutral         int32 = 6
 )

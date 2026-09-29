@@ -235,6 +235,12 @@ func (s *Server) tameAnimal(sess *Session, eid int32, hand int32) bool {
 	if name == "wolf" || name == "cat" {
 		e.Sitting = true
 	}
+	// Wolf.applyTamingSideEffects: taming resets max_health's base
+	// to 40 and fills it (the wild base is 8).
+	if name == "wolf" {
+		e.MaxHealth = 40
+		e.Health = 40
+	}
 	e.MetaDirty = true
 	s.broadcastEntityEventTo(nil, e.Dim, e.ID, 7) // tamed — hearts
 	s.broadcastEntityAnimation(sess, sess.entityID.Load(), 0)
@@ -295,6 +301,87 @@ func (s *Server) tamableCollarDye(sess *Session, eid int32, hand int32) bool {
 		sess.consumeSlot(hslot, 1)
 	}
 	return true
+}
+
+// wolfArmorInteract is the BODY-slot pair inside Wolf.mobInteract's
+// !collarDyes||!isOwnedBy branch — it never runs for dyes (collarDye
+// swallows those upstream) and gates on the owner itself:
+//
+//	equip: isEquippableInSlot(BODY) — wolf_armor's equippable
+//	  component is slot=body + canBeEquippedBy wolf — plus
+//	  !wearing && owned && !baby → setItemSlotAndDropWhenKilled
+//	  (guaranteed drop) + itemStack.consume.
+//	repair: isInSittingPose && wearing && owned && armor damaged &&
+//	  item.isValidRepairItem (armadillo_scute) → itemStack.shrink
+//	  (consumes even in creative — shrink, not consume) +
+//	  setDamageValue(dmg - max*0.125) + item.wolf_armor.repair.
+func (s *Server) wolfArmorInteract(sess *Session, eid int32, hand int32) bool {
+	s.entities.mu.RLock()
+	e, ok := s.entities.byID[eid]
+	s.entities.mu.RUnlock()
+	if !ok || !e.Living || !e.tamed {
+		return false
+	}
+	name, _ := EntityTypeName(e.Type)
+	if name != "wolf" {
+		return false
+	}
+	held, hslot := sess.stackForHand(hand)
+	if held.Empty() {
+		return false
+	}
+	iname, ok := itemNameOf(held.ID)
+	if !ok {
+		return false
+	}
+	owner := e.ownerUUID == sess.uuid
+	if iname == "wolf_armor" {
+		if !owner || e.Baby || !e.BodyItem.Empty() {
+			// The armor check fails the gate: vanilla falls to
+			// super.mobInteract → the owner toggle (a non-dye item
+			// DOES toggle). Don't swallow.
+			return false
+		}
+		if wid, ok := world.ItemID("wolf_armor"); ok {
+			e.BodyItem = ItemStack{ID: wid, Count: 1}
+			e.markEquipDelta(6)
+			if sess.mode() == GameModeSurvival || sess.mode() == GameModeAdventure {
+				sess.consumeSlot(hslot, 1)
+			}
+		}
+		return true
+	}
+	if iname == "armadillo_scute" {
+		// The repair arm's own gate: sitting POSE (not the field) +
+		// owned + wearing + damaged + the valid repair item.
+		if !e.SittingPose || !owner || e.BodyItem.Empty() {
+			return false
+		}
+		ain, aok := itemNameOf(e.BodyItem.ID)
+		if !aok || ain != "wolf_armor" || e.BodyItem.Damage <= 0 {
+			return false
+		}
+		maxD, dok := damageableItems["wolf_armor"]
+		if !dok {
+			return false
+		}
+		it := e.BodyItem
+		unit := int32(float64(maxD) * 0.125)
+		it.Damage -= unit
+		if it.Damage < 0 {
+			it.Damage = 0
+		}
+		e.BodyItem = it
+		e.markEquipDelta(6)
+		// itemStack.shrink — vanilla consumes in every mode here.
+		sess.consumeSlot(hslot, 1)
+		// playSound(WOLF_ARMOR_REPAIR) — a POSITIONAL packet at the
+		// wolf, adult voice pitch.
+		s.playSoundAt(e.Dim, e.X, e.Y, e.Z, sndWolfArmorRepair, 1,
+			(rand.Float32()-rand.Float32())*0.2+1)
+		return true
+	}
+	return false
 }
 
 // tamableSitToggle is the post-tame mobInteract arm every TamableAnimal
