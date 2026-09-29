@@ -872,6 +872,17 @@ type Entity struct {
 	PanicUntil  int64
 	PanicBest   float64
 	PanicStill  int32
+	// CaravanHead/CaravanTail are LlamaFollowCaravanGoal's chain
+	// links (llama + trader_llama): the eid directly ahead / behind
+	// this node — 0 when not in a caravan. Runtime only: vanilla
+	// persists neither, and the links live on the server not the
+	// wire. CaravanSpeed is the goal's speedModifier (2.1 base,
+	// ramps ×1.2 to a 3.0 cap while >26 from the head); CaravanCnt
+	// is the 40-tick distCheck counter at the cap.
+	CaravanHead  int32
+	CaravanTail  int32
+	CaravanSpeed float64
+	CaravanCnt   int32
 	// TemptActive/TemptTarget model TemptGoal: an animal whose
 	// tempting item is in a nearby player's hand walks to the holder
 	// at speedModifier × movement_speed and stops at 2.5 blocks;

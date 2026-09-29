@@ -13983,3 +13983,32 @@ no flee; unsneak → flee). Green both legs.
   and NOTHING else (no stand, no dash), and the controlled freeze
   holds posNet≈0 over 10s. Green vs both servers; sit-wire,
   RandomSitting, and dash pins all re-green.
+
+## Slice — llama caravan parity: LlamaFollowCaravanGoal join/chain/follow/break
+- **Measured** (decompile `goal/LlamaFollowCaravanGoal.java`,
+  `animal/equine/Llama.java`): goal priority 2 on llama +
+  trader_llama — outranks the family's PanicGoal(3), BreedGoal(4),
+  TemptGoal(5), WaterAvoidingRandomStrollGoal(7). canUse: an
+  unleashed, un-caravanned llama scans a 9×4×9 box — prefers the
+  closest caravan member with no tail (chain end), else the closest
+  leashed llama with no tail; refused under dist²<4 or when the
+  candidate is UNLEASHED and its head-chain never reaches a leash
+  within 8 hops (`!closest.isLeashed() && !firstIsLeashed(closest,1)`
+  — a leashed candidate joins unconditionally). tick: follower paths
+  to a point trailing its head by two blocks —
+  `pos + dir(head)·max(dist-2,0)` — at speedModifier×movement_speed,
+  2.1 base, ×1.2 ramps to a 3.0 cap past 26 blocks with a 40-tick
+  break counter at the cap. A fence-knot-held follower skips the
+  moveTo (a player-held one still follows). Links are
+  caravanHead/caravanTail entity pairs — runtime only, never saved.
+- **Implemented**: `caravan.go` (join scan with the two-priority
+  candidate pass, the leashed-vs-chained gate, speed ramp + break
+  counter, two-block trail moveTo, knot-vs-entity holder split);
+  `CaravanHead/CaravanTail/CaravanSpeed/CaravanCnt` entity fields;
+  step wired at goal priority 2 ahead of panic in the mob chain.
+- **Pinned**: `TestLlamaCaravanParity` — fence-leashed A, B joins A
+  and C joins B; B converges within ~2 of A and C within ~2 of B on
+  both legs (vanilla 1.74/2.08, mc-go 2.35/1.99); then `kill
+  @e[type=leash_knot]` + tp the head 35 blocks away — firstIsLeashed
+  fails, the chain dissolves, and the ex-follower stays put on both
+  legs (bFar ~48 vs ~54).

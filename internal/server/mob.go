@@ -5413,6 +5413,14 @@ func (s *Server) mobTickStep() {
 			if s.mobConvertTick(e, s.dims[e.Dim], ambName) {
 				continue
 			}
+			// LlamaFollowCaravanGoal (priority 2) — outranks even the
+			// family's PanicGoal(3).
+			if ambName == "llama" || ambName == "trader_llama" {
+				if w := s.dimWorld(e.Dim); w != nil && s.llamaCaravanStep(e, w) {
+					s.mobSyncFlush(e)
+					continue
+				}
+			}
 			// PanicGoal (priority 1) outranks every goal below —
 			// including sheep eat — while the panic run is live.
 			if s.mobPanicStep(e, ambName) {
