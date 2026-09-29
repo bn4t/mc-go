@@ -897,6 +897,13 @@ type Entity struct {
 	LlamaSpitMob int32
 	// HuntScan is the targetSelector scan cadence (~10 ticks).
 	HuntScan int32
+	// FollowNav/FollowRecalc are FollowOwnerGoal's runtime state:
+	// FollowNav is the goal's armed half (set at dist² ≥ 10², dropped
+	// at ≤ 2² — the hysteresis band between is where a parked pet
+	// stays parked), FollowRecalc the adjustedTickDelay(10) counter
+	// gating tryToTeleportToOwner draws while dist² ≥ 12².
+	FollowNav    bool
+	FollowRecalc int32
 	// TemptActive/TemptTarget model TemptGoal: an animal whose
 	// tempting item is in a nearby player's hand walks to the holder
 	// at speedModifier × movement_speed and stops at 2.5 blocks;

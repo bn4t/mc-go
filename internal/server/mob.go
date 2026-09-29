@@ -5474,6 +5474,14 @@ func (s *Server) mobTickStep() {
 			if ambName == "wolf" || ambName == "cat" || ambName == "parrot" {
 				s.tamableSitPoseStep(e)
 			}
+			// FollowOwnerGoal (priority 6 on wolf/cat/parrot,
+			// MOVE|LOOK, 1.0×speed, 10 start / 2 stop) — a tamed pet
+			// follows its owner and teleports past 12 blocks on the
+			// 10-tick recalc cadence.
+			if followOwnerTypes[ambName] && s.followOwnerStep(e, ambName) {
+				s.mobSyncFlush(e)
+				continue
+			}
 			// BreedGoal (priority 2-3): animals in love walk to their
 			// mate and breed on contact.
 			if s.mobBreedStep(e, ambName) {
@@ -7277,6 +7285,20 @@ func (s *Server) mobPanicStep(e *Entity, name string) bool {
 		}
 		if !e.PanicActive {
 			return false
+		}
+	}
+	// TamableAnimalPanicGoal.tick's first half: while the panic run
+	// is live, a tamed pet still teleports to its owner past 12
+	// blocks (no recalc cadence — every tick).
+	if followOwnerTypes[name] && e.ownerUUID != ([16]byte{}) &&
+		!e.Sitting && e.Riding == 0 && e.LeashHolder == 0 {
+		if p := s.sessionByUUID(e.ownerUUID); p != nil && p.spawned.Load() &&
+			p.dimName() == e.Dim && p.mode() != GameModeSpectator {
+			px, py, pz, _, _, _ := p.Pos()
+			dx, dy, dz := px-e.X, py-e.Y, pz-e.Z
+			if dx*dx+dy*dy+dz*dz >= 144.0 {
+				s.followOwnerTeleport(e, p, px, py, pz)
+			}
 		}
 	}
 	tx, tz := e.PanicTX-e.X, e.PanicTZ-e.Z

@@ -14062,3 +14062,47 @@ no flee; unsneak → flee). Green both legs.
   trader_llama and a wandering_trader ~3s out on both legs, while
   `PersistenceRequired:1b` survives the same window with
   `DespawnDelay` still readable via /data get.
+
+## Slice — FollowOwnerGoal: tamed-pet follow + owner teleport (2026-09-29)
+
+- **Measured**: decompile `FollowOwnerGoal.java` + live probes —
+  goal priority 6 on wolf/cat/parrot, MOVE|LOOK, speedModifier
+  1.0, startDistance 10, stopDistance 2 (wolf), cat {10,5},
+  parrot {5,1}. canUse needs a resolvable same-dimension owner
+  and `!unableToMoveToOwner` — orderedToSit || isPassenger ||
+  leashed || owner-spectator — plus dist² >= start²; the
+  start/stop band is hysteresis (a parked pet stays parked).
+  At dist² >= 12² the 10-tick recalc cadence runs
+  tryToTeleportToOwner: 10 draws of xd,zd ∈ [-3,3] needing
+  |xd|>=2 || |zd|>=2 plus yd ∈ [-1,1] around the owner's block
+  pos, landing on the first walkable, leaf-free, collision-free
+  cell. Teleports emit entity_position_sync (0x23), NOT
+  teleport_entity — the earlier assumption that 0x7D carried
+  mob teleports was wrong on both servers.
+- **Implemented**: `internal/server/followowner.go` —
+  `followOwnerParams` per type, `followOwnerTypes`,
+  `followOwnerFlyers={parrot}`, `followOwnerStep` (owner
+  resolution via sessionByUUID + spawned + same-dim, the
+  unableToMoveToOwner gates, 10/2 hysteresis arm/disarm, the
+  ≥144 teleport recalc vs walk via entityAttrBases
+  movement_speed with mobWalkSpeed fallback + mobTurnToward +
+  mobTravelStep), `followOwnerTeleport` (10 draws on the
+  vanilla radius rules + followOwnerCanLand → tpMountTeleport),
+  `followOwnerCanLand` (solid-below + walkable, non-flyers
+  reject _leaves, !entityInsideSolid); entity.go gains
+  `FollowNav`+`FollowRecalc`; mob.go wires the goal ahead of
+  panic in the chain and adds the TamableAnimalPanicGoal arm —
+  a panicking tamed pet past 12 blocks still teleports to its
+  owner.
+- **Pinned**: `TestFollowOwnerParity` vs both servers — a wolf
+  at 11 blocks walks to the stop radius (vanilla 2.69, mc-go
+  6.37 — hysteresis keeps it parked once inside); at 22 blocks
+  the teleport cadence fires (jumps=1/2 both legs) and lands it
+  at 5.64/2.20 — far faster than any walk; Sitting:1b, a
+  spectator owner, and a fence leash each gate the goal
+  completely (15.00/21.30/15.81 vs 15.00/15.00/15.81).
+  Observation notes: vehWatch's case-35 now feeds
+  lastPos/posTrail from the absolute pos like case 125; final
+  distances come from `/data get Pos` absolute reads on both
+  servers; the summon hunt collects the posTrail through the
+  watch window because the teleport lands inside it.

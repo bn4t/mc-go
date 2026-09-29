@@ -341,12 +341,23 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					o.posTrail[peid] = append(o.posTrail[peid], [2]float64{tx - lp[0], tz - lp[2]})
 					o.posTicks[peid]++
 					o.lastPos[peid] = [3]float64{tx, ty, tz}
-				case 35: // entity_position_sync — player-relative, mark moved only
+				case 35: // entity_position_sync — VarInt eid + absolute
+					// pos doubles + velocity doubles + rot floats + bool;
+					// the real teleport packet on 26.2, so it feeds
+					// lastPos/posTrail the same way teleport_entity does
 					r := protocol.NewPacketReader(p.Data)
 					peid, _ := r.VarInt()
 					if peid == eid {
 						o.moved = true
 					}
+					tx, _ := r.Double()
+					ty, _ := r.Double()
+					tz, _ := r.Double()
+					lp := o.lastPos[peid]
+					o.posNet[peid] += math.Hypot(tx-lp[0], tz-lp[2])
+					o.posTrail[peid] = append(o.posTrail[peid], [2]float64{tx - lp[0], tz - lp[2]})
+					o.posTicks[peid]++
+					o.lastPos[peid] = [3]float64{tx, ty, tz}
 				case server.IDPlayEntityMetadata:
 					r := protocol.NewPacketReader(p.Data)
 					peid, _ := r.VarInt()
