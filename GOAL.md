@@ -12212,3 +12212,40 @@ Harness lessons:
   must be nbt.List{Elem:TagCompound}.
 - shear/drop probes: AP parked on the mob vacuums drops — probe
   Inventory first, item-entity fallback.
+
+## Slice — dispenser shear live pin + mooshroom variant drops (2026-09-29)
+
+The dispenser shear paths were implemented but never pinned live; the
+mooshroom path hardcoded red mushrooms. Measured 26.2 bytecode
+(ShearsDispenseItemBehavior.tryShearEntity: Shearable entity in the
+mouth AABB → shear(level, BLOCKS, stack); MushroomCow.shear →
+playSound(null,this,MOOSHROOM_SHEAR,BLOCKS,1,1) + convertTo(COW) with
+the same finalizeConversion EXPLOSION+loot lambda as the hand path;
+shearing/mooshroom loot is variant-conditional red/brown subtables)
+and pinned vs both servers:
+
+  - Sheep leg: powered dispenser → 0x74 (snd1441, src=4, sheep eid) +
+    Sheared:true + wool drop.
+  - Brown mooshroom leg: → 0x74 (snd989, src=4, mooshroom eid) + cow
+    spawn + brown_mushroom drops (red absent).
+  - ServerLevel.playSeededSound measured: PlayerList.broadcast radius
+    = SoundEvent.getRange(vol) = 16*max(1,vol) — all 26.2 registry
+    sounds are variable-range (no fixed-range registrations left).
+    mc-go's playSoundSrc/playSoundEntity already implement the same
+    16*max(1,vol) cap — the first run's "miss" was the probe standing
+    27 blocks out, not a server bug.
+
+mc-go: dispense.go mooshroom arm now variant-aware (brown_mushroom
+drops) + emits the EXPLOSION puff — matching the hand-shear path.
+
+Pinned: TestDispenserShearParity — 7 probes (0x74 shear tuple src4,
+Sheared NBT, wool drop, cow spawn, brown_mushroom Inventory/entity,
+red absent) green vs both servers.
+
+Harness lessons:
+- summon AI mobs with {NoAI:1b} inside dispenser/piston fixtures — a
+  25s spawn poll window lets them wander out of the interaction cell
+  and the behavior fires on nothing (silently, on both servers).
+- Sound probes must account for the 16*vol broadcast radius: park the
+  listener within range of the emit point or the packet legitimately
+  never ships.

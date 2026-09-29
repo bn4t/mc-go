@@ -405,9 +405,15 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 		if mush := s.livingAtMouth(d, front, "mooshroom"); mush != nil {
 			// MushroomCow.shear: playSound(MOOSHROOM_SHEAR, BLOCKS),
 			// then convertTo(COW) at the same spot — the mooshroom
-			// despawns, a cow spawns — and the shearing table (red
-			// variant) drops 5 red mushrooms.
+			// despawns, a cow spawns — and the shearing table drops
+			// 5 of the variant's mushroom. finalizeConversion's
+			// lambda emits the EXPLOSION puff at the mob center.
 			s.playSoundEntity(d.name, mush.ID, 989, 4, 1, 1, nil)
+			s.broadcastParticles(d.name, 30, mush.X, mush.Y+0.5, mush.Z, 0, 0, 0, 0, 1) // explosion
+			mushName := "red_mushroom"
+			if mush.MooshroomVariant == 1 {
+				mushName = "brown_mushroom"
+			}
 			at := world.Pos{X: int(mush.X), Y: int(mush.Y), Z: int(mush.Z)}
 			s.entities.Remove(mush.ID)
 			s.broadcastEntityRemoveIn(d.name, nil, []int32{mush.ID})
@@ -426,7 +432,7 @@ func (s *Server) dispenseFrom(d *dimension, pos world.Pos, blk world.Block) {
 				s.broadcastEntitySpawnIn(d.name, nil, *cow)
 			}
 			for i := 0; i < 5; i++ {
-				if pid, ok := world.ItemIDs["red_mushroom"]; ok {
+				if pid, ok := world.ItemIDs[mushName]; ok {
 					s.spawnItemDrop(d.name, at, ItemStack{ID: pid, Count: 1})
 				}
 			}
