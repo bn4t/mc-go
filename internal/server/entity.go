@@ -276,6 +276,19 @@ type Entity struct {
 	Stung           bool
 	CannotEnterHive int32
 	timeSinceSting  int32
+	// Bee pollination/hive pointers: HasNectar is Bee.hasNectar
+	// (wire flag 0x08 + NBT byte), TicksSincePollination/
+	// CropsGrownSincePollination are vanilla's pollination ints,
+	// HivePos/FlowerPos are the BlockPos pointer pair (NBT
+	// hive_pos/flower_pos [I;3] int-arrays, *Set marking the
+	// storeNullable presence).
+	HasNectar             bool
+	TicksSincePollination int32
+	CropsGrownSincePoll   int32
+	BeeHivePos            [3]int32
+	BeeHivePosSet         bool
+	BeeFlowerPos          [3]int32
+	BeeFlowerPosSet       bool
 	// ExplosionPower is LargeFireball.explosionPower — the MOB
 	// explosion radius onHit (ghast shoots 1, the summon NBT
 	// ExplosionPower reads anything). Zero is treated as 1, the

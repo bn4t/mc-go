@@ -12472,3 +12472,33 @@ pig DATA_BOOST_TIME (runtime-only), frog DATA_TONGUE_TARGET,
 cat IS_LYING/RELAX_STATE_ONE, wolf DATA_INTERESTED_ID,
 addTrustedEntity via taming, AngerTime→absolute conversion
 pin (gameTime-dependent — verified by read path only).
+## Slice — bee fields + hive validation drop (2026-09-29)
+
+Measured: Bee defines DATA_FLAGS_ID (byte: 0x08 nectar |
+0x04 stung | 0x02 rolling) at wire idx18 and its own
+DATA_ANGER_END_TIME (long, -1L default) at idx19. The save
+writes hive_pos/flower_pos as storeNullable BlockPos.CODEC
+[I;3] int-arrays (dropped when absent), then HasNectar/
+HasStung bytes and the ints TicksSincePollination,
+CannotEnterHiveTicks, CropsGrownSincePollination in order.
+Reads accept the same keys (hive_pos/flower_pos as [I;]
+int-arrays). Two tick counters move: aiStep decrements
+stayOutOfHiveCountdown even under NoAI, while
+customServerAiStep's ticksWithoutNectarSinceExitingHive++
+(!hasNectar) is NoAI-gated — a NoAI bee's
+TicksSincePollination freezes. And aiStep's tail drops
+hivePos every 20th tick when it no longer names a hive
+block entity (flower_pos has no such check).
+
+Pinned: TestHolderVariantParity adds nectar/stung flag
+bees (idx18 0x08/0x04), an angry bee (idx19 long 600),
+the NoAI counter freeze ({TSP:5} positive + unless-probe),
+an AI bee whose TicksSincePollination leaves 0 (unless-
+probe), the CannotEnterHiveTicks decrement (unless-probe),
+and the hive-validity drop (flower_pos survives, hive_pos
+gone within 20 ticks). Green vs both. The rolling bit and
+the goal-driven dropFlower/dropHive paths stay runtime-only.
+
+Still open: frog DATA_TONGUE_TARGET, cat IS_LYING/
+RELAX_STATE_ONE, wolf DATA_INTERESTED_ID, addTrustedEntity
+via taming, AngerTime→absolute conversion pin.

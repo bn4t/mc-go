@@ -1567,6 +1567,40 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.AngryAtSet = true
 				}
 			}
+			// Bee's own fields: the flag byte bits ride HasNectar/
+			// HasStung (rolling has no NBT input), the pollination
+			// ints take anything, and hive_pos/flower_pos read a
+			// BlockPos [I;3] int-array via BlockPos.CODEC's
+			// storeNullable.
+			if name == "bee" {
+				if v, ok := tag.vals["HasNectar"]; ok {
+					e.HasNectar = snbtNum(v) != 0
+				}
+				if v, ok := tag.vals["HasStung"]; ok {
+					e.Stung = snbtNum(v) != 0
+				}
+				if v, ok := tag.vals["TicksSincePollination"]; ok {
+					e.TicksSincePollination = int32(snbtNum(v))
+				}
+				if v, ok := tag.vals["CannotEnterHiveTicks"]; ok {
+					e.CannotEnterHive = int32(snbtNum(v))
+				}
+				if v, ok := tag.vals["CropsGrownSincePollination"]; ok {
+					e.CropsGrownSincePoll = int32(snbtNum(v))
+				}
+				if v, ok := tag.vals["hive_pos"]; ok && len(v.items) == 3 {
+					for i := 0; i < 3; i++ {
+						e.BeeHivePos[i] = int32(snbtNum(v.items[i]))
+					}
+					e.BeeHivePosSet = true
+				}
+				if v, ok := tag.vals["flower_pos"]; ok && len(v.items) == 3 {
+					for i := 0; i < 3; i++ {
+						e.BeeFlowerPos[i] = int32(snbtNum(v.items[i]))
+					}
+					e.BeeFlowerPosSet = true
+				}
+			}
 			// Variant defaults when the summon NBT left the key out —
 			// each type's own spawn roll: axolotl uniform common +
 			// 1/1200 rare, parrot uniform, rabbit's biome roll
@@ -3212,6 +3246,34 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(26) // serializer: wolf_sound_variant
 				b.VarInt(id)
 			}
+		case "bee":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			// Bee's DATA_FLAGS_ID (18, byte): 0x08 nectar |
+			// 0x04 stung | 0x02 rolling — the zero default
+			// stays unpacked.
+			var bflags byte
+			if e.HasNectar {
+				bflags |= 0x08
+			}
+			if e.Stung {
+				bflags |= 0x04
+			}
+			if bflags != 0 {
+				b.Byte(18)
+				b.Byte(0) // type: byte
+				b.Byte(bflags)
+			}
+			// DATA_ANGER_END_TIME (19, long): the -1L defined
+			// default (no persistent end) stays unpacked.
+			if end := angerEndSynced(e); end != -1 {
+				b.Byte(19)
+				b.Byte(2) // serializer: long
+				b.VarLong(end)
+			}
 		case "pig":
 			if e.Baby {
 				b.Byte(16)
@@ -4191,8 +4253,29 @@ func (s *Server) mobTickStep() {
 		// health (damageSources().generic). stayOutOfHiveCountdown
 		// counts down alongside.
 		if ambName == "bee" {
+			// Bee.customServerAiStep also counts
+			// ticksWithoutNectarSinceExitingHive up while the bee
+			// carries no nectar — the NBT-visible
+			// TicksSincePollination counter. customServerAiStep is
+			// NoAI-gated on vanilla (unlike aiStep's
+			// stayOutOfHiveCountdown below), so the counter freezes
+			// on a NoAI summon.
+			if !e.HasNectar && !e.NoAI {
+				e.TicksSincePollination++
+			}
 			if e.CannotEnterHive > 0 {
 				e.CannotEnterHive--
+			}
+			// Bee.aiStep's tail: every 20th tick a bee whose saved
+			// hive position no longer names a hive block entity
+			// drops the pointer (flower_pos has no equivalent
+			// check).
+			if e.BeeHivePosSet && s.clock.count%20 == 0 {
+				bp := e.BeeHivePos
+				w := s.dimWorld(e.Dim)
+				if w == nil || !isBeeNestBlock(w.GetBlock(world.Pos{X: int(bp[0]), Y: int(bp[1]), Z: int(bp[2])})) {
+					e.BeeHivePosSet = false
+				}
 			}
 			if e.Stung {
 				e.timeSinceSting++

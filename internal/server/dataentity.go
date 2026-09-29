@@ -825,15 +825,23 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		m["CustomNameVisible"] = int8(1)
 	}
 	if e.Living {
-		// Bee.addAdditionalSaveData writes the bee fields always:
-		// HasNectar/HasStung bytes, TicksSincePollination and
-		// CannotEnterHiveTicks ints. mc-go doesn't pollinate — the pair
-		// stays 0b/0.
+		// Bee.addAdditionalSaveData writes the bee fields in order:
+		// hive_pos/flower_pos storeNullable BlockPos [I;3] pairs,
+		// HasNectar/HasStung bytes, then the pollination/hive ints
+		// TicksSincePollination, CannotEnterHiveTicks and
+		// CropsGrownSincePollination.
 		if typeName == "bee" {
-			m["HasNectar"] = int8(0)
+			if e.BeeHivePosSet {
+				m["hive_pos"] = []int32{e.BeeHivePos[0], e.BeeHivePos[1], e.BeeHivePos[2]}
+			}
+			if e.BeeFlowerPosSet {
+				m["flower_pos"] = []int32{e.BeeFlowerPos[0], e.BeeFlowerPos[1], e.BeeFlowerPos[2]}
+			}
+			m["HasNectar"] = nbtBool(e.HasNectar)
 			m["HasStung"] = nbtBool(e.Stung)
-			m["TicksSincePollination"] = int32(0)
+			m["TicksSincePollination"] = e.TicksSincePollination
 			m["CannotEnterHiveTicks"] = e.CannotEnterHive
+			m["CropsGrownSincePollination"] = e.CropsGrownSincePoll
 		}
 		// Mob.addAdditionalSaveData writes the home pair only while
 		// hasHome — home_radius int plus the home_pos BlockPos list.
@@ -1048,6 +1056,9 @@ var entitySaveSeq = []string{
 	"Variant", "RabbitType", "MoreCarrotTicks", "FromBucket",
 	"Trusted", "Sleeping", "Sitting", "Crouching",
 	"MainGene", "HiddenGene",
+	"hive_pos", "flower_pos", "HasNectar", "HasStung",
+	"TicksSincePollination", "CannotEnterHiveTicks",
+	"CropsGrownSincePollination",
 }
 
 // overworldZombifyTypes are the mc-side types declaring the
@@ -1444,6 +1455,10 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"variant": true, "sound_variant": true, "type": true,
 		"CollarColor": true,
 		"angry_at":    true, "AngerTime": true,
+		"HasNectar": true, "HasStung": true,
+		"TicksSincePollination": true, "CannotEnterHiveTicks": true,
+		"CropsGrownSincePollination": true,
+		"hive_pos":                   true, "flower_pos": true,
 	}
 	if extra, ok := entitySaveExtras[name]; ok {
 		for k := range extra {

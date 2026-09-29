@@ -207,6 +207,17 @@ func TestHolderVariantParity(t *testing.T) {
 			// wire anger accessor.
 			{"wolf", `{anger_end_time:600L,angry_at:[I;1,2,3,4],NoAI:1b}`},
 			{"zombified_piglin", `{anger_end_time:600L,angry_at:[I;1,2,3,4],NoAI:1b}`},
+			// Bee's DATA_FLAGS_ID byte at 18 (0x08 nectar | 0x04
+			// stung | 0x02 rolling) and its own DATA_ANGER_END_TIME
+			// long at 19.
+			{"bee", `{HasNectar:1b,NoAI:1b}`},
+			{"bee", `{HasStung:1b,NoAI:1b}`},
+			{"bee", `{anger_end_time:600L,NoAI:1b}`},
+			{"bee", `{CannotEnterHiveTicks:99,TicksSincePollination:5,CropsGrownSincePollination:7,NoAI:1b}`},
+			{"bee", `{hive_pos:[I;1,2,3],flower_pos:[I;4,5,6],NoAI:1b}`},
+			// AI-enabled bee: TicksSincePollination counts up only
+			// via customServerAiStep — a NoAI bee freezes it.
+			{"bee", `{TicksSincePollination:0,CropsGrownSincePollination:7}`},
 		}
 		wantMeta := []map[int]string{
 			{9: "3:10", 15: "0:1", 20: "21:5"},            // persian
@@ -223,6 +234,12 @@ func TestHolderVariantParity(t *testing.T) {
 			{9: "3:8", 15: "0:1", 21: "1:9", 24: "26:4"},  // cyan collar + grumpy
 			{9: "3:8", 15: "0:1", 22: "2:600"},            // angry wolf
 			{9: "3:20", 15: "0:1"},                        // angry zombified piglin
+			{9: "3:10", 15: "0:1", 18: "0:8"},             // nectar flag
+			{9: "3:10", 15: "0:1", 18: "0:4"},             // stung flag
+			{9: "3:10", 15: "0:1", 19: "2:600"},           // angry bee
+			{9: "3:10", 15: "0:1"},                        // hive-tick ints (no wire)
+			{9: "3:10", 15: "0:1"},                        // hive/flower pos (no wire)
+			{9: "3:10"},                                   // AI bee (flags byte 0 unpacks)
 		}
 		// optMeta lists metadata entries the spawn roll MAY pack
 		// beside wantMeta: idx -> {serializer, max registry id}. Every
@@ -244,10 +261,14 @@ func TestHolderVariantParity(t *testing.T) {
 			{},            // grumpy+collar: variant roll = pale in plains
 			{24: {26, 6}}, // angry wolf: sound roll ∈ wolf_sound
 			{},
+			{}, {}, {}, {}, {}, {},
 		}
 
 		for i, s := range summons {
-			sendCommand(t, pw, fmt.Sprintf("summon minecraft:%s %d -60 %d %s", s.name, i*2, 3, s.nbt))
+			// Two rows of 12 — the join sends no client_information
+			// so vanilla's default view distance (2 → 32-block
+			// entity tracking) must still reach the last summons.
+			sendCommand(t, pw, fmt.Sprintf("summon minecraft:%s %d -60 %d %s", s.name, (i%12)*2, 3+(i/12)*2, s.nbt))
 			time.Sleep(120 * time.Millisecond)
 		}
 		time.Sleep(1200 * time.Millisecond)
@@ -320,6 +341,26 @@ func TestHolderVariantParity(t *testing.T) {
 			{`@e[type=minecraft:wolf,nbt={anger_end_time:-1L}]`, "ZWCALM"},
 			{`@e[type=minecraft:zombified_piglin,nbt={anger_end_time:600L}]`, "ZZPEND"},
 			{`@e[type=minecraft:zombified_piglin,nbt={angry_at:[I;1,2,3,4]}]`, "ZZPAT"},
+			{`@e[type=minecraft:bee,nbt={HasNectar:1b}]`, "ZBEN"},
+			{`@e[type=minecraft:bee,nbt={HasStung:1b}]`, "ZBES"},
+			{`@e[type=minecraft:bee,nbt={anger_end_time:600L}]`, "ZBEA"},
+			// The tick counters move post-summon: TicksSincePollina-
+			// tion counts up while !HasNectar, CannotEnterHiveTicks
+			// counts down — pin the movement with if/unless pairs
+			// anchored on the stable CropsGrownSincePollination.
+			{`@e[type=minecraft:bee,nbt={CropsGrownSincePollination:7}]`, "ZCGS"},
+			// NoAI gate: the counter stays exactly 5 on the NoAI
+			// bee (customServerAiStep never runs).
+			{`@e[type=minecraft:bee,nbt={TicksSincePollination:5}]`, "ZTSP5"},
+			// The AI bee's TicksSincePollination leaves 0.
+			{`@e[type=minecraft:bee,nbt={CropsGrownSincePollination:7}] unless entity @e[type=minecraft:bee,nbt={CropsGrownSincePollination:7,TicksSincePollination:0}]`, "ZTSP0"},
+			// stayOutOfHiveCountdown decrements even under NoAI.
+			{`@e[type=minecraft:bee,nbt={TicksSincePollination:5}] unless entity @e[type=minecraft:bee,nbt={TicksSincePollination:5,CannotEnterHiveTicks:99}]`, "ZCEH0"},
+			// aiStep's every-20th-tick drop: hive_pos clears within
+			// 20 ticks when it doesn't name a hive block entity;
+			// flower_pos has no check and survives.
+			{`@e[type=minecraft:bee,nbt={flower_pos:[I;4,5,6]}]`, "ZFPI"},
+			{`@e[type=minecraft:bee,nbt={flower_pos:[I;4,5,6]}] unless entity @e[type=minecraft:bee,nbt={hive_pos:[I;1,2,3]}]`, "ZHIVEDROP"},
 		}
 		for _, p := range probes {
 			sendCommand(t, pw, fmt.Sprintf("execute if entity %s run say %s", p.sel, p.mark))
