@@ -417,3 +417,17 @@ func cornerStair(plate cellBox, facing, side string, y0 float64) []cellBox {
 	}
 	return []cellBox{plate, q}
 }
+
+// blocksMotionAt is vanilla's BlockState.blocksMotion: a cell with an
+// empty collision shape (open fence gate, powder snow) doesn't block
+// motion, while fluids and the other shapeless cells never did.
+func blocksMotionAt(w *world.World, pos world.Pos) bool {
+	b := w.GetBlock(pos)
+	if b == world.Air {
+		return false
+	}
+	if boxes, has := collisionBoxesOf(b); has {
+		return len(boxes) > 0
+	}
+	return !world.NonSolid(b) && !moveNoCollision(b)
+}

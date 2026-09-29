@@ -14143,3 +14143,57 @@ no flee; unsneak → flee). Green both legs.
     reads as "slime eaten" (this masqueraded as an eat during
     bring-up). Known preexisting flake: TestFireworkRocketHit
     Parity leg 6 (hand offset) fails identically on baseline.
+
+## Slice — enderman stare pipeline: isBeingStaredBy + LookForPlayerGoal + FreezeWhenLookedAt (2026-09-29)
+  - **Measured** (EnderMan.java:103-145,212,404-570 +
+    LivingEntity.java:1768 on the 26.2 decomp): `isBeingStaredBy`
+    = head slot free of `gaze_disguise_equipment` (carved_pumpkin)
+    + `isLookingAtMe(player, 0.025, true, false, {eyeY})` — the
+    COLLIDER clip (`clipSolidSegment`) from last slice, cone
+    `dot > 1 - 0.025/dist`, adjustForDistance=true, gaze at
+    dims·0.85. `EndermanLookForPlayerGoal` is a TARGET-selector
+    goal (10-tick cadence, follow_range 64): canUse picks the
+    nearest combat-eligible player passing `isAngerInducing`
+    (stare || isAngryAt); `start()` raises STARED_AT(18);
+    `canContinueToUse` retests `isBeingStaredBy` ONLY each tick
+    during the 5-tick pending (abort clears STARED_AT) and
+    head-tracks via lookAt(10°/tick) — movement is NEVER gated
+    while pending (measured live: the mob keeps strolling and an
+    open pen lets it walk out of the cone pre-latch). Latch =
+    setTarget → CREEPY(17) + SPEED_MODIFIER_ATTACKING. Post-latch:
+    isBeingStaredBy && d²<16 → randomTeleport; d²>256 && 30t →
+    teleportTowards. `EndermanFreezeWhenLookedAt` (JUMP|MOVE)
+    needs getTarget!=null — freeze only exists post-latch.
+    randomTeleport walks the target cell down to the first
+    blocksMotion cell (BlockState.blocksMotion = non-empty
+    collision shape), then requires noCollision && !liquid.
+    Metadata: 16=CARRY_STATE (optional_blockstate, serializer
+    15 = bare VarInt, 0 empty), 17=CREEPY, 18=STARED_AT.
+  - **Implemented** `internal/server/enderstare.go`: enderStares
+    (disguise tag, cone, clipSolidSegment on the eye row),
+    enderStareStep — latched: clear on combat-break (clears
+    CREEPY+STARED_AT), head-track + (stare→freeze + d²<16
+    randomTeleport) / (d²>256 cadence teleportTowards) / else
+    melee chase; pending: stare-only retest, head-track 10°/tick,
+    latch at 5t → CREEPY; pick at 10t cadence over
+    angerInduces. enderTeleport does the walk-down +
+    noCollision/liquid checks then tpMountTeleport + entity
+    event 46 + sound 599 at old and new pos. Entity gains
+    EnderStare*/EnderPending/EnderCreepy/EnderStared fields;
+    neutral gate treats EnderStareTarget as angry; metadata
+    diff+attach emit idx17/18 bools for "enderman".
+    collisionboxes.go gains blocksMotionAt.
+  - **Pinned**: `TestEnderStareParity` vs both servers — off-axis
+    30° / carved_pumpkin / creative all emit nothing; the stare
+    raises idx18, the latch raises idx17; penned stare freezes
+    (net 0 vs 0.05 — vanilla pending strolls), look-away chase
+    (~9 vs ~5, both >1.5); sightline wall blocks (idx18 stays
+    down on a ray-cutting wall); close stare at d²<16 teleports;
+    all fields identical on both legs. Harness lessons (both
+    bites were measured live): (1) the stare emits land INSIDE
+    the aim window — the watch must run concurrently, not after;
+    (2) vehWatch lastPos starts unseeded so a fresh eid's first
+    absolute-pos packet reads distance-from-origin as a delta —
+    vehWatch now takes an optional persistent seed map, seeded
+    at summon pos. Pending window does not freeze: legs must
+    pen on all four sides or the wander breaks the cone.

@@ -141,7 +141,13 @@ type vehObs struct {
 // updateAwaitingTeleport. Metadata entries {index, serializer, value}
 // are captured for the serializers this suite reads (byte=0, int=1,
 // float=3, bool=8).
-func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Duration) vehObs {
+// vehWatch polls the pair for `window`, accumulating observed packets
+// into a fresh vehObs. The optional seeds map persists lastPos across
+// calls — without it the first absolute-pos packet per entity reads
+// its distance from the origin as a delta (a ~29-block phantom when
+// the mob sits at (20,20)), polluting posNet for every fresh eid.
+// Callers seed it once per entity (e.g. at summon pos) and reuse it.
+func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Duration, seeds ...map[int32][3]float64) vehObs {
 	t.Helper()
 	o := vehObs{
 		passengers: -1,
@@ -162,6 +168,13 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 		uuidMeta:   map[[2]int32][16]byte{},
 		hookMeta:   map[int32]int32{},
 		addVel:     map[int32][3]float64{},
+	}
+	var seed map[int32][3]float64
+	if len(seeds) > 0 {
+		seed = seeds[0]
+		for k, p := range seed {
+			o.lastPos[k] = p
+		}
 	}
 	poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
 		defer c.SetReadDeadline(time.Time{})
@@ -454,6 +467,10 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 								o.dashHist = append(o.dashHist,
 									strconv.Itoa(int(peid))+":"+v)
 							}
+						case 15: // optional_blockstate — VarInt (0 empty)
+							if _, err := r.VarInt(); err != nil {
+								break
+							}
 						case 13: // optional_living_entity_reference — bool + uuid
 							present, err := r.Bool()
 							if err != nil {
@@ -536,6 +553,11 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 	// would kill a concurrent reader goroutine on its next read.
 	_ = v.ca.SetReadDeadline(time.Time{})
 	_ = v.cb.SetReadDeadline(time.Time{})
+	if seed != nil {
+		for k, p := range o.lastPos {
+			seed[k] = p
+		}
+	}
 	return o
 }
 

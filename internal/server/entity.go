@@ -544,6 +544,24 @@ type Entity struct {
 	// next add.
 	FrogUnreachable    []int32
 	FrogUnreachableExp int64
+	// EnderStareTarget is the stare-latched player uuid
+	// EndermanLookForPlayerGoal handed to setTarget — the neutral
+	// gate chases it. EnderPending is the pre-latch pendingTarget
+	// inside the 5-tick aggroTime countdown: the stare must persist
+	// through it or stop() clears STARED_AT.
+	EnderStareTarget [16]byte
+	EnderPending     [16]byte
+	// EnderAggroTicks ticks adjustedTickDelay(5) down to the latch;
+	// EnderStareRecalc is the ~10-tick goal-pick cadence;
+	// EnderTeleportTicks is the 30-tick teleportTowards cadence.
+	EnderAggroTicks    int
+	EnderStareRecalc   int
+	EnderTeleportTicks int
+	// EnderCreepy (metadata 17) and EnderStared (18) are the synced
+	// flags: setTarget latches CREEPY, the goal's setBeingStaredAt
+	// latches STARED_AT, setTarget(null) drops both together.
+	EnderCreepy bool
+	EnderStared bool
 	// CubeSize is the slime/magma_cube DATA_SIZE (metadata 16) —
 	// vanilla's internal getSize() (NBT Size+1); 0 means the
 	// defined default 1.

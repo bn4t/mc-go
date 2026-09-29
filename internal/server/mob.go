@@ -2916,6 +2916,8 @@ type livingMeta struct {
 	foxFlags   byte
 	foxTrusted [][16]byte
 	poseTick   int64
+	creepy     bool
+	stared     bool
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2973,6 +2975,8 @@ func snapLivingMeta(e *Entity) livingMeta {
 		foxFlags:   foxFlagsByte(e),
 		foxTrusted: append([][16]byte{}, e.FoxTrusted...),
 		poseTick:   e.LastPoseTick,
+		creepy:     e.EnderCreepy,
+		stared:     e.EnderStared,
 	}
 }
 
@@ -3418,6 +3422,23 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 					tv++
 				}
 				b.VarInt(tv)
+			}
+		case name == "enderman":
+			// DATA_CARRY_STATE (16, OPTIONAL_BLOCK_STATE — VarInt,
+			// 0 empty) never leaves the defined default until a
+			// block is carried. DATA_CREEPY (17) latches on
+			// setTarget; DATA_STARED_AT (18) rides the
+			// LookForPlayerGoal's setBeingStaredAt — setTarget(null)
+			// drops both.
+			if e.EnderCreepy != last.creepy {
+				b.Byte(17)
+				b.Byte(8)
+				b.Bool(e.EnderCreepy)
+			}
+			if e.EnderStared != last.stared {
+				b.Byte(18)
+				b.Byte(8)
+				b.Bool(e.EnderStared)
 			}
 		case name == "slime" || name == "magma_cube":
 			// AbstractCubeMob's DATA_SIZE (16, int) — emits only
@@ -3926,6 +3947,20 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(19)
 				b.Byte(19)
 				b.VarInt(e.FrogTongueTarget + 1)
+			}
+		case "enderman":
+			// DATA_CREEPY (17) / DATA_STARED_AT (18): the false
+			// defaults stay unpacked, and DATA_CARRY_STATE (16)
+			// stays unpacked until a block is carried.
+			if e.EnderCreepy {
+				b.Byte(17)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			if e.EnderStared {
+				b.Byte(18)
+				b.Byte(8)
+				b.Bool(true)
 			}
 		case "slime", "magma_cube":
 			// AbstractCubeMob's DATA_SIZE (16) — the defined 1 packs
@@ -5562,6 +5597,11 @@ func (s *Server) mobTickStep() {
 				goalActed = s.mobCrossbowStep(e, ambName)
 			} else if mobBeam[ambName] {
 				goalActed = s.mobGuardianStep(e, ambName)
+			} else if ambName == "enderman" {
+				// EndermanLookForPlayerGoal + FreezeWhenLookedAt run
+				// ahead of the melee chase — a live stare freezes or
+				// teleports the mob instead of walking.
+				goalActed = s.enderStareStep(e) || s.mobMeleeStep(e)
 			} else if mobMelee[e.Type] {
 				goalActed = s.mobMeleeStep(e)
 			}
@@ -6903,6 +6943,7 @@ var mobNeutral = map[string]bool{
 	"spider":           true,
 	"cave_spider":      true,
 	"bee":              true,
+	"enderman":         true,
 }
 
 // mobSpiderDark is the subset that also hunts unprovoked in the dark
@@ -6919,7 +6960,7 @@ func init() {
 	for _, name := range []string{
 		"zombie", "husk", "drowned", "zombie_villager",
 		"zombified_piglin", "spider", "cave_spider", "iron_golem",
-		"bee",
+		"bee", "enderman",
 	} {
 		if id, ok := EntityTypeID(name); ok {
 			mobMelee[id] = true
@@ -6968,8 +7009,11 @@ func (s *Server) nearestMobTarget(e *Entity, kn string) *Session {
 		// Spiders also target unprovoked when the eye block is dark —
 		// SpiderTargetGoal's light<0.5 gate.
 		if mobNeutral[kn] {
-			angry := e.AngryAt == sess.uuid &&
-				(e.AngryUntil == 0 || s.gameTime() < e.AngryUntil)
+			// The enderman's stare-latched target counts as anger —
+			// LookForPlayerGoal handed it to setTarget.
+			angry := (e.AngryAt == sess.uuid &&
+				(e.AngryUntil == 0 || s.gameTime() < e.AngryUntil)) ||
+				e.EnderStareTarget == sess.uuid
 			if !angry && !(mobSpiderDark[kn] && s.spiderCanHunt(e)) {
 				return true
 			}
