@@ -329,11 +329,17 @@ func wolfArmorCrackLevel(damage, max int32) int {
 // the mob NEUTRAL SoundSource — wolf sounds ride sound_entity
 // packets anchored on the wolf, source NEUTRAL.
 const (
-	sndWolfArmorCrack  int32 = 1792 // item.wolf_armor.crack
-	sndWolfArmorDamage int32 = 1793 // item.wolf_armor.damage
-	sndWolfArmorRepair int32 = 1794 // item.wolf_armor.repair
-	sndWolfHurt        int32 = 1806 // entity.wolf.hurt
-	srcNeutral         int32 = 6
+	sndWolfArmorCrack         int32 = 1792 // item.wolf_armor.crack
+	sndWolfArmorDamage        int32 = 1793 // item.wolf_armor.damage
+	sndWolfArmorRepair        int32 = 1794 // item.wolf_armor.repair
+	sndWolfHurt               int32 = 1806 // entity.wolf.hurt
+	sndCamelDash              int32 = 261  // entity.camel.dash
+	sndCamelDashReady         int32 = 262  // entity.camel.dash_ready
+	sndDonkeyJump             int32 = 535  // entity.donkey.jump
+	sndHorseJump              int32 = 864  // entity.horse.jump
+	sndMuleJump               int32 = 1026 // entity.mule.jump
+	sndSkeletonHorseJumpWater int32 = 1488 // entity.skeleton_horse.jump_water
+	srcNeutral                int32 = 6
 )
 
 // broadcastItemParticles emits one level_particles burst of the ITEM

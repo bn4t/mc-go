@@ -397,7 +397,8 @@ func (s *Server) handlePlayerCommand(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
-	if _, err := r.VarInt(); err != nil { // jump boost
+	data, err := r.VarInt() // jump boost
+	if err != nil {
 		return
 	}
 	// Vanilla 26.2's PlayerCommand actions; sneaking left the enum for
@@ -411,10 +412,12 @@ func (s *Server) handlePlayerCommand(sess *Session, p protocol.Packet) {
 	case 2: // stop sprinting
 		sess.sprinting = false
 		s.broadcastSharedFlags(sess)
-	case 3, 4: // start/stop riding jump
-		// Requires a ridden horse; vanilla ignores it without one.
+	case 3: // start riding jump
+		s.vehicleStartJump(sess, data)
+	case 4: // stop riding jump — vehicle.handleStopJump is empty on
+		// both AbstractHorse and Camel; nothing wire-visible runs.
 	case 5: // open vehicle inventory
-		// Requires a ridden entity; vanilla ignores it without one.
+		s.vehicleOpenInventory(sess)
 	case 6: // start flying with elytra
 		// Vanilla runs tryToStartFallFlying regardless of game mode —
 		// canGlide's airborne/passenger/levitation/glider checks do

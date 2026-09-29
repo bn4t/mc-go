@@ -1424,6 +1424,46 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			e.InLove = int32(v)
 		}
 	}
+	// AbstractHorse.readAdditionalSaveData: Tame flips the
+	// DATA_ID_FLAGS byte; AbstractChestedHorse's ChestedHorse flag
+	// swaps the inventory in; the llama family's setStrength clamps
+	// [1,5] and its Variant lands the enum id; Horse's Variant int is
+	// the packed type|markings value.
+	if mountScreenTypes[name] {
+		if v, ok := save["Tame"]; ok {
+			if t := nbtTruth(v); t != e.Tamed {
+				e.Tamed = t
+				e.MetaDirty = true
+			}
+		}
+	}
+	if chestedMountTypes[name] {
+		if v, ok := save["ChestedHorse"]; ok {
+			e.HasChest = nbtTruth(v)
+		}
+	}
+	if llamaDecorTypes[name] {
+		if v, ok := nbtInt32(save["Strength"]); ok {
+			if st := int32(max(1, min(5, int(v)))); st != e.Strength {
+				e.Strength = st
+				e.MetaDirty = true
+			}
+		}
+		if v, ok := nbtInt32(save["Variant"]); ok {
+			if vv := v & 3; vv != e.LlamaVariant {
+				e.LlamaVariant = vv
+				e.MetaDirty = true
+			}
+		}
+	}
+	if name == "horse" {
+		if v, ok := nbtInt32(save["Variant"]); ok {
+			if v != e.Variant {
+				e.Variant = v
+				e.MetaDirty = true
+			}
+		}
+	}
 	// Raider.readAdditionalSaveData: Wave int, CanJoinRaid bool,
 	// and RaidId re-joins the raid when it still exists.
 	if raidRaiderType(name) {
@@ -1469,7 +1509,8 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"MainGene": true, "HiddenGene": true,
 		"variant": true, "sound_variant": true, "type": true,
 		"CollarColor": true,
-		"angry_at":    true, "AngerTime": true,
+		"Tame":        true, "ChestedHorse": true, "Strength": true,
+		"angry_at": true, "AngerTime": true,
 		"HasNectar": true, "HasStung": true,
 		"TicksSincePollination": true, "CannotEnterHiveTicks": true,
 		"CropsGrownSincePollination": true,

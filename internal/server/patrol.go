@@ -347,7 +347,13 @@ func init() {
 			mobDespawnKinds[name] = true
 		}
 	}
-	for name := range summonHealthDefault {
+	// The AbstractHorse family spawns off entityAttrBases (they used
+	// to ride summonHealthDefault when the supplier skipped
+	// max_health) — keep them in the summonable set.
+	for _, name := range []string{
+		"horse", "donkey", "mule", "llama", "trader_llama",
+		"zombie_horse", "skeleton_horse", "camel", "camel_husk",
+	} {
 		mobDespawnKinds[name] = true
 	}
 	for name := range patrollingTypes {

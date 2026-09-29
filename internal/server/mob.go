@@ -564,7 +564,7 @@ var mobHealth = map[string]float32{
 	"spider":           16,
 	"sniffer":          14,
 	"iron_golem":       100,
-	"horse":            25, // vanilla rolls 15-30 at spawn
+	"horse":            53, // createBaseHorseAttributes' base; natural/init spawns re-roll 15-30
 	"wolf":             8,
 	"cat":              10,
 	"ocelot":           10,
@@ -1558,6 +1558,14 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.Variant = int32(snbtNum(v))
 				}
 			}
+			// Horse.readAdditionalSaveData's Variant int — the packed
+			// TypeAndMarking value (type | markings<<8) that rides
+			// DATA_TYPE_VARIANT (idx21) on the wire.
+			if name == "horse" {
+				if v, ok := tag.vals["Variant"]; ok {
+					e.Variant = int32(snbtNum(v))
+				}
+			}
 			if name == "axolotl" {
 				if v, ok := tag.vals["FromBucket"]; ok {
 					e.FromBucket = snbtNum(v) > 0
@@ -2322,13 +2330,6 @@ func (s *Server) summonMobInitSpawn(d *dimension, name string, x, y, z float64, 
 	return e, true
 }
 
-// summonHealthDefault covers the types whose attribute supplier skips
-// max_health because finalizeSpawn randomizes it — they still summon
-// at the attribute default (LivingEntity's 20).
-var summonHealthDefault = map[string]bool{
-	"donkey": true, "mule": true, "llama": true, "trader_llama": true,
-}
-
 // summonMobRaw is summonMob without the broadcast: the caller applies
 // summon NBT first so the tracker-attach burst carries the final
 // metadata and equipment. summonMob stays for callers with no NBT.
@@ -2400,17 +2401,9 @@ func (s *Server) summonMobRawSpawn(d *dimension, name string, x, y, z float64, n
 		// health differs (horse rolls 15-30, sulfur_cube 4*size).
 		b, ok := entityAttrBases[name]["max_health"]
 		if !ok || b <= 0 {
-			// Chested horses randomize max_health in finalizeSpawn
-			// (15-30 natural roll); a tagged summon skips the roll
-			// and falls back to the attribute's own default of 20.
-			if summonHealthDefault[name] {
-				health = 20
-			} else {
-				return nil, false
-			}
-		} else {
-			health = float32(b)
+			return nil, false
 		}
+		health = float32(b)
 	}
 	e := s.entities.Spawn(&Entity{
 		Type:      id,
@@ -2805,6 +2798,12 @@ type livingMeta struct {
 	cubeSize   int32
 	tameFlags  byte
 	ownerUUID  [16]byte
+	eqFlags    byte
+	dash       bool
+	eqVar      int32
+	llamaStr   int32
+	llamaVar   int32
+	ageLock    bool
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2851,6 +2850,12 @@ func snapLivingMeta(e *Entity) livingMeta {
 		cubeSize:   cubeSizeOf(e),
 		tameFlags:  tamableFlagsByte(e),
 		ownerUUID:  e.ownerUUID,
+		eqFlags:    equineFlagsByte(e),
+		dash:       e.Dashing,
+		eqVar:      e.Variant,
+		llamaStr:   e.Strength,
+		llamaVar:   e.LlamaVariant,
+		ageLock:    e.AgeLocked,
 	}
 }
 
@@ -2946,6 +2951,15 @@ func (e *Entity) ensureMetaInit() {
 		e.metaSent.beeAnger = -1
 		e.metaSent.hVarID = holderVariantID(n, "")
 		e.metaSent.hSoundID = holderSoundVariantID(n, "")
+		// Equine DEFINE defaults: DATA_ID_FLAGS 0, DASH false,
+		// STRENGTH/VARIANT/type-variant all 0 — a summoned-with-NBT
+		// mount replays each non-default value after the attach.
+		e.metaSent.eqFlags = 0
+		e.metaSent.dash = false
+		e.metaSent.eqVar = 0
+		e.metaSent.llamaStr = 0
+		e.metaSent.llamaVar = 0
+		e.metaSent.ageLock = false
 	}
 }
 
@@ -3335,6 +3349,53 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(19)
 				b.Byte(8)
 				b.Bool(e.Suffocating)
+			}
+		case equineTypes[name]:
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.Baby)
+			}
+			if e.AgeLocked != last.ageLock {
+				b.Byte(17)
+				b.Byte(8)
+				b.Bool(e.AgeLocked)
+			}
+			// AbstractHorse's DATA_ID_FLAGS (18, byte) — TAME 0x02;
+			// the saddle rides equipment.saddle, not this byte.
+			if f := equineFlagsByte(e); f != last.eqFlags {
+				b.Byte(18)
+				b.Byte(0)
+				b.Byte(f)
+			}
+			switch name {
+			case "horse":
+				// DATA_TYPE_VARIANT (19, int = type|markings<<8).
+				if e.Variant != last.eqVar {
+					b.Byte(19)
+					b.Byte(1)
+					b.VarInt(e.Variant)
+				}
+			case "llama", "trader_llama":
+				// DATA_STRENGTH_ID (20, int) + DATA_VARIANT_ID (21).
+				if e.Strength != last.llamaStr {
+					b.Byte(20)
+					b.Byte(1)
+					b.VarInt(e.Strength)
+				}
+				if e.LlamaVariant != last.llamaVar {
+					b.Byte(21)
+					b.Byte(1)
+					b.VarInt(e.LlamaVariant)
+				}
+			case "camel":
+				// DATA_DASH (19, bool) — arms on START_RIDING_JUMP,
+				// clears on the next grounded tick.
+				if e.Dashing != last.dash {
+					b.Byte(19)
+					b.Byte(8)
+					b.Bool(e.Dashing)
+				}
 			}
 		case name == "cow":
 			if e.Baby != last.baby {
@@ -3933,6 +3994,23 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(1) // type: varint
 				b.VarInt(1)
 			}
+		case "horse", "zombie_horse", "skeleton_horse", "donkey",
+			"mule", "llama", "trader_llama", "camel":
+			// The AbstractHorse family: AgeableMob's baby/age_locked
+			// pair (16/17), DATA_ID_FLAGS (20) via equineMetaPack,
+			// then the per-subtype slots (horse type-variant 21,
+			// llama strength+variant 21/22, camel DASH 21).
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			if e.AgeLocked {
+				b.Byte(17)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			equineMetaPack(&b, e, name)
 		default:
 			// The rest of the AgeableMob family keeps its inherited
 			// DATA_BABY_ID at index 16 (measured: pig, cow, sheep,
@@ -4110,6 +4188,66 @@ func mobFlagsByte(e *Entity) byte {
 		flags |= 0x04
 	}
 	return flags
+}
+
+// equineTypes is the AbstractHorse family — they all carry the
+// DATA_ID_FLAGS byte at metadata index 18 (AbstractHorse extends
+// Animal — the TamableAnimal slots don't exist here). Horse adds
+// DATA_TYPE_VARIANT (19, int = type | markings<<8); the llama family
+// adds DATA_STRENGTH_ID (20, int) and DATA_VARIANT_ID (21, int);
+// Camel adds DATA_DASH (19, bool) and DATA_LAST_POSE_CHANGE_TICK (20,
+// long — the pose-transition timestamp mc-go does not model).
+var equineTypes = map[string]bool{
+	"horse": true, "zombie_horse": true, "skeleton_horse": true,
+	"donkey": true, "mule": true, "llama": true,
+	"trader_llama": true, "camel": true,
+}
+
+// equineFlagsByte packs AbstractHorse's DATA_ID_FLAGS byte (idx20):
+// 0x02 TAME | 0x08 BRED | 0x10 EATING | 0x20 STANDING | 0x40
+// OPEN_MOUTH. Only TAME is modeled — the rest pulse during grazing,
+// rearing and mouth-open animations mc-go does not simulate.
+func equineFlagsByte(e *Entity) byte {
+	var flags byte
+	if e.Tamed {
+		flags |= 0x02
+	}
+	return flags
+}
+
+// equineMetaPack writes the AbstractHorse family's non-default
+// metadata entries into an attach/sendChanges pack.
+func equineMetaPack(b *protocol.Buffer, e *Entity, name string) {
+	if f := equineFlagsByte(e); f != 0 {
+		b.Byte(18)
+		b.Byte(0) // serializer: byte
+		b.Byte(f)
+	}
+	switch name {
+	case "horse":
+		if e.Variant != 0 {
+			b.Byte(19)
+			b.Byte(1) // serializer: int
+			b.VarInt(e.Variant)
+		}
+	case "llama", "trader_llama":
+		if e.Strength != 0 {
+			b.Byte(20)
+			b.Byte(1)
+			b.VarInt(e.Strength)
+		}
+		if e.LlamaVariant != 0 {
+			b.Byte(21)
+			b.Byte(1)
+			b.VarInt(e.LlamaVariant)
+		}
+	case "camel":
+		if e.Dashing {
+			b.Byte(19)
+			b.Byte(8) // serializer: boolean
+			b.Bool(true)
+		}
+	}
 }
 
 // villagerProfessionNames inverts villagerProfessionIDs — the
@@ -4907,6 +5045,28 @@ func (s *Server) mobTickStep() {
 		// super.aiStep, so NoAI guardians flop too.
 		if mobBeam[ambName] {
 			s.guardianFlopStep(e, s.dimWorld(e.Dim))
+		}
+		// Camel.tick's dash tail: DASH clears once the cooldown is
+		// below 50 AND the camel registers ground (onGround ||
+		// isInLiquid || isPassenger — the latter two unmodeled);
+		// the cooldown decays independently and fires the
+		// dash_ready positional sound at 0. A ridden camel's
+		// Grounded only reflects the driver's move_vehicle
+		// packets, so a mounted NoAI camel keeps the flag on.
+		if ambName == "camel" {
+			if e.Dashing && e.DashCooldown < 50 && e.Grounded {
+				e.Dashing = false
+				e.MetaDirty = true
+				if e.DashCooldown == 0 {
+					e.DashCooldown = 55
+				}
+			}
+			if e.DashCooldown > 0 {
+				e.DashCooldown--
+				if e.DashCooldown == 0 {
+					s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, sndCamelDashReady, srcNeutral, 1.0, 1.0, nil)
+				}
+			}
 		}
 		// Chicken.aiStep's egg block: isAlive && !isBaby &&
 		// !isChickenJockey && --eggTime <= 0 lays an egg at the mob's

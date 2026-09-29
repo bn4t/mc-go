@@ -13380,3 +13380,46 @@ already in place; the missing piece was the interact arm itself:
   (`armor=true:7→0 hp=40 unsit=0 reposed=true snd=true scute=3`)
   and mc-go (`armor=true:9→1 hp=40 unsit=0 reposed=true snd=true
   scute=3`).
+
+## Slice — equine metadata chain + camel dash + vehicle player_command (26.2)
+
+- Equine metadata: AbstractHorse extends Animal (NOT TamableAnimal),
+  so the family's chain is Entity 0-7, LivingEntity 8-14, Mob 15,
+  AgeableMob 16-17, DATA_ID_FLAGS **18** (byte; TAME 0x02 — BRED/
+  EATING/STANDING/OPEN_MOUTH bits ride unmodeled animations), then
+  per-subtype: Horse DATA_TYPE_VARIANT 19 (int type|markings<<8),
+  llama family DATA_STRENGTH_ID 20 + DATA_VARIANT_ID 21, Camel
+  DATA_DASH 19 + LAST_POSE_CHANGE_TICK 20 (long — unmodeled). Wired
+  in the attach pack + diff emit + metaSent baseline.
+- `entityAttrBases` now carries the full resolved supplier sets for
+  donkey/mule/llama/trader_llama (chested set: horse rows with jump
+  0.5, speed 0.175) + skeleton_horse (15hp/0.2 speed) + zombie_horse
+  (25hp) — a tagged `/summon` skips finalizeSpawn's attribute rolls,
+  so vanilla emits the unrolled bases (horse health 53.0 not the
+  hardcoded 25, llama 53.0 not the 20 fallback). `summonHealthDefault`
+  deleted; `mobHealth["horse"]=53`.
+- `/data merge` now applies `Tame` (flags-byte flip), `ChestedHorse`,
+  `Strength` (clamped [1,5]) + `Variant` (llama id `v&3`, horse
+  packed int) instead of dropping them into ExtraNBT.
+- `handlePlayerCommand` wires START_RIDING_JUMP (action 3) +
+  STOP (4, no-op) + OPEN_INVENTORY (5). `canJump` = isSaddled
+  (camel adds `!refuseToMove` — unmodeled sit). Camel's
+  handleStartJump: CAMEL_DASH positional (262) + entity_action
+  gameEvent + DASH=true; the data write rearms `DashCooldown`=55
+  (onSyncedDataUpdated — every DASH write while 0 rearms), tick()
+  clears DASH only at cooldown<50 AND grounded, and decays to
+  CAMEL_DASH_READY (263) at 0. Measured: a mounted NoAI camel keeps
+  DASH on for the whole ride (its server-side onGround mirrors the
+  driver's move_vehicle packets; never grounded → never clears) —
+  the move_vehicle probe that reports ground clears it next tick.
+- Non-camel equines play their family jump sound at 0.4/1.0:
+  donkey→535, mule→1026, skeleton_horse→1488 in water else horse's
+  864 (llama/zombie_horse inherit horse).
+- Camel mounts regardless (isTamed() is literal true — fixed
+  mountAllowed + sendMountMenu's isTamed arm; camel still opens the
+  mount screen saddled or not).
+- `TestEquineMetaParity` verbatim-compares the attach/diff metadata
+  stream on six summon+merge cases vs both servers;
+  `TestCamelDashParity` pins [eid:1]-persists-while-ridden +
+  262+263 sounds + the move_vehicle clear + data=0 silence — green
+  vs vanilla and mc-go.

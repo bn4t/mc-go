@@ -74,6 +74,11 @@ func mountAllowed(name string, e *Entity) bool {
 	case isSteerableName(name):
 		return e.Saddle
 	case isEquineName(name):
+		// Camel.mobInteract mounts any adult regardless — its
+		// isTamed() is unconditionally true.
+		if name == "camel" {
+			return !e.Baby
+		}
 		return e.Tamed && !e.Baby
 	}
 	return false
@@ -1704,4 +1709,68 @@ func (s *Server) entityBoxCollides(w *world.World, x, y, z, half, h float64) boo
 		}
 	}
 	return false
+}
+
+// vehicleStartJump is handlePlayerCommand's START_RIDING_JUMP arm
+// (action 3): the packet handler runs vehicle.handleStartJump(data)
+// when vehicle.canJump() && data > 0. canJump is AbstractHorse's
+// isSaddled; Camel adds !refuseToMove (the Brain-driven camel-sit
+// mc-go does not model). STOP_RIDING_JUMP (action 4) and the
+// data<=0 else-arm reach the empty handleStopJump — no wire work.
+func (s *Server) vehicleStartJump(sess *Session, data int32) {
+	if data <= 0 {
+		return
+	}
+	e, ok := s.entities.GetPtr(sess.riding.Load())
+	if !ok || e == nil || e.Dying || !e.Saddle {
+		return
+	}
+	name, ok := EntityTypeName(e.Type)
+	if !ok || !equineTypes[name] {
+		return
+	}
+	if name == "camel" {
+		// Camel.handleStartJump: CAMEL_DASH positional sound +
+		// gameEvent(ENTITY_ACTION) + setDashing(true). The pitch is
+		// LivingEntity's voice roll (rand-rand)*0.2+1.
+		pitch := float32(1.0 + (rand.Float64()-rand.Float64())*0.2)
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, sndCamelDash, srcNeutral, 1.0, pitch, nil)
+		s.emitGameEvent(s.dims[e.Dim], "entity_action", e.X, e.Y, e.Z, sess, "")
+		// setDashing fires the DASH data-write hook — the
+		// onSyncedDataUpdated arm rearms dashCooldown to 55 on
+		// every write that lands while it's 0.
+		if !e.Dashing {
+			e.Dashing = true
+			e.MetaDirty = true
+		}
+		if e.DashCooldown == 0 {
+			e.DashCooldown = 55
+		}
+		return
+	}
+	// AbstractHorse.handleStartJump: allowStandSliding = true and
+	// standIfPossible() drop a rearing horse (the rear animation is
+	// unmodeled) — the wire-visible piece is playJumpSound at
+	// 0.4/1.0. Donkey/Mule/SkeletonHorse override the event.
+	snd := sndHorseJump
+	switch name {
+	case "donkey":
+		snd = sndDonkeyJump
+	case "mule":
+		snd = sndMuleJump
+	case "skeleton_horse":
+		if d := s.dims[e.Dim]; d != nil {
+			if k, _, wet := speleoFluidAt(d, world.Pos{X: int(e.X), Y: int(e.Y), Z: int(e.Z)}); wet && k == fluidWater {
+				snd = sndSkeletonHorseJumpWater
+			}
+		}
+	}
+	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd, srcNeutral, 0.4, 1.0, nil)
+}
+
+// vehicleOpenInventory is handlePlayerCommand's OPEN_INVENTORY arm
+// (action 5): a ridden HasCustomInventoryScreen mount runs
+// openCustomInventoryScreen — the same menu the sneak-interact opens.
+func (s *Server) vehicleOpenInventory(sess *Session) {
+	s.sendMountMenu(sess, sess.riding.Load())
 }

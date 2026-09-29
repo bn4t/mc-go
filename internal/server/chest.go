@@ -406,13 +406,37 @@ func (s *Server) openMountInventory(sess *Session, eid int32, sneaking bool) {
 	if !sneaking {
 		return
 	}
+	s.sendMountMenu(sess, eid)
+}
+
+// sendMountMenu is AbstractHorse.openCustomInventoryScreen: the mount
+// screen opens when the entity is tamed AND carries no rider other
+// than the requesting player (vanilla: (!isVehicle ||
+// hasPassenger(player)) && isTamed()). The sneak-interact and the
+// OPEN_INVENTORY player_command both funnel here.
+func (s *Server) sendMountMenu(sess *Session, eid int32) {
 	e, ok := s.entities.GetPtr(eid)
 	if !ok || e == nil || e.Dying || e.Dim != sess.dimName() {
 		return
 	}
 	name, ok := EntityTypeName(e.Type)
-	if !ok || !mountScreenTypes[name] || !e.Tamed {
+	// Camel.isTamed() is literal true — every camel passes
+	// openCustomInventoryScreen's isTamed arm.
+	if !ok || !mountScreenTypes[name] || (!e.Tamed && name != "camel") {
 		return
+	}
+	if len(e.Passengers) > 0 {
+		me := sess.entityID.Load()
+		riding := false
+		for _, p := range e.Passengers {
+			if p == me {
+				riding = true
+				break
+			}
+		}
+		if !riding {
+			return
+		}
 	}
 	cols := mountInventoryColumns(e)
 	inv := 2 + 3*cols // AbstractMountInventoryMenu.getInventorySize

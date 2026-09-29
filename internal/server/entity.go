@@ -442,6 +442,16 @@ type Entity struct {
 	// MoreCarrotTicks is Rabbit's MoreCarrotTicks NBT int (the
 	// raid countdown — 0 on a summoned rabbit).
 	MoreCarrotTicks int32
+	// Dashing is Camel's synced DATA_DASH flag (idx19). The arm
+	// comes from the START_RIDING_JUMP player_command on a saddled
+	// camel.
+	Dashing bool
+	// DashCooldown is Camel's server-side cooldown: any DASH data
+	// write while it's 0 rearms it to 55 (onSyncedDataUpdated);
+	// tick() decrements it and Camel.tick clears DASH only once the
+	// cooldown is below 50 AND the camel is grounded. At 0 it plays
+	// the dash_ready sound.
+	DashCooldown int32
 	// Sleeping/Sitting/Crouching are Fox's three pose bools in
 	// addAdditionalSaveData. On a cat, Sitting is TamableAnimal's
 	// orderedToSit — it gates CatRelaxOnOwnerGoal.

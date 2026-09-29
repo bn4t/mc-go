@@ -120,6 +120,8 @@ type vehObs struct {
 	poseHist   []string               // unscoped (idx6, ser20) emits "eid:v" — DATA_POSE values
 	flagsHist  []string               // unscoped (idx15, ser0) emits "eid:v" — DATA_MOB_FLAGS bytes
 	beeFlHist  []string               // unscoped (idx18, ser0) emits "eid:v" — bee DATA_FLAGS bytes
+	eqFlHist   []string               // unscoped (idx18, ser0) emits "eid:v" — AbstractHorse DATA_ID_FLAGS bytes
+	dashHist   []string               // unscoped (idx19, ser8) emits "eid:v" — camel DATA_DASH bools
 	angerHist  []string               // unscoped (idx19, ser2) emits "eid:v" — anger_end_time varlongs
 }
 
@@ -330,6 +332,10 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 								o.beeFlHist = append(o.beeFlHist,
 									strconv.Itoa(int(peid))+":"+strconv.Itoa(int(bv)))
 							}
+							if int(idx) == 18 {
+								o.eqFlHist = append(o.eqFlHist,
+									strconv.Itoa(int(peid))+":"+strconv.Itoa(int(bv)))
+							}
 						case 1: // int
 							vv, err := r.VarInt()
 							if err != nil {
@@ -376,6 +382,14 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 									v = "1"
 								}
 								o.bitHist = append(o.bitHist,
+									strconv.Itoa(int(peid))+":"+v)
+							}
+							if int(idx) == 19 {
+								v := "0"
+								if vv {
+									v = "1"
+								}
+								o.dashHist = append(o.dashHist,
 									strconv.Itoa(int(peid))+":"+v)
 							}
 						case 13: // optional_living_entity_reference — bool + uuid

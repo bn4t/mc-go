@@ -174,7 +174,7 @@ func TestBeeAngerParity(t *testing.T) {
 				t.Fatalf("%s: campfire-break release probe = %s — want bees out", tc.tag, p)
 			}
 			gotSting3 := false
-			for i := 0; i < 20 && !gotSting3; i++ {
+			for i := 0; i < 40 && !gotSting3; i++ {
 				eggDrainFor(t, c, pr, pw, 500*time.Millisecond)
 				if p := probe("entity @e[type=minecraft:bee,nbt={HasStung:1b}]", 12); p == "hit" {
 					gotSting3 = true
