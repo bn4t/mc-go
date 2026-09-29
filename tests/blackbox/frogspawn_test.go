@@ -156,15 +156,15 @@ func TestFrogspawnHatchParity(t *testing.T) {
 
 		// Tadpoles inside the water below the egg site: nextInt(2,6)
 		// of them, all persistenceRequired=1b, none near the popped
-		// stone egg.
-		tadSel := "@e[type=minecraft:tadpole,distance=..4,x=101,y=-61.5,z=101]"
+		// stone egg. The pad spans 6x6 so the radius covers a
+		// tadpole that swam into a corner before the sprint ended.
+		tadSel := "@e[type=minecraft:tadpole,distance=..6,x=101,y=-61.5,z=101]"
 		out = append(out, entProbe(pw, sink, tadSel, 5))
 		out = append(out, entProbe(pw, sink,
-			"@e[type=minecraft:tadpole,distance=..4,x=101,y=-61.5,z=101,nbt={PersistenceRequired:1b}]", 6))
+			"@e[type=minecraft:tadpole,distance=..6,x=101,y=-61.5,z=101,nbt={PersistenceRequired:1b}]", 6))
 		out = append(out, entProbe(pw, sink,
 			"@e[type=minecraft:tadpole,distance=..4,x=116,y=-61.5,z=116]", 7))
-		n := countTadpoles(pw, sink, tadSel, 8)
-		return out, n
+		return out, countTadpoles(pw, sink, tadSel, 8)
 	}
 
 	van, vanN := run(targets.vanilla)

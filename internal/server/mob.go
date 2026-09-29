@@ -656,6 +656,22 @@ func init() {
 		"snow_golem":       {0.7, 1.9},
 		"guardian":         {0.85, 0.85},
 		"elder_guardian":   {1.9975, 1.9975},
+		// Aquatics — sized() off EntityTypes' 26.2 clinits. Missing
+		// entries fell back to the 0.6x1.8 player box, whose eye probe
+		// reads a cell well above the mob and mis-fires the in_wall
+		// suffocation arm near terrain (killed hatched tadpoles).
+		"tadpole":         {0.4, 0.3},
+		"cod":             {0.5, 0.3},
+		"salmon":          {0.7, 0.4},
+		"tropical_fish":   {0.5, 0.4},
+		"pufferfish":      {0.7, 0.7},
+		"squid":           {0.8, 0.8},
+		"glow_squid":      {0.8, 0.8},
+		"axolotl":         {0.75, 0.42},
+		"frog":            {0.5, 0.5},
+		"dolphin":         {0.9, 0.6},
+		"nautilus":        {0.875, 0.95},
+		"zombie_nautilus": {0.875, 0.95},
 	} {
 		if id, ok := EntityTypeID(name); ok {
 			mobBoundsTable[id] = dims
@@ -5174,6 +5190,14 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 		return
 	}
 	e.WanderTicks++
+	// FishSwimGoal is RandomSwimmingGoal — a faster cadence
+	// (interval 40) and a water-cell target draw. The ground
+	// wander's ledge rule would park every fish, and the generic
+	// ±10 target draws walk them out of the water onto land.
+	if fishWanderTypes[name] {
+		s.fishSwimStep(e, w, name, inWater, wDepth)
+		return
+	}
 	if !e.Strolling {
 		// Goal's canUse: interval-tick roll (reducedTickDelay(120) in
 		// vanilla — a ~6s mean idle between strolls).
@@ -5554,6 +5578,93 @@ func (s *Server) mobJumpOutOfFluid(w *world.World, e *Entity, arg float64, bound
 // windows always contain strolls.
 func strollIntervalFor(eid int32) int64 {
 	return 100 + int64((uint32(eid)*2654435761>>16)%41)
+}
+
+// fishWanderTypes is the AbstractFish family — their goal is
+// AbstractFish.FishSwimGoal(RandomSwimmingGoal(1.0, 40)) instead of
+// the land RandomStrollGoal, so the stroll cadence, the target draw
+// and the ground-support rules all differ.
+var fishWanderTypes = map[string]bool{
+	"cod":           true,
+	"salmon":        true,
+	"tropical_fish": true,
+	"pufferfish":    true,
+	"tadpole":       true,
+}
+
+// fishSwimStep is FishSwimGoal: RandomSwimmingGoal.canUse rolls
+// nextInt(reducedTickDelay(40)) then getRandomSwimmablePos retries
+// DefaultRandomPos up to 10 times for a cell that isPathfindable by
+// the WATER computation — in mc-go terms, a water-fluid cell. A fish
+// out of water can still draw (a beached fish slides toward nearby
+// water — vanilla's flop); a fish mid-stroll whose path enters a
+// solid block gives up, but open air under the path does not park it
+// since the box is suspended in fluid anyway.
+func (s *Server) fishSwimStep(e *Entity, w *world.World, name string, inWater bool, wDepth float64) {
+	if !e.Strolling {
+		interval := 40 + int64((uint32(e.ID)*2654435761>>16)%21)
+		if e.WanderTicks%interval != 0 {
+			s.mobTravelStep(e, w, 0)
+			return
+		}
+		for i := int64(0); i < 10; i++ {
+			tx := e.X + strollOffset(e.ID, e.WanderTicks+i*3)
+			tz := e.Z + strollOffset(e.ID, e.WanderTicks+i*3+7)
+			ty := e.Y + strollOffset(e.ID, e.WanderTicks+i*3+13)*0.7
+			p := world.Pos{
+				X: int(math.Floor(tx)),
+				Y: int(math.Floor(ty)),
+				Z: int(math.Floor(tz)),
+			}
+			if cellFluidIsWater(w.GetBlock(p)) {
+				e.Strolling = true
+				e.StrollSteps = 0
+				e.StrollTX, e.StrollTZ = tx, tz
+				break
+			}
+		}
+		if !e.Strolling {
+			s.mobTravelStep(e, w, 0)
+			return
+		}
+	}
+	e.StrollSteps++
+	tx, tz := e.StrollTX-e.X, e.StrollTZ-e.Z
+	dist := math.Hypot(tx, tz)
+	if dist < 0.4 || e.StrollSteps > 160 {
+		e.Strolling = false
+		e.WanderTicks = 0
+		s.mobTravelStep(e, w, 0)
+		return
+	}
+	speed, ok := entityAttrBases[name]["movement_speed"]
+	if !ok || speed <= 0 {
+		speed = mobWalkSpeed
+	}
+	step := speed
+	if step > dist {
+		step = dist
+	}
+	mobTurnToward(e, tx, tz, 90)
+	e.LookYaw = e.Yaw
+	nx := e.X + tx/dist*step
+	nz := e.Z + tz/dist*step
+	nextSpace := world.Pos{
+		X: int(math.Floor(nx)),
+		Y: int(math.Floor(e.Y)),
+		Z: int(math.Floor(nz)),
+	}
+	if nb := w.GetBlock(nextSpace); nb != world.Air && !moveNoCollision(nb) {
+		e.Strolling = false
+		e.WanderTicks = 0
+		if inWater && wDepth > 0 {
+			s.mobTravelStep(e, w, speed)
+		} else {
+			s.mobTravelStep(e, w, 0)
+		}
+		return
+	}
+	s.mobTravelStep(e, w, speed)
 }
 
 // strollOffset is the DefaultRandomPos target component: a ±10 offset

@@ -13284,3 +13284,24 @@ dirty gate, and `TestBeeStingParity` pins every beat vs both servers:
 - Harness: vehObs gained `beeFlHist` (idx18 ser0) + `angerHist`
   (idx19 ser2 — **VarLong**, not VarInt: `-1` is a 10-byte LEB and
   VarInt misreads/drops it, which hid vanilla's clear emit).
+
+## Slice — tadpole/fish survival + FishSwimGoal parity (26.2)
+
+`TestFrogspawnHatchParity` is green vs both servers. Two real bugs the
+test surfaced:
+
+- mobBoundsTable missed every aquatic mob: the [0.6,1.8] player-box
+  fallback put the in_wall eye probe (Y + h*0.85) ~1.5 cells above a
+  tadpole's body — it read the grass rim instead of the water and
+  suffocated every hatch within seconds. All 12 aquatics now carry
+  their EntityTypes.sized() dims (tadpole 0.4x0.3, axolotl 0.75x0.42,
+  nautilus family 0.875x0.95, ...).
+- Fish used the land RandomStrollGoal: ±10 ground targets with a
+  ledge rule, which walked tadpoles out of the pad. Vanilla fish run
+  AbstractFish.FishSwimGoal = RandomSwimmingGoal(1.0, 40) — the
+  getRandomSwimmablePos draw retries DefaultRandomPos <=10x for a
+  water-pathfindable cell. New fishSwimStep: 40-60 cadence, 10-draw
+  water-cell target pick, no ground-support requirement (box is
+  fluid-borne), stroll ends on solid-block contact.
+- Probe fix: distance=..4 under-covered the 6x6 pad (corner ~4.5) —
+  widened to ..6; mc-go's survivors were in the far corner.
