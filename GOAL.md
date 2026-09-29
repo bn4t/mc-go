@@ -12617,3 +12617,33 @@ DATA_BOOST_TIME+DATA_SUFFOCATING (ItemBasedSteering is shared —
 the strider meta emit case doesn't exist yet), boost travel
 physics (getRiddenSpeed·0.225·boostFactor), world-seeded RNG
 parity for bare-summon rolls.
+## Slice — strider DATA_SUFFOCATING + suffocating modifier (2026-10-02)
+
+Measured: Strider.defineSynchedData (javap): DATA_BOOST_TIME idx18
+(int) then DATA_SUFFOCATING idx19 (boolean) after the Animal chain —
+no variant/sound holders. Strider.tick under !isNoAi: warm =
+own-block or on-block is STRIDER_WARM_BLOCKS ({lava}) or lava fluid
+height > 0, or the vehicle is a non-suffocating strider;
+suffocating = !warm, entityData.set every tick (no-op writes land
+as nothing). setSuffocating also flips a transient SUFFOCATING
+movement_speed modifier (id "suffocating", -0.34
+add_multiplied_base, base 0.175) — re-arming the update_attributes
+resend, which carries the literal modifier id on the wire.
+Suffocating is never persisted (no Strider save keys).
+
+Pinned: TestStriderParity — summon saddled strider on land flips
+idx19 true within a tick (+ update_attributes carrying the
+"suffocating" modifier id), setblock lava beneath flips it back,
+and warped_fungus_on_a_stick (strider, damage 1, durability 100)
+boosts idx18 exactly once. mc-go: mobMoveStep computes the warm
+predicate per tick (blockAt both positions + the lava fluid probe
++ the strider-stack parent check), mobSyncAttrs now folds every
+live AttrMod into the emitted entry (previously only effect.speed
+reached the wire — summon/attribute-command modifiers never
+resynced on mobs).
+
+Still open: cat IS_LYING/RELAX_STATE_ONE (idx21/22), frog
+DATA_TONGUE_TARGET, addTrustedEntity via taming, boost travel
+physics (getRiddenSpeed·0.225·boostFactor — strider's adds the
+0.35/0.55 suffocating factor), world-seeded RNG parity for
+bare-summon rolls.

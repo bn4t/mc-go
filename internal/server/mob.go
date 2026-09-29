@@ -2681,6 +2681,7 @@ type livingMeta struct {
 	hVarID     int32
 	hSoundID   int32
 	boost      int32
+	suffoc     bool
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2717,6 +2718,7 @@ func snapLivingMeta(e *Entity) livingMeta {
 		hVarID:     holderVariantIDOf(e),
 		hSoundID:   holderSoundVariantIDOf(e),
 		boost:      int32(e.BoostTimeTotal),
+		suffoc:     e.Suffocating,
 	}
 }
 
@@ -3073,6 +3075,25 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(20)
 				b.Byte(29)
 				b.VarInt(id)
+			}
+		case name == "strider":
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.Baby)
+			}
+			// DATA_BOOST_TIME (18, int) — same ItemBasedSteering
+			// contract as the pig.
+			if int32(e.BoostTimeTotal) != last.boost {
+				b.Byte(18)
+				b.Byte(1)
+				b.VarInt(int32(e.BoostTimeTotal))
+			}
+			// DATA_SUFFOCATING (19, boolean).
+			if e.Suffocating != last.suffoc {
+				b.Byte(19)
+				b.Byte(8)
+				b.Bool(e.Suffocating)
 			}
 		case name == "cow":
 			if e.Baby != last.baby {
@@ -3481,6 +3502,25 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(20)
 				b.Byte(29) // serializer: pig_sound_variant
 				b.VarInt(id)
+			}
+		case "strider":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			// DATA_BOOST_TIME (18, int) — same contract as the pig.
+			if e.BoostTimeTotal != 0 {
+				b.Byte(18)
+				b.Byte(1) // serializer: int
+				b.VarInt(int32(e.BoostTimeTotal))
+			}
+			// DATA_SUFFOCATING (19, boolean): the false define
+			// default stays unpacked.
+			if e.Suffocating {
+				b.Byte(19)
+				b.Byte(8) // serializer: boolean
+				b.Bool(true)
 			}
 		case "cow":
 			if e.Baby {
@@ -4749,6 +4789,45 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	// isPushedByFluid is default-true, so the current push applies to
 	// mobs too (items/orbs take their own path in itemTickStep).
 	wDepth, inWater, lDepth, inLava := entityFluidTick(w, s.dims[e.Dim], e, bounds[0]/2, bounds[1])
+	// Strider.tick's setSuffocating — gated on !isNoAi, before
+	// Animal.tick. Warm = STRIDER_WARM_BLOCKS ({lava}) at the strider's
+	// own block position or its on-block, or a positive lava fluid
+	// height; a strider riding a non-suffocating strider also stays
+	// warm. Every change also flips the transient "suffocating"
+	// movement_speed modifier and re-arms the attribute resend.
+	if name, _ := EntityTypeName(e.Type); name == "strider" && !e.NoAI {
+		px := int(math.Floor(e.X))
+		py := int(math.Floor(e.Y))
+		pz := int(math.Floor(e.Z))
+		warm := blockAt(w, world.Pos{px, py, pz}) == "lava" ||
+			blockAt(w, world.Pos{px, py - 1, pz}) == "lava" ||
+			inLava
+		if !warm && e.Riding != 0 {
+			s.entities.mu.RLock()
+			parent, ok := s.entities.byID[e.Riding]
+			s.entities.mu.RUnlock()
+			if ok {
+				pname, _ := EntityTypeName(parent.Type)
+				warm = pname == "strider" && !parent.Suffocating
+			}
+		}
+		if suf := !warm; suf != e.Suffocating {
+			e.Suffocating = suf
+			e.MetaDirty = true
+			if suf {
+				if e.AttrMods == nil {
+					e.AttrMods = map[string]map[string]attrMod{}
+				}
+				if e.AttrMods["movement_speed"] == nil {
+					e.AttrMods["movement_speed"] = map[string]attrMod{}
+				}
+				e.AttrMods["movement_speed"]["suffocating"] = attrMod{value: -0.34, op: 1}
+			} else {
+				delete(e.AttrMods["movement_speed"], "suffocating")
+			}
+			e.markAttrDirty("movement_speed")
+		}
+	}
 	// FloatGoal.canUse: deep water (submersion past the eye-level
 	// jump threshold) or any lava activates the priority-0 goal —
 	// its tick jumps on an 80% roll, and LivingEntity.aiStep's jump

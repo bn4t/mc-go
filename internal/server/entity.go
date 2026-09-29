@@ -395,6 +395,11 @@ type Entity struct {
 	BoostTimeTotal int
 	BoostElapsed   int
 	Boosting       bool
+	// Suffocating is Strider's synced DATA_SUFFOCATING — set per tick
+	// (out-of-lava unless riding a warm strider) and never persisted;
+	// it also gates the transient "suffocating" movement_speed
+	// modifier (-0.34 add_multiplied_base).
+	Suffocating bool
 	// Tamed is AbstractHorse's tamed flag (NBT Tame) — a tamed mount's
 	// sneak-interact opens the mount inventory screen.
 	Tamed bool

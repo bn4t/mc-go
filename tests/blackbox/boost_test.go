@@ -217,3 +217,184 @@ func TestPigBoostParity(t *testing.T) {
 		t.Fatalf("mcgo: rodSwap=%v, want %v", mr, vr)
 	}
 }
+
+// TestStriderParity pins Strider's metadata + tick suffocating model,
+// measured from 26.2's Strider (javap):
+//
+//   - DATA_SUFFOCATING (idx19, boolean): set per tick under !isNoAi —
+//     warm = STRIDER_WARM_BLOCKS ({lava}) at the strider's own or
+//     on-block, lava fluid height > 0, or riding a non-suffocating
+//     strider; suffocating = !warm. A strider summoned on land flips
+//     to true on its first tick.
+//   - setSuffocating also flips the transient "suffocating"
+//     movement_speed modifier (-0.34 add_multiplied_base), which
+//     re-arms the update_attributes resend — the modifier id is
+//     literal in the packet bytes ("suffocating" = 737566666f636174696e67).
+//   - DATA_BOOST_TIME (idx18) carries ItemBasedSteering the same as
+//     the pig: warped_fungus_on_a_stick (vehicle strider, damage 1,
+//     durability 100) boosts without breaking.
+func TestStriderParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("Boost"),
+	}, nil)
+	defer targets.cleanup()
+
+	suffocHex := "737566666f636174696e67" // "suffocating"
+
+	// metaBoolEmits counts idx:ser8 entries on eid's set_entity_data
+	// lines and returns the count + last bool value.
+	metaBoolEmits := func(lines []string, eid int32, idx int) (count int, last bool) {
+		for _, l := range lines {
+			i := strings.IndexByte(l, ':')
+			if i < 0 || l[:i] != "0x63" {
+				continue
+			}
+			r := protocol.NewPacketReader([]byte(l[i+1:]))
+			id, e := r.VarInt()
+			if e != nil || id != eid {
+				continue
+			}
+			for {
+				mi, err := r.Byte()
+				if err != nil || mi == 0xFF {
+					break
+				}
+				ser, err2 := r.Byte()
+				if err2 != nil {
+					break
+				}
+				if mi == byte(idx) && ser == 8 {
+					v, _ := r.Byte()
+					count++
+					last = v != 0
+					continue
+				}
+				if ser >= 21 {
+					if _, err := r.VarInt(); err != nil {
+						break
+					}
+					continue
+				}
+				if !skipMetaVal(r, ser) {
+					break
+				}
+			}
+		}
+		return
+	}
+
+	run := func(addr string) (suffocCount int, suffocLast bool, attrEmit bool, bEmits int) {
+		c, pr, pw := joinPlayBlackbox(t, addr, "Boost")
+		defer c.Close()
+		sink := newChatSink(pr, pw)
+		sendClientInformationVD(t, pw, 2)
+		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		time.Sleep(500 * time.Millisecond)
+		sendCommand(t, pw, "gamemode survival Boost")
+		sendCommand(t, pw, "tp @s 8.5 -60 8.5 0 0")
+		sendCommand(t, pw, `summon minecraft:strider 8.5 -60 10.5 {equipment:{saddle:{id:"minecraft:saddle",count:1}}}`)
+
+		// Capture the strider's entity id (type wire id 129).
+		var sid int32
+		end := time.Now().Add(8 * time.Second)
+		for time.Now().Before(end) && sid == 0 {
+			for _, l := range sink.take() {
+				i := strings.IndexByte(l, ':')
+				if i < 0 || l[:i] != "0x1" {
+					continue
+				}
+				r := protocol.NewPacketReader([]byte(l[i+1:]))
+				id, e1 := r.VarInt()
+				if e1 != nil {
+					continue
+				}
+				if _, e2 := r.Read(16); e2 != nil {
+					continue
+				}
+				typ, e3 := r.VarInt()
+				if e3 == nil && typ == 129 {
+					sid = id
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if sid == 0 {
+			t.Fatalf("%s: no strider spawn packet", addr)
+		}
+
+		// Out of lava → suffocating flips true on the first tick.
+		lines := []string{}
+		end = time.Now().Add(5 * time.Second)
+		for time.Now().Before(end) {
+			lines = append(lines, sink.take()...)
+			if c, _ := metaBoolEmits(lines, sid, 19); c > 0 {
+				break
+			}
+			time.Sleep(80 * time.Millisecond)
+		}
+		suffocCount, suffocLast = metaBoolEmits(lines, sid, 19)
+		for _, l := range lines {
+			if strings.Contains(l, suffocHex) {
+				attrEmit = true
+			}
+		}
+
+		// Lava under the strider → warm → suffocating back to false.
+		sendCommand(t, pw, `execute at @e[type=minecraft:strider,limit=1] run setblock ~ ~-1 ~ minecraft:lava`)
+		end = time.Now().Add(5 * time.Second)
+		for time.Now().Before(end) {
+			lines = append(lines, sink.take()...)
+			if c, _ := metaBoolEmits(lines, sid, 19); c >= 2 {
+				break
+			}
+			time.Sleep(80 * time.Millisecond)
+		}
+		suffocCount, suffocLast = metaBoolEmits(lines, sid, 19)
+
+		// Mount + fungus stick → the same single idx18 boost emit.
+		var ib protocol.Buffer
+		ib.VarInt(sid)
+		ib.VarInt(0)
+		ib.VarInt(0)
+		ib.Bool(false)
+		_ = pw.WritePacket(server.IDPlayInteractSB, ib.Bytes())
+		time.Sleep(600 * time.Millisecond)
+		sendCommand(t, pw, "give @s minecraft:warped_fungus_on_a_stick")
+		time.Sleep(600 * time.Millisecond)
+		sink.take()
+		var ub protocol.Buffer
+		ub.VarInt(0)
+		ub.VarInt(0)
+		ub.Float(0)
+		ub.Float(0)
+		_ = pw.WritePacket(server.IDPlayUseItemSB, ub.Bytes())
+		end = time.Now().Add(5 * time.Second)
+		for time.Now().Before(end) {
+			lines = append(lines, sink.take()...)
+			if c, _ := boostEmits(lines, sid); c > 0 {
+				break
+			}
+			time.Sleep(80 * time.Millisecond)
+		}
+		bEmits, _ = boostEmits(lines, sid)
+		return
+	}
+
+	vc, vl, va, vb := run(targets.vanilla)
+	mc, ml, ma, mb := run(targets.mcgo)
+	if vc < 2 || vl != false {
+		t.Fatalf("vanilla: suffocating emits=%d last=%v, want >=2 ending false", vc, vl)
+	}
+	if vb != 1 {
+		t.Fatalf("vanilla: boost emits=%d, want 1", vb)
+	}
+	if mc != vc || ml != vl {
+		t.Fatalf("mcgo: suffocating emits=%d last=%v, want %d ending %v", mc, ml, vc, vl)
+	}
+	if mb != vb {
+		t.Fatalf("mcgo: boost emits=%d, want %d", mb, vb)
+	}
+	if ma != va {
+		t.Fatalf("mcgo: suffocating attr emit=%v, want %v", ma, va)
+	}
+}

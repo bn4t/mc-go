@@ -77,6 +77,20 @@ func mobSyncAttrs(e *Entity, now int64) []byte {
 	b.VarInt(int32(len(names)))
 	for _, a := range names {
 		var mods []attrModifier
+		// Every live modifier on the instance syncs (vanilla emits
+		// getSyncableAttributes' full modifier sets — summon/attribute-
+		// command permanents and transients like strider suffocating
+		// alike); ids sorted for determinism.
+		if m := e.AttrMods[a]; len(m) > 0 {
+			ids := make([]string, 0, len(m))
+			for id := range m {
+				ids = append(ids, id)
+			}
+			sort.Strings(ids)
+			for _, id := range ids {
+				mods = append(mods, attrModifier{id, m[id].value, int32(m[id].op)})
+			}
+		}
 		if a == "movement_speed" {
 			if inst, ok := e.Effects[effectSpeed]; ok && (inst.expiry < 0 || inst.expiry > now) {
 				mods = append(mods, attrModifier{
