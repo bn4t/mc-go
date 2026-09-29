@@ -465,6 +465,11 @@ type Entity struct {
 	FrogTongueTarget int32
 	FrogTongueState  int32
 	FrogTongueTimer  int32
+	// FrogTongueAge counts the whole ShootTongue behavior's ticks —
+	// vanilla's TIME_OUT_DURATION 100 covers move+catch+eat together.
+	FrogTongueAge int32
+	// FrogCroakTimer counts Croak's 60-tick pose activity.
+	FrogCroakTimer int32
 	// CubeSize is the slime/magma_cube DATA_SIZE (metadata 16) —
 	// vanilla's internal getSize() (NBT Size+1); 0 means the
 	// defined default 1.

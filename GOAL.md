@@ -13090,3 +13090,37 @@ but unimplemented), UNREACHABLE_TONGUE_TARGETS (5-entry, 100-tick
 cooldown), and the magma_cube's own hop-AI/chase parity (the frog
 chases a hopping cube across the flat in the meantime — the eat
 still lands, slower than vanilla's discrete jump-navigation).
+
+## Slice — frog Croak + ShootTongue timeout (2026-09-29)
+
+Croak is the IDLE RunOne's weight-3 entry: start gates WALK_TARGET
+absent + pose STANDING + !isInLiquid; it flips pose CROAKING(8) for
+exactly 60 ticks, then stop() lands STANDING(0) and the RunOne
+repicks immediately (the weighted draw is 3/5 croak vs stroll+
+lookwalk once the triggerIf(onGround) no-op's same-tick repick is
+folded in — croaks chain 36% of the time). mc-go folds the draw into
+the stroll repick: 3/5 croak roll, 60-tick pose, and the next repick
+armed for the tick after a croak ends — matching vanilla's
+pick-on-finish cadence rather than the ~6s wander interval.
+ShootTongue's extra start conditions refuse pose CROAKING, so a
+running croak outranks a pending tongue; a running tongue's
+WALK_TARGET blocks the croak pick the other way. The ShootTongue
+behavior itself now caps at TIME_OUT_DURATION 100 for the whole
+move+catch+eat run — a timed-out chase stops, clears idx19 and the
+pose, and the sensor is free to repick the same visible target.
+
+vehObs gained a poseHist capture (idx6/ser20 emits as "eid:v") for
+the pin. Blackbox: TestFrogCroakParity summons one lone temperate
+frog with do_mob_spawning off (a stray slime would flip TONGUE),
+waits for the CROAKING(8) emit, freezes, and single-steps: the pose-0
+emit lands inside 61 steps on both servers (vanilla 56, mc-go 58 —
+the croak had already run a few wall ticks when the freeze landed).
+Emit sequence is strictly 8 then 0 on both, no USING_TONGUE flap.
+
+Caveats: UNREACHABLE_TONGUE_TARGETS (5-UUID FIFO, 100-tick expiry)
+has no observable wire signature in mc-go's model — with no nav
+graph, the sensor's LoS clip is the only reachability signal and a
+visible-but-unreachable target can't be distinguished, so the memory
+is folded into the LoS gate rather than built as a dead structure.
+The cube hop-AI (slime/magma_cube jump navigation the frog chases)
+is still open — a live chase overshoots vanilla's discrete hops.

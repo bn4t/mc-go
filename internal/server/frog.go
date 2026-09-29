@@ -36,6 +36,15 @@ func (s *Server) frogTongueStep(e *Entity) bool {
 			s.frogTongueStop(e)
 			return false
 		}
+		// Behavior's TIME_OUT_DURATION: the whole shoot-tongue run —
+		// move chase plus both animations — is capped at 100 ticks;
+		// a timed-out chase stops and the sensor is free to repick
+		// the same visible target on a later pick.
+		e.FrogTongueAge++
+		if e.FrogTongueAge >= 100 {
+			s.frogTongueStop(e)
+			return false
+		}
 		switch e.FrogTongueState {
 		case frogTongueMove:
 			dx, dy, dz := t.X-e.X, t.Y-e.Y, t.Z-e.Z
@@ -129,6 +138,7 @@ func (s *Server) frogTongueStep(e *Entity) bool {
 	e.FrogTongueTarget = t.ID
 	e.FrogTongueState = frogTongueMove
 	e.FrogTongueTimer = 0
+	e.FrogTongueAge = 0
 	e.MetaDirty = true
 	return true
 }
@@ -140,10 +150,34 @@ func (s *Server) frogTongueStop(e *Entity) {
 	e.FrogTongueTarget = 0
 	e.FrogTongueState = frogTongueMove
 	e.FrogTongueTimer = 0
+	e.FrogTongueAge = 0
 	if e.Pose != 0 {
 		e.Pose = 0
 	}
 	e.MetaDirty = true
+}
+
+// frogCroakStep ticks Croak's 60-tick pose activity: the pose flips
+// CROAKING(8) at pick time and STANDING back when the counter lapses.
+// The RunOne repicks as soon as a behavior ends, so the stroll repick
+// is armed for the next tick rather than the usual ~6s idle gap.
+func (s *Server) frogCroakStep(e *Entity) {
+	e.FrogCroakTimer++
+	if e.FrogCroakTimer >= 60 {
+		e.FrogCroakTimer = 0
+		e.Pose = 0
+		e.MetaDirty = true
+		e.WanderTicks = strollIntervalFor(e.ID) - 1
+	}
+}
+
+// frogCroakRoll is the IDLE RunOne's weighted draw: Croak weight 3
+// against RandomStroll 1 + SetWalkTargetFromLookTarget 1 + the
+// triggerIf(onGround) no-op 2 — the no-op finishes the same tick and
+// repicks, so the duration-bearing draw is 3/5 croak.
+func frogCroakRoll(eid int32, ticks int64) bool {
+	h := uint64(uint32(eid))*40503 ^ uint64(ticks)*1099511628211
+	return h%5 < 3
 }
 
 // frogTongueEat is eatEntity: the eat sound, then doHurtTarget —

@@ -112,6 +112,7 @@ type vehObs struct {
 	partHist   []int32               // particle_type ids from level_particles packets
 	tongueHist []string              // unscoped (idx19, ser19) emits "eid:v" — frog tongue target
 	pose9Eid   int32                 // eid that emitted (idx6, ser20) pose 9 — USING_TONGUE
+	poseHist   []string              // unscoped (idx6, ser20) emits "eid:v" — DATA_POSE values
 }
 
 // vehWatch collects packets matching (eid, kind) over the window on
@@ -353,8 +354,12 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 									strconv.Itoa(int(peid))+":"+strconv.Itoa(int(vv)))
 							}
 							// (6, POSE) value 9 is USING_TONGUE.
-							if int(idx) == 6 && vv == 9 {
-								o.pose9Eid = peid
+							if int(idx) == 6 {
+								o.poseHist = append(o.poseHist,
+									strconv.Itoa(int(peid))+":"+strconv.Itoa(int(vv)))
+								if vv == 9 {
+									o.pose9Eid = peid
+								}
 							}
 							// idx8 with serializer 19 is the
 							// bobber's DATA_HOOKED_ENTITY (eid+1).

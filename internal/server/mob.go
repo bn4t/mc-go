@@ -4833,6 +4833,15 @@ func (s *Server) mobTickStep() {
 				s.mobSyncFlush(e)
 				continue
 			}
+			// FrogAi's IDLE RunOne keeps a running Croak: 60 ticks at
+			// pose CROAKING(8). ShootTongue's extra start conditions
+			// refuse pose CROAKING, so the croak outranks a pending
+			// tongue until it lapses.
+			if ambName == "frog" && e.Pose == 8 {
+				s.frogCroakStep(e)
+				s.mobSyncFlush(e)
+				continue
+			}
 			// FrogAi's TONGUE activity (ShootTongue) — the frog yanks
 			// a FROG_FOOD cube mob in and eats it.
 			if ambName == "frog" && s.frogTongueStep(e) {
@@ -5136,6 +5145,19 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 			// travel with no goal input: the residual walk/push delta
 			// integrates into the position while it decays — overlapping
 			// AI mobs drift apart; NoAI mobs never reach this line.
+			s.mobTravelStep(e, w, 0)
+			return
+		}
+		// FrogAi IDLE's RunOne draw: Croak weight 3 sits against
+		// RandomStroll 1 + lookwalk 1 + the onGround no-op 2 — the
+		// no-op repicks the same tick, so the croak pick lands 3/5.
+		// Croak's start gates: WALK_TARGET absent (this repick slot),
+		// pose STANDING, and Croak.start's !isInLiquid.
+		if name == "frog" && e.Pose == 0 && !inWater && !inLava &&
+			frogCroakRoll(e.ID, e.WanderTicks) {
+			e.Pose = 8 // Pose.CROAKING
+			e.MetaDirty = true
+			e.FrogCroakTimer = 0
 			s.mobTravelStep(e, w, 0)
 			return
 		}
