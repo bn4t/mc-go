@@ -14197,3 +14197,61 @@ no flee; unsneak → flee). Green both legs.
     vehWatch now takes an optional persistent seed map, seeded
     at summon pos. Pending window does not freeze: legs must
     pen on all four sides or the wander breaks the cone.
+
+## Slice — enderman block carry: TakeBlockGoal/LeaveBlockGoal + CARRY_STATE (2026-09-29)
+  - **Measured** (EnderMan.java:474-560 + EntityDataSerializers:73-87
+    on the 26.2 decomp): `EndermanTakeBlockGoal` runs only under
+    mobGriefing — every tick picks a random cell in x±2/y+0..2/z±2,
+    reads its block, requires ENDERMAN_HOLDABLE (data-driven tag:
+    dirt-family + sand/flowers/cacti/wart/nylium/roots/pumpkin —
+    NOT stone/ores) and an unbroken ray entity-center→cell-center
+    (clipSolidSegment must land ON the cell); success setBlocks the
+    cell to air and `setCarriedBlock(defaultBlockState)` — the
+    take always strips to the block's default state.
+    `EndermanLeaveBlockGoal` picks a cell in x±1/y+0..1/z±1, then
+    requires: cell air, block below a full-collision non-bedrock
+    support, `canPlaceOn` survival rules (cactus→sand/red_sand/
+    cactus, crimson/warped plants→nylium|soul_soil, overworld
+    plants→dirt-family; others unrestricted), and no entity AABB
+    inside (its own box excepts). Rates measured in bytecode:
+    take rand<0.05 / leave rand<0.0005 — leave is ~100x rarer;
+    deterministic pins need pen + `time set midnight` +
+    `advance_time false` + `random_tick_speed 0` (kills the
+    grass-spread block_update pollution) + `tick sprint 30000`
+    (~15 rolls). CARRY_STATE (metadata 16, serializer 15) encodes
+    a bare VarInt global block-state id — grass_block id 9 on
+    BOTH servers; 0 = the empty Optional. Save side:
+    `carriedBlockState` packs the BlockState codec {Name,
+    Properties} — the codec writes EVERY defined property of
+    the held state (grass default reads snowy:false); summon
+    NBT can inject a non-default state through the same codec
+    and load round-trips it.
+  - **Implemented** enderstare.go: enderCarryStep (mobGriefing
+    gate → take while empty else leave) dispatched per mob tick
+    before stare/melee; enderTakeBlock with the ray check via
+    clipSolidSegment + broadcastBlockState air; enderLeaveBlock
+    with the full gate chain + `world.BlockStateOf(name, props)`
+    place; enderCarrySurvives/enderCellOccupied/enderHoldable
+    (enderman_holdable tag) tables. Entity gains EnderCarryName
+    + EnderCarryProps (nil = default; a summon/save can carry a
+    non-default state). Attach + diff emit idx16 serializer 15 =
+    bare VarInt (0 empty, getId when held); summon parses
+    `carriedBlockState` {Name,Properties}; save/load round-trips
+    {Name,Properties} via DescribeState.
+  - **Pinned**: `TestEnderCarryParity` vs both servers — leg A
+    take over a grass pad emits idx16=9 (pin via intMetaMax: a
+    transient 9→0 coalesce can erase a literal :0 emit) +
+    `data get` shows {Name,Properties:{snowy:false}}; leg B
+    mob_griefing=false emits nothing for 8s; leg C a stone pad
+    emits nothing; leg D leave: midnight-penned dirt floor in a
+    stone ring — sprint 30000 + the same harness watch —
+    `carryHist` (idx16 serializer-15 diff log) nonzero AND a
+    block_update lands on dirt cells; both legs identical.
+  - **New gaps logged**: (1) EnderMan.customServerAiStep's
+    daylight flee — isBrightOutside && tickCount>=targetChange
+    Time+600 && magicValue>0.5 && canSeeSky && rand·30<(br-.4)·2
+    → setTarget(null)+teleport (a penned vanilla enderman
+    escaped mid-test this way); (2) ambient night teleporting —
+    vanilla's net position moved ~290 inside a penned sprint vs
+    mc-go's ~2; the randomTeleport goal cadence vs mc-go's is
+    unverified.

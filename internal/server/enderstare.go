@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/rand"
 
+	"mc-go/internal/data"
 	"mc-go/internal/world"
 )
 
@@ -122,13 +123,13 @@ func (s *Server) enderStareStep(e *Entity) bool {
 		return false
 	}
 
-	// Pending window: canContinueToUse retests isBeingStaredBy each
-	// tick — looking away before the latch aborts the aggro and
-	// clears STARED_AT; head tracks the pending target while the
+	// Pending window: canContinueToUse retests isAngerInducing
+	// each tick — the stare OR an already-running isAngryAt keeps
+	// the aggro alive; head tracks the pending target while the
 	// countdown runs (movement is not gated).
 	if e.EnderPending != [16]byte{} {
 		t := s.sessionByUUID(e.EnderPending)
-		if t == nil || !s.enderStares(e, t) {
+		if t == nil || !s.enderAngerInduces(e, t) {
 			e.EnderPending = [16]byte{}
 			if e.EnderStared {
 				e.EnderStared = false
@@ -289,4 +290,203 @@ func enderLiquidInBB(w *world.World, x, y, z, half, height float64) bool {
 		}
 	}
 	return false
+}
+
+// EndermanTakeBlockGoal + EndermanLeaveBlockGoal: while mob_griefing
+// allows, a 1-in-20 tick roll takes a random reachable
+// ENDERMAN_HOLDABLE cell into DATA_CARRY_STATE, and a 1-in-2000 roll
+// places it back over a full-collision non-bedrock cell. The take
+// strips to the block's default state; the placement must be air
+// over a survivable support with no entity inside.
+var enderHoldable = func() map[string]bool {
+	m := map[string]bool{}
+	for _, n := range data.BlockTags["enderman_holdable"] {
+		m[n] = true
+	}
+	return m
+}()
+
+// enderCarryPlants are the holdables whose canSurvive wants soil —
+// flowers, mushrooms, torchflower and the eyeblossoms. Everything
+// else in the tag is a terrain block that survives anywhere.
+var enderCarryPlants = map[string]bool{
+	"allium": true, "azure_bluet": true, "blue_orchid": true,
+	"brown_mushroom": true, "closed_eyeblossom": true, "cornflower": true,
+	"dandelion": true, "golden_dandelion": true, "lily_of_the_valley": true,
+	"open_eyeblossom": true, "orange_tulip": true, "oxeye_daisy": true,
+	"pink_tulip": true, "poppy": true, "red_mushroom": true,
+	"red_tulip": true, "torchflower": true, "white_tulip": true,
+	"wither_rose": true,
+}
+
+var enderCarryNetherPlants = map[string]bool{
+	"crimson_fungus": true, "warped_fungus": true,
+	"crimson_roots": true, "warped_roots": true,
+}
+
+var enderCarrySoil = map[string]bool{
+	"grass_block": true, "dirt": true, "podzol": true, "coarse_dirt": true,
+	"rooted_dirt": true, "moss_block": true, "mud": true,
+	"muddy_mangrove_roots": true, "farmland": true, "mycelium": true,
+	"dirt_path": true, "pale_moss_block": true,
+}
+
+// enderCarrySurvives is carried.canSurvive against the support cell —
+// nether plants want nylium or soul soil, cactus wants sand, the
+// plants want soil, and the terrain blocks always pass.
+func enderCarrySurvives(carried, below string) bool {
+	switch carried {
+	case "cactus", "cactus_flower":
+		return below == "sand" || below == "red_sand" || below == "cactus"
+	}
+	if enderCarryNetherPlants[carried] {
+		return below == "crimson_nylium" || below == "warped_nylium" || below == "soul_soil"
+	}
+	if enderCarryPlants[carried] {
+		return enderCarrySoil[below]
+	}
+	return true
+}
+
+// collisionFullBlockAt is belowState.isCollisionShapeFullBlock: no
+// table means the solid's whole cube collides; a table only passes
+// when its single box is the unit cell.
+func collisionFullBlockAt(w *world.World, pos world.Pos) bool {
+	b := w.GetBlock(pos)
+	if b == world.Air {
+		return false
+	}
+	if boxes, has := collisionBoxesOf(b); has {
+		return len(boxes) == 1 &&
+			boxes[0][0] == 0 && boxes[0][1] == 0 && boxes[0][2] == 0 &&
+			boxes[0][3] == 1 && boxes[0][4] == 1 && boxes[0][5] == 1
+	}
+	return !world.NonSolid(b) && !moveNoCollision(b)
+}
+
+// enderCellOccupied is the placement's AABB check — any other
+// entity's box (mobs or players) intersecting the unit cell blocks
+// the leave.
+func (s *Server) enderCellOccupied(e *Entity, pos world.Pos) bool {
+	x0, y0, z0 := float64(pos.X), float64(pos.Y), float64(pos.Z)
+	inside := func(ex, ey, ez, half, h float64) bool {
+		return ex+half > x0 && ex-half < x0+1 &&
+			ey+h > y0 && ey < y0+1 &&
+			ez+half > z0 && ez-half < z0+1
+	}
+	for _, o := range s.entities.All() {
+		if o.ID == e.ID || o.Dim != e.Dim || o.Dying {
+			continue
+		}
+		dims := entityBBDims(&o)
+		if inside(o.X, o.Y, o.Z, dims[0]/2, dims[1]) {
+			return true
+		}
+	}
+	occupied := false
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || !sess.spawned.Load() || sess.dimName() != e.Dim {
+			return true
+		}
+		px, py, pz, _, _, _ := sess.Pos()
+		if inside(px, py, pz, 0.3, 1.8) {
+			occupied = true
+			return false
+		}
+		return true
+	})
+	return occupied
+}
+
+// enderCarryStep runs both carry goals for the tick — take and leave
+// are ordinary goals, so the step never gates movement.
+func (s *Server) enderCarryStep(e *Entity) {
+	if !s.gameRuleBool("minecraft:mob_griefing") {
+		return
+	}
+	d := s.dims[e.Dim]
+	if d == nil {
+		return
+	}
+	if e.EnderCarryName == "" {
+		s.enderTakeBlock(e, d)
+	} else {
+		s.enderLeaveBlock(e, d)
+	}
+}
+
+// enderTakeBlock is EndermanTakeBlockGoal: a random cell in the
+// x±2/y+0..2/z±2 box whose state is ENDERMAN_HOLDABLE and reachable —
+// vanilla clips from the mob's own cell centre at the TARGET's height
+// to the cell centre and requires that first hit to be the target.
+func (s *Server) enderTakeBlock(e *Entity, d *dimension) {
+	if rand.Float64() >= 0.05 {
+		return
+	}
+	xt := int(math.Floor(e.X - 2.0 + rand.Float64()*4.0))
+	yt := int(math.Floor(e.Y + rand.Float64()*3.0))
+	zt := int(math.Floor(e.Z - 2.0 + rand.Float64()*4.0))
+	pos := world.Pos{X: xt, Y: yt, Z: zt}
+	name, ok := world.StateOwner(d.w.GetBlock(pos))
+	if !ok || !enderHoldable[name] {
+		return
+	}
+	bx, bz := int(math.Floor(e.X)), int(math.Floor(e.Z))
+	hx, hy, hz, _, _, _, _, hit := s.clipSolidSegment(d,
+		float64(bx)+0.5, float64(yt)+0.5, float64(bz)+0.5,
+		float64(xt)+0.5, float64(yt)+0.5, float64(zt)+0.5)
+	if hit && (hx != xt || hy != yt || hz != zt) {
+		return
+	}
+	d.w.SetBlock(pos, world.Air)
+	s.broadcastBlockState(d, pos, world.Air)
+	// setCarriedBlock takes the default state — every property
+	// the cell carried is stripped.
+	e.EnderCarryName = name
+	e.EnderCarryProps = nil
+	e.MetaDirty = true
+}
+
+// enderLeaveBlock is EndermanLeaveBlockGoal: a random cell in the
+// x±1/y+0..1/z±1 box — air over a full-collision non-bedrock support
+// the carried block survives on, with no entity inside.
+func (s *Server) enderLeaveBlock(e *Entity, d *dimension) {
+	if rand.Float64() >= 0.0005 {
+		return
+	}
+	xt := int(math.Floor(e.X - 1.0 + rand.Float64()*2.0))
+	yt := int(math.Floor(e.Y + rand.Float64()*2.0))
+	zt := int(math.Floor(e.Z - 1.0 + rand.Float64()*2.0))
+	pos := world.Pos{X: xt, Y: yt, Z: zt}
+	if d.w.GetBlock(pos) != world.Air {
+		return
+	}
+	below := world.Pos{X: xt, Y: yt - 1, Z: zt}
+	bn, _ := world.StateOwner(d.w.GetBlock(below))
+	if d.w.GetBlock(below) == world.Air || bn == "bedrock" ||
+		!collisionFullBlockAt(d.w, below) ||
+		!enderCarrySurvives(e.EnderCarryName, bn) ||
+		s.enderCellOccupied(e, pos) {
+		return
+	}
+	if nb, ok := world.BlockStateOf(e.EnderCarryName, e.EnderCarryProps); ok {
+		d.w.SetBlock(pos, nb)
+		s.broadcastBlockState(d, pos, nb)
+	}
+	e.EnderCarryName = ""
+	e.EnderCarryProps = nil
+	e.MetaDirty = true
+}
+
+// enderCarryState is the DATA_CARRY_STATE wire value — the carried
+// block's default-state id, or 0 (air) for the empty Optional.
+func enderCarryState(e *Entity) int32 {
+	if e.EnderCarryName == "" {
+		return 0
+	}
+	if nb, ok := world.BlockStateOf(e.EnderCarryName, e.EnderCarryProps); ok {
+		return int32(nb)
+	}
+	return 0
 }

@@ -803,6 +803,23 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 				m["ignited"] = nbtBool(true)
 			}
 		}
+		// EnderMan.addAdditionalSaveData: carriedBlockState packs the
+		// BlockState codec — Name plus every property the default
+		// state defines (grass_block reads Properties snowy:false);
+		// the empty Optional drops the key entirely.
+		if typeName == "enderman" && e.EnderCarryName != "" {
+			bs := map[string]any{"Name": "minecraft:" + e.EnderCarryName}
+			if st, ok := world.BlockStateOf(e.EnderCarryName, e.EnderCarryProps); ok {
+				if _, props, ok2 := world.DescribeState(st); ok2 && len(props) > 0 {
+					pc := map[string]any{}
+					for pk, pv := range props {
+						pc[pk] = pv
+					}
+					bs["Properties"] = pc
+				}
+			}
+			m["carriedBlockState"] = bs
+		}
 		// Sheep.writeAdditionalSaveData: Sheared + the dye Color byte.
 		if typeName == "sheep" {
 			m["Sheared"] = nbtBool(e.Sheared)
@@ -1534,6 +1551,29 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	if name == "bogged" {
 		if v, ok := save["sheared"]; ok {
 			e.Sheared = nbtTruth(v)
+		}
+	}
+	// EnderMan.readAdditionalSaveData: carriedBlockState via the
+	// BlockState codec — a missing or air entry reads as the
+	// empty Optional.
+	if name == "enderman" {
+		if v, ok := save["carriedBlockState"]; ok {
+			if mv, ok2 := v.(map[string]any); ok2 {
+				if nm, ok3 := mv["Name"].(string); ok3 {
+					if cn := strings.TrimPrefix(nm, "minecraft:"); cn != "air" {
+						e.EnderCarryName = cn
+						if pv, ok4 := mv["Properties"].(map[string]any); ok4 {
+							props := map[string]string{}
+							for pk, pv2 := range pv {
+								if ps, ok5 := pv2.(string); ok5 {
+									props[pk] = ps
+								}
+							}
+							e.EnderCarryProps = props
+						}
+					}
+				}
+			}
 		}
 	}
 	if name == "mooshroom" {

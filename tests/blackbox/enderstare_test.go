@@ -5,6 +5,7 @@ package blackbox
 import (
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -249,4 +250,176 @@ func TestEnderStareParity(t *testing.T) {
 	if (want.chaseNet > 1.5) != (got.chaseNet > 1.5) {
 		t.Errorf("chase: vanilla net=%.2f mc-go net=%.2f", want.chaseNet, got.chaseNet)
 	}
+}
+
+// TestEnderCarryParity pins EndermanTakeBlockGoal +
+// EndermanLeaveBlockGoal: a griefing-allowed enderman surrounded by
+// reachable ENDERMAN_HOLDABLE cells takes one (~1/20 tick roll,
+// stripping to the default state) — DATA_CARRY_STATE (16,
+// optional_blockstate) emits nonzero and the cell writes air —
+// while a 1/2000 roll places it on air over a full-collision
+// non-bedrock support. mob_griefing=false and non-holdable pads
+// both keep the metadata empty.
+func TestEnderCarryParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, map[string]string{"gamemode": "survival"}, map[string]string{
+		"ops.json": opsJSONFor("BOATA", "BOATB"),
+	}, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	defer targets.cleanup()
+
+	type legOut struct {
+		takeEmit   bool // idx16 serializer-15 emit>0 over grass pad
+		takeSave   bool // carriedBlockState present in data get
+		griefEmit  bool // emit with mob_griefing=false — want false
+		stoneEmit  bool // emit over a stone pad — want false
+		shownCarry bool // summon NBT attach shows idx16>0
+		leaveEmit  bool // post-sprint idx16 reads 0
+		leavePlace bool // post-sprint block_updates near the mob
+	}
+
+	run := func(t *testing.T, addr string) (res legOut) {
+		v := joinVehPair(t, addr)
+		defer v.ca.Close()
+		defer v.cb.Close()
+		drainChunkWindow(t, "endercarry", v.ca, v.pra, v.pwa, 0)
+		sendCommand(t, v.pwa, "gamerule do_mob_spawning false")
+		sendCommand(t, v.pwa, "kill @e[type=!minecraft:player]")
+		sendCommand(t, v.pwa, "gamemode spectator BOATA")
+		sendCommand(t, v.pwa, "gamemode spectator BOATB")
+		sendCommand(t, v.pwa, "gamerule mob_griefing true")
+		sendCommand(t, v.pwa, "tp BOATA 20 -60 30")
+
+		seeds := map[int32][3]float64{}
+		watch := func(eid int32, window time.Duration) vehObs {
+			return vehWatch(t, v, false, eid, window, seeds)
+		}
+		// pad builds a 3x3x2 block ring around the mob pocket — the
+		// take goal's reachability clip must hit each target first,
+		// so every holdable is a face-adjacent cell of the pocket.
+		pad := func(x, z int, b string) {
+			sendCommand(t, v.pwa, fmt.Sprintf("fill %d -60 %d %d -59 %d minecraft:%s",
+				x-1, z-1, x+1, z+1, b))
+			sendCommand(t, v.pwa, fmt.Sprintf("fill %d -60 %d %d -58 %d minecraft:air",
+				x, z, x, z))
+		}
+		summon := func(x, z int, nbt string) int32 {
+			e := summonTrackedNBT(t, v.ca, v.pra, v.pwa, v.pwa,
+				"enderman", float64(x)+0.5, -60, float64(z)+0.5, nbt)
+			seeds[e] = [3]float64{float64(x) + 0.5, -60, float64(z) + 0.5}
+			return e
+		}
+		killEnders := func() {
+			sendCommand(t, v.pwa, "kill @e[type=minecraft:enderman]")
+			time.Sleep(250 * time.Millisecond)
+		}
+		carryGet := func() string {
+			return dataGetLineDirect(t, v.cb, v.prb, v.pwb,
+				"@e[type=minecraft:enderman,limit=1]", "carriedBlockState")
+		}
+		// waitCarry polls the metadata until idx16 emits or the
+		// window closes — the take roll averages ~3s over a 16-cell
+		// reachable pad but wanders up.
+		waitCarry := func(eid int32, max time.Duration) bool {
+			deadline := time.Now().Add(max)
+			for time.Now().Before(deadline) {
+				if o := watch(eid, 1500*time.Millisecond); o.intMetaMax[16] > 0 {
+					return true
+				}
+			}
+			return false
+		}
+
+		// === Leg A: the take — grass pad ===
+		pad(20, 20, "grass_block")
+		e1 := summon(20, 20, "{}")
+		res.takeEmit = waitCarry(e1, 20*time.Second)
+		if res.takeEmit {
+			// data get's reply carries only the value —
+			// vanilla's codec prints {Name,Properties:{snowy:false}}
+			// for the take's stripped default state, an empty
+			// Optional prints nothing_found.
+			res.takeSave = strings.Contains(carryGet(), "snowy")
+		}
+		killEnders()
+
+		// === Leg B: mob_griefing=false — never takes ===
+		sendCommand(t, v.pwa, "gamerule mob_griefing false")
+		time.Sleep(300 * time.Millisecond)
+		e2 := summon(20, 20, "{}")
+		o := watch(e2, 8*time.Second)
+		res.griefEmit = o.intMetaMax[16] > 0
+		killEnders()
+		sendCommand(t, v.pwa, "gamerule mob_griefing true")
+
+		// === Leg C: non-holdable pad — never takes ===
+		pad(20, 20, "stone")
+		e3 := summon(20, 20, "{}")
+		o = watch(e3, 8*time.Second)
+		res.stoneEmit = o.intMetaMax[16] > 0
+		killEnders()
+
+		// === Leg D: the leave — pre-carried summon + tick sprint ===
+		// grass only survives on dirt-family supports, so the
+		// surface gets a guaranteed dirt floor inside a stone pen —
+		// a penned mob can't wander onto unsuitable terrain mid-
+		// sprint. random_tick_speed zero keeps grass-spread
+		// block_updates out of the window — mob goal rolls are not
+		// random ticks and keep running.
+		// Midnight keeps both mobs penned: vanilla's
+		// customServerAiStep teleports the enderman out of the
+		// pen whenever isBrightOutside && canSeeSky — night gates
+		// that whole branch. (The daylight flee itself is an
+		// mc-go gap, noted in GOAL.md.)
+		sendCommand(t, v.pwa, "gamerule advance_time false")
+		sendCommand(t, v.pwa, "time set midnight")
+		sendCommand(t, v.pwa, "gamerule random_tick_speed 0")
+		sendCommand(t, v.pwa, "fill 27 -61 25 33 -61 31 minecraft:dirt")
+		sendCommand(t, v.pwa, "fill 28 -60 26 32 -58 30 minecraft:stone")
+		sendCommand(t, v.pwa, "fill 29 -60 27 31 -58 29 minecraft:air")
+		e4 := summon(30, 28, `{carriedBlockState:{Name:"minecraft:grass_block"}}`)
+		o = watch(e4, 1500*time.Millisecond)
+		res.shownCarry = o.intMetaMax[16] > 0
+		// Watch THROUGH the sprint: the enderman can re-take the
+		// grass it just placed (a holdable cell at its own level),
+		// so the final carry state is luck — a leave+retake inside
+		// one diff batch also collapses to just the newest emit.
+		// The deterministic pin is ANY carry-state change (metadata
+		// or a world write) inside the window. The 1/2000 roll
+		// wastes half its hits on y=-59 cells (air below), so the
+		// leg retries a second sprint when the first draws blank.
+		for attempt := 0; attempt < 2 && !res.leaveEmit && !res.leavePlace; attempt++ {
+			watchCh := make(chan vehObs, 1)
+			go func() { watchCh <- watch(e4, 45*time.Second) }()
+			sendCommand(t, v.pwa, "tick sprint 30000")
+			o = <-watchCh
+			res.leaveEmit = len(o.carryHist) > 0
+			for _, n := range o.blockUps {
+				if n > 0 {
+					res.leavePlace = true
+				}
+			}
+		}
+		killEnders()
+		sendCommand(t, v.pwa, "gamerule random_tick_speed 3")
+		sendCommand(t, v.pwa, "gamerule advance_time true")
+		return res
+	}
+
+	want := run(t, targets.vanilla)
+	got := run(t, targets.mcgo)
+	t.Logf("vanilla: %+v", want)
+	t.Logf("mc-go:   %+v", got)
+	check := func(name string, w, g bool) {
+		if w != g {
+			t.Errorf("%s: vanilla=%v mc-go=%v", name, w, g)
+		}
+	}
+	check("take emit", want.takeEmit, got.takeEmit)
+	check("take carriedBlockState save", want.takeSave, got.takeSave)
+	check("griefing gate", want.griefEmit, got.griefEmit)
+	check("non-holdable pad", want.stoneEmit, got.stoneEmit)
+	check("carried summon attach", want.shownCarry, got.shownCarry)
+	check("leave emit", want.leaveEmit, got.leaveEmit)
+	check("leave placement", want.leavePlace, got.leavePlace)
 }

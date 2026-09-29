@@ -562,6 +562,13 @@ type Entity struct {
 	// latches STARED_AT, setTarget(null) drops both together.
 	EnderCreepy bool
 	EnderStared bool
+	// EnderCarryName is EnderMan.carriedBlockState's block name —
+	// the take goal strips to the default state, but a summon or
+	// load can inject a non-default state, whose Properties ride
+	// EnderCarryProps (nil means default). "" is vanilla's null
+	// Optional.
+	EnderCarryName  string
+	EnderCarryProps map[string]string
 	// CubeSize is the slime/magma_cube DATA_SIZE (metadata 16) —
 	// vanilla's internal getSize() (NBT Size+1); 0 means the
 	// defined default 1.

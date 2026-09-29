@@ -126,6 +126,7 @@ type vehObs struct {
 	beeFlHist  []string               // unscoped (idx18, ser0) emits "eid:v" — bee DATA_FLAGS bytes
 	eqFlHist   []string               // unscoped (idx18, ser0) emits "eid:v" — AbstractHorse DATA_ID_FLAGS bytes
 	dashHist   []string               // unscoped (idx19, ser8) emits "eid:v" — camel DATA_DASH bools
+	carryHist  []string               // unscoped (idx16, ser15) emits "eid:v" — enderman CARRY_STATE
 	angerHist  []string               // unscoped (idx19, ser2) emits "eid:v" — anger_end_time varlongs
 	poseTkHist []string               // unscoped (idx20, ser2) emits "eid:v" — camel LAST_POSE_CHANGE_TICK varlongs
 	spitEIDs   []int32                // add_entity eids of type llama_spit
@@ -468,8 +469,19 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 									strconv.Itoa(int(peid))+":"+v)
 							}
 						case 15: // optional_blockstate — VarInt (0 empty)
-							if _, err := r.VarInt(); err != nil {
+							vv, err := r.VarInt()
+							if err != nil {
 								break
+							}
+							if watchThis {
+								o.intMeta[int(idx)] = int32(vv)
+								if int32(vv) > o.intMetaMax[int(idx)] {
+									o.intMetaMax[int(idx)] = int32(vv)
+								}
+							}
+							if int(idx) == 16 {
+								o.carryHist = append(o.carryHist,
+									strconv.Itoa(int(peid))+":"+strconv.Itoa(int(vv)))
 							}
 						case 13: // optional_living_entity_reference — bool + uuid
 							present, err := r.Bool()

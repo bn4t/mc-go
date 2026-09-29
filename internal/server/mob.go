@@ -929,6 +929,26 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if name == "firework_rocket" {
 				applyRocketSummonNBT(e, tag)
 			}
+			if bs, ok := tag.vals["carriedBlockState"]; ok && name == "enderman" {
+				// EnderMan.readAdditionalSaveData drops an air
+				// carriedBlockState back to the empty Optional;
+				// a Properties map carries the non-default state.
+				if bn, ok := bs.vals["Name"]; ok && bn.str != "" {
+					cn := strings.TrimPrefix(bn.str, "minecraft:")
+					if cn != "air" {
+						e.EnderCarryName = cn
+						if pv, ok := bs.vals["Properties"]; ok {
+							props := map[string]string{}
+							for pk, pt := range pv.vals {
+								if pt.str != "" {
+									props[pk] = pt.str
+								}
+							}
+							e.EnderCarryProps = props
+						}
+					}
+				}
+			}
 			// AbstractHorse.readAdditionalSaveData: Tame/Bred/
 			// EatingHaystack flip DATA_ID_FLAGS bits; Temper is the
 			// plain int; Owner is an EntityReference to the tamer.
@@ -2918,6 +2938,7 @@ type livingMeta struct {
 	poseTick   int64
 	creepy     bool
 	stared     bool
+	carry      int32
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2977,6 +2998,7 @@ func snapLivingMeta(e *Entity) livingMeta {
 		poseTick:   e.LastPoseTick,
 		creepy:     e.EnderCreepy,
 		stared:     e.EnderStared,
+		carry:      enderCarryState(e),
 	}
 }
 
@@ -3430,6 +3452,11 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 			// setTarget; DATA_STARED_AT (18) rides the
 			// LookForPlayerGoal's setBeingStaredAt — setTarget(null)
 			// drops both.
+			if cv := enderCarryState(e); cv != last.carry {
+				b.Byte(16)
+				b.Byte(15) // serializer: optional_blockstate — VarInt
+				b.VarInt(cv)
+			}
 			if e.EnderCreepy != last.creepy {
 				b.Byte(17)
 				b.Byte(8)
@@ -3949,9 +3976,16 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.VarInt(e.FrogTongueTarget + 1)
 			}
 		case "enderman":
+			// DATA_CARRY_STATE (16, optional_blockstate) packs the
+			// default-state id once carried; the empty Optional (0)
+			// is the defined default and stays unpacked.
+			if cv := enderCarryState(e); cv != 0 {
+				b.Byte(16)
+				b.Byte(15)
+				b.VarInt(cv)
+			}
 			// DATA_CREEPY (17) / DATA_STARED_AT (18): the false
-			// defaults stay unpacked, and DATA_CARRY_STATE (16)
-			// stays unpacked until a block is carried.
+			// defaults stay unpacked.
 			if e.EnderCreepy {
 				b.Byte(17)
 				b.Byte(8)
@@ -5598,6 +5632,10 @@ func (s *Server) mobTickStep() {
 			} else if mobBeam[ambName] {
 				goalActed = s.mobGuardianStep(e, ambName)
 			} else if ambName == "enderman" {
+				// TakeBlockGoal/LeaveBlockGoal are ordinary goals —
+				// they never gate movement, so the carry step runs
+				// alongside the stare/melee dispatch.
+				s.enderCarryStep(e)
 				// EndermanLookForPlayerGoal + FreezeWhenLookedAt run
 				// ahead of the melee chase — a live stare freezes or
 				// teleports the mob instead of walking.
