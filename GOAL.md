@@ -12700,3 +12700,40 @@ Still open: cat IS_LYING/RELAX_STATE_ONE (idx21/22), frog
 DATA_TONGUE_TARGET, addTrustedEntity via taming, boost travel
 physics, breeze whirl/charge/jump/land (Brain AI), world-seeded
 RNG parity for bare-summon rolls.
+
+## Slice — client-authoritative ridden steerables (2026-09-25)
+
+Measured: ridden steerable movement is CLIENT-authoritative in 26.2.
+Entity.isLocalInstanceAuthoritative inverts isClientAuthoritative,
+which Entity delegates to getControllingPassenger — and
+Player.isClientAuthoritative is constant true. So a controlled-ridden
+vehicle's canSimulateMovement is false on a dedicated server:
+aiStep's ridden branch runs travelRidden → tickRidden (welds
+yRot=rider.yRot, xRot=rider.xRot·0.5, yHeadRot=yBodyRot=yRot) and
+ItemBasedSteering.tickBoost, then zeroes the delta instead of
+setSpeed+travel — the vehicle freezes mid-air until the driver's
+serverbound move_vehicle packets carry its position.
+getControllingPassenger itself gates on saddle + first passenger
+being a player + Player.isHolding(food-on-a-stick, both hands).
+ServerboundMoveVehiclePacket handling: silently dropped unless the
+root vehicle's controlling passenger is the sender — no correction
+packet for a missing stick (correction only on the dist²>100
+"moved too quickly" branch). The legacy `Saddle:1b` summon key is
+ignored in 26.2 — EntityHorseSaddleFix's datafixer only moves it to
+equipment.saddle on old saves; live summon NBT is
+equipment:{saddle:{id:"minecraft:saddle"}}.
+
+Pinned: TestRiddenSteerableParity — mount the NoAI saddled
+pig/strider, arm the rider with the matching stick, turn the camera
+to (-160,20): the vehicle's Rotation welds to (-160,10) exactly and
+its Pos stays frozen at spawn (8.5,-58,8.5) across a sprint on both
+servers; a move_vehicle report advances z to 10.0; dropping the
+stick unwelds (rider yaw -80 does not re-weld) and a second
+move_vehicle is silently rejected. mc-go's mobRiddenStep now
+freezes+welds instead of walking (the earlier server-side travel
+was wrong for the dedicated-server model), the boost timer moved
+inside the controlling-rider gate, handleMoveVehicle requires the
+held stick for pig/strider, and the legacy `Saddle` summon read is
+removed. TestStriderParity (suffocating emit counts) is a
+preexisting timing flake — fails intermittently on bare master and
+on this change on both legs.

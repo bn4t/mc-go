@@ -1325,3 +1325,190 @@ func TestMinecartVariantNBTParity(t *testing.T) {
 		v.cb.Close()
 	}
 }
+
+// steerableEID watches the observer's add_entity stream for a spawn of
+// the named type at (x,y,z) within a tight tolerance — flat worlds
+// keep ambient pigs popping in, so the summon goes in at y=-58 where
+// no ambient spawn can land.
+func steerableEID(t *testing.T, v *vehPair, typeName string, x, y, z float64, window time.Duration) int32 {
+	t.Helper()
+	found := int32(0)
+	end := time.Now().Add(window)
+	for time.Now().Before(end) && found == 0 {
+		poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
+			_ = c.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
+			for {
+				p, err := pr.ReadPacket()
+				if err != nil {
+					return
+				}
+				switch int32(p.ID) {
+				case server.IDPlayKeepAliveCB:
+					_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+				case server.IDPlayChunkBatchDone:
+					_ = ackChunkBatch(pw)
+				case server.IDPlaySyncPos:
+					if id, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
+						var b protocol.Buffer
+						b.VarInt(id)
+						_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes())
+					}
+				default:
+					if !observe {
+						continue
+					}
+					if int32(p.ID) == 1 {
+						r := protocol.NewPacketReader(p.Data)
+						eid, _ := r.VarInt()
+						r.UUID()
+						ty, _ := r.VarInt()
+						sx, _ := r.Double()
+						sy, _ := r.Double()
+						sz, _ := r.Double()
+						if n, _ := server.EntityTypeName(ty); n == typeName {
+							t.Logf("%s spawn eid=%d at (%.3f,%.3f,%.3f)", typeName, eid, sx, sy, sz)
+							if math.Abs(sx-x) < 0.3 && math.Abs(sy-y) < 0.05 && math.Abs(sz-z) < 0.3 {
+								found = eid
+								return
+							}
+						}
+					}
+				}
+			}
+		}
+		poll(v.ca, v.pra, v.pwa, false)
+		poll(v.cb, v.prb, v.pwb, true)
+	}
+	if found == 0 {
+		t.Fatalf("no %s spawn at (%.1f,%.1f,%.1f) in %s", typeName, x, y, z, window)
+	}
+	return found
+}
+
+// sendMoveVehicleRot writes serverbound move_vehicle (0x22) carrying
+// the vehicle's reported position and rotation — the packet a riding
+// client sends each tick it simulates its mount.
+func sendMoveVehicleRot(pw *protocol.Writer, x, y, z, yaw, pitch float64, grounded bool) {
+	var b protocol.Buffer
+	b.Double(x)
+	b.Double(y)
+	b.Double(z)
+	b.Float(float32(yaw))
+	b.Float(float32(pitch))
+	b.Bool(grounded)
+	_ = pw.WritePacket(server.IDPlayMoveVehicleSB, b.Bytes())
+}
+
+// TestRiddenSteerableParity pins the SERVER half of
+// LivingEntity.travelRidden for the stick-steerable mobs (26.2
+// bytecode). A saddled steerable whose first passenger is a player
+// holding the matching *_on_a_stick has a controlling rider, which
+// makes the vehicle client-authoritative: on the server, aiStep's
+// ridden branch only welds the vehicle's rotation to the rider's
+// (tickRidden: yRot=rider.yRot, xRot=rider.xRot·0.5) and zeroes its
+// delta — the vehicle freezes mid-air, and its position advances
+// only when the driver's serverbound move_vehicle packet carries it.
+// Without the held stick there is no controlling passenger: no weld,
+// and move_vehicle drops silently (no correction packet).
+func TestRiddenSteerableParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("BOATA", "BOATB"),
+	}, nil)
+	defer targets.cleanup()
+
+	// ride runs the full mount → weld → drive → reject sequence on
+	// one server leg and returns the three measured readings:
+	// welded pitch, driven z, and the z after the reject probe.
+	ride := func(t *testing.T, tag, addr, mob, stick string) (weldPitch, zDriven, zRejected float64) {
+		v := joinVehPair(t, addr)
+		drainChunkWindow(t, tag, v.ca, v.pra, v.pwa, 400*time.Millisecond)
+		drainChunkWindow(t, tag, v.cb, v.prb, v.pwb, 400*time.Millisecond)
+		sendCommand(t, v.pwa, "tp BOATA 4.5 -60 4.5 0 0")
+		sendCommand(t, v.pwb, "tp BOATB 4.5 -60 20.5 0 0")
+		sendCommand(t, v.pwa, "kill @e[type=minecraft:"+mob+"]")
+		time.Sleep(400 * time.Millisecond)
+		// y=-58 spawn: above the -60 floor, where ambient pig spawns
+		// can never land — the tight match in steerableEID pins our
+		// mob's eid instead of an ambient one's.
+		sendCommand(t, v.pwa, "summon minecraft:"+mob+" 8.5 -58 8.5 {NoAI:1b,Tags:[\"steer\"],equipment:{saddle:{id:\"minecraft:saddle\",count:1}}}")
+		eid := steerableEID(t, v, mob, 8.5, -58, 8.5, 3*time.Second)
+		sendInteractEntity(v.pwa, eid)
+		if o := vehWatch(t, v, true, eid, 2*time.Second); o.passengers != 1 {
+			t.Fatalf("%s %s: mount left passengers=%d", tag, mob, o.passengers)
+		}
+		sendCommand(t, v.pwa, "item replace entity BOATA weapon.mainhand with minecraft:"+stick)
+		// Rider yaw -160 / pitch 20 — distinct from any spawn yaw;
+		// a rotation-only move packet welds it the way a real
+		// client's camera turn does.
+		var rb protocol.Buffer
+		rb.Float(-160)
+		rb.Float(20)
+		rb.Byte(0x01)
+		_ = v.pwa.WritePacket(server.IDPlayMoveRotSB, rb.Bytes())
+		sendCommand(t, v.pwa, "tick sprint 10")
+		time.Sleep(500 * time.Millisecond)
+		sel := "@e[type=minecraft:" + mob + ",tag=steer,limit=1]"
+		yaw, _ := dataGetFloat(t, v, "data get entity "+sel+" Rotation[0]")
+		pitch, _ := dataGetFloat(t, v, "data get entity "+sel+" Rotation[1]")
+		x0, _ := dataGetFloat(t, v, "data get entity "+sel+" Pos[0]")
+		y0, _ := dataGetFloat(t, v, "data get entity "+sel+" Pos[1]")
+		z0, _ := dataGetFloat(t, v, "data get entity "+sel+" Pos[2]")
+		t.Logf("%s %s: welded rot (%.2f,%.2f) pos (%.2f,%.2f,%.2f)", tag, mob, yaw, pitch, x0, y0, z0)
+		// The frozen NoAI vehicle keeps its exact spawn pos — a
+		// client-authoritative mount gets zero server travel.
+		if math.Abs(x0-8.5) > 0.05 || math.Abs(y0+58) > 0.05 || math.Abs(z0-8.5) > 0.05 {
+			t.Fatalf("%s %s: ridden vehicle drifted to (%.3f,%.3f,%.3f)", tag, mob, x0, y0, z0)
+		}
+		if math.Abs(yaw+160) > 1.0 {
+			t.Fatalf("%s %s: vehicle yaw %.2f not welded to rider -160", tag, mob, yaw)
+		}
+		if math.Abs(pitch-10) > 1.0 {
+			t.Fatalf("%s %s: vehicle pitch %.2f, want rider 20·0.5=10", tag, mob, pitch)
+		}
+		// The driver moves its mount only through move_vehicle:
+		// report z=10.0 — the server applies the delta from the
+		// last-good anchor.
+		sendMoveVehicleRot(v.pwa, 8.5, -58, 10.0, -160, 10, true)
+		time.Sleep(300 * time.Millisecond)
+		zDriven, _ = dataGetFloat(t, v, "data get entity "+sel+" Pos[2]")
+		// Now drop the stick: the controlling passenger is gone, so
+		// the weld releases (a new rider yaw must not weld) and a
+		// move_vehicle probe is silently rejected.
+		sendCommand(t, v.pwa, "item replace entity BOATA weapon.mainhand with minecraft:dirt")
+		var rb2 protocol.Buffer
+		rb2.Float(-80)
+		rb2.Float(0)
+		rb2.Byte(0x01)
+		_ = v.pwa.WritePacket(server.IDPlayMoveRotSB, rb2.Bytes())
+		sendCommand(t, v.pwa, "tick sprint 5")
+		time.Sleep(400 * time.Millisecond)
+		yaw2, _ := dataGetFloat(t, v, "data get entity "+sel+" Rotation[0]")
+		if math.Abs(yaw2+80) < 1.0 {
+			t.Fatalf("%s %s: vehicle still welded after stick dropped (yaw %.2f)", tag, mob, yaw2)
+		}
+		sendMoveVehicleRot(v.pwa, 8.5, -58, 11.5, -160, 10, true)
+		time.Sleep(300 * time.Millisecond)
+		zRejected, _ = dataGetFloat(t, v, "data get entity "+sel+" Pos[2]")
+		v.ca.Close()
+		v.cb.Close()
+		return pitch, zDriven, zRejected
+	}
+
+	for _, tc := range []struct{ mob, stick string }{
+		{"pig", "carrot_on_a_stick"},
+		{"strider", "warped_fungus_on_a_stick"},
+	} {
+		vp, zv, zrej := ride(t, "vanilla", targets.vanilla, tc.mob, tc.stick)
+		mp, zm, zrem := ride(t, "mc-go", targets.mcgo, tc.mob, tc.stick)
+		if math.Abs(vp-10) > 1.0 || math.Abs(mp-10) > 1.0 {
+			t.Fatalf("%s: welded pitch v=%.2f m=%.2f, want ~10", tc.mob, vp, mp)
+		}
+		if math.Abs(zv-10.0) > 0.3 || math.Abs(zm-10.0) > 0.3 {
+			t.Fatalf("%s: move_vehicle drive z v=%.3f m=%.3f, want ~10", tc.mob, zv, zm)
+		}
+		if math.Abs(zrej-zv) > 0.05 || math.Abs(zrem-zm) > 0.05 {
+			t.Fatalf("%s: move_vehicle without stick moved v %.3f→%.3f, m %.3f→%.3f",
+				tc.mob, zv, zrej, zm, zrem)
+		}
+	}
+}

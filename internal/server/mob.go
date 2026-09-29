@@ -922,11 +922,9 @@ func (s *Server) runSummon(player string, args []string) reply {
 					}
 				}
 			}
-			// Saddleable mounts take the saddle either by the legacy
-			// Saddle flag or by the 1.21.6+ equipment.saddle slot.
-			if v, ok := tag.vals["Saddle"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
-				e.Saddle = true
-			}
+			// The legacy Saddle flag is NOT read on summon: 26.2 moves
+			// it to equipment.saddle only through EntityHorseSaddleFix's
+			// datafixer on old saves — summon NBT never sees it.
 			// ExperienceOrb's Value is the xp granted per take (count
 			// merges read it too — same-bucket merges need equal values).
 			if v, ok := tag.vals["Value"]; ok && name == "experience_orb" {
@@ -4592,6 +4590,16 @@ func (s *Server) mobTickStep() {
 				e.EggLayTime = 6000 + rand.Int31n(6000)
 			}
 		}
+		// LivingEntity.aiStep's ridden branch precedes the
+		// isEffectiveAi gate: a steerable carrying a controlling
+		// player travels by travelRidden whether it has AI or not,
+		// and its own navigation/goal travel is bypassed outright.
+		if e.Riding == 0 {
+			if w := s.dimWorld(e.Dim); w != nil && s.mobRiddenStep(e, w) {
+				s.mobSyncFlush(e)
+				continue
+			}
+		}
 		if !e.NoAI && e.Riding == 0 && !nonMobLiving[ambName] {
 			// Drowned/stray conversion bookkeeping — inside the NoAI
 			// gate like vanilla's aiStep/tick placement.
@@ -4778,6 +4786,46 @@ func (s *Server) mobInSimulationRange(e *Entity) bool {
 // selection. A NoAI mob never reaches it: LivingEntity.aiStep gates the
 // whole travel branch on isEffectiveAi, which NoAI makes false — a
 // NoAI entity floats where it stands, welded rider or not.
+// mobStriderWarmStep is Strider's suffocation bookkeeping: the mob is
+// warm when its own block position or its on-block sits in lava, or
+// when a positive lava fluid depth encloses it; a strider riding a
+// non-suffocating strider also stays warm. Every change flips the
+// transient "suffocating" movement_speed modifier and re-arms the
+// attribute resend.
+func (s *Server) mobStriderWarmStep(e *Entity, w *world.World, inLava bool) {
+	px := int(math.Floor(e.X))
+	py := int(math.Floor(e.Y))
+	pz := int(math.Floor(e.Z))
+	warm := blockAt(w, world.Pos{px, py, pz}) == "lava" ||
+		blockAt(w, world.Pos{px, py - 1, pz}) == "lava" ||
+		inLava
+	if !warm && e.Riding != 0 {
+		s.entities.mu.RLock()
+		parent, ok := s.entities.byID[e.Riding]
+		s.entities.mu.RUnlock()
+		if ok {
+			pname, _ := EntityTypeName(parent.Type)
+			warm = pname == "strider" && !parent.Suffocating
+		}
+	}
+	if suf := !warm; suf != e.Suffocating {
+		e.Suffocating = suf
+		e.MetaDirty = true
+		if suf {
+			if e.AttrMods == nil {
+				e.AttrMods = map[string]map[string]attrMod{}
+			}
+			if e.AttrMods["movement_speed"] == nil {
+				e.AttrMods["movement_speed"] = map[string]attrMod{}
+			}
+			e.AttrMods["movement_speed"]["suffocating"] = attrMod{value: -0.34, op: 1}
+		} else {
+			delete(e.AttrMods["movement_speed"], "suffocating")
+		}
+		e.markAttrDirty("movement_speed")
+	}
+}
+
 func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	bounds := entityBBDims(e)
 	// LivingEntity.aiStep's tail pushes the walk input via
@@ -4796,37 +4844,7 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	// warm. Every change also flips the transient "suffocating"
 	// movement_speed modifier and re-arms the attribute resend.
 	if name, _ := EntityTypeName(e.Type); name == "strider" && !e.NoAI {
-		px := int(math.Floor(e.X))
-		py := int(math.Floor(e.Y))
-		pz := int(math.Floor(e.Z))
-		warm := blockAt(w, world.Pos{px, py, pz}) == "lava" ||
-			blockAt(w, world.Pos{px, py - 1, pz}) == "lava" ||
-			inLava
-		if !warm && e.Riding != 0 {
-			s.entities.mu.RLock()
-			parent, ok := s.entities.byID[e.Riding]
-			s.entities.mu.RUnlock()
-			if ok {
-				pname, _ := EntityTypeName(parent.Type)
-				warm = pname == "strider" && !parent.Suffocating
-			}
-		}
-		if suf := !warm; suf != e.Suffocating {
-			e.Suffocating = suf
-			e.MetaDirty = true
-			if suf {
-				if e.AttrMods == nil {
-					e.AttrMods = map[string]map[string]attrMod{}
-				}
-				if e.AttrMods["movement_speed"] == nil {
-					e.AttrMods["movement_speed"] = map[string]attrMod{}
-				}
-				e.AttrMods["movement_speed"]["suffocating"] = attrMod{value: -0.34, op: 1}
-			} else {
-				delete(e.AttrMods["movement_speed"], "suffocating")
-			}
-			e.markAttrDirty("movement_speed")
-		}
+		s.mobStriderWarmStep(e, w, inLava)
 	}
 	// FloatGoal.canUse: deep water (submersion past the eye-level
 	// jump threshold) or any lava activates the priority-0 goal —

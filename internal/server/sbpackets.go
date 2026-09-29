@@ -907,6 +907,17 @@ func (s *Server) handleMoveVehicle(sess *Session, p protocol.Packet) {
 	if !ok || !vehicleClientDriven(name, ep) {
 		return
 	}
+	// getControllingPassenger's steerable half: Pig/Strider also
+	// require the rider's held food-on-a-stick (Player.isHolding
+	// covers both hands) — without it the packet drops silently,
+	// no correction packet.
+	if stick, yes := steerableStick[name]; yes {
+		if n, _ := itemNameOf(sess.heldStack().ID); n != stick {
+			if n2, _ := itemNameOf(sess.stackAt(slotOffhand).ID); n2 != stick {
+				return
+			}
+		}
+	}
 	// clampHorizontal (±3.0E7 xz, ±2.0E7 y) and wrapDegrees before the
 	// delta check — the packet carries raw doubles/floats.
 	x = clampTo(x, -3.0e7, 3.0e7)

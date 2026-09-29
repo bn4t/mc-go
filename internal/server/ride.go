@@ -885,16 +885,9 @@ func (s *Server) vehicleTickStep() {
 				ep.Grounded = boatGroundedAt(d.w, ep)
 			}
 		}
-		// ItemBasedSteering.tickBoost rides Pig.tickRidden: while a
-		// passenger is aboard, boostTime counts up to the synced
-		// total and then clears the boosting flag. The accessor's
-		// last value stays put — nothing re-emits.
-		if ep.Boosting && len(ep.Passengers) > 0 {
-			ep.BoostElapsed++
-			if ep.BoostElapsed > ep.BoostTimeTotal {
-				ep.Boosting = false
-			}
-		}
+		// ItemBasedSteering.tickBoost lives inside tickRidden —
+		// mobRiddenStep owns it (a controlling rider is required;
+		// a bare passenger does not advance the boost).
 		if ep.VehHurtTime <= 0 && ep.VehDamage <= 0 {
 			continue
 		}
@@ -931,6 +924,72 @@ func (s *Server) vehicleTickStep() {
 			s.broadcastEntityMetadata(ep.ID, b.Bytes())
 		}
 	}
+}
+
+// steerableStick inverts foodOnAStickType: the entity type to the
+// stick its controlling rider must hold (Pig.getControllingPassenger
+// requires CARROT_ON_A_STICK, Strider's WARPED_FUNGUS_ON_A_STICK).
+var steerableStick = map[string]string{
+	"pig":     "carrot_on_a_stick",
+	"strider": "warped_fungus_on_a_stick",
+}
+
+// mobRiddenStep is the server half of LivingEntity.aiStep's ridden
+// branch: Pig/Strider.getControllingPassenger requires a saddle and a
+// first passenger holding the matching food-on-a-stick, and while a
+// controlling rider is aboard travelRidden runs — which on a
+// dedicated server only welds the vehicle's rotation to the rider
+// (tickRidden) and ticks the boost timer; the speed factors
+// (pig 0.225, strider 0.55/0.35 suffocating, +1.15·sin boost) apply
+// client-side, since vehicle movement is client-authoritative.
+func (s *Server) mobRiddenStep(e *Entity, w *world.World) bool {
+	name, _ := EntityTypeName(e.Type)
+	stick, ok := steerableStick[name]
+	if !ok || !e.Saddle || len(e.Passengers) == 0 || e.Dying {
+		return false
+	}
+	rs := s.sessionByEntityID(e.Passengers[0])
+	if rs == nil {
+		return false
+	}
+	// Player.isHolding checks both hands.
+	if n, _ := itemNameOf(rs.heldStack().ID); n != stick {
+		if n, _ := itemNameOf(rs.stackAt(slotOffhand).ID); n != stick {
+			return false
+		}
+	}
+	// baseTick's fluid interaction pushes the current into the delta
+	// regardless of who drives the travel input; a strider's own
+	// suffocation bookkeeping keeps running while ridden — it flips
+	// the 0.55/0.35 client-side speed factor and re-arms the
+	// attribute resend.
+	bounds := entityBBDims(e)
+	_, _, _, inLava := entityFluidTick(w, s.dims[e.Dim], e, bounds[0]/2, bounds[1])
+	if name == "strider" && !e.NoAI {
+		s.mobStriderWarmStep(e, w, inLava)
+	}
+	// ItemBasedSteering.tickBoost rides tickRidden: while a
+	// controlling rider is aboard, boostTime counts up to the
+	// synced total and then clears the boosting flag.
+	if e.Boosting {
+		e.BoostElapsed++
+		if e.BoostElapsed > e.BoostTimeTotal {
+			e.Boosting = false
+		}
+	}
+	e.NeedsSync = true
+	_, _, _, ryaw, rpitch, _ := rs.Pos()
+	e.Yaw = ryaw
+	e.Pitch = rpitch * 0.5
+	e.HeadYaw = e.Yaw
+	// canSimulateMovement is false for a player-controlled vehicle:
+	// Entity.isLocalInstanceAuthoritative inverts
+	// isClientAuthoritative, which a Player passenger makes true —
+	// so travelRidden skips setSpeed+travel and zeroes the delta.
+	// The ridden steerable freezes mid-air until the driver's
+	// serverbound move_vehicle packets carry its position.
+	e.MotionX, e.MotionY, e.MotionZ = 0, 0, 0
+	return true
 }
 
 // boatGroundedAt reports whether a solid top sits directly under the
