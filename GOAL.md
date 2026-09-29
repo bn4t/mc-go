@@ -11800,9 +11800,10 @@ bystander; zombie.hurt positional for both listeners, player.hurt
 absent on the victim conn and present on the bystander's, identically
 on both legs (measured: 3x zombie.hurt + 1x player.hurt per leg).
 
-Still open: sheep shear sound (Sheep is a 0x74 caller — mc-go emits
-nothing on shear), mooshroom shear/stew, dye use, goat horn
-instrument, allay sounds, bogged shear, breeze whirl/charge/jump/land.
+Still open: allay sounds, breeze whirl/charge/jump/land. (The
+shear/dye/stew/goat-horn entries here were stale — shear.go,
+animalinteract.go and useGoatHorn emit them; the sheep-shear 0x74
+is now pinned by TestAnimalInteractParity — 2026-10-01.)
 
 
 ## Slice — enchanting table: offer-roll parity pinned on a shared seed

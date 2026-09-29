@@ -334,12 +334,30 @@ func TestAnimalInteractParity(t *testing.T) {
 		waitHeld("shears")
 		waitProx("sheep")
 		click(sheepID)
+		// Sheep.shear leads with playSound(null, sheep, SHEEP_SHEAR,
+		// PLAYERS, 1, 1) — entity-anchored 0x74, heard by BOTH conns
+		// (null except-player, unlike milk/dye's self-exclusion). The
+		// actor's sink must be polled BEFORE the wool waitFor — that
+		// helper drains sinkP itself.
+		out["shearSoundP"] = "miss"
+		sndEnd := time.Now().Add(2 * time.Second)
+		for time.Now().Before(sndEnd) {
+			if hasSnd(sinkP.take(), true, 1441, 7, sheepID) {
+				out["shearSoundP"] = "hit"
+				break
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
 		// The actor stands on the sheep: vanilla vacuums the drop into
 		// inventory before the entity probe can see it; either shape
 		// proves the color carried.
 		out["wool"] = waitFor(`entity @s[nbt={Inventory:[{id:"minecraft:red_wool"}]}]`, "WI")
 		if out["wool"] != "hit" {
 			out["wool"] = waitFor(`entity @e[type=minecraft:item,sort=nearest,limit=1,nbt={Item:{id:"minecraft:red_wool"}}]`, "DW")
+		}
+		out["shearSoundQ"] = "miss"
+		if hasSnd(sinkQ.take(), true, 1441, 7, sheepID) {
+			out["shearSoundQ"] = "hit"
 		}
 		return out
 	}
@@ -354,6 +372,7 @@ func TestAnimalInteractParity(t *testing.T) {
 		"goatItem": "hit", "goatQ": "hit", "goatP": "miss",
 		"dyeColor": "hit", "dyeItem": "hit",
 		"dyeQ": "hit", "dyeP": "miss", "wool": "hit",
+		"shearSoundQ": "hit", "shearSoundP": "hit",
 	}
 	for k, w := range want {
 		if van[k] != w {
