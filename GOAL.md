@@ -13423,3 +13423,30 @@ already in place; the missing piece was the interact arm itself:
   `TestCamelDashParity` pins [eid:1]-persists-while-ridden +
   262+263 sounds + the move_vehicle clear + data=0 silence — green
   vs vanilla and mc-go.
+- Axolotl-family `Variant` merges now decode through the enum
+  LEGACY_CODECs: axolotl's continuous-ZERO drops out-of-range ids to
+  LUCY, parrot CLAMPs to [0,4], rabbit's sparse map accepts
+  {0..5,99} else BROWN (and id 99 auto-renames to the killer_bunny
+  translate component), fox's `Type` string decodes "snow" else RED
+  with the Sleeping/Sitting/Crouching fflags byte, and the tropical
+  fish repacks Variant through (pattern|baseColor|patternColor) with
+  sparse-pattern and continuous-ZERO DyeColor fallbacks — so
+  `Variant:7` emits 0. The summon NBT path applies the same decodes.
+- WaterAnimal air parity: fish/squids/tadpole/axolotl/nautilus run
+  handleAirSupply — out of water the pre-tick supply drops 1/tick
+  (LivingEntity's +4 refill is overwritten), in water it snaps to
+  300, and at -20 it resets with 2 damage — `drown` for fish, `dryOut`
+  for axolotl/nautilus, which also gate the step on `!isNoAi` (the
+  axolotl's check is isInWaterOrRain). Dolphin's override is empty
+  (moistness) and turtle is a plain Animal.
+- Ageable prelude hoisted: every AgeableMob emits baby@16 + the
+  universal AgeLocked@17 bool before per-type data in both emit
+  paths (zombies keep their own DATA_BABY_ID@16 — not AgeableMob).
+- CustomName lifecycle corrected to ComponentSerialization's CODEC:
+  STRING tags decode as Component.literal (raw text, never reparsed —
+  `CustomNameComp` clear), compounds/lists decode into real
+  components, and numbers/bools fail the decode and clear the name.
+  Wire emit collapses pure-text components to their string; replies
+  and hover names render the literal or parsed component to match.
+  `TestAnimalVariantParity` pins the six summons + nine merges vs
+  both servers; `TestDataEntityParity` green again.

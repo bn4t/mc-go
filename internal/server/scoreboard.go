@@ -151,7 +151,7 @@ func sbEntityName(e *Entity) component {
 	uuidStr := sprintUUID(u)
 	var comp component
 	if e.CustomName != "" {
-		comp = component{text: e.CustomName}
+		comp = componentFromStored(e.CustomName, e.CustomNameComp)
 	} else {
 		comp = component{translate: "entity.minecraft." + typeName}
 	}

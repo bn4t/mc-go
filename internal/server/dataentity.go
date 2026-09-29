@@ -439,11 +439,70 @@ func (s *Server) applyDataEntity(d *dataEntity, save entitySave) {
 	}
 }
 
+// repackTropicalVariant is TropicalFish.Variant's codec round-trip:
+// the packed int decodes a pattern (ByIdMap.sparse over the 12
+// packed ids, KOB/0 fallback), a base color, and a pattern color
+// (DyeColor.byId's continuous-ZERO — ids outside [0,15] fall to
+// WHITE), then packs back — invalid pieces normalize in place.
+func repackTropicalVariant(i int32) int32 {
+	var pattern int32
+	switch i & 0xFFFF {
+	case 0x000, 0x100, 0x200, 0x300, 0x400, 0x500,
+		0x001, 0x101, 0x201, 0x301, 0x401, 0x501:
+		pattern = i & 0xFFFF
+	}
+	base := i >> 16 & 0xFF
+	if base > 15 {
+		base = 0
+	}
+	pat := i >> 24 & 0xFF
+	if pat > 15 {
+		pat = 0
+	}
+	return pattern | base<<16 | pat<<24
+}
+
+// componentFromStored parses a stored CustomName back into the
+// component vanilla keeps: a serialized component (comp) decodes its
+// SNBT/JSON form; literal storage stays the raw text — vanilla's CODEC
+// reads STRING tags through Component.literal, never re-parsing.
+func componentFromStored(s string, comp bool) component {
+	t := strings.TrimSpace(s)
+	if comp && t != "" && (t[0] == '{' || t[0] == '[') {
+		if tag, _, err := parseSNBTTag(t, 0); err == nil && tag != nil {
+			return componentFromAny(snbtToValue(tag))
+		}
+	}
+	return component{text: s}
+}
+
+// storedComponentArg is the hover-name value for a stored CustomName
+// — parsed components ride as their map form so the tree renders the
+// component's keys.
+func storedComponentArg(s string, comp bool) any {
+	t := strings.TrimSpace(s)
+	if comp && t != "" && (t[0] == '{' || t[0] == '[') {
+		if tag, _, err := parseSNBTTag(t, 0); err == nil && tag != nil {
+			return snbtToValue(tag)
+		}
+	}
+	return s
+}
+
+// storedComponentEqual compares two stored component strings by their
+// parsed codec value — `{"translate":"x"}` and `{translate:"x"}`
+// are the same component in different notations.
+func storedComponentEqual(a string, aComp bool, b string, bComp bool) bool {
+	av := storedComponentArg(a, aComp)
+	bv := storedComponentArg(b, bComp)
+	return aComp == bComp && fmt.Sprintf("%v", av) == fmt.Sprintf("%v", bv)
+}
+
 // entityDisplayName builds vanilla's decorated entity name component:
-// text = CustomName verbatim (the stored component string) or the
-// entity.<type> translation, insertion = the UUID string, and a
-// show_entity hover whose name mirrors the text form — the raw string
-// for custom names, a translate compound otherwise.
+// the stored CustomName parsed back into its component (translate,
+// text, …) or the entity.<type> translation, insertion = the UUID
+// string, and a show_entity hover whose name mirrors the name's
+// serialized form.
 func entityDisplayName(e *Entity) component {
 	typeName, ok := EntityTypeName(e.Type)
 	if !ok {
@@ -460,8 +519,8 @@ func entityDisplayName(e *Entity) component {
 	var nameArg any
 	var comp component
 	if e.CustomName != "" {
-		nameArg = e.CustomName
-		comp = component{text: e.CustomName}
+		nameArg = storedComponentArg(e.CustomName, e.CustomNameComp)
+		comp = componentFromStored(e.CustomName, e.CustomNameComp)
 	} else {
 		key := "entity.minecraft." + typeName
 		// An item entity's display name is its stack's: dirt names
@@ -612,7 +671,7 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		}
 	}
 	if e.CustomName != "" {
-		m["CustomName"] = componentNBTValue(e.CustomName)
+		m["CustomName"] = componentNBTValue(e.CustomName, e.CustomNameComp)
 	}
 	if e.Living {
 		equipMob := map[string]any{}
@@ -1228,10 +1287,41 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		// non-living entities carry no health semantic at all.
 		e.Health = float32(attrValue(mobAttrBase(e, "max_health"), e.AttrMods["max_health"]))
 	}
-	if v, ok := save["CustomName"].(string); ok {
-		e.CustomName = v
+	if v, ok := save["CustomName"]; ok && v != nil {
+		var cs string
+		var comp bool
+		if s, ok2 := v.(string); ok2 {
+			// ComponentSerialization's CODEC decodes STRING tags
+			// through Component.literal — the contents stay raw
+			// text, never re-parsed as component JSON.
+			cs = s
+		} else if _, isMap := v.(map[string]any); isMap {
+			// Structured components store as compound NBT —
+			// reserialize to the compact string e.CustomName holds.
+			var sb strings.Builder
+			writeSNBTCompact(&sb, v)
+			cs = sb.String()
+			comp = true
+		} else if _, isList := v.([]any); isList {
+			var sb strings.Builder
+			writeSNBTCompact(&sb, v)
+			cs = sb.String()
+			comp = true
+		} else {
+			// A number/bool tag fails the codec — read() hands back
+			// empty and setCustomName(null) clears the name.
+			cs = ""
+		}
+		// Keep the existing string when the name is unchanged —
+		// SNBT and JSON notations of one component must not dirty
+		// the metadata channel.
+		if !storedComponentEqual(cs, comp, e.CustomName, e.CustomNameComp) {
+			e.CustomName = cs
+			e.CustomNameComp = comp
+		}
 	} else {
 		e.CustomName = ""
+		e.CustomNameComp = false
 	}
 	e.NoAI = nbtTruth(save["NoAI"])
 	e.CanPickUpLoot = nbtTruth(save["CanPickUpLoot"])
@@ -1417,7 +1507,10 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		if v, ok := nbtFloat(save["ForcedAge"]); ok {
 			e.ForcedAge = int32(v)
 		}
-		e.AgeLocked = nbtTruth(save["AgeLocked"])
+		if al := nbtTruth(save["AgeLocked"]); al != e.AgeLocked {
+			e.AgeLocked = al
+			e.MetaDirty = true
+		}
 	}
 	if animalTypes[name] {
 		if v, ok := nbtFloat(save["InLove"]); ok {
@@ -1460,6 +1553,103 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		if v, ok := nbtInt32(save["Variant"]); ok {
 			if v != e.Variant {
 				e.Variant = v
+				e.MetaDirty = true
+			}
+		}
+	}
+	// Axolotl's Variant: LEGACY_CODEC's continuous-ZERO decode drops
+	// out-of-range ids to LUCY (0); Parrot's CLAMPs to [0,4]; the
+	// tropical fish's Variant repacks through the (pattern|base|
+	// patternColor) codec — invalid patterns fall to KOB.
+	if name == "axolotl" {
+		if v, ok := nbtInt32(save["Variant"]); ok {
+			if v < 0 || v > 4 {
+				v = 0
+			}
+			if v != e.Variant {
+				e.Variant = v
+				e.MetaDirty = true
+			}
+		}
+		if v, ok := save["FromBucket"]; ok {
+			if b := nbtTruth(v); b != e.FromBucket {
+				e.FromBucket = b
+				e.MetaDirty = true
+			}
+		}
+	}
+	if name == "parrot" {
+		if v, ok := nbtInt32(save["Variant"]); ok {
+			v = max(0, min(4, v))
+			if v != e.Variant {
+				e.Variant = v
+				e.MetaDirty = true
+			}
+		}
+	}
+	if name == "tropical_fish" {
+		if v, ok := nbtInt32(save["Variant"]); ok {
+			if vv := repackTropicalVariant(v); vv != e.Variant {
+				e.Variant = vv
+				e.MetaDirty = true
+			}
+		}
+	}
+	// Rabbit's RabbitType (LEGACY_CODEC int; 99 renames the entity
+	// the way setRabbitType auto-names the evil morph) +
+	// MoreCarrotTicks.
+	if name == "rabbit" {
+		if v, ok := nbtInt32(save["RabbitType"]); ok {
+			// ByIdMap.sparse on {0..5, 99} — unknown ids fall to
+			// DEFAULT (BROWN).
+			switch v {
+			case 0, 1, 2, 3, 4, 5, 99:
+			default:
+				v = 0
+			}
+			if v != e.Variant {
+				e.Variant = v
+				e.MetaDirty = true
+			}
+			if v == 99 {
+				e.CustomName = `{"translate":"entity.minecraft.killer_bunny"}`
+				e.CustomNameComp = true
+			}
+		}
+		if v, ok := nbtInt32(save["MoreCarrotTicks"]); ok {
+			e.MoreCarrotTicks = v
+		}
+	}
+	// Fox's Type serializes the enum NAME ("red"/"snow") and the
+	// three pose bools flip its DATA_FLAGS_ID byte.
+	if name == "fox" {
+		if v, ok := save["Type"]; ok {
+			if s, ok2 := v.(string); ok2 {
+				nv := int32(0)
+				if s == "snow" {
+					nv = 1
+				}
+				if nv != e.Variant {
+					e.Variant = nv
+					e.MetaDirty = true
+				}
+			}
+		}
+		if v, ok := save["Sleeping"]; ok {
+			if b := nbtTruth(v); b != e.Sleeping {
+				e.Sleeping = b
+				e.MetaDirty = true
+			}
+		}
+		if v, ok := save["Sitting"]; ok {
+			if b := nbtTruth(v); b != e.Sitting {
+				e.Sitting = b
+				e.MetaDirty = true
+			}
+		}
+		if v, ok := save["Crouching"]; ok {
+			if b := nbtTruth(v); b != e.Crouching {
+				e.Crouching = b
 				e.MetaDirty = true
 			}
 		}
@@ -1542,7 +1732,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			b.Byte(0)
 		} else {
 			b.Byte(1)
-			writeComponentTag(&b, e.CustomName)
+			writeComponentTag(&b, e.CustomName, e.CustomNameComp)
 		}
 		e.metaSent.name = e.CustomName
 	}
@@ -3091,10 +3281,21 @@ func componentIsLiteral(raw string) bool {
 // vanilla's component codec writes it into entity NBT: literal-text
 // components become a STRING tag of the raw JSON text
 // ('{"text":"Babe"}'), structured components the compound, list
-// input the list, and bare text its quoted JSON string form.
-func componentNBTValue(raw string) any {
+// input the list, and bare text its quoted JSON string form. A
+// comp-flagged name is a serialized component: a pure-text one
+// collapses back to its string, anything else keeps the compound.
+func componentNBTValue(raw string, comp bool) any {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
+		return raw
+	}
+	if comp {
+		if text := componentLiteralText(raw); text != "" {
+			return text
+		}
+		if tag, _, err := parseSNBTTag(raw, 0); err == nil && tag != nil {
+			return snbtToValue(tag)
+		}
 		return raw
 	}
 	if raw[0] == '{' && componentIsLiteral(raw) {
@@ -3110,4 +3311,19 @@ func componentNBTValue(raw string) any {
 		return raw
 	}
 	return `"` + raw + `"`
+}
+
+// componentLiteralText extracts the text of a pure-literal component
+// serialization — a {text:...} map with no siblings or style
+// (tryCollapseToString's shape) — so the codec can emit the collapsed
+// STRING form. Returns "" for structured contents.
+func componentLiteralText(raw string) string {
+	tag, _, err := parseSNBTTag(strings.TrimSpace(raw), 0)
+	if err != nil || tag == nil || tag.vals == nil || len(tag.vals) != 1 {
+		return ""
+	}
+	if t, ok := tag.vals["text"]; ok && t.str != "" {
+		return t.str
+	}
+	return ""
 }

@@ -1160,10 +1160,20 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if fv, ok := tag.vals["VillagerDataFinalized"]; ok && (fv.num == "1b" || fv.num == "1" || fv.str == "true") {
 				e.VillagerFinalized = true
 			}
-			// CustomName stores the component string verbatim — vanilla
-			// keeps the raw SNBT value and displays it literally.
-			if cv, ok := tag.vals["CustomName"]; ok && cv.str != "" {
-				e.CustomName = cv.str
+			// CustomName decodes through ComponentSerialization's
+			// CODEC: a STRING tag lands as Component.literal text
+			// (CustomNameComp clear, shown literally), a compound or
+			// list decodes into a real component.
+			if cv, ok := tag.vals["CustomName"]; ok {
+				if cv.str != "" {
+					e.CustomName = cv.str
+					e.CustomNameComp = false
+				} else if cv.vals != nil || cv.items != nil {
+					var sb strings.Builder
+					writeSNBTCompact(&sb, snbtToValue(cv))
+					e.CustomName = sb.String()
+					e.CustomNameComp = true
+				}
 			}
 			// Health and Motion land like vanilla's Entity.load — the
 			// spawn's dirty pack carries the moved entries after the
@@ -1551,11 +1561,21 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 			// Axolotl/Parrot/Rabbit/TropicalFish readAdditionalSaveData:
 			// each decodes its variant via the enum's LEGACY_CODEC —
-			// Codec.INT of the packed id — keyed Variant (RabbitType on
-			// the rabbit) plus the rabbit's MoreCarrotTicks.
+			// axolotl's continuous-ZERO drops out-of-range ids to LUCY,
+			// parrot's CLAMPs to [0,4], the fish's repacks through the
+			// (pattern|base|patternColor) codec.
 			if name == "axolotl" || name == "parrot" || name == "tropical_fish" {
 				if v, ok := tag.vals["Variant"]; ok {
 					e.Variant = int32(snbtNum(v))
+					if name == "axolotl" && (e.Variant < 0 || e.Variant > 4) {
+						e.Variant = 0
+					}
+					if name == "parrot" {
+						e.Variant = max(0, min(4, e.Variant))
+					}
+					if name == "tropical_fish" {
+						e.Variant = repackTropicalVariant(e.Variant)
+					}
 				}
 			}
 			// Horse.readAdditionalSaveData's Variant int — the packed
@@ -1574,10 +1594,18 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if name == "rabbit" {
 				if v, ok := tag.vals["RabbitType"]; ok {
 					e.Variant = int32(snbtNum(v))
+					// ByIdMap.sparse on {0..5, 99} — unknown ids
+					// fall to DEFAULT (BROWN).
+					switch e.Variant {
+					case 0, 1, 2, 3, 4, 5, 99:
+					default:
+						e.Variant = 0
+					}
 					if e.Variant == 99 {
 						// setRabbitType auto-names the evil morph
 						// with a translate component.
 						e.CustomName = `{"translate":"entity.minecraft.killer_bunny"}`
+						e.CustomNameComp = true
 					}
 				}
 				if v, ok := tag.vals["MoreCarrotTicks"]; ok {
@@ -2804,6 +2832,8 @@ type livingMeta struct {
 	llamaStr   int32
 	llamaVar   int32
 	ageLock    bool
+	bucket     bool
+	foxFlags   byte
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2856,7 +2886,25 @@ func snapLivingMeta(e *Entity) livingMeta {
 		llamaStr:   e.Strength,
 		llamaVar:   e.LlamaVariant,
 		ageLock:    e.AgeLocked,
+		bucket:     e.FromBucket,
+		foxFlags:   foxFlagsByte(e),
 	}
+}
+
+// foxFlagsByte is Fox's DATA_FLAGS_ID byte (idx19): 0x01 sitting,
+// 0x04 crouching, 0x20 sleeping.
+func foxFlagsByte(e *Entity) byte {
+	var v byte
+	if e.Sitting {
+		v |= 0x01
+	}
+	if e.Crouching {
+		v |= 0x04
+	}
+	if e.Sleeping {
+		v |= 0x20
+	}
+	return v
 }
 
 // tamableFlagsByte is TamableAnimal's DATA_FLAGS_ID byte: 0x01
@@ -2960,6 +3008,8 @@ func (e *Entity) ensureMetaInit() {
 		e.metaSent.llamaStr = 0
 		e.metaSent.llamaVar = 0
 		e.metaSent.ageLock = false
+		e.metaSent.bucket = false
+		e.metaSent.foxFlags = 0
 	}
 }
 
@@ -3016,7 +3066,7 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 			b.Byte(0)
 		} else {
 			b.Byte(1)
-			writeComponentTag(&b, e.CustomName)
+			writeComponentTag(&b, e.CustomName, e.CustomNameComp)
 		}
 	}
 	if e.CustomNameVisible != last.nameVis {
@@ -3058,13 +3108,23 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 		b.Byte(fl)
 	}
 	if name, ok := EntityTypeName(e.Type); ok {
-		switch {
-		case name == "sheep":
+		// AgeableMob's pair leads every ageable chain — DATA_BABY_ID
+		// (16) then AGE_LOCKED (17); each subtype's own data starts
+		// at 18+, so the hoist keeps packDirty's ascending order.
+		if ageableTypes[name] {
 			if e.Baby != last.baby {
 				b.Byte(16)
-				b.Byte(8) // type: boolean
+				b.Byte(8)
 				b.Bool(e.Baby)
 			}
+			if e.AgeLocked != last.ageLock {
+				b.Byte(17)
+				b.Byte(8)
+				b.Bool(e.AgeLocked)
+			}
+		}
+		switch {
+		case name == "sheep":
 			if e.Sheared != last.sheared || e.Color != last.color {
 				b.Byte(18)
 				b.Byte(0) // type: byte
@@ -3075,11 +3135,6 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(v)
 			}
 		case name == "mooshroom":
-			if e.Baby != last.baby {
-				b.Byte(16)
-				b.Byte(8) // type: boolean
-				b.Bool(e.Baby)
-			}
 			// MushroomCow DATA_TYPE (index 18, int): 0 red / 1 brown.
 			if e.MooshroomVariant != last.mooVar {
 				b.Byte(18)
@@ -3114,6 +3169,8 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Bool(e.Sheared)
 			}
 		case name == "zombie_villager":
+			// Zombie's own DATA_BABY_ID (16) — ZombieVillager is a
+			// Zombie, not an AgeableMob.
 			if e.Baby != last.baby {
 				b.Byte(16)
 				b.Byte(8)
@@ -3140,11 +3197,6 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Bool(e.VillagerFinalized)
 			}
 		case name == "villager":
-			if e.Baby != last.baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(e.Baby)
-			}
 			if e.VillagerTypeID != last.villType || e.VillagerProfID != last.villProf || e.VillagerLevel != last.villLevel {
 				b.Byte(19)
 				b.Byte(18)
@@ -3156,6 +3208,7 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Bool(e.VillagerFinalized)
 			}
 		case name == "zombie" || name == "husk" || name == "drowned":
+			// Zombie's own DATA_BABY_ID (16).
 			if e.Baby != last.baby {
 				b.Byte(16)
 				b.Byte(8)
@@ -3174,12 +3227,13 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 			}
 		case name == "parrot":
 			tamableMetaEmit(&b, e, &last)
-		case name == "wolf":
-			if e.Baby != last.baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(e.Baby)
+			// DATA_VARIANT_ID (20, int): 0 red … 4 gray.
+			if e.Variant != last.eqVar {
+				b.Byte(20)
+				b.Byte(1)
+				b.VarInt(e.Variant)
 			}
+		case name == "wolf":
 			tamableMetaEmit(&b, e, &last)
 			if e.Interested != last.interested {
 				b.Byte(20)
@@ -3207,11 +3261,6 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.VarInt(id)
 			}
 		case name == "bee":
-			if e.Baby != last.baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(e.Baby)
-			}
 			if v := beeFlagsValue(e); v != last.beeFlags {
 				b.Byte(18)
 				b.Byte(0)
@@ -3223,11 +3272,6 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.VarLong(end)
 			}
 		case name == "cat":
-			if e.Baby != last.baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(e.Baby)
-			}
 			tamableMetaEmit(&b, e, &last)
 			if id := holderVariantIDOf(e); id != last.hVarID {
 				b.Byte(20)
@@ -3263,11 +3307,6 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(6)
 				b.Byte(20)
 				b.VarInt(e.Pose)
-			}
-			if e.Baby != last.baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(e.Baby)
 			}
 			if id := holderVariantIDOf(e); id != last.hVarID {
 				b.Byte(18)
@@ -3309,11 +3348,6 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Bool(cd)
 			}
 		case name == "pig":
-			if e.Baby != last.baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(e.Baby)
-			}
 			// DATA_BOOST_TIME (18, int): the steering boost's rolled
 			// total — set once per boost, never reset.
 			if int32(e.BoostTimeTotal) != last.boost {
@@ -3332,11 +3366,6 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.VarInt(id)
 			}
 		case name == "strider":
-			if e.Baby != last.baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(e.Baby)
-			}
 			// DATA_BOOST_TIME (18, int) — same ItemBasedSteering
 			// contract as the pig.
 			if int32(e.BoostTimeTotal) != last.boost {
@@ -3351,16 +3380,6 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Bool(e.Suffocating)
 			}
 		case equineTypes[name]:
-			if e.Baby != last.baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(e.Baby)
-			}
-			if e.AgeLocked != last.ageLock {
-				b.Byte(17)
-				b.Byte(8)
-				b.Bool(e.AgeLocked)
-			}
 			// AbstractHorse's DATA_ID_FLAGS (18, byte) — TAME 0x02;
 			// the saddle rides equipment.saddle, not this byte.
 			if f := equineFlagsByte(e); f != last.eqFlags {
@@ -3398,11 +3417,6 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				}
 			}
 		case name == "cow":
-			if e.Baby != last.baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(e.Baby)
-			}
 			if id := holderVariantIDOf(e); id != last.hVarID {
 				b.Byte(18)
 				b.Byte(23)
@@ -3414,11 +3428,6 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.VarInt(id)
 			}
 		case name == "chicken":
-			if e.Baby != last.baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(e.Baby)
-			}
 			if id := holderVariantIDOf(e); id != last.hVarID {
 				b.Byte(18)
 				b.Byte(30)
@@ -3440,11 +3449,46 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(1) // type: varint
 				b.VarInt(e.SwellDir)
 			}
-		case ageableBabyTypes[name]:
-			if e.Baby != last.baby {
-				b.Byte(16)
-				b.Byte(8) // type: boolean
-				b.Bool(e.Baby)
+		case name == "axolotl":
+			// DATA_VARIANT (18, int) + DATA_FROM_BUCKET (20, bool) —
+			// DATA_PLAYING_DEAD (19) is untracked.
+			if e.Variant != last.eqVar {
+				b.Byte(18)
+				b.Byte(1)
+				b.VarInt(e.Variant)
+			}
+			if e.FromBucket != last.bucket {
+				b.Byte(20)
+				b.Byte(8)
+				b.Bool(e.FromBucket)
+			}
+		case name == "rabbit":
+			// DATA_TYPE_ID (18, int): 0 brown … 99 evil.
+			if e.Variant != last.eqVar {
+				b.Byte(18)
+				b.Byte(1)
+				b.VarInt(e.Variant)
+			}
+		case name == "tropical_fish":
+			// DATA_ID_TYPE_VARIANT (17, int) — the packed
+			// (pattern|base|patternColor) blob.
+			if e.Variant != last.eqVar {
+				b.Byte(17)
+				b.Byte(1)
+				b.VarInt(e.Variant)
+			}
+		case name == "fox":
+			// DATA_TYPE_ID (18, int): 0 red / 1 snow; DATA_FLAGS_ID
+			// (19, byte): 0x01 sitting, 0x04 crouching, 0x20 sleeping.
+			if e.Variant != last.eqVar {
+				b.Byte(18)
+				b.Byte(1)
+				b.VarInt(e.Variant)
+			}
+			if f := foxFlagsByte(e); f != last.foxFlags {
+				b.Byte(19)
+				b.Byte(0)
+				b.Byte(f)
 			}
 		}
 	}
@@ -3482,7 +3526,7 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 		b.Byte(2) // index: custom_name
 		b.Byte(6) // type: optional component
 		b.Byte(1) // present
-		writeComponentTag(&b, e.CustomName)
+		writeComponentTag(&b, e.CustomName, e.CustomNameComp)
 	}
 	if e.CustomNameVisible {
 		b.Byte(3) // index: custom_name_visible
@@ -3515,13 +3559,24 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 		b.Byte(flags)
 	}
 	if name, ok := EntityTypeName(e.Type); ok {
-		switch name {
-		case "sheep":
+		// AgeableMob's pair leads every ageable chain — DATA_BABY_ID
+		// (16) then AGE_LOCKED (17); each subtype's own data starts
+		// at 18+ (AbstractHorse's DATA_ID_FLAGS is 18 too), so the
+		// hoist keeps packDirty's ascending order.
+		if ageableTypes[name] {
 			if e.Baby {
 				b.Byte(16)
-				b.Byte(8) // type: boolean
+				b.Byte(8)
 				b.Bool(true)
 			}
+			if e.AgeLocked {
+				b.Byte(17)
+				b.Byte(8)
+				b.Bool(true)
+			}
+		}
+		switch name {
+		case "sheep":
 			// Sheep's DATA_WOOL_ID (index 18, byte): low nibble is
 			// the dye color, bit 0x10 = sheared.
 			if e.Sheared || e.Color != 0 {
@@ -3534,11 +3589,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(v)
 			}
 		case "mooshroom":
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8) // type: boolean
-				b.Bool(true)
-			}
 			// MushroomCow DATA_TYPE (index 18, int): 0 red / 1 brown;
 			// the default red stays unpacked.
 			if e.MooshroomVariant != 0 {
@@ -3589,11 +3639,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Bool(false)
 			}
 		case "axolotl":
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
 			// Axolotl's DATA_VARIANT (18, int); DATA_PLAYING_DEAD
 			// sits at 19 (untracked) and DATA_FROM_BUCKET (20,
 			// boolean) packs 01 when the bucket flag is set.
@@ -3616,11 +3661,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.VarInt(e.Variant)
 			}
 		case "rabbit":
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
 			// Rabbit's DATA_TYPE_ID (18, int): 0 brown … 99 evil.
 			if e.Variant != 0 {
 				b.Byte(18)
@@ -3636,11 +3676,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.VarInt(e.Variant)
 			}
 		case "fox":
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
 			// Fox's DATA_TYPE_ID (18, int): 0 red / 1 snow;
 			// DATA_FLAGS_ID (19, byte): 0x01 sitting, 0x04
 			// crouching, 0x20 sleeping. Trusted references at
@@ -3678,11 +3713,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.UUID(u)
 			}
 		case "panda":
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
 			// Panda packs both genes as Panda$Gene ordinal bytes
 			// at 21 (main) and 22 (hidden); normal/normal is the
 			// defined default and stays unpacked.
@@ -3697,11 +3727,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(g)
 			}
 		case "cat":
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
 			tamableMetaPack(&b, e)
 			// Cat's DATA_VARIANT_ID (20, cat_variant holder) packs
 			// only off the tabby default; DATA_SOUND_VARIANT_ID
@@ -3741,11 +3766,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(20)
 				b.VarInt(e.Pose)
 			}
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
 			// Frog's DATA_VARIANT_ID (18, frog_variant holder).
 			if id := holderVariantID("frog", e.VariantName); id != 1 {
 				b.Byte(18)
@@ -3767,11 +3787,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.VarInt(cs)
 			}
 		case "wolf":
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
 			tamableMetaPack(&b, e)
 			// Wolf's DATA_VARIANT_ID (23, wolf_variant) and
 			// DATA_SOUND_VARIANT_ID (24, wolf_sound_variant) pack
@@ -3808,11 +3823,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.VarInt(id)
 			}
 		case "bee":
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
 			// Bee's DATA_FLAGS_ID (18, byte): 0x08 nectar |
 			// 0x04 stung | 0x02 rolling — the zero default
 			// stays unpacked.
@@ -3829,11 +3839,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.VarLong(end)
 			}
 		case "pig":
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
 			// DATA_BOOST_TIME (18, int): ItemBasedSteering's boost
 			// total — 0 while never boosted, then the last rolled
 			// total (it is never reset to 0 on the wire).
@@ -3855,11 +3860,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.VarInt(id)
 			}
 		case "strider":
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
 			// DATA_BOOST_TIME (18, int) — same contract as the pig.
 			if e.BoostTimeTotal != 0 {
 				b.Byte(18)
@@ -3874,11 +3874,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Bool(true)
 			}
 		case "cow":
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
 			// Cow's DATA_VARIANT_ID (18) and DATA_SOUND_VARIANT_ID
 			// (19) — temperate/classic are the defined defaults.
 			if id := holderVariantID("cow", e.VariantName); id != 1 {
@@ -3892,11 +3887,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.VarInt(id)
 			}
 		case "chicken":
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
 			// Chicken's DATA_VARIANT_ID (18) and
 			// DATA_SOUND_VARIANT_ID (19).
 			if id := holderVariantID("chicken", e.VariantName); id != 1 {
@@ -3918,6 +3908,7 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.VarInt(id)
 			}
 		case "zombie_villager":
+			// Zombie's own DATA_BABY_ID (16) — not AgeableMob's.
 			if e.Baby {
 				b.Byte(16)
 				b.Byte(8)
@@ -3944,11 +3935,6 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Bool(true)
 			}
 		case "villager":
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
 			// A villager's defined default is fixed plains/none/1;
 			// a conversion always carries finalized data.
 			if !villagerDataIsDefault(e, 0) {
@@ -3962,8 +3948,8 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Bool(true)
 			}
 		case "zombie", "husk", "drowned":
-			// 16 = baby (DATA_BABY_ID), 17 = is_under_water_converting
-			// — zombie_villager's cure flag already lives at 19.
+			// 16 = baby (Zombie's own DATA_BABY_ID), 17 =
+			// is_under_water_converting.
 			if e.Baby {
 				b.Byte(16)
 				b.Byte(8)
@@ -3996,30 +3982,11 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 			}
 		case "horse", "zombie_horse", "skeleton_horse", "donkey",
 			"mule", "llama", "trader_llama", "camel":
-			// The AbstractHorse family: AgeableMob's baby/age_locked
-			// pair (16/17), DATA_ID_FLAGS (20) via equineMetaPack,
-			// then the per-subtype slots (horse type-variant 21,
-			// llama strength+variant 21/22, camel DASH 21).
-			if e.Baby {
-				b.Byte(16)
-				b.Byte(8)
-				b.Bool(true)
-			}
-			if e.AgeLocked {
-				b.Byte(17)
-				b.Byte(8)
-				b.Bool(true)
-			}
+			// The AbstractHorse family: DATA_ID_FLAGS (18) via
+			// equineMetaPack, then the per-subtype slots (horse
+			// type-variant 19, llama strength+variant 20/21, camel
+			// DASH 19).
 			equineMetaPack(&b, e, name)
-		default:
-			// The rest of the AgeableMob family keeps its inherited
-			// DATA_BABY_ID at index 16 (measured: pig, cow, sheep,
-			// chicken, frog, wolf attach packs all carry it).
-			if ageableBabyTypes[name] && e.Baby {
-				b.Byte(16)
-				b.Byte(8) // type: boolean
-				b.Bool(true)
-			}
 		}
 	}
 	b.Byte(0xFF)
@@ -4030,16 +3997,22 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 // optional-component serializer: ComponentSerialization's
 // either-codec — literal-text components go out as a TAG_String of
 // the raw JSON text, structured contents as the full compound, the
-// same split componentNBTValue applies on the save side.
-func writeComponentTag(b *protocol.Buffer, s string) {
-	if strings.HasPrefix(strings.TrimSpace(s), "{") && !componentIsLiteral(s) {
-		if err := nbt.WriteUnnamed(b, componentNBTValue(s)); err == nil {
+// same split componentNBTValue applies on the save side. A literal
+// stored name (comp clear) is already the tag's string payload.
+func writeComponentTag(b *protocol.Buffer, s string, comp bool) {
+	if comp {
+		if text := componentLiteralText(s); text != "" {
+			b.Byte(nbt.TagString)
+			b.Byte(byte(len(text) >> 8))
+			b.Byte(byte(len(text)))
+			b.Raw([]byte(text))
 			return
 		}
-	}
-	if strings.HasPrefix(strings.TrimSpace(s), "[") {
-		if err := nbt.WriteUnnamed(b, componentNBTValue(s)); err == nil {
-			return
+		t := strings.TrimSpace(s)
+		if t != "" && (t[0] == '{' || t[0] == '[') {
+			if err := nbt.WriteUnnamed(b, componentNBTValue(s, comp)); err == nil {
+				return
+			}
 		}
 	}
 	b.Byte(nbt.TagString)
@@ -4332,6 +4305,17 @@ var mobBreathesWater = map[string]bool{
 	"zombie": true, "zombie_villager": true, "zombified_piglin": true,
 	"zoglin": true, "drowned": true, "husk": true,
 	"zombie_horse": true, "camel_husk": true, "zombie_nautilus": true,
+}
+
+// mobWaterAnimalAir is the WaterAnimal subclass set whose own
+// handleAirSupply overrides LivingEntity's: out of water they drain
+// one air per tick, in water they snap to 300. The dolphin's override
+// is empty (it uses DATA_MOISTNESS instead) and the turtle is a plain
+// Animal, so neither is listed.
+var mobWaterAnimalAir = map[string]bool{
+	"axolotl": true, "nautilus": true,
+	"cod": true, "salmon": true, "tropical_fish": true, "pufferfish": true,
+	"squid": true, "glow_squid": true, "tadpole": true,
 }
 
 // isFireDamageType is vanilla's is_fire damage-type tag — every
@@ -4844,7 +4828,49 @@ func (s *Server) mobTickStep() {
 		// increaseAirSupply's +4 per tick up to getMaxAirSupply (300) —
 		// inside the drain cell only while one of the refilling
 		// effects is on.
-		if airD := s.dims[e.Dim]; s.mobEyeInWater(e, airD) && !s.mobEyeInBubbleColumn(e, airD) {
+		if airD := s.dims[e.Dim]; airD != nil && mobWaterAnimalAir[ambName] {
+			// WaterAnimal.baseTick captures the pre-tick supply, lets
+			// LivingEntity's air block run, then overrides the supply:
+			// in water it snaps to the 300 max, out of water it drops
+			// one per tick and at -20 resets to zero with 2 damage
+			// (dryOut on the axolotl and nautilus, drown elsewhere —
+			// the axolotl's check is isInWaterOrRain). Axolotl and
+			// nautilus gate the whole step on !isNoAi; the fish,
+			// squids, and tadpole run it unconditionally. Skipping
+			// LivingEntity's own refill is safe: its result is always
+			// overwritten by the setAirSupply below.
+			if waGate := ambName == "axolotl" || ambName == "nautilus"; !waGate || !e.NoAI {
+				wet := s.mobInWater(e)
+				if ambName == "axolotl" && !wet {
+					feet := world.Pos{
+						X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)),
+						Z: int(math.Floor(e.Z)),
+					}
+					wet = s.fireRainingAt(airD, feet)
+					if !wet {
+						feet.Y = int(math.Floor(e.Y + entityBBDims(e)[1]))
+						wet = s.fireRainingAt(airD, feet)
+					}
+				}
+				if wet {
+					if e.AirSupply != 300 {
+						e.AirSupply = 300
+						e.MetaDirty = true
+					}
+				} else {
+					e.AirSupply--
+					e.MetaDirty = true
+					if e.AirSupply <= -20 {
+						e.AirSupply = 0
+						src := "drown"
+						if waGate {
+							src = "dry_out"
+						}
+						s.damageMob(e, 2, src, nil, &damageInfo{typeName: src})
+					}
+				}
+			}
+		} else if airD := s.dims[e.Dim]; s.mobEyeInWater(e, airD) && !s.mobEyeInBubbleColumn(e, airD) {
 			if !mobBreathesWater[ambName] && !mobHasAirEffect(s, e) {
 				e.AirSupply--
 				e.MetaDirty = true
@@ -7518,6 +7544,7 @@ func (s *Server) mobConvert(e *Entity, targetName string, levelEvent int32) *Ent
 	s.mobFinalizeAttributes(ne)
 	ne.Baby = e.Baby
 	ne.CustomName = e.CustomName
+	ne.CustomNameComp = e.CustomNameComp
 	ne.CustomNameVisible = e.CustomNameVisible
 	ne.Silent = e.Silent
 	ne.NoAI = e.NoAI
