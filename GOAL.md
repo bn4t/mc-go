@@ -13840,9 +13840,10 @@ already belong to RunAroundLikeCrazyGoal (equine rider flee).
 Found during pinning (fixed in this slice):
 - e.Tamed (capital — AbstractHorse flag) vs e.tamed (TamableAnimal)
   — the summon SNBT path and flee check now agree on e.tamed.
-- mc-go's `execute at @e run summon ~2 ~ ~` resolves the inner
+- mc-go's `execute at @e run summon ~2 ~ ~` resolved the inner
   position at the COMMAND SOURCE not the entity (wolf summoned at
-  the player, not the fox) — execute-at positioning gap; still open.
+  the player, not the fox) — fixed in the execute-at anchoring
+  slice below.
 - The harness flattens chat text: `data get` NBT replies arrive
   with brackets/colons stripped (`Owner:[I;0,0,0,1]` → `OwnerI0001`)
   — markers must look for "Owner", not "[I;".
@@ -13853,3 +13854,25 @@ near= fox still inside 9 blocks at ~1.2s — a committed flee covers
 8-10 by then, wander doesn't; fledAfter= a second UNTAMED wolf still
 triggers the rule), rabbit_player, fox_sneak (sneak before summon →
 no flee; unsneak → flee). Green both legs.
+
+## Slice — execute at/as command-source anchoring
+
+- **Gap list**: `execute at @e run summon ~2 ~ ~` dropped the new
+  entity at the command sender — runSummon resolved `~` against
+  `sess.Pos()`, ignoring the chain's re-anchored source position.
+- **Measured** (live summon pins on 26.2 — corrects the earlier
+  note that claimed `as` re-anchors): `execute at <entity>`
+  re-anchors position AND dimension at the anchor (wolf lands at
+  fox.x+2); `execute as <entity>` changes ONLY the executor —
+  position/dimension stay at the command source (`as @e run summon
+  wolf ~2 ~ ~` lands the wolf next to the PLAYER, not the mob;
+  `as @e run tp @s ~ ~ ~` moves each mob TO the sender).
+- **Implemented**: `runSummon` resolves its base pos through
+  `execPos` → `execEnt` → `sess.Pos()` like the other leaf
+  commands; `executeFork`'s `as` branch no longer copies
+  pos/dim — only `sub.ent`/`sess.execEnt` (the `at` branch keeps
+  re-anchoring both).
+- **Pinned**: `TestExecuteAtSummonParity` — NoAI anchor fox at
+  absolute coords, `execute at|as` + `run summon wolf ~2 ~ ~
+  {NoAI:1b}`, exact wolf/fox Pos comparison (at → fox+2 on both;
+  as → player+2 on both). `TestExecuteIfParity` re-green (170s).

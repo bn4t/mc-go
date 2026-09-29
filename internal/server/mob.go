@@ -852,7 +852,14 @@ func (s *Server) runSummon(player string, args []string) reply {
 	if sess == nil {
 		return textReply("Unknown player: " + player)
 	}
+	// The command source position resolves "~" and the bare-pos
+	// default: an `execute at|as` anchor overrides the sender.
 	x, y, z, _, _, _ := sess.Pos()
+	if sess.execPos != nil {
+		x, y, z = sess.execPos[0], sess.execPos[1], sess.execPos[2]
+	} else if sess.execEnt != nil && sess.execEnt.mob != nil {
+		x, y, z = sess.execEnt.mob.X, sess.execEnt.mob.Y, sess.execEnt.mob.Z
+	}
 	if len(args) >= 4 {
 		var err error
 		if x, err = parseDouble(args[1], x, true); err != nil {

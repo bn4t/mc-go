@@ -16,6 +16,7 @@ package blackbox
 // creeper legitimately swells and detonates.
 import (
 	"fmt"
+	"math"
 	"net"
 	"regexp"
 	"strconv"
@@ -229,6 +230,64 @@ func TestMobFleeParity(t *testing.T) {
 
 	van := run("vanilla", targets.vanilla)
 	mc := run("mc-go", targets.mcgo)
+	for i := range van {
+		t.Logf("leg %d vanilla: %s", i, van[i])
+		t.Logf("leg %d mc-go:   %s", i, mc[i])
+	}
+	if len(van) != len(mc) {
+		t.Fatalf("leg count %d vs %d", len(van), len(mc))
+	}
+	for i := range van {
+		if van[i] != mc[i] {
+			t.Errorf("leg %d mismatch: vanilla %q mc-go %q", i, van[i], mc[i])
+		}
+	}
+}
+
+// TestExecuteAtSummonParity pins `execute at`/`as` re-anchoring the
+// command source position for a trailing `run summon ~2 ~ ~`: the new
+// entity must land next to the anchor mob, not at the command sender.
+// `at` moves the origin only; `as` moves origin and executor — both
+// anchor relative coords at the target's position.
+func TestExecuteAtSummonParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil,
+		map[string]string{"ops.json": opsJSONFor("P")}, nil)
+	defer targets.cleanup()
+
+	run := func(addr string) []string {
+		var out []string
+		c, pr, pw := joinPlayBlackbox(t, addr, "P")
+		_ = c.SetDeadline(time.Now().Add(60 * time.Second))
+		obs := &fleeObs{}
+		sendCommand(t, pw, "tp P 0.5 -60 0.5")
+		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
+		fleePump(t, c, pr, pw, obs, 600*time.Millisecond)
+
+		for _, kind := range []string{"at", "as"} {
+			tag := "exa" + kind
+			sendCommand(t, pw, "summon minecraft:fox 100.5 -60 0.5 {NoAI:1b,Tags:[\""+tag+"\"]}")
+			fleePump(t, c, pr, pw, obs, 400*time.Millisecond)
+			sendCommand(t, pw, "execute "+kind+" @e[type=minecraft:fox,tag="+tag+",limit=1] run summon minecraft:wolf ~2 ~ ~ {NoAI:1b}")
+			fleePump(t, c, pr, pw, obs, 400*time.Millisecond)
+			w := fleePos(t, c, pr, pw, obs, "exec-"+kind, "@e[type=minecraft:wolf,limit=1]")
+			f := fleePos(t, c, pr, pw, obs, "exec-"+kind+"f", "@e[type=minecraft:fox,tag="+tag+",limit=1]")
+			// The wolf lands ~2 x off the NoAI-anchored fox on both
+			// servers; a sender-anchored "~" would drop it next to
+			// the player ~100 blocks away instead.
+			ok := math.Abs(w[0]-f[0]-2) < 0.75 &&
+				math.Abs(w[2]-f[2]) < 0.75 &&
+				math.Abs(w[0]-0.5) > 50
+			out = append(out, fmt.Sprintf("execute_%s anchored=%v w=%.1f,%.1f f=%.1f,%.1f",
+				kind, ok, w[0], w[2], f[0], f[2]))
+			sendCommand(t, pw, "kill @e[type=minecraft:wolf]")
+			fleePump(t, c, pr, pw, obs, 200*time.Millisecond)
+		}
+		c.Close()
+		return out
+	}
+
+	van := run(targets.vanilla)
+	mc := run(targets.mcgo)
 	for i := range van {
 		t.Logf("leg %d vanilla: %s", i, van[i])
 		t.Logf("leg %d mc-go:   %s", i, mc[i])

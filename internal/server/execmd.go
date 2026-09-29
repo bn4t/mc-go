@@ -1822,10 +1822,10 @@ func (s *Server) executeFork(ctx *executeContext, player, kind string, args []st
 			sub.pos = c.position()
 			sub.dim = c.dimOf(s)
 		} else {
-			// as swaps the executor AND re-anchors at it.
+			// as swaps ONLY the executor: position and dimension
+			// stay at the command source — `as @e run tp ~ ~ ~`
+			// moves each mob TO the sender, not to itself.
 			sub.ent = c
-			sub.pos = c.position()
-			sub.dim = c.dimOf(s)
 			sess.execEnt = c
 		}
 		p := sub.pos
