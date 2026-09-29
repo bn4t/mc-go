@@ -795,6 +795,16 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		if typeName == "cat" || typeName == "wolf" {
 			m["CollarColor"] = int8(collarColorValue(e))
 		}
+		// TamableAnimal.addAdditionalSaveData: Sitting writes
+		// unconditionally, Owner as a nullable [I;4] reference —
+		// wolf/cat/parrot share the chain.
+		switch typeName {
+		case "wolf", "cat", "parrot":
+			m["Sitting"] = nbtBool(e.Sitting)
+			if e.ownerUUID != ([16]byte{}) {
+				m["Owner"] = uuidInts(e.ownerUUID)
+			}
+		}
 		// AbstractPiglin and Hoglin declare the zombification pair.
 		if overworldZombifyTypes[typeName] {
 			m["IsImmuneToZombification"] = nbtBool(e.ImmuneToZombification)

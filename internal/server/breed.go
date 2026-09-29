@@ -188,41 +188,105 @@ var tameFood = map[string]struct {
 // taming item: one item is consumed (in survival), the vanilla odds
 // roll decides, and the outcome broadcasts entity status 7 (hearts) or
 // 6 (smoke). A tame fires tame_animal.
-func (s *Server) tameAnimal(sess *Session, eid int32, hand int32) {
+func (s *Server) tameAnimal(sess *Session, eid int32, hand int32) bool {
 	s.entities.mu.RLock()
 	e, ok := s.entities.byID[eid]
 	s.entities.mu.RUnlock()
 	if !ok || !e.Living || e.tamed {
-		return
+		return false
 	}
 	name, ok := EntityTypeName(e.Type)
 	if !ok {
-		return
+		return false
 	}
 	tf, ok := tameFood[name]
 	if !ok {
-		return
+		return false
+	}
+	// Wolf's untamed arm gates on !isAngry — an angry wolf's bone
+	// click falls to Animal.mobInteract (not food) and never rolls.
+	if e.AngryAt != ([16]byte{}) {
+		return false
 	}
 	held, hslot := sess.stackForHand(hand)
 	if held.Empty() {
-		return
+		return false
 	}
 	iname, ok := itemNameOf(held.ID)
 	if !ok || !tf.items[iname] {
-		return
+		return false
 	}
 	if sess.mode() == GameModeSurvival || sess.mode() == GameModeAdventure {
 		sess.consumeSlot(hslot, 1)
 	}
 	if rand.Intn(tf.odds) != 0 {
 		s.broadcastEntityEventTo(nil, e.Dim, e.ID, 6) // tame failed — smoke
-		return
+		// The consume already happened — SUCCESS_SERVER: the sit
+		// toggle arm never runs on this click.
+		return true
 	}
 	e.tamed = true
 	e.owner = sess.getName()
+	e.ownerUUID = sess.uuid
+	// Wolf.mobInteract and Cat.mobInteract's tryToTame both end in
+	// setOrderedToSit(true) — a plain field in 26.2: the tame packs
+	// flags 0x04 alone; the 0x01 pose bit lands a tick later via
+	// SitWhenOrderedToGoal (only with AI). Parrot's roll stands too.
+	if name == "wolf" || name == "cat" {
+		e.Sitting = true
+	}
+	e.MetaDirty = true
 	s.broadcastEntityEventTo(nil, e.Dim, e.ID, 7) // tamed — hearts
 	s.broadcastEntityAnimation(sess, sess.entityID.Load(), 0)
 	s.fireTamedAnimal(sess, name)
+	return true
+}
+
+// tamableSitToggle is the post-tame mobInteract arm every TamableAnimal
+// shares: an owner's click that no other handler consumed flips
+// setOrderedToSit — navigation.stop, setTarget(null), and the idx18
+// sit bit toggling on the wire. Vanilla's gate order matters: breed
+// food still feeds first (feedAnimal ran above and consumed), collar
+// dyes repaint on wolf/cat, wolf armor equips — those items don't
+// reach the toggle, so the toggle skips them all.
+func (s *Server) tamableSitToggle(sess *Session, eid int32, hand int32) {
+	s.entities.mu.RLock()
+	e, ok := s.entities.byID[eid]
+	s.entities.mu.RUnlock()
+	if !ok || !e.Living || !e.tamed {
+		return
+	}
+	if e.ownerUUID != sess.uuid {
+		return
+	}
+	name, _ := EntityTypeName(e.Type)
+	held, _ := sess.stackForHand(hand)
+	if !held.Empty() {
+		iname, ok := itemNameOf(held.ID)
+		if !ok {
+			return
+		}
+		// isFood consumes first (the breed food map is each
+		// type's food tag — bones are NOT wolf food, so a tamed
+		// wolf right-clicked with a bone still toggles); collar
+		// dyes and wolf armor have their own arms — none toggle.
+		if bf, ok := animalFood[name]; ok && bf[iname] {
+			return
+		}
+		if (name == "wolf" || name == "cat") && (isDyeItem(iname) || iname == "wolf_armor") {
+			return
+		}
+		if name == "parrot" && iname == "cookie" {
+			// PARROT_POISONOUS_FOOD: the poison arm, not the toggle.
+			return
+		}
+	}
+	e.Sitting = !e.Sitting
+	e.MetaDirty = true
+	// setOrderedToSit's tail: jumping false, navigation.stop,
+	// setTarget(null) — the wolf drops whatever it stalked.
+	e.AngryAt = [16]byte{}
+	e.AngryUntil = -1
 }
 
 // interactEntityAdv resolves the clicked entity's type name and the

@@ -32,6 +32,18 @@ var dyeColorName = [16]string{
 	"brown", "green", "red", "black",
 }
 
+// isDyeItem reports whether the item name is one of the 16 <color>_dye
+// items — DyeItem's interactLivingEntity arm and the collar-dye gates
+// share the check.
+func isDyeItem(name string) bool {
+	for _, n := range dyeColorName {
+		if name == n+"_dye" {
+			return true
+		}
+	}
+	return false
+}
+
 // milkInteract is AbstractCow.mobInteract's (and Goat.mobInteract's)
 // bucket arm: bucket on a non-baby cow/mooshroom/goat.
 func (s *Server) milkInteract(sess *Session, eid int32, hand int32) bool {

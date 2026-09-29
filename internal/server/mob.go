@@ -1119,10 +1119,19 @@ func (s *Server) runSummon(player string, args []string) reply {
 			// TamableAnimal reads the same EntityReference, and
 			// Wolf.canShearEquipment checks ownership through it.
 			if u, ok := snbtUUID(tag, "Owner"); ok {
+				e.tamed = true
+				e.ownerUUID = u
 				if ownerSess := s.sessionByUUID(u); ownerSess != nil {
-					e.tamed = true
 					e.owner = ownerSess.getName()
 				}
+			}
+			// TamableAnimal.readAdditionalSaveData's Sitting byte —
+			// orders the tame sit flag on wolf/cat/parrot.
+			if v, ok := tag.vals["Sitting"]; ok {
+				e.Sitting = snbtNum(v) > 0
+				// readAdditionalSaveData: setInSittingPose(
+				// orderedToSit) — pose mirrors the field on load.
+				e.SittingPose = e.Sitting
 			}
 			// VillagerData.profession + Offers.Recipes drive the
 			// merchant menu; Age<0 marks a baby (no trading). The
@@ -2794,6 +2803,8 @@ type livingMeta struct {
 	pose       int32
 	tongueTgt  int32
 	cubeSize   int32
+	tameFlags  byte
+	ownerUUID  [16]byte
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2838,6 +2849,60 @@ func snapLivingMeta(e *Entity) livingMeta {
 		pose:       e.Pose,
 		tongueTgt:  e.FrogTongueTarget,
 		cubeSize:   cubeSizeOf(e),
+		tameFlags:  tamableFlagsByte(e),
+		ownerUUID:  e.ownerUUID,
+	}
+}
+
+// tamableFlagsByte is TamableAnimal's DATA_FLAGS_ID byte: 0x01
+// inSittingPose + 0x04 tamed, packed at idx18 on wolf/cat/parrot.
+// orderedToSit (e.Sitting) is an NBT-only field in 26.2 — it moves
+// no wire bits; only the sit goal's inSittingPose does.
+func tamableFlagsByte(e *Entity) byte {
+	var v byte
+	if e.SittingPose {
+		v |= 0x01
+	}
+	if e.tamed {
+		v |= 0x04
+	}
+	return v
+}
+
+// tamableMetaEmit diffs the tamable pair on the dirty path: idx18
+// flags byte + idx19 DATA_OWNERUUID_ID (optional entity reference —
+// present bool then 16-byte uuid). A zero uuid is Optional.empty.
+func tamableMetaEmit(b *protocol.Buffer, e *Entity, last *livingMeta) {
+	if fl := tamableFlagsByte(e); fl != last.tameFlags {
+		b.Byte(18)
+		b.Byte(0)
+		b.Byte(fl)
+	}
+	if e.ownerUUID != last.ownerUUID {
+		b.Byte(19)
+		b.Byte(13)
+		if e.ownerUUID != ([16]byte{}) {
+			b.Bool(true)
+			b.UUID(e.ownerUUID)
+		} else {
+			b.Bool(false)
+		}
+	}
+}
+
+// tamableMetaPack is the attach path: the defined defaults (flags 0,
+// empty owner) stay unpacked.
+func tamableMetaPack(b *protocol.Buffer, e *Entity) {
+	if fl := tamableFlagsByte(e); fl != 0 {
+		b.Byte(18)
+		b.Byte(0)
+		b.Byte(fl)
+	}
+	if e.ownerUUID != ([16]byte{}) {
+		b.Byte(19)
+		b.Byte(13)
+		b.Bool(true)
+		b.UUID(e.ownerUUID)
 	}
 }
 
@@ -3093,12 +3158,15 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(8)
 				b.Bool(e.FreezeConv)
 			}
+		case name == "parrot":
+			tamableMetaEmit(&b, e, &last)
 		case name == "wolf":
 			if e.Baby != last.baby {
 				b.Byte(16)
 				b.Byte(8)
 				b.Bool(e.Baby)
 			}
+			tamableMetaEmit(&b, e, &last)
 			if e.Interested != last.interested {
 				b.Byte(20)
 				b.Byte(8)
@@ -3146,6 +3214,7 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(8)
 				b.Bool(e.Baby)
 			}
+			tamableMetaEmit(&b, e, &last)
 			if id := holderVariantIDOf(e); id != last.hVarID {
 				b.Byte(20)
 				b.Byte(21)
@@ -3478,6 +3547,7 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Bool(true)
 			}
 		case "parrot":
+			tamableMetaPack(&b, e)
 			// Parrot's DATA_VARIANT_ID (20, int): 0 red … 4 gray.
 			if e.Variant != 0 {
 				b.Byte(20)
@@ -3571,6 +3641,7 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(8)
 				b.Bool(true)
 			}
+			tamableMetaPack(&b, e)
 			// Cat's DATA_VARIANT_ID (20, cat_variant holder) packs
 			// only off the tabby default; DATA_SOUND_VARIANT_ID
 			// sits at 24 after the feline-behavior slots.
@@ -3640,6 +3711,7 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(8)
 				b.Bool(true)
 			}
+			tamableMetaPack(&b, e)
 			// Wolf's DATA_VARIANT_ID (23, wolf_variant) and
 			// DATA_SOUND_VARIANT_ID (24, wolf_sound_variant) pack
 			// off pale/classic.
@@ -4869,6 +4941,10 @@ func (s *Server) mobTickStep() {
 				s.mobSyncFlush(e)
 				continue
 			}
+			// SitWhenOrderedToGoal (priority 2 on wolf/cat/parrot).
+			if ambName == "wolf" || ambName == "cat" || ambName == "parrot" {
+				s.tamableSitPoseStep(e)
+			}
 			// BreedGoal (priority 2-3): animals in love walk to their
 			// mate and breed on contact.
 			if s.mobBreedStep(e, ambName) {
@@ -5196,6 +5272,12 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	// ±10 target draws walk them out of the water onto land.
 	if fishWanderTypes[name] {
 		s.fishSwimStep(e, w, name, inWater, wDepth)
+		return
+	}
+	// SitWhenOrderedToGoal's flag set (MOVE+JUMP) leaves a sitting
+	// tame with no goal input: residual push/walk decay only.
+	if e.SittingPose && (name == "wolf" || name == "cat" || name == "parrot") {
+		s.mobTravelStep(e, w, 0)
 		return
 	}
 	if !e.Strolling {
@@ -5590,6 +5672,32 @@ var fishWanderTypes = map[string]bool{
 	"tropical_fish": true,
 	"pufferfish":    true,
 	"tadpole":       true,
+}
+
+// tamableSitPoseStep is SitWhenOrderedToGoal (priority 2 on
+// wolf/cat/parrot): the idx18 0x01 bit is inSittingPose — applied by
+// the goal, never by setOrderedToSit itself (a plain field). canUse
+// refuses isInWater / !onGround starts; canContinueToUse is plain
+// orderedToSit — once sitting, only the field flipping drops the pose.
+func (s *Server) tamableSitPoseStep(e *Entity) {
+	if e.Sitting && !e.SittingPose {
+		if !e.Grounded {
+			return
+		}
+		if w := s.dimWorld(e.Dim); w != nil &&
+			cellFluidIsWater(w.GetBlock(world.Pos{
+				X: int(math.Floor(e.X)),
+				Y: int(math.Floor(e.Y)),
+				Z: int(math.Floor(e.Z)),
+			})) {
+			return
+		}
+		e.SittingPose = true
+		e.MetaDirty = true
+	} else if !e.Sitting && e.SittingPose {
+		e.SittingPose = false
+		e.MetaDirty = true
+	}
 }
 
 // fishSwimStep is FishSwimGoal: RandomSwimmingGoal.canUse rolls

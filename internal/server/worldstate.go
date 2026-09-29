@@ -307,7 +307,12 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 		return
 	}
 	s.feedAnimal(sess, id, hand)
-	s.tameAnimal(sess, id, hand)
+	// A tame attempt consumed the action (SUCCESS_SERVER) — the
+	// post-tame owner-toggle arm never runs on that same click.
+	if s.tameAnimal(sess, id, hand) {
+		return
+	}
+	s.tamableSitToggle(sess, id, hand)
 	if s.equipMountChest(sess, id, hand, sneaking) {
 		return
 	}

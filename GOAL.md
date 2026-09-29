@@ -13305,3 +13305,32 @@ test surfaced:
   fluid-borne), stroll ends on solid-block contact.
 - Probe fix: distance=..4 under-covered the 6x6 pad (corner ~4.5) —
   widened to ..6; mc-go's survivors were in the far corner.
+
+## Slice — wolf/cat/parrot tame + sit parity (26.2)
+
+`TestWolfTameParity` is green vs both servers. The slice surfaced a
+26.2 semantics change AND a real interact-routing bug:
+
+- orderedToSit is a plain field in 26.2 — the idx18 flags byte packs
+  inSittingPose (0x01), applied only by SitWhenOrderedToGoal /
+  readAdditionalSaveData / the cat lie goals. A NoAI wolf's tame emit
+  is flags=4 alone (setOrderedToSit moves no wire bits); with AI the
+  pose bit lands 4→5 a tick later. mc-go conflated the two — now
+  e.Sitting = orderedToSit (NBT only), e.SittingPose = wire bit.
+- SitWhenOrderedToGoal (pri 2, wolf/cat/parrot) implemented as
+  tamableSitPoseStep: pose tracks the field except !onGround /
+  isInWater starts; a sitting tame also drops out of the land stroll
+  (goal holds MOVE+JUMP).
+- Owner sit-toggle clicks are wire-silent in 26.2 — the field flips
+  but nothing emits; Sitting:1b→0b shows only on data get. The
+  differential pins that silence (non-owner click moves nothing).
+- Real bug: mc-go ran tameAnimal AND tamableSitToggle on the same
+  click — the consume that tamed also un-sat (bone isn't wolf_food,
+  so the toggle fired). Vanilla's SUCCESS_SERVER consume prevents the
+  toggle arm entirely; tameAnimal now returns consumption and the
+  toggle only runs on an unconsumed click.
+- Also gated: Wolf's untamed arm refuses bone while isAngry
+  (AngryAt non-empty); summon {Sitting:1b} mirrors vanilla's
+  setInSittingPose(orderedToSit) load path (pose set on spawn pack).
+- Measured and pinned per-species tame odds already: wolf/cat 1-in-3
+  with auto-sit-order, parrot 1-in-10 standing.

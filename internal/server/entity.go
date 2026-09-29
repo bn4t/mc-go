@@ -446,6 +446,9 @@ type Entity struct {
 	// addAdditionalSaveData. On a cat, Sitting is TamableAnimal's
 	// orderedToSit — it gates CatRelaxOnOwnerGoal.
 	Sleeping, Sitting, Crouching bool
+	// SittingPose is TamableAnimal's inSittingPose (the idx18 wire
+	// bit); Sitting is orderedToSit (an NBT-only field in 26.2).
+	SittingPose bool
 	// CatLying/CatRelax are the cat's IS_LYING (21) and
 	// RELAX_STATE_ONE (22) synced flags CatRelaxOnOwnerGoal writes;
 	// CatGoalPos/CatGoalSet are the goal's live bed target and
@@ -802,9 +805,11 @@ type Entity struct {
 	// it, then resets to -getAmbientSoundInterval.
 	ambientSoundTime int32
 	// tamed/owner are the TamableAnimal state the tame_animal trigger
-	// consumes.
-	tamed bool
-	owner string
+	// consumes. ownerUUID is DATA_OWNERUUID_ID — the EntityReference
+	// uuid synced at idx19 on wolf/cat/parrot (zero = Optional.empty).
+	tamed     bool
+	owner     string
+	ownerUUID [16]byte
 	// WitchDrink/WitchDrinkTime are Witch.aiStep's using-item state:
 	// while drinking the mainhand shows the potion and the timer
 	// counts down from the 32-tick use duration; at zero the potion's
