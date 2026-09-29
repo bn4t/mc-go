@@ -12563,3 +12563,22 @@ AngerTime→absolute conversion pin (gameTime-dependent),
 world-seeded RNG parity for bare-summon rolls (variant/
 sound_variant/attr rolls — deterministic on vanilla per
 world seed; mc-go rolls from its own stream).
+## Slice — AngerTime→absolute conversion pin (2026-10-01)
+
+Measured: NeutralMob.readPersistentAngerSaveData's legacy branch
+(javap): anger_end_time long wins when present; else an AngerTime
+int routes through setTimeToRemainAngry → setPersistentAngerEndTime(
+level.getGameTime() + value). mc-go already converted at read —
+the gap was the missing blackbox pin.
+
+Pinned: TestAngerTimeLegacyParity summons a wolf {AngerTime:600}
+and asserts anger_end_time − gametime lands in (540, 600] on both
+servers — the conversion ran on the summon tick, a few ticks before
+the query, so the delta sits just under 600 without depending on
+world age. (Drive-by fix: data get entity needs a single-entity
+selector — @e[limit=1] — vanilla rejects the multi form with
+argument.entity.toomany.)
+
+Still open: cat IS_LYING/RELAX_STATE_ONE (idx21/22), frog
+DATA_TONGUE_TARGET, addTrustedEntity via taming, world-seeded
+RNG parity for bare-summon rolls.

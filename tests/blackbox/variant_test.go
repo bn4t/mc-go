@@ -408,3 +408,44 @@ func metaEntryValue(e metaEnt) string {
 	}
 	return fmt.Sprintf("%d:%d", e.typ, e.val[len(e.val)-1])
 }
+
+// TestAngerTimeLegacyParity pins the legacy AngerTime int read:
+// NeutralMob.readPersistentAngerSaveData converts it to an ABSOLUTE
+// end time via setTimeToRemainAngry → anger_end_time = gameTime(at
+// load) + value. Asserting the delta against a gametime query pins
+// the conversion without depending on the world age — both servers
+// must land in the same small window below 600.
+func TestAngerTimeLegacyParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("AngL"),
+	}, nil)
+	defer targets.cleanup()
+
+	for _, addr := range []string{targets.vanilla, targets.mcgo} {
+		c, pr, pw := joinPlayBlackbox(t, addr, "AngL")
+		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		sink := newChatSink(pr, pw)
+		time.Sleep(400 * time.Millisecond)
+		sendCommand(t, pw, "gamemode spectator AngL")
+		sendCommand(t, pw, "tp @s 0 -60 0")
+		time.Sleep(400 * time.Millisecond)
+		sink.take()
+
+		sendCommand(t, pw, "summon minecraft:wolf 0 -60 3 {AngerTime:600,NoAI:1b}")
+		time.Sleep(600 * time.Millisecond)
+
+		st, end := dataGetSel(t, sink, pw, "@e[type=minecraft:wolf,limit=1]", "anger_end_time")
+		if st != "query" {
+			t.Fatalf("%s: anger_end_time query = %s — want query (leg had no converted end time)", addr, st)
+		}
+		gt := gameTimeOf(t, pw, sink)
+		delta := end - float64(gt)
+		// The conversion ran on the summon tick, a few ticks BEFORE
+		// the gametime query — delta lands in (600-Δ, 600]; allow a
+		// generous 60 ticks of command/query drift.
+		if delta < 540 || delta > 600 {
+			t.Fatalf("%s: anger_end_time - gametime = %v — want (540, 600] (AngerTime:600 → gameTime+600)", addr, delta)
+		}
+		c.Close()
+	}
+}
