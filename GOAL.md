@@ -12846,3 +12846,27 @@ vehWatch learned serializers 19 (OPTIONAL_UNSIGNED_INT→VarInt) and 20
 Fixed under test: summon AttrBase was nil on cube mobs — the
 max_health write panicked (nil-map); guarded like the horse/zombie
 paths.
+
+## Slice — fox addTrustedEntity via breeding (2026-10-03)
+
+Fox.FoxBreedGoal.breed() measured on the 26.2 jar: the offspring's
+trusted list fills from the love causes — addTrustedEntity(
+animal.getLoveCause()) then addTrustedEntity(partner.getLoveCause())
+when it's a different player; addTrustedEntity puts slot0 first then
+slot1 (two max). EntityReference.of is the feeder's uuid, which on an
+offline-mode server is the deterministic OfflinePlayer:<name> uuid —
+byte-identical on both legs (verified live).
+
+isFood is ItemTags.FOX_FOOD (sweet_berries/glow_berries) — already in
+animalFood; the breed walk, love-clear, age-cooldown and xp orb were
+already pinned by TestMobBreedParity. This slice lands the trusted
+half: breedPair fills baby.FoxTrusted from the session uuids
+(session first, offlineUUID fallback), and the existing full-pack
+emit rides the baby-spawn metadata (idx20/21, ser13, bool+uuid).
+
+Pinned: TestFoxTrustedBreedParity — two players each feed their own
+fox (interact packets, sweet_berries mainhand); asserts the baby
+fox's DATA_TRUSTED_ID_0/1 both populated AND the uuid set equals
+{OfflineUUID(BOATA), OfflineUUID(BOATB)}. Both legs green.
+vehWatch learned serializer 13 (bool + 16-byte uuid) captured
+per-eid unscoped — the baby's eid isn't known ahead.

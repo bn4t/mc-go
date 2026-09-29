@@ -83,25 +83,26 @@ func sendPaddleBoat(pw *protocol.Writer, left, right bool) {
 // vehObs is what vehWatch collected over a window: every observable
 // wire fact about one entity, keyed the way assertions read it.
 type vehObs struct {
-	moved      bool             // any position/delta/teleport packet for eid
-	moveVeh    bool             // move_vehicle rubber-band to the driver
-	passengers int              // latest set_passengers count, -1 unseen
-	boolMeta   map[int]bool     // serializer-8 metadata entries seen
-	intMeta    map[int]int32    // serializer-1 (VarInt) entries seen
-	intMetaMax map[int]int32    // largest int value seen per index
-	floatMeta  map[int]float32  // serializer-3 (Float) entries seen
-	floatMax   map[int]float32  // largest float value seen per index
-	removed    map[int32]bool   // ids seen in remove_entities
-	itemEIDs   []int32          // eids of add_entity spawns of type "item"
-	disconnect bool             // a play-stage disconnect packet arrived
-	syncSeen   bool             // a sync_pos (player teleport) arrived on either conn
-	sync       [3]float64       // last sync_pos coordinates
-	levelEv    [][2]int32       // level_event {event,data} pairs seen
-	entEv      []byte           // entity_event statuses seen on the watched eid
-	adds       map[string]int   // add_entity counts by type name
-	sounds     int              // positioned sound (0x75) packets seen
-	blockUps   map[[3]int32]int // block_update counts by position
-	motion     map[int32]int    // set_entity_motion counts by eid
+	moved      bool                  // any position/delta/teleport packet for eid
+	moveVeh    bool                  // move_vehicle rubber-band to the driver
+	passengers int                   // latest set_passengers count, -1 unseen
+	boolMeta   map[int]bool          // serializer-8 metadata entries seen
+	intMeta    map[int]int32         // serializer-1 (VarInt) entries seen
+	intMetaMax map[int]int32         // largest int value seen per index
+	floatMeta  map[int]float32       // serializer-3 (Float) entries seen
+	floatMax   map[int]float32       // largest float value seen per index
+	removed    map[int32]bool        // ids seen in remove_entities
+	itemEIDs   []int32               // eids of add_entity spawns of type "item"
+	disconnect bool                  // a play-stage disconnect packet arrived
+	syncSeen   bool                  // a sync_pos (player teleport) arrived on either conn
+	sync       [3]float64            // last sync_pos coordinates
+	levelEv    [][2]int32            // level_event {event,data} pairs seen
+	entEv      []byte                // entity_event statuses seen on the watched eid
+	adds       map[string]int        // add_entity counts by type name
+	sounds     int                   // positioned sound (0x75) packets seen
+	blockUps   map[[3]int32]int      // block_update counts by position
+	motion     map[int32]int         // set_entity_motion counts by eid
+	uuidMeta   map[[2]int32][16]byte // serializer-13 present-uuid entries by {eid,index}
 }
 
 // vehWatch collects packets matching (eid, kind) over the window on
@@ -124,6 +125,7 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 		adds:       map[string]int{},
 		blockUps:   map[[3]int32]int{},
 		motion:     map[int32]int{},
+		uuidMeta:   map[[2]int32][16]byte{},
 	}
 	poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
 		defer c.SetReadDeadline(time.Time{})
@@ -217,9 +219,11 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 				case server.IDPlayEntityMetadata:
 					r := protocol.NewPacketReader(p.Data)
 					peid, _ := r.VarInt()
-					if peid != eid {
-						continue
-					}
+					// uuidMeta records ser-13 entries for ANY eid
+					// (trusted slots land on a spawned baby whose
+					// eid the watcher can't know ahead); the rest
+					// stay scoped to the watched entity.
+					watchThis := peid == eid
 					for {
 						idx, err := r.Byte()
 						if err != nil || idx == 0xFF {
@@ -237,33 +241,53 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 							if err != nil {
 								break
 							}
-							o.intMeta[int(idx)] = vv
-							if vv > o.intMetaMax[int(idx)] {
-								o.intMetaMax[int(idx)] = vv
+							if watchThis {
+								o.intMeta[int(idx)] = vv
+								if vv > o.intMetaMax[int(idx)] {
+									o.intMetaMax[int(idx)] = vv
+								}
 							}
 						case 3: // float
 							vv, err := r.Float()
 							if err != nil {
 								break
 							}
-							o.floatMeta[int(idx)] = vv
-							if vv > o.floatMax[int(idx)] {
-								o.floatMax[int(idx)] = vv
+							if watchThis {
+								o.floatMeta[int(idx)] = vv
+								if vv > o.floatMax[int(idx)] {
+									o.floatMax[int(idx)] = vv
+								}
 							}
 						case 8: // boolean
 							vv, err := r.Bool()
 							if err != nil {
 								break
 							}
-							o.boolMeta[int(idx)] = vv
+							if watchThis {
+								o.boolMeta[int(idx)] = vv
+							}
+						case 13: // optional_living_entity_reference — bool + uuid
+							present, err := r.Bool()
+							if err != nil {
+								break
+							}
+							if present {
+								var u [16]byte
+								if ub, err := r.Read(16); err == nil {
+									copy(u[:], ub)
+								}
+								o.uuidMeta[[2]int32{peid, int32(idx)}] = u
+							}
 						case 19, 20: // optional_int / pose — VarInt
 							vv, err := r.VarInt()
 							if err != nil {
 								break
 							}
-							o.intMeta[int(idx)] = vv
-							if vv > o.intMetaMax[int(idx)] {
-								o.intMetaMax[int(idx)] = vv
+							if watchThis {
+								o.intMeta[int(idx)] = vv
+								if vv > o.intMetaMax[int(idx)] {
+									o.intMetaMax[int(idx)] = vv
+								}
 							}
 						default:
 							goto done

@@ -99,6 +99,7 @@ func (s *Server) feedAnimal(sess *Session, eid int32, hand int32) {
 // the last feeder earns bred_animals criteria.
 func (s *Server) breedPair(e, mate *Entity, name string) {
 	causer := e.loveCause
+	partnerCauser := mate.loveCause
 	e.loveTicks, mate.loveTicks = 0, 0
 	e.loveCause, mate.loveCause = "", ""
 	e.Age, mate.Age = 6000, 6000
@@ -115,6 +116,32 @@ func (s *Server) breedPair(e, mate *Entity, name string) {
 		Age:       -24000,
 		Baby:      true,
 	})
+	if name == "fox" {
+		// FoxBreedGoal.breed(): the offspring trusts the love
+		// causes — the animal's feeder first (slot0), then the
+		// partner's when it is a different player (addTrustedEntity
+		// fills slot0 then slot1, two max). EntityReference.of is
+		// the feeder's uuid.
+		for _, c := range []string{causer, partnerCauser} {
+			if c == "" || len(baby.FoxTrusted) == 2 {
+				continue
+			}
+			u := offlineUUID(c)
+			if sess := s.sessionByName(c); sess != nil {
+				u = sess.getUUID()
+			}
+			dup := false
+			for _, ex := range baby.FoxTrusted {
+				if ex == u {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				baby.FoxTrusted = append(baby.FoxTrusted, u)
+			}
+		}
+	}
 	s.broadcastEntitySpawn(nil, *baby)
 	s.broadcastEntityMetadata(baby.ID, encodeLivingMetadata(baby, nil))
 	s.broadcastEntityEventTo(nil, e.Dim, baby.ID, 18) // hearts on the newborn
