@@ -12647,3 +12647,32 @@ DATA_TONGUE_TARGET, addTrustedEntity via taming, boost travel
 physics (getRiddenSpeed·0.225·boostFactor — strider's adds the
 0.35/0.55 suffocating factor), world-seeded RNG parity for
 bare-summon rolls.
+## Slice — allay hand-off sounds + take-back (2026-10-02)
+
+Measured: Allay.mobInteract (javap): give = MAINHAND <-
+copyWithCount(1) + removeInteractionItem + playSound(ALLAY_ITEM_GIVEN,
+NEUTRAL, 2.0, 1.0) + LIKED_PLAYER — an entity-targeted playSound, so
+the wire is sound_entity (0x74), and the causer is the excluded
+entity. Take-back = empty player hand + holding allay + MAIN_HAND:
+setItemSlot(EMPTY) + ITEM_TAKEN + allay swing + removeAllItems thrown
+at the allay's own position + LIKED_PLAYER erased + hand item
+addItem'ed. InventoryCarrier.pickUpItem writes the inventory only —
+MAINHAND is never touched by pickups or by GoAndGiveItemsToTarget's
+throw (inventory.removeItem(0,1) per behavior tick = one item per
+game tick). AllayAi.onItemThrown: gameTime%7==0 && random<0.9 plays
+ALLAY_THROW vol 1.0 pitch ~ THROW_SOUND_PITCHES (18-entry list).
+
+Pinned: TestAllayInteractParity — a second observer session watches
+the same allay (the causer is excluded) and asserts the three
+sound_entity emits: ITEM_GIVEN on give, ALLAY_THROW while inventory
+throws to the liked player, ITEM_TAKEN on the empty-hand take-back.
+mc-go: giveAllay now models both directions of the hand-off,
+pickup/throw no longer clobber MAINHAND with the inventory stack
+(the take-back fired never because the hand was already empty), the
+throw gate dropped from 20t to vanilla's per-tick rate, and all
+three sounds ride playSoundEntity not positional playSound.
+
+Still open: cat IS_LYING/RELAX_STATE_ONE (idx21/22), frog
+DATA_TONGUE_TARGET, addTrustedEntity via taming, boost travel
+physics, breeze whirl/charge/jump/land (Brain AI), world-seeded
+RNG parity for bare-summon rolls.

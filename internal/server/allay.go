@@ -1,6 +1,7 @@
 package server
 
 import (
+	"math/rand"
 	"strconv"
 
 	"mc-go/internal/protocol"
@@ -21,6 +22,13 @@ const (
 	allayThrowDist       = 3.0
 	allayPickupReach     = 1.5
 )
+
+// allayThrowPitches is Allay.THROW_SOUND_PITCHES — the pitch pool
+// ALLAY_THROW samples from on each throw (Util.getRandom).
+var allayThrowPitches = []float32{
+	0.5, 0.5625, 0.625, 0.75, 0.9375, 1, 1, 1, 1.125, 1.25,
+	1.5, 1.875, 2, 2.25, 2.5, 3, 3.75, 4,
+}
 
 func isNoteBlock(b world.Block) bool {
 	name, ok := world.StateOwner(b)
@@ -87,34 +95,88 @@ func (s *Server) allayEquip(e *Entity, it ItemStack) {
 	})
 }
 
-// giveAllay implements Allay.mobInteract's item hand-off: an empty
-// allay hand takes one of the player's held stack into the MAINHAND
-// equipment slot and latches the player as LIKED_PLAYER. Note this
+// giveAllay implements Allay.mobInteract's item hand-off both ways:
+// an empty allay hand takes one of the player's held stack into the
+// MAINHAND equipment slot (sound ITEM_GIVEN, latches LIKED_PLAYER);
+// an empty player hand on an allay holding an item takes it back
+// (sound ITEM_TAKEN, allay swing, inventory items thrown out,
+// LIKED_PLAYER erased, the hand item addItem'ed). Note the give path
 // does NOT fill the allay's inventory — vanilla keeps the two
 // separate, and only inventory items are thrown to a deposit target.
 func (s *Server) giveAllay(sess *Session, eid int32, hand int32) {
 	s.entities.mu.RLock()
 	e, ok := s.entities.byID[eid]
 	s.entities.mu.RUnlock()
-	if !ok || !isAllay(e) || !e.HeldItem.Empty() {
+	if !ok || !isAllay(e) {
 		return
 	}
 	held, hslot := sess.stackForHand(hand)
-	if held.Empty() {
+	if e.HeldItem.Empty() {
+		if held.Empty() {
+			return
+		}
+		one := held
+		one.Count = 1
+		s.entities.mu.Lock()
+		e.HeldItem = one
+		e.LikedPlayer = sess.uuid
+		e.HasLikedPlayer = true
+		s.entities.mu.Unlock()
+		if sess.mode() == GameModeSurvival || sess.mode() == GameModeAdventure {
+			sess.consumeSlot(hslot, 1)
+		}
+		s.allayEquip(e, one)
+		// playSound(player, allay, ITEM_GIVEN, NEUTRAL, 2.0, 1.0) —
+		// the causer's client plays it locally, everyone else hears
+		// the packet.
+		s.playSoundEntity(e.Dim, e.ID, 4, 6, 2.0, 1.0, sess)
+		s.broadcastEntityAnimation(sess, sess.entityID.Load(), 0)
 		return
 	}
-	one := held
-	one.Count = 1
-	s.entities.mu.Lock()
-	e.HeldItem = one
-	e.LikedPlayer = sess.uuid
-	e.HasLikedPlayer = true
-	s.entities.mu.Unlock()
-	if sess.mode() == GameModeSurvival || sess.mode() == GameModeAdventure {
-		sess.consumeSlot(hslot, 1)
+	// Take-back: player empty hand, MAIN_HAND only, allay holding.
+	if !held.Empty() || hand != 0 {
+		return
 	}
-	s.allayEquip(e, one)
-	s.broadcastEntityAnimation(sess, sess.entityID.Load(), 0)
+	s.entities.mu.Lock()
+	handItem := e.HeldItem
+	e.HeldItem = ItemStack{}
+	thrown := e.InvItem
+	e.InvItem = ItemStack{}
+	e.HasLikedPlayer = false
+	s.entities.mu.Unlock()
+	s.allayEquip(e, ItemStack{})
+	s.playSoundEntity(e.Dim, e.ID, 5, 6, 2.0, 1.0, sess)
+	// The allay swings MAIN_HAND (vanilla's swing on take-back) —
+	// broadcast to every tracker.
+	s.broadcastEntityAnimation(nil, e.ID, 0)
+	// removeAllItems throws each inventory stack at the allay's own
+	// position (BehaviorUtils.throwItem).
+	if !thrown.Empty() {
+		it := &Entity{
+			Type: mustEntityType("item"),
+			Dim:  e.Dim,
+			X:    e.X, Y: e.Y, Z: e.Z,
+			Item:        thrown,
+			PickupDelay: 40,
+			Thrower:     e.ID,
+		}
+		s.entities.Spawn(it)
+		s.broadcastEntitySpawn(nil, *it)
+	}
+	// player.addItem(handItem): merge-or-new into the inventory;
+	// whatever still doesn't fit drops at the player's feet.
+	if rem, _ := sess.addStack(handItem); !rem.Empty() {
+		px, py, pz, _, _, _ := sess.Pos()
+		it := &Entity{
+			Type: mustEntityType("item"),
+			Dim:  e.Dim,
+			X:    px, Y: py, Z: pz,
+			Item:        rem,
+			PickupDelay: 40,
+		}
+		s.entities.Spawn(it)
+		s.broadcastEntitySpawn(nil, *it)
+	}
 }
 
 // allayTickStep runs the allay's observable AI: pick up a nearby item
@@ -185,11 +247,12 @@ func (s *Server) allayPickUpStep(e *Entity) {
 	} else {
 		e.InvItem.Count += item.Item.Count
 	}
-	e.HeldItem = e.InvItem
 	s.entities.mu.Unlock()
 	s.entities.Remove(item.ID)
 	s.broadcastEntityRemoveIn(e.Dim, nil, []int32{item.ID})
-	s.allayEquip(e, e.HeldItem)
+	// Picked items land in the inventory only — MAINHAND keeps the
+	// liked-give stack, so no equipment emit (InventoryCarrier.
+	// pickUpItem writes the container, never the hand).
 }
 
 // allayThrowStep evaluates one allay's deposit target and throws one
@@ -198,7 +261,9 @@ func (s *Server) allayThrowStep(e *Entity, now int64) {
 	if e.InvItem.Empty() {
 		return
 	}
-	if now-e.LastThrow < 20 {
+	// GoAndGiveItemsToTarget.tick removes one inventory item per
+	// behavior tick — the throw rate is one item per game tick.
+	if now == e.LastThrow {
 		return
 	}
 	d := s.dims[e.Dim]
@@ -240,10 +305,7 @@ func (s *Server) allayThrowStep(e *Entity, now int64) {
 	if e.InvItem.Count <= 0 {
 		e.InvItem = ItemStack{}
 	}
-	e.HeldItem = e.InvItem
 	s.entities.mu.Unlock()
-
-	s.allayEquip(e, e.HeldItem)
 
 	// Vanilla tosses the item entity from the allay's position with a
 	// (0.2,0.3,0.2) drift — it never teleports to the target.
@@ -256,6 +318,12 @@ func (s *Server) allayThrowStep(e *Entity, now int64) {
 	}
 	s.entities.Spawn(it)
 	s.broadcastEntitySpawn(nil, *it)
+
+	// AllayAi.onItemThrown: gameTime%7==0 && random<0.9 plays
+	// ALLAY_THROW at a pitch drawn from THROW_SOUND_PITCHES.
+	if now%7 == 0 && rand.Float64() < 0.9 {
+		s.playSoundEntity(e.Dim, e.ID, 6, 6, 1.0, allayThrowPitches[rand.Intn(len(allayThrowPitches))], nil)
+	}
 
 	// The trigger's block pos is the target's block position's below:
 	// for a noteblock deposit that resolves to the noteblock itself.
