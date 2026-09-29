@@ -5273,7 +5273,15 @@ func (s *Server) mobTickStep() {
 					}
 				}
 			}
-			if e.Dashing && e.DashCooldown < 50 && (e.Grounded || e.Riding != 0) {
+			// Camel.tick's dash clear: once the cooldown dips past
+			// the minimum-5-tick window, any of grounded / in-liquid /
+			// isPassenger drops the flag (DASH=false emit).
+			inLiquid := false
+			if w := s.dimWorld(e.Dim); w != nil {
+				feet := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}
+				_, _, inLiquid = fluidOf(w.GetBlock(feet))
+			}
+			if e.Dashing && e.DashCooldown < 50 && (e.Grounded || e.Riding != 0 || inLiquid) {
 				e.Dashing = false
 				e.MetaDirty = true
 				if e.DashCooldown == 0 {

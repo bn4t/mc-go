@@ -36,12 +36,14 @@ import (
 type camelLeg struct {
 	pose   []string // "eid:v" idx6 ser20 emits (10=SITTING, 0=STANDING)
 	tick   []string // "eid:v" idx20 ser2 emits (negative=sitting)
+	dash   []string // "eid:v" idx19 ser8 emits (1=dashing)
 	sounds map[int32]int
 }
 
 func (l *camelLeg) fold(o vehObs) {
 	l.pose = append(l.pose, o.poseHist...)
 	l.tick = append(l.tick, o.poseTkHist...)
+	l.dash = append(l.dash, o.dashHist...)
 	if l.sounds == nil {
 		l.sounds = map[int32]int{}
 	}
@@ -262,4 +264,95 @@ func TestCamelRandomSittingParity(t *testing.T) {
 		t.Fatalf("idle stand: vanilla stood=%v (%v) mcgo stood=%v (%v)", vStood, vStandT, mStood, mStandT)
 	}
 	t.Logf("camel sit at vanilla=%v mcgo=%v; stand after vanilla=%v mcgo=%v", vSitT, mSitT, vStandT, mStandT)
+}
+
+// TestCamelRiddenParity pins the ridden half of the pose machine:
+// a sitting camel with a controlling rider declines the dash arm
+// (canJump adds !refuseToMove over isSaddled), does NOT stand on
+// forward input (tickRidden's zza>0 arm reads a field no remote
+// server ever writes — dead code, measured), and never
+// self-wanders while player-controlled (vanilla's travelRidden
+// bypasses the walk-target chain, so the Brain's stroll picks
+// can't move it).
+func TestCamelRiddenParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("BOATA", "BOATB"),
+	}, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	defer targets.cleanup()
+
+	run := func(t *testing.T, name, addr string) (leg camelLeg, eid int32, moved float64) {
+		v := joinVehPair(t, addr)
+		defer v.ca.Close()
+		defer v.cb.Close()
+		drainChunkWindow(t, "camelride", v.ca, v.pra, v.pwa, 0)
+		sendCommand(t, v.pwa, "gamemode spectator BOATB")
+		sendCommand(t, v.pwa, "tp BOATB 72 -60 68")
+		sendCommand(t, v.pwa, "tp BOATA 71.5 -60 67.5")
+		tag := fmt.Sprintf("cd%d", time.Now().UnixNano()%1_000_000)
+
+		// Saddled sitter: the merge lands a real sit (tick<0 +
+		// pose 10 on the wire).
+		sendCommand(t, v.pwa, fmt.Sprintf(
+			`summon minecraft:camel 70.5 -60 66.5 {Tags:["%s"],equipment:{saddle:{id:"minecraft:saddle",count:1}}}`, tag))
+		eid = camelEID(t, v, 3*time.Second, "camel")
+		sendCommand(t, v.pwa, fmt.Sprintf(
+			"data merge entity @e[type=minecraft:camel,tag=%s,limit=1] {LastPoseTick:-5}", tag))
+		leg.fold(vehWatch(t, v, false, eid, 1200*time.Millisecond))
+
+		// Board the sitter — riding a sitting camel is allowed.
+		sendInteractEntity(v.pwa, eid)
+		if o := vehWatch(t, v, true, eid, 5*time.Second); o.passengers != 1 {
+			t.Fatalf("%s: mount landed %d passengers, want 1", name, o.passengers)
+		}
+
+		// START_RIDING_JUMP on a ridden sitter: canJump's
+		// !refuseToMove declines — no DASH emit, no dash sound.
+		sendPlayerCommand(v.pwa, 3, 90)
+		leg.fold(vehWatch(t, v, false, eid, 1500*time.Millisecond))
+
+		// Forward input: tickRidden's zza>0 stand arm is dead code
+		// server-side (a remote Player's zza is never written), so
+		// a dedicated-server camel stays sitting — no stand emit.
+		sendPlayerInput(v.pwa, 0x01)
+		leg.fold(vehWatch(t, v, false, eid, 2*time.Second))
+		sendPlayerInput(v.pwa, 0x00)
+
+		// Still sitting under control: ten more seconds must not
+		// self-wander either (travelRidden bypasses the walk chain).
+		o := vehWatch(t, v, true, eid, 10*time.Second)
+		moved = o.posNet[eid]
+		return leg, eid, moved
+	}
+
+	vLeg, vE, vMoved := run(t, "vanilla", targets.vanilla)
+	mLeg, mE, mMoved := run(t, "mcgo", targets.mcgo)
+
+	// The full-run signature each leg must carry: the merge sit
+	// (pose10+tick-), and then NOTHING — no stand from rider
+	// input (dead zza arm), no DASH emit (sitting canJump gate).
+	for _, tc := range []struct {
+		name string
+		leg  *camelLeg
+		eid  int32
+	}{
+		{"vanilla", &vLeg, vE},
+		{"mcgo", &mLeg, mE},
+	} {
+		if !hasEmit(tc.leg.pose, tc.eid, "10") || !anyTickSign(tc.leg.tick, tc.eid, true) {
+			t.Fatalf("%s: merge sit missing: pose=%v tick=%v", tc.name, tc.leg.pose, tc.leg.tick)
+		}
+		if hasEmit(tc.leg.pose, tc.eid, "0") || anyTickSign(tc.leg.tick, tc.eid, false) {
+			t.Fatalf("%s: ridden sitter stood (dead arm fired): pose=%v tick=%v", tc.name, tc.leg.pose, tc.leg.tick)
+		}
+		if hasEmit(tc.leg.dash, tc.eid, "1") {
+			t.Fatalf("%s: sitting canJump gate let the dash arm fire: dash=%v", tc.name, tc.leg.dash)
+		}
+	}
+	// Controlled freeze: ten riderless-input seconds of net travel
+	// must be ~zero on both legs.
+	if vMoved > 0.5 || mMoved > 0.5 {
+		t.Fatalf("controlled wander: vanilla=%.3f mcgo=%.3f, want ~0", vMoved, mMoved)
+	}
 }

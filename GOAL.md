@@ -13955,3 +13955,31 @@ no flee; unsneak → flee). Green both legs.
   (pose0+tick+), water stand, all green vs vanilla and mc-go.
   `TestCamelRandomSittingParity` — 150s sit window + 60s stand
   window on a plain summon. gofmt/vet/build green.
+
+## Slice — camel ridden-input parity: dead zza arm, controlled freeze
+
+- **Gap list**: the ridden half of the camel pose machine —
+  tickRidden's input arms and what a controlling passenger does to
+  the Brain-driven wander.
+- **Measured** (decompile + live wire): `tickRidden` reads
+  `controller.zza` to stand a settled sitter — but NO server-side
+  code writes a remote Player's `zza`/`xxa` (the only readers of
+  `lastClientInput` are advancement predicates). Live pin
+  confirms: forward `player_input` on a ridden sitting camel
+  emits NOTHING on a dedicated server — the relaxed-stand arm is
+  dead code (it exists for the client's own prediction, where the
+  LocalPlayer feeds it). A controlled camel is also fully
+  rider-driven (travelRidden bypasses the walk-target chain), so
+  it never self-wanders; RandomSitting's
+  `!hasControllingPassenger` suppresses BOTH repick directions —
+  a ridden sitter never repick-stands. Camel.tick's dash clear is
+  `dashCooldown<50 && (onGround || isInLiquid || isPassenger)`.
+- **Implemented**: removed the false zza→standUp arm (documented
+  dead-code note); controlled camels return early from the move
+  step (no self-wander, both repick directions suppressed);
+  isInLiquid added to the dash-clear arm via feet-cell fluidOf.
+- **Pinned**: `TestCamelRiddenParity` — merge-sit + mount +
+  START_RIDING_JUMP + forward input emits exactly the sit marker
+  and NOTHING else (no stand, no dash), and the controlled freeze
+  holds posNet≈0 over 10s. Green vs both servers; sit-wire,
+  RandomSitting, and dash pins all re-green.

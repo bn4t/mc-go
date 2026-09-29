@@ -189,14 +189,17 @@ func (s *Server) camelPoseStep(e *Entity, w *world.World, inWater bool) bool {
 	gt := s.gameTime()
 	sitting := e.LastPoseTick < 0
 	transition := camelInTransition(e, gt)
-	// Camel.tickRidden: controller.zza > 0 on a settled sitter runs
-	// standUp — the vanilla check needs isCamelSitting (the negative
-	// tick) and a finished transition.
-	if sitting && !transition && len(e.Passengers) > 0 {
-		if rs := s.sessionByEntityID(e.Passengers[0]); rs != nil && rs.moveInputZ > 0 {
-			s.camelStand(e, false)
-			return true
-		}
+	// Camel.tickRidden's zza>0 → standUp arm is dead code on a
+	// dedicated server: nothing server-side writes a remote
+	// Player's zza (only the client-side LocalPlayer feeds it, for
+	// its own prediction) — live-measured: forward input on a
+	// ridden sitter emits no stand on vanilla.
+	// A player-controlled camel is rider-driven: vanilla's
+	// travelRidden bypasses the walk-target chain entirely, so the
+	// Brain's strolls and the ambient wander never move it (the
+	// wire position rides the client's move_vehicle stream).
+	if s.camelControlled(e) {
+		return true
 	}
 	// RandomSitting only repicks while no walk target is latched —
 	// vanilla's RunOne is gated on WALK_TARGET VALUE_ABSENT, so a
@@ -214,7 +217,6 @@ func (s *Server) camelPoseStep(e *Entity, w *world.World, inWater bool) bool {
 			// onGround && !hasControllingPassenger && pose-age &&
 			// canCamelChangePose.
 			if e.Grounded && e.LeashHolder == 0 && !inWater &&
-				(sitting || !s.camelControlled(e)) &&
 				s.camelCanChangePose(e, w, !sitting) &&
 				camelSitRoll(e.ID, e.WanderTicks, draw) {
 				if sitting {
@@ -225,5 +227,7 @@ func (s *Server) camelPoseStep(e *Entity, w *world.World, inWater bool) bool {
 			}
 		}
 	}
+	// refuseToMove = sitting || in-transition: freeze the camel's
+	// own drive — the wander/look steps read this as "no movement".
 	return camelRefuseToMove(e, gt)
 }
