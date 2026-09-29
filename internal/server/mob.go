@@ -1886,26 +1886,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 			fires = 0
 		}
 		s.fireLightningStrike(sess.dimension(), x, y, z, fires)
-		// LightningBolt.tick's strikeEntities box (±3 horiz, -3..+9
-		// vert) calls thunderHit on every entity inside — only
-		// MushroomCow's convert is modeled: variant flips and
-		// MOOSHROOM_CONVERT plays positional NEUTRAL vol 2.
-		for _, oe := range s.entities.All() {
-			if oe.Dim != e.Dim || !oe.Living || oe.Dying {
-				continue
-			}
-			if math.Abs(oe.X-x) > 3 || oe.Y < y-3 || oe.Y > y+9 || math.Abs(oe.Z-z) > 3 {
-				continue
-			}
-			if on, _ := EntityTypeName(oe.Type); on != "mooshroom" {
-				continue
-			}
-			if p, ok := s.entities.GetPtr(oe.ID); ok {
-				p.MooshroomVariant ^= 1
-				s.broadcastEntityMetadata(oe.ID, encodeLivingMetadata(p, nil))
-			}
-			s.playSoundSrc(oe.Dim, oe.X, oe.Y, oe.Z, 985, 6, 2, 1, nil)
-		}
+		s.thunderStrikeEntities(sess.dimension(), e, x, y, z, nil)
 		s.entities.Remove(e.ID)
 		s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft.lightning_bolt")))
@@ -7988,4 +7969,103 @@ func (s *Server) sheepEat(e *Entity, d *dimension, w *world.World) {
 	if e.Baby {
 		e.Age += 60
 	}
+}
+
+// thunderStrikeEntities is LightningBolt.tick's strikeEntities pass:
+// every living entity inside the (x±3, y-3..y+9, z±3) box gets its
+// per-type thunderHit — pig/villager convertTo on non-peaceful
+// difficulty (ConversionParams.single: keepCustomName for the pig,
+// not for the villager), creeper takes the hit then latches
+// DATA_IS_POWERED, mooshroom flips its variant and plays
+// MOOSHROOM_CONVERT — and everything without an override takes the
+// generic 5-damage lightning hit (fire is unmodeled).
+func (s *Server) thunderStrikeEntities(d *dimension, bolt *Entity, x, y, z float64, cause *Session) []string {
+	var victims []string
+	for _, oe := range s.entities.All() {
+		if oe.ID == bolt.ID || oe.Dim != d.name || !oe.Living || oe.Dying {
+			continue
+		}
+		if math.Abs(oe.X-x) > 3 || oe.Y < y-3 || oe.Y > y+9 || math.Abs(oe.Z-z) > 3 {
+			continue
+		}
+		t, ok := s.entities.GetPtr(oe.ID)
+		if !ok {
+			continue
+		}
+		on, _ := EntityTypeName(t.Type)
+		switch on {
+		case "mooshroom":
+			t.MooshroomVariant ^= 1
+			s.broadcastEntityMetadata(oe.ID, encodeLivingMetadata(t, nil))
+			s.playSoundSrc(oe.Dim, oe.X, oe.Y, oe.Z, 985, 6, 2, 1, nil)
+		case "pig":
+			if s.difficulty != DifficultyPeaceful {
+				// Pig's finalizeConversion lambda: default equipment
+				// (the golden sword) + persistence.
+				s.convertEntityType(t, "zombified_piglin", func(ne *Entity) {
+					if sid, ok := world.ItemID("golden_sword"); ok {
+						ne.Equips[equipMainHand] = ItemStack{ID: sid, Count: 1}
+					}
+					ne.PersistenceRequired = true
+				})
+			} else {
+				s.igniteMob(t, 160)
+				s.damageMob(t, 5, "lightning_bolt", cause, &damageInfo{typeName: "lightning_bolt", cause: bolt.ID, direct: bolt.ID})
+			}
+		case "villager":
+			if s.difficulty != DifficultyPeaceful {
+				// Villager's lambda: Witch.finalizeSpawn + persistence
+				// (the poi release is unmodeled).
+				s.convertEntityType(t, "witch", func(ne *Entity) {
+					ne.PersistenceRequired = true
+				})
+			} else {
+				s.igniteMob(t, 160)
+				s.damageMob(t, 5, "lightning_bolt", cause, &damageInfo{typeName: "lightning_bolt", cause: bolt.ID, direct: bolt.ID})
+			}
+		case "creeper":
+			s.igniteMob(t, 160)
+			s.damageMob(t, 5, "lightning_bolt", cause, &damageInfo{typeName: "lightning_bolt", cause: bolt.ID, direct: bolt.ID})
+			if !t.Dying {
+				t.Powered = true
+				s.broadcastEntityMetadata(oe.ID, encodeLivingMetadata(t, nil))
+			}
+		default:
+			s.igniteMob(t, 160)
+			s.damageMob(t, 5, "lightning_bolt", cause, &damageInfo{typeName: "lightning_bolt", cause: bolt.ID, direct: bolt.ID})
+		}
+		victims = append(victims, on)
+	}
+	return victims
+}
+
+// convertEntityType is Mob.convertTo's SINGLE flavor: the replacement
+// mob spawns at the old one's position and rotation (fresh health,
+// dropped equipment), then the old entity is discarded — the wire
+// order is add-then-remove. ConversionType.COMPONENTS_TO_COPY is
+// {CUSTOM_NAME, CUSTOM_DATA}; convertCommon additionally carries the
+// age pair, the baby flag and the active effects over.
+func (s *Server) convertEntityType(t *Entity, toName string, finalize func(ne *Entity)) {
+	ne := &Entity{
+		Type: mustEntityType(toName),
+		Dim:  t.Dim,
+		X:    t.X, Y: t.Y, Z: t.Z,
+		Yaw:               t.Yaw,
+		Pitch:             t.Pitch,
+		Living:            true,
+		CustomName:        t.CustomName,
+		CustomNameVisible: t.CustomNameVisible,
+		ExtraNBT:          t.ExtraNBT,
+		Age:               t.Age,
+		Baby:              t.Baby,
+		Effects:           t.Effects,
+		Equips:            map[int32]ItemStack{},
+	}
+	if finalize != nil {
+		finalize(ne)
+	}
+	ne = s.entities.Spawn(ne)
+	s.broadcastEntitySpawnIn(t.Dim, nil, *ne)
+	s.entities.Remove(t.ID)
+	s.broadcastEntityRemoveIn(t.Dim, nil, []int32{t.ID})
 }

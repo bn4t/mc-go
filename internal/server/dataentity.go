@@ -612,7 +612,7 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		}
 	}
 	if e.CustomName != "" {
-		m["CustomName"] = e.CustomName
+		m["CustomName"] = componentNBTValue(e.CustomName)
 	}
 	if e.Living {
 		equipMob := map[string]any{}
@@ -674,6 +674,22 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		// AgeableMob types carry Age instead.
 		if isBabyTypes[typeName] {
 			m["IsBaby"] = nbtBool(e.Baby)
+		}
+		// Creeper.addAdditionalSaveData: powered + the fuse window +
+		// blast radius, ignited only while lit.
+		if typeName == "creeper" {
+			m["powered"] = nbtBool(e.Powered)
+			m["Fuse"] = int16(30)
+			if e.MaxSwell > 0 {
+				m["Fuse"] = int16(e.MaxSwell)
+			}
+			m["ExplosionRadius"] = int8(3)
+			if e.BlastPower > 0 {
+				m["ExplosionRadius"] = int8(e.BlastPower)
+			}
+			if e.Ignited {
+				m["ignited"] = nbtBool(true)
+			}
 		}
 		// Sheep.writeAdditionalSaveData: Sheared + the dye Color byte.
 		if typeName == "sheep" {
@@ -963,6 +979,7 @@ var entitySaveSeq = []string{
 	"IsImmuneToZombification", "TimeInOverworld",
 	"home_radius", "home_pos", "Wave", "CanJoinRaid", "RaidId",
 	"Passengers",
+	"powered", "Fuse", "ExplosionRadius", "ignited",
 }
 
 // overworldZombifyTypes are the mc-side types declaring the
@@ -2901,4 +2918,27 @@ func (sess *Session) advMatch(ad selAdv) bool {
 // gamemodeNameOf is the selector-visible mode name.
 func gamemodeNameOf(sess *Session) string {
 	return []string{"survival", "creative", "adventure", "spectator"}[sess.gameMode]
+}
+
+// componentNBTValue reserializes a stored component string the way
+// vanilla's component codec writes it into entity NBT: a leaf text
+// component serializes as a STRING tag holding its JSON string form
+// ("ZapPig"), while a structured component ({text:...}) writes as a
+// compound. The stored text keeps its quotes; when a summon handed in
+// bare text the canonical JSON form re-wraps it in quotes.
+func componentNBTValue(raw string) any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
+	}
+	if raw[0] != '{' && raw[0] != '[' {
+		if len(raw) > 1 && raw[0] == '"' && raw[len(raw)-1] == '"' {
+			return raw
+		}
+		return `"` + raw + `"`
+	}
+	if tag, _, err := parseSNBTTag(raw, 0); err == nil && tag != nil {
+		return snbtToValue(tag)
+	}
+	return raw
 }

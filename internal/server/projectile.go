@@ -1518,27 +1518,9 @@ func (s *Server) channelingStrike(ownerID int32, e *Entity, x, y, z float64) {
 		X:    x, Y: y, Z: z,
 	})
 	s.broadcastEntitySpawn(nil, *bolt)
-	var victims []string
-	for _, ts := range s.entities.All() {
-		if ts.ID == bolt.ID || ts.Dim != e.Dim || ts.Dying || !ts.Living {
-			continue
-		}
-		if math.Abs(ts.X-x) > 3 || math.Abs(ts.Y-y) > 3 || math.Abs(ts.Z-z) > 3 {
-			continue
-		}
-		t, ok := s.entities.GetPtr(ts.ID)
-		if !ok {
-			continue
-		}
-		s.damageMob(t, 5, "lightning_bolt", shooter, &damageInfo{
-			typeName: "lightning_bolt",
-			cause:    bolt.ID,
-			direct:   bolt.ID,
-		})
-		if tn, ok := EntityTypeName(t.Type); ok {
-			victims = append(victims, tn)
-		}
-	}
+	// The spawned bolt ticks the same strikeEntities pass as any other
+	// — per-type thunderHit first, damage only where no conversion ran.
+	victims := s.thunderStrikeEntities(d, bolt, x, y, z, shooter)
 	s.fireLightningStrike(d, x, y, z, 1)
 	s.fireChanneledLightning(shooter, victims)
 	s.entities.Remove(bolt.ID)

@@ -12249,3 +12249,50 @@ Harness lessons:
 - Sound probes must account for the 16*vol broadcast radius: park the
   listener within range of the emit point or the packet legitimately
   never ships.
+
+## Slice — LightningBolt.thunderHit per-type conversion (2026-09-29)
+
+LightningBolt.tick's strikeEntities pass calls each victim's
+`thunderHit(level, bolt)`; the per-type overrides were unmodeled.
+Measured the 26.2 bytecode for all four overrides plus the
+Mob.convertTo chain, then implemented + pinned vs both servers:
+
+  - Entity.thunderHit base: setSecondsOnFire(8) THEN
+    hurt(lightningBolt, 5.0) — the 160-tick ignite precedes damage.
+    mc-go had no ignite in the lightning paths; added igniteMob(160)
+    ahead of every damage call (strike + channeling).
+  - Pig (non-peaceful): convertTo(ZOMBIFIED_PIGLIN, single(mob,false,
+    true), lambda) — lambda = populateDefaultEquipmentSlots (golden
+    sword mainhand) + setPersistenceRequired. No saddle transfer; the
+    pig's saddle simply disappears with the pig.
+  - Villager (non-peaceful): convertTo(WITCH, single(mob,false,false))
+    — lambda = witch.finalizeSpawn + setPersistenceRequired + release
+    all POIs (unmodeled).
+  - Creeper: super.thunderHit (ignite+hurt) THEN DATA_IS_POWERED=true.
+  - Peaceful difficulty: pig/villager fall through to super (ignite+
+    damage, no conversion).
+  - Mob.convertTo/SINGLE: fresh entity at position+rotation, then
+    COMPONENTS_TO_COPY = {CUSTOM_NAME, CUSTOM_DATA} copied verbatim,
+    convertCommon carries Age pair + baby flag + active effects +
+    persistence; add-then-remove wire order.
+
+CustomName NBT canonical form measured live: a leaf text component
+saves as a STRING tag holding its JSON string form — summon
+{CustomName:'"ZapPig"'} → save emits CustomName:'"ZapPig"'.
+dataentity's new componentNBTValue mirrors this: structured
+{...}/[...] components emit as compounds, string leaves keep their
+verbatim quotes (bare text re-wraps). Creeper save keys
+(powered/Fuse/ExplosionRadius/ignited) also added.
+
+Pinned: TestThunderConvertParity — 14 probes green vs both servers:
+conversion presence/absence, golden-sword mainhand + PersistenceRequired
+on both conversions, verbatim CustomName string round-trip (nbt=
+'"ZapPig"' hits / "ZapPig" bare misses / compound form misses), powered
+creeper, damage-taken legs via `unless Health:20.0f` (Health itself
+drifts under ignite so the 20f-absence check is the stable pin).
+
+Harness lessons: `name=` selectors miss on BOTH servers for JSON-stored
+names — selector behaviour is its own rabbit hole, kept as an
+informational probe only. system_chat 0x79 replies carry binary
+components; use `execute if entity nbt=... run say MARKER` probes
+instead of reading data-get output.
