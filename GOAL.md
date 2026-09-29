@@ -13717,3 +13717,31 @@ divider (0.5 entry gap blocked, eye-line at -58.7 passes above its
 -59 top). `TestLlamaSpitParity` pins one spit add + one spit sound +
 the `damage_event{type 38, cause llama+1, direct spit+1}` on the
 puncher — green on both legs.
+
+## Slice — slime/magma_cube split-on-death (AbstractCubeMob.remove SPLIT_ON_DEATH) (2026-09-29)
+
+Vanilla's `tickDeath` closes the 20-tick corpse with
+`broadcastEntityEvent(POOF)` then `remove(KILLED)`; inside
+`AbstractCubeMob.remove` (AbstractCubeMob.java:186-208) a `size>1`
+cube spawns `getSplitCount()` = `2+rand(3)` children of `size/2`,
+laid on a 2x2 grid `(i%2-0.5, i/2-0.5)·width/2` where the width is
+the PARENT's size-scaled `getDimensions().width()` = 0.52·size,
+snapped to `y+0.5` and a random `[0,360)` yaw — so on the wire the
+poof leads, then each child's add_entity, then the parent's
+remove_entities. ConversionType.SPLIT_ON_DEATH carries
+convertCommon's fields (absorption clamped to max_absorption, active
+effects, baby + age, left-handed, NoAi, persistence, name visibility,
+fire, invulnerable, NoGravity, portal cooldown, silent, custom
+name + data) and does NOT carry pos/motion, equipment, passengers or
+leash. mc-go's `cubeMobSplit` (cubemob.go) fires inside the
+TickDeath-true branch right after the poof broadcast; `/kill` funnels
+through the same dying path on both servers. Careful with the
+geometry: `mobBounds` already stores the size-2 box (1.04), so the
+grid half-step is `mobBounds·size/4` — write it as `size/2` and the
+children land a full cell out. `TestSlimeSplitParity` NoAI-summons a
+`Size:3` slime (children inherit NoAi via convertCommon, so nothing
+hops off-grid) and pins three kill waves on both legs: wave-1
+children ∈[2,4] all on the ±0.52 xz / +0.5y grid, wave-2 adds
+∈[2·n,4·n] (NoAI children still collide-push each other off their
+cells, so only the count is pinned), wave-3 adds == 0 (the size-1
+gate) — green 3/3 on both.

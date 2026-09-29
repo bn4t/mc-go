@@ -4823,6 +4823,11 @@ func (s *Server) mobTickStep() {
 			}
 			if s.entities.TickDeath(e.ID) {
 				s.broadcastEntityEventTo(nil, e.Dim, e.ID, 60)
+				// AbstractCubeMob.remove runs the SPLIT_ON_DEATH
+				// spawns inside remove() — on the wire the poof
+				// event leads, then each child's add_entity, and the
+				// parent's remove_entities closes the bundle.
+				s.cubeMobSplit(e)
 				if vd := s.dimensionByName(e.Dim); vd != nil {
 					s.releasePOI(vd, e)
 				}

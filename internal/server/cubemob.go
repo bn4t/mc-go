@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"math/rand"
 
 	"mc-go/internal/world"
 )
@@ -336,4 +337,74 @@ func (s *Server) cubeTouchDamage(e *Entity, name string, bounds [2]float64) {
 		}
 		return true
 	})
+}
+
+// cubeMobSplit is AbstractCubeMob.remove's SPLIT_ON_DEATH half: a
+// size>1 cube dying spawns getSplitCount() = 2+rand(3) children of
+// half its size on a 2x2 grid — (i%2-0.5, i/2-0.5)·width/2 where the
+// width is getType().getDimensions().scale(size).width() = 0.52·size
+// — each snapped to +0.5y and a random [0,360) yaw. The children are
+// fresh entities (TRIGGERED spawn — no natural-spawn rolls) carrying
+// convertCommon's field set: absorption, active effects, baby + age,
+// left-handedness, NoAI, persistence, name visibility, fire,
+// invulnerable, NoGravity, portal cooldown, silent, and the custom
+// name. Equipment, position, motion, passengers and leash do not
+// carry on the split path.
+func (s *Server) cubeMobSplit(e *Entity) {
+	size := cubeSizeOf(e)
+	if size <= 1 {
+		return
+	}
+	name, ok := EntityTypeName(e.Type)
+	if !ok || (name != "slime" && name != "magma_cube" && name != "sulfur_cube") {
+		return
+	}
+	half := size / 2
+	// xd/zd = (i%2-0.5)·scaledWidth/2 — the table's 1.04 is the
+	// size-2 box, so scaledWidth = mobBounds·size/2 and the grid
+	// half-step is another /2: size 4 → ±0.52, size 2 → ±0.26.
+	off := mobBounds(e.Type)[0] * float64(size) / 4
+	count := 2 + rand.Intn(3)
+	for i := 0; i < count; i++ {
+		ne := &Entity{
+			Type:      e.Type,
+			Dim:       e.Dim,
+			Living:    e.Living,
+			X:         e.X + (float64(i%2)-0.5)*off,
+			Y:         e.Y + 0.5,
+			Z:         e.Z + (float64(i/2)-0.5)*off,
+			Yaw:       rand.Float32() * 360,
+			CubeSize:  half,
+			Health:    float32(half * half),
+			MaxHealth: float32(half * half),
+			// convertCommon's carry list.
+			Baby:                e.Baby,
+			Age:                 e.Age,
+			LeftHanded:          e.LeftHanded,
+			NoAI:                e.NoAI,
+			PersistenceRequired: e.PersistenceRequired,
+			CustomNameVisible:   e.CustomNameVisible,
+			FireTicks:           e.FireTicks,
+			Invulnerable:        e.Invulnerable,
+			NoGravity:           e.NoGravity,
+			PortalCooldown:      e.PortalCooldown,
+			Silent:              e.Silent,
+			CustomName:          e.CustomName,
+			CustomNameComp:      e.CustomNameComp,
+			Dormant:             e.Dormant,
+		}
+		ne.AttrBase = map[string]float64{"max_health": float64(half * half)}
+		if len(e.Effects) > 0 {
+			ne.Effects = make(map[int32]mobEffectInst, len(e.Effects))
+			for k, v := range e.Effects {
+				ne.Effects[k] = v
+			}
+		}
+		ne.AbsorptionAmount = e.AbsorptionAmount
+		if max := float32(attrValue(mobAttrBase(ne, "max_absorption"), ne.AttrMods["max_absorption"])); ne.AbsorptionAmount > max {
+			ne.AbsorptionAmount = max
+		}
+		s.entities.Spawn(ne)
+		s.broadcastFreshMob(ne)
+	}
 }

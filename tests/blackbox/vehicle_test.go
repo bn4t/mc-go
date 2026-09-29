@@ -126,6 +126,7 @@ type vehObs struct {
 	dashHist   []string               // unscoped (idx19, ser8) emits "eid:v" — camel DATA_DASH bools
 	angerHist  []string               // unscoped (idx19, ser2) emits "eid:v" — anger_end_time varlongs
 	spitEIDs   []int32                // add_entity eids of type llama_spit
+	slimeEIDs  []int32                // add_entity eids of type slime
 	playerEIDs []int32                // add_entity eids of type player
 	addVel     map[int32][3]float64   // add_entity trailing velocity shorts
 }
@@ -231,6 +232,9 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					}
 					if n == "llama_spit" {
 						o.spitEIDs = append(o.spitEIDs, peid)
+					}
+					if n == "slime" {
+						o.slimeEIDs = append(o.slimeEIDs, peid)
 					}
 					if n == "player" {
 						o.playerEIDs = append(o.playerEIDs, peid)
