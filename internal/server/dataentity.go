@@ -729,6 +729,36 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		if typeName == "bogged" {
 			m["sheared"] = nbtBool(e.Sheared)
 		}
+		// Axolotl/Parrot/TropicalFish: the variant LEGACY_CODEC int.
+		if typeName == "axolotl" || typeName == "parrot" || typeName == "tropical_fish" {
+			m["Variant"] = e.Variant
+		}
+		if typeName == "axolotl" {
+			m["FromBucket"] = nbtBool(e.FromBucket)
+		}
+		// Rabbit's pair: RabbitType + the MoreCarrotTicks countdown.
+		if typeName == "rabbit" {
+			m["RabbitType"] = e.Variant
+			m["MoreCarrotTicks"] = e.MoreCarrotTicks
+		}
+		// Fox's Type serializes the enum NAME ("red"/"snow"); the
+		// Trusted list is empty on a summoned fox and the three pose
+		// bools write unconditionally.
+		if typeName == "fox" {
+			m["Trusted"] = nbt.List{Elem: nbt.TagCompound}
+			m["Sleeping"] = nbtBool(e.Sleeping)
+			m["Type"] = "red"
+			if e.Variant == 1 {
+				m["Type"] = "snow"
+			}
+			m["Sitting"] = nbtBool(e.Sitting)
+			m["Crouching"] = nbtBool(e.Crouching)
+		}
+		// Panda's gene pair writes as strings.
+		if typeName == "panda" {
+			m["MainGene"] = e.GeneMain
+			m["HiddenGene"] = e.GeneHidden
+		}
 		// AbstractPiglin and Hoglin declare the zombification pair.
 		if overworldZombifyTypes[typeName] {
 			m["IsImmuneToZombification"] = nbtBool(e.ImmuneToZombification)
@@ -980,6 +1010,9 @@ var entitySaveSeq = []string{
 	"home_radius", "home_pos", "Wave", "CanJoinRaid", "RaidId",
 	"Passengers",
 	"powered", "Fuse", "ExplosionRadius", "ignited",
+	"Variant", "RabbitType", "MoreCarrotTicks", "FromBucket",
+	"Trusted", "Sleeping", "Sitting", "Crouching",
+	"MainGene", "HiddenGene",
 }
 
 // overworldZombifyTypes are the mc-side types declaring the
@@ -1362,6 +1395,10 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"TimeInOverworld": true, "StrayConversionTime": true,
 		"TicksFrozen": true,
 		"Age":         true, "ForcedAge": true, "AgeLocked": true, "InLove": true,
+		"Variant": true, "RabbitType": true, "MoreCarrotTicks": true,
+		"FromBucket": true, "Trusted": true, "Sleeping": true,
+		"Sitting": true, "Crouching": true,
+		"MainGene": true, "HiddenGene": true,
 	}
 	if extra, ok := entitySaveExtras[name]; ok {
 		for k := range extra {

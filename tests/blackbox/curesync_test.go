@@ -1,9 +1,11 @@
 package blackbox
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
+	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
 	"mc-go/internal/server"
 )
@@ -36,9 +38,26 @@ func decodeMetaEntries(t *testing.T, body []byte) map[int]metaEnt {
 		case 0: // byte
 			b, _ := r.Read(1)
 			e.val = b
+		case 1: // varint
+			v, _ := r.VarInt()
+			var vb protocol.Buffer
+			vb.VarInt(v)
+			e.val = vb.Bytes()
 		case 3: // float
 			b, _ := r.Read(4)
 			e.val = b
+		case 6: // optional component: bool + NBT tag
+			b, _ := r.Read(1)
+			e.val = b
+			if len(b) == 1 && b[0] == 1 {
+				rest, _ := r.Read(r.Remaining())
+				br := bytes.NewReader(rest)
+				if _, err := nbt.ReadUnnamed(br); err != nil {
+					t.Fatalf("component tag at idx %d unreadable", idx[0])
+				}
+				e.val = append(e.val, rest[:len(rest)-br.Len()]...)
+				r = protocol.NewPacketReader(rest[len(rest)-br.Len():])
+			}
 		case 8: // bool
 			b, _ := r.Read(1)
 			e.val = b

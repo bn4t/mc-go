@@ -1437,6 +1437,104 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.Pumpkin = snbtNum(v) > 0
 				}
 			}
+			// Axolotl/Parrot/Rabbit/TropicalFish readAdditionalSaveData:
+			// each decodes its variant via the enum's LEGACY_CODEC —
+			// Codec.INT of the packed id — keyed Variant (RabbitType on
+			// the rabbit) plus the rabbit's MoreCarrotTicks.
+			if name == "axolotl" || name == "parrot" || name == "tropical_fish" {
+				if v, ok := tag.vals["Variant"]; ok {
+					e.Variant = int32(snbtNum(v))
+				}
+			}
+			if name == "axolotl" {
+				if v, ok := tag.vals["FromBucket"]; ok {
+					e.FromBucket = snbtNum(v) > 0
+				}
+			}
+			if name == "rabbit" {
+				if v, ok := tag.vals["RabbitType"]; ok {
+					e.Variant = int32(snbtNum(v))
+					if e.Variant == 99 {
+						// setRabbitType auto-names the evil morph
+						// with a translate component.
+						e.CustomName = `{"translate":"entity.minecraft.killer_bunny"}`
+					}
+				}
+				if v, ok := tag.vals["MoreCarrotTicks"]; ok {
+					e.MoreCarrotTicks = int32(snbtNum(v))
+				}
+			}
+			// Fox's Type serializes the enum NAME via Variant.CODEC —
+			// "red"/"snow", not the id — plus its three pose bools.
+			if name == "fox" {
+				if v, ok := tag.vals["Type"]; ok && v.str == "snow" {
+					e.Variant = 1
+				}
+				if v, ok := tag.vals["Sleeping"]; ok {
+					e.Sleeping = snbtNum(v) > 0
+				}
+				if v, ok := tag.vals["Sitting"]; ok {
+					e.Sitting = snbtNum(v) > 0
+				}
+				if v, ok := tag.vals["Crouching"]; ok {
+					e.Crouching = snbtNum(v) > 0
+				}
+			}
+			// Panda's genes write as strings via Gene.CODEC.
+			if name == "panda" {
+				if v, ok := tag.vals["MainGene"]; ok {
+					e.GeneMain = v.str
+				}
+				if v, ok := tag.vals["HiddenGene"]; ok {
+					e.GeneHidden = v.str
+				}
+			}
+			// Variant defaults when the summon NBT left the key out —
+			// each type's own spawn roll: axolotl uniform common +
+			// 1/1200 rare, parrot uniform, rabbit's biome roll
+			// (plains → brown/salt/black), tropical fish a
+			// COMMON_VARIANTS pick (packed), fox red (snow in
+			// snowy biomes), panda NORMAL/NORMAL.
+			switch name {
+			case "axolotl":
+				if _, ok := tag.vals["Variant"]; !ok {
+					e.Variant = rand.Int31n(4)
+					if rand.Float64() < 1.0/1200 {
+						e.Variant = 4 // blue — the rare morph
+					}
+				}
+			case "parrot":
+				if _, ok := tag.vals["Variant"]; !ok {
+					e.Variant = rand.Int31n(5)
+				}
+			case "rabbit":
+				if _, ok := tag.vals["RabbitType"]; !ok {
+					// getRandomRabbitVariant's default branch:
+					// i<3 → BROWN/SALT/BLACK.
+					switch rand.Int31n(3) {
+					case 0:
+						e.Variant = 0 // BROWN
+					case 1:
+						e.Variant = 5 // SALT
+					default:
+						e.Variant = 2 // BLACK
+					}
+				}
+			case "tropical_fish":
+				if _, ok := tag.vals["Variant"]; !ok {
+					// COMMON_VARIANTS is a fixed table of packed
+					// (pattern|base|patternColor) ids — any valid
+					// packed value keeps the wire/NBT shape.
+					e.Variant = 917505 // kob/orange/white packed
+				}
+			case "panda":
+				if e.GeneMain == "" {
+					e.GeneMain = "normal"
+				}
+				if e.GeneHidden == "" {
+					e.GeneHidden = "normal"
+				}
+			}
 			// Chicken.readAdditionalSaveData: IsChickenJockey gates the
 			// aiStep egg lay, EggLayTime loads the countdown.
 			if name == "chicken" {
@@ -2856,6 +2954,101 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(8) // type: boolean
 				b.Byte(1)
 			}
+		case "axolotl":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			// Axolotl's DATA_VARIANT (18, int); DATA_PLAYING_DEAD
+			// sits at 19 (untracked) and DATA_FROM_BUCKET (20,
+			// boolean) packs 01 when the bucket flag is set.
+			if e.Variant != 0 {
+				b.Byte(18)
+				b.Byte(1) // type: varint
+				b.VarInt(e.Variant)
+			}
+			if e.FromBucket {
+				b.Byte(20)
+				b.Byte(8)
+				b.Bool(true)
+			}
+		case "parrot":
+			// Parrot's DATA_VARIANT_ID (20, int): 0 red … 4 gray.
+			if e.Variant != 0 {
+				b.Byte(20)
+				b.Byte(1) // type: varint
+				b.VarInt(e.Variant)
+			}
+		case "rabbit":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			// Rabbit's DATA_TYPE_ID (18, int): 0 brown … 99 evil.
+			if e.Variant != 0 {
+				b.Byte(18)
+				b.Byte(1) // type: varint
+				b.VarInt(e.Variant)
+			}
+		case "tropical_fish":
+			// DATA_ID_TYPE_VARIANT (17, int) — the packed
+			// (pattern|base|patternColor) blob.
+			if e.Variant != 0 {
+				b.Byte(17)
+				b.Byte(1) // type: varint
+				b.VarInt(e.Variant)
+			}
+		case "fox":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			// Fox's DATA_TYPE_ID (18, int): 0 red / 1 snow;
+			// DATA_FLAGS_ID (19, byte): 0x01 sitting, 0x04
+			// crouching, 0x20 sleeping. Trusted references at
+			// 20/21 stay unpacked while empty.
+			if e.Variant != 0 {
+				b.Byte(18)
+				b.Byte(1) // type: varint
+				b.VarInt(e.Variant)
+			}
+			var fflags byte
+			if e.Sitting {
+				fflags |= 0x01
+			}
+			if e.Crouching {
+				fflags |= 0x04
+			}
+			if e.Sleeping {
+				fflags |= 0x20
+			}
+			if fflags != 0 {
+				b.Byte(19)
+				b.Byte(0) // type: byte
+				b.Byte(fflags)
+			}
+		case "panda":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			// Panda packs both genes as Panda$Gene ordinal bytes
+			// at 21 (main) and 22 (hidden); normal/normal is the
+			// defined default and stays unpacked.
+			if g := pandaGeneOrdinal(e.GeneMain); g != 0 {
+				b.Byte(21)
+				b.Byte(0) // type: byte
+				b.Byte(g)
+			}
+			if g := pandaGeneOrdinal(e.GeneHidden); g != 0 {
+				b.Byte(22)
+				b.Byte(0) // type: byte
+				b.Byte(g)
+			}
 		case "zombie_villager":
 			if e.Baby {
 				b.Byte(16)
@@ -2949,13 +3142,40 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 }
 
 // writeComponentTag writes a component's serialized form inside the
-// optional-component serializer: a TAG_String prefix, u16 length,
-// then the raw component string.
+// optional-component serializer: leaf components go out as a
+// TAG_String holding the raw text; structured components (a leading
+// `{`) serialize as the full compound tag — the same split
+// componentNBTValue applies on the save side.
 func writeComponentTag(b *protocol.Buffer, s string) {
+	if strings.HasPrefix(strings.TrimSpace(s), "{") {
+		if err := nbt.WriteUnnamed(b, componentNBTValue(s)); err == nil {
+			return
+		}
+	}
 	b.Byte(nbt.TagString)
 	b.Byte(byte(len(s) >> 8))
 	b.Byte(byte(len(s)))
 	b.Raw([]byte(s))
+}
+
+// pandaGeneOrdinal maps a Panda$Gene name to its enum ordinal — the
+// wire packs genes as ordinal bytes, not strings.
+func pandaGeneOrdinal(g string) byte {
+	switch g {
+	case "lazy":
+		return 1
+	case "worried":
+		return 2
+	case "playful":
+		return 3
+	case "brown":
+		return 4
+	case "weak":
+		return 5
+	case "aggressive":
+		return 6
+	}
+	return 0
 }
 
 // mobFlagsByte is Mob's DATA_MOB_FLAGS byte: bit0 = NoAI.

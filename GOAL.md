@@ -12318,3 +12318,47 @@ Pinned: TestShearMobParity gained a spawn-packet count leg —
 decodes 0x01 spawn_entity lines (id, uuid, type, x, y, z) and counts
 type-71 (item) spawns within 4 blocks of the bogged; want exactly 2
 on both servers. Green vs both.
+
+## Slice — plain-int variant metadata sweep (2026-09-29)
+
+Six variant-carrying types measured on 26.2 bytecode + live packet
+probes and pinned end-to-end: axolotl (Variant int LEGACY_CODEC,
+FromBucket bool, rare blue = 1/1200), parrot (Variant int), rabbit
+(RabbitType int + MoreCarrotTicks int; ids 0 brown, 1 white, 2 black,
+3 white_splotched, 4 gold, 5 salt, 99 evil), tropical_fish (packed
+(pattern|base|patternColor) Variant int), fox (Type STRING via
+Fox$Variant.CODEC "red"/"snow" + Sleeping/Sitting/Crouching bools +
+Trusted list), panda (MainGene/HiddenGene strings via Panda$Gene.CODEC).
+
+Summon NBT parse arms land each key on the entity; defaults roll the
+vanilla table (axolotl uniform-common + 1/1200 blue, parrot 0-4,
+rabbit plains roll brown/salt/black, tropical fish the kob common
+variant, fox red, panda normal/normal). Save-map emits mirror
+vanilla's addAdditionalSaveData keys.
+
+Metadata indices measured off the live 0x63 spawn burst, not guessed:
+axolotl variant idx18 int + from_bucket idx20 bool; parrot variant
+idx20 int; rabbit type idx18 int; tropical_fish variant idx17 int;
+fox type idx18 int + flags idx19 byte (0x01 sit, 0x04 crouch, 0x20
+sleep); panda genes as Panda$Gene ordinal bytes at idx21/22 (normal=0
+… aggressive=6). Vanilla packs only non-defaults — normal/normal panda
+genes and fox trusted refs stay unpacked.
+
+Found while probing: RabbitType 99 fires setRabbitType's auto-name —
+vanilla's spawn metadata carries idx2 = {"translate":
+"entity.minecraft.killer_bunny"} as an optional-component NBT
+compound. writeComponentTag gained the structured-component branch
+(leading `{` → full compound tag via nbt.WriteUnnamed instead of a
+TAG_String leaf), matching the same leaf/compound split
+componentNBTValue already applies on the save side.
+
+Pinned: TestVariantParity decodes every 0x63 entry per summon and
+compares idx->(type,value) across both legs (extendable shared
+decoder in curesync_test.go gained varint + optional-component arms),
+plus 9 nbt= selector probes for the save keys (including the empty
+Trusted list and the killer-bunny translate name). Green vs both.
+
+Still open: registry-holder variants (cat CatVariant+CatSoundVariant,
+frog, wolf WolfVariant+WolfSoundVariant, pig/cow/chicken
+variant/sound_variant holders — different wire shape, deferred);
+fox Trusted entity-reference metadata entries 20/21 when populated.

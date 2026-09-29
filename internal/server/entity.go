@@ -369,6 +369,26 @@ type Entity struct {
 	// LlamaVariant is Llama's Variant enum (0-3, LEGACY_CODEC id) —
 	// written for the llama family only.
 	LlamaVariant int32
+	// Variant is the shared plain-int variant field used by
+	// axolotl (Variant 0-4), parrot (Variant 0-4), rabbit
+	// (RabbitType), tropical_fish (packed Variant) and fox
+	// (Type red=0/snow=1 — fox's NBT writes the enum name, not
+	// the id).
+	Variant int32
+	// MoreCarrotTicks is Rabbit's MoreCarrotTicks NBT int (the
+	// raid countdown — 0 on a summoned rabbit).
+	MoreCarrotTicks int32
+	// Sleeping/Sitting/Crouching are Fox's three pose bools in
+	// addAdditionalSaveData (Trusted's UUID list is emitted but
+	// unmodelled).
+	Sleeping, Sitting, Crouching bool
+	// GeneMain/GeneHidden are Panda's MainGene/HiddenGene NBT
+	// strings (normal, lazy, worried, playful, brown, weak,
+	// aggressive).
+	GeneMain, GeneHidden string
+	// FromBucket is Axolotl's FromBucket NBT + synced flag — set by
+	// the bucket-capture path.
+	FromBucket bool
 	// Small/ShowArms/DisabledSlots are the armor stand's
 	// ArmorStand.CLIENT_FLAG bits and NBT; Equips is the entity
 	// equipment map keyed by vanilla equipment index
