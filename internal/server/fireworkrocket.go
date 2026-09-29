@@ -456,8 +456,10 @@ func (s *Server) rocketHandOffset(sess *Session) (ox, oy, oz float64) {
 }
 
 // clipSolidSegment walks a segment and returns the first solid cell's
-// entry position — vanilla's clip(..., COLLIDER, NONE) approximated to
-// unit cubes, the same convention arrowBlockHit uses.
+// entry position — vanilla's clip(..., COLLIDER, NONE) clipped against
+// the cell's collision boxes rather than a unit cube, so a ray clears
+// the empty half of a slab, snow's missing layers, an open fence gate,
+// or the cavity inside a cauldron.
 func (s *Server) clipSolidSegment(d *dimension, ox, oy, oz, ex, ey, ez float64) (bx, by, bz, axis int, hx, hy, hz float64, ok bool) {
 	dx, dy, dz := ex-ox, ey-oy, ez-oz
 	length := math.Sqrt(dx*dx + dy*dy + dz*dz)
@@ -467,6 +469,15 @@ func (s *Server) clipSolidSegment(d *dimension, ox, oy, oz, ex, ey, ez float64) 
 	nx, ny, nz := dx/length, dy/length, dz/length
 	steps := int(length/0.05) + 1
 	prev := world.Pos{X: int(math.Floor(ox)), Y: int(math.Floor(oy)), Z: int(math.Floor(oz))}
+	// The origin cell itself can contain the ray's start inside a
+	// collision box — a clip at distance 0 (an eye already touching
+	// the plate sees nothing past it).
+	if ent, _ := s.clipCellEntry(d, prev, ox, oy, oz, ex, ey, ez, length); ent >= 0 {
+		bx, by, bz = prev.X, prev.Y, prev.Z
+		hx, hy, hz = ox, oy, oz
+		ok = true
+		return
+	}
 	for i := 1; i <= steps; i++ {
 		t := length * float64(i) / float64(steps)
 		px, py, pz := ox+nx*t, oy+ny*t, oz+nz*t
@@ -475,24 +486,16 @@ func (s *Server) clipSolidSegment(d *dimension, ox, oy, oz, ex, ey, ez float64) 
 			continue
 		}
 		prev = p
-		if _, has := blockNameAt(d, p); !has || world.NonSolid(d.w.GetBlock(p)) {
+		ent, hb := s.clipCellEntry(d, p, ox, oy, oz, ex, ey, ez, length)
+		if ent < 0 {
 			continue
 		}
 		bx, by, bz = p.X, p.Y, p.Z
-		ent := rayAABB(ox, oy, oz, nx, ny, nz,
-			float64(bx), float64(by), float64(bz),
-			float64(bx+1), float64(by+1), float64(bz+1))
-		if ent < 0 || ent > length {
-			ent = t - 0.05
-			if ent < 0 {
-				ent = 0
-			}
-		}
 		hx, hy, hz = ox+nx*ent, oy+ny*ent, oz+nz*ent
 		switch {
-		case math.Abs(hx-float64(bx)) < 1e-6 || math.Abs(hx-float64(bx+1)) < 1e-6:
+		case math.Abs(hx-float64(bx)-hb[0]) < 1e-6 || math.Abs(hx-float64(bx)-hb[3]) < 1e-6:
 			axis = 0
-		case math.Abs(hy-float64(by)) < 1e-6 || math.Abs(hy-float64(by+1)) < 1e-6:
+		case math.Abs(hy-float64(by)-hb[1]) < 1e-6 || math.Abs(hy-float64(by)-hb[4]) < 1e-6:
 			axis = 1
 		default:
 			axis = 2
@@ -501,6 +504,41 @@ func (s *Server) clipSolidSegment(d *dimension, ox, oy, oz, ex, ey, ez float64) 
 		return
 	}
 	return
+}
+
+// clipCellEntry returns the earliest entry distance at which the
+// segment touches one of cell p's collision boxes — <0 when the cell
+// has no collision (air, powder_snow, an open gate) or every box
+// misses. A segment starting inside a box reports 0.
+func (s *Server) clipCellEntry(d *dimension, p world.Pos, ox, oy, oz, ex, ey, ez, length float64) (float64, cellBox) {
+	if _, has := blockNameAt(d, p); !has {
+		return -1, cellBox{}
+	}
+	blk := d.w.GetBlock(p)
+	boxes, has := collisionBoxesOf(blk)
+	switch {
+	case has && len(boxes) == 0:
+		return -1, cellBox{} // empty collision: powder_snow, an open gate
+	case has:
+	case world.NonSolid(blk):
+		return -1, cellBox{} // no table entry and no collision at all
+	default:
+		boxes = []cellBox{{0, 0, 0, 1, 1, 1}}
+	}
+	ent := -1.0
+	var hb cellBox
+	for _, b := range boxes {
+		mnx, mny, mnz := float64(p.X)+b[0], float64(p.Y)+b[1], float64(p.Z)+b[2]
+		mxx, mxy, mxz := float64(p.X)+b[3], float64(p.Y)+b[4], float64(p.Z)+b[5]
+		e := segmentBoxT(ox, oy, oz, ex, ey, ez, mnx, mny, mnz, mxx, mxy, mxz)
+		if e < 0 && ox >= mnx && ox <= mxx && oy >= mny && oy <= mxy && oz >= mnz && oz <= mxz {
+			e = 0 // a ray starting inside the box clips at the origin
+		}
+		if e >= 0 && e <= length && (ent < 0 || e < ent) {
+			ent, hb = e, b
+		}
+	}
+	return ent, hb
 }
 
 // segmentBoxT clips a segment against an AABB, returning the entry

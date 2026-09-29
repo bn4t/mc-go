@@ -14106,3 +14106,40 @@ no flee; unsneak → flee). Green both legs.
   distances come from `/data get Pos` absolute reads on both
   servers; the summon hunt collects the posTrail through the
   watch window because the teleport lands inside it.
+- **Collision-shape-aware segment clipping** (slab/stairs/snow/
+  trapdoor/fence/pane/gate LoS, frog sight).
+  - **Measured**: `LivingEntity.hasLineOfSight` → `clip(COLLIDER)`
+    uses per-block collision shapes, not unit cubes — a bottom
+    slab's [0,0.5] box blocks rays below -59.5 but lets higher
+    rays pass, snow[layers=n] collides to n/8, the glass pane's
+    1/16 node blocks its column, powder_snow and open fence
+    gates collide as nothing. The earlier flat-world fix was
+    not the LoS gate itself.
+  - **Implemented**: `internal/server/collisionboxes.go` —
+    `collisionBoxesOf(blk) ([]cellBox, bool)` returns the
+    vanilla box list for ~30 shape families (slab type, stairs
+    facing/half/shape, snow layers, trapdoor/door plates,
+    fence gate open/axis/in_wall, fence+wall posts, pane node
+    +arms, hopper/cauldron/composter/cake/anvil/lantern/chain/
+    rod/scaffolding/powder_snow/chest/turtle_egg/bell/carpet/
+    low-top tables). `clipSolidSegment` in fireworkrocket.go
+    now walks cells through `clipCellEntry`: table lookup
+    BEFORE the NonSolid skip (snow is nonsolid but collides),
+    per-box `segmentBoxT` with an explicit origin-inside →
+    t=0 (the old walk skipped the origin cell entirely), and
+    the earliest t≤length wins; hit face picks the axis.
+    Untabled solids keep the full unit cube.
+  - **Pinned**: `TestCollisionBoxesTable` +
+    `TestClipSolidSegmentShapes` unit-side (slab top/bottom
+    split, snow layer heights, open gate, origin-inside), and
+    `TestFrogSightShapeParity` vs both servers — four pinned
+    frog→slime pairs behind snow[2] (ray clears), snow[6],
+    glass_pane, stone (all block); idx19 DATA_TONGUE_TARGET
+    emit + slime-eaten checked identically on both legs
+    (vanilla: low=true high=pane=stone=false; mc-go identical).
+    Frog pens are corridor-walled because a strolling frog
+    peeks around a one-cell wall; watchers must stay within
+    ~32 of every pair — untracking emits remove_entities, which
+    reads as "slime eaten" (this masqueraded as an eat during
+    bring-up). Known preexisting flake: TestFireworkRocketHit
+    Parity leg 6 (hand offset) fails identically on baseline.
