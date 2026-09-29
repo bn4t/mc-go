@@ -13597,3 +13597,30 @@ already in place; the missing piece was the interact arm itself:
   event7 + Tame1b + OwnerI — deterministic on both servers.
 - Fixed: the DATA_ID_FLAGS comment said idx20 — the wire (and
   tame emit) confirmed idx18.
+
+## Slice — equine breeding (Animal.spawnChildFromBreeding) (26.2)
+
+- `mobBreedStep` gained an equine arm: `equineMates` matrix
+  (horse×{horse,donkey}, donkey×{horse,donkey}, llama×llama+trader_llama,
+  camel×camel; mule/skeleton/zombie_horse sterile), `equineCanParent`
+  (no vehicle/passenger, !baby, tamed — camel always, health≥max).
+- `equineOffspringType`: horse×donkey → mule both directions;
+  trader_llama keeps its type (+PersistenceRequired on the baby).
+- `equineOffspringAttr` = vanilla's createOffspringAttribute: clamp
+  both parents to [lo,hi], margin=0.15·(hi−lo), span=|a−b|+2·margin,
+  avg+span·(3-dice−0.5), fold back at bounds. Ranges pinned:
+  max_health [15,30], jump_strength [0.4,1.0], movement_speed
+  [0.1125,0.3375].
+- Baby spawns at supplier base Health=53 then max_health's
+  setBaseValue clamps live health to the blended value (measured:
+  vanilla data get shows Health≈base29.71).
+- Horse baby Variant: selectSkin nextInt(9) (<4 self, <8 partner,
+  else random 0-6); selectMarking nextInt(5) (<2 self, <4 partner,
+  else random 0-4); packed skin|marking<<8. Llama baby: strength =
+  1+nextInt(max parents) +1 on 3% roll (clamp 5), variant coinflip.
+- finalizeSpawnChildFromBreeding fires entity_event 18 on the
+  PARENT (`this`), not the baby — mc-go had it on the baby.
+- `TestEquineBreedParity` pins 3 lanes (horses, horse×donkey→mule,
+  llamas) on both servers: feed hearts on both parents, breed heart
+  on a parent, baby add_entity, and the baby's NBT (negative Age,
+  Tame0b, blended jump_strength+max_health, Variant/Strength).

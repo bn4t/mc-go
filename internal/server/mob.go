@@ -7287,18 +7287,37 @@ func (s *Server) mobBreedStep(e *Entity, name string) bool {
 		e.BreedTime = 0
 		return false
 	}
-	if _, breedable := animalFood[name]; !breedable {
+	mates, equine := equineMates[name]
+	if !equine {
+		if _, breedable := animalFood[name]; !breedable {
+			return false
+		}
+	} else if !equineCanParent(e) {
+		e.BreedTime = 0
 		return false
 	}
 	var mateID int32
 	var mx, mz float64
 	best := math.MaxFloat64
 	for _, o := range s.entities.All() {
-		if o.ID == e.ID || !o.Living || o.Type != e.Type || o.Dim != e.Dim {
+		if o.ID == e.ID || !o.Living || o.Dim != e.Dim {
 			continue
 		}
-		if o.loveTicks <= 0 || o.PanicActive || o.Baby || o.Age != 0 {
-			continue
+		if equine {
+			// canMate: the type pair must mate (horse×donkey is
+			// legal — the baby is a mule) and the partner must pass
+			// canParent; in-love rides the same loveTicks gate.
+			oname, ok := EntityTypeName(o.Type)
+			if !ok || !mates[oname] || o.loveTicks <= 0 || !equineCanParent(&o) {
+				continue
+			}
+		} else {
+			if o.Type != e.Type {
+				continue
+			}
+			if o.loveTicks <= 0 || o.PanicActive || o.Baby || o.Age != 0 {
+				continue
+			}
 		}
 		if math.Abs(o.X-e.X) > 8.5 || math.Abs(o.Y-e.Y) > 8.5 || math.Abs(o.Z-e.Z) > 8.5 {
 			continue

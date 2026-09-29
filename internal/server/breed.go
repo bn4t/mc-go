@@ -3,6 +3,7 @@ package server
 import (
 	"mc-go/internal/world"
 
+	"math"
 	"math/rand"
 )
 
@@ -99,6 +100,165 @@ func (s *Server) feedAnimal(sess *Session, eid int32, hand int32) {
 	// ~60 ticks and the baby spawns on contact — see mobBreedStep.
 }
 
+// equineMates is the breedable equines' canMate matrix: horses and
+// donkeys cross (the baby is always a mule), llamas mate anywhere in
+// the llama family, camels with camels. Mules, skeleton and zombie
+// horses report canMate false — they never enter this table.
+var equineMates = map[string]map[string]bool{
+	"horse":        {"horse": true, "donkey": true},
+	"donkey":       {"horse": true, "donkey": true},
+	"llama":        {"llama": true, "trader_llama": true},
+	"trader_llama": {"llama": true, "trader_llama": true},
+	"camel":        {"camel": true},
+}
+
+// equineCanParent is AbstractHorse.canParent: not a vehicle, not a
+// passenger, tamed (Camel.isTamed reports true always), adult, and at
+// full health. The isInLove half rides the caller's loveTicks gate.
+func equineCanParent(e *Entity) bool {
+	name, _ := EntityTypeName(e.Type)
+	if len(e.Passengers) > 0 || e.Riding != 0 || e.Baby {
+		return false
+	}
+	if !e.Tamed && name != "camel" && name != "camel_husk" {
+		return false
+	}
+	return e.Health >= e.MaxHealth
+}
+
+// equineOffspringType resolves getBreedOffspring's type: horse×donkey
+// either way makes a mule, makeNewLlama clones the caller's llama
+// type, everything else copies its own.
+func equineOffspringType(name, mateName string) string {
+	switch name {
+	case "horse":
+		if mateName == "donkey" {
+			return "mule"
+		}
+		return "horse"
+	case "donkey":
+		if mateName == "horse" {
+			return "mule"
+		}
+		return "donkey"
+	case "trader_llama":
+		return "trader_llama"
+	default:
+		return name
+	}
+}
+
+// equineOffspringAttr is createOffspringAttribute: both parents'
+// bases clamp to the attribute's roll range, the baby's value is the
+// midpoint plus a triangle-quality roll over the parents' spread
+// padded by 15% of the range — then folded back at the bounds.
+func equineOffspringAttr(pa, pb, lo, hi float64) float64 {
+	pa = max(lo, min(hi, pa))
+	pb = max(lo, min(hi, pb))
+	margin := 0.15 * (hi - lo)
+	span := math.Abs(pa-pb) + margin*2.0
+	avg := (pa + pb) / 2.0
+	quality := (rand.Float64()+rand.Float64()+rand.Float64())/3.0 - 0.5
+	v := avg + span*quality
+	if v > hi {
+		return hi - (v - hi)
+	}
+	if v < lo {
+		return lo + (lo - v)
+	}
+	return v
+}
+
+// equineParentAttr is getAttributeBaseValue: the /attribute override
+// wins, then the per-type supplier.
+func equineParentAttr(e *Entity, attr string) float64 {
+	if v, ok := e.AttrBase[attr]; ok {
+		return v
+	}
+	if name, ok := EntityTypeName(e.Type); ok {
+		if v, ok := mobAttrBases[name][attr]; ok {
+			return v
+		}
+	}
+	return 0
+}
+
+// equineBreedOffspring applies getBreedOffspring's per-type rolls to
+// the fresh baby: every equine gets the three-attribute blend
+// (max_health 15-30, jump_strength 0.4-1.0, movement_speed
+// 0.1125-0.3375 — the generate* zero/one-bounds), the horse rolls
+// its skin/marking mix, the llama its strength and variant.
+func equineBreedOffspring(e, mate, baby *Entity, name, mateName string) {
+	baby.AttrBase = map[string]float64{}
+	for _, a := range []struct {
+		attr   string
+		lo, hi float64
+	}{
+		{"max_health", 15, 30},
+		{"jump_strength", 0.4, 1.0},
+		{"movement_speed", 0.1125, 0.3375},
+	} {
+		baby.AttrBase[a.attr] = equineOffspringAttr(
+			equineParentAttr(e, a.attr), equineParentAttr(mate, a.attr), a.lo, a.hi)
+		baby.markAttrTouched(a.attr)
+	}
+	// max_health's setBaseValue clamps the current health down to the
+	// new max — the baby spawned at the 53 supplier default takes the
+	// blended value as its live health.
+	if mh := float32(baby.AttrBase["max_health"]); baby.Health > mh {
+		baby.Health = mh
+	}
+	baby.MaxHealth = float32(baby.AttrBase["max_health"])
+	switch name {
+	case "horse", "donkey":
+		if babyName, _ := EntityTypeName(baby.Type); babyName == "horse" {
+			// Horse.getBreedOffspring: selectSkin = nextInt(9)
+			// (<4 self, <8 partner, else random variant), then
+			// selectMarking = nextInt(5) (<2 self, <4 partner, else
+			// random marking) — packed low|high bytes.
+			skin := int(e.Variant & 0xFF)
+			switch r := rand.Intn(9); {
+			case r < 4:
+			case r < 8:
+				skin = int(mate.Variant & 0xFF)
+			default:
+				skin = rand.Intn(7)
+			}
+			mark := int((e.Variant >> 8) & 0xFF)
+			switch r := rand.Intn(5); {
+			case r < 2:
+			case r < 4:
+				mark = int((mate.Variant >> 8) & 0xFF)
+			default:
+				mark = rand.Intn(5)
+			}
+			baby.Variant = int32(skin | mark<<8)
+			baby.MetaDirty = true
+		}
+	case "llama", "trader_llama":
+		// Llama.getBreedOffspring: strength = nextInt(max
+		// parent's)+1, bumped once more on a 3% roll (setStrength
+		// clamps [1,5]); variant picks a parent at a coin flip.
+		maxS := max(e.Strength, mate.Strength)
+		baby.Strength = 1 + rand.Int31n(maxS)
+		if rand.Float32() < 0.03 {
+			baby.Strength++
+		}
+		if baby.Strength > 5 {
+			baby.Strength = 5
+		}
+		if rand.Float32() < 0.5 {
+			baby.LlamaVariant = e.LlamaVariant
+		} else {
+			baby.LlamaVariant = mate.LlamaVariant
+		}
+		baby.MetaDirty = true
+		if babyName, _ := EntityTypeName(baby.Type); babyName == "trader_llama" {
+			baby.PersistenceRequired = true
+		}
+	}
+}
+
 // breedPair is Animal.spawnChildFromBreeding: love clears on both
 // parents and they take the 6000-tick (5-minute) cooldown, a baby of
 // their species spawns at the breeder, 1-7 xp drops at the pair, and
@@ -110,18 +270,30 @@ func (s *Server) breedPair(e, mate *Entity, name string) {
 	e.loveCause, mate.loveCause = "", ""
 	e.Age, mate.Age = 6000, 6000
 	e.BreedTime, mate.BreedTime = 0, 0
+	mateName, _ := EntityTypeName(mate.Type)
+	babyName := name
+	if _, eq := equineMates[name]; eq {
+		babyName = equineOffspringType(name, mateName)
+	}
+	babyType, ok := EntityTypeID(babyName)
+	if !ok {
+		babyType = e.Type
+	}
 	baby := s.entities.Spawn(&Entity{
-		Type:      e.Type,
+		Type:      babyType,
 		Dim:       e.Dim,
 		X:         e.X,
 		Y:         e.Y,
 		Z:         e.Z,
 		Living:    true,
-		Health:    mobHealth[name],
-		MaxHealth: mobHealth[name],
+		Health:    float32(mobAttrBases[babyName]["max_health"]),
+		MaxHealth: float32(mobAttrBases[babyName]["max_health"]),
 		Age:       -24000,
 		Baby:      true,
 	})
+	if _, eq := equineMates[name]; eq {
+		equineBreedOffspring(e, mate, baby, name, mateName)
+	}
 	if name == "fox" {
 		// FoxBreedGoal.breed(): the offspring trusts the love
 		// causes — the animal's feeder first (slot0), then the
@@ -150,7 +322,9 @@ func (s *Server) breedPair(e, mate *Entity, name string) {
 	}
 	s.broadcastEntitySpawn(nil, *baby)
 	s.broadcastEntityMetadata(baby.ID, encodeLivingMetadata(baby, nil))
-	s.broadcastEntityEventTo(nil, e.Dim, baby.ID, 18) // hearts on the newborn
+	// finalizeSpawnChildFromBreeding broadcasts event 18 on `this` —
+	// the hearts land on the parent, never on the baby.
+	s.broadcastEntityEventTo(nil, e.Dim, e.ID, 18)
 	// ExperienceOrb.award: one orb worth 1-7.
 	s.spawnXPOrb(e.Dim, e.X, e.Y, e.Z, int32(1+rand.Intn(7)))
 	if sess := s.sessionByName(causer); sess != nil {

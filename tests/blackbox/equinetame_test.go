@@ -121,20 +121,22 @@ func rideTameObserve(t *testing.T, tag, addr string, temper int) rideTameResult 
 	return res
 }
 
-// dataGetCompound is dataGetLine's no-path arm: `data get entity sel`
-// returns the whole save compound; the reply's text components are
-// flattened to visible text for substring asserts.
+// dataGetCompound is dataGetLine's no-path arm: `execute as sel run
+// data get entity @s` returns the whole save compound per matched
+// entity (a multi-selector is legal here — each matched entity gets
+// itself once), and the replies' text components flatten to visible
+// text for substring asserts.
 func dataGetCompound(t *testing.T, sink *chatSink, pw *protocol.Writer, sel string) string {
 	t.Helper()
-	sendCommand(t, pw, "data get entity "+sel)
+	sendCommand(t, pw, "execute as "+sel+" run data get entity @s")
 	sendCommand(t, pw, "say ZEND")
 	deadline := time.Now().Add(6 * time.Second)
-	var got string
+	var got strings.Builder
 	for time.Now().Before(deadline) {
 		end := false
 		for _, line := range sink.take() {
 			if strings.Contains(line, "data.entity.query") {
-				got = line
+				got.WriteString(visibleChat(line))
 			}
 			if strings.Contains(line, "ZEND") {
 				end = true
@@ -145,7 +147,7 @@ func dataGetCompound(t *testing.T, sink *chatSink, pw *protocol.Writer, sel stri
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
-	return visibleChat(got)
+	return got.String()
 }
 
 // packetBody splits a chatSink line ("0x22:<raw bytes>") into a byte
