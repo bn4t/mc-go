@@ -798,6 +798,15 @@ func (s *Server) runSummon(player string, args []string) reply {
 		return componentReply(commandError("entity.not_summonable", "minecraft:"+name))
 	}
 	if e, ok := s.summonMobRaw(sess.dimension(), name, x, y, z, noAI, tag == nil); ok {
+		// EntityType.spawn's variant roll runs before the custom-NBT
+		// load — measured live: even a tagged summon rolls the
+		// biome-eligible variant (highest spawn_conditions priority,
+		// uniform within the tier) and a uniform sound_variant; the
+		// explicit NBT keys below then override the rolled value.
+		if v := rollSpawnVariant(name, strings.TrimPrefix(sess.dimension().w.Biome(), "minecraft:")); v != "" {
+			e.VariantName = v
+		}
+		e.SoundVariant = rollSoundVariant(name)
 		if tag != nil {
 			// Rotation:[yaw,pitch] overrides create's random snapTo yaw.
 			if rot, ok := tag.vals["Rotation"]; ok && len(rot.items) >= 2 {
@@ -1487,6 +1496,28 @@ func (s *Server) runSummon(player string, args []string) reply {
 				}
 				if v, ok := tag.vals["HiddenGene"]; ok {
 					e.GeneHidden = v.str
+				}
+			}
+			// Holder-codec variants: cat/frog/wolf/pig/cow/chicken
+			// read a namespaced `variant` key (plus `sound_variant`
+			// where the type registers one — frog has none);
+			// salmon's `type` is a StringRepresentable name sharing
+			// the same field.
+			switch name {
+			case "cat", "frog", "wolf", "pig", "cow", "chicken":
+				if v, ok := tag.vals["variant"]; ok && v.str != "" {
+					e.VariantName = strings.TrimPrefix(v.str, "minecraft:")
+				}
+			}
+			switch name {
+			case "cat", "wolf", "pig", "cow", "chicken":
+				if v, ok := tag.vals["sound_variant"]; ok && v.str != "" {
+					e.SoundVariant = strings.TrimPrefix(v.str, "minecraft:")
+				}
+			}
+			if name == "salmon" {
+				if v, ok := tag.vals["type"]; ok && v.str != "" {
+					e.VariantName = v.str
 				}
 			}
 			// Variant defaults when the summon NBT left the key out —
@@ -3049,6 +3080,120 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(0) // type: byte
 				b.Byte(g)
 			}
+		case "cat":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			// Cat's DATA_VARIANT_ID (20, cat_variant holder) packs
+			// only off the tabby default; DATA_SOUND_VARIANT_ID
+			// sits at 24 after the feline-behavior slots.
+			if id := holderVariantID("cat", e.VariantName); id != 9 {
+				b.Byte(20)
+				b.Byte(21) // serializer: cat_variant
+				b.VarInt(id)
+			}
+			if id := holderSoundVariantID("cat", e.SoundVariant); id != 0 {
+				b.Byte(24)
+				b.Byte(22) // serializer: cat_sound_variant
+				b.VarInt(id)
+			}
+		case "frog":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			// Frog's DATA_VARIANT_ID (18, frog_variant holder);
+			// DATA_TONGUE_TARGET_ID at 19 stays unpacked.
+			if id := holderVariantID("frog", e.VariantName); id != 1 {
+				b.Byte(18)
+				b.Byte(27) // serializer: frog_variant
+				b.VarInt(id)
+			}
+		case "wolf":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			// Wolf's DATA_VARIANT_ID (23, wolf_variant) and
+			// DATA_SOUND_VARIANT_ID (24, wolf_sound_variant) pack
+			// off pale/classic; interested/collar/anger follow at
+			// 25/26/27 untracked.
+			if id := holderVariantID("wolf", e.VariantName); id != 3 {
+				b.Byte(23)
+				b.Byte(25) // serializer: wolf_variant
+				b.VarInt(id)
+			}
+			if id := holderSoundVariantID("wolf", e.SoundVariant); id != 2 {
+				b.Byte(24)
+				b.Byte(26) // serializer: wolf_sound_variant
+				b.VarInt(id)
+			}
+		case "pig":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			// Pig's DATA_VARIANT_ID (19) and DATA_SOUND_VARIANT_ID
+			// (20); DATA_BOOST_TIME at 18 stays unpacked.
+			if id := holderVariantID("pig", e.VariantName); id != 1 {
+				b.Byte(19)
+				b.Byte(28) // serializer: pig_variant
+				b.VarInt(id)
+			}
+			if id := holderSoundVariantID("pig", e.SoundVariant); id != 1 {
+				b.Byte(20)
+				b.Byte(29) // serializer: pig_sound_variant
+				b.VarInt(id)
+			}
+		case "cow":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			// Cow's DATA_VARIANT_ID (18) and DATA_SOUND_VARIANT_ID
+			// (19) — temperate/classic are the defined defaults.
+			if id := holderVariantID("cow", e.VariantName); id != 1 {
+				b.Byte(18)
+				b.Byte(23) // serializer: cow_variant
+				b.VarInt(id)
+			}
+			if id := holderSoundVariantID("cow", e.SoundVariant); id != 0 {
+				b.Byte(19)
+				b.Byte(24) // serializer: cow_sound_variant
+				b.VarInt(id)
+			}
+		case "chicken":
+			if e.Baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(true)
+			}
+			// Chicken's DATA_VARIANT_ID (18) and
+			// DATA_SOUND_VARIANT_ID (19).
+			if id := holderVariantID("chicken", e.VariantName); id != 1 {
+				b.Byte(18)
+				b.Byte(30) // serializer: chicken_variant
+				b.VarInt(id)
+			}
+			if id := holderSoundVariantID("chicken", e.SoundVariant); id != 0 {
+				b.Byte(19)
+				b.Byte(31) // serializer: chicken_sound_variant
+				b.VarInt(id)
+			}
+		case "salmon":
+			// Salmon's DATA_TYPE (17, plain varint serializer):
+			// small 0 / medium 1 / large 2, medium the default.
+			if id := salmonVariantID(e.VariantName); id != 1 {
+				b.Byte(17)
+				b.Byte(1) // type: varint
+				b.VarInt(id)
+			}
 		case "zombie_villager":
 			if e.Baby {
 				b.Byte(16)
@@ -3176,6 +3321,76 @@ func pandaGeneOrdinal(g string) byte {
 		return 6
 	}
 	return 0
+}
+
+// holderVariantIDs maps each holder-variant registry's short names to
+// their wire holder ids — the registration order measured off the 26.2
+// jar's datapack registries (alphabetical).
+var holderVariantIDs = map[string]map[string]int32{
+	"cat":     {"all_black": 0, "black": 1, "british_shorthair": 2, "calico": 3, "jellie": 4, "persian": 5, "ragdoll": 6, "red": 7, "siamese": 8, "tabby": 9, "white": 10},
+	"frog":    {"cold": 0, "temperate": 1, "warm": 2},
+	"wolf":    {"ashen": 0, "black": 1, "chestnut": 2, "pale": 3, "rusty": 4, "snowy": 5, "spotted": 6, "striped": 7, "woods": 8},
+	"pig":     {"cold": 0, "temperate": 1, "warm": 2},
+	"cow":     {"cold": 0, "temperate": 1, "warm": 2},
+	"chicken": {"cold": 0, "temperate": 1, "warm": 2},
+}
+
+// holderSoundVariantIDs does the same for the sound-variant registries.
+var holderSoundVariantIDs = map[string]map[string]int32{
+	"cat":     {"classic": 0, "royal": 1},
+	"wolf":    {"angry": 0, "big": 1, "classic": 2, "cute": 3, "grumpy": 4, "puglin": 5, "sad": 6},
+	"cow":     {"classic": 0, "moody": 1},
+	"pig":     {"big": 0, "classic": 1, "mini": 2},
+	"chicken": {"classic": 0, "picky": 1},
+}
+
+// holderVariantDefault is each type's defined-default variant name —
+// the value defineSynchedData registers, which stays unpacked on the
+// wire and is what /data emits for an unmodified summon.
+var holderVariantDefault = map[string]string{
+	"cat": "tabby", "frog": "temperate", "wolf": "pale",
+	"pig": "temperate", "cow": "temperate", "chicken": "temperate",
+	"salmon": "medium",
+}
+
+// holderVariantID resolves a variant name against the type's registry
+// table, applying the defined default on empty.
+func holderVariantID(typ, name string) int32 {
+	if name == "" {
+		name = holderVariantDefault[typ]
+	}
+	if m, ok := holderVariantIDs[typ]; ok {
+		if id, ok := m[name]; ok {
+			return id
+		}
+	}
+	return holderVariantIDs[typ][holderVariantDefault[typ]]
+}
+
+// holderSoundVariantID resolves a sound-variant name, defaulting to
+// "classic" — every sound-holding type's defined default.
+func holderSoundVariantID(typ, name string) int32 {
+	if name == "" {
+		name = "classic"
+	}
+	if m, ok := holderSoundVariantIDs[typ]; ok {
+		if id, ok := m[name]; ok {
+			return id
+		}
+	}
+	return holderSoundVariantIDs[typ]["classic"]
+}
+
+// salmonVariantID maps Salmon$Variant names to ids — 0 small, 1
+// medium (defined default), 2 large.
+func salmonVariantID(name string) int32 {
+	switch name {
+	case "small":
+		return 0
+	case "large":
+		return 2
+	}
+	return 1
 }
 
 // mobFlagsByte is Mob's DATA_MOB_FLAGS byte: bit0 = NoAI.

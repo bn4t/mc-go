@@ -12362,3 +12362,34 @@ Still open: registry-holder variants (cat CatVariant+CatSoundVariant,
 frog, wolf WolfVariant+WolfSoundVariant, pig/cow/chicken
 variant/sound_variant holders — different wire shape, deferred);
 fox Trusted entity-reference metadata entries 20/21 when populated.
+
+## Slice — registry-holder variant sweep + spawn-roll parity (2026-09-29)
+
+Cat/frog/wolf/pig/cow/chicken read namespaced `variant` +
+`sound_variant` holders (frog has no sound registry) and salmon the
+plain enum `type` (small/medium/large, unnamespaced). Wire packs a
+VarInt holder id under dedicated serializer ids measured on the live
+0x63 spawn burst (idx/serializer, variant+sound): cat 20/21 + 24/22,
+frog 18/27, wolf 23/25 + 24/26, pig 19/28 + 20/29, cow 18/23 + 19/24,
+chicken 18/30 + 19/31; salmon's DATA_TYPE is idx17 plain varint. Registry ids are the datapack registration order measured off
+generated/data (cat 11, wolf 9, farm/frog 3, sounds 2-7).
+
+Measured: EntityType.spawn rolls EVERY summon (tagged or bare) —
+variant via VariantUtils.selectVariantToSpawn (condition = biome tag
+membership, max-priority tier, uniform within) and sound via
+Registry.getRandom; NBT keys then override. spawnvariant.go tables
+rebuild the datapack spawn_conditions (cat all-11 unconditional;
+wolf only pale unconditional; farm/frog temperate default, cold/warm
+biome-gated priority 1) and the uniform sound draws (no roll for
+salmon). The defined defaults (tabby/pale/temperate/classic/medium)
+stay unpacked on spawn and ride orStr on the save side; pig's static
+sound_variant/variant extras went dynamic.
+
+Pinned: TestHolderVariantParity pins 10 summons' metadata vs both
+legs — explicit values asserted exactly, rolled keys asserted as
+optional idx->{serializer, max id} bounds — plus 13 nbt= selector
+probes for the save keys. Green vs both.
+
+Still open: fox Trusted entity refs 20/21, cat/wolf CollarColor,
+pig DATA_BOOST_TIME, frog DATA_TONGUE_TARGET, passive passenger
+entities' rolled variants.

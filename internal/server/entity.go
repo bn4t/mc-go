@@ -389,6 +389,12 @@ type Entity struct {
 	// FromBucket is Axolotl's FromBucket NBT + synced flag — set by
 	// the bucket-capture path.
 	FromBucket bool
+	// VariantName/SoundVariant are the registry-holder variant NBT
+	// strings (cat/frog/wolf/pig/cow/chicken `variant`, plus
+	// `sound_variant` where the type has one) — stored as the short
+	// registry name ("persian", "warm"); empty means the type's
+	// defined default.
+	VariantName, SoundVariant string
 	// Small/ShowArms/DisabledSlots are the armor stand's
 	// ArmorStand.CLIENT_FLAG bits and NBT; Equips is the entity
 	// equipment map keyed by vanilla equipment index

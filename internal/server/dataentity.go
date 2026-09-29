@@ -759,6 +759,22 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 			m["MainGene"] = e.GeneMain
 			m["HiddenGene"] = e.GeneHidden
 		}
+		// Holder-codec variants write the namespaced registry name;
+		// the defined default applies when the summon left the key
+		// out. Vanilla emits variant always, sound_variant on the
+		// types that register one (frog has none).
+		switch typeName {
+		case "cat", "frog", "wolf", "pig", "cow", "chicken":
+			m["variant"] = "minecraft:" + orStr(e.VariantName, holderVariantDefault[typeName])
+		}
+		switch typeName {
+		case "cat", "wolf", "pig", "cow", "chicken":
+			m["sound_variant"] = "minecraft:" + orStr(e.SoundVariant, "classic")
+		}
+		// Salmon$Variant serializes its StringRepresentable name.
+		if typeName == "salmon" {
+			m["type"] = orStr(e.VariantName, "medium")
+		}
 		// AbstractPiglin and Hoglin declare the zombification pair.
 		if overworldZombifyTypes[typeName] {
 			m["IsImmuneToZombification"] = nbtBool(e.ImmuneToZombification)
@@ -1004,7 +1020,7 @@ var entitySaveSeq = []string{
 	"AbsorptionAmount", "attributes", "active_effects", "Brain",
 	"FallFlying", "PersistenceRequired", "CanPickUpLoot",
 	"LeftHanded", "NoAI", "equipment", "Age", "ForcedAge",
-	"InLove", "AgeLocked", "variant", "sound_variant",
+	"InLove", "AgeLocked", "variant", "sound_variant", "type",
 	"PatrolLeader", "drop_chances", "IsBaby",
 	"IsImmuneToZombification", "TimeInOverworld",
 	"home_radius", "home_pos", "Wave", "CanJoinRaid", "RaidId",
@@ -1076,9 +1092,7 @@ var entitySaveExtras = map[string]map[string]any{
 		}},
 	},
 	"pig": {
-		"Brain":         map[string]any{"memories": map[string]any{}},
-		"sound_variant": "minecraft:classic",
-		"variant":       "minecraft:temperate",
+		"Brain": map[string]any{"memories": map[string]any{}},
 	},
 	// Piglin.addAdditionalSaveData: CannotHunt byte and the always-
 	// present (possibly empty) picked-up-item Inventory.
@@ -1098,6 +1112,15 @@ var neutralAngryTypes = map[string]bool{
 	"wolf":             true,
 	"polar_bear":       true,
 	"iron_golem":       true,
+}
+
+// orStr returns s when set, else def — for variant fields whose
+// defined default applies when the summon NBT left the key out.
+func orStr(s, def string) string {
+	if s != "" {
+		return s
+	}
+	return def
 }
 
 // nbtBool renders a bool as vanilla's byte tag.
@@ -1399,6 +1422,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"FromBucket": true, "Trusted": true, "Sleeping": true,
 		"Sitting": true, "Crouching": true,
 		"MainGene": true, "HiddenGene": true,
+		"variant": true, "sound_variant": true, "type": true,
 	}
 	if extra, ok := entitySaveExtras[name]; ok {
 		for k := range extra {

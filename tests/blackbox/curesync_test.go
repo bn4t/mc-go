@@ -78,6 +78,14 @@ func decodeMetaEntries(t *testing.T, body []byte) map[int]metaEnt {
 				v, _ := r.VarInt()
 				e.val = append(e.val, byte(v))
 			}
+		case 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31:
+			// Holder-variant serializers (cat/frog/wolf/pig/cow/
+			// chicken variant + sound_variant registries): a VarInt
+			// registry id on the wire.
+			v, _ := r.VarInt()
+			var vb protocol.Buffer
+			vb.VarInt(v)
+			e.val = vb.Bytes()
 		default:
 			t.Fatalf("unhandled serializer type %d at idx %d (body %x)", typ[0], idx[0], body)
 		}
