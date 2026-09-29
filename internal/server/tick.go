@@ -437,6 +437,10 @@ func (s *Server) GameTick() {
 	s.tntTickStep()
 	s.mobItemPickupStep()
 	s.mobTickStep()
+	// Entity.baseTick's handlePortal opens with
+	// processPortalCooldown — every ticking entity's cooldown
+	// decrements one per tick while positive, no matter its type.
+	s.portalCooldownStep()
 	s.vehicleTickStep()
 	s.minecartTickStep()
 	s.cureTickStep()

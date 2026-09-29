@@ -97,6 +97,25 @@ func isNetherPortal(b world.Block) bool {
 	return ok && name == "nether_portal"
 }
 
+// portalCooldownStep is Entity.baseTick's handlePortal opener —
+// processPortalCooldown decrements every ticking entity's
+// portalCooldown by one per tick while positive. Non-living
+// entities (items, carts, projectiles) tick it the same way mobs
+// do, so the pass sweeps the whole entity table.
+func (s *Server) portalCooldownStep() {
+	s.entities.mu.RLock()
+	list := make([]*Entity, 0, len(s.entities.byID))
+	for _, e := range s.entities.byID {
+		list = append(list, e)
+	}
+	s.entities.mu.RUnlock()
+	for _, e := range list {
+		if e.PortalCooldown > 0 {
+			e.PortalCooldown--
+		}
+	}
+}
+
 // travelNetherPortal moves the player through the portal: overworld
 // and nether trade places at 8:1 coordinate scale. A destination
 // portal is created when none is found near the arrival point, and the

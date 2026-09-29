@@ -14344,3 +14344,41 @@ no flee; unsneak → flee). Green both legs.
     now spawn the arrow entering the box, which is also the only
     geometry a vanilla player could produce. zz_arrowprobe_test.go
     (throwaway diagnostic) deleted, never committed.
+
+## Slice — PortalCooldown tick + AgeLocked gate (2026-09-29)
+  - **Measured** (Entity.java:534/596-620/2118/2198/2647 +
+    AgeableMob.java:125-145/195-215 on the 26.2 decomp):
+    `handlePortal` opens every entity's baseTick with
+    `processPortalCooldown` — portalCooldown decrements one per
+    tick while >0, on EVERY ticking entity type (mobs, carts,
+    items, projectiles alike) and never goes negative; it saves
+    and reads unconditionally as `PortalCooldown`.
+    AgeableMob.aiStep: `canAgeUp` (isBaby && !isAgeLocked) →
+    `setAge(++age)`, `else if (age>0)` → `setAge(--age)` — an
+    AgeLocked baby matches neither arm and holds its negative age
+    forever; ForcedAge is only the deferred-growth reservoir
+    (consumed by ageUp, never ticked). "Team" is NOT an entity
+    NBT key — membership resolves through the scoreboard by
+    name.
+  - **Implemented**: `portalCooldownStep` (portal.go) sweeps the
+    whole entity table once per game tick after mobTickStep —
+    `if e.PortalCooldown > 0 { e.PortalCooldown-- }`.
+    `/summon` now parses `PortalCooldown` for both the mob and
+    the boat/minecart branches (it emitted/merged the key before
+    but never read it on summon — measured zero). The age step
+    gained the `AgeLocked` gate AND the real bug behind it: the
+    `else e.Age--` arm ticked a locked baby's age DOWN (−400 →
+    −511 in one run) — vanilla's else is `else if (age > 0)`,
+    now matched.
+  - **Pinned**: `TestPortalAgeParity` vs both servers — zombie
+    {PortalCooldown:400} counts down through a sprint; a /data
+    merge value counts down and clamps at exactly 0;
+    chest_minecart (non-Living) decrements identically; a pig
+    {Age:-400,AgeLocked:1b} stays −400 over sprint-100 while an
+    unlocked sibling climbs to ~−293; ForcedAge:700 never moves.
+    Harness fix that mattered: vanilla's /tick sprint is ASYNC —
+    commands queued behind it interleave mid-sprint (a first
+    data get raced ahead and read the pre-sprint value), so the
+    test now waits for the `commands.tick.sprint.report` chat
+    before reading counters. Reads use `lastNumberSigned` —
+    `lastNumber` silently strips the minus (Age:-400 read 400).

@@ -1345,6 +1345,11 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if fv, ok := tag.vals["TicksFrozen"]; ok {
 				e.TicksFrozen = int32(snbtNum(fv))
 			}
+			// PortalCooldown is Entity.load's portalCooldown read —
+			// every entity type carries it.
+			if pv, ok := tag.vals["PortalCooldown"]; ok {
+				e.PortalCooldown = int32(snbtNum(pv))
+			}
 			// HurtTime is LivingEntity.load's hurt flash countdown.
 			if fv, ok := tag.vals["HurtTime"]; ok {
 				e.HurtTime = int16(snbtNum(fv))
@@ -2051,6 +2056,9 @@ func (s *Server) runSummon(player string, args []string) reply {
 				e.VX = int16(e.MotionX * 8000)
 				e.VY = int16(e.MotionY * 8000)
 				e.VZ = int16(e.MotionZ * 8000)
+			}
+			if pv, ok := tag.vals["PortalCooldown"]; ok {
+				e.PortalCooldown = int32(snbtNum(pv))
 			}
 			if pv, ok := tag.vals["Passengers"]; ok {
 				for _, sub := range pv.items {
@@ -5193,16 +5201,17 @@ func (s *Server) mobTickStep() {
 				}
 			}
 		}
-		// AgeableMob.baseTick's age step: babies count up toward grown
-		// at 0, adults count a breeding cooldown down.
+		// AgeableMob.aiStep's age step: babies count up toward grown
+		// at 0 while canAgeUp (AgeLocked freezes the counter),
+		// adults count a breeding cooldown down.
 		if ageableTypes[ambName] && e.Age != 0 {
-			if e.Age < 0 {
+			if e.Age < 0 && !e.AgeLocked {
 				e.Age++
 				if e.Age == 0 {
 					e.Baby = false
 					e.MetaDirty = true
 				}
-			} else {
+			} else if e.Age > 0 {
 				e.Age--
 			}
 		}
