@@ -1,6 +1,11 @@
 package server
 
-import "math"
+import (
+	"math"
+	"slices"
+
+	"mc-go/internal/world"
+)
 
 // cubeSizeOf is AbstractCubeMob.getSize: the DATA_SIZE value, with
 // the defined 1 standing in on a zero field (unsized spawn).
@@ -105,6 +110,12 @@ func (s *Server) frogTongueStep(e *Entity) bool {
 		if o == e || o.Dim != e.Dim || o.Dying || o.Dormant {
 			continue
 		}
+		// isUnreachableAttackTarget: entities on the FIFO are
+		// excluded while the 100-tick memory is live.
+		if e.SyncCount < e.FrogUnreachableExp &&
+			slices.Contains(e.FrogUnreachable, o.ID) {
+			continue
+		}
 		on, _ := EntityTypeName(o.Type)
 		if on != "slime" && on != "magma_cube" {
 			continue
@@ -132,6 +143,14 @@ func (s *Server) frogTongueStep(e *Entity) bool {
 	if t == nil {
 		return false
 	}
+	// checkExtraStartConditions' canPathfindToTarget: a picked
+	// target whose path can't end inside the eating distance is
+	// dropped AND written to UNREACHABLE_TONGUE_TARGETS — the
+	// sensor then skips it while the memory is live.
+	if !s.frogCanTonguePath(e, t) {
+		s.frogTongueUnreachable(e, t.ID)
+		return false
+	}
 	// start(): lookAt the target, setTongueTarget, WALK_TARGET at
 	// the target pos.
 	e.FrogTongueEnt = t
@@ -141,6 +160,79 @@ func (s *Server) frogTongueStep(e *Entity) bool {
 	e.FrogTongueAge = 0
 	e.MetaDirty = true
 	return true
+}
+
+// frogTongueUnreachable is ShootTongue's addUnreachableTargetTo-
+// Memory: the id appends when new, the head drops at five entries,
+// and the expiry rewrites to 100 ticks on every call — even a
+// re-listed id refreshes the memory's TTL.
+func (s *Server) frogTongueUnreachable(e *Entity, id int32) {
+	e.FrogUnreachableExp = e.SyncCount + 100
+	if slices.Contains(e.FrogUnreachable, id) {
+		return
+	}
+	if len(e.FrogUnreachable) == 5 {
+		e.FrogUnreachable = e.FrogUnreachable[1:]
+	}
+	e.FrogUnreachable = append(e.FrogUnreachable, id)
+}
+
+// frogCanTonguePath emulates canPathfindToTarget —
+// createPath(target).getDistToTarget() < 1.75. With no nav graph the
+// check simulates the same greedy ground walk the chase drive would
+// run: step toward the target's x/z, take the one-block hop or short
+// drop the walk drive takes, and fail on a wall or a ledge it can't
+// take. Reaching the 1.75 eating distance means a path could end
+// close enough; a target straight overhead (no horizontal approach)
+// or behind solid ground has no such path.
+func (s *Server) frogCanTonguePath(e *Entity, t *Entity) bool {
+	w := s.dimWorld(e.Dim)
+	if w == nil {
+		return true
+	}
+	blocked := func(cx, cy, cz int) bool {
+		b := w.GetBlock(world.Pos{X: cx, Y: cy, Z: cz})
+		return b != world.Air && !moveNoCollision(b)
+	}
+	x, y, z := e.X, e.Y, e.Z
+	for i := 0; i < 40; i++ {
+		dx, dy, dz := t.X-x, t.Y-y, t.Z-z
+		if dx*dx+dy*dy+dz*dz < 1.75*1.75 {
+			return true
+		}
+		hd := math.Hypot(dx, dz)
+		if hd < 0.05 {
+			// No horizontal approach left: overhead the path
+			// ends on the ground under the target — already
+			// over 1.75 out. Below, the walk just slides off
+			// the ledge and lands on it.
+			return dy < 0
+		}
+		nx, nz := x+dx/hd*0.4, z+dz/hd*0.4
+		cx, cz := int(math.Floor(nx)), int(math.Floor(nz))
+		cy := int(math.Floor(y))
+		if blocked(cx, cy, cz) {
+			// A one-block ledge is what the walk drive's
+			// auto-step climbs; two or more ends the path here.
+			if blocked(cx, cy+1, cz) {
+				return false
+			}
+			x, y, z = nx, float64(cy+1), nz
+			continue
+		}
+		// Free cell — descend to the ground under it (the walk
+		// falls off ledges); no floor within a block of the
+		// descent cap leaves the path hanging over air.
+		gy := cy
+		for gy > cy-6 && !blocked(cx, gy-1, cz) {
+			gy--
+		}
+		if cy-gy >= 6 {
+			return false
+		}
+		x, y, z = nx, float64(gy), nz
+	}
+	return false
 }
 
 // frogTongueStop is ShootTongue.stop: erase the attack target and

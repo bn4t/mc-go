@@ -13876,3 +13876,41 @@ no flee; unsneak → flee). Green both legs.
   absolute coords, `execute at|as` + `run summon wolf ~2 ~ ~
   {NoAI:1b}`, exact wolf/fox Pos comparison (at → fox+2 on both;
   as → player+2 on both). `TestExecuteIfParity` re-green (170s).
+
+## Slice — frog UNREACHABLE_TONGUE_TARGETS
+
+- **Gap list**: ShootTongue's start-time reachability gate — vanilla
+  writes a picked target whose path can't end inside the 1.75
+  eating distance to UNREACHABLE_TONGUE_TARGETS and the sensor
+  skips it afterward; mc-go had no unreachable memory at all, so
+  every repick re-committed a chase it could never finish.
+- **Measured** (FrogAttackablesSensor + ShootTongue decompile): the
+  sensor filters `isUnreachableAttackTarget` out of isMatching-
+  Entity; checkExtraStartConditions runs `createPath(target,
+  0).getDistToTarget() < 1.75` — on failure it erases
+  ATTACK_TARGET AND calls addUnreachableTargetToMemory: append-
+  when-new, head evicts at size 5, `setMemoryWithExpiry(...,100L)`
+  rewrites the single shared TTL on EVERY add including re-lists.
+  The expiry re-feeds the same cube each ~100 ticks, where the
+  path check re-fails — observable state: the tongue metadata and
+  the chase walk never happen for that cube.
+- **Implemented**: `FrogUnreachable` FIFO + `FrogUnreachableExp`
+  (SyncCount + 100); the sensor scan skips listed ids while the
+  memory is live; a picked target that fails `frogCanTonguePath`
+  is listed and the pick aborts (the walk, metadata, and pose
+  never start — matching vanilla, which never reaches start()).
+  The path emulation is a greedy ground-walk sim mirroring the
+  chase drive's blocked-cell rules: one-block hops, ≤5-cell drops,
+  walls/ledges fail; reaching within 1.75 (3D) means the path
+  could end close enough. A target directly overhead has no
+  horizontal approach (fails); directly below is reachable by
+  sliding off the ledge.
+- **Pinned**: `TestFrogTongueUnreachable` — a size-1 slime on a
+  3-block pillar the eye-line clears (LoS but no path) vs a
+  ground-level slime in the same window: the near cube's tongue
+  hook + removal land, the pillar cube's idx19 emit NEVER appears
+  across ~20s covering two expiry cycles. Green on both servers;
+  `TestFrogTongueParity` + `TestFrogCroakParity` re-green. NOTE:
+  `TestFrogspawnHatchParity` flaked vanilla-side twice this run —
+  the stone-egg random tick missed its hatch window
+  (vanilla=miss); it passes on rerun. Watch for repeats.

@@ -163,3 +163,77 @@ func TestFrogTongueParity(t *testing.T) {
 	check(t, "mc-go-slime", mSlm, mFrogA, mSlmA, "minecraft:slime_ball")
 	check(t, "mc-go-magma", mMag, mFrogB, mMagB, "minecraft:pearlescent_froglight")
 }
+
+// TestFrogTongueUnreachable pins UNREACHABLE_TONGUE_TARGETS: a
+// FROG_FOOD cube the sensor can SEE but whose path can't end inside
+// the 1.75 eating distance gets written to the unreachable FIFO —
+// cap 5, head evicts, every add refreshes the 100-tick memory
+// expiry — and skipped on every repick. Its DATA_TONGUE_TARGET_ID
+// never emits (the behavior never starts, so the walk and the
+// metadata hook never happen) while a same-window reachable cube is
+// hooked and eaten normally. Geometry: a 3-block stone pillar the
+// eye-line clears but no ground path climbs; the memory's expiry
+// re-feeds the cube every ~100 ticks, where the path check re-fails.
+func TestFrogTongueUnreachable(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("BOATA", "BOATB"),
+	}, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	defer targets.cleanup()
+
+	run := func(t *testing.T, addr string) (nearEmit, farEmit bool) {
+		v := joinVehPair(t, addr)
+		defer v.ca.Close()
+		defer v.cb.Close()
+		drainChunkWindow(t, "frogtongue-unreach", v.ca, v.pra, v.pwa, 0)
+		sendCommand(t, v.pwa, "gamemode spectator BOATA")
+		sendCommand(t, v.pwa, "gamemode spectator BOATB")
+		// Park inside tracking range — past ~32 blocks vanilla
+		// untracks the entities and no metadata reaches the client.
+		sendCommand(t, v.pwa, "tp BOATA 50 -60 48")
+		sendCommand(t, v.pwa, "tp BOATB 50 -60 48")
+
+		sendCommand(t, v.pwa, "setblock 52 -59 52 minecraft:stone")
+		sendCommand(t, v.pwa, "setblock 52 -58 52 minecraft:stone")
+		sendCommand(t, v.pwa, "setblock 52 -57 52 minecraft:stone")
+		frogE := summonTrackedNBT(t, v.ca, v.pra, v.pwa, v.pwa, "frog", 50.5, -60, 44.5, "{}")
+		farE := summonTrackedNBT(t, v.ca, v.pra, v.pwa, v.pwa, "slime", 52.5, -56, 52.5, "{Size:0,NoAI:1b}")
+		nearE := summonTrackedNBT(t, v.ca, v.pra, v.pwa, v.pwa, "slime", 50.5, -60, 52.5, "{Size:0,NoAI:1b}")
+
+		var tongue []string
+		removed := false
+		deadline := time.Now().Add(14 * time.Second)
+		for time.Now().Before(deadline) && !removed {
+			o := vehWatch(t, v, false, 0, 300*time.Millisecond)
+			tongue = append(tongue, o.tongueHist...)
+			if o.removed[nearE] {
+				removed = true
+			}
+		}
+		// Watch past the eat: the unreachable memory's 100-tick
+		// expiry re-feeds the pillar cube through the sensor, where
+		// the path check re-fails — no emit may ever land for it.
+		for i := 0; i < 20; i++ {
+			o := vehWatch(t, v, false, 0, 300*time.Millisecond)
+			tongue = append(tongue, o.tongueHist...)
+		}
+		farMark := strconv.Itoa(int(frogE)) + ":" + strconv.Itoa(int(farE)+1)
+		nearMark := strconv.Itoa(int(frogE)) + ":" + strconv.Itoa(int(nearE)+1)
+		for _, h := range tongue {
+			nearEmit = nearEmit || h == nearMark
+			farEmit = farEmit || h == farMark
+		}
+		return
+	}
+
+	vN, vF := run(t, targets.vanilla)
+	mN, mF := run(t, targets.mcgo)
+	t.Logf("unreachable: vanilla near=%v far=%v; mc-go near=%v far=%v", vN, vF, mN, mF)
+	if !vN || !mN {
+		t.Errorf("reachable slime not tongue-hooked: vanilla=%v mc-go=%v", vN, mN)
+	}
+	if vF || mF {
+		t.Errorf("unreachable slime emitted a tongue target: vanilla=%v mc-go=%v", vF, mF)
+	}
+}

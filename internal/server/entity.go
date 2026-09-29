@@ -536,6 +536,14 @@ type Entity struct {
 	FrogTongueAge int32
 	// FrogCroakTimer counts Croak's 60-tick pose activity.
 	FrogCroakTimer int32
+	// FrogUnreachable is UNREACHABLE_TONGUE_TARGETS: entity ids the
+	// path check failed for — a FIFO capped at 5 (the head evicts),
+	// rewritten with a fresh 100-tick expiry on every add
+	// (setMemoryWithExpiry(100L)). FrogUnreachableExp is the
+	// SyncCount deadline; a lapsed list is replaced whole by the
+	// next add.
+	FrogUnreachable    []int32
+	FrogUnreachableExp int64
 	// CubeSize is the slime/magma_cube DATA_SIZE (metadata 16) —
 	// vanilla's internal getSize() (NBT Size+1); 0 means the
 	// defined default 1.
