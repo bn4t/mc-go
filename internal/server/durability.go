@@ -75,7 +75,7 @@ func (s *Server) wearSlot(sess *Session, slot int16, damage int32) {
 	if empt {
 		// Vanilla's onEquippedItemBroken: the entity event (players
 		// hear the snap) and the stat land before the slot resync.
-		s.broadcastEntityEvent(sess.entityID.Load(), entityEventBreakMainhand)
+		s.broadcastEntityEvent(sess.entityID.Load(), breakEventForSlot(slot))
 		sess.addItemStat(statBroken, it.ID, 1)
 	}
 	_ = s.sendContainerSlot(sess, slot, cur)
@@ -87,8 +87,24 @@ func (s *Server) wearSlot(sess *Session, slot int16, damage int32) {
 // entityEventBreakMainhand is the entity-status byte vanilla sends
 // for an equipment break in the main hand
 // (LivingEntity.entityEventForEquipmentBreak: mainhand=47,
-// offhand=48, feet=49, legs=50, chest=52, head=51).
+// offhand=48, head=49, chest=50, feet=52, legs=51, body=65,
+// saddle=68).
 const entityEventBreakMainhand = 47
+
+// breakEventForSlot is entityEventForEquipmentBreak over mc-go's
+// inventory layout: any hotbar slot is the main hand, then offhand,
+// then the four armor slots via armorBreakEvents. A slot outside
+// the worn set still reports as main-hand — vanilla's hurtAndBreak
+// only ever runs on equipped slots.
+func breakEventForSlot(slot int16) byte {
+	if ev, ok := armorBreakEvents[int(slot)]; ok {
+		return ev
+	}
+	if slot == slotOffhand {
+		return 48
+	}
+	return entityEventBreakMainhand
+}
 
 // broadcastEntityEvent sends one entity-status byte to every spawned
 // session in the entity's dimension, including the owner (vanilla's
@@ -209,8 +225,10 @@ func noKnockback(typeName string) bool {
 }
 
 // armorBreakEvents maps an armor inventory slot to its
-// entity-status byte (LivingEntity.entityEventForEquipmentBreak on
-// 26.2's tableswitch: head=49, chest=50, legs=51, feet=52).
+// entity-status byte. 26.2's entityEventForEquipmentBreak switch is
+// keyed by the LivingEntity$1 switchmap order — MAINHAND,OFFHAND,
+// HEAD,CHEST,FEET,LEGS → 47,48,49,50,52,51 (feet and legs swap; BODY
+// and SADDLE get 65/68).
 var armorBreakEvents = map[int]byte{
 	slotArmorStart + 3: 52, // feet
 	slotArmorStart + 2: 51, // legs

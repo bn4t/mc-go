@@ -514,3 +514,90 @@ func decodeLpVec3(r *protocol.PacketReader) (x, y, z float64, ok bool) {
 	}
 	return unpack(3), unpack(18), unpack(33), true
 }
+
+// TestOffhandBreakParity pins the entity-status byte for an OFFHAND
+// break: shearing a sheep with shears one point from max snaps the
+// stack, and vanilla's entityEventForEquipmentBreak answers 48 for
+// OFFHAND — every wear path on 26.2 routes through the slot's byte,
+// never a shared "main hand" constant.
+func TestOffhandBreakParity(t *testing.T) {
+	tg := requireBlackboxFiles(t, map[string]string{"gamemode": "survival"}, map[string]string{
+		"ops.json": opsJSONFor("OffV", "OffM"),
+	}, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	defer tg.cleanup()
+	defer func() {
+		if t.Failed() {
+			vanillaLogTail(t)
+		}
+	}()
+
+	run := func(addr, name string) []int32 {
+		c, pr, pw := joinPlayBlackbox(t, addr, name)
+		defer c.Close()
+		_ = c.SetDeadline(time.Now().Add(60 * time.Second))
+		var pos [3]float64
+		obs := wearObs{}
+		drainWear(t, c, pr, pw, &pos, 1200*time.Millisecond, &obs, nil)
+		// Hotbar stays empty — the offhand interact is sent directly,
+		// as the client would after a main-hand PASS.
+		sendCommand(t, pw, "item replace entity @s weapon.offhand with minecraft:shears[minecraft:damage=237]")
+		sendCommand(t, pw, "tp @s 6 -60 2 0 0")
+		drainWear(t, c, pr, pw, &pos, 500*time.Millisecond, &obs, nil)
+		sendCommand(t, pw, "summon minecraft:sheep ~ ~ ~ {NoAI:1b}")
+		sheepType, _ := server.EntityTypeID("sheep")
+		drainWear(t, c, pr, pw, &pos, 1200*time.Millisecond, &obs, nil)
+		// Ambient sheep spawn all over the flat world — ours is the
+		// sheep-type entity closest to the player's synced position.
+		sheepEID := int32(0)
+		best := math.MaxFloat64
+		for eid, sp := range obs.spawnedPos {
+			if int32(sp[0]) != sheepType {
+				continue
+			}
+			dx, dy, dz := sp[1]-pos[0], sp[2]-pos[1], sp[3]-pos[2]
+			if d := dx*dx + dy*dy + dz*dz; d < best {
+				best, sheepEID = d, eid
+			}
+		}
+		if sheepEID == 0 || best > 16 {
+			t.Fatalf("%s: no nearby sheep spawn (spawned=%v)", name, obs.spawnedPos)
+		}
+		var ib protocol.Buffer
+		ib.VarInt(sheepEID)
+		ib.VarInt(1) // OFF_HAND — 26.2's interact is eid+hand+loc+sneak
+		ib.Byte(0)   // LpVec3 zero
+		ib.Bool(false)
+		if err := pw.WritePacket(server.IDPlayInteractSB, ib.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+		drainWear(t, c, pr, pw, &pos, 1500*time.Millisecond, &obs, nil)
+		return obs.evs
+	}
+
+	want := run(tg.vanilla, "OffV")
+	got := run(tg.mcgo, "OffM")
+	if len(want) != len(got) {
+		t.Fatalf("entity events: vanilla %v mc-go %v", want, got)
+	}
+	for i := range want {
+		if want[i] != got[i] {
+			t.Errorf("event[%d]: vanilla %d mc-go %d", i, want[i], got[i])
+		}
+	}
+	for _, tc := range []struct {
+		tag string
+		evs []int32
+	}{{"vanilla", want}, {"mc-go", got}} {
+		found := false
+		for _, ev := range tc.evs {
+			if ev == 48 {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: offhand break event 48 missing: %v", tc.tag, tc.evs)
+		}
+	}
+}

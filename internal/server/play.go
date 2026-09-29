@@ -59,7 +59,9 @@ func (s *Server) handlePlay(sess *Session) {
 	if err := s.sendUpdateRecipes(sess); err != nil {
 		return
 	}
-	if err := s.sendEntityEvent(sess, sess.entityID.Load(), 24); err != nil {
+	// sendPlayerPermissionLevel on join: vanilla reports the joining
+	// player's own op level, never a flat byte.
+	if err := s.sendEntityEvent(sess, sess.entityID.Load(), opStatus(sess.opLevel())); err != nil {
 		return
 	}
 	if err := s.sendCommands(sess); err != nil {

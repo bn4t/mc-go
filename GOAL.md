@@ -12676,3 +12676,27 @@ Still open: cat IS_LYING/RELAX_STATE_ONE (idx21/22), frog
 DATA_TONGUE_TARGET, addTrustedEntity via taming, boost travel
 physics, breeze whirl/charge/jump/land (Brain AI), world-seeded
 RNG parity for bare-summon rolls.
+## Slice — equipment-break event bytes + join op level (2026-10-02)
+
+Measured: LivingEntity.entityEventForEquipmentBreak's tableswitch is
+keyed by the LivingEntity$1 switchmap — MAINHAND,OFFHAND,HEAD,CHEST,
+FEET,LEGS,BODY,SADDLE → 47,48,49,50,52,51,65,68 (feet and legs swap
+values against the natural reading; verified by the emitted bytes:
+a feet/legs/head break walk leaves [52,51,49]). Player.hurtArmor
+walks FEET,LEGS,CHEST,HEAD. PlayerList.sendPlayerPermissionLevel on
+join broadcasts 24 + the player's op level — level-4 ops get 28.
+
+Pinned: TestOffhandBreakParity — shearing a sheep with an offhand
+shears one point from max leaves the [28,48] event sequence on both
+servers. mc-go's wearSlot now resolves its event byte per slot via
+breakEventForSlot (hotbar→47, offhand→48, armor→armorBreakEvents;
+the elytra chest break at +1 now emits 50, was 47), and the join
+op-level event sends opStatus(sess.opLevel()) instead of a flat 24.
+TestArmorWearParity — red on master since it was written — is green:
+the armor map was right all along, only the join event and the
+non-armor wear path were wrong.
+
+Still open: cat IS_LYING/RELAX_STATE_ONE (idx21/22), frog
+DATA_TONGUE_TARGET, addTrustedEntity via taming, boost travel
+physics, breeze whirl/charge/jump/land (Brain AI), world-seeded
+RNG parity for bare-summon rolls.
