@@ -74,12 +74,15 @@ func mountAllowed(name string, e *Entity) bool {
 	case isSteerableName(name):
 		return e.Saddle
 	case isEquineName(name):
-		// Camel.mobInteract mounts any adult regardless — its
-		// isTamed() is unconditionally true.
+		// doPlayerRide has no tame gate — an adult mounts bareback
+		// either way and the untamed case feeds the RunAroundLikeCrazy
+		// buck loop. The skeleton horse alone refuses: its mobInteract
+		// returns PASS while untamed, so no arm ever reaches the mount.
+		// Camel's isTamed() is unconditionally true — any adult mounts.
 		if name == "camel" {
 			return !e.Baby
 		}
-		return e.Tamed && !e.Baby
+		return !e.Baby && (e.Tamed || name != "skeleton_horse")
 	}
 	return false
 }
@@ -123,6 +126,20 @@ func (s *Server) rideVehicle(sess *Session, eid int32, sneaking bool) {
 	// counts the mount hop as ridden distance. set_passengers carries
 	// the render — no teleport packet.
 	_, _, _, yaw, pitch, og := sess.Pos()
+	if isEquineName(name) {
+		// AbstractHorse.doPlayerRide: setEating(false) +
+		// clearStanding() drop flags 0x10/0x20, then the rider's
+		// server-side rot is welded to the mount's.
+		if veh.EatingHaystack || veh.HorseStanding {
+			veh.EatingHaystack = false
+			veh.eatingCounter = 0
+			veh.HorseStanding = false
+			veh.standCounter = 0
+			veh.MetaDirty = true
+		}
+		yaw = veh.Yaw
+		pitch = veh.Pitch
+	}
 	sx, sy, sz := playerSeatPos(veh, sess.entityID.Load())
 	sess.setPos(sx, sy, sz, yaw, pitch, og)
 	s.broadcastSetPassengers(veh)

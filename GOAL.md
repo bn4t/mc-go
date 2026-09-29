@@ -13574,3 +13574,26 @@ already in place; the missing piece was the interact arm itself:
 - `TestEquineFlagsParity` pins makeMad (0x20 emit + angry sound
   0x75 + 20-tick clear) and wheat-feed (0x40 emit + eat sound +
   30-tick clear + consume) on both legs.
+
+## Slice — equine ride-tame loop (RunAroundLikeCrazyGoal) (26.2)
+
+- `equineRideTameStep` per tick on the equine family: gates =
+  !tamed && isVehicle && !isMobControlled (zombie_horse with a
+  mob first-passenger skips). Riding sets FleeRidden →
+  `equineFleeStep` drives the flee target draw (±5 via
+  strollOffset/2, 1.2× move speed, give-up on ledge/obstacle or
+  >160 steps).
+- Per tick 1/25 roll (vanilla's reducedTickDelay(50)=25):
+  passenger is a player → maxTemper>0 && rand<temper →
+  `equineTameWithName` (setOwner+setTamed+TAME_ANIMAL trigger+
+  entity_event 7) else modifyTemper(5) → ejectPassengers +
+  makeMad + entity_event 6. Non-player passengers just eject.
+- `doPlayerRide` arms at rideVehicle: equines clear eating/
+  standing counters + weld the rider's rot to the mount's.
+- mountAllowed: adults only; skeleton_horse additionally requires
+  Tamed (its mobInteract returns PASS untamed).
+- `TestEquineRideTameParity` pins both lanes: Temper:0 → eject +
+  event6 + angry + 0x20 pulse + Temper5 + Tame0b; Temper:100 →
+  event7 + Tame1b + OwnerI — deterministic on both servers.
+- Fixed: the DATA_ID_FLAGS comment said idx20 — the wire (and
+  tame emit) confirmed idx18.

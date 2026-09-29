@@ -230,3 +230,87 @@ func (s *Server) equineMakeMad(e *Entity, name string) {
 		}
 	}
 }
+
+// equineMaxTemper is getMaxTemper: 100 for the horse family, 30 for
+// llamas.
+func equineMaxTemper(name string) int32 {
+	if name == "llama" || name == "trader_llama" {
+		return 30
+	}
+	return 100
+}
+
+// equineRideTameStep is RunAroundLikeCrazyGoal (priority 1, MOVE flag):
+// while an untamed equine carries a rider the goal flees between
+// random DefaultRandomPos.getPos(5,4) targets at speedModifier 1.2 and
+// rolls nextInt(reducedTickDelay(50))==0 per tick — a player rider
+// rolls nextInt(maxTemper)<temper to tame, otherwise modifyTemper(5)
+// and everyone is bucked with makeMad + the entity_event(6) smoke.
+// Non-player first passengers skip the temper arm but still eject.
+func (s *Server) equineRideTameStep(e *Entity, name string) {
+	if e.NoAI || e.Tamed || len(e.Passengers) == 0 {
+		e.FleeRidden = false
+		return
+	}
+	// ZombieHorse.isMobControlled is the family's one override:
+	// firstPassenger instanceof Mob — a mob-ridden zombie horse is
+	// controlled, so the goal's canUse fails and it never flees.
+	if name == "zombie_horse" && s.sessionByEntityID(e.Passengers[0]) == nil {
+		e.FleeRidden = false
+		return
+	}
+	e.FleeRidden = true
+	if s.rng.intn(25) != 0 {
+		return
+	}
+	pid := e.Passengers[0]
+	if rs := s.sessionByEntityID(pid); rs != nil {
+		maxT := equineMaxTemper(name)
+		if maxT > 0 && int32(s.rng.intn(int(maxT))) < e.Temper {
+			s.equineTameWithName(rs, e, name)
+			return
+		}
+		e.Temper += 5
+		if e.Temper > maxT {
+			e.Temper = maxT
+		}
+	}
+	// ejectPassengers: every rider off with stopRiding's dismount
+	// flow (player sessions) or removePassenger's 60-tick boarding
+	// cooldown (mob riders).
+	for _, pid := range append([]int32(nil), e.Passengers...) {
+		if rs := s.sessionByEntityID(pid); rs != nil {
+			s.dismount(rs)
+			continue
+		}
+		if rp, ok := s.entities.GetPtr(pid); ok {
+			rp.Riding = 0
+			rp.BoardingCooldown = 60
+			rp.PosDirty = true
+		}
+		keep := e.Passengers[:0]
+		for _, q := range e.Passengers {
+			if q != pid {
+				keep = append(keep, q)
+			}
+		}
+		e.Passengers = keep
+	}
+	e.FleeRidden = false // isVehicle() false → the goal stops this tick
+	s.broadcastSetPassengers(e)
+	s.equineMakeMad(e, name)
+	s.broadcastEntityEventTo(nil, e.Dim, e.ID, 6)
+}
+
+// equineTameWithName is AbstractHorse.tameWithName: setOwner +
+// setTamed, the TAME_ANIMAL criteria trigger, and entity_event(7)
+// hearts. No swing — it fires from the goal tick, not an interact.
+func (s *Server) equineTameWithName(rs *Session, e *Entity, name string) {
+	e.owner = rs.getName()
+	e.ownerUUID = rs.uuid
+	e.Tamed = true
+	e.MetaDirty = true // DATA_ID_FLAGS 0x02
+	e.FleeRidden = false
+	s.broadcastEntityEventTo(nil, e.Dim, e.ID, 7)
+	s.fireTamedAnimal(rs, name)
+}

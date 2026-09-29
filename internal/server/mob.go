@@ -4295,7 +4295,7 @@ var equineTypes = map[string]bool{
 	"trader_llama": true, "camel": true,
 }
 
-// equineFlagsByte packs AbstractHorse's DATA_ID_FLAGS byte (idx20):
+// equineFlagsByte packs AbstractHorse's DATA_ID_FLAGS byte (idx18):
 // 0x02 TAME | 0x08 BRED | 0x10 EATING | 0x20 STANDING | 0x40
 // OPEN_MOUTH. Standing and mouth pulse on the makeMad/feed arms and
 // clear on tick()'s counters; eating pulses on the graze roll.
@@ -5294,6 +5294,11 @@ func (s *Server) mobTickStep() {
 					e.MetaDirty = true
 				}
 			}
+			// RunAroundLikeCrazyGoal ticks in the goalSelector —
+			// isEffectiveAi gate. The step self-gates NoAI; an
+			// untamed equine with a rider flees and rolls the
+			// temper check per tick.
+			s.equineRideTameStep(e, ambName)
 		}
 		// LivingEntity.aiStep's ridden branch precedes the
 		// isEffectiveAi gate: a steerable carrying a controlling
@@ -5668,6 +5673,13 @@ func (s *Server) mobMoveStep(e *Entity, w *world.World) {
 	// tame with no goal input: residual push/walk decay only.
 	if e.SittingPose && (name == "wolf" || name == "cat" || name == "parrot") {
 		s.mobTravelStep(e, w, 0)
+		return
+	}
+	// RunAroundLikeCrazyGoal holds the MOVE flag while an untamed
+	// equine carries a rider — the flee drive replaces the land
+	// stroll for as long as the goal runs.
+	if e.FleeRidden {
+		s.equineFleeStep(e, w, name)
 		return
 	}
 	if !e.Strolling {
@@ -6352,6 +6364,61 @@ func (s *Server) fishSwimStep(e *Entity, w *world.World, name string, inWater bo
 		} else {
 			s.mobTravelStep(e, w, 0)
 		}
+		return
+	}
+	s.mobTravelStep(e, w, speed)
+}
+
+// equineFleeStep is RunAroundLikeCrazyGoal's navigation: canUse picks
+// DefaultRandomPos.getPos(mob, 5, 4) — a ±5 horizontal target — and
+// start() runs moveTo(pos, speedModifier 1.2). canContinueToUse keeps
+// it until arrival or the 160-step give-up, then canUse re-arms a new
+// target the next tick — an untamed equine with a rider never stops
+// fleeing.
+func (s *Server) equineFleeStep(e *Entity, w *world.World, name string) {
+	if e.FleeSteps == 0 {
+		e.FleeTX = e.X + strollOffset(e.ID, e.WanderTicks)/2
+		e.FleeTZ = e.Z + strollOffset(e.ID, e.WanderTicks+13)/2
+	}
+	e.FleeSteps++
+	tx, tz := e.FleeTX-e.X, e.FleeTZ-e.Z
+	dist := math.Hypot(tx, tz)
+	if dist < 0.4 || e.FleeSteps > 160 {
+		e.FleeSteps = 0
+		s.mobTravelStep(e, w, 0)
+		return
+	}
+	speed, ok := entityAttrBases[name]["movement_speed"]
+	if !ok || speed <= 0 {
+		speed = mobWalkSpeed
+	}
+	speed *= 1.2 // the goal's speedModifier
+	step := speed
+	if step > dist {
+		step = dist
+	}
+	mobTurnToward(e, tx, tz, 90)
+	e.LookYaw = e.Yaw
+	nx := e.X + tx/dist*step
+	nz := e.Z + tz/dist*step
+	nextBelow := world.Pos{
+		X: int(math.Floor(nx)),
+		Y: int(math.Floor(e.Y)) - 1,
+		Z: int(math.Floor(nz)),
+	}
+	nextSpace := world.Pos{
+		X: int(math.Floor(nx)),
+		Y: int(math.Floor(e.Y)),
+		Z: int(math.Floor(nz)),
+	}
+	spaceBlocked := false
+	if nb := w.GetBlock(nextSpace); nb != world.Air && !moveNoCollision(nb) {
+		spaceBlocked = true
+	}
+	if w.GetBlock(nextBelow) == world.Air || spaceBlocked {
+		// Ledge or obstacle — navigation gives up; canUse re-picks.
+		e.FleeSteps = 0
+		s.mobTravelStep(e, w, 0)
 		return
 	}
 	s.mobTravelStep(e, w, speed)

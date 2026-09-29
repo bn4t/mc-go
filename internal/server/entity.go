@@ -438,6 +438,14 @@ type Entity struct {
 	HorseMouth    bool
 	standCounter  int
 	mouthCounter  int
+	// FleeRidden/FleeTX/FleeTZ/FleeSteps are RunAroundLikeCrazyGoal's
+	// live state: an untamed equine carrying a rider runs random ±5
+	// targets at 1.2× movement_speed until the temper roll tames the
+	// rider or bucks it off.
+	FleeRidden bool
+	FleeTX     float64
+	FleeTZ     float64
+	FleeSteps  int32
 	// PuffState is Pufferfish's DATA_PUFF_STATE (idx17, int 0..2 read
 	// clamped to ≤2). inflateCounter/deflateTimer are the transient
 	// tick counters: the puff goal arms inflateCounter while a scary
