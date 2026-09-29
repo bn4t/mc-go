@@ -4746,6 +4746,12 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 			// the goal's target loss.
 			ep.AngryAt = killer.uuid
 			kn, _ := EntityTypeName(ep.Type)
+			if kn == "enderman" {
+				// doHurtTarget → setTarget: the provoke records
+				// targetChangeTime, suppressing the daylight flee
+				// for 600 ticks.
+				ep.EnderTargetChange = ep.TickCount
+			}
 			if neutralAngryTypes[kn] && !ep.NoAI {
 				ep.AngryUntil = s.gameTime() + 400 + rand.Int63n(381)
 			}
@@ -4901,6 +4907,7 @@ func (s *Server) mobTickStep() {
 		// discard (PatrollingMonster's removeWhenFarAway re-keys on
 		// patrolling), and the >32 idle 1-in-800 roll.
 		e.NoActionTime++
+		e.TickCount++
 		// Entity.tick's boardingCooldown countdown — a just-dismounted
 		// mob can't be scooped again until it reaches zero.
 		if e.BoardingCooldown > 0 {
@@ -5632,6 +5639,10 @@ func (s *Server) mobTickStep() {
 			} else if mobBeam[ambName] {
 				goalActed = s.mobGuardianStep(e, ambName)
 			} else if ambName == "enderman" {
+				// customServerAiStep's daylight flee runs ahead of
+				// every goal — a bright-sky roll clears the target
+				// and teleports the mob.
+				s.enderDaylightFlee(e)
 				// TakeBlockGoal/LeaveBlockGoal are ordinary goals —
 				// they never gate movement, so the carry step runs
 				// alongside the stare/melee dispatch.

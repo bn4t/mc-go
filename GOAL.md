@@ -14247,11 +14247,48 @@ no flee; unsneak → flee). Green both legs.
     stone ring — sprint 30000 + the same harness watch —
     `carryHist` (idx16 serializer-15 diff log) nonzero AND a
     block_update lands on dirt cells; both legs identical.
-  - **New gaps logged**: (1) EnderMan.customServerAiStep's
-    daylight flee — isBrightOutside && tickCount>=targetChange
-    Time+600 && magicValue>0.5 && canSeeSky && rand·30<(br-.4)·2
-    → setTarget(null)+teleport (a penned vanilla enderman
-    escaped mid-test this way); (2) ambient night teleporting —
-    vanilla's net position moved ~290 inside a penned sprint vs
-    mc-go's ~2; the randomTeleport goal cadence vs mc-go's is
-    unverified.
+  - **New gap found**: EnderMan.customServerAiStep's daylight
+    flee — isBrightOutside && tickCount>=targetChangeTime+600
+    && magicValue>0.5 && canSeeSky && rand·30<(br-.4)·2 →
+    setTarget(null)+teleport (a penned vanilla enderman escaped
+    mid-test this way). CLOSED next slice. (The "ambient night
+    teleporting" suspicion resolved itself: vanilla has no
+    ambient teleport goal — the ~290 net drift was plain
+    WaterAvoidingRandomStroll over 30000 ticks.)
+
+## Slice — enderman daylight flee: customServerAiStep bright-outside teleport (2026-09-29)
+  - **Measured** (EnderMan.java:246-256 + Level.java:385 +
+    LevelReader.java:114-117 on the 26.2 decomp):
+    `customServerAiStep` opens with the flee — `isBrightOutside`
+    (overworld: !hasFixedTime && skyDarken<4) AND tickCount >=
+    targetChangeTime+600 (targetChangeTime = tickCount at the last
+    setTarget, reset to 0 on clear → a never-targeted mob is
+    eligible once tickCount≥600), then `br = lightLevelDependent
+    MagicValue(pos) > 0.5` — `v = maxLocalRawBrightness/15`,
+    `br = v/(4−3v)` (the ambientLight lerp collapses to the curve;
+    raw brightness = max(blockLight, skyLight−skyDarken)) — plus
+    `canSeeSky` and the roll `rand·30 < (br−0.4)·2` →
+    `setTarget(null)` (clears CREEPY+STARED_AT together) +
+    `teleport()` (the ±64/±32 uniform hop). serverAiStep is gated
+    on isEffectiveAi → NoAI endermen never flee. doHurtTarget's
+    provoke also records targetChangeTime (a just-angered mob
+    can't flee for 30s).
+  - **Implemented**: `enderDaylightFlee` in enderstare.go runs
+    first in the enderman dispatch (customServerAiStep precedes
+    every goal). Entity gains `TickCount` (Entity.tickCount —
+    incremented per mob tick) and `EnderTargetChange`
+    (targetChangeTime — stamped at the stare latch and at the
+    neutral-provoke site, reset on clear/flee). isBrightOutside
+    reuses the sunBurnTick day-window convention (skylight dim +
+    dt outside 12542..23459); the magic value computes for real —
+    max(d.blockLight[pos], skyEffective(d,pos))/15 through the
+    v/(4−3v) curve; canSeeSky = cropLit (the same column-walk
+    proxy the burn check uses).
+  - **Pinned**: `TestEnderFleeParity` vs both servers — a penned
+    enderman under open sky at `time set day` flees the pen
+    inside a sprint-2000 (posNet≥8 after the 600-tick eligibility
+    + 4%/tick rolls); the same pen roofed at day or open at
+    `time set midnight` keeps it (posNet ~0). Identical results
+    both legs; TestEnderStareParity + TestEnderCarryParity rerun
+    green — the carry test's midnight pen already gate the new
+    branch off.

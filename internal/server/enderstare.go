@@ -95,6 +95,7 @@ func (s *Server) enderStareStep(e *Entity) bool {
 			t.dimName() != e.Dim {
 			e.EnderStareTarget = [16]byte{}
 			e.EnderTeleportTicks = 0
+			e.EnderTargetChange = 0
 			if e.EnderCreepy || e.EnderStared {
 				e.EnderCreepy, e.EnderStared = false, false
 				e.MetaDirty = true
@@ -142,6 +143,7 @@ func (s *Server) enderStareStep(e *Entity) bool {
 				e.EnderStareTarget = e.EnderPending
 				e.EnderPending = [16]byte{}
 				e.EnderTeleportTicks = 0
+				e.EnderTargetChange = e.TickCount
 				if !e.EnderCreepy {
 					e.EnderCreepy = true
 					e.MetaDirty = true
@@ -273,6 +275,52 @@ func (s *Server) enderTeleportTowards(e *Entity, sess *Session) bool {
 // sndEndermanTeleport is entity.enderman.teleport — id 599 in the
 // 26.2 sound registry.
 const sndEndermanTeleport = 599
+
+// enderDaylightFlee is EnderMan.customServerAiStep's bright-outside
+// branch: while isBrightOutside (a skylight dimension inside the
+// monster-burn day window) and 600+ ticks have passed since the last
+// setTarget, a lightLevelDependentMagicValue over 0.5 at the mob cell
+// plus open sky rolls rand·30 < (br−0.4)·2 → setTarget(null) +
+// teleport(). The magic value is the v/(4−3v) curve on
+// maxLocalRawBrightness/15 (the ambientLight lerp collapses to the
+// curve); skyDarken ≈ 0 inside the bright window, so the raw
+// brightness is max(blockLight, skyEffective) and cropLit stands in
+// for canSeeSky — the same approximations sunBurnTick uses.
+func (s *Server) enderDaylightFlee(e *Entity) {
+	d := s.dims[e.Dim]
+	if d == nil || !d.skylight {
+		return
+	}
+	if e.TickCount < e.EnderTargetChange+600 {
+		return
+	}
+	dt := s.dayTime() % 24000
+	if dt < 0 {
+		dt += 24000
+	}
+	if dt >= 12542 && dt <= 23459 {
+		return
+	}
+	pos := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}
+	raw := int(d.blockLight[pos])
+	if sk := skyEffective(d, pos); sk > raw {
+		raw = sk
+	}
+	v := float64(raw) / 15.0
+	br := v / (4.0 - 3.0*v)
+	if br <= 0.5 || !s.cropLit(d, pos) || rand.Float64()*30.0 >= (br-0.4)*2.0 {
+		return
+	}
+	// setTarget(null) — clears CREEPY and STARED_AT together and
+	// resets targetChangeTime.
+	if e.EnderStareTarget != [16]byte{} || e.EnderCreepy || e.EnderStared {
+		e.EnderStareTarget = [16]byte{}
+		e.EnderCreepy, e.EnderStared = false, false
+		e.MetaDirty = true
+	}
+	e.EnderTargetChange = 0
+	s.enderTeleportRandom(e)
+}
 
 // enderLiquidInBB is containsAnyLiquid's check on the teleported
 // bounding box — any cell holding water or lava fails the landing.

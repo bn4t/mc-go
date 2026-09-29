@@ -423,3 +423,109 @@ func TestEnderCarryParity(t *testing.T) {
 	check("leave emit", want.leaveEmit, got.leaveEmit)
 	check("leave placement", want.leavePlace, got.leavePlace)
 }
+
+// TestEnderFleeParity pins EnderMan.customServerAiStep's daylight
+// flee: past 600 ticks since the last target change, a skylight
+// dimension inside the monster-burn day window, light over the mob
+// cell above 0.5 and open sky above → rand·30 < (br−0.4)·2 teleports
+// the mob out. A penned enderman under open sky at day escapes; a
+// roofed pen or a midnight clock keeps it inside. posNet measures
+// the packet-driven net displacement over the concurrent sprint —
+// an escape reads ≥8 (one ±64 teleport), a penned wander stays
+// under the 3-cell pocket's drift bound.
+func TestEnderFleeParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, map[string]string{"gamemode": "survival"}, map[string]string{
+		"ops.json": opsJSONFor("BOATA", "BOATB"),
+	}, func(s *server.Server) {
+		s.GameMode = server.GameModeSurvival
+	})
+	defer targets.cleanup()
+
+	type legOut struct {
+		fledDay   bool // open pen at day — flees the pen
+		fledRoof  bool // roofed pen at day — canSeeSky fails, stays
+		fledNight bool // open pen at midnight — isBrightOutside fails
+	}
+
+	run := func(t *testing.T, addr string) (res legOut) {
+		v := joinVehPair(t, addr)
+		defer v.ca.Close()
+		defer v.cb.Close()
+		drainChunkWindow(t, "enderflee", v.ca, v.pra, v.pwa, 0)
+		sendCommand(t, v.pwa, "gamerule do_mob_spawning false")
+		sendCommand(t, v.pwa, "kill @e[type=!minecraft:player]")
+		sendCommand(t, v.pwa, "gamemode spectator BOATA")
+		sendCommand(t, v.pwa, "gamemode spectator BOATB")
+		sendCommand(t, v.pwa, "gamerule random_tick_speed 0")
+		sendCommand(t, v.pwa, "gamerule advance_time false")
+		sendCommand(t, v.pwa, "tp BOATA 20 -60 30")
+
+		seeds := map[int32][3]float64{}
+		watch := func(eid int32, window time.Duration) vehObs {
+			return vehWatch(t, v, false, eid, window, seeds)
+		}
+		summon := func(x, z int) int32 {
+			e := summonTrackedNBT(t, v.ca, v.pra, v.pwa, v.pwa,
+				"enderman", float64(x)+0.5, -60, float64(z)+0.5, "{}")
+			seeds[e] = [3]float64{float64(x) + 0.5, -60, float64(z) + 0.5}
+			return e
+		}
+		killEnders := func() {
+			sendCommand(t, v.pwa, "kill @e[type=minecraft:enderman]")
+			time.Sleep(250 * time.Millisecond)
+		}
+		// pen builds a 5x5 stone pocket around (x,z): floor at -61,
+		// walls to -57, a 3x3 air cell; roof=false leaves the top
+		// open so canSeeSky holds.
+		pen := func(x, z int, roof bool) {
+			sendCommand(t, v.pwa, fmt.Sprintf("fill %d -61 %d %d -57 %d minecraft:stone",
+				x-2, z-2, x+2, z+2))
+			sendCommand(t, v.pwa, fmt.Sprintf("fill %d -60 %d %d -58 %d minecraft:air",
+				x-1, z-1, x+1, z+1))
+			if !roof {
+				sendCommand(t, v.pwa, fmt.Sprintf("fill %d -57 %d %d -57 %d minecraft:air",
+					x-1, z-1, x+1, z+1))
+			}
+		}
+		// leg runs the eligibility window + rolls inside one sprint
+		// (TickCount≥600 gates, then a ~4%/tick roll) while a
+		// concurrent watch accumulates posNet — a teleport reads ≥8,
+		// a penned wander ≤ ~5.
+		leg := func(x, z int, roof bool, day bool) bool {
+			pen(x, z, roof)
+			eid := summon(x, z)
+			if day {
+				sendCommand(t, v.pwa, "time set day")
+			} else {
+				sendCommand(t, v.pwa, "time set midnight")
+			}
+			ch := make(chan vehObs, 1)
+			go func() { ch <- watch(eid, 25*time.Second) }()
+			sendCommand(t, v.pwa, "tick sprint 2000")
+			o := <-ch
+			killEnders()
+			return o.posNet[eid] >= 8
+		}
+
+		res.fledDay = leg(20, 20, false, true)
+		res.fledRoof = leg(20, 20, true, true)
+		res.fledNight = leg(20, 20, false, false)
+		sendCommand(t, v.pwa, "gamerule advance_time true")
+		sendCommand(t, v.pwa, "gamerule random_tick_speed 3")
+		return res
+	}
+
+	want := run(t, targets.vanilla)
+	got := run(t, targets.mcgo)
+	t.Logf("vanilla: %+v", want)
+	t.Logf("mc-go:   %+v", got)
+	if want.fledDay != got.fledDay {
+		t.Errorf("daylight flee escape: vanilla=%v mc-go=%v", want.fledDay, got.fledDay)
+	}
+	if want.fledRoof != got.fledRoof {
+		t.Errorf("roofed pen: vanilla=%v mc-go=%v", want.fledRoof, got.fledRoof)
+	}
+	if want.fledNight != got.fledNight {
+		t.Errorf("midnight pen: vanilla=%v mc-go=%v", want.fledNight, got.fledNight)
+	}
+}

@@ -569,6 +569,13 @@ type Entity struct {
 	// Optional.
 	EnderCarryName  string
 	EnderCarryProps map[string]string
+	// EnderTargetChange is vanilla's targetChangeTime: the TickCount
+	// the current target was acquired at (0 when cleared) — the
+	// daylight flee is suppressed for 600 ticks after each setTarget.
+	EnderTargetChange int32
+	// TickCount is Entity.tickCount — ticks since the mob began
+	// ticking, incremented once per mob tick.
+	TickCount int32
 	// CubeSize is the slime/magma_cube DATA_SIZE (metadata 16) —
 	// vanilla's internal getSize() (NBT Size+1); 0 means the
 	// defined default 1.
