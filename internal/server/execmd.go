@@ -1775,6 +1775,12 @@ func (s *Server) executeSummon(ctx *executeContext, player string, args []string
 	if !ok {
 		return errTokenEnd("argument.resource.not_found", tokBase, args[0], "minecraft:entity_type")
 	}
+	// The execute form always summons without NBT (initialize=true),
+	// so Mob.finalizeSpawn's variant rolls run like a bare /summon.
+	if v := rollSpawnVariant(name, strings.TrimPrefix(ctx.dim.w.Biome(), "minecraft:")); v != "" {
+		e.VariantName = v
+	}
+	e.SoundVariant = rollSoundVariant(name)
 	if !ctx.alive || sess == nil {
 		return reply{}
 	}

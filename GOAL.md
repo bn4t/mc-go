@@ -12502,3 +12502,64 @@ the goal-driven dropFlower/dropHive paths stay runtime-only.
 Still open: frog DATA_TONGUE_TARGET, cat IS_LYING/
 RELAX_STATE_ONE, wolf DATA_INTERESTED_ID, addTrustedEntity
 via taming, AngerTime→absolute conversion pin.
+## Slice — wolf BegGoal + summon roll gate + component either-codec (2026-10-01)
+
+Measured: BegGoal (javap-verified 26.2) targets the nearest
+player inside 8.0 blocks holding a bone or any wolf_food item
+(= #meat + cod, cooked_cod, salmon, cooked_salmon, tropical_fish,
+pufferfish, rabbit_stew), raises DATA_INTERESTED_ID (idx20,
+boolean) and steers LookControl at the holder while
+lookTime = adjustedTickDelay(40+rand(40)) counts down; it
+stops when the player dies/moves past 8 blocks/stops holding
+and clears flag+player. Vanilla's tick order runs sendChanges
+BEFORE the living tick — a freshly-paired mob's first
+sendChanges replays every non-default meta entry (define
+dirty flags survive the attach pack), the attr-set replay
+follows, then the first living tick's effects (the beg flag,
+movement_speed's first-travel touch) land a tracker tick
+later; e.firstTick gates both the BegGoal canUse and the
+movement_speed touch so the emit order matches byte-for-byte.
+Replay arms now exist for wolf (baby16, interested20,
+collar21, anger22, variant23, sound24), bee (flags18,
+anger19) and every holder-variant type (cat 20/23/24, frog
+18, pig 19/20, cow 18/19, chicken 18/19) — pig replay was
+previously silent on a rolled sound_variant.
+
+Measured: SummonCommand.createEntity gates the explicit
+Mob.finalizeSpawn call on its `initialize` arg — the brigadier
+lambda for the NBT-tag overload passes false, so a TAGGED
+summon never rolls variant/sound_variant (the define defaults
+stand unless the tag sets them); only the bare overload rolls.
+mc-go rolled unconditionally — fixed for both /summon and
+/execute summon (always bare → rolls). Verified live: tagged
+pigs emit the explicit sound_variant and nothing else, tagged
+wolves ditto; vanilla's bare-summon rolls are world-seeded
+deterministic (classic+classic repro'd twice) — explicit pins
+are the only portable differential there.
+
+Measured: ComponentSerialization's either-codec writes a
+literal-text component ({"text":...}) as a STRING tag of the
+JSON text on both the entity-data wire and the save map, but
+a structured component (translate/score/...) as the full
+compound — the killer-bunny auto-name renders
+{translate:"entity.minecraft.killer_bunny"} while a summoned
+'{"text":"Babe"}' stays quoted JSON. mc-go emitted a compound
+for text components on the wire AND save (breaking
+data-get/'data merge'/name revert and compound nbt= selector
+probes for programmatic names); both encode sites now split on
+componentIsLiteral. Fixes the whole pre-existing
+TestDataEntityParity failure (CustomName wire + save + merge
+loss + remove merge.failed + name-revert translate).
+
+Pinned: TestWolfBegParity (beg on bone/wolf_food within 8
+blocks → idx20 raise + look-lock; the NoAI wolf never begs;
+swap to stick clears; re-beg after re-equip) and the now-green
+TestDataEntityParity + TestVariantParity (killer-bunny
+compound probe). Green vs both.
+
+Still open: cat IS_LYING/RELAX_STATE_ONE (idx21/22), frog
+DATA_TONGUE_TARGET, addTrustedEntity via taming,
+AngerTime→absolute conversion pin (gameTime-dependent),
+world-seeded RNG parity for bare-summon rolls (variant/
+sound_variant/attr rolls — deterministic on vanilla per
+world seed; mc-go rolls from its own stream).

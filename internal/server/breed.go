@@ -20,7 +20,7 @@ var animalFood = map[string]map[string]bool{
 	"horse":     {"wheat": true, "apple": true, "golden_carrot": true, "golden_apple": true, "hay_block": true},
 	"donkey":    {"wheat": true, "apple": true, "golden_carrot": true, "golden_apple": true, "hay_block": true},
 	"llama":     {"wheat": true, "hay_block": true},
-	"wolf":      {"beef": true, "chicken": true, "mutton": true, "porkchop": true, "rabbit": true, "rotten_flesh": true, "cod": true, "salmon": true, "pufferfish": true, "tropical_fish": true},
+	"wolf":      wolfFoodNames(),
 	"cat":       {"cod": true, "salmon": true},
 	"ocelot":    {"cod": true, "salmon": true},
 	"fox":       {"sweet_berries": true, "glow_berries": true},
@@ -28,6 +28,23 @@ var animalFood = map[string]map[string]bool{
 	"turtle":    {"seagrass": true},
 	"hoglin":    {"crimson_fungus": true},
 	"strider":   {"warped_fungus": true},
+}
+
+// wolfFoodNames is the wolf_food item tag from the 26.2 jar:
+// the meat tag plus both cods, both salmons, tropical_fish,
+// pufferfish and rabbit_stew. It feeds Animal.isFood for feeding
+// and BegGoal's item predicate (which adds bone on top).
+func wolfFoodNames() map[string]bool {
+	return map[string]bool{
+		"beef": true, "chicken": true, "mutton": true,
+		"porkchop": true, "rabbit": true, "rotten_flesh": true,
+		"cooked_beef": true, "cooked_chicken": true,
+		"cooked_mutton": true, "cooked_porkchop": true,
+		"cooked_rabbit": true, "cod": true, "cooked_cod": true,
+		"salmon": true, "cooked_salmon": true,
+		"tropical_fish": true, "pufferfish": true,
+		"rabbit_stew": true,
+	}
 }
 
 // feedAnimal handles an Interact/Interact-At on a mob: when the held

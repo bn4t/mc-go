@@ -3017,25 +3017,41 @@ func gamemodeNameOf(sess *Session) string {
 	return []string{"survival", "creative", "adventure", "spectator"}[sess.gameMode]
 }
 
+// componentIsLiteral reports whether a serialized component holds
+// plain-text contents (a `text` leaf): ComponentSerialization's
+// either-codec writes those as a STRING tag of the JSON text, while
+// structured contents (translate/score/selector/keybind/nbt) write
+// the full compound.
+func componentIsLiteral(raw string) bool {
+	tag, _, err := parseSNBTTag(strings.TrimSpace(raw), 0)
+	if err != nil || tag == nil {
+		return false
+	}
+	_, ok := tag.vals["text"]
+	return ok
+}
+
 // componentNBTValue reserializes a stored component string the way
-// vanilla's component codec writes it into entity NBT: a leaf text
-// component serializes as a STRING tag holding its JSON string form
-// ("ZapPig"), while a structured component ({text:...}) writes as a
-// compound. The stored text keeps its quotes; when a summon handed in
-// bare text the canonical JSON form re-wraps it in quotes.
+// vanilla's component codec writes it into entity NBT: literal-text
+// components become a STRING tag of the raw JSON text
+// ('{"text":"Babe"}'), structured components the compound, list
+// input the list, and bare text its quoted JSON string form.
 func componentNBTValue(raw string) any {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return raw
 	}
-	if raw[0] != '{' && raw[0] != '[' {
-		if len(raw) > 1 && raw[0] == '"' && raw[len(raw)-1] == '"' {
-			return raw
+	if raw[0] == '{' && componentIsLiteral(raw) {
+		return raw
+	}
+	if raw[0] == '{' || raw[0] == '[' {
+		if tag, _, err := parseSNBTTag(raw, 0); err == nil && tag != nil {
+			return snbtToValue(tag)
 		}
-		return `"` + raw + `"`
+		return raw
 	}
-	if tag, _, err := parseSNBTTag(raw, 0); err == nil && tag != nil {
-		return snbtToValue(tag)
+	if len(raw) > 1 && raw[0] == '"' && raw[len(raw)-1] == '"' {
+		return raw
 	}
-	return raw
+	return `"` + raw + `"`
 }

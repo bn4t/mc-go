@@ -798,15 +798,19 @@ func (s *Server) runSummon(player string, args []string) reply {
 		return componentReply(commandError("entity.not_summonable", "minecraft:"+name))
 	}
 	if e, ok := s.summonMobRaw(sess.dimension(), name, x, y, z, noAI, tag == nil); ok {
-		// EntityType.spawn's variant roll runs before the custom-NBT
-		// load — measured live: even a tagged summon rolls the
-		// biome-eligible variant (highest spawn_conditions priority,
-		// uniform within the tier) and a uniform sound_variant; the
-		// explicit NBT keys below then override the rolled value.
-		if v := rollSpawnVariant(name, strings.TrimPrefix(sess.dimension().w.Biome(), "minecraft:")); v != "" {
-			e.VariantName = v
+		// The variant rolls live in Mob.finalizeSpawn, which the
+		// summon command only calls for the no-NBT overload
+		// (initialize=true): a bare summon rolls the biome-eligible
+		// variant (highest spawn_conditions priority, uniform within
+		// the tier) and a uniform sound_variant; a tagged summon
+		// keeps its define defaults unless the NBT keys below set
+		// them explicitly.
+		if tag == nil {
+			if v := rollSpawnVariant(name, strings.TrimPrefix(sess.dimension().w.Biome(), "minecraft:")); v != "" {
+				e.VariantName = v
+			}
+			e.SoundVariant = rollSoundVariant(name)
 		}
-		e.SoundVariant = rollSoundVariant(name)
 		if tag != nil {
 			// Rotation:[yaw,pitch] overrides create's random snapTo yaw.
 			if rot, ok := tag.vals["Rotation"]; ok && len(rot.items) >= 2 {
@@ -2599,6 +2603,11 @@ func (s *Server) broadcastFreshMob(e *Entity) {
 	// No separate set_entity_data: evalPair's sendEntityTo already
 	// shipped the living meta inside the attach bundle — vanilla's
 	// sendPairingData carries exactly one entity data packet.
+	// sendPairingData also flushes the instantiated attribute table at
+	// pair time (pairingAttrs inside the attach bundle). The dirty set
+	// stays latched so the next tracker tick's sendChanges replays it —
+	// vanilla emits the load-time dirty attrs a second time there —
+	// and movement_speed's first-travel touch lands the tick after.
 	e.MetaDirty = true
 	e.AttrDirty = true
 	e.PosDirty = true
@@ -2664,6 +2673,13 @@ type livingMeta struct {
 	powered    bool
 	swell      int32
 	mooVar     int32
+	interested bool
+	collar     int32
+	angerEnd   int64
+	beeFlags   byte
+	beeAnger   int64
+	hVarID     int32
+	hSoundID   int32
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2692,7 +2708,27 @@ func snapLivingMeta(e *Entity) livingMeta {
 		freezeConv: e.FreezeConv,
 		powered:    e.Powered,
 		swell:      e.SwellDir,
+		interested: e.Interested,
+		collar:     collarColorValue(e),
+		angerEnd:   angerEndSynced(e),
+		beeFlags:   beeFlagsValue(e),
+		beeAnger:   angerEndSynced(e),
+		hVarID:     holderVariantIDOf(e),
+		hSoundID:   holderSoundVariantIDOf(e),
 	}
+}
+
+// holderVariantIDOf resolves the entity's holder-variant id with the
+// type's defined default on an empty name.
+func holderVariantIDOf(e *Entity) int32 {
+	name, _ := EntityTypeName(e.Type)
+	return holderVariantID(name, e.VariantName)
+}
+
+// holderSoundVariantIDOf does the same for the sound-variant holder.
+func holderSoundVariantIDOf(e *Entity) int32 {
+	name, _ := EntityTypeName(e.Type)
+	return holderSoundVariantID(name, e.SoundVariant)
 }
 
 // ensureMetaInit seeds the dirty baseline at the defined defaults the
@@ -2711,6 +2747,17 @@ func (e *Entity) ensureMetaInit() {
 	e.metaSent.villProf = e.VillagerProfDefault
 	if n, _ := EntityTypeName(e.Type); n == "villager" {
 		e.metaSent.villProf = 0
+	}
+	// The wolf/bee baselines are the DEFINE defaults, not the resolved
+	// values: vanilla's dirty flags survive the attach pack, so the
+	// first post-pair sendChanges replays every non-default entry a
+	// second time — matching what the other fields' fixed seeds do.
+	if n, _ := EntityTypeName(e.Type); n != "" {
+		e.metaSent.collar = 14 // COLLAR default: red
+		e.metaSent.angerEnd = -1
+		e.metaSent.beeAnger = -1
+		e.metaSent.hVarID = holderVariantID(n, "")
+		e.metaSent.hSoundID = holderSoundVariantID(n, "")
 	}
 }
 
@@ -2922,6 +2969,133 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(16)
 				b.Byte(8)
 				b.Bool(e.FreezeConv)
+			}
+		case name == "wolf":
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.Baby)
+			}
+			if e.Interested != last.interested {
+				b.Byte(20)
+				b.Byte(8)
+				b.Bool(e.Interested)
+			}
+			if c := collarColorValue(e); c != last.collar {
+				b.Byte(21)
+				b.Byte(1)
+				b.VarInt(c)
+			}
+			if end := angerEndSynced(e); end != last.angerEnd {
+				b.Byte(22)
+				b.Byte(2)
+				b.VarLong(end)
+			}
+			if id := holderVariantIDOf(e); id != last.hVarID {
+				b.Byte(23)
+				b.Byte(25)
+				b.VarInt(id)
+			}
+			if id := holderSoundVariantIDOf(e); id != last.hSoundID {
+				b.Byte(24)
+				b.Byte(26)
+				b.VarInt(id)
+			}
+		case name == "bee":
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.Baby)
+			}
+			if v := beeFlagsValue(e); v != last.beeFlags {
+				b.Byte(18)
+				b.Byte(0)
+				b.Byte(v)
+			}
+			if end := angerEndSynced(e); end != last.beeAnger {
+				b.Byte(19)
+				b.Byte(2)
+				b.VarLong(end)
+			}
+		case name == "cat":
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.Baby)
+			}
+			if id := holderVariantIDOf(e); id != last.hVarID {
+				b.Byte(20)
+				b.Byte(21)
+				b.VarInt(id)
+			}
+			if c := collarColorValue(e); c != last.collar {
+				b.Byte(23)
+				b.Byte(1)
+				b.VarInt(c)
+			}
+			if id := holderSoundVariantIDOf(e); id != last.hSoundID {
+				b.Byte(24)
+				b.Byte(22)
+				b.VarInt(id)
+			}
+		case name == "frog":
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.Baby)
+			}
+			if id := holderVariantIDOf(e); id != last.hVarID {
+				b.Byte(18)
+				b.Byte(27)
+				b.VarInt(id)
+			}
+		case name == "pig":
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.Baby)
+			}
+			if id := holderVariantIDOf(e); id != last.hVarID {
+				b.Byte(19)
+				b.Byte(28)
+				b.VarInt(id)
+			}
+			if id := holderSoundVariantIDOf(e); id != last.hSoundID {
+				b.Byte(20)
+				b.Byte(29)
+				b.VarInt(id)
+			}
+		case name == "cow":
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.Baby)
+			}
+			if id := holderVariantIDOf(e); id != last.hVarID {
+				b.Byte(18)
+				b.Byte(23)
+				b.VarInt(id)
+			}
+			if id := holderSoundVariantIDOf(e); id != last.hSoundID {
+				b.Byte(19)
+				b.Byte(24)
+				b.VarInt(id)
+			}
+		case name == "chicken":
+			if e.Baby != last.baby {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.Baby)
+			}
+			if id := holderVariantIDOf(e); id != last.hVarID {
+				b.Byte(18)
+				b.Byte(30)
+				b.VarInt(id)
+			}
+			if id := holderSoundVariantIDOf(e); id != last.hSoundID {
+				b.Byte(19)
+				b.Byte(31)
+				b.VarInt(id)
 			}
 		case name == "creeper":
 			if e.Powered != last.powered {
@@ -3220,8 +3394,14 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 			}
 			// Wolf's DATA_VARIANT_ID (23, wolf_variant) and
 			// DATA_SOUND_VARIANT_ID (24, wolf_sound_variant) pack
-			// off pale/classic; DATA_INTERESTED_ID at 25 stays
-			// unpacked (runtime-only).
+			// off pale/classic.
+			// DATA_INTERESTED_ID (20, boolean): BegGoal's flag —
+			// the false default stays unpacked.
+			if e.Interested {
+				b.Byte(20)
+				b.Byte(8) // serializer: boolean
+				b.Bool(true)
+			}
 			// DATA_COLLAR_COLOR (21, int): dye legacy id — RED(14)
 			// is the defined default and stays unpacked.
 			if c := collarColorValue(e); c != 14 {
@@ -3255,14 +3435,7 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 			// Bee's DATA_FLAGS_ID (18, byte): 0x08 nectar |
 			// 0x04 stung | 0x02 rolling — the zero default
 			// stays unpacked.
-			var bflags byte
-			if e.HasNectar {
-				bflags |= 0x08
-			}
-			if e.Stung {
-				bflags |= 0x04
-			}
-			if bflags != 0 {
+			if bflags := beeFlagsValue(e); bflags != 0 {
 				b.Byte(18)
 				b.Byte(0) // type: byte
 				b.Byte(bflags)
@@ -3429,12 +3602,17 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 }
 
 // writeComponentTag writes a component's serialized form inside the
-// optional-component serializer: leaf components go out as a
-// TAG_String holding the raw text; structured components (a leading
-// `{`) serialize as the full compound tag — the same split
-// componentNBTValue applies on the save side.
+// optional-component serializer: ComponentSerialization's
+// either-codec — literal-text components go out as a TAG_String of
+// the raw JSON text, structured contents as the full compound, the
+// same split componentNBTValue applies on the save side.
 func writeComponentTag(b *protocol.Buffer, s string) {
-	if strings.HasPrefix(strings.TrimSpace(s), "{") {
+	if strings.HasPrefix(strings.TrimSpace(s), "{") && !componentIsLiteral(s) {
+		if err := nbt.WriteUnnamed(b, componentNBTValue(s)); err == nil {
+			return
+		}
+	}
+	if strings.HasPrefix(strings.TrimSpace(s), "[") {
 		if err := nbt.WriteUnnamed(b, componentNBTValue(s)); err == nil {
 			return
 		}
@@ -3543,6 +3721,20 @@ func collarColorValue(e *Entity) int32 {
 		return 14
 	}
 	return e.CollarColor
+}
+
+// beeFlagsValue is Bee's DATA_FLAGS_ID byte: 0x08 hasNectar,
+// 0x04 hasStung, 0x02 isRolling (the rolling bit stays
+// runtime-only for now).
+func beeFlagsValue(e *Entity) byte {
+	var v byte
+	if e.HasNectar {
+		v |= 0x08
+	}
+	if e.Stung {
+		v |= 0x04
+	}
+	return v
 }
 
 // angerEndSynced is the effective anger_end_time: the summon tag's
@@ -4048,7 +4240,13 @@ func (s *Server) mobTickStep() {
 		// LivingEntity.travel reads movement_speed every living tick —
 		// the lazy AttributeMap instantiates it on that first read, so
 		// the attribute joins the save pack once the mob has ticked.
-		e.markAttrTouched("movement_speed")
+		// On the spawn tick the touch is deferred: vanilla's sendChanges
+		// runs before the living tick, so a freshly-paired mob replays
+		// only its load-time dirty attrs and emits movement_speed's own
+		// update_attributes a tracker tick later.
+		if !e.firstTick {
+			e.markAttrTouched("movement_speed")
+		}
 		// Entity.baseTick's fire pass: a fire-immune entity clearFire()s
 		// instead of burning; otherwise the multiples of twenty each
 		// deal a point of on_fire damage — skipped while the entity is
@@ -4360,6 +4558,17 @@ func (s *Server) mobTickStep() {
 			if s.mobTemptStep(e, ambName) {
 				s.mobSyncFlush(e)
 				continue
+			}
+			// BegGoal (priority 9, LOOK flag): the wolf raises
+			// DATA_INTERESTED_ID and tracks the food-holder's
+			// head-yaw without navigating. The spawn-tick canUse
+			// is skipped: vanilla's sendChanges runs before the
+			// living tick, so a freshly-paired wolf's beg lands
+			// its own pack a tracker tick after the non-default
+			// replay — mc-go's end-of-tick flush defers it the
+			// same way.
+			if ambName == "wolf" && !e.firstTick {
+				s.wolfBegStep(e)
 			}
 			// FollowParentGoal (priority 4-5): babies trail the
 			// nearest same-type adult at 3-16 blocks.
@@ -5572,6 +5781,82 @@ func temptSet(names ...string) map[int32]bool {
 		}
 	}
 	return m
+}
+
+// wolfBegItems is BegGoal's playerHoldingInteresting predicate:
+// item.is(BONE) || wolf.isFood(stack) — the wolf_food tag plus
+// bone on top.
+var wolfBegItems = func() map[int32]bool {
+	m := map[int32]bool{}
+	for n := range wolfFoodNames() {
+		if id, ok := world.ItemID(n); ok {
+			m[id] = true
+		}
+	}
+	if id, ok := world.ItemID("bone"); ok {
+		m[id] = true
+	}
+	return m
+}()
+
+// wolfBegStep is BegGoal (goal priority 9, LOOK flag, constructed
+// with lookDistance 8.0): while the nearest noncombat player
+// within 8 blocks holds bone or wolf_food in either hand the wolf
+// raises DATA_INTERESTED_ID and looks at them for
+// adjustedTickDelay(40+rand(40)) ticks. canContinueToUse drops the
+// interest when the player dies, leaves range, or swaps off the
+// item — stop() clears the accessor.
+func (s *Server) wolfBegStep(e *Entity) {
+	if e.Interested {
+		p := s.sessionByEntityID(e.BegTarget)
+		if p == nil || e.BegLook <= 0 || !wolfHoldsBeg(p) || wolfBegDist2(e, p) > 64 {
+			e.Interested = false
+			e.BegTarget = 0
+			e.MetaDirty = true
+		} else {
+			e.BegLook--
+			px, _, pz, _, _, _ := p.Pos()
+			e.LookYaw = float32(math.Atan2(-(px-e.X), pz-e.Z) * 180 / math.Pi)
+			return
+		}
+	}
+	var target *Session
+	best := 64.0
+	s.sessions.Range(func(_, v any) bool {
+		p := v.(*Session)
+		if p.state.Load() != StatePlay || !p.spawned.Load() || p.dead ||
+			p.mode() == GameModeSpectator || p.dimName() != e.Dim {
+			return true
+		}
+		if !wolfHoldsBeg(p) {
+			return true
+		}
+		if d := wolfBegDist2(e, p); d < best {
+			best = d
+			target = p
+		}
+		return true
+	})
+	if target == nil {
+		return
+	}
+	e.Interested = true
+	e.BegLook = 40 + rand.Int31n(40)
+	e.BegTarget = target.entityID.Load()
+	e.MetaDirty = true
+	px, _, pz, _, _, _ := target.Pos()
+	e.LookYaw = float32(math.Atan2(-(px-e.X), pz-e.Z) * 180 / math.Pi)
+}
+
+// wolfHoldsBeg is BegGoal's playerHoldingInteresting: either hand
+// carries bone or wolf_food.
+func wolfHoldsBeg(p *Session) bool {
+	return wolfBegItems[p.heldStack().ID] || wolfBegItems[p.stackAt(slotOffhand).ID]
+}
+
+func wolfBegDist2(e *Entity, p *Session) float64 {
+	px, py, pz, _, _, _ := p.Pos()
+	return (px-e.X)*(px-e.X) + (py-e.Y)*(py-e.Y) + (pz-e.Z)*(pz-e.Z)
 }
 
 // mobTemptStep is TemptGoal (goal priority 3-4, canScare=false):

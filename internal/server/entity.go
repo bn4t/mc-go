@@ -289,6 +289,13 @@ type Entity struct {
 	BeeHivePosSet         bool
 	BeeFlowerPos          [3]int32
 	BeeFlowerPosSet       bool
+	// BegGoal (wolf): Interested is DATA_INTERESTED_ID (wire
+	// idx20) while a player within 8 blocks holds bone or
+	// wolf_food; BegLook is the lookTime countdown and
+	// BegTarget the holding player's entity id.
+	Interested bool
+	BegLook    int32
+	BegTarget  int32
 	// ExplosionPower is LargeFireball.explosionPower — the MOB
 	// explosion radius onHit (ghast shoots 1, the summon NBT
 	// ExplosionPower reads anything). Zero is treated as 1, the
