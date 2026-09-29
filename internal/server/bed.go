@@ -145,7 +145,10 @@ func (s *Server) stopSleeping(sess *Session) {
 		return
 	}
 	sess.sleeping.Store(false)
-	sess.sleepTicks.Store(0)
+	// Player.stopSleepInBed: sleepCounter = forcefulWakeUp ? 0 : 100 —
+	// the normal morning wake leaves the timer at 100 so the lying
+	// cat's stop() gift check (getSleepTimer() >= 100) still sees it.
+	sess.sleepTicks.Store(100)
 	h, _ := sess.sleepingPos.Load().(world.Pos)
 	sess.sleepingPos.Store(world.Pos{})
 	d := sess.dimension()
@@ -605,7 +608,17 @@ func (s *Server) sleepTickStep() {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
 		if sess.sleeping.Load() {
-			sess.sleepTicks.Add(1)
+			// Player.tick: sleepCounter++ capped at 100 while asleep.
+			if sess.sleepTicks.Load() < 100 {
+				sess.sleepTicks.Add(1)
+			}
+		} else if t := sess.sleepTicks.Load(); t > 0 {
+			// ...and >0 while awake it counts to 110, then zeroes.
+			if t+1 >= 110 {
+				sess.sleepTicks.Store(0)
+			} else {
+				sess.sleepTicks.Add(1)
+			}
 		}
 		return true
 	})
@@ -615,6 +628,12 @@ func (s *Server) sleepTickStep() {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
 		if sess.state.Load() != StatePlay {
+			return true
+		}
+		// Vanilla's sleep status counts only players who can sleep —
+		// spectators count as neither asleep nor awake, so a watching
+		// spectator never blocks the skip.
+		if sess.mode() == GameModeSpectator {
 			return true
 		}
 		d := sess.dimension()

@@ -12775,3 +12775,37 @@ child, second click no-op (cooldown), stick click no-op (tag gate).
 Fixed under test: allayJukeboxEvent lacked the isEffectiveAi/isPanicking
 gates on setDancing (NoAI allays danced); entity_event watcher read
 eid as VarInt — the wire is Int.
+
+## Slice — cat IS_LYING/RELAX_STATE_ONE + wake-gift (2026-10-03)
+
+Measured: Cat$CatRelaxOnOwnerGoal (priority 3, before TemptGoal) —
+canUse tamed && !orderedToSit && owner.isSleeping && dist²<100 &&
+ownerPos block is BEDS → goalPos = ownerPos.relative(facing.
+getOpposite()) (foot-side cell, NOT the head-behind). tick:
+moveTo(goalPos,1.1) every tick; dist²(owner)<2.5 → onBedTicks++;
+>16 → IS_LYING(21)+RELAX(22) off, else lookAt+RELAX on; out-of-range
+→ IS_LYING off (goal keeps running). stop() on wake/sit/occupied:
+both flags off, gift if owner.getSleepTimer()>=100 AND random <
+cat_waking_up_gift_chance (0.7 in the 23667–362 night window), gift
+pool rabbit_hide/rabbit_foot/chicken/feather/rotten_flesh/string@10 +
+phantom_membrane@2 (62). Player.stopSleepInBed leaves sleepCounter=100
+on a normal wake (forceful→0) — that's what makes the gift check
+reachable at all.
+
+Pinned: TestCatRelaxParity — 3-night differential loop: use_item_on
+the bed head → sleeping_pos query → vehWatch meta22 then meta21 on
+the cat → 5s night-skip → meta21=false + item spawn (p=.7/night).
+Both legs green.
+
+Fixed under test: stopSleeping now stores sleepTicks=100 on normal
+wake (was 0 — the gift check could never fire); sleepTicks decays
+100→110→0 while awake like vanilla's sleepCounter; catRelaxStep
+dispatched before mobTemptStep (priority 3<4); goalPos direction
+flipped to the foot cell; gift drop via spawnItemDrop so add_entity
+broadcasts (bare entities.Spawn never emitted the item on the wire).
+Harness: dataGetLineDirect now surfaces nbtpath.nothing_found
+replies — the sleeping_pos query is a binary awake/asleep probe
+immune to the command-queue reply lag that made Pos checks stale;
+per-night wait-awake before each time set (a still-sleeping click is
+an occupied no-op); pumpSleepClient/vehWatch read-deadline clears
+so polled sockets don't leak 30ms deadlines into the next helper.

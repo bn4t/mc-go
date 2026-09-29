@@ -2689,6 +2689,8 @@ type livingMeta struct {
 	suffoc     bool
 	dancing    bool
 	canDup     bool
+	catLying   bool
+	catRelax   bool
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2728,6 +2730,8 @@ func snapLivingMeta(e *Entity) livingMeta {
 		suffoc:     e.Suffocating,
 		dancing:    e.Dancing,
 		canDup:     e.DupCooldown <= 0,
+		catLying:   e.CatLying,
+		catRelax:   e.CatRelax,
 	}
 }
 
@@ -3040,6 +3044,18 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(20)
 				b.Byte(21)
 				b.VarInt(id)
+			}
+			// IS_LYING (21, boolean) / RELAX_STATE_ONE (22, boolean)
+			// — CatRelaxOnOwnerGoal's synced flags.
+			if e.CatLying != last.catLying {
+				b.Byte(21)
+				b.Byte(8)
+				b.Bool(e.CatLying)
+			}
+			if e.CatRelax != last.catRelax {
+				b.Byte(22)
+				b.Byte(8)
+				b.Bool(e.CatRelax)
 			}
 			if c := collarColorValue(e); c != last.collar {
 				b.Byte(23)
@@ -3430,6 +3446,18 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(20)
 				b.Byte(21) // serializer: cat_variant
 				b.VarInt(id)
+			}
+			// IS_LYING (21) / RELAX_STATE_ONE (22): defineSynchedData
+			// defaults false — pack only the true value.
+			if e.CatLying {
+				b.Byte(21)
+				b.Byte(8) // type: boolean
+				b.Bool(true)
+			}
+			if e.CatRelax {
+				b.Byte(22)
+				b.Byte(8) // type: boolean
+				b.Bool(true)
 			}
 			// DATA_COLLAR_COLOR (23, int): dye legacy id — the
 			// RED(14) defined default stays unpacked.
@@ -4657,6 +4685,12 @@ func (s *Server) mobTickStep() {
 			// BreedGoal (priority 2-3): animals in love walk to their
 			// mate and breed on contact.
 			if s.mobBreedStep(e, ambName) {
+				s.mobSyncFlush(e)
+				continue
+			}
+			// CatRelaxOnOwnerGoal (priority 3) — a tamed cat lying on
+			// its sleeping owner's bed outranks tempt/follow.
+			if ambName == "cat" && s.catRelaxStep(e) {
 				s.mobSyncFlush(e)
 				continue
 			}

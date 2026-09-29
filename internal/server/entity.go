@@ -443,8 +443,17 @@ type Entity struct {
 	// raid countdown — 0 on a summoned rabbit).
 	MoreCarrotTicks int32
 	// Sleeping/Sitting/Crouching are Fox's three pose bools in
-	// addAdditionalSaveData.
+	// addAdditionalSaveData. On a cat, Sitting is TamableAnimal's
+	// orderedToSit — it gates CatRelaxOnOwnerGoal.
 	Sleeping, Sitting, Crouching bool
+	// CatLying/CatRelax are the cat's IS_LYING (21) and
+	// RELAX_STATE_ONE (22) synced flags CatRelaxOnOwnerGoal writes;
+	// CatGoalPos/CatGoalSet are the goal's live bed target and
+	// CatOnBedTicks its settled-tick counter.
+	CatLying, CatRelax bool
+	CatGoalPos         world.Pos
+	CatGoalSet         bool
+	CatOnBedTicks      int32
 	// FoxTrusted is Fox's Trusted NBT list — up to two entity
 	// reference UUIDs. The summon tag accepts a single flat
 	// [I;a,b,c,d] uuid (slot 0); addAdditionalSaveData emits a

@@ -124,6 +124,7 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 		blockUps:   map[[3]int32]int{},
 	}
 	poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
+		defer c.SetReadDeadline(time.Time{})
 		_ = c.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
 		for {
 			p, err := pr.ReadPacket()
@@ -262,6 +263,10 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 		poll(v.ca, v.pra, v.pwa, !watchB)
 		poll(v.cb, v.prb, v.pwb, watchB)
 	}
+	// poll leaves the last armed deadline on the sockets; expired deadlines
+	// would kill a concurrent reader goroutine on its next read.
+	_ = v.ca.SetReadDeadline(time.Time{})
+	_ = v.cb.SetReadDeadline(time.Time{})
 	return o
 }
 
@@ -272,6 +277,7 @@ func boatEID(t *testing.T, v *vehPair, window time.Duration) int32 {
 	t.Helper()
 	found := int32(0)
 	poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
+		defer c.SetReadDeadline(time.Time{})
 		_ = c.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
 		for {
 			p, err := pr.ReadPacket()
@@ -477,6 +483,7 @@ func TestMinecartDismountParity(t *testing.T) {
 							}
 						}
 					}
+					_ = s.c.SetReadDeadline(time.Time{})
 				}
 			}
 			if eid == 0 {
@@ -571,6 +578,7 @@ func TestMinecartRollParity(t *testing.T) {
 						}
 					}
 				}
+				_ = s.c.SetReadDeadline(time.Time{})
 			}
 		}
 		if eid == 0 {
@@ -634,6 +642,7 @@ func TestMinecartRollParity(t *testing.T) {
 						}
 					}
 				}
+				_ = s.c.SetReadDeadline(time.Time{})
 			}
 		}
 		if moveN == 0 {
@@ -852,6 +861,7 @@ func dataGetFloat(t *testing.T, v *vehPair, query string) (float64, bool) {
 					}
 				}
 			}
+			_ = s.c.SetReadDeadline(time.Time{})
 		}
 		if strings.Contains(text.String(), "commands.data.entity.query") {
 			break
@@ -924,6 +934,7 @@ func dataGetReply(t *testing.T, v *vehPair, query string) string {
 					}
 				}
 			}
+			_ = s.c.SetReadDeadline(time.Time{})
 		}
 		if strings.Contains(text.String(), "commands.data.entity.query") || strings.Contains(text.String(), "nothing_found") {
 			break
@@ -1131,6 +1142,7 @@ func cartEID(t *testing.T, v *vehPair, window time.Duration) int32 {
 	t.Helper()
 	found := int32(0)
 	poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
+		defer c.SetReadDeadline(time.Time{})
 		_ = c.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
 		for {
 			p, err := pr.ReadPacket()
@@ -1366,6 +1378,7 @@ func steerableEID(t *testing.T, v *vehPair, typeName string, x, y, z float64, wi
 	end := time.Now().Add(window)
 	for time.Now().Before(end) && found == 0 {
 		poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
+			defer c.SetReadDeadline(time.Time{})
 			_ = c.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
 			for {
 				p, err := pr.ReadPacket()

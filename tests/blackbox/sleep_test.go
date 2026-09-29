@@ -18,6 +18,7 @@ import (
 // go through on vanilla: any join/teleport SyncPos must be confirmed or
 // every use_item_on is rejected as "build too high".
 func pumpSleepClient(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, d time.Duration, collect func(*protocol.Packet)) {
+	defer c.SetReadDeadline(time.Time{})
 	deadline := time.Now().Add(d)
 	for time.Now().Before(deadline) {
 		_ = c.SetReadDeadline(time.Now().Add(80 * time.Millisecond))
