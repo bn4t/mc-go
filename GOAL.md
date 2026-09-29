@@ -12583,3 +12583,37 @@ argument.entity.toomany.)
 Still open: cat IS_LYING/RELAX_STATE_ONE (idx21/22), frog
 DATA_TONGUE_TARGET, addTrustedEntity via taming, world-seeded
 RNG parity for bare-summon rolls.
+## Slice — pig DATA_BOOST_TIME + carrot_on_a_stick (2026-10-02)
+
+Measured: ItemBasedSteering.boost (javap): already-boosting →
+false; else boosting=true, boostTime=0, entityData.set(BOOST,
+random.nextInt(841)+140) — one entity-data write per boost, the
+accessor keeps its last value (re-emitted only to new trackers).
+tickBoost (inside Pig.tickRidden — ridden-only) ticks boostTime++
+until > total → boosting=false. FoodOnAStickItem.use (server):
+getControlledVehicle → ItemSteerable + isPassenger + vehicle.
+is(target) → boost(); on true hurtAndConvertOnBreak(
+consumeItemDamage, FISHING_ROD) → SUCCESS_SERVER.
+heldItemTransformedTo; every gate below boost returns PASS and
+falls through to awardStat(ITEM_USED) — the stat lands on every
+FAILED use, never on success. carrot_on_a_stick = (PIG, damage 7)
+durability 25; warped_fungus_on_a_stick = (STRIDER, 1) 100; both
+convert to fishing_rod on break. Pig metadata measured live:
+baby idx16, DATA_BOOST_TIME idx18 (ser1), variant 19, sound 20.
+
+Pinned: TestPigBoostParity mounts a saddled NoAI pig, uses
+carrot_on_a_stick[minecraft:damage=20] twice and asserts a single
+idx18 emit ∈[140,980] (the second use no-ops behind the boosting
+gate) + the break resync delivering a fresh count-1 fishing_rod
+into the held hotbar slot (vanilla resyncs via 0x12 set_content,
+mc-go via 0x14 set_slot — asserted generically). mc-go:
+useFoodOnAStick models the full gate chain (stat on fail only),
+hurtAndConvertOnBreak does the damage+transmute, and the boost
+rides the shared dirty-diff meta encoder via livingMeta.boost.
+
+Still open: cat IS_LYING/RELAX_STATE_ONE (idx21/22), frog
+DATA_TONGUE_TARGET, addTrustedEntity via taming, strider
+DATA_BOOST_TIME+DATA_SUFFOCATING (ItemBasedSteering is shared —
+the strider meta emit case doesn't exist yet), boost travel
+physics (getRiddenSpeed·0.225·boostFactor), world-seeded RNG
+parity for bare-summon rolls.

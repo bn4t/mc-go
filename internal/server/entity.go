@@ -385,6 +385,16 @@ type Entity struct {
 	// Saddle is the equipment.saddle slot on saddleable mounts
 	// (strider, pig, horse family): vanilla gates mounting on it.
 	Saddle bool
+	// BoostTimeTotal is ItemBasedSteering's synced DATA_BOOST_TIME —
+	// set once per boost to rand(841)+140 and read back as
+	// boostTimeTotal; the accessor keeps its last value after the
+	// boost ends. BoostElapsed is the server-side boostTime counter
+	// tickBoost increments until it passes the total, and Boosting
+	// is vanilla's boosting flag (a second boost call while set is
+	// a no-op).
+	BoostTimeTotal int
+	BoostElapsed   int
+	Boosting       bool
 	// Tamed is AbstractHorse's tamed flag (NBT Tame) — a tamed mount's
 	// sneak-interact opens the mount inventory screen.
 	Tamed bool

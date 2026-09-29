@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"math/rand"
 	"strings"
 
 	"mc-go/internal/protocol"
@@ -670,36 +671,119 @@ func (s *Server) rideMoveStats(sess *Session, veh *Entity, dx, dy, dz float64) {
 	sess.addCustomStat(stat, cm)
 }
 
+// foodOnAStickType maps each stick item to the steerable entity it
+// boosts — FoodOnAStickItem's canInteractWith ctor arg (PIG for
+// carrot, STRIDER for warped fungus) — plus its consumeItemDamage,
+// the durability the successful boost spends.
+var foodOnAStickType = map[string]struct {
+	vehicle string
+	damage  int32
+}{
+	"carrot_on_a_stick":        {"pig", 7},
+	"warped_fungus_on_a_stick": {"strider", 1},
+}
+
 // useFoodOnAStick is FoodOnAStickItem.use: while the packet's hand
 // holds a *_on_a_stick and the player controls a saddled steerable
-// (strider or pig — vanilla's getControlledVehicle means the first
-// passenger), the stick takes 1 durability of wear and the vehicle
-// boosts (boost travel itself is not modeled).
+// of the stick's own type (vanilla's getControlledVehicle means the
+// first passenger), steerable.boost() rolls DATA_BOOST_TIME to
+// rand(841)+140 and the stick takes consumeItemDamage wear,
+// transmuting into a fresh fishing_rod when it would break. A use
+// that fails any gate falls through to awardStat(ITEM_USED) + PASS —
+// the stat is vanilla's own end-of-use award, which the SUCCESS path
+// returns before.
 func (s *Server) useFoodOnAStick(sess *Session, hand int32) {
+	st, slot := sess.stackForHand(hand)
+	// pass returns like vanilla's fall-through: ITEM_USED lands,
+	// the result is PASS.
+	pass := func() {
+		sess.addItemStat(statUsed, st.ID, 1)
+	}
 	vid := sess.riding.Load()
 	if vid == 0 {
+		pass()
+		return
+	}
+	name, ok := itemNameOf(st.ID)
+	if !ok {
+		pass()
+		return
+	}
+	stick, ok := foodOnAStickType[name]
+	if !ok {
+		pass()
 		return
 	}
 	s.entities.mu.RLock()
 	veh, ok := s.entities.byID[vid]
 	s.entities.mu.RUnlock()
 	if !ok || veh.Dying || !veh.Saddle {
+		pass()
 		return
 	}
-	name, ok := EntityTypeName(veh.Type)
-	if !ok || (name != "strider" && name != "pig") {
+	vehName, ok := EntityTypeName(veh.Type)
+	if !ok || vehName != stick.vehicle {
+		pass()
 		return
 	}
-	// Only the controlling passenger's use damages the stick —
+	// Only the controlling passenger's use boosts —
 	// Strider.getControllingPassenger is the first rider.
 	if len(veh.Passengers) == 0 || veh.Passengers[0] != sess.entityID.Load() {
+		pass()
 		return
 	}
-	slot := invSlotForHotbar(sess.held.Load())
-	if hand == 1 {
-		slot = slotOffhand
+	if veh.Boosting {
+		pass()
+		return
 	}
-	s.wearSlot(sess, slot, 1)
+	veh.Boosting = true
+	veh.BoostElapsed = 0
+	veh.BoostTimeTotal = 140 + rand.Intn(841)
+	veh.MetaDirty = true
+	s.hurtAndConvertOnBreak(sess, slot, stick.damage, "fishing_rod", hand)
+}
+
+// hurtAndConvertOnBreak is ItemStack.hurtAndConvertOnBreak: the stack
+// wears like hurtAndBreak; when the wear empties it, the slot
+// transmutes into a fresh count-1 stack of convertName instead of
+// going empty — the food-on-a-stick boost's rod conversion.
+func (s *Server) hurtAndConvertOnBreak(sess *Session, slot int16, damage int32, convertName string, hand int32) {
+	if damage <= 0 || sess.mode() == GameModeCreative {
+		return
+	}
+	sess.invMu.Lock()
+	it := sess.inv[slot]
+	name, ok := world.ItemName(it.ID)
+	maxDmg, dmgOK := damageableItems[name]
+	if !ok || !dmgOK {
+		sess.invMu.Unlock()
+		return
+	}
+	it.Damage += unbreakingReduce(it, name, damage)
+	var broke bool
+	if it.Damage >= maxDmg {
+		cid, _ := world.ItemID(convertName)
+		sess.inv[slot] = ItemStack{ID: cid, Count: 1}
+		broke = true
+	} else {
+		sess.inv[slot] = it
+	}
+	cur := sess.inv[slot]
+	sess.invState.Add(1)
+	sess.invMu.Unlock()
+	s.fireItemDurabilityChanged(sess, it)
+	if broke {
+		ev := byte(entityEventBreakMainhand)
+		if hand == 1 {
+			ev = 48
+		}
+		s.broadcastEntityEvent(sess.entityID.Load(), ev)
+		sess.addItemStat(statBroken, it.ID, 1)
+	}
+	_ = s.sendContainerSlot(sess, slot, cur)
+	if broke {
+		s.fireInventoryChanged(sess)
+	}
 }
 
 // isVehicleEntityName covers every VehicleEntity type — the
@@ -799,6 +883,16 @@ func (s *Server) vehicleTickStep() {
 		if name, ok := EntityTypeName(ep.Type); ok && isBoatEntityName(name) {
 			if d := s.dimensionByName(ep.Dim); d != nil {
 				ep.Grounded = boatGroundedAt(d.w, ep)
+			}
+		}
+		// ItemBasedSteering.tickBoost rides Pig.tickRidden: while a
+		// passenger is aboard, boostTime counts up to the synced
+		// total and then clears the boosting flag. The accessor's
+		// last value stays put — nothing re-emits.
+		if ep.Boosting && len(ep.Passengers) > 0 {
+			ep.BoostElapsed++
+			if ep.BoostElapsed > ep.BoostTimeTotal {
+				ep.Boosting = false
 			}
 		}
 		if ep.VehHurtTime <= 0 && ep.VehDamage <= 0 {

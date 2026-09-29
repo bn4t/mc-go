@@ -2680,6 +2680,7 @@ type livingMeta struct {
 	beeAnger   int64
 	hVarID     int32
 	hSoundID   int32
+	boost      int32
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2715,6 +2716,7 @@ func snapLivingMeta(e *Entity) livingMeta {
 		beeAnger:   angerEndSynced(e),
 		hVarID:     holderVariantIDOf(e),
 		hSoundID:   holderSoundVariantIDOf(e),
+		boost:      int32(e.BoostTimeTotal),
 	}
 }
 
@@ -3054,6 +3056,13 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(16)
 				b.Byte(8)
 				b.Bool(e.Baby)
+			}
+			// DATA_BOOST_TIME (18, int): the steering boost's rolled
+			// total — set once per boost, never reset.
+			if int32(e.BoostTimeTotal) != last.boost {
+				b.Byte(18)
+				b.Byte(1)
+				b.VarInt(int32(e.BoostTimeTotal))
 			}
 			if id := holderVariantIDOf(e); id != last.hVarID {
 				b.Byte(19)
@@ -3453,8 +3462,16 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(8)
 				b.Bool(true)
 			}
+			// DATA_BOOST_TIME (18, int): ItemBasedSteering's boost
+			// total — 0 while never boosted, then the last rolled
+			// total (it is never reset to 0 on the wire).
+			if e.BoostTimeTotal != 0 {
+				b.Byte(18)
+				b.Byte(1) // serializer: int
+				b.VarInt(int32(e.BoostTimeTotal))
+			}
 			// Pig's DATA_VARIANT_ID (19) and DATA_SOUND_VARIANT_ID
-			// (20); DATA_BOOST_TIME at 18 stays unpacked.
+			// (20).
 			if id := holderVariantID("pig", e.VariantName); id != 1 {
 				b.Byte(19)
 				b.Byte(28) // serializer: pig_variant
