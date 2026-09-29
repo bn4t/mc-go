@@ -107,6 +107,8 @@ type vehObs struct {
 	motVec     map[int32][][3]float64 // set_entity_motion velocity triples by eid
 	lastPos    map[int32][3]float64   // tracked entity position base
 	posNet     map[int32]float64      // net |dx|+|dz| traveled (pos packets + teleports)
+	posTrail   map[int32][][2]float64 // every move-delta sample (dx,dz) per eid
+	posTicks   map[int32]int          // move_entity_pos packet count per eid
 	uuidMeta   map[[2]int32][16]byte  // serializer-13 present-uuid entries by {eid,index}
 	hookMeta   map[int32]int32        // unscoped: eid → last nonzero idx8 int metadata
 	hookHist   []string               // ordered idx8 emits as "eid:v" (spans the window)
@@ -154,6 +156,8 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 		motVec:     map[int32][][3]float64{},
 		lastPos:    map[int32][3]float64{},
 		posNet:     map[int32]float64{},
+		posTrail:   map[int32][][2]float64{},
+		posTicks:   map[int32]int{},
 		uuidMeta:   map[[2]int32][16]byte{},
 		hookMeta:   map[int32]int32{},
 		addVel:     map[int32][3]float64{},
@@ -320,6 +324,8 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					lp[2] += float64(dz) / 4096
 					o.lastPos[peid] = lp
 					o.posNet[peid] += math.Hypot(float64(dx)/4096, float64(dz)/4096)
+					o.posTrail[peid] = append(o.posTrail[peid], [2]float64{float64(dx) / 4096, float64(dz) / 4096})
+					o.posTicks[peid]++
 				case 125: // teleport_entity — VarInt eid + absolute doubles
 					r := protocol.NewPacketReader(p.Data)
 					peid, _ := r.VarInt()
@@ -331,6 +337,8 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					tz, _ := r.Double()
 					lp := o.lastPos[peid]
 					o.posNet[peid] += math.Hypot(tx-lp[0], tz-lp[2])
+					o.posTrail[peid] = append(o.posTrail[peid], [2]float64{tx - lp[0], tz - lp[2]})
+					o.posTicks[peid]++
 					o.lastPos[peid] = [3]float64{tx, ty, tz}
 				case 35: // entity_position_sync — player-relative, mark moved only
 					r := protocol.NewPacketReader(p.Data)

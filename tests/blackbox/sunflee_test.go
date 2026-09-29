@@ -49,7 +49,7 @@ func TestMobSunFleeParity(t *testing.T) {
 			sendCommand(t, pw, "time set 1000")
 			sendCommand(t, pw, fmt.Sprintf("summon minecraft:%s ~ ~ ~ %s", typ, nbt))
 			fleePump(t, c, pr, pw, obs, 10*time.Second)
-			pos := fleePos(t, c, pr, pw, obs, "@e[type=minecraft:"+typ+",limit=1]")
+			pos := fleePos(t, c, pr, pw, obs, "sunflee", "@e[type=minecraft:"+typ+",limit=1]")
 			out = append(out, fmt.Sprintf("%s east=%v", name, pos[0] >= 5))
 			sendCommand(t, pw, fmt.Sprintf("kill @e[type=minecraft:%s]", typ))
 			fleePump(t, c, pr, pw, obs, 400*time.Millisecond)

@@ -4673,28 +4673,22 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 		return d, res.Graced, true
 	}
 	// PanicGoal.shouldPanic: a panic-capable mob whose last damage
-	// source is in PANIC_CAUSES finds a DefaultRandomPos target (±5
-	// horizontal, ±4 vertical) and sprints at speedModifier×speed until
-	// the navigation is done. NoAI never runs the goal selector, so it
-	// never panics. The target is biased away from the attacker when
-	// the source entity is known, else a per-entity direction.
+	// source is in PANIC_CAUSES arms the goal for the whole 40-tick
+	// getLastDamageSource window (LivingEntity.java:1430 clears the
+	// source once the stamp ages past 40). NoAI never runs the goal
+	// selector, so it never panics. Each goal fire — and every re-fire
+	// after a run ends inside the window — rolls a fresh
+	// DefaultRandomPos target; a running goal is NOT retargeted by
+	// further damage, the window only extends.
 	if d > 0 && panicCauseTypes[typeName] {
 		if kn, _ := EntityTypeName(e.Type); mobPanicSpeed[kn] > 0 {
 			if ep, ok := s.entities.GetPtr(e.ID); ok && !ep.NoAI {
-				var dir float64
-				if killer != nil {
-					kx, _, kz, _, _, _ := killer.Pos()
-					dir = math.Atan2(ep.Z-kz, ep.X-kx)
-				} else {
-					dir = float64((uint32(ep.ID)*2654435761>>16)%360) * math.Pi / 180
+				ep.PanicUntil = s.gameTime() + 40
+				if !ep.PanicActive {
+					s.panicRollTarget(ep)
+					ep.PanicSteps = 0
+					ep.Strolling = false
 				}
-				jit := float64(int64((uint64(uint32(ep.ID))*1103515245^uint64(s.gameTime()))>>16)%91-45) * math.Pi / 180
-				r := 3.5 + float64((uint32(ep.ID)*22695477>>16)%30)/10
-				ep.PanicTX = ep.X + math.Cos(dir+jit)*r
-				ep.PanicTZ = ep.Z + math.Sin(dir+jit)*r
-				ep.PanicActive = true
-				ep.PanicSteps = 0
-				ep.Strolling = false
 			}
 		}
 	}
@@ -5903,12 +5897,16 @@ func (s *Server) mobTravelStepPair(e *Entity, w *world.World, speed, zIn, xIn fl
 		wDepth, inWater, _, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, bounds[0]/2, bounds[1], fluidWater)
 		if inWater && wDepth > 0 {
 			e.FallDist = 0
-			e.WalkZZA *= 0.98
-			e.WalkXXA *= 0.98
 			if speed > 0 {
 				e.WalkSpeed = speed
 				e.WalkZZA = zIn
 				e.WalkXXA = xIn
+			} else {
+				// MoveControl's WAIT op zeroes the input pair and the
+				// speed field every tick — no residue keeps pumping.
+				e.WalkSpeed = 0
+				e.WalkZZA = 0
+				e.WalkXXA = 0
 			}
 			zx, xx := e.WalkZZA, e.WalkXXA
 			if l := math.Hypot(zx, xx); l > 1 {
@@ -5947,12 +5945,14 @@ func (s *Server) mobTravelStepPair(e *Entity, w *world.World, speed, zIn, xIn fl
 		// — four times water's d/16 — and jumpOutOfFluid(y0) tails it.
 		lDepth, inLava, _, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, bounds[0]/2, bounds[1], fluidLava)
 		if inLava && lDepth > 0 {
-			e.WalkZZA *= 0.98
-			e.WalkXXA *= 0.98
 			if speed > 0 {
 				e.WalkSpeed = speed
 				e.WalkZZA = zIn
 				e.WalkXXA = xIn
+			} else {
+				e.WalkSpeed = 0
+				e.WalkZZA = 0
+				e.WalkXXA = 0
 			}
 			zx, xx := e.WalkZZA, e.WalkXXA
 			if l := math.Hypot(zx, xx); l > 1 {
@@ -5997,18 +5997,18 @@ func (s *Server) mobTravelStepPair(e *Entity, w *world.World, speed, zIn, xIn fl
 	// block's friction (capped by computeModifiedFriction, identity at
 	// friction_modifier 1.0); airborne legs slide on 1.0 and drive at
 	// getFlyingSpeed — a mob's 0.02, not the attribute.
-	// applyInput decays the walk drive ×0.98 each tick, and a running
-	// MOVE_TO re-issues setSpeed → setZza every tick — so the input is
-	// zza·f where zza is the goal's speed while a goal drives and the
-	// decayed residue once it stops. f rides the speed field, which
-	// likewise persists at the last drive until a stopInPlace zeroes
-	// it — idle ticks keep driving the decaying residue.
-	e.WalkZZA *= 0.98
-	e.WalkXXA *= 0.98
+	// applyInput decays the walk drive ×0.98 each tick only while a
+	// goal is driving: MoveControl.tick with operation=WAIT (no move
+	// goal ran) zeroes zza/xxa/speed outright — the residue decays
+	// instantly and the slide is pure friction, not pumped motion.
 	if speed > 0 {
 		e.WalkSpeed = speed
 		e.WalkZZA = zIn
 		e.WalkXXA = xIn
+	} else {
+		e.WalkSpeed = 0
+		e.WalkZZA = 0
+		e.WalkXXA = 0
 	}
 	f3 := 1.0
 	f := 0.02
@@ -7054,26 +7054,138 @@ var mobMonsterType = map[string]bool{
 	"wolf": true,
 }
 
+// panicMalusCells are the getPathTypeStatic results whose
+// pathfindingMalus is non-zero for a walking mob — water and lava
+// cells, fire, powder snow and the damage blocks (cactus, sweet
+// berries, magma-adjacent). Panic target candidates landing on one
+// are rejected like vanilla's hasMalus check.
+var panicMalusCells = map[string]bool{
+	"water": true, "lava": true, "fire": true, "soul_fire": true,
+	"powder_snow": true, "cactus": true, "sweet_berry_bush": true,
+	"magma_block": true, "campfire": true, "soul_campfire": true,
+}
+
+// panicRollTarget is PanicGoal.canUse's target pick. A burning mob
+// takes the closest water cell within ±5/±1 first
+// (PanicGoal.lookForWater); everyone else runs
+// DefaultRandomPos.getPos(mob, 5, 4): ten attempts of a uniform
+// random cell offset (x/z ∈ [-5,5], y ∈ [-4,4]), each candidate kept
+// when the cell is passable and malus-free (getPathTypeStatic) and
+// the block below is solid-render (isStableDestination). All
+// candidates tie on getWalkTargetValue for the panicking set, so the
+// first accepted attempt wins.
+func (s *Server) panicRollTarget(e *Entity) {
+	w := s.dimWorld(e.Dim)
+	bx, by, bz := int(math.Floor(e.X)), int(math.Floor(e.Y)), int(math.Floor(e.Z))
+	cell := func(x, y, z int) (world.Block, string) {
+		b := w.GetBlock(world.Pos{X: x, Y: y, Z: z})
+		n, _ := world.StateOwner(b)
+		return b, n
+	}
+	e.PanicActive = false
+	// PanicGoal.canUse's water branch: isOnFire and the mob's own cell
+	// is collision-free — scan for the closest water fluid cell.
+	if e.FireTicks > 0 {
+		best := -1
+		var wx, wy, wz int
+		bd := float64(1e18)
+		for dx := -5; dx <= 5 && best == -1; dx++ {
+			for dz := -5; dz <= 5; dz++ {
+				for dy := -1; dy <= 1; dy++ {
+					cx, cy, cz := bx+dx, by+dy, bz+dz
+					b, _ := cell(cx, cy, cz)
+					if k, _, ok := fluidOf(b); !ok || k != fluidWater {
+						continue
+					}
+					d := float64(dx*dx + dz*dz + dy*dy)
+					if d < bd {
+						bd, wx, wy, wz = d, cx, cy, cz
+						best = 0
+					}
+				}
+			}
+		}
+		if best == 0 {
+			e.PanicTX, e.PanicTZ = float64(wx)+0.5, float64(wz)+0.5
+			_ = wy
+			e.PanicActive = true
+			e.PanicSteps, e.PanicStill = 0, 0
+			e.PanicBest = math.Hypot(e.PanicTX-e.X, e.PanicTZ-e.Z)
+			return
+		}
+	}
+	now := s.gameTime()
+	for i := 0; i < 10; i++ {
+		h := uint64(uint32(e.ID))*2654435761 ^ uint64(now)*1099511628211 ^
+			uint64(i)*40503 ^ uint64(e.PanicSteps)*97531
+		ox := int(h%11) - 5
+		h >>= 8
+		oy := int(h%9) - 4
+		h >>= 6
+		oz := int(h%11) - 5
+		cx, cy, cz := bx+ox, by+oy, bz+oz
+		if cy < -64 || cy >= 320 {
+			continue // isOutsideLimits
+		}
+		b, n := cell(cx, cy, cz)
+		if !world.NonSolid(b) || panicMalusCells[n] {
+			continue // BLOCKED or malus path type
+		}
+		if below, bn := cell(cx, cy-1, cz); world.NonSolid(below) || panicMalusCells[bn] {
+			continue // !isStableDestination — needs solid-render below
+		}
+		e.PanicTX, e.PanicTZ = float64(cx)+0.5, float64(cz)+0.5
+		e.PanicActive = true
+		e.PanicSteps, e.PanicStill = 0, 0
+		e.PanicBest = math.Hypot(e.PanicTX-e.X, e.PanicTZ-e.Z)
+		return
+	}
+	// All ten attempts rejected: the goal can't start this tick —
+	// vanilla's canUse just returns false and re-rolls next tick.
+}
+
 // mobPanicStep is PanicGoal (goal priority 1): while armed it walks
 // the mob to its DefaultRandomPos target at speedModifier ×
 // movement_speed, mirroring the stroll's motion write so the tracked
-// delta ships on the wire — and ends on arrival (~0.5) or a 60-tick
-// stall, the same isDone semantics vanilla's navigation reports.
+// delta ships on the wire. The run ends on arrival (~0.5), ten ticks
+// without closing progress (the exhausted-partial-path stand-in), or
+// the 60-tick cap; while the 40-tick damage-source window is still
+// live the goal immediately re-fires with a fresh random target,
+// otherwise it stops for good.
 func (s *Server) mobPanicStep(e *Entity, name string) bool {
-	if !e.PanicActive {
-		return false
-	}
 	mod, ok := mobPanicSpeed[name]
 	if !ok {
 		e.PanicActive = false
 		return false
 	}
+	if !e.PanicActive {
+		// Between runs inside the window: re-roll now.
+		if e.PanicUntil > s.gameTime() {
+			s.panicRollTarget(e)
+		}
+		if !e.PanicActive {
+			return false
+		}
+	}
 	tx, tz := e.PanicTX-e.X, e.PanicTZ-e.Z
 	dist := math.Hypot(tx, tz)
 	e.PanicSteps++
-	if dist < 0.5 || e.PanicSteps > 60 {
-		e.PanicActive = false
-		s.mobTravelStep(e, s.dimWorld(e.Dim), 0)
+	if dist < e.PanicBest-0.05 {
+		e.PanicBest = dist
+		e.PanicStill = 0
+	} else {
+		e.PanicStill++
+	}
+	if dist < 0.5 || e.PanicStill >= 10 || e.PanicSteps > 60 {
+		if e.PanicUntil > s.gameTime() {
+			s.panicRollTarget(e)
+		} else {
+			e.PanicActive = false
+			e.PanicUntil = 0
+		}
+		if !e.PanicActive {
+			s.mobTravelStep(e, s.dimWorld(e.Dim), 0)
+		}
 		return true
 	}
 	speed, ok := entityAttrBases[name]["movement_speed"]

@@ -91,7 +91,7 @@ func TestCreeperSwellParity(t *testing.T) {
 		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
 		sendCommand(t, pw, "time set 6000")
 		fleePump(t, c, pr, pw, obs, 800*time.Millisecond)
-		pp := fleePos(t, c, pr, pw, obs, "P")
+		pp := fleePos(t, c, pr, pw, obs, "swell", "P")
 
 		// Leg A: creeper summoned 6 out chases in, freezes at the
 		// ~3-block arm point while the fuse burns, then detonates.
@@ -121,7 +121,7 @@ func TestCreeperSwellParity(t *testing.T) {
 		// Leg B: a swelling creeper defuses when the target escapes
 		// beyond 7 — teleport out mid-fuse, the creeper survives and
 		// resumes the chase without ever detonating.
-		pp = fleePos(t, c, pr, pw, obs, "P")
+		pp = fleePos(t, c, pr, pw, obs, "swell", "P")
 		sendCommand(t, pw, fmt.Sprintf("summon minecraft:creeper %.1f %.1f %.1f", pp[0]+2.5, pp[1], pp[2]))
 		fleePump(t, c, pr, pw, obs, 900*time.Millisecond)
 		sendCommand(t, pw, fmt.Sprintf("tp P %.1f %.1f %.1f", pp[0]+18, pp[1], pp[2]))

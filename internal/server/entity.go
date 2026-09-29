@@ -835,13 +835,21 @@ type Entity struct {
 	WalkXXA float64
 	// PanicActive + PanicTX/TZ model PanicGoal (priority 1): a
 	// panic-capable mob whose last damage type is in PANIC_CAUSES runs
-	// to a DefaultRandomPos target within ±5 on x/z at
+	// to a DefaultRandomPos target — a RANDOM cell within ±5 on x/z
+	// and ±4 on y (not away-from-attacker) — at
 	// speedModifier × movement_speed until the navigation finishes.
-	// PanicSteps is the stall cap standing in for an unreachable path.
+	// PanicUntil is getLastDamageSource's 40-tick stamp window: while
+	// it's live the goal re-fires after every finished run with a
+	// fresh random target. PanicSteps caps a run, PanicBest/PanicStill
+	// are the no-progress detector standing in for an exhausted
+	// partial path.
 	PanicActive bool
 	PanicTX     float64
 	PanicTZ     float64
 	PanicSteps  int32
+	PanicUntil  int64
+	PanicBest   float64
+	PanicStill  int32
 	// TemptActive/TemptTarget model TemptGoal: an animal whose
 	// tempting item is in a nearby player's hand walks to the holder
 	// at speedModifier × movement_speed and stops at 2.5 blocks;

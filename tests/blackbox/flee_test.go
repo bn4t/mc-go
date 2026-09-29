@@ -5,7 +5,11 @@ package blackbox
 // skeleton↔wolf at 6 blocks, rabbit↔player at 8 — and the goal keeps
 // running past the trigger band toward a ~16-block escape point, so
 // separations overshoot. The feared entities are NoAI-anchored so a
-// wolf can't chase its own flee test.
+// wolf can't chase its own flee test. The mob pairs run ~100 blocks
+// out in absolute coords: vanilla's escape target is a random cell in
+// the away half-space while mc-go drives the direct away vector — a
+// feared mob on the far side can send the direct path through the
+// player, where the creeper legitimately swells and detonates.
 import (
 	"fmt"
 	"net"
@@ -57,7 +61,7 @@ var posNum = regexp.MustCompile(`-?[0-9]+\.?[0-9]*(?:[eE][-+]?[0-9]+)?d`)
 
 // fleePos queries `data get entity @e[type=...,limit=1] Pos` (or the
 // named player) and parses the coordinate list out of the reply.
-func fleePos(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writer, obs *fleeObs, sel string) [3]float64 {
+func fleePos(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writer, obs *fleeObs, leg, sel string) [3]float64 {
 	t.Helper()
 	sendCommand(t, pw, "data get entity "+sel+" Pos")
 	base := len(obs.chats)
@@ -76,7 +80,7 @@ func fleePos(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writer,
 			return out
 		}
 	}
-	t.Fatalf("no Pos reply for %s; chats=%v", sel, obs.chats)
+	t.Fatalf("%s: no Pos reply for %s; chats=%v", leg, sel, obs.chats)
 	return [3]float64{}
 }
 
@@ -85,7 +89,7 @@ func TestMobFleeParity(t *testing.T) {
 		map[string]string{"ops.json": opsJSONFor("P")}, nil)
 	defer targets.cleanup()
 
-	run := func(addr string) []string {
+	run := func(legName, addr string) []string {
 		var out []string
 		c, pr, pw := joinPlayBlackbox(t, addr, "P")
 		_ = c.SetDeadline(time.Now().Add(240 * time.Second))
@@ -102,8 +106,8 @@ func TestMobFleeParity(t *testing.T) {
 				sendCommand(t, pw, cmd)
 			}
 			fleePump(t, c, pr, pw, obs, 6*time.Second)
-			a := fleePos(t, c, pr, pw, obs, aSel)
-			b := fleePos(t, c, pr, pw, obs, bSel)
+			a := fleePos(t, c, pr, pw, obs, legName, aSel)
+			b := fleePos(t, c, pr, pw, obs, legName, bSel)
 			dx, dy, dz := a[0]-b[0], a[1]-b[1], a[2]-b[2]
 			dist := dx*dx + dy*dy*0.25 + dz*dz
 			out = append(out, fmt.Sprintf("%s sep>%.0f=%v", name, want, dist > want*want))
@@ -112,10 +116,10 @@ func TestMobFleeParity(t *testing.T) {
 		}
 
 		leg("creeper_cat",
-			"summon minecraft:creeper ~15 ~ ~|summon minecraft:cat ~17 ~ ~ {NoAI:1b}",
+			"summon minecraft:creeper 100.5 -60 0.5|summon minecraft:cat 98.5 -60 0.5 {NoAI:1b}",
 			"@e[type=minecraft:creeper,limit=1]", "@e[type=minecraft:cat,limit=1]", 6)
 		leg("skeleton_wolf",
-			"summon minecraft:skeleton ~15 ~ ~|summon minecraft:wolf ~17 ~ ~ {NoAI:1b}",
+			"summon minecraft:skeleton 100.5 -60 0.5|summon minecraft:wolf 98.5 -60 0.5 {NoAI:1b}",
 			"@e[type=minecraft:skeleton,limit=1]", "@e[type=minecraft:wolf,limit=1]", 6)
 		leg("rabbit_player",
 			"summon minecraft:rabbit ~5 ~ ~",
@@ -124,8 +128,8 @@ func TestMobFleeParity(t *testing.T) {
 		return out
 	}
 
-	van := run(targets.vanilla)
-	mc := run(targets.mcgo)
+	van := run("vanilla", targets.vanilla)
+	mc := run("mc-go", targets.mcgo)
 	for i := range van {
 		t.Logf("leg %d vanilla: %s", i, van[i])
 		t.Logf("leg %d mc-go:   %s", i, mc[i])

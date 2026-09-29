@@ -13745,3 +13745,56 @@ children ∈[2,4] all on the ±0.52 xz / +0.5y grid, wave-2 adds
 ∈[2·n,4·n] (NoAI children still collide-push each other off their
 cells, so only the count is pinned), wave-3 adds == 0 (the size-1
 gate) — green 3/3 on both.
+
+## Slice — panic flee: PanicGoal window + random targets + MoveControl WAIT zeroing (2026-09-29)
+
+PanicGoal measured off the 26.2 decompile: `shouldPanic()` = the mob's
+last damage source is non-null and in the `panic_causing_damage_types`
+tag (PANIC_CAUSES default), and `getLastDamageSource()` returns null
+once `gameTime - lastDamageStamp > 40` — so every panic-causing hit
+re-arms the goal for exactly ~40 ticks. The target is NOT
+away-from-attacker: burning mobs `lookForWater` (closest water fluid
+cell ±5xz/±1y, only when the mob's own cell has an empty collision
+shape), everyone else runs `DefaultRandomPos.getPos(mob, 5, 4)` — ten
+attempts of a uniform random offset (xz ∈ [-5,5], y ∈ [-4,4]), each
+candidate filtered by build height, restriction, and `hasMalus` —
+`getPathTypeStatic` + `isStableDestination` (block below must be
+solid-render; glass and slabs fail; water/lava/fire/powder_snow/damage
+cells reject for walkers). `canContinueToUse` = `!navigation.isDone()`
+— a run ends when the target lands or the path exhausts, then the live
+window re-fires a fresh random roll.
+
+mc-go now matches: a panic-causing hit sets `PanicUntil =
+gameTime+40`; `panicRollTarget` runs the fire→water branch then the
+10-attempt filtered random pick (malus cells: water, lava, fire,
+soul_fire, powder_snow, cactus, sweet_berry_bush, magma_block,
+campfire, soul_campfire); `mobPanicStep` re-rolls while the window is
+live and ends a run on arrival (dist<0.5), no-progress (PanicStill≥10
+— the exhausted-partial-path stand-in), or a 60-step cap.
+
+The differential surfaced a second, bigger divergence: after the goal
+stopped, mc-go's travel kept driving a ×0.98-decaying input residue at
+the persistent WalkSpeed — a ~10-block slide. Vanilla's
+`MoveControl.tick` with `operation=WAIT` (no move goal ran) zeroes
+zza/xxa/speed EVERY tick — the residue dies in one tick and the
+slide is pure friction (f3·0.91). `mobTravelStepPair` now zeroes
+WalkSpeed/WalkZZA/WalkXXA on no-input ticks (ground, water and lava
+branches). Side benefit: TestMobTemptParity's approach minDist moved
+from 0.00 (pumped through the player) to 2.21 vs vanilla's 2.06.
+
+`TestPanicFleeParity` (panicflee_test.go) pins semantics not exact
+RNG: posTicks ≥ 10 (~40t of motion at the ~3t emit interval), travel
+≥ 1.0, net displacement ≤ 16 (bounded — the pre-parity away-from-
+attacker run hit 20+; aligned random chains legitimately reach ~14).
+No "goes quiet" pin — vanilla's stroll goal resumes inside the
+observation window. Green 3/3 on both legs.
+
+Also pinned a preexisting TestMobFleeParity break this sweep exposed:
+its creeper+geometry let the flee path pass within swell range of the
+survival player, where the creeper legitimately ignites and detonates
+(flee direction is parity-faithful — vanilla rolls a random cell in
+the away half-space, mc-go drives the direct away vector). The mob
+pairs now summon ~100 blocks out in absolute coords so escapes can
+never reach swell range. Still open (separate slice): mc-go's avoid
+target is the direct vector; vanilla's is a random best-of-N cell in
+the away half-space — worth a divergence pin of its own.
