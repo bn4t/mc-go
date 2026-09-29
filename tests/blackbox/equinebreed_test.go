@@ -393,3 +393,100 @@ func TestCamelFeedParity(t *testing.T) {
 		}
 	}
 }
+
+// passengersCount decodes a set_passengers body (VarInt vehicle,
+// VarInt count, VarInt ids) — returns the vehicle eid + seat count.
+func passengersCount(body []byte) (veh int32, n int, ok bool) {
+	r := protocol.NewPacketReader(body[1:])
+	v, err := r.VarInt()
+	if err != nil {
+		return 0, 0, false
+	}
+	c, err := r.VarInt()
+	if err != nil || c < 0 || c > 8 {
+		return 0, 0, false
+	}
+	return v, int(c), true
+}
+
+// lastPassengerCount scans a batch for the newest set_passengers on
+// vehEid and returns its seat count (-1 = none seen).
+func lastPassengerCount(lines []string, vehEid int32) int {
+	got := -1
+	for _, l := range lines {
+		body, ok := packetBody(l)
+		if !ok || body[0] != 0x6B {
+			continue
+		}
+		v, n, ok := passengersCount(body)
+		if ok && v == vehEid {
+			got = n
+		}
+	}
+	return got
+}
+
+// TestCamelRideParity pins Camel.mobInteract's two-seat mount:
+// getPassengers().size()<2 lets a second player board — each
+// interact re-emits set_passengers with the grown passenger array.
+func TestCamelRideParity(t *testing.T) {
+	targets := requireBlackboxFiles(t, nil, map[string]string{
+		"ops.json": opsJSONFor("P1", "P2"),
+	}, nil)
+	defer targets.cleanup()
+
+	for _, tc := range []struct{ tag, addr string }{
+		{"vanilla", targets.vanilla},
+		{"mc-go", targets.mcgo},
+	} {
+		t.Run(tc.tag, func(t *testing.T) {
+			c1, pr1, pw1 := joinPlayBlackbox(t, tc.addr, "P1")
+			defer c1.Close()
+			sink1 := newChatSinkTP(pr1, pw1)
+			c2, pr2, pw2 := joinPlayBlackbox(t, tc.addr, "P2")
+			defer c2.Close()
+			_ = newChatSinkTP(pr2, pw2)
+			time.Sleep(500 * time.Millisecond)
+
+			sendCommand(t, pw1, "kill @e[type=minecraft:camel]")
+			sendCommand(t, pw1, "fill 13 -61 7 18 -59 11 minecraft:glass hollow")
+			sendCommand(t, pw1, "summon minecraft:camel 15.5 -60 9.5 {PersistenceRequired:1b}")
+			sendCommand(t, pw1, "tp @s 16.5 -60 9.5")
+			sendCommand(t, pw2, "tp @s 16.5 -60 8.5")
+			time.Sleep(600 * time.Millisecond)
+
+			camelT, _ := server.EntityTypeID("camel")
+			var eid int32 = -1
+			var spawnLines []string
+			for i := 0; i < 30 && eid <= 0; i++ {
+				spawnLines = append(spawnLines, sink1.take()...)
+				eid = aniSpawnID(spawnLines, camelT, 15.5, 9.5)
+				if eid <= 0 {
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+			if eid <= 0 {
+				t.Fatalf("%s: camel add_entity not observed", tc.tag)
+			}
+			// P1 boards, then P2 — the second mount must land in
+			// seat two, not be refused.
+			var seatCounts []int
+			for _, pw := range []*protocol.Writer{pw1, pw2} {
+				var ib protocol.Buffer
+				ib.VarInt(eid)
+				ib.VarInt(0)
+				ib.VarInt(0)
+				ib.Bool(false)
+				_ = pw.WritePacket(server.IDPlayInteractSB, ib.Bytes())
+				time.Sleep(500 * time.Millisecond)
+				seatCounts = append(seatCounts, lastPassengerCount(sink1.take(), eid))
+			}
+			if seatCounts[0] != 1 {
+				t.Fatalf("%s: after P1 mounts, set_passengers should list 1 rider, got %d", tc.tag, seatCounts[0])
+			}
+			if seatCounts[1] != 2 {
+				t.Fatalf("%s: camel seats two — after P2 mounts, set_passengers should list 2 riders, got %d", tc.tag, seatCounts[1])
+			}
+		})
+	}
+}

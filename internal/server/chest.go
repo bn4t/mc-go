@@ -200,7 +200,7 @@ func (s *Server) openChest(sess *Session, pos world.Pos) {
 var mountScreenTypes = map[string]bool{
 	"horse": true, "zombie_horse": true, "skeleton_horse": true,
 	"donkey": true, "mule": true, "llama": true, "trader_llama": true,
-	"camel": true,
+	"camel": true, "camel_husk": true,
 }
 
 // chestedMountTypes is the AbstractChestedHorse family — a chested
@@ -420,9 +420,9 @@ func (s *Server) sendMountMenu(sess *Session, eid int32) {
 		return
 	}
 	name, ok := EntityTypeName(e.Type)
-	// Camel.isTamed() is literal true — every camel passes
-	// openCustomInventoryScreen's isTamed arm.
-	if !ok || !mountScreenTypes[name] || (!e.Tamed && name != "camel") {
+	// Camel.isTamed() is literal true — every camel family member
+	// passes openCustomInventoryScreen's isTamed arm.
+	if !ok || !mountScreenTypes[name] || (!e.Tamed && name != "camel" && name != "camel_husk") {
 		return
 	}
 	if len(e.Passengers) > 0 {

@@ -252,7 +252,10 @@ func equineMaxTemper(name string) int32 {
 // and everyone is bucked with makeMad + the entity_event(6) smoke.
 // Non-player first passengers skip the temper arm but still eject.
 func (s *Server) equineRideTameStep(e *Entity, name string) {
-	if e.NoAI || e.Tamed || len(e.Passengers) == 0 {
+	// Camel.isTamed() is literal true — a ridden camel never arms
+	// RunAroundLikeCrazy, so the buck/eject path can't fire.
+	if e.NoAI || e.Tamed || name == "camel" || name == "camel_husk" ||
+		len(e.Passengers) == 0 {
 		e.FleeRidden = false
 		return
 	}

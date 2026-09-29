@@ -36,8 +36,8 @@ func entityTypeTagHas(tag, name string) bool {
 // mountCap is vanilla's max passenger count per vehicle type.
 func mountCap(name string) int {
 	switch {
-	case isBoatEntityName(name):
-		return 2 // Boat.canAddPassenger
+	case isBoatEntityName(name), name == "camel", name == "camel_husk":
+		return 2 // Boat.canAddPassenger; camel seats two
 	case name == "minecart":
 		return 1 // Minecart.interact -> startRiding; container carts open UI instead
 	case isSteerableName(name), isEquineName(name):
@@ -57,7 +57,8 @@ func isSteerableName(name string) bool {
 func isEquineName(name string) bool {
 	switch name {
 	case "horse", "zombie_horse", "skeleton_horse",
-		"donkey", "mule", "llama", "trader_llama", "camel":
+		"donkey", "mule", "llama", "trader_llama",
+		"camel", "camel_husk":
 		return true
 	}
 	return false
@@ -79,7 +80,7 @@ func mountAllowed(name string, e *Entity) bool {
 		// buck loop. The skeleton horse alone refuses: its mobInteract
 		// returns PASS while untamed, so no arm ever reaches the mount.
 		// Camel's isTamed() is unconditionally true — any adult mounts.
-		if name == "camel" {
+		if name == "camel" || name == "camel_husk" {
 			return !e.Baby
 		}
 		return !e.Baby && (e.Tamed || name != "skeleton_horse")

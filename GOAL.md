@@ -13655,3 +13655,18 @@ already in place; the missing piece was the interact arm itself:
 - Harness: per-lane summon X positions — a previous lane's corpse
   re-emits add_entity into the fresh session and can steal the
   nearest-match eid.
+
+## Slice — camel two-seat riding + camel_husk mounts (2026-09-29)
+
+Vanilla `Camel.mobInteract` mounts any non-sneaking player while
+`getPassengers().size() < 2 && !isBaby` (camel seats two — first at the
+front attachment, second behind), and `Camel.isTamed()` is literal
+`true`: a camel never arms RunAroundLikeCrazy, never bucks, never
+tempers. `CamelHusk` inherits all of it (also 2 seats). Measured:
+mountCap camel/camel_husk 1→2; `isEquineName`, `mountScreenTypes` and
+the always-tamed buck gate all cover camel_husk (mc-go previously
+ejected the first rider ~a tick after mounting an untamed camel — the
+buck check read `e.Tamed` where vanilla reads the type override). New
+`TestCamelRideParity` drives two sessions: each player's interact
+re-emits `set_passengers` with the grown passenger array — seats 1
+then 2 on both legs.
