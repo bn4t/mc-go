@@ -969,6 +969,15 @@ func (s *Server) runSummon(player string, args []string) reply {
 			// so absent keys randomize: strength is 1+nextInt(3) 96%
 			// of the time and 1+nextInt(5) on the 0.04 tail, variant
 			// a uniform pick of the four.
+			if name == "trader_llama" || name == "wandering_trader" {
+				// TraderLlama/WanderingTrader.readAdditionalSaveData —
+				// a tagged summon overrides the type's countdown init.
+				if v, ok := tag.vals["DespawnDelay"]; ok {
+					if n, err := strconv.Atoi(strings.TrimRight(v.num, "bBsSiIlLfFdD")); err == nil {
+						e.DespawnDelay = int32(n)
+					}
+				}
+			}
 			if llamaDecorTypes[name] {
 				hasStr, hasVar := false, false
 				if v, ok := tag.vals["Strength"]; ok {
@@ -2414,6 +2423,11 @@ func (s *Server) summonMobInitSpawn(d *dimension, name string, x, y, z float64, 
 		// the entity's block position — every spawn path lands it.
 		e.TurtleHome = world.Pos{X: int(e.X), Y: int(e.Y), Z: int(e.Z)}
 	}
+	if name == "trader_llama" {
+		// TraderLlama's ctor field-init — readAdditionalSaveData
+		// keeps it when the summon NBT omits DespawnDelay.
+		e.DespawnDelay = 47999
+	}
 	summonAttrTouches(e, name, init)
 	return e, true
 }
@@ -2526,6 +2540,11 @@ func (s *Server) summonMobRawSpawn(d *dimension, name string, x, y, z float64, n
 	// from creation like any spawned chicken.
 	if name == "chicken" {
 		e.EggLayTime = 6000 + rand.Int31n(6000)
+	}
+	if name == "trader_llama" {
+		// TraderLlama's ctor field-init — readAdditionalSaveData
+		// keeps it when the summon NBT omits DespawnDelay.
+		e.DespawnDelay = 47999
 	}
 	summonAttrTouches(e, name, init)
 	return e, true
@@ -5309,14 +5328,23 @@ func (s *Server) mobTickStep() {
 			// lookControl keeps yBodyRot tracking the armed target at
 			// ~30°/tick — the spit spawns 0.95 along it, so the turn
 			// must finish before attackTime runs out or the shot
-			// launches off-axis.
-			if t := s.sessionByUUID(e.LlamaSpitTarget); t != nil &&
+			// launches off-axis. LlamaSpitMob (a hunted entity eid)
+			// wins over the player-attacker uuid arm when both exist.
+			if m, ok := s.entities.GetPtr(e.LlamaSpitMob); ok && !m.Dying &&
+				m.Dim == e.Dim {
+				mobTurnToward(e, m.X-e.X, m.Z-e.Z, 30)
+			} else if t := s.sessionByUUID(e.LlamaSpitTarget); t != nil &&
 				!t.dead && t.spawned.Load() {
 				tx, _, tz, _, _, _ := t.Pos()
 				mobTurnToward(e, tx-e.X, tz-e.Z, 30)
 			}
 			if e.LlamaSpitTicks == 0 {
-				if t := s.sessionByUUID(e.LlamaSpitTarget); t != nil &&
+				if m, ok := s.entities.GetPtr(e.LlamaSpitMob); ok && !m.Dying &&
+					m.Dim == e.Dim {
+					s.llamaSpitAtEntity(e, m)
+					// RangedAttackGoal re-arms through the hunter's
+					// next tick — the mob target itself stays marked.
+				} else if t := s.sessionByUUID(e.LlamaSpitTarget); t != nil &&
 					!t.dead && t.spawned.Load() && t.dimension().name == e.Dim {
 					s.llamaSpitAt(e, t)
 				}
@@ -5413,10 +5441,25 @@ func (s *Server) mobTickStep() {
 			if s.mobConvertTick(e, s.dims[e.Dim], ambName) {
 				continue
 			}
+			// TraderLlama/WanderingTrader.maybeDespawn (aiStep level) —
+			// the countdown discard; runs beside the goal chain.
+			if ambName == "trader_llama" || ambName == "wandering_trader" {
+				if s.traderDespawn(e) {
+					continue
+				}
+			}
 			// LlamaFollowCaravanGoal (priority 2) — outranks even the
 			// family's PanicGoal(3).
 			if ambName == "llama" || ambName == "trader_llama" {
 				if w := s.dimWorld(e.Dim); w != nil && s.llamaCaravanStep(e, w) {
+					s.mobSyncFlush(e)
+					continue
+				}
+				// The mob-hunt targetSelector (llama→untamed wolf at 4,
+				// trader_llama→zombie/illager at 16) + RangedAttackGoal
+				// — its MOVE flag loses to a live caravan, so this arm
+				// only runs when the caravan link is off.
+				if w := s.dimWorld(e.Dim); w != nil && s.llamaHunterStep(e, w) {
 					s.mobSyncFlush(e)
 					continue
 				}
@@ -7050,7 +7093,7 @@ var mobPanicSpeed = map[string]float64{
 	"pig": 1.25, "sheep": 1.25, "chicken": 1.4,
 	"cow": 2.0, "mooshroom": 2.0, "panda": 2.0,
 	"horse": 1.2, "donkey": 1.2, "mule": 1.2, "llama": 1.2,
-	"trader_llama": 1.2, "skeleton_horse": 1.2, "zombie_horse": 1.2,
+	"trader_llama": 2.0, "skeleton_horse": 1.2, "zombie_horse": 1.2,
 	"turtle": 1.2,
 	"cat":    1.5, "wolf": 1.5,
 	"parrot": 1.25,
@@ -9456,11 +9499,23 @@ func (s *Server) mobShootArrow(e *Entity, tx, ty, tz float64) {
 // (pitch 1 ± 0.2 triangle). The one-shot contract — didSpit — is
 // the caller's countdown arm, not this function's.
 func (s *Server) llamaSpitAt(e *Entity, t *Session) {
+	px, py, pz, _, _, _ := t.Pos()
+	s.llamaSpitLaunch(e, px, py, pz, 1.8)
+}
+
+// llamaSpitAtEntity is the same shot at a mob target (the family's
+// NearestAttackableTargetGoal picks) — target.getY(1/3) comes off
+// the target's own bounding height.
+func (s *Server) llamaSpitAtEntity(e *Entity, m *Entity) {
+	dims := entityBBDims(m)
+	s.llamaSpitLaunch(e, m.X, m.Y, m.Z, dims[1])
+}
+
+func (s *Server) llamaSpitLaunch(e *Entity, px, py, pz, targetH float64) {
 	spID, ok := EntityTypeID("llama_spit")
 	if !ok {
 		return
 	}
-	px, py, pz, _, _, _ := t.Pos()
 	dx := px - e.X
 	dz := pz - e.Z
 	// LlamaSpit ctor's setPos: owner pos stepped (bbW+1)/2 along
@@ -9477,7 +9532,7 @@ func (s *Server) llamaSpitAt(e *Entity, t *Session) {
 	sx := e.X + half*(dx/horiz)
 	sy := e.Y + dims[1]*0.95 - 0.1
 	sz := e.Z + half*(dz/horiz)
-	dy := (py + 1.8/3) - sy // target.getY(1/3) of the 1.8 box
+	dy := (py + targetH/3) - sy // target.getY(1/3) of its box
 	dy += horiz * 0.2
 	mag := math.Sqrt(dx*dx + dy*dy + dz*dz)
 	if mag < 1e-6 {

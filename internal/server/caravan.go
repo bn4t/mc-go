@@ -185,3 +185,170 @@ func (s *Server) llamaLeaveCaravan(e *Entity) {
 	e.CaravanSpeed = caravanSpeedBase
 	e.CaravanCnt = 0
 }
+
+// TraderLlama.maybeDespawn + WanderingTrader.maybeDespawn — the
+// trader-family despawn countdowns. TraderLlama's gates are
+// !tamed && !leashed-to-non-trader && !one-player-passenger &&
+// !age-locked && !persistence-required; while leashed to a
+// wandering_trader it copies the trader's own delay-1 instead of
+// counting itself. At <=0 the leash drops (removeLeash — no item)
+// and the mob discards. WanderingTrader's is the simpler arm:
+// `despawnDelay > 0 && !isTrading() && --despawnDelay == 0`.
+func (s *Server) traderDespawn(e *Entity) bool {
+	name, _ := EntityTypeName(e.Type)
+	switch name {
+	case "wandering_trader":
+		// isTrading — a trade session open on the trader — pauses
+		// the countdown; mc-go has no trade sessions yet, so the
+		// arm is unconditional past the delay sign.
+		if e.DespawnDelay > 0 {
+			e.DespawnDelay--
+			if e.DespawnDelay == 0 {
+				s.mobRemovedPassengerCleanup(e)
+				s.entities.Remove(e.ID)
+				s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+				return true
+			}
+		}
+		return false
+	case "trader_llama":
+		if !s.traderLlamaCanDespawn(e) {
+			return false
+		}
+		traderLinked := false
+		if h, ok := s.entities.GetPtr(e.LeashHolder); ok {
+			if hn, _ := EntityTypeName(h.Type); hn == "wandering_trader" {
+				e.DespawnDelay = h.DespawnDelay - 1
+				traderLinked = true
+			}
+		}
+		if !traderLinked {
+			e.DespawnDelay--
+		}
+		if e.DespawnDelay > 0 {
+			return false
+		}
+		// removeLeash(): vanilla's leash drop on despawn keeps the
+		// lead item (removeLeash vs dropLeash — no lead drop).
+		if e.LeashHolder != 0 {
+			s.leashDrop(e, false)
+		}
+		s.mobRemovedPassengerCleanup(e)
+		s.entities.Remove(e.ID)
+		s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+		return true
+	}
+	return false
+}
+
+// traderLlamaCanDespawn is TraderLlama.canDespawn: an untamed trader
+// llama that isn't player-ridden, age-locked, persistence-required,
+// or leashed to anything besides its wandering trader.
+func (s *Server) traderLlamaCanDespawn(e *Entity) bool {
+	if e.Tamed || e.AgeLocked || e.PersistenceRequired {
+		return false
+	}
+	if h, ok := s.entities.GetPtr(e.LeashHolder); ok {
+		if hn, _ := EntityTypeName(h.Type); hn != "wandering_trader" {
+			return false
+		}
+	}
+	if len(e.Passengers) == 1 && s.isPlayerEntity(e.Passengers[0]) {
+		return false
+	}
+	return true
+}
+
+// traderLlamaHuntTypes is the trader_llama targetSelector(2) table:
+// NearestAttackableTargetGoal(Zombie, !ZOMBIFIED_PIGLIN) —
+// the whole zombie hierarchy minus the piglin — and
+// NearestAttackableTargetGoal(AbstractIllager): evoker, illusioner,
+// pillager, vindicator (ravager/witch ride the Raider branch, not
+// AbstractIllager).
+var traderLlamaHuntTypes = map[string]bool{
+	"zombie": true, "zombie_villager": true, "drowned": true, "husk": true,
+	"evoker": true, "illusioner": true, "pillager": true, "vindicator": true,
+}
+
+// llamaHunterStep is the llama family's mob-hunt targetSelector +
+// RangedAttackGoal arm: every ~10 ticks it repicks the nearest valid
+// target — an untamed wolf inside follow_range×0.25 (4.0 blocks) for
+// both types, and for trader_llama also a zombie-family or illager
+// inside the full 16 — and holds it while alive. While held, the
+// RangedAttackGoal runs the shared 40-tick attackTime countdown
+// (mob.go's LlamaSpitTicks block resolves LlamaSpitMob at fire), and
+// drives toward the target past the 20-block attack radius.
+func (s *Server) llamaHunterStep(e *Entity, w *world.World) bool {
+	name, _ := EntityTypeName(e.Type)
+	e.HuntScan--
+	if e.HuntScan <= 0 {
+		e.HuntScan = 10
+		e.LlamaSpitMob = s.llamaHuntTarget(e, name, w)
+	}
+	m, ok := s.entities.GetPtr(e.LlamaSpitMob)
+	if !ok || m.Dying || m.Dim != e.Dim {
+		e.LlamaSpitMob = 0
+		return false
+	}
+	// The target goal (priority 1-2) keeps the mark; RangedAttackGoal's
+	// tick re-arms attackTime to the 40-tick interval every cycle, so
+	// a held target takes a spit every ~2 seconds.
+	if e.LlamaSpitTicks == 0 {
+		e.LlamaSpitTicks = 40
+	}
+	dx, dz := m.X-e.X, m.Z-e.Z
+	if dx*dx+dz*dz > 400 {
+		// Past attackRadiusSqr 20² the goal paths in at its 1.25
+		// speedModifier — the same nav drive the caravan uses.
+		speed, ok2 := entityAttrBases[name]["movement_speed"]
+		if !ok2 || speed <= 0 {
+			speed = mobWalkSpeed
+		}
+		mobTurnToward(e, dx, dz, 90)
+		e.LookYaw = e.Yaw
+		s.mobTravelStep(e, w, speed*1.25)
+	}
+	return true
+}
+
+// llamaHuntTarget picks the nearest valid mark: wolves must be
+// untamed (LlamaAttackWolfGoal's `!isTame` predicate), trader_llama
+// adds the zombie/illager sets at full follow_range. Both legs run
+// NearestAttackableTargetGoal's mustSee — clipSolidSegment between
+// eye heights.
+func (s *Server) llamaHuntTarget(e *Entity, name string, w *world.World) int32 {
+	d := s.dims[e.Dim]
+	if d == nil {
+		return 0
+	}
+	ed := entityBBDims(e)
+	trader := name == "trader_llama"
+	best, bd := int32(0), math.MaxFloat64
+	for _, o := range s.entities.All() {
+		if o.ID == e.ID || !o.Living || o.Dim != e.Dim || o.Dying || o.Dormant {
+			continue
+		}
+		on, _ := EntityTypeName(o.Type)
+		var limit float64
+		switch {
+		case on == "wolf" && !o.Tamed:
+			limit = 4.0 // follow_range × 0.25
+		case trader && traderLlamaHuntTypes[on]:
+			limit = 16.0
+		default:
+			continue
+		}
+		d2 := (o.X-e.X)*(o.X-e.X) + (o.Y-e.Y)*(o.Y-e.Y) + (o.Z-e.Z)*(o.Z-e.Z)
+		if d2 > limit*limit || d2 >= bd {
+			continue
+		}
+		od := entityBBDims(&o)
+		if _, _, _, _, _, _, _, hit := s.clipSolidSegment(d,
+			e.X, e.Y+ed[1]*0.85, e.Z,
+			o.X, o.Y+od[1]*0.85, o.Z); hit {
+			continue
+		}
+		best, bd = o.ID, d2
+	}
+	return best
+}

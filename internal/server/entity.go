@@ -883,6 +883,20 @@ type Entity struct {
 	CaravanTail  int32
 	CaravanSpeed float64
 	CaravanCnt   int32
+	// DespawnDelay is the trader_llama/wandering_trader despawn
+	// countdown (NBT "DespawnDelay"): trader_llama inits 47999 and
+	// counts once per aiStep while canDespawn holds — copying its
+	// wandering-trader leash holder's own delay-1 instead of
+	// decrementing when linked; at <=0 the leash drops and the mob
+	// discards. wandering_trader counts only while >0.
+	DespawnDelay int32
+	// LlamaSpitMob is the entity-id half of the llama family's
+	// NearestAttackableTargetGoal hold (wolf hunt on both types,
+	// zombie/illager on trader_llama) — LlamaSpitTarget covers the
+	// player-attacker uuid side of the same RangedAttack countdown.
+	LlamaSpitMob int32
+	// HuntScan is the targetSelector scan cadence (~10 ticks).
+	HuntScan int32
 	// TemptActive/TemptTarget model TemptGoal: an animal whose
 	// tempting item is in a nearby player's hand walks to the holder
 	// at speedModifier × movement_speed and stops at 2.5 blocks;

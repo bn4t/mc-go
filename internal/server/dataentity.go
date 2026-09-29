@@ -777,6 +777,11 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 			m["Strength"] = e.Strength
 			m["Variant"] = e.LlamaVariant
 		}
+		// TraderLlama/WanderingTrader addAdditionalSaveData — the
+		// trader-family despawn countdown.
+		if typeName == "trader_llama" || typeName == "wandering_trader" {
+			m["DespawnDelay"] = e.DespawnDelay
+		}
 		// The Zombie/AbstractPiglin/Zoglin hierarchies declare IsBaby —
 		// AgeableMob types carry Age instead.
 		if isBabyTypes[typeName] {
@@ -1190,7 +1195,7 @@ var entitySaveSeq = []string{
 	"MainGene", "HiddenGene",
 	"hive_pos", "flower_pos", "HasNectar", "HasStung",
 	"TicksSincePollination", "CannotEnterHiveTicks",
-	"CropsGrownSincePollination",
+	"CropsGrownSincePollination", "DespawnDelay",
 }
 
 // overworldZombifyTypes are the mc-side types declaring the
@@ -1638,6 +1643,12 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 				e.LlamaVariant = vv
 				e.MetaDirty = true
 			}
+		}
+	}
+	if name == "trader_llama" || name == "wandering_trader" {
+		// readAdditionalSaveData — the trader-family countdown.
+		if v, ok := nbtInt32(save["DespawnDelay"]); ok {
+			e.DespawnDelay = v
 		}
 	}
 	if name == "horse" {

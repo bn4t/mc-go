@@ -14012,3 +14012,53 @@ no flee; unsneak → flee). Green both legs.
   @e[type=leash_knot]` + tp the head 35 blocks away — firstIsLeashed
   fails, the chain dissolves, and the ex-follower stays put on both
   legs (bFar ~48 vs ~54).
+
+## Slice — trader_llama despawn arm, zombie/illager hunt, wolf hunt (both types) (2026-09-29)
+
+- **Measured** (decompile `TraderLlama.java`,
+  `WanderingTrader.maybeDespawn`, `Llama.registerGoals`):
+  TraderLlama's `maybeDespawn` ticks in aiStep while `canDespawn`
+  holds (!tamed, !leashed-to-non-trader, !one-player-passenger,
+  !age-locked, !persistence-required) — leashed to a wandering
+  trader it copies the holder's `despawnDelay-1`, else decrements
+  its own (NBT `DespawnDelay`, ctor init 47999) and at <=0
+  removeLeash+discards. WanderingTrader's arm is
+  `despawnDelay > 0 && !isTrading() && --delay == 0 → discard`
+  (NBT default 0). The whole llama family runs
+  `LlamaAttackWolfGoal` — NearestAttackable(Wolf, interval 16,
+  mustSee=false, `!isTame`) at `follow_range×0.25` = 4 blocks —
+  while trader_llama alone adds the Zombie-family mark
+  (`!ZOMBIFIED_PIGLIN`) and the AbstractIllager mark
+  ({evoker,illusioner,pillager,vindicator} — ravager/witch are
+  Raider-branch, NOT hunted) at the full 16. A held mark re-arms
+  RangedAttackGoal's 40-tick attackTime every cycle; the spit's
+  damage row also covers trader llama defending its trader
+  (TraderLlamaDefendWanderingTraderGoal rides the same
+  llama_spit launch). `doPlayerRide` refuses while the leash
+  holder is a wandering_trader. PanicGoal speedModifier is 2.0
+  vs llama's 1.2.
+- **Implemented**: `DespawnDelay/LlamaSpitMob/HuntScan` entity
+  fields; `traderDespawn` (trader arm + llama arm with the
+  trader-linked delay copy and the canDespawn gates),
+  `llamaHunterStep` (10-tick scan cadence, mob mark held via
+  LlamaSpitMob, >20-block walk-in at ×1.25), `llamaHuntTarget`
+  (wolf mark at 4.0, trader-only hunt set at 16.0,
+  clipSolidSegment LOS at eye height); mob.go panic speed 2.0,
+  despawn+hunter wiring ahead of the caravan block, spit
+  resolution prefers LlamaSpitMob over the session mark,
+  llamaSpitAt→llamaSpitLaunch refactor so a mob target aims
+  center-of-mass at `dims[1]/3` like vanilla's performRangedAttack;
+  47999 DespawnDelay init in both summon paths; summon-NBT
+  `DespawnDelay` key for the trader types; `mountAllowed` is now a
+  Server method and refuses a wandering-trader leash holder;
+  dataentity DespawnDelay read/write/whitelist for both types.
+- **Pinned**: `TestTraderLlamaParity` — trader_llama + husk at 8
+  blocks fires llama_spit (vanilla 6, mc-go 3) and the husk takes
+  damage; the same husk beside a plain llama draws zero spits on
+  both legs; an untamed wolf penned inside 4 blocks arms BOTH
+  types (vanilla 2/3, mc-go 3/3 — the earlier open-ground probe
+  missed on vanilla only because the pair drifted out of the
+  4-block radius); `{DespawnDelay:60}` discards both a
+  trader_llama and a wandering_trader ~3s out on both legs, while
+  `PersistenceRequired:1b` survives the same window with
+  `DespawnDelay` still readable via /data get.

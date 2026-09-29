@@ -68,7 +68,7 @@ func isEquineName(name string) bool {
 // saddle (SaddleableEntity.isSaddled); equines need Tamed and an
 // adult body (a foal's isSaddleable is false and tame-untamed alike
 // refuse).
-func mountAllowed(name string, e *Entity) bool {
+func (s *Server) mountAllowed(name string, e *Entity) bool {
 	switch {
 	case isBoatEntityName(name) || name == "minecart":
 		return true
@@ -82,6 +82,15 @@ func mountAllowed(name string, e *Entity) bool {
 		// Camel's isTamed() is unconditionally true — any adult mounts.
 		if name == "camel" || name == "camel_husk" {
 			return !e.Baby
+		}
+		// TraderLlama.doPlayerRide refuses while the leash points at a
+		// wandering_trader — the caravan-lead link pins the mount.
+		if name == "trader_llama" {
+			if h, ok := s.entities.GetPtr(e.LeashHolder); ok {
+				if hn, _ := EntityTypeName(h.Type); hn == "wandering_trader" {
+					return false
+				}
+			}
 		}
 		return !e.Baby && (e.Tamed || name != "skeleton_horse")
 	}
@@ -110,7 +119,7 @@ func (s *Server) rideVehicle(sess *Session, eid int32, sneaking bool) {
 		return
 	}
 	cap := mountCap(name)
-	if cap == 0 || !mountAllowed(name, veh) {
+	if cap == 0 || !s.mountAllowed(name, veh) {
 		return
 	}
 	if len(veh.Passengers) >= cap {
