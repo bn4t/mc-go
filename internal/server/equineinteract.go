@@ -159,8 +159,12 @@ func (s *Server) equineFeed(sess *Session, e *Entity, name, iname string, hslot 
 	}
 	if e.Baby && row.ageUp > 0 && !e.AgeLocked {
 		// handleEating's addParticle(HAPPY_VILLAGER) + server-side
-		// ageUp — the baby walks Age toward grown at 0.
-		e.Age += int32(row.ageUp)
+		// ageUp — the table stores vanilla's seconds, Age walks
+		// toward grown at seconds*20 ticks.
+		s.broadcastParticles(e.Dim, 50, // happy_villager
+			e.X+(rand.Float64()*2-1)*1.0, e.Y+0.5,
+			e.Z+(rand.Float64()*2-1)*1.0, 0, 0, 0, 0, 1)
+		e.Age += int32(row.ageUp) * 20
 		if e.Age >= 0 {
 			e.Age = 0
 			e.Baby = false
@@ -313,4 +317,97 @@ func (s *Server) equineTameWithName(rs *Session, e *Entity, name string) {
 	e.FleeRidden = false
 	s.broadcastEntityEventTo(nil, e.Dim, e.ID, 7)
 	s.fireTamedAnimal(rs, name)
+}
+
+// camelFood maps the camel family's isFood tag to its one item:
+// CAMEL_FOOD is cactus, CAMEL_HUSK_FOOD is rabbit_foot.
+var camelFood = map[string]string{
+	"camel":      "cactus",
+	"camel_husk": "rabbit_foot",
+}
+
+// camelInteract is Camel.mobInteract's food arm. Sneaking on an adult
+// skips to openCustomInventoryScreen (the generic inventory arm
+// downstream owns that). Non-food clicks fall through to doPlayerRide
+// — the ride path lives downstream too. The camel family has no
+// temper or makeMad arm.
+func (s *Server) camelInteract(sess *Session, eid int32, hand int32, sneaking bool) bool {
+	s.entities.mu.RLock()
+	e, ok := s.entities.byID[eid]
+	s.entities.mu.RUnlock()
+	if !ok || !e.Living {
+		return false
+	}
+	name, ok := EntityTypeName(e.Type)
+	if !ok {
+		return false
+	}
+	food, isCamel := camelFood[name]
+	if !isCamel || e.Health <= 0 {
+		return false
+	}
+	if sneaking && !e.Baby {
+		return false
+	}
+	held, hslot := sess.stackForHand(hand)
+	if held.Empty() {
+		return false
+	}
+	iname, ok := itemNameOf(held.ID)
+	if !ok || iname != food {
+		return false
+	}
+	s.camelFeed(sess, e, name, hslot)
+	return true
+}
+
+// camelFeed is Camel.handleEating: independent couldHeal (2.0),
+// couldSetInLove, and couldAgeUp arms — Camel.isTamed reports true
+// always, so the love arm fires on any adult at Age 0 (breeding is
+// gated separately by canMate, which camel_husk fails). When no arm
+// applied, fedFood returns PASS and the item isn't consumed.
+func (s *Server) camelFeed(sess *Session, e *Entity, name string, hslot int16) {
+	itemUsed := false
+	if e.Health < e.MaxHealth {
+		e.Health = float32(math.Min(float64(e.Health+2.0), float64(e.MaxHealth)))
+		itemUsed = true
+	}
+	// couldSetInLove additionally needs canFallInLove — CamelHusk's
+	// override reports false: rabbit_foot can heal it but never loves.
+	if e.Age == 0 && !e.Baby && e.loveTicks <= 0 && name != "camel_husk" {
+		e.loveTicks = 600
+		e.loveCause = sess.getName()
+		s.broadcastEntityEventTo(nil, e.Dim, e.ID, 18) // hearts
+		itemUsed = true
+	}
+	if e.Baby && !e.AgeLocked {
+		s.broadcastParticles(e.Dim, 50, // happy_villager
+			e.X+(rand.Float64()*2-1)*1.0, e.Y+0.5,
+			e.Z+(rand.Float64()*2-1)*1.0, 0, 0, 0, 0, 1)
+		e.Age += 10 * 20 // ageUp(10) is vanilla seconds
+		if e.Age >= 0 {
+			e.Age = 0
+			e.Baby = false
+			e.MetaDirty = true
+		}
+		itemUsed = true
+	}
+	if !itemUsed {
+		return
+	}
+	snd := "entity.camel.eat"
+	if name == "camel_husk" {
+		snd = "entity.camel_husk.eat"
+	}
+	if id, ok := SoundEventID(snd); ok {
+		pitch := 1.0 + (rand.Float32()-rand.Float32())*0.2
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, id, mobVoiceOf(e).src(), 1.0, pitch, nil)
+	}
+	if d := s.dims[e.Dim]; d != nil {
+		s.emitGameEvent(d, "eat", e.X, e.Y, e.Z, nil, "")
+	}
+	s.broadcastEntityAnimation(sess, sess.entityID.Load(), 0)
+	if sess.mode() == GameModeSurvival || sess.mode() == GameModeAdventure {
+		sess.consumeSlot(hslot, 1)
+	}
 }

@@ -732,9 +732,10 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		// every non-empty inventory cell (saddle slot 0, body slot 1,
 		// chest cells 2..). The llama family adds Strength and Variant.
 		if mountScreenTypes[typeName] {
-			// Camel.isTamed() is hardcoded true — it writes 1b
-			// unconditionally; the rest take the DATA_ID_FLAGS bit.
-			m["Tame"] = nbtBool(e.Tamed || typeName == "camel")
+			// Camel.isTamed() is hardcoded true — camel and
+			// camel_husk write 1b unconditionally; the rest take
+			// the DATA_ID_FLAGS bit.
+			m["Tame"] = nbtBool(e.Tamed || typeName == "camel" || typeName == "camel_husk")
 			// AbstractHorse.addAdditionalSaveData's tail: Bred and
 			// EatingHaystack are flag bits 0x08/0x10, Temper the
 			// plain int, Owner a nullable EntityReference.

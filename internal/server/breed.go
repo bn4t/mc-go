@@ -184,11 +184,17 @@ func equineParentAttr(e *Entity, attr string) float64 {
 }
 
 // equineBreedOffspring applies getBreedOffspring's per-type rolls to
-// the fresh baby: every equine gets the three-attribute blend
-// (max_health 15-30, jump_strength 0.4-1.0, movement_speed
+// the fresh baby: the horse/llama families get the three-attribute
+// blend (max_health 15-30, jump_strength 0.4-1.0, movement_speed
 // 0.1125-0.3375 — the generate* zero/one-bounds), the horse rolls
 // its skin/marking mix, the llama its strength and variant.
 func equineBreedOffspring(e, mate, baby *Entity, name, mateName string) {
+	// Camel.getBreedOffspring never calls setOffspringAttributes —
+	// camel babies keep supplier bases, so the camel family returns
+	// before the blend (and has no variant/strength rolls below).
+	if name == "camel" || name == "camel_husk" {
+		return
+	}
 	baby.AttrBase = map[string]float64{}
 	for _, a := range []struct {
 		attr   string

@@ -13624,3 +13624,34 @@ already in place; the missing piece was the interact arm itself:
   llamas) on both servers: feed hearts on both parents, breed heart
   on a parent, baby add_entity, and the baby's NBT (negative Age,
   Tame0b, blended jump_strength+max_health, Variant/Strength).
+
+## Slice — camel feed arm + equine feed/NBT fixes (26.2)
+
+- `camelInteract`/`camelFeed` = Camel.mobInteract's food arm:
+  CAMEL_FOOD=cactus, CAMEL_HUSK_FOOD=rabbit_foot. handleEating's
+  three independent arms — couldHeal (+2.0), couldSetInLove
+  (isTamed→true always, so no Tame NBT needed), couldAgeUp
+  (+10s=200 ticks + HAPPY_VILLAGER). Nothing applicable → PASS,
+  no consume.
+- CamelHusk.canFallInLove=false and canBeABaby=false — the husk
+  heals on rabbit_foot but never loves; mc-go's love arm now skips
+  the husk (was firing hearts).
+- Camel.getBreedOffspring never calls setOffspringAttributes —
+  camel babies keep the 32/0.42/0.09 supplier bases; the equine
+  blend now skips the camel family (was blending max_health to
+  ~15-30 like the horse family).
+- Fix: equineFeed's ageUp table stores vanilla's SECONDS values —
+  Age now advances row.ageUp*20 ticks (wheat was +20t, vanilla +400t).
+- Fix: the ageUp arm now emits vanilla's HAPPY_VILLAGER particle.
+- Fix: Tame NBT write forces 1b for camel_husk too (inherits
+  Camel.isTamed→true, not just camel).
+- Fix: camelInteract rejects dead (Health<=0) entities — a killed
+  camel lingering in byID for its death-anim window could take
+  the feed.
+- `TestCamelFeedParity` pins camel love (no tame, second feed PASS),
+  husk heal-only, and baby ageUp×2 on both servers; the breed
+  suite gained the camel×camel lane (baby Tame1b, Health32,
+  Age-24000).
+- Harness: per-lane summon X positions — a previous lane's corpse
+  re-emits add_entity into the fresh session and can steal the
+  nearest-match eid.
