@@ -1540,6 +1540,16 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.VariantName = v.str
 				}
 			}
+			// Cat and Wolf read CollarColor as a dye legacy-id byte
+			// (DyeColor.LEGACY_ID_CODEC); absent means RED(14) —
+			// the defined default — so the set bit only flips on
+			// an explicit key.
+			if name == "cat" || name == "wolf" {
+				if v, ok := tag.vals["CollarColor"]; ok {
+					e.CollarColor = int32(snbtNum(v))
+					e.CollarColorSet = true
+				}
+			}
 			// Variant defaults when the summon NBT left the key out —
 			// each type's own spawn roll: axolotl uniform common +
 			// 1/1200 rare, parrot uniform, rabbit's biome roll
@@ -3126,6 +3136,13 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(21) // serializer: cat_variant
 				b.VarInt(id)
 			}
+			// DATA_COLLAR_COLOR (23, int): dye legacy id — the
+			// RED(14) defined default stays unpacked.
+			if c := collarColorValue(e); c != 14 {
+				b.Byte(23)
+				b.Byte(1) // type: varint
+				b.VarInt(c)
+			}
 			if id := holderSoundVariantID("cat", e.SoundVariant); id != 0 {
 				b.Byte(24)
 				b.Byte(22) // serializer: cat_sound_variant
@@ -3152,8 +3169,15 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 			}
 			// Wolf's DATA_VARIANT_ID (23, wolf_variant) and
 			// DATA_SOUND_VARIANT_ID (24, wolf_sound_variant) pack
-			// off pale/classic; interested/collar/anger follow at
-			// 25/26/27 untracked.
+			// off pale/classic; interested/anger follow at 25/26
+			// untracked.
+			// DATA_COLLAR_COLOR (21, int): dye legacy id — RED(14)
+			// is the defined default and stays unpacked.
+			if c := collarColorValue(e); c != 14 {
+				b.Byte(21)
+				b.Byte(1) // type: varint
+				b.VarInt(c)
+			}
 			if id := holderVariantID("wolf", e.VariantName); id != 3 {
 				b.Byte(23)
 				b.Byte(25) // serializer: wolf_variant
@@ -3423,6 +3447,16 @@ func salmonVariantID(name string) int32 {
 		return 2
 	}
 	return 1
+}
+
+// collarColorValue is the effective dye legacy id for Cat's/Wolf's
+// CollarColor: the summon tag's explicit byte, else the defined
+// default RED(14) vanilla's read applies to a missing key.
+func collarColorValue(e *Entity) int32 {
+	if !e.CollarColorSet {
+		return 14
+	}
+	return e.CollarColor
 }
 
 // mobFlagsByte is Mob's DATA_MOB_FLAGS byte: bit0 = NoAI.

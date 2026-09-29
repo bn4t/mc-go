@@ -195,6 +195,11 @@ func TestHolderVariantParity(t *testing.T) {
 			{"chicken", `{variant:"minecraft:warm",sound_variant:"minecraft:picky",NoAI:1b}`},
 			{"salmon", `{type:"small",NoAI:1b}`},
 			{"salmon", `{NoAI:1b}`},
+			// CollarColor is a dye legacy-id byte (0-15) — cat packs
+			// it at idx23 (after IS_LYING/RELAX_STATE_ONE), wolf at
+			// 21; RED(14) is the defined default and stays unpacked.
+			{"cat", `{variant:"minecraft:calico",CollarColor:5b,NoAI:1b}`},
+			{"wolf", `{sound_variant:"minecraft:grumpy",CollarColor:9b,NoAI:1b}`},
 		}
 		wantMeta := []map[int]string{
 			{9: "3:10", 15: "0:1", 20: "21:5"},            // persian
@@ -207,6 +212,8 @@ func TestHolderVariantParity(t *testing.T) {
 			{9: "3:4", 15: "0:1", 18: "30:2", 19: "31:1"}, // warm + picky
 			{9: "3:3", 15: "0:1", 17: "1:0"},              // salmon small
 			{9: "3:3", 15: "0:1"},                         // salmon medium
+			{9: "3:10", 15: "0:1", 20: "21:3", 23: "1:5"}, // calico + lime collar
+			{9: "3:8", 15: "0:1", 21: "1:9", 24: "26:4"},  // cyan collar + grumpy
 		}
 		// optMeta lists metadata entries the spawn roll MAY pack
 		// beside wantMeta: idx -> {serializer, max registry id}. Every
@@ -224,6 +231,8 @@ func TestHolderVariantParity(t *testing.T) {
 			{},             // warm+picky: nothing rolled
 			{},             // salmon: no registry, never rolls
 			{},
+			{24: {22, 1}}, // calico+collar: sound roll ∈ cat_sound
+			{},            // grumpy+collar: variant roll = pale in plains
 		}
 
 		for i, s := range summons {
@@ -291,6 +300,10 @@ func TestHolderVariantParity(t *testing.T) {
 			{`@e[type=minecraft:chicken,nbt={variant:"minecraft:warm",sound_variant:"minecraft:picky"}]`, "ZZCHKN"},
 			{`@e[type=minecraft:salmon,nbt={type:"small"}]`, "ZZSLMN"},
 			{`@e[type=minecraft:salmon,nbt={type:"medium"}]`, "ZZSLMD"},
+			{`@e[type=minecraft:cat,nbt={CollarColor:5b}]`, "ZZCATC"},
+			{`@e[type=minecraft:wolf,nbt={CollarColor:9b}]`, "ZWOLFC"},
+			{`@e[type=minecraft:cat,nbt={CollarColor:14b}]`, "ZZCATD"},
+			{`@e[type=minecraft:wolf,nbt={CollarColor:14b}]`, "ZWOLFD"},
 		}
 		for _, p := range probes {
 			sendCommand(t, pw, fmt.Sprintf("execute if entity %s run say %s", p.sel, p.mark))

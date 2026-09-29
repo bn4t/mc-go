@@ -12415,3 +12415,26 @@ Still open: cat/wolf CollarColor, pig DATA_BOOST_TIME, frog
 DATA_TONGUE_TARGET, addTrustedEntity via taming (runtime path —
 trusted list only enters via summon NBT for now), passive
 passenger entities' rolled variants.
+## Slice — cat/wolf CollarColor (2026-09-29)
+
+Measured: Cat and Wolf both define DATA_COLLAR_COLOR as an int
+accessor — cat's accessor-id lands at idx23 (after IS_LYING/
+RELAX_STATE_ONE), wolf's at idx21; both serialize as a varint dye
+legacy id (0-15). NBT reads/writes go through
+DyeColor.LEGACY_ID_CODEC (Codec.BYTE): read applies the defined
+default RED(14) to a missing key; the save writes CollarColor
+unconditionally as a byte. Cat's write order is
+variant→sound_variant→CollarColor, wolf's is CollarColor→variant→
+sound_variant — the global entitySaveSeq takes cat's order
+(selector probes are order-agnostic).
+
+Pinned: TestHolderVariantParity adds a calico cat with CollarColor:5
+(idx20 variant id3 + idx23 varint 5) and a wolf with grumpy sound +
+CollarColor:9 (idx21 varint 9 + idx24 sound id4), plus four nbt=
+probes pinning explicit values and the RED(14) default emit. Green
+vs both.
+
+Still open: pig DATA_BOOST_TIME, frog DATA_TONGUE_TARGET, cat
+IS_LYING/RELAX_STATE_ONE (idx21/22 — set at runtime, never via
+NBT), wolf interested/anger (idx25/26), addTrustedEntity via
+taming.

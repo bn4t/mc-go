@@ -789,6 +789,12 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		if typeName == "salmon" {
 			m["type"] = orStr(e.VariantName, "medium")
 		}
+		// Cat's and Wolf's CollarColor writes unconditionally as a
+		// dye legacy-id byte — the defined default RED(14) applies
+		// when the summon tag left the key out.
+		if typeName == "cat" || typeName == "wolf" {
+			m["CollarColor"] = int8(collarColorValue(e))
+		}
 		// AbstractPiglin and Hoglin declare the zombification pair.
 		if overworldZombifyTypes[typeName] {
 			m["IsImmuneToZombification"] = nbtBool(e.ImmuneToZombification)
@@ -1034,7 +1040,7 @@ var entitySaveSeq = []string{
 	"AbsorptionAmount", "attributes", "active_effects", "Brain",
 	"FallFlying", "PersistenceRequired", "CanPickUpLoot",
 	"LeftHanded", "NoAI", "equipment", "Age", "ForcedAge",
-	"InLove", "AgeLocked", "variant", "sound_variant", "type",
+	"InLove", "AgeLocked", "variant", "sound_variant", "CollarColor", "type",
 	"PatrolLeader", "drop_chances", "IsBaby",
 	"IsImmuneToZombification", "TimeInOverworld",
 	"home_radius", "home_pos", "Wave", "CanJoinRaid", "RaidId",
@@ -1437,6 +1443,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		"Sitting": true, "Crouching": true,
 		"MainGene": true, "HiddenGene": true,
 		"variant": true, "sound_variant": true, "type": true,
+		"CollarColor": true,
 	}
 	if extra, ok := entitySaveExtras[name]; ok {
 		for k := range extra {

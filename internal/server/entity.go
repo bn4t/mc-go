@@ -386,6 +386,12 @@ type Entity struct {
 	// [I;a,b,c,d] uuid (slot 0); addAdditionalSaveData emits a
 	// list of int-arrays.
 	FoxTrusted [][16]byte
+	// CollarColor is the dye legacy id (0-15) behind Cat's and
+	// Wolf's CollarColor NBT byte + synced int. Vanilla's read
+	// applies the defined default RED(14) when the key is absent,
+	// so CollarColorSet records whether the tag supplied a value.
+	CollarColor    int32
+	CollarColorSet bool
 	// GeneMain/GeneHidden are Panda's MainGene/HiddenGene NBT
 	// strings (normal, lazy, worried, playful, brown, weak,
 	// aggressive).
