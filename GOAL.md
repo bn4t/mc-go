@@ -13691,3 +13691,29 @@ written registry-id+1 — camel dash=262, ready=263, husk dash=251,
 ready=252. TestCamelDashParity gained camel + camel_husk lanes and a
 parked sound listener (conn B inside the 16-block hear radius — it
 was flakily missing sounds before).
+
+## Slice — llama spit retaliation (LlamaHurtByTargetGoal + RangedAttackGoal) (2026-09-29)
+
+Getting hurt arms the llama's lone shot: `LlamaHurtByTargetGoal`
+(targetSelector 1) re-aims at the attacker and
+`RangedAttackGoal(this, 1.25, 40, 20)` ticks attackTime 40→0 — its
+`performRangedAttack` calls `Llama.spit` once, then `didSpit` fails
+the target goal's canContinueToUse so each injury yields exactly one
+LlamaSpit. Spit: spawn `(bbW+1)/2 = 0.95` along yBodyRot at
+`eyeY-0.1` (by fire time lookControl has converged yBodyRot onto the
+target, so the step lands along the target direction), aims at
+`target.getY(1/3)` plus `0.2·√horiz` arc lift, power 1.5, divergence
+10, and plays `entity.llama.spit` (sound packet first VarInt =
+Holder id+1 → wire 946). Projectile tick: hit-scan vs
+`bb.expandTowards(delta).inflate(1.0)` + entity margin
+`min(0.3,(tickCount-2)/20)`; onHitEntity only when the owner is a
+LivingEntity → 1.0 `spit` damage (damage_type registry id 38 on the
+26.2 wire). Two wire-geometry traps the differential pinned: a
+segment whose start lies INSIDE the target box returns empty from
+AABB.clip (point-blank never hits), and vanilla's hasLineOfSight
+clips COLLIDER shapes so glass between llama and target stops the
+shot arming at all — the test's 1-wide corridor uses a top-half-slab
+divider (0.5 entry gap blocked, eye-line at -58.7 passes above its
+-59 top). `TestLlamaSpitParity` pins one spit add + one spit sound +
+the `damage_event{type 38, cause llama+1, direct spit+1}` on the
+puncher — green on both legs.

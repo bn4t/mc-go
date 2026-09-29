@@ -485,6 +485,12 @@ type Entity struct {
 	// cooldown is below 50 AND the camel is grounded. At 0 it plays
 	// the dash_ready sound.
 	DashCooldown int32
+	// LlamaSpitTicks is the llama's RangedAttackGoal attackTime after
+	// a hurt: armed to 40 by LlamaHurtByTargetGoal, decremented per
+	// tick, and fires the one LlamaSpit at LlamaSpitTarget on 0 —
+	// didSpit then drops the target so each injury arms one shot.
+	LlamaSpitTicks  int32
+	LlamaSpitTarget [16]byte
 	// Sleeping/Sitting/Crouching are Fox's three pose bools in
 	// addAdditionalSaveData. On a cat, Sitting is TamableAnimal's
 	// orderedToSit — it gates CatRelaxOnOwnerGoal.

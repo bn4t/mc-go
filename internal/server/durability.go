@@ -341,6 +341,7 @@ const (
 	sndHorseJump              int32 = 864  // entity.horse.jump
 	sndMuleJump               int32 = 1026 // entity.mule.jump
 	sndSkeletonHorseJumpWater int32 = 1488 // entity.skeleton_horse.jump_water
+	sndLlamaSpit              int32 = 945  // entity.llama.spit
 	srcNeutral                int32 = 6
 )
 

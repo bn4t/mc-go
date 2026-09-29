@@ -1839,10 +1839,12 @@ func (s *Server) thrownCollide(e *Entity, ox, oy, oz float64, name string) bool 
 	return hit
 }
 
-// spitCollide is the ownerless arm of LlamaSpit.onHitEntity: the
-// entity overlap only marks the hit — no damage lands without a
-// living owner, and the onHit tail pops the spit like any hit.
+// spitCollide is LlamaSpit.onHitEntity: through a living owner the
+// hit lands hurtServer(1.0) with damageSources.spit(this, owner) —
+// an ownerless spit just pops on contact like any hit.
 func (s *Server) spitCollide(e *Entity, ox, oy, oz float64) bool {
+	owner, ownerOK := s.entities.Get(e.arrowShooter)
+	living := ownerOK && owner.Living && !owner.Dying
 	s.entities.mu.RLock()
 	targets := make([]*Entity, 0, len(s.entities.byID))
 	for _, t := range s.entities.byID {
@@ -1858,10 +1860,52 @@ func (s *Server) spitCollide(e *Entity, ox, oy, oz float64) bool {
 		}
 		bb := entityBBDims(t)
 		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1], projectilePickMargin(e.TicksLived)) {
+			if living {
+				s.damageMob(t, 1, "spit", nil, &damageInfo{
+					typeName: "spit",
+					cause:    e.arrowShooter,
+					direct:   e.ID,
+				})
+			}
 			return true
 		}
 	}
-	return false
+	if !living {
+		return false
+	}
+	// Player victims sit in sessions, not byID — the scan includes
+	// creatives (their hurt() no-ops but the spit still pops).
+	hit := false
+	s.sessions.Range(func(_, v any) bool {
+		if hit {
+			return false
+		}
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || sess.dead || sess.mode() == GameModeSpectator {
+			return true
+		}
+		if sess.dimName() != e.Dim {
+			return true
+		}
+		px, py, pz, _, _, _ := sess.Pos()
+		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, px, py, pz, 0.6, 1.8, projectilePickMargin(e.TicksLived)) {
+			hit = true
+			if sess.mode() != GameModeCreative {
+				oname := "llama"
+				if n, ok := EntityTypeName(owner.Type); ok {
+					oname = n
+				}
+				s.damageWith(sess, 1, translatable("death.attack.mob",
+					literal(sess.getName()), literal(mobDisplayName(oname))), damageSource{
+					typeName: "spit",
+					cause:    e.arrowShooter,
+					direct:   e.ID,
+				})
+			}
+		}
+		return true
+	})
+	return hit
 }
 
 // fireballCollide is SmallFireball.onHitEntity: igniteForSeconds(5)

@@ -4641,8 +4641,23 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 			// rangeOfSeconds(20,39) everywhere) so the anger outlives
 			// the goal's target loss.
 			ep.AngryAt = killer.uuid
-			if kn, _ := EntityTypeName(ep.Type); neutralAngryTypes[kn] && !ep.NoAI {
+			kn, _ := EntityTypeName(ep.Type)
+			if neutralAngryTypes[kn] && !ep.NoAI {
 				ep.AngryUntil = s.gameTime() + 400 + rand.Int63n(381)
+			}
+			// LlamaHurtByTargetGoal → RangedAttackGoal(this,1.25,40,20):
+			// the attacker becomes the target for one spit 40 ticks
+			// out (attackTime lerps dist/radius into [min,max] —
+			// min==max here); didSpit drops the target afterward, so
+			// each injury arms exactly one shot. TamableAnimal's
+			// isOwnedBy gate spares a tamed llama's owner, and a
+			// targetless goal never starts (NoAI).
+			if (kn == "llama" || kn == "trader_llama") && !ep.NoAI && d > 0 &&
+				!(ep.Tamed && ep.ownerUUID == killer.uuid) {
+				ep.LlamaSpitTarget = killer.uuid
+				if ep.LlamaSpitTicks == 0 {
+					ep.LlamaSpitTicks = 40
+				}
 			}
 			// DATA_ANGER_END_TIME arms on the provoke — the idx19
 			// emit only fires on the dirty gate.
@@ -5243,6 +5258,30 @@ func (s *Server) mobTickStep() {
 					}
 					s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, readySnd, srcNeutral, 1.0, 1.0, nil)
 				}
+			}
+		}
+		// RangedAttackGoal.tick's attackTime countdown for the llama
+		// family: armed to 40 by the hurt retaliation, it fires the
+		// lone LlamaSpit at 0 — LlamaHurtByTargetGoal.canContinueToUse
+		// then sees didSpit and drops the target, so no second shot
+		// follows. A target that left the session just un-arms.
+		if (ambName == "llama" || ambName == "trader_llama") && e.LlamaSpitTicks > 0 {
+			e.LlamaSpitTicks--
+			// lookControl keeps yBodyRot tracking the armed target at
+			// ~30°/tick — the spit spawns 0.95 along it, so the turn
+			// must finish before attackTime runs out or the shot
+			// launches off-axis.
+			if t := s.sessionByUUID(e.LlamaSpitTarget); t != nil &&
+				!t.dead && t.spawned.Load() {
+				tx, _, tz, _, _, _ := t.Pos()
+				mobTurnToward(e, tx-e.X, tz-e.Z, 30)
+			}
+			if e.LlamaSpitTicks == 0 {
+				if t := s.sessionByUUID(e.LlamaSpitTarget); t != nil &&
+					!t.dead && t.spawned.Load() && t.dimension().name == e.Dim {
+					s.llamaSpitAt(e, t)
+				}
+				e.LlamaSpitTarget = [16]byte{}
 			}
 		}
 		// Chicken.aiStep's egg block: isAlive && !isBaby &&
@@ -9079,6 +9118,66 @@ func (s *Server) mobShootArrow(e *Entity, tx, ty, tz float64) {
 	// entity.skeleton.shoot — the bow-release sound the mob plays,
 	// source HOSTILE (SoundSource 5).
 	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, 1491, 5, 1, 1, nil)
+}
+
+// llamaSpitAt is Llama.performRangedAttack → spit(target): the
+// LlamaSpit spawns a half-width forward of the owner's eye, shoots
+// with 1.5 power / 10 divergence at target.getY(1/3) plus the
+// 0.2·√horizDist arc lift, and plays entity.llama.spit positioned
+// (pitch 1 ± 0.2 triangle). The one-shot contract — didSpit — is
+// the caller's countdown arm, not this function's.
+func (s *Server) llamaSpitAt(e *Entity, t *Session) {
+	spID, ok := EntityTypeID("llama_spit")
+	if !ok {
+		return
+	}
+	px, py, pz, _, _, _ := t.Pos()
+	dx := px - e.X
+	dz := pz - e.Z
+	// LlamaSpit ctor's setPos: owner pos stepped (bbW+1)/2 along
+	// bodyRot — llama bbWidth 0.9 → 0.95 — at eyeY-0.1. By fire time
+	// lookControl has converged yBodyRot onto the target (~30°/tick
+	// over the 40-tick arm), so the step lands along the target
+	// direction; e.Yaw itself may lag or be stolen by other goals.
+	dims := entityBBDims(e)
+	half := (dims[0] + 1.0) * 0.5
+	horiz := math.Hypot(dx, dz)
+	if horiz < 1e-6 {
+		return
+	}
+	sx := e.X + half*(dx/horiz)
+	sy := e.Y + dims[1]*0.95 - 0.1
+	sz := e.Z + half*(dz/horiz)
+	dy := (py + 1.8/3) - sy // target.getY(1/3) of the 1.8 box
+	dy += horiz * 0.2
+	mag := math.Sqrt(dx*dx + dy*dy + dz*dz)
+	if mag < 1e-6 {
+		return
+	}
+	// Projectile.shoot: normalize, perturb each axis by
+	// triangle(0, 0.0172275·divergence), scale by power.
+	inacc := 0.0172275 * 10
+	tri := func() float64 { return inacc * (rand.Float64() + rand.Float64() - 1) }
+	const spd = 1.5
+	vx := (dx/mag + tri()) * spd
+	vy := (dy/mag + tri()) * spd
+	vz := (dz/mag + tri()) * spd
+	sp := s.entities.Spawn(&Entity{
+		Type:    spID,
+		Dim:     e.Dim,
+		X:       sx,
+		Y:       sy,
+		Z:       sz,
+		Yaw:     float32(math.Atan2(-vx, vz) * 180 / math.Pi),
+		Pitch:   float32(math.Asin(-vy/math.Sqrt(vx*vx+vy*vy+vz*vz)) * 180 / math.Pi),
+		MotionX: vx, MotionY: vy, MotionZ: vz,
+		VX: int16(vx * 8000), VY: int16(vy * 8000), VZ: int16(vz * 8000),
+		Data: e.ID,
+	})
+	sp.arrowShooter = e.ID
+	s.broadcastEntitySpawn(nil, *sp)
+	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, sndLlamaSpit, srcNeutral,
+		1.0, 1.0+float32((rand.Float64()+rand.Float64()-1)*0.2), nil)
 }
 
 // arrowEffectColor is PotionContents.getColor — with a single custom

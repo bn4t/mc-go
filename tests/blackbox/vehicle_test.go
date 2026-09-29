@@ -98,6 +98,8 @@ type vehObs struct {
 	sync       [3]float64             // last sync_pos coordinates
 	levelEv    [][2]int32             // level_event {event,data} pairs seen
 	entEv      []byte                 // entity_event statuses seen on the watched eid
+	entEvAll   map[int32][]byte       // entity_event statuses keyed by eid
+	dmgEv      map[int32][][4]int32   // damage_event {typeId,cause,direct} keyed by victim eid
 	adds       map[string]int         // add_entity counts by type name
 	sounds     int                    // positioned sound (0x75) packets seen
 	blockUps   map[[3]int32]int       // block_update counts by position
@@ -123,6 +125,9 @@ type vehObs struct {
 	eqFlHist   []string               // unscoped (idx18, ser0) emits "eid:v" — AbstractHorse DATA_ID_FLAGS bytes
 	dashHist   []string               // unscoped (idx19, ser8) emits "eid:v" — camel DATA_DASH bools
 	angerHist  []string               // unscoped (idx19, ser2) emits "eid:v" — anger_end_time varlongs
+	spitEIDs   []int32                // add_entity eids of type llama_spit
+	playerEIDs []int32                // add_entity eids of type player
+	addVel     map[int32][3]float64   // add_entity trailing velocity shorts
 }
 
 // vehWatch collects packets matching (eid, kind) over the window on
@@ -150,6 +155,7 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 		posNet:     map[int32]float64{},
 		uuidMeta:   map[[2]int32][16]byte{},
 		hookMeta:   map[int32]int32{},
+		addVel:     map[int32][3]float64{},
 	}
 	poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
 		defer c.SetReadDeadline(time.Time{})
@@ -205,11 +211,29 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					ty, _ := r.VarInt()
 					n, _ := server.EntityTypeName(ty)
 					o.adds[n]++
+					ax, _ := r.Double()
+					ay, _ := r.Double()
+					az, _ := r.Double()
+					o.lastPos[peid] = [3]float64{ax, ay, az}
+					// 26.2 order: LpVec3 movement, then 3 packed
+					// rotation bytes, then the data VarInt.
+					mx, my, mz, _ := r.ReadLpVec3()
+					o.addVel[peid] = [3]float64{mx, my, mz}
+					r.Byte()
+					r.Byte()
+					r.Byte()
+					_, _ = r.VarInt()
 					if n == "item" {
 						o.itemEIDs = append(o.itemEIDs, peid)
 					}
 					if n == "fishing_bobber" {
 						o.bobberEIDs = append(o.bobberEIDs, peid)
+					}
+					if n == "llama_spit" {
+						o.spitEIDs = append(o.spitEIDs, peid)
+					}
+					if n == "player" {
+						o.playerEIDs = append(o.playerEIDs, peid)
 					}
 				case 0x08: // block_update — count writes by position
 					r := protocol.NewPacketReader(p.Data)
@@ -227,6 +251,16 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 						vx, vy, vz, _ := r.ReadLpVec3()
 						o.motVec[meid] = append(o.motVec[meid], [3]float64{vx, vy, vz})
 					}
+				case server.IDPlayDamageEvent: // 0x19 — eid, type, cause, direct
+					r := protocol.NewPacketReader(p.Data)
+					veid, _ := r.VarInt()
+					ty, _ := r.VarInt()
+					cse, _ := r.VarInt()
+					dir, _ := r.VarInt()
+					if o.dmgEv == nil {
+						o.dmgEv = map[int32][][4]int32{}
+					}
+					o.dmgEv[veid] = append(o.dmgEv[veid], [4]int32{ty, cse, dir})
 				case server.IDPlayEntityEvent: // 0x22 — Int eid + status
 					r := protocol.NewPacketReader(p.Data)
 					peid, _ := r.Int()
@@ -234,6 +268,10 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					if peid == eid {
 						o.entEv = append(o.entEv, st)
 					}
+					if o.entEvAll == nil {
+						o.entEvAll = map[int32][]byte{}
+					}
+					o.entEvAll[peid] = append(o.entEvAll[peid], st)
 					if st == 31 {
 						o.hookEvent = peid
 					}
