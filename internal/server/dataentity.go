@@ -744,6 +744,11 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 			if e.ownerUUID != ([16]byte{}) {
 				m["Owner"] = uuidInts(e.ownerUUID)
 			}
+			// Horse.addAdditionalSaveData writes Variant always —
+			// the packed type|markings int (default 0).
+			if typeName == "horse" {
+				m["Variant"] = e.Variant
+			}
 		}
 		if chestedMountTypes[typeName] {
 			m["ChestedHorse"] = nbtBool(e.HasChest)
@@ -1600,6 +1605,14 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		}
 		if v, ok := nbtInt32(save["Temper"]); ok {
 			e.Temper = v
+		}
+		// Horse.readAdditionalSaveData's Variant int — the packed
+		// type|markings value riding DATA_TYPE_VARIANT (idx19).
+		if name == "horse" {
+			if v, ok := nbtInt32(save["Variant"]); ok && v != e.Variant {
+				e.Variant = v
+				e.MetaDirty = true
+			}
 		}
 		// Owner is an EntityReference — a stored [I;4] uuid with no
 		// wire slot of its own.

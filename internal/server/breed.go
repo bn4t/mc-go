@@ -66,6 +66,12 @@ func (s *Server) feedAnimal(sess *Session, eid int32, hand int32) {
 	if !breedable {
 		return
 	}
+	// AbstractHorse.mobInteract overrides Animal.mobInteract for the
+	// equine family — feeding is fedFood's arm in equineInteract, so
+	// Animal's generic love path never sees an equine click.
+	if isEquineName(name) {
+		return
+	}
 	// Babies and adults still on the 6000-tick breed cooldown can't
 	// love — canMate gates on age == 0.
 	if e.Age != 0 {

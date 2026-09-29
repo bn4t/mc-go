@@ -306,6 +306,13 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	if s.mooshroomFeedInteract(sess, id, hand) {
 		return
 	}
+	// Horse.mobInteract overrides Animal.mobInteract for the whole
+	// equine family — its food/makeMad arms must run before the
+	// generic Animal feed arm (and gate it off entirely for
+	// equines).
+	if s.equineInteract(sess, id, hand, sneaking) {
+		return
+	}
 	s.feedAnimal(sess, id, hand)
 	// A tame attempt consumed the action (SUCCESS_SERVER) — the
 	// post-tame owner-toggle arm never runs on that same click.

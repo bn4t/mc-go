@@ -13533,3 +13533,44 @@ already in place; the missing piece was the interact arm itself:
   isn't counted.
 - `home_radius` default fixed: absent key now reads -1 like
   getIntOr, so mobs stop leaking HasHome+home_radius:0 into saves.
+
+## Slice — equine mobInteract food/makeMad arms + DATA_ID_FLAGS 0x20/0x40 (26.2)
+
+- `equineInteract` owns the whole AbstractHorse-family gate
+  (horse/donkey/mule/llama/trader_llama/zombie_horse/
+  skeleton_horse; camel keeps its own arm): passengers → false;
+  baby holding golden_dandelion → false; tamed adult sneak →
+  false (inventory arm); empty hand → false. Non-empty hand:
+  isFood → handleEating arms; !tamed → makeMad → SUCCESS; else
+  falls through to ride.
+- handleEating arm order (decompile-verified): golden-food
+  in-love (tamed+age==0+!inLove → entity_event 18 + 600 ticks) →
+  heal (health<max, capped) → ageUp (baby+!ageLocked,
+  happy_villager server-side) → temper (temper>0 && (itemUsed ||
+  !tamed) && <maxTemper 100/llama 30) → on itemUsed: openMouth
+  flag 0x40 + eat sound (vol 1.0, random pitch) + gameEvent EAT +
+  swing arm + consume(1) survival/adventure. Feed tables from
+  decompile: horse family {wheat 2/20/3, sugar 1/30/3,
+  hay_block 20/180/0, apple/carrot 3/60/3, golden_carrot 4/60/5,
+  golden_apple+enchanted 10/240/10}; llama {wheat 2/10/3,
+  hay_block 10/90/6}.
+- makeMad: non-llama → setStanding → flag 0x20 + standCounter=20
+  tick countdown (any setStanding call resets); all → angry sound
+  vol 0.8 + random pitch; skeleton_horse silent (no eat/angry
+  sound in SOUND_TYPES).
+- Tick countdowns in the equineTypes tick arm: standCounter--
+  ≤0 clears 0x20; mouthCounter++ >30 clears 0x40 — both dirty the
+  meta byte so the clearing emit rides the per-tick diff pack.
+- Baby horse (any equine Baby) uses entity.baby_horse.eat/
+  .angry sound ids instead of the type's own.
+- `feedAnimal` no-ops on isEquineName (equineInteract owns the
+  family); animalFood stays as the breedable registry.
+- Horse `Variant` NBT: save emit + /data merge read + {Variant:N}
+  summon NBT — the packed type|markings int riding idx19.
+- itemDisplayKey: the 7 names with BOTH item.minecraft.X and
+  block.minecraft.X lang keys — wheat/nether_wart/pitcher_plant/
+  resin_clump take item.X (ItemNameBlockItem identity); every
+  other name takes block.X iff ItemBlockState resolves.
+- `TestEquineFlagsParity` pins makeMad (0x20 emit + angry sound
+  0x75 + 20-tick clear) and wheat-feed (0x40 emit + eat sound +
+  30-tick clear + consume) on both legs.

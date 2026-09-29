@@ -430,6 +430,14 @@ type Entity struct {
 	EatingHaystack bool
 	Temper         int32
 	eatingCounter  int
+	// HorseStanding and HorseMouth are AbstractHorse's transient
+	// DATA_ID_FLAGS bits 0x20/0x40 — set by setStanding/openMouth on
+	// the makeMad and feed arms, cleared by tick()'s standCounter
+	// (-- ≤0 → clear) and mouthCounter (++ >30 → clear) countdowns.
+	HorseStanding bool
+	HorseMouth    bool
+	standCounter  int
+	mouthCounter  int
 	// PuffState is Pufferfish's DATA_PUFF_STATE (idx17, int 0..2 read
 	// clamped to ≤2). inflateCounter/deflateTimer are the transient
 	// tick counters: the puff goal arms inflateCounter while a scary

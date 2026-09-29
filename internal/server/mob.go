@@ -948,6 +948,15 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if v, ok := tag.vals["ChestedHorse"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") && chestedMountTypes[name] {
 				e.HasChest = true
 			}
+			// Horse.readAdditionalSaveData's Variant int — the packed
+			// type|markings value riding DATA_TYPE_VARIANT (idx19).
+			if name == "horse" {
+				if v, ok := tag.vals["Variant"]; ok {
+					if n, err := strconv.Atoi(strings.TrimRight(v.num, "bBsSiIlLfFdD")); err == nil {
+						e.Variant = int32(n)
+					}
+				}
+			}
 			// The llama family's Strength (setStrength clamps [1,5])
 			// and Variant enum id; finalizeSpawn runs on /summon too,
 			// so absent keys randomize: strength is 1+nextInt(3) 96%
@@ -4288,8 +4297,8 @@ var equineTypes = map[string]bool{
 
 // equineFlagsByte packs AbstractHorse's DATA_ID_FLAGS byte (idx20):
 // 0x02 TAME | 0x08 BRED | 0x10 EATING | 0x20 STANDING | 0x40
-// OPEN_MOUTH. Only TAME is modeled — the rest pulse during grazing,
-// rearing and mouth-open animations mc-go does not simulate.
+// OPEN_MOUTH. Standing and mouth pulse on the makeMad/feed arms and
+// clear on tick()'s counters; eating pulses on the graze roll.
 func equineFlagsByte(e *Entity) byte {
 	var flags byte
 	if e.Tamed {
@@ -4300,6 +4309,12 @@ func equineFlagsByte(e *Entity) byte {
 	}
 	if e.EatingHaystack {
 		flags |= 0x10
+	}
+	if e.HorseStanding {
+		flags |= 0x20
+	}
+	if e.HorseMouth {
+		flags |= 0x40
 	}
 	return flags
 }
@@ -5256,6 +5271,26 @@ func (s *Server) mobTickStep() {
 				if e.eatingCounter > 50 {
 					e.eatingCounter = 0
 					e.EatingHaystack = false
+					e.MetaDirty = true
+				}
+			}
+			// AbstractHorse.tick's transient countdowns: mouth open
+			// (flag 0x40) clears at mouthCounter >30, standing (0x20)
+			// when standCounter ticks down to 0. Both run regardless of
+			// NoAI — tick is not gated by isEffectiveAi.
+			if e.mouthCounter > 0 {
+				e.mouthCounter++
+				if e.mouthCounter > 30 {
+					e.mouthCounter = 0
+					e.HorseMouth = false
+					e.MetaDirty = true
+				}
+			}
+			if e.standCounter > 0 {
+				e.standCounter--
+				if e.standCounter <= 0 {
+					e.standCounter = 0
+					e.HorseStanding = false
 					e.MetaDirty = true
 				}
 			}

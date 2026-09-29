@@ -383,11 +383,23 @@ func (s *Server) syncItemSlot(sess *Session, id int32) {
 }
 
 // itemDisplayKey is the translation key an item's brackets name it by:
-// a block item takes its block's key, anything else its item key.
+// a BlockItem takes its block's key, anything else its item key.
+// itemKeyOverBlock is the same-name set whose item keeps the item
+// key anyway — ItemNameBlockItems and plain Items sharing a block's
+// name (the lang table has both keys for exactly these).
+var itemKeyOverBlock = map[string]bool{
+	"wheat": true, "nether_wart": true, "pitcher_plant": true,
+	"resin_clump": true,
+}
+
 func itemDisplayKey(full string) string {
 	name := shortItemName(full)
-	if _, ok := world.BlockStateOf(name, nil); ok {
-		return "block.minecraft." + name
+	if !itemKeyOverBlock[name] {
+		if id, ok := world.ItemID(name); ok {
+			if _, ok2 := world.ItemBlockState(id); ok2 {
+				return "block.minecraft." + name
+			}
+		}
 	}
 	return "item.minecraft." + name
 }
