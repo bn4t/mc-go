@@ -16,6 +16,8 @@ package server
 import (
 	"math"
 	"math/rand"
+	"strconv"
+	"strings"
 
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
@@ -52,6 +54,11 @@ type fishBobber struct {
 	hookedIn   int32    // eid of the entity the bobber rides, 0 none
 	hookedSess *Session // hooked player (players are sessions, not entities)
 	grounded   bool     // landed on solid blocks — retrieve costs 2
+	lureSpeed  int      // lure level × 5 — subtracted from every lured roll
+	luck       int      // luck_of_the_sea level — shifts loot weights via quality
+	openWater  bool     // vanilla's field: latched false during hooked/nibble
+	outOfWater int      // outOfWaterTime — ticks spent outside water (cap 10)
+	fishAngle  float32  // approach-angle for the FISHING particle stream
 }
 
 type fishState int
@@ -113,7 +120,13 @@ func (s *Server) castBobber(sess *Session, x, y, z float64, yaw, pitch float32) 
 		VX: int16(vx * 8000), VY: int16(vy * 8000), VZ: int16(vz * 8000),
 		Data: sess.entityID.Load(), // spawn packet owner field
 	})
-	fb := &fishBobber{owner: sess}
+	rod := sess.heldStack()
+	fb := &fishBobber{
+		owner:     sess,
+		lureSpeed: enchLevel(rod.Ench, "lure") * 5,
+		luck:      enchLevel(rod.Ench, "luck_of_the_sea"),
+		openWater: true,
+	}
 	e.fishing = fb
 	sess.fishingBobber = e.ID
 	s.broadcastEntitySpawn(nil, *e)
@@ -126,14 +139,22 @@ func randTriangle(center, spread float64) float64 {
 	return center + spread*(rand.Float64()-rand.Float64())
 }
 
-// encodeBobberMetadata emits the fishing_bobber synched-data pair:
-// index 8 hooked entity id (varint, 0 none), index 9 biting bool.
-// Wire types: varint=1, boolean=8.
-func encodeBobberMetadata(hookedID int32, biting bool) []byte {
+// Vanilla emits each synched field as its own packet —
+// entityData.set(DATA_HOOKED_ENTITY, v) and set(DATA_BITING, v) are
+// separate dirty-flagged entries, never bundled. Index 8 hooked
+// entity id (varint, 0 none), index 9 biting bool. Wire types:
+// varint=1, boolean=8.
+func encodeBobberHooked(hookedID int32) []byte {
 	var b protocol.Buffer
 	b.Byte(8)
 	b.Byte(1) // varint
 	b.VarInt(hookedID)
+	b.Byte(0xFF)
+	return b.Bytes()
+}
+
+func encodeBobberBiting(biting bool) []byte {
+	var b protocol.Buffer
 	b.Byte(9)
 	b.Byte(8) // boolean
 	if biting {
@@ -143,6 +164,19 @@ func encodeBobberMetadata(hookedID int32, biting bool) []byte {
 	}
 	b.Byte(0xFF)
 	return b.Bytes()
+}
+
+// enchLevel reads "<name>:<level>" out of the canonical Ench
+// component string ("name:lvl,name:lvl", name sorted).
+func enchLevel(ench, name string) int {
+	for _, part := range strings.Split(ench, ",") {
+		if strings.HasPrefix(part, name+":") {
+			if lv, err := strconv.Atoi(part[len(name)+1:]); err == nil {
+				return lv
+			}
+		}
+	}
+	return 0
 }
 
 // playSoundAt broadcasts a positioned Sound packet at fractional
@@ -282,7 +316,7 @@ func (s *Server) fishHookedTick(e *Entity, fb *fishBobber) {
 			e.X, e.Y, e.Z = hx, hy+1.44, hz // player height 1.8 · 0.8
 		} else {
 			fb.hookedSess = nil
-			s.broadcastEntityMetadata(e.ID, encodeBobberMetadata(0, false))
+			s.broadcastEntityMetadata(e.ID, encodeBobberHooked(0))
 		}
 		return
 	}
@@ -293,7 +327,7 @@ func (s *Server) fishHookedTick(e *Entity, fb *fishBobber) {
 		return
 	}
 	fb.hookedIn = 0
-	s.broadcastEntityMetadata(e.ID, encodeBobberMetadata(0, false))
+	s.broadcastEntityMetadata(e.ID, encodeBobberHooked(0))
 }
 
 // bobberSweepHit is FishingHook.checkCollision's entity arm:
@@ -341,6 +375,36 @@ func (s *Server) bobberSweepHit(e *Entity, fb *fishBobber) (*Entity, *Session) {
 	return best, bestSess
 }
 
+// sendLevelParticles broadcasts a vanilla sendParticles packet for a
+// data-less particle type to every play-state session in dim.
+func (s *Server) sendLevelParticles(dim, ptype string, x, y, z, xd, yd, zd, speed float64, count int32) {
+	pid, ok := ParticleTypeID(ptype)
+	if !ok {
+		return
+	}
+	var b protocol.Buffer
+	b.Byte(0) // overrideLimiter
+	b.Byte(0) // alwaysShow
+	b.Double(x)
+	b.Double(y)
+	b.Double(z)
+	b.Float(float32(xd))
+	b.Float(float32(yd))
+	b.Float(float32(zd))
+	b.Float(float32(speed))
+	b.Int(count)
+	b.VarInt(pid)
+	body := b.Bytes()
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
+			return true
+		}
+		_ = other.write(other.ids().PlayLevelParticles, body)
+		return true
+	})
+}
+
 // fishFlyTick integrates the bobber's flight: gravity 0.03, air drag
 // 0.92, and parking the first time it enters water. The parked y is
 // the water surface (top of the block minus the bobber's half-height
@@ -358,7 +422,7 @@ func (s *Server) fishFlyTick(e *Entity, d *dimension, fb *fishBobber) {
 			fb.hookedSess = hs
 			eid = hs.entityID.Load()
 		}
-		s.broadcastEntityMetadata(e.ID, encodeBobberMetadata(eid+1, false))
+		s.broadcastEntityMetadata(e.ID, encodeBobberHooked(eid+1))
 		e.MotionX, e.MotionY, e.MotionZ = 0, 0, 0
 		return
 	}
@@ -406,62 +470,131 @@ func (s *Server) fishBobTick(e *Entity, d *dimension, fb *fishBobber) {
 	if k, _, ok := fluidOf(d.w.GetBlock(p)); ok && k == fluidWater {
 		inWater = true
 	}
-	// Vanilla's onGround is not latched — Entity.move() recomputes it
-	// every tick: a dry-landed bobber has zero delta, makes no vertical
-	// collision, so the flag clears one tick, gravity re-collides it
-	// the next. retrieve() reads whichever phase it lands on, so the
-	// rod wear from a grounded retrieve is genuinely 0-or-2.
+	// outOfWaterTime: -1 while wet, +1 while dry, cap 10 — vanilla
+	// counts it inside the bob branch, before the catch logic.
 	if inWater {
+		if fb.outOfWater > 0 {
+			fb.outOfWater--
+		}
 		fb.grounded = false
 	} else {
+		if fb.outOfWater < 10 {
+			fb.outOfWater++
+		}
+		// Vanilla's onGround is not latched — Entity.move() recomputes
+		// it every tick: a dry-landed bobber has zero delta, makes no
+		// vertical collision, so the flag clears one tick, gravity
+		// re-collides it the next. retrieve() reads whichever phase
+		// it lands on, so the rod wear from a grounded retrieve is
+		// genuinely 0-or-2.
 		fb.grounded = !fb.grounded
 	}
+	// openWater resets while idle and latch-ANDs during hooked/nibble —
+	// one tick out of open water (or 10+ ticks dry) closes it.
+	if fb.nibble <= 0 && fb.hooked <= 0 {
+		fb.openWater = true
+	} else {
+		fb.openWater = fb.openWater && fb.outOfWater < 10 && bobberOpenWater(d, p)
+	}
 	if !inWater {
-		// Dry-landed bobber waits without a countdown — vanilla's
-		// lured/hooked/nibble timers only run while currentState ==
-		// BOBBING, and only water entry can set BOBBING.
+		// catchingFish only runs while the bobber is in water — a
+		// dry-landed bobber never ticks its timers.
 		return
 	}
-	// Vanilla's per-tick decrement (FishingHook.tick): 1 plus a 25% roll
-	// when it's raining at the bobber, minus a 50% roll when the column
-	// above can't see sky. mc-go has no weather, so only the sky check
-	// applies.
-	dec := 1
+	// fishingSpeed: 1 + 1 if raining at the above block (25% roll) - 1
+	// if the column can't see sky (50% roll). mc-go has no weather, so
+	// only the sky check applies — same integer semantics.
+	fishingSpeed := 1
 	if rand.Float64() < 0.5 && !bobberSeesSky(d, p) {
-		dec--
+		fishingSpeed--
 	}
 	if fb.nibble > 0 {
 		fb.nibble--
-		if fb.nibble == 0 {
-			// Missed the window: clear biting and re-roll lured.
-			s.broadcastEntityMetadata(e.ID, encodeBobberMetadata(0, false))
-			fb.lured = fishLuredMin + rand.Intn(fishLuredMax-fishLuredMin+1)
+		if fb.nibble <= 0 {
+			// Missed window: DATA_BITING false + both timers zero —
+			// the idle branch re-rolls lured next tick.
+			fb.nibble = 0
+			fb.hooked = 0
+			fb.lured = 0
+			s.broadcastEntityMetadata(e.ID, encodeBobberBiting(false))
 		}
 		return
 	}
 	if fb.hooked > 0 {
-		fb.hooked -= dec
-		if fb.hooked <= 0 {
+		fb.hooked -= fishingSpeed
+		if fb.hooked > 0 {
+			// The approach stream: fishAngle wanders by triangle(0,
+			// 9.188)°/tick, two FISHING particles cross toward the
+			// bobber at the remaining-distance point, plus a 15%
+			// BUBBLE — all only when that point is in water.
+			fb.fishAngle += float32(randTriangle(0.0, 9.188))
+			angle := float64(fb.fishAngle) * math.Pi / 180
+			as, ac := math.Sin(angle), math.Cos(angle)
+			fishX := e.X + as*float64(fb.hooked)*0.1
+			fishY := float64(math.Floor(e.Y)) + 1.0
+			fishZ := e.Z + ac*float64(fb.hooked)*0.1
+			bp := world.Pos{X: int(math.Floor(fishX)), Y: int(math.Floor(fishY - 1.0)), Z: int(math.Floor(fishZ))}
+			if k, lv, ok := fluidOf(d.w.GetBlock(bp)); ok && k == fluidWater && lv == 0 {
+				if rand.Float64() < 0.15 {
+					s.sendLevelParticles(e.Dim, "bubble", fishX, fishY-0.1, fishZ,
+						as, 0.1, ac, 0, 1)
+				}
+				pxm, pzm := as*0.04, ac*0.04
+				s.sendLevelParticles(e.Dim, "fishing", fishX, fishY, fishZ,
+					pzm, 0.01, -pxm, 1.0, 0)
+				s.sendLevelParticles(e.Dim, "fishing", fishX, fishY, fishZ,
+					-pzm, 0.01, pxm, 1.0, 0)
+			}
+		} else {
+			// The bite: splash sound, BUBBLE + FISHING bursts at
+			// (1+width·20) count, DATA_BITING, nibble 20-40.
 			fb.hooked = 0
-			fb.nibble = fishNibbleMin + rand.Intn(fishNibbleMax-fishNibbleMin+1)
+			y := e.Y + 0.5
+			cnt := int32(1 + 0.25*20)
 			s.playSoundAt(e.Dim, e.X, e.Y, e.Z, sndBobberSplash,
 				0.25, 1.0+0.4*float32(rand.Float64()-rand.Float64()))
-			s.broadcastEntityMetadata(e.ID, encodeBobberMetadata(0, true))
+			s.sendLevelParticles(e.Dim, "bubble", e.X, y, e.Z,
+				0.25, 0, 0.25, 0.2, cnt)
+			s.sendLevelParticles(e.Dim, "fishing", e.X, y, e.Z,
+				0.25, 0, 0.25, 0.2, cnt)
+			s.broadcastEntityMetadata(e.ID, encodeBobberBiting(true))
+			fb.nibble = fishNibbleMin + rand.Intn(fishNibbleMax-fishNibbleMin+1)
 		}
 		return
 	}
 	if fb.lured > 0 {
-		fb.lured -= dec
+		fb.lured -= fishingSpeed
+		// Tease SPLASH: 0.15 base, ramping as the timer runs out —
+		// only when the random splash point is actually water.
+		tc := 0.15
+		if fb.lured < 20 {
+			tc += float64(20-fb.lured) * 0.05
+		} else if fb.lured < 40 {
+			tc += float64(40-fb.lured) * 0.02
+		} else if fb.lured < 60 {
+			tc += float64(60-fb.lured) * 0.01
+		}
+		if rand.Float64() < tc {
+			angle := rand.Float64() * 360 * math.Pi / 180
+			dist := 25.0 + rand.Float64()*35.0 // nextFloat(25, 60)
+			fishX := e.X + math.Sin(angle)*dist*0.1
+			fishY := float64(math.Floor(e.Y)) + 1.0
+			fishZ := e.Z + math.Cos(angle)*dist*0.1
+			bp := world.Pos{X: int(math.Floor(fishX)), Y: int(math.Floor(fishY - 1.0)), Z: int(math.Floor(fishZ))}
+			if k, lv, ok := fluidOf(d.w.GetBlock(bp)); ok && k == fluidWater && lv == 0 {
+				s.sendLevelParticles(e.Dim, "splash", fishX, fishY, fishZ,
+					0.1, 0, 0.1, 0, int32(2+rand.Intn(2)))
+			}
+		}
 		if fb.lured <= 0 {
 			fb.lured = 0
+			fb.fishAngle = float32(rand.Float64() * 360)
 			fb.hooked = fishHookedMin + rand.Intn(fishHookedMax-fishHookedMin+1)
 		}
 		return
 	}
-	// Both timers empty (fresh land): start the lured leg.
-	if inWater {
-		fb.lured = fishLuredMin + rand.Intn(fishLuredMax-fishLuredMin+1)
-	}
+	// Idle in water: re-roll lured, minus the rod's Lure.
+	fb.lured = fishLuredMin + rand.Intn(fishLuredMax-fishLuredMin+1) - fb.lureSpeed
 }
 
 // bobberSeesSky reports whether the column above p is open to the sky:
@@ -489,7 +622,6 @@ func bobberSeesSky(d *dimension, p world.Pos) bool {
 // with the retrieve sound. Returns nothing; the wear lands via
 // wearHeld like every other tool.
 func (s *Server) retrieveBobber(sess *Session) {
-	d := s.dimensionByName(sess.dimName())
 	e, ok := s.entities.GetPtr(sess.fishingBobber)
 	if !ok || e.fishing == nil {
 		sess.fishingBobber = 0
@@ -515,15 +647,10 @@ func (s *Server) retrieveBobber(sess *Session) {
 		s.broadcastEntityEvent(e.ID, 31)
 	} else if fb.nibble > 0 {
 		cost = 1
-		// in_open_water (the treasure gate) is evaluated once, at the
-		// bite, on the bobber's block column.
-		open := false
-		if d != nil {
-			open = bobberOpenWater(d, world.Pos{
-				X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z)),
-			})
-		}
-		drops := rollFishingLoot(open)
+		// in_open_water is the latched field — vanilla keeps
+		// evaluating it every hooked/nibble tick, not once at the
+		// retrieve.
+		drops := rollFishingLoot(fb.openWater, fb.luck)
 		s.fireFishingRodHooked(sess, e, drops)
 		px, py, pz, _, _, _ := sess.Pos()
 		for _, it := range drops {
@@ -595,12 +722,12 @@ func (s *Server) spawnCaughtItem(dim string, bx, by, bz, px, py, pz float64, it 
 		return
 	}
 	dx, dy, dz := px-bx, py-by, pz-bz
-	horiz := math.Sqrt(dx*dx + dy*dy + dz*dz)
+	dist := math.Sqrt(dx*dx + dy*dy + dz*dz)
 	e := s.entities.Spawn(&Entity{
 		Type: itemType,
 		Dim:  dim,
 		X:    bx, Y: by, Z: bz,
-		MotionX: dx * 0.1, MotionY: dy*0.1 + horiz*0.08, MotionZ: dz * 0.1,
+		MotionX: dx * 0.1, MotionY: dy*0.1 + math.Sqrt(dist)*0.08, MotionZ: dz * 0.1,
 		Item:        it,
 		PickupDelay: 0, // vanilla sets none; the owner picks up at contact
 	})
@@ -660,14 +787,14 @@ var fishingTreasure = []fishEntry{
 }
 
 // bobberOpenWater evaluates vanilla's in_open_water check
-// (FishingHook.calculateOpenWater): three 5x5 layers — the bobber's
-// block level, one below, one above — each layer must be uniformly
-// source water (no collision) or uniformly air/lily_pad, and a water
-// layer may not sit above an air layer. The first layer may not be
-// above-water. Anything else closes the water.
+// (FishingHook.calculateOpenWater): four 5x5 layers — one below the
+// bobber's block, its own, and two above — each layer must be
+// uniformly source water (no collision) or uniformly air/lily_pad,
+// and a water layer may not sit above an air layer. The first layer
+// may not be above-water. Anything else closes the water.
 func bobberOpenWater(d *dimension, p world.Pos) bool {
 	prev := 2 // OpenWaterType.INVALID seed
-	for dy := -1; dy <= 1; dy++ {
+	for dy := -1; dy <= 2; dy++ {
 		t := openWaterLayer(d, p, dy)
 		switch t {
 		case 2: // INVALID layer
@@ -722,10 +849,34 @@ func openWaterLayer(d *dimension, p world.Pos, dy int) int {
 // is folded to the item conversion — the random enchantment itself
 // is not modeled). open=false removes the treasure pool, matching
 // vanilla's in_open_water loot condition.
-func rollFishingLoot(open bool) []ItemStack {
-	pools := fishingPool
-	if !open {
-		pools = fishingPool[:2]
+func rollFishingLoot(open bool, luck int) []ItemStack {
+	// gameplay/fishing.json's single pool applies quality·luck to each
+	// entry's weight: junk 10-2·luck, treasure 5+2·luck (gated
+	// in_open_water), fish 85-1·luck.
+	junkW := 10 - 2*luck
+	if junkW < 0 {
+		junkW = 0
+	}
+	fishW := 85 - luck
+	if fishW < 0 {
+		fishW = 0
+	}
+	treasW := 0
+	if open {
+		treasW = 5 + 2*luck
+	}
+	pools := []struct {
+		table  string
+		weight int
+	}{
+		{"fish", fishW},
+		{"junk", junkW},
+	}
+	if treasW > 0 {
+		pools = append(pools, struct {
+			table  string
+			weight int
+		}{"treasure", treasW})
 	}
 	pool := weightedFishEntry(pools)
 	var table []fishEntry

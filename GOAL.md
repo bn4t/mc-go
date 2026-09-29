@@ -13008,3 +13008,39 @@ Honest caveat: ItemEntity-hook (wear 3) and player-hook are
 implemented per the decompiled source but unpinned — the block clip
 truncates the ray first, so a grounded item is effectively
 unhookable, and no player-hook fixture is built.
+
+## Slice — fishing catch path: catchingFish model, loot, XP, emit shape (2026-09-29)
+
+Ported vanilla's full catchingFish model from FishingHook decompile:
+lured = nextInt(100,600) − lureLevel·5; a per-tick fishingSpeed
+integer (1 +25% rain roll −50% no-sky roll) decrements it; splash
+teases fire while lured with the <60/<40/<20-tick ramp (random angle,
+dist 25-60·0.1, water-block gated). On lured expiry hooked =
+nextInt(20,80) and the fishing-approach stream runs (fishAngle +=
+triangle(0,9.188)°/tick, two crossed FISHING at hooked·0.1 offset,
+15% BUBBLE, water-gated). On hooked expiry: splash sound, BUBBLE +
+FISHING bursts of count 1+width·20=6, DATA_BITING (idx9) emits true,
+and nibble = nextInt(20,40) opens the reel-in window; expiry clears
+idx9 and both timers. openWater resets true while bobbing, else
+latch-ANDs with outOfWaterTime<10 && calculateOpenWater — now the
+full four 5x5 layers y −1..2 (was three). Dry-landed bobbers skip
+the whole model (timers only run while in water).
+
+retrieve() while biting rolls gameplay/fishing.json with quality·luck
+weights (junk 10−2·luck, treasure 5+2·luck gated on openWater, fish
+85−luck; luck = luck_of_the_sea level read off ItemStack.Ench), throws
+the catch with delta·0.1 and vy += sqrt(dist)·0.08 (fixed a real bug:
+was dist·0.08), spawns the 1-6 XP orb at owner+0.5, and wears 1.
+Metadata emits now match vanilla's one-dirty-field-per-packet shape —
+idx8 and idx9 each ride alone (fishhook pin reads idx8 only and still
+passes). Blackbox: TestFishingCatchParity casts into an open-water
+pool at tick rate 40, waits for idx9=1, reels inside the nibble window,
+and pins on both servers: biting emit single-field, item + experience_orb
+spawns, rod damage exactly 1. vehObs gained unscoped bitHist/metaHist/
+partHist captures for the pins.
+
+Caveats: the catch's looted stack id isn't pinned (the draw is
+probabilistic; the item-entity spawn is). Tease/approach particles are
+recorded but not asserted — their rates are roll-gated and noisier
+than the differential is worth. The retrieve-miss path (no bite, just
+the bobber discard) is unchanged and unpinned here.

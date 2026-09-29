@@ -107,6 +107,9 @@ type vehObs struct {
 	hookHist   []string              // ordered idx8 emits as "eid:v" (spans the window)
 	hookEvent  int32                 // eid that carried entity_event status 31 (0 unseen)
 	bobberEIDs []int32               // add_entity eids of type fishing_bobber
+	bitHist    []string              // unscoped idx9 ser-8 bool emits as "eid:v" (fishing bite)
+	metaHist   []string              // every metadata packet as "eid:i1/i2/..."
+	partHist   []int32               // particle_type ids from level_particles packets
 }
 
 // vehWatch collects packets matching (eid, kind) over the window on
@@ -219,6 +222,13 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					r.Position()
 					data, _ := r.Int()
 					o.levelEv = append(o.levelEv, [2]int32{ev, data})
+				case 0x2F: // level_particles — particle type id
+					if len(p.Data) >= 47 {
+						r := protocol.NewPacketReader(p.Data[46:])
+						if pid, err := r.VarInt(); err == nil {
+							o.partHist = append(o.partHist, pid)
+						}
+					}
 				case 0x75: // sound — count positioned-sound packets
 					o.sounds++
 				case 35, 53, 54, 125: // pos sync / delta / teleport
@@ -235,15 +245,23 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					// eid the watcher can't know ahead); the rest
 					// stay scoped to the watched entity.
 					watchThis := peid == eid
+					var idxs []int
 					for {
 						idx, err := r.Byte()
 						if err != nil || idx == 0xFF {
+							parts := make([]string, 0, len(idxs))
+							for _, i := range idxs {
+								parts = append(parts, strconv.Itoa(i))
+							}
+							o.metaHist = append(o.metaHist,
+								strconv.Itoa(int(peid))+":"+strings.Join(parts, "/"))
 							break
 						}
 						ser, err := r.VarInt()
 						if err != nil {
 							break
 						}
+						idxs = append(idxs, int(idx))
 						switch ser {
 						case 0:
 							_, _ = r.Byte()
@@ -286,6 +304,14 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 							}
 							if watchThis {
 								o.boolMeta[int(idx)] = vv
+							}
+							if int(idx) == 9 {
+								v := "0"
+								if vv {
+									v = "1"
+								}
+								o.bitHist = append(o.bitHist,
+									strconv.Itoa(int(peid))+":"+v)
 							}
 						case 13: // optional_living_entity_reference — bool + uuid
 							present, err := r.Bool()
