@@ -13473,3 +13473,14 @@ already in place; the missing piece was the interact arm itself:
   /data merge re-reads it into setTamed(true), latching the equine
   DATA_ID_FLAGS byte 0x02 at idx18 — pinned vs both servers in
   `TestAnimalVariantParity` (sitting summon + two merges).
+- Equine DATA_ID_FLAGS NBT bits (0x08 BRED, 0x10 EATING): Bred,
+  EatingHaystack, Temper and Owner ride AbstractHorse's
+  readAdditionalSaveData on both summon and merge; the flags byte
+  packs 0x02 tamed | 0x08 bred | 0x10 eating at idx18. Temper is a
+  plain int (reply only, no wire slot); Owner is an EntityReference
+  field. Camel.isTamed() is hardcoded true — its save always writes
+  Tame:1b but the flag bit only latches when NBT Tame is read.
+  aiStep's eating decay (canEatGrass→true, ++eatingCounter > 50 →
+  setEating(false)) runs per tick outside the NoAI gate, plus the
+  1/300 grass-below re-arm roll — pinned vs both servers in
+  `TestAnimalVariantParity` (bred/tamed summons + five merges).

@@ -418,9 +418,18 @@ type Entity struct {
 	// it also gates the transient "suffocating" movement_speed
 	// modifier (-0.34 add_multiplied_base).
 	Suffocating bool
-	// Tamed is AbstractHorse's tamed flag (NBT Tame) — a tamed mount's
-	// sneak-interact opens the mount inventory screen.
+	// Tamed is AbstractHorse's tamed flag (NBT Tame → DATA_ID_FLAGS
+	// bit 0x02) — a tamed mount's sneak-interact opens the mount
+	// inventory screen.
 	Tamed bool
+	// Bred and EatingHaystack are AbstractHorse's NBT keys for the
+	// DATA_ID_FLAGS bits 0x08 (bred) and 0x10 (eating). Temper is the
+	// plain NBT int — no wire slot. eatingCounter is AbstractHorse's
+	// transient counter — aiStep clears the flag at >50.
+	Bred           bool
+	EatingHaystack bool
+	Temper         int32
+	eatingCounter  int
 	// HasChest is AbstractChestedHorse's ChestedHorse flag — a chested
 	// donkey/mule/llama's mount inventory gains 15 slots (5 columns).
 	HasChest bool

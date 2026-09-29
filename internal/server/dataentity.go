@@ -735,6 +735,15 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 			// Camel.isTamed() is hardcoded true — it writes 1b
 			// unconditionally; the rest take the DATA_ID_FLAGS bit.
 			m["Tame"] = nbtBool(e.Tamed || typeName == "camel")
+			// AbstractHorse.addAdditionalSaveData's tail: Bred and
+			// EatingHaystack are flag bits 0x08/0x10, Temper the
+			// plain int, Owner a nullable EntityReference.
+			m["Bred"] = nbtBool(e.Bred)
+			m["EatingHaystack"] = nbtBool(e.EatingHaystack)
+			m["Temper"] = e.Temper
+			if e.ownerUUID != ([16]byte{}) {
+				m["Owner"] = uuidInts(e.ownerUUID)
+			}
 		}
 		if chestedMountTypes[typeName] {
 			m["ChestedHorse"] = nbtBool(e.HasChest)
@@ -1561,11 +1570,33 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	// [1,5] and its Variant lands the enum id; Horse's Variant int is
 	// the packed type|markings value.
 	if mountScreenTypes[name] {
+		// AbstractHorse.readAdditionalSaveData — each set latches
+		// the DATA_ID_FLAGS byte dirty on a value change.
 		if v, ok := save["Tame"]; ok {
 			if t := nbtTruth(v); t != e.Tamed {
 				e.Tamed = t
 				e.MetaDirty = true
 			}
+		}
+		if v, ok := save["Bred"]; ok {
+			if t := nbtTruth(v); t != e.Bred {
+				e.Bred = t
+				e.MetaDirty = true
+			}
+		}
+		if v, ok := save["EatingHaystack"]; ok {
+			if t := nbtTruth(v); t != e.EatingHaystack {
+				e.EatingHaystack = t
+				e.MetaDirty = true
+			}
+		}
+		if v, ok := nbtInt32(save["Temper"]); ok {
+			e.Temper = v
+		}
+		// Owner is an EntityReference — a stored [I;4] uuid with no
+		// wire slot of its own.
+		if u, ok := foxTrustedUUID(save["Owner"]); ok {
+			e.ownerUUID = u
 		}
 	}
 	if chestedMountTypes[name] {

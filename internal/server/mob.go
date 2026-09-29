@@ -922,10 +922,28 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if name == "firework_rocket" {
 				applyRocketSummonNBT(e, tag)
 			}
-			// AbstractHorse's Tame flag (AbstractHorse.readAdditional
-			// SaveData) and AbstractChestedHorse's ChestedHorse.
-			if v, ok := tag.vals["Tame"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") && mountScreenTypes[name] {
-				e.Tamed = true
+			// AbstractHorse.readAdditionalSaveData: Tame/Bred/
+			// EatingHaystack flip DATA_ID_FLAGS bits; Temper is the
+			// plain int; Owner is an EntityReference to the tamer.
+			if mountScreenTypes[name] {
+				if v, ok := tag.vals["Tame"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+					e.Tamed = true
+				}
+				if v, ok := tag.vals["Bred"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+					e.Bred = true
+				}
+				if v, ok := tag.vals["EatingHaystack"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") {
+					e.EatingHaystack = true
+				}
+				if v, ok := tag.vals["Temper"]; ok {
+					e.Temper = int32(snbtNum(v))
+				}
+				if u, ok := snbtUUID(tag, "Owner"); ok {
+					e.ownerUUID = u
+					if ownerSess := s.sessionByUUID(u); ownerSess != nil {
+						e.owner = ownerSess.getName()
+					}
+				}
 			}
 			if v, ok := tag.vals["ChestedHorse"]; ok && (v.num == "1b" || v.num == "1" || v.str == "true") && chestedMountTypes[name] {
 				e.HasChest = true
@@ -4237,6 +4255,12 @@ func equineFlagsByte(e *Entity) byte {
 	if e.Tamed {
 		flags |= 0x02
 	}
+	if e.Bred {
+		flags |= 0x08
+	}
+	if e.EatingHaystack {
+		flags |= 0x10
+	}
 	return flags
 }
 
@@ -5162,6 +5186,30 @@ func (s *Server) mobTickStep() {
 			if e.EggLayTime <= 0 {
 				s.chickenLayEgg(e)
 				e.EggLayTime = 6000 + rand.Int31n(6000)
+			}
+		}
+		// AbstractHorse.aiStep's eating block — canEatGrass is
+		// unconditionally true, so the counter decay runs even on
+		// NoAI mounts: isEating && ++eatingCounter > 50 clears the
+		// 0x10 flag. The ambient roll (1/300, grass below, not
+		// eating, not a vehicle) re-arms it.
+		if equineTypes[ambName] {
+			if !e.EatingHaystack && e.Riding == 0 && s.rng.intn(300) == 0 {
+				if w := s.dimWorld(e.Dim); w != nil {
+					pos := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y) - 1), Z: int(math.Floor(e.Z))}
+					if bn, _ := world.StateOwner(w.GetBlock(pos)); strings.TrimPrefix(bn, "minecraft:") == "grass_block" {
+						e.EatingHaystack = true
+						e.MetaDirty = true
+					}
+				}
+			}
+			if e.EatingHaystack {
+				e.eatingCounter++
+				if e.eatingCounter > 50 {
+					e.eatingCounter = 0
+					e.EatingHaystack = false
+					e.MetaDirty = true
+				}
 			}
 		}
 		// LivingEntity.aiStep's ridden branch precedes the

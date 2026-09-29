@@ -51,6 +51,13 @@ func TestAnimalVariantParity(t *testing.T) {
 
 		// Camel with a negative pose tick — sitting at spawn.
 		"summon minecraft:camel 14.5 -59 8.5 {NoAI:1b,Tags:[\"" + tag + "\"],LastPoseTick:-100L}",
+		// A bred horse — DATA_ID_FLAGS packs 0x08 at index 18 behind
+		// the shared baby/agelock pair. EatingHaystack stays off:
+		// its 50-tick aiStep decay is tick-driven ambient noise.
+		"summon minecraft:horse 10.5 -59 8.5 {NoAI:1b,Tags:[\"" + tag + "\"],Bred:1b}",
+		// Tamed llama with pinned inventory keys — flags 0x02, then
+		// the llama family's strength/variant ints at 20/21.
+		"summon minecraft:llama 12.5 -59 8.5 {NoAI:1b,Tags:[\"" + tag + "\"],Tame:1b,Strength:3,Variant:1}",
 		// Diff merges: each emits only the touched slot.
 		"data merge entity " + sel("axolotl") + " {Variant:4}",
 		"data merge entity " + sel("parrot") + " {Variant:0}",
@@ -71,6 +78,15 @@ func TestAnimalVariantParity(t *testing.T) {
 		// poses the camel SITTING — pose@6 emits alongside.
 		"data merge entity " + sel("camel") + " {LastPoseTick:400L}",
 		"data merge entity " + sel("camel") + " {LastPoseTick:-20L}",
+		// Equine flag churn: Temper rides no wire slot (reply only);
+		// Tame/Bred flip the flags byte on each merge. The
+		// EatingHaystack pair runs last and adjacent — its 50-tick
+		// aiStep decay can't cross inside two windows.
+		"data merge entity " + sel("horse") + " {Temper:5}",
+		"data merge entity " + sel("horse") + " {Tame:1b}",
+		"data merge entity " + sel("llama") + " {Bred:1b}",
+		"data merge entity " + sel("horse") + " {EatingHaystack:1b}",
+		"data merge entity " + sel("horse") + " {EatingHaystack:0b}",
 	}
 
 	run := func(addr string) [][]string {
