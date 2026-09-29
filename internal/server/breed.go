@@ -242,6 +242,61 @@ func (s *Server) tameAnimal(sess *Session, eid int32, hand int32) bool {
 	return true
 }
 
+// tamableCollarDye is the collar-repaint arm Wolf.mobInteract and
+// Cat.mobInteract run inside isTame, ordered before the sit toggle:
+// owner + <color>_dye + color!=collar → setCollarColor + consume(1).
+// The fallthroughs differ per species and the caller's decision is
+// whether to swallow the click (true) or let the toggle run:
+//
+//	wolf + dye: owner+diff → repaint; owner+same → super (no toggle,
+//	  the toggle arm lives in the !dyes branch); !owner → super,
+//	  isOwnedBy gate fails. Every dye case swallows.
+//	cat + dye: owner+diff → repaint; owner+same → super → the
+//	  !consumesAction toggle fires (return false); !owner → swallow.
+func (s *Server) tamableCollarDye(sess *Session, eid int32, hand int32) bool {
+	s.entities.mu.RLock()
+	e, ok := s.entities.byID[eid]
+	s.entities.mu.RUnlock()
+	if !ok || !e.Living || !e.tamed {
+		return false
+	}
+	name, _ := EntityTypeName(e.Type)
+	if name != "wolf" && name != "cat" {
+		return false
+	}
+	held, hslot := sess.stackForHand(hand)
+	if held.Empty() {
+		return false
+	}
+	iname, ok := itemNameOf(held.ID)
+	if !ok || !isDyeItem(iname) {
+		return false
+	}
+	if e.ownerUUID != sess.uuid {
+		return true // swallow — non-owner dye does nothing
+	}
+	color := int32(-1)
+	for i, n := range dyeColorName {
+		if iname == n+"_dye" {
+			color = int32(i)
+			break
+		}
+	}
+	if color < 0 || color == collarColorValue(e) {
+		// Same color: wolf swallows (super.mobInteract's PASS, no
+		// toggle arm reached); cat falls through to the toggle.
+		return name == "wolf"
+	}
+	e.CollarColor = color
+	e.CollarColorSet = true
+	e.PersistenceRequired = true
+	e.MetaDirty = true
+	if sess.mode() == GameModeSurvival || sess.mode() == GameModeAdventure {
+		sess.consumeSlot(hslot, 1)
+	}
+	return true
+}
+
 // tamableSitToggle is the post-tame mobInteract arm every TamableAnimal
 // shares: an owner's click that no other handler consumed flips
 // setOrderedToSit — navigation.stop, setTarget(null), and the idx18
@@ -273,7 +328,12 @@ func (s *Server) tamableSitToggle(sess *Session, eid int32, hand int32) {
 		if bf, ok := animalFood[name]; ok && bf[iname] {
 			return
 		}
-		if (name == "wolf" || name == "cat") && (isDyeItem(iname) || iname == "wolf_armor") {
+		if name == "wolf" && (isDyeItem(iname) || iname == "wolf_armor") {
+			// Unreachable for dyes (collarDye swallows every wolf
+			// case); wolf armor's equip arm is unimplemented, so it
+			// still never toggles. Cat is absent on purpose: its
+			// same-color dye legitimately toggles — the repaint
+			// arm's fallthrough lands here.
 			return
 		}
 		if name == "parrot" && iname == "cookie" {

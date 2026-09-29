@@ -13,6 +13,12 @@
 // alone. Owner clicks flip orderedToSit silently — Sitting:1b→0b on
 // data get, zero wire traffic; a non-owner click changes nothing. On
 // an AI wolf the pose bit lands 4→5 a tick after tame.
+//
+// Collar dye (WOLF_COLLAR_DYES / CAT_COLLAR_DYES = #dyes): owner +
+// dye repaints DATA_COLLAR_COLOR (idx21 wolf / idx23 cat, ser1) and
+// consumes one. Divergence: wolf's same-color dye falls to
+// super.mobInteract past the toggle arm — a no-op — while cat's
+// falls INTO the owner toggle; a non-owner dye does nothing on both.
 package blackbox
 
 import (
@@ -33,15 +39,22 @@ func TestWolfTameParity(t *testing.T) {
 	defer targets.cleanup()
 
 	type wolfObs struct {
-		event7    bool
-		event6    int
-		ownerSeen bool
-		flags     int // last idx18 value seen, -1 none
-		sit1      float64
-		sit2      float64
-		sit3      float64
-		ownerQ    string
-		poseFlags int // AI wolf's last idx18, -1 none
+		event7     bool
+		event6     int
+		ownerSeen  bool
+		flags      int // last idx18 value seen, -1 none
+		sit1       float64
+		sit2       float64
+		sit3       float64
+		ownerQ     string
+		poseFlags  int // AI wolf's last idx18, -1 none
+		collar     int32
+		collarNBT  float64
+		heldDye    float64
+		sameColor  float64 // Sitting after a same-color dye click
+		noOwnerDye float64 // CollarColor after a non-owner dye click
+		catCollar  int32
+		catSit     float64 // cat toggles sit on a same-color dye
 	}
 
 	run := func(t *testing.T, name, addr string) wolfObs {
@@ -105,7 +118,7 @@ func TestWolfTameParity(t *testing.T) {
 		// packs idx18=4 (tame only — orderedToSit is a field) +
 		// idx19=uuid + event 7; failures emit event 6.
 		sendCommand(t, v.pwa,
-			"item replace entity BOATA weapon.mainhand with minecraft:bone 8")
+			"item replace entity BOATA weapon.mainhand with minecraft:bone 24")
 		time.Sleep(400 * time.Millisecond)
 		sel := "@e[type=minecraft:wolf,tag=WT,limit=1]"
 		tamed := false
@@ -145,13 +158,75 @@ func TestWolfTameParity(t *testing.T) {
 		st2, _ := dataGetSel(t, sink, pwc, sel, "Owner")
 		o.ownerQ = st2
 
+		// Collar dye: owner + cyan_dye repaints — idx21 emits the
+		// dye id (cyan=9) and a bone is consumed. A second cyan
+		// click repaints nothing and (wolf) does NOT toggle sit.
+		sendCommand(t, v.pwa,
+			"item replace entity BOATA weapon.mainhand with minecraft:cyan_dye 4")
+		time.Sleep(300 * time.Millisecond)
+		o.collar = -1
+		sendInteractEntity(v.pwa, wolf)
+		{
+			lo := vehWatch(t, v, false, wolf, 400*time.Millisecond)
+			allFl = append(allFl, lo.beeFlHist...)
+			if c, ok := lo.intMeta[21]; ok {
+				o.collar = c
+			}
+		}
+		st3, v3 := dataGetSel(t, sink, pwc, sel, "CollarColor")
+		if st3 == "query" {
+			o.collarNBT = v3
+		}
+		_, hv := dataGetSel(t, sink, pwc, "BOATA", "SelectedItem.count")
+		o.heldDye = hv
+		sendInteractEntity(v.pwa, wolf) // same color — swallows
+		watch(wolf, 300*time.Millisecond)
+		o.sameColor = sitNBT(sel)
+		sendInteractEntity(pwc, wolf) // non-owner dye — nothing
+		watch(wolf, 300*time.Millisecond)
+		_, o.noOwnerDye = dataGetSel(t, sink, pwc, sel, "CollarColor")
+
+		// Cat leg: the same-color dye DOES toggle — the only
+		// divergent arm vs wolf. Tame with cod (1-in-3 + sit order).
+		cat := summonTrackedNBT(t, v.ca, v.pra, v.pwa, pwc,
+			"cat", 11.5, -60, 8.5, "{NoAI:1b}")
+		o.catCollar = -1
+		if cat != 0 {
+			catSel := "@e[type=minecraft:cat,limit=1]"
+			sendCommand(t, v.pwa,
+				"item replace entity BOATA weapon.mainhand with minecraft:cod 24")
+			time.Sleep(300 * time.Millisecond)
+			for i := 0; i < 24; i++ {
+				sendInteractEntity(v.pwa, cat)
+				lo := vehWatch(t, v, false, cat, 300*time.Millisecond)
+				if _, ok := lo.uuidMeta[[2]int32{cat, 19}]; ok {
+					break
+				}
+			}
+			sendCommand(t, v.pwa,
+				"item replace entity BOATA weapon.mainhand with minecraft:cyan_dye 4")
+			time.Sleep(300 * time.Millisecond)
+			sendInteractEntity(v.pwa, cat) // repaint
+			lo := vehWatch(t, v, false, cat, 400*time.Millisecond)
+			if c, ok := lo.intMeta[23]; ok {
+				o.catCollar = c
+			}
+			before := sitNBT(catSel)
+			sendInteractEntity(v.pwa, cat) // same color → toggle
+			vehWatch(t, v, false, cat, 300*time.Millisecond)
+			after := sitNBT(catSel)
+			if before != after {
+				o.catSit = 1
+			}
+		}
+
 		// AI wolf: same tame flow, then SitWhenOrderedToGoal packs
 		// the pose bit — idx18 4→5 within a tick or two.
 		awolf := summonTrackedNBT(t, v.ca, v.pra, v.pwa, pwc,
 			"wolf", 12.5, -60, 8.5, "{Tags:[\"WT\"]}")
 		if awolf != 0 {
 			sendCommand(t, v.pwa,
-				"item replace entity BOATA weapon.mainhand with minecraft:bone 8")
+				"item replace entity BOATA weapon.mainhand with minecraft:bone 24")
 			time.Sleep(300 * time.Millisecond)
 			awStr := strconv.Itoa(int(awolf))
 			for i := 0; i < 24; i++ {
@@ -193,9 +268,30 @@ func TestWolfTameParity(t *testing.T) {
 		if o.poseFlags != 5 {
 			t.Fatalf("%s: AI wolf pose flags=%d want 5 (sit goal applied)", name, o.poseFlags)
 		}
-		t.Logf("%s: ev7=%v smokes=%d owner=%v flags=%d sit=%v/%v/%v aiPose=%d Owner=%s",
+		if o.collar != 9 {
+			t.Fatalf("%s: no idx21=9 collar emit on cyan dye (got %d)", name, o.collar)
+		}
+		if o.collarNBT != 9 {
+			t.Fatalf("%s: CollarColor NBT=%v want 9", name, o.collarNBT)
+		}
+		if o.heldDye != 3 {
+			t.Fatalf("%s: dye count=%v want 3 (one consumed)", name, o.heldDye)
+		}
+		if o.sameColor != 1 {
+			t.Fatalf("%s: same-color dye toggled Sitting (=%v want 1)", name, o.sameColor)
+		}
+		if o.noOwnerDye != 9 {
+			t.Fatalf("%s: non-owner dye repainted collar (=%v want 9)", name, o.noOwnerDye)
+		}
+		if o.catCollar != 9 {
+			t.Fatalf("%s: cat collar idx23=%d want 9", name, o.catCollar)
+		}
+		if o.catSit != 1 {
+			t.Fatalf("%s: cat same-color dye never toggled Sitting", name)
+		}
+		t.Logf("%s: ev7=%v smokes=%d owner=%v flags=%d sit=%v/%v/%v aiPose=%d collar=%d/%v dye=%v cat=%d/%v Owner=%s",
 			name, o.event7, o.event6, o.ownerSeen, o.flags, o.sit1, o.sit2, o.sit3,
-			o.poseFlags, o.ownerQ)
+			o.poseFlags, o.collar, o.collarNBT, o.heldDye, o.catCollar, o.catSit, o.ownerQ)
 	}
 
 	check(t, "vanilla", run(t, "vanilla", targets.vanilla))

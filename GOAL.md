@@ -13334,3 +13334,23 @@ test surfaced:
   setInSittingPose(orderedToSit) load path (pose set on spawn pack).
 - Measured and pinned per-species tame odds already: wolf/cat 1-in-3
   with auto-sit-order, parrot 1-in-10 standing.
+
+## Slice — collar dye parity + the cat/wolf same-color divergence (26.2)
+
+`TestWolfTameParity`'s dye phase is green vs both servers (idx21 wolf
+/ idx23 cat emit + CollarColor NBT + consume + the two swallow cases
++ the cat same-color toggle). Collar metadata/NBT/summon-read were
+already in place; the missing piece was the interact arm itself:
+
+- New tamableCollarDye (breed.go): owner + <color>_dye + color!=collar
+  → repaint + consume(1) + persistenceRequired + MetaDirty. Called
+  before the sit toggle in handleInteract, matching vanilla's inTame
+  arm ordering.
+- The fallthroughs differ per species and both are pinned: wolf's
+  same-color dye falls PAST the toggle arm (it lives in the !dyes
+  branch) — a silent no-op — while cat's same-color dye falls INTO
+  the owner toggle and flips orderedToSit. Non-owner dye swallows on
+  both (super.mobInteract → no isOwnedBy).
+- CollarColor legacy codec = BYTE (id 0-15), RED(14) defined default;
+  dataentity already emitted it unconditionally — repaint just sets
+  CollarColor+Set.

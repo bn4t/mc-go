@@ -312,6 +312,9 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	if s.tameAnimal(sess, id, hand) {
 		return
 	}
+	if s.tamableCollarDye(sess, id, hand) {
+		return
+	}
 	s.tamableSitToggle(sess, id, hand)
 	if s.equipMountChest(sess, id, hand, sneaking) {
 		return
