@@ -932,6 +932,13 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.OrbValue = int32(n)
 				}
 			}
+			// Allay.readAdditionalSaveData's DuplicationCooldown read:
+			// getIntOr(0) → setDuplicationCooldown.
+			if v, ok := tag.vals["DuplicationCooldown"]; ok && name == "allay" {
+				if n, err := strconv.Atoi(strings.TrimRight(v.num, "bBsSiIlLfFdD")); err == nil {
+					e.DupCooldown = int64(n)
+				}
+			}
 			if eq, ok := tag.vals["equipment"]; ok {
 				if sd, ok := eq.vals["saddle"]; ok && sd.vals["id"].str != "" {
 					e.Saddle = true
@@ -2680,6 +2687,8 @@ type livingMeta struct {
 	hSoundID   int32
 	boost      int32
 	suffoc     bool
+	dancing    bool
+	canDup     bool
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2717,6 +2726,8 @@ func snapLivingMeta(e *Entity) livingMeta {
 		hSoundID:   holderSoundVariantIDOf(e),
 		boost:      int32(e.BoostTimeTotal),
 		suffoc:     e.Suffocating,
+		dancing:    e.Dancing,
+		canDup:     e.DupCooldown <= 0,
 	}
 }
 
@@ -3051,6 +3062,21 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(27)
 				b.VarInt(id)
 			}
+		case name == "allay":
+			// DATA_DANCING (16, boolean) — the JukeboxListener's
+			// synced dance flag.
+			if e.Dancing != last.dancing {
+				b.Byte(16)
+				b.Byte(8)
+				b.Bool(e.Dancing)
+			}
+			// DATA_CAN_DUPLICATE (17, boolean): packs the value (not
+			// the cooldown) — true until duplicationCooldown counts.
+			if cd := e.DupCooldown <= 0; cd != last.canDup {
+				b.Byte(17)
+				b.Byte(8)
+				b.Bool(cd)
+			}
 		case name == "pig":
 			if e.Baby != last.baby {
 				b.Byte(16)
@@ -3267,6 +3293,22 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(16)
 				b.Byte(8) // type: boolean
 				b.Byte(1)
+			}
+		case "allay":
+			// DATA_DANCING (16, boolean): the JukeboxListener's dance
+			// state — the false define default stays unpacked.
+			if e.Dancing {
+				b.Byte(16)
+				b.Byte(8) // serializer: boolean
+				b.Bool(true)
+			}
+			// DATA_CAN_DUPLICATE (17, boolean): true is the define
+			// default, so only the inverted value packs — the 6000
+			// ticks after a duplication while the cooldown counts.
+			if e.DupCooldown > 0 {
+				b.Byte(17)
+				b.Byte(8) // serializer: boolean
+				b.Bool(false)
 			}
 		case "axolotl":
 			if e.Baby {

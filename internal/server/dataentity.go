@@ -960,6 +960,11 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	for k, v := range e.ExtraNBT {
 		m[k] = v
 	}
+	if typeName == "allay" {
+		// Allay.addAdditionalSaveData's putLong — emitted always,
+		// even at 0.
+		m["DuplicationCooldown"] = e.DupCooldown
+	}
 	// LeashData.save: leash:[I;x,y,z] for a knot holder,
 	// leash:[I;a,b,c,d] (the UUID int-array) for an entity holder.
 	if e.Living && e.LeashHolder != 0 && ents != nil {

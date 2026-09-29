@@ -21,6 +21,9 @@ const (
 	allayNoteblockRange  = 1024.0
 	allayThrowDist       = 3.0
 	allayPickupReach     = 1.5
+	// allayJukeboxRadius is GameEvent.JUKEBOX_PLAY's notificationRadius
+	// — the JukeboxListener only hears plays within 10 blocks.
+	allayJukeboxRadius = 10.0
 )
 
 // allayThrowPitches is Allay.THROW_SOUND_PITCHES — the pitch pool
@@ -201,7 +204,146 @@ func (s *Server) allayTickStep() {
 		}
 		s.allayPickUpStep(e)
 		s.allayThrowStep(e, now)
+		s.allayDanceStep(e, now)
 	}
+}
+
+// allayJukeboxEvent is Allay$JukeboxListener.handleGameEvent: a
+// JUKEBOX_PLAY at pos starts the dance on every allay inside the
+// event's 10-block notificationRadius (and remembers that pos); a
+// JUKEBOX_STOP_PLAY clears the dance only on allays whose remembered
+// pos matches the event's (or who remember none — that arm covers
+// the load-from-save allay whose listener never saw a play).
+// Jukebox/stop events aren't in the vibrations or warden_can_listen
+// tags, so no sculk dispatch rides this — the allay listener is the
+// only ear.
+func (s *Server) allayJukeboxEvent(d *dimension, pos world.Pos, playing bool) {
+	s.entities.mu.Lock()
+	defer s.entities.mu.Unlock()
+	cx, cy, cz := float64(pos.X)+0.5, float64(pos.Y)+0.5, float64(pos.Z)+0.5
+	for _, e := range s.entities.byID {
+		if e.Dim != d.name || !isAllay(e) {
+			continue
+		}
+		dx, dy, dz := e.X-cx, e.Y-cy, e.Z-cz
+		if dx*dx+dy*dy+dz*dz > allayJukeboxRadius*allayJukeboxRadius {
+			continue
+		}
+		if playing {
+			// setJukeboxPlaying(pos,true): only an allay that is NOT
+			// already dancing takes the new pos — the listener does
+			// not re-aim a dancing allay. The pos is stored regardless
+			// of the flag write, so a NoAI allay keeps re-aiming.
+			if e.Dancing {
+				continue
+			}
+			e.JukeboxPos, e.HasJukeboxPos = pos, true
+			// setDancing gates on isEffectiveAi (NoAI blocks the flag
+			// write) and isPanicking — a NoAI/panicking allay stores
+			// the pos but never flips DATA_DANCING.
+			if e.NoAI || e.PanicActive {
+				continue
+			}
+			e.Dancing = true
+		} else {
+			if e.HasJukeboxPos && e.JukeboxPos != pos {
+				continue
+			}
+			e.HasJukeboxPos = false
+			if e.NoAI || e.PanicActive {
+				continue
+			}
+			e.Dancing = false
+		}
+		e.MetaDirty = true
+	}
+}
+
+// allayDanceStep is Allay.aiStep's server arm: heal 1.0 every 10
+// ticks while alive, run the %20 shouldStopDancing check (no
+// remembered pos, jukebox center beyond notificationRadius, or the
+// block no longer a jukebox — the disc itself need not still play),
+// and count down duplicationCooldown (DATA_CAN_DUPLICATE flips back
+// true at 0).
+func (s *Server) allayDanceStep(e *Entity, now int64) {
+	if now%10 == 0 && e.Health > 0 {
+		s.entities.Heal(e.ID, 1)
+	}
+	if e.Dancing && now%20 == 0 {
+		stop := !e.HasJukeboxPos
+		if !stop {
+			cx, cy, cz := float64(e.JukeboxPos.X)+0.5, float64(e.JukeboxPos.Y)+0.5, float64(e.JukeboxPos.Z)+0.5
+			dx, dy, dz := e.X-cx, e.Y-cy, e.Z-cz
+			if dx*dx+dy*dy+dz*dz > allayJukeboxRadius*allayJukeboxRadius {
+				stop = true
+			}
+		}
+		if !stop {
+			d := s.dims[e.Dim]
+			if d == nil {
+				stop = true
+			} else if n, _ := world.StateOwner(d.w.GetBlock(e.JukeboxPos)); n != "jukebox" {
+				stop = true
+			}
+		}
+		if stop {
+			s.entities.mu.Lock()
+			e.Dancing, e.HasJukeboxPos = false, false
+			e.MetaDirty = true
+			s.entities.mu.Unlock()
+		}
+	}
+	if e.DupCooldown > 0 {
+		s.entities.mu.Lock()
+		e.DupCooldown--
+		if e.DupCooldown == 0 {
+			e.MetaDirty = true
+		}
+		s.entities.mu.Unlock()
+	}
+}
+
+// allayDuplicate is Allay.mobInteract's first arm: while the allay
+// is dancing and DATA_CAN_DUPLICATE is set, a held #duplicates_allays
+// item (amethyst_shard) click spawns a copy at its position —
+// snapTo's position and rotation, persistenceRequired on both, the
+// 6000-tick duplicationCooldown reset on both — then broadcast
+// entity event 18 and the amethyst chime to everyone but the
+// interactor, and one shard consumed (creative keeps its stack).
+func (s *Server) allayDuplicate(sess *Session, eid int32, hand int32) bool {
+	s.entities.mu.RLock()
+	e, ok := s.entities.byID[eid]
+	s.entities.mu.RUnlock()
+	if !ok || !isAllay(e) || !e.Dancing || e.DupCooldown > 0 {
+		return false
+	}
+	held, slot := sess.stackForHand(hand)
+	if iname, _ := itemNameOf(held.ID); iname != "amethyst_shard" {
+		return false
+	}
+	d := s.dims[e.Dim]
+	if d == nil {
+		return false
+	}
+	ne, nok := s.summonMobInit(d, "allay", e.X, e.Y, e.Z, e.NoAI, true)
+	if nok {
+		s.entities.mu.Lock()
+		ne.Yaw, ne.Pitch, ne.HeadYaw = e.Yaw, e.Pitch, e.HeadYaw
+		ne.PersistenceRequired = true
+		ne.DupCooldown = 6000
+		ne.MetaDirty = true
+		e.PersistenceRequired = true
+		e.DupCooldown = 6000
+		e.MetaDirty = true
+		s.entities.mu.Unlock()
+	}
+	s.broadcastEntityEvent(e.ID, 18)
+	s.playSoundSrc(e.Dim, e.X, e.Y, e.Z,
+		soundEventIDs["block.amethyst_block.chime"], srcNeutral, 2.0, 1.0, sess)
+	if sess.mode() != GameModeCreative {
+		sess.consumeSlot(slot, 1)
+	}
+	return true
 }
 
 // allayPickUpStep picks up the first matching item entity in the

@@ -389,6 +389,12 @@ func (s *Server) breakBlock(sess *Session, pos world.Pos, info blockHardness) {
 	// a break drops the block-item via the loot table's
 	// copy_components[custom_name], which reads the dead cell's name.
 	beName := sess.dimension().beNames[pos]
+	// JukeboxBlock's contents drop with the block (popOutTheItem's
+	// destroy arm): capture the disc + stop the song before the
+	// write kills the block entity's pos record.
+	if name, _ := world.StateOwner(broken); name == "jukebox" {
+		s.jukeboxDrop(sess.dimension(), pos)
+	}
 	s.fireBeeNestDestroyed(sess, sess.dimension(), pos, broken)
 	s.setBlockAndBroadcast(sess.getName(), pos, world.Air)
 	// ServerLevel.destroyBlock posts BLOCK_DESTROY at the broken

@@ -83,19 +83,24 @@ func sendPaddleBoat(pw *protocol.Writer, left, right bool) {
 // vehObs is what vehWatch collected over a window: every observable
 // wire fact about one entity, keyed the way assertions read it.
 type vehObs struct {
-	moved      bool            // any position/delta/teleport packet for eid
-	moveVeh    bool            // move_vehicle rubber-band to the driver
-	passengers int             // latest set_passengers count, -1 unseen
-	boolMeta   map[int]bool    // serializer-8 metadata entries seen
-	intMeta    map[int]int32   // serializer-1 (VarInt) entries seen
-	intMetaMax map[int]int32   // largest int value seen per index
-	floatMeta  map[int]float32 // serializer-3 (Float) entries seen
-	floatMax   map[int]float32 // largest float value seen per index
-	removed    map[int32]bool  // ids seen in remove_entities
-	itemEIDs   []int32         // eids of add_entity spawns of type "item"
-	disconnect bool            // a play-stage disconnect packet arrived
-	syncSeen   bool            // a sync_pos (player teleport) arrived on either conn
-	sync       [3]float64      // last sync_pos coordinates
+	moved      bool             // any position/delta/teleport packet for eid
+	moveVeh    bool             // move_vehicle rubber-band to the driver
+	passengers int              // latest set_passengers count, -1 unseen
+	boolMeta   map[int]bool     // serializer-8 metadata entries seen
+	intMeta    map[int]int32    // serializer-1 (VarInt) entries seen
+	intMetaMax map[int]int32    // largest int value seen per index
+	floatMeta  map[int]float32  // serializer-3 (Float) entries seen
+	floatMax   map[int]float32  // largest float value seen per index
+	removed    map[int32]bool   // ids seen in remove_entities
+	itemEIDs   []int32          // eids of add_entity spawns of type "item"
+	disconnect bool             // a play-stage disconnect packet arrived
+	syncSeen   bool             // a sync_pos (player teleport) arrived on either conn
+	sync       [3]float64       // last sync_pos coordinates
+	levelEv    [][2]int32       // level_event {event,data} pairs seen
+	entEv      []byte           // entity_event statuses seen on the watched eid
+	adds       map[string]int   // add_entity counts by type name
+	sounds     int              // positioned sound (0x75) packets seen
+	blockUps   map[[3]int32]int // block_update counts by position
 }
 
 // vehWatch collects packets matching (eid, kind) over the window on
@@ -115,6 +120,8 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 		floatMeta:  map[int]float32{},
 		floatMax:   map[int]float32{},
 		removed:    map[int32]bool{},
+		adds:       map[string]int{},
+		blockUps:   map[[3]int32]int{},
 	}
 	poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
 		_ = c.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
@@ -162,14 +169,37 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					}
 				case 0x20: // disconnect
 					o.disconnect = true
-				case 1: // add_entity — count item-entity spawns
+				case 1: // add_entity — count spawns by type; items keep eids
 					r := protocol.NewPacketReader(p.Data)
 					peid, _ := r.VarInt()
 					r.UUID()
 					ty, _ := r.VarInt()
-					if n, _ := server.EntityTypeName(ty); n == "item" {
+					n, _ := server.EntityTypeName(ty)
+					o.adds[n]++
+					if n == "item" {
 						o.itemEIDs = append(o.itemEIDs, peid)
 					}
+				case 0x08: // block_update — count writes by position
+					r := protocol.NewPacketReader(p.Data)
+					x, y, z, err := r.Position()
+					if err == nil {
+						o.blockUps[[3]int32{x, y, z}]++
+					}
+				case server.IDPlayEntityEvent: // 0x22 — Int eid + status
+					r := protocol.NewPacketReader(p.Data)
+					peid, _ := r.Int()
+					st, _ := r.Byte()
+					if peid == eid {
+						o.entEv = append(o.entEv, st)
+					}
+				case server.IDPlayLevelEvent: // 0x2E — record event+data
+					r := protocol.NewPacketReader(p.Data)
+					ev, _ := r.Int()
+					r.Position()
+					data, _ := r.Int()
+					o.levelEv = append(o.levelEv, [2]int32{ev, data})
+				case 0x75: // sound — count positioned-sound packets
+					o.sounds++
 				case 35, 53, 54, 125: // pos sync / delta / teleport
 					r := protocol.NewPacketReader(p.Data)
 					peid, _ := r.VarInt()

@@ -12737,3 +12737,41 @@ held stick for pig/strider, and the legacy `Saddle` summon read is
 removed. TestStriderParity (suffocating emit counts) is a
 preexisting timing flake — fails intermittently on bare master and
 on this change on both legs.
+
+## Slice — jukebox record lifecycle + allay dance/duplicate (2026-09-25)
+
+Measured: JukeboxBlock.useItemOn — has_record→TRY_WITH_EMPTY_HAND
+(any click ejects, disc or not); empty + JUKEBOX_PLAYABLE →
+setTheItem → consumeAndReturn(1, creative-gated) →
+notifyItemChangedInJukebox: flag-2 `has_record` write +
+gameEvent(BLOCK_CHANGE). JukeboxSongPlayer: play → levelEvent(null,
+1010, pos, songRegistryId); tick%20 → gameEvent(JUKEBOX_PLAY,
+radius 10) + spawnMusicParticles (NOTE, count=0,
+xd=nextInt(4)/24f, speed=1); hasFinished → stop (song!=null
+guarded, so eject-after-finish must not re-emit 1011).
+popOutTheItem: item entity at pos+(0.5,1.01,0.5)+offsetRandomXZ(0.7),
+pickup delay 10, then notifyItemChanged(false)+songPlayer.stop.
+Allay.setJukeboxPlaying: playing&&!isDancing → store pos + setDancing(true);
+!playing → clear only when pos matches or none stored. setDancing
+gates isClientSide, isEffectiveAi (NoAI stores pos, never flips
+DATA_DANCING), and isPanicking; shouldStopDancing at %20 on null pos,
+dist>notificationRadius, or block!=jukebox. aiStep heals 1.0 every
+10 ticks even for NoAI. duplicateAllay: ALLAY.create(BREEDING) at
+position (yaw/pitch not carried), PersistenceRequired,
+resetDuplicationCooldown(6000) on both → addFreshEntity +
+broadcastEntityEvent(18) + AMETHYST_BLOCK_CHIME (NEUTRAL, 2.0/1.0,
+except=player) + consume(1). The event chain (EntityCallbacks →
+DynamicGameEventListener.move → dispatcher.visitInRangeListeners)
+has no NoAI/vibration gate — the only gate is setDancing itself.
+
+Pinned: TestJukeboxParity — insert disc → blockUps≥1 +
+level_event(1010,5) + in-radius DATA_DANCING(16)=true; eject →
+item spawn + has_record=false + STOP_PLAY(1011,0) + dance clear;
+NoAI in-radius allay never flips idx16 (stores pos only);
+out-of-radius allay never dances. TestAllayDuplicateParity —
+amethyst_shard interact on the dancing allay → fresh allay add +
+entity_event 18 + chime + DuplicationCooldown≈6000 both parent and
+child, second click no-op (cooldown), stick click no-op (tag gate).
+Fixed under test: allayJukeboxEvent lacked the isEffectiveAi/isPanicking
+gates on setDancing (NoAI allays danced); entity_event watcher read
+eid as VarInt — the wire is Int.

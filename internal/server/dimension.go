@@ -83,6 +83,10 @@ type dimension struct {
 	// the VibrationSystem$Data plus the saved last frequency. Entries
 	// are created when the sensor block is written and die with it.
 	sculk map[world.Pos]*sculkSensor
+	// jukeboxes is every loaded jukebox block entity — the held
+	// record plus the JukeboxSongPlayer's ticking state. Entries are
+	// created on disc insert and die on eject/break/overwrite.
+	jukeboxes map[world.Pos]*jukeboxEnt
 	// beNames is every block entity's CustomName — the raw serialized
 	// text component ("{\"text\":\"Bob\"}") a setblock tag or a named
 	// placed item left behind (Nameable.setCustomName). Loot

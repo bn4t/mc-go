@@ -315,6 +315,12 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	s.openMountInventory(sess, id, sneaking)
 	s.rideVehicle(sess, id, sneaking)
 	s.tradeVillager(sess, id, hand)
+	// Allay.mobInteract's first arm: a dancing allay duplicates on an
+	// amethyst shard while DATA_CAN_DUPLICATE holds — before the item
+	// hand-off.
+	if s.allayDuplicate(sess, id, hand) {
+		return
+	}
 	s.giveAllay(sess, id, hand)
 	s.cureZombieVillager(sess, id, hand)
 	s.armorStandInteract(sess, id, hand, clickY)

@@ -124,6 +124,24 @@ type Entity struct {
 	// GoAndGiveItemsToTarget waits TIME_BETWEEN_ITEM_THROWS (20 ticks)
 	// between throws.
 	LastThrow int64
+	// Dancing is the allay's synced DATA_DANCING (16): set when its
+	// JukeboxListener hears JUKEBOX_PLAY within the event's 10-block
+	// notificationRadius, cleared on JUKEBOX_STOP_PLAY or when the
+	// remembered jukeboxPos goes away/out of range.
+	Dancing bool
+	// JukeboxPos/HasJukeboxPos are the allay's remembered jukebox
+	// block (set only on the PLAY that STARTS the dance — later
+	// events don't move it while already dancing).
+	JukeboxPos    world.Pos
+	HasJukeboxPos bool
+	// DupCooldown is Allay.duplicationCooldown — ticks until the
+	// allay may duplicate again (6000 after each duplication); the
+	// synced DATA_CAN_DUPLICATE (17) reads it: true iff 0. Saved as
+	// NBT DuplicationCooldown.
+	DupCooldown int64
+	// DupEligible mirrors DATA_CAN_DUPLICATE on the wire — true iff
+	// DupCooldown has counted back to 0.
+	// (computed — no field needed)
 	// Converting/ConversionTime/ConversionStarter model
 	// ZombieVillager's cure countdown: ConversionTime ticks down by
 	// cureProgress each game tick, and at zero finishCure replaces

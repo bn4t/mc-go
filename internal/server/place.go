@@ -402,6 +402,13 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		useAck()
 		return
 	}
+	// JukeboxBlock.useItemOn/useWithoutItem: a loaded jukebox ejects
+	// on any click; an empty one takes a music disc. Every other
+	// click is a double-PASS — the held item places.
+	if name, _ := world.StateOwner(cur); blockUse && name == "jukebox" && s.useJukebox(sess, d, clicked) {
+		useAck()
+		return
+	}
 	// Container blocks open their menu instead of placing, but only
 	// in reach and only once every server teleport is confirmed:
 	// out-of-reach uses die silently, unconfirmed ones get the
