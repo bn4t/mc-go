@@ -1689,6 +1689,24 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			}
 		}
 	}
+	// TamableAnimal.readAdditionalSaveData: a parsed Owner reference
+	// stores the DATA_OWNERUUID slot and flips setTame(true) —
+	// wolf/cat/parrot share the chain. Sitting lands independently.
+	if name == "wolf" || name == "cat" || name == "parrot" {
+		if u, ok := foxTrustedUUID(save["Owner"]); ok {
+			e.ownerUUID = u
+			e.tamed = true
+		}
+		if v, ok := save["Sitting"]; ok {
+			if b := nbtTruth(v); b != e.Sitting {
+				e.Sitting = b
+				e.MetaDirty = true
+			}
+			// setInSittingPose(orderedToSit) — the pose mirrors the
+			// field on load.
+			e.SittingPose = e.Sitting
+		}
+	}
 	if name == "parrot" {
 		if v, ok := nbtInt32(save["Variant"]); ok {
 			v = max(0, min(4, v))

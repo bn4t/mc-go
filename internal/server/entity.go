@@ -255,12 +255,28 @@ type Entity struct {
 	// live — it gates travelInWater's idle -0.005 sink and the client
 	// tail/spikes animation.
 	Moving bool
-	// AvoidEntityGoal state: fleeUntil is the game-time deadline the
-	// goal stays armed to — vanilla's posAvoider paths to a point
-	// ~16 blocks off, so the fleer overshoots its trigger distance —
-	// and fleeX/Z pin that running threat position plus its sprint.
-	fleeUntil int64
-	fleeX     float64
+	// AvoidEntityGoal state: AvoidActive latches the escape target
+	// the navigation drives at — vanilla picks a RANDOM cell in the
+	// away half-space within 16 blocks (getPosAway) once at canUse,
+	// then paths to it until done (canContinueToUse =
+	// !navigation.isDone), sprinting while the feared entity stays
+	// inside 7 blocks (distanceToSqr < 49) and walking otherwise.
+	// AvoidSteps caps a run; AvoidBest/AvoidStill are the
+	// no-progress detector standing in for an exhausted partial
+	// path.
+	AvoidActive   bool
+	AvoidTX       float64
+	AvoidTZ       float64
+	AvoidFearedID int32
+	AvoidSteps    int32
+	AvoidBest     float64
+	AvoidStill    int32
+	AvoidWalk     float64
+	AvoidSprint   float64
+	// AvoidFearedP holds the feared session when the threat is a
+	// player (players aren't entity records) — its live position
+	// drives the 7-block sprint radius.
+	AvoidFearedP *Session
 	// FleeSunGoal state: hideX/Y/Z latch the picked shelter cell —
 	// PathNavigation keeps walking there until "done" (inside 1 block),
 	// matching canContinueToUse = !navigation.isDone.
@@ -268,8 +284,6 @@ type Entity struct {
 	hideX       float64
 	hideY       float64
 	hideZ       float64
-	fleeZ       float64
-	fleeSprint  float64
 	// Creeper swell state: Swell counts toward MaxSwell (NBT Fuse,
 	// default 30), SwellDir is ±1 (metadata idx 18), Powered doubles
 	// explosionRadius in explodeCreeper (NBT powered), Ignited is the

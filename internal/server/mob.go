@@ -4688,6 +4688,11 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 					s.panicRollTarget(ep)
 					ep.PanicSteps = 0
 					ep.Strolling = false
+					// PanicGoal (priority 1) preempts AvoidEntityGoal
+					// (3): goalSelector calls avoid's stop(), so the
+					// escape run does not resume after the panic — it
+					// re-rolls a fresh target once panic ends.
+					ep.AvoidActive = false
 				}
 			}
 		}
@@ -7020,23 +7025,28 @@ var panicCauseTypes = map[string]bool{
 
 // mobFlees is the measured AvoidEntityGoal table — feared class
 // ("player" and "monster" are predicates, the rest entity types),
-// trigger distance, and sprint speed modifier. Verified on the 26.2
-// jar: creeper→ocelot+cat 6.0/1.0/1.2, skeletons→wolf 6.0/1.0/1.2,
-// rabbit→player 8 / wolf 10 / monster 4 at 2.2, fox→player 16 /
-// wolf+polar_bear 8 at 1.4 sprint.
+// trigger distance, and the walk/sprint speed modifiers. Verified on
+// the 26.2 jar: creeper→ocelot+cat 6.0 @ 1.0/1.2, skeletons→wolf
+// 6.0 @ 1.0/1.2, rabbit→player 8 / wolf 10 / monster 4 @ 2.2/2.2,
+// fox→player 16 / wolf+polar_bear 8 @ 1.6/1.4 — fox walks FASTER
+// than it sprints. Fox predicates: a discrete (sneaking) player is
+// exempt from the player rule, and a tame wolf from the wolf rule.
 type fleeRule struct {
-	feared string
-	dist   float64
-	sprint float64
+	feared      string
+	dist        float64
+	walk        float64
+	sprint      float64
+	sneakExempt bool
+	untamedOnly bool
 }
 
 var mobFlees = map[string][]fleeRule{
-	"skeleton": {{"wolf", 6.0, 1.2}},
-	"stray":    {{"wolf", 6.0, 1.2}},
-	"bogged":   {{"wolf", 6.0, 1.2}},
-	"creeper":  {{"ocelot", 6.0, 1.2}, {"cat", 6.0, 1.2}},
-	"rabbit":   {{"player", 8.0, 2.2}, {"wolf", 10.0, 2.2}, {"monster", 4.0, 2.2}},
-	"fox":      {{"player", 16.0, 1.4}, {"wolf", 8.0, 1.4}, {"polar_bear", 8.0, 1.4}},
+	"skeleton": {{"wolf", 6.0, 1.0, 1.2, false, false}},
+	"stray":    {{"wolf", 6.0, 1.0, 1.2, false, false}},
+	"bogged":   {{"wolf", 6.0, 1.0, 1.2, false, false}},
+	"creeper":  {{"ocelot", 6.0, 1.0, 1.2, false, false}, {"cat", 6.0, 1.0, 1.2, false, false}},
+	"rabbit":   {{"player", 8.0, 2.2, 2.2, false, false}, {"wolf", 10.0, 2.2, 2.2, false, false}, {"monster", 4.0, 2.2, 2.2, false, false}},
+	"fox":      {{"player", 16.0, 1.6, 1.4, true, false}, {"wolf", 8.0, 1.6, 1.4, false, true}, {"polar_bear", 8.0, 1.6, 1.4, false, false}},
 }
 
 // mobMonsterType approximates vanilla's Monster superclass for the
@@ -7517,19 +7527,71 @@ func (s *Server) mobBreedStep(e *Entity, name string) bool {
 	return true
 }
 
-// mobFleeStep is AvoidEntityGoal: the nearest feared entity inside the
-// rule's trigger distance sends the mob away at sprint speed; the goal
-// stays armed a beat past the trigger window so the fleer overshoots —
-// vanilla's posAvoider paths to a point ~16 blocks off.
+// mobFleeStep is AvoidEntityGoal. canUse scans the feared classes for
+// the nearest threat inside the rule's trigger distance, then rolls a
+// random escape cell in the away half-space (getPosAway 16/7 — a
+// straight-away vector is wrong); canUse fails for the tick when no
+// candidate survives or the picked cell would end CLOSER to the
+// threat. A latched run drives to its fixed cell until arrival or
+// no-progress (canContinueToUse = !navigation.isDone), sprinting while
+// the feared entity's live position stays inside 7 blocks
+// (distanceToSqr < 49) and walking beyond.
 func (s *Server) mobFleeStep(e *Entity, kn string) bool {
 	rules, ok := mobFlees[kn]
 	if !ok {
 		return false
 	}
-	var fx, fz float64
+	w := s.dimWorld(e.Dim)
+	if w == nil {
+		return false
+	}
+	speed := mobChaseSpeed
+	if mv, ok := entityAttrBases[kn]["movement_speed"]; ok {
+		speed = mv
+	}
+	if e.AvoidActive {
+		e.AvoidSteps++
+		dist := math.Hypot(e.AvoidTX-e.X, e.AvoidTZ-e.Z)
+		if dist < e.AvoidBest-0.05 {
+			e.AvoidBest = dist
+			e.AvoidStill = 0
+		} else {
+			e.AvoidStill++
+		}
+		if dist < 0.5 || e.AvoidStill >= 10 || e.AvoidSteps > 160 {
+			// navigation.isDone: the run ends; canUse may re-roll a
+			// fresh escape target on the very next tick.
+			e.AvoidActive = false
+			s.mobTravelStep(e, w, 0)
+			return true
+		}
+		mod := e.AvoidWalk
+		var txp, typ, tzp float64
+		threat := false
+		if e.AvoidFearedID != 0 {
+			if fp, ok := s.entities.GetPtr(e.AvoidFearedID); ok {
+				txp, typ, tzp, threat = fp.X, fp.Y, fp.Z, true
+			}
+		} else if e.AvoidFearedP != nil {
+			txp, typ, tzp, _, _, _ = e.AvoidFearedP.Pos()
+			threat = true
+		}
+		if threat {
+			dx, dy, dz := txp-e.X, typ-e.Y, tzp-e.Z
+			if dx*dx+dy*dy+dz*dz < 49 {
+				mod = e.AvoidSprint
+			}
+		}
+		mobTurnToward(e, e.AvoidTX-e.X, e.AvoidTZ-e.Z, 90)
+		e.HeadYaw = e.Yaw
+		s.mobTravelStep(e, w, speed*mod)
+		return true
+	}
+	var fx, fy, fz float64
+	var fearedID int32
+	var fearedP *Session
+	var fleeWalk, fleeSprint float64
 	best := -1.0
-	sprint := 1.0
-	now := s.gameTime()
 	for _, r := range rules {
 		d2 := r.dist * r.dist
 		switch r.feared {
@@ -7540,6 +7602,11 @@ func (s *Server) mobFleeStep(e *Entity, kn string) bool {
 					p.mode() == GameModeCreative || p.mode() == GameModeSpectator {
 					return true
 				}
+				// The fox's AVOID_PLAYERS predicate exempts a discrete
+				// player — sneaking does not trigger the flee.
+				if r.sneakExempt && p.sneaking {
+					return true
+				}
 				if p.dimName() != e.Dim {
 					return true
 				}
@@ -7547,15 +7614,17 @@ func (s *Server) mobFleeStep(e *Entity, kn string) bool {
 				dd := (px-e.X)*(px-e.X) + (py-e.Y)*(py-e.Y) + (pz-e.Z)*(pz-e.Z)
 				if dd < d2 && (best < 0 || dd < best) {
 					best = dd
-					fx, fz = px, pz
-					sprint = r.sprint
+					fx, fy, fz = px, py, pz
+					fearedID = 0
+					fearedP = p
+					fleeWalk, fleeSprint = r.walk, r.sprint
 				}
 				return true
 			})
 		default:
-			fearedID, fok := EntityTypeID(r.feared)
+			fearedTID, fok := EntityTypeID(r.feared)
 			for _, o := range s.entities.All() {
-				if o.Dim != e.Dim || o.ID == e.ID {
+				if o.Dim != e.Dim || o.ID == e.ID || o.Dying || o.Dormant {
 					continue
 				}
 				if r.feared == "monster" {
@@ -7563,38 +7632,122 @@ func (s *Server) mobFleeStep(e *Entity, kn string) bool {
 					if !mobMonsterType[on] {
 						continue
 					}
-				} else if !fok || o.Type != fearedID {
+				} else if !fok || o.Type != fearedTID {
+					continue
+				}
+				// The fox's wolf rule only fears untamed wolves.
+				if r.untamedOnly && o.tamed {
 					continue
 				}
 				dd := (o.X-e.X)*(o.X-e.X) + (o.Y-e.Y)*(o.Y-e.Y) + (o.Z-e.Z)*(o.Z-e.Z)
 				if dd < d2 && (best < 0 || dd < best) {
 					best = dd
-					fx, fz = o.X, o.Z
-					sprint = r.sprint
+					fx, fy, fz = o.X, o.Y, o.Z
+					fearedID = o.ID
+					fearedP = nil
+					fleeWalk, fleeSprint = r.walk, r.sprint
 				}
 			}
 		}
 	}
-	if best >= 0 {
-		e.fleeUntil = now + 40
-		e.fleeX, e.fleeZ, e.fleeSprint = fx, fz, sprint
-	} else if e.fleeUntil == 0 || now >= e.fleeUntil {
+	if best < 0 {
 		return false
 	}
-	dx, dz := e.X-e.fleeX, e.Z-e.fleeZ
-	dist := math.Hypot(dx, dz)
-	if dist == 0 {
-		dx, dz, dist = 1, 0, 1
+	// A failed roll (no surviving candidate, or the best lands closer
+	// to the threat) fails canUse — the goal retries next tick.
+	if !s.avoidRollTarget(e, w, fx, fy, fz) {
+		return false
 	}
-	speed := mobChaseSpeed
-	if mv, ok := entityAttrBases[kn]["movement_speed"]; ok {
-		speed = mv
+	e.AvoidActive = true
+	e.AvoidFearedID = fearedID
+	e.AvoidFearedP = fearedP
+	e.AvoidWalk, e.AvoidSprint = fleeWalk, fleeSprint
+	// tick() upgrades moveTo's walk speed to sprint while the feared
+	// entity stays inside 7 blocks — same check as the drive loop.
+	mod := fleeWalk
+	{
+		dx, dy, dz := fx-e.X, fy-e.Y, fz-e.Z
+		if dx*dx+dy*dy+dz*dz < 49 {
+			mod = fleeSprint
+		}
 	}
-	speed *= e.fleeSprint
-	mobTurnToward(e, dx, dz, 90)
+	mobTurnToward(e, e.AvoidTX-e.X, e.AvoidTZ-e.Z, 90)
 	e.HeadYaw = e.Yaw
-	// AvoidEntityGoal's nav drive — sprintSpeed·movement_speed.
-	s.mobTravelStep(e, s.dimWorld(e.Dim), speed)
+	s.mobTravelStep(e, w, speed*mod)
+	return true
+}
+
+// avoidRollTarget is DefaultRandomPos.getPosAway(mob, 16, 7,
+// fearedPos): up to 10 attempts of
+// generateRandomDirectionWithinRadians(0, 16, 7, 0, dirAway, π/2) — a
+// random direction within ±90° of the direct away-vector, distance
+// sqrt-biased toward far up to 16·√2 then square-clamped to ±16 —
+// filtered by the same limits/restrict/stable/malus checks as
+// PanicGoal's roll. WalkTargetValue ties for every candidate cell on
+// flat ground, so the first accepted attempt wins. The surviving cell
+// is then rejected wholesale when it lands closer to the threat than
+// the mob currently is (AvoidEntityGoal.canUse's distanceToSqr
+// comparison); a false return leaves the goal unarmed.
+func (s *Server) avoidRollTarget(e *Entity, w *world.World, fx, fy, fz float64) bool {
+	now := s.gameTime()
+	dirX, dirZ := e.X-fx, e.Z-fz
+	yRCenter := math.Atan2(dirZ, dirX) - math.Pi/2
+	tx, ty, tz := 0, 0, 0
+	accepted := false
+	for i := 0; i < 10; i++ {
+		h := uint64(uint32(e.ID))*2654435761 ^ uint64(now)*1099511628211 ^
+			uint64(i)*40503 ^ uint64(e.AvoidSteps)*97531
+		u1 := float64(h%100000) / 100000
+		h >>= 8
+		u2 := float64(h%100000) / 100000
+		h >>= 8
+		u3 := float64(h%100000) / 100000
+		yRadians := yRCenter + (2*u1-1)*math.Pi/2
+		dist := math.Sqrt(u2) * 16 * math.Sqrt2
+		xt := -dist * math.Sin(yRadians)
+		zt := dist * math.Cos(yRadians)
+		if math.Abs(xt) > 16 || math.Abs(zt) > 16 {
+			continue
+		}
+		yt := int(u3*15) - 7
+		// containing(xt+mob.x, yt+mob.y, zt+mob.z) — the offset adds to
+		// the float position before the floor.
+		cx := int(math.Floor(xt + e.X))
+		cy := int(math.Floor(float64(yt) + e.Y))
+		cz := int(math.Floor(zt + e.Z))
+		if cy < -64 || cy >= 320 {
+			continue
+		}
+		b := w.GetBlock(world.Pos{X: cx, Y: cy, Z: cz})
+		name, _ := world.StateOwner(b)
+		if !world.NonSolid(b) || panicMalusCells[name] {
+			continue
+		}
+		below := w.GetBlock(world.Pos{X: cx, Y: cy - 1, Z: cz})
+		bname, _ := world.StateOwner(below)
+		if world.NonSolid(below) || panicMalusCells[bname] {
+			continue
+		}
+		tx, ty, tz = cx, cy, cz
+		accepted = true
+		break
+	}
+	if !accepted {
+		return false
+	}
+	// canUse's closer-than-now check: distanceToSqr is full 3D — the
+	// y leg matters when the threat stands above/below the mob.
+	px, py, pz := float64(tx)+0.5, float64(ty), float64(tz)+0.5
+	ddNew := (px-fx)*(px-fx) + (py-fy)*(py-fy) + (pz-fz)*(pz-fz)
+	ddNow := (e.X-fx)*(e.X-fx) + (e.Y-fy)*(e.Y-fy) + (e.Z-fz)*(e.Z-fz)
+	if ddNew < ddNow {
+		return false
+	}
+	e.AvoidTX = px
+	e.AvoidTZ = pz
+	e.AvoidSteps = 0
+	e.AvoidStill = 0
+	e.AvoidBest = math.Hypot(px-e.X, pz-e.Z)
 	return true
 }
 

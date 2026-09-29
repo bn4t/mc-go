@@ -13798,3 +13798,58 @@ pairs now summon ~100 blocks out in absolute coords so escapes can
 never reach swell range. Still open (separate slice): mc-go's avoid
 target is the direct vector; vanilla's is a random best-of-N cell in
 the away half-space — worth a divergence pin of its own.
+
+## Slice — AvoidEntityGoal parity: random escape roll + sprint radius + fox exemption predicates (2026-09-29)
+
+The last entry's open item: mc-go's AvoidEntityGoal drove the direct
+away-vector while vanilla rolls a random cell in the away half-space.
+Full AvoidEntityGoal semantics now measured and matched (decompiled
+AvoidEntityGoal.java + DefaultRandomPos/RandomPos):
+
+- canUse: nearest feared entity of avoidClass inside
+  boundingBox.inflate(maxDist,3,maxDist) →
+  DefaultRandomPos.getPosAway(16,7,away-pos) — 10 attempts in the
+  ±90° half-space (yRadians = atan2 away ± π/2, dist =
+  lerp(sqrt(rand),0,16)·√2, |x/z|≤16, y∈±7), same malus filter set
+  as panic, first-accepted on flat ties → REJECT goal when the
+  picked pos lands the feared entity closer than the mob is →
+  pathNav.createPath must be non-null.
+- canContinueToUse = !navigation.isDone() — one latched run at the
+  picked cell; mc-go's AvoidSteps/Still no-progress detector stands
+  in for the exhausted partial path.
+- tick(): feared within 7 blocks 3D (distanceToSqr < 49) →
+  sprintSpeedModifier else walkSpeedModifier.
+- Predicates: fox AVOID_PLAYERS = !isDiscrete (sneak) && !creative/
+  spectator (+!trusts, !defending); fox wolf rule !wolf.isTame();
+  fox polar_bear !isDefending; rabbit non-EVIL variants only.
+- Speeds: creeper→ocelot/cat 6.0 @1.0/1.2, skeleton-family→wolf
+  6.0 @1.0/1.2, rabbit→player 8 / wolf 10 / monster 4 @2.2,
+  fox→player 16 / wolf+polar_bear 8 @1.6/1.4 (walk FASTER than
+  sprint — vanilla table quirk preserved).
+- PanicGoal (prio 1) preempts AvoidEntityGoal (prio 3-4): panic
+  clears AvoidActive (vanilla goal.stop()).
+- TamableAnimal.readAdditionalSaveData: a parsed Owner
+  EntityReference ([I;4] via readWithOldOwnerConversion) stores
+  DATA_OWNERUUID + setTame(true) — wolf/cat/parrot load path in
+  applyEntitySave now sets e.tamed + e.ownerUUID; Sitting lands
+  independently.
+
+Field naming: the avoid-goal state is Avoid* — FleeTX/FleeTZ/FleeSteps
+already belong to RunAroundLikeCrazyGoal (equine rider flee).
+
+Found during pinning (fixed in this slice):
+- e.Tamed (capital — AbstractHorse flag) vs e.tamed (TamableAnimal)
+  — the summon SNBT path and flee check now agree on e.tamed.
+- mc-go's `execute at @e run summon ~2 ~ ~` resolves the inner
+  position at the COMMAND SOURCE not the entity (wolf summoned at
+  the player, not the fox) — execute-at positioning gap; still open.
+- The harness flattens chat text: `data get` NBT replies arrive
+  with brackets/colons stripped (`Owner:[I;0,0,0,1]` → `OwnerI0001`)
+  — markers must look for "Owner", not "[I;".
+
+`TestMobFleeParity` now has 6 legs: creeper_cat, skeleton_wolf,
+fox_wolf (distance+direction), fox_tamed_wolf (tamed= Owner stored;
+near= fox still inside 9 blocks at ~1.2s — a committed flee covers
+8-10 by then, wander doesn't; fledAfter= a second UNTAMED wolf still
+triggers the rule), rabbit_player, fox_sneak (sneak before summon →
+no flee; unsneak → flee). Green both legs.
