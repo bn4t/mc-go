@@ -474,6 +474,18 @@ type Entity struct {
 	// vanilla's internal getSize() (NBT Size+1); 0 means the
 	// defined default 1.
 	CubeSize int32
+	// CubeMobMoveControl state — the jumpDelay countdown, the picked
+	// heading (RandomDirectionGoal or attack target), its repick
+	// timer, the aggressive flag, the last-tick grounded edge for the
+	// landing squish, and the sequence counters seeding the
+	// deterministic delay/heading rolls.
+	CubeJumpDelay int32
+	CubeHeading   float32
+	CubeDirTimer  int32
+	CubeAggro     bool
+	CubeWasGround bool
+	CubeDirSeq    int64
+	CubeJumpSeq   int64
 	// FoxTrusted is Fox's Trusted NBT list — up to two entity
 	// reference UUIDs. The summon tag accepts a single flat
 	// [I;a,b,c,d] uuid (slot 0); addAdditionalSaveData emits a

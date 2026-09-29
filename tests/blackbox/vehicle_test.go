@@ -83,36 +83,37 @@ func sendPaddleBoat(pw *protocol.Writer, left, right bool) {
 // vehObs is what vehWatch collected over a window: every observable
 // wire fact about one entity, keyed the way assertions read it.
 type vehObs struct {
-	moved      bool                  // any position/delta/teleport packet for eid
-	moveVeh    bool                  // move_vehicle rubber-band to the driver
-	passengers int                   // latest set_passengers count, -1 unseen
-	boolMeta   map[int]bool          // serializer-8 metadata entries seen
-	intMeta    map[int]int32         // serializer-1 (VarInt) entries seen
-	intMetaMax map[int]int32         // largest int value seen per index
-	floatMeta  map[int]float32       // serializer-3 (Float) entries seen
-	floatMax   map[int]float32       // largest float value seen per index
-	removed    map[int32]bool        // ids seen in remove_entities
-	itemEIDs   []int32               // eids of add_entity spawns of type "item"
-	disconnect bool                  // a play-stage disconnect packet arrived
-	syncSeen   bool                  // a sync_pos (player teleport) arrived on either conn
-	sync       [3]float64            // last sync_pos coordinates
-	levelEv    [][2]int32            // level_event {event,data} pairs seen
-	entEv      []byte                // entity_event statuses seen on the watched eid
-	adds       map[string]int        // add_entity counts by type name
-	sounds     int                   // positioned sound (0x75) packets seen
-	blockUps   map[[3]int32]int      // block_update counts by position
-	motion     map[int32]int         // set_entity_motion counts by eid
-	uuidMeta   map[[2]int32][16]byte // serializer-13 present-uuid entries by {eid,index}
-	hookMeta   map[int32]int32       // unscoped: eid → last nonzero idx8 int metadata
-	hookHist   []string              // ordered idx8 emits as "eid:v" (spans the window)
-	hookEvent  int32                 // eid that carried entity_event status 31 (0 unseen)
-	bobberEIDs []int32               // add_entity eids of type fishing_bobber
-	bitHist    []string              // unscoped idx9 ser-8 bool emits as "eid:v" (fishing bite)
-	metaHist   []string              // every metadata packet as "eid:i1/i2/..."
-	partHist   []int32               // particle_type ids from level_particles packets
-	tongueHist []string              // unscoped (idx19, ser19) emits "eid:v" — frog tongue target
-	pose9Eid   int32                 // eid that emitted (idx6, ser20) pose 9 — USING_TONGUE
-	poseHist   []string              // unscoped (idx6, ser20) emits "eid:v" — DATA_POSE values
+	moved      bool                   // any position/delta/teleport packet for eid
+	moveVeh    bool                   // move_vehicle rubber-band to the driver
+	passengers int                    // latest set_passengers count, -1 unseen
+	boolMeta   map[int]bool           // serializer-8 metadata entries seen
+	intMeta    map[int]int32          // serializer-1 (VarInt) entries seen
+	intMetaMax map[int]int32          // largest int value seen per index
+	floatMeta  map[int]float32        // serializer-3 (Float) entries seen
+	floatMax   map[int]float32        // largest float value seen per index
+	removed    map[int32]bool         // ids seen in remove_entities
+	itemEIDs   []int32                // eids of add_entity spawns of type "item"
+	disconnect bool                   // a play-stage disconnect packet arrived
+	syncSeen   bool                   // a sync_pos (player teleport) arrived on either conn
+	sync       [3]float64             // last sync_pos coordinates
+	levelEv    [][2]int32             // level_event {event,data} pairs seen
+	entEv      []byte                 // entity_event statuses seen on the watched eid
+	adds       map[string]int         // add_entity counts by type name
+	sounds     int                    // positioned sound (0x75) packets seen
+	blockUps   map[[3]int32]int       // block_update counts by position
+	motion     map[int32]int          // set_entity_motion counts by eid
+	motVec     map[int32][][3]float64 // set_entity_motion velocity triples by eid
+	uuidMeta   map[[2]int32][16]byte  // serializer-13 present-uuid entries by {eid,index}
+	hookMeta   map[int32]int32        // unscoped: eid → last nonzero idx8 int metadata
+	hookHist   []string               // ordered idx8 emits as "eid:v" (spans the window)
+	hookEvent  int32                  // eid that carried entity_event status 31 (0 unseen)
+	bobberEIDs []int32                // add_entity eids of type fishing_bobber
+	bitHist    []string               // unscoped idx9 ser-8 bool emits as "eid:v" (fishing bite)
+	metaHist   []string               // every metadata packet as "eid:i1/i2/..."
+	partHist   []int32                // particle_type ids from level_particles packets
+	tongueHist []string               // unscoped (idx19, ser19) emits "eid:v" — frog tongue target
+	pose9Eid   int32                  // eid that emitted (idx6, ser20) pose 9 — USING_TONGUE
+	poseHist   []string               // unscoped (idx6, ser20) emits "eid:v" — DATA_POSE values
 }
 
 // vehWatch collects packets matching (eid, kind) over the window on
@@ -135,6 +136,7 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 		adds:       map[string]int{},
 		blockUps:   map[[3]int32]int{},
 		motion:     map[int32]int{},
+		motVec:     map[int32][][3]float64{},
 		uuidMeta:   map[[2]int32][16]byte{},
 		hookMeta:   map[int32]int32{},
 	}
@@ -204,10 +206,15 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					if err == nil {
 						o.blockUps[[3]int32{x, y, z}]++
 					}
-				case 0x65: // set_entity_motion — count by eid
+				case 0x65: // set_entity_motion — count by eid + vy values
 					r := protocol.NewPacketReader(p.Data)
 					if meid, err := r.VarInt(); err == nil {
 						o.motion[meid]++
+						// LpVec3-packed velocity triple — vy above
+						// ~0.3 is a hop/jump signature (airborne drift
+						// rarely re-emits past that).
+						vx, vy, vz, _ := r.ReadLpVec3()
+						o.motVec[meid] = append(o.motVec[meid], [3]float64{vx, vy, vz})
 					}
 				case server.IDPlayEntityEvent: // 0x22 — Int eid + status
 					r := protocol.NewPacketReader(p.Data)

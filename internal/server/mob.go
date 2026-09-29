@@ -4917,6 +4917,10 @@ func (s *Server) mobTickStep() {
 					!(e.FireTicks > 0 && mobSunFlees[ambName] && s.mobSunFleeStep(e, s.dims[e.Dim], w)) {
 					if mobBeam[ambName] {
 						s.guardianMoveStep(e, w)
+					} else if ambName == "slime" || ambName == "magma_cube" {
+						// AbstractCubeMob's goal set — the hop
+						// rhythm replaces both chase and wander.
+						s.cubeHopStep(e, w, ambName)
 					} else {
 						s.mobMoveStep(e, w)
 					}

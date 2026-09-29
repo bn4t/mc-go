@@ -13124,3 +13124,60 @@ visible-but-unreachable target can't be distinguished, so the memory
 is folded into the LoS gate rather than built as a dead structure.
 The cube hop-AI (slime/magma_cube jump navigation the frog chases)
 is still open — a live chase overshoots vanilla's discrete hops.
+
+## Slice — cube hop-AI parity: slime/magma_cube discrete hops (2026-09-29)
+
+Measured AbstractCubeMob + MagmaCube + Slime + MoveControl + Mob
+(setSpeed → setZza) + LivingEntity (air influence speed*0.216 on the
+friction-1.0 arm) on 26.2:
+
+- CubeMobMoveControl: rotlerp(yRot, heading, 90°) toward the move
+  heading each tick; grounded arm sets the speed field to
+  speedModifier*(0.2+0.1*size), decrements jumpDelay — on <=0 it
+  resets (slime rand(20)+10, magma *4, /3 while aggressive), fires
+  JumpControl.jumpFromGround (vy = jump_strength 0.42, magma adds
+  size*0.1; magma's lava jumpInLiquid is 0.22+size*0.05) and plays
+  the jump sound; if the delay hasn't elapsed the input is zeroed
+  (slimes never slide on the ground). Airborne: the latched speed
+  keeps driving forward via moveRelative's normalized-input air
+  influence speed*0.216 — no fresh accel per tick.
+- Heading: AttackGoal picks the nearest survival-mode player
+  within 10 blocks and |dy|<=4 (else an iron golem inside
+  follow_range) and yRot = lookAt bearing; RandomDirectionGoal
+  repicks a 40+rand(60)-tick timer and a fresh 0-360 heading only
+  while targetless AND (onGround || inFluid || levitating).
+  keepOnJumping simply arms MOVE_TO every tick while not a
+  passenger.
+- Landing edge (onGround && !wasOnGround): size*16 individual
+  addParticle emits (item_slime for slime, flame for magma) each at
+  a radius*rand(0.5..1.0) ring offset + the squish sound; liftoff
+  latches targetSquish=1 (client squish anim only).
+- Sounds: volume 0.4*size, pitch ((r1-r2)*0.2+1)*(tiny?1.4:0.8)
+  with squish an extra /0.8, HOSTILE category. slime attack 1493,
+  jump 1496, squish 1497 (tiny 1548/1549); magma jump 965, squish
+  966/967.
+- isDealsDamage: slime size>1 && !NoAI; magma always !NoAI.
+  playerTouch box-overlap deals mob_attack (slime size, magma
+  size+2) + slime attack sound. movement_speed 0.2+0.1*size via
+  setSize.
+- Wire shape: needsSync emits set_entity_motion carrying the
+  POST-physics delta — the hop lands on the wire as
+  vy = 0.42*0.98-0.08 = 0.332 (slime) / 0.528 (magma size-2), not
+  the launch vy, because sendChanges runs after the tick's gravity.
+
+mc-go gained cubemob.go: cubeHopStep reproduces the whole chain
+(jump delay, heading pick/lock, 90° rotlerp, zero-ground-input wait,
+air influence, landing particle loop + squish, touch damage),
+cubeJumpDelayFor/cubeDealsDamage/cubeTarget/cubeSound/cubeLand/
+cubeTouchDamage helpers, Entity fields CubeJumpDelay..CubeJumpSeq,
+and the mob.go dispatch for slime+magma_cube. vehObs gained motVec
+(set_entity_motion decoded as 26.2's LpVec3 — earlier short-parse
+read garbage like vy=4.096).
+
+Blackbox: TestCubeHopParity — frozen single-steps count hop-motion
+emits and pin the observed vy (slime ~0.33 over 80 steps, magma
+~0.53 over 200), then a survival player next to a size-2 slime
+takes the touch hit. Both legs green: vanilla slime 6 hops vy
+0.333, magma 4 hops vy 0.529, health 20->18; mc-go slime 4 hops vy
+0.333, magma 6 hops vy 0.529, health 20->17 (hop counts vary with
+the random delay — the pinned values are vy and the damage).
