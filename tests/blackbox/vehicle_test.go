@@ -101,6 +101,7 @@ type vehObs struct {
 	adds       map[string]int   // add_entity counts by type name
 	sounds     int              // positioned sound (0x75) packets seen
 	blockUps   map[[3]int32]int // block_update counts by position
+	motion     map[int32]int    // set_entity_motion counts by eid
 }
 
 // vehWatch collects packets matching (eid, kind) over the window on
@@ -122,6 +123,7 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 		removed:    map[int32]bool{},
 		adds:       map[string]int{},
 		blockUps:   map[[3]int32]int{},
+		motion:     map[int32]int{},
 	}
 	poll := func(c net.Conn, pr *protocol.Reader, pw *protocol.Writer, observe bool) {
 		defer c.SetReadDeadline(time.Time{})
@@ -186,6 +188,11 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					if err == nil {
 						o.blockUps[[3]int32{x, y, z}]++
 					}
+				case 0x65: // set_entity_motion — count by eid
+					r := protocol.NewPacketReader(p.Data)
+					if meid, err := r.VarInt(); err == nil {
+						o.motion[meid]++
+					}
 				case server.IDPlayEntityEvent: // 0x22 — Int eid + status
 					r := protocol.NewPacketReader(p.Data)
 					peid, _ := r.Int()
@@ -249,6 +256,15 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 								break
 							}
 							o.boolMeta[int(idx)] = vv
+						case 19, 20: // optional_int / pose — VarInt
+							vv, err := r.VarInt()
+							if err != nil {
+								break
+							}
+							o.intMeta[int(idx)] = vv
+							if vv > o.intMetaMax[int(idx)] {
+								o.intMetaMax[int(idx)] = vv
+							}
 						default:
 							goto done
 						}

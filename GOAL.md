@@ -12809,3 +12809,40 @@ immune to the command-queue reply lag that made Pos checks stale;
 per-night wait-awake before each time set (a still-sleeping click is
 an occupied no-op); pumpSleepClient/vehWatch read-deadline clears
 so polled sockets don't leak 30ms deadlines into the next helper.
+
+## Slice — frog DATA_TONGUE_TARGET / ShootTongue (2026-10-03)
+
+FrogAi's TONGUE activity (ShootTongue) measured on the 26.2 jar:
+FROG_ATTACKABLES sensor finds a FROG_FOOD entity — slime/magma_cube
+at getSize()==1 — inside follow_range; start() sets
+DATA_TONGUE_TARGET_ID (metadata 19, OPTIONAL_UNSIGNED_INT serializer
+19 — wire value eid+1, 0 empty) and walks at the target with
+speed-modifier 2.0. dist < 1.75 → entity.frog.tongue (NEUTRAL
+2.0/1.0), Pose.USING_TONGUE(9) on metadata 6 (serializer 20), and the
+target's deltaMovement = unit(target→frog)·0.75 — the yank — then
+CATCH_ANIMATION. ≥6 ticks → entity.frog.eat + doHurtTarget
+(mob_attack, attack_damage 10) — a size-1 slime (health 1²) dies on
+the hit and rides remove_entities. ≥10 eat ticks → DONE → stop()
+writes the target id back to 0 and the pose back to STANDING.
+
+AbstractCubeMob NBT: Size = getSize()-1, so {Size:0} is the small
+edible slime; setSize clamps 1-127 and setcubeMobHealth makes
+max_health = size². DATA_SIZE is metadata 16 (int serializer),
+defined default 1, emitted only when it moves off the default.
+
+Implemented: internal/server/frog.go (frogTongueStep state machine +
+stop/eat), Entity Pose + FrogTongue* fields + CubeSize, the livingMeta
+diff emitting pose/variant/tongue for "frog" and DATA_SIZE for
+slime/magma_cube, summon NBT Size→CubeSize+health=size².
+
+Pinned: TestFrogTongueParity — frog + {Size:0} slime 2 blocks apart;
+asserts meta19=slimeEid+1 ever-seen (the set→clear window is short
+enough that last-value capture can miss it — intMetaMax), pose 9, a
+set_entity_motion on the slime, its remove_entities, and meta19 back
+to 0. Both legs green; the vanilla leg measures the true wire.
+vehWatch learned serializers 19 (OPTIONAL_UNSIGNED_INT→VarInt) and 20
+(POSE→VarInt) plus per-eid set_entity_motion counts.
+
+Fixed under test: summon AttrBase was nil on cube mobs — the
+max_health write panicked (nil-map); guarded like the horse/zombie
+paths.

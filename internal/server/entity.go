@@ -454,6 +454,21 @@ type Entity struct {
 	CatGoalPos         world.Pos
 	CatGoalSet         bool
 	CatOnBedTicks      int32
+	// Pose is the entity's synced pose ordinal (metadata 6, POSE
+	// serializer) — STANDING(0) except the frog's USING_TONGUE(9)
+	// during ShootTongue's catch/eat states.
+	Pose int32
+	// FrogTongueEnt/State/Timer run ShootTongue's move/catch/eat
+	// state machine; FrogTongueTarget is the target's entity id —
+	// the DATA_TONGUE_TARGET_ID entry (metadata 19) emits it +1.
+	FrogTongueEnt    *Entity
+	FrogTongueTarget int32
+	FrogTongueState  int32
+	FrogTongueTimer  int32
+	// CubeSize is the slime/magma_cube DATA_SIZE (metadata 16) —
+	// vanilla's internal getSize() (NBT Size+1); 0 means the
+	// defined default 1.
+	CubeSize int32
 	// FoxTrusted is Fox's Trusted NBT list — up to two entity
 	// reference UUIDs. The summon tag accepts a single flat
 	// [I;a,b,c,d] uuid (slot 0); addAdditionalSaveData emits a

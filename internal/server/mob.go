@@ -1518,6 +1518,26 @@ func (s *Server) runSummon(player string, args []string) reply {
 					}
 				}
 			}
+			// AbstractCubeMob.readAdditionalSaveData: Size is
+			// getSize()-1 (NBT 0 = the small edible slime) — health
+			// follows setcubeMobHealth's size² max.
+			if name == "slime" || name == "magma_cube" {
+				e.CubeSize = 1
+				if v, ok := tag.vals["Size"]; ok {
+					e.CubeSize = int32(snbtNum(v)) + 1
+					if e.CubeSize < 1 {
+						e.CubeSize = 1
+					}
+					if e.CubeSize > 127 {
+						e.CubeSize = 127
+					}
+				}
+				if e.AttrBase == nil {
+					e.AttrBase = map[string]float64{}
+				}
+				e.AttrBase["max_health"] = float64(e.CubeSize * e.CubeSize)
+				e.Health = float32(e.CubeSize * e.CubeSize)
+			}
 			// Panda's genes write as strings via Gene.CODEC.
 			if name == "panda" {
 				if v, ok := tag.vals["MainGene"]; ok {
@@ -2691,6 +2711,9 @@ type livingMeta struct {
 	canDup     bool
 	catLying   bool
 	catRelax   bool
+	pose       int32
+	tongueTgt  int32
+	cubeSize   int32
 }
 
 // snapLivingMeta captures the metadata-field values a fresh pack would
@@ -2732,6 +2755,9 @@ func snapLivingMeta(e *Entity) livingMeta {
 		canDup:     e.DupCooldown <= 0,
 		catLying:   e.CatLying,
 		catRelax:   e.CatRelax,
+		pose:       e.Pose,
+		tongueTgt:  e.FrogTongueTarget,
+		cubeSize:   cubeSizeOf(e),
 	}
 }
 
@@ -3068,6 +3094,13 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.VarInt(id)
 			}
 		case name == "frog":
+			// DATA_POSE (6) — ShootTongue's USING_TONGUE(9) during
+			// the catch/eat states.
+			if e.Pose != last.pose {
+				b.Byte(6)
+				b.Byte(20)
+				b.VarInt(e.Pose)
+			}
 			if e.Baby != last.baby {
 				b.Byte(16)
 				b.Byte(8)
@@ -3077,6 +3110,25 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(18)
 				b.Byte(27)
 				b.VarInt(id)
+			}
+			// DATA_TONGUE_TARGET_ID (19, OPTIONAL_UNSIGNED_INT) —
+			// the codec writes eid+1, 0 for empty.
+			if e.FrogTongueTarget != last.tongueTgt {
+				b.Byte(19)
+				b.Byte(19)
+				tv := e.FrogTongueTarget
+				if tv > 0 {
+					tv++
+				}
+				b.VarInt(tv)
+			}
+		case name == "slime" || name == "magma_cube":
+			// AbstractCubeMob's DATA_SIZE (16, int) — emits only
+			// when it moves off the defined 1.
+			if cs := cubeSizeOf(e); cs != last.cubeSize {
+				b.Byte(16)
+				b.Byte(1)
+				b.VarInt(cs)
 			}
 		case name == "allay":
 			// DATA_DANCING (16, boolean) — the JukeboxListener's
@@ -3472,17 +3524,35 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.VarInt(id)
 			}
 		case "frog":
+			if e.Pose != 0 {
+				b.Byte(6)
+				b.Byte(20)
+				b.VarInt(e.Pose)
+			}
 			if e.Baby {
 				b.Byte(16)
 				b.Byte(8)
 				b.Bool(true)
 			}
-			// Frog's DATA_VARIANT_ID (18, frog_variant holder);
-			// DATA_TONGUE_TARGET_ID at 19 stays unpacked.
+			// Frog's DATA_VARIANT_ID (18, frog_variant holder).
 			if id := holderVariantID("frog", e.VariantName); id != 1 {
 				b.Byte(18)
 				b.Byte(27) // serializer: frog_variant
 				b.VarInt(id)
+			}
+			// DATA_TONGUE_TARGET_ID (19): eid+1, 0 empty.
+			if e.FrogTongueTarget != 0 {
+				b.Byte(19)
+				b.Byte(19)
+				b.VarInt(e.FrogTongueTarget + 1)
+			}
+		case "slime", "magma_cube":
+			// AbstractCubeMob's DATA_SIZE (16) — the defined 1 packs
+			// only when the summon grew it.
+			if cs := cubeSizeOf(e); cs != 1 {
+				b.Byte(16)
+				b.Byte(1)
+				b.VarInt(cs)
 			}
 		case "wolf":
 			if e.Baby {
@@ -4691,6 +4761,12 @@ func (s *Server) mobTickStep() {
 			// CatRelaxOnOwnerGoal (priority 3) — a tamed cat lying on
 			// its sleeping owner's bed outranks tempt/follow.
 			if ambName == "cat" && s.catRelaxStep(e) {
+				s.mobSyncFlush(e)
+				continue
+			}
+			// FrogAi's TONGUE activity (ShootTongue) — the frog yanks
+			// a FROG_FOOD cube mob in and eats it.
+			if ambName == "frog" && s.frogTongueStep(e) {
 				s.mobSyncFlush(e)
 				continue
 			}
