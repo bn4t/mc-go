@@ -113,6 +113,8 @@ type vehObs struct {
 	bitHist    []string               // unscoped idx9 ser-8 bool emits as "eid:v" (fishing bite)
 	metaHist   []string               // every metadata packet as "eid:i1/i2/..."
 	partHist   []int32                // particle_type ids from level_particles packets
+	soundPitch []float64              // pitch values from named_sound packets
+	soundIds   []int32                // sound ids from named_sound packets
 	tongueHist []string               // unscoped (idx19, ser19) emits "eid:v" — frog tongue target
 	pose9Eid   int32                  // eid that emitted (idx6, ser20) pose 9 — USING_TONGUE
 	poseHist   []string               // unscoped (idx6, ser20) emits "eid:v" — DATA_POSE values
@@ -246,6 +248,17 @@ func vehWatch(t *testing.T, v *vehPair, watchB bool, eid int32, window time.Dura
 					}
 				case 0x75: // sound — count positioned-sound packets
 					o.sounds++
+					r := protocol.NewPacketReader(p.Data)
+					if sid, err := r.VarInt(); err == nil {
+						o.soundIds = append(o.soundIds, sid)
+						_, _ = r.VarInt()  // source category
+						_, _ = r.Int()     // x*8
+						_, _ = r.Int()     // y*8
+						_, _ = r.Int()     // z*8
+						_, _ = r.Float()   // volume
+						pf, _ := r.Float() // pitch
+						o.soundPitch = append(o.soundPitch, float64(pf))
+					}
 				case 53, 54: // move_entity_pos / _pos_rot — delta shorts /4096
 					r := protocol.NewPacketReader(p.Data)
 					peid, _ := r.VarInt()

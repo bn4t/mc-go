@@ -13235,3 +13235,33 @@ player chases in, and the window is pinned for >=3 health drops,
 the idx15 bit2 pulse (at least one set and one clear), and a
 hurt-knockback motion emit. Vanilla: hits=4 flagSet=2 flagClear=5
 knock=4; mc-go: hits=4 flagSet=5 flagClear=4 knock=4.
+
+## Slice — baby voicePitch wire parity (getVoicePitch's isBaby arm)
+
+Vanilla LivingEntity.getVoicePitch: (nextFloat() - nextFloat()) *
+0.2 + 1.0 — baby mobs pitch the same call at +1.5 instead of +1.0
+(the isBaby arm). Every ambient/hurt/death voice rides it, so a
+baby zombie's hurt cries land inside [1.3,1.7] on the wire while
+an adult's sit in [0.8,1.2]; step sounds stay at their fixed 1.0.
+
+mc-go: voicePitchE already implemented the model for every voice
+path (ambient, hurt, death) — the gap was the pin. vehObs now
+captures the sound id + pitch off named_sound packets, and
+TestBabyPitchParity buckets on the zombie voice ids only: wire
+ids 1870/1875/1882 for ambient/death/hurt — playSoundSrc's +1 on
+write lands mc-go's table ids (1869/1874/1881) on the wire at the
+same numbers vanilla emits.
+
+Blackbox: baby zombie {IsBaby:1b} + adult, two /damage hits and a
+kill each; every voice pitch must sit in the band. Both legs:
+baby ~1.46/1.52, adult ~0.86-1.14. Second hits inside the
+ten-tick hurt grace are silent on both servers — queue jitter can
+slide a hit into it, so the pin demands >=1 voice per phase, not
+a count match.
+
+Findings: (a) command sends on different connections race — the
+summon queued on BOATA while BOATC's data get saw zero zombies
+(argument.entity.notfound.entity, then hp=20 unhurt); ordering-
+dependent commands must share one conn. (b) /damage dealt 1 on
+mc-go vs 2 on vanilla against a bare zombie — armor-absorb delta,
+investigate as a separate slice.
