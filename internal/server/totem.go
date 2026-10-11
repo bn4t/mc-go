@@ -327,10 +327,26 @@ func (s *Server) playerGiveEffect(t *Session, id, amplifier, ticks int32, hidePa
 	return true
 }
 
+// mobEffectImmunity is LivingEntity.canBeAffected's per-type veto
+// set — addEffect refuses these effect ids for the type outright.
+// Measured on 26.2: WitherSkeleton.canBeAffected returns false for
+// WITHER.
+var mobEffectImmunity = map[string][]string{
+	"wither_skeleton": {"wither"},
+}
+
 // mobGiveEffect is the world-entity arm of LivingEntity.addEffect: the
-// same update() gate on e.Effects, update_mob_effect out to trackers,
-// and the instant arm routed through the mob heal/hurt helpers.
+// canBeAffected veto, then the same update() gate on e.Effects,
+// update_mob_effect out to trackers, and the instant arm routed
+// through the mob heal/hurt helpers.
 func (s *Server) mobGiveEffect(e *Entity, id, amplifier, ticks int32, hideParticles bool, src ...*damageInfo) bool {
+	if kn, _ := EntityTypeName(e.Type); kn != "" {
+		for _, ename := range mobEffectImmunity[kn] {
+			if eid, ok := MobEffectID(ename); ok && eid == id {
+				return false
+			}
+		}
+	}
 	now := s.clock.count
 	newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks), born: now, hide: hideParticles}
 	if e.Effects == nil {

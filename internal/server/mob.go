@@ -5658,6 +5658,17 @@ func (s *Server) mobTickStep() {
 				} else {
 					goalActed = s.mobMeleeStep(e)
 				}
+				if ambName == "wither_skeleton" {
+					if goalActed {
+						// A live player mark (the @2
+						// NearestAttackableTargetGoal) preempts the
+						// @3 piglin hunt — its hold clears while a
+						// combat goal runs.
+						e.HuntMob = 0
+					} else {
+						goalActed = s.witherPiglinStep(e)
+					}
+				}
 			} else if mobSwell[ambName] {
 				goalActed = s.mobSwellStep(e, ambName)
 			} else if ambName == "witch" {
@@ -7045,16 +7056,18 @@ func init() {
 	}
 }
 
-// mobMeleeDamage reads the attack_damage supplier base, with the iron
-// golem's doHurtTarget override: vanilla rolls
+// mobMeleeDamage resolves attack_damage on the mob instance — the
+// supplier base plus any finalizeSpawn/NBT override (wither_skeleton
+// re-bases 2 → 4 in finalizeSpawn) — with the iron golem's
+// doHurtTarget override: vanilla rolls
 // attackDamage/2 + random.nextInt(attackDamage) per swing — 7.5..22.5
 // at the 15 base, not a flat 15.
-func mobMeleeDamage(name string) float32 {
-	base, _ := entityAttrBases[name]["attack_damage"]
+func (s *Server) mobMeleeDamage(e *Entity, name string) float32 {
+	base := float32(s.mobAttr(e, name, "attack_damage", 0))
 	if name == "iron_golem" {
-		return float32(base)/2 + float32(rand.Intn(int(base)))
+		return base/2 + float32(rand.Intn(int(base)))
 	}
-	return float32(base)
+	return base
 }
 
 // mobChaseSpeed is the vanilla zombie-family movement speed in
@@ -7112,7 +7125,7 @@ func (s *Server) nearestMobTarget(e *Entity, kn string) *Session {
 // Reports whether the mob had a target — true replaces wander.
 func (s *Server) mobMeleeStep(e *Entity) bool {
 	kn, _ := EntityTypeName(e.Type)
-	dmg := mobMeleeDamage(kn)
+	dmg := s.mobMeleeDamage(e, kn)
 	target := s.nearestMobTarget(e, kn)
 	if target == nil {
 		// Goal stop — the aggressive flag and the arm-raise counter
@@ -7151,7 +7164,15 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 			}
 		}
 	} else if dist > reach {
-		s.mobTravelStep(e, s.dimWorld(e.Dim), mobChaseSpeed)
+		// The navigation speed is the goal's speedModifier ctor arg
+		// times movement_speed — MeleeAttackGoal carries 1.0 for the
+		// zombie family (0.23) and 1.2 for the skeleton family
+		// (0.25 × 1.2 = 0.3).
+		chase := mobChaseSpeed
+		if mod, ok := mobMeleeSpeedMod[kn]; ok {
+			chase = s.mobAttr(e, kn, "movement_speed", mobChaseSpeed) * mod
+		}
+		s.mobTravelStep(e, s.dimWorld(e.Dim), chase)
 	}
 	if e.attackCooldown > 0 {
 		e.attackCooldown--
@@ -7198,6 +7219,13 @@ func (s *Server) mobMeleeStep(e *Entity) bool {
 	return true
 }
 
+// mobMeleeSpeedMod is MeleeAttackGoal's speedModifier ctor arg for
+// the measured types — the chase speed is modifier × movement_speed;
+// types absent here chase at the flat zombie-family 0.23.
+var mobMeleeSpeedMod = map[string]float64{
+	"wither_skeleton": 1.2,
+}
+
 // zombieAttackTypes run ZombieAttackGoal — the goal that pulses the
 // aggressive flag by raiseArmTicks and the attack cooldown.
 var zombieAttackTypes = map[string]bool{
@@ -7209,9 +7237,10 @@ var zombieAttackTypes = map[string]bool{
 // they run RangedBowAttackGoal, bare-handed they run MeleeAttackGoal
 // (reassessWeaponGoal swaps the two on equipment change).
 var mobRanged = map[string]bool{
-	"skeleton": true,
-	"stray":    true,
-	"bogged":   true,
+	"skeleton":        true,
+	"stray":           true,
+	"bogged":          true,
+	"wither_skeleton": true,
 }
 
 // mobPanicSpeed is PanicGoal's speedModifier per mob type, read off
@@ -9618,6 +9647,11 @@ func (s *Server) mobShootArrow(e *Entity, tx, ty, tz float64) {
 		if id, ok := MobEffectID("poison"); ok {
 			ae.arrowEffects = []arrowEffect{{id, 100}}
 		}
+	case "wither_skeleton":
+		// WitherSkeleton.getArrow: igniteForSeconds(100) — the arrow
+		// flies burning and doPostHurtEffects ignites the victim for
+		// 5 seconds on a landed hit.
+		ae.FireTicks = 2000
 	}
 	s.broadcastEntitySpawn(nil, *ae)
 	if len(ae.arrowEffects) > 0 {
@@ -9758,6 +9792,12 @@ func (s *Server) mobPostAttack(e *Entity, name string, target *Session) {
 		// launch, not a push. Player knockback_resistance is 0.
 		s.broadcastEntityEvent(e.ID, 4)
 		s.broadcastEntityMotion(target.dimName(), target.entityID.Load(), 0, 0.4, 0)
+	case "wither_skeleton":
+		// WitherSkeleton.doHurtTarget: WITHER 200 ticks on every
+		// landed LivingEntity hit — no difficulty gate.
+		if id, ok := MobEffectID("wither"); ok {
+			s.playerGiveEffect(target, id, 0, 200, false)
+		}
 	case "bee":
 		// Bee.doHurtTarget: +1 stinger on the victim, POISON by
 		// difficulty (10s normal, 18s hard, none easy/peaceful), then
@@ -10746,13 +10786,13 @@ func (s *Server) mobGuardianStep(e *Entity, kn string) bool {
 			// doHurtTarget has no range gate — the melee swing lands in
 			// the same tick, reduced to its delta over the beam hit by the
 			// target's i-frames.
-			s.damageWith(target, mobMeleeDamage(kn), translatable("death.attack.mob",
+			s.damageWith(target, s.mobMeleeDamage(e, kn), translatable("death.attack.mob",
 				literal(target.getName()), literal(mobDisplayName(kn))),
 				damageSource{typeName: "mob_attack", cause: e.ID, direct: e.ID})
 		} else {
 			s.damageMob(mobTarget, beam, "indirect_magic", nil,
 				&damageInfo{typeName: "indirect_magic", cause: e.ID, direct: e.ID})
-			s.damageMob(mobTarget, mobMeleeDamage(kn), "mob_attack", nil,
+			s.damageMob(mobTarget, s.mobMeleeDamage(e, kn), "mob_attack", nil,
 				&damageInfo{typeName: "mob_attack", cause: e.ID, direct: e.ID})
 		}
 		e.beamTarget = 0

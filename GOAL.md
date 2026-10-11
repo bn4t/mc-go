@@ -14382,3 +14382,52 @@ no flee; unsneak → flee). Green both legs.
     test now waits for the `commands.tick.sprint.report` chat
     before reading counters. Reads use `lastNumberSigned` —
     `lastNumber` silently strips the minus (Age:-400 read 400).
+
+## Slice — WitherSkeleton goals + doHurtTarget set (2026-10-11)
+  - **Measured** (WitherSkeleton + AbstractSkeleton + MeleeAttackGoal
+    javap on the 26.2 jar): registerGoals is AbstractSkeleton's set
+    plus one more NearestAttackableTargetGoal(AbstractPiglin,
+    mustSee) at priority 3; finalizeSpawn sets ATTACK_DAMAGE base
+    4.0 (the generated attribute supplier is only 2.0);
+    doHurtTarget applies WITHER 200 ticks to every LivingEntity it
+    hits — no difficulty gate; getArrow calls
+    igniteForSeconds(100) on the arrow (FireTicks 2000 —
+    doPostHurtEffects then ignites the victim for 5s on a landed
+    hit); canBeAffected returns false for WITHER; the
+    MeleeAttackGoal speedModifier is 1.2 so the chase is
+    movement_speed × 1.2 = 0.3; the default weapon is
+    stone_sword. MeleeAttackGoal.start() sets setAggressive(true)
+    unconditionally — a bare latch is parity, not a bug.
+  - **Implemented**: `wither_skeleton` joins `mobRanged` (bow
+    dispatch) and gets the melee dispatch arm — a live player
+    mark preempts the piglin hunt (its HuntMob hold clears while
+    a combat goal runs). `witherPiglinStep` (witherhunt.go) is
+    the mob-vs-mob hunt: HuntScan repick every 10 ticks, nearest
+    piglin/piglin_brute within follow_range with a
+    clipSolidSegment eye-height mustSee, chase at
+    movement_speed × 1.2, 20-tick attack cooldown, damage via
+    `mobMeleeDamage` (now a Server method reading attack_damage —
+    base 4.0 re-read per swing, installed by summonAttrTouches'
+    init branch on a bare /summon per finalizeSpawn) and WITHER
+    200 on the victim. `mobMeleeSpeedMod` carries the 1.2 chase
+    multiplier. `mobPostAttack` applies WITHER 200 on every
+    landed player hit; `mobShootArrow` sets the shot's
+    FireTicks=2000 and the projectile's mob/player impact arms
+    ignite the victim 5s when the arrow flies burning.
+    `mobEffectImmunity` gates mobGiveEffect so /effect and
+    doHurtTarget paths both refuse WITHER on a wither_skeleton.
+  - **Pinned**: `TestWitherSkeletonParity` vs both servers —
+    arm A: chase flag idx15 bit2 + melee damage + a WITHER
+    instance on the player after landed hits; arm B: with the
+    player out of range a bare-summoned wither_skeleton hunts a
+    NoAI piglin until it's damaged+withers or dies; arm C:
+    `effect give <ws> minecraft:wither` never answers on
+    active_effects (canBeAffected); arm D: weapon.mainhand
+    swapped to bow → the next spawned arrow carries Fire>0
+    (vanilla 1998, mc-go 2000 — both pre-flight values).
+    Harness quirks that mattered: a dead player's connection
+    stops receiving spawn packets (BOATA is teleported out of
+    follow_range the moment hp drops past 14, before more hits
+    land); a mid-run piglin summon at chunk-0 produces no spawn
+    packet on BOATA's conn, so the piglin goes in at setup via
+    pwc and is polled by selector instead of tracked by eid.

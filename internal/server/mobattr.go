@@ -81,6 +81,16 @@ func summonAttrTouches(e *Entity, name string, init bool) {
 			op:    1, // add_multiplied_base
 		}
 	}
+	if name == "wither_skeleton" {
+		// WitherSkeleton.finalizeSpawn: setBaseValue(ATTACK_DAMAGE,
+		// 4.0) then reassessWeaponGoal — the generated 2.0 base is
+		// the un-finalized supplier value.
+		e.markAttrTouched("attack_damage")
+		if e.AttrBase == nil {
+			e.AttrBase = map[string]float64{}
+		}
+		e.AttrBase["attack_damage"] = 4.0
+	}
 	if mobZombieFamily(name) {
 		// Zombie.handleAttributes: spawn_reinforcements base rolls
 		// rand*0.1, knockback_resistance takes a rand*0.05 add_value

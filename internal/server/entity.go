@@ -929,6 +929,10 @@ type Entity struct {
 	LlamaSpitMob int32
 	// HuntScan is the targetSelector scan cadence (~10 ticks).
 	HuntScan int32
+	// HuntMob is the entity-id half of a mob-vs-mob
+	// NearestAttackableTargetGoal hold (wither_skeleton's
+	// AbstractPiglin mark); 0 when no mob is targeted.
+	HuntMob int32
 	// FollowNav/FollowRecalc are FollowOwnerGoal's runtime state:
 	// FollowNav is the goal's armed half (set at dist² ≥ 10², dropped
 	// at ≤ 2² — the hysteresis band between is where a parked pet

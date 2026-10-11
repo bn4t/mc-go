@@ -1238,6 +1238,12 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 				for _, eff := range e.arrowEffects {
 					mobAddEffect(t, eff.id, 0, s.gameTime()+int64(eff.dur), s.gameTime())
 				}
+				// doPostHurtEffects: a burning arrow ignites the
+				// victim for 5 seconds (flame bows, wither
+				// skeleton shots).
+				if e.FireTicks > 0 {
+					s.igniteMob(t, 100)
+				}
 				if shooter != nil {
 					s.firePlayerHurtEntity(shooter, typeName, true, damage, "", false)
 					if died {
@@ -1286,6 +1292,9 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 					for _, eff := range e.arrowEffects {
 						s.playerGiveEffect(sess, eff.id, 0, eff.dur, false)
 					}
+					if e.FireTicks > 0 && sess.fireTicks < 100 {
+						sess.fireTicks = 100 // doPostHurtEffects' 5s ignite
+					}
 				}
 			} else {
 				dealt := s.damageWith(sess, damage, translatable("death.attack."+typeName,
@@ -1296,6 +1305,9 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 				if dealt > 0 {
 					for _, eff := range e.arrowEffects {
 						s.playerGiveEffect(sess, eff.id, 0, eff.dur, false)
+					}
+					if e.FireTicks > 0 && sess.fireTicks < 100 {
+						sess.fireTicks = 100 // doPostHurtEffects' 5s ignite
 					}
 				}
 			}
