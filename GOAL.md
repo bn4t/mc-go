@@ -14541,3 +14541,21 @@ no flee; unsneak → flee). Green both legs.
   Existing `TestEntityTrackingParity` remains the differential wire contract.
   Final actual-vanilla `TestEntityTrackingParity` passes (27.05s); the combined
   public-profile/tracking oracle command passes in 35.724s.
+
+## Slice — architecture and provenance boundaries (2026-10-25)
+
+- **Measured:** README previously described jar use as exclusively black-box
+  oracle/datapack data, while AGENTS already permitted `javap` measurement and
+  tools such as `genfoods`/`genpotions` extracted factual bytecode tables.
+  This documents the existing input history; it is not an artifact audit or a
+  formal independent-team clean-room certification.
+- **Implemented:** align README/AGENTS and add ARCHITECTURE.md with current
+  ownership, public APIs, output budgets, benchmark methodology and remaining
+  stages. Preserve the prohibition on copied Mojang source, decompiled source,
+  disassembly and implementation structure. Require new measurement/generation
+  slices to record source class, tool/version and input checksum where
+  applicable, plus independent implementation and a corresponding test.
+- **Pinned:** documentation matches the checked runtime/API/test boundaries.
+  A complete provenance manifest for existing artifacts, parallel regions,
+  canonical cross-protocol registries, a second real game protocol and sustained
+  mixed-load capacity measurements remain explicitly unfinished.

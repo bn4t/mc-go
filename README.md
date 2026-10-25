@@ -13,15 +13,27 @@ along with their original Git history. See [MIGRATION.md](MIGRATION.md)
 for source commits, preserved branches, and validation notes.
 
 The living parity matrix and the slice-by-slice progress log are in
-[GOAL.md](GOAL.md).
+[GOAL.md](GOAL.md). [ARCHITECTURE.md](ARCHITECTURE.md) documents runtime
+ownership, public extension boundaries, measured tracking costs and remaining
+work. The current runtime uses one simulation owner; parallel regions,
+canonical cross-protocol registries and a second real game protocol remain
+future stages.
 
 ## Clean-room rules
 
 - Go standard library only — no Minecraft libraries, no generated Mojang
   code.
-- No decompiled or otherwise derived Mojang source. The vanilla jar is
-  used only as (a) a black-box oracle — run it, observe the bytes — and
-  (b) a data source — version.json and the bundled data packs.
+- No copied Mojang source, decompiled source, disassembly, or copied
+  implementation structure. The Go implementation is independently written.
+- Current evidence sources include the running vanilla jar as a black-box
+  oracle, public protocol documentation, official reports and bundled data
+  packs. Existing workflows also inspect bytecode with `javap` to measure
+  constants, operation ordering and branch behavior; some generators extract
+  factual tables from that output. This is the repository's existing
+  provenance, not a claim of a formal independent-team clean-room process.
+  Bytecode measurement does not authorize translating or copying Mojang's
+  implementation. See [AGENTS.md](AGENTS.md) for contribution rules and
+  [ARCHITECTURE.md](ARCHITECTURE.md) for evidence boundaries and remaining work.
 - Public protocol documentation (minecraft.wiki, protocol 776) is the
   reference for packet IDs, shapes, and semantics.
 - Every behavior change is proven by a blackbox test comparing mc-go and
@@ -40,9 +52,15 @@ The living parity matrix and the slice-by-slice progress log are in
   tables generated from the vanilla data packs (`*_gen.go`).
 - `internal/nbt/`, `internal/loot/`, `internal/event/`,
   `internal/plugin/` — NBT codec, loot engine, event bus, plugin API.
+- `api/event/`, `api/plugin/`, `api/frontend/`, `server/` — public
+  extension contracts and runtime constructor, usable by external modules.
+  Frontend actions currently operate on existing players; Java 776 remains
+  the sole bundled game protocol.
 - `plugins/` — example plugins (`hello`, `anticheat`).
+- `conformance/`, `cmd/mc-conformance/` — portable TCP smoke profile,
+  endpoint manifests, JSON results and bounded wire transcripts.
 - `tests/blackbox/` — the differential parity suite (build tag
-  `blackbox`).
+  compatibility retained; oracle execution is enabled at runtime).
 - `tools/gen*` — generators that read the vanilla jar/datagen output and
   emit the `*_gen.go` tables. `vanilla/` holds the oracle jar and the
   generated data packs; it is gitignored and must be recreated locally.
@@ -92,7 +110,8 @@ runs offline mode, so any username works.
 ## Testing
 
 ```sh
-go test ./internal/...                 # core unit tests
+go build ./...
+go test ./...                          # core, public APIs and Java-free TCP checks
 MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/
 ```
 
@@ -106,6 +125,20 @@ and `java` is on PATH. Environment knobs:
 - `MCGO_TARGET=host:port` — run the same suite against an already
   running external server instead of an in-process mc-go; this is how
   other implementations get parity-checked.
+
+The test package is also discoverable without `-tags blackbox`. Oracle
+comparisons explicitly skip when their prerequisites are absent; tests never
+download the jar. A default test run therefore does not establish vanilla
+parity for skipped scenarios. For a Java-free check of another TCP endpoint:
+
+```sh
+go run ./cmd/mc-conformance -endpoint 127.0.0.1:25565
+```
+
+The default profile checks status and ping. Opt into offline login,
+configuration and rejection checks with an endpoint manifest; see
+[conformance/README.md](conformance/README.md) for capabilities, report
+statuses and limitations.
 
 Single test:
 

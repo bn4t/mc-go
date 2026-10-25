@@ -16,9 +16,12 @@ Work lands in small, independently verified **slices**. Each slice:
    - the wire: run the vanilla jar and observe the actual packets
      (the blackbox harness does exactly this), and
    - `javap -c -p -cp vanilla/versions/26.2/server-26.2.jar <class>` for
-     constants, order-of-operations, and branch structure. Reading
-     bytecode for measurement is fine; copying structure/text into the
-     Go code is not.
+     constants, order-of-operations, and branch behavior. Existing
+     workflows use bytecode measurement and factual table extraction;
+     this is not a formal independent-team clean-room process. Do not
+     copy source, decompiled source, disassembly, or implementation
+     structure into Go code. Write the implementation independently
+     and pin its observable behavior with tests.
 2. **Implement** in Go, matching measured semantics — not an
    approximation of them.
 3. **Pin** it with a differential blackbox test (`tests/blackbox/`) that
@@ -59,9 +62,17 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   slice.
 - Never commit `vanilla/` (the jar, unpacked versions, generated data —
   gitignored), `*.test`, or world output files.
-- Never commit Mojang-derived code or data text; `*_gen.go` files are
-  produced by `tools/gen*` reading the jar/datagen — regenerate them
-  rather than hand-editing.
+- Never commit copied Mojang source, decompiled source, disassembly,
+  or translated implementation structure. Existing `*_gen.go` factual
+  tables are produced by `tools/gen*` reading jar/datagen/report inputs,
+  including bytecode inspection by some generators; regenerate them
+  rather than hand-editing. Do not commit raw jar or datagen dumps.
+- New measurement and generation slices must record their source class
+  (wire observation, public documentation, report/datapack, or bytecode
+  inspection), tool/version and input checksum when applicable, plus
+  the corresponding differential or scripted test. Existing artifacts
+  do not yet have a complete provenance manifest; do not imply that
+  documenting the workflow audits their history.
 
 ## Conventions in the code
 
