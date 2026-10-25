@@ -14518,3 +14518,26 @@ no flee; unsneak → flee). Green both legs.
   The final actual-vanilla public profile passes all seven declared scenarios
   (8.60s); all are recorded as pass with declared=true. The standalone
   conformance/CLI race suites also pass on the final profile semantics.
+
+## Slice — tracking lookup cost and repeatable performance baselines (2026-10-25)
+
+- **Measured:** `retrackSession` scanned every session for every entity on each
+  movement. Identical synthetic steady-pairing benchmarks compare the previous
+  algorithm kept only in `_test.go` with a local lookup. On Linux/amd64,
+  Go 1.27.3, AMD EPYC 9V74 and GOMAXPROCS=5, three 300 ms samples had medians
+  76.9→26.5 µs at 128 entities/8 players, 1.965→0.380 ms at 1,024/64 and
+  44.38→1.438 ms at 8,192/256. At the largest scale, allocations changed from
+  1,310,720 bytes/257 allocations to 84,392 bytes/14 allocations per pass.
+  Concurrent development load produced wide timing variation; these
+  microbenchmarks establish neither player capacity nor production tail latency.
+- **Implemented:** build a pass-local entity-ID-to-live-session map once,
+  reducing that lookup portion from O(entities×players) to O(entities+players)
+  without a shared cache or concurrent entity mutation. Add reproducible world
+  read and chunk encoding baselines alongside the tracking comparison.
+- **Pinned:** `TestRetrackSessionLivePositions` checks live coordinates,
+  self-exclusion, unpair/re-pair and spawn coordinates without mutating stored
+  player state. `BenchmarkRetrackSession`, `BenchmarkTrackingWorldRead` and
+  `BenchmarkTrackingChunkEncoding` run with `-benchmem -benchtime=300ms -count=3`.
+  Existing `TestEntityTrackingParity` remains the differential wire contract.
+  Final actual-vanilla `TestEntityTrackingParity` passes (27.05s); the combined
+  public-profile/tracking oracle command passes in 35.724s.

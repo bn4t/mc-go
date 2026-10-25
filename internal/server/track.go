@@ -496,18 +496,24 @@ func (s *Server) retrackSession(sess *Session) {
 		ents = append(ents, e)
 	}
 	s.entities.mu.RUnlock()
+	// Resolve live player positions once per pass, as entityTrackStep
+	// does. Scanning sessions for each entity costs O(entities * players);
+	// this local lookup costs O(entities + players)
+	// without maintaining another shared index across login/disconnect.
+	livePos := make(map[int32]*Session)
+	s.sessions.Range(func(_, v any) bool {
+		os := v.(*Session)
+		livePos[os.entityID.Load()] = os
+		return true
+	})
 	for _, e := range ents {
 		ec := e
-		s.sessions.Range(func(_, v any) bool {
-			os := v.(*Session)
-			if os.entityID.Load() == e.ID {
-				x, y, z, _, _, _ := os.Pos()
-				ec = &Entity{}
-				*ec = *e
-				ec.X, ec.Y, ec.Z = x, y, z
-			}
-			return true
-		})
+		if os, ok := livePos[e.ID]; ok {
+			x, y, z, _, _, _ := os.Pos()
+			ec = &Entity{}
+			*ec = *e
+			ec.X, ec.Y, ec.Z = x, y, z
+		}
 		s.evalPair(sess, ec)
 	}
 }
