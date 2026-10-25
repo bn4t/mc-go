@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for the hostile melee attack path measured on
 // the 26.2 decompile: MeleeAttackGoal ticks on a 20-game-tick canUse
 // gate, approaches at speedModifier*movement_speed, and attacks when

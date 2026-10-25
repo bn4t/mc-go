@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Environmental conversion parity (26.2):
 //   - Zombie.doUnderWaterConversion: eye submerged 600 ticks starts a
 //     300-tick conversion (DATA_DROWNED_CONVERSION_ID, zombie meta 17)

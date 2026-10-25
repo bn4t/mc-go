@@ -1,5 +1,3 @@
-//go:build blackbox
-
 package blackbox
 
 // TestDespawnParity pins Mob.checkDespawn's three discard paths on

@@ -14467,3 +14467,29 @@ no flee; unsneak → flee). Green both legs.
   A final focused server race run covering TestSimulation, TestOutbound,
   plugin lifetime/stopped enforcement, TestAutosave and live tracking passes
   in 6.096s. This is targeted concurrency evidence, not a full repository race run.
+
+## Slice — default scripted-client discovery and current protocol fixtures (2026-10-25)
+
+- **Measured:** the suite mixed 140 `blackbox`-tagged files with default
+  helpers/tests. Ordinary discovery exposed legacy scripted-client failures;
+  scripted measurements use Go 1.27.3 and actual vanilla probes use JDK 25.
+  Immutable commit `51011dc` reproduces the selected chat, lighting, dig,
+  chunk, attack, hunger, scoreboard, menu and portal failures. The original
+  pickup fixture repeated fail/pass/fail; a client fall into the broken block's
+  hole removes that geometry/toss dependence. A fresh vanilla place/remove
+  light probe measured masks 0x1c6 then sparse 0x6, matching mc-go. Evidence sources
+  are wire observations, existing differential pins and GOAL measurements:
+  26.2 translated NBT feedback, player-command action 1, tick-based attack
+  recharge, optional damage source position, scoreboard display components,
+  teleport confirmation, chunk-batch flow and generated portal geometry.
+- **Implemented:** normalize test discovery while retaining runtime oracle
+  opt-in; clients acknowledge teleports/chunk batches/keepalives and wait for
+  semantic readiness. Assert exact translated component keys and arguments,
+  current damage/scoreboard packet structure and final inventory state.
+  Repair reach, portal-entry and client-movement fixtures without changing
+  gameplay to satisfy old assertions. Oracle tests never download a jar.
+- **Pinned:** the scripted chat, menu, dimension and gameplay subgroups, plus
+  complete default `go test ./...`. Missing oracle prerequisites remain explicit
+  skips; default success does not imply that skipped vanilla comparisons ran.
+  Final current-source `go test ./... -count=1 -timeout=10m` passes, including
+  the default blackbox package (91.804s); no oracle opt-in was used for that run.

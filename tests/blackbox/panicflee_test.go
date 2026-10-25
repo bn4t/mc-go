@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for PanicGoal on the 26.2 decompile. The
 // measured semantics: shouldPanic() reads getLastDamageSource(),
 // which LivingEntity clears once the damage stamp ages past 40 game

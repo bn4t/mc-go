@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for the bee sting + anger metadata beats on
 // the 26.2 decompile. Provocation arms NeutralMob's
 // DATA_ANGER_END_TIME (idx19 varlong emit of the absolute end tick);

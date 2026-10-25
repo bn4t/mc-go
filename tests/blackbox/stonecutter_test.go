@@ -1,5 +1,3 @@
-//go:build blackbox
-
 package blackbox
 
 // TestStonecutterParity pins the stonecutter menu: the input slot

@@ -1,5 +1,3 @@
-//go:build blackbox
-
 package blackbox
 
 // TestPatrolSpawnParity drives PatrolSpawner's natural spawn cycle on

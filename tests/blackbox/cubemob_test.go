@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for AbstractCubeMob's hop model on the 26.2
 // decompile: CubeMobMoveControl waits getJumpDelay ticks on the
 // ground — random.nextInt(20)+10 for a slime, ×4 for a magma_cube,

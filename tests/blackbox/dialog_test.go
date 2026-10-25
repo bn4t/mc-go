@@ -1,5 +1,3 @@
-//go:build blackbox
-
 package blackbox
 
 // TestDialogPacketsParity pins /dialog on the wire: a show writes

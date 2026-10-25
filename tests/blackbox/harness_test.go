@@ -74,6 +74,10 @@ func requireBlackboxCfg(t *testing.T, vanillaProps map[string]string, mcgo func(
 // comparing them against vanilla needs an operator).
 func requireBlackboxFiles(t *testing.T, vanillaProps, vanillaFiles map[string]string, mcgo func(*server.Server)) targets {
 	t.Helper()
+	// Report target incompatibility before booting an unused vanilla process.
+	if os.Getenv(targetProp) != "" && mcgo != nil {
+		t.Skipf("%s mode: %s needs in-process mc-go configuration", targetProp, t.Name())
+	}
 	jar := blackboxJar(t)
 	vPort, ok := freePort()
 	if !ok {
@@ -409,7 +413,7 @@ func startMcGoCfg(t *testing.T, port int, mutate func(*server.Server)) string {
 		t.Skipf("bind blocked: %v", err)
 	}
 	go func() { _ = s.Serve(ln) }()
-	t.Cleanup(func() { _ = ln.Close() })
+	t.Cleanup(func() { _ = ln.Close(); s.Stop() })
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if probeStatus(addr) {
@@ -545,4 +549,52 @@ func drainChunkWindow(t *testing.T, tag string, c net.Conn, pr *protocol.Reader,
 	}
 	_ = c.SetReadDeadline(time.Time{})
 	return chunks
+}
+
+// awaitPlayReadyBlackbox drives a scripted client through the initial join
+// burst. Attributes follow sendWindow's synchronous section/light warmup in
+// the pinned 776 sequence. A quiet socket alone does not prove readiness.
+// Call immediately after Join Game, before other packet drains; returned
+// initial chunks let streaming assertions account for every observed column.
+func awaitPlayReadyBlackbox(t *testing.T, tag string, c net.Conn, pr *protocol.Reader, pw *protocol.Writer) []protocol.Packet {
+	t.Helper()
+	start := time.Now()
+	_ = c.SetDeadline(start.Add(60 * time.Second))
+	defer c.SetDeadline(time.Time{})
+	var chunks []protocol.Packet
+	var lastID int32 = -1
+	for count := 0; ; count++ {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("%s join readiness after %v (%d packets, last ID %#x): %v", tag, time.Since(start), count, lastID, err)
+		}
+		lastID = p.ID
+		switch p.ID {
+		case server.IDPlayChunkData:
+			chunks = append(chunks, p)
+		case server.IDPlayKeepAliveCB:
+			if err = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data); err != nil {
+				t.Fatal(err)
+			}
+		case server.IDPlaySyncPos:
+			id, err := protocol.NewPacketReader(p.Data).VarInt()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ack protocol.Buffer
+			ack.VarInt(id)
+			if err = pw.WritePacket(server.IDPlayTeleportConfirmSB, ack.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+		case server.IDPlayChunkBatchDone:
+			if err = ackChunkBatch(pw); err != nil {
+				t.Fatal(err)
+			}
+		case server.IDPlayUpdateAttributes:
+			if err = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil); err != nil {
+				t.Fatal(err)
+			}
+			return chunks
+		}
+	}
 }

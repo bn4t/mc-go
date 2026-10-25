@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for WitherSkeleton's goal and doHurtTarget set,
 // measured on the 26.2 decompile: registerGoals runs
 // AbstractSkeleton's set plus NearestAttackableTargetGoal

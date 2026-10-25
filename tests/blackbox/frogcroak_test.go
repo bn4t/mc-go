@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for FrogAi's IDLE RunOne Croak: a ground-idle
 // frog picks Croak weight 3 against RandomStroll 1, lookwalk 1 and
 // the onGround triggerIf no-op 2 — the no-op finishes the same tick

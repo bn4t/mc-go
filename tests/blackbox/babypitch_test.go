@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for LivingEntity.getVoicePitch on the 26.2
 // decompile: every ambient/hurt/death voice goes out at
 // (nextFloat() - nextFloat()) * 0.2 + 1.0 — and baby mobs pitch the

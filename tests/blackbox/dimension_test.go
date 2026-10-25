@@ -49,58 +49,63 @@ func readRespawn(t *testing.T, tag string, pr *protocol.Reader, pw *protocol.Wri
 		if p.ID != server.IDPlayRespawn {
 			continue
 		}
-		r := protocol.NewPacketReader(p.Data)
-		var f respawnFields
-		var err2 error
-		if f.dimType, err2 = r.VarInt(); err2 != nil {
-			t.Fatalf("%s respawn dim type: %v", tag, err2)
-		}
-		if f.dim, err2 = r.String(); err2 != nil {
-			t.Fatalf("%s respawn dim: %v", tag, err2)
-		}
-		if f.seed, err2 = r.Long(); err2 != nil {
-			t.Fatalf("%s respawn seed: %v", tag, err2)
-		}
-		if f.mode, err2 = r.Byte(); err2 != nil {
-			t.Fatalf("%s respawn mode: %v", tag, err2)
-		}
-		if f.prev, err2 = r.Byte(); err2 != nil {
-			t.Fatalf("%s respawn prev: %v", tag, err2)
-		}
-		if f.debug, err2 = r.Bool(); err2 != nil {
-			t.Fatalf("%s respawn debug: %v", tag, err2)
-		}
-		if f.flat, err2 = r.Bool(); err2 != nil {
-			t.Fatalf("%s respawn flat: %v", tag, err2)
-		}
-		if f.deathLoc, err2 = r.Bool(); err2 != nil {
-			t.Fatalf("%s respawn death loc: %v", tag, err2)
-		}
-		if f.deathLoc {
-			// GlobalPos: dimension string + packed position.
-			if _, err := r.String(); err != nil {
-				t.Fatalf("%s respawn death dim: %v", tag, err)
-			}
-			if _, _, _, err := r.Position(); err != nil {
-				t.Fatalf("%s respawn death pos: %v", tag, err)
-			}
-		}
-		if f.cooldown, err2 = r.VarInt(); err2 != nil {
-			t.Fatalf("%s respawn cooldown: %v", tag, err2)
-		}
-		if f.sea, err2 = r.VarInt(); err2 != nil {
-			t.Fatalf("%s respawn sea: %v", tag, err2)
-		}
-		if f.dataKept, err2 = r.Byte(); err2 != nil {
-			t.Fatalf("%s respawn kept: %v", tag, err2)
-		}
-		if r.Remaining() != 0 {
-			t.Fatalf("%s respawn trailing bytes: %d", tag, r.Remaining())
-		}
-		return f
+		return decodeRespawnBlackbox(t, tag, p.Data)
 	}
 	t.Fatalf("%s: no respawn packet", tag)
 	return respawnFields{}
+}
+
+func decodeRespawnBlackbox(t *testing.T, tag string, data []byte) respawnFields {
+	t.Helper()
+	r := protocol.NewPacketReader(data)
+	var f respawnFields
+	var err2 error
+	if f.dimType, err2 = r.VarInt(); err2 != nil {
+		t.Fatalf("%s respawn dim type: %v", tag, err2)
+	}
+	if f.dim, err2 = r.String(); err2 != nil {
+		t.Fatalf("%s respawn dim: %v", tag, err2)
+	}
+	if f.seed, err2 = r.Long(); err2 != nil {
+		t.Fatalf("%s respawn seed: %v", tag, err2)
+	}
+	if f.mode, err2 = r.Byte(); err2 != nil {
+		t.Fatalf("%s respawn mode: %v", tag, err2)
+	}
+	if f.prev, err2 = r.Byte(); err2 != nil {
+		t.Fatalf("%s respawn prev: %v", tag, err2)
+	}
+	if f.debug, err2 = r.Bool(); err2 != nil {
+		t.Fatalf("%s respawn debug: %v", tag, err2)
+	}
+	if f.flat, err2 = r.Bool(); err2 != nil {
+		t.Fatalf("%s respawn flat: %v", tag, err2)
+	}
+	if f.deathLoc, err2 = r.Bool(); err2 != nil {
+		t.Fatalf("%s respawn death loc: %v", tag, err2)
+	}
+	if f.deathLoc {
+		// GlobalPos: dimension string + packed position.
+		if _, err := r.String(); err != nil {
+			t.Fatalf("%s respawn death dim: %v", tag, err)
+		}
+		if _, _, _, err := r.Position(); err != nil {
+			t.Fatalf("%s respawn death pos: %v", tag, err)
+		}
+	}
+	if f.cooldown, err2 = r.VarInt(); err2 != nil {
+		t.Fatalf("%s respawn cooldown: %v", tag, err2)
+	}
+	if f.sea, err2 = r.VarInt(); err2 != nil {
+		t.Fatalf("%s respawn sea: %v", tag, err2)
+	}
+	if f.dataKept, err2 = r.Byte(); err2 != nil {
+		t.Fatalf("%s respawn kept: %v", tag, err2)
+	}
+	if r.Remaining() != 0 {
+		t.Fatalf("%s respawn trailing bytes: %d", tag, r.Remaining())
+	}
+	return f
 }
 
 // sendCommand sends an unsigned Chat Command packet: in 776 the
@@ -125,11 +130,10 @@ func TestMcGoOnlyExecuteDimensionTeleport(t *testing.T) {
 	c, pr, pw := joinPlayBlackbox(t, addr, "Traveler")
 	defer c.Close()
 	drainToJoinBlackbox(t, "traveler", pr)
-	// Finish the overworld window before the jump: the streaming throttle
-	// holds everything past the opening batch until the client
-	// acknowledges, and a chunk of the wrong dimension would be the next
-	// thing read otherwise.
-	drainChunkWindow(t, "traveler", c, pr, pw, 500*time.Millisecond)
+	awaitPlayReadyBlackbox(t, "traveler", c, pr, pw)
+	// The readiness helper acknowledges the opening batch. Any remaining
+	// overworld packets precede Respawn in the FIFO and readRespawn drains
+	// them before the test inspects the new dimension's first chunk.
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB,
@@ -329,6 +333,7 @@ func TestMcGoOnlyPortalCooldownExpiry(t *testing.T) {
 	c, pr, pw := joinPlayBlackbox(t, addr, "Looper")
 	defer c.Close()
 	drainToJoinBlackbox(t, "looper", pr)
+	awaitPlayReadyBlackbox(t, "looper", c, pr, pw)
 	_ = c.SetDeadline(time.Now().Add(30 * time.Second))
 
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 65 -60 0 nether_portal")
@@ -349,35 +354,58 @@ func TestMcGoOnlyPortalCooldownExpiry(t *testing.T) {
 	if first.dim != "minecraft:the_nether" {
 		t.Fatalf("first travel dim = %q", first.dim)
 	}
-	// Step into the freshly built portal right away: entering while the
-	// 10-tick travel cooldown holds re-arms it, so standing inside can
-	// never fire — confirm quiet for a couple of seconds.
-	if err := sendMovePosRot(pw, 8.5, 34, 0.5); err != nil {
+	// Use the synchronized arrival height: the two portal cells begin at
+	// that height; the obsidian cap is two blocks above it. A hardcoded
+	// y=34 placed the player's head in the cap and the move was rejected.
+	_, portalY, _ := waitTeleportBlackbox(t, c, pr, pw, 2)
+	packets, errors := streamPlayPacketsBlackbox(t, c, pr, pw)
+	if err := sendMovePosRot(pw, 8.5, portalY, 0.5); err != nil {
 		t.Fatal(err)
 	}
-	_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+	// One reader continuously decodes complete frames. The negative window
+	// times out channel observation, never a partially consumed socket frame.
+	quiet := time.NewTimer(2 * time.Second)
+	defer quiet.Stop()
+checkCooldown:
 	for {
-		p, err := pr.ReadPacket()
-		if err != nil {
-			break // timed out inside the portal: cooldown re-arm held
-		}
-		if p.ID == server.IDPlayRespawn {
-			t.Fatal("travel fired while the re-armed cooldown held")
+		select {
+		case p := <-packets:
+			if p.ID == server.IDPlayRespawn {
+				t.Fatal("travel fired while the re-armed cooldown held")
+			}
+		case err := <-errors:
+			t.Fatalf("cooldown stream: %v", err)
+		case <-quiet.C:
+			break checkCooldown
 		}
 	}
 	// Step out, wait past the 10-tick cooldown, step back in — the
 	// return trip now fires.
-	_ = c.SetDeadline(time.Now().Add(30 * time.Second))
-	if err := sendMovePosRot(pw, 10.5, 34, 0.5); err != nil {
+	if err := sendMovePosRot(pw, 10.5, portalY, 0.5); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second)
-	if err := sendMovePosRot(pw, 8.5, 34, 0.5); err != nil {
+	if err := sendMovePosRot(pw, 8.5, portalY, 0.5); err != nil {
 		t.Fatal(err)
 	}
-	second := readRespawn(t, "looper", pr, pw)
-	if second.dim != "minecraft:overworld" {
-		t.Fatalf("return travel dim = %q, want overworld", second.dim)
+	deadline2 := time.NewTimer(30 * time.Second)
+	defer deadline2.Stop()
+	for {
+		select {
+		case p := <-packets:
+			if p.ID != server.IDPlayRespawn {
+				continue
+			}
+			second := decodeRespawnBlackbox(t, "looper", p.Data)
+			if second.dim != "minecraft:overworld" {
+				t.Fatalf("return travel dim = %q, want overworld", second.dim)
+			}
+			return
+		case err := <-errors:
+			t.Fatalf("return travel stream: %v", err)
+		case <-deadline2.C:
+			t.Fatal("return travel never fired after cooldown expiry")
+		}
 	}
 }
 

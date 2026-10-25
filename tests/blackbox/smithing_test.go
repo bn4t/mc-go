@@ -1,5 +1,3 @@
-//go:build blackbox
-
 package blackbox
 
 // TestSmithingTransformParity pins the smithing table's upgrade flow:

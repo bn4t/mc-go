@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for TraderLlama's extra behaviors over Llama
 // (decompile animal/equine/TraderLlama.java + the family goals in
 // Llama.registerGoals):

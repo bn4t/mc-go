@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for FrogAi's TONGUE activity (ShootTongue):
 // the FROG_ATTACKABLES sensor picks the nearest VISIBLE FROG_FOOD
 // entity — slime or magma_cube at getSize()==1 — inside a fixed

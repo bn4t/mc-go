@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // TestPortalAgeParity pins the per-tick carries of Entity.baseTick
 // and AgeableMob.aiStep: portalCooldown decrements one per tick on
 // every ticking entity (mobs and non-living alike) and never goes

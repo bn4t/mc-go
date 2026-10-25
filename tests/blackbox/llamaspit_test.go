@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for the llama-spit retaliation on the 26.2
 // decompile. LlamaHurtByTargetGoal (targetSelector 1) re-aims the hurt
 // llama at its attacker; RangedAttackGoal(this, 1.25, 40, 20) ticks

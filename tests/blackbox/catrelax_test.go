@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Cat$CatRelaxOnOwnerGoal — the lie-on-sleeping-owner's-bed wire,
 // measured on the vanilla 26.2 jar:
 //

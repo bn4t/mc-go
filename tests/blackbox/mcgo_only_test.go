@@ -55,28 +55,66 @@ func drainToJoinBlackbox(t *testing.T, tag string, pr *protocol.Reader) {
 
 func readSystemChatBlackbox(t *testing.T, pr *protocol.Reader, timeout time.Duration) string {
 	t.Helper()
+	return chatTextBlackbox(t, readSystemChatPayloadBlackbox(t, pr, timeout))
+}
+
+func readSystemChatPayloadBlackbox(t *testing.T, pr *protocol.Reader, timeout time.Duration) []byte {
+	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			t.Fatal("timed out waiting for system chat")
 		}
-		// The underlying conn already has a 10s deadline from client();
-		// poll with short reads.
-		if c, ok := prConn(pr); ok {
-			_ = c.SetDeadline(time.Now().Add(500 * time.Millisecond))
-		}
+		// Reader.SetDeadline reaches the underlying TCP connection. A
+		// failed framed read cannot safely resume at the next packet.
+		pr.SetDeadline(deadline)
 		p, err := pr.ReadPacket()
 		if err != nil {
-			if time.Now().After(deadline) {
-				t.Fatalf("chat read: %v", err)
-			}
-			continue
+			t.Fatalf("chat read: %v", err)
 		}
 		if p.ID != server.IDPlaySystemChatCB {
 			continue
 		}
-		return chatTextBlackbox(t, p.Data)
+		return p.Data
+	}
+}
+
+// readTranslatedChatBlackbox checks the protocol component rather than an
+// English rendering: servers transmit translation keys and typed arguments.
+func readTranslatedChatBlackbox(t *testing.T, pr *protocol.Reader, timeout time.Duration, key string, wantArgs int) []any {
+	t.Helper()
+	root, err := nbt.ReadUnnamed(bytes.NewReader(readSystemChatPayloadBlackbox(t, pr, timeout)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	component, ok := root.(map[string]any)
+	// commandError wraps a translated child in an empty red component.
+	if ok && component["translate"] == nil && component["text"] == "" {
+		extra, _ := component["extra"].(nbt.List)
+		if len(extra.Items) == 1 {
+			component, ok = extra.Items[0].(map[string]any)
+		}
+	}
+	if !ok || component["translate"] != key {
+		t.Fatalf("chat component = %#v, want translation %q", root, key)
+	}
+	args, _ := component["with"].(nbt.List)
+	if len(args.Items) != wantArgs {
+		t.Fatalf("%s arguments = %#v, want %d", key, args.Items, wantArgs)
+	}
+	return args.Items
+}
+
+func assertKickChatBlackbox(t *testing.T, pr *protocol.Reader) {
+	t.Helper()
+	args := readTranslatedChatBlackbox(t, pr, 10*time.Second, "commands.kick.success", 2)
+	if componentPlain(args[0]) != "Bob" {
+		t.Fatalf("kick target = %#v, want Bob", args[0])
+	}
+	reason, ok := args[1].(map[string]any)
+	if !ok || reason["translate"] != "multiplayer.disconnect.kicked" {
+		t.Fatalf("kick default reason = %#v", args[1])
 	}
 }
 
@@ -165,12 +203,6 @@ func componentPlain(v any) string {
 	}
 }
 
-// prConn is a best-effort hook: blackbox readers wrap a net.Conn but
-// protocol.Reader does not expose it, so callers that need deadlines
-// should set them on their own conn value instead. Kept for symmetry;
-// always reports false so reads use the conn deadline set at dial.
-func prConn(_ *protocol.Reader) (net.Conn, bool) { return nil, false }
-
 func sendChatBlackbox(t *testing.T, pw *protocol.Writer, id int32, text string) {
 	t.Helper()
 	var b protocol.Buffer
@@ -222,6 +254,7 @@ func TestMcGoOnlyPresenceBroadcast(t *testing.T) {
 	}
 
 	_ = cb.Close()
+	_ = ca.SetDeadline(time.Now().Add(5 * time.Second))
 	leaveText := readSystemChatBlackbox(t, pra, 5*time.Second)
 	if !strings.Contains(leaveText, "Bob") || !strings.Contains(leaveText, "left") {
 		t.Fatalf("leave text = %q", leaveText)
@@ -383,47 +416,50 @@ func sendDigBlackbox(t *testing.T, pw *protocol.Writer, status int32, x, y, z in
 // on the digger and the same Block Update on a watching session.
 func TestMcGoOnlyDigBreaksBlock(t *testing.T) {
 	addr := requireMcGoOnly(t)
-	ca, pra, _ := joinPlayBlackbox(t, addr, "Watcher")
+	ca, pra, pwa := joinPlayBlackbox(t, addr, "Watcher")
 	defer ca.Close()
 	drainToJoinBlackbox(t, "watcher", pra)
+	awaitPlayReadyBlackbox(t, "watcher", ca, pra, pwa)
 	cb, prb, pwb := joinPlayBlackbox(t, addr, "Digger")
 	defer cb.Close()
 	drainToJoinBlackbox(t, "builder", prb)
+	awaitPlayReadyBlackbox(t, "digger", cb, prb, pwb)
 	_ = ca.SetDeadline(time.Now().Add(5 * time.Second))
 	_ = readSystemChatBlackbox(t, pra, 5*time.Second) // join broadcast
 
 	_ = cb.SetDeadline(time.Now().Add(5 * time.Second))
+	// The block is high above spawn. Move the scripted player beside it
+	// before digging so the interaction obeys the normal reach check.
+	if err := sendMovePosRot(pwb, 6.5, 71, 6.5); err != nil {
+		t.Fatal(err)
+	}
 	sendChatBlackbox(t, pwb, server.IDPlayChatCommandSB, "setblock 6 70 6 stone")
-	// Wait for the setblock update on both sessions.
-	for _, pr := range []*protocol.Reader{prb, pra} {
+	// Feedback is sent by the command; the block update flushes at the
+	// tick boundary. Collect both without assuming their relative order.
+	for i, pr := range []*protocol.Reader{prb, pra} {
 		deadline := time.Now().Add(5 * time.Second)
-		for {
+		sawBlock, sawFeedback := false, i != 0
+		for !(sawBlock && sawFeedback) {
 			p, err := pr.ReadPacket()
 			if err != nil {
 				t.Fatalf("setblock stream: %v", err)
 			}
 			if p.ID == server.IDPlayBlockUpdateCB {
-				break
+				r := protocol.NewPacketReader(p.Data)
+				x, y, z, err := r.Position()
+				state, stateErr := r.VarInt()
+				if err == nil && stateErr == nil && x == 6 && y == 70 && z == 6 && state != 0 {
+					sawBlock = true
+				}
 			}
 			if p.ID == server.IDPlaySystemChatCB {
-				continue
+				sawFeedback = sawFeedback || strings.Contains(chatTextBlackbox(t, p.Data), "commands.setblock.success")
 			}
 			if time.Now().After(deadline) {
 				t.Fatal("no setblock update")
 			}
 		}
 	}
-	// Drain the builder's setblock confirmation chat.
-	for {
-		p, err := prb.ReadPacket()
-		if err != nil {
-			t.Fatalf("digger drain: %v", err)
-		}
-		if p.ID == server.IDPlaySystemChatCB {
-			break
-		}
-	}
-
 	sendDigBlackbox(t, pwb, 0, 6, 70, 6, 33)
 	// Digger: Block Update (air) then ack 33.
 	sawUpdate, sawAck := false, false
@@ -491,7 +527,28 @@ func TestMcGoOnlyForgetChunkOnFarMove(t *testing.T) {
 	c, pr, pw := joinPlayBlackbox(t, addr, "Walker")
 	defer c.Close()
 	drainToJoinBlackbox(t, "walker", pr)
-	chunks := drainChunkWindow(t, "walker", c, pr, pw, 500*time.Millisecond)
+	chunks := awaitPlayReadyBlackbox(t, "walker", c, pr, pw)
+	// Initial lighting can take longer than a quiet-gap timeout. Wait for
+	// the complete measured fallback window, acknowledging every batch.
+	_ = c.SetDeadline(time.Now().Add(20 * time.Second))
+	for len(chunks) < 49 {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("spawn chunk window (%d/49): %v", len(chunks), err)
+		}
+		switch p.ID {
+		case server.IDPlayChunkData:
+			chunks = append(chunks, p)
+		case server.IDPlayChunkBatchDone:
+			if err := ackChunkBatch(pw); err != nil {
+				t.Fatal(err)
+			}
+		case server.IDPlayKeepAliveCB:
+			if err := pw.WritePacket(server.IDPlayKeepAliveSB, p.Data); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	if len(chunks) != 49 {
 		t.Fatalf("spawn window = %d columns, want 49", len(chunks))
 	}
@@ -570,16 +627,12 @@ func TestMcGoOnlyOpsCommands(t *testing.T) {
 	if out := runCmd(pwa, pra, "pos"); !strings.HasPrefix(out, "0.50 -60.00 0.50") {
 		t.Fatalf("/pos after tp player = %q", out)
 	}
-	if out := runCmd(pwa, pra, "tp Ghost"); out != "Unknown player: Ghost" {
-		t.Fatalf("/tp ghost = %q", out)
-	}
-	if out := runCmd(pwa, pra, "save-all"); !strings.Contains(out, "disabled") {
-		t.Fatalf("/save-all = %q", out)
-	}
-
-	if out := runCmd(pwa, pra, "kick Bob"); out != "Kicked Bob" {
-		t.Fatalf("/kick = %q", out)
-	}
+	sendChatBlackbox(t, pwa, server.IDPlayChatCommandSB, "tp Ghost")
+	readTranslatedChatBlackbox(t, pra, 10*time.Second, "argument.entity.notfound.entity", 0)
+	sendChatBlackbox(t, pwa, server.IDPlayChatCommandSB, "save-all")
+	readTranslatedChatBlackbox(t, pra, 10*time.Second, "commands.save.failed", 0)
+	sendChatBlackbox(t, pwa, server.IDPlayChatCommandSB, "kick Bob")
+	assertKickChatBlackbox(t, pra)
 	// Bob receives the disconnect packet (after his pending burst).
 	sawDisc := false
 	for i := 0; i < 200 && !sawDisc; i++ {
@@ -600,9 +653,8 @@ func TestMcGoOnlyOpsCommands(t *testing.T) {
 		t.Fatalf("leave remove = %#x, err %v", p.ID, err)
 	}
 
-	if out := runCmd(pwa, pra, "stop"); out != "Stopping the server" {
-		t.Fatalf("/stop = %q", out)
-	}
+	sendChatBlackbox(t, pwa, server.IDPlayChatCommandSB, "stop")
+	readTranslatedChatBlackbox(t, pra, 10*time.Second, "commands.stop.stopping", 0)
 	// Alice is kicked with Server closed, then the socket goes away.
 	sawDisc = false
 	for i := 0; i < 50 && !sawDisc; i++ {
@@ -812,9 +864,7 @@ func TestMcGoOnlyPlayerVisibility(t *testing.T) {
 	if err := pwa.WritePacket(server.IDPlayChatCommandSB, b.Bytes()); err != nil {
 		t.Fatal(err)
 	}
-	if text := readSystemChatBlackbox(t, pra, 10*time.Second); !strings.Contains(text, "Kicked Bob") {
-		t.Fatalf("kick reply = %q", text)
-	}
+	assertKickChatBlackbox(t, pra)
 	sawRemove := false
 	deadline := time.Now().Add(10 * time.Second)
 	for !sawRemove && time.Now().Before(deadline) {
@@ -861,29 +911,68 @@ func waitForPacketBlackbox(t *testing.T, c net.Conn, pr *protocol.Reader, id int
 // advance the world age once per second.
 func TestMcGoOnlyTimeSync(t *testing.T) {
 	addr := requireMcGoOnly(t)
-	c, pr, _ := joinPlayBlackbox(t, addr, "Timelord")
+	// Declare the minimum client view explicitly; this clock probe needs
+	// only the standard 49-column window, also used by no-info clients.
+	c, pr, _ := joinPlayBlackboxView(t, addr, "Timelord", 2)
 	defer c.Close()
 	drainToJoinBlackbox(t, "timelord", pr)
 
-	readAge := func(p *protocol.Packet) int64 {
-		r := protocol.NewPacketReader(p.Data)
-		age, err := r.Long()
+	// Join Game precedes sendWindow's synchronous section/light warmup.
+	// Attributes follow that warmup on this pinned join protocol, so await
+	// actual readiness before measuring the periodic clock's progress.
+	joinStarted := time.Now()
+	pr.SetDeadline(joinStarted.Add(60 * time.Second))
+	var lastID int32 = -1
+	for packets := 0; ; packets++ {
+		p, err := pr.ReadPacket()
 		if err != nil {
-			t.Fatalf("update time: %v", err)
+			t.Fatalf("join readiness after %v (%d packets, last ID %#x): %v", time.Since(joinStarted), packets, lastID, err)
 		}
-		return age
+		lastID = p.ID
+		if p.ID == server.IDPlayUpdateAttributes {
+			break
+		}
 	}
-	p1 := waitForPacketBlackbox(t, c, pr, server.IDPlayUpdateTime, 5*time.Second)
-	if p1 == nil {
-		t.Fatal("no periodic update time within 5s")
+
+	// The initial join sends a clocked snapshot, and another join sync
+	// may carry the same age. Buffered periodic broadcasts can also share
+	// an age while the joining player is still loading; require eventual
+	// progress within one bounded window, rather than every adjacent pair.
+	started := time.Now()
+	deadline := started.Add(8 * time.Second)
+	nextPeriodic := func() int64 {
+		t.Helper()
+		pr.SetDeadline(deadline)
+		for {
+			p, err := pr.ReadPacket()
+			if err != nil {
+				t.Fatalf("periodic update time after %v (last packet ID %#x): %v", time.Since(started), lastID, err)
+			}
+			lastID = p.ID
+			if p.ID != server.IDPlayUpdateTime || len(p.Data) != 9 {
+				continue
+			}
+			r := protocol.NewPacketReader(p.Data)
+			age, err := r.Long()
+			n, countErr := r.VarInt()
+			if err != nil || countErr != nil || n != 0 {
+				t.Fatalf("invalid periodic time payload: %x", p.Data)
+			}
+			return age
+		}
 	}
-	a1 := readAge(p1)
-	p2 := waitForPacketBlackbox(t, c, pr, server.IDPlayUpdateTime, 5*time.Second)
-	if p2 == nil {
-		t.Fatal("no second update time within 5s")
-	}
-	if a2 := readAge(p2); a2 <= a1 {
-		t.Fatalf("world age did not advance: %d -> %d", a1, a2)
+	a1 := nextPeriodic()
+	for {
+		a2 := nextPeriodic()
+		if a2 > a1 {
+			return
+		}
+		if a2 < a1 {
+			t.Fatalf("periodic world age moved backwards: %d -> %d after %v", a1, a2, time.Since(started))
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("periodic world age stayed at %d for %v", a1, time.Since(started))
+		}
 	}
 }
 

@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // TestDimHopParity pins cross-dimension entity semantics measured on
 // 26.2:
 //

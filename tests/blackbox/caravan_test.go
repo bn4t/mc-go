@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for LlamaFollowCaravanGoal (goal priority 2 on
 // llama + trader_llama — it outranks the family's PanicGoal(3),
 // BreedGoal(4), TemptGoal(5) and the WaterAvoidingRandomStroll(7)).

@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // TestRideNBTParity pins Entity.saveWithoutId's mount tail: a vehicle
 // emits Passengers (each child through saveAsPassenger — own save +
 // "id"), and a rider carries RootVehicle {Entity, Attach} — until

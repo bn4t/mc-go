@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Armor toughness, knockback resistance, and the no_knockback tag.
 // Measured on the vanilla 26.2 jar (CombatRules.getDamageAfterAbsorb /
 // LivingEntity.hurtServer's dealDefaultKnockback):

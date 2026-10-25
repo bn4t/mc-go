@@ -1,5 +1,3 @@
-//go:build blackbox
-
 package blackbox
 
 // TestTurtleEggTrampleParity pins TurtleEggBlock's two trample arms

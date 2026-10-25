@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Wolf tame + sit parity vs the vanilla 26.2 server, measured off
 // Wolf.mobInteract / TamableAnimal / SitWhenOrderedToGoal on
 // server-26.2.jar.

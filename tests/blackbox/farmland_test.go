@@ -1,5 +1,3 @@
-//go:build blackbox
-
 package blackbox
 
 // TestFarmlandTrampleParity pins FarmlandBlock.fallOn's trample half

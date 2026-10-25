@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Fox.FoxBreedGoal.breed() — the trusted-list runtime path,
 // measured on the vanilla 26.2 jar (Fox.java):
 //

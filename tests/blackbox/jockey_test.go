@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // TestChickenJockeyParity pins the living-vehicle riding chain:
 // /summon Passengers mounts a baby zombie on a flagged chicken,
 // Entity.tick's positionRider welds it to the rotated PASSENGER

@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // LivingEntity.detectEquipmentUpdates — the per-tick equipment diff,
 // measured on the vanilla 26.2 jar (LivingEntity.java):
 //

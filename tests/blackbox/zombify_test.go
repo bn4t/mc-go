@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // TestOverworldZombifyParity pins AbstractPiglin/Hoglin
 // customServerAiStep: a zombifiable mob in the overworld ticks
 // TimeInOverworld past 300 and converts (piglin → zombified_piglin,

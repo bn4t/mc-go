@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Inside-block effect parity (26.2), measured off the jar:
 //   - PowderSnowBlock.entityInside: runBefore EXTINGUISH melts the
 //     snow when a burning entity steps in (mob_griefing-gated for

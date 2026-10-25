@@ -62,120 +62,129 @@ func waitLightUpdate(t *testing.T, c interface{ SetReadDeadline(time.Time) error
 	return nil
 }
 
-// TestBlockChangeSendsLightUpdate proves the column-model light engine
-// at the packet level: placing a block high above the ground shadows
-// its whole column (empty sky masks for the affected sections), and
-// removing it restores explicit full-sky arrays.
+// TestBlockChangeSendsLightUpdate pins the single-opaque-block probe measured
+// by TestSkyPropParity: below the block skylight is 14 from horizontal
+// propagation; removing it restores 15 in the retained lower layers. The
+// observer stands in chunk (3,0), placing chunk (0,0) on its tracked west border.
+// A focused vanilla 26.2 wire probe of the existing SkyPropParity scenario
+// measured place mask 0x1c6 (five arrays), then removal mask 0x6 (two arrays).
+// Removal omits the higher layer containing y=39; that omission alone does
+// not encode a light value. Assert the restored nibbles in a shipped layer.
 func TestBlockChangeSendsLightUpdate(t *testing.T) {
 	addr := requireMcGoOnly(t)
 	c, pr, pw := joinPlayBlackbox(t, addr, "Light")
 	defer c.Close()
 	drainToJoinBlackbox(t, "light", pr)
-	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
-
-	// Place a block at y=100 in column (8,0): that column's top goes
-	// -61 -> 100, so sections 0..10 each change (one dark column among
-	// the lit ones) and carry explicit sky arrays.
-	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 100 0 stone")
-	p := waitLightUpdate(t, c, pr, 5*time.Second)
-	if p == nil {
-		t.Fatal("no light update after setblock")
-	}
-	r := protocol.NewPacketReader(p.Data)
-	_, _ = r.VarInt() // chunk x
-	_, _ = r.VarInt() // chunk z
-	sky := readMask(t, r)
-	_ = readMask(t, r) // block mask
-	_ = readMask(t, r) // empty sky mask
-	_ = readMask(t, r) // empty block mask
-	arrays, err := r.VarInt()
-	if err != nil {
-		t.Fatalf("sky arrays: %v", err)
-	}
-	if arrays != 11 {
-		t.Fatalf("shadowed update arrays = %d, want 11", arrays)
-	}
-	// Sections 0..10 are in the sky mask (bits are section+1).
-	for sec := 0; sec <= 10; sec++ {
-		if !bitSet(sky, sec+1) {
-			t.Fatalf("section %d missing from sky mask %x", sec, sky)
-		}
-	}
-	// Every array carries a dark column at x=8, z=0. Arrays are
-	// length-prefixed (Prefixed Array of Byte).
-	for sec := 0; sec <= 10; sec++ {
-		n, err := r.VarInt()
-		if err != nil || n != 2048 {
-			t.Fatalf("array %d length = %d, err %v", sec, n, err)
-		}
-		arr, err := r.Read(int(n))
-		if err != nil {
-			t.Fatalf("array %d: %v", sec, err)
-		}
-		for yOff := 0; yOff < 16; yOff++ {
-			y := -64 + sec*16 + yOff
-			idx := yOff*256 + 8 // z=0, x=8
-			if y > 100 {
-				continue // above the placed block: lit
-			}
-			b := idx / 2
-			nib := arr[b] & 0x0F // even index: low nibble
-			if nib != 0 {
-				t.Fatalf("section %d y=%d column (8,0) light = %d, want 0", sec, y, nib)
-			}
-		}
-	}
-	if n, err := r.VarInt(); err != nil || n != 0 {
-		t.Fatalf("block light arrays = %d, err %v (want 0)", n, err)
-	}
-	if r.Remaining() != 0 {
-		t.Fatalf("trailing light bytes: %d", r.Remaining())
+	awaitPlayReadyBlackbox(t, "light", c, pr, pw)
+	if err := sendMovePosRot(pw, 56.5, 100, 8.5); err != nil {
+		t.Fatal(err)
 	}
 
-	// Remove the block: all 11 sections become fully lit arrays.
-	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 100 0 air")
-	p2 := waitLightUpdate(t, c, pr, 5*time.Second)
-	if p2 == nil {
-		t.Fatal("no light update after removing the block")
-	}
-	r2 := protocol.NewPacketReader(p2.Data)
-	_, _ = r2.VarInt()
-	_, _ = r2.VarInt()
-	sky2 := readMask(t, r2)
-	_ = readMask(t, r2)
-	emptySky2 := readMask(t, r2)
-	_ = readMask(t, r2)
-	n2, err := r2.VarInt()
-	if err != nil {
-		t.Fatalf("sky arrays: %v", err)
-	}
-	if n2 != 11 {
-		t.Fatalf("restore arrays = %d, want 11", n2)
-	}
-	if len(emptySky2) != 0 {
-		t.Fatalf("restore left empty sky bits: %x", emptySky2)
-	}
-	for sec := 0; sec < 11; sec++ {
-		n, err := r2.VarInt()
-		if err != nil || n != 2048 {
-			t.Fatalf("array %d length = %d, err %v", sec, n, err)
+	skyAt := func(snap lightSnapshot, x, y, z int) (byte, bool) {
+		bit := (y+64)/16 + 1
+		if !bitSet(snap.skyMask, bit) {
+			return 0, false
 		}
-		arr, err := r2.Read(int(n))
-		if err != nil {
-			t.Fatalf("array %d: %v", sec, err)
-		}
-		for i, v := range arr {
-			want := byte(0xFF)
-			if sec == 0 && i < 512 {
-				want = 0 // the four solid ground layers stay dark
-			}
-			if v != want {
-				t.Fatalf("section %d byte %d = %#x, want %#x", sec, i, v, want)
+		array := 0
+		for i := 0; i < bit; i++ {
+			if bitSet(snap.skyMask, i) {
+				array++
 			}
 		}
+		if array >= len(snap.skyArrays) {
+			t.Fatal("sky mask names an absent array")
+		}
+		index := (y&15)*256 + (z&15)*16 + (x & 15)
+		value := snap.skyArrays[array][index/2]
+		if index&1 != 0 {
+			value >>= 4
+		}
+		return value & 15, true
 	}
-	if !bitSet(sky2, 1) {
-		t.Fatalf("restore sky mask lacks section 0: %x", sky2)
+	checkMasks := func(mask, empty []uint64, arrays [][]byte) {
+		count := 0
+		for i := 0; i < len(mask)*64; i++ {
+			if !bitSet(mask, i) {
+				continue
+			}
+			if bitSet(empty, i) {
+				t.Fatalf("light section %d is both populated and empty", i)
+			}
+			count++
+		}
+		if count != len(arrays) {
+			t.Fatalf("light mask names %d arrays, packet carries %d", count, len(arrays))
+		}
+	}
+
+	for _, phase := range []struct {
+		name, block string
+		sampleY     int
+		below, at   byte
+	}{
+		{"shadow", "stone", 39, 14, 0},
+		{"restore", "air", -59, 15, 15},
+	} {
+		sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 40 8 "+phase.block)
+		deadline := time.Now().Add(10 * time.Second)
+		_ = c.SetReadDeadline(deadline)
+		for {
+			p, err := pr.ReadPacket()
+			if err != nil {
+				t.Fatalf("%s: waiting for sky %d below block: %v", phase.name, phase.below, err)
+			}
+			switch p.ID {
+			case server.IDPlayChunkBatchDone:
+				if err := ackChunkBatch(pw); err != nil {
+					t.Fatal(err)
+				}
+				continue
+			case server.IDPlayKeepAliveCB:
+				if err := pw.WritePacket(server.IDPlayKeepAliveSB, p.Data); err != nil {
+					t.Fatal(err)
+				}
+				continue
+			case server.IDPlayUpdateLight:
+			default:
+				continue
+			}
+			cx, cz, snap := decodeLightUpdate(t, &p)
+			if cx != 0 || cz != 0 {
+				continue
+			}
+			checkMasks(snap.skyMask, snap.emptySky, snap.skyArrays)
+			checkMasks(snap.blockMask, snap.emptyBlock, snap.blockArrays)
+			below, present := skyAt(snap, 8, phase.sampleY, 8)
+			// Initial chunk settling can precede the command's update.
+			// Wait for semantic state instead of assuming a packet count.
+			if !present || below != phase.below {
+				continue
+			}
+			samples := []struct {
+				x, y, z int
+				want    byte
+			}{
+				{8, 40, 8, phase.at}, {8, 41, 8, 15}, {9, 39, 8, 15},
+			}
+			if phase.name == "restore" {
+				if !bitSet(snap.skyMask, 1) || !bitSet(snap.skyMask, 2) || bitSet(snap.skyMask, 7) || bitSet(snap.emptySky, 7) {
+					t.Fatalf("restore masks sky=%x emptySky=%x: want retained low layers and no y=39 layer", snap.skyMask, snap.emptySky)
+				}
+				samples = []struct {
+					x, y, z int
+					want    byte
+				}{
+					{8, -59, 8, 15}, {9, -59, 8, 15}, {8, -43, 8, 15},
+				}
+			}
+			for _, sample := range samples {
+				got, present := skyAt(snap, sample.x, sample.y, sample.z)
+				if !present || got != sample.want {
+					t.Fatalf("%s: sky at (%d,%d,%d)=%d present=%v, want %d", phase.name, sample.x, sample.y, sample.z, got, present, sample.want)
+				}
+			}
+			break
+		}
 	}
 }
 

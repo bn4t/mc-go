@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for the fishing *catch* path: while the bobber
 // bobs, vanilla runs the catchingFish model — lured countdown, splash
 // teases, the hooked countdown with its fishing-approach stream, then

@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for collision-shape line of sight: vanilla's
 // hasLineOfSight clips (COLLIDER) against the cell's real collision
 // boxes, not a unit cube — a low block's empty upper half is air for

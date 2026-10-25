@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for Camel's sitting state machine, measured off
 // the 26.2 decompile (Camel.java + CamelAi.RandomSitting) and the
 // live jar:

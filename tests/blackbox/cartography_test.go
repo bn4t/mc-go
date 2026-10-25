@@ -1,5 +1,3 @@
-//go:build blackbox
-
 package blackbox
 
 // TestCartographyParity pins the cartography table on 26.2:

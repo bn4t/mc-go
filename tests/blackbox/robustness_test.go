@@ -2,6 +2,8 @@ package blackbox
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"net"
 	"sync"
 	"testing"
@@ -110,7 +112,21 @@ func TestOversizeFrameParity(t *testing.T) {
 			b.VarInt(1 << 30) // absurd length
 			_, _ = c.Write(b.Bytes())
 			pr := protocol.NewReader(c)
-			_, _ = pr.ReadPacket() // expect failure/close, ignore result
+			_, err := pr.ReadPacket()
+			// A read deadline alone is not a rejection: the target may
+			// have accepted the absurd frame and be waiting for its body.
+			if err == nil {
+				t.Fatalf("%s: answered an oversize frame", addr)
+			}
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				t.Fatalf("%s: did not reject oversize frame before deadline: %v", addr, err)
+			}
+			if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+				var op *net.OpError
+				if !errors.As(err, &op) {
+					t.Fatalf("%s: expected peer close, got %v", addr, err)
+				}
+			}
 		}()
 		if !probeStatus(addr) {
 			t.Fatalf("%s: not alive after oversize frame", addr)
@@ -184,7 +200,12 @@ func TestPlayJoinParity(t *testing.T) {
 // itself).
 func joinPlayBlackbox(t *testing.T, addr, name string) (net.Conn, *protocol.Reader, *protocol.Writer) {
 	t.Helper()
-	c, pr, pw := joinPlayQuiet(t, addr, name)
+	return joinPlayBlackboxView(t, addr, name, -1)
+}
+
+func joinPlayBlackboxView(t *testing.T, addr, name string, view int8) (net.Conn, *protocol.Reader, *protocol.Writer) {
+	t.Helper()
+	c, pr, pw := joinPlayQuietView(t, addr, name, view)
 	// The login deadline protects the handshake/config phase; once the
 	// client is in play the keepalive-answering drain loops and the
 	// callers' own read deadlines bound things, so lift it — a write past
@@ -203,10 +224,33 @@ func joinPlayBlackbox(t *testing.T, addr, name string) (net.Conn, *protocol.Read
 // for the tests that measure the interaction gate itself.
 func joinPlayQuiet(t *testing.T, addr, name string) (net.Conn, *protocol.Reader, *protocol.Writer) {
 	t.Helper()
+	return joinPlayQuietView(t, addr, name, -1)
+}
+
+// A nonnegative view requests the client's chunk radius during configuration.
+// Tests unrelated to chunk streaming can request a small window over the wire,
+// including against MCGO_TARGET, without changing the server configuration.
+func joinPlayQuietView(t *testing.T, addr, name string, view int8) (net.Conn, *protocol.Reader, *protocol.Writer) {
+	t.Helper()
 	c, pr, pw := loginStart(t, addr, name)
 	readLoginSuccess(t, pr, pw, addr)
 	if err := pw.WritePacket(server.IDLoginAcknowledged, nil); err != nil {
 		t.Fatal(err)
+	}
+	if view >= 0 {
+		var info protocol.Buffer
+		info.String("en_US")
+		info.Byte(byte(view))
+		info.VarInt(0)
+		info.Bool(true)
+		info.Byte(0x7f)
+		info.VarInt(1)
+		info.Bool(false)
+		info.Bool(true)
+		info.VarInt(0)
+		if err := pw.WritePacket(server.IDConfigClientInformation, info.Bytes()); err != nil {
+			t.Fatal(err)
+		}
 	}
 	sendKnownPacks(t, pw, "99.9-test")
 	for i := 0; i < 60; i++ {

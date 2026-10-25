@@ -1,5 +1,3 @@
-//go:build blackbox
-
 package blackbox
 
 // TestMapExtendingParity pins crafting_special_mapextending on 26.2:

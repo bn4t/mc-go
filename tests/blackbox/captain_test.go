@@ -1,5 +1,3 @@
-//go:build blackbox
-
 package blackbox
 
 // TestCaptainParity exercises the raid-captain slice end to end on both

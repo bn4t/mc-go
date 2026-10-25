@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // TestDropChancesParity pins Mob.dropCustomDeathLoot's per-slot
 // equipment drop chances: the summon-time drop_chances compound, its
 // re-emit through data get, the player-kill gate, the 0.0/2.0 edge

@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Sun-shelter parity: 26.2's FleeSunGoal is registered only on the
 // AbstractSkeleton family — a burning, bare-headed skeleton under open
 // sky paths to a shaded cell (getHidePos takes up to ten random

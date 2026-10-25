@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // FishingHook's entity-hook path, measured on the vanilla 26.2 jar:
 //
 //   - FLYING's checkCollision: ProjectileUtil.getHitResultOnMoveVector

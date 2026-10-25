@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // TestAgeableNBTParity pins AgeableMob.addAdditionalSaveData: every
 // ageable type emits Age/ForcedAge/AgeLocked unconditionally while
 // canBeABaby, and Animal subclasses add InLove — the water-creature,

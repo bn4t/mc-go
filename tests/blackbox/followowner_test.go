@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for FollowOwnerGoal + TamableAnimal's owner
 // teleport (decompile ai/goal/FollowOwnerGoal.java +
 // TamableAnimal.{tryToTeleportToOwner,shouldTryTeleportToOwner,

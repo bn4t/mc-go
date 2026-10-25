@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Blackbox parity pin for AbstractCubeMob.remove's SPLIT_ON_DEATH
 // conversion on the 26.2 decompile. A size>1 cube dying (any cause —
 // the corpse lingers twenty ticks, then remove(KILLED) runs the

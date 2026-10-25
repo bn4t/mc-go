@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Charged-creeper riders parity (26.2):
 //   - Creeper.killedEntity: a powered creeper's blast drops the
 //     victim's head via the CHARGED_CREEPER loot table

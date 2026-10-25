@@ -1,5 +1,3 @@
-//go:build blackbox
-
 package blackbox
 
 // TestLoomParity pins the loom menu on 26.2:

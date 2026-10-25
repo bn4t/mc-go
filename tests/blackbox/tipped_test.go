@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Tipped-arrow parity: 26.2's Stray.getArrow and Bogged.getArrow each
 // addEffect on the fresh arrow — MobEffectInstance(SLOWNESS, 600) and
 // MobEffectInstance(POISON, 100). A mob-built arrow stack carries no

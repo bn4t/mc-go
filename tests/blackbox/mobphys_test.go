@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Mob ground-move parity: vanilla's LivingEntity.travelInAir gives a
 // walking mob getFrictionInfluencedSpeed — on blocks whose friction
 // exceeds 0.6 the navigation input shrinks to speed*0.216/f³ (slime

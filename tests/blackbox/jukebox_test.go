@@ -1,5 +1,3 @@
-//go:build blackbox
-
 // Jukebox use pair + JukeboxSongPlayer wire (insert/eject/song events)
 // and the allay amethyst-shard duplication arm, measured on the vanilla
 // 26.2 jar:

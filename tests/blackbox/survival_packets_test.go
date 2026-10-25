@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"net"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -63,32 +64,12 @@ func syncClickState(t *testing.T, pr *protocol.Reader, pw *protocol.Writer, win 
 	}
 }
 
-// confirmSyncsBlackbox reads until the connection is quiet, confirming
-// every Synchronize Player Position on the way. Menu uses are denied
-// until the client confirms its teleports (vanilla 26.2 answers
-// build.tooHigh), so tests that open menus run this after joining and
-// after every teleport.
-func confirmSyncsBlackbox(t *testing.T, c interface {
-	SetDeadline(time.Time) error
-}, pr *protocol.Reader, pw *protocol.Writer) {
+// confirmSyncsBlackbox waits for the explicit command teleport (initial
+// join is id 1), then confirms it before a menu use. A quiet socket is
+// not evidence that world initialization or an earlier command completed.
+func confirmSyncsBlackbox(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writer) {
 	t.Helper()
-	for {
-		_ = c.SetDeadline(time.Now().Add(500 * time.Millisecond))
-		p, err := pr.ReadPacket()
-		if err != nil {
-			_ = c.SetDeadline(time.Time{})
-			return
-		}
-		if p.ID == server.IDPlaySyncPos {
-			if id, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
-				var b protocol.Buffer
-				b.VarInt(id)
-				if err := pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes()); err != nil {
-					t.Fatal(err)
-				}
-			}
-		}
-	}
+	waitTeleportBlackbox(t, c, pr, pw, 2)
 }
 
 // sendMovePosRotPitch writes a full position+rotation update.
@@ -127,15 +108,7 @@ func TestSurvivalBreakDropPickupPackets(t *testing.T) {
 	c, pr, pw := joinPlayBlackbox(t, addr, "Miner")
 	defer c.Close()
 	drainToJoinBlackbox(t, "miner", pr)
-
-	var tp protocol.Buffer
-	tp.VarInt(1)
-	if err := pw.WritePacket(server.IDPlayTeleportConfirmSB, tp.Bytes()); err != nil {
-		t.Fatal(err)
-	}
-	if err := pw.WritePacket(server.IDPlayPlayerLoadedSB, nil); err != nil {
-		t.Fatal(err)
-	}
+	awaitPlayReadyBlackbox(t, "miner", c, pr, pw)
 	if err := sendMovePosRotPitch(pw, 8.5, -60, 0.5, 0, 90); err != nil {
 		t.Fatal(err)
 	}
@@ -238,6 +211,12 @@ func TestSurvivalBreakDropPickupPackets(t *testing.T) {
 	}
 	if metaEID != itemEID {
 		t.Fatalf("item metadata eid = %d, want %d", metaEID, itemEID)
+	}
+	// Movement is client-driven. After breaking the supporting grass, a
+	// real client falls into the one-block hole; report that position so
+	// the dropped dirt lies inside the player's pickup volume.
+	if err := sendMovePosRotPitch(pw, 8.5, -61, 0.5, 0, 90); err != nil {
+		t.Fatal(err)
 	}
 
 	// 4. After the pickup delay, Take Item Entity then Remove Entities
@@ -431,6 +410,28 @@ func TestSurvivalAttackPackets(t *testing.T) {
 		}
 		aliceEID = eid
 		break
+	}
+
+	// The attack-strength ticker starts at zero on join and advances
+	// on player ticks, separately from /tick sprint's world ticks. The
+	// play_time statistic proves five player ticks completed before
+	// expecting a fully charged one-point fist hit.
+	playTimeID, ok := server.CustomStatID("play_time")
+	if !ok {
+		t.Fatal("missing play_time custom statistic")
+	}
+	var bobPos [3]float64
+	recharged := false
+	rechargeDeadline := time.Now().Add(10 * time.Second)
+	for !recharged && time.Now().Before(rechargeDeadline) {
+		for _, row := range drainStats(t, cb, prb, pwb, &bobPos, time.Until(rechargeDeadline)) {
+			if row.cat == 8 && row.id == playTimeID && row.val >= 5 {
+				recharged = true
+			}
+		}
+	}
+	if !recharged {
+		t.Fatal("attacker did not complete five player ticks")
 	}
 
 	// Bob attacks Alice (both stand at spawn, within reach).
@@ -695,12 +696,18 @@ func TestMobSummonAttackPackets(t *testing.T) {
 			typ, _ := r.VarInt()
 			switch eid {
 			case pigEID:
+				if index != 9 || typ != 3 {
+					t.Fatalf("health metadata = index %d type %d", index, typ)
+				}
 				h, err := r.Float()
 				if err != nil {
 					t.Fatalf("health metadata: %v", err)
 				}
-				if h >= lastHealth {
-					t.Fatalf("health did not drop: %v -> %v", lastHealth, h)
+				// Dirty metadata can resend the same health after the
+				// immediate hit update. It must never increase; the final
+				// health, removal and porkchop checks still require death.
+				if h > lastHealth {
+					t.Fatalf("health increased: %v -> %v", lastHealth, h)
 				}
 				lastHealth = h
 			case dropEID:
@@ -1102,10 +1109,15 @@ func TestSignEditorPackets(t *testing.T) {
 	c, pr, pw := joinPlayBlackbox(t, addr, "Signer")
 	defer c.Close()
 	drainToJoinBlackbox(t, "signer", pr)
-	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	awaitPlayReadyBlackbox(t, "signer", c, pr, pw)
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	// A rotation-0 standing sign faces south. Approach that side within
+	// use reach rather than attempting to edit it from world spawn.
+	if err := sendMovePosRot(pw, 8.5, -60, 2.5); err != nil {
+		t.Fatal(err)
+	}
 
-	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 oak_sign")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 oak_sign[rotation=0]")
 
 	// Block Entity Data for the sign: position, type 7, NBT with
 	// front_text.
@@ -1219,7 +1231,7 @@ func TestChestPackets(t *testing.T) {
 	c, pr, pw := joinPlayBlackbox(t, addr, "Trader")
 	defer c.Close()
 	drainToJoinBlackbox(t, "trader", pr)
-	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	awaitPlayReadyBlackbox(t, "trader", c, pr, pw)
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 chest")
@@ -1501,7 +1513,7 @@ func TestFurnacePackets(t *testing.T) {
 	c, pr, pw := joinPlayBlackbox(t, addr, "Smelter")
 	defer c.Close()
 	drainToJoinBlackbox(t, "smelter", pr)
-	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	awaitPlayReadyBlackbox(t, "smelter", c, pr, pw)
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 furnace")
@@ -1628,7 +1640,7 @@ func TestCraftingPackets(t *testing.T) {
 	c, pr, pw := joinPlayBlackbox(t, addr, "Crafter")
 	defer c.Close()
 	drainToJoinBlackbox(t, "crafter", pr)
-	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	awaitPlayReadyBlackbox(t, "crafter", c, pr, pw)
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "give oak_log 1")
@@ -1817,12 +1829,14 @@ func TestCraftingTablePackets(t *testing.T) {
 			continue
 		}
 		r := protocol.NewPacketReader(p.Data)
-		_, _ = r.VarInt()
-		_, _ = r.VarInt()
+		wid, _ := r.VarInt()
+		state, _ := r.VarInt()
 		slot, _ := r.Short()
 		count, _ := r.VarInt()
 		id, _ := r.VarInt()
-		if slot != 0 {
+		// Earlier clicks also publish valid intermediate recipes (one
+		// plank makes a button). Assert the final grid's result only.
+		if wid != window || slot != 0 || state < st {
 			continue
 		}
 		if id != world.ItemIDs["crafting_table"] || count != 1 {
@@ -1869,10 +1883,13 @@ func TestHungerSprintPackets(t *testing.T) {
 	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 
-	// Start sprinting.
+	// Protocol 776 changes sprint state through Player Command action 1.
+	// The sprint key in Player Input alone does not start sprinting.
 	var in protocol.Buffer
-	in.Byte(0x40)
-	if err := pw.WritePacket(server.IDPlayPlayerInputSB, in.Bytes()); err != nil {
+	in.VarInt(0) // entity id is ignored by the player command handler
+	in.VarInt(1) // start sprinting
+	in.VarInt(0) // jump boost
+	if err := pw.WritePacket(server.IDPlayPlayerCommandSB, in.Bytes()); err != nil {
 		t.Fatal(err)
 	}
 	// Sprint 45 blocks (0.1 exhaustion each = 4.5): enough to consume
@@ -2584,8 +2601,10 @@ func TestDamageEventPackets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !hasPos {
-			t.Fatal("player-attack damage event lacks a source position")
+		// Entity-sourced hits carry entity ids and no explicit position;
+		// only /damage at supplies the optional position (DamageAtPosParity).
+		if hasPos || r.Remaining() != 0 {
+			t.Fatalf("entity attack has explicit position or trailing bytes: hasPos=%v remaining=%d", hasPos, r.Remaining())
 		}
 		return
 	}
@@ -2659,7 +2678,7 @@ func TestHopperPackets(t *testing.T) {
 	c, pr, pw := joinPlayBlackbox(t, addr, "Hopper")
 	defer c.Close()
 	drainToJoinBlackbox(t, "hopper", pr)
-	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	awaitPlayReadyBlackbox(t, "hopper", c, pr, pw)
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "setblock 8 -61 0 hopper")
@@ -2950,7 +2969,7 @@ func TestScoreboardPackets(t *testing.T) {
 	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 
-	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "scoreboard objectives add test Test Score")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, `scoreboard objectives add test dummy "Test Score"`)
 	for {
 		p, err := pr.ReadPacket()
 		if err != nil {
@@ -2965,13 +2984,21 @@ func TestScoreboardPackets(t *testing.T) {
 		if name != "test" || mode != 0 {
 			t.Fatalf("objective = %q mode %d", name, mode)
 		}
-		present, _ := r.Bool()
-		if !present {
-			t.Fatal("objective display missing")
-		}
 		rest, _ := r.Read(r.Remaining())
-		if !bytes.Contains(rest, []byte("Test Score")) {
-			t.Fatalf("display component lacks text: %x", rest)
+		// Update Objectives carries an unconditional network-NBT display
+		// component, followed by render type and optional number format.
+		tail := bytes.NewReader(rest)
+		display, err := nbt.ReadUnnamed(tail)
+		if err != nil || display != "Test Score" {
+			t.Fatalf("objective display = %#v, err %v", display, err)
+		}
+		renderType, err := protocol.ReadVarInt(tail)
+		if err != nil || renderType != 0 {
+			t.Fatalf("objective render type = %d, err %v", renderType, err)
+		}
+		format, err := tail.ReadByte()
+		if err != nil || format != 0 || tail.Len() != 0 {
+			t.Fatalf("objective number format = %d, trailing=%d, err %v", format, tail.Len(), err)
 		}
 		break
 	}
