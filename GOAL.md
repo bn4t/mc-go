@@ -14493,3 +14493,28 @@ no flee; unsneak → flee). Green both legs.
   skips; default success does not imply that skipped vanilla comparisons ran.
   Final current-source `go test ./... -count=1 -timeout=10m` passes, including
   the default blackbox package (91.804s); no oracle opt-in was used for that run.
+
+## Slice — portable Java protocol conformance runner (2026-10-25)
+
+- **Measured:** protocol evidence comes from the public Java protocol reference,
+  existing differential observations, Go 1.27.3 probes and the JDK 25 oracle
+  using vanilla 26.2 jar SHA1
+  `823e2250d24b3ddac457a60c92a6a941943fcd6a`. The independent TCP smoke profile
+  exercises protocol 776 status, signed ping, offline identity, configuration
+  registries/features/tags and Play Login, malformed rejection and subsequent
+  liveness. Complete structural parsing and negative peers prevent packet-ID
+  presence, empty registries or truncated payloads from counting as success.
+- **Implemented:** stdlib-only public `conformance` package and
+  `cmd/mc-conformance`; declarative endpoint/version/capability manifest,
+  pass/fail/unsupported/infrastructure results, explicit declared capabilities,
+  bounded framed hex transcripts and JSON reports. Requested unsupported
+  profiles and zero executed scenarios return infrastructure exit status 2;
+  unsupported results cannot hide inside a partial successful report.
+- **Pinned:** 35 deliberately broken TCP controls, valid peers with compression
+  disabled/0/256, CLI manifest/report/exit tests, package race checks, current
+  CLI execution against a real mc-go TCP process and oracle-gated
+  `TestPortableConformanceVanilla`. This is a smoke foundation, not a complete
+  protocol grammar or gameplay parity certificate.
+  The final actual-vanilla public profile passes all seven declared scenarios
+  (8.60s); all are recorded as pass with declared=true. The standalone
+  conformance/CLI race suites also pass on the final profile semantics.

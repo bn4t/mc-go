@@ -1,0 +1,8 @@
+{
+  "endpoint": "127.0.0.1:25565",
+  "protocol": 776,
+  "version": "26.2",
+  "capabilities": ["status", "ping", "offline-login", "configuration", "malformed"],
+  "username": "Conformance",
+  "timeout_ms": 10000
+}
