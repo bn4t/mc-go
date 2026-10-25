@@ -14886,3 +14886,80 @@ no flee; unsneak → flee). Green both legs.
   owner-synchronous; broader mutation/gameplay APIs, region ownership, remaining
   persistence migrations and sustained load measurements remain future work.
   No latency, throughput, heap-cap or player-capacity claim is made.
+
+## Slice — fused cold column preparation (2026-10-25)
+
+- **Measured:** source class is the existing Go runtime's read/analysis paths,
+  with existing official-report and wire observations reused for regression
+  expectations; no new jar extraction or generated production table is added.
+  For a 384-high fresh skylight column, the previous preparation performed 24
+  section reads plus separate whole-column non-air and skyline reads: 26
+  `FillBox` calls and three column-equivalent cell scans, before the existing
+  neighboring eligibility/source reads and light flooding. The unchanged final
+  benchmark harness is SHA-256
+  `d4787091a42c78a82d6dbacb3abf5d384d30336c2e30b81d438251f4e60d5ff3`.
+  Its baseline is a clean archive of
+  `ab791d032a4e6b1ca5864c44b5405fde676f96e4` with only that harness added.
+  Sequential Linux/amd64 Go 1.27.3 samples on AMD EPYC 9V74 used
+  `GOMAXPROCS=5`, five samples and 200 ms per sample. Both use eight world
+  shards, the same flat generator and a fixed 64-cell mixed canopy. Cold resets
+  dimension/section caches over the same immutable world; worker construction,
+  package codec initialization and materialization-control fact preparation are
+  excluded. The final matching harness shares immutable neighboring facts for
+  the materialization control to avoid repeatedly paying excluded full reads
+  during calibration; preliminary harness runs are not compared.
+- **Implemented:** one detached full-column scan computes independent exact-Air
+  counts, random-tick/opaque flags and absolute sky tops, memoizing repeated
+  canonical-state classification within that scan. Under simulation ownership,
+  publication takes `lightMu` before `randMu` and fills only absent entries,
+  preserving the existing incremental light values and populated flag entries.
+  Fresh skylight view columns use it before light materialization. Warm facts,
+  section-local flag refills and skyless flag-only preparation retain their
+  existing paths. No halo expansion, new workers, persistent cache or light-flood
+  concurrency is introduced; preparation still blocks the simulation owner.
+- **Performance:** cold facts median falls from 9.355 ms (9.099–10.793) to
+  0.951 ms (0.888–1.076), with 2,371,012 bytes/2,438 allocations becoming
+  822,029 bytes/111 allocations. The radius-2 window fixture includes fresh
+  49-column enumeration/preparation and the existing light margin, then
+  capture, completed synchronous encoding and outbound admission of its nine
+  opening chunks. It excludes sockets, encoder workers, concurrent ticks and
+  remaining paced batches. Cold skylight median falls from 1.333 s
+  (1.215–2.891) to 0.834 s (0.814–0.846), about 37.5%, with allocated bytes
+  331,396,912 → 253,638,888 and allocations 183,821 → 68,969. Warm skylight
+  medians are 12.613 → 11.831 ms; skyless cold 133.175 → 130.254 ms and
+  warm 11.909 → 11.606 ms have overlapping ranges. Partial-section refill
+  retains 30,512 bytes/93 allocations; fact-warm materialization retains
+  270,320 bytes/1,063 allocations. Both implementations emit exactly 86,024
+  skylight or 30,602 skyless opening chunk-body bytes. Unchanged skyline/count
+  controls and wide warm/skyless timing ranges expose machine variation;
+  their differences are not additional optimization claims. Full medians,
+  ranges, fixture boundaries and reproduction command are in ARCHITECTURE.md.
+- **Pinned:** independent existing scans and explicit semantic fixtures cover
+  unknown canonical handles, cave air, waterlogged transparent states, random
+  ticking, empty columns, highest cells, negative coordinates and dimension
+  shapes. Tests preserve partially populated cache identities/entries and
+  dimension isolation, keep skyless light caches cold, observe fresh facts
+  after Restore, and compare exact lighting across owned occupancy flips and
+  local flag refills. Final focused analyzer/cache race passes in 2.158 s.
+  A new actual TCP regression acknowledges seven complete 49-column windows
+  for each measured 775/776 profile, comparing initial/cold-far/warm-return
+  heightmaps, section data and canonical light, then stone occupancy and removal
+  with measured 14/0/15 sky samples. It passes normally in 4.073 s and under
+  race in 53.376 s. Actual-vanilla initial-chunk, torch-light and sky-propagation
+  comparisons all execute without skips and pass in 154.458 s total. Their
+  oracle uses Temurin JDK 25.0.5+8 and the official 26.2 jar, SHA-256
+  `cdacdfb25898de5e4b4b0e5ddcc2722f77067e46605709c2d886c000ebb63ec5`.
+- **Validation:** the full uncached current-source default sweep passes in
+  240.292 s wall time, including server (228.548 s), world (0.665 s), public
+  external consumers (8.082 s) and the complete blackbox package (86.879 s).
+  Build and vet pass. Publication additionally validates the actual committed
+  source through a clean `git archive`, full build, separate public consumer
+  modules, focused analyzer/cache/golden tests and the new 775/776 TCP pin.
+  No ignored source files or production-table regeneration are required.
+- **Remaining:** cold neighboring light preparation, sky materialization and
+  save I/O remain owner-synchronous. Existing raw cached `World.SetBlock` or
+  `World.Restore` calls have no new derived-light invalidation contract; the
+  Restore pin covers first preparation after restoration. Region ownership,
+  sustained mixed-load measurements and the other documented parity/API work
+  remain unfinished. This slice establishes no sustained TPS, network latency,
+  heap-cap or player-capacity claim.

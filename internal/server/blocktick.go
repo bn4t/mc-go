@@ -151,12 +151,16 @@ func (s *Server) sectionFlagsWarm(sec randSectionKey) (uint8, bool) {
 const randScanBudget = 64
 
 // warmSectionFlags builds the cached random-tick/light flags for every
-// section of column (cx, cz) that lacks them. sendWindow calls it for
-// columns entering a session's view so the tick pass finds its targets
-// already warm; callers run on packet-handler threads, not GameTick.
+// section of column (cx, cz) that lacks them. sendWindow calls it under
+// simulation ownership so the tick pass finds its targets already warm.
+// Cold skylight columns share one detached scan with light preparation;
+// later flag invalidation still pays only for the affected sections.
 func (s *Server) warmSectionFlags(d *dimension, cx, cz int) {
 	if s.randSections == nil {
 		return
+	}
+	if d.skylight {
+		s.prepareColumnFactsOwned(d, cx, cz)
 	}
 	for sec := 0; sec < d.height/16; sec++ {
 		s.sectionFlags(d, randSectionKey{dim: d.name, x: cx, y: sec, z: cz})

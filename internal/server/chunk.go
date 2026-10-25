@@ -713,11 +713,11 @@ func (s *Server) sendWindow(sess *Session, ccx, ccz int) error {
 	queueOrder(fresh, ccx, ccz)
 	sess.pending = append(sess.pending, fresh...)
 	sess.sentMu.Unlock()
-	// Warm the random-tick section flags for the fresh columns off the
-	// tick path — this call site is a packet-handler thread, and each
-	// section's flag build is a 4096-block read vanilla does once when
-	// its LevelChunkSection materializes. Doing it here keeps GameTick
-	// from paying ~10k scans in the one tick after a join or teleport.
+	// Prepare fresh columns under simulation ownership before encoding.
+	// Cold skylight columns share one detached scan for random-tick flags,
+	// non-air counts and sky tops. Warm flags and section-local refills keep
+	// their existing paths; skyless dimensions prepare flags only. This
+	// preparation and the light materialization below still delay the owner.
 	if d := sess.dimension(); d != nil {
 		for _, k := range fresh {
 			s.warmSectionFlags(d, k[0], k[1])

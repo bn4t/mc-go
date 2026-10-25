@@ -329,6 +329,58 @@ go test ./internal/server -run '^$' -bench '^BenchmarkChunkSnapshot$' -benchmem 
 go test ./internal/world -run '^$' -bench '^BenchmarkChunkRouting' -benchmem -benchtime=300ms -count=3
 ```
 
+Fresh skylight columns now share one detached full-column read when preparing
+random-tick flags, non-air counts and sky tops. The three predicates remain
+independent, and repeated canonical states share classification only within
+that analysis. Publication fills absent entries while preserving existing
+incremental light values. Warm columns and section-local flag invalidation
+retain their existing paths; skylight-disabled dimensions still prepare flags
+alone. This adds no halo preparation, light-flood concurrency or persistent
+cache, and does not add invalidation for raw `World.Restore` calls that bypass
+the existing light-write pipeline. Preparation and light materialization still
+run synchronously under simulation ownership.
+
+The matching before/after harness is
+`internal/server/column_preparation_bench_test.go`, SHA-256
+`d4787091a42c78a82d6dbacb3abf5d384d30336c2e30b81d438251f4e60d5ff3`.
+The baseline is a clean archive of `ab791d032a4e6b1ca5864c44b5405fde676f96e4`
+with only that benchmark added. Sequential five-sample runs used Linux/amd64,
+Go 1.27.3, AMD EPYC 9V74 and `GOMAXPROCS=5`, at 200 ms per sample. Both use the
+same flat world with a fixed 64-cell stone/grass/glass/water canopy and eight
+world shards. Cold resets dimension and section caches over that immutable
+world, excluding worker construction and package codec initialization. The
+materialization control shares precomputed immutable neighboring count/top
+facts so its excluded setup does not dominate benchmark calibration.
+
+| Operation | Baseline median (range) | Fused median (range) | Baseline bytes / allocations | Fused bytes / allocations |
+| --- | ---: | ---: | ---: | ---: |
+| Cold column facts | 9.355 ms (9.099–10.793) | 0.951 ms (0.888–1.076) | 2,371,012 / 2,438 | 822,029 / 111 |
+| Warm column facts | 834 ns (789–883) | 815 ns (789–837) | 0 / 0 | 0 / 0 |
+| One invalidated flag section | 142 µs (121–175) | 103 µs (101–123) | 30,512 / 93 | 30,512 / 93 |
+| Cold sky tops alone | 6.138 ms (5.700–7.832) | 5.225 ms (4.970–5.325) | 817,717 / 97 | 817,714 / 97 |
+| Cold non-air counts alone | 1.531 ms (1.284–3.414) | 0.952 ms (0.908–1.061) | 817,817 / 103 | 817,816 / 103 |
+| Sky materialization, facts warm | 1.592 ms (1.523–1.680) | 1.550 ms (1.533–1.750) | 270,320 / 1,063 | 270,320 / 1,063 |
+| Cold skylight window and opening batch | 1.333 s (1.215–2.891) | 0.834 s (0.814–0.846) | 331,396,912 / 183,821 | 253,638,888 / 68,969 |
+| Warm skylight window and opening batch | 12.613 ms (10.786–46.487) | 11.831 ms (10.898–14.654) | 8,190,824 / 5,851 | 8,190,826 / 5,851 |
+| Cold skyless window and opening batch | 133.175 ms (127.135–145.938) | 130.254 ms (123.543–146.407) | 45,151,088 / 115,918 | 45,150,752 / 115,915 |
+| Warm skyless window and opening batch | 11.909 ms (11.504–12.510) | 11.606 ms (10.955–13.024) | 7,835,287 / 5,734 | 7,835,282 / 5,734 |
+
+The window fixture uses radius 2: enumeration and synchronous preparation of
+the 49 fresh view columns and existing light margin, followed by capture,
+completed synchronous encoding and outbound admission of the nine-column
+opening batch. It excludes socket delivery, encoder workers, concurrent ticks
+and the remaining paced batches. Both versions emit exactly 86,024 opening
+chunk-body bytes with skylight and 30,602 without it. The cold skylight median
+fell about 37.5%, with about 23.5% fewer allocated bytes and 62.5% fewer
+allocations in this fixture. Unchanged skyline/count-only control code and
+wide overlapping warm/skyless ranges expose scheduling variation; their timing
+differences are not additional optimization claims. These are bounded operation
+measurements, not sustained TPS, client latency or player-capacity evidence.
+
+```sh
+GOMAXPROCS=5 go test ./internal/server -run '^$' -bench '^(BenchmarkColumnPreparation|BenchmarkSendWindowPreparation)$' -benchmem -benchtime=200ms -count=5
+```
+
 ## Conformance and provenance
 
 The public [`conformance`](conformance/README.md) runner and
