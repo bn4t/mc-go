@@ -37,16 +37,17 @@ const (
 // flat flag, coordinate scale). Block-entity stores are per-dimension
 // because vanilla keeps them on the level, not the server.
 type dimension struct {
-	name       string
-	typeID     int32
-	w          *world.World
-	seaLevel   int32
-	flat       bool
-	coordScale float64
-	minY       int
-	height     int
-	skylight   bool
-	biome      string
+	worldviewRevision uint64 // serialized finite-volume block commit watermark
+	name              string
+	typeID            int32
+	w                 *world.World
+	seaLevel          int32
+	flat              bool
+	coordScale        float64
+	minY              int
+	height            int
+	skylight          bool
+	biome             string
 	// biomes overrides the dimension's single biome at quart
 	// granularity (4x4x4 cells), written by /fillbiome — chunk encode
 	// still ships the base palette; gameplay reads go through

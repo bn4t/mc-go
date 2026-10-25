@@ -303,6 +303,7 @@ func (s *Server) stepTicksOwned(n int64) {
 // lockTickRunOwned releases gameplay ownership while waiting for another tick
 // driver. That driver must be able to regain ownership to complete its tick.
 func (s *Server) lockTickRunOwned() {
+	s.flushWorldUpdatesOwned()
 	s.flushPlayerUpdatesOwned()
 	s.simulation.mu.Unlock()
 	s.clock.runMu.Lock()
@@ -313,6 +314,7 @@ func (s *Server) lockTickRunOwned() {
 // driving leg retains runMu so the paced loop cannot insert additional ticks.
 func (s *Server) yieldSimulationOwned() {
 	s.drainSimulationActionsOwned()
+	s.flushWorldUpdatesOwned()
 	s.flushPlayerUpdatesOwned()
 	s.simulation.mu.Unlock()
 	runtime.Gosched()
@@ -427,6 +429,7 @@ func (s *Server) lockSprintTickRunOwned() bool {
 		if !s.clock.isSprinting() || s.shuttingDown.Load() {
 			return false
 		}
+		s.flushWorldUpdatesOwned()
 		s.flushPlayerUpdatesOwned()
 		s.simulation.mu.Unlock()
 		time.Sleep(time.Millisecond)
@@ -484,6 +487,7 @@ func (s *Server) StopSprint() bool {
 // stopSprintOwned must let the running sprint acquire ownership to finish.
 // Its caller reacquires ownership before it continues the command.
 func (s *Server) stopSprintOwned() bool {
+	s.flushWorldUpdatesOwned()
 	s.flushPlayerUpdatesOwned()
 	s.simulation.mu.Unlock()
 	defer s.simulation.mu.Lock()

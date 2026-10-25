@@ -24,14 +24,16 @@ import (
 //
 // Configure fields before Start. Java 775/776 codecs share canonical 776 rules.
 type Server struct {
-	playersMu      sync.RWMutex
-	players        map[player.ID]*playerRecord
-	playerRevision uint64 // simulation-owned replication sequence
-	playerDirtyMu  sync.Mutex
-	playerDirty    map[*playerRecord]struct{}
-	Addr           string
-	MOTD           string
-	MaxPlayers     int
+	playersMu       sync.RWMutex
+	players         map[player.ID]*playerRecord
+	playerRevision  uint64 // simulation-owned replication sequence
+	playerDirtyMu   sync.Mutex
+	playerDirty     map[*playerRecord]struct{}
+	worldviewBudget worldviewBudget
+	worldviews      map[*worldviewSubscription]struct{} // simulation-owned
+	Addr            string
+	MOTD            string
+	MaxPlayers      int
 
 	// KeepAliveEvery/Timeout govern play-stage pings; non-positive
 	// values select vanilla-like 10s/30s defaults.

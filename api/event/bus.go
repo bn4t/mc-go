@@ -6,6 +6,7 @@ import (
 	"context"
 	"mc-go/api/player"
 	"mc-go/api/registry"
+	"mc-go/api/worldview"
 	"sync"
 	"time"
 )
@@ -131,6 +132,7 @@ const (
 	TopicTick           = "world.tick"
 	TopicChat           = "player.chat"
 	TopicBlockChange    = "world.blockchange"
+	TopicBlockEdited    = "world.block.edited"
 	TopicViolation      = "anticheat.violation"
 )
 
@@ -170,6 +172,16 @@ type BlockChange struct {
 	X, Y, Z    int
 	Block      Block
 	PX, PY, PZ float64
+}
+
+// BlockEdited observes the typed privileged single-cell entry point after its
+// immediate side effects. It does not describe every physics write or imply a
+// corresponding world-view delta. All handles belong to the runtime catalog.
+type BlockEdited struct {
+	Origin                string
+	Dimension             string
+	Position              worldview.Pos
+	Before, Target, After registry.BlockStateID
 }
 type ChatMessage struct {
 	Name, Text string

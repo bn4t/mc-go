@@ -11,8 +11,11 @@ import (
 )
 
 type frontendAttachment struct {
-	ctx       context.Context
-	admitting atomic.Bool
+	ctx            context.Context
+	admitting      atomic.Bool
+	blockAction    atomic.Bool
+	worldviewOwner worldviewOwner
+	label          string // host-assigned type attribution, never supplied by an edit
 }
 
 type attachmentCore struct {
@@ -237,6 +240,7 @@ func (c attachmentCore) Admit(ctx context.Context, profile player.Profile, optio
 
 func (s *Server) closeAttachmentPlayers(attachment *frontendAttachment) {
 	s.simulationAction(func() {
+		s.closeAttachmentWorldviewsOwned(attachment)
 		for _, p := range s.activePlayersOwned() {
 			if p.avatar != nil && p.avatar.attachment == attachment {
 				s.retirePlayerOwned(p, "Frontend attachment closed")

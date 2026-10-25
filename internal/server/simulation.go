@@ -19,7 +19,12 @@ type simulationExecutor struct {
 	// submit work without reentering the owner. A bounded batch runs after the
 	// current action, never halfway through a movement commit.
 	pendingMu sync.Mutex
-	pending   []func()
+	pending   []simulationWork
+}
+
+type simulationWork struct {
+	run     func()
+	discard func()
 }
 
 const maxPendingSimulationActions = 256
@@ -29,6 +34,7 @@ func (s *Server) simulationAction(action func()) {
 	defer s.simulation.mu.Unlock()
 	action()
 	s.drainSimulationActionsOwned()
+	s.flushWorldUpdatesOwned()
 	s.flushPlayerUpdatesOwned()
 }
 
@@ -36,6 +42,13 @@ func (s *Server) simulationAction(action func()) {
 // caller must not wait for completion from inside a synchronous hook. A full
 // queue rejects work instead of spawning an unbounded number of goroutines.
 func (s *Server) queueSimulationAction(action func()) bool {
+	return s.queueSimulationActionWithDiscard(action, nil)
+}
+
+// queueSimulationActionWithDiscard adds a terminal completion for host-owned
+// requests. Both callbacks must return promptly; discard never runs under the
+// pending mutex and cannot wait for simulation ownership.
+func (s *Server) queueSimulationActionWithDiscard(action, discard func()) bool {
 	if action == nil {
 		return false
 	}
@@ -44,7 +57,7 @@ func (s *Server) queueSimulationAction(action func()) bool {
 	if s.shuttingDown.Load() || len(s.simulation.pending) >= maxPendingSimulationActions {
 		return false
 	}
-	s.simulation.pending = append(s.simulation.pending, action)
+	s.simulation.pending = append(s.simulation.pending, simulationWork{action, discard})
 	return true
 }
 
@@ -53,11 +66,16 @@ func (s *Server) drainSimulationActionsOwned() {
 	pending := s.simulation.pending
 	s.simulation.pending = nil
 	s.simulation.pendingMu.Unlock()
-	for _, action := range pending {
+	for i, action := range pending {
 		if s.shuttingDown.Load() {
+			for _, skipped := range pending[i:] {
+				if skipped.discard != nil {
+					skipped.discard()
+				}
+			}
 			return
 		}
-		action()
+		action.run()
 	}
 }
 
@@ -65,6 +83,12 @@ func (s *Server) drainSimulationActionsOwned() {
 // not take the owner lock, so stopping runtime workers cannot deadlock on it.
 func (s *Server) discardSimulationActions() {
 	s.simulation.pendingMu.Lock()
+	pending := s.simulation.pending
 	s.simulation.pending = nil
 	s.simulation.pendingMu.Unlock()
+	for _, skipped := range pending {
+		if skipped.discard != nil {
+			skipped.discard()
+		}
+	}
 }

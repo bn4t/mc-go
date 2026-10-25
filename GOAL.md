@@ -14812,3 +14812,77 @@ no flee; unsneak → flee). Green both legs.
   remaining numeric-save migrations, regional ownership and sustained load
   measurements remain future work. This slice makes no throughput, latency or
   player-capacity claim.
+
+
+## Slice — finite canonical block views and typed edits (2026-10-25)
+
+- **Measured:** this extension contract has no vanilla API counterpart. Existing
+  command-style block mutation semantics were traced at 65119d2 and exercised
+  with scripted controls, including powered TNT ending in air and spawning an
+  entity. The independent Java consumer reuses official 26.1/26.2 block, item
+  and packet reports plus prior public wire/schema facts; its compact manifest
+  records tool versions, source/JAR/report checksums and documentation identity.
+  No new jar extraction or generated production table is introduced.
+- **Implemented:** optional `frontend.Blocks` and public `api/worldview` fixed
+  half-open canonical block boxes. One owned boundary flushes prior changes,
+  captures a detached x-fastest snapshot and registers the view. Accepted
+  `World.SetBlock` writes and Restore deletions invalidate interested cells;
+  sparse final reads grouped by shard provide completion barriers. Action ends
+  and complete tick yields coalesce final values, independently of Java's
+  existing tick-end block/light packet timing. Revisions order observed commits,
+  not every world mutation or a whole-world CAS version. Reliability covers
+  owner-committed gameplay, commands, typed edits and owned direct writes;
+  concurrent raw storage access has no new transaction/snapshot guarantee.
+- **Bounds:** 65,536 cells per view, four views per attachment; host defaults
+  reserve at most 64 views/1,048,576 cells, 64 MiB queued/reserved payload bytes
+  and 4,096 queued/reserved messages. Local queues default to 64 messages/2 MiB.
+  Admission precedes payload/baseline/index allocation. Closing or overflowing a
+  view releases queued values promptly; cell/view quota remains until owned
+  interest removal. Retired handles do not enqueue another cleanup. Other views,
+  avatars and attachments continue. Queue budgets exclude checked-out values,
+  capture temporaries, backing capacity, adapter copies, GC and total heap.
+- **Editing:** explicit dimension, int32 position, complete canonical target and
+  copied optional expected-state comparison. Ordered policy can modify only the
+  target; veto/cancel/panic/unknown state rejects before writes. Context, bounds,
+  catalog and CAS conditions are rechecked after hooks. The existing write
+  pipeline retains onPlace/shape, neighbor, container/entity, fluid/redstone and
+  lighting side effects. Only the typed privileged entry is hooked: no player
+  dig/place simulation, NBT editing, global physics interception or rollback.
+  Legacy block observations remain unchanged; typed `TopicBlockEdited` is an
+  additive lossy observation, separate from the reliable stream.
+- **Receipts:** lifecycle-bound `plugin.BlockEditor` submits callback-safe work
+  to the existing 256-action pending queue. Acceptance is not application; one
+  buffered outcome then closes, including queued cancel/unload/shutdown/discard.
+  Immediate rejection returns no receipt. Running work checks cancellation before
+  writing and owns its real result, so late cancellation cannot rewrite success.
+  `After` describes immediate synchronous effects; later queued edits or scheduled
+  ticks may supersede it before a coalesced delta. No receipt/revision match is
+  promised, and callbacks must not wait on the owner for completion.
+- **Pinned:** bounded interest union/overlap/Restore and sparse read barriers;
+  owner-atomic two-cell snapshots, scheduled lamp updates and command fills;
+  detached data, no-op/revert suppression, local/global quota preflight and
+  release, cancellation, stale cleanup and overflow isolation. Final storage/
+  mailbox/discard race passes in 1.584s, attachment/journal race in 1.568s and
+  final retired-Close/quota race in 1.554s. Typed edit/policy/receipt races pass
+  API in 1.010s/server in 1.792s, including CAS, exact side effects/persistence,
+  active-hook cancellation and Stop during running work. The separate public
+  consumer independently materializes a 48-cell Nether volume and real 775/776
+  single/section/chunk updates, exercising typed/plugin edits, Java fill/place/
+  dig, canonical properties/shifted IDs, rejection/CAS, capture races, overflow,
+  detachment and strict old-viewer retirement while 776 receives exact cinnabar.
+  It passes normally in 2.334s and under race in 22.524s.
+- **Validation:** the full current-source default suite passes, including server
+  tests (276.338s), world (0.541s), public/external consumers (10.582s) and the
+  full blackbox package (103.989s). Final build, vet and complete public API/
+  alias/example races pass. Selected live-vanilla neighbor-fold and redstone
+  regressions pass in 74.072s, preserving the existing write pipeline's shape,
+  neighbor and scheduled side effects. Publication also checks the actual
+  committed source archive with a full build, external public consumers and
+  focused world/journal/mailbox/lifecycle/edit tests. No ignored source or
+  generated production-table changes are required.
+- **Remaining:** these are finite block states only, without neutral lighting,
+  block-entity/NBT data, entities, chunk transport or moving windows. Avatars
+  still lack inventory/combat/survival simulation. Cold lighting/save I/O remain
+  owner-synchronous; broader mutation/gameplay APIs, region ownership, remaining
+  persistence migrations and sustained load measurements remain future work.
+  No latency, throughput, heap-cap or player-capacity claim is made.

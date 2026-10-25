@@ -34,6 +34,7 @@ type World struct {
 	stop     chan struct{}
 	stopOnce sync.Once
 	wg       sync.WaitGroup
+	changes  blockChangeJournal
 	// blockEntities holds the block entity compounds the last load read
 	// out of the region files - a chest's contents, a sign's text -
 	// which the server turns back into its own stores. The world owns
@@ -153,6 +154,7 @@ func (w *World) GetBlock(p Pos) Block {
 // SetBlock stores an override on the owning shard.
 func (w *World) SetBlock(p Pos, b Block) {
 	w.shardFor(p.X, p.Z).set(p, b)
+	w.invalidateBlock(p)
 }
 
 // TopMotionBlocking returns the highest motion-blocking cell's Y in

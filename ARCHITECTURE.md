@@ -3,9 +3,9 @@
 mc-go targets Minecraft Java 26.2 (protocol 776) behavioral parity. The
 current foundations cover ownership, lifecycle, canonical identities, detached
 chunk encoding, measured Java 26.1/775 plus 26.2/776 wire adaptation, and neutral
-avatar admission with player presence/movement replication. Full parity,
-parallel regional simulation and neutral world/gameplay replication remain
-unfinished.
+avatar admission with player presence/movement replication, and finite canonical
+block views with privileged typed editing. Full parity, parallel regional
+simulation and complete neutral world/gameplay replication remain unfinished.
 The [parity matrix](GOAL.md) records implemented behavior; tests and
 benchmarks establish only the paths they exercise.
 
@@ -98,6 +98,60 @@ per waiting request. Migration note: attachment detachment now revokes retained
 `Core.Snapshot` and `Core.Execute` capabilities, which previously remained usable
 until runtime shutdown. Other attachments continue independently.
 
+`frontend.Blocks` is an optional attachment capability, leaving existing Core
+implementations unchanged. `WatchBlocks` captures one fixed half-open box of
+canonical block handles and registers its interest under the same simulation
+owner. Pending changes flush before that baseline. Snapshots use x-fastest
+ordering and carry an immutable catalog; deltas contain detached final values.
+Revisions order observed commits with gaps, rather than identifying every world
+mutation or serving as a whole-world compare-and-set version.
+
+The world records accepted writes only for interested cells. Direct owned
+`SetBlock` and `Restore` deletions use that same recorder. Sparse final reads
+batched by shard follow accepted writes and establish their completion barrier;
+workers never call frontends or enter gameplay ownership. Action ends and
+complete tick yields flush the journal, coalescing repeated positions and
+suppressing unchanged values against each view's private baseline. Java retains
+its separate tick-end block/light packet timing. This reliability contract covers
+owner-committed gameplay, commands, typed edits and owned direct writes. Raw
+concurrent storage calls remain outside transaction/snapshot guarantees.
+
+Each view is limited to 65,536 cells, with at most four per attachment. Host
+defaults reserve at most 64 views and 1,048,576 baseline/interest cells; payload
+budgets cover 64 MiB of queued/reserved bytes and 4,096 queued/reserved messages. Each
+mailbox defaults to 64 messages and 2 MiB. Initial snapshot reservations precede
+payload, baseline and journal allocation. Cell/view reservations remain held
+until owned cleanup removes the interest; `Next` and terminal closure release
+queued payload charges. These limits do not cap checked-out values, capture
+temporaries, map/slice backing capacity, adapter copies, GC or total heap.
+Closing a view signals immediately and schedules owned cleanup once; already
+retired handles do not schedule cleanup. Overflow closes only that view, and
+attachment teardown removes its views without retiring another attachment.
+
+`EditBlock` accepts an explicit dimension, position, complete canonical target
+and optional expected-state key. It enters the existing command-style write
+pipeline, including immediate neighbor, block-entity, lighting and entity side
+effects. Policy runs before mutation; context, catalog, bounds and comparison
+conditions are rechecked afterward. Only the target is modifiable. This policy
+applies to the typed privileged entry point, not every Java dig/place or physics
+write. One requested cell can cause effects elsewhere; it is not a rollback
+transaction, NBT editor or player placement/inventory action.
+
+Plugins can submit lifecycle-bound deferred edits through optional
+`plugin.BlockEditor`. They use the existing 256-action pending queue and return
+one buffered outcome before closing the receipt channel; callbacks must never
+wait on a receipt while holding gameplay ownership. Submission means acceptance,
+not application: inspect `EditOutcome.Err` and `Result.Applied`; immediate
+rejection returns no receipt. Cancellation/unload/shutdown completes queued work
+without mutation. Once dispatch begins, the owner checks
+cancellation before writing and reports its actual result; late cancellation
+does not rewrite committed success. `Applied` means the write pipeline ran,
+and `After` is read after its immediate synchronous effects. Later deferred
+edits or scheduled ticks can supersede it before stream publication, so receipts
+do not promise a corresponding delta or revision. Legacy block observations
+remain unchanged; `TopicBlockEdited` is additive and lossy, separate from the
+reliable block stream. Frontends authorize privileged edits themselves.
+
 The bundled Java frontend admits measured 26.1/775 and 26.2/776 profiles
 against one authoritative world. Profiles select configuration, codecs,
 dispatch and named registry projections. Entity and item gameplay handles
@@ -117,7 +171,9 @@ commands support measured option forms and simple item templates; unmeasured
 inline or component-bearing item options reject explicitly.
 
 The public avatar capability covers player presence and movement only. It has
-no inventory, combat, survival simulation, persistence or world/chunk replication.
+no inventory, combat, survival simulation, persistence or world/chunk replication
+through the avatar connection. The separate finite block capability omits light,
+block-entity/NBT data, entities, chunk protocols and moving view windows.
 Gameplay selectors remain Java-session based; explicit plugin ID enforcement
 can target an admitted avatar. Presence-only entities do not activate inside-
 block/tripwire gameplay, environmental movement or dimension parking. A separate
@@ -334,9 +390,9 @@ binary ignore has a directory-only exception for the public Go package.
 3. Migrate remaining persisted numeric domains, including legacy item JSON,
    and broaden measured coverage of unsupported cross-version content.
 4. Replace more Java packet-shaped presentation paths with typed core events,
-   extend plugin mutation APIs beyond admission/movement decisions and queued
-   enforcement, and add neutral world/entity replication and gameplay capabilities
-   beyond transient player presence/movement.
+   extend plugin mutation APIs beyond current admission/movement/edit decisions
+   and queued enforcement, and broaden finite block views to richer world/entity
+   replication and gameplay capabilities beyond transient presence/movement.
 5. Add sustained load scenarios with tick p50/p95/p99, queue bytes,
    disconnect reasons, CPU, heap, allocation rate and tracked entity count.
 6. Expand differential gameplay coverage and the conformance corpus;

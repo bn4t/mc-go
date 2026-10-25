@@ -41,6 +41,7 @@ func (w *World) Restore(m map[Pos]Block) {
 	for _, s := range w.shards {
 		for p := range s.snapshot() {
 			s.delete(p)
+			w.invalidateBlock(p)
 		}
 	}
 	for p, b := range m {

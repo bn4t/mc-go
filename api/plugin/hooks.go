@@ -53,6 +53,7 @@ type Hooks struct {
 	next        uint64
 	moves       []moveHook
 	admissions  []admissionHook
+	blockEdits  []blockEditHook
 	closed      bool
 	running     sync.WaitGroup
 }
@@ -193,6 +194,7 @@ func (h *Hooks) Close() {
 	h.closed = true
 	h.moves = nil
 	h.admissions = nil
+	h.blockEdits = nil
 	h.mu.Unlock()
 	h.running.Wait()
 }

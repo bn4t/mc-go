@@ -22,6 +22,10 @@ type MoveHandler = public.MoveHandler
 type AdmissionHandler = public.AdmissionHandler
 type AdmissionDecision = public.AdmissionDecision
 type CallbackError = public.CallbackError
+type BlockEditor = public.BlockEditor
+type LifecycleBlockEditor = public.LifecycleBlockEditor
+type BlockEdit = public.BlockEdit
+type BlockEditHandler = public.BlockEditHandler
 
 const APIVersion = public.APIVersion
 

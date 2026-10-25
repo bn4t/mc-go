@@ -31,12 +31,14 @@ type shardOp struct {
 	resp chan Block
 	// Bulk read: whole columns of a FillBox box in, their blocks out,
 	// colDY per column, columns in the order they were asked for.
-	cols     []colRef
-	boxX     int
-	boxY     int
-	boxZ     int
-	colDY    int
-	colsResp chan []Block
+	cols       []colRef
+	boxX       int
+	boxY       int
+	boxZ       int
+	colDY      int
+	colsResp   chan []Block
+	positions  []Pos
+	blocksResp chan []Block
 	// Snapshot: copy of the override map out.
 	snapResp chan map[Pos]Block
 	// Column-top query: highest motion-blocking Y in column (pos.X,
@@ -73,6 +75,16 @@ func (s *shard) start() {
 						cp[p] = b
 					}
 					op.snapResp <- cp
+				} else if op.blocksResp != nil {
+					out := make([]Block, len(op.positions))
+					for i, pos := range op.positions {
+						b, ok := s.data[pos]
+						if !ok {
+							b = s.gen(pos)
+						}
+						out[i] = b
+					}
+					op.blocksResp <- out
 				} else if op.colsResp != nil {
 					out := make([]Block, len(op.cols)*op.colDY)
 					for i, c := range op.cols {

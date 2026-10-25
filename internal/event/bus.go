@@ -11,6 +11,7 @@ type PlayerJoined = public.PlayerJoined
 type PlayerLeft = public.PlayerLeft
 type Block = public.Block
 type BlockChange = public.BlockChange
+type BlockEdited = public.BlockEdited
 type ChatMessage = public.ChatMessage
 
 var New = public.New
@@ -26,5 +27,6 @@ const (
 	TopicTick           = public.TopicTick
 	TopicChat           = public.TopicChat
 	TopicBlockChange    = public.TopicBlockChange
+	TopicBlockEdited    = public.TopicBlockEdited
 	TopicViolation      = public.TopicViolation
 )

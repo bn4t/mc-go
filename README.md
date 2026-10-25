@@ -16,9 +16,10 @@ The living parity matrix and the slice-by-slice progress log are in
 [GOAL.md](GOAL.md). [ARCHITECTURE.md](ARCHITECTURE.md) documents runtime
 ownership, public extension boundaries, canonical block identities, detached
 chunk encoding and measured costs. Gameplay still uses one simulation owner.
-Measured Java 26.1/775 and 26.2/776 clients and public neutral presence/movement
-avatars share that world. Parallel regions, remaining numeric-save migrations
-and neutral world/gameplay replication remain future stages.
+Measured Java 26.1/775 and 26.2/776 clients, neutral presence/movement avatars
+and finite canonical block views share that world. Parallel regions, remaining
+numeric-save migrations and complete neutral world/gameplay replication remain
+future stages.
 
 ## Clean-room rules
 
@@ -53,7 +54,8 @@ and neutral world/gameplay replication remain future stages.
   tables generated from the vanilla data packs (`*_gen.go`).
 - `internal/nbt/`, `internal/loot/`, `internal/event/`,
   `internal/plugin/` — NBT codec, loot engine, event bus, plugin API.
-- `api/event/`, `api/plugin/`, `api/frontend/`, `api/player/`, `api/registry/`, `server/` — public
+- `api/event/`, `api/plugin/`, `api/frontend/`, `api/player/`, `api/worldview/`,
+  `api/registry/`, `server/` — public
   extension contracts and runtime constructor, usable by external modules.
   Frontends can admit transient presence/movement avatars and submit privileged
   player actions; Java accepts measured 26.1/775 and 26.2/776 wire profiles.
@@ -138,6 +140,26 @@ and one move per connection can wait for simulation ownership; concurrent calls
 return `player.ErrBusy`. Cancellation is rechecked before commit, but cannot
 interrupt that mutex wait. `Next` cancellation and `Close` signal immediately;
 retirement completes under simulation ownership.
+
+Frontends can type-assert their supplied Core to the optional `frontend.Blocks`
+capability.
+`WatchBlocks` returns a fixed, finite box of canonical block states, followed
+by ordered final-state deltas. A view contains at most 65,536 cells; snapshots
+carry an immutable catalog for resolving runtime handles to complete state keys.
+This covers owner-committed gameplay, commands and typed edits, including owned
+direct block writes/restores. Snapshot capture and registration share that owner;
+raw concurrent world access is not a new atomic transaction API. Views omit
+lighting, block entities/NBT, entities and moving windows. Overflow terminates
+the affected view while avatars and other views continue.
+
+`EditBlock` is a privileged single-cell operation using an explicit dimension,
+complete canonical state key and optional expected-state comparison. It reuses
+the existing write side effects; it is not player placement or a rollback
+transaction. Plugins can veto or modify this typed entry point and submit
+callback-safe deferred edits with one completion receipt. The result describes
+that edit's immediate side effects, independently of later scheduled changes
+or coalesced stream revisions. Existing frontend interfaces and legacy block
+observations remain compatible.
 
 JSON block override saves write complete canonical state keys in version 2 and
 read historical version 1 IDs through their 776 mapping. Native region-format

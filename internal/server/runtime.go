@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"sort"
 	"sync"
@@ -67,7 +68,7 @@ func (s *Server) Attach(fe frontend.Frontend, ln net.Listener) error {
 	}
 	return s.attach(ln, func(ctx context.Context) error {
 		ctx, cancel := context.WithCancel(ctx)
-		attachment := &frontendAttachment{ctx: ctx}
+		attachment := &frontendAttachment{ctx: ctx, label: fmt.Sprintf("%T", fe)}
 		defer func() {
 			cancel()
 			s.closeAttachmentPlayers(attachment)

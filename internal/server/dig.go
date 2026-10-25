@@ -196,7 +196,12 @@ func (s *Server) setBlockAndBroadcast(player string, pos world.Pos, blk world.Bl
 // neighbours the OLD state; command writes (/setblock — vanilla's
 // updateNeighboursOnBlockSet) hand them the NEW one.
 func (s *Server) setBlockAndBroadcastNotify(player string, pos world.Pos, blk world.Block, commandWrite bool) {
-	d := s.dimOf(player)
+	s.setBlockAndBroadcastInOwned(s.dimOf(player), player, pos, blk, commandWrite)
+}
+
+// setBlockAndBroadcastInOwned is the existing write pipeline with an explicit
+// dimension. Typed privileged edits never infer a dimension from a player name.
+func (s *Server) setBlockAndBroadcastInOwned(d *dimension, player string, pos world.Pos, blk world.Block, commandWrite bool) {
 	oldTop := columnTop(d, pos.X, pos.Z)
 	old := d.w.GetBlock(pos)
 	notify := blk

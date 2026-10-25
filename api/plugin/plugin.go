@@ -175,9 +175,12 @@ type scopedAPI struct {
 	commands *Commands
 	hooks    *Hooks
 	bus      *event.Bus
+	name     string
 }
 
 type controlledAPI struct{ scopedAPI }
+type editingAPI struct{ scopedAPI }
+type controlledEditingAPI struct{ controlledAPI }
 
 func (a scopedAPI) Hooks() *Hooks   { return a.hooks }
 func (a scopedAPI) Bus() *event.Bus { return a.bus }
@@ -253,13 +256,20 @@ func NewManager(parent context.Context, api API, plugins []Plugin) (*Manager, er
 		m.scopes = append(m.scopes, stop)
 		commands := api.Commands().WithContext(lifetime)
 		commands.plugin = p.Name()
-		scoped := scopedAPI{API: api, ctx: lifetime, commands: commands, hooks: api.Hooks().withContext(lifetime), bus: api.Bus().WithContext(lifetime)}
+		scoped := scopedAPI{API: api, ctx: lifetime, commands: commands, hooks: api.Hooks().withContext(lifetime), bus: api.Bus().WithContext(lifetime), name: p.Name()}
 		scoped.hooks.plugin = p.Name()
 		var view API = scoped
 		_, controls := api.(PlayerControl)
 		_, lifecycleControls := api.(LifecyclePlayerControl)
+		_, edits := api.(BlockEditor)
+		_, lifecycleEdits := api.(LifecycleBlockEditor)
 		if controls && lifecycleControls {
 			view = controlledAPI{scoped}
+			if edits && lifecycleEdits {
+				view = controlledEditingAPI{controlledAPI{scoped}}
+			}
+		} else if edits && lifecycleEdits {
+			view = editingAPI{scoped}
 		}
 		// Include a failing plugin in teardown: Init may have allocated resources.
 		m.started = append(m.started, p)
