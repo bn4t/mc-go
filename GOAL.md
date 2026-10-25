@@ -14559,3 +14559,23 @@ no flee; unsneak → flee). Green both legs.
   A complete provenance manifest for existing artifacts, parallel regions,
   canonical cross-protocol registries, a second real game protocol and sustained
   mixed-load capacity measurements remain explicitly unfinished.
+
+## Slice — independently measured Java 775 and 776 conformance profiles (2026-10-25)
+
+- **Measured:** independently written standard-library TCP probes against
+  Temurin JDK 25.0.5 vanilla 26.1/775 and 26.2/776 pin Login Success and Play
+  Login field differences. Protocol 775 lacks the 776 session UUID and Join
+  Game online-mode field. Minimal named captures and decoded observations are
+  recorded in `conformance/testdata/java-profile-observations.json`, including
+  oracle URLs, SHA1/SHA256 and configuration registry counts. The 26.1 jar SHA1
+  is `3872a7f07a1a595e651aef8b058dfc2bb3772f46`; the existing 26.2 pin is unchanged.
+- **Implemented:** explicit stdlib-only 775/776 runner profiles, strict
+  version-specific codecs and profile-aware CLI validation. Each version keeps
+  pass/fail/unsupported/infrastructure outcomes, declared capability checks and
+  bounded framed transcripts. Runner support is independent of mc-go admission;
+  mc-go continues to reject 775 login until its other domains are implemented.
+- **Pinned:** 37 broken TCP controls per profile, six valid compression-matrix
+  endpoints, CLI tests and actual seven-scenario runs against both official
+  oracles. Final harness runs pass for 776 (8.92s) and 775 (8.48s); final full
+  `go test ./...`, build and vet also pass. Captures remain bounded wire facts;
+  no jar, decompiled source or raw datagen report is committed.

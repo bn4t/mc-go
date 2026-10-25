@@ -12,7 +12,7 @@ import (
 )
 
 // The codec is intentionally independent of the implementation under test.
-// Packet IDs and layouts are pinned to Java Edition 26.2, protocol 776.
+// Packet IDs and layouts are pinned to Java Edition 26.1/775 and 26.2/776.
 const maxFrame = 2*1024*1024 - 1
 
 type packet struct {

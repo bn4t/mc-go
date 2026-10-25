@@ -76,7 +76,7 @@ func TestCLIRejectsUnknownManifestFields(t *testing.T) {
 
 func TestCLIUnsupportedProfileIsNonzero(t *testing.T) {
 	var out, errout bytes.Buffer
-	code := run([]string{"-endpoint", "example.invalid:25565", "-protocol", "775", "-capabilities", "configuration"}, &out, &errout)
+	code := run([]string{"-endpoint", "example.invalid:25565", "-protocol", "774", "-capabilities", "configuration"}, &out, &errout)
 	var report conformance.Report
 	if e := json.Unmarshal(out.Bytes(), &report); e != nil {
 		t.Fatal(e)

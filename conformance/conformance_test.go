@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -97,9 +99,12 @@ func reply(c net.Conn, id byte, p []byte, compression int) {
 }
 
 type behavior struct {
-	corrupt     string
-	compression int
-	cancel      context.CancelFunc
+	capturedLogin []byte
+	capturedJoin  []byte
+	protocol      int32
+	corrupt       string
+	compression   int
+	cancel        context.CancelFunc
 }
 
 func endpoint(t *testing.T, b behavior) string {
@@ -138,6 +143,14 @@ func endpoint(t *testing.T, b behavior) string {
 	return ln.Addr().String()
 }
 func serve(c net.Conn, b behavior) {
+	protocol := b.protocol
+	if protocol == 0 {
+		protocol = 776
+	}
+	version := "26.2"
+	if protocol == 775 {
+		version = "26.1"
+	}
 	_ = c.SetDeadline(time.Now().Add(2 * time.Second))
 	h, e := receive(c, false)
 	if e != nil {
@@ -175,12 +188,12 @@ func serve(c net.Conn, b behavior) {
 			reply(c, 1, payload, -1)
 			return
 		}
-		s := `{"version":{"name":"26.2","protocol":776},"players":{"max":20,"online":0},"description":{"text":"fixture"}}`
+		s := fmt.Sprintf(`{"version":{"name":%q,"protocol":%d},"players":{"max":20,"online":0},"description":{"text":"fixture"}}`, version, protocol)
 		switch b.corrupt {
 		case "schema":
 			s = `{"version":{"name":"26.2","protocol":776}}`
 		case "protocol":
-			s = strings.Replace(s, "776", "775", 1)
+			s = strings.Replace(s, fmt.Sprint(protocol), fmt.Sprint(protocol-1), 1)
 		case "json":
 			s = "{"
 		case "varint":
@@ -222,12 +235,18 @@ func serve(c net.Conn, b behavior) {
 	id, _ := hex.DecodeString("eb0450abdedd37c9a7c9fbd5b33bd860")
 	payload := append(id, text("Conformance")...)
 	payload = append(payload, 0)
-	payload = append(payload, make([]byte, 16)...)
+	withSession := protocol == 776
+	if b.corrupt == "login-other-version" || b.corrupt == "session" {
+		withSession = !withSession
+	}
+	if withSession {
+		payload = append(payload, make([]byte, 16)...)
+	}
 	if b.corrupt == "uuid" {
 		payload[0] ^= 1
 	}
-	if b.corrupt == "session" {
-		payload = payload[:len(payload)-16]
+	if b.capturedLogin != nil {
+		payload = b.capturedLogin
 	}
 	if b.corrupt == "compression-length" {
 		_, _ = c.Write([]byte{2, 127, 0})
@@ -308,7 +327,15 @@ func serve(c net.Conn, b behavior) {
 	join = append(join, 20, 2, 2, 0, 1, 0, 0)
 	join = append(join, text("minecraft:overworld")...)
 	join = append(join, make([]byte, 8)...)
-	join = append(join, 1, 255, 0, 1, 0, 0, 63, 0, 0)
+	join = append(join, 1, 255, 0, 1, 0, 0, 63)
+	withOnlineMode := protocol == 776
+	if b.corrupt == "join-other-version" {
+		withOnlineMode = !withOnlineMode
+	}
+	if withOnlineMode {
+		join = append(join, 0)
+	}
+	join = append(join, 0)
 	switch b.corrupt {
 	case "join":
 		join = join[:2]
@@ -320,6 +347,9 @@ func serve(c net.Conn, b behavior) {
 		join = append(join, 0)
 	case "join-bool":
 		join[4] = 2
+	}
+	if b.capturedJoin != nil {
+		join = b.capturedJoin
 	}
 	reply(c, 0x31, join, b.compression)
 }
@@ -337,33 +367,41 @@ func find(t *testing.T, r conformance.Report, name string) conformance.Result {
 	return conformance.Result{}
 }
 func TestTCPProfileAndTranscripts(t *testing.T) {
-	for _, compression := range []int{-1, 0, 256} {
-		t.Run(fmt.Sprintf("threshold-%d", compression), func(t *testing.T) {
-			addr := endpoint(t, behavior{compression: compression})
-			c := config(addr, "status", "ping", "offline-login", "configuration", "malformed")
-			c.Timeout = time.Second
-			r := conformance.Run(context.Background(), c)
-			if r.ExitCode() != 0 {
-				t.Fatalf("report: %+v", r.Results)
-			}
-			for _, v := range r.Results {
-				if v.Status != conformance.Pass || len(v.Transcript) < 2 {
-					t.Fatalf("result: %+v", v)
+	for _, protocol := range []int32{775, 776} {
+		for _, compression := range []int{-1, 0, 256} {
+			t.Run(fmt.Sprintf("protocol-%d/threshold-%d", protocol, compression), func(t *testing.T) {
+				addr := endpoint(t, behavior{protocol: protocol, compression: compression})
+				c := config(addr, "status", "ping", "offline-login", "configuration", "malformed")
+				c.Protocol, c.Version, c.Timeout = protocol, "26.2", time.Second
+				if protocol == 775 {
+					c.Version = "26.1"
 				}
-			}
-			p := find(t, r, "status.ping-echo")
-			if !strings.HasSuffix(p.Transcript[1].WireHex, "0901fedcba9876543210") {
-				t.Fatalf("ping capture: %+v", p.Transcript)
-			}
-		})
+				r := conformance.Run(context.Background(), c)
+				if r.ExitCode() != 0 {
+					t.Fatalf("report: %+v", r.Results)
+				}
+				for _, v := range r.Results {
+					if v.Status != conformance.Pass || len(v.Transcript) < 2 {
+						t.Fatalf("result: %+v", v)
+					}
+				}
+				p := find(t, r, "status.ping-echo")
+				if !strings.HasSuffix(p.Transcript[1].WireHex, "0901fedcba9876543210") {
+					t.Fatalf("ping capture: %+v", p.Transcript)
+				}
+			})
+		}
 	}
 }
+
 func TestBadEndpointFailsContracts(t *testing.T) {
 	cases := []struct{ bad, cap, scenario string }{
 		{"schema", "status", "status.schema"}, {"protocol", "status", "status.schema"}, {"json", "status", "status.schema"}, {"status-id", "status", "status.schema"}, {"trailing-status", "status", "status.schema"}, {"varint", "status", "status.schema"}, {"frame", "status", "status.schema"}, {"timeout", "status", "status.schema"},
 		{"pong", "ping", "status.ping-echo"}, {"uuid", "offline-login", "login.offline-identity"}, {"session", "offline-login", "login.offline-identity"}, {"compression-length", "offline-login", "login.offline-identity"},
 		{"registry", "configuration", "configuration.finish-and-join"}, {"finish", "configuration", "configuration.finish-and-join"}, {"finish-body", "configuration", "configuration.finish-and-join"}, {"join", "configuration", "configuration.finish-and-join"},
 
+		{"login-other-version", "offline-login", "login.offline-identity"},
+		{"join-other-version", "configuration", "configuration.finish-and-join"},
 		{"long-frame-prefix", "status", "status.schema"},
 		{"registry-order", "configuration", "configuration.finish-and-join"},
 		{"registry-entry", "configuration", "configuration.finish-and-join"},
@@ -383,24 +421,32 @@ func TestBadEndpointFailsContracts(t *testing.T) {
 		{"join-bool", "configuration", "configuration.finish-and-join"},
 		{"accept-oversize", "malformed", "framing.reject-oversize"}, {"accept-invalid-state", "malformed", "framing.reject-invalid-state"},
 	}
-	for _, tc := range cases {
-		t.Run(tc.bad, func(t *testing.T) {
-			compression := -1
-			if tc.bad == "compression-length" {
-				compression = 0
-			}
-			addr := endpoint(t, behavior{corrupt: tc.bad, compression: compression})
-			r := conformance.Run(context.Background(), config(addr, tc.cap))
-			v := find(t, r, tc.scenario)
-			if v.Status != conformance.Fail || r.ExitCode() != 1 {
-				t.Fatalf("bad endpoint passed: %+v", r)
-			}
-			if len(v.Transcript) == 0 {
-				t.Fatal("failure lost transcript")
-			}
-		})
+	for _, protocol := range []int32{775, 776} {
+		for _, tc := range cases {
+			t.Run(fmt.Sprintf("protocol-%d/%s", protocol, tc.bad), func(t *testing.T) {
+				compression := -1
+				if tc.bad == "compression-length" {
+					compression = 0
+				}
+				addr := endpoint(t, behavior{protocol: protocol, corrupt: tc.bad, compression: compression})
+				c := config(addr, tc.cap)
+				c.Protocol = protocol
+				if protocol == 775 {
+					c.Version = "26.1"
+				}
+				r := conformance.Run(context.Background(), c)
+				v := find(t, r, tc.scenario)
+				if v.Status != conformance.Fail || r.ExitCode() != 1 {
+					t.Fatalf("bad endpoint passed: %+v", r)
+				}
+				if len(v.Transcript) == 0 {
+					t.Fatal("failure lost transcript")
+				}
+			})
+		}
 	}
 }
+
 func TestUnsupportedInfrastructureAndTruncation(t *testing.T) {
 	addr := endpoint(t, behavior{compression: -1})
 	r := conformance.Run(context.Background(), config(addr, "status"))
@@ -408,7 +454,7 @@ func TestUnsupportedInfrastructureAndTruncation(t *testing.T) {
 		t.Fatal(r)
 	}
 	c := config(addr, "offline-login")
-	c.Protocol = 775
+	c.Protocol = 774
 	r = conformance.Run(context.Background(), c)
 	if find(t, r, "login.offline-identity").Status != conformance.Unsupported {
 		t.Fatal(r)
@@ -454,7 +500,7 @@ func TestCanceledRejectionIsInfrastructure(t *testing.T) {
 }
 
 func TestDeclaredUnsupportedProfileCannotPassCI(t *testing.T) {
-	report := conformance.Run(context.Background(), conformance.Config{Endpoint: "example.invalid:25565", Protocol: 775, Capabilities: []string{"configuration"}})
+	report := conformance.Run(context.Background(), conformance.Config{Endpoint: "example.invalid:25565", Protocol: 774, Capabilities: []string{"configuration"}})
 	result := find(t, report, "configuration.finish-and-join")
 	if result.Status != conformance.Unsupported || !result.Declared || report.ExitCode() != 2 || report.Reason == "" {
 		t.Fatalf("unsupported profile passed: %+v", report)
@@ -466,5 +512,53 @@ func TestDeclaredUnsupportedProfileCannotPassCI(t *testing.T) {
 	partial.Results[1].Declared = false
 	if partial.ExitCode() != 0 {
 		t.Fatal("omitted capabilities failed a supported run")
+	}
+}
+
+func TestCapturedVanillaProfileBodies(t *testing.T) {
+	data, err := os.ReadFile("testdata/java-profile-observations.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var records struct {
+		Profiles []struct {
+			Protocol     int32  `json:"protocol"`
+			Version      string `json:"version"`
+			Username     string `json:"username"`
+			Login        string `json:"login_success_hex"`
+			Join         string `json:"play_login_hex"`
+			OracleSHA256 string `json:"oracle_sha256"`
+		} `json:"profiles"`
+	}
+	if err = json.Unmarshal(data, &records); err != nil {
+		t.Fatal(err)
+	}
+	if len(records.Profiles) != 2 {
+		t.Fatalf("profile fixtures = %d", len(records.Profiles))
+	}
+	for _, row := range records.Profiles {
+		t.Run(row.Version, func(t *testing.T) {
+			login, err := hex.DecodeString(row.Login)
+			if err != nil {
+				t.Fatal(err)
+			}
+			join, err := hex.DecodeString(row.Join)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(row.OracleSHA256) != 64 {
+				t.Fatal("fixture oracle lacks checksum provenance")
+			}
+			addr := endpoint(t, behavior{protocol: row.Protocol, compression: -1, capturedLogin: login, capturedJoin: join})
+			c := config(addr, "offline-login", "configuration")
+			c.Protocol, c.Version, c.Username = row.Protocol, row.Version, row.Username
+			report := conformance.Run(context.Background(), c)
+			if report.ExitCode() != 0 {
+				t.Fatalf("captured oracle bodies rejected: %+v", report.Results)
+			}
+			if find(t, report, "login.offline-identity").Status != conformance.Pass || find(t, report, "configuration.finish-and-join").Status != conformance.Pass {
+				t.Fatal(report)
+			}
+		})
 	}
 }

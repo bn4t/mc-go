@@ -3,9 +3,14 @@
 `mc-conformance` connects to any Minecraft Java TCP endpoint. Its public Go
 package depends only on the standard library: no `internal/server`, generated
 game tables, server process, Java runtime, or vanilla jar. Protocol constants
-and layouts are independently pinned here to Java Edition **26.2 / 776**, with
-the public [Java protocol reference](https://minecraft.wiki/w/Java_Edition_protocol)
-and the existing differential suite's wire observations as evidence.
+and layouts are independently pinned to Java Edition **26.1 / 775** and
+**26.2 / 776**. Official vanilla oracles were probed over TCP; the small
+[observation records](testdata/java-profile-observations.json) retain representative
+packet bodies, source class, tool description and official jar checksums. The
+public [Java protocol reference](https://minecraft.wiki/w/Java_Edition_protocol)
+is additional format context. These runner profiles do not enable target-server
+admission: mc-go currently accepts 776 only; its 775 admission remains gated while
+version-specific item/entity/component mappings and broader codecs are absent.
 
 ```sh
 go run ./cmd/mc-conformance -endpoint 127.0.0.1:25565
@@ -28,12 +33,13 @@ capabilities explicitly in a JSON endpoint manifest:
 ```
 
 `offline-login` checks the offline UUID algorithm, echoed player name, login
-properties and the protocol-776 trailing session UUID. `configuration` includes
-that login, negotiates zero known packs so registries are sent in full, answers
+properties and the profile-specific login tail: 775 has none, while 776 requires
+a 16-byte session UUID. `configuration` includes that login, negotiates zero known packs so registries are sent in full, answers
 configuration keepalives/pings, validates full registry entry/NBT, feature and
-tag packet structure and their
-negotiation order, requires Finish Configuration, acknowledges it and decodes
-the complete first Play Login packet including dimension references.
+tag packet structure and their negotiation order, requires Finish Configuration, acknowledges it and decodes
+the complete first Play Login packet including dimension references. The online
+mode boolean exists in 776's Join Game and is absent in 775; using the wrong
+version's body fails the exact-length checks.
 Compression, including threshold zero, is supported in both directions.
 `malformed` requires immediate peer rejection of an invalid handshake state and
 an impossible frame length; a read timeout fails, and later probes check status
@@ -58,16 +64,14 @@ per-scenario durations and a chronological transcript of inbound/outbound **raw
 framed bytes** as hex, including compression framing. Connection-close/error
 events retain diagnostic errors. Captures include the probe username and UUIDs,
 server descriptions and registry payloads; treat report files as packet captures.
-Transcript limits apply separately per
-scenario to bound memory; `truncated: true` marks bytes omitted and prevents a
+Transcript limits apply separately per scenario to bound memory; `truncated: true` marks bytes omitted and prevents a
 partial capture being mistaken for a complete replay. For replay, concatenate
 serverbound `wire_hex` within a scenario, respecting clientbound transitions
 and compression negotiation. UUID/session values can vary on a fresh run.
 
 This is a reusable **foundation and smoke profile**, not a claim of gameplay
 parity. It validates registry/NBT structure without asserting the game semantics
-of
-every registry value. It does not exercise online Microsoft authentication or
+of every registry value. It does not exercise online Microsoft authentication or
 cover gameplay, persistence and plugin behavior.
 The larger `tests/blackbox` differential suite remains the strict vanilla
 oracle, with its own setup requirements and runtime `MCGO_BLACKBOX=1` gate.
@@ -81,7 +85,14 @@ import `mc-go/conformance` in a module replacement, copy this stdlib-only
 package, or build the CLI and point it at another implementation.
 
 `TestPortableConformanceProfile` runs the public package against the local Go
-server or `MCGO_TARGET`. `TestPortableConformanceVanilla` runs the same seven
-checks against vanilla with the existing explicit oracle gate. Set
-`MCGO_CONFORMANCE_REPORT=/path/report.json` while running the latter to retain
-its JSON packet capture for inspection.
+server or `MCGO_TARGET`. `TestPortableConformanceVanilla` and
+`TestPortableConformanceVanilla775` run the same seven checks against independent
+vanilla 776/775 endpoints with the existing explicit `MCGO_BLACKBOX=1` gate. The 775
+jar defaults to `vanilla/server-26.1.jar`, overridable with
+`MCGO_VANILLA_775_JAR`; absent prerequisites skip explicitly without downloads.
+Set `MCGO_CONFORMANCE_REPORT=/path/report.json` to retain the 776 report and
+`/path/report.775.json` for 775. To probe any 775 implementation directly:
+
+```sh
+go run ./cmd/mc-conformance -endpoint 127.0.0.1:25565 -protocol 775 -version 26.1 -capabilities status,ping,offline-login,configuration,malformed
+```

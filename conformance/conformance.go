@@ -87,9 +87,9 @@ func (r Report) ExitCode() int {
 }
 
 type scenario struct {
-	name, cap   string
-	protocol776 bool
-	run         func(*wire, Config) error
+	name, cap       string
+	profileRequired bool
+	run             func(*wire, Config) error
 }
 
 var scenarios = []scenario{
@@ -137,8 +137,8 @@ func Run(ctx context.Context, c Config) Report {
 			r.Results = append(r.Results, out)
 			continue
 		}
-		if s.protocol776 && c.Protocol != 776 {
-			out.Detail = "scenario profile is pinned to protocol 776"
+		if _, supported := profileFor(c.Protocol); s.profileRequired && !supported {
+			out.Detail = "no scenario profile for declared protocol (supported: 775 and 776)"
 			r.Results = append(r.Results, out)
 			continue
 		}
@@ -360,8 +360,16 @@ func login(w *wire, c Config) error {
 			}
 		}
 	}
-	if r.Len() != 16 {
-		return fmt.Errorf("protocol 776 login must end with a 16-byte session UUID, got %d bytes", r.Len())
+	profile, ok := profileFor(c.Protocol)
+	if !ok {
+		return fmt.Errorf("unsupported login protocol %d", c.Protocol)
+	}
+	tail := 0
+	if profile.loginSessionUUID {
+		tail = 16
+	}
+	if r.Len() != tail {
+		return fmt.Errorf("protocol %d login needs %d trailing session UUID bytes, got %d", c.Protocol, tail, r.Len())
 	}
 	return nil
 }
@@ -422,7 +430,7 @@ func configuration(w *wire, c Config) error {
 			if !known || tags {
 				return fmt.Errorf("registry arrived outside known-packs/registry phase")
 			}
-			name, count, err := registry776(p.data)
+			name, count, err := registryJava(p.data)
 			if err != nil {
 				return fmt.Errorf("registry: %w", err)
 			}
@@ -434,7 +442,7 @@ func configuration(w *wire, c Config) error {
 			if features {
 				return fmt.Errorf("duplicate feature packet")
 			}
-			if err := features776(p.data); err != nil {
+			if err := featuresJava(p.data); err != nil {
 				return fmt.Errorf("features: %w", err)
 			}
 			features = true
@@ -442,7 +450,7 @@ func configuration(w *wire, c Config) error {
 			if !known || len(registries) == 0 || tags {
 				return fmt.Errorf("tags arrived outside registry completion phase")
 			}
-			if err := tags776(p.data); err != nil {
+			if err := tagsJava(p.data); err != nil {
 				return fmt.Errorf("tags: %w", err)
 			}
 			tags = true
@@ -460,7 +468,7 @@ func configuration(w *wire, c Config) error {
 			if e != nil {
 				return e
 			}
-			if err := join776(join.data, registries); err != nil {
+			if err := joinJava(join.data, registries, c.Protocol); err != nil {
 				return fmt.Errorf("play login: %w", err)
 			}
 			return nil

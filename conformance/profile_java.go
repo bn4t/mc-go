@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// fields decodes bounded protocol-776 packet bodies. Errors are sticky so every
+// fields decodes bounded protocol-775/776 packet bodies. Errors are sticky so every
 // required field is consumed before complete verifies the exact body boundary.
 type fields struct {
 	r   *bytes.Reader
@@ -183,7 +183,7 @@ func skipNBTString(f *fields) {
 		f.fixed(int(binary.BigEndian.Uint16(b)))
 	}
 }
-func registry776(data []byte) (string, int32, error) {
+func registryJava(data []byte) (string, int32, error) {
 	f := bodyFields(data)
 	name := f.identifier()
 	count := f.count()
@@ -208,7 +208,7 @@ func registry776(data []byte) (string, int32, error) {
 	}
 	return name, count, f.complete()
 }
-func features776(data []byte) error {
+func featuresJava(data []byte) error {
 	f := bodyFields(data)
 	n := f.count()
 	if n == 0 {
@@ -224,7 +224,7 @@ func features776(data []byte) error {
 	}
 	return f.complete()
 }
-func tags776(data []byte) error {
+func tagsJava(data []byte) error {
 	f := bodyFields(data)
 	n := f.count()
 	seen := map[string]bool{}
@@ -250,7 +250,11 @@ func tags776(data []byte) error {
 	}
 	return f.complete()
 }
-func join776(data []byte, registries map[string]int32) error {
+func joinJava(data []byte, registries map[string]int32, protocol int32) error {
+	profile, ok := profileFor(protocol)
+	if !ok {
+		return fmt.Errorf("unsupported join protocol %d", protocol)
+	}
 	f := bodyFields(data)
 	f.fixed(4)
 	f.boolean()
@@ -293,7 +297,9 @@ func join776(data []byte, registries map[string]int32) error {
 	} // optional death global position
 	f.nonnegative() // portal cooldown
 	f.integer()     // sea level may be negative
-	f.boolean()
-	f.boolean() // online mode and enforced secure chat
+	if profile.joinOnlineMode {
+		f.boolean()
+	} // added in protocol 776
+	f.boolean() // enforced secure chat
 	return f.complete()
 }
