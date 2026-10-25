@@ -317,7 +317,7 @@ func (s *Server) changeDimension(sess *Session, dst *dimension, x, y, z float64,
 	}
 	eid := sess.entityID.Load()
 	from := old.name
-	sess.dim.Store(dst)
+	sess.setDimension(dst)
 	sess.setPos(x, y, z, 0, 0, false)
 	s.fireChangedDimension(sess, from, dst.name)
 	s.entities.Update(eid, x, y, z, 0, 0, false)
@@ -424,7 +424,7 @@ func (s *Server) reparkDim(dim string) {
 		return
 	}
 	for _, e := range s.entities.All() {
-		if e.Dormant || e.Dying || e.Dim != dim {
+		if e.presenceOnly || e.Dormant || e.Dying || e.Dim != dim {
 			continue
 		}
 		if ptr, ok := s.entities.GetPtr(e.ID); ok {
@@ -438,7 +438,7 @@ func (s *Server) reparkDim(dim string) {
 // in. All() snapshots copies, so the flag writes through GetPtr.
 func (s *Server) wakeDormant(dim string) {
 	for _, e := range s.entities.All() {
-		if !e.Dormant || e.Dim != dim {
+		if e.presenceOnly || !e.Dormant || e.Dim != dim {
 			continue
 		}
 		if ptr, ok := s.entities.GetPtr(e.ID); ok {

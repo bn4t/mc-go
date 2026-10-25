@@ -16,21 +16,25 @@ import (
 
 func TestTpCoords(t *testing.T) {
 	s := New("unused")
+	runTp := func(args []string) (out reply) {
+		s.simulationAction(func() { out = s.runTp("Warden", args) })
+		return
+	}
 	enforceSession(t, s, "Warden")
 
-	if out := s.runTp("Warden", nil); out.comp.extra[0].translate != "command.unknown.command" {
+	if out := runTp(nil); out.comp.extra[0].translate != "command.unknown.command" {
 		t.Fatalf("tp usage = %+v", out.comp)
 	}
-	if out := s.runTp("Warden", []string{"Ghost"}); out.comp.extra[0].translate != "argument.entity.notfound.entity" {
+	if out := runTp([]string{"Ghost"}); out.comp.extra[0].translate != "argument.entity.notfound.entity" {
 		t.Fatalf("tp ghost = %+v", out.comp)
 	}
-	if out := s.runTp("Warden", []string{"100", "oops", "100"}); out.comp.extra[0].translate != "command.unknown.argument" {
+	if out := runTp([]string{"100", "oops", "100"}); out.comp.extra[0].translate != "command.unknown.argument" {
 		t.Fatalf("tp bad y = %+v", out.comp)
 	}
-	if out := s.runTp("Warden", []string{"99999999", "70", "0"}); out.comp.extra[0].translate != "commands.teleport.invalidPosition" {
+	if out := runTp([]string{"99999999", "70", "0"}); out.comp.extra[0].translate != "commands.teleport.invalidPosition" {
 		t.Fatalf("tp border = %+v", out.comp)
 	}
-	out := s.runTp("Warden", []string{"100", "70", "-40"})
+	out := runTp([]string{"100", "70", "-40"})
 	if out.comp.translate != "commands.teleport.success.location.single" {
 		t.Fatalf("tp = %+v", out.comp)
 	}
@@ -47,7 +51,7 @@ func TestTpCoords(t *testing.T) {
 	}
 	// "~" relativity resolves against the sender's exact position —
 	// the centered (100.5, 70, -39.5) spot.
-	out = s.runTp("Warden", []string{"~1", "~", "~-1"})
+	out = runTp([]string{"~1", "~", "~-1"})
 	if len(out.comp.with) != 4 || out.comp.with[1].(nestedCompound).value != "101.500000" ||
 		out.comp.with[2].(nestedCompound).value != "70.000000" ||
 		out.comp.with[3].(nestedCompound).value != "-40.500000" {
@@ -57,24 +61,28 @@ func TestTpCoords(t *testing.T) {
 
 func TestTpPlayerToPlayer(t *testing.T) {
 	s := New("unused")
+	runTp := func(args []string) (out reply) {
+		s.simulationAction(func() { out = s.runTp("Warden", args) })
+		return
+	}
 	enforceSession(t, s, "Warden")
 	enforceSession(t, s, "Mover")
 	s.TeleportPlayer("Mover", 50, 66, 50)
 
-	if out := s.runTp("Warden", []string{"Mover"}); out.comp.translate != "commands.teleport.success.entity.single" {
+	if out := runTp([]string{"Mover"}); out.comp.translate != "commands.teleport.success.entity.single" {
 		t.Fatalf("tp player = %+v", out.comp)
 	}
 	st, _ := s.PlayerStateOf("Warden")
 	if st.X != 50 || st.Y != 66 || st.Z != 50 {
 		t.Fatalf("state = %+v", st)
 	}
-	if out := s.runTp("Warden", []string{"Mover", "1", "65", "1", "extra"}); out.comp.extra[0].translate != "command.unknown.argument" {
+	if out := runTp([]string{"Mover", "1", "65", "1", "extra"}); out.comp.extra[0].translate != "command.unknown.argument" {
 		t.Fatalf("tp 5 args = %+v", out.comp)
 	}
-	if out := s.runTp("Warden", []string{"Ghost", "1", "65", "1"}); out.comp.extra[0].translate != "argument.entity.notfound.entity" {
+	if out := runTp([]string{"Ghost", "1", "65", "1"}); out.comp.extra[0].translate != "argument.entity.notfound.entity" {
 		t.Fatalf("tp ghost victim = %+v", out.comp)
 	}
-	if out := s.runTp("Warden", []string{"Mover", "1", "65", "1"}); out.comp.translate != "commands.teleport.success.location.single" {
+	if out := runTp([]string{"Mover", "1", "65", "1"}); out.comp.translate != "commands.teleport.success.location.single" {
 		t.Fatalf("tp victim = %+v", out.comp)
 	}
 }

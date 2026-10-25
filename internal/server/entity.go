@@ -14,9 +14,13 @@ import (
 // Entity is one spawned world entity. Dim is the dimension registry
 // name it lives in; empty means the overworld.
 type Entity struct {
-	ID                  int32
-	UUID                [16]byte
-	Type                int32
+	ID   int32
+	UUID [16]byte
+	Type int32
+	// presenceOnly is an immutable capability marker stamped when a neutral
+	// player record allocates this entity. It excludes that incarnation from
+	// automatic gameplay without classifying other non-living/player entities.
+	presenceOnly        bool
 	Dim                 string
 	X, Y, Z             float64
 	Yaw, Pitch, HeadYaw float32
@@ -1224,10 +1228,20 @@ func (m *Manager) SetDimension(id int32, dim string) {
 // Update moves an entity, reporting whether it existed. Movers publish
 // the change; the manager only stores it.
 func (m *Manager) Update(id int32, x, y, z float64, yaw, pitch float32, onGround bool) bool {
+	return m.updatePose(id, x, y, z, yaw, pitch, onGround, false)
+}
+
+// updatePlayerPose is the explicit authoritative player-record commit path.
+// Generic world simulation cannot reposition a presence-only incarnation.
+func (m *Manager) updatePlayerPose(id int32, x, y, z float64, yaw, pitch float32, onGround bool) bool {
+	return m.updatePose(id, x, y, z, yaw, pitch, onGround, true)
+}
+
+func (m *Manager) updatePose(id int32, x, y, z float64, yaw, pitch float32, onGround bool, playerCommit bool) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.byID[id]
-	if !ok {
+	if !ok || (e.presenceOnly && !playerCommit) {
 		return false
 	}
 	e.X, e.Y, e.Z = x, y, z
@@ -1646,36 +1660,43 @@ func playerEntity(sess *Session) (Entity, bool) {
 	return *e, true
 }
 
+// playerRecordEntityOwned snapshots the shared record for Java presentation.
+func (s *Server) playerRecordEntityOwned(p *playerRecord) (Entity, bool) {
+	e, ok := s.entities.Get(p.entityID.Load())
+	if !ok {
+		return Entity{}, false
+	}
+	pose := p.position()
+	e.X, e.Y, e.Z, e.Yaw, e.Pitch = pose.X, pose.Y, pose.Z, pose.Yaw, pose.Pitch
+	return e, true
+}
+
 // sendEntitySpawnsTo sends every other spawned player in the session's
 // dimension to it (join burst); failures only fail the join.
 func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 	var first error
 	dim := sess.dimName()
-	s.sessions.Range(func(_, v any) bool {
-		other := v.(*Session)
-		if other == sess || other.state.Load() != StatePlay || !other.spawned.Load() || other.getName() == "" {
-			return true
+	for _, p := range s.presencePlayersOwned() {
+		if p.profile() == sess.playerRecord.profile() {
+			continue
 		}
-		if other.dimName() != dim {
-			return true
+		if p.java != nil && (p.java == sess || p.java.state.Load() != StatePlay || !p.java.spawned.Load()) {
+			continue
 		}
-		e, ok := playerEntity(other)
+		if p.dimName() != dim {
+			continue
+		}
+		e, ok := s.playerRecordEntityOwned(p)
 		if !ok {
-			return true
+			continue
 		}
-		// Other players pair like any entity (player tracking range 32
-		// chunks, clipped by view distance) — the tick eval maintains
-		// it, the join burst seeds it.
-		x, y, z, yaw, pitch, _ := other.Pos()
-		e.X, e.Y, e.Z, e.Yaw, e.Pitch = x, y, z, yaw, pitch
 		if s.pairable(sess, &e) {
 			sess.setTracked(e.ID, true)
 			if err := s.sendEntityTo(sess, &e); err != nil && first == nil {
 				first = err
 			}
 		}
-		return true
-	})
+	}
 	// World entities spawned before this player joined must be sent
 	// too — vanilla tracks every entity in range, not just players.
 	// Ridden vehicles follow with their passenger list so the client

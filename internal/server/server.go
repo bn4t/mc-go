@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mc-go/api/frontend"
+	"mc-go/api/player"
 	"mc-go/internal/event"
 	"mc-go/internal/plugin"
 	"mc-go/internal/world"
@@ -21,11 +22,16 @@ import (
 // session queues isolate socket writers from gameplay actions. Plugins use
 // synchronous decision hooks and asynchronous observation events.
 //
-// Configure fields before Start. The bundled game codec speaks Java protocol 776.
+// Configure fields before Start. Java 775/776 codecs share canonical 776 rules.
 type Server struct {
-	Addr       string
-	MOTD       string
-	MaxPlayers int
+	playersMu      sync.RWMutex
+	players        map[player.ID]*playerRecord
+	playerRevision uint64 // simulation-owned replication sequence
+	playerDirtyMu  sync.Mutex
+	playerDirty    map[*playerRecord]struct{}
+	Addr           string
+	MOTD           string
+	MaxPlayers     int
 
 	// KeepAliveEvery/Timeout govern play-stage pings; non-positive
 	// values select vanilla-like 10s/30s defaults.
@@ -417,42 +423,21 @@ func (a serverAPI) Bus() *event.Bus               { return a.s.bus }
 func (a serverAPI) Commands() *plugin.Commands    { return a.s.commands }
 func (a serverAPI) Kick(name, reason string) bool { return a.KickContext(a.s.runtimeCtx, name, reason) }
 func (a serverAPI) KickContext(ctx context.Context, name, reason string) bool {
-	if ctx.Err() != nil {
+	id, found := a.s.playerIDByName(name)
+	if !found {
 		return false
 	}
-	if sess := a.s.findSessionByName(name); sess == nil || sess.state.Load() != StatePlay || a.s.ShuttingDown() {
-		return false
-	}
-	return a.s.queueSimulationAction(func() {
-		if ctx.Err() == nil {
-			a.s.kickPlayerOwned(name, reason)
-		}
-	})
+	return a.KickIDContext(ctx, id, reason)
 }
 func (a serverAPI) Teleport(name string, x, y, z float64) bool {
 	return a.TeleportContext(a.s.runtimeCtx, name, x, y, z)
 }
 func (a serverAPI) TeleportContext(ctx context.Context, name string, x, y, z float64) bool {
-	if ctx.Err() != nil {
+	id, found := a.s.playerIDByName(name)
+	if !found {
 		return false
 	}
-	if badFloat(x) || badFloat(y) || badFloat(z) {
-		return false
-	}
-	if sess := a.s.findSessionByName(name); sess == nil || sess.state.Load() != StatePlay || a.s.ShuttingDown() {
-		return false
-	}
-	return a.s.queueSimulationAction(func() {
-		if ctx.Err() != nil {
-			return
-		}
-		sess := a.s.findSessionByName(name)
-		if sess == nil {
-			return
-		}
-		_, _, _, yaw, pitch, _ := sess.Pos()
-		a.s.teleportPlayerRot(name, x, y, z, yaw, pitch)
-	})
+	return a.TeleportIDContext(ctx, id, x, y, z)
 }
 func (a serverAPI) PlayerState(name string) (plugin.PlayerState, bool) {
 	return a.s.PlayerStateOf(name)
@@ -569,6 +554,9 @@ func (s *Server) track(sess *Session) {
 }
 
 func (s *Server) untrack(sess *Session) {
+	if !sess.untracked.CompareAndSwap(false, true) {
+		return
+	}
 	s.sessions.Delete(sess.id)
 	// ServerWaypointManager.removePlayer: the leaver's receiver row is
 	// dropped; its transmitter conns unwind via the dead-source path
@@ -591,28 +579,9 @@ func (s *Server) untrack(sess *Session) {
 	// the sign its editor was open on is free for the next player at once.
 	s.releaseSignEdits(sess)
 	name := sess.getName()
+	s.retirePlayerOwned(&sess.playerRecord, "Disconnected")
 	if name == "" {
 		return
-	}
-	s.online.Add(-1)
-	if s.bus != nil {
-		s.bus.Publish(event.TopicPlayerLeave, map[string]string{
-			"name": name,
-		})
-	}
-	log.Printf("%s left the game", name)
-	s.broadcastSystemChatComponent(component{
-		color:     "yellow",
-		translate: "multiplayer.player.left",
-		with:      []any{playerChatComponent(sess)},
-	})
-	s.broadcastPlayerInfoRemove([][16]byte{sess.getUUID()})
-	// Retire the player's entity everywhere it was spawned.
-	if sess.spawned.Load() {
-		if eid := sess.entityID.Load(); eid != 0 {
-			s.entities.Remove(eid)
-			s.broadcastEntityRemoveIn(sess.dimName(), nil, []int32{eid})
-		}
 	}
 	// If they were the last one standing in that dimension, its chunks
 	// unload: everything still live there parks dormant until someone
@@ -622,7 +591,7 @@ func (s *Server) untrack(sess *Session) {
 	// in memory always, to disk when a data path is configured. A
 	// vanilla-layout world writes the player's .dat here, the same file
 	// vanilla's PlayerList.save touches on disconnect.
-	if sess.state.Load() == StatePlay {
+	if sess.playerRecord.admitted {
 		sess.addCustomStat("leave_game", 1)
 		s.savedPlayersMu.Lock()
 		if s.savedPlayers == nil {

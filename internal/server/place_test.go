@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -60,6 +61,13 @@ func placeSession(t *testing.T, s *Server, name string, x, y, z float64) *Sessio
 	// mirrors it so tests exercise the same source of truth.
 	sess.setMode(s.GameMode)
 	sess.setPos(x, y, z, 0, 0, true)
+	sess.playerRecord.java, sess.playerRecord.core = sess, s
+	s.simulationAction(func() {
+		if err := s.reservePlayerOwned(context.Background(), &sess.playerRecord); err != nil {
+			t.Fatal(err)
+		}
+		s.commitPlayerAdmissionOwned(&sess.playerRecord)
+	})
 	s.track(sess)
 	// Stream the spawn window like the join burst does: block-update
 	// fan-out only reaches sessions tracking the column, in production

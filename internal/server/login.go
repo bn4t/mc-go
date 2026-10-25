@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"mc-go/internal/event"
+	"mc-go/internal/plugin"
 	"mc-go/internal/protocol"
 )
 
@@ -74,7 +76,19 @@ func (s *Server) handleLogin(sess *Session) {
 			`{"translate":"multiplayer.disconnect.not_whitelisted"}`)
 		return
 	}
-	s.online.Add(1)
+	var reservationErr error
+	s.simulationAction(func() { reservationErr = s.reservePlayerOwned(s.runtimeCtx, &sess.playerRecord) })
+	if reservationErr != nil {
+		message := reservationErr.Error()
+		var callbackErr *plugin.CallbackError
+		if errors.As(reservationErr, &callbackErr) {
+			log.Printf("admission policy failed: %v", reservationErr)
+			message = "Admission policy failed"
+		}
+		reason, _ := json.Marshal(map[string]string{"text": message})
+		s.sendLoginDisconnect(sess, string(reason))
+		return
+	}
 	if s.bus != nil {
 		s.bus.Publish(event.TopicPlayerLogin, map[string]string{"name": name})
 	}

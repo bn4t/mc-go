@@ -2,9 +2,10 @@
 
 mc-go targets Minecraft Java 26.2 (protocol 776) behavioral parity. The
 current foundations cover ownership, lifecycle, canonical identities, detached
-chunk encoding and measured Java 26.1/775 plus 26.2/776 wire adaptation. Full
-parity, parallel regional simulation and a protocol-independent game model with
-neutral frontend admission and replication remain unfinished.
+chunk encoding, measured Java 26.1/775 plus 26.2/776 wire adaptation, and neutral
+avatar admission with player presence/movement replication. Full parity,
+parallel regional simulation and neutral world/gameplay replication remain
+unfinished.
 The [parity matrix](GOAL.md) records implemented behavior; tests and
 benchmarks establish only the paths they exercise.
 
@@ -53,12 +54,49 @@ and construct a runtime through [`server`](server/server.go), without
 importing internal packages. Frontends own transport, framing, codecs,
 authentication and authorization. The restricted core returns detached
 player/status snapshots and accepts typed movement, teleport, kick and
-privileged command actions for existing players. The action boundary
+privileged command actions. `Core.Admit` creates a transient avatar from a
+trusted frontend's authenticated profile. Its host-issued `player.ID` identifies
+one admission; reconnecting never reuses the previous incarnation. A Java session
+embeds the same authoritative player record that a neutral avatar uses without
+allocating a fake Java connection. The action boundary
 checks cancellation and shutdown under simulation ownership before
 dispatch; cancellation does not roll back an admitted action. Movement
 shares Java's validation, collision, hooks and canonical commit path.
 Custom frontends must stop their own transport workers when their supplied
 context ends; the runtime cannot forcibly join arbitrary adapter goroutines.
+
+Avatar connections control only their own presence and movement. A detached
+snapshot of active players comes first, followed by reliable revisioned added,
+moved, removed and correction values. Revisions increase within each stream;
+gaps are allowed. Pose, dimension, game mode and entity identity changes are
+coalesced at complete ownership boundaries, including Java command and tick
+paths. Dirty records are collected without a global player comparison after
+every action; full-state equality suppresses unchanged updates. Pending changes
+flush before a new snapshot is captured and registered. Queries by incarnation
+read the last committed immutable state, including inside hooks.
+
+Java configuring logins and avatars share capacity and identity reservations.
+Neutral duplicate profiles reject. Exact-profile Java replacement retires its
+predecessor only after policy and required initial FIFO admission succeed;
+denied or failed setup preserves it. Old transport teardown cannot resolve a
+name again and retire its successor. These are offline/trusted-frontend identity
+policies, not a new account authentication mechanism.
+
+Each avatar has a mailbox, defaulting to 128 queued updates and 1 MiB of detached
+state/text storage. Initial snapshot capacity is reserved before copying its
+payload. `Next` transfers value ownership and releases the queued charge, so
+this is not an in-flight, adapter-copy or total heap limit. A failed queue
+retires only that avatar. Iterative removal fanout preserves revision order
+through cascading overflows. Canceling one `Next` leaves the connection intact.
+
+The admission context and attachment own connection lifetime. `Close` signals
+immediately and schedules owned retirement. One `Admit` per attachment and one
+`Move` per connection may await the owner; concurrent requests return `ErrBusy`.
+That mutex wait cannot itself be canceled, but lifetime and request cancellation
+are rechecked before commit and after movement hooks. No goroutine is created
+per waiting request. Migration note: attachment detachment now revokes retained
+`Core.Snapshot` and `Core.Execute` capabilities, which previously remained usable
+until runtime shutdown. Other attachments continue independently.
 
 The bundled Java frontend admits measured 26.1/775 and 26.2/776 profiles
 against one authoritative world. Profiles select configuration, codecs,
@@ -78,9 +116,14 @@ rejects unknown or unmodeled semantic component data before mutation. Particle
 commands support measured option forms and simple item templates; unmeasured
 inline or component-bearing item options reject explicitly.
 
-The neutral API still lacks player admission and chunk/entity replication
-streams. A synthetic external adapter exercises existing-player actions;
-two real Java wire profiles do not make that API a complete game frontend.
+The public avatar capability covers player presence and movement only. It has
+no inventory, combat, survival simulation, persistence or world/chunk replication.
+Gameplay selectors remain Java-session based; explicit plugin ID enforcement
+can target an admitted avatar. Presence-only entities do not activate inside-
+block/tripwire gameplay, environmental movement or dimension parking. A separate
+external consumer module exercises admission and lifetime against actual 775
+and 776 TCP observers without importing internal packages. This is not a
+complete neutral game frontend.
 Gameplay rules remain 26.2. Five newer attributes are omitted for 775, which
 does not establish equivalent older-client prediction or full 26.1 parity.
 
@@ -92,6 +135,17 @@ reverse dependency order; partial initialization also rolls back. Legacy
 internal import aliases preserve existing in-tree plugin compatibility.
 Plugin-owned goroutines must cooperate with `Context` cancellation and
 `Close`; the manager does not discover or forcibly stop them.
+Admission hooks are deny-only decisions before reservation. Movement proposals
+carry immutable incarnation IDs; additive typed join/leave observations carry
+detached states. Existing join/leave topics retain their legacy map payloads.
+Queued name-based enforcement
+captures the live ID when accepted, then checks that exact incarnation and plugin
+lifetime when executed. Acceptance is
+not confirmation that a mutation ran. Narrow panic boundaries cover plugin
+initialization, individual cleanup, commands, hooks and external frontend
+`Serve`; panic failure replies are generic and private logs retain attribution.
+Plugins remain trusted code, without arbitrary goroutine recovery, execution timeouts,
+dynamic loading or a security sandbox.
 
 [`api/registry`](api/registry/state.go) represents complete namespaced block
 states with sorted properties. Immutable catalogs assign dense, catalog-local
@@ -280,8 +334,9 @@ binary ignore has a directory-only exception for the public Go package.
 3. Migrate remaining persisted numeric domains, including legacy item JSON,
    and broaden measured coverage of unsupported cross-version content.
 4. Replace more Java packet-shaped presentation paths with typed core events,
-   extend plugin mutation APIs beyond movement decisions and privileged commands,
-   and provide neutral frontend admission and world/entity replication.
+   extend plugin mutation APIs beyond admission/movement decisions and queued
+   enforcement, and add neutral world/entity replication and gameplay capabilities
+   beyond transient player presence/movement.
 5. Add sustained load scenarios with tick p50/p95/p99, queue bytes,
    disconnect reasons, CPU, heap, allocation rate and tracked entity count.
 6. Expand differential gameplay coverage and the conformance corpus;

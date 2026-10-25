@@ -208,7 +208,28 @@ func joinRuntimeJava(t *testing.T, ln net.Listener, name string) (net.Conn, *pro
 		if err != nil {
 			t.Fatal(err)
 		}
-		if packet.ID == IDPlayPlayerInfoUpdate {
+		switch packet.ID {
+		case IDPlaySyncPos:
+			id, err := protocol.NewPacketReader(packet.Data).VarInt()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var confirmation protocol.Buffer
+			confirmation.VarInt(id)
+			if err := writer.WritePacket(IDPlayTeleportConfirmSB, confirmation.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+		case IDPlayChunkBatchDone:
+			var acknowledgement protocol.Buffer
+			acknowledgement.Float(64)
+			if err := writer.WritePacket(IDPlayChunkBatchRecvSB, acknowledgement.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+		case IDPlayKeepAliveCB:
+			if err := writer.WritePacket(IDPlayKeepAliveSB, packet.Data); err != nil {
+				t.Fatal(err)
+			}
+		case IDPlayUpdateAttributes:
 			return conn, reader, writer
 		}
 	}
@@ -320,9 +341,16 @@ received:
 	}
 	ln.Close()
 	awaitServeExit(t, done)
-	// The detached frontend's captured core remains a runtime handle until Stop.
-	if _, err = core.Snapshot(context.Background()); err != nil {
-		t.Fatal(err)
+	// Attachment capabilities are revoked at detach, including a retained
+	// privileged core handle. The independent Java player/runtime continues.
+	if _, err = core.Snapshot(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("detached snapshot did not reject: %v", err)
+	}
+	if _, err = core.Execute(context.Background(), frontend.Action{Kind: frontend.Move, Player: "Shared", Movement: frontend.Movement{X: 10.5, Y: 70, Z: 4.5}}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("detached action did not reject: %v", err)
+	}
+	if live, err := (frontendCore{s}).Snapshot(context.Background()); err != nil || len(live.Players) != 1 || live.Players[0].X != 9.5 {
+		t.Fatalf("detaching observer changed Java runtime: %+v,%v", live, err)
 	}
 }
 

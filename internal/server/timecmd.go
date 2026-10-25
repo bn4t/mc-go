@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log"
 	"math"
 	"sort"
 	"strconv"
@@ -268,7 +269,11 @@ func (s *Server) runCommandAt(player string, level int, name string, args []stri
 	if fn := s.componentCommand(name); fn != nil {
 		return fn(player, args), true
 	}
-	out, ok := s.commands.Run(name, player, args)
+	out, ok, err := s.commands.RunE(name, player, args)
+	if err != nil {
+		log.Printf("plugin command: %v", err)
+		return textReply("Plugin command failed"), true
+	}
 	if !ok {
 		return reply{}, false
 	}

@@ -468,7 +468,7 @@ func (s *Server) applySavedPlayer(sess *Session) {
 	// Vanilla resumes the player where they logged out: dimension and
 	// position both restore.
 	if d := s.dimensionByName(p.Dim); d != nil && p.Y != 0 {
-		sess.dim.Store(d)
+		sess.setDimension(d)
 		sess.setPos(p.X, p.Y, p.Z, p.Yaw, p.Pitch, p.OnGround)
 	}
 }

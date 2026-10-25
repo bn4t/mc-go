@@ -662,7 +662,7 @@ func (s *Server) pistonPushTick(d *dimension, mp movingPiston, frac float64) {
 	s.entities.mu.RLock()
 	var ids []int32
 	for id, e := range s.entities.byID {
-		if e.Dim != d.name || e.Dying {
+		if e.presenceOnly || e.Dim != d.name || e.Dying {
 			continue
 		}
 		ids = append(ids, id)

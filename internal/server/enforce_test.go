@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net"
 	"testing"
 
@@ -26,6 +27,14 @@ func enforceSession(t *testing.T, s *Server, name string) (*Session, net.Conn) {
 	sess.state.Store(StatePlay)
 	sess.setMode(byte(s.GameMode))
 	sess.setPos(8.5, 65, 8.5, 90, 0, true)
+	sess.playerRecord.java, sess.playerRecord.core = sess, s
+	s.simulationAction(func() {
+		if err := s.reservePlayerOwned(context.Background(), &sess.playerRecord); err != nil {
+			t.Fatal(err)
+		}
+		s.replacePlayersOwned(&sess.playerRecord)
+		s.commitPlayerAdmissionOwned(&sess.playerRecord)
+	})
 	s.track(sess)
 	t.Cleanup(func() {
 		_ = cc.Close()
@@ -53,7 +62,7 @@ func TestPlayerStateOf(t *testing.T) {
 	if st.Gamemode != 1 {
 		t.Fatalf("gamemode = %d", st.Gamemode)
 	}
-	sess.setMode(0)
+	s.simulationAction(func() { sess.setMode(0) })
 	if survival, _ := s.PlayerStateOf("Warden"); survival.Gamemode != 0 {
 		t.Fatalf("survival gamemode = %d", survival.Gamemode)
 	}

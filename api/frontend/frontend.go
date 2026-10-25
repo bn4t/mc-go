@@ -1,7 +1,7 @@
 // Package frontend defines the protocol-neutral boundary for server entry points.
 // Implementations own their transport, framing, authentication and codecs. Core
-// actions operate on authenticated existing players; player admission and world
-// replication are not yet part of this boundary.
+// actions operate on authenticated players. Transient avatar admission provides
+// presence and movement; world replication and other avatar gameplay are absent.
 package frontend
 
 import (
@@ -11,6 +11,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"mc-go/api/player"
 )
 
 // Core exposes detached observations and serialized gameplay actions. A frontend
@@ -18,10 +20,16 @@ import (
 type Core interface {
 	Snapshot(context.Context) (Snapshot, error)
 	Execute(context.Context, Action) (Result, error)
+	// Admit accepts one request at a time per attachment (ErrBusy otherwise).
+	// It checks cancellation before waiting and again before commit; waiting
+	// for simulation ownership itself is not interruptible.
+	Admit(context.Context, player.Profile, player.Options) (player.Connection, error)
 }
 
 // Frontend serves one listener until it closes or ctx is canceled. Returning
 // stops this attachment only; the shared runtime continues until explicitly stopped.
+// Every Core capability received by Serve is revoked when this attachment ends,
+// including retained Snapshot/Execute handles and admitted avatar connections.
 type Frontend interface {
 	Name() string
 	Serve(context.Context, Core, net.Listener) error
@@ -47,11 +55,7 @@ type Snapshot struct {
 // Movement is an absolute, fully decoded player movement. Frontends fill omitted
 // wire fields from their last snapshot before submission. The core applies the
 // same validity, collision and gameplay rules as Java movement.
-type Movement struct {
-	X, Y, Z    float64
-	Yaw, Pitch float32
-	OnGround   bool
-}
+type Movement = player.Movement
 
 type ActionKind uint8
 

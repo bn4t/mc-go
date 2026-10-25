@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mc-go/api/event"
+	"mc-go/api/player"
 	blockregistry "mc-go/api/registry"
 )
 
@@ -57,8 +58,25 @@ type LifecycleEnforcement interface {
 	TeleportContext(context.Context, string, float64, float64, float64) bool
 }
 
+// PlayerControl is an optional API capability addressing one admitted player
+// incarnation. IDs identify targets; they do not authenticate frontend callers.
+// Queued operations report acceptance and never retarget a later reconnect.
+type PlayerControl interface {
+	KickID(player.ID, string) bool
+	TeleportID(player.ID, float64, float64, float64) bool
+	PlayerStateID(player.ID) (PlayerState, bool)
+}
+
+// LifecyclePlayerControl lets hosts preserve the plugin lifetime until queued
+// ID-addressed operations execute, just as LifecycleEnforcement does by name.
+type LifecyclePlayerControl interface {
+	KickIDContext(context.Context, player.ID, string) bool
+	TeleportIDContext(context.Context, player.ID, float64, float64, float64) bool
+}
+
 // PlayerState is one player's plugin-visible snapshot.
 type PlayerState struct {
+	ID       player.ID
 	Name     string
 	X, Y, Z  float64
 	Yaw      float32
@@ -145,6 +163,7 @@ type Closer interface{ Close() error }
 type Manager struct {
 	mu      sync.Mutex
 	cancel  context.CancelFunc
+	scopes  []context.CancelFunc
 	started []Plugin
 	closed  bool
 	err     error
@@ -157,6 +176,8 @@ type scopedAPI struct {
 	hooks    *Hooks
 	bus      *event.Bus
 }
+
+type controlledAPI struct{ scopedAPI }
 
 func (a scopedAPI) Hooks() *Hooks   { return a.hooks }
 func (a scopedAPI) Bus() *event.Bus { return a.bus }
@@ -183,6 +204,32 @@ func (a scopedAPI) ReportViolation(v Violation) {
 		a.API.ReportViolation(v)
 	}
 }
+func (a controlledAPI) KickID(id player.ID, reason string) bool {
+	if a.ctx.Err() != nil {
+		return false
+	}
+	if host, ok := a.API.(LifecyclePlayerControl); ok {
+		return host.KickIDContext(a.ctx, id, reason)
+	}
+	return false
+}
+func (a controlledAPI) TeleportID(id player.ID, x, y, z float64) bool {
+	if a.ctx.Err() != nil {
+		return false
+	}
+	if host, ok := a.API.(LifecyclePlayerControl); ok {
+		return host.TeleportIDContext(a.ctx, id, x, y, z)
+	}
+	return false
+}
+func (a controlledAPI) PlayerStateID(id player.ID) (PlayerState, bool) {
+	if a.ctx.Err() == nil {
+		if host, ok := a.API.(PlayerControl); ok {
+			return host.PlayerStateID(id)
+		}
+	}
+	return PlayerState{}, false
+}
 func (a scopedAPI) Context() context.Context { return a.ctx }
 func (a scopedAPI) Commands() *Commands      { return a.commands }
 
@@ -199,12 +246,29 @@ func NewManager(parent context.Context, api API, plugins []Plugin) (*Manager, er
 	ctx, cancel := context.WithCancel(parent)
 	m := &Manager{cancel: cancel}
 	for _, p := range ordered {
-		scoped := scopedAPI{API: api, ctx: ctx, commands: api.Commands().WithContext(ctx), hooks: api.Hooks().withContext(ctx), bus: api.Bus().WithContext(ctx)}
+		if err := ctx.Err(); err != nil {
+			return nil, errors.Join(err, m.Close())
+		}
+		lifetime, stop := context.WithCancel(ctx)
+		m.scopes = append(m.scopes, stop)
+		commands := api.Commands().WithContext(lifetime)
+		commands.plugin = p.Name()
+		scoped := scopedAPI{API: api, ctx: lifetime, commands: commands, hooks: api.Hooks().withContext(lifetime), bus: api.Bus().WithContext(lifetime)}
+		scoped.hooks.plugin = p.Name()
+		var view API = scoped
+		_, controls := api.(PlayerControl)
+		_, lifecycleControls := api.(LifecyclePlayerControl)
+		if controls && lifecycleControls {
+			view = controlledAPI{scoped}
+		}
 		// Include a failing plugin in teardown: Init may have allocated resources.
 		m.started = append(m.started, p)
-		if err := p.Init(scoped); err != nil {
-			_ = m.Close()
-			return nil, fmt.Errorf("plugin %s: %w", p.Name(), err)
+		if err := callPlugin(p.Name(), "init", func() error { return p.Init(view) }); err != nil {
+			cleanup := m.Close()
+			return nil, errors.Join(fmt.Errorf("plugin %s: %w", p.Name(), err), cleanup)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, errors.Join(err, m.Close())
 		}
 	}
 	return m, nil
@@ -218,9 +282,12 @@ func (m *Manager) Close() error {
 	}
 	m.closed = true
 	m.cancel()
+	for _, stop := range m.scopes {
+		stop()
+	}
 	for i := len(m.started) - 1; i >= 0; i-- {
 		if c, ok := m.started[i].(Closer); ok {
-			if err := c.Close(); err != nil {
+			if err := callPlugin(m.started[i].Name(), "close", c.Close); err != nil {
 				m.err = errors.Join(m.err, fmt.Errorf("plugin %s: %w", m.started[i].Name(), err))
 			}
 		}

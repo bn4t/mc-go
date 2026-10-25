@@ -417,7 +417,7 @@ func TestJavaPredictionCorrectionsUseViewerProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	normal, _ := enforceSession(t, s, "NormalCorrection")
-	projected, _ := enforceSession(t, s, "ProjectedCorrection")
+	projected, _ := enforceSession(t, s, "ProjectedCorr")
 	projected.profile = &javaProfile{version: LatestVersion(), blocks: mapping}
 	projected.loaded.Store(true)
 	projected.setPos(2.5, 71, 5.5, 0, 0, true)

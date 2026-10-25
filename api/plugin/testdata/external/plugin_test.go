@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"mc-go/api/event"
+	"mc-go/api/player"
 	"mc-go/api/plugin"
 	_ "mc-go/plugins/anticheat"
 	_ "mc-go/plugins/hello"
@@ -15,6 +16,9 @@ type extension struct{}
 func (extension) Name() string              { return "external" }
 func (extension) Metadata() plugin.Metadata { return plugin.Metadata{APIVersion: plugin.APIVersion} }
 func (extension) Init(api plugin.API) error {
+	api.Hooks().OnAdmission(api.Context(), 0, func(_ context.Context, profile player.Profile) plugin.AdmissionDecision {
+		return plugin.AdmissionDecision{Denied: profile.Name == "Blocked", Reason: "Admission policy"}
+	})
 	if catalog := api.BlockCatalog(); catalog != nil {
 		state, ok := catalog.Resolve("minecraft:air", nil)
 		if ok {
@@ -28,7 +32,9 @@ func (extension) Init(api plugin.API) error {
 		proposal.To.X = 0
 		// Enforcement is queued, so calling it from this hook does not reenter
 		// the action owner or split this movement's authoritative commit.
-		api.Teleport(proposal.Player, 0, 65, 0)
+		if controls, ok := api.(plugin.PlayerControl); ok {
+			controls.TeleportID(proposal.ID, 0, 65, 0)
+		}
 		return true
 	})
 	api.Bus().SubscribeContext(api.Context(), event.TopicPlayerMove, 16)

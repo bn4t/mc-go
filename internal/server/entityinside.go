@@ -120,7 +120,7 @@ func (s *Server) entityInsideStep() {
 	}
 	s.entities.mu.RUnlock()
 	for _, e := range es {
-		if spectator[e.ID] {
+		if spectator[e.ID] || e.presenceOnly {
 			continue
 		}
 		d := s.dims[e.Dim]
@@ -439,7 +439,7 @@ func (s *Server) tripwireEntities(d *dimension, pos world.Pos, b world.Block) bo
 		return true
 	})
 	for _, e := range s.entities.All() {
-		if spectator[e.ID] || e.Dim != d.name {
+		if spectator[e.ID] || e.presenceOnly || e.Dim != d.name {
 			continue
 		}
 		name, _ := EntityTypeName(e.Type)

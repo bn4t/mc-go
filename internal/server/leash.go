@@ -277,12 +277,14 @@ func (s *Server) leashUnleashOrAttach(sess *Session, eid int32, hand int32) bool
 	return true
 }
 
-// isPlayerEntity reports whether the id belongs to a live session —
-// player entity ids share the same table, so the check is a session
-// lookup, not a type check.
+// isPlayerEntity classifies the authoritative canonical player type. Neutral
+// avatars have a player entity without owning a Java session.
 func (s *Server) isPlayerEntity(eid int32) bool {
 	if eid == 0 {
 		return false
+	}
+	if e, ok := s.entities.Get(eid); ok && e.Type == mustEntityType("player") {
+		return true
 	}
 	found := false
 	s.sessions.Range(func(_, v any) bool {

@@ -266,7 +266,7 @@ func (s *Server) pushEntitiesUpFarmland(d *dimension, pos world.Pos) {
 		return 1 + dm, true
 	}
 	for _, e := range s.entities.All() {
-		if e.Dying || e.Dim != d.name {
+		if e.presenceOnly || e.Dying || e.Dim != d.name {
 			continue
 		}
 		ptr, ok := s.entities.GetPtr(e.ID)

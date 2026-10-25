@@ -19,6 +19,7 @@ import (
 // stall the world or other sessions. Per-session FIFO preserves packet
 // order; drops only happen after disconnect.
 type Session struct {
+	playerRecord
 	id     int64
 	server *Server
 	conn   net.Conn
@@ -26,9 +27,6 @@ type Session struct {
 	pw     *protocol.Writer
 	wmu    sync.Mutex
 	state  atomic.Int32
-	nameMu sync.RWMutex
-	name   string
-	uuid   [16]byte
 	// profileProps is the session-server GameProfile properties
 	// attached to Login Success in online mode; empty offline.
 	profileProps []profileProperty
@@ -64,10 +62,6 @@ type Session struct {
 	hasSpawnPos          bool
 	// Player position (play stage). Guarded by posMu; the read loop
 	// writes, tick/broadcast paths read.
-	posMu       sync.RWMutex
-	px, py, pz  float64
-	yaw, pitch  float32
-	onGround    bool
 	teleportAck atomic.Int32 // last confirmed teleport id, -1 none
 	// unlockedRecipes holds the recipe-book keys the session has been
 	// given, keyed by data.Recipes index; guarded by recipesMu.
@@ -362,7 +356,6 @@ type Session struct {
 	windowState int32
 	// dim is the player's current dimension; set on play entry and by
 	// dimension changes. nil means the overworld.
-	dim atomic.Pointer[dimension]
 	// dimSwapPrev is the dimension the session really stands in while
 	// an execute `in` fork has dim swapped to the forked level —
 	// chunk-ticketing checks (dimHasLiveSession) read the real one.
@@ -376,8 +369,7 @@ type Session struct {
 	// allocated on entering play so remote clients can track them.
 	// spawned is set once the join burst (including spawn fan-out)
 	// completes; leave fan-out only fires for spawned sessions.
-	entityID atomic.Int32
-	spawned  atomic.Bool
+	spawned atomic.Bool
 	// Chunk streaming, guarded by sentMu. queued holds every column the
 	// session has taken on - already streamed or still waiting - sent
 	// only the ones the client has actually been given, which is what
@@ -411,8 +403,6 @@ type Session struct {
 	// the server, so /gamemode and the Change Game Mode packet only
 	// affect one session. Seeded from Server.GameMode at play entry;
 	// guarded by modeMu because the tick and fan-out paths read it.
-	modeMu   sync.RWMutex
-	gameMode byte
 	// prevGameMode is vanilla's previousPlayerGameType: the mode held
 	// before the last change, or -1 until the first switch.
 	prevGameMode int32
@@ -489,6 +479,9 @@ type Session struct {
 	// answered-closed — so name lookups stop resolving it before the
 	// socket finishes tearing down.
 	closing atomic.Bool
+	// The transport teardown may follow an earlier core retirement (kick or
+	// replacement), but its menus/persistence/stat cleanup must run once.
+	untracked atomic.Bool
 }
 
 // sendPkt is one queued outbound action: either a packet or a
@@ -585,7 +578,6 @@ func (sess *Session) hasChunk(cx, cz int) bool {
 
 func (sess *Session) setPos(x, y, z float64, yaw, pitch float32, onGround bool) {
 	sess.posMu.Lock()
-	defer sess.posMu.Unlock()
 	sess.px, sess.py, sess.pz = x, y, z
 	sess.yaw, sess.pitch = yaw, pitch
 	sess.onGround = onGround
@@ -593,6 +585,8 @@ func (sess *Session) setPos(x, y, z float64, yaw, pitch float32, onGround bool) 
 	// entity position each tick while accepted packets snap it back —
 	// the glide sim drifts from the latest claim the same way.
 	sess.glideSim = [3]float64{x, y, z}
+	sess.posMu.Unlock()
+	sess.playerRecord.markStateDirty()
 }
 
 // markAlive records a client response for the timeout watchdog.
@@ -622,6 +616,7 @@ func (s *Server) handleConn(c net.Conn) {
 		conn:   c,
 		done:   make(chan struct{}),
 	}
+	sess.playerRecord.java, sess.playerRecord.core = sess, s
 	sess.initOutbound()
 	sess.pr = protocol.NewReader(c)
 	sess.pw = protocol.NewWriter(c)

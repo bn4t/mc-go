@@ -85,6 +85,7 @@ func (sess *Session) setMode(m byte) {
 	}
 	sess.gameMode = m
 	sess.modeMu.Unlock()
+	sess.playerRecord.markStateDirty()
 }
 
 // setGameMode applies a mode change the way vanilla does: the player's

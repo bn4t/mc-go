@@ -149,15 +149,48 @@ func selfEntry(sess *Session) playerEntry {
 // except one (nil except collects all).
 func (s *Server) othersEntries(except *Session) []playerEntry {
 	var out []playerEntry
-	s.sessions.Range(func(_, v any) bool {
-		sess := v.(*Session)
-		if sess == except || sess.state.Load() != StatePlay || sess.getName() == "" {
-			return true
+	for _, p := range s.presencePlayersOwned() {
+		if except != nil && p.profile() == except.playerRecord.profile() {
+			continue // an exact-profile replacement must not list its old self
 		}
-		out = append(out, selfEntry(sess))
-		return true
-	})
+		if p.java != nil {
+			if p.java == except || p.java.state.Load() != StatePlay || p.java.getName() == "" {
+				continue
+			}
+			out = append(out, selfEntry(p.java))
+		} else {
+			out = append(out, recordEntry(p))
+		}
+	}
 	return out
+}
+
+func recordEntry(p *playerRecord) playerEntry {
+	profile := p.profile()
+	return playerEntry{uuid: profile.UUID, name: profile.Name, gamemode: int32(p.mode()), listed: true}
+}
+
+// presencePlayersOwned exposes only committed authoritative incarnations.
+// Configuring or rejected Java sessions never become visible through transport
+// tracking alone.
+func (s *Server) presencePlayersOwned() []*playerRecord {
+	return s.activePlayersOwned()
+}
+
+// announcePlayerPresenceOwned preserves Java's profile-before-player-spawn
+// dependency. Neutral admission calls this only after publishing its record.
+func (s *Server) announcePlayerPresenceOwned(p *playerRecord) {
+	s.broadcastPlayerInfoAdd(p.java, []playerEntry{recordEntry(p)})
+	if e, ok := s.playerRecordEntityOwned(p); ok {
+		s.broadcastEntitySpawn(p.java, e)
+	}
+}
+
+func (s *Server) removePlayerPresenceOwned(p *playerRecord) {
+	if !p.replacement {
+		s.broadcastPlayerInfoRemove([][16]byte{p.profile().UUID})
+	}
+	s.broadcastEntityRemoveIn(p.dimName(), p.java, []int32{p.entityID.Load()})
 }
 
 // sendPlayerInfoTo sends rows for all existing players to one session.

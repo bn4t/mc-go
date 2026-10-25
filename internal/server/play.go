@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"mc-go/api/frontend"
-	"mc-go/api/plugin"
 	"mc-go/internal/event"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
@@ -61,18 +60,8 @@ func (s *Server) joinPlayOwned(sess *Session) bool {
 	if s.ShuttingDown() {
 		return false
 	}
-	// A new login under a name already online disconnects the older
-	// session, never the new one (PlayerList.placeNewPlayer).
-	name := sess.getName()
-	s.sessions.Range(func(_, v any) bool {
-		other := v.(*Session)
-		if other != sess && other.getName() == name {
-			s.disconnectWithComponent(other, translatable("multiplayer.disconnect.duplicate_login"))
-		}
-		return true
-	})
 	overworld := s.dims[dimOverworld]
-	sess.dim.Store(overworld)
+	sess.setDimension(overworld)
 	// Joining opens the interaction gate; the client lifts it by
 	// reporting its terrain loaded.
 	sess.joinTick.Store(s.TickCount())
@@ -84,7 +73,7 @@ func (s *Server) joinPlayOwned(sess *Session) bool {
 	// position, entity record, and teleport all follow the restored
 	// coordinates, not the world spawn.
 	x, y, z, _, _, _ = sess.Pos()
-	sess.entityID.Store(s.entities.Spawn(&Entity{
+	sess.setEntityID(s.entities.Spawn(&Entity{
 		UUID: sess.getUUID(), Type: mustEntityType("player"),
 		Dim: sess.dimName(),
 		X:   x, Y: y, Z: z,
@@ -202,9 +191,10 @@ func (s *Server) joinPlayOwned(sess *Session) bool {
 	if err := s.sendEquipmentTo(sess); err != nil {
 		return false
 	}
-	if s.bus != nil {
-		s.bus.Publish(event.TopicPlayerJoin, map[string]string{"name": sess.getName()})
-	}
+	// Preserve the older incarnation until every required initial packet
+	// has successfully entered this connection's bounded FIFO.
+	s.replacePlayersOwned(&sess.playerRecord)
+	s.commitPlayerAdmissionOwned(&sess.playerRecord)
 	s.broadcastSystemChatComponentExcept(sess, component{
 		color:     "yellow",
 		translate: "multiplayer.player.joined",
@@ -296,66 +286,17 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 	})
 }
 
-// applyPlayerMoveOwned is the protocol-neutral movement action shared by the
-// Java decoder and other authenticated frontends. Hooks run before validation
-// and commit; their result is authoritative only after all normal checks pass.
+// applyPlayerMoveOwned adapts an admitted Java player's actual record to the
+// shared movement action used by neutral avatar connections.
 func (s *Server) applyPlayerMoveOwned(sess *Session, move frontend.Movement) bool {
-	const border = 29999984.0
-	ox, oy, oz, oldYaw, oldPitch, og := sess.Pos()
-	at := time.Now()
-	proposal := plugin.Move{
-		Player: sess.getName(),
-		From:   plugin.Position{X: ox, Y: oy, Z: oz, Yaw: oldYaw, Pitch: oldPitch, OnGround: og},
-		To:     plugin.Position{X: move.X, Y: move.Y, Z: move.Z, Yaw: move.Yaw, Pitch: move.Pitch, OnGround: move.OnGround},
-	}
-	original := proposal.To
-	proposal, allowed := s.hooks.BeforeMove(s.runtimeCtx, proposal)
-	if !allowed {
-		_ = s.sendSyncPos(sess, ox, oy, oz)
-		return false
-	}
-	x, y, z := proposal.To.X, proposal.To.Y, proposal.To.Z
-	yaw, pitch, onGround := proposal.To.Yaw, proposal.To.Pitch, proposal.To.OnGround
-	modified := proposal.To != original
-	if badFloat(x) || badFloat(y) || badFloat(z) || badFloat(float64(yaw)) || badFloat(float64(pitch)) {
-		if modified {
-			_ = s.sendSyncPos(sess, ox, oy, oz)
-		}
-		return false
-	}
-	if x < -border || x > border || z < -border || z > border || y < -2048 || y > 2048 {
-		if modified {
-			_ = s.sendSyncPos(sess, ox, oy, oz)
-		}
-		return false
-	}
-	// A passenger's position is the vehicle's business: vanilla snaps
-	// the packet position back to the current one and only keeps the
-	// rotation (and the grounded flag) — no move handling at all.
-	if sess.riding.Load() != 0 {
-		sess.setPos(ox, oy, oz, yaw, pitch, onGround)
-		if eid := sess.entityID.Load(); eid != 0 {
-			s.entities.Update(eid, ox, oy, oz, yaw, pitch, onGround)
-			s.broadcastEntityTeleport(sess, eid, ox, oy, oz, yaw, pitch, onGround)
-		}
-		return true
-	}
-	// Vanilla's "moved wrongly" gate: a position packet whose target
-	// AABB collides with a solid block it didn't already overlap is
-	// rejected — the player is teleported back and none of the move
-	// handling (stats, fall tracking, broadcast) runs.
-	if x != ox || y != oy || z != oz {
-		if s.playerBoxCollides(sess, ox, oy, oz, x, y, z) {
-			if err := s.sendSyncPos(sess, ox, oy, oz); err != nil {
-				return false
-			}
-			return false
-		}
-	}
-	sess.setPos(x, y, z, yaw, pitch, onGround)
-	if modified {
-		_ = s.sendSyncPos(sess, x, y, z)
-	}
+	return s.applyPlayerRecordMoveOwned(&sess.playerRecord, move)
+}
+
+// finishJavaPlayerMoveOwned retains Java's existing survival/statistics behavior.
+// Neutral presence avatars deliberately participate only in movement/visibility.
+func (s *Server) finishJavaPlayerMoveOwned(sess *Session, from, move frontend.Movement, at time.Time) {
+	ox, oy, oz, og := from.X, from.Y, from.Z, from.OnGround
+	x, y, z, onGround := move.X, move.Y, move.Z, move.OnGround
 	// handleMovePlayer's player.move applies the inside-block scan on
 	// every accepted move packet — a same-position resend still scans
 	// the occupied cells (measured: a teleport echo into lava lands
@@ -467,26 +408,6 @@ func (s *Server) applyPlayerMoveOwned(sess *Session, move frontend.Movement) boo
 		sess.fallDistance = 0
 		sess.fallStart = false
 	}
-	// Track the move on the player's entity and fan it out: remote
-	// clients render each other from these teleports.
-	if eid := sess.entityID.Load(); eid != 0 {
-		s.entities.Update(eid, x, y, z, yaw, pitch, onGround)
-		s.broadcastEntityTeleport(sess, eid, x, y, z, yaw, pitch, onGround)
-	}
-	if s.bus != nil {
-		s.bus.Publish(event.TopicPlayerMove, PlayerMove{
-			Name: sess.getName(), X: x, Y: y, Z: z,
-			FromX: ox, FromY: oy, FromZ: oz,
-			Yaw: yaw, Pitch: pitch, OnGround: onGround,
-			At: at, Latency: sess.latency(),
-		})
-	}
-	// Stream newly entered columns; already-sent ones are skipped.
-	// The cache-center notice follows the window so a far teleport
-	// loads before it re-centers.
-	_ = s.sendWindow(sess, int(x)>>4, int(z)>>4)
-	s.sendCenterChunk(sess, int(x)>>4, int(z)>>4)
-	return true
 }
 
 // awardMoveStats buckets the travelled distance into the *_one_cm
@@ -509,6 +430,12 @@ func (s *Server) applyPlayerMoveOwned(sess *Session, move frontend.Movement) boo
 // overlap — dipping a toe into already-colliding blocks is
 // tolerated, entering new ones rejects the whole move.
 func (s *Server) playerBoxCollides(sess *Session, ox, oy, oz, nx, ny, nz float64) bool {
+	return playerBoxCollidesIn(sess.world(), ox, oy, oz, nx, ny, nz)
+}
+
+// playerBoxCollidesIn applies the same standing-avatar collision rule for every
+// frontend. It consumes block storage, never a Java transport or session.
+func playerBoxCollidesIn(w *world.World, ox, oy, oz, nx, ny, nz float64) bool {
 	const half = 0.3
 	overlapsOld := func(bx, by, bz int) bool {
 		return ox+half > float64(bx) && ox-half < float64(bx+1) &&
@@ -518,7 +445,7 @@ func (s *Server) playerBoxCollides(sess *Session, ox, oy, oz, nx, ny, nz float64
 	for bx := int(math.Floor(nx - half)); float64(bx) < nx+half; bx++ {
 		for bz := int(math.Floor(nz - half)); float64(bz) < nz+half; bz++ {
 			for by := int(math.Floor(ny)); float64(by) < ny+1.8; by++ {
-				b := sess.world().GetBlock(world.Pos{X: bx, Y: by, Z: bz})
+				b := w.GetBlock(world.Pos{X: bx, Y: by, Z: bz})
 				if world.NonSolid(b) || moveNoCollision(b) {
 					continue
 				}

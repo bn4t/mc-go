@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"mc-go/api/event"
+	"mc-go/api/player"
 )
 
 type testAPI struct {
@@ -62,17 +63,18 @@ func TestMoveHooksOrderingModificationAndCancellation(t *testing.T) {
 		order = append(order, 1)
 		m.To.X += 3
 		m.Player = "forged"
+		m.ID = player.ID{99}
 		m.From.X = -999
 		return true
 	})
 	h.OnMove(context.Background(), 10, func(_ context.Context, m *Move) bool {
 		order = append(order, 3)
-		if m.Player != "actor" || m.From.X != 4 {
+		if m.Player != "actor" || m.ID != (player.ID{1}) || m.From.X != 4 {
 			t.Fatal("immutable actor/source changed")
 		}
 		return true
 	})
-	proposal := Move{Player: "actor", From: Position{X: 4}, To: Position{X: 1}}
+	proposal := Move{ID: player.ID{1}, Player: "actor", From: Position{X: 4}, To: Position{X: 1}}
 	result, ok := h.BeforeMove(context.Background(), proposal)
 	if !ok || result.To.X != 8 || !reflect.DeepEqual(order, []int{1, 2, 3}) {
 		t.Fatalf("result=%+v accepted=%v order=%v", result, ok, order)

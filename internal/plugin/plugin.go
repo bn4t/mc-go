@@ -5,6 +5,8 @@ import public "mc-go/api/plugin"
 
 type API = public.API
 type LifecycleEnforcement = public.LifecycleEnforcement
+type PlayerControl = public.PlayerControl
+type LifecyclePlayerControl = public.LifecyclePlayerControl
 type PlayerState = public.PlayerState
 type Violation = public.Violation
 type Info = public.Info
@@ -17,6 +19,9 @@ type Hooks = public.Hooks
 type Move = public.Move
 type Position = public.Position
 type MoveHandler = public.MoveHandler
+type AdmissionHandler = public.AdmissionHandler
+type AdmissionDecision = public.AdmissionDecision
+type CallbackError = public.CallbackError
 
 const APIVersion = public.APIVersion
 

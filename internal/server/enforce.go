@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"mc-go/api/player"
 	"mc-go/internal/event"
 	"mc-go/internal/plugin"
 	"mc-go/internal/protocol"
@@ -16,9 +17,7 @@ import (
 type PlayerTeleport = event.PlayerTeleport
 
 // KickPlayer disconnects a live player with a plain-text reason.
-// It reports whether the player was online. The normal leave path
-// (tab-list removal, leave notice) runs when the read loop exits, so
-// enforcement composes with presence instead of bypassing it.
+// It reports whether an admitted player was retired.
 func (s *Server) KickPlayer(name, reason string) bool {
 	var applied bool
 	s.simulationAction(func() { applied = s.kickPlayerOwned(name, reason) })
@@ -29,21 +28,30 @@ func (s *Server) kickPlayerOwned(name, reason string) bool {
 	if s.ShuttingDown() {
 		return false
 	}
-	sess := s.findSessionByName(name)
-	if sess == nil || sess.state.Load() != StatePlay {
+	p := s.findPlayerByNameOwned(name)
+	if p == nil {
 		return false
 	}
-	sess.closing.Store(true)
-	js, _ := json.Marshal(map[string]string{"text": reason})
-	var b protocol.Buffer
-	b.String(string(js))
-	_ = sess.write(sess.ids().PlayDisconnect, b.Bytes())
-	// Let the writer flush the kick before the socket goes away; the
-	// read loop exits on the close and untracks the session.
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		_ = sess.conn.Close()
-	}()
+	return s.kickPlayerRecordOwned(p, reason)
+}
+
+func (s *Server) kickPlayerRecordOwned(p *playerRecord, reason string) bool {
+	if s.ShuttingDown() || p == nil || !p.active.Load() {
+		return false
+	}
+	if sess := p.java; sess != nil {
+		sess.closing.Store(true)
+		js, _ := json.Marshal(map[string]string{"text": reason})
+		var b protocol.Buffer
+		b.String(string(js))
+		_ = sess.write(sess.ids().PlayDisconnect, b.Bytes())
+		// Retire identity now; only the real Java transport needs a flush grace.
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			_ = sess.conn.Close()
+		}()
+	}
+	s.retirePlayerOwned(p, reason)
 	return true
 }
 
@@ -57,12 +65,13 @@ func (s *Server) TeleportPlayer(name string, x, y, z float64) bool {
 }
 
 func (s *Server) teleportPlayerOwned(name string, x, y, z float64) bool {
-	sess := s.findSessionByName(name)
-	if sess == nil {
+	p := s.findPlayerByNameOwned(name)
+	if p == nil {
 		return false
 	}
-	_, _, _, yaw, pitch, _ := sess.Pos()
-	return s.teleportPlayerRot(name, x, y, z, yaw, pitch)
+	pose := p.position()
+	pose.X, pose.Y, pose.Z = x, y, z
+	return s.teleportPlayerRecordOwned(p, pose)
 }
 
 // TeleportPlayerRot is TeleportPlayer with the look direction set too,
@@ -77,32 +86,35 @@ func (s *Server) teleportPlayerRot(name string, x, y, z float64, yaw, pitch floa
 	if s.ShuttingDown() || badFloat(x) || badFloat(y) || badFloat(z) || badFloat(float64(yaw)) || badFloat(float64(pitch)) {
 		return false
 	}
-	sess := s.findSessionByName(name)
-	if sess == nil || sess.state.Load() != StatePlay {
+	p := s.findPlayerByNameOwned(name)
+	if p == nil {
+		return false
+	}
+	pose := p.position()
+	pose.X, pose.Y, pose.Z, pose.Yaw, pose.Pitch = x, y, z, yaw, pitch
+	return s.teleportPlayerRecordOwned(p, pose)
+}
+
+func (s *Server) teleportPlayerRecordOwned(p *playerRecord, pose player.Pose) bool {
+	if s.ShuttingDown() || p == nil || !p.active.Load() || badFloat(pose.X) || badFloat(pose.Y) || badFloat(pose.Z) || badFloat(float64(pose.Yaw)) || badFloat(float64(pose.Pitch)) {
 		return false
 	}
 	// Vanilla teleports leave the entity's onGround flag untouched —
 	// only move packets update it via setOnGroundWithMovement — so a
 	// ground→air rise right after /tp still reads as a jump.
-	_, _, _, _, _, og := sess.Pos()
-	sess.setPos(x, y, z, yaw, pitch, og)
-	// Vanilla's teleportSetPosition repositions the entity itself —
-	// the record follows immediately, before the client echoes back.
-	if eid := sess.entityID.Load(); eid != 0 {
-		s.entities.Update(eid, x, y, z, yaw, pitch, og)
-		s.broadcastEntityTeleport(sess, eid, x, y, z, yaw, pitch, og)
-	}
-	if err := s.sendSyncPos(sess, x, y, z); err != nil {
-		return false
-	}
+	pose.OnGround = p.position().OnGround
+	s.commitPlayerPoseOwned(p, pose)
+	s.correctPlayerOwned(p, pose)
 	// Stream the destination like a move does, so a far teleport does
 	// not leave the client floating over unloaded columns until its
 	// next movement packet arrives.
-	cx, cz := int(x)>>4, int(z)>>4
-	_ = s.sendWindow(sess, cx, cz)
-	s.sendCenterChunk(sess, cx, cz)
+	if sess := p.java; sess != nil {
+		cx, cz := int(pose.X)>>4, int(pose.Z)>>4
+		_ = s.sendWindow(sess, cx, cz)
+		s.sendCenterChunk(sess, cx, cz)
+	}
 	if s.bus != nil {
-		s.bus.Publish(event.TopicPlayerTeleport, PlayerTeleport{Name: name, X: x, Y: y, Z: z})
+		s.bus.Publish(event.TopicPlayerTeleport, PlayerTeleport{ID: p.ID(), Name: p.profile().Name, X: pose.X, Y: pose.Y, Z: pose.Z})
 	}
 	return true
 }
@@ -111,22 +123,24 @@ func (s *Server) teleportPlayerRot(name string, x, y, z float64, yaw, pitch floa
 // plugins: position, look, grounded flag, last measured round-trip,
 // and gamemode. The second result reports whether the player is online.
 func (s *Server) PlayerStateOf(name string) (plugin.PlayerState, bool) {
-	sess := s.findSessionByName(name)
-	if sess == nil || sess.state.Load() != StatePlay {
+	id, found := s.playerIDByName(name)
+	if !found {
 		return plugin.PlayerState{}, false
 	}
-	x, y, z, yaw, pitch, onGround := sess.Pos()
-	return plugin.PlayerState{
-		Name:     name,
-		X:        x,
-		Y:        y,
-		Z:        z,
-		Yaw:      yaw,
-		Pitch:    pitch,
-		OnGround: onGround,
-		Latency:  sess.latency(),
-		Gamemode: int32(sess.mode()),
-	}, true
+	return s.pluginPlayerStateID(id)
+}
+
+func (s *Server) pluginPlayerStateID(id player.ID) (plugin.PlayerState, bool) {
+	state, found := s.playerStateByID(id)
+	if !found {
+		return plugin.PlayerState{}, false
+	}
+	result := plugin.PlayerState{ID: state.ID, Name: state.Profile.Name, X: state.Pose.X, Y: state.Pose.Y, Z: state.Pose.Z, Yaw: state.Pose.Yaw, Pitch: state.Pose.Pitch, OnGround: state.Pose.OnGround, Gamemode: state.Gamemode}
+	// Keep-alive latency is independent transport telemetry, not pose state.
+	if p := s.findPlayerByIDOwned(id); p != nil && p.java != nil {
+		result.Latency = p.java.latency()
+	}
+	return result, true
 }
 
 // ReportViolation publishes a plugin-raised anticheat violation for

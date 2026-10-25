@@ -110,6 +110,9 @@ func (s *Server) portalCooldownStep() {
 	}
 	s.entities.mu.RUnlock()
 	for _, e := range list {
+		if e.presenceOnly {
+			continue
+		}
 		if e.PortalCooldown > 0 {
 			e.PortalCooldown--
 		}

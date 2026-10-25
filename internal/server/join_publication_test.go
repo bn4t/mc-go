@@ -57,7 +57,15 @@ func configurationBeforePlay(t *testing.T, s *Server, number int32, name string)
 			break
 		}
 	}
-	sess := s.findSessionByName(name)
+	var sess *Session
+	s.sessions.Range(func(_, value any) bool {
+		candidate := value.(*Session)
+		if candidate.getName() == name && candidate.state.Load() == StateConfiguration {
+			sess = candidate
+			return false
+		}
+		return true
+	})
 	if sess == nil || sess.state.Load() != StateConfiguration {
 		t.Fatal("configuration session not tracked")
 	}

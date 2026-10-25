@@ -1056,12 +1056,12 @@ func (s *Server) runInDimension(player string, d *dimension, sub []string) reply
 	sess := s.findSessionByName(player)
 	if sess != nil && d != nil {
 		prev := sess.dimension()
-		sess.dim.Store(d)
+		sess.setDimension(d)
 		if sess.dimSwapDepth.Add(1) == 1 {
 			sess.dimSwapPrev.Store(prev)
 		}
 		defer func() {
-			sess.dim.Store(prev)
+			sess.setDimension(prev)
 			if sess.dimSwapDepth.Add(-1) == 0 {
 				sess.dimSwapPrev.Store(nil)
 			}

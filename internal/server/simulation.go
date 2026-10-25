@@ -29,6 +29,7 @@ func (s *Server) simulationAction(action func()) {
 	defer s.simulation.mu.Unlock()
 	action()
 	s.drainSimulationActionsOwned()
+	s.flushPlayerUpdatesOwned()
 }
 
 // queueSimulationAction accepts deferred work from observers or hooks. The

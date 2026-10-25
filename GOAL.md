@@ -14735,3 +14735,80 @@ no flee; unsneak → flee). Green both legs.
   APIs, regional ownership/parallel simulation and sustained load benchmarks
   remain unfinished. This slice establishes no TPS, latency or player-capacity
   claim and does not complete the parity matrix.
+
+## Slice — neutral avatar admission and player replication (2026-10-25)
+
+- **Measured:** the existing public frontend contract could query and act on
+  Java players but could not admit an independent player. Scripted public
+  consumers now exercise this host-specific contract; no vanilla avatar API or
+  new jar extraction is claimed. Existing Java login, tracking and movement
+  remain subject to their wire regression tests.
+- **Implemented:** public `api/player` profiles, host-issued incarnation IDs,
+  detached states and scoped connections. A real Java session embeds the same
+  authoritative player record used by a neutral avatar, which allocates no fake
+  Java transport. `Core.Admit` supports presence/movement only. Java 775/776
+  observers receive profile-before-spawn, movement, range pairing and removal
+  for the same entity. Shared validity/collision/hooks precede pose commit;
+  rejected moves preserve the record/entity and issue the relevant correction.
+- **Lifecycle:** Java configuring logins and avatars reserve one shared capacity
+  and identity namespace. Neutral duplicates reject. Exact-profile Java
+  replacement retires its predecessor only after policy and the required
+  initial FIFO burst admission succeed. Failed or vetoed setup preserves it;
+  old transport cleanup is idempotent and cannot retire the successor. Events
+  carry detached committed states and distinguish incarnation IDs.
+- **Replication:** an initial detached snapshot precedes strictly increasing
+  revisioned deltas. Full-state dirty marking covers Java pose, dimension,
+  mode and entity identity changes, including legacy respawn, bed and riding
+  paths. Complete owner boundaries coalesce changes; unchanged setters and
+  temporary execute-in dimension contexts do not emit false movement. Initial
+  snapshot capture flushes prior changes before registering the stream. ID
+  queries read immutable committed state without reentering ownership. Mailbox
+  defaults are 128 queued updates/1 MiB, with initial reservation before payload
+  copying. `Next` transfers ownership and releases queued quota; adapter copies,
+  checked-out values and total heap are not bounded by it. Iterative overflow
+  retirement preserves healthy ordering without announcing retired Java ghosts.
+- **Cancellation and compatibility:** one admission per attachment and one move
+  per connection may await the owner; concurrent requests return `ErrBusy`.
+  Cancellation is checked before commit and after hooks but cannot interrupt
+  the ownership mutex wait. `Next` cancellation and `Close` signal immediately;
+  retirement is serialized. Detaching an attachment now revokes retained
+  Snapshot/Execute capabilities, which previously survived until server Stop,
+  as well as its avatar connections; other attachments continue independently.
+- **Plugins:** deny-only admission hooks, immutable movement IDs, typed join/leave
+  observations on additive topics, preserved legacy join/leave map topics, and
+  optional lifecycle-bound ID enforcement. Queued legacy
+  name enforcement captures an ID at acceptance and rechecks that incarnation
+  and plugin lifetime at execution; accepted does not mean applied. Active
+  subscription cancellation rejects an allowed callback result. Narrow panic
+  containment covers initialization, individual cleanup, commands, hooks and
+  external frontend Serve, with attributed private diagnostics and generic
+  panic failure replies. Trusted extensions remain outside any security sandbox.
+- **Pinned:** deterministic reservation/replacement/count tests, stale queued-ID
+  protection, blocked-hook cancellation/Close/detach, committed query coherence,
+  callback failure isolation and mailbox snapshot/order/bytes/cascade tests.
+  Presence-only entities do not trigger tripwire/inside-block gameplay,
+  environmental pushes or dimension parking; positive Java/nonliving controls
+  preserve their behavior. Final combined lifecycle/shared-state race passes in
+  26.371s. A separate module imports only public APIs and independently observes
+  actual 775/776 TCP tab/spawn/movement/removal, Java teleport/dimension/mode
+  changes, collision/plugin corrections, reconnect identity, lifetime cleanup
+  and overflow isolation; its race wrapper passes in 38.856s.
+- **Validation:** the default sweep passes the full blackbox package (102.607s)
+  and public package (7.238s). Its 274.230s server run identified three fixture
+  mismatches: an overlong synthetic login name and two private teleport command
+  calls bypassing the owner boundary before a committed-state query. Only those
+  fixtures changed; exact projection/reply/coordinate assertions remain. They
+  pass in 2.764s normally and in the final 42.750s compatibility race aggregate.
+  That aggregate also verifies preserved legacy map topics alongside additive
+  typed lifecycle topics. Final API/alias/example races, build and vet pass;
+  the final public consumer passes in 3.461s. Selected actual-vanilla join,
+  movement and entity-tracking pins pass in 49.376s. Publication additionally
+  checks the committed source archive, public external consumer and focused
+  lifecycle/replication tests, without relying on ignored working-tree files.
+- **Remaining:** avatars have no inventory, combat, survival simulation,
+  persistence or world/chunk replication. Gameplay selectors remain Java-based;
+  privileged explicit ID enforcement is separate. Cold lighting and save I/O
+  remain synchronous under the owner. Broader typed mutation/replication APIs,
+  remaining numeric-save migrations, regional ownership and sustained load
+  measurements remain future work. This slice makes no throughput, latency or
+  player-capacity claim.

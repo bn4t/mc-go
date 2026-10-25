@@ -150,7 +150,10 @@ func (d *detector) run() {
 			if !ok {
 				return
 			}
-			if m, ok := e.Data.(map[string]string); ok {
+			switch m := e.Data.(type) {
+			case event.PlayerLeft:
+				d.onLeave(m.Player.Profile.Name)
+			case map[string]string: // legacy hosts
 				d.onLeave(m["name"])
 			}
 		}

@@ -66,7 +66,13 @@ func (s *Server) Attach(fe frontend.Frontend, ln net.Listener) error {
 		return errors.New("nil frontend")
 	}
 	return s.attach(ln, func(ctx context.Context) error {
-		return fe.Serve(ctx, frontendCore{s}, ln)
+		ctx, cancel := context.WithCancel(ctx)
+		attachment := &frontendAttachment{ctx: ctx}
+		defer func() {
+			cancel()
+			s.closeAttachmentPlayers(attachment)
+		}()
+		return serveFrontend(ctx, attachmentCore{frontendCore: frontendCore{s}, attachment: attachment}, ln, fe)
 	})
 }
 
@@ -129,43 +135,44 @@ func (s *Server) startRuntimeTimeSync() func() {
 type frontendCore struct{ s *Server }
 
 func (c frontendCore) Snapshot(ctx context.Context) (snapshot frontend.Snapshot, err error) {
-	if err = ctx.Err(); err != nil {
+	if err = actionContextError(ctx); err != nil {
 		return
 	}
 	if c.s.ShuttingDown() {
 		return snapshot, net.ErrClosed
 	}
 	c.s.simulationAction(func() {
-		if err = ctx.Err(); err != nil {
+		if err = actionContextError(ctx); err != nil {
 			return
 		}
 		if c.s.ShuttingDown() {
 			err = net.ErrClosed
 			return
 		}
+		c.s.flushPlayerUpdatesOwned()
 		snapshot = frontend.Snapshot{MOTD: c.s.MOTD, MaxPlayers: c.s.MaxPlayers,
 			Tick: c.s.TickCount(), Frozen: c.s.clock.isFrozen()}
-		c.s.sessions.Range(func(_, v any) bool {
-			sess := v.(*Session)
-			if sess.state.Load() != StatePlay {
-				return true
+		for _, p := range c.s.activePlayersOwned() {
+			state := p.snapshot()
+			latency := time.Duration(0)
+			if p.java != nil {
+				latency = p.java.latency()
 			}
-			x, y, z, yaw, pitch, ground := sess.Pos()
-			snapshot.Players = append(snapshot.Players, frontend.Player{Name: sess.getName(),
-				X: x, Y: y, Z: z, Yaw: yaw, Pitch: pitch, OnGround: ground, Latency: sess.latency(), Gamemode: int32(sess.mode())})
-			return true
-		})
+			snapshot.Players = append(snapshot.Players, frontend.Player{Name: state.Profile.Name,
+				X: state.Pose.X, Y: state.Pose.Y, Z: state.Pose.Z, Yaw: state.Pose.Yaw, Pitch: state.Pose.Pitch,
+				OnGround: state.Pose.OnGround, Latency: latency, Gamemode: state.Gamemode})
+		}
 	})
 	sort.Slice(snapshot.Players, func(i, j int) bool { return snapshot.Players[i].Name < snapshot.Players[j].Name })
 	return
 }
 
 func (c frontendCore) Execute(ctx context.Context, action frontend.Action) (result frontend.Result, err error) {
-	if err = ctx.Err(); err != nil {
+	if err = actionContextError(ctx); err != nil {
 		return
 	}
 	c.s.simulationAction(func() {
-		if err = ctx.Err(); err != nil {
+		if err = actionContextError(ctx); err != nil {
 			return
 		}
 		if c.s.ShuttingDown() {
@@ -185,11 +192,14 @@ func (c frontendCore) Execute(ctx context.Context, action frontend.Action) (resu
 		case frontend.Kick:
 			result.Applied = c.s.kickPlayerOwned(action.Player, action.Reason)
 		case frontend.Move:
-			sess := c.s.findSessionByName(action.Player)
-			if sess == nil || sess.state.Load() != StatePlay {
+			p := c.s.findPlayerByNameOwned(action.Player)
+			if p == nil {
 				return
 			}
-			result.Applied = c.s.applyPlayerMoveOwned(sess, action.Movement)
+			result.Applied = c.s.applyPlayerRecordMoveContextOwned(ctx, p, action.Movement)
+			if !result.Applied {
+				err = actionContextError(ctx)
+			}
 		default:
 			err = frontend.ErrUnsupportedAction
 		}

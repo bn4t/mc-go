@@ -16,9 +16,9 @@ The living parity matrix and the slice-by-slice progress log are in
 [GOAL.md](GOAL.md). [ARCHITECTURE.md](ARCHITECTURE.md) documents runtime
 ownership, public extension boundaries, canonical block identities, detached
 chunk encoding and measured costs. Gameplay still uses one simulation owner.
-Measured Java 26.1/775 and 26.2/776 clients now share that world. Parallel
-regions, remaining numeric-save migrations and neutral frontend admission/
-replication remain future stages.
+Measured Java 26.1/775 and 26.2/776 clients and public neutral presence/movement
+avatars share that world. Parallel regions, remaining numeric-save migrations
+and neutral world/gameplay replication remain future stages.
 
 ## Clean-room rules
 
@@ -53,10 +53,10 @@ replication remain future stages.
   tables generated from the vanilla data packs (`*_gen.go`).
 - `internal/nbt/`, `internal/loot/`, `internal/event/`,
   `internal/plugin/` — NBT codec, loot engine, event bus, plugin API.
-- `api/event/`, `api/plugin/`, `api/frontend/`, `api/registry/`, `server/` — public
+- `api/event/`, `api/plugin/`, `api/frontend/`, `api/player/`, `api/registry/`, `server/` — public
   extension contracts and runtime constructor, usable by external modules.
-  Frontend actions currently operate on existing players; the bundled Java
-  frontend accepts measured 26.1/775 and 26.2/776 wire profiles.
+  Frontends can admit transient presence/movement avatars and submit privileged
+  player actions; Java accepts measured 26.1/775 and 26.2/776 wire profiles.
 - `plugins/` — example plugins (`hello`, `anticheat`).
 - `conformance/`, `cmd/mc-conformance/` — portable TCP smoke profile,
   endpoint manifests, JSON results and bounded wire transcripts for measured
@@ -116,9 +116,28 @@ mandatory-state failures retire the affected viewer; projection never
 substitutes or rewrites authoritative state, and compatible viewers continue.
 Some newer optional counters, attributes and cosmetics are omitted. The server
 rejects unknown or unmodeled component input before mutation. This does not
-establish complete 26.1 gameplay or client-physics parity. The neutral frontend
-API still provides existing-player actions rather than player admission or
-world replication.
+establish complete 26.1 gameplay or client-physics parity.
+
+Public `frontend.Core.Admit` accepts a trusted frontend's authenticated profile
+and returns an `api/player.Connection` controlling that avatar. Java observers
+see the same authoritative entity. A detached player snapshot precedes ordered,
+revisioned presence, movement and correction updates, including Java dimension
+and mode changes. Updates coalesce committed state at ownership boundaries;
+they do not report every intermediate setter. Avatars support presence and
+movement only: no inventory,
+combat, survival simulation, persistence or world/chunk replication. Frontends
+remain responsible for transport, authentication and authorization.
+
+The attachment and admission context own each connection's lifetime. Detachment
+now revokes retained `Core.Snapshot` and `Core.Execute` handles as well as avatar
+connections; earlier releases retained those core handles until server shutdown.
+Other attachments continue. Queue defaults are 128 updates and 1 MiB of queued
+detached values; overflow retires the affected avatar. Dequeued adapter copies
+and total process memory are outside this budget. One admission per attachment
+and one move per connection can wait for simulation ownership; concurrent calls
+return `player.ErrBusy`. Cancellation is rechecked before commit, but cannot
+interrupt that mutex wait. `Next` cancellation and `Close` signal immediately;
+retirement completes under simulation ownership.
 
 JSON block override saves write complete canonical state keys in version 2 and
 read historical version 1 IDs through their 776 mapping. Native region-format

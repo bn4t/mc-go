@@ -4,6 +4,7 @@ package event
 
 import (
 	"context"
+	"mc-go/api/player"
 	"mc-go/api/registry"
 	"sync"
 	"time"
@@ -116,9 +117,15 @@ func (b *Bus) Close() {
 }
 
 const (
-	TopicPlayerLogin    = "player.login"
-	TopicPlayerJoin     = "player.join"
-	TopicPlayerLeave    = "player.leave"
+	TopicPlayerLogin = "player.login"
+	// TopicPlayerJoin and TopicPlayerLeave preserve API v1 map[string]string
+	// payloads containing only the player name under the "name" key.
+	TopicPlayerJoin  = "player.join"
+	TopicPlayerLeave = "player.leave"
+	// Typed lifecycle values use distinct topics. Subscribing to both topic
+	// families observes the same lifecycle transition twice.
+	TopicPlayerJoined   = "player.joined"
+	TopicPlayerLeft     = "player.left"
 	TopicPlayerMove     = "player.move"
 	TopicPlayerTeleport = "player.teleport"
 	TopicTick           = "world.tick"
@@ -128,6 +135,7 @@ const (
 )
 
 type PlayerMove struct {
+	ID                  player.ID
 	Name                string
 	X, Y, Z             float64
 	FromX, FromY, FromZ float64
@@ -138,8 +146,19 @@ type PlayerMove struct {
 }
 
 type PlayerTeleport struct {
+	ID      player.ID
 	Name    string
 	X, Y, Z float64
+}
+
+// PlayerJoined is published on TopicPlayerJoined after admission commits. All
+// fields are values; changing a received event cannot mutate the live player.
+type PlayerJoined struct{ Player player.State }
+
+// PlayerLeft is published on TopicPlayerLeft after retirement. A reconnect receives a new ID.
+type PlayerLeft struct {
+	Player player.State
+	Reason string
 }
 
 // Block is a catalog-local runtime handle, never a protocol numeric ID.
