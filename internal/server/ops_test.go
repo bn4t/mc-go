@@ -94,6 +94,7 @@ func TestKickCommand(t *testing.T) {
 	}
 	select {
 	case pkt := <-sess.sendCh:
+		sess.retireOutbound(pkt)
 		if pkt.id != IDPlayDisconnect {
 			t.Fatalf("kick packet = %#x", pkt.id)
 		}
@@ -157,6 +158,7 @@ func TestShutdown(t *testing.T) {
 	}
 	select {
 	case pkt := <-sess.sendCh:
+		sess.retireOutbound(pkt)
 		if pkt.id != IDPlayDisconnect {
 			t.Fatalf("shutdown kick = %#x", pkt.id)
 		}

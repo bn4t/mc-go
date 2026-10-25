@@ -601,7 +601,7 @@ func (s *Server) tpMove(v *dataEntity, x, y, z float64,
 		yaw, pitch = rotFn(yaw, pitch)
 	}
 	if v.sess != nil {
-		s.TeleportPlayerRot(v.sess.getName(), x, y, z, yaw, pitch)
+		s.teleportPlayerRot(v.sess.getName(), x, y, z, yaw, pitch)
 		return
 	}
 	e := v.mob
@@ -677,7 +677,7 @@ func (s *Server) tpDismountVehicle(e *Entity) {
 func (s *Server) tpPassengerTransition(mount *Entity, pid int32, x, y, z float64, yaw, pitch float32, relMask int32, mx, my, mz float64, myaw, mpitch float32) {
 	if psess := s.sessionForEntityID(pid); psess != nil {
 		px, py, pz, pyaw, ppitch, _ := psess.Pos()
-		s.TeleportPlayerRot(psess.getName(),
+		s.teleportPlayerRot(psess.getName(),
 			px+x-mx, py+y-my, pz+z-mz,
 			pyaw+yaw-myaw, ppitch+pitch-mpitch)
 		return

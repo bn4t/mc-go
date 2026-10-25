@@ -1,18 +1,9 @@
 package server
 
-// Versioned protocol frontends.
-//
-// The server core (world, entities, sessions, broadcast) is
-// protocol-agnostic. Each Frontend speaks one wire protocol and owns a
-// per-version packet-ID table (ProtoIDs). The client's handshake
-// protocol number selects the table; unknown versions are rejected at
-// login with an outdated-client message, mirroring vanilla.
-//
-// Adding a version: append a Version value with its packet IDs (packet
-// shapes that differ also need a branch at the encode/decode site, but
-// ID-only changes like most minor releases are table-only).
-// Adding a protocol (e.g. Bedrock, RCON): implement Frontend in a new
-// file and RegisterFrontend it; core needs no changes.
+// Java protocol metadata. Only protocol 776 is implemented. These tables
+// select packet IDs; they do not supply version-specific codecs, registries,
+// entity/item mappings or dispatch. Supporting another version requires those
+// adapters and conformance coverage, not merely another table entry.
 
 // ProtoIDs is the full packet-ID surface one client version needs.
 // Field semantics match the ID* constants in const.go, which pin the
@@ -213,10 +204,7 @@ type Version struct {
 	IDs      ProtoIDs
 }
 
-// supportedVersions is the full multi-version table, newest last.
-// Today it holds one entry; older/newer client support lands by
-// appending entries (plus shape branches where a version's framing
-// actually differs).
+// supportedVersions describes the single fully implemented Java protocol.
 var supportedVersions = []Version{
 	{
 		Name:     VersionName,

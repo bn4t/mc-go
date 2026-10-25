@@ -66,7 +66,7 @@ func placeSession(t *testing.T, s *Server, name string, x, y, z float64) *Sessio
 	// as in tests.
 	_ = s.sendWindow(sess, 0, 0)
 	for len(sess.sendCh) > 0 {
-		<-sess.sendCh
+		sess.retireOutbound(<-sess.sendCh)
 	}
 	t.Cleanup(func() { s.untrack(sess) })
 	return sess
@@ -91,6 +91,7 @@ func drainAcks(sess *Session) (updates []protocol.Packet, acks []int32) {
 	for {
 		select {
 		case pkt := <-sess.sendCh:
+			sess.retireOutbound(pkt)
 			switch pkt.id {
 			case IDPlayBlockUpdateCB:
 				updates = append(updates, protocol.Packet{ID: pkt.id, Data: pkt.data})

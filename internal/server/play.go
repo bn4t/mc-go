@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"mc-go/api/frontend"
+	"mc-go/api/plugin"
 	"mc-go/internal/event"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
@@ -15,6 +17,43 @@ import (
 // Chat/keep-alive handling lands with the signed-chat milestone;
 // unknown play packets are ignored so the session stays up.
 func (s *Server) handlePlay(sess *Session) {
+	joined := false
+	s.simulationAction(func() { joined = s.joinPlayOwned(sess) })
+	if !joined {
+		return
+	}
+	stopKA := sess.startKeepAlive()
+	defer close(stopKA)
+	for {
+		p, err := sess.pr.ReadPacket()
+		if err != nil {
+			return
+		}
+		// Any packet proves liveness; keep-alive echoes feed the
+		// timeout watchdog explicitly.
+		sess.markAlive()
+		// Every serverbound play packet the 776 client can send has a
+		// route (see playServerbound); an id outside the table is not
+		// a 776 packet and is dropped, which is vanilla's behavior for
+		// an unknown id.
+		if h, ok := playServerbound[p.ID]; ok {
+			sess.busy.Add(1)
+			s.simulationAction(func() { h(s, sess, p) })
+			sess.busy.Add(-1)
+			// A handler can take a while — /tick step runs its ticks
+			// inline, the way vanilla blocks its server thread — and by
+			// the time it returns the client's keep-alive is already
+			// sitting in the socket. That silence is ours, not the
+			// client's, so refresh liveness rather than let the
+			// watchdog read it as a dead peer.
+			sess.markAlive()
+		}
+	}
+}
+
+// joinPlayOwned initializes and publishes a player atomically with respect to
+// gameplay actions and ticks. The packet reader begins only after this completes.
+func (s *Server) joinPlayOwned(sess *Session) bool {
 	// A new login under a name already online disconnects the older
 	// session, never the new one (PlayerList.placeNewPlayer).
 	name := sess.getName()
@@ -44,112 +83,112 @@ func (s *Server) handlePlay(sess *Session) {
 		X:   x, Y: y, Z: z,
 	}).ID)
 	if err := s.sendJoinGame(sess); err != nil {
-		return
+		return false
 	}
 	// Stateless join sync in vanilla's order.
 	if err := s.sendDifficulty(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendAbilities(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendSetHeldSlot(sess, 0); err != nil {
-		return
+		return false
 	}
 	if err := s.sendUpdateRecipes(sess); err != nil {
-		return
+		return false
 	}
 	// sendPlayerPermissionLevel on join: vanilla reports the joining
 	// player's own op level, never a flat byte.
 	if err := s.sendEntityEvent(sess, sess.entityID.Load(), opStatus(sess.opLevel())); err != nil {
-		return
+		return false
 	}
 	if err := s.sendCommands(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendRecipeBookSettings(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendRecipeBookAdd(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendSyncPos(sess, x, y, z); err != nil {
-		return
+		return false
 	}
 	if err := s.sendServerData(sess); err != nil {
-		return
+		return false
 	}
 	// Tab list: vanilla first sends an all-actions packet with no
 	// entries, then the joiner's own row, then rows for players
 	// already online.
 	if err := sess.write(sess.ids().PlayPlayerInfoUpd, encodePlayerInfoAdd(nil)); err != nil {
-		return
+		return false
 	}
 	mine := selfEntry(sess)
 	if err := sess.write(sess.ids().PlayPlayerInfoUpd, encodePlayerInfoAdd([]playerEntry{mine})); err != nil {
-		return
+		return false
 	}
 	if err := s.sendPlayerInfoTo(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendInitializeBorder(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendUpdateTime(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendDefaultSpawn(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendGameEvent(sess, 13, 0); err != nil {
-		return
+		return false
 	}
 	if err := s.sendTickingState(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendTickingStep(sess, 0); err != nil {
-		return
+		return false
 	}
 	// The chunk-cache center the client culls render distance around,
 	// then the player window state and inventory.
 	scx, scz := int(x)>>4, int(z)>>4
 	s.sendCenterChunk(sess, scx, scz)
 	if err := s.sendContainerContent(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendEntityHealthMetadata(sess, sess.entityID.Load(), 20); err != nil {
-		return
+		return false
 	}
 	if err := s.sendRecipeBookUnlock(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendUpdateAdvancements(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendHealth(sess); err != nil {
-		return
+		return false
 	}
 	// Experience rides right behind health, then the opening chunk
 	// batch, then the attribute sync - vanilla's order.
 	if err := s.sendSetExperience(sess, sess.xpProgress, sess.xpLevel, sess.xpTotal); err != nil {
-		return
+		return false
 	}
 	// Spawn columns around the player so a real client has ground
 	// underneath it; further columns stream in as it moves.
 	if err := s.sendWindow(sess, scx, scz); err != nil {
-		return
+		return false
 	}
 	if err := s.sendUpdateAttributes(sess); err != nil {
-		return
+		return false
 	}
 	// Remote-player visibility: everyone already online spawns for the
 	// joiner right after their tab-list rows arrive, along with their
 	// equipment.
 	if err := s.sendEntitySpawnsTo(sess); err != nil {
-		return
+		return false
 	}
 	if err := s.sendEquipmentTo(sess); err != nil {
-		return
+		return false
 	}
 	if s.bus != nil {
 		s.bus.Publish(event.TopicPlayerJoin, map[string]string{"name": sess.getName()})
@@ -172,48 +211,14 @@ func (s *Server) handlePlay(sess *Session) {
 	sess.markAllStatsDirty()
 	sess.markAlive()
 	sess.teleportAck.Store(-1)
-	stopKA := sess.startKeepAlive()
-	defer close(stopKA)
-	for {
-		p, err := sess.pr.ReadPacket()
-		if err != nil {
-			return
-		}
-		// Any packet proves liveness; keep-alive echoes feed the
-		// timeout watchdog explicitly.
-		sess.markAlive()
-		// Every serverbound play packet the 776 client can send has a
-		// route (see playServerbound); an id outside the table is not
-		// a 776 packet and is dropped, which is vanilla's behavior for
-		// an unknown id.
-		if h, ok := playServerbound[p.ID]; ok {
-			sess.busy.Add(1)
-			h(s, sess, p)
-			sess.busy.Add(-1)
-			// A handler can take a while — /tick step runs its ticks
-			// inline, the way vanilla blocks its server thread — and by
-			// the time it returns the client's keep-alive is already
-			// sitting in the socket. That silence is ours, not the
-			// client's, so refresh liveness rather than let the
-			// watchdog read it as a dead peer.
-			sess.markAlive()
-		}
-	}
+	return true
 }
 
 // PlayerMove is published on TopicPlayerMove for plugins (movement
 // anticheat is the main consumer). At is the server receipt time, From
 // is the pre-packet position for speed math, and Latency is the last
 // keep-alive round trip so detectors can excuse laggy clients.
-type PlayerMove struct {
-	Name                string
-	X, Y, Z             float64
-	FromX, FromY, FromZ float64
-	Yaw, Pitch          float32
-	OnGround            bool
-	At                  time.Time
-	Latency             time.Duration
-}
+type PlayerMove = event.PlayerMove
 
 // handleMove applies a movement packet to the session position. All
 // 776 movement packets carry a flags byte (0x01 on ground, 0x02
@@ -221,12 +226,9 @@ type PlayerMove struct {
 // floats, outside the world border) are dropped without touching
 // state; speed enforcement lands with the physics milestone.
 func (s *Server) handleMove(sess *Session, p protocol.Packet) {
-	const border = 29999984.0
 	ids := sess.ids()
 	r := protocol.NewPacketReader(p.Data)
-	ox, oy, oz, yaw, pitch, og := sess.Pos()
-	x, y, z := ox, oy, oz
-	at := time.Now()
+	x, y, z, yaw, pitch, _ := sess.Pos()
 	var flags byte
 	var err error
 	switch p.ID {
@@ -277,12 +279,43 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 			return
 		}
 	}
-	onGround := flags&0x01 != 0
+	s.applyPlayerMoveOwned(sess, frontend.Movement{
+		X: x, Y: y, Z: z, Yaw: yaw, Pitch: pitch, OnGround: flags&0x01 != 0,
+	})
+}
+
+// applyPlayerMoveOwned is the protocol-neutral movement action shared by the
+// Java decoder and other authenticated frontends. Hooks run before validation
+// and commit; their result is authoritative only after all normal checks pass.
+func (s *Server) applyPlayerMoveOwned(sess *Session, move frontend.Movement) bool {
+	const border = 29999984.0
+	ox, oy, oz, oldYaw, oldPitch, og := sess.Pos()
+	at := time.Now()
+	proposal := plugin.Move{
+		Player: sess.getName(),
+		From:   plugin.Position{X: ox, Y: oy, Z: oz, Yaw: oldYaw, Pitch: oldPitch, OnGround: og},
+		To:     plugin.Position{X: move.X, Y: move.Y, Z: move.Z, Yaw: move.Yaw, Pitch: move.Pitch, OnGround: move.OnGround},
+	}
+	original := proposal.To
+	proposal, allowed := s.hooks.BeforeMove(s.runtimeCtx, proposal)
+	if !allowed {
+		_ = s.sendSyncPos(sess, ox, oy, oz)
+		return false
+	}
+	x, y, z := proposal.To.X, proposal.To.Y, proposal.To.Z
+	yaw, pitch, onGround := proposal.To.Yaw, proposal.To.Pitch, proposal.To.OnGround
+	modified := proposal.To != original
 	if badFloat(x) || badFloat(y) || badFloat(z) || badFloat(float64(yaw)) || badFloat(float64(pitch)) {
-		return
+		if modified {
+			_ = s.sendSyncPos(sess, ox, oy, oz)
+		}
+		return false
 	}
 	if x < -border || x > border || z < -border || z > border || y < -2048 || y > 2048 {
-		return
+		if modified {
+			_ = s.sendSyncPos(sess, ox, oy, oz)
+		}
+		return false
 	}
 	// A passenger's position is the vehicle's business: vanilla snaps
 	// the packet position back to the current one and only keeps the
@@ -293,7 +326,7 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 			s.entities.Update(eid, ox, oy, oz, yaw, pitch, onGround)
 			s.broadcastEntityTeleport(sess, eid, ox, oy, oz, yaw, pitch, onGround)
 		}
-		return
+		return true
 	}
 	// Vanilla's "moved wrongly" gate: a position packet whose target
 	// AABB collides with a solid block it didn't already overlap is
@@ -302,12 +335,15 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 	if x != ox || y != oy || z != oz {
 		if s.playerBoxCollides(sess, ox, oy, oz, x, y, z) {
 			if err := s.sendSyncPos(sess, ox, oy, oz); err != nil {
-				return
+				return false
 			}
-			return
+			return false
 		}
 	}
 	sess.setPos(x, y, z, yaw, pitch, onGround)
+	if modified {
+		_ = s.sendSyncPos(sess, x, y, z)
+	}
 	// handleMovePlayer's player.move applies the inside-block scan on
 	// every accepted move packet — a same-position resend still scans
 	// the occupied cells (measured: a teleport echo into lava lands
@@ -438,6 +474,7 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 	// loads before it re-centers.
 	_ = s.sendWindow(sess, int(x)>>4, int(z)>>4)
 	s.sendCenterChunk(sess, int(x)>>4, int(z)>>4)
+	return true
 }
 
 // awardMoveStats buckets the travelled distance into the *_one_cm

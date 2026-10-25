@@ -39,6 +39,21 @@ func (s *Server) ShuttingDown() bool { return s.shuttingDown.Load() }
 // save file. It reports an error when persistence is disabled so
 // /save-all answers honestly.
 func (s *Server) SaveWorld() error {
+	var err error
+	s.simulationAction(func() {
+		if s.ShuttingDown() {
+			err = net.ErrClosed
+			return
+		}
+		err = s.saveWorldOwned()
+	})
+	return err
+}
+
+// saveWorldOwned keeps the snapshot and disk writes together under ownership.
+// Persistence currently pauses gameplay; asynchronous immutable save snapshots
+// are a separate pipeline and must preserve cross-store consistency.
+func (s *Server) saveWorldOwned() error {
 	if s.WorldDir != "" {
 		return s.saveWorldDir()
 	}
@@ -295,26 +310,54 @@ func (s *Server) disconnectSoon(sess *Session, reason string) {
 
 // Shutdown stops the server like vanilla /stop: listeners close (Serve
 // unblocks), every player is kicked with reason, and the world halts.
-// Safe to call multiple times and from any goroutine, including a
-// command handler.
+// Calls join runtime work and are idempotent across concurrent callers.
+// A synchronous gameplay hook or command must request shutdown asynchronously
+// (go s.Shutdown(reason)); it cannot join its own simulation action.
 func (s *Server) Shutdown(reason string) {
 	if reason == "" {
 		reason = "Server closed"
 	}
-	s.shuttingDown.Store(true)
+	if !s.shuttingDown.CompareAndSwap(false, true) {
+		if s.runtimeDone != nil {
+			<-s.runtimeDone
+		}
+		return
+	}
+	if s.runtimeDone != nil {
+		defer close(s.runtimeDone)
+	}
+	s.discardSimulationActions()
+	// Exclude startup/attachment before taking ownership of the singleton
+	// cleanup. No owner action is held while joining runtime goroutines.
+	s.runtimeMu.Lock()
+	stop := s.runtimeStop
+	s.runtimeStop = nil
+	if s.runtimeCancel != nil {
+		s.runtimeCancel()
+	}
 	s.listenersMu.Lock()
 	for ln := range s.listeners {
 		_ = ln.Close()
 	}
 	s.listenersMu.Unlock()
+	s.runtimeMu.Unlock()
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.state.Load() != StatePlay {
-			return true
+		if sess.state.Load() == StatePlay {
+			s.disconnectSoon(sess, reason)
+		} else {
+			_ = sess.conn.Close()
 		}
-		s.disconnectSoon(sess, reason)
 		return true
 	})
+	if stop != nil {
+		stop()
+	}
+	s.connections.Wait()
+	s.stopPlugins()
+	// Drain an in-flight external action before retiring shard workers. Public
+	// action ingress rejects shutdown, so no new world mutation can follow.
+	s.simulationAction(func() {})
 	for _, d := range s.dims {
 		d.w.Stop()
 	}

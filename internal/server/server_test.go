@@ -23,12 +23,14 @@ func pipePair(t *testing.T, s *Server) (net.Conn, *protocol.Reader, *protocol.Wr
 		defer close(done)
 		s.handleConn(server)
 	}()
+	// A cold join under the race detector can take longer than the
+	// protocol assertions; this watchdog only guards a hung test session.
+	watchdog := time.AfterFunc(60*time.Second, func() { _ = client.Close() })
 	t.Cleanup(func() {
+		watchdog.Stop()
 		_ = client.Close()
 		<-done
 	})
-	// Watchdog: never let a stalled session hang the suite.
-	time.AfterFunc(10*time.Second, func() { _ = client.Close() })
 	return client, protocol.NewReader(client), protocol.NewWriter(client)
 }
 

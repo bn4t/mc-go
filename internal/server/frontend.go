@@ -1,16 +1,18 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sort"
+	"sync"
+
+	"mc-go/api/frontend"
 )
 
-// Frontend is one protocol entry point into the server core.
-// The core owns game state (world, entities, sessions, broadcast);
-// frontends own wire framing and per-version dispatch. Adding a new
-// protocol (Bedrock, RCON, ...) is a new Frontend implementation plus
-// a RegisterFrontend call: core needs no changes.
+// Frontend is the legacy, Java-version-aware entry-point interface. New external
+// adapters should implement api/frontend.Frontend and use Server.Attach. Java
+// codecs and world replication still live in this package.
 type Frontend interface {
 	// Name identifies the frontend on the command line ("java", ...).
 	Name() string
@@ -21,11 +23,15 @@ type Frontend interface {
 	Serve(ln net.Listener) error
 }
 
+var frontendBuildersMu sync.RWMutex
+
 var frontendBuilders = map[string]func(*Server) Frontend{}
 
 // RegisterFrontend makes a protocol available by name. Called from the
 // frontend's init; duplicate names panic to fail fast at startup.
 func RegisterFrontend(name string, build func(*Server) Frontend) {
+	frontendBuildersMu.Lock()
+	defer frontendBuildersMu.Unlock()
 	if _, dup := frontendBuilders[name]; dup {
 		panic(fmt.Sprintf("frontend %q registered twice", name))
 	}
@@ -34,8 +40,13 @@ func RegisterFrontend(name string, build func(*Server) Frontend) {
 
 // NewFrontend builds a registered protocol frontend for s.
 func NewFrontend(name string, s *Server) (Frontend, bool) {
+	frontendBuildersMu.RLock()
 	build, ok := frontendBuilders[name]
+	frontendBuildersMu.RUnlock()
 	if !ok {
+		if fe, exists := frontend.New(name); exists {
+			return externalFrontend{s: s, fe: fe}, true
+		}
 		return nil, false
 	}
 	return build(s), true
@@ -43,19 +54,35 @@ func NewFrontend(name string, s *Server) (Frontend, bool) {
 
 // FrontendNames lists registered protocols in ascending order.
 func FrontendNames() []string {
+	frontendBuildersMu.RLock()
+	defer frontendBuildersMu.RUnlock()
 	out := make([]string, 0, len(frontendBuilders))
 	for n := range frontendBuilders {
 		out = append(out, n)
+	}
+	for _, name := range frontend.Names() {
+		if _, exists := frontendBuilders[name]; !exists {
+			out = append(out, name)
+		}
 	}
 	sort.Strings(out)
 	return out
 }
 
-// JavaFrontend is the Java Edition protocol frontend: handshake,
-// status, login, configuration, and play stages for every supported
-// client version. The per-session Version selects the packet-ID table;
-// encode/decode shapes shared across versions live in the stage
-// handlers, version-specific branches consult sess.ver.
+// externalFrontend preserves the original name-based serving API for public
+// protocol-neutral frontends; version metadata belongs to each wire adapter.
+type externalFrontend struct {
+	s  *Server
+	fe frontend.Frontend
+}
+
+func (f externalFrontend) Name() string                { return f.fe.Name() }
+func (f externalFrontend) Versions() []Version         { return nil }
+func (f externalFrontend) Serve(ln net.Listener) error { return f.s.Attach(f.fe, ln) }
+
+// JavaFrontend owns the bundled Java handshake, status, login, configuration
+// and play transport. Only protocol 776 is implemented; a packet-ID table alone
+// cannot provide another version's codecs, registries or replication.
 type JavaFrontend struct {
 	s *Server
 }
@@ -69,25 +96,21 @@ func (f *JavaFrontend) Name() string { return "java" }
 // Versions returns the client versions this frontend speaks.
 func (f *JavaFrontend) Versions() []Version { return SupportedVersions() }
 
-// Serve accepts on ln until it closes. Each connection runs on its own
-// goroutines; this method blocks. It owns the world lifecycle (ticks +
-// shards across every dimension) so every frontend boots the core the
-// same way.
+// Serve attaches the Java codec to the shared runtime. Closing ln stops only
+// this frontend; Stop owns world and game-loop shutdown.
 func (f *JavaFrontend) Serve(ln net.Listener) error {
-	for _, d := range f.s.dims {
-		d.w.Start()
-	}
-	defer func() {
-		for _, d := range f.s.dims {
-			d.w.Stop()
-		}
-	}()
-	f.s.addListener(ln)
-	defer f.s.removeListener(ln)
+	return f.s.attach(ln, func(context.Context) error { return f.serve(ln) })
+}
+
+func (f *JavaFrontend) serve(ln net.Listener) error {
 	for {
 		c, err := ln.Accept()
 		if err != nil {
 			return err
+		}
+		if f.s.ShuttingDown() {
+			c.Close()
+			return net.ErrClosed
 		}
 		select {
 		case f.s.sem <- struct{}{}:

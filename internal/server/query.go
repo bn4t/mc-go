@@ -40,8 +40,10 @@ func (s *Server) startQuery() (func(), error) {
 		return nil, fmt.Errorf("query listen: %w", err)
 	}
 	q := &queryListener{srv: s, conn: conn, challenges: map[string]*queryChallenge{}}
-	go q.serve()
-	return func() { _ = conn.Close() }, nil
+	done := make(chan struct{})
+	go func() { defer close(done); q.serve() }()
+	var once sync.Once
+	return func() { once.Do(func() { _ = conn.Close() }); <-done }, nil
 }
 
 type queryListener struct {
@@ -59,7 +61,10 @@ func (q *queryListener) serve() {
 			return
 		}
 		pkt := append([]byte(nil), buf[:n]...)
-		go q.handle(pkt, addr)
+		// Query responses are small metadata reads. Handle them inline so
+		// packet bursts cannot create unbounded goroutines, and closing the
+		// socket joins every outstanding response before runtime teardown.
+		q.handle(pkt, addr)
 	}
 }
 

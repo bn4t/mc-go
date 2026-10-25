@@ -126,7 +126,7 @@ func TestClickStaleStateResyncs(t *testing.T) {
 	sess.setStack(slotHotbarStart, ItemStack{ID: 55, Count: 10})
 	live := sess.invState.Load()
 	for len(sess.sendCh) > 0 {
-		<-sess.sendCh
+		sess.retireOutbound(<-sess.sendCh)
 	}
 
 	var b protocol.Buffer
@@ -148,6 +148,7 @@ func TestClickStaleStateResyncs(t *testing.T) {
 		var p sendPkt
 		select {
 		case p = <-sess.sendCh:
+			sess.retireOutbound(p)
 		default:
 			t.Fatal("no resync after stale click")
 		}

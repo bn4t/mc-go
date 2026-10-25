@@ -29,9 +29,8 @@ import (
 	"sync"
 	"time"
 
-	"mc-go/internal/event"
-	"mc-go/internal/plugin"
-	"mc-go/internal/server"
+	"mc-go/api/event"
+	"mc-go/api/plugin"
 )
 
 func init() { plugin.Register(&anticheat{}) }
@@ -114,35 +113,37 @@ func (d *detector) track(name string) *tracked {
 // detectors degrade by missing samples, never by stalling the tick).
 func (d *detector) run() {
 	bus := d.api.Bus()
-	mv, unsubMv := bus.Subscribe(event.TopicPlayerMove, 64)
+	mv, unsubMv := bus.SubscribeContext(d.api.Context(), event.TopicPlayerMove, 64)
 	defer unsubMv()
-	bl, unsubBl := bus.Subscribe(event.TopicBlockChange, 64)
+	bl, unsubBl := bus.SubscribeContext(d.api.Context(), event.TopicBlockChange, 64)
 	defer unsubBl()
-	tp, unsubTp := bus.Subscribe(event.TopicPlayerTeleport, 64)
+	tp, unsubTp := bus.SubscribeContext(d.api.Context(), event.TopicPlayerTeleport, 64)
 	defer unsubTp()
-	lv, unsubLv := bus.Subscribe(event.TopicPlayerLeave, 64)
+	lv, unsubLv := bus.SubscribeContext(d.api.Context(), event.TopicPlayerLeave, 64)
 	defer unsubLv()
 	for {
 		select {
+		case <-d.api.Context().Done():
+			return
 		case e, ok := <-mv:
 			if !ok {
 				return
 			}
-			if m, ok := e.Data.(server.PlayerMove); ok {
+			if m, ok := e.Data.(event.PlayerMove); ok {
 				d.onMove(m)
 			}
 		case e, ok := <-bl:
 			if !ok {
 				return
 			}
-			if b, ok := e.Data.(server.BlockChange); ok {
+			if b, ok := e.Data.(event.BlockChange); ok {
 				d.onBlock(b)
 			}
 		case e, ok := <-tp:
 			if !ok {
 				return
 			}
-			if t, ok := e.Data.(server.PlayerTeleport); ok {
+			if t, ok := e.Data.(event.PlayerTeleport); ok {
 				d.onTeleport(t)
 			}
 		case e, ok := <-lv:
@@ -156,7 +157,7 @@ func (d *detector) run() {
 	}
 }
 
-func (d *detector) onMove(m server.PlayerMove) {
+func (d *detector) onMove(m event.PlayerMove) {
 	d.mu.Lock()
 	t := d.track(m.Name)
 	// Excuse the landing after a server teleport: rebase the speed
@@ -206,7 +207,7 @@ func (d *detector) onMove(m server.PlayerMove) {
 	}
 }
 
-func (d *detector) onBlock(b server.BlockChange) {
+func (d *detector) onBlock(b event.BlockChange) {
 	eyeY := b.PY + 1.62
 	dist := math.Sqrt(
 		(b.PX-(float64(b.X)+0.5))*(b.PX-(float64(b.X)+0.5)) +
@@ -223,7 +224,7 @@ func (d *detector) onBlock(b server.BlockChange) {
 	}
 }
 
-func (d *detector) onTeleport(t server.PlayerTeleport) {
+func (d *detector) onTeleport(t event.PlayerTeleport) {
 	d.mu.Lock()
 	tr := d.track(t.Name)
 	tr.lastTeleport = time.Now()

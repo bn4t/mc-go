@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -8,20 +9,19 @@ import (
 	"sync/atomic"
 	"time"
 
+	"mc-go/api/frontend"
 	"mc-go/internal/event"
 	"mc-go/internal/plugin"
 	"mc-go/internal/world"
 )
 
-// Server is a multithreaded Java Edition server skeleton.
-// Concurrency model:
-//   - acceptor goroutine (Serve) -> one session goroutine per conn;
-//     session writes are mutex-guarded so any goroutine (ticker,
-//     plugins) can send
-//   - world shard workers + 20 TPS tick coordinator
-//   - plugins observe via event.Bus, never via shared mutable state
+// Server owns one gameplay runtime shared by attached protocol listeners.
+// Connection goroutines decode input; simulationAction serializes gameplay
+// changes, snapshots and persistence. World shards own block storage. Bounded
+// session queues isolate socket writers from gameplay actions. Plugins use
+// synchronous decision hooks and asynchronous observation events.
 //
-// From scratch: stdlib only, no mc libraries.
+// Configure fields before Start. The bundled game codec speaks Java protocol 776.
 type Server struct {
 	Addr       string
 	MOTD       string
@@ -31,6 +31,15 @@ type Server struct {
 	// values select vanilla-like 10s/30s defaults.
 	KeepAliveEvery   time.Duration
 	KeepAliveTimeout time.Duration
+
+	// OutboundPacketLimit and OutboundByteLimit bound each connection's
+	// retained outbound work, including its active socket write. Exhaustion
+	// disconnects the client rather than dropping ordered state or blocking
+	// simulation. Non-positive values select 256 packets and 8 MiB.
+	OutboundPacketLimit int
+	OutboundByteLimit   int64
+	// WriteTimeout bounds each packet's socket write; non-positive uses 5s.
+	WriteTimeout time.Duration
 
 	// WorldPath is the save file for block overrides (see world.Save).
 	// Empty disables persistence: SaveWorld reports an error and boot
@@ -89,6 +98,9 @@ type Server struct {
 	// (a command dispatch) waits for the next.
 	inGameTick atomic.Bool
 
+	// simulation owns gameplay mutations; network I/O remains on its connections.
+	simulation simulationExecutor
+
 	// GenerateStructures is recorded in the world's generator settings.
 	// The zero value is false, so New sets the vanilla default (true);
 	// it does not change the flat terrain, which has no structures to
@@ -139,14 +151,27 @@ type Server struct {
 	// the freeze command is still in flight.
 	StartFrozen bool
 
+	// runtimeMu serializes startup, attachment and shutdown. Listener lifetime
+	// never owns these resources: multiple frontends share one runtime.
+	runtimeMu      sync.Mutex
+	runtimeStarted bool
+	connections    sync.WaitGroup
+	runtimeDone    chan struct{}
+	runtimeStop    func()
+	runtimeCtx     context.Context
+	runtimeCancel  context.CancelFunc
+
 	listenersMu  sync.Mutex
 	listeners    map[net.Listener]struct{}
 	shuttingDown atomic.Bool
 
-	bus      *event.Bus
-	world    *world.World // overworld; also dims["minecraft:overworld"].w
-	dims     map[string]*dimension
-	commands *plugin.Commands
+	bus           *event.Bus
+	world         *world.World // overworld; also dims["minecraft:overworld"].w
+	dims          map[string]*dimension
+	commands      *plugin.Commands
+	hooks         *plugin.Hooks
+	pluginMu      sync.Mutex
+	pluginManager *plugin.Manager
 	// compCommands are the built-in commands that answer with a chat
 	// component rather than plain text (see timecmd.go).
 	compMu       sync.RWMutex
@@ -311,6 +336,7 @@ func New(addr string) *Server {
 		bus:              bus,
 		world:            world.New(bus, 8),
 		commands:         plugin.NewCommands(),
+		hooks:            plugin.NewHooks(),
 		entities:         NewManager(),
 		storage:          map[string]map[string]any{},
 		sem:              make(chan struct{}, 256),
@@ -337,6 +363,8 @@ func New(addr string) *Server {
 	if s.SimulationDistance == 0 {
 		s.SimulationDistance = 10
 	}
+	s.runtimeCtx, s.runtimeCancel = context.WithCancel(context.Background())
+	s.runtimeDone = make(chan struct{})
 	s.initDimensions()
 	s.registerBuiltins()
 	s.registerWorldCommands()
@@ -349,32 +377,6 @@ func New(addr string) *Server {
 // simulated - the same thing /time query gametime answers with.
 func (s *Server) worldAgeTicks() int64 {
 	return s.gameTime()
-}
-
-// startTimeSync broadcasts Update Time to every play-stage session on
-// the vanilla cadence (once per second).
-func (s *Server) startTimeSync() chan struct{} {
-	stop := make(chan struct{})
-	every := s.TimeSyncEvery
-	if every == 0 {
-		every = time.Second
-	}
-	if every < 0 {
-		return stop
-	}
-	go func() {
-		t := time.NewTicker(every)
-		defer t.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-t.C:
-				s.broadcastUpdateTime()
-			}
-		}
-	}()
-	return stop
 }
 
 // Bus exposes the event hub to plugins and tests.
@@ -397,13 +399,48 @@ func (s *Server) Online() int { return s.OnlineCount() }
 // api adapts Server to plugin.API.
 type serverAPI struct{ s *Server }
 
-func (a serverAPI) Bus() *event.Bus            { return a.s.bus }
-func (a serverAPI) Commands() *plugin.Commands { return a.s.commands }
-func (a serverAPI) Kick(name, reason string) bool {
-	return a.s.KickPlayer(name, reason)
+func (a serverAPI) Context() context.Context      { return a.s.runtimeCtx }
+func (a serverAPI) Hooks() *plugin.Hooks          { return a.s.hooks }
+func (a serverAPI) Bus() *event.Bus               { return a.s.bus }
+func (a serverAPI) Commands() *plugin.Commands    { return a.s.commands }
+func (a serverAPI) Kick(name, reason string) bool { return a.KickContext(a.s.runtimeCtx, name, reason) }
+func (a serverAPI) KickContext(ctx context.Context, name, reason string) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	if sess := a.s.findSessionByName(name); sess == nil || sess.state.Load() != StatePlay || a.s.ShuttingDown() {
+		return false
+	}
+	return a.s.queueSimulationAction(func() {
+		if ctx.Err() == nil {
+			a.s.kickPlayerOwned(name, reason)
+		}
+	})
 }
 func (a serverAPI) Teleport(name string, x, y, z float64) bool {
-	return a.s.TeleportPlayer(name, x, y, z)
+	return a.TeleportContext(a.s.runtimeCtx, name, x, y, z)
+}
+func (a serverAPI) TeleportContext(ctx context.Context, name string, x, y, z float64) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	if badFloat(x) || badFloat(y) || badFloat(z) {
+		return false
+	}
+	if sess := a.s.findSessionByName(name); sess == nil || sess.state.Load() != StatePlay || a.s.ShuttingDown() {
+		return false
+	}
+	return a.s.queueSimulationAction(func() {
+		if ctx.Err() != nil {
+			return
+		}
+		sess := a.s.findSessionByName(name)
+		if sess == nil {
+			return
+		}
+		_, _, _, yaw, pitch, _ := sess.Pos()
+		a.s.teleportPlayerRot(name, x, y, z, yaw, pitch)
+	})
 }
 func (a serverAPI) PlayerState(name string) (plugin.PlayerState, bool) {
 	return a.s.PlayerStateOf(name)
@@ -420,7 +457,39 @@ func (a serverAPI) ServerInfo() plugin.Info {
 
 // InitPlugins runs every compiled-in registered plugin.
 func (s *Server) InitPlugins() error {
-	return plugin.InitAll(serverAPI{s})
+	s.pluginMu.Lock()
+	defer s.pluginMu.Unlock()
+	if s.ShuttingDown() {
+		return fmt.Errorf("server is shutting down")
+	}
+	if s.pluginManager != nil {
+		return nil
+	}
+	manager, err := plugin.NewManager(s.runtimeCtx, serverAPI{s}, plugin.All())
+	if err != nil {
+		return err
+	}
+	s.pluginManager = manager
+	return nil
+}
+
+// stopPlugins stops lifecycle resources outside the initialization lock.
+func (s *Server) stopPlugins() {
+	s.pluginMu.Lock()
+	manager := s.pluginManager
+	s.pluginManager = nil
+	s.pluginMu.Unlock()
+	if manager != nil {
+		if err := manager.Close(); err != nil {
+			log.Printf("plugins: %v", err)
+		}
+	}
+	if s.hooks != nil {
+		s.hooks.Close()
+	}
+	if s.bus != nil {
+		s.bus.Close()
+	}
 }
 
 // Serve accepts Java Edition connections on ln until it closes. It
@@ -430,43 +499,16 @@ func (s *Server) Serve(ln net.Listener) error {
 	return s.ServeFrontend("java", ln)
 }
 
-// ServeFrontend is Serve for a named frontend: it loads the world and
-// starts the game loop (tick loop + time sync) before handing the
-// listener to the frontend. Programs that pick a frontend by name must
-// call this rather than Frontend.Serve so the world actually ticks.
+// ServeFrontend serves a registered entry point over the shared runtime.
+// Closing ln detaches this frontend. Stop releases the runtime itself.
 func (s *Server) ServeFrontend(name string, ln net.Listener) error {
-	fe, ok := NewFrontend(name, s)
-	if !ok {
-		return fmt.Errorf("%s frontend not registered", name)
+	if fe, ok := NewFrontend(name, s); ok {
+		return fe.Serve(ln)
 	}
-	// The world is loaded here rather than left to the caller, so a
-	// server configured with a world directory serves it even when the
-	// embedding program never calls LoadWorld. main loads before
-	// serving and this is then a no-op.
-	if err := s.LoadWorld(); err != nil {
-		return err
+	if fe, ok := frontend.New(name); ok {
+		return s.Attach(fe, ln)
 	}
-	// Frozen before the tick loop starts, so no tick is ever simulated
-	// and a world handed to the server comes back out untouched (see
-	// StartFrozen).
-	if s.StartFrozen {
-		s.SetFrozen(true)
-	}
-	stop := s.startTimeSync()
-	defer close(stop)
-	stopTicks := s.startGameTicks()
-	defer close(stopTicks)
-	stopRcon, err := s.startRcon()
-	if err != nil {
-		return err
-	}
-	defer stopRcon()
-	stopQuery, err := s.startQuery()
-	if err != nil {
-		return err
-	}
-	defer stopQuery()
-	return fe.Serve(ln)
+	return fmt.Errorf("%s frontend not registered", name)
 }
 
 // ListenAndServe binds Addr and serves.
@@ -578,7 +620,7 @@ func (s *Server) untrack(sess *Session) {
 		s.savedPlayers[name] = p
 		s.savedPlayersMu.Unlock()
 		if s.dataPath() != "" {
-			if err := s.SaveServerData(); err != nil && s.dataSaveErr == nil {
+			if err := s.saveServerDataOwned(); err != nil && s.dataSaveErr == nil {
 				s.dataSaveErr = err
 			}
 		}

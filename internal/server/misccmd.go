@@ -79,7 +79,7 @@ func (s *Server) runSaveAll(player string, args []string) reply {
 			return errToken("command.unknown.argument", 2)
 		}
 	}
-	if err := s.SaveWorld(); err != nil {
+	if err := s.saveWorldOwned(); err != nil {
 		return componentReply(commandError("commands.save.failed"))
 	}
 	success := translatable("commands.save.success")

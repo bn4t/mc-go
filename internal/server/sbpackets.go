@@ -1293,7 +1293,7 @@ func (s *Server) handleTeleportToEntity(sess *Session, p protocol.Packet) {
 		return
 	}
 	x, y, z, _, _, _ := target.Pos()
-	s.TeleportPlayer(sess.getName(), x, y, z)
+	s.teleportPlayerOwned(sess.getName(), x, y, z)
 }
 
 // sessionByUUID finds an online session by profile UUID.

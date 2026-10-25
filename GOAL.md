@@ -14431,3 +14431,39 @@ no flee; unsneak → flee). Green both legs.
     land); a mid-run piglin summon at chunk-0 produces no spawn
     packet on BOATA's conn, so the piglin goes in at setup via
     pwc and is polled by selector instead of tracked by eid.
+
+## Slice — shared runtime ownership and public extension lifecycle (2026-10-25)
+
+- **Measured:** code review and Go 1.27.3 race reproduction found per-listener runtime
+  ownership, blocking outbound admission without a byte budget, play initialization racing
+  wall ticks, live save snapshots outside the owner, internal-only plugin APIs
+  and no extension teardown. Bytecode-independent work here uses existing
+  wire behavior, race reports and in-process/scripted-client contracts.
+- **Implemented:** one idempotent runtime with independent listener attachment
+  and terminal joined shutdown; admission gates and joins cover Java, RCON and
+  Query. A serial simulation owner covers join/play/leave, commands, ticks,
+  frontend actions, queued plugin enforcement and save snapshots. Tick-driver
+  exclusion plus complete-tick yields retain step/sprint stop/freeze ingress;
+  shutdown interrupts huge tick counts. Save snapshots and disk I/O currently
+  run synchronously under ownership and can pause gameplay.
+  Public `server`, `api/frontend`, `api/plugin` and `api/event` packages expose
+  detached queries, existing-player intents, version/dependency validation,
+  scoped commands/hooks/observations/enforcement, cancellation, reverse close
+  and failed-init rollback. Movement hooks run deterministically before
+  canonical validation/commit. FIFO output admission is nonblocking and
+  bounded by 256 packets/8 MiB including the active write, with a five-second
+  write deadline and ordered compression transitions.
+- **Pinned:** external-module plugin/example imports; a public adapter and real
+  Java listener observe and mutate the same player; listener isolation,
+  startup rollback, concurrent shutdown, in-flight action drain, autosave
+  coherence/admission, callback reentrancy, movement cancellation/modification,
+  actual multi-client RCON stop/freeze during long ticks, stalled-peer tick
+  progress, queue cleanup and complete-frame writer tests. Focused race checks
+  cover these contracts. Only Java 776 is a bundled real game protocol;
+  canonical registries, admission/replication APIs, dynamic plugin loading and
+  parallel region simulation remain future stages.
+  Final current-source `go test ./... -count=1 -timeout=10m` passes
+  (internal/server 260.311s), as do `go build ./...` and `go vet ./...`.
+  A final focused server race run covering TestSimulation, TestOutbound,
+  plugin lifetime/stopped enforcement, TestAutosave and live tracking passes
+  in 6.096s. This is targeted concurrency evidence, not a full repository race run.

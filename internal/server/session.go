@@ -470,19 +470,22 @@ type Session struct {
 	// Outbound queue: write() enqueues, writeLoop drains to the socket.
 	// Buffered so broadcasts never block the tick/IO path on a slow
 	// reader; FIFO preserves per-session packet order.
-	sendCh    chan sendPkt
-	done      chan struct{}
-	closeOnce sync.Once
-	wg        sync.WaitGroup
+	sendCh chan sendPkt
+	// outMu serializes admission and retirement. Limits include the packet
+	// currently being written, so dequeuing cannot hide retained bytes.
+	outMu          sync.Mutex
+	outPackets     int
+	outBytes       int64
+	outPacketLimit int
+	outByteLimit   int64
+	writeTimeout   time.Duration
+	done           chan struct{}
+	closeOnce      sync.Once
+	wg             sync.WaitGroup
 	// closing marks a session whose disconnect was issued — kicked or
 	// answered-closed — so name lookups stop resolving it before the
 	// socket finishes tearing down.
 	closing atomic.Bool
-	// inflight counts socket writes in progress; flush() waits for
-	// both an empty queue and no in-flight write, so a queued packet
-	// is actually on the wire (not just dequeued) before short-lived
-	// flows like status close the connection.
-	inflight atomic.Int32
 }
 
 // sendPkt is one queued outbound action: either a packet or a
@@ -495,6 +498,8 @@ type sendPkt struct {
 	// setThreshold, when non-nil, switches the writer's compression
 	// threshold instead of sending a packet.
 	setThreshold *int32
+	// charge is the retained uncompressed payload size, including its id.
+	charge int64
 }
 
 // loadedGraceTicks is how long the real server waits for a client's
@@ -596,13 +601,23 @@ func (sess *Session) lastAlive() time.Time {
 
 // handleConn runs handshake dispatch, then the phase state machine.
 func (s *Server) handleConn(c net.Conn) {
+	// Serialize admission with shutdown before adding to its connection wait.
+	s.runtimeMu.Lock()
+	if s.shuttingDown.Load() {
+		s.runtimeMu.Unlock()
+		_ = c.Close()
+		return
+	}
+	s.connections.Add(1)
+	s.runtimeMu.Unlock()
+	defer s.connections.Done()
 	sess := &Session{
 		id:     s.nextID.Add(1),
 		server: s,
 		conn:   c,
-		sendCh: make(chan sendPkt, 256),
 		done:   make(chan struct{}),
 	}
+	sess.initOutbound()
 	sess.pr = protocol.NewReader(c)
 	sess.pw = protocol.NewWriter(c)
 	sess.ver = LatestVersion()
@@ -612,19 +627,17 @@ func (s *Server) handleConn(c net.Conn) {
 	go sess.writeLoop()
 	defer func() {
 		sess.closeQueue()
-		_ = c.Close()
 		sess.wg.Wait()
 	}()
 	s.track(sess)
-	defer s.untrack(sess)
+	defer s.simulationAction(func() { s.untrack(sess) })
+	// A connection accepted just before shutdown may register after the
+	// shutdown snapshot. It still must not begin a new handshake.
+	if s.shuttingDown.Load() {
+		return
+	}
 
 	sess.readLoop()
-}
-
-// closeQueue signals the writer to exit (idempotent).
-func (sess *Session) closeQueue() {
-	sess.closing.Store(true)
-	sess.closeOnce.Do(func() { close(sess.done) })
 }
 
 // gone reports whether the session is closing or already torn down —
@@ -638,95 +651,6 @@ func (sess *Session) gone() bool {
 		return true
 	default:
 		return false
-	}
-}
-
-// write enqueues one packet, safe from any goroutine. It never blocks
-// on the socket; after disconnect it drops and reports closed.
-func (sess *Session) write(id int32, data []byte) error {
-	select {
-	case <-sess.done:
-		return net.ErrClosed
-	default:
-	}
-	select {
-	case sess.sendCh <- sendPkt{id: id, data: data}:
-		return nil
-	case <-sess.done:
-		return net.ErrClosed
-	}
-}
-
-// writeLoop drains the queue in FIFO order. A socket error terminates
-// the loop and signals done so future writes drop fast. On shutdown it
-// best-effort flushes what is already queued (e.g. a disconnect kick)
-// before exiting.
-func (sess *Session) writeLoop() {
-	defer sess.wg.Done()
-	for {
-		select {
-		case <-sess.done:
-			for {
-				select {
-				case pkt := <-sess.sendCh:
-					if !sess.applyOne(pkt) {
-						return
-					}
-				default:
-					return
-				}
-			}
-		case pkt := <-sess.sendCh:
-			if !sess.applyOne(pkt) {
-				sess.closeQueue()
-				return
-			}
-		}
-	}
-}
-
-// applyOne executes one queued action; false means the socket broke.
-func (sess *Session) applyOne(pkt sendPkt) bool {
-	if pkt.setThreshold != nil {
-		sess.wmu.Lock()
-		sess.pw.SetThreshold(*pkt.setThreshold)
-		sess.wmu.Unlock()
-		return true
-	}
-	sess.inflight.Add(1)
-	defer sess.inflight.Add(-1)
-	sess.wmu.Lock()
-	err := sess.pw.WritePacket(pkt.id, pkt.data)
-	sess.wmu.Unlock()
-	return err == nil
-}
-
-// setWriteThreshold queues a compression-threshold switch behind
-// already-queued packets, preserving handshake framing order.
-func (sess *Session) setWriteThreshold(n int32) {
-	v := n
-	select {
-	case sess.sendCh <- sendPkt{setThreshold: &v}:
-	case <-sess.done:
-	}
-}
-
-// flush waits until the queue drains and the in-flight socket write
-// completes, or timeout elapses. Short-lived flows (status pong, login
-// deny) call this before returning so the client actually receives the
-// last packet before we close.
-func (sess *Session) flush(timeout time.Duration) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if len(sess.sendCh) == 0 && sess.inflight.Load() == 0 {
-			// One more beat: a packet may have been enqueued between
-			// the two checks; re-verify before declaring drained.
-			time.Sleep(5 * time.Millisecond)
-			if len(sess.sendCh) == 0 && sess.inflight.Load() == 0 {
-				return
-			}
-		}
-		time.Sleep(5 * time.Millisecond)
 	}
 }
 

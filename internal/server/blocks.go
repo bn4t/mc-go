@@ -6,17 +6,13 @@ import (
 	"strconv"
 	"strings"
 
+	"mc-go/api/event"
 	"mc-go/internal/world"
 )
 
 // BlockChange is published on TopicBlockChange for plugins. PX/PY/PZ
 // snapshot the actor's feet position for reach checks.
-type BlockChange struct {
-	Player     string
-	X, Y, Z    int
-	Block      world.Block
-	PX, PY, PZ float64
-}
+type BlockChange = event.BlockChange
 
 // parseBlockSpec maps a user token to a world block: a block name with
 // an optional vanilla property list, e.g. "water[level=3]",

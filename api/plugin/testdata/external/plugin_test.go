@@ -1,0 +1,43 @@
+package externalplugin
+
+import (
+	"context"
+	"testing"
+
+	"mc-go/api/event"
+	"mc-go/api/plugin"
+	_ "mc-go/plugins/anticheat"
+	_ "mc-go/plugins/hello"
+)
+
+type extension struct{}
+
+func (extension) Name() string              { return "external" }
+func (extension) Metadata() plugin.Metadata { return plugin.Metadata{APIVersion: plugin.APIVersion} }
+func (extension) Init(api plugin.API) error {
+	api.Hooks().OnMove(api.Context(), 0, func(ctx context.Context, proposal *plugin.Move) bool {
+		if proposal.To.Y < 0 {
+			return false
+		}
+		proposal.To.X = 0
+		// Enforcement is queued, so calling it from this hook does not reenter
+		// the action owner or split this movement's authoritative commit.
+		api.Teleport(proposal.Player, 0, 65, 0)
+		return true
+	})
+	api.Bus().SubscribeContext(api.Context(), event.TopicPlayerMove, 16)
+	return nil
+}
+
+var _ plugin.Plugin = extension{}
+var _ plugin.Described = extension{}
+
+func TestPublicPluginContract(t *testing.T) {
+	h := plugin.NewHooks()
+	h.OnMove(context.Background(), 0, func(_ context.Context, move *plugin.Move) bool { move.To.Y = 65; return true })
+	result, ok := h.BeforeMove(context.Background(), plugin.Move{To: plugin.Position{Y: 1}})
+	if !ok || result.To.Y != 65 {
+		t.Fatal("public hook failed")
+	}
+	h.Close()
+}

@@ -13,16 +13,22 @@ import (
 // anticheat) whenever the server initiates a teleport. Client-driven
 // movement never emits this; plugins use it to excuse the next
 // movement spike instead of flagging it.
-type PlayerTeleport struct {
-	Name    string
-	X, Y, Z float64
-}
+type PlayerTeleport = event.PlayerTeleport
 
 // KickPlayer disconnects a live player with a plain-text reason.
 // It reports whether the player was online. The normal leave path
 // (tab-list removal, leave notice) runs when the read loop exits, so
 // enforcement composes with presence instead of bypassing it.
 func (s *Server) KickPlayer(name, reason string) bool {
+	var applied bool
+	s.simulationAction(func() { applied = s.kickPlayerOwned(name, reason) })
+	return applied
+}
+
+func (s *Server) kickPlayerOwned(name, reason string) bool {
+	if s.ShuttingDown() {
+		return false
+	}
 	sess := s.findSessionByName(name)
 	if sess == nil || sess.state.Load() != StatePlay {
 		return false
@@ -45,6 +51,12 @@ func (s *Server) KickPlayer(name, reason string) bool {
 // teleport id the client confirms. It reports whether the player was
 // online.
 func (s *Server) TeleportPlayer(name string, x, y, z float64) bool {
+	var applied bool
+	s.simulationAction(func() { applied = s.teleportPlayerOwned(name, x, y, z) })
+	return applied
+}
+
+func (s *Server) teleportPlayerOwned(name string, x, y, z float64) bool {
 	sess := s.findSessionByName(name)
 	if sess == nil {
 		return false
@@ -56,10 +68,15 @@ func (s *Server) TeleportPlayer(name string, x, y, z float64) bool {
 // TeleportPlayerRot is TeleportPlayer with the look direction set too,
 // the /tp <x> <y> <z> <yaw> <pitch> form vanilla supports.
 func (s *Server) TeleportPlayerRot(name string, x, y, z float64, yaw, pitch float32) bool {
-	return s.teleportPlayerRot(name, x, y, z, yaw, pitch)
+	var applied bool
+	s.simulationAction(func() { applied = s.teleportPlayerRot(name, x, y, z, yaw, pitch) })
+	return applied
 }
 
 func (s *Server) teleportPlayerRot(name string, x, y, z float64, yaw, pitch float32) bool {
+	if s.ShuttingDown() || badFloat(x) || badFloat(y) || badFloat(z) || badFloat(float64(yaw)) || badFloat(float64(pitch)) {
+		return false
+	}
 	sess := s.findSessionByName(name)
 	if sess == nil || sess.state.Load() != StatePlay {
 		return false
@@ -108,7 +125,7 @@ func (s *Server) PlayerStateOf(name string) (plugin.PlayerState, bool) {
 		Pitch:    pitch,
 		OnGround: onGround,
 		Latency:  sess.latency(),
-		Gamemode: 1, // creative, matching Join Game
+		Gamemode: int32(sess.mode()),
 	}, true
 }
 

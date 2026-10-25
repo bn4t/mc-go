@@ -1,14 +1,14 @@
 package anticheat
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"mc-go/internal/event"
-	"mc-go/internal/plugin"
-	"mc-go/internal/server"
+	"mc-go/api/event"
+	"mc-go/api/plugin"
 )
 
 type kickCall struct{ player, reason string }
@@ -26,6 +26,8 @@ func newFakeAPI() *fakeAPI {
 	return &fakeAPI{bus: event.New(), cmd: plugin.NewCommands(), states: map[string]plugin.PlayerState{}}
 }
 
+func (f *fakeAPI) Context() context.Context   { return context.Background() }
+func (f *fakeAPI) Hooks() *plugin.Hooks       { return plugin.NewHooks() }
 func (f *fakeAPI) Bus() *event.Bus            { return f.bus }
 func (f *fakeAPI) Commands() *plugin.Commands { return f.cmd }
 func (f *fakeAPI) ServerInfo() plugin.Info    { return plugin.Info{} }
@@ -65,8 +67,8 @@ func TestSpeedViolation(t *testing.T) {
 	api := newFakeAPI()
 	d := newDetector(api, 100)
 	base := time.Now()
-	d.onMove(server.PlayerMove{Name: "Flash", X: 0, Y: 65, Z: 0, At: base})
-	d.onMove(server.PlayerMove{Name: "Flash", X: 100, Y: 65, Z: 0, At: base.Add(50 * time.Millisecond)})
+	d.onMove(event.PlayerMove{Name: "Flash", X: 0, Y: 65, Z: 0, At: base})
+	d.onMove(event.PlayerMove{Name: "Flash", X: 100, Y: 65, Z: 0, At: base.Add(50 * time.Millisecond)})
 	vs := violationsFor(api, checkSpeed)
 	if len(vs) != 1 || vs[0].Player != "Flash" || vs[0].Count != 1 {
 		t.Fatalf("speed violations = %+v", vs)
@@ -77,10 +79,10 @@ func TestSpeedLegitFlightClean(t *testing.T) {
 	api := newFakeAPI()
 	d := newDetector(api, 100)
 	base := time.Now()
-	d.onMove(server.PlayerMove{Name: "Pilot", X: 0, Y: 65, Z: 0, At: base})
+	d.onMove(event.PlayerMove{Name: "Pilot", X: 0, Y: 65, Z: 0, At: base})
 	// Legal creative flight: 10 m/s for a full second.
 	for i := 1; i <= 20; i++ {
-		d.onMove(server.PlayerMove{Name: "Pilot", X: float64(i) / 2, Y: 65, Z: 0,
+		d.onMove(event.PlayerMove{Name: "Pilot", X: float64(i) / 2, Y: 65, Z: 0,
 			At: base.Add(time.Duration(i) * 50 * time.Millisecond)})
 	}
 	if vs := violationsFor(api, checkSpeed); len(vs) != 0 {
@@ -93,7 +95,7 @@ func TestTimerViolation(t *testing.T) {
 	d := newDetector(api, 100)
 	base := time.Now()
 	for i := 0; i < 70; i++ {
-		d.onMove(server.PlayerMove{Name: "Timer", X: 0, Y: 65, Z: 0,
+		d.onMove(event.PlayerMove{Name: "Timer", X: 0, Y: 65, Z: 0,
 			At: base.Add(time.Duration(i) * 10 * time.Millisecond)})
 	}
 	if vs := violationsFor(api, checkTimer); len(vs) == 0 {
@@ -104,17 +106,17 @@ func TestTimerViolation(t *testing.T) {
 func TestReachViolation(t *testing.T) {
 	api := newFakeAPI()
 	d := newDetector(api, 100)
-	d.onBlock(server.BlockChange{Player: "Digger", X: 100, Y: 65, Z: 100, PX: 0, PY: 65, PZ: 0})
+	d.onBlock(event.BlockChange{Player: "Digger", X: 100, Y: 65, Z: 100, PX: 0, PY: 65, PZ: 0})
 	if vs := violationsFor(api, checkReach); len(vs) != 1 {
 		t.Fatalf("reach violations = %+v", vs)
 	}
 	// Adjacent break is clean.
-	d.onBlock(server.BlockChange{Player: "Digger", X: 1, Y: 65, Z: 0, PX: 0.5, PY: 65, PZ: 0.5})
+	d.onBlock(event.BlockChange{Player: "Digger", X: 1, Y: 65, Z: 0, PX: 0.5, PY: 65, PZ: 0.5})
 	if vs := violationsFor(api, checkReach); len(vs) != 1 {
 		t.Fatalf("adjacent break flagged: %+v", vs)
 	}
 	// Console/test changes carry no actor snapshot and are skipped.
-	d.onBlock(server.BlockChange{Player: "Console", X: 100, Y: 65, Z: 100})
+	d.onBlock(event.BlockChange{Player: "Console", X: 100, Y: 65, Z: 100})
 	if vs := violationsFor(api, checkReach); len(vs) != 1 {
 		t.Fatalf("actorless change flagged: %+v", vs)
 	}
@@ -144,9 +146,9 @@ func TestTeleportGrace(t *testing.T) {
 	api := newFakeAPI()
 	d := newDetector(api, 100)
 	base := time.Now()
-	d.onMove(server.PlayerMove{Name: "Blink", X: 0, Y: 65, Z: 0, At: base})
-	d.onTeleport(server.PlayerTeleport{Name: "Blink", X: 500, Y: 70, Z: 500})
-	d.onMove(server.PlayerMove{Name: "Blink", X: 500.5, Y: 70, Z: 500, At: time.Now()})
+	d.onMove(event.PlayerMove{Name: "Blink", X: 0, Y: 65, Z: 0, At: base})
+	d.onTeleport(event.PlayerTeleport{Name: "Blink", X: 500, Y: 70, Z: 500})
+	d.onMove(event.PlayerMove{Name: "Blink", X: 500.5, Y: 70, Z: 500, At: time.Now()})
 	if vs := violationsFor(api, checkSpeed); len(vs) != 0 {
 		t.Fatalf("teleport landing flagged: %+v", vs)
 	}

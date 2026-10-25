@@ -2,10 +2,13 @@ package server
 
 import (
 	"math"
+	"runtime"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
+
+	"mc-go/internal/event"
 )
 
 // DefaultTickRate is vanilla's 20 ticks per second.
@@ -41,6 +44,10 @@ type tickClock struct {
 	frozenAt int64
 	// sprinting is set while /tick sprint is running.
 	sprinting bool
+	// sprintRunning reserves the single runner through stop/finish as well as
+	// active ticking. A request arriving while stop waits updates that runner;
+	// it must never start a second runner waiting under gameplay ownership.
+	sprintRunning bool
 	// The sprint fields mirror ServerTickRateManager: the scheduled
 	// count, the ticks the running sprint still owes (the +1 is the
 	// tick the request arrived on), the frozen flag a sprint restores
@@ -65,11 +72,11 @@ type tickClock struct {
 	timesAgg int64
 	timesIdx int64
 
-	// runMu serializes GameTick. The wall-clock loop and a synchronous
-	// /tick step (or a sprint) must never advance the world at the same
-	// time, or a stepped run would not be the deterministic N-tick run
-	// the tests depend on.
+	// runMu gives a synchronous step/sprint exclusive control of world ticks
+	// while it yields gameplay ownership between complete ticks. Acquire it
+	// before the simulation lock (or temporarily release ownership to wait).
 	runMu sync.Mutex
+
 	// sprintMu is held for a sprint's whole run plus its finish, so
 	// stopSprinting can behave the way the real server's does — its
 	// finishTickSprint is synchronous on the caller's thread, meaning
@@ -264,11 +271,15 @@ func (s *Server) SetFrozen(frozen bool) {
 // step path fills it, a mid-step "step stop" zeroes it early, and a
 // caller that never filled it gets a fresh n.
 func (s *Server) StepTicks(n int64) {
+	s.simulationAction(func() { s.stepTicksOwned(n) })
+}
+
+func (s *Server) stepTicksOwned(n int64) {
+	s.lockTickRunOwned()
+	defer s.clock.runMu.Unlock()
 	if n < 1 {
 		n = 1
 	}
-	s.clock.runMu.Lock()
-	defer s.clock.runMu.Unlock()
 	s.clock.mu.Lock()
 	if s.clock.stepRemain == 0 {
 		s.clock.stepRemain = n
@@ -276,16 +287,34 @@ func (s *Server) StepTicks(n int64) {
 	s.clock.mu.Unlock()
 	for i := int64(0); i < n; i++ {
 		s.clock.mu.Lock()
-		if s.clock.stepRemain <= 0 {
+		if s.clock.stepRemain <= 0 || s.shuttingDown.Load() {
 			s.clock.mu.Unlock()
 			return
 		}
 		s.clock.stepRemain--
 		s.clock.mu.Unlock()
 		start := time.Now()
-		s.GameTick()
+		s.gameTickOwned()
 		s.recordTick(time.Since(start))
+		s.yieldSimulationOwned()
 	}
+}
+
+// lockTickRunOwned releases gameplay ownership while waiting for another tick
+// driver. That driver must be able to regain ownership to complete its tick.
+func (s *Server) lockTickRunOwned() {
+	s.simulation.mu.Unlock()
+	s.clock.runMu.Lock()
+	s.simulation.mu.Lock()
+}
+
+// yieldSimulationOwned admits commands only at complete tick boundaries. The
+// driving leg retains runMu so the paced loop cannot insert additional ticks.
+func (s *Server) yieldSimulationOwned() {
+	s.drainSimulationActionsOwned()
+	s.simulation.mu.Unlock()
+	runtime.Gosched()
+	s.simulation.mu.Lock()
 }
 
 // stopStep mirrors stopStepping: zero the owed ticks and refresh the
@@ -312,7 +341,8 @@ func (s *Server) requestSprint(n int64) (interrupted bool) {
 		n = 1
 	}
 	s.clock.mu.Lock()
-	interrupted = s.clock.sprinting
+	interrupted = s.clock.sprinting || s.clock.sprintRunning
+	s.clock.sprintRunning = true
 	s.clock.sprintSchedule = n
 	s.clock.sprintRemain = n + 1
 	s.clock.sprintPrevFrozen = s.clock.frozen
@@ -328,10 +358,11 @@ func (s *Server) requestSprint(n int64) (interrupted bool) {
 // SprintTicks is requestSprint plus the run, for callers that want a
 // one-shot sprint with no interruption handling of their own.
 func (s *Server) SprintTicks(n int64) {
-	if s.requestSprint(n) {
-		return
-	}
-	s.sprintRun()
+	s.simulationAction(func() {
+		if !s.requestSprint(n) {
+			s.sprintRunOwned()
+		}
+	})
 }
 
 // sprintRun simulates the sprint the caller owns. Vanilla's sprint runs
@@ -347,15 +378,26 @@ func (s *Server) SprintTicks(n int64) {
 // the sprint applies to the rest of that tick too, so the tick it arrived
 // on is simulated along with the n it asks for.
 func (s *Server) sprintRun() {
+	s.simulationAction(s.sprintRunOwned)
+}
+
+// sprintRunOwned yields ownership between complete ticks, allowing a queued
+// stop/freeze or other player action to interleave as on the server thread.
+func (s *Server) sprintRunOwned() {
 	s.clock.sprintMu.Lock()
 	defer s.clock.sprintMu.Unlock()
 	defer s.finishSprint()
-	s.clock.runMu.Lock()
+	s.clock.mu.Lock()
+	s.clock.sprintRan = 0
+	s.clock.mu.Unlock()
+	if !s.lockSprintTickRunOwned() {
+		return
+	}
 	defer s.clock.runMu.Unlock()
 	var ran int64
 	for {
 		s.clock.mu.Lock()
-		done := s.clock.sprintRemain <= 0 || !s.clock.sprinting
+		done := s.clock.sprintRemain <= 0 || !s.clock.sprinting || s.shuttingDown.Load()
 		if !done {
 			s.clock.sprintRemain--
 		}
@@ -364,13 +406,30 @@ func (s *Server) sprintRun() {
 			break
 		}
 		start := time.Now()
-		s.GameTick()
+		s.gameTickOwned()
 		s.recordTick(time.Since(start))
 		ran++
+		s.yieldSimulationOwned()
 	}
 	s.clock.mu.Lock()
 	s.clock.sprintRan = ran
 	s.clock.mu.Unlock()
+}
+
+// lockSprintTickRunOwned also permits stop/freeze while a step owns runMu.
+// Lock order is driver -> gameplay owner; no blocking driver wait holds the
+// owner. The runner retains sprintMu so stop waits for its report, but a stopped
+// pending runner cancels this wait instead of waiting for the step to complete.
+func (s *Server) lockSprintTickRunOwned() bool {
+	for !s.clock.runMu.TryLock() {
+		if !s.clock.isSprinting() || s.shuttingDown.Load() {
+			return false
+		}
+		s.simulation.mu.Unlock()
+		time.Sleep(time.Millisecond)
+		s.simulation.mu.Lock()
+	}
+	return true
 }
 
 // finishSprint mirrors finishTickSprint: the report (ticks per second
@@ -381,6 +440,7 @@ func (s *Server) sprintRun() {
 func (s *Server) finishSprint() {
 	s.clock.mu.Lock()
 	s.clock.sprinting = false
+	s.clock.sprintRunning = false
 	completed := s.clock.sprintRan
 	s.clock.sprintRemain = 0
 	start := s.clock.sprintStart
@@ -418,6 +478,14 @@ func (s *Server) StopSprint() bool {
 	return running
 }
 
+// stopSprintOwned must let the running sprint acquire ownership to finish.
+// Its caller reacquires ownership before it continues the command.
+func (s *Server) stopSprintOwned() bool {
+	s.simulation.mu.Unlock()
+	defer s.simulation.mu.Lock()
+	return s.StopSprint()
+}
+
 // GameTick advances the world simulation by exactly one tick.
 //
 // Everything world-driven belongs here, in a fixed order, so that
@@ -425,6 +493,15 @@ func (s *Server) StopSprint() bool {
 // the world deterministically instead of sleeping and hoping. Per-player
 // connection-tick work is deliberately not here: see playerTick.
 func (s *Server) GameTick() {
+	s.clock.runMu.Lock()
+	defer s.clock.runMu.Unlock()
+	s.simulationAction(s.gameTickOwned)
+}
+
+func (s *Server) gameTickOwned() {
+	if s.shuttingDown.Load() {
+		return
+	}
 	s.inGameTick.Store(true)
 	defer s.inGameTick.Store(false)
 	// LivingEntity.baseTick's air pass plus the inside-block fluid
@@ -505,7 +582,11 @@ func (s *Server) GameTick() {
 	if s.gameRuleBool("minecraft:advance_time") {
 		s.clock.day++
 	}
+	tick := s.clock.count + s.clock.base
 	s.clock.mu.Unlock()
+	if s.bus != nil {
+		s.bus.Publish(event.TopicTick, tick)
+	}
 }
 
 // playerTick is the per-player connection tick, driven from the packet
@@ -516,6 +597,13 @@ func (s *Server) GameTick() {
 // onBelowWorld is entity baseTick business, so it lives in
 // playerFluidTickStep alongside the rest of the entity-tick pass.
 func (s *Server) playerTick() {
+	s.simulationAction(s.playerTickOwned)
+}
+
+func (s *Server) playerTickOwned() {
+	if s.shuttingDown.Load() {
+		return
+	}
 	s.digTickStep()
 	s.hungerTickStep()
 	s.combatTickStep()
@@ -611,11 +699,13 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 		period := time.Duration(float64(time.Second) / s.clock.tickRate())
 		if time.Since(lastPlayerTick) >= period {
 			lastPlayerTick = time.Now()
-			s.playerTick()
-			// debug_sample rides the wall tick (vanilla's
-			// ServerDebugSubscribers.tick), not the game tick: subscribers
-			// keep seeing it while the world is frozen.
-			s.debugSampleTick(since)
+			s.simulationAction(func() {
+				s.playerTickOwned()
+				// debug_sample rides the wall tick (vanilla's
+				// ServerDebugSubscribers.tick), not the game tick: subscribers
+				// keep seeing it while the world is frozen.
+				s.debugSampleTick(since)
+			})
 		}
 		// A sprint owns every simulated tick while it runs — vanilla's
 		// server loop is the sprint — so the paced loop idles beside it
@@ -630,14 +720,24 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 			// non-player entities — so their fluid pass still runs
 			// once per wall tick while the world is frozen.
 			if s.clock.isFrozen() && !s.clock.isSprinting() {
-				s.playerFluidTickStep()
+				s.simulationAction(func() {
+					if !s.shuttingDown.Load() && s.clock.isFrozen() && !s.clock.isSprinting() {
+						s.playerFluidTickStep()
+					}
+				})
 			}
 			since = 0
 			continue
 		}
 		start := time.Now()
 		s.clock.runMu.Lock()
-		s.GameTick()
+		s.simulationAction(func() {
+			// Recheck after acquiring ownership: a command may have frozen
+			// or begun a sprint while this wall tick was waiting.
+			if !s.clock.isFrozen() && !s.clock.isSprinting() {
+				s.gameTickOwned()
+			}
+		})
 		s.clock.runMu.Unlock()
 		since = time.Since(start)
 		s.recordTick(since)
@@ -695,4 +795,19 @@ func (s *Server) startGameTicks() chan struct{} {
 	stop := make(chan struct{})
 	go s.runGameLoop(stop)
 	return stop
+}
+
+// startRuntimeTicks returns a joined, idempotent stop for the shared runtime.
+func (s *Server) startRuntimeTicks() func() {
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.runGameLoop(stop)
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() { close(stop) })
+		<-done
+	}
 }

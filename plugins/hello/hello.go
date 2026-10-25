@@ -7,8 +7,8 @@ package hello
 import (
 	"sync/atomic"
 
-	"mc-go/internal/event"
-	"mc-go/internal/plugin"
+	"mc-go/api/event"
+	"mc-go/api/plugin"
 )
 
 func init() { plugin.Register(&hello{}) }
@@ -21,10 +21,19 @@ func (h *hello) Init(api plugin.API) error {
 	api.Commands().Register("ping", func(player string, args []string) string {
 		return "pong"
 	})
-	ch, _ := api.Bus().Subscribe(event.TopicPlayerJoin, 16)
+	ch, unsubscribe := api.Bus().SubscribeContext(api.Context(), event.TopicPlayerJoin, 16)
 	go func() {
-		for range ch {
-			h.joins.Add(1)
+		defer unsubscribe()
+		for {
+			select {
+			case <-api.Context().Done():
+				return
+			case _, ok := <-ch:
+				if !ok {
+					return
+				}
+				h.joins.Add(1)
+			}
 		}
 	}()
 	return nil

@@ -43,15 +43,19 @@ func (s *Server) startRcon() (func(), error) {
 		return nil, fmt.Errorf("rcon listen: %w", err)
 	}
 	r := &rconListener{srv: s, ln: ln, stop: make(chan struct{})}
-	go r.accept()
+	r.wg.Add(1)
+	go func() { defer r.wg.Done(); r.accept() }()
 	return r.close, nil
 }
 
 type rconListener struct {
-	srv   *Server
-	ln    net.Listener
-	stop  chan struct{}
-	conns sync.Map
+	srv    *Server
+	ln     net.Listener
+	stop   chan struct{}
+	conns  sync.Map
+	mu     sync.Mutex
+	closed bool
+	wg     sync.WaitGroup
 }
 
 func (r *rconListener) accept() {
@@ -60,18 +64,31 @@ func (r *rconListener) accept() {
 		if err != nil {
 			return
 		}
+		r.mu.Lock()
+		if r.closed {
+			r.mu.Unlock()
+			c.Close()
+			return
+		}
 		r.conns.Store(c, struct{}{})
-		go r.serve(c)
+		r.wg.Add(1)
+		r.mu.Unlock()
+		go func() { defer r.wg.Done(); r.serve(c) }()
 	}
 }
 
 func (r *rconListener) close() {
-	close(r.stop)
-	_ = r.ln.Close()
-	r.conns.Range(func(k, _ any) bool {
-		_ = k.(net.Conn).Close()
-		return true
-	})
+	r.mu.Lock()
+	if !r.closed {
+		r.closed = true
+		close(r.stop)
+		_ = r.ln.Close()
+		r.conns.Range(func(k, _ any) bool { _ = k.(net.Conn).Close(); return true })
+	}
+	r.mu.Unlock()
+	// The acceptor is included before it launches. An accepted connection
+	// cannot register after closed or race a zero-count WaitGroup wait.
+	r.wg.Wait()
 }
 
 func (r *rconListener) serve(c net.Conn) {
@@ -147,6 +164,15 @@ func (r *rconListener) write(c net.Conn, id, typ int32, payload string) {
 // flat text of the reply — every feedback message concatenated with no
 // separator, parse-error context appended like a second message.
 func (s *Server) rconRun(line string) string {
+	var result string
+	s.simulationAction(func() { result = s.rconRunOwned(line) })
+	return result
+}
+
+func (s *Server) rconRunOwned(line string) string {
+	if s.ShuttingDown() {
+		return "Server closed"
+	}
 	fields := splitCommandArgs(line)
 	if len(fields) == 0 {
 		return ""

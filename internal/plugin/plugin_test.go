@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"testing"
 
 	"mc-go/internal/event"
@@ -11,6 +12,8 @@ type stubAPI struct {
 	cmd *Commands
 }
 
+func (s stubAPI) Context() context.Context                     { return context.Background() }
+func (s stubAPI) Hooks() *Hooks                                { return NewHooks() }
 func (s stubAPI) Bus() *event.Bus                              { return s.bus }
 func (s stubAPI) Commands() *Commands                          { return s.cmd }
 func (s stubAPI) ServerInfo() Info                             { return Info{} }

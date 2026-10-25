@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"mc-go/internal/nbt"
@@ -24,6 +25,7 @@ var ErrPacketTooLarge = errors.New("packet too large")
 // Compression is off until SetThreshold is called with a value >= 0,
 // mirroring the vanilla Set Compression handshake.
 type Writer struct {
+	mu        sync.Mutex // protects complete frames and compression changes
 	w         io.Writer
 	threshold int32
 	noComp    bool
@@ -34,6 +36,8 @@ func NewWriter(w io.Writer) *Writer { return &Writer{w: w, threshold: -1, noComp
 // SetThreshold enables compression: bodies with uncompressed length
 // >= n are zlib-compressed. Negative n disables compression.
 func (pw *Writer) SetThreshold(n int32) {
+	pw.mu.Lock()
+	defer pw.mu.Unlock()
 	if n < 0 {
 		pw.threshold, pw.noComp = -1, true
 		return
@@ -44,6 +48,8 @@ func (pw *Writer) SetThreshold(n int32) {
 // WritePacket writes one framed packet: length VarInt + id VarInt + data,
 // or with compression: length + data-length + (id + data, raw or zlib).
 func (pw *Writer) WritePacket(id int32, data []byte) error {
+	pw.mu.Lock()
+	defer pw.mu.Unlock()
 	body := AppendVarInt(nil, id)
 	body = append(body, data...)
 	if pw.noComp {
@@ -51,21 +57,19 @@ func (pw *Writer) WritePacket(id int32, data []byte) error {
 		if err := WriteVarInt(&hdr, int32(len(body))); err != nil {
 			return err
 		}
-		if _, err := pw.w.Write(hdr.Bytes()); err != nil {
+		if err := pw.writePart(hdr.Bytes()); err != nil {
 			return err
 		}
-		_, err := pw.w.Write(body)
-		return err
+		return pw.writePart(body)
 	}
 	if int32(len(body)) < pw.threshold {
 		var frame bytes.Buffer
 		_ = WriteVarInt(&frame, int32(VarIntLen(0)+len(body)))
 		_ = WriteVarInt(&frame, 0) // data length 0 = uncompressed
-		if _, err := pw.w.Write(frame.Bytes()); err != nil {
+		if err := pw.writePart(frame.Bytes()); err != nil {
 			return err
 		}
-		_, err := pw.w.Write(body)
-		return err
+		return pw.writePart(body)
 	}
 	deflated, err := Deflate(body)
 	if err != nil {
@@ -74,10 +78,19 @@ func (pw *Writer) WritePacket(id int32, data []byte) error {
 	var frame bytes.Buffer
 	_ = WriteVarInt(&frame, int32(VarIntLen(int32(len(body)))+len(deflated)))
 	_ = WriteVarInt(&frame, int32(len(body)))
-	if _, err := pw.w.Write(frame.Bytes()); err != nil {
+	if err := pw.writePart(frame.Bytes()); err != nil {
 		return err
 	}
-	_, err = pw.w.Write(deflated)
+	return pw.writePart(deflated)
+}
+
+// writePart enforces io.Writer's full-write contract. A truncated frame must
+// fail the connection rather than allowing the next packet to corrupt it.
+func (pw *Writer) writePart(p []byte) error {
+	n, err := pw.w.Write(p)
+	if err == nil && n != len(p) {
+		return io.ErrShortWrite
+	}
 	return err
 }
 

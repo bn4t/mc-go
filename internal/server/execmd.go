@@ -1120,7 +1120,7 @@ func (s *Server) resolveTarget(player, tok string) *Session {
 // reached through runExecute.
 func (s *Server) registerWorldCommands() {
 	s.registerComponentCommand("tick", func(player string, args []string) reply {
-		return s.runTick(player, args)
+		return s.runTickOwned(player, args)
 	})
 	s.registerComponentCommand("time", func(player string, args []string) reply {
 		return s.runTime(player, args)
@@ -1164,7 +1164,7 @@ func (s *Server) registerWorldCommands() {
 // real server's components - a client localizes them and /tick query
 // reports numbers with the same NBT types - and /tick step only works
 // while the game is frozen, exactly as the real server reports it.
-func (s *Server) runTick(player string, args []string) reply {
+func (s *Server) runTickOwned(player string, args []string) reply {
 	if len(args) == 0 {
 		// A bare "/tick" stops at the end of its own name.
 		return errTokenEnd("command.unknown.command", 0)
@@ -1176,7 +1176,7 @@ func (s *Server) runTick(player string, args []string) reply {
 		}
 		// setFreeze(true) interrupts a sprint (its report still goes
 		// out) and a step before the freeze lands.
-		s.StopSprint()
+		s.stopSprintOwned()
 		s.stopStep()
 		s.SetFrozen(true)
 		return opsEchoReply(translatable("commands.tick.status.frozen"))
@@ -1222,19 +1222,19 @@ func (s *Server) runTick(player string, args []string) reply {
 				s.sendSystemChatComponent(sess, ack)
 				s.sendOpsEcho(sess, ack)
 			}
-			s.StepTicks(n)
+			s.stepTicksOwned(n)
 			r := reply{}
 			r.result, r.hasResult = 1, true
 			return r
 		}
-		s.StepTicks(n)
+		s.stepTicksOwned(n)
 		return opsEchoReply(translatable("commands.tick.step.success", int32(n)))
 	case "sprint":
 		if len(args) >= 2 && args[1] == "stop" {
 			if len(args) > 2 {
 				return errToken("command.unknown.argument", 3)
 			}
-			if !s.StopSprint() {
+			if !s.stopSprintOwned() {
 				return componentReply(commandError("commands.tick.sprint.stop.fail"))
 			}
 			return opsEchoReply(translatable("commands.tick.sprint.stop.success"))
@@ -1267,14 +1267,14 @@ func (s *Server) runTick(player string, args []string) reply {
 				s.sendOpsEcho(sess, ack)
 			}
 			if !interrupted {
-				s.sprintRun()
+				s.sprintRunOwned()
 			}
 			r := reply{}
 			r.result, r.hasResult = 1, true
 			return r
 		}
 		if !interrupted {
-			s.sprintRun()
+			s.sprintRunOwned()
 		}
 		return opsEchoReply(translatable("commands.tick.status.sprinting"))
 	case "rate":

@@ -25,11 +25,7 @@ func textComponentContent(text string) []byte {
 }
 
 // ChatMessage is published on TopicChat for plugins.
-type ChatMessage struct {
-	Name    string
-	Text    string
-	Command bool
-}
+type ChatMessage = event.ChatMessage
 
 // handleChat processes a chat or chat-command packet. Only the leading
 // message string is parsed; trailing signature/timestamp fields vary by

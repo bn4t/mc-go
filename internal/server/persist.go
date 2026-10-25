@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -222,8 +223,23 @@ func snapshotPlayer(sess *Session) playerPersist {
 	return p
 }
 
-// SaveServerData writes players and block entities to the data file.
+// SaveServerData writes a coherent player/block-entity snapshot under the
+// simulation owner. Disk I/O is synchronous and pauses gameplay while saving.
 func (s *Server) SaveServerData() error {
+	var err error
+	s.simulationAction(func() {
+		if s.ShuttingDown() {
+			err = net.ErrClosed
+			return
+		}
+		err = s.saveServerDataOwned()
+	})
+	return err
+}
+
+// saveServerDataOwned takes dataSaveMu only after the owner. No code may take
+// dataSaveMu before entering a simulation action (that would invert lock order).
+func (s *Server) saveServerDataOwned() error {
 	path := s.dataPath()
 	if path == "" {
 		return fmt.Errorf("server: data persistence disabled")

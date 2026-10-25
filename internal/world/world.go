@@ -12,7 +12,7 @@ import (
 // hardcodes and chunk palettes carry). The ids and the common Air /
 // Stone / Dirt / Grass constants are generated from the official
 // report; see blocks_gen.go.
-type Block uint16
+type Block = event.Block
 
 // Pos is an absolute block position.
 type Pos struct{ X, Y, Z int }
