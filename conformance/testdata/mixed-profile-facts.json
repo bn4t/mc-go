@@ -1,0 +1,68 @@
+{
+  "source_class": "official datagen reports numeric facts",
+  "profiles": {
+    "775": {
+      "block_states": 29873,
+      "items": {
+        "oak_planks": 36,
+        "iron_pickaxe": 934,
+        "stone": 1,
+        "crafting_table": 333,
+        "copper_block": 91
+      },
+      "entities": {
+        "player": 155,
+        "pig": 100,
+        "zombie": 150
+      },
+      "attributes": {
+        "max_health": 19,
+        "movement_speed": 22
+      },
+      "blocks": {
+        "oak_planks": 15,
+        "stone": 1,
+        "crafting_table": 5310,
+        "copper_block": 25309
+      },
+      "biomes": 65
+    },
+    "776": {
+      "block_states": 32366,
+      "items": {
+        "oak_planks": 63,
+        "iron_pickaxe": 961,
+        "stone": 1,
+        "crafting_table": 360,
+        "copper_block": 118
+      },
+      "entities": {
+        "player": 156,
+        "pig": 100,
+        "zombie": 151
+      },
+      "attributes": {
+        "max_health": 23,
+        "movement_speed": 26
+      },
+      "blocks": {
+        "oak_planks": 15,
+        "stone": 1,
+        "crafting_table": 5310,
+        "copper_block": 27782,
+        "cinnabar": 25926
+      },
+      "biomes": 66
+    }
+  },
+  "inputs": {
+    "26.1": {
+      "vanilla/measure-26.1/generated/reports/blocks.json": "c4f6aafb57a085df217fcb93533de7c8baa5711ff6eecad07563b28813713cc0",
+      "vanilla/measure-26.1/generated/reports/registries.json": "2b7b9a3a5738437c9140734e2f9eebfa7c2cfea9b685efed1f3802bdbcfccf9f"
+    },
+    "26.2": {
+      "vanilla/measure-26.2/generated/reports/blocks.json": "dec22eb9547b0bbea396cbf35569f7ec81b7be662775ce03dc2236227473af7b",
+      "vanilla/measure-26.2/generated/reports/registries.json": "9f34d4deb0b494627f6a1a1590e7fb21c11a3949d84bacb59a304e6315287b24"
+    }
+  }
+}

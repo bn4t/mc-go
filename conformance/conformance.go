@@ -39,12 +39,13 @@ type Config struct {
 	TranscriptLimit int           `json:"transcript_limit_bytes,omitempty"`
 }
 type Event struct {
-	Direction string `json:"direction"`
-	PacketID  int32  `json:"packet_id"`
-	WireBytes int    `json:"wire_bytes"`
-	WireHex   string `json:"wire_hex,omitempty"`
-	Truncated bool   `json:"truncated,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Direction     string `json:"direction"`
+	PacketID      int32  `json:"packet_id"`
+	WireBytes     int    `json:"wire_bytes"`
+	WireHex       string `json:"wire_hex,omitempty"`
+	Truncated     bool   `json:"truncated,omitempty"`
+	Error         string `json:"error,omitempty"`
+	DroppedEvents int    `json:"dropped_events,omitempty"`
 }
 type Result struct {
 	Scenario   string  `json:"scenario"`
@@ -106,22 +107,8 @@ var scenarios = []scenario{
 // infrastructure errors; after connection, missing/malformed replies fail the
 // declared protocol contract, including read timeouts.
 func Run(ctx context.Context, c Config) Report {
-	if c.Protocol == 0 {
-		c.Protocol = 776
-	}
-	if c.Username == "" {
-		c.Username = "Conformance"
-	}
-	if c.Timeout <= 0 {
-		c.Timeout = time.Duration(c.TimeoutMS) * time.Millisecond
-	}
-	if c.Timeout <= 0 {
-		c.Timeout = 10 * time.Second
-	}
-	if c.TranscriptLimit <= 0 {
-		c.TranscriptLimit = 16 * 1024 * 1024
-	}
-	c.TimeoutMS = int(c.Timeout / time.Millisecond)
+	c = normalizeConfig(c)
+
 	r := Report{Schema: "mc-conformance/v1", Target: c, Started: time.Now().UTC()}
 	if e := validate(c); e != nil {
 		r.Results = []Result{{Scenario: "configuration", Status: Infrastructure, Detail: e.Error()}}
@@ -187,6 +174,26 @@ func Run(ctx context.Context, c Config) Report {
 	}
 	return r
 }
+func normalizeConfig(c Config) Config {
+	if c.Protocol == 0 {
+		c.Protocol = 776
+	}
+	if c.Username == "" {
+		c.Username = "Conformance"
+	}
+	if c.Timeout <= 0 {
+		c.Timeout = time.Duration(c.TimeoutMS) * time.Millisecond
+	}
+	if c.Timeout <= 0 {
+		c.Timeout = 10 * time.Second
+	}
+	if c.TranscriptLimit <= 0 {
+		c.TranscriptLimit = 16 * 1024 * 1024
+	}
+	c.TimeoutMS = int(c.Timeout / time.Millisecond)
+	return c
+}
+
 func validate(c Config) error {
 	if _, _, e := net.SplitHostPort(c.Endpoint); e != nil {
 		return fmt.Errorf("endpoint must be host:port: %w", e)
@@ -373,7 +380,9 @@ func login(w *wire, c Config) error {
 	}
 	return nil
 }
-func configuration(w *wire, c Config) error {
+func configuration(w *wire, c Config) error { return configurePlay(w, c, nil) }
+
+func configurePlay(w *wire, c Config, observe func(packet)) error {
 	if e := login(w, c); e != nil {
 		return e
 	}
@@ -385,6 +394,9 @@ func configuration(w *wire, c Config) error {
 		p, e := w.read()
 		if e != nil {
 			return e
+		}
+		if observe != nil {
+			observe(p)
 		}
 		switch p.id {
 		case 0x02:
@@ -470,6 +482,9 @@ func configuration(w *wire, c Config) error {
 			}
 			if err := joinJava(join.data, registries, c.Protocol); err != nil {
 				return fmt.Errorf("play login: %w", err)
+			}
+			if observe != nil {
+				observe(join)
 			}
 			return nil
 		}

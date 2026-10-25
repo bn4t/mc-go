@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -20,6 +21,8 @@ type packet struct {
 	data []byte
 }
 type wire struct {
+	writeMu   sync.Mutex
+	recordMu  sync.Mutex
 	conn      net.Conn
 	threshold int32
 	events    *[]Event
@@ -85,6 +88,14 @@ func takeString(r *bytes.Reader) (string, error) {
 	return string(b), nil
 }
 func (w *wire) record(dir string, raw []byte, id int32, err error) {
+	w.recordMu.Lock()
+	defer w.recordMu.Unlock()
+	if len(*w.events) >= 4096 {
+		last := &(*w.events)[len(*w.events)-1]
+		last.DroppedEvents++
+		last.Truncated = true
+		return
+	}
 	e := Event{Direction: dir, PacketID: id, WireBytes: len(raw)}
 	n := len(raw)
 	if n > *w.budget {
@@ -117,6 +128,8 @@ func (w *wire) writeRaw(raw []byte, id int32) error {
 	return nil
 }
 func (w *wire) send(id int32, payload []byte) error {
+	w.writeMu.Lock()
+	defer w.writeMu.Unlock()
 	body := appendInt(nil, id)
 	body = append(body, payload...)
 	if w.threshold >= 0 {

@@ -35,3 +35,17 @@ These facts require real adapter mappings; they do not enable 775 admission.
 public runner. The two `TestPortableConformanceVanilla*` oracle tests reproduce
 the seven complete profile scenarios against fresh official endpoints. They
 skip explicitly when the opted-in Java/jar prerequisites are absent.
+
+`chunk-26.1.bin` and `chunk-26.2.bin` are complete initial chunk/light
+packet bodies from the same official oracle captures. `chunks.json` records
+hashes, oracle hashes and registry/dimension bounds used by the independent
+public decoder tests. The negative controls truncate bodies, append bytes and
+supply an impossible block-registry bound.
+
+`recipe-crafting-table-26.1.bin` and `recipe-crafting-table-26.2.bin` are the
+166-byte RecipeBookAdd bodies for the same named recipe. Their manifest pins
+both oracle hashes. Mixed-client tests compare native per-version output to
+these records before sending the measured display IDs back as recipe clicks.
+`mixed-profile-facts.json` holds only the small official report facts exercised
+by those tests, including shifted player, item, attribute and block identities;
+its input report hashes are recorded alongside the values.

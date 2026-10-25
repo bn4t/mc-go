@@ -1,0 +1,32 @@
+{
+  "source_class": "official server wire observation",
+  "tool": "independent Python3 stdlib TCP probe; OpenJDK25.0.5",
+  "files": {
+    "chunk-26.1.bin": {
+      "bytes": 7280,
+      "sha256": "df051de4e67a1888d715254f6eef06d1206bbb3429150b61b71590c1a279b1e2",
+      "original_capture": "play-053-2d.bin",
+      "protocol": 775,
+      "sections": 24,
+      "block_states": 29873,
+      "biomes": 65
+    },
+    "chunk-26.2.bin": {
+      "bytes": 7280,
+      "sha256": "8ea4a24357fb84cd87d66f0f30b33699515fe83aba81bc60273ca3d8f9ee5cc5",
+      "original_capture": "play-053-2d.bin",
+      "protocol": 776,
+      "sections": 24,
+      "block_states": 32366,
+      "biomes": 66
+    }
+  },
+  "oracles": {
+    "26.1": {
+      "sha256": "98ab064389a8b34d48ac3d4c5ed858dd9433d0dfd1a12e1cbbda916448d92994"
+    },
+    "26.2": {
+      "sha256": "cdacdfb25898de5e4b4b0e5ddcc2722f77067e46605709c2d886c000ebb63ec5"
+    }
+  }
+}

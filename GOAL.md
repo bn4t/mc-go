@@ -14648,3 +14648,24 @@ no flee; unsneak → flee). Green both legs.
   remains serial; cold lighting and save I/O remain owner-side, canonical item/
   entity domains and neutral admission/replication remain unfinished, and a
   second production game protocol is still not admitted.
+
+## Slice — independent play clients and measured 775/776 wire corpora (2026-10-25)
+
+- **Measured:** official 26.1/775 and 26.2/776 offline TCP sessions and public
+  stream codecs with independently selected inputs. Per-recipe grants identify
+  all 1,491/1,561 bookable names and 1,498/1,568 display IDs with zero mapping
+  mismatches. Native recipe bodies, complete chunks and spectator selection
+  observations have compact committed fixtures and oracle/tool/body hashes.
+  The 775 spectator target is a raw entity ID; 776 uses an optional ID+1 body.
+- **Implemented:** public stdlib-only `conformance.OpenPlay` with strict
+  login/configuration/Join validation, bounded initial capture, serialized reads,
+  context-owned connection cleanup and teleport/chunk/keepalive replies.
+  `DecodeChunk` independently validates complete block, biome, heightmap,
+  block-entity and light representations. Existing endpoint runner/report
+  statuses remain separate from complete gameplay compatibility.
+- **Pinned:** official paired chunk fixtures and malformed controls, complete
+  recipe-name/display observations, concurrent scripted-client controls and
+  existing dual-profile negative TCP peers. Final validation: `go test -race ./conformance ./cmd/mc-conformance` passes
+  (2.262s/1.021s); current default conformance tests pass in 1.131s.
+  These are wire/data facts and independently written tools; no oracle jar,
+  decompiled source or copied implementation structure is committed.

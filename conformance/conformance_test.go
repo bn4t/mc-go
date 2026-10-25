@@ -82,7 +82,7 @@ func receive(c net.Conn, compressed bool) ([]byte, error) {
 }
 func text(s string) []byte { return append(vint(len(s)), s...) }
 func reply(c net.Conn, id byte, p []byte, compression int) {
-	body := append([]byte{id}, p...)
+	body := append(vint(int(id)), p...)
 	if compression >= 0 {
 		if len(body) >= compression {
 			var b bytes.Buffer
@@ -99,6 +99,8 @@ func reply(c net.Conn, id byte, p []byte, compression int) {
 }
 
 type behavior struct {
+	play          bool
+	messages      chan []byte
 	capturedLogin []byte
 	capturedJoin  []byte
 	protocol      int32
@@ -352,6 +354,28 @@ func serve(c net.Conn, b behavior) {
 		join = b.capturedJoin
 	}
 	reply(c, 0x31, join, b.compression)
+	if b.play {
+		sync := append([]byte{7}, make([]byte, 60)...)
+		reply(c, 0x48, sync, b.compression)
+		reply(c, 0x0b, []byte{0}, b.compression)
+		reply(c, 0x2c, []byte{1, 2, 3, 4, 5, 6, 7, 8}, b.compression)
+		reply(c, 0x83, []byte{42, 0}, b.compression)
+		for {
+			frame, err := receive(c, b.compression >= 0)
+			if err != nil {
+				return
+			}
+			if b.messages != nil {
+				select {
+				case b.messages <- frame:
+				default:
+				}
+			}
+			if len(frame) > 0 && frame[0] == 7 {
+				reply(c, 0x79, []byte{8, 0, 4, 'p', 'o', 'n', 'g', 0}, b.compression)
+			}
+		}
+	}
 }
 func config(addr string, caps ...string) conformance.Config {
 	return conformance.Config{Endpoint: addr, Protocol: 776, Version: "26.2", Capabilities: caps, Timeout: 150 * time.Millisecond}
@@ -558,6 +582,69 @@ func TestCapturedVanillaProfileBodies(t *testing.T) {
 			}
 			if find(t, report, "login.offline-identity").Status != conformance.Pass || find(t, report, "configuration.finish-and-join").Status != conformance.Pass {
 				t.Fatal(report)
+			}
+		})
+	}
+}
+
+func TestOpenPlayIndependentClientServicesControlAndKeepsCaptures(t *testing.T) {
+	for _, protocol := range []int32{775, 776} {
+		t.Run(fmt.Sprint(protocol), func(t *testing.T) {
+			messages := make(chan []byte, 16)
+			addr := endpoint(t, behavior{protocol: protocol, compression: 0, play: true, messages: messages})
+			c := config(addr)
+			c.Protocol = protocol
+			c.Timeout = time.Second
+			client, err := conformance.OpenPlay(context.Background(), c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			if client.EntityID != 42 || client.Protocol() != protocol || len(client.RegistryEntries("minecraft:dimension_type")) != 1 {
+				t.Fatal("missing admitted client state")
+			}
+			got := map[byte][]byte{}
+			for len(got) < 4 {
+				select {
+				case frame := <-messages:
+					got[frame[0]] = frame
+				case <-time.After(time.Second):
+					t.Fatal("client did not service all control replies")
+				}
+			}
+			if !bytes.Equal(got[0], []byte{0, 7}) || !bytes.Equal(got[0x1c][1:], []byte{1, 2, 3, 4, 5, 6, 7, 8}) || len(got[0x0b]) != 5 || len(got[0x2c]) != 1 {
+				t.Fatalf("control replies: %x", got)
+			}
+			initial := client.InitialPackets()
+			if len(initial) != 5 || len(client.ConfigurationPackets()) < 4 {
+				t.Fatal("initial packet evidence missing")
+			}
+			initial[0].Data[0] ^= 255
+			if bytes.Equal(initial[0].Data, client.InitialPackets()[0].Data) {
+				t.Fatal("caller changed retained evidence")
+			}
+			if err = client.Command("list"); err != nil {
+				t.Fatal(err)
+			}
+			packet, err := client.WaitPacket(context.Background(), func(p conformance.Packet) bool { return p.ID == 0x79 })
+			if err != nil || !bytes.Contains(packet.Data, []byte("pong")) {
+				t.Fatalf("command reply=%x err=%v", packet.Data, err)
+			}
+			if err = client.Move(1.5, 2.5, 3.5, 90, 0, true); err != nil {
+				t.Fatal(err)
+			}
+			seenMove := false
+			for !seenMove {
+				select {
+				case frame := <-messages:
+					seenMove = frame[0] == 0x1f
+				case <-time.After(time.Second):
+					t.Fatal("movement not sent")
+				}
+			}
+			events := client.Transcript()
+			if len(events) < 12 {
+				t.Fatal("transcript missing client traffic")
 			}
 		})
 	}

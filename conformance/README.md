@@ -96,3 +96,13 @@ Set `MCGO_CONFORMANCE_REPORT=/path/report.json` to retain the 776 report and
 ```sh
 go run ./cmd/mc-conformance -endpoint 127.0.0.1:25565 -protocol 775 -version 26.1 -capabilities status,ping,offline-login,configuration,malformed
 ```
+
+`OpenPlay(ctx, Config)` opens a scripted offline session for either measured
+profile. It validates login/configuration/Join Game, services teleport,
+chunk-batch and keepalive replies, waits for initial player attributes, and
+sends Player Loaded. The caller can inspect captured initial/configuration
+packets and send/read further bodies over real TCP. A read timeout closes the
+framed stream; it cannot resume safely after consuming a partial frame.
+`DecodeChunk` independently checks complete775/776 chunk/light bodies against
+explicit dimension and registry bounds. These helpers support experiments and
+blackbox assertions; they do not implement rendering or complete gameplay.
