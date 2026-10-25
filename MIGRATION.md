@@ -36,11 +36,16 @@ archived references pointing to the consolidated repository.
 ## Validation and known limitations
 
 - Verified every imported file's Git blob and mode against its source tree.
+- All `internal/...` test packages pass on the original parity snapshot.
+  The supplied command also named a nonexistent `pkg/` directory, causing an
+  overall command failure despite those package results.
 - Active server: `go build ./...` passes with Go 1.27.3.
 - Active server: `go vet ./internal/... ./cmd/... ./plugins/... ./tools/...` passes.
 - Original server: `cd legacy/mc-go && go test ./...` passes.
 - Protocol prototype: `go test ./...` fails because the original snapshot
   references missing `auth`, `codec`, and `dns` packages. Other packages compile.
+  Its original `tools/.cache/minecraft-data` Git link is also preserved exactly;
+  the source contains no `.gitmodules` mapping for it.
 - Parity's untagged `go test ./...` already fails to compile the blackbox
   package: some tests reference helpers only included with the `blackbox` tag.
   The README now uses the core-test command and removes the nonexistent `pkg/` path.
