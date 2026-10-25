@@ -419,6 +419,10 @@ func LatestVersion() Version {
 func NegotiateVersion(proto int32) (Version, bool) {
 	for _, v := range supportedVersions {
 		if v.Protocol == proto {
+			p, ok := javaProfileFor(proto)
+			if !ok || p.admissionError() != nil {
+				return Version{}, false
+			}
 			return v, true
 		}
 	}

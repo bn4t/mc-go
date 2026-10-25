@@ -1,5 +1,6 @@
-# Mojang's server jar and the data generated from it. Used only as a black-box
-# oracle and data source; not redistributable, so it stays out of the repo.
+# Local oracle jars and generated measurement/datagen inputs stay out of Git.
+# Named wire fixtures and independently generated factual tables have their
+# own provenance requirements in AGENTS.md.
 # Regenerate with:
 #   mkdir -p vanilla && cd vanilla
 #   curl -o server-26.2.jar <mojang server jar url>
@@ -10,6 +11,7 @@ vanilla/
 *.test
 *.exe
 /server
+!/server/
 /mc-go
 
 # Editor / OS

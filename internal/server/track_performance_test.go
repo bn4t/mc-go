@@ -79,6 +79,7 @@ func TestRetrackSessionLivePositions(t *testing.T) {
 	var pkt sendPkt
 	select {
 	case pkt = <-observer.sendCh:
+		pkt = materializeOutboundPacket(t, observer, pkt)
 	default:
 		t.Fatal("unpair did not emit remove packet")
 	}
@@ -92,7 +93,7 @@ func TestRetrackSessionLivePositions(t *testing.T) {
 		t.Fatal("player returning to live range was not paired")
 	}
 	for len(observer.sendCh) > 0 {
-		pkt = <-observer.sendCh
+		pkt = materializeOutboundPacket(t, observer, <-observer.sendCh)
 		if pkt.id != observer.ids().PlaySpawnEntity {
 			continue
 		}

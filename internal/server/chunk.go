@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"sort"
 
@@ -26,13 +27,31 @@ const (
 	Sections = Height / 16 // 24
 )
 
-func blockState(b world.Block) int32 { return int32(b) }
+func blockState(b world.Block) int32 {
+	mapping, ok := world.BlockMapping(ProtocolVersion)
+	if !ok {
+		panic("missing built-in Java block mapping")
+	}
+	wire, err := mapping.Encode(b)
+	if err != nil {
+		panic(err)
+	}
+	return wire
+}
 
 // DescribeBlockState resolves a global state id to its block name and
 // property values. It exists for diagnostics and tests that print what
 // the server is actually sending; the simulation itself works on ids.
 func DescribeBlockState(state int32) (string, map[string]string, bool) {
-	return world.DescribeState(world.Block(state))
+	mapping, ok := world.BlockMapping(ProtocolVersion)
+	if !ok {
+		return "", nil, false
+	}
+	canonical, ok := mapping.FromWire(state)
+	if !ok {
+		return "", nil, false
+	}
+	return world.DescribeState(canonical)
 }
 
 // heightmapTypes are the heightmaps vanilla sends with each chunk, in
@@ -90,75 +109,15 @@ func heightmapValues(states []world.Block, height int) []int32 {
 // block palette, biome palette), block entities, then inline light.
 // The dimension supplies the world, vertical bounds, and biome.
 func encodeChunk(d *dimension, cx, cz int, blockEntities []clientBlockEntity) []byte {
-	var b protocol.Buffer
-	b.Int(int32(cx))
-	b.Int(int32(cz))
-
-	height := d.height
-	states := make([]world.Block, 16*height*16)
-	d.w.FillBox(
-		world.Pos{X: cx * 16, Y: d.minY, Z: cz * 16},
-		world.Pos{X: cx*16 + 15, Y: d.minY + height - 1, Z: cz*16 + 15},
-		states,
-	)
-
-	b.VarInt(int32(len(heightmapTypes)))
-	// The heightmap scan does not depend on the map type, so it runs
-	// once for all three maps rather than once each.
-	heightVals := packPadded(heightmapValues(states, height), heightmapBits)
-	for _, typ := range heightmapTypes {
-		b.VarInt(typ)
-		b.VarInt(int32(len(heightVals)))
-		writeLongs(&b, heightVals)
+	mapping, ok := world.BlockMapping(ProtocolVersion)
+	if !ok {
+		panic("missing built-in Java block mapping")
 	}
-
-	var data protocol.Buffer
-	section := make([]world.Block, 4096)
-	vals := make([]int32, 4096)
-	biomes := make([]int32, 64)
-	for i := range biomes {
-		biomes[i] = biomeID(d.biome)
+	body, err := encodeChunkSnapshot(captureChunkSnapshot(d, cx, cz, blockEntities, mapping))
+	if err != nil {
+		panic(err) // Built-in world states must exist in the built-in mapping.
 	}
-	for sy := 0; sy < d.sections(); sy++ {
-		for y := 0; y < 16; y++ {
-			base := ((sy*16 + y) * 16) * 16
-			copy(section[y*256:(y+1)*256], states[base:base+256])
-		}
-		var blockCount, fluidCount int16
-		for i, blk := range section {
-			vals[i] = int32(blk)
-			if vals[i] != StateAir {
-				blockCount++
-			}
-		}
-		data.Short(blockCount)
-		data.Short(fluidCount)
-		encodePalettedContainer(&data, vals, 4096, 4)
-		encodePalettedContainer(&data, biomes, 64, 1)
-	}
-	b.VarInt(int32(data.Len()))
-	b.Raw(data.Bytes())
-	// Block entities: each entry is the column-local x and z in one
-	// byte, the y as a big-endian short, the block entity type as a
-	// varint, and then the block entity's client data - a nameless NBT
-	// compound for the ones that have any, and a bare TAG_End for the
-	// ones that do not, which is what the real server sends for a
-	// container. The layout was read off 26.2's own chunk packets, at
-	// positions whose x and z differ so the two nibbles cannot be
-	// confused.
-	b.VarInt(int32(len(blockEntities)))
-	for _, be := range blockEntities {
-		b.Byte(byte(be.pos.X&15)<<4 | byte(be.pos.Z&15))
-		b.Short(int16(be.pos.Y))
-		b.VarInt(be.spec.id)
-		if be.nbt == nil {
-			b.Byte(0)
-			continue
-		}
-		b.Raw(be.nbt)
-	}
-	b.Raw(encodeLightDataFor(d, cx, cz))
-	return b.Bytes()
+	return body
 }
 
 // encodePalettedContainer writes one paletted container: bits per
@@ -562,33 +521,95 @@ func (s *Server) pumpChunks(sess *Session) error {
 	if size > len(sess.pending) {
 		size = len(sess.pending)
 	}
-	var batch [][2]int
-	if size > 0 {
-		batch = sess.pending[:size:size]
-		sess.pending = sess.pending[size:]
-		if sess.sent == nil {
-			sess.sent = make(map[[2]int]bool)
-		}
-		for _, key := range batch {
-			sess.sent[key] = true
-		}
-		sess.opened = true
-		if sess.rate > 0 && sess.burst > 0 {
-			sess.burst--
-			sess.cool = sess.interval
-		}
-	}
+	initialJoin := !sess.opened && !sess.spawned.Load()
+	batch := append([][2]int(nil), sess.pending[:size]...)
 	sess.sentMu.Unlock()
 	if len(batch) == 0 {
 		return nil
 	}
-	var b protocol.Buffer // Chunk Batch Start has an empty body
-	if err := sess.write(sess.ids().PlayChunkBatchStart, b.Bytes()); err != nil {
+
+	d := sess.dimension()
+	profile, err := sess.javaProfile()
+	if err != nil {
+		return err
+	}
+	mapping := profile.blocks
+	if mapping == nil {
+		return fmt.Errorf("no block mapping for Java protocol %d", sess.ver.Protocol)
+	}
+	var reservedBytes int64
+	async := sess.pw != nil
+	var reservation *chunkEncodingReservation
+	var ok bool
+	if async {
+		// Hard configuration limits may lower throughput, but temporary pool
+		// pressure must not consume pacing credit or omit any pending column.
+		fitting := 0
+		for i, key := range batch {
+			// Preflight only one column's metadata at a time. Retaining all
+			// sign NBT here would bypass the global snapshot reservation.
+			metadata := s.chunkClientBlockEntities(d, key[0], key[1])
+			next := reservedBytes + chunkSnapshotUpperBound(d, metadata)
+			if !s.chunkEncodingCanFit(i+1, next) {
+				break
+			}
+			fitting, reservedBytes = i+1, next
+		}
+		if fitting == 0 {
+			sess.closeQueue()
+			return fmt.Errorf("one chunk snapshot exceeds encoder resource limits")
+		}
+		batch = batch[:fitting]
+		reservation, ok = s.tryReserveChunkEncoding(fitting, reservedBytes)
+		if !ok {
+			if !initialJoin {
+				return nil
+			}
+			// Preserve the initial join's packet order under saturation. This
+			// bounded fallback holds only one detached snapshot at a time and
+			// never waits for another session's worker or snapshot capacity.
+			async = false
+		} else {
+			defer reservation.Close()
+		}
+	}
+
+	// The reservation precedes this commit: later owner mutations see these
+	// columns as delivered and queue deltas behind their immutable futures.
+	sess.sentMu.Lock()
+	sess.pending = sess.pending[len(batch):]
+	if sess.sent == nil {
+		sess.sent = make(map[[2]int]bool)
+	}
+	for _, key := range batch {
+		sess.sent[key] = true
+	}
+	sess.opened = true
+	if sess.rate > 0 && sess.burst > 0 {
+		sess.burst--
+		sess.cool = sess.interval
+	}
+	sess.sentMu.Unlock()
+	if err := sess.write(sess.ids().PlayChunkBatchStart, nil); err != nil {
 		return err
 	}
 	for _, key := range batch {
-		if err := sess.write(sess.ids().PlayChunkData, encodeChunk(sess.dimension(), key[0], key[1], sess.server.chunkClientBlockEntities(sess.dimension(), key[0], key[1]))); err != nil {
-			return err
+		metadata := s.chunkClientBlockEntities(d, key[0], key[1])
+		snapshot := captureChunkSnapshot(d, key[0], key[1], metadata, mapping)
+		if async {
+			future := reservation.Submit(snapshot.retainedBytes(), func() ([]byte, error) { return encodeChunkSnapshot(snapshot) })
+			if err := sess.writeChunkFuture(sess.ids().PlayChunkData, future); err != nil {
+				return err
+			}
+		} else {
+			body, err := encodeChunkSnapshot(snapshot)
+			if err != nil {
+				sess.closeQueue()
+				return err
+			}
+			if err := sess.write(sess.ids().PlayChunkData, body); err != nil {
+				return err
+			}
 		}
 	}
 	var done protocol.Buffer

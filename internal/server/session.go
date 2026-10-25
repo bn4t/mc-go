@@ -36,6 +36,9 @@ type Session struct {
 	// to the handshake's protocol at login. Handlers dispatch packet
 	// IDs through ids() so one core serves multiple versions.
 	ver Version
+	// profile is selected once at login and owns codec/projection choices.
+	// Legacy in-tree fixtures that set only ver resolve the same immutable profile.
+	profile *javaProfile
 	// clientProto is the raw handshake protocol number.
 	clientProto atomic.Int32
 	// Keep-alive bookkeeping (play stage only).
@@ -500,6 +503,8 @@ type sendPkt struct {
 	setThreshold *int32
 	// charge is the retained uncompressed payload size, including its id.
 	charge int64
+	// future is resolved by a detached chunk encoder at this FIFO position.
+	future *chunkFuture
 }
 
 // loadedGraceTicks is how long the real server waits for a client's

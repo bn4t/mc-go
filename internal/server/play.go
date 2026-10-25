@@ -36,7 +36,11 @@ func (s *Server) handlePlay(sess *Session) {
 		// route (see playServerbound); an id outside the table is not
 		// a 776 packet and is dropped, which is vanilla's behavior for
 		// an unknown id.
-		if h, ok := playServerbound[p.ID]; ok {
+		profile, profileErr := sess.javaProfile()
+		if profileErr != nil {
+			return
+		}
+		if h, ok := profile.playHandler(p.ID); ok {
 			sess.busy.Add(1)
 			s.simulationAction(func() { h(s, sess, p) })
 			sess.busy.Add(-1)
@@ -739,36 +743,22 @@ func (s *Server) sendAbilities(sess *Session) error {
 	return sess.write(sess.ids().PlayAbilitiesCB, b.Bytes())
 }
 
-// sendJoinGame writes a 776 Join Game. Field order follows the public
-// protocol docs; dimension names lists every dimension on the server.
+// sendJoinGame captures authoritative fields; the selected profile owns layout.
 func (s *Server) sendJoinGame(sess *Session) error {
-	var b protocol.Buffer
-	b.Int(sess.entityID.Load()) // entity id — vanilla sends the real one
-	b.Bool(false)               // hardcore
-	b.VarInt(3)                 // dimension names, in vanilla's Join Game order
-	b.String("minecraft:overworld")
-	b.String("minecraft:the_end")
-	b.String("minecraft:the_nether")
-	b.VarInt(int32(s.MaxPlayers))
-	b.VarInt(int32(s.ViewDistance))       // view distance
-	b.VarInt(int32(s.SimulationDistance)) // simulation distance
-	b.Bool(false)                         // reduced debug info
-	b.Bool(true)                          // enable respawn screen
-	b.Bool(false)                         // do limited crafting
+	profile, err := sess.javaProfile()
+	if err != nil {
+		return err
+	}
 	d := sess.dimension()
-	b.VarInt(d.typeID) // dimension type id
-	b.String(d.name)
-	b.Long(hashedSeed(s.worldSeed())) // obfuscated world seed
-	b.Byte(sess.mode())
-	b.Byte(255) // previous gamemode: none
-	b.Bool(false)
-	b.Bool(d.flat) // is flat
-	b.Bool(false)
-	b.VarInt(0) // portal cooldown
-	b.VarInt(d.seaLevel)
-	b.Bool(false) // online mode
-	b.Bool(false) // enforces secure chat
-	return sess.write(sess.ids().PlayJoinGame, b.Bytes())
+	join := javaJoinGame{
+		EntityID:   sess.entityID.Load(),
+		Dimensions: []string{dimOverworld, dimEnd, dimNether},
+		MaxPlayers: int32(s.MaxPlayers), ViewDistance: int32(s.ViewDistance), SimulationDistance: int32(s.SimulationDistance),
+		RespawnScreen: true, DimensionType: d.typeID, Dimension: d.name,
+		HashedSeed: hashedSeed(s.worldSeed()), GameMode: sess.mode(), PreviousGameMode: 255, Flat: d.flat,
+		SeaLevel: d.seaLevel,
+	}
+	return sess.write(sess.ids().PlayJoinGame, profile.encodeJoinGame(join))
 }
 
 // sendSyncPos teleports the player to x,y,z. Teleport flags 0 means

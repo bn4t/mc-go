@@ -184,7 +184,7 @@ func TestSimulationMoveHooksCommitCanonicalValidatedDestination(t *testing.T) {
 			// Both rejection and a changed destination correct the mover's client.
 			found := false
 			for len(sess.sendCh) > 0 {
-				if pkt := <-sess.sendCh; pkt.id == sess.ids().PlaySyncPos {
+				if pkt := materializeOutboundPacket(t, sess, <-sess.sendCh); pkt.id == sess.ids().PlaySyncPos {
 					found = true
 				}
 			}

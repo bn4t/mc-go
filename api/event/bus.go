@@ -4,6 +4,7 @@ package event
 
 import (
 	"context"
+	"mc-go/api/registry"
 	"sync"
 	"time"
 )
@@ -141,9 +142,9 @@ type PlayerTeleport struct {
 	X, Y, Z float64
 }
 
-// Block is an opaque block-state identifier in the server's current registry.
-// IDs are version-specific; this is not a stable cross-protocol block identity.
-type Block uint16
+// Block is a catalog-local runtime handle, never a protocol numeric ID.
+// Resolve it through the runtime BlockCatalog; persist its canonical StateKey.
+type Block = registry.BlockStateID
 
 type BlockChange struct {
 	Player     string

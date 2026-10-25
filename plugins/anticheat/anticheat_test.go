@@ -2,6 +2,7 @@ package anticheat
 
 import (
 	"context"
+	"mc-go/api/registry"
 	"strings"
 	"sync"
 	"testing"
@@ -26,11 +27,12 @@ func newFakeAPI() *fakeAPI {
 	return &fakeAPI{bus: event.New(), cmd: plugin.NewCommands(), states: map[string]plugin.PlayerState{}}
 }
 
-func (f *fakeAPI) Context() context.Context   { return context.Background() }
-func (f *fakeAPI) Hooks() *plugin.Hooks       { return plugin.NewHooks() }
-func (f *fakeAPI) Bus() *event.Bus            { return f.bus }
-func (f *fakeAPI) Commands() *plugin.Commands { return f.cmd }
-func (f *fakeAPI) ServerInfo() plugin.Info    { return plugin.Info{} }
+func (f *fakeAPI) BlockCatalog() *registry.BlockCatalog { return nil }
+func (f *fakeAPI) Context() context.Context             { return context.Background() }
+func (f *fakeAPI) Hooks() *plugin.Hooks                 { return plugin.NewHooks() }
+func (f *fakeAPI) Bus() *event.Bus                      { return f.bus }
+func (f *fakeAPI) Commands() *plugin.Commands           { return f.cmd }
+func (f *fakeAPI) ServerInfo() plugin.Info              { return plugin.Info{} }
 func (f *fakeAPI) Kick(player, reason string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()

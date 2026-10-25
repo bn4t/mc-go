@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/rand"
 
+	"mc-go/api/registry"
 	"mc-go/internal/data"
 	"mc-go/internal/world"
 )
@@ -530,13 +531,24 @@ func (s *Server) enderLeaveBlock(e *Entity, d *dimension) {
 // enderCarryState is the DATA_CARRY_STATE wire value — the carried
 // block's default-state id, or 0 (air) for the empty Optional.
 func enderCarryState(e *Entity) int32 {
-	if e.EnderCarryName == "" {
+	mapping, _ := world.BlockMapping(776)
+	wire, err := enderCarryStateFor(e, mapping)
+	if err != nil {
 		return 0
 	}
-	if nb, ok := world.BlockStateOf(e.EnderCarryName, e.EnderCarryProps); ok {
-		return int32(nb)
+	return wire
+}
+
+// The surrounding metadata schema is still776-specific. Empty is its Optional
+// sentinel, not a canonical block handle and not a fallback for missing states.
+func enderCarryStateFor(e *Entity, mapping *registry.BlockMapping) (int32, error) {
+	if e.EnderCarryName == "" {
+		return 0, nil
 	}
-	return 0
+	if state, ok := world.BlockStateOf(e.EnderCarryName, e.EnderCarryProps); ok {
+		return mapping.Encode(state)
+	}
+	return 0, registry.ErrUnknownBlockState
 }
 
 // enderProjectileSource is DamageTypeTags.IS_PROJECTILE — a tagged

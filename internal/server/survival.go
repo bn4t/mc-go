@@ -312,8 +312,7 @@ func (s *Server) handleDigSurvival(sess *Session, pos world.Pos, status int32) {
 // answer to a block action the server rejected.
 func (s *Server) sendBlockResync(sess *Session, pos world.Pos) {
 	blk := sess.world().GetBlock(pos)
-	body := encodeBlockUpdate(int32(pos.X), int32(pos.Y), int32(pos.Z), blockState(blk))
-	_ = sess.write(sess.ids().PlayBlockUpdateCB, body)
+	_ = sess.sendProjectedBlockUpdate(pos, blk)
 }
 
 // digTickStep advances digging by one tick per playing session. As in

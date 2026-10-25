@@ -6,13 +6,13 @@ import (
 	"mc-go/internal/protocol"
 )
 
-// playHandler handles one serverbound play packet. Handlers run on the
-// session's read goroutine and must not block on the socket (sess.write
-// enqueues).
+// playHandler handles one decoded serverbound play packet under simulation
+// ownership. Handlers must not block on the socket (sess.write enqueues).
 type playHandler func(*Server, *Session, protocol.Packet)
 
-// playServerbound is the complete routing table for serverbound play
-// packets. Every one of the 69 ids the 776 client can send appears
+// playServerbound is the pinned 776 routing table. The admitted Java profile
+// captures its own immutable dispatcher; candidates do not inherit it merely
+// because packet numbers match. Every one of the 69 ids the 776 client sends appears
 // here exactly once; TestServerboundPlayCoverage pins the key set
 // against the vanilla server's own --reports packet table, so a packet
 // can never be silently dropped by an added or removed case.

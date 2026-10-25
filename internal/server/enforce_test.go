@@ -99,7 +99,7 @@ func TestKickPlayer(t *testing.T) {
 	}
 	select {
 	case pkt := <-sess.sendCh:
-		sess.retireOutbound(pkt)
+		pkt = materializeOutboundPacket(t, sess, pkt)
 		if pkt.id != IDPlayDisconnect {
 			t.Fatalf("kick packet = %#x", pkt.id)
 		}

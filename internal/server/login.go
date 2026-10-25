@@ -42,6 +42,7 @@ func (s *Server) handleLogin(sess *Session) {
 		return
 	}
 	sess.ver = ver
+	sess.profile, _ = javaProfileFor(ver.Protocol)
 	if s.OnlineCount() >= s.MaxPlayers {
 		s.sendLoginDisconnect(sess, `{"text":"Server is full"}`)
 		return
@@ -92,32 +93,19 @@ func (s *Server) handleLogin(sess *Session) {
 	sess.setWriteThreshold(CompressionThreshold)
 	sess.pr.SetThreshold(CompressionThreshold)
 
-	var b protocol.Buffer
-	b.UUID(sess.uuid)
-	b.String(name)
-	if s.OnlineMode {
-		b.VarInt(int32(len(sess.profileProps)))
-		for _, pp := range sess.profileProps {
-			b.String(pp.name)
-			b.String(pp.value)
-			if pp.signature != "" {
-				b.Bool(true)
-				b.String(pp.signature)
-			} else {
-				b.Bool(false)
-			}
-		}
-	} else {
-		b.VarInt(0) // property count: none in offline mode
+	profile, ok := javaProfileFor(sess.ver.Protocol)
+	if !ok || profile.admissionError() != nil {
+		return
 	}
-	// The session id trails the properties. The real 26.2 client
-	// decodes a UUID here and kicks without it.
-	var sid [16]byte
-	_, _ = rand.Read(sid[:])
-	sid[6] = (sid[6] & 0x0f) | 0x40
-	sid[8] = (sid[8] & 0x3f) | 0x80
-	b.UUID(sid)
-	if err := sess.write(sess.ids().LoginSuccess, b.Bytes()); err != nil {
+	login := javaLoginSuccess{UUID: sess.uuid, Name: name}
+	if s.OnlineMode {
+		login.Properties = sess.profileProps
+	}
+	// The 776 codec requires a session UUID after profile properties.
+	_, _ = rand.Read(login.SessionID[:])
+	login.SessionID[6] = (login.SessionID[6] & 0x0f) | 0x40
+	login.SessionID[8] = (login.SessionID[8] & 0x3f) | 0x80
+	if err := sess.write(sess.ids().LoginSuccess, profile.encodeLoginSuccess(login)); err != nil {
 		return
 	}
 

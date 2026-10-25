@@ -15,6 +15,12 @@ type extension struct{}
 func (extension) Name() string              { return "external" }
 func (extension) Metadata() plugin.Metadata { return plugin.Metadata{APIVersion: plugin.APIVersion} }
 func (extension) Init(api plugin.API) error {
+	if catalog := api.BlockCatalog(); catalog != nil {
+		state, ok := catalog.Resolve("minecraft:air", nil)
+		if ok {
+			_, _ = catalog.State(state)
+		}
+	}
 	api.Hooks().OnMove(api.Context(), 0, func(ctx context.Context, proposal *plugin.Move) bool {
 		if proposal.To.Y < 0 {
 			return false

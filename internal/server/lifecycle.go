@@ -358,6 +358,7 @@ func (s *Server) Shutdown(reason string) {
 	// Drain an in-flight external action before retiring shard workers. Public
 	// action ingress rejects shutdown, so no new world mutation can follow.
 	s.simulationAction(func() {})
+	s.stopChunkEncoder()
 	for _, d := range s.dims {
 		d.w.Stop()
 	}

@@ -253,10 +253,8 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 			return
 		}
 		revertSent = true
-		body := encodeBlockUpdate(int32(clicked.X), int32(clicked.Y), int32(clicked.Z), blockState(d.w.GetBlock(clicked)))
-		_ = sess.write(sess.ids().PlayBlockUpdateCB, body)
-		fbody := encodeBlockUpdate(int32(facePos.X), int32(facePos.Y), int32(facePos.Z), blockState(d.w.GetBlock(facePos)))
-		_ = sess.write(sess.ids().PlayBlockUpdateCB, fbody)
+		_ = sess.sendProjectedBlockUpdate(clicked, d.w.GetBlock(clicked))
+		_ = sess.sendProjectedBlockUpdate(facePos, d.w.GetBlock(facePos))
 	}
 	useAck := func() {
 		if acked {

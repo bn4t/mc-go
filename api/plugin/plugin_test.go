@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"errors"
+	blockregistry "mc-go/api/registry"
 	"reflect"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ type testAPI struct {
 func newTestAPI() *testAPI {
 	return &testAPI{bus: event.New(), hooks: NewHooks(), commands: NewCommands()}
 }
+func (a *testAPI) BlockCatalog() *blockregistry.BlockCatalog       { return nil }
 func (a *testAPI) Context() context.Context                        { return context.Background() }
 func (a *testAPI) Bus() *event.Bus                                 { return a.bus }
 func (a *testAPI) Hooks() *Hooks                                   { return a.hooks }

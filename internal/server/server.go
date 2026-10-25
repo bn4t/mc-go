@@ -41,6 +41,18 @@ type Server struct {
 	// WriteTimeout bounds each packet's socket write; non-positive uses 5s.
 	WriteTimeout time.Duration
 
+	// Chunk encoding workers consume immutable owner-captured snapshots.
+	// The global job/byte quotas include queued, running and reserved inputs;
+	// encoded output separately consumes each session's outbound budget.
+	// Saturated initial joins can encode one additional snapshot on the owner
+	// at a time, preserving their packet order without waiting for workers.
+	// Non-positive values select <=4 workers, 128 jobs and 64 MiB.
+	ChunkEncodingWorkers int
+	ChunkEncodingJobs    int
+	ChunkEncodingBytes   int64
+	chunkEncoderMu       sync.Mutex
+	chunkEncoder         *chunkEncodingPool
+
 	// WorldPath is the save file for block overrides (see world.Save).
 	// Empty disables persistence: SaveWorld reports an error and boot
 	// skips loading, so tests and ephemeral servers stay file-free.

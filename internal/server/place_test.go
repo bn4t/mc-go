@@ -66,7 +66,7 @@ func placeSession(t *testing.T, s *Server, name string, x, y, z float64) *Sessio
 	// as in tests.
 	_ = s.sendWindow(sess, 0, 0)
 	for len(sess.sendCh) > 0 {
-		sess.retireOutbound(<-sess.sendCh)
+		materializeOutboundPacket(t, sess, <-sess.sendCh)
 	}
 	t.Cleanup(func() { s.untrack(sess) })
 	return sess
@@ -87,11 +87,11 @@ func useItemPkt(hand, x, y, z, face int32, seq *int32) protocol.Packet {
 	return protocol.Packet{ID: IDPlayUseItemOnSB, Data: b.Bytes()}
 }
 
-func drainAcks(sess *Session) (updates []protocol.Packet, acks []int32) {
+func drainAcks(t *testing.T, sess *Session) (updates []protocol.Packet, acks []int32) {
 	for {
 		select {
 		case pkt := <-sess.sendCh:
-			sess.retireOutbound(pkt)
+			pkt = materializeOutboundPacket(t, sess, pkt)
 			switch pkt.id {
 			case IDPlayBlockUpdateCB:
 				updates = append(updates, protocol.Packet{ID: pkt.id, Data: pkt.data})
@@ -121,7 +121,7 @@ func TestPlaceStone(t *testing.T) {
 	if got := s.world.GetBlock(world.Pos{X: 8, Y: -60, Z: 8}); got != world.Stone {
 		t.Fatalf("target = %v, want stone", got)
 	}
-	updates, acks := drainAcks(sess)
+	updates, acks := drainAcks(t, sess)
 	if len(acks) != 1 || acks[0] != 7 {
 		t.Fatalf("acks = %v", acks)
 	}
@@ -188,7 +188,7 @@ func TestPlaceDenials(t *testing.T) {
 			sess.held.Store(0)
 			c.setup(s, sess)
 			s.handleUseItem(sess, c.pkt)
-			updates, acks := drainAcks(sess)
+			updates, acks := drainAcks(t, sess)
 			// Every use_item_on that reaches dispatch ends with the
 			// client-prediction revert pair, even a denied one; clicks
 			// that never reach a block (bad face, air) emit none.
@@ -211,7 +211,7 @@ func TestPlaceDenials(t *testing.T) {
 	far := placeSession(t, s, "Far", 1000.5, 65, 1000.5)
 	far.setSlot(slotHotbarStart, int32(ItemStone), 1)
 	s.handleUseItem(far, useItemPkt(0, 8, -61, 8, 1, &seq))
-	if updates, _ := drainAcks(far); len(updates) != 0 {
+	if updates, _ := drainAcks(t, far); len(updates) != 0 {
 		t.Fatal("far place fanned updates")
 	}
 	if got := s.world.GetBlock(world.Pos{X: 8, Y: -60, Z: 8}); got != world.Air {
@@ -227,7 +227,7 @@ func TestPlaceWithoutSeq(t *testing.T) {
 	if got := s.world.GetBlock(world.Pos{X: 8, Y: -60, Z: 8}); got != world.Dirt {
 		t.Fatalf("target = %v, want dirt", got)
 	}
-	updates, acks := drainAcks(sess)
+	updates, acks := drainAcks(t, sess)
 	if len(updates) != 3 || len(acks) != 0 {
 		t.Fatalf("updates=%d acks=%v", len(updates), acks)
 	}

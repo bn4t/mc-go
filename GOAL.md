@@ -14579,3 +14579,47 @@ no flee; unsneak → flee). Green both legs.
   oracles. Final harness runs pass for 776 (8.92s) and 775 (8.48s); final full
   `go test ./...`, build and vet also pass. Captures remain bounded wire facts;
   no jar, decompiled source or raw datagen report is committed.
+
+## Slice — canonical block identities, gated Java profiles and detached chunk workers (2026-10-25)
+
+- **Measured:** official JDK 25 `--reports` block data contains 32,366 states
+  for 776 and 29,873 for 775. Canonical names/full sorted properties match all
+  29,873 older states, including 5,186 renumbered IDs; 2,493 newer states have
+  no exact 775 representation. `tools/genblockmapping` records report/JAR
+  SHA256 and Go 1.27.3 provenance; regenerating its table is byte-identical.
+  Independent immutable `6e28441` encoding of the mixed/no-skylight/BE fixture
+  produces 7,278 bytes with SHA256
+  `0849485fb89d42cc92a5fa5835d9f5dc0db43de8f5b0cb9fb401fd48c6bdcd55`.
+  An actual v1 save produced by that revision retains all 2,734 state identities
+  when loaded by the new implementation, upgraded to v2 and restarted with a
+  different worker count (0.074s).
+- **Implemented:** immutable public canonical block keys/catalogs and 32-bit
+  catalog-local handles; strict adapter projections with explicit visual-only
+  fallback. JSON overrides persist complete identities in v2, migrate historical
+  776 v1 IDs and reject unknown states before mutation. Native region persistence
+  retains its existing name/property codec. Actual 776 Java sessions select
+  profiled login/join, dispatch and per-viewer block encoders; the partially
+  measured 775 candidate cannot select login admission or gameplay dispatch.
+  Chunk capture copies blocks, BE NBT, light bytes and scalar metadata under
+  ownership; pure encoding runs on bounded workers and ordered FIFO futures.
+  Defaults are min(GOMAXPROCS,4) workers, 128 jobs and 64 MiB async inputs, with
+  output separately charged to each session. Initial-join saturation retains
+  one additional synchronous owner snapshot at a time; these are workload
+  budgets, not a total heap cap. Cancellation, failure and shutdown release
+  reservations in the correct lifetime; ordinary saturation preserves pending
+  columns/pacing. Existing block-column routing and serial gameplay remain.
+  The prior published public `server` package omission is repaired: `/server`
+  ignored its directory as well as a binary. A directory-only negation now
+  allows its constructor/tests to be tracked, and a separate external consumer
+  imports `server.New`, `server.JavaProfiles` and `api/registry`.
+- **Pinned:** exhaustive official projection checks, reordered-catalog v1/v2
+  save/restart, strict missing/foreign-catalog rejection, per-viewer permuted
+  block/event/correction codecs, candidate login rejection, historical packet
+  golden, detached concurrent encoding, dense light/BE reservation bounds,
+  maximum 64-chunk batch, pool/FIFO/quota/cancel/Stop races, and real old-snapshot
+  versus later delta/dimension-transition order. Final full default suite passes
+  (internal/server 273.289s, blackbox 95.911s), build/vet pass, final API/world/
+  public races pass and focused server races pass in 6.645s. Actual vanilla
+  chunk/BE/opening/throttle/blocked/placed-block tests plus both public profiles
+  pass together in 159.024s. Publication additionally requires a clean committed
+  `git archive` build and public external-consumer/focused tests.

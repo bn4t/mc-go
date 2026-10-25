@@ -5,14 +5,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"mc-go/api/registry"
 	"mc-go/internal/event"
 )
 
-// Block is a global block-state id (the same numbering the client
-// hardcodes and chunk palettes carry). The ids and the common Air /
-// Stone / Dirt / Grass constants are generated from the official
-// report; see blocks_gen.go.
-type Block = event.Block
+// Block is a catalog-local canonical state handle. The initial builtin
+// order preserves the generated behavior tables; adapters must map handles
+// to their protocol numeric IDs. Persist canonical StateKey identities.
+type Block = registry.BlockStateID
 
 // Pos is an absolute block position.
 type Pos struct{ X, Y, Z int }

@@ -242,6 +242,24 @@ func TestDefaultOutboundBudgetCoversJoinBurst(t *testing.T) {
 	if !joined {
 		t.Fatal("default budget rejected ordinary view-distance-10 join burst")
 	}
+	// Encoded futures can finish after the owner returns. Measure retained
+	// packet payloads after that work completes, while no writer is draining.
+	s.chunkEncoderMu.Lock()
+	encoder := s.chunkEncoder
+	s.chunkEncoderMu.Unlock()
+	if encoder != nil {
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			jobs, _ := chunkPoolUsage(encoder)
+			if jobs == 0 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("initial join chunk futures did not finish")
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
 	packets, size := outboundPending(sess)
 	t.Logf("configuration + view-distance-10 join burst retained %d packets / %d payload bytes", packets, size)
 	if packets == 0 || size == 0 {

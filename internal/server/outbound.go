@@ -98,10 +98,21 @@ func (sess *Session) enqueue(pkt sendPkt) error {
 }
 
 func (sess *Session) retireOutbound(pkt sendPkt) {
+	charge := pkt.charge
+	if f := pkt.future; f != nil {
+		f.mu.Lock()
+		charge = f.charge
+		f.retired = true
+		f.data = nil
+	}
 	sess.outMu.Lock()
 	sess.outPackets--
-	sess.outBytes -= pkt.charge
+	sess.outBytes -= charge
 	sess.outMu.Unlock()
+	if f := pkt.future; f != nil {
+		f.mu.Unlock()
+		f.Cancel()
+	}
 }
 
 // writeLoop is the sole FIFO consumer. On every exit it releases queued
@@ -139,6 +150,13 @@ func (sess *Session) writeLoop() {
 
 func (sess *Session) applyOne(pkt sendPkt) bool {
 	defer sess.retireOutbound(pkt)
+	if pkt.future != nil {
+		data, err := pkt.future.wait(sess.done)
+		if err != nil {
+			return false
+		}
+		pkt.data = data
+	}
 	sess.wmu.Lock()
 	defer sess.wmu.Unlock()
 	if pkt.setThreshold != nil {

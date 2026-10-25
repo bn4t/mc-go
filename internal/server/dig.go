@@ -43,14 +43,8 @@ func (s *Server) broadcastBlockState(d *dimension, pos world.Pos, blk world.Bloc
 		// the update right away (unit tests driving a server without
 		// Serve rely on this).
 		cx, cz := pos.X>>4, pos.Z>>4
-		body := encodeBlockUpdate(int32(pos.X), int32(pos.Y), int32(pos.Z), blockState(blk))
-		s.sessions.Range(func(_, v any) bool {
-			sess := v.(*Session)
-			if sess.state.Load() != StatePlay || sess.dimName() != d.name || !sess.hasChunk(cx, cz) {
-				return true
-			}
-			_ = sess.write(sess.ids().PlayBlockUpdateCB, body)
-			return true
+		s.broadcastProjectedBlocks(d, cx, cz, false, func(profile *javaProfile) ([]byte, error) {
+			return profile.encodeBlockUpdate(int32(pos.X), int32(pos.Y), int32(pos.Z), blk)
 		})
 		return
 	}
@@ -97,34 +91,20 @@ func (s *Server) blockChangesFlushStep() {
 		if len(locals) == 1 {
 			lp := locals[0]
 			pos := world.Pos{X: cx*16 + int(lp>>8&15), Y: key.y*16 + int(lp&15), Z: cz*16 + int(lp>>4&15)}
-			body := encodeBlockUpdate(int32(pos.X), int32(pos.Y), int32(pos.Z), blockState(d.w.GetBlock(pos)))
-			s.sessions.Range(func(_, v any) bool {
-				sess := v.(*Session)
-				if sess.state.Load() != StatePlay || sess.dimName() != key.dim || !sess.hasChunk(cx, cz) {
-					return true
-				}
-				_ = sess.write(sess.ids().PlayBlockUpdateCB, body)
-				return true
+			state := d.w.GetBlock(pos)
+			s.broadcastProjectedBlocks(d, cx, cz, false, func(profile *javaProfile) ([]byte, error) {
+				return profile.encodeBlockUpdate(int32(pos.X), int32(pos.Y), int32(pos.Z), state)
 			})
 			s.piggybackBlockEntity(d, pos)
 			continue
 		}
-		var b protocol.Buffer
-		secLong := int64(int64(key.x)&0x3fffff)<<42 | int64(int64(key.z)&0x3fffff)<<20 | int64(key.y)&0xfffff
-		b.Long(secLong)
-		b.VarInt(int32(len(locals)))
+		states := make([]javaSectionBlock, 0, len(locals))
 		for _, lp := range locals {
 			pos := world.Pos{X: cx*16 + int(lp>>8&15), Y: key.y*16 + int(lp&15), Z: cz*16 + int(lp>>4&15)}
-			b.VarLong(int64(uint64(blockState(d.w.GetBlock(pos)))<<12 | uint64(lp)))
+			states = append(states, javaSectionBlock{Local: lp, State: d.w.GetBlock(pos)})
 		}
-		body := b.Bytes()
-		s.sessions.Range(func(_, v any) bool {
-			sess := v.(*Session)
-			if sess.state.Load() != StatePlay || sess.dimName() != key.dim || !sess.hasChunk(cx, cz) {
-				return true
-			}
-			_ = sess.write(sess.ids().PlaySectionBlocksUpdate, body)
-			return true
+		s.broadcastProjectedBlocks(d, cx, cz, true, func(profile *javaProfile) ([]byte, error) {
+			return profile.encodeSectionBlocks(key.x, key.y, key.z, states)
 		})
 		for _, lp := range locals {
 			pos := world.Pos{X: cx*16 + int(lp>>8&15), Y: key.y*16 + int(lp&15), Z: cz*16 + int(lp>>4&15)}
@@ -546,4 +526,42 @@ func (s *Server) handleDig(sess *Session, p protocol.Packet) {
 		}
 		return
 	}
+}
+
+// broadcastProjectedBlocks encodes once per immutable profile, rather than
+// sharing a numeric state payload across versions. Missing exact mappings are
+// terminal for that viewer; silently emitting a different state's ID would
+// corrupt its world view. Authoritative blocks are never replaced by fallback.
+func (s *Server) broadcastProjectedBlocks(d *dimension, cx, cz int, section bool, encode func(*javaProfile) ([]byte, error)) {
+	type result struct {
+		body []byte
+		err  error
+	}
+	payloads := map[*javaProfile]result{}
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || sess.dimName() != d.name || !sess.hasChunk(cx, cz) {
+			return true
+		}
+		profile, err := sess.javaProfile()
+		if err != nil {
+			sess.closeQueue()
+			return true
+		}
+		packet, ok := payloads[profile]
+		if !ok {
+			packet.body, packet.err = encode(profile)
+			payloads[profile] = packet
+		}
+		if packet.err != nil {
+			sess.closeQueue()
+			return true
+		}
+		id := sess.ids().PlayBlockUpdateCB
+		if section {
+			id = sess.ids().PlaySectionBlocksUpdate
+		}
+		_ = sess.write(id, packet.body)
+		return true
+	})
 }

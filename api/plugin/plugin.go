@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mc-go/api/event"
+	blockregistry "mc-go/api/registry"
 )
 
 // API is what compiled-in plugins receive. Observation flows through
@@ -18,6 +19,8 @@ import (
 // reports) gives anticheat-style plugins something to act on. All
 // methods are safe for concurrent use from any goroutine.
 type API interface {
+	// BlockCatalog resolves catalog-local observation handles to canonical identities.
+	BlockCatalog() *blockregistry.BlockCatalog
 	// Context ends when this plugin is stopped.
 	Context() context.Context
 	// Hooks registers synchronous before-commit decisions.

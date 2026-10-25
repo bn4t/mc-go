@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/rand"
 
+	"mc-go/api/registry"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
@@ -61,6 +62,17 @@ func (s *Server) primeTntBlock(d *dimension, pos world.Pos, fuse int32) *Entity 
 // default TNT state id). Vanilla sends both on spawn; the chain-primed
 // short fuse only reaches the client through this entry.
 func encodePrimedTntMetadata(fuse int32) []byte {
+	mapping, _ := world.BlockMapping(776)
+	body, err := encodePrimedTntMetadataFor(fuse, mapping)
+	if err != nil {
+		panic(err)
+	}
+	return body
+}
+
+// The enclosing entity replication remains776-specific; this helper makes its
+// block-state scalar boundary explicit and independently testable.
+func encodePrimedTntMetadataFor(fuse int32, mapping *registry.BlockMapping) ([]byte, error) {
 	var b protocol.Buffer
 	b.Byte(8)
 	b.Byte(1) // INT serializer
@@ -68,9 +80,13 @@ func encodePrimedTntMetadata(fuse int32) []byte {
 	b.Byte(9)
 	b.Byte(14) // BLOCK_STATE serializer
 	st, _ := world.BlockStateOf("tnt", nil)
-	b.VarInt(int32(st))
+	wire, err := mapping.Encode(st)
+	if err != nil {
+		return nil, err
+	}
+	b.VarInt(wire)
 	b.Byte(0xFF)
-	return b.Bytes()
+	return b.Bytes(), nil
 }
 
 // tntShortFuse is wasExploded's getRandomShortFuse:
