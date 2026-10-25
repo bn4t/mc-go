@@ -4843,6 +4843,12 @@ func (s *Server) mobHurtCore(e *Entity, amount float32, typeName string, killer 
 // silent is hurt()'s b8=false arm: a graced hit that kills runs die()
 // without makeSound(getDeathSound)/playSecondaryHurtSound.
 func (s *Server) mobDie(e *Entity, killer *Session, silent bool) {
+	// Hurt callers may hold a Manager.Get copy. Death reads the committed
+	// victim, including the player credit just recorded by the lethal hit,
+	// and writes its death metadata back to that same authoritative entity.
+	if current, ok := s.entities.GetPtr(e.ID); ok {
+		e = current
+	}
 	// LivingEntity.die posts ENTITY_DEATH at the body's position.
 	if d := s.dimensionByName(e.Dim); d != nil {
 		s.emitGameEvent(d, "entity_die", e.X, e.Y, e.Z, nil, "")

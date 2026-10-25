@@ -120,6 +120,9 @@ type Server struct {
 
 	// simulation owns gameplay mutations; network I/O remains on its connections.
 	simulation simulationExecutor
+	// Initial Java joins prepare shared column caches in separate owner turns.
+	joinPreparationMu sync.Mutex
+	joinPreparer      *joinPreparationScheduler
 
 	// GenerateStructures is recorded in the world's generator settings.
 	// The zero value is false, so New sets the vanilla default (true);

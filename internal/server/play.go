@@ -16,9 +16,7 @@ import (
 // Chat/keep-alive handling lands with the signed-chat milestone;
 // unknown play packets are ignored so the session stays up.
 func (s *Server) handlePlay(sess *Session) {
-	joined := false
-	s.simulationAction(func() { joined = s.joinPlayOwned(sess) })
-	if !joined {
+	if !s.joinPlayPrepared(sess) {
 		return
 	}
 	stopKA := sess.startKeepAlive()

@@ -92,7 +92,7 @@ func (s *Server) startCombat(sess *Session) {
 func (s *Server) combatTickStep() {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.combatTicks <= 0 {
+		if !sess.gameplayTickReady() || sess.combatTicks <= 0 {
 			return true
 		}
 		sess.combatTicks--

@@ -608,6 +608,12 @@ func (s *Server) playerTick() {
 	s.simulationAction(s.playerTickOwned)
 }
 
+// gameplayTickReady excludes configuring, unadmitted and retired connections.
+// Keepalive and other wall-clock transport work have their own lifecycle.
+func (sess *Session) gameplayTickReady() bool {
+	return sess.state.Load() == StatePlay && sess.active.Load()
+}
+
 func (s *Server) playerTickOwned() {
 	if s.shuttingDown.Load() {
 		return
@@ -619,6 +625,9 @@ func (s *Server) playerTickOwned() {
 	s.portalTickStep()
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
+		if !sess.gameplayTickReady() {
+			return true
+		}
 		if sess.attackTicker < 200 {
 			sess.attackTicker++
 		}

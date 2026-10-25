@@ -107,6 +107,8 @@ Mojang server over the wire.
 - [x] Full entity type registry
 - [ ] Physics, collision, AI, pathfinding
 - [ ] Damage, health, death, drops, XP
+      First-hit player XP/value/pickup has a live-oracle pin; broader
+      damage, death and drop parity remains incomplete.
 - [ ] Projectiles, vehicles, mobs, villagers
 
 ### Player
@@ -14963,3 +14965,129 @@ no flee; unsneak → flee). Green both legs.
   sustained mixed-load measurements and the other documented parity/API work
   remain unfinished. This slice establishes no sustained TPS, network latency,
   heap-cap or player-capacity claim.
+
+## Slice — bounded initial Java join preparation (2026-10-25)
+
+- **Measured:** source class is existing Go ownership/cache preparation plus
+  scripted public TCP observations, reusing the official report/wire facts
+  already pinned for both Java profiles. No new jar extraction, generated table
+  or external dependency is introduced. The unchanged TCP harness is SHA-256
+  `b529308fcde7e4fbbc912c1134f1cfec366a2c446850a6565c76318f812b5272`;
+  its baseline is a clean archive of
+  `b4e3e692e0ed3d492a60bf67deded1dbad4e6b3a` with only that file added.
+  Sequential five-run baseline/optimized samples use Linux/amd64 Go 1.27.3,
+  AMD EPYC 9V74, `GOMAXPROCS=5`, the same radius-2 flat world, ready 775/776
+  observers, a distant untouched spawn and new 776 cold/warm joiners. Observer
+  tokens have one outstanding request with 20 ms pacing. The initial 775
+  mutation/fence sample is separately labeled and excluded from token quantiles.
+  Raw phase/readiness/probe start/end timestamps are retained; p50/p95 use
+  nearest rank on pooled token-only samples across the five runs.
+- **Implemented:** one lazy runtime scheduler, independent of frozen ticks,
+  reserves at most 32 building/queued/running jobs before coordinate allocation.
+  Radius is bounded at the admitted client maximum 32; coordinate capacities
+  total at most 9,530 entries/152,480 bytes per plan on a 64-bit host, plus a
+  temporary 5,041-byte deduplication grid. Allocation overhead and total heap
+  are separate. Jobs rotate after one complete cold facts column or whole light
+  initialization/flood; warm scans yield after at most 64 checks. Work always
+  uses the simulation owner. No gameplay action unlocks halfway through a
+  mutation, and synchronous plugin callbacks retain their existing boundary.
+  Each initialization/flood stays atomic, while valid initialization marks may
+  reach existing viewers earlier between units or in different batches.
+- **Admission and lifecycle:** preparation resolves only routing scalars from
+  the existing spawn/saved-player lookup. The session remains Configuration,
+  without a new entity, restored gameplay state or committed presence. Final
+  ownership rechecks dimension, coordinates, radius and incarnation before the
+  existing atomic Join/opening-batch/attributes/entities/admission transaction.
+  Its ordinary cache rechecks can refill facts invalidated during preparation.
+  At most three replans follow the initial plan. Saturation, invalid targets,
+  exhausted replanning and known cancellation close without invented pre-Join
+  packets. Canceled running work retains its slot until its whole unit ends;
+  queued work releases immediately, and completed receipts retain no plan arrays.
+  Shutdown cancels/joins this scheduler before world workers retire.
+- **Responsiveness and tradeoff:** cold full-49-column readiness median grows
+  from 865.5 ms (861.9–884.1) to 992.5 ms (980.0–1,052.6), about 14.7%, while
+  more observer work completes. The 775 observer has 9 → 175 token samples
+  (9 → 172 before readiness), with p50/p95/max 743.4/821.5/821.5 ms becoming
+  5.66/16.24/45.68 ms. The 776 observer has 14 → 183 samples (14 → 181 before
+  readiness), with 39.79/821.59/821.59 ms becoming 5.33/30.11/45.68 ms.
+  This is a responsiveness tradeoff, not a preparation-speed improvement.
+  A stalled single outstanding request produces fewer baseline samples; this
+  is not a fixed offered-rate capacity test. Timings include transport, commands,
+  ticks, decoding and client scheduling. Warm readiness is 61.0 → 60.8 ms with
+  overlapping 59.4–72.9/53.4–65.6 ms ranges; warm token maxima are 39–45 ms.
+  The separately labeled mutation/fence median is 38.01 → 40.14 ms.
+- **Quantum and overhead:** the optimized-only helper/worker benchmark is
+  SHA-256 `950293380e9f4bc662e3436dcaffd00d040a8e3b70cf7b36a3835b493c94b9c1`.
+  Three 100 ms samples use the existing mixed-canopy, eight-shard radius-2
+  fixture without observers, sockets, ticks or pending deferred actions.
+  Its 49 facts/121 light units plus completion take 171 owner turns and a
+  total median 854.6 ms (828.4–873.2). Helper work timing excludes acquisition
+  and boundary flushes: observed maxima are 4.628 ms facts/16.622 ms light.
+  Complete uncontended turn wall maxima, including acquisition and empty
+  deferred-action/stream-flush boundaries, are 4.630/16.627 ms. Neither is a
+  contended owner-hold or tick bound. Warm actual reservation/submission/worker
+  completion takes 45.54 µs (44.58–47.93), 288 bytes/two allocations. Separate
+  radius-2 plan construction takes 6.237 µs and 3,160 bytes/six allocations;
+  radius 32 takes 0.771 ms and 161,112 bytes/six allocations. These are added
+  components rather than total warm-join overhead. ARCHITECTURE.md records the
+  full fixture, sample counts, limits and reproduction commands.
+- **Pinned:** ten deterministic preparation tests pass normally in 0.670 s and
+  under race in 9.168 s. They prove real public avatar Move and its committed
+  stream update, plus a worldview edit, complete while preparation is unfinished;
+  final chunks preserve canonical state. Coverage includes frozen progress,
+  whole-unit/64-skip bounds, warm overlap, global reservation/queue retention,
+  canceled-running retention, stale receipt isolation, host close, saved/spawn
+  target revalidation, bounded retry exhaustion and scheduler shutdown.
+  The unchanged TCP probe passes all five baseline runs in 9.826 s and all
+  five final optimized runs in 10.654 s, independently decoding complete windows,
+  bootstrap order, edited blocks, heightmaps and measured canonical sky light.
+  A separate overlapping-viewer pin folds valid initialization/edit updates,
+  checks every mask and array bound, and compares all 24 final sky/block-light
+  sections with a fresh snapshot. Its normal run passes in 1.686 s. The combined
+  responsiveness, published cold/warm and overlapping-viewer wire race passes
+  in 108.614 s without races or skips. The reused official 776 packet report is
+  SHA-256 `02ab88951f242b28cc91e77c9f05815982b155ce8ab8b93af54aab48f4d4cb57`,
+  matching its existing factual manifest; intermediate mark batching is not an
+  exact historical-packet assertion.
+  Actual-vanilla opening-batch, exact initial-chunk and torch-light checks all
+  execute without skips and pass in 39.540 s total, using Temurin JDK 25.0.5+8
+  and official 26.2 jar SHA-256
+  `cdacdfb25898de5e4b4b0e5ddcc2722f77067e46605709c2d886c000ebb63ec5`.
+- **Integration regressions:** the initial complete sweep and three isolated
+  retries exposed a real first-hit XP failure. Configuring sessions had accrued
+  wall-gameplay attack charge while preflight yielded, and a lethal attack's
+  detached victim copy lacked the player credit just committed to the stored
+  entity. Death now reads that authoritative victim for XP/loot/stat gates and
+  death metadata. Java gameplay ticks require an active admitted Play session
+  across the wall-player, digging, hunger, combat, eating and portal steps.
+  This preserves pre-admission state rather than masking the failure with extra
+  attacks. Direct current/prior-player credit and unpublished-session regressions
+  pass normally in 1.715 s and under race in 27.130 s; broader focused combat,
+  health, hunger and eating checks pass in 36.258 s. The strengthened packet pin
+  waits for complete bootstrap and 20 observed player ticks, sends exactly one
+  charged axe attack using the measured command encoding, then retains exact
+  orb metadata/value, matching XP total and removal assertions. Three Go runs
+  pass in 5.852 s and its wire race in 14.118 s. A fresh vanilla/Go first-hit
+  comparison passes both legs without skips in 11.664 s. The final five optimized
+  TCP samples above were refreshed after these fixes; the baseline and harness
+  remain unchanged. The non-ticking quantum helper paths did not change.
+- **Validation:** final production sources pass the complete core/public package
+  set, including server (223.364 s), world (0.585 s) and external public consumers
+  (7.876 s). That sweep exposed a pig-lifecycle fixture assuming health was the
+  first metadata field; the valid dying pack also contains pose. Its parser now
+  validates the complete terminated stream while retaining monotonic/final
+  health, damage, removal and loot checks. The affected pin passes in 8.918 s,
+  then the complete blackbox package passes in 90.992 s. Only that test parser
+  changed after the core run; final source fingerprints verify the production
+  inputs remained fixed. Build and vet pass. Publication additionally validates
+  the actual committed tree through `git archive`, full build, separate public
+  consumer modules, focused scheduler/admission/credit/cache tests and the join,
+  overlapping-light, XP and mob-lifecycle wire pins. Raw logs, probe reports and
+  baseline exports remain outside the repository.
+- **Remaining:** live movement/teleport windows, save I/O and other long owner
+  actions remain synchronous. Whole light floods and callbacks have no hard
+  deadline. Known host/session/runtime cancellation stops between units; remote
+  EOF remains unread until the existing packet reader resumes. This does not
+  introduce parallel simulation, region ownership or stronger raw-world cache
+  invalidation. The broader parity/API work remains unfinished; no hard latency,
+  sustained TPS, heap-cap or player-capacity claim is made.

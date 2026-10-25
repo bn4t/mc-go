@@ -323,7 +323,7 @@ func (s *Server) sendBlockResync(sess *Session, pos world.Pos) {
 func (s *Server) digTickStep() {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.state.Load() != StatePlay || sess.dead || sess.mode() != GameModeSurvival {
+		if !sess.gameplayTickReady() || sess.dead || sess.mode() != GameModeSurvival {
 			return true
 		}
 		sess.digMu.Lock()
@@ -1304,7 +1304,7 @@ func (s *Server) hungerTickStep() {
 	regen := s.gameRuleBool("minecraft:natural_health_regeneration")
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.state.Load() != StatePlay || sess.dead {
+		if !sess.gameplayTickReady() || sess.dead {
 			return true
 		}
 		if sess.takeXpDelay > 0 {

@@ -28,15 +28,25 @@ future work. Internal helpers whose names end in
 yield between complete ticks so commands can interleave. Deferred plugin
 enforcement uses a bounded queue of 256 actions, drained after an action;
 acceptance is distinct from completion. Socket readers and writers remain
-separate from simulation ownership. Initial Java chunk/light warmup still
-runs synchronously under the owner and can delay other gameplay; join
-readiness tests distinguish Play Login from completion of that warmup.
-New view windows also warm section and sky data before encoder submission,
-so a cold teleport can spend time on the owner before any worker is involved.
+separate from simulation ownership. Initial Java joins now wait outside the
+owner while a bounded runtime scheduler prepares their destination caches in
+separate owner actions. Each turn completes one cold facts column or one whole
+light initialization/flood, or checks at most 64 already warm entries. Sessions
+remain in Configuration until preparation completes; the existing atomic Join,
+opening chunk batch, attributes, entities and admission transaction then runs.
+Join readiness tests distinguish this preparation and the complete streamed
+window from merely receiving Play Login. Movement and teleport windows still
+warm section and sky data synchronously before encoder submission, so a cold
+teleport can spend time on the owner before any encoder worker is involved.
 Chunk packet encoding can run on bounded workers after owner-side capture
 of detached block states, block-entity NBT, light bytes and dimension scalars.
 Encoder functions receive no live gameplay objects; completion updates
 synchronized transport accounting.
+
+Java wall-gameplay ticks require both Play phase and committed active admission.
+Configuring, unadmitted and retired sessions do not accrue attack charge or
+advance digging, hunger, combat, eating or portal state. Transport keepalive
+and connection lifetime work retain their separate wall-clock behavior.
 
 The block world already partitions block overrides among shard workers.
 Each worker owns its map and services read/write messages. This does not
@@ -379,6 +389,94 @@ measurements, not sustained TPS, client latency or player-capacity evidence.
 
 ```sh
 GOMAXPROCS=5 go test ./internal/server -run '^$' -bench '^(BenchmarkColumnPreparation|BenchmarkSendWindowPreparation)$' -benchmem -benchtime=200ms -count=5
+```
+
+Initial Java join preparation now trades longer cold-join readiness for shorter
+observer delays in a measured two-observer fixture. One runtime scheduler owns
+at most 32 reserved/building/queued/running jobs and runs independently of the
+game tick, including while frozen. Jobs rotate after complete owner actions;
+there is no parallel simulation, mid-action unlock or preemption of plugin
+callbacks. Each column initialization and its flood remain atomic, while valid
+initialization light marks can reach existing viewers earlier between units or
+in different batches; final canonical light and block state remain authoritative.
+Plans use the admitted client radius, at most 32. Their two coordinate
+slice capacities total at most 9,530 entries, or 152,480 bytes on a 64-bit host,
+plus a temporary 5,041-byte deduplication grid. This bounds scheduler coordinate
+storage, not total heap; allocator overhead, receipts, callers and cache contents
+are separate. Completion releases plan arrays before signaling its receipt.
+
+Preparation captures only destination routing facts, without restoring session
+state or creating an entity. Final ownership rechecks destination, view radius,
+dimension and incarnation before the existing atomic join transaction. Changes
+permit at most three replans after the initial plan. Final admission retains
+ordinary cache rechecks and can refill facts invalidated during preparation.
+Saturation, invalid targets,
+exhausted replanning and known cancellation close the connection without adding
+an invented pre-Join packet. Host/session/runtime cancellation stops between
+whole units; a running unit retains its slot until it finishes. Remote peer EOF
+is still detected only when the existing packet reader resumes. Shutdown joins
+the scheduler before retiring world workers. Live teleports, movement, saves and
+other long gameplay actions retain their existing synchronous behavior.
+
+The unchanged public TCP harness is
+`tests/blackbox/cold_join_responsiveness_test.go`, SHA-256
+`b529308fcde7e4fbbc912c1134f1cfec366a2c446850a6565c76318f812b5272`.
+Its baseline is a clean archive of
+`b4e3e692e0ed3d492a60bf67deded1dbad4e6b3a` with only that file added.
+Five sequential baseline and five optimized runs used the same flat world,
+radius 2, initially ready 775/776 observers, a distant untouched world spawn,
+and new 776 cold/warm joiners. Observers issue one token request at a time with
+20 ms pacing. The first 775 request also edits one stone cell; that separately
+labeled mutation/fence is excluded from token quantiles. Timings include socket
+transport, command processing, ticks, decoding and client scheduling. Raw start,
+end and readiness timestamps are retained; quantiles below use nearest rank on
+pooled token-only samples across the five runs.
+
+| Operation | Baseline | Scheduled preparation |
+| --- | ---: | ---: |
+| Cold full-49-column readiness median (range) | 865.5 ms (861.9–884.1) | 992.5 ms (980.0–1,052.6) |
+| Warm full-49-column readiness median (range) | 61.0 ms (59.4–72.9) | 60.8 ms (53.4–65.6) |
+| Cold 775 token count / completed before readiness | 9 / 9 | 175 / 172 |
+| Cold 775 token p50 / p95 / maximum | 743.4 / 821.5 / 821.5 ms | 5.66 / 16.24 / 45.68 ms |
+| Cold 776 token count / completed before readiness | 14 / 14 | 183 / 181 |
+| Cold 776 token p50 / p95 / maximum | 39.79 / 821.59 / 821.59 ms | 5.33 / 30.11 / 45.68 ms |
+| Warm 775 token count / p95 / maximum | 11 / 44.44 / 44.44 ms | 11 / 39.24 / 39.24 ms |
+| Warm 776 token count / p95 / maximum | 11 / 44.51 / 44.51 ms | 11 / 39.66 / 39.66 ms |
+
+Cold readiness increased about 14.7% while substantially more observer work
+completed. This is a responsiveness tradeoff, not a preparation-speed result.
+One outstanding request means baseline stalls yield fewer samples, so this is
+not a fixed offered-rate capacity test. Warm ranges overlap. The separate
+mutation/fence median is 38.01 versus 40.14 ms, with ranges 35.32–41.23 versus
+34.57–41.04 ms. Both protocols independently verify final block/heightmap/light
+contents and the required bootstrap order. Deterministic tests separately prove
+real public avatar movement and block edits complete while preparation remains
+unfinished; the timing harness alone does not prove the exact overlap point.
+
+The optimized-only quantum benchmark uses
+`internal/server/join_preparation_bench_test.go`, SHA-256
+`950293380e9f4bc662e3436dcaffd00d040a8e3b70cf7b36a3835b493c94b9c1`.
+It has no observer, sockets, ticks or pending deferred work. Three 100 ms samples
+of the same mixed-canopy radius-2 fixture perform 49 facts units, 121 whole light
+units and one completion turn. Total preparation median is 854.6 ms
+(828.4–873.2). Work timing begins after ownership acquisition and ends at the
+helper return: observed maxima are 4.628 ms for facts and 16.622 ms for light.
+Complete uncontended turn wall time additionally includes acquisition and the
+empty deferred-action/stream-flush boundary; maxima are 4.630 and 16.627 ms.
+These are separate measurements, neither a contended owner-hold nor tick bound.
+Whole light floods, callbacks and other actions can still exceed these samples.
+
+Actual warm scheduler reservation/submission/worker completion takes a median
+45.54 µs (44.58–47.93), 288 bytes and two allocations. Plan construction is
+separate: radius 2 takes 6.237 µs and 3,160 bytes/six allocations; radius 32 takes
+0.771 ms and 161,112 bytes/six allocations. These measure added components,
+not the total warm-join overhead. All measurements used Linux/amd64 Go 1.27.3,
+AMD EPYC 9V74, `GOMAXPROCS=5` and archive-compatible `GOFLAGS=-buildvcs=false`.
+They establish no hard latency guarantee, sustained TPS or player-capacity claim.
+
+```sh
+MCGO_COLD_JOIN_REPORT=/tmp/join-probes.jsonl GOMAXPROCS=5 go test ./tests/blackbox -run '^TestColdJoinResponsiveness$' -count=5 -timeout=5m -v
+GOMAXPROCS=5 go test ./internal/server -run '^$' -bench '^BenchmarkJoinPreparation(Quantum|WarmAdmission|Plan)$' -benchmem -benchtime=100ms -count=3
 ```
 
 ## Conformance and provenance

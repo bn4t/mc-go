@@ -637,13 +637,24 @@ func TestMobSummonAttackPackets(t *testing.T) {
 		if eid != pigEID {
 			continue
 		}
-		index, _ := r.Byte()
-		typ, _ := r.VarInt()
-		health, err := r.Float()
-		if index != 9 || typ != 3 || err != nil || health != 10 {
-			t.Fatalf("spawn metadata = index %d type %d health %v err %v", index, typ, health, err)
+		sawHealth := false
+		scanMobLifecycleMetadata(t, r, func(index byte, typ int32) bool {
+			if index != 9 {
+				return false
+			}
+			if typ != 3 {
+				t.Fatalf("spawn health serializer = %d, want float", typ)
+			}
+			health, err := r.Float()
+			if err != nil || health != 10 {
+				t.Fatalf("spawn health = %v, want 10 (error %v)", health, err)
+			}
+			sawHealth = true
+			return true
+		})
+		if sawHealth {
+			break
 		}
-		break
 	}
 
 	// Past the tick-1 dirty-resend, then hit it ten times spaced past
@@ -691,38 +702,50 @@ func TestMobSummonAttackPackets(t *testing.T) {
 			}
 		case server.IDPlayEntityMetadata:
 			r := protocol.NewPacketReader(p.Data)
-			eid, _ := r.VarInt()
-			index, _ := r.Byte()
-			typ, _ := r.VarInt()
+			eid, err := r.VarInt()
+			if err != nil {
+				t.Fatalf("combat metadata entity: %v", err)
+			}
 			switch eid {
 			case pigEID:
-				if index != 9 || typ != 3 {
-					t.Fatalf("health metadata = index %d type %d", index, typ)
-				}
-				h, err := r.Float()
-				if err != nil {
-					t.Fatalf("health metadata: %v", err)
-				}
-				// Dirty metadata can resend the same health after the
-				// immediate hit update. It must never increase; the final
-				// health, removal and porkchop checks still require death.
-				if h > lastHealth {
-					t.Fatalf("health increased: %v -> %v", lastHealth, h)
-				}
-				lastHealth = h
+				scanMobLifecycleMetadata(t, r, func(index byte, typ int32) bool {
+					if index != 9 {
+						return false
+					}
+					if typ != 3 {
+						t.Fatalf("health serializer = %d, want float", typ)
+					}
+					h, err := r.Float()
+					if err != nil || math.IsNaN(float64(h)) || h < 0 {
+						t.Fatalf("health metadata = %v (error %v)", h, err)
+					}
+					// The measured death pack carries pose before health;
+					// dirty resends may repeat either entry. Health may
+					// never increase, regardless of entry ordering.
+					if h > lastHealth {
+						t.Fatalf("health increased: %v -> %v", lastHealth, h)
+					}
+					lastHealth = h
+					return true
+				})
 			case dropEID:
-				if dropEID == 0 || index != 8 || typ != 7 {
-					t.Fatalf("loot metadata = index %d type %d", index, typ)
-				}
-				count, err := r.VarInt()
-				if err != nil || count < 1 || count > 3 {
-					t.Fatalf("porkchop count = %d, err %v", count, err)
-				}
-				id, err := r.VarInt()
-				if err != nil || id != world.ItemIDs["porkchop"] {
-					t.Fatalf("loot item = %d, err %v (want porkchop %d)", id, err, world.ItemIDs["porkchop"])
-				}
-				sawDropMeta = true
+				scanMobLifecycleMetadata(t, r, func(index byte, typ int32) bool {
+					if index != 8 {
+						return false
+					}
+					if dropEID == 0 || typ != 7 {
+						t.Fatalf("loot metadata = index %d type %d", index, typ)
+					}
+					item, err := readSlotBB(r)
+					if err != nil || item.Count < 1 || item.Count > 3 {
+						t.Fatalf("porkchop count = %d, err %v", item.Count, err)
+					}
+					if item.ID != world.ItemIDs["porkchop"] {
+						t.Fatalf("loot item = %d (want porkchop %d)", item.ID, world.ItemIDs["porkchop"])
+					}
+					sawDropMeta = true
+					return true
+				})
 			}
 		case server.IDPlayRemoveEntity:
 			r := protocol.NewPacketReader(p.Data)
@@ -741,6 +764,37 @@ func TestMobSummonAttackPackets(t *testing.T) {
 	}
 	if lastHealth > 1 {
 		t.Fatalf("final health = %v, want <= 1", lastHealth)
+	}
+}
+
+// Entity metadata is a terminated entry stream, not one fixed field. The
+// existing measured death pack (TestDataEntityParity) includes DYING pose
+// before health zero; unknown or malformed values must remain test failures.
+func scanMobLifecycleMetadata(t *testing.T, r *protocol.PacketReader, consume func(byte, int32) bool) {
+	t.Helper()
+	seen := map[byte]bool{}
+	for {
+		index, err := r.Byte()
+		if err != nil {
+			t.Fatalf("metadata missing terminator: %v", err)
+		}
+		if index == 0xff {
+			if r.Remaining() != 0 {
+				t.Fatalf("metadata has %d trailing bytes", r.Remaining())
+			}
+			return
+		}
+		if seen[index] {
+			t.Fatalf("duplicate metadata index %d", index)
+		}
+		seen[index] = true
+		typ, err := r.VarInt()
+		if err != nil || typ < 0 || typ > 255 {
+			t.Fatalf("metadata serializer = %d (error %v)", typ, err)
+		}
+		if !consume(index, typ) && !skipMetaVal(r, byte(typ)) {
+			t.Fatalf("unsupported or malformed metadata index %d serializer %d", index, typ)
+		}
 	}
 }
 
@@ -813,24 +867,33 @@ func TestMobXPOrbPackets(t *testing.T) {
 	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
 		s.GameMode = server.GameModeSurvival
 	})
-	c, pr, pw := joinPlayBlackbox(t, addr, "Learner")
+	mobXPOrbPackets(t, addr, "Learner")
+}
+
+func mobXPOrbPackets(t *testing.T, addr, name string) {
+	t.Helper()
+	c, pr, pw := joinPlayBlackbox(t, addr, name)
 	defer c.Close()
 	drainToJoinBlackbox(t, "learner", pr)
-	drainToQuietBlackbox(t, c, pr, 400*time.Millisecond)
+	awaitPlayReadyBlackbox(t, "learner", c, pr, pw)
 	_ = c.SetDeadline(time.Now().Add(20 * time.Second))
 
 	// A netherite axe one-shots the pig; burst bare-hand hits would be
 	// swallowed by the 10-tick post-hit invulnerability window.
-	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "item replace entity @s weapon.mainhand with netherite_axe")
-	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "summon minecraft:pig ~ ~ ~ {NoAI:1b}")
+	sendCommand(t, pw, "item replace entity @s weapon.mainhand with netherite_axe")
+	sendCommand(t, pw, "summon minecraft:pig ~ ~ ~ {NoAI:1b}")
 
 	orbType, _ := server.EntityTypeID("experience_orb")
+	pigType, _ := server.EntityTypeID("pig")
 	// Wait for the pig spawn, learn its id, then kill it.
 	var pigEID int32
 	for {
 		p, err := pr.ReadPacket()
 		if err != nil {
 			t.Fatalf("waiting pig: %v", err)
+		}
+		if p.ID == server.IDPlayDisconnect {
+			t.Fatalf("disconnected while waiting pig: %s", chatTextBlackbox(t, p.Data))
 		}
 		if p.ID != server.IDPlaySpawnEntity {
 			continue
@@ -841,25 +904,47 @@ func TestMobXPOrbPackets(t *testing.T) {
 			t.Fatal(err)
 		}
 		typ, _ := r.VarInt()
-		if typ == orbType {
+		if typ != pigType {
 			continue
 		}
 		pigEID = eid
 		break
 	}
-	go func() {
-		for i := 0; i < 3; i++ {
-			var atk protocol.Buffer
-			atk.VarInt(pigEID)
-			if err := pw.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
-				return
-			}
-			time.Sleep(650 * time.Millisecond)
+	// Charge the axe for twenty actual player ticks after setup, using
+	// the same play_time wire barrier as TestSurvivalAttackPackets.
+	// Wall-clock sleeps do not establish charge when owner work delays
+	// ticks; /tick step advances world ticks rather than this player timer.
+	playTimeID, ok := server.CustomStatID("play_time")
+	if !ok {
+		t.Fatal("missing play_time custom statistic")
+	}
+	var pos [3]float64
+	deadline := time.Now().Add(10 * time.Second)
+	var played int32
+	for _, row := range drainStats(t, c, pr, pw, &pos, time.Until(deadline)) {
+		if row.cat == 8 && row.id == playTimeID {
+			played = row.val
 		}
-	}()
+	}
+	target := played + 20
+	for played < target && time.Now().Before(deadline) {
+		for _, row := range drainStats(t, c, pr, pw, &pos, time.Until(deadline)) {
+			if row.cat == 8 && row.id == playTimeID {
+				played = row.val
+			}
+		}
+	}
+	if played < target {
+		t.Fatalf("axe charge completed %d player ticks, want %d", played, target)
+	}
+	var atk protocol.Buffer
+	atk.VarInt(pigEID)
+	if err := pw.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	_ = c.SetDeadline(time.Now().Add(20 * time.Second))
 
-	// The orb spawns after the pig's removal; attacks spaced past the
-	// 10-tick post-hit invulnerability window so every hit lands.
+	// Exactly one charged hit must retain the killer's XP credit.
 	var orbEID, orbValue int32
 	for {
 		p, err := pr.ReadPacket()
@@ -932,6 +1017,7 @@ func TestMobXPOrbPackets(t *testing.T) {
 			}
 		}
 	}
+	t.Logf("%s: one charged axe hit after player ticks %d/%d; orb value %d matched XP total and removal", name, played, target, orbValue)
 }
 
 // TestMobWanderPackets proves the wander AI reaches the wire: after

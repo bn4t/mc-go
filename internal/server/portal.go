@@ -47,7 +47,7 @@ func (s *Server) gameRuleBool(name string) bool {
 func (s *Server) portalTickStep() {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.state.Load() != StatePlay || sess.dead || sess.mode() == GameModeSpectator {
+		if !sess.gameplayTickReady() || sess.dead || sess.mode() == GameModeSpectator {
 			return true
 		}
 		x, y, z, _, _, _ := sess.Pos()

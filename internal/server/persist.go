@@ -376,16 +376,23 @@ func (s *Server) LoadServerData() error {
 	return nil
 }
 
-// applySavedPlayer loads a player's stored state into a joining
-// session, if any. Entries keyed by player name come from the JSON
-// store; entries a vanilla-format world loaded come keyed by uuid.
-func (s *Server) applySavedPlayer(sess *Session) {
+// savedPlayerForSession reads the same in-memory login record for preparation
+// and final restoration. Callers must not mutate its referenced maps or slices.
+func (s *Server) savedPlayerForSession(sess *Session) (playerPersist, bool) {
 	s.savedPlayersMu.Lock()
+	defer s.savedPlayersMu.Unlock()
 	p, ok := s.savedPlayers[sess.getName()]
 	if !ok {
 		p, ok = s.savedPlayers[DashUUID(sess.getUUID())]
 	}
-	s.savedPlayersMu.Unlock()
+	return p, ok
+}
+
+// applySavedPlayer loads a player's stored state into a joining
+// session, if any. Entries keyed by player name come from the JSON
+// store; entries a vanilla-format world loaded come keyed by uuid.
+func (s *Server) applySavedPlayer(sess *Session) {
+	p, ok := s.savedPlayerForSession(sess)
 	if !ok {
 		return
 	}

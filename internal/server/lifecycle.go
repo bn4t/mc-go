@@ -353,6 +353,7 @@ func (s *Server) Shutdown(reason string) {
 	if stop != nil {
 		stop()
 	}
+	s.stopJoinPreparation()
 	s.connections.Wait()
 	s.stopPlugins()
 	// Drain an in-flight external action before retiring shard workers. Public

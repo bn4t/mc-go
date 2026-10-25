@@ -230,7 +230,7 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 func (s *Server) eatTickStep() {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.eatingTicks <= 0 {
+		if !sess.gameplayTickReady() || sess.eatingTicks <= 0 {
 			return true
 		}
 		held := sess.heldStack()
