@@ -14669,3 +14669,69 @@ no flee; unsneak → flee). Green both legs.
   (2.262s/1.021s); current default conformance tests pass in 1.131s.
   These are wire/data facts and independently written tools; no oracle jar,
   decompiled source or copied implementation structure is committed.
+
+## Slice — admitted Java 775/776 profiles over one authoritative world (2026-10-25)
+
+- **Measured:** official reports identify all builtin registry domains; captured
+  configuration supplies dynamic names and IDs. Runtime reflection records
+  157/158 entity schemas, 2,523/2,548 metadata accessors, 43 serializers,
+  18 poses and seven enum sets. Public codec observations pin spawn, attribute,
+  effect, profile/skin and metadata layouts, including slime size at 16/18.
+  Thirty-two actual slot bodies cover 16 representative component cases per
+  version. Controlled live creative/plain/damage and equipment probes prove
+  damage 7 applies in creative and remains 7 after an attempted survival 9,
+  with authoritative mode/position barriers. Particle/sound/explosion, old bed
+  renderer data and non-master direct SoundEvent holders have paired wire
+  facts; fixture manifests retain oracle, source, probe and body hashes.
+- **Implemented:** Java 26.1/775 and 26.2/776 admission, status selection and
+  profile dispatch share the serial simulation owner. Canonical item/entity
+  handles retain existing 776 behavior-table order; named projections cover
+  builtin/configured IDs, bounded trusted/untrusted/nested item components,
+  equipment, metadata/accessors, attributes/effects, statistics, recipes and
+  presentation events. Ingress resolves source-profile IDs before mutation.
+  Profile-native recipe/display data includes inverse click/seen/removal
+  mapping, stonecutter filtering and advancement icons. Immutable chunk inputs
+  resolve biome/BE IDs on the owner; 775 bed head/foot records are synthesized
+  from detached states, preserving worker reservations and output FIFO budgets.
+  Explicit visual-fallback section counts reflect encoded palette states while
+  authoritative heightmaps and world state remain unchanged.
+- **Containment:** conversion completes before packet admission and charges
+  projected output bytes. Unknown/unmodeled semantic inputs reject before
+  mutation; mandatory missing state retires only that viewer without rewriting
+  canonical state or another viewer's payload. Standalone unavailable cosmetics
+  may be omitted; enclosing mandatory explosion carriers fail closed. Five
+  newer attributes and known unavailable optional counters are omitted for 775,
+  without claiming equivalent old-client physics. Particle commands reject
+  unsupported inline/component options rather than silently dropping them.
+- **Ordering:** a full-suite run exposed StatePlay publication before owned
+  Join admission, allowing periodic time sync to precede Join. Publication now
+  follows successful Join FIFO admission inside the owner. Deterministic blocked
+  enqueue and rejected-budget tests cover both profiles without relaxing the
+  strict first-Join client grammar; failed Join never publishes Play.
+- **Pinned:** exact paired slots/codecs/recipes/command bodies, per-viewer
+  projection permutations, malformed/NBT/count/cycle bounds, source immutability,
+  no partial packet admission, projected byte charging and recipient isolation.
+  Actual mixed TCP tests independently decode all 49 columns, observe both
+  directions of movement/collision correction, items/equipment, placement/dig,
+  recipe clicks and dimension transitions. The legacy equipment fixture now
+  waits for authoritative give/click slot and cursor acknowledgments before a
+  second connection joins, retaining its exact initial pairing assertion.
+  Missing-state snapshot failure retires 775 while 776 receives the exact
+  committed cinnabar state. Current production passes
+  core default tests (273.623s) and the full blackbox package (91.963s); the
+  subsequent containment setup is verified under race instrumentation. Build
+  and vet pass, API/conformance/public races pass, and integrated server races
+  pass in 41.796s. Real mixed races pass for entity pairing (16.59s), shared
+  mutations (17.16s) and strict snapshot containment (35.014s). That last
+  fixture separates a 16.482s instrumented cold setup from a 17.46ms retirement
+  observation; these are test-phase observations, not throughput benchmarks.
+  Seven selected live-oracle tests pass in 148.670s, including all seven portable
+  scenarios independently against each official profile. Publication additionally
+  validates actual committed source through a clean archive build and separate
+  public consumer module.
+- **Remaining:** gameplay rules remain 26.2 and the strict 775 block projection
+  still lacks 2,493 newer states. Legacy numeric item JSON saves are not migrated.
+  Neutral player admission/replication, more typed core events and plugin mutation
+  APIs, regional ownership/parallel simulation and sustained load benchmarks
+  remain unfinished. This slice establishes no TPS, latency or player-capacity
+  claim and does not complete the parity matrix.

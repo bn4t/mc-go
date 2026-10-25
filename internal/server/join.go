@@ -32,6 +32,16 @@ var updateRecipesBody []byte
 // decodes to exactly the data pack's smelting inputs, which is the
 // check the capture is the default registry and not server state.
 func (s *Server) sendUpdateRecipes(sess *Session) error {
+	profile, err := sess.javaProfile()
+	if err != nil {
+		return err
+	}
+	if profile.version.Protocol == 775 {
+		if _, err = load775RecipeAssets(); err != nil {
+			return err
+		}
+		return sess.write(sess.ids().PlayUpdateRecipes, java775UpdateRecipes)
+	}
 	return sess.write(sess.ids().PlayUpdateRecipes, updateRecipesBody)
 }
 
@@ -106,7 +116,7 @@ func (s *Server) sendRecipeBookAdd(sess *Session) error {
 	var b, entries protocol.Buffer
 	n := 0
 	for _, idx := range idxs {
-		n += recipeEntry(&entries, idx, 0)
+		n += recipeEntryForSession(sess, &entries, idx, 0)
 	}
 	b.VarInt(int32(n))
 	b.Raw(entries.Bytes())
@@ -133,6 +143,19 @@ func (s *Server) sendRecipeBookUnlock(sess *Session) error {
 		}
 	}
 	sess.markRecipesUnlocked("crafting_table")
+	profile, err := sess.javaProfile()
+	if err != nil {
+		return err
+	}
+	if profile.version.Protocol == 775 {
+		index := recipeIndex["crafting_table"]
+		var entries, body protocol.Buffer
+		count := recipeEntryForSession(sess, &entries, index, 2)
+		body.VarInt(int32(count))
+		body.Raw(entries.Bytes())
+		body.Bool(false)
+		return sess.write(sess.ids().PlayRecipeBookAdd, body.Bytes())
+	}
 	return sess.write(sess.ids().PlayRecipeBookAdd, recipeBookUnlock)
 }
 
@@ -318,7 +341,7 @@ func (s *Server) sendEntityHealthMetadata(sess *Session, eid int32, health float
 	b.Byte(3) // type: float
 	b.Float(health)
 	b.Byte(0xFF) // metadata terminator
-	return sess.write(sess.ids().PlayEntityMetadata, b.Bytes())
+	return sess.writeMetadata776(mustEntityType("player"), b.Bytes())
 }
 
 // sendSetExperience syncs the XP bar, level, and total.

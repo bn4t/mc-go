@@ -693,6 +693,8 @@ func TestMcGoOnlyPlaceBlock(t *testing.T) {
 		b.Short(36) // hotbar slot 0 in the player inventory menu
 		b.VarInt(1)
 		b.VarInt(1) // stone item, see server.ItemStone
+		b.VarInt(0) // complete empty component patch
+		b.VarInt(0)
 		if err := pwb.WritePacket(server.IDPlayCreativeSlotSB, b.Bytes()); err != nil {
 			t.Fatal(err)
 		}

@@ -59,6 +59,14 @@ func (sess *Session) closeQueueLocked() {
 // progress. Once admission fails the connection closes, since continuing after
 // an omitted game-state packet would leave the client's state inconsistent.
 func (sess *Session) write(id int32, data []byte) error {
+	projected, err := sess.projectJavaOutbound(id, data)
+	if err != nil {
+		if !errors.Is(err, ErrJavaUnsupportedCosmetic) {
+			sess.closeQueue()
+		}
+		return err
+	}
+	data = projected
 	return sess.enqueue(sendPkt{id: id, data: data, charge: int64(len(data)) + int64(protocol.VarIntLen(id))})
 }
 

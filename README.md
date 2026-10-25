@@ -16,8 +16,9 @@ The living parity matrix and the slice-by-slice progress log are in
 [GOAL.md](GOAL.md). [ARCHITECTURE.md](ARCHITECTURE.md) documents runtime
 ownership, public extension boundaries, canonical block identities, detached
 chunk encoding and measured costs. Gameplay still uses one simulation owner.
-Parallel regions, canonical item/entity mappings and a second admitted game
-protocol remain future stages.
+Measured Java 26.1/775 and 26.2/776 clients now share that world. Parallel
+regions, remaining numeric-save migrations and neutral frontend admission/
+replication remain future stages.
 
 ## Clean-room rules
 
@@ -54,12 +55,12 @@ protocol remain future stages.
   `internal/plugin/` — NBT codec, loot engine, event bus, plugin API.
 - `api/event/`, `api/plugin/`, `api/frontend/`, `api/registry/`, `server/` — public
   extension contracts and runtime constructor, usable by external modules.
-  Frontend actions currently operate on existing players; Java 776 remains
-  the sole bundled game protocol.
+  Frontend actions currently operate on existing players; the bundled Java
+  frontend accepts measured 26.1/775 and 26.2/776 wire profiles.
 - `plugins/` — example plugins (`hello`, `anticheat`).
 - `conformance/`, `cmd/mc-conformance/` — portable TCP smoke profile,
   endpoint manifests, JSON results and bounded wire transcripts for measured
-  Java 775 and 776 profiles. Runner coverage does not enable 775 server login.
+  Java 775 and 776 profiles. Smoke coverage is separate from gameplay coverage.
 - `tests/blackbox/` — the differential parity suite (build tag
   compatibility retained; oracle execution is enabled at runtime).
 - `tools/gen*` — generators that read the vanilla jar/datagen output and
@@ -101,19 +102,28 @@ Useful flags (see `cmd/mc-go/main.go` for all of them):
   whitelist.json, banned-*.json).
 - `-gamemode` — default game mode (survival, creative, adventure,
   spectator).
-- `-frontend` — protocol frontend; `java` is the 26.2 Java Edition one.
+- `-frontend` — protocol frontend; `java` accepts Java Edition 26.1 and 26.2.
 - `-rcon-password`, `-enable-query` — vanilla RCON/GameSpy4 surfaces.
 - `-save-interval` — autosave period.
 
-Join with a vanilla 26.2 client pointed at `localhost:25565`; the server
+Join with a vanilla 26.1 or 26.2 client at `localhost:25565`; the server
 runs offline mode, so any username works.
 
-Java profile metadata is available through `server.JavaProfiles`. The 775
-candidate reports its measured codecs and missing admission gates; supported
-login versions remain limited to 776. JSON block override saves write complete
-canonical state keys in version 2 and read historical version 1 IDs through
-their 776 mapping. Native region-format persistence keeps its existing
-names/properties encoding.
+Java profile metadata is available through `server.JavaProfiles`. Both profiles
+share one authoritative world and 26.2 gameplay rules. The 775 block mapping
+represents 29,873 states; 2,493 newer states have no exact representation. Strict
+mandatory-state failures retire the affected viewer; projection never
+substitutes or rewrites authoritative state, and compatible viewers continue.
+Some newer optional counters, attributes and cosmetics are omitted. The server
+rejects unknown or unmodeled component input before mutation. This does not
+establish complete 26.1 gameplay or client-physics parity. The neutral frontend
+API still provides existing-player actions rather than player admission or
+world replication.
+
+JSON block override saves write complete canonical state keys in version 2 and
+read historical version 1 IDs through their 776 mapping. Native region-format
+persistence keeps its existing names/properties encoding. Legacy item JSON
+numeric persistence has not been migrated to catalog-independent keys.
 
 ## Testing
 
@@ -130,7 +140,7 @@ wire-visible behavior. Oracle comparisons skip with an explicit reason unless
 
 - `MCGO_VANILLA_JAR` — path to the oracle jar (default
   `vanilla/server-26.2.jar`).
-- `MCGO_VANILLA_775_JAR` — optional 26.1 oracle for the portable runner's
+- `MCGO_VANILLA_775_JAR` — optional 26.1 oracle for the measured
   775 profile (default `vanilla/server-26.1.jar`).
 - `MCGO_TARGET=host:port` — run the same suite against an already
   running external server instead of an in-process mc-go; this is how

@@ -589,12 +589,13 @@ func (s *Server) broadcastSleepMeta(sess *Session, head world.Pos, asleep bool) 
 	}
 	b.Byte(0xFF)
 	body := b.Bytes()
+	cache := javaEntityBodyCache{}
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
 		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
 			return true
 		}
-		_ = other.write(other.ids().PlayEntityMetadata, body)
+		_ = cache.writeMetadata(other, mustEntityType("player"), body)
 		return true
 	})
 }

@@ -22,16 +22,25 @@ import (
 // stonecutterEnsure rebuilds c's recipe list when the input's item id
 // differs from what the list was built for, resetting the selection.
 func stonecutterEnsure(c *containerData, in ItemStack) {
+	stonecutterEnsureProfile(c, in, nil)
+}
+
+func stonecutterEnsureProfile(c *containerData, in ItemStack, p *javaProfile) {
+	number := int32(776)
+	if p != nil {
+		number = p.version.Protocol
+	}
 	if in.Empty() {
 		c.stoneInput = -1
 		c.stoneSel = -1
 		c.stoneRecipes = nil
 		return
 	}
-	if c.stoneInput == in.ID && c.stoneRecipes != nil {
+	if c.stoneInput == in.ID && c.stoneProtocol == number && c.stoneRecipes != nil {
 		return
 	}
 	c.stoneInput = in.ID
+	c.stoneProtocol = number
 	c.stoneSel = -1
 	c.stoneRecipes = nil
 	name, ok := itemNameOf(in.ID)
@@ -42,6 +51,12 @@ func stonecutterEnsure(c *containerData, in ItemStack) {
 		r := &data.Recipes[i]
 		if r.Type != data.Stonecutting || len(r.Ingredients) != 1 {
 			continue
+		}
+		if p != nil {
+			ids, err := p.recipeDisplayIDs(i)
+			if err != nil || len(ids) == 0 {
+				continue
+			}
 		}
 		if r.Ingredients[0].Accepts(name) {
 			c.stoneRecipes = append(c.stoneRecipes, i)
@@ -69,7 +84,8 @@ func stonecutterOutput(c *containerData) ItemStack {
 func stonecutterSync(sess *Session, c *containerData, w *openWindow, touched *[]int) {
 	in := sess.menuStack(stonecutterInput)
 	w.dim.containers.mu.Lock()
-	stonecutterEnsure(c, in)
+	p, _ := sess.javaProfile()
+	stonecutterEnsureProfile(c, in, p)
 	out := stonecutterOutput(c)
 	w.dim.containers.mu.Unlock()
 	if sess.menuStack(stonecutterResult) != out {
@@ -85,7 +101,8 @@ func (s *Server) stonecutterSelect(sess *Session, w *openWindow, button int32) {
 	c := w.container
 	in := sess.menuStack(stonecutterInput)
 	w.dim.containers.mu.Lock()
-	stonecutterEnsure(c, in)
+	p, _ := sess.javaProfile()
+	stonecutterEnsureProfile(c, in, p)
 	valid := button >= 0 && int(button) < len(c.stoneRecipes)
 	if valid {
 		c.stoneSel = button

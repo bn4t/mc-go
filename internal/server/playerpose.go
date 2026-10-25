@@ -136,6 +136,7 @@ func (s *Server) poseFlush(sess *Session) {
 	b.VarInt(actual)
 	b.Byte(0xFF)
 	body := b.Bytes()
+	cache := javaEntityBodyCache{}
 	s.sessions.Range(func(_, v any) bool {
 		os := v.(*Session)
 		if os.state.Load() != StatePlay || !os.spawned.Load() {
@@ -144,7 +145,7 @@ func (s *Server) poseFlush(sess *Session) {
 		if os != sess && !os.tracksEntity(eid) {
 			return true
 		}
-		_ = os.write(os.ids().PlayEntityMetadata, body)
+		_ = cache.writeMetadata(os, mustEntityType("player"), body)
 		return true
 	})
 }

@@ -438,6 +438,7 @@ type containerData struct {
 	// drops the selection. -1 means nothing selected / no input.
 	stoneSel     int32
 	stoneInput   int32
+	stoneProtocol int32
 	stoneRecipes []int
 	// loomSel is the loom's selectedBannerPatternIndex DataSlot — the
 	// selected pattern index broadcast on Container Property 0, -1 when
@@ -653,9 +654,9 @@ func (s *Server) sendContainerMenuContent(sess *Session) {
 	b.VarInt(state)
 	b.VarInt(int32(w.menuSize()))
 	for i := 0; i < w.menuSize(); i++ {
-		writeSlot(&b, sess.menuStack(i))
+		sess.writeSlot(&b, sess.menuStack(i))
 	}
-	writeSlot(&b, sess.carried)
+	sess.writeSlot(&b, sess.carried)
 	_ = sess.write(sess.ids().PlayContainerContent, b.Bytes())
 }
 
@@ -1255,7 +1256,7 @@ func (s *Server) syncContainerMenuSlots(sess *Session, w *openWindow, touched []
 		b.VarInt(w.id)
 		b.VarInt(state)
 		b.Short(int16(slot))
-		writeSlot(&b, sess.menuStack(slot))
+		sess.writeSlot(&b, sess.menuStack(slot))
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}
 	_ = s.sendCarriedItem(sess, sess.carriedBuffer())
@@ -1296,8 +1297,10 @@ func (s *Server) handleContainerClickPacket(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
-	readChangedSlots(r)
-	if _, err := readSlot(r); err != nil { // carried item
+	if _, ok := sess.readChangedSlots(r); !ok {
+		return
+	}
+	if _, ok := sess.readHashedSlot(r); !ok || r.Remaining() != 0 { // carried item
 		return
 	}
 	if w.merchant != nil {
@@ -1553,7 +1556,7 @@ func (s *Server) brewingTick(d *dimension, pos world.Pos, c *containerData) {
 			b.VarInt(w.id)
 			b.VarInt(sess.windowState)
 			b.Short(int16(i))
-			writeSlot(&b, slots[i])
+			sess.writeSlot(&b, slots[i])
 			_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 		}
 		return true

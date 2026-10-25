@@ -14,12 +14,16 @@ import (
 type chunkSnapshot struct {
 	cx, cz        int
 	height        int
+	minY          int
 	biome         int32
 	states        []world.Block
 	blockEntities []chunkSnapshotBlockEntity
 	light         []byte
 	mapping       *registry.BlockMapping
 	catalog       *registry.BlockCatalog
+	projectionErr error
+	bedType       int32
+	bedStates     []bool // Shared immutable canonical-state membership.
 }
 
 type chunkSnapshotBlockEntity struct {
@@ -41,22 +45,53 @@ func chunkSnapshotUpperBound(d *dimension, blockEntities []clientBlockEntity) in
 }
 
 func captureChunkSnapshot(d *dimension, cx, cz int, blockEntities []clientBlockEntity, mapping *registry.BlockMapping) *chunkSnapshot {
+	profile, _ := javaProfileFor(776)
+	return captureProjectedChunkSnapshot(d, cx, cz, blockEntities, mapping, profile)
+}
+
+// captureChunkSnapshotForProfile resolves all non-block registry IDs on the
+// simulation owner. Workers receive only detached payloads and immutable block
+// projections, never a mutable session or a live configuration registry.
+func captureChunkSnapshotForProfile(d *dimension, cx, cz int, blockEntities []clientBlockEntity, profile *javaProfile) *chunkSnapshot {
+	return captureProjectedChunkSnapshot(d, cx, cz, blockEntities, profile.blocks, profile)
+}
+
+func captureProjectedChunkSnapshot(d *dimension, cx, cz int, blockEntities []clientBlockEntity, mapping *registry.BlockMapping, profile *javaProfile) *chunkSnapshot {
 	snapshot := &chunkSnapshot{
-		cx: cx, cz: cz, height: d.height, biome: biomeID(d.biome), mapping: mapping, catalog: world.BlockCatalog(),
-		states:        make([]world.Block, 16*d.height*16),
-		blockEntities: make([]chunkSnapshotBlockEntity, len(blockEntities)),
+		cx: cx, cz: cz, height: d.height, minY: d.minY, mapping: mapping, catalog: world.BlockCatalog(), bedType: -1,
 	}
+	if profile.version.Protocol == 775 {
+		var err error
+		snapshot.bedType, err = profile.builtinRegistryID("minecraft:block_entity_type", "minecraft:bed")
+		if err != nil {
+			snapshot.projectionErr = err
+			return snapshot
+		}
+		snapshot.bedStates = legacyBedStates()
+	}
+	snapshot.biome = profile.registryEntryID("minecraft:worldgen/biome", d.biome)
+	if snapshot.biome < 0 {
+		snapshot.projectionErr = fmt.Errorf("Java protocol %d has no biome %q", profile.version.Protocol, d.biome)
+		return snapshot
+	}
+	snapshot.blockEntities = make([]chunkSnapshotBlockEntity, len(blockEntities))
+	for i, be := range blockEntities {
+		wire, err := profile.projectBuiltinRegistryID("minecraft:block_entity_type", be.spec.id)
+		if err != nil {
+			snapshot.projectionErr = err
+			return snapshot
+		}
+		snapshot.blockEntities[i] = chunkSnapshotBlockEntity{
+			localXZ: byte(be.pos.X&15)<<4 | byte(be.pos.Z&15), y: int16(be.pos.Y),
+			typeID: wire, nbt: make([]byte, len(be.nbt)),
+		}
+		copy(snapshot.blockEntities[i].nbt, be.nbt)
+	}
+	snapshot.states = make([]world.Block, 16*d.height*16)
 	d.w.FillBox(
 		world.Pos{X: cx * 16, Y: d.minY, Z: cz * 16},
 		world.Pos{X: cx*16 + 15, Y: d.minY + d.height - 1, Z: cz*16 + 15}, snapshot.states,
 	)
-	for i, be := range blockEntities {
-		snapshot.blockEntities[i] = chunkSnapshotBlockEntity{
-			localXZ: byte(be.pos.X&15)<<4 | byte(be.pos.Z&15), y: int16(be.pos.Y),
-			typeID: be.spec.id, nbt: make([]byte, len(be.nbt)),
-		}
-		copy(snapshot.blockEntities[i].nbt, be.nbt)
-	}
 	light := encodeLightDataFor(d, cx, cz)
 	snapshot.light = make([]byte, len(light))
 	copy(snapshot.light, light)
@@ -78,11 +113,18 @@ func (snapshot *chunkSnapshot) retainedBytes() int64 {
 // same Chunk Data and Update Light body as the synchronous encoder; it never
 // consults current blocks, lighting, registries, or a player's current dimension.
 func encodeChunkSnapshot(snapshot *chunkSnapshot) ([]byte, error) {
+	if snapshot.projectionErr != nil {
+		return nil, snapshot.projectionErr
+	}
 	if snapshot.mapping == nil {
 		return nil, fmt.Errorf("chunk snapshot has no block mapping")
 	}
 	if snapshot.mapping.Catalog() != snapshot.catalog {
 		return nil, fmt.Errorf("chunk snapshot block mapping belongs to another catalog")
+	}
+	air, ok := snapshot.mapping.Lookup(world.Air)
+	if !ok {
+		return nil, fmt.Errorf("chunk block mapping lacks an exact air state")
 	}
 	var b protocol.Buffer
 	b.Int(int32(snapshot.cx))
@@ -108,7 +150,10 @@ func encodeChunkSnapshot(snapshot *chunkSnapshot) ([]byte, error) {
 				return nil, fmt.Errorf("encode chunk %d,%d: %w", snapshot.cx, snapshot.cz, err)
 			}
 			vals[i] = wire
-			if block != world.Air {
+			// Section counts describe the encoded presentation. A visual
+			// fallback may turn an authoritative solid into target air.
+			// Heightmaps above continue to describe authoritative geometry.
+			if wire != air {
 				blockCount++
 			}
 		}
@@ -119,7 +164,15 @@ func encodeChunkSnapshot(snapshot *chunkSnapshot) ([]byte, error) {
 	}
 	b.VarInt(int32(data.Len()))
 	b.Raw(data.Bytes())
-	b.VarInt(int32(len(snapshot.blockEntities)))
+	bedCount := 0
+	if snapshot.bedType >= 0 {
+		for _, state := range snapshot.states {
+			if int(state) < len(snapshot.bedStates) && snapshot.bedStates[state] {
+				bedCount++
+			}
+		}
+	}
+	b.VarInt(int32(len(snapshot.blockEntities) + bedCount))
 	for _, be := range snapshot.blockEntities {
 		b.Byte(be.localXZ)
 		b.Short(be.y)
@@ -128,6 +181,18 @@ func encodeChunkSnapshot(snapshot *chunkSnapshot) ([]byte, error) {
 			b.Byte(0)
 		} else {
 			b.Raw(be.nbt)
+		}
+	}
+	if bedCount != 0 {
+		for index, state := range snapshot.states {
+			if int(state) >= len(snapshot.bedStates) || !snapshot.bedStates[state] {
+				continue
+			}
+			x, z := index%16, (index/16)%16
+			b.Byte(byte(x<<4 | z))
+			b.Short(int16(index/256 + snapshot.minY))
+			b.VarInt(snapshot.bedType)
+			b.Byte(0)
 		}
 	}
 	b.Raw(snapshot.light)

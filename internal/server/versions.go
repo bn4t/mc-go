@@ -405,8 +405,13 @@ func sb(name string) int32 { return officialID(PacketStatePlay, PacketDirServerb
 
 // SupportedVersions returns the versions this server speaks.
 func SupportedVersions() []Version {
-	out := make([]Version, len(supportedVersions))
-	copy(out, supportedVersions)
+	loadJavaProfiles()
+	out := make([]Version, 0, len(javaProfileSet.profiles))
+	for _, number := range []int32{775, ProtocolVersion} {
+		if p, ok := javaProfileFor(number); ok && p.admitted {
+			out = append(out, p.version)
+		}
+	}
 	return out
 }
 
@@ -417,14 +422,9 @@ func LatestVersion() Version {
 
 // NegotiateVersion selects the table for a handshake protocol number.
 func NegotiateVersion(proto int32) (Version, bool) {
-	for _, v := range supportedVersions {
-		if v.Protocol == proto {
-			p, ok := javaProfileFor(proto)
-			if !ok || p.admissionError() != nil {
-				return Version{}, false
-			}
-			return v, true
-		}
+	p, ok := javaProfileFor(proto)
+	if !ok || p.admissionError() != nil {
+		return Version{}, false
 	}
-	return Version{}, false
+	return p.version, true
 }

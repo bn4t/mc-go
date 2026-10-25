@@ -164,17 +164,17 @@ func (s *Server) sendMerchantOffers(sess *Session, w *openWindow, e *Entity) {
 	for _, o := range e.Offers {
 		// ItemCost: item id varint, count varint, empty
 		// DataComponentExactPredicate.
-		b.VarInt(o.buy.ID)
-		b.VarInt(o.buy.Count)
-		b.VarInt(0)
-		writeSlot(&b, o.sell)
+		if !sess.writeMerchantCost(&b, o.buy) {
+			return
+		}
+		sess.writeSlot(&b, o.sell)
 		if o.buyB.Empty() {
 			b.Bool(false)
 		} else {
 			b.Bool(true)
-			b.VarInt(o.buyB.ID)
-			b.VarInt(o.buyB.Count)
-			b.VarInt(0)
+			if !sess.writeMerchantCost(&b, o.buyB) {
+				return
+			}
 		}
 		b.Bool(o.uses >= o.maxUses) // outOfStock
 		b.Int(o.uses)
@@ -191,6 +191,25 @@ func (s *Server) sendMerchantOffers(sess *Session, w *openWindow, e *Entity) {
 	_ = sess.write(sess.ids().PlayMerchantOffers, b.Bytes())
 }
 
+// ItemCost contains an item holder and an exact-component predicate rather
+// than a Slot. The currently modeled empty predicate still needs the target
+// profile's item holder; authoritative merchant costs remain canonical.
+func (sess *Session) writeMerchantCost(b *protocol.Buffer, it ItemStack) bool {
+	p, err := sess.javaProfile()
+	id := int32(-1)
+	if err == nil {
+		id, err = p.projectBuiltinRegistryID("minecraft:item", it.ID)
+	}
+	if err != nil {
+		sess.closeQueue()
+		return false
+	}
+	b.VarInt(id)
+	b.VarInt(it.Count)
+	b.VarInt(0)
+	return true
+}
+
 // sendMerchantContent syncs the merchant window: 3 menu slots + the
 // 36 player slots + carried, like sendContainerMenuContent.
 func (s *Server) sendMerchantContent(sess *Session, w *openWindow) {
@@ -202,9 +221,9 @@ func (s *Server) sendMerchantContent(sess *Session, w *openWindow) {
 	b.VarInt(state)
 	b.VarInt(int32(w.menuSize()))
 	for i := 0; i < w.menuSize(); i++ {
-		writeSlot(&b, sess.menuStack(i))
+		sess.writeSlot(&b, sess.menuStack(i))
 	}
-	writeSlot(&b, sess.carried)
+	sess.writeSlot(&b, sess.carried)
 	_ = sess.write(sess.ids().PlayContainerContent, b.Bytes())
 }
 
@@ -305,7 +324,7 @@ func (s *Server) syncMerchantSlots(sess *Session, w *openWindow, touched []int) 
 		b.VarInt(w.id)
 		b.VarInt(state)
 		b.Short(int16(slot))
-		writeSlot(&b, sess.menuStack(slot))
+		sess.writeSlot(&b, sess.menuStack(slot))
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}
 	// The inventory rows changed too (merchantFill removed items).

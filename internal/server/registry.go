@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
-	"sort"
-	"strings"
 	"sync"
 
 	"mc-go/internal/nbt"
@@ -47,50 +45,13 @@ var (
 // is a build-time mistake, so it panics rather than failing sessions.
 func loadConfigData() {
 	configOnce.Do(func() {
-		entries, err := registryBodies.ReadDir("testdata/vanilla-26.2/config/registries")
+		data, err := javaConfigFor(776)
 		if err != nil {
-			panic(fmt.Sprintf("mc-go: embedded registry captures missing: %v", err))
+			panic(err)
 		}
-		names := make([]string, 0, len(entries))
-		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".bin") {
-				names = append(names, e.Name())
-			}
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			body, err := registryBodies.ReadFile("testdata/vanilla-26.2/config/registries/" + name)
-			if err != nil {
-				panic(fmt.Sprintf("mc-go: registry capture %s: %v", name, err))
-			}
-			key, _, err := parseRegistryBody(body)
-			if err != nil {
-				panic(fmt.Sprintf("mc-go: registry capture %s: %v", name, err))
-			}
-			configRegs = append(configRegs, configRegistry{key: key, body: body})
-		}
-		for _, r := range configRegs {
-			switch r.key {
-			case "minecraft:worldgen/biome":
-				_, ids, err := parseRegistryBody(r.body)
-				if err != nil {
-					panic(fmt.Sprintf("mc-go: biome capture: %v", err))
-				}
-				biomeIDs = ids
-			case "minecraft:dialog":
-				_, ids, err := parseRegistryBody(r.body)
-				if err != nil {
-					panic(fmt.Sprintf("mc-go: dialog capture: %v", err))
-				}
-				dialogIDs = ids
-			}
-		}
-		if biomeIDs == nil {
-			panic("mc-go: worldgen/biome capture missing")
-		}
-		if dialogIDs == nil {
-			panic("mc-go: dialog capture missing")
-		}
+		configRegs = data.registries
+		biomeIDs = data.entries["minecraft:worldgen/biome"]
+		dialogIDs = data.entries["minecraft:dialog"]
 	})
 }
 
@@ -107,7 +68,7 @@ func parseRegistryBody(body []byte) (string, entryIDs, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	if count < 0 {
+	if count < 0 || count > 1<<20 {
 		return "", nil, fmt.Errorf("negative entry count %d", count)
 	}
 	ids := make(entryIDs, count)
@@ -125,7 +86,13 @@ func parseRegistryBody(body []byte) (string, entryIDs, error) {
 				return "", nil, fmt.Errorf("entry %s nbt: %w", name, err)
 			}
 		}
+		if _, duplicate := ids[name]; duplicate {
+			return "", nil, fmt.Errorf("duplicate registry entry %s", name)
+		}
 		ids[name] = i
+	}
+	if br.Len() != 0 {
+		return "", nil, fmt.Errorf("registry %s has %d trailing bytes", key, br.Len())
 	}
 	return key, ids, nil
 }
@@ -143,41 +110,22 @@ func biomeID(name string) int32 {
 // registryEntryName returns the entry name at index id in a synced
 // registry, or "" when either is unknown.
 func registryEntryName(registryKey string, id int32) string {
-	loadConfigData()
-	for _, reg := range configRegs {
-		if reg.key != registryKey {
-			continue
-		}
-		_, ids, err := parseRegistryBody(reg.body)
-		if err != nil {
-			return ""
-		}
-		for name, i := range ids {
-			if i == id {
-				return name
-			}
-		}
+	data, err := javaConfigFor(776)
+	if err != nil || id < 0 || int64(id) >= int64(len(data.names[registryKey])) {
 		return ""
 	}
-	return ""
+	return data.names[registryKey][id]
 }
 
-// registryEntryID returns the captured index of an entry in a synced
-// registry, or -1 when either is unknown.
+// registryEntryID returns the canonical 776 catalog handle. Wire encoders use
+// the selected profile's accessor or projectRegistryID before emitting it.
 func registryEntryID(registryKey, entryName string) int32 {
-	loadConfigData()
-	for _, reg := range configRegs {
-		if reg.key != registryKey {
-			continue
-		}
-		_, ids, err := parseRegistryBody(reg.body)
-		if err != nil {
-			return -1
-		}
-		if id, ok := ids[entryName]; ok {
-			return id
-		}
+	data, err := javaConfigFor(776)
+	if err != nil {
 		return -1
+	}
+	if id, ok := data.entries[registryKey][entryName]; ok {
+		return id
 	}
 	return -1
 }
@@ -186,7 +134,11 @@ func registryEntryID(registryKey, entryName string) int32 {
 // in vanilla's order.
 func (s *Server) sendRegistries(sess *Session) error {
 	loadConfigData()
-	for _, reg := range configRegs {
+	profile, err := sess.javaProfile()
+	if err != nil {
+		return err
+	}
+	for _, reg := range profile.config.registries {
 		if err := sess.write(sess.ids().ConfigRegistryData, reg.body); err != nil {
 			return err
 		}
@@ -196,5 +148,9 @@ func (s *Server) sendRegistries(sess *Session) error {
 
 // sendUpdateTags writes the captured Update Tags body.
 func (s *Server) sendUpdateTags(sess *Session) error {
-	return sess.write(sess.ids().ConfigUpdateTags, tagsBody)
+	profile, err := sess.javaProfile()
+	if err != nil {
+		return err
+	}
+	return sess.write(sess.ids().ConfigUpdateTags, profile.config.tags)
 }

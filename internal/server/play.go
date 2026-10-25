@@ -58,6 +58,9 @@ func (s *Server) handlePlay(sess *Session) {
 // joinPlayOwned initializes and publishes a player atomically with respect to
 // gameplay actions and ticks. The packet reader begins only after this completes.
 func (s *Server) joinPlayOwned(sess *Session) bool {
+	if s.ShuttingDown() {
+		return false
+	}
 	// A new login under a name already online disconnects the older
 	// session, never the new one (PlayerList.placeNewPlayer).
 	name := sess.getName()
@@ -82,13 +85,18 @@ func (s *Server) joinPlayOwned(sess *Session) bool {
 	// coordinates, not the world spawn.
 	x, y, z, _, _, _ = sess.Pos()
 	sess.entityID.Store(s.entities.Spawn(&Entity{
-		UUID: sess.getUUID(), Type: sess.ids().EntityTypePlayer,
+		UUID: sess.getUUID(), Type: mustEntityType("player"),
 		Dim: sess.dimName(),
 		X:   x, Y: y, Z: z,
 	}).ID)
 	if err := s.sendJoinGame(sess); err != nil {
 		return false
 	}
+	// Publish broadcast eligibility only after Join Game occupies its FIFO
+	// position. Configuration completion can wait behind another owned action;
+	// advertising Play before this point lets a time/chat broadcast precede
+	// the packet that establishes the client's play state.
+	sess.state.Store(StatePlay)
 	// Stateless join sync in vanilla's order.
 	if err := s.sendDifficulty(sess); err != nil {
 		return false
@@ -750,11 +758,15 @@ func (s *Server) sendJoinGame(sess *Session) error {
 		return err
 	}
 	d := sess.dimension()
+	dimensionType, err := profile.projectRegistryID("minecraft:dimension_type", d.typeID)
+	if err != nil {
+		return err
+	}
 	join := javaJoinGame{
 		EntityID:   sess.entityID.Load(),
 		Dimensions: []string{dimOverworld, dimEnd, dimNether},
 		MaxPlayers: int32(s.MaxPlayers), ViewDistance: int32(s.ViewDistance), SimulationDistance: int32(s.SimulationDistance),
-		RespawnScreen: true, DimensionType: d.typeID, Dimension: d.name,
+		RespawnScreen: true, DimensionType: dimensionType, Dimension: d.name,
 		HashedSeed: hashedSeed(s.worldSeed()), GameMode: sess.mode(), PreviousGameMode: 255, Flat: d.flat,
 		SeaLevel: d.seaLevel,
 	}

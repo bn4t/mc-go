@@ -649,8 +649,17 @@ func (s *Server) runDialog(player string, args []string) reply {
 		// DialogCommand runs the packet send inside the command's own
 		// source step, ahead of its sendSuccess chat.
 		for _, t := range targets {
+			profile, err := t.javaProfile()
+			id := int32(-1)
+			if err == nil {
+				id = profile.registryEntryID("minecraft:dialog", dlg)
+			}
+			if err != nil || id < 0 {
+				t.closeQueue()
+				continue
+			}
 			var b protocol.Buffer
-			b.VarInt(dialogIDs[dlg] + 1)
+			b.VarInt(id + 1)
 			_ = t.write(t.ids().PlayShowDialog, b.Bytes())
 		}
 		if len(targets) == 1 {

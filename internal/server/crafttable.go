@@ -61,9 +61,9 @@ func (s *Server) sendCraftTableContent(sess *Session, table *craftTable) {
 	b.VarInt(state)
 	b.VarInt(craftTableSlots)
 	for i := 0; i < craftTableSlots; i++ {
-		writeSlot(&b, sess.craftMenuStack(table, i))
+		sess.writeSlot(&b, sess.craftMenuStack(table, i))
 	}
-	writeSlot(&b, sess.carried)
+	sess.writeSlot(&b, sess.carried)
 	_ = sess.write(sess.ids().PlayContainerContent, b.Bytes())
 }
 
@@ -401,7 +401,7 @@ func (s *Server) syncCraftTableSlots(sess *Session, w *openWindow, table *craftT
 		b.VarInt(w.id)
 		b.VarInt(state)
 		b.Short(int16(slot))
-		writeSlot(&b, sess.craftMenuStack(table, slot))
+		sess.writeSlot(&b, sess.craftMenuStack(table, slot))
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}
 	_ = s.sendCarriedItem(sess, sess.carriedBuffer())
@@ -440,8 +440,10 @@ func (s *Server) handleCraftTableClickPacket(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
-	readChangedSlots(r)
-	if _, err := readSlot(r); err != nil {
+	if _, ok := sess.readChangedSlots(r); !ok {
+		return
+	}
+	if _, ok := sess.readHashedSlot(r); !ok || r.Remaining() != 0 {
 		return
 	}
 	s.handleCraftTableClick(sess, w, w.craft, slot, button, mode)

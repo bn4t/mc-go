@@ -48,7 +48,7 @@ var recipeIndex = func() map[string]int {
 // already-settled unlocks fail the whole command, as vanilla does.
 func (s *Server) recipeOne(sess *Session, idx int, give bool) reply {
 	r := data.Recipes[idx]
-	if !recipeBookable(r) {
+	if !recipeBookable(r) || len(recipeDisplayIDsForSession(sess, idx)) == 0 {
 		return componentReply(commandError(recipeFailKey(give)))
 	}
 	if give {
@@ -59,7 +59,7 @@ func (s *Server) recipeOne(sess *Session, idx int, give bool) reply {
 		sess.grantRecipeCriterion(idx)
 		var b protocol.Buffer
 		var entries protocol.Buffer
-		n := recipeEntry(&entries, idx, recipeGiveFlags(r))
+		n := recipeEntryForSession(sess, &entries, idx, recipeGiveFlags(r))
 		b.VarInt(int32(n))
 		b.Raw(entries.Bytes())
 		b.Bool(false)
@@ -82,7 +82,7 @@ func (s *Server) recipeAll(sess *Session, give bool) reply {
 	var n int32
 	var ids []int32
 	for i, r := range data.Recipes {
-		if !recipeBookable(r) {
+		if !recipeBookable(r) || len(recipeDisplayIDsForSession(sess, i)) == 0 {
 			continue
 		}
 		if give {
@@ -92,14 +92,12 @@ func (s *Server) recipeAll(sess *Session, give bool) reply {
 			}
 			sess.grantRecipeCriterion(i)
 			changed = true
-			n += int32(recipeEntry(&b, i, recipeGiveFlags(r)))
+			n += int32(recipeEntryForSession(sess, &b, i, recipeGiveFlags(r)))
 			continue
 		}
 		if sess.lockRecipe(i) {
 			changed = true
-			for k := int32(0); k < recipeDisplayCount(r); k++ {
-				ids = append(ids, displayIDs[i]+k)
-			}
+			ids = append(ids, recipeDisplayIDsForSession(sess, i)...)
 		}
 	}
 	if !changed {
@@ -119,17 +117,21 @@ func (s *Server) recipeAll(sess *Session, give bool) reply {
 		}
 		sess.write(IDPlayRecipeBookRemove, pkt.Bytes())
 	}
-	return s.recipeReply(sess, give, int32(len(data.Recipes)))
+	count := int32(len(data.Recipes))
+	if p, err := sess.javaProfile(); err == nil && p.version.Protocol == 775 {
+		count = java775RecipeCount
+	}
+	return s.recipeReply(sess, give, count)
 }
 
 // writeRecipeRemove sends RecipeBookRemove (0x4B): a count and the
 // display ids of every display the recipe produced.
 func (s *Server) writeRecipeRemove(sess *Session, idx int) {
-	r := data.Recipes[idx]
+	ids := recipeDisplayIDsForSession(sess, idx)
 	var b protocol.Buffer
-	b.VarInt(recipeDisplayCount(r))
-	for k := int32(0); k < recipeDisplayCount(r); k++ {
-		b.VarInt(displayIDs[idx] + k)
+	b.VarInt(int32(len(ids)))
+	for _, id := range ids {
+		b.VarInt(id)
 	}
 	sess.write(IDPlayRecipeBookRemove, b.Bytes())
 }

@@ -136,30 +136,33 @@ func (s *Server) handleHeld(sess *Session, p protocol.Packet) {
 	sess.held.Store(int32(slot))
 }
 
-// handleCreativeSlot tracks one creative-inventory slot: Short slot,
-// then the 1.20.5+ Slot shape (VarInt count, VarInt item id when
-// count>0). Component data after the item id varies by version and is
-// never parsed: packet framing is length-prefixed, so the tail is
-// safely ignored once the id is read.
+// handleCreativeSlot accepts only fully decoded, representable creative stacks.
+// Measured775 ServerGamePacketListenerImpl permission/slot/count gates: creative
+// materials, menu slots1..45, and count no larger than the item's max stack.
+// Negative creative-drop slots remain outside this inventory-mutation path.
 func (s *Server) handleCreativeSlot(sess *Session, p protocol.Packet) {
+	if sess.mode() != GameModeCreative {
+		return
+	}
 	r := protocol.NewPacketReader(p.Data)
 	slot, err := r.Short()
+	if err != nil || slot < 1 || slot >= slotCount {
+		return
+	}
+	profile, err := sess.javaProfile()
 	if err != nil {
 		return
 	}
-	count, err := r.VarInt()
-	if err != nil {
+	stack, err := profile.readUntrustedSlot(r)
+	if err != nil || r.Remaining() != 0 {
 		return
 	}
-	if count <= 0 {
-		sess.setSlot(slot, 0, 0)
+	if stack.Empty() {
+		stack = ItemStack{}
+	} else if stack.Count > maxStackOfID(stack.ID) {
 		return
 	}
-	item, err := r.VarInt()
-	if err != nil {
-		return
-	}
-	sess.setSlot(slot, item, count)
+	sess.setStack(slot, stack)
 }
 
 // placeReachM mirrors the dig-side reach: eye to target-center.

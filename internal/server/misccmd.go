@@ -410,13 +410,9 @@ func (s *Server) runSpectate(player string, args []string) reply {
 	if sender.mode() != GameModeSpectator {
 		return notSpectator()
 	}
-	var p protocol.Buffer
-	if t.sess != nil {
-		p.VarInt(t.sess.entityID.Load())
-	} else {
-		p.VarInt(t.mob.ID)
+	if !s.startSpectatingOwned(sender, t) {
+		return componentReply(commandError("commands.spectate.cannot_spectate"))
 	}
-	_ = sender.write(sender.ids().PlaySetCamera, p.Bytes())
 	return componentReply(translatable("commands.spectate.success.started"))
 }
 

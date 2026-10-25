@@ -26,6 +26,8 @@ func errUnknownComponent(typ, id int32) error {
 // The exception is a shulker box's contents (vanilla's
 // minecraft:container component), which has to survive the box being
 // broken, dropped, and picked up.
+// ID is a catalog-local canonical item handle, initially in776 registration
+// order for existing behavior tables. It must be projected at every wire boundary.
 type ItemStack struct {
 	ID    int32
 	Count int32
@@ -251,7 +253,7 @@ const (
 	// name.
 	compPotionContents = 51
 	compStewEffects    = 53
-	// instrument carries InstrumentComponent: a bare VarInt holder id
+	// instrument carries InstrumentComponent: a VarInt registry holder (id+1)
 	// into the minecraft:instrument registry (admire=0, call=1,
 	// dream=2, feel=3, ponder=4, seek=5, sing=6, yearn=7 in dump order).
 	compInstrument = 61
@@ -420,7 +422,11 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		add++
 	}
 	b.VarInt(add)
-	b.VarInt(0) // components to remove
+	if it.InstrumentRemoved {
+		b.VarInt(1)
+	} else {
+		b.VarInt(0)
+	} // components to remove
 	if it.Damage != 0 {
 		b.VarInt(compDamage)
 		b.VarInt(it.Damage)
@@ -485,7 +491,7 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 	if it.Instrument != "" {
 		if iid, ok := instrumentIDs[it.Instrument]; ok {
 			b.VarInt(compInstrument)
-			b.VarInt(iid)
+			b.VarInt(iid + 1)
 		}
 	}
 	if it.PotDeco != "" {
@@ -601,15 +607,15 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		b.VarInt(compBees)
 		b.VarInt(it.Bees)
 		for i := int32(0); i < it.Bees; i++ {
-			// TypedEntityData: entity_type holder (raw id +1), then
-			// the occupant's entity compound with id stripped — the
+			// TypedEntityData: raw entity_type registry id, then
+			// anonymous occupant compound with id stripped — the
 			// count-only model ships an empty tag.
 			if bid, ok := EntityTypeID("bee"); ok {
-				b.VarInt(bid + 1)
+				b.VarInt(bid)
 			} else {
 				b.VarInt(0)
 			}
-			_ = nbt.WriteNamed(b, "", map[string]any{})
+			_ = nbt.WriteUnnamed(b, map[string]any{})
 			b.VarInt(0)   // ticks_in_hive
 			b.VarInt(600) // min_ticks_in_hive
 		}
@@ -652,6 +658,9 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 	if it.DyedColor != 0 {
 		b.VarInt(compDyedColor)
 		b.Int(it.DyedColor)
+	}
+	if it.InstrumentRemoved {
+		b.VarInt(compInstrument)
 	}
 }
 
@@ -738,39 +747,8 @@ var ominousBannerLayers = [...]struct {
 // the click is rejected, instead of silently desyncing every field
 // after it.
 func readSlot(r *protocol.PacketReader) (ItemStack, error) {
-	count, err := r.VarInt()
-	if err != nil || count <= 0 {
-		return ItemStack{}, err
-	}
-	id, err := r.VarInt()
-	if err != nil {
-		return ItemStack{}, err
-	}
-	nadd, err := r.VarInt() // components to add
-	if err != nil {
-		return ItemStack{}, err
-	}
-	nrem, err := r.VarInt() // components to remove (types only)
-	if err != nil {
-		return ItemStack{}, err
-	}
-	it := ItemStack{ID: id, Count: count}
-	for ; nadd > 0; nadd-- {
-		typ, err := r.VarInt()
-		if err != nil {
-			return ItemStack{}, err
-		}
-		if err := readSlotComponent(r, &it, typ); err != nil {
-			return ItemStack{}, err
-		}
-	}
-
-	for ; nrem > 0; nrem-- {
-		if _, err := r.VarInt(); err != nil { // removed types carry no payload
-			return ItemStack{}, err
-		}
-	}
-	return it, nil
+	profile, _ := javaProfileFor(776)
+	return profile.readSlot(r)
 }
 
 // readSlotComponent decodes one component-add entry's payload into
@@ -936,7 +914,10 @@ func readSlotComponent(r *protocol.PacketReader, it *ItemStack, typ int32) error
 		if err != nil {
 			return err
 		}
-		it.Instrument = instrumentNames[iid]
+		if iid <= 0 {
+			return errUnknownComponent(typ, -1)
+		}
+		it.Instrument = instrumentNames[iid-1]
 		it.InstrumentRemoved = false
 	case compPotDeco: // minecraft:pot_decorations — four item ids,
 		// back, left, right, front.
@@ -1004,7 +985,7 @@ func readSlotComponent(r *protocol.PacketReader, it *ItemStack, typ int32) error
 			if _, err := r.VarInt(); err != nil { // entity-type holder
 				return err
 			}
-			if _, _, err := r.NamedTag(); err != nil { // entity compound
+			if _, err := (&slotProjector{}).readNBT(r, false, 0); err != nil { // bounded anonymous entity compound
 				return err
 			}
 			if _, err := r.VarInt(); err != nil { // ticks_in_hive
@@ -1253,14 +1234,14 @@ func (s *Server) sendContainerSlot(sess *Session, slot int16, it ItemStack) erro
 	b.VarInt(0) // window 0: player inventory
 	b.VarInt(sess.invState.Load())
 	b.Short(slot)
-	writeSlot(&b, it)
+	sess.writeSlot(&b, it)
 	return sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 }
 
 // sendCarriedItem syncs the click cursor stack.
 func (s *Server) sendCarriedItem(sess *Session, it ItemStack) error {
 	var b protocol.Buffer
-	writeSlot(&b, it)
+	sess.writeSlot(&b, it)
 	return sess.write(sess.ids().PlaySetCarriedItem, b.Bytes())
 }
 
@@ -1272,10 +1253,10 @@ func (s *Server) sendContainerContent(sess *Session) error {
 	b.VarInt(slotCount)
 	sess.invMu.RLock()
 	for i := 0; i < slotCount; i++ {
-		writeSlot(&b, sess.inv[i])
+		sess.writeSlot(&b, sess.inv[i])
 	}
 	sess.invMu.RUnlock()
-	writeSlot(&b, sess.carried)
+	sess.writeSlot(&b, sess.carried)
 	return sess.write(sess.ids().PlayContainerContent, b.Bytes())
 }
 
@@ -1373,11 +1354,11 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 	if err != nil {
 		return false
 	}
-	changed, ok := readChangedSlots(r)
+	changed, ok := sess.readChangedSlots(r)
 	if !ok {
 		return false
 	}
-	if _, err := readSlot(r); err != nil { // carried item
+	if _, ok := sess.readHashedSlot(r); !ok || r.Remaining() != 0 { // exact source-profile hashed carried item
 		// Tolerate a truncated tail only for empty carried items.
 		return false
 	}
@@ -1539,11 +1520,11 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 		b.VarInt(0)
 		b.VarInt(state)
 		b.Short(u.slot)
-		writeSlot(&b, u.it)
+		sess.writeSlot(&b, u.it)
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}
 	var cb protocol.Buffer
-	writeSlot(&cb, carried)
+	sess.writeSlot(&cb, carried)
 	_ = sess.write(sess.ids().PlaySetCarriedItem, cb.Bytes())
 	return equipTouched
 }
@@ -1628,7 +1609,7 @@ func (s *Server) sendCraftUpdates(sess *Session, slots []int16, carried ItemStac
 		b.VarInt(0)
 		b.VarInt(state)
 		b.Short(u.slot)
-		writeSlot(&b, u.it)
+		sess.writeSlot(&b, u.it)
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}
 	_ = s.sendCarriedItem(sess, carried)

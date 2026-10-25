@@ -1,0 +1,16 @@
+{
+  "775_entity_schemas": 157,
+  "775_jar_sha256": "a7fed6f7d88379349e35ae0c6e9881d4484605132f6f620376a3868eea6cce52",
+  "775_measurement_sha256": "0c3d9f3ede5d1dadcb623199da99f383b2184b1daa968baac9ce242de7ed3d6d",
+  "776_entity_schemas": 158,
+  "776_jar_sha256": "183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8",
+  "776_measurement_sha256": "c3e66718c100c1a0b0c217cfe2ac2fdb344d8d911d07e77a10f261922eef52b6",
+  "codec_probe_sha256": "95371b0ce0c1f3718fe47e96302ced31073f9c381b8473675827634af5de4e23",
+  "jdk": "openjdk version \"25.0.5\" 2026-10-20 LTS\nOpenJDK Runtime Environment Temurin-25.0.5+8 (build 25.0.5+8-LTS)\nOpenJDK 64-Bit Server VM Temurin-25.0.5+8 (build 25.0.5+8-LTS, mixed mode, sharing)",
+  "pose_count": 18,
+  "probe_sha256": "a4a3769823ca7fdbcab2fc7d9626a6084db76c5a9dff7250b1c16a5da87a4752",
+  "serializer_count": 43,
+  "shared_entity_accessor_deltas": 6,
+  "source_class": "runtime reflection of official server static EntityDataAccessor fields",
+  "tool": "tools/genentitymetadata"
+}

@@ -19,6 +19,13 @@ func (p *javaProfile) encodeLevelEvent(event int32, pos world.Pos, data int32) (
 		}
 		data = wire
 	}
+	if event == 1010 {
+		wire, err := p.projectRegistryID("minecraft:jukebox_song", data)
+		if err != nil {
+			return nil, err
+		}
+		data = wire
+	}
 	var b protocol.Buffer
 	b.Int(event)
 	b.Position(int32(pos.X), int32(pos.Y), int32(pos.Z))

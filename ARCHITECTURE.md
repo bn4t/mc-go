@@ -1,10 +1,10 @@
 # Runtime foundations and evidence boundaries
 
 mc-go targets Minecraft Java 26.2 (protocol 776) behavioral parity. The
-current work establishes ownership, lifecycle, canonical block identities,
-detached chunk encoding, extension and measurement boundaries. Full parity,
-parallel region simulation, a protocol-independent game model and a second
-production game protocol remain unfinished.
+current foundations cover ownership, lifecycle, canonical identities, detached
+chunk encoding and measured Java 26.1/775 plus 26.2/776 wire adaptation. Full
+parity, parallel regional simulation and a protocol-independent game model with
+neutral frontend admission and replication remain unfinished.
 The [parity matrix](GOAL.md) records implemented behavior; tests and
 benchmarks establish only the paths they exercise.
 
@@ -30,6 +30,8 @@ acceptance is distinct from completion. Socket readers and writers remain
 separate from simulation ownership. Initial Java chunk/light warmup still
 runs synchronously under the owner and can delay other gameplay; join
 readiness tests distinguish Play Login from completion of that warmup.
+New view windows also warm section and sky data before encoder submission,
+so a cold teleport can spend time on the owner before any worker is involved.
 Chunk packet encoding can run on bounded workers after owner-side capture
 of detached block states, block-entity NBT, light bytes and dimension scalars.
 Encoder functions receive no live gameplay objects; completion updates
@@ -58,19 +60,29 @@ shares Java's validation, collision, hooks and canonical commit path.
 Custom frontends must stop their own transport workers when their supplied
 context ends; the runtime cannot forcibly join arbitrary adapter goroutines.
 
-The bundled Java frontend uses immutable profiles to select codecs,
-gameplay dispatch and block projections. Protocol 776 is admitted. The
-775 candidate has measured login/join codecs and a partial block projection;
-its missing configuration, item, entity and other domain mappings keep
-login and gameplay dispatch disabled. Public `server.JavaProfiles` reports
-these gates separately from `SupportedVersions`.
+The bundled Java frontend admits measured 26.1/775 and 26.2/776 profiles
+against one authoritative world. Profiles select configuration, codecs,
+dispatch and named registry projections. Entity and item gameplay handles
+retain canonical 776 registration order; wire IDs never determine core type
+classification. Incoming slots and recipe displays resolve to canonical values
+before mutation. Public `server.JavaProfiles` distinguishes admission from
+complete content representation.
 
-The Java frontend still has substantial version-specific registry and
-replication code. The neutral API does
-not yet support player admission, world/chunk replication or canonical
-entity/item/block mappings. A synthetic second adapter observes Java
-client movement and submits changes seen by that client; this proves the
-shared action seam, not support for a second real game protocol.
+The Java frontend still owns version-specific replication. Typed entity
+metadata helpers use measured accessor schemas; legacy sound, particle, damage,
+equipment and block-entity builders use a transitional presentation adapter
+before FIFO admission. Already-profiled slots and blocks are not projected
+twice. Projection is pure and per viewer: mandatory failure retires that
+recipient, and partial packet buffers never enter its queue. Item ingress
+rejects unknown or unmodeled semantic component data before mutation. Particle
+commands support measured option forms and simple item templates; unmeasured
+inline or component-bearing item options reject explicitly.
+
+The neutral API still lacks player admission and chunk/entity replication
+streams. A synthetic external adapter exercises existing-player actions;
+two real Java wire profiles do not make that API a complete game frontend.
+Gameplay rules remain 26.2. Five newer attributes are omitted for 775, which
+does not establish equivalent older-client prediction or full 26.1 parity.
 
 [`api/plugin`](api/plugin/plugin.go) exposes copied query values, commands,
 observations, movement hooks and queued enforcement. API version 1 and
@@ -95,8 +107,10 @@ JSON world override saves now persist canonical keys in format version 2.
 Version 1 loads through the historical 776 projection before resolving keys
 into the current catalog. Unknown states reject before replacing overrides.
 The change covers this JSON format; native region files continue using their
-existing names/properties codec. Items, entities and other numeric domains
-still need equivalent canonical boundaries.
+existing names/properties codec. Immutable name catalogs now identify items and
+components, and adapter-owned tables project builtin and configured numeric
+domains. Legacy item JSON numeric saves still require a separate migration;
+these wire boundaries do not make every saved numeric field catalog-portable.
 
 The event bus supplies lossy, asynchronous observations of committed
 actions. It cannot cancel or modify gameplay. Movement hooks are separate
@@ -243,7 +257,11 @@ manifest for existing generated artifacts remains future work.
 New 775 block projection data is generated by `tools/genblockmapping` from
 the official 26.1 and 26.2 datagen block reports. Its header and measurement
 manifest record report/JAR hashes and exact/missing/renumbered counts.
-Named minimal login/join wire fixtures carry their own measurement provenance.
+Named wire fixtures carry their own measurement provenance. Current item,
+entity-accessor and recipe slices also record official runtime reflection and
+public stream-codec observations with independently selected values, oracle
+checksums and probe hashes. These are factual observations, not copied or
+translated implementation structure.
 
 Publication validation also builds a clean `git archive` of the committed
 tree and runs a separate consumer module importing `server.New`,
@@ -259,10 +277,11 @@ binary ignore has a directory-only exception for the public Go package.
 2. Introduce region-owned state, deterministic cross-region messages,
    entity migration handoffs and barriers for global systems. Benchmark
    realistic mixed loads before introducing parallel workers.
-3. Extend canonical keys and adapter-owned mappings to items, entities and
-   other numeric domains; complete the remaining protocol admission gates.
-4. Route more Java gameplay through the neutral boundary and implement a
-   second real protocol, including admission and world replication.
+3. Migrate remaining persisted numeric domains, including legacy item JSON,
+   and broaden measured coverage of unsupported cross-version content.
+4. Replace more Java packet-shaped presentation paths with typed core events,
+   extend plugin mutation APIs beyond movement decisions and privileged commands,
+   and provide neutral frontend admission and world/entity replication.
 5. Add sustained load scenarios with tick p50/p95/p99, queue bytes,
    disconnect reasons, CPU, heap, allocation rate and tracked entity count.
 6. Expand differential gameplay coverage and the conformance corpus;

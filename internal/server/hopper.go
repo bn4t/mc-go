@@ -114,9 +114,9 @@ func (s *Server) sendHopperContent(sess *Session) {
 	b.VarInt(state)
 	b.VarInt(hopperMenuSlots)
 	for i := 0; i < hopperMenuSlots; i++ {
-		writeSlot(&b, sess.hopperMenuStack(w.hopper, i))
+		sess.writeSlot(&b, sess.hopperMenuStack(w.hopper, i))
 	}
-	writeSlot(&b, sess.carried)
+	sess.writeSlot(&b, sess.carried)
 	_ = sess.write(sess.ids().PlayContainerContent, b.Bytes())
 }
 
@@ -299,8 +299,10 @@ func (s *Server) handleHopperClickPacket(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
-	readChangedSlots(r)
-	if _, err := readSlot(r); err != nil {
+	if _, ok := sess.readChangedSlots(r); !ok {
+		return
+	}
+	if _, ok := sess.readHashedSlot(r); !ok || r.Remaining() != 0 {
 		return
 	}
 	s.handleHopperClick(sess, w, w.hopper, slot, button, mode)
@@ -322,7 +324,7 @@ func (s *Server) syncHopperSlots(sess *Session, w *openWindow, h *hopperData, to
 		b.VarInt(w.id)
 		b.VarInt(state)
 		b.Short(int16(slot))
-		writeSlot(&b, sess.hopperMenuStack(h, slot))
+		sess.writeSlot(&b, sess.hopperMenuStack(h, slot))
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}
 	_ = s.sendCarriedItem(sess, sess.carriedBuffer())

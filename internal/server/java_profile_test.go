@@ -125,35 +125,66 @@ func TestJavaProfileCodecsMatchOfficialWire(t *testing.T) {
 	}
 }
 
-func TestJavaProfileCandidateCannotSelectAdmissionOrDispatch(t *testing.T) {
-	candidate, ok := javaProfileFor(775)
-	if !ok {
-		t.Fatal("missing candidate")
+func TestJavaProfilesAdmitMeasuredVersionsAndPreserveReadinessGate(t *testing.T) {
+	for _, number := range []int32{775, 776} {
+		profile, ok := javaProfileFor(number)
+		if !ok || profile.admissionError() != nil {
+			t.Fatalf("profile %d is not admitted", number)
+		}
+		if version, ok := NegotiateVersion(number); !ok || version.Protocol != number {
+			t.Fatalf("profile %d negotiation = %v, %v", number, version, ok)
+		}
+		if _, ok := profile.playHandler(IDPlayMovePosSB); !ok {
+			t.Fatalf("profile %d has no movement route", number)
+		}
 	}
-	if !errors.Is(candidate.admissionError(), ErrIncompleteJavaProfile) {
-		t.Fatal("candidate accepted")
+	if _, ok := NegotiateVersion(774); ok {
+		t.Fatal("unmeasured protocol negotiated")
 	}
-	if _, ok := NegotiateVersion(775); ok {
-		t.Fatal("candidate negotiated")
+	current, _ := javaProfileFor(776)
+	unready := *current
+	unready.admitted = false
+	unready.missing = []string{"unverified_codec"}
+	if !errors.Is(unready.admissionError(), ErrIncompleteJavaProfile) {
+		t.Fatal("unready profile accepted")
 	}
-	if _, ok := candidate.playHandler(IDPlayMovePosSB); ok {
-		t.Fatal("unverified candidate gameplay dispatch enabled")
-	}
-	current, _ := javaProfileFor(ProtocolVersion)
-	if _, ok := current.playHandler(IDPlayMovePosSB); !ok {
-		t.Fatal("current profile lost movement route")
+	if _, ok := unready.playHandler(IDPlayMovePosSB); ok {
+		t.Fatal("unready profile inherited gameplay dispatch")
 	}
 	statuses := JavaProfiles()
-	if len(statuses) != 2 || statuses[0].Admission || !statuses[1].Admission {
-		t.Fatalf("profile gates=%+v", statuses)
+	if len(statuses) != 2 || !statuses[0].Admission || !statuses[1].Admission || len(statuses[0].Missing) != 0 {
+		t.Fatalf("profile readiness=%+v", statuses)
 	}
-	statuses[0].Missing[0] = "mutated"
-	if JavaProfiles()[0].Missing[0] == "mutated" {
-		t.Fatal("status aliases profile state")
+	if statuses[0].BlockProjectionComplete || statuses[0].MissingBlockStates != 2493 {
+		t.Fatalf("775 newer-content exclusions hidden: %+v", statuses[0])
+	}
+	versions := SupportedVersions()
+	if len(versions) != 2 || versions[0].Protocol != 775 || versions[1].Protocol != 776 || LatestVersion().Protocol != 776 {
+		t.Fatalf("supported=%v canonical=%v", versions, LatestVersion())
 	}
 }
 
-func TestJavaCandidate775RejectedOverWire(t *testing.T) {
+func TestJavaUnmeasuredProtocolRejectedOverWire(t *testing.T) {
+	s := New("unused")
+	t.Cleanup(s.Stop)
+	c, reader, writer := pipePair(t, s)
+	defer c.Close()
+	if err := sendHandshake(writer, 774, "localhost", 25565, NextLogin); err != nil {
+		t.Fatal(err)
+	}
+	var b protocol.Buffer
+	b.String("Unmeasured")
+	b.Raw(make([]byte, 16))
+	if err := writer.WritePacket(IDLoginStart, b.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	packet, err := reader.ReadPacket()
+	if err != nil || packet.ID != IDLoginDisconnect {
+		t.Fatalf("unmeasured response=%#x,%v", packet.ID, err)
+	}
+}
+
+func TestJava775LoginAdmittedOverWire(t *testing.T) {
 	s := New("unused")
 	t.Cleanup(s.Stop)
 	c, reader, writer := pipePair(t, s)
@@ -162,14 +193,56 @@ func TestJavaCandidate775RejectedOverWire(t *testing.T) {
 		t.Fatal(err)
 	}
 	var b protocol.Buffer
-	b.String("Candidate")
+	b.String("Profile775")
 	b.Raw(make([]byte, 16))
 	if err := writer.WritePacket(IDLoginStart, b.Bytes()); err != nil {
 		t.Fatal(err)
 	}
 	packet, err := reader.ReadPacket()
-	if err != nil || packet.ID != IDLoginDisconnect {
-		t.Fatalf("candidate response=%#x,%v", packet.ID, err)
+	if err != nil || packet.ID != IDLoginSetCompression {
+		t.Fatalf("775 compression=%#x,%v", packet.ID, err)
+	}
+	r := protocol.NewPacketReader(packet.Data)
+	threshold, err := r.VarInt()
+	if err != nil || r.Remaining() != 0 {
+		t.Fatalf("compression threshold=%d,%v", threshold, err)
+	}
+	reader.SetThreshold(threshold)
+	packet, err = reader.ReadPacket()
+	if err != nil || packet.ID != IDLoginSuccess {
+		t.Fatalf("775 login=%#x,%v", packet.ID, err)
+	}
+	r = protocol.NewPacketReader(packet.Data)
+	uuid, err := r.UUID()
+	if err != nil || uuid != offlineUUID("Profile775") {
+		t.Fatalf("775 identity=%x,%v", uuid, err)
+	}
+	name, err := r.String()
+	if err != nil || name != "Profile775" {
+		t.Fatalf("775 name=%q,%v", name, err)
+	}
+	properties, err := r.VarInt()
+	if err != nil || properties != 0 || r.Remaining() != 0 {
+		t.Fatalf("775 properties=%d remaining=%d err=%v", properties, r.Remaining(), err)
+	}
+}
+
+func TestJavaStatusSelectsAdmittedHandshakeProfile(t *testing.T) {
+	s := New("unused")
+	t.Cleanup(s.Stop)
+	for _, requested := range []int32{775, 776, 774} {
+		var response statusResponse
+		if err := json.Unmarshal([]byte(s.buildStatusJSONFor(requested)), &response); err != nil {
+			t.Fatal(err)
+		}
+		want := requested
+		name := "26.1"
+		if requested != 775 {
+			want, name = 776, "26.2"
+		}
+		if response.Version.Protocol != int(want) || response.Version.Name != name {
+			t.Fatalf("handshake %d advertises %+v", requested, response.Version)
+		}
 	}
 }
 

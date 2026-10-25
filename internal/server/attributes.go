@@ -146,12 +146,12 @@ func updateAttributesSpeed(eid int32, mods map[string]attrMod) []byte {
 func (s *Server) sendUpdateAttributes(sess *Session) error {
 	eid := sess.entityID.Load()
 	if s.markJoined(sess.getName()) {
-		if err := sess.write(sess.ids().PlayUpdateAttributes, updateAttributesStub(eid)); err != nil {
+		if err := sess.writeAttributes776(updateAttributesStub(eid)); err != nil {
 			return err
 		}
-		return sess.write(sess.ids().PlayUpdateAttributes, updateAttributesMods(eid))
+		return sess.writeAttributes776(updateAttributesMods(eid))
 	}
-	return sess.write(sess.ids().PlayUpdateAttributes, updateAttributesFull(eid))
+	return sess.writeAttributes776(updateAttributesFull(eid))
 }
 
 // markJoined records a play-stage join and reports whether the name

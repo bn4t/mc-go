@@ -766,6 +766,7 @@ func (s *Server) broadcastPose(sess *Session, pose int32) {
 	b.VarInt(pose)
 	b.Byte(0xFF)
 	body := b.Bytes()
+	cache := javaEntityBodyCache{}
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
 		if other.state.Load() != StatePlay || !other.spawned.Load() {
@@ -777,7 +778,7 @@ func (s *Server) broadcastPose(sess *Session, pose int32) {
 		if !other.tracksEntity(eid) && other.entityID.Load() != eid {
 			return true
 		}
-		_ = other.write(other.ids().PlayEntityMetadata, body)
+		_ = cache.writeMetadata(other, mustEntityType("player"), body)
 		return true
 	})
 }
@@ -1038,6 +1039,7 @@ func (s *Server) broadcastSharedFlags(sess *Session) {
 	b.Byte(flags)
 	b.Byte(0xFF)
 	body := b.Bytes()
+	cache := javaEntityBodyCache{}
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
 		if other.state.Load() != StatePlay || !other.spawned.Load() {
@@ -1049,7 +1051,7 @@ func (s *Server) broadcastSharedFlags(sess *Session) {
 		if !other.tracksEntity(eid) && other.entityID.Load() != eid {
 			return true
 		}
-		_ = other.write(other.ids().PlayEntityMetadata, body)
+		_ = cache.writeMetadata(other, mustEntityType("player"), body)
 		return true
 	})
 }
@@ -1164,8 +1166,8 @@ func (s *Server) broadcastParticles(dim string, id int32, x, y, z, xd, yd, zd, s
 }
 
 // broadcastSpellParticles sends one level_particles packet of the
-// entity_effect particle (SpellParticleOption: INT color + FLOAT
-// power tail after the particle id).
+// entity_effect particle (an INT color tail, measured on both 26.1
+// and 26.2; power is not serialized by this particle option).
 func (s *Server) broadcastSpellParticles(dim string, color int32, power float32, x, y, z, xd, yd, zd, speed float64, count int32) {
 	var b protocol.Buffer
 	b.Byte(0) // overrideLimiter
@@ -1180,7 +1182,6 @@ func (s *Server) broadcastSpellParticles(dim string, color int32, power float32,
 	b.Int(count)
 	b.VarInt(28) // entity_effect
 	b.Int(color)
-	b.Float(power)
 	body := b.Bytes()
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)

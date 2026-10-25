@@ -3476,10 +3476,10 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Bool(e.EnderStared)
 			}
 		case name == "slime" || name == "magma_cube":
-			// AbstractCubeMob's DATA_SIZE (16, int) — emits only
+			// AbstractCubeMob's DATA_SIZE (18, int) — emits only
 			// when it moves off the defined 1.
 			if cs := cubeSizeOf(e); cs != last.cubeSize {
-				b.Byte(16)
+				b.Byte(18)
 				b.Byte(1)
 				b.VarInt(cs)
 			}
@@ -4005,10 +4005,10 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Bool(true)
 			}
 		case "slime", "magma_cube":
-			// AbstractCubeMob's DATA_SIZE (16) — the defined 1 packs
+			// AbstractCubeMob's DATA_SIZE (18) — the defined 1 packs
 			// only when the summon grew it.
 			if cs := cubeSizeOf(e); cs != 1 {
-				b.Byte(16)
+				b.Byte(18)
 				b.Byte(1)
 				b.VarInt(cs)
 			}

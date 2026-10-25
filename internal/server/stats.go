@@ -166,24 +166,41 @@ func (sess *Session) markAllStatsDirty() {
 // that order, and the packet codec iterates the map's slots
 // descending.
 func (s *Server) sendStatistics(sess *Session) error {
+	profile, err := sess.javaProfile()
+	if err != nil {
+		sess.closeQueue()
+		return err
+	}
 	sess.statMu.Lock()
 	st := sess.ensureStats()
-	order := statEmitOrder(st.dirtyOrder)
-	values := make(map[statKey]int32, len(order))
+	// Keep canonical stores and insertion history unchanged. Omit only
+	// known counters the target registry cannot represent, before computing
+	// the name-based wire iteration order. Corrupt IDs reject the packet.
+	visible := make([]statKey, 0, len(st.dirtyOrder))
+	projected := make(map[statKey]statKey, len(st.dirtyOrder))
+	for _, key := range st.dirtyOrder {
+		wire, representable, err := profile.projectStatistic(key)
+		if err != nil {
+			sess.statMu.Unlock()
+			sess.closeQueue()
+			return err
+		}
+		if representable {
+			visible = append(visible, key)
+			projected[key] = wire
+		}
+	}
+	order := statEmitOrder(visible)
+	var b protocol.Buffer
+	b.VarInt(int32(len(order)))
 	for _, k := range order {
-		values[k] = st.counts[k]
+		b.VarInt(projected[k].category)
+		b.VarInt(projected[k].id)
+		b.VarInt(st.counts[k])
 	}
 	st.dirty = map[statKey]bool{}
 	st.dirtyOrder = nil
 	sess.statMu.Unlock()
-
-	var b protocol.Buffer
-	b.VarInt(int32(len(order)))
-	for _, k := range order {
-		b.VarInt(k.category)
-		b.VarInt(k.id)
-		b.VarInt(values[k])
-	}
 	return sess.write(sess.ids().PlayAwardStats, b.Bytes())
 }
 

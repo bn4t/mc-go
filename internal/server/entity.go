@@ -1680,7 +1680,7 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 	// too — vanilla tracks every entity in range, not just players.
 	// Ridden vehicles follow with their passenger list so the client
 	// attaches the riders.
-	playerType := sess.ids().EntityTypePlayer
+	playerType := mustEntityType("player")
 	s.entities.mu.RLock()
 	ents := make([]Entity, 0, len(s.entities.byID))
 	for _, e := range s.entities.byID {
@@ -1781,11 +1781,21 @@ func encodeBoatMeta(e *Entity) []byte {
 // tracked-entity pairing step. Vanilla's addPairing collects the whole
 // stream into one ClientboundBundlePacket — bundle_delimiter bookends.
 func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
+	profile, err := sess.javaProfile()
+	if err != nil {
+		sess.closeQueue()
+		return err
+	}
+	spawn, err := profile.encodeSpawn(e)
+	if err != nil {
+		sess.closeQueue()
+		return err
+	}
 	var first error
 	if err := sess.write(sess.ids().PlayBundleDelimiter, nil); err != nil {
 		first = err
 	}
-	if err := sess.write(sess.ids().PlaySpawnEntity, encodeSpawn(e)); err != nil && first == nil {
+	if err := sess.write(sess.ids().PlaySpawnEntity, spawn); err != nil && first == nil {
 		first = err
 	}
 	if !e.syncInit {
@@ -1803,7 +1813,7 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 		meta = encodeRocketMetadata(e)
 	case e.Item.ID != 0:
 		meta = encodeItemMetadata(e.Item)
-	case e.Type == sess.ids().EntityTypePlayer:
+	case e.Type == mustEntityType("player"):
 		meta = encodePlayerAttachMeta(s.playerAttachHealth(e), e.Pose)
 	case e.Living:
 		meta = encodeLivingMetadata(e, nil)
@@ -1821,7 +1831,7 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 		var mb protocol.Buffer
 		mb.VarInt(e.ID)
 		mb.Raw(meta)
-		if err := sess.write(sess.ids().PlayEntityMetadata, mb.Bytes()); err != nil && first == nil {
+		if err := sess.writeMetadata776(e.Type, mb.Bytes()); err != nil && first == nil {
 			first = err
 		}
 	}
@@ -1830,7 +1840,7 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 	// before equipment and passengers.
 	if e.Living {
 		if attrs := pairingAttrs(e, s.clock.count); attrs != nil {
-			if err := sess.write(sess.ids().PlayUpdateAttributes, attrs); err != nil && first == nil {
+			if err := sess.writeAttributes776(attrs); err != nil && first == nil {
 				first = err
 			}
 		}

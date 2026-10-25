@@ -116,6 +116,7 @@ func (s *Server) broadcastMobAttrs(e *Entity) {
 	}
 	// The dirty set is consumed by the broadcast.
 	e.AttrsDirty = nil
+	cache := javaEntityBodyCache{}
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
 		if other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != e.Dim {
@@ -124,7 +125,7 @@ func (s *Server) broadcastMobAttrs(e *Entity) {
 		if !other.tracksEntity(e.ID) {
 			return true
 		}
-		_ = other.write(IDPlayUpdateAttributes, body)
+		_ = cache.writeAttributes(other, body)
 		return true
 	})
 }

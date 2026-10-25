@@ -346,6 +346,23 @@ func (s *Server) enchantSlotsChanged(sess *Session, w *openWindow) {
 		clues[0], clues[1], clues[2],
 		levels[0], levels[1], levels[2],
 	}
+	// The gameplay offer retains canonical enchantment handles; the three
+	// displayed clues are holder IDs from this viewer's synced registry.
+	profile, err := sess.javaProfile()
+	if err != nil {
+		sess.closeQueue()
+		return
+	}
+	for i := 4; i <= 6; i++ {
+		if props[i] < 0 {
+			continue
+		}
+		props[i], err = profile.projectRegistryID("minecraft:enchantment", props[i])
+		if err != nil {
+			sess.closeQueue()
+			return
+		}
+	}
 	for i, v := range props {
 		if !m.sentAny || m.sent[i] != v {
 			s.sendContainerProperty(sess, w.id, int16(i), v)

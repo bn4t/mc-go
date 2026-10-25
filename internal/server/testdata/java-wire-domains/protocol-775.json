@@ -1,0 +1,688 @@
+{
+  "bed_chunk_entries": [
+    "8,-60,7 type=25 nbt=00 value=<nil>",
+    "8,-60,8 type=25 nbt=00 value=<nil>"
+  ],
+  "bed_chunk_packets": [
+    "0000000000000000030425010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100a0401008040201008040100804028100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080400000000201008040125010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100a0401008040201008040100804028100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080400000000201008040525010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100a040100804020100804010080402810080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040100804020100804010080402010080401008040201008040000000020100804c811040200000406550a0900f110f21000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111122222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222223333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333353333333333333334333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333330039000000000000003900000000000000390000000000000039000000000000003900000000000000390000000000000039000000000000003900000000000000390000000000000039000000000000003900000000000000390000000000000039000000000000003900000000000000390000000000000039000000000000003900000000000000390000000000000039000000000000003900000000000000390000000000000039000000000000003900000000000000390287ffc4190088ffc41900010000000000000006000100000000000000010100000000000000070280100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff8010ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff00"
+  ],
+  "explosion": "4021000000000000c04d7d47ae11eb854016000000000000408000000000033501bfce77ce9a8be1cb3f9852d893267bca000000000000000016ba05023b3f0000003f800000013e3f8000003f80000001",
+  "explosion_capture_command": "summon minecraft:tnt ~6 ~1 ~ {fuse:0}",
+  "explosion_capture_note": "Earlier successful live capture; later broad probe reached particle/bed facts but timed out in a chat-gated explosion wait. No inferred explosion bytes.",
+  "option_probe_minecraft:angry_villager": {
+    "feedback": "commands.particle.successminecraft:angry_villager",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000100"
+    ]
+  },
+  "option_probe_minecraft:ash": {
+    "feedback": "commands.particle.successminecraft:ash",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000154"
+    ]
+  },
+  "option_probe_minecraft:block_crumble": {
+    "feedback": "commands.particle.successminecraft:block_crumble",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000017301"
+    ]
+  },
+  "option_probe_minecraft:block_marker": {
+    "feedback": "commands.particle.successminecraft:block_marker",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000010201"
+    ]
+  },
+  "option_probe_minecraft:bubble": {
+    "feedback": "commands.particle.successminecraft:bubble",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000103"
+    ]
+  },
+  "option_probe_minecraft:bubble_column_up": {
+    "feedback": "commands.particle.successminecraft:bubble_column_up",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000014a"
+    ]
+  },
+  "option_probe_minecraft:bubble_pop": {
+    "feedback": "commands.particle.successminecraft:bubble_pop",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000148"
+    ]
+  },
+  "option_probe_minecraft:campfire_cosy_smoke": {
+    "feedback": "commands.particle.successminecraft:campfire_cosy_smoke",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000014d"
+    ]
+  },
+  "option_probe_minecraft:campfire_signal_smoke": {
+    "feedback": "commands.particle.successminecraft:campfire_signal_smoke",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000014e"
+    ]
+  },
+  "option_probe_minecraft:cherry_leaves": {
+    "feedback": "commands.particle.successminecraft:cherry_leaves",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000122"
+    ]
+  },
+  "option_probe_minecraft:cloud": {
+    "feedback": "commands.particle.successminecraft:cloud",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000104"
+    ]
+  },
+  "option_probe_minecraft:composter": {
+    "feedback": "commands.particle.successminecraft:composter",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000012c"
+    ]
+  },
+  "option_probe_minecraft:copper_fire_flame": {
+    "feedback": "commands.particle.successminecraft:copper_fire_flame",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000105"
+    ]
+  },
+  "option_probe_minecraft:crimson_spore": {
+    "feedback": "commands.particle.successminecraft:crimson_spore",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000155"
+    ]
+  },
+  "option_probe_minecraft:crit": {
+    "feedback": "commands.particle.successminecraft:crit",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000106"
+    ]
+  },
+  "option_probe_minecraft:current_down": {
+    "feedback": "commands.particle.successminecraft:current_down",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000149"
+    ]
+  },
+  "option_probe_minecraft:damage_indicator": {
+    "feedback": "commands.particle.successminecraft:damage_indicator",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000107"
+    ]
+  },
+  "option_probe_minecraft:dolphin": {
+    "feedback": "commands.particle.successminecraft:dolphin",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000014c"
+    ]
+  },
+  "option_probe_minecraft:dripping_dripstone_lava": {
+    "feedback": "commands.particle.successminecraft:dripping_dripstone_lava",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000015f"
+    ]
+  },
+  "option_probe_minecraft:dripping_dripstone_water": {
+    "feedback": "commands.particle.successminecraft:dripping_dripstone_water",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000161"
+    ]
+  },
+  "option_probe_minecraft:dripping_honey": {
+    "feedback": "commands.particle.successminecraft:dripping_honey",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000014f"
+    ]
+  },
+  "option_probe_minecraft:dripping_lava": {
+    "feedback": "commands.particle.successminecraft:dripping_lava",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000109"
+    ]
+  },
+  "option_probe_minecraft:dripping_obsidian_tear": {
+    "feedback": "commands.particle.successminecraft:dripping_obsidian_tear",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000158"
+    ]
+  },
+  "option_probe_minecraft:dripping_water": {
+    "feedback": "commands.particle.successminecraft:dripping_water",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000010c"
+    ]
+  },
+  "option_probe_minecraft:dust_pillar": {
+    "feedback": "commands.particle.successminecraft:dust_pillar",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000016f01"
+    ]
+  },
+  "option_probe_minecraft:dust_plume": {
+    "feedback": "commands.particle.successminecraft:dust_plume",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000016b"
+    ]
+  },
+  "option_probe_minecraft:effect": {
+    "feedback": "commands.particle.successminecraft:effect",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000110ffffffff3f800000"
+    ]
+  },
+  "option_probe_minecraft:egg_crack": {
+    "feedback": "commands.particle.successminecraft:egg_crack",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000016a"
+    ]
+  },
+  "option_probe_minecraft:elder_guardian": {
+    "feedback": "commands.particle.successminecraft:elder_guardian",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000111"
+    ]
+  },
+  "option_probe_minecraft:electric_spark": {
+    "feedback": "commands.particle.successminecraft:electric_spark",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000167"
+    ]
+  },
+  "option_probe_minecraft:enchant": {
+    "feedback": "commands.particle.successminecraft:enchant",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000113"
+    ]
+  },
+  "option_probe_minecraft:enchanted_hit": {
+    "feedback": "commands.particle.successminecraft:enchanted_hit",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000112"
+    ]
+  },
+  "option_probe_minecraft:end_rod": {
+    "feedback": "commands.particle.successminecraft:end_rod",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000114"
+    ]
+  },
+  "option_probe_minecraft:explosion": {
+    "feedback": "commands.particle.successminecraft:explosion",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000117"
+    ]
+  },
+  "option_probe_minecraft:explosion_emitter": {
+    "feedback": "commands.particle.successminecraft:explosion_emitter",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000116"
+    ]
+  },
+  "option_probe_minecraft:falling_dripstone_lava": {
+    "feedback": "commands.particle.successminecraft:falling_dripstone_lava",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000160"
+    ]
+  },
+  "option_probe_minecraft:falling_dripstone_water": {
+    "feedback": "commands.particle.successminecraft:falling_dripstone_water",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000162"
+    ]
+  },
+  "option_probe_minecraft:falling_dust": {
+    "feedback": "commands.particle.successminecraft:falling_dust",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000011d01"
+    ]
+  },
+  "option_probe_minecraft:falling_honey": {
+    "feedback": "commands.particle.successminecraft:falling_honey",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000150"
+    ]
+  },
+  "option_probe_minecraft:falling_lava": {
+    "feedback": "commands.particle.successminecraft:falling_lava",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000010a"
+    ]
+  },
+  "option_probe_minecraft:falling_nectar": {
+    "feedback": "commands.particle.successminecraft:falling_nectar",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000152"
+    ]
+  },
+  "option_probe_minecraft:falling_obsidian_tear": {
+    "feedback": "commands.particle.successminecraft:falling_obsidian_tear",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000159"
+    ]
+  },
+  "option_probe_minecraft:falling_spore_blossom": {
+    "feedback": "commands.particle.successminecraft:falling_spore_blossom",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000153"
+    ]
+  },
+  "option_probe_minecraft:falling_water": {
+    "feedback": "commands.particle.successminecraft:falling_water",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000010d"
+    ]
+  },
+  "option_probe_minecraft:firefly": {
+    "feedback": "commands.particle.successminecraft:firefly",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000174"
+    ]
+  },
+  "option_probe_minecraft:firework": {
+    "feedback": "commands.particle.successminecraft:firework",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000011e"
+    ]
+  },
+  "option_probe_minecraft:fishing": {
+    "feedback": "commands.particle.successminecraft:fishing",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000011f"
+    ]
+  },
+  "option_probe_minecraft:flame": {
+    "feedback": "commands.particle.successminecraft:flame",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000120"
+    ]
+  },
+  "option_probe_minecraft:glow": {
+    "feedback": "commands.particle.successminecraft:glow",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000164"
+    ]
+  },
+  "option_probe_minecraft:glow_squid_ink": {
+    "feedback": "commands.particle.successminecraft:glow_squid_ink",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000163"
+    ]
+  },
+  "option_probe_minecraft:gust": {
+    "feedback": "commands.particle.successminecraft:gust",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000118"
+    ]
+  },
+  "option_probe_minecraft:gust_emitter_large": {
+    "feedback": "commands.particle.successminecraft:gust_emitter_large",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000011a"
+    ]
+  },
+  "option_probe_minecraft:gust_emitter_small": {
+    "feedback": "commands.particle.successminecraft:gust_emitter_small",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000011b"
+    ]
+  },
+  "option_probe_minecraft:happy_villager": {
+    "feedback": "commands.particle.successminecraft:happy_villager",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000012b"
+    ]
+  },
+  "option_probe_minecraft:heart": {
+    "feedback": "commands.particle.successminecraft:heart",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000012d"
+    ]
+  },
+  "option_probe_minecraft:infested": {
+    "feedback": "commands.particle.successminecraft:infested",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000121"
+    ]
+  },
+  "option_probe_minecraft:instant_effect": {
+    "feedback": "commands.particle.successminecraft:instant_effect",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000012effffffff3f800000"
+    ]
+  },
+  "option_probe_minecraft:item_cobweb": {
+    "feedback": "commands.particle.successminecraft:item_cobweb",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000135"
+    ]
+  },
+  "option_probe_minecraft:item_slime": {
+    "feedback": "commands.particle.successminecraft:item_slime",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000134"
+    ]
+  },
+  "option_probe_minecraft:item_snowball": {
+    "feedback": "commands.particle.successminecraft:item_snowball",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000136"
+    ]
+  },
+  "option_probe_minecraft:landing_honey": {
+    "feedback": "commands.particle.successminecraft:landing_honey",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000151"
+    ]
+  },
+  "option_probe_minecraft:landing_lava": {
+    "feedback": "commands.particle.successminecraft:landing_lava",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000010b"
+    ]
+  },
+  "option_probe_minecraft:landing_obsidian_tear": {
+    "feedback": "commands.particle.successminecraft:landing_obsidian_tear",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000015a"
+    ]
+  },
+  "option_probe_minecraft:large_smoke": {
+    "feedback": "commands.particle.successminecraft:large_smoke",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000137"
+    ]
+  },
+  "option_probe_minecraft:lava": {
+    "feedback": "commands.particle.successminecraft:lava",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000138"
+    ]
+  },
+  "option_probe_minecraft:mycelium": {
+    "feedback": "commands.particle.successminecraft:mycelium",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000139"
+    ]
+  },
+  "option_probe_minecraft:nautilus": {
+    "feedback": "commands.particle.successminecraft:nautilus",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000014b"
+    ]
+  },
+  "option_probe_minecraft:note": {
+    "feedback": "commands.particle.successminecraft:note",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000013a"
+    ]
+  },
+  "option_probe_minecraft:ominous_spawning": {
+    "feedback": "commands.particle.successminecraft:ominous_spawning",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000170"
+    ]
+  },
+  "option_probe_minecraft:pale_oak_leaves": {
+    "feedback": "commands.particle.successminecraft:pale_oak_leaves",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000123"
+    ]
+  },
+  "option_probe_minecraft:pause_mob_growth": {
+    "feedback": "commands.particle.successminecraft:pause_mob_growth",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000132"
+    ]
+  },
+  "option_probe_minecraft:poof": {
+    "feedback": "commands.particle.successminecraft:poof",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000013b"
+    ]
+  },
+  "option_probe_minecraft:portal": {
+    "feedback": "commands.particle.successminecraft:portal",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000013c"
+    ]
+  },
+  "option_probe_minecraft:raid_omen": {
+    "feedback": "commands.particle.successminecraft:raid_omen",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000171"
+    ]
+  },
+  "option_probe_minecraft:rain": {
+    "feedback": "commands.particle.successminecraft:rain",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000013d"
+    ]
+  },
+  "option_probe_minecraft:reset_mob_growth": {
+    "feedback": "commands.particle.successminecraft:reset_mob_growth",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000133"
+    ]
+  },
+  "option_probe_minecraft:reverse_portal": {
+    "feedback": "commands.particle.successminecraft:reverse_portal",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000015b"
+    ]
+  },
+  "option_probe_minecraft:scrape": {
+    "feedback": "commands.particle.successminecraft:scrape",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000168"
+    ]
+  },
+  "option_probe_minecraft:sculk_charge_pop": {
+    "feedback": "commands.particle.successminecraft:sculk_charge_pop",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000127"
+    ]
+  },
+  "option_probe_minecraft:sculk_soul": {
+    "feedback": "commands.particle.successminecraft:sculk_soul",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000125"
+    ]
+  },
+  "option_probe_minecraft:small_flame": {
+    "feedback": "commands.particle.successminecraft:small_flame",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000015d"
+    ]
+  },
+  "option_probe_minecraft:small_gust": {
+    "feedback": "commands.particle.successminecraft:small_gust",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000119"
+    ]
+  },
+  "option_probe_minecraft:sneeze": {
+    "feedback": "commands.particle.successminecraft:sneeze",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000140"
+    ]
+  },
+  "option_probe_minecraft:snowflake": {
+    "feedback": "commands.particle.successminecraft:snowflake",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000015e"
+    ]
+  },
+  "option_probe_minecraft:sonic_boom": {
+    "feedback": "commands.particle.successminecraft:sonic_boom",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000011c"
+    ]
+  },
+  "option_probe_minecraft:soul": {
+    "feedback": "commands.particle.successminecraft:soul",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000129"
+    ]
+  },
+  "option_probe_minecraft:soul_fire_flame": {
+    "feedback": "commands.particle.successminecraft:soul_fire_flame",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000128"
+    ]
+  },
+  "option_probe_minecraft:spit": {
+    "feedback": "commands.particle.successminecraft:spit",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000141"
+    ]
+  },
+  "option_probe_minecraft:splash": {
+    "feedback": "commands.particle.successminecraft:splash",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000146"
+    ]
+  },
+  "option_probe_minecraft:spore_blossom_air": {
+    "feedback": "commands.particle.successminecraft:spore_blossom_air",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000157"
+    ]
+  },
+  "option_probe_minecraft:squid_ink": {
+    "feedback": "commands.particle.successminecraft:squid_ink",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000142"
+    ]
+  },
+  "option_probe_minecraft:sweep_attack": {
+    "feedback": "commands.particle.successminecraft:sweep_attack",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000143"
+    ]
+  },
+  "option_probe_minecraft:totem_of_undying": {
+    "feedback": "commands.particle.successminecraft:totem_of_undying",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000144"
+    ]
+  },
+  "option_probe_minecraft:trial_omen": {
+    "feedback": "commands.particle.successminecraft:trial_omen",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000172"
+    ]
+  },
+  "option_probe_minecraft:trial_spawner_detection": {
+    "feedback": "commands.particle.successminecraft:trial_spawner_detection",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000016c"
+    ]
+  },
+  "option_probe_minecraft:trial_spawner_detection_ominous": {
+    "feedback": "commands.particle.successminecraft:trial_spawner_detection_ominous",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000016d"
+    ]
+  },
+  "option_probe_minecraft:underwater": {
+    "feedback": "commands.particle.successminecraft:underwater",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000145"
+    ]
+  },
+  "option_probe_minecraft:vault_connection": {
+    "feedback": "commands.particle.successminecraft:vault_connection",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000016e"
+    ]
+  },
+  "option_probe_minecraft:warped_spore": {
+    "feedback": "commands.particle.successminecraft:warped_spore",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000156"
+    ]
+  },
+  "option_probe_minecraft:wax_off": {
+    "feedback": "commands.particle.successminecraft:wax_off",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000166"
+    ]
+  },
+  "option_probe_minecraft:wax_on": {
+    "feedback": "commands.particle.successminecraft:wax_on",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000165"
+    ]
+  },
+  "option_probe_minecraft:white_ash": {
+    "feedback": "commands.particle.successminecraft:white_ash",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000015c"
+    ]
+  },
+  "option_probe_minecraft:white_smoke": {
+    "feedback": "commands.particle.successminecraft:white_smoke",
+    "packets": [
+      "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000013f"
+    ]
+  },
+  "option_probe_minecraft:witch": {
+    "feedback": "commands.particle.successminecraft:witch",
+    "packets": [
+      "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000147"
+    ]
+  },
+  "oracle_sha256": "98ab064389a8b34d48ac3d4c5ed858dd9433d0dfd1a12e1cbbda916448d92994",
+  "particle_block": [
+    "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000010101"
+  ],
+  "particle_charge": [
+    "0100c021000000000000c04d80000000000040250000000000000000000000000000000000000000000000000001263f000000"
+  ],
+  "particle_dragon": [
+    "0100c021000000000000c04d80000000000040250000000000000000000000000000000000000000000000000001083f000000"
+  ],
+  "particle_dust": [
+    "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000010effff00003f800000"
+  ],
+  "particle_entity_effect": [
+    "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000011500ff00ff"
+  ],
+  "particle_flash": [
+    "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000012a00ff00ff"
+  ],
+  "particle_item": [
+    "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000012f01020000"
+  ],
+  "particle_shriek": [
+    "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000016907"
+  ],
+  "particle_simple": [
+    "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000013e"
+  ],
+  "particle_tinted": [
+    "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000012400ff00ff"
+  ],
+  "particle_trail": [
+    "0100c021000000000000c04d80000000000040250000000000000000000000000000000000000000000000000001314020000000000000c04d800000000000402000000000000000ff00ff07"
+  ],
+  "particle_transition": [
+    "0100c021000000000000c04d800000000000402500000000000000000000000000000000000000000000000000010fffff0000ff0000ff3f800000"
+  ],
+  "particle_vibration": [
+    "0100c021000000000000c04d8000000000004025000000000000000000000000000000000000000000000000000130000000020000008fc407"
+  ],
+  "protocol": 775,
+  "registry_report_sha256": "2b7b9a3a5738437c9140734e2f9eebfa7c2cfea9b685efed1f3802bdbcfccf9f",
+  "setblock 8 -60 7 minecraft:red_bed[facing=south,part=foot]": [
+    "0000020000008fc4190a00"
+  ],
+  "setblock 8 -60 8 minecraft:red_bed[facing=south,part=head]": null,
+  "sound_direct": [
+    "00196d696e6563726166743a75692e627574746f6e2e636c69636b0007ffffffbcfffffe20000000543f8000003f800000384315c7dffd553a"
+  ],
+  "source_class": "live official server wire observation",
+  "tool": "conformance.OpenPlay/TestJavaWireDomainMeasurements go1.27.3",
+  "version": "26.1"
+}

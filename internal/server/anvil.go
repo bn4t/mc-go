@@ -219,7 +219,7 @@ func (s *Server) sendAnvilLevelEvent(sess *Session, w *openWindow) {
 func (s *Server) sendPlayerInventorySlot(sess *Session, index int32, it ItemStack) {
 	var b protocol.Buffer
 	b.VarInt(index)
-	writeSlot(&b, it)
+	sess.writeSlot(&b, it)
 	_ = sess.write(sess.ids().PlaySetPlayerInventory, b.Bytes())
 }
 
@@ -250,7 +250,7 @@ func (s *Server) anvilSendMenuSlot(sess *Session, w *openWindow, slot int) {
 	b.VarInt(w.id)
 	b.VarInt(state)
 	b.Short(int16(slot))
-	writeSlot(&b, sess.menuStack(slot))
+	sess.writeSlot(&b, sess.menuStack(slot))
 	_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 }
 

@@ -250,14 +250,13 @@ func TestHeldAndCreativeSlot(t *testing.T) {
 		t.Fatalf("held = %d after bad slot", sess.held.Load())
 	}
 
-	// Hotbar menu slot 36 (hotbar index 0) with trailing component
-	// bytes: id parses, tail ignored.
+	// Hotbar menu slot36 carries a complete empty component patch.
 	b.Reset()
 	b.Short(slotHotbarStart)
 	b.VarInt(1)
 	b.VarInt(int32(ItemGrass))
-	b.VarInt(99)
-	b.VarInt(100)
+	b.VarInt(0)
+	b.VarInt(0)
 	s.handleCreativeSlot(sess, protocol.Packet{ID: IDPlayCreativeSlotSB, Data: b.Bytes()})
 	sess.held.Store(0)
 	if id, ok := sess.heldItem(); !ok || id != int32(ItemGrass) {
@@ -287,6 +286,8 @@ func TestPlaceFlowOverWire(t *testing.T) {
 	b.Short(slotHotbarStart)
 	b.VarInt(1)
 	b.VarInt(int32(ItemStone))
+	b.VarInt(0)
+	b.VarInt(0)
 	if err := pw.WritePacket(IDPlayCreativeSlotSB, b.Bytes()); err != nil {
 		t.Fatal(err)
 	}

@@ -689,8 +689,8 @@ func (s *Server) raidPlayHorn(d *dimension, r *raid, pos world.Pos) {
 		var p protocol.Buffer
 		p.Byte(0)
 		p.String(raidHornSound)
+		p.Byte(0) // no fixed range in direct SoundEvent
 		p.VarInt(soundSources["neutral"])
-		p.Byte(0)
 		p.Int(int32((float64(pos.X) + 0.5) * 8))
 		p.Int(int32(y * 8))
 		p.Int(int32((float64(pos.Z) + 0.5) * 8))
@@ -1178,8 +1178,8 @@ func (s *Server) playSeededSoundAt(d *dimension, x, y, z float64, name string, c
 	var p protocol.Buffer
 	p.Byte(0)
 	p.String(name)
+	p.Byte(0) // no fixed range in direct SoundEvent
 	p.VarInt(cat)
-	p.Byte(0)
 	p.Int(int32(x * 8))
 	p.Int(int32(y * 8))
 	p.Int(int32(z * 8))

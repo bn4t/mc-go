@@ -165,7 +165,7 @@ func (s *Server) awardRecipeAdvancement(sess *Session, adv *data.RecipeAdv) {
 	}
 	var b protocol.Buffer
 	var entries protocol.Buffer
-	n := recipeEntry(&entries, idx, recipeGiveFlags(data.Recipes[idx]))
+	n := recipeEntryForSession(sess, &entries, idx, recipeGiveFlags(data.Recipes[idx]))
 	b.VarInt(int32(n))
 	b.Raw(entries.Bytes())
 	b.Bool(false)
@@ -369,7 +369,17 @@ func (s *Server) flushAdvancements(sess *Session) {
 	b.VarInt(int32(len(added)))
 	for _, id := range added {
 		if def := data.AdvDefWire[id]; def != nil {
-			b.Raw(def)
+			profile, err := sess.javaProfile()
+			if err != nil {
+				sess.closeQueue()
+				return
+			}
+			projected, err := profile.advancementDefinitionFrom776(def)
+			if err != nil {
+				sess.closeQueue()
+				return
+			}
+			b.Raw(projected)
 			continue
 		}
 		adv := recipeAdvByID[id]

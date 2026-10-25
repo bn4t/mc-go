@@ -83,7 +83,7 @@ func (s *Server) runGamemode(player string, args []string) reply {
 	if old == GameModeCreative || mode == GameModeCreative {
 		// The reach resync goes to the changed player only: trackers
 		// get the tab-list update, not the attributes.
-		_ = target.write(target.ids().PlayUpdateAttributes, updateAttributesMode(target.entityID.Load(), mode))
+		_ = target.writeAttributes776(updateAttributesMode(target.entityID.Load(), mode))
 	}
 	s.broadcastPlayerInfoGamemode(target)
 	return opsEchoReply(selfMsg)

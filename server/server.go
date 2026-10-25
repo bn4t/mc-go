@@ -1,6 +1,7 @@
 // Package server embeds the Minecraft runtime and attaches protocol frontends.
-// Java Edition protocol 776 is the sole bundled game protocol. Runtime
-// configuration must be completed before Start or the first attachment.
+// Java Edition protocols 775 and 776 share one canonical 776 game runtime.
+// A 775 viewer is disconnected if required canonical content has no exact
+// representation in that version. Configuration must precede Start or attachment.
 package server
 
 import core "mc-go/internal/server"

@@ -69,9 +69,17 @@ func dashUUID(u [16]byte) string {
 }
 
 func (s *Server) buildStatusJSON() string {
+	return s.buildStatusJSONFor(ProtocolVersion)
+}
+
+func (s *Server) buildStatusJSONFor(requested int32) string {
 	var resp statusResponse
-	resp.Version.Name = VersionName
-	resp.Version.Protocol = ProtocolVersion
+	version := LatestVersion()
+	if selected, ok := NegotiateVersion(requested); ok {
+		version = selected
+	}
+	resp.Version.Name = version.Name
+	resp.Version.Protocol = int(version.Protocol)
 	resp.Players.Max = s.MaxPlayers
 	resp.Players.Online = s.OnlineCount()
 	resp.Players.Sample = s.onlineSample()
@@ -89,7 +97,7 @@ func (s *Server) handleStatus(sess *Session) {
 		switch p.ID {
 		case IDStatusRequest:
 			var b protocol.Buffer
-			b.String(s.buildStatusJSON())
+			b.String(s.buildStatusJSONFor(sess.clientProto.Load()))
 			if err := sess.write(IDStatusResponse, b.Bytes()); err != nil {
 				return
 			}

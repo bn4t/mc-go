@@ -5,12 +5,11 @@ import (
 	"mc-go/internal/world"
 )
 
-// Recipe book: the network recipe id indexes data.Recipes directly,
-// and the Place Recipe handler fills the open crafting grid from it.
-// The index is what ties a client's recipe click back to a server
-// recipe, so it must never be reordered.
+// Recipe book state uses canonical data.Recipes indexes. The Java profile
+// translates incoming display IDs before calling this internal API; display
+// IDs differ by protocol and can expand one recipe into several entries.
 
-// recipeByID resolves a network recipe id, reporting false when the id
+// recipeByID resolves a canonical recipe index, reporting false when the index
 // is outside the table or not a grid-craftable recipe.
 func recipeByID(id int32) (data.Recipe, bool) {
 	if id < 0 || int(id) >= len(data.Recipes) {

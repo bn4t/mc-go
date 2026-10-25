@@ -747,6 +747,15 @@ func (s *Server) handleRecipeBookSeenRecipe(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
+	profile, err := sess.javaProfile()
+	if err != nil {
+		return
+	}
+	index, ok := profile.recipeCanonicalIndex(id)
+	if !ok {
+		return
+	}
+	id = int32(index)
 	seen, err := r.Bool()
 	if err != nil {
 		// Older framing carries no flag: the packet means "seen".
@@ -1104,7 +1113,7 @@ func (s *Server) handleEditBook(sess *Session, p protocol.Packet) {
 		return
 	}
 	// Vanilla acknowledges by syncing the changed slot back.
-	_ = sess.write(sess.ids().PlayContainerSlot, containerSlotBody(0, int16(slotHotbarStart+slot), sess.stackAt(int16(slotHotbarStart+slot))))
+	_ = sess.write(sess.ids().PlayContainerSlot, sess.containerSlotBody(0, int16(slotHotbarStart+slot), sess.stackAt(int16(slotHotbarStart+slot))))
 }
 
 // writeBook stores pages (and an optional title) on the hotbar stack.
@@ -1134,12 +1143,12 @@ func (sess *Session) writeBook(slot int32, pages []string, title string) bool {
 
 // containerSlotBody encodes a Set Container Slot packet: window id,
 // state id, slot, then the item stack.
-func containerSlotBody(window int8, slot int16, it ItemStack) []byte {
+func (sess *Session) containerSlotBody(window int8, slot int16, it ItemStack) []byte {
 	var b protocol.Buffer
 	b.Byte(byte(window))
 	b.VarInt(0) // state id
 	b.Short(slot)
-	writeSlot(&b, it)
+	sess.writeSlot(&b, it)
 	return b.Bytes()
 }
 
@@ -1232,7 +1241,7 @@ func (sess *Session) pickItem(itemID int32) {
 func (s *Server) sendSetCursorItem(sess *Session) error {
 	it := sess.carriedBuffer()
 	var b protocol.Buffer
-	writeSlot(&b, it)
+	sess.writeSlot(&b, it)
 	return sess.write(sess.ids().PlaySetCursorItem, b.Bytes())
 }
 
@@ -1267,14 +1276,18 @@ func pickItemForEntity(entityType int32) (int32, bool) {
 	return 0, false
 }
 
-// handleSpectatorAction consumes a spectator left-click. The action
-// only opens a menu for the targeted entity (a mob's inventory); with
-// no such menus, vanilla's behavior is to do nothing visible.
+// handleSpectatorAction decodes this profile's selection at packet0x3e. The
+// 775 raw entity ID and776 optional entity ID must not share a numeric decoder.
 func (s *Server) handleSpectatorAction(sess *Session, p protocol.Packet) {
-	r := protocol.NewPacketReader(p.Data)
-	if _, err := r.VarInt(); err != nil {
+	profile, err := sess.javaProfile()
+	if err != nil {
 		return
 	}
+	selection, err := profile.decodeSpectatorSelection(p.Data)
+	if err != nil {
+		return
+	}
+	s.applySpectatorSelectionOwned(sess, selection)
 }
 
 // handleTeleportToEntity moves a spectator to another player, which is
@@ -1330,7 +1343,18 @@ func (s *Server) handlePlaceRecipe(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
-	s.placeRecipe(sess, windowID, recipeID, makeAll)
+	if r.Remaining() != 0 {
+		return
+	}
+	profile, err := sess.javaProfile()
+	if err != nil {
+		return
+	}
+	canonical, ok := profile.recipeCanonicalIndex(recipeID)
+	if !ok {
+		return
+	}
+	s.placeRecipe(sess, windowID, int32(canonical), makeAll)
 }
 
 // entityTypeNameOr renders an entity type id as its registry name.

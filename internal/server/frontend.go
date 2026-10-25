@@ -81,8 +81,8 @@ func (f externalFrontend) Versions() []Version         { return nil }
 func (f externalFrontend) Serve(ln net.Listener) error { return f.s.Attach(f.fe, ln) }
 
 // JavaFrontend owns the bundled Java handshake, status, login, configuration
-// and play transport. Only protocol 776 is implemented; a packet-ID table alone
-// cannot provide another version's codecs, registries or replication.
+// and play transport. Its admitted 775 and 776 profiles own their codecs and
+// registries while sharing one canonical 776 game runtime.
 type JavaFrontend struct {
 	s *Server
 }

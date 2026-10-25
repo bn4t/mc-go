@@ -13,8 +13,10 @@ import (
 var ErrIncompleteJavaProfile = errors.New("Java protocol profile is not ready for admission")
 
 // JavaProfileSupport reports independently implemented codec surfaces and the
-// remaining admission gates. A block projection or two packet codecs alone do
-// not establish support for a playable protocol.
+// remaining admission gates. Missing lists implementation gates, not content
+// parity: an admitted profile can reject content absent from its target.
+// MissingBlockStates counts strict block-state exclusions. A required missing
+// state retires only the viewer that needs it.
 type JavaProfileSupport struct {
 	Name                    string
 	Protocol                int32
@@ -24,6 +26,8 @@ type JavaProfileSupport struct {
 	BlockProjection         bool
 	BlockProjectionComplete bool
 	MissingBlockStates      int
+	ConfigurationData       bool
+	ConfigurationRegistries int
 	Missing                 []string
 }
 
@@ -38,6 +42,7 @@ type javaProfile struct {
 	blocks         *registry.BlockMapping
 	routes         map[int32]playHandler
 	missing        []string
+	config         *javaConfigData
 }
 
 var javaProfileSet struct {
@@ -55,7 +60,11 @@ func newJavaProfile(version Version, blocks *registry.BlockMapping) (*javaProfil
 	if blocks.Protocol() != int(version.Protocol) {
 		return nil, errors.New("Java profile block mapping belongs to a different protocol")
 	}
-	p := &javaProfile{version: version, blocks: blocks}
+	data, err := javaConfigFor(version.Protocol)
+	if err != nil {
+		return nil, err
+	}
+	p := &javaProfile{version: version, blocks: blocks, config: data}
 	switch version.Protocol {
 	case 776:
 		if err := blocks.RequireComplete(); err != nil {
@@ -67,11 +76,13 @@ func newJavaProfile(version Version, blocks *registry.BlockMapping) (*javaProfil
 			p.routes[id] = handler
 		}
 	case 775:
-		p.missing = []string{
-			"configuration_registries", "registry_tags", "items_and_components",
-			"entities_and_metadata", "attributes_effects_particles_and_sounds",
-			"recipes", "unrepresentable_block_states", "play_dispatch",
-			"block_entity_metadata_falling_blocks_and_particle_options",
+		// Common-content codecs and the measured version-specific input
+		// decoders are complete. Projection remains strict: newer canonical
+		// content absent from 775 is not a numeric substitute or admission gate.
+		p.admitted = true
+		p.routes = make(map[int32]playHandler, len(playServerbound))
+		for id, handler := range playServerbound {
+			p.routes[id] = handler
 		}
 	default:
 		return nil, errors.New("unmeasured Java codec profile")
@@ -88,12 +99,21 @@ func loadJavaProfiles() {
 		if err != nil {
 			panic(err)
 		}
-		profile775, err := newJavaProfile(Version{Name: "26.1", Protocol: 775}, blocks775)
+		profile775, err := newJavaProfile(java775Version(), blocks775)
 		if err != nil {
 			panic(err)
 		}
 		javaProfileSet.profiles = map[int32]*javaProfile{current.Protocol: profile776, 775: profile775}
 	})
+}
+
+// Official packet reports measured the same packet numbers in775/776. The
+// renamed0x3e payload is decoded by the profile, not inferred from its number.
+// EntityType fields remain canonical gameplay handles, never target wire IDs.
+func java775Version() Version {
+	v := LatestVersion()
+	v.Name, v.Protocol = "26.1", 775
+	return v
 }
 
 func javaProfileFor(protocolNumber int32) (*javaProfile, bool) {
@@ -116,7 +136,8 @@ func JavaProfiles() []JavaProfileSupport {
 		profiles = append(profiles, JavaProfileSupport{Name: p.version.Name, Protocol: number,
 			Admission: p.admitted, LoginSuccessCodec: true, JoinGameCodec: true,
 			BlockProjection: p.blocks != nil, BlockProjectionComplete: missingBlocks == 0,
-			MissingBlockStates: missingBlocks, Missing: append([]string(nil), p.missing...)})
+			MissingBlockStates: missingBlocks, ConfigurationData: p.config != nil,
+			ConfigurationRegistries: len(p.config.registries), Missing: append([]string(nil), p.missing...)})
 	}
 	return profiles
 }
@@ -219,6 +240,17 @@ func (p *javaProfile) encodeJoinGame(join javaJoinGame) []byte {
 	b.Bool(join.ReducedDebug)
 	b.Bool(join.RespawnScreen)
 	b.Bool(join.LimitedCrafting)
+	p.writeSpawnInfo(&b, join)
+	if p.joinOnlineMode {
+		b.Bool(join.OnlineMode)
+	}
+	b.Bool(join.SecureChat)
+	return b.Bytes()
+}
+
+// CommonPlayerSpawnInfo has the same measured layout in 775 and 776; Join
+// and Respawn share it rather than assigning unrelated registry indices.
+func (p *javaProfile) writeSpawnInfo(b *protocol.Buffer, join javaJoinGame) {
 	b.VarInt(join.DimensionType)
 	b.String(join.Dimension)
 	b.Long(join.HashedSeed)
@@ -233,10 +265,12 @@ func (p *javaProfile) encodeJoinGame(join javaJoinGame) []byte {
 	}
 	b.VarInt(join.PortalCooldown)
 	b.VarInt(join.SeaLevel)
-	if p.joinOnlineMode {
-		b.Bool(join.OnlineMode)
-	}
-	b.Bool(join.SecureChat)
+}
+
+func (p *javaProfile) encodeRespawn(join javaJoinGame, dataKept byte) []byte {
+	var b protocol.Buffer
+	p.writeSpawnInfo(&b, join)
+	b.Byte(dataKept)
 	return b.Bytes()
 }
 

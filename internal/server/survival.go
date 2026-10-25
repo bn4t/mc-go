@@ -515,13 +515,16 @@ func (s *Server) broadcastEntityMetadata(eid int32, payload []byte) {
 		return
 	}
 	dim := dimOverworld
+	entityType := int32(-1)
 	if e, ok := s.entities.Get(eid); ok {
 		dim = e.Dim
+		entityType = e.Type
 	}
 	var b protocol.Buffer
 	b.VarInt(eid)
 	b.Raw(payload)
 	body := b.Bytes()
+	cache := javaEntityBodyCache{}
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
 		if sess.state.Load() != StatePlay || !sess.spawned.Load() {
@@ -533,7 +536,7 @@ func (s *Server) broadcastEntityMetadata(eid int32, payload []byte) {
 		if !sess.tracksEntity(eid) && sess.entityID.Load() != eid {
 			return true
 		}
-		_ = sess.write(sess.ids().PlayEntityMetadata, body)
+		_ = cache.writeMetadata(sess, entityType, body)
 		return true
 	})
 }
@@ -1519,8 +1522,7 @@ func (s *Server) playerFluidTickStep() {
 			pm := pe.AttrMods["movement_speed"]
 			mod, has := pm["minecraft:powder_snow"]
 			if has != sess.frostActive || (has && mod.value != sess.frostSent) {
-				_ = sess.write(sess.ids().PlayUpdateAttributes,
-					updateAttributesSpeed(pe.ID, pm))
+				_ = sess.writeAttributes776(updateAttributesSpeed(pe.ID, pm))
 				sess.frostActive, sess.frostSent = has, mod.value
 			}
 			// ServerEntity.sendChanges' hurtMarked tail on the player
@@ -1664,6 +1666,7 @@ func (s *Server) broadcastAirSupply(sess *Session, air int32) {
 	b.VarInt(air)
 	b.Byte(0xFF)
 	body := b.Bytes()
+	cache := javaEntityBodyCache{}
 	dim := sess.dimName()
 	s.sessions.Range(func(_, v any) bool {
 		other := v.(*Session)
@@ -1676,7 +1679,7 @@ func (s *Server) broadcastAirSupply(sess *Session, air int32) {
 		if !other.tracksEntity(eid) && other.entityID.Load() != eid {
 			return true
 		}
-		_ = other.write(other.ids().PlayEntityMetadata, body)
+		_ = cache.writeMetadata(other, mustEntityType("player"), body)
 		return true
 	})
 }

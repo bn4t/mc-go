@@ -162,7 +162,9 @@ func (s *Server) queueBlockEntityDirty(d *dimension, pos world.Pos) {
 // entity produces an update packet. On the dedicated server that is
 // only signs: chests and furnaces produce no placement packet.
 func (s *Server) piggybackBlockEntity(d *dimension, pos world.Pos) {
-	if spec, ok := signSpecOf(d.w.GetBlock(pos)); ok {
+	state := d.w.GetBlock(pos)
+	s.broadcastLegacyBedData(d, pos, state)
+	if spec, ok := signSpecOf(state); ok {
 		if st, ok := s.signAt(d, pos); ok {
 			s.broadcastBlockEntityData(d, pos, spec.id, signNBT(st))
 		}

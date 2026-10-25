@@ -15,8 +15,16 @@ func TestPublicRuntimeProfilesAndCanonicalRegistry(t *testing.T) {
 	for _, profile := range profiles {
 		admitted[profile.Protocol] = profile.Admission
 	}
-	if !admitted[776] || admitted[775] || len(admitted) != 2 {
+	if !admitted[776] || !admitted[775] || len(admitted) != 2 {
 		t.Fatalf("profile admission = %v", admitted)
+	}
+	for _, profile := range profiles {
+		if len(profile.Missing) != 0 {
+			t.Fatalf("admitted profile has readiness gates: %+v", profile)
+		}
+		if profile.Protocol == 775 && (profile.BlockProjectionComplete || profile.MissingBlockStates != 2493) {
+			t.Fatalf("775 must expose strict newer-content exclusions: %+v", profile)
+		}
 	}
 	key, err := registry.NewStateKey("example:stone", nil)
 	if err != nil {
@@ -36,5 +44,20 @@ func TestPublicRuntimeProfilesAndCanonicalRegistry(t *testing.T) {
 	}
 	if wire, err := mapping.Encode(id); err != nil || wire != 77 {
 		t.Fatalf("public mapping = %d, %v", wire, err)
+	}
+	for _, entry := range []struct {
+		catalog *registry.NameCatalog
+		name    string
+	}{
+		{runtime.ItemCatalog(), "minecraft:crafting_table"},
+		{runtime.ComponentCatalog(), "minecraft:damage"},
+	} {
+		handle, ok := entry.catalog.Lookup(entry.name)
+		if !ok {
+			t.Fatalf("public named catalog lacks %s", entry.name)
+		}
+		if name, ok := entry.catalog.Name(handle); !ok || name != entry.name {
+			t.Fatalf("public named handle roundtrip = %q, %v", name, ok)
+		}
 	}
 }

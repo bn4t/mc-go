@@ -80,9 +80,25 @@ func (s *Server) sendConfigBrand(sess *Session) error {
 // minecraft:vanilla on a normal server.
 func (s *Server) sendFeatureFlags(sess *Session) error {
 	var b protocol.Buffer
-	b.VarInt(1)
-	b.String("minecraft:vanilla")
+	profile, err := sess.javaProfile()
+	if err != nil {
+		return err
+	}
+	b.VarInt(int32(len(profile.config.featureFlags)))
+	for _, flag := range profile.config.featureFlags {
+		b.String(flag)
+	}
 	return sess.write(sess.ids().ConfigFeatureFlags, b.Bytes())
+}
+
+func (s *Server) sendKnownPacks(sess *Session) error {
+	profile, err := sess.javaProfile()
+	if err != nil {
+		return err
+	}
+	var b protocol.Buffer
+	writeKnownPacks(&b, profile.config.knownPacks)
+	return sess.write(sess.ids().ConfigKnownPacksCB, b.Bytes())
 }
 
 // handleConfig runs the Configuration stage in vanilla order:
@@ -97,9 +113,7 @@ func (s *Server) handleConfig(sess *Session) {
 	if err := s.sendFeatureFlags(sess); err != nil {
 		return
 	}
-	var kb protocol.Buffer
-	writeKnownPacks(&kb, knownPacksSelection)
-	if err := sess.write(sess.ids().ConfigKnownPacksCB, kb.Bytes()); err != nil {
+	if err := s.sendKnownPacks(sess); err != nil {
 		return
 	}
 	for {
@@ -143,6 +157,5 @@ registries:
 			break
 		}
 	}
-	sess.state.Store(StatePlay)
 	s.handlePlay(sess)
 }

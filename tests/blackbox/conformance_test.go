@@ -37,8 +37,8 @@ func TestPortableConformanceVanilla(t *testing.T) {
 	runPortableConformanceOracle(t, blackboxJar(t), 776, "26.2")
 }
 
-// Protocol 775 is a runner/oracle profile. This does not admit 775 clients to
-// mc-go: its Java frontend remains explicitly gated while other maps are absent.
+// The independent 775 runner profile is also checked against the official
+// oracle. Server admission and mixed gameplay have separate TCP regressions.
 func TestPortableConformanceVanilla775(t *testing.T) {
 	if os.Getenv(enableProp) != "1" {
 		t.Skipf("set %s=1 to run the protocol 775 vanilla oracle", enableProp)

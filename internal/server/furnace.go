@@ -278,9 +278,9 @@ func (s *Server) sendFurnaceContent(sess *Session) {
 	b.VarInt(state)
 	b.VarInt(furnaceSlots + 36)
 	for i := 0; i < furnaceSlots+36; i++ {
-		writeSlot(&b, sess.menuStack(i))
+		sess.writeSlot(&b, sess.menuStack(i))
 	}
-	writeSlot(&b, sess.carried)
+	sess.writeSlot(&b, sess.carried)
 	_ = sess.write(sess.ids().PlayContainerContent, b.Bytes())
 }
 
@@ -492,7 +492,7 @@ func (s *Server) furnaceTick(d *dimension, pos world.Pos, f *furnaceData) {
 			b.VarInt(w.id)
 			b.VarInt(sess.windowState)
 			b.Short(int16(i))
-			writeSlot(&b, slots[i])
+			sess.writeSlot(&b, slots[i])
 			_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 		}
 		return true

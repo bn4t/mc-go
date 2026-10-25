@@ -50,6 +50,8 @@ var particleOptionKeys = map[string][]string{
 	"vibration":             {"destination"},
 	"entity_effect":         {"color"},
 	"tinted_leaves":         {"color"},
+	"flash":                 {"color"},
+	"dragon_breath":         {"power"},
 }
 
 func registerFxCommands(s *Server) {
@@ -162,8 +164,8 @@ func (s *Server) runPlaysound(player string, args []string) reply {
 		var p protocol.Buffer
 		p.Byte(0)
 		p.String(sound)
+		p.Byte(0) // no fixed range in direct SoundEvent
 		p.VarInt(cat)
-		p.Byte(0)
 		p.Int(int32(px * 8))
 		p.Int(int32(py * 8))
 		p.Int(int32(pz * 8))
@@ -239,7 +241,12 @@ func (s *Server) runParticle(player string, args []string) reply {
 	if len(args) < 1 {
 		return errTokenEnd("command.unknown.command", len(args)+1)
 	}
-	name := bossbarID(args[0])
+	particleToken := args[0]
+	var inlineOptions string
+	if i := strings.IndexByte(particleToken, '{'); i >= 0 {
+		inlineOptions, particleToken = particleToken[i:], particleToken[:i]
+	}
+	name := bossbarID(particleToken)
 	short := strings.TrimPrefix(name, "minecraft:")
 	id, ok := particleTypeIDs[short]
 	if !ok {
@@ -247,14 +254,20 @@ func (s *Server) runParticle(player string, args []string) reply {
 	}
 	rest := args[1:]
 	hasOptions := false
+	var options map[string]*snbtTag
+	if _, known := particleOptionKeys[short]; !known && inlineOptions != "" {
+		return componentReply(commandError("particle.invalidOptions", "unsupported options for "+name))
+	}
 	if keys, need := particleOptionKeys[short]; need {
 		hasOptions = true
-		var options map[string]*snbtTag
-		if len(rest) > 0 {
-			if t, _, perr := parseSNBTTag(rest[0], 0); perr == nil && t != nil && t.kind == snbtCompound {
+		optionToken := inlineOptions
+		if optionToken == "" && len(rest) > 0 {
+			optionToken, rest = rest[0], rest[1:]
+		}
+		if optionToken != "" {
+			if t, _, perr := parseSNBTTag(optionToken, 0); perr == nil && t != nil && t.kind == snbtCompound {
 				options = t.vals
 			}
-			rest = rest[1:]
 		}
 		missing := make([]string, 0, len(keys))
 		for _, k := range keys {
@@ -265,6 +278,10 @@ func (s *Server) runParticle(player string, args []string) reply {
 		if len(missing) > 0 {
 			return componentReply(commandError("particle.invalidOptions", strings.Join(missing, "; ")))
 		}
+	}
+	optionBody, optionErr := canonicalParticleCommandOptions(short, options)
+	if optionErr != nil {
+		return componentReply(commandError("particle.invalidOptions", optionErr.Error()))
 	}
 	pend := func() reply { return errTokenEnd("command.unknown.command", len(args)+1) }
 	px, py, pz := senderPos(sender)
@@ -367,6 +384,7 @@ func (s *Server) runParticle(player string, args []string) reply {
 		p.Float(speed)
 		p.Int(count)
 		p.VarInt(id)
+		p.Raw(optionBody)
 		_ = t.write(t.ids().PlayLevelParticles, p.Bytes())
 	}
 	return opsEchoReply(translatable("commands.particle.success", name))

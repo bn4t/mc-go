@@ -2433,15 +2433,105 @@ func TestEquipmentPackets(t *testing.T) {
 	addr := requireMcGoOnly(t)
 	ca, pra, pwa := joinPlayBlackbox(t, addr, "Alice")
 	defer ca.Close()
-	drainToJoinBlackbox(t, "alice", pra)
-	drainToQuietBlackbox(t, ca, pra, 400*time.Millisecond)
+	awaitPlayReadyBlackbox(t, "alice", ca, pra, pwa)
 	_ = ca.SetDeadline(time.Now().Add(10 * time.Second))
-
+	helmet := server.ItemStack{ID: world.ItemIDs["iron_helmet"], Count: 1}
+	// Only the sender's authoritative slot/cursor responses establish that a
+	// click committed. A second connection's login can overtake unread clicks.
+	awaitInventory := func(slot int16, want, carriedWant server.ItemStack) int32 {
+		t.Helper()
+		slotSeen, carriedSeen := false, false
+		state := int32(-1)
+		for !(slotSeen && carriedSeen) {
+			packet, err := pra.ReadPacket()
+			if err != nil {
+				t.Fatalf("Alice slot%d commit (slot=%v cursor=%v): %v", slot, slotSeen, carriedSeen, err)
+			}
+			r := protocol.NewPacketReader(packet.Data)
+			switch packet.ID {
+			case server.IDPlayContainerContent:
+				win, e := r.VarInt()
+				if e != nil {
+					t.Fatal(e)
+				}
+				st, e := r.VarInt()
+				if e != nil {
+					t.Fatal(e)
+				}
+				n, e := r.VarInt()
+				if e != nil || n < 0 {
+					t.Fatal("invalid inventory count")
+				}
+				var target server.ItemStack
+				for i := int32(0); i < n; i++ {
+					stack, e := readSlotBB(r)
+					if e != nil {
+						t.Fatal(e)
+					}
+					if i == int32(slot) {
+						target = stack
+					}
+				}
+				cursor, e := readSlotBB(r)
+				if e != nil || r.Remaining() != 0 {
+					t.Fatal("invalid inventory body")
+				}
+				if win == 0 {
+					state = st
+					slotSeen = target == want
+					carriedSeen = cursor == carriedWant
+				}
+			case server.IDPlayContainerSlot:
+				win, e := r.VarInt()
+				if e != nil {
+					t.Fatal(e)
+				}
+				st, e := r.VarInt()
+				if e != nil {
+					t.Fatal(e)
+				}
+				got, e := r.Short()
+				if e != nil {
+					t.Fatal(e)
+				}
+				stack, e := readSlotBB(r)
+				if e != nil || r.Remaining() != 0 {
+					t.Fatal("invalid inventory slot body")
+				}
+				if win == 0 && got == slot {
+					state = st
+					slotSeen = stack == want
+				}
+			case server.IDPlaySetCarriedItem:
+				cursor, e := readSlotBB(r)
+				if e != nil || r.Remaining() != 0 {
+					t.Fatal("invalid carried item body")
+				}
+				carriedSeen = cursor == carriedWant
+			case server.IDPlayKeepAliveCB:
+				if e := pwa.WritePacket(server.IDPlayKeepAliveSB, packet.Data); e != nil {
+					t.Fatal(e)
+				}
+			case server.IDPlayChunkBatchDone:
+				if e := ackChunkBatch(pwa); e != nil {
+					t.Fatal(e)
+				}
+			case server.IDPlaySyncPos:
+				id, e := r.VarInt()
+				if e != nil {
+					t.Fatal(e)
+				}
+				var ack protocol.Buffer
+				ack.VarInt(id)
+				if e = pwa.WritePacket(server.IDPlayTeleportConfirmSB, ack.Bytes()); e != nil {
+					t.Fatal(e)
+				}
+			}
+		}
+		return state
+	}
 	sendChatBlackbox(t, pwa, server.IDPlayChatCommandSB, "give iron_helmet 1")
-	aliceUUID := offlineUUIDBlackbox("Alice")
-
-	// The give bumped Alice's window-0 state, so sync it before clicking.
-	st := syncClickState(t, pra, pwa, 0)
+	st := awaitInventory(36, helmet, server.ItemStack{})
 	click := func(slot int16) {
 		t.Helper()
 		var b protocol.Buffer
@@ -2455,11 +2545,12 @@ func TestEquipmentPackets(t *testing.T) {
 		if err := pwa.WritePacket(server.IDPlayClickContainerSB, b.Bytes()); err != nil {
 			t.Fatal(err)
 		}
-		st++
 	}
-	// Move the helmet from the hotbar into the helmet armor slot.
 	click(36)
+	st = awaitInventory(36, server.ItemStack{}, helmet)
 	click(5)
+	_ = awaitInventory(5, helmet, server.ItemStack{})
+	aliceUUID := offlineUUIDBlackbox("Alice")
 
 	cb, prb, _ := joinPlayBlackbox(t, addr, "Bob")
 	defer cb.Close()

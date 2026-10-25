@@ -595,7 +595,7 @@ func (s *Server) pumpChunks(sess *Session) error {
 	}
 	for _, key := range batch {
 		metadata := s.chunkClientBlockEntities(d, key[0], key[1])
-		snapshot := captureChunkSnapshot(d, key[0], key[1], metadata, mapping)
+		snapshot := captureChunkSnapshotForProfile(d, key[0], key[1], metadata, profile)
 		if async {
 			future := reservation.Submit(snapshot.retainedBytes(), func() ([]byte, error) { return encodeChunkSnapshot(snapshot) })
 			if err := sess.writeChunkFuture(sess.ids().PlayChunkData, future); err != nil {

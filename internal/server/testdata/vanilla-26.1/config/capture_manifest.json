@@ -1,0 +1,255 @@
+{
+  "source_class": "wire observation",
+  "protocol": 775,
+  "version": "26.1",
+  "measurement_tool": "Python 3.12.14 independently written stdlib TCP probe; OpenJDK25 official JVM server",
+  "known_packs_reply": "empty selection: full registry data present",
+  "oracle_url": "https://piston-data.mojang.com/v1/objects/3872a7f07a1a595e651aef8b058dfc2bb3772f46/server.jar",
+  "oracle_sha1": "3872a7f07a1a595e651aef8b058dfc2bb3772f46",
+  "oracle_sha256": "98ab064389a8b34d48ac3d4c5ed858dd9433d0dfd1a12e1cbbda916448d92994",
+  "capture_transcript_sha256": "45eb4d469b6ee61253c388aef4abead9c4bac2eb312146f38b45031b7f5c71e9",
+  "packets": [
+    {
+      "file": "registries/000-minecraft_worldgen_biome.bin",
+      "packet_id": 7,
+      "registry": "minecraft:worldgen/biome",
+      "entries": 65,
+      "sha256": "2a32eb159853cf80caba0d90c0a7fbc494e87d16ba0bbbd718230c696935ad8a",
+      "bytes": 19840
+    },
+    {
+      "file": "registries/001-minecraft_chat_type.bin",
+      "packet_id": 7,
+      "registry": "minecraft:chat_type",
+      "entries": 7,
+      "sha256": "e4e1144c6ebc23550772b8015bf468da92f387bf1ce69eede611be30b97cc396",
+      "bytes": 1538
+    },
+    {
+      "file": "registries/002-minecraft_trim_pattern.bin",
+      "packet_id": 7,
+      "registry": "minecraft:trim_pattern",
+      "entries": 18,
+      "sha256": "d99da2185eca70732439f6921fb4742237cc6f234b038ea55d360329159a8b8c",
+      "bytes": 2046
+    },
+    {
+      "file": "registries/003-minecraft_trim_material.bin",
+      "packet_id": 7,
+      "registry": "minecraft:trim_material",
+      "entries": 11,
+      "sha256": "9211fbfd80e5227069f18feec51d308c6363f70b7844eaa945923a88ac4a2f5f",
+      "bytes": 1616
+    },
+    {
+      "file": "registries/004-minecraft_wolf_variant.bin",
+      "packet_id": 7,
+      "registry": "minecraft:wolf_variant",
+      "entries": 9,
+      "sha256": "8d3dcba3df6d1ef20f730e3e08fce6e7cc1dc6d0ca8f7b45f315beae615d942e",
+      "bytes": 2997
+    },
+    {
+      "file": "registries/005-minecraft_wolf_sound_variant.bin",
+      "packet_id": 7,
+      "registry": "minecraft:wolf_sound_variant",
+      "entries": 7,
+      "sha256": "bd1d5f37a227bc8765278e8f109de2e613d24a184ce8c580a857f85a4d9f55ff",
+      "bytes": 5008
+    },
+    {
+      "file": "registries/006-minecraft_pig_variant.bin",
+      "packet_id": 7,
+      "registry": "minecraft:pig_variant",
+      "entries": 3,
+      "sha256": "304197a105f8f6e6a2f4dd72088d43c607ac41d9c856554120996b66a95aac15",
+      "bytes": 388
+    },
+    {
+      "file": "registries/007-minecraft_pig_sound_variant.bin",
+      "packet_id": 7,
+      "registry": "minecraft:pig_sound_variant",
+      "entries": 3,
+      "sha256": "3c2d6190b55aa0c0366e28229d72379b1c64a8c6dfc46217d4eaaab4f033ad87",
+      "bytes": 1525
+    },
+    {
+      "file": "registries/008-minecraft_frog_variant.bin",
+      "packet_id": 7,
+      "registry": "minecraft:frog_variant",
+      "entries": 3,
+      "sha256": "d9af027d59dbf297fd899b1a44a77a48225537836529d071cb1b1973e7917872",
+      "bytes": 220
+    },
+    {
+      "file": "registries/009-minecraft_cat_variant.bin",
+      "packet_id": 7,
+      "registry": "minecraft:cat_variant",
+      "entries": 11,
+      "sha256": "6a8e3ff5a969703ad77b73f071d845a87f2959632dd0650e7c21e387ed20786a",
+      "bytes": 1354
+    },
+    {
+      "file": "registries/010-minecraft_cat_sound_variant.bin",
+      "packet_id": 7,
+      "registry": "minecraft:cat_sound_variant",
+      "entries": 2,
+      "sha256": "93efe783b104ef343e385e8b83aaeb9dd39900298294e803c472b6a87b5aede8",
+      "bytes": 1899
+    },
+    {
+      "file": "registries/011-minecraft_cow_sound_variant.bin",
+      "packet_id": 7,
+      "registry": "minecraft:cow_sound_variant",
+      "entries": 2,
+      "sha256": "723b448ed90d93571280db00108ac930e8df32db42af415193f873602a448a24",
+      "bytes": 429
+    },
+    {
+      "file": "registries/012-minecraft_cow_variant.bin",
+      "packet_id": 7,
+      "registry": "minecraft:cow_variant",
+      "entries": 3,
+      "sha256": "fc4d34027ed201606385a491471d4e8746280b99b4c86e5258502313342b614b",
+      "bytes": 402
+    },
+    {
+      "file": "registries/013-minecraft_chicken_sound_variant.bin",
+      "packet_id": 7,
+      "registry": "minecraft:chicken_sound_variant",
+      "entries": 2,
+      "sha256": "eed372a74e68f5d95df3681b2196d5d90b4a0dbea98b51803400e5389d789b97",
+      "bytes": 929
+    },
+    {
+      "file": "registries/014-minecraft_chicken_variant.bin",
+      "packet_id": 7,
+      "registry": "minecraft:chicken_variant",
+      "entries": 3,
+      "sha256": "e5149559973d3e2395125a0fe8f214f6c0db34bc4b89b1b967bfad8aae3b5609",
+      "bytes": 440
+    },
+    {
+      "file": "registries/015-minecraft_zombie_nautilus_variant.bin",
+      "packet_id": 7,
+      "registry": "minecraft:zombie_nautilus_variant",
+      "entries": 2,
+      "sha256": "716aefa57cf1562444c4a605267ad2f06d5afb36060e271b8a4f5476315b452f",
+      "bytes": 204
+    },
+    {
+      "file": "registries/016-minecraft_painting_variant.bin",
+      "packet_id": 7,
+      "registry": "minecraft:painting_variant",
+      "entries": 51,
+      "sha256": "b2e902ed115e9072e6d641073248ddc1ab782ad6b79694e875a7b7fe0743ec21",
+      "bytes": 10730
+    },
+    {
+      "file": "registries/017-minecraft_dimension_type.bin",
+      "packet_id": 7,
+      "registry": "minecraft:dimension_type",
+      "entries": 4,
+      "sha256": "4baed19d8487edc833b9703e0a82126f83bfd9ca1046a1acf718ad07d490fcd6",
+      "bytes": 3672
+    },
+    {
+      "file": "registries/018-minecraft_damage_type.bin",
+      "packet_id": 7,
+      "registry": "minecraft:damage_type",
+      "entries": 50,
+      "sha256": "d2d41a7214b26705bdb244a0d02fe9da67497ad7d0f9cce4f7e1dff87bae19b9",
+      "bytes": 5627
+    },
+    {
+      "file": "registries/019-minecraft_banner_pattern.bin",
+      "packet_id": 7,
+      "registry": "minecraft:banner_pattern",
+      "entries": 43,
+      "sha256": "22f5246148360295e4a12008d30b8f5f402415d91e39cbb350e54c754fbac4d6",
+      "bytes": 4945
+    },
+    {
+      "file": "registries/020-minecraft_enchantment.bin",
+      "packet_id": 7,
+      "registry": "minecraft:enchantment",
+      "entries": 43,
+      "sha256": "7a2b8db9920492d14f444bf36e6ac9553e65e71cc22142a71cf83f602769f954",
+      "bytes": 31715
+    },
+    {
+      "file": "registries/021-minecraft_jukebox_song.bin",
+      "packet_id": 7,
+      "registry": "minecraft:jukebox_song",
+      "entries": 21,
+      "sha256": "99b3fed8028b7189c859ec6485d07ef59756c2ba5d7d6628cd509971c5d8c46b",
+      "bytes": 3558
+    },
+    {
+      "file": "registries/022-minecraft_instrument.bin",
+      "packet_id": 7,
+      "registry": "minecraft:instrument",
+      "entries": 8,
+      "sha256": "f379feb320374aa788002679e5f8ac6795bd08d478975cda3871c4002d70678e",
+      "bytes": 1402
+    },
+    {
+      "file": "registries/023-minecraft_test_environment.bin",
+      "packet_id": 7,
+      "registry": "minecraft:test_environment",
+      "entries": 1,
+      "sha256": "ef9f485e52f3174d79c8478d6a32a2735d5eaf35119d807196e6e678955103eb",
+      "bytes": 93
+    },
+    {
+      "file": "registries/024-minecraft_test_instance.bin",
+      "packet_id": 7,
+      "registry": "minecraft:test_instance",
+      "entries": 1,
+      "sha256": "bc2aa0e3954950f89709d6a406393ced1a7180665b4d977745866b21774fda25",
+      "bytes": 219
+    },
+    {
+      "file": "registries/025-minecraft_dialog.bin",
+      "packet_id": 7,
+      "registry": "minecraft:dialog",
+      "entries": 3,
+      "sha256": "f32ebf70f08276a169fc1eaece13f1ceed347b32c82c025a0e7aea70b7796748",
+      "bytes": 835
+    },
+    {
+      "file": "registries/026-minecraft_world_clock.bin",
+      "packet_id": 7,
+      "registry": "minecraft:world_clock",
+      "entries": 2,
+      "sha256": "8e807101d88dc4507f38cd43e4260ea431a5b8dd4c689557be9990f5cf47063b",
+      "bytes": 67
+    },
+    {
+      "file": "registries/027-minecraft_timeline.bin",
+      "packet_id": 7,
+      "registry": "minecraft:timeline",
+      "entries": 4,
+      "sha256": "f2706aa0edcfdb15f9f3b2c6e5fbd6d05117cab76372aaaef8fdb310e75b47d1",
+      "bytes": 4126
+    },
+    {
+      "file": "feature_flags.bin",
+      "packet_id": 12,
+      "sha256": "77dae5f6d821757486b2af93050102274d4d008de84228ccc8dad83bcb7b82bc",
+      "bytes": 19
+    },
+    {
+      "file": "known_packs.bin",
+      "packet_id": 14,
+      "sha256": "70e276c3c0ee401c2ec58f5f003554c24c6bce253dba8b09efdaed57026dce4c",
+      "bytes": 21
+    },
+    {
+      "file": "tags.bin",
+      "packet_id": 13,
+      "sha256": "e70d4ad351f28d966a7420e5978e4720b71057ea25ff85a007c9a2cb1b23f700",
+      "bytes": 32316
+    }
+  ]
+}

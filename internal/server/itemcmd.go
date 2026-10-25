@@ -344,7 +344,7 @@ func (s *Server) syncItemSlot(sess *Session, id int32) {
 		b.VarInt(0)
 		b.VarInt(state)
 		b.Short(invSlotForHotbar(sess.held.Load()))
-		writeSlot(&b, it)
+		sess.writeSlot(&b, it)
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 		return
 	}
@@ -378,7 +378,7 @@ func (s *Server) syncItemSlot(sess *Session, id int32) {
 	b.VarInt(0)
 	b.VarInt(state)
 	b.Short(slot)
-	writeSlot(&b, it)
+	sess.writeSlot(&b, it)
 	_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 }
 

@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"mc-go/internal/event"
-	"mc-go/internal/protocol"
 	"mc-go/internal/world"
 )
 
@@ -292,19 +291,17 @@ func (s *Server) dimWorld(name string) *world.World {
 // flags, optional death location, portal cooldown, sea level, and the
 // data-kept bitmask. Shared by death respawn and dimension travel.
 func (s *Server) sendRespawn(sess *Session, d *dimension, portalCooldown int32, dataKept byte) error {
-	var b protocol.Buffer
-	b.VarInt(d.typeID)
-	b.String(d.name)
-	b.Long(hashedSeed(s.worldSeed())) // obfuscated world seed
-	b.Byte(sess.mode())
-	b.Byte(255) // previous game mode: none
-	b.Bool(false)
-	b.Bool(d.flat)
-	b.Bool(false) // no death location
-	b.VarInt(portalCooldown)
-	b.VarInt(d.seaLevel)
-	b.Byte(dataKept)
-	return sess.write(sess.ids().PlayRespawn, b.Bytes())
+	profile, err := sess.javaProfile()
+	if err != nil {
+		return err
+	}
+	dimensionType, err := profile.projectRegistryID("minecraft:dimension_type", d.typeID)
+	if err != nil {
+		return err
+	}
+	join := javaJoinGame{DimensionType: dimensionType, Dimension: d.name, HashedSeed: hashedSeed(s.worldSeed()),
+		GameMode: sess.mode(), PreviousGameMode: 255, Flat: d.flat, PortalCooldown: portalCooldown, SeaLevel: d.seaLevel}
+	return sess.write(sess.ids().PlayRespawn, profile.encodeRespawn(join, dataKept))
 }
 
 // changeDimension moves a player across dimensions the way vanilla

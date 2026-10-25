@@ -475,9 +475,9 @@ func (s *Server) sendChestContent(sess *Session) {
 	b.VarInt(state)
 	b.VarInt(int32(w.menuSize()))
 	for i := 0; i < w.menuSize(); i++ {
-		writeSlot(&b, sess.menuStack(i))
+		sess.writeSlot(&b, sess.menuStack(i))
 	}
-	writeSlot(&b, sess.carried)
+	sess.writeSlot(&b, sess.carried)
 	_ = sess.write(sess.ids().PlayContainerContent, b.Bytes())
 }
 
@@ -845,11 +845,11 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 		b.VarInt(wid)
 		b.VarInt(state)
 		b.Short(int16(mslot))
-		writeSlot(&b, sess.menuStack(mslot))
+		sess.writeSlot(&b, sess.menuStack(mslot))
 		_ = sess.write(sess.ids().PlayContainerSlot, b.Bytes())
 	}
 	var cb protocol.Buffer
-	writeSlot(&cb, carried)
+	sess.writeSlot(&cb, carried)
 	_ = sess.write(sess.ids().PlaySetCarriedItem, cb.Bytes())
 	_ = seq
 }
@@ -887,8 +887,12 @@ func (s *Server) handleChestClickPacket(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
-	readChangedSlots(r)
-	readSlot(r) // carried item (server keeps its own cursor)
+	if _, ok := sess.readChangedSlots(r); !ok {
+		return
+	}
+	if _, ok := sess.readHashedSlot(r); !ok || r.Remaining() != 0 {
+		return
+	} // server keeps its own cursor
 	s.handleChestClick(sess, w, slot, button, mode, true)
 }
 

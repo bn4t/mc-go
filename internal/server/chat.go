@@ -99,6 +99,15 @@ func (s *Server) broadcastPlayerChat(sender *Session, text string) {
 		if sess.state.Load() != StatePlay {
 			return true
 		}
+		profile, err := sess.javaProfile()
+		var wireChatType int32
+		if err == nil {
+			wireChatType, err = profile.projectRegistryID("minecraft:chat_type", chatType)
+		}
+		if err != nil {
+			sess.closeQueue()
+			return true
+		}
 		global := sess.chatGlobal.Add(1) - 1
 		var b protocol.Buffer
 		b.VarInt(global)
@@ -112,7 +121,7 @@ func (s *Server) broadcastPlayerChat(sender *Session, text string) {
 		b.Bool(true) // unsigned content present
 		b.Raw(textComponentContent(text))
 		b.VarInt(0) // filter type: pass through
-		b.VarInt(chatType + 1)
+		b.VarInt(wireChatType + 1)
 		b.Raw(textComponentContent(sender.getName()))
 		b.Bool(false) // no target name
 		_ = sess.write(sess.ids().PlayPlayerChat, b.Bytes())
@@ -197,9 +206,18 @@ func playerChatName(sess *Session) component {
 // chat_type binding (registry ref + sender name + optional target
 // name) decorates it on the client.
 func sendDisguisedChat(sess *Session, chatType int32, name component, content component, target *component) {
+	profile, err := sess.javaProfile()
+	var wireChatType int32
+	if err == nil {
+		wireChatType, err = profile.projectRegistryID("minecraft:chat_type", chatType)
+	}
+	if err != nil {
+		sess.closeQueue()
+		return
+	}
 	var b protocol.Buffer
 	b.Raw(content.content())
-	b.VarInt(chatType + 1) // holder ref: registry id + 1
+	b.VarInt(wireChatType + 1) // holder ref: profile registry id + 1
 	b.Raw(name.content())
 	if target != nil {
 		b.Bool(true)

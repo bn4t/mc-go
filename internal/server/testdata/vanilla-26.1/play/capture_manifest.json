@@ -1,0 +1,35 @@
+{
+  "source_class": "live official server wire observation; official datapack identity facts",
+  "oracle_version": "26.1",
+  "oracle_sha1": "3872a7f07a1a595e651aef8b058dfc2bb3772f46",
+  "oracle_sha256": "98ab064389a8b34d48ac3d4c5ed858dd9433d0dfd1a12e1cbbda916448d92994",
+  "inner_jar_sha256": "a7fed6f7d88379349e35ae0c6e9881d4484605132f6f620376a3868eea6cce52",
+  "measurement_tool": "independent Python3 stdlib TCP probe; OpenJDK25.0.5",
+  "generation_tool": "tools/genjavarecipes Go1.27.3",
+  "files": {
+    "recipe_book_giveall.bin": {
+      "bytes": 89318,
+      "sha256": "c5b035c392b7259775621967343079832ce095ef93d2990927b29cdf704bf68a"
+    },
+    "update_recipes.bin": {
+      "bytes": 2984,
+      "sha256": "b8229460ba720288e6705ff5d79376b317b464db4c76ee23240f163fa4b27910"
+    }
+  },
+  "name_display_validation": [
+    {
+      "version": "26.1",
+      "names_checked": 1491,
+      "display_entries_checked": 1498,
+      "mismatches": [],
+      "measurement_record_sha256": "c853dc97f5071f4c457cfb8eee10ce5dbdb9709479ba20350701b92118c4230b"
+    },
+    {
+      "version": "26.2",
+      "names_checked": 1561,
+      "display_entries_checked": 1568,
+      "mismatches": [],
+      "measurement_record_sha256": "b63a1b174c62c05b5b6513f936a012530dfbb2979085063f46da246d0113d709"
+    }
+  ]
+}

@@ -472,8 +472,8 @@ func (s *Server) removeMobEffect(sess *Session, id int32) {
 	b.VarInt(sess.entityID.Load())
 	b.VarInt(id)
 	body := b.Bytes()
-	_ = sess.write(sess.ids().PlayRemoveMobEffect, body)
-	s.broadcastToDim(sess.dimName(), sess, sess.ids().PlayRemoveMobEffect, body)
+	_ = sess.writeMobEffect776(body, true)
+	s.broadcastMobEffect776(sess.dimName(), sess, body, true)
 	s.fireEffectsChanged(sess)
 }
 
@@ -517,8 +517,8 @@ func (s *Server) sendMobEffectUpdate(sess *Session, id int32, e mobEffectInst) {
 	}
 	b.Byte(flags)
 	body := b.Bytes()
-	_ = sess.write(sess.ids().PlayUpdateMobEffect, body)
-	s.broadcastToDim(sess.dimName(), sess, sess.ids().PlayUpdateMobEffect, body)
+	_ = sess.writeMobEffect776(body, false)
+	s.broadcastMobEffect776(sess.dimName(), sess, body, false)
 }
 
 // mobEffectTickStep expires active effects on the game clock and emits
@@ -743,6 +743,19 @@ func (s *Server) sendMobEffectUpdateFlags(sess *Session, id, amplifier, duration
 	b.VarInt(duration)
 	b.Byte(flags)
 	body := b.Bytes()
-	_ = sess.write(sess.ids().PlayUpdateMobEffect, body)
-	s.broadcastToDim(sess.dimName(), sess, sess.ids().PlayUpdateMobEffect, body)
+	_ = sess.writeMobEffect776(body, false)
+	s.broadcastMobEffect776(sess.dimName(), sess, body, false)
+}
+
+// Each observer receives its own profile's effect identifier and packet ID.
+func (s *Server) broadcastMobEffect776(dim string, except *Session, body []byte, remove bool) {
+	cache := javaEntityBodyCache{}
+	s.sessions.Range(func(_, value any) bool {
+		other := value.(*Session)
+		if other == except || other.state.Load() != StatePlay || !other.spawned.Load() || other.dimName() != dim {
+			return true
+		}
+		_ = cache.writeMobEffect(other, body, remove)
+		return true
+	})
 }
