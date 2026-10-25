@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Exec(MCGO_BLACKBOX=1 go test)"
+    ]
+  }
+}

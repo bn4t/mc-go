@@ -1,0 +1,17 @@
+# Mojang's server jar and the data generated from it. Used only as a black-box
+# oracle and data source; not redistributable, so it stays out of the repo.
+# Regenerate with:
+#   mkdir -p vanilla && cd vanilla
+#   curl -o server-26.2.jar <mojang server jar url>
+#   java -DbundlerMainClass=net.minecraft.data.Main -jar server-26.2.jar --all
+vanilla/
+
+# Build artifacts
+*.test
+*.exe
+/server
+/mc-go
+
+# Editor / OS
+.DS_Store
+._*
