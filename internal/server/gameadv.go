@@ -1,0 +1,4413 @@
+package server
+
+import (
+	"math"
+	"strings"
+	"time"
+
+	"mc-go/internal/data"
+	"mc-go/internal/world"
+)
+
+// Gameplay (non-recipe) advancements. Recipe advancements stay on the
+// RecipeAdv path — this layer covers the gameplay tree that syncs
+// through the same update_advancements packet: defs replayed verbatim
+// from the captured wire table (data.AdvDefWire), progress emitted as
+// criteria/timestamp records, and visibility following vanilla's
+// AdvancementVisibilityEvaluator rule.
+
+// advMeta is one advancement's runtime shape: identity for the tree
+// walk, criteria for progress emission, and the kill-trigger conditions
+// decoded into a matchable form.
+type advMeta struct {
+	id, parent string
+	criteria   []string // names; emit order is computed, never JSON order
+	reqs       [][]string
+	hasDisplay bool
+	hidden     bool
+	announce   bool   // display.announce_to_chat (default true)
+	titleKey   string // display.title translate key
+	descKey    string // display.description translate key
+	frame      string // display.frame: task/goal/challenge
+	kills      []killCond
+	deaths     []killCond    // entity_killed_player — conditions apply to the killer
+	locs       []locCond     // location — only biome checks are modeled
+	hurts      []hurtCond    // player_hurt_entity — a player dealt damage
+	ehurts     []ehurtCond   // entity_hurt_player — a player took damage
+	inv        []invCond     // inventory_changed — an item reached inventory
+	consumed   []consumeCond // consume_item — a food finished eating
+	placed     []placedCond  // placed_block — a block landed in the world
+	dims       []dimCond     // changed_dimension — crossed dimensions
+	usedOn     []usedOnCond  // item_used_on_block — tool met block
+	allayDrops []usedOnCond  // allay_drop_item_on_block — same location schema
+	travel     []travelCond  // nether_travel — portal loop distance
+	summons    []summonCond  // summoned_entity — a built entity spawned
+	loots      []lootCond    // player_generates_container_loot — chest opened
+	breds      []breedCond   // bred_animals — a baby was produced
+	tames      []tameCond
+	interacts  []interactCond  // player_interacted_with_entity — a successful right-click
+	sheared    []interactCond  // player_sheared_equipment — item=removed stack
+	trades     []interactCond  // villager_trade — entity=trader, item=result stack
+	cures      []interactCond  // cured_zombie_villager — entity sets for zombie+villager
+	fallExps   []fallExplCond  // fall_after_explosion — cause entity + apex-vs-impact rise
+	pickups    []pickupCond    // thrown_item_picked_up_by_entity — a mob took a player's drop
+	pickupsByP []pickupCond    // thrown_item_picked_up_by_player — the picker side
+	rides      []rideCond      // started_riding — a player mounted a vehicle
+	rideLava   []rideLavaCond  // ride_entity_in_lava — distance on a lava vehicle
+	durs       []durCond       // item_durability_changed — a stack wore while riding
+	fills      []fillCond      // filled_bucket — a bucket was filled
+	sleeps     []sleepCond     // slept_in_bed — entered a bed
+	sculks     []sleepCond     // kill_mob_near_sculk_catalyst — no conditions
+	vibrates   []sleepCond     // avoid_vibration — a sneaking emission a sensor heard
+	heros      []sleepCond     // hero_of_the_village — a defended-raid victory
+	omens      []sleepCond     // raid_omen — absorbed into a raid (all_effects)
+	beacons    []beaconCond    // construct_beacon — pyramid activated
+	recipes    []recipeCond    // recipe_crafted — a recipe completed
+	crafters   []recipeCond    // crafter_recipe_crafted — a powered crafter ejected
+	totems     []totemCond     // used_totem — death protection popped
+	effs       []effCond       // effects_changed — effect set transition
+	shots      []totemCond     // shot_crossbow — item predicate on the weapon
+	kba        []kbaCond       // killed_by_arrow — arrow kills by weapon/victim
+	usings     []usingCond     // using_item — held-use items (spyglass)
+	targetHits []targetHitCond // target_hit — projectiles ringing a target block
+	enters     []enterCond     // enter_block — game tree (end/enter_end_gateway)
+	falls      []fallCond      // fall_from_height — landed drops
+	lights     []lightningCond // lightning_strike — bolt struck near a bystander
+	chans      []chanCond      // channeled_lightning — channeling bolt's struck set
+	slides     []slideCond     // slide_down_block — sliding a sticky side
+	levitates  []levitateCond  // levitation — distance risen under the effect
+	beenests   []beeNestCond   // bee_nest_destroyed — silk-touch nest break
+	enchanteds []enchantCond   // enchanted_item — a table enchant landed
+	breweds    []brewedCond    // brewed_potion — a brewed stack left the stand
+	fished     []fishCond      // fishing_rod_hooked — a bite was reeled in
+	spears     []spearCond     // spear_mobs — a jab's distinct-stabbed count
+}
+
+// locCond is a location trigger criterion reduced to its biome check:
+// the flat world is the_void throughout, so biomes is the only condition
+// mc-go can satisfy. Anything else (structures, stepping_on, dimension,
+// equipment on the player predicate) leaves the criterion locked.
+type locCond struct {
+	crit       string
+	biomes     map[string]bool
+	impossible bool
+}
+
+// killCond is one criterion's player_killed_entity condition reduced to
+// what mc-go can evaluate: the victim's entity type, the horizontal
+// distance between victim and killer, and the ominous-banner head
+// equipment predicate voluntary_exile uses. Anything else in the
+// condition (entity tags beyond type, mob effects, ...) sets impossible
+// so the criterion stays locked — the same as vanilla when the predicate
+// does not match.
+type killCond struct {
+	crit      string
+	types     map[string]bool // nil = any entity
+	minDist   float64         // conditions.entity[].distance.horizontal.min
+	needsProj bool            // killing_blow.tags contains is_projectile
+	direct    map[string]bool // killing_blow.direct_entity entity types
+	// headOminous is equipment.head matching the captain patch —
+	// white_banner + banner_patterns + item_name ominous_banner.
+	headOminous bool
+	impossible  bool
+}
+
+// hurtCond is one player_hurt_entity criterion reduced to what mc-go
+// evaluates: damage.type.direct_entity's entity type set, the
+// is_projectile damage tag, and dealt.min. Blocked damage, item
+// predicates beyond entity type, and unmodeled condition fields leave
+// the criterion locked.
+type hurtCond struct {
+	crit       string
+	direct     map[string]bool // direct_entity entity types (nil = any)
+	mainhand   map[string]bool // direct_entity.equipment.mainhand items (nil = any)
+	needsProj  bool            // damage.type.tags contains is_projectile
+	needsSmash bool            // damage.type.tags contains mace_smash
+	minDealt   float64         // damage.dealt.min (raw hearts, not half)
+	impossible bool
+}
+
+// spearCond is one spear_mobs criterion: vanilla's trigger checks the
+// holder's stabbedEntities count against the condition's count floor.
+type spearCond struct {
+	crit       string
+	count      int
+	impossible bool
+}
+
+// ehurtCond is one entity_hurt_player criterion reduced to what a
+// blocked projectile hit can satisfy: the is_projectile damage tag and
+// the damage.blocked flag. Source/direct predicates and unmodeled
+// fields lock the criterion.
+type ehurtCond struct {
+	crit       string
+	needsProj  bool
+	needsBlock bool
+	blockFalse bool
+	impossible bool
+}
+
+// invCond is one inventory_changed criterion reduced to its items[]
+// predicate list: each element's item names OR together, but every
+// element must match some slot for the criterion to grant — the
+// nether_armor advancement lists all four armor pieces this way and
+// only grants when the whole set is in inventory. The slots and
+// equipment condition shapes are not modeled, so criteria that use
+// them stay locked.
+type invCond struct {
+	crit       string
+	sets       []map[string]bool
+	impossible bool
+}
+
+// consumeCond is one consume_item criterion: the eaten item's name set
+// (empty = any item, e.g. husbandry/root's consumed_item).
+type consumeCond struct {
+	crit       string
+	items      map[string]bool
+	impossible bool
+}
+
+// dimCond is one changed_dimension criterion: optional from/to
+// dimension names (minecraft:overworld / the_nether / the_end). The
+// condition shape is flat strings, not location predicates.
+type dimCond struct {
+	crit       string
+	from       string
+	to         string
+	impossible bool
+}
+
+// usedOnCond is one item_used_on_block criterion reduced to the
+// clicked block's name set and the used item's name set. Block state
+// checks, biome predicates, and component predicates (the jukebox's
+// playable check) are unmodeled and lock the criterion.
+type usedOnCond struct {
+	crit       string
+	blocks     map[string]bool
+	toolItems  map[string]bool
+	impossible bool
+}
+
+// travelCond is one nether_travel criterion: the horizontal
+// overworld-space distance between the portal the player entered and
+// the portal they exited. Other distance shapes (absolute, y, ...)
+// lock the criterion.
+type travelCond struct {
+	crit       string
+	minDist    float64
+	impossible bool
+}
+
+// summonCond is one summoned_entity criterion: the constructed
+// entity's type name (iron golem today; the wither's pattern is
+// unmodeled). conditions.entity reduces to its entity_type predicate.
+type summonCond struct {
+	crit       string
+	entityType string
+	impossible bool
+}
+
+// lootCond is one player_generates_container_loot criterion: the
+// loot-table id the opened container rolled ("chests/bastion_bridge").
+type lootCond struct {
+	crit       string
+	table      string
+	impossible bool
+}
+
+// breedCond is one bred_animals criterion reduced to the child's
+// entity_type ("minecraft:cow"). Vanilla's conditions carry child/
+// parent/partner predicates; matching on the child's species covers
+// bred_all_animals' per-species criteria. Richer predicates (location,
+// properties) lock the criterion.
+type breedCond struct {
+	crit       string
+	childType  string
+	impossible bool
+}
+
+// placedCond is one placed_block criterion reduced to the placed
+// block's name. The location predicate's richer shapes — block
+// properties, all_of/any_of terms, biome/position checks — stay
+// locked; only a plain {"block": name} single-term location matches.
+type placedCond struct {
+	crit       string
+	block      string
+	impossible bool
+}
+
+var (
+	gameAdvs     = loadGameAdvs()
+	gameAdvChild = func() map[string][]string {
+		m := map[string][]string{}
+		for _, a := range gameAdvs {
+			if a.parent != "" {
+				m[a.parent] = append(m[a.parent], a.id)
+			}
+		}
+		return m
+	}()
+	gameAdvRoots []advMetaRoot
+)
+
+type advMetaRoot = string
+
+func init() {
+	for _, a := range gameAdvs {
+		if a.parent == "" || gameAdvs[a.parent] == nil {
+			gameAdvRoots = append(gameAdvRoots, a.id)
+		}
+	}
+}
+
+// loadGameAdvs decodes the bundled data pack's advancement tree into
+// advMeta records. keys in data.Advancements() are datapack paths
+// ("adventure/kill_a_mob") — wire ids carry the minecraft: namespace.
+func loadGameAdvs() map[string]*advMeta {
+	out := map[string]*advMeta{}
+	for path, raw := range data.Advancements() {
+		id := "minecraft:" + path
+		m := &advMeta{id: id}
+		if p, ok := raw["parent"].(string); ok {
+			m.parent = p
+		}
+		if crit, ok := raw["criteria"].(map[string]any); ok {
+			for cname, cv := range crit {
+				m.criteria = append(m.criteria, cname)
+				cm, _ := cv.(map[string]any)
+				switch cm["trigger"] {
+				case "minecraft:player_killed_entity":
+					m.kills = append(m.kills, parseKillCond(cname, cm["conditions"]))
+				case "minecraft:entity_killed_player":
+					m.deaths = append(m.deaths, parseKillCond(cname, cm["conditions"]))
+				case "minecraft:player_hurt_entity":
+					m.hurts = append(m.hurts, parseHurtCond(cname, cm["conditions"]))
+				case "minecraft:entity_hurt_player":
+					m.ehurts = append(m.ehurts, parseEHurtCond(cname, cm["conditions"]))
+				case "minecraft:inventory_changed":
+					m.inv = append(m.inv, parseInvCond(cname, cm["conditions"]))
+				case "minecraft:consume_item":
+					m.consumed = append(m.consumed, parseConsumeCond(cname, cm["conditions"]))
+				case "minecraft:placed_block":
+					m.placed = append(m.placed, parsePlacedCond(cname, cm["conditions"]))
+				case "minecraft:changed_dimension":
+					m.dims = append(m.dims, parseDimCond(cname, cm["conditions"]))
+				case "minecraft:item_used_on_block":
+					m.usedOn = append(m.usedOn, parseUsedOnCond(cname, cm["conditions"]))
+				case "minecraft:allay_drop_item_on_block":
+					m.allayDrops = append(m.allayDrops, parseUsedOnCond(cname, cm["conditions"]))
+				case "minecraft:nether_travel":
+					m.travel = append(m.travel, parseTravelCond(cname, cm["conditions"]))
+				case "minecraft:summoned_entity":
+					m.summons = append(m.summons, parseSummonCond(cname, cm["conditions"]))
+				case "minecraft:player_generates_container_loot":
+					m.loots = append(m.loots, parseLootCond(cname, cm["conditions"]))
+				case "minecraft:bred_animals":
+					m.breds = append(m.breds, parseBreedCond(cname, cm["conditions"]))
+				case "minecraft:tame_animal":
+					m.tames = append(m.tames, parseTameCond(cname, cm["conditions"]))
+				case "minecraft:player_interacted_with_entity":
+					m.interacts = append(m.interacts, parseInteractCond(cname, cm["conditions"]))
+				case "minecraft:player_sheared_equipment":
+					m.sheared = append(m.sheared, parseInteractCond(cname, cm["conditions"]))
+				case "minecraft:villager_trade":
+					m.trades = append(m.trades, parseInteractCondKey(cname, cm["conditions"], "villager"))
+				case "minecraft:cured_zombie_villager":
+					m.cures = append(m.cures, parseInteractCondKeys(cname, cm["conditions"], "zombie", "villager"))
+				case "minecraft:fall_after_explosion":
+					m.fallExps = append(m.fallExps, parseFallExplCond(cname, cm["conditions"]))
+				case "minecraft:thrown_item_picked_up_by_entity":
+					m.pickups = append(m.pickups, parsePickupCond(cname, cm["conditions"]))
+				case "minecraft:thrown_item_picked_up_by_player":
+					m.pickupsByP = append(m.pickupsByP, parsePickupCond(cname, cm["conditions"]))
+				case "minecraft:started_riding":
+					m.rides = append(m.rides, parseRideCond(cname, cm["conditions"]))
+				case "minecraft:ride_entity_in_lava":
+					m.rideLava = append(m.rideLava, parseRideLavaCond(cname, cm["conditions"]))
+				case "minecraft:item_durability_changed":
+					m.durs = append(m.durs, parseDurCond(cname, cm["conditions"]))
+				case "minecraft:filled_bucket":
+					m.fills = append(m.fills, parseFillCond(cname, cm["conditions"]))
+				case "minecraft:construct_beacon":
+					m.beacons = append(m.beacons, parseBeaconCond(cname, cm["conditions"]))
+				case "minecraft:recipe_crafted":
+					m.recipes = append(m.recipes, parseRecipeCond(cname, cm["conditions"]))
+				case "minecraft:crafter_recipe_crafted":
+					m.crafters = append(m.crafters, parseRecipeCond(cname, cm["conditions"]))
+				case "minecraft:used_totem":
+					m.totems = append(m.totems, parseTotemCond(cname, cm["conditions"]))
+				case "minecraft:effects_changed":
+					m.effs = append(m.effs, parseEffCond(cname, cm["conditions"]))
+				case "minecraft:shot_crossbow":
+					m.shots = append(m.shots, parseTotemCond(cname, cm["conditions"]))
+				case "minecraft:killed_by_arrow":
+					m.kba = append(m.kba, parseKBACond(cname, cm["conditions"]))
+				case "minecraft:using_item":
+					m.usings = append(m.usings, parseUsingCond(cname, cm["conditions"]))
+				case "minecraft:target_hit":
+					m.targetHits = append(m.targetHits, parseTargetHitCond(cname, cm["conditions"]))
+				case "minecraft:enter_block":
+					m.enters = append(m.enters, parseEnterCond(cname, cm["conditions"]))
+				case "minecraft:fall_from_height":
+					m.falls = append(m.falls, parseFallCond(cname, cm["conditions"]))
+				case "minecraft:lightning_strike":
+					m.lights = append(m.lights, parseLightningCond(cname, cm["conditions"]))
+				case "minecraft:channeled_lightning":
+					m.chans = append(m.chans, parseChanCond(cname, cm["conditions"]))
+				case "minecraft:slide_down_block":
+					m.slides = append(m.slides, parseSlideCond(cname, cm["conditions"]))
+				case "minecraft:levitation":
+					m.levitates = append(m.levitates, parseLevitateCond(cname, cm["conditions"]))
+				case "minecraft:bee_nest_destroyed":
+					m.beenests = append(m.beenests, parseBeeNestCond(cname, cm["conditions"]))
+				case "minecraft:slept_in_bed":
+					m.sleeps = append(m.sleeps, parseSleepCond(cname, cm["conditions"]))
+				case "minecraft:kill_mob_near_sculk_catalyst":
+					m.sculks = append(m.sculks, parseSleepCond(cname, cm["conditions"]))
+				case "minecraft:avoid_vibration":
+					m.vibrates = append(m.vibrates, parseSleepCond(cname, cm["conditions"]))
+				case "minecraft:enchanted_item":
+					m.enchanteds = append(m.enchanteds, parseEnchantCond(cname, cm["conditions"]))
+				case "minecraft:brewed_potion":
+					m.breweds = append(m.breweds, parseBrewedCond(cname, cm["conditions"]))
+				case "minecraft:fishing_rod_hooked":
+					m.fished = append(m.fished, parseFishCond(cname, cm["conditions"]))
+				case "minecraft:spear_mobs":
+					m.spears = append(m.spears, parseSpearCond(cname, cm["conditions"]))
+				case "minecraft:location":
+					m.locs = append(m.locs, parseLocCond(cname, cm["conditions"]))
+				case "minecraft:hero_of_the_village":
+					m.heros = append(m.heros, parseSleepCond(cname, cm["conditions"]))
+				case "minecraft:raid_omen":
+					m.omens = append(m.omens, parseSleepCond(cname, cm["conditions"]))
+				}
+			}
+		}
+		m.reqs = asGroups(raw["requirements"])
+		// Vanilla folds single-string requirement entries into one-name
+		// groups at JSON load; emit sees the same [][]string either way.
+		if len(m.reqs) == 0 {
+			for _, c := range m.criteria {
+				m.reqs = append(m.reqs, []string{c})
+			}
+		}
+		if disp, ok := raw["display"].(map[string]any); ok {
+			m.hasDisplay = true
+			m.announce = true
+			if h, ok := disp["hidden"].(bool); ok {
+				m.hidden = h
+			}
+			if a, ok := disp["announce_to_chat"].(bool); ok {
+				m.announce = a
+			}
+			if t, ok := disp["title"].(map[string]any); ok {
+				if tr, ok := t["translate"].(string); ok {
+					m.titleKey = tr
+				}
+			}
+			if d, ok := disp["description"].(map[string]any); ok {
+				if tr, ok := d["translate"].(string); ok {
+					m.descKey = tr
+				}
+			}
+			if f, ok := disp["frame"].(string); ok {
+				m.frame = f
+			}
+		}
+		if m.frame == "" {
+			m.frame = "task"
+		}
+		out[id] = m
+	}
+	return out
+}
+
+func asGroups(v any) [][]string {
+	l, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	var out [][]string
+	for _, g := range l {
+		gl, _ := g.([]any)
+		var grp []string
+		for _, c := range gl {
+			grp = append(grp, asJSONString(c))
+		}
+		out = append(out, grp)
+	}
+	return out
+}
+
+func asJSONString(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// parseKillCond reduces a criterion's `conditions` object to killCond.
+// conditions.entity is a list of "minecraft:entity_properties" loot
+// conditions; we support entity_type (single or #tag) and
+// distance.horizontal.min. killing_blow supports direct_entity entity
+// type and the is_projectile tag.
+func parseKillCond(cname string, conds any) killCond {
+	kc := killCond{crit: cname}
+	cm, ok := conds.(map[string]any)
+	if !ok {
+		return kc // null conditions — always match
+	}
+	ents, _ := cm["entity"].([]any)
+	for _, ev := range ents {
+		em, _ := ev.(map[string]any)
+		// Only entity_properties predicates against `this` (the victim)
+		// are modeled; anything else stays locked like a predicate that
+		// does not match.
+		if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+			kc.impossible = true
+			continue
+		}
+		if e, _ := em["entity"].(string); e != "" && e != "this" {
+			kc.impossible = true
+			continue
+		}
+		pred, _ := em["predicate"].(map[string]any)
+		if pred == nil {
+			continue
+		}
+		for k, v := range pred {
+			switch k {
+			case "minecraft:entity_type":
+				if kc.types == nil {
+					kc.types = map[string]bool{}
+				}
+				if s, ok := v.(string); ok {
+					if strings.HasPrefix(s, "#") {
+						tag := strings.TrimPrefix(strings.TrimPrefix(s, "#"), "minecraft:")
+						for _, m := range data.EntityTypeTags[tag] {
+							kc.types[m] = true
+						}
+					} else {
+						kc.types[strings.TrimPrefix(s, "minecraft:")] = true
+					}
+				}
+			case "minecraft:distance":
+				if dm, ok := v.(map[string]any); ok {
+					if hm, ok := dm["horizontal"].(map[string]any); ok {
+						if mn, ok := hm["min"].(float64); ok {
+							kc.minDist = mn
+						}
+					}
+				}
+			case "minecraft:equipment":
+				// Only the voluntary_exile shape is modeled: head matches
+				// the ominous captain banner. Any other slot predicate
+				// locks the criterion.
+				em2, _ := v.(map[string]any)
+				hm, _ := em2["head"].(map[string]any)
+				if hm != nil && killHeadIsOminous(hm) && len(em2) == 1 {
+					kc.headOminous = true
+				} else {
+					kc.impossible = true
+				}
+			default:
+				kc.impossible = true
+			}
+		}
+	}
+	if kb, ok := cm["killing_blow"].(map[string]any); ok {
+		if tags, ok := kb["tags"].([]any); ok {
+			for _, tv := range tags {
+				if tm, ok := tv.(map[string]any); ok {
+					if tm["id"] == "minecraft:is_projectile" && tm["expected"] == true {
+						kc.needsProj = true
+					}
+				}
+			}
+		}
+		if de, ok := kb["direct_entity"].(map[string]any); ok {
+			if et, ok := de["minecraft:entity_type"].(string); ok {
+				kc.direct = map[string]bool{}
+				if strings.HasPrefix(et, "#") {
+					for _, m := range data.EntityTypeTags[strings.TrimPrefix(et, "#minecraft:")] {
+						kc.direct[m] = true
+					}
+				} else {
+					kc.direct[strings.TrimPrefix(et, "minecraft:")] = true
+				}
+			}
+		}
+	}
+	return kc
+}
+
+// killHeadIsOminous reports whether an equipment.head item predicate is
+// the captain banner shape — items white_banner plus a components map
+// carrying banner_patterns and item_name block.minecraft.ominous_banner
+// (vanilla's exact ItemStack.matches stand-in).
+func killHeadIsOminous(hm map[string]any) bool {
+	itemsOK := false
+	switch iv := hm["items"].(type) {
+	case string:
+		itemsOK = strings.TrimPrefix(iv, "minecraft:") == "white_banner"
+	case []any:
+		for _, s := range iv {
+			if strings.TrimPrefix(asJSONString(s), "minecraft:") == "white_banner" {
+				itemsOK = true
+			}
+		}
+	}
+	comps, _ := hm["components"].(map[string]any)
+	_, hasPat := comps["minecraft:banner_patterns"]
+	nm, _ := comps["minecraft:item_name"].(map[string]any)
+	return itemsOK && hasPat && nm["translate"] == "block.minecraft.ominous_banner"
+}
+
+// firePlayerKilledEntity evaluates every player_killed_entity criterion
+// against a kill: victimType is the entity's registry name, (vx,vz vs
+// ax,az) the horizontal distance between victim and attacker, and
+// headOminous whether the victim wore the captain banner. Melee has
+// no projectile/direct entity, so criteria that require either never
+// match.
+func (s *Server) firePlayerKilledEntity(sess *Session, victimType string, vx, vz, ax, az float64, headOminous bool) {
+	s.firePlayerKilledEntityDamage(sess, victimType, vx, vz, ax, az, false, "", headOminous)
+}
+
+// firePlayerKilledEntityDamage is firePlayerKilledEntity carrying the
+// killing blow's shape: proj is the is_projectile damage tag and
+// directType the direct entity's name ("arrow", "trident"; empty for a
+// plain melee strike, which has no direct entity separate from the
+// attacker).
+func (s *Server) firePlayerKilledEntityDamage(sess *Session, victimType string, vx, vz, ax, az float64, proj bool, directType string, headOminous bool) {
+	dx, dz := vx-ax, vz-az
+	distSq := dx*dx + dz*dz
+	for _, meta := range gameAdvs {
+		for _, kc := range meta.kills {
+			if kc.impossible {
+				continue
+			}
+			if kc.needsProj && !proj {
+				continue
+			}
+			if kc.direct != nil && !kc.direct[directType] {
+				continue
+			}
+			if kc.types != nil && !kc.types[victimType] {
+				continue
+			}
+			if kc.minDist > 0 && distSq < kc.minDist*kc.minDist {
+				continue
+			}
+			if kc.headOminous && !headOminous {
+				continue
+			}
+			sess.grantGameCriterion(meta, kc.crit)
+		}
+	}
+}
+
+// parseLocCond reduces a location criterion to its biome set.
+// conditions.player lists entity_properties predicates on `this`; only
+// predicate.location.biomes is interpreted.
+func parseLocCond(cname string, conds any) locCond {
+	lc := locCond{crit: cname, biomes: map[string]bool{}}
+	cm, ok := conds.(map[string]any)
+	if !ok {
+		lc.impossible = true
+		return lc
+	}
+	ents, _ := cm["player"].([]any)
+	for _, ev := range ents {
+		em, _ := ev.(map[string]any)
+		if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+			lc.impossible = true
+			continue
+		}
+		if e, _ := em["entity"].(string); e != "" && e != "this" {
+			lc.impossible = true
+			continue
+		}
+		pred, _ := em["predicate"].(map[string]any)
+		for k, v := range pred {
+			if k != "minecraft:location" {
+				lc.impossible = true
+				continue
+			}
+			loc, _ := v.(map[string]any)
+			for lk, lv := range loc {
+				switch lk {
+				case "biomes":
+					switch bv := lv.(type) {
+					case string:
+						lc.biomes[strings.TrimPrefix(bv, "minecraft:")] = true
+					case []any:
+						for _, sv := range bv {
+							if bs, ok := sv.(string); ok {
+								lc.biomes[strings.TrimPrefix(bs, "minecraft:")] = true
+							}
+						}
+					default:
+						lc.impossible = true
+					}
+				default:
+					lc.impossible = true
+				}
+			}
+		}
+	}
+	if len(lc.biomes) == 0 {
+		lc.impossible = true
+	}
+	return lc
+}
+
+// dimBiome is the single biome a flat dimension reports everywhere —
+// mc-go's generated terrain is flat per dimension, so a location check
+// reduces to the dimension's fixed biome.
+func dimBiome(dimName string) string {
+	switch dimName {
+	case "minecraft:overworld":
+		return "the_void"
+	case "minecraft:the_nether":
+		return "nether_wastes"
+	case "minecraft:the_end":
+		return "the_end"
+	}
+	return ""
+}
+
+// fireLocation runs the location trigger, which vanilla ticks per
+// player every 20 ticks (ServerPlayer tickCount % 20). Each flat
+// dimension reports its single biome; criteria asking for anything
+// else stay locked.
+func (s *Server) fireLocation(sess *Session) {
+	biome := dimBiome(sess.dimName())
+	if biome == "" {
+		return
+	}
+	for _, meta := range gameAdvs {
+		for _, lc := range meta.locs {
+			if lc.impossible || !lc.biomes[biome] {
+				continue
+			}
+			sess.grantGameCriterion(meta, lc.crit)
+		}
+	}
+}
+
+// parseHurtCond reduces a player_hurt_entity criterion's conditions to
+// a hurtCond. Only damage.type.{direct_entity,tags} and damage.dealt.min
+// are read — a criterion needing anything more is marked impossible.
+func parseHurtCond(cname string, conds any) hurtCond {
+	hc := hurtCond{crit: cname}
+	cm, ok := conds.(map[string]any)
+	if !ok {
+		hc.impossible = true
+		return hc
+	}
+	dm, _ := cm["damage"].(map[string]any)
+	if dm == nil {
+		return hc
+	}
+	if tm, ok := dm["type"].(map[string]any); ok {
+		for k, v := range tm {
+			switch k {
+			case "direct_entity":
+				hc.direct = map[string]bool{}
+				if em, ok := v.(map[string]any); ok {
+					for dk, dv := range em {
+						switch dk {
+						case "minecraft:entity_type":
+							if et, ok := dv.(string); ok {
+								if strings.HasPrefix(et, "#") {
+									for _, m := range data.EntityTypeTags[strings.TrimPrefix(et, "#minecraft:")] {
+										hc.direct[m] = true
+									}
+								} else {
+									hc.direct[strings.TrimPrefix(et, "minecraft:")] = true
+								}
+							}
+						case "minecraft:equipment":
+							eq, _ := dv.(map[string]any)
+							mh, _ := eq["mainhand"].(map[string]any)
+							if mh == nil {
+								hc.impossible = true
+								continue
+							}
+							hc.mainhand = map[string]bool{}
+							for ek, ev := range mh {
+								if ek != "items" {
+									hc.impossible = true
+									continue
+								}
+								if it, ok := ev.(string); ok {
+									if strings.HasPrefix(it, "#") {
+										for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(it, "#"), "minecraft:")] {
+											hc.mainhand[m] = true
+										}
+									} else {
+										hc.mainhand[strings.TrimPrefix(it, "minecraft:")] = true
+									}
+								}
+							}
+						default:
+							hc.impossible = true
+						}
+					}
+				}
+			case "tags":
+				for _, tv := range v.([]any) {
+					if tm, ok := tv.(map[string]any); ok {
+						switch {
+						case tm["id"] == "minecraft:is_projectile" && tm["expected"] == true:
+							hc.needsProj = true
+						case tm["id"] == "minecraft:mace_smash" && tm["expected"] == true:
+							hc.needsSmash = true
+						}
+					}
+				}
+			default:
+				hc.impossible = true
+			}
+		}
+	}
+	if dealt, ok := dm["dealt"].(map[string]any); ok {
+		if mn, ok := dealt["min"].(float64); ok {
+			hc.minDealt = mn
+		}
+	}
+	return hc
+}
+
+// parseEHurtCond reduces an entity_hurt_player criterion to the
+// damage.blocked flag plus the is_projectile damage-type tag.
+func parseEHurtCond(cname string, conds any) ehurtCond {
+	ec := ehurtCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "damage" {
+			ec.impossible = true
+		}
+		_ = v
+	}
+	dm, _ := cm["damage"].(map[string]any)
+	for k, v := range dm {
+		switch k {
+		case "blocked":
+			b, _ := v.(bool)
+			ec.needsBlock = b
+			ec.blockFalse = !b
+		case "type":
+			tm, _ := v.(map[string]any)
+			for tk, tv := range tm {
+				if tk != "tags" {
+					ec.impossible = true
+				}
+				tags, _ := tv.([]any)
+				for _, t := range tags {
+					tg, _ := t.(map[string]any)
+					exp, _ := tg["expected"].(bool)
+					id, _ := tg["id"].(string)
+					if exp && id == "minecraft:is_projectile" {
+						ec.needsProj = true
+					} else {
+						ec.impossible = true
+					}
+				}
+			}
+		default:
+			ec.impossible = true
+		}
+	}
+	return ec
+}
+
+// fireEntityHurtPlayer evaluates every entity_hurt_player criterion
+// against the hit the player took: proj is the is_projectile damage
+// tag, blocked whether a shield ate it.
+func (s *Server) fireEntityHurtPlayer(sess *Session, proj, blocked bool) {
+	for _, meta := range gameAdvs {
+		for _, ec := range meta.ehurts {
+			if ec.impossible || (ec.needsProj && !proj) {
+				continue
+			}
+			if ec.needsBlock && !blocked {
+				continue
+			}
+			if ec.blockFalse && blocked {
+				continue
+			}
+			sess.grantGameCriterion(meta, ec.crit)
+		}
+	}
+}
+
+// firePlayerHurtEntity evaluates every player_hurt_entity criterion
+// against a hit: directType is the damage's direct entity (the arrow
+// itself, or "player" for melee), proj the is_projectile tag on the
+// damage type, smash the mace_smash tag, mainhand the attacker's held
+// item name, and dealt the raw damage amount vanilla reports (not
+// capped by the victim's remaining health).
+func (s *Server) firePlayerHurtEntity(sess *Session, directType string, proj bool, dealt float32, mainhand string, smash bool) {
+	for _, meta := range gameAdvs {
+		for _, hc := range meta.hurts {
+			if hc.impossible || (hc.needsProj && !proj) || (hc.needsSmash && !smash) {
+				continue
+			}
+			if hc.direct != nil && !hc.direct[directType] {
+				continue
+			}
+			if hc.mainhand != nil && !hc.mainhand[mainhand] {
+				continue
+			}
+			if float64(dealt) < hc.minDealt {
+				continue
+			}
+			sess.grantGameCriterion(meta, hc.crit)
+		}
+	}
+}
+
+// parseInvCond reduces an inventory_changed criterion to its items[]
+// OR-set. Any condition key mc-go does not model (slots, equipment on
+// the player predicate, ...) locks the criterion — matching vanilla
+// where an unmatched predicate can never grant.
+func parseInvCond(cname string, conds any) invCond {
+	ic := invCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	items, _ := cm["items"].([]any)
+	for _, iv := range items {
+		im, _ := iv.(map[string]any)
+		if im == nil {
+			ic.impossible = true
+			continue
+		}
+		set := map[string]bool{}
+		for k, v := range im {
+			if k != "items" {
+				ic.impossible = true
+				continue
+			}
+			addItem := func(name string) {
+				if strings.HasPrefix(name, "#") {
+					for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(name, "#"), "minecraft:")] {
+						set[m] = true
+					}
+					return
+				}
+				set[strings.TrimPrefix(name, "minecraft:")] = true
+			}
+			switch it := v.(type) {
+			case string:
+				addItem(it)
+			case []any:
+				for _, e := range it {
+					if es, ok := e.(string); ok {
+						addItem(es)
+					}
+				}
+			}
+		}
+		ic.sets = append(ic.sets, set)
+	}
+	for k := range cm {
+		if k != "items" {
+			ic.impossible = true
+		}
+	}
+	return ic
+}
+
+// parseConsumeCond reduces a consume_item criterion to its item name
+// set; an absent conditions block means any consumed item matches.
+func parseConsumeCond(cname string, conds any) consumeCond {
+	cc := consumeCond{crit: cname, items: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "item" {
+			cc.impossible = true
+			continue
+		}
+		im, _ := v.(map[string]any)
+		if im == nil {
+			cc.impossible = true
+			continue
+		}
+		for ik, iv := range im {
+			if ik != "items" {
+				cc.impossible = true
+				continue
+			}
+			addItem := func(name string) {
+				if strings.HasPrefix(name, "#") {
+					for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(name, "#"), "minecraft:")] {
+						cc.items[m] = true
+					}
+					return
+				}
+				cc.items[strings.TrimPrefix(name, "minecraft:")] = true
+			}
+			switch it := iv.(type) {
+			case string:
+				addItem(it)
+			case []any:
+				for _, e := range it {
+					if es, ok := e.(string); ok {
+						addItem(es)
+					}
+				}
+			}
+		}
+	}
+	return cc
+}
+
+// fireConsumeItem grants consume_item criteria for one finished food.
+func (s *Server) fireConsumeItem(sess *Session, item string) {
+	for _, meta := range gameAdvs {
+		for _, cc := range meta.consumed {
+			if cc.impossible {
+				continue
+			}
+			if len(cc.items) > 0 && !cc.items[item] {
+				continue
+			}
+			sess.grantGameCriterion(meta, cc.crit)
+		}
+	}
+}
+
+// parsePlacedCond reduces a placed_block criterion to the block name
+// of its first location term; nested predicates and property checks
+// are unmodeled, so criteria using them lock.
+func parsePlacedCond(cname string, conds any) placedCond {
+	pc := placedCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "location" {
+			pc.impossible = true
+			continue
+		}
+		terms, _ := v.([]any)
+		if len(terms) != 1 {
+			pc.impossible = true
+			continue
+		}
+		tm, _ := terms[0].(map[string]any)
+		if tm == nil {
+			pc.impossible = true
+			continue
+		}
+		if c, _ := tm["condition"].(string); c != "minecraft:block_state_property" {
+			pc.impossible = true
+			continue
+		}
+		for tk, tv := range tm {
+			switch tk {
+			case "condition":
+			case "block":
+				if bs, ok := tv.(string); ok {
+					pc.block = strings.TrimPrefix(bs, "minecraft:")
+				}
+			default:
+				pc.impossible = true
+			}
+		}
+	}
+	if pc.block == "" {
+		pc.impossible = true
+	}
+	return pc
+}
+
+// firePlacedBlock grants placed_block criteria for one placed block.
+func (s *Server) firePlacedBlock(sess *Session, blockName string) {
+	for _, meta := range gameAdvs {
+		for _, pc := range meta.placed {
+			if pc.impossible || pc.block != blockName {
+				continue
+			}
+			sess.grantGameCriterion(meta, pc.crit)
+		}
+	}
+}
+
+// parseDimCond reads changed_dimension's flat from/to dimension names.
+func parseDimCond(cname string, conds any) dimCond {
+	dc := dimCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "from", "to":
+			name, ok := v.(string)
+			if !ok {
+				dc.impossible = true
+				continue
+			}
+			if k == "from" {
+				dc.from = name
+			} else {
+				dc.to = name
+			}
+		default:
+			dc.impossible = true
+		}
+	}
+	return dc
+}
+
+// fireChangedDimension grants changed_dimension criteria for one
+// completed hop; from/to are bare dimension names.
+func (s *Server) fireChangedDimension(sess *Session, from, to string) {
+	for _, meta := range gameAdvs {
+		for _, dc := range meta.dims {
+			if dc.impossible {
+				continue
+			}
+			if dc.from != "" && dc.from != from {
+				continue
+			}
+			if dc.to != "" && dc.to != to {
+				continue
+			}
+			sess.grantGameCriterion(meta, dc.crit)
+		}
+	}
+}
+
+// parseUsedOnCond reduces item_used_on_block to a (block set, tool
+// set) pair gathered from the location term list: location_check terms
+// contribute the block's name/tag set (state and biome keys lock the
+// criterion) and match_tool terms contribute the used item's set.
+func parseUsedOnCond(cname string, conds any) usedOnCond {
+	uc := usedOnCond{crit: cname, blocks: map[string]bool{}, toolItems: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "location" {
+			uc.impossible = true
+			continue
+		}
+		terms, _ := v.([]any)
+		for _, tv := range terms {
+			tm, _ := tv.(map[string]any)
+			if tm == nil {
+				uc.impossible = true
+				continue
+			}
+			cond, _ := tm["condition"].(string)
+			pred, _ := tm["predicate"].(map[string]any)
+			switch cond {
+			case "minecraft:location_check":
+				for pk, pv := range pred {
+					switch pk {
+					case "block":
+						bm, _ := pv.(map[string]any)
+						for bk, bv := range bm {
+							if bk != "blocks" {
+								uc.impossible = true
+								continue
+							}
+							addUsedOnBlocks(uc.blocks, bv)
+						}
+					default:
+						uc.impossible = true
+					}
+				}
+			case "minecraft:match_tool":
+				for pk, pv := range pred {
+					switch pk {
+					case "items":
+						addUsedOnBlocks(uc.toolItems, pv)
+					default:
+						uc.impossible = true
+					}
+				}
+			default:
+				uc.impossible = true
+			}
+		}
+	}
+	if len(uc.blocks) == 0 || len(uc.toolItems) == 0 {
+		uc.impossible = true
+	}
+	return uc
+}
+
+// addUsedOnBlocks expands a name | list | #tag entry into the set.
+func addUsedOnBlocks(dst map[string]bool, v any) {
+	switch it := v.(type) {
+	case string:
+		if strings.HasPrefix(it, "#") {
+			tag := strings.TrimPrefix(strings.TrimPrefix(it, "#"), "minecraft:")
+			for _, m := range data.BlockTags[tag] {
+				dst[m] = true
+			}
+			return
+		}
+		dst[strings.TrimPrefix(it, "minecraft:")] = true
+	case []any:
+		for _, e := range it {
+			if es, ok := e.(string); ok {
+				dst[strings.TrimPrefix(es, "minecraft:")] = true
+			}
+		}
+	}
+}
+
+// fireItemUsedOnBlock grants item_used_on_block criteria for one
+// successful use-on-block interaction: the clicked block's name and
+// the used item's name must each satisfy their sets.
+func (s *Server) fireItemUsedOnBlock(sess *Session, blockName, itemName string) {
+	for _, meta := range gameAdvs {
+		for _, uc := range meta.usedOn {
+			if uc.impossible || !uc.blocks[blockName] || !uc.toolItems[itemName] {
+				continue
+			}
+			sess.grantGameCriterion(meta, uc.crit)
+		}
+	}
+}
+
+// fireAllayDropOnBlock grants allay_drop_item_on_block criteria: the
+// block the thrown item lands on and the item share the
+// item_used_on_block location schema.
+func (s *Server) fireAllayDropOnBlock(sess *Session, blockName, itemName string) {
+	for _, meta := range gameAdvs {
+		for _, uc := range meta.allayDrops {
+			if uc.impossible || !uc.blocks[blockName] || !uc.toolItems[itemName] {
+				continue
+			}
+			sess.grantGameCriterion(meta, uc.crit)
+		}
+	}
+}
+
+// parseTravelCond reduces nether_travel to distance.horizontal.min;
+// any other key locks the criterion.
+func parseTravelCond(cname string, conds any) travelCond {
+	tc := travelCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "distance" {
+			tc.impossible = true
+			continue
+		}
+		dm, _ := v.(map[string]any)
+		for dk, dv := range dm {
+			if dk != "horizontal" {
+				tc.impossible = true
+				continue
+			}
+			hm, _ := dv.(map[string]any)
+			for hk, hv := range hm {
+				if hk != "min" {
+					tc.impossible = true
+					continue
+				}
+				if f, ok := hv.(float64); ok {
+					tc.minDist = f
+				}
+			}
+		}
+	}
+	return tc
+}
+
+// fireNetherTravel evaluates nether_travel criteria on the return leg:
+// distSq is the horizontal distance squared between the overworld
+// portal used to leave and the one the player reappeared at.
+func (s *Server) fireNetherTravel(sess *Session, distSq float64) {
+	for _, meta := range gameAdvs {
+		for _, tc := range meta.travel {
+			if tc.impossible || distSq < tc.minDist*tc.minDist {
+				continue
+			}
+			sess.grantGameCriterion(meta, tc.crit)
+		}
+	}
+}
+
+// parseSummonCond reduces summoned_entity's conditions.entity to the
+// summoned entity's type name.
+func parseSummonCond(cname string, conds any) summonCond {
+	sc := summonCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "entity" {
+			sc.impossible = true
+			continue
+		}
+		ents, _ := v.([]any)
+		for _, ev := range ents {
+			em, _ := ev.(map[string]any)
+			if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+				sc.impossible = true
+				continue
+			}
+			pred, _ := em["predicate"].(map[string]any)
+			for pk, pv := range pred {
+				if pk != "minecraft:entity_type" {
+					sc.impossible = true
+					continue
+				}
+				if s, ok := pv.(string); ok {
+					sc.entityType = strings.TrimPrefix(s, "minecraft:")
+				}
+			}
+		}
+	}
+	if sc.entityType == "" {
+		sc.impossible = true
+	}
+	return sc
+}
+
+// parseBreedCond reduces bred_animals' conditions to the child's
+// entity_type. breed_an_animal's "bred" has no conditions at all.
+func parseBreedCond(cname string, conds any) breedCond {
+	bc := breedCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "child" && k != "parent" && k != "partner" {
+			bc.impossible = true
+			continue
+		}
+		ents, _ := v.([]any)
+		for _, ev := range ents {
+			em, _ := ev.(map[string]any)
+			if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+				bc.impossible = true
+				continue
+			}
+			pred, _ := em["predicate"].(map[string]any)
+			for pk, pv := range pred {
+				if pk != "minecraft:entity_type" {
+					bc.impossible = true
+					continue
+				}
+				if s, ok := pv.(string); ok {
+					nm := strings.TrimPrefix(s, "minecraft:")
+					if bc.childType == "" {
+						bc.childType = nm
+					} else if bc.childType != nm {
+						bc.impossible = true // mixed species can't all match one baby
+					}
+				}
+			}
+		}
+	}
+	return bc
+}
+
+// fireBredAnimal grants bred_animals criteria for a produced baby:
+// criteria with no child predicate (breed_an_animal) plus the species
+// ones (bred_all_animals).
+func (s *Server) fireBredAnimal(sess *Session, childType string) {
+	for _, meta := range gameAdvs {
+		for _, bc := range meta.breds {
+			if bc.impossible {
+				continue
+			}
+			if bc.childType != "" && bc.childType != childType {
+				continue
+			}
+			sess.grantGameCriterion(meta, bc.crit)
+		}
+	}
+}
+
+// parseLootCond reduces player_generates_container_loot to its
+// conditions.loot_table id (kept namespaced; mc-go table keys are too).
+func parseLootCond(cname string, conds any) lootCond {
+	lc := lootCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "loot_table" {
+			lc.impossible = true
+			continue
+		}
+		if s, ok := v.(string); ok {
+			lc.table = s
+		}
+	}
+	if lc.table == "" {
+		lc.impossible = true
+	}
+	return lc
+}
+
+// firePlayerGeneratesContainerLoot grants criteria whose loot_table
+// id matches the table the opened container just rolled.
+func (s *Server) firePlayerGeneratesContainerLoot(sess *Session, table string) {
+	for _, meta := range gameAdvs {
+		for _, lc := range meta.loots {
+			if lc.impossible || lc.table != table {
+				continue
+			}
+			sess.grantGameCriterion(meta, lc.crit)
+		}
+	}
+}
+
+// fireSummonedEntity grants summoned_entity criteria for one
+// constructed entity spawn (iron golem from the pumpkin T today).
+func (s *Server) fireSummonedEntity(sess *Session, entityType string) {
+	for _, meta := range gameAdvs {
+		for _, sc := range meta.summons {
+			if sc.impossible || sc.entityType != entityType {
+				continue
+			}
+			sess.grantGameCriterion(meta, sc.crit)
+		}
+	}
+}
+
+// fireGameInventoryChanged evaluates every game-tree inventory_changed
+// criterion against the session's current inventory — the same shape
+// the recipe-tree listener in advancements.go uses.
+func (s *Server) fireGameInventoryChanged(sess *Session) {
+	sess.invMu.RLock()
+	inv := append([]ItemStack(nil), sess.inv[:]...)
+	sess.invMu.RUnlock()
+	items := map[string]bool{}
+	for _, it := range inv {
+		if it.Empty() {
+			continue
+		}
+		if n, ok := world.ItemName(it.ID); ok {
+			items[n] = true
+		}
+	}
+	for _, meta := range gameAdvs {
+		for _, ic := range meta.inv {
+			if ic.impossible || len(ic.sets) == 0 {
+				continue
+			}
+			all := true
+			for _, set := range ic.sets {
+				hit := false
+				for name := range set {
+					if items[name] {
+						hit = true
+						break
+					}
+				}
+				if !hit {
+					all = false
+					break
+				}
+			}
+			if all {
+				sess.grantGameCriterion(meta, ic.crit)
+			}
+		}
+	}
+}
+
+// fireEntityKilledPlayer is firePlayerKilledEntity for the victim's
+// side of a death: entity_killed_player conditions describe the killer
+// (killerType is its entity name, (kx,kz) vs (vx,vz) the distance).
+func (s *Server) fireEntityKilledPlayer(sess *Session, killerType string, vx, vz, kx, kz float64) {
+	dx, dz := kx-vx, kz-vz
+	distSq := dx*dx + dz*dz
+	for _, meta := range gameAdvs {
+		for _, kc := range meta.deaths {
+			if kc.impossible || kc.needsProj || kc.direct != nil {
+				continue
+			}
+			if kc.types != nil && !kc.types[killerType] {
+				continue
+			}
+			if kc.minDist > 0 && distSq < kc.minDist*kc.minDist {
+				continue
+			}
+			sess.grantGameCriterion(meta, kc.crit)
+		}
+	}
+}
+
+// grantGameCriterion is grantAdvCriterion for the gameplay tree — same
+// semantics: mark criterion, recompute done over requirement groups,
+// queue the advancement for the dirty flush.
+func (sess *Session) grantGameCriterion(meta *advMeta, cname string) {
+	sess.grantGameCriterionChanged(meta, cname)
+}
+
+// grantGameCriterionChanged is grantGameCriterion reporting whether the
+// criterion moved — the /advancement command counts its targets on that.
+func (sess *Session) grantGameCriterionChanged(meta *advMeta, cname string) bool {
+	return sess.grantCriterion(meta, cname, true)
+}
+
+// grantCriterion marks one criterion obtained. skipDone gates the
+// trigger path (a finished advancement stops listening); the
+// /advancement command passes false since vanilla's award("*") obtains
+// every criterion even when the advancement is already done.
+func (sess *Session) grantCriterion(meta *advMeta, cname string, skipDone bool) bool {
+	sess.advMu.Lock()
+	if sess.advDone == nil {
+		sess.advDone = map[string]bool{}
+	}
+	if skipDone && sess.advDone[meta.id] {
+		sess.advMu.Unlock()
+		return false
+	}
+	if sess.advCrits == nil {
+		sess.advCrits = map[string]map[string]int64{}
+	}
+	if sess.advCrits[meta.id] == nil {
+		sess.advCrits[meta.id] = map[string]int64{}
+	}
+	if _, done := sess.advCrits[meta.id][cname]; done {
+		sess.advMu.Unlock()
+		return false
+	}
+	sess.advCrits[meta.id][cname] = time.Now().UnixMilli()
+	wasDone := sess.advDone[meta.id]
+	complete := len(meta.reqs) > 0
+	for _, group := range meta.reqs {
+		met := false
+		for _, c := range group {
+			if _, ok := sess.advCrits[meta.id][c]; ok {
+				met = true
+				break
+			}
+		}
+		if !met {
+			complete = false
+			break
+		}
+	}
+	if complete {
+		sess.advDone[meta.id] = true
+	}
+	// announce only on the transition into done — a done advancement's
+	// remaining criteria (granted via /advancement ... "*") are silent.
+	if sess.advDirty == nil {
+		sess.advDirty = map[string]bool{}
+	}
+	if !sess.advDirty[meta.id] {
+		sess.advDirty[meta.id] = true
+		sess.advDirtyOrder = append(sess.advDirtyOrder, meta.id)
+	}
+	sess.advMu.Unlock()
+	if complete && !wasDone {
+		sess.server.announceAdvancement(sess, meta)
+	}
+	return true
+}
+
+// advChatComponent renders the advancement's display name the way
+// vanilla's Advancement.getChatComponent does — square brackets in the
+// frame color over a title hover showing title, newline, description.
+func advChatComponent(meta *advMeta) component {
+	color := advFrameColor(meta.frame)
+	descKey := meta.descKey
+	if descKey == "" {
+		descKey = strings.TrimSuffix(meta.titleKey, ".title") + ".description"
+	}
+	return component{
+		translate: "chat.square_brackets",
+		color:     color,
+		with: []any{component{
+			translate: meta.titleKey,
+			hover: map[string]any{
+				"action": "show_text",
+				"value": component{
+					translate: meta.titleKey,
+					color:     color,
+					extra: []component{
+						{emptyKey: "\n"},
+						{translate: descKey},
+					},
+				}.nested(),
+			},
+		}},
+	}
+}
+
+// playerChatComponent is the player's name component vanilla puts in
+// command replies and announce chat: insertion, /tell click, and a
+// show_entity hover with the UUID as int32[4].
+func playerChatComponent(sess *Session) component {
+	name := sess.getName()
+	u := sess.getUUID()
+	return component{
+		text:      name,
+		insertion: name,
+		click:     "/tell " + name + " ",
+		hover: map[string]any{
+			"name":   name,
+			"action": "show_entity",
+			"id":     "minecraft:player",
+			"uuid": []int32{
+				int32(u[0])<<24 | int32(u[1])<<16 | int32(u[2])<<8 | int32(u[3]),
+				int32(u[4])<<24 | int32(u[5])<<16 | int32(u[6])<<8 | int32(u[7]),
+				int32(u[8])<<24 | int32(u[9])<<16 | int32(u[10])<<8 | int32(u[11]),
+				int32(u[12])<<24 | int32(u[13])<<16 | int32(u[14])<<8 | int32(u[15]),
+			},
+		},
+	}
+}
+
+// announceAdvancement broadcasts vanilla's "X has made the advancement"
+// chat for a completed gameplay advancement — measured wire shape:
+// chat.type.advancement.<frame> with the player's display-name component
+// (insertion + suggest_command click + show_entity hover) and the
+// advancement name as chat.square_brackets in the frame color, hovering
+// title + \n + description.
+func (s *Server) announceAdvancement(sess *Session, meta *advMeta) {
+	if meta.titleKey == "" || !meta.hasDisplay || !meta.announce {
+		return
+	}
+	playerName := playerChatComponent(sess)
+	advName := advChatComponent(meta)
+	c := component{
+		translate: "chat.type.advancement." + meta.frame,
+		with:      []any{playerName, advName},
+	}
+	s.sessions.Range(func(_, v any) bool {
+		other := v.(*Session)
+		if other.state.Load() == StatePlay {
+			s.sendSystemChatComponent(other, c)
+		}
+		return true
+	})
+}
+
+func advFrameColor(frame string) string {
+	if frame == "challenge" {
+		return "dark_purple"
+	}
+	return "green"
+}
+
+// computeAdvVisibility runs vanilla's AdvancementVisibilityEvaluator
+// over the whole tree. An advancement is visible when it is done, when
+// any descendant is visible (the result bubbles up the parents), or —
+// for an unfinished node — when the nearest rule-bearing node in the
+// ≤3-deep stack of self+ancestors says SHOW (a done parent lights its
+// children and grandchildren; a hidden or display-less ancestor blocks).
+func computeAdvVisibility(done map[string]bool) map[string]bool {
+	vis := map[string]bool{}
+	var walk func(id string, rules []int) bool
+	walk = func(id string, rules []int) bool {
+		m := gameAdvs[id]
+		if m == nil {
+			return false
+		}
+		d := done[id]
+		rule := advRuleNoChange
+		switch {
+		case !m.hasDisplay:
+			rule = advRuleHide
+		case d:
+			rule = advRuleShow
+		case m.hidden:
+			rule = advRuleHide
+		}
+		r2 := append(append([]int{}, rules...), rule)
+		res := d
+		for _, ch := range gameAdvChild[id] {
+			if walk(ch, r2) {
+				res = true
+			}
+		}
+		childRes := res
+		if !res {
+			// Unfinished node: peek self then parent then grandparent.
+			for depth := 0; depth < 3 && depth < len(r2); depth++ {
+				switch r2[len(r2)-1-depth] {
+				case advRuleShow:
+					res = true
+				case advRuleHide:
+					res = false
+				default:
+					continue
+				}
+				break
+			}
+		}
+		if res {
+			vis[id] = true
+		}
+		// The recursion's parent-facing result counts only obtained
+		// or obtained-descendant nodes: visibility inherited through
+		// a rule does not bubble further up (javap: evaluateVisibility
+		// returns the pre-rule value).
+		return childRes
+	}
+	for _, root := range gameAdvRoots {
+		walk(root, nil)
+	}
+	return vis
+}
+
+const (
+	advRuleNoChange = iota
+	advRuleShow
+	advRuleHide
+)
+
+// onPlayerKilledMob fires player_killed_entity for a mob the player
+// just killed (direct attack or sweep splash). headOminous is the
+// victim's pre-drop head flag: vanilla's trigger reads the worn gear
+// before dropAllDeathLoot empties the slots, so callers capture it
+// before damageMob runs the death drops.
+func (s *Server) onPlayerKilledMob(sess *Session, e Entity, headOminous bool) {
+	name, ok := EntityTypeName(e.Type)
+	if !ok {
+		return
+	}
+	ax, _, az, _, _, _ := sess.Pos()
+	s.firePlayerKilledEntity(sess, name, e.X, e.Z, ax, az, headOminous)
+	s.fireKillNearSculk(sess, e.X, e.Y, e.Z, e.Dim)
+}
+
+// tameCond is one tame_animal criterion reduced to the tamed entity's
+// type. The "entity" predicate is the only shape vanilla uses.
+type tameCond struct {
+	crit        string
+	animalType  string
+	wolfVariant string // minecraft:components' minecraft:wolf/variant
+	impossible  bool
+}
+
+// interactCond is one player_interacted_with_entity criterion reduced
+// to the target entity's type OR-set and the held item's name OR-set.
+// Other entity predicate fields (flags, components, equipment) and
+// player predicates lock the criterion.
+type interactCond struct {
+	crit       string
+	entities   map[string]bool
+	entities2  map[string]bool // second entity key (villager in cured_zombie_villager)
+	items      map[string]bool
+	impossible bool
+}
+
+// fillCond is one filled_bucket criterion: the produced bucket item's
+// name OR-set. Anything else in the condition locks it.
+type fillCond struct {
+	crit       string
+	items      map[string]bool
+	impossible bool
+}
+
+func parseTameCond(cname string, conds any) tameCond {
+	tc := tameCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "entity" {
+			tc.impossible = true
+			continue
+		}
+		ents, _ := v.([]any)
+		for _, ev := range ents {
+			em, _ := ev.(map[string]any)
+			if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+				tc.impossible = true
+				continue
+			}
+			pred, _ := em["predicate"].(map[string]any)
+			for pk, pv := range pred {
+				if pk == "minecraft:entity_type" {
+					if st, ok := pv.(string); ok {
+						tc.animalType = strings.TrimPrefix(st, "minecraft:")
+					}
+					continue
+				}
+				if pk == "minecraft:components" {
+					cmap, _ := pv.(map[string]any)
+					for ck, cv := range cmap {
+						if ck == "minecraft:wolf/variant" {
+							if st, ok := cv.(string); ok {
+								tc.wolfVariant = strings.TrimPrefix(st, "minecraft:")
+							}
+							continue
+						}
+						tc.impossible = true
+					}
+					continue
+				}
+				tc.impossible = true
+			}
+		}
+	}
+	return tc
+}
+
+// fireTamedAnimal grants tame_animal criteria: bare triggers plus
+// entity_type-filtered ones.
+func (s *Server) fireTamedAnimal(sess *Session, animalType string) {
+	for _, meta := range gameAdvs {
+		for _, tc := range meta.tames {
+			if tc.impossible {
+				continue
+			}
+			if tc.animalType != "" && tc.animalType != animalType {
+				continue
+			}
+			// Only wolves carry a variant component today; a wolf the
+			// server doesn't track counts as vanilla's plains default.
+			if tc.wolfVariant != "" && animalType != "wolf" {
+				continue
+			}
+			if tc.wolfVariant != "" && tc.wolfVariant != "pale" {
+				continue
+			}
+			sess.grantGameCriterion(meta, tc.crit)
+		}
+	}
+}
+
+// sleepCond is a slept_in_bed criterion — vanilla's trigger carries no
+// conditions, so any present key locks it.
+type sleepCond struct {
+	crit       string
+	impossible bool
+}
+
+func parseSleepCond(cname string, conds any) sleepCond {
+	sc := sleepCond{crit: cname}
+	if cm, _ := conds.(map[string]any); len(cm) > 0 {
+		sc.impossible = true
+	}
+	return sc
+}
+
+// fireKillNearSculk grants kill_mob_near_sculk_catalyst criteria when
+// a sculk_catalyst block lies within vanilla's 8-block listener range
+// of the death position (block-center distSqr <= 64). The bloom
+// itself — sculk patch spread + XP suppression — is not modeled.
+func (s *Server) fireKillNearSculk(sess *Session, x, y, z float64, dim string) {
+	if !s.sculkCatalystNear(x, y, z, dim) {
+		return
+	}
+	for _, meta := range gameAdvs {
+		for _, sc := range meta.sculks {
+			if sc.impossible {
+				continue
+			}
+			sess.grantGameCriterion(meta, sc.crit)
+		}
+	}
+}
+
+// sculkCatalystNear reports whether any sculk_catalyst state is within
+// 8 blocks of (x,y,z) — vanilla SculkCatalystListener's notify range
+// measured on block centers.
+func (s *Server) sculkCatalystNear(x, y, z float64, dimName string) bool {
+	d := s.dimensionByName(dimName)
+	if d == nil {
+		return false
+	}
+	bx, by, bz := int(math.Floor(x)), int(math.Floor(y)), int(math.Floor(z))
+	for dy := -8; dy <= 8; dy++ {
+		for dx := -8; dx <= 8; dx++ {
+			for dz := -8; dz <= 8; dz++ {
+				cx, cy, cz := float64(bx+dx)+0.5, float64(by+dy)+0.5, float64(bz+dz)+0.5
+				if (cx-x)*(cx-x)+(cy-y)*(cy-y)+(cz-z)*(cz-z) > 64 {
+					continue
+				}
+				if name, ok := world.StateOwner(d.w.GetBlock(world.Pos{X: bx + dx, Y: by + dy, Z: bz + dz})); ok && name == "sculk_catalyst" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// fireSleptInBed grants slept_in_bed criteria on bed entry.
+func (s *Server) fireSleptInBed(sess *Session) {
+	for _, meta := range gameAdvs {
+		for _, sc := range meta.sleeps {
+			if sc.impossible {
+				continue
+			}
+			sess.grantGameCriterion(meta, sc.crit)
+		}
+	}
+}
+
+// fireHeroOfVillage grants hero_of_the_village criteria — vanilla's
+// RAID_WIN trigger fires on each hero at victory time.
+func (s *Server) fireHeroOfVillage(sess *Session) {
+	for _, meta := range gameAdvs {
+		for _, sc := range meta.heros {
+			if sc.impossible {
+				continue
+			}
+			sess.grantGameCriterion(meta, sc.crit)
+		}
+	}
+}
+
+// fireRaidOmen grants raid_omen criteria — vanilla's RAID_OMEN
+// trigger fires when a player's raid_omen absorbs into a raid.
+func (s *Server) fireRaidOmen(sess *Session) {
+	for _, meta := range gameAdvs {
+		for _, sc := range meta.omens {
+			if sc.impossible {
+				continue
+			}
+			sess.grantGameCriterion(meta, sc.crit)
+		}
+	}
+}
+
+// enchantCond is an enchanted_item criterion: the levels int|{min,max}
+// range and the item predicate's items OR-set. Any other condition key
+// locks it.
+type enchantCond struct {
+	crit       string
+	items      map[string]bool
+	lvlMin     float64
+	lvlMax     float64 // -1 = unbounded
+	impossible bool
+}
+
+func parseEnchantCond(cname string, conds any) enchantCond {
+	ec := enchantCond{crit: cname, lvlMax: -1}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "item":
+			im, _ := v.(map[string]any)
+			for pk, pv := range im {
+				if pk != "items" {
+					ec.impossible = true
+					continue
+				}
+				lst, _ := pv.([]any)
+				if len(lst) == 0 {
+					if s, ok := pv.(string); ok {
+						lst = append(lst, s)
+					}
+				}
+				for _, e := range lst {
+					if s, ok := e.(string); ok {
+						if ec.items == nil {
+							ec.items = map[string]bool{}
+						}
+						ec.items[strings.TrimPrefix(s, "minecraft:")] = true
+					}
+				}
+			}
+		case "levels":
+			switch n := v.(type) {
+			case float64:
+				ec.lvlMin, ec.lvlMax = n, n
+			case map[string]any:
+				if mn, ok := n["min"].(float64); ok {
+					ec.lvlMin = mn
+				}
+				if mx, ok := n["max"].(float64); ok {
+					ec.lvlMax = mx
+				}
+			default:
+				ec.impossible = true
+			}
+		default:
+			ec.impossible = true
+		}
+	}
+	return ec
+}
+
+// brewedCond is one brewed_potion criterion: the potion the taken
+// stack carried, as an OR-set of ids (empty = any, which is
+// nether/brew_potion "Local Brewery"). conditions.potion is a holder
+// reference — a single id string or a list — anything else locks it.
+type brewedCond struct {
+	crit       string
+	potions    map[string]bool
+	impossible bool
+}
+
+func parseBrewedCond(cname string, conds any) brewedCond {
+	bc := brewedCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "potion" {
+			bc.impossible = true
+			continue
+		}
+		add := func(s string) {
+			if bc.potions == nil {
+				bc.potions = map[string]bool{}
+			}
+			bc.potions[strings.TrimPrefix(s, "minecraft:")] = true
+		}
+		switch p := v.(type) {
+		case string:
+			add(p)
+		case []any:
+			for _, e := range p {
+				if s, ok := e.(string); ok {
+					add(s)
+				}
+			}
+		default:
+			bc.impossible = true
+		}
+	}
+	return bc
+}
+
+// fishCond is one fishing_rod_hooked criterion reduced to the item
+// predicate over the caught stacks: conditions.item.items as an OR-set
+// (tag #names expand). rod and entity predicates are not modeled —
+// their presence locks the criterion the same way an unmatched
+// predicate does on vanilla.
+type fishCond struct {
+	crit       string
+	items      map[string]bool
+	impossible bool
+}
+
+func parseFishCond(cname string, conds any) fishCond {
+	fc := fishCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "item":
+			im, _ := v.(map[string]any)
+			for ik, iv := range im {
+				if ik != "items" {
+					fc.impossible = true
+					continue
+				}
+				add := func(name string) {
+					if fc.items == nil {
+						fc.items = map[string]bool{}
+					}
+					if strings.HasPrefix(name, "#") {
+						for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(name, "#"), "minecraft:")] {
+							fc.items[m] = true
+						}
+						return
+					}
+					fc.items[strings.TrimPrefix(name, "minecraft:")] = true
+				}
+				switch lst := iv.(type) {
+				case string:
+					add(lst)
+				case []any:
+					for _, e := range lst {
+						if es, ok := e.(string); ok {
+							add(es)
+						}
+					}
+				default:
+					fc.impossible = true
+				}
+			}
+		case "rod", "entity":
+			fc.impossible = true
+		default:
+			fc.impossible = true
+		}
+	}
+	return fc
+}
+
+// parseSpearCond reads the spear_mobs condition's count floor;
+// vanilla's TriggerInstance grants when stabbed >= count.
+func parseSpearCond(cname string, conds any) spearCond {
+	sc := spearCond{crit: cname, count: 1}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "count" {
+			sc.impossible = true
+			continue
+		}
+		if f, ok := v.(float64); ok {
+			sc.count = int(f)
+		}
+	}
+	return sc
+}
+
+// fireSpearMobs grants spear_mobs criteria when a jab tick lands a
+// stab: count is the holder's distinct recently-stabbed entity count.
+func (s *Server) fireSpearMobs(sess *Session, count int) {
+	for _, meta := range gameAdvs {
+		for _, sc := range meta.spears {
+			if !sc.impossible && count >= sc.count {
+				sess.grantGameCriterion(meta, sc.crit)
+			}
+		}
+	}
+}
+
+// fireFishingRodHooked grants fishing_rod_hooked criteria when a bite
+// is reeled in: each caught stack is tested against the criterion's
+// item predicate (vanilla's TriggerInstance.matches iterates the same
+// collection).
+func (s *Server) fireFishingRodHooked(sess *Session, hook *Entity, drops []ItemStack) {
+	for _, meta := range gameAdvs {
+		for _, fc := range meta.fished {
+			if fc.impossible {
+				continue
+			}
+			for _, it := range drops {
+				name, ok := itemNameOf(it.ID)
+				if !ok {
+					continue
+				}
+				name = strings.TrimPrefix(name, "minecraft:")
+				if fc.items == nil || fc.items[name] {
+					sess.grantGameCriterion(meta, fc.crit)
+					break
+				}
+			}
+		}
+	}
+}
+
+// fireBrewedPotion grants brewed_potion criteria when a stack carrying
+// a potion leaves a brewing-stand slot. Vanilla fires it in
+// PotionSlot.onTake, so any take path (pickup, quick-move, hotkey
+// swap) qualifies.
+func (s *Server) fireBrewedPotion(sess *Session, it ItemStack) {
+	potion := it.Potion
+	if potion == "" {
+		return // uncraftable/empty contents: no trigger (vanilla's Optional check)
+	}
+	for _, meta := range gameAdvs {
+		for _, bc := range meta.breweds {
+			if bc.impossible {
+				continue
+			}
+			if bc.potions != nil && !bc.potions[potion] {
+				continue
+			}
+			sess.grantGameCriterion(meta, bc.crit)
+		}
+	}
+}
+
+// fireEnchantedItem grants enchanted_item criteria on a table enchant:
+// item is the resulting stack, levels the option's cost (index+1).
+func (s *Server) fireEnchantedItem(sess *Session, item ItemStack, levels int32) {
+	itemName, _ := itemNameOf(item.ID)
+	for _, meta := range gameAdvs {
+		for _, ec := range meta.enchanteds {
+			if ec.impossible {
+				continue
+			}
+			if float64(levels) < ec.lvlMin || (ec.lvlMax >= 0 && float64(levels) > ec.lvlMax) {
+				continue
+			}
+			if ec.items != nil && !ec.items[itemName] {
+				continue
+			}
+			sess.grantGameCriterion(meta, ec.crit)
+		}
+	}
+}
+
+// parseInteractCond reduces a player_interacted_with_entity criterion
+// to the entity-type OR-set under entity[] predicates plus the
+// item.items OR-set (item tags expand). Anything else locks it.
+func parseInteractCond(cname string, conds any) interactCond {
+	return parseInteractCondKey(cname, conds, "entity")
+}
+
+// parseInteractCondKey is parseInteractCond with the entity
+// condition's key parameterized — villager_trade nests the trader
+// predicate under "villager" instead of "entity".
+func parseInteractCondKey(cname string, conds any, entityKey string) interactCond {
+	return parseInteractCondKeys(cname, conds, entityKey, "")
+}
+
+// parseInteractCondKeys is parseInteractCondKey with an optional
+// second entity-predicate key — cured_zombie_villager predicates the
+// zombie under "zombie" and the cured result under "villager".
+func parseInteractCondKeys(cname string, conds any, entityKey, entityKey2 string) interactCond {
+	ic := interactCond{crit: cname, entities: map[string]bool{}, entities2: map[string]bool{}, items: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if entityKey2 != "" && k == entityKey2 {
+			ents, _ := v.([]any)
+			for _, ev := range ents {
+				em, _ := ev.(map[string]any)
+				if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+					ic.impossible = true
+					continue
+				}
+				pred, _ := em["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					if pk == "minecraft:entity_type" {
+						if st, ok := pv.(string); ok {
+							ic.entities2[strings.TrimPrefix(st, "minecraft:")] = true
+						}
+						continue
+					}
+					ic.impossible = true
+				}
+			}
+			continue
+		}
+		switch k {
+		case entityKey:
+			ents, _ := v.([]any)
+			for _, ev := range ents {
+				em, _ := ev.(map[string]any)
+				if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+					ic.impossible = true
+					continue
+				}
+				pred, _ := em["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					if pk == "minecraft:entity_type" {
+						if st, ok := pv.(string); ok {
+							ic.entities[strings.TrimPrefix(st, "minecraft:")] = true
+						}
+						continue
+					}
+					ic.impossible = true
+				}
+			}
+		case "item":
+			im, _ := v.(map[string]any)
+			for ik, iv := range im {
+				if ik != "items" {
+					ic.impossible = true
+					continue
+				}
+				switch it := iv.(type) {
+				case string:
+					ic.addItem(it)
+				case []any:
+					for _, e := range it {
+						if es, ok := e.(string); ok {
+							ic.addItem(es)
+						}
+					}
+				}
+			}
+		default:
+			ic.impossible = true
+		}
+	}
+	return ic
+}
+
+func (ic *interactCond) addItem(name string) {
+	if strings.HasPrefix(name, "#") {
+		for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(name, "#"), "minecraft:")] {
+			ic.items[m] = true
+		}
+		return
+	}
+	ic.items[strings.TrimPrefix(name, "minecraft:")] = true
+}
+
+// firePlayerInteractedEntity runs the player_interacted_with_entity
+// criteria against a right-click: etype is the clicked entity's type
+// name and heldName the main-hand item ("" for empty).
+func (s *Server) firePlayerInteractedEntity(sess *Session, etype, heldName string) {
+	for _, meta := range gameAdvs {
+		for _, ic := range meta.interacts {
+			if ic.impossible {
+				continue
+			}
+			if len(ic.entities) > 0 && !ic.entities[etype] {
+				continue
+			}
+			if len(ic.items) > 0 && !ic.items[heldName] {
+				continue
+			}
+			sess.grantGameCriterion(meta, ic.crit)
+		}
+	}
+}
+
+// fireVillagerTrade runs the villager_trade criteria when a trade
+// completes — entity predicates match the trader's type, item the
+// result stack.
+func (s *Server) fireVillagerTrade(sess *Session, e *Entity, res ItemStack) {
+	etype, _ := EntityTypeName(e.Type)
+	iname, _ := world.ItemName(res.ID)
+	for _, meta := range gameAdvs {
+		for _, ic := range meta.trades {
+			if ic.impossible {
+				continue
+			}
+			if len(ic.entities) > 0 && !ic.entities[etype] {
+				continue
+			}
+			if len(ic.items) > 0 && !ic.items[iname] {
+				continue
+			}
+			sess.grantGameCriterion(meta, ic.crit)
+		}
+	}
+}
+
+// fireCuredZombieVillager runs the cured_zombie_villager criteria
+// when a cure completes. The zombie side is always zombie_villager
+// and the villager side always villager, so both entity-type OR-sets
+// reduce to a type check each; item conditions don't exist on this
+// trigger.
+func (s *Server) fireCuredZombieVillager(sess *Session) {
+	for _, meta := range gameAdvs {
+		for _, ic := range meta.cures {
+			if ic.impossible {
+				continue
+			}
+			if len(ic.entities) > 0 && !ic.entities["zombie_villager"] {
+				continue
+			}
+			if len(ic.entities2) > 0 && !ic.entities2["villager"] {
+				continue
+			}
+			sess.grantGameCriterion(meta, ic.crit)
+		}
+	}
+}
+
+// fallExplCond is one fall_after_explosion criterion reduced to the
+// cause entity's type OR-set and the distance.y.min rise between the
+// impact latch and the fall-start apex.
+type fallExplCond struct {
+	crit       string
+	causes     map[string]bool
+	minY       float64
+	impossible bool
+}
+
+func parseFallExplCond(cname string, conds any) fallExplCond {
+	fc := fallExplCond{crit: cname, causes: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "cause":
+			ents, _ := v.([]any)
+			for _, ev := range ents {
+				em, _ := ev.(map[string]any)
+				if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+					fc.impossible = true
+					continue
+				}
+				pred, _ := em["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					if pk == "minecraft:entity_type" {
+						if st, ok := pv.(string); ok {
+							fc.causes[strings.TrimPrefix(st, "minecraft:")] = true
+						}
+						continue
+					}
+					fc.impossible = true
+				}
+			}
+		case "distance":
+			dm, _ := v.(map[string]any)
+			for dk, dv := range dm {
+				if dk != "y" {
+					fc.impossible = true
+					continue
+				}
+				ym, _ := dv.(map[string]any)
+				for yk, yv := range ym {
+					if yk != "min" {
+						fc.impossible = true
+						continue
+					}
+					if n, ok := yv.(float64); ok {
+						fc.minY = n
+					}
+				}
+			}
+		default:
+			fc.impossible = true
+		}
+	}
+	return fc
+}
+
+// fireCrafterRecipeCrafted runs crafter_recipe_crafted criteria: same
+// recipe_id + ingredients schema as recipe_crafted, against the
+// crafter's pre-shrink grid.
+func (s *Server) fireCrafterRecipeCrafted(sess *Session, recipeID string, grid craftGrid) {
+	stacks := make([]ItemStack, 0, len(grid))
+	for _, st := range grid {
+		stacks = append(stacks, st)
+	}
+	for _, meta := range gameAdvs {
+		for _, rc := range meta.crafters {
+			if rc.impossible || rc.recipeID != recipeID {
+				continue
+			}
+			remaining := append([]ItemStack{}, stacks...)
+			matched := true
+			for _, set := range rc.ingredients {
+				found := false
+				for i, st := range remaining {
+					if st.Empty() {
+						continue
+					}
+					name, _ := world.ItemName(st.ID)
+					if !set[name] {
+						continue
+					}
+					remaining = append(remaining[:i], remaining[i+1:]...)
+					found = true
+					break
+				}
+				if !found {
+					matched = false
+					break
+				}
+			}
+			if matched {
+				sess.grantGameCriterion(meta, rc.crit)
+			}
+		}
+	}
+}
+
+// fireFallAfterExplosion runs the fall_after_explosion criteria when
+// an explosion-launched player starts falling: impactY is where the
+// burst hit, apexY the fall-start height, causeType the entity type
+// name of the burst source ("wind_charge").
+func (s *Server) fireFallAfterExplosion(sess *Session, impactY, apexY float64, causeType int32) {
+	name, _ := EntityTypeName(causeType)
+	for _, meta := range gameAdvs {
+		for _, fc := range meta.fallExps {
+			if fc.impossible {
+				continue
+			}
+			if len(fc.causes) > 0 && !fc.causes[name] {
+				continue
+			}
+			if apexY-impactY < fc.minY {
+				continue
+			}
+			sess.grantGameCriterion(meta, fc.crit)
+		}
+	}
+}
+
+// firePlayerShearedEquipment runs the player_sheared_equipment
+// criteria — same PlayerInteractTrigger shape as
+// player_interacted_with_entity, but item is the REMOVED stack
+// (wolf_armor), entity the sheared mob (wolf).
+func (s *Server) firePlayerShearedEquipment(sess *Session, etype, itemName string) {
+	for _, meta := range gameAdvs {
+		for _, ic := range meta.sheared {
+			if ic.impossible {
+				continue
+			}
+			if len(ic.entities) > 0 && !ic.entities[etype] {
+				continue
+			}
+			if len(ic.items) > 0 && !ic.items[itemName] {
+				continue
+			}
+			sess.grantGameCriterion(meta, ic.crit)
+		}
+	}
+}
+
+// pickupCond is one thrown_item_picked_up_by_entity criterion: entity[]
+// reduces to the mob-type OR-set (flags.is_baby: false is always true —
+// mc-go mobs are adults; true locks it since babies are unmodeled),
+// item.items is the item OR-set, and player[]'s inverted armor checks
+// become forbiddenArmor — the thrower must not wear any of those items.
+type pickupCond struct {
+	crit           string
+	entities       map[string]bool
+	items          map[string]bool
+	forbiddenArmor map[string]bool
+	impossible     bool
+}
+
+// parsePickupCond reduces a thrown_item_picked_up_by_entity criterion
+// (nether/distract_piglin, husbandry/uh_oh) to its checkable parts.
+func parsePickupCond(cname string, conds any) pickupCond {
+	pc := pickupCond{crit: cname, entities: map[string]bool{}, items: map[string]bool{}, forbiddenArmor: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "entity":
+			ents, _ := v.([]any)
+			for _, ev := range ents {
+				em, _ := ev.(map[string]any)
+				if c, _ := em["condition"].(string); c != "minecraft:entity_properties" {
+					pc.impossible = true
+					continue
+				}
+				pred, _ := em["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					switch pk {
+					case "minecraft:entity_type":
+						if st, ok := pv.(string); ok {
+							pc.entities[strings.TrimPrefix(st, "minecraft:")] = true
+						}
+					case "minecraft:flags":
+						fm, _ := pv.(map[string]any)
+						for fk, fv := range fm {
+							if fk != "is_baby" {
+								pc.impossible = true
+								continue
+							}
+							if want, ok := fv.(bool); ok && want {
+								// is_baby: true can never match — babies
+								// are not modeled.
+								pc.impossible = true
+							}
+						}
+					default:
+						pc.impossible = true
+					}
+				}
+			}
+		case "item":
+			im, _ := v.(map[string]any)
+			for ik, iv := range im {
+				if ik != "items" {
+					pc.impossible = true
+					continue
+				}
+				pc.addItems(iv)
+			}
+		case "player":
+			// inverted(entity_properties(equipment.<slot>.items=#tag)):
+			// the thrower must not wear a member of the tag in that
+			// slot. Reduced to a flat forbidden set — the tags used
+			// (piglin_safe_armor) apply identically per slot.
+			plist, _ := v.([]any)
+			for _, pv := range plist {
+				pm, _ := pv.(map[string]any)
+				if c, _ := pm["condition"].(string); c != "minecraft:inverted" {
+					pc.impossible = true
+					continue
+				}
+				term, _ := pm["term"].(map[string]any)
+				if c, _ := term["condition"].(string); c != "minecraft:entity_properties" {
+					pc.impossible = true
+					continue
+				}
+				pred, _ := term["predicate"].(map[string]any)
+				equip, _ := pred["minecraft:equipment"].(map[string]any)
+				for _, slotv := range equip {
+					sm, _ := slotv.(map[string]any)
+					pc.addArmor(sm["items"])
+				}
+				for pk := range pred {
+					if pk != "minecraft:equipment" {
+						pc.impossible = true
+					}
+				}
+			}
+		default:
+			pc.impossible = true
+		}
+	}
+	return pc
+}
+
+func (pc *pickupCond) addItems(v any) {
+	switch it := v.(type) {
+	case string:
+		if strings.HasPrefix(it, "#") {
+			for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(it, "#"), "minecraft:")] {
+				pc.items[m] = true
+			}
+			return
+		}
+		pc.items[strings.TrimPrefix(it, "minecraft:")] = true
+	case []any:
+		for _, e := range it {
+			if es, ok := e.(string); ok {
+				pc.addItems(es)
+			}
+		}
+	}
+}
+
+func (pc *pickupCond) addArmor(v any) {
+	switch it := v.(type) {
+	case string:
+		if strings.HasPrefix(it, "#") {
+			for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(it, "#"), "minecraft:")] {
+				pc.forbiddenArmor[m] = true
+			}
+			return
+		}
+		pc.forbiddenArmor[strings.TrimPrefix(it, "minecraft:")] = true
+	case []any:
+		for _, e := range it {
+			if es, ok := e.(string); ok {
+				pc.addArmor(es)
+			}
+		}
+	}
+}
+
+// fireThrownItemPickedUp runs the thrown_item_picked_up_by_entity
+// criteria: sess is the item's thrower (the item entity's Owner), etype
+// the picking mob's type name, iname the picked stack's item name.
+func (s *Server) fireThrownItemPickedUp(sess *Session, it ItemStack, etype string) {
+	for _, meta := range gameAdvs {
+		s.runPickupConds(sess, it, etype, meta.pickups, meta)
+	}
+}
+
+// fireThrownItemPickedUpByPlayer runs the
+// thrown_item_picked_up_by_player criteria: sess is the picking
+// player, etype the owner entity's type name (allay for
+// allay_deliver_item_to_player).
+func (s *Server) fireThrownItemPickedUpByPlayer(sess *Session, it ItemStack, etype string) {
+	for _, meta := range gameAdvs {
+		s.runPickupConds(sess, it, etype, meta.pickupsByP, meta)
+	}
+}
+
+// runPickupConds grants every criterion in conds matching the picked
+// stack, the other entity's type, and the inverted-armor predicate.
+func (s *Server) runPickupConds(sess *Session, it ItemStack, etype string, conds []pickupCond, meta *advMeta) {
+	iname, ok := world.ItemName(it.ID)
+	if !ok {
+		return
+	}
+	for _, pc := range conds {
+		if pc.impossible {
+			continue
+		}
+		if len(pc.entities) > 0 && !pc.entities[etype] {
+			continue
+		}
+		if len(pc.items) > 0 && !pc.items[iname] {
+			continue
+		}
+		if len(pc.forbiddenArmor) > 0 && s.playerWearsAny(sess, pc.forbiddenArmor) {
+			continue
+		}
+		sess.grantGameCriterion(meta, pc.crit)
+	}
+}
+
+// rideCond is one started_riding criterion: the player predicate's
+// vehicle sub-predicate (vehicle.entity_type — possibly a #tag — and
+// vehicle.passenger.entity_type). Any other constraint locks it.
+type rideCond struct {
+	crit       string
+	vehTypes   map[string]bool // raw entity_type values, "#minecraft:x" allowed
+	passTypes  map[string]bool
+	impossible bool
+}
+
+// parseRideCond reduces a started_riding criterion. Vanilla's player
+// predicate is entity_properties(entity:this) whose predicate carries
+// "minecraft:vehicle" — itself an entity predicate evaluated on the
+// mounted entity, with an optional passenger sub-predicate.
+func parseRideCond(cname string, conds any) rideCond {
+	rc := rideCond{crit: cname, vehTypes: map[string]bool{}, passTypes: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "player" {
+			rc.impossible = true
+			continue
+		}
+		plist, _ := v.([]any)
+		for _, pv := range plist {
+			pm, _ := pv.(map[string]any)
+			if c, _ := pm["condition"].(string); c != "minecraft:entity_properties" {
+				rc.impossible = true
+				continue
+			}
+			pred, _ := pm["predicate"].(map[string]any)
+			for pk, pv2 := range pred {
+				if pk != "minecraft:vehicle" {
+					rc.impossible = true
+					continue
+				}
+				vm, _ := pv2.(map[string]any)
+				for vk, vv := range vm {
+					switch vk {
+					case "minecraft:entity_type":
+						if st, ok := vv.(string); ok {
+							rc.vehTypes[st] = true
+						}
+					case "minecraft:passenger":
+						pm2, _ := vv.(map[string]any)
+						for pk2, vv2 := range pm2 {
+							if pk2 != "minecraft:entity_type" {
+								rc.impossible = true
+								continue
+							}
+							if st, ok := vv2.(string); ok {
+								rc.passTypes[st] = true
+							}
+						}
+					default:
+						rc.impossible = true
+					}
+				}
+			}
+		}
+	}
+	return rc
+}
+
+// entityTypesMatch reports whether an entity type name is accepted by
+// a raw entity_type value set ("minecraft:x" or "#minecraft:tag").
+func entityTypesMatch(set map[string]bool, name string) bool {
+	for want := range set {
+		if strings.HasPrefix(want, "#") {
+			if entityTypeTagHas(strings.TrimPrefix(strings.TrimPrefix(want, "#"), "minecraft:"), name) {
+				return true
+			}
+			continue
+		}
+		if strings.TrimPrefix(want, "minecraft:") == name {
+			return true
+		}
+	}
+	return false
+}
+
+// fireStartedRiding runs the started_riding criteria when a player
+// mounts a vehicle: the vehicle predicate tests the mounted entity
+// type and (optionally) whether any passenger matches.
+func (s *Server) fireStartedRiding(sess *Session) {
+	vid := sess.riding.Load()
+	if vid == 0 {
+		return
+	}
+	s.entities.mu.RLock()
+	ve, ok := s.entities.byID[vid]
+	if !ok {
+		s.entities.mu.RUnlock()
+		return
+	}
+	vname, _ := EntityTypeName(ve.Type)
+	passengers := append([]int32(nil), ve.Passengers...)
+	s.entities.mu.RUnlock()
+	for _, meta := range gameAdvs {
+		for _, rc := range meta.rides {
+			if rc.impossible {
+				continue
+			}
+			if len(rc.vehTypes) > 0 && !entityTypesMatch(rc.vehTypes, vname) {
+				continue
+			}
+			if len(rc.passTypes) > 0 {
+				matched := false
+				s.entities.mu.RLock()
+				for _, pid := range passengers {
+					pe, ok := s.entities.byID[pid]
+					if !ok {
+						continue
+					}
+					pname, _ := EntityTypeName(pe.Type)
+					if entityTypesMatch(rc.passTypes, pname) {
+						matched = true
+						break
+					}
+				}
+				s.entities.mu.RUnlock()
+				if !matched {
+					continue
+				}
+			}
+			sess.grantGameCriterion(meta, rc.crit)
+		}
+	}
+}
+
+// rideLavaCond is one ride_entity_in_lava criterion: a distance
+// predicate (horizontal min measured from the latched lava-entry
+// position) plus the player predicate's location.dimension and
+// vehicle.entity_type constraints. Anything else locks the criterion.
+type rideLavaCond struct {
+	crit       string
+	horizMin   float64
+	hasHoriz   bool
+	vehTypes   map[string]bool
+	dim        string // "" means unconstrained
+	impossible bool
+}
+
+// parseRideLavaCond reduces a ride_entity_in_lava criterion. Vanilla
+// passes a DistancePredicate ("distance") and the entity_properties
+// player predicate; mc-go is single-dimension overworld, so any
+// dimension constraint other than overworld locks the criterion.
+func parseRideLavaCond(cname string, conds any) rideLavaCond {
+	rc := rideLavaCond{crit: cname, vehTypes: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "distance":
+			dm, _ := v.(map[string]any)
+			for dk, dv := range dm {
+				if dk != "horizontal" {
+					continue // y/absolute axes unused by the datapack
+				}
+				hm, _ := dv.(map[string]any)
+				if mn, ok := hm["min"].(float64); ok {
+					rc.horizMin = mn
+					rc.hasHoriz = true
+				}
+			}
+		case "player":
+			plist, _ := v.([]any)
+			for _, pv := range plist {
+				pm, _ := pv.(map[string]any)
+				if c, _ := pm["condition"].(string); c != "minecraft:entity_properties" {
+					rc.impossible = true
+					continue
+				}
+				pred, _ := pm["predicate"].(map[string]any)
+				for pk, pv2 := range pred {
+					switch pk {
+					case "minecraft:location":
+						lm, _ := pv2.(map[string]any)
+						for lk, lv := range lm {
+							switch lk {
+							case "dimension":
+								if st, ok := lv.(string); ok {
+									rc.dim = strings.TrimPrefix(st, "minecraft:")
+								}
+							default:
+								rc.impossible = true
+							}
+						}
+					case "minecraft:vehicle":
+						vm, _ := pv2.(map[string]any)
+						for vk, vv := range vm {
+							if vk != "minecraft:entity_type" {
+								rc.impossible = true
+								continue
+							}
+							if st, ok := vv.(string); ok {
+								rc.vehTypes[st] = true
+							}
+						}
+					default:
+						rc.impossible = true
+					}
+				}
+			}
+		default:
+			rc.impossible = true
+		}
+	}
+	return rc
+}
+
+// fireRideInLava runs ride_entity_in_lava each tick a player's vehicle
+// is in lava, measuring horizontal distance from the entry position.
+func (s *Server) fireRideInLava(sess *Session) {
+	vid := sess.riding.Load()
+	if vid == 0 {
+		return
+	}
+	s.entities.mu.RLock()
+	veh, ok := s.entities.byID[vid]
+	s.entities.mu.RUnlock()
+	if !ok {
+		return
+	}
+	vname, _ := EntityTypeName(veh.Type)
+	x, _, z, _, _, _ := sess.Pos()
+	dx := x - sess.lavaRidePos[0]
+	dz := z - sess.lavaRidePos[2]
+	hdist := math.Sqrt(dx*dx + dz*dz)
+	for _, meta := range gameAdvs {
+		for _, rc := range meta.rideLava {
+			if rc.impossible {
+				continue
+			}
+			if rc.dim != "" && rc.dim != "overworld" {
+				continue
+			}
+			if len(rc.vehTypes) > 0 && !entityTypesMatch(rc.vehTypes, vname) {
+				continue
+			}
+			if rc.hasHoriz && hdist < rc.horizMin {
+				continue
+			}
+			sess.grantGameCriterion(meta, rc.crit)
+		}
+	}
+}
+
+// durCond is one item_durability_changed criterion: the item
+// predicate's items set plus the player predicate's vehicle type
+// (ride_strider wants a strider-mounted fungus-stick wear).
+type durCond struct {
+	crit       string
+	items      map[string]bool
+	vehTypes   map[string]bool
+	impossible bool
+}
+
+func parseDurCond(cname string, conds any) durCond {
+	dc := durCond{crit: cname, items: map[string]bool{}, vehTypes: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "item":
+			im, _ := v.(map[string]any)
+			for ik, iv := range im {
+				if ik != "items" {
+					dc.impossible = true
+					continue
+				}
+				switch itv := iv.(type) {
+				case string:
+					dc.items[itv] = true
+				case []any:
+					for _, e := range itv {
+						if st, ok := e.(string); ok {
+							dc.items[st] = true
+						}
+					}
+				}
+			}
+		case "player":
+			plist, _ := v.([]any)
+			for _, pv := range plist {
+				pm, _ := pv.(map[string]any)
+				if c, _ := pm["condition"].(string); c != "minecraft:entity_properties" {
+					dc.impossible = true
+					continue
+				}
+				pred, _ := pm["predicate"].(map[string]any)
+				for pk, pv2 := range pred {
+					if pk != "minecraft:vehicle" {
+						dc.impossible = true
+						continue
+					}
+					vm, _ := pv2.(map[string]any)
+					for vk, vv := range vm {
+						if vk != "minecraft:entity_type" {
+							dc.impossible = true
+							continue
+						}
+						if st, ok := vv.(string); ok {
+							dc.vehTypes[st] = true
+						}
+					}
+				}
+			}
+		default:
+			dc.impossible = true
+		}
+	}
+	return dc
+}
+
+// fireItemDurabilityChanged runs the criteria when hurtAndBreak
+// applies wear to a player's stack: the item predicate matches the
+// damaged stack, the vehicle predicate the ridden entity's type.
+func (s *Server) fireItemDurabilityChanged(sess *Session, it ItemStack) {
+	iname, ok := world.ItemName(it.ID)
+	if !ok {
+		return
+	}
+	vname := ""
+	if vid := sess.riding.Load(); vid != 0 {
+		s.entities.mu.RLock()
+		if veh, ok := s.entities.byID[vid]; ok {
+			vname, _ = EntityTypeName(veh.Type)
+		}
+		s.entities.mu.RUnlock()
+	}
+	for _, meta := range gameAdvs {
+		for _, dc := range meta.durs {
+			if dc.impossible {
+				continue
+			}
+			if len(dc.items) > 0 && !dc.items["minecraft:"+iname] && !dc.items[iname] {
+				continue
+			}
+			if len(dc.vehTypes) > 0 && (vname == "" || !entityTypesMatch(dc.vehTypes, vname)) {
+				continue
+			}
+			sess.grantGameCriterion(meta, dc.crit)
+		}
+	}
+}
+
+// playerWearsAny reports whether any of the player's armor slots holds
+// an item in the set.
+func (s *Server) playerWearsAny(sess *Session, set map[string]bool) bool {
+	sess.invMu.Lock()
+	defer sess.invMu.Unlock()
+	for slot := slotArmorStart; slot < slotArmorStart+4; slot++ {
+		it := sess.inv[slot]
+		if it.Empty() {
+			continue
+		}
+		if name, ok := world.ItemName(it.ID); ok && set[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// beaconCond is one construct_beacon criterion reduced to the pyramid
+// level range it accepts (default 0..4, the only levels that exist).
+// Anything outside "level" locks it.
+type beaconCond struct {
+	crit       string
+	min, max   float64
+	impossible bool
+}
+
+func parseBeaconCond(cname string, conds any) beaconCond {
+	bc := beaconCond{crit: cname, max: 4}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "level" {
+			bc.impossible = true
+			continue
+		}
+		switch lv := v.(type) {
+		case float64:
+			bc.min, bc.max = lv, lv
+		case map[string]any:
+			for rk, rv := range lv {
+				f, ok := rv.(float64)
+				if !ok {
+					bc.impossible = true
+					continue
+				}
+				switch rk {
+				case "min":
+					bc.min = f
+				case "max":
+					bc.max = f
+				default:
+					bc.impossible = true
+				}
+			}
+		default:
+			bc.impossible = true
+		}
+	}
+	return bc
+}
+
+// fireConstructBeacon grants every construct_beacon criterion whose
+// level range admits the activated pyramid depth.
+func (s *Server) fireConstructBeacon(sess *Session, levels int) {
+	for _, meta := range gameAdvs {
+		for _, bc := range meta.beacons {
+			if bc.impossible || float64(levels) < bc.min || float64(levels) > bc.max {
+				continue
+			}
+			sess.grantGameCriterion(meta, bc.crit)
+		}
+	}
+}
+
+// recipeCond is one recipe_crafted criterion reduced to the recipe id
+// plus the ingredients multiset. Vanilla's TriggerInstance.matches
+// requires the exact recipe id, then consumes one input stack per
+// ingredient predicate — order-free, one stack never satisfying two
+// predicates. A missing recipe_id fails the codec in vanilla and the
+// criterion never grants.
+type recipeCond struct {
+	crit        string
+	recipeID    string
+	ingredients []map[string]bool
+	impossible  bool
+}
+
+// parseRecipeCond reduces a recipe_crafted criterion. The item
+// predicate list uses the same items/#tag grammar as
+// inventory_changed; any other predicate key locks the criterion.
+func parseRecipeCond(cname string, conds any) recipeCond {
+	rc := recipeCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	rid, _ := cm["recipe_id"].(string)
+	if rid == "" {
+		rc.impossible = true
+	}
+	rc.recipeID = strings.TrimPrefix(rid, "minecraft:")
+	for k, v := range cm {
+		if k == "recipe_id" {
+			continue
+		}
+		if k != "ingredients" {
+			rc.impossible = true
+			continue
+		}
+		list, _ := v.([]any)
+		for _, iv := range list {
+			im, _ := iv.(map[string]any)
+			set := map[string]bool{}
+			okPred := true
+			for pk, pv := range im {
+				if pk != "items" {
+					okPred = false
+					continue
+				}
+				add := func(name string) {
+					if strings.HasPrefix(name, "#") {
+						for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(name, "#"), "minecraft:")] {
+							set[m] = true
+						}
+						return
+					}
+					set[strings.TrimPrefix(name, "minecraft:")] = true
+				}
+				switch it := pv.(type) {
+				case string:
+					add(it)
+				case []any:
+					for _, e := range it {
+						if es, ok := e.(string); ok {
+							add(es)
+						}
+					}
+				}
+			}
+			if !okPred || len(set) == 0 {
+				rc.impossible = true
+				continue
+			}
+			rc.ingredients = append(rc.ingredients, set)
+		}
+	}
+	return rc
+}
+
+// totemCond is one used_totem criterion reduced to the item
+// predicate's name set; the only vanilla carrier is the totem itself.
+type totemCond struct {
+	crit       string
+	items      map[string]bool
+	impossible bool
+}
+
+// parseTotemCond reduces used_totem to conditions.item.items — an
+// absent item predicate means any death-protection item matches;
+// anything more (count, components) locks the criterion.
+func parseTotemCond(cname string, conds any) totemCond {
+	tc := totemCond{crit: cname, items: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "item" {
+			tc.impossible = true
+			continue
+		}
+		im, _ := v.(map[string]any)
+		for pk, pv := range im {
+			if pk != "items" {
+				tc.impossible = true
+				continue
+			}
+			switch it := pv.(type) {
+			case string:
+				tc.items[strings.TrimPrefix(it, "minecraft:")] = true
+			case []any:
+				for _, e := range it {
+					if es, ok := e.(string); ok {
+						tc.items[strings.TrimPrefix(es, "minecraft:")] = true
+					}
+				}
+			}
+		}
+	}
+	return tc
+}
+
+// effCond is one effects_changed criterion reduced to its
+// conditions.effects keyset: every listed effect must be active at
+// trigger time. A source entity predicate (the axolotl criterion)
+// or per-effect amplifier/duration bounds are unmodeled and lock the
+// criterion.
+type effCond struct {
+	crit       string
+	effects    map[string]bool // required active effects, no prefix
+	impossible bool
+}
+
+// parseEffCond reads conditions.effects; any other condition key or a
+// non-object per-effect bound locks the criterion — vanilla's
+// MobEffectsPredicate supports amplifier/duration ranges mc-go does
+// not evaluate.
+func parseEffCond(cname string, conds any) effCond {
+	ec := effCond{crit: cname, effects: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "effects" {
+			ec.impossible = true
+			continue
+		}
+		em, _ := v.(map[string]any)
+		if em == nil {
+			ec.impossible = true
+			continue
+		}
+		for name, bound := range em {
+			if bm, ok := bound.(map[string]any); !ok || len(bm) > 0 {
+				ec.impossible = true
+				continue
+			}
+			ec.effects[strings.TrimPrefix(name, "minecraft:")] = true
+		}
+	}
+	return ec
+}
+
+// fireEffectsChanged grants effects_changed criteria whose required
+// set is fully active. Vanilla fires the trigger on add, update, and
+// removal alike, so this runs after every store transition.
+func (s *Server) fireEffectsChanged(sess *Session) {
+	sess.effMu.Lock()
+	active := map[string]bool{}
+	for id := range sess.effects {
+		if name, ok := MobEffectName(id); ok {
+			active[name] = true
+		}
+	}
+	sess.effMu.Unlock()
+	for _, meta := range gameAdvs {
+		for _, ec := range meta.effs {
+			if ec.impossible {
+				continue
+			}
+			have := true
+			for name := range ec.effects {
+				if !active[name] {
+					have = false
+					break
+				}
+			}
+			if have {
+				sess.grantGameCriterion(meta, ec.crit)
+			}
+		}
+	}
+}
+
+// kbaCond is one killed_by_arrow criterion reduced to
+// fired_from_weapon's item name set and the victims list's entity-type
+// union (vanilla fires once per victim and matches that victim against
+// the list). unique_entity_types > 1 (arbalistic's 5) needs per-
+// criterion kill-set tracking — locked until modeled.
+type kbaCond struct {
+	crit        string
+	weapons     map[string]bool // fired_from_weapon items; empty = any
+	victimTypes map[string]bool // victims' entity_type union; empty = any
+	impossible  bool
+}
+
+// parseKBACond reads conditions.fired_from_weapon.items plus the
+// victims[] entity predicates. Victim entries carrying anything beyond
+// an entity_type predicate lock the criterion.
+func parseKBACond(cname string, conds any) kbaCond {
+	kc := kbaCond{crit: cname, weapons: map[string]bool{}, victimTypes: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "fired_from_weapon":
+			im, _ := v.(map[string]any)
+			for pk, pv := range im {
+				if pk != "items" {
+					kc.impossible = true
+					continue
+				}
+				switch it := pv.(type) {
+				case string:
+					kc.weapons[strings.TrimPrefix(it, "minecraft:")] = true
+				case []any:
+					for _, e := range it {
+						if es, ok := e.(string); ok {
+							kc.weapons[strings.TrimPrefix(es, "minecraft:")] = true
+						}
+					}
+				}
+			}
+		case "victims":
+			lst, _ := v.([]any)
+			for _, entry := range lst {
+				condsList, _ := entry.([]any)
+				for _, c := range condsList {
+					cc, _ := c.(map[string]any)
+					pred, _ := cc["predicate"].(map[string]any)
+					et, _ := pred["entity_type"].(string)
+					if et2, _ := pred["minecraft:entity_type"].(string); et2 != "" {
+						et = et2
+					}
+					if et == "" {
+						kc.impossible = true
+						continue
+					}
+					kc.victimTypes[strings.TrimPrefix(et, "minecraft:")] = true
+				}
+			}
+		case "unique_entity_types":
+			if n, ok := v.(float64); !ok || n > 1 {
+				kc.impossible = true
+			}
+		default:
+			kc.impossible = true
+		}
+	}
+	return kc
+}
+
+// fireKilledByArrow runs on a player arrow kill — vanilla's
+// KilledByArrowTrigger fires per victim with the weapon stack.
+func (s *Server) fireKilledByArrow(sess *Session, victimType, weapon string) {
+	for _, meta := range gameAdvs {
+		for _, kc := range meta.kba {
+			if kc.impossible {
+				continue
+			}
+			if len(kc.weapons) > 0 && !kc.weapons[weapon] {
+				continue
+			}
+			if len(kc.victimTypes) > 0 && !kc.victimTypes[victimType] {
+				continue
+			}
+			sess.grantGameCriterion(meta, kc.crit)
+		}
+	}
+}
+
+// usingCond is one using_item criterion reduced to conditions.item
+// .items plus the player predicate's looking_at entity_type set
+// (spyglass_at_*). Other player predicate content locks the criterion.
+type usingCond struct {
+	crit       string
+	items      map[string]bool
+	lookingAt  map[string]bool // entity types; empty = no looking_at check
+	impossible bool
+}
+
+// parseUsingCond reads item.items and walks the player condition list
+// for entity_properties entries carrying type_specific.player.looking_
+// at.entity_type. Any other player predicate content locks it.
+func parseUsingCond(cname string, conds any) usingCond {
+	uc := usingCond{crit: cname, items: map[string]bool{}, lookingAt: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "item":
+			im, _ := v.(map[string]any)
+			for pk, pv := range im {
+				if pk != "items" {
+					uc.impossible = true
+					continue
+				}
+				switch it := pv.(type) {
+				case string:
+					uc.items[strings.TrimPrefix(it, "minecraft:")] = true
+				case []any:
+					for _, e := range it {
+						if es, ok := e.(string); ok {
+							uc.items[strings.TrimPrefix(es, "minecraft:")] = true
+						}
+					}
+				}
+			}
+		case "player":
+			lst, _ := v.([]any)
+			for _, entry := range lst {
+				ec, _ := entry.(map[string]any)
+				pred, _ := ec["predicate"].(map[string]any)
+				// The player sub-predicate sits behind the single key
+				// "type_specific/player" (vanilla serializes the
+				// type-specific name as one path segment).
+				var psub map[string]any
+				for pk, pv := range pred {
+					if strings.HasSuffix(strings.TrimPrefix(pk, "minecraft:"), "type_specific/player") {
+						psub, _ = pv.(map[string]any)
+					} else if pk != "minecraft:type_specific/player" && pk != "type_specific/player" {
+						// Any other predicate field is unmodeled content.
+						if pk != "" {
+							uc.impossible = true
+						}
+					}
+				}
+				la, _ := psub["looking_at"].(map[string]any)
+				if la == nil {
+					uc.impossible = true
+					continue
+				}
+				et, _ := la["entity_type"].(string)
+				if et2, _ := la["minecraft:entity_type"].(string); et2 != "" {
+					et = et2
+				}
+				if et == "" {
+					uc.impossible = true
+					continue
+				}
+				uc.lookingAt[strings.TrimPrefix(et, "minecraft:")] = true
+			}
+		default:
+			uc.impossible = true
+		}
+	}
+	return uc
+}
+
+// fireUsingItem runs each player tick while an item is in continuous
+// use, matching vanilla's per-tick UsingItemTrigger: the held item's
+// name must hit items[] and, when looking_at is conditioned, the
+// entity under the crosshair must be a listed type.
+func (s *Server) fireUsingItem(sess *Session) {
+	name, ok := itemNameOf(sess.usingItemID)
+	if !ok {
+		return
+	}
+	var lookType string
+	needLook := false
+	for _, meta := range gameAdvs {
+		for _, uc := range meta.usings {
+			if len(uc.lookingAt) > 0 {
+				needLook = true
+			}
+		}
+	}
+	if needLook {
+		lookType = s.lookedAtLivingType(sess)
+	}
+	for _, meta := range gameAdvs {
+		for _, uc := range meta.usings {
+			if uc.impossible {
+				continue
+			}
+			if len(uc.items) > 0 && !uc.items[name] {
+				continue
+			}
+			if len(uc.lookingAt) > 0 && !uc.lookingAt[lookType] {
+				continue
+			}
+			sess.grantGameCriterion(meta, uc.crit)
+		}
+	}
+}
+
+// lookedAtLivingType raycasts the eye vector against every living
+// entity's box in the dimension and returns the nearest hit's type
+// name within 100 blocks — vanilla's looking_at pick (spyglass zoom
+// narrows vision client-side; the predicate is a plain raycast).
+func (s *Server) lookedAtLivingType(sess *Session) string {
+	x, y, z, yaw, pitch, _ := sess.Pos()
+	y += 1.62
+	yawR := float64(yaw) * math.Pi / 180
+	pitchR := float64(pitch) * math.Pi / 180
+	dx := -math.Sin(yawR) * math.Cos(pitchR)
+	dy := -math.Sin(pitchR)
+	dz := math.Cos(yawR) * math.Cos(pitchR)
+	best := 100.0
+	bestType := ""
+	s.entities.mu.RLock()
+	for _, e := range s.entities.byID {
+		if e.Dying || !e.Living || e.Dim != sess.dimName() {
+			continue
+		}
+		bb := entityBBDims(e)
+		half := bb[0] / 2
+		t := rayAABB(x, y, z, dx, dy, dz,
+			e.X-half, e.Y, e.Z-half,
+			e.X+half, e.Y+bb[1], e.Z+half)
+		if t >= 0 && t < best {
+			best = t
+			if n, ok := EntityTypeName(e.Type); ok {
+				bestType = n
+			}
+		}
+	}
+	s.entities.mu.RUnlock()
+	return bestType
+}
+
+// rayAABB is the slab test: it returns the entry distance along the
+// ray direction or -1 for a miss.
+func rayAABB(ox, oy, oz, dx, dy, dz, minx, miny, minz, maxx, maxy, maxz float64) float64 {
+	tmin, tmax := -1e9, 1e9
+	clip := func(o, d, lo, hi float64) bool {
+		if d == 0 {
+			return o >= lo && o <= hi
+		}
+		t1 := (lo - o) / d
+		t2 := (hi - o) / d
+		if t1 > t2 {
+			t1, t2 = t2, t1
+		}
+		if t1 > tmin {
+			tmin = t1
+		}
+		if t2 < tmax {
+			tmax = t2
+		}
+		return tmin <= tmax
+	}
+	if !clip(ox, dx, minx, maxx) || !clip(oy, dy, miny, maxy) || !clip(oz, dz, minz, maxz) {
+		return -1
+	}
+	if tmax < 0 {
+		return -1 // box behind the eye
+	}
+	if tmin < 0 {
+		return 0 // eye inside the box
+	}
+	return tmin
+}
+
+// fireShotCrossbow grants shot_crossbow criteria whose item predicate
+// admits the weapon that fired — ol_betsy wants exactly "crossbow".
+func (s *Server) fireShotCrossbow(sess *Session, item string) {
+	for _, meta := range gameAdvs {
+		for _, tc := range meta.shots {
+			if tc.impossible {
+				continue
+			}
+			if len(tc.items) == 0 || tc.items[item] {
+				sess.grantGameCriterion(meta, tc.crit)
+			}
+		}
+	}
+}
+
+// fireUsedTotem grants used_totem criteria whose item predicate admits
+// the totem — vanilla triggers on the stack copy before it shrinks.
+func (s *Server) fireUsedTotem(sess *Session) {
+	for _, meta := range gameAdvs {
+		for _, tc := range meta.totems {
+			if tc.impossible {
+				continue
+			}
+			if len(tc.items) == 0 || tc.items["totem_of_undying"] {
+				sess.grantGameCriterion(meta, tc.crit)
+			}
+		}
+	}
+}
+
+// fireRecipeCrafted grants every recipe_crafted criterion matching
+// the completed recipe id whose ingredient predicates each consume a
+// distinct input stack — empty slots match nothing, same as vanilla's
+// ItemPredicate over the raw crafting container.
+func (s *Server) fireRecipeCrafted(sess *Session, recipeID string, grid craftGrid) {
+	stacks := make([]ItemStack, 0, len(grid))
+	for _, st := range grid {
+		stacks = append(stacks, st)
+	}
+	for _, meta := range gameAdvs {
+		for _, rc := range meta.recipes {
+			if rc.impossible || rc.recipeID != recipeID {
+				continue
+			}
+			remaining := append([]ItemStack{}, stacks...)
+			matched := true
+			for _, set := range rc.ingredients {
+				found := false
+				for i, st := range remaining {
+					if st.Empty() {
+						continue
+					}
+					name, _ := world.ItemName(st.ID)
+					if !set[name] {
+						continue
+					}
+					remaining = append(remaining[:i], remaining[i+1:]...)
+					found = true
+					break
+				}
+				if !found {
+					matched = false
+					break
+				}
+			}
+			if matched {
+				sess.grantGameCriterion(meta, rc.crit)
+			}
+		}
+	}
+}
+
+// parseFillCond reduces a filled_bucket criterion to its item.items
+// OR-set; other condition keys lock it.
+func parseFillCond(cname string, conds any) fillCond {
+	fc := fillCond{crit: cname, items: map[string]bool{}}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "item" {
+			fc.impossible = true
+			continue
+		}
+		im, _ := v.(map[string]any)
+		for ik, iv := range im {
+			if ik != "items" {
+				fc.impossible = true
+				continue
+			}
+			switch it := iv.(type) {
+			case string:
+				fc.addItem(it)
+			case []any:
+				for _, e := range it {
+					if es, ok := e.(string); ok {
+						fc.addItem(es)
+					}
+				}
+			}
+		}
+	}
+	return fc
+}
+
+func (fc *fillCond) addItem(name string) {
+	if strings.HasPrefix(name, "#") {
+		for _, m := range data.ItemTags[strings.TrimPrefix(strings.TrimPrefix(name, "#"), "minecraft:")] {
+			fc.items[m] = true
+		}
+		return
+	}
+	fc.items[strings.TrimPrefix(name, "minecraft:")] = true
+}
+
+// fireFilledBucket runs filled_bucket criteria against the bucket item
+// that resulted from the fill.
+func (s *Server) fireFilledBucket(sess *Session, bucket string) {
+	for _, meta := range gameAdvs {
+		for _, fc := range meta.fills {
+			if fc.impossible || (len(fc.items) > 0 && !fc.items[bucket]) {
+				continue
+			}
+			sess.grantGameCriterion(meta, fc.crit)
+		}
+	}
+}
+
+// targetHitCond is one target_hit criterion reduced to the
+// signal_strength bounds plus the projectile predicate's entity_type
+// union and horizontal distance bounds measured from the shooter —
+// bullseye wants a center hit (signal 15) from ≥30 blocks away.
+// Other projectile predicate content locks the criterion.
+type targetHitCond struct {
+	crit       string
+	sigMin     int
+	sigMax     int
+	types      map[string]bool
+	distMin    float64
+	distMax    float64
+	hasDist    bool
+	impossible bool
+}
+
+// parseTargetHitCond reads signal_strength (bare int or {min,max}) and
+// walks the projectile[] predicate for entity_type and
+// distance.horizontal bounds.
+func parseTargetHitCond(cname string, conds any) targetHitCond {
+	tc := targetHitCond{crit: cname, sigMin: 1, sigMax: 15, types: map[string]bool{}, distMax: 1e9}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "signal_strength":
+			switch sv := v.(type) {
+			case float64:
+				tc.sigMin, tc.sigMax = int(sv), int(sv)
+			case map[string]any:
+				if mn, ok := sv["min"].(float64); ok {
+					tc.sigMin = int(mn)
+				}
+				if mx, ok := sv["max"].(float64); ok {
+					tc.sigMax = int(mx)
+				}
+			}
+		case "projectile":
+			lst, _ := v.([]any)
+			for _, entry := range lst {
+				ec, _ := entry.(map[string]any)
+				pred, _ := ec["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					pkn := strings.TrimPrefix(pk, "minecraft:")
+					switch pkn {
+					case "entity_type":
+						if es, ok := pv.(string); ok {
+							tc.types[strings.TrimPrefix(es, "minecraft:")] = true
+						}
+					case "distance":
+						dm, _ := pv.(map[string]any)
+						hm, _ := dm["horizontal"].(map[string]any)
+						if hm != nil {
+							tc.hasDist = true
+							if mn, ok := hm["min"].(float64); ok {
+								tc.distMin = mn
+							}
+							if mx, ok := hm["max"].(float64); ok {
+								tc.distMax = mx
+							}
+						} else {
+							tc.impossible = true
+						}
+					default:
+						tc.impossible = true
+					}
+				}
+			}
+		default:
+			tc.impossible = true
+		}
+	}
+	return tc
+}
+
+// fireTargetHit grants target_hit criteria on the projectile owner
+// when a projectile strikes a target block at the given signal
+// strength — vanilla runs it for any projectile with a player owner
+// (TargetBlock.onProjectileHit).
+func (s *Server) fireTargetHit(shooter *Session, proj *Entity, signal int) {
+	sx, _, sz, _, _, _ := shooter.Pos()
+	hdist := math.Hypot(proj.X-sx, proj.Z-sz)
+	pname, _ := EntityTypeName(proj.Type)
+	for _, meta := range gameAdvs {
+		for _, tc := range meta.targetHits {
+			if tc.impossible {
+				continue
+			}
+			if signal < tc.sigMin || signal > tc.sigMax {
+				continue
+			}
+			if len(tc.types) > 0 && !tc.types[pname] {
+				continue
+			}
+			if tc.hasDist && (hdist < tc.distMin || hdist > tc.distMax) {
+				continue
+			}
+			sess := shooter
+			sess.grantGameCriterion(meta, tc.crit)
+		}
+	}
+}
+
+// enterCond is one game-tree enter_block criterion reduced to the
+// block name — enter_end_gateway conditions on just "end_gateway".
+// state/entity predicates lock the criterion for now.
+type enterCond struct {
+	crit       string
+	block      string
+	impossible bool
+}
+
+// parseEnterCond reads conditions.block; any other condition key locks
+// the criterion until state/entity sub-predicates are modeled.
+func parseEnterCond(cname string, conds any) enterCond {
+	ec := enterCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k == "block" {
+			if bs, ok := v.(string); ok {
+				ec.block = strings.TrimPrefix(bs, "minecraft:")
+				continue
+			}
+		}
+		ec.impossible = true
+	}
+	return ec
+}
+
+// fireGameEnterBlock grants game-tree enter_block criteria when the
+// player's feet sit inside the named block — same feet check the
+// recipe listener runs, one trigger pass per tick.
+func (s *Server) fireGameEnterBlock(sess *Session, feet string) {
+	for _, meta := range gameAdvs {
+		for _, ec := range meta.enters {
+			if ec.impossible || ec.block == "" || ec.block != feet {
+				continue
+			}
+			sess.grantGameCriterion(meta, ec.crit)
+		}
+	}
+}
+
+// fallCond is one fall_from_height criterion reduced to the
+// distance.y bounds (fallen span), the start_position position.y
+// bounds (where the fall began), and the player location predicate's
+// position.y bounds (where the landing happened). Other player
+// content locks the criterion.
+type fallCond struct {
+	crit       string
+	distYMin   float64
+	distYMax   float64
+	hasDist    bool
+	startYMin  float64
+	startYMax  float64
+	hasStart   bool
+	endYMin    float64
+	endYMax    float64
+	hasEnd     bool
+	impossible bool
+}
+
+// parseFallCond reads distance.y, start_position.position.y, and the
+// player[] entity_properties location.position.y bounds.
+func parseFallCond(cname string, conds any) fallCond {
+	fc := fallCond{crit: cname, distYMax: 1e9, startYMax: 1e9, endYMin: -1e9, endYMax: 1e9, startYMin: -1e9}
+	yBounds := func(m map[string]any) (mn, mx float64, ok bool) {
+		pm, _ := m["position"].(map[string]any)
+		ym, _ := pm["y"].(map[string]any)
+		if ym == nil {
+			return 0, 0, false
+		}
+		mn, mx = -1e9, 1e9
+		if v, ok := ym["min"].(float64); ok {
+			mn = v
+		}
+		if v, ok := ym["max"].(float64); ok {
+			mx = v
+		}
+		return mn, mx, true
+	}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "distance":
+			dm, _ := v.(map[string]any)
+			ym, _ := dm["y"].(map[string]any)
+			if ym == nil {
+				fc.impossible = true
+				continue
+			}
+			fc.hasDist = true
+			fc.distYMin, fc.distYMax = -1e9, 1e9
+			if mn, ok := ym["min"].(float64); ok {
+				fc.distYMin = mn
+			}
+			if mx, ok := ym["max"].(float64); ok {
+				fc.distYMax = mx
+			}
+		case "start_position":
+			sp, _ := v.(map[string]any)
+			if mn, mx, ok := yBounds(sp); ok {
+				fc.hasStart = true
+				fc.startYMin, fc.startYMax = mn, mx
+			} else {
+				fc.impossible = true
+			}
+		case "player":
+			lst, _ := v.([]any)
+			for _, entry := range lst {
+				ec, _ := entry.(map[string]any)
+				pred, _ := ec["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					pkn := strings.TrimPrefix(pk, "minecraft:")
+					if pkn == "location" {
+						lm, _ := pv.(map[string]any)
+						if mn, mx, ok := yBounds(lm); ok {
+							fc.hasEnd = true
+							fc.endYMin, fc.endYMax = mn, mx
+						} else {
+							fc.impossible = true
+						}
+					} else {
+						fc.impossible = true
+					}
+				}
+			}
+		default:
+			fc.impossible = true
+		}
+	}
+	return fc
+}
+
+// slideCond is one slide_down_block criterion reduced to the slid
+// block's name set (vanilla's conditions carry a flat "block" string
+// or a {blocks:[..]} predicate; a state lock leaves it unearnable).
+type slideCond struct {
+	crit       string
+	blocks     map[string]bool
+	impossible bool
+}
+
+func parseSlideCond(cname string, conds any) slideCond {
+	sc := slideCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "block":
+			switch bv := v.(type) {
+			case string:
+				sc.blocks = map[string]bool{strings.TrimPrefix(bv, "minecraft:"): true}
+			case map[string]any:
+				if bl, ok := bv["blocks"].([]any); ok {
+					sc.blocks = map[string]bool{}
+					for _, b := range bl {
+						if bs, ok := b.(string); ok {
+							sc.blocks[strings.TrimPrefix(bs, "minecraft:")] = true
+						}
+					}
+				}
+				if _, ok := bv["state"]; ok {
+					sc.impossible = true
+				}
+			}
+		default:
+			sc.impossible = true
+		}
+	}
+	return sc
+}
+
+// fireSlideDown grants slide_down_block criteria while the player's
+// descending box clips a sticky block cell and its center sits beyond
+// the inset honey column (vanilla isSlidingDown: not onGround, feet
+// below the shape top (+0.9375), vy < -0.08, and on at least one
+// horizontal axis |cellCenter - pos| > 0.4375 + bbWidth/2 — the entity
+// slides against the block's outer face, not through its center).
+func (s *Server) fireSlideDown(sess *Session, x, y, z float64) {
+	for _, meta := range gameAdvs {
+		hasSlides := false
+		for _, sc := range meta.slides {
+			if !sc.impossible {
+				hasSlides = true
+			}
+		}
+		if !hasSlides {
+			continue
+		}
+		d := sess.dimension()
+		if d == nil {
+			return
+		}
+		// Cells overlapped by the 0.6-wide player box.
+		x0, x1 := x-0.3, x+0.3
+		z0, z1 := z-0.3, z+0.3
+		for bx := int(math.Floor(x0)); bx <= int(math.Floor(x1)); bx++ {
+			for bz := int(math.Floor(z0)); bz <= int(math.Floor(z1)); bz++ {
+				for by := int(math.Floor(y)); by <= int(math.Floor(y+1.8)); by++ {
+					name, ok := blockNameAt(d, world.Pos{X: bx, Y: by, Z: bz})
+					if !ok {
+						continue
+					}
+					// Center must sit beyond the inset column edge on
+					// at least one axis; feet below the shape top.
+					dx := math.Abs(float64(bx) + 0.5 - x)
+					dz := math.Abs(float64(bz) + 0.5 - z)
+					if dx+1e-7 <= 0.7375 && dz+1e-7 <= 0.7375 {
+						continue
+					}
+					if y > float64(by)+0.9375-1e-7 {
+						continue
+					}
+					for _, sc := range meta.slides {
+						if sc.impossible {
+							continue
+						}
+						if len(sc.blocks) > 0 && !sc.blocks[strings.TrimPrefix(name, "minecraft:")] {
+							continue
+						}
+						sess.grantGameCriterion(meta, sc.crit)
+					}
+				}
+			}
+		}
+	}
+}
+
+// levitateCond is one levitation criterion reduced to the distance
+// predicate's component bounds measured from the effect-start position
+// and the duration bounds in ticks. Other distance shapes lock it.
+type levitateCond struct {
+	crit       string
+	yMin, yMax float64
+	hasY       bool
+	xMin, xMax float64
+	hasX       bool
+	durMin     int64
+	durMax     int64
+	hasDur     bool
+	impossible bool
+}
+
+// parseLevitateCond reads distance.{x,y} + duration bounds; absolute/
+// horizontal/z components and player predicates lock the criterion.
+func parseLevitateCond(cname string, conds any) levitateCond {
+	lc := levitateCond{crit: cname, durMax: 1 << 60}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "distance":
+			dm, _ := v.(map[string]any)
+			for dk, dv := range dm {
+				bm, _ := dv.(map[string]any)
+				switch dk {
+				case "y":
+					lc.hasY = true
+					lc.yMin, lc.yMax = -1e9, 1e9
+					if mn, ok := bm["min"].(float64); ok {
+						lc.yMin = mn
+					}
+					if mx, ok := bm["max"].(float64); ok {
+						lc.yMax = mx
+					}
+				case "x":
+					lc.hasX = true
+					lc.xMin, lc.xMax = -1e9, 1e9
+					if mn, ok := bm["min"].(float64); ok {
+						lc.xMin = mn
+					}
+					if mx, ok := bm["max"].(float64); ok {
+						lc.xMax = mx
+					}
+				default:
+					lc.impossible = true
+				}
+			}
+		case "duration":
+			switch dv := v.(type) {
+			case float64:
+				lc.hasDur = true
+				lc.durMin, lc.durMax = int64(dv), int64(dv)
+			case map[string]any:
+				lc.hasDur = true
+				if mn, ok := dv["min"].(float64); ok {
+					lc.durMin = int64(mn)
+				}
+				if mx, ok := dv["max"].(float64); ok {
+					lc.durMax = int64(mx)
+				}
+			}
+		default:
+			lc.impossible = true
+		}
+	}
+	return lc
+}
+
+// fireLevitation runs once a player tick while levitationStart is set —
+// vanilla's ServerPlayer fires it every tick until the effect leaves.
+func (s *Server) fireLevitation(sess *Session) {
+	if sess.levitationStart == nil {
+		return
+	}
+	x, y, z, _, _, _ := sess.Pos()
+	dy := y - sess.levitationStart[1]
+	dx := x - sess.levitationStart[0]
+	_ = z
+	dur := s.clock.count - sess.levitationStartTick
+	for _, meta := range gameAdvs {
+		for _, lc := range meta.levitates {
+			if lc.impossible {
+				continue
+			}
+			if lc.hasY && (dy < lc.yMin || dy > lc.yMax) {
+				continue
+			}
+			if lc.hasX && (dx < lc.xMin || dx > lc.xMax) {
+				continue
+			}
+			if lc.hasDur && (dur < lc.durMin || dur > lc.durMax) {
+				continue
+			}
+			sess.grantGameCriterion(meta, lc.crit)
+		}
+	}
+}
+
+// beeNestCond is one bee_nest_destroyed criterion: the block that
+// broke (flat name list), the tool's enchantments predicate (flat
+// name -> level bounds), and num_bees_inside (the nest's Bees list
+// length). numBMax of -1 means unbounded.
+type beeNestCond struct {
+	crit       string
+	blocks     map[string]bool
+	itemEnch   []enchRange // each must match on the held stack
+	hasItem    bool
+	numBMin    float64
+	numBMax    float64
+	hasNum     bool
+	impossible bool
+}
+
+type enchRange struct {
+	name string
+	min  float64
+	max  float64 // -1 = unbounded
+}
+
+// parseBeeNestCond reads block (string or nothing else modeled),
+// item.predicates["minecraft:enchantments"] (each entry's
+// enchantments name plus levels int|{min,max}), and
+// num_bees_inside (int or {min,max}).
+func parseBeeNestCond(cname string, conds any) beeNestCond {
+	bc := beeNestCond{crit: cname, numBMax: -1}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "block":
+			s, ok := v.(string)
+			if !ok {
+				bc.impossible = true
+				continue
+			}
+			if bc.blocks == nil {
+				bc.blocks = map[string]bool{}
+			}
+			bc.blocks[strings.TrimPrefix(s, "minecraft:")] = true
+		case "num_bees_inside":
+			bc.hasNum = true
+			switch n := v.(type) {
+			case float64:
+				bc.numBMin, bc.numBMax = n, n
+			case map[string]any:
+				if mn, ok := n["min"].(float64); ok {
+					bc.numBMin = mn
+				}
+				if mx, ok := n["max"].(float64); ok {
+					bc.numBMax = mx
+				}
+			default:
+				bc.impossible = true
+			}
+		case "item":
+			im, _ := v.(map[string]any)
+			for pk, pv := range im {
+				if pk != "predicates" {
+					bc.impossible = true
+					continue
+				}
+				pm, _ := pv.(map[string]any)
+				for pred, pl := range pm {
+					if strings.TrimPrefix(pred, "minecraft:") != "enchantments" {
+						bc.impossible = true
+						continue
+					}
+					lst, _ := pl.([]any)
+					for _, e := range lst {
+						em, _ := e.(map[string]any)
+						var names []string
+						switch en := em["enchantments"].(type) {
+						case string:
+							names = append(names, en)
+						case []any:
+							for _, x := range en {
+								if s, ok := x.(string); ok {
+									names = append(names, s)
+								}
+							}
+						}
+						lvMin, lvMax := float64(0), float64(-1)
+						switch lv := em["levels"].(type) {
+						case float64:
+							lvMin, lvMax = lv, lv
+						case map[string]any:
+							if mn, ok := lv["min"].(float64); ok {
+								lvMin = mn
+							}
+							if mx, ok := lv["max"].(float64); ok {
+								lvMax = mx
+							}
+						}
+						for _, n := range names {
+							bc.itemEnch = append(bc.itemEnch, enchRange{name: n, min: lvMin, max: lvMax})
+						}
+					}
+					bc.hasItem = true
+				}
+			}
+		case "player", "state":
+			// player[] and block-state conditions are unmodeled; a
+			// criterion carrying them stays locked rather than firing
+			// wide.
+			bc.impossible = true
+		default:
+			bc.impossible = true
+		}
+	}
+	return bc
+}
+
+// fireBeeNestDestroyed grants bee_nest_destroyed criteria when a nest
+// or hive breaks under a player: the held tool's enchantments match
+// the item predicate and the nest's Bees count fits num_bees_inside.
+// Vanilla reads the count straight off the block entity at destroy
+// time, so this runs before the world write clears it.
+func (s *Server) fireBeeNestDestroyed(sess *Session, d *dimension, pos world.Pos, broken world.Block) {
+	owner, _ := world.StateOwner(broken)
+	held := sess.heldStack()
+	bees := d.bees[pos]
+	for _, meta := range gameAdvs {
+		for _, bc := range meta.beenests {
+			if bc.impossible {
+				continue
+			}
+			if bc.blocks != nil && !bc.blocks[owner] {
+				continue
+			}
+			if bc.hasNum {
+				f := float64(bees)
+				if f < bc.numBMin || (bc.numBMax >= 0 && f > bc.numBMax) {
+					continue
+				}
+			}
+			if bc.hasItem {
+				ok := true
+				for _, r := range bc.itemEnch {
+					lv := float64(held.enchLevel(r.name))
+					if lv < r.min || (r.max >= 0 && lv > r.max) {
+						ok = false
+						break
+					}
+				}
+				if !ok {
+					continue
+				}
+			}
+			sess.grantGameCriterion(meta, bc.crit)
+		}
+	}
+}
+
+// chanCond is one channeled_lightning criterion: victims is the
+// condition's victims list — one entity-type set per entry, since the
+// trigger requires every victims predicate to match at least one of
+// the entities the bolt struck (vanilla's allMatch over anyMatch).
+type chanCond struct {
+	crit       string
+	victims    []map[string]bool
+	impossible bool
+}
+
+// parseChanCond reduces conditions.victims: a list of context-aware
+// predicates, each a list of entity_properties conditions whose
+// predicate.entity_type the struck entity's type must satisfy.
+func parseChanCond(cname string, conds any) chanCond {
+	cc := chanCond{crit: cname}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		if k != "victims" {
+			cc.impossible = true
+			continue
+		}
+		vlist, _ := v.([]any)
+		for _, vp := range vlist {
+			types := map[string]bool{}
+			plist, _ := vp.([]any)
+			for _, pv := range plist {
+				pm, _ := pv.(map[string]any)
+				if c, _ := pm["condition"].(string); c != "minecraft:entity_properties" {
+					cc.impossible = true
+					continue
+				}
+				pred, _ := pm["predicate"].(map[string]any)
+				for pk, pv2 := range pred {
+					switch pk {
+					case "minecraft:entity_type", "entity_type", "type":
+						switch tv := pv2.(type) {
+						case string:
+							types[tv] = true
+						case []any:
+							for _, e := range tv {
+								if st, ok := e.(string); ok {
+									types[st] = true
+								}
+							}
+						}
+					default:
+						cc.impossible = true
+					}
+				}
+			}
+			cc.victims = append(cc.victims, types)
+		}
+	}
+	return cc
+}
+
+// fireChanneledLightning grants the trigger to the trident's owner:
+// struck is the type names of every entity the bolt collected, and
+// each victims predicate grants when some struck entity's type is in
+// its accepted set.
+func (s *Server) fireChanneledLightning(sess *Session, struck []string) {
+	if sess == nil || len(struck) == 0 {
+		return
+	}
+	for _, meta := range gameAdvs {
+		for _, cc := range meta.chans {
+			if cc.impossible {
+				continue
+			}
+			all := true
+			for _, types := range cc.victims {
+				found := false
+				for _, st := range struck {
+					if entityTypesMatch(types, st) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					all = false
+					break
+				}
+			}
+			if all {
+				sess.grantGameCriterion(meta, cc.crit)
+			}
+		}
+	}
+}
+
+// lightningCond is one lightning_strike criterion reduced to the
+// bystander predicate's entity_type union (any entity caught in the
+// strike box), the bolt's distance.absolute bounds measured from the
+// player, and type_specific/lightning.blocks_set_on_fire — zero when a
+// lightning rod absorbed the bolt's fire. Other keys lock it.
+type lightningCond struct {
+	crit       string
+	byTypes    map[string]bool
+	hasBy      bool
+	distMin    float64
+	distMax    float64
+	hasDist    bool
+	fires      int // -1 = unconstrained
+	impossible bool
+}
+
+// parseLightningCond reads bystander[] entity_properties entity_type,
+// lightning[] entity_properties distance.absolute + type_specific/
+// lightning.blocks_set_on_fire, and rejects other keys.
+func parseLightningCond(cname string, conds any) lightningCond {
+	lc := lightningCond{crit: cname, fires: -1}
+	cm, _ := conds.(map[string]any)
+	for k, v := range cm {
+		switch k {
+		case "bystander", "lightning":
+			lst, _ := v.([]any)
+			for _, entry := range lst {
+				ec, _ := entry.(map[string]any)
+				if ec["condition"] != "minecraft:entity_properties" {
+					lc.impossible = true
+					continue
+				}
+				pred, _ := ec["predicate"].(map[string]any)
+				for pk, pv := range pred {
+					switch {
+					case pk == "minecraft:entity_type" && k == "bystander":
+						if lc.byTypes == nil {
+							lc.byTypes = map[string]bool{}
+						}
+						lc.hasBy = true
+						if et, ok := pv.(string); ok {
+							if strings.HasPrefix(et, "#") {
+								for _, m := range data.EntityTypeTags[strings.TrimPrefix(et, "#minecraft:")] {
+									lc.byTypes[m] = true
+								}
+							} else {
+								lc.byTypes[strings.TrimPrefix(et, "minecraft:")] = true
+							}
+						}
+					case pk == "minecraft:distance" && k == "lightning":
+						if dm, ok := pv.(map[string]any); ok {
+							if am, ok := dm["absolute"].(map[string]any); ok {
+								lc.hasDist = true
+								if mn, ok := am["min"].(float64); ok {
+									lc.distMin = mn
+								}
+								if mx, ok := am["max"].(float64); ok {
+									lc.distMax = mx
+								}
+							} else {
+								lc.impossible = true
+							}
+						}
+					case pk == "minecraft:type_specific/lightning" && k == "lightning":
+						if tm, ok := pv.(map[string]any); ok {
+							if n, ok := tm["blocks_set_on_fire"].(float64); ok {
+								lc.fires = int(n)
+							}
+						}
+					default:
+						lc.impossible = true
+					}
+				}
+			}
+		default:
+			lc.impossible = true
+		}
+	}
+	return lc
+}
+
+// fireLightningStrike grants lightning_strike criteria to every player
+// meeting the bolt's distance bound, with byTypes matched against the
+// entities caught in the strike box (vanilla's ±15, y→y+21 AABB) and
+// firesSet = 0 when a lightning rod absorbed the bolt.
+func (s *Server) fireLightningStrike(d *dimension, x, y, z float64, firesSet int) {
+	for _, meta := range gameAdvs {
+		for _, lc := range meta.lights {
+			if lc.impossible {
+				continue
+			}
+			if lc.fires >= 0 && lc.fires != firesSet {
+				continue
+			}
+			s.sessions.Range(func(_, v any) bool {
+				sess := v.(*Session)
+				if sess.state.Load() != StatePlay || sess.dimension() != d {
+					return true
+				}
+				px, py, pz, _, _, _ := sess.Pos()
+				dx, dy, dz := px-x, py-y, pz-z
+				dist := math.Sqrt(dx*dx + dy*dy + dz*dz)
+				if lc.hasDist && (dist < lc.distMin || dist > lc.distMax) {
+					return true
+				}
+				if lc.hasBy {
+					found := false
+					for _, e := range s.entities.All() {
+						if e.Dim != d.name {
+							continue
+						}
+						if math.Abs(e.X-x) > 15 || math.Abs(e.Z-z) > 15 ||
+							e.Y < y-15 || e.Y > y+21 {
+							continue
+						}
+						if lc.byTypes[strings.TrimPrefix(entityTypeNameOr(e.Type), "minecraft:")] {
+							found = true
+							break
+						}
+					}
+					if !found {
+						return true
+					}
+				}
+				sess.grantGameCriterion(meta, lc.crit)
+				return true
+			})
+		}
+	}
+}
+
+// fireFallFromHeight grants fall_from_height criteria on a landing:
+// startY is where the fall began (the tick fallDistance opened),
+// endY where the player stood on ground again, and distance.y is the
+// signed drop between them — vanilla's trigger takes the same three.
+func (s *Server) fireFallFromHeight(sess *Session, startY, endY float64) {
+	dist := startY - endY
+	for _, meta := range gameAdvs {
+		for _, fc := range meta.falls {
+			if fc.impossible {
+				continue
+			}
+			if fc.hasDist && (dist < fc.distYMin || dist > fc.distYMax) {
+				continue
+			}
+			if fc.hasStart && (startY < fc.startYMin || startY > fc.startYMax) {
+				continue
+			}
+			if fc.hasEnd && (endY < fc.endYMin || endY > fc.endYMax) {
+				continue
+			}
+			sess.grantGameCriterion(meta, fc.crit)
+		}
+	}
+}

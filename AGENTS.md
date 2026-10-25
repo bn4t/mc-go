@@ -1,77 +1,93 @@
-# Repository Guidelines
+# AGENTS
 
-This repo now uses a lean internal/ architecture designed for a deterministic world loop and a four‑stage packet pipeline with anti‑cheat hooks. Treat earlier `pkg/` packages and the `.so` plugin system as removed. Add new code only under `internal/` per the structure below.
+Conventions for agents (human or AI) working in this repo.
 
-## Project Structure & Modules
-- Entry point: `cmd/server/main.go` → builds the `mcserver` binary.
-- Runtime config: `server.yaml` (created on first run; unknown fields ignored).
-- Source lives under `internal/`:
-  - `internal/runtime/` — process boot, config, logger, telemetry.
-  - `internal/netx/` — TCP acceptor, conn setup (Nagle off/keepalive in future).
-  - `internal/proto/` — VarInt framing, helpers; compression later.
-  - `internal/packets/` — typed packet structs & IDs per protocol version (e.g., `v1211`).
-  - `internal/pipeline/` — packet pipeline API + interceptors (S0..S3).
-  - `internal/session/` — connection state machine (Handshake/Status now; Login/Play next).
-  - `internal/world/` — authoritative world loop (stub; to host 20 TPS loop).
-  - `internal/events/` — in‑process event bus (stub for domain events).
-  - `internal/anticheat/` — detectors/interceptors; `MovementIC` lives here.
-  - `internal/persist/` — persistence, NBT/region, evidence recorder (stubs).
-  - `internal/plugins/` — plugin host surface (static registration for now).
+## Project shape
 
-## Build, Test, and Dev Commands
-- Build: `go build -o mcserver ./cmd/server`
-- Run: `./mcserver` or `go run ./cmd/server`
-- Format: `go fmt ./...`
-- Vet: `go vet ./...`
-- Tests: `go test ./...` (start with table‑driven tests under `internal/*`).
+mc-go is a clean-room Minecraft Java Edition 26.2 (protocol 776) server
+in Go, stdlib only. See README.md for build/run and the clean-room
+rules — they are hard constraints, not style.
 
-## Coding Style & Naming
-- Go 1.21; follow Effective Go and standard library idioms.
-- Tabs for indentation; run `gofmt`/format‑on‑save.
-- Package names are short, lowercase; files use `snake_case.go` when multi‑word.
-- Exported APIs require clear names and doc comments; avoid stutter.
-- Errors: wrap with `%w`; use Zap for structured logs.
-- Hot paths: avoid reflection; prefer typed decoders/encoders and buffer reuse.
+## Workflow: parity slices
 
-## Concurrency Model (authoritative loop)
-- One goroutine per connection reader; one per writer.
-- One world goroutine at 20 TPS (50 ms); only this thread mutates world state.
-- Sessions enqueue decoded packets → world drains per tick.
-- Rule: world goroutine is the single source of truth. Do not mutate shared world state from other goroutines.
+Work lands in small, independently verified **slices**. Each slice:
 
-## Packet Pipeline & Hooks (anti‑cheat)
-- Stages: S0 Inbound/Raw → S1 Inbound/Decoded → S2 Pre‑Apply (world thread) → S3 Outbound.
-- Interceptor interface lives in `internal/pipeline`; use `NopInterceptor` to implement only needed stages.
-- Place anti‑cheat and I/O policy interceptors under `internal/anticheat/` (e.g., `movement.go`).
-- Keep S0/S1 cheap; do heavy checks in S2 where authoritative state is available.
+1. **Measure** vanilla behavior first. Sources of truth, in order:
+   - the wire: run the vanilla jar and observe the actual packets
+     (the blackbox harness does exactly this), and
+   - `javap -c -p -cp vanilla/versions/26.2/server-26.2.jar <class>` for
+     constants, order-of-operations, and branch structure. Reading
+     bytecode for measurement is fine; copying structure/text into the
+     Go code is not.
+2. **Implement** in Go, matching measured semantics — not an
+   approximation of them.
+3. **Pin** it with a differential blackbox test (`tests/blackbox/`) that
+   runs against both servers, or a scripted-client test when vanilla
+   has no counterpart.
+4. **Log** the slice at the end of `GOAL.md`'s progress log in the
+   established `## Slice — <name> (<date>)` format with
+   **Measured** / **Implemented** / **Pinned** bullets, and flip the
+   parity-matrix checkbox notes when a matrix item's coverage changed.
 
-## Protocol Versioning
-- Per‑version typed packets live under `internal/packets/<version>/` (e.g., `v1211`).
-- Use constants for Packet IDs; implement typed `ReadFrom`/`EncodeBody` without reflection.
-- Do not add compression handling inside decoders; keep it in the framer/transport layer.
+GOAL.md is append-mostly: new slices go at the bottom of the progress
+log; matrix checkboxes get edited in place with short notes. Do not
+restructure the file.
 
-## World Loop Guidelines
-- Tick at 20 TPS using a `time.Ticker(50 * time.Millisecond)`.
-- Per tick: drain session inboxes → translate to Commands → run `pipeline.PreApply` (S2) → apply state → enqueue outbound.
-- Setbacks and enforcement happen through commands on the world thread for determinism.
+## Testing
 
-## Testing Guidelines
-- Co‑locate tests as `*_test.go`; table‑driven where practical.
-- Names: `TestXxx`, `BenchmarkXxx`; use `t.Helper()` for helpers.
-- Run race detector locally: `go test -race ./...`.
-- Target coverage on `internal/proto`, `internal/pipeline`, and session/world integration as it grows.
+```sh
+go build ./...                                     # must stay clean
+go test ./internal/...                             # unit tests
+MCGO_BLACKBOX=1 go test -tags blackbox -count=1 -run TestX ./tests/blackbox/   # one pin
+MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ # full suite
+```
 
-## Commit & PR Guidelines
-- Commits: imperative, scoped (e.g., `pipeline: add S2 movement checks`).
-- Keep diffs focused; reference issues (e.g., `Fixes #123`).
-- PRs include purpose, key changes, how tested, and any protocol/compat notes; attach logs/screens when relevant.
-- Ensure build, fmt, vet, and tests pass before review.
+- Blackbox needs `java` (JDK 25) on PATH and
+  `vanilla/server-26.2.jar` — fetch + datagen per README.
+- `MCGO_TARGET=host:port` diffs an external server against vanilla.
+- Vanilla legs of a test boot the real jar per test — each is slow
+  (~seconds), so run the tests you touched, not the whole suite, while
+  iterating.
 
-## Security & Configuration
-- Do not commit secrets to `server.yaml`; prefer env overlays.
-- Default port is 25565; ensure firewall/NAT allows inbound for testing.
-- Treat third‑party code as untrusted; plugin `.so` loading is currently removed. Register interceptors statically under `internal/plugins` for now.
+## Commits and pushing
 
-## Contribution Workflow
-- Branch from `main` (`feat/...`, `fix/...`), open PR into `main`.
-- Before push: `go fmt ./... && go vet ./... && go test ./...`.
+- Push directly to `master`; no PRs, no force-pushes.
+- Commit style: lowercase, terse, area-prefixed — e.g.
+  `enderman: TakeBlockGoal/LeaveBlockGoal + CARRY_STATE wire/save parity`,
+  `panic flee: PanicGoal 40t window, random ±5/±4 targets`.
+- Commit code + test + the GOAL.md slice entry together, one commit per
+  slice.
+- Never commit `vanilla/` (the jar, unpacked versions, generated data —
+  gitignored), `*.test`, or world output files.
+- Never commit Mojang-derived code or data text; `*_gen.go` files are
+  produced by `tools/gen*` reading the jar/datagen — regenerate them
+  rather than hand-editing.
+
+## Conventions in the code
+
+- Mob/entity goals are modeled per vanilla class/goal names in
+  `internal/server/mob.go` and family files (e.g. `enderstare.go`,
+  `followowner.go`, `caravan.go`) — comments cite the measured vanilla
+  behavior (class/method context), not just what the code does.
+- Tick ordering matters: where a step sits relative to the
+  `isEffectiveAi` (NoAI) gate and other goals is part of the parity —
+  the comments around `mobTickStep` document the measured order.
+- `Entity` carries the wire metadata fields; `mobsync.go` flushes
+  `MetaDirty`/`PosDirty` via `mobSyncFlush`.
+- Generated tables (`*_gen.go`) come from the vanilla datapack/jar via
+  `tools/gen*` — never hand-edit them.
+
+## Environment notes
+
+- Go is at `/usr/local/go/bin/go` (may not be on PATH); JDK 25 at
+  `~/opt/jdk25/bin` — the client/server both need class-file v25.
+- Vanilla measurements for mob goals use the unpacked jar at
+  `vanilla/versions/26.2/server-26.2.jar` (created by running the
+  bundler jar once, e.g. the datagen command in README.md).
+- The flat blackbox world runs `spawn-monsters=false` +
+  `spawn-animals=false` — tests summon mobs explicitly.
+- `/tick sprint` on vanilla is ASYNC: commands queued behind it
+  interleave mid-sprint. Wait for the `commands.tick.sprint.report`
+  chat before reading post-sprint state.
+- Real-client playtesting: `.agents/skills/testing-mc-go-real-client/`
+  has the launch recipe and the debugging checklist for kicks.
