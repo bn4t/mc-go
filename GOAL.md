@@ -14623,3 +14623,28 @@ no flee; unsneak → flee). Green both legs.
   chunk/BE/opening/throttle/blocked/placed-block tests plus both public profiles
   pass together in 159.024s. Publication additionally requires a clean committed
   `git archive` build and public external-consumer/focused tests.
+
+## Slice — measured chunk-worker costs and publication evidence boundaries (2026-10-25)
+
+- **Measured:** comparable Go 1.27.3/GOMAXPROCS=5 three-sample benchmarks keep
+  input geometry and density fixed. Four-byte block handles double a full
+  16x384x16 destination from 196,608 to 393,216 bytes; FillBox allocated bytes
+  change from about 215,600 to 423,200 per call (median 0.784 versus 0.849ms).
+  A chunk-aligned routing experiment increased the full-chunk median to
+  3.706ms and was reverted before publication. Final no-skylight snapshot
+  medians are Capture 0.981ms, Encode 0.384ms, CaptureAndSubmit 0.978ms and
+  Synchronous 1.491ms. The approximately 34% owner-admission reduction excludes
+  completion wait and establishes no total CPU, client latency, TPS or capacity.
+- **Implemented:** update architecture/README with canonical block scope,
+  JSON v2 migration, explicit 775 admission gates, input/output quota separation,
+  initial fallback exception, memory costs and remaining work. Retain useful
+  benchmark fixtures and routing-independent negative-boundary persistence
+  coverage. Add committed-export validation after discovering ignored public
+  sources could make working-tree tests pass while publication omitted them.
+- **Pinned:** source/module ignore audit finds no remaining hidden Go sources
+  outside local oracle inputs. External consumer checks the constructor,
+  775-disabled/776-enabled metadata and public registry projections. Publication
+  validates the actual committed export, not a working-tree copy. Gameplay
+  remains serial; cold lighting and save I/O remain owner-side, canonical item/
+  entity domains and neutral admission/replication remain unfinished, and a
+  second production game protocol is still not admitted.

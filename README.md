@@ -14,10 +14,10 @@ for source commits, preserved branches, and validation notes.
 
 The living parity matrix and the slice-by-slice progress log are in
 [GOAL.md](GOAL.md). [ARCHITECTURE.md](ARCHITECTURE.md) documents runtime
-ownership, public extension boundaries, measured tracking costs and remaining
-work. The current runtime uses one simulation owner; parallel regions,
-canonical cross-protocol registries and a second real game protocol remain
-future stages.
+ownership, public extension boundaries, canonical block identities, detached
+chunk encoding and measured costs. Gameplay still uses one simulation owner.
+Parallel regions, canonical item/entity mappings and a second admitted game
+protocol remain future stages.
 
 ## Clean-room rules
 
@@ -52,13 +52,14 @@ future stages.
   tables generated from the vanilla data packs (`*_gen.go`).
 - `internal/nbt/`, `internal/loot/`, `internal/event/`,
   `internal/plugin/` — NBT codec, loot engine, event bus, plugin API.
-- `api/event/`, `api/plugin/`, `api/frontend/`, `server/` — public
+- `api/event/`, `api/plugin/`, `api/frontend/`, `api/registry/`, `server/` — public
   extension contracts and runtime constructor, usable by external modules.
   Frontend actions currently operate on existing players; Java 776 remains
   the sole bundled game protocol.
 - `plugins/` — example plugins (`hello`, `anticheat`).
 - `conformance/`, `cmd/mc-conformance/` — portable TCP smoke profile,
-  endpoint manifests, JSON results and bounded wire transcripts.
+  endpoint manifests, JSON results and bounded wire transcripts for measured
+  Java 775 and 776 profiles. Runner coverage does not enable 775 server login.
 - `tests/blackbox/` — the differential parity suite (build tag
   compatibility retained; oracle execution is enabled at runtime).
 - `tools/gen*` — generators that read the vanilla jar/datagen output and
@@ -107,6 +108,13 @@ Useful flags (see `cmd/mc-go/main.go` for all of them):
 Join with a vanilla 26.2 client pointed at `localhost:25565`; the server
 runs offline mode, so any username works.
 
+Java profile metadata is available through `server.JavaProfiles`. The 775
+candidate reports its measured codecs and missing admission gates; supported
+login versions remain limited to 776. JSON block override saves write complete
+canonical state keys in version 2 and read historical version 1 IDs through
+their 776 mapping. Native region-format persistence keeps its existing
+names/properties encoding.
+
 ## Testing
 
 ```sh
@@ -117,11 +125,13 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/
 
 The blackbox suite boots **both** mc-go (in-process) and the vanilla jar
 per test, drives them with scripted protocol clients, and compares the
-wire-visible behavior. It skips silently unless `MCGO_BLACKBOX=1` is set
-and `java` is on PATH. Environment knobs:
+wire-visible behavior. Oracle comparisons skip with an explicit reason unless
+`MCGO_BLACKBOX=1` is set and their Java/jar prerequisites exist. Environment knobs:
 
 - `MCGO_VANILLA_JAR` — path to the oracle jar (default
   `vanilla/server-26.2.jar`).
+- `MCGO_VANILLA_775_JAR` — optional 26.1 oracle for the portable runner's
+  775 profile (default `vanilla/server-26.1.jar`).
 - `MCGO_TARGET=host:port` — run the same suite against an already
   running external server instead of an in-process mc-go; this is how
   other implementations get parity-checked.
@@ -139,6 +149,11 @@ The default profile checks status and ping. Opt into offline login,
 configuration and rejection checks with an endpoint manifest; see
 [conformance/README.md](conformance/README.md) for capabilities, report
 statuses and limitations.
+
+Before publication, validate a clean export of the actual committed tree with
+`git archive HEAD`, build it, and run the public `server` package tests. Their
+separate consumer module imports the runtime constructor, profile metadata and
+canonical registry API; working-tree success alone can miss ignored sources.
 
 Single test:
 

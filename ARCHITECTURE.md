@@ -1,9 +1,10 @@
 # Runtime foundations and evidence boundaries
 
 mc-go targets Minecraft Java 26.2 (protocol 776) behavioral parity. The
-current work establishes ownership, lifecycle, extension and measurement
-boundaries. It does not establish full parity, parallel region simulation,
-a protocol-independent game model, or a second production game protocol.
+current work establishes ownership, lifecycle, canonical block identities,
+detached chunk encoding, extension and measurement boundaries. Full parity,
+parallel region simulation, a protocol-independent game model and a second
+production game protocol remain unfinished.
 The [parity matrix](GOAL.md) records implemented behavior; tests and
 benchmarks establish only the paths they exercise.
 
@@ -29,6 +30,10 @@ acceptance is distinct from completion. Socket readers and writers remain
 separate from simulation ownership. Initial Java chunk/light warmup still
 runs synchronously under the owner and can delay other gameplay; join
 readiness tests distinguish Play Login from completion of that warmup.
+Chunk packet encoding can run on bounded workers after owner-side capture
+of detached block states, block-entity NBT, light bytes and dimension scalars.
+Encoder functions receive no live gameplay objects; completion updates
+synchronized transport accounting.
 
 The block world already partitions block overrides among shard workers.
 Each worker owns its map and services read/write messages. This does not
@@ -53,8 +58,15 @@ shares Java's validation, collision, hooks and canonical commit path.
 Custom frontends must stop their own transport workers when their supplied
 context ends; the runtime cannot forcibly join arbitrary adapter goroutines.
 
-The bundled Java frontend still has substantial version-specific
-encoding, dispatch, registry and replication code. The neutral API does
+The bundled Java frontend uses immutable profiles to select codecs,
+gameplay dispatch and block projections. Protocol 776 is admitted. The
+775 candidate has measured login/join codecs and a partial block projection;
+its missing configuration, item, entity and other domain mappings keep
+login and gameplay dispatch disabled. Public `server.JavaProfiles` reports
+these gates separately from `SupportedVersions`.
+
+The Java frontend still has substantial version-specific registry and
+replication code. The neutral API does
 not yet support player admission, world/chunk replication or canonical
 entity/item/block mappings. A synthetic second adapter observes Java
 client movement and submits changes seen by that client; this proves the
@@ -68,6 +80,23 @@ reverse dependency order; partial initialization also rolls back. Legacy
 internal import aliases preserve existing in-tree plugin compatibility.
 Plugin-owned goroutines must cooperate with `Context` cancellation and
 `Close`; the manager does not discover or forcibly stop them.
+
+[`api/registry`](api/registry/state.go) represents complete namespaced block
+states with sorted properties. Immutable catalogs assign dense, catalog-local
+32-bit handles; adapters translate them through immutable numeric projections.
+Builtin handles retain historical order for existing generated behavior tables.
+The 776 block projection is complete. The measured 775 projection represents
+29,873 states, including 5,186 renumbered values, and lacks 2,493 newer states.
+Missing states reject by default; explicit visual fallback changes only a
+viewer's encoded presentation. A mapping from another catalog cannot be used
+to interpret the runtime's handles.
+
+JSON world override saves now persist canonical keys in format version 2.
+Version 1 loads through the historical 776 projection before resolving keys
+into the current catalog. Unknown states reject before replacing overrides.
+The change covers this JSON format; native region files continue using their
+existing names/properties codec. Items, entities and other numeric domains
+still need equivalent canonical boundaries.
 
 The event bus supplies lossy, asynchronous observations of committed
 actions. It cannot cancel or modify gameplay. Movement hooks are separate
@@ -88,6 +117,20 @@ closes that client because omitting ordered game-state packets would make
 its view inconsistent. Cleanup releases queued payloads and wakes readers.
 Compression changes use the same FIFO. The protocol writer serializes
 complete frames, including threshold changes, and rejects short writes.
+
+The chunk encoder defaults to up to four workers, 128 jobs and 64 MiB of
+reserved/queued/running asynchronous snapshot inputs. An unresolved result
+occupies its packet's FIFO position; later deltas and dimension transitions
+cannot overtake it. Ready results consume the session's output budget.
+Queued cancellation releases its input reservation; running work retains its
+reservation until it finishes. Shutdown wakes future waiters and joins workers.
+
+Temporary encoder saturation defers ordinary batches without consuming pending
+columns or pacing credit. Initial join preserves its packet ordering using a
+synchronous fallback that holds one additional owner-side snapshot at a time.
+That fallback, capture temporaries, encoded outputs and GC overhead are outside
+the asynchronous input quota; the quota is not a total heap cap. Light capture
+reservation includes both edge sections and copied block-entity NBT.
 
 The deterministic default-budget test queues the combined configuration
 and play join burst without a writer: 68 packets and 227,844 payload bytes
@@ -113,7 +156,8 @@ the supported Go toolchain:
 go test ./internal/server -run '^$' -bench 'Benchmark(RetrackSession|TrackingWorldRead|TrackingChunkEncoding)$' -benchmem -benchtime=300ms -count=3
 ```
 
-A local Linux/amd64 Go 1.27.3 sample on an AMD EPYC 9V74, with
+A historical Linux/amd64 Go 1.27.3 sample at the `6e28441` foundation,
+on an AMD EPYC 9V74 with
 `GOMAXPROCS=5` and concurrent development load, produced these
 three-sample medians:
 
@@ -131,13 +175,44 @@ be repeated on an idle machine before comparing small changes. Synthetic
 state, stable pairings and no sockets or concurrent tick load do not
 establish player capacity, sustained TPS or production tail latency.
 
+The canonical block handle increases state storage from two to four bytes.
+A 16×384×16 destination grows from 196,608 to 393,216 bytes. With unchanged
+block-column routing, the same FillBox fixture's allocated bytes grew from
+about 215,600 to 423,200 bytes per call; sampled median time was 0.784 versus
+0.849 ms. These measurements include worker-response allocation and exclude
+the preallocated destination. A chunk-aligned routing experiment increased
+the single-chunk median to 3.706 ms and was reverted; storage remains routed
+by block-column coordinates.
+
+Final four-byte snapshot benchmarks, using a mixed-block fixture with skylight
+disabled, measured these three-sample medians at 200 ms per sample:
+
+| Operation | Elapsed per operation | Allocated bytes | Allocations |
+| --- | ---: | ---: | ---: |
+| Capture on owner | 0.981 ms | 816,777 | 106 |
+| Encode detached snapshot | 0.384 ms | 90,816 | 1,021 |
+| Capture and submit on owner | 0.978 ms | measured without worker completion | measured without worker completion |
+| Capture and encode synchronously | 1.491 ms | 907,566 | 1,127 |
+
+Capture-and-submit owner elapsed time was about 34% below synchronous work
+in this fixture. It excludes completion wait and does not establish lower
+total CPU, client latency, sustained TPS or player capacity. Cold lighting
+materialization remains owner-side. The single-valued palette fast path is
+an independent encoding allocation/CPU improvement. Reproduce with:
+
+```sh
+go test ./internal/server -run '^$' -bench '^BenchmarkChunkSnapshot$' -benchmem -benchtime=200ms -count=3
+go test ./internal/world -run '^$' -bench '^BenchmarkChunkRouting' -benchmem -benchtime=300ms -count=3
+```
+
 ## Conformance and provenance
 
 The public [`conformance`](conformance/README.md) runner and
 `cmd/mc-conformance` use declarative endpoint/version/capability manifests,
 explicit pass/fail/unsupported/infrastructure results and bounded framed
-wire transcripts. Its smoke profile checks status, ping, login,
-configuration/join and rejection/liveness contracts. Deliberately broken
+wire transcripts. Its 775 and 776 smoke profiles check status, ping, login,
+configuration/join and rejection/liveness contracts. They account for the
+measured session-ID and Join Game field differences. Deliberately broken
 independent TCP controls test its ability to detect failures. It does not
 provide a complete protocol grammar or certify all gameplay parity.
 
@@ -165,6 +240,17 @@ input checksum when applicable, independently written implementation and
 the corresponding differential or scripted test. A complete provenance
 manifest for existing generated artifacts remains future work.
 
+New 775 block projection data is generated by `tools/genblockmapping` from
+the official 26.1 and 26.2 datagen block reports. Its header and measurement
+manifest record report/JAR hashes and exact/missing/renumbered counts.
+Named minimal login/join wire fixtures carry their own measurement provenance.
+
+Publication validation also builds a clean `git archive` of the committed
+tree and runs a separate consumer module importing `server.New`,
+`server.JavaProfiles` and `api/registry`. This catches source packages present
+in a working tree but accidentally excluded by ignore rules. The `/server`
+binary ignore has a directory-only exception for the public Go package.
+
 ## Remaining stages
 
 1. Audit remaining concrete-server mutation entry points and pointer
@@ -173,8 +259,8 @@ manifest for existing generated artifacts remains future work.
 2. Introduce region-owned state, deterministic cross-region messages,
    entity migration handoffs and barriers for global systems. Benchmark
    realistic mixed loads before introducing parallel workers.
-3. Establish canonical entity/item/block keys and adapter-owned mappings;
-   current Java numeric identifiers are not a canonical registry.
+3. Extend canonical keys and adapter-owned mappings to items, entities and
+   other numeric domains; complete the remaining protocol admission gates.
 4. Route more Java gameplay through the neutral boundary and implement a
    second real protocol, including admission and world replication.
 5. Add sustained load scenarios with tick p50/p95/p99, queue bytes,
