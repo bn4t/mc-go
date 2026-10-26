@@ -190,6 +190,12 @@ type Server struct {
 	compactSave *compactWorldSaveJob
 	// Nil uses SaveSnapshot.Write. Configure this internal writer before use.
 	compactSaveWrite func(path string, snapshot *world.SaveSnapshot) error
+	// dataSave follows the same owner-side admission rule for player/block-
+	// entity JSON. Its worker never reads live gameplay state or takes owner
+	// locks. A separate global fence serializes data-file writes across runtimes.
+	dataSave *serverDataSaveJob
+	// Nil uses serverDataSnapshot.write. Configure before use.
+	dataSaveWrite func(path string, snapshot *serverDataSnapshot) error
 
 	listenersMu  sync.Mutex
 	listeners    map[net.Listener]struct{}
@@ -610,7 +616,11 @@ func (s *Server) untrack(sess *Session) {
 			s.savedPlayers = make(map[string]playerPersist)
 		}
 		p := snapshotPlayer(sess)
-		s.savedPlayers[name] = p
+		// A successfully replaced incarnation may tear down after its successor
+		// has saved newer state. It must not overwrite that remembered record.
+		if !sess.replacement {
+			s.savedPlayers[name] = p
+		}
 		s.savedPlayersMu.Unlock()
 		if s.dataPath() != "" {
 			if err := s.saveServerDataOwned(); err != nil && s.dataSaveErr == nil {

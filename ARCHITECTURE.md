@@ -22,8 +22,10 @@ One simulation executor serializes gameplay actions. Java play handlers,
 player initialization and teardown, RCON commands, frontend actions,
 persistence snapshots and ticks use that ownership boundary. Public compact
 JSON `SaveWorld` captures overrides under ownership, then sorts, serializes and
-writes the detached snapshot outside it while the caller waits. Native world
-saves, player/block-entity `SaveServerData` and `/save-all` still pause gameplay.
+writes the detached snapshot outside it while the caller waits. Public
+`SaveServerData` likewise captures player/block-entity JSON before writing
+outside ownership. Native world/player files, `/save-all` and owned disconnect
+saves still pause gameplay.
 Internal helpers whose names end in
 `Owned` require ownership and must not recursively acquire it. Sprints
 yield between complete ticks so commands can interleave. Deferred plugin
@@ -416,8 +418,8 @@ exhausted replanning and known cancellation close the connection without adding
 an invented pre-Join packet. Host/session/runtime cancellation stops between
 whole units; a running unit retains its slot until it finishes. Remote peer EOF
 is still detected only when the existing packet reader resumes. Shutdown joins
-the scheduler before retiring world workers. Native/player/command saves and
-other long gameplay actions retain their existing synchronous behavior;
+the scheduler before retiring world workers. Native world/player files, owned
+command/disconnect saves and other long actions retain synchronous behavior;
 public compact saves and live-window preparation are described separately below.
 
 The unchanged public TCP harness is
@@ -582,14 +584,14 @@ world, dimension or session and never needs the simulation owner to finish.
 Compact `/save-all` uses the same ordered writer, waits for any previously
 submitted job, then captures and waits for its own save under ownership. Its
 wait can still block gameplay. Shutdown rejects unadmitted compact saves and
-drains an accepted receipt before world workers retire, without starting a new
-save. Separate runtimes or other processes writing the same paths have no new
-coordination contract.
+drains an accepted receipt before world workers retire, without starting an
+independent compact save. Separate runtimes or other processes writing the same
+paths have no new coordination contract.
 
 Native `WorldDir` saves retain precedence and their existing owned region,
-entity and player-file paths. `SaveServerData`, including player/block-entity
-JSON, remains owner-blocking. The CLI still calls `SaveWorld` and
-`SaveServerData` separately; there is no atomic snapshot or commit across those
+entity and player-file paths. Owned disconnect data saves remain blocking;
+the public `SaveServerData` path is described below. The CLI still calls
+`SaveWorld` and `SaveServerData` separately; there is no atomic snapshot or commit across those
 stores or across dimension files. Its periodic timer still does not consult
 the existing `/save-off` state. Native player-file errors retain their existing
 recording/propagation behavior. These paths and shutdown autosave policy remain
@@ -644,6 +646,105 @@ the repository. Race-instrumented runs establish functionality separately.
 
 ```sh
 MCGO_COMPACT_SAVE_REPORT=/tmp/save-probes.jsonl GOMAXPROCS=5 GOFLAGS=-buildvcs=false go test ./tests/blackbox -run '^TestCompactSaveResponsiveness$' -count=5 -timeout=10m -v
+```
+
+## Server-data JSON saves
+
+Public `SaveServerData` captures its schema-three player/block-entity JSON under
+the simulation owner, then waits outside ownership for detached serialization
+and writing. The schema and its numeric item IDs remain unchanged; this is not
+a canonical-item migration. Capture includes inventory, carried, ender and body
+items, chest/container items, sign state, statistics, advancement criteria and
+recipe-book data. A shared iterative memo copies every reachable item
+`Contents` array, preserving private aliases and cycles. Cyclic graphs produce
+the standard JSON serialization error.
+Maps and slices, including remembered offline-player data, are detached too.
+
+The snapshot starts with all remembered name/UUID keys, then overlays current
+admitted Java players from the canonical active-player index. An otherwise empty
+online set no longer erases remembered players on save. Retired/replaced Play
+sessions cannot override a current incarnation, and late replacement cleanup
+does not overwrite its successor's remembered record. Native player-file calls
+on that cleanup retain their existing behavior; these fixes cover the JSON
+store and its in-memory remembered records.
+
+Each runtime reserves one unfinished server-data job before capture, separately
+from its compact-world save slot. Busy public callers wait without ownership or
+another snapshot, then recheck shutdown and capture their own cut. Capture and
+cloning still cost O(captured data) time and storage; job count is not a payload
+or heap cap. Only detached workers take the global `dataSaveMu` around encoding
+and file writing. The fence excludes overlapping JSON writes across runtimes,
+without establishing a cross-runtime snapshot or an order between their
+gameplay actions. Workers use no live sessions, stores or owner locks.
+
+Owned disconnect saves wait on the same runtime receipt and write their own
+snapshot while retaining ownership, so they still block gameplay. They remain
+allowed during shutdown: connection cleanup finishes before Shutdown reads and
+joins the final data receipt outside ownership, alongside the compact-world
+receipt. Public unadmitted requests are rejected after shutdown begins. Stop
+adds no independent autosave; existing disconnect writes are retained.
+Native `.dat`/metadata writes and `/save-all`
+retain their existing paths; compact block overrides and server-data JSON have
+separate capture points and no atomic cross-store commit or fsync guarantee.
+
+Two unchanged regression bodies fail on clean baseline
+`b5c544ed940a873167e5c8a510c2903de6849f54`: a save with only remembered
+players drops their name/UUID records, and late replacement cleanup regresses
+its successor's stored item count from seven to one. The baseline probe SHA-256
+is `214537752e05a4be52621edffd461154125fa23f5a167311c7fe12b572a9013d`;
+the two exact function bodies are
+`ed6afd887475d322a12e4dc7e14a7f5373e050612cf2065101a3900f02f81003`.
+The committed tests pin those failures independently of asynchronous writing.
+
+The API/TCP performance harness is
+`tests/blackbox/server_data_save_responsiveness_test.go`, SHA-256
+`eb31a9b9f5037b352f78c7f1e6d6786d7b1c629c028d21a98938886a5a1b7d0a`.
+Five sequential baseline and five optimized samples use a clean archive of that
+same commit with only the harness added. A fixed schema-three seed contains
+2,048 chests, 2,048 generic containers and 2,048 signs, with nested item contents;
+two ready 775/776 players are active and no remembered offline players are
+seeded. Excluding offline entries keeps the workloads comparable despite the
+separate retention fix. The seed is 12,220,607 bytes, SHA-256
+`383fad217fce36d70bf9fbe44669c74d3cd71a0e3fcc36b6da2ac390ebe4e7e6`.
+Loading, frozen runtime startup, complete 49-column readiness, token fences and
+fixture-garbage collection precede measurement. There is no injected delay.
+
+Each observer keeps one token outstanding and waits 20 ms after responses while
+the host calls public `SaveServerData`. After return, every saved block-entity
+record is checked for dimension/position, uniqueness, nested items and scalar
+state, alongside the expected two active player records. Unordered slices are
+compared semantically. Output is approximately 12,224,750–12,224,764 bytes;
+random player fields and map/list order preclude a single byte-hash comparison.
+Raw API and observer timestamps retain responses completed beyond API return;
+quantiles use nearest rank on pooled samples.
+
+| Operation | Baseline | Detached public server-data save |
+| --- | ---: | ---: |
+| API completion median (range) | 185.373 ms (181.808–189.860) | 228.578 ms (223.354–257.983) |
+| 775 token count / completed before API return | 5 / 0 | 40 / 40 |
+| 775 token p50 / p95 / maximum | 185.686 / 190.210 / 190.210 ms | 0.159 / 77.117 / 97.340 ms |
+| 776 token count / completed before API return | 5 / 0 | 40 / 40 |
+| 776 token p50 / p95 / maximum | 185.570 / 190.142 / 190.142 ms | 0.173 / 76.997 / 97.246 ms |
+| 775 first-response median (range) | 185.686 ms (182.267–190.210) | 77.117 ms (69.908–97.340) |
+| 776 first-response median (range) | 185.570 ms (182.181–190.142) | 76.997 ms (69.831–97.246) |
+| Whole-process TotalAlloc delta median | 144.17 MB | 232.86 MB |
+| Whole-process heap after API return median | 217.98 MB | 327.84 MB |
+
+The complete save is about 23.3% slower in this fixture while observer requests
+complete before it returns. Deep copying also has a material memory cost. The
+memory counters include the server and TCP clients, are neither isolated
+operation allocations nor peak measurements, and establish no snapshot/heap
+bound. Heap before measurement is approximately 139.60 MB in both cases; MB
+here is decimal. First responses still wait roughly 70–97 ms, including capture,
+contention, TCP and scheduling rather than isolated owner hold. Filesystem/page
+cache, CPU and GC effects are included. One outstanding request produces fewer
+baseline samples during stalls; there is no fixed offered-rate, throughput,
+hard latency or player-capacity result. Measurements use Linux/amd64 Go 1.27.3,
+AMD EPYC 9V74, `GOMAXPROCS=5` and `GOFLAGS=-buildvcs=false`. Raw logs, reports,
+baseline exports and whole-process counters remain outside the repository.
+
+```sh
+MCGO_DATA_SAVE_REPORT=/tmp/data-save-probes.jsonl GOMAXPROCS=5 GOFLAGS=-buildvcs=false go test ./tests/blackbox -run '^TestServerDataSaveResponsiveness$' -count=5 -timeout=10m -v
 ```
 
 ## Conformance and provenance

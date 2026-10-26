@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 
 	"mc-go/internal/data"
 	"mc-go/internal/world"
@@ -132,8 +131,6 @@ type serverDataFile struct {
 
 const serverDataVersion = 3
 
-var dataSaveMu sync.Mutex
-
 // dataPath returns the effective data file for this server.
 func (s *Server) dataPath() string {
 	if s.DataPath != "" {
@@ -223,70 +220,51 @@ func snapshotPlayer(sess *Session) playerPersist {
 	return p
 }
 
-// SaveServerData writes a coherent player/block-entity snapshot under the
-// simulation owner. Disk I/O is synchronous and pauses gameplay while saving.
+// SaveServerData captures a coherent player/block-entity snapshot under the
+// simulation owner, then serializes and writes detached values outside it. The
+// call waits for its own write result. Capture still pauses gameplay.
 func (s *Server) SaveServerData() error {
-	var err error
-	s.simulationAction(func() {
-		if s.ShuttingDown() {
-			err = net.ErrClosed
-			return
+	for {
+		var job *serverDataSaveJob
+		var admitted bool
+		var err error
+		s.simulationAction(func() {
+			if s.ShuttingDown() {
+				err = net.ErrClosed
+				return
+			}
+			if job = s.pendingServerDataSaveOwned(); job != nil {
+				return
+			}
+			job, err = s.startServerDataSaveOwned()
+			admitted = err == nil
+		})
+		if err != nil || job == nil {
+			return err
 		}
-		err = s.saveServerDataOwned()
-	})
-	return err
+		// Busy callers reserve no snapshot and wait without ownership. They
+		// retry admission, including shutdown, before capturing their own cut.
+		<-job.done
+		if admitted {
+			return job.err
+		}
+	}
 }
 
-// saveServerDataOwned takes dataSaveMu only after the owner. No code may take
-// dataSaveMu before entering a simulation action (that would invert lock order).
+// saveServerDataOwned preserves the disconnect write fence. Waiting for an
+// earlier submitted worker, capture and waiting for this save all remain owned;
+// workers must never need the owner to finish. Terminal disconnects also call
+// this during shutdown, before Shutdown joins connection cleanup.
 func (s *Server) saveServerDataOwned() error {
-	path := s.dataPath()
-	if path == "" {
-		return fmt.Errorf("server: data persistence disabled")
+	if job := s.pendingServerDataSaveOwned(); job != nil {
+		<-job.done
 	}
-	dataSaveMu.Lock()
-	defer dataSaveMu.Unlock()
-
-	f := serverDataFile{Version: serverDataVersion, Players: map[string]playerPersist{}}
-	s.sessions.Range(func(_, v any) bool {
-		sess := v.(*Session)
-		if name := sess.getName(); name != "" && sess.state.Load() == StatePlay {
-			f.Players[name] = snapshotPlayer(sess)
-		}
-		return true
-	})
-	for name, d := range s.dims {
-		d.signs.mu.Lock()
-		for pos, st := range d.signs.signs {
-			f.Signs = append(f.Signs, signPersist{
-				Dim: name, X: pos.X, Y: pos.Y, Z: pos.Z,
-				Front: st.Front, Back: st.Back,
-				FrontColor: st.frontColor, BackColor: st.backColor,
-				FrontGlowing: st.frontGlowing, BackGlowing: st.backGlowing,
-				Waxed: st.waxed,
-			})
-		}
-		d.signs.mu.Unlock()
-		d.chests.mu.Lock()
-		for pos, c := range d.chests.chests {
-			f.Chests = append(f.Chests, chestPersist{Dim: name, X: pos.X, Y: pos.Y, Z: pos.Z, Items: c.slots, LootTable: c.lootTable, LootSeed: c.lootSeed})
-		}
-		d.chests.mu.Unlock()
-		d.containers.mu.Lock()
-		for pos, c := range d.containers.containers {
-			f.Containers = append(f.Containers, containerPersist{
-				Dim: name, X: pos.X, Y: pos.Y, Z: pos.Z, Block: c.block,
-				Items: c.slots, BrewTime: c.brewTime, Fuel: c.fuel, Disabled: c.disabled,
-			})
-		}
-		d.containers.mu.Unlock()
-	}
-
-	raw, err := json.Marshal(f)
+	job, err := s.startServerDataSaveOwned()
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, raw, 0o644)
+	<-job.done
+	return job.err
 }
 
 // LoadServerData restores players and block entities from the data

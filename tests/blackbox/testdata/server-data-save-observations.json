@@ -1,0 +1,94 @@
+{
+  "schema": "mc-conformance/server-data-save-observations/v1",
+  "captured_at": "2026-10-26",
+  "source_class": "existing official wire fixtures, fresh official wire observations, and public Go API/artifact/restart observations",
+  "tool": "Go 1.27.3 linux/amd64 and Temurin JDK 25.0.5+8; public conformance.PlayClient; GOMAXPROCS=5, GOCACHE=/workspace/mcgo-cache/go-build, GOFLAGS=-buildvcs=false",
+  "probe_file": "tests/blackbox/server_data_save_wire_test.go",
+  "probe_sha256": "88067b858f439dc16e5aaeb3024cc35e875bf29d2e545c8354bbe76d856fb315",
+  "restart_test_body_sha256": "d48d4618453b51e57721571b7fdde1c63cd52df63e7684cd611ed8f7b18d7258",
+  "restart_helpers_sha256": "7623993c3823006dfcf823d05a0f06f86d09989e46893ace43bff5b0f5e6b2d1",
+  "baseline": {
+    "implementation_commit": "b5c544ed940a873167e5c8a510c2903de6849f54",
+    "source": "clean git archive plus the same new wire test; runtime production code unchanged",
+    "result": "expected failure only for offline player775: its restarted inventory is empty after a different player was subsequently saved; active player776 passes all restored state assertions",
+    "package_seconds": 2.3,
+    "log_sha256": "118deb44686ea780e42e9bb64d74b5d753dc645776bb84f0eb3e71c36664252c",
+    "note": "The oracle wrapper was later strengthened with authoritative clear/commit checks; the baseline restart test body and fixture helpers are identical to the final source and carry separate hashes above."
+  },
+  "optimized_normal": {
+    "test": "TestServerDataSaveCompletionRestartWire",
+    "result": "pass both775/776 without skips",
+    "package_seconds": 2.549,
+    "log_sha256": "cfd95f9da4329331c715ac555ce22b6f943d8b5d2181ee5b2bf750b369d01376"
+  },
+  "fresh_oracles": {
+    "test": "TestServerDataNestedSlotOracleProfiles",
+    "result": "pass both775/776 without skips",
+    "package_seconds": 20.936,
+    "log_sha256": "46afbae3993185cbb464cf4d02bf6305a562b5ce41f4d53047b66a0e671ed04a",
+    "controls": [
+      "Fresh player inventory verifies empty destination slot37. The manifest command produces the exact checksum-pinned clientbound slot36 bytes.",
+      "Input slot36 is replaced with stone and an authoritative wire query confirms the named fixture is gone.",
+      "Send one CreativeSlot using the measured top-level untrusted component byte-array envelope. Poll authoritative Inventory until the named nested stack commits, without resending or otherwise recreating it.",
+      "Copy slot36 into distinct empty slot37, forcing an update; independently parse and compare all nonempty item IDs/counts/names/component-presence, allowing only legal trailing empty container entries."
+    ]
+  },
+  "reused_native_be_oracle": {
+    "test": "TestChunkPacketBlockEntityParity",
+    "result": "pass34.46seconds; existing native handoff fixture validates chest/barrel item commands and quoted sign text/color/glow/wax",
+    "log_sha256": "41fff45e69e019f6208ef6fb3f13d72381e858b06069e9ae48059aae2ab2e1b9",
+    "note": "This test passed in an initial group run. That group was later terminated during a flawed extra nested control; the native BE test result is retained separately and not presented as a successful entire group."
+  },
+  "nested_fixtures": [
+    {
+      "protocol": 775,
+      "version": "26.1",
+      "file": "775-container.bin",
+      "sha256": "c845a9cc28eae15b2e7b2944111d6077d34de3f85a39221481ebc5ceb533038e",
+      "jar_sha256": "98ab064389a8b34d48ac3d4c5ed858dd9433d0dfd1a12e1cbbda916448d92994",
+      "console_command": "item replace entity Probe775 hotbar.0 with minecraft:shulker_box[minecraft:container=[{slot:0,item:{id:\"minecraft:diamond\",count:2,components:{\"minecraft:custom_name\":\"Nested\"}}}]]"
+    },
+    {
+      "protocol": 776,
+      "version": "26.2",
+      "file": "776-container.bin",
+      "sha256": "807da83322048b873d5646af9856be4f5b9dfb7cb8d109e606645ac0bf838338",
+      "jar_sha256": "cdacdfb25898de5e4b4b0e5ddcc2722f77067e46605709c2d886c000ebb63ec5",
+      "console_command": "item replace entity Probe776 hotbar.0 with minecraft:shulker_box[minecraft:container=[{slot:0,item:{id:\"minecraft:diamond\",count:2,components:{\"minecraft:custom_name\":\"Nested\"}}}]]"
+    }
+  ],
+  "wire_restart_contract": [
+    "Configure separate WorldPath and DataPath through public server.New; explicitly call public LoadWorld and LoadServerData, matching the embedding/CLI startup contract.",
+    "Keep physical chest/barrel/ender-chest/sign blocks unchanged between separate public SaveWorld and SaveServerData snapshots. World overrides are copied separately; no joint cross-store cut is promised.",
+    "Player775 receives the measured named nested shulker through creative ingress, plain inventory and ender storage, and nonzero XP fields, then retires after an initial successful public data save.",
+    "Player776 joins, receives distinct plain counts/XP plus the same measured nested stack, and completes public SaveServerData. Copy schema3 DataPath immediately before active776 disconnect or runtime stop; cached offline775 must be included.",
+    "Save a later different live source generation; restart a fresh runtime using the earlier copied artifacts. Both profiles independently inspect initial inventory, compare source-observed XP bytes, open chest/barrel/ender menus and parse the sign chunk-BE NBT.",
+    "The fixture-only slot reader accepts plain stacks and measured custom_name=6/container=75 codecs; rejects other/duplicate/removed components, malformed nesting and trailing bytes; component presence is compared, and only trailing empty container entries are normalized."
+  ],
+  "scope_limits": [
+    "Schema3 and existing numeric item handles are retained; no canonical item persistence migration is implied.",
+    "Player cursor state, all generic container types, native player files, all-dimension atomic durability, fsync, power-loss survival and latency bounds are not claimed.",
+    "Existing command parsing omits nested child custom names; this slice preserves that limitation and uses measured creative ingress plus item-copy to create the named fixture.",
+    "Copied completion is observed before active teardown; this is not proof of I/O overlap. Deterministic blocked-worker tests and the separately measured responsiveness probe establish scheduling properties."
+  ],
+  "pinned_by": [
+    "TestServerDataSaveCompletionRestartWire",
+    "TestServerDataNestedSlotOracleProfiles",
+    "TestChunkPacketBlockEntityParity"
+  ],
+  "functional_race": {
+    "command": "go test -race -count=1 -timeout 10m -v -run '^TestServerDataSave(CompletionRestartWire|Responsiveness)$' ./tests/blackbox",
+    "environment": {
+      "GOMAXPROCS": "5",
+      "GOCACHE": "/workspace/mcgo-cache/go-build",
+      "GOFLAGS": "-buildvcs=false",
+      "MCGO_DATA_SAVE_REPORT": "unset",
+      "MCGO_COMPACT_SAVE_REPORT": "unset"
+    },
+    "result": "pass both selected tests, no races/skips/timeouts; timings are functional-only observations",
+    "package_seconds": 64.889,
+    "restart_test_seconds": 29.21,
+    "responsiveness_test_seconds": 34.25,
+    "log_sha256": "9a9ce7262090a72de04b3b94eeb437e1cd41f29eebb3585ccb603f4c0cc07370"
+  }
+}

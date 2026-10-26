@@ -382,12 +382,21 @@ func (s *Server) Shutdown(reason string) {
 		s.closeAllWorldviewsOwned()
 		s.retireAvatarsOwned("Server closed")
 	})
-	// An admitted compact save owns detached values and must finish even after
-	// cancellation. Read its receipt under ownership, then join outside it.
+	// Admitted saves own detached values and must finish even after cancellation.
+	// Disconnect cleanup may have submitted its last data save during shutdown;
+	// connections have now joined. Read the latest receipts under ownership and
+	// join outside it before retiring world workers.
 	var save *compactWorldSaveJob
-	s.simulationAction(func() { save = s.compactSave })
+	var dataSave *serverDataSaveJob
+	s.simulationAction(func() {
+		save = s.compactSave
+		dataSave = s.dataSave
+	})
 	if save != nil {
 		<-save.done
+	}
+	if dataSave != nil {
+		<-dataSave.done
 	}
 	s.stopChunkEncoder()
 	for _, d := range s.dims {

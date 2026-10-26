@@ -15334,3 +15334,104 @@ no flee; unsneak → flee). Green both legs.
   Capture size/owner hold, total heap, hard latency, sustained TPS, regional
   ownership and complete modular gameplay/persistence parity remain unbounded
   or unfinished.
+
+## Slice — detached server-data saves and remembered players (2026-10-26)
+
+- **Measured:** source classes are the existing independently written
+  schema-three JSON store, public API/TCP observations and official 775/776
+  nested-item wire fixtures. Two unchanged regression bodies fail on clean
+  baseline `b5c544ed940a873167e5c8a510c2903de6849f54`: saving an offline-only
+  cache drops its name/UUID records, and late replaced-session cleanup regresses
+  its successor's saved item count from seven to one. The baseline probe is
+  SHA-256 `214537752e05a4be52621edffd461154125fa23f5a167311c7fe12b572a9013d`;
+  exact function bodies are
+  `ed6afd887475d322a12e4dc7e14a7f5373e050612cf2065101a3900f02f81003`.
+  The unchanged TCP restart script also fails only the earlier offline 775
+  player on that baseline while the active 776 assertions pass. Fresh Go
+  1.27.3/Temurin JDK 25.0.5+8 oracle runs reproduce the nested Slot facts for
+  both profiles; these are wire facts, not vanilla JSON persistence semantics.
+  No new bytecode extraction, generated table or external dependency is added.
+- **Implemented:** public `SaveServerData` reserves one unfinished per-runtime
+  job before capturing players, signs, chests and generic containers under the
+  owner, then waits outside ownership for detached JSON serialization and file
+  writing. A memoized iterative cloner copies all reachable `ItemStack.Contents`
+  graphs across inventory, carried, ender, body, chest and container roots,
+  preserving private sharing/cycles. Player maps, advancement criteria and
+  recipe/stat slices are detached too. Cycles retain normal JSON errors and
+  later jobs can recover. Schema three and its numeric item IDs are unchanged;
+  this is not a canonical-item persistence migration. Capture and cloning
+  remain O(captured data), with one job bounding count rather than payload/heap.
+- **Remembered state:** snapshots seed every remembered name/UUID key, then
+  overlay currently admitted Java players from the canonical active index.
+  Configuring, retired and replaced sessions cannot supply that overlay.
+  Late replaced cleanup skips overwriting the successor's remembered record.
+  Native player-file/metadata calls retain their existing paths; these fixes
+  concern the JSON store and its remembered records.
+- **Ordering and shutdown:** public busy callers wait without ownership or
+  another snapshot, then recheck shutdown and capture their own cut. Only
+  workers take global `dataSaveMu` around encoding/writing, preserving JSON
+  write exclusion across runtimes without touching live-store or owner locks.
+  Owned disconnect saves wait on the same receipt and still block gameplay.
+  They remain allowed during shutdown until connection cleanup joins; public
+  unadmitted requests are rejected. Shutdown then joins the final data and
+  compact-world receipts outside ownership before retiring world workers.
+  Stop adds no independent autosave; existing disconnect writes are retained.
+  Separate stores retain separate capture points.
+- **Responsiveness and cost:** the unchanged public API/TCP harness is SHA-256
+  `eb31a9b9f5037b352f78c7f1e6d6786d7b1c629c028d21a98938886a5a1b7d0a`.
+  Five sequential baseline/optimized samples use that clean baseline archive
+  with only the harness added. The fixed 12,220,607-byte seed has 2,048 each
+  chests, containers and signs with nested items, plus two ready active 775/776
+  observers. No offline players are seeded, keeping work comparable despite
+  the retention fix. Every saved block-entity record and expected active-player
+  state is checked semantically after return; random fields/map order prevent
+  a single byte-hash comparison. API completion median grows from 185.373 ms
+  (181.808–189.860) to 228.578 ms (223.354–257.983), about 23.3% slower.
+  The 775 observer goes from 5 to 40 token samples, 0 to 40 before return,
+  with p50/p95/max 185.686/190.210/190.210 ms becoming
+  0.159/77.117/97.340 ms. The 776 observer also goes from 5/0 to 40/40;
+  185.570/190.142/190.142 ms becomes 0.173/76.997/97.246 ms.
+  First-response medians remain about 77 ms, with roughly 70–97 ms ranges,
+  including capture, contention, TCP and scheduling rather than isolated owner
+  hold. Whole-process TotalAlloc delta median grows from 144.17 to 232.86 MB;
+  heap after return grows from 217.98 to 327.84 MB. These server-plus-client
+  counters are neither isolated operation allocations, peak memory nor a heap
+  bound. This is a responsiveness tradeoff with slower completion and added
+  copying cost. One outstanding token paced 20 ms after each response yields
+  fewer baseline samples; it establishes no throughput or player-capacity
+  result. ARCHITECTURE.md records the full fixture, hashes, scope and command.
+- **Pinned:** nine new deterministic tests cover both baseline bugs, all
+  nested item roots, remembered maps/slices, later mutation, private graph
+  aliases/cycles, actual committed public avatar movement/block edits during
+  a blocked write, canonical-incarnation selection, disconnect ordering and
+  reconnect, write/error recovery, disabled persistence, cross-runtime write
+  exclusion without owner blocking, and shutdown's public/terminal distinction.
+  The public restart pin copies a completed data file while the active source
+  remains connected, saves a later generation, explicitly loads the earlier
+  copied data in a fresh runtime, and verifies offline/active inventory, XP,
+  ender storage and nested chest/container/sign state over 775/776 TCP. Physical
+  block identities are kept unchanged across the separate world/data captures.
+- **Validation:** complete Go package coverage passes through an uncached
+  core/API/public/conformance/CLI/plugins sweep in 229.398 s wall time,
+  including internal server (228.241 s), world (0.657 s) and separate public
+  consumers (6.787 s), plus the complete default blackbox package (122.507 s).
+  Final full build and vet pass, including test-free tools. Core fingerprints
+  stayed fixed while the wire fixture was completed; final all-Go fingerprints
+  remain fixed and preserve those same core inputs. Production hashes match
+  the clean performance runs. The nine new cases plus existing autosave race
+  controls pass in 2.127 s; older data/reconnect/container/shulker races pass in
+  58.412 s. Combined new public TCP restart/responsiveness races pass in
+  64.889 s. Optimized restart passes both profiles in 2.549 s; fresh nested Slot
+  oracles pass both without skips in 20.936 s, and the reused native
+  block-entity/sign comparison passes in 34.46 s. Publication additionally
+  validates the actual committed tree through a clean `git archive`, full
+  build, separate public consumers, focused persistence tests and both new Go
+  API/TCP scenarios. Race runs supply functional evidence, not timing samples.
+- **Remaining:** native world/player `.dat` and metadata paths are unchanged;
+  owned disconnect saves and `/save-all` can still block gameplay. Capturing
+  large/deep state can also pause the owner and increase memory. Numeric item
+  persistence migration, atomic world/player or cross-runtime snapshots,
+  fsync/crash durability, bounded capture/heap/latency and high player capacity
+  remain unproven or unfinished. Stop adds no independent autosave and retains
+  existing disconnect writes; the CLI timer's `/save-off` behavior is unchanged.
+  Full modular gameplay and regional simulation ownership remain future work.
