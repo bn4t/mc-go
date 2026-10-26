@@ -405,6 +405,9 @@ func TestTCPProfileAndTranscripts(t *testing.T) {
 					t.Fatalf("report: %+v", r.Results)
 				}
 				for _, v := range r.Results {
+					if !v.Declared && v.Status == conformance.Unsupported {
+						continue
+					}
 					if v.Status != conformance.Pass || len(v.Transcript) < 2 {
 						t.Fatalf("result: %+v", v)
 					}

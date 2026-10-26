@@ -8,7 +8,19 @@ import (
 
 // ChunkShape supplies independently known dimension and registry bounds. A
 // decoder never infers compatibility by accepting arbitrary numeric IDs.
-type ChunkShape struct{ Sections, BlockStates, Biomes int }
+type ChunkShape struct {
+	Sections    int `json:"sections"`
+	BlockStates int `json:"block_states"`
+	Biomes      int `json:"biomes"`
+}
+
+func validateChunkShape(shape ChunkShape) error {
+	if shape.Sections < 1 || shape.Sections > 256 || shape.BlockStates < 1 || shape.BlockStates > 1<<24 || shape.Biomes < 1 || shape.Biomes > 1<<20 {
+		return fmt.Errorf("invalid chunk registry/dimension bounds (sections 1..256, block_states 1..16777216, biomes 1..1048576)")
+	}
+	return nil
+}
+
 type ChunkBlockEntity struct {
 	X, Z byte
 	Y    int16
@@ -29,17 +41,19 @@ func DecodeChunk(protocol int32, body []byte, shape ChunkShape) (Chunk, error) {
 	if protocol != 775 && protocol != 776 {
 		return out, fmt.Errorf("unsupported chunk profile%d", protocol)
 	}
-	if shape.Sections < 1 || shape.Sections > 256 || shape.BlockStates < 1 || shape.Biomes < 1 {
-		return out, fmt.Errorf("invalid chunk registry/dimension bounds")
+	if err := validateChunkShape(shape); err != nil {
+		return out, err
 	}
 	f := bodyFields(body)
 	out.X = int32(binary.BigEndian.Uint32(padded(f.fixed(4), 4)))
 	out.Z = int32(binary.BigEndian.Uint32(padded(f.fixed(4), 4)))
+	heightmaps := map[int32]bool{}
 	for i, n := int32(0), f.count(); i < n && f.err == nil; i++ {
 		typ := f.nonnegative()
-		if typ > 5 {
-			f.fail("unknown heightmap type")
+		if typ > 5 || heightmaps[typ] {
+			f.fail("unknown or duplicate heightmap type")
 		}
+		heightmaps[typ] = true
 		count := f.count()
 		f.fixed(int(count) * 8)
 	}
@@ -69,13 +83,27 @@ func DecodeChunk(protocol int32, body []byte, shape ChunkShape) (Chunk, error) {
 		out.BlockEntities = append(out.BlockEntities, ChunkBlockEntity{X: xz >> 4, Z: xz & 15, Y: y, Type: typ})
 	}
 	var masks [4]int
+	var words [4][]uint64
 	for i := range masks {
 		n := f.count()
 		if n > int32((shape.Sections+2+63)/64) {
 			f.fail("light mask exceeds dimension")
 		}
 		for j := int32(0); j < n && f.err == nil; j++ {
-			masks[i] += bits.OnesCount64(binary.BigEndian.Uint64(padded(f.fixed(8), 8)))
+			word := binary.BigEndian.Uint64(padded(f.fixed(8), 8))
+			remaining := shape.Sections + 2 - int(j)*64
+			if remaining < 64 && word>>uint(remaining) != 0 {
+				f.fail("light mask bit exceeds dimension")
+			}
+			words[i] = append(words[i], word)
+			masks[i] += bits.OnesCount64(word)
+		}
+	}
+	for kind := range 2 {
+		for index, word := range words[kind] {
+			if index < len(words[kind+2]) && word&words[kind+2][index] != 0 {
+				f.fail("light data and empty masks overlap")
+			}
 		}
 	}
 	for kind := range 2 {

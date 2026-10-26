@@ -23,11 +23,7 @@ func TestPortableConformanceProfile(t *testing.T) {
 		Capabilities: []string{"status", "ping", "offline-login", "configuration", "malformed"},
 		Timeout:      10 * time.Second,
 	})
-	for _, r := range report.Results {
-		if r.Status != conformance.Pass {
-			t.Errorf("%s: %s: %s", r.Scenario, r.Status, r.Detail)
-		}
-	}
+	assertPortableDeclaredPasses(t, report, 7)
 }
 
 // The exact same public profile must also accept the independently running
@@ -91,8 +87,30 @@ func runPortableConformanceOracle(t *testing.T, jar string, protocol int32, vers
 	}
 	for _, result := range report.Results {
 		t.Logf("%s: %s (%dms)", result.Scenario, result.Status, result.DurationMS)
-		if result.Status != conformance.Pass {
-			t.Errorf("%s: %s: %s", result.Scenario, result.Status, result.Detail)
+	}
+	assertPortableDeclaredPasses(t, report, 7)
+}
+
+// An omitted capability remains visible as unsupported. Keep smoke coverage
+// explicit so an accidentally omitted declaration cannot turn a check into a
+// skipped result while this test still reports success.
+func assertPortableDeclaredPasses(t *testing.T, report conformance.Report, want int) {
+	t.Helper()
+	declared := 0
+	for _, result := range report.Results {
+		if result.Declared {
+			declared++
+			if result.Status != conformance.Pass {
+				t.Errorf("%s: %s: %s", result.Scenario, result.Status, result.Detail)
+			}
+		} else if result.Status != conformance.Unsupported {
+			t.Errorf("omitted %s: %s, want unsupported", result.Scenario, result.Status)
 		}
+	}
+	if declared != want {
+		t.Errorf("declared scenarios = %d, want %d", declared, want)
+	}
+	if report.ExitCode() != 0 {
+		t.Errorf("report exit code = %d, want 0", report.ExitCode())
 	}
 }

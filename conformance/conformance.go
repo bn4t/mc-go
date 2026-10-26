@@ -26,7 +26,8 @@ const (
 
 // Config declares the endpoint contract. Capabilities opt into scenarios;
 // absent capabilities are reported as unsupported, never counted as passes.
-// Supported names: status, ping, offline-login, configuration, malformed.
+// Supported names: status, ping, offline-login, configuration, malformed,
+// play-chunks. The last requires an explicit Play fixture contract.
 type Config struct {
 	Endpoint        string        `json:"endpoint"`
 	Protocol        int32         `json:"protocol"`
@@ -37,6 +38,7 @@ type Config struct {
 	Timeout         time.Duration `json:"-"`
 	TimeoutMS       int           `json:"timeout_ms,omitempty"`
 	TranscriptLimit int           `json:"transcript_limit_bytes,omitempty"`
+	Play            *PlayConfig   `json:"play,omitempty"`
 }
 type Event struct {
 	Direction     string `json:"direction"`
@@ -98,6 +100,7 @@ var scenarios = []scenario{
 	{"status.ping-echo", "ping", false, ping},
 	{"login.offline-identity", "offline-login", true, func(w *wire, c Config) error { return login(w, c) }},
 	{"configuration.finish-and-join", "configuration", true, configuration},
+	{"play.chunk-window", "play-chunks", true, chunkWindow},
 	{"framing.reject-invalid-state", "malformed", false, invalidState},
 	{"framing.reject-oversize", "malformed", false, oversize},
 	{"framing.status-after-rejections", "malformed", false, status},
@@ -215,6 +218,13 @@ func validate(c Config) error {
 	for _, v := range c.Capabilities {
 		switch v {
 		case "status", "ping", "offline-login", "configuration", "malformed":
+		case "play-chunks":
+			if c.Play == nil {
+				return fmt.Errorf("play-chunks requires an explicit play.shape fixture contract")
+			}
+			if err := validateChunkShape(c.Play.Shape); err != nil {
+				return fmt.Errorf("play.shape: %w", err)
+			}
 		default:
 			return fmt.Errorf("unknown capability %q", v)
 		}
@@ -383,11 +393,20 @@ func login(w *wire, c Config) error {
 func configuration(w *wire, c Config) error { return configurePlay(w, c, nil) }
 
 func configurePlay(w *wire, c Config, observe func(packet)) error {
+	return configurePlayWithInfo(w, c, observe, nil)
+}
+
+func configurePlayWithInfo(w *wire, c Config, observe func(packet), clientInfo []byte) error {
 	if e := login(w, c); e != nil {
 		return e
 	}
 	if e := w.send(3, nil); e != nil {
 		return e
+	}
+	if clientInfo != nil {
+		if e := w.send(0, clientInfo); e != nil {
+			return e
+		}
 	}
 	registries, known, features, tags := map[string]int32{}, false, false, false
 	for i := 0; i < 256; i++ {

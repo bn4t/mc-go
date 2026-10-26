@@ -486,9 +486,16 @@ The public [`conformance`](conformance/README.md) runner and
 explicit pass/fail/unsupported/infrastructure results and bounded framed
 wire transcripts. Its 775 and 776 smoke profiles check status, ping, login,
 configuration/join and rejection/liveness contracts. They account for the
-measured session-ID and Join Game field differences. Deliberately broken
-independent TCP controls test its ability to detect failures. It does not
-provide a complete protocol grammar or certify all gameplay parity.
+measured session-ID and Join Game field differences. The opt-in `play-chunks`
+capability continues into a stationary view-distance-two session, requiring an
+explicit caller-supplied dimension/registry shape. It validates chunk-batch
+grammar, independently decodes the complete 49-column window, checks initial
+position/cache-center/player-attribute readiness and sends the measured control
+replies. This profile requires a compatible offline endpoint with a minimum
+view distance of two; it does not derive bounds from implementation tables.
+Deliberately broken independent TCP controls test its ability to detect
+failures. These bounded checks do not provide a complete protocol grammar or
+certify all gameplay parity.
 
 Differential tests compare observable behavior with the pinned vanilla
 jar. Scripted client tests cover implementation-specific contracts. The

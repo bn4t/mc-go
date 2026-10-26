@@ -1,0 +1,16 @@
+{
+  "endpoint": "127.0.0.1:25565",
+  "protocol": 776,
+  "version": "26.2",
+  "capabilities": ["status", "ping", "offline-login", "configuration", "play-chunks", "malformed"],
+  "username": "Conformance",
+  "timeout_ms": 30000,
+  "transcript_limit_bytes": 16777216,
+  "play": {
+    "shape": {
+      "sections": 24,
+      "block_states": 32366,
+      "biomes": 66
+    }
+  }
+}

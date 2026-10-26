@@ -15091,3 +15091,58 @@ no flee; unsneak → flee). Green both legs.
   introduce parallel simulation, region ownership or stronger raw-world cache
   invalidation. The broader parity/API work remains unfinished; no hard latency,
   sustained TPS, heap-cap or player-capacity claim is made.
+
+## Slice — portable initial chunk-window conformance (2026-10-26)
+
+- **Measured:** source class is wire observation through an independently
+  written public TCP probe, using Go 1.27.3 and Temurin JDK 25.0.5+8. Official
+  26.1/775 and 26.2/776 sessions send absolute initial position and cache center
+  before chunks, include the player's column in the opening batch, and complete
+  49 unique columns at view distance two. Own attributes follow the opening
+  batch but can arrive after a later batch. The compact observation manifest
+  records probe/log SHA-256, packet IDs, descriptive batch sizes and oracle
+  SHA-256 `98ab064389a8b34d48ac3d4c5ed858dd9433d0dfd1a12e1cbbda916448d92994`
+  / `cdacdfb25898de5e4b4b0e5ddcc2722f77067e46605709c2d886c000ebb63ec5`.
+  The runner's Configuration Client Information request of two also succeeds
+  against both oracles configured with server view distance eight. No new
+  extraction, generated table, jar or implementation structure is committed.
+- **Implemented:** opt-in `play-chunks` capability and `play.chunk-window`
+  scenario in the public stdlib-only endpoint runner. Explicit `play.shape`
+  dimension/registry bounds are validated before dialing. A stationary fresh
+  offline session must deliver every unique column of its centered 7-by-7
+  window in nonnested batches with exact finished counts, independent complete
+  chunk/light decoding, matching position/cache center, own nonempty structural
+  attributes and Player Loaded readiness. Teleport, keepalive and finished-batch
+  acknowledgements use the same framed transcript and deadline handling as the
+  existing runner. Chunk decoding additionally rejects duplicate heightmap
+  types, light-mask bits beyond the dimension and overlapping data/empty masks.
+- **Pinned:** six independent valid TCP streams cover both profiles with a
+  custom two-section dimension, registry bounds 8/1, negative cache center and
+  a one-column opening batch. They allow delayed own attributes and another
+  entity's empty attribute packet. Thirty-nine broken peers cover bootstrap,
+  batch grammar, duplicate/outside/incomplete windows, shape/palette/light
+  bounds, truncation, packet limits and stationary-fixture violations. Invalid
+  manifests, omitted capabilities and unsupported profiles retain their explicit
+  report/exit semantics; CLI tests cover nested schema rejection and preserved
+  fixture bounds. Real Go and official vanilla 775/776 endpoints execute the
+  same full-window scenario; prior seven-scenario oracle profiles still pass
+  with the omitted Play capability explicitly unsupported.
+- **Validation:** the complete uncached default Go suite passes in 234.186 s
+  wall time, including internal server (232.619 s), world (0.647 s), public
+  external consumers (9.982 s) and the complete Java-free blackbox package
+  (103.385 s). Build and vet pass; Go source fingerprints remain unchanged
+  throughout. Conformance/CLI races pass in 3.588/1.020 s, and the actual TCP
+  775/776 window race passes in 15.390 s. Focused actual-vanilla new-window
+  checks execute both profiles without skips (21.081 s including the Go pins);
+  the existing seven-scenario oracle checks also pass for both (18.421 s).
+  The standalone CLI consumes the example manifest and passes all eight
+  declared scenarios against a public Go endpoint. Publication additionally
+  validates the actual committed source through a clean `git archive`, full
+  build, public external consumers, conformance/CLI and portable Go wire tests.
+  The full opt-in vanilla suite was not rerun; no server implementation changed.
+- **Remaining:** this fixture requires an offline, stationary initial dimension
+  and server view distance at least two. Batch partitioning may vary. It does
+  not assert withheld-acknowledgement credits, chunk rate, heightmap content,
+  terrain parity, later movement/dimension transitions, latency or general
+  gameplay semantics. Existing server behavior and parity-matrix status are
+  unchanged; broader modular-server and conformance work remains unfinished.
