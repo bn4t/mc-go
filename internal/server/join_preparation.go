@@ -107,7 +107,10 @@ type joinPreparationJob struct {
 	scheduler                    *joinPreparationScheduler
 	session                      *Session
 	plan                         joinPreparationPlan
-	factIndex, lightIndex        int // one scheduler, or direct owned test steps
+	live                         bool
+	desired                      livePreparationTarget // simulation owner
+	planGeneration               uint64                // simulation owner
+	factIndex, lightIndex        int                   // one scheduler, or direct owned test steps
 	canceled                     atomic.Bool
 	done                         chan struct{}
 	err                          error // published by closing done
@@ -189,7 +192,9 @@ func (p *joinPreparationScheduler) finishLocked(job *joinPreparationJob, err err
 		}
 	}
 	delete(p.jobs, job)
-	delete(p.bySession, job.session)
+	if p.bySession[job.session] == job {
+		delete(p.bySession, job.session)
+	}
 	// Completion receipts retain no coordinate arrays while their connection
 	// waits to reenter the owner for final admission.
 	job.plan = joinPreparationPlan{}
@@ -232,18 +237,43 @@ func (p *joinPreparationScheduler) work() {
 		p.mu.Unlock()
 		var complete bool
 		var err error
-		p.server.simulationAction(func() { _, complete, err = p.server.stepJoinPreparationOwned(job) })
-		p.mu.Lock()
-		job.running = false
-		if p.stopped || job.canceled.Load() {
-			err = net.ErrClosed
+		retired := false
+		p.server.simulationAction(func() {
+			if job.live {
+				_, complete, err = p.server.stepLivePreparationOwned(job)
+			} else {
+				_, complete, err = p.server.stepJoinPreparationOwned(job)
+			}
+			if job.live && (complete || err != nil) {
+				// The terminal unit has returned. Retire its reservation before
+				// deferred actions drain: completion cleared the pump gate, so
+				// leaving bySession would reject a window staged at that boundary.
+				p.mu.Lock()
+				job.running = false
+				if p.stopped || job.canceled.Load() {
+					err = net.ErrClosed
+				}
+				p.finishLocked(job, err)
+				p.mu.Unlock()
+				retired = true
+			}
+		})
+		if !retired {
+			// Ordinary units release ownership before scheduler bookkeeping.
+			// In particular a scheduler-mutex contender cannot extend a cold
+			// unit's owner turn or block unrelated gameplay behind that unit.
+			p.mu.Lock()
+			job.running = false
+			if p.stopped || job.canceled.Load() {
+				err = net.ErrClosed
+			}
+			if complete || err != nil {
+				p.finishLocked(job, err)
+			} else {
+				p.queue = append(p.queue, job)
+			}
+			p.mu.Unlock()
 		}
-		if complete || err != nil {
-			p.finishLocked(job, err)
-		} else {
-			p.queue = append(p.queue, job)
-		}
-		p.mu.Unlock()
 		// Let runnable gameplay callers contend between complete owner turns.
 		runtime.Gosched()
 	}

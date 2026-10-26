@@ -517,12 +517,64 @@ func sessionPos(t *testing.T, s *Server) (float64, float64, float64) {
 	return x, y, z
 }
 
+// Live movement publishes its cache center in the movement transaction, before
+// the destination's cooperatively prepared chunk batch becomes available.
+func readMovementChunkCenter(t *testing.T, next func() (protocol.Packet, error), wantX, wantZ int32) {
+	t.Helper()
+	p, err := next()
+	if err != nil || p.ID != IDPlaySetCenterChunk {
+		t.Fatalf("movement center = %#x, err %v", p.ID, err)
+	}
+	r := protocol.NewPacketReader(p.Data)
+	if x, err := r.VarInt(); err != nil || x != wantX {
+		t.Fatalf("movement center x = %d, err %v (want %d)", x, err, wantX)
+	}
+	if z, err := r.VarInt(); err != nil || z != wantZ {
+		t.Fatalf("movement center z = %d, err %v (want %d)", z, err, wantZ)
+	}
+	if r.Remaining() != 0 {
+		t.Fatalf("movement center trailing bytes = %d", r.Remaining())
+	}
+}
+
+// Keepalives can arrive during preparation or between chunk futures in the
+// outbound FIFO. Service only that exact control packet, with one shared bound
+// for the entire movement transaction; every gameplay packet reaches its usual
+// position, chunk-set, batch-count or forget-order assertion.
+func movementPackets(pr *protocol.Reader, pw *protocol.Writer) func() (protocol.Packet, error) {
+	controls := 0
+	return func() (protocol.Packet, error) {
+		for {
+			p, err := pr.ReadPacket()
+			if err != nil || p.ID != IDPlayKeepAliveCB {
+				return p, err
+			}
+			controls++
+			if controls > 8 || len(p.Data) != 8 {
+				return p, fmt.Errorf("movement keepalive count=%d body bytes=%d; want at most eight controls with eight bytes each", controls, len(p.Data))
+			}
+			if err := pw.WritePacket(IDPlayKeepAliveSB, p.Data); err != nil {
+				return p, fmt.Errorf("movement keepalive reply: %w", err)
+			}
+		}
+	}
+}
+
+func readMovementChunkBatchStart(t *testing.T, next func() (protocol.Packet, error)) {
+	t.Helper()
+	p, err := next()
+	if err != nil || p.ID != IDPlayChunkBatchStart || len(p.Data) != 0 {
+		t.Fatalf("movement batch start = %#x, body bytes = %d, err %v", p.ID, len(p.Data), err)
+	}
+}
+
 func TestMovementUpdatesPos(t *testing.T) {
 	s := New("unused")
 	c, pr, pw := joinPlay(t, s, "Mover")
 	defer c.Close()
 	drainJoinBurst(t, pr)
 	finishJoin(t, s, pr, pw)
+	next := movementPackets(pr, pw)
 	sendPosRot(t, pw, 10.5, 66, -3.25, 90, 0, true)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -539,16 +591,15 @@ func TestMovementUpdatesPos(t *testing.T) {
 	// window holds: drain that batch so the pipe reader keeps up with
 	// the session writer.
 	fresh := freshColumns(2, 0, 0, 0, -1)
-	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchStart {
-		t.Fatalf("batch start = %#x, err %v", p.ID, err)
-	}
+	readMovementChunkCenter(t, next, 0, -1)
+	readMovementChunkBatchStart(t, next)
 	for i := 0; i < len(fresh); i++ {
-		ch, err := pr.ReadPacket()
+		ch, err := next()
 		if err != nil || ch.ID != IDPlayChunkData {
 			t.Fatalf("stream chunk %d = %#x, err %v", i, ch.ID, err)
 		}
 	}
-	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchDone {
+	if p, err := next(); err != nil || p.ID != IDPlayChunkBatchDone {
 		t.Fatalf("batch done = %#x, err %v", p.ID, err)
 	}
 	// Out-of-border and NaN moves must not touch state.
@@ -721,6 +772,7 @@ func TestChunkStreamingOnMove(t *testing.T) {
 	defer c.Close()
 	drainJoinBurst(t, pr)
 	finishJoin(t, s, pr, pw)
+	next := movementPackets(pr, pw)
 	// Walk east into chunk (2,0): the window is centered there now, so
 	// the columns the old window around (0,0) did not cover stream as
 	// chunk+light pairs. Both windows come from the same rule, so the
@@ -733,11 +785,10 @@ func TestChunkStreamingOnMove(t *testing.T) {
 	if len(want) == 0 {
 		t.Fatal("the move streams nothing")
 	}
-	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchStart {
-		t.Fatalf("batch start = %#x, err %v", p.ID, err)
-	}
+	readMovementChunkCenter(t, next, 2, 0)
+	readMovementChunkBatchStart(t, next)
 	for i := 0; i < len(want); i++ {
-		ch, err := pr.ReadPacket()
+		ch, err := next()
 		if err != nil {
 			t.Fatalf("stream chunk %d: %v", i, err)
 		}
@@ -758,26 +809,16 @@ func TestChunkStreamingOnMove(t *testing.T) {
 			t.Fatalf("column %v never streamed", k)
 		}
 	}
-	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchDone {
+	if p, err := next(); err != nil || p.ID != IDPlayChunkBatchDone {
 		t.Fatalf("batch done = %#x, err %v", p.ID, err)
-	}
-	// The cache center follows the player onto the new column.
-	ctr, err := pr.ReadPacket()
-	if err != nil || ctr.ID != IDPlaySetCenterChunk {
-		t.Fatalf("center id = %#x, err %v", ctr.ID, err)
-	}
-	tr := protocol.NewPacketReader(ctr.Data)
-	if cx, err := tr.VarInt(); err != nil || cx != 2 {
-		t.Fatalf("center x = %d, err %v (want 2)", cx, err)
-	}
-	if cz, err := tr.VarInt(); err != nil || cz != 0 {
-		t.Fatalf("center z = %d, err %v (want 0)", cz, err)
 	}
 	// Staying inside the same column must not re-send the center.
 	sendPosRot(t, pw, 41.5, 66, 9.5, 0, 0, true)
 	_ = c.SetDeadline(time.Now().Add(200 * time.Millisecond))
-	if p, err := pr.ReadPacket(); err == nil {
+	if p, err := next(); err == nil {
 		t.Fatalf("repeat center: unexpected %#x", p.ID)
+	} else if timeout, ok := err.(net.Error); !ok || !timeout.Timeout() {
+		t.Fatalf("repeat center: expected quiet read timeout, got %v", err)
 	}
 	_ = c.SetDeadline(time.Time{})
 }

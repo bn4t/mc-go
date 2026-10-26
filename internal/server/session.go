@@ -384,15 +384,21 @@ type Session struct {
 	// The queue is what the streaming throttle works on: the real server
 	// sends one batch of columns per interval and nothing at all until the
 	// client acknowledges a batch (see pumpChunks).
-	sentMu   sync.Mutex
-	queued   map[[2]int]bool
-	sent     map[[2]int]bool
-	pending  [][2]int
-	rate     int
-	opened   bool
-	burst    int
-	interval int
-	cool     int
+	// Live preparation targets/generations are owner-only. The pointer is also
+	// read under sentMu by the chunk pump, which pauses the old pending queue.
+	livePreparation *joinPreparationJob
+	liveGeneration  uint64
+	liveTarget      joinPreparationTarget
+	liveTargetSet   bool
+	sentMu          sync.Mutex
+	queued          map[[2]int]bool
+	sent            map[[2]int]bool
+	pending         [][2]int
+	rate            int
+	opened          bool
+	burst           int
+	interval        int
+	cool            int
 	// chunkPumpMu serializes whole batches: a window change on the
 	// connection goroutine and the tick loop can pump at the same time.
 	chunkPumpMu sync.Mutex

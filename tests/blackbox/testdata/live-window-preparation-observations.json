@@ -1,0 +1,109 @@
+{
+  "schema": "mc-conformance/live-window-observations/v1",
+  "captured_at": "2026-10-26",
+  "source_class": "wire observation",
+  "tool": "Independently written scripted Go TCP probe using public conformance.OpenPlay and DecodeChunk, with separate batch/coordinate/control accounting; Go 1.27.3 linux/amd64; Temurin JDK 25.0.5+8",
+  "probe_sha256": "8229b6caa2b43c471cbd1ca16f0564f0e29564fd2f9a3ef8b332b25d305883ba",
+  "baseline_source_commit": "d837805394d025626654fa07e26b9d87e5884fce",
+  "oracle_configuration": {
+    "online-mode": "false",
+    "level-type": "flat",
+    "level-seed": "1",
+    "view-distance": "2",
+    "simulation-distance": "2",
+    "spawn-monsters": "false",
+    "spawn-animals": "false",
+    "operator": "offline UUID of LiveWindow775/LiveWindow776 at level 4"
+  },
+  "client_behavior": "No Client Information, exercising fallback view 2; automatic teleport/keepalive/batch acknowledgements with batch rate 64; one matching position-and-rotation packet after each teleport confirmation; player_loaded after initial own attributes. Without the matching post-teleport position, the preliminary oracle sent sync, center and old forgets but did not complete the destination window.",
+  "observed_semantics": [
+    "Full initial and far destination windows contain 49 unique columns of the centered 7x7 window; one-column movement adds seven new columns.",
+    "Both oracles observed sync then cache center then old forgets before destination batch start on distant teleports. One-column movement observed center then old forgets before batches.",
+    "Every batch was nonnested and finished with exactly its received chunk count; packet bodies passed independent full chunk/light decoding.",
+    "Initial negative cache centers match floor division of absolute position, and negative destination (-311.5,71,-311.5) centers at (-20,-20)."
+  ],
+  "scope_limits": [
+    "Exact chunk order, batch sizes, time to completion and scheduling are descriptive observations, not required constants.",
+    "Existing Go near-window prune retains an extra border and its final window commit pumps before forgetting; this responsiveness slice preserves those existing behaviors rather than claiming exact vanilla packet interleaving or near-prune parity.",
+    "Observer timing includes transport and client scheduling; deterministic scheduler tests separately establish complete-unit interleaving.",
+    "Dimension invalidation wire checks reuse the existing measured 16-section nether and 24-section overworld grammar; no new vanilla dimension-transition observation is claimed."
+  ],
+  "pinned_by": [
+    "TestLiveWindowMovementTeleportWire",
+    "TestLiveWindowMovementTeleportVanilla",
+    "TestLiveWindowObserverProgressAndCanonicalLight",
+    "TestLiveWindowRetargetAcrossDimensionWire"
+  ],
+  "profiles": [
+    {
+      "protocol": 775,
+      "oracle_sha256": "98ab064389a8b34d48ac3d4c5ed858dd9433d0dfd1a12e1cbbda916448d92994",
+      "measurement_log_sha256": "d48f4a8151b791c976da3ec2fc7dffa18e2255b5f69d3a4e79bbf8cf8d6c7461",
+      "stages": [
+        {
+          "stage": "initial",
+          "new_columns": 49,
+          "forget_packets": 0,
+          "completed_batches": 4,
+          "observed_control_sequence": "sync(-0.5,-60.0,7.5) center(-1,0) start done(9) start done(16) start done(12) start done(12)"
+        },
+        {
+          "stage": "cold teleport",
+          "new_columns": 49,
+          "forget_packets": 49,
+          "completed_batches": 6,
+          "observed_control_sequence": "sync(335.5,71.0,328.5) center(20,20) first-forget start done(4) start done(14) start done(7) start done(10) start done(13) start done(1)"
+        },
+        {
+          "stage": "one-column movement",
+          "new_columns": 7,
+          "forget_packets": 7,
+          "completed_batches": 2,
+          "observed_control_sequence": "center(21,20) first-forget start done(2) start done(5)"
+        },
+        {
+          "stage": "negative teleport",
+          "new_columns": 49,
+          "forget_packets": 49,
+          "completed_batches": 5,
+          "observed_control_sequence": "sync(-311.5,71.0,-311.5) center(-20,-20) first-forget start done(4) start done(14) start done(7) start done(8) start done(16)"
+        }
+      ]
+    },
+    {
+      "protocol": 776,
+      "oracle_sha256": "cdacdfb25898de5e4b4b0e5ddcc2722f77067e46605709c2d886c000ebb63ec5",
+      "measurement_log_sha256": "d883fe94685eb607615ce8db8f57f4832f9e376b1c3b8e909d6a98e12392350f",
+      "stages": [
+        {
+          "stage": "initial",
+          "new_columns": 49,
+          "forget_packets": 0,
+          "completed_batches": 4,
+          "observed_control_sequence": "sync(-0.5,-60.0,-3.5) center(-1,-1) start done(9) start done(16) start done(10) start done(14)"
+        },
+        {
+          "stage": "cold teleport",
+          "new_columns": 49,
+          "forget_packets": 49,
+          "completed_batches": 4,
+          "observed_control_sequence": "sync(335.5,71.0,328.5) center(20,20) first-forget start done(4) start done(14) start done(28) start done(3)"
+        },
+        {
+          "stage": "one-column movement",
+          "new_columns": 7,
+          "forget_packets": 7,
+          "completed_batches": 1,
+          "observed_control_sequence": "center(21,20) first-forget start done(7)"
+        },
+        {
+          "stage": "negative teleport",
+          "new_columns": 49,
+          "forget_packets": 49,
+          "completed_batches": 5,
+          "observed_control_sequence": "sync(-311.5,71.0,-311.5) center(-20,-20) first-forget start done(4) start done(14) start done(7) start done(20) start done(4)"
+        }
+      ]
+    }
+  ]
+}

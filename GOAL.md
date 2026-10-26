@@ -56,7 +56,9 @@ Mojang server over the wire.
       acknowledgement and nothing after it, then ten batches per
       acknowledgement, at the acknowledged rate truncated and clamped to
       [1, 64], one batch a tick - `TestChunkThrottleParity`,
-      `TestChunkThrottleStaysBlocked`
+      `TestChunkThrottleStaysBlocked`. Live preparation retains mc-go's
+      historical pending/forget order; near-window pruning and forget/batch
+      ordering differences remain, as documented in the live-window slice.
 - [ ] Vanilla terrain generation (seed, noise, biomes, structures)
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
@@ -15146,3 +15148,101 @@ no flee; unsneak → flee). Green both legs.
   terrain parity, later movement/dimension transitions, latency or general
   gameplay semantics. Existing server behavior and parity-matrix status are
   unchanged; broader modular-server and conformance work remains unfinished.
+
+## Slice — cooperative live Java window preparation (2026-10-26)
+
+- **Measured:** source classes are existing Go ownership/cache behavior and
+  independent public TCP observations using Go 1.27.3 and Temurin JDK
+  25.0.5+8. Official 26.1/775 and 26.2/776 movement
+  and teleport sessions pin complete destination windows and eventual removal
+  of the distant prior window. The new wire manifest records tool/oracle/probe
+  hashes and descriptive ordering. In both measured profiles, vanilla sends old
+  forgets before destination chunks; mc-go retains its historical pending FIFO
+  and batch-before-forget sequence, without claiming that ordering matches
+  vanilla. No new bytecode extraction, generated table or external dependency
+  is introduced.
+- **Implemented:** already admitted Java movement, teleport, respawn and
+  dimension-change paths stage live preparation on the existing scheduler,
+  sharing its 32 reserved/building/queued/running jobs with initial joins.
+  Pose, hooks and control packets retain whole owned transactions. Fresh
+  coordinates and the existing skylight halo stay detached until preparation
+  completes; tick/acknowledgement pumps pause the old pending queue without
+  consuming batch credit. Each session retains one job and latest scalar
+  destination. Generations reject stale A-to-B-to-A, radius, reset, dimension
+  and incarnation work; retargeting retains its reservation and drops old
+  arrays before replacement. Identical published targets use pump/prune
+  directly, including under scheduler saturation. Overflow closes only the
+  requesting recipient, without a cold synchronous fallback.
+- **Ownership and lifecycle:** ordinary turns complete one cold facts column
+  or whole light initialization/flood, or at most 64 warm checks. A final scan
+  can visit the bounded plan, refill one invalidated facts column and yield
+  again. Final publication revalidates the current target, then runs the
+  existing atomic append/pump/prune sequence. Live terminal reservations retire
+  before deferred actions, fixing a successor-window admission gap exposed
+  during review. Reset can reuse the same reservation even when marked running;
+  retirement cancels it, running work retains quota until its whole unit ends,
+  and shutdown joins the shared scheduler before world workers retire. Initial
+  join ordering, detached encoder reservations and admitted outbound FIFO
+  futures retain their existing contracts.
+- **Responsiveness:** the unchanged public TCP probe is SHA-256
+  `c41f3b7d7c5265e54c79488dad7ffe9be6ab16c59bacb04f902f1c87601178b4`.
+  Its baseline is clean archive `d837805394d025626654fa07e26b9d87e5884fce`
+  with only that test added. Five sequential runs per implementation use ready
+  775/776 observers with one outstanding token each and 20 ms response pacing,
+  plus a ready 776 mover into an untouched radius-two window. Full 49-column
+  readiness median grows from 904.13 ms (813.31–1,003.39) to 988.39 ms
+  (923.25–994.66), about 9.3%. The 775 observer has 7 to 179 samples
+  (7 to 178 before readiness); p50/p95/max become 5.40/16.87/60.16 ms
+  from 811.30/964.73/964.73 ms. The 776 observer has 7 to 178 samples
+  (6 to 177 before readiness); 811.24/972.87/972.87 ms becomes
+  5.68/18.16/60.00 ms. This is a responsiveness tradeoff, not faster
+  preparation. Warm readiness medians are 62.44 and 56.21 ms with overlapping
+  54.58–108.95 and 53.94–75.12 ms ranges and small observer samples. The probe
+  checks canonical center section/heightmap/light equality on the warm return.
+  It includes TCP, commands, ticks, decoding and scheduling; one outstanding
+  request produces fewer baseline samples during stalls. It establishes no
+  fixed offered-rate capacity, exact overlap point or warm speed improvement.
+  ARCHITECTURE.md records the full table, fixture, platform and reproduction.
+- **Pinned:** eight deterministic live tests cover actual public avatar
+  movement and block edits while preparation is unfinished, frozen progress,
+  acknowledgement/tick gating, edited final chunks, pending FIFO, terminal
+  deferred-action handoff, shared saturation, no-reservation identical targets,
+  retirement/reconnection isolation, running quota retention, shutdown,
+  coalescing, A-to-B-to-A rejection, reset/dimension changes and radius shrink.
+  Both Java profiles have public TCP movement/teleport, mixed observer edit
+  and canonical-light, and rapid dimension-retarget/reset pins. Independent
+  chunk decoding covers complete 49-column overworld/nether windows, with
+  stale admitted FIFO allowed before Respawn and no stale target/dimension
+  chunks after it. The same movement/teleport script executes against the
+  official oracles; batch partitioning and near-window pruning remain explicit
+  implementation differences.
+- **Validation:** all non-server packages pass the complete default sweep on
+  unchanged production inputs, including public external consumers (16.466 s)
+  and the complete Java-free blackbox package (154.177 s). The sweep exposed
+  three old movement fixtures requiring chunks before the cache center. They
+  now require the exact earlier center and service only bounded, validated
+  keepalives throughout the movement stream; chunk sets, counts and forget
+  checks remain intact. The complete internal server suite then passes in
+  237.434 s. Initial-Join publication fixtures additionally warm destination
+  caches before their unchanged five-second admission assertions, keeping
+  race-instrumented cold preparation outside that separate contract. Only
+  three fixture files change between sweeps; production fingerprints still
+  match the performance runs. The final selected internal scheduler,
+  encoder/FIFO, publication and movement-fixture race passes in 119.728 s
+  (137.346 s wall time). Final build and vet pass, with all Go source
+  fingerprints unchanged throughout those gates.
+  The new actual TCP cold/warm race passes in 51.782 s, and mixed observer
+  edit/canonical-light plus dimension-retarget wire races pass in 95.896 s.
+  Actual-vanilla movement/teleport checks execute both profiles without skips
+  and pass in 38.793 s. Publication additionally validates the actual committed
+  source through a clean `git archive`, full build, separate public consumers,
+  focused scheduler/chunk/fixture tests and all four new Go wire scenarios.
+  No unrelated full vanilla sweep or new performance samples are claimed from
+  race-instrumented runs.
+- **Remaining:** simulation stays serial and preparation stays owner work.
+  Whole light floods, bounded final metadata scans, snapshots, callbacks, saves
+  and other gameplay actions have no hard deadline. Continuous edits or moves
+  can postpone completion. Live gameplay may access a cold destination before
+  terrain publication. This introduces no region ownership, total heap cap,
+  sustained TPS, network latency or player-capacity guarantee. Broader parity,
+  modular-server and conformance work remains unfinished.

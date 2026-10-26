@@ -72,6 +72,33 @@ func configurationBeforePlay(t *testing.T, s *Server, number int32, name string)
 	return c, reader, writer, sess
 }
 
+// These tests pin the first Join packet's admission/publication boundary. Warm
+// destination caches before their five-second admission waits so cold terrain
+// work under the race detector does not become an unrelated latency assertion.
+// Cold preparation, cancellation and ownership handoffs have separate tests.
+func preparePublicationDestination(t *testing.T, s *Server, sess *Session) {
+	t.Helper()
+	s.simulationAction(func() {
+		target, ok := s.joinPreparationTargetOwned(sess)
+		if !ok {
+			t.Fatal("configuring session has no publication-test destination")
+		}
+		job := &joinPreparationJob{session: sess, plan: buildJoinPreparationPlan(target)}
+		for {
+			_, complete, err := s.stepJoinPreparationOwned(job)
+			if err != nil {
+				t.Fatalf("prepare publication-test destination: %v", err)
+			}
+			if complete {
+				break
+			}
+		}
+		if sess.state.Load() != StateConfiguration || sess.entityID.Load() != 0 || sess.active.Load() || sess.admitted || sess.spawned.Load() || len(sess.sendCh) != 0 {
+			t.Fatal("cache preparation published an unfinished player or Play packet")
+		}
+	})
+}
+
 func TestJavaPlayPublicationFollowsJoinAdmission(t *testing.T) {
 	for _, number := range []int32{775, 776} {
 		t.Run(fmt.Sprint(number), func(t *testing.T) {
@@ -79,6 +106,7 @@ func TestJavaPlayPublicationFollowsJoinAdmission(t *testing.T) {
 			t.Cleanup(s.Stop)
 			c, reader, writer, sess := configurationBeforePlay(t, s, number, fmt.Sprintf("JoinOrder%d", number))
 			defer c.Close()
+			preparePublicationDestination(t, s, sess)
 			// Freeze the exact first-play enqueue rather than race a timer.
 			// Entity initialization gives an atomic progress signal that the
 			// configuration acknowledgement entered the owned join action.
@@ -125,6 +153,7 @@ func TestJavaFailedJoinAdmissionDoesNotPublishPlay(t *testing.T) {
 			t.Cleanup(s.Stop)
 			c, _, writer, sess := configurationBeforePlay(t, s, number, fmt.Sprintf("JoinFail%d", number))
 			defer c.Close()
+			preparePublicationDestination(t, s, sess)
 			// Configuration is fully drained. Make the first Join packet
 			// exceed admission without changing any earlier handshake packet.
 			sess.outMu.Lock()

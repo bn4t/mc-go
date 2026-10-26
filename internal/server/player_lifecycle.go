@@ -118,6 +118,9 @@ func (s *Server) retirePlayerStateOwned(p *playerRecord, reason string) *player.
 		return nil
 	}
 	state := p.snapshot()
+	if p.java != nil {
+		p.java.cancelLivePreparationOwned()
+	}
 	p.left = true
 	p.active.Store(false)
 	s.playerDirtyMu.Lock()

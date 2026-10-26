@@ -509,6 +509,10 @@ func (s *Server) pumpChunks(sess *Session) error {
 	sess.chunkPumpMu.Lock()
 	defer sess.chunkPumpMu.Unlock()
 	sess.sentMu.Lock()
+	if sess.livePreparation != nil {
+		sess.sentMu.Unlock()
+		return nil
+	}
 	size := 0
 	switch {
 	case sess.rate > 0:
@@ -691,6 +695,9 @@ func (s *Server) chunkTickStep() {
 // whatever the client's last acknowledgement allows.
 func (s *Server) sendWindow(sess *Session, ccx, ccz int) error {
 	radius := sess.viewRadius(s.ViewDistance)
+	if sess.spawned.Load() {
+		return s.stageLiveWindowOwned(sess, ccx, ccz, radius)
+	}
 	var fresh [][2]int
 	sess.sentMu.Lock()
 	if sess.queued == nil {
@@ -711,7 +718,6 @@ func (s *Server) sendWindow(sess *Session, ccx, ccz int) error {
 		}
 	}
 	queueOrder(fresh, ccx, ccz)
-	sess.pending = append(sess.pending, fresh...)
 	sess.sentMu.Unlock()
 	// Prepare fresh columns under simulation ownership before encoding.
 	// Cold skylight columns share one detached scan for random-tick flags,
@@ -741,9 +747,32 @@ func (s *Server) sendWindow(sess *Session, ccx, ccz int) error {
 			d.lightMu.Unlock()
 		}
 	}
-	// The batch that goes out now precedes the forgets for columns that
-	// dropped out of the window, as it did before the throttle: the
-	// queue is filled first so the pump can pick the new columns up.
+	if err := s.finishWindowOwned(sess, ccx, ccz, radius, fresh); err != nil {
+		return err
+	}
+	if d := sess.dimension(); d != nil {
+		sess.liveGeneration++
+		sess.liveTarget = joinPreparationTarget{dimension: d, cx: ccx, cz: ccz, radius: radius,
+			skylight: d.skylight, incarnation: sess.ID()}
+		sess.liveTargetSet = true
+	}
+	return nil
+}
+
+// finishWindowOwned publishes an already prepared window under ownership.
+func (s *Server) finishWindowOwned(sess *Session, ccx, ccz, radius int, fresh [][2]int) error {
+	sess.sentMu.Lock()
+	if sess.queued == nil {
+		sess.queued = make(map[[2]int]bool)
+	}
+	for _, key := range fresh {
+		sess.queued[key] = true
+	}
+	sess.pending = append(sess.pending, fresh...)
+	sess.sentMu.Unlock()
+	// Preserve the existing Go ordering: admit this batch before forgetting
+	// columns outside the window. This is compatibility with the prior Go
+	// path, not a claim of vanilla batch-versus-forget ordering.
 	if err := s.pumpChunks(sess); err != nil {
 		return err
 	}
@@ -858,6 +887,7 @@ func pruneQueue(pending [][2]int, queued map[[2]int]bool) [][2]int {
 // where the acknowledgement belongs to the connection rather than the
 // dimension, so streaming carries on at the same pace in the new world.
 func (sess *Session) resetChunks() {
+	sess.invalidateLivePreparationOwned()
 	sess.sentMu.Lock()
 	sess.queued = nil
 	sess.sent = nil

@@ -296,6 +296,7 @@ func TestForgetChunkOnFarMove(t *testing.T) {
 	defer c.Close()
 	drainJoinBurst(t, pr)
 	finishJoin(t, s, pr, pw)
+	next := movementPackets(pr, pw)
 
 	// Jump from chunk (0,0) to chunk (10,0): the columns of the window
 	// around the new column that the old window did not hold stream as
@@ -306,16 +307,15 @@ func TestForgetChunkOnFarMove(t *testing.T) {
 	if len(fresh) == 0 {
 		t.Fatal("the jump streams nothing")
 	}
-	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchStart {
-		t.Fatalf("batch start = %#x, err %v", p.ID, err)
-	}
+	readMovementChunkCenter(t, next, 10, 0)
+	readMovementChunkBatchStart(t, next)
 	for i := 0; i < len(fresh); i++ {
-		ch, err := pr.ReadPacket()
+		ch, err := next()
 		if err != nil || ch.ID != IDPlayChunkData {
 			t.Fatalf("stream chunk %d = %#x, err %v", i, ch.ID, err)
 		}
 	}
-	if p, err := pr.ReadPacket(); err != nil || p.ID != IDPlayChunkBatchDone {
+	if p, err := next(); err != nil || p.ID != IDPlayChunkBatchDone {
 		t.Fatalf("batch done = %#x, err %v", p.ID, err)
 	}
 	want := forgotColumns(2, 0, 0, 10, 0)
@@ -323,7 +323,7 @@ func TestForgetChunkOnFarMove(t *testing.T) {
 		t.Fatal("the jump forgets nothing")
 	}
 	for i, w := range want {
-		p, err := pr.ReadPacket()
+		p, err := next()
 		if err != nil || p.ID != IDPlayForgetChunk {
 			t.Fatalf("forget %d = %#x, err %v", i, p.ID, err)
 		}

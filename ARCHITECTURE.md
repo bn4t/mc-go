@@ -415,8 +415,9 @@ exhausted replanning and known cancellation close the connection without adding
 an invented pre-Join packet. Host/session/runtime cancellation stops between
 whole units; a running unit retains its slot until it finishes. Remote peer EOF
 is still detected only when the existing packet reader resumes. Shutdown joins
-the scheduler before retiring world workers. Live teleports, movement, saves and
-other long gameplay actions retain their existing synchronous behavior.
+the scheduler before retiring world workers. Saves and other long gameplay
+actions retain their existing synchronous behavior; live-window preparation is
+described separately below.
 
 The unchanged public TCP harness is
 `tests/blackbox/cold_join_responsiveness_test.go`, SHA-256
@@ -477,6 +478,85 @@ They establish no hard latency guarantee, sustained TPS or player-capacity claim
 ```sh
 MCGO_COLD_JOIN_REPORT=/tmp/join-probes.jsonl GOMAXPROCS=5 go test ./tests/blackbox -run '^TestColdJoinResponsiveness$' -count=5 -timeout=5m -v
 GOMAXPROCS=5 go test ./internal/server -run '^$' -bench '^BenchmarkJoinPreparation(Quantum|WarmAdmission|Plan)$' -benchmem -benchtime=100ms -count=3
+```
+
+## Live window preparation
+
+Already admitted Java players share the initial-join preparation scheduler and
+its global limit of 32 reserved/building/queued/running jobs. Movement, teleport,
+respawn and dimension-change transactions commit their existing pose and control
+packets atomically, then stage a detached desired window. New columns enter
+neither the tracking sets nor the pending stream until preparation completes.
+While a live job exists, tick and acknowledgement pumps pause the old pending
+queue without spending its batch credits. Already admitted asynchronous chunk
+futures keep their original outbound FIFO positions.
+
+Each session retains one job and its latest scalar target. A generation changes
+for target changes, reset and retirement, so an A-to-B-to-A sequence cannot
+publish the first A plan. Retargeting retains its existing reservation and
+releases old coordinate arrays before building replacements. Reset invalidates
+the target while retaining that slot for a replacement in the same owned
+transaction; retirement cancels it. An identical already published target uses
+the existing pump/prune path without reserving a job. Saturation closes only
+the requesting recipient and has no synchronous cold fallback.
+
+Ordinary turns check at most 64 warm entries and perform at most one complete
+cold facts-column scan or light initialization/flood. Final metadata checks may
+visit the entire bounded plan, refill at most one invalidated facts column and
+yield again. Continual edits can delay completion. The final owned transaction
+revalidates the session incarnation, dimension and generation before publishing
+tracking sets and performing the existing append/pump/prune sequence. Terminal
+live scheduler bookkeeping retires the reservation before deferred actions run,
+so a successor staged at that boundary can reserve its own job. Running
+cancellation retains its quota until the whole unit returns; shutdown joins the
+shared worker before world workers retire.
+
+This preserves mc-go's historical pending FIFO and batch-before-forget order.
+That order is not an exact vanilla ordering claim: both new wire measurements
+observe old-window forgets before destination batches. New-dimension entities
+remain gated on delivered chunks. Whole light floods, metadata scans, final
+snapshot capture, plugin callbacks and unrelated gameplay work have no hard
+deadline; simulation remains serial and cache preparation remains owner work.
+
+The public TCP comparison uses
+`tests/blackbox/live_window_responsiveness_test.go`, SHA-256
+`c41f3b7d7c5265e54c79488dad7ffe9be6ab16c59bacb04f902f1c87601178b4`.
+The baseline is a clean archive of
+`d837805394d025626654fa07e26b9d87e5884fce` with only that test added.
+Five sequential fresh-server runs per implementation use ready 775/776
+observers and a ready 776 mover, radius two and an untouched destination at
+chunk center (100, 100). Each observer issues one token request at a time and
+waits 20 ms after each response. Readiness requires 49 unique independently
+decoded chunks and the final acknowledged batch completion. A complete return
+to center (0, 0), outside measurement, precedes the warm repeat to (100, 100);
+that repeat also checks canonical center section, heightmap and light equality.
+Timings include TCP, commands, ticks, decoding and client scheduling. Raw probe
+start/end/readiness timestamps include responses completed beyond readiness.
+Quantiles use nearest rank on pooled samples across the five runs.
+
+| Operation | Baseline | Cooperative live preparation |
+| --- | ---: | ---: |
+| Cold full-window readiness median (range) | 904.13 ms (813.31–1,003.39) | 988.39 ms (923.25–994.66) |
+| Cold 775 token count / completed before readiness | 7 / 7 | 179 / 178 |
+| Cold 775 token p50 / p95 / maximum | 811.30 / 964.73 / 964.73 ms | 5.40 / 16.87 / 60.16 ms |
+| Cold 776 token count / completed before readiness | 7 / 6 | 178 / 177 |
+| Cold 776 token p50 / p95 / maximum | 811.24 / 972.87 / 972.87 ms | 5.68 / 18.16 / 60.00 ms |
+| Warm full-window readiness median (range) | 62.44 ms (54.58–108.95) | 56.21 ms (53.94–75.12) |
+| Warm 775 token count / p50 / p95 / maximum | 6 / 53.31 / 108.16 / 108.16 ms | 8 / 24.44 / 74.35 / 74.35 ms |
+| Warm 776 token count / p50 / p95 / maximum | 5 / 59.96 / 108.23 / 108.23 ms | 8 / 24.02 / 74.30 / 74.30 ms |
+
+Cold readiness grows about 9.3% while more observer work completes. This is a
+responsiveness tradeoff, not faster preparation. One outstanding request yields
+fewer baseline samples during stalls, so these are not fixed offered-rate
+capacity measurements. Warm ranges overlap and sample counts are small; no warm
+speed improvement is established. The TCP fixture does not measure allocation
+bytes or prove exact overlap with a particular preparation unit; deterministic
+tests separately pin that ownership handoff. These Linux/amd64 measurements use
+Go 1.27.3, AMD EPYC 9V74, `GOMAXPROCS=5` and `GOFLAGS=-buildvcs=false`. Raw logs,
+reports and immutable baseline exports remain outside the repository.
+
+```sh
+MCGO_LIVE_WINDOW_REPORT=/tmp/live-probes.jsonl GOMAXPROCS=5 GOFLAGS=-buildvcs=false go test ./tests/blackbox -run '^TestLiveWindowResponsiveness$' -count=5 -timeout=5m -v
 ```
 
 ## Conformance and provenance
