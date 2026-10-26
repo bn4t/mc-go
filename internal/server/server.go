@@ -184,6 +184,13 @@ type Server struct {
 	runtimeCtx     context.Context
 	runtimeCancel  context.CancelFunc
 
+	// compactSave is published under simulation ownership before capture. At
+	// most one compact world snapshot/write job is admitted at a time; its
+	// detached worker completes without taking simulation ownership.
+	compactSave *compactWorldSaveJob
+	// Nil uses SaveSnapshot.Write. Configure this internal writer before use.
+	compactSaveWrite func(path string, snapshot *world.SaveSnapshot) error
+
 	listenersMu  sync.Mutex
 	listeners    map[net.Listener]struct{}
 	shuttingDown atomic.Bool

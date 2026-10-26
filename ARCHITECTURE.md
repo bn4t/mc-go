@@ -20,10 +20,11 @@ workers. Configure server fields before starting it.
 
 One simulation executor serializes gameplay actions. Java play handlers,
 player initialization and teardown, RCON commands, frontend actions,
-persistence snapshots and ticks use that ownership boundary. Save operations
-currently keep both snapshotting and disk I/O under ownership, so saving
-can pause gameplay; a detached snapshot followed by asynchronous I/O is
-future work. Internal helpers whose names end in
+persistence snapshots and ticks use that ownership boundary. Public compact
+JSON `SaveWorld` captures overrides under ownership, then sorts, serializes and
+writes the detached snapshot outside it while the caller waits. Native world
+saves, player/block-entity `SaveServerData` and `/save-all` still pause gameplay.
+Internal helpers whose names end in
 `Owned` require ownership and must not recursively acquire it. Sprints
 yield between complete ticks so commands can interleave. Deferred plugin
 enforcement uses a bounded queue of 256 actions, drained after an action;
@@ -35,9 +36,9 @@ light initialization/flood, or checks at most 64 already warm entries. Sessions
 remain in Configuration until preparation completes; the existing atomic Join,
 opening chunk batch, attributes, entities and admission transaction then runs.
 Join readiness tests distinguish this preparation and the complete streamed
-window from merely receiving Play Login. Movement and teleport windows still
-warm section and sky data synchronously before encoder submission, so a cold
-teleport can spend time on the owner before any encoder worker is involved.
+window from merely receiving Play Login. Live movement and teleport windows
+share that scheduler, preserving whole gameplay transactions while preparing
+their destination in separate owned units before final stream publication.
 Chunk packet encoding can run on bounded workers after owner-side capture
 of detached block states, block-entity NBT, light bytes and dimension scalars.
 Encoder functions receive no live gameplay objects; completion updates
@@ -415,9 +416,9 @@ exhausted replanning and known cancellation close the connection without adding
 an invented pre-Join packet. Host/session/runtime cancellation stops between
 whole units; a running unit retains its slot until it finishes. Remote peer EOF
 is still detected only when the existing packet reader resumes. Shutdown joins
-the scheduler before retiring world workers. Saves and other long gameplay
-actions retain their existing synchronous behavior; live-window preparation is
-described separately below.
+the scheduler before retiring world workers. Native/player/command saves and
+other long gameplay actions retain their existing synchronous behavior;
+public compact saves and live-window preparation are described separately below.
 
 The unchanged public TCP harness is
 `tests/blackbox/cold_join_responsiveness_test.go`, SHA-256
@@ -557,6 +558,92 @@ reports and immutable baseline exports remain outside the repository.
 
 ```sh
 MCGO_LIVE_WINDOW_REPORT=/tmp/live-probes.jsonl GOMAXPROCS=5 GOFLAGS=-buildvcs=false go test ./tests/blackbox -run '^TestLiveWindowResponsiveness$' -count=5 -timeout=5m -v
+```
+
+## Compact world saves
+
+Public `SaveWorld` in compact `WorldPath` mode captures all dimensions' block
+overrides under the simulation owner, retaining only private override maps,
+immutable catalogs and detached destination paths. Canonical version-two
+conversion, sorting, JSON encoding and file writes run outside ownership. The
+public call still waits for its own write result; returning success means the
+file writes returned successfully, without an fsync or crash-atomic guarantee.
+An accepted save represents its capture point, so later gameplay edits belong
+to a later save.
+
+Each runtime admits one unfinished compact snapshot/write job, reserving it
+before copying any overrides. Other public callers wait outside ownership
+without capturing another snapshot, then recheck shutdown and capture their
+own state when admitted. This bounds admitted jobs, not bytes: capture and
+retained maps still cost O(total overrides), and serialization creates further
+temporary output. Capture itself can pause gameplay. A worker reads no live
+world, dimension or session and never needs the simulation owner to finish.
+
+Compact `/save-all` uses the same ordered writer, waits for any previously
+submitted job, then captures and waits for its own save under ownership. Its
+wait can still block gameplay. Shutdown rejects unadmitted compact saves and
+drains an accepted receipt before world workers retire, without starting a new
+save. Separate runtimes or other processes writing the same paths have no new
+coordination contract.
+
+Native `WorldDir` saves retain precedence and their existing owned region,
+entity and player-file paths. `SaveServerData`, including player/block-entity
+JSON, remains owner-blocking. The CLI still calls `SaveWorld` and
+`SaveServerData` separately; there is no atomic snapshot or commit across those
+stores or across dimension files. Its periodic timer still does not consult
+the existing `/save-off` state. Native player-file errors retain their existing
+recording/propagation behavior. These paths and shutdown autosave policy remain
+separate work.
+
+The public API/TCP performance fixture is
+`tests/blackbox/compact_save_responsiveness_test.go`, SHA-256
+`0ebafbc3fd1a5b97618f438e76044cba20d0aa86f7832e645b2df187dd6acbe6`.
+Its baseline is clean archive `d31459f6ea9a8b8ef468c300b04f95e39d93b47f`
+with only that test added. Five sequential runs per implementation load a fixed
+canonical-v2 fixture: 262,144 overrides, split 131,072 overworld and 65,536 each
+nether/end, totaling 15,532,104 bytes. Entries use stone, dirt, glass and
+`oak_log[axis=y]` at distant coordinates, with reversed input order. Public
+runtime startup, loading, complete 49-column readiness on both 775/776
+observers, token fences and a garbage collection precede measurement. There is
+no injected writer delay. Each observer issues one token at a time and paces
+20 ms after responses while the host calls public `SaveWorld`.
+
+API timing ends when `SaveWorld` returns. Every saved row is then checked for
+version, count, coordinate, canonical state, uniqueness and x/y/z order. Both
+implementations produce identical file hashes in every included run. The
+overworld output SHA-256 is
+`03fa1403c04e90afb4c0823d9c2af5ae0225cbacc64c3875c901a94e422dafae`;
+nether/end are each
+`c2ab46fe99d553d51fc099e72b101f6e8e266b30682c865226c493d0946131be`.
+The input SHA-256 values are
+`3a5e78a96f223045b9242da541680f554c92c0118edc037be67c9249dfb63ce3`
+and `ac0a3dc2085ed706fada8928dc6ee59c1a38e0a1aa603739d3601cead3434b8d`.
+Raw call/API-completion and observer start/end timestamps retain responses
+completed beyond API return; quantiles use nearest rank on pooled samples.
+
+| Operation | Baseline | Detached public compact save |
+| --- | ---: | ---: |
+| API completion median (range) | 234.643 ms (200.975–293.542) | 215.295 ms (206.071–221.390) |
+| 775 token count / completed before API return | 5 / 0 | 39 / 39 |
+| 775 token p50 / p95 / maximum | 235.013 / 293.814 / 293.814 ms | 0.213 / 68.012 / 70.060 ms |
+| 776 token count / completed before API return | 5 / 0 | 40 / 40 |
+| 776 token p50 / p95 / maximum | 235.003 / 293.789 / 293.789 ms | 0.230 / 67.741 / 70.047 ms |
+| 775 first-response median (range) | 235.013 ms (201.501–293.814) | 67.753 ms (53.133–70.060) |
+| 776 first-response median (range) | 235.003 ms (201.465–293.789) | 67.741 ms (53.029–70.047) |
+
+Observer work completes before the public save returns. The first response
+still waits roughly 53–70 ms here, including capture, contention, transport and
+client scheduling; it does not isolate or bound owner hold. API completion
+ranges overlap, establishing no serialization or disk-speed improvement. One
+outstanding request yields fewer baseline samples during stalls, so this is
+not a fixed offered-rate capacity test. Filesystem/page-cache, CPU and GC
+effects are included; there is no fsync operation or memory improvement claim.
+The measurements use Linux/amd64 Go 1.27.3, AMD EPYC 9V74, `GOMAXPROCS=5` and
+`GOFLAGS=-buildvcs=false`. Raw logs, reports and baseline exports remain outside
+the repository. Race-instrumented runs establish functionality separately.
+
+```sh
+MCGO_COMPACT_SAVE_REPORT=/tmp/save-probes.jsonl GOMAXPROCS=5 GOFLAGS=-buildvcs=false go test ./tests/blackbox -run '^TestCompactSaveResponsiveness$' -count=5 -timeout=10m -v
 ```
 
 ## Conformance and provenance

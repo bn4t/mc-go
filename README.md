@@ -166,6 +166,12 @@ read historical version 1 IDs through their 776 mapping. Native region-format
 persistence keeps its existing names/properties encoding. Legacy item JSON
 numeric persistence has not been migrated to catalog-independent keys.
 
+Public `SaveWorld` in compact `-world` mode captures overrides under ownership,
+then writes the detached snapshot outside it while the caller waits. Native
+`-world-dir`, player/block-entity saves and `/save-all` still block gameplay.
+See [ARCHITECTURE.md](ARCHITECTURE.md#compact-world-saves) for ordering,
+shutdown and persistence boundaries.
+
 ## Testing
 
 ```sh

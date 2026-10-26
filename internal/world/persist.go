@@ -49,15 +49,39 @@ func (w *World) Restore(m map[Pos]Block) {
 	}
 }
 
+// SaveSnapshot owns detached block overrides and their immutable catalog. It
+// retains no world or shard workers, so Write can run after gameplay resumes or
+// the source world stops. Capture still copies every override; this is not a
+// bounded-byte or incremental world snapshot.
+type SaveSnapshot struct {
+	blocks  map[Pos]Block
+	catalog *registry.BlockCatalog
+}
+
+// CaptureSave copies overrides for a later compact JSON save. Callers must
+// exclude gameplay mutations while capturing when they need a coherent cut.
+func (w *World) CaptureSave() *SaveSnapshot {
+	return w.captureSaveWithCatalog(BlockCatalog())
+}
+
+func (w *World) captureSaveWithCatalog(catalog *registry.BlockCatalog) *SaveSnapshot {
+	return &SaveSnapshot{blocks: w.Snapshot(), catalog: catalog}
+}
+
 // Save writes canonical identities as versioned JSON. Generator output is
 // implicit; numeric runtime handles are never persisted by the current format.
-func (w *World) Save(path string) error { return w.saveWithCatalog(path, BlockCatalog()) }
+func (w *World) Save(path string) error { return w.CaptureSave().Write(path) }
 
 func (w *World) saveWithCatalog(path string, catalog *registry.BlockCatalog) error {
-	snap := w.Snapshot()
-	f := persistFile{Version: persistVersion, Blocks: make([]persistEntry, 0, len(snap))}
-	for p, id := range snap {
-		state, ok := catalog.State(id)
+	return w.captureSaveWithCatalog(catalog).Write(path)
+}
+
+// Write sorts, serializes and writes only captured values. Completion means the
+// file write returned; it does not imply fsync or an atomic multi-file commit.
+func (snap *SaveSnapshot) Write(path string) error {
+	f := persistFile{Version: persistVersion, Blocks: make([]persistEntry, 0, len(snap.blocks))}
+	for p, id := range snap.blocks {
+		state, ok := snap.catalog.State(id)
 		if !ok {
 			return fmt.Errorf("world: cannot persist unknown runtime state %d at %+v", id, p)
 		}

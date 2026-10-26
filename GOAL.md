@@ -15246,3 +15246,91 @@ no flee; unsneak → flee). Green both legs.
   terrain publication. This introduces no region ownership, total heap cap,
   sustained TPS, network latency or player-capacity guarantee. Broader parity,
   modular-server and conformance work remains unfinished.
+
+## Slice — detached public compact world saves (2026-10-26)
+
+- **Measured:** source classes are the existing independently written
+  canonical-v2 JSON format, public Go API/artifact observations and fresh
+  official 26.1/775 plus 26.2/776 command-wire observations. Go 1.27.3 and
+  Temurin JDK 25.0.5+8 probes pin successful `save-all` and `save-all flush`:
+  Saving precedes Success for the caller, while only Success echoes to the
+  second operator. The compact manifest records probe/log/oracle SHA-256.
+  These vanilla commands exercise native persistence and do not establish
+  compact Go save or restart semantics. No new bytecode extraction, generated
+  table or external dependency is introduced.
+- **Implemented:** public `SaveWorld` in compact `WorldPath` mode reserves
+  one unfinished job before capturing every dimension's override map, immutable
+  catalog and destination path under simulation ownership. Canonical conversion,
+  sorting, JSON serialization and file writes use only detached values outside
+  ownership. The caller waits outside ownership for its own actual write result.
+  Busy public callers retain no new snapshot, wait outside ownership, then
+  recheck shutdown and capture their own state when admitted. This limits jobs,
+  not bytes: capture/storage remain O(total overrides), with serialization
+  temporaries additional. Capture itself can still pause gameplay.
+- **Ordering and lifecycle:** compact `/save-all` uses the same writer fence,
+  waits for prior submitted work, then captures and waits for its own save
+  under ownership. The worker never needs the owner, preventing that wait from
+  inverting ownership. A final admission check rejects an owned waiter if
+  shutdown starts before its capture. Shutdown drains accepted detached work
+  before world workers retire and rejects unadmitted requests, without starting
+  a new save. Native `WorldDir`, `SaveServerData` and player/block-entity paths
+  retain their existing owner-blocking behavior. Main still calls `SaveWorld`
+  then `SaveServerData` separately; this adds no cross-store atomicity.
+- **Responsiveness:** the unchanged public API/TCP probe is SHA-256
+  `0ebafbc3fd1a5b97618f438e76044cba20d0aa86f7832e645b2df187dd6acbe6`.
+  Its baseline is clean archive `d31459f6ea9a8b8ef468c300b04f95e39d93b47f`
+  with only that test added. Five sequential runs per implementation use
+  262,144 fixed overrides across all three dimensions, totaling 15,532,104
+  bytes, and ready 775/776 observers with one token outstanding each and 20 ms
+  response pacing. Bootstrap/loading precede measurement; no writer delay is
+  injected. Every saved row, canonical state, count, coordinate and sort order
+  is checked after API return, with identical saved-file hashes across all runs.
+  API completion medians are 234.643 ms (200.975–293.542) and 215.295 ms
+  (206.071–221.390); overlapping ranges establish no speed improvement.
+  The 775 observer has 5 to 39 samples, with 0 to 39 completed before return;
+  p50/p95/max change from 235.013/293.814/293.814 ms to
+  0.213/68.012/70.060 ms. The 776 observer has 5 to 40 samples, with 0 to 40
+  before return; 235.003/293.789/293.789 ms becomes 0.230/67.741/70.047 ms.
+  First-response medians remain 67.753/67.741 ms, with roughly 53–70 ms ranges,
+  including capture, contention, TCP and scheduling rather than isolated owner
+  hold. Raw timestamps retain samples beyond API return; pooled quantiles use
+  nearest rank. One outstanding request produces fewer stalled baseline samples
+  and does not establish fixed offered-rate capacity. ARCHITECTURE.md records
+  the full fixture, input/output hashes, platform and reproduction command.
+- **Pinned:** nine deterministic new tests cover detached canonical snapshots,
+  later mutation/Restore, writing after the source world stops, unknown-state
+  rejection without truncating an existing file, actual public avatar movement
+  and block edits while a writer is blocked, independent dimension identities,
+  public/command ordering, busy caller recapture, write/error recovery and
+  shutdown draining/rejection. A public TCP pin copies all three artifacts
+  immediately after `SaveWorld` returns and before any session closes or Stop,
+  saves a later source generation, then restarts from the earlier copies.
+  Both 775/776 clients verify explicit air replacing generated ground and full
+  canonical block/property identities in overworld/nether/end through decoded
+  chunks and commands. This tests compact blocks, not player/container/native
+  persistence. New command-wire checks execute both official oracles without
+  skips, retaining the existing successful save feedback contract.
+- **Validation:** the complete uncached default `go test ./...` passes in
+  241.946 s wall time, including internal server (240.029 s), world (0.676 s),
+  public external consumers (9.891 s) and the complete Java-free blackbox
+  package (130.926 s). Build and vet pass. All Go source fingerprints stay
+  unchanged through those gates; production hashes match the clean performance
+  runs. New deterministic/old autosave races pass for server/world in
+  1.634/1.293 s, and existing persistence/canonical-format races pass in
+  13.637/1.346 s. The combined public TCP restart/save probe race passes in
+  64.940 s. New Go restart and actual 775/776 command checks pass together in
+  22.147 s without skips; the existing actual-vanilla operator-echo comparison
+  also passes in 15.108 s. Publication additionally validates the actual
+  committed tree through a clean `git archive`, full build, separate public
+  consumers, focused world/server persistence tests and both new Go API/TCP
+  scenarios. Race runs provide functional evidence, not performance samples.
+- **Remaining:** native world saves, `SaveServerData` and `/save-all` can still
+  block gameplay; the command can wait for an already submitted compact worker
+  while holding ownership. The CLI timer still does not consult `/save-off`,
+  and existing native player-file error recording/propagation is unchanged.
+  Separate dimension files and world/player stores have no atomic commit;
+  write completion does not imply fsync or power-loss durability. Concurrent
+  external writers or runtimes sharing paths have no new coordination.
+  Capture size/owner hold, total heap, hard latency, sustained TPS, regional
+  ownership and complete modular gameplay/persistence parity remain unbounded
+  or unfinished.

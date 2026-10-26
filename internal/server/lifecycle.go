@@ -36,40 +36,60 @@ func (s *Server) ShuttingDown() bool { return s.shuttingDown.Load() }
 // SaveWorld persists every dimension's block overrides. WorldDir, when
 // set, saves in the real server's own world format so the world can be
 // handed to vanilla and back; otherwise it writes the compact JSON
-// save file. It reports an error when persistence is disabled so
-// /save-all answers honestly.
+// save file. Compact JSON captures a coherent cut under simulation ownership,
+// then sorts, serializes and writes it outside ownership. This call waits for
+// the actual write result. Native-format saves remain entirely owned. It
+// reports an error when persistence is disabled so /save-all answers honestly.
 func (s *Server) SaveWorld() error {
-	var err error
-	s.simulationAction(func() {
-		if s.ShuttingDown() {
-			err = net.ErrClosed
-			return
+	for {
+		var job *compactWorldSaveJob
+		var admitted bool
+		var err error
+		s.simulationAction(func() {
+			if s.ShuttingDown() {
+				err = net.ErrClosed
+				return
+			}
+			if s.WorldDir != "" {
+				err = s.saveWorldDir()
+				return
+			}
+			if job = s.pendingCompactWorldSaveOwned(); job != nil {
+				return
+			}
+			job, err = s.startCompactWorldSaveOwned()
+			admitted = err == nil
+		})
+		if err != nil || job == nil {
+			return err
 		}
-		err = s.saveWorldOwned()
-	})
-	return err
+		// A busy caller waits without ownership or a reserved snapshot. Retry
+		// admission afterward, including the shutdown check, to capture its own
+		// coherent state rather than reporting an earlier save as its result.
+		<-job.done
+		if admitted {
+			return job.err
+		}
+	}
 }
 
-// saveWorldOwned keeps the snapshot and disk writes together under ownership.
-// Persistence currently pauses gameplay; asynchronous immutable save snapshots
-// are a separate pipeline and must preserve cross-store consistency.
+// saveWorldOwned preserves synchronous command completion. Compact commands
+// join any earlier submitted write before capturing their own ordered save.
+// Waiting here still pauses gameplay; workers must never need the owner to
+// complete. Public SaveWorld waits outside ownership instead.
 func (s *Server) saveWorldOwned() error {
 	if s.WorldDir != "" {
 		return s.saveWorldDir()
 	}
-	if s.WorldPath == "" {
-		return errors.New("world saving is disabled (no --world)")
+	if job := s.pendingCompactWorldSaveOwned(); job != nil {
+		<-job.done
 	}
-	for name, d := range s.dims {
-		path := s.WorldPath
-		if name != dimOverworld {
-			path += "." + strings.TrimPrefix(name, "minecraft:")
-		}
-		if err := d.w.Save(path); err != nil {
-			return err
-		}
+	job, err := s.startCompactWorldSaveOwned()
+	if err != nil {
+		return err
 	}
-	return nil
+	<-job.done
+	return job.err
 }
 
 // LoadWorld restores block overrides at boot, per dimension. Missing
@@ -362,6 +382,13 @@ func (s *Server) Shutdown(reason string) {
 		s.closeAllWorldviewsOwned()
 		s.retireAvatarsOwned("Server closed")
 	})
+	// An admitted compact save owns detached values and must finish even after
+	// cancellation. Read its receipt under ownership, then join outside it.
+	var save *compactWorldSaveJob
+	s.simulationAction(func() { save = s.compactSave })
+	if save != nil {
+		<-save.done
+	}
 	s.stopChunkEncoder()
 	for _, d := range s.dims {
 		d.w.Stop()
