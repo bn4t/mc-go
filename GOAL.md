@@ -15849,3 +15849,54 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:** features (ores, trees, vegetation, lakes, the End's
   spikes and islands), structures and the beardifier; fluid post-
   processing of carved water and lava.
+
+## Slice — worldgen features stage: feature order, decoration seeding, placement and ores (2026-10-27)
+
+- **Measured:** bytecode inspection of `ChunkGenerator.applyBiomeDecoration`
+  (decoration seed from the chunk's section origin, the biomes of every
+  section of the 3×3, per step the sorted union of their feature
+  indexes, each placed feature seeded `decoration + index + 10000·step`),
+  `FeatureSorter.buildFeaturesPerStep` (first-seen feature ids over the
+  possible biomes in parameter-list order, a (step, id)-ordered graph of
+  each biome's flattened lists, depth-first emission reversed),
+  `WorldgenRandom` (legacy draws on bits from the top of the wrapped
+  Xoroshiro source's longs; reseeding leaves its cached gaussian),
+  `PlacedFeature` (modifiers chained as lazy flat maps, so each position
+  reaches the feature before the next is drawn), all fifteen placement
+  modifiers, the int, float and height providers, `WeightedList`, rule
+  tests, block predicates, `WorldGenRegion` (write zone one chunk around
+  the middle, heightmap reads, the region random) and `OreFeature`
+  (sphere chain, overlap culling, bulk section writes, air exposure), the
+  chunk statuses' heightmap sets (carved chunks keep their worldgen
+  heightmaps frozen and live final heightmaps) and `Heightmap` priming
+  and updates, on the 26.2 jar (unpacked SHA-256 `183c0499…823e8`,
+  Temurin JDK 25.0.5+8). Configured and placed features and biome feature
+  lists come from the datagen worldgen data via `tools/genworldgen`
+  (inputs SHA-256 `083a0ff6…d009`). Block-state facts (air, blocks
+  motion, solid, replaceable, fluids, leaves, sturdy faces, full-block
+  collision) are measured by runtime calls in
+  `tools/genblockprops` (`BlockPropsProbe.java`, SHA-256
+  `b5cd2523…576a`; measurement SHA-256 `da1ba860…60ab`).
+  `FeatureProbe.java` (SHA-256 `54e5373c…469a`) has the generator
+  decorate standalone proto chunks — 30 overworld, 6 nether and 5 End
+  chunks for seed 12345 — through a `WorldGenLevel` proxy that behaves as
+  a generation region (unlit: sky light 15, block light 0), and records
+  the per-step feature order and, for every placed feature, the blocks
+  of the 3×3 it changed (`testdata/features.tsv.gz`, SHA-256
+  `597760a7…a15d`). `tools/worldgendiff` compares the generator with a
+  world the official server saved.
+- **Implemented:** `worldgen` decoration regions with frozen worldgen and
+  live final heightmaps, the feature registry decoded from the generated
+  data, the global feature order, decoration and feature seeding, every
+  placement modifier, block predicates, providers and rule tests, block
+  state facts by registry id, and the ore feature.
+- **Pinned:** `TestFeatureOrderMatchesVanilla` — the per-step order of
+  all three dimensions; `TestFeaturesMatchVanilla` — the probe's chunks
+  decorated feature by feature, every implemented feature changing
+  exactly vanilla's blocks (all 808 ore placements, and every placement
+  pipeline that places nothing), unimplemented features replaying
+  vanilla's changes so each feature starts from vanilla's state.
+- **Remaining:** the other 54 feature types (trees, vegetation, springs,
+  lakes, disks, geodes, dripstone, sculk, the nether and End features),
+  survival rules for `would_survive`, structures, and running the
+  features stage in the server's generator.

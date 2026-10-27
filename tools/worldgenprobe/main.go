@@ -2,8 +2,10 @@
 // server's world-generation classes at runtime into
 // internal/worldgen/testdata, the goldens the Go implementation is
 // tested against: random draws, positional sources, noise samples and
-// noise-router outputs (WorldgenProbe.java, vanilla_probe.tsv), and
-// noise-stage chunk fills (ChunkFillProbe.java, chunk_fill.tsv.gz). The
+// noise-router outputs (WorldgenProbe.java, vanilla_probe.tsv), chunk
+// fills through the carvers (ChunkFillProbe.java, chunk_fill.tsv.gz),
+// and per-feature decoration deltas (FeatureProbe.java,
+// features.tsv.gz). The
 // probes call the running game's own code; nothing is decompiled.
 // Regeneration needs JDK 25 and the unpacked server (vanilla/versions,
 // vanilla/libraries).
@@ -47,13 +49,15 @@ func main() {
 	defer os.RemoveAll(temp)
 	run(filepath.Join(*jdk, "javac"), "-cp", cp, "-d", temp,
 		filepath.Join(*root, "tools/worldgenprobe/WorldgenProbe.java"),
-		filepath.Join(*root, "tools/worldgenprobe/ChunkFillProbe.java"))
+		filepath.Join(*root, "tools/worldgenprobe/ChunkFillProbe.java"),
+		filepath.Join(*root, "tools/worldgenprobe/FeatureProbe.java"))
 	jarSum := sha256.Sum256(must1(os.ReadFile(jar)))
 	testdata := filepath.Join(*root, "internal/worldgen/testdata")
 	must(os.MkdirAll(testdata, 0o755))
 	for _, probe := range []struct{ class, file string }{
 		{"WorldgenProbe", "vanilla_probe.tsv"},
 		{"ChunkFillProbe", "chunk_fill.tsv.gz"},
+		{"FeatureProbe", "features.tsv.gz"},
 	} {
 		out := filepath.Join(temp, probe.class+".tsv")
 		run(filepath.Join(*jdk, "java"), "-cp", temp+string(os.PathListSeparator)+cp, probe.class, out)

@@ -276,6 +276,19 @@ func (c *ChunkBiomes) At(qx, qy, qz int32) string {
 	return biomeNameTable[c.biomes[c.index(qx-c.CX*4, qy, qz-c.CZ*4)]]
 }
 
+// names lists the biomes stored anywhere in the chunk.
+func (c *ChunkBiomes) names() []string {
+	var seen [256]bool
+	var out []string
+	for _, b := range c.biomes {
+		if !seen[b] {
+			seen[b] = true
+			out = append(out, biomeNameTable[b])
+		}
+	}
+	return out
+}
+
 // BiomeRegion answers quart biomes from the stored biomes of a 3×3 block
 // of chunks around a center chunk, as a generation region does.
 type BiomeRegion struct {

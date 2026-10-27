@@ -68,6 +68,8 @@ type GenChunk struct {
 	// surfaceTop is per column the lowest Y with only air at and above
 	// it (MinY when the column is empty).
 	surfaceTop [256]int32
+	// heights are the heightmaps of the features stage.
+	heights *finalHeights
 }
 
 func (c *GenChunk) index(x, y, z int32) int { return int((y-c.MinY)*256 + z*16 + x) }
