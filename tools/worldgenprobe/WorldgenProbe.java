@@ -124,6 +124,18 @@ public class WorldgenProbe {
                 out.printf("zoom\t%d\t%d,%d,%d\t%s%n", seed, x, y, z, biome.unwrapKey().orElseThrow().identifier());
             }
         }
+        // The game's sine table, as a polynomial hash of its float bits.
+        var sinField = net.minecraft.util.Mth.class.getDeclaredField("SIN");
+        sinField.setAccessible(true);
+        long sinHash = 0;
+        for (float f : (float[]) sinField.get(null)) sinHash = sinHash * 31 + Float.floatToRawIntBits(f);
+        out.printf("mthsin\t%d%n", sinHash);
+        // The climate spawn search the initial world spawn starts from.
+        for (long seed : new long[]{0L, 12345L, -4172144997902289642L, 1L, 42L, 8675309L, 2026L, -1L,
+                3141592653589793L, -987654321L, 7777777L, 123456789012345L}) {
+            var sp = RandomState.create(settings, noises, seed).sampler().findSpawnPosition();
+            out.printf("spawn\t%d\t%d,%d%n", seed, sp.getX(), sp.getZ());
+        }
         out.close();
     }
 }

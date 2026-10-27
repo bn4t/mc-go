@@ -24,18 +24,27 @@ import net.minecraft.world.level.levelgen.blending.Blender;
 
 // Has the official server's noise-based generator run its first stages
 // on standalone proto chunks — biomes, the noise fill (terrain density,
-// aquifers, ore veins) and the surface (surface rules and the badlands
-// and iceberg column extensions), but no carvers or features — and
-// records each column after the fill and after the surface as runs of
-// block states (properties sorted). The chunk's NoiseChunk is created up front with
+// aquifers, ore veins), the surface (surface rules and the badlands
+// and iceberg column extensions) and the carvers, but no features — and
+// records each column after the fill, the surface and the carvers as
+// runs of block states (properties sorted). The chunk's NoiseChunk is created up front with
 // the beardifier marker, as a chunk with no structures gets, so the
 // generator's own fill needs no structure manager. Only public entry
 // points are called, plus reflective calls of the generator's own fill
-// and fluid-picker methods.
+// and fluid-picker methods. Block tags are bound from the vanilla data
+// pack before the registries are looked up.
 public class ChunkFillProbe {
     public static void main(String[] args) throws Exception {
         SharedConstants.tryDetectVersion();
         net.minecraft.server.Bootstrap.bootStrap();
+        // Bind the built-in registries' tags from the vanilla data pack,
+        // as a starting server does: carvers replace by block tag.
+        var resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(
+            net.minecraft.server.packs.PackType.SERVER_DATA,
+            List.of(net.minecraft.server.packs.repository.ServerPacksSource.createVanillaPackSource()));
+        net.minecraft.tags.TagLoader.loadTagsForExistingRegistries(resources,
+            RegistryAccess.fromRegistryOfRegistries(net.minecraft.core.registries.BuiltInRegistries.REGISTRY))
+            .forEach(net.minecraft.core.Registry.PendingTags::apply);
         var lookup = VanillaRegistries.createLookup();
         var biomes = lookup.lookupOrThrow(Registries.BIOME);
         MappedRegistry<Biome> biomeRegistry = new MappedRegistry<>(Registries.BIOME, Lifecycle.stable());
@@ -50,16 +59,16 @@ public class ChunkFillProbe {
                 net.minecraft.world.level.biome.MultiNoiseBiomeSource.createFromPreset(
                     paramLists.getOrThrow(net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterLists.OVERWORLD)),
                 -64, 384, new long[]{0L, 12345L, -4172144997902289642L},
-                new int[][]{{0, 0}, {-1, 3}, {10, -7}, {-37, -52}, {125, 88}, {-300, 412}, {4, -1}, {61, 61}});
+                new int[][]{{0, 0}, {-1, 3}, {10, -7}, {-37, -52}, {125, 88}, {-300, 412}, {4, -1}, {61, 61}}, access, true);
             run(out, ".nether", lookup, containers, NoiseGeneratorSettings.NETHER,
                 net.minecraft.world.level.biome.MultiNoiseBiomeSource.createFromPreset(
                     paramLists.getOrThrow(net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterLists.NETHER)),
                 0, 256, new long[]{0L, 12345L},
-                new int[][]{{0, 0}, {-3, 5}, {20, -11}, {-40, 33}, {7, 7}, {100, -60}});
+                new int[][]{{0, 0}, {-3, 5}, {20, -11}, {-40, 33}, {7, 7}, {100, -60}}, access, true);
             run(out, ".end", lookup, containers, NoiseGeneratorSettings.END,
                 net.minecraft.world.level.biome.TheEndBiomeSource.create(lookup.lookupOrThrow(Registries.BIOME)),
                 0, 256, new long[]{0L, 12345L},
-                new int[][]{{0, 0}, {5, -3}, {70, 10}, {-90, 40}, {120, -130}, {-200, -200}});
+                new int[][]{{0, 0}, {5, -3}, {70, 10}, {-90, 40}, {120, -130}, {-200, -200}}, access, false);
         }
     }
 
@@ -67,7 +76,7 @@ public class ChunkFillProbe {
     // for its 3x3 neighbourhood, then the noise fill and the surface.
     static void run(PrintWriter out, String tag, net.minecraft.core.HolderLookup.Provider lookup, PalettedContainerFactory containers,
             net.minecraft.resources.ResourceKey<NoiseGeneratorSettings> settingsKey, net.minecraft.world.level.biome.BiomeSource biomeSource,
-            int heightMinY, int heightTotal, long[] seeds, int[][] chunks) throws Exception {
+            int heightMinY, int heightTotal, long[] seeds, int[][] chunks, RegistryAccess access, boolean carve) throws Exception {
         var settingsHolder = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(settingsKey);
         NoiseGeneratorSettings settings = settingsHolder.value();
         var generator = new NoiseBasedChunkGenerator(biomeSource, settingsHolder);
@@ -130,6 +139,39 @@ public class ChunkFillProbe {
                     generator.buildSurface(chunk, new net.minecraft.world.level.levelgen.WorldGenerationContext(generator, height),
                         state, null, manager, Blender.empty(), biomeSource.possibleBiomes());
                     dump(out, "surface" + tag, seed, c, chunk, height);
+                    if (!carve) continue;
+                    // The carvers stage as the generator's applyCarvers
+                    // runs it: every chunk within 8 may start its
+                    // biome's carvers (biome sampled from the source at
+                    // the chunk's corner quart, y 0), each seeded from
+                    // the world seed plus its index; carving reads block
+                    // biomes zoomed straight from the biome source.
+                    var noiseChunk = chunk.getOrCreateNoiseChunk(cc -> { throw new IllegalStateException(); });
+                    var carving = new net.minecraft.world.level.levelgen.carver.CarvingContext(generator, access,
+                        chunk.getHeightAccessorForGeneration(), noiseChunk, state, settings.surfaceRule());
+                    var sourceManager = manager.withDifferentSource((qx, qy, qz) -> biomeSource.getNoiseBiome(qx, qy, qz, state.sampler()));
+                    var aquifer = noiseChunk.aquifer();
+                    var mask = chunk.getOrCreateCarvingMask();
+                    var random = new net.minecraft.world.level.levelgen.WorldgenRandom(
+                        new net.minecraft.world.level.levelgen.LegacyRandomSource(0L));
+                    for (int dx = -8; dx <= 8; dx++) {
+                        for (int dz = -8; dz <= 8; dz++) {
+                            ChunkPos start = new ChunkPos(c[0] + dx, c[1] + dz);
+                            var gen = generator.getBiomeGenerationSettings(biomeSource.getNoiseBiome(
+                                net.minecraft.core.QuartPos.fromBlock(start.getMinBlockX()), 0,
+                                net.minecraft.core.QuartPos.fromBlock(start.getMinBlockZ()), state.sampler()));
+                            int index = 0;
+                            for (var holder : gen.getCarvers()) {
+                                var carver = holder.value();
+                                random.setLargeFeatureSeed(seed + index, start.x(), start.z());
+                                if (carver.isStartChunk(random)) {
+                                    carver.carve(carving, chunk, sourceManager::getBiome, random, aquifer, start, mask);
+                                }
+                                index++;
+                            }
+                        }
+                    }
+                    dump(out, "carve" + tag, seed, c, chunk, height);
                 }
             }
         }

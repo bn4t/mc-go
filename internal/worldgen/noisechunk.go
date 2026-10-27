@@ -71,6 +71,9 @@ type NoiseChunkFiller struct {
 
 	pslCache map[[2]int32]int32
 	aq       aquifer
+
+	// carverTags caches carver replaceable-tag membership by state.
+	carverTags map[string]map[StateID]bool
 }
 
 // NewNoiseChunkFiller binds the generator's router with per-chunk caches.
@@ -86,6 +89,8 @@ func NewNoiseChunkFiller(rs *RandomState) *NoiseChunkFiller {
 		aquifers: s.AquifersEnabled,
 		veins:    s.OreVeinsEnabled,
 		pslCache: map[[2]int32]int32{},
+
+		carverTags: map[string]map[StateID]bool{},
 	}
 	f.cellMinY = floorDiv32(f.minY, f.cellH)
 	f.cellCountY = floorDiv32(f.height, f.cellH)

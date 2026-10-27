@@ -31,6 +31,15 @@ type NoiseSettings struct {
 	DisableMobGeneration         bool
 	Router                       Router
 	Surface                      *SurfaceRule
+	SpawnTarget                  []ClimateSpan
+}
+
+// ClimateSpan is a climate parameter point: a range per axis
+// (temperature, humidity, continentalness, erosion, depth, weirdness)
+// and an offset.
+type ClimateSpan struct {
+	Lo, Hi [6]float32
+	Offset float32
 }
 
 // Settings looks up registered noise settings, e.g. "minecraft:overworld".

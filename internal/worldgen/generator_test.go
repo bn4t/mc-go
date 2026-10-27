@@ -6,7 +6,8 @@ import (
 )
 
 // TestGeneratorServesConsistentChunks generates a block of chunks from
-// many goroutines and checks every chunk equals a sequential fill.
+// many goroutines and checks a chunk equals a sequential fill, surface
+// and carve.
 func TestGeneratorServesConsistentChunks(t *testing.T) {
 	g, err := NewGenerator("minecraft:overworld", "minecraft:overworld", 12345)
 	if err != nil {
@@ -33,6 +34,9 @@ func TestGeneratorServesConsistentChunks(t *testing.T) {
 	blocks, _ := f.Fill(0, 0)
 	want := f.NewGenChunk(0, 0, blocks)
 	f.BuildSurface(want, region.Block(f.rs.ZoomSeed()))
+	direct := func(qx, qy, qz int32) string { return search.Find(f.rs.Climate(qx, qy, qz)) }
+	f.Carve(want, func(sx, sz int32) string { return direct(sx*4, 0, sz*4) },
+		func(x, y, z int32) string { return ZoomBiome(f.rs.ZoomSeed(), x, y, z, direct) })
 	got := g.Chunk(0, 0)
 	for y := want.MinY; y < want.MinY+want.Height; y++ {
 		for z := int32(0); z < 16; z++ {

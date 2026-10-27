@@ -81,15 +81,21 @@ func (c *GenChunk) Get(x, y, z int32) StateID {
 	return c.States[c.index(x, y, z)]
 }
 
-// set writes a state and keeps the heightmap: a solid write at or above
-// the top raises it.
+// set writes a state and keeps the heightmap: a non-air write at or
+// above the top raises it, an air write over the top block lowers it to
+// the next non-air block down.
 func (c *GenChunk) set(x, y, z int32, s StateID) {
 	if y < c.MinY || y >= c.MinY+c.Height {
 		return
 	}
 	c.States[c.index(x, y, z)] = s
-	if s != stAir && y >= c.surfaceTop[z*16+x] {
-		c.surfaceTop[z*16+x] = y + 1
+	top := &c.surfaceTop[z*16+x]
+	switch {
+	case !isAirState(s) && y >= *top:
+		*top = y + 1
+	case isAirState(s) && y == *top-1:
+		for *top = y; *top > c.MinY && isAirState(c.Get(x, *top-1, z)); *top-- {
+		}
 	}
 }
 

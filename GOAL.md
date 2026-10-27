@@ -62,9 +62,10 @@ Mojang server over the wire.
       ordering differences remain, as documented in the live-window slice.
 - [~] Vanilla terrain generation (seed, noise, biomes, structures) —
       random sources, noise, the overworld, nether and End noise
-      routers, biome sources and the noise and surface stages of chunk
-      filling (aquifers, ore veins, surface rules) match vanilla block
-      for block (`internal/worldgen`); the server does not use it yet
+      routers, biome sources, the noise and surface stages of chunk
+      filling (aquifers, ore veins, surface rules), the carvers and the
+      climate spawn search match vanilla block for block
+      (`internal/worldgen`); the server does not use it yet
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -15782,3 +15783,69 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:** carvers, features and structures for all three
   dimensions; the End's spikes, gateways and dragon fight; wiring the
   nether and End generators into the server.
+
+## Slice — worldgen climate spawn search (2026-10-27)
+
+- **Measured:** bytecode inspection of `Climate$SpawnFinder` (the origin
+  scored first, then two rings of samples around the best point so far
+  — out to 2048 every 512, then out to 512 every 32, the angle stepping
+  by spacing over radius in float and wrapping past 2π — replacing the
+  answer only when strictly fitter; fitness the spawn target distance
+  with depth taken as zero, times 2048², plus the squared distance from
+  the origin) and `Climate$ParameterPoint.fitness` on the 26.2 jar
+  (unpacked SHA-256 `183c0499…823e8`, Temurin JDK 25.0.5+8); the spawn
+  target ranges come from the overworld noise settings' `spawn_target`
+  via `tools/genworldgen` (inputs SHA-256 `7145293a…2a28`).
+  `WorldgenProbe.java` (SHA-256 `2133f36d…d677`) records
+  `findSpawnPosition` for twelve seeds (`testdata/vanilla_probe.tsv`,
+  SHA-256 `0d6711d0…5ac9`).
+- **Implemented:** `RandomState.FindSpawn`, and generated `SpawnTarget`
+  ranges in the noise settings.
+- **Pinned:** `TestFindSpawnMatchesVanilla` — all twelve seeds land on
+  vanilla's column; settings without a target search nothing.
+- **Remaining:** the server's use of it — the chunk spiral to the first
+  respawnable column — lands with the server terrain integration.
+
+## Slice — worldgen carvers: caves, canyons and nether caves (2026-10-27)
+
+- **Measured:** bytecode inspection of the generator's `applyCarvers`
+  (every chunk within 8 starts its corner biome's carvers — biome taken
+  straight from the source at the chunk's corner quart, y 0 — each
+  seeded by `setLargeFeatureSeed(seed + index, x, z)` and run when a
+  float draw is at most its probability; block biomes for the carvers
+  zoomed straight from the source), `WorldCarver` (`carveEllipsoid`'s
+  reach test, x/z and y bounds — one above the bottom, eight below the
+  top — column order top down and the carving mask; `carveBlock`'s
+  grass/mycelium flag, replaceable tag, lava level, aquifer substance
+  at density 0 and the top material restored on dirt left exposed;
+  `canReach`), `CaveWorldCarver` (the skewed system count
+  `nextInt(nextInt(nextInt(15)+1)+1)`, rooms on one in four, tunnels
+  with their split into two branches, steep tunnels, turn damping and
+  floor skip), `NetherWorldCarver` (count bound 10, thickness ×2,
+  y scale 5, cave air with lava up to 31 above the bottom),
+  `CanyonWorldCarver` (per-layer width factors, the vertical radius
+  shaping and its skip), `CarvingContext`/`SurfaceSystem.topMaterial`,
+  `Mth`'s sine table and `randomBetween`, the uniform and trapezoid
+  float providers, `UniformHeight` and `WorldgenRandom` on the 26.2
+  jar. Configured carvers and biome carver lists come from the datagen
+  worldgen data via `tools/genworldgen`; replaceable tags from the
+  generated block tags. `ChunkFillProbe.java` (SHA-256
+  `634410cd…8a12`) now binds the built-in registries' tags from the
+  vanilla data pack (as a starting server does — without them nothing
+  is replaceable) and runs the carvers after the surface for the
+  overworld and nether chunks, recording every column
+  (`testdata/chunk_fill.tsv.gz`, SHA-256 `463ff2b9…01a3`); the probe
+  also records a hash of the sine table.
+- **Implemented:** `worldgen` carvers (cave, nether cave, canyon) with
+  the carving mask, float and height providers, the sine table, the
+  legacy source's large-feature seeding, a heightmap that drops when
+  its top block is carved, and the generator running the carvers stage.
+- **Pinned:** `TestCarversMatchVanilla` — all 6144 overworld columns
+  (3059 of them carved: tunnels, rooms, canyons, aquifer water, lava
+  at and below y −56, grass restored over exposed dirt) and all 3072 nether
+  columns (1280 carved, lava up to y 31) match after the carvers;
+  `TestMthSinTableMatchesVanilla`; the generator's concurrent chunks
+  equal a sequential fill, surface and carve.
+- **Remaining:** features (ores, trees, vegetation, lakes, the End's
+  spikes and islands), structures and the beardifier; fluid post-
+  processing of carved water and lava.

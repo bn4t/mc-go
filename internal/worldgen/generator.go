@@ -8,7 +8,7 @@ import (
 )
 
 // Generator produces a dimension's terrain on demand, chunk by chunk:
-// biomes, the noise stage and the surface stage. Generated chunks and
+// biomes, the noise stage, the surface stage and the carvers. Generated chunks and
 // chunk biome storage are cached (bounded) and regenerated identically
 // after eviction. It is safe for concurrent use.
 type Generator struct {
@@ -222,7 +222,15 @@ func (g *Generator) generate(cx, cz int32) *TerrainChunk {
 	w := <-g.workers
 	blocks, _ := w.filler.Fill(cx, cz)
 	c := w.filler.NewGenChunk(cx, cz, blocks)
-	w.filler.BuildSurface(c, region.Block(g.rs.ZoomSeed()))
+	zoom := g.rs.ZoomSeed()
+	w.filler.BuildSurface(c, region.Block(zoom))
+	// Carvers read biomes straight from the biome source: the starting
+	// chunk's corner quart, and block biomes zoomed from it.
+	direct := func(qx, qy, qz int32) string {
+		return biomeNameTable[g.source.biomeIndex(g.rs, w.searcher, qx, qy, qz)]
+	}
+	w.filler.Carve(c, func(sx, sz int32) string { return direct(sx*4, 0, sz*4) },
+		func(x, y, z int32) string { return ZoomBiome(zoom, x, y, z, direct) })
 	g.workers <- w
 	out := &TerrainChunk{CX: cx, CZ: cz, MinY: c.MinY, Biomes: region.Center()}
 	for sy := int32(0); sy < c.Height/16; sy++ {
