@@ -142,6 +142,9 @@ type binder struct {
 	// otherwise it comes from root's "minecraft:terrain" hash.
 	legacy bool
 	root   Positional
+	// marker, when set, decides what a cache or interpolation marker
+	// becomes; a chunk filler uses it to install its per-chunk caches.
+	marker func(k Kind, in Func) Func
 }
 
 func (b *binder) bind(s *Spec) Func {
@@ -190,7 +193,11 @@ func (b *binder) bind(s *Spec) Func {
 		sp := b.bindSpline(s.Spline)
 		return &splineFn{s: sp}
 	case KInterpolated, KFlatCache, KCache2D, KCacheOnce, KCacheAllInCell:
-		return &marker{kind: s.Kind, in: b.bind(s.Args[0])}
+		in := b.bind(s.Args[0])
+		if b.marker != nil {
+			return b.marker(s.Kind, in)
+		}
+		return &marker{kind: s.Kind, in: in}
 	case KBlendAlpha:
 		return constant(1)
 	case KBlendOffset, KBeardifier:

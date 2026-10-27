@@ -72,10 +72,18 @@ func NewRandomState(s *NoiseSettings, seed int64) *RandomState {
 	rs.Random = root.ForkPositional()
 	rs.Aquifer = rs.Random.FromHash("minecraft:aquifer").ForkPositional()
 	rs.Ore = rs.Random.FromHash("minecraft:ore").ForkPositional()
-	b := &binder{noises: rs, refs: densityFunctions, bound: map[string]Func{}, seed: seed,
-		legacy: s.LegacyRandomSource, root: rs.Random}
+	rs.Router = rs.bindRouter(nil)
+	return rs
+}
+
+// bindRouter binds the settings' router for this seed; marker, when
+// set, replaces cache and interpolation markers.
+func (rs *RandomState) bindRouter(marker func(Kind, Func) Func) BoundRouter {
+	s := rs.Settings
+	b := &binder{noises: rs, refs: densityFunctions, bound: map[string]Func{}, seed: rs.Seed,
+		legacy: s.LegacyRandomSource, root: rs.Random, marker: marker}
 	r := &s.Router
-	rs.Router = BoundRouter{
+	return BoundRouter{
 		Barrier: b.bind(r.Barrier), FluidLevelFloodedness: b.bind(r.FluidLevelFloodedness),
 		FluidLevelSpread: b.bind(r.FluidLevelSpread), Lava: b.bind(r.Lava),
 		Temperature: b.bind(r.Temperature), Vegetation: b.bind(r.Vegetation),
@@ -84,7 +92,6 @@ func NewRandomState(s *NoiseSettings, seed int64) *RandomState {
 		FinalDensity: b.bind(r.FinalDensity), VeinToggle: b.bind(r.VeinToggle),
 		VeinRidged: b.bind(r.VeinRidged), VeinGap: b.bind(r.VeinGap),
 	}
-	return rs
 }
 
 // Noise returns the world's instance of a registered noise, seeded from
