@@ -32,7 +32,9 @@ type climatePoint struct {
 // nearest to it, distance being the sum of squared per-axis gaps to the
 // point's ranges plus its squared offset.
 type MultiNoiseBiomes struct {
-	points []climatePoint
+	points   []climatePoint
+	treeOnce sync.Once
+	root     *rnode
 }
 
 var (
@@ -89,7 +91,9 @@ func axisGap(v, lo, hi int64) int64 {
 	return max(lo-v, 0)
 }
 
-// Lookup returns the biome for a climate sample.
+// Lookup returns the biome for a climate sample by exhaustive search,
+// the first nearest point in list order; vanilla's own search (see
+// BiomeSearcher) can break exact ties differently.
 func (m *MultiNoiseBiomes) Lookup(t ClimateTarget) string {
 	best, bestDist := 0, int64(math.MaxInt64)
 	for i := range m.points {
@@ -199,4 +203,74 @@ func ZoomBiome(zoomSeed int64, x, y, z int32, quart func(qx, qy, qz int32) strin
 		cz++
 	}
 	return quart(cx, cy, cz)
+}
+
+// ChunkBiomes is a chunk's biome storage: one biome per quart, filled
+// section by section from the bottom, each section x, then y, then z —
+// the order vanilla asks its climate search in.
+type ChunkBiomes struct {
+	CX, CZ       int32
+	minQY, quart int32 // lowest quart Y and quart count up
+	biomes       []string
+}
+
+// FillChunkBiomes resolves chunk (cx, cz)'s biomes through a searcher.
+func FillChunkBiomes(rs *RandomState, s *BiomeSearcher, cx, cz int32) *ChunkBiomes {
+	set := rs.Settings
+	c := &ChunkBiomes{CX: cx, CZ: cz, minQY: int32(set.MinY) >> 2, quart: int32(set.Height) >> 2}
+	c.biomes = make([]string, 16*c.quart)
+	for sec := int32(0); sec < c.quart/4; sec++ {
+		for x := int32(0); x < 4; x++ {
+			for y := int32(0); y < 4; y++ {
+				for z := int32(0); z < 4; z++ {
+					qy := c.minQY + sec*4 + y
+					b := s.Find(rs.Climate(cx*4+x, qy, cz*4+z))
+					c.biomes[c.index(x, qy, z)] = b
+				}
+			}
+		}
+	}
+	return c
+}
+
+func (c *ChunkBiomes) index(qx, qy, qz int32) int {
+	return int(((qy-c.minQY)*4+qz)*4 + qx)
+}
+
+// At is the stored biome at absolute quart (qx, qy, qz) of this chunk,
+// the quart Y clamped to the chunk's height.
+func (c *ChunkBiomes) At(qx, qy, qz int32) string {
+	qy = min(max(qy, c.minQY), c.minQY+c.quart-1)
+	return c.biomes[c.index(qx-c.CX*4, qy, qz-c.CZ*4)]
+}
+
+// BiomeRegion answers quart biomes from the stored biomes of a 3×3 block
+// of chunks around a center chunk, as a generation region does.
+type BiomeRegion struct {
+	cx, cz int32
+	chunks [3][3]*ChunkBiomes
+}
+
+// NewBiomeRegion fills the 3×3 chunks around (cx, cz), x outer, z inner.
+func NewBiomeRegion(rs *RandomState, s *BiomeSearcher, cx, cz int32) *BiomeRegion {
+	r := &BiomeRegion{cx: cx, cz: cz}
+	for dx := int32(-1); dx <= 1; dx++ {
+		for dz := int32(-1); dz <= 1; dz++ {
+			r.chunks[dx+1][dz+1] = FillChunkBiomes(rs, s, cx+dx, cz+dz)
+		}
+	}
+	return r
+}
+
+// Center is the region's center chunk storage.
+func (r *BiomeRegion) Center() *ChunkBiomes { return r.chunks[1][1] }
+
+// Quart is the biome at quart (qx, qy, qz), which must fall in the region.
+func (r *BiomeRegion) Quart(qx, qy, qz int32) string {
+	return r.chunks[qx>>2-r.cx+1][qz>>2-r.cz+1].At(qx, qy, qz)
+}
+
+// Block is the zoomed biome at a block of the center chunk.
+func (r *BiomeRegion) Block(zoomSeed int64) func(x, y, z int32) string {
+	return func(x, y, z int32) string { return ZoomBiome(zoomSeed, x, y, z, r.Quart) }
 }

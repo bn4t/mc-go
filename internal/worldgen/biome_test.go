@@ -28,13 +28,16 @@ func TestBiomesMatchVanilla(t *testing.T) {
 		f := strings.Split(s, ",")
 		return int32(atoi64(t, f[0])), int32(atoi64(t, f[1])), int32(atoi64(t, f[2]))
 	}
+	// One searcher for the whole file: the probe asked its source in this
+	// order on one thread, each search seeded with the previous answer.
+	search := params.NewSearcher()
 	counts := map[string]int{}
 	for _, l := range loadProbe(t) {
 		switch l.kind {
 		case "biome":
 			seed := atoi64(t, l.fields[0])
 			qx, qy, qz := triple(l.fields[1])
-			if got := params.Lookup(state(seed).Climate(qx, qy, qz)); got != l.value {
+			if got := search.Find(state(seed).Climate(qx, qy, qz)); got != l.value {
 				t.Errorf("seed %d quart %d,%d,%d: %s want %s", seed, qx, qy, qz, got, l.value)
 			}
 		case "zoomseed":
@@ -47,7 +50,7 @@ func TestBiomesMatchVanilla(t *testing.T) {
 			x, y, z := triple(l.fields[1])
 			rs := state(seed)
 			got := ZoomBiome(ZoomSeed(seed), x, y, z, func(qx, qy, qz int32) string {
-				return params.Lookup(rs.Climate(qx, qy, qz))
+				return search.Find(rs.Climate(qx, qy, qz))
 			})
 			if got != l.value {
 				t.Errorf("seed %d block %d,%d,%d: %s want %s", seed, x, y, z, got, l.value)

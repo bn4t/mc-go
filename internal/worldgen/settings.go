@@ -30,6 +30,7 @@ type NoiseSettings struct {
 	LegacyRandomSource           bool
 	DisableMobGeneration         bool
 	Router                       Router
+	Surface                      *SurfaceRule
 }
 
 // Settings looks up registered noise settings, e.g. "minecraft:overworld".
@@ -58,6 +59,18 @@ type RandomState struct {
 
 	mu     sync.Mutex
 	noises map[string]*Normal
+
+	surfaceOnce sync.Once
+	surfaceSys  *surfaceSystem
+}
+
+// ZoomSeed is the world's biome zoom seed.
+func (rs *RandomState) ZoomSeed() int64 { return ZoomSeed(rs.Seed) }
+
+// surface returns the generator's surface system, built on first use.
+func (rs *RandomState) surface() *surfaceSystem {
+	rs.surfaceOnce.Do(func() { rs.surfaceSys = newSurfaceSystem(rs) })
+	return rs.surfaceSys
 }
 
 // NewRandomState seeds a generator's noises and binds its router.

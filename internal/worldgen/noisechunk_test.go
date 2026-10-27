@@ -70,6 +70,9 @@ func TestNoiseChunkFillMatchesVanilla(t *testing.T) {
 			continue
 		}
 		parts := strings.Split(line, "\t")
+		if parts[0] != "fill" {
+			continue
+		}
 		seed := parts[1]
 		var cx, cz, x, z int32
 		fmt.Sscanf(parts[2], "%d,%d", &cx, &cz)

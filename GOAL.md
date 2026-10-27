@@ -15700,3 +15700,48 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:** vanilla searches an R-tree seeded with the previous
   result, so exact climate ties may resolve differently (none seen);
   the end biome source; surface rules and the later stages.
+
+## Slice — worldgen surface stage and vanilla's climate search tree (2026-10-27)
+
+- **Measured:** bytecode inspection of `SurfaceSystem` (column scan
+  from just above the WORLD_SURFACE_WG height down, stone-depth
+  bookkeeping above and below, rules applied only to the default block,
+  surface depth `(int)(noise·2.75 + 3 + at(x,0,z)·0.25)`, clay bands from
+  the `clay_bands` hash, band lookup `round(noise·4)`, the eroded
+  badlands pillar and frozen ocean iceberg extensions with their
+  constants and draw order), `SurfaceRules` and its `Context` (lazy
+  per-column/per-block values, min surface level from the 16-block
+  preliminary-surface cell, the stone depth, water, y, vertical
+  gradient, noise threshold, steep, hole, temperature and biome
+  conditions), `Biome` temperatures (frozen modifier patches, the
+  height decay with its simplex wobble), `SimplexNoise`/
+  `PerlinSimplexNoise`, chunk biome storage (`LevelChunkSection` fills
+  quarts x, y, z per section, reads clamp the quart Y) and `Climate$RTree`
+  (six-way nodes split on the axis whose power-of-six bucketing has the
+  least spread, children ordered by midpoint, a box-distance search
+  seeded with the thread's previous answer, strictly-nearer
+  replacement) on the 26.2 jar (unpacked SHA-256 `183c0499…823e8`,
+  Temurin JDK 25.0.5+8). Exact climate ties turned out to be common
+  (beach/plains at equal squared distance), so the tree's tie-breaking
+  is observable. `ChunkFillProbe.java` (SHA-256 `4f442a49…abb9`) now
+  fills biomes for each probed chunk's 3×3 neighbourhood (x outer, z
+  inner), runs the generator's `buildSurface` over the stored biomes and
+  records every column after the noise stage and after the surface
+  (`testdata/chunk_fill.tsv.gz`, SHA-256 `1f6fb10c…f5f3`). Surface rules
+  and biome climates come from the datagen worldgen data via
+  `tools/genworldgen` (inputs SHA-256 `d8163e15…1998`).
+- **Implemented:** `worldgen` simplex noises and biome temperatures,
+  generated surface rule trees with a lazy column context, the surface
+  system (bands, extensions), interned block states and `GenChunk`
+  with its live heightmap, chunk biome storage and a 3×3 `BiomeRegion`,
+  and `BiomeSearcher` — vanilla's R-tree with a per-worker previous
+  answer.
+- **Pinned:** `TestSurfaceMatchesVanilla` — all 6144 columns of 24
+  chunks over 3 seeds match after the surface stage (bedrock and
+  deepslate gradients, grass/dirt/sand/sandstone/gravel layers, snow,
+  terracotta bands, badlands pillars, icebergs); the biome goldens now
+  pass through the searcher in the probe's query order.
+- **Remaining:** vanilla's tie-breaking depends on each worker thread's
+  query history, so biome ties can only match when the order matches;
+  carvers, features, structures, the beardifier and the end/nether
+  biome sources; wiring generation into the server.

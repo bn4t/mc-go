@@ -3,7 +3,6 @@ import java.lang.reflect.Method;
 import java.util.List;
 import com.mojang.serialization.Lifecycle;
 import net.minecraft.SharedConstants;
-import net.minecraft.commands.arguments.blocks.BlockStateParser;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.MappedRegistry;
 import net.minecraft.core.RegistrationInfo;
@@ -13,8 +12,6 @@ import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.level.biome.Biomes;
-import net.minecraft.world.level.biome.FixedBiomeSource;
 import net.minecraft.world.level.chunk.PalettedContainerFactory;
 import net.minecraft.world.level.chunk.ProtoChunk;
 import net.minecraft.world.level.chunk.UpgradeData;
@@ -25,10 +22,12 @@ import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.Aquifer;
 import net.minecraft.world.level.levelgen.blending.Blender;
 
-// Has the official server's noise-based generator fill standalone proto
-// chunks (the noise stage only: terrain density, aquifers, ore veins —
-// no biomes, surface, carvers or features) and records each column as
-// runs of block states. The chunk's NoiseChunk is created up front with
+// Has the official server's noise-based generator run its first stages
+// on standalone proto chunks — biomes, the noise fill (terrain density,
+// aquifers, ore veins) and the surface (surface rules and the badlands
+// and iceberg column extensions), but no carvers or features — and
+// records each column after the fill and after the surface as runs of
+// block states (properties sorted). The chunk's NoiseChunk is created up front with
 // the beardifier marker, as a chunk with no structures gets, so the
 // generator's own fill needs no structure manager. Only public entry
 // points are called, plus reflective calls of the generator's own fill
@@ -47,7 +46,13 @@ public class ChunkFillProbe {
 
         var settingsHolder = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(NoiseGeneratorSettings.OVERWORLD);
         NoiseGeneratorSettings settings = settingsHolder.value();
-        var generator = new NoiseBasedChunkGenerator(new FixedBiomeSource(biomeRegistry.getOrThrow(Biomes.PLAINS)), settingsHolder);
+        var paramLists = lookup.lookupOrThrow(Registries.MULTI_NOISE_BIOME_SOURCE_PARAMETER_LIST);
+        var biomeSource = net.minecraft.world.level.biome.MultiNoiseBiomeSource.createFromPreset(
+            paramLists.getOrThrow(net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterLists.OVERWORLD));
+        var generator = new NoiseBasedChunkGenerator(biomeSource, settingsHolder);
+        Method doCreateBiomes = java.util.Arrays.stream(NoiseBasedChunkGenerator.class.getDeclaredMethods())
+            .filter(m -> m.getName().equals("doCreateBiomes")).findFirst().orElseThrow();
+        doCreateBiomes.setAccessible(true);
         Method fluidPicker = NoiseBasedChunkGenerator.class.getDeclaredMethod("createFluidPicker", NoiseGeneratorSettings.class);
         fluidPicker.setAccessible(true);
         Aquifer.FluidPicker picker = (Aquifer.FluidPicker) fluidPicker.invoke(null, settings);
@@ -74,35 +79,84 @@ public class ChunkFillProbe {
             for (long seed : seeds) {
                 RandomState state = RandomState.create(settings, lookup.lookupOrThrow(Registries.NOISE), seed);
                 for (int[] c : chunks) {
-                    ChunkPos pos = new ChunkPos(c[0], c[1]);
-                    ProtoChunk chunk = new ProtoChunk(pos, UpgradeData.EMPTY, height, containers, null);
-                    chunk.getOrCreateNoiseChunk(ch -> {
-                        try {
-                            return (NoiseChunk) forChunk.invoke(null, ch, state, beardifierMarker, settings, picker, Blender.empty());
-                        } catch (ReflectiveOperationException e) {
-                            throw new RuntimeException(e);
-                        }
-                    });
-                    doFill.invoke(generator, Blender.empty(), null, state, chunk, cellMinY, cellCountY);
-                    BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
-                    for (int x = 0; x < 16; x++) {
-                        for (int z = 0; z < 16; z++) {
-                            StringBuilder col = new StringBuilder();
-                            String last = null;
-                            int runStart = 0;
-                            int minY = height.getMinY(), maxY = height.getMaxY();
-                            for (int y = minY; y <= maxY + 1; y++) {
-                                String s = y <= maxY ? BlockStateParser.serialize(chunk.getBlockState(p.set(pos.getMinBlockX() + x, y, pos.getMinBlockZ() + z))) : null;
-                                if (last != null && !last.equals(s)) {
-                                    col.append(runStart).append('-').append(y - 1).append('=').append(last).append(' ');
+                    // Biomes for the chunk and its eight neighbours, in
+                    // a fixed order (x outer, z inner): the surface reads
+                    // them from these chunks' storage, as a generation
+                    // region does, and vanilla's climate search carries
+                    // its previous answer from one lookup to the next.
+                    ProtoChunk[][] around = new ProtoChunk[3][3];
+                    for (int dx = -1; dx <= 1; dx++) {
+                        for (int dz = -1; dz <= 1; dz++) {
+                            ProtoChunk ch = new ProtoChunk(new ChunkPos(c[0] + dx, c[1] + dz), UpgradeData.EMPTY, height, containers, null);
+                            ch.getOrCreateNoiseChunk(cc -> {
+                                try {
+                                    return (NoiseChunk) forChunk.invoke(null, cc, state, beardifierMarker, settings, picker, Blender.empty());
+                                } catch (ReflectiveOperationException e) {
+                                    throw new RuntimeException(e);
                                 }
-                                if (s != null && !s.equals(last)) runStart = y;
-                                last = s;
-                            }
-                            out.printf("fill\t%d\t%d,%d\t%d,%d\t%s%n", seed, c[0], c[1], x, z, col.toString().trim());
+                            });
+                            doCreateBiomes.invoke(generator, Blender.empty(), state, null, ch);
+                            ch.setPersistedStatus(net.minecraft.world.level.chunk.status.ChunkStatus.BIOMES);
+                            around[dx + 1][dz + 1] = ch;
                         }
                     }
+                    ProtoChunk chunk = around[1][1];
+                    doFill.invoke(generator, Blender.empty(), null, state, chunk, cellMinY, cellCountY);
+                    chunk.setPersistedStatus(net.minecraft.world.level.chunk.status.ChunkStatus.NOISE);
+                    dump(out, "fill", seed, c, chunk, height);
+                    final int cx = c[0], cz = c[1];
+                    var manager = new net.minecraft.world.level.biome.BiomeManager(
+                        (qx, qy, qz) -> around[(qx >> 2) - cx + 1][(qz >> 2) - cz + 1].getNoiseBiome(qx, qy, qz),
+                        net.minecraft.world.level.biome.BiomeManager.obfuscateSeed(seed));
+                    generator.buildSurface(chunk, new net.minecraft.world.level.levelgen.WorldGenerationContext(generator, height),
+                        state, null, manager, Blender.empty(), biomeSource.possibleBiomes());
+                    dump(out, "surface", seed, c, chunk, height);
                 }
+            }
+        }
+    }
+
+    // canonical renders a state as name[k=v,...] with sorted properties.
+    static String canonical(net.minecraft.world.level.block.state.BlockState st) {
+        String name = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(st.getBlock()).toString();
+        var props = new java.util.TreeMap<String, String>();
+        for (var prop : st.getProperties()) {
+            props.put(prop.getName(), propValue(st, prop));
+        }
+        if (props.isEmpty()) return name;
+        StringBuilder b = new StringBuilder(name).append('[');
+        boolean first = true;
+        for (var e : props.entrySet()) {
+            if (!first) b.append(',');
+            b.append(e.getKey()).append('=').append(e.getValue());
+            first = false;
+        }
+        return b.append(']').toString();
+    }
+
+    static <T extends Comparable<T>> String propValue(net.minecraft.world.level.block.state.BlockState st,
+            net.minecraft.world.level.block.state.properties.Property<T> prop) {
+        return prop.getName(st.getValue(prop));
+    }
+
+    static void dump(PrintWriter out, String kind, long seed, int[] c, ProtoChunk chunk, LevelHeightAccessor height) {
+        ChunkPos pos = chunk.getPos();
+        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                StringBuilder col = new StringBuilder();
+                String last = null;
+                int runStart = 0;
+                int minY = height.getMinY(), maxY = height.getMaxY();
+                for (int y = minY; y <= maxY + 1; y++) {
+                    String s = y <= maxY ? canonical(chunk.getBlockState(p.set(pos.getMinBlockX() + x, y, pos.getMinBlockZ() + z))) : null;
+                    if (last != null && !last.equals(s)) {
+                        col.append(runStart).append('-').append(y - 1).append('=').append(last).append(' ');
+                    }
+                    if (s != null && !s.equals(last)) runStart = y;
+                    last = s;
+                }
+                out.printf("%s\t%d\t%d,%d\t%d,%d\t%s%n", kind, seed, c[0], c[1], x, z, col.toString().trim());
             }
         }
     }
