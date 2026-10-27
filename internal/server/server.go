@@ -339,18 +339,14 @@ type Server struct {
 	// driving pipes directly) broadcastBlockState writes immediately.
 	ticking atomic.Bool
 
-	// weatherRaining/weatherThunder are the server-wide weather flags
-	// (vanilla keeps one WeatherData on the server); weatherTicks is
-	// the remaining duration counted down per tick — see weather.go.
-	// rainLevel/thunderLevel are the lerped intensities vanilla's
-	// isRaining/isThundering actually read (>0.2 / >0.9 thresholds,
-	// ramping 0.01/tick — a thunder command doesn't channel for ~90
-	// ticks).
+	// weather is the server-wide WeatherData with the overworld's eased
+	// levels (see weather.go). weatherRaining/weatherThunder publish the
+	// overworld's Level.isRaining/isThundering — rain level > 0.2,
+	// thunder × rain > 0.9 — after every weather tick, for readers on
+	// any goroutine; they lag the flags by the 0.01/tick easing.
+	weather        weatherState
 	weatherRaining atomic.Bool
 	weatherThunder atomic.Bool
-	weatherTicks   atomic.Int64
-	weatherRain    atomic.Int32 // rainLevel * 1000, lerped
-	weatherThundLv atomic.Int32 // thunderLevel * 1000, lerped
 
 	// storage is the /data storage scope — vanilla's CommandStorage:
 	// a global map of resource-location id to NBT compound, empty for

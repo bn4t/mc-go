@@ -548,8 +548,10 @@ func (s *Server) gameTickOwned() {
 	s.movingPistonStep()
 	s.entityInsideStep()
 	s.knotTickStep()
-	s.randomTickStep()
+	// advanceWeatherCycle runs ahead of the chunk ticks, so this
+	// tick's precipitation and fire see this tick's weather.
 	s.weatherTickStep()
+	s.randomTickStep()
 	s.beaconTickStep()
 	s.mobEffectTickStep()
 	// Raids tick once per level tick after the living-entity pass —

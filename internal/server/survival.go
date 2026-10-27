@@ -1231,6 +1231,7 @@ func (s *Server) respawnPlayer(sess *Session) {
 	sess.trackedEnts = nil
 	sess.trackMu.Unlock()
 	_ = s.sendSyncPos(sess, x, y, z)
+	_ = s.sendLevelWeather(sess, dest.name)
 	_ = s.sendHealth(sess)
 	_ = s.sendContainerContent(sess)
 	sess.resetChunks()

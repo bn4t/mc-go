@@ -139,6 +139,9 @@ func (s *Server) joinPlayOwned(sess *Session) bool {
 	if err := s.sendDefaultSpawn(sess); err != nil {
 		return false
 	}
+	if err := s.sendLevelWeather(sess, sess.dimName()); err != nil {
+		return false
+	}
 	if err := s.sendGameEvent(sess, 13, 0); err != nil {
 		return false
 	}

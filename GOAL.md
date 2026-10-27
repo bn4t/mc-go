@@ -33,7 +33,8 @@ Mojang server over the wire.
 - [x] Handshake / status / ping
 - [x] Login (offline), compression
 - [~] Configuration: known packs, feature flags, registry data, tags
-- [~] Play join burst
+- [~] Play join burst (weather start/levels ahead of the chunk-wait
+      event pinned by `TestWeatherCycleParity`)
 - [ ] Full packet ID + shape coverage for all states
 - [x] Encryption / online mode
 - [x] Cookie / transfer / dialog / code-of-conduct packets.
@@ -15519,3 +15520,61 @@ no flee; unsneak → flee). Green both legs.
   parent run (cross-case leftovers vacuumed on the vanilla station) and
   passes alone, and `TestEnderChestParity`'s vanilla leg fails to reopen
   identically on the unchanged baseline.
+
+## Slice — weather cycle, level easing and weather game events (2026-10-27)
+
+- **Measured:** bytecode inspection (`javap -c -p`, Temurin JDK 25.0.5+8,
+  unpacked 26.2 jar SHA-256 `183c0499…823e8`) of
+  `ServerLevel.advanceWeatherCycle`/`resetWeatherCycle`/`tick` and its
+  static UniformInt providers, `Level.canHaveWeather`/`isRaining`/
+  `isThundering`/`getThunderLevel`, `PlayerList.sendLevelInfo`/`respawn`,
+  `ServerPlayer` dimension travel, `WeatherCommand`,
+  `MinecraftServer.setWeatherParameters` and `TimeArgument`. Facts used:
+  one server-wide clear/rain/thunder timer set; with advance_weather on,
+  a running clear timer forces both flags off and arms both timers to 1
+  (so both flip on the tick after it ends), otherwise each timer counts
+  down and toggles its flag at zero or, at zero, resamples (rain delay
+  12000–180000, rain 12000–24000, thunder delay 12000–180000, thunder
+  3600–15600); weather-capable levels then ease float32 rain/thunder
+  levels by 0.01f, clamped, broadcasting each changed level to that
+  dimension, and when isRaining (rain level > 0.2) flips they send
+  start/stop raining plus both levels to every player; isThundering is
+  thunder × rain > 0.9; a sleep skip resets a raining cycle; /weather
+  writes (clear, rain = thunder timer, flags) with a TimeArgument
+  duration whose bare number is ticks, sampling the mode's provider when
+  omitted; sendLevelInfo sends start raining and both levels (thunder
+  scaled by rain) before the chunk-wait event while raining, and runs on
+  join, respawn and dimension travel. The cycle is skipped on frozen
+  ticks.
+- **Implemented:** `internal/server/weather.go` rewritten around a
+  `weatherState` (timers, flags, eased levels and their previous
+  values). The step runs before the random-tick pass, follows the timer
+  rules above, eases in float32 and emits the measured packets; the
+  published `weatherRaining`/`weatherThunder` predicates every gameplay
+  reader already used now mean Level.isRaining/isThundering instead of
+  the raw flags. `/weather` uses the shared TimeArgument parser (mc-go
+  previously read a bare number as seconds and days as 480000 ticks),
+  samples omitted durations and no longer expires on its own when the
+  cycle is off. Join, same-dimension respawn and dimension change send
+  the weather part of sendLevelInfo; the bed skip resets a raining cycle.
+- **Pinned:** `TestWeatherCycleParity` (differential, both servers)
+  compares every start/stop/rain-level/thunder-level game event with
+  exact float bits across three phases — clear-timer expiry starting rain
+  and thunder together, `/weather rain 30` (ticks) ending rain and
+  starting thunder on its shared timer, and advance_weather false
+  freezing the rain — plus a second player's join burst into steady
+  rain (`1:0 7:1 8:0 13:0`, required of vanilla too). Unit tests cover
+  the clear-expiry double flip, duration sampling, float32 accumulation
+  and the 0.2 crossing, the shared timer and TimeArgument units.
+- **Validation:** build, vet and the default sweep (internal, public
+  API, conformance, Java-free blackbox) pass; `TestWeatherCycleParity`
+  passes against the real jar. Of 22 existing weather-dependent pins
+  re-run, `TestPatrolSpawnParity`, `TestPrecipitationParity` (every
+  leg, including the `execute if biome` controls) and
+  `TestMobSunFleeParity`'s helmeted-skeleton leg fail, and fail the
+  same way on the unchanged baseline; the rest report no failure.
+- **Remaining:** weather is not persisted across restarts (nor is day
+  time); respawn and dimension change send only sendLevelInfo's weather
+  part, not its border/time/spawn/chunk-wait packets; only the overworld
+  has weather (no custom dimension types); natural thunderstorm
+  lightning (and its skeleton-horse traps) is still unmodeled.

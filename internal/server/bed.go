@@ -681,6 +681,11 @@ func (s *Server) sleepTickStep() {
 			s.stopSleeping(sess)
 			return true
 		})
+		// The skip also ends the rain where the cycle runs: with
+		// advance_weather on, a raining level resets its weather.
+		if dim == dimOverworld && s.gameRules["minecraft:advance_weather"] == "true" && s.weatherRaining.Load() {
+			s.resetWeatherCycle()
+		}
 		delete(s.sleepSkipNotified, dim)
 	}
 }

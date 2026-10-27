@@ -338,6 +338,9 @@ func (s *Server) changeDimension(sess *Session, dst *dimension, x, y, z float64,
 	}
 	_ = s.sendRespawn(sess, dst, portalCooldown, 3)
 	_ = s.sendSyncPos(sess, x, y, z)
+	// sendLevelInfo's weather part: the new client level starts dry,
+	// so a raining destination re-announces its rain.
+	_ = s.sendLevelWeather(sess, dst.name)
 	_ = s.sendHealth(sess)
 
 	// Restream: drop the old window, center and fill the new one.
