@@ -127,7 +127,9 @@ Mojang server over the wire.
   gate, charged/quick-move/poor/throw takes, the 12% degrade roll,
   invalid pairs, silent output clicks, close returns with no close
   echo; other menus - enchanting, brewing, beacon, lectern - still
-  open)
+  open; bundles: bundle_contents wire/save/command forms, both click
+  overrides across the storage menus, Select Bundle Item and use drops,
+  plus doClick's right-click swap - `TestBundleParity`)
 - [~] Survival mode: health, hunger (two-clock regen + deferred
       exhaustion drain + i-frames measured), starvation, void, death/
       respawn, item drops on death — eating/fall damage present
@@ -15435,3 +15437,85 @@ no flee; unsneak → flee). Green both legs.
   remain unproven or unfinished. Stop adds no independent autosave and retains
   existing disconnect writes; the CLI timer's `/save-off` behavior is unchanged.
   Full modular gameplay and regional simulation ownership remain future work.
+
+## Slice — bundles: bundle_contents, click overrides, selection and use (2026-10-27)
+
+- **Measured:** bytecode inspection (`javap -c -p`, Temurin JDK 25.0.5+8)
+  of `BundleItem`, `BundleContents`, `BundleContents$Mutable`,
+  `ServerboundSelectBundleItemPacket`, `AbstractContainerMenu`
+  (`doClick`, `tryItemClickBehaviourOverride`,
+  `setSelectedBundleItemIndex`), `Slot` (`tryRemove`, `safeTake`,
+  `safeInsert`, `allowModification`), `Item`/`BlockItem`
+  (`canFitInsideContainerItems`) and `Player.playSound` in the unpacked
+  26.2 server jar (bundler sha1 `823e2250…`, unpacked jar SHA-256
+  `183c0499…823e8`). Facts used: the component is a VarInt list of
+  ItemStackTemplate with no presence flags (id 50 in both profiles) and
+  carries no selection on the wire or in saves; weights are 1/maxStack,
+  a nested bundle's contents + 1/16, a full bundle for a hive with bees;
+  the free weight over an item's weight, truncated and floored at 0, is
+  what fits; merges and inserts land at index 0; removal takes the
+  selected entry else the front and clears the selection; only shulker
+  boxes refuse; doClick offers PICKUP clicks to the carried stack's
+  override, then the slot stack's, before its own logic, and swaps a
+  different stack on either button when it fits; use is a 200-tick hold
+  that drops on the first tick and every even remaining count below 190.
+  insert/remove sounds go to everyone but the player; drop_contents goes
+  to everyone at the block position. Wire behaviour was then observed on
+  the running jar through the differential below.
+- **Implemented:** `internal/server/bundle.go` — `ItemStack.Bundle`
+  (copy-on-write, nil for a bundle's empty default, selection kept
+  server-side only), exact weights in 1/64 units (stack sizes are only
+  1/16/64), the mutable insert/merge/remove/toggle operations and a
+  `bundleSlotView` modelling Slot's take/insert rules. The two overrides
+  run ahead of the PICKUP logic in the window-0, chest/furnace, generic
+  container, crafting table, hopper, anvil and mount menus (window-0
+  armor slots take only their own piece, capped at 1 and locked by
+  Curse of Binding outside creative). Select Bundle Item toggles the
+  addressed slot of the current menu; Use Item starts the hold and the
+  player tick drops entries (Q-drop throw, slot re-sent, used stat,
+  drop sound) until release or completion. Slot encode/decode, the
+  775/776 projector, nesting validation, equipment matching, detached
+  JSON data saves, native NBT (`components.minecraft:bundle_contents`)
+  and `/give`/`/item` SNBT (record or bare-id entries, nested
+  `components`) all carry the component. Also fixed in passing: a
+  different carried stack now swaps on right-click in every click path,
+  crafting-table/hopper clicks use the shared left/right helpers (adding
+  the missing right-click +1), and native `itemFromNBT` now reads back
+  damage, enchantments, potion, instrument, bees, block state, custom
+  name and container loot that `itemComponentsNBT` writes. An item
+  entity lava destroys now runs ItemStack.onDestroyed: a bundle or a
+  container-carrying block item spills each stored stack as a fresh,
+  default-tossed item entity before it is discarded, and `/summon item`
+  reads the stack's `components` through the same patch parser.
+- **Pinned:** `TestBundleParity` (differential, both servers; test file
+  SHA-256 `edb456ce…b270`) runs one chest-menu script — fill by left-click with weight limits (pearls at
+  1/16, a sword too heavy, a shulker box refused, a full bundle), empty
+  by right-click, fill a slot bundle from the cursor, select entry 1
+  and take it, merge-to-front, nest a bundle, swap on right-click — and
+  compares the decoded carried/menu state after every step, then a
+  window-0 select-and-use whose slot sequence (selected dirt first, then
+  stick, then pearl) and user-heard sounds must match, with the
+  vanilla leg itself checked against that expected sequence.
+  `TestContainerItemSpillParity` drops a summoned bundle and a summoned
+  shulker box (each holding netherite plus dirt) into lava and requires
+  vanilla's surviving counts (spilled ingot and scrap stacks, no
+  containers, no dirt) on mc-go too. Unit tests cover weights, ordering,
+  wire round trips in both profiles (selection never serialized), NBT
+  and command parsing.
+- **Remaining:** result slots (furnace/crafting/merchant outputs) keep
+  their existing take paths instead of the bundle override; merchant
+  inventory-side clicks are still unmodeled; item entities are only
+  destroyed by lava (fire, cactus and explosion damage to items remain
+  unmodeled, so those paths never reach the spill); `!bundle_contents`
+  removal patches are not modeled; player use-item flags and `item_interact_start` are not sent
+  for any hold-use. In this harness the scripted client never
+  acknowledges chunk batches, so vanilla's station entities neither tick
+  nor stay loaded; dropped-entity physics is therefore not compared.
+  Validation: `go build ./...`, vet and `go test ./internal/...` pass;
+  `TestBundleParity` and `TestContainerItemSpillParity` pass against
+  the real jar. Of 18 existing click/menu pins re-run (non-verbose,
+  vanilla present), 16 report no failure;
+  `TestCraftRecipeParity/shield-plain` fails only inside the full
+  parent run (cross-case leftovers vacuumed on the vanilla station) and
+  passes alone, and `TestEnderChestParity`'s vanilla leg fails to reopen
+  identically on the unchanged baseline.

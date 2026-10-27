@@ -158,6 +158,32 @@ func readCanonicalStackTail(r *protocol.PacketReader, it ItemStack, depth int) (
 				box[j] = inner
 			}
 			it.Contents = box
+		case compBundleContents:
+			n, err := slotWireCount(r, 4096)
+			if err != nil {
+				return ItemStack{}, err
+			}
+			bundle := &BundleContents{Items: make([]ItemStack, 0, n)}
+			for j := int32(0); j < n; j++ {
+				id, err := r.VarInt()
+				if err != nil {
+					return ItemStack{}, err
+				}
+				count, err := slotWireCount(r, 127)
+				if err != nil || count == 0 {
+					return ItemStack{}, fmt.Errorf("slot: invalid bundled count")
+				}
+				inner, err := readCanonicalStackTail(r, ItemStack{ID: id, Count: count}, depth+1)
+				if err != nil {
+					return ItemStack{}, err
+				}
+				bundle.Items = append(bundle.Items, inner)
+			}
+			// A bundle item's empty list is its default, which a patch
+			// never carries; any other item keeps the added component.
+			if len(bundle.Items) != 0 || !isBundleItem(it.ID) {
+				it.Bundle = bundle
+			}
 		case compBannerPatterns:
 			n, err := slotWireCount(r, 1024)
 			if err != nil {

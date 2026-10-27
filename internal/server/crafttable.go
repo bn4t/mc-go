@@ -146,46 +146,22 @@ func (s *Server) handleCraftTableClick(sess *Session, w *openWindow, table *craf
 		before := sess.craftMenuStack(table, int(slot))
 		carriedBefore := sess.carried
 		cur := sess.carried
+		view := bundleSlotView{item: before, mayPickup: true}
 		target := before
-		if button == 0 {
-			if cur.Empty() {
-				cur, target = target, ItemStack{}
-			} else if target.Empty() {
-				target, cur = cur, ItemStack{}
-			} else if target.Stackable(cur) {
-				room := maxStackOfID(target.ID) - target.Count
-				move := cur.Count
-				if move > room {
-					move = room
-				}
-				target.Count += move
-				cur.Count -= move
-				if cur.Count <= 0 {
-					cur = ItemStack{}
-				}
-			} else {
-				target, cur = cur, target
-			}
-		} else if cur.Empty() {
-			if !target.Empty() {
-				half := (target.Count + 1) / 2
-				cur = target.withCount(half)
-				target.Count -= half
-				if target.Count <= 0 {
-					target = ItemStack{}
-				}
-			}
-		} else if target.Empty() {
-			target = cur.withCount(1)
-			cur.Count--
-			if cur.Count <= 0 {
-				cur = ItemStack{}
-			}
+		if s.bundleClick(sess, button == 1, &view, &cur) {
+			target = view.item
+		} else if button == 0 {
+			cur, target = clickLeft(cur, view.item, nil, -1)
+		} else {
+			cur, target = clickRight(cur, view.item, nil, -1)
 		}
-		if target == before && cur == carriedBefore {
+		if itemStacksEqual(target, before) && itemStacksEqual(cur, carriedBefore) {
 			// A no-op click (empty slot, empty cursor; or a right-
 			// click onto a full stack): vanilla emits nothing, so no
-			// slot update or state bump here either.
+			// slot update or state bump here either. A bundle's
+			// selection change is kept without being sent.
+			sess.setCraftMenuStack(table, int(slot), target)
+			sess.carried = cur
 			return
 		}
 		sess.setCraftMenuStack(table, int(slot), target)

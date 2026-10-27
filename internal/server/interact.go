@@ -87,7 +87,7 @@ func (s *Server) handlePlayerActionExtras(sess *Session, p protocol.Packet) bool
 		// LivingEntity.stopUsingItem posts ITEM_INTERACT_FINISH
 		// whenever a use was in progress — a sneaking user's
 		// emission is dampened inside the listener.
-		if sess.bowStartTick != 0 || sess.crossbowStartTick != 0 || sess.tridentStartTick != 0 || sess.eatingTicks > 0 {
+		if sess.bowStartTick != 0 || sess.crossbowStartTick != 0 || sess.tridentStartTick != 0 || sess.eatingTicks > 0 || sess.bundleUseLeft > 0 {
 			x, y, z, _, _, _ := sess.Pos()
 			s.emitGameEvent(sess.dimension(), "item_interact_finish", x, y, z, sess, "")
 		}
@@ -95,6 +95,7 @@ func (s *Server) handlePlayerActionExtras(sess *Session, p protocol.Packet) bool
 		s.releaseTrident(sess)
 		s.releaseCrossbow(sess)
 		sess.usingItemID = 0
+		sess.bundleUseLeft = 0
 		return true
 	case actionSwapHands:
 		s.swapHands(sess)

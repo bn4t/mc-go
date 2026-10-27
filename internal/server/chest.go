@@ -357,8 +357,18 @@ func (s *Server) handleMountClick(sess *Session, w *openWindow, slot int16, butt
 
 	e := w.mount
 	mountSide := int(slot) < w.containerSize()
-	target := sess.menuStack(int(slot))
+	view := bundleSlotView{item: sess.menuStack(int(slot)), mayPickup: true}
+	if mountSide {
+		at := int(slot)
+		view.mayPlace = func(it ItemStack) bool { return mountMayPlace(e, at, it) }
+		if at < 2 {
+			view.max = func(ItemStack) int32 { return 1 }
+		}
+	}
+	handled := s.bundleClick(sess, button != 0, &view, &cur)
+	target := view.item
 	switch {
+	case handled:
 	case button != 0:
 		ncur, ntgt := clickRight(cur, target, nil, -1)
 		if mountSide && !ntgt.Empty() && ntgt != target && !mountMayPlace(e, int(slot), ntgt) {
@@ -659,6 +669,16 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 			touched = append(touched, int(slot))
 			break
 		}
+		// Bundles get the click first (AbstractContainerMenu's item
+		// override hook); the slot's selection-only change still
+		// writes back like any other PICKUP click's setChanged.
+		view := bundleSlotView{item: sess.menuStack(int(slot)), mayPickup: true}
+		handled := s.bundleClick(sess, button == 1, &view, &carried)
+		sess.setMenuStack(int(slot), view.item)
+		if handled {
+			touched = append(touched, int(slot))
+			break
+		}
 		// Manual placement into furnace input and fuel is unfiltered:
 		// the differential caught vanilla accepting dirt in the input
 		// by hand. Quick-move below still honors the accept rules, and
@@ -706,6 +726,8 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 				if carried.Count <= 0 {
 					carried = ItemStack{}
 				}
+			} else if !sameItemSameComponents(target, cur) && cur.Count <= maxStackOfID(cur.ID) {
+				target, carried = cur, target
 			}
 		}
 		sess.setMenuStack(int(slot), target)

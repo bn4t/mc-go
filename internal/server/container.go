@@ -112,6 +112,9 @@ type containerSpec struct {
 // which most menus inherit as the item's own maximum but a few cap
 // lower (the beacon payment slot is 1).
 func (spec *containerSpec) slotMax(slot int, it ItemStack) int32 {
+	if spec == nil {
+		return maxStackOfID(it.ID)
+	}
 	if spec.menu == menuBeacon && slot == beaconPayment {
 		return 1
 	}
@@ -755,6 +758,19 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 			}
 			break
 		}
+		view := bundleSlotView{item: sess.menuStack(int(slot)), mayPickup: true}
+		if containerSide {
+			spec, at := c.spec, int(slot)
+			view.mayPlace = func(it ItemStack) bool { return spec.accepts(at, it) }
+			view.max = func(it ItemStack) int32 { return spec.slotMax(at, it) }
+		}
+		handled := s.bundleClick(sess, button == 1, &view, &cur)
+		sess.setMenuStack(int(slot), view.item)
+		if handled {
+			s.setCarriedLocked(sess, cur)
+			touched = append(touched, int(slot))
+			break
+		}
 		target := sess.menuStack(int(slot))
 		switch {
 		case button != 0:
@@ -1047,6 +1063,10 @@ func clickRight(cur, target ItemStack, spec *containerSpec, slot int) (carried, 
 			cur = ItemStack{}
 		}
 		return cur, target
+	case !sameItemSameComponents(target, cur) && menuAccepts(spec, slot, cur) && cur.Count <= spec.slotMax(slot, cur):
+		// A different stack swaps in on either button when the slot
+		// takes it and can hold all of it.
+		return target, cur
 	}
 	return cur, target
 }

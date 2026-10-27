@@ -1174,7 +1174,114 @@ func (s *Server) parseItemStackMode(args []string, itemTok int, giveMode bool) (
 	}
 	patch.ID = id
 	patch.Count = count
+	if patch.Bundle != nil && len(patch.Bundle.Items) == 0 && isBundleItem(id) {
+		patch.Bundle = nil // the empty list is a bundle's default
+	}
 	return patch, reply{}, true
+}
+
+// parseBundleContentsSNBT reads a bundle_contents value: a list of
+// ItemStackTemplate records, each {id, count (default 1, 1..99),
+// components} or the bare item id the codec also accepts. Nested
+// components go through the same patch parser as the outer item.
+func parseBundleContentsSNBT(v *snbtTag, tokNum int) (*BundleContents, bool) {
+	if v.kind != snbtList {
+		return nil, false
+	}
+	b := &BundleContents{Items: make([]ItemStack, 0, len(v.items))}
+	for _, e := range v.items {
+		var idTag *snbtTag
+		var inner ItemStack
+		inner.Count = 1
+		switch e.kind {
+		case snbtString:
+			idTag = e
+		case snbtCompound:
+			idTag = e.vals["id"]
+			if cv, ok := e.vals["count"]; ok {
+				if cv.kind != snbtNumber {
+					return nil, false
+				}
+				n, err := strconv.Atoi(strings.TrimRight(cv.num, "bBsSiIlLfFdD"))
+				if err != nil || n < 1 || n > 99 {
+					return nil, false
+				}
+				inner.Count = int32(n)
+			}
+			if cv, ok := e.vals["components"]; ok {
+				nested, ok := itemPatchFromSNBT(cv, tokNum)
+				if !ok {
+					return nil, false
+				}
+				nested.Count = inner.Count
+				inner = nested
+			}
+		default:
+			return nil, false
+		}
+		if idTag == nil || idTag.kind != snbtString {
+			return nil, false
+		}
+		id, ok := world.ItemID(strings.TrimPrefix(idTag.str, "minecraft:"))
+		if !ok || id == 0 {
+			return nil, false
+		}
+		inner.ID = id
+		if inner.Bundle != nil && len(inner.Bundle.Items) == 0 && isBundleItem(id) {
+			inner.Bundle = nil
+		}
+		b.Items = append(b.Items, inner)
+	}
+	return b, true
+}
+
+// itemPatchFromSNBT reads a stack's components compound — the
+// {"minecraft:damage":5,...} form an ItemStack record carries — through
+// the same per-component rules as an item token's bracketed patch.
+func itemPatchFromSNBT(cv *snbtTag, tokNum int) (ItemStack, bool) {
+	if cv.kind != snbtCompound {
+		return ItemStack{}, false
+	}
+	keys := make([]string, 0, len(cv.vals))
+	for k := range cv.vals {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+snbtRenderTag(cv.vals[k]))
+	}
+	it, _, ok := parseItemPatch(strings.Join(parts, ","), tokNum)
+	return it, ok
+}
+
+// snbtRenderTag writes a parsed value back out as SNBT text that
+// parseSNBTTag reads to the same value: numbers keep their canonical
+// text, strings are double-quoted.
+func snbtRenderTag(v *snbtTag) string {
+	switch v.kind {
+	case snbtNumber:
+		return v.num
+	case snbtString:
+		return strconv.Quote(v.str)
+	case snbtList:
+		parts := make([]string, len(v.items))
+		for i, e := range v.items {
+			parts[i] = snbtRenderTag(e)
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	default:
+		keys := make([]string, 0, len(v.vals))
+		for k := range v.vals {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, len(keys))
+		for i, k := range keys {
+			parts[i] = strconv.Quote(k) + ":" + snbtRenderTag(v.vals[k])
+		}
+		return "{" + strings.Join(parts, ",") + "}"
+	}
 }
 
 // parseItemPatch decodes one component patch (the bracketed part of an
@@ -1459,6 +1566,12 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 			}
 			sort.Strings(parts)
 			it.BlockState = strings.Join(parts, ",")
+		case "bundle_contents":
+			b, ok := parseBundleContentsSNBT(vtag, tokNum)
+			if !ok {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
+			it.Bundle = b
 		case "container":
 			// ItemContainerContents is a list of {item:{id,count},slot}
 			// records — the box's stored stacks by slot index.

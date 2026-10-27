@@ -2144,6 +2144,13 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 	if err != nil {
 		return server.ItemStack{}, 0, false, nil, err
 	}
+	return readSlotBBPatch(r, id, count)
+}
+
+// readSlotBBPatch decodes the component patch that follows an item id
+// and count — a slot's tail, or one ItemStackTemplate inside a
+// bundle_contents list (id, count, patch; measured on 26.2).
+func readSlotBBPatch(r *protocol.PacketReader, id, count int32) (server.ItemStack, int32, bool, []int32, error) {
 	nadd, err := r.VarInt() // components to add
 	if err != nil {
 		return server.ItemStack{}, 0, false, nil, err
@@ -2163,6 +2170,30 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 		}
 		comps = append(comps, typ)
 		switch typ {
+		case 50: // minecraft:bundle_contents: VarInt-counted list of
+			// ItemStackTemplate — item id, count, then a nested patch,
+			// with no per-entry presence flag (measured 26.2).
+			n, err := r.VarInt()
+			if err != nil {
+				return server.ItemStack{}, 0, false, nil, err
+			}
+			b := &server.BundleContents{}
+			for ; n > 0; n-- {
+				iid, err := r.VarInt()
+				if err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				icount, err := r.VarInt()
+				if err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				inner, _, _, _, err := readSlotBBPatch(r, iid, icount)
+				if err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				b.Items = append(b.Items, inner)
+			}
+			it.Bundle = b
 		case 3: // minecraft:damage, VarInt payload (measured 26.2)
 			dmg, err = r.VarInt()
 			if err != nil {

@@ -240,6 +240,10 @@ func (t *slotProjector) component(r *protocol.PacketReader, b *protocol.Buffer, 
 			}
 			return nil
 		})
+	case compBundleContents:
+		// ByteBufCodecs.list() has no size cap of its own; the shared
+		// node budget bounds the whole slot.
+		return list(4096, func() error { return t.template(r, b, depth+1) })
 	case compBlockState:
 		return list(128, func() error {
 			if e := text(); e != nil {

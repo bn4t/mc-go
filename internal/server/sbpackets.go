@@ -1053,16 +1053,67 @@ func (s *Server) handlePaddleBoat(sess *Session, p protocol.Packet) {
 	}
 }
 
-// handleBundleItemSelected consumes a bundle slot selection. mc-go's
-// item model carries no components yet, so the bundle has no contents
-// to reorder; the packet is validated and dropped.
+// handleBundleItemSelected is Select Bundle Item: the player's current
+// menu (an open window, else the inventory) toggles the selection of
+// the bundle in the named slot — AbstractContainerMenu's
+// setSelectedBundleItemIndex. The selection decides which entry the
+// next right-click or use takes out; it never reaches the wire, so
+// nothing is sent back. Vanilla's decoder rejects an index below -1;
+// such a packet, like a slot outside the menu, changes nothing here.
 func (s *Server) handleBundleItemSelected(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
-	if _, err := r.VarInt(); err != nil {
+	slot, err := r.VarInt()
+	if err != nil {
 		return
 	}
-	if _, err := r.VarInt(); err != nil {
+	idx, err := r.VarInt()
+	if err != nil || idx < -1 || r.Remaining() != 0 {
 		return
+	}
+	toggle := func(it ItemStack) (ItemStack, bool) {
+		b, ok := bundleOf(it)
+		if !ok {
+			return it, false
+		}
+		m := newBundleMut(b)
+		m.toggle(idx)
+		m.store(&it)
+		return it, true
+	}
+	sess.windowMu.Lock()
+	w := sess.window
+	sess.windowMu.Unlock()
+	switch {
+	case w == nil:
+		if slot < 0 || slot >= slotCount {
+			return
+		}
+		sess.invMu.Lock()
+		if it, ok := toggle(sess.inv[slot]); ok {
+			sess.inv[slot] = it
+		}
+		sess.invMu.Unlock()
+	case w.craft != nil:
+		if slot < 0 || slot >= craftTableSlots {
+			return
+		}
+		if it, ok := toggle(sess.craftMenuStack(w.craft, int(slot))); ok {
+			sess.setCraftMenuStack(w.craft, int(slot), it)
+		}
+	case w.hopper != nil:
+		if slot < 0 || slot >= hopperMenuSlots {
+			return
+		}
+		if it, ok := toggle(sess.hopperMenuStack(w.hopper, int(slot))); ok {
+			sess.setHopperMenuStack(w.hopper, int(slot), it)
+		}
+	default:
+		if slot < 0 || int(slot) >= w.menuSize() {
+			return
+		}
+		if it, ok := toggle(sess.menuStack(int(slot))); ok {
+			sess.setMenuStack(int(slot), it)
+		}
 	}
 }
 

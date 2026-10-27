@@ -161,6 +161,12 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 		s.useEmptyMap(sess, st, handSlot)
 		return
 	}
+	// BundleItem.use starts the 200-tick hold whatever the bundle
+	// holds; the contents drop out from the use ticks.
+	if un, ok := world.ItemName(st.ID); ok && !st.Empty() && isBundleItemName(un) {
+		s.useBundle(sess, hand, st)
+		return
+	}
 	held := sess.heldStack()
 	if held.Empty() {
 		return

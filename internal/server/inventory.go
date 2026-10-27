@@ -51,6 +51,11 @@ type ItemStack struct {
 	// therefore also not stackable with a plain box, exactly as vanilla
 	// refuses to merge stacks with different components.
 	Contents *[shulkerSlots]ItemStack `json:"contents,omitempty"`
+	// Bundle is the minecraft:bundle_contents patch value: nil for a
+	// bundle item at its empty default (and for every other item that
+	// carries no such component). Shared by pointer like Contents and
+	// never edited in place, so == stays usable.
+	Bundle *BundleContents `json:"bundle,omitempty"`
 	// Ench is the minecraft:enchantments component as a canonical
 	// "name:level,name:level" string sorted by name, names stripped of
 	// the minecraft: prefix. A plain string keeps ItemStack comparable
@@ -168,6 +173,7 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		return false
 	}
 	return it.Contents == nil && other.Contents == nil &&
+		bundleEqual(it.Bundle, other.Bundle) &&
 		it.Damage == other.Damage && it.RepairCost == other.RepairCost &&
 		it.Name == other.Name && it.Ench == other.Ench &&
 		it.StoredEnch == other.StoredEnch && it.Bees == other.Bees &&
@@ -394,6 +400,9 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 	if it.Contents != nil {
 		add++
 	}
+	if it.Bundle != nil {
+		add++
+	}
 	if it.BannerPatterns != "" && !it.Ominous {
 		add++
 	}
@@ -588,6 +597,15 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 				continue
 			}
 			b.Bool(true)
+			b.VarInt(inner.ID)
+			b.VarInt(inner.Count)
+			writeSlotPatch(b, inner)
+		}
+	}
+	if it.Bundle != nil {
+		b.VarInt(compBundleContents)
+		b.VarInt(int32(len(it.Bundle.Items)))
+		for _, inner := range it.Bundle.Items {
 			b.VarInt(inner.ID)
 			b.VarInt(inner.Count)
 			writeSlotPatch(b, inner)
@@ -1390,6 +1408,14 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 
 	switch mode {
 	case 0: // pickup / place with cursor
+		view := window0BundleSlot(sess, slot)
+		carriedNow := sess.carried
+		handled := s.bundleClick(sess, button == 1, &view, &carriedNow)
+		sess.inv[slot], sess.carried = view.item, carriedNow
+		if handled {
+			touch(slot)
+			break
+		}
 		cur := sess.carried
 		target := sess.inv[slot]
 		if button == 0 { // left click: whole stack
@@ -1436,6 +1462,10 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 				if sess.carried.Count <= 0 {
 					sess.carried = ItemStack{}
 				}
+			} else if !sameItemSameComponents(target, cur) && cur.Count <= maxStackOfID(cur.ID) {
+				// doClick swaps a different stack on either button
+				// when the slot can hold all of it.
+				sess.inv[slot], sess.carried = cur, target
 			}
 		}
 		touch(slot)

@@ -135,15 +135,35 @@ type dataSaveItemCopy struct {
 	from, to *[shulkerSlots]ItemStack
 }
 
+type dataSaveBundleCopy struct {
+	from, to *BundleContents
+}
+
 // A memo plus an iterative worklist copies arbitrary item-content graphs. A
 // shared array remains shared within the private graph; cycles are preserved so
 // json.Marshal retains its normal error instead of capture recursing forever.
+// Bundle contents are copied the same way, so no saved value aliases a live one.
 type dataSaveCloner struct {
-	contents map[*[shulkerSlots]ItemStack]*[shulkerSlots]ItemStack
-	pending  []dataSaveItemCopy
+	contents       map[*[shulkerSlots]ItemStack]*[shulkerSlots]ItemStack
+	pending        []dataSaveItemCopy
+	bundles        map[*BundleContents]*BundleContents
+	pendingBundles []dataSaveBundleCopy
 }
 
 func (clone *dataSaveCloner) item(item ItemStack) ItemStack {
+	if item.Bundle != nil {
+		if to, ok := clone.bundles[item.Bundle]; ok {
+			item.Bundle = to
+		} else {
+			if clone.bundles == nil {
+				clone.bundles = make(map[*BundleContents]*BundleContents)
+			}
+			to := &BundleContents{Items: make([]ItemStack, len(item.Bundle.Items)), Selected: item.Bundle.Selected}
+			clone.bundles[item.Bundle] = to
+			clone.pendingBundles = append(clone.pendingBundles, dataSaveBundleCopy{from: item.Bundle, to: to})
+			item.Bundle = to
+		}
+	}
 	if item.Contents == nil {
 		return item
 	}
@@ -173,11 +193,20 @@ func (clone *dataSaveCloner) items(items []ItemStack) []ItemStack {
 }
 
 func (clone *dataSaveCloner) finish() {
-	for i := 0; i < len(clone.pending); i++ {
-		pair := clone.pending[i]
-		for slot, item := range pair.from {
-			pair.to[slot] = clone.item(item)
+	for i, j := 0, 0; i < len(clone.pending) || j < len(clone.pendingBundles); {
+		if i < len(clone.pending) {
+			pair := clone.pending[i]
+			for slot, item := range pair.from {
+				pair.to[slot] = clone.item(item)
+			}
+			i++
+			continue
 		}
+		pair := clone.pendingBundles[j]
+		for k, item := range pair.from.Items {
+			pair.to.Items[k] = clone.item(item)
+		}
+		j++
 	}
 }
 

@@ -671,6 +671,15 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 		}
 		comps["minecraft:container_loot"] = cl
 	}
+	// bundle_contents is a plain ItemStackTemplate list, newest first —
+	// the same {id, count, components} records a container slot holds.
+	if it.Bundle != nil {
+		bl := nbt.List{Elem: nbt.TagCompound}
+		for _, inner := range it.Bundle.Items {
+			bl.Items = append(bl.Items, itemNBTInner(inner))
+		}
+		comps["minecraft:bundle_contents"] = bl
+	}
 	if it.Contents == nil {
 		return comps
 	}
@@ -880,7 +889,9 @@ func itemFromNBT(m map[string]any) ItemStack {
 	it.Count = int32(nbtNumberOr(m["count"], 1))
 	if comps, ok := m["components"].(map[string]any); ok {
 		it.Contents = shulkerContentsFromNBT(comps)
+		it.Bundle = bundleContentsFromNBT(it.ID, comps)
 		it.BookWritable, it.BookWritten = bookContentFromNBT(comps)
+		scalarComponentsFromNBT(&it, comps)
 		if tr, ok := comps["minecraft:trim"].(map[string]any); ok {
 			mat, _ := tr["material"].(string)
 			pat, _ := tr["pattern"].(string)
@@ -921,6 +932,82 @@ func shulkerContentsFromNBT(comps map[string]any) *[shulkerSlots]ItemStack {
 		return nil
 	}
 	return &box
+}
+
+// scalarComponentsFromNBT reads back the flat components
+// itemComponentsNBT writes — damage, enchantments, potion, instrument,
+// bee count, block state, custom name and container loot — in the same
+// canonical forms the stack model keeps.
+func scalarComponentsFromNBT(it *ItemStack, comps map[string]any) {
+	if v, ok := nbtNumber(comps["minecraft:damage"]); ok && v > 0 {
+		it.Damage = int32(v)
+	}
+	if m, ok := comps["minecraft:enchantments"].(map[string]any); ok {
+		parts := make([]string, 0, len(m))
+		for n, lv := range m {
+			if v, ok := nbtNumber(lv); ok {
+				parts = append(parts, strings.TrimPrefix(n, "minecraft:")+":"+strconv.Itoa(int(v)))
+			}
+		}
+		sort.Strings(parts)
+		it.Ench = strings.Join(parts, ",")
+	}
+	if m, ok := comps["minecraft:potion_contents"].(map[string]any); ok {
+		if p, ok := m["potion"].(string); ok {
+			it.Potion = strings.TrimPrefix(p, "minecraft:")
+		}
+	}
+	if v, ok := comps["minecraft:instrument"].(string); ok {
+		it.Instrument = strings.TrimPrefix(v, "minecraft:")
+	}
+	if l, ok := comps["minecraft:bees"].(nbt.List); ok {
+		it.Bees = int32(len(l.Items))
+	}
+	if m, ok := comps["minecraft:block_state"].(map[string]any); ok {
+		parts := make([]string, 0, len(m))
+		for k, v := range m {
+			if sv, ok := v.(string); ok {
+				parts = append(parts, k+"="+sv)
+			}
+		}
+		sort.Strings(parts)
+		it.BlockState = strings.Join(parts, ",")
+	}
+	if v, ok := comps["minecraft:custom_name"].(string); ok {
+		it.Name = v
+	}
+	if m, ok := comps["minecraft:container_loot"].(map[string]any); ok {
+		if lt, ok := m["loot_table"].(string); ok {
+			it.LootTable = lt
+			if seed, ok := m["seed"].(int64); ok {
+				it.LootSeed = seed
+			}
+		}
+	}
+}
+
+// bundleContentsFromNBT reads the minecraft:bundle_contents list. An
+// empty list on a bundle item is that item's default, which the stack
+// model keeps as no patch at all.
+func bundleContentsFromNBT(id int32, comps map[string]any) *BundleContents {
+	list, ok := comps["minecraft:bundle_contents"].(nbt.List)
+	if !ok {
+		return nil
+	}
+	b := &BundleContents{}
+	for _, anyEntry := range list.Items {
+		entry, ok := anyEntry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if inner := itemFromNBT(entry); !inner.Empty() {
+			b.Items = append(b.Items, inner)
+		}
+	}
+	if len(b.Items) == 0 && isBundleItem(id) {
+		return nil
+	}
+	return b
 }
 
 // signSideFromNBT reads one side of a saved or transmitted sign: its

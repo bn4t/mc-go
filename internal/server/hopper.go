@@ -165,41 +165,14 @@ func (s *Server) handleHopperClick(sess *Session, w *openWindow, h *hopperData, 
 	switch mode {
 	case 0:
 		cur := sess.carried
-		target := sess.hopperMenuStack(h, int(slot))
-		if button == 0 {
-			if cur.Empty() {
-				cur, target = target, ItemStack{}
-			} else if target.Empty() {
-				target, cur = cur, ItemStack{}
-			} else if target.Stackable(cur) {
-				room := maxStackOfID(target.ID) - target.Count
-				move := cur.Count
-				if move > room {
-					move = room
-				}
-				target.Count += move
-				cur.Count -= move
-				if cur.Count <= 0 {
-					cur = ItemStack{}
-				}
-			} else {
-				target, cur = cur, target
-			}
-		} else if cur.Empty() {
-			if !target.Empty() {
-				half := (target.Count + 1) / 2
-				cur = target.withCount(half)
-				target.Count -= half
-				if target.Count <= 0 {
-					target = ItemStack{}
-				}
-			}
-		} else if target.Empty() {
-			target = cur.withCount(1)
-			cur.Count--
-			if cur.Count <= 0 {
-				cur = ItemStack{}
-			}
+		view := bundleSlotView{item: sess.hopperMenuStack(h, int(slot)), mayPickup: true}
+		target := view.item
+		if s.bundleClick(sess, button == 1, &view, &cur) {
+			target = view.item
+		} else if button == 0 {
+			cur, target = clickLeft(cur, view.item, nil, -1)
+		} else {
+			cur, target = clickRight(cur, view.item, nil, -1)
 		}
 		sess.setHopperMenuStack(h, int(slot), target)
 		sess.carriedMuSet(cur)

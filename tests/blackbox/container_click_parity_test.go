@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,6 +93,15 @@ func stackKey(it server.ItemStack) string {
 	}
 	if it.DyedColor != 0 {
 		key += fmt.Sprintf("[dyc%d]", it.DyedColor)
+	}
+	if it.Bundle != nil {
+		// Bundle contents in list order (newest first), each entry
+		// keyed recursively.
+		parts := make([]string, len(it.Bundle.Items))
+		for i, inner := range it.Bundle.Items {
+			parts[i] = stackKey(inner)
+		}
+		key += "[bun" + strings.Join(parts, "|") + "]"
 	}
 	return key
 }

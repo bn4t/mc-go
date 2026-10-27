@@ -275,9 +275,9 @@ func (p *javaProfile) writeSlot(b *protocol.Buffer, it ItemStack) error {
 	if it.InstrumentRemoved && it.Instrument != "" {
 		return fmt.Errorf("slot: instrument both added and removed")
 	}
-	if it.Contents != nil {
+	if it.Contents != nil || it.Bundle != nil {
 		nodes := 0
-		if err := validateSlotContents(it, 0, &nodes, map[*[shulkerSlots]ItemStack]bool{}); err != nil {
+		if err := validateSlotContents(it, 0, &nodes, map[any]bool{}); err != nil {
 			return err
 		}
 	}
@@ -444,20 +444,37 @@ func (p *javaProfile) projectEquipment776(body []byte) ([]byte, error) {
 	return nil, fmt.Errorf("slot: equipment continuation limit exceeded")
 }
 
-func validateSlotContents(it ItemStack, depth int, nodes *int, path map[*[shulkerSlots]ItemStack]bool) error {
+func validateSlotContents(it ItemStack, depth int, nodes *int, path map[any]bool) error {
 	*nodes++
 	if depth > 16 || *nodes > 4096 {
 		return fmt.Errorf("slot: content nesting budget exceeded")
 	}
-	if it.Empty() || it.Contents == nil {
+	if it.Empty() {
 		return nil
 	}
-	if path[it.Contents] {
+	var children []ItemStack
+	var key any
+	if it.Contents != nil {
+		children, key = it.Contents[:], it.Contents
+	}
+	if it.Bundle != nil {
+		if key != nil {
+			// A stack carrying both components walks each in turn.
+			if err := validateSlotContents(ItemStack{ID: it.ID, Count: it.Count, Contents: it.Contents}, depth, nodes, path); err != nil {
+				return err
+			}
+		}
+		children, key = it.Bundle.Items, it.Bundle
+	}
+	if key == nil {
+		return nil
+	}
+	if path[key] {
 		return fmt.Errorf("slot: cyclic container contents")
 	}
-	path[it.Contents] = true
-	defer delete(path, it.Contents)
-	for _, child := range it.Contents {
+	path[key] = true
+	defer delete(path, key)
+	for _, child := range children {
 		if err := validateSlotContents(child, depth+1, nodes, path); err != nil {
 			return err
 		}

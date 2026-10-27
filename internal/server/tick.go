@@ -634,6 +634,7 @@ func (s *Server) playerTickOwned() {
 		if sess.locTicks++; sess.locTicks%20 == 0 && sess.spawned.Load() {
 			s.fireLocation(sess)
 		}
+		s.bundleUseTick(sess)
 		if sess.usingItemID != 0 {
 			s.fireUsingItem(sess)
 			s.spearJabTick(sess)

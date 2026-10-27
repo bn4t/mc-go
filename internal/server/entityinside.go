@@ -319,6 +319,7 @@ func (s *Server) lavaInside(e *Entity, name string) {
 				0.4, 2+rand.Float32()*0.4, nil)
 		}
 		if e.ItemHP <= 0 {
+			s.itemEntityDestroyed(e)
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 		}

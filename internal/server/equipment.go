@@ -69,6 +69,10 @@ func equipMatch(a, b ItemStack) bool {
 		}
 		a.Contents, b.Contents = nil, nil
 	}
+	if !bundleEqual(a.Bundle, b.Bundle) {
+		return false
+	}
+	a.Bundle, b.Bundle = nil, nil
 	return a == b
 }
 

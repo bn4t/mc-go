@@ -1991,6 +1991,15 @@ func (s *Server) runSummon(player string, args []string) reply {
 						it.Count = n
 					}
 				}
+				if cv, ok := iv.vals["components"]; ok {
+					if patch, ok := itemPatchFromSNBT(cv, 0); ok {
+						patch.ID, patch.Count = it.ID, it.Count
+						if patch.Bundle != nil && len(patch.Bundle.Items) == 0 && isBundleItem(patch.ID) {
+							patch.Bundle = nil
+						}
+						it = patch
+					}
+				}
 			}
 		}
 		// A bare summon carries no Item key: vanilla still accepts —

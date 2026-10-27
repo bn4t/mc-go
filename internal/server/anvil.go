@@ -328,11 +328,18 @@ func (s *Server) anvilClick(sess *Session, w *openWindow, c *containerData, slot
 		s.takeAnvilResult(sess, w, c, cur, anvilTakeHand)
 		return
 	}
-	target := sess.menuStack(slot)
-	if button != 0 {
-		cur, target = clickRight(cur, target, c.spec, slot)
-	} else {
-		cur, target = clickLeft(cur, target, c.spec, slot)
+	view := bundleSlotView{item: sess.menuStack(slot), mayPickup: true}
+	if slot < c.spec.slots {
+		view.mayPlace = func(it ItemStack) bool { return c.spec.accepts(slot, it) }
+	}
+	target := view.item
+	switch {
+	case s.bundleClick(sess, button != 0, &view, &cur):
+		target = view.item
+	case button != 0:
+		cur, target = clickRight(cur, view.item, c.spec, slot)
+	default:
+		cur, target = clickLeft(cur, view.item, c.spec, slot)
 	}
 	sess.setMenuStack(slot, target)
 	s.setCarriedLocked(sess, cur)

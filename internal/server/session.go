@@ -253,6 +253,12 @@ type Session struct {
 	// (spyglass scope); 0 when nothing is in use. Vanilla fires
 	// using_item every tick while set.
 	usingItemID int32
+	// bundleUseLeft counts down a bundle's 200-tick use (vanilla's
+	// useItemRemaining), 0 when no bundle is in use; bundleUseHand and
+	// bundleUseItem are the hand and item id the use started with.
+	bundleUseLeft int32
+	bundleUseHand int32
+	bundleUseItem int32
 	// levitationStart / levitationStartTick anchor the levitation
 	// trigger — vanilla stamps them when the effect lands and clears
 	// on removal.
