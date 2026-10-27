@@ -210,22 +210,54 @@ func ZoomBiome(zoomSeed int64, x, y, z int32, quart func(qx, qy, qz int32) strin
 // the order vanilla asks its climate search in.
 type ChunkBiomes struct {
 	CX, CZ       int32
-	minQY, quart int32 // lowest quart Y and quart count up
-	biomes       []string
+	minQY, quart int32   // lowest quart Y and quart count up
+	biomes       []uint8 // biomeNameTable indices
+}
+
+// biomeNameTable is every biome a source can produce: the climate
+// lists' biomes, then the End's.
+var biomeNameTable = append(append([]string(nil), climateBiomeNames...), endBiomes...)
+
+// BiomeSource resolves quart biomes for one dimension.
+type BiomeSource interface {
+	// biomeIndex is the biomeNameTable index of quart (qx, qy, qz).
+	biomeIndex(rs *RandomState, s *BiomeSearcher, qx, qy, qz int32) uint8
+}
+
+func (m *MultiNoiseBiomes) biomeIndex(rs *RandomState, s *BiomeSearcher, qx, qy, qz int32) uint8 {
+	return s.find(rs.Climate(qx, qy, qz))
+}
+
+// EndBiomeSource is the End's distance-and-erosion biome source.
+type EndBiomeSource struct{}
+
+func (EndBiomeSource) biomeIndex(rs *RandomState, _ *BiomeSearcher, qx, qy, qz int32) uint8 {
+	name := rs.endBiome(qx, qy, qz)
+	for i, n := range endBiomes {
+		if n == name {
+			return uint8(len(climateBiomeNames) + i)
+		}
+	}
+	panic("worldgen: unknown end biome")
 }
 
 // FillChunkBiomes resolves chunk (cx, cz)'s biomes through a searcher.
 func FillChunkBiomes(rs *RandomState, s *BiomeSearcher, cx, cz int32) *ChunkBiomes {
+	return FillChunkBiomesFrom(rs, s.m, s, cx, cz)
+}
+
+// FillChunkBiomesFrom resolves chunk (cx, cz)'s biomes from a source; s
+// is the multi-noise searcher (unused by other sources).
+func FillChunkBiomesFrom(rs *RandomState, src BiomeSource, s *BiomeSearcher, cx, cz int32) *ChunkBiomes {
 	set := rs.Settings
 	c := &ChunkBiomes{CX: cx, CZ: cz, minQY: int32(set.MinY) >> 2, quart: int32(set.Height) >> 2}
-	c.biomes = make([]string, 16*c.quart)
+	c.biomes = make([]uint8, 16*c.quart)
 	for sec := int32(0); sec < c.quart/4; sec++ {
 		for x := int32(0); x < 4; x++ {
 			for y := int32(0); y < 4; y++ {
 				for z := int32(0); z < 4; z++ {
 					qy := c.minQY + sec*4 + y
-					b := s.Find(rs.Climate(cx*4+x, qy, cz*4+z))
-					c.biomes[c.index(x, qy, z)] = b
+					c.biomes[c.index(x, qy, z)] = src.biomeIndex(rs, s, cx*4+x, qy, cz*4+z)
 				}
 			}
 		}
@@ -241,7 +273,7 @@ func (c *ChunkBiomes) index(qx, qy, qz int32) int {
 // the quart Y clamped to the chunk's height.
 func (c *ChunkBiomes) At(qx, qy, qz int32) string {
 	qy = min(max(qy, c.minQY), c.minQY+c.quart-1)
-	return c.biomes[c.index(qx-c.CX*4, qy, qz-c.CZ*4)]
+	return biomeNameTable[c.biomes[c.index(qx-c.CX*4, qy, qz-c.CZ*4)]]
 }
 
 // BiomeRegion answers quart biomes from the stored biomes of a 3×3 block
@@ -253,10 +285,15 @@ type BiomeRegion struct {
 
 // NewBiomeRegion fills the 3×3 chunks around (cx, cz), x outer, z inner.
 func NewBiomeRegion(rs *RandomState, s *BiomeSearcher, cx, cz int32) *BiomeRegion {
+	return NewBiomeRegionFrom(rs, s.m, s, cx, cz)
+}
+
+// NewBiomeRegionFrom is NewBiomeRegion over any biome source.
+func NewBiomeRegionFrom(rs *RandomState, src BiomeSource, s *BiomeSearcher, cx, cz int32) *BiomeRegion {
 	r := &BiomeRegion{cx: cx, cz: cz}
 	for dx := int32(-1); dx <= 1; dx++ {
 		for dz := int32(-1); dz <= 1; dz++ {
-			r.chunks[dx+1][dz+1] = FillChunkBiomes(rs, s, cx+dx, cz+dz)
+			r.chunks[dx+1][dz+1] = FillChunkBiomesFrom(rs, src, s, cx+dx, cz+dz)
 		}
 	}
 	return r

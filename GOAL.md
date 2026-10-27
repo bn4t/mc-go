@@ -61,9 +61,10 @@ Mojang server over the wire.
       historical pending/forget order; near-window pruning and forget/batch
       ordering differences remain, as documented in the live-window slice.
 - [~] Vanilla terrain generation (seed, noise, biomes, structures) —
-      random sources, noise, the overworld noise router and the noise
-      stage of chunk filling (aquifers, ore veins) match vanilla block for
-      block (`internal/worldgen`); the server does not use it yet
+      random sources, noise, the overworld, nether and End noise
+      routers, biome sources and the noise and surface stages of chunk
+      filling (aquifers, ore veins, surface rules) match vanilla block
+      for block (`internal/worldgen`); the server does not use it yet
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -15745,3 +15746,39 @@ no flee; unsneak → flee). Green both legs.
   query history, so biome ties can only match when the order matches;
   carvers, features, structures, the beardifier and the end/nether
   biome sources; wiring generation into the server.
+
+## Slice — worldgen nether and End: legacy climate noises, End islands and End biomes (2026-10-27)
+
+- **Measured:** bytecode inspection of `PerlinNoise`'s legacy
+  constructor (the octave at frequency 1 drawn first, each lower octave
+  in turn, 262-draw skips for unused ones; it refuses only when the
+  frequency-1 octave sits below the top one — the guard mc-go had
+  inverted), `RandomState`'s legacy branch (the nether temperature and
+  vegetation noises seeded sequentially from the world seed and seed+1),
+  `DensityFunctions$EndIslandDensityFunction` (a `LegacyRandomSource`
+  advanced 17292 draws feeding a simplex noise, the float-math central
+  island and the 25×25 outer island scan with its hashed steepness, the
+  `(h−8)/128` output and its −0.84375/0.5625 bounds) and
+  `TheEndBiomeSource` (the main island out to 64 sections, beyond it the
+  erosion at the section's middle cell against 0.25, −0.0625 and
+  −0.21875) on the 26.2 jar (unpacked SHA-256 `183c0499…823e8`, Temurin
+  JDK 25.0.5+8). The End's default fluid is air. `ChunkFillProbe.java`
+  (SHA-256 `9b745961…6401`) now runs the generator for three
+  dimensions — the overworld as before, the nether (its noise settings
+  and multi-noise preset, height 0..256) and the End (its noise settings
+  and `TheEndBiomeSource`) for seeds 0 and 12345, six chunks each, near
+  and far from the origin — recording every column after the noise and
+  surface stages (`testdata/chunk_fill.tsv.gz`, SHA-256
+  `8d728d28…59d5`).
+- **Implemented:** `worldgen` End islands as a density function, a
+  `BiomeSource` interface with the multi-noise and End sources, biome
+  storage by interned name, air as a default fluid, the legacy octave
+  guard fix, and `NewDimensionGenerator` for the three vanilla
+  dimensions.
+- **Pinned:** `TestNetherAndEndMatchVanilla` — all 6144 nether columns
+  (netherrack, lava sea, soul sand/soil, basalt, nylium surfaces, bedrock
+  floor and roof) and all 6144 End columns (central and outer islands,
+  end stone, air) match vanilla after the noise and the surface stage.
+- **Remaining:** carvers, features and structures for all three
+  dimensions; the End's spikes, gateways and dragon fight; wiring the
+  nether and End generators into the server.

@@ -94,6 +94,8 @@ func NewNoiseChunkFiller(rs *RandomState) *NoiseChunkFiller {
 		f.defaultFluid = NBWater
 	case "minecraft:lava":
 		f.defaultFluid = NBLava
+	case "minecraft:air":
+		f.defaultFluid = NBAir
 	default:
 		panic(fmt.Sprintf("worldgen: unsupported default fluid %s", s.DefaultFluid.Name))
 	}

@@ -44,11 +44,32 @@ public class ChunkFillProbe {
         RegistryAccess access = new RegistryAccess.ImmutableRegistryAccess(List.of(biomeRegistry));
         PalettedContainerFactory containers = PalettedContainerFactory.create(access);
 
-        var settingsHolder = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(NoiseGeneratorSettings.OVERWORLD);
-        NoiseGeneratorSettings settings = settingsHolder.value();
         var paramLists = lookup.lookupOrThrow(Registries.MULTI_NOISE_BIOME_SOURCE_PARAMETER_LIST);
-        var biomeSource = net.minecraft.world.level.biome.MultiNoiseBiomeSource.createFromPreset(
-            paramLists.getOrThrow(net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterLists.OVERWORLD));
+        try (PrintWriter out = new PrintWriter(args[0], java.nio.charset.StandardCharsets.UTF_8)) {
+            run(out, "", lookup, containers, NoiseGeneratorSettings.OVERWORLD,
+                net.minecraft.world.level.biome.MultiNoiseBiomeSource.createFromPreset(
+                    paramLists.getOrThrow(net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterLists.OVERWORLD)),
+                -64, 384, new long[]{0L, 12345L, -4172144997902289642L},
+                new int[][]{{0, 0}, {-1, 3}, {10, -7}, {-37, -52}, {125, 88}, {-300, 412}, {4, -1}, {61, 61}});
+            run(out, ".nether", lookup, containers, NoiseGeneratorSettings.NETHER,
+                net.minecraft.world.level.biome.MultiNoiseBiomeSource.createFromPreset(
+                    paramLists.getOrThrow(net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterLists.NETHER)),
+                0, 256, new long[]{0L, 12345L},
+                new int[][]{{0, 0}, {-3, 5}, {20, -11}, {-40, 33}, {7, 7}, {100, -60}});
+            run(out, ".end", lookup, containers, NoiseGeneratorSettings.END,
+                net.minecraft.world.level.biome.TheEndBiomeSource.create(lookup.lookupOrThrow(Registries.BIOME)),
+                0, 256, new long[]{0L, 12345L},
+                new int[][]{{0, 0}, {5, -3}, {70, 10}, {-90, 40}, {120, -130}, {-200, -200}});
+        }
+    }
+
+    // run generates one dimension's probe chunks: for each chunk, biomes
+    // for its 3x3 neighbourhood, then the noise fill and the surface.
+    static void run(PrintWriter out, String tag, net.minecraft.core.HolderLookup.Provider lookup, PalettedContainerFactory containers,
+            net.minecraft.resources.ResourceKey<NoiseGeneratorSettings> settingsKey, net.minecraft.world.level.biome.BiomeSource biomeSource,
+            int heightMinY, int heightTotal, long[] seeds, int[][] chunks) throws Exception {
+        var settingsHolder = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(settingsKey);
+        NoiseGeneratorSettings settings = settingsHolder.value();
         var generator = new NoiseBasedChunkGenerator(biomeSource, settingsHolder);
         Method doCreateBiomes = java.util.Arrays.stream(NoiseBasedChunkGenerator.class.getDeclaredMethods())
             .filter(m -> m.getName().equals("doCreateBiomes")).findFirst().orElseThrow();
@@ -68,14 +89,12 @@ public class ChunkFillProbe {
         Method forChunk = java.util.Arrays.stream(NoiseChunk.class.getDeclaredMethods())
             .filter(m -> m.getName().equals("forChunk")).findFirst().orElseThrow();
         forChunk.setAccessible(true);
-        LevelHeightAccessor height = LevelHeightAccessor.create(settings.noiseSettings().minY(), settings.noiseSettings().height());
+        LevelHeightAccessor height = LevelHeightAccessor.create(heightMinY, heightTotal);
         int cellHeight = settings.noiseSettings().getCellHeight();
         int cellMinY = Math.floorDiv(settings.noiseSettings().minY(), cellHeight);
         int cellCountY = Math.floorDiv(settings.noiseSettings().height(), cellHeight);
 
-        long[] seeds = {0L, 12345L, -4172144997902289642L};
-        int[][] chunks = {{0, 0}, {-1, 3}, {10, -7}, {-37, -52}, {125, 88}, {-300, 412}, {4, -1}, {61, 61}};
-        try (PrintWriter out = new PrintWriter(args[0], java.nio.charset.StandardCharsets.UTF_8)) {
+        {
             for (long seed : seeds) {
                 RandomState state = RandomState.create(settings, lookup.lookupOrThrow(Registries.NOISE), seed);
                 for (int[] c : chunks) {
@@ -103,14 +122,14 @@ public class ChunkFillProbe {
                     ProtoChunk chunk = around[1][1];
                     doFill.invoke(generator, Blender.empty(), null, state, chunk, cellMinY, cellCountY);
                     chunk.setPersistedStatus(net.minecraft.world.level.chunk.status.ChunkStatus.NOISE);
-                    dump(out, "fill", seed, c, chunk, height);
+                    dump(out, "fill" + tag, seed, c, chunk, height);
                     final int cx = c[0], cz = c[1];
                     var manager = new net.minecraft.world.level.biome.BiomeManager(
                         (qx, qy, qz) -> around[(qx >> 2) - cx + 1][(qz >> 2) - cz + 1].getNoiseBiome(qx, qy, qz),
                         net.minecraft.world.level.biome.BiomeManager.obfuscateSeed(seed));
                     generator.buildSurface(chunk, new net.minecraft.world.level.levelgen.WorldGenerationContext(generator, height),
                         state, null, manager, Blender.empty(), biomeSource.possibleBiomes());
-                    dump(out, "surface", seed, c, chunk, height);
+                    dump(out, "surface" + tag, seed, c, chunk, height);
                 }
             }
         }

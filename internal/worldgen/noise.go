@@ -199,7 +199,7 @@ func NewLegacyOctaves(r Random, firstOctave int, amplitudes []float64) *Octaves 
 	o := newOctaveShell(firstOctave, amplitudes)
 	n := len(amplitudes)
 	top := -firstOctave
-	if top > n-1 {
+	if top < n-1 {
 		panic("worldgen: positive octaves are not supported")
 	}
 	zero := NewImproved(r)

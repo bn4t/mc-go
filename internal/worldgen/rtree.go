@@ -193,9 +193,11 @@ type BiomeSearcher struct {
 func (m *MultiNoiseBiomes) NewSearcher() *BiomeSearcher { return &BiomeSearcher{m: m} }
 
 // Find returns the biome for a climate sample.
-func (s *BiomeSearcher) Find(t ClimateTarget) string {
+func (s *BiomeSearcher) Find(t ClimateTarget) string { return climateBiomeNames[s.find(t)] }
+
+func (s *BiomeSearcher) find(t ClimateTarget) uint8 {
 	target := [rtreeDims]int64{t[0], t[1], t[2], t[3], t[4], t[5], 0}
 	leaf := s.m.tree().search(&target, s.last)
 	s.last = leaf
-	return climateBiomeNames[leaf.biome]
+	return leaf.biome
 }

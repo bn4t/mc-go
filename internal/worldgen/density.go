@@ -204,6 +204,8 @@ func (b *binder) bind(s *Spec) Func {
 		return constant(0)
 	case KBlendDensity:
 		return b.bind(s.Args[0])
+	case KEndIslands:
+		return newEndIslands(b.seed)
 	case KOldBlendedNoise:
 		var r Random
 		if b.legacy {
