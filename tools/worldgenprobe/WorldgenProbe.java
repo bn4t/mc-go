@@ -91,6 +91,39 @@ public class WorldgenProbe {
                 }
             }
         }
+        // Biomes: the overworld multi-noise source at quart positions, the
+        // block-level zoom over it, and the zoom seed.
+        var paramLists = lookup.lookupOrThrow(Registries.MULTI_NOISE_BIOME_SOURCE_PARAMETER_LIST);
+        var overworldList = paramLists.getOrThrow(net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterLists.OVERWORLD);
+        var source = net.minecraft.world.level.biome.MultiNoiseBiomeSource.createFromPreset(overworldList);
+        for (long seed : new long[]{0L, 12345L, -4172144997902289642L}) {
+            var state = RandomState.create(settings, noises, seed);
+            var sampler = state.sampler();
+            long lcg = seed ^ 0x5DEECE66DL;
+            for (int i = 0; i < 600; i++) {
+                lcg = lcg * 6364136223846793005L + 1442695040888963407L;
+                int qx = (int) ((lcg >>> 33) % 2500) - 1250;
+                lcg = lcg * 6364136223846793005L + 1442695040888963407L;
+                int qy = (int) ((lcg >>> 33) % 96) - 16;
+                lcg = lcg * 6364136223846793005L + 1442695040888963407L;
+                int qz = (int) ((lcg >>> 33) % 2500) - 1250;
+                var biome = source.getNoiseBiome(qx, qy, qz, sampler);
+                out.printf("biome\t%d\t%d,%d,%d\t%s%n", seed, qx, qy, qz, biome.unwrapKey().orElseThrow().identifier());
+            }
+            long zoomSeed = net.minecraft.world.level.biome.BiomeManager.obfuscateSeed(seed);
+            out.printf("zoomseed\t%d\t%d%n", seed, zoomSeed);
+            var manager = new net.minecraft.world.level.biome.BiomeManager((x, y, z) -> source.getNoiseBiome(x, y, z, sampler), zoomSeed);
+            for (int i = 0; i < 400; i++) {
+                lcg = lcg * 6364136223846793005L + 1442695040888963407L;
+                int x = (int) ((lcg >>> 33) % 512) - 256;
+                lcg = lcg * 6364136223846793005L + 1442695040888963407L;
+                int y = (int) ((lcg >>> 33) % 200) - 40;
+                lcg = lcg * 6364136223846793005L + 1442695040888963407L;
+                int z = (int) ((lcg >>> 33) % 512) - 256;
+                var biome = manager.getBiome(new net.minecraft.core.BlockPos(x, y, z));
+                out.printf("zoom\t%d\t%d,%d,%d\t%s%n", seed, x, y, z, biome.unwrapKey().orElseThrow().identifier());
+            }
+        }
         out.close();
     }
 }

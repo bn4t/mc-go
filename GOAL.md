@@ -15669,3 +15669,34 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:** biomes, surface rules (grass, sand, deepslate,
   bedrock…), carvers, features, structures and the beardifier; wiring
   the generator into mc-go's chunk loading.
+
+## Slice — worldgen biomes: multi-noise climate search and block zoom (2026-10-27)
+
+- **Measured:** bytecode inspection of `Climate` (quantization: value
+  ×10000 in float32, truncated to long; `Parameter.distance` as the gap
+  outside a range; the point distance as the sum of squared gaps plus the
+  squared offset; the sampler narrowing temperature, vegetation,
+  continents, erosion, depth and ridges to float at the quart's corner
+  block) and `BiomeManager` (zoom seed = first eight little-endian bytes
+  of SHA-256 over the seed's eight little-endian bytes; the block zoom
+  offsets by half a quart, mixes each of the eight neighbour quarts
+  through `LinearCongruentialGenerator.next` six times plus three seeded
+  jitters of `(floorMod(s>>24,1024)/1024-0.5)*0.9`, and keeps the first
+  strictly nearest) on the 26.2 jar (unpacked SHA-256
+  `183c0499…823e8`, Temurin JDK 25.0.5+8). The parameter points come from
+  the datagen `biome_parameters` report (overworld 7594 points over 55
+  biomes and 39 distinct values; nether 5), packed by `tools/genworldgen`
+  into `internal/worldgen/biomes_gen.go` in report order (inputs SHA-256
+  `ca32a56e…aecb`). The runtime probe (`WorldgenProbe.java`, SHA-256
+  `9df98fa6…d944`) now also records the overworld `MultiNoiseBiomeSource`
+  at 600 quart positions per seed, the zoom seed, and
+  `BiomeManager.getBiome` at 400 block positions per seed
+  (`testdata/vanilla_probe.tsv`, SHA-256 `562987ff…cd72`).
+- **Implemented:** `worldgen.BiomeParameters` (nearest parameter point,
+  first in list order on ties), `RandomState.Climate`, `ZoomSeed` and
+  `ZoomBiome`.
+- **Pinned:** `TestBiomesMatchVanilla` — all 1800 quart biomes, the three
+  zoom seeds and all 1200 zoomed block biomes match.
+- **Remaining:** vanilla searches an R-tree seeded with the previous
+  result, so exact climate ties may resolve differently (none seen);
+  the end biome source; surface rules and the later stages.
