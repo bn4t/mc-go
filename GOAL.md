@@ -61,8 +61,9 @@ Mojang server over the wire.
       historical pending/forget order; near-window pruning and forget/batch
       ordering differences remain, as documented in the live-window slice.
 - [~] Vanilla terrain generation (seed, noise, biomes, structures) —
-      random sources, noise and the overworld noise router match vanilla
-      bit for bit (`internal/worldgen`); nothing generates chunks yet
+      random sources, noise, the overworld noise router and the noise
+      stage of chunk filling (aquifers, ore veins) match vanilla block for
+      block (`internal/worldgen`); the server does not use it yet
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -15627,3 +15628,44 @@ no flee; unsneak → flee). Green both legs.
   surface rules, carvers, features and structures; the End's island
   density function; the nether/end routers are generated but not yet
   checked against goldens.
+
+## Slice — worldgen noise stage: cell interpolation, aquifers and ore veins (2026-10-27)
+
+- **Measured:** bytecode inspection of `NoiseBasedChunkGenerator.doFill`,
+  `NoiseChunk` (interpolators, flat cache, preliminary surface cache),
+  `Aquifer$NoiseBasedAquifer` and `OreVeinifier` on the 26.2 jar
+  (unpacked SHA-256 `183c0499…823e8`, Temurin JDK 25.0.5+8):
+  interpolated functions are sampled at 4×8×4 cell corners and blended
+  y, then x, then z; a flat cache answers any lookup inside the chunk's
+  5×5 quart window (from any caller — the aquifer's erosion and depth
+  reads included) with the quart column's value at y 0; the final
+  density gets a non-constant zero beardifier added; aquifer centers sit
+  one per 16×12×16 grid cell at a positional `at(grid)` draw of 10/9/10,
+  the four nearest by squared distance (later ties first) decide the
+  fluid, similarity `1 - Δd²/25`, barrier pressure from the level gap
+  (water/lava pairs always 2) plus a once-per-block barrier noise,
+  fluid levels from 13 surrounding chunk surface samples, floodedness
+  thresholds `map(s,1,0,-0.3,0.8)`/`(-0.8,0.4)`, a 16×40×16 spread noise
+  quantized by 3, lava below level -10 where a 64×40×64 noise exceeds
+  0.3, deep-dark regions (erosion < -0.225, depth > 0.9) dry, and a
+  global picker (lava below -54, sea water below 63); ore veins (copper
+  0..50 over granite, iron -60..-8 over tuff) with the 0.4 toggle
+  threshold, 20-block edge fade, 0.7 solidness, ridged cut, richness
+  0.1–0.3, gap noise -0.3 and 2% raw blocks. A second runtime probe
+  (`tools/worldgenprobe/ChunkFillProbe.java`, SHA-256 `bc42aa20…9c45`)
+  has the official generator's own fill run on standalone proto chunks
+  (its NoiseChunk created up front with the no-structure beardifier, so
+  no structure manager is involved) for 8 chunks × 3 seeds and records
+  every column as block runs (`testdata/chunk_fill.tsv.gz`, SHA-256
+  `2cc2fbba…9624`).
+- **Implemented:** `worldgen.NoiseChunkFiller` — per-worker router
+  binding with chunk caches (corner interpolators, quart flat caches),
+  the noise-based aquifer with its fluid-update flag, the ore veinifier
+  and the global fluid picker; about 20 ms per overworld chunk.
+- **Pinned:** `TestNoiseChunkFillMatchesVanilla` — all 6144 columns of
+  the 24 probed chunks match block for block (terrain, caves, aquifer
+  water and lava with barriers, copper/iron veins with raw blocks and
+  filler). No wire pin yet: the server does not generate terrain with it.
+- **Remaining:** biomes, surface rules (grass, sand, deepslate,
+  bedrock…), carvers, features, structures and the beardifier; wiring
+  the generator into mc-go's chunk loading.
