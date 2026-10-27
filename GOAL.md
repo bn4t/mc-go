@@ -60,7 +60,9 @@ Mojang server over the wire.
       `TestChunkThrottleStaysBlocked`. Live preparation retains mc-go's
       historical pending/forget order; near-window pruning and forget/batch
       ordering differences remain, as documented in the live-window slice.
-- [ ] Vanilla terrain generation (seed, noise, biomes, structures)
+- [~] Vanilla terrain generation (seed, noise, biomes, structures) —
+      random sources, noise and the overworld noise router match vanilla
+      bit for bit (`internal/worldgen`); nothing generates chunks yet
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -15578,3 +15580,50 @@ no flee; unsneak → flee). Green both legs.
   part, not its border/time/spawn/chunk-wait packets; only the overworld
   has weather (no custom dimension types); natural thunderstorm
   lightning (and its skeleton-horse traps) is still unmodeled.
+
+## Slice — worldgen foundation: random sources, noise and the noise router (2026-10-27)
+
+- **Measured:** runtime calls and bytecode inspection on the 26.2 jar
+  (unpacked SHA-256 `183c0499…823e8`, Temurin JDK 25.0.5+8). A new
+  probe (`tools/worldgenprobe/WorldgenProbe.java`, SHA-256
+  `0dcaa8fd…9c51`) calls only public entry points of the running game —
+  `XoroshiroRandomSource`/`LegacyRandomSource` draws (long, int, bounded
+  int, float, double, boolean, gaussian, positional `at`/`fromHashOf`,
+  `fork`) for seven seeds, single `ImprovedNoise` octaves, twelve
+  registered `NormalNoise`s seeded as `RandomState` seeds them, and all
+  fifteen overworld `NoiseRouter` functions at 40 points for three seeds
+  — into `internal/worldgen/testdata/vanilla_probe.tsv` (2620 goldens,
+  SHA-256 `0c05db9e…bdde`). `javap` fixed the constants and evaluation
+  order: improved-noise construction (three offset doubles ×256, then a
+  256-slot shuffle) and its vertical quantization epsilon
+  `1.0000000116860974E-7`, the gradient table, octave seeding
+  (`octave_<n>` hashes, or sequential with 262-draw skips), the
+  ±2^24 coordinate wrap, normal-noise input factor `1.0181268882175227`
+  and `(1/6)/expectedDeviation`, the density-function semantics
+  (mul short-circuits a zero first operand unless an operand is a
+  constant, min/max skip by the other operand's bounds, `interval_select`
+  picks the first threshold the input is below, `find_top_surface`
+  walks down in cell steps, the mapped shapes including `squeeze`),
+  float32 cubic splines with linear end extension, the blended terrain
+  noise (684.412 base scale, 8 selector and 2×16 limit octaves, the
+  "terrain" hash or the bare seed when legacy), and legacy seeding of
+  the nether climate noises (seed, seed+1). The definitions themselves
+  come from the datagen worldgen data: `tools/genworldgen` turns the
+  noise parameters, density-function graphs and noise settings
+  (inputs SHA-256 `eb1534c7…fbad`) into `internal/worldgen/worldgen_gen.go`.
+- **Implemented:** `internal/worldgen` — Xoroshiro128++ and the 48-bit
+  LCG with their positional factories, improved/octave/normal noise,
+  blended noise, a seed-independent density-function spec tree bound
+  per seed (shared references and noises), noise settings and a
+  `RandomState` (router, aquifer and ore positional sources). Products
+  feeding additions are explicitly rounded so no platform fuses them
+  into a multiply-add.
+- **Pinned:** `go test ./internal/worldgen` compares every golden bit
+  for bit: 476 random draws, 344 noise samples and 1800 router values
+  (aquifer and vein noises, climate, terrain shape, final density with
+  caves) all match. No wire pin yet — nothing is generated into chunks.
+- **Remaining:** the noise chunk filler (cell interpolation, flat and 2D
+  caches, aquifers, ore veins), biomes (climate parameter search),
+  surface rules, carvers, features and structures; the End's island
+  density function; the nether/end routers are generated but not yet
+  checked against goldens.
