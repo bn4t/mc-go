@@ -72,6 +72,17 @@ func updateShape(r *decoRegion, s StateID, p Point, dir int, np Point, ns StateI
 			return s.with("age", "1")
 		}
 		return s
+	case "MossyCarpetBlock":
+		if !canSurvive(r, s, p) {
+			return stAirState
+		}
+		if u := mossyUpdated(r, s, p, false); mossyHasFaces(u) {
+			return u
+		}
+		return stAirState
+	case "HangingMossBlock":
+		// Losing support only schedules a tick; the tip follows the block below.
+		return s.with("tip", boolStr(!r.get(p.offset(dirDown)).is(l.name)))
 	case "HugeMushroomBlock":
 		if ns.block() == l.name {
 			return s.with(faceProps[dir], "false")

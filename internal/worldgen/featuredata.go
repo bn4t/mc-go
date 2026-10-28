@@ -246,6 +246,9 @@ func decodeFloatProvider(v any) FloatProvider {
 		return floatUniform(ffloat(ffield(v, "min_inclusive"), 0), ffloat(ffield(v, "max_exclusive"), 0))
 	case "minecraft:trapezoid":
 		return floatTrapezoid(ffloat(ffield(v, "min"), 0), ffloat(ffield(v, "max"), 0), ffloat(ffield(v, "plateau"), 0))
+	case "minecraft:clamped_normal":
+		return floatClampedNormal(ffloat(ffield(v, "mean"), 0), ffloat(ffield(v, "deviation"), 0),
+			ffloat(ffield(v, "min"), 0), ffloat(ffield(v, "max"), 0))
 	}
 	unsupported("float provider %v", ftype(v))
 	return FloatProvider{}

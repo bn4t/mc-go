@@ -196,3 +196,159 @@ func decodeUnderwaterMagma(cfg any) func(*featureCtx) bool {
 		return placed > 0
 	}
 }
+
+func init() {
+	featureKinds["minecraft:blue_ice"] = func(any) func(*featureCtx) bool { return placeBlueIce }
+	featureKinds["minecraft:block_blob"] = decodeBlockBlob
+}
+
+// placeBlueIce grows blue ice from a water spot below sea level next to
+// packed ice: 200 tries around it, mostly below, each turning air,
+// water or ice that touches blue ice into blue ice.
+func placeBlueIce(fc *featureCtx) bool {
+	r, o, rand := fc.r, fc.origin, fc.rand
+	if o.Y > r.seaLevel-1 || !r.get(o).is("water") && !r.get(o.offset(dirDown)).is("water") {
+		return false
+	}
+	nextToPacked := false
+	for d := 0; d < 6 && !nextToPacked; d++ {
+		nextToPacked = d != dirDown && r.get(o.offset(d)).is("packed_ice")
+	}
+	if !nextToPacked {
+		return false
+	}
+	blue := defaultState("blue_ice")
+	r.set(o, blue)
+	for i := 0; i < 200; i++ {
+		dy := rand.NextIntn(5) - rand.NextIntn(6)
+		spread := int32(3)
+		if dy < 2 {
+			spread += dy / 2
+		}
+		if spread < 1 {
+			continue
+		}
+		dx := rand.NextIntn(spread) - rand.NextIntn(spread)
+		dz := rand.NextIntn(spread) - rand.NextIntn(spread)
+		p := Point{o.X + dx, o.Y + dy, o.Z + dz}
+		if s := r.get(p); !s.isAir() && !s.is("water") && !s.is("packed_ice") && !s.is("ice") {
+			continue
+		}
+		for d := 0; d < 6; d++ {
+			if r.get(p.offset(d)).is("blue_ice") {
+				r.set(p, blue)
+				break
+			}
+		}
+	}
+	return true
+}
+
+// decodeBlockBlob drops to the first spot standing on an allowed block,
+// then places three small balls of the state, each beside and below
+// the last.
+func decodeBlockBlob(cfg any) func(*featureCtx) bool {
+	state := blockStateOf(ffield(cfg, "state"))
+	canPlaceOn := decodeBlockPredicate(ffield(cfg, "can_place_on"))
+	return func(fc *featureCtx) bool {
+		r, o, rand := fc.r, fc.origin, fc.rand
+		for o.Y > r.minY+3 && !canPlaceOn(r, o.offset(dirDown)) {
+			o = o.offset(dirDown)
+		}
+		if o.Y <= r.minY+3 {
+			return false
+		}
+		for i := 0; i < 3; i++ {
+			a, b, c := rand.NextIntn(2), rand.NextIntn(2), rand.NextIntn(2)
+			f := float32(float32(a+b+c)*0.333) + 0.5
+			lim := float64(f * f)
+			for z := o.Z - c; z <= o.Z+c; z++ {
+				for y := o.Y - b; y <= o.Y+b; y++ {
+					for x := o.X - a; x <= o.X+a; x++ {
+						dx, dy, dz := float64(x-o.X), float64(y-o.Y), float64(z-o.Z)
+						if dx*dx+dy*dy+dz*dz <= lim {
+							r.set(Point{x, y, z}, state)
+						}
+					}
+				}
+			}
+			o = Point{o.X - 1 + rand.NextIntn(2), o.Y - rand.NextIntn(2), o.Z - 1 + rand.NextIntn(2)}
+		}
+		return true
+	}
+}
+
+func init() {
+	featureKinds["minecraft:spike"] = decodeIceSpike
+}
+
+// decodeIceSpike drops to the ground, then builds a tapering spike up
+// (and as deep again below) with ragged edges, a rare tall one floating
+// higher, and roots of the state reaching down to Y 50.
+func decodeIceSpike(cfg any) func(*featureCtx) bool {
+	state := blockStateOf(ffield(cfg, "state"))
+	canPlaceOn := decodeBlockPredicate(ffield(cfg, "can_place_on"))
+	canReplace := decodeBlockPredicate(ffield(cfg, "can_replace"))
+	return func(fc *featureCtx) bool {
+		r, o, rand := fc.r, fc.origin, fc.rand
+		for r.get(o).isAir() && o.Y > r.minY+2 {
+			o = o.offset(dirDown)
+		}
+		if !canPlaceOn(r, o) {
+			return false
+		}
+		o.Y += rand.NextIntn(4)
+		height := rand.NextIntn(4) + 7
+		width := height/4 + rand.NextIntn(2)
+		if width > 1 && rand.NextIntn(60) == 0 {
+			o.Y += 10 + rand.NextIntn(30)
+		}
+		put := func(p Point) {
+			if r.get(p).isAir() || canReplace(r, p) {
+				r.set(p, state)
+			}
+		}
+		for i := int32(0); i < height; i++ {
+			f := (1 - float32(i)/float32(height)) * float32(width)
+			k := int32(math.Ceil(float64(f)))
+			for dx := -k; dx <= k; dx++ {
+				fx := float32(abs(dx)) - 0.25
+				for dz := -k; dz <= k; dz++ {
+					fz := float32(abs(dz)) - 0.25
+					if (dx != 0 || dz != 0) && float32(fx*fx)+float32(fz*fz) > float32(f*f) {
+						continue
+					}
+					if (dx == -k || dx == k || dz == -k || dz == k) && rand.NextFloat() > 0.75 {
+						continue
+					}
+					put(Point{o.X + dx, o.Y + i, o.Z + dz})
+					if i != 0 && k > 1 {
+						put(Point{o.X + dx, o.Y - i, o.Z + dz})
+					}
+				}
+			}
+		}
+		base := min32(max32(width-1, 0), 1)
+		for dx := -base; dx <= base; dx++ {
+			for dz := -base; dz <= base; dz++ {
+				p := Point{o.X + dx, o.Y - 1, o.Z + dz}
+				n := int32(50)
+				if abs(dx) == 1 && abs(dz) == 1 {
+					n = rand.NextIntn(5)
+				}
+				for p.Y > 50 {
+					if s := r.get(p); !s.isAir() && !canReplace(r, p) && s != state {
+						break
+					}
+					r.set(p, state)
+					p = p.offset(dirDown)
+					if n--; n <= 0 {
+						p.Y -= rand.NextIntn(5) + 1
+						n = rand.NextIntn(5)
+					}
+				}
+			}
+		}
+		return true
+	}
+}

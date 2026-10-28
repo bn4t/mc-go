@@ -1,6 +1,7 @@
 package worldgen
 
 import (
+	"strconv"
 	"strings"
 
 	"mc-go/internal/data"
@@ -397,6 +398,23 @@ func canSurvive(r *decoRegion, s StateID, p Point) bool {
 		return b.collisionTopFull() || (b.is("snow") && b.prop("layers") == "8")
 	case "VineBlock":
 		return vineHasFaces(vineUpdatedState(r, s, p))
+	case "GrowingPlantBlock":
+		g, ok := growingPlants[strings.TrimSuffix(l.name, "_plant")]
+		if !ok {
+			unsupported("survival of growing plant %s", l.name)
+		}
+		support := r.get(p.offset(g.dir ^ 1))
+		if g.attachKelp && support.inTag("cannot_support_kelp") {
+			return false
+		}
+		head := strings.TrimSuffix(l.name, "_plant")
+		return support.is(head) || support.is(head+"_plant") || support.sturdy(g.dir)
+	case "TallSeagrassBlock":
+		if s.prop("half") == "upper" {
+			b := r.get(below)
+			return b.block() == l.name && b.prop("half") == "lower"
+		}
+		return mayPlaceOn(r, l, below) && r.get(p).isFullWater()
 	case "CocoaBlock":
 		return r.get(p.offset(directionNames[s.prop("facing")])).inTag("supports_cocoa")
 	case "MangrovePropaguleBlock":
@@ -407,6 +425,29 @@ func canSurvive(r *decoRegion, s StateID, p Point) bool {
 	}
 	unsupported("survival of %s (%s)", l.name, l.survive)
 	return false
+}
+
+// growingPlants are the head-and-body plants: the way each grows and
+// whether its support must not be in #cannot_support_kelp.
+var growingPlants = map[string]struct {
+	dir        int
+	attachKelp bool
+}{
+	"kelp": {dirUp, true}, "twisting_vines": {dirUp, false},
+	"weeping_vines": {dirDown, false}, "cave_vines": {dirDown, false},
+}
+
+// isFullWater is whether a state's fluid is water of full amount: a
+// source, or falling water (a water block of level 8 and up).
+func (s StateID) isFullWater() bool {
+	if !s.isWaterFluid() {
+		return false
+	}
+	if s.isSourceFluid() {
+		return true
+	}
+	n, err := strconv.Atoi(s.prop("level"))
+	return s.is("water") && err == nil && n >= 8
 }
 
 // mayPlaceOn is the vegetation support test of the block below.
@@ -425,7 +466,7 @@ func mayPlaceOn(r *decoRegion, l *blockLayout, below Point) bool {
 		return b.inTag("supports_dry_vegetation")
 	case "LilyPadBlock":
 		return (b.fluidInTag("supports_lily_pad") || b.inTag("supports_lily_pad")) && !r.get(below.offset(dirUp)).hasFluid()
-	case "SeagrassBlock":
+	case "SeagrassBlock", "TallSeagrassBlock":
 		return b.sturdy(dirUp) && !b.inTag("cannot_support_seagrass")
 	case "MushroomBlock":
 		return b.isSolidRender()
@@ -574,7 +615,7 @@ func decodeSimpleBlock(cfg any) func(*featureCtx) bool {
 			}
 			placeDoublePlant(r, s, o)
 		case "MossyCarpetBlock":
-			unsupported("mossy carpet placement")
+			placeMossyCarpet(r, o, r.regionRandom())
 		default:
 			r.set(o, s)
 		}
@@ -597,4 +638,95 @@ func copyWaterlogged(r *decoRegion, p Point, s StateID) StateID {
 		return s.with("waterlogged", "true")
 	}
 	return s.with("waterlogged", "false")
+}
+
+// regionRandom is the generation region's own random, seeded from the
+// world seed and the middle chunk and shared by everything that asks
+// the region (rather than the feature) for randomness.
+func (r *decoRegion) regionRandom() Random {
+	if r.random == nil {
+		r.random = r.rs.Random.FromHash("minecraft:worldgen_region_random").ForkPositional().At(r.cx*16, 0, r.cz*16)
+	}
+	return r.random
+}
+
+var mossySides = []struct {
+	dir  int
+	prop string
+}{{dirNorth, "north"}, {dirEast, "east"}, {dirSouth, "south"}, {dirWest, "west"}}
+
+func mossyHasFaces(s StateID) bool {
+	if s.prop("bottom") == "true" {
+		return true
+	}
+	for _, f := range mossySides {
+		if s.prop(f.prop) != "none" {
+			return true
+		}
+	}
+	return false
+}
+
+// mossyUpdated recomputes a pale moss carpet's sides at p: a side
+// backed by a full face is low (or kept, unless sides are being
+// created), tall under a side-carrying carpet above, and none over a
+// carpet below that lacks it when this one has no bottom.
+func mossyUpdated(r *decoRegion, s StateID, p Point, create bool) StateID {
+	create = create || s.prop("bottom") == "true"
+	for _, f := range mossySides {
+		side := "none"
+		if canAttachTo(r, f.dir, p.offset(f.dir)) {
+			side = "low"
+			if !create {
+				side = s.prop(f.prop)
+			}
+		}
+		if side == "low" {
+			above := r.get(p.offset(dirUp))
+			if above.is("pale_moss_carpet") && above.prop(f.prop) != "none" && above.prop("bottom") != "true" {
+				side = "tall"
+			}
+			if s.prop("bottom") != "true" {
+				below := r.get(p.offset(dirDown))
+				if below.is("pale_moss_carpet") && below.prop(f.prop) == "none" {
+					side = "none"
+				}
+			}
+		}
+		s = s.with(f.prop, side)
+	}
+	return s
+}
+
+// mossyTopper is the side-only carpet that may hang above p: none when
+// a bottom carpet or an unreplaceable block is there, each side kept on
+// a coin flip.
+func mossyTopper(r *decoRegion, p Point, keep func() bool) StateID {
+	up := p.offset(dirUp)
+	above := r.get(up)
+	carpet := above.is("pale_moss_carpet")
+	if carpet && above.prop("bottom") == "true" || !carpet && !above.canBeReplaced() {
+		return stAirState
+	}
+	t := mossyUpdated(r, defaultState("pale_moss_carpet").with("bottom", "false"), up, true)
+	for _, f := range mossySides {
+		if t.prop(f.prop) != "none" && !keep() {
+			t = t.with(f.prop, "none")
+		}
+	}
+	if mossyHasFaces(t) && t != above {
+		return t
+	}
+	return stAirState
+}
+
+// placeMossyCarpet is MossyCarpetBlock.placeAt: the carpet with its
+// sides, then a topper above and the carpet's sides once more.
+func placeMossyCarpet(r *decoRegion, p Point, rand Random) {
+	s := mossyUpdated(r, defaultState("pale_moss_carpet"), p, true)
+	r.set(p, s)
+	if t := mossyTopper(r, p, rand.NextBool); !t.isAir() {
+		r.set(p.offset(dirUp), t)
+		r.set(p, mossyUpdated(r, s, p, true))
+	}
 }

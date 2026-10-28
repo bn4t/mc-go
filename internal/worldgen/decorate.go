@@ -153,6 +153,8 @@ type decoRegion struct {
 	seaLevel          int32
 	// biomeFeatures lists, per biome, the placed features it has.
 	random Random
+	// deco is the decoration source while decorate runs.
+	deco *decoRandom
 }
 
 func (r *decoRegion) chunk(x, z int32) *GenChunk {
@@ -237,6 +239,7 @@ func (r *decoRegion) quartBiome(qx, qy, qz int32) string {
 // call place); otherwise a feature that is not implemented is skipped.
 func (r *decoRegion) decorate(steps [][]*placedFeature, wrap func(step, index int, f *placedFeature, place func() bool)) {
 	random := newDecoRandom()
+	r.deco = random
 	originX, originZ := r.cx*16, r.cz*16
 	deco := setDecorationSeed(random, r.seed, originX, originZ)
 	present := map[string]bool{}

@@ -18,14 +18,15 @@ import (
 // FloatProvider is a float value provider: a constant, a uniform draw
 // from [min, max), or a trapezoid of two summed uniform draws.
 type FloatProvider struct {
-	kind    uint8
-	a, b, c float32
+	kind       uint8
+	a, b, c, d float32
 }
 
 const (
 	floatConstKind uint8 = iota
 	floatUniformKind
 	floatTrapezoidKind
+	floatClampedNormalKind
 )
 
 func floatConst(v float32) FloatProvider { return FloatProvider{kind: floatConstKind, a: v} }
@@ -36,8 +37,20 @@ func floatTrapezoid(lo, hi, plateau float32) FloatProvider {
 	return FloatProvider{kind: floatTrapezoidKind, a: lo, b: hi, c: plateau}
 }
 
+// floatClampedNormal is a normal draw of the mean and deviation,
+// clamped to [lo, hi].
+func floatClampedNormal(mean, deviation, lo, hi float32) FloatProvider {
+	return FloatProvider{kind: floatClampedNormalKind, a: mean, b: deviation, c: lo, d: hi}
+}
+
+func clampedNormal(r Random, mean, deviation, lo, hi float32) float32 {
+	return min(max(mean+float32(float32(r.NextGaussian())*deviation), lo), hi)
+}
+
 func (p FloatProvider) sample(r Random) float32 {
 	switch p.kind {
+	case floatClampedNormalKind:
+		return clampedNormal(r, p.a, p.b, p.c, p.d)
 	case floatUniformKind:
 		return randomBetween(r, p.a, p.b)
 	case floatTrapezoidKind:

@@ -97,14 +97,19 @@ public class FeatureProbe {
                     {-104, 100}, {-108, -88}, {28, 36}, {260, 276}, {4, -44}, {20, -28}, {-232, -140}, {8, -32},
                     {-20, 20}, {-4, -16}, {-52, -12}, {-68, -92}, {56, 44}, {44, -40}, {-20, 48}, {36, 40},
                     {-44, -44}, {-52, 20}, {-12, 16}, {56, 68}, {-28, 24}, {-108, -104}, {24, -36}, {-264, -244},
-                    {-100, -96}, {104, 76}, {0, 112}, {80, -240}, {-264, -264}});
+                    {-100, -96}, {104, 76}, {0, 112}, {80, -240}, {-264, -264},
+                    // More chunks deep in lush caves, deep dark and
+                    // dripstone caves, whose features are rarer.
+                    {1, -1}, {-2, 2}, {6, -6}, {6, -3}, {48, -39}, {48, -36}});
             new FeatureProbe(out, "the_nether", lookup, access, containers, NoiseGeneratorSettings.NETHER,
                 net.minecraft.world.level.biome.MultiNoiseBiomeSource.createFromPreset(
                     paramLists.getOrThrow(net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterLists.NETHER)),
                 dimTypes.getOrThrow(net.minecraft.world.level.dimension.BuiltinDimensionTypes.NETHER).value(), 0, 256)
                 .run(new long[]{12345L}, new int[][]{{0, 0}, {-3, 5}, {20, -11}, {-40, 33}, {7, 7}, {100, -60},
                     // One chunk per nether biome, chosen as for the overworld.
-                    {-16, 16}, {-4, 2}, {-22, 10}, {6, -6}});
+                    {-16, 16}, {-4, 2}, {-22, 10}, {6, -6},
+                    // More warped forest and basalt delta chunks.
+                    {7, -7}, {7, -4}, {-17, 17}, {-18, 15}});
             new FeatureProbe(out, "the_end", lookup, access, containers, NoiseGeneratorSettings.END,
                 net.minecraft.world.level.biome.TheEndBiomeSource.create(lookup.lookupOrThrow(Registries.BIOME)),
                 dimTypes.getOrThrow(net.minecraft.world.level.dimension.BuiltinDimensionTypes.END).value(), 0, 256)
@@ -282,16 +287,64 @@ public class FeatureProbe {
                 PlacedFeature feature = data.features().get(index);
                 BlockState[][] before = snapshot(grid);
                 random.setFeatureSeed(decoration, index, step);
+                // Reseeding keeps a cached second gaussian, so a feature's
+                // draws depend on how many every earlier one took.
+                String gaussian = cachedGaussian(random);
+                String regionState = randomState(level.getRandom());
                 String error = "";
                 try {
                     feature.placeWithBiomeCheck(level, generator, random, origin);
                 } catch (RuntimeException e) {
                     error = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ":" + e.getMessage().replace('\t', ' ').replace(' ', '_'));
                 }
-                out.printf("feature\t%s\t%d\t%d,%d\t%d\t%d\t%s\t%s\t%s%n", dim, seed, cx, cz, step, index,
-                    featureNames.get(feature), error.isEmpty() ? "ok" : error, delta(grid, before, cx, cz));
+                out.printf("feature\t%s\t%d\t%d,%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s%n", dim, seed, cx, cz, step, index,
+                    featureNames.get(feature), error.isEmpty() ? "ok" : error, delta(grid, before, cx, cz), gaussian, regionState);
             }
         }
+    }
+
+    // cachedGaussian is the random's pending second gaussian as raw
+    // double bits in hex, or "-" when there is none.
+    static String cachedGaussian(WorldgenRandom random) throws Exception {
+        var source = net.minecraft.world.level.levelgen.LegacyRandomSource.class.getDeclaredField("gaussianSource");
+        source.setAccessible(true);
+        Object g = source.get(random);
+        var have = g.getClass().getDeclaredField("haveNextNextGaussian");
+        var next = g.getClass().getDeclaredField("nextNextGaussian");
+        have.setAccessible(true);
+        next.setAccessible(true);
+        if (!have.getBoolean(g)) return "-";
+        return Long.toHexString(Double.doubleToRawLongBits(next.getDouble(g)));
+    }
+
+    // randomState is the region random's state as a feature starts, so
+    // a feature's draws from it do not depend on the ones before: the
+    // Xoroshiro words or the legacy seed, then its cached gaussian.
+    static String randomState(net.minecraft.util.RandomSource random) throws Exception {
+        Object gaussianOwner = random;
+        String words;
+        if (random instanceof net.minecraft.world.level.levelgen.XoroshiroRandomSource) {
+            var gen = net.minecraft.world.level.levelgen.XoroshiroRandomSource.class.getDeclaredField("randomNumberGenerator");
+            gen.setAccessible(true);
+            Object x = gen.get(random);
+            var lo = x.getClass().getDeclaredField("seedLo");
+            var hi = x.getClass().getDeclaredField("seedHi");
+            lo.setAccessible(true);
+            hi.setAccessible(true);
+            words = "x:" + Long.toHexString(lo.getLong(x)) + ":" + Long.toHexString(hi.getLong(x));
+        } else {
+            var seed = net.minecraft.world.level.levelgen.LegacyRandomSource.class.getDeclaredField("seed");
+            seed.setAccessible(true);
+            words = "l:" + Long.toHexString(((java.util.concurrent.atomic.AtomicLong) seed.get(random)).get());
+        }
+        var source = gaussianOwner.getClass().getDeclaredField("gaussianSource");
+        source.setAccessible(true);
+        Object g = source.get(random);
+        var have = g.getClass().getDeclaredField("haveNextNextGaussian");
+        var next = g.getClass().getDeclaredField("nextNextGaussian");
+        have.setAccessible(true);
+        next.setAccessible(true);
+        return words + ":" + (have.getBoolean(g) ? Long.toHexString(Double.doubleToRawLongBits(next.getDouble(g))) : "-");
     }
 
     BlockState[][] snapshot(ProtoChunk[][] grid) {
@@ -330,6 +383,38 @@ public class FeatureProbe {
             }
         }
         return b.length() == 0 ? "-" : b.toString();
+    }
+
+    Object serverLevel;
+
+    // serverLevelStandIn is an uninitialised server level whose chunk
+    // source answers getGenerator with this probe's generator, which is
+    // all a feature reaches through WorldGenLevel.getLevel here.
+    Object serverLevelStandIn() throws Exception {
+        if (serverLevel != null) return serverLevel;
+        var theUnsafe = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+        theUnsafe.setAccessible(true);
+        var unsafe = (sun.misc.Unsafe) theUnsafe.get(null);
+        Object level = unsafe.allocateInstance(net.minecraft.server.level.ServerLevel.class);
+        Object cache = unsafe.allocateInstance(net.minecraft.server.level.ServerChunkCache.class);
+        Object map = unsafe.allocateInstance(net.minecraft.server.level.ChunkMap.class);
+        var ctor = net.minecraft.world.level.chunk.status.WorldGenContext.class.getDeclaredConstructors()[0];
+        Object[] args = new Object[ctor.getParameterCount()];
+        for (int i = 0; i < args.length; i++) {
+            if (ctor.getParameterTypes()[i] == net.minecraft.world.level.chunk.ChunkGenerator.class) args[i] = generator;
+        }
+        ctor.setAccessible(true);
+        setField(net.minecraft.server.level.ChunkMap.class, map, "worldGenContext", ctor.newInstance(args));
+        setField(net.minecraft.server.level.ServerChunkCache.class, cache, "chunkMap", map);
+        setField(net.minecraft.server.level.ServerLevel.class, level, "chunkSource", cache);
+        serverLevel = level;
+        return level;
+    }
+
+    static void setField(Class<?> c, Object target, String name, Object value) throws Exception {
+        var f = c.getDeclaredField(name);
+        f.setAccessible(true);
+        f.set(target, value);
     }
 
     // region is a WorldGenLevel over the grid that behaves as the
@@ -438,7 +523,11 @@ public class FeatureProbe {
                 case "getChunkForCollisions": return self[0].getChunk((int) a[0], (int) a[1]);
                 case "getUncachedNoiseBiome": return biomeSource.getNoiseBiome((int) a[0], (int) a[1], (int) a[2], state.sampler());
                 case "getBiomeManager": return new BiomeManager(self[0], BiomeManager.obfuscateSeed(seed));
-                case "registryAccess": return access;
+                // Features that place other configured features look them
+                // up in the server's registries and take the generator
+                // from the server level, as on a server.
+                case "registryAccess": return lookup instanceof RegistryAccess full ? full : access;
+                case "getLevel": return serverLevelStandIn();
                 case "dimensionType": return dimensionType;
                 case "enabledFeatures": return net.minecraft.world.flag.FeatureFlags.DEFAULT_FLAGS;
                 case "getWorldBorder": return border;
@@ -456,7 +545,6 @@ public class FeatureProbe {
                 case "levelEvent":
                 case "playSound":
                 case "setCurrentlyGenerating": return null;
-                case "getLevel":
                 case "getServer":
                 case "getCurrentDifficultyAt":
                 case "getChunkSource":

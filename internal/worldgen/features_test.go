@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"compress/gzip"
 	"fmt"
+	"math"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -15,6 +17,11 @@ type featureGolden struct {
 	step, index      int
 	name, status     string
 	delta            string
+	// gaussian is the decoration random's cached second gaussian as the
+	// feature starts: raw double bits in hex, or "-" for none.
+	gaussian string
+	// region is the region random's state as the feature starts.
+	region string
 }
 
 func loadFeatureGoldens(t *testing.T) (steps map[string][][]string, features []featureGolden) {
@@ -46,7 +53,7 @@ func loadFeatureGoldens(t *testing.T) (steps map[string][][]string, features []f
 			}
 			steps[f[1]][step] = append(steps[f[1]][step], f[4])
 		case "feature":
-			g := featureGolden{dim: f[1], seed: f[2], chunk: f[3], name: f[6], status: f[7], delta: f[8]}
+			g := featureGolden{dim: f[1], seed: f[2], chunk: f[3], name: f[6], status: f[7], delta: f[8], gaussian: f[9], region: f[10]}
 			fmt.Sscan(f[4], &g.step)
 			fmt.Sscan(f[5], &g.index)
 			features = append(features, g)
@@ -199,6 +206,44 @@ func regionDelta(r *decoRegion, before regionSnapshot, dimMinY, dimHeight int32)
 	return strings.Join(parts, " ")
 }
 
+func parseGaussian(t *testing.T, v string) gaussian {
+	if v == "-" {
+		return gaussian{}
+	}
+	bits, err := strconv.ParseUint(v, 16, 64)
+	if err != nil {
+		t.Fatalf("gaussian %q: %v", v, err)
+	}
+	return gaussian{next: math.Float64frombits(bits), have: true}
+}
+
+// setRandomState puts a probe-recorded random state ("x:lo:hi:g" for
+// Xoroshiro, "l:seed:g" for the legacy source) into rnd.
+func setRandomState(t *testing.T, rnd Random, v string) {
+	f := strings.Split(v, ":")
+	word := func(s string) uint64 {
+		n, err := strconv.ParseUint(s, 16, 64)
+		if err != nil {
+			t.Fatalf("random state %q: %v", v, err)
+		}
+		return n
+	}
+	switch r := rnd.(type) {
+	case *Xoroshiro:
+		if f[0] != "x" || len(f) != 4 {
+			t.Fatalf("random state %q for a Xoroshiro source", v)
+		}
+		r.lo, r.hi, r.g = word(f[1]), word(f[2]), parseGaussian(t, f[3])
+	case *Legacy:
+		if f[0] != "l" || len(f) != 3 {
+			t.Fatalf("random state %q for a legacy source", v)
+		}
+		r.seed, r.g = word(f[1]), parseGaussian(t, f[2])
+	default:
+		t.Fatalf("random state %q for %T", v, rnd)
+	}
+}
+
 // deltaDiff is the changes only one of two deltas has, in each's order.
 func deltaDiff(a, b string) (string, string) {
 	only := func(x, y string) string {
@@ -256,7 +301,8 @@ func TestFeaturesMatchVanilla(t *testing.T) {
 		last.features = append(last.features, g)
 	}
 	searchers := map[string]*BiomeSearcher{}
-	matched, mismatched := map[string]int{}, map[string]int{}
+	// changed counts the matches where vanilla changed any block.
+	matched, mismatched, changed := map[string]int{}, map[string]int{}, map[string]int{}
 	skipped := map[string]int{}
 	for _, gr := range groups {
 		dim := featureDims[gr.dim]
@@ -286,6 +332,10 @@ func TestFeaturesMatchVanilla(t *testing.T) {
 				t.Fatalf("%s %s: ran %s (%d/%d), probe ran %s (%d/%d)", gr.dim, gr.chunk, pf.name, step, index, want.name, want.step, want.index)
 			}
 			before := snapshotRegion(r)
+			// Start from vanilla's cached gaussian, whatever the features
+			// skipped before this one would have drawn.
+			r.deco.g = parseGaussian(t, want.gaussian)
+			setRandomState(t, r.regionRandom(), want.region)
 			kind := pf.feature.kind
 			ok := func() (ok bool) {
 				defer func() {
@@ -305,6 +355,9 @@ func TestFeaturesMatchVanilla(t *testing.T) {
 				got := regionDelta(r, before, dimMinY, dimHeight)
 				if got == want.delta {
 					matched[kind]++
+					if want.delta != "-" {
+						changed[kind]++
+					}
 				} else {
 					mismatched[kind]++
 					if mismatched[kind] <= 3 {
@@ -331,6 +384,7 @@ func TestFeaturesMatchVanilla(t *testing.T) {
 		}
 	}
 	report("match", matched)
+	report("chngd", changed)
 	report("DIFF ", mismatched)
 	report("skip ", skipped)
 }

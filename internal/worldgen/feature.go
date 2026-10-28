@@ -698,3 +698,34 @@ func possibleBiomes(src BiomeSource) []string {
 	}
 	panic("worldgen: unknown biome source")
 }
+
+// withinManhattan visits the box of reaches rx, ry, rz around c in the
+// game's order: by Manhattan distance from c, then by x, then y, each
+// position with a nonzero z offset followed by its mirror across c's z.
+// It stops when f returns false.
+func withinManhattan(c Point, rx, ry, rz int32, f func(Point) bool) {
+	absI := func(v int32) int32 {
+		if v < 0 {
+			return -v
+		}
+		return v
+	}
+	for depth := int32(0); depth <= rx+ry+rz; depth++ {
+		mx := min32(rx, depth)
+		for x := -mx; x <= mx; x++ {
+			my := min32(ry, depth-absI(x))
+			for y := -my; y <= my; y++ {
+				z := depth - absI(x) - absI(y)
+				if z > rz {
+					continue
+				}
+				if !f(Point{c.X + x, c.Y + y, c.Z + z}) {
+					return
+				}
+				if z != 0 && !f(Point{c.X + x, c.Y + y, c.Z - z}) {
+					return
+				}
+			}
+		}
+	}
+}

@@ -16251,3 +16251,72 @@ no flee; unsneak → flee). Green both legs.
     older tree code, not these placers.
   - The server's generator still does not run the features stage.
 
+## Slice — worldgen features: plants, nether, patches, speleothems, lakes and more (2026-10-28)
+
+- **Measured:** bytecode inspection on the 26.2 jar (unpacked SHA-256
+  `183c0499…823e8`, Temurin JDK 25.0.5+8), plus runtime probes:
+  - Placement order and checks for vines, seagrass, kelp, block
+    columns (the placement test runs one block ahead of each placed
+    block, and truncation starts at the tip or the base), glowstone,
+    twisting and weeping vines, nether forest vegetation, replace
+    blobs, basalt pillars (an air origin under a solid block) and
+    columns, and deltas.
+  - Vegetation and waterlogged vegetation patches. Their ground sets
+    are hash sets; a ground block of the ground's own kind is drawn
+    again in place.
+  - Speleothems (pointed dripstone and sulfur spikes), speleothem
+    clusters and large dripstone, with `Column.scan`, the speleothem
+    height curve, wind offsets and the clamped-normal float provider.
+  - Lakes: cave air above the waterline, a randomized barrier, and ice
+    where the biome freezes.
+  - Blue ice, block blobs, huge red and brown mushrooms, and ice
+    spikes.
+  - `MossyCarpetBlock.placeAt`, which uses the region's own random.
+  - Survival rules for growing plants (kelp, twisting, weeping and cave
+    vines) and tall seagrass. Shape updates for mangrove propagules,
+    bamboo stalks, pale moss carpets and pale hanging moss.
+  - `BlockPos.withinManhattan` order, checked against the jar for
+    seven reach triples.
+  - `FeatureProbe.java` (SHA-256 `ce6e3a44…63e4`) changes:
+    - It adds 10 probe chunks: lush caves, deep dark, dripstone caves,
+      warped forest and basalt deltas.
+    - Each feature line now records the decoration random's cached
+      second gaussian, which survives reseeding, and the region
+      random's state.
+    - The probe region now answers `registryAccess` with the loaded
+      worldgen registries, and `getLevel` with a stand-in server level
+      that carries only the generator. Features that place other
+      configured features therefore run as on a server; the pale moss
+      decorator's ground patch had been silently skipped.
+- **Implemented:**
+  - `feature_plants.go`, `feature_nether.go`, `feature_patch.go`,
+    `feature_cave.go` (speleothems, clusters, large dripstone,
+    `scanColumn`), `feature_lake.go` and `feature_mushroom.go`.
+  - Blue ice, block blobs and ice spikes in `feature_terrain.go`.
+  - `withinManhattan` and the region random.
+  - Float code rounds each product before adding, as Java does, so
+    fused multiply-add cannot change results.
+  - The feature test restores both recorded random states before each
+    feature, so a feature still skipped cannot shift the draws of the
+    ones after it. It also reports how many matching placements
+    changed blocks.
+- **Pinned:** `TestFeaturesMatchVanilla` over 89 overworld, 14 nether
+  and 5 End chunks: every placement of every implemented type changes
+  exactly the blocks vanilla's did. Placements that change blocks, by
+  type:
+  - vegetation patch 28, block column 17, seagrass 16, vines 16;
+  - nether forest vegetation 11, speleothem cluster 10, basalt columns
+    8, replace blobs 8;
+  - kelp 5, large dripstone 4, deltas 4, block blobs 3;
+  - glowstone 2, weeping vines 2, blue ice 2, ice spikes 2, lakes 1.
+
+  Speleothems and huge mushrooms run inside selectors, which changed
+  blocks in 61 placements.
+- **Remaining:**
+  - Sculk patches (32 placements), huge fungi (9), geodes (4), End
+    spikes (2), icebergs, coral trees, fallen trees and bamboo still
+    skip.
+  - Twisting vines, basalt pillars and the waterlogged patch match but
+    never change blocks in the probe's chunks, so their placing paths
+    are unpinned.
+  - The server's generator still does not run the features stage.
