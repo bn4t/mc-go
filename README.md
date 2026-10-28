@@ -174,7 +174,9 @@ owned disconnect saves and `/save-all` still wait under ownership.
 Public `SaveServerData` also writes a detached player/block-entity JSON snapshot;
 its schema-three numeric item IDs are unchanged, and remembered offline players
 survive subsequent saves. A committed newer Java session also prevents delayed
-older cleanup from overwriting its remembered and native player state.
+older cleanup from overwriting its remembered and native player state. Ordinary
+disconnects and native player-file loading synchronize remembered aliases for
+that UUID before later offline saves.
 See [ARCHITECTURE.md](ARCHITECTURE.md#compact-world-saves) for ordering,
 shutdown and persistence boundaries.
 

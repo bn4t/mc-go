@@ -79,21 +79,24 @@ func (s *Server) captureServerDataOwned() *serverDataSnapshot {
 	f := serverDataFile{Version: serverDataVersion, Players: map[string]playerPersist{}}
 	var clone dataSaveCloner
 	// Remembered name and UUID keys retain their existing login lookup rules.
-	// Seed these before live records so a current incarnation wins by exact name.
+	// Seed these before live records so a current incarnation refreshes every
+	// matching identity alias in the detached output.
 	s.savedPlayersMu.Lock()
 	for key, p := range s.savedPlayers {
 		f.Players[key] = clone.player(p)
 	}
 	s.savedPlayersMu.Unlock()
+	active := make(map[string]playerPersist)
 	for _, p := range s.activePlayersOwned() {
 		sess := p.java
 		if sess == nil || !p.admitted || p.left || !p.active.Load() || sess.state.Load() != StatePlay {
 			continue
 		}
 		if name := sess.getName(); name != "" {
-			f.Players[name] = clone.player(snapshotPlayer(sess))
+			active[name] = clone.player(snapshotPlayer(sess))
 		}
 	}
+	f.Players = normalizeRememberedPlayers(f.Players, active)
 	for name, d := range s.dims {
 		d.signs.mu.Lock()
 		for pos, st := range d.signs.signs {

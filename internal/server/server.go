@@ -617,15 +617,12 @@ func (s *Server) untrack(sess *Session) {
 	if sess.playerRecord.admitted {
 		sess.addCustomStat("leave_game", 1)
 		s.savedPlayersMu.Lock()
-		if s.savedPlayers == nil {
-			s.savedPlayers = make(map[string]playerPersist)
-		}
 		p := snapshotPlayer(sess)
 		// A successfully replaced incarnation may tear down after its successor
 		// has saved newer state. A retired kick/rejoin predecessor is superseded
 		// too: remembered state feeds later JSON and native snapshots.
 		if !sess.replacement && !sess.persistenceSuperseded {
-			s.savedPlayers[name] = p
+			s.rememberPlayerLocked(name, p)
 		}
 		s.savedPlayersMu.Unlock()
 		if s.dataPath() != "" {

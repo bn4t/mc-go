@@ -689,11 +689,22 @@ JSON write scheduling, formats and native write fences retain their existing
 paths. The remembered-content correction also protects JSON snapshots after a
 kick/rejoin; this does not detach disconnect I/O.
 
-This fence does not normalize conflicting remembered aliases. Native loading
-creates UUID-keyed records while ordinary disconnect updates name-keyed records.
-If both contain different state for one offline UUID, a later native snapshot's
-map iteration can select stale data. That preexisting alias-resolution issue is
-separate from rejecting a superseded session's cleanup writes.
+Authoritative ordinary disconnects and native `.dat` ingestion synchronize
+existing aliases of that UUID and write the incoming key. Native ingestion
+retains its UUID filename key; name-only stores gain no extra alias. Active JSON
+snapshots apply the same normalization to their private cloned player map, so
+every alias receives the current incarnation's state without changing live
+remembered records. Legacy name-keyed records without a UUID use the collector's existing
+offline-UUID rule when matching aliases. Unrelated identities retain their
+values. Native snapshots therefore do not choose among divergent aliases after
+these updates; JSON preserves its schema, historical keys and alias cardinality.
+Synchronization
+scans O(remembered entries) per disconnect under the existing store lock; native
+boot batches ingestion in O(existing aliases + loaded players). This establishes
+no memory or latency bound. Metadata loading keeps its existing per-key behavior. Raw JSON import and name-first restore lookup
+retain their compatibility rules: conflicting imported values have no reliable
+recency information and remain ambiguous until an authoritative update for that
+UUID. Malformed or conflicting native files are not newly reconciled.
 
 Level, dimension and entity write errors return from `SaveWorld`; native
 player/metadata errors retain their existing first-error recording in

@@ -15557,3 +15557,58 @@ no flee; unsneak → flee). Green both legs.
   bug does not require stale predecessor cleanup and is not fixed here. Disconnect
   I/O and `/save-all` still block gameplay; native capture cost, cross-file or
   cross-store atomicity and fsync/crash durability remain separate work.
+
+## Slice — coherent remembered player aliases (2026-10-28)
+
+- **Measured:** sources are the existing independently written native loader,
+  disconnect, remembered-player, JSON and native snapshot paths. The unchanged
+  three-test regression file (SHA-256
+  `44d51126e9b609092b5f42df14b9543facceeeb1287d663c5bbc732c0afd67c4`)
+  fails on clean baseline `45c7ba827d307d7763501645341b3f22d555401e`.
+  A native boot followed by ordinary disconnect leaves UUID/former-name aliases
+  with inventory count one, jump statistic one and criterion time 1000 rather
+  than seven, seven and 7000. Native ingestion also leaves preexisting same-UUID
+  and identifiable legacy name aliases stale. Alias assertions fail
+  deterministically; whether an offline native save picks the stale value
+  depends on map iteration. The baseline run reproduced an owned-save restart
+  regression and stale JSON aliases too. Native-loaded active JSON capture also
+  retains stale UUID state seven instead of nine, including after JSON reload
+  and offline native restart. All three cases fail in 0.124 s on that baseline.
+  No new vanilla semantic claim,
+  bytecode extraction, generated table or dependency is introduced.
+- **Implemented:** accepted ordinary disconnects and native `.dat` ingestion
+  synchronize every existing alias with the authoritative UUID value, then
+  retain the incoming key without adding an extra alias. Legacy name records with
+  zero UUID use the native collector's existing offline-UUID identity rule.
+  Unrelated identities remain unchanged. Native loading batches updates so
+  it scans existing aliases once, rather than once per loaded player.
+  Superseded-session guards remain in force. Metadata loading, raw JSON import,
+  schema-three encoding and name-first restore lookup retain their existing
+  behavior and key cardinality.
+- **Pinned:** deterministic tests exercise native boot, ordinary disconnect,
+  same-UUID former names, legacy zero-UUID names and unrelated identities;
+  both public and owned offline native saves restart with the latest nested
+  inventory, statistics and advancement criteria. Public JSON output preserves
+  all matching identity aliases with the latest state. Native ingestion also
+  refreshes existing exact and legacy aliases before metadata restoration.
+  A third regression covers native-loaded remembered generation seven followed
+  by an active JSON snapshot at generation nine: every emitted alias has nine, live
+  remembered aliases retain seven, and JSON reload followed by offline native
+  save/restart retains nine. Active snapshots use the same batch normalization
+  on their private cloned player map.
+- **Validation:** full `go build ./...`, `go vet ./...` and
+  `go test ./internal/...` pass on the final source (server 214.339 s).
+  The alias, native-save and disconnect cases pass under the race detector
+  (2.221 s). Existing real 775/776 replacement, native-world restart and the
+  unchanged server-data responsiveness fixture pass without skips (combined
+  package 10.992 s; individual scenarios 5.35 s, 2.24 s and 3.25 s).
+  The responsiveness run checks functionality and its original two-player
+  record contract; it establishes no new performance comparison. Socket tests
+  use approved local-loopback execution; race runs establish functionality.
+- **Remaining:** conflicting raw imported histories have no reliable recency
+  information and retain existing ambiguity until an authoritative update for
+  that UUID; malformed/conflicting native files gain no reconciliation rule.
+  Name/UUID collision lookup policy and schema migration remain separate.
+  Disconnect normalization scans O(remembered entries); native ingestion
+  normalization costs O(existing aliases + loaded players), with no heap or
+  latency bound. Owned disconnect I/O and `/save-all` still block; cross-file atomicity and fsync/crash durability remain unfinished.

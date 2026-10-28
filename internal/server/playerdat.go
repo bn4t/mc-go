@@ -438,12 +438,7 @@ func (s *Server) loadPlayerFiles() error {
 		return nil
 	}
 	s.savedPlayersMu.Lock()
-	if s.savedPlayers == nil {
-		s.savedPlayers = map[string]playerPersist{}
-	}
-	for key, p := range loaded {
-		s.savedPlayers[key] = p
-	}
+	s.rememberPlayersLocked(loaded)
 	s.savedPlayersMu.Unlock()
 	return nil
 }

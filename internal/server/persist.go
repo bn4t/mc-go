@@ -354,6 +354,56 @@ func (s *Server) LoadServerData() error {
 	return nil
 }
 
+// rememberPlayerLocked records an authoritative disconnect or native-file
+// value. All known aliases of its UUID must agree: native snapshots collect
+// by UUID, while login and JSON stores also retain historical name keys.
+// Callers hold savedPlayersMu. Raw JSON imports intentionally retain their
+// existing semantics; this helper does not infer recency among imported values.
+func (s *Server) rememberPlayerLocked(key string, p playerPersist) {
+	s.rememberPlayersLocked(map[string]playerPersist{key: p})
+}
+
+// rememberPlayersLocked batches native-file ingestion so boot scans existing
+// aliases once, rather than once for each imported player. Incoming native files
+// are expected to carry distinct UUIDs; conflicting malformed files have no
+// recency information and gain no ordering guarantee here.
+func (s *Server) rememberPlayersLocked(updates map[string]playerPersist) {
+	s.savedPlayers = normalizeRememberedPlayers(s.savedPlayers, updates)
+}
+
+// normalizeRememberedPlayers mutates only caller-owned maps: either the locked
+// remembered store or a private persistence snapshot. Active snapshot overlays
+// use the same identity rules without changing the live remembered generation.
+func normalizeRememberedPlayers(players, updates map[string]playerPersist) map[string]playerPersist {
+	if players == nil {
+		players = make(map[string]playerPersist)
+	}
+	byUUID := make(map[[16]byte]playerPersist, len(updates))
+	for _, p := range updates {
+		if p.UUID != ([16]byte{}) {
+			byUUID[p.UUID] = p
+		}
+	}
+	for alias, previous := range players {
+		uuid := previous.UUID
+		// Legacy name-keyed records predate the UUID field. Match the
+		// same effective identity used by native snapshot collection.
+		if uuid == ([16]byte{}) && strings.Count(alias, "-") != 4 {
+			uuid = offlineUUID(alias)
+		}
+		if p, ok := byUUID[uuid]; ok {
+			players[alias] = p
+		}
+	}
+	for key, p := range updates {
+		if p.UUID != ([16]byte{}) {
+			p = byUUID[p.UUID]
+		}
+		players[key] = p
+	}
+	return players
+}
+
 // savedPlayerForSession reads the same in-memory login record for preparation
 // and final restoration. Callers must not mutate its referenced maps or slices.
 func (s *Server) savedPlayerForSession(sess *Session) (playerPersist, bool) {
