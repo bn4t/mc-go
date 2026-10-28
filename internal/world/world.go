@@ -178,6 +178,10 @@ func (w *World) GetBlock(p Pos) Block {
 	return w.shardFor(p.X, p.Z).get(p)
 }
 
+// HasOverride reports whether p holds a stored block rather than the
+// generator's.
+func (w *World) HasOverride(p Pos) bool { return w.shardFor(p.X, p.Z).has(p) }
+
 // SetBlock stores an override on the owning shard.
 func (w *World) SetBlock(p Pos, b Block) {
 	w.shardFor(p.X, p.Z).set(p, b)

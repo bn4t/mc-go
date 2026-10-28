@@ -444,6 +444,9 @@ type clientBlockEntity struct {
 // order and not a property of the world; mc-go orders by position so the
 // packet is a function of the world.
 func (s *Server) chunkClientBlockEntities(d *dimension, cx, cz int) []clientBlockEntity {
+	// Every column a client is sent passes here first: take on what
+	// its features generated before reading the stores.
+	s.adoptGenerated(d, cx, cz)
 	var out []clientBlockEntity
 	add := func(pos world.Pos, nbt []byte) {
 		if pos.X>>4 != cx || pos.Z>>4 != cz {

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // Block-state facts measured from the game (blockprops_gen.go), joined
@@ -95,8 +96,9 @@ var (
 	blockByName    map[string]int
 	blockOfID      []int32 // global state id -> layout index
 
-	stateInfoMu sync.RWMutex
-	stateInfos  []stateInfo // by StateID
+	// stateInfos caches each interned state's facts, by StateID; reads
+	// are lock-free, as every generation worker asks on every block.
+	stateInfos [1 << 16]atomic.Pointer[stateInfo]
 )
 
 // stateInfo is what is known of an interned state: its registry id
@@ -131,20 +133,11 @@ func loadBlockProps() {
 
 // info returns a state's measured facts, resolving it on first use.
 func (s StateID) info() stateInfo {
-	stateInfoMu.RLock()
-	if int(s) < len(stateInfos) && stateInfos[s].known {
-		in := stateInfos[s]
-		stateInfoMu.RUnlock()
-		return in
+	if in := stateInfos[s].Load(); in != nil {
+		return *in
 	}
-	stateInfoMu.RUnlock()
 	in := resolveState(StateName(s))
-	stateInfoMu.Lock()
-	for len(stateInfos) <= int(s) {
-		stateInfos = append(stateInfos, stateInfo{})
-	}
-	stateInfos[s] = in
-	stateInfoMu.Unlock()
+	stateInfos[s].Store(&in)
 	return in
 }
 
@@ -252,6 +245,18 @@ func (s StateID) is(block string) bool { return s.block() == block }
 // stateByID interns the canonical form of a registry state id.
 func stateByID(id int) StateID {
 	loadBlockProps()
+	if v := stateOfID[id].Load(); v != 0 {
+		return StateID(v - 1)
+	}
+	s := internStateByID(id)
+	stateOfID[id].Store(uint32(s) + 1)
+	return s
+}
+
+// stateOfID caches each registry state's interned id plus one.
+var stateOfID [1 << 16]atomic.Uint32
+
+func internStateByID(id int) StateID {
 	l := &blockLayouts[blockOfID[id]]
 	rel := id - l.first
 	if len(l.props) == 0 {

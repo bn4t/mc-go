@@ -87,6 +87,13 @@ func (s *shard) readColumns(cols []colRef, boxX, boxY, boxZ, colDY int, out []Bl
 	}
 }
 
+func (s *shard) has(p Pos) bool {
+	s.mu.RLock()
+	_, ok := s.data[p]
+	s.mu.RUnlock()
+	return ok
+}
+
 func (s *shard) set(p Pos, b Block) {
 	s.mu.Lock()
 	s.invalidateTop(p, b, false)

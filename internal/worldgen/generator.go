@@ -24,6 +24,13 @@ type Generator struct {
 	prefetchQ    chan [2]int32
 	prefetchMu   sync.Mutex
 	prefetching  map[[2]int32]bool
+
+	// The features stage: carved chunks, each chunk's features run, and
+	// the per-step feature order.
+	carvedCache *stageCache[*carvedChunk]
+	runCache    *stageCache[*featureRun]
+	stepsOnce   sync.Once
+	steps       [][]*placedFeature
 }
 
 type genWorker struct {
@@ -50,12 +57,19 @@ type biomeEntry struct {
 }
 
 // TerrainChunk is a generated chunk: its blocks by section (a uniform
-// section stored as a single state) and its biome storage.
+// section stored as a single state), its biome storage, and what its
+// features left besides blocks.
 type TerrainChunk struct {
 	CX, CZ   int32
 	MinY     int32
 	sections [][]StateID
 	Biomes   *ChunkBiomes
+	// BlockEntities are the features' block entities, by position.
+	BlockEntities map[Point]*GenBlockEntity
+	// Entities are the entities the features spawned in the chunk.
+	Entities []GenEntity
+	// FluidTicks are fluid updates the features queued, due at once.
+	FluidTicks []GenFluidTick
 }
 
 // Block is the state at chunk-relative x, z and absolute y.
@@ -102,7 +116,8 @@ func newGenerator(settingsID string, src BiomeSource, params *MultiNoiseBiomes, 
 	if !ok {
 		return nil, fmt.Errorf("worldgen: unknown noise settings %s", settingsID)
 	}
-	g := &Generator{rs: NewRandomState(settings, seed), params: params, source: src, perShard: 96}
+	g := &Generator{rs: NewRandomState(settings, seed), params: params, source: src, perShard: 96,
+		carvedCache: newStageCache[*carvedChunk](1024), runCache: newStageCache[*featureRun](1024)}
 	n := runtime.GOMAXPROCS(0)
 	g.workers = make(chan *genWorker, n)
 	for i := 0; i < n; i++ {
@@ -137,7 +152,7 @@ func (g *Generator) Chunk(cx, cz int32) *TerrainChunk {
 	sh.mu.Unlock()
 	e.used.Store(g.clock.Add(1))
 	if !ok {
-		e.chunk = g.generate(cx, cz)
+		e.chunk = g.finish(cx, cz)
 		close(e.done)
 	}
 	<-e.done
@@ -211,46 +226,6 @@ func evictBiomes(m map[[2]int32]*biomeEntry, limit int) {
 	}
 }
 
-func (g *Generator) generate(cx, cz int32) *TerrainChunk {
-	var region BiomeRegion
-	region.cx, region.cz = cx, cz
-	for dx := int32(-1); dx <= 1; dx++ {
-		for dz := int32(-1); dz <= 1; dz++ {
-			region.chunks[dx+1][dz+1] = g.Biomes(cx+dx, cz+dz)
-		}
-	}
-	w := <-g.workers
-	blocks, _ := w.filler.Fill(cx, cz)
-	c := w.filler.NewGenChunk(cx, cz, blocks)
-	zoom := g.rs.ZoomSeed()
-	w.filler.BuildSurface(c, region.Block(zoom))
-	// Carvers read biomes straight from the biome source: the starting
-	// chunk's corner quart, and block biomes zoomed from it.
-	direct := func(qx, qy, qz int32) string {
-		return biomeNameTable[g.source.biomeIndex(g.rs, w.searcher, qx, qy, qz)]
-	}
-	w.filler.Carve(c, func(sx, sz int32) string { return direct(sx*4, 0, sz*4) },
-		func(x, y, z int32) string { return ZoomBiome(zoom, x, y, z, direct) })
-	g.workers <- w
-	out := &TerrainChunk{CX: cx, CZ: cz, MinY: c.MinY, Biomes: region.Center()}
-	for sy := int32(0); sy < c.Height/16; sy++ {
-		sec := c.States[sy*4096 : (sy+1)*4096]
-		uniform := true
-		for _, s := range sec[1:] {
-			if s != sec[0] {
-				uniform = false
-				break
-			}
-		}
-		if uniform {
-			out.sections = append(out.sections, []StateID{sec[0]})
-		} else {
-			out.sections = append(out.sections, append([]StateID(nil), sec...))
-		}
-	}
-	return out
-}
-
 // Ready reports whether chunk (cx, cz) is generated and cached.
 func (g *Generator) Ready(cx, cz int32) bool {
 	sh := g.shard(cx, cz)
@@ -278,7 +253,10 @@ func (g *Generator) Prefetch(cx, cz int32) {
 	g.prefetchOnce.Do(func() {
 		g.prefetchQ = make(chan [2]int32, 4096)
 		g.prefetching = map[[2]int32]bool{}
-		for i := 0; i < cap(g.workers); i++ {
+		// Chunks wait on the stages of their neighbours, often computed
+		// by another goroutine; the worker tokens bound the CPU, so more
+		// goroutines than tokens keep the tokens busy.
+		for i := 0; i < 4*cap(g.workers); i++ {
 			go func() {
 				for k := range g.prefetchQ {
 					g.Chunk(k[0], k[1])

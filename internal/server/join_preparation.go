@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"mc-go/api/player"
 )
@@ -101,6 +102,9 @@ const (
 	joinPreparationNone joinPreparationStep = iota
 	joinPreparationFacts
 	joinPreparationLight
+	// joinPreparationWaiting is a unit that made no progress: the next
+	// column's generated terrain is still being made off the owner.
+	joinPreparationWaiting
 )
 
 type joinPreparationJob struct {
@@ -237,12 +241,13 @@ func (p *joinPreparationScheduler) work() {
 		p.mu.Unlock()
 		var complete bool
 		var err error
+		var step joinPreparationStep
 		retired := false
 		p.server.simulationAction(func() {
 			if job.live {
-				_, complete, err = p.server.stepLivePreparationOwned(job)
+				step, complete, err = p.server.stepLivePreparationOwned(job)
 			} else {
-				_, complete, err = p.server.stepJoinPreparationOwned(job)
+				step, complete, err = p.server.stepJoinPreparationOwned(job)
 			}
 			if job.live && (complete || err != nil) {
 				// The terminal unit has returned. Retire its reservation before
@@ -274,9 +279,36 @@ func (p *joinPreparationScheduler) work() {
 			}
 			p.mu.Unlock()
 		}
+		if step == joinPreparationWaiting {
+			// Generation runs off the owner; wait for it rather than
+			// spinning on ownership.
+			time.Sleep(5 * time.Millisecond)
+			continue
+		}
 		// Let runnable gameplay callers contend between complete owner turns.
 		runtime.Gosched()
 	}
+}
+
+// preparationTerrainReady reports whether the column at keys[i] and the
+// columns around it, which its light and section facts read, have their
+// generated terrain, queueing them and the next columns' for generation
+// off the owner so a plan's terrain is made in parallel and in order.
+func preparationTerrainReady(d *dimension, keys [][2]int, i int) bool {
+	if d.terrain == nil {
+		return true
+	}
+	ready := true
+	for j := i; j < len(keys) && j < i+64; j++ {
+		for dx := -1; dx <= 1; dx++ {
+			for dz := -1; dz <= 1; dz++ {
+				if !d.terrainReady(keys[j][0]+dx, keys[j][1]+dz) && j == i {
+					ready = false
+				}
+			}
+		}
+	}
+	return ready
 }
 
 func (p *joinPreparationScheduler) close() {
@@ -345,6 +377,10 @@ func (s *Server) stepJoinPreparationOwned(job *joinPreparationJob) (joinPreparat
 			if s.joinColumnFactsWarmOwned(d, key) {
 				continue
 			}
+			if !preparationTerrainReady(d, job.plan.facts, job.factIndex-1) {
+				job.factIndex--
+				return joinPreparationWaiting, false, nil
+			}
 			s.warmSectionFlags(d, key[0], key[1])
 			return joinPreparationFacts, false, nil
 		}
@@ -353,6 +389,12 @@ func (s *Server) stepJoinPreparationOwned(job *joinPreparationJob) (joinPreparat
 			job.lightIndex++
 			d.lightMu.Lock()
 			warm := d.skyGen[key]
+			d.lightMu.Unlock()
+			if !warm && !preparationTerrainReady(d, job.plan.light, job.lightIndex-1) {
+				job.lightIndex--
+				return joinPreparationWaiting, false, nil
+			}
+			d.lightMu.Lock()
 			if !warm {
 				ensureSkyChunk(d, key[0], key[1])
 			}

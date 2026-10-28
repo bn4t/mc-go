@@ -60,6 +60,9 @@ type dimension struct {
 	// terrain is the noise generator behind the world, nil for the flat
 	// and stand-in generators (whose terrain is always ready).
 	terrain *world.NoiseTerrain
+	// adopted are the generated columns whose block entities and
+	// entities the dimension has taken on (owner only).
+	adopted map[[2]int]bool
 	// chunkReads shares recent whole-chunk reads between the column
 	// preparation passes.
 	chunkReads chunkReadCache

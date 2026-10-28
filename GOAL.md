@@ -71,8 +71,10 @@ Mojang server over the wire.
       Every natural decoration feature but the template-based fossils
       and desert wells matches vanilla per placement in
       `internal/worldgen` (`TestFeaturesMatchVanilla`, blocks and
-      spawned entities), but the server does not run them yet;
-      no structures yet
+      spawned entities), and the server runs them: chunks it sends
+      differ from vanilla's in about 1.1% of blocks where neighbouring
+      chunks' features meet (vanilla against itself: 0.42%;
+      `TestNoiseTerrainBlocksParity`); no structures yet
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -16398,3 +16400,71 @@ no flee; unsneak → flee). Green both legs.
   - Features' post-processing marks (shape updates when a chunk
     completes) are not modeled.
   - The server's generator still does not run the features stage.
+
+## Slice — server features stage: decorated noise terrain, generated block entities and generation throughput (2026-10-28)
+
+- **Measured:** wire observation against the 26.2 jar
+  (`level-type=minecraft:normal`, `generate-structures=false`, seed
+  12345), with every block of every chunk a joining client receives
+  compared:
+  - Two vanilla boots differ from each other in 0.42% of those blocks,
+    mostly trees and lush-cave patches where chunks' features meet.
+    Vanilla runs neighbouring chunks' features in its chunk-load order
+    over each other's blocks.
+  - Offline, against a dump of vanilla's blocks: decorating the spawn
+    area sequentially in rings out from spawn reaches 0.50%. Running
+    each chunk against undecorated neighbours and merging reaches
+    0.97%, whatever the merge order. Neither bounded phase orders nor
+    other merge orders do better.
+  - Vanilla's own spawn height varies at seed 1's spawn column (70
+    twice, 78 once, on a tree).
+  - `javap`:
+    - `LevelChunk.postProcessGeneration` ticks marked fluids when a
+      chunk completes;
+    - the noise stage marks aquifer fluids for it;
+    - `SpringFeature` queues a fluid tick on its new source.
+- **Implemented:**
+  - `generator_features.go`: the generator's stages are cached (carved
+    chunks, per-chunk feature runs, finished chunks). Each run decorates
+    against carved neighbours, and finished chunks merge the nine runs
+    reaching them (own run first, first writer keeps the block), so
+    terrain stays a pure function of seed and position. A stage asked
+    for directly fans its dependencies out in parallel.
+  - `TerrainChunk` carries the features' block entities, entities and
+    fluid ticks; aquifer marks become fluid ticks.
+  - The server adopts them when a column is first sent: dungeon chests
+    with their loot table and seed, bee nests, End crystals, and fluid
+    ticks. Each adopted thing's anchor block becomes a stored block, so
+    the column saves with it and is not adopted twice
+    (`World.HasOverride`).
+  - Throughput: 121 chunks with features in 4.4 s on 4 cores, from 24 s.
+    - Lock-free state-info, state-name, state-index, registry-state and
+      tag tables.
+    - A lock-free finished-chunk cache and state resolution in
+      `NoiseTerrain`.
+    - Four prefetch goroutines per worker token.
+  - Join and live preparation now queue their plan's columns, and the
+    3×3 around each, for off-owner generation, and wait for them
+    without holding the owner. A joining client's 289 overworld chunks
+    arrive in 26 s, from 74 s.
+- **Pinned:**
+  - `TestNoiseTerrainBlocksParity` (new, both servers): 121 chunks
+    each, about 1.1% of blocks differing, held under 1.5%.
+    `MCGO_VANILLA_SELF=1` measures vanilla against itself and
+    `MCGO_DUMP_CHUNKS` dumps both servers' blocks.
+  - `TestNoiseBiomeParity` and `TestNoiseWorldSpawnParity`. The spawn
+    column must match; its height may differ by a tree.
+  - `TestFeaturesMatchVanilla` now also decorates each probed chunk end
+    to end with its own random state, as the generator does. All 138
+    chunks match vanilla feature for feature.
+  - `TestGeneratorServesConsistentChunks` (merge rule),
+    `TestGeneratorIsPure` (request order and cache eviction do not
+    change a chunk) and `TestGeneratedBlockEntitiesAdopted` (armed
+    dungeon chests, never re-armed).
+- **Remaining:**
+  - Spawners and End gateways have no server block entity yet.
+  - Block post-processing marks (four blocks, and features' marks
+    above) are not run.
+  - Structures and the template features (fossils, desert wells).
+  - Emulating vanilla's load order around spawn would roughly halve
+    the border differences, at the cost of an order-dependent generator.

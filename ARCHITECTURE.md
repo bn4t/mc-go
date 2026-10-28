@@ -562,6 +562,34 @@ reports and immutable baseline exports remain outside the repository.
 MCGO_LIVE_WINDOW_REPORT=/tmp/live-probes.jsonl GOMAXPROCS=5 GOFLAGS=-buildvcs=false go test ./tests/blackbox -run '^TestLiveWindowResponsiveness$' -count=5 -timeout=5m -v
 ```
 
+## Generated terrain
+
+Noise terrain is a pure function of the seed and a chunk's position, so any
+chunk may be dropped from the generator's bounded caches and rebuilt the same;
+world state stays the stored blocks over it. The generator builds a chunk in
+three cached stages: the noise fill, surface and carvers; the chunk's
+decoration features, run once against its 3×3 neighbourhood as the carvers
+left it and kept as per-neighbour writes; and the finished chunk, its carved
+blocks under the writes of the nine runs reaching it, its own run first, the
+first run to write a block keeping it. A chunk's own feature pass is exactly
+vanilla's for that neighbourhood. Vanilla runs neighbouring passes in its chunk
+load order over each other's blocks, so blocks near where two chunks' features
+meet depend on that order there and differ from mc-go's fixed one; two vanilla
+boots of one seed already differ in a fraction of a percent of such blocks.
+
+A stage asked for directly fans its dependencies out in parallel, and worker
+tokens bound the CPU. Block reads go through a lock-free cache of finished
+chunks, and the state and tag tables generation reads are lock-free.
+
+What features leave besides blocks reaches the dimension when a column is
+first sent ("adoption"): loot chests armed with their table and seed, bee
+nests with their bees, End crystals, and the fluid ticks features queue and
+aquifers mark. Each adopted block entity or entity stores its anchor block as a
+world block, so the column saves with it and a reload that finds the anchor
+stored does not adopt it again. Join and live preparation queue their plan's
+columns, and the 3×3 around each, for generation off the simulation owner,
+and wait for them without holding it.
+
 ## Compact world saves
 
 Public `SaveWorld` in compact `WorldPath` mode captures all dimensions' block

@@ -166,6 +166,10 @@ func (s *Server) stepLivePreparationOwned(job *joinPreparationJob) (joinPreparat
 			if s.joinColumnFactsWarmOwned(d, key) {
 				continue
 			}
+			if !preparationTerrainReady(d, job.plan.facts, job.factIndex-1) {
+				job.factIndex--
+				return joinPreparationWaiting, false, nil
+			}
 			s.warmSectionFlags(d, key[0], key[1])
 			return joinPreparationFacts, false, nil
 		}
@@ -174,6 +178,12 @@ func (s *Server) stepLivePreparationOwned(job *joinPreparationJob) (joinPreparat
 			job.lightIndex++
 			d.lightMu.Lock()
 			warm := d.skyGen[key]
+			d.lightMu.Unlock()
+			if !warm && !preparationTerrainReady(d, job.plan.light, job.lightIndex-1) {
+				job.lightIndex--
+				return joinPreparationWaiting, false, nil
+			}
+			d.lightMu.Lock()
 			if !warm {
 				ensureSkyChunk(d, key[0], key[1])
 			}

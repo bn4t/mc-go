@@ -313,7 +313,8 @@ func applyDelta(r *decoRegion, delta string, raw bool) {
 // TestFeaturesMatchVanilla decorates the probe's chunks feature by
 // feature. Each feature whose type is implemented runs and must change
 // exactly the blocks vanilla's did; every feature's vanilla changes are
-// then applied, so the next feature starts from vanilla's state.
+// then applied, so the next feature starts from vanilla's state. Each
+// chunk is then decorated again end to end, as the generator does it.
 func TestFeaturesMatchVanilla(t *testing.T) {
 	_, goldens := loadFeatureGoldens(t)
 	type group struct {
@@ -349,6 +350,7 @@ func TestFeaturesMatchVanilla(t *testing.T) {
 			dimMinY, dimHeight = 0, 256
 		}
 		steps := featureSteps(possibleBiomes(src))
+		initial := snapshotRegion(r)
 		next := 0
 		r.decorate(steps, func(step, index int, pf *placedFeature, place func() bool) {
 			if next >= len(gr.features) {
@@ -403,6 +405,31 @@ func TestFeaturesMatchVanilla(t *testing.T) {
 		if next != len(gr.features) {
 			t.Fatalf("%s %s: ran %d features, probe ran %d", gr.dim, gr.chunk, next, len(gr.features))
 		}
+		// Then end to end, as the generator decorates: every feature from
+		// the state the ones before it left, the decoration random's
+		// cached gaussian and the region random carried along rather than
+		// restored. Each feature must still change exactly vanilla's
+		// blocks; the first that does not is reported.
+		initial.restore(r)
+		r.random = nil
+		next = 0
+		diverged := false
+		r.decorate(steps, func(step, index int, pf *placedFeature, place func() bool) {
+			want := gr.features[next]
+			next++
+			if diverged {
+				place()
+				return
+			}
+			before := snapshotRegion(r)
+			place()
+			if got := regionDelta(r, before, dimMinY, dimHeight); got != want.delta {
+				diverged = true
+				onlyGot, onlyWant := deltaDiff(got, want.delta)
+				t.Errorf("%s %s: decorating end to end, %s (%d/%d) is the first to differ\n  only got  %.400s\n  only want %.400s",
+					gr.dim, gr.chunk, pf.name, step, index, onlyGot, onlyWant)
+			}
+		})
 	}
 	report := func(label string, m map[string]int) {
 		keys := make([]string, 0, len(m))

@@ -615,6 +615,8 @@ func decodeSpring(cfg any) func(*featureCtx) bool {
 		}
 		if rock == rocks && hole == holes {
 			r.set(o, block)
+			// The new source flows once its chunk is live.
+			r.scheduleFluidTick(o, block.fluidName())
 			return true
 		}
 		return false

@@ -72,24 +72,19 @@ func blockStateOf(v any) StateID {
 
 // Block tags, expanded by the generated data.
 
-var (
-	tagSetsMu sync.Mutex
-	tagSets   = map[string]map[string]bool{}
-)
+var tagSets sync.Map // tag -> map[string]bool
 
 func blockTagSet(tag string) map[string]bool {
 	tag = strings.TrimPrefix(strings.TrimPrefix(tag, "#"), "minecraft:")
-	tagSetsMu.Lock()
-	defer tagSetsMu.Unlock()
-	set, ok := tagSets[tag]
-	if !ok {
-		set = map[string]bool{}
-		for _, b := range data.BlockTags[tag] {
-			set[b] = true
-		}
-		tagSets[tag] = set
+	if set, ok := tagSets.Load(tag); ok {
+		return set.(map[string]bool)
 	}
-	return set
+	set := map[string]bool{}
+	for _, b := range data.BlockTags[tag] {
+		set[b] = true
+	}
+	actual, _ := tagSets.LoadOrStore(tag, set)
+	return actual.(map[string]bool)
 }
 
 func (s StateID) inTag(tag string) bool { return blockTagSet(tag)[s.block()] }

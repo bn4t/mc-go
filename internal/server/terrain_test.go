@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"mc-go/internal/world"
+	"mc-go/internal/worldgen"
 )
 
 // TestNormalLevelTypeGeneratesNoiseTerrain starts a server with the
@@ -92,5 +93,58 @@ func TestNormalLevelTypeGeneratesNetherAndEnd(t *testing.T) {
 	}
 	if outer["minecraft:the_end"] || len(outer) < 2 {
 		t.Fatalf("outer End biomes %v", outer)
+	}
+}
+
+// TestGeneratedBlockEntitiesAdopted checks a noise world takes on the
+// dungeon chests its features generated as their column is first served:
+// armed with the feature's loot table and seed, their block stored so
+// the column saves with them, and never armed again once taken on.
+func TestGeneratedBlockEntitiesAdopted(t *testing.T) {
+	s := New("unused")
+	s.WorldPath = ""
+	s.LevelType = "normal"
+	s.WorldSeed = 12345
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Stop()
+	d := s.dims[dimOverworld]
+	// Chunk 0,3 holds a monster room with two chests under seed 12345.
+	gen := d.terrain.Chunk(0, 3)
+	var chests []world.Pos
+	for p, be := range gen.BlockEntities {
+		if be.ID == "minecraft:chest" {
+			chests = append(chests, world.Pos{X: int(p.X), Y: int(p.Y), Z: int(p.Z)})
+		}
+	}
+	if len(chests) != 2 {
+		t.Fatalf("generated chests %v", chests)
+	}
+	s.chunkClientBlockEntities(d, 0, 3)
+	for _, pos := range chests {
+		c := s.peekChest(d, pos)
+		if c == nil {
+			t.Fatalf("chest at %v not taken on", pos)
+		}
+		want := gen.BlockEntities[worldgen.Point{X: int32(pos.X), Y: int32(pos.Y), Z: int32(pos.Z)}]
+		if c.lootTable != "minecraft:chests/simple_dungeon" || c.lootSeed != want.LootSeed {
+			t.Fatalf("chest at %v armed with %q/%d, want %q/%d", pos, c.lootTable, c.lootSeed, want.LootTable, want.LootSeed)
+		}
+		if !d.w.HasOverride(pos) {
+			t.Fatalf("chest block at %v not stored", pos)
+		}
+		// A looted chest stays looted, even when the column is taken on
+		// again as after a reload.
+		d.chests.mu.Lock()
+		c.lootTable = ""
+		d.chests.mu.Unlock()
+	}
+	delete(d.adopted, [2]int{0, 3})
+	s.chunkClientBlockEntities(d, 0, 3)
+	for _, pos := range chests {
+		if c := s.peekChest(d, pos); c.lootTable != "" {
+			t.Fatalf("chest at %v armed again with %q", pos, c.lootTable)
+		}
 	}
 }

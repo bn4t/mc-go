@@ -2,6 +2,8 @@ package server
 
 import (
 	"fmt"
+	"math"
+	"strings"
 
 	"mc-go/internal/world"
 	"mc-go/internal/worldgen"
@@ -63,6 +65,72 @@ func (d *dimension) terrainReady(cx, cz int) bool {
 	}
 	d.terrain.Prefetch(cx, cz)
 	return false
+}
+
+// adoptGenerated takes on column (cx, cz)'s generated block entities
+// and entities, once, as its terrain is first served: loot chests armed
+// with their table and seed, bee nests with their bees, End crystals.
+// Each one's anchor block (its own, or the block under an entity)
+// becomes a stored block, so the column saves with them and a reload
+// that finds the anchor stored knows they were taken on already. A
+// generated block entity whose block has since been replaced is not.
+// Runs under simulation ownership.
+func (s *Server) adoptGenerated(d *dimension, cx, cz int) {
+	if d.terrain == nil {
+		return
+	}
+	key := [2]int{cx, cz}
+	if d.adopted[key] {
+		return
+	}
+	if d.adopted == nil {
+		d.adopted = map[[2]int]bool{}
+	}
+	d.adopted[key] = true
+	c := d.terrain.Chunk(cx, cz)
+	for p, be := range c.BlockEntities {
+		pos := world.Pos{X: int(p.X), Y: int(p.Y), Z: int(p.Z)}
+		if d.w.HasOverride(pos) {
+			continue
+		}
+		switch be.ID {
+		case "minecraft:chest":
+			if s.peekChest(d, pos) != nil {
+				continue
+			}
+			ch := s.chestAt(d, pos)
+			d.chests.mu.Lock()
+			ch.lootTable, ch.lootSeed = be.LootTable, be.LootSeed
+			d.chests.mu.Unlock()
+		case "minecraft:beehive", "minecraft:bee_nest":
+			if d.bees == nil {
+				d.bees = map[world.Pos]int32{}
+			}
+			d.bees[pos] = int32(len(be.BeeTicks))
+		default:
+			// Spawners and End gateways keep no state here yet.
+			continue
+		}
+		d.w.SetBlock(pos, d.w.GetBlock(pos))
+	}
+	// Fluids the features queued and the aquifers marked flow once the
+	// column is live.
+	for _, ft := range c.FluidTicks {
+		s.scheduleFluidTick(d, world.Pos{X: int(ft.Pos.X), Y: int(ft.Pos.Y), Z: int(ft.Pos.Z)}, 1)
+	}
+	for _, e := range c.Entities {
+		anchor := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)) - 1, Z: int(math.Floor(e.Z))}
+		if d.w.HasOverride(anchor) {
+			continue
+		}
+		name := strings.TrimPrefix(e.ID, "minecraft:")
+		if !summonPlainNames[name] {
+			continue
+		}
+		s.entities.Spawn(&Entity{Type: mustEntityType(name), Dim: d.name, X: e.X, Y: e.Y, Z: e.Z, Yaw: e.Yaw,
+			Invulnerable: e.Invulnerable})
+		d.w.SetBlock(anchor, d.w.GetBlock(anchor))
+	}
 }
 
 // findNoiseSpawn is the initial world spawn of a noise overworld:

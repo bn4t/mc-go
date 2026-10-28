@@ -3,42 +3,51 @@ package worldgen
 import (
 	"math"
 	"sync"
+	"sync/atomic"
 )
 
 // StateID names a block state interned in this package's state table:
 // canonical "namespace:name[key=value,...]" strings, properties sorted.
 type StateID uint16
 
+// The state table is read on every block a feature touches, from every
+// generation worker, so reads take no lock: names are a fixed array of
+// atomically published strings, the index a sync.Map. Interning a new
+// state, rare after warm-up, serializes on stateMu.
 var (
-	stateMu    sync.RWMutex
-	stateNames []string
-	stateIndex = map[string]StateID{}
+	stateMu       sync.Mutex
+	internedCount int
+	stateNames    [1 << 16]atomic.Pointer[string]
+	stateIndex    sync.Map // string -> StateID
 )
 
 // InternState returns the id of a canonical block state string.
 func InternState(s string) StateID {
-	stateMu.RLock()
-	id, ok := stateIndex[s]
-	stateMu.RUnlock()
-	if ok {
-		return id
+	if id, ok := stateIndex.Load(s); ok {
+		return id.(StateID)
 	}
 	stateMu.Lock()
 	defer stateMu.Unlock()
-	if id, ok := stateIndex[s]; ok {
-		return id
+	if id, ok := stateIndex.Load(s); ok {
+		return id.(StateID)
 	}
-	id = StateID(len(stateNames))
-	stateNames = append(stateNames, s)
-	stateIndex[s] = id
+	if internedCount == len(stateNames) {
+		panic("worldgen: block state table full")
+	}
+	id := StateID(internedCount)
+	internedCount++
+	name := s
+	stateNames[id].Store(&name)
+	stateIndex.Store(s, id)
 	return id
 }
 
 // StateName is the canonical string of an interned state.
 func StateName(id StateID) string {
-	stateMu.RLock()
-	defer stateMu.RUnlock()
-	return stateNames[id]
+	if p := stateNames[id].Load(); p != nil {
+		return *p
+	}
+	panic("worldgen: state not interned")
 }
 
 var (
