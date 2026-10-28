@@ -31,6 +31,9 @@ type Generator struct {
 	runCache    *stageCache[*featureRun]
 	stepsOnce   sync.Once
 	steps       [][]*placedFeature
+
+	placerOnce sync.Once
+	placer     *structurePlacer
 }
 
 type genWorker struct {
@@ -128,6 +131,12 @@ func newGenerator(settingsID string, src BiomeSource, params *MultiNoiseBiomes, 
 		g.shards[i].biomes = map[[2]int32]*biomeEntry{}
 	}
 	return g, nil
+}
+
+// structures is the generator's structure placement, built once.
+func (g *Generator) structures() *structurePlacer {
+	g.placerOnce.Do(func() { g.placer = newStructurePlacer(g, g.rs.Seed, g.rs.Seed) })
+	return g.placer
 }
 
 // RandomState is the generator's per-seed state.

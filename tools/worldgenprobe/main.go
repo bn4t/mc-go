@@ -4,13 +4,14 @@
 // tested against: random draws, positional sources, noise samples and
 // noise-router outputs (WorldgenProbe.java, vanilla_probe.tsv), chunk
 // fills through the carvers (ChunkFillProbe.java, chunk_fill.tsv.gz),
-// and per-feature decoration deltas (FeatureProbe.java,
-// features.tsv.gz). The
+// per-feature decoration deltas (FeatureProbe.java, features.tsv.gz),
+// and structure placement, base heights and structure starts
+// (StructureProbe.java, structures.tsv.gz). The
 // probes call the running game's own code; nothing is decompiled.
 // Regeneration needs JDK 25 and the unpacked server (vanilla/versions,
 // vanilla/libraries).
 //
-// Usage: go run ./tools/worldgenprobe [-jdk dir] [-root .]
+// Usage: go run ./tools/worldgenprobe [-jdk dir] [-root .] [-only Probe]
 package main
 
 import (
@@ -29,6 +30,7 @@ import (
 func main() {
 	jdk := flag.String("jdk", "", "directory containing java and javac, otherwise PATH")
 	root := flag.String("root", ".", "repository root")
+	only := flag.String("only", "", "run only this probe class")
 	flag.Parse()
 	base := filepath.Join(*root, "vanilla")
 	jar := filepath.Join(base, "versions", "26.2", "server-26.2.jar")
@@ -50,7 +52,8 @@ func main() {
 	run(filepath.Join(*jdk, "javac"), "-cp", cp, "-d", temp,
 		filepath.Join(*root, "tools/worldgenprobe/WorldgenProbe.java"),
 		filepath.Join(*root, "tools/worldgenprobe/ChunkFillProbe.java"),
-		filepath.Join(*root, "tools/worldgenprobe/FeatureProbe.java"))
+		filepath.Join(*root, "tools/worldgenprobe/FeatureProbe.java"),
+		filepath.Join(*root, "tools/worldgenprobe/StructureProbe.java"))
 	jarSum := sha256.Sum256(must1(os.ReadFile(jar)))
 	testdata := filepath.Join(*root, "internal/worldgen/testdata")
 	must(os.MkdirAll(testdata, 0o755))
@@ -58,7 +61,11 @@ func main() {
 		{"WorldgenProbe", "vanilla_probe.tsv"},
 		{"ChunkFillProbe", "chunk_fill.tsv.gz"},
 		{"FeatureProbe", "features.tsv.gz"},
+		{"StructureProbe", "structures.tsv.gz"},
 	} {
+		if *only != "" && probe.class != *only {
+			continue
+		}
 		out := filepath.Join(temp, probe.class+".tsv")
 		run(filepath.Join(*jdk, "java"), "-cp", temp+string(os.PathListSeparator)+cp, probe.class, out)
 		raw, err := os.ReadFile(out)

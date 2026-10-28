@@ -74,7 +74,11 @@ Mojang server over the wire.
       spawned entities), and the server runs them: chunks it sends
       differ from vanilla's in about 1.1% of blocks where neighbouring
       chunks' features meet (vanilla against itself: 0.42%;
-      `TestNoiseTerrainBlocksParity`); no structures yet
+      `TestNoiseTerrainBlocksParity`). Structure placement — every
+      set's chunks and the stronghold rings — and the noise base
+      heights structures measure with match vanilla
+      (`TestStructureSetsMatchVanilla`, `TestBaseHeightsMatchVanilla`);
+      no structure pieces yet
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -16468,3 +16472,63 @@ no flee; unsneak → flee). Green both legs.
   - Structures and the template features (fossils, desert wells).
   - Emulating vanilla's load order around spawn would roughly halve
     the border differences, at the cost of an order-dependent generator.
+
+## Slice — structure placement: structure sets, stronghold rings and noise base heights (2026-10-28)
+
+- **Measured:**
+  - Runtime calls into the 26.2 jar (SHA-256 183c0499…823e8):
+    `tools/worldgenprobe/StructureProbe.java` writes
+    `internal/worldgen/testdata/structures.tsv.gz` for seed 12345 in
+    all three dimensions. It records:
+    - which structure sets each biome source can hold;
+    - which chunks each set picks in a square (±160 chunks in the
+      overworld and End, ±64 in the nether);
+    - the 128 stronghold ring positions;
+    - 1200 noise-only base heights (`WORLD_SURFACE_WG` and
+      `OCEAN_FLOOR_WG`) and 120 base columns;
+    - the structure starts (415) the structure-starts stage builds on
+      bare proto chunks, as chunk-save tags with keys sorted.
+  - `javap` on `StructurePlacement`, `RandomSpreadStructurePlacement`,
+    `RandomSpreadType`, `StructurePlacement$FrequencyReductionMethod`
+    and `$ExclusionZone`, `ConcentricRingsStructurePlacement`,
+    `ChunkGeneratorStructureState`, `BiomeSource.findBiomeHorizontal`,
+    `NoiseBasedChunkGenerator.iterateNoiseColumn` and the `NoiseChunk`
+    constructor:
+    - A structure chunk is the region's potential chunk, then the
+      frequency reducer (below 1), then the exclusion zone.
+    - The default reducer passes the salt where the chunk x goes.
+    - Rings use Java `Math.cos/sin` and `Math.round`. Each position
+      forks the ring random for its biome search: a 57×57 quart square
+      at y 0, reservoir-sampled.
+    - A base-height query is a noise chunk of the column's one cell. Its
+      flat caches cover only that cell's quarts, and the aquifer is the
+      chunk's.
+    - Sets are kept when any structure's biomes meet the source's
+      possible biomes.
+  - `tools/genworldgen` now also writes `structures_gen.go`: structure
+    sets, structures, template pools, processor lists and biome and
+    structure tags (nested tags expanded in element order) from the
+    datagen output.
+- **Implemented:**
+  - `internal/worldgen/structure_placement.go`:
+    - structure sets;
+    - random spread (linear and triangular);
+    - the four frequency reducers;
+    - exclusion zones;
+    - concentric rings with their biome pull;
+    - locate positions;
+    - per-generator possible sets.
+  - `NoiseChunkFiller.Column` runs the noise stage down one column with
+    a one-cell window; the caches' window size is now a parameter of
+    the fill. `Generator.baseHeight`, `firstOccupiedHeight` and
+    `baseColumn` build on it.
+- **Pinned:**
+  - `TestStructureSetsMatchVanilla`: every set in each dimension, every
+    chunk each picks in the probed squares (pillager outposts' village
+    exclusion and the legacy reducers included), and all 128 stronghold
+    positions.
+  - `TestBaseHeightsMatchVanilla`: every probed height and column in the
+    overworld, nether and End.
+- **Remaining:**
+  - Structure starts and pieces per structure type, then `/locate`.
+  - Templates, piece placement in chunks, and the beardifier.

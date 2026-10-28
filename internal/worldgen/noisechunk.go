@@ -61,6 +61,9 @@ type NoiseChunkFiller struct {
 	interps                  []*interpolator
 	flats                    []*flatCache
 	firstQuartX, firstQuartZ int32
+	// flatSize is the side of the flat caches' quart window, cornersXZ
+	// the interpolators' corner count per horizontal axis.
+	flatSize, cornersXZ int32
 
 	// fill state: while filling, interpolators answer for cur from the
 	// corners of its cell.
@@ -144,9 +147,10 @@ func floorDiv32(a, b int32) int32 {
 	return q
 }
 
-// flatCache holds a 2D function's values at the chunk's quart columns
-// (sampled at y 0); a lookup anywhere inside that 5×5 quart window — at
-// any y, by any caller — answers from the quart column it falls in.
+// flatCache holds a 2D function's values at the noise chunk's quart
+// columns (sampled at y 0); a lookup anywhere inside that quart window —
+// 5×5 for a chunk, at any y, by any caller — answers from the quart
+// column it falls in.
 type flatCache struct {
 	f      *NoiseChunkFiller
 	in     Func
@@ -159,10 +163,10 @@ func (c *flatCache) reset() { c.have = [25]bool{} }
 func (c *flatCache) Compute(p Point) float64 {
 	qx := (p.X >> 2) - c.f.firstQuartX
 	qz := (p.Z >> 2) - c.f.firstQuartZ
-	if qx < 0 || qz < 0 || qx >= 5 || qz >= 5 {
+	if qx < 0 || qz < 0 || qx >= c.f.flatSize || qz >= c.f.flatSize {
 		return c.in.Compute(p)
 	}
-	i := qx + qz*5
+	i := qx + qz*c.f.flatSize
 	if !c.have[i] {
 		c.values[i] = c.in.Compute(Point{(qx + c.f.firstQuartX) << 2, 0, (qz + c.f.firstQuartZ) << 2})
 		c.have[i] = true
@@ -183,7 +187,7 @@ type interpolator struct {
 
 func (ip *interpolator) corner(x, y, z int) float64 {
 	nY := int(ip.f.cellCountY) + 1
-	return ip.corners[(x*5+z)*nY+y]
+	return ip.corners[(x*int(ip.f.cornersXZ)+z)*nY+y]
 }
 
 func (ip *interpolator) Compute(p Point) float64 {
@@ -214,30 +218,7 @@ func (f *NoiseChunkFiller) NoiseColumnIndex(x, y, z int32) int {
 // positions whose fluid needs a post-generation update.
 func (f *NoiseChunkFiller) Fill(cx, cz int32) (blocks []NoiseBlock, fluidUpdates []Point) {
 	minX, minZ := cx*16, cz*16
-	f.firstQuartX, f.firstQuartZ = minX>>2, minZ>>2
-	for _, c := range f.flats {
-		c.reset()
-	}
-	clear(f.pslCache)
-	f.filling = false
-
-	nY := int(f.cellCountY) + 1
-	for _, ip := range f.interps {
-		if len(ip.corners) != 5*5*nY {
-			ip.corners = make([]float64, 5*5*nY)
-		}
-		for x := 0; x < 5; x++ {
-			for z := 0; z < 5; z++ {
-				for y := 0; y < nY; y++ {
-					p := Point{minX + int32(x)*f.cellW, (f.cellMinY + int32(y)) * f.cellH, minZ + int32(z)*f.cellW}
-					ip.corners[(x*5+z)*nY+y] = ip.in.Compute(p)
-				}
-			}
-		}
-	}
-	if f.aquifers {
-		f.aq.reset(f, cx, cz)
-	}
+	f.begin(minX, minZ, 16/f.cellW)
 
 	blocks = make([]NoiseBlock, 256*int(f.height))
 	cellsXZ := int(16 / f.cellW)
@@ -269,6 +250,65 @@ func (f *NoiseChunkFiller) Fill(cx, cz int32) (blocks []NoiseBlock, fluidUpdates
 	}
 	f.filling = false
 	return blocks, fluidUpdates
+}
+
+// begin readies the caches for a noise chunk of cells×cells cells from
+// block (minX, minZ): the flat caches' window, the interpolators' cell
+// corners and the aquifer of the chunk holding it.
+func (f *NoiseChunkFiller) begin(minX, minZ, cells int32) {
+	f.firstQuartX, f.firstQuartZ = minX>>2, minZ>>2
+	f.flatSize = (cells*f.cellW)>>2 + 1
+	f.cornersXZ = cells + 1
+	for _, c := range f.flats {
+		c.reset()
+	}
+	clear(f.pslCache)
+	f.filling = false
+
+	nY := int(f.cellCountY) + 1
+	n := int(f.cornersXZ)
+	for _, ip := range f.interps {
+		if len(ip.corners) != n*n*nY {
+			ip.corners = make([]float64, n*n*nY)
+		}
+		for x := 0; x < n; x++ {
+			for z := 0; z < n; z++ {
+				for y := 0; y < nY; y++ {
+					p := Point{minX + int32(x)*f.cellW, (f.cellMinY + int32(y)) * f.cellH, minZ + int32(z)*f.cellW}
+					ip.corners[(x*n+z)*nY+y] = ip.in.Compute(p)
+				}
+			}
+		}
+	}
+	if f.aquifers {
+		f.aq.reset(f, minX>>4, minZ>>4)
+	}
+}
+
+// Column runs the noise stage down the column at block (x, z), as the
+// generator's base-height and base-column queries do: a noise chunk of
+// the one cell holding the column, its caches covering only that cell.
+// visit sees each block from the top down until it returns false.
+func (f *NoiseChunkFiller) Column(x, z int32, visit func(y int32, b NoiseBlock) bool) {
+	minX, minZ := floorDiv32(x, f.cellW)*f.cellW, floorDiv32(z, f.cellW)*f.cellW
+	f.begin(minX, minZ, 1)
+	defer func() { f.filling = false }()
+	tx := float64(x-minX) / float64(f.cellW)
+	tz := float64(z-minZ) / float64(f.cellW)
+	for cellY := int(f.cellCountY) - 1; cellY >= 0; cellY-- {
+		for yIn := f.cellH - 1; yIn >= 0; yIn-- {
+			y := (f.cellMinY+int32(cellY))*f.cellH + yIn
+			f.filling = true
+			f.cur = Point{x, y, z}
+			f.cellX, f.cellY, f.cellZ = 0, cellY, 0
+			f.ty = float64(yIn) / float64(f.cellH)
+			f.tx, f.tz = tx, tz
+			b, _ := f.blockAt()
+			if !visit(y, b) {
+				return
+			}
+		}
+	}
 }
 
 // blockAt decides the block being filled: the aquifer's answer for open
