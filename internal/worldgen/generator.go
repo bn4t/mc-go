@@ -34,6 +34,10 @@ type Generator struct {
 
 	placerOnce sync.Once
 	placer     *structurePlacer
+
+	// levelMinY and levelHeight are the dimension's build limits, which
+	// reach above the noise in the nether and the End.
+	levelMinY, levelHeight int32
 }
 
 type genWorker struct {
@@ -106,10 +110,18 @@ func NewDimensionGenerator(dimension string, seed int64) (*Generator, error) {
 	case "minecraft:overworld":
 		return NewGenerator("minecraft:overworld", "minecraft:overworld", seed)
 	case "minecraft:the_nether":
-		return NewGenerator("minecraft:nether", "minecraft:nether", seed)
+		g, err := NewGenerator("minecraft:nether", "minecraft:nether", seed)
+		if g != nil {
+			g.levelMinY, g.levelHeight = 0, 256
+		}
+		return g, err
 	case "minecraft:the_end":
 		params, _ := BiomeParameters("minecraft:overworld")
-		return newGenerator("minecraft:end", EndBiomeSource{}, params, seed)
+		g, err := newGenerator("minecraft:end", EndBiomeSource{}, params, seed)
+		if g != nil {
+			g.levelMinY, g.levelHeight = 0, 256
+		}
+		return g, err
 	}
 	return nil, fmt.Errorf("worldgen: no generator for %s", dimension)
 }
@@ -120,7 +132,8 @@ func newGenerator(settingsID string, src BiomeSource, params *MultiNoiseBiomes, 
 		return nil, fmt.Errorf("worldgen: unknown noise settings %s", settingsID)
 	}
 	g := &Generator{rs: NewRandomState(settings, seed), params: params, source: src, perShard: 96,
-		carvedCache: newStageCache[*carvedChunk](1024), runCache: newStageCache[*featureRun](1024)}
+		carvedCache: newStageCache[*carvedChunk](1024), runCache: newStageCache[*featureRun](1024),
+		levelMinY: int32(settings.MinY), levelHeight: int32(settings.Height)}
 	n := runtime.GOMAXPROCS(0)
 	g.workers = make(chan *genWorker, n)
 	for i := 0; i < n; i++ {

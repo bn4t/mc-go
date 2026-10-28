@@ -16532,3 +16532,68 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:**
   - Structure starts and pieces per structure type, then `/locate`.
   - Templates, piece placement in chunks, and the beardifier.
+
+## Slice — structure starts: templates, single-piece structures and ruins (2026-10-28)
+
+- **Measured:**
+  - Runtime calls into the 26.2 jar (SHA-256 183c0499…823e8):
+    `StructureProbe` now runs each set's structure chunks nearest first
+    until every structure has started enough times. That covers 1069
+    starts, including 9 woodland mansions found up to 960 chunks out.
+    Each start is recorded as its chunk-save tag (keys sorted), along
+    with the chunks run.
+  - `javap` on these classes:
+    - `Structure` (generate, onTopOfChunkCenter, getLowestY,
+      getMeanFirstOccupiedHeight, the corner heights);
+    - `SinglePieceStructure`, `ScatteredFeaturePiece`, `StructurePiece`
+      (orientation → rotation/mirror, save tag), `TemplateStructurePiece`;
+    - `StructureTemplate` (load, block order, transform, bounding box,
+      zero position);
+    - the buried treasure, igloo, shipwreck, ocean ruin, ruined portal
+      and nether fossil structures and pieces;
+    - `ChunkGenerator.createStructures` (weighted pick with
+      remove-and-retry).
+  - Measured details:
+    - A beached shipwreck too big for a generation region passes its
+      box's x span where `getLowestY` expects the z.
+    - A template palette lists full collision blocks, then the rest,
+      then block-entity blocks, each by y, x, z.
+  - Data: `tools/gentemplates` re-encodes the jar's 1212 structure
+    templates (`data/minecraft/structure/**/*.nbt`, jar SHA-256 as
+    above) into `internal/worldgen/templates_gen.bin` (1.7 MB). It
+    keeps size, palettes, blocks with their block-entity tags, and
+    entities.
+  - `tools/genblockprops` adds `Block.hasDynamicShape` (bit 45).
+- **Implemented:**
+  - `template.go`: on-demand template decoding with vanilla's block
+    order, rotations, mirrors, the template transform, bounding boxes
+    and the zero position.
+  - `structure.go`:
+    - bounding boxes;
+    - the piece base (orientation, save tag), template pieces and
+      starts with their save tag;
+    - the structure registry;
+    - the generation context (large-feature random, noise heights,
+      source biome check);
+    - the structure-starts stage, `Generator.createStructures`;
+    - an SNBT printer for comparing tags.
+  - `structure_simple.go`: buried treasure, igloos (laboratory and
+    ladder), shipwrecks (oversized settling included), desert
+    pyramids, jungle temples, swamp huts.
+  - `structure_ruins.go`: ocean ruins (cold stacks, warm, clusters),
+    ruined portals (setups, giant portals, every vertical placement,
+    the three-corner settle, cold biomes) and nether fossils.
+  - Generators carry the dimension's build limits; the nether and End
+    levels reach above their noise.
+- **Pinned:** `TestStructureStartsMatchVanilla` builds the starts of
+  every probed chunk. For each implemented type the start must equal
+  vanilla's save tag exactly. That is 434 starts across buried
+  treasure, igloos, shipwrecks (both), ocean ruins (both), all seven
+  ruined portal kinds, nether fossils and the three scattered
+  features.
+- **Remaining:**
+  - Jigsaw structures.
+  - Strongholds, fortresses, mineshafts, monuments, mansions and End
+    cities.
+  - `/locate`.
+  - Placing pieces into chunks, and the beardifier.

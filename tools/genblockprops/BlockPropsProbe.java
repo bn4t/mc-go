@@ -71,6 +71,7 @@ public class BlockPropsProbe {
                     if (Block.isFaceFull(state.getCollisionShape(empty, BlockPos.ZERO), d)) flags |= 1L << (38 + d.ordinal());
                 }
                 if (!state.getCollisionShape(empty, BlockPos.ZERO).getFaceShape(Direction.UP).isEmpty()) flags |= 1L << 44;
+                if (state.getBlock().hasDynamicShape()) flags |= 1L << 45;
                 out.printf("state\t%d\t%s\t%d%n", Block.getId(state), canonical(state), flags);
             }
         }

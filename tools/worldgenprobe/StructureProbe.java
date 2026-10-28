@@ -79,18 +79,18 @@ public class StructureProbe {
                 net.minecraft.world.level.biome.MultiNoiseBiomeSource.createFromPreset(
                     paramLists.getOrThrow(net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterLists.OVERWORLD)),
                 -64, 384, 12345L);
-            overworld.run(160, 20);
+            overworld.run(160);
             StructureProbe nether = new StructureProbe(out, "the_nether", lookup, containers, templates, serialization,
                 NoiseGeneratorSettings.NETHER, Level.NETHER,
                 net.minecraft.world.level.biome.MultiNoiseBiomeSource.createFromPreset(
                     paramLists.getOrThrow(net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterLists.NETHER)),
                 0, 256, 12345L);
-            nether.run(64, 12);
+            nether.run(64);
             StructureProbe end = new StructureProbe(out, "the_end", lookup, containers, templates, serialization,
                 NoiseGeneratorSettings.END, Level.END,
                 net.minecraft.world.level.biome.TheEndBiomeSource.create(lookup.lookupOrThrow(Registries.BIOME)),
                 0, 256, 12345L);
-            end.run(160, 0);
+            end.run(160);
         }
     }
 
@@ -139,9 +139,8 @@ public class StructureProbe {
 
     // run records the dimension's structure sets, the chunks each picks in
     // the square of the given chunk radius, the stronghold rings, base
-    // heights, and the structure starts of every picked chunk (of the
-    // dense sets only within `dense` chunks of the origin).
-    void run(int radius, int dense) throws Exception {
+    // heights, and structure starts.
+    void run(int radius) throws Exception {
         structures.ensureStructuresGenerated();
         for (var set : structures.possibleStructureSets()) {
             out.printf("set\t%s\t%s%n", dim, setName(set));
@@ -152,18 +151,12 @@ public class StructureProbe {
                 }
             }
         }
-        var picked = new java.util.TreeSet<Long>();
         for (var set : structures.possibleStructureSets()) {
             var placement = set.value().placement();
-            boolean isDense = set.value().placement() instanceof net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStructurePlacement rs
-                && rs.spacing() <= 2;
             for (int cx = -radius; cx < radius; cx++) {
                 for (int cz = -radius; cz < radius; cz++) {
                     if (placement.isStructureChunk(structures, cx, cz)) {
                         out.printf("chunk\t%s\t%s\t%d\t%d%n", dim, setName(set), cx, cz);
-                        if (!isDense || (Math.abs(cx) <= dense && Math.abs(cz) <= dense)) {
-                            picked.add(ChunkPos.pack(cx, cz));
-                        }
                     }
                 }
             }
@@ -194,17 +187,55 @@ public class StructureProbe {
             runs.append(last).append('*').append(count);
             out.printf("column\t%s\t%d\t%d\t%s%n", dim, x, z, runs);
         }
-        for (long packed : picked) {
-            ChunkPos pos = ChunkPos.unpack(packed);
-            ProtoChunk chunk = new ProtoChunk(pos, UpgradeData.EMPTY, height, containers, null);
-            generator.createStructures(lookup, structures, manager, chunk, templates, level);
-            var starts = new TreeMap<String, StructureStart>();
-            for (Map.Entry<Structure, StructureStart> e : chunk.getAllStarts().entrySet()) {
-                starts.put(lookup.lookupOrThrow(Registries.STRUCTURE).getKey(e.getKey()).toString(), e.getValue());
+        // Each set's structure chunks are run nearest first, out to twice
+        // the square, until each of its structures has started `cap`
+        // times (the huge trial chambers fewer), the stronghold rings'
+        // first positions included.
+        var probed = new java.util.HashSet<Long>();
+        var counts = new java.util.HashMap<String, Integer>();
+        for (var set : structures.possibleStructureSets()) {
+            var placement = set.value().placement();
+            List<ChunkPos> candidates = new ArrayList<>();
+            if (placement instanceof ConcentricRingsStructurePlacement rings) {
+                var positions = structures.getRingPositionsFor(rings);
+                candidates.addAll(positions.subList(0, Math.min(12, positions.size())));
+            } else {
+                // The sparsest sets (woodland mansions) are searched further.
+                int reach = ((net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStructurePlacement) placement).spacing() >= 64
+                    ? 6 * radius : 2 * radius;
+                for (int r = 0; r <= reach; r++) {
+                    for (int cx = -r; cx <= r; cx++) {
+                        for (int cz = -r; cz <= r; cz++) {
+                            if (Math.max(Math.abs(cx), Math.abs(cz)) == r && placement.isStructureChunk(structures, cx, cz)) {
+                                candidates.add(new ChunkPos(cx, cz));
+                            }
+                        }
+                    }
+                }
             }
-            for (var e : starts.entrySet()) {
-                out.printf("start\t%s\t%d\t%d\t%s\t%s%n", dim, pos.x(), pos.z(), e.getKey(),
-                    canon(e.getValue().createTag(serialization, pos)));
+            int setStarts = 0;
+            for (ChunkPos pos : candidates) {
+                boolean need = false;
+                for (var entry : set.value().structures()) {
+                    String name = entry.structure().unwrapKey().orElseThrow().identifier().toString();
+                    int cap = name.equals("minecraft:trial_chambers") ? 8 : name.startsWith("minecraft:mineshaft") ? 12 : 24;
+                    if (counts.getOrDefault(name, 0) < cap && setStarts < 4 * cap) need = true;
+                }
+                if (!need) break;
+                if (!probed.add(ChunkPos.pack(pos.x(), pos.z()))) continue;
+                out.printf("probed\t%s\t%d\t%d%n", dim, pos.x(), pos.z());
+                ProtoChunk chunk = new ProtoChunk(pos, UpgradeData.EMPTY, height, containers, null);
+                generator.createStructures(lookup, structures, manager, chunk, templates, level);
+                var starts = new TreeMap<String, StructureStart>();
+                for (Map.Entry<Structure, StructureStart> e : chunk.getAllStarts().entrySet()) {
+                    starts.put(lookup.lookupOrThrow(Registries.STRUCTURE).getKey(e.getKey()).toString(), e.getValue());
+                }
+                for (var e : starts.entrySet()) {
+                    counts.merge(e.getKey(), 1, Integer::sum);
+                    setStarts++;
+                    out.printf("start\t%s\t%d\t%d\t%s\t%s%n", dim, pos.x(), pos.z(), e.getKey(),
+                        canon(e.getValue().createTag(serialization, pos)));
+                }
             }
         }
     }

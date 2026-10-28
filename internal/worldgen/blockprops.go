@@ -76,6 +76,7 @@ const (
 	bsfCollideWest
 	bsfCollideEast
 	bsfCollisionTopAny
+	bsfDynamicShape
 )
 
 // Directions in the game's order.
@@ -220,6 +221,10 @@ func (s StateID) collisionFaceFull(dir int) bool { return s.has(bsfCollideDown <
 // collisionTopAny is whether any of the collision shape reaches the top
 // face.
 func (s StateID) collisionTopAny() bool { return s.has(bsfCollisionTopAny) }
+
+// hasDynamicShape reports a block whose shape depends on more than its
+// state (a moving piston, scaffolding, shulker boxes).
+func (s StateID) hasDynamicShape() bool { return s.has(bsfDynamicShape) }
 
 // layout is the state's block layout, nil for an unknown block.
 func (s StateID) layout() *blockLayout {

@@ -189,3 +189,89 @@ func TestBaseHeightsMatchVanilla(t *testing.T) {
 		}
 	}
 }
+
+// TestStructureStartsMatchVanilla builds the structure starts of every
+// chunk the probe ran the structure-starts stage on and compares each
+// start's save tag with vanilla's, for the structure types implemented.
+func TestStructureStartsMatchVanilla(t *testing.T) {
+	g := loadStructureGoldens(t)
+	type chunkKey struct {
+		dim    string
+		cx, cz int32
+	}
+	picked := map[chunkKey]bool{}
+	for _, r := range g["probed"] {
+		picked[chunkKey{r[0], atoi32(t, r[1]), atoi32(t, r[2])}] = true
+	}
+	want := map[chunkKey]map[string]string{}
+	for _, r := range g["start"] {
+		k := chunkKey{r[0], atoi32(t, r[1]), atoi32(t, r[2])}
+		if want[k] == nil {
+			want[k] = map[string]string{}
+		}
+		want[k][r[3]] = r[4]
+	}
+	implemented := func(name string) bool {
+		_, ok := structureGenerators[structureDefs()[name].kind]
+		return ok
+	}
+	var keys []chunkKey
+	for k := range picked {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		a, b := keys[i], keys[j]
+		if a.dim != b.dim {
+			return a.dim < b.dim
+		}
+		if a.cx != b.cx {
+			return a.cx < b.cx
+		}
+		return a.cz < b.cz
+	})
+	matched := map[string]int{}
+	failed := 0
+	for _, k := range keys {
+		got := map[string]string{}
+		for _, s := range probeGenerator(t, k.dim).createStructures(k.cx, k.cz) {
+			got[s.structure] = snbt(s.tag())
+		}
+		names := map[string]bool{}
+		for n := range want[k] {
+			names[n] = true
+		}
+		for n := range got {
+			names[n] = true
+		}
+		for n := range names {
+			if !implemented(n) {
+				continue
+			}
+			w, g := want[k][n], got[n]
+			if w == g {
+				matched[n]++
+				continue
+			}
+			if failed++; failed <= 8 {
+				if w == "" {
+					w = "(none)"
+				}
+				if g == "" {
+					g = "(none)"
+				}
+				t.Errorf("%s chunk %d,%d %s:\n got %s\nwant %s", k.dim, k.cx, k.cz, n, first1(g, 600), first1(w, 600))
+			}
+		}
+	}
+	t.Logf("matching starts by structure: %v", matched)
+	if failed > 0 {
+		t.Errorf("%d starts differ", failed)
+	}
+}
+
+func first1(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + "…"
+	}
+	return s
+}
