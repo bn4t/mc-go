@@ -195,6 +195,18 @@ func (r *decoRegion) set(p Point, s StateID) bool {
 	return true
 }
 
+// scheduleFluidTick queues a fluid update at p, in the chunk holding it.
+func (r *decoRegion) scheduleFluidTick(p Point, fluid string) {
+	c := r.chunk(p.X, p.Z)
+	c.FluidTicks = append(c.FluidTicks, GenFluidTick{p, fluid})
+}
+
+// addEntity spawns an entity into the chunk holding its block position.
+func (r *decoRegion) addEntity(e GenEntity) {
+	c := r.chunk(mthFloorD(e.X), mthFloorD(e.Z))
+	c.Entities = append(c.Entities, e)
+}
+
 // setBlockEntity records a block entity at p, in the chunk holding it.
 func (r *decoRegion) setBlockEntity(p Point, be *GenBlockEntity) {
 	c := r.chunk(p.X, p.Z)

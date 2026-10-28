@@ -74,6 +74,7 @@ const (
 	bsfCollideSouth
 	bsfCollideWest
 	bsfCollideEast
+	bsfCollisionTopAny
 )
 
 // Directions in the game's order.
@@ -208,7 +209,10 @@ func (s StateID) sturdyRigid(dir int) bool  { return s.has(bsfRigidDown << dir) 
 func (s StateID) isSolidRender() bool       { return s.has(bsfSolidRender) }
 func (s StateID) flammable() bool           { return s.has(bsfFlammable) }
 func (s StateID) collisionTopFull() bool    { return s.has(bsfCollisionTopFull) }
-func (s StateID) isLiquidBlock() bool       { return s.has(bsfLiquid) }
+
+// isCollisionFullBlock is whether the collision shape is the full cube.
+func (s StateID) isCollisionFullBlock() bool { return s.has(bsfFullBlock) }
+func (s StateID) isLiquidBlock() bool        { return s.has(bsfLiquid) }
 
 // faceOccludes reports whether the state's occlusion shape on a face is
 // a full block (an empty shape is not); canOcclude is the state's
@@ -219,6 +223,10 @@ func (s StateID) canOcclude() bool          { return s.has(bsfCanOcclude) }
 // collisionFaceFull reports whether the state's collision shape covers
 // a whole face.
 func (s StateID) collisionFaceFull(dir int) bool { return s.has(bsfCollideDown << dir) }
+
+// collisionTopAny is whether any of the collision shape reaches the top
+// face.
+func (s StateID) collisionTopAny() bool { return s.has(bsfCollisionTopAny) }
 
 // layout is the state's block layout, nil for an unknown block.
 func (s StateID) layout() *blockLayout {

@@ -9,6 +9,57 @@ func init() {
 	featureKinds["minecraft:seagrass"] = decodeSeagrass
 	featureKinds["minecraft:kelp"] = func(any) func(*featureCtx) bool { return placeKelp }
 	featureKinds["minecraft:block_column"] = decodeBlockColumn
+	featureKinds["minecraft:bamboo"] = decodeBamboo
+}
+
+// decodeBamboo is BambooFeature: a stalk of 5 to 16 on an air origin
+// where bamboo survives, topped by large and small leaves once at least
+// three tall; with the configured chance it first turns the surface
+// disk of radius 1 to 4 below it to podzol.
+func decodeBamboo(cfg any) func(*featureCtx) bool {
+	chance := ffloat(ffield(cfg, "probability"), 0)
+	trunk := defaultState("bamboo").with("age", "1").with("leaves", "none").with("stage", "0")
+	final := trunk.with("leaves", "large").with("stage", "1")
+	topLarge, topSmall := trunk.with("leaves", "large"), trunk.with("leaves", "small")
+	podzol := defaultState("podzol")
+	return func(fc *featureCtx) bool {
+		r, random, o := fc.r, fc.rand, fc.origin
+		if !r.get(o).isAir() {
+			return false
+		}
+		if !canSurvive(r, defaultState("bamboo"), o) {
+			return true
+		}
+		height := random.NextIntn(12) + 5
+		if random.NextFloat() < chance {
+			rad := random.NextIntn(4) + 1
+			for x := o.X - rad; x <= o.X+rad; x++ {
+				for z := o.Z - rad; z <= o.Z+rad; z++ {
+					dx, dz := x-o.X, z-o.Z
+					if dx*dx+dz*dz > rad*rad {
+						continue
+					}
+					q := Point{x, r.heightAt(hmWorldSurface, x, z) - 1, z}
+					if r.get(q).inTag("beneath_bamboo_podzol_replaceable") {
+						r.set(q, podzol)
+					}
+				}
+			}
+		}
+		p := o
+		for i := int32(0); i < height && r.get(p).isAir(); i++ {
+			r.set(p, trunk)
+			p = p.offset(dirUp)
+		}
+		if p.Y-o.Y >= 3 {
+			r.set(p, final)
+			p = p.offset(dirDown)
+			r.set(p, topLarge)
+			p = p.offset(dirDown)
+			r.set(p, topSmall)
+		}
+		return true
+	}
 }
 
 // placeVines puts a vine in an air origin on its first side, in the

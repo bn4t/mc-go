@@ -100,7 +100,13 @@ public class FeatureProbe {
                     {-100, -96}, {104, 76}, {0, 112}, {80, -240}, {-264, -264},
                     // More chunks deep in lush caves, deep dark and
                     // dripstone caves, whose features are rarer.
-                    {1, -1}, {-2, 2}, {6, -6}, {6, -3}, {48, -39}, {48, -36}});
+                    {1, -1}, {-2, 2}, {6, -6}, {6, -3}, {48, -39}, {48, -36},
+                    // More frozen and warm ocean chunks for icebergs and
+                    // coral, and forest, taiga and jungle chunks for fallen
+                    // trees and bamboo.
+                    {44, 22}, {44, 25}, {45, 15}, {47, 97}, {49, 95}, {19, 98}, {53, 51},
+                    {-263, -240}, {-265, -241}, {-262, -243}, {-266, -246},
+                    {-66, 54}, {-68, 53}, {-17, 17}, {-18, -18}, {-27, -27}, {-9, -21}, {18, 33}, {21, 33}, {-36, -36}});
             new FeatureProbe(out, "the_nether", lookup, access, containers, NoiseGeneratorSettings.NETHER,
                 net.minecraft.world.level.biome.MultiNoiseBiomeSource.createFromPreset(
                     paramLists.getOrThrow(net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterLists.NETHER)),
@@ -113,7 +119,9 @@ public class FeatureProbe {
             new FeatureProbe(out, "the_end", lookup, access, containers, NoiseGeneratorSettings.END,
                 net.minecraft.world.level.biome.TheEndBiomeSource.create(lookup.lookupOrThrow(Registries.BIOME)),
                 dimTypes.getOrThrow(net.minecraft.world.level.dimension.BuiltinDimensionTypes.END).value(), 0, 256)
-                .run(new long[]{12345L}, new int[][]{{0, 0}, {3, -2}, {70, 10}, {-90, 40}, {120, -130}});
+                .run(new long[]{12345L}, new int[][]{{0, 0}, {3, -2}, {70, 10}, {-90, 40}, {120, -130},
+                    // The chunks holding the ten obsidian pillars' centres.
+                    {2, 0}, {2, 1}, {0, 2}, {-1, 2}, {-3, 1}, {-3, -1}, {-3, -2}, {-1, -3}, {0, -3}, {2, -2}});
         }
     }
 
@@ -132,6 +140,9 @@ public class FeatureProbe {
     final Object beardifierMarker;
     final List<?> featuresPerStep;
     final Map<PlacedFeature, String> featureNames = new IdentityHashMap<>();
+    // spawned lists the entities the running feature added, each as its
+    // type and raw position, yaw, invulnerability and beam target.
+    final List<String> spawned = new ArrayList<>();
 
     FeatureProbe(PrintWriter out, String dim, HolderLookup.Provider lookup, RegistryAccess access, PalettedContainerFactory containers,
             ResourceKey<NoiseGeneratorSettings> settingsKey, BiomeSource biomeSource,
@@ -292,13 +303,15 @@ public class FeatureProbe {
                 String gaussian = cachedGaussian(random);
                 String regionState = randomState(level.getRandom());
                 String error = "";
+                spawned.clear();
                 try {
                     feature.placeWithBiomeCheck(level, generator, random, origin);
                 } catch (RuntimeException e) {
                     error = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ":" + e.getMessage().replace('\t', ' ').replace(' ', '_'));
                 }
-                out.printf("feature\t%s\t%d\t%d,%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s%n", dim, seed, cx, cz, step, index,
-                    featureNames.get(feature), error.isEmpty() ? "ok" : error, delta(grid, before, cx, cz), gaussian, regionState);
+                out.printf("feature\t%s\t%d\t%d,%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s%n", dim, seed, cx, cz, step, index,
+                    featureNames.get(feature), error.isEmpty() ? "ok" : error, delta(grid, before, cx, cz), gaussian, regionState,
+                    spawned.isEmpty() ? "-" : String.join(" ", spawned));
             }
         }
     }
@@ -406,7 +419,20 @@ public class FeatureProbe {
         ctor.setAccessible(true);
         setField(net.minecraft.server.level.ChunkMap.class, map, "worldGenContext", ctor.newInstance(args));
         setField(net.minecraft.server.level.ServerChunkCache.class, cache, "chunkMap", map);
+        // A new entity takes the next id the chunk map does not track.
+        setField(net.minecraft.server.level.ChunkMap.class, map, "entityMap", new it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<>());
         setField(net.minecraft.server.level.ServerLevel.class, level, "chunkSource", cache);
+        // Entity types check the server's enabled feature flags before
+        // creating an entity, as the End pillars' crystals do.
+        Object server = unsafe.allocateInstance(net.minecraft.server.dedicated.DedicatedServer.class);
+        Object worldData = java.lang.reflect.Proxy.newProxyInstance(FeatureProbe.class.getClassLoader(),
+            new Class<?>[]{net.minecraft.world.level.storage.WorldData.class}, (proxy, m, a) -> switch (m.getName()) {
+                case "enabledFeatures" -> net.minecraft.world.flag.FeatureFlags.DEFAULT_FLAGS;
+                case "getDataConfiguration" -> net.minecraft.world.level.WorldDataConfiguration.DEFAULT;
+                default -> m.isDefault() ? InvocationHandler.invokeDefault(proxy, m, a) : null;
+            });
+        setField(net.minecraft.server.MinecraftServer.class, server, "worldData", worldData);
+        setField(net.minecraft.server.level.ServerLevel.class, level, "server", server);
         serverLevel = level;
         return level;
     }
@@ -545,6 +571,18 @@ public class FeatureProbe {
                 case "levelEvent":
                 case "playSound":
                 case "setCurrentlyGenerating": return null;
+                case "addFreshEntity": {
+                    var e = (net.minecraft.world.entity.Entity) a[0];
+                    String beam = "-";
+                    if (e instanceof net.minecraft.world.entity.boss.enderdragon.EndCrystal c && c.getBeamTarget() != null) {
+                        beam = c.getBeamTarget().getX() + "," + c.getBeamTarget().getY() + "," + c.getBeamTarget().getZ();
+                    }
+                    spawned.add(String.format("%s@%016x,%016x,%016x,%08x,%b,%s",
+                        net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()),
+                        Double.doubleToRawLongBits(e.getX()), Double.doubleToRawLongBits(e.getY()), Double.doubleToRawLongBits(e.getZ()),
+                        Float.floatToRawIntBits(e.getYRot()), e.isInvulnerable(), beam));
+                    return true;
+                }
                 case "getServer":
                 case "getCurrentDifficultyAt":
                 case "getChunkSource":

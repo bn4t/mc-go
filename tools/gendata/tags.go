@@ -36,9 +36,15 @@ func genTags(zr *zip.Reader) []byte {
 			}
 			tags[k] = out
 		}
-		resolved, err := resolveTags(tags)
+		ordered, err := resolveTags(tags)
 		if err != nil {
 			log.Fatalf("resolve %s tags: %v", kind, err)
+		}
+		resolved := map[string][]string{}
+		for k, v := range ordered {
+			sorted := append([]string(nil), v...)
+			sort.Strings(sorted)
+			resolved[k] = sorted
 		}
 		names := make([]string, 0, len(resolved))
 		for k := range resolved {
@@ -63,12 +69,23 @@ func genTags(zr *zip.Reader) []byte {
 			fmt.Fprintf(&b, "\t%s: %s,\n", gostr(n), goStrSlice(resolved[n]))
 		}
 		b.WriteString("}\n\n")
+		if kind == "block" {
+			// Random picks from a tag index its elements in the order
+			// the game builds it: entries in file order, nested tags
+			// expanded in place, first occurrence kept.
+			b.WriteString("// BlockTagsOrdered is BlockTags in the game's own element order.\nvar BlockTagsOrdered = map[string][]string{\n")
+			for _, n := range names {
+				fmt.Fprintf(&b, "\t%s: %s,\n", gostr(n), goStrSlice(ordered[n]))
+			}
+			b.WriteString("}\n\n")
+		}
 	}
 	return []byte(b.String())
 }
 
-// resolveTags flattens #tag references transitively. Cycles are a data
-// pack error; the real server rejects them, so we fail loudly.
+// resolveTags flattens #tag references transitively, keeping the
+// game's element order. Cycles are a data pack error; the real server
+// rejects them, so we fail loudly.
 func resolveTags(tags map[string][]string) (map[string][]string, error) {
 	norm := func(s string) string { return name(s) }
 	inProgress := map[string]bool{}
@@ -105,7 +122,6 @@ func resolveTags(tags map[string][]string) (map[string][]string, error) {
 			add(norm(e))
 		}
 		delete(inProgress, tag)
-		sort.Strings(items)
 		out[tag] = items
 		return items, nil
 	}

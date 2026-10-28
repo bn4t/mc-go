@@ -13,6 +13,7 @@ func init() {
 	featureKinds["minecraft:basalt_pillar"] = func(any) func(*featureCtx) bool { return placeBasaltPillar }
 	featureKinds["minecraft:basalt_columns"] = decodeBasaltColumns
 	featureKinds["minecraft:delta_feature"] = decodeDelta
+	featureKinds["minecraft:huge_fungus"] = decodeHugeFungus
 }
 
 func (r *decoRegion) maxY() int32 { return r.minY + r.height - 1 }
@@ -75,12 +76,17 @@ func vineLength(rand Random, max int32) int32 {
 // blocks through air, ending in a head of age 17–25 at the last block or
 // where air ends. Twisting vines start counting at one, weeping at zero.
 func vineColumn(r *decoRegion, rand Random, p Point, length, first int32, dir int, head, plant StateID) {
+	vineColumnAged(r, rand, p, length, first, dir, head, plant, 17)
+}
+
+// vineColumnAged is vineColumn with the head's youngest age.
+func vineColumnAged(r *decoRegion, rand Random, p Point, length, first int32, dir int, head, plant StateID, minAge int32) {
 	for i := first; i <= length; i, p = i+1, p.offset(dir) {
 		if !r.get(p).isAir() {
 			continue
 		}
 		if i == length || !r.get(p.offset(dir)).isAir() {
-			r.set(p, head.with("age", itoa(mthNextInt(rand, 17, 25))))
+			r.set(p, head.with("age", itoa(mthNextInt(rand, minAge, 25))))
 			return
 		}
 		r.set(p, plant)
@@ -460,4 +466,163 @@ func decodeDelta(cfg any) func(*featureCtx) bool {
 		})
 		return placed
 	}
+}
+
+type hugeFungus struct {
+	base             string
+	stem, hat, decor StateID
+	replaceable      blockPredicate
+	planted          bool
+}
+
+func decodeHugeFungus(cfg any) func(*featureCtx) bool {
+	f := &hugeFungus{
+		base:        blockStateOf(ffield(cfg, "valid_base_block")).block(),
+		stem:        blockStateOf(ffield(cfg, "stem_state")),
+		hat:         blockStateOf(ffield(cfg, "hat_state")),
+		decor:       blockStateOf(ffield(cfg, "decor_state")),
+		replaceable: decodeBlockPredicate(ffield(cfg, "replaceable_blocks")),
+		planted:     fbool(ffield(cfg, "planted"), false),
+	}
+	return f.place
+}
+
+func (f *hugeFungus) replaceableAt(r *decoRegion, p Point, checkConfig bool) bool {
+	return r.get(p).canBeReplaced() || checkConfig && f.replaceable(r, p)
+}
+
+// place grows a fungus of 4–13 blocks (doubled one time in twelve) on
+// its nylium, a wild one now and then with a 3×3 stem and a wider hat.
+func (f *hugeFungus) place(fc *featureCtx) bool {
+	r, o, rand := fc.r, fc.origin, fc.rand
+	if !r.get(o.offset(dirDown)).is(f.base) {
+		return false
+	}
+	height := mthNextInt(rand, 4, 13)
+	if rand.NextIntn(12) == 0 {
+		height *= 2
+	}
+	if !f.planted && o.Y+height+1 >= r.genDepth {
+		return false
+	}
+	huge := !f.planted && rand.NextFloat() < 0.06
+	r.set(o, stAirState)
+	f.placeStem(r, rand, o, height, huge)
+	f.placeHat(r, rand, o, height, huge)
+	return true
+}
+
+func (f *hugeFungus) placeStem(r *decoRegion, rand Random, o Point, height int32, huge bool) {
+	rad := int32(0)
+	if huge {
+		rad = 1
+	}
+	for dx := -rad; dx <= rad; dx++ {
+		for dz := -rad; dz <= rad; dz++ {
+			corner := huge && abs(dx) == rad && abs(dz) == rad
+			for y := int32(0); y < height; y++ {
+				p := Point{o.X + dx, o.Y + y, o.Z + dz}
+				if !f.replaceableAt(r, p, true) {
+					continue
+				}
+				if corner && !f.planted {
+					if rand.NextFloat() < 0.1 {
+						r.set(p, f.stem)
+					}
+					continue
+				}
+				r.set(p, f.stem)
+			}
+		}
+	}
+}
+
+// placeHat covers the top of the stem: a hat five or more layers deep,
+// edges dropping in its lowest three layers, decorations and weeping
+// vines (under nether wart) here and there.
+func (f *hugeFungus) placeHat(r *decoRegion, rand Random, o Point, height int32, huge bool) {
+	wart := f.hat.is("nether_wart_block")
+	vines := func(c float32) float32 {
+		if wart {
+			return c
+		}
+		return 0
+	}
+	hatHeight := min32(rand.NextIntn(1+height/3)+5, height)
+	start := height - hatHeight
+	for y := start; y <= height; y++ {
+		rad := int32(1)
+		if y < height-rand.NextIntn(3) {
+			rad = 2
+		}
+		if hatHeight > 8 && y < start+4 {
+			rad = 3
+		}
+		if huge {
+			rad++
+		}
+		for dx := -rad; dx <= rad; dx++ {
+			for dz := -rad; dz <= rad; dz++ {
+				edgeX, edgeZ := dx == -rad || dx == rad, dz == -rad || dz == rad
+				inner := !edgeX && !edgeZ && y != height
+				corner := edgeX && edgeZ
+				p := Point{o.X + dx, o.Y + y, o.Z + dz}
+				if !f.replaceableAt(r, p, false) {
+					continue
+				}
+				switch {
+				case y < start+3:
+					if !inner {
+						f.hatDrop(r, rand, p, wart)
+					}
+				case inner:
+					f.hatBlock(r, rand, p, 0.1, 0.2, vines(0.1))
+				case corner:
+					f.hatBlock(r, rand, p, 0.01, 0.7, vines(0.083))
+				default:
+					f.hatBlock(r, rand, p, 5.0e-4, 0.98, vines(0.07))
+				}
+			}
+		}
+	}
+}
+
+func (f *hugeFungus) hatBlock(r *decoRegion, rand Random, p Point, decor, hat, vine float32) {
+	if rand.NextFloat() < decor {
+		r.set(p, f.decor)
+		return
+	}
+	if rand.NextFloat() < hat {
+		r.set(p, f.hat)
+		if rand.NextFloat() < vine {
+			fungusVines(r, rand, p)
+		}
+	}
+}
+
+func (f *hugeFungus) hatDrop(r *decoRegion, rand Random, p Point, wart bool) {
+	if r.get(p.offset(dirDown)).is(f.hat.block()) {
+		r.set(p, f.hat)
+		return
+	}
+	if float64(rand.NextFloat()) < 0.15 {
+		r.set(p, f.hat)
+		if wart && rand.NextIntn(11) == 0 {
+			fungusVines(r, rand, p)
+		}
+	}
+}
+
+// fungusVines hangs weeping vines of one to five blocks (doubled one
+// time in seven) under a hat block, heads aged 23–25.
+func fungusVines(r *decoRegion, rand Random, p Point) {
+	m := p.offset(dirDown)
+	if !r.get(m).isAir() {
+		return
+	}
+	n := mthNextInt(rand, 1, 5)
+	if rand.NextIntn(7) == 0 {
+		n *= 2
+	}
+	vineColumnAged(r, rand, m, n, 0, dirDown, defaultState("weeping_vines"), defaultState("weeping_vines_plant"), 23)
 }

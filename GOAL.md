@@ -68,9 +68,10 @@ Mojang server over the wire.
       (`internal/worldgen`); the server generates it under
       `-level-type normal` (biomes on the wire and the world spawn
       pinned: `TestNoiseBiomeParity`, `TestNoiseWorldSpawnParity`).
-      Decoration features (ores, springs, disks, monster rooms, trees
-      and more) match vanilla per placement in `internal/worldgen`
-      (`TestFeaturesMatchVanilla`) but the server does not run them yet;
+      Every natural decoration feature but the template-based fossils
+      and desert wells matches vanilla per placement in
+      `internal/worldgen` (`TestFeaturesMatchVanilla`, blocks and
+      spawned entities), but the server does not run them yet;
       no structures yet
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
@@ -16319,4 +16320,81 @@ no flee; unsneak → flee). Green both legs.
   - Twisting vines, basalt pillars and the waterlogged patch match but
     never change blocks in the probe's chunks, so their placing paths
     are unpinned.
+  - The server's generator still does not run the features stage.
+
+## Slice — worldgen features: geodes, sculk, fungi, End, icebergs, coral and the rest of natural decoration (2026-10-28)
+
+- **Measured:** bytecode inspection on the 26.2 jar (unpacked SHA-256
+  `183c0499…823e8`, Temurin JDK 25.0.5+8), plus runtime probes:
+  - Geodes: the shell noise seeded from the world seed alone, layer
+    and crack thresholds, the invalid-block budget, the three crack
+    patterns and bud placement. Air cracks queue fluid ticks next to
+    them.
+  - The sculk patch charge spreader, its cursors and vein regrowth;
+    huge fungi, their hats and their vines.
+  - End spikes:
+    - the ten pillars from a shuffle keyed by 16 bits of the seed;
+    - iron-bar cages on sizes 1 and 2;
+    - a crystal at random yaw over bedrock and fire.
+  - End islands, chorus plants (`ChorusFlowerBlock` growth and
+    connections), End gateways and their exit.
+  - Icebergs: round and elliptic bodies, float-rounded radii, smoothing
+    and the carved channel. A zero ellipse axis gives NaN, which counts
+    as outside.
+  - Coral trees, claws and mushrooms, which pick from block tags in tag
+    order (tags build as insertion-ordered sets); sea pickles.
+  - Bamboo with its podzol disk; fallen trees with the
+    `attached_to_logs` decorator; root systems (rooted azalea trees and
+    sulfur springs); the weighted random selector.
+  - `java.lang.Math.sin` and `cos` as HotSpot computes them on x86_64.
+    `tools/genjtrig` (`TrigProbe.java`, SHA-256 `11514968…a9251`)
+    records them beside the correctly rounded value (a 90-digit series)
+    for 2010 arguments. The intrinsic is correctly rounded in all but 3
+    of 4020 results; fdlibm, which `StrictMath` and Go's `math` follow,
+    misses about 1 in 30. Icebergs test signed distances that land
+    exactly on zero, so the last bit decides blocks.
+  - `tools/genblockprops` (`BlockPropsProbe.java`, SHA-256
+    `758f23ec…89492`) now also records whether a state's collision
+    shape reaches its top face (sea pickles stand on any such block).
+  - `tools/gendata` now also emits block tags in the game's element
+    order (`BlockTagsOrdered`); the sorted tables are unchanged.
+  - `FeatureProbe.java` (SHA-256 `b7a5e310…c79c6`) changes:
+    - Probes the ten pillar chunks of the End and twenty more overworld
+      chunks: frozen and warm ocean, forest, taiga and jungle.
+    - Records each feature's spawned entities.
+    - The stand-in server level now has a server whose world data
+      reports the default feature flags, and a chunk map with an entity
+      id table, so crystals are created as on a server.
+- **Implemented:**
+  - `feature_geode.go`, `feature_sculk.go`, `feature_end.go`,
+    `feature_iceberg.go`, `feature_coral.go`, `feature_fallen_tree.go`
+    and `feature_roots.go`. Huge fungi are in `feature_nether.go` and
+    bamboo in `feature_plants.go`.
+  - `jmath.go`: `jsin` and `jcos`, which reduce by π/2 in four parts
+    and sum the Taylor series in double-double before rounding once.
+    Ores, fancy trunks, the spawn search, the `Mth` sine table, pillars
+    and icebergs use them.
+  - Generated chunks now carry the entities features spawn, the fluid
+    ticks they queue, and End gateway exits on their block entities.
+- **Pinned:**
+  - `TestFeaturesMatchVanilla` over 109 overworld, 14 nether and 15 End
+    chunks, now also comparing spawned entities. Every placement of
+    every natural feature type changes exactly the blocks vanilla's
+    did. Newly pinned placements that change blocks:
+    - sculk patches 14, huge fungi 8, End spikes 10 (with their
+      crystals), geodes 4, bamboo 4;
+    - icebergs 1, sea pickles 1.
+
+    Coral and fallen trees run inside selectors.
+  - `TestJavaTrig`: `jsin` and `jcos` give the correctly rounded value
+    for all 2010 recorded arguments.
+- **Remaining:**
+  - Root systems, chorus plants, End islands, End gateways, twisting
+    vines, basalt pillars and the waterlogged patch never change blocks
+    in the probed chunks, so their placing paths are unpinned.
+  - Fossils and desert wells need structure templates.
+  - Block piles, bonus chests and the End and void platforms are not
+    natural decoration.
+  - Features' post-processing marks (shape updates when a chunk
+    completes) are not modeled.
   - The server's generator still does not run the features stage.

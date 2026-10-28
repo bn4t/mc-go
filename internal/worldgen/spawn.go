@@ -45,8 +45,8 @@ func (rs *RandomState) FindSpawn() (x, z int32) {
 		bx, bz := best.x, best.z
 		angle, radius := float32(0), step
 		for radius <= maxRadius {
-			x := bx + int32(math.Sin(float64(angle))*float64(radius))
-			z := bz + int32(math.Cos(float64(angle))*float64(radius))
+			x := bx + int32(jsin(float64(angle))*float64(radius))
+			z := bz + int32(jcos(float64(angle))*float64(radius))
 			if f := rs.spawnFitness(targets, x, z); f.fitness < best.fitness {
 				best = f
 			}

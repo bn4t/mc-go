@@ -250,8 +250,8 @@ func (f fancyTrunk) placeTrunk(t *tree, height int32, o Point) []foliageAttachme
 		for c := int32(0); c < clusters; c++ {
 			e := 1.0 * float64(shape) * (float64(rand.NextFloat()) + 0.328)
 			g := float64(rand.NextFloat()*2) * math.Pi
-			h := e*math.Sin(g) + 0.5
-			p := e*math.Cos(g) + 0.5
+			h := float64(e*jsin(g)) + 0.5
+			p := float64(e*jcos(g)) + 0.5
 			bp := o.add(Point{mthFloorD(h), n - 1, mthFloorD(p)})
 			if !t.fancyLimb(bp, bp.add(Point{0, 5, 0}), false) {
 				continue

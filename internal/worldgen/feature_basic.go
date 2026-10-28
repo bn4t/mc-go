@@ -417,6 +417,10 @@ func canSurvive(r *decoRegion, s StateID, p Point) bool {
 		return mayPlaceOn(r, l, below) && r.get(p).isFullWater()
 	case "CocoaBlock":
 		return r.get(p.offset(directionNames[s.prop("facing")])).inTag("supports_cocoa")
+	case "BambooStalkBlock":
+		return r.get(below).inTag("supports_bamboo")
+	case "SeaPickleBlock":
+		return mayPlaceOn(r, l, below)
 	case "MangrovePropaguleBlock":
 		if s.prop("hanging") == "true" {
 			return r.get(p.offset(dirUp)).inTag("supports_hanging_mangrove_propagule")
@@ -470,6 +474,8 @@ func mayPlaceOn(r *decoRegion, l *blockLayout, below Point) bool {
 		return b.sturdy(dirUp) && !b.inTag("cannot_support_seagrass")
 	case "MushroomBlock":
 		return b.isSolidRender()
+	case "SeaPickleBlock":
+		return b.collisionTopAny() || b.sturdy(dirUp)
 	case "SmallDripleafBlock":
 		if b.inTag("supports_small_dripleaf") {
 			return true
@@ -514,6 +520,21 @@ func init() {
 		}
 		return func(fc *featureCtx) bool {
 			return features[fc.rand.NextIntn(int32(len(features)))].placeNested(fc)
+		}
+	}
+	featureKinds["minecraft:weighted_random_selector"] = func(cfg any) func(*featureCtx) bool {
+		var entries []weightedEntry[*placedFeature]
+		var total int32
+		for _, e := range flist(ffield(cfg, "features")) {
+			w := fint(ffield(e, "weight"), 1)
+			entries = append(entries, weightedEntry[*placedFeature]{decodePlaced(ffield(e, "data")), w})
+			total += w
+		}
+		return func(fc *featureCtx) bool {
+			if total == 0 {
+				return false
+			}
+			return pickWeighted(fc.rand, entries, total).placeNested(fc)
 		}
 	}
 	featureKinds["minecraft:random_boolean_selector"] = func(cfg any) func(*featureCtx) bool {

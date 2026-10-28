@@ -113,7 +113,7 @@ type CarverConfig struct {
 var mthSinTable = func() *[65536]float32 {
 	var t [65536]float32
 	for i := range t {
-		t[i] = float32(math.Sin(float64(i) / 10430.378350470453))
+		t[i] = float32(jsin(float64(i) / 10430.378350470453))
 	}
 	return &t
 }()

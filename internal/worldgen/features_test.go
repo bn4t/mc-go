@@ -22,6 +22,8 @@ type featureGolden struct {
 	gaussian string
 	// region is the region random's state as the feature starts.
 	region string
+	// entities are the entities the feature spawned, or "-".
+	entities string
 }
 
 func loadFeatureGoldens(t *testing.T) (steps map[string][][]string, features []featureGolden) {
@@ -53,7 +55,10 @@ func loadFeatureGoldens(t *testing.T) (steps map[string][][]string, features []f
 			}
 			steps[f[1]][step] = append(steps[f[1]][step], f[4])
 		case "feature":
-			g := featureGolden{dim: f[1], seed: f[2], chunk: f[3], name: f[6], status: f[7], delta: f[8], gaussian: f[9], region: f[10]}
+			g := featureGolden{dim: f[1], seed: f[2], chunk: f[3], name: f[6], status: f[7], delta: f[8], gaussian: f[9], region: f[10], entities: "-"}
+			if len(f) > 11 {
+				g.entities = f[11]
+			}
 			fmt.Sscan(f[4], &g.step)
 			fmt.Sscan(f[5], &g.index)
 			features = append(features, g)
@@ -138,8 +143,9 @@ func buildDecoRegion(rs *RandomState, src BiomeSource, search *BiomeSearcher, f 
 
 // regionSnapshot copies the 3×3's blocks and heightmaps.
 type regionSnapshot struct {
-	states  [9][]StateID
-	heights [9]*finalHeights
+	states   [9][]StateID
+	heights  [9]*finalHeights
+	entities [9]int
 }
 
 func snapshotRegion(r *decoRegion) regionSnapshot {
@@ -147,6 +153,7 @@ func snapshotRegion(r *decoRegion) regionSnapshot {
 	for i := 0; i < 9; i++ {
 		c := r.chunks[i/3][i%3]
 		s.states[i] = append([]StateID(nil), c.States...)
+		s.entities[i] = len(c.Entities)
 		if c.heights != nil {
 			h := *c.heights
 			for k, m := range h.maps {
@@ -165,6 +172,7 @@ func (s regionSnapshot) restore(r *decoRegion) {
 	for i := 0; i < 9; i++ {
 		c := r.chunks[i/3][i%3]
 		copy(c.States, s.states[i])
+		c.Entities = c.Entities[:s.entities[i]]
 		c.heights = s.heights[i]
 		if c.heights != nil {
 			h := *c.heights
@@ -177,6 +185,26 @@ func (s regionSnapshot) restore(r *decoRegion) {
 			c.heights = &h
 		}
 	}
+}
+
+// regionEntities lists the entities spawned since a snapshot as the
+// probe prints them.
+func regionEntities(r *decoRegion, before regionSnapshot) string {
+	var parts []string
+	for i := 0; i < 9; i++ {
+		for _, e := range r.chunks[i/3][i%3].Entities[before.entities[i]:] {
+			beam := "-"
+			if e.BeamTarget != nil {
+				beam = fmt.Sprintf("%d,%d,%d", e.BeamTarget.X, e.BeamTarget.Y, e.BeamTarget.Z)
+			}
+			parts = append(parts, fmt.Sprintf("%s@%016x,%016x,%016x,%08x,%v,%s", e.ID, math.Float64bits(e.X),
+				math.Float64bits(e.Y), math.Float64bits(e.Z), math.Float32bits(e.Yaw), e.Invulnerable, beam))
+		}
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, " ")
 }
 
 // regionDelta lists the blocks that differ from a snapshot as the probe
@@ -353,6 +381,9 @@ func TestFeaturesMatchVanilla(t *testing.T) {
 			}()
 			if ok {
 				got := regionDelta(r, before, dimMinY, dimHeight)
+				if ents := regionEntities(r, before); ents != want.entities {
+					t.Errorf("%s %s %s: entities %s, want %s", gr.dim, gr.chunk, pf.name, ents, want.entities)
+				}
 				if got == want.delta {
 					matched[kind]++
 					if want.delta != "-" {

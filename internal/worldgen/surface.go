@@ -73,6 +73,25 @@ type GenChunk struct {
 	// BlockEntities holds the block entity data features leave, by
 	// absolute position.
 	BlockEntities map[Point]*GenBlockEntity
+	// FluidTicks are the fluid updates features schedule, due at once.
+	FluidTicks []GenFluidTick
+	// Entities are the entities features spawn in the chunk.
+	Entities []GenEntity
+}
+
+// GenEntity is an entity a feature spawns: an End crystal on a pillar.
+type GenEntity struct {
+	ID           string
+	X, Y, Z      float64
+	Yaw          float32
+	Invulnerable bool
+	BeamTarget   *Point
+}
+
+// GenFluidTick is a scheduled fluid update: where, and which fluid.
+type GenFluidTick struct {
+	Pos   Point
+	Fluid string
 }
 
 // GenBlockEntity is a block entity a feature fills in: a container's
@@ -84,6 +103,9 @@ type GenBlockEntity struct {
 	SpawnEntity string
 	// BeeTicks are a generated nest's bees, each its ticks in the hive.
 	BeeTicks []int32
+	// ExitPortal and ExactTeleport are an End gateway's exit.
+	ExitPortal    *Point
+	ExactTeleport bool
 }
 
 func (c *GenChunk) index(x, y, z int32) int { return int((y-c.MinY)*256 + z*16 + x) }

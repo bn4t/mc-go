@@ -51,7 +51,7 @@ func (c *oreConfig) place(fc *featureCtx) bool {
 	angle := float32(r.NextFloat() * 3.1415927)
 	spread := float32(c.size) / 8
 	half := mthCeil((float32(float32(c.size)/16*2) + 1) / 2)
-	sin, cos := math.Sin(float64(angle)), math.Cos(float64(angle))
+	sin, cos := jsin(float64(angle)), jcos(float64(angle))
 	x1 := float64(o.X) + float64(sin*float64(spread))
 	x2 := float64(o.X) - float64(sin*float64(spread))
 	z1 := float64(o.Z) + float64(cos*float64(spread))
