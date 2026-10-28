@@ -22,16 +22,17 @@ import net.minecraft.world.level.material.Fluids;
 // shapes are full blocks, whether it can occlude, and which faces its
 // collision shape covers. Per block it prints the
 // default state id, its class, the classes in its hierarchy declaring
-// canSurvive and mayPlaceOn, and the support tag it keeps, if any.
+// canSurvive and mayPlaceOn, the support tag it keeps, if any, and the
+// class declaring updateShape.
 public class BlockPropsProbe {
     public static void main(String[] args) throws Exception {
         SharedConstants.tryDetectVersion();
         net.minecraft.server.Bootstrap.bootStrap();
         try (var out = new PrintWriter(args[0], java.nio.charset.StandardCharsets.UTF_8)) {
             for (Block block : BuiltInRegistries.BLOCK) {
-                out.printf("block\t%s\t%d\t%s\t%s\t%s\t%s%n", BuiltInRegistries.BLOCK.getKey(block), Block.getId(block.defaultBlockState()),
+                out.printf("block\t%s\t%d\t%s\t%s\t%s\t%s\t%s%n", BuiltInRegistries.BLOCK.getKey(block), Block.getId(block.defaultBlockState()),
                     block.getClass().getSimpleName(), declaring(block.getClass(), "canSurvive"), declaring(block.getClass(), "mayPlaceOn"),
-                    supportTag(block));
+                    supportTag(block), declaring(block.getClass(), "updateShape"));
             }
             var fire = net.minecraft.world.level.block.Blocks.FIRE;
             var igniteOdds = net.minecraft.world.level.block.FireBlock.class.getDeclaredMethod("getIgniteOdds", BlockState.class);

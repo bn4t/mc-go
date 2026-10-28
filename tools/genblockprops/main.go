@@ -70,7 +70,7 @@ func main() {
 
 	var blocks []string
 	defaults := map[string]int{}
-	classes := map[string][4]string{}
+	classes := map[string][5]string{}
 	var states []state
 	sc := bufio.NewScanner(bytes.NewReader(raw))
 	sc.Buffer(make([]byte, 1<<20), 1<<20)
@@ -81,7 +81,7 @@ func main() {
 			name := strings.TrimPrefix(f[1], "minecraft:")
 			blocks = append(blocks, name)
 			defaults[name] = atoi(f[2])
-			classes[name] = [4]string{f[3], f[4], f[5], f[6]}
+			classes[name] = [5]string{f[3], f[4], f[5], f[6], f[7]}
 		case "state":
 			id := atoi(f[1])
 			if id != len(states) {
@@ -150,7 +150,8 @@ func main() {
 	fmt.Fprintf(&b, "package worldgen\n\n")
 	fmt.Fprintf(&b, "// blockLayouts are the blocks in registry order: each block's first\n")
 	fmt.Fprintf(&b, "// state id, default state id, properties (name, values, stride), class,\n")
-	fmt.Fprintf(&b, "// canSurvive and mayPlaceOn declaring classes and support tag.\n")
+	fmt.Fprintf(&b, "// canSurvive and mayPlaceOn declaring classes, support tag and\n")
+	fmt.Fprintf(&b, "// updateShape declaring class.\n")
 	fmt.Fprintf(&b, "var blockLayouts = []blockLayout{\n")
 	for _, name := range blocks {
 		l := layouts[name]
@@ -159,8 +160,8 @@ func main() {
 			ps = append(ps, fmt.Sprintf("{%q, []string{%s}, %d}", p.name, quoteAll(p.values), p.stride))
 		}
 		c := classes[name]
-		fmt.Fprintf(&b, "\t{%q, %d, %d, %d, []propLayout{%s}, %q, %q, %q, %q},\n", name, l.first, l.count, l.def,
-			strings.Join(ps, ", "), c[0], c[1], c[2], c[3])
+		fmt.Fprintf(&b, "\t{%q, %d, %d, %d, []propLayout{%s}, %q, %q, %q, %q, %q},\n", name, l.first, l.count, l.def,
+			strings.Join(ps, ", "), c[0], c[1], c[2], c[3], c[4])
 	}
 	fmt.Fprintf(&b, "}\n\n")
 	flags := make([]byte, 8*len(states))

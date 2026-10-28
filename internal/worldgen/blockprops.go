@@ -22,10 +22,10 @@ type blockLayout struct {
 	first, count int
 	def          int
 	props        []propLayout
-	// class is the block's class; survive and placeOn the classes that
-	// declare its canSurvive and mayPlaceOn ("-" for none); tag the
-	// support tag it keeps ("-" for none).
-	class, survive, placeOn, tag string
+	// class is the block's class; survive, placeOn and shape the
+	// classes that declare its canSurvive, mayPlaceOn and updateShape
+	// ("-" for none); tag the support tag it keeps ("-" for none).
+	class, survive, placeOn, tag, shape string
 }
 
 // State flag bits.

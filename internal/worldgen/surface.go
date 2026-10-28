@@ -82,6 +82,8 @@ type GenBlockEntity struct {
 	LootTable   string
 	LootSeed    int64
 	SpawnEntity string
+	// BeeTicks are a generated nest's bees, each its ticks in the hive.
+	BeeTicks []int32
 }
 
 func (c *GenChunk) index(x, y, z int32) int { return int((y-c.MinY)*256 + z*16 + x) }

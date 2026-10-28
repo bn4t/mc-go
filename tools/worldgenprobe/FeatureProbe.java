@@ -17,7 +17,6 @@ import net.minecraft.core.QuartPos;
 import net.minecraft.core.RegistrationInfo;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.LevelHeightAccessor;
@@ -59,10 +58,18 @@ public class FeatureProbe {
         var resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(
             net.minecraft.server.packs.PackType.SERVER_DATA,
             List.of(net.minecraft.server.packs.repository.ServerPacksSource.createVanillaPackSource()));
-        net.minecraft.tags.TagLoader.loadTagsForExistingRegistries(resources,
-            RegistryAccess.fromRegistryOfRegistries(net.minecraft.core.registries.BuiltInRegistries.REGISTRY))
-            .forEach(net.minecraft.core.Registry.PendingTags::apply);
-        var lookup = VanillaRegistries.createLookup();
+        // The worldgen registries come from the vanilla datapack's JSON, as
+        // the server's world loader builds them, not from the in-code
+        // bootstrap: a codec whose field getter reads another field
+        // (cherry foliage's corner_hole_chance) makes the two differ.
+        var layers = net.minecraft.server.RegistryLayer.createRegistryAccess();
+        var pendingTags = net.minecraft.tags.TagLoader.loadTagsForExistingRegistries(resources,
+            layers.getLayer(net.minecraft.server.RegistryLayer.STATIC));
+        var context = net.minecraft.tags.TagLoader.buildUpdatedLookups(
+            layers.getAccessForLoading(net.minecraft.server.RegistryLayer.WORLDGEN), pendingTags);
+        HolderLookup.Provider lookup = net.minecraft.resources.RegistryDataLoader.load(resources, context,
+            net.minecraft.resources.RegistryDataLoader.WORLDGEN_REGISTRIES, Runnable::run).join();
+        pendingTags.forEach(net.minecraft.core.Registry.PendingTags::apply);
         var biomes = lookup.lookupOrThrow(Registries.BIOME);
         MappedRegistry<Biome> biomeRegistry = new MappedRegistry<>(Registries.BIOME, Lifecycle.stable());
         biomes.listElements().forEach(h -> biomeRegistry.register(h.key(), h.value(), RegistrationInfo.BUILT_IN));
@@ -80,12 +87,24 @@ public class FeatureProbe {
                     {-24, 24}, {-24, -24}, {0, -24}, {-96, -24}, {-96, 24}, {-144, 24}, {-240, -264}, {-72, -120},
                     {-72, 96}, {312, 48}, {48, -120}, {0, -144}, {-48, 48}, {48, -48}, {0, 0}, {-168, 24},
                     {24, 48}, {264, 288}, {-96, -408}, {-72, -72}, {-72, -96}, {72, -72}, {48, 96}, {0, 144},
-                    {48, 24}, {-264, -240}, {-24, 144}, {-24, 48}, {-48, 0}, {-240, -144}});
+                    {48, 24}, {-264, -240}, {-24, 144}, {-24, 48}, {-48, 0}, {-240, -144},
+                    // One chunk per overworld biome: the first, by growing
+                    // ring, whose 3×3 surface (or cave-depth) quarts are
+                    // mostly that biome under seed 12345.
+                    {-172, 112}, {-68, 56}, {48, -104}, {-28, -28}, {36, -56}, {20, 12}, {-4, -24}, {28, -116},
+                    {8, -8}, {20, 100}, {-108, 108}, {4, 24}, {-140, 32}, {-36, 24}, {-308, -284}, {8, -132},
+                    {-20, 16}, {52, 52}, {-52, 44}, {48, -44}, {-36, 0}, {44, -48}, {-36, -12}, {-40, -36},
+                    {-104, 100}, {-108, -88}, {28, 36}, {260, 276}, {4, -44}, {20, -28}, {-232, -140}, {8, -32},
+                    {-20, 20}, {-4, -16}, {-52, -12}, {-68, -92}, {56, 44}, {44, -40}, {-20, 48}, {36, 40},
+                    {-44, -44}, {-52, 20}, {-12, 16}, {56, 68}, {-28, 24}, {-108, -104}, {24, -36}, {-264, -244},
+                    {-100, -96}, {104, 76}, {0, 112}, {80, -240}, {-264, -264}});
             new FeatureProbe(out, "the_nether", lookup, access, containers, NoiseGeneratorSettings.NETHER,
                 net.minecraft.world.level.biome.MultiNoiseBiomeSource.createFromPreset(
                     paramLists.getOrThrow(net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterLists.NETHER)),
                 dimTypes.getOrThrow(net.minecraft.world.level.dimension.BuiltinDimensionTypes.NETHER).value(), 0, 256)
-                .run(new long[]{12345L}, new int[][]{{0, 0}, {-3, 5}, {20, -11}, {-40, 33}, {7, 7}, {100, -60}});
+                .run(new long[]{12345L}, new int[][]{{0, 0}, {-3, 5}, {20, -11}, {-40, 33}, {7, 7}, {100, -60},
+                    // One chunk per nether biome, chosen as for the overworld.
+                    {-16, 16}, {-4, 2}, {-22, 10}, {6, -6}});
             new FeatureProbe(out, "the_end", lookup, access, containers, NoiseGeneratorSettings.END,
                 net.minecraft.world.level.biome.TheEndBiomeSource.create(lookup.lookupOrThrow(Registries.BIOME)),
                 dimTypes.getOrThrow(net.minecraft.world.level.dimension.BuiltinDimensionTypes.END).value(), 0, 256)

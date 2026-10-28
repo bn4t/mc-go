@@ -67,8 +67,11 @@ Mojang server over the wire.
       climate spawn search match vanilla block for block
       (`internal/worldgen`); the server generates it under
       `-level-type normal` (biomes on the wire and the world spawn
-      pinned: `TestNoiseBiomeParity`, `TestNoiseWorldSpawnParity`), with
-      no features or structures yet
+      pinned: `TestNoiseBiomeParity`, `TestNoiseWorldSpawnParity`).
+      Decoration features (ores, springs, disks, monster rooms, trees
+      and more) match vanilla per placement in `internal/worldgen`
+      (`TestFeaturesMatchVanilla`) but the server does not run them yet;
+      no structures yet
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -16168,3 +16171,83 @@ no flee; unsneak → flee). Green both legs.
   icebergs, End spikes, basalt and deltas. The probe compares block
   states only, so the block entity data is unpinned. The server's
   generator still does not run the features stage.
+
+## Slice — worldgen trees: trunk, foliage and root placers, decorators, leaf distances and edge shape updates (2026-10-28)
+
+- **Measured:** bytecode inspection on the 26.2 jar (unpacked SHA-256
+  `183c0499…823e8`, Temurin JDK 25.0.5+8), plus runtime probes:
+  - `TreeFeature`: the `doPlace` order (trunk height, then foliage
+    height and radius, then the root placer's trunk origin, the build
+    height guard and `getMaxFreeTreeHeight`, which returns y−2 at the
+    first blocked layer); its four position sets and their setters;
+    `updateLeaves`, which walks distance layers popping each layer's
+    first element through the set's iterator; and
+    `StructureTemplate.updateShapeAtEdge` over the voxel shape's faces.
+  - The trunk placers (straight, forking, giant, mega jungle, dark oak,
+    fancy, bending, upwards branching, cherry), the foliage placers
+    (blob, spruce, pine, bush, acacia, fancy, mega jungle, mega pine,
+    dark oak, random spread, cherry) with `FoliagePlacer`'s rows,
+    signed skips and hanging leaves, and both feature sizes.
+  - The decorators: beehive, place on ground, leave vine, trunk vine,
+    alter ground, cocoa, attached to leaves, pale moss and creaking
+    heart.
+  - `MangroveRootPlacer`, `RootPlacer`, `MangroveRootPlacement` and
+    `AboveRootPlacement`: the free column up to the trunk, the
+    simulated walk out from each side, skew and width rules, muddy
+    roots and the air test for moss on top.
+  - `updateShape` for snowy blocks, vegetation, carpets, snow layers,
+    double plants, vines, huge mushrooms, cocoa (its facing side
+    loses support), mangrove propagules and bamboo stalks. Also
+    cocoa's survival on `#supports_cocoa`.
+  - The block probe (`tools/genblockprops/BlockPropsProbe.java`,
+    SHA-256 `5b048be8…4357`; measurement SHA-256 `9e44c048…2a0e`) now
+    records the class that declares `updateShape` for each block.
+  - `FeatureProbe.java` (SHA-256 `13431a33…5057`) adds one chunk per
+    overworld biome (55) and per nether biome (4). It now builds its
+    worldgen registries from the vanilla datapack, as the server's
+    world loader does, instead of the in-code bootstrap. The two
+    differ: `CherryFoliagePlacer`'s codec reads `corner_hole_chance`
+    through the wide-bottom-hole getter, so the shipped JSON and a
+    running server use 0.25 while the bootstrap holds 0.5. Found by
+    diffing per-call random logs of one cherry tree between a
+    throwaway instrumented probe and mc-go.
+  - Java's `HashSet` iteration order, through a JDK-only probe
+    (`tools/genhashorder/HashOrderProbe.java`, SHA-256
+    `36adbfc0…419f`): scripted adds, iterator pops and removals over
+    clustered positions, including buckets that become red-black
+    trees.
+- **Implemented:**
+  - `feature_tree.go`, `feature_tree_trunk.go`,
+    `feature_tree_foliage.go`, `feature_tree_deco.go` and
+    `feature_tree_root.go` (mangrove roots).
+  - `shape.go`: `updateShape` dispatch and the edge pass.
+  - `posset.go`: a position set ordered as Java's `HashMap`. It covers
+    table growth, list buckets, tree buckets (insert and delete
+    balancing, root to front, split and untreeify), and the
+    difference between iterator and set removal.
+  - Beehives record their bees' ticks in the chunk.
+  - The cherry trunk placer reads its branch start as a range written
+    without a type.
+  - Feature test failures now print the changes only one side made.
+- **Pinned:**
+  - `TestFeaturesMatchVanilla`, now over 83 overworld, 10 nether and 5
+    End chunks: all 185 tree attempts, 137 of which place a tree,
+    change exactly the blocks vanilla's did. This covers mangroves
+    with roots and muddy roots, cherries, pale oaks with hanging moss,
+    and jungle trees with cocoa. No bee nest or creaking heart is
+    placed in the probe's chunks, so those two decorators are unpinned.
+  - `TestPosSetMatchesJavaHashSet` replays the JDK probe (320 order
+    checks, 9 tree buckets).
+- **Remaining:**
+  - These feature types still skip, by placement count: sculk patches
+    (30), vegetation patches (30), vines (27), speleothem clusters
+    (26), glowstone (17), seagrass (16), speleothems (16), large
+    dripstone (16), block columns (14), nether forest vegetation (10),
+    huge fungi (7), and a few each of lakes, geodes, kelp, basalt,
+    deltas, End spikes, huge mushrooms, corals and fallen trees.
+  - Two distinct positions with equal hashes in one tree bucket are
+    unsupported: Java orders them by identity.
+  - The server's sapling growth (`internal/server`) still uses its own
+    older tree code, not these placers.
+  - The server's generator still does not run the features stage.
+

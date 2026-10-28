@@ -395,6 +395,10 @@ func canSurvive(r *decoRegion, s StateID, p Point) bool {
 			return true
 		}
 		return b.collisionTopFull() || (b.is("snow") && b.prop("layers") == "8")
+	case "VineBlock":
+		return vineHasFaces(vineUpdatedState(r, s, p))
+	case "CocoaBlock":
+		return r.get(p.offset(directionNames[s.prop("facing")])).inTag("supports_cocoa")
 	case "MangrovePropaguleBlock":
 		if s.prop("hanging") == "true" {
 			return r.get(p.offset(dirUp)).inTag("supports_hanging_mangrove_propagule")

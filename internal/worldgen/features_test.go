@@ -199,6 +199,24 @@ func regionDelta(r *decoRegion, before regionSnapshot, dimMinY, dimHeight int32)
 	return strings.Join(parts, " ")
 }
 
+// deltaDiff is the changes only one of two deltas has, in each's order.
+func deltaDiff(a, b string) (string, string) {
+	only := func(x, y string) string {
+		in := map[string]bool{}
+		for _, f := range strings.Fields(y) {
+			in[f] = true
+		}
+		var out []string
+		for _, f := range strings.Fields(x) {
+			if !in[f] {
+				out = append(out, f)
+			}
+		}
+		return strings.Join(out, " ")
+	}
+	return only(a, b), only(b, a)
+}
+
 // applyDelta writes a probe delta into the region: straight into the
 // sections for the ore features, as a generation region write otherwise.
 func applyDelta(r *decoRegion, delta string, raw bool) {
@@ -290,7 +308,8 @@ func TestFeaturesMatchVanilla(t *testing.T) {
 				} else {
 					mismatched[kind]++
 					if mismatched[kind] <= 3 {
-						t.Errorf("%s %s %s: delta differs\n  got  %.400s\n  want %.400s", gr.dim, gr.chunk, pf.name, got, want.delta)
+						onlyGot, onlyWant := deltaDiff(got, want.delta)
+						t.Errorf("%s %s %s: delta differs\n  only got  %.600s\n  only want %.600s", gr.dim, gr.chunk, pf.name, onlyGot, onlyWant)
 					}
 				}
 			}
