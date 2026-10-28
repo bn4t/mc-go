@@ -22,11 +22,15 @@ type blockLayout struct {
 	first, count int
 	def          int
 	props        []propLayout
+	// class is the block's class; survive and placeOn the classes that
+	// declare its canSurvive and mayPlaceOn ("-" for none); tag the
+	// support tag it keeps ("-" for none).
+	class, survive, placeOn, tag string
 }
 
 // State flag bits.
 const (
-	bsfAir uint16 = 1 << iota
+	bsfAir uint32 = 1 << iota
 	bsfBlocksMotion
 	bsfSolid
 	bsfReplaceable
@@ -41,6 +45,22 @@ const (
 	bsfSturdyWest
 	bsfSturdyEast
 	bsfFullBlock
+	bsfSolidRender
+	bsfCenterDown
+	bsfCenterUp
+	bsfCenterNorth
+	bsfCenterSouth
+	bsfCenterWest
+	bsfCenterEast
+	bsfRigidDown
+	bsfRigidUp
+	bsfRigidNorth
+	bsfRigidSouth
+	bsfRigidWest
+	bsfRigidEast
+	bsfFlammable
+	bsfCollisionTopFull
+	bsfLiquid
 )
 
 // Directions in the game's order.
@@ -57,7 +77,7 @@ var dirOffsets = [6][3]int32{{0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {-1, 
 
 var (
 	blockPropsOnce sync.Once
-	stateFlagWords []uint16
+	stateFlagWords []uint32
 	blockByName    map[string]int
 	blockOfID      []int32 // global state id -> layout index
 
@@ -70,7 +90,7 @@ var (
 type stateInfo struct {
 	id    int32
 	block int32
-	flags uint16
+	flags uint32
 	known bool
 }
 
@@ -80,9 +100,9 @@ func loadBlockProps() {
 		if err != nil {
 			panic(err)
 		}
-		stateFlagWords = make([]uint16, stateCount)
+		stateFlagWords = make([]uint32, stateCount)
 		for i := range stateFlagWords {
-			stateFlagWords[i] = binary.LittleEndian.Uint16(raw[2*i:])
+			stateFlagWords[i] = binary.LittleEndian.Uint32(raw[4*i:])
 		}
 		blockByName = make(map[string]int, len(blockLayouts))
 		blockOfID = make([]int32, stateCount)
@@ -149,7 +169,7 @@ func resolveState(canonical string) stateInfo {
 	return stateInfo{id: int32(id), block: int32(bi), flags: stateFlagWords[id], known: true}
 }
 
-func (s StateID) has(f uint16) bool { return s.info().flags&f != 0 }
+func (s StateID) has(f uint32) bool { return s.info().flags&f != 0 }
 
 // isAir, blocksMotion and the like are the game's state predicates.
 func (s StateID) isAir() bool        { return s.has(bsfAir) }
@@ -168,6 +188,23 @@ func (s StateID) isLavaFluid() bool {
 func (s StateID) isSourceFluid() bool { return s.has(bsfSource) }
 func (s StateID) isLeaves() bool      { return s.has(bsfLeaves) }
 func (s StateID) sturdy(dir int) bool { return s.has(bsfSturdyDown << dir) }
+
+// sturdyCenter and sturdyRigid are the center and rigid face supports.
+func (s StateID) sturdyCenter(dir int) bool { return s.has(bsfCenterDown << dir) }
+func (s StateID) sturdyRigid(dir int) bool  { return s.has(bsfRigidDown << dir) }
+func (s StateID) isSolidRender() bool       { return s.has(bsfSolidRender) }
+func (s StateID) flammable() bool           { return s.has(bsfFlammable) }
+func (s StateID) collisionTopFull() bool    { return s.has(bsfCollisionTopFull) }
+func (s StateID) isLiquidBlock() bool       { return s.has(bsfLiquid) }
+
+// layout is the state's block layout, nil for an unknown block.
+func (s StateID) layout() *blockLayout {
+	in := s.info()
+	if in.block < 0 {
+		return nil
+	}
+	return &blockLayouts[in.block]
+}
 
 // block is the state's block identifier without the namespace.
 func (s StateID) block() string {

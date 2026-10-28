@@ -552,3 +552,13 @@ var EntityTypeTags = map[string][]string{
 	"wither_friends":                  []string{"bogged", "camel_husk", "drowned", "husk", "parched", "phantom", "skeleton", "skeleton_horse", "stray", "wither", "wither_skeleton", "zoglin", "zombie", "zombie_horse", "zombie_nautilus", "zombie_villager", "zombified_piglin"},
 	"zombies":                         []string{"camel_husk", "drowned", "husk", "zoglin", "zombie", "zombie_horse", "zombie_nautilus", "zombie_villager", "zombified_piglin"},
 }
+
+// FluidTags is ItemTags for the fluid tag registry.
+var FluidTags = map[string][]string{
+	"bubble_column_can_occupy":       []string{"water"},
+	"lava":                           []string{"flowing_lava", "lava"},
+	"supports_frogspawn":             []string{"water"},
+	"supports_lily_pad":              []string{"water"},
+	"supports_sugar_cane_adjacently": []string{"flowing_water", "water"},
+	"water":                          []string{"flowing_water", "water"},
+}

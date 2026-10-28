@@ -579,12 +579,6 @@ func decodeBlockPredicate(v any) blockPredicate {
 	return nil
 }
 
-// canSurvive is BlockState.canSurvive for the states features place.
-func canSurvive(r *decoRegion, s StateID, p Point) bool {
-	unsupported("survival of %s", StateName(s))
-	return false
-}
-
 // Feature order.
 
 // featureSteps is a dimension's placed features per decoration step in

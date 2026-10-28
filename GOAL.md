@@ -16034,3 +16034,40 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:** the server runs no features or structures yet; joins
   land on the world spawn without the respawn-radius scatter; generated
   terrain is not saved as generated chunks.
+
+## Slice — worldgen features: selectors, springs, simple blocks and plant survival (2026-10-27)
+
+- **Measured:** bytecode inspection on the 26.2 jar (unpacked SHA-256
+  `183c0499…823e8`, Temurin JDK 25.0.5+8) of the random, simple random
+  and random boolean selectors, `SequenceFeature`, `SpringFeature`
+  (rock and hole counts, the valid-block set, the fluid's legacy
+  block), `SimpleBlockFeature` (survival check, double plants with
+  their upper half, waterlogging copied from the target), the state
+  providers (simple, weighted, noise, noise threshold, dual noise,
+  rule based, randomized int, rotated) and the `canSurvive` /
+  `mayPlaceOn` rules of the vegetation, mushroom, carpet, leaf litter,
+  fire, sugar cane, cactus, dripleaf, amethyst cluster, hanging roots,
+  snow layer, spore blossom and mangrove propagule families (26.2 reads
+  most supports from tags such as `#supports_vegetation`). The runtime
+  block probe (`tools/genblockprops/BlockPropsProbe.java`, SHA-256
+  `6f40eb57…f9fd`; measurement SHA-256 `2428bf45…91e9`) now also asks
+  the running server for every block's class, the classes declaring its
+  `canSurvive` and `mayPlaceOn`, and its support tag, and for every
+  state's solid render, center and rigid face support, flammability
+  (the fire block's ignite odds), full collision top face and liquid
+  flag. Fluid tags come from the data pack through `tools/gendata`.
+- **Implemented:** `internal/worldgen/feature_basic.go`: the state
+  providers (noise providers on legacy-seeded normal noise), the
+  selectors and sequence, springs, simple blocks and the measured
+  survival rules dispatched on the probed declaring class. The flag
+  word per state is now 32 bits; `internal/data` gains `FluidTags`.
+- **Pinned:** `TestFeaturesMatchVanilla` against the probe's per-feature
+  deltas: every placement of `simple_block` (323), `spring_feature`
+  (81), `random_selector` (48), `simple_random_selector` (16),
+  `random_boolean_selector` (3) and `sequence` (2) changes exactly the
+  blocks vanilla's did, alongside the 808 `ore` placements and every
+  placement pipeline that places nothing.
+- **Remaining:** trees, huge fungi and mushrooms, disks, lakes, geodes,
+  monster rooms, freeze-top-layer, vines and the other feature types
+  are still skipped; mossy carpets in `simple_block` are unsupported; the
+  server's generator does not run the features stage.

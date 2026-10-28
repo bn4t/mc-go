@@ -32,7 +32,7 @@ type state struct {
 	id    int
 	block string
 	props map[string]string
-	flags uint16
+	flags uint32
 }
 
 type propLayout struct {
@@ -70,6 +70,7 @@ func main() {
 
 	var blocks []string
 	defaults := map[string]int{}
+	classes := map[string][4]string{}
 	var states []state
 	sc := bufio.NewScanner(bytes.NewReader(raw))
 	sc.Buffer(make([]byte, 1<<20), 1<<20)
@@ -80,6 +81,7 @@ func main() {
 			name := strings.TrimPrefix(f[1], "minecraft:")
 			blocks = append(blocks, name)
 			defaults[name] = atoi(f[2])
+			classes[name] = [4]string{f[3], f[4], f[5], f[6]}
 		case "state":
 			id := atoi(f[1])
 			if id != len(states) {
@@ -93,7 +95,7 @@ func main() {
 					props[k] = v
 				}
 			}
-			states = append(states, state{id: id, block: name, props: props, flags: uint16(atoi(f[3]))})
+			states = append(states, state{id: id, block: name, props: props, flags: uint32(atoi(f[3]))})
 		}
 	}
 
@@ -147,7 +149,8 @@ func main() {
 	fmt.Fprintf(&b, "// (SHA-256 %x), measurement SHA-256 %x.\n\n", sha256OfFile(jar), sha256.Sum256(raw))
 	fmt.Fprintf(&b, "package worldgen\n\n")
 	fmt.Fprintf(&b, "// blockLayouts are the blocks in registry order: each block's first\n")
-	fmt.Fprintf(&b, "// state id, default state id and properties (name, values, stride).\n")
+	fmt.Fprintf(&b, "// state id, default state id, properties (name, values, stride), class,\n")
+	fmt.Fprintf(&b, "// canSurvive and mayPlaceOn declaring classes and support tag.\n")
 	fmt.Fprintf(&b, "var blockLayouts = []blockLayout{\n")
 	for _, name := range blocks {
 		l := layouts[name]
@@ -155,14 +158,16 @@ func main() {
 		for _, p := range l.props {
 			ps = append(ps, fmt.Sprintf("{%q, []string{%s}, %d}", p.name, quoteAll(p.values), p.stride))
 		}
-		fmt.Fprintf(&b, "\t{%q, %d, %d, %d, []propLayout{%s}},\n", name, l.first, l.count, l.def, strings.Join(ps, ", "))
+		c := classes[name]
+		fmt.Fprintf(&b, "\t{%q, %d, %d, %d, []propLayout{%s}, %q, %q, %q, %q},\n", name, l.first, l.count, l.def,
+			strings.Join(ps, ", "), c[0], c[1], c[2], c[3])
 	}
 	fmt.Fprintf(&b, "}\n\n")
-	flags := make([]byte, 2*len(states))
+	flags := make([]byte, 4*len(states))
 	for _, s := range states {
-		binary.LittleEndian.PutUint16(flags[2*s.id:], s.flags)
+		binary.LittleEndian.PutUint32(flags[4*s.id:], s.flags)
 	}
-	fmt.Fprintf(&b, "// stateFlagData holds one little-endian flag word per state id\n")
+	fmt.Fprintf(&b, "// stateFlagData holds one little-endian 32-bit flag word per state id\n")
 	fmt.Fprintf(&b, "// (see the bsf constants), base64-encoded.\n")
 	fmt.Fprintf(&b, "const stateFlagData = %q\n\n", base64.StdEncoding.EncodeToString(flags))
 	fmt.Fprintf(&b, "// stateCount is the number of block states.\n")

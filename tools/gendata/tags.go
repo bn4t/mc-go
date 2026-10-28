@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Tags: data/minecraft/tags/{item,block}/<name>.json, each a
+// Tags: data/minecraft/tags/{item,block,entity_type,fluid}/<name>.json, each a
 // {"values": [...]} list whose entries are item ids, "#tag" references
 // or {"id": ..., "required": bool} objects. Nested references are
 // expanded here so the runtime sees a flat membership list.
@@ -18,7 +18,7 @@ func genTags(zr *zip.Reader) []byte {
 	writeHeader(&b, "tools/gendata")
 	b.WriteString("package data\n\n")
 
-	for _, kind := range []string{"item", "block", "entity_type"} {
+	for _, kind := range []string{"item", "block", "entity_type", "fluid"} {
 		raw := readJSON(zr, "tags/"+kind)
 		tags := map[string][]string{}
 		for k, v := range raw {
@@ -54,6 +54,9 @@ func genTags(zr *zip.Reader) []byte {
 		case "entity_type":
 			varName = "EntityTypeTags"
 			doc = "// EntityTypeTags is ItemTags for the entity_type tag registry."
+		case "fluid":
+			varName = "FluidTags"
+			doc = "// FluidTags is ItemTags for the fluid tag registry."
 		}
 		fmt.Fprintf(&b, "%s\nvar %s = map[string][]string{\n", doc, varName)
 		for _, n := range names {
