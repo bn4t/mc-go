@@ -299,14 +299,19 @@ func uuidIntArray(u [16]byte) []int32 {
 // savePlayerFile writes one player's .dat under the world directory,
 // the same file vanilla touches on disconnect and save-all.
 func (s *Server) savePlayerFile(p playerPersist) error {
-	if s.WorldDir == "" {
+	s.waitNativeWorldSaveOwned()
+	return writeNativePlayerFile(s.WorldDir, p)
+}
+
+func writeNativePlayerFile(worldDir string, p playerPersist) error {
+	if worldDir == "" {
 		return nil
 	}
 	u := p.UUID
 	if u == ([16]byte{}) {
 		return nil
 	}
-	dir := filepath.Join(s.WorldDir, "players", "data")
+	dir := filepath.Join(worldDir, "players", "data")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}

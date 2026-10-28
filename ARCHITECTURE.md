@@ -24,8 +24,9 @@ persistence snapshots and ticks use that ownership boundary. Public compact
 JSON `SaveWorld` captures overrides under ownership, then sorts, serializes and
 writes the detached snapshot outside it while the caller waits. Public
 `SaveServerData` likewise captures player/block-entity JSON before writing
-outside ownership. Native world/player files, `/save-all` and owned disconnect
-saves still pause gameplay.
+outside ownership. Public native `WorldDir` saves likewise detach world, entity
+and player state before writing. Capture still pauses gameplay; `/save-all` and
+owned disconnect saves also wait for writes under ownership.
 Internal helpers whose names end in
 `Owned` require ownership and must not recursively acquire it. Sprints
 yield between complete ticks so commands can interleave. Deferred plugin
@@ -588,14 +589,13 @@ drains an accepted receipt before world workers retire, without starting an
 independent compact save. Separate runtimes or other processes writing the same
 paths have no new coordination contract.
 
-Native `WorldDir` saves retain precedence and their existing owned region,
-entity and player-file paths. Owned disconnect data saves remain blocking;
+Native `WorldDir` saves retain precedence and use detached captures described
+below. Owned disconnect data saves remain blocking;
 the public `SaveServerData` path is described below. The CLI still calls
 `SaveWorld` and `SaveServerData` separately; there is no atomic snapshot or commit across those
 stores or across dimension files. Its periodic timer still does not consult
 the existing `/save-off` state. Native player-file errors retain their existing
-recording/propagation behavior. These paths and shutdown autosave policy remain
-separate work.
+recording/propagation behavior. Shutdown adds no independent autosave.
 
 The public API/TCP performance fixture is
 `tests/blackbox/compact_save_responsiveness_test.go`, SHA-256
@@ -648,6 +648,43 @@ the repository. Race-instrumented runs establish functionality separately.
 MCGO_COMPACT_SAVE_REPORT=/tmp/save-probes.jsonl GOMAXPROCS=5 GOFLAGS=-buildvcs=false go test ./tests/blackbox -run '^TestCompactSaveResponsiveness$' -count=5 -timeout=10m -v
 ```
 
+## Native world saves
+
+Public `SaveWorld` with `WorldDir` reserves one unfinished native job before
+capturing level metadata, all selected dimension columns, block-entity NBT,
+light layers, entity NBT and player data under simulation ownership. The worker
+retains private values and paths, with no live worlds, sessions or callbacks.
+NBT encoding, compression and file writing run outside ownership; the caller
+waits for its own write result. Busy public callers wait outside ownership,
+then recheck shutdown and capture their own state when admitted.
+
+Native capture materializes full terrain columns selected by the existing
+override-based region selection, in addition to nested data copies. Capture
+and memory cost grow with the selected world and can pause gameplay; the one-job
+limit bounds concurrency, not bytes, heap or latency. Native names/properties,
+file layout and selection rules remain unchanged. The native player snapshot
+seeds remembered records, then overlays current admitted Java incarnations;
+this corrects the previous collector's stale remembered-player precedence and
+excludes configuring, retired and replaced sessions from the active overlay.
+Neutral avatars retain their existing transient persistence policy.
+
+Owned `/save-all` waits for any accepted native job, captures its own state and
+waits for its write while retaining ownership. Owned disconnect player and
+metadata writes also wait for the earlier native job before touching its files,
+so these paths still block gameplay. Disconnect writes remain allowed during
+shutdown. Shutdown rejects unadmitted public saves, joins connection cleanup
+and the final native receipt before retiring world workers, and adds no
+independent autosave. Existing replaced-session disconnect native writes retain
+their prior behavior.
+
+Level, dimension and entity write errors return from `SaveWorld`; native
+player/metadata errors retain their existing first-error recording in
+`dataSaveErr` while `SaveWorld` can return success. Later jobs remain admissible
+after failures. Successful return means writes returned successfully, without
+fsync, crash durability or atomicity across files, dimensions or the separate
+JSON store. Errors can leave partially updated files. Separate runtimes and
+processes writing the same directory gain no coordination contract.
+
 ## Server-data JSON saves
 
 Public `SaveServerData` captures its schema-three player/block-entity JSON under
@@ -683,8 +720,9 @@ allowed during shutdown: connection cleanup finishes before Shutdown reads and
 joins the final data receipt outside ownership, alongside the compact-world
 receipt. Public unadmitted requests are rejected after shutdown begins. Stop
 adds no independent autosave; existing disconnect writes are retained.
-Native `.dat`/metadata writes and `/save-all`
-retain their existing paths; compact block overrides and server-data JSON have
+Native public world saves use their own detached job; owned disconnect
+`.dat`/metadata writes and `/save-all` still wait under ownership. Compact block
+overrides and server-data JSON have
 separate capture points and no atomic cross-store commit or fsync guarantee.
 
 Two unchanged regression bodies fail on clean baseline

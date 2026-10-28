@@ -21,6 +21,11 @@ import (
 
 // saveEntityRegions writes dir/entities for one dimension.
 func (s *Server) saveEntityRegions(d *dimension) error {
+	return world.SaveEntityRegions(world.DimensionDir(s.WorldDir, d.name), s.captureEntityRegionsOwned(d))
+}
+
+// captureEntityRegionsOwned renders private NBT values while entity state is owned.
+func (s *Server) captureEntityRegionsOwned(d *dimension) map[[2]int32][]map[string]any {
 	now := s.gameTime()
 	groups := map[[2]int32][]map[string]any{}
 	for _, e := range s.entities.All() {
@@ -45,9 +50,9 @@ func (s *Server) saveEntityRegions(d *dimension) error {
 			}
 		}
 		c := [2]int32{int32(math.Floor(e.X)) >> 4, int32(math.Floor(e.Z)) >> 4}
-		groups[c] = append(groups[c], m)
+		groups[c] = append(groups[c], cloneNativeNBT(m).(map[string]any))
 	}
-	return world.SaveEntityRegions(world.DimensionDir(s.WorldDir, d.name), groups)
+	return groups
 }
 
 // restoreEntities respawns one dimension's saved entity compounds.

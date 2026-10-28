@@ -196,6 +196,11 @@ type Server struct {
 	dataSave *serverDataSaveJob
 	// Nil uses serverDataSnapshot.write. Configure before use.
 	dataSaveWrite func(path string, snapshot *serverDataSnapshot) error
+	// Native snapshots follow the same single-job owner admission. Disconnect
+	// player writes join this receipt before touching the same native files.
+	nativeSave *nativeWorldSaveJob
+	// Nil uses nativeWorldSaveSnapshot.write. Configure before use.
+	nativeSaveWrite func(snapshot *nativeWorldSaveSnapshot) error
 
 	listenersMu  sync.Mutex
 	listeners    map[net.Listener]struct{}

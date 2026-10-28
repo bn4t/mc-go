@@ -298,13 +298,18 @@ func readAdvancementsFile(raw []byte, p *playerPersist) {
 // persist — vanilla touches all three player files together on
 // disconnect and on save-all.
 func (s *Server) savePlayerMetaFile(p playerPersist) error {
-	if s.WorldDir == "" || p.UUID == ([16]byte{}) {
+	s.waitNativeWorldSaveOwned()
+	return writeNativePlayerMetaFile(s.WorldDir, p)
+}
+
+func writeNativePlayerMetaFile(worldDir string, p playerPersist) error {
+	if worldDir == "" || p.UUID == ([16]byte{}) {
 		return nil
 	}
 	dash := DashUUID(p.UUID)
 	dirs := []string{
-		filepath.Join(s.WorldDir, "players", "stats"),
-		filepath.Join(s.WorldDir, "players", "advancements"),
+		filepath.Join(worldDir, "players", "stats"),
+		filepath.Join(worldDir, "players", "advancements"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {

@@ -167,8 +167,10 @@ persistence keeps its existing names/properties encoding. Legacy item JSON
 numeric persistence has not been migrated to catalog-independent keys.
 
 Public `SaveWorld` in compact `-world` mode captures overrides under ownership,
-then writes the detached snapshot outside it while the caller waits. Native
-`-world-dir`, owned disconnect saves and `/save-all` still block gameplay.
+then writes the detached snapshot outside it while the caller waits. Public
+`-world-dir` saves also capture native world, entity and player state before
+writing outside ownership. Capture can still pause gameplay and increase memory;
+owned disconnect saves and `/save-all` still wait under ownership.
 Public `SaveServerData` also writes a detached player/block-entity JSON snapshot;
 its schema-three numeric item IDs are unchanged, and remembered offline players
 survive subsequent saves.

@@ -233,6 +233,14 @@ func chunkNBT(w *World, cx, cz, minY, height int, blockEntities func(cx, cz int)
 	if lights != nil {
 		light = lights(int(cx), int(cz))
 	}
+	var entities []map[string]any
+	if blockEntities != nil {
+		entities = blockEntities(cx, cz)
+	}
+	return capturedChunkNBT(cx, cz, minY, height, blocks, biome, entities, light)
+}
+
+func capturedChunkNBT(cx, cz, minY, height int, blocks []Block, biome string, entities []map[string]any, light *ChunkLight) map[string]any {
 	sections := nbt.List{Elem: nbt.TagCompound}
 	post := nbt.List{Elem: nbt.TagList}
 	for sy := 0; sy < height/16; sy++ {
@@ -240,8 +248,8 @@ func chunkNBT(w *World, cx, cz, minY, height int, blockEntities func(cx, cz int)
 		post.Items = append(post.Items, nbt.List{Elem: nbt.TagString})
 	}
 	be := nbt.List{Elem: nbt.TagCompound}
-	if blockEntities != nil {
-		for _, e := range blockEntities(int(cx), int(cz)) {
+	if entities != nil {
+		for _, e := range entities {
 			be.Items = append(be.Items, e)
 		}
 	}
@@ -415,7 +423,7 @@ func SplitDimension(dimension string) (ns, path string) {
 // lights, when not nil, supplies the saved SkyLight/BlockLight arrays
 // and flips isLightOn on like the real server.
 func (w *World) SaveDimension(worldDir, dimension string, minY, height int, entities func(cx, cz int) []map[string]any, lights func(cx, cz int) *ChunkLight) error {
-	return w.SaveRegionEntities(DimensionDir(worldDir, dimension), minY, height, entities, lights)
+	return w.CaptureDimensionSave(minY, height, entities, lights).Write(worldDir, dimension)
 }
 
 // LoadDimension reads one dimension's chunks back out of a world
@@ -442,13 +450,19 @@ func (w *World) SaveRegion(dir string, minY, height int) error {
 // SaveRegionEntities is SaveRegion with block entities: entities is
 // asked for each written chunk's block entity compounds.
 func (w *World) SaveRegionEntities(dir string, minY, height int, entities func(cx, cz int) []map[string]any, lights func(cx, cz int) *ChunkLight) error {
-	snap := w.Snapshot()
-	regions := regionChunksOf(snap, minY, height)
-	for r, chunks := range regions {
+	return w.CaptureDimensionSave(minY, height, entities, lights).writeDir(dir)
+}
+
+func (s *DimensionSaveSnapshot) writeDir(dir string) error {
+	if s.err != nil {
+		return s.err
+	}
+
+	for r, chunks := range s.regions {
 		payloads := map[chunkKey][]byte{}
 		for _, c := range chunks {
 			var raw bytes.Buffer
-			if err := nbt.WriteNamed(&raw, "", chunkNBT(w, int(c.X), int(c.Z), minY, height, entities, lights)); err != nil {
+			if err := nbt.WriteNamed(&raw, "", capturedChunkNBT(int(c.X), int(c.Z), s.minY, s.height, s.chunks[c].blocks, s.biome, s.chunks[c].entities, s.chunks[c].light)); err != nil {
 				return err
 			}
 			var zc bytes.Buffer

@@ -15435,3 +15435,66 @@ no flee; unsneak → flee). Green both legs.
   remain unproven or unfinished. Stop adds no independent autosave and retains
   existing disconnect writes; the CLI timer's `/save-off` behavior is unchanged.
   Full modular gameplay and regional simulation ownership remain future work.
+
+## Slice — detached public native world saves (2026-10-28)
+
+- **Measured:** sources are the existing independently written native Anvil,
+  NBT, level, entity and player persistence paths plus public API/TCP
+  observations. The unchanged current-incarnation regression body and its
+  fixture helper fail on clean baseline
+  `4ec9dd1881e2fedcff6629f3246e16ccb35b64ac`: remembered native inventory
+  count two overrides the current player's count seven. The standalone probe
+  SHA-256 is `46ec25d138201275657f9e8010223f321b3fe4ebced4e541b7131db9945218ff`.
+  This is an existing native collector bug, separately pinned from detachment.
+  The reused `TestWorldBlockEntityParity` oracle passes without skips: seven
+  native block-entity/sign fixtures survive vanilla → mc-go → vanilla. It uses
+  Temurin JDK 25.0.5+8 and the README-pinned 26.2 jar (SHA-1
+  `823e2250d24b3ddac457a60c92a6a941943fcd6a`, SHA-256
+  `cdacdfb25898de5e4b4b0e5ddcc2722f77067e46605709c2d886c000ebb63ec5`).
+  No new bytecode extraction, generated table or external dependency is added.
+- **Implemented:** public `SaveWorld` with `WorldDir` reserves one unfinished
+  job before capturing level metadata, all selected dimension terrain columns,
+  block entities, light, entities and nested player state under ownership.
+  Private snapshots retain no live world, session or callback; NBT encoding,
+  compression and file writing run outside ownership while the caller waits
+  for its own receipt. Busy callers wait outside ownership before rechecking
+  shutdown and capturing their own state. Native names/properties, layout and
+  override-based region selection remain unchanged. Remembered player records
+  are seeded before the canonical admitted Java overlay, so stale remembered,
+  configuring, retired and replaced sessions cannot supply that overlay.
+- **Ordering and errors:** owned `/save-all` joins the prior native receipt,
+  captures its own cut and waits under ownership. Disconnect player/metadata
+  writers also join the earlier native receipt, preserving write order while
+  still blocking gameplay. Shutdown rejects unadmitted public calls, joins
+  connection cleanup and the final native receipt before retiring worlds,
+  without adding an independent autosave. Level/dimension/entity errors return;
+  player/metadata errors retain first-error recording in `dataSaveErr` while
+  the world receipt can succeed. Failures release admission for later saves.
+- **Pinned:** deterministic tests cover detached multi-dimension terrain,
+  nested player state, sign/time capture, committed public movement and block
+  editing during a held writer, busy callers, shutdown draining/rejection,
+  write recovery, command/disconnect ordering, canonical player precedence and
+  real player/metadata filesystem failures. World snapshot tests cover detached
+  NBT arrays/lists/maps and light after world shutdown, generator/override
+  mutation, repeat writing and deferred invalid-NBT errors without output.
+  `TestNativeSaveWorldCompletionRestartWire` passes with real local TCP for
+  both 775 and 776 (8.09 s; package 8.474 s): active sources exchange tokens,
+  completed native artifacts are copied before disconnect/Stop, and a fresh
+  runtime serves the captured overworld/nether/end block predicates to both
+  profiles. The held-writer test establishes ownership progress; the TCP
+  scenario establishes no isolated disk-overlap or latency measurement.
+- **Validation:** full `go build ./...`, `go vet ./...` and
+  `go test ./internal/...` pass (server 218.156 s). Focused native cases pass
+  under the race detector (1.986 s), and the full world suite also passes
+  ordinarily and under race instrumentation. The native block-entity oracle
+  passes without skips in 42.90 s (package 43.143 s); the new real TCP restart
+  pin passes both supported profiles as recorded above. Default sandbox runs
+  could not bind local sockets; these TCP/oracle validations ran with approved
+  local-socket execution. Race runs establish functionality, not timing results.
+- **Remaining:** capture materializes full selected terrain columns and deep
+  copies nested state, so owner pauses and memory grow with captured data.
+  One unfinished job bounds concurrency, not bytes, heap or latency. Owned
+  commands/disconnect writes still block. Existing replaced-session native
+  disconnect writes retain their prior behavior. Separate stores, dimensions,
+  runtimes and processes have no atomic snapshot/commit contract; fsync/crash
+  durability, high player capacity and performance bounds remain unproven.

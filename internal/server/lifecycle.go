@@ -38,11 +38,12 @@ func (s *Server) ShuttingDown() bool { return s.shuttingDown.Load() }
 // handed to vanilla and back; otherwise it writes the compact JSON
 // save file. Compact JSON captures a coherent cut under simulation ownership,
 // then sorts, serializes and writes it outside ownership. This call waits for
-// the actual write result. Native-format saves remain entirely owned. It
+// the actual write result. Native saves likewise detach before writing. It
 // reports an error when persistence is disabled so /save-all answers honestly.
 func (s *Server) SaveWorld() error {
 	for {
 		var job *compactWorldSaveJob
+		var native *nativeWorldSaveJob
 		var admitted bool
 		var err error
 		s.simulationAction(func() {
@@ -51,7 +52,11 @@ func (s *Server) SaveWorld() error {
 				return
 			}
 			if s.WorldDir != "" {
-				err = s.saveWorldDir()
+				if native = s.pendingNativeWorldSaveOwned(); native != nil {
+					return
+				}
+				native, err = s.startNativeWorldSaveOwned()
+				admitted = err == nil
 				return
 			}
 			if job = s.pendingCompactWorldSaveOwned(); job != nil {
@@ -60,7 +65,18 @@ func (s *Server) SaveWorld() error {
 			job, err = s.startCompactWorldSaveOwned()
 			admitted = err == nil
 		})
-		if err != nil || job == nil {
+		if err != nil {
+			return err
+		}
+		if native != nil {
+			<-native.done
+			if admitted {
+				s.simulationAction(func() { s.recordNativeSaveOwned(native) })
+				return native.err
+			}
+			continue
+		}
+		if job == nil {
 			return err
 		}
 		// A busy caller waits without ownership or a reserved snapshot. Retry
@@ -73,8 +89,8 @@ func (s *Server) SaveWorld() error {
 	}
 }
 
-// saveWorldOwned preserves synchronous command completion. Compact commands
-// join any earlier submitted write before capturing their own ordered save.
+// saveWorldOwned preserves synchronous command completion. Commands join any
+// earlier submitted write before capturing their own ordered save.
 // Waiting here still pauses gameplay; workers must never need the owner to
 // complete. Public SaveWorld waits outside ownership instead.
 func (s *Server) saveWorldOwned() error {
@@ -136,51 +152,19 @@ func (s *Server) loadWorld() error {
 	return nil
 }
 
-// saveWorldDir writes a vanilla-format world: level.dat and the
-// SavedData files that describe it, then each dimension's chunks under
-// dimensions/<namespace>/<path>/region, each chunk carrying the block
-// entities that sit in it - a chest's contents, a sign's text, a
-// furnace's burn - so a saved chest comes back full.
+// saveWorldDir is the owned native-save fence for commands. It joins an
+// earlier detached writer before capturing its own cut and waits for completion
+// without releasing gameplay ownership. Public SaveWorld uses the same writer
+// but waits outside ownership.
 func (s *Server) saveWorldDir() error {
-	sx, sy, sz := s.WorldSpawn()
-	rules := map[string]string{}
-	s.rulesMu.RLock()
-	for k, v := range s.gameRules {
-		rules[k] = v
-	}
-	difficulty := s.difficulty
-	s.rulesMu.RUnlock()
-	if err := world.WriteLevel(world.LevelData{
-		Dir:                s.WorldDir,
-		LevelName:          s.levelName(),
-		GameType:           int32(s.GameMode),
-		Difficulty:         difficultyName(difficulty),
-		Seed:               s.WorldSeed,
-		GenerateStructures: s.GenerateStructures,
-		GameTime:           s.gameTime(),
-		DayTime:            s.dayTime(),
-		Spawn:              [3]int{floor(sx), floor(sy), floor(sz)},
-		GameRules:          rules,
-	}); err != nil {
+	s.waitNativeWorldSaveOwned()
+	job, err := s.startNativeWorldSaveOwned()
+	if err != nil {
 		return err
 	}
-	for name, d := range s.dims {
-		d := d
-		if err := d.w.SaveDimension(s.WorldDir, name, d.minY, d.height, func(cx, cz int) []map[string]any {
-			return s.chunkBlockEntities(d, cx, cz)
-		}, func(cx, cz int) *world.ChunkLight {
-			return d.savedLight(cx, cz)
-		}); err != nil {
-			return err
-		}
-		if err := s.saveEntityRegions(d); err != nil {
-			return err
-		}
-	}
-	// Player files land at players/data/<uuid>.dat like vanilla's
-	// PlayerList.save on save-all.
-	s.savePlayerFiles()
-	return nil
+	<-job.done
+	s.recordNativeSaveOwned(job)
+	return job.err
 }
 
 // loadWorldDir reads a world in the real server's format: the level
@@ -388,15 +372,21 @@ func (s *Server) Shutdown(reason string) {
 	// join outside it before retiring world workers.
 	var save *compactWorldSaveJob
 	var dataSave *serverDataSaveJob
+	var nativeSave *nativeWorldSaveJob
 	s.simulationAction(func() {
 		save = s.compactSave
 		dataSave = s.dataSave
+		nativeSave = s.nativeSave
 	})
 	if save != nil {
 		<-save.done
 	}
 	if dataSave != nil {
 		<-dataSave.done
+	}
+	if nativeSave != nil {
+		<-nativeSave.done
+		s.simulationAction(func() { s.recordNativeSaveOwned(nativeSave) })
 	}
 	s.stopChunkEncoder()
 	for _, d := range s.dims {
