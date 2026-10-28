@@ -3,6 +3,7 @@ package server
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"mc-go/internal/world"
 )
@@ -27,17 +28,20 @@ import (
 // needed but matching vanilla's exact sequence is not required, and it
 // is seeded explicitly so a test can replay a run.
 type randState struct {
-	mu   sync.Mutex
-	seed uint64
+	seed atomic.Uint64
 }
 
-func newRandState(seed uint64) *randState { return &randState{seed: seed} }
+func newRandState(seed uint64) *randState {
+	r := &randState{}
+	r.seed.Store(seed)
+	return r
+}
 
+// next is one SplitMix64 step. The seed advances with a single atomic
+// add, so concurrent callers each get a distinct step without a lock —
+// the random-tick pass draws millions per tick at high tick speeds.
 func (r *randState) next() uint64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.seed += 0x9E3779B97F4A7C15
-	z := r.seed
+	z := r.seed.Add(0x9E3779B97F4A7C15)
 	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9
 	z = (z ^ (z >> 27)) * 0x94D049BB133111EB
 	return z ^ (z >> 31)
@@ -82,12 +86,12 @@ const (
 // no opaque blocks can never shade a crop column, so cropLit skips it
 // without a single block read.
 func (s *Server) sectionFlags(d *dimension, sec randSectionKey) uint8 {
-	s.randMu.Lock()
+	s.randMu.RLock()
 	if v, ok := s.randSections[sec]; ok {
-		s.randMu.Unlock()
+		s.randMu.RUnlock()
 		return v
 	}
-	s.randMu.Unlock()
+	s.randMu.RUnlock()
 
 	min := world.Pos{X: sec.x * 16, Y: d.minY + sec.y*16, Z: sec.z * 16}
 	max := world.Pos{X: min.X + 15, Y: min.Y + 15, Z: min.Z + 15}
@@ -139,9 +143,9 @@ func (s *Server) sectionHasRandomTicks(d *dimension, sec randSectionKey) bool {
 // pass therefore warms only randScanBudget cold sections per call and
 // treats the rest as untickable for that tick; they join on later ticks.
 func (s *Server) sectionFlagsWarm(sec randSectionKey) (uint8, bool) {
-	s.randMu.Lock()
+	s.randMu.RLock()
 	v, ok := s.randSections[sec]
-	s.randMu.Unlock()
+	s.randMu.RUnlock()
 	return v, ok
 }
 
@@ -184,6 +188,60 @@ func (s *Server) invalidateRandomTickSection(d *dimension, pos world.Pos) {
 	s.randMu.Unlock()
 }
 
+// opaqueTopKey names one block column of one dimension.
+type opaqueTopKey struct {
+	dim  string
+	x, z int
+}
+
+// opaqueTopEntry is one cached column answer and the column's write
+// version it was computed at.
+type opaqueTopEntry struct {
+	top int
+	ver uint32
+}
+
+// opaqueTop is the highest Y in column (x, z) holding a block that is
+// neither air nor light-passable, or minY-1 when there is none — what
+// cropLit's upward walk is looking for. The answer is cached per column
+// and trusted only while the world reports no write to that column since
+// (every write path bumps the column's version), so raw SetBlock callers
+// need no hook.
+func (s *Server) opaqueTop(d *dimension, x, z int) int {
+	key := opaqueTopKey{dim: d.name, x: x, z: z}
+	ver := d.w.ColumnVersion(x, z)
+	s.randMu.RLock()
+	e, ok := s.opaqueTops[key]
+	s.randMu.RUnlock()
+	if ok && e.ver == ver {
+		return e.top
+	}
+	// A miss reads the whole column in one shard pass rather than
+	// trusting per-section flags, which raw world writes do not refresh.
+	t := d.minY - 1
+	col := make([]world.Block, d.height)
+	d.w.FillBox(world.Pos{X: x, Y: d.minY, Z: z}, world.Pos{X: x, Y: d.minY + d.height - 1, Z: z}, col)
+	for i := len(col) - 1; i >= 0; i-- {
+		if col[i] == world.Air {
+			continue
+		}
+		if name, _ := world.StateOwner(col[i]); lightPassable[name] {
+			continue
+		}
+		t = d.minY + i
+		break
+	}
+	if s.randSections != nil {
+		s.randMu.Lock()
+		if s.opaqueTops == nil {
+			s.opaqueTops = map[opaqueTopKey]opaqueTopEntry{}
+		}
+		s.opaqueTops[key] = opaqueTopEntry{top: t, ver: ver}
+		s.randMu.Unlock()
+	}
+	return t
+}
+
 func floorDiv(a, b int) int {
 	q := a / b
 	if a%b != 0 && (a < 0) != (b < 0) {
@@ -211,21 +269,17 @@ func (s *Server) randomTickStep() {
 	}
 }
 
-// randomTickTargets collects the chunks in d that are close enough to a
-// player to be simulated.
+// randomTickTargets collects the chunks in d that run block ticks: the
+// rings of simulation distance + 1 around players' ticket chunks.
 func (s *Server) randomTickTargets(d *dimension) map[[2]int]bool {
-	sim := s.SimulationDistance
-	if sim <= 0 {
-		sim = 10
-	}
+	sim := s.simulationDistance() + 1
 	out := map[[2]int]bool{}
 	s.sessions.Range(func(_, v any) bool {
 		sess, ok := v.(*Session)
 		if !ok || sess.state.Load() != StatePlay || sess.dimName() != d.name {
 			return true
 		}
-		x, _, z, _, _, _ := sess.Pos()
-		ccx, ccz := int(x)>>4, int(z)>>4
+		ccx, ccz := sess.ticketChunk()
 		for dx := -sim; dx <= sim; dx++ {
 			for dz := -sim; dz <= sim; dz++ {
 				out[[2]int{ccx + dx, ccz + dz}] = true
@@ -245,6 +299,11 @@ func (s *Server) randomTickDimension(d *dimension, speed int) {
 	scans := randScanBudget
 	for ck := range chunks {
 		cx, cz := ck[0], ck[1]
+		// A column whose terrain is still being generated has not
+		// loaded yet: it does not tick.
+		if !d.terrainReady(cx, cz) {
+			continue
+		}
 		// tickChunk's iceandsnow pass: one 1/48 roll per speed unit
 		// picks a random column for freeze/snow-accumulate.
 		for i := 0; i < speed; i++ {

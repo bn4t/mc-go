@@ -131,6 +131,12 @@ var (
 // spectator abilities make the player invulnerable to everything except
 // the bypasses_invulnerability damage types (void, /kill).
 func sessInvulnerableTo(sess *Session, typeName string) bool {
+	// ServerPlayer.isInvulnerableTo: nothing hurts a player whose client
+	// has not reported its terrain loaded (or run out the grace) — not
+	// even /kill.
+	if sess.server != nil && !sess.interactionsOpen(sess.server.TickCount()) {
+		return true
+	}
 	m := sess.mode()
 	if m != GameModeCreative && m != GameModeSpectator {
 		// Non-creative invulnerability also comes from equipment —

@@ -365,7 +365,9 @@ func (s *Server) scheduledTickStep() {
 	if s.ticks == nil {
 		return
 	}
-	due := s.ticks.poll(s.TickCount())
+	due := s.ticks.pollTicking(s.TickCount(), func(k schedKey) bool {
+		return s.chunkBlockTicking(s.dims[k.dim], k.pos.X>>4, k.pos.Z>>4)
+	})
 	for _, k := range due {
 		d := s.dims[k.dim]
 		if d == nil {

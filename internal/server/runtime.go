@@ -24,6 +24,9 @@ func (s *Server) Start() error {
 	if s.runtimeStarted {
 		return nil
 	}
+	if err := s.applyLevelType(); err != nil {
+		return err
+	}
 	if err := s.LoadWorld(); err != nil {
 		return err
 	}

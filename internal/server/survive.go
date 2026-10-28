@@ -710,15 +710,34 @@ func torchCanSurvive(_ *Server, d *dimension, pos world.Pos, _ world.Block) bool
 	return !world.NonSolid(d.w.GetBlock(posBelow(pos, 1)))
 }
 
-// snowLayerCanSurvive is SnowLayerBlock.canSurvive: a full-height
-// support below, or a full eight-layer snow block.
+// snowLayerCanSurvive is SnowLayerBlock.canSurvive: never on the
+// #cannot_support_snow_layer blocks, always on the
+// #support_override_snow_layer ones, otherwise on a support whose
+// collision shape covers its whole top face (the measured table) or on
+// a full eight-layer snow block, whose own shape stops short of the top.
 func snowLayerCanSurvive(_ *Server, d *dimension, pos world.Pos, _ world.Block) bool {
 	below := d.w.GetBlock(posBelow(pos, 1))
-	if isBlockNamed(below, "snow") {
+	name, _ := world.StateOwner(below)
+	switch {
+	case blockTagHas("cannot_support_snow_layer", name):
+		return false
+	case blockTagHas("support_override_snow_layer", name):
+		return true
+	case name == "snow":
 		layers, _ := intProp(below, "layers")
-		return layers == 8
+		return layers == 8 || topFaceFull(below)
 	}
-	return !world.NonSolid(below)
+	return topFaceFull(below)
+}
+
+// topFaceFull is Block.isFaceFull(collision shape, UP) for a state,
+// read from the table tools/genblockfaces measured on the real server.
+func topFaceFull(b world.Block) bool {
+	id := int(b)
+	if id < 0 || id >= blockStateCount {
+		return false
+	}
+	return topFaceFullBits[id/64]&(1<<(id%64)) != 0
 }
 
 // diodeUpdateShape is the diode family's updateShape: a change

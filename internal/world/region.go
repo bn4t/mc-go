@@ -97,7 +97,7 @@ func packIndices(idx []int32, bpe int) []int64 {
 // at section index sy (block Y = minY + sy*16), reading blocks out of
 // the chunk's column array in the YZX order the data array uses.
 // Vanilla omits the data array when a section is single-palette.
-func sectionNBT(blocks []Block, minY, sy int, biome string, lights *ChunkLight) map[string]any {
+func sectionNBT(blocks []Block, minY, sy int, biomes *[64]string, lights *ChunkLight) map[string]any {
 	y0 := minY + sy*16
 	palette := []Block{}
 	palIdx := map[Block]int{}
@@ -156,9 +156,7 @@ func sectionNBT(blocks []Block, minY, sy int, biome string, lights *ChunkLight) 
 		// by sixteen - so the overworld's lowest section is -4, not 0.
 		"Y":              int8(y0 >> 4),
 		chunkBlockStates: states,
-		"biomes": map[string]any{
-			"palette": nbt.List{Elem: nbt.TagString, Items: []any{biome}},
-		},
+		"biomes":         biomesNBT(biomes),
 	}
 	// SkyLight/BlockLight are absent where the layer never
 	// materialized, a 2048-byte nibble array where it exists - the
@@ -172,6 +170,33 @@ func sectionNBT(blocks []Block, minY, sy int, biome string, lights *ChunkLight) 
 		}
 	}
 	return sec
+}
+
+// biomesNBT is a section's biome container: a palette, and when it holds
+// more than one biome the quart indices packed at the palette's bit
+// width (x fastest, then z, then y, as the container orders them).
+func biomesNBT(biomes *[64]string) map[string]any {
+	var palette []any
+	at := map[string]int32{}
+	idx := make([]int32, 64)
+	for i, b := range biomes {
+		pi, ok := at[b]
+		if !ok {
+			pi = int32(len(palette))
+			at[b] = pi
+			palette = append(palette, b)
+		}
+		idx[i] = pi
+	}
+	out := map[string]any{"palette": nbt.List{Elem: nbt.TagString, Items: palette}}
+	if len(palette) > 1 {
+		bits := 1
+		for 1<<bits < len(palette) {
+			bits++
+		}
+		out["data"] = packIndices(idx, bits)
+	}
+	return out
 }
 
 // ChunkLight is one chunk's saved light: Sky and Block map 0-based
@@ -228,7 +253,6 @@ func chunkNBT(w *World, cx, cz, minY, height int, blockEntities func(cx, cz int)
 		Pos{X: cx*16 + 15, Y: minY + height - 1, Z: cz*16 + 15},
 		blocks,
 	)
-	biome := w.biomeName()
 	var light *ChunkLight
 	if lights != nil {
 		light = lights(int(cx), int(cz))
@@ -236,7 +260,12 @@ func chunkNBT(w *World, cx, cz, minY, height int, blockEntities func(cx, cz int)
 	sections := nbt.List{Elem: nbt.TagCompound}
 	post := nbt.List{Elem: nbt.TagList}
 	for sy := 0; sy < height/16; sy++ {
-		sections.Items = append(sections.Items, sectionNBT(blocks, minY, sy, biome, light))
+		var biomes [64]string
+		for i := range biomes {
+			qx, qz, qy := i&3, (i>>2)&3, i>>4
+			biomes[i] = w.QuartBiome(cx*4+qx, (minY>>2)+sy*4+qy, cz*4+qz)
+		}
+		sections.Items = append(sections.Items, sectionNBT(blocks, minY, sy, &biomes, light))
 		post.Items = append(post.Items, nbt.List{Elem: nbt.TagString})
 	}
 	be := nbt.List{Elem: nbt.TagCompound}

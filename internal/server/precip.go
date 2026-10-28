@@ -14,9 +14,9 @@ import (
 //     cell below it freezes to ice when the biome freezes, and snow
 //     forms/piles at the top cell when it is raining, the biome snows,
 //     and max_snow_accumulation_height allows it.
-//   - Existing snow piles until layers reach min(maxAcc, 8); an empty
-//     top cell takes the snow default; anything else there is
-//     overwritten (vanilla writes unconditionally).
+//   - Snow only lands where Biome.shouldSnow allows (see shouldSnow);
+//     existing snow piles until layers reach min(maxAcc, 8) and an
+//     empty top cell takes the snow default.
 //
 // mc-go models one biome per dimension, so the biome checks collapse to
 // a lookup. The fluid-in-heightmap rule means a water cell can freeze
@@ -42,7 +42,7 @@ func (s *Server) tickPrecipitation(d *dimension, cx, cz int) {
 		return
 	}
 	maxAcc := s.gameRuleInt("minecraft:max_snow_accumulation_height")
-	if maxAcc > 0 && biomeSnows(s.biomeAt(d, pos2), pos2.Y, int(d.seaLevel)) {
+	if maxAcc > 0 && s.shouldSnow(d, pos2) {
 		cur := d.w.GetBlock(pos2)
 		if name, _ := world.StateOwner(cur); name == "snow" {
 			layers, _ := intProp(cur, "layers")
@@ -59,6 +59,26 @@ func (s *Server) tickPrecipitation(d *dimension, cx, cz int) {
 	// The cauldron leg acts on the surface cell itself: any biome with
 	// precipitation rolls to fill a cauldron exposed there.
 	s.cauldronPrecipitation(d, pos1)
+}
+
+// shouldSnow is Biome.shouldSnow: snow falls at pos only where the
+// biome snows at that height, inside the build height, under block light
+// 10, into air or existing snow, and where a snow layer can survive — so
+// a cauldron's hollow top or a torch-lit spot stays clear.
+func (s *Server) shouldSnow(d *dimension, pos world.Pos) bool {
+	if !biomeSnows(s.biomeAt(d, pos), pos.Y, int(d.seaLevel)) {
+		return false
+	}
+	if pos.Y < d.minY || pos.Y >= d.minY+d.height || int(d.blockLight[pos]) >= 10 {
+		return false
+	}
+	cur := d.w.GetBlock(pos)
+	switch name, _ := world.StateOwner(cur); name {
+	case "air", "cave_air", "void_air", "snow":
+	default:
+		return false
+	}
+	return snowLayerCanSurvive(s, d, pos, cur)
 }
 
 // cauldronPrecipitation is the handlePrecipitation dispatch on the

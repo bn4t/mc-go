@@ -65,7 +65,10 @@ Mojang server over the wire.
       routers, biome sources, the noise and surface stages of chunk
       filling (aquifers, ore veins, surface rules), the carvers and the
       climate spawn search match vanilla block for block
-      (`internal/worldgen`); the server does not use it yet
+      (`internal/worldgen`); the server generates it under
+      `-level-type normal` (biomes on the wire and the world spawn
+      pinned: `TestNoiseBiomeParity`, `TestNoiseWorldSpawnParity`), with
+      no features or structures yet
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -108,7 +111,8 @@ Mojang server over the wire.
   with 8x coordinate scaling and auto-built return portals, Respawn
   field parity (dimension type, sea level, obfuscated seed, flat flag,
   cooldown, data-kept), per-dimension chunk/light encoding and entity
-  scoping
+  scoping; travel and respawn level-info bursts in vanilla's order
+  (`TestRespawnTravelBurstParity`)
 
 ### Entities
 - [~] Entity manager, spawn/remove/teleport
@@ -15900,3 +15904,133 @@ no flee; unsneak → flee). Green both legs.
   lakes, disks, geodes, dripstone, sculk, the nether and End features),
   survival rules for `would_survive`, structures, and running the
   features stage in the server's generator.
+
+## Slice — loaded radius, lock-free world reads and snow survival (2026-10-27)
+
+- **Measured:** wire observation and bytecode inspection on the 26.2
+  jar (unpacked SHA-256 `183c0499…823e8`, Temurin JDK 25.0.5+8).
+  `TestPrecipitationParity` failed every leg on mc-go at baseline
+  `2787e80`. Wire probes with `fillbiome` at growing chunk distances
+  (client view distance 2 and 8 against a view-distance-8 server) show
+  vanilla treats every column within Chebyshev distance 9 of a player as
+  loaded on both the axis and the diagonal, independent of the client's
+  requested distance (a tenth column is sometimes still loaded,
+  lingering); mc-go instead used its streamed window (radius 3 for a
+  view-distance-2 client, a cut circle at 8), so `fillbiome`, `clone`,
+  `loot` and `execute if` refused positions vanilla accepts. A
+  `/time query gametime` probe under `random_tick_speed 4096` showed
+  mc-go at about 0.4 ticks per second. `javap` of `Biome.shouldSnow`
+  and `SnowLayerBlock.canSurvive`: snow needs snowy precipitation, build
+  height, block light under 10, an air or snow target, and a support
+  outside `#cannot_support_snow_layer` that is in
+  `#support_override_snow_layer`, has a full collision top face, or is
+  eight-layer snow. A new runtime-reflection probe
+  (`tools/genblockfaces/FaceProbe.java`, SHA-256 `8520deab…cdd3`)
+  asks the official server for every state's `Block.isFaceFull(collision
+  shape, UP)` — 6359 of 32366 states — without decompiling anything.
+- **Implemented:** command loaded checks (`chunkLoaded`,
+  `blockPosLoaded`) use the measured player radius. `internal/world`
+  shards are RWMutex-guarded maps instead of channel actors, so reads
+  are plain lookups (no allocation or goroutine handoff), writes are
+  synchronous, and a per-column write version lets callers validate
+  derived facts against every write path; a stopped world still serves
+  its overrides (the old stopped-shard FillBox fallback returned bare
+  generator blocks). The random-tick RNG is a lock-free SplitMix64, the
+  section-flag cache uses a read lock, and `cropLit` reads a per-column
+  opaque top cached against the column's write version (an exact
+  single-pass column read on a miss) instead of walking 24 section
+  lookups per grass tick. Precipitation snow follows `shouldSnow`, and
+  `snowLayerCanSurvive` (also used by snow-layer support checks) follows
+  the tags and the generated `blockfaces_gen.go` table. Under the same
+  probe mc-go now runs roughly 5–6 ticks per second at speed 4096.
+- **Pinned:** `TestPrecipitationParity` passes every leg against the real
+  jar (ice, snow landing and piling to 8, powder-snow and rain cauldron
+  fills, controls, biome override). Unit tests cover the measured
+  face table, snow supports, the column cache across raw writes and the
+  loaded radius.
+- **Remaining:** high random-tick speeds are still several times slower
+  than vanilla; cached section flags are still only refreshed by the two
+  hooked write paths (raw `SetBlock` callers leave them stale until the
+  next hooked write); mc-go keeps no lingering loaded chunks beyond the
+  radius and no startup spawn area.
+
+## Slice — chunk tickets: loaded and ticking rings, client-loaded gate (2026-10-27)
+
+- **Measured:** wire observation and bytecode inspection on the 26.2 jar
+  (unpacked SHA-256 `183c0499…823e8`, Temurin JDK 25.0.5+8). Redstone
+  and dispenser probes at growing Chebyshev chunk distances against a
+  view-distance-8, simulation-distance-10 server: a dispenser powered 9
+  chunks from the player's ticket chunk fires, one 10 chunks out is
+  loaded but idle. After `/tp` with no accepted movement packet the
+  rings stay on the old chunk (dispensers there stay loaded through 10
+  and fire through 9), and the next accepted move re-centres them.
+  `javap` of `ServerGamePacketListenerImpl` and `ServerPlayer`: player
+  and vehicle moves are dropped, and the player cannot be hurt (not even
+  by `/kill`, which still reports success), until the client reports its
+  terrain loaded or the load grace runs out; a respawn re-arms the gate.
+- **Implemented:** each session keeps the chunk its tickets sit on,
+  placed on join, respawn and dimension travel and moved by accepted
+  player and vehicle moves only. Loaded checks use view distance + 2
+  around it; random ticks, precipitation and scheduled block and fluid
+  ticks run within simulation distance + 1 (scheduled ticks in a
+  non-ticking chunk stay queued at their due tick); mob ticking measures
+  its simulation range from the same chunk. The client-loaded gate
+  covers movement, vehicle movement and damage.
+- **Pinned:** unit tests for the rings around a ticket left behind by a
+  teleport and re-centred by an accepted move; `TestPrecipitationParity`,
+  `TestDispenserDropperParity`, `TestCropGrowthParity` and the dimension
+  and respawn pins against the real jar.
+- **Remaining:** no lingering ticket levels after a player leaves a
+  ring, no forced or portal tickets, and entity ticking still uses the
+  simulation distance without vanilla's level propagation.
+
+## Slice — level-info bursts on respawn and dimension travel (2026-10-27)
+
+- **Measured:** wire observation against the 26.2 jar: the ordered
+  packet kinds from Respawn to the first chunk for a nether teleport, a
+  death respawn back into the overworld and a same-dimension respawn;
+  `javap` of `PlayerList.respawn`, `PlayerList.sendLevelInfo` and
+  `ServerPlayer`'s teleport to another level for the order. Travel sends
+  Respawn, difficulty, permission level, position, abilities, the level
+  info (border, time, default spawn, weather, the chunk-wait game event,
+  tick state), inventory, held slot and active effects. A death respawn
+  sends Respawn, position, default spawn, difficulty, experience,
+  effects, the level info, permission level and inventory, and the next
+  tick resends health and experience. A kill right after a respawn does
+  nothing.
+- **Implemented:** a shared `sendLevelInfo` used by join, travel and
+  respawn; travel and respawn bursts in the measured orders; active
+  effects re-announced in effect-id order (vanilla iterates a hash map,
+  so the order is not part of the contract); effects cleared on death
+  respawn; the client-loaded gate re-armed by respawn. Without the
+  chunk-wait event, a real client keeps its loading screen up after the
+  level resets.
+- **Pinned:** `TestRespawnTravelBurstParity` (new, three phases, both
+  servers), with `TestDimensionRespawnParity`, `TestDimHopParity` and
+  `TestSurvivalDeathRespawnPackets` still green.
+- **Remaining:** the order of several active effects is not compared.
+
+## Slice — server noise terrain: level type normal, biomes on the wire and the world spawn (2026-10-27)
+
+- **Measured:** wire observation against the 26.2 jar started with
+  `level-type=minecraft:normal`, `generate-structures=false` and seed
+  12345: the biome container of every section of every chunk a joining
+  client receives in the overworld, after `execute in the_nether` and in
+  the End's outer islands; Set Default Spawn Position for seeds 12345
+  and 1. `javap` of the server's initial-spawn setup for the fallback
+  height and the chunk spiral (121 steps, within five chunks of the
+  climate search's chunk, first column a player can respawn on).
+- **Implemented:** `-level-type normal` (`Server.LevelType`) gives the
+  overworld, nether and End their `internal/worldgen` generators through
+  `world.NoiseTerrain`. Terrain is generated off the simulation owner,
+  and a column streams once its terrain is ready. Chunk data carries
+  per-quart biomes (a biome palette switches to global ids above 3
+  bits), and `/fillbiome` overrides now ship in the chunk palette. The
+  overworld spawn follows the climate search and the spiral. The flat
+  default is unchanged.
+- **Pinned:** `TestNoiseBiomeParity` and `TestNoiseWorldSpawnParity`
+  (new, both servers); `TestNormalLevelTypeGeneratesNetherAndEnd` and
+  the chunk projection unit tests.
+- **Remaining:** the server runs no features or structures yet; joins
+  land on the world spawn without the respawn-radius scatter; generated
+  terrain is not saved as generated chunks.

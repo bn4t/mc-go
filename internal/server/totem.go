@@ -10,6 +10,7 @@ package server
 
 import (
 	"math"
+	"slices"
 
 	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
@@ -497,6 +498,27 @@ func mobEffectFlags(hideParticles bool) byte {
 		flags &^= 0x02
 	}
 	return flags
+}
+
+// sendActiveEffects is PlayerList.sendActivePlayerEffects: one Update
+// Mob Effect per active effect, as travel and respawn re-announce them
+// to the client's fresh level. Vanilla walks a hash map, so the order is
+// not part of the contract; mc-go sends them by effect id.
+func (s *Server) sendActiveEffects(sess *Session) {
+	sess.effMu.Lock()
+	ids := make([]int32, 0, len(sess.effects))
+	for id := range sess.effects {
+		ids = append(ids, id)
+	}
+	insts := make(map[int32]mobEffectInst, len(ids))
+	for _, id := range ids {
+		insts[id] = sess.effects[id]
+	}
+	sess.effMu.Unlock()
+	slices.Sort(ids)
+	for _, id := range ids {
+		s.sendMobEffectUpdate(sess, id, insts[id])
+	}
 }
 
 // sendMobEffectUpdate emits one Update Mob Effect for the live

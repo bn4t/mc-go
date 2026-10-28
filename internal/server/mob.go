@@ -5800,9 +5800,10 @@ func (s *Server) mobInSimulationRange(e *Entity) bool {
 		if p.dimName() != e.Dim {
 			return true
 		}
-		px, _, pz, _, _, _ := p.Pos()
-		dx := math.Abs(math.Floor(e.X/16) - math.Floor(px/16))
-		dz := math.Abs(math.Floor(e.Z/16) - math.Floor(pz/16))
+		// Entity-ticking tickets sit on the player's ticket chunk.
+		tx, tz := p.ticketChunk()
+		dx := math.Abs(math.Floor(e.X/16) - float64(tx))
+		dz := math.Abs(math.Floor(e.Z/16) - float64(tz))
 		if int(math.Max(dx, dz)) <= limit {
 			inRange = true
 			return false

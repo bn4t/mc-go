@@ -71,6 +71,7 @@ func (s *Server) joinPlayOwned(sess *Session) bool {
 	// position, entity record, and teleport all follow the restored
 	// coordinates, not the world spawn.
 	x, y, z, _, _, _ = sess.Pos()
+	sess.placeTicket()
 	sess.setEntityID(s.entities.Spawn(&Entity{
 		UUID: sess.getUUID(), Type: mustEntityType("player"),
 		Dim: sess.dimName(),
@@ -130,25 +131,7 @@ func (s *Server) joinPlayOwned(sess *Session) bool {
 	if err := s.sendPlayerInfoTo(sess); err != nil {
 		return false
 	}
-	if err := s.sendInitializeBorder(sess); err != nil {
-		return false
-	}
-	if err := s.sendUpdateTime(sess); err != nil {
-		return false
-	}
-	if err := s.sendDefaultSpawn(sess); err != nil {
-		return false
-	}
-	if err := s.sendLevelWeather(sess, sess.dimName()); err != nil {
-		return false
-	}
-	if err := s.sendGameEvent(sess, 13, 0); err != nil {
-		return false
-	}
-	if err := s.sendTickingState(sess); err != nil {
-		return false
-	}
-	if err := s.sendTickingStep(sess, 0); err != nil {
+	if err := s.sendLevelInfo(sess, sess.dimName()); err != nil {
 		return false
 	}
 	// The chunk-cache center the client culls render distance around,
@@ -229,6 +212,12 @@ type PlayerMove = event.PlayerMove
 // floats, outside the world border) are dropped without touching
 // state; speed enforcement lands with the physics milestone.
 func (s *Server) handleMove(sess *Session, p protocol.Packet) {
+	// handleMovePlayer drops every move until the client reports its
+	// terrain loaded (or the grace runs out): position, rotation and the
+	// chunk tickets all stay where they were.
+	if !sess.interactionsOpen(s.TickCount()) {
+		return
+	}
 	ids := sess.ids()
 	r := protocol.NewPacketReader(p.Data)
 	x, y, z, yaw, pitch, _ := sess.Pos()
@@ -304,8 +293,9 @@ func (s *Server) finishJavaPlayerMoveOwned(sess *Session, from, move frontend.Mo
 	// the ignite and the four-damage hit).
 	s.playerInsideBlocks(sess)
 	// ChunkMap.updatePlayerPos: a position packet re-evaluates the
-	// entity map against this player.
+	// entity map against this player and moves its chunk tickets.
 	s.retrackSession(sess)
+	sess.placeTicket()
 	// location_changed fires on a real position change — a same-pos
 	// resend does not retrigger frost walker (measured).
 	if x != ox || y != oy || z != oz {

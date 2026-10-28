@@ -354,37 +354,7 @@ func (s *Server) cropLit(d *dimension, pos world.Pos) bool {
 	if !d.skylight {
 		return false
 	}
-	top := d.minY + d.height
-	for y := pos.Y + 1; y < top; {
-		// Whole sections that hold nothing opaque skip without a read;
-		// the flag comes from the same cached scan the tickable check
-		// uses, so the walk is short except where buildings exist.
-		sy := floorDiv(y-d.minY, 16)
-		if s.sectionFlags(d, randSectionKey{
-			dim: d.name,
-			x:   floorDiv(pos.X, 16),
-			y:   sy,
-			z:   floorDiv(pos.Z, 16),
-		})&secOpaque == 0 {
-			y = d.minY + (sy+1)*16
-			continue
-		}
-		end := d.minY + (sy+1)*16
-		if end > top {
-			end = top
-		}
-		for ; y < end; y++ {
-			nb := s.rtBlock(d, world.Pos{X: pos.X, Y: y, Z: pos.Z})
-			if nb == world.Air {
-				continue
-			}
-			if name, _ := world.StateOwner(nb); lightPassable[name] {
-				continue
-			}
-			return false
-		}
-	}
-	return true
+	return s.opaqueTop(d, pos.X, pos.Z) <= pos.Y
 }
 
 // turfRule is SpreadingSnowyBlock.randomTick (grass_block, mycelium):

@@ -279,6 +279,31 @@ func (s *Server) sendDefaultSpawn(sess *Session) error {
 	return sess.write(sess.ids().PlayDefaultSpawn, b.Bytes())
 }
 
+// sendLevelInfo is PlayerList.sendLevelInfo, sent on join, respawn and
+// dimension travel: the world border, the clock sync, the default spawn,
+// the level's weather, the chunk-wait event and the tick-rate state.
+func (s *Server) sendLevelInfo(sess *Session, dim string) error {
+	if err := s.sendInitializeBorder(sess); err != nil {
+		return err
+	}
+	if err := s.sendUpdateTime(sess); err != nil {
+		return err
+	}
+	if err := s.sendDefaultSpawn(sess); err != nil {
+		return err
+	}
+	if err := s.sendLevelWeather(sess, dim); err != nil {
+		return err
+	}
+	if err := s.sendGameEvent(sess, 13, 0); err != nil {
+		return err
+	}
+	if err := s.sendTickingState(sess); err != nil {
+		return err
+	}
+	return s.sendTickingStep(sess, 0)
+}
+
 // sendGameEvent emits one game event; 13 starts the client's chunk
 // wait, which vanilla sends after clearing the level.
 func (s *Server) sendGameEvent(sess *Session, event byte, value float32) error {

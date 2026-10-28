@@ -876,6 +876,10 @@ func (s *Server) handleSetBeacon(sess *Session, p protocol.Packet) {
 // Only the first passenger on a client-controllable vehicle steers
 // (boats; saddled steerables).
 func (s *Server) handleMoveVehicle(sess *Session, p protocol.Packet) {
+	// Vehicle moves wait for the client-loaded gate like player moves.
+	if !sess.interactionsOpen(s.TickCount()) {
+		return
+	}
 	r := protocol.NewPacketReader(p.Data)
 	x, err := r.Double()
 	if err != nil {
@@ -952,6 +956,8 @@ func (s *Server) handleMoveVehicle(sess *Session, p protocol.Packet) {
 	ep.PosDirty = true
 	ep.NeedsSync = true
 	s.mobSyncFlush(ep)
+	// handleMoveVehicle ends by moving the driver's chunk tickets.
+	sess.placeTicketAt(x, z)
 }
 
 // vehicleClientDriven is vanilla's isClientControllableVehicle: boats

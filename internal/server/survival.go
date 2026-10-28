@@ -1174,6 +1174,11 @@ func (s *Server) dropInventory(sess *Session) {
 // dimensions.
 func (s *Server) respawnPlayer(sess *Session) {
 	sess.dead = false
+	// The respawned player waits for its client to report the new
+	// terrain loaded (or the grace) before moves and uses count again.
+	sess.rearmLoadGate(s.TickCount())
+	// The respawned ServerPlayer starts with no effects.
+	sess.effects = nil
 	s.closeWindow(sess)
 	sess.health = defaultHealth
 	sess.food = defaultFood
@@ -1215,29 +1220,50 @@ func (s *Server) respawnPlayer(sess *Session) {
 	}
 	if sess.dimension() != dest {
 		// Cross-dimension respawn: entity tracking, chunks, and
-		// dimension bookkeeping all run through changeDimension.
-		s.changeDimension(sess, dest, x, y, z, 0)
-		// changeDimension zeroes the view rotation; restore the spawn
-		// point's angles on the session side for selectors/tracking.
+		// dimension bookkeeping all run through moveToDimension, with
+		// the respawn burst rather than the travel one.
+		s.moveToDimension(sess, dest, x, y, z, 0, true)
+		// The move zeroes the view rotation; restore the spawn point's
+		// angles on the session side for selectors/tracking.
 		sess.setPos(x, y, z, spawnYaw, spawnPitch, false)
-		_ = s.sendContainerContent(sess)
 		return
 	}
 
 	_ = s.sendRespawn(sess, dest, 0, 0)
 
 	sess.setPos(x, y, z, yaw, spawnPitch, false)
+	sess.placeTicket()
 	sess.trackMu.Lock()
 	sess.trackedEnts = nil
 	sess.trackMu.Unlock()
 	_ = s.sendSyncPos(sess, x, y, z)
-	_ = s.sendLevelWeather(sess, dest.name)
-	_ = s.sendHealth(sess)
+	s.sendRespawnInfo(sess, dest.name)
 	_ = s.sendContainerContent(sess)
+	s.sendHealthAndExperience(sess)
 	sess.resetChunks()
 	scx, scz := int(x)>>4, int(z)>>4
 	s.sendCenterChunk(sess, scx, scz)
 	_ = s.sendWindow(sess, scx, scz)
+}
+
+// sendHealthAndExperience is the first tick after a level change: the
+// new player's last-sent health and experience are unset, so both go
+// out again.
+func (s *Server) sendHealthAndExperience(sess *Session) {
+	_ = s.sendHealth(sess)
+	_ = s.sendSetExperience(sess, sess.xpProgress, sess.xpLevel, sess.xpTotal)
+}
+
+// sendRespawnInfo is the stretch of PlayerList.respawn between the
+// teleport and the inventory: default spawn, difficulty, experience,
+// active effects, sendLevelInfo, then the permission level.
+func (s *Server) sendRespawnInfo(sess *Session, dim string) {
+	_ = s.sendDefaultSpawn(sess)
+	_ = s.sendDifficulty(sess)
+	_ = s.sendSetExperience(sess, sess.xpProgress, sess.xpLevel, sess.xpTotal)
+	s.sendActiveEffects(sess)
+	_ = s.sendLevelInfo(sess, dim)
+	_ = s.sendEntityEvent(sess, sess.entityID.Load(), opStatus(sess.opLevel()))
 }
 
 // handleClientStatus processes the client's Client Command packet.

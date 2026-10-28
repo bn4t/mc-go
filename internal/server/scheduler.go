@@ -88,6 +88,14 @@ func (t *tickScheduler) schedulePrio(k schedKey, at int64, prio int8) {
 // (which cannot happen through schedule, but can through a restored
 // save) are returned too.
 func (t *tickScheduler) poll(now int64) []schedKey {
+	return t.pollTicking(now, nil)
+}
+
+// pollTicking is poll for a level whose chunks do not all tick: an
+// entry whose position fails ticking stays queued at its due tick, as
+// vanilla's per-chunk tick containers wait until their chunk ticks
+// again. A nil ticking takes everything.
+func (t *tickScheduler) pollTicking(now int64, ticking func(schedKey) bool) []schedKey {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var keys []schedKey
@@ -95,8 +103,19 @@ func (t *tickScheduler) poll(now int64) []schedKey {
 		if at > now {
 			continue
 		}
-		keys = append(keys, list...)
-		delete(t.due, at)
+		var held []schedKey
+		for _, k := range list {
+			if ticking != nil && !ticking(k) {
+				held = append(held, k)
+				continue
+			}
+			keys = append(keys, k)
+		}
+		if len(held) > 0 {
+			t.due[at] = held
+		} else {
+			delete(t.due, at)
+		}
 	}
 	if len(keys) == 0 {
 		return nil

@@ -160,28 +160,15 @@ func (w *World) ReadBlocks(positions []Pos, out []Block) {
 		sh := w.shardFor(pos.X, pos.Z)
 		byShard[sh] = append(byShard[sh], i)
 	}
-	var wg sync.WaitGroup
 	for sh, indices := range byShard {
-		wg.Add(1)
-		go func(sh *shard, indices []int) {
-			defer wg.Done()
-			requested := make([]Pos, len(indices))
-			for i, index := range indices {
-				requested[i] = positions[index]
-			}
-			response := make(chan []Block, 1)
-			select {
-			case sh.ops <- shardOp{positions: requested, blocksResp: response}:
-				blocks := <-response
-				for i, index := range indices {
-					out[index] = blocks[i]
-				}
-			case <-sh.done:
-				for _, index := range indices {
-					out[index] = sh.get(positions[index])
-				}
-			}
-		}(sh, indices)
+		requested := make([]Pos, len(indices))
+		for i, index := range indices {
+			requested[i] = positions[index]
+		}
+		blocks := make([]Block, len(indices))
+		sh.readPositions(requested, blocks)
+		for i, index := range indices {
+			out[index] = blocks[i]
+		}
 	}
-	wg.Wait()
 }

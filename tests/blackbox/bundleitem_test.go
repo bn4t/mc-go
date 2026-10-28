@@ -193,7 +193,6 @@ func selectBundleItem(t *testing.T, pw *protocol.Writer, slot, idx int32) {
 	}
 }
 
-
 // TestContainerItemSpillParity pins ItemStack.onDestroyed for item
 // entities lava burns away: a bundle (BundleItem) and a shulker box
 // (BlockItem's container branch) each spill every stored stack as a

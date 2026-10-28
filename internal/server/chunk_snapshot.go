@@ -15,7 +15,7 @@ type chunkSnapshot struct {
 	cx, cz        int
 	height        int
 	minY          int
-	biome         int32
+	biomes        []int32 // per section, 64 quarts x-fastest then z then y
 	states        []world.Block
 	blockEntities []chunkSnapshotBlockEntity
 	light         []byte
@@ -69,10 +69,21 @@ func captureProjectedChunkSnapshot(d *dimension, cx, cz int, blockEntities []cli
 		}
 		snapshot.bedStates = legacyBedStates()
 	}
-	snapshot.biome = profile.registryEntryID("minecraft:worldgen/biome", d.biome)
-	if snapshot.biome < 0 {
-		snapshot.projectionErr = fmt.Errorf("Java protocol %d has no biome %q", profile.version.Protocol, d.biome)
-		return snapshot
+	snapshot.biomes = make([]int32, d.height/16*64)
+	ids := map[string]int32{}
+	for i := range snapshot.biomes {
+		sy, q := i/64, i%64
+		name := d.quartBiome(cx*4+q&3, d.minY>>2+sy*4+q>>4, cz*4+(q>>2)&3)
+		id, ok := ids[name]
+		if !ok {
+			id = profile.registryEntryID("minecraft:worldgen/biome", name)
+			if id < 0 {
+				snapshot.projectionErr = fmt.Errorf("Java protocol %d has no biome %q", profile.version.Protocol, name)
+				return snapshot
+			}
+			ids[name] = id
+		}
+		snapshot.biomes[i] = id
 	}
 	snapshot.blockEntities = make([]chunkSnapshotBlockEntity, len(blockEntities))
 	for i, be := range blockEntities {
@@ -138,11 +149,12 @@ func encodeChunkSnapshot(snapshot *chunkSnapshot) ([]byte, error) {
 	}
 	var data protocol.Buffer
 	vals := make([]int32, 4096)
-	biomes := make([]int32, 64)
-	for i := range biomes {
-		biomes[i] = snapshot.biome
-	}
+	uniform := make([]int32, 64) // a snapshot without biomes is biome id 0
 	for sy := 0; sy < snapshot.height/16; sy++ {
+		biomes := uniform
+		if len(snapshot.biomes) >= (sy+1)*64 {
+			biomes = snapshot.biomes[sy*64 : (sy+1)*64]
+		}
 		var blockCount int16
 		for i, block := range snapshot.states[sy*4096 : (sy+1)*4096] {
 			wire, err := snapshot.mapping.Encode(block)

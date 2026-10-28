@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/md5"
+	"math"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -439,6 +440,17 @@ type Session struct {
 	// session entered play, where that grace is counted from.
 	loaded   atomic.Bool
 	joinTick atomic.Int64
+	// ticket is the chunk column the player's chunk tickets sit on, packed
+	// x<<32|z: what the real server keeps loaded (view distance + 2) and
+	// ticking (simulation distance + 1 for blocks, simulation distance for
+	// entities) around. It is placed when the player enters a level —
+	// join, respawn, dimension travel — and follows accepted movement
+	// packets; a server-side teleport alone leaves it behind. Measured on
+	// 26.2: after /tp with no accepted movement, dispensers stay loaded
+	// through 10 chunks and fire through 9 from the old centre, and after
+	// an accepted move the rings re-centre on the new chunk.
+	ticket    atomic.Uint64
+	ticketSet atomic.Bool
 	// sleeping/sleepTicks are the bed state: sleeping is set by a bed
 	// click inside the sleep window; GameTick increments sleepTicks and
 	// skips the night once everyone has been under 100 ticks.
@@ -519,6 +531,39 @@ type sendPkt struct {
 // seconds, which is 60 ticks. A real client reports its terrain loaded
 // well inside that, which is why the gate is invisible in normal play.
 const loadedGraceTicks = 60
+
+// placeTicket moves the player's chunk tickets to the chunk they stand in.
+func (sess *Session) placeTicket() {
+	x, _, z, _, _, _ := sess.Pos()
+	sess.placeTicketAt(x, z)
+}
+
+// placeTicketAt moves the player's chunk tickets to the chunk holding
+// (x, z) — a ridden vehicle's position after an accepted vehicle move.
+func (sess *Session) placeTicketAt(x, z float64) {
+	cx, cz := int32(int(math.Floor(x))>>4), int32(int(math.Floor(z))>>4)
+	sess.ticket.Store(uint64(uint32(cx))<<32 | uint64(uint32(cz)))
+	sess.ticketSet.Store(true)
+}
+
+// ticketChunk is the chunk the player's tickets sit on; a session that
+// never entered a level reads its current chunk.
+func (sess *Session) ticketChunk() (cx, cz int) {
+	if !sess.ticketSet.Load() {
+		x, _, z, _, _, _ := sess.Pos()
+		return int(math.Floor(x)) >> 4, int(math.Floor(z)) >> 4
+	}
+	v := sess.ticket.Load()
+	return int(int32(uint32(v >> 32))), int(int32(uint32(v)))
+}
+
+// rearmLoadGate closes the interaction and movement gate again, as a
+// respawn does: the client reports its new terrain loaded, or the grace
+// runs out, before its moves and uses count.
+func (sess *Session) rearmLoadGate(now int64) {
+	sess.loaded.Store(false)
+	sess.joinTick.Store(now)
+}
 
 // interactionsOpen reports whether this session's world interactions -
 // a use, a dig - are acted on yet. Until the client reports its terrain

@@ -374,16 +374,71 @@ func blockPosTriple(args []string, bx, by, bz, tokBase int) (c [9]int, r *reply)
 	return c, nil
 }
 
-// chunkLoaded reports whether any play session in d is tracking the
-// column (cx, cz) — mc-go's notion of a live chunk.
+// chunkLoaded reports whether the column (cx, cz) of d is loaded, which
+// is what Level.isLoaded asks: vanilla keeps every column within
+// Chebyshev distance view-distance+2 of a player's ticket chunk at full
+// status, whatever render distance that player's client asked for
+// (measured on 26.2 with setblock and fillbiome probes against a
+// view-distance 8 server: 10 chunks out either way from the ticket).
+// The client's streamed window plays no part.
 func (s *Server) chunkLoaded(d *dimension, cx, cz int) bool {
-	if d == nil {
-		return false
+	reach, ok := s.ticketReach(d, cx, cz, false)
+	return ok && reach <= s.ViewDistance+2
+}
+
+// chunkBlockTicking reports whether column (cx, cz) of d runs block
+// ticks — random ticks, precipitation and scheduled block and fluid
+// ticks: within simulation distance + 1 of a player's ticket chunk
+// (measured on 26.2: a dispenser 9 chunks from the ticket fires, one
+// 10 chunks out is loaded but idle). With no player in play at all —
+// unit-test worlds — nothing is gated.
+func (s *Server) chunkBlockTicking(d *dimension, cx, cz int) bool {
+	reach, ok := s.ticketReach(d, cx, cz, false)
+	if !ok {
+		return !s.anyPlayInPlay()
 	}
-	found := false
+	return reach <= s.simulationDistance()+1
+}
+
+// simulationDistance is the configured simulation distance (10 unset).
+func (s *Server) simulationDistance() int {
+	if s.SimulationDistance > 0 {
+		return s.SimulationDistance
+	}
+	return 10
+}
+
+// ticketReach is the Chebyshev chunk distance from (cx, cz) to the
+// nearest ticket chunk of a play-state player in d; ok is false when d
+// holds no such player. noSpectators leaves spectators out.
+func (s *Server) ticketReach(d *dimension, cx, cz int, noSpectators bool) (reach int, ok bool) {
+	if d == nil {
+		return 0, false
+	}
+	best := -1
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.state.Load() == StatePlay && sess.dimension() == d && sess.hasChunk(cx, cz) {
+		if sess.state.Load() != StatePlay || sess.dimension() != d {
+			return true
+		}
+		if noSpectators && sess.mode() == GameModeSpectator {
+			return true
+		}
+		tx, tz := sess.ticketChunk()
+		r := max(cx-tx, tx-cx, cz-tz, tz-cz)
+		if best < 0 || r < best {
+			best = r
+		}
+		return best != 0
+	})
+	return best, best >= 0
+}
+
+// anyPlayInPlay reports whether any session is in the play state.
+func (s *Server) anyPlayInPlay() bool {
+	found := false
+	s.sessions.Range(func(_, v any) bool {
+		if sess, ok := v.(*Session); ok && sess.state.Load() == StatePlay {
 			found = true
 			return false
 		}

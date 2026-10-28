@@ -14,11 +14,20 @@ import (
 // biomeAt resolves the gameplay biome at pos: a /fillbiome quart
 // override when one exists, else the dimension's base biome.
 func (s *Server) biomeAt(d *dimension, pos world.Pos) string {
-	key := [3]int{pos.X >> 2, pos.Y >> 2, pos.Z >> 2}
+	return d.quartBiome(pos.X>>2, pos.Y>>2, pos.Z>>2)
+}
+
+// quartBiome is the biome stored for quart (qx, qy, qz): a /fillbiome
+// override, else the generated biome, else the dimension's single biome.
+func (d *dimension) quartBiome(qx, qy, qz int) string {
 	d.biomesMu.RLock()
-	defer d.biomesMu.RUnlock()
-	if b, ok := d.biomes[key]; ok {
+	b, ok := d.biomes[[3]int{qx, qy, qz}]
+	d.biomesMu.RUnlock()
+	if ok {
 		return b
+	}
+	if d.terrain != nil {
+		return d.w.QuartBiome(qx, qy, qz)
 	}
 	return d.biome
 }
@@ -48,10 +57,12 @@ type dimension struct {
 	height            int
 	skylight          bool
 	biome             string
-	// biomes overrides the dimension's single biome at quart
-	// granularity (4x4x4 cells), written by /fillbiome — chunk encode
-	// still ships the base palette; gameplay reads go through
-	// s.biomeAt.
+	// terrain is the noise generator behind the world, nil for the flat
+	// and stand-in generators (whose terrain is always ready).
+	terrain *world.NoiseTerrain
+	// biomes overrides the dimension's biomes at quart granularity
+	// (4x4x4 cells), written by /fillbiome; chunk encode and gameplay
+	// reads both go through quartBiome.
 	biomes   map[[3]int]string
 	biomesMu sync.RWMutex
 	// ultraWarm marks a dimension type with the ultra_warm flag (the
@@ -311,6 +322,13 @@ func (s *Server) sendRespawn(sess *Session, d *dimension, portalCooldown int32, 
 // follows: the traveler despawns for the old dimension's residents and
 // spawns for the new one's.
 func (s *Server) changeDimension(sess *Session, dst *dimension, x, y, z float64, portalCooldown int32) {
+	s.moveToDimension(sess, dst, x, y, z, portalCooldown, false)
+}
+
+// moveToDimension is changeDimension with the burst chosen by cause:
+// travel follows ServerPlayer's teleport to another level, a death
+// respawn follows PlayerList.respawn (which also keeps no data).
+func (s *Server) moveToDimension(sess *Session, dst *dimension, x, y, z float64, portalCooldown int32, respawn bool) {
 	old := sess.dimension()
 	if old == dst {
 		s.teleportWithin(sess, x, y, z)
@@ -320,6 +338,7 @@ func (s *Server) changeDimension(sess *Session, dst *dimension, x, y, z float64,
 	from := old.name
 	sess.setDimension(dst)
 	sess.setPos(x, y, z, 0, 0, false)
+	sess.placeTicket()
 	s.fireChangedDimension(sess, from, dst.name)
 	s.entities.Update(eid, x, y, z, 0, 0, false)
 	s.entities.SetDimension(eid, dst.name)
@@ -336,12 +355,26 @@ func (s *Server) changeDimension(sess *Session, dst *dimension, x, y, z float64,
 	if portalCooldown < 0 {
 		portalCooldown = 10
 	}
-	_ = s.sendRespawn(sess, dst, portalCooldown, 3)
-	_ = s.sendSyncPos(sess, x, y, z)
-	// sendLevelInfo's weather part: the new client level starts dry,
-	// so a raining destination re-announces its rain.
-	_ = s.sendLevelWeather(sess, dst.name)
-	_ = s.sendHealth(sess)
+	if respawn {
+		_ = s.sendRespawn(sess, dst, portalCooldown, 0)
+		_ = s.sendSyncPos(sess, x, y, z)
+		s.sendRespawnInfo(sess, dst.name)
+		_ = s.sendContainerContent(sess)
+	} else {
+		// The teleport burst: Respawn, difficulty, permission level,
+		// position, abilities, sendLevelInfo, then sendAllPlayerInfo
+		// (inventory and held slot) and the active effects.
+		_ = s.sendRespawn(sess, dst, portalCooldown, 3)
+		_ = s.sendDifficulty(sess)
+		_ = s.sendEntityEvent(sess, eid, opStatus(sess.opLevel()))
+		_ = s.sendSyncPos(sess, x, y, z)
+		_ = s.sendAbilities(sess)
+		_ = s.sendLevelInfo(sess, dst.name)
+		_ = s.sendContainerContent(sess)
+		_ = s.sendSetHeldSlot(sess, sess.held.Load())
+		s.sendActiveEffects(sess)
+	}
+	s.sendHealthAndExperience(sess)
 
 	// Restream: drop the old window, center and fill the new one.
 	sess.resetChunks()

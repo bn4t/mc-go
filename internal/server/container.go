@@ -439,10 +439,10 @@ type containerData struct {
 	// (data.Recipes indexes filtered by the input item); stoneInput is
 	// the item id the list was built for — a different input item
 	// drops the selection. -1 means nothing selected / no input.
-	stoneSel     int32
-	stoneInput   int32
+	stoneSel      int32
+	stoneInput    int32
 	stoneProtocol int32
-	stoneRecipes []int
+	stoneRecipes  []int
 	// loomSel is the loom's selectedBannerPatternIndex DataSlot — the
 	// selected pattern index broadcast on Container Property 0, -1 when
 	// nothing is selected. loomPatterns is the selectable holder list

@@ -96,6 +96,9 @@ type Server struct {
 	// change the flat generator's terrain, but the real server keeps it
 	// and a mismatched seed is a world the two disagree about.
 	WorldSeed int64
+	// LevelType picks the overworld generator: "flat" (default) or
+	// "normal" for vanilla noise terrain from WorldSeed.
+	LevelType string
 
 	// LevelName is what level.dat calls the world; empty uses the
 	// world directory's base name, which is how vanilla names it.
@@ -307,7 +310,11 @@ type Server struct {
 	rng *randState
 	// randSections caches, per 16^3 section, whether it holds any block
 	// with a random-tick rule. randMu guards it.
-	randMu       sync.Mutex
+	randMu sync.RWMutex
+	// opaqueTops caches each block column's highest non-light-passable
+	// Y for cropLit, keyed to the column's world write version; randMu
+	// guards it.
+	opaqueTops   map[opaqueTopKey]opaqueTopEntry
 	randSections map[randSectionKey]uint8
 
 	// dirtyBlocks accumulates changed block positions per chunk

@@ -32,6 +32,11 @@ func (s *Server) runKill(player string, args []string) reply {
 	}
 	for _, d := range cands {
 		if d.sess != nil {
+			// /kill still reports success on a player who cannot be hurt
+			// yet (client still loading); nothing happens to them.
+			if !d.sess.interactionsOpen(s.TickCount()) {
+				continue
+			}
 			s.broadcastDamageEvent(d.sess.entityID.Load(), damageInfo{typeName: "generic_kill"})
 			s.killPlayer(d.sess, translatable("death.attack.genericKill", playerChatComponent(d.sess)))
 			continue

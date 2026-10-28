@@ -353,20 +353,7 @@ func (s *Server) blockPosLoaded(d *dimension, sess *Session, x, y, z int) bool {
 	if y < d.minY || y >= d.minY+d.height {
 		return false
 	}
-	if sess != nil && sess.state.Load() == StatePlay && sess.dimName() == d.name {
-		return sess.hasChunk(x>>4, z>>4)
-	}
-	loaded := false
-	s.sessions.Range(func(_, v any) bool {
-		other := v.(*Session)
-		if other.state.Load() == StatePlay && other.dimName() == d.name &&
-			other.hasChunk(x>>4, z>>4) {
-			loaded = true
-			return false
-		}
-		return true
-	})
-	return loaded
+	return s.chunkLoaded(d, x>>4, z>>4)
 }
 
 // gameRuleInt reads an integer-valued game rule.

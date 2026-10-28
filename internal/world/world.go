@@ -25,10 +25,13 @@ type Pos struct{ X, Y, Z int }
 // adds the 20 TPS tick loop, Stop halts everything. Start is safe to
 // call once; Stop is idempotent.
 type World struct {
-	bus      *event.Bus
-	shards   []*shard
-	gen      func(Pos) Block
-	biome    string
+	bus    *event.Bus
+	shards []*shard
+	gen    func(Pos) Block
+	biome  string
+	// biomeSrc, when set, gives per-quart biomes (a noise generator's
+	// storage); otherwise every quart carries biome.
+	biomeSrc func(qx, qy, qz int) string
 	tick     atomic.Int64
 	ticking  atomic.Bool
 	stop     chan struct{}
@@ -54,6 +57,30 @@ func (w *World) SetBiome(name string) { w.biome = name }
 
 // Biome is the dimension's single biome name (the flat world palette).
 func (w *World) Biome() string { return w.biomeName() }
+
+// SetBiomeSource makes quart biomes come from src. Call before the
+// world serves reads.
+func (w *World) SetBiomeSource(src func(qx, qy, qz int) string) { w.biomeSrc = src }
+
+// QuartBiome is the stored biome of quart (qx, qy, qz).
+func (w *World) QuartBiome(qx, qy, qz int) string {
+	if w.biomeSrc != nil {
+		return w.biomeSrc(qx, qy, qz)
+	}
+	return w.biomeName()
+}
+
+// SetGenerator replaces the terrain generator behind every position
+// without an override. Call before the world serves reads.
+func (w *World) SetGenerator(gen func(Pos) Block) {
+	w.gen = gen
+	for _, s := range w.shards {
+		s.mu.Lock()
+		s.gen = gen
+		s.tops = nil
+		s.mu.Unlock()
+	}
+}
 
 // New builds a sharded world with live workers generating the vanilla
 // flat preset. shards<=0 defaults to 8.
@@ -157,18 +184,18 @@ func (w *World) SetBlock(p Pos, b Block) {
 	w.invalidateBlock(p)
 }
 
+// ColumnVersion counts the writes column (x, z) has seen. A value that
+// has not changed since a caller derived something from the column means
+// no block in it changed in between.
+func (w *World) ColumnVersion(x, z int) uint32 {
+	return w.shardFor(x, z).columnVersion(x, z)
+}
+
 // TopMotionBlocking returns the highest motion-blocking cell's Y in
 // the column within [minY, maxY] — the value vanilla keeps in its
 // MOTION_BLOCKING heightmap, minus one; minY-1 for an all-air column.
 func (w *World) TopMotionBlocking(x, z, minY, maxY int) int {
-	sh := w.shardFor(x, z)
-	resp := make(chan int, 1)
-	select {
-	case sh.ops <- shardOp{topQ: true, pos: Pos{X: x, Z: z}, topMinY: minY, topMaxY: maxY, topResp: resp}:
-		return <-resp
-	case <-sh.done:
-		return sh.topAt(x, z, minY, maxY)
-	}
+	return w.shardFor(x, z).topAt(x, z, minY, maxY)
 }
 
 // Spawn returns the flat-world spawn point, matching vanilla's for a
@@ -204,32 +231,16 @@ func (w *World) FillBox(min, max Pos, out []Block) {
 		cols []colRef
 		got  []Block
 	}
-	ch := make(chan res, len(byShard))
+	results := make([]res, 0, len(byShard))
 	for s, cols := range byShard {
-		go func(s *shard, cols []colRef) {
-			resp := make(chan []Block, 1)
-			select {
-			case s.ops <- shardOp{
-				cols: cols, boxX: min.X, boxY: min.Y, boxZ: min.Z,
-				colDY: dy, colsResp: resp,
-			}:
-				ch <- res{cols, <-resp}
-			case <-s.done:
-				got := make([]Block, len(cols)*dy)
-				for i, c := range cols {
-					for y := 0; y < dy; y++ {
-						got[i*dy+y] = w.gen(Pos{min.X + c.x, min.Y + y, min.Z + c.z})
-					}
-				}
-				ch <- res{cols, got}
-			}
-		}(s, cols)
+		got := make([]Block, len(cols)*dy)
+		s.readColumns(cols, min.X, min.Y, min.Z, dy, got)
+		results = append(results, res{cols, got})
 	}
 	// A column's blocks are one layer apart in out: each is dy slots
 	// from the next, and a layer is dx slots wide.
 	stride := dx * dz
-	for range byShard {
-		r := <-ch
+	for _, r := range results {
 		for i, c := range r.cols {
 			base := c.z*dx + c.x
 			for y := 0; y < dy; y++ {

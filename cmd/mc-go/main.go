@@ -26,6 +26,7 @@ func main() {
 	serverDir := flag.String("server-dir", ".", "directory for the vanilla-format admin files (ops.json, whitelist.json, banned-*.json); empty disables them")
 	levelName := flag.String("level-name", "", "level name written into level.dat (empty uses the directory name)")
 	seed := flag.Int64("seed", 1, "world seed written into the generator settings")
+	levelType := flag.String("level-type", "flat", "overworld generator: flat, or normal for vanilla noise terrain")
 	generateStructures := flag.Bool("generate-structures", true, "whether the world generates structures (recorded in the generator settings)")
 	saveInterval := flag.Duration("save-interval", 5*time.Minute, "autosave period (0 disables)")
 	frontendName := flag.String("frontend", "java", "protocol frontend to serve ("+strings.Join(server.FrontendNames(), ", ")+")")
@@ -48,6 +49,7 @@ func main() {
 	s.QueryAddr = *queryAddr
 	s.LevelName = *levelName
 	s.WorldSeed = *seed
+	s.LevelType = *levelType
 	s.GenerateStructures = *generateStructures
 	switch strings.ToLower(*gameMode) {
 	case "survival":

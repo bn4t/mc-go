@@ -156,7 +156,12 @@ func encodePalettedContainer(b *protocol.Buffer, vals []int32, entries, minIndir
 	for (1 << bpe) < len(palette) {
 		bpe++
 	}
-	if bpe > 8 {
+	maxIndirect := 8
+	if entries == 64 {
+		// Biome containers switch to global ids above 3 bits.
+		maxIndirect = 3
+	}
+	if bpe > maxIndirect {
 		// Direct: global ids, padded, no palette. Vanilla uses 15 for
 		// blocks and the registry-derived width for biomes.
 		bits := 15
@@ -527,12 +532,25 @@ func (s *Server) pumpChunks(sess *Session) error {
 	}
 	initialJoin := !sess.opened && !sess.spawned.Load()
 	batch := append([][2]int(nil), sess.pending[:size]...)
+	// Generated terrain is made off the simulation owner: queue what is
+	// pending and send only the columns whose terrain is ready, in order.
+	d := sess.dimension()
+	if d.terrain != nil {
+		for _, key := range sess.pending[:min(len(sess.pending), size+64)] {
+			d.terrainReady(key[0], key[1])
+		}
+		for i, key := range batch {
+			if !d.terrainReady(key[0], key[1]) {
+				batch = batch[:i]
+				break
+			}
+		}
+	}
 	sess.sentMu.Unlock()
 	if len(batch) == 0 {
 		return nil
 	}
 
-	d := sess.dimension()
 	profile, err := sess.javaProfile()
 	if err != nil {
 		return err

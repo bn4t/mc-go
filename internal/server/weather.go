@@ -18,9 +18,9 @@ import (
 // The UniformInt providers ServerLevel samples for the natural cycle
 // and /weather samples for an omitted duration (inclusive bounds).
 var (
-	weatherRainDelay      = [2]int32{12000, 180000}
-	weatherRainDuration   = [2]int32{12000, 24000}
-	weatherThunderDelay   = [2]int32{12000, 180000}
+	weatherRainDelay       = [2]int32{12000, 180000}
+	weatherRainDuration    = [2]int32{12000, 24000}
+	weatherThunderDelay    = [2]int32{12000, 180000}
 	weatherThunderDuration = [2]int32{3600, 15600}
 )
 
@@ -28,12 +28,12 @@ func weatherSample(p [2]int32) int32 { return p[0] + rand.Int31n(p[1]-p[0]+1) }
 
 // Game event ids ClientboundGameEventPacket carries for weather.
 const (
-	gameEventStartRaining  = 1
-	gameEventStopRaining   = 2
-	gameEventRainLevel     = 7
-	gameEventThunderLevel  = 8
-	weatherLevelStep       = float32(0.01)
-	weatherRainThreshold   = 0.2
+	gameEventStartRaining   = 1
+	gameEventStopRaining    = 2
+	gameEventRainLevel      = 7
+	gameEventThunderLevel   = 8
+	weatherLevelStep        = float32(0.01)
+	weatherRainThreshold    = 0.2
 	weatherThunderThreshold = 0.9
 )
 
