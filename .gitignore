@@ -17,3 +17,6 @@ vanilla/
 # Editor / OS
 .DS_Store
 ._*
+
+# Server run output (logs written when a server or probe runs from the root)
+/logs/
