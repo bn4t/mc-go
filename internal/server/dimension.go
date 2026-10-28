@@ -60,6 +60,9 @@ type dimension struct {
 	// terrain is the noise generator behind the world, nil for the flat
 	// and stand-in generators (whose terrain is always ready).
 	terrain *world.NoiseTerrain
+	// chunkReads shares recent whole-chunk reads between the column
+	// preparation passes.
+	chunkReads chunkReadCache
 	// biomes overrides the dimension's biomes at quart granularity
 	// (4x4x4 cells), written by /fillbiome; chunk encode and gameplay
 	// reads both go through quartBiome.

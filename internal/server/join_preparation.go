@@ -372,6 +372,8 @@ func (s *Server) stepJoinPreparationOwned(job *joinPreparationJob) (joinPreparat
 // Known host/session/runtime cancellation stops between complete steps. As in
 // the original join, peer EOF is not detected until the packet reader resumes.
 func (s *Server) joinPlayPrepared(sess *Session) bool {
+	ticket := s.joinOrder.take()
+	defer ticket.release()
 	for replan := 0; replan <= maxJoinPreparationReplans; replan++ {
 		p := s.joinPreparationScheduler()
 		if p == nil {
@@ -405,6 +407,14 @@ func (s *Server) joinPlayPrepared(sess *Session) bool {
 			break
 		}
 		if job.err != nil {
+			break
+		}
+		select {
+		case <-ticket.turn():
+		case <-sess.done:
+		case <-s.runtimeCtx.Done():
+		}
+		if sess.gone() || s.ShuttingDown() {
 			break
 		}
 		joined, changed := false, false

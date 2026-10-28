@@ -2,6 +2,7 @@ package server
 
 import (
 	"sort"
+	"sync"
 
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
@@ -29,12 +30,7 @@ func chunkTops(d *dimension, cx, cz int) [256]int32 {
 	for i := range tops {
 		tops[i] = int32(d.minY - 1)
 	}
-	buf := make([]world.Block, 16*16*d.height)
-	d.w.FillBox(
-		world.Pos{X: cx * 16, Y: d.minY, Z: cz * 16},
-		world.Pos{X: cx*16 + 15, Y: d.minY + d.height - 1, Z: cz*16 + 15},
-		buf,
-	)
+	buf := d.chunkBlocks(cx, cz)
 	// FillBox order: x fastest, then z, then y.
 	for y := d.height - 1; y >= 0; y-- {
 		for z := 0; z < 16; z++ {
@@ -78,6 +74,26 @@ func columnTop(d *dimension, x, z int) int32 {
 // counts too (VegetationBlock's rule is getFluidState().isEmpty(), so
 // a submerged plant stops propagating).
 func blocksSky(b world.Block) bool {
+	skyBlockersOnce.Do(func() {
+		skyBlockers = make([]bool, world.StateCount())
+		for i := range skyBlockers {
+			skyBlockers[i] = blocksSkySlow(world.Block(i))
+		}
+	})
+	if int(b) < len(skyBlockers) {
+		return skyBlockers[b]
+	}
+	return blocksSkySlow(b)
+}
+
+// skyBlockers is blocksSky for every state id, built on first use: the
+// light passes ask it for every cell of every column they prepare.
+var (
+	skyBlockersOnce sync.Once
+	skyBlockers     []bool
+)
+
+func blocksSkySlow(b world.Block) bool {
 	name, ok := world.StateOwner(b)
 	if !ok {
 		return false
@@ -339,12 +355,7 @@ func nonEmptyCnts(d *dimension, cx, cz int) map[int]int {
 		return m
 	}
 	m := map[int]int{}
-	buf := make([]world.Block, 256*d.height)
-	d.w.FillBox(
-		world.Pos{X: cx * 16, Y: d.minY, Z: cz * 16},
-		world.Pos{X: cx*16 + 15, Y: d.minY + d.height - 1, Z: cz*16 + 15},
-		buf,
-	)
+	buf := d.chunkBlocks(cx, cz)
 	for sec := 0; sec < d.sections(); sec++ {
 		cnt := 0
 		base := sec * 16 * 256

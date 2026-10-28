@@ -191,6 +191,20 @@ func (w *World) ColumnVersion(x, z int) uint32 {
 	return w.shardFor(x, z).columnVersion(x, z)
 }
 
+// ChunkVersion sums the write versions of chunk (cx, cz)'s 256
+// columns. Every write bumps exactly one column, so any write anywhere
+// in the chunk raises it, and an unchanged value means the chunk's
+// blocks are as they were.
+func (w *World) ChunkVersion(cx, cz int) uint64 {
+	var v uint64
+	for z := cz * 16; z < cz*16+16; z++ {
+		for x := cx * 16; x < cx*16+16; x++ {
+			v += uint64(w.ColumnVersion(x, z))
+		}
+	}
+	return v
+}
+
 // TopMotionBlocking returns the highest motion-blocking cell's Y in
 // the column within [minY, maxY] — the value vanilla keeps in its
 // MOTION_BLOCKING heightmap, minus one; minY-1 for an all-air column.

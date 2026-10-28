@@ -126,6 +126,8 @@ type Server struct {
 	// Initial Java joins prepare shared column caches in separate owner turns.
 	joinPreparationMu sync.Mutex
 	joinPreparer      *joinPreparationScheduler
+	// joinOrder admits initial joins in the order they began.
+	joinOrder joinOrder
 
 	// GenerateStructures is recorded in the world's generator settings.
 	// The zero value is false, so New sets the vanilla default (true);

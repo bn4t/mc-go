@@ -85,24 +85,24 @@ type tickClock struct {
 	sprintMu sync.Mutex
 }
 
-// next decides what the game loop should do now. wait is how long to
-// sleep before acting; run reports whether a tick should then be
-// advanced. A frozen clock returns run=false, so the loop keeps sleeping
-// without touching the simulation.
-//
-// since is how long the tick that has just finished took, and the wait
-// is what is left of the next tick's budget after it. That is the real
-// server's own arithmetic, and it is not the same thing as sleeping a
-// whole period after each tick: a flat sleep makes the period the tick's
-// own duration plus the sleep, so a tick that takes as long as a tick
-// halves the rate. Measured on 26.2 with a client asking for batches of
-// 25: the real server's batches came one tick apart, and a loop that
-// slept a flat period sent them two apart, because serializing the
-// twenty-five columns inside the tick took about as long as the tick.
-func (c *tickClock) next(since time.Duration) (wait time.Duration, run bool) {
+// nextDeadline decides what the game loop should do now: wait is how
+// long to sleep, run whether a tick is then due. It follows
+// MinecraftServer.runServer's fixed schedule: ticks fall due a period
+// apart from wherever the schedule stands, so a slow tick, or a wait for
+// simulation ownership, is made up by running the following ticks back
+// to back instead of being lost. (A loop that slept a flat period after
+// each tick halved its rate whenever a tick took a period: measured on
+// 26.2 with a client asking for batches of 25, the real server's batches
+// came one tick apart.) Only when the
+// loop is more than a second and twenty ticks behind, and no overload
+// was declared in the last ten seconds and a hundred ticks, are the
+// missed ticks dropped. A frozen clock polls (run=false) and a sprint
+// keeps the schedule at the present, so neither leaves a backlog.
+func (c *tickClock) nextDeadline(now time.Time, next, lastWarn *time.Time) (wait time.Duration, run bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.frozen {
+	if c.frozen && !c.sprinting {
+		*next = time.Time{}
 		return 5 * time.Millisecond, false
 	}
 	rate := c.rate
@@ -110,12 +110,22 @@ func (c *tickClock) next(since time.Duration) (wait time.Duration, run bool) {
 		rate = DefaultTickRate
 	}
 	period := time.Duration(float64(time.Second) / rate)
-	if wait := period - since; wait > 0 {
-		return wait, true
+	if c.sprinting {
+		*next, *lastWarn = now, now
+		return period, false
 	}
-	// The tick overran its budget: the next one starts at once. The rate
-	// is then the fastest the server can manage, which is what the real
-	// server reports as a tick rate below twenty.
+	if next.IsZero() {
+		*next, *lastWarn = now, now
+	}
+	behind := now.Sub(*next)
+	if behind < 0 {
+		return -behind, true
+	}
+	if behind > time.Second+20*period && next.Sub(*lastWarn) >= 10*time.Second+100*period {
+		*next = next.Add(behind / period * period)
+		*lastWarn = *next
+	}
+	*next = next.Add(period)
 	return 0, true
 }
 
@@ -699,9 +709,10 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 	s.ticking.Store(true)
 	defer s.ticking.Store(false)
 	var since time.Duration
+	var next, lastWarn time.Time
 	lastPlayerTick := time.Now()
 	for {
-		wait, run := s.clock.next(since)
+		wait, run := s.clock.nextDeadline(time.Now(), &next, &lastWarn)
 		if wait > 0 {
 			t := time.NewTimer(wait)
 			select {
@@ -710,6 +721,11 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 				return
 			case <-t.C:
 			}
+			if run {
+				// The sleep only reached the tick's deadline; take the
+				// schedule's decision again now.
+				continue
+			}
 		}
 		select {
 		case <-stop:
@@ -717,7 +733,10 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 		default:
 		}
 		period := time.Duration(float64(time.Second) / s.clock.tickRate())
-		if time.Since(lastPlayerTick) >= period {
+		// Players tick with every level tick, catch-up ticks included,
+		// and at the wall rate while the level is frozen or sprinting.
+		tickDue := run && !s.clock.isSprinting() && !s.clock.isFrozen()
+		if tickDue || time.Since(lastPlayerTick) >= period {
 			lastPlayerTick = time.Now()
 			s.simulationAction(func() {
 				s.playerTickOwned()
@@ -734,7 +753,7 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 		// iteration slept restores the freeze behind it, so re-read
 		// frozen now — a stale run=true must not fire one extra tick
 		// per sprint boundary.
-		if !run || s.clock.isSprinting() || s.clock.isFrozen() {
+		if !tickDue {
 			// /tick freeze skips the level's entity and block ticks
 			// but not the players' — tickRateManager only freezes
 			// non-player entities — so their fluid pass still runs

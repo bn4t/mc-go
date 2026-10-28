@@ -75,13 +75,7 @@ func (s *Server) prepareColumnFactsOwned(d *dimension, cx, cz int) {
 	if countsWarm && topsWarm {
 		return
 	}
-	states := make([]world.Block, 256*d.height)
-	d.w.FillBox(
-		world.Pos{X: cx * 16, Y: d.minY, Z: cz * 16},
-		world.Pos{X: cx*16 + 15, Y: d.minY + d.height - 1, Z: cz*16 + 15},
-		states,
-	)
-	facts := analyzeColumnFacts(states, d.minY)
+	facts := analyzeColumnFacts(d.chunkBlocks(cx, cz), d.minY)
 	if !countsWarm {
 		if d.nonEmptyCnt == nil {
 			d.nonEmptyCnt = make(map[[2]int]map[int]int)

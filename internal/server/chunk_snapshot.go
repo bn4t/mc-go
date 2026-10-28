@@ -98,11 +98,7 @@ func captureProjectedChunkSnapshot(d *dimension, cx, cz int, blockEntities []cli
 		}
 		copy(snapshot.blockEntities[i].nbt, be.nbt)
 	}
-	snapshot.states = make([]world.Block, 16*d.height*16)
-	d.w.FillBox(
-		world.Pos{X: cx * 16, Y: d.minY, Z: cz * 16},
-		world.Pos{X: cx*16 + 15, Y: d.minY + d.height - 1, Z: cz*16 + 15}, snapshot.states,
-	)
+	snapshot.states = append([]world.Block(nil), d.chunkBlocks(cx, cz)...)
 	light := encodeLightDataFor(d, cx, cz)
 	snapshot.light = make([]byte, len(light))
 	copy(snapshot.light, light)

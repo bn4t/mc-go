@@ -16071,3 +16071,49 @@ no flee; unsneak → flee). Green both legs.
   monster rooms, freeze-top-layer, vines and the other feature types
   are still skipped; mossy carpets in `simple_block` are unsupported; the
   server's generator does not run the features stage.
+
+## Slice — fixed-schedule tick pacing, ordered join admission and shared chunk reads (2026-10-28)
+
+- **Measured:** bytecode inspection on the 26.2 jar (unpacked SHA-256
+  `183c0499…823e8`, Temurin JDK 25.0.5+8). `MinecraftServer.runServer`
+  keeps an absolute next-tick time that advances one period per tick and
+  sleeps only until it. When the loop is more than
+  `OVERLOADED_THRESHOLD_NANOS` (20 s / 20 = 1 s) plus 20 periods behind,
+  and at least `OVERLOADED_WARNING_INTERVAL_NANOS` (10 s) plus 100
+  periods have passed since the last overload warning, the whole missed
+  periods are skipped. A sprint tick resets the schedule to now.
+  `ServerGamePacketListenerImpl` re-arms the client-loaded timeout at 60,
+  and `ServerPlayer.tick` counts it down once per player tick.
+  `TestCropGrowthParity` and `TestFrogspawnHatchParity` failed after the
+  ticket slice: their client echoes its position on a teleport about
+  4 s after joining, which re-centres vanilla's rings. mc-go had run
+  only 53–70 ticks by then (13–17 tps while streaming the join window),
+  so the echo fell inside the 60-tick gate and was dropped. A CPU
+  profile of the join showed 56% in sky-top scans (string-keyed state
+  lookups per cell), plus five whole-chunk reads per prepared column.
+- **Implemented:** the game loop follows the fixed schedule: catch-up
+  ticks run back to back, and players tick with each one. `blocksSky`
+  is a table built once per state. `World.ChunkVersion` sums a chunk's
+  column write versions (any write raises it) and validates a small
+  per-dimension cache of whole-chunk reads. Sky tops, non-empty counts,
+  column facts and snapshots now share that cache. Initial joins are
+  admitted in the order they began, through a ticket chain, so a second
+  joiner whose columns are already warm is no longer placed before the
+  first.
+- **Pinned:** a join now gets 80 ticks in its first 4 s (was 53–70).
+  `TestCropGrowthParity`, `TestFrogspawnHatchParity` and
+  `TestTickingStateParity` (the first joiner hears the second's join)
+  pass against the real jar. `TestChunkThrottleParity`,
+  `TestChunkThrottleStaysBlocked`, `TestTickCountParity`,
+  `TestWeatherCycleParity`, `TestRespawnTravelBurstParity`,
+  `TestJoinBurstSequence`, `TestChunkWindowParity` and
+  `TestDimHopParity` stay green, as do the server unit tests.
+- **Remaining:** at `random_tick_speed 4096` mc-go runs about 3.8 tps,
+  so in `TestPrecipitationParity` each cauldron gets only about 20
+  precipitation rolls and misses in roughly 2 of 5 runs. These fail at
+  the pre-session baseline `4ec9dd1` too: `TestDespawnParity` (zombie
+  not discarded after a 140-block hop), `TestAdminTagParity` and
+  `TestAdminCmdParity` (the first reply arrives late). In
+  `TestArrowStickParity` the water-current lane diverges from step 6;
+  this predates the session and was hidden by the despawn assertion
+  failing first.
