@@ -186,8 +186,28 @@ func (r *decoRegion) set(p Point, s StateID) bool {
 	if !r.canWrite(p) {
 		return false
 	}
-	r.chunk(p.X, p.Z).setLive(p.X&15, p.Y, p.Z&15, s)
+	c := r.chunk(p.X, p.Z)
+	c.setLive(p.X&15, p.Y, p.Z&15, s)
+	// The block that kept a block entity is gone.
+	delete(c.BlockEntities, p)
 	return true
+}
+
+// setBlockEntity records a block entity at p, in the chunk holding it.
+func (r *decoRegion) setBlockEntity(p Point, be *GenBlockEntity) {
+	c := r.chunk(p.X, p.Z)
+	if c.BlockEntities == nil {
+		c.BlockEntities = map[Point]*GenBlockEntity{}
+	}
+	c.BlockEntities[p] = be
+}
+
+// blockEntity is the block entity at p, nil for none.
+func (r *decoRegion) blockEntity(p Point) *GenBlockEntity {
+	if c := r.chunk(p.X, p.Z); c != nil {
+		return c.BlockEntities[p]
+	}
+	return nil
 }
 
 // heightAt is the region's getHeight: a heightmap's first free Y.

@@ -16117,3 +16117,54 @@ no flee; unsneak → flee). Green both legs.
   `TestArrowStickParity` the water-current lane diverges from step 6;
   this predates the session and was hidden by the despawn assertion
   failing first.
+
+## Slice — worldgen features: disks, freezing, scattered ore, underwater magma, multiface growth and monster rooms (2026-10-28)
+
+- **Measured:** bytecode inspection on the 26.2 jar (unpacked SHA-256
+  `183c0499…823e8`, Temurin JDK 25.0.5+8). The classes, with the facts
+  each contributed:
+  - `DiskFeature`: columns from half height above down to half height
+    below, inside the sampled radius.
+  - `SnowAndFreezeFeature`, with `Biome.shouldFreeze`, `shouldSnow`,
+    `getPrecipitationAt` and the 0.15 rain threshold.
+  - `ScatteredOreFeature`: `nextInt(size+1)` blocks, each axis offset
+    `round((f1−f2)·min(i,7))`.
+  - `UnderwaterMagmaFeature` with `Column.scan`: the floor walk, a
+    chance roll per position (x fastest, then y, then z), and fully
+    occluded faces below and on four sides.
+  - `MultifaceGrowthFeature` and its configuration: search range 10 and
+    spread chance 0.5 by default; ceiling adds UP, floor adds DOWN,
+    walls add N/E/S/W. A quirk: the search re-tests the block next to
+    the origin each step.
+  - `Util.shuffle`.
+  - `MultifaceBlock` and `MultifaceSpreader`: the same-position,
+    same-plane and wrap-around spread types, plus the sculk vein
+    spreader's rules.
+  - `MonsterRoomFeature`: room size draws, 1–5 floor-level openings,
+    walls with a 3-in-4 mossy floor, two chest attempts with loot seeds,
+    and a spawner mob drawn from skeleton/zombie/zombie/spider.
+  - `StructurePiece.reorient` and
+    `RandomizableContainer.setBlockEntityLootTable`.
+
+  The runtime block probe (`tools/genblockprops/BlockPropsProbe.java`,
+  SHA-256 `c1b039ef…d3eb`; measurement SHA-256 `9960421e…0181`) now
+  also asks the running server, per state and face, whether the
+  occlusion shape and the collision shape are full, and whether the
+  state can occlude. The state flag word is now 64 bits.
+- **Implemented:** `feature_terrain.go` (disk, freeze_top_layer,
+  scattered_ore, underwater_magma), `feature_growth.go`
+  (multiface_growth) and `feature_room.go` (monster_room). Features
+  record block entities on the generated chunk
+  (`GenChunk.BlockEntities`): chest loot tables with their seeds and
+  spawner mobs.
+- **Pinned:** `TestFeaturesMatchVanilla`: every placement of `disk`
+  (92), `freeze_top_layer` (30), `scattered_ore` (12),
+  `underwater_magma` (30), `multiface_growth` (39) and `monster_room`
+  (60) changes exactly the blocks vanilla's did.
+- **Remaining:** these feature types still skip, by placement count:
+  trees (12), vegetation patches (12), speleothems and clusters (20),
+  glowstone (10), vines (9), sculk patches (8), large dripstone (7),
+  nether vegetation (7), seagrass (7), huge fungi (5), lakes, geodes,
+  icebergs, End spikes, basalt and deltas. The probe compares block
+  states only, so the block entity data is unpinned. The server's
+  generator still does not run the features stage.

@@ -30,7 +30,7 @@ type blockLayout struct {
 
 // State flag bits.
 const (
-	bsfAir uint32 = 1 << iota
+	bsfAir uint64 = 1 << iota
 	bsfBlocksMotion
 	bsfSolid
 	bsfReplaceable
@@ -61,6 +61,19 @@ const (
 	bsfFlammable
 	bsfCollisionTopFull
 	bsfLiquid
+	bsfOccludeDown
+	bsfOccludeUp
+	bsfOccludeNorth
+	bsfOccludeSouth
+	bsfOccludeWest
+	bsfOccludeEast
+	bsfCanOcclude
+	bsfCollideDown
+	bsfCollideUp
+	bsfCollideNorth
+	bsfCollideSouth
+	bsfCollideWest
+	bsfCollideEast
 )
 
 // Directions in the game's order.
@@ -77,7 +90,7 @@ var dirOffsets = [6][3]int32{{0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {-1, 
 
 var (
 	blockPropsOnce sync.Once
-	stateFlagWords []uint32
+	stateFlagWords []uint64
 	blockByName    map[string]int
 	blockOfID      []int32 // global state id -> layout index
 
@@ -90,7 +103,7 @@ var (
 type stateInfo struct {
 	id    int32
 	block int32
-	flags uint32
+	flags uint64
 	known bool
 }
 
@@ -100,9 +113,9 @@ func loadBlockProps() {
 		if err != nil {
 			panic(err)
 		}
-		stateFlagWords = make([]uint32, stateCount)
+		stateFlagWords = make([]uint64, stateCount)
 		for i := range stateFlagWords {
-			stateFlagWords[i] = binary.LittleEndian.Uint32(raw[4*i:])
+			stateFlagWords[i] = binary.LittleEndian.Uint64(raw[8*i:])
 		}
 		blockByName = make(map[string]int, len(blockLayouts))
 		blockOfID = make([]int32, stateCount)
@@ -169,7 +182,7 @@ func resolveState(canonical string) stateInfo {
 	return stateInfo{id: int32(id), block: int32(bi), flags: stateFlagWords[id], known: true}
 }
 
-func (s StateID) has(f uint32) bool { return s.info().flags&f != 0 }
+func (s StateID) has(f uint64) bool { return s.info().flags&f != 0 }
 
 // isAir, blocksMotion and the like are the game's state predicates.
 func (s StateID) isAir() bool        { return s.has(bsfAir) }
@@ -196,6 +209,16 @@ func (s StateID) isSolidRender() bool       { return s.has(bsfSolidRender) }
 func (s StateID) flammable() bool           { return s.has(bsfFlammable) }
 func (s StateID) collisionTopFull() bool    { return s.has(bsfCollisionTopFull) }
 func (s StateID) isLiquidBlock() bool       { return s.has(bsfLiquid) }
+
+// faceOccludes reports whether the state's occlusion shape on a face is
+// a full block (an empty shape is not); canOcclude is the state's
+// occlusion flag.
+func (s StateID) faceOccludes(dir int) bool { return s.has(bsfOccludeDown << dir) }
+func (s StateID) canOcclude() bool          { return s.has(bsfCanOcclude) }
+
+// collisionFaceFull reports whether the state's collision shape covers
+// a whole face.
+func (s StateID) collisionFaceFull(dir int) bool { return s.has(bsfCollideDown << dir) }
 
 // layout is the state's block layout, nil for an unknown block.
 func (s StateID) layout() *blockLayout {

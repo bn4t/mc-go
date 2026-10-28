@@ -32,7 +32,7 @@ type state struct {
 	id    int
 	block string
 	props map[string]string
-	flags uint32
+	flags uint64
 }
 
 type propLayout struct {
@@ -95,7 +95,7 @@ func main() {
 					props[k] = v
 				}
 			}
-			states = append(states, state{id: id, block: name, props: props, flags: uint32(atoi(f[3]))})
+			states = append(states, state{id: id, block: name, props: props, flags: parseUint(f[3])})
 		}
 	}
 
@@ -163,11 +163,11 @@ func main() {
 			strings.Join(ps, ", "), c[0], c[1], c[2], c[3])
 	}
 	fmt.Fprintf(&b, "}\n\n")
-	flags := make([]byte, 4*len(states))
+	flags := make([]byte, 8*len(states))
 	for _, s := range states {
-		binary.LittleEndian.PutUint32(flags[4*s.id:], s.flags)
+		binary.LittleEndian.PutUint64(flags[8*s.id:], s.flags)
 	}
-	fmt.Fprintf(&b, "// stateFlagData holds one little-endian 32-bit flag word per state id\n")
+	fmt.Fprintf(&b, "// stateFlagData holds one little-endian 64-bit flag word per state id\n")
 	fmt.Fprintf(&b, "// (see the bsf constants), base64-encoded.\n")
 	fmt.Fprintf(&b, "const stateFlagData = %q\n\n", base64.StdEncoding.EncodeToString(flags))
 	fmt.Fprintf(&b, "// stateCount is the number of block states.\n")
@@ -192,6 +192,12 @@ func quoteAll(list []string) string {
 		q[i] = strconv.Quote(s)
 	}
 	return strings.Join(q, ", ")
+}
+
+func parseUint(s string) uint64 {
+	n, err := strconv.ParseUint(s, 10, 64)
+	must(err)
+	return n
 }
 
 func atoi(s string) int {

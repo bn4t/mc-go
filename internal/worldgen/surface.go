@@ -70,6 +70,18 @@ type GenChunk struct {
 	surfaceTop [256]int32
 	// heights are the heightmaps of the features stage.
 	heights *finalHeights
+	// BlockEntities holds the block entity data features leave, by
+	// absolute position.
+	BlockEntities map[Point]*GenBlockEntity
+}
+
+// GenBlockEntity is a block entity a feature fills in: a container's
+// loot table and seed, a spawner's mob.
+type GenBlockEntity struct {
+	ID          string
+	LootTable   string
+	LootSeed    int64
+	SpawnEntity string
 }
 
 func (c *GenChunk) index(x, y, z int32) int { return int((y-c.MinY)*256 + z*16 + x) }

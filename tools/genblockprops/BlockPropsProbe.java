@@ -18,7 +18,9 @@ import net.minecraft.world.level.material.Fluids;
 // block is leaves, which faces are sturdy (full, center and rigid
 // support), whether its collision shape is a full block, whether it
 // renders solid, whether fire can burn it, whether its collision shape
-// covers its top face, and whether it is a liquid block. Per block it prints the
+// covers its top face, whether it is a liquid block, which faces' occlusion
+// shapes are full blocks, whether it can occlude, and which faces its
+// collision shape covers. Per block it prints the
 // default state id, its class, the classes in its hierarchy declaring
 // canSurvive and mayPlaceOn, and the support tag it keeps, if any.
 public class BlockPropsProbe {
@@ -36,7 +38,7 @@ public class BlockPropsProbe {
             igniteOdds.setAccessible(true);
             for (BlockState state : Block.BLOCK_STATE_REGISTRY) {
                 var empty = EmptyBlockGetter.INSTANCE;
-                int flags = 0;
+                long flags = 0;
                 if (state.isAir()) flags |= 1;
                 if (state.blocksMotion()) flags |= 1 << 1;
                 if (state.isSolid()) flags |= 1 << 2;
@@ -60,6 +62,13 @@ public class BlockPropsProbe {
                 if ((int) igniteOdds.invoke(fire, state) > 0) flags |= 1 << 28;
                 if (Block.isFaceFull(state.getCollisionShape(empty, BlockPos.ZERO), Direction.UP)) flags |= 1 << 29;
                 if (state.liquid()) flags |= 1 << 30;
+                for (Direction d : Direction.values()) {
+                    if (Block.isShapeFullBlock(state.getFaceOcclusionShape(d))) flags |= 1L << (31 + d.ordinal());
+                }
+                if (state.canOcclude()) flags |= 1L << 37;
+                for (Direction d : Direction.values()) {
+                    if (Block.isFaceFull(state.getCollisionShape(empty, BlockPos.ZERO), d)) flags |= 1L << (38 + d.ordinal());
+                }
                 out.printf("state\t%d\t%s\t%d%n", Block.getId(state), canonical(state), flags);
             }
         }
