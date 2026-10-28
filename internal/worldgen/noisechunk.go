@@ -3,6 +3,7 @@ package worldgen
 import (
 	"fmt"
 	"math"
+	"sync"
 )
 
 // NoiseBlock is a block the noise stage can place.
@@ -74,6 +75,9 @@ type NoiseChunkFiller struct {
 
 	pslCache map[[2]int32]int32
 	aq       aquifer
+	// shared, if set, are caches shared with the generator's other
+	// fillers.
+	shared *fillerCaches
 
 	// carverTags caches carver replaceable-tag membership by state.
 	carverTags map[string]map[StateID]bool
@@ -271,18 +275,94 @@ func (f *NoiseChunkFiller) begin(minX, minZ, cells int32) {
 		if len(ip.corners) != n*n*nY {
 			ip.corners = make([]float64, n*n*nY)
 		}
-		for x := 0; x < n; x++ {
-			for z := 0; z < n; z++ {
-				for y := 0; y < nY; y++ {
-					p := Point{minX + int32(x)*f.cellW, (f.cellMinY + int32(y)) * f.cellH, minZ + int32(z)*f.cellW}
-					ip.corners[(x*n+z)*nY+y] = ip.in.Compute(p)
-				}
+	}
+	for x := 0; x < n; x++ {
+		for z := 0; z < n; z++ {
+			cx, cz := minX+int32(x)*f.cellW, minZ+int32(z)*f.cellW
+			col := f.cornerColumn(cx, cz)
+			for i, ip := range f.interps {
+				copy(ip.corners[(x*n+z)*nY:(x*n+z+1)*nY], col[i*nY:(i+1)*nY])
 			}
 		}
 	}
 	if f.aquifers {
 		f.aq.reset(f, minX>>4, minZ>>4)
 	}
+}
+
+// cornerColumn is every interpolator's values down the cell corners at
+// block column (x, z). A corner is sampled where the flat caches answer
+// from that very column, whatever the window, so its values depend on
+// the column alone and are shared through the corner cache.
+func (f *NoiseChunkFiller) cornerColumn(x, z int32) []float64 {
+	compute := func() []float64 {
+		nY := int(f.cellCountY) + 1
+		col := make([]float64, len(f.interps)*nY)
+		for i, ip := range f.interps {
+			for y := 0; y < nY; y++ {
+				col[i*nY+y] = ip.in.Compute(Point{x, (f.cellMinY + int32(y)) * f.cellH, z})
+			}
+		}
+		return col
+	}
+	if f.shared == nil {
+		return compute()
+	}
+	return f.shared.corners.get(x, z, compute)
+}
+
+// sharedCache memoizes a pure function of a block or chunk column for
+// the fillers of one generator, keeping a bounded number of entries.
+type sharedCache[V any] struct {
+	shards [64]struct {
+		mu sync.Mutex
+		m  map[[2]int32]V
+	}
+	perShard int
+}
+
+func newSharedCache[V any](entries int) *sharedCache[V] {
+	c := &sharedCache[V]{perShard: max(1, entries/64)}
+	for i := range c.shards {
+		c.shards[i].m = map[[2]int32]V{}
+	}
+	return c
+}
+
+func (c *sharedCache[V]) get(x, z int32, compute func() V) V {
+	sh := &c.shards[(uint32(x)*0x9E3779B1^uint32(z)*0x85EBCA77)>>26]
+	key := [2]int32{x, z}
+	sh.mu.Lock()
+	v, ok := sh.m[key]
+	sh.mu.Unlock()
+	if ok {
+		return v
+	}
+	v = compute()
+	sh.mu.Lock()
+	for k := range sh.m {
+		if len(sh.m) < c.perShard {
+			break
+		}
+		delete(sh.m, k)
+	}
+	sh.m[key] = v
+	sh.mu.Unlock()
+	return v
+}
+
+// fillerCaches are what a generator's fillers share: interpolator corner
+// columns, preliminary surface levels by quart column, and each chunk's
+// aquifer sampling ceiling.
+type fillerCaches struct {
+	corners *sharedCache[[]float64]
+	surface *sharedCache[int32]
+	skip    *sharedCache[int32]
+}
+
+func newFillerCaches() *fillerCaches {
+	return &fillerCaches{corners: newSharedCache[[]float64](8192), surface: newSharedCache[int32](1 << 16),
+		skip: newSharedCache[int32](4096)}
 }
 
 // Column runs the noise stage down the column at block (x, z), as the
@@ -347,7 +427,13 @@ func (f *NoiseChunkFiller) preliminarySurface(x, z int32) int32 {
 	if v, ok := f.pslCache[key]; ok {
 		return v
 	}
-	v := floorInt(f.router.PreliminarySurfaceLevel.Compute(Point{key[0], 0, key[1]}))
+	compute := func() int32 { return floorInt(f.router.PreliminarySurfaceLevel.Compute(Point{key[0], 0, key[1]})) }
+	var v int32
+	if f.shared != nil {
+		v = f.shared.surface.get(key[0], key[1], compute)
+	} else {
+		v = compute()
+	}
 	f.pslCache[key] = v
 	return v
 }

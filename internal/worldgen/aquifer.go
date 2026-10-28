@@ -68,14 +68,21 @@ func (a *aquifer) reset(f *NoiseChunkFiller, cx, cz int32) {
 
 	// Above the highest surface any center of this chunk could see (plus
 	// a grid layer of margin), only the global fluid applies.
-	top := int32(math.MinInt32)
-	for z := a.minGZ << 4; z <= maxGZ<<4+aqRangeXZ-1; z += 4 {
-		for x := a.minGX << 4; x <= maxGX<<4+aqRangeXZ-1; x += 4 {
-			top = max(top, f.preliminarySurface(x, z))
+	skip := func() int32 {
+		top := int32(math.MinInt32)
+		for z := a.minGZ << 4; z <= maxGZ<<4+aqRangeXZ-1; z += 4 {
+			for x := a.minGX << 4; x <= maxGX<<4+aqRangeXZ-1; x += 4 {
+				top = max(top, f.preliminarySurface(x, z))
+			}
 		}
+		layer := floorDiv32(top+8+aqSpacingY, aqSpacingY) + 1
+		return layer*aqSpacingY + (aqSpacingY - 1) - 1
 	}
-	layer := floorDiv32(top+8+aqSpacingY, aqSpacingY) + 1
-	a.skipAboveY = layer*aqSpacingY + (aqSpacingY - 1) - 1
+	if f.shared != nil {
+		a.skipAboveY = f.shared.skip.get(cx, cz, skip)
+	} else {
+		a.skipAboveY = skip()
+	}
 }
 
 func (a *aquifer) index(gx, gy, gz int32) int {

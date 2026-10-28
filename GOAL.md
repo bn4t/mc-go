@@ -16597,3 +16597,58 @@ no flee; unsneak → flee). Green both legs.
     cities.
   - `/locate`.
   - Placing pieces into chunks, and the beardifier.
+
+## Slice — structure starts: jigsaw structures (2026-10-28)
+
+- **Measured:** `javap` on the 26.2 jar (SHA-256 183c0499…823e8). Classes
+  read:
+  - `JigsawStructure` and `$MaxDistance`, `JigsawPlacement` (start
+    piece, named start jigsaw, centring and heightmap projection,
+    dimension padding, the free-space box) and `$Placer.tryPlacingChildren`
+    (internal/external free space, pool then fallback candidates,
+    shuffled rotations, attachment, rigid/terrain-matching heights, the
+    expansion hack, junctions, placement-priority queue);
+  - `SequencedPriorityIterator`, `StructureTemplatePool` (weight
+    expansion, shuffles, max size);
+  - the single, legacy, list, feature and empty pool elements;
+  - `StructureTemplate.getJigsaws`, `$Palette.jigsaws`,
+    `$JigsawBlockInfo.of`, `JigsawBlock.canAttach`;
+  - `PoolAliasLookup` and the direct, random and random-group aliases,
+    `WeightedList`, `Util.shuffle`, `DimensionPadding`,
+    `PoolElementStructurePiece` (save tag; liquid settings only when not
+    the default);
+  - `StructureTemplateManager.getOrCreate`: an unknown template is an
+    empty one.
+  - Free space is unions and differences of block-aligned boxes, so
+    the deflated containment test is box containment plus non-overlap
+    with every piece taken from that space.
+  - Pinned against the `StructureProbe` starts.
+- **Implemented:**
+  - `structure_jigsaw.go`:
+    - pools from the datapack;
+    - pool elements, with their save tags taken from the pool JSON;
+    - template jigsaws (orientation, joint defaults, priorities;
+      cached per template);
+    - the start-point search, the placer with its free spaces and
+      queue, junctions, pool aliases, the expansion hack and dimension
+      padding.
+  - Unknown templates are empty, as in the game; one ancient city pool
+    names one.
+  - Each generator's noise fillers now share three caches: corner
+    columns, preliminary surface levels and each chunk's aquifer
+    ceiling. All three are pure functions of position. Single-column
+    height queries, which jigsaw terrain matching makes by the hundred,
+    run 4× faster. The starts test runs its chunks in parallel (13 s,
+    from 165 s).
+- **Pinned:** `TestStructureStartsMatchVanilla` now also matches, save
+  tag for save tag:
+  - 24 ancient cities, 15 pillager outposts, 24 trail ruins and 9
+    trial chambers;
+  - 85 villages across all five kinds.
+  All 31 bastions matched too. They are held out of the test until
+  fortresses exist, because a bastion's chunk can be a fortress pick:
+  sets with an unimplemented structure are skipped.
+- **Remaining:**
+  - Fortresses, strongholds, mineshafts, monuments, mansions and End
+    cities.
+  - `/locate`, then piece placement and the beardifier.

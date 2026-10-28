@@ -136,8 +136,11 @@ func newGenerator(settingsID string, src BiomeSource, params *MultiNoiseBiomes, 
 		levelMinY: int32(settings.MinY), levelHeight: int32(settings.Height)}
 	n := runtime.GOMAXPROCS(0)
 	g.workers = make(chan *genWorker, n)
+	shared := newFillerCaches()
 	for i := 0; i < n; i++ {
-		g.workers <- &genWorker{filler: NewNoiseChunkFiller(g.rs), searcher: params.NewSearcher()}
+		f := NewNoiseChunkFiller(g.rs)
+		f.shared = shared
+		g.workers <- &genWorker{filler: f, searcher: params.NewSearcher()}
 	}
 	for i := range g.shards {
 		g.shards[i].chunks = map[[2]int32]*chunkEntry{}

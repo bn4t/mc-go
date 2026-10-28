@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -211,9 +212,22 @@ func TestStructureStartsMatchVanilla(t *testing.T) {
 		}
 		want[k][r[3]] = r[4]
 	}
+	// A set's weighted pick only matches where every structure it can
+	// pick is implemented.
 	implemented := func(name string) bool {
-		_, ok := structureGenerators[structureDefs()[name].kind]
-		return ok
+		for _, set := range structureSets() {
+			for _, e := range set.entries {
+				if e.structure != name {
+					continue
+				}
+				for _, o := range set.entries {
+					if _, ok := structureGenerators[structureDefs()[o.structure].kind]; !ok {
+						return false
+					}
+				}
+			}
+		}
+		return true
 	}
 	var keys []chunkKey
 	for k := range picked {
@@ -229,13 +243,36 @@ func TestStructureStartsMatchVanilla(t *testing.T) {
 		}
 		return a.cz < b.cz
 	})
+	// The chunks are built in parallel, then compared in order.
+	built := make([]map[string]string, len(keys))
+	for _, k := range keys {
+		probeGenerator(t, k.dim)
+	}
+	var wg sync.WaitGroup
+	next := make(chan int)
+	for w := 0; w < runtime.GOMAXPROCS(0); w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				k := keys[i]
+				got := map[string]string{}
+				for _, s := range probeGenerator(t, k.dim).createStructures(k.cx, k.cz) {
+					got[s.structure] = snbt(s.tag())
+				}
+				built[i] = got
+			}
+		}()
+	}
+	for i := range keys {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
 	matched := map[string]int{}
 	failed := 0
-	for _, k := range keys {
-		got := map[string]string{}
-		for _, s := range probeGenerator(t, k.dim).createStructures(k.cx, k.cz) {
-			got[s.structure] = snbt(s.tag())
-		}
+	for i, k := range keys {
+		got := built[i]
 		names := map[string]bool{}
 		for n := range want[k] {
 			names[n] = true

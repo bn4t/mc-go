@@ -30,6 +30,9 @@ type structureTemplate struct {
 	size     Point
 	palettes [][]templateBlock
 	entities []templateEntity
+
+	jigsawOnce sync.Once
+	jigsawList [][]jigsawInfo
 }
 
 // templateBlock is one block of a template palette.
@@ -70,17 +73,19 @@ var templateBodies = sync.OnceValue(func() map[string][]byte {
 
 var templates sync.Map // name -> *structureTemplate
 
-// loadTemplate returns a shipped template, or nil if there is none of that
-// name.
+// loadTemplate returns a shipped template. A name the game does not ship
+// (one ancient city pool lists one) gets an empty template, as the game
+// makes one: size zero, no blocks.
 func loadTemplate(name string) *structureTemplate {
 	if t, ok := templates.Load(name); ok {
 		return t.(*structureTemplate)
 	}
-	body, ok := templateBodies()[name]
-	if !ok {
-		return nil
+	var t *structureTemplate
+	if body, ok := templateBodies()[name]; ok {
+		t = decodeTemplate(name, body)
+	} else {
+		t = &structureTemplate{name: name}
 	}
-	t := decodeTemplate(name, body)
 	actual, _ := templates.LoadOrStore(name, t)
 	return actual.(*structureTemplate)
 }

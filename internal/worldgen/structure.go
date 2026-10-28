@@ -139,9 +139,6 @@ type templatePiece struct {
 
 func newTemplatePiece(kind string, depth int32, name string, s placeSettings, pos Point) templatePiece {
 	t := loadTemplate(name)
-	if t == nil {
-		panic("worldgen: no structure template " + name)
-	}
 	p := templatePiece{pieceBase: newPieceBase(kind, depth, t.boundingBox(s, pos)), templateName: name, template: t, settings: s, pos: pos}
 	p.setOrientation(dirNorth)
 	return p
