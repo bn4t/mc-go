@@ -173,7 +173,8 @@ writing outside ownership. Capture can still pause gameplay and increase memory;
 owned disconnect saves and `/save-all` still wait under ownership.
 Public `SaveServerData` also writes a detached player/block-entity JSON snapshot;
 its schema-three numeric item IDs are unchanged, and remembered offline players
-survive subsequent saves.
+survive subsequent saves. A committed newer Java session also prevents delayed
+older cleanup from overwriting its remembered and native player state.
 See [ARCHITECTURE.md](ARCHITECTURE.md#compact-world-saves) for ordering,
 shutdown and persistence boundaries.
 

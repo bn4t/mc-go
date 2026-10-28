@@ -622,8 +622,9 @@ func (s *Server) untrack(sess *Session) {
 		}
 		p := snapshotPlayer(sess)
 		// A successfully replaced incarnation may tear down after its successor
-		// has saved newer state. It must not overwrite that remembered record.
-		if !sess.replacement {
+		// has saved newer state. A retired kick/rejoin predecessor is superseded
+		// too: remembered state feeds later JSON and native snapshots.
+		if !sess.replacement && !sess.persistenceSuperseded {
 			s.savedPlayers[name] = p
 		}
 		s.savedPlayersMu.Unlock()
@@ -632,11 +633,16 @@ func (s *Server) untrack(sess *Session) {
 				s.dataSaveErr = err
 			}
 		}
-		if err := s.savePlayerFile(p); err != nil && s.dataSaveErr == nil {
-			s.dataSaveErr = err
-		}
-		if err := s.savePlayerMetaFile(p); err != nil && s.dataSaveErr == nil {
-			s.dataSaveErr = err
+		// A newer admitted Java incarnation owns this UUID's native files.
+		// Its authority survives retirement: late transport cleanup must not
+		// overwrite its inventory, statistics or advancements after it leaves.
+		if !sess.replacement && !sess.persistenceSuperseded {
+			if err := s.savePlayerFile(p); err != nil && s.dataSaveErr == nil {
+				s.dataSaveErr = err
+			}
+			if err := s.savePlayerMetaFile(p); err != nil && s.dataSaveErr == nil {
+				s.dataSaveErr = err
+			}
 		}
 	}
 }

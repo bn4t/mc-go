@@ -488,6 +488,9 @@ type Session struct {
 	// The transport teardown may follow an earlier core retirement (kick or
 	// replacement), but its menus/persistence/stat cleanup must run once.
 	untracked atomic.Bool
+	// persistenceSuperseded is simulation-owned and sticky: a later admitted
+	// Java session owns this UUID's remembered/native state, even after leaving.
+	persistenceSuperseded bool
 }
 
 // sendPkt is one queued outbound action: either a packet or a

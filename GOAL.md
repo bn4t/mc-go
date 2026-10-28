@@ -15498,3 +15498,62 @@ no flee; unsneak → flee). Green both legs.
   disconnect writes retain their prior behavior. Separate stores, dimensions,
   runtimes and processes have no atomic snapshot/commit contract; fsync/crash
   durability, high player capacity and performance bounds remain unproven.
+
+## Slice — Java incarnation persistence authority (2026-10-28)
+
+- **Measured:** source classes are the existing independently written admission,
+  disconnect, remembered-player and native persistence paths plus public API/TCP
+  observations. On clean baseline
+  `806f10652a70fc4b3f55d0a54325d77e48e55a59`, an unchanged regression file
+  (SHA-256 `b50e4c437c0f88d85f312f4104e07a7aff93b863911ff6a135da1fd5b51bed1d`)
+  reproduces stale `.dat`, statistics and advancement overwrites after active
+  replacement, after kick/rejoin and after the successor itself disconnects.
+  Restart restores nested inventory count one, jump statistic one and criterion
+  time 1000 instead of seven, seven and 7000. The last case also performs a
+  later `SaveWorld`, showing why guarding only direct native writes is
+  insufficient: stale remembered state can feed a later snapshot. Configuring
+  and rejected-successor controls pass on that baseline. The reused native
+  `TestWorldBlockEntityParity` oracle passes without skips (74.34 s; package
+  74.764 s), preserving seven vanilla → mc-go → vanilla block-entity fixtures.
+  It uses Temurin JDK 25.0.5+8 and the README-pinned 26.2 jar, SHA-1
+  `823e2250d24b3ddac457a60c92a6a941943fcd6a`, SHA-256
+  `cdacdfb25898de5e4b4b0e5ddcc2722f77067e46605709c2d886c000ebb63ec5`.
+  No new bytecode, generated data or dependency is introduced.
+- **Implemented:** successful Java admission marks every other still-tracked,
+  previously admitted Java session with the same UUID as superseded for
+  persistence. The simulation-owned flag is sticky across retirement, including
+  kick grace and delayed cleanup after the newer session has left. Superseded
+  cleanup skips remembered-player replacement and native data/metadata writes.
+  The remembered-content correction also protects subsequent JSON snapshots;
+  JSON scheduling and formats, ordinary disconnect saves, cleanup side effects
+  and existing native writer fences retain their paths. Failed, denied and
+  configuring admissions do not transfer authority. UUID matching follows the
+  native artifact key; neutral avatars retain transient persistence semantics.
+- **Pinned:** deterministic artifact/restart tests cover active replacement,
+  kicked predecessors, the successor disconnecting first and a later native
+  save, plus configuring/rejected successor controls and ordinary disconnects
+  saving newer unsaved inventory/statistics/advancements. Comparing completed
+  artifacts before Stop prevents shutdown writes from hiding stale cleanup.
+  `TestNativeDisconnectReplacementRestartWire` passes real TCP without skips
+  for 775 and 776 (4.30 s; package 4.415 s): duplicate sessions replace an old
+  one-item stack with a current seven-item stack and completed story/root
+  advancement, copy the completed native save before disconnect/Stop, inspect
+  its advancement file and verify the copied restart's initial inventory using
+  measured profile item IDs. Natural transport retirement complements the
+  deterministic tests that force late-cleanup ordering.
+- **Validation:** full `go build ./...`, `go vet ./...` and
+  `go test ./internal/...` pass (server 233.536 s). The focused native
+  save/disconnect cases pass under the race detector (2.704 s). The native
+  block-entity oracle and the real TCP restart pin pass without skips with
+  the timings and supported profiles recorded above. Socket-based validations
+  use approved local-loopback execution; race runs establish functionality,
+  not timing or capacity results.
+- **Remaining:** admission scans O(tracked sessions) and adds one owner-only
+  flag per retained session, with no additional identity-history map. This is
+  an authority correction, with no performance or capacity claim. Conflicting
+  remembered name/UUID aliases remain separate: a native boot can load a UUID
+  record, ordinary disconnect updates its name record, and later offline native
+  capture can select either alias by map iteration. This existing normalization
+  bug does not require stale predecessor cleanup and is not fixed here. Disconnect
+  I/O and `/save-all` still block gameplay; native capture cost, cross-file or
+  cross-store atomicity and fsync/crash durability remain separate work.

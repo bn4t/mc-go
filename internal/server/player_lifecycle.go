@@ -102,6 +102,7 @@ func (s *Server) commitPlayerAdmissionOwned(p *playerRecord) {
 	if p.left || p.admitted {
 		return
 	}
+	s.supersedePlayerSavesOwned(p)
 	p.admitted = true
 	p.active.Store(true)
 	state := p.snapshot()
@@ -111,6 +112,25 @@ func (s *Server) commitPlayerAdmissionOwned(p *playerRecord) {
 		s.bus.Publish(event.TopicPlayerJoined, event.PlayerJoined{Player: state})
 		s.bus.Publish(event.TopicPlayerJoin, map[string]string{"name": state.Profile.Name})
 	}
+}
+
+// supersedePlayerSavesOwned transfers remembered/native authority only after
+// Java admission succeeds. Retired transports can remain tracked during kick
+// grace or delayed cleanup, so the active-player index alone is insufficient.
+// One owner-only flag per retained session avoids a persistent identity map;
+// admission scans O(tracked sessions), retaining no additional sessions.
+func (s *Server) supersedePlayerSavesOwned(p *playerRecord) {
+	if p.java == nil {
+		return
+	}
+	uuid := p.profile().UUID
+	s.sessions.Range(func(_, value any) bool {
+		previous := value.(*Session)
+		if previous != p.java && previous.playerRecord.admitted && previous.playerRecord.profile().UUID == uuid {
+			previous.persistenceSuperseded = true
+		}
+		return true
+	})
 }
 
 func (s *Server) retirePlayerStateOwned(p *playerRecord, reason string) *player.Update {

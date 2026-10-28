@@ -674,8 +674,26 @@ metadata writes also wait for the earlier native job before touching its files,
 so these paths still block gameplay. Disconnect writes remain allowed during
 shutdown. Shutdown rejects unadmitted public saves, joins connection cleanup
 and the final native receipt before retiring world workers, and adds no
-independent autosave. Existing replaced-session disconnect native writes retain
-their prior behavior.
+independent autosave.
+
+A successfully committed Java admission supersedes every still-tracked admitted
+Java session with the same UUID for remembered/native persistence. This includes
+retired transports waiting for kick grace or delayed cleanup. An owner-only
+sticky flag survives the newer session's own retirement, so older cleanup cannot
+overwrite its native inventory, statistics or advancements, or seed stale
+remembered data into a later save. Configuring, denied and failed admissions do
+not transfer authority; UUID matching follows native player-file identity.
+Admission scans O(tracked sessions), retaining one flag per existing session and
+no additional identity history. Ordinary disconnects still save, and cleanup,
+JSON write scheduling, formats and native write fences retain their existing
+paths. The remembered-content correction also protects JSON snapshots after a
+kick/rejoin; this does not detach disconnect I/O.
+
+This fence does not normalize conflicting remembered aliases. Native loading
+creates UUID-keyed records while ordinary disconnect updates name-keyed records.
+If both contain different state for one offline UUID, a later native snapshot's
+map iteration can select stale data. That preexisting alias-resolution issue is
+separate from rejecting a superseded session's cleanup writes.
 
 Level, dimension and entity write errors return from `SaveWorld`; native
 player/metadata errors retain their existing first-error recording in
@@ -701,9 +719,9 @@ The snapshot starts with all remembered name/UUID keys, then overlays current
 admitted Java players from the canonical active-player index. An otherwise empty
 online set no longer erases remembered players on save. Retired/replaced Play
 sessions cannot override a current incarnation, and late replacement cleanup
-does not overwrite its successor's remembered record. Native player-file calls
-on that cleanup retain their existing behavior; these fixes cover the JSON
-store and its in-memory remembered records.
+does not overwrite its successor's remembered record. The same authority fence
+also covers retired kick/rejoin predecessors and native player-file writes as
+described above; JSON write scheduling and schema remain unchanged.
 
 Each runtime reserves one unfinished server-data job before capture, separately
 from its compact-world save slot. Busy public callers wait without ownership or
