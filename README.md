@@ -35,6 +35,8 @@ block-entity update coalescing, moving-piston collision timing and measured
 dropped-item pushes, retracting source-base ejection of NoGravity armor stands,
 container validity, chest events and ordinary main/offhand placement and consumption.
 Dying mobs continue to obstruct block placement until their actual removal.
+Current player bounds refresh on player frames or pose changes; hypothetical
+pose-fit dimensions use live attributes. Settled scale requires player ticks.
 Embedded dropped items now move with collision bypass, gravity-before-escape
 ordering and float drag in measured single-exit chambers. Partial-shape escape
 selection and embedded XP-orb movement remain in progress.

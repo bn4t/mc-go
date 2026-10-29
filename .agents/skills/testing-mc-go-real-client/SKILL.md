@@ -123,8 +123,12 @@ successful tagged native run does not establish default test compilation.
   Establish the same entity ID through spawn, death status and actual removal
   packets; selector absence is insufficient because selectors omit corpses.
 - Attribute replies do not prove settled body dimensions. When a clearance
-  test needs settled scale, observe completed entity ticks; test immediate
+  test needs settled player scale, observe positive `play_time` advancement;
+  world steps and Pos/Pose replies do not prove a player frame. Test immediate
   resize timing separately instead of claiming that the settled case pins it.
+  A use ACK can flush on the next connection tick before player work. It proves
+  processing, but does not timestamp the action inside earlier command-counter
+  queries; a guarded TCP batch does not erase that dispatch distinction.
 
 ## Random physics probes
 

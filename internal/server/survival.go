@@ -1127,6 +1127,9 @@ func (s *Server) dropInventory(sess *Session) {
 // point, which lives in the overworld, so dying elsewhere also crosses
 // dimensions.
 func (s *Server) respawnPlayer(sess *Session) {
+	// Respawn creates a fresh ServerPlayer; copied scale attributes refresh
+	// its constructor bounding box on the next living tick.
+	sess.collisionScale = 1
 	s.removePlayerMenus(sess)
 	sess.dead = false
 	sess.health = defaultHealth

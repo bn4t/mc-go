@@ -81,8 +81,13 @@ func newChatSinkTP(pr *protocol.Reader, pw *protocol.Writer) *chatSink {
 }
 
 func newChatSinkOpts(pr *protocol.Reader, pw *protocol.Writer, confirmTP bool) *chatSink {
+	return newChatSinkWriteGuard(pr, pw, confirmTP, new(sync.Mutex))
+}
+
+// An external guard lets a fixture atomically write several complete frames
+// without interleaving the reader's keepalive/teleport/chunk acknowledgements.
+func newChatSinkWriteGuard(pr *protocol.Reader, pw *protocol.Writer, confirmTP bool, writeMu *sync.Mutex) *chatSink {
 	s := &chatSink{ids: map[int32]int{}, cap: 4096}
-	var writeMu sync.Mutex
 	go func() {
 		for {
 			p, err := pr.ReadPacket()

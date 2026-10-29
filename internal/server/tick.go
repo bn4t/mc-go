@@ -709,6 +709,7 @@ func (s *Server) playerTickOwned() {
 		}
 		return true
 	})
+	s.playerCollisionScaleTick()
 }
 
 // runGameLoop drives GameTick on the clock's schedule until stop

@@ -72,7 +72,7 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - For exact tick windows, freeze, use `/tick step N`, and observe completion
   through game time. `/tick sprint N` is asynchronous and measured 26.2
   advances N+1 ticks; wall-clock sleeps are not an exact tick counter.
-- Player cooldowns and advancement scans use player ticks. Observe `play_time`
+- Player cooldowns, dimension refresh and advancement scans use player ticks. Observe `play_time`
   after the relevant item/update receipt; world tick steps and wall-clock sleeps
   do not prove that a player cooldown has elapsed. Preserve exact outcome checks.
 - Conditional command witnesses and their barrier waits must match the exact

@@ -121,6 +121,7 @@ func (s *Server) updatePlayerPose(sess *Session) {
 		return
 	}
 	e.Pose = actual
+	s.refreshPlayerCollisionScale(&sess.playerRecord)
 	// setSynchedData marks the entry dirty; the Set Entity Data packet
 	// rides the next tracker pass (sendChanges), which runs after the
 	// commands drained this tick — so a teleport's reply always lands

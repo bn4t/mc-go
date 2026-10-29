@@ -85,6 +85,7 @@ func TestPlayerScalePoseMovementParity(t *testing.T) {
 			return x
 		}
 		sendCommand(t, pw, "gamemode creative @s")
+		setupPlayerTickBarrierBB(t, pw)
 		var out []result
 		for i, tc := range cases {
 			sendCommand(t, pw, "tp @s 8.0 160.0 8.0")
@@ -132,6 +133,7 @@ func TestPlayerScalePoseMovementParity(t *testing.T) {
 			if !ready {
 				t.Fatalf("%s %s start/pose never established: pose%d want%d", addr, tc.name, pose, tc.pose)
 			}
+			waitPlayerTicksBB(t, pw, collect, fmt.Sprintf("SCALE%d", i), 2)
 			var b protocol.Buffer
 			b.Double(tc.target)
 			b.Double(160)
@@ -163,7 +165,7 @@ func TestPlayerScalePoseMovementParity(t *testing.T) {
 			want = tc.target
 		}
 		v, m := vanilla[i], mcgo[i]
-		if math.IsNaN(v.x) || math.Abs(v.x-want) > 1e-6 || v.pose != tc.pose || math.Abs(m.x-v.x) > 1e-6 || m.pose != v.pose {
+		if math.IsNaN(v.x) || math.IsNaN(m.x) || math.Abs(v.x-want) > 1e-6 || v.pose != tc.pose || math.Abs(m.x-v.x) > 1e-6 || m.pose != v.pose {
 			t.Errorf("%s vanilla%+v mcgo%+v wantx%v pose%d", tc.name, v, m, want, tc.pose)
 		}
 	}

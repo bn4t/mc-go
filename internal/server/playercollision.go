@@ -56,12 +56,20 @@ func (s *Server) playerCollisionDims(player *playerRecord) (float64, float64) {
 	if entity, ok := s.entities.Get(player.entityID.Load()); ok {
 		pose = entity.Pose
 	}
-	return s.playerRecordPoseDims(player, pose)
+	scale := player.collisionScale
+	if scale == 0 {
+		scale = 1
+	}
+	return playerPoseDimsAtScale(pose, scale)
 }
 
 // Scale is a ranged attribute (1/16..16); vanilla sanitizes NaN to
 // the minimum and narrows the effective double value to float.
 func (s *Server) playerRecordPoseDims(player *playerRecord, pose int32) (float64, float64) {
+	return playerPoseDimsAtScale(pose, s.playerEffectiveScale(player))
+}
+
+func (s *Server) playerEffectiveScale(player *playerRecord) float32 {
 	scale := 1.0
 	if entity, ok := s.entities.Get(player.entityID.Load()); ok {
 		if base, ok := entity.AttrBase["scale"]; ok {
@@ -73,5 +81,21 @@ func (s *Server) playerRecordPoseDims(player *playerRecord, pose int32) (float64
 		scale = .0625
 	}
 	scale = math.Max(.0625, math.Min(16, scale))
-	return playerPoseDimsAtScale(pose, float32(scale))
+	return float32(scale)
+}
+
+// Living attribute updates refresh the current box at the end of the living
+// tick. Hypothetical pose-fit queries still read effective attributes directly.
+func (s *Server) playerCollisionScaleTick() {
+	for _, player := range s.activePlayersOwned() {
+		if player.java != nil && !player.java.gameplayTickReady() {
+			continue
+		}
+		s.refreshPlayerCollisionScale(player)
+	}
+}
+
+// Pose changes can refresh dimensions before the dirty-attribute tick pass.
+func (s *Server) refreshPlayerCollisionScale(player *playerRecord) {
+	player.collisionScale = s.playerEffectiveScale(player)
 }

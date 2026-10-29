@@ -32,8 +32,11 @@ type playerRecord struct {
 	onGround    bool
 	dim         atomic.Pointer[dimension]
 	entityID    atomic.Int32
-	modeMu      sync.RWMutex
-	gameMode    byte
+	// Simulation-owned current bounding-box scale refreshes on the connection frame, after
+	// player touch work. Zero is the constructor default scale of one.
+	collisionScale float32
+	modeMu         sync.RWMutex
+	gameMode       byte
 }
 
 func (p *playerRecord) ID() player.ID { return p.incarnation }
@@ -52,6 +55,7 @@ func (p *playerRecord) setDimension(d *dimension) {
 }
 
 func (p *playerRecord) setEntityID(id int32) {
+	p.collisionScale = 1 // a new physical player starts with constructor dimensions
 	p.entityID.Store(id)
 	p.markStateDirty()
 }

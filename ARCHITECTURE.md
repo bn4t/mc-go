@@ -73,6 +73,14 @@ nested-component identity remain separate lifecycle work.
 Within-pass floating-point ordering and each gameplay consumer's integration
 remain separate coverage; this does not make every attribute consumer complete.
 
+Player current collision scale is simulation-owned state on the canonical player
+record. Late player-frame work refreshes it after touch processing; actual pose
+changes also refresh dimensions. New physical IDs and respawn start with constructor
+scale1, while an existing record's dimension transfer preserves current bounds.
+Hypothetical pose fitting uses live effective attributes. Bed/wake, effect-triggered
+refresh and all cold lifecycle combinations remain separate coverage. Batched wire
+outcomes do not directly establish action timing within command counter windows.
+
 NoGravity metadata is a shared native base field: pairing packs non-default true
 without consuming its pending dirty value, and tracker updates emit explicit false
 resets. Static families use the existing vehicle pass as a fallback; capability-only
