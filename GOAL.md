@@ -148,13 +148,15 @@ Mojang server over the wire.
 
 ### Entities
 - [~] Entity manager, spawn/remove/teleport
-      Natural spawning (caps, packs, placements, despawn) and
+      Initial join avoids duplicate pairing; measured NoGravity base metadata
+      covers pairing, changes, resets and late observers. Natural spawning (caps, packs, placements, despawn) and
       chunk-generation creatures: `TestNaturalSpawn*Parity`.
 - [x] Full entity type registry
 - [~] Physics, collision, AI, pathfinding: positioned player shapes, animated
       shulker/piston collision, Marker and NoGravity armor-stand policies, shulker/piston item
       pushes, six-axis stand/cow shulker opening sweeps and retracting source-base
-      stand/cow ejection have measured pins; general physical pushing remains incomplete.
+      stand/cow ejection have measured pins. Dying bodies obstruct placement until
+      actual removal; general physical pushing remains incomplete.
 - [~] Damage, health, death, drops, XP
       First-hit player XP/value/pickup has a live-oracle pin; broader
       damage, death and drop parity remains incomplete. Mob falls now use
@@ -265,7 +267,10 @@ Mojang server over the wire.
   (`TestItemSNBTParity`). Fill/clone share typed block filters; clone preserves
   measured native block-entity data, strict writes and post-hydration neighbor
   notifications. Exact placement grouping, scheduled-tick copying and complete
-  command schemas remain partial. Startup file-function scheduling now has
+  command schemas remain partial. Pending block callbacks retain registered type
+  and the first deadline/priority; fluid identity/sub-tick ordering remain partial.
+  Attribute getters and mutations supply measured typed execute-store results.
+  Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
   pending file-function events also survive native save/restart; tags/macros
   execution remains open.
@@ -18409,3 +18414,9 @@ Limits: representative living, item and boat metadata paths are pinned. Vehicle 
 - **Pinned** — Frozen4-file patch SHA256 `440e7ec3f504f09ebebda70517de5c3ad14a1628450407860a47c7936ff2e39f`. Numeric/status/modifier/source-frame units PASS0.164s; native20-case two-leg differential PASS25.84s (`work/attribute-query-result-oracle-v1.log`). Independent sentinels detect omitted callbacks; controls cover negative fractions, zero, saturation, mutators and missing target/attribute/modifier failures.
 
 Attribute range sanitization, equipment projection in queries/packets and full argument-parser compatibility remain separate limits.
+
+## Slice — combined weather, metadata, scheduling and command verification (2026-10-29)
+
+- **Measured** — Immutable archive of972cc26 includes committed hand guards, combat speed, saved function events, dying placement, GameTest weather, block scheduling and NoGravity/join fixes. The subsequent252bf5a adds only the separately measured attribute command-result slice plus docs.
+- **Implemented** — Updated capability notes and agent/client-test guidance with actual application/removal/pairing receipts and remaining limits. No runtime code in this verification entry.
+- **Pinned** —972cc26 build/vet/tagged blackbox compilation and full default `go test -p 2 ./... -count=1 -timeout20m` PASS (internal/server338.007s, worldgen14.134s, public server27.017s, default blackbox138.753s).252bf5a immutable build/vet/tagged compile and affected attribute/command-source/outcome/store units PASS1.125s. Separate external module imports/builds pass for both snapshots. Logs: `work/verified-972cc26.log`, `work/verified-252bf5a.log`; per-slice entries record actual native comparisons. Default tests do not substitute for the opt-in native oracle. Graphical play remains blocked by the documented client dependency download restriction; this is not full vanilla parity.
