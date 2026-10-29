@@ -723,7 +723,7 @@ func vehicleBoundNames() []string {
 // doesn't push at all.
 func (s *Server) mobPushStep(e *Entity) {
 	ew, eh := entityBBDims(e)[0], entityBBDims(e)[1]
-	for _, o := range s.entities.All() {
+	for _, o := range s.entities.Live() {
 		if o.ID == e.ID || o.Dim != e.Dim {
 			continue
 		}
@@ -735,7 +735,7 @@ func (s *Server) mobPushStep(e *Entity) {
 		if o.Riding != 0 || e.Riding != 0 {
 			continue
 		}
-		ow, oh := entityBBDims(&o)[0], entityBBDims(&o)[1]
+		ow, oh := entityBBDims(o)[0], entityBBDims(o)[1]
 		half := (ew + ow) / 2
 		if !(math.Abs(o.X-e.X) < half && math.Abs(o.Z-e.Z) < half &&
 			e.Y < o.Y+oh && o.Y < e.Y+eh) {
@@ -816,11 +816,11 @@ func (s *Server) mobPushStep(e *Entity) {
 func (s *Server) mobCrammingStep(e *Entity, maxCram int) {
 	ew, eh := entityBBDims(e)[0], entityBBDims(e)[1]
 	count := 0
-	for _, o := range s.entities.All() {
+	for _, o := range s.entities.Live() {
 		if o.ID == e.ID || o.Dim != e.Dim || o.Riding != 0 || o.Health <= 0 {
 			continue
 		}
-		ow, oh := entityBBDims(&o)[0], entityBBDims(&o)[1]
+		ow, oh := entityBBDims(o)[0], entityBBDims(o)[1]
 		half := (ew + ow) / 2
 		if math.Abs(o.X-e.X) < half && math.Abs(o.Z-e.Z) < half &&
 			e.Y < o.Y+oh && o.Y < e.Y+eh {
@@ -7925,7 +7925,7 @@ func (s *Server) mobFleeStep(e *Entity, kn string) bool {
 			})
 		default:
 			fearedTID, fok := EntityTypeID(r.feared)
-			for _, o := range s.entities.All() {
+			for _, o := range s.entities.Live() {
 				if o.Dim != e.Dim || o.ID == e.ID || o.Dying || o.Dormant {
 					continue
 				}

@@ -163,3 +163,33 @@ func FullCollision(b world.Block) bool { return fullCollision(b) }
 
 // MultifaceCanAttach is MultifaceBlock.canAttachTo toward dir from p.
 func MultifaceCanAttach(g FuncGetter, p BlockPos, dir int) bool { return multifaceCanAttach(g, p, dir) }
+
+// RedstoneConductor is BlockState.isRedstoneConductor.
+func RedstoneConductor(b world.Block) bool { return props(b)&(1<<bpConductor) != 0 }
+
+// IsWater reports a water fluid state (source, flowing or waterlogged).
+func IsWater(b world.Block) bool { return isWaterFluid(b) }
+
+// IsLava reports a lava fluid state.
+func IsLava(b world.Block) bool { return isLavaFluid(b) }
+
+// IsLeaves reports a block in the leaves family (the heightmap's
+// MOTION_BLOCKING_NO_LEAVES carve-out).
+func IsLeaves(b world.Block) bool { return isLeaves(b) }
+
+// ChunkGenSpawnRandom is the WorldgenRandom NoiseBasedChunkGenerator
+// .spawnOriginalMobs hands NaturalSpawner.spawnMobsForChunkGeneration:
+// a legacy LCG reseeded by setDecorationSeed(levelSeed, minBlockX,
+// minBlockZ), so chunk-generation spawns are a pure function of the
+// world seed and the chunk.
+func ChunkGenSpawnRandom(seed int64, cx, cz int32) Random {
+	r := NewLegacy(0)
+	setDecorationSeed(r, seed, cx*16, cz*16)
+	return r
+}
+
+// ZoomBiome is BiomeManager.getBiome over an arbitrary quart lookup,
+// seeded from the world seed (BiomeManager.obfuscateSeed).
+func ZoomBiome(seed int64, x, y, z int32, quart func(qx, qy, qz int32) string) string {
+	return zoomBiome(obfuscateSeed(seed), x, y, z, quart)
+}

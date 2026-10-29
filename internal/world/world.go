@@ -35,6 +35,8 @@ type World struct {
 	stopOnce sync.Once
 	wg       sync.WaitGroup
 	changes  blockChangeJournal
+	// changeHook, when set, sees every accepted block mutation's position.
+	changeHook atomic.Pointer[func(Pos)]
 	// blockEntities holds the block entity compounds the last load read
 	// out of the region files - a chest's contents, a sign's text -
 	// which the server turns back into its own stores. The world owns

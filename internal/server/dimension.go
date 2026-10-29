@@ -54,6 +54,9 @@ type dimension struct {
 	// s.biomeAt.
 	biomes   map[[3]int]string
 	biomesMu sync.RWMutex
+	// biomesRev counts writes to biomes (under biomesMu) so derived
+	// indexes know when to rebuild.
+	biomesRev uint64
 	// ultraWarm marks a dimension type with the ultra_warm flag (the
 	// nether): lava spreads like water there and flows ten times
 	// faster, and water evaporates.
@@ -113,7 +116,7 @@ type dimension struct {
 	// every write.
 	blockLight blockLightGrid
 	// terrain is the generated dimension's chunk source (nil for the
-	// flat and stand-in worlds).
+	// flat and stand-in worlds); chunk-generation spawns read its existence.
 	terrain *terrainSource
 	// genEmit caches a provided chunk's generated emitters; genLit
 	// marks chunks whose generated emitters were spread.

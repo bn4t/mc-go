@@ -1543,6 +1543,19 @@ func (m *Manager) GetPtr(id int32) (*Entity, bool) {
 
 // All snapshots the live entity set — entity copies, so mutating a
 // returned Entity does not write back (use SetMotion/Damage for that).
+// Live returns the live entity pointers (no copies) for read-mostly
+// scans on the simulation owner — the per-mob neighbour passes that
+// would otherwise copy every entity struct once per mob per tick.
+func (m *Manager) Live() []*Entity {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*Entity, 0, len(m.byID))
+	for _, e := range m.byID {
+		out = append(out, e)
+	}
+	return out
+}
+
 func (m *Manager) All() []Entity {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

@@ -301,39 +301,20 @@ func (s *Server) mobPatrolStep(e *Entity, d *dimension, w *world.World) bool {
 	return true
 }
 
-// despawnAnimalTypes are the Animal subclasses mc-go summons —
-// Animal.removeWhenFarAway returns false, so neither distance branch
-// of checkDespawn ever discards them.
+// despawnAnimalTypes are the Animal subclasses whose
+// removeWhenFarAway is Animal's unconditional false, so neither
+// distance branch of checkDespawn ever discards them. Overrides
+// measured on 26.2 (javap): Chicken answers isChickenJockey, Ocelot
+// and Cat !trusting/!tame && tickCount > 2400, Axolotl !fromBucket &&
+// !hasCustomName, Hoglin/ZombieHorse/CamelHusk/AbstractNautilus true.
 var despawnAnimalTypes = map[string]bool{
-	"pig": true, "cow": true, "chicken": true, "sheep": true,
+	"pig": true, "cow": true, "sheep": true, "mooshroom": true,
 	"sniffer": true, "horse": true, "donkey": true, "mule": true,
-	"llama": true, "trader_llama": true, "wolf": true, "cat": true,
-	"ocelot": true, "parrot": true, "armadillo": true, "goat": true,
-	"turtle": true, "strider": true,
-}
-
-// despawnWaterAmbientTypes are MobCategory.WATER_AMBIENT — the one
-// category whose despawnDistance is 64 rather than 128
-// (noDespawnDistance is 32 for every category).
-var despawnWaterAmbientTypes = map[string]bool{
-	"cod": true, "salmon": true, "pufferfish": true,
-	"tropical_fish": true, "tadpole": true,
-}
-
-// despawnPeacefulBans are the types whose EntityType.allowedInPeaceful
-// is false — checkDespawn's first branch discards them the moment the
-// difficulty flips to peaceful.
-var despawnPeacefulBans = map[string]bool{
-	"zombie": true, "zombie_villager": true, "husk": true, "drowned": true,
-	"skeleton": true, "stray": true, "bogged": true, "wither_skeleton": true,
-	"creeper": true, "spider": true, "cave_spider": true, "enderman": true,
-	"witch": true, "blaze": true, "phantom": true, "zombified_piglin": true,
-	"piglin": true, "piglin_brute": true, "guardian": true, "elder_guardian": true,
-	"ghast": true, "ender_dragon": true, "sulfur_cube": true,
-	"pillager": true, "vindicator": true, "evoker": true, "illusioner": true,
-	"ravager": true, "vex": true, "silverfish": true, "slime": true,
-	"magma_cube": true, "hoglin": true, "zoglin": true, "warden": true,
-	"shulker": true, "endermite": true, "breeze": true, "creaking": true,
+	"llama": true, "trader_llama": true, "skeleton_horse": true,
+	"camel": true, "wolf": true, "parrot": true, "armadillo": true,
+	"goat": true, "turtle": true, "strider": true, "rabbit": true,
+	"polar_bear": true, "fox": true, "panda": true, "bee": true,
+	"frog": true, "happy_ghast": true,
 }
 
 // mobDespawnKinds are the Living types that are Entity subclasses of
@@ -359,15 +340,45 @@ func init() {
 	for name := range patrollingTypes {
 		mobDespawnKinds[name] = true
 	}
+	// Every categorized type is a Mob too (the bosses keep whatever
+	// the supplier table gave them: WitherBoss overrides checkDespawn).
+	for name := range entityCategories {
+		if name != "wither" && name != "ender_dragon" {
+			mobDespawnKinds[name] = true
+		}
+	}
 }
 
 // mobRemoveWhenFarAway is Mob.removeWhenFarAway: the base answer is
-// unconditional true; Animal overrides it false; PatrollingMonster
-// re-keys it on patrolling && dist²>16384.
+// unconditional true, with the measured overrides — Animal false;
+// PatrollingMonster !patrolling || dist² > 16384 (a Raider in a raid
+// is persistent instead); villagers, wandering traders, golems,
+// allays and wardens false; AbstractFish/Axolotl kept when bucketed
+// or named; ZombieVillager kept while converting.
 func (s *Server) mobRemoveWhenFarAway(e *Entity, distSqr float64) bool {
 	name, _ := EntityTypeName(e.Type)
 	if patrollingTypes[name] {
-		return e.Patrolling && distSqr > 16384
+		if e.Raid != nil {
+			return false
+		}
+		return !e.Patrolling || distSqr > 16384
+	}
+	switch name {
+	case "chicken":
+		return e.ChickenJockey
+	case "ocelot", "cat":
+		return !e.Tamed && e.TickCount > 2400
+	case "cod", "salmon", "pufferfish", "tropical_fish", "tadpole", "axolotl":
+		return !e.FromBucket && e.CustomName == ""
+	case "zombie_villager":
+		return !e.Converting
+	case "piglin":
+		return !e.PersistenceRequired
+	case "villager", "wandering_trader", "iron_golem", "snow_golem",
+		"copper_golem", "shulker", "allay", "warden":
+		return false
+	case "hoglin", "zombie_horse", "camel_husk", "nautilus", "zombie_nautilus":
+		return true
 	}
 	if despawnAnimalTypes[name] {
 		return false
@@ -389,12 +400,12 @@ func (s *Server) mobCheckDespawn(e *Entity) bool {
 	if !mobDespawnKinds[name] {
 		return false
 	}
-	if s.difficulty == DifficultyPeaceful && despawnPeacefulBans[name] {
+	if s.difficulty == DifficultyPeaceful && notInPeaceful[name] {
 		return true
 	}
 	// isPersistenceRequired || requiresCustomPersistence (passenger
-	// or leashed — mc-go has no leash).
-	if e.PersistenceRequired || e.Riding != 0 {
+	// or leashed, plus the per-type overrides).
+	if e.PersistenceRequired || mobRequiresCustomPersistence(e, name) {
 		e.NoActionTime = 0
 		return false
 	}
@@ -417,10 +428,8 @@ func (s *Server) mobCheckDespawn(e *Entity) bool {
 	if !found {
 		return false
 	}
-	despawnDist := 128.0
-	if despawnWaterAmbientTypes[name] {
-		despawnDist = 64
-	}
+	// MobCategory.getDespawnDistance: 64 for WATER_AMBIENT, else 128.
+	despawnDist := float64(mobCategoryInfo[entityCategoryOf(name)].despawn)
 	if nearest > despawnDist*despawnDist && s.mobRemoveWhenFarAway(e, nearest) {
 		return true
 	}

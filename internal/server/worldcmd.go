@@ -319,6 +319,7 @@ func (s *Server) runFillBiome(player string, args []string) reply {
 		// Store the quart overrides gameplay reads through biomeAt;
 		// the chunk palette still ships the base biome.
 		d.biomesMu.Lock()
+		d.biomesRev++
 		if d.biomes == nil {
 			d.biomes = map[[3]int]string{}
 		}

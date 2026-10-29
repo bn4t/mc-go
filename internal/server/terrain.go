@@ -37,6 +37,11 @@ const (
 type terrainSource struct {
 	g       *worldgen.Generator
 	workers int
+	// onGenerated sees every chunk the first time it is handed out —
+	// the SPAWN status, where chunk-generation mobs are placed. The
+	// biome is the zoomed one at (minX, maxY, minZ).
+	onGenerated func(cx, cz int, biome string)
+	maxY        int32
 
 	tmu    sync.Mutex
 	terr   map[[2]int32]*terrainEntry
@@ -73,7 +78,7 @@ func newTerrainSource(seed int64, overlay map[string]json.RawMessage, settings, 
 	g.RS.SetLevelBounds(int32(minY), int32(height))
 	g.Structures = structures
 	return &terrainSource{
-		g: g, workers: max(1, runtime.NumCPU()),
+		g: g, workers: max(1, runtime.NumCPU()), maxY: int32(minY + height - 1),
 		terr: map[[2]int32]*terrainEntry{}, pruned: map[[2]int32]bool{}, deco: map[[2]int32]bool{}, provided: map[[2]int32]bool{},
 	}, nil
 }
@@ -160,6 +165,9 @@ func (t *terrainSource) ProvideChunk(x, z int) *world.BaseChunk {
 	base := protoToBase(p)
 	if t.g.Structures {
 		base.Structures = t.g.StructuresTag(cx, cz)
+	}
+	if !t.provided[[2]int32{cx, cz}] && t.onGenerated != nil {
+		t.onGenerated(x, z, t.g.BiomeAt(cx*16, t.maxY, cz*16))
 	}
 	t.provided[[2]int32{cx, cz}] = true
 	if len(base.PostProcess) > 0 || len(base.BlockEntities) > 0 || len(p.Entities) > 0 {
@@ -301,6 +309,9 @@ func (s *Server) applyLevelType() error {
 		if err != nil {
 			return err
 		}
+		dimName := o.dim
+		osrc.onGenerated = func(cx, cz int, biome string) { s.queueChunkGenSpawn(dimName, cx, cz, biome) }
+		od.terrain = osrc
 		ow := world.NewProvided(s.bus, 8, osrc)
 		ow.SetBiome(od.biome)
 		prev := od.w
@@ -311,6 +322,8 @@ func (s *Server) applyLevelType() error {
 		prev.Stop()
 	}
 	old := s.world
+	src.onGenerated = func(cx, cz int, biome string) { s.queueChunkGenSpawn(dimOverworld, cx, cz, biome) }
+	d.terrain = src
 	w := world.NewProvided(s.bus, 8, src)
 	w.SetBiome("minecraft:plains")
 	s.world = w
