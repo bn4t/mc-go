@@ -18,3 +18,14 @@ func TestStructureNetherFortressParity(t *testing.T) {
 	structureParityDim(t, 12345, "the_nether", "nether", "nether", structureOverrides(nil, "nether_complexes"),
 		[]terrainArea{{3, -35, 10, -28}, {-14, -40, -8, -34}})
 }
+
+// TestStructureNetherFossilPortalParity pins nether fossils (the base
+// column height search from the height provider, template and
+// rotation, every touched chunk placing the whole fossil, the dried
+// ghast from a seed-positioned random, beard_thin terrain around
+// them) in a soul sand valley, and a nether ruined portal (in_nether
+// placement heights, blackstone replacement, lava kept).
+func TestStructureNetherFossilPortalParity(t *testing.T) {
+	structureParityDim(t, 12345, "the_nether", "nether", "nether", structureOverrides(nil, "nether_fossils", "ruined_portals"),
+		[]terrainArea{{-61, 27, -55, 35}, {-1, -2, 3, 2}})
+}
