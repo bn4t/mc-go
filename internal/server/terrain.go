@@ -48,15 +48,18 @@ type terrainEntry struct {
 	p    *worldgen.ProtoChunk
 }
 
-func newTerrainSource(seed int64, overlay map[string]json.RawMessage) (*terrainSource, error) {
+// newTerrainSource builds a source for one dimension: its noise
+// settings, biome source ("the_end" for the end's) and level bounds.
+func newTerrainSource(seed int64, overlay map[string]json.RawMessage, settings, biomes string, minY, height int) (*terrainSource, error) {
 	data := worldgen.Vanilla()
 	if len(overlay) != 0 {
 		data = worldgen.Overlay(data, overlay)
 	}
-	g, err := worldgen.NewGenerator(data, "overworld", "overworld", seed)
+	g, err := worldgen.NewGenerator(data, settings, biomes, seed)
 	if err != nil {
 		return nil, err
 	}
+	g.RS.SetLevelBounds(int32(minY), int32(height))
 	return &terrainSource{
 		g: g, workers: max(1, runtime.NumCPU()),
 		terr: map[[2]int32]*terrainEntry{}, pruned: map[[2]int32]bool{}, deco: map[[2]int32]bool{}, provided: map[[2]int32]bool{},
@@ -193,15 +196,32 @@ func (s *Server) applyLevelType() error {
 	if s.LevelType != LevelTypeNormal {
 		return fmt.Errorf("unknown level type %q", s.LevelType)
 	}
-	src, err := newTerrainSource(s.WorldSeed, s.WorldgenOverlay)
+	d := s.dims[dimOverworld]
+	src, err := newTerrainSource(s.WorldSeed, s.WorldgenOverlay, "overworld", "overworld", d.minY, d.height)
 	if err != nil {
 		return err
+	}
+	// The nether and end generate from their own noise settings.
+	for _, o := range []struct{ dim, settings, biomes string }{
+		{dimNether, "nether", "nether"}, {dimEnd, "end", "the_end"},
+	} {
+		od := s.dims[o.dim]
+		osrc, err := newTerrainSource(s.WorldSeed, s.WorldgenOverlay, o.settings, o.biomes, od.minY, od.height)
+		if err != nil {
+			return err
+		}
+		ow := world.NewProvided(s.bus, 8, osrc)
+		ow.SetBiome(od.biome)
+		prev := od.w
+		od.w = ow
+		od.flat = false
+		od.seaLevel = osrc.g.RS.SeaLevel()
+		prev.Stop()
 	}
 	old := s.world
 	w := world.NewProvided(s.bus, 8, src)
 	w.SetBiome("minecraft:plains")
 	s.world = w
-	d := s.dims[dimOverworld]
 	d.w = w
 	d.flat = false
 	d.seaLevel = src.g.RS.SeaLevel()

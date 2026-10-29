@@ -333,7 +333,7 @@ func (rg *Region) SetBlock(x, y, z int32, b world.Block) bool {
 func (rg *Region) Height(t int, x, z int32) int32 {
 	c := rg.chunkAt(x, z)
 	if c == nil {
-		return rg.g.RS.settings.minY
+		return rg.g.RS.lvMinY
 	}
 	return c.HeightAt(t, x&15, z&15) + 1
 }
@@ -342,10 +342,10 @@ func (rg *Region) Height(t int, x, z int32) int32 {
 func (rg *Region) Biome(x, y, z int32) string { return rg.g.BiomeAt(x, y, z) }
 
 // MinY is the dimension floor.
-func (rg *Region) MinY() int32 { return rg.g.RS.settings.minY }
+func (rg *Region) MinY() int32 { return rg.g.RS.lvMinY }
 
 // MaxY is the highest buildable y.
-func (rg *Region) MaxY() int32 { return rg.g.RS.settings.minY + rg.g.RS.settings.height - 1 }
+func (rg *Region) MaxY() int32 { return rg.g.RS.lvMinY + rg.g.RS.lvHeight - 1 }
 
 // setRaw writes straight into the chunk section, as BulkSectionAccess
 // does: no heightmap or post-processing bookkeeping.

@@ -53,6 +53,39 @@ func (e *biomeEntry) fitness(t *[climAxes]int64) int64 {
 type BiomeSource struct {
 	entries []biomeEntry
 	tree    *rtree
+	// end selects TheEndBiomeSource instead of a parameter list.
+	end bool
+}
+
+// NewEndBiomeSource is TheEndBiomeSource: the_end within 64 chunks of
+// the origin, else the end-islands erosion at the section's centre
+// picks highlands / midlands / barrens / small islands.
+func NewEndBiomeSource() *BiomeSource {
+	bs := &BiomeSource{end: true}
+	// possibleBiomes order: end, highlands, midlands, islands, barrens.
+	for _, b := range []string{"the_end", "end_highlands", "end_midlands", "small_end_islands", "end_barrens"} {
+		bs.entries = append(bs.entries, biomeEntry{biome: b})
+	}
+	return bs
+}
+
+func (rs *RandomState) endBiome(qx, qy, qz int32) string {
+	bx, by, bz := quartToBlock(qx), quartToBlock(qy), quartToBlock(qz)
+	sx, sz := int64(bx>>4), int64(bz>>4)
+	if sx*sx+sz*sz <= 4096 {
+		return "the_end"
+	}
+	c := &Ctx{X: ((bx>>4)*2 + 1) * 8, Y: by, Z: ((bz>>4)*2 + 1) * 8}
+	e := rs.router.Erosion.Compute(c)
+	switch {
+	case e > 0.25:
+		return "end_highlands"
+	case e >= -0.0625:
+		return "end_midlands"
+	case e < -0.21875:
+		return "small_end_islands"
+	}
+	return "end_barrens"
 }
 
 // NewMultiNoiseBiomeSource loads a biome_parameters list ("overworld",
@@ -112,6 +145,9 @@ func parseSpan(raw json.RawMessage) (float32, float32, error) {
 // Biome returns the biome at quart position (qx, qy, qz). nc supplies
 // the chunk's cached sampler (nil for an uncached lookup).
 func (bs *BiomeSource) Biome(rs *RandomState, nc *NoiseChunk, qx, qy, qz int32) string {
+	if bs.end {
+		return rs.endBiome(qx, qy, qz)
+	}
 	t := rs.sampleClimate(nc, qx, qy, qz)
 	return bs.find(&t)
 }
@@ -150,8 +186,8 @@ func (bs *BiomeSource) find(t *[climAxes]int64) string {
 // with each lookup seeded by the previous result, which is how the real
 // server's search breaks exact ties.
 func (rs *RandomState) ChunkBiomes(bs *BiomeSource, nc *NoiseChunk, cx, cz int32) []string {
-	minQY := floorDiv(rs.settings.minY, 4)
-	n := rs.settings.height / 4
+	minQY := floorDiv(rs.lvMinY, 4)
+	n := rs.lvHeight / 4
 	out := make([]string, 16*n)
 	var last *rnode
 	for sy := int32(0); sy < n; sy += 4 {
@@ -159,6 +195,10 @@ func (rs *RandomState) ChunkBiomes(bs *BiomeSource, nc *NoiseChunk, cx, cz int32
 			for dy := int32(0); dy < 4 && sy+dy < n; dy++ {
 				qy := sy + dy
 				for qz := int32(0); qz < 4; qz++ {
+					if bs.end {
+						out[(qy*4+qz)*4+qx] = rs.endBiome(cx*4+qx, minQY+qy, cz*4+qz)
+						continue
+					}
 					t := rs.sampleClimate(nc, cx*4+qx, minQY+qy, cz*4+qz)
 					var b string
 					if bs.tree != nil {

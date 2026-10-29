@@ -250,19 +250,15 @@ func encodeLightDataFor(d *dimension, cx, cz int) []byte {
 	// floods and the tick-end flush — serialize against them.
 	d.lightMu.Lock()
 	defer d.lightMu.Unlock()
-	if d.skylight {
-		if d.w.Provided() {
-			// A generated chunk is sent once its neighbours are lit
-			// too, so light spilling over its borders is in place.
-			for dz := -1; dz <= 1; dz++ {
-				for dx := -1; dx <= 1; dx++ {
-					genSkyChunk(d, cx+dx, cz+dz)
-					seedGenBlockLight(d, cx+dx, cz+dz)
-				}
+	if d.w.Provided() {
+		// A generated chunk is sent once its neighbours are lit too, so
+		// light spilling over its borders is in place.
+		for dz := -1; dz <= 1; dz++ {
+			for dx := -1; dx <= 1; dx++ {
+				ensureSkyChunk(d, cx+dx, cz+dz)
+				seedGenBlockLight(d, cx+dx, cz+dz)
 			}
 		}
-		ensureSkyChunk(d, cx, cz)
-		seedGenBlockLight(d, cx, cz)
 	}
 	var blockMask uint64
 	var blockArrays [][]byte
@@ -285,7 +281,20 @@ func encodeLightDataFor(d *dimension, cx, cz int) []byte {
 				emptySky |= bit
 			}
 		}
-		emptySky |= 0x1 // below the world
+		// The below-world slot: the flat capture always ships it empty;
+		// a generated column holds a layer there when the 3x3x3 box
+		// around it is non-empty and ships it lit or empty by content.
+		var belowArr []byte
+		if !d.w.Provided() {
+			emptySky |= 0x1
+		} else if belowArr = genBelowWorldSky(d, cx, cz); belowArr != nil {
+			if nonZero(belowArr) {
+				skyMask |= 0x1
+				skyArrays = append([][]byte{belowArr}, skyArrays...)
+			} else {
+				emptySky |= 0x1
+			}
+		}
 		if skyMask != 0 {
 			b.VarInt(1)
 			b.Long(int64(skyMask))
@@ -298,8 +307,7 @@ func encodeLightDataFor(d *dimension, cx, cz int) []byte {
 		} else {
 			b.VarInt(0)
 		}
-		b.VarInt(1)
-		b.Long(int64(emptySky))
+		writeBitSet(&b, emptySky)
 		emptyBlock := uint64(0)
 		for sec := 0; sec < d.sections(); sec++ {
 			bit := uint64(1) << uint(sec+1)
@@ -310,12 +318,48 @@ func encodeLightDataFor(d *dimension, cx, cz int) []byte {
 				emptyBlock |= bit
 			}
 		}
-		b.VarInt(1)
-		b.Long(int64(emptyBlock))
+		if d.w.Provided() && blockMask&1 == 0 && belowWorldLayered(d, cx, cz) {
+			emptyBlock |= 1 // the below-world slot, layered with the bottom
+		}
+		writeBitSet(&b, emptyBlock)
 		b.VarInt(int32(len(skyArrays)))
 		for _, arr := range skyArrays {
 			writeByteArray(&b, arr)
 		}
+	} else if d.w.Provided() {
+		// Measured on a 26.2 nether: no sky masks at all; the empty
+		// block mask lists every layered slot without a lit cell —
+		// sections plus the below-world slot the bottom section's
+		// neighbourhood layers.
+		b.VarInt(0) // sky light mask
+		if blockMask != 0 {
+			b.VarInt(1)
+			b.Long(int64(blockMask))
+		} else {
+			b.VarInt(0)
+		}
+		b.VarInt(0) // empty sky light mask
+		ck := [2]int{cx, cz}
+		var emptyBlock uint64
+		for sec := 0; sec < d.sections(); sec++ {
+			if d.blkLayered[ck][sec] {
+				emptyBlock |= 1 << uint(sec+1)
+			}
+		}
+		if belowWorldLayered(d, cx, cz) {
+			emptyBlock |= 1
+		}
+		if d.blkLayered[ck][d.sections()-1] {
+			emptyBlock |= 1 << uint(d.sections()+1)
+		}
+		emptyBlock &^= blockMask
+		if emptyBlock != 0 {
+			b.VarInt(1)
+			b.Long(int64(emptyBlock))
+		} else {
+			b.VarInt(0)
+		}
+		b.VarInt(0) // sky arrays
 	} else {
 		// sections+2 light slots, all flagged empty; no arrays follow.
 		bits := d.sections() + 2
@@ -337,6 +381,17 @@ func encodeLightDataFor(d *dimension, cx, cz int) []byte {
 		writeByteArray(&b, arr)
 	}
 	return b.Bytes()
+}
+
+// writeBitSet writes a one-long BitSet the way Java's toLongArray
+// does: no longs at all when it is empty.
+func writeBitSet(b *protocol.Buffer, v uint64) {
+	if v == 0 {
+		b.VarInt(0)
+		return
+	}
+	b.VarInt(1)
+	b.Long(int64(v))
 }
 
 func writeByteArray(b *protocol.Buffer, data []byte) {

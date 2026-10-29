@@ -82,6 +82,14 @@ func vanillaTerrain(t *testing.T, seed int64, strip terrainStrip, areas []terrai
 // files.
 func vanillaTerrainFiles(t *testing.T, seed int64, files map[string]string, areas []terrainArea) string {
 	t.Helper()
+	return vanillaDimTerrain(t, seed, files, "overworld", areas)
+}
+
+// vanillaDimTerrain is vanillaTerrainFiles for any dimension
+// ("overworld", "the_nether", "the_end"): the areas are force-loaded in
+// that dimension and its region directory is returned.
+func vanillaDimTerrain(t *testing.T, seed int64, files map[string]string, dim string, areas []terrainArea) string {
+	t.Helper()
 	jar := blackboxJar(t)
 	dir := t.TempDir()
 	port, ok := freePort()
@@ -104,8 +112,9 @@ func vanillaTerrainFiles(t *testing.T, seed int64, files map[string]string, area
 		return strings.Contains(string(b), s)
 	}
 	say("tick freeze")
+	in := "execute in minecraft:" + dim + " run "
 	for _, a := range areas {
-		say(fmt.Sprintf("forceload add %d %d %d %d", a.x0*16, a.z0*16, a.x1*16+15, a.z1*16+15))
+		say(fmt.Sprintf(in+"forceload add %d %d %d %d", a.x0*16, a.z0*16, a.x1*16+15, a.z1*16+15))
 	}
 	// Every chunk must be loaded before the save: probe each one until
 	// the console confirms it.
@@ -119,7 +128,7 @@ func vanillaTerrainFiles(t *testing.T, seed int64, files map[string]string, area
 						vanillaLogTail(t)
 						t.Fatalf("chunk %d,%d never loaded", cx, cz)
 					}
-					say(fmt.Sprintf("execute if loaded %d 0 %d run say %s", cx*16, cz*16, tag))
+					say(fmt.Sprintf("execute in minecraft:%s if loaded %d 0 %d run say %s", dim, cx*16, cz*16, tag))
 					time.Sleep(200 * time.Millisecond)
 				}
 			}
@@ -130,7 +139,7 @@ func vanillaTerrainFiles(t *testing.T, seed int64, files map[string]string, area
 	if code := wait(); code != 0 {
 		t.Fatalf("vanilla exited %d", code)
 	}
-	return filepath.Join(dir, "world", "dimensions", "minecraft", "overworld", "region")
+	return filepath.Join(dir, "world", "dimensions", "minecraft", dim, "region")
 }
 
 // savedChunk is a decoded region chunk: block state strings
@@ -426,7 +435,7 @@ func TestTerrainSurfaceParity(t *testing.T) {
 // processing ticked out of a source the generator marked.
 func compareTerrain(t *testing.T, region string, g *worldgen.Generator, areas []terrainArea) {
 	t.Helper()
-	minY, height := g.RS.MinY(), g.RS.Height()
+	minY, height := g.RS.LevelMinY(), g.RS.LevelHeight()
 	total, exempt := 0, 0
 	for _, a := range areas {
 		for cx := a.x0; cx <= a.x1; cx++ {

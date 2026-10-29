@@ -413,9 +413,9 @@ func (b *builder) noise(name string) *NormalNoise {
 	}
 	var n *NormalNoise
 	switch name {
-	case "minecraft:temperature_nether":
+	case "minecraft:nether/temperature":
 		n = NewNormalNoiseLegacyNether(NewLegacy(b.seed+0), p)
-	case "minecraft:vegetation_nether":
+	case "minecraft:nether/vegetation":
 		n = NewNormalNoiseLegacyNether(NewLegacy(b.seed+1), p)
 	default:
 		n = NewNormalNoise(b.random.FromHashOf(name), p)

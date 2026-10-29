@@ -28,14 +28,16 @@ type Generator struct {
 }
 
 // NewGenerator builds a generator for noise settings and a biome
-// parameter list.
+// parameter list ("the_end" selects the end biome source).
 func NewGenerator(data Data, settings, biomeList string, seed int64) (*Generator, error) {
 	rs, err := NewRandomState(data, settings, seed)
 	if err != nil {
 		return nil, err
 	}
-	bs, err := NewMultiNoiseBiomeSource(data, biomeList)
-	if err != nil {
+	var bs *BiomeSource
+	if biomeList == "the_end" {
+		bs = NewEndBiomeSource()
+	} else if bs, err = NewMultiNoiseBiomeSource(data, biomeList); err != nil {
 		return nil, err
 	}
 	return &Generator{RS: rs, Biomes: bs, zoomSeed: obfuscateSeed(seed), Carve: true, biomeCache: map[[2]int32][]string{}}, nil
@@ -66,8 +68,8 @@ func (g *Generator) quartBiome(qx, qy, qz int32) string {
 }
 
 func (g *Generator) quartIn(cells []string, qx, qy, qz int32) string {
-	minQ := floorDiv(g.RS.settings.minY, 4)
-	maxQ := minQ + g.RS.settings.height/4 - 1
+	minQ := floorDiv(g.RS.lvMinY, 4)
+	maxQ := minQ + g.RS.lvHeight/4 - 1
 	qy = min(max(qy, minQ), maxQ)
 	return cells[((qy-minQ)*4+(qz&3))*4+(qx&3)]
 }
@@ -118,7 +120,7 @@ func (g *Generator) Terrain(cx, cz int32) *ProtoChunk {
 	nc := rs.NewChunk(cx, cz)
 	g.ChunkBiomes(cx, cz, nc)
 	col := rs.fillNoise(nc, cx, cz)
-	p := newProto(cx, cz, col.MinY, col.Height)
+	p := newProto(cx, cz, rs.lvMinY, rs.lvHeight)
 	def := blockNamed(rs.settings.defaultBlock)
 	subs := substanceBlocks()
 	// doFill writes cell by cell, top down within each cell column; the

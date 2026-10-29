@@ -252,9 +252,11 @@ func (s *Server) initDimensions() {
 			coordScale: 1,
 			minY:       0,
 			height:     256,
-			skylight:   false,
-			biome:      "minecraft:the_end",
-			arrivalY:   64,
+			// 26.2's the_end dimension type has has_skylight: true, and
+			// its chunks ship sky light arrays.
+			skylight: true,
+			biome:    "minecraft:the_end",
+			arrivalY: 64,
 		},
 	}
 }

@@ -97,3 +97,9 @@ func init() {
 	world.HeightmapPredicates.MotionBlocking = motionBlocking
 	world.HeightmapPredicates.MotionBlockingNoLeaves = motionBlockingNoLeaves
 }
+
+// LightDampening is BlockState.getLightDampening.
+func LightDampening(b world.Block) int { return int(props(b) >> bpDampeningShift & 15) }
+
+// PropagatesSkylightDown is BlockState.propagatesSkylightDown.
+func PropagatesSkylightDown(b world.Block) bool { return props(b)&(1<<bpSkyDown) != 0 }

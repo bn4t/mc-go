@@ -5,6 +5,7 @@ import (
 
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
+	"mc-go/internal/worldgen"
 )
 
 // Sky lighting: the column heightmap decides which cells see the sun
@@ -72,37 +73,24 @@ func columnTop(d *dimension, x, z int) int32 {
 
 // blocksSky reports whether a cell counts toward the sky top —
 // vanilla's SkyLightEngine stops its downward beam at the first cell
-// that does not propagatesSkylightDown, so every non-air block except
-// the 727 propagating ones counts: opaque cubes, fluids, and the
-// dampening-1 family like leaves and carpet. A waterlogged cell
-// counts too (VegetationBlock's rule is getFluidState().isEmpty(), so
-// a submerged plant stops propagating).
+// that does not propagatesSkylightDown (per state, from the 26.2 jar
+// oracle table: a waterlogged plant stops it, glass does not).
 func blocksSky(b world.Block) bool {
-	name, ok := world.StateOwner(b)
-	if !ok {
+	if _, ok := world.StateOwner(b); !ok || b == world.Air {
 		return false
 	}
-	if wl, has := world.StateProperty(b, "waterlogged"); has && wl == "true" {
-		return true
-	}
-	return !skylightPropagates[name]
+	return !worldgen.PropagatesSkylightDown(b)
 }
 
 // lightOpacity is the cost light pays entering a cell — vanilla's
-// getOpacity = max(1, getLightDampening), where dampening is 15 for a
-// solid-render block and 1 otherwise (a propagatesSkylightDown cell's
-// 0 floors at 1 anyway, so only solidity matters). Fluids cost 1 like
-// everything else non-solid: measured 15→14 entering water, and lava
-// is the same dampening-1 liquid in the 26.2 table.
+// getOpacity = max(1, getLightDampening), the dampening per state from
+// the 26.2 jar oracle table (15 for solid-render blocks, 1 for leaves,
+// fluids and the rest, 0 for skylight-propagating cells).
 func lightOpacity(b world.Block) int {
-	name, ok := world.StateOwner(b)
-	if !ok {
+	if _, ok := world.StateOwner(b); !ok {
 		return 1
 	}
-	if suffocatingBlocks[name] {
-		return 255
-	}
-	return 1
+	return max(1, worldgen.LightDampening(b))
 }
 
 // lightDirs6 are the propagation directions — vanilla spreads in the
@@ -604,8 +592,22 @@ func (s *Server) lightSectionFlipped(d *dimension, pos world.Pos, old, blk world
 // first time the engine reads it: eligible sections get their layers
 // and the generation-time source pass (propagateLightSources + the
 // increase flood) fills them, so below-top cells already hold their
-// propagated values before any write touches them.
+// propagated values before any write touches them. A provided
+// (generated) chunk also pulls in light its lit neighbours produced
+// before it had layers, and a skylight-less one gets block layers only.
 func ensureSkyChunk(d *dimension, cx, cz int) {
+	if d.w.Provided() && !d.skyGen[[2]int{cx, cz}] {
+		if d.skylight {
+			genSkyChunk(d, cx, cz)
+		} else {
+			genBlockLayers(d, cx, cz)
+		}
+		return
+	}
+	ensureSkyChunkCore(d, cx, cz)
+}
+
+func ensureSkyChunkCore(d *dimension, cx, cz int) {
 	ck := [2]int{cx, cz}
 	if d.skyGen == nil {
 		d.skyGen = map[[2]int]bool{}

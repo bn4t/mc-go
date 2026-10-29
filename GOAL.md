@@ -71,7 +71,11 @@ Mojang server over the wire.
       serves the generated overworld (world spawn, streamed chunks,
       heightmaps, biome palettes and block light match the real server -
       `TestNormalWorldChunkParity`; save/reload - `TestNormalWorldSaveReload`);
-      the other feature types and structures remain
+      nether and end terrain and biomes match block for block -
+      `TestTerrainNetherParity`, `TestTerrainEndParity`, and their streamed
+      chunks (light included) - `TestNormalNetherChunkParity`,
+      `TestNormalEndChunkParity`; the other feature types and structures
+      remain
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -15829,3 +15833,47 @@ no flee; unsneak → flee). Green both legs.
   chunk on one core, so a fresh join waits ~15 s on a busy 4-core box
   against vanilla's spawn pre-generation); features beyond ores,
   structures, nether/end generation.
+
+## Slice — nether and end generation, generated-chunk light parity (2026-10-29)
+
+- **Measured:** bytecode inspection of `TheEndBiomeSource.getNoiseBiome`
+  (the_end within 64 chunks of the origin by squared section distance
+  as a long; otherwise the router's erosion at the section centre
+  `(sx*2+1)*8, y, (sz*2+1)*8`: >0.25 highlands, >=-0.0625 midlands,
+  <-0.21875 small islands, else barrens; possibleBiomes order),
+  `RandomState`'s noise wiring (the `nether/temperature` and
+  `nether/vegetation` keys always take the legacy nether-biome noise
+  seeded `seed+0`/`seed+1`, whatever the settings' random source) and
+  `NetherWorldCarver` (cave bound 10, thickness `(f*2+f)*2`, y scale 5,
+  carveBlock with no aquifer or surface repair: lava up to minGenY+31,
+  cave air above). A jar oracle probe (javac'd against the unpacked jar,
+  `RandomState.create` over `VanillaRegistries.createLookup()`) checked
+  the nether and end routers' final density, temperature and erosion
+  at single points against mc-go. Wire observation of the 26.2 nether
+  and end chunk streams: no sky masks in the nether, the end's
+  `has_skylight: true` (sky arrays in every end chunk), and which
+  light slots ship as empty versus lit, the below-world slot included.
+- **Implemented:** level bounds on the generator (`SetLevelBounds`:
+  proto sections and biome cells span the dimension while the noise
+  fills its own range), the end biome source, the nether noise keys and
+  carver. `-level-type normal` now also generates the nether and end
+  (per-dimension `terrainSource`s); the end runs with skylight. Light:
+  sky and block opacity and skylight propagation are the jar's per-state
+  dampening / propagatesSkylightDown (the name tables were wrong for
+  431 / 281 states); a generated chunk, however it is first reached
+  (join or live window preparation, or encoding), gets its layers, its
+  own emitters spread, and its lit neighbours' sky and block light
+  re-flooded in from their border cells; skylight-less generated chunks
+  get block layers; the below-world slot follows the 3x3 bottom-section
+  eligibility with its sideways-lit content; empty light BitSets are
+  written with no longs, as Java's `toLongArray` does.
+- **Pinned:** `TestTerrainNetherParity` (43 chunks, 44032 biome cells)
+  and `TestTerrainEndParity` (57 chunks, 58368 biome cells) compare
+  saved vanilla chunks block for block; `TestNormalWorldChunkParity`,
+  `TestNormalNetherChunkParity` and `TestNormalEndChunkParity` join (and
+  teleport) on both servers and require every overlapping streamed
+  chunk to match in blocks, heightmaps, counts, biomes, sky and block
+  light nibbles and all four light masks.
+- **Remaining:** nether and end features (only the feature groups in
+  progress), the dragon fight's exit portal and end spikes, structures,
+  fluid post-processing, generation speed.

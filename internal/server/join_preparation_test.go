@@ -132,7 +132,8 @@ func TestJoinPreparationTargetUsesFinalRestoreRulesWithoutPublishing(t *testing.
 	// Match the existing join's int(coordinate)>>4 convention, including
 	// negative fractions; this change does not alter movement geometry.
 	saved := joinPrepTestTarget(t, s, sess)
-	if saved.dimension != s.dims[dimEnd] || saved.cx != -1 || saved.cz != 0 || saved.skylight {
+	// The 26.2 end dimension type has skylight.
+	if saved.dimension != s.dims[dimEnd] || saved.cx != -1 || saved.cz != 0 || !saved.skylight {
 		t.Fatalf("name-keyed restore target=%+v", saved)
 	}
 	s.savedPlayersMu.Lock()

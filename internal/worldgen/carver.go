@@ -176,8 +176,24 @@ func (c *carveCtx) carveEllipsoid(cfg *carverConfig, x, y, z, hr, vr float64, sk
 	return carved
 }
 
+var caveAirBlock = sync.OnceValue(func() world.Block { return blockNamed("cave_air") })
+
 func (c *carveCtx) carveBlock(cfg *carverConfig, lx, y, lz, bx, bz int32, surface *bool) bool {
 	st := c.p.Get(lx, y, lz)
+	if cfg.kind == "nether_cave" {
+		// NetherWorldCarver.carveBlock: no aquifer and no surface
+		// repair — lava up to 31 above the generation floor, cave air
+		// above.
+		if !c.canReplace(cfg, st) {
+			return false
+		}
+		ns := caveAirBlock()
+		if y <= c.gc.minY+31 {
+			ns = c.lava
+		}
+		c.p.Set(lx, y, lz, ns)
+		return true
+	}
 	if st == c.grass || st == c.myc || sameBlock(st, c.grass) || sameBlock(st, c.myc) {
 		*surface = true
 	}
@@ -248,7 +264,11 @@ func (rs *RandomState) topMaterial(c *carveCtx, x, y, z int32, hasFluid bool) (w
 
 func (c *carveCtx) caveCarve(cfg *carverConfig, r Random, startCX, startCZ int32) {
 	bound := int32((4*2 - 1) * 16)
-	n := r.NextIntN(r.NextIntN(r.NextIntN(15)+1) + 1)
+	caveBound := int32(15) // CaveWorldCarver.getCaveBound
+	if cfg.kind == "nether_cave" {
+		caveBound = 10 // NetherWorldCarver.getCaveBound
+	}
+	n := r.NextIntN(r.NextIntN(r.NextIntN(caveBound)+1) + 1)
 	for i := int32(0); i < n; i++ {
 		x := float64(startCX*16 + r.NextIntN(16))
 		y := float64(cfg.y(r, c.gc))

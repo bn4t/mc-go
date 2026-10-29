@@ -10,9 +10,9 @@ import (
 // every emitter a new chunk holds, spreading into whatever neighbouring
 // sections already have a light layer. mc-go lights a provided chunk
 // lazily when it is first encoded: its layers are created, its own
-// emitters spread, and so do the emitters of already-lit neighbours,
-// whose light could not enter this chunk before its layers existed.
-// Spreading only ever raises cells, so re-seeding is idempotent.
+// emitters spread, and the light of already-lit neighbours, which could
+// not enter this chunk before its layers existed, re-floods in from
+// their border cells. Spreading only ever raises cells.
 
 // genEmitter is one generated light source.
 type genEmitter struct {
@@ -20,14 +20,14 @@ type genEmitter struct {
 	level int
 }
 
-// genEmitters lists a provided chunk's emitters (cached), or nil when
-// the chunk has not been generated yet.
+// genEmitters lists a provided chunk's emitters (cached), generating
+// the chunk if needed.
 func genEmitters(d *dimension, cx, cz int) []genEmitter {
 	ck := [2]int{cx, cz}
 	if e, ok := d.genEmit[ck]; ok {
 		return e
 	}
-	c := d.w.PeekBaseChunk(cx, cz)
+	c := d.w.BaseChunk(cx, cz)
 	if c == nil {
 		return nil
 	}
@@ -67,16 +67,34 @@ func seedGenBlockLight(d *dimension, cx, cz int) {
 	}
 	d.genLit[ck] = true
 	pre := map[world.Pos]int{}
-	for dz := -1; dz <= 1; dz++ {
-		for dx := -1; dx <= 1; dx++ {
-			nk := [2]int{cx + dx, cz + dz}
-			if nk != ck && !d.genLit[nk] {
-				continue
-			}
-			for _, e := range genEmitters(d, nk[0], nk[1]) {
-				// A runtime edit may have replaced the source since.
-				if lv := lightEmit(d.w.GetBlock(e.p)); lv > 0 {
-					spreadBlockLight(d, e.p, lv, pre)
+	for _, e := range genEmitters(d, cx, cz) {
+		// A runtime edit may have replaced the source since.
+		if lv := lightEmit(d.w.GetBlock(e.p)); lv > 0 {
+			spreadBlockLight(d, e.p, lv, pre)
+		}
+	}
+	// Light the lit neighbours spread before this chunk had layers
+	// stopped at the border: re-flood from their border cells.
+	for _, side := range [4][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
+		nk := [2]int{cx + side[0], cz + side[1]}
+		if !d.genLit[nk] {
+			continue
+		}
+		for y := d.minY; y < d.minY+d.height; y++ {
+			for i := 0; i < 16; i++ {
+				var p world.Pos
+				switch {
+				case side[0] < 0:
+					p = world.Pos{X: nk[0]*16 + 15, Y: y, Z: cz*16 + i}
+				case side[0] > 0:
+					p = world.Pos{X: nk[0] * 16, Y: y, Z: cz*16 + i}
+				case side[1] < 0:
+					p = world.Pos{X: cx*16 + i, Y: y, Z: nk[1]*16 + 15}
+				default:
+					p = world.Pos{X: cx*16 + i, Y: y, Z: nk[1] * 16}
+				}
+				if v := int(d.blockLight.get(p)); v > 1 {
+					spreadBlockLight(d, p, v, pre)
 				}
 			}
 		}
@@ -97,7 +115,7 @@ func genSkyChunk(d *dimension, cx, cz int) {
 	if d.skyGen[ck] {
 		return
 	}
-	ensureSkyChunk(d, cx, cz)
+	ensureSkyChunkCore(d, cx, cz)
 	var inc, dec []lqItem
 	for _, side := range [4]struct {
 		dx, dz int
@@ -137,4 +155,113 @@ func genSkyChunk(d *dimension, cx, cz int) {
 		skyDrainDec(d, &dec, &inc, false)
 		skyDrainInc(d, &inc, &dec, false)
 	}
+}
+
+// genBlockLayers creates a skylight-less provided chunk's block-light
+// layers: the sections the shared eligibility rule (a non-empty section
+// in the 3x3x3 box) gives a layer. Caller holds d.lightMu.
+func genBlockLayers(d *dimension, cx, cz int) {
+	ck := [2]int{cx, cz}
+	if d.skyGen[ck] {
+		return
+	}
+	if d.skyGen == nil {
+		d.skyGen = map[[2]int]bool{}
+	}
+	d.skyGen[ck] = true
+	for sec := 0; sec < d.sections(); sec++ {
+		if !lightEligNow(d, ck, sec) {
+			continue
+		}
+		if d.lightLayered == nil {
+			d.lightLayered = map[[2]int]map[int]bool{}
+		}
+		if d.lightLayered[ck] == nil {
+			d.lightLayered[ck] = map[int]bool{}
+		}
+		d.lightLayered[ck][sec] = true
+		if d.blkLayered == nil {
+			d.blkLayered = map[[2]int]map[int]bool{}
+		}
+		if d.blkLayered[ck] == nil {
+			d.blkLayered[ck] = map[int]bool{}
+		}
+		d.blkLayered[ck][sec] = true
+	}
+}
+
+// genBelowWorldSky is the sky layer of a generated column's below-world
+// slot (section -1): nil unless a bottom section in the 3x3 columns is
+// non-empty (the layer eligibility rule). Its cells read 15 under open
+// columns (nothing above the floor) and fall off by one per horizontal
+// step from them — light only reaches the slot sideways, never through
+// a column's blocks. Caller holds d.lightMu.
+func genBelowWorldSky(d *dimension, cx, cz int) []byte {
+	if !belowWorldLayered(d, cx, cz) {
+		return nil
+	}
+	// Distance field over the 48x48 block area of the 3x3 columns.
+	const n = 48
+	var dist [n * n]int
+	var q []int
+	for i := range dist {
+		x, z := cx*16-16+i%n, cz*16-16+i/n
+		if skyTop(d, x, z) < int32(d.minY) {
+			dist[i] = 0
+			q = append(q, i)
+		} else {
+			dist[i] = 99
+		}
+	}
+	for len(q) > 0 {
+		i := q[0]
+		q = q[1:]
+		x, z := i%n, i/n
+		for _, o := range [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+			nx, nz := x+o[0], z+o[1]
+			if nx < 0 || nz < 0 || nx >= n || nz >= n {
+				continue
+			}
+			if j := nz*n + nx; dist[j] > dist[i]+1 {
+				dist[j] = dist[i] + 1
+				q = append(q, j)
+			}
+		}
+	}
+	out := make([]byte, 2048)
+	for idx := 0; idx < 4096; idx++ {
+		x, z := idx&15, idx>>4&15
+		v := 15 - dist[(z+16)*n+x+16]
+		if v < 0 {
+			v = 0
+		}
+		if idx%2 == 0 {
+			out[idx/2] |= byte(v)
+		} else {
+			out[idx/2] |= byte(v) << 4
+		}
+	}
+	return out
+}
+
+func nonZero(b []byte) bool {
+	for _, v := range b {
+		if v != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// belowWorldLayered is the layer eligibility of a column's below-world
+// slot: a non-empty bottom section in one of the 3x3 columns.
+func belowWorldLayered(d *dimension, cx, cz int) bool {
+	for dz := -1; dz <= 1; dz++ {
+		for dx := -1; dx <= 1; dx++ {
+			if nonEmptyCnts(d, cx+dx, cz+dz)[0] > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }

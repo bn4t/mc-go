@@ -38,6 +38,10 @@ type RandomState struct {
 	biomes        map[string]*BiomeInfo
 	carverMu      sync.Mutex
 	carvers       map[string]*carverConfig
+	// lvMinY/lvHeight are the level's (dimension type's) bounds; the
+	// noise settings may generate only part of them (the nether and
+	// end fill 128 of 256 blocks).
+	lvMinY, lvHeight int32
 }
 
 // NewRandomState seeds noise settings ("overworld", "nether", ...)
@@ -80,7 +84,7 @@ func NewRandomState(data Data, settingsName string, seed int64) (*RandomState, e
 		s.defaultFluid = SubAir
 	}
 
-	rs := &RandomState{Seed: seed, data: data, settings: s}
+	rs := &RandomState{Seed: seed, data: data, settings: s, lvMinY: s.minY, lvHeight: s.height}
 	var base Random
 	if s.legacyRandom {
 		base = NewLegacy(seed)
@@ -133,6 +137,14 @@ func NewRandomState(data Data, settingsName string, seed int64) (*RandomState, e
 }
 
 // MinY and Height are the settings' generation bounds.
+// SetLevelBounds sets the dimension's build range when it differs from
+// the noise settings' (ProtoChunk sections, biome cells, region bounds).
+func (rs *RandomState) SetLevelBounds(minY, height int32) { rs.lvMinY, rs.lvHeight = minY, height }
+
+// LevelMinY and LevelHeight are the dimension's build range.
+func (rs *RandomState) LevelMinY() int32   { return rs.lvMinY }
+func (rs *RandomState) LevelHeight() int32 { return rs.lvHeight }
+
 func (rs *RandomState) MinY() int32   { return rs.settings.minY }
 func (rs *RandomState) Height() int32 { return rs.settings.height }
 
