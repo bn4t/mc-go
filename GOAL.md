@@ -207,7 +207,10 @@ Mojang server over the wire.
   and the whole modifier grammar is pinned case for case
   (`TestItemSNBTParity`)
 - [x] World save format parity (region files)
-- [~] RCON, query, properties parity
+- [~] RCON, query, properties parity (server.properties: read,
+      completed with vanilla's defaults and rewritten byte for byte -
+      `TestServerPropertiesParity`; applied to port, motd, world,
+      generator, seed, mode, difficulty, distances, RCON, query)
 - [ ] Performance targets under vanilla-like load
 
 ## Progress log
@@ -16054,3 +16057,25 @@ no flee; unsneak → flee). Green both legs.
   them); post-processing shape updates (snow over a later packed-ice
   disk); end crystal entities and gateway exit NBT; the dragon fight's
   exit portal.
+
+## Slice — server.properties (2026-10-29)
+
+- **Measured:** the file a fresh 26.2 server writes into an empty
+  directory (every key and default, sorted keys, the two comment lines,
+  `level-type=minecraft\:normal` escaping), and its rewrite of a file
+  holding values that need escaping (leading spaces dropped on load,
+  `:` `=` `#` `!` escaped, UTF-8 kept); bytecode inspection of
+  `WorldOptions.parseSeed` (blank = random new seed, a long as itself,
+  else `String.hashCode`).
+- **Implemented:** `LoadServerProperties` (Java Properties load/store
+  semantics), `ApplyProperties` (port and ip, motd, max players, online
+  mode, distances, level-name as the vanilla world directory,
+  level-type, level-seed, structures, game mode, difficulty, RCON,
+  query); `cmd/mc-go` uses `<server-dir>/server.properties` when present
+  (or `-properties`), explicit flags overriding.
+- **Pinned:** `TestServerPropertiesParity`: mc-go's rewrite of the same
+  input equals the real server's line for line (store time and the
+  random management secret aside); `ParseSeed` against the Java hash.
+- **Remaining:** keys mc-go does not act on yet (white-list enforcement,
+  spawn-protection, hardcore, resource packs, max-tick-time, network
+  compression threshold, ...) are kept and rewritten but not applied.

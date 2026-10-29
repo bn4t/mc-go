@@ -107,6 +107,23 @@ Useful flags (see `cmd/mc-go/main.go` for all of them):
 - `-frontend` — protocol frontend; `java` accepts Java Edition 26.1 and 26.2.
 - `-rcon-password`, `-enable-query` — vanilla RCON/GameSpy4 surfaces.
 - `-save-interval` — autosave period.
+- `-level-type normal` — generate the vanilla overworld, nether and end
+  from `-seed` (the flat preset is the default without a
+  server.properties).
+
+Run it like the real server instead: put a `server.properties` in the
+`-server-dir` (or pass `-properties <file>`) and mc-go reads it, fills
+every missing key with vanilla's default and rewrites it the way the
+real server does. Its world is then the vanilla-layout directory
+`level-name` (default `world`), generated (`level-type`, `level-seed`)
+on first start; `server-port`, `motd`, `max-players`, `online-mode`,
+`gamemode`, `difficulty`, the view/simulation distances, RCON and query
+come from the file. Command-line flags still win over it.
+
+```sh
+printf 'online-mode=false\n' > server.properties
+./mc-go
+```
 
 Join with a vanilla 26.1 or 26.2 client at `localhost:25565`; the server
 runs offline mode, so any username works.

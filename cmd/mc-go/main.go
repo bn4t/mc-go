@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -35,6 +36,7 @@ func main() {
 	enableQuery := flag.Bool("enable-query", false, "enable the GameSpy4 query listener")
 	queryAddr := flag.String("query-addr", "", "query listen address (default: the server address, like unset query.port)")
 	levelType := flag.String("level-type", "", "overworld generator for a new world: flat (default) or normal (vanilla terrain); a saved world keeps its own")
+	propsPath := flag.String("properties", "", "vanilla server.properties to read (and complete with defaults, as the real server does); used automatically when <server-dir>/server.properties exists; command-line flags win")
 	flag.Parse()
 
 	s := server.New(*addr)
@@ -62,6 +64,39 @@ func main() {
 		s.GameMode = server.GameModeSpectator
 	default:
 		log.Fatalf("unknown gamemode %q", *gameMode)
+	}
+	if *propsPath == "" && *serverDir != "" {
+		if _, err := os.Stat(filepath.Join(*serverDir, "server.properties")); err == nil {
+			*propsPath = filepath.Join(*serverDir, "server.properties")
+		}
+	}
+	if *propsPath != "" {
+		props, err := server.LoadServerProperties(*propsPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		// Flags given on the command line override their properties.
+		flagKeys := map[string][]string{
+			"addr": {"server-port"}, "motd": {"motd"}, "max-players": {"max-players"},
+			"world": {"level-name"}, "world-dir": {"level-name"}, "level-name": {"level-name"},
+			"seed": {"level-seed"}, "generate-structures": {"generate-structures"},
+			"gamemode": {"gamemode"}, "rcon-addr": {"enable-rcon"}, "rcon-password": {"enable-rcon"},
+			"enable-query": {"enable-query"}, "query-addr": {"enable-query"}, "level-type": {"level-type"},
+		}
+		skip := map[string]bool{}
+		flag.Visit(func(f *flag.Flag) {
+			for _, k := range flagKeys[f.Name] {
+				skip[k] = true
+			}
+		})
+		dir := *serverDir
+		if dir == "" {
+			dir = filepath.Dir(*propsPath)
+		}
+		if err := s.ApplyProperties(props, dir, skip); err != nil {
+			log.Fatal(err)
+		}
+		*worldPath, *worldDir = s.WorldPath, s.WorldDir
 	}
 	if err := s.LoadWorld(); err != nil {
 		log.Fatalf("load world %q: %v", *worldPath, err)
