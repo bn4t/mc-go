@@ -237,7 +237,7 @@ func init() {
 				}
 				placeDoublePlant(c.rg, st, p)
 			case cls == "MossyCarpetBlock":
-				c.rg.SetBlock(p[0], p[1], p[2], st)
+				mossyCarpetPlaceAt(c.rg, p)
 			default:
 				c.rg.SetBlock(p[0], p[1], p[2], st)
 			}
