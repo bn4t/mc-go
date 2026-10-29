@@ -18378,3 +18378,11 @@ Wire coverage is Overworld. Other environment types/holder references, full runn
 - **Measured** — The committed harness starts vanilla creative but the channeling callback started Go survival; the subsequent shared `/gamemode survival` produced an extra native success message. Source inspection establishes this preexisting fixture mismatch; channeling outcomes already matched.
 - **Implemented** — Align only the Go initial mode with native creative. Keep commands and outcome assertions unchanged; no runtime gamemode change.
 - **Pinned** — Corrected actual Java26.2 channeling differential PASS35.17s (`work/testenvironment-channeling-fixed-regression.log`), JDK25.0.5+8 / Go1.27.3, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. One-file patch SHA256 `7c8be9ce150352c960aabbb67590b83903c34ff4ff48d3ab0cfff334917f788f`.
+
+## Slice — scheduled block identity and first-request timing (2026-10-29)
+
+- **Measured** — Actual Java26.2 wire plus LevelChunkTicks.schedule and ServerLevel.tickBlock branch facts: the first pending position/type request retains its deadline/priority; callbacks reject a changed registered block type. Valid11-witness baseline nativePASS/Go2fail pins stale stone→oak callbacks and repeater8t→4t replacement. JDK25.0.5+8 / Go1.27.3; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Earlier fixture attempts used the wrong repeater side or observed before the use applied; final controls await actual powered state after one use.
+- **Implemented** — Block-family queue keys retain registered names, queries use current type, dispatch rejects stale types, and duplicate pending block requests keep their first deadline/priority. Existing fluid keys, normalization and dispatch remain unchanged because their type identity is not yet modeled.
+- **Pinned** — Owned7-file patch SHA256 `36a88033139f18d73cd1ececaef7115da24a042e4b0ee688f06af4bef8ec80d0`; full internal/server PASS303.772s. Final actual identity11 PASS12.07s, water5t/lava30t six-witness regression PASS17.34s, existing redstone PASS30.67s and repeater PASS28.21s (`work/scheduled-identity-after-v3.log`).
+
+Native sub-tick ordering, collected/active tick queries, clone tick copying, fluid type identity/deduplication and scheduled block queue persistence remain separate work.

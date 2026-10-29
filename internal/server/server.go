@@ -446,6 +446,7 @@ func New(addr string) *Server {
 	s.runtimeCtx, s.runtimeCancel = context.WithCancel(context.Background())
 	s.runtimeDone = make(chan struct{})
 	s.initDimensions()
+	s.bindScheduledBlockTypes()
 	s.registerBuiltins()
 	s.registerWorldCommands()
 	return s

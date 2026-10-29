@@ -365,6 +365,9 @@ func (s *Server) scheduledTickStep() {
 		if d == nil {
 			continue
 		}
+		if k.kind != tickFluid && k.block != "" && s.scheduledBlockType(k) != k.block {
+			continue
+		}
 		switch k.kind {
 		case tickFluid:
 			s.fluidTick(d, k.pos)

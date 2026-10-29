@@ -92,6 +92,10 @@ Weather intensities preserve native float32 steps and project rain/thunder
 changes to clients, including initial weather for late joins. Natural/random
 weather cycling and complete duration behavior remain partial.
 
+Scheduled block callbacks retain the type that queued them; duplicate pending
+requests preserve their first deadline and priority. Fluid identity and native
+sub-tick ordering remain separate work.
+
 Native structure-template lookups cache both present and missing results until
 corner unload or `/reload`; unreadable generated NBT can fall back to bundled
 templates. Complete datapack selection and reload coverage remains partial.

@@ -24,30 +24,29 @@ const (
 	tickTrappedChestRecheck
 )
 
-// schedKey identifies one scheduled block position in one dimension.
-// Fluid ticks and scheduled (redstone-style) block ticks share the
-// queue, as they do in vanilla's LevelTicks, because both are "run this
-// position at tick N" events.
+// schedKey separates block and fluid domains in the shared Go queue. Block
+// dispatch variants retain their own kind, plus the expected registered type.
 type schedKey struct {
 	dim  string
 	pos  world.Pos
 	kind tickKind
+	// Registered block owner captured when queued; fluid/unbound keys leave it empty.
+	block string
 }
 
 // tickScheduler is the pending block-tick queue.
 //
-// Vanilla keeps a per-level priority queue ordered by (tick, priority,
-// position). This keeps the same contract — a position is due at
-// exactly one tick, and re-scheduling moves it earlier rather than
-// duplicating it — and orders everything due on a tick by vanilla's
-// TickPriority first (redstone diodes lean on it: a repeater that
-// turns off outranks one that turns on), then (dimension, x, y, z)
-// for determinism.
+// Pending block ticks retain their registered block type. Duplicate requests
+// keep the first deadline and priority; the untyped fluid domain retains its
+// existing policy. Due entries retain the existing
+// priority/dimension/position ordering; native sub-tick ordering is separate.
 type tickScheduler struct {
 	mu     sync.Mutex
 	due    map[int64][]schedKey
 	queued map[schedKey]int64
 	prio   map[schedKey]int8
+	// Bound once by Server.New before the scheduler is exposed.
+	blockType func(schedKey) string
 }
 
 // Vanilla TickPriority values — the schedulePrio callers' range; lower
@@ -67,22 +66,34 @@ func newTickScheduler() *tickScheduler {
 	}
 }
 
+func (t *tickScheduler) typedKey(k schedKey) schedKey {
+	if k.kind != tickFluid && k.block == "" && t.blockType != nil {
+		k.block = t.blockType(k)
+	}
+	return k
+}
+
 // schedule makes k due at tick `at` with NORMAL priority.
 func (t *tickScheduler) schedule(k schedKey, at int64) {
 	t.schedulePrio(k, at, tickPrioNormal)
 }
 
-// schedulePrio is the priority overload of Level.scheduleTick. A
-// position already queued for an earlier tick keeps its earlier time
-// (mc-go's keep-earliest dedup — vanilla removes and re-adds the tick
-// object, which can move it later); the latest call's priority always
-// wins, matching vanilla's wholesale entry replacement.
+// schedulePrio follows LevelChunkTicks.schedule's first-request rule: a
+// duplicate pending block position/type does not replace timing or priority.
+// Fluid keys do not yet retain their native type, so their existing policy
+// remains separate from this block-tick correction.
 func (t *tickScheduler) schedulePrio(k schedKey, at int64, prio int8) {
+	k = t.typedKey(k)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if prev, ok := t.queued[k]; ok && prev <= at {
-		t.prio[k] = prio
-		return
+	if prev, ok := t.queued[k]; ok {
+		if k.kind != tickFluid {
+			return
+		}
+		if prev <= at {
+			t.prio[k] = prio
+			return
+		}
 	}
 	t.queued[k] = at
 	t.prio[k] = prio
@@ -141,6 +152,7 @@ func (t *tickScheduler) pending() int {
 
 // isQueued reports whether a position already has a tick pending.
 func (t *tickScheduler) isQueued(k schedKey) bool {
+	k = t.typedKey(k)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	_, ok := t.queued[k]
@@ -150,6 +162,7 @@ func (t *tickScheduler) isQueued(k schedKey) bool {
 // queuedAt returns the due tick of a pending entry — the
 // willTickThisTick half of LevelTickAccess.
 func (t *tickScheduler) queuedAt(k schedKey) (int64, bool) {
+	k = t.typedKey(k)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	at, ok := t.queued[k]
@@ -157,8 +170,9 @@ func (t *tickScheduler) queuedAt(k schedKey) (int64, bool) {
 }
 
 // hasScheduled is LevelTickAccess.hasScheduledTick — true while the
-// same pos+kind entry is still queued.
+// same position and current registered block type are still queued.
 func (t *tickScheduler) hasScheduled(k schedKey) bool {
+	k = t.typedKey(k)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	_, ok := t.queued[k]
