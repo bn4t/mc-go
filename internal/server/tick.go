@@ -196,7 +196,7 @@ func (c *tickClock) status() tickStatus {
 	return st
 }
 
-// gameTime is the number of completed game ticks: vanilla's game time,
+// gameTime is the current world age: vanilla's game time,
 // what /time query gametime reports and the world age the client is
 // synced with. It stops while the game is frozen, as vanilla's does.
 func (s *Server) gameTime() int64 { return s.TickCount() }
@@ -232,8 +232,8 @@ func (s *Server) setDayTime(day int64) {
 	s.broadcastTimeSet(day)
 }
 
-// TickCount is the number of completed game ticks: this run's ticks
-// plus the base a loaded world resumed from.
+// TickCount is the current world age: this run's ticks plus the base a
+// loaded world resumed from. It advances before a game tick's simulation.
 func (s *Server) TickCount() int64 {
 	s.clock.mu.Lock()
 	defer s.clock.mu.Unlock()
@@ -512,6 +512,15 @@ func (s *Server) gameTickOwned() {
 	}
 	s.inGameTick.Store(true)
 	defer s.inGameTick.Store(false)
+	// ServerLevel.tickTime advances world age before block/fluid deadlines
+	// and the rest of the simulation. Callbacks that schedule another tick
+	// must read this same current age when computing their new deadlines.
+	s.clock.mu.Lock()
+	s.clock.count++
+	if s.gameRuleBool("minecraft:advance_time") {
+		s.clock.day++
+	}
+	s.clock.mu.Unlock()
 	// LivingEntity.baseTick's air pass plus the inside-block fluid
 	// cells run on the entity game tick: a sprint or step advances
 	// them, and players are exempt from /tick freeze so the loop
@@ -594,18 +603,8 @@ func (s *Server) gameTickOwned() {
 	// batch per tick per player, at the rate their client asked for.
 	s.chunkTickStep()
 
-	s.clock.mu.Lock()
-	s.clock.count++
-	// The day clock is the one game time can pause: with
-	// advance_time off (doDaylightCycle in older versions) the sun
-	// stops, while the world age - the tick counter - keeps counting.
-	if s.gameRuleBool("minecraft:advance_time") {
-		s.clock.day++
-	}
-	tick := s.clock.count + s.clock.base
-	s.clock.mu.Unlock()
 	if s.bus != nil {
-		s.bus.Publish(event.TopicTick, tick)
+		s.bus.Publish(event.TopicTick, s.TickCount())
 	}
 }
 

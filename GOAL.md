@@ -104,8 +104,8 @@ Mojang server over the wire.
       falling columns, equal-supply ring decay, min-slope-distance
       spread gating, source-formation gamerules and wash-away loot.
       canPassThroughWall collision shapes and waterloggable containers
-      remain approximated. Redstone and scheduled block ticks
-      remain. Random ticks now cover the crop family — wheat/carrots/
+      remain approximated. Scheduled block/fluid deadlines and repeated
+      intervals are now wire-pinned. Random ticks now cover the crop family — wheat/carrots/
       potatoes/beetroots, melon/pumpkin stems (attach + fruit on tagged
       supports), nether wart, cocoa, sweet berry bush, pitcher crop's
       two-half growth, torchflower_crop's 1/3 pre-gate and morph into
@@ -17101,3 +17101,13 @@ Exact run: `MCGO_BLACKBOX=1 MCGO_VANILLA_JAR=/workspace/mc-go/vanilla/server-26.
   unfreeze command barrier. TestFurnaceTakeRecipeCraftedCriterion passes
   (1.343 s), actually smelting and clicking output against a parsed criterion
   with post-take ingredient checks. Furnace/hopper units pass (2.750 s).
+
+
+## Slice — current world age before scheduled block ticks (2026-10-29)
+
+- **Measured:** vanilla 26.2 wire observations plus Temurin 25.0.5+8 javap measurements of ServerLevel.tick/tickTime; inner jar SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Vanilla increments world age before scheduled block/fluid polling. The old Go implementation incremented after simulation: a dispenser fired at five steps rather than four, water first spread at six rather than five, and its second spread missed tick ten. The exact baseline fixture uses game-time completion barriers; all 16 vanilla predicates passed and precisely those three Go deadlines failed (33.06 s).
+- **Implemented:** count/day advance at the start of gameTickOwned after its shutdown gate. Tick completion still publishes TopicTick at the end. Initial deadlines and deadlines registered by an executing scheduled tick now use the same current world age. Completed step/sprint totals and the advance_time gate are retained. Comments describe current world age during simulation.
+- **Pinned:** immutable fixed snapshot `/tmp/mcgo-scheduler-55LTDa`, based on HEAD `998efa3` plus the owned clock/test changes, passes all 16 `TestScheduledDispenserBoundaryParity` predicates (31.94 s): dispenser four, water five, second water absent nine/present ten. Existing `TestRepeaterParity` passes 39.70 s, `TestTickCountParity` 50.55 s, `TestTimeCommandParity` 53.06 s, and `TestTimeSetBroadcastParity` 16.37 s. The full `TestFluidParity` passes 593.58 s against vanilla without skips; the unchanged baseline passes 619.82 s. All internal packages pass `go test -vet=off -p 1 ./internal/... -count=1 -timeout 12m` (server 253.555 s, worldgen 19.953 s), following a focused clock/fluid/ownership selection pass 9.962 s.
+- **Scope:** this corrects the world-age phase observed by all in-tick timer consumers. These pins establish the measured scheduled block/fluid deadlines and existing regression scenarios; they do not establish every entity timer's full vanilla semantics.
+
+Oracle commands use the immutable prebuilt `work/scheduler-fixed.test`, JDK 25 via `work/run-oracle.sh`, `MCGO_BLACKBOX=1`, and the absolute `MCGO_VANILLA_JAR`. The short group ran serialized under `/tmp/mcgo-oracle.lock` with `-test.run '^Test(ScheduledDispenserBoundary|TickCount|TimeCommand|TimeSetBroadcast|Repeater)Parity$' -test.timeout=10m`. Full Fluid ran separately without holding that lock, with `-test.run '^TestFluidParity$' -test.timeout=20m`. Final logs: `work/scheduler-fixed-test.log`, `work/scheduler-fluid-test.log`, `work/scheduler-internal-test.log`; baseline evidence: `work/scheduler-baseline-test.log`.
