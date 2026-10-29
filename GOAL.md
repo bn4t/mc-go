@@ -17544,3 +17544,9 @@ Artifacts: work/chest-callbacks-stage, work/chest-callbacks.patch, work/chest-ca
 Existing consumer regressions from same immutable binary: TestMovementParity PASS14.81s; TestVehicleMoveParity PASS41.48s; TestMinecartDismountParity PASS46.29s (work/player-static-{movement,vehicle,dismount}.log).
 
 Follow-up measured audit: some generated shapes spill beyond unit-cell bounds; scan upper bounds need separate targeted proof before adjustment. No full entity physics parity claim.
+
+## Slice — delayed avatar pairing state barrier (2026-10-29)
+
+- **Measured:** Immutable0a0925f full-suite failure preserved work/verified-0a0925f.log: controlled delayed-pairing775 fresh spawn carried [.5,-60,.5], fixture incorrectly demanded committed [.5,-60,.75]. Exact production diagnostic module work/avatar-diagnose-0a0925f requires a strict native0x23 delta after any old spawn; bounded count3 PASS6.358s, and packet evidence work/avatar-0a-pairing-capture.log captures protocol776 old spawn followed by correct committed-position delta. The test's unread transport does not guarantee tracker pairing waits until after movement. This demonstrates a valid scheduling alternative, not a production replication bug or proof of the earlier isolated lifecycle timeout cause.
+- **Implemented:** Only controlled delayed-pairing fixture uses repairedMovement barrier: require fresh spawn with fully validated identity/body at either exact known pre-move or post-move pose; pre-move spawn must be followed by strict native delta to post-move pose. After barrier, next movement still strictly requires native delta. Existing lifecycle repaired/spawned/moved assertions and timeouts remain unchanged.
+- **Pinned:** Complete external consumer PASS6.582s against same immutable0a0925f production, work/avatar-0a-transition-fixed.log (lifecycle, overflow, controlled pairing775/776).

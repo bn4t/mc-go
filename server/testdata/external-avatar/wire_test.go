@@ -279,6 +279,48 @@ func (j *javaPeer) repaired(t *testing.T, states ...player.State) {
 	})
 }
 
+// repairedMovement observes a fresh pairing and the committed movement. The
+// tracker may have captured the spawn before that movement, in which case a
+// subsequent native delta must deliver it before this barrier completes.
+func (j *javaPeer) repairedMovement(t *testing.T, before, after player.State) {
+	t.Helper()
+	oldSpawn := false
+	j.until(t, func(p conformance.Packet) bool {
+		if p.ID != 1 {
+			return false
+		}
+		r := bytes.NewReader(p.Data)
+		id, err := vi(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id != after.EntityID {
+			return false
+		}
+		if _, err = r.Seek(16, io.SeekCurrent); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = vi(r); err != nil {
+			t.Fatal(err)
+		}
+		var xyz [3]float64
+		for i := range xyz {
+			if err = binary.Read(r, binary.BigEndian, &xyz[i]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want := after
+		if xyz == [3]float64{before.Pose.X, before.Pose.Y, before.Pose.Z} {
+			want = before
+			oldSpawn = true
+		}
+		return j.spawned(t, p, want)
+	})
+	if oldSpawn {
+		j.moved(t, after)
+	}
+}
+
 func (j *javaPeer) marker(t *testing.T, token string) {
 	t.Helper()
 	j.until(t, func(p conformance.Packet) bool { return p.ID == 0x79 && bytes.Contains(p.Data, []byte(token)) })

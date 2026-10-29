@@ -19,4 +19,4 @@ subsequent packets or typed updates, rather than socket-quiet intervals.
 Dimension-return movement assertions first wait for fresh avatar spawns: a
 Respawn packet alone does not establish the viewer's chunk-backed pairings.
 A deliberately unread 775/776 roundtrip also checks that movement committed
-before pairing appears in the new spawn, followed by a strict movement delta.
+before pairing is conveyed by the fresh spawn or a following native movement delta; after that state barrier, the next movement strictly requires a delta.

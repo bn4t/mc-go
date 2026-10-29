@@ -521,7 +521,7 @@ func TestPublicAvatarOverflowIsolation(t *testing.T) {
 }
 
 // A viewer that has not consumed/acknowledged the dimension's chunk batches
-// can learn an avatar's latest committed movement in its fresh spawn. Once
+// can learn movement in its fresh spawn or a subsequent native delta. Once
 // that pairing is observed, subsequent movement must be an actual delta.
 func TestPublicAvatarDelayedPairing(t *testing.T) {
 	for _, protocol := range []int32{775, 776} {
@@ -551,12 +551,13 @@ func TestPublicAvatarDelayedPairing(t *testing.T) {
 					return update.Kind == player.Moved && update.Player.EntityID == java.client.EntityID && update.Player.Dimension == dimension
 				})
 			}
+			before := avatar.self
 			moved := avatar.self.Pose
 			moved.Z += .25
 			avatar.move(t, moved)
 			java.respawn(t, "minecraft:the_nether")
 			java.respawn(t, "minecraft:overworld")
-			java.repaired(t, avatar.self)
+			java.repairedMovement(t, before, avatar.self)
 			moved.X += .125
 			avatar.move(t, moved)
 			java.moved(t, avatar.self)
