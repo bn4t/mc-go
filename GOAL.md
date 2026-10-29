@@ -114,7 +114,8 @@ Mojang server over the wire.
       per-section gate are in place; fire spread/decay,
       cactus/sugar cane/bamboo/chorus columns, saplings, snow
       form-and-melt and frosted ice remain open; cave-vine offspring fruit
-      independence is now wire-pinned)
+      independence is now wire-pinned; bonemeal promotes two-block vegetation
+      and regular moss patches with measured gates and consumption)
 - [x] Block entities (chests, furnaces, signs, hoppers, barrels, ...):
       saved and loaded in the real server's own chunk format, compared
       block entity for block entity both ways
@@ -16966,3 +16967,13 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:** grass-block spread, moss/nylium bonemeal vegetation and tall-flower item duplication are outside this slice. Player underwater-use spread fallback is not claimed by the isolated dispenser fixture.
 
 Validation detail: the first four-step fixture passed vanilla but observed no mc-go dispenses. The existing shared scheduler polls the completed TickCount before the tick increments, so a dispenser scheduled for count+4 is polled on the fifth stepped iteration. This slice waits beyond the scheduled tick and makes no exact dispenser-timing claim. An intermediate six-step fixture passed all 20 assertions too (72.76 s); the final sprint-report fixture above removes fixed-delay sampling. Focused runs used -vet=off after an unrelated transient furnace-output symbol error from concurrent edits; parent must run full vet on the stable integrated tree.
+
+
+## Slice — regular moss bonemeal vegetation (2026-10-29)
+
+- **Measured:** official 26.2 datapack `moss_patch_bonemeal` and `moss_vegetation`, plus Temurin 25.0.5+8 javap measurements of `BonemealableFeaturePlacerBlock`, `VegetationPatchFeature` and `SimpleBlockFeature`. Inner oracle jar SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Moss requires air above, always consumes on a valid target, invokes a patch above itself, uses independently sampled axis radii U[1,2]+1, skips corner columns, rolls edge columns at .75, searches vertically up to five in each direction, and converts one layer of #moss_replaceable ground. Vegetation chance .6 selects flowering azalea/azalea/carpet/short grass/tall grass at weights 4/7/25/50/10. Double grass requires empty upper space and writes both halves.
+- **Implemented:** independent `bonemealmoss.go` uses the existing shared bonemeal entry point for both players and dispensers, the generated replaceable tag, flag-2 terrain/plant writes, 24-bit float chance draws, and weighted flora with correct two-block placement. Existing unrelated pale-moss decoration logic stays as-is.
+- **Pinned:** `TestBonemealMossPatchParity` passes against the real jar without skips (41.35 s), from immutable HEAD `df63027` plus owned moss changes in `/tmp/mcgo-growth-FZPT5o`: expected inner patch conversion, unchanged diamond substrate, radius-four exclusion, one-layer depth, exact meal decrement and covered-target retention, plus actual weighted-provider vegetation within the bounded patch. Independent draws mean per-cell flora is not compared across servers.
+- **Remaining:** pale moss, nylium and grass-block spread, tall-flower duplication, full arbitrary sturdy-face geometry and identical vanilla RNG/hash-set iteration order remain outside this slice. No capacity/full-growth-parity claim.
+
+Exact run: `MCGO_BLACKBOX=1 MCGO_VANILLA_JAR=/workspace/mc-go/vanilla/server-26.2.jar go test -vet=off -tags blackbox -count=1 -v -run '^Test(BonemealMossPatch|ScheduledDispenserBoundary)Parity$' ./tests/blackbox/ -timeout 6m`, serialized with `/tmp/mcgo-oracle.lock`. Moss passes all 12 deterministic predicates and the vegetation bounds on both servers. The combined command exits 1 solely because the deliberately added scheduler-boundary measurement proves the existing tick-four discrepancy (19.26 s; ticks 0/3/5 match, tick 4 differs). Full raw local run log: `work/growth-snapshot-test.log`. Concurrent working-tree compile failures before snapshot execution did not run the oracle and are not parity results.

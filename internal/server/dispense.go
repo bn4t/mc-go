@@ -916,7 +916,7 @@ var dispenseToMud = map[string]bool{
 // block's max; cocoa/sweet_berry/pitcher grow exactly +1 (their own
 // performBonemeal bodies). Saplings and two-block vegetation use separate
 // branches below. Nether wart is not a bonemeal target; grass-block patch
-// spread and moss/nylium vegetation remain unsupported.
+// spread and pale-moss/nylium vegetation remain unsupported.
 var bonemealAgeInc25 = map[string]int{
 	"wheat":            7,
 	"carrots":          7,
@@ -944,6 +944,9 @@ func (s *Server) bonemealGrow(d *dimension, pos world.Pos) bool {
 	name = strings.TrimPrefix(name, "minecraft:")
 	if grown, handled := s.bonemealDoublePlant(d, pos, name); handled {
 		return grown
+	}
+	if name == "moss_block" {
+		return s.bonemealMossPatch(d, pos)
 	}
 	// AzaleaBlock.isBonemealSuccess: the same 45% roll the saplings
 	// make — a miss consumes nothing and fires no event.
