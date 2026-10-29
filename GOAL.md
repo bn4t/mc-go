@@ -18159,3 +18159,13 @@ Limits: custom blocks_attacks/CanPlaceOn overrides, mixed copper double-chest pa
 **Implemented** — Test-only exact decoded condition answers and an explicit end-command receipt replace substring matching and quiet-only completion. Original actions, expected powers and statistics are unchanged.
 
 **Pinned** — Final frozen tool source plus this one-file fixture: TrappedDoubleChestPowerParity PASS72.65s, work/tool-final-trapped-receipt.log. Earlier interrupted and missing-reply logs remain preserved. Patch SHA256 `54f7a4144e48a262f1e71e2dc219829fa5023e0fce23bf58b8b8da5b7e7c302b`; no runtime redstone change.
+
+## Slice — native jukebox components and playback lifecycle (2026-10-29)
+
+**Measured** — Real26.2 wire and factual native load/removal behavior, Go1.27.3/Temurin25.0.5+8, bundle SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`, runtime SHA1 `86765a5899bd9c96461036a628796b4245715058`. Same-item/component count-only changes preserve playback; omitted elapsed time can preserve the existing clock. Changed components stop playback. Default command replacement suppresses content drops while native retirement still sends STOP. Separate tests exposed missing repair-cost serialization and missing setblock tag dispatch despite direct restore units passing.
+
+**Implemented** — Shared typed ownership with one-time generic hydration and stale-source retirement. Command tags load through the typed path. Preserve BE components and explicitly modeled disc components in native data; compare canonical disc components independently of count. Ejection retains BE data and disc values; retirement clears state independently of drop policy. Native save/load and interaction no longer revive the old generic record.
+
+**Pinned** — Immutablee472f74 plus frozen tool22 and six native files: six-phase lifecycle PASS41.93s and existing JukeboxParity54.88s, work/jukebox-final-wire.log. Focused native units PASS0.975s include actual disk persistence, generic and command hydration, typed migration, replacement without drops and one-time ejection. Explicit disc fields pinned are custom name, enchantments, repair cost and positive count; BE component preservation is also checked. Earlier failed fixture/serialization/dispatch results remain in the manifest. Patch SHA256 `10a2292c32e9180782ce71fac192751893ae56a38e1c042db21b57edd90ccb66`.
+
+Limits: remaining modeled native ItemStack components, zero/invalid-count normalization, arbitrary unknown codecs and custom song overrides remain separate measured follow-ons. This does not certify every record component or graphical playback. Optional-field load semantics and command/disk/hand dispatch are separately verified boundaries.

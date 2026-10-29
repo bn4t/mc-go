@@ -35,9 +35,10 @@ block-entity update coalescing, moving-piston collision timing and measured
 dropped-item pushes, retracting source-base ejection of NoGravity armor stands,
 container validity, chest events and ordinary main/offhand placement and consumption.
 Selected-hand interactions include signs, hive harvesting, ignition, growth,
-end items and disc insertion. Native jukebox records share the interaction
-store and survive measured bare-disc saves; complete component and playback
-lifecycle coverage remains in progress.
+end items and disc insertion. Jukebox command, disk and interaction paths share
+typed records, preserving measured names, enchantments, repair cost and playback
+clock behavior. Component changes, ejection and command retirement have native
+pins; remaining component codecs and song overrides are still in progress.
 Axes, shovels, hoes and honeycomb support measured selected-hand transformations,
 costs and effect recipients. Copper chest menus preserve named cargo and stay
 usable while another player waxes or scrapes the same live chest. Mixed copper

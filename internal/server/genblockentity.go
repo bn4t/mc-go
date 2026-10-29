@@ -405,6 +405,7 @@ func blockEntityUpdateTag(typ string, f map[string]any) []byte {
 // the generic store: the block entity survives a state change of the
 // same block and dies with any other write.
 func (s *Server) genericBEOnWrite(d *dimension, pos world.Pos, blk, old world.Block) {
+	s.jukeboxOnWrite(d, pos, blk, old, true)
 	g := d.genericBE[pos]
 	if g == nil || blk == old {
 		return

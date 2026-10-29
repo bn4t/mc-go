@@ -13,6 +13,10 @@ func (s *Server) structureRetireBlockEntity(d *dimension, pos world.Pos, old, ne
 	if _, has := blockEntityOf(old); !has {
 		return
 	}
+	if oldName == "jukebox" {
+		delete(d.jukeboxes, pos)
+		delete(d.genericBE, pos)
+	}
 	d.chests.mu.Lock()
 	if c := d.chests.chests[pos]; c != nil {
 		clear(c.slots[:])
