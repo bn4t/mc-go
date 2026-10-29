@@ -29,6 +29,7 @@ type advMeta struct {
 	titleKey   string // display.title translate key
 	descKey    string // display.description translate key
 	frame      string // display.frame: task/goal/challenge
+	experience int32  // rewards.experience, paid only on completion transition
 	kills      []killCond
 	deaths     []killCond    // entity_killed_player — conditions apply to the killer
 	locs       []locCond     // location — only biome checks are modeled
@@ -269,6 +270,11 @@ func loadGameAdvs() map[string]*advMeta {
 	for path, raw := range data.Advancements() {
 		id := "minecraft:" + path
 		m := &advMeta{id: id}
+		if reward, ok := raw["rewards"].(map[string]any); ok {
+			if points, ok := reward["experience"].(float64); ok {
+				m.experience = int32(points)
+			}
+		}
 		if p, ok := raw["parent"].(string); ok {
 			m.parent = p
 		}
@@ -1493,6 +1499,8 @@ func (sess *Session) grantCriterion(meta *advMeta, cname string, skipDone bool) 
 	}
 	sess.advMu.Unlock()
 	if complete && !wasDone {
+		// PlayerAdvancements awards rewards before the completion chat.
+		sess.giveExperiencePoints(meta.experience)
 		sess.server.announceAdvancement(sess, meta)
 	}
 	return true
