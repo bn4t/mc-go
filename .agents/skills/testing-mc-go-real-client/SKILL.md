@@ -67,14 +67,18 @@ those checks accurately instead of describing them as real-client playtests.
 
 For timing bugs, retain actual packet order and establish preconditions from
 spawn/update receipts. Serverbound editor and command packets can complete on
-different paths. When a container closes, a cached carried stack or missing
-player-slot update may be stale: capture the timing first, then request an
-authoritative inventory resync to assert final inventory state. A resync must
-not be used to manufacture an earlier ordering claim.
+different paths. When a container closes, first observe the expected direct
+player-inventory update before querying the returned cursor stack. A later
+command reply alone does not establish close application. If the expected
+packet cannot establish final state, capture timing and request an authoritative
+inventory resync; a resync must not manufacture an earlier ordering claim.
 
 
 ## Scripted preconditions and shared inventory state
 
+- Complete the client terrain-loaded notification before entity-interaction
+  probes. Receiving an entity spawn or tracking update alone does not prove
+  the server has admitted that interaction path.
 - Retain the packet-driven inventory cache across actions. A clear followed
   by reseeding the same stack can coalesce without a slot delta; a missing
   update does not mean the slot is empty. Map a menu's player-slot region to

@@ -60,7 +60,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Synchronize protocol fixtures with observed packets or queried game ticks.
   A command reply does not prove an earlier editor packet has been applied.
   Keep capture active across barriers; do not drain away the spawn/update
-  packets that establish a later assertion's preconditions.
+  packets that establish a later assertion's preconditions. Complete the client
+  terrain-loaded notification before entity interactions. For cursor return,
+  observe the actual player-inventory update before querying the result.
 - For exact tick windows, freeze, use `/tick step N`, and observe completion
   through game time. `/tick sprint N` is asynchronous and measured 26.2
   advances N+1 ticks; wall-clock sleeps are not an exact tick counter.

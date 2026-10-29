@@ -18061,3 +18061,11 @@ Limits: built-in tags only; runtime datapack tag loading/selection, fill/clone p
 **Pinned** — Immutable0f0bcdb plus12owned files: final TestVehicleCargoParity PASS48.20s, all11cases independently expected, exact UUID/title, pickup/right-place, observed cursor-return packet before native assertions, reopen, spectator resync and survival distance boundary. Expanded cargo/native/chest/menu/container units PASS42.811s, including actual save/reload after menu mutation. Existing live TestContainerClickParity PASS131.98s. An earlier close witness failed vanilla because a command reply did not establish prior packet application; final fixture requires the actual inventory update. Patch SHA256 `30d0e901ae270a78c7f8494b15cf4ef8bfc83ebb6e489b3d8c6bb258b90431fc`; evidence work/vehicle-cargo-ui-slice.md and work/vehicle-cargo-ui-oracle-v3.log.
 
 Limits: destruction spills, /item entity container slots, full hopper/furnace/TNT vehicle runtime, spawner carts and player RootVehicle restoration remain separate. Standard cargo-vehicle bounds are covered, not arbitrary scaled vehicle variants or complete vehicle parity.
+
+## Slice — interaction completion guidance (2026-10-29)
+
+**Measured** — Vehicle cargo probes distinguished entity tracking from terrain-loaded admission and command replies from actual close/cursor-return completion. The final cargo pin observes the direct player-inventory update before querying native inventory state.
+
+**Implemented** — Contributor and real-client skill guidance now state those completion receipts explicitly, while retaining authoritative resync as a final-state check rather than evidence of earlier packet ordering.
+
+**Pinned** — Documentation review against TestVehicleCargoParity's independently passing48.20s interaction fixture. No additional runtime change or graphical-client claim.
