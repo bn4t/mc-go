@@ -1184,61 +1184,52 @@ func (sess *Session) heldItem() (int32, bool) {
 	return it.ID, true
 }
 
-// placeBackInInventory is vanilla's
-// Inventory.placeItemBackInInventory: the stack merges into the first
-// slot with remaining space — the flat items-list scan, hotbar then
-// main, offhand never — else the first free slot. The touched slot
-// goes out as a Set Player Inventory packet (sendUpdates=true); what
-// still does not fit drops at the player's feet.
+// placeBackInInventory restores a removed menu stack. Matching held and
+// offhand stacks have merge priority, followed by hotbar/main inventory;
+// empty destinations use hotbar/main only. Continue until all destinations
+// are exhausted, then drop what remains (including in creative mode).
 func (s *Server) placeBackInInventory(sess *Session, it ItemStack) {
-	if it.Empty() {
-		return
+	flat := make([]int16, 0, 36)
+	for slot := int16(slotHotbarStart); slot < slotOffhand; slot++ {
+		flat = append(flat, slot)
 	}
-	flat := make([]int16, 0, slotCount)
-	for i := int16(slotHotbarStart); i < slotOffhand; i++ {
-		flat = append(flat, i)
+	for slot := int16(slotMainStart); slot < slotHotbarStart; slot++ {
+		flat = append(flat, slot)
 	}
-	for i := int16(slotMainStart); i < slotHotbarStart; i++ {
-		flat = append(flat, i)
-	}
-	sess.invMu.Lock()
-	slot := int16(-1)
-	for _, sl := range flat {
-		cur := sess.inv[sl]
-		if !cur.Empty() && cur.Stackable(it) && cur.Count < maxStackOfID(cur.ID) {
-			slot = sl
-			break
-		}
-	}
-	if slot < 0 {
-		for _, sl := range flat {
-			if sess.inv[sl].Empty() {
-				slot = sl
+	for !it.Empty() {
+		sess.invMu.Lock()
+		candidates := append([]int16{invSlotForHotbar(sess.held.Load()), slotOffhand}, flat...)
+		destination := int16(-1)
+		for _, slot := range candidates {
+			cur := sess.inv[slot]
+			if !cur.Empty() && cur.Stackable(it) && cur.Count < maxStackOfID(cur.ID) {
+				destination = slot
 				break
 			}
 		}
-	}
-	var stored ItemStack
-	if slot >= 0 {
-		cur := sess.inv[slot]
-		if cur.Empty() {
-			cur = it.withCount(0)
+		if destination < 0 {
+			for _, slot := range flat {
+				if sess.inv[slot].Empty() {
+					destination = slot
+					break
+				}
+			}
 		}
-		room := maxStackOfID(it.ID) - cur.Count
-		move := min(room, it.Count)
-		cur.Count += move
-		it.Count -= move
-		sess.inv[slot] = cur
-		stored = cur
-	}
-	sess.invMu.Unlock()
-	if slot < 0 {
-		s.dropItemLocked(sess, it)
-		return
-	}
-	s.sendPlayerInventorySlot(sess, playerContainerIndex(slot), stored)
-	if !it.Empty() {
-		s.dropItemLocked(sess, it)
+		if destination < 0 {
+			sess.invMu.Unlock()
+			s.dropMenuItem(sess, it)
+			return
+		}
+		stored := sess.inv[destination]
+		if stored.Empty() {
+			stored = it.withCount(0)
+		}
+		amount := min(maxStackOfID(it.ID)-stored.Count, it.Count)
+		stored.Count += amount
+		it.Count -= amount
+		sess.inv[destination] = stored
+		sess.invMu.Unlock()
+		s.sendPlayerInventorySlot(sess, playerContainerIndex(destination), stored)
 	}
 }
 
@@ -1834,6 +1825,15 @@ func readHashedSlot(r *protocol.PacketReader) (ItemStack, bool) {
 // player and counts the drop statistics — one custom "drop" per throw
 // and the item count under dropped[item].
 func (s *Server) dropItemLocked(sess *Session, it ItemStack) *Entity {
+	return s.dropPlayerItem(sess, it, true)
+}
+
+// Menu cleanup drops do not award voluntary throw statistics.
+func (s *Server) dropMenuItem(sess *Session, it ItemStack) *Entity {
+	return s.dropPlayerItem(sess, it, false)
+}
+
+func (s *Server) dropPlayerItem(sess *Session, it ItemStack, awardStats bool) *Entity {
 	if it.Empty() {
 		return nil
 	}
@@ -1860,7 +1860,9 @@ func (s *Server) dropItemLocked(sess *Session, it ItemStack) *Entity {
 	})
 	e.Yaw = yaw
 	s.broadcastEntitySpawn(nil, *e)
-	sess.addCustomStat("drop", 1)
-	sess.addItemStat(statDropped, it.ID, it.Count)
+	if awardStats {
+		sess.addCustomStat("drop", 1)
+		sess.addItemStat(statDropped, it.ID, it.Count)
+	}
 	return e
 }

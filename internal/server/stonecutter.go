@@ -151,24 +151,11 @@ func (s *Server) stonecutterTake(sess *Session, w *openWindow) {
 // clears the result and selection — StonecutterMenu.removed's
 // clearContainer. The return lands forward from the hotbar as Set
 // Player Inventory pairs, same as the anvil's inputs.
-func (s *Server) closeStonecutter(sess *Session, w *openWindow, c *containerData) {
+func (s *Server) closeStonecutter(sess *Session, w *openWindow, c *containerData, dropped bool) {
+	s.transientMenuReturn(sess, w, c, []int{stonecutterInput}, dropped)
 	w.dim.containers.mu.Lock()
-	st := c.slots[stonecutterInput]
-	c.slots[stonecutterInput] = ItemStack{}
-	c.slots[stonecutterResult] = ItemStack{}
 	c.stoneSel = -1
 	c.stoneInput = -1
 	c.stoneRecipes = nil
 	w.dim.containers.mu.Unlock()
-	if st.Empty() {
-		return
-	}
-	rest, _ := sess.addStack(st)
-	if !rest.Empty() {
-		w.dim.containers.mu.Lock()
-		c.slots[stonecutterInput] = rest
-		w.dim.containers.mu.Unlock()
-		return
-	}
-	s.sendAnvilReturnSlot(sess, st)
 }

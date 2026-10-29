@@ -597,43 +597,10 @@ func (s *Server) anvilDegradeRoll(sess *Session, w *openWindow) {
 	s.setBlockAndBroadcast(sess.getName(), w.pos, blk)
 }
 
-// closeAnvil retires an anvil menu: the anvil keeps no storage, so the
-// inputs return to the player inventory forward from the hotbar, each
-// as Set Player Inventory plus a window-0 update, after menuRemoved has
-// already returned the cursor. The output slot is virtual (recompute derives it from
-// the inputs), so it clears without returning: sending it back would
-// duplicate the inputs. A remainder that fits nowhere parks back in
-// its slot.
-func (s *Server) closeAnvil(sess *Session, w *openWindow, c *containerData) {
-	for _, sl := range []int{anvilLeft, anvilRight} {
-		w.dim.containers.mu.Lock()
-		st := c.slots[sl]
-		w.dim.containers.mu.Unlock()
-		if st.Empty() {
-			continue
-		}
-		w.dim.containers.mu.Lock()
-		c.slots[sl] = ItemStack{}
-		c.anvilCost = 0
-		w.dim.containers.mu.Unlock()
-		rest, _ := sess.addStack(st)
-		if !rest.Empty() {
-			w.dim.containers.mu.Lock()
-			c.slots[sl] = rest
-			w.dim.containers.mu.Unlock()
-			continue
-		}
-		// addStack syncs the window-0 slot itself; pair it with
-		// the Set Player Inventory the real server sends. The
-		// destination is the last stackable-or-empty slot addStack
-		// touched: re-derive it by scan order is overkill, so find
-		// the moved stack by value.
-		s.sendAnvilReturnSlot(sess, st)
-	}
-	// The output never existed as an item, so it clears without
-	// returning; the next open recomputes it from empty inputs.
+// closeAnvil clears the virtual result and restores or drops its inputs.
+func (s *Server) closeAnvil(sess *Session, w *openWindow, c *containerData, dropped bool) {
+	s.transientMenuReturn(sess, w, c, []int{anvilLeft, anvilRight}, dropped)
 	w.dim.containers.mu.Lock()
-	c.slots[anvilResult] = ItemStack{}
 	c.anvilCost = 0
 	c.anvilUse = [2]int32{}
 	w.dim.containers.mu.Unlock()

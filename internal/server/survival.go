@@ -1121,9 +1121,10 @@ func (s *Server) killPlayer(sess *Session, message component) {
 	sess.addCustomStat("deaths", 1)
 	sess.setStat(statCustom, int32(CustomStatIDs["time_since_death"]), 0)
 	sess.setStat(statCustom, int32(CustomStatIDs["time_since_rest"]), 0)
-	s.closeWindow(sess)
-	// Survival drops the whole inventory at the death spot.
-	if s.GameMode == GameModeSurvival {
+	// Menus remain attached until player removal on respawn. Only the
+	// equipped and stored inventory drops at death; cursor and menu inputs
+	// retire later, even when keep_inventory preserves the inventory.
+	if sess.mode() != GameModeSpectator && !s.gameRuleBool("minecraft:keep_inventory") {
 		s.dropInventory(sess)
 	}
 	_ = s.sendHealth(sess)
@@ -1142,13 +1143,12 @@ func (s *Server) dropInventory(sess *Session) {
 	x, y, z, _, _, _ := sess.Pos()
 	sess.invMu.Lock()
 	var stacks []ItemStack
-	for i := 0; i < slotCount; i++ {
+	for i := slotArmorStart; i < slotCount; i++ {
 		if !sess.inv[i].Empty() {
 			stacks = append(stacks, sess.inv[i])
 			sess.inv[i] = ItemStack{}
 		}
 	}
-	sess.carried = ItemStack{}
 	sess.invMu.Unlock()
 	for _, stack := range stacks {
 		e := s.entities.Spawn(&Entity{
@@ -1164,7 +1164,6 @@ func (s *Server) dropInventory(sess *Session) {
 		s.broadcastEntityMetadata(e.ID, encodeItemMetadata(e.Item))
 	}
 	_ = s.sendContainerContent(sess)
-	_ = s.sendCarriedItem(sess, ItemStack{})
 }
 
 // respawnPlayer resets survival state and re-syncs the client: the
@@ -1173,8 +1172,8 @@ func (s *Server) dropInventory(sess *Session) {
 // point, which lives in the overworld, so dying elsewhere also crosses
 // dimensions.
 func (s *Server) respawnPlayer(sess *Session) {
+	s.removePlayerMenus(sess)
 	sess.dead = false
-	s.closeWindow(sess)
 	sess.health = defaultHealth
 	sess.food = defaultFood
 	sess.saturation = defaultSaturation

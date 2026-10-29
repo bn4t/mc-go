@@ -957,25 +957,25 @@ func (s *Server) menuRemoved(sess *Session, w *openWindow, dropped bool) {
 	if w.merchant != nil {
 		s.merchantClose(sess, w)
 	} else if w.craft != nil {
-		s.closeCraftTable(sess, w.craft)
+		s.closeCraftTable(sess, w.craft, dropped)
 	} else if openWindowKindAnvil(w) {
 		// The anvil keeps no storage: its inputs come back to the
 		// player; the cursor was returned by the common removal above.
-		s.closeAnvil(sess, w, w.container)
+		s.closeAnvil(sess, w, w.container, dropped)
 	} else if w.container != nil && w.container.spec.menu == menuBeacon {
 		s.closeBeaconMenu(sess, w, w.container, dropped)
 	} else if w.container != nil && w.container.spec.menu == menuStonecutter {
-		s.closeStonecutter(sess, w, w.container)
+		s.closeStonecutter(sess, w, w.container, dropped)
 	} else if w.container != nil && w.container.spec.menu == menuGrindstone {
-		s.transientMenuReturn(sess, w, w.container, []int{grindstoneTop, grindstoneBottom})
+		s.transientMenuReturn(sess, w, w.container, []int{grindstoneTop, grindstoneBottom}, dropped)
 	} else if w.container != nil && w.container.spec.menu == menuSmithing {
-		s.transientMenuReturn(sess, w, w.container, []int{smithingTemplate, smithingBase, smithingAddition})
+		s.transientMenuReturn(sess, w, w.container, []int{smithingTemplate, smithingBase, smithingAddition}, dropped)
 	} else if w.container != nil && w.container.spec.menu == menuLoom {
-		s.transientMenuReturn(sess, w, w.container, []int{loomBanner, loomDye, loomPattern})
+		s.transientMenuReturn(sess, w, w.container, []int{loomBanner, loomDye, loomPattern}, dropped)
 	} else if w.container != nil && w.container.spec.menu == menuCartographyTable {
-		s.transientMenuReturn(sess, w, w.container, []int{cartographyMap, cartographyAdditional})
+		s.transientMenuReturn(sess, w, w.container, []int{cartographyMap, cartographyAdditional}, dropped)
 	} else if w.container != nil && w.container.spec.menu == menuEnchantment {
-		s.transientMenuReturn(sess, w, w.container, []int{enchantItem, enchantLapis})
+		s.transientMenuReturn(sess, w, w.container, []int{enchantItem, enchantLapis}, dropped)
 	}
 }
 
@@ -988,7 +988,7 @@ func (s *Server) dropCarried(sess *Session) {
 		return
 	}
 	sess.carriedMuSet(ItemStack{})
-	s.dropItemLocked(sess, carried)
+	s.dropMenuItem(sess, carried)
 }
 
 // returnCarried moves the cursor stack back into the player inventory,

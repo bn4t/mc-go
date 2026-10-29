@@ -240,29 +240,21 @@ func (s *Server) grindstoneTake(sess *Session, w *openWindow) {
 // non-persistent menu takes on close (grindstone, smithing, loom,
 // cartography, stonecutter): input slots come back to the player and
 // the transient result clears without returning.
-func (s *Server) transientMenuReturn(sess *Session, w *openWindow, c *containerData, inputs []int) {
-	for _, sl := range inputs {
+func (s *Server) transientMenuReturn(sess *Session, w *openWindow, c *containerData, inputs []int, dropped bool) {
+	for _, slot := range inputs {
 		w.dim.containers.mu.Lock()
-		st := c.slots[sl]
+		st := c.slots[slot]
+		c.slots[slot] = ItemStack{}
 		w.dim.containers.mu.Unlock()
-		if st.Empty() {
-			continue
+		if dropped {
+			s.dropMenuItem(sess, st)
+		} else {
+			s.placeBackInInventory(sess, st)
 		}
-		w.dim.containers.mu.Lock()
-		c.slots[sl] = ItemStack{}
-		w.dim.containers.mu.Unlock()
-		rest, _ := sess.addStack(st)
-		if !rest.Empty() {
-			w.dim.containers.mu.Lock()
-			c.slots[sl] = rest
-			w.dim.containers.mu.Unlock()
-			continue
-		}
-		s.sendAnvilReturnSlot(sess, st)
 	}
 	w.dim.containers.mu.Lock()
-	for sl := range c.spec.slots {
-		c.slots[sl] = ItemStack{}
+	for slot := range c.spec.slots {
+		c.slots[slot] = ItemStack{}
 	}
 	w.dim.containers.mu.Unlock()
 }

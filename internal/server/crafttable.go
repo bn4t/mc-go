@@ -98,20 +98,17 @@ func (sess *Session) setCraftMenuStack(table *craftTable, slot int, it ItemStack
 // closeCraftTable retires a crafting menu: the table keeps no storage,
 // so the grid returns to the player inventory after the cursor does,
 // and the result ghost clears with it.
-func (s *Server) closeCraftTable(sess *Session, table *craftTable) {
-	s.returnCarried(sess)
-	for i := 1; i <= craftTableGrid; i++ {
-		if st := sess.craftMenuStack(table, i); !st.Empty() {
-			sess.setCraftMenuStack(table, i, ItemStack{})
-			rest, _ := sess.addStack(st)
-			if !rest.Empty() {
-				// Nowhere fits everything: keep the grid's order by
-				// parking the remainder back where it came from.
-				sess.setCraftMenuStack(table, i, rest)
-			}
+func (s *Server) closeCraftTable(sess *Session, table *craftTable, dropped bool) {
+	for slot := 1; slot <= craftTableGrid; slot++ {
+		st := sess.craftMenuStack(table, slot)
+		sess.setCraftMenuStack(table, slot, ItemStack{})
+		if dropped {
+			s.dropMenuItem(sess, st)
+		} else {
+			s.placeBackInInventory(sess, st)
 		}
 	}
-	s.refreshTableResult(sess, table)
+	table.slots[craftTableResult] = ItemStack{}
 }
 
 // refreshTableResult recomputes the table's result slot, returning

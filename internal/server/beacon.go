@@ -250,7 +250,7 @@ func (s *Server) closeBeaconMenu(sess *Session, w *openWindow, c *containerData,
 	c.slots[beaconPayment] = ItemStack{}
 	w.dim.containers.mu.Unlock()
 	if !st.Empty() {
-		s.dropItemLocked(sess, st)
+		s.dropMenuItem(sess, st)
 	}
 }
 

@@ -612,16 +612,8 @@ func (s *Server) untrack(sess *Session) {
 	// dropped; its transmitter conns unwind via the dead-source path
 	// next tick (UNTRACK to every remaining receiver).
 	s.wpDropAll(sess)
-	// The open menu is removed on disconnect as it is on a client
-	// close — only its contents drop rather than going back into the
-	// inventory (AbstractContainerMenu.removed).
-	sess.windowMu.Lock()
-	w := sess.window
-	sess.window = nil
-	sess.windowMu.Unlock()
-	if w != nil {
-		s.menuRemoved(sess, w, true)
-	}
+	// Retire crafting, cursor, and open-menu inputs exactly once.
+	s.removePlayerMenus(sess)
 	// A disconnecting rider dismounts: remaining viewers get the
 	// vehicle's emptied passenger list (PlayerList.remove -> stopRiding).
 	s.dismount(sess)
