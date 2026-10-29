@@ -3529,6 +3529,9 @@ func nbtPartialEqual(tv, pv any) bool {
 	tl, tok := tv.(nbt.List)
 	pl, pok := pv.(nbt.List)
 	if tok && pok {
+		if len(pl.Items) == 0 {
+			return len(tl.Items) == 0
+		}
 		// Vanilla's compareNbt list rule is existential, not
 		// positional: every pattern element must match SOME target
 		// element (inner compares stay partial-recursive).

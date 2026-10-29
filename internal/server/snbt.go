@@ -6,12 +6,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
-// Spaceless SNBT for /item modify's modifier argument.
+// SNBT for item modifiers and block/entity command arguments.
 //
-// A modifier is one chat token, so the reader only ever sees SNBT
-// without whitespace: compounds, lists, byte/int/long arrays, quoted
+// Argument tokenization retains structured whitespace: compounds, lists,
+// byte/int/long arrays, quoted
 // and bare strings, and numbers. The parser below reads that subset
 // and prints it back canonically - sorted keys, quoted strings,
 // suffixed numbers - because the real server echoes what it read that
@@ -70,10 +72,25 @@ func isBareChar(c byte) bool {
 		c == '+' || c == '-'
 }
 
+// Java25 Character.isWhitespace includes the ASCII separators and excludes
+// NEL/nonbreaking spaces. Preserve source offsets while skipping boundaries.
+func snbtSkipWhitespace(s string, i int) int {
+	for i < len(s) {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		if r >= 0x1c && r <= 0x1f || unicode.IsSpace(r) && r != 0x85 && r != 0xa0 && r != 0x2007 && r != 0x202f {
+			i += n
+			continue
+		}
+		break
+	}
+	return i
+}
+
 // parseSNBTTag reads one value at i. A character that cannot start a
 // value fails wanting an unquoted string at the end: {a:} and {foo:}
 // both point past the token rather than at the brace.
 func parseSNBTTag(s string, i int) (*snbtTag, int, *snbtError) {
+	i = snbtSkipWhitespace(s, i)
 	if i < len(s) {
 		switch s[i] {
 		case '{':
@@ -136,7 +153,7 @@ func parseSNBTWord(s string, i int) (*snbtTag, int, *snbtError) {
 			if end >= len(s) {
 				return nil, end, &snbtError{key: "snbt.parser.expected_decimal_numeral", pos: end}
 			}
-			if c := s[end]; c != ',' && c != ']' && c != '}' {
+			if c := s[end]; c != ',' && c != ']' && c != '}' && snbtSkipWhitespace(s, end) == end {
 				return nil, end, &snbtError{key: "snbt.parser.expected_decimal_numeral", pos: end}
 			}
 		}
@@ -781,7 +798,7 @@ func parseSNBTQuoted(s string, i int) (string, int, bool) {
 // parseSNBTCompound reads a compound at i; s[i] is '{'.
 func parseSNBTCompound(s string, i int) (*snbtTag, int, *snbtError) {
 	tag := &snbtTag{kind: snbtCompound, vals: map[string]*snbtTag{}}
-	i++
+	i = snbtSkipWhitespace(s, i+1)
 	if i < len(s) && s[i] == '}' {
 		tag.end = i + 1
 		return tag, i + 1, nil
@@ -805,6 +822,7 @@ func parseSNBTCompound(s string, i int) (*snbtTag, int, *snbtError) {
 			}
 			key, i = s[i:j], j
 		}
+		i = snbtSkipWhitespace(s, i)
 		if i >= len(s) || s[i] != ':' {
 			return nil, i, snbtLit(i, ":")
 		}
@@ -814,9 +832,9 @@ func parseSNBTCompound(s string, i int) (*snbtTag, int, *snbtError) {
 			return nil, next, lerr
 		}
 		tag.vals[key] = val
-		i = next
+		i = snbtSkipWhitespace(s, next)
 		if i < len(s) && s[i] == ',' {
-			i++
+			i = snbtSkipWhitespace(s, i+1)
 			// A comma before the closer is tolerated: {a:1,} decodes
 			// the {a:1} part.
 			if i < len(s) && s[i] == '}' {
@@ -864,7 +882,7 @@ func snbtTrailer(s string, i int, val *snbtTag, closer byte) *snbtError {
 // parseSNBTList reads a list or typed array at i; s[i] is '['.
 func parseSNBTList(s string, i int) (*snbtTag, int, *snbtError) {
 	tag := &snbtTag{kind: snbtList}
-	i++
+	i = snbtSkipWhitespace(s, i+1)
 	if i < len(s) && s[i] == ']' {
 		tag.end = i + 1
 		return tag, i + 1, nil
@@ -894,10 +912,10 @@ func parseSNBTList(s string, i int) (*snbtTag, int, *snbtError) {
 			return nil, next, lerr
 		}
 		tag.items = append(tag.items, el)
-		i = next
+		i = snbtSkipWhitespace(s, next)
 		fresh = false
 		if i < len(s) && s[i] == ',' {
-			i++
+			i = snbtSkipWhitespace(s, i+1)
 			// A comma before the closer is tolerated: [1,] is [1].
 			if i < len(s) && s[i] == ']' {
 				tag.end = i + 1
@@ -926,6 +944,7 @@ func parseSNBTList(s string, i int) (*snbtTag, int, *snbtError) {
 // a complete suffixed element the reader wants the separator: [B;1bX]
 // ends wanting "," past the suffix.
 func parseSNBTArray(s string, i int, arrayType byte, tag *snbtTag) (*snbtTag, int, *snbtError) {
+	i = snbtSkipWhitespace(s, i)
 	suffix := ""
 	switch arrayType {
 	case 'B':
@@ -1102,8 +1121,9 @@ func parseSNBTArray(s string, i int, arrayType byte, tag *snbtTag) (*snbtTag, in
 			tag.items = append(tag.items, &snbtTag{kind: snbtNumber, num: num, end: j})
 			i = j
 		}
+		i = snbtSkipWhitespace(s, i)
 		if i < len(s) && s[i] == ',' {
-			i++
+			i = snbtSkipWhitespace(s, i+1)
 			if i < len(s) && s[i] == ']' {
 				tag.end = i + 1
 				return tag, i + 1, nil

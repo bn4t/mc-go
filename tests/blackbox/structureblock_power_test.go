@@ -33,7 +33,7 @@ func TestStructureBlockPowerParity(t *testing.T) {
 				counter++
 				marker := fmt.Sprintf("STRUCTURE_POWER_OK_%d", counter)
 				sendCommand(t, pw, "execute "+condition+" run say "+marker)
-				if !sawMarker(barrier(), marker) {
+				if !structureSaidBB(barrier(), marker) {
 					t.Errorf("failed%s", condition)
 					sendCommand(t, pw, "data get block 4 -60 4")
 					for _, line := range barrier() {
@@ -69,6 +69,21 @@ func TestStructureBlockPowerParity(t *testing.T) {
 			sendCommand(t, pw, "setblock 5 -60 4 air")
 			sendCommand(t, pw, "setblock 4 -59 4 stone")
 			sendCommand(t, pw, "setblock 4 -60 4 structure_block[mode=save]")
+			// Establish creation before sending a different packet family:
+			// an editor arriving first would be ignored for lack of a BE.
+			created := false
+			deadline := time.Now().Add(10 * time.Second)
+			for time.Now().Before(deadline) && !created {
+				for _, u := range structureBEUpdatesBB(t, sink.take()) {
+					created = created || u.pos == [3]int32{4, -60, 4} && u.tag["mode"] == "SAVE"
+				}
+				if !created {
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
+			if !created {
+				t.Fatal("no controller creation receipt")
+			}
 			edit(0, 1)
 			check(`if block 4 -60 4 minecraft:structure_block{mode:"SAVE",name:"test:power_memory",sizeX:1}`)
 			pulse()

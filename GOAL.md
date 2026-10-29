@@ -147,7 +147,7 @@ Mojang server over the wire.
       chunk-generation creatures: `TestNaturalSpawn*Parity`.
 - [x] Full entity type registry
 - [~] Physics, collision, AI, pathfinding: positioned player shapes, animated
-      shulker/piston collision, Marker armor-stand policies and shulker item
+      shulker/piston collision, Marker armor-stand policies and shulker/piston item
       pushes have measured pins; general physical pushing remains incomplete.
 - [~] Damage, health, death, drops, XP
       First-hit player XP/value/pickup has a live-oracle pin; broader
@@ -221,9 +221,10 @@ Mojang server over the wire.
   and every stat-backed minecraft.<type>:<id> form) with vanilla's
   per-tick doTick poll, the add-delta stat feed (no backfill, sums
   onto manual sets), and resetStat's zero write. Non-recipe
-  advancement trigger coverage is partial; startup folder-pack displayless
-  definitions, completion XP/loot/recipe/function rewards and unattached-resource
-  command traversal are now pinned. Displayed custom definitions, pack ordering,
+  advancement trigger coverage is partial; startup folder-pack displayed and
+  displayless definitions, measured tab layout/overrides and announcements,
+  completion XP/loot/recipe/function rewards and unattached-resource command
+  traversal are now pinned. Complete component schemas, pack ordering,
   ZIP/reload and custom loot overlays remain open. Scoreboard teams are
   implemented and parity-tested)
 - [~] Statistics (Award Statistics on Client Status 1: counters for
@@ -17819,7 +17820,7 @@ Source OpenJDK25.0.5 javap StructureBlockEntity, StructureTemplate, StructurePla
 
 - **Measured:** vanilla 26.2 wire and JDK 25.0.5 structure-block bytecode establish rising SAVE-memory/LOAD-immediate/CORNER-unload actions, inert DATA/steady-high states and a falling-edge latch reset. LOAD bypasses editor size preparation. Inner jar SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
 - **Implemented:** neighbor routing and an independent action helper reuse the template repository and placement paths. The persisted latch changes before the action; latch-only changes do not request block-entity packets. Negative-cache/reload invalidation and datapack template lookup remain separate work.
-- **Pinned:** focused structure units pass (0.345s), vanilla measurement passes (17.06s), and TestStructureBlockPowerParity passes both servers (22.40s). Actual editor-update receipts precede power changes; world-state checks cover LOAD, high/retrigger, DATA, cache unload/missing LOAD and absence of a disk file after powered SAVE. Later cache testing found that execute-if-block rejected NBT syntax, and the generic marker helper mistook the marker echoed in syntax-error context for success: the four NBT-only latch/size wire assertions were weaker than intended. Direct unit checks independently cover those fields; the command predicate and wire revalidation remain pending.
+- **Pinned:** focused structure units pass (0.345s), vanilla measurement passes (17.06s), and TestStructureBlockPowerParity passes both servers (22.40s). Actual editor-update receipts precede power changes; world-state checks cover LOAD, high/retrigger, DATA, cache unload/missing LOAD and absence of a disk file after powered SAVE. Later cache testing found that execute-if-block rejected NBT syntax, and the generic marker helper mistook the marker echoed in syntax-error context for success: the four NBT-only latch/size wire assertions were weaker than intended. Direct unit checks independently cover those fields; the subsequent typed block-NBT predicate slice implements the missing syntax and revalidates all power assertions with exact decoded witnesses (49.67s).
 
 ## Slice — ordinary use-on hand priority and consumption (2026-10-29)
 
@@ -17934,3 +17935,13 @@ Native persistence audit caught the separate disk chunk serializer after the wir
 **Pinned** — Final immutable4fcc0b8+exact9files:26 actual definitions, valid count99/invalid100,19 styled announcements PASS32.89s; built-in displayless-node/root overrides and independent geometry constraints PASS26.95s. Units PASS0.678s include0/1/99/100/127 icon boundaries, all captured definition rewrites and80 seeded trees. Earlier existing advancement-command regression PASS64.43s; final changes add override reflow and count validation. The old affected-tab baseline failed39.18s with native expectations independently satisfied. Wire comparisons normalize only demonstrated identity-dependent Y ordering and separately require each leg's depth, centering, separation and bounds. Logs and frozen provenance: `work/advancement-display-manifest.md`, `work/advancement-display-final-TestDisplayedAdvancementPackParity.log` and the builtin override log.
 
 Limits: complete rich-text/item schemas, ZIP/pack selection/reload, predicate-bearing custom tick triggers, custom loot overlays, reconnect/restart display synchronization and older-profile icon projection remain unpinned or incomplete. Automatic startup/tick behavior is a separate follow-on. Empty-criteria definitions are rejected by the native codec. Tab-wide probes explicitly retain advancement packets larger than4KiB; truncated or empty captures cannot prove layout parity.
+
+## Slice — typed block-NBT predicates (2026-10-29)
+
+**Measured** — Live26.2 if/unless conditions and factual BlockPredicateArgument, BlockEntity.saveWithFullMetadata, NbtUtils.compareNbt and Java Character.isWhitespace behavior; Go1.27.3, JDK25.0.5+8; inner jar SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Fullmetadata includes id/coordinates/components, excludes chunk keepPacked. Recursive subsets retain numeric tag types and case; list matching is existential with a length bound, and an empty pattern requires an empty target. Baseline FAIL32.93s independently passed68 native conditions and exposed Go's rejection of attached NBT.
+
+**Implemented** — Separate attached SNBT from the block-state predicate, compare typed fullmetadata and require a block entity even for {}. Correct shared empty-list subset matching. Accept structured whitespace at SNBT boundaries while preserving quoted text and original offsets, using measured Java whitespace classification. Power checks decode actual say content and wait for controller creation before sending editor packets.
+
+**Pinned** — Immutable4fcc0b8+seven owned files: relevant units PASS1.246s; all74 native/Go positive and negative conditions PASS39.90s, including types, case, metadata, no-BE{}, reordered/duplicate/empty lists and Unicode/list/typed-array whitespace. StructureBlockPowerParity PASS49.67s (vanilla8.62s/Go8.16s) now meaningfully validates the original four NBT-only assertions as well as world actions. Earlier power rerun missed initial controller creation before editing; setup was synchronized without changing production or expectations. Logs: `work/block-predicate-before.log`, `work/block-predicate-after.log`, `work/block-predicate-power.log`; final patch50bd653afcfc224195690a682cd8e4c3e9a526265180f14b21b1c3f9e9fd64df.
+
+Limits: exact block names/states with attached compounds in execute if/unless block. Block tags, exhaustive syntax/error cursors and complete block-entity serializers remain separate work; general fill predicates are unchanged. Error-context echoes never count as successful command witnesses.

@@ -229,13 +229,16 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 			r := errToken("command.unknown.argument", tokBase+4)
 			return 0, false, 0, false, &r
 		}
-		blk, props, okp := parseBlockSpec(args[4])
-		if !okp {
-			r := errTokenEnd("argument.block.id.invalid", tokBase+4)
-			return 0, false, 0, false, &r
+		blk, props, pattern, perr := parseBlockPredicateNBT(args[4], tokBase+4)
+		if perr != nil {
+			return 0, false, 0, false, perr
 		}
 		if ctx.alive {
-			cond = s.matchesBlockPredicate(ctx.dim, world.Pos{X: x, Y: y, Z: z}, blk, props)
+			pos := world.Pos{X: x, Y: y, Z: z}
+			cond = s.matchesBlockPredicate(ctx.dim, pos, blk, props)
+			if cond && pattern != nil {
+				cond = s.blockPredicateNBTMatches(ctx.dim, pos, pattern)
+			}
 		}
 		return 5, cond, 0, false, nil
 	case "blocks":
