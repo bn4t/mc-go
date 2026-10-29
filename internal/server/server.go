@@ -297,6 +297,8 @@ type Server struct {
 	// functions is the datapack function table loadFunctions fills from
 	// WorldDir/datapacks: resource id -> command lines.
 	functions map[string][]string
+	// Native structure template repository, shared by dimensions.
+	structureTemplates map[string]map[string]any
 	// patrolNext is PatrolSpawner.nextTick — the countdown to the next
 	// natural-patrol roll; starts at 0 so the first decrement rearms it
 	// to 12000+rand(1200) exactly like vanilla.

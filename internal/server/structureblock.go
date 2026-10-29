@@ -215,6 +215,14 @@ func (s *Server) handleSetStructureBlock(sess *Session, p protocol.Packet) {
 		} else {
 			s.sendSystemChatComponent(sess, translatable("structure_block.size_failure"))
 		}
+	case edit.action == 1:
+		key := "structure_block.save_failure"
+		if s.structureBlockSave(d, edit.pos, g, true) {
+			key = "structure_block.save_success"
+		}
+		s.sendSystemChatComponent(sess, translatable(key, name))
+	case edit.action == 2:
+		s.sendSystemChatComponent(sess, translatable(s.structureBlockLoad(d, edit.pos, g), name))
 	}
 	s.broadcastBlockState(d, edit.pos, d.w.GetBlock(edit.pos))
 	spec, _ := blockEntitySpecForType("structure_block")
