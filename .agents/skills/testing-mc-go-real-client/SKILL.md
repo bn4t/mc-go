@@ -99,6 +99,10 @@ successful tagged native run does not establish default test compilation.
   update does not mean the slot is empty. Map a menu's player-slot region to
   the shared inventory using its measured layout, and handle direct player
   inventory updates. Assert each selected hand's item ID, count and damage.
+- For native 26.2 player data witnesses, offhand is `equipment.offhand`, not
+  the legacy `Inventory` slot -106. For malformed-use probes, prove setup first,
+  observe disconnect/no acknowledgement, then wait for actual retirement and
+  rejoin to check saved inventory and world state.
 - Distinguish a block's default interaction from the held item callback. For
   containers, decode screen kind/title and contents, then prove the menu is
   usable after a second player changes the block. Observe acting-player and

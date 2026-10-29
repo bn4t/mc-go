@@ -79,14 +79,18 @@ func (s *Server) useGoatHorn(sess *Session, st ItemStack, hand int32) {
 // is acknowledged by coverage only for now. Like a use on a block it is
 // dropped until the client reports its terrain loaded.
 func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
-	if !sess.interactionsOpen(s.TickCount()) {
-		return
-	}
 	r := protocol.NewPacketReader(p.Data)
 	hand, err := r.VarInt()
 	if err != nil {
 		return
 	}
+	if s.rejectInvalidItemHand(sess, hand, "use_item") {
+		return
+	}
+	if !sess.interactionsOpen(s.TickCount()) {
+		return
+	}
+
 	seq, err := r.VarInt()
 	if err != nil { // sequence
 		return

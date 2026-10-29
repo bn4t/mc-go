@@ -18330,3 +18330,11 @@ Provenance: Java 26.2 wire, official generated component reports and public Fire
 - **Pinned:** baseline native 14 conditions passed while Go failed 11; final 26 controls PASS 21.84 s, player summon regression PASS 30.90 s, advancement reward regression PASS 156.87 s, final affected units PASS 1.639 s. Legacy ExecuteAtSummon failed in vanilla's first leg before Go ran because its remote fox was not selectable; that failure is preserved separately, without weakening this slice.
 
 Provenance: Java 26.2 wire and public TimeArgument API observations, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA1 86765a5899bd9c96461036a628796b4245715058. Frozen seven-file patch e18714f1b6774a80cb584389e0d253cca0663b3d42685dede26b3b7c8c74cf60. Persisted events, tags/macros/return semantics, pack reload/selection, other neutral commands and exhaustive cursor diagnostics remain partial. Equal-deadline insertion order lacks an independent wire-order pin.
+
+## Slice — reject invalid item-use hand values before dispatch (2026-10-29)
+
+- **Measured:** native item-use-on and item-use-air codecs accept hands 0/1 and reject -1/2 before dispatch. Four wire controls disconnect with the packet-specific translated reason, close without acknowledgements, and preserve inventory/world state after retirement and rejoin. Old Go acknowledged invalid hands and could place/consume the main-hand stack.
+- **Implemented:** share enum validation before interaction readiness, acknowledgements and gameplay callbacks. Valid hand paths and the existing disconnect lifecycle remain unchanged.
+- **Pinned:** baseline FAIL 40.98 s with all native controls valid; final four disconnect/rejoin controls PASS 14.61 s, original 26 valid-hand regression PASS 15.74 s. Immutable build, vet and tagged compilation pass. This covers these enum values in protocol 776, not truncated fields, other packet enums or all legacy profiles.
+
+Provenance: Java 26.2 wire and public packet STREAM_CODEC probes, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA1 86765a5899bd9c96461036a628796b4245715058; probe SHA256 590ca8c3ab33ce4cefeb06daa7d1388835840ee6ec893365f3cb14a865b9a6e9. Frozen four-file patch c998e9de101b8b18b63bad4c6206ca9832d78bb18c75c963ffd18af272d69c18. Initial offhand setup failure occurred before the malformed action and is not packet evidence.

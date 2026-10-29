@@ -182,17 +182,21 @@ const placeReachM = 6.5
 // as a one-byte varint first). Denials still ack the sequence so the
 // client retires its prediction instead of desyncing.
 func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
-	// A use in the first moments of a session, before the client has
-	// reported its terrain loaded, is dropped whole: no placement, no
-	// editor, no acknowledgement.
-	if !sess.interactionsOpen(s.TickCount()) {
-		return
-	}
 	r := protocol.NewPacketReader(p.Data)
 	hand, err := r.VarInt()
 	if err != nil {
 		return
 	}
+	if s.rejectInvalidItemHand(sess, hand, "use_item_on") {
+		return
+	}
+	// A valid use in the first moments of a session, before the client has
+	// reported its terrain loaded, is dropped whole: no placement, no
+	// editor, no acknowledgement.
+	if !sess.interactionsOpen(s.TickCount()) {
+		return
+	}
+
 	x, y, z, err := r.Position()
 	if err != nil {
 		return
