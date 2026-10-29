@@ -74,7 +74,8 @@ templates. Complete datapack selection and reload coverage remains partial.
 Execute if/unless block, fill replace and clone filtered support built-in block
 tags, member properties and typed nested block-entity NBT subsets. Clone also
 preserves measured native block-entity payloads and supported item components
-across copies, moves and overlapping force copies. Datapack tags, scheduled-tick
+across copies, moves and overlapping force copies. Barrel native data access
+uses its live container storage, including supported stored item components. Datapack tags, scheduled-tick
 copying, strict placement and exhaustive parser diagnostics remain in progress.
 
 Scripted protocol tests exercise real vanilla server behavior. A graphical

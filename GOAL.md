@@ -18197,3 +18197,11 @@ Limits: complete player/entity/item/context schemas, biome registry error valida
 - **Measured:** the full immutable 5b5d3fd suite passed all other packages but its sword test observed health 14.000001. The generated iron modifier gives a delay just above 12.5 player ticks; a 750 ms sleep does not establish charge. The unchanged fixture also failed at 16 TPS.
 - **Implemented:** wait for the actual sword inventory receipt and fourteen observed player play_time ticks, retaining the exact health 14 assertion. Document the player/world clock distinction in AGENTS and the real-client skill; no production damage change.
 - **Pinned:** five repeats at both 20 and 16 TPS passed ten exact health assertions (4.83/3.62/4.22/3.65/3.69 s per paired run), immutable 5ec042f plus the owned fixture. Go 1.27.3 scripted client; logs work/weapon-damage-ticks-oracle-v1.log and work/weapon-damage-boundary-before-v1.log.
+
+## Slice — barrel native accessor storage (2026-10-29)
+
+- **Measured:** an initialized barrel uses generic-container storage; the old native reader wrongly queried chest storage and could not expose its items. Native7expected data/edit/copy outcomes pass; unchangedGo misses6positive witnesses.
+- **Implemented:** route barrel through the existing canonical container serializer; no new serializer or loader.
+- **Pinned:** cross-store unit beforeFAIL0.827s/afterPASS0.637s; differential7positive witnesses PASS32.48s (2.60s/1.81s), including supported potion components and copy independence after modification/removal. Other generic-container native fields remain separately bounded.
+
+Provenance: Java 26.2 wire, Temurin 25.0.5+8 and Go 1.27.3; bundler SHA1 823e2250d24b3ddac457a60c92a6a941943fcd6a.

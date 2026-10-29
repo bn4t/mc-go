@@ -337,7 +337,7 @@ func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any
 			extra["back_text"] = signTextNBT(snap.Back, snap.backColor, snap.backGlowing)
 			extra["is_waxed"] = boolByte(snap.waxed)
 		}), true
-	case "minecraft:chest", "minecraft:trapped_chest", "minecraft:barrel":
+	case "minecraft:chest", "minecraft:trapped_chest":
 		if c := s.peekChest(d, pos); c != nil {
 			slots := make([]ItemStack, len(c.slots))
 			copy(slots, c.slots[:])
