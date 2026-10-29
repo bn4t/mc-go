@@ -5144,20 +5144,20 @@ func (s *Server) mobTickStep() {
 		// event (67) and 2 drown damage. decreaseAirSupply's
 		// oxygen_bonus branch is unreachable — no mob path grants the
 		// attribute. Everywhere else the supply climbs back by
-		// increaseAirSupply's +4 per tick up to getMaxAirSupply (300) —
+		// increaseAirSupply up to the species getMaxAirSupply —
 		// inside the drain cell only while one of the refilling
 		// effects is on.
+		maxAir := mobMaxAirSupply(ambName)
 		if airD := s.dims[e.Dim]; airD != nil && mobWaterAnimalAir[ambName] {
 			// WaterAnimal.baseTick captures the pre-tick supply, lets
 			// LivingEntity's air block run, then overrides the supply:
-			// in water it snaps to the 300 max, out of water it drops
+			// in water it snaps to the species max, out of water it drops
 			// one per tick and at -20 resets to zero with 2 damage
 			// (dryOut on the axolotl and nautilus, drown elsewhere —
 			// the axolotl's check is isInWaterOrRain). Axolotl and
-			// nautilus gate the whole step on !isNoAi; the fish,
-			// squids, and tadpole run it unconditionally. Skipping
-			// LivingEntity's own refill is safe: its result is always
-			// overwritten by the setAirSupply below.
+			// nautilus gate handleAirSupply on !isNoAi; the fish,
+			// squids, and tadpole run it unconditionally. The active override
+			// overwrites it; NoAI still receives the ordinary refill.
 			if waGate := ambName == "axolotl" || ambName == "nautilus"; !waGate || !e.NoAI {
 				wet := s.mobInWater(e)
 				if ambName == "axolotl" && !wet {
@@ -5172,8 +5172,8 @@ func (s *Server) mobTickStep() {
 					}
 				}
 				if wet {
-					if e.AirSupply != 300 {
-						e.AirSupply = 300
+					if e.AirSupply != maxAir {
+						e.AirSupply = maxAir
 						e.MetaDirty = true
 					}
 				} else {
@@ -5188,6 +5188,10 @@ func (s *Server) mobTickStep() {
 						s.damageMob(e, 2, src, nil, &damageInfo{typeName: src})
 					}
 				}
+			} else if e.AirSupply < maxAir && (!s.mobEyeInWater(e, airD) || s.mobEyeInBubbleColumn(e, airD) || mobHasAirEffect(s, e)) {
+				// NoAI skips only handleAirSupply, not LivingEntity's refill.
+				e.AirSupply = mobIncreaseAirSupply(ambName, e.AirSupply)
+				e.MetaDirty = true
 			}
 		} else if airD := s.dims[e.Dim]; s.mobEyeInWater(e, airD) && !s.mobEyeInBubbleColumn(e, airD) {
 			if !mobBreathesWater[ambName] && !mobHasAirEffect(s, e) {
@@ -5198,12 +5202,12 @@ func (s *Server) mobTickStep() {
 					s.broadcastEntityEventTo(nil, e.Dim, e.ID, 67)
 					s.damageMob(e, 2, "drown", nil, &damageInfo{typeName: "drown"})
 				}
-			} else if e.AirSupply < 300 && mobHasAirEffect(s, e) {
-				e.AirSupply = min(e.AirSupply+4, 300)
+			} else if e.AirSupply < maxAir && mobHasAirEffect(s, e) {
+				e.AirSupply = mobIncreaseAirSupply(ambName, e.AirSupply)
 				e.MetaDirty = true
 			}
-		} else if e.AirSupply < 300 {
-			e.AirSupply = min(e.AirSupply+4, 300)
+		} else if e.AirSupply < maxAir {
+			e.AirSupply = mobIncreaseAirSupply(ambName, e.AirSupply)
 			e.MetaDirty = true
 		}
 		// Villager brain: AcquirePoi claims the nearest unclaimed bed

@@ -1207,8 +1207,9 @@ func (m *Manager) Spawn(e *Entity) *Entity {
 	if name, _ := EntityTypeName(e.Type); name == "item" && e.ItemHP == 0 {
 		e.ItemHP = 5
 	}
-	// Entity's constructor sets airSupply to getMaxAirSupply (300).
-	e.AirSupply = 300
+	// Entity constructs with the virtual getMaxAirSupply value.
+	airName, _ := EntityTypeName(e.Type)
+	e.AirSupply = mobMaxAirSupply(airName)
 	// AbstractHurtingProjectile constructs accelerationPower to
 	// INITAL_ACCELERATION_POWER (0.1); readAdditionalSaveData's
 	// getDoubleOr falls back to the same.

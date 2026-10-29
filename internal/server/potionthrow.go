@@ -17,7 +17,7 @@ func (s *Server) thrownPotionImpact(e *Entity, name string, x, y, z float64) {
 		s.potionSplash(e, x, y, z)
 		return
 	}
-	s.broadcastLevelEvent(e.Dim, potionStackEvent(stack), world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}, potionStackColor(stack))
+	defer s.broadcastLevelEvent(e.Dim, potionStackEvent(stack), world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}, potionStackColor(stack))
 	if len(contents) == 0 {
 		return
 	}

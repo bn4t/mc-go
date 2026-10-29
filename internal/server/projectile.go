@@ -888,6 +888,7 @@ func (s *Server) arrowTickStep() {
 				s.emitGameEvent(d, "projectile_land", hx, hy, hz, nil, "")
 			}
 			if isPotion {
+				s.waterPotionBlockImpact(e, bx, by, bz, axis, hx, hy, hz)
 				s.thrownPotionImpact(e, name, hx, hy, hz)
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemove([]int32{e.ID})
@@ -1708,19 +1709,11 @@ func potionLevelEvent(potion string) int32 {
 func (s *Server) potionSplash(e *Entity, x, y, z float64) {
 	stack := projectilePotionStack(e)
 	effects := potionStackEffects(stack)
+	defer s.broadcastLevelEvent(e.Dim, potionStackEvent(stack), world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}, potionStackColor(stack))
 	if e.splashPotion == "water" && len(effects) == 0 {
-		// ThrownPotion.onHit's water arm: onHitAsWater, then the
-		// shared 2002 event with PotionContents' -13083194 default
-		// color (water carries no effects).
-		s.broadcastLevelEvent(e.Dim, 2002, world.Pos{
-			X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z)),
-		}, potionStackColor(stack))
 		s.potionSplashWater(e, x, y, z)
 		return
 	}
-	s.broadcastLevelEvent(e.Dim, potionStackEvent(stack), world.Pos{
-		X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z)),
-	}, potionStackColor(stack))
 	if len(effects) == 0 {
 		return
 	}
@@ -1773,6 +1766,14 @@ func (s *Server) potionSplashWater(e *Entity, x, y, z float64) {
 		if !t.Living || t.Dying || t.Dim != e.Dim {
 			continue
 		}
+		bb := entityBBDims(t)
+		if !waterPotionBox(x, y, z, t.X, t.Y, t.Z, bb[0], bb[1]) {
+			continue
+		}
+		if name, _ := EntityTypeName(t.Type); name == "axolotl" {
+			t.AirSupply = int16(min(int32(t.AirSupply)+1800, 6000))
+			t.MetaDirty = true
+		}
 		dx, dy, dz := x-t.X, y-t.Y, z-t.Z
 		if dx*dx+dy*dy+dz*dz >= 16 {
 			continue
@@ -1800,6 +1801,9 @@ func (s *Server) potionSplashWater(e *Entity, x, y, z float64) {
 			return true
 		}
 		px, py, pz, _, _, _ := sess.Pos()
+		if !waterPotionBox(x, y, z, px, py, pz, .6, 1.8) {
+			return true
+		}
 		dx, dy, dz := x-px, y-py, z-pz
 		if dx*dx+dy*dy+dz*dz < 16 {
 			sess.fireTicks = 0
