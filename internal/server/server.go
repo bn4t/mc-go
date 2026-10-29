@@ -106,6 +106,10 @@ type Server struct {
 	// "biome/plains") for the normal generator, the way a world's data
 	// packs override the built-in worldgen registries.
 	WorldgenOverlay map[string]json.RawMessage
+	// FlatPreset is the flat overworld's preset (server.properties
+	// generator-settings); nil keeps the comparison preset (bedrock, two
+	// dirt, grass in the_void) the blackbox world uses.
+	FlatPreset *world.FlatPreset
 	// terrain is the normal overworld's chunk source (nil when flat).
 	terrain *terrainSource
 

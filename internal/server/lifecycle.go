@@ -193,6 +193,9 @@ func (s *Server) loadWorldDir() error {
 		if s.LevelType == "" && lv.Generator != "" {
 			s.LevelType = lv.Generator
 		}
+		if s.FlatPreset == nil && lv.Flat != nil {
+			s.FlatPreset = lv.Flat
+		}
 		if lv.Spawn != [3]int{} {
 			s.setWorldSpawn(lv.Spawn[0], lv.Spawn[1], lv.Spawn[2])
 		}

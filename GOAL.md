@@ -16094,3 +16094,22 @@ no flee; unsneak → flee). Green both legs.
   (18 chunks each, blocks and biome cells).
 - **Remaining:** custom flat presets (`generator-settings`), the
   single-biome and debug presets.
+
+## Slice — custom flat presets (2026-10-29)
+
+- **Measured:** wire observation of a real-server flat world with
+  `generator-settings` layers (bedrock, three stone, two sand) and
+  biome desert: world spawn, every streamed chunk's blocks, heightmaps,
+  counts, biome cells, light and light masks (the empty block-light mask
+  carries the below-world slot whenever a bottom section in the 3x3
+  columns is non-empty, flat worlds included).
+- **Implemented:** `world.FlatPreset` (level.dat / world_gen_settings
+  round trip; the comparison preset stays the default without one),
+  `world.FlatGen`, `Server.FlatPreset`, server.properties
+  `generator-settings` for flat worlds (blank or `{}` is vanilla's
+  default preset: plains), spawn on top of the layers at the origin
+  column; the below-world empty block-light bit for every world.
+- **Pinned:** `TestFlatPresetChunkParity` (42-49 chunks, everything
+  equal).
+- **Remaining:** flat presets' `features`/`lakes` options and structure
+  overrides.

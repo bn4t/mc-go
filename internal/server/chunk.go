@@ -318,7 +318,7 @@ func encodeLightDataFor(d *dimension, cx, cz int) []byte {
 				emptyBlock |= bit
 			}
 		}
-		if d.w.Provided() && blockMask&1 == 0 && belowWorldLayered(d, cx, cz) {
+		if blockMask&1 == 0 && belowWorldLayered(d, cx, cz) {
 			emptyBlock |= 1 // the below-world slot, layered with the bottom
 		}
 		writeBitSet(&b, emptyBlock)

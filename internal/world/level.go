@@ -32,6 +32,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"mc-go/internal/nbt"
@@ -57,6 +58,9 @@ type LevelData struct {
 	// preset, "normal" for the noise generator with the overworld
 	// multi-noise biome source.
 	Generator string
+	// Flat is a flat overworld's preset; nil is mc-go's comparison
+	// preset (bedrock, two dirt, grass in the_void).
+	Flat *FlatPreset
 	// GameTime is the tick counter that only ever moves forward, and
 	// DayTime the overworld's day clock, which /time moves.
 	GameTime int64
@@ -245,14 +249,10 @@ func worldGenSettings(d LevelData) map[string]any {
 		"generator": map[string]any{
 			"type": "minecraft:flat",
 			"settings": map[string]any{
-				"biome":    "minecraft:the_void",
+				"biome":    flatBiome(d.Flat),
 				"features": int8(0),
 				"lakes":    int8(0),
-				"layers": nbt.List{Elem: nbt.TagCompound, Items: []any{
-					map[string]any{"block": "minecraft:bedrock", "height": int32(1)},
-					map[string]any{"block": "minecraft:dirt", "height": int32(2)},
-					map[string]any{"block": "minecraft:grass_block", "height": int32(1)},
-				}},
+				"layers":   flatLayersNBT(d.Flat),
 				"structure_overrides": nbt.List{Elem: nbt.TagString, Items: []any{
 					"minecraft:strongholds", "minecraft:villages",
 				}},
@@ -429,6 +429,7 @@ func ReadLevel(dir string) (LevelData, error) {
 							}
 						case "minecraft:flat":
 							out.Generator = "flat"
+							out.Flat = readFlatPreset(g["settings"])
 						}
 					}
 				}
@@ -457,4 +458,86 @@ func savedDataPayload(root any) (map[string]any, bool) {
 // noise settings.
 var noiseLevelSettings = map[string]string{
 	"normal": "overworld", "amplified": "amplified", "large_biomes": "large_biomes",
+}
+
+// FlatPreset is a flat generator's layers (bottom up) and biome.
+type FlatPreset struct {
+	Layers []FlatLayer
+	Biome  string
+}
+
+// FlatLayer is one flat layer: a block name and its height.
+type FlatLayer struct {
+	Block  string
+	Height int
+}
+
+// DefaultFlatPreset is the real server's default flat preset (an empty
+// generator-settings): bedrock, two dirt, grass, in plains.
+func DefaultFlatPreset() *FlatPreset {
+	return &FlatPreset{Biome: "minecraft:plains", Layers: []FlatLayer{
+		{"minecraft:bedrock", 1}, {"minecraft:dirt", 2}, {"minecraft:grass_block", 1},
+	}}
+}
+
+func flatBiome(p *FlatPreset) string {
+	if p == nil {
+		return "minecraft:the_void"
+	}
+	return p.Biome
+}
+
+func flatLayersNBT(p *FlatPreset) nbt.List {
+	if p == nil {
+		p = DefaultFlatPreset()
+	}
+	l := nbt.List{Elem: nbt.TagCompound}
+	for _, ly := range p.Layers {
+		l.Items = append(l.Items, map[string]any{"block": ly.Block, "height": int32(ly.Height)})
+	}
+	return l
+}
+
+func readFlatPreset(v any) *FlatPreset {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	p := &FlatPreset{}
+	p.Biome, _ = m["biome"].(string)
+	if l, ok := m["layers"].(nbt.List); ok {
+		for _, it := range l.Items {
+			if lm, ok := it.(map[string]any); ok {
+				b, _ := lm["block"].(string)
+				h, _ := lm["height"].(int32)
+				p.Layers = append(p.Layers, FlatLayer{b, int(h)})
+			}
+		}
+	}
+	if p.Biome == "minecraft:the_void" && len(p.Layers) == 3 && p.Layers[0] == (FlatLayer{"minecraft:bedrock", 1}) &&
+		p.Layers[1] == (FlatLayer{"minecraft:dirt", 2}) && p.Layers[2] == (FlatLayer{"minecraft:grass_block", 1}) {
+		return nil // the comparison preset
+	}
+	return p
+}
+
+// FlatGen returns a generator for a flat preset whose bottom layer sits
+// at minY, and the y just above its top layer.
+func FlatGen(p *FlatPreset, minY int) (func(Pos) Block, int) {
+	var col []Block
+	for _, ly := range p.Layers {
+		b, ok := BlockState(strings.TrimPrefix(ly.Block, "minecraft:"))
+		if !ok {
+			b = Air
+		}
+		for i := 0; i < ly.Height; i++ {
+			col = append(col, b)
+		}
+	}
+	return func(pos Pos) Block {
+		if i := pos.Y - minY; i >= 0 && i < len(col) {
+			return col[i]
+		}
+		return Air
+	}, minY + len(col)
 }

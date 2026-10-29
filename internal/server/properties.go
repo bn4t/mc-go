@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"encoding/json"
 	"crypto/rand"
 	"fmt"
 	"math/big"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"mc-go/internal/world"
 )
 
 // server.properties, as the real 26.2 server keeps it: on startup it
@@ -403,6 +406,17 @@ func (s *Server) ApplyProperties(p *ServerProperties, serverDir string, skip map
 			return nil
 		}},
 		{"generate-structures", func(v string) error { s.GenerateStructures = v != "false"; return nil }},
+		{"generator-settings", func(v string) error {
+			if s.LevelType != LevelTypeFlat {
+				return nil
+			}
+			p, err := parseFlatSettings(v)
+			if err != nil {
+				return err
+			}
+			s.FlatPreset = p
+			return nil
+		}},
 		{"gamemode", func(v string) error {
 			switch strings.ToLower(v) {
 			case "survival", "0":
@@ -454,4 +468,42 @@ func (s *Server) ApplyProperties(p *ServerProperties, serverDir string, skip map
 		}
 	}
 	return nil
+}
+
+// parseFlatSettings reads a flat world's generator-settings JSON: its
+// layers (bottom up) and biome; blank or {} is the default preset.
+func parseFlatSettings(v string) (*world.FlatPreset, error) {
+	v = strings.TrimSpace(v)
+	def := world.DefaultFlatPreset()
+	if v == "" || v == "{}" {
+		return def, nil
+	}
+	var doc struct {
+		Layers []struct {
+			Block  string `json:"block"`
+			Height int    `json:"height"`
+		} `json:"layers"`
+		Biome string `json:"biome"`
+	}
+	if err := json.Unmarshal([]byte(v), &doc); err != nil {
+		return nil, err
+	}
+	p := &world.FlatPreset{Biome: def.Biome, Layers: def.Layers}
+	if doc.Biome != "" {
+		p.Biome = doc.Biome
+		if !strings.Contains(p.Biome, ":") {
+			p.Biome = "minecraft:" + p.Biome
+		}
+	}
+	if doc.Layers != nil {
+		p.Layers = nil
+		for _, l := range doc.Layers {
+			b := l.Block
+			if !strings.Contains(b, ":") {
+				b = "minecraft:" + b
+			}
+			p.Layers = append(p.Layers, world.FlatLayer{Block: b, Height: l.Height})
+		}
+	}
+	return p, nil
 }

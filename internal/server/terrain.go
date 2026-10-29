@@ -252,6 +252,9 @@ func (s *Server) postProcessStep() {
 // before anything reads it. Flat stays the default.
 func (s *Server) applyLevelType() error {
 	if s.LevelType == "" || s.LevelType == LevelTypeFlat {
+		if s.FlatPreset != nil {
+			s.applyFlatPreset(s.FlatPreset)
+		}
 		return nil
 	}
 	settings, ok := map[string]string{
@@ -452,4 +455,25 @@ func absInt(v int) int {
 		return -v
 	}
 	return v
+}
+
+// applyFlatPreset swaps the flat overworld for a custom preset's layers
+// and biome; a world without a saved spawn spawns on top of the layers
+// at the origin column, as the real server's flat spawn search finds.
+func (s *Server) applyFlatPreset(p *world.FlatPreset) {
+	d := s.dims[dimOverworld]
+	gen, top := world.FlatGen(p, d.minY)
+	old := s.world
+	w := world.NewGen(s.bus, 8, gen)
+	w.SetBiome(p.Biome)
+	s.world = w
+	d.w = w
+	d.biome = p.Biome
+	old.Stop()
+	s.spawnMu.Lock()
+	have := s.haveSpawn
+	s.spawnMu.Unlock()
+	if !have {
+		s.setWorldSpawn(0, top, 0)
+	}
 }
