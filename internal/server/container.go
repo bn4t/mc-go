@@ -1470,7 +1470,7 @@ func (s *Server) containerTickStep() {
 		}
 		d.containers.mu.Unlock()
 		for _, step := range lidSteps {
-			s.shulkerPushItems(d, step.pos, step.before, step.after)
+			s.shulkerPushEntities(d, step.pos, step.before, step.after)
 		}
 		for _, e := range brewing {
 			s.brewingTick(d, e.pos, e.c)

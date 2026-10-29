@@ -7,7 +7,7 @@ import (
 
 // The lid's entity sweep uses the full float progress, independently of
 // its half-progress collision shape. Only the newly covered slab selects
-// entities; each selected item moves by the slab thickness plus .01.
+// entities; each selected entity moves by the slab thickness plus .01.
 func shulkerOpeningSweep(st world.Block, before, after float32) (cellBox, int, float64) {
 	var box cellBox
 	if after <= before {
@@ -36,7 +36,7 @@ func shulkerOpeningSweep(st world.Block, before, after float32) (cellBox, int, f
 	return box, axis, sign * (float64(after) - float64(before) + .01)
 }
 
-func (s *Server) shulkerPushItems(d *dimension, pos world.Pos, before, after float32) {
+func (s *Server) shulkerPushEntities(d *dimension, pos world.Pos, before, after float32) {
 	slab, axis, delta := shulkerOpeningSweep(d.w.GetBlock(pos), before, after)
 	if delta == 0 {
 		return
@@ -46,16 +46,30 @@ func (s *Server) shulkerPushItems(d *dimension, pos world.Pos, before, after flo
 		slab[i+3] += v
 	}
 	for _, e := range s.entities.All() {
-		if e.Dim != d.name || e.Type != mustEntityType("item") || e.Dying || e.presenceOnly {
+		if e.Dim != d.name || e.Dying || e.presenceOnly || entityIgnoresPistonPush(&e) {
+			continue
+		}
+		noPhysics := false
+		switch e.Type {
+		case mustEntityType("item"), mustEntityType("cow"):
+		case mustEntityType("armor_stand"):
+			// ArmorStand sets noPhysics for NoGravity; cows retain
+			// block collision. Other move policies need separate pins.
+			noPhysics = e.NoGravity
+		default:
 			continue
 		}
 		dims := entityBBDims(&e)
+		dims[0], dims[1] = float64(float32(dims[0])), float64(float32(dims[1]))
 		half := dims[0] / 2
 		box := cellBox{e.X - half, e.Y, e.Z - half, e.X + half, e.Y + dims[1], e.Z + half}
 		if !(box[0] < slab[3] && box[3] > slab[0] && box[1] < slab[4] && box[4] > slab[1] && box[2] < slab[5] && box[5] > slab[2]) {
 			continue
 		}
-		move := s.clipShulkerItemMove(d, box, axis, delta)
+		move := delta
+		if !noPhysics {
+			move = s.clipShulkerItemMove(d, box, axis, delta)
+		}
 		s.entities.mu.Lock()
 		if live := s.entities.byID[e.ID]; live != nil && !live.presenceOnly {
 			switch axis {

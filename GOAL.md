@@ -18245,3 +18245,11 @@ Provenance: Java 26.2 wire and VehicleEntity/ContainerEntity removal facts; Temu
 - **Pinned:** corrected baseline failed eight Go custom-progress controls; final 14 independent controls PASS 10.54 s, units PASS 1.700 s including server isolation, partial/completed/empty/unknown states and existing Tags behavior. Predicate advancement fields, pack reload and progress migration remain separate.
 
 Provenance: actual Java 26.2 command packets and decoded exact say witnesses, Temurin 25.0.5+8, Go 1.27.3; runtime SHA1 86765a5899bd9c96461036a628796b4245715058. Frozen patch eff83c41ca6e0943891bebcfdf4eb655efb9b43e4ace61cacb4dbc636f78dcd5.
+
+## Slice — shulker lid pushes for stands and cows (2026-10-29)
+
+- **Measured:** vanilla pushes NoGravity stands and normal-collision NoGravity/NoAI cows along all six lid directions. East-wall controls distinguish stand bypass from cow clipping; Marker stands, far/behind bodies, closing and zero Motion controls remain unchanged. Fifteen experiments use activation and exact world-time receipts.
+- **Implemented:** extend the existing opening sweep to the measured native body families, preserving float bounds and their differing collision policies. Exclude Marker/IGNORE and capability-only presence records; preserve item behavior and viewer lifecycle.
+- **Pinned:** unchanged baseline FAIL 241.09 s; immutable c8143d2 plus four owned files passes 552 independent body observations per server in 271.31 s, prior 98 item observations in 121.04 s, units 3.096 s and race 25.422 s. Gravity/travel, ground step-up, existing Motion, scaled bodies, hard entity collisions, other families and player displacement remain separate.
+
+Provenance: Java 26.2 wire/NBT observations, prior public progress-sweep facts, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Frozen patch d0ffc098b3abbb075c096862aca56ee06e55a061339424181f54cc1914a9457e.

@@ -69,6 +69,12 @@ clipping and reverse ejection. NoGravity/NoAI cows also have six-axis
 normal-collision pins. General entity move policies, vertical gravity/travel,
 step-up, cumulative piston limits and scaled variants remain separate.
 
+Opening shulker lids push supported native dropped items, armor stands and cows.
+Six-axis NoGravity apparatus and wall controls distinguish stand noPhysics
+bypass from cow block clipping; Marker and capability-only records are excluded.
+Gravity/travel, scaled variants, existing velocity, hard entity collisions, other
+move policies and actual player displacement remain separate measurements.
+
 Vehicle cargo menus bind to the live entity inventory rather than a synthetic
 block position. Native saves and data reloads share that inventory; reloads
 preserve its identity and queue updates for current viewers. Validity follows
