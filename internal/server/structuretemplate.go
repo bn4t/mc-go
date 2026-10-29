@@ -308,6 +308,7 @@ func (s *Server) structureTemplatePlace(d *dimension, pos world.Pos, g *genericB
 		seed = time.Now().UnixNano()
 	}
 	random := worldgen.NewLegacy(seed)
+	lootRandom := worldgen.NewLegacy(seed) // Placement and settings use separate streams.
 	palette, _ := native["palette"].(nbt.List)
 	if palettes, ok := native["palettes"].(nbt.List); ok && len(palettes.Items) > 0 {
 		palette, _ = palettes.Items[random.NextIntN(int32(len(palettes.Items)))].(nbt.List)
@@ -356,6 +357,9 @@ func (s *Server) structureTemplatePlace(d *dimension, pos world.Pos, g *genericB
 			s.setSilentBlock(d, p, barrier)
 			s.setSilentBlock(d, p, state)
 			copy := cloneNBTValue(tag).(map[string]any)
+			if worldgen.TemplateRandomizesLoot(state) {
+				copy["LootTableSeed"] = lootRandom.NextLong()
+			}
 			spec, exists := blockEntityOf(state)
 			if exists {
 				copy["id"] = spec.name

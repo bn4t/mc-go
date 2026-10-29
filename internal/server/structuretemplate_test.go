@@ -152,3 +152,22 @@ func TestStructureTemplateIdentifierPathsAndContainment(t *testing.T) {
 		t.Fatalf("outside root changed entries%v err%v", entries, e)
 	}
 }
+
+func TestStructureTemplateSeededLootUsesIndependentStream(t *testing.T) {
+	s := simulationTestServer(t)
+	d := s.dims[dimOverworld]
+	s.simulationAction(func() {
+		p := world.Pos{X: 4, Y: -60, Z: 4}
+		state, _ := world.BlockStateOf("structure_block", map[string]string{"mode": "load"})
+		s.setSilentBlock(d, p, state)
+		g := s.structureBlockAt(d, p)
+		g.fields["seed"] = int64(17)
+		chest := map[string]any{"Name": "minecraft:chest", "Properties": map[string]any{"facing": "north", "type": "single", "waterlogged": "false"}}
+		native := map[string]any{"size": structureIntList([3]int32{1, 1, 1}), "palettes": nbt.List{Elem: nbt.TagList, Items: []any{nbt.List{Elem: nbt.TagCompound, Items: []any{chest}}, nbt.List{Elem: nbt.TagCompound, Items: []any{chest}}}}, "blocks": nbt.List{Elem: nbt.TagCompound, Items: []any{map[string]any{"state": int32(0), "pos": structureIntList([3]int32{}), "nbt": map[string]any{"id": "minecraft:chest", "LootTable": "minecraft:chests/simple_dungeon", "LootTableSeed": int64(12345)}}}}}
+		s.structureTemplatePlace(d, p, g, native)
+		tag, ok := s.blockEntitySaveMap(d, world.Pos{X: 4, Y: -59, Z: 4})
+		if !ok || tag["LootTableSeed"] != int64(-4937981208836185383) {
+			t.Fatalf("seeded native loot%+v", tag)
+		}
+	})
+}

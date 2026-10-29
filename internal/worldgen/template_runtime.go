@@ -17,3 +17,7 @@ func BuiltinTemplateNBT(id string) ([]byte, bool) {
 func TransformStructureState(state world.Block, mirror, rotation int) world.Block {
 	return legacyRotate(legacyMirror(state, mirror), rotation)
 }
+
+// TemplateRandomizesLoot reports the existing measured RandomizableContainer
+// classification used by native template placement.
+func TemplateRandomizesLoot(state world.Block) bool { return isRandomizable(state) }
