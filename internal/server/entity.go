@@ -389,6 +389,12 @@ type Entity struct {
 	EphemeralAge      int32
 	OminousSpawnAfter int64
 	FallingBlockName  string
+
+	// hai is the hostile families' goal state (hostile.go) —
+	// evoker spells, vex charge/life, ravager stun/roar, spider
+	// climb, and the evoker_fangs owner.
+	hai *hostileAI
+
 	// Passengers holds the entity ids riding this entity (vanilla's
 	// passengers list); Riding is the vehicle id on the passenger.
 	Passengers []int32

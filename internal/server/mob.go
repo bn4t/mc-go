@@ -1910,6 +1910,11 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.EggLayTime = int32(snbtNum(v))
 				}
 			}
+			// Vex life_ticks/bound_pos, Evoker SpellTicks, Ravager
+			// AttackTick/StunTick/RoarTick (hostile.go).
+			if hostileGoalTypes[name] {
+				s.hostileSummonNBT(e, name, tag)
+			}
 			// Entity.load's Passengers list: each compound is an entity
 			// NBT spawned recursively — the rider mounts like
 			// startRiding, so the summon ends with the vehicle's
@@ -3195,6 +3200,7 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 		b.Byte(8) // type: boolean
 		b.Bool(e.CustomNameVisible)
 	}
+	hostileNoGravDirty(&b, e)
 	// DATA_POSE (6, pose serializer) — shared base-entity slot; it
 	// rides the diff on every pose transition (camel sit/stand, frog
 	// croak/tongue).
@@ -3475,6 +3481,10 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(8)
 				b.Bool(e.EnderStared)
 			}
+		case hostileGoalTypes[name]:
+			// Evoker DATA_SPELL_CASTING_ID (17) / vex and spider
+			// DATA_FLAGS_ID (16) — hostile.go.
+			hostileMetaDirty(&b, e, name)
 		case name == "slime" || name == "magma_cube":
 			// AbstractCubeMob's DATA_SIZE (18, int) — emits only
 			// when it moves off the defined 1.
@@ -3719,6 +3729,7 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 		b.Byte(8) // type: boolean
 		b.Byte(1)
 	}
+	hostileNoGravPack(&b, e)
 	// DATA_POSE (6) — emitted when the pose sits off STANDING(0):
 	// a camel loaded with LastPoseTick<0 arrives SITTING(10).
 	if e.Pose != 0 {
@@ -4214,6 +4225,9 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 			// DASH 19).
 			equineMetaPack(&b, e, name)
 		}
+		// hostile.go's family byte (evoker spell id 17, vex/spider
+		// DATA_FLAGS_ID 16) — a no-op for unregistered types.
+		hostileMetaPack(&b, e, name)
 	}
 	b.Byte(0xFF)
 	return b.Bytes()
@@ -5370,6 +5384,11 @@ func (s *Server) mobTickStep() {
 		if ambName == "witch" {
 			s.witchDrinkStep(e, s.dims[e.Dim])
 		}
+		// Vex.tick's noGravity + limited-life tail and Ravager.aiStep's
+		// attack/stun/roar counters sit outside isEffectiveAi.
+		if hostileTickTypes[ambName] && s.hostileTickPre(e, ambName) {
+			continue
+		}
 		// Guardian.aiStep's flop prelude is the same placement — above
 		// super.aiStep, so NoAI guardians flop too.
 		if mobBeam[ambName] {
@@ -5656,7 +5675,10 @@ func (s *Server) mobTickStep() {
 			// ones fall back to MeleeAttackGoal — neither is in
 			// mobMelee, so they're dispatched by name here.
 			var goalActed bool
-			if s.mobFleeStep(e, ambName) {
+			if hostileGoalTypes[ambName] {
+				// evoker/vex/ravager/spider goal selectors (hostile.go).
+				goalActed = s.hostileGoalStep(e, ambName)
+			} else if s.mobFleeStep(e, ambName) {
 				goalActed = true
 			} else if mobRanged[ambName] {
 				if s.mobHoldsBow(e) {
@@ -9372,6 +9394,13 @@ func (s *Server) mobDefaultEquipReason(e *Entity, reason spawnKind) {
 		mobEquipSlot(e, equipMainHand, "golden_axe")
 	case "vindicator":
 		mobEquipSlot(e, equipMainHand, "iron_axe")
+	case "vex":
+		// Vex.populateDefaultEquipmentSlots: iron sword, drop chance 0.
+		mobEquipSlot(e, equipMainHand, "iron_sword")
+		if e.DropChances == nil {
+			e.DropChances = map[string]float64{}
+		}
+		e.DropChances["mainhand"] = 0
 	case "drowned":
 		if rand.Float64() > 0.9 {
 			if rand.Intn(16) < 10 {
