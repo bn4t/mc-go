@@ -74,7 +74,7 @@ func (s *Server) handleQuickCraftPacket(sess *Session, p protocol.Packet) bool {
 	}
 	// Storage and crafting adapters share placement; other action/equipment
 	// menus need their own callbacks before joining this path.
-	if w != nil && !(w.chest != nil || w.ender != nil || w.craft != nil || w.furnace != nil || w.hopper != nil || w.container != nil && (w.container.spec.menu == menuGeneric9x3 || w.container.spec.menu == menuGeneric3x3 || w.container.spec.menu == menuShulkerBox || w.container.spec.brew)) {
+	if !gestureMenuSupported(w) {
 		*q = quickCraft{}
 		return true
 	}
@@ -100,55 +100,11 @@ func (s *Server) handleQuickCraftPacket(sess *Session, p protocol.Packet) bool {
 	if !q.active {
 		return true
 	}
-	get := func(sl int) ItemStack {
-		if w == nil {
-			return sess.stackAt(int16(sl))
-		}
-		if w.craft != nil {
-			return sess.craftMenuStack(w.craft, sl)
-		}
-		return sess.menuStack(sl)
-	}
-	put := func(sl int, it ItemStack) {
-		if w == nil {
-			sess.invMu.Lock()
-			sess.inv[sl] = it
-			sess.invMu.Unlock()
-		} else if w.craft != nil {
-			sess.setCraftMenuStack(w.craft, sl, it)
-		} else {
-			sess.setMenuStack(sl, it)
-		}
-	}
-	accepts := func(sl int) bool {
-		if w == nil {
-			return sl >= int(slotCraftStart) && sl < int(slotCraftStart)+4 ||
-				sl >= int(slotMainStart) && sl < slotCount
-		} // grid, main, hotbar, offhand
-		if sl < 0 || sl >= w.menuSize() {
-			return false
-		}
-		if w.craft != nil {
-			return sl != 0
-		}
-		if w.furnace != nil && sl < furnaceSlots {
-			// Furnace input is an ordinary slot; fuel alone is filtered.
-			name, _ := itemNameOf(cur.ID)
-			return sl != furnaceOutput && (sl != furnaceFuel || isFuelItem(cur.ID) || name == "bucket")
-		}
-		return w.container == nil || menuAccepts(w.container.spec, sl, cur)
-	}
-	limit := func(sl int) int32 {
-		if w != nil && w.furnace != nil && sl == furnaceFuel {
-			if name, _ := itemNameOf(cur.ID); name == "bucket" {
-				return 1
-			}
-		}
-		if w != nil && w.container != nil {
-			return w.container.spec.slotMax(sl, cur)
-		}
-		return maxStackOfID(cur.ID)
-	}
+	var changes menuGestureChanges
+	get := func(sl int) ItemStack { return gestureSlotStack(sess, w, sl) }
+	put := func(sl int, it ItemStack) { s.gestureSetSlot(sess, w, sl, it, &changes) }
+	accepts := func(sl int) bool { return gestureSlotMayPlace(sess, w, sl, cur) }
+	limit := func(sl int) int32 { return gestureSlotMax(w, sl, cur) }
 	eligible := func(sl int) bool {
 		if !accepts(sl) {
 			return false
@@ -175,7 +131,6 @@ func (s *Server) handleQuickCraftPacket(sess *Session, p protocol.Packet) bool {
 	}
 	slots, kind := q.slots, q.kind
 	*q = quickCraft{}
-	var touched []int
 	share := cur.Count
 	if len(slots) > 1 && kind == 0 {
 		share = cur.Count / int32(len(slots))
@@ -207,9 +162,8 @@ func (s *Server) handleQuickCraftPacket(sess *Session, p protocol.Packet) bool {
 		}
 		put(sl, cur.withCount(count))
 		remaining -= added
-		touched = append(touched, sl)
 	}
-	if len(touched) == 0 {
+	if len(changes.slots) == 0 {
 		return true
 	}
 	if remaining <= 0 {
@@ -218,21 +172,6 @@ func (s *Server) handleQuickCraftPacket(sess *Session, p protocol.Packet) bool {
 		cur.Count = remaining
 	}
 	s.setCarriedLocked(sess, cur)
-	if w == nil {
-		s.refreshCraftResult(sess)
-		sess.invState.Add(1)
-		_ = s.sendContainerContent(sess)
-		_ = s.sendCarriedItem(sess, cur)
-	} else if w.craft != nil {
-		if s.refreshTableResult(sess, w.craft) {
-			touched = append(touched, 0)
-		}
-		s.syncCraftTableSlots(sess, w, w.craft, touched)
-	} else {
-		s.syncContainerMenuSlots(sess, w, touched)
-		if w.container != nil && w.container.spec.brew {
-			s.updateBrewBlockState(w.dim, w.pos, brewPotionBits(w.container))
-		}
-	}
+	s.gestureSync(sess, w, &changes)
 	return true
 }

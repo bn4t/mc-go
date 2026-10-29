@@ -605,6 +605,9 @@ func (s *Server) openContainer(sess *Session, pos world.Pos) {
 	if c.spec.menu == menuAnvil {
 		s.sendAnvilCost(sess, w, c)
 	}
+	if c.spec.menu == menuSmithing {
+		s.smithingMenuError(sess, w)
+	}
 	if c.spec.menu == menuEnchantment {
 		s.enchantSlotsChanged(sess, w)
 	}
@@ -884,6 +887,9 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 			sess.setMenuStack(smithingResult, out)
 			touched = append(touched, smithingResult)
 		}
+	}
+	if c.spec.menu == menuSmithing {
+		s.smithingMenuError(sess, w)
 	}
 	if c.spec.menu == menuStonecutter {
 		stonecutterSync(sess, c, w, &touched)
@@ -1272,7 +1278,6 @@ func (s *Server) handleContainerClickPacket(sess *Session, p protocol.Packet) {
 	w := sess.window
 	sess.windowMu.Unlock()
 	if w == nil || (w.container == nil && w.merchant == nil && w.mount == nil) || w.id != win {
-		println("DBG click drop: w nil / kinds / id", w == nil, win)
 		return
 	}
 	st, err := r.VarInt() // state id
@@ -1280,7 +1285,6 @@ func (s *Server) handleContainerClickPacket(sess *Session, p protocol.Packet) {
 		return
 	}
 	if !s.checkClickState(sess, w, st) {
-		println("DBG click drop: stale state", st)
 		return
 	}
 	slot, err := r.Short()

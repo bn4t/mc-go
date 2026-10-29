@@ -312,8 +312,12 @@ func (s *Server) loomTake(sess *Session, w *openWindow) {
 			s.sendContainerProperty(sess, w.id, 0, -1)
 		}
 	}
-	if id, ok := SoundEventID("ui.loom.take_result"); ok {
-		s.playSoundIn(w.dim.name, w.pos, id)
+	// The result slot sound lambda suppresses repeated takes in one tick.
+	if now := s.gameTime(); now != w.lastTakeSoundTick {
+		w.lastTakeSoundTick = now
+		if id, ok := SoundEventID("ui.loom.take_result"); ok {
+			s.playSoundIn(w.dim.name, w.pos, id)
+		}
 	}
 }
 

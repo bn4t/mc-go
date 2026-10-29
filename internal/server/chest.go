@@ -110,6 +110,10 @@ type openWindow struct {
 	// pendingName is the anvil's rename field for this open menu: per
 	// session, empty at open, surviving takes, gone with the window.
 	pendingName string
+	// Loom/stonecutter result sounds are limited to one per game tick.
+	lastTakeSoundTick int64
+	smithingError     int32
+	smithingErrorSent bool
 	// ench is the enchantment menu's offer state for this open window,
 	// nil until the menu is an enchanting table.
 	ench *enchantMenuState
@@ -942,13 +946,20 @@ func (s *Server) handleCloseContainer(sess *Session, p protocol.Packet) {
 // client close.
 func (s *Server) menuRemoved(sess *Session, w *openWindow, dropped bool) {
 	s.emitContainerClose(sess, w)
+	// AbstractContainerMenu.removed returns the cursor before subclasses
+	// return their transient inputs. This also fixes their insertion order.
+	if dropped {
+		s.dropCarried(sess)
+	} else {
+		s.returnCarried(sess)
+	}
 	if w.merchant != nil {
 		s.merchantClose(sess, w)
 	} else if w.craft != nil {
 		s.closeCraftTable(sess, w.craft)
 	} else if openWindowKindAnvil(w) {
 		// The anvil keeps no storage: its inputs come back to the
-		// player and the cursor stays where it is, measured on 26.2.
+		// player; the cursor was returned by the common removal above.
 		s.closeAnvil(sess, w, w.container)
 	} else if w.container != nil && w.container.spec.menu == menuBeacon {
 		s.closeBeaconMenu(sess, w, w.container, dropped)
@@ -962,10 +973,8 @@ func (s *Server) menuRemoved(sess *Session, w *openWindow, dropped bool) {
 		s.transientMenuReturn(sess, w, w.container, []int{loomBanner, loomDye, loomPattern})
 	} else if w.container != nil && w.container.spec.menu == menuCartographyTable {
 		s.transientMenuReturn(sess, w, w.container, []int{cartographyMap, cartographyAdditional})
-	} else if dropped {
-		s.dropCarried(sess)
-	} else {
-		s.returnCarried(sess)
+	} else if w.container != nil && w.container.spec.menu == menuEnchantment {
+		s.transientMenuReturn(sess, w, w.container, []int{enchantItem, enchantLapis})
 	}
 }
 

@@ -244,6 +244,28 @@ func (d *clickDriver) reopen(x, y, z, seq int32, tag string) {
 	sendUseItemOn(d.t, d.pw, x, y, z, 1, seq)
 	var opened []usePkt
 	settleUse(d.t, d.sink, func(pkts []usePkt) { opened = append(opened, pkts...) }, tag)
+	// Wait for this original use's answer when chunk/tracker traffic delays
+	// it past the quiet window. Do not retry the interaction: a refusal or
+	// disconnected session must still fail with its actual packet evidence.
+	if !judgeUse(opened).open {
+		start := time.Now()
+		deadline := start.Add(10 * time.Second)
+		var readErr error
+		for time.Now().Before(deadline) && !judgeUse(opened).open {
+			d.sink.mu.Lock()
+			readErr = d.sink.err
+			d.sink.mu.Unlock()
+			if readErr != nil {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+			opened = append(opened, d.sink.take()...)
+		}
+		d.t.Logf("%s original menu response waited %s open=%v read=%v packets=%v", d.name, time.Since(start), judgeUse(opened).open, readErr, judgeUse(opened))
+		if judgeUse(opened).open {
+			settleUse(d.t, d.sink, func(pkts []usePkt) { opened = append(opened, pkts...) }, tag)
+		}
+	}
 	d.opened = opened
 	d.foldPkts(opened)
 }

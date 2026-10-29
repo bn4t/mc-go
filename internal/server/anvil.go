@@ -599,8 +599,8 @@ func (s *Server) anvilDegradeRoll(sess *Session, w *openWindow) {
 
 // closeAnvil retires an anvil menu: the anvil keeps no storage, so the
 // inputs return to the player inventory forward from the hotbar, each
-// as Set Player Inventory plus a window-0 update, and the cursor is
-// left alone. The output slot is virtual (recompute derives it from
+// as Set Player Inventory plus a window-0 update, after menuRemoved has
+// already returned the cursor. The output slot is virtual (recompute derives it from
 // the inputs), so it clears without returning: sending it back would
 // duplicate the inputs. A remainder that fits nowhere parks back in
 // its slot.

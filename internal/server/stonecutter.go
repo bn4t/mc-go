@@ -85,9 +85,14 @@ func stonecutterSync(sess *Session, c *containerData, w *openWindow, touched *[]
 	in := sess.menuStack(stonecutterInput)
 	w.dim.containers.mu.Lock()
 	p, _ := sess.javaProfile()
+	beforeSelection := c.stoneSel
 	stonecutterEnsureProfile(c, in, p)
 	out := stonecutterOutput(c)
+	selection := c.stoneSel
 	w.dim.containers.mu.Unlock()
+	if beforeSelection != selection {
+		sess.server.sendContainerProperty(sess, w.id, 0, selection)
+	}
 	if sess.menuStack(stonecutterResult) != out {
 		sess.setMenuStack(stonecutterResult, out)
 		*touched = append(*touched, stonecutterResult)
@@ -104,6 +109,7 @@ func (s *Server) stonecutterSelect(sess *Session, w *openWindow, button int32) {
 	p, _ := sess.javaProfile()
 	stonecutterEnsureProfile(c, in, p)
 	valid := button >= 0 && int(button) < len(c.stoneRecipes)
+	changedSelection := valid && c.stoneSel != button
 	if valid {
 		c.stoneSel = button
 	}
@@ -111,6 +117,9 @@ func (s *Server) stonecutterSelect(sess *Session, w *openWindow, button int32) {
 	w.dim.containers.mu.Unlock()
 	if !valid {
 		return
+	}
+	if changedSelection {
+		s.sendContainerProperty(sess, w.id, 0, button)
 	}
 	if sess.menuStack(stonecutterResult) != out {
 		sess.setMenuStack(stonecutterResult, out)
@@ -129,8 +138,12 @@ func (s *Server) stonecutterTake(sess *Session, w *openWindow) {
 		in = ItemStack{}
 	}
 	sess.setMenuStack(stonecutterInput, in)
-	if id, ok := SoundEventID("ui.stonecutter.take_result"); ok {
-		s.playSoundIn(w.dim.name, w.pos, id)
+	// The result slot sound lambda suppresses repeated takes in one tick.
+	if now := s.gameTime(); now != w.lastTakeSoundTick {
+		w.lastTakeSoundTick = now
+		if id, ok := SoundEventID("ui.stonecutter.take_result"); ok {
+			s.playSoundIn(w.dim.name, w.pos, id)
+		}
 	}
 }
 

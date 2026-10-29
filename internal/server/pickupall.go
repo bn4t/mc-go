@@ -41,7 +41,7 @@ func (s *Server) handlePickupAllPacket(sess *Session, p protocol.Packet) bool {
 	}
 	// Other action menus require their own on-take callbacks. Keep their
 	// existing dispatch until those callbacks join this adapter.
-	if w != nil && !(w.chest != nil || w.ender != nil || w.craft != nil || w.furnace != nil || w.hopper != nil || w.container != nil && (w.container.spec.menu == menuGeneric9x3 || w.container.spec.menu == menuGeneric3x3 || w.container.spec.menu == menuShulkerBox || w.container.spec.brew)) {
+	if !gestureMenuSupported(w) {
 		return false
 	}
 	if _, ok := sess.readChangedSlots(r); !ok {
@@ -65,83 +65,34 @@ func (s *Server) handlePickupAllPacket(sess *Session, p protocol.Packet) bool {
 	if slot < 0 || int(slot) >= size {
 		return true
 	}
-	get := func(sl int) ItemStack {
-		if w == nil {
-			return sess.stackAt(int16(sl))
-		}
-		if w.craft != nil {
-			return sess.craftMenuStack(w.craft, sl)
-		}
-		return sess.menuStack(sl)
-	}
-	put := func(sl int, it ItemStack) {
-		if w == nil {
-			sess.invMu.Lock()
-			sess.inv[sl] = it
-			sess.invMu.Unlock()
-		} else if w.craft != nil {
-			sess.setCraftMenuStack(w.craft, sl, it)
-		} else {
-			sess.setMenuStack(sl, it)
-		}
-	}
+	get := func(sl int) ItemStack { return gestureSlotStack(sess, w, sl) }
+	var changes menuGestureChanges
 	cur := sess.carriedBuffer()
-	if cur.Empty() || !get(int(slot)).Empty() {
+	if cur.Empty() || !get(int(slot)).Empty() && gestureSlotMayPickup(sess, w, int(slot)) {
 		return true
 	}
 	limit := maxStackOfID(cur.ID)
-	var touched []int
 	for pass := 0; pass < 2 && cur.Count < limit; pass++ {
 		for n := 0; n < size && cur.Count < limit; n++ {
 			sl := n
 			if button != 0 {
 				sl = size - 1 - n
 			}
-			if (w == nil || w.craft != nil) && sl == 0 {
+			if !gestureSlotMayCollect(sess, w, sl) {
 				continue
 			}
 			it := get(sl)
 			if it.Empty() || !it.Stackable(cur) || pass == 0 && it.Count == maxStackOfID(it.ID) {
 				continue
 			}
-			move := limit - cur.Count
-			if move > it.Count {
-				move = it.Count
-			}
-			cur.Count += move
-			it.Count -= move
-			if it.Count == 0 {
-				it = ItemStack{}
-			}
-			put(sl, it)
-			if w != nil && w.furnace != nil && sl == furnaceOutput {
-				s.furnaceOutputTaken(sess, w, cur.withCount(move))
-			}
-			if w != nil && w.container != nil && w.container.spec.brew && sl <= brewPotionLast && it.Count == 0 {
-				s.fireBrewedPotion(sess, cur.withCount(move))
-			}
-			touched = append(touched, sl)
+			taken := s.gestureTakeSlot(sess, w, sl, it.Count, limit-cur.Count, &changes)
+			cur.Count += taken.Count
 		}
 	}
-	if len(touched) == 0 {
+	if len(changes.slots) == 0 {
 		return true
 	}
 	s.setCarriedLocked(sess, cur)
-	if w == nil {
-		s.refreshCraftResult(sess)
-		sess.invState.Add(1)
-		_ = s.sendContainerContent(sess)
-		_ = s.sendCarriedItem(sess, cur)
-	} else if w.craft != nil {
-		if s.refreshTableResult(sess, w.craft) {
-			touched = append(touched, 0)
-		}
-		s.syncCraftTableSlots(sess, w, w.craft, touched)
-	} else {
-		s.syncContainerMenuSlots(sess, w, touched)
-		if w.container != nil && w.container.spec.brew {
-			s.updateBrewBlockState(w.dim, w.pos, brewPotionBits(w.container))
-		}
-	}
+	s.gestureSync(sess, w, &changes)
 	return true
 }
