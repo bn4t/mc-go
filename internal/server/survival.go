@@ -1264,31 +1264,89 @@ func (s *Server) handleClientStatus(sess *Session, p protocol.Packet) {
 // applyFallDamage converts accumulated fall distance into damage on
 // landing, using the player's current fall attributes.
 func (s *Server) applyFallDamage(sess *Session) {
-	// Player.causeFallDamage exempts abilities.mayfly: adventure players
-	// share survival fall damage. Measured on the 26.2 jar (JDK 25 javap).
-	if (sess.mode() != GameModeSurvival && sess.mode() != GameModeAdventure) || sess.dead {
+	// Landing block effects precede Player.causeFallDamage's mayfly gate;
+	// adventure players share survival damage (26.2, JDK 25 javap).
+	if sess.dead {
 		sess.fallDistance = 0
 		return
 	}
 	distance := sess.fallDistance
 	sess.fallDistance = 0
-	// LivingEntity.causeFallDamage's dmg>0 tail: the generic
-	// Fallsounds pair (big when dmg > 4) then the landed block's
-	// SoundType.fallSound — both at the player's SoundSource (7).
+	// Block.fallOn dispatches before the living damage tail. Its argument
+	// multiplier is a float; retain that precision before attribute scaling.
 	x, y, z, _, _, _ := sess.Pos()
-	dmg := sess.playerFallDamage(distance)
+	support := world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y - 0.2)), Z: int(math.Floor(z))}
+	block := sess.world().GetBlock(support)
+	name, _ := world.StateOwner(block)
+	multiplier := float32(1)
+	source := srcFall
+	honey := false
+	switch {
+	case name == "slime_block":
+		// SlimeBlock.fallOn has no damage tail in either shift-key branch;
+		// suppression controls its client-side bounce, not landing damage.
+		if !sess.sneaking {
+			sess.awardFallDistance(distance)
+		}
+		return
+	case name == "hay_block":
+		multiplier = 0.2
+	case name == "honey_block":
+		honey = true
+		multiplier = 0.2
+		s.playSoundSrc(sess.dimName(), x, y, z, soundEventIDs["block.honey_block.slide"], 7, 1, 1, sess)
+		s.broadcastEntityEvent(sess.entityID.Load(), 54)
+	case strings.HasSuffix(name, "_bed"):
+		distance *= 0.5
+	case name == "pointed_dripstone":
+		direction, _ := world.StateProperty(block, "vertical_direction")
+		thickness, _ := world.StateProperty(block, "thickness")
+		if direction == "up" && thickness == "tip" {
+			distance += 2.5
+			multiplier = 2
+			source = damageSource{typeName: "stalagmite"}
+		}
+	case name == "powder_snow":
+		if distance >= 4 {
+			sound := int32(1318)
+			if distance >= 7 {
+				sound = 1308
+			}
+			s.playSoundSrc(sess.dimName(), x, y, z, sound, 7, 1, 1, sess)
+		}
+		return
+	}
+	if sess.mode() != GameModeSurvival && sess.mode() != GameModeAdventure {
+		return
+	}
+	sess.awardFallDistance(distance)
+	dmg := sess.playerFallDamageScaled(distance, multiplier)
 	if dmg == 0 {
 		return
 	}
-	snd := int32(702) // entity.generic.small_fall
+	snd := int32(1318)
 	if dmg > 4 {
-		snd = 694 // entity.generic.big_fall
+		snd = 1308
 	}
-	s.playSoundSrc(sess.dimName(), x, y, z, snd, 7, 1, 1, nil)
-	s.playBlockFallSound(sess.dimName(), x, y, z, 7, world.Pos{
-		X: int(math.Floor(x)), Y: int(math.Floor(y)) - 1, Z: int(math.Floor(z)),
-	})
-	s.damageWith(sess, float32(dmg), translatable("death.fell.accident.generic", literal(sess.getName())), srcFall)
+	s.playSoundSrc(sess.dimName(), x, y, z, snd, 7, 1, 1, sess)
+	if sound, ok := blockFallSounds[name]; ok {
+		volume, pitch := float32(1), float32(1)
+		if scale, ok := blockFallSoundScale[name]; ok {
+			volume, pitch = scale[0], scale[1]
+		}
+		s.playSoundSrc(sess.dimName(), x, y, z, sound, 7, volume*0.5, pitch*0.75, sess)
+	}
+	message := translatable("death.fell.accident.generic", literal(sess.getName()))
+	if source.typeName == "stalagmite" {
+		message = translatable("death.attack.stalagmite", literal(sess.getName()))
+	}
+	s.damageWith(sess, float32(dmg), message, source)
+	if honey {
+		if sound, ok := blockFallSounds["honey_block"]; ok {
+			s.playSoundSrc(sess.dimName(), x, y, z, sound, 7, 0.5, 0.75, sess)
+		}
+	}
+
 }
 
 // addExhaustion accumulates activity exhaustion. The saturation/food
@@ -1788,6 +1846,10 @@ func playerFallDamageAmount(distance float64) float64 {
 // playerFallDamage uses the measured 26.2 attribute calculation. Jump Boost
 // contributes an additive safe-distance modifier before the other passes.
 func (sess *Session) playerFallDamage(distance float64) float64 {
+	return sess.playerFallDamageScaled(distance, 1)
+}
+
+func (sess *Session) playerFallDamageScaled(distance float64, multiplier float32) float64 {
 	base := playerAttrBases["safe_fall_distance"]
 	mods := map[string]attrMod{}
 	if e, ok := sess.server.entities.Get(sess.entityID.Load()); ok {
@@ -1806,5 +1868,13 @@ func (sess *Session) playerFallDamage(distance float64) float64 {
 	}
 	sess.effMu.Unlock()
 	safe := attrRange("safe_fall_distance", attrValue(base, mods))
-	return math.Max(0, math.Floor((distance+1e-6-safe)*sess.sessAttr("fall_damage_multiplier", nil)))
+	return math.Max(0, math.Floor((distance+1e-6-safe)*float64(multiplier)*sess.sessAttr("fall_damage_multiplier", nil)))
+}
+
+// Player.causeFallDamage banks the distance passed by the landing block,
+// before the damage calculation (including zero-multiplier slime landings).
+func (sess *Session) awardFallDistance(distance float64) {
+	if distance >= 2 && (sess.mode() == GameModeSurvival || sess.mode() == GameModeAdventure) {
+		sess.addCustomStat("fall_one_cm", int32(math.Round(distance*100)))
+	}
 }

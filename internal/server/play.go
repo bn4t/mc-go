@@ -366,12 +366,7 @@ func (s *Server) finishJavaPlayerMoveOwned(sess *Session, from, move frontend.Mo
 		if sess.fallDistance > 0 && sess.fallStart {
 			s.fireFallFromHeight(sess, sess.fallStartY, y)
 		}
-		// Player.causeFallDamage banks the drop once it clears 2m —
-		// before the damage threshold — and returns early under
-		// mayfly (creative/spectator abilities).
-		if m := sess.mode(); sess.fallDistance >= 2 && m != GameModeCreative && m != GameModeSpectator {
-			sess.addCustomStat("fall_one_cm", int32(math.Round(float64(sess.fallDistance)*100)))
-		}
+
 		sess.fallStart = false
 		// checkFallDamage hands the support block to fallOn before
 		// causeFallDamage — on farmland the trample roll (rand <

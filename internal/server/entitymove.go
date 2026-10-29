@@ -169,6 +169,14 @@ func (s *Server) entityMove(e *Entity, w *world.World, half, height, dx, dy, dz,
 func collisionTopOf(blk world.Block) float64 {
 	name, _ := world.StateOwner(blk)
 	switch strings.TrimPrefix(name, "minecraft:") {
+	case "pointed_dripstone":
+		// SpeleothemBlock's upward tip shape ends at 11/16. The
+		// scalar movement check needs that top to accept a landing.
+		direction, _ := world.StateProperty(blk, "vertical_direction")
+		thickness, _ := world.StateProperty(blk, "thickness")
+		if direction == "up" && thickness == "tip" {
+			return 11.0 / 16
+		}
 	case "honey_block":
 		return 0.9375
 	case "farmland", "dirt_path":
