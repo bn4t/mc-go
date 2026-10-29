@@ -1,6 +1,6 @@
 package server
 
-// Source-base movement is pinned for armor stands and cows. NoGravity
+// Source-base movement is pinned for armor stands, cows and items. NoGravity
 // stands bypass clipping; ordinary bodies retain the piston move context.
 // Other entity move policies are measured separately before using this route.
 func (s *Server) pistonSourceBaseBodyPush(d *dimension, mp movingPiston, step float64) {
@@ -11,7 +11,7 @@ func (s *Server) pistonSourceBaseBodyPush(d *dimension, mp movingPiston, step fl
 	boxes := pistonSourceBaseCarriedBoxes(mp, movingPistonProgress(mp))
 	base := cellBox{float64(mp.pos.X), float64(mp.pos.Y), float64(mp.pos.Z), float64(mp.pos.X) + 1, float64(mp.pos.Y) + 1, float64(mp.pos.Z) + 1}
 	for _, e := range s.entities.All() {
-		if (e.Type != mustEntityType("armor_stand") && e.Type != mustEntityType("cow")) || e.Dim != d.name || e.Dying || e.presenceOnly || entityIgnoresPistonPush(&e) {
+		if (e.Type != mustEntityType("armor_stand") && e.Type != mustEntityType("cow") && e.Type != mustEntityType("item")) || e.Dim != d.name || e.Dying || e.presenceOnly || entityIgnoresPistonPush(&e) {
 			continue
 		}
 		dims := entityBBDims(&e)
@@ -24,7 +24,7 @@ func (s *Server) pistonSourceBaseBodyPush(d *dimension, mp movingPiston, step fl
 			continue
 		}
 		delta := sign * (contact + .01)
-		noPhysics := e.Type == mustEntityType("armor_stand") && e.NoGravity
+		noPhysics := e.Type == mustEntityType("armor_stand") && e.NoGravity || e.Type == mustEntityType("item") && e.itemNoPhysics
 		if !noPhysics {
 			delta = s.clipPistonBodyMove(d, body, axis, delta, mp.dir)
 		}

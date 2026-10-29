@@ -1094,3 +1094,9 @@ recursively copy their own additions. Area clearing also cancels collected work,
 so the dispatcher skips canceled local entries. Fluid work remains independent.
 Native global sub-tick ordering and chunk queue persistence are not implemented
 by this mechanism.
+
+Dropped items retain the item tick's collision-bypass decision for later piston
+movement in that tick. Source-base retraction uses this retained decision, not
+a new overlap test after closest-space escape. East-facing stationary-warm
+NoGravity item controls cover contact, backoff and cleanup; other axes and
+gravity-on contacts remain separate measurements.

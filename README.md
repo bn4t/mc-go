@@ -32,7 +32,8 @@ command-minecart activator rails, structure-block save/load and redstone actions
 with native templates, jigsaw editor/generation, test-block editors and
 test-instance controller records/reset/native saves,
 block-entity update coalescing, moving-piston collision timing and measured
-dropped-item pushes, retracting source-base ejection of NoGravity armor stands,
+dropped-item pushes, retracting source-base ejection of NoGravity armor stands
+and measured east-facing dropped-item contact,
 container validity, chest events and ordinary main/offhand placement and consumption.
 Dying mobs continue to obstruct block placement until their actual removal.
 Current player bounds refresh on player frames or pose changes; hypothetical

@@ -78,6 +78,8 @@ type Entity struct {
 	// the merge cadence (every 2 ticks after a block crossing, else
 	// 40), and a merge takes the survivor's minimum.
 	ItemAge int32
+	// itemNoPhysics is the item tick collision-bypass state, retained for later piston movement in the same tick.
+	itemNoPhysics bool
 	// ItemHP is ItemEntity.health: an integer counter, default 5,
 	// truncated after every accepted damage subtraction.
 	ItemHP int32
