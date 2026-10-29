@@ -17,3 +17,7 @@ vanilla/
 # Editor / OS
 .DS_Store
 ._*
+
+# Agent worktree checkouts and server log output
+/.claude/worktrees/
+/logs/
