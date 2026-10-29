@@ -1131,6 +1131,10 @@ func (s *Server) respawnPlayer(sess *Session) {
 	// Respawn creates a fresh ServerPlayer; copied scale attributes refresh
 	// its constructor bounding box on the next living tick.
 	sess.collisionScale = 1
+	// The new life reapplies retained equipment on its next living tick.
+	if player, ok := s.entities.GetPtr(sess.entityID.Load()); ok {
+		player.playerEquipmentAttrsInit = false
+	}
 	s.removePlayerMenus(sess)
 	sess.dead = false
 	sess.health = defaultHealth

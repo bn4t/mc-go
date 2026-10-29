@@ -55,7 +55,8 @@ double-chest variants, arbitrary item overrides and styled names remain partial.
 Player melee damage combines attack-damage overrides and modifiers with
 generated weapon values, including measured copper weapons. Attack speed also
 uses player overrides and modifiers, with zero-speed and default-delay controls.
-Generated main-hand damage/speed modifiers now participate in attribute queries.
+Generated main-hand damage/speed modifiers now participate in attribute queries
+and are reapplied to retained weapons after respawn.
 Explicit removal survives an identical stack rewrite; renaming or re-equipping
 reapplies them. Attack-speed updates reach the owner and tracked observers.
 Arbitrary item attribute components and broader combat remain partial.

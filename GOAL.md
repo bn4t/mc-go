@@ -266,9 +266,11 @@ Mojang server over the wire.
   and the whole modifier grammar is pinned case for case
   (`TestItemSNBTParity`). Fill/clone share typed block filters; clone preserves
   measured native block-entity data, strict writes and post-hydration neighbor
-  notifications. Exact placement grouping, scheduled-tick copying and complete
-  command schemas remain partial. Pending block callbacks retain registered type
-  and the first deadline/priority; fluid identity/sub-tick ordering remain partial.
+  notifications. Clone also copies queued and collected block ticks across the
+  entire source box, including empty filtered selections. Exact placement grouping
+  and complete command schemas remain partial. Pending block callbacks retain
+  registered type and the first deadline/priority; fluid identity, chunk tick
+  persistence and sub-tick ordering remain partial.
   Attribute getters and mutations supply measured typed execute-store results.
   Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
@@ -18509,3 +18511,9 @@ The broad server run failed761.336s only at TestNaturalSpawnMonsterCap (69 count
 - **Implemented** — Store the item tick's pre-escape collision-bypass flag as transient native item state. Admit items to the independently written existing source-base geometry and honor that retained flag for both primary movement and reverse base backoff. This differs from testing overlap again after random escape: the item may already have moved outside the original shape while its movement policy remains active. NoGravity itself does not imply collision bypass. The neutral-avatar policy and armor-stand/cow paths remain unchanged.
 
 - **Pinned** — Immutable885b654 plus five owned files, excluding concurrent entity equipment fields and respawn scale edits. Targeted TestPistonSourceBase|TestPistonMove|TestItemNoPhysics|TestShulker units PASS3.052s; native/Go TestPistonSourceBaseItemParity PASS51.02s (work/piston-sourcebase-item-fixed.log), targeted race PASS41.387s (work/piston-sourcebase-item-fixed-race.log). An earlier invocation was interrupted after native completion/Go login and was not counted; unchanged binary was rerun to completion. Focused unit uses three escape impulses to require position1.125 and unchanged velocity after retained-policy movement. Wire covers six eastward cases/four phases,144 position/motion observations plus six stationary warm controls; random magnitude is bounded rather than compared between servers. Native jar SHA256183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8, Go1.27.3/JDK25.0.5+8. Exact step1/gametime completion and Age warmup establish processing. Other axes, gravity-on items, embedded initial positions, hard entity collisions, and full Entity.move effects remain separate measurements.
+
+## Slice — retained weapon attributes after respawn (2026-10-29)
+
+- **Measured** — Java26.2 reapplies retained sword modifiers after keep_inventory death/respawn even if explicitly removed before death. Native restores damage6/speed1.5999999046325684 and modifiers5/-2.4000000953674316; prior Go stays1/4 with absent modifiers. Measurement44.61s records this mismatch, not parity. Go1.27.3/JDK25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Reset equipment projection initialization for the new life, retaining the previous stack so the next scan can retire old weapon IDs and reapply retained gear. Attribute bases, permanent-modifier policy and combat arithmetic are unchanged.
+- **Pinned** — Two-file owned SHA256 `8812588680d0112b27f8070140594f158b2bcb5288427b62ad2861c01697cc4c`. Strict native/Go PASS13.95s observes health0, actual Respawn, retained sword and at least five player ticks before checking effective and modifier values. Focused units PASS0.168s; existing death/respawn packet regression PASS1.54s (`work/player-equipment-respawn-fixed-oracle-v1.log`, `work/player-equipment-respawn-scripted-regression-v1.log`). Immediate respawn-to-attack ordering and save/reload remain separate.
