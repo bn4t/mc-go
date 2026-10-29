@@ -80,6 +80,10 @@ not be used to manufacture an earlier ordering claim.
   update does not mean the slot is empty. Map a menu's player-slot region to
   the shared inventory using its measured layout, and handle direct player
   inventory updates. Assert each selected hand's item ID, count and damage.
+- Before a multi-chunk setup fill, observe every chunk in its full footprint;
+  loaded diagonal endpoints do not prove intermediate chunks are ready. Verify
+  a positive setup block before attributing later misses to gameplay. Keep the
+  intended action count and original behavioral expectations unchanged.
 - Wait for the exact use-on sequence acknowledgement before observing the
   action. Keep one action per control; an observation barrier is not a reason
   to retry placement. A frontend connection's Close revokes its handle before

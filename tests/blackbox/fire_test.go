@@ -64,13 +64,51 @@ func TestFireIgniteParity(t *testing.T) {
 		// Vanilla's /fill refuses to write unloaded chunks: move the
 		// player into the test area first so the pads actually exist.
 		sendCommand(t, pw, "tp @s 96.5 -59 81.5")
-		time.Sleep(500 * time.Millisecond)
+		sendCommand(t, pw, "forceload add 92 78 126 96")
+		loaded := false
+		deadline := time.Now().Add(10 * time.Second)
+		for attempt := 0; time.Now().Before(deadline) && !loaded; attempt++ {
+			ready := fmt.Sprintf("FIRECHUNKSREADY%dX", attempt)
+			end := fmt.Sprintf("FIRECHUNKSEND%dX", attempt)
+			condition := "execute"
+			for cx := 5; cx <= 7; cx++ {
+				for cz := 4; cz <= 6; cz++ {
+					condition += fmt.Sprintf(" if loaded %d -60 %d", cx*16, cz*16)
+				}
+			}
+			sendCommand(t, pw, condition+" run say "+ready)
+			sendCommand(t, pw, "say "+end)
+			done := false
+			for time.Now().Before(deadline) && !done {
+				for _, line := range sink.take() {
+					if structureSaidBB([]string{line}, ready) {
+						loaded = true
+					}
+					if structureSaidBB([]string{line}, end) {
+						done = true
+					}
+					if strings.HasPrefix(line, "0x79:") {
+						t.Logf("%s fire setup: %q", addr, line)
+					}
+				}
+				if !done {
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
+		}
+		if !loaded {
+			t.Fatalf("%s fire setup chunks did not load", addr)
+		}
 		// Flat pads: z=80..84 sturdy stone; the torch cells break the
 		// floor's sturdiness for the face-prop and fail legs.
 		sendCommand(t, pw, "fill 92 -60 78 126 -60 96 stone")
 		sendCommand(t, pw, "item replace entity @s hotbar.0 with minecraft:flint_and_steel 1")
 		time.Sleep(400 * time.Millisecond)
-		mark("pad_placed", probe(pw, sink, "block 96 -60 80 minecraft:stone", 30))
+		pad := probe(pw, sink, "block 96 -60 80 minecraft:stone", 30)
+		mark("pad_placed", pad)
+		if pad != "hit" {
+			t.Fatalf("%s fire setup pad missing after loaded barrier: %s", addr, pad)
+		}
 
 		seq := int32(1)
 		click := func(x, y, z, face int32) {

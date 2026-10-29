@@ -17966,3 +17966,11 @@ Limits: exact block names/states with attached compounds in execute if/unless bl
 Remaining limits: this is the armor-stand travel predicate, not general NoGravity physics. NoGravity metadata index5 is still unimplemented in entity encoders and requires a separate wire capture pin. General Mob NoGravity/NoAI movement, physical mover dispatch (especially source-base piston ejection and opening shulker pushes of non-items), hard entity collisions, and the other existing armor-stand interaction/damage/pose gaps remain separate. Marker-only building/damage/ignore rules are unchanged.
 
 Durable lesson: a stationary native query can be a genuine physics rule or an entity that has never ticked. Pair the position control with an independently decremented base-entity field; use nonzero input Motion and a live flag-clearing control to distinguish gravity suppression from the stronger travel gate. ArmorStand's NoGravity disables travel while retaining its normal piston reaction.
+
+## Slice — establish the complete fire-test arena (2026-10-29)
+
+**Measured** — Existing TestFireIgniteParity failed36.65s with vanilla's setup pad missing before ignition; the precise original cause was not established. The fill footprint spans nine chunks (x5..7/z4..6), so checking only diagonal chunks cannot prove its readiness. Toolchain Go1.27.3/Temurin25.0.5+8, official26.2 bundle SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`.
+
+**Implemented** — Test-only forceload plus bounded observed readiness of all nine chunks before the single fill, then an independently required stone-pad witness. Readiness and end markers use exact decoded say bodies. Existing gameplay expectations and timeouts are unchanged; no production regression is claimed from a failed precondition.
+
+**Pinned** — Immutable all-nine-chunk TestFireIgniteParity PASS54.89s (`work/fire-fixture-allchunks.log`). Final matcher-only strengthening reuses the committed decoder with its negative/error/sender/suffix regression (`work/fire-fixture-matcher.log`). Earlier two-diagonal51.78s version was superseded before integration. Final patch SHA256 `3be89910cbaebea30fb293eaa633b91f4e546af57c47d6078722d87e3290ea2d`.
