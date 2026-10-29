@@ -252,5 +252,14 @@ func (s *Server) runClone(player string, args []string) reply {
 			}
 		}
 	}
+	if !strict {
+		// Ordinary clone notifies only after every copied block entity is
+		// hydrated. The earlier writes provide shape updates, not this
+		// final neighborChanged pass (which can consume native BE data).
+		for i := len(cells) - 1; i >= 0; i-- {
+			c := cells[i]
+			s.rsNeighborFanOut(dstDim, world.Pos{X: dst[0] + c.rel[0], Y: dst[1] + c.rel[1], Z: dst[2] + c.rel[2]})
+		}
+	}
 	return opsEchoReply(translatable("commands.clone.success", int32(len(cells))))
 }

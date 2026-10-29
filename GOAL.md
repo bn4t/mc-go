@@ -18213,3 +18213,11 @@ Provenance: Java 26.2 wire, Temurin 25.0.5+8 and Go 1.27.3; bundler SHA1 823e225
 - **Pinned:** expanded22positive TNT/fence/move witnesses PASS24.97s (2.92s/2.04s); native-copy24case regression27.95s and legacy55commands18.88s. Ordinary placement ordering/notify-before-hydrate and scheduled block ticks remain separate limits.
 
 Provenance: Java 26.2 wire and CloneCommands flag/branch measurements, Temurin 25.0.5+8 and Go 1.27.3; bundler SHA1 823e2250d24b3ddac457a60c92a6a941943fcd6a. Independent reuse of existing Go write policies.
+
+## Slice — clone post-hydration neighbor notifications (2026-10-29)
+
+- **Measured:** ordinary clone notifies after loading copied native data; both redstone/structure source arrangements independently save and reload gold. BaselineGo misses4latch/action witnesses while Native8pass.
+- **Implemented:** omitted final reverse-cell neighbor fan-out after hydration and move removals, skipped by strict; existing shape writes retained.
+- **Pinned:**8positive runtime-action witnesses PASS12.16s (1.54s/1.42s); native-copy24reg14.26s, strict22reg22.70s, legacy55commands35.37s. Exact placement groups/ordering and scheduled ticks remain separate.
+
+Provenance: Java 26.2 wire and CloneCommands final-notification order/strict branch measurements, Temurin 25.0.5+8 and Go 1.27.3; bundler SHA1 823e2250d24b3ddac457a60c92a6a941943fcd6a.
