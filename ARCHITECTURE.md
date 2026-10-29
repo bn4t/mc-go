@@ -114,8 +114,12 @@ of block/fluid deadlines. Name plus deadline defines event identity; an event
 is removed before callback dispatch so clear/replace/self-rescheduling are safe.
 Execution resolves the startup registry with permission two, an Overworld
 server source at the spawn block and no entity executor. Summon can resolve
-that command frame directly. Persistence, tags/macros/return semantics and a
-wire pin for equal-deadline ordering remain separate work.
+that command frame directly. Native saves capture detached scheduled-event
+containers under simulation ownership; background writers never read the live
+queue. Startup restores event keys separately from callback targets/types and
+resolves current functions on dispatch. Valid function-tag data is retained and
+clearable, with execution still unsupported. Tags/macros/return semantics and
+a wire pin for equal-deadline ordering remain separate work.
 
 Custom tick criteria fire on connection ticks after menu validation and before
 inventory touching, including while the world is frozen. Startup compilation

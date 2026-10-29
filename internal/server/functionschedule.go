@@ -8,11 +8,14 @@ import (
 )
 
 // The queue belongs to the simulation owner. Its identity is the function
-// name plus absolute world age; insertion order breaks equal-age ties.
+// name plus absolute world age; the callback target is independent.
+// Insertion order breaks equal-age ties.
 type scheduledFunction struct {
-	name   string
-	age    int64
-	serial uint64
+	name         string
+	target       string
+	callbackType string
+	age          int64
+	serial       uint64
 }
 
 func (s *Server) clearFunctionSchedule(name string) int {
@@ -104,7 +107,7 @@ func (s *Server) runFunctionSchedule(args []string) reply {
 		}
 		if !found {
 			s.functionScheduleSerial++
-			s.functionSchedule = append(s.functionSchedule, scheduledFunction{id, age, s.functionScheduleSerial})
+			s.functionSchedule = append(s.functionSchedule, scheduledFunction{name: id, target: id, callbackType: functionScheduleCallback, age: age, serial: s.functionScheduleSerial})
 		}
 		r := opsEchoReply(translatable("commands.schedule.created.function", id, ticks, age))
 		r.result = int(age % 2147483647)
@@ -171,7 +174,10 @@ func (s *Server) functionScheduleStep() {
 		}
 		event := s.functionSchedule[0]
 		s.functionSchedule = s.functionSchedule[1:]
-		lines, ok := s.functions[event.name]
+		if event.callbackType != functionScheduleCallback {
+			continue
+		}
+		lines, ok := s.functions[event.target]
 		if !ok {
 			continue
 		}

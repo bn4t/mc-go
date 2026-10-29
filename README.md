@@ -71,7 +71,9 @@ remain nonmatching.
 Registered startup file functions support `/schedule function` with append or
 replace and `/schedule clear`. Deadlines follow world time and frozen-world
 controls; scheduled functions can summon from the server's world-spawn source.
-Scheduled-event persistence and function tags/macros remain in progress.
+Pending file-function callbacks and absolute deadlines survive native saves
+and restart. Function-tag records are preserved and clearable; tag execution
+and macros remain in progress.
 Complete player-predicate and rich-text/icon schemas, datapack selection/ZIP/reload,
 custom loot overlays and several vehicle/physical interactions remain in
 progress. See individual slice entries for exact tests and limitations.

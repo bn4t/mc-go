@@ -267,7 +267,8 @@ Mojang server over the wire.
   notifications. Exact placement grouping, scheduled-tick copying and complete
   command schemas remain partial. Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
-  persisted events and tags/macros remain open.
+  pending file-function events also survive native save/restart; tags/macros
+  execution remains open.
 - [x] World save format parity (region files)
 - [~] RCON, query, properties parity (server.properties: read,
       completed with vanilla's defaults and rewritten byte for byte -
@@ -18346,3 +18347,11 @@ Provenance: Java 26.2 wire and public packet STREAM_CODEC probes, Temurin 25.0.5
 - **Pinned:** five independent native health controls PASS 43.63 s; focused composition/range/combat units PASS 18.948 s, including bit-identical delays for every existing generated default weapon. Three repeats of exact sword health 14 passed at both 20 and 16 TPS. Custom item attribute components, attribute query/equipment projection and within-pass accumulation order remain partial.
 
 Provenance: Java 26.2 wire and factual Player/Attributes/RangedAttribute arithmetic, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Frozen three-file patch e52eac97d2c8b024328ea806fc09f124346e406f75273ee2c9d090b761457dd4. Existing generated speed data is reused without changes.
+
+## Slice — native scheduled-function persistence (2026-10-29)
+
+- **Measured:** native scheduled_events SavedData stores distinct event keys and callback resource/type with absolute long deadlines. Startup loading, completed save, copied-world restart and two exact deadlines are verified against vanilla. Public codecs establish partial recovery, deduplication, saved ordering, numeric conversion and valid function_tag representation.
+- **Implemented:** load pending callbacks after startup functions; capture a detached queue payload under simulation ownership and write it through native save completion. Resolve callback targets at execution, independently from event keys. Preserve and allow clearing function_tag records without treating them as corrupt; tag execution remains unsupported.
+- **Pinned:** baseline native passed while Go ignored the seed and left stale data. Final save/copy/restart differential PASS 26.25 s; original scheduler controls PASS 14.60 s; public native-save restart for protocols 775/776 PASS 1.21 s; persistence/base/save units PASS 0.404 s. Units mutate the live queue after capture and verify the saved snapshot remains detached. The wire test inspects new callback IDs/types and exact long deadlines before copying the completed file.
+
+Provenance: Java 26.2 wire, public TimerQueue/Codec.LONG APIs and factual SavedDataStorage behavior; Temurin 25.0.5+8, Go 1.27.3, runtime SHA1 86765a5899bd9c96461036a628796b4245715058. Frozen six-file patch e82afefc63f14aebee7ab7462159abd7c30933178566ed27e61a3435a1661eb1. Function tags/macros/return execution, resource reload/selection, older-version event datafixing and equal-deadline runtime wire order remain separate.

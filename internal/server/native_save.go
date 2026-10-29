@@ -29,15 +29,21 @@ type nativeDimensionSave struct {
 // dimensions or sessions retained by its writer. Capture remains unbounded in
 // time and bytes; one unfinished job bounds concurrency, not heap usage.
 type nativeWorldSaveSnapshot struct {
-	level      world.LevelData
-	dimensions []nativeDimensionSave
-	players    map[[16]byte]playerPersist
-	playerErr  error
+	scheduledEvents map[string]any
+	level           world.LevelData
+	dimensions      []nativeDimensionSave
+	players         map[[16]byte]playerPersist
+	playerErr       error
 }
 
 func (snapshot *nativeWorldSaveSnapshot) write() error {
 	if err := world.WriteLevel(snapshot.level); err != nil {
 		return err
+	}
+	if snapshot.scheduledEvents != nil {
+		if err := writeFunctionSchedule(snapshot.level.Dir, snapshot.scheduledEvents); err != nil {
+			return err
+		}
 	}
 	for _, d := range snapshot.dimensions {
 		if err := d.chunks.Write(snapshot.level.Dir, d.name); err != nil {
@@ -144,6 +150,7 @@ func (s *Server) captureNativeWorldSaveOwned() *nativeWorldSaveSnapshot {
 			name: name, chunks: chunks, entities: s.captureEntityRegionsOwned(d), fight: fight,
 		})
 	}
+	snapshot.scheduledEvents = s.captureFunctionSchedule()
 	snapshot.players = s.captureNativePlayersOwned()
 	var clone dataSaveCloner
 	for uuid, p := range snapshot.players {

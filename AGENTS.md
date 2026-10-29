@@ -88,6 +88,10 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   An explicit empty component can differ from absence. For effect/spawn ordering,
   establish positive tracking first; batched block packets do not expose internal
   state-mutation order by themselves.
+- Persistence probes must copy the completed save before shutdown can replace it.
+  A preexisting file is not a completion receipt: verify new identifiers, types
+  and deadlines. Save workers serialize detached snapshots captured by the
+  simulation owner, never mutable runtime queues.
 - Each server leg must independently satisfy meaningful expected values.
   Equal empty captures, stale menu caches or a decoder that truncates unknown
   definitions do not establish parity. Diagnose fixture failures on an
