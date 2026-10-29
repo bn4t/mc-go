@@ -3735,9 +3735,13 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 	b.Byte(3) // type: float
 	b.Float(e.Health)
 	if e.Type == mustEntityType("armor_stand") {
-		b.Byte(15) // index: armor-stand client flags
-		b.Byte(0)  // type: byte
-		b.Byte(encodeArmorStandFlags(e))
+		// Pairing ships only non-default entries: a flagless stand
+		// (the item-placed one) leaves DATA_CLIENT_FLAGS out.
+		if fl := encodeArmorStandFlags(e); fl != 0 {
+			b.Byte(15) // index: armor-stand client flags
+			b.Byte(0)  // type: byte
+			b.Byte(fl)
+		}
 		b.Byte(0xFF)
 		return b.Bytes()
 	}
@@ -5230,10 +5234,7 @@ func (s *Server) mobTickStep() {
 			e.ambientSoundTime++
 			if rand.Int31n(1000) < e.ambientSoundTime {
 				e.ambientSoundTime = -a.interval
-				snd := a.snd
-				if e.Baby && a.babySnd != 0 {
-					snd = a.babySnd
-				}
+				snd := mobAmbientSoundID(e, ambName)
 				// this.playSound → level.playSound(null, x,y,z,…) —
 				// the positional clientbound sound packet.
 				s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, snd,

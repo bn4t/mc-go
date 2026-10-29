@@ -448,6 +448,13 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		useAck()
 		return
 	}
+	// Spawn eggs, minecarts, armor stands and hanging entities:
+	// their item useOn (entityitems.go) owns the click whatever the
+	// outcome — none of them is a block item.
+	if s.useEntityItem(sess, d, clicked, face, facePos) {
+		useAck()
+		return
+	}
 	target := facePos
 	if target.Y < d.minY || target.Y > d.minY+d.height-1 {
 		return
