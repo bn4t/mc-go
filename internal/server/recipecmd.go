@@ -49,12 +49,12 @@ var recipeIndex = func() map[string]int {
 func (s *Server) recipeOne(sess *Session, idx int, give bool) reply {
 	r := data.Recipes[idx]
 	if !recipeBookable(r) || len(recipeDisplayIDsForSession(sess, idx)) == 0 {
-		return componentReply(commandError(recipeFailKey(give)))
+		return recipeFailure(give)
 	}
 	if give {
 		newly := sess.unlockRecipe(idx)
 		if !newly {
-			return componentReply(commandError(recipeFailKey(give)))
+			return recipeFailure(give)
 		}
 		sess.grantRecipeCriterion(idx)
 		var b protocol.Buffer
@@ -66,7 +66,7 @@ func (s *Server) recipeOne(sess *Session, idx int, give bool) reply {
 		sess.write(sess.ids().PlayRecipeBookAdd, b.Bytes())
 	} else {
 		if !sess.lockRecipe(idx) {
-			return componentReply(commandError(recipeFailKey(give)))
+			return recipeFailure(give)
 		}
 		s.writeRecipeRemove(sess, idx)
 	}
@@ -77,7 +77,7 @@ func (s *Server) recipeOne(sess *Session, idx int, give bool) reply {
 // the notify flag only for the ones the book did not yet know; the
 // command fails when nothing changed.
 func (s *Server) recipeAll(sess *Session, give bool) reply {
-	var changed bool
+	var changed int
 	var b protocol.Buffer
 	var n int32
 	var ids []int32
@@ -91,17 +91,17 @@ func (s *Server) recipeAll(sess *Session, give bool) reply {
 				continue
 			}
 			sess.grantRecipeCriterion(i)
-			changed = true
+			changed++
 			n += int32(recipeEntryForSession(sess, &b, i, recipeGiveFlags(r)))
 			continue
 		}
 		if sess.lockRecipe(i) {
-			changed = true
+			changed++
 			ids = append(ids, recipeDisplayIDsForSession(sess, i)...)
 		}
 	}
-	if !changed {
-		return componentReply(commandError(recipeFailKey(give)))
+	if changed == 0 {
+		return recipeFailure(give)
 	}
 	if give {
 		var pkt protocol.Buffer
@@ -121,7 +121,9 @@ func (s *Server) recipeAll(sess *Session, give bool) reply {
 	if p, err := sess.javaProfile(); err == nil && p.version.Protocol == 775 {
 		count = java775RecipeCount
 	}
-	return s.recipeReply(sess, give, count)
+	reply := s.recipeReply(sess, give, count)
+	reply.result = changed
+	return reply
 }
 
 // writeRecipeRemove sends RecipeBookRemove (0x4B): a count and the
@@ -143,9 +145,11 @@ func (s *Server) recipeReply(sess *Session, give bool, n int32) reply {
 	if !give {
 		key = "commands.recipe.take.success.single"
 	}
-	return opsEchoReply(translatable(key,
+	reply := opsEchoReply(translatable(key,
 		nestedCompound{key: "", value: n},
 		s.entityTargetComponent(sess)))
+	reply.result, reply.hasResult = int(n), true
+	return reply
 }
 
 func recipeFailKey(give bool) string {
@@ -195,4 +199,10 @@ func (sess *Session) lockRecipe(idx int) bool {
 	}
 	delete(sess.unlockedRecipes, idx)
 	return true
+}
+
+func recipeFailure(give bool) reply {
+	r := componentReply(commandError(recipeFailKey(give)))
+	r.result, r.hasResult = 0, true
+	return r
 }

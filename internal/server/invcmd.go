@@ -246,7 +246,11 @@ func (s *Server) runClear(player string, args []string) reply {
 			if !ok || (itemName != "" && nm != itemName) {
 				continue
 			}
-			total += int(it.Count)
+			matched := it.Count
+			if !testOnly && remaining >= 0 && matched > remaining {
+				matched = remaining
+			}
+			total += int(matched)
 			if testOnly {
 				continue
 			}
@@ -271,28 +275,30 @@ func (s *Server) runClear(player string, args []string) reply {
 			}
 		}
 	}
+	result := func(r reply) reply { r.result, r.hasResult = total, true; return r }
+
 	if len(targets) == 1 {
 		name := targets[0].getName()
 		if total == 0 {
-			return componentReply(commandError("clear.failed.single", name))
+			return result(componentReply(commandError("clear.failed.single", name)))
 		}
 		if testOnly {
-			return componentReply(translatable("commands.clear.test.single",
+			return result(componentReply(translatable("commands.clear.test.single",
 				nestedCompound{key: "", value: int32(total)},
-				playerChatComponent(targets[0])))
+				playerChatComponent(targets[0]))))
 		}
-		return opsEchoReply(translatable("commands.clear.success.single",
+		return result(opsEchoReply(translatable("commands.clear.success.single",
 			nestedCompound{key: "", value: int32(total)},
-			playerChatComponent(targets[0])))
+			playerChatComponent(targets[0]))))
 	}
 	if total == 0 {
-		return componentReply(commandError("clear.failed.multiple", int32(len(targets))))
+		return result(componentReply(commandError("clear.failed.multiple", int32(len(targets)))))
 	}
 	key := "commands.clear.success.multiple"
 	if testOnly {
 		key = "commands.clear.test.multiple"
 	}
-	return opsEchoReply(translatable(key,
+	return result(opsEchoReply(translatable(key,
 		nestedCompound{key: "", value: int32(total)},
-		nestedCompound{key: "", value: int32(len(targets))}))
+		nestedCompound{key: "", value: int32(len(targets))})))
 }
