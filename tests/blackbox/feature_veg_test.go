@@ -290,7 +290,7 @@ const vegDecoratedRings = 3
 // chunks' markers share a column, the stack says which decorated first.
 const (
 	vegProbeY     = 300
-	vegProbeCount = 160
+	vegProbeCount = 400
 )
 
 var vegWools = []string{"white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray",
@@ -583,4 +583,27 @@ func TestFeatureVegOceanParity(t *testing.T) {
 	}
 	vegParity(t, 12345, areas, nil, append([]string{"kelp", "seagrass", "sea_pickle", "coral_tree", "coral_claw",
 		"coral_mushroom"}, vegSurface...)...)
+}
+
+// TestFeatureVegCaveParity pins cave vegetation — glow lichen and sculk
+// vein multiface growth with spreading, lush-cave moss patches (floor
+// and ceiling), clay pools with dripleaves, cave vines, spore blossoms,
+// the rooted-azalea root system (rooted dirt, hanging roots), pointed
+// dripstone and sulfur spikes (speleothem), their clusters with pools,
+// large dripstone and deep-dark sculk patches with catalysts, sensors
+// and shriekers — in lush caves, dripstone caves, the deep dark and
+// sulfur caves. The azalea tree the root system grows is stood in for
+// by a log (simple_block) so the pin covers the root system alone.
+func TestFeatureVegCaveParity(t *testing.T) {
+	var areas []terrainArea
+	for _, c := range [][2]int32{{-8, -8}, {-8, 8}, {8, 8}, {-64, -72}, {24, -72}, {48, -40},
+		{-40, -24}, {16, -24}, {32, 120}, {-88, 136}} {
+		areas = append(areas, terrainArea{c[0], c[1], c[0] + 3, c[1] + 3})
+	}
+	extra := map[string]string{
+		"configured_feature/azalea_tree": `{"type":"minecraft:simple_block","config":{"to_place":` +
+			`{"type":"minecraft:simple_state_provider","state":{"Name":"minecraft:oak_log","Properties":{"axis":"y"}}}}}`,
+	}
+	vegParity(t, 12345, areas, extra, append([]string{"multiface_growth", "waterlogged_vegetation_patch",
+		"root_system", "speleothem", "speleothem_cluster", "large_dripstone", "sculk_patch"}, vegSurface...)...)
 }
