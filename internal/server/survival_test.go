@@ -249,8 +249,17 @@ func TestItemPickup(t *testing.T) {
 	}
 	e.PickupDelay = 0
 	s.itemTickStep()
-	if s.entities.Count() != 0 {
-		t.Fatalf("entity not removed after pickup: %d", s.entities.Count())
+	if _, ok := s.entities.GetPtr(e.ID); !ok {
+		t.Fatal("world-only tick picked up regular item")
+	}
+	if got := sess.stackAt(invSlotForHotbar(0)); !got.Empty() {
+		t.Fatalf("world-only tick changed inventory: %+v", got)
+	}
+	// survivalSession uses the admitted placeSession fixture. Pickup is
+	// driven by the connection's player tick, independently of world age.
+	s.playerTickOwned()
+	if _, ok := s.entities.GetPtr(e.ID); ok {
+		t.Fatal("player tick did not remove picked-up item")
 	}
 	if got := sess.stackAt(invSlotForHotbar(0)); got != (ItemStack{ID: world.ItemIDs["dirt"], Count: 3}) {
 		t.Fatalf("inventory = %+v", got)

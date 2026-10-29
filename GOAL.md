@@ -17649,3 +17649,9 @@ Remaining consumer audit: collisionShapeEmpty is now unused; cellShape remains o
 First differential work/spawn-egg-cell-wire.log PASSed ten positions and failed only direct-air Go no-spawn versus vanilla clicked-cell spawn; this measured pre-dispatch gate gap led to the narrow place.go fix. Initial failure preserved19.46s. Final immutable snapshot a55927d plus only two owned production hunks and this wire test.
 
 These controls exercise main-hand spawn eggs. Existing general use-on offhand dispatch and consumption remain a separate player interaction gap; this slice does not establish offhand parity.
+
+## Slice — item pickup unit follows player tick ownership (2026-10-29)
+
+- **Measured:** The integrated test selection exposed an older `TestItemPickup` assumption: it invoked only `itemTickStep` and expected collection. The preceding live pickup matrix established that regular item touch belongs to player ticks independently of world age.
+- **Implemented:** The existing unit now first requires the world-only tick to preserve the source and leave inventory empty, then invokes the admitted player's tick and requires source removal plus exactly three dirt in inventory. Production code is unchanged.
+- **Pinned:** Broad `Test(Item|Pickup|PlayerItemTouch|XP)` selection passes in 6.293 s. All direct itemTickStep callers were audited; the separate XP and item-counter sentinel tests retain their world-tick assertions.
