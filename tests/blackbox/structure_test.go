@@ -462,9 +462,6 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 		g.RS.SetLevelBounds(0, 256)
 	}
 	g.Structures = true
-	if n := compareStarts(t, region, g, areas); n == 0 {
-		t.Errorf("no structure starts in the compared areas")
-	}
 	writes := map[worldgen.BlockPos]map[[2]int32]world.Block{}
 	g.WriteLog = func(p worldgen.BlockPos, c [2]int32, b world.Block) {
 		m := writes[p]
@@ -494,6 +491,50 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 		rev[len(order)-1-i] = c
 	}
 	alt := g.GenerateArea(rev)
+	// LevelChunk.postProcessGeneration's bubble columns over magma and
+	// soul sand (as the server runs it on promotion).
+	// and the neighbour shapes of the fences and bars structure pieces
+	// marked.
+	for _, m := range []map[[2]int32]*worldgen.ProtoChunk{chunks, alt} {
+		for _, p := range m {
+			worldgen.PostProcessBubbleColumns(p)
+			g.PostProcessShapes(p, m)
+		}
+	}
+	// A container's loot seed passes when it is one of the first draws
+	// of the piece random of a structure referenced within a chunk of
+	// it: template data markers re-seed containers of neighbouring
+	// chunks, and the order vanilla decorates them in decides which
+	// pass a container keeps.
+	seedStreams := map[[2]int32]map[string]bool{}
+	seedFromPass := func(pos [3]int32, seed string) bool {
+		bx, bz := pos[0]>>4, pos[2]>>4
+		for dx := int32(-1); dx <= 1; dx++ {
+			for dz := int32(-1); dz <= 1; dz++ {
+				c := [2]int32{bx + dx, bz + dz}
+				m, ok := seedStreams[c]
+				if !ok {
+					m = map[string]bool{}
+					for _, r := range g.StructureReferences(c[0], c[1]) {
+						for _, l := range g.StructureRandomLongs(c[0], c[1], r.Structure, 256) {
+							m[fmt.Sprint(l)] = true
+						}
+					}
+					seedStreams[c] = m
+				}
+				if m[seed] {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	// Starts are compared after decoration: vanilla saves the start
+	// objects as post-processing left them (buried treasure and
+	// template pieces move their boxes, shipwrecks their height).
+	if n := compareStarts(t, region, g, areas); n == 0 {
+		t.Errorf("no structure starts in the compared areas")
+	}
 	minY, height := g.RS.LevelMinY(), g.RS.LevelHeight()
 	total, orderDep, exempt, beOK, orderSens := 0, 0, 0, 0, 0
 	for _, a := range areas {
@@ -534,7 +575,7 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 				if bad > 0 {
 					t.Errorf("chunk %d,%d: %d mismatched blocks", cx, cz, bad)
 				}
-				beOK += compareStructBlockEntities(t, saved, p, cx, cz, minY)
+				beOK += compareStructBlockEntities(t, saved, p, alt[[2]int32{cx, cz}], seedFromPass, cx, cz, minY)
 				total++
 			}
 		}
@@ -550,8 +591,16 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 }
 
 // compareStructBlockEntities checks that the saved chunk's block entities sit
-// exactly where mc-go placed blocks that carry one.
-func compareStructBlockEntities(t *testing.T, saved savedChunk, p *worldgen.ProtoChunk, cx, cz, minY int32) int {
+// exactly where mc-go placed blocks that carry one. A loot table or
+// seed that differs passes when mc-go's reverse-order decoration (alt)
+// has vanilla's: a template piece's data markers re-seed containers
+// that neighbouring chunks placed earlier (shipwrecks), so the last
+// chunk decorated decides. A seed that matches neither passes when
+// seedFromPass finds it among the piece random draws of a neighbouring
+// chunk's decoration (vanilla decorates neighbouring chunks
+// concurrently, so a marker may or may not see a neighbour's chest
+// yet, and placement heights recomputed per chunk shift the draws).
+func compareStructBlockEntities(t *testing.T, saved savedChunk, p, alt *worldgen.ProtoChunk, seedFromPass func([3]int32, string) bool, cx, cz, minY int32) int {
 	t.Helper()
 	want := map[[3]int32]string{}
 	wantTag := map[[3]int32]map[string]any{}
@@ -566,6 +615,12 @@ func compareStructBlockEntities(t *testing.T, saved savedChunk, p *worldgen.Prot
 	gotTag := map[[3]int32]map[string]any{}
 	for _, be := range p.BlockEntities() {
 		gotTag[be.Pos] = be.Data
+	}
+	altTag := map[[3]int32]map[string]any{}
+	if alt != nil {
+		for _, be := range alt.BlockEntities() {
+			altTag[be.Pos] = be.Data
+		}
 	}
 	var got [][3]int32
 	for i, b := range p.Blocks {
@@ -582,10 +637,23 @@ func compareStructBlockEntities(t *testing.T, saved savedChunk, p *worldgen.Prot
 			// Loot table and seed: the template's table (or a rule's
 			// append_loot) and the seed drawn from the piece random.
 			w, g := wantTag[pos], gotTag[pos]
+			var a map[string]any
+			if alt != nil {
+				a = altTag[pos]
+			}
 			for _, k := range []string{"LootTable", "LootTableSeed"} {
 				wv, wok := w[k]
 				gv, gok := g[k]
+				av, aok := a[k]
 				if wok != gok || (wok && fmt.Sprint(wv) != fmt.Sprint(gv)) {
+					if wok == aok && (!wok || fmt.Sprint(wv) == fmt.Sprint(av)) {
+						t.Logf("chunk %d,%d: block entity %s at %v %s matches mc-go's reverse decoration order", cx, cz, want[pos], pos, k)
+						continue
+					}
+					if k == "LootTableSeed" && wok && gok && seedFromPass(pos, fmt.Sprint(wv)) {
+						t.Logf("chunk %d,%d: block entity %s at %v %s is a piece random draw of another decoration order", cx, cz, want[pos], pos, k)
+						continue
+					}
 					t.Errorf("chunk %d,%d: block entity %s at %v %s: mc-go %v, vanilla %v", cx, cz, want[pos], pos, k, gv, wv)
 				}
 			}

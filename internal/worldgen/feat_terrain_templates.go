@@ -403,6 +403,9 @@ func mirrorState(b world.Block, mirror int) world.Block {
 	if mirror == mirNone {
 		return b
 	}
+	if isStairState(b) {
+		return mirrorStair(b, mirror)
+	}
 	_, props, ok := world.DescribeState(b)
 	if !ok {
 		return b
