@@ -238,7 +238,7 @@ func (g *Generator) featuresPerStep() []stepFeatures {
 var featureOnceMu sync.Mutex
 
 // Decorate is ChunkGenerator.applyBiomeDecoration for the region's
-// center chunk (structure starts aside).
+// center chunk.
 func (g *Generator) Decorate(rg *Region) {
 	steps := g.featuresPerStep()
 	center := rg.center
@@ -257,7 +257,13 @@ func (g *Generator) Decorate(rg *Region) {
 			}
 		}
 	}
-	for j := range steps {
+	// GenerationStep.Decoration has 11 steps; each places its
+	// structures before its features.
+	for j := 0; j < max(11, len(steps)); j++ {
+		g.decorateStructures(rg, r, deco, j)
+		if j >= len(steps) {
+			continue
+		}
 		idxSet := map[int32]bool{}
 		for b := range biomeSet {
 			fs := g.RS.BiomeInfo(b).featureSteps()

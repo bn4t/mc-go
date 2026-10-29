@@ -1,6 +1,10 @@
 package worldgen
 
-import "sync"
+import (
+	"sync"
+
+	"mc-go/internal/world"
+)
 
 // Structure starts, pieces and references: the STRUCTURE_STARTS and
 // STRUCTURE_REFERENCES stages (ChunkGenerator.createStructures /
@@ -520,3 +524,6 @@ func (s *longOpenHashSet) list() []int64 {
 	}
 	return out
 }
+
+// HasBlockEntity reports a state whose block carries a block entity.
+func HasBlockEntity(b world.Block) bool { return hasBlockEntity(b) }
