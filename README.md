@@ -41,6 +41,10 @@ Displayed custom advancements, complete datapack selection/ZIP/reload,
 custom loot overlays and several vehicle/physical interactions remain in
 progress. See individual slice entries for exact tests and limitations.
 
+Native structure-template lookups cache both present and missing results until
+corner unload or `/reload`; unreadable generated NBT can fall back to bundled
+templates. Complete datapack selection and reload coverage remains partial.
+
 Scripted protocol tests exercise real vanilla server behavior. A graphical
 client playtest is a separate check: client dependency downloads are currently
 blocked in the managed environment. The [real-client skill](.agents/skills/testing-mc-go-real-client/SKILL.md)

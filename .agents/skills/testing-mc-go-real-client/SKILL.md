@@ -91,3 +91,14 @@ not be used to manufacture an earlier ordering claim.
 - Attribute replies do not prove settled body dimensions. When a clearance
   test needs settled scale, observe completed entity ticks; test immediate
   resize timing separately instead of claiming that the settled case pins it.
+
+## Command witness packets
+
+For a conditional `execute ... run say MARKER` witness, require the exact
+message content in an actual Disguised Chat packet (26.2 ID 0x21). A generic
+substring search can match the command echoed in syntax-error context, the
+sender's name or an unconditional `MARKER_END` barrier. Decode the message
+component and keep condition and barrier identities distinct. The scoped
+`structureSaidBB` helper and its negative controls demonstrate this contract;
+`sawMarker` intentionally remains a generic feedback-key search for other
+fixtures and is insufficient on its own for a command-success assertion.

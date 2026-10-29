@@ -151,6 +151,8 @@ func (s *Server) runReloadCmd(player string, args []string) reply {
 	if sender := s.findSessionByName(player); sender != nil {
 		s.sendSystemChatComponent(sender, translatable("commands.reload.success"))
 	}
+	// Resource apply invalidates positive and negative template lookups.
+	s.structureTemplates = nil
 	s.sessions.Range(func(_, v any) bool {
 		if sess, ok := v.(*Session); ok {
 			_ = sess.write(sess.ids().PlayUpdateTags, reloadTagsBody)

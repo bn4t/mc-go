@@ -1,9 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"compress/gzip"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -110,41 +108,21 @@ func (s *Server) structureTemplateFile(name string, create bool) (*os.File, erro
 	return root.Open(rel)
 }
 func (s *Server) structureTemplateGet(name string) map[string]any {
-	if t := s.structureTemplates[name]; t != nil {
-		return t
-	}
-	var raw []byte
-	if _, ok := s.structureTemplatePath(name); ok {
-		if f, e := s.structureTemplateFile(name, false); e == nil {
-			zr, e := gzip.NewReader(f)
-			if e == nil {
-				raw, _ = io.ReadAll(io.LimitReader(zr, 64<<20))
-				_ = zr.Close()
-			}
-			_ = f.Close()
-		}
-	}
-	if raw == nil && strings.HasPrefix(name, "minecraft:") {
-		raw, _ = worldgen.BuiltinTemplateNBT(strings.TrimPrefix(name, "minecraft:"))
-	}
-	if len(raw) == 0 {
+	if name == "" || structureName(name) != name {
 		return nil
 	}
-	_, v, e := nbt.ReadNamed(bytes.NewReader(raw))
-	if e != nil {
-		return nil
+	if cached, present := s.structureTemplates[name]; present {
+		return cached
 	}
-	t, ok := v.(map[string]any)
-	if !ok {
-		return nil
-	}
-	t["author"] = "?"
+	template := s.structureTemplateRead(name)
 	if s.structureTemplates == nil {
 		s.structureTemplates = map[string]map[string]any{}
 	}
-	s.structureTemplates[name] = t
-	return t
+	// A missing lookup is cached just like a loaded template.
+	s.structureTemplates[name] = template
+	return template
 }
+
 func (s *Server) structureTemplateCapture(d *dimension, origin world.Pos, size [3]int32, includeEntities bool, author string) map[string]any {
 	palette := nbt.List{Elem: nbt.TagCompound}
 	blocks := nbt.List{Elem: nbt.TagCompound}
