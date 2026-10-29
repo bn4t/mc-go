@@ -3,6 +3,7 @@ package worldgen
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"sort"
 	"strings"
 
 	"mc-go/internal/world"
@@ -281,4 +282,20 @@ func zoomBiome(zoomSeed int64, x, y, z int32, quart func(qx, qy, qz int32) strin
 		pz++
 	}
 	return quart(px, py, pz)
+}
+
+// PostProcessFluids returns the post-processing marks (aquifer, carver
+// and feature marks, ProtoChunk.markPosForPostProcessing order: per
+// section, then in marking order) whose current state holds a fluid —
+// the cells LevelChunk.postProcessGeneration hands a FluidState.tick.
+func (p *ProtoChunk) PostProcessFluids() [][3]int32 {
+	all := append(append([][3]int32(nil), p.FluidMarks...), p.PostProcess...)
+	sort.SliceStable(all, func(i, j int) bool { return floorDiv(all[i][1], 16) < floorDiv(all[j][1], 16) })
+	var out [][3]int32
+	for _, m := range all {
+		if hasFluid(p.Get(m[0]&15, m[1], m[2]&15)) {
+			out = append(out, m)
+		}
+	}
+	return out
 }

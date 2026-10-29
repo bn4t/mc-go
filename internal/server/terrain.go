@@ -41,6 +41,10 @@ type terrainSource struct {
 	dmu      sync.Mutex
 	deco     map[[2]int32]bool
 	provided map[[2]int32]bool
+
+	// fresh lists handed-out chunks whose post-processing has not run.
+	freshMu sync.Mutex
+	fresh   [][2]int
 }
 
 type terrainEntry struct {
@@ -135,8 +139,15 @@ func (t *terrainSource) ProvideChunk(x, z int) *world.BaseChunk {
 		t.g.Decorate(t.g.NewRegion(near[k], near))
 		t.deco[k] = true
 	}
-	base := protoToBase(t.terrain([2]int32{cx, cz}))
+	p := t.terrain([2]int32{cx, cz})
+	worldgen.PostProcessBubbleColumns(p)
+	base := protoToBase(p)
 	t.provided[[2]int32{cx, cz}] = true
+	if len(base.PostProcess) > 0 {
+		t.freshMu.Lock()
+		t.fresh = append(t.fresh, [2]int{x, z})
+		t.freshMu.Unlock()
+	}
 	t.prune(cx, cz)
 	return base
 }
@@ -184,7 +195,53 @@ func protoToBase(p *worldgen.ProtoChunk) *world.BaseChunk {
 	for i, name := range p.Biomes {
 		b.Biomes[i] = "minecraft:" + name
 	}
+	for _, m := range p.PostProcessFluids() {
+		b.PostProcess = append(b.PostProcess, world.Pos{X: int(m[0]), Y: int(m[1]), Z: int(m[2])})
+	}
 	return b
+}
+
+// postProcessStep is the fluid half of LevelChunk.postProcessGeneration
+// for generated chunks: each marked fluid ticks once, immediately, as
+// the chunk enters the ticking world — that is what starts cave
+// waterfalls and lava falls. A chunk waits until its eight neighbours
+// exist, as a ticking chunk's do; the flow itself then continues
+// through the scheduled fluid ticks.
+func (s *Server) postProcessStep() {
+	for _, d := range s.dims {
+		t := d.terrain
+		if t == nil {
+			continue
+		}
+		t.freshMu.Lock()
+		keys := t.fresh
+		t.fresh = nil
+		t.freshMu.Unlock()
+		var wait [][2]int
+		for _, k := range keys {
+			ready := true
+			for dz := -1; dz <= 1 && ready; dz++ {
+				for dx := -1; dx <= 1; dx++ {
+					if d.w.PeekBaseChunk(k[0]+dx, k[1]+dz) == nil {
+						ready = false
+						break
+					}
+				}
+			}
+			if !ready {
+				wait = append(wait, k)
+				continue
+			}
+			for _, p := range d.w.PeekBaseChunk(k[0], k[1]).PostProcess {
+				s.fluidTick(d, p)
+			}
+		}
+		if len(wait) > 0 {
+			t.freshMu.Lock()
+			t.fresh = append(t.fresh, wait...)
+			t.freshMu.Unlock()
+		}
+	}
 }
 
 // applyLevelType rebuilds the overworld for the configured level type
@@ -214,6 +271,7 @@ func (s *Server) applyLevelType() error {
 		ow.SetBiome(od.biome)
 		prev := od.w
 		od.w = ow
+		od.terrain = osrc
 		od.flat = false
 		od.seaLevel = osrc.g.RS.SeaLevel()
 		prev.Stop()
@@ -223,6 +281,7 @@ func (s *Server) applyLevelType() error {
 	w.SetBiome("minecraft:plains")
 	s.world = w
 	d.w = w
+	d.terrain = src
 	d.flat = false
 	d.seaLevel = src.g.RS.SeaLevel()
 	d.biome = "minecraft:plains"

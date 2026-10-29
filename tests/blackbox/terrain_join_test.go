@@ -184,24 +184,33 @@ func collectJoin(t *testing.T, tag string, c net.Conn, pr *protocol.Reader, pw *
 // carved-open water and lava flow once the chunk ticks, which mc-go
 // does not model yet.
 func TestNormalWorldChunkParity(t *testing.T) {
-	normalWorldParity(t, "", 24)
+	normalWorldParity(t, "", 24, 0)
+}
+
+// TestNormalWorldSettledParity lets the generated chunks tick for a
+// minute (generation post-processing ticks every marked fluid once, and
+// the flows run on: cave waterfalls, lava falls, obsidian where they
+// meet), rejoins, and compares the fresh window strictly — no fluid
+// exemption.
+func TestNormalWorldSettledParity(t *testing.T) {
+	normalWorldParity(t, "", 24, time.Minute)
 }
 
 // TestNormalNetherChunkParity teleports into the generated nether and
 // compares its streamed chunks the same way (block light from the lava
 // sea and lava pockets included).
 func TestNormalNetherChunkParity(t *testing.T) {
-	normalWorldParity(t, "execute in minecraft:the_nether run tp @s 40.5 70 -20.5", 16)
+	normalWorldParity(t, "execute in minecraft:the_nether run tp @s 40.5 70 -20.5", 16, 0)
 }
 
 // TestNormalEndChunkParity does the same in the end's outer islands
 // (away from the origin, where the dragon fight builds the exit
 // portal).
 func TestNormalEndChunkParity(t *testing.T) {
-	normalWorldParity(t, "execute in minecraft:the_end run tp @s 1400.5 70 1400.5", 16)
+	normalWorldParity(t, "execute in minecraft:the_end run tp @s 1400.5 70 1400.5", 16, 0)
 }
 
-func normalWorldParity(t *testing.T, tp string, sections int) {
+func normalWorldParity(t *testing.T, tp string, sections int, settle time.Duration) {
 	const seed = 12345
 	ov := worldgen.StageOverrides(worldgen.Vanilla(), func(string) bool { return false }, true, true)
 	props := map[string]string{
@@ -226,10 +235,23 @@ func normalWorldParity(t *testing.T, tp string, sections int) {
 	fetch := func(tag, addr string) (map[[2]int32][]byte, [3]int32) {
 		c, pr, pw := joinPlayBlackbox(t, addr, "TerrainProbe")
 		defer c.Close()
+		if settle > 0 {
+			// Random ticks (grass spreading onto dirt and dying back)
+			// run on the level's runtime random; only the deterministic
+			// fluid flow is under test.
+			sendCommand(t, pw, "gamerule random_tick_speed 0")
+		}
 		chunks, spawn := collectJoin(t, tag, c, pr, pw)
 		if tp != "" {
 			sendCommand(t, pw, tp)
 			chunks, _ = collectJoin(t, tag+" after tp", c, pr, pw)
+		}
+		if settle > 0 {
+			idleClient(t, tag, c, pr, pw, settle)
+			c.Close()
+			c2, pr2, pw2 := joinPlayBlackbox(t, addr, "TerrainProbe")
+			defer c2.Close()
+			chunks, _ = collectJoin(t, tag+" rejoin", c2, pr2, pw2)
 		}
 		return chunks, spawn
 	}
@@ -300,7 +322,7 @@ func normalWorldParity(t *testing.T, tp string, sections int) {
 				if a == b {
 					continue
 				}
-				if fluid(a) || fluid(b) {
+				if settle == 0 && (fluid(a) || fluid(b)) {
 					fluidCells++
 					dirtyCols[i&255] = true
 					continue
@@ -396,4 +418,40 @@ func lightMasks(t *testing.T, body []byte) [4][]uint64 {
 		out[i] = readLightMask(t, "masks", r)
 	}
 	return out
+}
+
+// idleClient keeps a joined client alive (keep-alives, chunk batch
+// acknowledgements, teleport confirms) for d.
+func idleClient(t *testing.T, tag string, c net.Conn, pr *protocol.Reader, pw *protocol.Writer, d time.Duration) {
+	t.Helper()
+	end := time.Now().Add(d)
+	for time.Now().Before(end) {
+		_ = c.SetReadDeadline(end)
+		p, err := pr.ReadPacket()
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				break
+			}
+			t.Fatalf("%s idle: %v", tag, err)
+		}
+		switch p.ID {
+		case server.IDPlayChunkBatchDone:
+			if err := ackChunkBatch(pw); err != nil {
+				t.Fatal(err)
+			}
+		case server.IDPlayKeepAliveCB:
+			if err := pw.WritePacket(server.IDPlayKeepAliveSB, p.Data); err != nil {
+				t.Fatal(err)
+			}
+		case server.IDPlaySyncPos:
+			if id, err := protocol.NewPacketReader(p.Data).VarInt(); err == nil {
+				var b protocol.Buffer
+				b.VarInt(id)
+				if err := pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes()); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	_ = c.SetReadDeadline(time.Time{})
 }

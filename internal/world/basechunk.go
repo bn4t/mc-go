@@ -21,6 +21,10 @@ type BaseChunk struct {
 	// Biomes holds 64 cells per section ((qy*4+qz)*4+qx within the
 	// section), full ids like "minecraft:plains".
 	Biomes []string
+	// PostProcess lists the generation-marked positions holding a fluid,
+	// in vanilla's order (section by section, marks in write order),
+	// for the fluid ticks LevelChunk.postProcessGeneration runs.
+	PostProcess []Pos
 }
 
 // At returns the state at chunk-local x/z and absolute y.

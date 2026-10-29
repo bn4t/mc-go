@@ -541,6 +541,7 @@ func (s *Server) gameTickOwned() {
 	s.containerTickStep()
 	s.hopperTickStep()
 	s.scheduledTickStep()
+	s.postProcessStep()
 	// VibrationSystem$Ticker.tick: sculk sensors select and travel
 	// their queued vibrations once per level tick.
 	s.vibrationTickStep()

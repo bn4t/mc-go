@@ -15877,3 +15877,27 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:** nether and end features (only the feature groups in
   progress), the dragon fight's exit portal and end spikes, structures,
   fluid post-processing, generation speed.
+
+## Slice — generation post-processing: marked fluids tick (2026-10-29)
+
+- **Measured:** bytecode inspection of `LevelChunk.postProcessGeneration`:
+  per section, every marked position (aquifer, carver and feature marks,
+  `ProtoChunk.markPosForPostProcessing` order) with a non-empty fluid
+  gets `FluidState.tick` immediately, a `LiquidBlock` gets its block
+  tick (the bubble-column rebuild), anything else
+  `Block.updateFromNeighbourShapes` with flags 276; it runs as the chunk
+  becomes ticking. Wire observation: a generated window left ticking
+  for a minute on the real server (random ticks off) against mc-go.
+- **Implemented:** generated base chunks carry their marked fluid cells
+  (`ProtoChunk.PostProcessFluids`); the bubble-column half runs on the
+  decorated proto (`PostProcessBubbleColumns`); the server ticks each
+  marked fluid once (`postProcessStep`, after the scheduled ticks) when
+  the chunk's eight neighbours exist, and the flows run on through the
+  scheduled fluid ticks.
+- **Pinned:** `TestNormalWorldSettledParity` joins, lets the window tick
+  for a minute with `random_tick_speed 0`, rejoins and compares every
+  overlapping chunk strictly (no fluid exemption) - blocks, heightmaps,
+  counts, biomes, light and masks.
+- **Remaining:** the shape-update half for non-fluid marks (vanilla's
+  `updateFromNeighbourShapes`), post-processing lists in saved chunks,
+  ticking-level timing (mc-go runs the pass once neighbours exist).
