@@ -358,3 +358,109 @@ func TestTerrainGolden(t *testing.T) {
 		}
 	}
 }
+
+func featureKeep(t *testing.T) func(string) bool {
+	types := map[string]bool{}
+	for _, s := range strings.Split(os.Getenv("MCGO_WORLDGEN_FEATURES"), ",") {
+		types[s] = true
+	}
+	return func(p string) bool { return types[PlacedFeatureType(Vanilla(), p)] }
+}
+
+// TestWriteStageDatapack writes the staged data pack for the feature
+// types in MCGO_WORLDGEN_FEATURES into MCGO_WRITE_DATAPACK.
+func TestWriteStageDatapack(t *testing.T) {
+	dir := os.Getenv("MCGO_WRITE_DATAPACK")
+	if dir == "" {
+		t.Skip()
+	}
+	ov := StageOverrides(Vanilla(), featureKeep(t), true, true)
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "pack.mcmeta"), []byte(`{"pack":{"description":"stage","min_format":[107,1],"max_format":[107,1]}}`), 0o644)
+	for k, v := range ov {
+		p := filepath.Join(dir, "data/minecraft/worldgen", k+".json")
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, v, 0o644)
+	}
+}
+
+func TestFeaturesVsVanillaRegion(t *testing.T) {
+	dir := os.Getenv("MCGO_WORLDGEN_REGION")
+	if dir == "" || os.Getenv("MCGO_WORLDGEN_FEATURES") == "" {
+		t.Skip()
+	}
+	seed := int64(1)
+	if s := os.Getenv("MCGO_WORLDGEN_SEED"); s != "" {
+		fmt.Sscan(s, &seed)
+	}
+	data := Overlay(Vanilla(), StageOverrides(Vanilla(), featureKeep(t), true, true))
+	g, err := NewGenerator(data, "overworld", "overworld", seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inner [][2]int32
+	var order [][2]int32
+	seen := map[[2]int32]bool{}
+	for _, a := range strings.Split(os.Getenv("MCGO_WORLDGEN_CHUNKS"), ";") {
+		var x0, z0, x1, z1 int32
+		fmt.Sscanf(a, "%d,%d,%d,%d", &x0, &z0, &x1, &z1)
+		for cx := x0; cx <= x1; cx++ {
+			for cz := z0; cz <= z1; cz++ {
+				inner = append(inner, [2]int32{cx, cz})
+			}
+		}
+		for cz := z0 - 1; cz <= z1+1; cz++ {
+			for cx := x0 - 1; cx <= x1+1; cx++ {
+				k := [2]int32{cx, cz}
+				if !seen[k] {
+					seen[k] = true
+					order = append(order, k)
+				}
+			}
+		}
+	}
+	writes := map[BlockPos]map[[2]int32]world.Block{}
+	g.WriteLog = func(p BlockPos, c [2]int32, b world.Block) {
+		m := writes[p]
+		if m == nil {
+			m = map[[2]int32]world.Block{}
+			writes[p] = m
+		}
+		m[c] = b
+	}
+	chunks := g.GenerateArea(order)
+	orderOK := 0
+	kinds := map[string]int{}
+	bad := 0
+	for _, ch := range inner {
+		want, _ := vanillaChunk(t, dir, ch[0], ch[1], g.RS.MinY(), g.RS.Height())
+		p := chunks[ch]
+		n := 0
+		for i, w := range want {
+			gn := stateName(p.Blocks[i])
+			if gn != w && !(strings.Contains(w, "level=") && gn == "air") {
+				pos := BlockPos{ch[0]*16 + int32(i&15), int32(i>>8) + g.RS.MinY(), ch[1]*16 + int32((i>>4)&15)}
+				if m := writes[pos]; len(m) > 1 {
+					ok := false
+					for _, b := range m {
+						ok = ok || stateName(b) == w
+					}
+					if ok {
+						orderOK++
+						continue
+					}
+				}
+				kinds[gn+"->"+w]++
+				if n < 3 {
+					t.Errorf("chunk %v x=%d y=%d z=%d: got %s want %s", ch, i&15, int32(i>>8)+g.RS.MinY(), (i>>4)&15, gn, w)
+				}
+				n++
+			}
+		}
+		if n > 0 {
+			bad++
+		}
+	}
+	t.Logf("%d order-dependent cells accepted", orderOK)
+	t.Logf("%d/%d chunks bad; unsupported features %v survive %v; kinds %v", bad, len(inner), UnsupportedFeatures, UnsupportedSurvive, kinds)
+}

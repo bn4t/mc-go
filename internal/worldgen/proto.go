@@ -20,7 +20,15 @@ type ProtoChunk struct {
 	// non-air + 1, MinY for an empty column).
 	worldSurface [256]int32
 	oceanFloor   [256]int32
-	FluidMarks   [][3]int32
+	// The final heightmaps, primed when features start
+	// (Heightmap.primeHeightmaps) and maintained from then on.
+	primed                             bool
+	motionBlocking, motionNoLeaves     [256]int32
+	oceanFloorFinal, worldSurfaceFinal [256]int32
+	FluidMarks                         [][3]int32
+	// PostProcess holds positions setBlock marked for post-processing
+	// (BlockState.getPostProcessPos).
+	PostProcess [][3]int32
 }
 
 func (p *ProtoChunk) idx(x, y, z int32) int32 { return ((y-p.MinY)*16+z)*16 + x }
@@ -43,6 +51,75 @@ func (p *ProtoChunk) Set(x, y, z int32, b world.Block) {
 	p.Blocks[p.idx(x, y, z)] = b
 	p.updateHeight(&p.worldSurface, x, y, z, b, notAir)
 	p.updateHeight(&p.oceanFloor, x, y, z, b, blocksMotion)
+	if p.primed {
+		p.updateHeight(&p.motionBlocking, x, y, z, b, motionBlocking)
+		p.updateHeight(&p.motionNoLeaves, x, y, z, b, motionBlockingNoLeaves)
+		p.updateHeight(&p.oceanFloorFinal, x, y, z, b, blocksMotion)
+		p.updateHeight(&p.worldSurfaceFinal, x, y, z, b, notAir)
+	}
+}
+
+// primeHeightmaps is Heightmap.primeHeightmaps for the four final maps.
+func (p *ProtoChunk) primeHeightmaps() {
+	if p.primed {
+		return
+	}
+	p.primed = true
+	maps := []struct {
+		hm   *[256]int32
+		pred func(world.Block) bool
+	}{{&p.motionBlocking, motionBlocking}, {&p.motionNoLeaves, motionBlockingNoLeaves},
+		{&p.oceanFloorFinal, blocksMotion}, {&p.worldSurfaceFinal, notAir}}
+	for _, m := range maps {
+		for z := int32(0); z < 16; z++ {
+			for x := int32(0); x < 16; x++ {
+				h := p.MinY
+				for y := p.MinY + p.Height - 1; y >= p.MinY; y-- {
+					if m.pred(p.Blocks[p.idx(x, y, z)]) {
+						h = y + 1
+						break
+					}
+				}
+				m.hm[z*16+x] = h
+			}
+		}
+	}
+}
+
+// Heightmap types.
+const (
+	HMWorldSurfaceWG = iota
+	HMWorldSurface
+	HMOceanFloorWG
+	HMOceanFloor
+	HMMotionBlocking
+	HMMotionBlockingNoLeaves
+)
+
+// HeightAt is ChunkAccess.getHeight(type, x, z): the top qualifying y
+// (MinY-1 for none).
+func (p *ProtoChunk) HeightAt(t int, x, z int32) int32 {
+	i := z*16 + x
+	switch t {
+	case HMWorldSurfaceWG:
+		return p.worldSurface[i] - 1
+	case HMOceanFloorWG:
+		return p.oceanFloor[i] - 1
+	case HMWorldSurface:
+		return p.worldSurfaceFinal[i] - 1
+	case HMOceanFloor:
+		return p.oceanFloorFinal[i] - 1
+	case HMMotionBlocking:
+		return p.motionBlocking[i] - 1
+	default:
+		return p.motionNoLeaves[i] - 1
+	}
+}
+
+func motionBlocking(b world.Block) bool { return blocksMotionState(b) || hasFluid(b) }
+
+func motionBlockingNoLeaves(b world.Block) bool {
+	return (blocksMotionState(b) || hasFluid(b)) && !isLeaves(b)
 }
 
 func (p *ProtoChunk) updateHeight(hm *[256]int32, x, y, z int32, b world.Block, pred func(world.Block) bool) {
@@ -75,33 +152,20 @@ func (p *ProtoChunk) WorldSurfaceWG(x, z int32) int32 { return p.worldSurface[z*
 // OceanFloorWG is getHeight(OCEAN_FLOOR_WG).
 func (p *ProtoChunk) OceanFloorWG(x, z int32) int32 { return p.oceanFloor[z*16+x] - 1 }
 
-func notAir(b world.Block) bool {
-	if b == world.Air {
-		return false
-	}
-	n, _ := world.StateOwner(b)
-	return n != "air" && n != "cave_air" && n != "void_air"
-}
+func notAir(b world.Block) bool { return !isAir(b) }
 
-// blocksMotion approximates BlockBehaviour.blocksMotion (solid material
-// that is not cobweb/bamboo sapling); refined as features land.
-func blocksMotion(b world.Block) bool {
-	if !notAir(b) {
-		return false
-	}
-	n, _ := world.StateOwner(b)
-	switch n {
-	case "water", "lava", "cobweb", "bamboo_sapling":
-		return false
-	}
-	return !world.NonSolid(b)
-}
+// blocksMotion is the MATERIAL_MOTION_BLOCKING predicate.
+func blocksMotion(b world.Block) bool { return blocksMotionState(b) }
 
 func newProto(cx, cz, minY, height int32) *ProtoChunk {
 	p := &ProtoChunk{CX: cx, CZ: cz, MinY: minY, Height: height, Blocks: make([]world.Block, 16*16*height)}
 	for i := range p.worldSurface {
 		p.worldSurface[i] = minY
 		p.oceanFloor[i] = minY
+		p.motionBlocking[i] = minY
+		p.motionNoLeaves[i] = minY
+		p.oceanFloorFinal[i] = minY
+		p.worldSurfaceFinal[i] = minY
 	}
 	return p
 }

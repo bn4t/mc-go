@@ -409,16 +409,7 @@ func (s *surfaceSystem) isStone(b world.Block) bool {
 	return !isFluidState(b)
 }
 
-func isFluidState(b world.Block) bool {
-	n, _ := world.StateOwner(b)
-	if n == "water" || n == "lava" || n == "bubble_column" {
-		return true
-	}
-	if wl, ok := world.StateProperty(b, "waterlogged"); ok && wl == "true" {
-		return true
-	}
-	return false
-}
+func isFluidState(b world.Block) bool { return hasFluid(b) }
 
 // BuildSurface is SurfaceSystem.buildSurface over a proto chunk whose
 // noise stage is done. biomeAt is the zoomed BiomeManager lookup.

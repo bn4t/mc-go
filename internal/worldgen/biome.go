@@ -19,6 +19,10 @@ type BiomeInfo struct {
 	Temperature float32
 	Frozen      bool // temperature_modifier frozen
 	raw         obj
+
+	featOnce, featSetOnce sync.Once
+	features              [][]string
+	featSet               map[string]bool
 }
 
 // BiomeInfo returns a biome's definition from the state's data.

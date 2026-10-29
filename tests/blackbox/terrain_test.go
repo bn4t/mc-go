@@ -75,6 +75,13 @@ type terrainArea struct{ x0, z0, x1, z1 int32 }
 // stops. It returns the overworld region directory.
 func vanillaTerrain(t *testing.T, seed int64, strip terrainStrip, areas []terrainArea) string {
 	t.Helper()
+	return vanillaTerrainFiles(t, seed, terrainDatapack(t, strip), areas)
+}
+
+// vanillaTerrainFiles is vanillaTerrain with caller-built data pack
+// files.
+func vanillaTerrainFiles(t *testing.T, seed int64, files map[string]string, areas []terrainArea) string {
+	t.Helper()
 	jar := blackboxJar(t)
 	dir := t.TempDir()
 	port, ok := freePort()
@@ -90,7 +97,7 @@ func vanillaTerrain(t *testing.T, seed int64, strip terrainStrip, areas []terrai
 		"view-distance":       "3",
 		"simulation-distance": "3",
 	}
-	_, say, wait := vanillaConsole(t, jar, port, props, terrainDatapack(t, strip), dir)
+	_, say, wait := vanillaConsole(t, jar, port, props, files, dir)
 	logPath := filepath.Join(dir, "vanilla.log")
 	logHas := func(s string) bool {
 		b, _ := os.ReadFile(logPath)
@@ -490,4 +497,108 @@ func TestTerrainCarverParity(t *testing.T) {
 		}
 		compareTerrain(t, region, g, tc.areas)
 	}
+}
+
+// stageDatapack turns worldgen stage overrides into data pack files.
+func stageDatapack(overrides map[string]json.RawMessage) map[string]string {
+	files := map[string]string{
+		"world/datapacks/stage/pack.mcmeta": `{"pack":{"description":"worldgen stage","min_format":[107,1],"max_format":[107,1]}}`,
+	}
+	for k, v := range overrides {
+		files["world/datapacks/stage/data/minecraft/worldgen/"+k+".json"] = string(v)
+	}
+	return files
+}
+
+// featureParity has the real server decorate the forced areas with only
+// the given feature types enabled and compares every chunk whose
+// neighbours were all decorated (the area shrunk by one) block for
+// block. mc-go decorates the whole forced area. Vanilla schedules chunk
+// decoration concurrently, so where features from several chunks wrote
+// the same cell the outcome depends on which ran last: such a cell
+// passes when vanilla's block is one of the values those chunks wrote.
+func featureParity(t *testing.T, seed int64, areas []terrainArea, types ...string) {
+	t.Helper()
+	want := map[string]bool{}
+	for _, ty := range types {
+		want[ty] = true
+	}
+	keep := func(p string) bool { return want[worldgen.PlacedFeatureType(worldgen.Vanilla(), p)] }
+	ov := worldgen.StageOverrides(worldgen.Vanilla(), keep, true, true)
+	region := vanillaTerrainFiles(t, seed, stageDatapack(ov), areas)
+	g, err := worldgen.NewGenerator(worldgen.Overlay(worldgen.Vanilla(), ov), "overworld", "overworld", seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writes := map[worldgen.BlockPos]map[[2]int32]world.Block{}
+	g.WriteLog = func(p worldgen.BlockPos, c [2]int32, b world.Block) {
+		m := writes[p]
+		if m == nil {
+			m = map[[2]int32]world.Block{}
+			writes[p] = m
+		}
+		m[c] = b
+	}
+	var order [][2]int32
+	for _, a := range areas {
+		for cz := a.z0; cz <= a.z1; cz++ {
+			for cx := a.x0; cx <= a.x1; cx++ {
+				order = append(order, [2]int32{cx, cz})
+			}
+		}
+	}
+	chunks := g.GenerateArea(order)
+	minY, height := g.RS.MinY(), g.RS.Height()
+	total, orderDep, exempt := 0, 0, 0
+	for _, a := range areas {
+		for cx := a.x0 + 1; cx < a.x1; cx++ {
+			for cz := a.z0 + 1; cz < a.z1; cz++ {
+				saved := readSavedChunk(t, region, cx, cz, minY, height)
+				p := chunks[[2]int32{cx, cz}]
+				bad := 0
+				for i, w := range saved.blocks {
+					gs := protoStateString(p.Blocks[i])
+					if gs == w {
+						continue
+					}
+					pos := worldgen.BlockPos{cx*16 + int32(i&15), int32(i>>8) + minY, cz*16 + int32((i>>4)&15)}
+					if m := writes[pos]; len(m) > 1 {
+						ok := false
+						for _, b := range m {
+							ok = ok || protoStateString(b) == w
+						}
+						if ok {
+							orderDep++
+							continue
+						}
+					}
+					if gs == "air" && strings.Contains(w, "[level=") {
+						exempt++
+						continue
+					}
+					if bad < 5 {
+						t.Errorf("(%d,%d,%d): mc-go %s, vanilla %s", pos[0], pos[1], pos[2], gs, w)
+					}
+					bad++
+				}
+				if bad > 0 {
+					t.Errorf("chunk %d,%d: %d mismatched blocks", cx, cz, bad)
+				}
+				total++
+			}
+		}
+	}
+	if len(worldgen.UnsupportedFeatures) > 0 {
+		t.Errorf("unsupported feature types placed nothing: %v", worldgen.UnsupportedFeatures)
+	}
+	t.Logf("%d chunks compared; %d order-dependent cells, %d fluid post-processing cells accepted", total, orderDep, exempt)
+}
+
+// TestFeatureOreParity pins ore and scattered_ore placement — the
+// feature sorter's global per-step indices, decoration and feature
+// seeds, count/in_square/height_range/biome placement, ore blob shapes,
+// air-exposure discards and the raw section writes — against the real
+// server with only those features enabled.
+func TestFeatureOreParity(t *testing.T) {
+	featureParity(t, 12345, []terrainArea{{0, 0, 3, 3}, {62, 62, 66, 66}, {-125, 187, -121, 191}, {-321, -289, -318, -286}}, "ore", "scattered_ore")
 }

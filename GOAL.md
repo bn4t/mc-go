@@ -66,8 +66,9 @@ Mojang server over the wire.
       for cell - `TestTerrainBiomeParity`; the surface system (rules,
       bands, iceberg/eroded-badlands extensions) matches block for block -
       `TestTerrainSurfaceParity`; carvers match block for block -
-      `TestTerrainCarverParity`; features, structures and server wiring
-      remain
+      `TestTerrainCarverParity`; the feature decoration framework is
+      pinned on ores - `TestFeatureOreParity`; the other feature types,
+      structures and server wiring remain
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -15749,4 +15750,42 @@ no flee; unsneak → flee). Green both legs.
   ticks out of marked sources (spread and new-source formation).
 - **Remaining:** fluid post-processing itself, features, structures,
   nether/end and server wiring.
+
+## Slice — worldgen decoration framework + ores (2026-10-29)
+
+- **Measured:** bytecode inspection of `ChunkGenerator.applyBiomeDecoration`
+  (decoration seed from the section origin, 3x3 chunk biome palettes,
+  per-step sorted global feature indices, `setFeatureSeed(seed, index,
+  step)`), `FeatureSorter.buildFeaturesPerStep` (first-seen feature ids,
+  (step, id) ordered DFS topological sort over every biome's sequence,
+  biomes in parameter-list order), `WorldgenRandom` (non-legacy
+  `next(bits)` = `nextLong()>>>64-bits` under BitRandomSource's
+  derivations; legacy fork), `WorldGenRegion` (write radius 1, height
+  queries +1, post-process marks), `PlacedFeature` (nested flatMap
+  order), all fifteen placement modifiers the 26.2 biomes use
+  (`count_on_every_layer` re-sampling its count per iteration), every
+  block predicate, block state provider and ore rule test, `Feature.place`
+  write-zone gate, `OreFeature` (blob shape, overlap culling,
+  BulkSectionAccess writes that bypass heightmaps), `ScatteredOreFeature`,
+  `SimpleBlockFeature` and the tag-driven `canSurvive`/`mayPlaceOn` of the
+  vegetation families. Per-state facts (air, blocksMotion, legacy solid,
+  replaceable, leaves, fluid, sturdy faces per support type, full
+  collision, post-process, light) come from `tools/genblockprops`, a jar
+  oracle run of public `BlockStateBase` accessors (rows SHA-256
+  `d9e3ea18…` recorded in the generated header), plus each block's
+  behaviour class chain; fluid and worldgen tags join the worldgen blob.
+- **Implemented:** `Generator.Decorate`/`GenerateArea`, `Region`, the
+  feature registry with placed/configured resolution, modifiers,
+  predicates, state providers, rule tests, ore, scattered_ore and
+  simple_block features, canSurvive registry, the four final heightmaps
+  primed at features; `StageOverrides` builds the staged biome set used
+  for both mc-go's data overlay and the oracle's data pack.
+- **Pinned:** `TestFeatureOreParity` decorates four forced areas of seed
+  12345 with only ore features enabled and compares the 26 fully
+  surrounded chunks block for block. Vanilla decorates chunks
+  concurrently, so a cell several chunks' features wrote passes when the
+  real server's block is one of their writes (48 such cells).
+- **Remaining:** the other feature types (trees, vegetation patches,
+  lakes, springs, disks, geodes, ...), MossyCarpet side growth,
+  structures, fluid post-processing, nether/end and server wiring.
 

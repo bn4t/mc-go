@@ -13,9 +13,18 @@ type Generator struct {
 	zoomSeed int64
 	// Carve runs the carver stage after the surface (default on).
 	Carve bool
+	// WriteLog, when set, sees every feature write: the position, the
+	// chunk being decorated and the state (order-sensitivity checks).
+	WriteLog func(p BlockPos, decorating [2]int32, b world.Block)
 
 	mu         sync.Mutex
 	biomeCache map[[2]int32][]string
+
+	featOnce        sync.Once
+	steps           []stepFeatures
+	featMu          sync.Mutex
+	placedCache     map[string]*placedFeature
+	configuredCache map[string]*configuredFeature
 }
 
 // NewGenerator builds a generator for noise settings and a biome

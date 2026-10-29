@@ -74,6 +74,9 @@ func main() {
 		add(filepath.Join(root, "data/minecraft/worldgen", d), d+"/")
 	}
 	add(filepath.Join(root, "reports/biome_parameters/minecraft"), "biome_parameters/")
+	for _, t := range []string{"fluid", "worldgen/biome", "worldgen/structure", "worldgen/configured_feature", "worldgen/flat_level_generator_preset", "worldgen/world_preset"} {
+		add(filepath.Join(root, "data/minecraft/tags", t), "tags/"+t+"/")
+	}
 	if len(entries) == 0 {
 		log.Fatalf("no worldgen data under %s", root)
 	}
