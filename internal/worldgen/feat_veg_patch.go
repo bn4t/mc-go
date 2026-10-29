@@ -1,10 +1,6 @@
 package worldgen
 
-import (
-	"sort"
-
-	"mc-go/internal/world"
-)
+import "mc-go/internal/world"
 
 // vegetation_patch / waterlogged_vegetation_patch
 // (VegetationPatchFeature, WaterloggedVegetationPatchFeature): a
@@ -146,36 +142,4 @@ func patchExposed(rg *Region, p BlockPos) bool {
 		}
 	}
 	return false
-}
-
-// javaHashSetOrder returns distinct positions (given in insertion
-// order) in the order a java.util.HashSet<BlockPos> iterates them:
-// by bucket of the spread Vec3i hash in the final table, insertion
-// order within a bucket (resizes split buckets order-preservingly).
-// Treeified buckets (9+ colliding entries) are not modeled.
-func javaHashSetOrder(ps []BlockPos) []BlockPos {
-	if len(ps) == 0 {
-		return ps
-	}
-	capacity := 16
-	for float64(len(ps)) > float64(capacity)*0.75 {
-		capacity *= 2
-	}
-	type ent struct {
-		p      BlockPos
-		bucket int
-		seq    int
-	}
-	es := make([]ent, len(ps))
-	for i, p := range ps {
-		h := (p[1]+p[2]*31)*31 + p[0]
-		h ^= int32(uint32(h) >> 16)
-		es[i] = ent{p, int(uint32(h) & uint32(capacity-1)), i}
-	}
-	sort.SliceStable(es, func(a, b int) bool { return es[a].bucket < es[b].bucket })
-	out := make([]BlockPos, len(es))
-	for i, e := range es {
-		out[i] = e.p
-	}
-	return out
 }
