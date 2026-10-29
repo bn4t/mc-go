@@ -2,6 +2,7 @@ package worldgen
 
 import (
 	"math"
+	"sync"
 
 	"mc-go/internal/world"
 )
@@ -137,10 +138,24 @@ func steepRadius(r Random, y, height, width int32) int32 {
 // ellipseDist is IcebergFeature.signedDistanceEllipse.
 func ellipseDist(x, z int32, c BlockPos, a, b int32, angle float64) float64 {
 	dx, dz := float64(x-c[0]), float64(z-c[2])
-	cs, sn := math.Cos(angle), math.Sin(angle)
+	cs, sn := trigOf(angle)
 	u := float64(float64(dx*cs)-float64(dz*sn)) / float64(a)
 	v := float64(float64(dx*sn)+float64(dz*cs)) / float64(b)
 	return float64(u*u) + float64(v*v) - 1
+}
+
+var trigCache sync.Map // angle -> [2]float64{cos, sin}
+
+// trigOf is (Math.cos(angle), Math.sin(angle)), memoized: an iceberg
+// evaluates the same one or two angles for every cell.
+func trigOf(angle float64) (float64, float64) {
+	if v, ok := trigCache.Load(angle); ok {
+		cs := v.([2]float64)
+		return cs[0], cs[1]
+	}
+	cs := [2]float64{javaCos(angle), javaSin(angle)}
+	trigCache.Store(angle, cs)
+	return cs[0], cs[1]
 }
 
 // circleDist is IcebergFeature.signedDistanceCircle.
@@ -165,7 +180,9 @@ func (ib *iceberg) block(height, x, y, z, rad, a int32) {
 	} else {
 		d = circleDist(x, z, rad, ib.r)
 	}
-	if d >= 0 {
+	// dcmpg: a NaN distance (zero or negative-height ellipse axis)
+	// counts as outside.
+	if !(d < 0) {
 		return
 	}
 	p := offset(ib.origin, x, y, z)
@@ -284,7 +301,8 @@ func (ib *iceberg) carve(rad, y int32, underwater bool, angle float64, center Bl
 	b := min(rad-3, 3) + ib.shapeA/2 - 1
 	for x := -a; x < a; x++ {
 		for z := -a; z < a; z++ {
-			if ellipseDist(x, z, center, a, b, angle) >= 0 {
+			// dcmpg: a NaN distance (zero ellipse axis) is not inside.
+			if !(ellipseDist(x, z, center, a, b, angle) < 0) {
 				continue
 			}
 			p := offset(ib.origin, x, y, z)

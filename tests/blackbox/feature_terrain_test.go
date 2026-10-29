@@ -3,6 +3,7 @@
 package blackbox
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 	"testing"
@@ -17,12 +18,22 @@ import (
 // area really exercises the feature.
 func featureWrites(t *testing.T, seed int64, areas []terrainArea, types ...string) map[string]int {
 	t.Helper()
+	return featureWritesOv(t, seed, areas, typeOverrides(types))
+}
+
+// typeOverrides is the stage data featureParity uses: only the given
+// feature types kept, carvers and surface on.
+func typeOverrides(types []string) map[string]json.RawMessage {
 	want := map[string]bool{}
 	for _, ty := range types {
 		want[ty] = true
 	}
 	keep := func(p string) bool { return want[worldgen.PlacedFeatureType(worldgen.Vanilla(), p)] }
-	ov := worldgen.StageOverrides(worldgen.Vanilla(), keep, true, true)
+	return worldgen.StageOverrides(worldgen.Vanilla(), keep, true, true)
+}
+
+func featureWritesOv(t *testing.T, seed int64, areas []terrainArea, ov map[string]json.RawMessage) map[string]int {
+	t.Helper()
 	g, err := worldgen.NewGenerator(worldgen.Overlay(worldgen.Vanilla(), ov), "overworld", "overworld", seed)
 	if err != nil {
 		t.Fatal(err)
@@ -58,12 +69,12 @@ func featureWrites(t *testing.T, seed int64, areas []terrainArea, types ...strin
 // (bubble columns over magma) are compared after post().
 func featureParityPost(t *testing.T, seed int64, areas []terrainArea, post func(*worldgen.ProtoChunk), types ...string) {
 	t.Helper()
-	want := map[string]bool{}
-	for _, ty := range types {
-		want[ty] = true
-	}
-	keep := func(p string) bool { return want[worldgen.PlacedFeatureType(worldgen.Vanilla(), p)] }
-	ov := worldgen.StageOverrides(worldgen.Vanilla(), keep, true, true)
+	featureParityOv(t, seed, areas, typeOverrides(types), post)
+}
+
+// featureParityOv is featureParityPost over explicit stage data.
+func featureParityOv(t *testing.T, seed int64, areas []terrainArea, ov map[string]json.RawMessage, post func(*worldgen.ProtoChunk)) {
+	t.Helper()
 	region := vanillaTerrainFiles(t, seed, stageDatapack(ov), areas)
 	g, err := worldgen.NewGenerator(worldgen.Overlay(worldgen.Vanilla(), ov), "overworld", "overworld", seed)
 	if err != nil {
@@ -132,6 +143,9 @@ func featureParityPost(t *testing.T, seed int64, areas []terrainArea, post func(
 	}
 	if len(worldgen.UnsupportedFeatures) > 0 {
 		t.Errorf("unsupported feature types placed nothing: %v", worldgen.UnsupportedFeatures)
+	}
+	if len(worldgen.UnsupportedProcessors) > 0 {
+		t.Errorf("unsupported template processors passed blocks through: %v", worldgen.UnsupportedProcessors)
 	}
 	t.Logf("%d chunks compared; %d order-dependent cells, %d fluid post-processing cells accepted", total, orderDep, exempt)
 }
@@ -230,10 +244,71 @@ func TestFeatureGeodeParity(t *testing.T) {
 	featureParity(t, 12345, areas, "geode")
 }
 
+// TestFeatureFossilParity pins FossilFeature and the shared template
+// placement: random rotation and fossil, sinking under OCEAN_FLOOR_WG,
+// the empty-corner check, palette draw, the chunk-margin clip box and
+// the block_rot / protected_blocks / rule processors (coal overlay,
+// deep diamond overlay), in swamp and desert.
+func TestFeatureFossilParity(t *testing.T) {
+	areas := []terrainArea{{-152, -92, -145, -85}, {-155, 26, -148, 33}}
+	requireWrites(t, featureWrites(t, 12345, areas, "fossil"), map[string]int{"bone_block": 200, "coal_ore": 5, "deepslate_diamond_ore": 10})
+	featureParity(t, 12345, areas, "fossil")
+}
+
 // TestFeatureForestRockParity pins BlockBlobFeature: mossy cobblestone
 // rocks sinking to forest_rock_can_place_on in old growth spruce taiga.
 func TestFeatureForestRockParity(t *testing.T) {
 	areas := []terrainArea{{38, -26, 43, -21}, {22, 6, 27, 11}}
 	requireWrites(t, featureWrites(t, 12345, areas, "block_blob"), map[string]int{"mossy_cobblestone": 200})
 	featureParity(t, 12345, areas, "block_blob")
+}
+
+// templateTestOverrides strips every biome feature and gives plains a
+// test placed feature in its surface_structures step: a template
+// feature over the sulfur spring templates and two fossils (all four
+// rotations), two per chunk at the WORLD_SURFACE_WG top. The real
+// server only reaches the template type through root_system in sulfur
+// caves, so this pins the template placement directly.
+func templateTestOverrides(t *testing.T) map[string]json.RawMessage {
+	ov := typeOverrides(nil)
+	var tpls []map[string]any
+	for _, id := range []string{"spring/sulfur_spring_small_1", "spring/sulfur_spring_small_2", "spring/sulfur_spring_small_3",
+		"spring/sulfur_spring_small_4", "spring/sulfur_spring_medium_1", "spring/sulfur_spring_medium_2",
+		"spring/sulfur_spring_medium_3", "spring/sulfur_spring_large_1", "spring/sulfur_spring_large_2",
+		"spring/sulfur_spring_extra_large_1", "fossil/skull_2", "fossil/spine_3"} {
+		tpls = append(tpls, map[string]any{"data": map[string]any{"id": "minecraft:" + id}, "weight": 1})
+	}
+	pf := map[string]any{
+		"feature": map[string]any{"type": "minecraft:template", "config": map[string]any{"templates": tpls}},
+		"placement": []any{
+			map[string]any{"type": "minecraft:count", "count": 2},
+			map[string]any{"type": "minecraft:in_square"},
+			map[string]any{"type": "minecraft:heightmap", "heightmap": "WORLD_SURFACE_WG"},
+			map[string]any{"type": "minecraft:biome"},
+		},
+	}
+	ov["placed_feature/terrain_template_test"], _ = json.Marshal(pf)
+	var b map[string]json.RawMessage
+	json.Unmarshal(ov["biome/plains"], &b)
+	var steps [][]string
+	json.Unmarshal(b["features"], &steps)
+	if len(steps) < 5 {
+		t.Fatalf("plains has %d feature steps", len(steps))
+	}
+	steps[4] = append(steps[4], "minecraft:terrain_template_test")
+	b["features"], _ = json.Marshal(steps)
+	ov["biome/plains"], _ = json.Marshal(b)
+	return ov
+}
+
+// TestFeatureTemplateParity pins TemplateFeature and the shared
+// StructureTemplate placement: weighted template and rotation draws,
+// the rotated half-size offset, palette draw, rotated block states
+// (bone axes), air and water cells, waterlogged spikes and the magma
+// cells whose bubble columns appear in post-processing.
+func TestFeatureTemplateParity(t *testing.T) {
+	areas := []terrainArea{{19, -67, 25, -61}}
+	ov := templateTestOverrides(t)
+	requireWrites(t, featureWritesOv(t, 12345, areas, ov), map[string]int{"sulfur": 100, "bone_block": 20, "tuff": 100})
+	featureParityOv(t, 12345, areas, ov, worldgen.PostProcessBubbleColumns)
 }
