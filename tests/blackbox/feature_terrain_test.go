@@ -69,11 +69,17 @@ func featureWritesOv(t *testing.T, seed int64, areas []terrainArea, ov map[strin
 // (bubble columns over magma) are compared after post().
 func featureParityPost(t *testing.T, seed int64, areas []terrainArea, post func(*worldgen.ProtoChunk), types ...string) {
 	t.Helper()
-	featureParityOv(t, seed, areas, typeOverrides(types), post)
+	featureParityOv(t, seed, areas, typeOverrides(types), post, false)
 }
 
-// featureParityOv is featureParityPost over explicit stage data.
-func featureParityOv(t *testing.T, seed int64, areas []terrainArea, ov map[string]json.RawMessage, post func(*worldgen.ProtoChunk)) {
+// featureParityOv is featureParityPost over explicit stage data. With
+// orderSensitive, mc-go also decorates the areas in reverse order, and
+// in a chunk whose two mc-go results differ anywhere every mismatch is
+// accepted as decoration-order dependent: features that read what
+// neighbouring chunks' features wrote (256-attempt sulfur pools)
+// settle differently under the real server's concurrent chunk order,
+// which also varies between its runs. Order-stable chunks stay strict.
+func featureParityOv(t *testing.T, seed int64, areas []terrainArea, ov map[string]json.RawMessage, post func(*worldgen.ProtoChunk), orderSensitive bool) {
 	t.Helper()
 	region := vanillaTerrainFiles(t, seed, stageDatapack(ov), areas)
 	g, err := worldgen.NewGenerator(worldgen.Overlay(worldgen.Vanilla(), ov), "overworld", "overworld", seed)
@@ -101,14 +107,32 @@ func featureParityOv(t *testing.T, seed int64, areas []terrainArea, ov map[strin
 	for _, c := range order {
 		post(chunks[c])
 	}
+	var alt map[[2]int32]*worldgen.ProtoChunk
+	if orderSensitive {
+		g2, _ := worldgen.NewGenerator(worldgen.Overlay(worldgen.Vanilla(), ov), "overworld", "overworld", seed)
+		rev := make([][2]int32, len(order))
+		for i, c := range order {
+			rev[len(order)-1-i] = c
+		}
+		alt = g2.GenerateArea(rev)
+		for _, c := range order {
+			post(alt[c])
+		}
+	}
 	minY, height := g.RS.MinY(), g.RS.Height()
-	total, orderDep, exempt := 0, 0, 0
+	total, orderDep, exempt, sensitive, unstableChunks := 0, 0, 0, 0, 0
 	for _, a := range areas {
 		for cx := a.x0 + 1; cx < a.x1; cx++ {
 			for cz := a.z0 + 1; cz < a.z1; cz++ {
 				saved := readSavedChunk(t, region, cx, cz, minY, height)
 				p := chunks[[2]int32{cx, cz}]
 				bad := 0
+				unstable := false
+				if alt != nil {
+					for i, b := range alt[[2]int32{cx, cz}].Blocks {
+						unstable = unstable || b != p.Blocks[i]
+					}
+				}
 				for i, w := range saved.blocks {
 					gs := protoStateString(p.Blocks[i])
 					if gs == w {
@@ -129,6 +153,10 @@ func featureParityOv(t *testing.T, seed int64, areas []terrainArea, ov map[strin
 						exempt++
 						continue
 					}
+					if unstable {
+						sensitive++
+						continue
+					}
 					if bad < 5 {
 						t.Errorf("(%d,%d,%d): mc-go %s, vanilla %s", pos[0], pos[1], pos[2], gs, w)
 					}
@@ -136,6 +164,9 @@ func featureParityOv(t *testing.T, seed int64, areas []terrainArea, ov map[strin
 				}
 				if bad > 0 {
 					t.Errorf("chunk %d,%d: %d mismatched blocks", cx, cz, bad)
+				}
+				if unstable {
+					unstableChunks++
 				}
 				total++
 			}
@@ -147,7 +178,7 @@ func featureParityOv(t *testing.T, seed int64, areas []terrainArea, ov map[strin
 	if len(worldgen.UnsupportedProcessors) > 0 {
 		t.Errorf("unsupported template processors passed blocks through: %v", worldgen.UnsupportedProcessors)
 	}
-	t.Logf("%d chunks compared; %d order-dependent cells, %d fluid post-processing cells accepted", total, orderDep, exempt)
+	t.Logf("%d chunks compared (%d decoration-order sensitive); %d order-dependent cells, %d fluid post-processing cells, %d cells in order-sensitive chunks accepted", total, unstableChunks, orderDep, exempt, sensitive)
 }
 
 // requireWrites fails unless mc-go's features wrote at least min cells
@@ -199,17 +230,31 @@ func TestFeatureLakeSpringRoomParity(t *testing.T) {
 	featureParity(t, 12345, areas, types...)
 }
 
+// TestFeatureSulfurPoolParity pins the sulfur caves' lakes: LakeFeature
+// with a sulfur barrier, water fill and the sulfur-spike placement
+// guard, sequenced with the potent sulfur placed under the pool. 256
+// pool attempts per chunk read neighbouring chunks' pools, so chunks
+// whose result depends on decoration order are only checked for
+// coverage; the order-stable chunks are compared strictly.
+func TestFeatureSulfurPoolParity(t *testing.T) {
+	areas := []terrainArea{{-169, 67, -162, 74}}
+	types := []string{"lake", "sequence"}
+	requireWrites(t, featureWrites(t, 12345, areas, types...), map[string]int{"sulfur": 1000, "water": 500, "potent_sulfur": 5})
+	featureParityOv(t, 12345, areas, typeOverrides(types), worldgen.PostProcessBubbleColumns, true)
+}
+
 // TestFeatureDiskMagmaParity pins DiskFeature (sand, clay and gravel
 // disks under ocean and river water, swamp clay, mangrove grass/dirt
-// with its rule-based provider) and UnderwaterMagmaFeature (floor scan,
+// with its rule-based provider, ice spikes' packed ice patches) and
+// UnderwaterMagmaFeature (floor scan,
 // per-cell chance and the buried-face test). Magma's bubble columns
 // appear when the real server post-processes the chunk (the water cell
 // above each magma block is marked, LiquidBlock.tick rebuilds the
 // column), so the comparison runs mc-go's bubble-column pass first.
 func TestFeatureDiskMagmaParity(t *testing.T) {
-	areas := []terrainArea{{-74, -170, -69, -165}, {-138, -90, -133, -85}, {-170, 38, -165, 43}}
+	areas := []terrainArea{{-74, -170, -69, -165}, {-138, -90, -133, -85}, {-170, 38, -165, 43}, {46, -50, 50, -46}}
 	types := []string{"disk", "underwater_magma"}
-	requireWrites(t, featureWrites(t, 12345, areas, types...), map[string]int{"sand": 500, "clay": 200, "gravel": 200, "grass_block": 50, "magma_block": 20})
+	requireWrites(t, featureWrites(t, 12345, areas, types...), map[string]int{"sand": 500, "clay": 200, "gravel": 200, "grass_block": 50, "magma_block": 20, "packed_ice": 200})
 	featureParityPost(t, 12345, areas, worldgen.PostProcessBubbleColumns, types...)
 }
 
@@ -239,8 +284,8 @@ func TestFeatureDesertWellParity(t *testing.T) {
 // (air filling, amethyst/budding inner, calcite, smooth basalt) and the
 // bud and cluster sprouting with facing and waterlogging.
 func TestFeatureGeodeParity(t *testing.T) {
-	areas := []terrainArea{{20, 0, 29, 9}}
-	requireWrites(t, featureWrites(t, 12345, areas, "geode"), map[string]int{"amethyst_block": 100, "budding_amethyst": 10, "calcite": 100, "smooth_basalt": 100})
+	areas := []terrainArea{{20, 0, 29, 9}, {0, 0, 9, 9}}
+	requireWrites(t, featureWrites(t, 12345, areas, "geode"), map[string]int{"amethyst_block": 300, "budding_amethyst": 30, "calcite": 500, "smooth_basalt": 600})
 	featureParity(t, 12345, areas, "geode")
 }
 
@@ -313,5 +358,5 @@ func TestFeatureTemplateParity(t *testing.T) {
 	areas := []terrainArea{{19, -67, 25, -61}}
 	ov := templateTestOverrides(t)
 	requireWrites(t, featureWritesOv(t, 12345, areas, ov), map[string]int{"sulfur": 100, "bone_block": 20, "tuff": 100})
-	featureParityOv(t, 12345, areas, ov, worldgen.PostProcessBubbleColumns)
+	featureParityOv(t, 12345, areas, ov, worldgen.PostProcessBubbleColumns, false)
 }
