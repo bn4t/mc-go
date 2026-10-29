@@ -49,9 +49,14 @@ func (p *ProtoChunk) Set(x, y, z int32, b world.Block) {
 		return
 	}
 	p.Blocks[p.idx(x, y, z)] = b
-	p.updateHeight(&p.worldSurface, x, y, z, b, notAir)
-	p.updateHeight(&p.oceanFloor, x, y, z, b, blocksMotion)
-	if p.primed {
+	// ProtoChunk.setBlockState updates the persisted status's
+	// heightmapsAfter: WORLDGEN through SURFACE (so carvers still move
+	// the _WG maps), FINAL from CARVERS on — feature writes leave the
+	// _WG maps frozen.
+	if !p.primed {
+		p.updateHeight(&p.worldSurface, x, y, z, b, notAir)
+		p.updateHeight(&p.oceanFloor, x, y, z, b, blocksMotion)
+	} else {
 		p.updateHeight(&p.motionBlocking, x, y, z, b, motionBlocking)
 		p.updateHeight(&p.motionNoLeaves, x, y, z, b, motionBlockingNoLeaves)
 		p.updateHeight(&p.oceanFloorFinal, x, y, z, b, blocksMotion)

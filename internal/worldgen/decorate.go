@@ -335,6 +335,9 @@ func (rg *Region) Height(t int, x, z int32) int32 {
 	if c == nil {
 		return rg.g.RS.lvMinY
 	}
+	// ProtoChunk.getHeight primes a missing heightmap from the blocks
+	// on first read (a neighbour no feature has written yet).
+	c.primeHeightmaps()
 	return c.HeightAt(t, x&15, z&15) + 1
 }
 
