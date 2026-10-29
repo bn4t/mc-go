@@ -250,7 +250,13 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	clicked = world.Pos{X: int(x), Y: int(y), Z: int(z)}
 	cur := d.w.GetBlock(clicked)
 	if cur == world.Air {
-		return // no block targeted: ack only
+		// SpawnEggItem.useOn accepts a collision-empty clicked cell even
+		// when the packet targets air. Keep its normal reach/use gates.
+		held := sess.heldStack()
+		name, _ := itemNameOf(held.ID)
+		if held.Empty() || !strings.HasSuffix(name, "_spawn_egg") {
+			return
+		}
 	}
 	facePos = world.Pos{X: int(x + dx), Y: int(y + dy), Z: int(z + dz)}
 	// handleUseItemOn's tail re-sends the live state at the clicked pos

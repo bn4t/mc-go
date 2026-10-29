@@ -104,7 +104,7 @@ func (s *Server) useSpawnEgg(sess *Session, d *dimension, clicked world.Pos, fac
 		return
 	}
 	spawnPos := clicked
-	if !collisionShapeEmpty(cur) {
+	if len(s.worldCollisionShapeAt(d, cur, clicked)) != 0 {
 		spawnPos = facePos
 	}
 	more := spawnPos != clicked && face == 1
