@@ -219,8 +219,10 @@ func init() {
 func (tc *treeConfig) place(c *featCtx, r Random, origin BlockPos) bool {
 	t := &treeCtx{g: c.g, rg: c.rg, r: r, cfg: tc, roots: newJSet(), logs: newJSet(), leaves: newJSet(), decos: map[BlockPos]bool{}}
 	if !tc.doPlace(t, origin) || (t.logs.n == 0 && t.leaves.n == 0) {
+		treeTrace(t.rg, "tree %v failed", origin)
 		return false
 	}
+	treeTrace(t.rg, "tree %v logs=%d leaves=%d", origin, t.logs.n, t.leaves.n)
 	if len(tc.decorators) > 0 {
 		dc := newDecoCtx(t.g, t.rg, r, t.setDeco, t.logs.list(), t.leaves.list(), t.roots.list())
 		for _, d := range tc.decorators {

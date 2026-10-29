@@ -204,7 +204,9 @@ func (d placeOnGroundDeco) attempt(c *decoCtx, p BlockPos) {
 	if treeHeightAt(c.rg, HMMotionBlockingNoLeaves, p[0], p[2]) > up[1] {
 		return
 	}
-	c.set(up, d.provider.getState(c.rg, c.r, up))
+	b := d.provider.getState(c.rg, c.r, up)
+	treeTrace(c.rg, "litter %v", up)
+	c.set(up, b)
 }
 
 // treeHeightAt is WorldGenLevel.getHeight for a final heightmap,
