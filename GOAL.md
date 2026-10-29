@@ -18205,3 +18205,11 @@ Limits: complete player/entity/item/context schemas, biome registry error valida
 - **Pinned:** cross-store unit beforeFAIL0.827s/afterPASS0.637s; differential7positive witnesses PASS32.48s (2.60s/1.81s), including supported potion components and copy independence after modification/removal. Other generic-container native fields remain separately bounded.
 
 Provenance: Java 26.2 wire, Temurin 25.0.5+8 and Go 1.27.3; bundler SHA1 823e2250d24b3ddac457a60c92a6a941943fcd6a.
+
+## Slice — clone strict callbacks and shapes (2026-10-29)
+
+- **Measured:** strict clone uses flags818 and skips ordinary neighbor notification; baseline Native14positive callback/shape controls pass while Go fails3strict controls.
+- **Implemented:** retain strict literal and reuse existing independently written strict write policy for destination and move-source state writes; ordinary path unchanged.
+- **Pinned:** expanded22positive TNT/fence/move witnesses PASS24.97s (2.92s/2.04s); native-copy24case regression27.95s and legacy55commands18.88s. Ordinary placement ordering/notify-before-hydrate and scheduled block ticks remain separate limits.
+
+Provenance: Java 26.2 wire and CloneCommands flag/branch measurements, Temurin 25.0.5+8 and Go 1.27.3; bundler SHA1 823e2250d24b3ddac457a60c92a6a941943fcd6a. Independent reuse of existing Go write policies.

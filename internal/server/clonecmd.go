@@ -69,7 +69,9 @@ func (s *Server) runClone(player string, args []string) reply {
 		return *r
 	}
 	i += 3
+	strict := false
 	if i < len(args) && args[i] == "strict" {
+		strict = true
 		i++
 	}
 	mask := 0 // 0 replace, 1 masked, 2 filtered
@@ -234,14 +236,19 @@ func (s *Server) runClone(player string, args []string) reply {
 		s.clonePlaceNativeCell(dstDim, world.Pos{
 			X: dst[0] + c.rel[0],
 			Y: dst[1] + c.rel[1],
-			Z: dst[2] + c.rel[2]}, c.blk, c.tag)
+			Z: dst[2] + c.rel[2]}, c.blk, c.tag, strict)
 	}
 	if mode == 2 {
 		for _, c := range cells {
 			x, y, z := minX+c.rel[0], minY+c.rel[1], minZ+c.rel[2]
 			if !inDst(x, y, z) {
-				s.structureRetireBlockEntity(srcDim, world.Pos{X: x, Y: y, Z: z}, srcDim.w.GetBlock(world.Pos{X: x, Y: y, Z: z}), world.Air)
-				s.setNaturalBlockNotify(srcDim, world.Pos{X: x, Y: y, Z: z}, world.Air, world.Air)
+				pos := world.Pos{X: x, Y: y, Z: z}
+				if strict {
+					s.setSilentBlockWithPolicy(srcDim, pos, world.Air, true, true)
+				} else {
+					s.structureRetireBlockEntity(srcDim, pos, srcDim.w.GetBlock(pos), world.Air)
+					s.setNaturalBlockNotify(srcDim, pos, world.Air, world.Air)
+				}
 			}
 		}
 	}

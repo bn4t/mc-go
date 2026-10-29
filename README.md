@@ -75,8 +75,9 @@ Execute if/unless block, fill replace and clone filtered support built-in block
 tags, member properties and typed nested block-entity NBT subsets. Clone also
 preserves measured native block-entity payloads and supported item components
 across copies, moves and overlapping force copies. Barrel native data access
-uses its live container storage, including supported stored item components. Datapack tags, scheduled-tick
-copying, strict placement and exhaustive parser diagnostics remain in progress.
+uses its live container storage, including supported stored item components. Strict clone suppresses callbacks and shape updates at destinations and moved
+source cells. Datapack tags, scheduled-tick copying and exhaustive parser
+diagnostics remain in progress.
 
 Scripted protocol tests exercise real vanilla server behavior. A graphical
 client playtest is a separate check: client dependency downloads are currently
