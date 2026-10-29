@@ -18093,3 +18093,13 @@ Limits: Source-base retraction now has verified ordinary stand/cow block clippin
 Durable measurement lesson: merging occupied voxel cells into the same outer AABB preserves overlap geometry but can change directional collision clipping for a body already inside the shape. Preserve actual coordinate planes and occupancy when implementing Entity.move-style clipping; endpoint intersection predicates have different requirements. A NoGravity stand is an effective noPhysics geometry apparatus, but does not establish ordinary-body collision semantics.
 
 Artifact: work/piston-sourcebase-clipped-fixed-stage/owned.patch SHA256 f5fc67eda8d73a967a051cac9f76c28bbdbca83e5385f89347ae6a666ac8ada9.
+
+## Slice — advancement JSON integer codecs (2026-10-29)
+
+**Measured** — Native public Codec.INT, MinMaxBounds.Ints.CODEC and optional-field probes plus actual reward/icon packets: JSON integers truncate fractions and wrap signed32 bits; optional null fields take defaults. This differs from typed NBT floating conversion. Go1.27.3/Temurin25.0.5+8, inner26.2 jar SHA1 `86765a5899bd9c96461036a628796b4245715058`. Unchanged baseline FAIL86.40s: all11native XP expectations pass, old Go fails them and omits valid definitions. The earlier fractional-icon rejection unit was an unverified assumption and is corrected.
+
+**Implemented** — Preserve exact JSON tokens for reward XP, icon counts and pending tick-condition consumers. Independent decimal/exponent conversion truncates and computes low32 bits without first rounding through float64 or allocating huge powers. Icon bounds apply after conversion; metadata construction and actual rewards use the same XP conversion. Existing unrelated trigger evaluators retain their previous float64 inputs. Native item/NBT converters are unchanged.
+
+**Pinned** — Independent immutablee472f74 plus eight owned files: numeric wire PASS20.60s, seven actual displayed definitions with exact icon metadata and XP totals2/7/14/21/21/21/20, then20 for four rejected resources. Covers fractions, wrapping, integers above2^53, exponents, count99.9, negative XP, null defaults and invalid counts/booleans. Existing displayed pack regression PASS34.22s; helper units0.906s include exact parsed XP7/icon3 metadata above2^53. Patch SHA256 `3f2d1f41277edd0a9386768f4314b1aa661aed6e589b46822309841a7bcdd54c`; work/advancement-numbers-manifest.md records provenance and logs.
+
+Limits: complete rich text/item schemas and numeric migration of every existing trigger family remain separate. Contextual tick predicates are not part of this numeric artifact. Retaining json.Number requires auditing metadata and reward consumers, not only the decoder.

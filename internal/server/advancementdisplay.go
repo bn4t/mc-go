@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 
@@ -249,12 +248,21 @@ func parseAdvancementDisplay(raw any) (*advancementDisplay, error) {
 		return nil, fmt.Errorf("missing advancement icon")
 	}
 	if count, exists := rawIcon["count"]; exists {
-		n, ok := count.(float64)
-		if !ok || n != math.Trunc(n) || n < 1 || n > 99 {
+		n, err := advancementJSONInt(count)
+		if count == nil {
+			n, err = 1, nil
+		}
+		if err != nil || n < 1 || n > 99 {
 			return nil, fmt.Errorf("invalid advancement icon count")
 		}
+		normalized := map[string]any{}
+		for key, value := range rawIcon {
+			normalized[key] = value
+		}
+		normalized["count"] = float64(n)
+		rawIcon = normalized
 	}
-	if components, exists := rawIcon["components"]; exists {
+	if components, exists := rawIcon["components"]; exists && components != nil {
 		if _, ok := components.(map[string]any); !ok {
 			return nil, fmt.Errorf("invalid advancement icon components")
 		}
@@ -294,7 +302,7 @@ func parseAdvancementDisplay(raw any) (*advancementDisplay, error) {
 	if display.icon.Empty() || display.icon.Count > 99 {
 		return nil, fmt.Errorf("invalid advancement icon")
 	}
-	if value, exists := object["frame"]; exists {
+	if value, exists := object["frame"]; exists && value != nil {
 		frame, ok := value.(string)
 		if !ok {
 			return nil, fmt.Errorf("invalid advancement frame")
@@ -309,7 +317,7 @@ func parseAdvancementDisplay(raw any) (*advancementDisplay, error) {
 			return nil, fmt.Errorf("unknown advancement frame")
 		}
 	}
-	if value, exists := object["background"]; exists {
+	if value, exists := object["background"]; exists && value != nil {
 		id, ok := value.(string)
 		if !ok || id == "" {
 			return nil, fmt.Errorf("invalid advancement background")
@@ -318,7 +326,7 @@ func parseAdvancementDisplay(raw any) (*advancementDisplay, error) {
 		display.flags |= 1
 	}
 	for _, field := range []string{"show_toast", "hidden", "announce_to_chat"} {
-		if value, exists := object[field]; exists {
+		if value, exists := object[field]; exists && value != nil {
 			enabled, ok := value.(bool)
 			if !ok {
 				return nil, fmt.Errorf("invalid advancement display flag")

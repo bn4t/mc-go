@@ -106,7 +106,7 @@ func TestDisplayedAdvancementPackParity(t *testing.T) {
 		finished := false
 		fold := func(ps []usePkt) {
 			for _, p := range ps {
-				if p.id == 0x21 && bytes.Contains(p.data, []byte("DISPLAY-PIN-END")) { // disguised_chat: actual /say output
+				if structureSaidBB([]string{fmt.Sprintf("0x%x:%s", p.id, p.data)}, "DISPLAY-PIN-END") { // disguised_chat: actual /say output
 					finished = true
 				}
 				if p.id == server.IDPlayUpdateAdvance {
@@ -179,6 +179,12 @@ func TestDisplayedAdvancementPackParity(t *testing.T) {
 }
 
 func decodeDisplayedAdvancementPacket(t *testing.T, body []byte, out map[string]displayedAdvancementProbe) {
+	decodeDisplayedAdvancementPacketMatching(t, body, out, func(id string) bool {
+		return strings.HasPrefix(id, "displaypin:") || strings.HasPrefix(id, "minecraft:story/")
+	})
+}
+
+func decodeDisplayedAdvancementPacketMatching(t *testing.T, body []byte, out map[string]displayedAdvancementProbe, accepts func(string) bool) {
 	t.Helper()
 	r := protocol.NewPacketReader(body)
 	check := func(err error) {
@@ -194,7 +200,7 @@ func decodeDisplayedAdvancementPacket(t *testing.T, body []byte, out map[string]
 		start := len(body) - r.Remaining()
 		id, err := r.String()
 		check(err)
-		if !strings.HasPrefix(id, "displaypin:") && !strings.HasPrefix(id, "minecraft:story/") {
+		if !accepts(id) {
 			captured := data.AdvDefWire[id]
 			if captured == nil {
 				t.Fatalf("unknown unrelated definition%s", id)
@@ -435,7 +441,7 @@ func TestDisplayedBuiltinTabOverrideParity(t *testing.T) {
 						if p.id == server.IDPlayUpdateAdvance {
 							decodeDisplayedAdvancementPacket(t, p.data, definitions)
 						}
-						if p.id == 0x21 && bytes.Contains(p.data, []byte("TAB-OVERRIDE-END")) {
+						if structureSaidBB([]string{fmt.Sprintf("0x%x:%s", p.id, p.data)}, "TAB-OVERRIDE-END") {
 							finished = true
 						}
 					}

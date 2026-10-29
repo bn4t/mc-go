@@ -1,9 +1,7 @@
 package server
 
 import (
-	"encoding/json"
 	"io/fs"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,12 +77,12 @@ func (s *Server) loadAdvancementPacks() {
 			if err != nil {
 				return nil
 			}
-			var raw map[string]any
-			if json.Unmarshal(rawBytes, &raw) != nil || !validPackAdvancement(raw) {
+			raw, decodeErr := decodeAdvancementJSON(rawBytes)
+			if decodeErr != nil || !validPackAdvancement(raw) {
 				return nil
 			}
 			var display *advancementDisplay
-			if value, hasDisplay := raw["display"]; hasDisplay {
+			if value, hasDisplay := raw["display"]; hasDisplay && value != nil {
 				var err error
 				display, err = parseAdvancementDisplay(value)
 				if err != nil {
@@ -172,7 +170,7 @@ func validPackAdvancement(raw map[string]any) bool {
 			return false
 		}
 	}
-	if requirements, defined := raw["requirements"]; defined {
+	if requirements, defined := raw["requirements"]; defined && requirements != nil {
 		groups, ok := requirements.([]any)
 		if !ok {
 			return false
@@ -198,24 +196,24 @@ func validPackAdvancement(raw map[string]any) bool {
 			return false
 		}
 	}
-	if parent, exists := raw["parent"]; exists {
+	if parent, exists := raw["parent"]; exists && parent != nil {
 		if _, ok := parent.(string); !ok {
 			return false
 		}
 	}
-	if rewards, exists := raw["rewards"]; exists {
+	if rewards, exists := raw["rewards"]; exists && rewards != nil {
 		reward, ok := rewards.(map[string]any)
 		if !ok {
 			return false
 		}
 		if value, exists := reward["experience"]; exists {
-			n, ok := value.(float64)
-			if !ok || n != math.Trunc(n) || n < math.MinInt32 || n > math.MaxInt32 {
+			_, err := advancementJSONInt(value)
+			if value != nil && err != nil {
 				return false
 			}
 		}
 		for _, field := range []string{"loot", "recipes"} {
-			if value, exists := reward[field]; exists {
+			if value, exists := reward[field]; exists && value != nil {
 				entries, ok := value.([]any)
 				if !ok {
 					return false
@@ -227,7 +225,7 @@ func validPackAdvancement(raw map[string]any) bool {
 				}
 			}
 		}
-		if value, exists := reward["function"]; exists {
+		if value, exists := reward["function"]; exists && value != nil {
 			if _, ok := value.(string); !ok {
 				return false
 			}

@@ -37,7 +37,7 @@ func TestAdvancementDisplayRejectsMalformedNestedValues(t *testing.T) {
 	for _, body := range []string{
 		`{"title":{"text":"x","extra":[1]},"description":"d","icon":{"id":"minecraft:paper"}}`,
 		`{"title":{"color":"red"},"description":"d","icon":{"id":"minecraft:paper"}}`,
-		`{"title":"x","description":"d","icon":{"id":"minecraft:paper","count":1.5}}`,
+		`{"title":"x","description":"d","icon":{"id":"minecraft:paper","count":0.5}}`,
 		`{"title":"x","description":"d","icon":{"id":"minecraft:paper","components":[]}}`,
 		`{"title":"x","description":"d","icon":{"id":"minecraft:paper"},"show_toast":"yes"}`,
 	} {

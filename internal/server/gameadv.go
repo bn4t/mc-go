@@ -280,8 +280,10 @@ func parseGameAdvs(definitions map[string]map[string]any) map[string]*advMeta {
 		}
 		m := &advMeta{id: id, raw: raw}
 		if reward, ok := raw["rewards"].(map[string]any); ok {
-			if points, ok := reward["experience"].(float64); ok {
-				m.experience = int32(points)
+			if value, exists := reward["experience"]; exists && value != nil {
+				if points, err := advancementJSONInt(value); err == nil {
+					m.experience = points
+				}
 			}
 		}
 		if p, ok := raw["parent"].(string); ok {
