@@ -7327,6 +7327,7 @@ var mobFlees = map[string][]fleeRule{
 	"creeper":  {{"ocelot", 6.0, 1.0, 1.2, false, false}, {"cat", 6.0, 1.0, 1.2, false, false}},
 	"rabbit":   {{"player", 8.0, 2.2, 2.2, false, false}, {"wolf", 10.0, 2.2, 2.2, false, false}, {"monster", 4.0, 2.2, 2.2, false, false}},
 	"fox":      {{"player", 16.0, 1.6, 1.4, true, false}, {"wolf", 8.0, 1.6, 1.4, false, true}, {"polar_bear", 8.0, 1.6, 1.4, false, false}},
+	"evoker":   {{"player", 8.0, 0.6, 1.0, false, false}},
 }
 
 // mobMonsterType approximates vanilla's Monster superclass for the

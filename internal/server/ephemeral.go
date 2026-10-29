@@ -19,8 +19,9 @@ import (
 //   - fishing_bobber: FishingHook.tick discards instantly when
 //     getPlayerOwner() is null — every summon.
 //   - evoker_fangs: warmupDelayTicks 0, lifeTicks 22 → the fang
-//     deals its hit at warmup -8 and discards when lifeTicks runs
-//     out (~23 ticks).
+//     bites (entity event 4) on its first tick, deals its hit at
+//     warmup -8 and discards when lifeTicks runs out (~23 ticks) —
+//     fangTick in evoker.go.
 //   - eye_of_ender: life > 80 → discard; surviveAfterDeath (the ~80%
 //     roll) drops its ender_eye item.
 //   - ominous_item_spawner: spawnItemAfterTicks rolls
@@ -85,20 +86,9 @@ func (s *Server) ephemeralTickStep() {
 				}
 			}
 		case "evoker_fangs":
-			e, ok := s.entities.GetPtr(snap.ID)
-			if !ok {
-				continue
-			}
-			e.FangWarmup--
-			if e.FangWarmup >= 0 {
-				continue
-			}
-			if e.FangWarmup == -8 {
-				s.fangDealDamage(e)
-			}
-			e.FangLife--
-			if e.FangLife < 0 {
-				s.ephemeralDiscard(e)
+			// EvokerFangs.tick — evoker.go.
+			if e, ok := s.entities.GetPtr(snap.ID); ok {
+				s.fangTick(e)
 			}
 		case "eye_of_ender":
 			e, ok := s.entities.GetPtr(snap.ID)
@@ -161,31 +151,6 @@ func (s *Server) ephemeralDiscard(e *Entity) {
 // floorPos is entity.blockPosition: the cell containing the entity.
 func floorPos(e *Entity) world.Pos {
 	return world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}
-}
-
-// fangDealDamage is EvokerFangs's warmup==-8 hit: every living entity
-// inside the fang's AABB inflated 0.2 horizontally takes its 6.0
-// indirect-magic damage (a summoned fang has no owner to exclude).
-func (s *Server) fangDealDamage(e *Entity) {
-	eh := mobBounds(e.Type)[0] / 2
-	for _, o := range s.entities.All() {
-		if o.ID == e.ID || o.Dim != e.Dim || !o.Living || o.Dying {
-			continue
-		}
-		oh := mobBounds(o.Type)[0] / 2
-		if o.X+oh < e.X-0.2-eh || o.X-oh > e.X+0.2+eh {
-			continue
-		}
-		if o.Z+oh < e.Z-0.2-eh || o.Z-oh > e.Z+0.2+eh {
-			continue
-		}
-		if o.Y >= e.Y+0.8 || o.Y+0.9 < e.Y-0.2 {
-			continue
-		}
-		if op, ok := s.entities.GetPtr(o.ID); ok {
-			s.damageMob(op, 6.0, "indirect_magic", nil, nil)
-		}
-	}
 }
 
 // hangSurvives approximates HangingEntity.survives for a frame or
