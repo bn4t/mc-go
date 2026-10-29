@@ -73,16 +73,10 @@ func (s *Server) spawnerSetEntity(d *dimension, pos world.Pos, ent string) {
 	s.spawnerSendUpdate(d, pos, g)
 }
 
-// spawnerSendUpdate sends the spawner's update tag (its saved fields
-// without SpawnPotentials).
-func (s *Server) spawnerSendUpdate(d *dimension, pos world.Pos, g *genericBlockEntity) {
-	spec, ok := blockEntitySpecForType("mob_spawner")
-	if !ok {
-		return
-	}
-	if raw := blockEntityUpdateTag("mob_spawner", genericSaveFields(d, pos, g)); raw != nil {
-		s.broadcastBlockEntityData(d, pos, spec.id, raw)
-	}
+// spawnerSendUpdate follows sendBlockUpdated: the final live update tag
+// (without SpawnPotentials) is sent once by the chunk-change flush.
+func (s *Server) spawnerSendUpdate(d *dimension, pos world.Pos, _ *genericBlockEntity) {
+	s.queueBlockEntityDirty(d, pos)
 }
 
 // spawnerTickStep runs BaseSpawner.serverTick for every spawner block

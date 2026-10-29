@@ -161,6 +161,5 @@ func (s *Server) handleSetJigsawBlock(sess *Session, p protocol.Packet) {
 	g.fields["selection_priority"], g.fields["placement_priority"] = edit.selection, edit.placement
 	// setChanged/sendBlockUpdated occurs even for a semantically unchanged edit.
 	s.broadcastBlockState(d, edit.pos, d.w.GetBlock(edit.pos))
-	spec, _ := blockEntitySpecForType("jigsaw")
-	s.broadcastBlockEntityData(d, edit.pos, spec.id, blockEntityUpdateTag("jigsaw", g.fields))
+	s.queueBlockEntityDirty(d, edit.pos)
 }

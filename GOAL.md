@@ -17763,3 +17763,10 @@ Source OpenJDK25.0.5 javap StructureBlockEntity, StructureTemplate, StructurePla
 - **Measured:** The legacy spawner comparison counted different retry events after six wall-clock seconds under load, despite equal spawned mobs and matching gated cases.
 - **Implemented:** Freeze during setup, advance exact game-tick intervals, and observe game-time completion while retaining all packets. Event-count assertions remain strict.
 - **Pinned:** TestSpawnerParity PASS (87.70s) against vanilla and Go: dark zombies 3 spawn/11 block events, pigs 3/10, gated/daylight cases 0/0, empty spawner 0/1. The motivating wall-time failure log is retained; no production timing change is included.
+
+
+## Slice — block-entity refresh after template placement (2026-10-29)
+
+- **Measured:** Vanilla 26.2 wire and OpenJDK 25.0.5 inspection of ChunkHolder and block-entity update getters; unpacked jar SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Twenty registry types provide update packets; command blocks and ordinary containers return null. Empty update tags remain compounds. Dirty block and block-entity updates coalesce.
+- **Implemented:** Dispatch measured getter types through existing serializers, using final live fields without save-frame coordinates/type. Queue structure/jigsaw editor and spawner refreshes, and coalesce explicit updates with changed-state broadcasts. Preserve legacy bed projection and existing sign mutation behavior.
+- **Pinned:** Relevant units PASS (1.120s). Jigsaw editor comparison PASS (28.70s), requiring exactly one changed/no-op response. Eight-target native template test PASS (13.52s): exact sign/structure/jigsaw/command/chest/furnace/brushable/spawner counts `[1 1 1 0 0 0 1 1]`, fresh payloads, empty compound, and one controller response. The corrected exact-tick spawner regression PASS (87.70s). Other getter types retain existing serializer coverage; their complete payload semantics are not newly established here.

@@ -225,8 +225,7 @@ func (s *Server) handleSetStructureBlock(sess *Session, p protocol.Packet) {
 		s.sendSystemChatComponent(sess, translatable(s.structureBlockLoad(d, edit.pos, g), name))
 	}
 	s.broadcastBlockState(d, edit.pos, d.w.GetBlock(edit.pos))
-	spec, _ := blockEntitySpecForType("structure_block")
-	s.broadcastBlockEntityData(d, edit.pos, spec.id, blockEntityUpdateTag("structure_block", f))
+	s.queueBlockEntityDirty(d, edit.pos)
 }
 
 // Matching corner markers determine the open interior. A single marker uses

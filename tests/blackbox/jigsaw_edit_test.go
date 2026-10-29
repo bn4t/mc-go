@@ -40,6 +40,7 @@ func TestJigsawEditorParity(t *testing.T) {
 		Checks                    []bool
 		FirstUpdate               []string
 		BlockUpdate, RepeatUpdate bool
+		FirstCount, RepeatCount   int
 	}
 	run := func(addr string) result {
 		c, pr, pw := joinPlayBlackbox(t, addr, "JigsawEditor")
@@ -58,6 +59,7 @@ func TestJigsawEditorParity(t *testing.T) {
 			return false
 		}
 		var response map[string]any
+		responseCount := 0
 		var blockUpdate bool
 		pump := func() []string {
 			lines := sink.take()
@@ -90,6 +92,7 @@ func TestJigsawEditorParity(t *testing.T) {
 				v, e := nbt.ReadUnnamed(bytes.NewReader(raw))
 				if e == nil {
 					response, _ = v.(map[string]any)
+					responseCount++
 				}
 			}
 			return lines
@@ -154,6 +157,7 @@ func TestJigsawEditorParity(t *testing.T) {
 		blockUpdate = false
 		edit := func(name, target, pool, finalState, joint string, selection, placement int32) {
 			response = nil
+			responseCount = 0
 			writeJigsawEditBB(t, pw, pos, name, target, pool, finalState, joint, selection, placement)
 			barrier()
 			waitResponse()
@@ -163,6 +167,8 @@ func TestJigsawEditorParity(t *testing.T) {
 		}
 		edit("example:entry", "example:door", "minecraft:empty", "minecraft:oak_stairs[facing=south,half=top]", "rollable", -17, 2147483647)
 		waitResponse()
+		settle()
+		out.FirstCount = responseCount
 		out.BlockUpdate = blockUpdate
 		for _, key := range []string{"name", "target", "pool", "final_state", "joint", "selection_priority", "placement_priority"} {
 			out.FirstUpdate = append(out.FirstUpdate, fmt.Sprintf("%T:%v", response[key], response[key]))
@@ -172,6 +178,8 @@ func TestJigsawEditorParity(t *testing.T) {
 		response = nil
 		edit("example:entry", "example:door", "minecraft:empty", "minecraft:oak_stairs[facing=south,half=top]", "rollable", -17, 2147483647)
 		waitResponse()
+		settle()
+		out.RepeatCount = responseCount
 		out.RepeatUpdate = response != nil
 		edit("plain", "goal", "empty", " literal state ", "invalid_joint", -2147483648, -5)
 		check(`if data block 4 70 4 {name:"minecraft:plain",target:"minecraft:goal",pool:"minecraft:empty",final_state:" literal state ",joint:"aligned",selection_priority:-2147483648,placement_priority:-5}`)
@@ -235,7 +243,7 @@ func TestJigsawEditorParity(t *testing.T) {
 	got := run(tg.mcgo)
 	t.Logf("vanilla %+v; mcgo %+v", want, got)
 	expectedUpdate := []string{"string:example:entry", "string:example:door", "string:minecraft:empty", "string:minecraft:oak_stairs[facing=south,half=top]", "string:rollable", "int32:-17", "int32:2147483647"}
-	if !reflect.DeepEqual(want.FirstUpdate, expectedUpdate) || !want.BlockUpdate || !want.RepeatUpdate {
+	if !reflect.DeepEqual(want.FirstUpdate, expectedUpdate) || !want.BlockUpdate || !want.RepeatUpdate || want.FirstCount != 1 || want.RepeatCount != 1 {
 		t.Errorf("vanilla editor update fixture changed: %+v", want)
 	}
 	for i, ok := range want.Checks {

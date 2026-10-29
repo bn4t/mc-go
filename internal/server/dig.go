@@ -73,6 +73,7 @@ type blockSectionKey struct {
 // is read at flush, so multiple writes to one block within a tick
 // collapse to the final state — same as vanilla's ShortSet dedup.
 func (s *Server) blockChangesFlushStep() {
+	changed := map[dirtyBEKey]bool{}
 	s.dirtyMu.Lock()
 	dirty := s.dirtyBlocks
 	s.dirtyBlocks = map[blockSectionKey]map[uint16]bool{}
@@ -96,6 +97,7 @@ func (s *Server) blockChangesFlushStep() {
 				return profile.encodeBlockUpdate(int32(pos.X), int32(pos.Y), int32(pos.Z), state)
 			})
 			s.piggybackBlockEntity(d, pos)
+			changed[dirtyBEKey{dim: d.name, pos: pos}] = true
 			continue
 		}
 		states := make([]javaSectionBlock, 0, len(locals))
@@ -109,6 +111,7 @@ func (s *Server) blockChangesFlushStep() {
 		for _, lp := range locals {
 			pos := world.Pos{X: cx*16 + int(lp>>8&15), Y: key.y*16 + int(lp&15), Z: cz*16 + int(lp>>4&15)}
 			s.piggybackBlockEntity(d, pos)
+			changed[dirtyBEKey{dim: d.name, pos: pos}] = true
 		}
 	}
 
@@ -122,7 +125,7 @@ func (s *Server) blockChangesFlushStep() {
 	s.dirtyBEOrder = nil
 	s.dirtyMu.Unlock()
 	for _, key := range order {
-		if !dirtyBEs[key] {
+		if !dirtyBEs[key] || changed[key] {
 			continue
 		}
 		d := s.dims[key.dim]
@@ -156,18 +159,12 @@ func (s *Server) queueBlockEntityDirty(d *dimension, pos world.Pos) {
 	s.dirtyMu.Unlock()
 }
 
-// piggybackBlockEntity emits block_entity_data for a changed position
-// riding the flush — vanilla ChunkHolder.broadcastChanges sends it
-// right after the block update for any changed state whose block
-// entity produces an update packet. On the dedicated server that is
-// only signs: chests and furnaces produce no placement packet.
+// piggybackBlockEntity follows ChunkHolder.broadcastChanges: only block
+// entities whose type supplies a non-null update packet ride changed states.
 func (s *Server) piggybackBlockEntity(d *dimension, pos world.Pos) {
-	state := d.w.GetBlock(pos)
-	s.broadcastLegacyBedData(d, pos, state)
-	if spec, ok := signSpecOf(state); ok {
-		if st, ok := s.signAt(d, pos); ok {
-			s.broadcastBlockEntityData(d, pos, spec.id, signNBT(st))
-		}
+	s.broadcastLegacyBedData(d, pos, d.w.GetBlock(pos))
+	if spec, payload, ok := s.blockEntityUpdateAt(d, pos); ok {
+		s.broadcastBlockEntityData(d, pos, spec.id, payload)
 	}
 }
 
