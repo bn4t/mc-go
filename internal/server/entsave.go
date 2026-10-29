@@ -43,13 +43,6 @@ func (s *Server) captureEntityRegionsOwned(d *dimension) map[[2]int32][]map[stri
 		// on disk it is part of the compound, and a record without
 		// one is dropped on load.
 		m["id"] = "minecraft:" + name
-		if name == "item" {
-			// ItemEntity's Health is its destroy counter — 5
-			// default, unlike the 0 a fresh mc-go item carries.
-			if e.Health <= 0 {
-				m["Health"] = float32(5)
-			}
-		}
 		c := [2]int32{int32(math.Floor(e.X)) >> 4, int32(math.Floor(e.Z)) >> 4}
 		groups[c] = append(groups[c], cloneNativeNBT(m).(map[string]any))
 	}
@@ -101,6 +94,7 @@ func (s *Server) restoreEntities(d *dimension) {
 				X:    pos[0], Y: pos[1], Z: pos[2],
 				Item: stack,
 			})
+			e.ItemHP = int32(int16(nbtNumberOr(save["Health"], 5)))
 			if v, ok := nbtFloat(save["PickupDelay"]); ok {
 				e.PickupDelay = int(v)
 			}

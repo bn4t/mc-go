@@ -566,6 +566,23 @@ func (s *Server) itemTickStep() {
 			continue
 		}
 		orb := e.Type == orbType
+		if !orb {
+			e.TickCount++
+			if e.FireTicks > 0 {
+				if itemFireImmune(e) {
+					e.FireTicks = 0
+				} else {
+					_, inLava, _, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, 0.125, 0.25, fluidLava)
+					if e.FireTicks%20 == 0 && !inLava {
+						s.damageItemEntity(e, 1, "on_fire", 0)
+					}
+					e.FireTicks--
+				}
+			}
+			if _, ok := s.entities.GetPtr(e.ID); !ok {
+				continue
+			}
+		}
 		if e.FakeItem {
 			// makeFakeItem ages to 5999 so the entity discards on its
 			// first tick.

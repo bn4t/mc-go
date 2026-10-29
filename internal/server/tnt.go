@@ -219,7 +219,11 @@ func (s *Server) explodeWith(src *Entity, x, y, z float64, radius float32, grief
 	}
 	s.entities.mu.RLock()
 	var mobs []*Entity
+	var blastItems []*Entity
 	for _, e := range s.entities.byID {
+		if e.Type == mustEntityType("item") && e.Dim == src.Dim && e.ID != src.ID {
+			blastItems = append(blastItems, e)
+		}
 		if e.Living && !e.Dying && e.Dim == src.Dim && e.ID != src.ID {
 			mobs = append(mobs, e)
 		}
@@ -282,6 +286,8 @@ func (s *Server) explodeWith(src *Entity, x, y, z float64, radius float32, grief
 		}
 		return true
 	})
+
+	s.blastItemEntities(src, blastItems, x, y, z, radius, grief)
 
 	// End crystals in range take explosion damage too (removed, no
 	// chain blast).

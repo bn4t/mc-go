@@ -177,7 +177,7 @@ func collisionTopOf(blk world.Block) float64 {
 		if direction == "up" && thickness == "tip" {
 			return 11.0 / 16
 		}
-	case "honey_block":
+	case "honey_block", "cactus":
 		return 0.9375
 	case "farmland", "dirt_path":
 		return 0.9375

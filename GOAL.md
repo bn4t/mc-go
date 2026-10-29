@@ -17443,3 +17443,9 @@ Final flag/drink recheck: work/potion-flags-final.log, immutable work/potion-fla
 - **Remaining:** this is an empty-getter/empty-entity-context report.
   Entity- and block-entity-dependent consumers require their own contextual
   policy; no complete player or entity collision parity is claimed here.
+
+## Slice — dropped item damage and conventional explosions (2026-10-29)
+
+- **Measured:** Real 26.2 wire plus Temurin 25.0.5 javap facts for ItemEntity damage, fire, lava and explosion exposure. Oracle bundler SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`; inner jar SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Items start at integer health 5 and truncate after each accepted float subtraction, without living-entity damage immunity frames. Explosion targets are captured before destruction callbacks, so freshly spilled contents survive that blast.
+- **Implemented:** Unified item damage gates and lethal bundle callbacks; direct damage, fire, cactus and lava routes; native short Health/Age persistence preserving explicit zero; canonical summoned item components; exposure-based conventional explosion damage and additive impulse. Resistant nether stars still receive impulse. Corrected cactus collision top to 15/16 for item contact. Wind explosions retain their separate path.
+- **Pinned:** `TestItemDamageParity` passes in 27.50 s with exact health observations `[5 4 3 0 0 5 4 5 4 2 3 4 3 2 1]`. `TestItemExplosionParity` passes in 21.21 s: exposed removal, shielded health 4, resistant star health 5 with impulse, and three newly spilled bundle items at health 5. The observer stays outside pickup range and pre-blast health/components are asserted. Exact owned export builds; item/bundle units pass in 1.158 s, including native zero-health persistence and newborn-target exclusion. Arbitrary resistance-component overrides, living cactus damage and frozen player pickup remain separate.

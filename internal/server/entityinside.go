@@ -169,6 +169,10 @@ func (s *Server) entityInsideStep() {
 						s.tripwireInside(d, pos, b)
 					case "powder_snow":
 						s.powderSnowInside(e, d, pos, name)
+					case "cactus":
+						if name == "item" {
+							s.damageItemEntity(e, 1, "cactus", 0)
+						}
 					case "fire":
 						if name != "player" {
 							s.fireBlockInside(e, name, 1)
@@ -280,11 +284,17 @@ func (s *Server) powderSnowInside(e *Entity, d *dimension, pos world.Pos, name s
 // deals the in_fire damage — one heart on fire, two on soul fire.
 func (s *Server) fireBlockInside(e *Entity, name string, dmg float32) {
 	e.TicksFrozen = 0
+	if name == "item" && itemFireImmune(e) {
+		return
+	}
 	if e.FireTicks < 0 {
 		e.FireTicks++
 	}
 	if e.FireTicks >= 0 && !mobFireImmune[name] {
 		s.igniteMob(e, 160)
+	}
+	if name == "item" {
+		s.damageItemEntity(e, dmg, "in_fire", 0)
 	}
 	if e.Living {
 		s.damageMob(e, dmg, "in_fire", nil, &damageInfo{typeName: "in_fire"})
@@ -297,31 +307,15 @@ func (s *Server) fireBlockInside(e *Entity, name string, dmg float32) {
 // plus the GENERIC_BURN sound.
 func (s *Server) lavaInside(e *Entity, name string) {
 	e.TicksFrozen = 0
-	if !mobFireImmune[name] {
+	if !mobFireImmune[name] && !(name == "item" && itemFireImmune(e)) {
 		s.igniteMob(e, 300)
 	}
 	if name == "item" {
-		// ItemEntity.lavaHurt: hurt(lava, 4) — health 5 → burns a
-		// tick then dies on the second. GENERIC_BURN rides each
-		// hurt tick while health > 0; damage_resistant:#is_fire
-		// items (netherite family, ancient_debris) are fireImmune.
 		if itemFireImmune(e) {
 			return
 		}
-		if e.ItemHP == 0 {
-			e.ItemHP = 5
-		}
-		e.ItemHP -= 4
-		if !e.Silent {
-			// ItemEntity.getSoundSource overrides to AMBIENT.
-			s.playSoundSrc(e.Dim, e.X, e.Y, e.Z,
-				soundEventIDs["entity.generic.burn"], srcAmbient,
-				0.4, 2+rand.Float32()*0.4, nil)
-		}
-		if e.ItemHP <= 0 {
-			s.spillDestroyedBundle(e)
-			s.entities.Remove(e.ID)
-			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
+		if s.damageItemEntity(e, 4, "lava", 0) && !e.Silent && (e.ItemHP <= 0 || e.TickCount%10 == 0) {
+			s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, soundEventIDs["entity.generic.burn"], srcAmbient, 0.4, 2+rand.Float32()*0.4, nil)
 		}
 		return
 	}
@@ -329,7 +323,7 @@ func (s *Server) lavaInside(e *Entity, name string) {
 		dealt, _, _ := s.damageMob(e, 4, "lava", nil, &damageInfo{typeName: "lava"})
 		// Entity.lavaHurt: GENERIC_BURN rides each landed lava hit —
 		// shouldPlayLavaHurtSound is true for every living entity
-		// (ItemEntity's health>0||tick%10 is the only override).
+		// (ItemEntity's health<=0||tick%10 is the only override).
 		if dealt > 0 && !e.Silent {
 			v := mobVoiceOf(e)
 			// Entity.playSound → positional; for a player

@@ -652,6 +652,12 @@ func (s *Server) applyDamageCommand(sender *Session, target *dataEntity, amount 
 			nestedCompound{key: "", value: amount}, target.nameComp()))
 	}
 	mob := target.mob
+	if name, _ := EntityTypeName(mob.Type); name == "item" {
+		if !s.damageItemEntity(mob, amount, dmgType, causeID) {
+			return componentReply(commandError("commands.damage.invulnerable"))
+		}
+		return opsEchoReply(translatable("commands.damage.success", nestedCompound{key: "", value: amount}, target.nameComp()))
+	}
 	// Vanilla's DamageSource falls back to the direct entity when no
 	// `from` cause is given — `by @s` provokes just like a punch.
 	var killer *Session

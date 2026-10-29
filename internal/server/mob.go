@@ -1943,15 +1943,8 @@ func (s *Server) runSummon(player string, args []string) reply {
 		it := ItemStack{Count: 1}
 		if tag != nil {
 			if iv, ok := tag.vals["Item"]; ok {
-				if idv, ok := iv.vals["id"]; ok && idv.str != "" {
-					if iid, ok := world.ItemID(strings.TrimPrefix(idv.str, "minecraft:")); ok {
-						it.ID = iid
-					}
-				}
-				if cv, ok := iv.vals["count"]; ok {
-					if n := int32(snbtNum(cv)); n > 0 {
-						it.Count = n
-					}
+				if v, ok := snbtToValue(iv).(map[string]any); ok {
+					it = itemFromNBT(v)
 				}
 			}
 		}
@@ -1986,6 +1979,31 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 		}
 		s.entities.Spawn(e)
+		if tag != nil {
+			if tv, ok := tag.vals["Tags"]; ok && tv.kind == snbtList {
+				var tags []any
+				for _, v := range tv.items {
+					if v != nil && v.kind == snbtString {
+						tags = append(tags, v.str)
+					}
+				}
+				if len(tags) > 0 {
+					e.ExtraNBT = map[string]any{"Tags": nbt.List{Elem: nbt.TagString, Items: tags}}
+				}
+			}
+			if v, ok := tag.vals["Health"]; ok {
+				e.ItemHP = int32(int16(snbtNum(v)))
+			}
+			if v, ok := tag.vals["Invulnerable"]; ok {
+				e.Invulnerable = snbtNum(v) != 0
+			}
+			if v, ok := tag.vals["Silent"]; ok {
+				e.Silent = snbtNum(v) != 0
+			}
+			if v, ok := tag.vals["Fire"]; ok {
+				e.FireTicks = int32(int16(snbtNum(v)))
+			}
+		}
 		s.broadcastEntitySpawn(nil, *e)
 		return opsEchoReply(translatable("commands.summon.success", entityDisplayName(e)))
 	}

@@ -1039,6 +1039,8 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	if typeName == "item" && !e.Item.Empty() {
 		// ItemEntity.addAdditionalSaveData: the carried stack and the
 		// pickup-delay countdown; Owner/Thrower only serialize when set.
+		m["Health"] = int16(e.ItemHP)
+		m["Age"] = int16(e.ItemAge)
 		m["Item"] = itemNBT(e.Item)
 		m["PickupDelay"] = int16(e.PickupDelay)
 	}
@@ -1344,6 +1346,10 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		}
 	}
 	name, _ := EntityTypeName(e.Type)
+	if name == "item" {
+		e.ItemHP = int32(int16(nbtNumberOr(save["Health"], 5)))
+		e.ItemAge = int32(int16(nbtNumberOr(save["Age"], 0)))
+	}
 	// attributes:[{id,base,modifiers?}] — AttributeInstance.apply
 	// writes baseValue directly (no clamp, no dirty) and replaces the
 	// permanent modifier set outright; each entry also creates the
