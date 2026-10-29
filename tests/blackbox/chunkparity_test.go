@@ -3,7 +3,10 @@ package blackbox
 import (
 	"bytes"
 	"encoding/hex"
+	"io"
 	"testing"
+
+	"mc-go/internal/nbt"
 
 	"mc-go/internal/protocol"
 	"mc-go/internal/server"
@@ -101,10 +104,32 @@ func parseChunkView(t *testing.T, tag string, body []byte) chunkView {
 	if err != nil {
 		t.Fatalf("%s block entities: %v", tag, err)
 	}
+	// Block entities are compared separately (parseChunkBlockEntities);
+	// skip past them to the light data.
 	if beCount != 0 {
-		t.Fatalf("%s: chunk (0,0) unexpectedly has %d block entities", tag, beCount)
+		rest := rest[len(rest)-r.Remaining():]
+		br := bytes.NewReader(rest)
+		for i := int32(0); i < beCount; i++ {
+			var hdr [3]byte
+			if _, err := io.ReadFull(br, hdr[:]); err != nil {
+				t.Fatalf("%s block entity %d: %v", tag, i, err)
+			}
+			if _, err := readChunkBEVarInt(br); err != nil {
+				t.Fatalf("%s block entity %d type: %v", tag, i, err)
+			}
+			peek, err := readChunkBEByte(br)
+			if err != nil {
+				t.Fatalf("%s block entity %d nbt: %v", tag, i, err)
+			}
+			if peek != 0 {
+				_ = br.UnreadByte()
+				if _, err := nbt.ReadUnnamed(br); err != nil {
+					t.Fatalf("%s block entity %d nbt: %v", tag, i, err)
+				}
+			}
+		}
+		r = protocol.NewPacketReader(rest[len(rest)-br.Len():])
 	}
-	// The flat world has no block entities, so the marker is one byte.
 	v.blockEntities = nil
 
 	skyMask := readLightMask(t, tag, r)

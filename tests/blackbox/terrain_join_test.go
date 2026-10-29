@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -184,7 +185,7 @@ func collectJoin(t *testing.T, tag string, c net.Conn, pr *protocol.Reader, pw *
 // carved-open water and lava flow once the chunk ticks, which mc-go
 // does not model yet.
 func TestNormalWorldChunkParity(t *testing.T) {
-	normalWorldParity(t, "", 24, 0)
+	normalWorldParity(t, "", 24, 0, false)
 }
 
 // TestNormalWorldSettledParity lets the generated chunks tick for a
@@ -193,26 +194,43 @@ func TestNormalWorldChunkParity(t *testing.T) {
 // meet), rejoins, and compares the fresh window strictly — no fluid
 // exemption.
 func TestNormalWorldSettledParity(t *testing.T) {
-	normalWorldParity(t, "", 24, time.Minute)
+	normalWorldParity(t, "", 24, time.Minute, false)
 }
 
 // TestNormalNetherChunkParity teleports into the generated nether and
 // compares its streamed chunks the same way (block light from the lava
 // sea and lava pockets included).
 func TestNormalNetherChunkParity(t *testing.T) {
-	normalWorldParity(t, "execute in minecraft:the_nether run tp @s 40.5 70 -20.5", 16, 0)
+	normalWorldParity(t, "execute in minecraft:the_nether run tp @s 40.5 70 -20.5", 16, 0, false)
 }
 
 // TestNormalEndChunkParity does the same in the end's outer islands
 // (away from the origin, where the dragon fight builds the exit
 // portal).
 func TestNormalEndChunkParity(t *testing.T) {
-	normalWorldParity(t, "execute in minecraft:the_end run tp @s 1400.5 70 1400.5", 16, 0)
+	normalWorldParity(t, "execute in minecraft:the_end run tp @s 1400.5 70 1400.5", 16, 0, false)
 }
 
-func normalWorldParity(t *testing.T, tp string, sections int, settle time.Duration) {
+// TestNormalWorldFullChunkParity is the join comparison with every
+// feature on (structures still off): the vanilla world as generated.
+// It is a diagnostic (MCGO_JOIN_FULL=1), not a pin: the real server
+// decorates chunks in a schedule-dependent order, and where canopies
+// and patches of neighbouring chunks overlap (dense forests) the
+// result depends on that order, which differs run to run. The feature
+// pins replay the oracle's logged order instead.
+func TestNormalWorldFullChunkParity(t *testing.T) {
+	if os.Getenv("MCGO_JOIN_FULL") == "" {
+		t.Skip("diagnostic: set MCGO_JOIN_FULL=1")
+	}
+	normalWorldParity(t, "", 24, 0, true)
+}
+
+func normalWorldParity(t *testing.T, tp string, sections int, settle time.Duration, full bool) {
 	const seed = 12345
 	ov := worldgen.StageOverrides(worldgen.Vanilla(), func(string) bool { return false }, true, true)
+	if full {
+		ov = nil
+	}
 	props := map[string]string{
 		"level-type":         "minecraft:normal",
 		"generator-settings": "{}",
@@ -296,6 +314,22 @@ func compareChunkStreams(t *testing.T, vChunks, mChunks map[[2]int32][]byte, sec
 		compared++
 		v := parseWireChunk(t, "vanilla", vb, sections)
 		m := parseWireChunk(t, "mc-go", mb, sections)
+		if _, _, vbe, err := parseChunkBlockEntities(vb); err == nil {
+			_, _, mbe, err := parseChunkBlockEntities(mb)
+			if err != nil {
+				t.Errorf("chunk %v mc-go block entities: %v", k, err)
+			}
+			for pos, e := range vbe {
+				if me, ok := mbe[pos]; !ok || me.typ != e.typ {
+					t.Errorf("chunk %v block entity at %v: vanilla type %d, mc-go %v", k, pos, e.typ, mbe[pos])
+				}
+			}
+			for pos := range mbe {
+				if _, ok := vbe[pos]; !ok {
+					t.Errorf("chunk %v block entity at %v only on mc-go", k, pos)
+				}
+			}
+		}
 		vl, ml := parseChunkView(t, "vanilla", vb), parseChunkView(t, "mc-go", mb)
 		for sec := range vl.block {
 			// A section on neither block mask is dark.
@@ -335,7 +369,7 @@ func compareChunkStreams(t *testing.T, vChunks, mChunks map[[2]int32][]byte, sec
 					dirtyCols[i&255] = true
 					continue
 				}
-				if bad < 5 {
+				if bad < 5 || os.Getenv("MCGO_JOIN_VERBOSE") != "" {
 					t.Errorf("chunk %v block (%d,%d,%d): vanilla %s mc-go %s", k, i&15, s*16+i>>8+minY, i>>4&15, name(a), name(b))
 				}
 				bad++
