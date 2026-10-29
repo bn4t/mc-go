@@ -265,6 +265,9 @@ func genericBlockEntityAt(d *dimension, pos world.Pos) (*genericBlockEntity, blo
 // (bees that left drop off the end; bees that entered join with the
 // default occupant record).
 func genericSaveFields(d *dimension, pos world.Pos, g *genericBlockEntity) map[string]any {
+	if g.id == "minecraft:command_block" {
+		return commandBlockSavedFields(g.fields)
+	}
 	out := make(map[string]any, len(g.fields))
 	for k, v := range g.fields {
 		out[k] = cloneNBTValue(v)

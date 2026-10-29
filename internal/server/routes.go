@@ -95,7 +95,7 @@ func init() {
 		IDPlaySetBeaconSB:                (*Server).handleSetBeacon,
 
 		IDPlayHeldChangeSB:         (*Server).handleHeld,
-		IDPlaySetCommandBlockSB:    (*Server).ignoreServerbound,
+		IDPlaySetCommandBlockSB:    (*Server).handleSetCommandBlock,
 		IDPlaySetCommandMinecartSB: (*Server).ignoreServerbound,
 		IDPlayCreativeSlotSB:       (*Server).handleCreativeSlot,
 		IDPlaySetGameRuleSB:        (*Server).handleSetGameRule,

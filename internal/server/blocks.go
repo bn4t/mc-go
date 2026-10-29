@@ -178,6 +178,7 @@ func (s *Server) runSetblock(player string, args []string) reply {
 	// /setblock notifies neighbours with the NEW state — vanilla's
 	// updateNeighboursOnBlockSet reads the cell post-write.
 	s.setBlockAndBroadcastNotify(player, pos, blk, true)
+	s.commandBlockLoadTag(d, pos, tag)
 	s.emitLightUpdate(d, pos)
 	if tag != nil && isChestBlock(blk) {
 		c := s.chestAt(d, pos)
