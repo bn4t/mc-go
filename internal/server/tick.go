@@ -521,7 +521,9 @@ func (s *Server) gameTickOwned() {
 	s.cloudTickStep()
 	s.tntTickStep()
 	s.mobItemPickupStep()
-	// EnderDragonFight.tick runs before the End's entities tick.
+	// The crystal trackers flush, then EnderDragonFight.tick runs before
+	// the End's entities tick.
+	s.crystalSyncStep()
 	s.dragonFightTickStep()
 	s.mobTickStep()
 	s.dragonTickStep()

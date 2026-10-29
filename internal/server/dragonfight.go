@@ -89,7 +89,7 @@ type dragonFight struct {
 	barPlayers map[*Session]bool
 	barVisible bool
 	barProg    float32
-	barName    any
+	barName    component
 }
 
 // fightDataPath is the saved-data file of the dimension's fight.
@@ -421,7 +421,7 @@ func (s *Server) fightBarPacket(f *dragonFight, op int32) []byte {
 	b.VarInt(op)
 	switch op {
 	case 0:
-		b.Raw(componentBytes(f.barName))
+		b.Raw(f.barName.content())
 		b.Float(f.barProg)
 		b.VarInt(0) // PINK
 		b.VarInt(0) // PROGRESS
@@ -429,7 +429,7 @@ func (s *Server) fightBarPacket(f *dragonFight, op int32) []byte {
 	case 2:
 		b.Float(f.barProg)
 	case 3:
-		b.Raw(componentBytes(f.barName))
+		b.Raw(f.barName.content())
 	}
 	return b.Bytes()
 }
@@ -690,7 +690,7 @@ func (s *Server) placeEndPodium(d *dimension, o world.Pos, active bool) {
 // dropPreviousAndSetBlock: the break effect (level event 2001). The
 // replaced block's loot is not dropped yet.
 func (s *Server) dropBlockForPodium(d *dimension, p world.Pos, cur world.Block) {
-	s.broadcastLevelEvent(d.name, 2001, p, int32(cur))
+	s.levelEventNear(d, 2001, p, int32(cur))
 }
 
 // fightFindOrCreateDragon is findOrCreateDragon.
@@ -711,7 +711,6 @@ func (s *Server) fightCreateDragon(f *dragonFight) *Entity {
 	e.HeadYaw = e.Yaw
 	e.dragon.fight = true
 	s.dragonSetPhase(e, phaseHoldingPattern)
-	e.dragon.phaseSent = phaseHoldingPattern
 	s.spawnEnderDragon(e)
 	u := e.UUID
 	f.dragonUUID = &u
@@ -731,7 +730,7 @@ func (s *Server) fightUpdateDragon(f *dragonFight, e *Entity) {
 	f.ticksSinceDragonSeen = 0
 	if e.CustomName != "" {
 		name := componentFromStored(e.CustomName, e.CustomNameComp)
-		if string(componentBytes(name)) != string(componentBytes(f.barName)) {
+		if string(name.content()) != string(f.barName.content()) {
 			f.barName = name
 			s.fightBarSend(f, 3)
 		}
@@ -798,7 +797,7 @@ func (s *Server) fightSpawnNewGateway(f *dragonFight) {
 	i := f.gateways[len(f.gateways)-1]
 	f.gateways = f.gateways[:len(f.gateways)-1]
 	p := gatewayPos(i)
-	s.broadcastLevelEvent(f.d.name, 3000, p, 0)
+	s.levelEventNear(f.d, 3000, p, 0)
 	s.placeEndGateway(f.d, p)
 }
 
@@ -972,7 +971,7 @@ func (s *Server) fightRespawnStageTick(f *dragonFight, crystals []*Entity, t int
 	case respawnPreparing:
 		if t < 100 {
 			if t == 0 || t == 50 || t == 51 || t == 52 || t >= 95 {
-				s.broadcastLevelEvent(d.name, 3001, dragonBeamCentre, 0)
+				s.levelEventNear(d, 3001, dragonBeamCentre, 0)
 			}
 		} else {
 			s.fightSetRespawnStage(f, respawnSummoningPillars)
@@ -1017,17 +1016,17 @@ func (s *Server) fightRespawnStageTick(f *dragonFight, crystals []*Entity, t int
 			s.fightResetSpikeCrystals(f)
 			for _, c := range crystals {
 				crystalSetBeam(c, nil)
-				s.explodePower(c, c.X, c.Y, c.Z, 6, false)
+				s.explodeKeepBlocks(c, c.X, c.Y, c.Z, 6)
 				s.crystalDiscard(c)
 			}
 		case t >= 80:
-			s.broadcastLevelEvent(d.name, 3001, dragonBeamCentre, 0)
+			s.levelEventNear(d, 3001, dragonBeamCentre, 0)
 		case t == 0:
 			for _, c := range crystals {
 				crystalSetBeam(c, &dragonBeamCentre)
 			}
 		case t < 5:
-			s.broadcastLevelEvent(d.name, 3001, dragonBeamCentre, 0)
+			s.levelEventNear(d, 3001, dragonBeamCentre, 0)
 		}
 	}
 }
@@ -1061,4 +1060,28 @@ func (s *Server) crystalDiscard(c *Entity) {
 	c.Dying = true
 	s.entities.Remove(c.ID)
 	s.broadcastEntityRemoveIn(c.Dim, nil, []int32{c.ID})
+}
+
+// levelEventNear is ServerLevel.levelEvent(null, ...): the packet goes
+// to the dimension's players within 64 blocks of the block centre.
+func (s *Server) levelEventNear(d *dimension, event int32, pos world.Pos, data int32) {
+	cx, cy, cz := float64(pos.X)+0.5, float64(pos.Y)+0.5, float64(pos.Z)+0.5
+	s.sessions.Range(func(_, v any) bool {
+		sess := v.(*Session)
+		if sess.state.Load() != StatePlay || !sess.spawned.Load() || sess.dimName() != d.name {
+			return true
+		}
+		x, y, z, _, _, _ := sess.Pos()
+		if (x-cx)*(x-cx)+(y-cy)*(y-cy)+(z-cz)*(z-cz) >= 64*64 {
+			return true
+		}
+		profile, err := sess.javaProfile()
+		if err != nil {
+			return true
+		}
+		if body, err := profile.encodeLevelEvent(event, pos, data); err == nil {
+			_ = sess.write(sess.ids().PlayLevelEvent, body)
+		}
+		return true
+	})
 }

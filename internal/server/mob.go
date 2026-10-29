@@ -889,6 +889,12 @@ func (s *Server) runSummon(player string, args []string) reply {
 	if name == "player" || name == "fishing_bobber" {
 		return componentReply(commandError("entity.not_summonable", "minecraft:"+name))
 	}
+	// EndCrystal and EnderDragon carry their own entity state
+	// (endcrystal.go, enderdragon.go).
+	if name == "end_crystal" || name == "ender_dragon" {
+		s.summonEndEntity(sess.dimension(), name, x, y, z, tag)
+		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
+	}
 	if e, ok := s.summonMobRaw(sess.dimension(), name, x, y, z, noAI, tag == nil); ok {
 		// The variant rolls live in Mob.finalizeSpawn, which the
 		// summon command only calls for the no-NBT overload
@@ -2192,12 +2198,6 @@ func (s *Server) runSummon(player string, args []string) reply {
 	// The rest of the registry: vanilla's EntityType.create accepts
 	// every remaining type — each one spawns at its constructor
 	// defaults and runs its own tick fate in ephemeralTickStep.
-	// EndCrystal and EnderDragon carry their own entity state
-	// (endcrystal.go, enderdragon.go).
-	if name == "end_crystal" || name == "ender_dragon" {
-		s.summonEndEntity(sess.dimension(), name, x, y, z, tag)
-		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
-	}
 	if summonPlainNames[name] {
 		e := &Entity{
 			Type: mustEntityType(name),
@@ -4539,6 +4539,8 @@ var mobFireImmune = map[string]bool{
 	"blaze": true, "ghast": true, "magma_cube": true, "strider": true,
 	"wither": true, "wither_skeleton": true, "zombified_piglin": true,
 	"hoglin": true, "zoglin": true,
+	// EntityType END_CRYSTAL / ENDER_DRAGON are fireImmune too.
+	"end_crystal": true, "ender_dragon": true,
 }
 
 // mobBreathesWater is vanilla's can_breathe_under_water entity-type

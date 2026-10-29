@@ -244,14 +244,16 @@ func wrapDeg64(v float64) float64 {
 	return f
 }
 
-func clamp32(v, lo, hi float32) float32 { return float32(math.Max(float64(lo), math.Min(float64(hi), float64(v)))) }
+func clamp32(v, lo, hi float32) float32 {
+	return float32(math.Max(float64(lo), math.Min(float64(hi), float64(v))))
+}
 
 // newEnderDragon constructs a dragon entity (not yet in the level).
 func (s *Server) newEnderDragon(d *dimension, x, y, z float64) *Entity {
 	e := &Entity{
-		Type:      mustEntityType("ender_dragon"),
-		Dim:       d.name,
-		X:         x, Y: y, Z: z,
+		Type: mustEntityType("ender_dragon"),
+		Dim:  d.name,
+		X:    x, Y: y, Z: z,
 		Living:    true,
 		Health:    200,
 		MaxHealth: 200,
@@ -423,7 +425,7 @@ func (s *Server) dragonTickStep() {
 	var drs []*Entity
 	s.entities.mu.RLock()
 	for _, e := range s.entities.byID {
-		if e.dragon != nil && !e.Dormant && !e.Dying {
+		if e.dragon != nil && !e.Dormant {
 			drs = append(drs, e)
 		}
 	}
@@ -448,8 +450,13 @@ func (s *Server) dragonFightOf(e *Entity) *dragonFight {
 }
 
 // dragonTick is the dragon's Entity/LivingEntity tick: baseTick's
-// countdowns and tickDeath, then aiStep, then the tracker flush.
+// tracker flush, the countdowns, then tickDeath or aiStep.
 func (s *Server) dragonTick(e *Entity) {
+	// ServerEntity.sendChanges runs from the chunk source tick, early in
+	// the level tick: what changed last tick (or in a packet or command
+	// since) goes out before this tick's own changes.
+	s.dragonMarkDirty(e)
+	s.mobSyncFlush(e)
 	e.TickCount++
 	if e.invulnTicks > 0 {
 		e.invulnTicks--
@@ -468,8 +475,6 @@ func (s *Server) dragonTick(e *Entity) {
 	} else {
 		s.dragonAiStep(e)
 	}
-	s.dragonMarkDirty(e)
-	s.mobSyncFlush(e)
 }
 
 // dragonMarkDirty raises MetaDirty when a synched value moved.
@@ -730,7 +735,7 @@ func (s *Server) dragonCheckWalls(e *Entity, d *dimension, box [6]float64) bool 
 	if removed {
 		r := e.dragon.rng
 		p := world.Pos{X: x0 + r.nextBoundedInt(x1-x0+1), Y: y0 + r.nextBoundedInt(y1-y0+1), Z: z0 + r.nextBoundedInt(z1-z0+1)}
-		s.broadcastLevelEvent(d.name, 2008, p, 0)
+		s.levelEventNear(d, 2008, p, 0)
 	}
 	return blocked
 }
@@ -1337,7 +1342,7 @@ func (s *Server) strafeTick(e *Entity, d *dimension) {
 		hx, hy, hz := hp.x-view.x, hp.y+hp.h*0.5+0.5, hp.z-view.z
 		dir := dvec{tx - hx, ty + 0.9 - hy, tz - hz}.normalize()
 		if !e.Silent {
-			s.broadcastLevelEvent(d.name, 1017, floorPos(e), 0)
+			s.levelEventNear(d, 1017, floorPos(e), 0)
 		}
 		s.spawnDragonFireball(e, hx, hy, hz, dir)
 		dr.fireballCharge = 0
@@ -1393,6 +1398,7 @@ func (s *Server) spawnDragonFireball(e *Entity, x, y, z float64, dir dvec) {
 		AccelPower:   0.1,
 		ProjOwner:    e.UUID,
 		HasProjOwner: true,
+		arrowShooter: e.ID,
 	})
 	s.broadcastEntitySpawn(nil, *fb)
 }
@@ -1475,9 +1481,9 @@ func (s *Server) flamingTick(e *Entity, d *dimension) {
 		effects[id] = mobEffectInst{amplifier: 0, expiry: -1}
 	}
 	cloud := s.entities.Spawn(&Entity{
-		Type:          mustEntityType("area_effect_cloud"),
-		Dim:           e.Dim,
-		X:             x, Y: d10, Z: z,
+		Type: mustEntityType("area_effect_cloud"),
+		Dim:  e.Dim,
+		X:    x, Y: d10, Z: z,
 		CloudWait:     20,
 		CloudDuration: 200,
 		CloudRadius:   5,
@@ -1524,6 +1530,11 @@ func playerEID(p *Session) int32 {
 // dragonHurtServer routes damageMob's hits on the dragon (its whole
 // box stands for the body part).
 func (s *Server) dragonHurtServer(e *Entity, amount float32, typeName string, killer *Session, info *damageInfo) (float32, bool, bool) {
+	// Callers may hold a Manager.Get copy; the dragon's state lives on
+	// the stored entity.
+	if ep, ok := s.entities.GetPtr(e.ID); ok {
+		e = ep
+	}
 	ok, dealt, died := s.dragonHurt(e, partBody, amount, typeName, killer, info)
 	_ = ok
 	return dealt, false, died
@@ -1532,7 +1543,7 @@ func (s *Server) dragonHurtServer(e *Entity, amount float32, typeName string, ki
 // dragonHurt is EnderDragon.hurt(level, part, source, amount).
 func (s *Server) dragonHurt(e *Entity, part int, amount float32, typeName string, killer *Session, info *damageInfo) (bool, float32, bool) {
 	dr := e.dragon
-	if dr.phase == phaseDying {
+	if dr.phase == phaseDying || e.Health <= 0 { // LivingEntity.hurtServer refuses the dead
 		return false, 0, false
 	}
 	if isSittingPhase(dr.phase) && dr.phase != phaseHover && info != nil && info.direct != 0 {
@@ -1559,7 +1570,7 @@ func (s *Server) dragonHurt(e *Entity, part int, amount float32, typeName string
 	}
 	h := e.Health
 	dealt, _, died := s.mobHurtCore(e, amount, typeName, killer, info)
-	if isSittingPhase(dr.phase) && !died {
+	if isSittingPhase(dr.phase) {
 		dr.sittingDamage += h - e.Health
 		if dr.sittingDamage > 0.25*e.MaxHealth {
 			dr.sittingDamage = 0

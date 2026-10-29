@@ -144,8 +144,27 @@ func (s *Server) spawnEndCrystal(e *Entity) *Entity {
 	return e
 }
 
-// crystalTickStep runs EndCrystal.tick and the crystals' dirty data
-// flush once per game tick.
+// crystalSyncStep is the crystals' ServerEntity.sendChanges. Vanilla's
+// chunk source ticks (and its trackers send) early in the level tick,
+// before the dragon fight and the entities tick, so a change made by a
+// packet or command goes out before the fight's own changes that tick.
+func (s *Server) crystalSyncStep() {
+	typ := mustEntityType("end_crystal")
+	var crystals []*Entity
+	s.entities.mu.RLock()
+	for _, e := range s.entities.byID {
+		if e.Type == typ && e.crystal != nil && !e.Dormant {
+			crystals = append(crystals, e)
+		}
+	}
+	s.entities.mu.RUnlock()
+	for _, e := range crystals {
+		s.crystalSync(e)
+	}
+}
+
+// crystalTickStep runs EndCrystal.tick once per game tick: the fire
+// under a crystal in a level with a dragon fight.
 func (s *Server) crystalTickStep() {
 	typ := mustEntityType("end_crystal")
 	var crystals []*Entity
@@ -167,7 +186,6 @@ func (s *Server) crystalTickStep() {
 				s.setNaturalBlock(d, pos, fireGetState(d, pos))
 			}
 		}
-		s.crystalSync(e)
 	}
 }
 

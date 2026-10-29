@@ -4,9 +4,12 @@ package blackbox
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +18,55 @@ import (
 	"mc-go/internal/protocol"
 	"mc-go/internal/server"
 )
+
+// requireBlackboxSlow is requireBlackboxFiles for a generated world
+// whose mc-go side takes longer than the harness's 10 seconds to start
+// (initial spawn search and End terrain under a loaded machine).
+func requireBlackboxSlow(t *testing.T, vanillaProps, vanillaFiles map[string]string, mutate func(*server.Server)) targets {
+	t.Helper()
+	if os.Getenv(targetProp) != "" {
+		t.Skipf("%s mode: %s needs in-process mc-go configuration", targetProp, t.Name())
+	}
+	jar := blackboxJar(t)
+	vPort, ok := freePort()
+	if !ok {
+		t.Skip("loopback binds blocked in this environment")
+	}
+	vAddr, stop := startVanillaCfgFiles(t, jar, vPort, vanillaProps, vanillaFiles)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("bind blocked: %v", err)
+	}
+	addr := ln.Addr().String()
+	s := server.New(addr)
+	s.ViewDistance = 8
+	s.SimulationDistance = 8
+	mutate(s)
+	if err := s.InitPlugins(); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = s.Serve(ln) }()
+	t.Cleanup(func() { _ = ln.Close(); s.Stop() })
+	deadline := time.Now().Add(3 * time.Minute)
+	for !probeStatus(addr) {
+		if time.Now().After(deadline) {
+			t.Fatalf("mc-go not ready on %s", addr)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return targets{vanilla: vAddr, mcgo: addr, cleanup: stop}
+}
+
+// readGzipNBTBlackbox reads a gzipped named NBT file body.
+func readGzipNBTBlackbox(r io.Reader) (any, error) {
+	zr, err := gzip.NewReader(r)
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	_, v, err := nbt.ReadNamed(zr)
+	return v, err
+}
 
 // dfPkt is one recorded clientbound play packet.
 type dfPkt struct {
