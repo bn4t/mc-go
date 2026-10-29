@@ -407,8 +407,8 @@ func (s *Server) spawnSkyDarken(d *dimension) int {
 		return 0
 	}
 	v := float32(15) * daySkyLightFactor(s.dayTime())
-	rain := float32(s.weatherRain.Load()) / 1000
-	thunder := float32(s.weatherThundLv.Load()) / 1000 * rain
+	rain := s.rainLevel()
+	thunder := s.thunderLevel() * rain
 	if w := rain - thunder; w > 0 {
 		mod := v + 0.3125*(4-v)
 		v = v + w*(mod-v)

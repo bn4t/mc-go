@@ -59,11 +59,11 @@ func TestSpawnSkyDarken(t *testing.T) {
 	s.clock.mu.Lock()
 	s.clock.day = 6000
 	s.clock.mu.Unlock()
-	s.weatherRain.Store(1000)
+	setWeatherLevel(&s.weatherRain, 1)
 	if got := s.spawnSkyDarken(d); got != 3 {
 		t.Errorf("full-rain noon darken = %d, want 3", got)
 	}
-	s.weatherThundLv.Store(1000)
+	setWeatherLevel(&s.weatherThundLv, 1)
 	if got := s.spawnSkyDarken(d); got != 5 {
 		t.Errorf("full-thunder noon darken = %d, want 5", got)
 	}

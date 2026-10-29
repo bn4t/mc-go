@@ -250,15 +250,14 @@ func parseGameTestDefinition(in map[string]any) (map[string]any, error) {
 	return out, nil
 }
 
-// Empty/nested all_of environments have no setup/teardown side effects.
-// Other environment types require their own measured activation lifecycle.
+// Environment leaves retain canonical enum values; all_of composes them.
 func parseGameTestEnvironment(in map[string]any) (map[string]any, error) {
 	kind, err := gameTestResource(in["type"])
 	if err != nil {
 		return nil, err
 	}
 	if kind != "minecraft:all_of" {
-		return nil, fmt.Errorf("unsupported test environment%s", kind)
+		return parseGameTestEnvironmentLeaf(kind, in)
 	}
 	values, ok := in["definitions"].([]any)
 	if !ok {

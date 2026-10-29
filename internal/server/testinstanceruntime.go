@@ -9,15 +9,16 @@ import (
 // counted by world ticks, including the initial two runner scheduling ticks;
 // frozen player/connection ticks never advance it.
 type testInstanceRun struct {
-	d                 *dimension
-	pos               world.Pos
-	controller        *genericBlockEntity
-	function          string
-	remaining         int32
-	kind              string
-	maxTicks, elapsed int32
-	started           bool
-	failure           any
+	d                  *dimension
+	pos                world.Pos
+	controller         *genericBlockEntity
+	function           string
+	remaining          int32
+	kind               string
+	maxTicks, elapsed  int32
+	started            bool
+	failure            any
+	environmentRestore func()
 }
 
 func (s *Server) testInstanceStart(sess *Session, d *dimension, pos world.Pos, g *genericBlockEntity, data testInstanceData) {
@@ -49,10 +50,14 @@ func (s *Server) testInstanceStart(sess *Session, d *dimension, pos world.Pos, g
 		}
 	})
 	// Starting another run retires the prior server-wide runner.
+	if previous := s.testRun; previous != nil {
+		s.testInstanceRestoreEnvironment(previous)
+	}
 	function, _ := def["function"].(string)
 	kind, _ := def["type"].(string)
 	s.testRun = &testInstanceRun{d: d, pos: pos, controller: g, kind: kind, function: function, maxTicks: nbtNumberOr(def["max_ticks"], 1), remaining: nbtNumberOr(def["setup_ticks"], 0) + 2}
 	environment, _ := def["environment"].(string)
+	s.testRun.environmentRestore = s.activateTestEnvironment(d, s.testEnvironmentDefinition(environment))
 	s.sendOpsEcho(nil, translatable("commands.test.batch.starting", literal(environment), nestedCompound{value: int32(0)}))
 }
 
@@ -111,6 +116,7 @@ func (s *Server) testInstanceSucceed(run *testInstanceRun) {
 	s.testInstanceComplete(run, nil)
 }
 func (s *Server) testInstanceComplete(run *testInstanceRun, failure any) {
+	s.testInstanceRestoreEnvironment(run)
 	if current := s.testInstanceAt(run.d, run.pos); current != nil {
 		if data, ok := testInstanceDataFromNative(current.fields["data"]); ok {
 			data.status = 2
@@ -121,5 +127,12 @@ func (s *Server) testInstanceComplete(run *testInstanceRun, failure any) {
 	}
 	if s.testRun == run {
 		s.testRun = nil
+	}
+}
+
+func (s *Server) testInstanceRestoreEnvironment(run *testInstanceRun) {
+	if restore := run.environmentRestore; restore != nil {
+		run.environmentRestore = nil
+		restore()
 	}
 }

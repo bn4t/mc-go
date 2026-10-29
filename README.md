@@ -80,12 +80,17 @@ custom loot overlays and several vehicle/physical interactions remain in
 progress. See individual slice entries for exact tests and limitations.
 
 Test-instance controllers query registered templates and reset rotated volumes.
-Startup folder packs can add function/block-based tests and empty or nested
-`all_of` test environments. The built-in `minecraft:always_pass` and signal-driven
-START/ACCEPT/FAIL workflows run on world ticks, with measured failure/timeout
-results. Other environments, arbitrary test functions, LOG reports and the full
-GameTest runner remain partial. Pack selection, ZIP loading, metadata compatibility
-and reload are not implemented for these registry overlays.
+Startup folder packs can add function/block-based tests and difficulty/weather
+environments composed with `all_of`. Accepted RUN applies its environment
+immediately, including while frozen; runner setup and completion progress on
+world ticks. Completion and accepted replacement restore captured settings.
+START/ACCEPT/FAIL and typed failure/timeout workflows remain supported. Other
+environments, arbitrary test functions, LOG reports and the full GameTest runner
+remain partial. Pack selection, ZIP loading, metadata compatibility and reload
+are not implemented for these registry overlays.
+Weather intensities preserve native float32 steps and project rain/thunder
+changes to clients, including initial weather for late joins. Natural/random
+weather cycling and complete duration behavior remain partial.
 
 Native structure-template lookups cache both present and missing results until
 corner unload or `/reload`; unreadable generated NBT can fall back to bundled

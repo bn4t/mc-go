@@ -387,13 +387,13 @@ type Server struct {
 	// the remaining duration counted down per tick — see weather.go.
 	// rainLevel/thunderLevel are the lerped intensities vanilla's
 	// isRaining/isThundering actually read (>0.2 / >0.9 thresholds,
-	// ramping 0.01/tick — a thunder command doesn't channel for ~90
+	// ramping 0.01/tick — a thunder command doesn't channel for ~95
 	// ticks).
 	weatherRaining atomic.Bool
 	weatherThunder atomic.Bool
 	weatherTicks   atomic.Int64
-	weatherRain    atomic.Int32 // rainLevel * 1000, lerped
-	weatherThundLv atomic.Int32 // thunderLevel * 1000, lerped
+	weatherRain    atomic.Int32 // float32 rainLevel bits, lerped
+	weatherThundLv atomic.Int32 // float32 thunderLevel bits, lerped
 
 	// storage is the /data storage scope — vanilla's CommandStorage:
 	// a global map of resource-location id to NBT compound, empty for

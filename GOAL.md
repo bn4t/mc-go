@@ -41,8 +41,8 @@ Mojang server over the wire.
       explicitly assigned to ignoreServerbound. Structure, jigsaw, test-block
       and test-instance controller/built-in RUN workflows and client frame-end
       movement have measured coverage. Startup custom GameTest registries and
-      signal-driven block tests now have scoped pins. Complete schemas, test
-      environments and other handler semantics remain partial; routing is not full parity.
+      signal-driven block tests and difficulty/weather environments have scoped pins.
+      Complete schemas, other environments and handler semantics remain partial; routing is not full parity.
 - [x] Encryption / online mode
 - [x] Cookie / transfer / dialog / code-of-conduct packets.
       /transfer writes play transfer (host + port); /dialog show/clear
@@ -18364,3 +18364,11 @@ Provenance: Java 26.2 wire, public TimerQueue/Codec.LONG APIs and factual SavedD
 
 Limits: direct cow corpse placement is measured. This does not certify all dying entity types, player-specific dying pose dimensions, entity pushing/physics, or arbitrary scale/death combinations. Immediate player resize lifecycle remains a separate authorized follow-on.
 
+
+## Slice — GameTest difficulty/weather activation and weather projection (2026-10-29)
+
+- **Measured** — Actual Java26.2 wire and Weather.Type.apply / PlayerList broadcast facts, JDK25.0.5+8 and Go1.27.3; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Applied RUN feedback plus controller receipt establishes immediate activation even while frozen. Completion and accepted replacement restore captured settings; all_of unwinds in reverse order. Earlier command-only observations incorrectly attributed setup to the next tick and are superseded. Native float32 rain/thunder steps, threshold order and cold/partial/settled late joins are independently pinned. Initial thunder is rain×raw thunder; ongoing packets use raw thunder.
+- **Implemented** — Server-owned difficulty/weather codecs and activation/restore lifecycle, exact float32 shared weather state, ongoing level/threshold broadcasts and initial weather projection. Effective weather capture chooses the restore preset; native global weather mutation and global threshold routing are retained, with dimension-filtered continuous levels. No extra tick hook.
+- **Pinned** — Frozen11-file patch `417a1ec7b64eb6187e289e0f0d23f566ce516967eaab2a70bfaba5e645f4d1af`: build and focused units PASS1.922s; actual environment/weather differential PASS47.52s (native22.01/Go14.91), registered runner PASS25.62s. Corrected channeling fixture regression PASS35.17s is a separate test-only slice. Evidence: `work/testenvironment-after-wire.log`, `work/testenvironment-runner-regression.log`.
+
+Wire coverage is Overworld. Other environment types/holder references, full runner/retry/LOG/geometry/pack loading/reload, random weather cycles and complete durations remain partial. Cross-dimension execution, rejected RUN with an active environment and shutdown cleanup remain unpinned.

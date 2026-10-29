@@ -177,11 +177,25 @@ world, and finishes on the third world tick. Mutable template and runner state
 belong to each server. Startup test/environment catalogs are server-owned;
 profile-specific overlays preserve captured rows and append sorted custom keys
 for protocols 775/776. Function/block-based definitions use canonical defaults;
-empty/nested all_of environments have no setup side effects. START emits power;
+difficulty/weather environments compose with all_of. START emits power;
 receiver edges retain transient activation across native merges, but not saves.
 ACCEPT precedes FAIL. Success clears the enclosure immediately; failures publish
 on the next world tick and retain it. Setup and timeout use world ticks.
-Other functions/environments, LOG reports, retries, pack selection/ZIP/reload,
+Difficulty/weather activate immediately when RUN is accepted. Activation captures
+prior effective settings; all_of restores children in reverse order, and completion
+or accepted replacement retires each activation once. Weather restores a preset
+chosen from effective rain/thunder, rather than the previous flags/countdown.
+Freeze pauses test progression and weather interpolation, but not environment setup.
+Weather state preserves float32 recurrence. Ongoing level packets carry rain/raw
+thunder; initial join sends effective thunder (rain × thunder). Continuous level
+broadcasts are dimension-filtered; threshold transitions use native global routing.
+Native Weather.Type.apply writes global server weather while capture uses the
+initiating level's effective weather (clear in non-weather dimensions). This slice's
+wire coverage is Overworld; cross-dimension routing remains unpinned. Random cycles,
+complete timers, rejected RUN during an active environment and shutdown cleanup
+remain partial or unpinned.
+Other functions/environments, holder references within all_of, LOG reports, retries,
+pack selection/ZIP/reload,
 nondefault padding/sky access/definition rotation, oversized regions and complete
 text validation remain partial. Active geometry edits, force-load cleanup, exact
 live/global placement RNG interleaving and outside notifications during strict
