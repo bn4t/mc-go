@@ -299,7 +299,8 @@ func farmlandRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
 	moisture, _ := intProp(b, "moisture")
 	// FarmlandBlock.randomTick hydrates from water or rain at the cell above.
 	above := posAbove(pos, 1)
-	rain := s.fireRainingAt(d, above) && s.precipitationAt(d, above) == "rain"
+	rain := s.fireRainingAt(d, above) && s.precipitationAt(d, above) == "rain" &&
+		d.w.TopMotionBlocking(pos.X, pos.Z, d.minY, d.minY+d.height-1) < above.Y
 	if farmlandNearWater(s, d, pos) || rain {
 		if moisture < 7 {
 			if nb, ok := world.WithProperty(b, "moisture", "7"); ok {

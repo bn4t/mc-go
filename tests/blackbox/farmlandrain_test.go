@@ -25,7 +25,7 @@ func TestFarmlandRainHydrationParity(t *testing.T) {
 		for _, cmd := range []string{
 			"gamerule random_tick_speed 0", "fillbiome 32 -64 32 60 -48 56 plains", "weather rain",
 			"setblock 40 -60 44 farmland[moisture=0]", "setblock 40 -59 44 wheat[age=7]",
-			"setblock 48 -60 44 farmland[moisture=7]", "setblock 48 -59 44 wheat[age=7]", "setblock 48 -57 44 stone",
+			"setblock 48 -60 44 farmland[moisture=7]", "setblock 48 -59 44 wheat[age=7]", "setblock 48 -57 44 glass",
 		} {
 			sendCommand(t, pw, cmd)
 		}

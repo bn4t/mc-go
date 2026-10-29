@@ -27,7 +27,7 @@ func TestFarmlandRainHydration(t *testing.T) {
 		randPut(t, d, 40, -60, 40, "farmland", map[string]string{"moisture": "3"})
 		randPut(t, d, 40, -59, 40, "wheat", map[string]string{"age": "7"})
 		if roof {
-			randPut(t, d, 40, -57, 40, "stone", nil)
+			randPut(t, d, 40, -57, 40, "glass", nil)
 		}
 		s.weatherRaining.Store(true)
 		farmlandRule(s, d, pos, d.w.GetBlock(pos))

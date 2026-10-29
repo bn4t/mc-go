@@ -16752,3 +16752,19 @@ no flee; unsneak → flee). Green both legs.
 - **Pinned:** focused `TestSurvivalPlaceConsumesPackets` passes (3.70 s);
   `TestExternalWorldFrontend` passes (65.04 s), including its separate consumer
   module's `TestPublicWorldFixedVolume` (4.70 s). No production behavior changes.
+
+
+## Slice — glass roofs exclude farmland rain (2026-10-29)
+
+- **Measured:** JDK 25.0.5 javap measurements of `Level.isRainingAt` and
+  `Level.precipitationAt` on the same official 26.2 inner jar (SHA-256
+  `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`)
+  establish the motion-blocking heightmap gate. Glass transmits light while
+  blocking precipitation, so light exposure alone cannot establish rainfall.
+- **Implemented:** farmland rain hydration additionally checks the cached
+  motion-blocking surface at the rain probe. Existing water hydration is
+  unaffected; sheltered crops and dry/snowy biomes continue drying.
+- **Pinned:** the glass-roof `TestFarmlandRainHydrationParity` passes exposed
+  moisture seven and covered moisture zero against both servers (133.24 s).
+  Focused units cover exposed plains, glass cover, desert and snowy plains
+  along with the cave-vine regression (2.110 s). No skips.
