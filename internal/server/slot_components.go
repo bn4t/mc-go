@@ -228,6 +228,8 @@ func (t *slotProjector) component(r *protocol.PacketReader, b *protocol.Buffer, 
 			return e
 		}
 		return boolean()
+	case compBundleContents:
+		return list(1024, func() error { return t.template(r, b, depth+1) })
 	case compContainer:
 		return list(27, func() error {
 			present, e := slotBool(r)

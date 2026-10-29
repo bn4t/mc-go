@@ -33,6 +33,9 @@ func stackKey(it server.ItemStack) string {
 		return "-"
 	}
 	key := fmt.Sprintf("%d#%d", it.ID, it.Count)
+	if it.Bundle != "" {
+		key += "[bundle:" + it.Bundle + "]"
+	}
 	// Damage, repair cost, and custom name discriminate anvil inputs
 	// from their outputs: a repaired pick reads back bare, its parents
 	// worn; a renamed one carries its name.

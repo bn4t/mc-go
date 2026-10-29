@@ -1056,17 +1056,19 @@ func (s *Server) handlePaddleBoat(sess *Session, p protocol.Packet) {
 	}
 }
 
-// handleBundleItemSelected consumes a bundle slot selection. mc-go's
-// item model carries no components yet, so the bundle has no contents
-// to reorder; the packet is validated and dropped.
+// handleBundleItemSelected changes the selected entry in a bundle on the
+// current menu. The entry is transient; a subsequent extraction observes it.
 func (s *Server) handleBundleItemSelected(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
-	if _, err := r.VarInt(); err != nil {
+	slot, err := r.VarInt()
+	if err != nil {
 		return
 	}
-	if _, err := r.VarInt(); err != nil {
+	index, err := r.VarInt()
+	if err != nil || r.Remaining() != 0 {
 		return
 	}
+	s.selectBundleItem(sess, slot, index)
 }
 
 // handleCustomClickAction consumes a dialog click action. mc-go shows no

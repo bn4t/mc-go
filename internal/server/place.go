@@ -134,6 +134,9 @@ func (s *Server) handleHeld(sess *Session, p protocol.Packet) {
 	if err != nil || slot < 0 || slot > 8 {
 		return
 	}
+	if sess.bundleUseHand == 1 && sess.held.Load() != int32(slot) {
+		s.stopBundleUse(sess)
+	}
 	if sess.eyeUseHand == 1 && sess.held.Load() != int32(slot) {
 		s.stopEnderEyeUse(sess)
 	}

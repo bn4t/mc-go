@@ -53,6 +53,9 @@ type ItemStack struct {
 	// therefore also not stackable with a plain box, exactly as vanilla
 	// refuses to merge stacks with different components.
 	Contents *[shulkerSlots]ItemStack `json:"contents,omitempty"`
+	// Bundle stores a canonical nested-stack list; selection is transient.
+	Bundle         string `json:"bundle,omitempty"`
+	BundleSelected int32  `json:"-"`
 	// Ench is the minecraft:enchantments component as a canonical
 	// "name:level,name:level" string sorted by name, names stripped of
 	// the minecraft: prefix. A plain string keeps ItemStack comparable
@@ -169,7 +172,7 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 	if it.Empty() || other.Empty() || it.ID != other.ID {
 		return false
 	}
-	return it.Contents == nil && other.Contents == nil &&
+	return it.Bundle == other.Bundle && it.Contents == nil && other.Contents == nil &&
 		it.Damage == other.Damage && it.RepairCost == other.RepairCost &&
 		it.Name == other.Name && it.Ench == other.Ench &&
 		it.StoredEnch == other.StoredEnch && it.Bees == other.Bees &&
@@ -348,6 +351,9 @@ func writeSlot(b *protocol.Buffer, it ItemStack) {
 // the nested template is id + count + this same patch shape).
 func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 	var add int32
+	if it.Bundle != "" {
+		add++
+	}
 	if it.Damage != 0 {
 		add++
 	}
@@ -429,6 +435,10 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 	} else {
 		b.VarInt(0)
 	} // components to remove
+	if it.Bundle != "" {
+		b.VarInt(compBundleContents)
+		writeBundleContents(b, it)
+	}
 	if it.Damage != 0 {
 		b.VarInt(compDamage)
 		b.VarInt(it.Damage)
@@ -996,6 +1006,10 @@ func readSlotComponent(r *protocol.PacketReader, it *ItemStack, typ int32) error
 			}
 			it.Bees++
 		}
+	case compBundleContents:
+		var err error
+		it.Bundle, err = readBundleContents(r, 0)
+		return err
 	case compContainer: // minecraft:container, optional-template list
 		n, err := r.VarInt()
 		if err != nil || n < 0 || n > shulkerSlots {
@@ -1302,6 +1316,9 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 		return false
 	}
 	if s.handlePickupAllPacket(sess, p) {
+		return false
+	}
+	if s.handleBundleClickPacket(sess, p) {
 		return false
 	}
 	r := protocol.NewPacketReader(p.Data)

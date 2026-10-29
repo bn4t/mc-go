@@ -500,6 +500,9 @@ func stackHoverComponents(st ItemStack) map[string]any {
 	if st.RepairCost != 0 {
 		m["minecraft:repair_cost"] = st.RepairCost
 	}
+	if st.Bundle != "" {
+		m["minecraft:bundle_contents"] = bundleContentsNBT(st)
+	}
 	if st.Potion != "" {
 		m["minecraft:potion_contents"] = map[string]any{"potion": "minecraft:" + st.Potion}
 	}
@@ -1211,6 +1214,9 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 				it.LootTable, it.LootSeed = "", 0
 			case "container":
 				it.Contents = nil
+			case "bundle_contents":
+				it.Bundle = ""
+				it.BundleSelected = 0
 			case "potion_contents":
 				it.Potion = ""
 			case "writable_book_content":
@@ -1459,6 +1465,12 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 			}
 			sort.Strings(parts)
 			it.BlockState = strings.Join(parts, ",")
+		case "bundle_contents":
+			var err error
+			it.Bundle, err = bundleContentsFromNBT(snbtToValue(vtag))
+			if err != nil {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
 		case "container":
 			// ItemContainerContents is a list of {item:{id,count},slot}
 			// records — the box's stored stacks by slot index.

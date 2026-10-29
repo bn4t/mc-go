@@ -129,6 +129,12 @@ func readCanonicalStackTail(r *protocol.PacketReader, it ItemStack, depth int) (
 				}
 			}
 			it.Bees = n
+		case compBundleContents:
+			var err error
+			it.Bundle, err = readBundleContents(r, depth)
+			if err != nil {
+				return ItemStack{}, err
+			}
 		case compContainer:
 			n, err := slotWireCount(r, 27)
 			if err != nil {

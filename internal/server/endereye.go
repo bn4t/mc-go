@@ -184,7 +184,7 @@ func enderEyeUseFlags(sess *Session) byte {
 	if sess.eyeUseOffhand {
 		flags = 2
 	}
-	if sess.eyeUseHand != 0 {
+	if sess.eyeUseHand != 0 || sess.bundleUseHand != 0 {
 		flags |= 1
 	}
 	return flags

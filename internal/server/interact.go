@@ -95,6 +95,7 @@ func (s *Server) handlePlayerActionExtras(sess *Session, p protocol.Packet) bool
 		s.releaseTrident(sess)
 		s.releaseCrossbow(sess)
 		s.stopEnderEyeUse(sess)
+		s.stopBundleUse(sess)
 		sess.usingItemID = 0
 		return true
 	case actionSwapHands:

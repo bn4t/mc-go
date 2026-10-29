@@ -639,6 +639,9 @@ func itemNBT(it ItemStack) map[string]any {
 // box, which travel with the item and are what a dropped box holds.
 func itemComponentsNBT(it ItemStack) map[string]any {
 	comps := map[string]any{}
+	if it.Bundle != "" {
+		comps["minecraft:bundle_contents"] = bundleContentsNBT(it)
+	}
 	// Vanilla serializes the durability and enchantment components
 	// into the stack's NBT as minecraft:damage (int) and
 	// minecraft:enchantments (flat name->level map).
@@ -953,6 +956,9 @@ func itemFromNBT(m map[string]any) ItemStack {
 	it.Count = int32(nbtNumberOr(m["count"], 1))
 	if comps, ok := m["components"].(map[string]any); ok {
 		it.Contents = shulkerContentsFromNBT(comps)
+		if v, ok := comps["minecraft:bundle_contents"]; ok {
+			it.Bundle, _ = bundleContentsFromNBT(v)
+		}
 		it.BookWritable, it.BookWritten = bookContentFromNBT(comps)
 		if tr, ok := comps["minecraft:trim"].(map[string]any); ok {
 			mat, _ := tr["material"].(string)

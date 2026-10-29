@@ -2,6 +2,7 @@ package blackbox
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net"
@@ -2145,6 +2146,9 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 	if err != nil {
 		return server.ItemStack{}, 0, false, nil, err
 	}
+	return readSlotBBTail(r, count, id)
+}
+func readSlotBBTail(r *protocol.PacketReader, count, id int32) (server.ItemStack, int32, bool, []int32, error) {
 	nadd, err := r.VarInt() // components to add
 	if err != nil {
 		return server.ItemStack{}, 0, false, nil, err
@@ -2191,6 +2195,31 @@ func readSlotBBComps(r *protocol.PacketReader) (server.ItemStack, int32, bool, [
 		case 19: // minecraft:repair_cost, VarInt payload (measured 26.2)
 			if it.RepairCost, err = r.VarInt(); err != nil {
 				return server.ItemStack{}, 0, false, nil, err
+			}
+		case 50: // bundle item-template list (ID, count, patch).
+			n, err := r.VarInt()
+			if err != nil || n < 0 || n > 1024 {
+				return server.ItemStack{}, 0, false, nil, fmt.Errorf("invalid bundle length")
+			}
+			var children []server.ItemStack
+			for range n {
+				childID, err := r.VarInt()
+				if err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				childCount, err := r.VarInt()
+				if err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				child, _, _, _, err := readSlotBBTail(r, childCount, childID)
+				if err != nil {
+					return server.ItemStack{}, 0, false, nil, err
+				}
+				children = append(children, child)
+			}
+			if len(children) > 0 {
+				raw, _ := json.Marshal(children)
+				it.Bundle = string(raw)
 			}
 		case 51: // minecraft:potion_contents (measured 26.2): holder bool+id,
 			// then absent custom_color / effects list / custom_name.

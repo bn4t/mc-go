@@ -153,7 +153,8 @@ Mojang server over the wire.
       measured collision shapes and fit tolerance; spectator UUID teleport
       copies target position/orientation and crosses dimensions (wire-pinned)
 - [~] Full inventory + container protocol (pick-block hotbar selection and
-  creative insertion; nonempty cursor drag and double-click
+  creative insertion; bundles preserve contents, support selection/clicks and
+  continuous held use; nonempty cursor drag and double-click
   collection for player/storage/crafting menus, offhand swaps for player/chest/
   generic storage; furnace/hopper/brewing gestures, bottle/fuel caps and
   furnace output XP/recipe/stat settlement; chest + window-0 click
@@ -17111,3 +17112,43 @@ Exact run: `MCGO_BLACKBOX=1 MCGO_VANILLA_JAR=/workspace/mc-go/vanilla/server-26.
 - **Scope:** this corrects the world-age phase observed by all in-tick timer consumers. These pins establish the measured scheduled block/fluid deadlines and existing regression scenarios; they do not establish every entity timer's full vanilla semantics.
 
 Oracle commands use the immutable prebuilt `work/scheduler-fixed.test`, JDK 25 via `work/run-oracle.sh`, `MCGO_BLACKBOX=1`, and the absolute `MCGO_VANILLA_JAR`. The short group ran serialized under `/tmp/mcgo-oracle.lock` with `-test.run '^Test(ScheduledDispenserBoundary|TickCount|TimeCommand|TimeSetBroadcast|Repeater)Parity$' -test.timeout=10m`. Full Fluid ran separately without holding that lock, with `-test.run '^TestFluidParity$' -test.timeout=20m`. Final logs: `work/scheduler-fixed-test.log`, `work/scheduler-fluid-test.log`, `work/scheduler-internal-test.log`; baseline evidence: `work/scheduler-baseline-test.log`.
+
+
+## Slice — bundle contents, selection and continuous use (2026-10-29)
+
+- **Measured:** wire observations and Temurin25.0.5 javap facts from
+  BundleContents/Mutable, BundleItem, AbstractContainerMenu, LivingEntity's
+  updateUsingItem/createItemStackToDrop, Avatar pose dimensions, Player.playSound
+  and ServerPlayer.drop on the official26.2 jar, SHA-1
+  823e2250d24b3ddac457a60c92a6a941943fcd6a. Component50 is a list of item
+  templates; selected entry is transient. Repeated/invalid selection clears it.
+  Primary clicks insert; secondary clicks extract whole selected stacks.
+  Weight is count/max-stack, occupied hives cost one, nested bundles add1/16,
+  and shulker boxes reject insertion. Use lasts200 ticks, ejects initially,
+  then on even remaining ticks after ten ticks. Player-positioned insert/remove
+  sounds exclude the actor; block-centered drop-contents sounds include them.
+- **Implemented:** canonical comparable nested contents, both Java profiles'
+  template codecs and bounded validation, real selection packet handling,
+  player/storage/crafting click overrides, merging/newest-first order and exact
+  rational capacity; item command/NBT/hover support; continuous ejection,
+  offhand active-use metadata, release/replacement/selected-slot cleanup,
+  measured directional drops with pickup delay40/thrower and drop/use stats.
+  A component-SNBT bridge preserves numeric-looking and namespace string types
+  when nested item components cross the NBT/item parser boundary.
+- **Pinned:** TestBundleInventoryParity passes both servers without skips
+  (73.77s), comparing seven full cursor/slot snapshots for mixed insertion,
+  newest/selected/repeated/invalid extraction, egg capacity and nested overhead.
+  TestBundleUseParity passes (22.36s): both hold an emptied bundle and emit
+  three item spawns, zero actor remove-one sounds and three drop-contents sounds.
+  The fixture awaits committed empty contents before release. Focused units
+  cover capacity, selection, cadence/release, both-profile nested Unicode slots,
+  NBT persistence including a potion's namespace ID, and lossless component
+  string types (latest3.455s, combined with book tests).
+- **Remaining:** specialized menu callbacks, destroyed-bundle spills, explicit
+  default-component removal and arbitrary unsupported nested components are not
+  completed. Offhand use/metadata and exact cadence have focused unit coverage;
+  the use wire fixture exercises the main hand and does not numerically compare
+  random directional drop velocity or exact per-tick spawn times.
+
+The isolated staged bundle export builds successfully; focused Bundle and
+ComponentSNBT units pass (0.729 s).

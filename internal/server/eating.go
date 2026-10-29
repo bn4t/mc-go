@@ -112,6 +112,10 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 	if hand == 1 {
 		st = sess.stackAt(slotOffhand)
 	}
+	if isBundle(st) {
+		s.startBundleUse(sess, hand, st)
+		return
+	}
 	if un, ok := itemNameOf(st.ID); ok && !st.Empty() {
 		if _, bucket := bucketContents[un]; bucket {
 			s.useBucket(sess, hand, yaw, pitch, un)

@@ -280,7 +280,7 @@ func (p *javaProfile) writeSlot(b *protocol.Buffer, it ItemStack) error {
 	if err := validateSlotName(it); err != nil {
 		return err
 	}
-	if it.Contents != nil {
+	if it.Contents != nil || it.Bundle != "" {
 		nodes := 0
 		if err := validateSlotContents(it, 0, &nodes, map[*[shulkerSlots]ItemStack]bool{}); err != nil {
 			return err
@@ -467,6 +467,11 @@ func validateSlotContents(it ItemStack, depth int, nodes *int, path map[*[shulke
 	}
 	if err := validateSlotName(it); err != nil {
 		return err
+	}
+	for _, child := range bundleItems(it) {
+		if err := validateSlotContents(child, depth+1, nodes, path); err != nil {
+			return err
+		}
 	}
 	if it.Empty() || it.Contents == nil {
 		return nil
