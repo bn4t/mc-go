@@ -3,7 +3,6 @@ package server
 import (
 	"strings"
 
-	"mc-go/internal/data"
 	"mc-go/internal/world"
 )
 
@@ -74,9 +73,7 @@ func (s *Server) runClone(player string, args []string) reply {
 		i++
 	}
 	mask := 0 // 0 replace, 1 masked, 2 filtered
-	var filtBlk world.Block
-	var filtProps map[string]string
-	var filtTag string
+	var filter func(*Server, *dimension, world.Pos) bool
 	if i < len(args) {
 		switch args[i] {
 		case "replace":
@@ -91,18 +88,16 @@ func (s *Server) runClone(player string, args []string) reply {
 				return errTokenEnd("command.unknown.command", i+1)
 			}
 			tok := args[i]
-			if strings.HasPrefix(tok, "#") {
-				name := strings.TrimPrefix(strings.TrimPrefix(tok, "#"), "minecraft:")
-				if _, has := data.BlockTags[name]; !has {
-					return errToken("argument.block.tag.invalid", i+1)
+			if !strings.HasPrefix(tok, "#") {
+				spec := tok
+				if k := strings.IndexByte(spec, '{'); k >= 0 {
+					spec = spec[:k]
 				}
-				filtTag = name
-			} else {
 				var name string
-				if j := strings.IndexByte(tok, '['); j >= 0 {
-					name = tok[:j]
+				if j := strings.IndexByte(spec, '['); j >= 0 {
+					name = spec[:j]
 				} else {
-					name = tok
+					name = spec
 				}
 				name = strings.ToLower(name)
 				if !strings.HasPrefix(name, "minecraft:") {
@@ -111,8 +106,8 @@ func (s *Server) runClone(player string, args []string) reply {
 				if world.BlockPropNames(strings.TrimPrefix(name, "minecraft:")) == nil {
 					return errToken("argument.block.id.invalid", i+1, name)
 				}
-				if j := strings.IndexByte(tok, '['); j >= 0 {
-					body := tok[j+1:]
+				if j := strings.IndexByte(spec, '['); j >= 0 {
+					body := spec[j+1:]
 					if k := strings.IndexByte(body, ']'); k >= 0 {
 						body = body[:k]
 					}
@@ -128,11 +123,11 @@ func (s *Server) runClone(player string, args []string) reply {
 						return errTokenOff("argument.block.property.unknown", i+1, j+1, name, prop)
 					}
 				}
-				var ok bool
-				filtBlk, filtProps, ok = parseBlockSpec(tok)
-				if !ok {
-					return errToken("argument.block.id.invalid", i+1, name)
-				}
+			}
+			var err *reply
+			filter, err = parseBlockFilterPredicate(tok, i+1)
+			if err != nil {
+				return *err
 			}
 			i++
 		default:
@@ -214,19 +209,7 @@ func (s *Server) runClone(player string, args []string) reply {
 						continue
 					}
 				case 2:
-					ok := false
-					if filtTag != "" {
-						if got, gok := world.StateOwner(blk); gok {
-							for _, n := range data.BlockTags[filtTag] {
-								if n == got {
-									ok = true
-									break
-								}
-							}
-						}
-					} else {
-						ok = s.matchesBlockPredicate(srcDim, world.Pos{X: x, Y: y, Z: z}, filtBlk, filtProps)
-					}
+					ok := filter(s, srcDim, world.Pos{X: x, Y: y, Z: z})
 					if !ok {
 						continue
 					}

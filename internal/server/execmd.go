@@ -1423,9 +1423,7 @@ func (s *Server) runFill(player string, args []string) reply {
 	if !ok {
 		return errTokenEnd("argument.block.id.invalid", 7)
 	}
-	var filter world.Block
-	var filterProps map[string]string
-	haveFilter := false
+	var filter func(*Server, *dimension, world.Pos) bool
 	// The optional mode literal rides vanilla's grammar: bare,
 	// "replace [<filter>] [<mode>]", or one of keep/hollow/outline/
 	// destroy/strict. keep is REPLACE with an air-only predicate,
@@ -1437,11 +1435,11 @@ func (s *Server) runFill(player string, args []string) reply {
 		switch args[7] {
 		case "replace":
 			if len(args) >= 9 {
-				f, fp, ok := parseBlockSpec(args[8])
-				if !ok {
-					return errTokenEnd("argument.block.id.invalid", 8)
+				var err *reply
+				filter, err = parseBlockFilterPredicate(args[8], 8)
+				if err != nil {
+					return *err
 				}
-				filter, filterProps, haveFilter = f, fp, true
 				if len(args) >= 10 {
 					switch args[9] {
 					case "hollow", "outline", "destroy", "strict":
@@ -1479,7 +1477,7 @@ func (s *Server) runFill(player string, args []string) reply {
 				}
 				pos := world.Pos{X: x, Y: y, Z: z}
 				old := d.w.GetBlock(pos)
-				if haveFilter && !s.matchesBlockPredicate(d, pos, filter, filterProps) {
+				if filter != nil && !filter(s, d, pos) {
 					continue
 				}
 				if keepOnly && old != world.Air {

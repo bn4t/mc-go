@@ -18069,3 +18069,13 @@ Limits: destruction spills, /item entity container slots, full hopper/furnace/TN
 **Implemented** — Contributor and real-client skill guidance now state those completion receipts explicitly, while retaining authoritative resync as a final-state check rather than evidence of earlier packet ordering.
 
 **Pinned** — Documentation review against TestVehicleCargoParity's independently passing48.20s interaction fixture. No additional runtime change or graphical-client claim.
+
+## Slice — fill and clone native filter predicates (2026-10-29)
+
+**Measured** — Real26.2 wire and factual FillCommand/CloneCommands argument registration: fill replace and clone filtered use the shared block predicate, including tag member properties and typed BE subsets. Baseline FAIL76.27s: all24native outcomes pass, Go misses nine matching selections. Toolchain Go1.27.3/Temurin25.0.5+8, bundle SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`, inner SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+
+**Implemented** — Independent shared filter adapter reuses the existing parsers and matchers. Fill and clone evaluate the source cell's predicate before replacing or copying it. Existing placement, copy and ordinary clone diagnostic policies remain separate.
+
+**Pinned** — Immutableee73b63 plus four owned files:24 independently required world-state outcomes PASS46.48s (vanilla6.91/Go6.27), covering matching and unchanged cells, properties, native item subsets, typed numeric mismatch, empty lists/compounds and case-sensitive keys. Existing TestCloneParity failed94.00s only on two far all-air loaded-region controls; unchangedf9d6935 independently reproduces those same failures51.46s. All remaining legacy controls pass. The existing loaded-region/fixture issue remains a separate correction, not a passing regression claim. Artifact SHA256 `7110df7c1fcdf706e307693489bc839a90db1445433772a3ac3a2526bb1f6fac`; evidence work/block-filter-slice.md and work/block-filter-after.log.
+
+Limits: built-in tags only; runtime datapack tags, complete clone BE copying, scheduled-tick transfer, strict mode and exhaustive parser diagnostics remain separate. Predicate support does not certify these copy semantics.
