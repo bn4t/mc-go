@@ -103,7 +103,7 @@ func parseIntProvider(raw json.RawMessage) intProvider {
 			return int32(clampF(mean+float32(float32(r.NextGaussian())*dev), lo, hi))
 		}
 	case "trapezoid":
-		lo, hi, plateau := o.i32("min_inclusive"), o.i32("max_inclusive"), o.i32("plateau")
+		lo, hi, plateau := o.i32("min"), o.i32("max"), o.i32("plateau") // TrapezoidInt codec: min, max, plateau
 		return func(r Random) int32 {
 			if plateau == 0 && hi == -lo {
 				return r.NextIntN(hi+1) - r.NextIntN(hi+1)
