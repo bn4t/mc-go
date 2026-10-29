@@ -378,8 +378,10 @@ func (s *Server) flushAdvancements(sess *Session) {
 	b.VarInt(int32(len(added)))
 	for _, id := range added {
 		def := data.AdvDefWire[id]
-		if sess.server.customAdvancement(id) {
-			def = sess.server.advancementPack.wire[id]
+		if registry := sess.server.advancementPack; registry != nil {
+			if loaded := registry.wire[id]; loaded != nil {
+				def = loaded
+			}
 		}
 		if def != nil {
 			profile, err := sess.javaProfile()

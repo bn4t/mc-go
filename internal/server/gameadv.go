@@ -21,6 +21,7 @@ import (
 // decoded into a matchable form.
 type advMeta struct {
 	raw        map[string]any
+	display    *advancementDisplay
 	id, parent string
 	criteria   []string // names; emit order is computed, never JSON order
 	reqs       [][]string
@@ -1517,6 +1518,9 @@ func (sess *Session) grantCriterion(meta *advMeta, cname string, skipDone bool) 
 // vanilla's Advancement.getChatComponent does — square brackets in the
 // frame color over a title hover showing title, newline, description.
 func advChatComponent(meta *advMeta) component {
+	if meta.display != nil {
+		return packAdvancementChatName(meta)
+	}
 	if !meta.hasDisplay {
 		return literal(meta.id)
 	}
@@ -1576,7 +1580,7 @@ func playerChatComponent(sess *Session) component {
 // advancement name as chat.square_brackets in the frame color, hovering
 // title + \n + description.
 func (s *Server) announceAdvancement(sess *Session, meta *advMeta) {
-	if meta.titleKey == "" || !meta.hasDisplay || !meta.announce {
+	if !meta.hasDisplay || !meta.announce || meta.titleKey == "" && meta.display == nil || !s.gameRuleBool("minecraft:show_advancement_messages") {
 		return
 	}
 	playerName := playerChatComponent(sess)

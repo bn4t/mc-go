@@ -36,7 +36,7 @@ type useClient struct {
 	err     error
 }
 
-func newUseClient(pr *protocol.Reader, pw *protocol.Writer, confirm bool) *useClient {
+func newUseClient(pr *protocol.Reader, pw *protocol.Writer, confirm bool, captureLarge ...int32) *useClient {
 	u := &useClient{confirm: confirm}
 	var wmu sync.Mutex
 	go func() {
@@ -49,7 +49,14 @@ func newUseClient(pr *protocol.Reader, pw *protocol.Writer, confirm bool) *useCl
 				return
 			}
 			u.mu.Lock()
-			if len(p.Data) < 4096 {
+			capture := len(p.Data) < 4096
+			for _, id := range captureLarge {
+				if p.ID == id {
+					capture = true
+					break
+				}
+			}
+			if capture {
 				cp := make([]byte, len(p.Data))
 				copy(cp, p.Data)
 				u.pkts = append(u.pkts, usePkt{id: p.ID, data: cp})

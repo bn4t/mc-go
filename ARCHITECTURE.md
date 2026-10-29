@@ -64,14 +64,17 @@ extension APIs avoid those pointers.
 ## Gameplay resources and callbacks
 
 Startup advancement definitions belong to each Server. The built-in generated
-metadata remains immutable; folder-pack displayless overrides feed that server's
+metadata remains immutable; folder-pack overrides feed that server's
 command lookup, modeled trigger evaluators, visibility tree and wire definitions.
 Resource identity is separate from tree attachment: a valid definition with a
 missing or cyclic parent can still be granted and rewarded without becoming a
 visible tree node. Completion is recorded before reward callbacks, then rewards
 run XP, loot, recipes and function before the completion announcement. Functions
 use the rewarded player's source at permission level two. This covers startup
-folder packs and modeled triggers; displayed definitions, complete pack selection,
+folder packs and modeled triggers. Displayed definitions use a runtime codec and
+independent tidy-tree layout. Overrides reflow both affected tabs, including
+displayless replacements; built-in wire data retains its captured icon/component
+bytes while coordinates are rewritten. Complete component schemas, pack selection,
 ZIP/reload and custom loot overlays are still separate work.
 
 Structure editors, powered structure blocks and jigsaw generation reuse the

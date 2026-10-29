@@ -102,3 +102,15 @@ component and keep condition and barrier identities distinct. The scoped
 `structureSaidBB` helper and its negative controls demonstrate this contract;
 `sawMarker` intentionally remains a generic feedback-key search for other
 fixtures and is insufficient on its own for a command-success assertion.
+
+
+## Large runtime definition packets
+
+Advancement tab updates can exceed4KiB. Scripted probes must explicitly retain
+these packet IDs when using a sink with a size filter, decode runtime definitions
+rather than stopping at unknown resources, and require meaningful node counts.
+The `newUseClient` helper accepts optional large-packet IDs without changing its
+default capture policy. For nondeterministic layouts, first demonstrate variation
+across unchanged native runs, normalize only those fields, and independently
+check each server's geometric constraints; equality after discarding all layout
+data is insufficient.

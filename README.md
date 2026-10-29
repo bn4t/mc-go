@@ -40,9 +40,10 @@ lifecycle coverage remains in progress.
 Native boats and most minecart variants preserve measured cargo, subtype state
 and supported passenger trees through vanilla-compatible saves; player remount,
 spawner carts and complete vehicle cargo/runtime behavior remain in progress.
-Startup folder datapacks can supply displayless
-advancement definitions with XP, built-in loot, recipe and function rewards.
-Displayed custom advancements, complete datapack selection/ZIP/reload,
+Startup folder datapacks can supply displayed and displayless advancement
+definitions with XP, built-in loot, recipe and function rewards. Measured
+display fields, layout, built-in tab overrides and completion announcements
+are supported. Complete rich-text/icon schemas, datapack selection/ZIP/reload,
 custom loot overlays and several vehicle/physical interactions remain in
 progress. See individual slice entries for exact tests and limitations.
 

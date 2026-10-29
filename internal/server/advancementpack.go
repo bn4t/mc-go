@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"mc-go/internal/data"
-	"mc-go/internal/protocol"
 )
 
 // Each server owns its loaded pack definitions; built-in generated metadata
@@ -84,16 +83,21 @@ func (s *Server) loadAdvancementPacks() {
 			if json.Unmarshal(rawBytes, &raw) != nil || !validPackAdvancement(raw) {
 				return nil
 			}
-			// Display layout and component-rich icons have a separate runtime wire
-			// codec; this loader initially handles displayless function triggers.
-			if _, display := raw["display"]; display {
-				return nil
+			var display *advancementDisplay
+			if value, hasDisplay := raw["display"]; hasDisplay {
+				var err error
+				display, err = parseAdvancementDisplay(value)
+				if err != nil {
+					return nil
+				}
 			}
+
 			id := parts[0] + ":" + strings.TrimSuffix(strings.Join(parts[2:], "/"), ".json")
 			parsed := parseGameAdvs(map[string]map[string]any{id: raw})[id]
 			if parsed == nil || len(parsed.criteria) == 0 {
 				return nil
 			}
+			parsed.display = display
 			reg.entries[id] = parsed
 			reg.custom[id] = true
 			return nil
@@ -128,26 +132,9 @@ func (s *Server) loadAdvancementPacks() {
 			}
 		}
 
-		if reg.custom[id] {
-			var b protocol.Buffer
-			b.String(id)
-			b.Bool(m.parent != "")
-			if m.parent != "" {
-				b.String(m.parent)
-			}
-			b.Bool(false)
-			b.VarInt(int32(len(m.reqs)))
-			for _, group := range m.reqs {
-				b.VarInt(int32(len(group)))
-				for _, criterion := range group {
-					b.String(criterion)
-				}
-			}
-			telemetry, _ := m.raw["sends_telemetry_event"].(bool)
-			b.Bool(telemetry)
-			reg.wire[id] = b.Bytes()
-		}
 	}
+	finishAdvancementDisplayWires(reg)
+
 	s.advancementPack = reg
 }
 
