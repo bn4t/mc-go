@@ -483,6 +483,12 @@ func (s *Server) handleDig(sess *Session, p protocol.Packet) {
 		return // inventory statuses: ack only
 	}
 	pos := world.Pos{X: int(x), Y: int(y), Z: int(z)}
+	// handleBlockBreakAction: a START_DESTROY_BLOCK under spawn
+	// protection sends the red overlay and stops (then the ack).
+	if status == digStart && withinReach(sess, pos, reachSurvival+1.0) && s.underSpawnProtection(d, pos, sess) {
+		s.sendSpawnProtectionMessage(sess, pos)
+		return
+	}
 	switch sess.mode() {
 	case GameModeCreative:
 		// Creative destroys the block outright on start or finish; a

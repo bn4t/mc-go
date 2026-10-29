@@ -16441,3 +16441,19 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining**: mob buckets (MobBucketItem spawn + bucket entity data), spawn protection in
   mayInteract, FlowingFluid's first-query shape cache (mc-go uses own height), boats'
   entity-collision half of noCollision, the use packet's rotation snap broadcast.
+
+## Slice — spawn protection (2026-10-29)
+- **Measured**: `javap` on the 26.2 jar: DedicatedServer.isUnderSpawnProtection (respawn
+  dimension, non-empty ops list, op bypass, radius > 0, Chebyshev distance to the spawn
+  block <= radius), ServerLevel.mayInteract (spawn protection + world border),
+  ServerGamePacketListenerImpl.handleUseItemOn (protected click → overlay, then the tail's
+  block updates), ServerPlayerGameMode.handleBlockBreakAction (protected START → overlay,
+  return), ServerPlayer.sendSpawnProtectionMessage (red `build.spawn_protection` overlay with
+  `x, y, z`). Wire: a non-op survival player at |dx| 0/16/17/30 from spawn.
+- **Implemented**: `Server.SpawnProtection` (server.properties `spawn-protection`, default
+  16; the blackbox harness runs both servers at 0 unless a test asks), `underSpawnProtection`
+  / `mayInteract`; use_item_on, dig start and the bucket / bottle uses honour it.
+- **Pinned**: `TestSpawnProtectionParity` (op admin + non-op visitor, radius 16: refused
+  placement and dig with the overlay inside, normal placement and dig outside).
+- **Remaining**: other mayInteract callers (entity interactions, explosions by players'
+  items), the respawn-dimension other than the overworld.

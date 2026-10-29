@@ -284,6 +284,12 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		return
 	}
 	dispatched = true
+	// isUnderSpawnProtection on the clicked block skips the use: the
+	// red overlay, then the tail's two block updates.
+	if s.underSpawnProtection(d, clicked, sess) {
+		s.sendSpawnProtectionMessage(sess, clicked)
+		return
+	}
 	// item_used_on_block fires on the interaction itself — vanilla
 	// evaluates it inside useOn before the use's outcome is known.
 	if bname, ok := world.StateOwner(cur); ok {

@@ -35,6 +35,10 @@ type Server struct {
 	Addr            string
 	MOTD            string
 	MaxPlayers      int
+	// SpawnProtection is server.properties spawn-protection: the
+	// Chebyshev radius around the world spawn non-ops may not build in
+	// while an ops list exists (0 disables).
+	SpawnProtection int
 
 	// KeepAliveEvery/Timeout govern play-stage pings; non-positive
 	// values select vanilla-like 10s/30s defaults.
@@ -388,6 +392,7 @@ func New(addr string) *Server {
 		Addr:             addr,
 		MOTD:             MOTD,
 		MaxPlayers:       MaxPlayers,
+		SpawnProtection:  16,
 		KeepAliveEvery:   10 * time.Second,
 		KeepAliveTimeout: 30 * time.Second,
 		bus:              bus,

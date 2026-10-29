@@ -368,6 +368,7 @@ func (s *Server) ApplyProperties(p *ServerProperties, serverDir string, skip map
 		}},
 		{"motd", func(v string) error { s.MOTD = v; return nil }},
 		{"max-players", func(v string) error { s.MaxPlayers = atoi(v, 20); return nil }},
+		{"spawn-protection", func(v string) error { s.SpawnProtection = atoi(v, 16); return nil }},
 		{"online-mode", func(v string) error { s.OnlineMode = v == "true"; return nil }},
 		{"view-distance", func(v string) error { s.ViewDistance = min(max(atoi(v, 10), 2), 32); return nil }},
 		{"simulation-distance", func(v string) error { s.SimulationDistance = min(max(atoi(v, 10), 2), 32); return nil }},

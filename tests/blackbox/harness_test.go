@@ -402,6 +402,7 @@ func startMcGoCfg(t *testing.T, port int, mutate func(*server.Server)) string {
 	// Match the vanilla harness properties so join values compare.
 	s.ViewDistance = 8
 	s.SimulationDistance = 8
+	s.SpawnProtection = 0
 	if mutate != nil {
 		mutate(s)
 	}

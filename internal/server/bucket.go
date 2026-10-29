@@ -40,7 +40,7 @@ func (s *Server) useBucket(sess *Session, hand int32, yaw, pitch float32, item s
 	}
 	pos := hit.pos
 	against := hit.face.rel(pos)
-	if !withinWorldBorder(s, d, pos) || !bucketMayUseAt(sess) {
+	if !s.mayInteract(sess, d, pos) || !bucketMayUseAt(sess) {
 		return
 	}
 	stack, slot := sess.stackForHand(hand)
@@ -338,7 +338,7 @@ func (s *Server) useGlassBottle(sess *Session, hand int32, yaw, pitch float32) {
 		return
 	}
 	hit := s.playerPOVHit(sess, d, clipFluidSourceOnly, yaw, pitch)
-	if hit.miss || !withinWorldBorder(s, d, hit.pos) {
+	if hit.miss || !s.mayInteract(sess, d, hit.pos) {
 		return
 	}
 	if k, _, ok := fluidOf(d.w.GetBlock(hit.pos)); !ok || k != fluidWater {
