@@ -114,6 +114,7 @@ type openWindow struct {
 	lastTakeSoundTick int64
 	smithingError     int32
 	smithingErrorSent bool
+	commandUpdates    *menuCommandUpdates
 	// ench is the enchantment menu's offer state for this open window,
 	// nil until the menu is an enchanting table.
 	ench *enchantMenuState

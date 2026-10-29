@@ -1786,15 +1786,20 @@ func (s *Server) writeItemBlock(d *dimension, pos world.Pos, id int32, st ItemSt
 	if !st.Empty() && st.Count > maxStackOfID(st.ID) {
 		return componentReply(overstackedItem(st))
 	}
+	var old ItemStack
+	oldCookTotal := int32(0)
 	switch {
 	case isChestBlock(blk):
 		c := s.chestAt(d, pos)
 		d.chests.mu.Lock()
+		old = c.slots[id]
 		c.slots[id] = st
 		d.chests.mu.Unlock()
 	case isFurnaceBlock(blk):
 		f := s.furnaceAt(d, pos)
 		d.furnaces.mu.Lock()
+		old = f.slots[id]
+		oldCookTotal = f.cookTotal
 		f.slots[id] = st
 		if id == furnaceInput {
 			f.refreshCookTotal()
@@ -1803,14 +1808,17 @@ func (s *Server) writeItemBlock(d *dimension, pos world.Pos, id int32, st ItemSt
 	case isHopperBlock(blk):
 		h := s.hopperAt(d, pos)
 		d.hoppers.mu.Lock()
+		old = h.slots[id]
 		h.slots[id] = st
 		d.hoppers.mu.Unlock()
 	default:
 		c := s.containerAt(d, pos)
 		d.containers.mu.Lock()
+		old = c.slots[id]
 		c.slots[id] = st
 		d.containers.mu.Unlock()
 	}
+	s.queueMenuCommandSlot(d, pos, int(id), old, oldCookTotal)
 	// BlockEntity.setChanged on the slot write wakes comparators
 	// reading this block's analog level.
 	s.rsContainerChanged(d, pos)

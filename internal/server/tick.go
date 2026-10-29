@@ -647,6 +647,7 @@ func (s *Server) playerTickOwned() {
 		if sess.locTicks++; sess.locTicks%20 == 0 && sess.spawned.Load() {
 			s.fireLocation(sess)
 		}
+		s.flushMenuCommandUpdates(sess)
 		s.bundleUseTick(sess)
 		s.enderEyeUseTick(sess)
 		if sess.usingItemID != 0 {
