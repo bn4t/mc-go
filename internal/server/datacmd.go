@@ -71,7 +71,12 @@ func (s *Server) runData(player string, args []string) reply {
 	// marks the position's block entity dirty — the update packet rides
 	// the tick-end flush, after the reply chat like vanilla's
 	// sendBlockUpdated.
+	originalID := be["id"]
 	apply := func() {
+		// BlockDataAccessor owns its existing position/type. A compound
+		// copied from another entity or block cannot retarget the write.
+		be["id"] = originalID
+		be["x"], be["y"], be["z"] = int32(pos.X), int32(pos.Y), int32(pos.Z)
 		s.restoreBlockEntity(d, be)
 		s.queueBlockEntityDirty(d, pos)
 	}
@@ -164,9 +169,12 @@ type nbtPathStep struct {
 }
 
 // parseNBTPath reads a vanilla NBT path — `a.b`, `a[0]`, `a.b[0].c`,
-// quoted keys — into steps. Compound matchers ({k:v}) and the all
-// elements form ([]) are not modeled.
+// quoted keys — into steps. The empty root matcher {} selects the whole
+// compound. Other compound matchers ({k:v}) and [] are not modeled.
 func parseNBTPath(s string) ([]nbtPathStep, bool) {
+	if s == "{}" {
+		return nil, true
+	}
 	var steps []nbtPathStep
 	i := 0
 	for i < len(s) {

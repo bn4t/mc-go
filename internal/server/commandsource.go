@@ -20,6 +20,7 @@ type commandSourceFrame struct {
 type commandExecutionResults struct {
 	completions int
 	successes   int
+	onSuccess   func()
 }
 
 const neutralCommandActor = "\x00command-source"
@@ -97,6 +98,11 @@ func (s *Server) finishSourceCommand(source *commandSourceFrame, name string, be
 	}
 	for i, extra := range r.extra {
 		emit(extra, i < len(r.extraEcho) && r.extraEcho[i])
+	}
+	// Commands send feedback before their result callback. Feedback can
+	// itself update/reload a command minecart's synced base fields.
+	if success && source.results.onSuccess != nil {
+		source.results.onSuccess()
 	}
 	return r
 }

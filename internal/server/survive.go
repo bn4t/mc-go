@@ -436,6 +436,11 @@ func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block,
 		short := strings.TrimPrefix(name, "minecraft:")
 		oldName, _ := world.StateOwner(old)
 		oldShort := strings.TrimPrefix(oldName, "minecraft:")
+		// BaseRailBlock.onPlace updates straight rails' own signal
+		// after a type change, including power that already exists.
+		if (short == "powered_rail" || short == "activator_rail") && oldShort != short {
+			s.rsNeighborChanged(d, pos)
+		}
 		// Sculk sensors are EntityBlocks: a sensor write creates its
 		// block entity (fresh data when the BE type changes — vanilla
 		// replaces the entity only when the new state is not valid

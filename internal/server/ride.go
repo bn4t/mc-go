@@ -1073,9 +1073,17 @@ func (s *Server) minecartTickStep() {
 		if !ok || ep.Dying {
 			continue
 		}
+		if name == "command_block_minecart" {
+			if ep.Dormant || !s.mobInSimulationRange(ep) {
+				continue
+			}
+			ep.TickCount++
+		}
 		w := s.dimWorld(e.Dim)
 		ox, oz := ep.X, ep.Z
-		ep.MotionY -= 0.08 // applyGravity
+		if !ep.NoGravity {
+			ep.MotionY -= 0.08
+		} // Entity.applyGravity
 		// getCurrentBlockPosOrRailBelow: the rail can sit at the cart's
 		// own block pos or one block below.
 		fx, fz := int(math.Floor(ep.X)), int(math.Floor(ep.Z))
@@ -1092,14 +1100,19 @@ func (s *Server) minecartTickStep() {
 			shape, _ := world.StateProperty(rb, "shape")
 			powered, _ := world.StateProperty(rb, "powered")
 			s.minecartOnRail(ep, w, railPos, ron, shape, powered)
-			// activateMinecart: a powered activator rail ejects riders
-			// and hits the cart with the same hurt wobble + 50 damage
-			// a player attack would.
 			if ron == "activator_rail" && powered == "true" {
-				s.minecartActivatorHit(ep)
+				if name == "command_block_minecart" {
+					s.commandMinecartActivate(ep)
+				} else {
+					s.minecartActivatorHit(ep)
+				}
 			}
 		} else {
 			s.minecartOffRail(ep, w, fx, fy, fz)
+		}
+		// An entity-bound command can remove its own cart during activation.
+		if _, exists := s.entities.GetPtr(ep.ID); !exists {
+			continue
 		}
 		s.minecartYawTail(ep, ox, oz)
 		s.minecartPushPickup(ep, name)

@@ -1,11 +1,6 @@
 package server
 
-import (
-	"strings"
-	"time"
-
-	"mc-go/internal/world"
-)
+import "mc-go/internal/world"
 
 func commandBlockStep(pos world.Pos, dir rsDir) world.Pos {
 	off := rsOff[dir]
@@ -122,57 +117,14 @@ func (s *Server) commandBlockUpdated(d *dimension, pos world.Pos) {
 	s.broadcastBlockState(d, pos, d.w.GetBlock(pos))
 }
 
-// BaseCommandBlock's success counter counts successful leaves, including
-// zero-valued results. LastExecution is a same-world-tick reentry guard.
+// Command blocks have a centered, non-entity source; the common base
+// dispatch is shared with command minecarts' entity-bound source.
 func (s *Server) performCommandBlock(d *dimension, pos world.Pos, state world.Block, g *genericBlockEntity) bool {
-	now := s.TickCount()
-	if commandLong(g.fields["LastExecution"], -1) == now {
-		return false
+	frame := commandSourceFrame{dim: d, pos: [3]float64{float64(pos.X) + 0.5, float64(pos.Y) + 0.5, float64(pos.Z) + 0.5}, level: 2, display: literal("@")}
+	if name, ok := g.fields["CustomName"]; ok {
+		frame.display = componentFromAny(name)
 	}
-	command, _ := g.fields["Command"].(string)
-	if strings.EqualFold(command, "Searge") {
-		g.fields["SuccessCount"] = int32(1)
-		g.fields["LastOutput"] = "#itzlipofutzli"
-		return true
-	}
-	g.fields["SuccessCount"] = int32(0)
-	if s.gameRuleBool("minecraft:command_blocks_work") && command != "" {
-		delete(g.fields, "LastOutput")
-		results := &commandExecutionResults{}
-		frame := commandSourceFrame{
-			dim: d, pos: [3]float64{float64(pos.X) + 0.5, float64(pos.Y) + 0.5, float64(pos.Z) + 0.5},
-			level: 2, display: literal("@"), results: results,
-		}
-		if name, ok := g.fields["CustomName"]; ok {
-			frame.display = componentFromAny(name)
-		}
-		facing, _ := world.StateProperty(state, "facing")
-		frame.rotation = commandBlockRotation(facing)
-
-		if nbtTruth(g.fields["TrackOutput"]) {
-			frame.admin = true
-			frame.output = func(message component) {
-				output := component{text: "[" + time.Now().Format("15:04:05") + "] ", extra: []component{message}}
-				g.fields["LastOutput"] = output.nested()
-				s.commandBlockUpdated(d, pos)
-			}
-		}
-		s.withCommandFrame(&frame, func() reply {
-			fields := splitCommandArgs(strings.TrimPrefix(command, "/"))
-			if len(fields) != 0 {
-				if r, known := s.runCommand(neutralCommandActor, fields[0], fields[1:]); known {
-					return r
-				}
-			}
-			r := reply{comp: unknownCommand(), styled: true, fail: &failMark{}}
-			return s.finishSourceCommand(&frame, "", results.completions, r)
-		})
-		g.fields["SuccessCount"] = int32(results.successes)
-	}
-	if nbtTruth(g.fields["UpdateLastExecution"]) {
-		g.fields["LastExecution"] = now
-	} else {
-		delete(g.fields, "LastExecution")
-	}
-	return true
+	facing, _ := world.StateProperty(state, "facing")
+	frame.rotation = commandBlockRotation(facing)
+	return s.performCommandBase(func() map[string]any { return g.fields }, frame, func() { s.commandBlockUpdated(d, pos) })
 }

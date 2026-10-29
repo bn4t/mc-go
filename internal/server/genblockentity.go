@@ -235,6 +235,10 @@ func (s *Server) restoreGenericBlockEntity(d *dimension, pos world.Pos, id strin
 	}
 	if id == "minecraft:command_block" {
 		fields = commandBlockSavedFields(fields)
+		if current := d.genericBE[pos]; current != nil && current.id == id {
+			current.fields = fields
+			return
+		}
 	}
 	if id == "minecraft:structure_block" {
 		fields = structureBlockSavedFields(fields)

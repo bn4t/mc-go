@@ -12,10 +12,11 @@ import (
 // BaseCommandBlock's runtime fields are separate: disabled edits and quiet
 // execution need not change the cached command/output sent to clients.
 type commandMinecartData struct {
-	command      string
-	output       any
-	commandDirty bool
-	outputDirty  bool
+	command       string
+	output        any
+	commandDirty  bool
+	outputDirty   bool
+	lastActivated int32
 }
 
 var commandMinecartKeys = [...]string{"Command", "SuccessCount", "TrackOutput", "UpdateLastExecution", "LastExecution", "LastOutput"}
@@ -260,4 +261,18 @@ func (s *Server) restoreCommandMinecart(d *dimension, save map[string]any, pos [
 	e.MetaDirty = false
 	e.commandCart.commandDirty = false
 	e.commandCart.outputDirty = false
+}
+
+func (s *Server) commandMinecartActivate(e *Entity) {
+	commandMinecartFields(e)
+	if e.TickCount-e.commandCart.lastActivated < 4 {
+		return
+	}
+	d := s.dimensionByName(e.Dim)
+	if d == nil {
+		return
+	}
+	frame := commandSourceFrame{dim: d, pos: [3]float64{e.X, e.Y, e.Z}, rotation: [2]float32{e.Yaw, e.Pitch}, executor: &dataEntity{mob: e}, display: entityDisplayName(e), level: 2}
+	s.performCommandBase(func() map[string]any { return commandMinecartFields(e) }, frame, func() { commandMinecartUpdated(e) })
+	e.commandCart.lastActivated = e.TickCount
 }
