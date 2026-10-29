@@ -67,6 +67,13 @@ multipliers. Combat and noncombat query controls pin the operation passes.
 Within-pass floating-point ordering and each gameplay consumer's integration
 remain separate coverage; this does not make every attribute consumer complete.
 
+NoGravity metadata is a shared native base field: pairing packs non-default true
+without consuming its pending dirty value, and tracker updates emit explicit false
+resets. Static families use the existing vehicle pass as a fallback; capability-only
+presence records are excluded. Nonliving base-only updates do not acquire living
+health fields. Initial join skips entities already paired through chunk delivery.
+These metadata changes do not complete gravity/travel or generic movement.
+
 Retracting piston source-base movement has measured routes for default-size
 NoGravity armor stands and ordinary stands/cows. Physical carried-head geometry
 differs from the live world-collision shape. Ordinary east-facing floor controls

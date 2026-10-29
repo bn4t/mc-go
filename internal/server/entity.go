@@ -181,7 +181,9 @@ type Entity struct {
 	// NoGravity mirrors Entity's NoGravity — summon NBT; gravity
 	// never pulls the entity while set. Saved as a byte only when
 	// true, matching Entity.saveWithoutId.
-	NoGravity bool
+	NoGravity      bool
+	noGravitySent  bool
+	noGravityDirty bool
 	// CustomNameVisible is Entity's DATA_CUSTOM_NAME_VISIBLE flag —
 	// summon NBT; the save writes the byte only while true.
 	CustomNameVisible bool
@@ -1904,6 +1906,7 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 		s.latchSyncBaseline(e)
 	}
 	var meta []byte
+	gravityPacked := false
 	switch {
 	case e.Type == mustEntityType("firework_rocket"):
 		// A firework rocket pairs its own data — fireworks item,
@@ -1915,6 +1918,7 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 		meta = encodePlayerAttachMeta(s.playerAttachHealth(e), e.Pose, s.playerAttachEyeUseFlags(e))
 	case e.Living:
 		meta = encodeLivingMetadata(e, nil)
+		gravityPacked = true
 	case e.HangSet:
 		meta = encodeHangingMeta(e)
 	default:
@@ -1930,6 +1934,9 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 			// BOOLEAN entry; a plain skull's pack is empty.
 			meta = []byte{8, 8, 1, 0xFF}
 		}
+	}
+	if !gravityPacked {
+		meta = withEntityNoGravityMetadata(meta, e, false)
 	}
 	if meta != nil {
 		var mb protocol.Buffer

@@ -17,11 +17,9 @@ type hostileAI struct {
 	// flags is the family's own synced byte: the evoker's
 	// DATA_SPELL_CASTING_ID (17), the vex's and the spider's
 	// DATA_FLAGS_ID (16). sentFlags is the client baseline the dirty
-	// pack diffs against; sentNoGrav the same for the vex's
-	// DATA_NO_GRAVITY (5) emit.
-	flags      byte
-	sentFlags  byte
-	sentNoGrav bool
+	// pack diffs against.
+	flags     byte
+	sentFlags byte
 
 	// Shared Mob target: a session (by uuid) or an entity id.
 	tgtUUID [16]byte
@@ -158,33 +156,6 @@ func hostileMetaDirty(b *protocol.Buffer, e *Entity, name string) {
 		b.Byte(0)
 		b.Byte(e.hai.flags)
 		e.hai.sentFlags = e.hai.flags
-	}
-}
-
-// hostileNoGravPack / hostileNoGravDirty emit DATA_NO_GRAVITY (5) for
-// the vex — Vex.tick calls setNoGravity(true) every tick, so the slot
-// leaves its false default on the first tick after the summon.
-func hostileNoGravPack(b *protocol.Buffer, e *Entity) {
-	if e.hai == nil || e.Type != mustEntityType("vex") {
-		return
-	}
-	e.hai.sentNoGrav = e.NoGravity
-	if e.NoGravity {
-		b.Byte(5)
-		b.Byte(8)
-		b.Bool(true)
-	}
-}
-
-func hostileNoGravDirty(b *protocol.Buffer, e *Entity) {
-	if e.hai == nil || e.Type != mustEntityType("vex") {
-		return
-	}
-	if e.NoGravity != e.hai.sentNoGrav {
-		b.Byte(5)
-		b.Byte(8)
-		b.Bool(e.NoGravity)
-		e.hai.sentNoGrav = e.NoGravity
 	}
 }
 

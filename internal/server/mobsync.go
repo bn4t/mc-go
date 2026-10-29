@@ -349,22 +349,26 @@ func (s *Server) mobSyncFlush(e *Entity) {
 	// the same gate in ServerEntity.sendChanges, so a latched
 	// sync (deflect, summon load) emits on the next tracker tick,
 	// not the next interval boundary.
-	if e.SyncCount%s.entitySyncInterval(e) == 0 || e.PosDirty || e.MetaDirty || e.NeedsSync {
+	gravityDirty := e.hasNoGravityMetadataChange()
+	if e.SyncCount%s.entitySyncInterval(e) == 0 || e.PosDirty || e.MetaDirty || e.NeedsSync || gravityDirty {
 		s.mobMoveSync(e)
 	}
 	e.SyncCount++
 	prepareCommandMinecartMetadata(e)
 	if len(e.dataSync) > 0 && s.gameTime() >= e.dataSyncTick {
-		data := e.dataSync
+		data := withEntityNoGravityMetadata(e.dataSync, e, true)
 		e.dataSync = nil
 		s.broadcastEntityMetadata(e.ID, data)
-	} else if e.MetaDirty {
+	} else if e.MetaDirty || gravityDirty {
+		familyDirty := e.MetaDirty
 		e.MetaDirty = false
 		// packDirty sends only the changed entries — an empty diff
 		// (a stale latch, or a merge that already dataSynced the
 		// change) means no packet at all, like vanilla's sendChanges.
 		var meta []byte
-		if name, ok := EntityTypeName(e.Type); ok && name == "wither_skull" {
+		if !familyDirty && !e.Living {
+			// A base-only non-living update has no living health fields.
+		} else if name, ok := EntityTypeName(e.Type); ok && name == "wither_skull" {
 			// DATA_DANGEROUS — the skull's only non-living entry —
 			// emits when it is set (a reset to the false default
 			// writes an empty pack, like packDirty with no diff).
@@ -374,6 +378,7 @@ func (s *Server) mobSyncFlush(e *Entity) {
 		} else {
 			meta = encodeLivingMetadataDirty(e, s.effectParticlesValue(e))
 		}
+		meta = withEntityNoGravityMetadata(meta, e, true)
 		if len(meta) > 0 {
 			s.broadcastEntityMetadata(e.ID, meta)
 		}

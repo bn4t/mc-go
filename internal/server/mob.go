@@ -3209,7 +3209,7 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 		b.Byte(8) // type: boolean
 		b.Bool(e.CustomNameVisible)
 	}
-	hostileNoGravDirty(&b, e)
+	entityNoGravityDirty(&b, e)
 	// DATA_POSE (6, pose serializer) — shared base-entity slot; it
 	// rides the diff on every pose transition (camel sit/stand, frog
 	// croak/tongue).
@@ -3741,7 +3741,7 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 		b.Byte(8) // type: boolean
 		b.Byte(1)
 	}
-	hostileNoGravPack(&b, e)
+	entityNoGravityPack(&b, e)
 	// DATA_POSE (6) — emitted when the pose sits off STANDING(0):
 	// a camel loaded with LastPoseTick<0 arrives SITTING(10).
 	if e.Pose != 0 {

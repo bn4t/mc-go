@@ -74,7 +74,7 @@ func vexSummonNBT(_ *Server, e *Entity, tag *snbtTag) {
 func (s *Server) vexTickPre(e *Entity) bool {
 	h := e.hostile()
 	if !e.NoGravity {
-		e.NoGravity = true
+		e.setNoGravity(true)
 		e.MetaDirty = true
 	}
 	if h.limited {

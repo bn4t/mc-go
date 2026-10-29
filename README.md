@@ -50,6 +50,9 @@ Player melee damage combines attack-damage overrides and modifiers with
 generated weapon values, including measured copper weapons. Attack speed also
 uses player overrides and modifiers, with zero-speed and default-delay controls.
 Arbitrary item attribute components and broader combat remain partial.
+Native NoGravity projects to client metadata at pairing and on true/false changes
+across measured living, item and boat paths. Vehicle gravity/travel and generic
+entity movement remain partial.
 Native boats and most minecart variants preserve measured cargo, subtype state
 and supported passenger trees through vanilla-compatible saves. Chest boats and
 chest/hopper minecarts provide measured shared cargo menus, clicks and spectator

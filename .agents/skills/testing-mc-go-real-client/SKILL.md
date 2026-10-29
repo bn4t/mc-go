@@ -126,6 +126,14 @@ successful tagged native run does not establish default test compilation.
   test needs settled scale, observe completed entity ticks; test immediate
   resize timing separately instead of claiming that the settled case pins it.
 
+## Entity pairing receipts
+
+Use decimal X/Z coordinates for exact summon identities: integer coordinates are
+centered at +0.5. Establish the observer's loaded chunks before creating targets.
+For late pairing, start capture before readiness drains can consume spawn or
+metadata packets. Pairing's non-default metadata and pending dirty metadata are
+separate operations; preserve exact counts and repeat-write controls.
+
 ## Command witness packets
 
 For a conditional `execute ... run say MARKER` witness, require the exact

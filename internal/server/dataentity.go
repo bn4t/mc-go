@@ -1524,7 +1524,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	}
 	e.Grounded = nbtTruth(save["OnGround"])
 	e.Silent = nbtTruth(save["Silent"])
-	e.NoGravity = nbtTruth(save["NoGravity"])
+	e.setNoGravity(nbtTruth(save["NoGravity"]))
 	// Entity.load: portalCooldown and the living absorptionAmount
 	// read straight ints/floats; fall_flying is a byte flag.
 	if v, ok := nbtInt32(save["PortalCooldown"]); ok {

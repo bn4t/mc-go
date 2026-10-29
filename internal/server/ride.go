@@ -923,6 +923,11 @@ func (s *Server) vehicleTickStep() {
 		if !ok {
 			continue
 		}
+		// This existing all-entity pass also covers static families
+		// without a mob tracker; earlier family flushes consume the flag.
+		if !ep.presenceOnly && ep.hasNoGravityMetadataChange() {
+			s.broadcastEntityMetadata(ep.ID, withEntityNoGravityMetadata(nil, ep, true))
+		}
 		// AbstractBoat's onGround: a spawned boat falls until its box
 		// bottom meets a solid top, where the vertical collision flag
 		// latches. mc-go's boats never move, so the settled reading is
