@@ -229,6 +229,16 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 			r := errToken("command.unknown.argument", tokBase+4)
 			return 0, false, 0, false, &r
 		}
+		if strings.HasPrefix(args[4], "#") {
+			predicate, perr := parseBlockTagPredicate(args[4], tokBase+4)
+			if perr != nil {
+				return 0, false, 0, false, perr
+			}
+			if ctx.alive {
+				cond = predicate.matches(s, ctx.dim, world.Pos{X: x, Y: y, Z: z})
+			}
+			return 5, cond, 0, false, nil
+		}
 		blk, props, pattern, perr := parseBlockPredicateNBT(args[4], tokBase+4)
 		if perr != nil {
 			return 0, false, 0, false, perr

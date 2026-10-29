@@ -60,9 +60,10 @@ Native structure-template lookups cache both present and missing results until
 corner unload or `/reload`; unreadable generated NBT can fall back to bundled
 templates. Complete datapack selection and reload coverage remains partial.
 
-Execute if/unless block supports typed, nested block-entity NBT subsets and
-structured whitespace. Complete block-tag predicates and parser diagnostics
-remain in progress.
+Execute if/unless block supports built-in block tags, case-sensitive member
+properties, typed nested block-entity NBT subsets and structured whitespace.
+Datapack tags, fill/clone filtering and exhaustive parser diagnostics remain
+in progress.
 
 Scripted protocol tests exercise real vanilla server behavior. A graphical
 client playtest is a separate check: client dependency downloads are currently
