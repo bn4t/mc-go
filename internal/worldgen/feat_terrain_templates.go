@@ -486,8 +486,9 @@ func (t *structTemplate) placeInWorld(rg *Region, off, pivot BlockPos, s *placeS
 	if len(blocks) == 0 && (s.ignoreEntities || t.entities == 0 || t.size[0] < 1 || t.size[1] < 1 || t.size[2] < 1) {
 		return false
 	}
-	var pending, sources []BlockPos
+	var pending, sources, placed []BlockPos
 	isSource := map[BlockPos]bool{}
+	inPlaced := map[BlockPos]bool{}
 	barrier := blockNamed("barrier")
 	for _, b := range processBlocks(rg, off, pivot, s, blocks) {
 		if s.bb != nil && !s.bb.inside(b.pos) {
@@ -504,6 +505,8 @@ func (t *structTemplate) placeInWorld(rg *Region, off, pivot BlockPos, s *placeS
 		if !rg.set(b.pos, st) {
 			continue
 		}
+		placed = append(placed, b.pos)
+		inPlaced[b.pos] = true
 		if b.nbt != nil && hasBlockEntity(st) && isRandomizable(st) {
 			random.NextLong()
 		}
@@ -549,7 +552,161 @@ func (t *structTemplate) placeInWorld(rg *Region, off, pivot BlockPos, s *placeS
 		}
 		pending = kept
 	}
+	// Not a known shape: blocks just outside the placed cells react to
+	// them (updateShapeAtEdge), then every placed cell is refreshed
+	// from its neighbours in placement order.
+	for _, p := range placed {
+		for d := 0; d < 6; d++ {
+			o := dirOffsets[d]
+			q := offset(p, o[0], o[1], o[2])
+			if inPlaced[q] {
+				continue
+			}
+			in, out := rg.at(p), rg.at(q)
+			ni := updateShape(rg, in, p, d, out)
+			if ni != in {
+				rg.set(p, ni)
+			}
+			if no := updateShape(rg, out, q, oppositeDir(d), ni); no != out {
+				rg.set(q, no)
+			}
+		}
+	}
+	for _, p := range placed {
+		st := rg.at(p)
+		if ns := updateFromNeighbourShapes(rg, st, p); ns != st {
+			rg.set(p, ns)
+		}
+	}
 	return true
+}
+
+// shapeFn is BlockState.updateShape for one block family: the state at
+// p reacting to its neighbour nb in direction dir.
+type shapeFn func(rg *Region, st world.Block, p BlockPos, dir int, nb world.Block) world.Block
+
+// shapeByClass holds the updateShape overrides template placement
+// needs, keyed by behaviour class; other blocks keep their state.
+var shapeByClass = map[string]shapeFn{
+	// SnowyBlock.updateShape: the block above decides snowy.
+	"SnowyBlock": func(rg *Region, st world.Block, p BlockPos, dir int, nb world.Block) world.Block {
+		if dir != dirUp {
+			return st
+		}
+		v := "false"
+		if blockInTag(nb, "snow") {
+			v = "true"
+		}
+		out, _ := world.WithProperty(st, "snowy", v)
+		return out
+	},
+	"SpeleothemBlock": speleothemShape,
+	// PotentSulfurBlock.updateShape (validBlockState): dry without a
+	// water source above, else continuous / dormant / wet by the block
+	// below and its fluid.
+	"PotentSulfurBlock": func(rg *Region, st world.Block, p BlockPos, dir int, nb world.Block) world.Block {
+		set := func(v string) world.Block { out, _ := world.WithProperty(st, "potent_sulfur_state", v); return out }
+		if fluidID(rg.at(offset(p, 0, 1, 0))) != "water" {
+			return set("dry")
+		}
+		below := rg.at(offset(p, 0, -1, 0))
+		srcOrEmpty := !hasFluid(below) || isFluidSource(below)
+		if blockInTag(below, "causes_continuous_geyser_eruptions") && srcOrEmpty {
+			return set("continuous")
+		}
+		if blockInTag(below, "causes_periodic_geyser_eruptions") && srcOrEmpty {
+			if v, _ := world.StateProperty(st, "potent_sulfur_state"); v == "erupting" {
+				return st
+			}
+			return set("dormant")
+		}
+		return set("wet")
+	},
+}
+
+func speleothemDir(b world.Block, d string) bool {
+	if !blockInTag(b, "speleothems") {
+		return false
+	}
+	v, _ := world.StateProperty(b, "vertical_direction")
+	return v == d
+}
+
+// speleothemShape is SpeleothemBlock.updateShape: vertical neighbours
+// recompute the thickness (calculateSpeleothemThickness); an
+// unsupported speleothem keeps its state (it only schedules a tick).
+func speleothemShape(rg *Region, st world.Block, p BlockPos, dir int, nb world.Block) world.Block {
+	if dir != dirUp && dir != dirDown {
+		return st
+	}
+	td, _ := world.StateProperty(st, "vertical_direction")
+	tip, opp := dirUp, dirDown
+	tipName, oppName := "up", "down"
+	if td == "down" {
+		tip, opp = dirDown, dirUp
+		tipName, oppName = "down", "up"
+	}
+	name, _ := world.StateOwner(st)
+	if dir == opp {
+		o := dirOffsets[opp]
+		base := offset(p, o[0], o[1], o[2])
+		bs := rg.at(base)
+		if !sturdyFull(bs, tip) && !(speleothemDir(bs, tipName) && isBlock(bs, name)) {
+			return st
+		}
+	}
+	th, _ := world.StateProperty(st, "thickness")
+	merge := th == "tip_merge"
+	t := dirOffsets[tip]
+	next := rg.at(offset(p, t[0], t[1], t[2]))
+	var out string
+	switch {
+	case speleothemDir(next, oppName) && isBlock(next, name):
+		nt, _ := world.StateProperty(next, "thickness")
+		if merge || nt == "tip_merge" {
+			out = "tip_merge"
+		} else {
+			out = "tip"
+		}
+	case !speleothemDir(next, tipName):
+		out = "tip"
+	default:
+		nt, _ := world.StateProperty(next, "thickness")
+		if nt == "tip" || nt == "tip_merge" {
+			out = "frustum"
+		} else {
+			o := dirOffsets[opp]
+			if speleothemDir(rg.at(offset(p, o[0], o[1], o[2])), tipName) {
+				out = "middle"
+			} else {
+				out = "base"
+			}
+		}
+	}
+	res, _ := world.WithProperty(st, "thickness", out)
+	return res
+}
+
+func updateShape(rg *Region, st world.Block, p BlockPos, dir int, nb world.Block) world.Block {
+	n, _ := world.StateOwner(st)
+	for _, c := range blockClass(n) {
+		if f, ok := shapeByClass[c]; ok {
+			return f(rg, st, p, dir, nb)
+		}
+	}
+	return st
+}
+
+// updateShapeOrder is Block.UPDATE_SHAPE_ORDER.
+var updateShapeOrder = [6]int{dirWest, dirEast, dirNorth, dirSouth, dirDown, dirUp}
+
+// updateFromNeighbourShapes is Block.updateFromNeighbourShapes.
+func updateFromNeighbourShapes(rg *Region, st world.Block, p BlockPos) world.Block {
+	for _, d := range updateShapeOrder {
+		o := dirOffsets[d]
+		st = updateShape(rg, st, p, d, rg.at(offset(p, o[0], o[1], o[2])))
+	}
+	return st
 }
 
 // UnsupportedProcessors collects template processor types without an

@@ -266,7 +266,9 @@ func TestFeatureForestRockParity(t *testing.T) {
 // templateTestOverrides strips every biome feature and gives plains a
 // test placed feature in its surface_structures step: a template
 // feature over the sulfur spring templates and two fossils (all four
-// rotations), two per chunk at the WORLD_SURFACE_WG top. The real
+// rotations), two per chunk at a uniform y in 0..40 (a fixed band, so
+// one chunk's templates cannot move another's through a heightmap,
+// which would make placement depend on decoration order). The real
 // server only reaches the template type through root_system in sulfur
 // caves, so this pins the template placement directly.
 func templateTestOverrides(t *testing.T) map[string]json.RawMessage {
@@ -283,7 +285,8 @@ func templateTestOverrides(t *testing.T) map[string]json.RawMessage {
 		"placement": []any{
 			map[string]any{"type": "minecraft:count", "count": 2},
 			map[string]any{"type": "minecraft:in_square"},
-			map[string]any{"type": "minecraft:heightmap", "heightmap": "WORLD_SURFACE_WG"},
+			map[string]any{"type": "minecraft:height_range", "height": map[string]any{"type": "minecraft:uniform",
+				"min_inclusive": map[string]any{"absolute": 0}, "max_inclusive": map[string]any{"absolute": 40}}},
 			map[string]any{"type": "minecraft:biome"},
 		},
 	}
