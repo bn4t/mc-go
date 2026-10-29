@@ -197,6 +197,7 @@ func (s *Server) runClone(player string, args []string) reply {
 	type cell struct {
 		rel [3]int
 		blk world.Block
+		tag map[string]any
 	}
 	var cells []cell
 	for x := minX; x <= maxX; x++ {
@@ -214,7 +215,7 @@ func (s *Server) runClone(player string, args []string) reply {
 						continue
 					}
 				}
-				cells = append(cells, cell{[3]int{x - minX, y - minY, z - minZ}, blk})
+				cells = append(cells, cell{[3]int{x - minX, y - minY, z - minZ}, blk, s.cloneNativeTag(srcDim, world.Pos{X: x, Y: y, Z: z})})
 			}
 		}
 	}
@@ -230,15 +231,16 @@ func (s *Server) runClone(player string, args []string) reply {
 	for _, c := range cells {
 		// Clone writes notify neighbours with the NEW state
 		// (updateNeighboursOnBlockSet).
-		s.setNaturalBlockNotify(dstDim, world.Pos{
+		s.clonePlaceNativeCell(dstDim, world.Pos{
 			X: dst[0] + c.rel[0],
 			Y: dst[1] + c.rel[1],
-			Z: dst[2] + c.rel[2]}, c.blk, c.blk)
+			Z: dst[2] + c.rel[2]}, c.blk, c.tag)
 	}
 	if mode == 2 {
 		for _, c := range cells {
 			x, y, z := minX+c.rel[0], minY+c.rel[1], minZ+c.rel[2]
 			if !inDst(x, y, z) {
+				s.structureRetireBlockEntity(srcDim, world.Pos{X: x, Y: y, Z: z}, srcDim.w.GetBlock(world.Pos{X: x, Y: y, Z: z}), world.Air)
 				s.setNaturalBlockNotify(srcDim, world.Pos{X: x, Y: y, Z: z}, world.Air, world.Air)
 			}
 		}

@@ -66,9 +66,10 @@ corner unload or `/reload`; unreadable generated NBT can fall back to bundled
 templates. Complete datapack selection and reload coverage remains partial.
 
 Execute if/unless block, fill replace and clone filtered support built-in block
-tags, member properties and typed nested block-entity NBT subsets. Datapack
-tags, complete clone block-entity copying and exhaustive parser diagnostics
-remain in progress.
+tags, member properties and typed nested block-entity NBT subsets. Clone also
+preserves measured native block-entity payloads and supported item components
+across copies, moves and overlapping force copies. Datapack tags, scheduled-tick
+copying, strict placement and exhaustive parser diagnostics remain in progress.
 
 Scripted protocol tests exercise real vanilla server behavior. A graphical
 client playtest is a separate check: client dependency downloads are currently

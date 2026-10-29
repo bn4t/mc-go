@@ -18121,3 +18121,13 @@ Limits: /kill only; combat, creative and explosion destruction plus nonempty loo
 **Implemented** — Test-only exact decoded readiness witness for the far destination chunk and exact decoded command barriers. All55 original command expectations remain intact; no production or timeout shortcut.
 
 **Pinned** — Immutablee472f74 plus only this fixture: TestCloneParity PASS15.70s. The same strengthened fixture also passes21.50s with the separate native-copy candidate. Sources: real26.2 wire, Go1.27.3/Temurin25.0.5+8, bundle SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Patch SHA256 `b970edb65ab538388868cfbd42330e4fb8cfa758041bf6fe96a28ce24a869b9c`. Earlier failing logs remain evidence; this resolves their fixture readiness issue without weakening assertions.
+
+## Slice — cloned native block-entity payloads (2026-10-29)
+
+**Measured** — Real26.2 wire and factual CloneCommands behavior: native BE data/components are sampled before writes, restored at destinations, and retired without inventory spills during replacement/move. Initial baseline FAIL24.03s: native15source/copy/retained witnesses pass; Go preserves sources but misses all five copied payloads. Go1.27.3/Temurin25.0.5+8, bundle SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`, inner SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+
+**Implemented** — Independently snapshot modeled native data before any destination mutation, retire prior storage through a silent temporary barrier and restore copied data at destination coordinates. Move-source retirement avoids spills; overlapping copies use detached source snapshots. Existing serializers bound payload coverage.
+
+**Pinned** — Final immutableee73b63 plus reviewed filter/readiness patches and three owned files:24 positive world-state witnesses PASS25.89s (vanilla3.91/Go3.16), covering chest item/potion components, waxed sign text, structure/jigsaw/command fields, move/no-spill and force-overlap furnace data with both sources proved first. Identical production passes filter24outcomes19.66s and legacyclone55commands21.50s. Earlier barrel overlap fixture exposed an unreadable source from a pre-existing accessor/store mismatch; that failure is retained and barrel repair is separate. Patch base5b5d3fd, SHA256 `a8b62bef12da4b38e84437653e917c69a9918cfcc047d76b00c850b7a290a93d`; work/clone-native-slice.md records exact source composition and logs.
+
+Limits: barrel access, exhaustive native serializers/components, clone strict callbacks, scheduled ticks, exotic activation and complete placement ordering remain separate. Final-state checks do not certify existing notify-before-hydrate ordering.
