@@ -71,7 +71,9 @@ Mojang server over the wire.
       cave and terrain features match block for block - `TestFeatureTreeParity`,
       `TestFeatureVeg{Surface,Ocean,Cave}Parity` and the ten terrain
       feature pins (lakes, springs, monster rooms, disks, icebergs,
-      geodes, fossils, templates, ...); `-level-type normal`
+      geodes, fossils, templates, ...); nether, end and ice-spike
+      features too - `TestFeatureNetherParity`, `TestFeatureEndParity`,
+      `TestFeatureOverworldMiscParity`; `-level-type normal`
       serves the generated overworld (world spawn, streamed chunks,
       heightmaps, biome palettes and block light match the real server -
       `TestNormalWorldChunkParity`; save/reload - `TestNormalWorldSaveReload`);
@@ -16026,3 +16028,29 @@ no flee; unsneak → flee). Green both legs.
   is the server's runtime random, so no differential pin is possible.
 - **Remaining:** the flat world's join fuzz; exact collision shapes in
   the box test.
+
+## Slice — nether, end and ice-spike features (2026-10-29)
+
+- **Measured:** bytecode inspection of glowstone_blob, basalt_columns,
+  basalt_pillar, delta_feature, netherrack_replace_blobs (with
+  `BlockPos.withinManhattan` order), huge_fungus,
+  nether_forest_vegetation, weeping/twisting vines, chorus_plant,
+  end_gateway, end_island, end_spike (seeded spike ring, iron-bar
+  cages, crystal bedrock and fire), end_platform, spike (ice spikes),
+  block_pile, bonus_chest, void_start_platform, and the nether
+  fungus/roots/fire/soul fire survival rules; the nether has no sky
+  light at decoration (mushroom light test). A Java agent logs the real
+  server's per-dimension decoration order.
+- **Implemented:** `internal/worldgen/feat_neth*.go`, `feat_endf*.go`;
+  `rawBrightness` is 0 in a skylight-less dimension. Every configured
+  feature type in the 26.2 data now has an implementation.
+- **Pinned:** `TestFeatureNetherParity` (all five nether biomes, 80
+  chunks), `TestFeatureEndParity` (main island with all ten spikes and
+  the platform, end_highlands, small_end_islands; 128 chunks, gateway
+  block entities present), `TestFeatureOverworldMiscParity` (ice
+  spikes, block piles, bonus chest, void start platform; 32 chunks).
+- **Remaining:** a few mushroom cells depend on the real server's
+  asynchronous light timing (accepted when an emitter could light
+  them); post-processing shape updates (snow over a later packed-ice
+  disk); end crystal entities and gateway exit NBT; the dragon fight's
+  exit portal.
