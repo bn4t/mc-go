@@ -1542,7 +1542,8 @@ func (s *Server) fillDestroyCell(d *dimension, pos world.Pos, broken world.Block
 	_, hasLoot := data.LootTables()["blocks/"+bname]
 	// The container removal path creates the component-bearing shulker
 	// item itself; the generic loot item would duplicate that box.
-	if hasLoot && !isShulkerBoxBlock(broken) {
+	blockDrops := s.gameRuleBool("minecraft:block_drops")
+	if hasLoot && !isShulkerBoxBlock(broken) && blockDrops {
 		ctx := &lootCtx{
 			tool:  ItemStack{},
 			block: bname,
@@ -1558,6 +1559,11 @@ func (s *Server) fillDestroyCell(d *dimension, pos world.Pos, broken world.Block
 	remaining := world.Air
 	if kind, level, has := fluidOf(broken); has {
 		remaining = fluidState(kind, level)
+	}
+	if isShulkerBoxBlock(broken) && !blockDrops {
+		// A shulker's boxed inventory belongs to its resource drop;
+		// ordinary container pre-removal contents still spill below.
+		s.structureRetireBlockEntity(d, pos, broken, remaining)
 	}
 	s.setBlockAndBroadcastInOwned(d, "", pos, remaining, false)
 	if remaining != broken {
