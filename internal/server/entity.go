@@ -668,10 +668,11 @@ type Entity struct {
 	// equipment map keyed by vanilla equipment index
 	// (equipMainHand..equipHelmet) — armor stands read/write it in
 	// interact; other mobs still use the named fields.
-	Small         bool
-	ShowArms      bool
-	DisabledSlots int32
-	Equips        map[int32]ItemStack
+	ArmorStandMarker bool
+	Small            bool
+	ShowArms         bool
+	DisabledSlots    int32
+	Equips           map[int32]ItemStack
 	// EquipDirty is vanilla's equipment dirty flag: summon NBT marks
 	// every loaded slot, and the next mob tick's
 	// detectEquipmentUpdates resends the set to trackers.
@@ -1333,6 +1334,10 @@ func (m *Manager) Damage(id int32, amount float32, typeName string, breachLevel 
 		return DamageResult{}
 	}
 	res := DamageResult{Exists: true}
+	if armorStandIsMarker(e) && !damageTypeBypassesInvulnerability(typeName) {
+		res.Health, res.Graced = e.Health, true
+		return res
+	}
 	// Entity.isInvulnerableToBase: a fireImmune entity is invulnerable
 	// to every is_fire-tagged source — the hit never lands (no
 	// damage event, knockback, or sound).

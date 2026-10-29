@@ -158,7 +158,7 @@ func (s *Server) armorStandInteract(sess *Session, eid int32, hand int32, clickY
 	s.entities.mu.RLock()
 	e, ok := s.entities.byID[eid]
 	s.entities.mu.RUnlock()
-	if !ok || e.Dying || e.Type != mustEntityType("armor_stand") {
+	if !ok || e.Dying || e.Type != mustEntityType("armor_stand") || e.ArmorStandMarker {
 		return
 	}
 	if sess.mode() == GameModeSpectator {

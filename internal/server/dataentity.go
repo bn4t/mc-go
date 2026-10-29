@@ -1120,6 +1120,9 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	if typeName == "command_block_minecart" {
 		commandMinecartSavedFields(e, m)
 	}
+	if typeName == "armor_stand" {
+		armorStandSavedFields(e, m)
+	}
 	if typeName == "allay" {
 		// Allay.addAdditionalSaveData's putLong — emitted always,
 		// even at 0.
@@ -1337,6 +1340,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	prevSheared, prevColor := e.Sheared, e.Color
 	prevPumpkin := e.Pumpkin
 	prevBaby := e.Baby
+	prevArmorFlags := encodeArmorStandFlags(e)
 	if e.crystal != nil {
 		// The crystal's data rides its own dirty flush.
 		applyCrystalSave(e, save, false)
@@ -1352,6 +1356,9 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		}
 	}
 	name, _ := EntityTypeName(e.Type)
+	if name == "armor_stand" {
+		armorStandLoadFields(e, save)
+	}
 	if name == "item" {
 		e.ItemHP = int32(itemSavedShort(save["Health"], 5))
 		applyItemTouchSave(e, save)
@@ -1988,6 +1995,11 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			known[k] = true
 		}
 	}
+	if name == "armor_stand" {
+		for _, k := range []string{"Small", "ShowArms", "DisabledSlots", "Marker"} {
+			known[k] = true
+		}
+	}
 	extras := map[string]any{}
 	for k, v := range save {
 		if !known[k] {
@@ -2005,6 +2017,12 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	// resends them as a second packet.
 	e.ensureMetaInit()
 	var b protocol.Buffer
+	if name == "armor_stand" && prevArmorFlags != encodeArmorStandFlags(e) {
+		b.Byte(15)
+		b.Byte(0)
+		b.Byte(encodeArmorStandFlags(e))
+		e.metaSent.asFlags = encodeArmorStandFlags(e)
+	}
 	if prevName != e.CustomName {
 		b.Byte(2)
 		b.Byte(6) // optional component serializer

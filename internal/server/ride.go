@@ -312,6 +312,14 @@ func passengerAttach(veh *Entity) [3]float64 {
 // factor (adult·0.5).
 func entityBBDims(e *Entity) [2]float64 {
 	b := mobBounds(e.Type)
+	if e.Type == mustEntityType("armor_stand") {
+		if e.ArmorStandMarker {
+			return [2]float64{}
+		}
+		if e.Small {
+			return [2]float64{float64(float32(b[0]) * .5), float64(float32(b[1]) * .5)}
+		}
+	}
 	if e.Baby {
 		name, _ := EntityTypeName(e.Type)
 		if d, ok := babyDimsTable[name]; ok {

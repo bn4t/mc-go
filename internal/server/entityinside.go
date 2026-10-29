@@ -120,7 +120,7 @@ func (s *Server) entityInsideStep() {
 	}
 	s.entities.mu.RUnlock()
 	for _, e := range es {
-		if spectator[e.ID] || e.presenceOnly {
+		if spectator[e.ID] || e.presenceOnly || armorStandIsMarker(e) {
 			continue
 		}
 		d := s.dims[e.Dim]

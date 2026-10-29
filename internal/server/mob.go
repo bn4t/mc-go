@@ -1460,6 +1460,11 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if sv, ok := tag.vals["NoGravity"]; ok && (sv.num == "1b" || sv.num == "1" || sv.str == "true") {
 				e.NoGravity = true
 			}
+			if name == "armor_stand" {
+				if v, ok := tag.vals["Marker"]; ok {
+					e.ArmorStandMarker = v.num == "1b" || v.num == "1" || v.str == "true"
+				}
+			}
 			// Armor stand NBT: Small halves the click-height bands,
 			// ShowArms unlocks the hand slots, DisabledSlots is the
 			// replace/take/place bitmask.
@@ -2864,9 +2869,12 @@ func (s *Server) broadcastFreshMob(e *Entity) {
 
 // encodeArmorStandFlags packs ArmorStand's DATA_CLIENT_FLAGS byte
 // (metadata index 15): 0x01 small, 0x04 show arms, 0x08 no baseplate,
-// 0x10 marker. mc-go reads Small and ShowArms from summon NBT.
+// 0x10 marker. Native flags are read by summon and entity load.
 func encodeArmorStandFlags(e *Entity) byte {
 	var flags byte
+	if e.ArmorStandMarker {
+		flags |= 0x10
+	}
 	if e.Small {
 		flags |= 0x01
 	}
@@ -5762,7 +5770,7 @@ func (s *Server) mobTickStep() {
 			// the move goals — the head re-aims on its own cadence.
 			s.mobLookStep(e)
 		}
-		if e.Riding == 0 && nonMobLiving[ambName] {
+		if e.Riding == 0 && nonMobLiving[ambName] && !armorStandIsMarker(e) {
 			// LivingEntity.tick for a non-Mob: no goal selector, but
 			// the physics chain still runs — baseTick's
 			// updateFluidInteraction pushes the fluid current into

@@ -153,6 +153,10 @@ func (s *Server) placeUnobstructed(d *dimension, st world.Block, pos world.Pos) 
 		}
 		name, _ := EntityTypeName(e.Type)
 		name = strings.TrimPrefix(name, "minecraft:")
+		// ArmorStand marker mode clears blocksBuilding independently of its box.
+		if name == "armor_stand" && e.ArmorStandMarker {
+			continue
+		}
 		if _, living := entityAttrBases[name]; !living && !blocksBuildingType(name) {
 			continue
 		}
