@@ -462,9 +462,6 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 		g.RS.SetLevelBounds(0, 256)
 	}
 	g.Structures = true
-	if n := compareStarts(t, region, g, areas); n == 0 {
-		t.Errorf("no structure starts in the compared areas")
-	}
 	writes := map[worldgen.BlockPos]map[[2]int32]world.Block{}
 	g.WriteLog = func(p worldgen.BlockPos, c [2]int32, b world.Block) {
 		m := writes[p]
@@ -482,6 +479,14 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 			}
 		}
 	}
+	reseeds := map[worldgen.BlockPos]map[string]bool{}
+	worldgen.LootSeedLog = func(p worldgen.BlockPos, seed int64) {
+		if reseeds[p] == nil {
+			reseeds[p] = map[string]bool{}
+		}
+		reseeds[p][fmt.Sprint(seed)] = true
+	}
+	defer func() { worldgen.LootSeedLog = nil }()
 	chunks := g.GenerateArea(order)
 	// Decoration order: features of pool elements read the blocks of
 	// neighbouring chunks (a pile needs the floor a neighbour's piece
@@ -494,6 +499,12 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 		rev[len(order)-1-i] = c
 	}
 	alt := g.GenerateArea(rev)
+	// Starts are compared after decoration: vanilla saves the start
+	// objects as post-processing left them (buried treasure and
+	// template pieces move their boxes, shipwrecks their height).
+	if n := compareStarts(t, region, g, areas); n == 0 {
+		t.Errorf("no structure starts in the compared areas")
+	}
 	minY, height := g.RS.LevelMinY(), g.RS.LevelHeight()
 	total, orderDep, exempt, beOK, orderSens := 0, 0, 0, 0, 0
 	for _, a := range areas {
@@ -534,7 +545,7 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 				if bad > 0 {
 					t.Errorf("chunk %d,%d: %d mismatched blocks", cx, cz, bad)
 				}
-				beOK += compareStructBlockEntities(t, saved, p, cx, cz, minY)
+				beOK += compareStructBlockEntities(t, saved, p, alt[[2]int32{cx, cz}], reseeds, cx, cz, minY)
 				total++
 			}
 		}
@@ -550,8 +561,15 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 }
 
 // compareStructBlockEntities checks that the saved chunk's block entities sit
-// exactly where mc-go placed blocks that carry one.
-func compareStructBlockEntities(t *testing.T, saved savedChunk, p *worldgen.ProtoChunk, cx, cz, minY int32) int {
+// exactly where mc-go placed blocks that carry one. A loot table or
+// seed that differs passes when mc-go's reverse-order decoration (alt)
+// has vanilla's: a template piece's data markers re-seed containers
+// that neighbouring chunks placed earlier (shipwrecks), so the last
+// chunk decorated decides. A seed that matches neither passes when one
+// of mc-go's data markers assigned it at that position during either
+// run (vanilla decorates neighbouring chunks concurrently, so a marker
+// may or may not see a neighbour's chest yet).
+func compareStructBlockEntities(t *testing.T, saved savedChunk, p, alt *worldgen.ProtoChunk, reseeds map[worldgen.BlockPos]map[string]bool, cx, cz, minY int32) int {
 	t.Helper()
 	want := map[[3]int32]string{}
 	wantTag := map[[3]int32]map[string]any{}
@@ -578,10 +596,23 @@ func compareStructBlockEntities(t *testing.T, saved savedChunk, p *worldgen.Prot
 			// Loot table and seed: the template's table (or a rule's
 			// append_loot) and the seed drawn from the piece random.
 			w, g := wantTag[pos], p.BlockEntityData[pos]
+			var a map[string]any
+			if alt != nil {
+				a = alt.BlockEntityData[pos]
+			}
 			for _, k := range []string{"LootTable", "LootTableSeed"} {
 				wv, wok := w[k]
 				gv, gok := g[k]
+				av, aok := a[k]
 				if wok != gok || (wok && fmt.Sprint(wv) != fmt.Sprint(gv)) {
+					if wok == aok && (!wok || fmt.Sprint(wv) == fmt.Sprint(av)) {
+						t.Logf("chunk %d,%d: block entity %s at %v %s matches mc-go's reverse decoration order", cx, cz, want[pos], pos, k)
+						continue
+					}
+					if k == "LootTableSeed" && wok && reseeds[worldgen.BlockPos(pos)][fmt.Sprint(wv)] {
+						t.Logf("chunk %d,%d: block entity %s at %v %s matches a data-marker seed of another decoration order", cx, cz, want[pos], pos, k)
+						continue
+					}
 					t.Errorf("chunk %d,%d: block entity %s at %v %s: mc-go %v, vanilla %v", cx, cz, want[pos], pos, k, gv, wv)
 				}
 			}
