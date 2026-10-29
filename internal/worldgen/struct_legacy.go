@@ -361,6 +361,21 @@ func createChestAt(c *PieceContext, bb BoundingBox, r Random, pos BlockPos, loot
 	return true
 }
 
+// setStructLootTable is RandomizableContainer.setLootTable on the block
+// entity at q (kept with whatever the block entity already holds).
+func setStructLootTable(rg *Region, q BlockPos, table string, seed int64) {
+	c := rg.chunkAt(q[0], q[2])
+	if c == nil {
+		return
+	}
+	be := map[string]any{}
+	for k, v := range c.BlockEntityData[q] {
+		be[k] = v
+	}
+	be["LootTable"], be["LootTableSeed"] = table, seed
+	rg.setBlockEntity(q, be)
+}
+
 // createChest is StructurePiece.createChest at local coordinates.
 func (p *legacyPiece) createChest(c *PieceContext, bb BoundingBox, r Random, x, y, z int32, loot string) bool {
 	return createChestAt(c, bb, r, p.worldPos(x, y, z), loot, world.Air)

@@ -49,3 +49,11 @@ func TestStructureJungleTempleParity(t *testing.T) {
 func TestStructureSwampHutParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{-151, -89, -146, -84}}, "swamp_huts")
 }
+
+// TestStructureIglooParity pins an igloo with a basement: the random
+// rotation, the laboratory and ladder template pieces under the top,
+// each moved to the surface for its placement, the hatch's snow block
+// and the chest data marker's loot table.
+func TestStructureIglooParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{18, 70, 22, 74}}, "igloos")
+}
