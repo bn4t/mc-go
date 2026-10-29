@@ -848,17 +848,23 @@ func (s *Server) runSummon(player string, args []string) reply {
 	if len(args) == 0 {
 		return textReply("Usage: /summon <entity>")
 	}
-	sess := s.findSessionByName(player)
-	if sess == nil {
-		return textReply("Unknown player: " + player)
-	}
-	// The command source position resolves "~" and the bare-pos
-	// default: an `execute at|as` anchor overrides the sender.
-	x, y, z, _, _, _ := sess.Pos()
-	if sess.execPos != nil {
-		x, y, z = sess.execPos[0], sess.execPos[1], sess.execPos[2]
-	} else if sess.execEnt != nil && sess.execEnt.mob != nil {
-		x, y, z = sess.execEnt.mob.X, sess.execEnt.mob.Y, sess.execEnt.mob.Z
+	// Resolve a real command frame directly; a server or command-block
+	// source does not have a player session.
+	d := s.dimOf(player)
+	var x, y, z float64
+	if frame := s.commandFrame(player); frame != nil {
+		x, y, z = frame.pos[0], frame.pos[1], frame.pos[2]
+	} else {
+		sess := s.findSessionByName(player)
+		if sess == nil {
+			return textReply("Unknown player: " + player)
+		}
+		x, y, z, _, _, _ = sess.Pos()
+		if sess.execPos != nil {
+			x, y, z = sess.execPos[0], sess.execPos[1], sess.execPos[2]
+		} else if sess.execEnt != nil && sess.execEnt.mob != nil {
+			x, y, z = sess.execEnt.mob.X, sess.execEnt.mob.Y, sess.execEnt.mob.Z
+		}
 	}
 	if len(args) >= 4 {
 		var err error
@@ -892,10 +898,10 @@ func (s *Server) runSummon(player string, args []string) reply {
 	// EndCrystal and EnderDragon carry their own entity state
 	// (endcrystal.go, enderdragon.go).
 	if name == "end_crystal" || name == "ender_dragon" {
-		s.summonEndEntity(sess.dimension(), name, x, y, z, tag)
+		s.summonEndEntity(d, name, x, y, z, tag)
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}
-	if e, ok := s.summonMobRaw(sess.dimension(), name, x, y, z, noAI, tag == nil); ok {
+	if e, ok := s.summonMobRaw(d, name, x, y, z, noAI, tag == nil); ok {
 		// The variant rolls live in Mob.finalizeSpawn, which the
 		// summon command only calls for the no-NBT overload
 		// (initialize=true): a bare summon rolls the biome-eligible
@@ -904,7 +910,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		// keeps its define defaults unless the NBT keys below set
 		// them explicitly.
 		if tag == nil {
-			if v := rollSpawnVariant(name, strings.TrimPrefix(sess.dimension().w.Biome(), "minecraft:")); v != "" {
+			if v := rollSpawnVariant(name, strings.TrimPrefix(d.w.Biome(), "minecraft:")); v != "" {
 				e.VariantName = v
 			}
 			e.SoundVariant = rollSoundVariant(name)
@@ -1882,7 +1888,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 			// startRiding, so the summon ends with the vehicle's
 			// set_passengers packet behind its own bundle.
 			if pv, ok := tag.vals["Passengers"]; ok && pv.kind == snbtList {
-				s.summonPassengers(sess, e, pv.items)
+				s.summonPassengers(d, e, pv.items)
 			}
 
 		}
@@ -1912,7 +1918,6 @@ func (s *Server) runSummon(player string, args []string) reply {
 			if lv, ok := tag.vals["leash"]; ok && lv.kind == snbtList && s.isLeashable(e) {
 				switch len(lv.items) {
 				case 3:
-					d := sess.dimension()
 					pos := world.Pos{X: int(snbtNum(lv.items[0])), Y: int(snbtNum(lv.items[1])), Z: int(snbtNum(lv.items[2]))}
 					knot := s.leashKnotAt(d, pos)
 					if knot == nil {
@@ -1931,7 +1936,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 						u[i*4+3] = byte(v)
 					}
 					for _, snap := range s.entities.All() {
-						if snap.Dim == sess.dimension().name && snap.UUID == u {
+						if snap.Dim == d.name && snap.UUID == u {
 							s.leashSetTo(e, snap.ID)
 							break
 						}
@@ -1958,7 +1963,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		// and its own tick discards it next tick.
 		e := &Entity{
 			Type: mustEntityType("item"),
-			Dim:  sess.dimName(),
+			Dim:  d.name,
 			X:    x, Y: y, Z: z,
 			Item: it,
 		}
@@ -2027,7 +2032,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		}
 		e := s.entities.Spawn(&Entity{
 			Type: id,
-			Dim:  sess.dimName(),
+			Dim:  d.name,
 			X:    x, Y: y, Z: z,
 		})
 		if tag != nil {
@@ -2056,7 +2061,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 					if pname == "" {
 						continue
 					}
-					if g, ok := s.summonMob(sess.dimension(), pname, x, y, z, true); ok {
+					if g, ok := s.summonMob(d, pname, x, y, z, true); ok {
 						g.Riding = e.ID
 						e.Passengers = append(e.Passengers, g.ID)
 					}
@@ -2099,7 +2104,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		mx, my, mz := 0.0, -0.1, 0.0
 		e := &Entity{
 			Type: mustEntityType(name),
-			Dim:  sess.dimName(),
+			Dim:  d.name,
 			X:    x, Y: y, Z: z,
 		}
 		if tag != nil {
@@ -2173,7 +2178,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		mx, my, mz := 0.0, 0.0, 0.0
 		e := &Entity{
 			Type: mustEntityType(name),
-			Dim:  sess.dimName(),
+			Dim:  d.name,
 			X:    x, Y: y, Z: z,
 		}
 		if tag != nil {
@@ -2198,7 +2203,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 	if summonPlainNames[name] {
 		e := &Entity{
 			Type: mustEntityType(name),
-			Dim:  sess.dimName(),
+			Dim:  d.name,
 			X:    x, Y: y, Z: z,
 		}
 		switch name {
@@ -2257,7 +2262,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		}
 		e := s.entities.Spawn(&Entity{
 			Type: mustEntityType(name),
-			Dim:  sess.dimName(),
+			Dim:  d.name,
 			X:    x, Y: y, Z: z,
 			MotionX: mx, MotionY: my, MotionZ: mz,
 			VX: int16(mx * 8000), VY: int16(my * 8000), VZ: int16(mz * 8000),
@@ -2307,7 +2312,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 		}
 		e := s.entities.Spawn(&Entity{
 			Type: mustEntityType(name),
-			Dim:  sess.dimName(),
+			Dim:  d.name,
 			X:    x, Y: y, Z: z,
 			Yaw:     yaw,
 			Pitch:   pitch,
@@ -2340,7 +2345,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 	if name == "lightning_bolt" {
 		e := s.entities.Spawn(&Entity{
 			Type: mustEntityType("lightning_bolt"),
-			Dim:  sess.dimName(),
+			Dim:  d.name,
 			X:    x, Y: y, Z: z,
 		})
 		s.broadcastEntitySpawn(nil, *e)
@@ -2348,14 +2353,14 @@ func (s *Server) runSummon(player string, args []string) reply {
 		// type_specific/lightning.blocks_set_on_fire stays zero and the
 		// Surge Protector predicate matches.
 		fires := 1
-		if n, ok := blockNameAt(sess.dimension(), world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)) - 1, Z: int(math.Floor(z))}); ok && strings.HasSuffix(n, "lightning_rod") {
+		if n, ok := blockNameAt(d, world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)) - 1, Z: int(math.Floor(z))}); ok && strings.HasSuffix(n, "lightning_rod") {
 			fires = 0
 		}
-		if n, ok := blockNameAt(sess.dimension(), world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}); ok && strings.HasSuffix(n, "lightning_rod") {
+		if n, ok := blockNameAt(d, world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}); ok && strings.HasSuffix(n, "lightning_rod") {
 			fires = 0
 		}
-		s.fireLightningStrike(sess.dimension(), x, y, z, fires)
-		s.thunderStrikeEntities(sess.dimension(), e, x, y, z, nil)
+		s.fireLightningStrike(d, x, y, z, fires)
+		s.thunderStrikeEntities(d, e, x, y, z, nil)
 		s.entities.Remove(e.ID)
 		s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft.lightning_bolt")))
@@ -2590,8 +2595,7 @@ func (s *Server) summonMobRawSpawn(d *dimension, name string, x, y, z float64, n
 // (mirroring the top-level keys this summon arm reads) and rides the
 // new vehicle like startRiding — the rider welds to the rotated
 // PASSENGER attachment immediately, then set_passengers ships.
-func (s *Server) summonPassengers(sess *Session, veh *Entity, items []*snbtTag) {
-	d := sess.dimension()
+func (s *Server) summonPassengers(d *dimension, veh *Entity, items []*snbtTag) {
 	for _, sub := range items {
 		if sub == nil {
 			continue
@@ -2649,7 +2653,7 @@ func (s *Server) summonPassengers(sess *Session, veh *Entity, items []*snbtTag) 
 			}
 		}
 		if pv, ok := sub.vals["Passengers"]; ok && pv.kind == snbtList {
-			s.summonPassengers(sess, g, pv.items)
+			s.summonPassengers(d, g, pv.items)
 		}
 		// startRiding + positionRider: link both ends, weld the rider
 		// at vehicle pos + rotated PASSENGER attach − rider's own

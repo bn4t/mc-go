@@ -265,7 +265,9 @@ Mojang server over the wire.
   (`TestItemSNBTParity`). Fill/clone share typed block filters; clone preserves
   measured native block-entity data, strict writes and post-hydration neighbor
   notifications. Exact placement grouping, scheduled-tick copying and complete
-  command schemas remain partial.
+  command schemas remain partial. Startup file-function scheduling now has
+  measured world-time deadlines, clear/replace/append and server-source controls;
+  persisted events and tags/macros remain open.
 - [x] World save format parity (region files)
 - [~] RCON, query, properties parity (server.properties: read,
       completed with vanilla's defaults and rewritten byte for byte -
@@ -18320,3 +18322,11 @@ Provenance: Java 26.2 wire and public registry codec facts, Temurin 25.0.5+8 and
 - **Pinned:** 28 native component controls PASS 21.56 s; paired ejection order PASS 15.99 s; 23 lifecycle controls PASS 20.65 s; ordinary jukebox regression PASS 36.59 s. Six actual disk/save/load/ejection cases and identity units pass. Final immutable build, vet and both test build modes pass, with Jukebox units 0.589 s. Names/bees retain the existing literal/count model; unknown components, custom songs, general presence/removal semantics, nested prototype normalization and natural-removal ordering remain separate.
 
 Provenance: Java 26.2 wire, official generated component reports and public Fireworks.CODEC probe, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA1 86765a5899bd9c96461036a628796b4245715058. Public codec probe SHA256 43d4be23e08b5761176107ae5bbc5eed175accf7642ff36cd4822d2d8a0c5caf. Frozen seven-file patch 1b4e8a28f4888d3a0440cdba8460d1c34d09432ff9ea28379c0c01204dd0dd81. Failed initial probes and corrected expectations remain in the measurement logs.
+
+## Slice — registered function scheduling and server-source summons (2026-10-29)
+
+- **Measured:** native scheduled functions run at world-age deadlines and stay frozen with world time; append deduplicates name/deadline, clear returns removed count and replace removes older events. Execution uses an entity-free Overworld server source at the integer world-spawn block. Runtime line failures do not stop later lines. Public TimeArgument parsing pins float32 rounding/saturation and rejects exponent/leading-plus forms accepted by general float parsers.
+- **Implemented:** add an independent simulation-owned function queue, removing each event before its callback so self-rescheduling and clearing preserve new work. Resolve functions through the startup registry at permission level two. Summon now resolves command-frame position/dimension without requiring a player session; player anchors and passenger dimension handling remain supported.
+- **Pinned:** baseline native 14 conditions passed while Go failed 11; final 26 controls PASS 21.84 s, player summon regression PASS 30.90 s, advancement reward regression PASS 156.87 s, final affected units PASS 1.639 s. Legacy ExecuteAtSummon failed in vanilla's first leg before Go ran because its remote fox was not selectable; that failure is preserved separately, without weakening this slice.
+
+Provenance: Java 26.2 wire and public TimeArgument API observations, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA1 86765a5899bd9c96461036a628796b4245715058. Frozen seven-file patch e18714f1b6774a80cb584389e0d253cca0663b3d42685dede26b3b7c8c74cf60. Persisted events, tags/macros/return semantics, pack reload/selection, other neutral commands and exhaustive cursor diagnostics remain partial. Equal-deadline insertion order lacks an independent wire-order pin.

@@ -109,6 +109,14 @@ displayless replacements; built-in wire data retains its captured icon/component
 bytes while coordinates are rewritten. Complete component schemas, pack selection,
 ZIP/reload and custom loot overlays are still separate work.
 
+Scheduled file functions use a simulation-owned world-age queue independent
+of block/fluid deadlines. Name plus deadline defines event identity; an event
+is removed before callback dispatch so clear/replace/self-rescheduling are safe.
+Execution resolves the startup registry with permission two, an Overworld
+server source at the spawn block and no entity executor. Summon can resolve
+that command frame directly. Persistence, tags/macros/return semantics and a
+wire pin for equal-deadline ordering remain separate work.
+
 Custom tick criteria fire on connection ticks after menu validation and before
 inventory touching, including while the world is frozen. Startup compilation
 caches supported player/entity/context predicates in the server registry.

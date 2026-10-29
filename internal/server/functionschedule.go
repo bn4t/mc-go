@@ -1,0 +1,190 @@
+package server
+
+import (
+	"math"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+// The queue belongs to the simulation owner. Its identity is the function
+// name plus absolute world age; insertion order breaks equal-age ties.
+type scheduledFunction struct {
+	name   string
+	age    int64
+	serial uint64
+}
+
+func (s *Server) clearFunctionSchedule(name string) int {
+	n := 0
+	kept := s.functionSchedule[:0]
+	for _, event := range s.functionSchedule {
+		if event.name == name {
+			n++
+		} else {
+			kept = append(kept, event)
+		}
+	}
+	s.functionSchedule = kept
+	return n
+}
+
+func (s *Server) runFunctionSchedule(args []string) reply {
+	if len(args) == 0 {
+		return errTokenEnd("command.unknown.command", 0)
+	}
+	switch args[0] {
+	case "clear":
+		if len(args) < 2 {
+			return errTokenEnd("command.unknown.command", 2)
+		}
+		if len(args) > 2 {
+			return errToken("command.unknown.argument", 3)
+		}
+		// Clear's name is the scheduled event's exact key, rather than a
+		// newly resolved function argument.
+		n := s.clearFunctionSchedule(args[1])
+		if n == 0 {
+			return componentReply(commandError("commands.schedule.cleared.failure", args[1]))
+		}
+		r := opsEchoReply(translatable("commands.schedule.cleared.success", int32(n), args[1]))
+		r.result = n
+		r.hasResult = true
+		r.outcome = commandSucceeded
+		return r
+	case "function":
+		if len(args) < 3 {
+			return errTokenEnd("command.unknown.command", len(args)+1)
+		}
+		id, ok := jigsawIdentifier(args[1])
+		if !ok {
+			return errToken("argument.id.invalid", 2)
+		}
+		if _, ok := s.functions[id]; !ok {
+			return componentReply(commandError("arguments.function.unknown", id))
+		}
+		ticks, problem, number := functionScheduleTime(args[2])
+		switch problem {
+		case "parsing.float.expected":
+			return errToken(problem, 3)
+		case "parsing.float.invalid":
+			return errToken(problem, 3, number)
+		case "argument.time.invalid_unit":
+			return errTokenEnd(problem, 3)
+		}
+		if ticks < 0 {
+			return errTokenEnd("argument.time.tick_count_too_low", 3, int32(0), ticks)
+		}
+		replace := true
+		if len(args) > 3 {
+			switch args[3] {
+			case "append":
+				replace = false
+			case "replace":
+			default:
+				return errToken("command.unknown.argument", 4)
+			}
+			if len(args) > 4 {
+				return errToken("command.unknown.argument", 5)
+			}
+		}
+		if ticks == 0 {
+			return componentReply(commandError("commands.schedule.same_tick"))
+		}
+		if replace {
+			s.clearFunctionSchedule(id)
+		}
+		age := s.gameTime() + int64(ticks)
+		found := false
+		for _, event := range s.functionSchedule {
+			if event.name == id && event.age == age {
+				found = true
+				break
+			}
+		}
+		if !found {
+			s.functionScheduleSerial++
+			s.functionSchedule = append(s.functionSchedule, scheduledFunction{id, age, s.functionScheduleSerial})
+		}
+		r := opsEchoReply(translatable("commands.schedule.created.function", id, ticks, age))
+		r.result = int(age % 2147483647)
+		r.hasResult = true
+		r.outcome = commandSucceeded
+		return r
+	}
+	return errToken("command.unknown.argument", 1)
+}
+
+// Time arguments use single-precision input and round to a tick. Keep this
+// parser separate from NBT/JSON integer conversion and world-age arithmetic.
+func functionScheduleTime(raw string) (int32, string, string) {
+	end := 0
+	for end < len(raw) {
+		c := raw[end]
+		if !(c >= '0' && c <= '9' || c == '.' || c == '-') {
+			break
+		}
+		end++
+	}
+	number := raw[:end]
+	if number == "" {
+		return 0, "parsing.float.expected", number
+	}
+	v, err := strconv.ParseFloat(number, 32)
+	if err != nil && !math.IsInf(v, 0) {
+		return 0, "parsing.float.invalid", number
+	}
+	factor := float32(1)
+	switch raw[end:] {
+	case "", "t":
+	case "s":
+		factor = 20
+	case "d":
+		factor = 24000
+	default:
+		return 0, "argument.time.invalid_unit", number
+	}
+	rounded := math.Floor(float64(float32(v)*factor) + 0.5)
+	if rounded > math.MaxInt32 {
+		return math.MaxInt32, "", number
+	}
+	if rounded < math.MinInt32 {
+		return math.MinInt32, "", number
+	}
+	return int32(rounded), "", number
+}
+
+func (s *Server) functionScheduleStep() {
+	age := s.gameTime()
+	// Remove one event before running it: a callback can replace, clear or
+	// append events without retaining an expired entry or losing new work.
+	for {
+		sort.SliceStable(s.functionSchedule, func(i, j int) bool {
+			a, b := s.functionSchedule[i], s.functionSchedule[j]
+			if a.age != b.age {
+				return a.age < b.age
+			}
+			return a.serial < b.serial
+		})
+		if len(s.functionSchedule) == 0 || s.functionSchedule[0].age > age {
+			return
+		}
+		event := s.functionSchedule[0]
+		s.functionSchedule = s.functionSchedule[1:]
+		lines, ok := s.functions[event.name]
+		if !ok {
+			continue
+		}
+		sx, sy, sz := s.WorldSpawn()
+		frame := commandSourceFrame{dim: s.dims[dimOverworld], pos: [3]float64{math.Floor(sx), math.Floor(sy), math.Floor(sz)}, display: literal("Server"), level: functionPermLevel}
+		s.withCommandFrame(&frame, func() reply {
+			for _, line := range lines {
+				fields := splitCommandArgs(strings.TrimSpace(line))
+				if len(fields) > 0 {
+					s.runCommandAt(neutralCommandActor, functionPermLevel, fields[0], fields[1:])
+				}
+			}
+			return reply{}
+		})
+	}
+}

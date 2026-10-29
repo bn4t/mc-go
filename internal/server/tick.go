@@ -521,6 +521,7 @@ func (s *Server) gameTickOwned() {
 		s.clock.day++
 	}
 	s.clock.mu.Unlock()
+	s.functionScheduleStep()
 	s.compensateFrozenPlayerEffectStep()
 	// LivingEntity.baseTick's air pass plus the inside-block fluid
 	// cells run on the entity game tick: a sprint or step advances

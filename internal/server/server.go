@@ -296,8 +296,10 @@ type Server struct {
 	customPacks map[string]bool
 	// functions is the datapack function table loadFunctions fills from
 	// WorldDir/datapacks: resource id -> command lines.
-	functions       map[string][]string
-	advancementPack *advancementRegistry
+	functions              map[string][]string
+	functionSchedule       []scheduledFunction
+	functionScheduleSerial uint64
+	advancementPack        *advancementRegistry
 	// Native structure template repository, shared by dimensions.
 	structureTemplates map[string]map[string]any
 	// patrolNext is PatrolSpawner.nextTick — the countdown to the next

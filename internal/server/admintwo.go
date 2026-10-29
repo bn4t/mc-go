@@ -193,47 +193,9 @@ func (s *Server) runReturn(player string, args []string) reply {
 
 // ---- schedule ----
 
-// runSchedule is /schedule: no functions exist to queue, so a parsed
-// call always reports arguments.function.unknown, and /schedule clear
-// always finds nothing.
+// runSchedule delegates to the independent world-age function queue.
 func (s *Server) runSchedule(player string, args []string) reply {
-	if len(args) == 0 {
-		return errTokenEnd("command.unknown.command", 0)
-	}
-	switch args[0] {
-	case "function":
-		if len(args) < 3 {
-			return errTokenEnd("command.unknown.command", len(args)+1)
-		}
-		fn := normalizeID(args[1])
-		tok := args[2]
-		ticks, err := strconv.Atoi(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(tok, "t"), "s"), "d"))
-		if err != nil {
-			return errToken("parsing.int.expected", 3)
-		}
-		if ticks < 0 {
-			return errTokenEnd("argument.time.tick_count_too_low", 3, int32(0), int32(ticks))
-		}
-		if len(args) > 3 {
-			if args[3] != "append" && args[3] != "replace" {
-				return errToken("command.unknown.argument", 4)
-			}
-			if len(args) > 4 {
-				return errToken("command.unknown.argument", 5)
-			}
-		}
-		// Every function name misses: no datapack registers functions.
-		return componentReply(commandError("arguments.function.unknown", fn))
-	case "clear":
-		if len(args) < 2 {
-			return errTokenEnd("command.unknown.command", 2)
-		}
-		if len(args) > 2 {
-			return errToken("command.unknown.argument", 3)
-		}
-		return componentReply(commandError("commands.schedule.cleared.failure", args[1]))
-	}
-	return errToken("command.unknown.argument", 1)
+	return s.runFunctionSchedule(args)
 }
 
 // ---- function ----
