@@ -72,8 +72,10 @@ Vehicle cargo menus bind to the live entity inventory rather than a synthetic
 block position. Native saves and data reloads share that inventory; reloads
 preserve its identity and queue updates for current viewers. Validity follows
 the current entity bounds, dimension and player reach. Chest boats offer one
-passenger seat before ordinary inventory access. Cargo destruction, command
-slot access and complete vehicle runtime behavior remain separate work.
+passenger seat before ordinary inventory access. The kill-command removal path
+spills current cargo before removing the entity, independently of entity_drops.
+Combat destruction, command slot access and complete vehicle runtime behavior
+remain separate work.
 
 ## Gameplay resources and callbacks
 

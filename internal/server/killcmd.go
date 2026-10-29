@@ -6,9 +6,8 @@ import "math"
 // bare names match players only — and every entity it resolves dies.
 // Players go through the death flow, living mobs through damageMob's
 // dying path, and non-living entities (drops, orbs) are discarded
-// outright, matching vanilla's Entity.kill(): living entities hurt with
-// Float.MAX_VALUE through the generic_kill source, everything else
-// discarded.
+// after container-vehicle cargo spills. Vanilla Entity.kill() hurts living
+// entities with Float.MAX_VALUE through generic_kill and removes others.
 func (s *Server) runKill(player string, args []string) reply {
 	sender := s.findSessionByName(player)
 	tok := "@s"
@@ -57,6 +56,7 @@ func (s *Server) runKill(player string, args []string) reply {
 			s.damageMob(e, math.MaxFloat32, "generic_kill", nil,
 				&damageInfo{typeName: "generic_kill"})
 		} else {
+			s.spillVehicleCargo(e)
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 		}

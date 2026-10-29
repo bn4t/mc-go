@@ -167,7 +167,7 @@ Mojang server over the wire.
       Native boats/rafts/chest variants and plain/chest/hopper/furnace/TNT
       minecart state, cargo and supported passenger trees survive a vanilla →
       mc-go → vanilla handoff; player remount, spawner carts and complete
-      cargo destruction and other runtime behavior remain open; chest-boat and
+      combat cargo destruction and other runtime behavior remain open; chest-boat and
       chest/hopper-cart shared menus, clicks and validity have measured pins.
 
 ### Player
@@ -18103,3 +18103,13 @@ Artifact: work/piston-sourcebase-clipped-fixed-stage/owned.patch SHA256 f5fc67ed
 **Pinned** — Independent immutablee472f74 plus eight owned files: numeric wire PASS20.60s, seven actual displayed definitions with exact icon metadata and XP totals2/7/14/21/21/21/20, then20 for four rejected resources. Covers fractions, wrapping, integers above2^53, exponents, count99.9, negative XP, null defaults and invalid counts/booleans. Existing displayed pack regression PASS34.22s; helper units0.906s include exact parsed XP7/icon3 metadata above2^53. Patch SHA256 `3f2d1f41277edd0a9386768f4314b1aa661aed6e589b46822309841a7bcdd54c`; work/advancement-numbers-manifest.md records provenance and logs.
 
 Limits: complete rich text/item schemas and numeric migration of every existing trigger family remain separate. Contextual tick predicates are not part of this numeric artifact. Retaining json.Number requires auditing metadata and reward consumers, not only the decoder.
+
+## Slice — killed cargo vehicle inventory spills (2026-10-29)
+
+**Measured** — Native26.2 /kill on chest carts, hopper carts and chest boats spills supplied cargo with entity_drops both true and false, without dropping the vehicle item. Six native cases PASS81.63s; old Go loses cargo in all six. Factual Containers/removal measurements supply occupied-slot scatter,10..30-item bursts, triangular motion and zero pickup delay. Go1.27.3/Temurin25.0.5+8, inner jar SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+
+**Implemented** — Independent kill-command removal hook spills the shared runtime cargo before entity removal, clears slots, preserves modeled item components and unpacks pending loot without a player. Repeated calls cannot spill cleared slots twice. Combat destruction remains a separate path.
+
+**Pinned** — Immutablee472f74 plus four owned files: TestVehicleCargoKilledDropParity PASS16.13s with positive source-cargo and drop assertions independently required on both servers. Focused units PASS5.979s cover live menu inventory, components, scatter/burst bounds, empty loot, noncontainers and idempotence. Patch SHA256 `103d13110e4441984d8294420c52eab88d130e9a1e82b0eaec2df29ca3e4cb71`; work/vehicle-cargo-killed-drop-slice.md records evidence.
+
+Limits: /kill only; combat, creative and explosion destruction plus nonempty loot evaluator parity remain separate. These results do not establish complete vehicle damage/drop behavior.
