@@ -64,6 +64,13 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - For exact tick windows, freeze, use `/tick step N`, and observe completion
   through game time. `/tick sprint N` is asynchronous and measured 26.2
   advances N+1 ticks; wall-clock sleeps are not an exact tick counter.
+- Conditional command witnesses and their barrier waits must match the exact
+  decoded `/say` message body. Substrings can match syntax-error echoes,
+  sender names or unconditional suffix markers. Establish block-entity creation
+  before sending an editor packet, then observe its applied update receipt.
+- Capture filters must explicitly retain large packets relevant to a probe.
+  Advancement tab updates can exceed 4 KiB; decode runtime definitions and
+  assert meaningful counts before comparing geometry or progress.
 - Each server leg must independently satisfy meaningful expected values.
   Equal empty captures, stale menu caches or a decoder that truncates unknown
   definitions do not establish parity. Diagnose fixture failures on an

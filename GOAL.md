@@ -8,9 +8,12 @@ Mojang server over the wire.
 ## Ground rules (clean room)
 
 - Go standard library only; no Minecraft libraries, no generated Mojang code.
-- No decompiled or otherwise derived Mojang source. The vanilla jar is used
-  only as (a) a black-box oracle (run it, observe bytes) and (b) a data
-  source (version.json, bundled data packs).
+- No copied Mojang source, decompiled source, disassembly or translated
+  implementation structure. Implement independently from observed behavior.
+  Evidence includes the live vanilla wire, official reports/bundled data and
+  factual bytecode inspection for constants, branch behavior and operation
+  order. This is the existing repository workflow, not a formal independent-team
+  clean-room process; each new slice records provenance and its behavioral pin.
 - Public protocol documentation (minecraft.wiki protocol 776) is the
   reference for packet IDs, shapes, and semantics.
 - Every behavior change is proven by a blackbox test comparing mc-go and
@@ -17945,3 +17948,11 @@ Limits: complete rich-text/item schemas, ZIP/pack selection/reload, predicate-be
 **Pinned** — Immutable4fcc0b8+seven owned files: relevant units PASS1.246s; all74 native/Go positive and negative conditions PASS39.90s, including types, case, metadata, no-BE{}, reordered/duplicate/empty lists and Unicode/list/typed-array whitespace. StructureBlockPowerParity PASS49.67s (vanilla8.62s/Go8.16s) now meaningfully validates the original four NBT-only assertions as well as world actions. Earlier power rerun missed initial controller creation before editing; setup was synchronized without changing production or expectations. Logs: `work/block-predicate-before.log`, `work/block-predicate-after.log`, `work/block-predicate-power.log`; final patch50bd653afcfc224195690a682cd8e4c3e9a526265180f14b21b1c3f9e9fd64df.
 
 Limits: exact block names/states with attached compounds in execute if/unless block. Block tags, exhaustive syntax/error cursors and complete block-entity serializers remain separate work; general fill predicates are unchanged. Error-context echoes never count as successful command witnesses.
+
+## Slice — align contributor evidence and capture guidance (2026-10-29)
+
+**Measured** — Reviewed current README/AGENTS instructions and recorded implementation provenance. The older GOAL preamble incorrectly described the jar as exclusively a wire/data source despite documented factual javap measurements. Recent fixture review also demonstrated suffix/error-context false witnesses and missing controller creation receipts.
+
+**Implemented** — Align the GOAL evidence boundary with README/AGENTS without allowing copied source, disassembly or implementation structure. Contributor guidance requires exact decoded success and barrier bodies, positive setup receipts before editor packets, and explicit large-packet capture for tab-wide runtime definitions.
+
+**Pinned** — Documentation-only reconciliation against committed workflow and the existing strict-marker, advancement-display and structure-power fixtures; no new gameplay claim or extra test run.
