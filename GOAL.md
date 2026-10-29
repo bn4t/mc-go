@@ -18221,3 +18221,11 @@ Provenance: Java 26.2 wire and CloneCommands flag/branch measurements, Temurin 2
 - **Pinned:**8positive runtime-action witnesses PASS12.16s (1.54s/1.42s); native-copy24reg14.26s, strict22reg22.70s, legacy55commands35.37s. Exact placement groups/ordering and scheduled ticks remain separate.
 
 Provenance: Java 26.2 wire and CloneCommands final-notification order/strict branch measurements, Temurin 25.0.5+8 and Go 1.27.3; bundler SHA1 823e2250d24b3ddac457a60c92a6a941943fcd6a.
+
+## Slice — vehicle cargo command slots (2026-10-29)
+
+- **Measured:** Java 26.2 exposes cargo indices 0–26 for chest carts/boats and 0–4 for hopper carts, with ordinary slot aliases, capacity rejection and lazy loot access. Two successful target writes return result 2.
+- **Implemented:** route item reads, writes and modifier plumbing through the same live cargo inventory as menus and native saves; queue viewer updates and return the actual applied target count.
+- **Pinned:** 24 command/result cases plus positive two-target counts and armed empty-loot consumption PASS 58.92 s; focused units PASS 2.275 s. Existing ItemMob air-name mismatch was reproduced on unchanged 1ad53cb and is a separate follow-on. Modifier/component and nonempty loot coverage retain existing limits.
+
+Provenance: actual Java 26.2 wire, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Frozen cargo patch 66a3bccd4d7bb09a64965d1072076de1b3362638cadd5048646ef829c675efc1.

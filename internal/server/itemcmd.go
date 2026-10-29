@@ -1927,6 +1927,9 @@ func (s *Server) itemRead(d *dataEntity, id int32) (ItemStack, bool) {
 	if d.sess != nil {
 		return readEntitySlot(d.sess, id)
 	}
+	if stack, ok := s.readVehicleCargoSlot(d.mob, id); ok {
+		return stack, true
+	}
 	if d.mob != nil && mobLiving(d.mob) && mobItemSlot(id) {
 		return readMobSlot(d.mob, id), true
 	}
@@ -1949,12 +1952,15 @@ func (s *Server) itemAccepts(d *dataEntity, id int32, st ItemStack) bool {
 		}
 		return true
 	}
+	if _, ok := s.vehicleCargoSlot(d.mob, id); ok {
+		return true
+	}
 	return d.mob != nil && mobLiving(d.mob) && mobItemSlot(id)
 }
 
 // mobLiving is the equipment-slot precondition on a world entity:
-// vanilla exposes /item's entity slots on LivingEntity only, which in
-// this codebase is every summonable type the health table knows.
+// container vehicles expose storage independently; living entities expose
+// equipment. Here the health table identifies those living types.
 func mobLiving(e *Entity) bool {
 	name, _ := EntityTypeName(e.Type)
 	_, ok := mobHealth[name]
@@ -1965,6 +1971,9 @@ func mobLiving(e *Entity) bool {
 func (s *Server) itemWrite(d *dataEntity, id int32, st ItemStack) {
 	if d.sess != nil {
 		s.writeEntitySlot(d.sess, id, st)
+		return
+	}
+	if s.writeVehicleCargoSlot(d.mob, id, st) {
 		return
 	}
 	s.writeMobSlot(d.mob, id, st)
@@ -1985,14 +1994,17 @@ func (s *Server) writeItemTargets(targets []*dataEntity, id int32, st ItemStack)
 		applied++
 		single = d
 	}
+	var rep reply
 	switch {
 	case applied == 0:
-		return componentReply(noChangedItem(st, id))
+		rep = componentReply(noChangedItem(st, id))
 	case applied == 1:
-		return opsEchoReply(translatable("commands.item.entity.set.success.single",
+		rep = opsEchoReply(translatable("commands.item.entity.set.success.single",
 			single.nameComp(), itemBrackets(st)))
 	default:
-		return opsEchoReply(translatable("commands.item.entity.set.success.multiple",
+		rep = opsEchoReply(translatable("commands.item.entity.set.success.multiple",
 			int32(applied), itemBrackets(st)))
 	}
+	rep.result, rep.hasResult = applied, true
+	return rep
 }

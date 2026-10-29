@@ -75,8 +75,9 @@ preserve its identity and queue updates for current viewers. Validity follows
 the current entity bounds, dimension and player reach. Chest boats offer one
 passenger seat before ordinary inventory access. The kill-command removal path
 spills current cargo before removing the entity, independently of entity_drops.
-Combat destruction, command slot access and complete vehicle runtime behavior
-remain separate work.
+Item commands use the same cargo slots, capacity bounds and lazy loot path,
+including existing hotbar/inventory slot aliases and shared-viewer updates.
+Combat destruction and complete vehicle runtime behavior remain separate work.
 
 ## Gameplay resources and callbacks
 
