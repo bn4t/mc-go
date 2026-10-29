@@ -416,12 +416,15 @@ func (s *Server) attrInstance(t *dataEntity, name string) (e *Entity, base float
 	return e, base, has
 }
 
-// attrValue applies the modifier passes vanilla computes: add_value
-// first, then multiplied_base against the base, then multiplied_total
-// on the running total. Modifier ids iterate sorted for determinism.
+// attrValue applies add_value first, then uses that sum as the shared
+// base for every multiplied_base modifier. multiplied_total scales the
+// running total. Modifier iteration order within each pass is unchanged.
 func attrValue(base float64, mods map[string]attrMod) float64 {
 	v := base
 	for pass := 0; pass < 3; pass++ {
+		if pass == 1 {
+			base = v
+		}
 		ids := make([]string, 0, len(mods))
 		for id, m := range mods {
 			if m.op == pass {

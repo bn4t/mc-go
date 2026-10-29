@@ -18279,3 +18279,11 @@ Provenance: Java 26.2 wire, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0
 - **Measured:** immutable 799d28e passed build, vet, tagged blackbox compilation, the full default suite and a separate external consumer build. Combined ItemMob/CargoItem vanilla comparisons passed 54.361 s. Remote master was confirmed at 799d28e702ab9027c31e287b75500ba5ed612b24 after the direct push.
 - **Implemented:** document both test build modes in AGENTS and the real-client skill so tagged helper dependencies are caught before publication. No runtime change.
 - **Pinned:** full default internal/server 317.497 s, worldgen 17.241 s, public server 12.380 s, blackbox 132.868 s and conformance 2.553 s, all passing with Go 1.27.3. These default checks do not run every opt-in native comparison or constitute graphical playtesting; per-slice native evidence and remaining parity limits still apply.
+
+## Slice — shared attribute modifier operation passes (2026-10-29)
+
+- **Measured:** vanilla attack_damage and luck queries report 10/12/18/36/54 for base, additive, base-multiplying and total-multiplying combinations. Unchanged Go reports 10/12/17/34/51. Multiple binary-exact modifiers distinguish a shared post-add base from sequential compounding.
+- **Implemented:** capture the post-add sum before all base multipliers. Preserve existing within-pass iteration, without claiming floating-point iteration-order parity. This corrects the shared calculation separately from held player attack damage.
+- **Pinned:** ten independently expected combat/noncombat query values PASS 12.18 s on immutable 799d28e plus three owned files; new operator and existing fall, scale, reach, armor and attribute-projection units PASS 2.969 s. Attack speed, query equipment exposure, command result scaling and clamping remain separate.
+
+Provenance: Java 26.2 wire, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Frozen patch 1daefca1a826c6ecf8f083bd3d804dffec60a693506a650fd70c88d3e2e4cd4d.

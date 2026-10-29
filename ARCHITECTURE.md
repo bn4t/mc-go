@@ -61,6 +61,12 @@ and entity accessors for in-tree tests and embeddings; callers must not
 treat those as an unrestricted concurrent gameplay API. The new public
 extension APIs avoid those pointers.
 
+Shared effective-attribute evaluation applies additive modifiers first, uses
+that sum as the common base for every base multiplier, then applies total
+multipliers. Combat and noncombat query controls pin the operation passes.
+Within-pass floating-point ordering and each gameplay consumer's integration
+remain separate coverage; this does not make every attribute consumer complete.
+
 Retracting piston source-base movement has measured routes for default-size
 NoGravity armor stands and ordinary stands/cows. Physical carried-head geometry
 differs from the live world-collision shape. Ordinary east-facing floor controls
