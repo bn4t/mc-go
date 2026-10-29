@@ -584,8 +584,12 @@ func TestSurvivalPlaceConsumesPackets(t *testing.T) {
 // metadata, each landed attack emits a Damage Event and updated health
 // metadata, and the tenth hit removes the entity.
 func TestMobSummonAttackPackets(t *testing.T) {
+	var runtime *server.Server
 	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+		runtime = s
 		s.GameMode = server.GameModeSurvival
+		// Deliberately slower than the normal rate: hit readiness is in ticks.
+		s.SetTickRate(10)
 	})
 	c, pr, pw := joinPlayBlackbox(t, addr, "Hunter")
 	defer c.Close()
@@ -659,20 +663,31 @@ func TestMobSummonAttackPackets(t *testing.T) {
 		}
 	}
 
-	// Past the tick-1 dirty-resend, then hit it ten times spaced past
-	// the 10-tick post-hit invulnerability window so every hit lands.
+	// Advance by observed simulation ticks rather than assuming a wall-clock
+	// sleep covered the pig's ten-tick immunity and the fist cooldown. Wait
+	// after each acknowledged health change so queued packet processing cannot
+	// shorten the next hit's interval under load.
 	drainToQuietBlackbox(t, c, pr, 500*time.Millisecond)
-	_ = c.SetDeadline(time.Now().Add(20 * time.Second))
-	go func() {
-		for hit := 1; hit <= 10; hit++ {
-			var atk protocol.Buffer
-			atk.VarInt(pigEID)
-			if err := pw.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
-				return
+	deadline := time.Now().Add(20 * time.Second)
+	_ = c.SetDeadline(deadline)
+	hitsSent := 0
+	sendAttack := func() {
+		t.Helper()
+		readyTick := runtime.TickCount() + 11
+		for runtime.TickCount() < readyTick {
+			if time.Now().After(deadline) {
+				t.Fatalf("combat clock did not reach tick %d (current %d)", readyTick, runtime.TickCount())
 			}
-			time.Sleep(650 * time.Millisecond)
+			time.Sleep(10 * time.Millisecond)
 		}
-	}()
+		var atk protocol.Buffer
+		atk.VarInt(pigEID)
+		if err := pw.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+		hitsSent++
+	}
+	sendAttack()
 	// One collection loop: the pig's damage events, falling health
 	// metadata, its removal (after the twenty-tick death animation),
 	// and the porkchop drop's spawn + metadata all interleave —
@@ -684,8 +699,9 @@ func TestMobSummonAttackPackets(t *testing.T) {
 	for !sawHurt || !sawRemove || !sawDropMeta {
 		p, err := pr.ReadPacket()
 		if err != nil {
-			t.Fatalf("waiting combat (hurt=%v remove=%v dropmeta=%v): %v", sawHurt, sawRemove, sawDropMeta, err)
+			t.Fatalf("waiting combat (hurt=%v remove=%v dropmeta=%v health=%v hits=%d): %v", sawHurt, sawRemove, sawDropMeta, lastHealth, hitsSent, err)
 		}
+		nextAttack := false
 		switch p.ID {
 		case server.IDPlayDamageEvent:
 			r := protocol.NewPacketReader(p.Data)
@@ -727,6 +743,12 @@ func TestMobSummonAttackPackets(t *testing.T) {
 					if h > lastHealth {
 						t.Fatalf("health increased: %v -> %v", lastHealth, h)
 					}
+					if h < lastHealth {
+						if h != float32(10-hitsSent) {
+							t.Fatalf("hit %d health = %v, want %d", hitsSent, h, 10-hitsSent)
+						}
+						nextAttack = hitsSent < 10
+					}
 					lastHealth = h
 					return true
 				})
@@ -763,9 +785,12 @@ func TestMobSummonAttackPackets(t *testing.T) {
 				sawRemove = true
 			}
 		}
+		if nextAttack {
+			sendAttack()
+		}
 	}
-	if lastHealth > 1 {
-		t.Fatalf("final health = %v, want <= 1", lastHealth)
+	if lastHealth != 0 || hitsSent != 10 {
+		t.Fatalf("final health = %v after %d hits, want zero after ten", lastHealth, hitsSent)
 	}
 }
 
