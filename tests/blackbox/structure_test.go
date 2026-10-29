@@ -493,9 +493,12 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 	alt := g.GenerateArea(rev)
 	// LevelChunk.postProcessGeneration's bubble columns over magma and
 	// soul sand (as the server runs it on promotion).
+	// and the neighbour shapes of the fences and bars structure pieces
+	// marked.
 	for _, m := range []map[[2]int32]*worldgen.ProtoChunk{chunks, alt} {
 		for _, p := range m {
 			worldgen.PostProcessBubbleColumns(p)
+			g.PostProcessShapes(p, m)
 		}
 	}
 	// A container's loot seed passes when it is one of the first draws

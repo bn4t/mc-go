@@ -193,3 +193,10 @@ func (g *Generator) StructureRandomLongs(cx, cz int32, name string, n int) []int
 func structLootBlockEntity(rg *Region, pos BlockPos, table string, seed int64) {
 	rg.setBlockEntity(pos, map[string]any{"LootTable": table, "LootTableSeed": seed})
 }
+
+// structSpawnerBlockEntity configures a spawner placed by a piece
+// (SpawnerBlockEntity.setEntityId with an empty potentials list, which
+// draws nothing).
+func structSpawnerBlockEntity(rg *Region, pos BlockPos, entity string) {
+	rg.setBlockEntity(pos, map[string]any{"SpawnData": map[string]any{"entity": map[string]any{"id": entity}}})
+}
