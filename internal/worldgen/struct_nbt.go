@@ -206,8 +206,16 @@ func (g *Generator) LoadStart(tag map[string]any) (*StructureStart, error) {
 		}
 		s.Pieces = append(s.Pieces, p)
 	}
+	if h, ok := startLoadHooks[s.def.typ]; ok {
+		h(g, s)
+	}
 	return s, nil
 }
+
+// startLoadHooks rebuild a loaded start's pieces by structure type
+// (Structure.afterLoad hooks such as the ocean monument's
+// regeneratePiecesAfterLoad).
+var startLoadHooks = map[string]func(g *Generator, s *StructureStart){}
 
 func loadJigsawPiece(g *Generator, t map[string]any) (StructurePiece, error) {
 	raw, err := json.Marshal(nbtToJSON(t["pool_element"]))

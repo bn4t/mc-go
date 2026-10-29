@@ -50,3 +50,12 @@ func TestStructureOceanRuinColdParity(t *testing.T) {
 func TestStructureOceanRuinWarmParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{-120, 106, -116, 111}}, "ocean_ruins")
 }
+
+// TestStructureOceanMonumentParity pins an ocean monument: the
+// surrounding-biome check, the single saved building piece (its rooms
+// regenerate from the chunk seed on load), the room graph with its
+// random core and closed openings, the room fitters and every room's
+// layout, the wings and penthouse, the water fill and the pillars.
+func TestStructureOceanMonumentParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{35, -118, 40, -113}}, "ocean_monuments")
+}
