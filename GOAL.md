@@ -18032,3 +18032,11 @@ This persistence pin covers plain literal chest names; complete structured/style
 - **Pinned:** Initial east baseline FAIL57.42s in work/piston-sourcebase-before.log; expanded unchanged-production six-axis baseline FAIL229.02s in work/piston-sourcebase-matrix-before.log, with all vanilla goldens satisfied. Fixed immutable base 6846dd2f7c26c472038b64b31cf74d8f582a4c0e plus six frozen owned files: TestPistonSourceBaseEjectionParity PASS241.48s and existing TestPistonItemPushParity PASS71.38s, work/piston-sourcebase-fixed.log. Focused source-base/item-face/positioned-world-shape/neutral-avatar units PASS0.909s; race PASS2.024s, respective work/piston-sourcebase-fixed-{units,race}.log. Pure tests retain physical rod state, contact depths, Marker exclusion, position and velocity controls.
 
 Limits: ordinary clipped bodies, source-base items, real-player displacement, Small/scaled stands, cumulative piston movement limits, intermediate block effects and class-specific move overrides remain separate. NoGravity wire metadata is still incomplete. This geometry pin does not establish ordinary Entity.move clipping parity.
+
+## Slice — exact structure-editor command witnesses (2026-10-29)
+
+**Measured** — Existing structure editor, save/load, integrity/seed and strict-placement fixtures used raw packet substrings for conditional success. The committed exact say decoder excludes error echoes, sender fields and suffix markers. Sources remain real26.2 wire, Go1.27.3/Temurin25.0.5+8, bundle SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`.
+
+**Implemented** — Four fixtures now require exact decoded success bodies and collect through exact decoded barriers. Generic feedback-key matching and all gameplay assertions remain unchanged.
+
+**Pinned** — Immutable0f0bcdb plus four owned files: editor PASS28.40s, save/load19.44s, seed21.67s; interrupted strict invocation followed by independent strict PASS65.56s. Both server legs satisfy their meaningful expectations. Final four barrier-only substitutions followed those wire pins; helper compile/negative regression PASS0.416s. Evidence: work/structure-witnesses.log, work/structure-witnesses-strict.log; final patch SHA256 `cdcecc466487ac279358a35b272c82879c1fe73df15ea632ff60708d87224bdc`. No new runtime capability or graphical-client claim.

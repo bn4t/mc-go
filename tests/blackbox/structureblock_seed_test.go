@@ -77,7 +77,7 @@ func TestStructureBlockSeededPlacementParity(t *testing.T) {
 				marker := fmt.Sprintf("STRUCT_SEED_DONE_%d", counter)
 				counter++
 				sendCommand(t, pw, "say "+marker)
-				return waitForMarker(t, sink, marker, 10*time.Second)
+				return waitForExactSayBB(t, sink, marker, 10*time.Second)
 			}
 			feedback := func(key string) {
 				deadline := time.Now().Add(10 * time.Second)
@@ -155,7 +155,7 @@ func TestStructureBlockSeededPlacementParity(t *testing.T) {
 					found := "?"
 					matches := 0
 					for _, token := range []string{"s", "g", "c", "a"} {
-						if sawMarker(lines, fmt.Sprintf("STRUCT_SEED_%d_%s", x, token)) {
+						if structureSaidBB(lines, fmt.Sprintf("STRUCT_SEED_%d_%s", x, token)) {
 							found = token
 							matches++
 						}

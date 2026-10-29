@@ -49,12 +49,12 @@ func TestStructureBlockEditorParity(t *testing.T) {
 				marker := fmt.Sprintf("STRUCTURE_DONE_%d", counter)
 				counter++
 				sendCommand(t, pw, "say "+marker)
-				return waitForMarker(t, sink, marker, 10*time.Second)
+				return waitForExactSayBB(t, sink, marker, 10*time.Second)
 			}
 			check := func(condition string) {
 				marker := fmt.Sprintf("STRUCTURE_PASS_%d", counter)
 				sendCommand(t, pw, "execute "+condition+" run say "+marker)
-				if !sawMarker(barrier(), marker) {
+				if !structureSaidBB(barrier(), marker) {
 					t.Errorf("failed%s", condition)
 				}
 			}
