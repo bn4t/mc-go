@@ -21,3 +21,9 @@ func TestStructureRuinedPortalParity(t *testing.T) {
 		{81, 87, 85, 91},   // mountain
 	}, "ruined_portals")
 }
+
+// TestStructureRuinedPortalDesertParity pins a desert ruined portal
+// (partly buried, no air pocket draw of its own setup weights).
+func TestStructureRuinedPortalDesertParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{-152, 49, -148, 53}}, "ruined_portals")
+}
