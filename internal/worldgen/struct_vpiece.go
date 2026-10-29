@@ -312,7 +312,7 @@ func createChestAt(c *PieceContext, bb BoundingBox, r Random, pos BlockPos, tabl
 	}
 	c.Region.set(pos, st)
 	if isBlock(c.Region.at(pos), "chest") {
-		c.Region.setBlockEntity(pos, map[string]any{"LootTable": table, "LootTableSeed": r.NextLong()})
+		structLootBlockEntity(c.Region, pos, table, r.NextLong())
 	}
 	return true
 }
@@ -331,7 +331,7 @@ func (p *vpBase) createDispenser(c *PieceContext, bb BoundingBox, r Random, x, y
 	st, _ := world.BlockStateOf("dispenser", map[string]string{"facing": dirNameOf[facing]})
 	p.placeBlock(c, st, x, y, z, bb)
 	if isBlock(c.Region.at(wp), "dispenser") {
-		c.Region.setBlockEntity(wp, map[string]any{"LootTable": table, "LootTableSeed": r.NextLong()})
+		structLootBlockEntity(c.Region, wp, table, r.NextLong())
 	}
 	return true
 }

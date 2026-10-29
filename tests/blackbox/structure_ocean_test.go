@@ -35,3 +35,18 @@ func TestStructureShipwreckParity(t *testing.T) {
 func TestStructureShipwreckBeachedParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{113, -134, 115, -131}, {-145, 90, -142, 93}}, "shipwrecks")
 }
+
+// TestStructureOceanRuinColdParity pins a large cold ocean ruin with
+// its cluster: the large / cluster draws, the shuffled cluster
+// candidates and their overlap test, the stacked brick / cracked /
+// mossy templates at their integrities, the per-placement floor height
+// search, the capped suspicious gravel rule and the chest markers.
+func TestStructureOceanRuinColdParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{1, 24, 5, 28}}, "ocean_ruins")
+}
+
+// TestStructureOceanRuinWarmParity pins a small warm ocean ruin (one
+// sandstone template, suspicious sand).
+func TestStructureOceanRuinWarmParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{-120, 106, -116, 111}}, "ocean_ruins")
+}

@@ -137,11 +137,7 @@ func setContainerLoot(c *PieceContext, r Random, pos BlockPos, table string) {
 		nb[k] = v
 	}
 	nb["LootTable"] = table
-	seed := r.NextLong()
-	nb["LootTableSeed"] = seed
-	if LootSeedLog != nil {
-		LootSeedLog(pos, seed)
-	}
+	nb["LootTableSeed"] = r.NextLong()
 	if ch.BlockEntityData == nil {
 		ch.BlockEntityData = map[[3]int32]map[string]any{}
 	}
@@ -157,7 +153,43 @@ func rotationFromName(s string) int {
 	return rotNone
 }
 
-// LootSeedLog, when set, sees every loot seed a data marker assigns
-// (tests: a marker re-seeds containers neighbouring chunks placed, so
-// the value a chest keeps depends on the decoration order).
-var LootSeedLog func(pos BlockPos, seed int64)
+// StructureRandomLongs returns the longs the random a structure's
+// pieces draw from while chunk (cx, cz) is decorated (the decoration
+// seed, feature-seeded by the structure's index in its step) yields
+// starting at each of its first n steps. Tests use it to check a loot seed came from some chunk's
+// pass when the decoration order decides which one a container keeps.
+func (g *Generator) StructureRandomLongs(cx, cz int32, name string, n int) []int64 {
+	st := g.structureState()
+	d := g.structure(name)
+	idx := int32(0)
+	for _, o := range st.structOrder {
+		if o == name {
+			break
+		}
+		if g.structure(o).step == d.step {
+			idx++
+		}
+	}
+	r := newWGRandom(0)
+	deco := setDecorationSeed(r, g.RS.Seed, cx*16, cz*16)
+	setFeatureSeed(r, deco, idx, int32(d.step))
+	// A long drawn after any mix of int, float and long draws starts
+	// at some step of the LCG: one candidate per step.
+	ints := make([]int32, n+1)
+	for i := range ints {
+		ints[i] = r.NextInt()
+	}
+	out := make([]int64, n)
+	for i := range out {
+		out[i] = int64(ints[i])<<32 + int64(ints[i+1])
+	}
+	return out
+}
+
+// structLootBlockEntity gives the block entity at pos a loot table and
+// seed (RandomizableContainer.setLootTable on a freshly placed
+// container). All structure-piece block entity writes go through this
+// and setContainerLoot.
+func structLootBlockEntity(rg *Region, pos BlockPos, table string, seed int64) {
+	rg.setBlockEntity(pos, map[string]any{"LootTable": table, "LootTableSeed": seed})
+}
