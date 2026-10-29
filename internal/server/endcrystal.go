@@ -347,6 +347,7 @@ func (s *Server) summonEndCrystal(d *dimension, x, y, z float64, tag *snbtTag) *
 	if tag != nil {
 		if m, ok := snbtToValue(tag).(map[string]any); ok {
 			applyCrystalSave(e, m, true)
+			crystalSummonTags(e, m)
 		}
 	}
 	return s.spawnEndCrystal(e)

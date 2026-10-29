@@ -63,7 +63,8 @@ measured ranges; raw base/modifier queries preserve their values. Other ranges
 and equipment projection remain partial.
 Native NoGravity projects to client metadata at pairing and on true/false changes
 across measured living, item and boat paths. Crystal reloads retain dirty updates
-even when a flag changes back within one tick. Vehicle gravity/travel and generic
+even when a flag changes back within one tick. Summoned crystal tags support
+selectors, deduplication and measured data replacement/removal. Vehicle gravity/travel and generic
 entity movement remain partial.
 Native boats and most minecart variants preserve measured cargo, subtype state
 and supported passenger trees through vanilla-compatible saves. Chest boats and
