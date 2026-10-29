@@ -244,6 +244,17 @@ func (s *Server) runSetblock(player string, args []string) reply {
 			}
 		}
 	}
+	if name, _ := world.StateOwner(blk); name == "spawner" {
+		// A placed spawner's block entity starts at BaseSpawner's
+		// defaults; the command's tag loads over them.
+		if g := s.spawnerAt(d, pos); g != nil && tag != nil {
+			if m, ok := snbtToValue(tag).(map[string]any); ok {
+				for k, v := range m {
+					g.fields[k] = v
+				}
+			}
+		}
+	}
 	if isBeeNestBlock(blk) {
 		if d.bees == nil {
 			d.bees = map[world.Pos]int32{}

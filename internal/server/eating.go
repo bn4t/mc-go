@@ -117,6 +117,10 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 			s.useBucket(sess, hand, yaw, pitch, un)
 			return
 		}
+		if strings.HasSuffix(un, "_spawn_egg") {
+			s.useSpawnEggAir(sess, hand, yaw, pitch, strings.TrimSuffix(un, "_spawn_egg"))
+			return
+		}
 		if un == "glass_bottle" {
 			s.useGlassBottle(sess, hand, yaw, pitch)
 			return

@@ -301,6 +301,12 @@ func TestEntityItemUseOnParity(t *testing.T) {
 					if typ != want {
 						continue
 					}
+					if ec.name == "egg spawner" {
+						// The spawner, now holding the egg's type, spawns
+						// on its own random schedule and cells; its own pin
+						// is TestSpawnerParity.
+						continue
+					}
 					px, _ := r.Double()
 					py, _ := r.Double()
 					pz, _ := r.Double()

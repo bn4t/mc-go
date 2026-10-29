@@ -96,6 +96,9 @@ func (s *Server) useSpawnEgg(sess *Session, d *dimension, clicked world.Pos, fac
 			s.sendSystemChatComponent(sess, translatable("advMode.notEnabled.spawner"))
 			return
 		}
+		if bn == "spawner" {
+			s.spawnerSetEntity(d, clicked, ent)
+		}
 		s.emitGameEvent(d, "block_change", float64(clicked.X)+0.5, float64(clicked.Y)+0.5, float64(clicked.Z)+0.5, sess, "")
 		s.entityItemConsume(sess, held)
 		return
@@ -105,10 +108,20 @@ func (s *Server) useSpawnEgg(sess *Session, d *dimension, clicked world.Pos, fac
 		spawnPos = facePos
 	}
 	more := spawnPos != clicked && face == 1
+	s.spawnEggMob(sess, d, held, ent, spawnPos, true, more)
+}
+
+// spawnEggMob is SpawnEggItem.spawnMob at a cell: EntityType.spawn with
+// or without the shouldOffsetY drop, the finalizeSpawn rolls, the
+// stack's name, one ambient voice, the consume and ENTITY_PLACE.
+func (s *Server) spawnEggMob(sess *Session, d *dimension, held ItemStack, ent string, spawnPos world.Pos, offsetY, more bool) {
 	et, _ := EntityTypeID(ent)
 	dims := mobBounds(et)
 	cx, cz := float64(spawnPos.X)+0.5, float64(spawnPos.Z)+0.5
-	y := float64(spawnPos.Y) + spawnYOffset(d, spawnPos, more, cx, cz, dims[0])
+	y := float64(spawnPos.Y)
+	if offsetY {
+		y += spawnYOffset(d, spawnPos, more, cx, cz, dims[0])
+	}
 	// create's snapTo: a random wrapDegrees(nextFloat*360) yaw, pitch
 	// 0; Mob copies it to yHeadRot/yBodyRot before finalizeSpawn.
 	yaw := mthWrapDegrees(rand.Float32() * 360)
@@ -145,6 +158,36 @@ func (s *Server) useSpawnEgg(sess *Session, d *dimension, clicked world.Pos, fac
 	}
 	s.entityItemConsume(sess, held)
 	s.emitGameEvent(d, "entity_place", float64(spawnPos.X)+0.5, float64(spawnPos.Y)+0.5, float64(spawnPos.Z)+0.5, sess, "")
+}
+
+// useSpawnEggAir is SpawnEggItem.use: a SOURCE_ONLY POV clip that
+// must hit a block (else PASS); a type that may not spawn fails; the
+// hit block must be a LiquidBlock (else PASS) the player may interact
+// with; the mob spawns in that cell without the y offset.
+func (s *Server) useSpawnEggAir(sess *Session, hand int32, yaw, pitch float32, ent string) {
+	d := sess.dimension()
+	if d == nil || sess.mode() == GameModeSpectator {
+		return
+	}
+	hit := s.playerPOVHit(sess, d, clipFluidSourceOnly, yaw, pitch)
+	if hit.miss {
+		return
+	}
+	if _, ok := EntityTypeID(ent); !ok || (s.difficulty == DifficultyPeaceful && notInPeaceful[ent]) {
+		return
+	}
+	if !worldIsLiquid(d.w.GetBlock(hit.pos)) {
+		return
+	}
+	if !s.mayInteract(sess, d, hit.pos) || !bucketMayUseAt(sess) {
+		return
+	}
+	held, _ := sess.stackForHand(hand)
+	s.spawnEggMob(sess, d, held, ent, hit.pos, false, false)
+	if sess.mode() != GameModeCreative {
+		// useItem saw the hand stack shrink: sendAllDataToRemote.
+		_ = s.sendContainerContent(sess)
+	}
 }
 
 // useMinecartItem is MinecartItem.useOn.

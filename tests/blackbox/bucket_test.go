@@ -61,6 +61,10 @@ var bucketCases = []bucketCase{
 	{name: "bottle on waterlogged slab", setup: []string{"0 0 0 oak_slab[waterlogged=true]"}, item: "glass_bottle", aim: [3]float64{0.5, 0.25, 0}},
 	{name: "bottle on stone", setup: []string{"0 0 0 stone"}, item: "glass_bottle", aim: [3]float64{0.5, 0.5, 0}},
 	{name: "bottle survival stack", setup: []string{"0 -1 0 water"}, item: "glass_bottle", count: 4, survival: true, aim: [3]float64{0.5, -0.1, 0.5}},
+	{name: "egg into water", setup: []string{"0 -1 0 water"}, item: "pig_spawn_egg", aim: [3]float64{0.5, -0.1, 0.5}},
+	{name: "egg into water survival", setup: []string{"0 -1 0 water"}, item: "cod_spawn_egg", count: 2, survival: true, aim: [3]float64{0.5, -0.1, 0.5}},
+	{name: "egg into flowing water", setup: []string{"0 -1 0 water[level=2]"}, item: "pig_spawn_egg", aim: [3]float64{0.5, -0.5, 0.5}},
+	{name: "egg at sky", item: "pig_spawn_egg", aim: [3]float64{0.5, 6, 0.5}},
 	{name: "boat on floor", item: "oak_boat", aim: [3]float64{0.5, 0, 0.5}},
 	{name: "boat on water", setup: []string{"-1 -1 0 water", "0 -1 0 water", "1 -1 0 water", "-1 -1 1 water", "0 -1 1 water", "1 -1 1 water"}, item: "spruce_boat", aim: [3]float64{0.5, -0.1, 1.0}},
 	{name: "boat over water pocket", setup: []string{"0 -1 0 water"}, item: "spruce_boat", aim: [3]float64{0.3, -0.1, 0.7}},
@@ -209,7 +213,11 @@ func TestBucketParity(t *testing.T) {
 							spawns = append(spawns, "item")
 							continue
 						}
-						spawns = append(spawns, fmt.Sprintf("%s@(%.3f,%.3f,%.3f)yaw=%d", name, sp.x-float64(x), sp.y-float64(y), sp.z-float64(z), sp.yaw))
+						yaw := fmt.Sprintf("yaw=%d", sp.yaw)
+						if !strings.HasSuffix(name, "boat") && !strings.HasSuffix(name, "raft") {
+							yaw = "" // a mob's spawn yaw is random
+						}
+						spawns = append(spawns, fmt.Sprintf("%s@(%.3f,%.3f,%.3f)%s", name, sp.x-float64(x), sp.y-float64(y), sp.z-float64(z), yaw))
 					}
 				}
 				if collectInventory(l, inv) {

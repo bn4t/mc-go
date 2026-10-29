@@ -236,6 +236,11 @@ func (s *Server) playSoundEntity(dim string, entityID int32, soundID, src int32,
 	x, y, z := float64(0), float64(0), float64(0)
 	if e, ok := s.entities.Get(entityID); ok {
 		x, y, z = e.X, e.Y, e.Z
+	} else if p := s.sessionByEntityID(entityID); p != nil {
+		// Players are not in the entity manager: an entity-anchored
+		// sound on a player (a firework's launch on its shooter) is
+		// heard around the player's own position.
+		x, y, z, _, _, _ = p.Pos()
 	}
 	r := 16.0
 	if vol > 1 {

@@ -216,14 +216,10 @@ func (s *Server) useFireworkPlace(sess *Session, hand int32, x, y, z int32, dx, 
 //   - life > lifetime explodes.
 func (s *Server) fireworkTick(e *Entity) {
 	if e.RocketLife == 0 && !e.Silent {
-		// FireworkRocketItem's level.playSound(null, shooter,…) anchors
-		// the launch on the firing entity; fall back to the rocket
-		// itself when there's no shooter record.
-		anchor := e.ID
-		if e.arrowShooter != 0 {
-			anchor = e.arrowShooter
-		}
-		s.playSoundEntity(e.Dim, anchor, soundEventIDs["entity.firework_rocket.launch"], srcAmbient, 3.0, 1.0, nil)
+		// FireworkRocketEntity.tick's first tick: level.playSound(null,
+		// getX(), getY(), getZ(), …) — a positional AMBIENT sound at the
+		// rocket itself, heard by everyone.
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, soundEventIDs["entity.firework_rocket.launch"], srcAmbient, 3.0, 1.0, nil)
 	}
 	e.RocketLife++
 	var hit rocketHit

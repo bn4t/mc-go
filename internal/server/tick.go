@@ -550,6 +550,7 @@ func (s *Server) gameTickOwned() {
 	s.furnaceTickStep()
 	s.containerTickStep()
 	s.hopperTickStep()
+	s.spawnerTickStep()
 	s.scheduledTickStep()
 	s.postProcessStep()
 	// VibrationSystem$Ticker.tick: sculk sensors select and travel

@@ -16541,3 +16541,31 @@ no flee; unsneak → flee). Green both legs.
   block entity update, the egg `entity_data` override, hung-entity save + `/data` keys, names
   in minecart/hanging metadata, legacy-solid from force-solid flags, world-border entity
   check, armor stands sinking off slabs, wolf/cat sound variants.
+
+## Slice — monster spawners, spawn eggs into water, firework launch sound (2026-10-29)
+- **Measured**: `javap -c -p` on the 26.2 jar: BaseSpawner (defaults Delay 20 / 200..800 /
+  SpawnCount 4 / MaxNearbyEntities 6 / RequiredPlayerRange 16 / SpawnRange 4; serverTick:
+  hasNearbyAlivePlayer + spawner_blocks_work gate, Delay -1 re-roll and countdown,
+  getOrCreateNextSpawnData from SpawnPotentials, per attempt the nextDouble-nextDouble x/z
+  and nextInt(3)-1 y cell, spawn-box noCollision, SpawnPlacements.checkSpawnRules(SPAWNER),
+  the exact-class count within the cell inflated by SpawnRange, snapTo random yaw,
+  Mob.checkSpawnRules + checkSpawnObstruction, finalizeSpawn for a bare {id}, level event
+  2004 and spawnAnim; delay(): min + nextInt(max - min), potentials re-pick, block event 1),
+  SpawnerBlockEntity (triggerEvent, setNextSpawnData's block update, update tag without
+  SpawnPotentials), BaseSpawner.setEntityId, EntitySpawnReason.isSpawner /
+  ignoresLightRequirements (only TRIAL_SPAWNER), Mob.checkMobSpawnRules (spawners skip the
+  valid-spawn block), Monster.checkMonsterSpawnRules, PathfinderMob.checkSpawnRules;
+  SpawnEggItem.use (SOURCE_ONLY clip onto a LiquidBlock, spawnMob without the y offset);
+  FireworkRocketEntity.tick's launch sound (positional at the rocket).
+- **Implemented**: `internal/server/spawner.go` over the generic block entity store
+  (spawnerTickStep after the hoppers; `/setblock spawner{…}` loads its tag; spawn eggs set
+  the entity and send the update tag; block event 1 reaches clients); SpawnEggItem.use;
+  the launch sound as a positional AMBIENT sound; entity-anchored sounds on players resolve
+  the player's position.
+- **Pinned**: `TestSpawnerParity` (dark box fills to MaxNearby, gamerule off, player out of
+  range, pigs on lit grass, zombies in daylight, empty spawner re-delay: spawn level events
+  and block events); `TestBucketParity` +4 spawn egg cases; `TestFireworkBoostParity`'s
+  launch sound leg now matches.
+- **Remaining**: trial spawners; spawner custom_spawn_rules / equipment / SpawnData NBT
+  beyond the id; spawner display spin; TestFireworkBoostParity's grounded-stack leg is
+  timing-flaky and TestFireworkRocketHitParity's hand-offset leg misses on vanilla too.
