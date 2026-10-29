@@ -807,6 +807,10 @@ type Entity struct {
 	// AttrMods holds modifiers as attr -> modifier id -> modifier.
 	AttrBase map[string]float64
 	AttrMods map[string]map[string]attrMod
+	// Player equipment modifiers are transient instances, changed only when
+	// the main-hand stack changes, so explicit command removals persist.
+	playerEquipmentAttrsInit bool
+	playerAttributeStack     ItemStack
 	// AttrTouched is the lazy AttributeMap membership: vanilla only
 	// packs attribute instances that were getInstance'd at least once
 	// — summon reads movement_speed for every living mob, setTame

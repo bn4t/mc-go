@@ -111,6 +111,8 @@ func (s *Server) detectEquipmentUpdates(sess *Session) {
 	if eid == 0 {
 		return
 	}
+	s.updatePlayerEquipmentAttributes(sess)
+	defer s.flushPlayerAttributes(sess)
 	cur := playerEquipment(sess)
 	if !sess.equipInit {
 		for _, c := range cur {

@@ -66,8 +66,10 @@ var armorPoints = map[string]float32{
 func (sess *Session) heldAttackDamage() float32 {
 	base := playerAttrBases["attack_damage"]
 	mods := map[string]attrMod{}
+	projectHeld := true
 	if sess.server != nil && sess.server.entities != nil {
 		if player, ok := sess.server.entities.Get(sess.entityID.Load()); ok {
+			projectHeld = !player.playerEquipmentAttrsInit
 			if value, present := player.AttrBase["attack_damage"]; present {
 				base = value
 			}
@@ -76,7 +78,7 @@ func (sess *Session) heldAttackDamage() float32 {
 			}
 		}
 	}
-	if held := sess.heldStack(); !held.Empty() {
+	if held := sess.heldStack(); projectHeld && !held.Empty() {
 		if name, ok := itemNameOf(held.ID); ok {
 			if modifier, weapon := itemAttackDamageMod[name]; weapon {
 				mods["minecraft:base_attack_damage"] = attrMod{value: modifier}
@@ -98,8 +100,10 @@ func (sess *Session) heldAttackDamage() float32 {
 func (sess *Session) heldAttackDelayTicks() float32 {
 	base := playerAttrBases["attack_speed"]
 	mods := map[string]attrMod{}
+	projectHeld := true
 	if sess.server != nil && sess.server.entities != nil {
 		if player, ok := sess.server.entities.Get(sess.entityID.Load()); ok {
+			projectHeld = !player.playerEquipmentAttrsInit
 			if value, present := player.AttrBase["attack_speed"]; present {
 				base = value
 			}
@@ -108,7 +112,7 @@ func (sess *Session) heldAttackDelayTicks() float32 {
 			}
 		}
 	}
-	if held := sess.heldStack(); !held.Empty() {
+	if held := sess.heldStack(); projectHeld && !held.Empty() {
 		if name, ok := itemNameOf(held.ID); ok {
 			if modifier, present := itemAttackSpeedMod[name]; present {
 				mods["minecraft:base_attack_speed"] = attrMod{value: modifier}
