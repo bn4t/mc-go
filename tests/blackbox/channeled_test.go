@@ -26,7 +26,7 @@ func TestChanneledLightningParity(t *testing.T) {
 	targets := requireBlackboxFiles(t, nil, map[string]string{
 		"ops.json": opsJSONFor("Channeled"),
 	}, func(s *server.Server) {
-		s.GameMode = server.GameModeSurvival
+		s.GameMode = server.GameModeCreative
 	})
 	defer targets.cleanup()
 

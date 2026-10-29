@@ -18372,3 +18372,9 @@ Limits: direct cow corpse placement is measured. This does not certify all dying
 - **Pinned** — Frozen11-file patch `417a1ec7b64eb6187e289e0f0d23f566ce516967eaab2a70bfaba5e645f4d1af`: build and focused units PASS1.922s; actual environment/weather differential PASS47.52s (native22.01/Go14.91), registered runner PASS25.62s. Corrected channeling fixture regression PASS35.17s is a separate test-only slice. Evidence: `work/testenvironment-after-wire.log`, `work/testenvironment-runner-regression.log`.
 
 Wire coverage is Overworld. Other environment types/holder references, full runner/retry/LOG/geometry/pack loading/reload, random weather cycles and complete durations remain partial. Cross-dimension execution, rejected RUN with an active environment and shutdown cleanup remain unpinned.
+
+## Slice — channeling regression starts both servers in creative mode (2026-10-29)
+
+- **Measured** — The committed harness starts vanilla creative but the channeling callback started Go survival; the subsequent shared `/gamemode survival` produced an extra native success message. Source inspection establishes this preexisting fixture mismatch; channeling outcomes already matched.
+- **Implemented** — Align only the Go initial mode with native creative. Keep commands and outcome assertions unchanged; no runtime gamemode change.
+- **Pinned** — Corrected actual Java26.2 channeling differential PASS35.17s (`work/testenvironment-channeling-fixed-regression.log`), JDK25.0.5+8 / Go1.27.3, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. One-file patch SHA256 `7c8be9ce150352c960aabbb67590b83903c34ff4ff48d3ab0cfff334917f788f`.
