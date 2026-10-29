@@ -36,3 +36,23 @@ func TestArmorStandMarkerNative(t *testing.T) {
 		t.Fatalf("bypass damage %+v", r)
 	}
 }
+
+func TestArmorStandTravelPhysicsGate(t *testing.T) {
+	e := &Entity{Type: mustEntityType("armor_stand")}
+	if armorStandSkipsTravel(e) {
+		t.Fatal("ordinary stand must travel")
+	}
+	e.NoGravity = true
+	if !armorStandSkipsTravel(e) || entityIgnoresPistonPush(e) || entityBBDims(e) == [2]float64{} {
+		t.Fatal("NoGravity only disables travel, not its normal push reaction or box")
+	}
+	e.NoGravity = false
+	e.ArmorStandMarker = true
+	if !armorStandSkipsTravel(e) || !entityIgnoresPistonPush(e) {
+		t.Fatal("Marker physics/reaction")
+	}
+	e.Type = mustEntityType("cow")
+	if armorStandSkipsTravel(e) {
+		t.Fatal("armor-stand gate applied to another living type")
+	}
+}

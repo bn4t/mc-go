@@ -6,6 +6,13 @@ func armorStandIsMarker(e *Entity) bool {
 	return e.Type == mustEntityType("armor_stand") && e.ArmorStandMarker
 }
 
+// ArmorStand.travel delegates only when hasPhysics: neither Marker nor
+// NoGravity. This does not change its normal piston reaction when merely
+// NoGravity, or the building and damage rules specific to Marker.
+func armorStandSkipsTravel(e *Entity) bool {
+	return e.Type == mustEntityType("armor_stand") && (e.ArmorStandMarker || e.NoGravity)
+}
+
 func armorStandSavedFields(e *Entity, m map[string]any) {
 	m["Small"] = nbtBool(e.Small)
 	m["ShowArms"] = nbtBool(e.ShowArms)

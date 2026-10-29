@@ -5780,7 +5780,7 @@ func (s *Server) mobTickStep() {
 			// the move goals — the head re-aims on its own cadence.
 			s.mobLookStep(e)
 		}
-		if e.Riding == 0 && nonMobLiving[ambName] && !armorStandIsMarker(e) {
+		if e.Riding == 0 && nonMobLiving[ambName] && !armorStandSkipsTravel(e) {
 			// LivingEntity.tick for a non-Mob: no goal selector, but
 			// the physics chain still runs — baseTick's
 			// updateFluidInteraction pushes the fluid current into

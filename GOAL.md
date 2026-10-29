@@ -150,7 +150,7 @@ Mojang server over the wire.
       chunk-generation creatures: `TestNaturalSpawn*Parity`.
 - [x] Full entity type registry
 - [~] Physics, collision, AI, pathfinding: positioned player shapes, animated
-      shulker/piston collision, Marker armor-stand policies and shulker/piston item
+      shulker/piston collision, Marker and NoGravity armor-stand policies and shulker/piston item
       pushes have measured pins; general physical pushing remains incomplete.
 - [~] Damage, health, death, drops, XP
       First-hit player XP/value/pickup has a live-oracle pin; broader
@@ -17956,3 +17956,13 @@ Limits: exact block names/states with attached compounds in execute if/unless bl
 **Implemented** — Align the GOAL evidence boundary with README/AGENTS without allowing copied source, disassembly or implementation structure. Contributor guidance requires exact decoded success and barrier bodies, positive setup receipts before editor packets, and explicit large-packet capture for tab-wide runtime definitions.
 
 **Pinned** — Documentation-only reconciliation against committed workflow and the existing strict-marker, advancement-display and structure-power fixtures; no new gameplay claim or extra test run.
+
+## Slice — armor-stand NoGravity travel gate (2026-10-29)
+
+- **Measured:** Vanilla26.2 independently satisfies19 frozen native controls: NoGravity armor stands stay at their summoned position even with nonzero Motion; Marker+Motion stays fixed; an ordinary stand falls onto the floor; clearing NoGravity resumes travel. PortalCooldown20 reaches0 over21 exact game ticks, proving the apparently stationary entities actually tick. Unchanged Go baseline FAIL27.16s (work/armorstand-nogravity-before.log): zeroMotion NoGravity falls165→160 and nonzeroMotion drifts(3.5,165,.5)→(5.3558,160,1.4279). ArmorStand.hasPhysics/travel factual inspection confirms the gate includes both Marker and NoGravity; this is distinct from its Marker-only IGNORE piston reaction. Toolchain Go1.27.3 wire harness / Temurin25.0.5+8; original unpacked26.2 jar SHA256183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Facts in work/entity-push-reaction-facts.txt.
+- **Implemented:** A typed armor-stand travel predicate suppresses the non-Mob travel/fluid-motion chain when Marker or NoGravity. It does not suppress base entity ticking, native save/load, ordinary NoGravity stand bounds/building obstruction, or its NORMAL piston reaction. The live field makes NoGravity clearing resume the ordinary travel chain immediately. Other living types are unaffected.
+- **Pinned:** TestArmorStandNoGravityTravelParity PASS49.50s; existing TestArmorStandMarkerParity PASS42.13s (work/armorstand-nogravity-fixed.log). Focused native units PASS0.190s and race PASS3.637s, including the preserved Marker cases, NoGravity normal reaction/nonzero box and type isolation. Tested immutable archive4fcc0b8 plus four owned files; integration patch base30b6019, which has identical touched-file baseline content.
+
+Remaining limits: this is the armor-stand travel predicate, not general NoGravity physics. NoGravity metadata index5 is still unimplemented in entity encoders and requires a separate wire capture pin. General Mob NoGravity/NoAI movement, physical mover dispatch (especially source-base piston ejection and opening shulker pushes of non-items), hard entity collisions, and the other existing armor-stand interaction/damage/pose gaps remain separate. Marker-only building/damage/ignore rules are unchanged.
+
+Durable lesson: a stationary native query can be a genuine physics rule or an entity that has never ticked. Pair the position control with an independently decremented base-entity field; use nonzero input Motion and a live flag-clearing control to distinguish gravity suppression from the stronger travel gate. ArmorStand's NoGravity disables travel while retaining its normal piston reaction.
