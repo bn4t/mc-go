@@ -13,9 +13,8 @@ import (
 // fires a block_event packet (0x07, same-dimension within 64.0 of the
 // piston) when triggerEvent succeeds, and every cell the move covers
 // sits as a moving_piston carrying the arriving state for a 2-tick
-// interlude before it settles (progress += 0.5/tick, finalTick at
-// >=1.0). Entities standing in the swept cells slide one block with
-// the move.
+// animation followed by a cleanup tick before settlement. Entities
+// standing in the swept cells slide one block with the move.
 
 const (
 	rsEvExtend   int32 = 0 // TRIGGER_EXTEND
@@ -42,7 +41,8 @@ type movingPiston struct {
 	state  world.Block // movedState — lands at pos on settle
 	dir    rsDir
 	extend bool
-	ticks  int // BE ticks before finalTick (progress hits 1.0 at 2)
+	source bool // source head/base animation rather than an ordinary pushed block
+	ticks  int  // remaining animation/cleanup ticks: 3 -> 2 -> 1 -> settle
 }
 
 func rsIsPiston(blk world.Block) bool {
@@ -114,7 +114,7 @@ func (s *Server) rsPistonCheck(d *dimension, pos world.Pos) {
 	if !sig && rsPropsOf(blk)("extended") == "true" {
 		b0 := rsEvContract
 		front := rsShiftPos(pos, facing)
-		if s.movingPistonAt(front, facing, true) {
+		if s.movingPistonAt(d.name, front, facing, true) {
 			b0 = rsEvDrop
 		}
 		s.blockEvents = append(s.blockEvents, rsBlockEvent{d.name, pos, blk, b0, int32(facing)})
@@ -125,9 +125,9 @@ func (s *Server) rsPistonCheck(d *dimension, pos world.Pos) {
 // sits at pos facing dir — the PistonBaseBlock condition that
 // upgrades a contract to TRIGGER_DROP (the front cell's mid-flight
 // head drops instead of landing).
-func (s *Server) movingPistonAt(pos world.Pos, dir rsDir, extending bool) bool {
+func (s *Server) movingPistonAt(dim string, pos world.Pos, dir rsDir, extending bool) bool {
 	for _, mp := range s.movingPistons {
-		if mp.pos == pos && mp.dir == dir && mp.extend == extending {
+		if mp.dim == dim && mp.pos == pos && mp.dir == dir && mp.extend == extending {
 			return true
 		}
 	}
@@ -579,7 +579,7 @@ func (s *Server) rsPistonExtend(d *dimension, pos world.Pos, blk world.Block, fa
 			np := rsShiftPos(toPush[i], facing)
 			d.w.SetBlock(np, mp)
 			s.movingPistons = append(s.movingPistons, movingPiston{
-				dim: d.name, pos: np, state: states[toPush[i]], dir: facing, extend: true, ticks: 2,
+				dim: d.name, pos: np, state: states[toPush[i]], dir: facing, extend: true, ticks: 3,
 			})
 		}
 		// The head: a moving_piston at the front cell carrying the
@@ -589,11 +589,15 @@ func (s *Server) rsPistonExtend(d *dimension, pos world.Pos, blk world.Block, fa
 		}); ok {
 			d.w.SetBlock(front, mp)
 			s.movingPistons = append(s.movingPistons, movingPiston{
-				dim: d.name, pos: front, state: head, dir: facing, extend: true, ticks: 2,
+				dim: d.name, pos: front, state: head, dir: facing, extend: true, source: true, ticks: 3,
 			})
 		}
 	}
 	for _, p := range toPush {
+		// The newly installed source head covers this old origin.
+		if p == front {
+			continue
+		}
 		if _, covered := dst[p]; !covered {
 			d.w.SetBlock(p, world.Air)
 			s.broadcastBlockState(d, p, world.Air)
@@ -713,10 +717,8 @@ func (s *Server) pistonPushTick(d *dimension, mp movingPiston, frac float64) {
 	})
 }
 
-// movingPistonStep ticks the live moving-piston BEs: progress climbs
-// 0.5 per tick — pushing swept entities by that increment — and at
-// 1.0 (two ticks) the carried state lands at the BE's own cell,
-// finalTick's unconditional setBlock.
+// movingPistonStep performs two half-block animation ticks, then settles
+// the carried state on a cleanup tick if the moving block remains installed.
 func (s *Server) movingPistonStep() {
 	if len(s.movingPistons) == 0 {
 		return
@@ -724,14 +726,21 @@ func (s *Server) movingPistonStep() {
 	keep := s.movingPistons[:0]
 	for _, mp := range s.movingPistons {
 		d := s.dims[mp.dim]
-		if d == nil {
+		if d == nil || !isBlockNamed(d.w.GetBlock(mp.pos), "moving_piston") {
 			continue
 		}
-		s.pistonPushTick(d, mp, 0.5)
+		// Cleanup never pushes. Source-base retraction ejection remains
+		// outside the ordinary carried-cube pusher modeled here.
+		if mp.ticks > 1 && (!mp.source || mp.extend) {
+			s.pistonPushTick(d, mp, 0.5)
+		}
 		mp.ticks--
 		if mp.ticks > 0 {
 			keep = append(keep, mp)
 			continue
+		}
+		if propIs(mp.state, "waterlogged", "true") {
+			mp.state, _ = world.WithProperty(mp.state, "waterlogged", "false")
 		}
 		d.w.SetBlock(mp.pos, mp.state)
 		s.broadcastBlockState(d, mp.pos, mp.state)
@@ -743,7 +752,8 @@ func (s *Server) movingPistonStep() {
 }
 
 // rsPistonRetract is moveBlocks(extend=false) plus the piston-cell
-// cleanup: EXTENDED clears; a sticky piston whose resolver pulls a
+// cleanup: the source base animates into an unextended piston. A
+// sticky piston whose resolver pulls a
 // chain rides it in as moving_pistons toward the head cell (the pull
 // fails entirely — no block event — when the resolver rejects it),
 // otherwise the head cell goes air (vanilla's removeBlock of the
@@ -760,7 +770,7 @@ func (s *Server) rsPistonRetract(d *dimension, pos world.Pos, blk world.Block, f
 		// runs, so the front cell ends air instead of a landed head.
 		keep := s.movingPistons[:0]
 		for _, mp := range s.movingPistons {
-			if !(mp.pos == front && mp.extend) {
+			if !(mp.dim == d.name && mp.pos == front && mp.extend) {
 				keep = append(keep, mp)
 			}
 		}
@@ -823,7 +833,7 @@ func (s *Server) rsPistonRetract(d *dimension, pos world.Pos, blk world.Block, f
 						if mpOK {
 							d.w.SetBlock(np, mp)
 							s.movingPistons = append(s.movingPistons, movingPiston{
-								dim: d.name, pos: np, state: states[toPush[i]], dir: rsOpposite(facing), extend: false, ticks: 2,
+								dim: d.name, pos: np, state: states[toPush[i]], dir: rsOpposite(facing), extend: false, ticks: 3,
 							})
 						} else {
 							d.w.SetBlock(np, states[toPush[i]])
@@ -850,13 +860,11 @@ func (s *Server) rsPistonRetract(d *dimension, pos world.Pos, blk world.Block, f
 		}
 		touched = append(touched, front)
 	}
-	if nb, ok := world.WithProperty(blk, "extended", "false"); ok {
-		d.w.SetBlock(pos, nb)
-	}
+	s.startPistonBaseRetraction(d, pos, blk, facing)
 	touched = append(touched, pos)
 	for _, p := range touched {
 		// Cells holding a live moving_piston stay off the wire — the
-		// invisible write settles into a normal update two ticks out.
+		// invisible write settles into a normal update after cleanup.
 		if short, _ := blockShort(d.w.GetBlock(p)); short == "moving_piston" {
 			s.rsNeighborFanOut(d, p)
 			continue

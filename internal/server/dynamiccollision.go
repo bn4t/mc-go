@@ -8,9 +8,13 @@ func (s *Server) worldCollisionShapeAt(d *dimension, state world.Block, pos worl
 	if isShulkerBoxBlock(state) {
 		return shulkerWorldCollisionShapeAt(d, state, pos)
 	}
-	// Retain the existing piston policy until live motion is measured.
 	if isBlockNamed(state, "moving_piston") {
-		return cellShapeAt(state, pos)
+		for _, mp := range s.movingPistons {
+			if mp.dim == d.name && mp.pos == pos {
+				return movingPistonCollisionShape(mp, movingPistonProgress(mp))
+			}
+		}
+		return nil // An orphan moving block has no block-entity collision.
 	}
 	return measuredCollisionShapeAt(state, pos)
 }
