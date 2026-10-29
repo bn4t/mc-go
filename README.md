@@ -55,7 +55,9 @@ uses player overrides and modifiers, with zero-speed and default-delay controls.
 Arbitrary item attribute components and broader combat remain partial.
 Attribute getters supply scaled integer results to `execute store` while keeping
 feedback unscaled; successful zero values and runtime failures retain distinct
-execution status. Full query range/equipment projection remains partial.
+execution status. Effective damage, speed, scale and luck queries now enforce
+measured ranges; raw base/modifier queries preserve their values. Other ranges
+and equipment projection remain partial.
 Native NoGravity projects to client metadata at pairing and on true/false changes
 across measured living, item and boat paths. Vehicle gravity/travel and generic
 entity movement remain partial.

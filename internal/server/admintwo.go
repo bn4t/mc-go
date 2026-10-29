@@ -448,7 +448,7 @@ func (s *Server) runAttribute(player string, args []string) (out reply) {
 				return errToken("command.unknown.argument", 5)
 			}
 		}
-		value := attrValue(base, e.AttrMods[short])
+		value := sanitizeAttributeValue(short, attrValue(base, e.AttrMods[short]))
 		return attributeQueryReply(translatable("commands.attribute.value.get.success",
 			attrComp, nameArg, nestedCompound{key: "", value: value}), value, scale)
 	case "base":

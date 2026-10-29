@@ -18437,3 +18437,9 @@ Attribute range sanitization, equipment projection in queries/packets and full a
 Limits: the existing escape-neighbor NonSolid approximation and random generator remain unchanged. Partial shapes, tied/no-exit selection, embedded fluid/block-effect and initially grounded cases, XP-orb embedded movement, generic move overrides and source-base item pushes remain separate measurements. Rejected native moving apparatus is preserved as fixture evidence, not a piston parity claim.
 
 Root publication check: immutable4034aab build/vet and tagged blackbox compilation PASS; affected Item/Pickup/Touch/SharedAvatar server tests PASS15.894s (`work/verified-4034aab.log`). The source change is validated against the earlier published full suite plus the slice's native physics/fluid/damage and race regressions; no new full-parity claim.
+
+## Slice — measured effective attribute query ranges (2026-10-29)
+
+- **Measured** — Java26.2 effective attack_damage, attack_speed, scale and luck queries clamp to [0,2048], [0,1024], [0.0625,16] and [-1024,1024]; NaN uses the minimum. Base/modifier getters retain raw accepted values. Native baseline PASS72.17s; Go1.27.3/JDK25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Sanitize these four effective getters before numeric result scaling. Stored values, raw getters, packets and combat calculations remain unchanged; other query ranges await generated metadata.
+- **Pinned** — Owned4-file patch SHA256 `5a272ac777cc57ea2aa963b6a0f156dfac48dd43c9d37d033b1ac2fb849e22c2`; range/result/operation units PASS0.078s, actual24-case effective/raw controls plus4 scaled controls PASS13.62s (`work/attribute-effective-range-oracle-v1.log`). Held-equipment projection and player attribute packet updates remain measured follow-ons, not completed by this slice.
