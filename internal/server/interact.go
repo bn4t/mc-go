@@ -189,6 +189,11 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 	}
 	target := s.sessionByEntityID(targetID)
 	if target == nil {
+		// EnderDragonPart ids route to their dragon.
+		if dr, part := s.dragonPartOf(targetID); dr != nil {
+			s.attackDragonPart(sess, dr, part)
+			return
+		}
 		if e, ok := s.entities.Get(targetID); ok {
 			if name, ok := EntityTypeName(e.Type); ok && (name == "item" || name == "experience_orb") {
 				if sess.withinAttackRange(e.X, e.Y, e.Z, entityBBDims(&e)) {
@@ -231,6 +236,11 @@ func (s *Server) attackEntity(sess *Session, targetID int32) {
 			// VehicleEntity takes its own hurt path — wobble metadata,
 			// banked damage, break-and-drop — instead of LivingEntity
 			// damage. The reach gate is the same bounding-box test.
+			// EndCrystal.hurtServer takes the hit (remove + blast).
+			if ep, ok := s.entities.GetPtr(targetID); ok && ep.crystal != nil {
+				s.attackEndCrystal(sess, ep)
+				return
+			}
 			if name, ok := EntityTypeName(e.Type); ok && isVehicleEntityName(name) {
 				bb := entityBBDims(&e)
 				if !sess.withinAttackRange(e.X, e.Y, e.Z, bb) {

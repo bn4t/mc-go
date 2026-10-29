@@ -521,7 +521,13 @@ func (s *Server) gameTickOwned() {
 	s.cloudTickStep()
 	s.tntTickStep()
 	s.mobItemPickupStep()
+	// The crystal trackers flush, then EnderDragonFight.tick runs before
+	// the End's entities tick.
+	s.crystalSyncStep()
+	s.dragonFightTickStep()
 	s.mobTickStep()
+	s.dragonTickStep()
+	s.crystalTickStep()
 	// Entity.baseTick's handlePortal opens with
 	// processPortalCooldown — every ticking entity's cooldown
 	// decrements one per tick while positive, no matter its type.

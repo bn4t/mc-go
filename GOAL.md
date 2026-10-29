@@ -16331,3 +16331,27 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:** rails' neighborChanged pops, the tick families'
   one-tick pop delay (applied at once), drowned/fluid scheduling on
   waterlogged pops beyond the source left behind.
+
+## Slice — End crystal + ender dragon fight (2026-10-29)
+- **Measured**: wire (blackbox) + `javap` on EndCrystal, EndCrystalItem, EnderDragonFight,
+  DragonRespawnStage$1-5, EnderDragon + phases/EnderDragonPhaseManager, DragonFlightHistory,
+  EndPodiumFeature, EndGatewayFeature, EndSpikeFeature.placeSpike, ServerLevel (fight tick
+  before entities, sendChanges from the early chunk-source tick), Mth.sin/cos; saved
+  ender_dragon_fight.dat for seeds 12345 and 1 (gateway shuffles). Vanilla jar 26.2.
+- **Implemented**: end crystal entity (metadata, pairing + dirty resend, save, fire under a
+  fight, hurt/blast power 6, item placement, /summon, /kill), worldgen spike crystals with the
+  feature's rolled yaw; EnderDragonFight (saved data, scan, podium, 192-block boss bar, arena
+  load, dragon creation, crystal count, kill: portal/egg/seeded gateway ring, 4-crystal
+  respawn stages); EnderDragon (part ids, DATA_PHASE, 24-node A*, 11 phases, healing, wing/head
+  contact, wall breaking, fireballs, breath cloud, part hurt rules, DYING flight, 200-tick
+  tickDeath with XP awards); trackers flush early in the tick; 64-block level events.
+  Generated chunks carry feature entities (`ProtoChunk.Entities`) spawned when provided.
+- **Pinned**: TestEndCrystalParity, TestDragonFightParity (generated End seed 12345: bar,
+  spike-crystal yaws, podium blocks, saved data x5, kill, respawn stage sequence, landing
+  phases 2-3-6-4-0, in-flight death), TestEnderDragonDeathParity (pairing, dragon+9 ids,
+  part hit, death in place in 200 stepped ticks); unit: gateway shuffle/ring, save round trips.
+  Re-run after merging onto the placement/structure tree: all pass (the crystal pin's vanilla
+  leg once missed an item use under load; passes alone).
+- **Remaining**: gateway exits/teleport; flat-world End fight; per-part explosion hits;
+  dragon-breath particles; fireball vs players; ambient growl; podium drop loot;
+  explosion.player death message; the flight's lookup-table atan2.

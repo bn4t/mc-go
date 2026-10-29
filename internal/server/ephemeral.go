@@ -53,8 +53,8 @@ var summonThrownNames = map[string]bool{
 // creates with only constructor defaults.
 var summonPlainNames = map[string]bool{
 	"block_display": true, "item_display": true, "text_display": true,
-	"interaction": true, "end_crystal": true,
-	"painting": true, "item_frame": true, "glow_item_frame": true,
+	"interaction": true, "painting": true,
+	"item_frame": true, "glow_item_frame": true,
 	"leash_knot": true, "eye_of_ender": true,
 	"evoker_fangs": true, "ominous_item_spawner": true,
 	"falling_block": true,

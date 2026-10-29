@@ -35,6 +35,9 @@ type ProtoChunk struct {
 	bePending map[BlockPos]bool
 	beReal    map[BlockPos]map[string]any
 	beOwner   map[BlockPos]string
+	// Entities are the entities features added to this chunk (the
+	// end spikes' crystals), spawned when the chunk is provided.
+	Entities []GenEntity
 }
 
 func (p *ProtoChunk) idx(x, y, z int32) int32 { return ((y-p.MinY)*16+z)*16 + x }

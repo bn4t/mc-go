@@ -438,6 +438,11 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		return
 	}
 	// EnderEyeItem.useOn — an eyeless portal frame takes the eye.
+	// EndCrystalItem.useOn — obsidian or bedrock with room above.
+	if s.useEndCrystal(sess, d, clicked) {
+		useAck()
+		return
+	}
 	if s.useEnderEye(sess, d, clicked) {
 		useAck()
 		return

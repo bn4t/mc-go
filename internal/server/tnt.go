@@ -180,6 +180,19 @@ func (s *Server) explodePower(src *Entity, x, y, z float64, radius float32, grie
 // carve light 1-in-3 air-over-solid cells on fire in the finalize
 // pass (finalizedExplosion's second loop).
 func (s *Server) explodePowerFire(src *Entity, x, y, z float64, radius float32, grief, setFire bool) {
+	s.explodeWith(src, x, y, z, radius, grief, setFire, grief)
+}
+
+// explodeKeepBlocks is a NONE-interaction ServerLevel.explode (the
+// respawned dragon's crystals): the exploded positions are still
+// sampled - the packet's block count reports them - but nothing breaks.
+func (s *Server) explodeKeepBlocks(src *Entity, x, y, z float64, radius float32) {
+	s.explodeWith(src, x, y, z, radius, false, false, true)
+}
+
+// explodeWith is explodePowerFire with the block sampling separate from
+// the destruction (sample without grief keeps every block).
+func (s *Server) explodeWith(src *Entity, x, y, z float64, radius float32, grief, setFire, sample bool) {
 	d := s.dims[src.Dim]
 	if d == nil {
 		return
@@ -187,7 +200,7 @@ func (s *Server) explodePowerFire(src *Entity, x, y, z float64, radius float32, 
 	// ServerExplosion.explode posts EXPLODE at the blast centre.
 	s.emitGameEvent(d, "explode", x, y, z, nil, "")
 	var positions []world.Pos
-	if grief {
+	if sample {
 		positions = s.explodeBlockPositionsRes(src.Dim, x, y, z, radius, explosionResistFor)
 	}
 	blockCount := len(positions)
@@ -270,14 +283,20 @@ func (s *Server) explodePowerFire(src *Entity, x, y, z float64, radius float32, 
 		return true
 	})
 
+	// End crystals in range take explosion damage too (removed, no
+	// chain blast).
+	s.explodeHurtEndCrystals(src, x, y, z, radius)
+
 	// interactWithBlocks, DESTROY_WITH_DECAY — the vanilla order is
 	// shuffle → per-cell onExplosionHit → popResource per dropped stack.
-	s.explodeDestroyBlocks(src, positions, radius)
+	if grief {
+		s.explodeDestroyBlocks(src, positions, radius)
+	}
 
 	// finalizeExplosion's fire pass (setFire): for every destroyed
 	// cell a 1-in-3 roll puts base fire where the cell is now air
 	// and the block below renders solid.
-	if setFire {
+	if setFire && grief {
 		for _, pos := range positions {
 			if rand.Intn(3) != 0 {
 				continue

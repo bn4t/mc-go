@@ -889,6 +889,12 @@ func (s *Server) runSummon(player string, args []string) reply {
 	if name == "player" || name == "fishing_bobber" {
 		return componentReply(commandError("entity.not_summonable", "minecraft:"+name))
 	}
+	// EndCrystal and EnderDragon carry their own entity state
+	// (endcrystal.go, enderdragon.go).
+	if name == "end_crystal" || name == "ender_dragon" {
+		s.summonEndEntity(sess.dimension(), name, x, y, z, tag)
+		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
+	}
 	if e, ok := s.summonMobRaw(sess.dimension(), name, x, y, z, noAI, tag == nil); ok {
 		// The variant rolls live in Mob.finalizeSpawn, which the
 		// summon command only calls for the no-NBT overload
@@ -3236,6 +3242,7 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 		b.Byte(0) // type: byte
 		b.Byte(fl)
 	}
+	dragonMetaDirty(e, &b)
 	if name, ok := EntityTypeName(e.Type); ok {
 		// AgeableMob's pair leads every ageable chain — DATA_BABY_ID
 		// (16) then AGE_LOCKED (17); each subtype's own data starts
@@ -3751,6 +3758,8 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 		b.Byte(0) // type: byte
 		b.Byte(flags)
 	}
+	// EnderDragon.DATA_PHASE (16).
+	dragonMetaPairing(e, &b)
 	if name, ok := EntityTypeName(e.Type); ok {
 		// AgeableMob's pair leads every ageable chain — DATA_BABY_ID
 		// (16) then AGE_LOCKED (17); each subtype's own data starts
@@ -4530,6 +4539,8 @@ var mobFireImmune = map[string]bool{
 	"blaze": true, "ghast": true, "magma_cube": true, "strider": true,
 	"wither": true, "wither_skeleton": true, "zombified_piglin": true,
 	"hoglin": true, "zoglin": true,
+	// EntityType END_CRYSTAL / ENDER_DRAGON are fireImmune too.
+	"end_crystal": true, "ender_dragon": true,
 }
 
 // mobBreathesWater is vanilla's can_breathe_under_water entity-type
@@ -4655,6 +4666,9 @@ func (s *Server) markHurt(e *Entity, typeName string) {
 func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *Session, info *damageInfo) (dealt float32, graced, died bool) {
 	if kn, _ := EntityTypeName(e.Type); kn == "enderman" {
 		return s.enderHurtServer(e, amount, typeName, killer, info)
+	}
+	if e.dragon != nil {
+		return s.dragonHurtServer(e, amount, typeName, killer, info)
 	}
 	return s.mobHurtCore(e, amount, typeName, killer, info)
 }
@@ -4827,7 +4841,8 @@ func (s *Server) mobHurtCore(e *Entity, amount float32, typeName string, killer 
 			}
 		}
 	}
-	if d > 0 {
+	// The dragon's health rides its own tracker flush (enderdragon.go).
+	if d > 0 && e.dragon == nil {
 		s.broadcastEntityMetadata(e.ID, encodeLivingHealth(health))
 		e.ensureMetaInit()
 		e.metaSent.health = health
@@ -4848,6 +4863,12 @@ func (s *Server) mobDie(e *Entity, killer *Session, silent bool) {
 	// and writes its death metadata back to that same authoritative entity.
 	if current, ok := s.entities.GetPtr(e.ID); ok {
 		e = current
+	}
+	if e.dragon != nil {
+		// EnderDragon.handleKillingBlow keeps the dragon alive for
+		// its death flight (enderdragon.go).
+		s.dragonDie(e, killer)
+		return
 	}
 	// LivingEntity.die posts ENTITY_DEATH at the body's position.
 	if d := s.dimensionByName(e.Dim); d != nil {
@@ -4913,7 +4934,8 @@ func (s *Server) mobTickStep() {
 	s.entities.mu.RLock()
 	mobs := make([]*Entity, 0, len(s.entities.byID))
 	for _, e := range s.entities.byID {
-		if e.Living {
+		// The ender dragon runs its own tick (enderdragon.go).
+		if e.Living && e.dragon == nil {
 			mobs = append(mobs, e)
 		}
 	}

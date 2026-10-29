@@ -2,6 +2,7 @@ package server
 
 import (
 	"net"
+	"path/filepath"
 	"strings"
 
 	"mc-go/internal/nbt"
@@ -20,6 +21,8 @@ type nativeDimensionSave struct {
 	name     string
 	chunks   *world.DimensionSaveSnapshot
 	entities map[[2]int32][]map[string]any
+	// fight is the End's ender_dragon_fight saved data (dragonfight.go).
+	fight map[string]any
 }
 
 // All payloads belong privately to this snapshot. There are no callbacks, worlds,
@@ -42,6 +45,12 @@ func (snapshot *nativeWorldSaveSnapshot) write() error {
 		}
 		if err := world.SaveEntityRegions(world.DimensionDir(snapshot.level.Dir, d.name), d.entities); err != nil {
 			return err
+		}
+		if d.fight != nil {
+			path := filepath.Join(world.DimensionDir(snapshot.level.Dir, d.name), "data", "minecraft", "ender_dragon_fight.dat")
+			if err := writeFightData(path, d.fight); err != nil {
+				return err
+			}
 		}
 	}
 	// Preserve legacy native SaveWorld behavior: player-file failures are recorded
@@ -127,8 +136,12 @@ func (s *Server) captureNativeWorldSaveOwned() *nativeWorldSaveSnapshot {
 		chunks := d.w.CaptureDimensionSave(d.minY, d.height,
 			func(cx, cz int) []map[string]any { return s.chunkBlockEntities(d, cx, cz) },
 			func(cx, cz int) *world.ChunkLight { return d.savedLight(cx, cz) })
+		var fight map[string]any
+		if d.fight != nil {
+			fight = d.fight.saveNBT()
+		}
 		snapshot.dimensions = append(snapshot.dimensions, nativeDimensionSave{
-			name: name, chunks: chunks, entities: s.captureEntityRegionsOwned(d),
+			name: name, chunks: chunks, entities: s.captureEntityRegionsOwned(d), fight: fight,
 		})
 	}
 	snapshot.players = s.captureNativePlayersOwned()
