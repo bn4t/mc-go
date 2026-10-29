@@ -29,6 +29,17 @@ func (s *Server) throwEnderEye(sess *Session, hand int32, yaw, pitch float32) {
 	if hit := s.playerPOVHit(sess, d, clipFluidNone, yaw, pitch); !hit.miss && bstate(d.w.GetBlock(hit.pos)) == "end_portal_frame" {
 		return
 	}
+	// EnderEyeItem starts use before attempting a structure search, even
+	// where no structure can be located (26.2, JDK 25 javap).
+	if sess.usingItemID == 0 {
+		st, _ := sess.stackForHand(hand)
+		sess.usingItemID = st.ID
+		sess.eyeUseHand = uint8(hand + 1)
+		sess.eyeUseOffhand = hand == 1
+		sess.eyeUseDirty = true
+		x, y, z, _, _, _ := sess.Pos()
+		s.emitGameEvent(d, "item_interact_start", x, y, z, sess, "")
+	}
 	if d.terrain == nil {
 		return
 	}
@@ -42,10 +53,7 @@ func (s *Server) throwEnderEye(sess *Session, hand int32, yaw, pitch float32) {
 	if !found {
 		return
 	}
-	h := 1.8
-	if sess.sneaking {
-		h = 1.5
-	}
+	h := s.enderEyeLaunchHeight(sess)
 	stack, slot := sess.stackForHand(hand)
 	e := &Entity{Type: mustEntityType("eye_of_ender"), Dim: d.name, X: x, Y: y + h*0.5, Z: z,
 		Item: ItemStack{ID: stack.ID, Count: 1}}
@@ -141,4 +149,54 @@ func (s *Server) spawnItemDropAt(dim string, x, y, z float64, stack ItemStack) *
 	s.broadcastEntitySpawn(nil, *e)
 	s.broadcastEntityMetadata(e.ID, encodeItemMetadata(e.Item))
 	return e
+}
+
+// enderEyeUseTick preserves the zero-duration use until release or a
+// different item occupies the active hand. Its remaining duration starts
+// at zero and decreases, so it never reaches the completion boundary.
+func (s *Server) enderEyeUseTick(sess *Session) {
+	if sess.eyeUseHand != 0 {
+		st, _ := sess.stackForHand(int32(sess.eyeUseHand - 1))
+		if st.Empty() || st.ID != sess.usingItemID {
+			s.stopEnderEyeUse(sess)
+		}
+	}
+	if sess.eyeUseDirty {
+		s.broadcastEntityMetadata(sess.entityID.Load(), []byte{8, 0, enderEyeUseFlags(sess), 0xff})
+		sess.eyeUseDirty = false
+	}
+}
+
+func (s *Server) stopEnderEyeUse(sess *Session) {
+	if sess.eyeUseHand != 0 {
+		x, y, z, _, _, _ := sess.Pos()
+		s.emitGameEvent(sess.dimension(), "item_interact_finish", x, y, z, sess, "")
+		sess.eyeUseHand = 0
+		sess.eyeUseDirty = true
+		sess.usingItemID = 0
+	}
+}
+
+// stopUsingItem clears only the active bit; the selected-hand bit stays
+// nondefault after offhand use until another start selects the main hand.
+func enderEyeUseFlags(sess *Session) byte {
+	var flags byte
+	if sess.eyeUseOffhand {
+		flags = 2
+	}
+	if sess.eyeUseHand != 0 {
+		flags |= 1
+	}
+	return flags
+}
+
+// enderEyeLaunchHeight is Entity.getBbHeight: the actual synced pose
+// controls the launch point, even when it differs from current inputs.
+func (s *Server) enderEyeLaunchHeight(sess *Session) float64 {
+	pose := playerDesiredPose(sess)
+	if player, ok := s.entities.Get(sess.entityID.Load()); ok {
+		pose = player.Pose
+	}
+	_, h := playerPoseDims(pose)
+	return float64(float32(h))
 }

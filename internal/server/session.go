@@ -257,6 +257,10 @@ type Session struct {
 	// (spyglass scope); 0 when nothing is in use. Vanilla fires
 	// using_item every tick while set.
 	usingItemID int32
+	// eyeUseHand records EnderEyeItem's zero-duration held use (1 main, 2 off).
+	eyeUseHand    uint8
+	eyeUseOffhand bool // the hand bit survives stopUsingItem until the next start
+	eyeUseDirty   bool
 	// levitationStart / levitationStartTick anchor the levitation
 	// trigger — vanilla stamps them when the effect lands and clears
 	// on removal.

@@ -1789,12 +1789,17 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 // applies, so the pairing stream ships 0x7f (all parts shown).
 // DATA_PLAYER_MAIN_HAND (index 15) sits at its right-hand default and
 // stays off the wire.
-func encodePlayerAttachMeta(health float32, pose int32) []byte {
+func encodePlayerAttachMeta(health float32, pose int32, useFlags byte) []byte {
 	var b protocol.Buffer
 	if pose != 0 {
 		b.Byte(6)  // index: DATA_POSE
 		b.Byte(20) // type: POSE
 		b.VarInt(pose)
+	}
+	if useFlags != 0 {
+		b.Byte(8) // index: DATA_LIVING_ENTITY_FLAGS
+		b.Byte(0) // type: byte
+		b.Byte(useFlags)
 	}
 	b.Byte(9) // index: DATA_HEALTH_ID
 	b.Byte(3) // type: float
@@ -1804,6 +1809,15 @@ func encodePlayerAttachMeta(health float32, pose int32) []byte {
 	b.Byte(0x7f)
 	b.Byte(0xFF)
 	return b.Bytes()
+}
+
+// playerAttachEyeUseFlags includes active zero-duration eye use when a
+// viewer starts tracking a player after the flag's original dirty update.
+func (s *Server) playerAttachEyeUseFlags(e *Entity) byte {
+	if owner := s.sessionByEntityID(e.ID); owner != nil {
+		return enderEyeUseFlags(owner)
+	}
+	return 0
 }
 
 // playerAttachHealth resolves the health a player entity's attach meta
@@ -1887,7 +1901,7 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 	case e.Item.ID != 0:
 		meta = encodeItemMetadata(e.Item)
 	case e.Type == mustEntityType("player"):
-		meta = encodePlayerAttachMeta(s.playerAttachHealth(e), e.Pose)
+		meta = encodePlayerAttachMeta(s.playerAttachHealth(e), e.Pose, s.playerAttachEyeUseFlags(e))
 	case e.Living:
 		meta = encodeLivingMetadata(e, nil)
 	case e.HangSet:

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"mc-go/internal/protocol"
 	"mc-go/internal/server"
 )
 
@@ -41,6 +42,7 @@ func TestEnderEyeThrowParity(t *testing.T) {
 	run := func(addr string) []string {
 		c, pr, pw := joinPlayBlackbox(t, addr, "EyeProbe")
 		defer c.Close()
+		awaitPlayReadyBlackbox(t, addr, c, pr, pw)
 		_ = c.SetDeadline(time.Time{})
 		sink := newChatSinkTP(pr, pw)
 		sink.cap = 1 << 16
@@ -49,11 +51,15 @@ func TestEnderEyeThrowParity(t *testing.T) {
 		time.Sleep(time.Second)
 		eyeType, _ := server.EntityTypeID("eye_of_ender")
 		var out []string
+		var pending []string
 		wait := func(marker string) []string {
 			var lines []string
 			deadline := time.Now().Add(120 * time.Second)
 			for time.Now().Before(deadline) {
-				for _, l := range sink.take() {
+				pending = append(pending, sink.take()...)
+				for len(pending) > 0 {
+					l := pending[0]
+					pending = pending[1:]
 					if strings.Contains(l, marker) {
 						return lines
 					}
@@ -66,26 +72,90 @@ func TestEnderEyeThrowParity(t *testing.T) {
 		}
 		for i, sp := range spots {
 			sendCommand(t, pw, "tick unfreeze")
+			sendCommand(t, pw, fmt.Sprintf("forceload add %d %d %d %d", sp[0]-16, sp[2]-16, sp[0]+16, sp[2]+16))
 			sendCommand(t, pw, fmt.Sprintf("tp @s %d.5 %d %d.5 0 0", sp[0], sp[1], sp[2]))
 			sendCommand(t, pw, "item replace entity @s hotbar.0 with minecraft:ender_eye 4")
-			time.Sleep(3 * time.Second)
+			// Fresh terrain can take longer than a fixed sleep to stream.
+			// Wait until the destination is authoritative before throwing.
+			landed := fmt.Sprintf("LANDED%dX", i)
+			ready := false
+			deadline := time.Now().Add(180 * time.Second)
+			for !ready && time.Now().Before(deadline) {
+				sendCommand(t, pw, fmt.Sprintf("execute positioned %d.5 %d %d.5 if loaded ~ ~ ~ if entity @s[distance=..0.01] run say %s", sp[0], sp[1], sp[2], landed))
+				sendCommand(t, pw, fmt.Sprintf("say CHECK%dX", i))
+				for _, l := range wait(fmt.Sprintf("CHECK%dX", i)) {
+					if strings.Contains(l, landed) {
+						ready = true
+					}
+				}
+				if !ready {
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+			if !ready {
+				sendCommand(t, pw, "data get entity @s Pos")
+				sendCommand(t, pw, fmt.Sprintf("execute positioned %d.5 %d %d.5 if loaded ~ ~ ~ run say DESTLOADED", sp[0], sp[1], sp[2]))
+				sendCommand(t, pw, "say DIAGX")
+				for _, l := range wait("DIAGX") {
+					if tree, ok := componentTree(l, true); ok {
+						t.Log(tree)
+					}
+				}
+				t.Fatalf("%s: teleport to %v not committed", addr, sp)
+			}
+			// The flight probe needs a standing player even when a generated
+			// destination intersects terrain. Clear a known fit volume; fitted
+			// pose behavior itself is covered independently from eye flight.
+			sendCommand(t, pw, fmt.Sprintf("fill %d %d %d %d %d %d air", sp[0]-1, sp[1], sp[2]-1, sp[0]+1, sp[1]+2, sp[2]+1))
+			sendCommand(t, pw, "locate structure minecraft:stronghold")
+			sendCommand(t, pw, fmt.Sprintf("say LOCATE%dX", i))
+			for _, l := range wait(fmt.Sprintf("LOCATE%dX", i)) {
+				if strings.Contains(l, "commands.locate") {
+					if tree, ok := componentTree(l, true); ok {
+						t.Logf("%s at %v locate: %s", addr, sp, tree)
+					}
+				}
+			}
+			time.Sleep(time.Second) // let the fitted pose settle while ticking
 			sendCommand(t, pw, "tick freeze")
 			sendCommand(t, pw, fmt.Sprintf("say READY%dX", i))
 			wait(fmt.Sprintf("READY%dX", i))
 			sendUseItemAim(t, pw, 0, int32(500+i), 0, -10)
-			time.Sleep(time.Second)
-			sendCommand(t, pw, fmt.Sprintf("say THROWN%dX", i))
 			spawn := "none"
-			for _, l := range wait(fmt.Sprintf("THROWN%dX", i)) {
-				if strings.HasPrefix(l, "0x1:") {
-					if s, ok := dfDecodeSpawn([]byte(l[4:])); ok && s.typ == eyeType {
-						spawn = fmt.Sprintf("(%.3f,%.3f,%.3f)", s.x-float64(sp[0]), s.y-float64(sp[1]), s.z-float64(sp[2]))
+			active := false
+			scanUse := func(lines []string) {
+				prefix := fmt.Sprintf("%#x:", server.IDPlayEntityMetadata)
+				for _, l := range lines {
+					if strings.HasPrefix(l, prefix) {
+						_, entries := fwDecodeMeta([]byte(strings.TrimPrefix(l, prefix)))
+						for _, e := range entries {
+							if e.idx == 8 && e.typ == 0 && e.i == 1 {
+								active = true
+							}
+						}
 					}
 				}
 			}
+			spawnDeadline := time.Now().Add(120 * time.Second)
+			for spawn == "none" && time.Now().Before(spawnDeadline) {
+				sendCommand(t, pw, fmt.Sprintf("say THROWN%dX", i))
+				thrownLines := wait(fmt.Sprintf("THROWN%dX", i))
+				scanUse(thrownLines)
+				for _, l := range thrownLines {
+					if strings.HasPrefix(l, "0x1:") {
+						if s, ok := dfDecodeSpawn([]byte(l[4:])); ok && s.typ == eyeType {
+							spawn = fmt.Sprintf("(%.3f,%.3f,%.3f)", s.x-float64(sp[0]), s.y-float64(sp[1]), s.z-float64(sp[2]))
+						}
+					}
+				}
+			}
+			if spawn == "none" {
+				t.Fatalf("%s at %v: eye spawn not tracked", addr, sp)
+			}
 			sendCommand(t, pw, "tick step 20")
 			time.Sleep(3 * time.Second)
-			sink.take()
+			scanUse(append(pending, sink.take()...))
+			pending = nil
 			field := func(path string) string {
 				sendCommand(t, pw, "data get entity @e[type=minecraft:eye_of_ender,limit=1] "+path)
 				sendCommand(t, pw, fmt.Sprintf("say F%s%dX", path, i))
@@ -107,16 +177,27 @@ func TestEnderEyeThrowParity(t *testing.T) {
 			}
 			pos, motion := field("Pos"), field("Motion")
 			sendCommand(t, pw, "kill @e[type=minecraft:eye_of_ender]")
+			sendCommand(t, pw, "forceload remove all")
 			sendCommand(t, pw, "clear @s minecraft:ender_eye 0")
 			sendCommand(t, pw, fmt.Sprintf("say C%dX", i))
 			held := "?"
 			for _, l := range wait(fmt.Sprintf("C%dX", i)) {
 				if strings.Contains(l, "commands.clear.test") {
-					held = fmt.Sprintf("%q", l[strings.Index(l, "commands.clear.test"):])
-					held = held[:min(len(held), 40)]
+					if tree, ok := componentTree(l, true); ok {
+						held = tree
+					}
 				}
 			}
-			out = append(out, fmt.Sprintf("spawn=%s pos=%s motion=%s held=%s", spawn, pos, motion, held))
+			if !active {
+				t.Errorf("%s: spot %v missing active-hand flag", addr, sp)
+			}
+			var release protocol.Buffer
+			release.VarInt(5)
+			release.Position(0, 0, 0)
+			release.Byte(0)
+			release.VarInt(0)
+			_ = pw.WritePacket(server.IDPlayPlayerActionSB, release.Bytes())
+			out = append(out, fmt.Sprintf("spawn=%s pos=%s motion=%s held=%s active=%v", spawn, pos, motion, held, active))
 		}
 		sendCommand(t, pw, "tick unfreeze")
 		return out
@@ -131,4 +212,3 @@ func TestEnderEyeThrowParity(t *testing.T) {
 		}
 	}
 }
-

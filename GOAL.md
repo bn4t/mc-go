@@ -141,7 +141,8 @@ Mojang server over the wire.
       First-hit player XP/value/pickup has a live-oracle pin; broader
       damage, death and drop parity remains incomplete.
 - [~] Projectiles, vehicles, mobs, villagers; player-thrown splash/lingering
-      potions, registered variants and measured cloud doses now wire-pinned;
+      potions, registered variants, measured cloud doses and Ender Eye
+      flight/use metadata now wire-pinned;
       custom potion payloads and complete splash geometry remain open
 
 ### Player
@@ -16886,3 +16887,39 @@ no flee; unsneak → flee). Green both legs.
   (39.77 s), with the original comparisons and the new checkpoints intact.
   The fall expectation follows the measured floor and focused boundary pins;
   the complete suite is rerun after its correction.
+
+
+## Slice — Ender Eye use lifecycle and stable flight parity (2026-10-29)
+
+- **Measured:** Temurin 25.0.5+8 bytecode measurements of `EnderEyeItem`,
+  `LivingEntity`, `Entity` and `UseEffects`, the official ender-eye component
+  report, and live 26.2 wire observations. Oracle jar SHA-1:
+  `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Use starts before structure
+  lookup, retains the zero-duration use state, carries the selected-hand bit,
+  and emits default start/finish vibrations. Launch height uses the actual
+  synced bounding-box pose, including its float precision.
+- **Implemented:** main/offhand use flags, initial pairing snapshots and
+  release/item-replacement/selected-slot cleanup. Active-use cleanup precedes
+  the using-item advancement tick, and end-use emits once. Eye launch height
+  comes from the synced player pose. The structure locator and flight
+  integration remain unchanged.
+- **Pinned:** `TestEnderEyeThrowParity` passes against vanilla at three
+  destinations (266.951 s), comparing spawn, 20-tick position/motion to 0.001,
+  full held-count-four replies and active-use metadata. Both servers locate
+  strongholds at 1760,368; -1680,1984; and 1760,368. The earlier WIP failures
+  were not evidence of a locator bug: the fixture now completes join and
+  teleport handshakes, waits for loaded/tracked entities, preserves packets
+  following command markers and establishes a clear standing volume.
+  Lifecycle, pairing and deliberately different synced-pose/input unit cases
+  pass (2.022 s).
+- **Remaining:** stationary pose fitting differed at the original uncleared
+  generated destination and under a command-placed roof. This fixture isolates
+  eye flight from that broader pose discrepancy; it does not resolve it.
+- **Integrated validation:** `go build ./...`, `go vet ./...` and
+  `go test -p 1 -timeout 20m ./...` pass with the final implementation
+  (internal server 199.976 s; public server 5.096 s; default blackbox package
+  113.993 s). Default tests explicitly skip opt-in oracle comparisons; the
+  separately recorded differential pins used the real jar without skips.
+  Clean committed exports also build and pass the public consumer tests.
+  Full vanilla parity, specialized menu behavior and performance targets
+  remain open; no global completion or capacity claim is made.
