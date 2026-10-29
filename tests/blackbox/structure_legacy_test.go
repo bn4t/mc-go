@@ -42,3 +42,10 @@ func TestStructureDesertPyramidParity(t *testing.T) {
 func TestStructureJungleTempleParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{-108, 9, -103, 14}}, "jungle_temples")
 }
+
+// TestStructureSwampHutParity pins a swamp hut: no sea-level check, the
+// average ground height, the oak log stilts filled down, the spruce
+// roof's outer stair corners and the fences' post-processed sides.
+func TestStructureSwampHutParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{-151, -89, -146, -84}}, "swamp_huts")
+}
