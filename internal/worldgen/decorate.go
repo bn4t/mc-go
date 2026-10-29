@@ -331,7 +331,9 @@ func (rg *Region) SetBlock(x, y, z int32, b world.Block) bool {
 	if rg.g.WriteLog != nil {
 		rg.g.WriteLog(BlockPos{x, y, z}, [2]int32{rg.center.CX, rg.center.CZ}, b)
 	}
+	old := c.Get(x&15, y, z&15)
 	c.Set(x&15, y, z&15, b)
+	c.noteBlockWrite(BlockPos{x, y, z}, old, b)
 	if hasPostProcess(b) {
 		c.PostProcess = append(c.PostProcess, [3]int32{x, y, z})
 	}

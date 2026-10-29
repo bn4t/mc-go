@@ -20,7 +20,32 @@ func init() {
 		}
 	}
 	featureBuilders["end_gateway"] = func(g *Generator, cfg obj) func(*featCtx, Random, BlockPos) bool {
-		return func(c *featCtx, r Random, p BlockPos) bool { return endfGateway(c.rg, p) }
+		// EndGatewayConfiguration: an optional exit and whether the
+		// teleport to it is exact.
+		var exit []int32
+		if raw, ok := cfg["exit"]; ok {
+			jsonUnmarshal(raw, &exit)
+		}
+		exact := false
+		if raw, ok := cfg["exact"]; ok {
+			jsonUnmarshal(raw, &exact)
+		}
+		return func(c *featCtx, r Random, p BlockPos) bool {
+			endfGateway(c.rg, p)
+			// TheEndGatewayBlockEntity.setExitPosition on the gateway
+			// the box just placed.
+			if len(exit) == 3 {
+				if be := c.rg.blockEntity(p); be != nil && isBlock(c.rg.at(p), "end_gateway") {
+					be["exit_portal"] = []int32{exit[0], exit[1], exit[2]}
+					if exact {
+						be["ExactTeleport"] = int8(1)
+					} else {
+						delete(be, "ExactTeleport")
+					}
+				}
+			}
+			return true
+		}
 	}
 	featureBuilders["end_island"] = func(g *Generator, cfg obj) func(*featCtx, Random, BlockPos) bool {
 		return func(c *featCtx, r Random, p BlockPos) bool { return endfIsland(c.rg, r, p) }
@@ -149,8 +174,8 @@ func endfChorusGrow(rg *Region, r Random, p, root BlockPos, spread, depth int32)
 // endfGateway is EndGatewayFeature.place: the 3x5x3 box around the
 // origin (betweenClosed order) — the gateway at the centre, air on its
 // layer, bedrock caps two above and below, a bedrock cross on the
-// remaining layers and air in their corners. The exit position goes to
-// the gateway's block entity, which the chunk stores.
+// remaining layers and air in their corners. The configured exit is
+// written into the gateway's block entity by the feature builder.
 func endfGateway(rg *Region, o BlockPos) bool {
 	gw := blockNamed("end_gateway")
 	bedrock := blockNamed("bedrock")

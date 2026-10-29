@@ -563,6 +563,10 @@ func compareStructBlockEntities(t *testing.T, saved savedChunk, p *worldgen.Prot
 			wantTag[pos] = m
 		}
 	}
+	gotTag := map[[3]int32]map[string]any{}
+	for _, be := range p.BlockEntities() {
+		gotTag[be.Pos] = be.Data
+	}
 	var got [][3]int32
 	for i, b := range p.Blocks {
 		if worldgen.HasBlockEntity(b) {
@@ -577,7 +581,7 @@ func compareStructBlockEntities(t *testing.T, saved savedChunk, p *worldgen.Prot
 			n++
 			// Loot table and seed: the template's table (or a rule's
 			// append_loot) and the seed drawn from the piece random.
-			w, g := wantTag[pos], p.BlockEntityData[pos]
+			w, g := wantTag[pos], gotTag[pos]
 			for _, k := range []string{"LootTable", "LootTableSeed"} {
 				wv, wok := w[k]
 				gv, gok := g[k]

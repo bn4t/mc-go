@@ -182,9 +182,16 @@ func placeDesertWell(rg *Region, r Random, o BlockPos) bool {
 		rg.set(offset(o, 1, dy, 1), sandstone)
 	}
 	cells := [5]BlockPos{o, offset(o, 1, 0, 0), offset(o, 0, 0, 1), offset(o, -1, 0, 0), offset(o, 0, 0, -1)}
-	sus := blockNamed("suspicious_sand")
-	rg.set(offset(cells[r.NextIntN(5)], 0, -1, 0), sus)
-	rg.set(offset(cells[r.NextIntN(5)], 0, -2, 0), sus)
+	// DesertWellFeature.placeSusSand: the sand's brushable block entity
+	// takes archaeology/desert_well seeded with the position itself.
+	placeSus := func(q BlockPos) {
+		rg.set(q, blockNamed("suspicious_sand"))
+		if be := rg.blockEntity(q); be != nil {
+			setLootTable(be, "minecraft:archaeology/desert_well", blockPosAsLong(q))
+		}
+	}
+	placeSus(offset(cells[r.NextIntN(5)], 0, -1, 0))
+	placeSus(offset(cells[r.NextIntN(5)], 0, -2, 0))
 	return true
 }
 

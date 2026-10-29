@@ -151,7 +151,7 @@ func (t *terrainSource) ProvideChunk(x, z int) *world.BaseChunk {
 		base.Structures = t.g.StructuresTag(cx, cz)
 	}
 	t.provided[[2]int32{cx, cz}] = true
-	if len(base.PostProcess) > 0 {
+	if len(base.PostProcess) > 0 || len(base.BlockEntities) > 0 {
 		t.freshMu.Lock()
 		t.fresh = append(t.fresh, [2]int{x, z})
 		t.freshMu.Unlock()
@@ -206,6 +206,9 @@ func protoToBase(p *worldgen.ProtoChunk) *world.BaseChunk {
 	for _, m := range p.PostProcessFluids() {
 		b.PostProcess = append(b.PostProcess, world.Pos{X: int(m[0]), Y: int(m[1]), Z: int(m[2])})
 	}
+	for _, be := range p.BlockEntities() {
+		b.BlockEntities = append(b.BlockEntities, world.BaseBlockEntity{Pos: world.Pos{X: int(be.Pos[0]), Y: int(be.Pos[1]), Z: int(be.Pos[2])}, Data: be.Data})
+	}
 	return b
 }
 
@@ -227,6 +230,9 @@ func (s *Server) postProcessStep() {
 		t.freshMu.Unlock()
 		var wait [][2]int
 		for _, k := range keys {
+			// Generated block entities join the level as the chunk
+			// does (LevelChunk.postProcessGeneration promotes them).
+			s.installGenBlockEntities(d, k[0], k[1])
 			ready := true
 			for dz := -1; dz <= 1 && ready; dz++ {
 				for dx := -1; dx <= 1; dx++ {

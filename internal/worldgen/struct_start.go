@@ -3,7 +3,6 @@ package worldgen
 import (
 	"sync"
 
-	"mc-go/internal/world"
 )
 
 // Structure starts, pieces and references: the STRUCTURE_STARTS and
@@ -561,18 +560,4 @@ func (s *longOpenHashSet) list() []int64 {
 	return out
 }
 
-// HasBlockEntity reports a state whose block carries a block entity.
-func HasBlockEntity(b world.Block) bool { return hasBlockEntity(b) }
 
-// setBlockEntity records block entity data for a block just placed
-// (dropped where the region refused the write).
-func (rg *Region) setBlockEntity(p BlockPos, nbt map[string]any) {
-	c := rg.chunkAt(p[0], p[2])
-	if c == nil || !hasBlockEntity(c.Get(p[0]&15, p[1], p[2]&15)) {
-		return
-	}
-	if c.BlockEntityData == nil {
-		c.BlockEntityData = map[[3]int32]map[string]any{}
-	}
-	c.BlockEntityData[p] = nbt
-}

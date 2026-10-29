@@ -28,6 +28,18 @@ type BaseChunk struct {
 	// Structures is the chunk's saved "structures" compound (starts and
 	// references); nil writes the empty one.
 	Structures map[string]any
+	// BlockEntities lists the block entities generation left in the
+	// chunk, in position order: each one's position and the fields
+	// generation wrote into it (nil Data: the type's fresh defaults).
+	// A chunk loaded from disk carries none here; its saved
+	// block_entities go through the world's BlockEntities list instead.
+	BlockEntities []BaseBlockEntity
+}
+
+// BaseBlockEntity is one generated block entity of a base chunk.
+type BaseBlockEntity struct {
+	Pos  Pos
+	Data map[string]any
 }
 
 // At returns the state at chunk-local x/z and absolute y.

@@ -16222,3 +16222,42 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:** the legacy structures (stronghold rings, mineshafts,
   ...) become locatable as they are generated; /locate poi; explorer
   maps and eyes of ender over the same search.
+
+## Slice — generated block entities and seeded container loot (2026-10-29)
+
+- **Measured:** bytecode inspection of `WorldGenRegion.setBlock` /
+  `getBlockEntity` (a block entity write leaves a pending default tag, a
+  plain block drops it, a read promotes the pending tag to a configured
+  block entity), `LevelChunk.postProcessGeneration` (configured wins
+  unless the block changed type), the features' block entity writes
+  (`MonsterRoomFeature` spawn data and `chests/simple_dungeon` seed, the
+  beehive decorator's bees, desert well brushable sand seeded by
+  `BlockPos.asLong`, end gateway exit config, bonus chest, template
+  block NBT with randomizable containers drawing a loot seed), each
+  block entity type's `getUpdateTag`, `BlockEntityTypes` block mapping,
+  and `LootTable.fill` on a `LegacyRandomSource` (pools, weighted
+  entries, set_count, enchant_randomly / `#on_random_loot`, stack
+  splitting, shuffled slots). Region observation of frozen vanilla
+  saves for type defaults.
+- **Implemented:** `internal/worldgen/blockentity.go` (proto chunk
+  block entities, merged with the structure templates' loot seeds),
+  `world.BaseChunk.BlockEntities`, `internal/server/genblockentity.go`
+  (install once per chunk, generic saved-field store for types without
+  their own model, update tags on the chunk packet),
+  `internal/server/lootfill.go` (exact seeded fill on first open of
+  chests, barrels, dispensers, droppers, shulker boxes, crafters;
+  namespaced table ids). Blackbox normal-world comparisons whose vanilla
+  side runs `generate-structures=false` now set it on mc-go too.
+- **Pinned:** `TestGeneratedBlockEntitySaveParity` (region NBT equality
+  for spawners, chests with loot seeds, beehives, brushable sand, end
+  gateways, creaking hearts, potent sulfur, sculk family),
+  `TestGeneratedBlockEntityWireParity` (chunk packet block entity
+  arrays), `TestGeneratedChestLootParity` (opened dungeon chest slots
+  byte for byte); unit tests `TestProtoBlockEntities`,
+  `TestBlockEntityTypeCoverage`, `TestBlockEntityUpdateTag`,
+  `TestLootFillExact`.
+- **Remaining:** other loot functions and conditions in seeded fills
+  (most structure tables), brushing loot, unpacking loot when an
+  unopened container breaks, ticking of the generic store (gateway
+  age, hive bees, spawner delay), trial spawner update tags, block
+  entities for player-placed blocks of the generic types.

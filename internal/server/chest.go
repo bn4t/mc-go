@@ -1,7 +1,6 @@
 package server
 
 import (
-	"math/rand"
 	"strings"
 	"sync"
 
@@ -156,27 +155,9 @@ func (s *Server) openChest(sess *Session, pos world.Pos) {
 	if ch := s.chestAt(d, pos); ch.lootTable != "" {
 		table := ch.lootTable
 		seed := ch.lootSeed
-		if seed == 0 {
-			seed = rand.Int63()
-		}
 		ch.lootTable = ""
 		ch.lootSeed = 0
-		// Vanilla scatters generated stacks into random empty slots.
-		items := rollLootTable(table, seed)
-		free := []int{}
-		for i := range ch.slots {
-			if ch.slots[i].Empty() {
-				free = append(free, i)
-			}
-		}
-		for _, it := range items {
-			if len(free) == 0 {
-				break
-			}
-			i := rand.Intn(len(free))
-			ch.slots[free[i]] = it
-			free = append(free[:i], free[i+1:]...)
-		}
+		unpackLootInto(ch.slots[:], table, seed)
 		s.firePlayerGeneratesContainerLoot(sess, table)
 	}
 	id := sess.server.nextWindow.Add(1)

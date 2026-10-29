@@ -19,7 +19,7 @@ const (
 	enchantDir    = "vanilla/generated/data/minecraft/enchantment"
 	enchantTagDir = "vanilla/generated/data/minecraft/tags/enchantment"
 	itemTagDir    = "vanilla/generated/data/minecraft/tags/item"
-	itemCompDir   = "vanilla/reports/minecraft/components/item"
+	itemCompDir   = "vanilla/generated/reports/minecraft/components/item"
 	out           = "internal/data/enchant_gen.go"
 )
 
@@ -220,6 +220,19 @@ var Enchantments = map[string]EnchantmentMeta{
 	// candidate list behind every weighted pick) walks.
 	b.WriteString("// InEnchantingTableOrder lists the in_enchanting_table members\n// in declared tag order (non_treasure resolution order) — the\n// iteration order vanilla's candidate stream walks.\nvar InEnchantingTableOrder = []string{\n")
 	for _, n := range inTableList {
+		fmt.Fprintf(&b, "\t%q,\n", n)
+	}
+	b.WriteString("}\n\n")
+
+	// on_random_loot in declared tag order: the candidate list a loot
+	// table's enchant_randomly indexes into (its HolderSet stream walks
+	// the resolved tag in this order).
+	onRandomLoot, err := expandTag(enchantTagDir, "#minecraft:on_random_loot", map[string]bool{})
+	if err != nil {
+		panic(err)
+	}
+	b.WriteString("// OnRandomLootOrder lists the on_random_loot members in declared tag\n// order (nested tags resolved in place) - the list enchant_randomly\n// indexes into.\nvar OnRandomLootOrder = []string{\n")
+	for _, n := range onRandomLoot {
 		fmt.Fprintf(&b, "\t%q,\n", n)
 	}
 	b.WriteString("}\n\n")

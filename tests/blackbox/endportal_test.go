@@ -77,6 +77,7 @@ func TestEndPortalParity(t *testing.T) {
 	files["ops.json"] = opsJSONFor("EndProbe")
 	tg := requireBlackboxFiles(t, props, files, func(s *server.Server) {
 		s.LevelType = server.LevelTypeNormal
+		s.GenerateStructures = false
 		s.WorldSeed = seed
 		s.WorldgenOverlay = ov
 	})

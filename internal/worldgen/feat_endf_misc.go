@@ -193,9 +193,7 @@ func endfBonusChest(rg *Region, r Random, o BlockPos) bool {
 				continue
 			}
 			rg.set(p, blockNamed("chest"))
-			if isBlock(rg.at(p), "chest") {
-				r.NextLong()
-			}
+			setBlockEntityLootTable(rg, r, p, "minecraft:chests/spawn_bonus_chest")
 			torch := blockNamed("torch")
 			for _, d := range horizontalDirs {
 				off := dirOffsets[d]
