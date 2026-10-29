@@ -23,6 +23,8 @@ type dimensionSaveChunk struct {
 	biomes   []string
 	entities []map[string]any
 	light    *ChunkLight
+	// structures replaces the empty "structures" compound when set.
+	structures map[string]any
 }
 
 // CaptureDimensionSave materializes generator terrain and overrides, and copies
@@ -65,6 +67,16 @@ func (w *World) CaptureDimensionSave(minY, height int, entities func(cx, cz int)
 			if lights != nil {
 				if light := lights(cx, cz); light != nil {
 					c.light = &ChunkLight{Sky: copyLightLayers(light.Sky), Block: copyLightLayers(light.Block)}
+				}
+			}
+			if w.base != nil {
+				if b := w.base.peek(cx, cz); b != nil && b.Structures != nil {
+					st, err := copyDimensionNBT(b.Structures)
+					if err != nil {
+						s.err = err
+						return s
+					}
+					c.structures = st.(map[string]any)
 				}
 			}
 			s.chunks[key] = c

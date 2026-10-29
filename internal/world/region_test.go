@@ -370,3 +370,32 @@ func TestChunkLoadLeavesUnknownPalettesAlone(t *testing.T) {
 		t.Errorf("block at 1,-64,1 = %d, want the generator's bedrock (an unreadable section was applied as air)", got)
 	}
 }
+
+// TestSectionDataWidthFollowsPalette pins the packed width of a saved
+// section: four bits at least, else the fewest bits that index the
+// palette - the width a reader derives from the palette size. Twenty
+// states take five bits (a 320-long array), not six.
+func TestSectionDataWidthFollowsPalette(t *testing.T) {
+	const minY, height = -64, 384
+	blocks := make([]Block, 16*height*16)
+	states := 0
+	for b := Block(1); states < 19; b++ {
+		if _, ok := StateOwner(b); ok {
+			blocks[states] = b
+			states++
+		}
+	}
+	sec := sectionNBT(blocks, minY, 0, "minecraft:plains", nil, nil)
+	st := sec[chunkBlockStates].(map[string]any)
+	pal := st["palette"].(nbt.List)
+	data := st["data"].([]int64)
+	if len(pal.Items) != 20 || len(data) != 4096/(64/5)+1 {
+		t.Fatalf("palette %d entries, data %d longs; want 20 and %d", len(pal.Items), len(data), 4096/(64/5)+1)
+	}
+	got := unpackIndices(data, len(pal.Items))
+	for i := 0; i < 19; i++ {
+		if pal.Items[got[i]].(map[string]any)["Name"] == "minecraft:air" {
+			t.Fatalf("cell %d decodes to air", i)
+		}
+	}
+}

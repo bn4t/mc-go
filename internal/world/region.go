@@ -145,9 +145,11 @@ func sectionNBT(blocks []Block, minY, sy int, biome string, cells []string, ligh
 	}
 	states := map[string]any{"palette": pal}
 	if len(palette) > 1 {
+		// Four bits at least, else the fewest that index the palette
+		// (the width a reader derives from the palette size).
 		bpe := 4
-		for bits := 1 << uint(bpe); bits < len(palette); bpe++ {
-			bits = 1 << uint(bpe)
+		for 1<<uint(bpe) < len(palette) {
+			bpe++
 		}
 		states["data"] = packIndices(idx, bpe)
 	}
@@ -465,7 +467,11 @@ func (s *DimensionSaveSnapshot) writeDir(dir string) error {
 		payloads := map[chunkKey][]byte{}
 		for _, c := range chunks {
 			var raw bytes.Buffer
-			if err := nbt.WriteNamed(&raw, "", capturedChunkNBT(int(c.X), int(c.Z), s.minY, s.height, s.chunks[c].blocks, s.biome, s.chunks[c].biomes, s.chunks[c].entities, s.chunks[c].light)); err != nil {
+			compound := capturedChunkNBT(int(c.X), int(c.Z), s.minY, s.height, s.chunks[c].blocks, s.biome, s.chunks[c].biomes, s.chunks[c].entities, s.chunks[c].light)
+			if st := s.chunks[c].structures; st != nil {
+				compound["structures"] = st
+			}
+			if err := nbt.WriteNamed(&raw, "", compound); err != nil {
 				return err
 			}
 			var zc bytes.Buffer

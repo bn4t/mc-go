@@ -25,6 +25,9 @@ type BaseChunk struct {
 	// in vanilla's order (section by section, marks in write order),
 	// for the fluid ticks LevelChunk.postProcessGeneration runs.
 	PostProcess []Pos
+	// Structures is the chunk's saved "structures" compound (starts and
+	// references); nil writes the empty one.
+	Structures map[string]any
 }
 
 // At returns the state at chunk-local x/z and absolute y.
@@ -202,6 +205,9 @@ func (w *World) installBaseChunk(compound map[string]any, cx, cz, minY, height i
 	c := &BaseChunk{MinY: minY, Height: height, Sections: make([][]Block, height/16), Biomes: make([]string, height/16*64)}
 	for i := range c.Biomes {
 		c.Biomes[i] = w.biomeName()
+	}
+	if st, ok := compound["structures"].(map[string]any); ok {
+		c.Structures = st
 	}
 	sections, _ := compound["sections"].(nbt.List)
 	for _, secAny := range sections.Items {

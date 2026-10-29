@@ -93,7 +93,11 @@ func loadTemplate(id string) *structTemplate {
 	}
 	raw, ok := templateNBT(id)
 	if !ok {
-		panic("worldgen: unknown structure template " + id)
+		// StructureTemplateManager.getOrCreate: a missing template is an
+		// empty one (size zero, no palettes).
+		t := &structTemplate{}
+		templateCache[id] = t
+		return t
 	}
 	_, v, err := nbt.ReadNamed(bytes.NewReader(raw))
 	if err != nil {
@@ -247,6 +251,13 @@ type placeSettings struct {
 	processors       []tplProcessor
 	ignoreEntities   bool
 	keepLiquids      bool // LiquidSettings.IGNORE_WATERLOGGING when false
+	// knownShape skips the post-placement shape updates.
+	knownShape bool
+	// finalizers run StructureProcessor.finalizeProcessing over the
+	// processed list; entirePiece (a processor evaluating the entire
+	// piece) processes blocks outside the box too.
+	finalizers  []tplFinalizer
+	entirePiece bool
 }
 
 func newPlaceSettings() *placeSettings { return &placeSettings{keepLiquids: true} }
@@ -368,6 +379,11 @@ func rotateState(b world.Block, rot int) world.Block {
 		json.Unmarshal([]byte(r), &v)
 		out, _ = world.WithProperty(out, "rotation", itoa((v+4*rot)&15))
 	}
+	if o, ok := props["orientation"]; ok {
+		// FrontAndTop: both directions rotate.
+		f, t, _ := strings.Cut(o, "_")
+		out, _ = world.WithProperty(out, "orientation", rotateDirName(f, rot)+"_"+rotateDirName(t, rot))
+	}
 	if _, ok := props["north"]; ok {
 		if _, ok := props["east"]; ok {
 			for _, d := range []string{"north", "east", "south", "west"} {
@@ -423,15 +439,16 @@ func mirrorState(b world.Block, mirror int) world.Block {
 	return out
 }
 
-// processBlocks is StructureTemplate.processBlockInfos (no processor
-// here evaluates the entire piece state, so blocks outside the
-// settings' box are dropped before processing).
+// processBlocks is StructureTemplate.processBlockInfos: blocks outside
+// the settings' box are dropped before processing unless a processor
+// evaluates the entire piece; then every processor's finalizeProcessing
+// runs over the result.
 func processBlocks(rg *Region, off, pivot BlockPos, s *placeSettings, blocks []tplBlock) []tplBlock {
-	var out []tplBlock
+	var out, originals []tplBlock
 	for _, b := range blocks {
 		wp := tplTransform(b.pos, s.mirror, s.rotation, s.pivot)
 		wp = offset(wp, off[0], off[1], off[2])
-		if s.bb != nil && !s.bb.inside(wp) {
+		if !s.entirePiece && s.bb != nil && !s.bb.inside(wp) {
 			continue
 		}
 		cur := &tplBlock{pos: wp, state: b.state, nbt: b.nbt}
@@ -443,7 +460,11 @@ func processBlocks(rg *Region, off, pivot BlockPos, s *placeSettings, blocks []t
 		}
 		if cur != nil {
 			out = append(out, *cur)
+			originals = append(originals, b)
 		}
+	}
+	for _, f := range s.finalizers {
+		out = f(rg, off, pivot, originals, out, s)
 	}
 	return out
 }
@@ -511,8 +532,24 @@ func (t *structTemplate) placeInWorld(rg *Region, off, pivot BlockPos, s *placeS
 		}
 		placed = append(placed, b.pos)
 		inPlaced[b.pos] = true
-		if b.nbt != nil && hasBlockEntity(st) && isRandomizable(st) {
-			random.NextLong()
+		if b.nbt != nil && hasBlockEntity(st) {
+			// The block entity loads the template data; a container
+			// takes a fresh loot seed from the placement random.
+			be := map[string]any{}
+			for k, v := range b.nbt {
+				be[k] = v
+			}
+			if isRandomizable(st) {
+				// The seed is drawn regardless; the block entity keeps
+				// it only with a loot table (tryLoadLootTable).
+				seed := random.NextLong()
+				if _, ok := be["LootTable"]; ok {
+					be["LootTableSeed"] = seed
+				} else {
+					delete(be, "LootTableSeed")
+				}
+			}
+			rg.setBlockEntity(b.pos, be)
 		}
 		if !s.keepLiquids {
 			continue
@@ -553,6 +590,9 @@ func (t *structTemplate) placeInWorld(rg *Region, off, pivot BlockPos, s *placeS
 			kept = append(kept, p)
 		}
 		pending = kept
+	}
+	if s.knownShape {
+		return true
 	}
 	// Not a known shape: blocks just outside the placed cells react to
 	// them (updateShapeAtEdge), then every placed cell is refreshed
@@ -742,6 +782,9 @@ func (g *Generator) compileProcessors(raw json.RawMessage) []tplProcessor {
 func (g *Generator) compileProcessor(raw json.RawMessage) tplProcessor {
 	var o obj
 	jsonUnmarshal(raw, &o)
+	if b, ok := structProcessorBuilders[trimNS(o.str("processor_type"))]; ok {
+		return b(g, o)
+	}
 	switch t := trimNS(o.str("processor_type")); t {
 	case "nop":
 		return func(rg *Region, off, pivot, local BlockPos, cur *tplBlock, s *placeSettings) *tplBlock { return cur }
@@ -782,37 +825,6 @@ func (g *Generator) compileProcessor(raw json.RawMessage) tplProcessor {
 		return func(rg *Region, off, pivot, local BlockPos, cur *tplBlock, s *placeSettings) *tplBlock {
 			if inTag(cur.state, set) {
 				return nil
-			}
-			return cur
-		}
-	case "rule":
-		// RuleProcessor: the first matching rule replaces the state; its
-		// tests draw from a random seeded by the world position.
-		var rules []obj
-		jsonUnmarshal(o["rules"], &rules)
-		type rule struct {
-			input, loc ruleTest
-			out        world.Block
-		}
-		var rs []rule
-		for _, ru := range rules {
-			if p, ok := ru["position_predicate"]; ok {
-				var po obj
-				jsonUnmarshal(p, &po)
-				if trimNS(po.str("predicate_type")) != "always_true" {
-					UnsupportedProcessors["rule/"+po.str("predicate_type")] = true
-				}
-			}
-			var st obj
-			jsonUnmarshal(ru["output_state"], &st)
-			rs = append(rs, rule{compileRuleTest(ru["input_predicate"]), compileRuleTest(ru["location_predicate"]), stateFromJSON(st)})
-		}
-		return func(rg *Region, off, pivot, local BlockPos, cur *tplBlock, s *placeSettings) *tplBlock {
-			r := NewLegacy(BlockSeed(cur.pos[0], cur.pos[1], cur.pos[2]))
-			for _, ru := range rs {
-				if ru.input(cur.state, r) && ru.loc(rg.at(cur.pos), r) {
-					return &tplBlock{pos: cur.pos, state: ru.out, nbt: cur.nbt}
-				}
 			}
 			return cur
 		}

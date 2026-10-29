@@ -80,8 +80,12 @@ Mojang server over the wire.
       nether and end terrain and biomes match block for block -
       `TestTerrainNetherParity`, `TestTerrainEndParity`, and their streamed
       chunks (light included) - `TestNormalNetherChunkParity`,
-      `TestNormalEndChunkParity`; the other feature types and structures
-      remain
+      `TestNormalEndChunkParity`; jigsaw structures (villages, pillager
+      outposts, trail ruins, ancient cities, trial chambers, bastions)
+      match piece for piece and block for block - `TestStructure*Parity` -
+      and a generated world saves their starts and references as vanilla
+      does - `TestStructureServerSaveParity`; the legacy (non-jigsaw)
+      structures remain
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -16141,3 +16145,50 @@ no flee; unsneak → flee). Green both legs.
   overworld).
 - **Remaining:** the dragon fight (dragon, exit portal, gateways),
   strongholds' frame rooms, eye of ender throwing toward strongholds.
+
+## Slice — structures: placement, jigsaw, beardifier, saves (2026-10-29)
+
+- **Measured:** bytecode inspection of the 26.2 jar for
+  `RandomSpreadStructurePlacement` (linear/triangular spread, salt,
+  frequency and its four reduction methods, exclusion zones),
+  `ConcentricRingsStructurePlacement` (ring positions, the 112-block
+  preferred-biome search and its tie-break), `ChunkGenerator`
+  `createStructures` / `createReferences` and `getBaseHeight`,
+  `JigsawStructure` / `JigsawPlacement` (pools and fallbacks, rigid and
+  terrain_matching projection, the expansion hack, placement priority,
+  junctions, pool aliases, dimension padding, liquid settings), the pool
+  elements (single, legacy, feature, list, empty), the structure
+  processors (rule with position predicates and block entity modifiers,
+  capped, gravity, jigsaw_replacement, block_age, lava_submerged_block,
+  blackstone_replace), `Beardifier`, the per-structure feature seed in
+  `ChunkGenerator.applyBiomeDecoration`, and `StructureStart.createTag`
+  / `PoolElementStructurePiece` save data. Structure sets, structures,
+  pools, processor lists and templates are read from the jar's datapack.
+  Wire/region observation: the real server's region files after
+  forceloading the compared areas.
+- **Implemented:** `internal/worldgen/struct_*.go` (set placement,
+  starts and references with their caches, the jigsaw assembler, piece
+  placement through templates and processors, the beardifier in the
+  noise stage, start/reference NBT with loaders keyed by piece type,
+  template block entity data with loot seeds); the server's terrain
+  sources honour `generate-structures` in every dimension and a
+  generated chunk carries its `structures` compound into region saves
+  (and keeps a loaded one across re-saves). Found by the server pin:
+  saved sections with 17-32 (33-64, ...) palette entries were packed one
+  bit too wide for the width readers derive from the palette size - now
+  four bits at least, else the fewest that index the palette
+  (`TestSectionDataWidthFollowsPalette`).
+- **Pinned:** `TestStructureVillage{Plains,Desert,Savanna,Snowy,Taiga}Parity`,
+  `TestStructurePillagerOutpostParity`, `TestStructureTrailRuinsParity`,
+  `TestStructureAncientCityParity`, `TestStructureTrialChambersParity`,
+  `TestStructureBastionRemnantParity` (each start piece for piece, every
+  saved start compound and its load round trip, each chunk's references
+  in LongSet order, the chunks block for block with loot tables and
+  seeds); `TestStructureServerSaveParity` (a generated server world with
+  a village: saved `structures` compounds and 8.65M blocks against
+  vanilla's region files, 15 fluid-flow cells accepted).
+- **Remaining:** legacy structures (mineshafts, strongholds, fortresses,
+  monuments, mansions, end cities, temples, swamp huts, igloos,
+  shipwrecks, ocean ruins, buried treasure, ruined portals, nether
+  fossils); structure-generated block entities in the server's chunks;
+  structure-aware mob spawns (outpost pillagers, fortress spawns).

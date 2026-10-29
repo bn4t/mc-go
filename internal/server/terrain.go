@@ -58,7 +58,7 @@ type terrainEntry struct {
 
 // newTerrainSource builds a source for one dimension: its noise
 // settings, biome source ("the_end" for the end's) and level bounds.
-func newTerrainSource(seed int64, overlay map[string]json.RawMessage, settings, biomes string, minY, height int) (*terrainSource, error) {
+func newTerrainSource(seed int64, overlay map[string]json.RawMessage, settings, biomes string, minY, height int, structures bool) (*terrainSource, error) {
 	data := worldgen.Vanilla()
 	if len(overlay) != 0 {
 		data = worldgen.Overlay(data, overlay)
@@ -68,6 +68,7 @@ func newTerrainSource(seed int64, overlay map[string]json.RawMessage, settings, 
 		return nil, err
 	}
 	g.RS.SetLevelBounds(int32(minY), int32(height))
+	g.Structures = structures
 	return &terrainSource{
 		g: g, workers: max(1, runtime.NumCPU()),
 		terr: map[[2]int32]*terrainEntry{}, pruned: map[[2]int32]bool{}, deco: map[[2]int32]bool{}, provided: map[[2]int32]bool{},
@@ -146,6 +147,9 @@ func (t *terrainSource) ProvideChunk(x, z int) *world.BaseChunk {
 	p := t.terrain([2]int32{cx, cz})
 	worldgen.PostProcessBubbleColumns(p)
 	base := protoToBase(p)
+	if t.g.Structures {
+		base.Structures = t.g.StructuresTag(cx, cz)
+	}
 	t.provided[[2]int32{cx, cz}] = true
 	if len(base.PostProcess) > 0 {
 		t.freshMu.Lock()
@@ -264,7 +268,7 @@ func (s *Server) applyLevelType() error {
 		return fmt.Errorf("unknown level type %q", s.LevelType)
 	}
 	d := s.dims[dimOverworld]
-	src, err := newTerrainSource(s.WorldSeed, s.WorldgenOverlay, settings, "overworld", d.minY, d.height)
+	src, err := newTerrainSource(s.WorldSeed, s.WorldgenOverlay, settings, "overworld", d.minY, d.height, s.GenerateStructures)
 	if err != nil {
 		return err
 	}
@@ -273,7 +277,7 @@ func (s *Server) applyLevelType() error {
 		{dimNether, "nether", "nether"}, {dimEnd, "end", "the_end"},
 	} {
 		od := s.dims[o.dim]
-		osrc, err := newTerrainSource(s.WorldSeed, s.WorldgenOverlay, o.settings, o.biomes, od.minY, od.height)
+		osrc, err := newTerrainSource(s.WorldSeed, s.WorldgenOverlay, o.settings, o.biomes, od.minY, od.height, s.GenerateStructures)
 		if err != nil {
 			return err
 		}

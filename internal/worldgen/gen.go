@@ -25,6 +25,13 @@ type Generator struct {
 	featMu          sync.Mutex
 	placedCache     map[string]*placedFeature
 	configuredCache map[string]*configuredFeature
+
+	// Structures enables the structure stages (generate-structures):
+	// starts and references, the beardifier and piece placement.
+	Structures  bool
+	baseHeights baseHeightCache
+	structs     structState
+	pools       map[string]*templatePool
 }
 
 // NewGenerator builds a generator for noise settings and a biome
@@ -118,6 +125,13 @@ var substanceBlocks = sync.OnceValue(func() map[Substance]world.Block {
 func (g *Generator) Terrain(cx, cz int32) *ProtoChunk {
 	rs := g.RS
 	nc := rs.NewChunk(cx, cz)
+	if g.Structures {
+		// STRUCTURE_STARTS / STRUCTURE_REFERENCES ran before NOISE: the
+		// beardifier adds terrain adaptation around referenced pieces.
+		if b := g.beardifierFor(cx, cz); b != nil {
+			nc.beard = b.compute
+		}
+	}
 	g.ChunkBiomes(cx, cz, nc)
 	col := rs.fillNoise(nc, cx, cz)
 	p := newProto(cx, cz, rs.lvMinY, rs.lvHeight)
