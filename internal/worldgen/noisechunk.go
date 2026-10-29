@@ -50,6 +50,9 @@ type NoiseChunk struct {
 	psl                                map[[2]int32]int32
 	aq                                 *aquifer
 	beard                              func(x, y, z int32) float64
+	// lazyCell computes cache_all_in_cell values on demand instead of
+	// filling the whole cell (single-column height queries).
+	lazyCell bool
 }
 
 func (nc *NoiseChunk) ctx() *Ctx {
@@ -69,14 +72,22 @@ func floorDiv(a, b int32) int32 {
 
 // newNoiseChunk is NoiseChunk.forChunk for chunk (cx, cz).
 func newNoiseChunk(rs *RandomState, cx, cz int32) *NoiseChunk {
+	return newNoiseChunkCells(rs, 16/(rs.settings.sizeHorizontal*4), cx*16, cz*16)
+}
+
+// newNoiseChunkCells is the NoiseChunk constructor for cellCountXZ
+// cells from block (minX, minZ); the aquifer covers the chunk holding
+// that corner (NoiseBasedChunkGenerator.iterateNoiseColumn builds a
+// one-cell chunk this way).
+func newNoiseChunkCells(rs *RandomState, cellCountXZ, minX, minZ int32) *NoiseChunk {
 	s := rs.settings
 	nc := &NoiseChunk{rs: rs}
 	nc.cellW = s.sizeHorizontal * 4
 	nc.cellH = s.sizeVertical * 4
-	nc.cellCountXZ = 16 / nc.cellW
+	nc.cellCountXZ = cellCountXZ
 	nc.cellCountY = floorDiv(s.height, nc.cellH)
 	nc.cellNoiseMinY = floorDiv(s.minY, nc.cellH)
-	minX, minZ := cx*16, cz*16
+	cx, cz := minX>>4, minZ>>4
 	nc.firstCellX = floorDiv(minX, nc.cellW)
 	nc.firstCellZ = floorDiv(minZ, nc.cellW)
 	nc.firstNoiseX = quartFromBlock(minX)
@@ -166,6 +177,13 @@ func (nc *NoiseChunk) finalDensityAt(c *Ctx) float64 {
 	if c.inChunk && nc.interpolating {
 		x, y, z := nc.inCellX, nc.inCellY, nc.inCellZ
 		if x >= 0 && y >= 0 && z >= 0 && x < nc.cellW && y < nc.cellH && z < nc.cellW {
+			if nc.lazyCell {
+				// The value the cell fill would have cached here.
+				nc.fillingCell = true
+				v := nc.finalDensity.Compute(c) + beardifierDF{}.Compute(c)
+				nc.fillingCell = false
+				return v
+			}
 			return nc.cellVals[((nc.cellH-1-y)*nc.cellW+x)*nc.cellW+z]
 		}
 	}
@@ -216,9 +234,12 @@ func (nc *NoiseChunk) selectCellYZ(cellY, cellZ int32) {
 		st.n110 = st.slice1[z][y+1]
 		st.n111 = st.slice1[z+1][y+1]
 	}
-	nc.fillingCell = true
 	nc.cellStartY = (cellY + nc.cellNoiseMinY) * nc.cellH
 	nc.cellStartZ = (nc.firstCellZ + cellZ) * nc.cellW
+	if nc.lazyCell {
+		return
+	}
+	nc.fillingCell = true
 	i := 0
 	for yy := nc.cellH - 1; yy >= 0; yy-- {
 		nc.inCellY = yy

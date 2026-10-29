@@ -25,6 +25,12 @@ type Generator struct {
 	featMu          sync.Mutex
 	placedCache     map[string]*placedFeature
 	configuredCache map[string]*configuredFeature
+
+	// Structures enables the structure stages (generate-structures):
+	// starts and references, the beardifier and piece placement.
+	Structures  bool
+	baseHeights baseHeightCache
+	structs     structState
 }
 
 // NewGenerator builds a generator for noise settings and a biome
