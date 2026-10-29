@@ -64,7 +64,7 @@ func (s *Server) playerCanFit(sess *Session, pose int32) bool {
 	// bounds: a top slab above the head is not a solid cell-height column.
 	const epsilon = 1e-7
 	box := aabb{x - half + epsilon, y + epsilon, z - half + epsilon, x + half - epsilon, y + h - epsilon, z + half - epsilon}
-	if blockCollisionIn(d, box) {
+	if playerPoseBlockCollision(sess, box) {
 		return false
 	}
 	eid := sess.entityID.Load()

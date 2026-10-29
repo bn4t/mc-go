@@ -54,7 +54,7 @@ func playerBoxCollidesWithDims(w *world.World, ox, oy, oz, nx, ny, nz, half, hei
 			for z := int(math.Floor(next[2])) - 1; z <= int(math.Floor(next[5])); z++ {
 				position := world.Pos{X: x, Y: y, Z: z}
 				oldHit, nextHit := false, false
-				for _, shape := range cellShapeAt(w.GetBlock(position), position) {
+				for _, shape := range playerContextShapeAt(w.GetBlock(position), position, playerShapeContext{feet: oy, placement: true}) {
 					bounds := aabb{float64(x) + shape[0], float64(y) + shape[1], float64(z) + shape[2], float64(x) + shape[3], float64(y) + shape[4], float64(z) + shape[5]}
 					oldHit = oldHit || bounds.intersects(old)
 					nextHit = nextHit || bounds.intersects(next)
