@@ -41,7 +41,7 @@ func (s *Server) handlePickupAllPacket(sess *Session, p protocol.Packet) bool {
 	}
 	// Other action menus require their own on-take callbacks. Keep their
 	// existing dispatch until those callbacks join this adapter.
-	if w != nil && !(w.chest != nil || w.ender != nil || w.craft != nil || w.container != nil && (w.container.spec.menu == menuGeneric9x3 || w.container.spec.menu == menuGeneric3x3 || w.container.spec.menu == menuShulkerBox)) {
+	if w != nil && !(w.chest != nil || w.ender != nil || w.craft != nil || w.furnace != nil || w.hopper != nil || w.container != nil && (w.container.spec.menu == menuGeneric9x3 || w.container.spec.menu == menuGeneric3x3 || w.container.spec.menu == menuShulkerBox || w.container.spec.brew)) {
 		return false
 	}
 	if _, ok := sess.readChangedSlots(r); !ok {
@@ -114,6 +114,12 @@ func (s *Server) handlePickupAllPacket(sess *Session, p protocol.Packet) bool {
 				it = ItemStack{}
 			}
 			put(sl, it)
+			if w != nil && w.furnace != nil && sl == furnaceOutput {
+				s.furnaceOutputTaken(sess, w, cur.withCount(move))
+			}
+			if w != nil && w.container != nil && w.container.spec.brew && sl <= brewPotionLast && it.Count == 0 {
+				s.fireBrewedPotion(sess, cur.withCount(move))
+			}
 			touched = append(touched, sl)
 		}
 	}
@@ -133,6 +139,9 @@ func (s *Server) handlePickupAllPacket(sess *Session, p protocol.Packet) bool {
 		s.syncCraftTableSlots(sess, w, w.craft, touched)
 	} else {
 		s.syncContainerMenuSlots(sess, w, touched)
+		if w.container != nil && w.container.spec.brew {
+			s.updateBrewBlockState(w.dim, w.pos, brewPotionBits(w.container))
+		}
 	}
 	return true
 }

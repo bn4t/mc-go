@@ -242,6 +242,14 @@ func (s *Server) handleHopperClick(sess *Session, w *openWindow, h *hopperData, 
 		}
 		sess.setHopperMenuStack(h, int(slot), moving)
 	case 2:
+		if _, ok := inventorySwapSlot(button); !ok {
+			return
+		}
+		if button == 40 {
+			s.swapMenuOffhand(sess, int(slot))
+			touched = append(touched, int(slot))
+			break
+		}
 		swap := hopperMenuSlots - 9 + int(button)
 		a := sess.hopperMenuStack(h, int(slot))
 		b := sess.hopperMenuStack(h, swap)

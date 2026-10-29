@@ -57,6 +57,8 @@ func newUseClient(pr *protocol.Reader, pw *protocol.Writer, confirm bool) *useCl
 			u.mu.Unlock()
 			wmu.Lock()
 			switch p.ID {
+			case server.IDPlayChunkBatchDone:
+				_ = ackChunkBatch(pw)
 			case server.IDPlayKeepAliveCB:
 				_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
 			case server.IDPlaySyncPos:

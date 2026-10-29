@@ -112,6 +112,9 @@ type containerSpec struct {
 // which most menus inherit as the item's own maximum but a few cap
 // lower (the beacon payment slot is 1).
 func (spec *containerSpec) slotMax(slot int, it ItemStack) int32 {
+	if spec.brew && slot >= brewPotionFirst && slot <= brewPotionLast {
+		return 1 // BrewingStandMenu.PotionSlot, including stackable glass bottles
+	}
 	if spec.menu == menuBeacon && slot == beaconPayment {
 		return 1
 	}

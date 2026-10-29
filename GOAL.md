@@ -155,7 +155,8 @@ Mojang server over the wire.
 - [~] Full inventory + container protocol (pick-block hotbar selection and
   creative insertion; nonempty cursor drag and double-click
   collection for player/storage/crafting menus, offhand swaps for player/chest/
-  generic storage; chest + window-0 click
+  generic storage; furnace/hopper/brewing gestures, bottle/fuel caps and
+  furnace output XP/recipe/stat settlement; chest + window-0 click
   parity scripted step by step, stale-state resync, menu titles, ender
   chest over shared player storage with close/reopen/break persistence;
   creative middle-click clone, close-returns-cursor (order + full
@@ -17073,3 +17074,30 @@ Exact run: `MCGO_BLACKBOX=1 MCGO_VANILLA_JAR=/workspace/mc-go/vanilla/server-26.
 - **Remaining:** neither the original portal EOF nor the potion drain EOF is
   attributed to this retry bug without a captured interrupted frame. Cold
   generation latency and complete connection-liveness parity remain separate.
+
+
+## Slice — specialized menu gestures and furnace output settlement (2026-10-29)
+
+- **Measured:** Temurin 25 javap facts from AbstractFurnaceMenu, FurnaceFuelSlot,
+  FurnaceResultSlot, BrewingStandMenu.PotionSlot and AbstractFurnaceBlockEntity;
+  inner 26.2 jar SHA-1 `86765a5899bd9c96461036a628796b4245715058`. Furnace
+  inputs accept arbitrary items; fuel slots filter fuel and cap empty buckets
+  at one; output rejects placement. Brewing bottle slots cap at one. Taking
+  furnace output settles the full recipe ledger and XP even for a partial take.
+  Hotbar/offhand swaps award no crafted-item statistic; ordinary takes do.
+- **Implemented:** drag and double-click collection for furnace, hopper and
+  brewing menus; hopper offhand swaps and generic slot access; brewing bottle
+  state/advancement updates. Furnace output takes award stored recipe XP,
+  unlocks, crafted statistics and recipe_crafted criteria, with mode-specific
+  take behavior. Furnace-family /setblock restores Items, counters and
+  RecipesUsed through native block-entity loading. The scripted menu client
+  acknowledges chunk batches; smelting fixtures explicitly load their station.
+- **Pinned:** TestSpecializedGesturesParity passes all three menus (77.91 s).
+  TestFurnaceCommandInventoryParity passes (27.1 s). All five actual-smelt
+  output modes pass with full inventory, recipe packet, exact two-XP and
+  statistic comparisons: normal, double-click, hotbar and offhand in the v3
+  run; shift-click in the corrected final fixture (30.09 s). Earlier frozen
+  fixture setup failed to open vanilla's menu; the final fixture uses an
+  unfreeze command barrier. TestFurnaceTakeRecipeCraftedCriterion passes
+  (1.343 s), actually smelting and clicking output against a parsed criterion
+  with post-take ingredient checks. Furnace/hopper units pass (2.750 s).

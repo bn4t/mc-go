@@ -197,6 +197,15 @@ func (s *Server) runSetblock(player string, args []string) reply {
 			}
 		}
 	}
+	if tag != nil && isFurnaceBlock(blk) {
+		// A placed furnace loads the same inventory, counters and recipe
+		// ledger as native block-entity data; the actual block owns its type.
+		be := snbtToValue(tag).(map[string]any)
+		name, _ := world.StateOwner(blk)
+		be["id"] = "minecraft:" + name
+		be["x"], be["y"], be["z"] = int32(x), int32(y), int32(z)
+		s.restoreBlockEntity(d, be)
+	}
 	if tag != nil {
 		// BlockEntity.loadAdditional: any block entity tag may carry
 		// CustomName (Nameable.setCustomName) — the raw component JSON.

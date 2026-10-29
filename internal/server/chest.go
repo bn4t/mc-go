@@ -512,6 +512,9 @@ func (sess *Session) menuStack(slot int) ItemStack {
 			defer sess.invMu.RUnlock()
 			return (*w.ender)[slot]
 		}
+		if w.hopper != nil {
+			return sess.hopperMenuStack(w.hopper, slot)
+		}
 		if w.furnace != nil {
 			w.dim.furnaces.mu.Lock()
 			defer w.dim.furnaces.mu.Unlock()
@@ -557,6 +560,10 @@ func (sess *Session) setMenuStack(slot int, it ItemStack) {
 			setMountMenuStack(w.mount, slot, it)
 			return
 		}
+		if w.hopper != nil {
+			sess.setHopperMenuStack(w.hopper, slot, it)
+			return
+		}
 		if w.furnace != nil {
 			w.dim.furnaces.mu.Lock()
 			w.furnace.slots[slot] = it
@@ -591,6 +598,10 @@ func (sess *Session) setMenuStack(slot int, it ItemStack) {
 // handleChestClick implements the core click modes for an open chest
 // window. Unsupported modes fall back to a full menu resync.
 func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, button byte, mode int32, seq bool) {
+	var furnaceBefore ItemStack
+	if w.furnace != nil {
+		furnaceBefore = sess.menuStack(furnaceOutput)
+	}
 	sess.windowMu.Lock()
 	carried := sess.carried
 	sess.windowMu.Unlock()
@@ -764,7 +775,7 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 			return
 		}
 		if button == 40 {
-			if w.furnace != nil && slot == furnaceOutput {
+			if w.furnace != nil && slot == furnaceOutput && !sess.stackAt(slotOffhand).Empty() {
 				break
 			}
 			s.swapMenuOffhand(sess, int(slot))
@@ -772,7 +783,7 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 			break
 		}
 		swap := w.menuSize() - 9 + int(button)
-		if w.furnace != nil && slot == furnaceOutput {
+		if w.furnace != nil && slot == furnaceOutput && !sess.menuStack(swap).Empty() {
 			break
 		}
 		if swap >= w.menuSize()-9 && swap < w.menuSize() {
@@ -823,6 +834,19 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 			s.sendChestContent(sess)
 		}
 		return
+	}
+
+	if w.furnace != nil && !furnaceBefore.Empty() {
+		after := sess.menuStack(furnaceOutput)
+		if !after.Stackable(furnaceBefore) || after.Count < furnaceBefore.Count {
+			taken := furnaceBefore.withCount(furnaceBefore.Count - after.Count)
+			if mode == 2 {
+				// SWAP invokes onTake without FurnaceResultSlot.remove: its
+				// crafted-item counter stays zero, while XP/recipes settle.
+				taken.Count = 0
+			}
+			s.furnaceOutputTaken(sess, w, taken)
+		}
 	}
 
 	sess.windowMu.Lock()

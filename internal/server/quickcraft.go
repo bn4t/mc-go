@@ -74,7 +74,7 @@ func (s *Server) handleQuickCraftPacket(sess *Session, p protocol.Packet) bool {
 	}
 	// Storage and crafting adapters share placement; other action/equipment
 	// menus need their own callbacks before joining this path.
-	if w != nil && !(w.chest != nil || w.ender != nil || w.craft != nil || w.container != nil && (w.container.spec.menu == menuGeneric9x3 || w.container.spec.menu == menuGeneric3x3 || w.container.spec.menu == menuShulkerBox)) {
+	if w != nil && !(w.chest != nil || w.ender != nil || w.craft != nil || w.furnace != nil || w.hopper != nil || w.container != nil && (w.container.spec.menu == menuGeneric9x3 || w.container.spec.menu == menuGeneric3x3 || w.container.spec.menu == menuShulkerBox || w.container.spec.brew)) {
 		*q = quickCraft{}
 		return true
 	}
@@ -131,9 +131,19 @@ func (s *Server) handleQuickCraftPacket(sess *Session, p protocol.Packet) bool {
 		if w.craft != nil {
 			return sl != 0
 		}
+		if w.furnace != nil && sl < furnaceSlots {
+			// Furnace input is an ordinary slot; fuel alone is filtered.
+			name, _ := itemNameOf(cur.ID)
+			return sl != furnaceOutput && (sl != furnaceFuel || isFuelItem(cur.ID) || name == "bucket")
+		}
 		return w.container == nil || menuAccepts(w.container.spec, sl, cur)
 	}
 	limit := func(sl int) int32 {
+		if w != nil && w.furnace != nil && sl == furnaceFuel {
+			if name, _ := itemNameOf(cur.ID); name == "bucket" {
+				return 1
+			}
+		}
 		if w != nil && w.container != nil {
 			return w.container.spec.slotMax(sl, cur)
 		}
@@ -220,6 +230,9 @@ func (s *Server) handleQuickCraftPacket(sess *Session, p protocol.Packet) bool {
 		s.syncCraftTableSlots(sess, w, w.craft, touched)
 	} else {
 		s.syncContainerMenuSlots(sess, w, touched)
+		if w.container != nil && w.container.spec.brew {
+			s.updateBrewBlockState(w.dim, w.pos, brewPotionBits(w.container))
+		}
 	}
 	return true
 }
