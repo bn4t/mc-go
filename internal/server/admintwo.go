@@ -856,17 +856,16 @@ func (s *Server) runLocate(player string, args []string) reply {
 			return errToken("command.unknown.argument", 3)
 		}
 		short := strings.TrimPrefix(id, "minecraft:")
+		printable := id
 		if tag {
+			printable = "#" + id
 			if !structureTagNames[short] {
-				return componentReply(commandError("commands.locate.structure.invalid", "#"+id))
+				return componentReply(commandError("commands.locate.structure.invalid", printable))
 			}
-			return componentReply(commandError("commands.locate.structure.not_found", "#"+id))
+		} else if !structureNames[short] {
+			return componentReply(commandError("commands.locate.structure.invalid", printable))
 		}
-		if !structureNames[short] {
-			return componentReply(commandError("commands.locate.structure.invalid", id))
-		}
-		// The flat comparison world has no structures.
-		return componentReply(commandError("commands.locate.structure.not_found", id))
+		return s.locateStructure(player, short, tag, printable)
 	case "biome":
 		if len(args) < 2 {
 			return errTokenEnd("command.unknown.command", 2)
@@ -896,6 +895,10 @@ func (s *Server) runLocate(player string, args []string) reply {
 				return errTokenEnd("argument.resource_tag.not_found", 2, id, reg)
 			}
 			print = "#" + id
+			if d.terrain != nil {
+				members, _ := d.terrain.g.BiomeTag(short)
+				return s.locateBiome(sender, d, print, true, func(b string) bool { return members[b] })
+			}
 			if members := biomeTagContains[short]; members != nil && members[worldBiome] {
 				matches = true
 				print += " (" + worldBiome + ")"
@@ -919,6 +922,10 @@ func (s *Server) runLocate(player string, args []string) reply {
 				return errTokenEnd("argument.resource.not_found", 2, id, reg)
 			}
 			print = id
+			if d.terrain != nil {
+				want := strings.TrimPrefix(id, "minecraft:")
+				return s.locateBiome(sender, d, print, false, func(b string) bool { return b == want })
+			}
 			matches = worldBiome == id
 		}
 		if matches {
@@ -932,7 +939,7 @@ func (s *Server) runLocate(player string, args []string) reply {
 			dist := int32(math.Sqrt(float64(dy * dy)))
 			return componentReply(translatable("commands.locate.biome.success",
 				nestedCompound{key: "", value: print},
-				locatePosComp(bx, fy, bz),
+				locatePosComp(bx, strconv.Itoa(int(fy)), bz),
 				nestedCompound{key: "", value: dist}))
 		}
 		return componentReply(commandError("commands.locate.biome.not_found", print))
@@ -981,9 +988,11 @@ func (s *Server) runLocate(player string, args []string) reply {
 
 // locatePosComp is the clickable coordinates component locate
 // replies embed: green [x, y, z] suggesting a teleport.
-func locatePosComp(x, y, z int32) component {
+// The y is text: the biome result's number, or "~" for a structure
+// (LocateCommand.showLocateResult).
+func locatePosComp(x int32, y string, z int32) component {
 	return component{
-		click: "/tp @s " + strconv.Itoa(int(x)) + " " + strconv.Itoa(int(y)) + " " + strconv.Itoa(int(z)),
+		click: "/tp @s " + strconv.Itoa(int(x)) + " " + y + " " + strconv.Itoa(int(z)),
 		color: "green",
 		hover: map[string]any{
 			"action": "show_text",

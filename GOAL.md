@@ -16192,3 +16192,33 @@ no flee; unsneak → flee). Green both legs.
   shipwrecks, ocean ruins, buried treasure, ruined portals, nether
   fossils); structure-generated block entities in the server's chunks;
   structure-aware mob spawns (outpost pillagers, fortress spawns).
+
+## Slice — /locate structure and biome in generated worlds (2026-10-29)
+
+- **Measured:** bytecode inspection of `LocateCommand.locateStructure` /
+  `locateBiome` / `showLocateResult` (radius 100 placement cells;
+  biome radius 6400 with 32-block columns and 64-block heights; a
+  structure result prints y "~" and the floored horizontal float
+  distance, a biome result its y as text and the floored 3D distance;
+  tags print "#tag (member)"), `ChunkGenerator.findNearestMapStructure`
+  (structures grouped per placement in holder-set order, concentric
+  rings by strictly nearer ring chunk centre at y 32, random-spread
+  square rings of grid cells with the first hit per placement and the
+  nearest across placements returned when a ring finds one, locate
+  position = start chunk corner + locate_offset), `StructureCheck.checkStart`
+  (equivalent to the chunk's STRUCTURE_STARTS result),
+  `BiomeSource.findClosestBiome3d` (spiralAround east/south, uncached
+  quart lookups) and `Mth.outFromOrigin`.
+- **Implemented:** `worldgen.FindNearestMapStructure`, `StructureTag`,
+  `FindClosestBiome3d`, `BiomeTag`; the server's locate structure and
+  biome in generated dimensions from the execute source position (the
+  flat world keeps its uniform-biome answers); biome results' y is
+  text, as vanilla sends it.
+- **Pinned:** `TestLocateStructureParity` (21 structure searches from
+  three sources - villages, the village tag, outposts, trail ruins,
+  trial chambers, ancient cities - plus biome searches by id and tag,
+  surface and underground, and the not-found paths, reply for reply
+  against the real server); `TestOutFromOrigin`.
+- **Remaining:** the legacy structures (stronghold rings, mineshafts,
+  ...) become locatable as they are generated; /locate poi; explorer
+  maps and eyes of ender over the same search.

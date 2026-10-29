@@ -414,7 +414,8 @@ func startMcGoCfg(t *testing.T, port int, mutate func(*server.Server)) string {
 	}
 	go func() { _ = s.Serve(ln) }()
 	t.Cleanup(func() { _ = ln.Close(); s.Stop() })
-	deadline := time.Now().Add(10 * time.Second)
+	// A generated world finds its spawn before it listens.
+	deadline := time.Now().Add(180 * time.Second)
 	for time.Now().Before(deadline) {
 		if probeStatus(addr) {
 			return addr
