@@ -416,26 +416,35 @@ func (s *Server) runTimeSet(player string, args []string, add bool) reply {
 		return errTokenEnd("command.unknown.command", 1)
 	}
 	arg := args[0]
-	dim := s.dimNameOf(player)
+	dim := s.dimOf(player).name
+	id, hasClock := worldClockID(dim)
 	ticks, err := strconv.ParseFloat(arg, 64)
-	if err != nil {
+	if err != nil || !add && ticks < 0 {
 		if add {
 			return errToken("parsing.float.expected", 2)
+		}
+		if !hasClock {
+			return componentReply(commandError("commands.time.no_default_clock", dim))
 		}
 		marker := arg
 		if !strings.Contains(marker, ":") {
 			marker = "minecraft:" + marker
 		}
 		value, ok := timeMarkers[strings.TrimPrefix(marker, "minecraft:")]
-		if !ok {
+		if !ok || id != 0 {
+			// Builtin day markers belong to the Overworld clock.
 			// Vanilla names the missing marker by its registry key. The
 			// marker lookup happens after parsing, so this failure has no
 			// context message of its own.
+			s.broadcastUpdateTimeBody(s.worldClockSyncBody([]int32{id}))
 			return componentReply(commandError("commands.time.no_time_marker_found",
 				"ResourceKey[minecraft:clock_time_marker / "+marker+"]", dim))
 		}
-		s.setDayTime(value)
+		s.setWorldClockTotal(id, value)
 		return opsEchoReply(translatable("commands.time.set.time_marker", dim, marker))
+	}
+	if !hasClock {
+		return componentReply(commandError("commands.time.no_default_clock", dim))
 	}
 	// Vanilla converts the float argument to whole ticks, rounding to
 	// the nearest as it goes.
@@ -444,13 +453,13 @@ func (s *Server) runTimeSet(player string, args []string, add bool) reply {
 		// The argument is an int, so it saturates before it is added,
 		// and the sum is reported as a long: it is a sum with the
 		// world's existing clock.
-		s.setDayTime(s.dayTime() + saturateInt(value))
+		s.addWorldClockTicks(id, saturateInt(value))
 		return opsEchoReply(translatable("commands.time.set.absolute",
-			dimCompound(dim), nestedCompound{key: "", value: s.dayTime()}))
+			dimCompound(dim), nestedCompound{key: "", value: s.worldClockTotal(id)}))
 	}
 	// The tick count is an int, and the real server saturates rather
 	// than wrapping: "/time set 3000000000" sets 2147483647.
-	s.setDayTime(saturateInt(value))
+	s.setWorldClockTotal(id, saturateInt(value))
 	return opsEchoReply(translatable("commands.time.set.absolute",
 		dimCompound(dim), nestedCompound{key: "", value: int32(saturateInt(value))}))
 }

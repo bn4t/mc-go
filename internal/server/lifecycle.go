@@ -237,6 +237,7 @@ func (s *Server) loadWorldDir() error {
 	s.loadFunctions()
 	s.loadFunctionTags()
 	s.loadFunctionSchedule()
+	s.loadWorldClocks()
 	s.loadAdvancementPacks()
 	if err := s.loadTestInstancePacks(); err != nil {
 		return err

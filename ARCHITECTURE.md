@@ -210,7 +210,7 @@ world, and finishes on the third world tick. Mutable template and runner state
 belong to each server. Startup test/environment catalogs are server-owned;
 profile-specific overlays preserve captured rows and append sorted custom keys
 for protocols 775/776. Function/block-based definitions use canonical defaults;
-difficulty/weather environments compose with all_of. START emits power;
+difficulty/weather/builtin-clock environments compose with all_of. START emits power;
 receiver edges retain transient activation across native merges, but not saves.
 ACCEPT precedes FAIL. Success clears the enclosure immediately; failures publish
 on the next world tick and retain it. Setup and timeout use world ticks.
@@ -1104,3 +1104,14 @@ movement in that tick. Source-base retraction uses this retained decision, not
 a new overlap test after closest-space escape. East-facing stationary-warm
 NoGravity item controls cover contact, backoff and cleanup; other axes and
 gravity-on contacts remain separate measurements.
+
+Builtin world clocks separate world age from Overworld and End totals. Each
+clock owns float32 fraction/rate and a paused flag; global advance_time changes
+progression and effective network rates without overwriting saved rates. Native
+world_clocks.dat decoding defaults malformed/missing known entries independently
+and discards unknown IDs. Legacy level Time/DayTime does not seed absent clocks.
+The simulation owner captures detached nested state into LevelData.ClockStates;
+the single existing native writer serializes it. Nil ClockStates preserves the
+legacy internal writer API, while an explicit empty map remains empty. Clock-time
+GameTest setup/teardown changes only the chosen integer total and clears its
+fraction, preserving rate/pause and restoring no elapsed test time.

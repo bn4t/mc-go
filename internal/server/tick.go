@@ -38,7 +38,9 @@ type tickClock struct {
 	// day is the world's daytime counter, the clock the client draws
 	// its sky from. It advances with the game clock (/time set and
 	// /time add move it) and stops when the game is frozen.
-	day int64
+	day                int64
+	end                int64
+	dayState, endState worldClockState
 	// frozenAt is TickCount when the freeze began, so /tick query can
 	// report how long the game has been frozen.
 	frozenAt int64
@@ -224,10 +226,11 @@ func (s *Server) dayTime() int64 {
 	return s.clock.day
 }
 
-// setDayTime applies /time set and /time add.
+// setDayTime sets the builtin Overworld total and resets its fraction.
 func (s *Server) setDayTime(day int64) {
 	s.clock.mu.Lock()
 	s.clock.day = day
+	s.clock.dayState.partial = 0
 	s.clock.mu.Unlock()
 	s.broadcastTimeSet(day)
 }
@@ -521,7 +524,8 @@ func (s *Server) gameTickOwned() {
 	s.clock.mu.Lock()
 	s.clock.count++
 	if s.gameRuleBool("minecraft:advance_time") {
-		s.clock.day++
+		advanceWorldClock(&s.clock.day, &s.clock.dayState)
+		advanceWorldClock(&s.clock.end, &s.clock.endState)
 	}
 	s.clock.mu.Unlock()
 	s.functionScheduleStep()

@@ -6,6 +6,20 @@ import (
 )
 
 func parseGameTestEnvironmentLeaf(kind string, in map[string]any) (map[string]any, error) {
+	if kind == "minecraft:clock_time" {
+		clock, err := gameTestResource(in["clock"])
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := worldClockID(clock); !ok {
+			return nil, fmt.Errorf("unsupported world clock%s", clock)
+		}
+		value, err := gameTestIntField(in, "time", 0, 0, 2147483647, true)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"type": kind, "clock": clock, "time": value}, nil
+	}
 	key := ""
 	var choices []string
 	switch kind {
@@ -65,6 +79,16 @@ func (s *Server) activateTestEnvironment(d *dimension, definition map[string]any
 			}
 		}
 		return func() { s.setDifficulty(previous) }
+	case "minecraft:clock_time":
+		name, _ := definition["clock"].(string)
+		id, ok := worldClockID(name)
+		if !ok {
+			return func() {}
+		}
+		previous := s.worldClockTotal(id)
+		value, _ := testInstanceCodecInt(definition["time"])
+		s.setWorldClockTotal(id, int64(value))
+		return func() { s.setWorldClockTotal(id, previous) }
 	case "minecraft:weather":
 		previous := "clear"
 		if d.name == dimOverworld {

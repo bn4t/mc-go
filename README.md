@@ -102,14 +102,21 @@ custom loot overlays and several vehicle/physical interactions remain in
 progress. See individual slice entries for exact tests and limitations.
 
 Test-instance controllers query registered templates and reset rotated volumes.
-Startup folder packs can add function/block-based tests and difficulty/weather
-environments composed with `all_of`. Accepted RUN applies its environment
+Startup folder packs can add function/block-based tests and difficulty, weather
+and builtin-clock environments composed with `all_of`. Accepted RUN applies its environment
 immediately, including while frozen; runner setup and completion progress on
 world ticks. Completion and accepted replacement restore captured settings.
 START/ACCEPT/FAIL and typed failure/timeout workflows remain supported. Other
 environments, arbitrary test functions, LOG reports and the full GameTest runner
 remain partial. Pack selection, ZIP loading, metadata compatibility and reload
 are not implemented for these registry overlays.
+Overworld and End clocks retain independent totals, fractions, rates and pause
+state across native saves and restart. `/time set` and `/time add` use the source
+dimension's default clock; Nether has none, and day markers belong to Overworld.
+Clock environments restore the captured integer total and clear its fraction.
+Missing native clock data starts each clock at zero; legacy level time does not
+seed absent clocks. Custom clocks and explicit rate/pause commands remain open.
+
 Weather intensities preserve native float32 steps and project rain/thunder
 changes to clients, including initial weather for late joins. Natural/random
 weather cycling and complete duration behavior remain partial.

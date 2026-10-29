@@ -185,3 +185,12 @@ relevant. A decoder's partial result does not establish resource acceptance: the
 loader may reject the whole file. Default function permission is two; a load
 function containing permission-three `/tick freeze` is invalid and cannot prove
 automatic-function tick ordering. Use a valid function and external freeze.
+
+## Clock-state probes
+
+Native clock rows are unordered. Compare by registry ID with strict row counts,
+duplicate/missing checks and typed totals/fractions/rates. World age, clock totals,
+raw saved rates and effective packet rates are separate observations. A paused
+clock can send rate zero while retaining a positive raw saved rate. Copy a
+completed save before source shutdown, then verify progression after cross-server
+reload; default-valued codec round trips alone do not establish persistence.

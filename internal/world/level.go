@@ -11,7 +11,7 @@ package world
 // out from that measurement and are easy to get wrong from memory:
 //
 //   - the day clock is no longer in level.dat. The real server keeps a
-//     clock per dimension in data/minecraft/world_clocks.dat, and
+//     builtin Overworld and End clocks in data/minecraft/world_clocks.dat, and
 //     `/time set 6000` is visible there as the overworld clock's
 //     total_ticks. level.dat's Time is the game time, which no /time
 //     command moves.
@@ -65,6 +65,9 @@ type LevelData struct {
 	// DayTime the overworld's day clock, which /time moves.
 	GameTime int64
 	DayTime  int64
+	// ClockStates optionally supplies the complete native world_clocks payload.
+	// Nil keeps the DayTime/GameTime projection; an empty map writes no states.
+	ClockStates map[string]any
 	// Spawn is the world spawn block position.
 	Spawn [3]int
 	// GameRules holds each rule's value as the server states it -
@@ -303,12 +306,12 @@ func worldGenSettings(d LevelData) map[string]any {
 	}
 }
 
-// worldClocks declares the per-dimension clocks. The real server keeps
-// the overworld's day clock here and the end's total tick count; the
-// nether has no clock because it has no day. The overworld's clock is
-// what /time reads and writes, so this is the file that makes a saved
-// world resume at the same time of day.
+// worldClocks uses an opted-in full snapshot, or retains the legacy writer
+// contract of projecting DayTime and GameTime into the two builtin clocks.
 func worldClocks(d LevelData) map[string]any {
+	if d.ClockStates != nil {
+		return d.ClockStates
+	}
 	return map[string]any{
 		"minecraft:overworld": map[string]any{"total_ticks": d.DayTime},
 		"minecraft:the_end":   map[string]any{"total_ticks": d.GameTime},

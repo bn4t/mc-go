@@ -188,34 +188,15 @@ func (s *Server) sendInitializeBorder(sess *Session) error {
 	return sess.write(sess.ids().PlayInitializeBorder, b.Bytes())
 }
 
-// sendUpdateTime sends the join-time clock state, matching the real
-// server field for field on a young world: the world age, then two
-// clock entries - the overworld clock (id 0) carrying the day time
-// and the the_end clock (id 1) carrying the age - each with a
-// fractional part and a rate of one tick per tick. The 26.2
-// world_clock registry has only those two entries; a clock id
-// outside it kicks the client on decode. (Measured with day != age:
-// id 0 took the day time, id 1 the age.)
+// sendUpdateTime projects world age plus both independently stored builtin
+// clocks (overworld id0, the_end id1). Fractions and effective rates belong
+// to each clock; the End total can differ from world age after an edit.
 func (s *Server) sendUpdateTime(sess *Session) error {
 	return sess.write(sess.ids().PlayUpdateTime, s.updateTimeBody())
 }
 
 // updateTimeBody builds the join-time Update Time body.
-func (s *Server) updateTimeBody() []byte {
-	age := s.worldAgeTicks()
-	var b protocol.Buffer
-	b.Long(age)
-	b.VarInt(2)
-	b.VarInt(0)
-	b.VarLong(s.dayTime())
-	b.Float(0) // fractional time
-	b.Float(1) // rate: clock ticks per client tick
-	b.VarInt(1)
-	b.VarLong(age)
-	b.Float(0)
-	b.Float(1)
-	return b.Bytes()
-}
+func (s *Server) updateTimeBody() []byte { return s.worldClockSyncBody([]int32{0, 1}) }
 
 // updateTimeTickBody builds the clockless periodic Update Time: the
 // world age with no clock entries, which is what the real server
@@ -231,14 +212,13 @@ func (s *Server) updateTimeTickBody() []byte {
 // updateTimeSetBody builds the /time set and /time add broadcast: the
 // world age with the single day clock (id 0) at the new day time.
 func (s *Server) updateTimeSetBody(day int64) []byte {
-	var b protocol.Buffer
-	b.Long(s.worldAgeTicks())
-	b.VarInt(1)
-	b.VarInt(0)
-	b.VarLong(day)
-	b.Float(0)
-	b.Float(1)
-	return b.Bytes()
+	advance := s.gameRuleBool("minecraft:advance_time")
+	s.clock.mu.Lock()
+	age := s.clock.count + s.clock.base
+	state := s.clock.dayState
+	s.clock.mu.Unlock()
+	state.partial = 0
+	return worldClockPacket(age, []int32{0}, [2]int64{day, 0}, [2]worldClockState{state, {}}, advance)
 }
 
 // broadcastUpdateTime pushes the clockless tick to every play-stage

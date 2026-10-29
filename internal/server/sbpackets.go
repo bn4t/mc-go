@@ -219,6 +219,9 @@ func (s *Server) handleSetGameRule(sess *Session, p protocol.Packet) {
 		rules[k] = v
 	}
 	s.rulesMu.Unlock()
+	if name == "minecraft:advance_time" {
+		s.worldClockRuleChanged()
+	}
 	s.broadcastGameRules(rules)
 }
 

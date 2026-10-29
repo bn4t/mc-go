@@ -151,6 +151,7 @@ func (s *Server) captureNativeWorldSaveOwned() *nativeWorldSaveSnapshot {
 		})
 	}
 	snapshot.scheduledEvents = s.captureFunctionSchedule()
+	snapshot.level.ClockStates = s.captureWorldClocks()["data"].(map[string]any)
 	snapshot.players = s.captureNativePlayersOwned()
 	var clone dataSaveCloner
 	for uuid, p := range snapshot.players {

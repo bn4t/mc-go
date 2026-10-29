@@ -100,6 +100,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   A preexisting file is not a completion receipt: verify new identifiers, types
   and deadlines. Save workers serialize detached snapshots captured by the
   simulation owner, never mutable runtime queues.
+- Decode unordered registry-keyed state by ID while retaining strict counts,
+  duplicate/missing-ID checks and typed value assertions. Positional map order
+  is not a clock synchronization guarantee.
 - Each server leg must independently satisfy meaningful expected values.
   Equal empty captures, stale menu caches or a decoder that truncates unknown
   definitions do not establish parity. Diagnose fixture failures on an

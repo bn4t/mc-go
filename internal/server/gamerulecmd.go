@@ -62,5 +62,8 @@ func (s *Server) runGameRule(player string, args []string) reply {
 	s.rulesMu.Lock()
 	s.gameRules[key] = val
 	s.rulesMu.Unlock()
+	if key == "minecraft:advance_time" {
+		s.worldClockRuleChanged()
+	}
 	return opsEchoReply(translatable("commands.gamerule.set", name, val))
 }
