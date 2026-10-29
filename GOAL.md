@@ -17815,3 +17815,9 @@ Source OpenJDK25.0.5 javap StructureBlockEntity, StructureTemplate, StructurePla
 - **Measured:** committed advancement, structure and command-source implementations and their differential slice records establish the documented ownership and callback boundaries.
 - **Implemented:** ARCHITECTURE.md now describes per-server advancement resources versus tree attachment, reward ordering, shared template placement, and live command-source result callbacks. README includes verified activator rails, structure redstone actions and ordinary selected-hand interactions.
 - **Pinned:** cross-checked against the committed sources and focused vanilla comparison results; incomplete datapack, generation and interaction coverage remains explicit. No additional runtime change.
+
+## Slice — interaction-fixture guidance (2026-10-29)
+
+- **Measured:** selected-hand and placement controls exposed coalesced inventory updates, menu-relative slot layouts, asynchronous avatar retirement and frozen dying-body colliders. These observations come from the documented 26-case hand and ten-case placement comparisons.
+- **Implemented:** the real-client testing skill records persistent packet-driven inventory state, exact action acknowledgements, public Removed barriers and separate settled-versus-immediate resize controls.
+- **Pinned:** guidance references the passing hand comparison (18.89s), placement comparison (21.07s) and retirement control (0.233s). It does not claim the remaining collision or resize gaps are implemented.

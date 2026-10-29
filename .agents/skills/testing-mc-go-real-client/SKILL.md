@@ -71,3 +71,23 @@ different paths. When a container closes, a cached carried stack or missing
 player-slot update may be stale: capture the timing first, then request an
 authoritative inventory resync to assert final inventory state. A resync must
 not be used to manufacture an earlier ordering claim.
+
+
+## Scripted preconditions and shared inventory state
+
+- Retain the packet-driven inventory cache across actions. A clear followed
+  by reseeding the same stack can coalesce without a slot delta; a missing
+  update does not mean the slot is empty. Map a menu's player-slot region to
+  the shared inventory using its measured layout, and handle direct player
+  inventory updates. Assert each selected hand's item ID, count and damage.
+- Wait for the exact use-on sequence acknowledgement before observing the
+  action. Keep one action per control; an observation barrier is not a reason
+  to retry placement. A frontend connection's Close revokes its handle before
+  asynchronous world retirement; observe the public Removed update before
+  asserting that its collider is gone.
+- Frozen dying mobs can still obstruct building until removal ticks finish.
+  Relocate live fixture mobs before killing when isolating another mechanic.
+  Keep a separate before/after-removal control when testing that collision.
+- Attribute replies do not prove settled body dimensions. When a clearance
+  test needs settled scale, observe completed entity ticks; test immediate
+  resize timing separately instead of claiming that the settled case pins it.
