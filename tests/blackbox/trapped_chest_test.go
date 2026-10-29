@@ -3,10 +3,10 @@
 package blackbox
 
 import (
-	"bytes"
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"mc-go/internal/protocol"
 	"mc-go/internal/server"
@@ -51,17 +51,28 @@ func TestTrappedDoubleChestPowerParity(t *testing.T) {
 			cond := fmt.Sprintf("block %d -61 0 minecraft:redstone_wire[power=%d]", x, power)
 			sendCommand(t, other.pw, "execute if "+cond+" run say "+marker)
 			sendCommand(t, other.pw, "execute unless "+cond+" run say "+no)
-			answer := "missing"
-			settleUse(t, other.sink, func(ps []usePkt) {
-				for _, p := range ps {
-					if bytes.Contains(p.data, []byte(marker)) {
-						answer = "yes"
-					}
-					if bytes.Contains(p.data, []byte(no)) {
-						answer = "no"
-					}
+			end := fmt.Sprintf("TRAP_END_%d", query)
+			sendCommand(t, other.pw, "say "+end)
+			var lines []string
+			deadline := time.Now().Add(10 * time.Second)
+			for time.Now().Before(deadline) && !structureSaidBB(lines, end) {
+				for _, p := range other.sink.take() {
+					lines = append(lines, fmt.Sprintf("%#x:%s", p.id, p.data))
 				}
-			}, "trapped-power")
+				if !structureSaidBB(lines, end) {
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
+			if !structureSaidBB(lines, end) {
+				t.Fatalf("%s power probe missing command receipt %s", name, end)
+			}
+			answer := "missing"
+			if structureSaidBB(lines, marker) {
+				answer = "yes"
+			}
+			if structureSaidBB(lines, no) {
+				answer = "no"
+			}
 			if answer != "yes" {
 				t.Errorf("%s wire x%d wanted power%d: %s", name, x, power, answer)
 			}
