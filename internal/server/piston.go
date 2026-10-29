@@ -147,7 +147,17 @@ func (s *Server) blockEventStep() {
 		if d == nil {
 			continue
 		}
-		if bstate(d.w.GetBlock(ev.pos)) == "spawner" {
+		current := d.w.GetBlock(ev.pos)
+		if bstate(current) != bstate(ev.blk) {
+			continue
+		}
+		if isChestBlock(current) {
+			if ev.b0 == 1 {
+				s.broadcastBlockEvent(d, ev)
+			}
+			continue
+		}
+		if bstate(current) == "spawner" {
 			// SpawnerBlockEntity.triggerEvent → BaseSpawner
 			// .onEventTriggered: id 1 is accepted (the client resets
 			// its spin delay), so the packet goes out.

@@ -87,6 +87,7 @@ func (s *Server) chestOpenerEffects(sess *Session, d *dimension, pos world.Pos, 
 	if !isChestBlock(block) {
 		return
 	}
+	s.queueChestBlockEvent(d, pos, block, after)
 	opens := before == 0 && after > 0
 	closes := before > 0 && after == 0
 	if recount {
