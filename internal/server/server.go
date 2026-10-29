@@ -322,6 +322,8 @@ type Server struct {
 	// rng drives random block ticks and any other simulated chance;
 	// see blocktick.go.
 	rng *randState
+	// naturalSpawn is NaturalSpawner's bookkeeping (naturalspawn.go).
+	naturalSpawn naturalSpawnState
 	// randSections caches, per 16^3 section, whether it holds any block
 	// with a random-tick rule. randMu guards it.
 	randMu       sync.Mutex

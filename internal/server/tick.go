@@ -521,6 +521,10 @@ func (s *Server) gameTickOwned() {
 	s.cloudTickStep()
 	s.tntTickStep()
 	s.mobItemPickupStep()
+	// ServerChunkCache.tickChunks runs the natural spawner before the
+	// level's entity pass, so a fresh mob ticks the tick it spawns.
+	s.chunkGenSpawnStep()
+	s.naturalSpawnTickStep()
 	s.mobTickStep()
 	// Entity.baseTick's handlePortal opens with
 	// processPortalCooldown — every ticking entity's cooldown
@@ -618,6 +622,8 @@ func (s *Server) playerTickOwned() {
 	if s.shuttingDown.Load() {
 		return
 	}
+	// Chunk-generation spawns land as chunks generate, frozen or not.
+	s.chunkGenSpawnStep()
 	s.digTickStep()
 	s.hungerTickStep()
 	s.combatTickStep()

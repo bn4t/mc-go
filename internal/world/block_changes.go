@@ -109,6 +109,9 @@ func (w *World) RemoveBlockInterest(id uint64) {
 // does not assume that acceptance means the worker has applied the write. The
 // final batched read in DrainBlockChanges supplies that per-shard barrier.
 func (w *World) invalidateBlock(pos Pos) {
+	if h := w.changeHook.Load(); h != nil {
+		(*h)(pos)
+	}
 	j := &w.changes
 	if !j.enabled.Load() {
 		return
@@ -119,6 +122,17 @@ func (w *World) invalidateBlock(pos Pos) {
 		j.dirty = append(j.dirty, pos)
 	}
 	j.mu.Unlock()
+}
+
+// SetChangeHook installs f to be called with the position of every
+// block mutation the world accepts (SetBlock and Restore), on the
+// mutating goroutine. A nil f removes the hook.
+func (w *World) SetChangeHook(f func(Pos)) {
+	if f == nil {
+		w.changeHook.Store(nil)
+		return
+	}
+	w.changeHook.Store(&f)
 }
 
 // DrainBlockChanges coalesces every interested position to its final stored

@@ -106,6 +106,9 @@ type dimension struct {
 	// layer — the same eligibility set as sky — and blkStoring gates
 	// every write.
 	blockLight blockLightGrid
+	// terrain is the generated dimension's chunk source (nil when flat);
+	// chunk-generation spawns read its existence.
+	terrain *terrainSource
 	// genEmit caches a provided chunk's generated emitters; genLit
 	// marks chunks whose generated emitters were spread.
 	genEmit    map[[2]int][]genEmitter
