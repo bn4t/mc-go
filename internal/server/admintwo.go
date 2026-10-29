@@ -205,6 +205,14 @@ func (s *Server) runFunction(player string, args []string) reply {
 		return errTokenEnd("command.unknown.command", 0)
 	}
 	fn := normalizeID(args[0])
+	isTag := strings.HasPrefix(args[0], "#")
+	if isTag {
+		var ok bool
+		fn, ok = jigsawIdentifier(args[0][1:])
+		if !ok {
+			return errToken("argument.id.invalid", 1)
+		}
+	}
 	if len(args) > 1 {
 		rest := strings.Join(args[1:], " ")
 		// The tail is an NBT compound argument or the `with` form; a
@@ -213,6 +221,9 @@ func (s *Server) runFunction(player string, args []string) reply {
 			return errTokenEnd("argument.nbt.expected.compound", 2)
 		}
 		return componentReply(commandError("commands.function.instantiationFailure", fn, ""))
+	}
+	if isTag {
+		return s.runFunctionTag(player, fn)
 	}
 	lines, ok := s.functions[fn]
 	if !ok {
@@ -237,7 +248,7 @@ func (s *Server) runFunction(player string, args []string) reply {
 			return r
 		}
 	}
-	return opsEchoReply(translatable("commands.function.scheduled.single", fn))
+	return functionCommandReply(translatable("commands.function.scheduled.single", fn))
 }
 
 // ---- fetchprofile ----

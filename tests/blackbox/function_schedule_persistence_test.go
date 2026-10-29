@@ -68,8 +68,10 @@ func TestCustomFunctionSchedulePersistenceParity(t *testing.T) {
 	common := map[string]string{
 		"ops.json":                               opsJSONFor(name),
 		"world/datapacks/persistpin/pack.mcmeta": `{"pack":{"description":"schedule persistence","min_format":107,"max_format":107}}`,
-		"world/datapacks/persistpin/data/persistpin/function/a.mcfunction": "setblock 8 -60 8 minecraft:diamond_block\n",
-		"world/datapacks/persistpin/data/persistpin/function/b.mcfunction": "setblock 8 -60 8 minecraft:emerald_block\n",
+		"world/datapacks/persistpin/data/persistpin/function/a.mcfunction":    "setblock 8 -60 8 minecraft:diamond_block\n",
+		"world/datapacks/persistpin/data/persistpin/function/b.mcfunction":    "setblock 8 -60 8 minecraft:emerald_block\n",
+		"world/datapacks/persistpin/data/persistpin/function/c.mcfunction":    "setblock 8 -60 8 minecraft:gold_block\n",
+		"world/datapacks/persistpin/data/persistpin/tags/function/group.json": `{"values":["persistpin:c"]}`,
 	}
 	for _, kind := range []string{"vanilla", "mc-go"} {
 		t.Run(kind, func(t *testing.T) {
@@ -152,15 +154,16 @@ func TestCustomFunctionSchedulePersistenceParity(t *testing.T) {
 			before := p.age()
 			p.command("schedule function persistpin:a 1000t append")
 			p.command("schedule function persistpin:b 1001t append")
+			p.command("schedule function #persistpin:group 1002t append")
 			p.command("save-all flush")
 			deadline := time.Now().Add(10 * time.Second)
 			var events []any
 			for time.Now().Before(deadline) {
 				var err error
 				events, err = readScheduledEventsFileBB(saved)
-				if err == nil && len(events) == 2 {
+				if err == nil && len(events) == 3 {
 					good := true
-					for i, id := range []string{"persistpin:a", "persistpin:b"} {
+					for i, id := range []string{"persistpin:a", "persistpin:b", "#persistpin:group"} {
 						m, ok := events[i].(map[string]any)
 						if !ok || m["id"] != id || m["trigger_time"] != before+1000+int64(i) {
 							good = false
@@ -172,16 +175,21 @@ func TestCustomFunctionSchedulePersistenceParity(t *testing.T) {
 				}
 				time.Sleep(20 * time.Millisecond)
 			}
-			if len(events) != 2 {
+			if len(events) != 3 {
 				t.Fatalf("saved events unavailable: %v", events)
 			}
-			for i, id := range []string{"persistpin:a", "persistpin:b"} {
+			for i, id := range []string{"persistpin:a", "persistpin:b", "#persistpin:group"} {
 				m, ok := events[i].(map[string]any)
 				if !ok || m["id"] != id || m["trigger_time"] != before+1000+int64(i) {
 					t.Fatalf("saved event%d mismatch: %v", i, events[i])
 				}
 				callback, ok := m["callback"].(map[string]any)
-				if !ok || callback["type"] != "minecraft:function" || callback["id"] != id {
+				kind, target := "minecraft:function", id
+				if i == 2 {
+					kind = "minecraft:function_tag"
+					target = "persistpin:group"
+				}
+				if !ok || callback["type"] != kind || callback["id"] != target {
 					t.Fatalf("saved callback%d mismatch: %v", i, m)
 				}
 			}
@@ -218,6 +226,8 @@ func TestCustomFunctionSchedulePersistenceParity(t *testing.T) {
 			expect(p, "if block 8 -60 8 minecraft:diamond_block", "restart_first_deadline")
 			p.step(1)
 			expect(p, "if block 8 -60 8 minecraft:emerald_block", "restart_second_deadline")
+			p.step(1)
+			expect(p, "if block 8 -60 8 minecraft:gold_block", "restart_tag_deadline")
 		})
 	}
 }

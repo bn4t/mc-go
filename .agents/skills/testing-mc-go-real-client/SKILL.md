@@ -176,3 +176,12 @@ serialization before normalizing them. Before asserting spawn/effect packet
 order, establish a positive same-chunk spawn witness. Block updates can be
 batched after synchronous effects, so packet order alone does not establish
 internal mutation order.
+
+## Datapack function probes
+
+Measure empty/missing group callbacks separately from nonempty no-return calls.
+Assert numeric result, success, feedback style and execute-as suppression where
+relevant. A decoder's partial result does not establish resource acceptance: the
+loader may reject the whole file. Default function permission is two; a load
+function containing permission-three `/tick freeze` is invalid and cannot prove
+automatic-function tick ordering. Use a valid function and external freeze.

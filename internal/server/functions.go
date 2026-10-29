@@ -7,40 +7,18 @@ import (
 	"strings"
 )
 
-// Datapack functions. Vanilla discovers each enabled pack's
-// data/<namespace>/function tree when the world loads and /function
-// runs a file's lines as commands, in order, with the caller as the
-// execution source and the server's function-permission-level
-// (server.properties, default 2) as the command level.
-
-// functionPermLevel is vanilla's default function-permission-level.
+// Startup folder functions execute at the default function permission level.
+// Macros, continuations and full argument-tree compilation remain unmodeled.
 const functionPermLevel = 2
 
-// loadFunctions scans WorldDir's datapacks for .mcfunction files. A
-// pack contributes only when it carries a pack.mcmeta — vanilla's
-// folder pack source skips directories without one.
-// data/<ns>/function/<path>.mcfunction registers as <ns>:<path>, the
-// path's subdirectories becoming name segments. Blank lines and lines
-// opening with '#' drop; each remaining line is a command without its
-// leading slash.
 func (s *Server) loadFunctions() {
 	s.functions = map[string][]string{}
-	if s.WorldDir == "" {
-		return
+	known := map[string]bool{}
+	for _, name := range s.helpNames() {
+		known[name] = true
 	}
-	packs, err := os.ReadDir(filepath.Join(s.WorldDir, "datapacks"))
-	if err != nil {
-		return
-	}
-	for _, pack := range packs {
-		if !pack.IsDir() {
-			continue
-		}
-		pdir := filepath.Join(s.WorldDir, "datapacks", pack.Name())
-		if _, err := os.Stat(filepath.Join(pdir, "pack.mcmeta")); err != nil {
-			continue
-		}
-		dataRoot := filepath.Join(pdir, "data")
+	for _, pack := range folderPackRoots(s.WorldDir) {
+		dataRoot := filepath.Join(pack, "data")
 		_ = filepath.WalkDir(dataRoot, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".mcfunction") {
 				return nil
@@ -53,19 +31,33 @@ func (s *Server) loadFunctions() {
 			if len(parts) < 3 || parts[1] != "function" {
 				return nil
 			}
-			name := strings.Join(parts[2:], "/")
-			id := parts[0] + ":" + strings.TrimSuffix(name, ".mcfunction")
+			id, ok := jigsawIdentifier(parts[0] + ":" + strings.TrimSuffix(strings.Join(parts[2:], "/"), ".mcfunction"))
+			if !ok {
+				return nil
+			}
+			// A selected higher-priority file replaces the prior function even if
+			// that file cannot compile; function resources do not merge like tags.
+			delete(s.functions, id)
 			raw, err := os.ReadFile(path)
 			if err != nil {
 				return nil
 			}
 			var lines []string
-			for _, ln := range strings.Split(string(raw), "\n") {
-				ln = strings.TrimSpace(ln)
-				if ln == "" || strings.HasPrefix(ln, "#") {
+			continued := false
+			for _, line := range strings.Split(string(raw), "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" || strings.HasPrefix(line, "#") {
 					continue
 				}
-				lines = append(lines, strings.TrimPrefix(ln, "/"))
+				unmodeled := continued || strings.HasPrefix(line, "$")
+				continued = strings.HasSuffix(line, "\\")
+				if !unmodeled {
+					fields := splitCommandArgs(line)
+					if strings.HasPrefix(line, "/") || len(fields) == 0 || !known[fields[0]] || commandLevel(fields[0]) > functionPermLevel || len(fields) == 1 && commandNeedsArgs[fields[0]] {
+						return nil
+					}
+				}
+				lines = append(lines, line)
 			}
 			s.functions[id] = lines
 			return nil

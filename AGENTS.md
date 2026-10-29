@@ -93,6 +93,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   An explicit empty component can differ from absence. For effect/spawn ordering,
   establish positive tracking first; batched block packets do not expose internal
   state-mutation order by themselves.
+- Function probes must distinguish empty/missing groups from nonempty functions
+  without return: their execute-store callbacks differ. Confirm loader acceptance
+  separately from a codec's partial result, including function permission level.
 - Persistence probes must copy the completed save before shutdown can replace it.
   A preexisting file is not a completion receipt: verify new identifiers, types
   and deadlines. Save workers serialize detached snapshots captured by the

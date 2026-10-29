@@ -297,6 +297,8 @@ type Server struct {
 	// functions is the datapack function table loadFunctions fills from
 	// WorldDir/datapacks: resource id -> command lines.
 	functions              map[string][]string
+	functionTags           map[string][]string
+	functionTagLoadPending bool
 	functionSchedule       []scheduledFunction
 	functionScheduleSerial uint64
 	advancementPack        *advancementRegistry

@@ -146,9 +146,13 @@ server source at the spawn block and no entity executor. Summon can resolve
 that command frame directly. Native saves capture detached scheduled-event
 containers under simulation ownership; background writers never read the live
 queue. Startup restores event keys separately from callback targets/types and
-resolves current functions on dispatch. Valid function-tag data is retained and
-clearable, with execution still unsupported. Tags/macros/return semantics and
-a wire pin for equal-deadline ordering remain separate work.
+resolves current functions or function tags on dispatch. Startup tags use
+required-first dependency resolution, optional acyclic ordering and first-member
+deduplication. Load/tick entry points run before world-age advancement; frozen
+player ticks do not invoke them. Nonempty no-return function calls do not
+complete execute-store consumers; empty tags report failure and numeric zero.
+Full function syntax compilation, complex optional-cycle ordering, macros,
+returns, command-sequence limits and equal-deadline wire ordering remain open.
 
 Custom tick criteria fire on connection ticks after menu validation and before
 inventory touching, including while the world is frozen. Startup compilation

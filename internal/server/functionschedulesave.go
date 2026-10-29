@@ -93,8 +93,8 @@ func (s *Server) restoreFunctionSchedule(root any) {
 		if !ok {
 			continue
 		}
-		// Preserve native tag callback data for round trips and /schedule clear;
-		// tag execution remains outside the currently modeled function registry.
+		// Both native callback forms retain their resource IDs for dispatch-time
+		// lookup in the server's current function/function-tag registries.
 		if kind != functionScheduleCallback && kind != "minecraft:function_tag" {
 			continue
 		}

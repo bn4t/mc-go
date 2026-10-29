@@ -59,11 +59,16 @@ func (s *Server) runFunctionSchedule(args []string) reply {
 		if len(args) < 3 {
 			return errTokenEnd("command.unknown.command", len(args)+1)
 		}
-		id, ok := jigsawIdentifier(args[1])
+		isTag := strings.HasPrefix(args[1], "#")
+		name := args[1]
+		if isTag {
+			name = name[1:]
+		}
+		id, ok := jigsawIdentifier(name)
 		if !ok {
 			return errToken("argument.id.invalid", 2)
 		}
-		if _, ok := s.functions[id]; !ok {
+		if _, ok := s.functions[id]; !isTag && !ok {
 			return componentReply(commandError("arguments.function.unknown", id))
 		}
 		ticks, problem, number := functionScheduleTime(args[2])
@@ -94,22 +99,30 @@ func (s *Server) runFunctionSchedule(args []string) reply {
 		if ticks == 0 {
 			return componentReply(commandError("commands.schedule.same_tick"))
 		}
+		eventName := id
+		kind := functionScheduleCallback
+		feedback := "commands.schedule.created.function"
+		if isTag {
+			eventName = "#" + id
+			kind = "minecraft:function_tag"
+			feedback = "commands.schedule.created.tag"
+		}
 		if replace {
-			s.clearFunctionSchedule(id)
+			s.clearFunctionSchedule(eventName)
 		}
 		age := s.gameTime() + int64(ticks)
 		found := false
 		for _, event := range s.functionSchedule {
-			if event.name == id && event.age == age {
+			if event.name == eventName && event.age == age {
 				found = true
 				break
 			}
 		}
 		if !found {
 			s.functionScheduleSerial++
-			s.functionSchedule = append(s.functionSchedule, scheduledFunction{name: id, target: id, callbackType: functionScheduleCallback, age: age, serial: s.functionScheduleSerial})
+			s.functionSchedule = append(s.functionSchedule, scheduledFunction{name: eventName, target: id, callbackType: kind, age: age, serial: s.functionScheduleSerial})
 		}
-		r := opsEchoReply(translatable("commands.schedule.created.function", id, ticks, age))
+		r := opsEchoReply(translatable(feedback, id, ticks, age))
 		r.result = int(age % 2147483647)
 		r.hasResult = true
 		r.outcome = commandSucceeded
@@ -174,23 +187,11 @@ func (s *Server) functionScheduleStep() {
 		}
 		event := s.functionSchedule[0]
 		s.functionSchedule = s.functionSchedule[1:]
-		if event.callbackType != functionScheduleCallback {
-			continue
+		switch event.callbackType {
+		case functionScheduleCallback:
+			s.runServerFunctionList([]string{event.target})
+		case "minecraft:function_tag":
+			s.runServerFunctionList(s.functionTags[event.target])
 		}
-		lines, ok := s.functions[event.target]
-		if !ok {
-			continue
-		}
-		sx, sy, sz := s.WorldSpawn()
-		frame := commandSourceFrame{dim: s.dims[dimOverworld], pos: [3]float64{math.Floor(sx), math.Floor(sy), math.Floor(sz)}, display: literal("Server"), level: functionPermLevel}
-		s.withCommandFrame(&frame, func() reply {
-			for _, line := range lines {
-				fields := splitCommandArgs(strings.TrimSpace(line))
-				if len(fields) > 0 {
-					s.runCommandAt(neutralCommandActor, functionPermLevel, fields[0], fields[1:])
-				}
-			}
-			return reply{}
-		})
 	}
 }

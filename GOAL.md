@@ -274,8 +274,9 @@ Mojang server over the wire.
   Attribute getters and mutations supply measured typed execute-store results.
   Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
-  pending file-function events also survive native save/restart; tags/macros
-  execution remains open.
+  file/tag events survive native save/restart. Startup load/tick tags and measured
+  required/optional references execute; macros, returns, command budgets and
+  full function syntax remain open.
 - [x] World save format parity (region files)
 - [~] RCON, query, properties parity (server.properties: read,
       completed with vanilla's defaults and rewritten byte for byte -
@@ -18517,3 +18518,11 @@ The broad server run failed761.336s only at TestNaturalSpawnMonsterCap (69 count
 - **Measured** — Java26.2 reapplies retained sword modifiers after keep_inventory death/respawn even if explicitly removed before death. Native restores damage6/speed1.5999999046325684 and modifiers5/-2.4000000953674316; prior Go stays1/4 with absent modifiers. Measurement44.61s records this mismatch, not parity. Go1.27.3/JDK25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
 - **Implemented** — Reset equipment projection initialization for the new life, retaining the previous stack so the next scan can retire old weapon IDs and reapply retained gear. Attribute bases, permanent-modifier policy and combat arithmetic are unchanged.
 - **Pinned** — Two-file owned SHA256 `8812588680d0112b27f8070140594f158b2bcb5288427b62ad2861c01697cc4c`. Strict native/Go PASS13.95s observes health0, actual Respawn, retained sword and at least five player ticks before checking effective and modifier values. Focused units PASS0.168s; existing death/respawn packet regression PASS1.54s (`work/player-equipment-respawn-fixed-oracle-v1.log`, `work/player-equipment-respawn-scripted-regression-v1.log`). Immediate respawn-to-attack ordering and save/reload remain separate.
+
+## Slice — startup function tags and automatic entry points (2026-10-29)
+
+- **Measured** — Native26.2 wire and public TagFile/TagLoader APIs establish whole-file tag rejection, merge/replace, required/optional references, mixed-cycle ordering and member deduplication. Empty/missing groups invoke execute-store with result0/successfalse and red runtime feedback (suppressed in execute-as forks); nonempty no-return functions leave consumers untouched. Load runs once and tick runs before world age, with one-tick callbacks due in that ensuing tick. Go1.27.3/JDK25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`; API facts only, no implementation text copied.
+- **Implemented** — Startup folder tag decoding and an independent required-first dependency graph; optional edges cannot close cycles. Manual/scheduled tags and automatic load/tick entry points use existing registered functions and neutral permission-two server sources. Selected function resources reject measured invalid roots/permissions/leading slash/bare required-argument commands before execution. Invalid higher function files hide lower files; malformed tag layers leave earlier layers intact.
+- **Pinned** — Eleven-file SHA256 `f3fd8a920be94f2fac0bb0bdb27e03e15a336d2991c9ed2383889928d22b1910`. Final v4 tag wire PASS24.83s/native4.90/Go3.11; v4 units PASS0.326s. Base schedule PASS21.30s, actual three-event native save/copy/restart PASS111.61s, advancement reward regression PASS156.00s. Logs `work/function-tags-v4-resume-TestCustomFunctionTagsParity.log`, `work/function-tags-v3-TestCustomFunctionSchedulePersistenceParity.log`, `work/function-tags-v4-resume-TestAdvancementPackRewardsParity.log`.
+
+Earlier empty-tag callback/style assumptions failed native controls and were corrected with strengthened exact assertions; interrupted runs are not counted. Full argument-tree compilation, macros/continuations, returns, bounded command/recursion execution, configurable function permission, complex optional-only cycle ordering, ZIP/selection/reload remain incomplete. This slice does not establish robust arbitrary datapack execution. The next executor work measures budgets and captures invocation source frames before deferred execution.

@@ -92,9 +92,11 @@ remain nonmatching.
 Registered startup file functions support `/schedule function` with append or
 replace and `/schedule clear`. Deadlines follow world time and frozen-world
 controls; scheduled functions can summon from the server's world-spawn source.
-Pending file-function callbacks and absolute deadlines survive native saves
-and restart. Function-tag records are preserved and clearable; tag execution
-and macros remain in progress.
+File and function-tag callbacks and absolute deadlines survive native saves
+and restart. Startup folder function tags support merge/replace and measured
+required/optional references. The load tag runs once and tick tag each world
+tick before time advances. Macros, returns, command-sequence limits, complete
+function syntax validation and complex optional-cycle ordering remain partial.
 Complete player-predicate and rich-text/icon schemas, datapack selection/ZIP/reload,
 custom loot overlays and several vehicle/physical interactions remain in
 progress. See individual slice entries for exact tests and limitations.

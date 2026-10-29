@@ -512,6 +512,9 @@ func (s *Server) gameTickOwned() {
 	}
 	s.inGameTick.Store(true)
 	defer s.inGameTick.Store(false)
+	// File load/tick functions run before the level's time pass. Their
+	// one-tick deadlines become due in the same ensuing world tick.
+	s.functionTagsStep()
 	// ServerLevel.tickTime advances world age before block/fluid deadlines
 	// and the rest of the simulation. Callbacks that schedule another tick
 	// must read this same current age when computing their new deadlines.
