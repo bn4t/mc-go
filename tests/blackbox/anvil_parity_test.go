@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -46,6 +47,27 @@ func snapAnvil(d *clickDriver) anvilSnap {
 		close: d.sawClose, invSets: d.invSets, death: d.death}
 }
 
+// anvilSetXP observes the actual Set Experience reply. A chat sentinel
+// consumes intervening packets, so it cannot serve as an XP barrier.
+func anvilSetXP(d *clickDriver, level int32) {
+	d.t.Helper()
+	d.xpSeen = false
+	sendCommand(d.t, d.pw, fmt.Sprintf("xp set @s %d levels", level))
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, p := range d.sink.take() {
+			if p.id == server.IDPlaySetExperience {
+				d.foldPkts([]usePkt{p})
+			}
+		}
+		if d.xpSeen && d.xpLevel == level {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	d.t.Fatalf("%s: XP barrier: got (%d,%v), want %d", d.name, d.xpLevel, d.xpSeen, level)
+}
+
 func TestAnvilParity(t *testing.T) {
 	tg := requireBlackboxFiles(t, nil, map[string]string{
 		"ops.json": opsJSONFor("AnvilV", "AnvilM"),
@@ -55,6 +77,14 @@ func TestAnvilParity(t *testing.T) {
 	mkSetup := func(d *clickDriver, cmds ...string) {
 		d.t.Helper()
 		for i, cmd := range cmds {
+			if strings.HasPrefix(cmd, "xp set @s ") && strings.HasSuffix(cmd, " levels") {
+				level, err := strconv.Atoi(strings.Fields(cmd)[3])
+				if err != nil {
+					d.t.Fatal(err)
+				}
+				anvilSetXP(d, int32(level))
+				continue
+			}
 			sendCommand(d.t, d.pw, cmd)
 			if !digSentinel(d.t, d.pw, d.sink, fmt.Sprintf("AX%d", i), 10*time.Second) {
 				d.t.Fatalf("%s: no setup ack %d for %q", d.name, i, cmd)
@@ -149,10 +179,7 @@ func TestAnvilParity(t *testing.T) {
 		step("qm-out", 2, 0, 1)
 		reset()
 		// Poor take: no levels left, nothing moves.
-		sendCommand(t, pw, "xp set @s 0 levels")
-		if !digSentinel(t, pw, d.sink, "AXP", 10*time.Second) {
-			t.Fatalf("%s: no xp drain ack", name)
-		}
+		anvilSetXP(d, 0)
 		d.fold()
 		snaps = append(snaps, snapAnvil(d))
 		step("poor-p32", 32, 0, 0)
@@ -219,6 +246,7 @@ func TestAnvilParity(t *testing.T) {
 			"item replace entity @s hotbar.6 with minecraft:diamond_pickaxe[minecraft:damage=1000] 1",
 			"item replace entity @s hotbar.7 with minecraft:diamond 1",
 			"item replace entity @s hotbar.8 with minecraft:iron_ingot 64",
+			"item replace entity @s inventory.19 with minecraft:iron_pickaxe[minecraft:repair_cost=100] 1",
 			"item replace entity @s inventory.20 with minecraft:iron_pickaxe[minecraft:damage=100,minecraft:repair_cost=15] 1",
 			"item replace entity @s inventory.21 with minecraft:iron_pickaxe[minecraft:damage=100,minecraft:repair_cost=30] 1",
 			"item replace entity @s inventory.0 with minecraft:air",
@@ -245,6 +273,14 @@ func TestAnvilParity(t *testing.T) {
 		// Rename-only on a fresh pick: cost 1, output named.
 		step("r2-p30", 30, 0, 0)
 		step("r2-i0", 0, 0, 0)
+		// Validation filters controls/section signs before applying Java's
+		// UTF-16 limit; a rejected name leaves the prior offer intact.
+		ren("r2-filter", "A\x00\t\n\x7f§lpha")
+		ren("r2-25-supplementary", strings.Repeat("😀", 25))
+		ren("r2-26-supplementary", strings.Repeat("😀", 26))
+		ren("r2-filter-before-limit", strings.Repeat("§", 51)+"Beta")
+		ren("r2-50-bmp", strings.Repeat("é", 50))
+		ren("r2-51-bmp", strings.Repeat("é", 51))
 		ren("r2-ren", "Alpha")
 		step("r2-take", 2, 0, 0)
 		step("r2-park3", 3, 0, 0)
@@ -254,7 +290,9 @@ func TestAnvilParity(t *testing.T) {
 		step("gm-p31", 31, 0, 0)
 		step("gm-i0", 0, 0, 0)
 		ren("gm-same", "Gamma") // renaming to its own name: nothing
-		ren("gm-clr", "")       // the empty field clears the name
+		ren("gm-space-clear", "   ")
+		ren("gm-restore", "Gamma")
+		ren("gm-clr", "") // the empty field clears the name
 		step("gm-take", 2, 0, 0)
 		step("gm-park4", 4, 0, 0)
 		reset()
@@ -297,6 +335,13 @@ func TestAnvilParity(t *testing.T) {
 		step("pt-take", 2, 0, 0)
 		step("pt-park7", 7, 0, 0)
 		reset()
+		// Rename-only caps a prior-work penalty of 100 at 39.
+		step("rename-high-p22", 22, 0, 0)
+		step("rename-high-i0", 0, 0, 0)
+		ren("rename-high", "Ancient")
+		step("rename-high-b0", 0, 0, 0)
+		step("rename-high-b22", 22, 0, 0)
+		ren("rename-high-clear", "")
 		// A wrong material computes nothing.
 		step("wm-p7", 7, 0, 0)
 		step("wm-i0", 0, 0, 0)
@@ -309,6 +354,8 @@ func TestAnvilParity(t *testing.T) {
 		// Cost past 39 in survival: priced (property 47), no output.
 		step("hi-p23", 23, 0, 0)
 		step("hi-i0", 0, 0, 0)
+		ren("hi-rename", "Still affordable")
+		ren("hi-no-rename", "")
 		step("hi-p24", 24, 0, 0)
 		step("hi-i1", 1, 0, 0)
 		step("hi-take", 2, 0, 0)
@@ -357,14 +404,15 @@ func TestAnvilParity(t *testing.T) {
 		"blk-place2", "blk-stone-back", "blk-poor-take",
 		"close", "reopen", "close2",
 		"p2-open",
-		"r2-p30", "r2-i0", "r2-ren", "r2-take", "r2-park3",
-		"gm-p31", "gm-i0", "gm-same", "gm-clr", "gm-take", "gm-park4",
+		"r2-p30", "r2-i0", "r2-filter", "r2-25-supplementary", "r2-26-supplementary", "r2-filter-before-limit", "r2-50-bmp", "r2-51-bmp", "r2-ren", "r2-take", "r2-park3",
+		"gm-p31", "gm-i0", "gm-same", "gm-space-clear", "gm-restore", "gm-clr", "gm-take", "gm-park4",
 		"fr-p4", "fr-i0", "fr-p32", "fr-i1", "fr-b1", "fr-b32", "fr-b0", "fr-b4",
 		"co-p32", "co-i0", "co-p33", "co-i1", "co-ren", "co-take", "co-park5", "co-clr",
 		"mt-p34", "mt-i0", "mt-p35", "mt-i1", "mt-take", "mt-park6", "mt-dia1", "mt-dia35",
 		"pt-p36", "pt-i0", "pt-p37", "pt-i1", "pt-take", "pt-park7",
+		"rename-high-p22", "rename-high-i0", "rename-high", "rename-high-b0", "rename-high-b22", "rename-high-clear",
 		"wm-p7", "wm-i0", "wm-p38", "wm-i1", "wm-b1", "wm-b38", "wm-b0", "wm-b7",
-		"hi-p23", "hi-i0", "hi-p24", "hi-i1", "hi-take", "hi-b0", "hi-b23", "hi-b1", "hi-b24",
+		"hi-p23", "hi-i0", "hi-rename", "hi-no-rename", "hi-p24", "hi-i1", "hi-take", "hi-b0", "hi-b23", "hi-b1", "hi-b24",
 		"md-p4", "md-i0", "md-ren", "md-throw",
 		"ov-p3", "ov-i0", "ov-long", "ov-clr", "ov-take", "ov-park3",
 		"xp-p23", "xp-i0", "xp-ren", "xp-take", "xp-park8",

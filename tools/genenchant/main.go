@@ -31,6 +31,7 @@ type cost struct {
 type enchantment struct {
 	Weight    int    `json:"weight"`
 	MaxLevel  int    `json:"max_level"`
+	AnvilCost int    `json:"anvil_cost"`
 	MinCost   cost   `json:"min_cost"`
 	MaxCost   cost   `json:"max_cost"`
 	Supported any    `json:"supported_items"` // string "#tag" or list of items/tags
@@ -148,6 +149,7 @@ func main() {
 	type row struct {
 		name           string
 		weight, maxLvl int
+		anvilCost      int
 		minB, minP     int
 		maxB, maxP     int
 		supported      []string
@@ -175,7 +177,7 @@ func main() {
 		}
 		excl := strings.TrimPrefix(strings.TrimPrefix(e.Exclusive, "#minecraft:exclusive_set/"), "minecraft:exclusive_set/")
 		rows = append(rows, row{
-			name: name, weight: e.Weight, maxLvl: e.MaxLevel,
+			name: name, weight: e.Weight, maxLvl: e.MaxLevel, anvilCost: e.AnvilCost,
 			minB: e.MinCost.Base, minP: e.MinCost.PerLvl,
 			maxB: e.MaxCost.Base, maxP: e.MaxCost.PerLvl,
 			supported: sup, primary: pri,
@@ -196,6 +198,7 @@ func main() {
 type EnchantmentMeta struct {
 	Weight    int
 	MaxLevel  int
+	AnvilCost int
 	MinBase   int
 	MinPerLvl int
 	MaxBase   int
@@ -209,8 +212,8 @@ type EnchantmentMeta struct {
 var Enchantments = map[string]EnchantmentMeta{
 `)
 	for _, r := range rows {
-		fmt.Fprintf(&b, "\t%q: {Weight: %d, MaxLevel: %d, MinBase: %d, MinPerLvl: %d, MaxBase: %d, MaxPerLvl: %d, Supported: %s, Primary: %s, Exclusive: %q, InTable: %v},\n",
-			r.name, r.weight, r.maxLvl, r.minB, r.minP, r.maxB, r.maxP,
+		fmt.Fprintf(&b, "\t%q: {Weight: %d, MaxLevel: %d, AnvilCost: %d, MinBase: %d, MinPerLvl: %d, MaxBase: %d, MaxPerLvl: %d, Supported: %s, Primary: %s, Exclusive: %q, InTable: %v},\n",
+			r.name, r.weight, r.maxLvl, r.anvilCost, r.minB, r.minP, r.maxB, r.maxP,
 			shortList(r.supported), shortList(r.primary), r.exclusive, r.inTable)
 	}
 	b.WriteString("}\n\n")

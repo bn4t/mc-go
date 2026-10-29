@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"mc-go/internal/data"
 	"mc-go/internal/nbt"
@@ -781,7 +780,11 @@ func (s *Server) handleRecipeBookSeenRecipe(sess *Session, p protocol.Packet) {
 func (s *Server) handleRenameItem(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
 	name, err := r.String()
-	if err != nil || utf8.RuneCountInString(name) > anvilMaxNameLength {
+	if err != nil {
+		return
+	}
+	name, valid := anvilValidatedName(name)
+	if !valid {
 		return
 	}
 	sess.windowMu.Lock()

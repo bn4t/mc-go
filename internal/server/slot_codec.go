@@ -2,8 +2,10 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"sync"
 
+	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
 )
 
@@ -275,6 +277,9 @@ func (p *javaProfile) writeSlot(b *protocol.Buffer, it ItemStack) error {
 	if it.InstrumentRemoved && it.Instrument != "" {
 		return fmt.Errorf("slot: instrument both added and removed")
 	}
+	if err := validateSlotName(it); err != nil {
+		return err
+	}
 	if it.Contents != nil {
 		nodes := 0
 		if err := validateSlotContents(it, 0, &nodes, map[*[shulkerSlots]ItemStack]bool{}); err != nil {
@@ -444,10 +449,24 @@ func (p *javaProfile) projectEquipment776(body []byte) ([]byte, error) {
 	return nil, fmt.Errorf("slot: equipment continuation limit exceeded")
 }
 
+// validateSlotName rejects malformed or oversized Java NBT names before
+// the canonical writer, whose historical signature cannot return an error.
+func validateSlotName(it ItemStack) error {
+	if !it.Empty() && it.Name != "" {
+		if err := nbt.WriteUnnamed(io.Discard, it.Name); err != nil {
+			return fmt.Errorf("slot: custom name: %w", err)
+		}
+	}
+	return nil
+}
+
 func validateSlotContents(it ItemStack, depth int, nodes *int, path map[*[shulkerSlots]ItemStack]bool) error {
 	*nodes++
 	if depth > 16 || *nodes > 4096 {
 		return fmt.Errorf("slot: content nesting budget exceeded")
+	}
+	if err := validateSlotName(it); err != nil {
+		return err
 	}
 	if it.Empty() || it.Contents == nil {
 		return nil

@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -432,12 +434,10 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 		b.VarInt(it.Damage)
 	}
 	if it.Name != "" {
-		// custom_name's payload is an NBT string tag: type byte 0x08,
-		// then a u16 length and the UTF-8 text (measured on 26.2).
+		// custom_name uses the shared NBT modified-UTF8 codec, including
+		// the UTF-16 surrogate form of supplementary characters.
 		b.VarInt(compCustomName)
-		b.Byte(0x08)
-		b.UShort(uint16(len(it.Name)))
-		b.Raw([]byte(it.Name))
+		_ = nbt.WriteUnnamed(b, it.Name)
 	}
 	if it.Ench != "" {
 		// enchantments' payload is a VarInt-counted map of VarInt
@@ -761,22 +761,22 @@ func readSlotComponent(r *protocol.PacketReader, it *ItemStack, typ int32) error
 			return err
 		}
 	case compCustomName: // minecraft:custom_name, NBT string tag
-		var tag byte
-		if tag, err = r.Byte(); err != nil {
+		tag, err := r.Byte()
+		if err != nil {
 			return err
 		}
-		if tag != 0x08 {
+		if tag != nbt.TagString {
 			return fmt.Errorf("server: custom_name tag %d is not a string", tag)
 		}
-		var n uint16
-		if n, err = r.UShort(); err != nil {
+		value, err := nbt.ReadUnnamed(io.MultiReader(bytes.NewReader([]byte{tag}), slotNBTReader{r}))
+		if err != nil {
 			return err
 		}
-		var raw []byte
-		if raw, err = r.Read(int(n)); err != nil {
-			return err
+		name, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("server: custom_name is not an NBT string")
 		}
-		it.Name = string(raw)
+		it.Name = name
 	case compEnchantments: // minecraft:enchantments, VarInt id->level map
 		n, err := r.VarInt()
 		if err != nil {

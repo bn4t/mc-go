@@ -2,6 +2,8 @@ package server
 
 import (
 	"math/rand"
+	"strings"
+	"unicode"
 
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
@@ -26,15 +28,15 @@ import (
 //     the output loses its custom_name and the operation costs 1.
 //     Renaming to the name the input already carries computes nothing.
 //   - The output's name is the pending field's when it differs from
-//     the input's, so a rename alone produces output. A name past 50
-//     characters is ignored outright: the packet is dropped, the
+//     the input's, so a rename alone produces output. A filtered name
+//     past 50 UTF-16 code units is ignored outright: the packet is dropped, the
 //     connection lives.
-//   - Three operations produce output, in priority order: a combine of
+//   - Durability operations produce output from a combine of
 //     two damageables of the same item with the left one damaged (a
 //     fresh left + damaged right computes nothing); a material repair
 //     when the right item is the left's repairable material and the
-//     left is damaged; and a rename. Everything else computes nothing
-//     and the cost reads 0.
+//     left is damaged. Accepted enchantments or a rename also produce
+//     output; invalid sacrifice pairs compute nothing and cost 0.
 //   - A combine's output damage is max minus (remaining target +
 //     remaining sacrifice + 12% of max), floored at 0; the work costs
 //     2 levels. A material repair consumes ceil(damage / floor(max/4))
@@ -46,7 +48,8 @@ import (
 //     a combine, the units for a material repair, 0 for a bare rename)
 //     plus 1 when the name changes. Past 39 a survival output is not
 //     even produced (the slot stays empty, the property still prices
-//     it); creative sees and takes it at any cost.
+//     it); creative sees and takes it at any cost. Rename-only costs
+//     cap at 39 even when the input has a higher prior-work penalty.
 //   - Taking the output plays level event 1030 at the anvil and
 //     answers Container Slot (inputs emptied by their consume counts,
 //     output cleared) plus the zeroed cost, the cursor stack on a hand
@@ -70,17 +73,16 @@ import (
 //     slot update, and leaves the cursor alone. The client-initiated
 //     close itself is never echoed (no Container Close).
 //
-// Still open behind this: enchantment merging (mc-go models no
-// enchantments, so a fresh pair with a rename is the only way they
-// produce output) and the output's hover-name rename refusal when the
-// text equals the item's untranslated default name.
+// Enchantment merging uses the measured crafting enchantments and datapack
+// supported/exclusive sets; see anvil_enchant.go. The default hover-name
+// rename refusal remains open.
 
 // anvilMaxCost is the highest level cost Survival/Adventure will pay;
 // past it no output is produced at all. Creative ignores the cap and
 // both the slot and the take work at any price.
 const anvilMaxCost = 39
 
-// anvilMaxNameLength is the rename field's character cap; a longer
+// anvilMaxNameLength is the filtered field's UTF-16 code-unit cap; a longer
 // name is ignored entirely, not disconnected.
 const anvilMaxNameLength = 50
 
@@ -104,10 +106,20 @@ func anvilCompute(target, sacrifice ItemStack, pending string, creative bool) (o
 	if target.Empty() {
 		return ItemStack{}, 0, 0, 0
 	}
+	// StringUtil.isBlank includes both Java whitespace and space chars.
+	// U+0085 is a Go whitespace rune but neither Java category.
+	if strings.IndexFunc(pending, func(r rune) bool { return r == 0x85 || !unicode.IsSpace(r) }) < 0 {
+		pending = ""
+	}
 	renamed := pending != target.Name
 	maxDmg := MaxDamageOfID(target.ID)
 
 	var work int32
+	material := maxDmg > 0 && repairMaterialOf(target, sacrifice)
+	book := sacrifice.ID == world.ItemIDs["enchanted_book"]
+	if !sacrifice.Empty() && !material && !book && (sacrifice.ID != target.ID || maxDmg == 0) {
+		return ItemStack{}, 0, 0, 0
+	}
 	switch {
 	case !sacrifice.Empty() && sacrifice.ID == target.ID && maxDmg > 0 && target.Damage > 0:
 		// Same-item combine: the sacrifice's remaining durability
@@ -128,7 +140,7 @@ func anvilCompute(target, sacrifice ItemStack, pending string, creative bool) (o
 		}
 		out.RepairCost = anvilBumpedCost(target, sacrifice)
 		work, useL, useR = 2, 1, 1
-	case maxDmg > 0 && target.Damage > 0 && repairMaterialOf(target, sacrifice):
+	case material && target.Damage > 0:
 		// Material repair: each unit heals floor(max/4) of damage,
 		// the floor dividing before the multiplication the way the
 		// real per-unit loop does.
@@ -145,23 +157,72 @@ func anvilCompute(target, sacrifice ItemStack, pending string, creative bool) (o
 		out.RepairCost = anvilBumpedCost(target, sacrifice)
 		work, useL, useR = units, 1, units
 	default:
-		if !renamed {
+		if material {
+			return ItemStack{}, 0, 0, 0
+		}
+		if !renamed && sacrifice.Empty() {
 			return ItemStack{}, 0, 0, 0
 		}
 		out = target
 		useL, useR = target.Count, 0
 	}
+	if !sacrifice.Empty() && !material {
+		var enchCost int32
+		var refused bool
+		out, enchCost, refused = anvilMergeEnchantments(out, sacrifice, creative)
+		if refused {
+			return ItemStack{}, 0, 0, 0
+		}
+		work += enchCost
+		useL, useR = target.Count, sacrifice.Count
+	}
+	if work == 0 && !renamed {
+		return ItemStack{}, 0, 0, 0
+	}
+	if work > 0 {
+		out.RepairCost = anvilBumpedCost(target, sacrifice)
+	}
 	if renamed {
 		out.Name = pending
 	}
-	cost = target.RepairCost + sacrifice.RepairCost + work
+	total := int64(target.RepairCost) + int64(sacrifice.RepairCost) + int64(work)
 	if renamed {
-		cost++
+		total++
+	}
+	if total > 2147483647 {
+		total = 2147483647
+	}
+	if total < 0 {
+		total = 0
+	}
+	cost = int32(total)
+	// A rename alone remains affordable regardless of prior work penalty.
+	if work == 0 && renamed && cost > anvilMaxCost {
+		cost = anvilMaxCost
 	}
 	if !creative && cost > anvilMaxCost {
 		return ItemStack{}, cost, useL, useR
 	}
 	return out, cost, useL, useR
+}
+
+// anvilValidatedName applies the measured 26.2 AnvilMenu.validateName
+// rules: discard forbidden chat characters before checking the 50 UTF-16
+// code-unit limit. Supplementary characters occupy two units.
+func anvilValidatedName(name string) (string, bool) {
+	var filtered strings.Builder
+	units := 0
+	for _, r := range name {
+		if r < 32 || r == 127 || r == '§' {
+			continue
+		}
+		filtered.WriteRune(r)
+		units++
+		if r > 0xffff {
+			units++
+		}
+	}
+	return filtered.String(), units <= anvilMaxNameLength
 }
 
 // anvilBumpedCost is a worked output's repair_cost: the higher prior
@@ -170,6 +231,9 @@ func anvilBumpedCost(target, sacrifice ItemStack) int32 {
 	rc := target.RepairCost
 	if sacrifice.RepairCost > rc {
 		rc = sacrifice.RepairCost
+	}
+	if rc > 1073741823 {
+		return 2147483647
 	}
 	return rc*2 + 1
 }

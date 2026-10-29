@@ -183,13 +183,14 @@ func readUint(r io.Reader, size int) (uint64, error) {
 }
 
 func writeString(w io.Writer, s string) error {
-	if len(s) > maxString {
-		return ErrBadString
-	}
-	if err := writeUint(w, 2, uint64(len(s))); err != nil {
+	encoded, err := encodeModifiedUTF8(s)
+	if err != nil {
 		return err
 	}
-	_, err := w.Write([]byte(s))
+	if err := writeUint(w, 2, uint64(len(encoded))); err != nil {
+		return err
+	}
+	_, err = w.Write(encoded)
 	return err
 }
 
@@ -205,5 +206,5 @@ func readString(r io.Reader) (string, error) {
 	if _, err := io.ReadFull(r, b); err != nil {
 		return "", errTrunc(err)
 	}
-	return string(b), nil
+	return decodeModifiedUTF8(b)
 }

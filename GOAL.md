@@ -155,7 +155,8 @@ Mojang server over the wire.
   grid-return, survival click restrictions, /gamemode command parity;
   anvil parity: menu 8 + title + cost property, combine arithmetic,
   material/unit repair (generated materials table), rename incl.
-  pending-name scoping and the 50-char drop, the 39-level survival
+  pending-name scoping, filtered 50-UTF16-unit limit, Java NBT strings,
+  enchantment book/item merging and prior-work pricing, the 39-level survival
   gate, charged/quick-move/poor/throw takes, the 12% degrade roll,
   invalid pairs, silent output clicks, close returns with no close
   echo; other menus - enchanting, brewing, beacon, lectern - still
@@ -163,7 +164,7 @@ Mojang server over the wire.
 - [~] Survival mode: health, hunger (two-clock regen + deferred
       exhaustion drain + i-frames measured), starvation, void, death/
       respawn, item drops on death — eating/fall damage present; adventure
-      projectile/fall damage and fractional fall flooring wire-pinned)
+      projectile/fall damage and fractional fall flooring wire-pinned
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
   shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
   /recipe give|take + RecipeBookAdd/Remove wire-parity including the
@@ -16800,3 +16801,35 @@ no flee; unsneak → flee). Green both legs.
   collection adapters exclude action menus/hoppers needing take callbacks.
   Offhand support retains existing specialized output/typed-slot restrictions.
   These pins do not establish every menu's complete vanilla click semantics.
+
+
+## Slice — anvil enchantments and Unicode item names (2026-10-29)
+
+- **Measured:** vanilla 26.2 menu transactions, its official enchantment
+  datapack `anvil_cost` facts, and JDK 25 javap measurements of
+  `AnvilMenu.createResult`, name validation and prior-work pricing. Oracle
+  jar SHA-1 is `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Independent
+  JDK 25 `DataInputStream`/`DataOutputStream` probes and vanilla custom-name
+  packets establish modified UTF-8: NUL uses C080, supplementary characters
+  use encoded UTF-16 surrogate pairs, and lengths cap at 65,535 encoded bytes.
+- **Implemented:** book/item enchantment merging, equal-level upgrades and
+  caps, datapack-derived costs, book discounts, applicability/creative rules,
+  exclusivity rejection/penalties, combined durability work, saturated prior
+  costs and full input consumption. The generator emits `AnvilCost` facts
+  reproducibly. Names filter forbidden characters before counting UTF-16
+  units; Java blank names clear existing names; rename-only prices cap at 39.
+  Shared NBT and item custom-name paths use an independently written modified
+  UTF-8 codec with lossless lone-surrogate handling. Outbound profile validation
+  rejects malformed/oversized names, including nested items, before writing.
+- **Pinned:** all 12 `TestAnvilEnchantmentParity` scenarios pass against vanilla
+  (245.939 s), comparing output/components, cost, consumed inputs, cursor, XP
+  and sound. Expanded `TestAnvilParity` passes (269.92 s), including BMP and
+  supplementary boundaries, filtering, blank clearing and prior-cost-100
+  rename pricing. Its XP setup now waits for actual packets instead of losing
+  them to a command barrier. NBT fixtures cover Java acceptance/rejection,
+  encoded limits and Unicode round trips; item tests assert exact name wire
+  bytes and both profiles' rejection without output (1.292 s). No oracle skips.
+- **Remaining:** order-sensitive conflicting enchantments within one sacrifice
+  and arbitrary component override combinations are not established by these
+  menu pins. Unicode compound-key hash ordering remains separate from string
+  encoding; this slice does not claim complete NBT serialization ordering.
