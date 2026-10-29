@@ -57,3 +57,14 @@ func TestStructureSwampHutParity(t *testing.T) {
 func TestStructureIglooParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{18, 70, 22, 74}}, "igloos")
 }
+
+// TestStructureStrongholdParity pins a stronghold of the first ring:
+// the retry-until-portal-room loop, the weighted piece selection with
+// its imposed five-way crossing, depth and distance caps, filler
+// corridors, the move below sea level, the bury adaptation's
+// beardifier, the smooth stone selector walls, small doors, the
+// library, prison hall, room crossings and the portal room's frame
+// eyes and silverfish spawner.
+func TestStructureStrongholdParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{-108, 122, -100, 127}}, "strongholds")
+}
