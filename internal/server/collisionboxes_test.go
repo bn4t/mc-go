@@ -79,8 +79,8 @@ func TestCollisionBoxesTable(t *testing.T) {
 	})
 	t.Run("door closed plate", func(t *testing.T) {
 		got, ok := collisionBoxesOf(mkBlockState(t, "oak_door", map[string]string{"open": "false", "facing": "east", "half": "lower"}))
-		if !ok || len(got) != 1 || got[0][0] != 0.8125 {
-			t.Fatalf("closed east door boxes=%v ok=%v, want plate at x>=0.8125", got, ok)
+		if !ok || len(got) != 1 || got[0][0] != 0 || got[0][3] != 0.1875 {
+			t.Fatalf("closed east door boxes=%v ok=%v, want plate at x<=0.1875", got, ok)
 		}
 	})
 }

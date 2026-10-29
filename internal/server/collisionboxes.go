@@ -94,10 +94,9 @@ func collisionBoxesOf(blk world.Block) ([]cellBox, bool) {
 		return topPlate(0.1875), true
 
 	case strings.HasSuffix(short, "_door"):
-		// DoorBlock.boxZ(16,13,16): the closed plate sits on the
-		// facing edge; opening swings it onto the hinge edge —
-		// hinge=right turns counterclockwise, left clockwise.
-		facing := prop("facing")
+		// Runtime 26.2 door shapes: a full-height 3/16 plate on the
+		// opposite-facing edge. Opening rotates that edge by the hinge.
+		facing := dirOpposite(prop("facing"))
 		if prop("open") == "true" {
 			if prop("hinge") == "right" {
 				facing = dirCCW(facing)
@@ -105,7 +104,7 @@ func collisionBoxesOf(blk world.Block) ([]cellBox, bool) {
 				facing = dirCW(facing)
 			}
 		}
-		return []cellBox{edgePlate(facing, 0.1875, 0.8125)}, true
+		return []cellBox{edgePlate(facing, 0.1875, 1)}, true
 
 	case strings.HasSuffix(short, "_fence_gate"):
 		if prop("open") == "true" {

@@ -17304,3 +17304,9 @@ Final staging go build ./... PASS; focused scripted criterion test ran with defa
   deliberately not routed through a lethal-damage callback. Wire snapshots allow
   the nested burn chain to complete; they do not claim exact initial lava-contact
   tick alignment across item movement implementations.
+
+## Slice — directional door collision panels (2026-10-29)
+
+- **Measured:** Runtime official26.2 BlockState.getCollisionShape queries, JDK25.0.5, all16 facing/open/hinge states (both halves use the same local panel). Oracle SHA-1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`; factual log `work/fluid-collision-facts.log`, measurement wrapper `work/FluidShapeProbe.java`. Closed panels occupy the opposite-facing cell edge and are a full block high; hinge rotates that edge by90degrees. Thickness is3/16.
+- **Implemented:** narrow `*_door` case fixes panel side and full height while preserving independently measured hinge directions. Existing closed-east unit expectation is corrected. No trapdoor/decorated-pot or connected-arm cases belong to this slice.
+- **Pinned:** `TestDoorDirectionalCollisionFacts` passes32half-state fact checks (0.115s). Dedicated `TestDoorDirectionalMovementParity` passes (39.57s, no skips) all16 states, each with accepted clearance and rejected entry at the upper-door's topmost3/16 (32moves total). Immutable binary `work/door-collision.test` uses the verified movement snapshot plus only this door branch, `work/run-oracle.sh` and flock. Log `work/door-collision.log`. Staging artifact `work/door-collision-stage/owned.patch` contains only the door branch/legacy unit change; new tests are copied separately so concurrent fluid edits stay independent.
