@@ -149,8 +149,8 @@ Mojang server over the wire.
       custom potion payloads and complete splash geometry remain open
 
 ### Player
-- [~] Movement tracking, keep-alive, chat, tab list; stationary player pose uses
-      measured collision shapes and fit tolerance; spectator UUID teleport
+- [~] Movement tracking, keep-alive, chat, tab list; player pose and movement use
+      positioned collision shapes, measured fit tolerances and effective scale; spectator UUID teleport
       copies target position/orientation and crosses dimensions (wire-pinned)
 - [~] Full inventory + container protocol (pick-block hotbar selection and
   creative insertion; bundles preserve contents, support selection/clicks and
@@ -17368,3 +17368,9 @@ now forces a harmless invalid-SWAP stale-state resync after admin setup to
 isolate bundle semantics. This is a real broadcast/tick parity gap, delegated
 to menus_complete for a separate slice after gesture integration; it is not
 resolved or established equivalent by the bundle tests.
+
+## Slice — effective player scale in pose and movement dimensions (2026-10-29)
+
+- **Measured:** JDK25.0.5 javap facts from official26.2 `LivingEntity.getScale/getDimensions`, `EntityDimensions.scale/makeBoundingBox`, `Avatar` pose declarations, `Attributes` scale range and `RangedAttribute.sanitizeValue`. Runtime public EntityDimensions API facts: `work/player-scale-facts.log`, wrapper `work/PlayerScaleProbe.java`. Oracle SHA-1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Effective scale is ranged1/16..16 (NaN becomes minimum), narrowed double→float before width/height float multiplication and float half-width. Sleeping bypasses scale; fixed dying dimensions also remain unchanged.
+- **Implemented:** pose clearance and live synced-pose movement dimensions share effective base/modifier scale and measured float arithmetic. The default unscaled pose helper remains available for independent callers. Item/projectile launch origins and other consumers of static player dimensions are outside this movement/pose slice.
+- **Pinned:** `TestPlayerScalePoseMovementParity` passes ten vanilla comparisons (34.55s, no skips): small standing/crouching, normal crouch/crawl, large crouch/crawl, additive+total scale modifiers, narrower/wider lateral clearance and minimum clamping. It establishes acknowledged decimal-coordinate waypoints and exact target start/pose predicates before issuing each move. `TestPlayerScaleFloatDimensions`/`TestPlayerEffectiveScaleDimensions` pass (0.134s), including exact0.7 float facts, double narrowing, modifier order, min/max/NaN and fixed sleeping/dying exemptions. Immutable binary `work/player-scale-v2.test` uses HEAD e36aa2c plus only owned scale files, `work/run-oracle.sh` and flock. Final log `work/player-scale-v2.log`; first fixture failure remains preserved in `work/player-scale.log`. Frozen staging files and SHA256 manifest are in `work/player-scale-stage`.

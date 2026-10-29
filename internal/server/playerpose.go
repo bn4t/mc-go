@@ -11,16 +11,25 @@ import (
 // STANDING entry in vanilla's getOrDefault. EntityDimensions stores
 // float dimensions; widen those values only after its float half-width.
 func playerPoseDims(pose int32) (halfW, height float64) {
+	return playerPoseDimsAtScale(pose, 1)
+}
+
+// LivingEntity.getDimensions applies the effective scale through
+// EntityDimensions.scale. Float width/height multiply before the float
+// half-width calculation; sleeping and dying dimensions are fixed.
+func playerPoseDimsAtScale(pose int32, scale float32) (halfW, height float64) {
+	width, h := float32(.6), float32(1.8)
 	switch pose {
-	case 2, 7: // SLEEPING, DYING
-		return float64(float32(0.1)), float64(float32(0.2))
-	case 5: // CROUCHING
-		return float64(float32(0.3)), 1.5
-	case 1, 3, 4: // FALL_FLYING, SWIMMING, SPIN_ATTACK
-		return float64(float32(0.3)), float64(float32(0.6))
-	default: // STANDING and every unmapped pose
-		return float64(float32(0.3)), float64(float32(1.8))
+	case 2, 7:
+		width, h, scale = .2, .2, 1
+	case 5:
+		h = 1.5
+	case 1, 3, 4:
+		h = .6
 	}
+	width *= scale
+	h *= scale
+	return float64(width / 2), float64(h)
 }
 
 // playerDesiredPose is Player.getDesiredPose: the pose the input state
@@ -49,7 +58,7 @@ func playerDesiredPose(sess *Session) int32 {
 func (s *Server) playerCanFit(sess *Session, pose int32) bool {
 	x, y, z, _, _, _ := sess.Pos()
 	d := sess.dimension()
-	half, h := playerPoseDims(pose)
+	half, h := s.playerRecordPoseDims(&sess.playerRecord, pose)
 	// Player.canPlayerFitWithinBlocksAndEntitiesWhen deflates the pose
 	// box by 1e-7. Test the full shape, including its lower and lateral
 	// bounds: a top slab above the head is not a solid cell-height column.

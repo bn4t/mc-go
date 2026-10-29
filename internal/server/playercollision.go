@@ -73,5 +73,22 @@ func (s *Server) playerCollisionDims(player *playerRecord) (float64, float64) {
 	if entity, ok := s.entities.Get(player.entityID.Load()); ok {
 		pose = entity.Pose
 	}
-	return playerPoseDims(pose)
+	return s.playerRecordPoseDims(player, pose)
+}
+
+// Scale is a ranged attribute (1/16..16); vanilla sanitizes NaN to
+// the minimum and narrows the effective double value to float.
+func (s *Server) playerRecordPoseDims(player *playerRecord, pose int32) (float64, float64) {
+	scale := 1.0
+	if entity, ok := s.entities.Get(player.entityID.Load()); ok {
+		if base, ok := entity.AttrBase["scale"]; ok {
+			scale = base
+		}
+		scale = attrValue(scale, entity.AttrMods["scale"])
+	}
+	if math.IsNaN(scale) {
+		scale = .0625
+	}
+	scale = math.Max(.0625, math.Min(16, scale))
+	return playerPoseDimsAtScale(pose, float32(scale))
 }
