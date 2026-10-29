@@ -27,11 +27,13 @@ import (
 //   - the structure starts saved in every start chunk of the area (any
 //     chunk status): structure id, pieces in order with their type,
 //     bounding box, position, rotation, pool element and junctions;
+//   - every chunk's STRUCTURE_REFERENCES, in saved order;
 //   - every interior chunk block for block, plus the positions of its
-//     block entities.
+//     block entities and their loot table and loot seed.
 //
-// Block entity contents (loot seeds, spawner data) and template
-// entities (villagers, iron golems, cats) are not compared.
+// Other block entity data (spawner configuration, decorated pot
+// sherds, …) and template entities (villagers, iron golems, cats) are
+// not compared.
 
 // structureOverrides is the stage data: biome features stripped (or
 // kept by keepFeature), carvers and surface on, and every structure set
@@ -552,10 +554,13 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 func compareStructBlockEntities(t *testing.T, saved savedChunk, p *worldgen.ProtoChunk, cx, cz, minY int32) int {
 	t.Helper()
 	want := map[[3]int32]string{}
+	wantTag := map[[3]int32]map[string]any{}
 	if l, ok := saved.raw["block_entities"].(nbt.List); ok {
 		for _, it := range l.Items {
 			m := it.(map[string]any)
-			want[[3]int32{nbtI(m["x"]), nbtI(m["y"]), nbtI(m["z"])}] = strings.TrimPrefix(fmt.Sprint(m["id"]), "minecraft:")
+			pos := [3]int32{nbtI(m["x"]), nbtI(m["y"]), nbtI(m["z"])}
+			want[pos] = strings.TrimPrefix(fmt.Sprint(m["id"]), "minecraft:")
+			wantTag[pos] = m
 		}
 	}
 	var got [][3]int32
@@ -570,6 +575,16 @@ func compareStructBlockEntities(t *testing.T, saved savedChunk, p *worldgen.Prot
 		seen[pos] = true
 		if _, ok := want[pos]; ok {
 			n++
+			// Loot table and seed: the template's table (or a rule's
+			// append_loot) and the seed drawn from the piece random.
+			w, g := wantTag[pos], p.BlockEntityData[pos]
+			for _, k := range []string{"LootTable", "LootTableSeed"} {
+				wv, wok := w[k]
+				gv, gok := g[k]
+				if wok != gok || (wok && fmt.Sprint(wv) != fmt.Sprint(gv)) {
+					t.Errorf("chunk %d,%d: block entity %s at %v %s: mc-go %v, vanilla %v", cx, cz, want[pos], pos, k, gv, wv)
+				}
+			}
 			continue
 		}
 		t.Errorf("chunk %d,%d: mc-go block entity block at %v, none saved by vanilla", cx, cz, pos)

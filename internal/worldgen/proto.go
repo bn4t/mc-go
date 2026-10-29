@@ -29,6 +29,9 @@ type ProtoChunk struct {
 	// PostProcess holds positions setBlock marked for post-processing
 	// (BlockState.getPostProcessPos).
 	PostProcess [][3]int32
+	// BlockEntityData holds block entity NBT placed with blocks
+	// (structure templates), by absolute position.
+	BlockEntityData map[[3]int32]map[string]any
 }
 
 func (p *ProtoChunk) idx(x, y, z int32) int32 { return ((y-p.MinY)*16+z)*16 + x }

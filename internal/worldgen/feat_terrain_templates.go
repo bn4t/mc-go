@@ -532,8 +532,24 @@ func (t *structTemplate) placeInWorld(rg *Region, off, pivot BlockPos, s *placeS
 		}
 		placed = append(placed, b.pos)
 		inPlaced[b.pos] = true
-		if b.nbt != nil && hasBlockEntity(st) && isRandomizable(st) {
-			random.NextLong()
+		if b.nbt != nil && hasBlockEntity(st) {
+			// The block entity loads the template data; a container
+			// takes a fresh loot seed from the placement random.
+			be := map[string]any{}
+			for k, v := range b.nbt {
+				be[k] = v
+			}
+			if isRandomizable(st) {
+				// The seed is drawn regardless; the block entity keeps
+				// it only with a loot table (tryLoadLootTable).
+				seed := random.NextLong()
+				if _, ok := be["LootTable"]; ok {
+					be["LootTableSeed"] = seed
+				} else {
+					delete(be, "LootTableSeed")
+				}
+			}
+			rg.setBlockEntity(b.pos, be)
 		}
 		if !s.keepLiquids {
 			continue
