@@ -73,6 +73,8 @@ type naturalSpawnState struct {
 	biomeMu sync.Mutex
 	biomes  map[string]*biomeSpawnSettings
 	tags    map[string]map[string]bool
+	// catMasks caches per-chunk spawnable-category masks (biomeMu).
+	catMasks map[*dimension]*chunkCatMasks
 
 	colMu sync.Mutex
 	cols  map[*world.World]map[[2]int]*spawnColumns
@@ -81,7 +83,10 @@ type naturalSpawnState struct {
 	genPending []pendingGenSpawn
 
 	litMu sync.Mutex
-	lit   map[*world.World]map[[2]int]bool
+	// inChunkGen marks a spawnMobsForChunkGeneration pass: its checks
+	// read a WorldGenRegion (sky darken 0, no entities).
+	inChunkGen bool
+	lit        map[*world.World]map[[2]int]bool
 }
 
 // pendingGenSpawn is one freshly generated chunk awaiting
@@ -391,6 +396,10 @@ func spawnFactsOf(d *dimension) dimSpawnFacts {
 // thunderLevel). The nether's dimension attribute pins 4.0; the end
 // keeps the 15 default.
 func (s *Server) spawnSkyDarken(d *dimension) int {
+	if s.naturalSpawn.inChunkGen {
+		// WorldGenRegion.getSkyDarken is 0.
+		return 0
+	}
 	switch d.name {
 	case dimNether:
 		return 11
@@ -453,14 +462,26 @@ func (s *Server) spawnLight(d *dimension, p world.Pos) (sky, block int) {
 			st.lit[d.w] = m
 		}
 		done := m[[2]int{cx, cz}]
-		m[[2]int{cx, cz}] = true
 		st.litMu.Unlock()
 		if !done {
+			// Light only what exists: materializing a missing
+			// neighbour would generate it (and its spawns) just to
+			// answer a spawn check.
+			all := true
 			for dz := -1; dz <= 1; dz++ {
 				for dx := -1; dx <= 1; dx++ {
+					if d.w.PeekBaseChunk(cx+dx, cz+dz) == nil {
+						all = false
+						continue
+					}
 					ensureSkyChunk(d, cx+dx, cz+dz)
 					seedGenBlockLight(d, cx+dx, cz+dz)
 				}
+			}
+			if all {
+				st.litMu.Lock()
+				m[[2]int{cx, cz}] = true
+				st.litMu.Unlock()
 			}
 		}
 	}
@@ -516,7 +537,7 @@ type spawnTickContext struct {
 	lastType    string
 	lastCharge  float64
 	lastChecked bool
-	biomeCells  map[[2]int]map[string]bool
+	catMask     map[[2]int]uint8
 }
 
 type spawnCharge struct {
@@ -654,7 +675,62 @@ func chunkLoaded(d *dimension, cx, cz int) bool {
 	return d.w.PeekBaseChunk(cx, cz) != nil
 }
 
+// chunkSpawnReady is a loaded chunk whose eight neighbours are loaded
+// too — vanilla's ticking chunks always are. Spawn checks read light
+// and blocks across the border; in a generated world reading a
+// missing neighbour would generate it on the spot.
+func chunkSpawnReady(d *dimension, cx, cz int) bool {
+	if !d.w.Provided() {
+		return true
+	}
+	for dx := -1; dx <= 1; dx++ {
+		for dz := -1; dz <= 1; dz++ {
+			if d.w.PeekBaseChunk(cx+dx, cz+dz) == nil {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// dimMaySpawn is a cheap early-out for single-biome levels: when the
+// level's biome and every /fillbiome cell list nothing, no position
+// can roll a spawner entry (the flat comparison world's the_void).
+func (s *Server) dimMaySpawn(d *dimension) bool {
+	if d.w.Provided() {
+		return true
+	}
+	spawnable := func(b string) bool {
+		bs := s.biomeSpawns(b)
+		for c := mobCategory(0); c < catMisc; c++ {
+			if !bs.empty(c) {
+				return true
+			}
+		}
+		return false
+	}
+	if spawnable(d.w.Biome()) {
+		return true
+	}
+	d.biomesMu.RLock()
+	defer d.biomesMu.RUnlock()
+	checked := map[string]bool{}
+	for _, b := range d.biomes {
+		if checked[b] {
+			continue
+		}
+		checked[b] = true
+		if spawnable(b) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) naturalSpawnDim(d *dimension, spawnEnemies, spawnPersistent bool) {
+	if !s.dimMaySpawn(d) {
+		return
+	}
 	players := s.spawnPlayersIn(d)
 	if len(players) == 0 {
 		return
@@ -687,7 +763,7 @@ func (s *Server) naturalSpawnDim(d *dimension, spawnEnemies, spawnPersistent boo
 	// and have a player in reach (ChunkMap.collectSpawningChunks).
 	var cands [][2]int
 	for k := range seen {
-		if !c.entityTicking(k[0], k[1]) || !chunkLoaded(d, k[0], k[1]) || !c.anyPlayerCloseForSpawning(k[0], k[1]) {
+		if !c.entityTicking(k[0], k[1]) || !chunkSpawnReady(d, k[0], k[1]) || !c.anyPlayerCloseForSpawning(k[0], k[1]) {
 			continue
 		}
 		cands = append(cands, k)
@@ -695,7 +771,7 @@ func (s *Server) naturalSpawnDim(d *dimension, spawnEnemies, spawnPersistent boo
 	if len(cands) == 0 {
 		return
 	}
-	c.biomeCells = s.spawnBiomeCells(d, cands)
+	c.catMask = map[[2]int]uint8{}
 	// Only chunks whose biomes list anything matter; skip the whole
 	// state build when no candidate could spawn at all.
 	any := false
@@ -748,73 +824,100 @@ func (s *Server) naturalSpawnDim(d *dimension, spawnEnemies, spawnPersistent boo
 	}
 }
 
-// spawnBiomeCells gathers the quart biomes each candidate's 3x3 could
-// zoom into — a cheap filter for chunks with nothing to spawn.
-func (s *Server) spawnBiomeCells(d *dimension, cands [][2]int) map[[2]int]map[string]bool {
-	own := map[[2]int]map[string]bool{}
-	add := func(k [2]int, b string) {
-		m := own[k]
-		if m == nil {
-			m = map[string]bool{}
-			own[k] = m
+// chunkCatMasks is a per-dimension cache: for every chunk, the bitmask
+// of categories its own quart biomes list anything for. Generated
+// biome cells never change; /fillbiome bumps biomesRev and rebuilds
+// the override index.
+type chunkCatMasks struct {
+	w         *world.World
+	rev       uint64
+	overrides map[[2]int]map[string]bool
+	masks     map[[2]int]uint8
+}
+
+func (s *Server) biomeCatMask(b string) uint8 {
+	bs := s.biomeSpawns(b)
+	var m uint8
+	for c := mobCategory(0); c < catMisc; c++ {
+		if !bs.empty(c) {
+			m |= 1 << c
 		}
-		m[b] = true
 	}
-	need := map[[2]int]bool{}
-	for _, k := range cands {
-		for dx := -1; dx <= 1; dx++ {
-			for dz := -1; dz <= 1; dz++ {
-				need[[2]int{k[0] + dx, k[1] + dz}] = true
-			}
-		}
+	return m
+}
+
+// ownCatMask is the category mask of chunk k's own biome cells.
+func (s *Server) ownCatMask(d *dimension, k [2]int) uint8 {
+	st := &s.naturalSpawn
+	st.biomeMu.Lock()
+	if st.catMasks == nil {
+		st.catMasks = map[*dimension]*chunkCatMasks{}
 	}
-	for k := range need {
-		if d.w.Provided() {
-			if bc := d.w.PeekBaseChunk(k[0], k[1]); bc != nil {
-				for _, b := range bc.Biomes {
-					add(k, b)
-				}
-				continue
-			}
-		}
-		add(k, d.w.Biome())
-	}
+	cm := st.catMasks[d]
+	st.biomeMu.Unlock()
 	d.biomesMu.RLock()
-	for q, b := range d.biomes {
-		add([2]int{q[0] >> 2, q[2] >> 2}, b)
+	rev := d.biomesRev
+	if cm == nil || cm.w != d.w || cm.rev != rev {
+		cm = &chunkCatMasks{w: d.w, rev: rev, overrides: map[[2]int]map[string]bool{}, masks: map[[2]int]uint8{}}
+		for q, b := range d.biomes {
+			ck := [2]int{q[0] >> 2, q[2] >> 2}
+			if cm.overrides[ck] == nil {
+				cm.overrides[ck] = map[string]bool{}
+			}
+			cm.overrides[ck][b] = true
+		}
+		st.biomeMu.Lock()
+		st.catMasks[d] = cm
+		st.biomeMu.Unlock()
 	}
 	d.biomesMu.RUnlock()
-	out := map[[2]int]map[string]bool{}
-	for _, k := range cands {
-		m := map[string]bool{}
-		for dx := -1; dx <= 1; dx++ {
-			for dz := -1; dz <= 1; dz++ {
-				for b := range own[[2]int{k[0] + dx, k[1] + dz}] {
-					m[b] = true
-				}
+	if m, ok := cm.masks[k]; ok {
+		return m
+	}
+	var m uint8
+	if bc := d.w.PeekBaseChunk(k[0], k[1]); d.w.Provided() && bc != nil {
+		seen := map[string]bool{}
+		for _, b := range bc.Biomes {
+			if !seen[b] {
+				seen[b] = true
+				m |= s.biomeCatMask(b)
 			}
 		}
-		out[k] = m
+	} else {
+		m = s.biomeCatMask(d.w.Biome())
 	}
-	return out
+	for b := range cm.overrides[k] {
+		m |= s.biomeCatMask(b)
+	}
+	if !d.w.Provided() || d.w.PeekBaseChunk(k[0], k[1]) != nil {
+		cm.masks[k] = m
+	}
+	return m
+}
+
+// chunkCatMask is the categories a candidate chunk could spawn: its
+// own cells and its neighbours' (the biome zoom reaches across a chunk
+// border).
+func (s *Server) chunkCatMask(c *spawnTickContext, k [2]int) uint8 {
+	if m, ok := c.catMask[k]; ok {
+		return m
+	}
+	var m uint8
+	for dx := -1; dx <= 1; dx++ {
+		for dz := -1; dz <= 1; dz++ {
+			m |= s.ownCatMask(c.d, [2]int{k[0] + dx, k[1] + dz})
+		}
+	}
+	c.catMask[k] = m
+	return m
 }
 
 func (s *Server) chunkMaySpawn(c *spawnTickContext, k [2]int) bool {
-	for cat := mobCategory(0); cat < catMisc; cat++ {
-		if s.chunkMaySpawnCat(c, k, cat) {
-			return true
-		}
-	}
-	return false
+	return s.chunkCatMask(c, k) != 0
 }
 
 func (s *Server) chunkMaySpawnCat(c *spawnTickContext, k [2]int, cat mobCategory) bool {
-	for b := range c.biomeCells[k] {
-		if !s.biomeSpawns(b).empty(cat) {
-			return true
-		}
-	}
-	return false
+	return s.chunkCatMask(c, k)&(1<<cat) != 0
 }
 
 // buildSpawnCounts is NaturalSpawner.createState's entity pass.
@@ -1054,7 +1157,7 @@ func (s *Server) rightDistanceForSpawn(c *spawnTickContext, cx, cz int, p world.
 	if pcx == cx && pcz == cz {
 		return true
 	}
-	return c.entityTicking(pcx, pcz) && chunkLoaded(c.d, pcx, pcz)
+	return c.entityTicking(pcx, pcz) && chunkSpawnReady(c.d, pcx, pcz)
 }
 
 // randomSpawnEntry is getRandomSpawnMobAt: water ambient in a
@@ -1120,7 +1223,7 @@ func (s *Server) validPositionForMob(d *dimension, name string, x, y, z, dist fl
 	if s.walkTargetValue(d, name, p) < 0 {
 		return false
 	}
-	return s.spawnObstructionOk(d, name, x, y, z)
+	return s.spawnObstructionOk(d, name, x, y, z, true)
 }
 
 // freshRemoveWhenFarAway is removeWhenFarAway for a just-created mob

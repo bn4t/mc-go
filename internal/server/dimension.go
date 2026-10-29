@@ -54,6 +54,9 @@ type dimension struct {
 	// s.biomeAt.
 	biomes   map[[3]int]string
 	biomesMu sync.RWMutex
+	// biomesRev counts writes to biomes (under biomesMu) so derived
+	// indexes know when to rebuild.
+	biomesRev uint64
 	// ultraWarm marks a dimension type with the ultra_warm flag (the
 	// nether): lava spreads like water there and flows ten times
 	// faster, and water evaporates.

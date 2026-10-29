@@ -49,13 +49,63 @@ func (s *Server) chunkGenSpawnStep() {
 	pend := st.genPending
 	st.genPending = nil
 	st.genMu.Unlock()
+	if len(pend) == 0 {
+		return
+	}
+	var keep []pendingGenSpawn
+	windows := map[string][][3]int{}
+	s.sessions.Range(func(_, v any) bool {
+		p := v.(*Session)
+		if p.state.Load() != StatePlay {
+			return true
+		}
+		x, _, z, _, _, _ := p.Pos()
+		r := max(p.viewRadius(s.ViewDistance), 1)
+		windows[p.dimName()] = append(windows[p.dimName()], [3]int{int(math.Floor(x)) >> 4, int(math.Floor(z)) >> 4, r})
+		return true
+	})
 	for _, p := range pend {
 		d := s.dims[p.dim]
 		if d == nil || d.terrain == nil {
 			continue
 		}
+		// A chunk reaches the SPAWN status only on its way to FULL:
+		// chunks generated merely as neighbours (light, features)
+		// wait until a player's window takes them in and their 3x3 is
+		// there — otherwise the spawn checks' light reads would pull
+		// in ever more neighbours.
+		if !chunkGenSpawnReady(d, p.cx, p.cz, windows[p.dim]) {
+			keep = append(keep, p)
+			continue
+		}
 		s.spawnMobsForChunkGeneration(d, p.cx, p.cz, p.biome)
 	}
+	if len(keep) > 0 {
+		st.genMu.Lock()
+		st.genPending = append(keep, st.genPending...)
+		st.genMu.Unlock()
+	}
+}
+
+func chunkGenSpawnReady(d *dimension, cx, cz int, windows [][3]int) bool {
+	in := false
+	for _, w := range windows {
+		if absi(cx-w[0]) <= w[2] && absi(cz-w[1]) <= w[2] {
+			in = true
+			break
+		}
+	}
+	if !in {
+		return false
+	}
+	for dx := -1; dx <= 1; dx++ {
+		for dz := -1; dz <= 1; dz++ {
+			if d.w.PeekBaseChunk(cx+dx, cz+dz) == nil {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // chunkGenSpawnHeight is getTopNonCollidingPos: the type's heightmap
@@ -121,6 +171,8 @@ func (s *Server) spawnMobsForChunkGeneration(d *dimension, cx, cz int, biome str
 		return
 	}
 	settings := s.biomeSpawns(biome)
+	s.naturalSpawn.inChunkGen = true
+	defer func() { s.naturalSpawn.inChunkGen = false }()
 	if settings.empty(catCreature) {
 		return
 	}
@@ -157,7 +209,7 @@ func (s *Server) spawnMobsForChunkGeneration(d *dimension, cx, cz int, biome str
 						continue
 					}
 					yaw := r.NextFloat() * 360
-					if s.walkTargetValue(d, e.typ, bp) >= 0 && s.spawnObstructionOk(d, e.typ, fx, fy, fz) {
+					if s.walkTargetValue(d, e.typ, bp) >= 0 && s.spawnObstructionOk(d, e.typ, fx, fy, fz, false) {
 						if s.naturalSpawnMob(d, e.typ, fx, fy, fz, yaw, true, s.spawnRng()) != nil {
 							placed = true
 						}

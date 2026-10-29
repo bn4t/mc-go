@@ -122,6 +122,8 @@ Mojang server over the wire.
 
 ### Entities
 - [~] Entity manager, spawn/remove/teleport
+      Natural spawning (caps, packs, placements, despawn) and
+      chunk-generation creatures: `TestNaturalSpawn*Parity`.
 - [x] Full entity type registry
 - [ ] Physics, collision, AI, pathfinding
 - [ ] Damage, health, death, drops, XP
@@ -15877,3 +15879,60 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:** nether and end features (only the feature groups in
   progress), the dragon fight's exit portal and end spikes, structures,
   fluid post-processing, generation speed.
+
+## Slice — natural mob spawning: NaturalSpawner, despawn, chunk-generation spawns (2026-10-29)
+
+- **Measured:** bytecode inspection (`javap -c -p`, JDK 25.0.5) of the
+  unpacked `server-26.2.jar` (sha256 `183c0499…98823e8`; bundler jar
+  `cdacdfb2…bb63ec5`): `MobCategory` (caps 70/10/15/5/5/5/20, friendly,
+  persistent, despawn 128/32, water_ambient 64), `NaturalSpawner`
+  (global cap `max*chunks/289`, 400-tick persistent cadence, the
+  spawn_mobs/spawn_monsters gamerule gates — 26.2 has no
+  spawn-monsters/spawn-animals server properties — getRandomPosWithin,
+  3 packs of ceil(nextFloat*4) attempts with ±(nextInt(6)-nextInt(6))
+  walks, the 24-block player/world-spawn exclusion, the
+  isValidSpawnPostitionForType → charge → isValidPositionForMob chain,
+  maxSpawnClusterSize / isMaxGroupSizeReached), `LocalMobCapCalculator`,
+  `PotentialCalculator`, the per-player chunk-reach rule (range-8
+  tracker, 128 blocks), biome `spawners`/`spawn_costs` (datapack
+  report), `SpawnPlacements` (type, heightmap and per-type rules, the
+  bootstrap lambdas), `SpawnPlacementTypes`, `Mob.checkDespawn`
+  overrides, `Monster.isDarkEnoughToSpawn`, the sky-darken curve from
+  the overworld day timeline plus rain/thunder blend, slime chunks and
+  moon-phase slime chance, and `spawnMobsForChunkGeneration` (WorldgenRandom
+  `setDecorationSeed(seed, minX, minZ)`, creature_spawn_probability,
+  ±(nextInt(5)-nextInt(5)) walk, width clamp, WorldGenRegion with no
+  entities and sky darken 0). Wire observation: `TestNaturalSpawnArenaParity`
+  and `TestNaturalSpawnChunkGenParity` (counts and positions on vanilla).
+- **Implemented:** `naturalspawn*.go`: per-tick spawning per dimension
+  (chunk counts, local caps, charges, category masks cached by
+  `biomesRev`, column heightmaps invalidated by a world change hook,
+  light reads without forcing generation), placement and per-type spawn
+  rules, finalizeSpawn-equivalents for natural spawns (variants, slime
+  sizes, equipment, jockeys), a rewritten despawn table
+  (`mobRemoveWhenFarAway` overrides, custom-persistence cases, the
+  PatrollingMonster `!patrolling || d>128` fix) and chunk-generation
+  creature spawns, deferred until the chunk is in a player window with
+  its 3x3 loaded. `Manager.Live()` replaces copying snapshots in the
+  push/cramming/flee steps (sprints with 70+ mobs were O(n²) copies).
+- **Pinned:** `TestNaturalSpawnArenaParity` (sealed dark, light-1 and
+  open-sky arenas: spawn_monsters off → 0; dark fills / lit stays 0;
+  monster cap 55..73 and creatures 10..15 after 4000 ticks; spawn_mobs
+  off → 0; measured vanilla {0,70,0,67,10,0} vs mc-go {0,69,0,71,11,0}).
+  `TestNaturalSpawnChunkGenParity` (seed 12345, features stripped,
+  server-side census of creatures around two grassland targets at
+  `/tick rate 1`: every creature twinned within 8 blocks both ways —
+  measured 18/18 and 19/19, 6 on the identical spawn point; ≥80% and
+  ≥3 identical required). Unit tests in `naturalspawn_test.go`
+  (category constants, sky darken, biome settings and tags, weighted
+  pick, placement blocks, slime-chunk density, dark-arena and cap
+  behaviour).
+- **Remaining:** structure spawn overrides (fortress, monuments, huts,
+  outposts), natural rules for guardian/endermite/silverfish/skeleton
+  horse traps, the region random for chunk-gen finalizeSpawn (ocelot,
+  variants), tropical fish variant data, mc-go chunk streaming while
+  `/tick freeze`d, mc-go "loaded" means a player's window,
+  `TestDespawnParity`/`TestPatrolSpawnParity` expectations fail on
+  the vanilla leg too (pre-existing; mc-go behaves identically), and
+  the mc-go sprint report is sometimes not delivered (tests fall back
+  to polling the game clock).

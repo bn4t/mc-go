@@ -235,18 +235,19 @@ func blocksBuildingType(name string) bool {
 }
 
 // spawnObstructionOk is Mob.checkSpawnObstruction on the fresh mob's
-// box: no liquid and unobstructed; the water families drop the liquid
-// test, and Ocelot additionally needs y >= sea level on grass or
-// leaves.
-func (s *Server) spawnObstructionOk(d *dimension, name string, x, y, z float64) bool {
+// box: no liquid and unobstructed by other entities; the water
+// families drop the liquid test. At chunk generation (entities false)
+// the WorldGenRegion lists no entities, so nothing obstructs. Ocelot
+// additionally needs y >= sea level on grass or leaves.
+func (s *Server) spawnObstructionOk(d *dimension, name string, x, y, z float64, entities bool) bool {
 	id, _ := EntityTypeID(name)
 	b := mobBounds(id)
 	half, h := b[0]/2, b[1]
 	x0, y0, z0, x1, y1, z1 := x-half, y, z-half, x+half, y+h, z+half
 	if waterObstructionTypes[name] {
-		return !s.boxObstructed(d, x0, y0, z0, x1, y1, z1)
+		return !entities || !s.boxObstructed(d, x0, y0, z0, x1, y1, z1)
 	}
-	if s.containsAnyLiquid(d, x0, y0, z0, x1, y1, z1) || s.boxObstructed(d, x0, y0, z0, x1, y1, z1) {
+	if s.containsAnyLiquid(d, x0, y0, z0, x1, y1, z1) || (entities && s.boxObstructed(d, x0, y0, z0, x1, y1, z1)) {
 		return false
 	}
 	if name == "ocelot" {

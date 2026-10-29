@@ -221,6 +221,7 @@ func spawnArena(s *Server, d *dimension, cx, cz int, light world.Block) {
 		}
 	}
 	d.biomesMu.Lock()
+	d.biomesRev++
 	if d.biomes == nil {
 		d.biomes = map[[3]int]string{}
 	}
@@ -296,7 +297,9 @@ func TestNaturalSpawnDarkArena(t *testing.T) {
 	t.Logf("spawned types: %v", types)
 	for name := range types {
 		switch name {
-		case "spider", "zombie", "zombie_villager", "skeleton", "creeper", "slime", "enderman", "witch", "zombie_horse", "bat", "player":
+		// chicken: a baby zombie's finalizeSpawn may mount it on a
+		// fresh chicken (chicken jockey).
+		case "spider", "zombie", "zombie_villager", "skeleton", "creeper", "slime", "enderman", "witch", "zombie_horse", "bat", "chicken", "player":
 		default:
 			t.Errorf("unexpected spawn %s for plains", name)
 		}

@@ -51,7 +51,14 @@ type patrolObs struct {
 // spawn/equipment fold.
 func patrolLeg(t *testing.T, addr string) (*patrolObs, func(time.Duration), *protocol.Writer, func()) {
 	t.Helper()
-	c, pr, pw := joinPlayBlackbox(t, addr, "Cap2")
+	return patrolLegView(t, addr, -1)
+}
+
+// patrolLegView is patrolLeg with a requested client view distance
+// (-1 sends no Client Information).
+func patrolLegView(t *testing.T, addr string, view int8) (*patrolObs, func(time.Duration), *protocol.Writer, func()) {
+	t.Helper()
+	c, pr, pw := joinPlayBlackboxView(t, addr, "Cap2", view)
 	pilType, _ := server.EntityTypeID("pillager")
 	obs := &patrolObs{
 		heads:     map[int32][]int32{},
@@ -70,6 +77,12 @@ func patrolLeg(t *testing.T, addr string) (*patrolObs, func(time.Duration), *pro
 				var b protocol.Buffer
 				b.VarInt(id)
 				_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, b.Bytes())
+			}
+		case server.IDPlayChunkBatchDone:
+			// A leg that asked for a view distance keeps acknowledging so
+			// the whole window streams (and counts as loaded).
+			if view >= 0 {
+				_ = ackChunkBatch(pw)
 			}
 		case server.IDPlaySystemChatCB:
 			obs.chat = append(obs.chat, chatTextBlackbox(t, p.Data))

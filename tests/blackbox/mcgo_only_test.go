@@ -159,7 +159,7 @@ func chatTextBlackbox(t *testing.T, data []byte) string {
 	t.Helper()
 	root, err := nbt.ReadUnnamed(bytes.NewReader(data))
 	if err != nil {
-		t.Fatalf("chat nbt: %v", err)
+		t.Fatalf("chat nbt: %v (% x)", err, data[:min(len(data), 256)])
 	}
 	return componentPlain(root)
 }
