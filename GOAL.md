@@ -18401,3 +18401,11 @@ Native sub-tick ordering, collected/active tick queries, clone tick copying, flu
 
 
 Limits: representative living, item and boat metadata paths are pinned. Vehicle gravity/travel, generic Entity.move, all native constructor defaults and every metadata scheduling case remain incomplete.
+
+## Slice — attribute command scaling and typed execution results (2026-10-29)
+
+- **Measured** — Actual Java26.2 result/success stores and getter feedback plus AttributeCommand numeric narrowing facts. Go1.27.3 / Temurin25.0.5+8; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Getters return scaled values truncated toward zero and saturated to signed32, while displaying the unscaled value. Zero queries succeed; mutations return1; runtime failures return0/failure. Native baselines PASS16.51s/14.95s exposed Go leaving the result sentinel999 untouched.
+- **Implemented** — Explicit scaled results for get/base get/modifier value get and family-scoped typed completion. Parser markers and text remain unchanged; no global command-source engine change.
+- **Pinned** — Frozen4-file patch SHA256 `440e7ec3f504f09ebebda70517de5c3ad14a1628450407860a47c7936ff2e39f`. Numeric/status/modifier/source-frame units PASS0.164s; native20-case two-leg differential PASS25.84s (`work/attribute-query-result-oracle-v1.log`). Independent sentinels detect omitted callbacks; controls cover negative fractions, zero, saturation, mutators and missing target/attribute/modifier failures.
+
+Attribute range sanitization, equipment projection in queries/packets and full argument-parser compatibility remain separate limits.

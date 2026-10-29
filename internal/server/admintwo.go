@@ -407,7 +407,8 @@ func attrValue(base float64, mods map[string]attrMod) float64 {
 	return v
 }
 
-func (s *Server) runAttribute(player string, args []string) reply {
+func (s *Server) runAttribute(player string, args []string) (out reply) {
+	defer func() { out = finishAttributeReply(out) }()
 	sender := s.findSessionByName(player)
 	if len(args) == 0 {
 		return errTokenEnd("command.unknown.command", 0)
@@ -436,32 +437,39 @@ func (s *Server) runAttribute(player string, args []string) reply {
 	sub := args[2]
 	switch sub {
 	case "get":
+		scale := 1.0
 		if len(args) > 3 {
-			if _, err := strconv.ParseFloat(args[3], 64); err != nil {
+			parsed, err := strconv.ParseFloat(args[3], 64)
+			if err != nil {
 				return errToken("parsing.double.expected", 4)
 			}
+			scale = parsed
 			if len(args) > 4 {
 				return errToken("command.unknown.argument", 5)
 			}
 		}
-		return componentReply(translatable("commands.attribute.value.get.success",
-			attrComp, nameArg, nestedCompound{key: "", value: attrValue(base, e.AttrMods[short])}))
+		value := attrValue(base, e.AttrMods[short])
+		return attributeQueryReply(translatable("commands.attribute.value.get.success",
+			attrComp, nameArg, nestedCompound{key: "", value: value}), value, scale)
 	case "base":
 		if len(args) < 4 {
 			return errTokenEnd("command.unknown.command", 4)
 		}
 		switch args[3] {
 		case "get":
+			scale := 1.0
 			if len(args) > 4 {
-				if _, err := strconv.ParseFloat(args[4], 64); err != nil {
+				parsed, err := strconv.ParseFloat(args[4], 64)
+				if err != nil {
 					return errToken("parsing.double.expected", 5)
 				}
+				scale = parsed
 				if len(args) > 5 {
 					return errToken("command.unknown.argument", 6)
 				}
 			}
-			return componentReply(translatable("commands.attribute.base_value.get.success",
-				attrComp, nameArg, nestedCompound{key: "", value: base}))
+			return attributeQueryReply(translatable("commands.attribute.base_value.get.success",
+				attrComp, nameArg, nestedCompound{key: "", value: base}), base, scale)
 		case "set":
 			if len(args) < 5 {
 				return errTokenEnd("command.unknown.command", 5)
@@ -564,17 +572,20 @@ func (s *Server) runAttribute(player string, args []string) reply {
 				return componentReply(commandError("commands.attribute.failed.no_modifier",
 					attrComp, nameArg, nestedCompound{key: "", value: id}))
 			}
+			scale := 1.0
 			if len(args) > 6 {
-				if _, err := strconv.ParseFloat(args[6], 64); err != nil {
+				parsed, err := strconv.ParseFloat(args[6], 64)
+				if err != nil {
 					return errToken("parsing.double.expected", 7)
 				}
+				scale = parsed
 				if len(args) > 7 {
 					return errToken("command.unknown.argument", 8)
 				}
 			}
-			return componentReply(translatable("commands.attribute.modifier.value.get.success",
+			return attributeQueryReply(translatable("commands.attribute.modifier.value.get.success",
 				nestedCompound{key: "", value: id}, attrComp, nameArg,
-				nestedCompound{key: "", value: m.value}))
+				nestedCompound{key: "", value: m.value}), m.value, scale)
 		}
 		return errToken("command.unknown.argument", 4)
 	}
