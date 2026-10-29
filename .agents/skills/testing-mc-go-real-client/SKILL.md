@@ -38,6 +38,14 @@ mc-go logs NOTHING on a failed join — the client screen is your only error sur
 3. Common bug class in mc-go: **registry ids out of range** — the client's decoder validates VarInt ids against the registries sent in config. If mc-go sends clock id 2 for a 2-entry world_clock registry, or attribute ids 84/132 for a 40-entry attribute registry, the client throws DecoderException. Always check sent ids against the registry size mc-go itself transmitted.
 4. Rejoins exercise a different code path (mc-go's `markJoined`/returning-player branch) — test disconnect → rejoin, not just first join.
 
+## Player-tick readiness
+
+For scripted combat or advancement probes, first observe the relevant inventory
+or state receipt, then measure player `play_time` statistic changes. World-time
+steps and elapsed wall time do not establish player cooldown readiness. Keep
+exact damage assertions and include a reduced tick-rate control when timing is
+the suspected cause.
+
 ## Tick-liveness check (do this before diagnosing tick-driven features)
 Survival dig, hunger drain, item despawn/pickup, furnaces, daylight advance all live in `Server.GameTick`, which only runs from `runGameLoop` (started by `startGameTicks` inside `Server.Serve`). If `main`/a frontend calls `fe.Serve(ln)` directly, that loop may never start while everything packet-driven still works.
 - Check: run `/time query gametime` twice a few seconds apart. Same number twice = the game clock is dead — every tick-driven feature will silently no-op even though packets are acked.

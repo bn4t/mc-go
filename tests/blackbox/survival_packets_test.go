@@ -3122,73 +3122,152 @@ func TestVoidDamagePackets(t *testing.T) {
 // attacks with an iron sword and Alice's health syncs to 14 (6 damage
 // from full).
 func TestWeaponDamagePackets(t *testing.T) {
-	addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
-		s.GameMode = server.GameModeSurvival
-	})
-	ca, pra, _ := joinPlayBlackbox(t, addr, "Alice")
-	defer ca.Close()
-	drainToJoinBlackbox(t, "alice", pra)
-	drainToQuietBlackbox(t, ca, pra, 400*time.Millisecond)
-	cb, prb, pwb := joinPlayBlackbox(t, addr, "Bob")
-	defer cb.Close()
+	for _, rate := range []float64{20, 16} {
+		t.Run(fmt.Sprintf("%gtps", rate), func(t *testing.T) {
+			addr := requireMcGoOnlyCfg(t, func(s *server.Server) {
+				s.GameMode = server.GameModeSurvival
+				s.SetTickRate(rate)
+			})
+			ca, pra, _ := joinPlayBlackbox(t, addr, "Alice")
+			defer ca.Close()
+			drainToJoinBlackbox(t, "alice", pra)
+			drainToQuietBlackbox(t, ca, pra, 400*time.Millisecond)
+			cb, prb, pwb := joinPlayBlackbox(t, addr, "Bob")
+			defer cb.Close()
 
-	aliceUUID := offlineUUIDBlackbox("Alice")
-	var aliceEID int32
-	deadline := time.Now().Add(10 * time.Second)
-	_ = cb.SetDeadline(deadline)
-	for aliceEID == 0 {
-		p, err := prb.ReadPacket()
-		if err != nil {
-			t.Fatalf("bob waiting alice: %v", err)
-		}
-		if p.ID != server.IDPlaySpawnEntity {
-			continue
-		}
-		r := protocol.NewPacketReader(p.Data)
-		eid, _ := r.VarInt()
-		u, _ := r.UUID()
-		if u == aliceUUID {
-			aliceEID = eid
-		}
-	}
-	sendChatBlackbox(t, pwb, server.IDPlayChatCommandSB, "give iron_sword 1")
-	// Select the sword (hotbar slot 0).
-	var held protocol.Buffer
-	held.Short(0)
-	if err := pwb.WritePacket(server.IDPlayHeldChangeSB, held.Bytes()); err != nil {
-		t.Fatal(err)
-	}
-	// Switching items starts the attack-strength cooldown: an iron
-	// sword at 1.6 attack speed needs 20/1.6 = 12.5 ticks ≈ 625 ms to
-	// reach full charge, on vanilla as much as on mc-go. Hit early and
-	// the scaled damage is a fraction of 6.
-	time.Sleep(750 * time.Millisecond)
-	var atk protocol.Buffer
-	atk.VarInt(aliceEID)
-	if err := pwb.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
-		t.Fatal(err)
-	}
+			aliceUUID := offlineUUIDBlackbox("Alice")
+			var aliceEID int32
+			deadline := time.Now().Add(10 * time.Second)
+			_ = cb.SetDeadline(deadline)
+			for aliceEID == 0 {
+				p, err := prb.ReadPacket()
+				if err != nil {
+					t.Fatalf("bob waiting alice: %v", err)
+				}
+				if p.ID != server.IDPlaySpawnEntity {
+					continue
+				}
+				r := protocol.NewPacketReader(p.Data)
+				eid, _ := r.VarInt()
+				u, _ := r.UUID()
+				if u == aliceUUID {
+					aliceEID = eid
+				}
+			}
+			sendChatBlackbox(t, pwb, server.IDPlayChatCommandSB, "give iron_sword 1")
+			// Observe the actual hotbar update before selecting the weapon. A
+			// command write and a wall-clock delay do not establish its receipt.
+			_ = cb.SetDeadline(time.Now().Add(15 * time.Second))
+			swordID, _ := world.ItemID("iron_sword")
+			sawSword := false
+			for !sawSword {
+				p, err := prb.ReadPacket()
+				if err != nil {
+					t.Fatalf("bob waiting sword: %v", err)
+				}
+				r := protocol.NewPacketReader(p.Data)
+				switch p.ID {
+				case server.IDPlayKeepAliveCB:
+					_ = pwb.WritePacket(server.IDPlayKeepAliveSB, p.Data)
+				case server.IDPlaySyncPos:
+					id, err := r.VarInt()
+					if err == nil {
+						var confirm protocol.Buffer
+						confirm.VarInt(id)
+						_ = pwb.WritePacket(server.IDPlayTeleportConfirmSB, confirm.Bytes())
+					}
+				case server.IDPlaySetPlayerInventory:
+					slot, err := r.VarInt()
+					item, itemErr := readSlotBB(r)
+					sawSword = err == nil && itemErr == nil && slot == 0 && item.ID == swordID && item.Count == 1
+				case server.IDPlayContainerSlot:
+					win, _ := r.VarInt()
+					r.VarInt()
+					slot, err := r.Short()
+					item, itemErr := readSlotBB(r)
+					sawSword = err == nil && itemErr == nil && win == 0 && slot == 36 && item.ID == swordID && item.Count == 1
+				case server.IDPlayContainerContent:
+					win, _ := r.VarInt()
+					r.VarInt()
+					count, err := r.VarInt()
+					if err != nil || win != 0 {
+						continue
+					}
+					for slot := int32(0); slot < count; slot++ {
+						item, err := readSlotBB(r)
+						if err != nil {
+							t.Fatalf("bob inventory slot%d: %v", slot, err)
+						}
+						if slot == 36 && item.ID == swordID && item.Count == 1 {
+							sawSword = true
+						}
+					}
+				}
+			}
+			var held protocol.Buffer
+			held.Short(0)
+			if err := pwb.WritePacket(server.IDPlayHeldChangeSB, held.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+			_ = cb.SetDeadline(time.Time{})
+			// play_time advances in the same admitted-player tick as the attack
+			// counter. Wait fourteen observed ticks after the switch: the generated
+			// iron modifier makes its delay just above12.5, so tick12 is still short.
+			var bobPos [3]float64
+			readPlayTicks := func() int32 {
+				until := time.Now().Add(15 * time.Second)
+				for time.Now().Before(until) {
+					for _, row := range drainStats(t, cb, prb, pwb, &bobPos, 5*time.Second) {
+						if row.cat == 8 && row.id == server.CustomStatIDs["play_time"] {
+							return row.val
+						}
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+				t.Fatal("bob play_time absent")
+				return 0
+			}
+			before := readPlayTicks()
+			cooldownDeadline := time.Now().Add(15 * time.Second)
+			charged := false
+			for time.Now().Before(cooldownDeadline) {
+				if readPlayTicks()-before >= 14 {
+					charged = true
+					break
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			if !charged {
+				t.Fatal("bob attack cooldown did not advance fourteen player ticks")
+			}
+			var atk protocol.Buffer
+			atk.VarInt(aliceEID)
+			if err := pwb.WritePacket(server.IDPlayAttackSB, atk.Bytes()); err != nil {
+				t.Fatal(err)
+			}
 
-	_ = ca.SetDeadline(deadline)
-	for {
-		p, err := pra.ReadPacket()
-		if err != nil {
-			t.Fatalf("alice waiting health: %v", err)
-		}
-		if p.ID != server.IDPlaySetHealth {
-			continue
-		}
-		r := protocol.NewPacketReader(p.Data)
-		h, err := r.Float()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if h == 14 {
-			return
-		}
-		if h != 20 {
-			t.Fatalf("health = %v, want 14 (iron sword)", h)
-		}
+			_ = ca.SetDeadline(time.Now().Add(15 * time.Second))
+			for {
+				p, err := pra.ReadPacket()
+				if err != nil {
+					t.Fatalf("alice waiting health: %v", err)
+				}
+				if p.ID != server.IDPlaySetHealth {
+					continue
+				}
+				r := protocol.NewPacketReader(p.Data)
+				h, err := r.Float()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if h == 14 {
+					return
+				}
+				if h != 20 {
+					t.Fatalf("health = %v, want 14 (iron sword)", h)
+				}
+			}
+		})
 	}
 }
 
