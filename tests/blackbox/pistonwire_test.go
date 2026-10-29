@@ -120,15 +120,32 @@ type wireEvent struct {
 func wireDrain(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Writer, quiet time.Duration) []wireEvent {
 	t.Helper()
 	var out []wireEvent
+	// Ambient entity/time packets may keep arriving indefinitely. Bound the
+	// capture window while retaining every decoded world-write assertion.
+	started := time.Now()
+	deadline := started.Add(max(4*time.Second, 4*quiet))
+	bounded := false
+	packets := map[int32]int{}
 	for {
-		_ = c.SetReadDeadline(time.Now().Add(quiet))
+		now := time.Now()
+		if !now.Before(deadline) {
+			bounded = true
+			break
+		}
+		readUntil := now.Add(quiet)
+		if readUntil.After(deadline) {
+			readUntil = deadline
+		}
+		_ = c.SetReadDeadline(readUntil)
 		p, err := pr.ReadPacket()
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				bounded = !time.Now().Before(deadline)
 				break
 			}
 			t.Fatalf("wire drain: %v", err)
 		}
+		packets[p.ID]++
 		switch p.ID {
 		case server.IDPlayKeepAliveCB:
 			_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
@@ -202,6 +219,9 @@ func wireDrain(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol.Write
 		}
 	}
 	_ = c.SetReadDeadline(time.Time{})
+	if bounded {
+		t.Logf("wire drain bounded at %s: packets=%v decoded-world-events=%d", time.Since(started), packets, len(out))
+	}
 	return out
 }
 

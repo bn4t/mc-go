@@ -17679,3 +17679,10 @@ Source OpenJDK25.0.5 javap StructureBlockEntity, StructureTemplate, StructurePla
 - **Measured:** javap25 MinecraftServer.tickChildren, ServerGamePacketListenerImpl.tickPlayer, ServerPlayer.tick/doTick and TickRateManager.isEntityFrozen. Same26.2 jar SHA1 86765a5899bd9c96461036a628796b4245715058. Level entity ticks precede connection ticks; players remain exempt from freeze. ServerPlayer.tick broadcasts/validates, then doTick calls Player.tick/aiStep before a second validation and play_time award.
 - **Implemented:** Preserve menu broadcast→first validity→item touch→second validity. Retirement remains idempotent: detached windows and cleared stacks cannot be cleaned twice.
 - **Pinned:** Existing chest recheck/retirement wire tests and explicit negative/current-mode/idempotent retirement unit cover the shared method. The real same-frame reward/function invalidation scenario is unpinned because current server supports neither datapack advancement overlays/reward functions nor pickup plugin callbacks; no test-only production hook was added.
+
+
+## Slice — bound legacy piston wire captures (2026-10-29)
+
+- **Measured:** The unchanged TestPistonWireParity passed in358.71s; its Go leg spent330.36s waiting for quiet while background packets continued. Its drain reset the socket timeout after every packet and had no total bound.
+- **Implemented:** Add a real capture deadline of max(4seconds,4×requestedquiet), preserving the existing packet decoder, keepalive/chunk/teleport replies and every assertion. The read deadline uses the earlier of quiet and total deadline. When capped, diagnostics report packet counts and decoded world events.
+- **Pinned:** Same full differential TestPistonWireParity PASS59.61s (vanilla22.12s, Go15.37s), retaining all extension/retraction BlockEvent parameters/IDs, settled block states, absence of moving-piston packets and entity-push assertions. No production code change.
