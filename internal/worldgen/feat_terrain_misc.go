@@ -21,7 +21,7 @@ func init() {
 	featureBuilders["desert_well"] = func(g *Generator, cfg obj) func(*featCtx, Random, BlockPos) bool {
 		return func(c *featCtx, r Random, p BlockPos) bool { return placeDesertWell(c.rg, r, p) }
 	}
-	featureBuilders["underwater_magma"] =func(g *Generator, cfg obj) func(*featCtx, Random, BlockPos) bool {
+	featureBuilders["underwater_magma"] = func(g *Generator, cfg obj) func(*featCtx, Random, BlockPos) bool {
 		m := &magmaConfig{
 			search: cfg.i32("floor_search_range"),
 			radius: cfg.i32("placement_radius_around_floor"),

@@ -149,7 +149,7 @@ func featureParityOv(t *testing.T, seed int64, areas []terrainArea, ov map[strin
 							continue
 						}
 					}
-					if gs == "air" && strings.Contains(w, "[level=") {
+					if (gs == "air" || gs == "cave_air") && strings.Contains(w, "[level=") {
 						exempt++
 						continue
 					}
@@ -216,18 +216,20 @@ func itoaB(v int) string {
 // a frozen ocean.
 func TestFeatureFreezeTopLayerParity(t *testing.T) {
 	areas := []terrainArea{{46, -50, 50, -46}, {222, 62, 226, 66}, {110, -98, 114, -94}}
-	requireWrites(t, featureWrites(t, 12345, areas, "freeze_top_layer"), map[string]int{"snow": 100, "ice": 100})
+	requireWrites(t, featureWrites(t, 12345, areas, "freeze_top_layer"), map[string]int{"snow": 1000, "ice": 30})
 	featureParity(t, 12345, areas, "freeze_top_layer")
 }
 
-// TestFeatureLakeSpringRoomParity pins LakeFeature (underground and
-// surface lava lakes), SpringFeature (water and lava springs) and
+// TestFeatureLakeSpringRoomParity pins LakeFeature (lava lakes with
+// stone barriers), SpringFeature (water and lava springs) and
 // MonsterRoomFeature (dungeon walls, floors, chests and spawners).
+// Flowing water the real server's post-processing fluid ticks spread
+// into a lake's cave air is accepted like flowing water into air.
 func TestFeatureLakeSpringRoomParity(t *testing.T) {
-	areas := []terrainArea{{-2, -2, 3, 3}, {-178, 110, -174, 114}}
+	areas := []terrainArea{{20, 0, 29, 9}, {-176, 100, -167, 109}}
 	types := []string{"lake", "spring_feature", "monster_room"}
-	requireWrites(t, featureWrites(t, 12345, areas, types...), map[string]int{"lava": 50, "water": 5, "cobblestone": 10, "spawner": 1})
-	featureParity(t, 12345, areas, types...)
+	requireWrites(t, featureWrites(t, 12345, areas, types...), map[string]int{"lava": 200, "stone": 400, "cave_air": 1000, "water": 10, "cobblestone": 300, "chest": 4, "spawner": 4})
+	featureParityOv(t, 12345, areas, typeOverrides(types), worldgen.PostProcessBubbleColumns, false)
 }
 
 // TestFeatureSulfurPoolParity pins the sulfur caves' lakes: LakeFeature

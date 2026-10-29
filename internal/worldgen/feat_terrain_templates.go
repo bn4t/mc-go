@@ -161,7 +161,10 @@ func readBlockState(c map[string]any) world.Block {
 
 // loadPalette is StructureTemplate.loadPalette: blocks split into
 // full-cube blocks, other blocks and block-entity blocks, each sorted
-// by (y, x, z), concatenated in that order.
+// by (y, x, z), concatenated in that order. (Block.hasDynamicShape,
+// which also routes a block to the "other" list, is not a measured
+// per-state fact; full-collision dynamic-shape blocks are filed as
+// full cubes.)
 func loadPalette(pal nbt.List, blocks nbt.List) []tplBlock {
 	states := make([]world.Block, len(pal.Items))
 	for i, p := range pal.Items {
@@ -476,8 +479,9 @@ func liquidContainer(b world.Block) bool { return world.HasProperty(b, "waterlog
 // placeInWorld is StructureTemplate.placeInWorld: a palette drawn from
 // the settings' random, the processed blocks written (block-entity
 // blocks over a barrier first, containers drawing a loot seed from
-// random), then waterlogging spread from neighbouring sources. Shape
-// updates and entities are not modeled.
+// random), waterlogging spread from neighbouring sources, then the
+// shape updates (edge neighbours, then every placed cell) for the block
+// families in shapeByClass. Entities are not placed.
 func (t *structTemplate) placeInWorld(rg *Region, off, pivot BlockPos, s *placeSettings, random Random) bool {
 	if len(t.palettes) == 0 {
 		return false
@@ -486,7 +490,7 @@ func (t *structTemplate) placeInWorld(rg *Region, off, pivot BlockPos, s *placeS
 	if len(blocks) == 0 && (s.ignoreEntities || t.entities == 0 || t.size[0] < 1 || t.size[1] < 1 || t.size[2] < 1) {
 		return false
 	}
-	var pending, sources, placed []BlockPos
+	var pending, placed []BlockPos
 	isSource := map[BlockPos]bool{}
 	inPlaced := map[BlockPos]bool{}
 	barrier := blockNamed("barrier")
@@ -514,7 +518,6 @@ func (t *structTemplate) placeInWorld(rg *Region, off, pivot BlockPos, s *placeS
 			continue
 		}
 		if hasFluid(st) && isFluidSource(st) {
-			sources = append(sources, b.pos)
 			isSource[b.pos] = true
 		} else if liquidContainer(st) {
 			placeLiquid(rg, b.pos, st, fluid)
@@ -523,7 +526,6 @@ func (t *structTemplate) placeInWorld(rg *Region, off, pivot BlockPos, s *placeS
 			}
 		}
 	}
-	_ = sources
 	dirs := [5]int{dirUp, dirNorth, dirEast, dirSouth, dirWest}
 	for changed := true; changed && len(pending) > 0; {
 		changed = false
