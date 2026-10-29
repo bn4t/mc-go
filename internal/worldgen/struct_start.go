@@ -161,6 +161,9 @@ type structureDef struct {
 	adaptation int
 	raw        obj
 	find       func(c *GenContext) (*GenerationStub, bool)
+	// afterPlace is Structure.afterPlace, run after the pieces of every
+	// placeInChunk (nil: nothing).
+	afterPlace func(c *PieceContext, s *StructureStart)
 }
 
 // GenContext is Structure.GenerationContext.
@@ -432,6 +435,9 @@ func (s *StructureStart) placeInChunk(g *Generator, rg *Region, r Random, chunkB
 		if p.BoundingBox().Intersects(chunkBox) {
 			p.PostProcess(pc)
 		}
+	}
+	if s.def.afterPlace != nil {
+		s.def.afterPlace(pc, s)
 	}
 }
 

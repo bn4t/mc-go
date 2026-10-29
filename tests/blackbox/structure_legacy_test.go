@@ -26,3 +26,11 @@ func TestStructureMineshaftParity(t *testing.T) {
 func TestStructureMineshaftMesaParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{-171, 107, -165, 113}}, "mineshafts")
 }
+
+// TestStructureDesertPyramidParity pins a desert pyramid: the lowest
+// ground height fixed by the first decorating chunk, the sandstone
+// columns, the TNT trap room with its four chests, the cellar's region
+// random sand / sandstone and the suspicious sand afterPlace picks.
+func TestStructureDesertPyramidParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{-763, -417, -758, -412}}, "desert_pyramids")
+}
