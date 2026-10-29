@@ -589,9 +589,10 @@ func badFloat(v float64) bool {
 	return v != v || v > 1e308 || v < -1e308
 }
 
-// startKeepAlive pings the client on Server.KeepAliveEvery and drops
-// the session past KeepAliveTimeout without a response. The caller
-// must close the returned channel when the session ends.
+// startKeepAlive schedules pings on Server.KeepAliveEvery. Its response
+// timeout starts with the first unanswered ping actually written to the
+// peer; any incoming packet resets it. The caller must close the returned
+// channel when the session ends.
 func (sess *Session) startKeepAlive() chan struct{} {
 	every := sess.server.KeepAliveEvery
 	if every <= 0 {
@@ -617,7 +618,11 @@ func (sess *Session) startKeepAlive() chan struct{} {
 				if err := sess.write(sess.ids().PlayKeepAliveCB, b.Bytes()); err != nil {
 					return
 				}
-				if sess.busy.Load() == 0 && time.Since(sess.lastAlive()) > timeout {
+				// A queued ping may still be behind a detached chunk encoder.
+				// Only an unanswered request actually written to the peer can
+				// establish a client timeout; server work is not peer silence.
+				awaiting := sess.kaAwaitingSince.Load()
+				if awaiting != 0 && sess.busy.Load() == 0 && time.Since(time.Unix(0, awaiting)) > timeout && time.Since(sess.lastAlive()) > timeout {
 					sess.server.SendPlayDisconnect(sess, "Timed out")
 					// Let the writer flush the kick before the socket
 					// goes away; the read loop exits on the close.

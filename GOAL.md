@@ -17070,8 +17070,10 @@ Exact run: `MCGO_BLACKBOX=1 MCGO_VANILLA_JAR=/workspace/mc-go/vanilla/server-26.
   `collectJoin` now reports a received disconnect's reason instead of losing
   it behind a later EOF. The original portal baseline separately passes
   (136.20 s) at calmer load, with all 49 destination chunks and their light
-  matching exactly. The fixed-Reader portal and malformed-frame oracle
-  regressions are running next.
+  matching exactly. The fixed-Reader `TestPortalDestinationParity` passes (156.60 s),
+  again with all 49 chunks/light/arrivals matching, and
+  `TestBadHandshakeParity` (18.03 s) and `TestOversizeFrameParity` (16.00 s)
+  pass with their original assertions.
 - **Remaining:** neither the original portal EOF nor the potion drain EOF is
   attributed to this retry bug without a captured interrupted frame. Cold
   generation latency and complete connection-liveness parity remain separate.
@@ -17230,3 +17232,31 @@ Final tests used `work/run-oracle.sh` (JDK 25, absolute official jar, MCGO_BLACK
 Next-slice owned changes: new internal/server/typedmenuswap.go, new tests/blackbox/typed_swap_test.go, new internal/server/typedmenuswap_test.go (actual parsed pre-consumption recipe_crafted criteria PASS for stone/smith in work/typed-swap-criteria.log), mode2 body replacement in internal/server/container.go, and anvil swap destination handling in internal/server/anvil.go. Initial slice's brewing slotMax addition remains distinct from the mode2 body replacement.
 
 Final staging go build ./... PASS; focused scripted criterion test ran with default vet and PASS. Five-file patch and SHA are in work/typed-swap-manifest.txt.
+
+
+## Slice — heartbeat timeout after actual delivery (2026-10-29)
+
+- **Measured:** independent Go 1.27.3 scripted net.Pipe clients reading an
+  outbound FIFO held by an unfinished server-generated chunk. Before the
+  fix a healthy reader is marked timed out after 0.15 s although no heartbeat
+  can reach the wire. These clients use no read deadlines, separating this
+  server availability bug from the packet-framing retry bug. No vanilla
+  counterpart exists for mc-go's detached chunk-future fixture.
+- **Implemented:** the response window starts only after the first unanswered
+  heartbeat is written. Later heartbeat writes retain that first deadline;
+  any incoming client packet resets it. Successful write completion checks
+  for responses that arrived before or during completion, preventing an
+  already answered request from being marked pending again. Configuration
+  and watchdog documentation now describe this response-window contract.
+- **Pinned:** `TestKeepAliveWaitsForChunkDelivery` covers queued output,
+  heartbeat echoes, other packet responses, finite silent-client expiry and
+  future cancellation. `TestKeepAliveEchoBeforeWriteCompletion` holds the
+  completed network write until its echo has been processed, then places
+  unfinished output behind it. The targeted KeepAlive/Outbound/ChunkFuture/
+  ChunkPool/shutdown suite passes (3.221 s). The focused race suite, including
+  ordinary TCP keepalive ack/expiry and session-close/shutdown races, passes
+  (20.802 s).
+- **Remaining:** full vanilla heartbeat cadence, challenge semantics and
+  latency calculation remain separate from this delivery-availability pin.
+  This independently proven bug is not attributed as the cause of the
+  earlier portal or potion EOF without a captured connection failure.

@@ -42,8 +42,10 @@ type Session struct {
 	// Keep-alive bookkeeping (play stage only).
 	lastAck atomic.Int64 // unix nanos of last client response
 	kaNext  atomic.Int64 // next keep-alive id to send
-	kaTime  atomic.Int64 // unix nanos the last keep-alive was sent
-	rtt     atomic.Int64 // last measured round-trip, nanos
+	kaTime  atomic.Int64 // unix nanos the latest keep-alive was queued
+	// kaAwaitingSince starts only after the first unanswered ping is written.
+	kaAwaitingSince atomic.Int64
+	rtt             atomic.Int64 // last measured round-trip, nanos
 	// busy counts packets currently being handled by the read loop. A
 	// slow handler (a big /tick step runs hundreds of ticks inline, as
 	// vanilla's does) leaves the client's queued replies unread, so the
@@ -614,6 +616,23 @@ func (sess *Session) setPos(x, y, z float64, yaw, pitch float32, onGround bool) 
 // markAlive records a client response for the timeout watchdog.
 func (sess *Session) markAlive() {
 	sess.lastAck.Store(time.Now().UnixNano())
+	sess.kaAwaitingSince.Store(0)
+}
+
+// keepAliveWritten records a completed network write. A response can arrive
+// before WritePacket returns, so that response must not be rearmed as pending.
+func (sess *Session) keepAliveWritten(started time.Time) {
+	ack := sess.lastAck.Load()
+	if ack >= started.UnixNano() {
+		return
+	}
+	written := time.Now().UnixNano()
+	if !sess.kaAwaitingSince.CompareAndSwap(0, written) {
+		return // later pings must not extend the first unanswered request
+	}
+	if sess.lastAck.Load() != ack {
+		sess.kaAwaitingSince.CompareAndSwap(written, 0)
+	}
 }
 
 func (sess *Session) lastAlive() time.Time {

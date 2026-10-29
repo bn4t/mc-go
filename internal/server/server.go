@@ -40,9 +40,13 @@ type Server struct {
 	// while an ops list exists (0 disables).
 	SpawnProtection int
 
-	// KeepAliveEvery/Timeout govern play-stage pings; non-positive
-	// values select vanilla-like 10s/30s defaults.
-	KeepAliveEvery   time.Duration
+	// KeepAliveEvery schedules play-stage ping requests; non-positive
+	// values select the 10s default.
+	KeepAliveEvery time.Duration
+	// KeepAliveTimeout is the response window after the first unanswered
+	// ping is written. Queued requests do not start it, later ping writes
+	// do not extend it, and any client packet resets it. Non-positive
+	// values select the 30s default.
 	KeepAliveTimeout time.Duration
 
 	// OutboundPacketLimit and OutboundByteLimit bound each connection's

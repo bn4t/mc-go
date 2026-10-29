@@ -175,10 +175,17 @@ func (sess *Session) applyOne(pkt sendPkt) bool {
 	if timeout <= 0 {
 		timeout = defaultWriteTimeout
 	}
-	if err := sess.conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+	started := time.Now()
+	if err := sess.conn.SetWriteDeadline(started.Add(timeout)); err != nil {
 		return false
 	}
-	return sess.pw.WritePacket(pkt.id, pkt.data) == nil
+	if err := sess.pw.WritePacket(pkt.id, pkt.data); err != nil {
+		return false
+	}
+	if pkt.id == sess.ids().PlayKeepAliveCB {
+		sess.keepAliveWritten(started)
+	}
+	return true
 }
 
 // Compression changes use the same bounded FIFO as packets, preserving the
