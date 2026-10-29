@@ -52,6 +52,16 @@ func (sess *Session) initAdvancements(joinMillis int64) {
 	// group at join; a completed advancement stops reporting further
 	// criteria, which is why a later `give *` omits it from progress.
 	sess.advDone = map[string]bool{advCraftingTable: true}
+	sess.advReset = false
+	// A replaced startup definition must start from its own criteria, not the
+	// captured built-in unlock_right_away progress. Let normal trigger/visibility
+	// paths derive the first reset packet from the loaded registry.
+	if sess.server != nil && sess.server.hasStartupAdvancementOverride() {
+		sess.advSent = map[string]bool{}
+		sess.advCrits = map[string]map[string]int64{}
+		sess.advDone = map[string]bool{}
+		sess.advReset = true
+	}
 	// A returning player replays its saved progress through the first
 	// flush: every progressed advancement joins the dirty set so the
 	// packet carries its def (when unsent this session) and full
@@ -285,7 +295,7 @@ func (s *Server) flushAdvancements(sess *Session) {
 	// The minecraft:tick trigger re-obtains unlock_right_away every
 	// tick, so a revoke of crafting_table never sticks: the criterion
 	// (and the done it completes) is back before the packet goes out.
-	if sess.advCrits != nil {
+	if sess.advCrits != nil && !s.customAdvancement(advCraftingTable) {
 		if _, ok := sess.advCrits[advCraftingTable]["unlock_right_away"]; !ok {
 			if sess.advCrits[advCraftingTable] == nil {
 				sess.advCrits[advCraftingTable] = map[string]int64{}
@@ -304,7 +314,7 @@ func (s *Server) flushAdvancements(sess *Session) {
 			}
 		}
 	}
-	if len(sess.advDirtyOrder) == 0 {
+	if len(sess.advDirtyOrder) == 0 && !sess.advReset {
 		sess.advMu.Unlock()
 		return
 	}
@@ -374,7 +384,7 @@ func (s *Server) flushAdvancements(sess *Session) {
 	javaHashOrder(removed, func(id string) string { return id })
 
 	var b protocol.Buffer
-	b.Bool(false) // reset: the first sync (join) already went out
+	b.Bool(sess.advReset) // overridden startup definitions derive their first sync here
 	b.VarInt(int32(len(added)))
 	for _, id := range added {
 		def := data.AdvDefWire[id]
@@ -432,6 +442,7 @@ func (s *Server) flushAdvancements(sess *Session) {
 	}
 	b.Bool(true) // showAdvancements
 	_ = sess.write(sess.ids().PlayUpdateAdvance, b.Bytes())
+	sess.advReset = false
 
 	for _, id := range added {
 		sess.advSent[id] = true

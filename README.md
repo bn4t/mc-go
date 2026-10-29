@@ -43,7 +43,9 @@ spawner carts and complete vehicle cargo/runtime behavior remain in progress.
 Startup folder datapacks can supply displayed and displayless advancement
 definitions with XP, built-in loot, recipe and function rewards. Measured
 display fields, layout, built-in tab overrides and completion announcements
-are supported. Complete rich-text/icon schemas, datapack selection/ZIP/reload,
+are supported. Predicate-free custom tick criteria grant rewards once per
+completion, and startup recipe replacements use their own progress and rewards.
+Complete player-predicate and rich-text/icon schemas, datapack selection/ZIP/reload,
 custom loot overlays and several vehicle/physical interactions remain in
 progress. See individual slice entries for exact tests and limitations.
 

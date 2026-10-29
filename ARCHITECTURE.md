@@ -77,6 +77,13 @@ displayless replacements; built-in wire data retains its captured icon/component
 bytes while coordinates are rewritten. Complete component schemas, pack selection,
 ZIP/reload and custom loot overlays are still separate work.
 
+Predicate-free custom tick criteria fire on connection ticks after menu
+validation and before inventory touching, including while the world is frozen.
+Replacing either captured startup recipe advancement defers the first reset
+until runtime visibility/progress is derived; replacing crafting_table also
+suppresses its captured recipe unlock. Complete player-predicate evaluation
+and reconciliation of saved criteria after pack changes remain separate work.
+
 Structure editors, powered structure blocks and jigsaw generation reuse the
 runtime's native template repository and placement path. Placement options keep
 shape handling separate from side-effect suppression, and preserve distinct

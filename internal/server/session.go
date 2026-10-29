@@ -101,6 +101,7 @@ type Session struct {
 	advDirty      map[string]bool
 	advDirtyOrder []string
 	advDone       map[string]bool
+	advReset      bool
 	// pendingAdv carries a returning player's saved advancement state
 	// from applySavedPlayer to initAdvancements at join.
 	pendingAdv map[string]savedAdv

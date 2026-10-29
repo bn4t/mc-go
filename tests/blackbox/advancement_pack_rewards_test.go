@@ -3,7 +3,6 @@
 package blackbox
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -68,7 +67,7 @@ func TestAdvancementPackRewardsParity(t *testing.T) {
 			settleUse(t, d.sink, func(ps []usePkt) {
 				fold(ps)
 				for _, p := range ps {
-					if bytes.Contains(p.data, []byte(yes)) {
+					if structureSaidBB([]string{fmt.Sprintf("0x%x:%s", p.id, p.data)}, yes) {
 						got = true
 					}
 				}
@@ -149,6 +148,10 @@ func TestAdvancementPackRewardsParity(t *testing.T) {
 // Walk actual displayless definitions, retaining their bytes. The legacy
 // advancement decoder uses captured lengths and truncates custom definitions.
 func decodePackRewardAdvancement(t *testing.T, body []byte, out *advFlush) {
+	decodePackRewardAdvancementWithOverrides(t, body, out, nil)
+}
+
+func decodePackRewardAdvancementWithOverrides(t *testing.T, body []byte, out *advFlush, overrides map[string]bool) {
 	t.Helper()
 	r := protocol.NewPacketReader(body)
 	check := func(err error) {
@@ -164,7 +167,7 @@ func decodePackRewardAdvancement(t *testing.T, body []byte, out *advFlush) {
 		start := len(body) - r.Remaining()
 		id, err := r.String()
 		check(err)
-		if captured := data.AdvDefWire[id]; captured != nil {
+		if captured := data.AdvDefWire[id]; captured != nil && !overrides[id] {
 			_, err = r.Read(len(captured) - (len(body) - r.Remaining() - start))
 			check(err)
 		} else {

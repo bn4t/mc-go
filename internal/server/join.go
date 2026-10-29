@@ -134,6 +134,11 @@ var recipeBookUnlock []byte
 // returning player whose persisted book already contains the recipe
 // got it inside sendRecipeBookAdd instead.
 func (s *Server) sendRecipeBookUnlock(sess *Session) error {
+	// This captured unlock is the built-in advancement reward. A pack replacing
+	// that advancement supplies its own rewards and trigger timing instead.
+	if s.customAdvancement(advCraftingTable) {
+		return nil
+	}
 	if idx, ok := recipeIndex["crafting_table"]; ok {
 		sess.recipesMu.Lock()
 		known := sess.unlockedRecipes[idx]
@@ -398,5 +403,10 @@ func buildAdvancements(nowMillis int64) []byte {
 func (s *Server) sendUpdateAdvancements(sess *Session) error {
 	now := time.Now().UnixMilli()
 	sess.initAdvancements(now)
+	if s.hasStartupAdvancementOverride() {
+		// The first player flush builds this server's definitions/progress and
+		// carries reset=true; never send the incompatible captured startup state.
+		return nil
+	}
 	return sess.write(sess.ids().PlayUpdateAdvance, buildAdvancements(now))
 }

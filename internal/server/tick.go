@@ -651,6 +651,7 @@ func (s *Server) playerTickOwned() {
 		}
 		s.flushMenuCommandUpdates(sess)
 		s.validateChestMenu(sess)
+		s.fireTickAdvancements(sess)
 		s.playerItemTouchTick(sess)
 		s.validateChestMenu(sess)
 		s.bundleUseTick(sess)
