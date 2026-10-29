@@ -53,7 +53,7 @@ func (g *Generator) ChunkBiomes(cx, cz int32, nc *NoiseChunk) []string {
 		return b
 	}
 	if nc == nil {
-		nc = g.RS.NewChunk(cx, cz)
+		nc = newNoiseChunkFor(g.RS, cx, cz, true)
 	}
 	b = g.RS.ChunkBiomes(g.Biomes, nc, cx, cz)
 	g.mu.Lock()

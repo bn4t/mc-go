@@ -69,6 +69,13 @@ func floorDiv(a, b int32) int32 {
 
 // newNoiseChunk is NoiseChunk.forChunk for chunk (cx, cz).
 func newNoiseChunk(rs *RandomState, cx, cz int32) *NoiseChunk {
+	return newNoiseChunkFor(rs, cx, cz, false)
+}
+
+// newNoiseChunkFor builds a NoiseChunk; biomesOnly skips the
+// interpolation slices and the aquifer, which climate sampling never
+// reads (a neighbour's biomes are often wanted before its terrain).
+func newNoiseChunkFor(rs *RandomState, cx, cz int32, biomesOnly bool) *NoiseChunk {
 	s := rs.settings
 	nc := &NoiseChunk{rs: rs}
 	nc.cellW = s.sizeHorizontal * 4
@@ -90,6 +97,9 @@ func newNoiseChunk(rs *RandomState, cx, cz int32) *NoiseChunk {
 	for _, m := range rs.markers {
 		switch m.kind {
 		case mkInterpolated:
+			if biomesOnly {
+				continue
+			}
 			st := &interpState{slice0: allocSlice(nc.cellCountY, nc.cellCountXZ), slice1: allocSlice(nc.cellCountY, nc.cellCountXZ)}
 			nc.interps[m.id] = st
 			nc.interpList = append(nc.interpList, st)
@@ -113,7 +123,7 @@ func newNoiseChunk(rs *RandomState, cx, cz int32) *NoiseChunk {
 	}
 	nc.cellVals = make([]float64, nc.cellW*nc.cellW*nc.cellH)
 	nc.finalDensity = rs.router.FinalDensity
-	if s.aquifersEnabled {
+	if s.aquifersEnabled && !biomesOnly {
 		nc.aq = newAquifer(nc, cx, cz, rs, s.minY, s.height)
 	}
 	return nc
