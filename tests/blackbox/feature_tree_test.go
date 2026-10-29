@@ -312,7 +312,7 @@ var treeAreas = []terrainArea{
 	{-161, 39, -157, 43},     // 6 mangrove swamp
 	{-89, -1, -85, 3},        // 7 bamboo jungle
 	{255, 279, 259, 283},     // 8 mushroom fields
-	{-209, -593, -205, -589}, // 9 pale garden
+	{-209, -593, -205, -589}, // 9 pale garden (carpets need the vegetation group's MossyCarpetBlock.placeAt)
 	{319, 111, 323, 115},     // 10 cherry grove
 	{-81, -97, -77, -93},     // 11 savanna
 	{-121, -105, -117, -101}, // 12 swamp
