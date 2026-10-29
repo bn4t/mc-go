@@ -252,7 +252,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	if cur == world.Air {
 		// SpawnEggItem.useOn accepts a collision-empty clicked cell even
 		// when the packet targets air. Keep its normal reach/use gates.
-		held := sess.heldStack()
+		held, _ := sess.stackForHand(hand)
 		name, _ := itemNameOf(held.ID)
 		if held.Empty() || !strings.HasSuffix(name, "_spawn_egg") {
 			return
@@ -305,7 +305,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// item_used_on_block fires on the interaction itself — vanilla
 	// evaluates it inside useOn before the use's outcome is known.
 	if bname, ok := world.StateOwner(cur); ok {
-		if held := sess.heldStack(); !held.Empty() {
+		if held, _ := sess.stackForHand(hand); !held.Empty() {
 			if iname, ok := itemNameOf(held.ID); ok {
 				s.fireItemUsedOnBlock(sess, bname, iname)
 			}
@@ -317,7 +317,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// useWithoutItem, so the item's useOn runs even while sneaking —
 	// and the lead never "places".
 	if name, _ := world.StateOwner(cur); blockTagHas("fences", name) {
-		if held := sess.heldStack(); !held.Empty() {
+		if held, _ := sess.stackForHand(hand); !held.Empty() {
 			if iname, ok := itemNameOf(held.ID); ok && iname == "lead" {
 				s.bindPlayerMobs(sess, d, clicked)
 				useAck()
@@ -328,7 +328,12 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// A sneaking player with an item in hand skips the clicked block's
 	// whole use dispatch (vanilla isSecondaryUseActive): no TNT prime,
 	// no bed, no sign, no menu — the held item's useOn runs instead.
-	blockUse := !(sess.sneaking && !sess.heldStack().Empty())
+	mainStack, _ := sess.stackForHand(0)
+	offStack, _ := sess.stackForHand(1)
+	blockItemUse := !(sess.sneaking && (!mainStack.Empty() || !offStack.Empty()))
+	// Default empty-hand interactions run only for the main hand. Explicit
+	// hand-aware block item interactions retain their separate path below.
+	blockUse := blockItemUse && hand == 0
 	if name, _ := world.StateOwner(cur); blockUse && name == "tnt" && s.useTnt(sess, d, clicked) {
 		useAck()
 		return
@@ -418,7 +423,9 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// onto a bookless lectern, and every other interact on a bookless
 	// one is vanilla's CONSUME — nothing opens and the held item does
 	// not place. A lectern holding a book falls through to the menu.
-	if blockUse && s.lecternUse(d, sess, clicked, cur, hand) {
+	lecternStack, _ := sess.stackForHand(hand)
+	lecternName, _ := itemNameOf(lecternStack.ID)
+	if blockItemUse && (hand == 0 || lecternBookTag(lecternName)) && s.lecternUse(d, sess, clicked, cur, hand) {
 		useAck()
 		return
 	}
@@ -451,23 +458,23 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	}
 	// BoneMealItem.useOn — a bonemealable target grows, consuming one
 	// meal in survival (creative keeps it, like the igniter path).
-	if s.useBonemeal(sess, d, clicked) {
+	if hand == 0 && s.useBonemeal(sess, d, clicked) {
 		useAck()
 		return
 	}
 	// EnderEyeItem.useOn — an eyeless portal frame takes the eye.
 	// EndCrystalItem.useOn — obsidian or bedrock with room above.
-	if s.useEndCrystal(sess, d, clicked) {
+	if hand == 0 && s.useEndCrystal(sess, d, clicked) {
 		useAck()
 		return
 	}
-	if s.useEnderEye(sess, d, clicked) {
+	if hand == 0 && s.useEnderEye(sess, d, clicked) {
 		useAck()
 		return
 	}
 	// FlintAndSteelItem/FireChargeItem.useOn — held-item useOn runs
 	// only after the clicked block's own use path passed.
-	if s.useIgniter(sess, d, clicked, face) {
+	if hand == 0 && s.useIgniter(sess, d, clicked, face) {
 		useAck()
 		return
 	}
@@ -481,14 +488,15 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// Spawn eggs, minecarts, armor stands and hanging entities:
 	// their item useOn (entityitems.go) owns the click whatever the
 	// outcome — none of them is a block item.
-	if s.useEntityItem(sess, d, clicked, face, facePos) {
+	if s.useEntityItem(sess, d, clicked, face, facePos, hand) {
 		useAck()
 		return
 	}
-	item, ok := sess.heldItem()
-	if !ok {
-		return // empty hand: ack only
+	held, handSlot := sess.stackForHand(hand)
+	if held.Empty() {
+		return // empty selected hand: ack only
 	}
+	item := held.ID
 	iname, _ := itemNameOf(item)
 	pi, ok := placeItems[strings.TrimPrefix(iname, "minecraft:")]
 	if !ok {
@@ -497,7 +505,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// BlockItem.place over a BlockPlaceContext (placestate.go): the
 	// clicked block itself when replaceable, else the face neighbour,
 	// which must be replaceable in turn.
-	pc := newPlaceCtx(s, d, sess, clicked, pdir(face), cursor, inside)
+	pc := newPlaceCtxWithStack(s, d, sess, clicked, pdir(face), cursor, inside, held)
 	if !pc.replaceClicked && !pc.canBeReplaced(pc.at(pc.pos)) {
 		return
 	}
@@ -608,7 +616,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// occupants on the block (vanilla applies the item's implicit
 	// components on placement).
 	if isBeeNestBlock(blk) {
-		held := sess.heldStack()
+		held, _ := sess.stackForHand(hand)
 		if d.bees == nil {
 			d.bees = map[world.Pos]int32{}
 		}
@@ -620,7 +628,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	}
 	// BlockItem.place → Nameable.setCustomName: a stack with
 	// minecraft:custom_name names the block entity it creates.
-	if held := sess.heldStack(); held.Name != "" {
+	if held, _ := sess.stackForHand(hand); held.Name != "" {
 		if d.beNames == nil {
 			d.beNames = map[world.Pos]string{}
 		}
@@ -630,7 +638,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// was broken with items inside) restores them, so the box keeps its
 	// contents across a move. container_loot re-arms the same way.
 	if isShulkerBoxBlock(blk) {
-		if held := sess.heldStack(); held.Contents != nil || held.LootTable != "" {
+		if held, _ := sess.stackForHand(hand); held.Contents != nil || held.LootTable != "" {
 			if c := s.containerAt(sess.dimension(), target); c != nil {
 				sess.dimension().containers.mu.Lock()
 				if held.Contents != nil {
@@ -646,7 +654,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// Survival consumes one item and syncs the slot; creative keeps
 	// the stack, matching vanilla.
 	if sess.mode() != GameModeCreative {
-		sess.consumeHeld(1)
+		sess.consumeSlot(handSlot, 1)
 	}
 }
 

@@ -40,8 +40,8 @@ import (
 // the caller's block-item path continues; a recognized item always
 // reports true — FAIL/CONSUME outcomes end the use like vanilla's
 // non-PASS results.
-func (s *Server) useEntityItem(sess *Session, d *dimension, clicked world.Pos, face int32, facePos world.Pos) bool {
-	held := sess.heldStack()
+func (s *Server) useEntityItem(sess *Session, d *dimension, clicked world.Pos, face int32, facePos world.Pos, hand int32) bool {
+	held, handSlot := sess.stackForHand(hand)
 	// A spectator's use_item_on never reaches the item's useOn.
 	if held.Empty() || sess.mode() == GameModeSpectator {
 		return false
@@ -53,16 +53,16 @@ func (s *Server) useEntityItem(sess *Session, d *dimension, clicked world.Pos, f
 	iname = strings.TrimPrefix(iname, "minecraft:")
 	switch {
 	case strings.HasSuffix(iname, "_spawn_egg"):
-		s.useSpawnEgg(sess, d, clicked, face, facePos, held, strings.TrimSuffix(iname, "_spawn_egg"))
+		s.useSpawnEgg(sess, d, clicked, face, facePos, held, strings.TrimSuffix(iname, "_spawn_egg"), handSlot)
 		return true
 	case dispenseMinecartEntity[iname] != "":
-		s.useMinecartItem(sess, d, clicked, held, dispenseMinecartEntity[iname])
+		s.useMinecartItem(sess, d, clicked, held, dispenseMinecartEntity[iname], handSlot)
 		return true
 	case iname == "armor_stand":
-		s.useArmorStandItem(sess, d, clicked, face, facePos, held)
+		s.useArmorStandItem(sess, d, clicked, face, facePos, held, handSlot)
 		return true
 	case iname == "painting" || iname == "item_frame" || iname == "glow_item_frame":
-		s.useHangingItem(sess, d, face, facePos, held, iname)
+		s.useHangingItem(sess, d, face, facePos, held, iname, handSlot)
 		return true
 	}
 	return false
@@ -71,15 +71,15 @@ func (s *Server) useEntityItem(sess *Session, d *dimension, clicked world.Pos, f
 // entityItemConsume is the success tail every useOn here shares: the
 // ITEM_USED stat (ItemStack.useOn on a consuming result) and the
 // one-item shrink a creative player gets back.
-func (s *Server) entityItemConsume(sess *Session, held ItemStack) {
+func (s *Server) entityItemConsume(sess *Session, held ItemStack, handSlot int16) {
 	sess.addItemStat(statUsed, held.ID, 1)
 	if sess.mode() != GameModeCreative {
-		sess.consumeHeld(1)
+		sess.consumeSlot(handSlot, 1)
 	}
 }
 
 // useSpawnEgg is SpawnEggItem.useOn.
-func (s *Server) useSpawnEgg(sess *Session, d *dimension, clicked world.Pos, face int32, facePos world.Pos, held ItemStack, ent string) {
+func (s *Server) useSpawnEgg(sess *Session, d *dimension, clicked world.Pos, face int32, facePos world.Pos, held ItemStack, ent string, handSlot int16) {
 	if _, ok := EntityTypeID(ent); !ok {
 		return
 	}
@@ -100,7 +100,7 @@ func (s *Server) useSpawnEgg(sess *Session, d *dimension, clicked world.Pos, fac
 			s.spawnerSetEntity(d, clicked, ent)
 		}
 		s.emitGameEvent(d, "block_change", float64(clicked.X)+0.5, float64(clicked.Y)+0.5, float64(clicked.Z)+0.5, sess, "")
-		s.entityItemConsume(sess, held)
+		s.entityItemConsume(sess, held, handSlot)
 		return
 	}
 	spawnPos := clicked
@@ -108,13 +108,13 @@ func (s *Server) useSpawnEgg(sess *Session, d *dimension, clicked world.Pos, fac
 		spawnPos = facePos
 	}
 	more := spawnPos != clicked && face == 1
-	s.spawnEggMob(sess, d, held, ent, spawnPos, true, more)
+	s.spawnEggMob(sess, d, held, ent, spawnPos, true, more, handSlot)
 }
 
 // spawnEggMob is SpawnEggItem.spawnMob at a cell: EntityType.spawn with
 // or without the shouldOffsetY drop, the finalizeSpawn rolls, the
 // stack's name, one ambient voice, the consume and ENTITY_PLACE.
-func (s *Server) spawnEggMob(sess *Session, d *dimension, held ItemStack, ent string, spawnPos world.Pos, offsetY, more bool) {
+func (s *Server) spawnEggMob(sess *Session, d *dimension, held ItemStack, ent string, spawnPos world.Pos, offsetY, more bool, handSlot int16) {
 	et, _ := EntityTypeID(ent)
 	dims := mobBounds(et)
 	cx, cz := float64(spawnPos.X)+0.5, float64(spawnPos.Z)+0.5
@@ -156,7 +156,7 @@ func (s *Server) spawnEggMob(sess *Session, d *dimension, held ItemStack, ent st
 	if a, ok := mobAmbient[ent]; ok && ent != "breeze" {
 		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, mobAmbientSoundID(e, ent), mobVoiceOf(e).src(), a.vol, voicePitchE(e), nil)
 	}
-	s.entityItemConsume(sess, held)
+	s.entityItemConsume(sess, held, handSlot)
 	s.emitGameEvent(d, "entity_place", float64(spawnPos.X)+0.5, float64(spawnPos.Y)+0.5, float64(spawnPos.Z)+0.5, sess, "")
 }
 
@@ -182,8 +182,8 @@ func (s *Server) useSpawnEggAir(sess *Session, hand int32, yaw, pitch float32, e
 	if !s.mayInteract(sess, d, hit.pos) || !bucketMayUseAt(sess) {
 		return
 	}
-	held, _ := sess.stackForHand(hand)
-	s.spawnEggMob(sess, d, held, ent, hit.pos, false, false)
+	held, handSlot := sess.stackForHand(hand)
+	s.spawnEggMob(sess, d, held, ent, hit.pos, false, false, handSlot)
 	if sess.mode() != GameModeCreative {
 		// useItem saw the hand stack shrink: sendAllDataToRemote.
 		_ = s.sendContainerContent(sess)
@@ -191,7 +191,7 @@ func (s *Server) useSpawnEggAir(sess *Session, hand int32, yaw, pitch float32, e
 }
 
 // useMinecartItem is MinecartItem.useOn.
-func (s *Server) useMinecartItem(sess *Session, d *dimension, clicked world.Pos, held ItemStack, ent string) {
+func (s *Server) useMinecartItem(sess *Session, d *dimension, clicked world.Pos, held ItemStack, ent string, handSlot int16) {
 	cur := d.w.GetBlock(clicked)
 	bn, _ := world.StateOwner(cur)
 	bn = strings.TrimPrefix(bn, "minecraft:")
@@ -223,11 +223,11 @@ func (s *Server) useMinecartItem(sess *Session, d *dimension, clicked world.Pos,
 		below = strings.TrimPrefix(n, "minecraft:")
 	}
 	s.emitGameEvent(d, "entity_place", float64(clicked.X)+0.5, float64(clicked.Y)+0.5, float64(clicked.Z)+0.5, sess, below)
-	s.entityItemConsume(sess, held)
+	s.entityItemConsume(sess, held, handSlot)
 }
 
 // useArmorStandItem is ArmorStandItem.useOn.
-func (s *Server) useArmorStandItem(sess *Session, d *dimension, clicked world.Pos, face int32, facePos world.Pos, held ItemStack) {
+func (s *Server) useArmorStandItem(sess *Session, d *dimension, clicked world.Pos, face int32, facePos world.Pos, held ItemStack, handSlot int16) {
 	if face == 0 {
 		return
 	}
@@ -263,12 +263,12 @@ func (s *Server) useArmorStandItem(sess *Session, d *dimension, clicked world.Po
 		s.playSoundSrc(d.name, e.X, e.Y, e.Z, snd, 4, 0.75, 0.8, nil)
 	}
 	s.emitGameEvent(d, "entity_place", e.X, e.Y, e.Z, sess, "")
-	s.entityItemConsume(sess, held)
+	s.entityItemConsume(sess, held, handSlot)
 }
 
 // useHangingItem is HangingEntityItem.useOn (ItemFrameItem's mayPlace
 // override for the frames).
-func (s *Server) useHangingItem(sess *Session, d *dimension, face int32, pos world.Pos, held ItemStack, iname string) {
+func (s *Server) useHangingItem(sess *Session, d *dimension, face int32, pos world.Pos, held ItemStack, iname string, handSlot int16) {
 	// mayUseItemAt: a player without mayBuild (adventure, spectator)
 	// may not hang anything.
 	if sess.mode() == GameModeAdventure || sess.mode() == GameModeSpectator {
@@ -315,7 +315,7 @@ func (s *Server) useHangingItem(sess *Session, d *dimension, face int32, pos wor
 	e.hangResend = true
 	ne := s.entities.Spawn(e)
 	s.broadcastEntitySpawn(nil, *ne)
-	s.entityItemConsume(sess, held)
+	s.entityItemConsume(sess, held, handSlot)
 }
 
 // hangSetRotation is setDirection's rotation write: a horizontal facing

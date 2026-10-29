@@ -147,9 +147,13 @@ type placeCtx struct {
 }
 
 func newPlaceCtx(s *Server, d *dimension, sess *Session, hit world.Pos, face pdir, cursor [3]float64, inside bool) *placeCtx {
+	return newPlaceCtxWithStack(s, d, sess, hit, face, cursor, inside, sess.heldStack())
+}
+
+func newPlaceCtxWithStack(s *Server, d *dimension, sess *Session, hit world.Pos, face pdir, cursor [3]float64, inside bool, held ItemStack) *placeCtx {
 	_, _, _, yaw, pitch, _ := sess.Pos()
 	c := &placeCtx{s: s, d: d, sess: sess, hit: hit, face: face, inside: inside,
-		yaw: wrapDegreesF(yaw), pitch: pitch, sneak: sess.sneaking, held: sess.heldStack()}
+		yaw: wrapDegreesF(yaw), pitch: pitch, sneak: sess.sneaking, held: held}
 	c.loc = [3]float64{float64(hit.X) + cursor[0], float64(hit.Y) + cursor[1], float64(hit.Z) + cursor[2]}
 	if n, ok := itemNameOf(c.held.ID); ok && !c.held.Empty() {
 		c.item = strings.TrimPrefix(n, "minecraft:")
