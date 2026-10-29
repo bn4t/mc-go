@@ -1762,6 +1762,8 @@ func (s *Server) runSummon(player string, args []string) reply {
 				e.AttrBase["max_health"] = float64(e.CubeSize * e.CubeSize)
 				e.Health = float32(e.CubeSize * e.CubeSize)
 			}
+			// Ghast ExplosionPower / Phantom size (ghast.go).
+			s.flyerSummonNBT(e, name, tag)
 			// Panda's genes write as strings via Gene.CODEC.
 			if name == "panda" {
 				if v, ok := tag.vals["MainGene"]; ok {

@@ -1305,7 +1305,8 @@ func (m *Manager) Damage(id int32, amount float32, typeName string, breachLevel 
 	// Entity.isInvulnerableToBase: a fireImmune entity is invulnerable
 	// to every is_fire-tagged source — the hit never lands (no
 	// damage event, knockback, or sound).
-	if name, _ := EntityTypeName(e.Type); mobFireImmune[name] && isFireDamageType[typeName] {
+	if name, _ := EntityTypeName(e.Type); mobFireImmune[name] && isFireDamageType[typeName] &&
+		!ghastReflectedHit(name, typeName, amount) {
 		res.Health = e.Health
 		res.Graced = true
 		return res
