@@ -1477,8 +1477,7 @@ func (s *Server) runFill(player string, args []string) reply {
 				// when the placement turns out a no-op.
 				affected := false
 				if mode == "destroy" && old != world.Air {
-					s.fillDestroyCell(d, pos, old)
-					affected = true
+					affected = s.fillDestroyCell(d, pos, old)
 				}
 				target := blk
 				interior := x != minX && x != maxX && y != minY && y != maxY && z != minZ && z != maxZ
@@ -1498,7 +1497,7 @@ func (s *Server) runFill(player string, args []string) reply {
 				// BlockInput.place's setBlock returns false on an
 				// identical state, so same-state cells are not counted —
 				// hollow air cores and keep-predicate no-ops alike.
-				if old == target {
+				if d.w.GetBlock(pos) == target {
 					if affected {
 						changed++
 					}
@@ -1507,8 +1506,9 @@ func (s *Server) runFill(player string, args []string) reply {
 				if mode == "strict" {
 					// Mode strict: flag 816 joins 2|256 — no neighbour
 					// updates, no updateFromNeighbourShapes fold.
-					s.setSilentBlock(d, pos, target)
+					s.setSilentBlockWithPolicy(d, pos, target, true, true)
 				} else {
+					s.structureRetireBlockEntity(d, pos, d.w.GetBlock(pos), target)
 					// /fill notifies neighbours with the NEW state
 					// (updateNeighboursOnBlockSet).
 					s.setNaturalBlockNotify(d, pos, target, target)
@@ -1528,15 +1528,21 @@ func (s *Server) runFill(player string, args []string) reply {
 
 // fillDestroyCell is /fill destroy's affector: vanilla's
 // level.destroyBlock(pos, true) — the block's loot drops at the cell
-// with an empty tool context (so requires-tool cells drop nothing),
+// with an empty tool context (without the player mining-tool gate),
 // then the destroy game event posts. The placement write lands after
 // in the caller's loop.
-func (s *Server) fillDestroyCell(d *dimension, pos world.Pos, broken world.Block) {
-	bname, _ := world.StateOwner(broken)
-	if blockRequiresTool[bname] && !toolCorrectForDrops(ItemStack{}, bname) {
-		return
+func (s *Server) fillDestroyCell(d *dimension, pos world.Pos, broken world.Block) bool {
+	if commandAir(broken) {
+		return false
 	}
-	if _, ok := data.LootTables()["blocks/"+bname]; ok {
+	bname, _ := world.StateOwner(broken)
+	if bname != "fire" && bname != "soul_fire" {
+		s.broadcastLevelEvent(d.name, 2001, pos, int32(broken))
+	}
+	_, hasLoot := data.LootTables()["blocks/"+bname]
+	// The container removal path creates the component-bearing shulker
+	// item itself; the generic loot item would duplicate that box.
+	if hasLoot && !isShulkerBoxBlock(broken) {
 		ctx := &lootCtx{
 			tool:  ItemStack{},
 			block: bname,
@@ -1549,6 +1555,20 @@ func (s *Server) fillDestroyCell(d *dimension, pos world.Pos, broken world.Block
 			s.spawnItemDrop(d.name, pos, st)
 		}
 	}
+	remaining := world.Air
+	if kind, level, has := fluidOf(broken); has {
+		remaining = fluidState(kind, level)
+	}
+	s.setBlockAndBroadcastInOwned(d, "", pos, remaining, false)
+	if remaining != broken {
+		s.emitGameEvent(d, "block_destroy", float64(pos.X)+0.5, float64(pos.Y)+0.5, float64(pos.Z)+0.5, nil, bname)
+	}
+	return remaining != broken
+}
+
+func commandAir(state world.Block) bool {
+	name, _ := world.StateOwner(state)
+	return name == "air" || name == "cave_air" || name == "void_air"
 }
 
 func minmax(a, b int) (int, int) {

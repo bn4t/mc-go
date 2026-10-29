@@ -141,7 +141,7 @@ func (s *Server) dimOf(player string) *dimension {
 // a Block Update out to tracking sessions (vanilla behavior for single
 // edits; full columns still stream via Chunk Data on join/move).
 func (s *Server) runSetblock(player string, args []string) reply {
-	if len(args) != 4 {
+	if len(args) != 4 && len(args) != 5 {
 		return textReply("Usage: /setblock <x> <y> <z> <stone|dirt|grass|air>")
 	}
 	bx, by, bz := s.baseBlockPos(player)
@@ -183,13 +183,38 @@ func (s *Server) runSetblock(player string, args []string) reply {
 	}
 	pos := world.Pos{X: x, Y: y, Z: z}
 	previous := d.w.GetBlock(pos)
+	mode := "replace"
+	if len(args) == 5 {
+		mode = args[4]
+	}
+	if mode != "replace" && mode != "keep" && mode != "destroy" && mode != "strict" {
+		return errToken("command.unknown.argument", 4)
+	}
+	if mode == "keep" && !commandAir(previous) {
+		r := componentReply(commandError("commands.setblock.failed"))
+		r.result, r.hasResult = 0, true
+		return r
+	}
 	var previousData map[string]any
 	if tag != nil {
 		previousData, _ = s.blockEntitySaveMap(d, pos)
 	}
-	// /setblock notifies neighbours with the NEW state — vanilla's
-	// updateNeighboursOnBlockSet reads the cell post-write.
-	s.setBlockAndBroadcastNotify(player, pos, blk, true)
+	if mode == "destroy" {
+		s.fillDestroyCell(d, pos, previous)
+	}
+	beforePlace := d.w.GetBlock(pos)
+	skipPlace := mode == "destroy" && commandAir(blk) && commandAir(beforePlace)
+	placementChanged := beforePlace != blk
+	if !skipPlace {
+		if mode == "strict" {
+			s.setSilentBlockWithPolicy(d, pos, blk, true, true)
+		} else {
+			// Command flag 256 suppresses retiring block-entity contents,
+			// independently of onPlace and neighbour callbacks.
+			s.structureRetireBlockEntity(d, pos, beforePlace, blk)
+			s.setBlockAndBroadcastNotify(player, pos, blk, true)
+		}
+	}
 	s.commandBlockLoadTag(d, pos, tag)
 	s.emitLightUpdate(d, pos)
 	if tag != nil && isChestBlock(blk) {
@@ -300,7 +325,9 @@ func (s *Server) runSetblock(player string, args []string) reply {
 	}
 	// Success is the real server's component, three plain ints - which
 	// is what /item's own fixture setup compares.
-	unchanged := d.w.GetBlock(pos) == previous
+	// onPlace can consume its input (powered TNT); that remains a
+	// successful placement even when the final cell equals the old one.
+	unchanged := !skipPlace && !placementChanged
 	if unchanged && tag != nil {
 		currentData, _ := s.blockEntitySaveMap(d, pos)
 		unchanged = reflect.DeepEqual(previousData, currentData)
