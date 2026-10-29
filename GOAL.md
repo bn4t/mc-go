@@ -16569,3 +16569,39 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining**: trial spawners; spawner custom_spawn_rules / equipment / SpawnData NBT
   beyond the id; spawner display spin; TestFireworkBoostParity's grounded-stack leg is
   timing-flaky and TestFireworkRocketHitParity's hand-offset leg misses on vanilla too.
+
+## Slice — blaze attack AI (2026-10-29)
+- **Measured**: `javap` on the 26.2 jar: Blaze, Blaze$BlazeAttackGoal — goal priorities, the
+  attackStep/attackTime cycle 60 → 6 → 6 → 6 → 100 with DATA_FLAGS_ID (index 16) bit 0, one
+  SmallFireball per step 2–4 aimed with triangle spread 2.297·√√dist²·0.5, level event 1018,
+  spawn at the blaze's x/z and getY(0.5)+0.5 at speed 0.1, melee inside dist² < 4, height
+  offset triangle(0.5, 6.891) every 100 ticks with lift (0.3−y)·0.3, slow fall y·0.6. Wire:
+  burst timing, spawn offsets and damage.
+- **Implemented**: `blaze.go` on a shared `flyer.go` (targeting, line of sight, flying travel,
+  metadata); small fireballs hit players (5.0, 5 s fire).
+- **Pinned**: `TestBlazeAttackParity` (burst, melee and fireball legs).
+- **Remaining**: mob-attacker HurtByTarget; the water-avoiding stroll and
+  move-towards-restriction goals; an exact line-of-sight clip.
+
+## Slice — ghast fireball AI (2026-10-29)
+- **Measured**: `javap`: Ghast, GhastMoveControl, RandomFloatAroundGoal, GhastLookGoal,
+  GhastShootFireballGoal — chargeTime 10 → level event 1015, 20 → 1016 + LargeFireball, then
+  −40; DATA_IS_CHARGING above 10; targets within 4 blocks vertically; floatDuration
+  nextInt(5)+2 with impulse flying_speed·5/3; reachability sweep; flying travel 0.91/0.8/0.5;
+  1000 damage from a reflected fireball. Wire: floor-summoned ghasts climb.
+- **Implemented**: `ghast.go`; large fireballs hit players; deflection re-owns the fireball to
+  the attacker; the reflected hit bypasses fire immunity.
+- **Pinned**: `TestGhastShootParity` (shoot cadence, reflect kill).
+- **Remaining**: exact reachability sweep; explicit ExplosionPower 0; blast damage on players
+  unpinned.
+
+## Slice — phantom sweep AI (2026-10-29)
+- **Measured**: `javap`: Phantom and its goals/controls — player scan cadence (20 then every
+  60 ticks, highest player first), CIRCLE/SWOOP timers, anchor rules, sweep bite (box +0.2,
+  level event 1039), circle re-roll odds, move control (4°/tick heading, speed toward 1.8 or
+  0.2), DATA_SIZE with attack_damage 6+size only on a size change. Wire: size 0 bites for 2,
+  size 3 for 9.
+- **Implemented**: `phantom.go`; NBT size/anchor_pos; the bare-summon anchor; daylight burn.
+- **Pinned**: `TestPhantomSweepParity` (size 0/3 bites, sun).
+- **Remaining**: PhantomSpawner (insomnia); cat hiss; bites land ~1 s later than vanilla
+  (flight timing unpinned).

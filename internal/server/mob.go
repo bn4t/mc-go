@@ -1768,6 +1768,8 @@ func (s *Server) runSummon(player string, args []string) reply {
 				e.AttrBase["max_health"] = float64(e.CubeSize * e.CubeSize)
 				e.Health = float32(e.CubeSize * e.CubeSize)
 			}
+			// Ghast ExplosionPower / Phantom size (ghast.go).
+			s.flyerSummonNBT(e, name, tag)
 			// Panda's genes write as strings via Gene.CODEC.
 			if name == "panda" {
 				if v, ok := tag.vals["MainGene"]; ok {
@@ -2581,6 +2583,10 @@ func (s *Server) summonMobRawSpawn(d *dimension, name string, x, y, z float64, n
 		e.DespawnDelay = 47999
 	}
 	summonAttrTouches(e, name, init)
+	if init && name == "phantom" {
+		// Phantom.finalizeSpawn's anchor (phantom.go).
+		s.phantomSummonInit(e)
+	}
 	return e, true
 }
 
@@ -3282,6 +3288,8 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 				b.Byte(1) // type: varint
 				b.VarInt(e.MooshroomVariant)
 			}
+		case flyerMobs[name]:
+			flyerMetaDirty(&b, e, name)
 		case name == "guardian" || name == "elder_guardian":
 			if e.Moving != last.moving {
 				b.Byte(16)
@@ -3810,6 +3818,8 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 				b.Byte(1) // type: varint
 				b.VarInt(e.MooshroomVariant)
 			}
+		case "blaze", "ghast", "phantom":
+			flyerMetaPack(&b, e, name)
 		case "guardian", "elder_guardian":
 			// Guardian defines DATA_ID_MOVING (16, boolean) and
 			// DATA_ID_ATTACK_TARGET (17, int) — both ride the pack,
@@ -5719,6 +5729,9 @@ func (s *Server) mobTickStep() {
 				// ahead of the melee chase — a live stare freezes or
 				// teleports the mob instead of walking.
 				goalActed = s.enderStareStep(e) || s.mobMeleeStep(e)
+			} else if flyerMobs[ambName] {
+				// Blaze/Ghast/Phantom goal sets (flyer.go).
+				goalActed = s.flyerStep(e, ambName)
 			} else if mobMelee[e.Type] {
 				goalActed = s.mobMeleeStep(e)
 			}
@@ -6812,6 +6825,8 @@ var mobAlwaysFlies = map[string]bool{
 // settles the fall near -0.12 blocks/tick instead of the -1.0 cap.
 var mobSlowFalls = map[string]bool{
 	"chicken": true,
+	// Blaze.aiStep's identical !onGround && y<0 → y·0.6 arm.
+	"blaze": true,
 }
 
 // mobGrounded is the falling half of a mob tick: gravity until a solid

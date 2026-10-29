@@ -190,6 +190,9 @@ func (s *Server) deflectAimProjectile(sess *Session, e *Entity) {
 	e.MotionZ = math.Cos(yawR) * math.Cos(pitchR)
 	e.ProjOwner = sess.getUUID()
 	e.HasProjOwner = true
+	// The attacker is the owner the hit tails credit from here on — a
+	// ghast's ball batted back no longer counts the ghast as its own.
+	e.arrowShooter = sess.entityID.Load()
 	if name, ok := EntityTypeName(e.Type); ok && hurtingProjectileTypes[name] {
 		e.AccelPower = 0.1
 	}
@@ -2030,6 +2033,10 @@ func (s *Server) fireballCollide(e *Entity, ox, oy, oz float64) bool {
 		}
 		s.broadcastMobSharedFlags(t.ID, t.FireTicks > 0, t.GlowUntil > s.gameTime())
 	}
+	if !hit {
+		// The player victims (flyer.go) — same 5.0 + 5s ignite.
+		hit = s.fireballHitPlayers(e, ox, oy, oz, 5.0, true)
+	}
 	return hit
 }
 
@@ -2393,12 +2400,13 @@ func (s *Server) largeFireballCollide(e *Entity, ox, oy, oz float64) bool {
 			typeName = "unattributed_fireball"
 			cause = e.ID
 		}
-		s.damageMob(t, 6.0, typeName, s.sessionByEntityID(e.arrowShooter), &damageInfo{
+		s.damageMob(t, s.largeFireballDamage(e, t), typeName, s.sessionByEntityID(e.arrowShooter), &damageInfo{
 			typeName: typeName, cause: cause, direct: e.ID,
 		})
 		return true
 	}
-	return false
+	// The player victims (flyer.go) — the same 6.0 hit.
+	return s.fireballHitPlayers(e, ox, oy, oz, 6.0, false)
 }
 
 // largeFireballExplode is LargeFireball.onHit's tail: explode(
