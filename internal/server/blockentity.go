@@ -277,6 +277,7 @@ func (s *Server) chunkBlockEntities(d *dimension, cx, cz int) []map[string]any {
 // components,x,y,Items,z,id and no keepPacked).
 func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any, bool) {
 	blk := d.w.GetBlock(pos)
+	s.structureBlockAt(d, pos)
 	spec, ok := blockEntityOf(blk)
 	if !ok {
 		return nil, false

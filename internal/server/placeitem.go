@@ -264,6 +264,10 @@ func (s *Server) placedByOtherHalf(sess *Session, d *dimension, pos world.Pos, s
 	}
 	above := posAbove(pos, 1)
 	switch {
+	case cls[0] == "StructureBlock":
+		if g := s.structureBlockAt(d, pos); g != nil {
+			g.fields["author"] = sess.getName()
+		}
 	case cls[0] == "PitcherCropBlock":
 	case cls[0] == "SmallDripleafBlock":
 		up, _ := world.BlockState(name)

@@ -100,7 +100,7 @@ func init() {
 		IDPlayCreativeSlotSB:       (*Server).handleCreativeSlot,
 		IDPlaySetGameRuleSB:        (*Server).handleSetGameRule,
 		IDPlaySetJigsawBlockSB:     (*Server).ignoreServerbound,
-		IDPlaySetStructureBlockSB:  (*Server).ignoreServerbound,
+		IDPlaySetStructureBlockSB:  (*Server).handleSetStructureBlock,
 		IDPlaySetTestBlockSB:       (*Server).ignoreServerbound,
 		IDPlayUpdateSignSB:         (*Server).handleUpdateSign,
 

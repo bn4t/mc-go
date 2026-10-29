@@ -60,7 +60,6 @@ func TestIgnoreServerboundIsDeliberate(t *testing.T) {
 		"client_tick_end",
 		"jigsaw_generate",
 		"set_jigsaw_block",
-		"set_structure_block",
 		"set_test_block",
 		"test_instance_block_action",
 	}

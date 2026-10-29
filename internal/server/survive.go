@@ -422,6 +422,7 @@ func (s *Server) neighborSurvival(d *dimension, pos world.Pos, notify world.Bloc
 func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block, commandWrite bool) {
 	s.genericBEOnWrite(d, pos, blk, old)
 	s.commandBlockOnPlace(d, pos, blk)
+	s.structureBlockAt(d, pos)
 	s.frostedIceOnPlace(d, pos, blk)
 	s.fireOnPlace(d, pos, blk, old)
 	// ScaffoldingBlock.onPlace: the 1-tick distance refold arms on

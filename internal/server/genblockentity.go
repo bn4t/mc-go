@@ -236,6 +236,10 @@ func (s *Server) restoreGenericBlockEntity(d *dimension, pos world.Pos, id strin
 	if id == "minecraft:command_block" {
 		fields = commandBlockSavedFields(fields)
 	}
+	if id == "minecraft:structure_block" {
+		fields = structureBlockSavedFields(fields)
+		s.structureBlockMode(d, pos, fields["mode"].(string))
+	}
 	d.genericBE[pos] = &genericBlockEntity{id: id, fields: fields}
 	if id == "minecraft:beehive" {
 		if l, ok := fields["bees"].(nbt.List); ok && len(l.Items) > 0 {
