@@ -16605,3 +16605,74 @@ no flee; unsneak → flee). Green both legs.
 - **Pinned**: `TestPhantomSweepParity` (size 0/3 bites, sun).
 - **Remaining**: PhantomSpawner (insomnia); cat hiss; bites land ~1 s later than vanilla
   (flight timing unpinned).
+
+## Slice — vex charge, random move, limited life (2026-10-29)
+- **Measured**: `javap` on the 26.2 jar: Vex, VexChargeAttackGoal, VexMoveControl,
+  VexRandomMoveGoal, VexCopyOwnerTargetGoal. Vex.tick sets noGravity every tick and runs the
+  life_ticks countdown outside isEffectiveAi (starve damage 1, re-arm 20); charge canUse
+  (!hasWanted, nextInt(4), distSqr > 4), DATA_FLAGS_ID (16) bit 1 + vex.charge, the box-overlap
+  doHurtTarget clearing it; iron sword 4 + 5; move control acceleration d·speed·0.05/|d|, WAIT
+  inside getSize, noPhysics drag (0.91, 0.98, 0.91). Wire via the blackbox harness.
+- **Implemented**: `hostile.go` (family registry: goal state, family metadata byte, NoGravity
+  emit, line-of-sight clip, targets) plus `vex.go`; iron sword on finalizeSpawn.
+- **Pinned**: `TestVexParity` (two starve hits in 40 stepped ticks, health 12; charge flag
+  on/off, vex.charge, 9-damage hit).
+- **Remaining**: life_ticks/owner/bound_pos persistence; HurtByTarget.
+
+## Slice — evoker spells + evoker fangs (2026-10-29)
+- **Measured**: `javap`: Evoker and its goals, SpellcasterIllager, EvokerFangs —
+  DATA_SPELL_CASTING_ID (17) 1 → 2 in one selector pass; cast/interval summon 100/340, attack
+  40/100, wololo 60/140 (warmup 40, reduced goal ticks); vex summon at blockPos +
+  (-2..2, 1, -2..2); fangs as a 16-line at 1.25·(i+1) or a 5+8 circle at r 1.5/2.5 with the
+  sturdy-floor scan; bite (entity event 4) on the first negative warmup tick, damage at -8;
+  wololo needs mob_griefing and a visible blue sheep; targeting keeps line of sight.
+- **Implemented**: `evoker.go` (spell goals, fangs, wololo, avoid-player); the shared target
+  search gains a line-of-sight check; evoker fang angles through Mth's sine table.
+- **Pinned**: `TestEvokerSpellParity` (griefing gate, wololo, summon then fangs, vex offsets,
+  16-line and 13-circle geometry with bite order, the villager hit, four sounds).
+- **Remaining**: HurtByTarget; unseen-memory target loss; AvoidEntity(Creaking); vex team;
+  SpellTicks / fang owner persistence.
+
+## Slice — spider leap + wall climb (2026-10-29)
+- **Measured**: `javap`: Spider, SpiderAttackGoal, SpiderTargetGoal, LeapAtTargetGoal,
+  LivingEntity.handleOnClimbable / handleRelativeFrictionAndCalculateMovement — climbing flag
+  (16 bit 0) from horizontal collision, ±0.15 clamp and 0.2 post-move y; leap at distSqr
+  4..16 with nextInt(3), delta = norm·0.4 + delta·0.2, y 0.4.
+- **Implemented**: `spider.go` around the existing melee and cave-spider poison.
+- **Pinned**: `TestSpiderClimbLeapParity` (flag set/clear, 3-high climb, leap vy 0.3136).
+- **Remaining**: the brightness 1/100 target drop; AvoidEntity(Armadillo).
+
+## Slice — ravager melee, immobility, roar, leaves (2026-10-29)
+- **Measured**: `javap`: Ravager — doHurtTarget (attackTick 10, entity event 4,
+  ravager.attack, 12 damage, reach box deflated 0.05), isImmobile freezing goals, 40-tick stun
+  then roar (roarTick 20, roar at 10: 6 damage, strong knockback, event 69), shield block 50%
+  stun (event 39), mob_griefing leaf breaking on horizontal collision else a jump.
+- **Implemented**: `ravager.go`.
+- **Pinned**: `TestRavagerParity` (event 4 + sound, 12 damage, ≥4 leaves broken with
+  griefing, none without).
+- **Remaining**: shield stun/roar unpinned; movement_speed lerp not sent as attributes;
+  villager/golem targeting unpinned; tick state not saved.
+
+## Slice — slime dealDamage reach + golem push (2026-10-29)
+- **Measured**: `javap`: AbstractCubeMob.push / playerTouch / dealDamage, MagmaCube — the
+  melee-range box inflated horizontally only; push(IronGolem) runs dealDamage (NoAI golems
+  too).
+- **Implemented**: the reach box in `cubemob.go` and the golem push damage.
+- **Pinned**: `TestCubeGolemPushParity` (≥2 hits, slime.attack, golem health 96).
+- **Remaining**: CubeMobAttackGoal's growTiredTimer; dealDamage's line-of-sight check.
+
+## Slice — ender eye throw (2026-10-29), pin not yet green
+- **Measured**: `javap` on the 26.2 jar: EnderEyeItem.use (NONE clip onto an end portal frame
+  passes; findNearestMapStructure(EYE_OF_ENDER_LOCATED, player block, 100, false); spawn at
+  getY(0.5); launch sound NEUTRAL 1 lerp(nextFloat, 0.33, 0.5); consume + item_used),
+  EyeOfEnder (signalTo: a target > 12 blocks off becomes 12 toward it and 8 up, survive =
+  nextInt(5) > 0; tick: next = pos + motion, updateDeltaMovement from next — horizontal speed
+  eased 0.25% toward the remaining distance, ×0.8 inside one block, vertical eased 1.5% toward
+  ±1; past 80 ticks ender_eye.death, discard, the item or level event 2003).
+- **Implemented**: `internal/server/endereye.go` (throw, flight, death); summoned eyes now
+  shatter (no survive roll) like vanilla's targetless eyes.
+- **Pinned**: `TestEnderEyeThrowParity` is NOT passing yet: at one of three spots the spawn,
+  20-tick position and motion match vanilla exactly; the other two differ (the mc-go leg's
+  teleport landing after the throw on a freshly generated area, and a different stronghold
+  chosen near -1200 2100 — check findNearestMapStructure's concentric-ring placement there).
+- **Remaining**: fix the two divergences above; the use's startUsingItem flag.

@@ -295,9 +295,14 @@ func (s *Server) cubeLand(e *Entity, name string, bounds [2]float64) {
 	s.cubeSound(e, name, "squish")
 }
 
-// cubeTouchDamage is AbstractCubeMob.playerTouch + dealDamage: when
-// the boxes overlap, isDealsDamage cubes hurt the player on their
-// mob_attack damage source and play SLIME_ATTACK.
+// cubeTouchDamage is AbstractCubeMob.playerTouch + dealDamage: Player
+// .aiStep touches every entity inside its box inflated (1, 0.5, 1),
+// and dealDamage then needs isWithinMeleeAttackRange — the cube's box
+// inflated by DEFAULT_ATTACK_REACH (sqrt(2.04)-0.6) horizontally, no
+// vertical inflate — to meet the player's hitbox. isDealsDamage cubes
+// hurt the player on their mob_attack damage source and play
+// SLIME_ATTACK. AbstractCubeMob.push runs the same dealDamage on an
+// iron golem the cube is pushed against (cubeGolemPushDamage).
 func (s *Server) cubeTouchDamage(e *Entity, name string, bounds [2]float64) {
 	if !cubeDealsDamage(e, name) {
 		return
@@ -306,7 +311,8 @@ func (s *Server) cubeTouchDamage(e *Entity, name string, bounds [2]float64) {
 	if name == "magma_cube" {
 		dmg += 2.0
 	}
-	half, height := bounds[0]/2, bounds[1]
+	s.cubeGolemPushDamage(e, bounds, dmg)
+	half, height := bounds[0]/2+0.8284271, bounds[1]
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
 		if sess.state.Load() != StatePlay || !sess.spawned.Load() || sess.dead ||
@@ -317,11 +323,11 @@ func (s *Server) cubeTouchDamage(e *Entity, name string, bounds [2]float64) {
 			return true
 		}
 		px, py, pz, _, _, _ := sess.Pos()
-		// Vanilla calls playerTouch from the entity-contact push —
-		// strict bounding-box overlap (attack_range 0).
-		if px+0.3 < e.X-half || px-0.3 > e.X+half ||
-			pz+0.3 < e.Z-half || pz-0.3 > e.Z+half ||
-			py+1.8 < e.Y || py-0.5 > e.Y+height {
+		// The reach box against the player's hitbox (strict
+		// AABB.intersects on every axis).
+		if px+0.3 <= e.X-half || px-0.3 >= e.X+half ||
+			pz+0.3 <= e.Z-half || pz-0.3 >= e.Z+half ||
+			py+1.8 <= e.Y || py >= e.Y+height {
 			return true
 		}
 		dealt := s.damageWith(sess, dmg, translatable("death.attack.mob",
@@ -337,6 +343,34 @@ func (s *Server) cubeTouchDamage(e *Entity, name string, bounds [2]float64) {
 		}
 		return true
 	})
+}
+
+// cubeGolemPushDamage is AbstractCubeMob.push(entity): when an iron
+// golem's pushEntities shoves the cube (the two boxes overlap), an
+// isDealsDamage cube runs dealDamage on the golem — mob_attack at the
+// cube's attack damage plus SLIME_ATTACK when it lands. The reach box
+// test inside dealDamage is implied by the overlap.
+func (s *Server) cubeGolemPushDamage(e *Entity, bounds [2]float64, dmg float32) {
+	golemID := mustEntityType("iron_golem")
+	var hits []*Entity
+	s.entities.mu.RLock()
+	for _, o := range s.entities.byID {
+		if o.Type != golemID || o.Dim != e.Dim || o.Dying || o.Dormant || o.Health <= 0 {
+			continue
+		}
+		if boxesIntersect(e.X, e.Y, e.Z, bounds, o.X, o.Y, o.Z, entityBBDims(o)) {
+			hits = append(hits, o)
+		}
+	}
+	s.entities.mu.RUnlock()
+	for _, o := range hits {
+		dealt, _, _ := s.damageMob(o, dmg, "mob_attack", nil, &damageInfo{typeName: "mob_attack", cause: e.ID, direct: e.ID})
+		if dealt > 0 {
+			if id, ok := SoundEventID("entity.slime.attack"); ok {
+				s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, id, srcHostile, 1.0, 1.0, nil)
+			}
+		}
+	}
 }
 
 // cubeMobSplit is AbstractCubeMob.remove's SPLIT_ON_DEATH half: a
