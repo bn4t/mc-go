@@ -140,6 +140,9 @@ func init() {
 		bv, _ := world.StateProperty(b, "vertical_direction")
 		return blockInTag(b, "speleothems") && bv == v && isBlock(b, name)
 	}
+	// GlazedTerracottaBlock has no canSurvive override (the parity
+	// tests' order probe places it).
+	surviveByClass["GlazedTerracottaBlock"] = func(*Region, world.Block, BlockPos) bool { return true }
 	// VineBlock.canSurvive: the shape update leaves at least one face.
 	surviveByClass["VineBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
 		return vineHasFaces(vineUpdatedState(rg, st, p))
