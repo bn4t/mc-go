@@ -86,8 +86,14 @@ func blockInTag(b world.Block, tag string) bool {
 }
 
 // rawBrightness is getRawBrightness(pos, 0) during features: the
-// chunks are not lit yet, so the sky engine reports full light.
-func rawBrightness(*Region, BlockPos) int32 { return 15 }
+// chunks are not lit yet, so the sky engine reports full light. The
+// nether has no sky engine, leaving the (unlit) block light: 0.
+func rawBrightness(rg *Region, _ BlockPos) int32 {
+	if rg != nil && rg.g.RS.settings.name == "nether" {
+		return 0
+	}
+	return 15
+}
 
 // SurviveFunc is one block family's canSurvive.
 type SurviveFunc func(rg *Region, state world.Block, p BlockPos) bool
