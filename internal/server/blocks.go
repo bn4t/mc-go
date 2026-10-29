@@ -250,6 +250,11 @@ func (s *Server) runSetblock(player string, args []string) reply {
 		be["x"], be["y"], be["z"] = int32(x), int32(y), int32(z)
 		s.restoreBlockEntity(d, be)
 	}
+	if spec, ok := blockEntityOf(blk); ok && spec.name == "minecraft:copper_golem_statue" && tag != nil {
+		be := snbtToValue(tag).(map[string]any)
+		be["id"], be["x"], be["y"], be["z"] = spec.name, int32(x), int32(y), int32(z)
+		s.restoreBlockEntity(d, be)
+	}
 	if name, _ := world.StateOwner(blk); name == "jigsaw" {
 		s.jigsawAt(d, pos)
 	}

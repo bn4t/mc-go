@@ -420,7 +420,13 @@ func (s *Server) neighborSurvival(d *dimension, pos world.Pos, notify world.Bloc
 // LevelChunk.setBlockState on every write: scheduled-tick blocks arm
 // their first tick here (frosted ice, fire, ...).
 func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block, commandWrite bool) {
-	s.genericBEOnWrite(d, pos, blk, old)
+	s.writeOnPlaceWithEntityPolicy(d, pos, blk, old, commandWrite, false)
+}
+
+func (s *Server) writeOnPlaceWithEntityPolicy(d *dimension, pos world.Pos, blk, old world.Block, commandWrite, preserveEntity bool) {
+	if !preserveEntity {
+		s.genericBEOnWrite(d, pos, blk, old)
+	}
 	s.commandBlockOnPlace(d, pos, blk)
 	s.structureBlockAt(d, pos)
 	s.frostedIceOnPlace(d, pos, blk)
@@ -590,8 +596,13 @@ func (s *Server) setSilentBlock(d *dimension, pos world.Pos, blk world.Block) {
 // Native template flags can suppress callbacks and the temporary barrier
 // update independently; ordinary silent writes retain their existing policy.
 func (s *Server) setSilentBlockWithPolicy(d *dimension, pos world.Pos, blk world.Block, skipSideEffects, send bool) {
+	s.setSilentBlockWithEntityPolicy(d, pos, blk, skipSideEffects, send, false)
+}
+
+func (s *Server) setSilentBlockWithEntityPolicy(d *dimension, pos world.Pos, blk world.Block, skipSideEffects, send, preserveEntity bool) {
 	oldTop := columnTop(d, pos.X, pos.Z)
 	old := d.w.GetBlock(pos)
+	preserveEntity = preserveEntity && compatibleBlockEntityTypes(old, blk)
 	d.w.SetBlock(pos, blk)
 	if skipSideEffects {
 		s.structureRetireBlockEntity(d, pos, old, blk)
@@ -601,7 +612,7 @@ func (s *Server) setSilentBlockWithPolicy(d *dimension, pos world.Pos, blk world
 		}
 		s.structureBlockAt(d, pos)
 	} else {
-		s.writeOnPlace(d, pos, blk, old, false)
+		s.writeOnPlaceWithEntityPolicy(d, pos, blk, old, false, preserveEntity)
 	}
 	// onPlace may have rewritten the cell (TNT primed on a signal
 	// self-removes) — everything downstream reads the final state.
@@ -626,7 +637,8 @@ func (s *Server) setSilentBlockWithPolicy(d *dimension, pos world.Pos, blk world
 	if send {
 		s.broadcastBlockState(d, pos, blk)
 	}
-	s.syncBlockEntitiesWithPolicy(d, pos, blk, skipSideEffects)
+	preserveEntity = preserveEntity && compatibleBlockEntityTypes(old, blk)
+	s.syncBlockEntitiesWithEntityPolicy(d, pos, blk, skipSideEffects, preserveEntity)
 	s.invalidateRandomTickSection(d, pos)
 	s.blockLightChanged(d, pos, old, blk)
 	s.skyLightChanged(d, pos, old, blk, oldTop, newTop)

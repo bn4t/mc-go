@@ -7,21 +7,28 @@ import (
 	"testing"
 	"time"
 
+	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
 	"mc-go/internal/server"
 	"mc-go/internal/world"
 )
 
 type handUseCase struct {
-	before                                      []string
-	name, main, off, clicked, wantBlock, entity string
-	mainResult, offResult                       string
-	hand                                        int32
-	mainStart, offStart, mainEnd, offEnd        int32
-	sneak, creative, menu, book, air, editor    bool
-	mainDamage, offDamage                       int32
-	pre, setup                                  []string
-	checks                                      []string
+	sound                                          string
+	levelEvent                                     int32
+	eventActor                                     bool
+	menuTitle, menuItem                            string
+	menuCount                                      int32
+	before                                         []string
+	gameMode                                       string
+	name, main, off, clicked, wantBlock, entity    string
+	mainResult, offResult                          string
+	hand                                           int32
+	mainStart, offStart, mainEnd, offEnd           int32
+	sneak, creative, menu, book, air, editor, down bool
+	mainDamage, offDamage                          int32
+	pre, setup                                     []string
+	checks                                         []string
 }
 
 func TestItemUseHandPriorityParity(t *testing.T) {
@@ -58,9 +65,12 @@ func TestItemUseHandPriorityParity(t *testing.T) {
 
 func checkHandUseCases(t *testing.T, cases []handUseCase) {
 	t.Helper()
-	targets := requireBlackboxFiles(t, map[string]string{"view-distance": "2"}, map[string]string{"ops.json": opsJSONFor("HandUse")}, nil)
+	targets := requireBlackboxFiles(t, map[string]string{"view-distance": "2"}, map[string]string{"ops.json": opsJSONFor("HandUse", "HandHear")}, nil)
 	defer targets.cleanup()
 	type result struct {
+		soundActor, soundOther, eventActor, eventOther                    int
+		menuKind, menuSlots, menuID, menuCount                            int32
+		menuTitle                                                         string
 		main, off, mainID, offID, mainDamage, offDamage                   int32
 		block, pigMain, pigOff, rocket, menu, book, checks, editor, setup bool
 	}
@@ -69,6 +79,19 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 		defer conn.Close()
 		awaitPlayReadyBlackbox(t, addr, conn, pr, pw)
 		sink := newChatSinkTP(pr, pw)
+		var watch *chatSink
+		for _, tc := range cases {
+			if tc.sound == "" && tc.levelEvent == 0 {
+				continue
+			}
+			c, r, w := joinPlayBlackbox(t, addr, "HandHear")
+			defer c.Close()
+			awaitPlayReadyBlackbox(t, addr, c, r, w)
+			watch = newChatSinkTP(r, w)
+			break
+		}
+		effectSound, effectEvent := int32(-1), int32(0)
+		soundActor, eventActor := 0, 0
 		slots := map[int16]server.ItemStack{}
 		menuSlots := map[int32]int32{}
 		storeSlot := func(wid int32, slot int16, item server.ItemStack) {
@@ -89,9 +112,15 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 			}
 		}
 		opened := false
+		menuKind, menuSize := int32(0), int32(0)
+		menuFirst := server.ItemStack{}
+		menuTitle := ""
 		editor := false
 		window := int32(0)
 		fold := func(lines []string) {
+			a, b := countHandEffectsBB(lines, effectSound, effectEvent)
+			soundActor += a
+			eventActor += b
 			for _, line := range lines {
 				sep := strings.IndexByte(line, ':')
 				if sep < 0 {
@@ -116,6 +145,9 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 					_, _ = r.VarInt()
 					n, e2 := r.VarInt()
 					if e == nil && e2 == nil {
+						if wid == window && opened {
+							menuSize = n
+						}
 						if wid > 0 && n >= 36 {
 							menuSlots[wid] = n - 36
 						}
@@ -125,6 +157,9 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 								t.Fatalf("%s inventory slot%d: %v", addr, i, err)
 							}
 							storeSlot(wid, int16(i), it)
+							if wid == window && opened && i == 0 {
+								menuFirst = it
+							}
 						}
 					}
 				case server.IDPlaySetPlayerInventory:
@@ -143,6 +178,22 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 				case server.IDPlayOpenScreen:
 					window, _ = r.VarInt()
 					opened = true
+					menuKind, _ = r.VarInt()
+					payload, _ := r.Read(r.Remaining())
+					value, err := nbt.ReadUnnamed(strings.NewReader(string(payload)))
+					if err != nil {
+						t.Fatalf("%s menu title: %v", addr, err)
+					}
+					switch text := value.(type) {
+					case string:
+						menuTitle = "literal:" + text
+					case map[string]any:
+						if key, ok := text["translate"].(string); ok {
+							menuTitle = "translate:" + key
+						} else if text, ok := text["text"].(string); ok {
+							menuTitle = "literal:" + text
+						}
+					}
 				}
 			}
 		}
@@ -187,6 +238,12 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 		sendCommand(t, pw, "tick freeze")
 		sendCommand(t, pw, "say HANDFROZEN")
 		collect("HANDFROZEN")
+		if watch != nil {
+			sendCommand(t, pw, "tp HandHear 0.5 160 -5.5")
+			sendCommand(t, pw, "say HANDHEARPOSITIONED")
+			collect("HANDHEARPOSITIONED")
+			collectHandWatchBB(t, watch, "HANDHEARPOSITIONED")
+		}
 		var out []result
 		for i, tc := range cases {
 			if window != 0 {
@@ -200,6 +257,8 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 			// Frozen dying bodies retain building collision; relocate live fixtures first.
 			sendCommand(t, pw, "tp @e[type=pig,distance=..32] 1000.0 160.0 1000.0")
 			sendCommand(t, pw, "kill @e[type=pig]")
+			sendCommand(t, pw, "kill @e[type=item]")
+			sendCommand(t, pw, "gamerule minecraft:block_drops true")
 			sendCommand(t, pw, "kill @e[type=tnt]")
 			sendCommand(t, pw, "kill @e[type=firework_rocket]")
 			sendCommand(t, pw, "kill @e[type=end_crystal]")
@@ -222,6 +281,9 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 			mode := "survival"
 			if tc.creative {
 				mode = "creative"
+			}
+			if tc.gameMode != "" {
+				mode = tc.gameMode
 			}
 			sendCommand(t, pw, "gamemode "+mode+" @s")
 			names := [2]string{fmt.Sprintf("MainEgg%d", i), fmt.Sprintf("OffEgg%d", i)}
@@ -285,7 +347,17 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 					setupOK = setupOK && structureSaidBB(lines, marker)
 				}
 			}
+			effectSound, effectEvent = -1, tc.levelEvent
+			if tc.sound != "" {
+				effectSound, _ = server.SoundEventID(tc.sound)
+			}
+			soundActor, eventActor = 0, 0
+			if watch != nil {
+				watch.take()
+			}
 			opened = false
+			menuKind, menuSize, menuTitle = 0, 0, ""
+			menuFirst = server.ItemStack{}
 			editor = false
 			sequence := int32(2600 + i)
 			var b protocol.Buffer
@@ -297,7 +369,11 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 				_ = pw.WritePacket(server.IDPlayUseItemSB, b.Bytes())
 			} else {
 				b.Position(0, 159, 0)
-				b.VarInt(1)
+				face := int32(1)
+				if tc.down {
+					face = 0
+				}
+				b.VarInt(face)
 				b.Float(.5)
 				b.Float(1)
 				b.Float(.5)
@@ -345,7 +421,7 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 			flags := [5]bool{}
 			for _, line := range lines {
 				for j, marker := range markers {
-					if strings.Contains(line, marker) {
+					if structureSaidBB([]string{line}, marker) {
 						flags[j] = true
 					}
 				}
@@ -354,13 +430,18 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 			for _, marker := range checkMarkers {
 				found := false
 				for _, line := range lines {
-					if strings.HasPrefix(line, "0x21:") && strings.Contains(line, marker) {
+					if structureSaidBB([]string{line}, marker) {
 						found = true
 					}
 				}
 				allChecks = allChecks && found
 			}
-			r := result{setup: setupOK, checks: allChecks, editor: editor, main: slots[36].Count, off: slots[45].Count, mainID: slots[36].ID, offID: slots[45].ID, mainDamage: slots[36].Damage, offDamage: slots[45].Damage, block: flags[0], pigMain: flags[1], pigOff: flags[2], rocket: flags[3], menu: opened, book: flags[4]}
+			soundOther, eventOther := 0, 0
+			if watch != nil {
+				other := collectHandWatchBB(t, watch, end)
+				soundOther, eventOther = countHandEffectsBB(other, effectSound, effectEvent)
+			}
+			r := result{soundActor: soundActor, soundOther: soundOther, eventActor: eventActor, eventOther: eventOther, menuKind: menuKind, menuSlots: menuSize, menuID: menuFirst.ID, menuCount: menuFirst.Count, menuTitle: menuTitle, setup: setupOK, checks: allChecks, editor: editor, main: slots[36].Count, off: slots[45].Count, mainID: slots[36].ID, offID: slots[45].ID, mainDamage: slots[36].Damage, offDamage: slots[45].Damage, block: flags[0], pigMain: flags[1], pigOff: flags[2], rocket: flags[3], menu: opened, book: flags[4]}
 			out = append(out, r)
 			t.Logf("%s %s %+v", addr, tc.name, r)
 		}
@@ -369,6 +450,26 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 	vanilla, mcgo := run(targets.vanilla), run(targets.mcgo)
 	for i, tc := range cases {
 		want := result{setup: true, checks: true, editor: tc.editor, mainDamage: tc.mainDamage, offDamage: tc.offDamage, main: tc.mainEnd, off: tc.offEnd, block: true, menu: tc.menu, book: tc.book, rocket: tc.entity == "firework_rocket"}
+		if tc.sound != "" {
+			want.soundOther = 1
+		}
+		if tc.levelEvent != 0 {
+			want.eventOther = 1
+			if tc.eventActor {
+				want.eventActor = 1
+			}
+		}
+		if tc.menu {
+			want.menuKind, want.menuSlots = 2, 63
+			want.menuTitle = tc.menuTitle
+			if want.menuTitle == "" {
+				want.menuTitle = "translate:container.chest"
+			}
+			want.menuCount = tc.menuCount
+			if tc.menuCount > 0 {
+				want.menuID = world.ItemIDs[tc.menuItem]
+			}
+		}
 		if tc.mainEnd > 0 {
 			name := tc.main
 			if tc.mainResult != "" {
@@ -394,4 +495,44 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 			t.Errorf("%s vanilla%+v mcgo%+v want%+v", tc.name, vanilla[i], mcgo[i], want)
 		}
 	}
+}
+
+// Only count the selected effect IDs; unrelated ambient sounds are immaterial.
+func countHandEffectsBB(lines []string, sound, event int32) (sounds, events int) {
+	for _, line := range lines {
+		sep := strings.IndexByte(line, ':')
+		if sep < 0 {
+			continue
+		}
+		r := protocol.NewPacketReader([]byte(line[sep+1:]))
+		if sound >= 0 && line[:sep] == "0x75" {
+			id, err := r.VarInt()
+			if err == nil && id == sound+1 {
+				sounds++
+			}
+		}
+		if event != 0 && line[:sep] == fmt.Sprintf("%#x", server.IDPlayLevelEvent) {
+			id, err := r.Int()
+			if err == nil && id == event {
+				events++
+			}
+		}
+	}
+	return
+}
+
+func collectHandWatchBB(t *testing.T, sink *chatSink, marker string) []string {
+	t.Helper()
+	var lines []string
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		batch := sink.take()
+		lines = append(lines, batch...)
+		if structureSaidBB(lines, marker) {
+			return lines
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("observer missing exact marker %s", marker)
+	return nil
 }

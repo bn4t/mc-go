@@ -43,7 +43,7 @@ func isChestBlock(b world.Block) bool {
 	if !ok {
 		return false
 	}
-	return name == "chest" || name == "trapped_chest"
+	return name == "chest" || name == "trapped_chest" || name == "copper_chest" || strings.HasSuffix(name, "_copper_chest")
 }
 
 // ensureChest creates empty storage for a placed chest in dimension d.
@@ -201,7 +201,11 @@ func (s *Server) openChest(sess *Session, pos world.Pos) {
 	var b protocol.Buffer
 	b.VarInt(id)
 	b.VarInt(kind)
-	b.Raw(menuTitle(title))
+	titleComponent := menuTitle(title)
+	if !combined && d.beNames[first] != "" {
+		titleComponent = textComponentContent(d.beNames[first])
+	}
+	b.Raw(titleComponent)
 	_ = sess.write(sess.ids().PlayOpenScreen, b.Bytes())
 	s.sendChestContent(sess)
 	if sess.mode() != GameModeSpectator {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"strings"
 
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
@@ -97,11 +98,11 @@ func (s *Server) chestOpenerEffects(sess *Session, d *dimension, pos world.Pos, 
 	event, sound := "", ""
 	if opens {
 		event = "container_open"
-		sound = "block.chest.open"
+		sound = chestHingeSound(block, true)
 	}
 	if closes {
 		event = "container_close"
-		sound = "block.chest.close"
+		sound = chestHingeSound(block, false)
 	}
 	if event != "" {
 		s.chestLidSound(d, pos, block, sound)
@@ -182,7 +183,7 @@ func (s *Server) validateChestMenu(sess *Session) {
 		w.dim.chests.mu.Lock()
 		same := w.dim.chests.chests[pos] == storage
 		w.dim.chests.mu.Unlock()
-		valid = same && name == w.chestBlockName && chestMenuInRange(sess, pos)
+		valid = same && chestBackingNameCompatible(w.chestBlockName, name) && chestMenuInRange(sess, pos)
 	}
 	if valid {
 		return
@@ -199,4 +200,11 @@ func (s *Server) validateChestMenu(sess *Session) {
 	packet.VarInt(w.id)
 	_ = sess.write(sess.ids().PlayContainerClose, packet.Bytes())
 	s.menuRemoved(sess, w, false)
+}
+
+// Compatible copper tool states retain the same live chest entity. Ordinary
+// replacement still fails the storage identity check above.
+func chestBackingNameCompatible(initial, current string) bool {
+	copper := func(name string) bool { return name == "copper_chest" || strings.HasSuffix(name, "_copper_chest") }
+	return initial == current || copper(initial) && copper(current)
 }

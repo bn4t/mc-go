@@ -73,6 +73,10 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Capture filters must explicitly retain large packets relevant to a probe.
   Advancement tab updates can exceed 4 KiB; decode runtime definitions and
   assert meaningful counts before comparing geometry or progress.
+- For item-on-block interactions, verify default block/menu priority as well
+  as selected-hand state and cost. Check effect recipients separately: the
+  acting client can predict sounds/particles that only observers receive.
+  Open-viewer continuity requires a usable menu backed by the same live object.
 - Each server leg must independently satisfy meaningful expected values.
   Equal empty captures, stale menu caches or a decoder that truncates unknown
   definitions do not establish parity. Diagnose fixture failures on an

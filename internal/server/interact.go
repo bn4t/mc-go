@@ -510,11 +510,15 @@ func (s *Server) maceSmashKnockback(sess *Session, victim Entity) {
 // particles like the mace smash burst) to every spawned session in
 // the dimension.
 func (s *Server) broadcastLevelEvent(dim string, event int32, pos world.Pos, data int32) {
+	s.broadcastLevelEventExcept(dim, event, pos, data, nil)
+}
+
+func (s *Server) broadcastLevelEventExcept(dim string, event int32, pos world.Pos, data int32, except *Session) {
 	var lastProfile *javaProfile
 	var body []byte
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.state.Load() != StatePlay || !sess.spawned.Load() || sess.dimName() != dim {
+		if sess == except || sess.state.Load() != StatePlay || !sess.spawned.Load() || sess.dimName() != dim {
 			return true
 		}
 		profile, err := sess.javaProfile()

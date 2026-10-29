@@ -297,6 +297,10 @@ func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block)
 }
 
 func (s *Server) syncBlockEntitiesWithPolicy(d *dimension, pos world.Pos, blk world.Block, skipSideEffects bool) {
+	s.syncBlockEntitiesWithEntityPolicy(d, pos, blk, skipSideEffects, false)
+}
+
+func (s *Server) syncBlockEntitiesWithEntityPolicy(d *dimension, pos world.Pos, blk world.Block, skipSideEffects, preserveEntity bool) {
 	if spec, ok := signSpecOf(blk); ok {
 		s.ensureSign(d, pos)
 		if !s.ticking.Load() {
@@ -327,12 +331,14 @@ func (s *Server) syncBlockEntitiesWithPolicy(d *dimension, pos world.Pos, blk wo
 	s.syncContainerBlock(d, pos, blk)
 	s.syncBeacon(d, pos, blk)
 	// BaseEntityBlock preRemoveSideEffects: the old cell's block entity
-	// state dies on every write. CustomName clears here (after
+	// state retires on replacement, except for compatible tool transforms.
+	// CustomName clears here (after
 	// syncContainerBlock's removeContainer, which may still need it to
 	// copy a broken shulker's name onto the dropped box item).
-	if !skipSideEffects {
+	if !skipSideEffects && !preserveEntity {
 		delete(d.beNames, pos)
 	}
+	s.ensureCopperStatueEntity(d, pos, blk)
 	if isBeeNestBlock(blk) {
 		// BeehiveBlockEntity.setChanged: every mark-dirty re-checks
 		// isFireNearby — a nest written while a FireBlock sits in

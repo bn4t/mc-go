@@ -84,6 +84,11 @@ inventory resync; a resync must not manufacture an earlier ordering claim.
   update does not mean the slot is empty. Map a menu's player-slot region to
   the shared inventory using its measured layout, and handle direct player
   inventory updates. Assert each selected hand's item ID, count and damage.
+- Distinguish a block's default interaction from the held item callback. For
+  containers, decode screen kind/title and contents, then prove the menu is
+  usable after a second player changes the block. Observe acting-player and
+  observer sound/particle packets separately; local prediction can exclude
+  the actor from server effects without suppressing the gameplay action.
 - Before a multi-chunk setup fill, observe every chunk in its full footprint;
   loaded diagonal endpoints do not prove intermediate chunks are ready. Verify
   a positive setup block before attributing later misses to gameplay. Keep the

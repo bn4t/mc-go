@@ -100,6 +100,13 @@ until runtime visibility/progress is derived; replacing crafting_table also
 suppresses its captured recipe unlock. Complete player-predicate evaluation
 and reconciliation of saved criteria after pack changes remain separate work.
 
+Tool transformations use an explicit compatible block-entity write policy.
+The same live storage object remains available during on-place and neighbor
+callbacks; command replacements retain their separate retirement semantics.
+Open copper-chest viewers use storage identity plus compatible owner states.
+Transformation tables come from the reproducible tools/gentooltransforms
+registry-fact generator; effect recipients are distinct from state/cost behavior.
+
 Structure editors, powered structure blocks and jigsaw generation reuse the
 runtime's native template repository and placement path. Placement options keep
 shape handling separate from side-effect suppression, and preserve distinct

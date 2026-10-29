@@ -454,6 +454,10 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		useAck()
 		return
 	}
+	if s.useToolOnBlock(sess, d, clicked, face, hand) {
+		useAck()
+		return
+	}
 	// BoneMealItem.useOn — a bonemealable target grows, consuming one
 	// meal in survival (creative keeps it, like the igniter path).
 	if s.useBonemealInHand(sess, d, clicked, hand) {
