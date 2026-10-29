@@ -13,6 +13,7 @@ import (
 )
 
 type handUseCase struct {
+	before                                      []string
 	name, main, off, clicked, wantBlock, entity string
 	mainResult, offResult                       string
 	hand                                        int32
@@ -60,8 +61,8 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 	targets := requireBlackboxFiles(t, map[string]string{"view-distance": "2"}, map[string]string{"ops.json": opsJSONFor("HandUse")}, nil)
 	defer targets.cleanup()
 	type result struct {
-		main, off, mainID, offID, mainDamage, offDamage            int32
-		block, pigMain, pigOff, rocket, menu, book, checks, editor bool
+		main, off, mainID, offID, mainDamage, offDamage                   int32
+		block, pigMain, pigOff, rocket, menu, book, checks, editor, setup bool
 	}
 	run := func(addr string) []result {
 		conn, pr, pw := joinPlayBlackbox(t, addr, "HandUse")
@@ -154,7 +155,7 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 				fold(batch)
 				lines = append(lines, batch...)
 				for _, line := range batch {
-					if strings.Contains(line, marker) {
+					if structureSaidBB([]string{line}, marker) {
 						return lines
 					}
 				}
@@ -270,6 +271,20 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 			if !ready {
 				t.Fatalf("%s %s initial hand slots main%+v off%+v", addr, tc.name, slots[36], slots[45])
 			}
+			setupOK := true
+			if len(tc.before) > 0 {
+				markers := make([]string, len(tc.before))
+				for j, condition := range tc.before {
+					markers[j] = fmt.Sprintf("HANDBEFORE%d_%dX", i, j)
+					sendCommand(t, pw, condition+" run say "+markers[j])
+				}
+				end := fmt.Sprintf("HANDBEFOREEND%dX", i)
+				sendCommand(t, pw, "say "+end)
+				lines := collect(end)
+				for _, marker := range markers {
+					setupOK = setupOK && structureSaidBB(lines, marker)
+				}
+			}
 			opened = false
 			editor = false
 			sequence := int32(2600 + i)
@@ -345,7 +360,7 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 				}
 				allChecks = allChecks && found
 			}
-			r := result{checks: allChecks, editor: editor, main: slots[36].Count, off: slots[45].Count, mainID: slots[36].ID, offID: slots[45].ID, mainDamage: slots[36].Damage, offDamage: slots[45].Damage, block: flags[0], pigMain: flags[1], pigOff: flags[2], rocket: flags[3], menu: opened, book: flags[4]}
+			r := result{setup: setupOK, checks: allChecks, editor: editor, main: slots[36].Count, off: slots[45].Count, mainID: slots[36].ID, offID: slots[45].ID, mainDamage: slots[36].Damage, offDamage: slots[45].Damage, block: flags[0], pigMain: flags[1], pigOff: flags[2], rocket: flags[3], menu: opened, book: flags[4]}
 			out = append(out, r)
 			t.Logf("%s %s %+v", addr, tc.name, r)
 		}
@@ -353,7 +368,7 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 	}
 	vanilla, mcgo := run(targets.vanilla), run(targets.mcgo)
 	for i, tc := range cases {
-		want := result{checks: true, editor: tc.editor, mainDamage: tc.mainDamage, offDamage: tc.offDamage, main: tc.mainEnd, off: tc.offEnd, block: true, menu: tc.menu, book: tc.book, rocket: tc.entity == "firework_rocket"}
+		want := result{setup: true, checks: true, editor: tc.editor, mainDamage: tc.mainDamage, offDamage: tc.offDamage, main: tc.mainEnd, off: tc.offEnd, block: true, menu: tc.menu, book: tc.book, rocket: tc.entity == "firework_rocket"}
 		if tc.mainEnd > 0 {
 			name := tc.main
 			if tc.mainResult != "" {

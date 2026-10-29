@@ -217,7 +217,7 @@ func (s *Server) runSetblock(player string, args []string) reply {
 	}
 	s.commandBlockLoadTag(d, pos, tag)
 	s.emitLightUpdate(d, pos)
-	if tag != nil && isChestBlock(blk) {
+	if tag != nil && hasChestStorage(blk) {
 		c := s.chestAt(d, pos)
 		if lt, ok := tag.vals["LootTable"]; ok && lt.kind == snbtString {
 			c.lootTable = lt.str

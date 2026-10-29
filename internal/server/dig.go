@@ -309,7 +309,7 @@ func (s *Server) syncBlockEntitiesWithPolicy(d *dimension, pos world.Pos, blk wo
 	} else {
 		s.clearSign(d, pos)
 	}
-	if isChestBlock(blk) {
+	if hasChestStorage(blk) {
 		s.ensureChest(d, pos)
 	} else {
 		s.removeChest(d, pos)

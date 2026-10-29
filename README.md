@@ -38,6 +38,9 @@ Selected-hand interactions include signs, hive harvesting, ignition, growth,
 end items and disc insertion. Native jukebox records share the interaction
 store and survive measured bare-disc saves; complete component and playback
 lifecycle coverage remains in progress.
+Native copper-chest storage now preserves measured cargo, and plain literal
+chest names survive native save/reload. Copper menus and transformation
+preservation are still being completed.
 Native boats and most minecart variants preserve measured cargo, subtype state
 and supported passenger trees through vanilla-compatible saves; player remount,
 spawner carts and complete vehicle cargo/runtime behavior remain in progress.

@@ -140,6 +140,9 @@ func (s *Server) chunkBlockEntities(d *dimension, cx, cz int) []map[string]any {
 		copy(slots, c.slots[:])
 		lt, seed := c.lootTable, c.lootSeed
 		add(pos, blockEntityNBT(pos, spec, func(extra map[string]any) {
+			if name := d.beNames[pos]; name != "" {
+				extra["CustomName"] = name
+			}
 			// trySaveLootTable: an unrolled loot table (a dungeon
 			// chest) is saved instead of the items.
 			if lt != "" {
@@ -808,6 +811,14 @@ func (s *Server) restoreBlockEntity(d *dimension, be map[string]any) {
 	case "minecraft:jukebox":
 		s.restoreJukebox(d, pos, be)
 	case "minecraft:chest", "minecraft:trapped_chest":
+		if name, ok := be["CustomName"].(string); ok && name != "" {
+			if d.beNames == nil {
+				d.beNames = map[world.Pos]string{}
+			}
+			d.beNames[pos] = name
+		} else {
+			delete(d.beNames, pos)
+		}
 		c := s.chestAt(d, pos)
 		d.chests.mu.Lock()
 		clear(c.slots[:])
