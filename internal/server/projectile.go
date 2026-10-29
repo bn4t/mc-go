@@ -2030,6 +2030,10 @@ func (s *Server) fireballCollide(e *Entity, ox, oy, oz float64) bool {
 		}
 		s.broadcastMobSharedFlags(t.ID, t.FireTicks > 0, t.GlowUntil > s.gameTime())
 	}
+	if !hit {
+		// The player victims (flyer.go) — same 5.0 + 5s ignite.
+		hit = s.fireballHitPlayers(e, ox, oy, oz, 5.0, true)
+	}
 	return hit
 }
 

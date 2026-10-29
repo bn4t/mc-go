@@ -254,6 +254,8 @@ type Entity struct {
 	beamTarget int32
 	beamTime   int32
 	beamMeta   bool
+	// flyer is the Blaze/Ghast/Phantom goal state (flyer.go).
+	flyer *flyerState
 	// Moving mirrors Guardian's DATA_ID_MOVING (metadata index 16,
 	// boolean): GuardianMoveControl latches it while a swim drive is
 	// live — it gates travelInWater's idle -0.005 sink and the client
