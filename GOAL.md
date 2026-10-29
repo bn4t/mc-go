@@ -167,7 +167,8 @@ Mojang server over the wire.
 - [~] Survival mode: health, hunger (two-clock regen + deferred
       exhaustion drain + i-frames measured), starvation, void, death/
       respawn, item drops on death — eating/fall damage present; adventure
-      projectile/fall damage and fractional fall flooring wire-pinned
+      projectile/fall damage, fractional fall flooring, effective fall attributes and
+      Jump Boost/Slow Falling/Levitation behavior wire-pinned
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
   shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
   /recipe give|take + RecipeBookAdd/Remove wire-parity including the
@@ -16923,3 +16924,10 @@ no flee; unsneak → flee). Green both legs.
   Clean committed exports also build and pass the public consumer tests.
   Full vanilla parity, specialized menu behavior and performance targets
   remain open; no global completion or capacity claim is made.
+
+
+## Slice — player fall attributes and protective effects (2026-10-29)
+
+- **Measured:** JDK 25.0.5 javap inspection of official 26.2 `LivingEntity.calculateFallDamage`, `calculateFallPower`, `aiStep`, `MobEffects` static attribute declarations and `Player.causeFallDamage`; outer oracle jar SHA-1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Damage floors `(distance+1e-6-safe_fall_distance)*fall_damage_multiplier`. Jump Boost adds amplifier+1 to the safe-distance attribute before other modifier passes. Slow Falling and Levitation reset accumulated fall distance each entity tick before travel.
+- **Implemented:** player landing reads effective fall attributes and honors low safe-distance overrides; Jump Boost contributes its measured additive safe-distance modifier. Existing player entity tick clears descent during Slow Falling or Levitation. Scope does not include generalized status-effect attribute synchronization or all player landing block modifiers.
+- **Pinned:** `TestPlayerFallAttributesParity` passes all seven cases against vanilla (154.233 s): safe distance, multiplier, lower safe distance, Jump Boost, Jump Boost before multiplied-total, Slow Falling and Levitation. No oracle skips. Focused fall/pose units pass in an immutable export (5.173 s), and `go vet ./...` passes on that export.

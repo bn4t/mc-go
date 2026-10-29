@@ -1262,11 +1262,11 @@ func (s *Server) handleClientStatus(sess *Session, p protocol.Packet) {
 }
 
 // applyFallDamage converts accumulated fall distance into damage on
-// landing, matching vanilla's threshold of three blocks.
+// landing, using the player's current fall attributes.
 func (s *Server) applyFallDamage(sess *Session) {
 	// Player.causeFallDamage exempts abilities.mayfly: adventure players
 	// share survival fall damage. Measured on the 26.2 jar (JDK 25 javap).
-	if (sess.mode() != GameModeSurvival && sess.mode() != GameModeAdventure) || sess.dead || sess.fallDistance <= 3.0 {
+	if (sess.mode() != GameModeSurvival && sess.mode() != GameModeAdventure) || sess.dead {
 		sess.fallDistance = 0
 		return
 	}
@@ -1276,7 +1276,7 @@ func (s *Server) applyFallDamage(sess *Session) {
 	// Fallsounds pair (big when dmg > 4) then the landed block's
 	// SoundType.fallSound — both at the player's SoundSource (7).
 	x, y, z, _, _, _ := sess.Pos()
-	dmg := playerFallDamageAmount(distance)
+	dmg := sess.playerFallDamage(distance)
 	if dmg == 0 {
 		return
 	}
@@ -1390,6 +1390,17 @@ func (s *Server) playerFluidTickStep() {
 		// The player entity's tickCount — vanilla increments it in
 		// Entity.baseTick ahead of the living pass below.
 		sess.entityTicks++
+		// LivingEntity.aiStep clears accumulated descent while either effect
+		// is active, before travel. Packet movement can accumulate again
+		// between ticks, so this is deliberately an entity-tick reset.
+		sess.effMu.Lock()
+		_, slow := sess.effects[effectSlowFalling]
+		_, levitating := sess.effects[effectLevitation]
+		sess.effMu.Unlock()
+		if slow || levitating {
+			sess.fallDistance = 0
+		}
+
 		// Entity.baseTick's onBelowWorld: one four-damage hit per
 		// entity tick under the out-of-world band; the post-hit grace
 		// paces the visible damage to roughly every ten.
@@ -1772,4 +1783,28 @@ func abs(v float64) float64 {
 // javap). The epsilon protects integral landing distances from float drift.
 func playerFallDamageAmount(distance float64) float64 {
 	return math.Max(0, math.Floor(distance+1e-6-3))
+}
+
+// playerFallDamage uses the measured 26.2 attribute calculation. Jump Boost
+// contributes an additive safe-distance modifier before the other passes.
+func (sess *Session) playerFallDamage(distance float64) float64 {
+	base := playerAttrBases["safe_fall_distance"]
+	mods := map[string]attrMod{}
+	if e, ok := sess.server.entities.Get(sess.entityID.Load()); ok {
+		if v, ok := e.AttrBase["safe_fall_distance"]; ok {
+			base = v
+		}
+		for k, v := range e.AttrMods["safe_fall_distance"] {
+			mods[k] = v
+		}
+	}
+	sess.effMu.Lock()
+	if id, ok := MobEffectID("jump_boost"); ok {
+		if effect, active := sess.effects[id]; active {
+			mods["minecraft:effect.jump_boost"] = attrMod{value: float64(effect.amplifier + 1)}
+		}
+	}
+	sess.effMu.Unlock()
+	safe := attrRange("safe_fall_distance", attrValue(base, mods))
+	return math.Max(0, math.Floor((distance+1e-6-safe)*sess.sessAttr("fall_damage_multiplier", nil)))
 }
