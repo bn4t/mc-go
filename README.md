@@ -30,7 +30,8 @@ not establish complete vanilla behavior for its entire subsystem.
 Recent measured coverage includes command-block execution and editors,
 command-minecart activator rails, structure-block save/load and redstone actions
 with native templates, jigsaw editor/generation,
-block-entity update coalescing, moving-piston collision timing, container
+block-entity update coalescing, moving-piston collision timing and measured
+dropped-item pushes, container
 validity, chest events and ordinary main/offhand placement and consumption.
 Native boats and most minecart variants preserve measured cargo, subtype state
 and supported passenger trees through vanilla-compatible saves; player remount,

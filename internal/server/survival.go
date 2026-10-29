@@ -607,7 +607,13 @@ func (s *Server) itemTickStep() {
 		if orb {
 			halfBox, heightBox = 0.25, 0.5
 		}
-		if entityInsideSolid(w, e.X, e.Y, e.Z, halfBox, heightBox) {
+		inside := false
+		if orb {
+			inside = entityInsideSolid(w, e.X, e.Y, e.Z, halfBox, heightBox)
+		} else {
+			inside = s.itemInsideWorldCollision(s.dims[e.Dim], e.X, e.Y, e.Z, halfBox, heightBox)
+		}
+		if inside {
 			centerY := e.Y + heightBox/2
 			feet := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(centerY)), Z: int(math.Floor(e.Z))}
 			fx := e.X - float64(feet.X)

@@ -646,6 +646,7 @@ func (s *Server) rsPistonExtend(d *dimension, pos world.Pos, blk world.Block, fa
 // push is inside the relative-move threshold), and a pushed player's
 // own client animates the same push itself.
 func (s *Server) pistonPushTick(d *dimension, mp movingPiston, frac float64) {
+	s.pistonPushItems(d, mp, frac)
 	cell, dir := mp.pos, mp.dir
 	off := rsOff[dir]
 	target := rsShiftPos(cell, dir)
@@ -685,7 +686,7 @@ func (s *Server) pistonPushTick(d *dimension, mp movingPiston, frac float64) {
 	s.entities.mu.RLock()
 	var ids []int32
 	for id, e := range s.entities.byID {
-		if e.presenceOnly || e.Dim != d.name || e.Dying || entityIgnoresPistonPush(e) {
+		if e.presenceOnly || e.Type == mustEntityType("item") || e.Dim != d.name || e.Dying || entityIgnoresPistonPush(e) {
 			continue
 		}
 		ids = append(ids, id)
