@@ -120,6 +120,7 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   tables are produced by `tools/gen*` reading jar/datagen/report inputs,
   including bytecode inspection by some generators; regenerate them
   rather than hand-editing. Do not commit raw jar or datagen dumps.
+- Attribute registry metadata is reproduced through `tools/genattrmetadata/README.md`: public Java getters → factual TSV → independent Go generator.
 - New measurement and generation slices must record their source class
   (wire observation, public documentation, report/datapack, or bytecode
   inspection), tool/version and input checksum when applicable, plus
