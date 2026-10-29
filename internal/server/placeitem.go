@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"mc-go/internal/world"
-	"mc-go/internal/worldgen"
 )
 
 // placeItem is a block item's measured placement facts
@@ -119,15 +118,7 @@ func (s *Server) standingOrWallState(c *placeCtx, pi placeItem) (world.Block, bo
 // minecarts, end crystals, falling blocks, primed TNT) intersects the
 // state's collision shape at pos.
 func (s *Server) placeUnobstructed(d *dimension, st world.Block, pos world.Pos) bool {
-	if worldgen.NoCollision(st) {
-		return true
-	}
-	boxes := []cellBox{{0, 0, 0, 1, 1, 1}}
-	if !worldgen.FullCollision(st) {
-		if bs, ok := collisionBoxesOf(st); ok {
-			boxes = bs
-		}
-	}
+	boxes := s.playerWorldContextShapeAt(d, st, pos, playerShapeContext{placement: true})
 	if len(boxes) == 0 {
 		return true
 	}
@@ -141,25 +132,19 @@ func (s *Server) placeUnobstructed(d *dimension, st world.Block, pos world.Pos) 
 		}
 		return false
 	}
-	blocked := false
-	s.sessions.Range(func(_, v any) bool {
-		sess := v.(*Session)
-		if sess.state.Load() != StatePlay || !sess.spawned.Load() || sess.dimName() != d.name || sess.mode() == GameModeSpectator {
-			return true
+	for _, p := range s.activePlayersOwned() {
+		if p.physicalDimName() != d.name || p.mode() == GameModeSpectator {
+			continue
 		}
-		x, y, z, _, _, _ := sess.Pos()
-		h := 1.8
-		if sess.sneaking {
-			h = 1.5
+		if sess := p.java; sess != nil && (sess.state.Load() != StatePlay || !sess.spawned.Load()) {
+			continue
 		}
-		if hits(x-0.3, y, z-0.3, x+0.3, y+h, z+0.3) {
-			blocked = true
+		position := p.position()
+		x, y, z := position.X, position.Y, position.Z
+		half, height := s.playerCollisionDims(p)
+		if hits(x-half, y, z-half, x+half, y+height, z+half) {
 			return false
 		}
-		return true
-	})
-	if blocked {
-		return false
 	}
 	playerType := mustEntityType("player")
 	for _, e := range s.entities.All() {
