@@ -20,8 +20,9 @@ const (
 
 // chestData is one chest block entity's storage.
 type chestData struct {
-	openers int
-	slots   [chestSlots]ItemStack
+	openers      int
+	maxOpenRange float64
+	slots        [chestSlots]ItemStack
 	// lootTable is an ungenerated container loot table (vanilla's
 	// ChestBlockEntity LootTable NBT); the first open rolls it, clears
 	// it, and fires player_generates_container_loot. lootSeed is the
@@ -103,7 +104,8 @@ type openWindow struct {
 	dim                          *dimension
 	chest                        *chestData
 	chestOther                   *chestData
-	chestOpenCounted             bool
+	chestBlockName               string
+	chestCloseDone               bool
 	chestFirstPos, chestOtherPos world.Pos
 	furnace                      *furnaceData
 	craft                        *craftTable
@@ -188,7 +190,8 @@ func (s *Server) openChest(sess *Session, pos world.Pos) {
 		kind = 5
 		title = "container.chestDouble"
 	}
-	w := &openWindow{id: id, pos: pos, dim: d, chest: ch, chestOther: other, chestFirstPos: first, chestOtherPos: second, kind: kind}
+	blockName, _ := world.StateOwner(d.w.GetBlock(pos))
+	w := &openWindow{chestBlockName: blockName, id: id, pos: pos, dim: d, chest: ch, chestOther: other, chestFirstPos: first, chestOtherPos: second, kind: kind}
 	sess.windowMu.Lock()
 	sess.window = w
 	sess.windowState = 0

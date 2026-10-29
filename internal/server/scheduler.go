@@ -20,6 +20,8 @@ const (
 	// queue. A mode conversion must not consume the previous mode's tick.
 	tickCommandImpulse
 	tickCommandRepeat
+	tickChestRecheck
+	tickTrappedChestRecheck
 )
 
 // schedKey identifies one scheduled block position in one dimension.

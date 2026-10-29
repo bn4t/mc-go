@@ -18,16 +18,17 @@ func (s *Server) chestViewOpen(sess *Session, w *openWindow) {
 	if w.chest == nil || sess.mode() == GameModeSpectator {
 		return
 	}
-	w.chestOpenCounted = true
 	s.chestViewOpeners(sess, w, 1)
 }
 
 func (s *Server) chestViewClose(sess *Session, w *openWindow) {
-	if !w.chestOpenCounted {
+	if w.chest == nil || w.chestCloseDone {
 		return
 	}
-	w.chestOpenCounted = false
-	s.chestViewOpeners(sess, w, -1)
+	w.chestCloseDone = true
+	if sess.mode() != GameModeSpectator {
+		s.chestViewOpeners(sess, w, -1)
+	}
 }
 
 func (s *Server) chestViewOpeners(sess *Session, w *openWindow, delta int) {
@@ -36,43 +37,32 @@ func (s *Server) chestViewOpeners(sess *Session, w *openWindow, delta int) {
 		before, after int
 	}
 	var changes []change
+	rangeNow := chestInteractionRange(sess)
 	w.dim.chests.mu.Lock()
 	first := w.pos
 	if w.chestOther != nil {
 		first = w.chestFirstPos
 	}
-	changes = append(changes, change{first, w.chest.openers, max(0, w.chest.openers+delta)})
-	w.chest.openers = changes[0].after
+	apply := func(storage *chestData, pos world.Pos) {
+		// Removed backing entities ignore stopOpen even when another chest
+		// of the same type has already replaced them at this position.
+		if w.dim.chests.chests[pos] != storage {
+			return
+		}
+		before := storage.openers
+		storage.openers += delta
+		if delta > 0 {
+			storage.maxOpenRange = max(storage.maxOpenRange, rangeNow)
+		}
+		changes = append(changes, change{pos, before, storage.openers})
+	}
+	apply(w.chest, first)
 	if w.chestOther != nil {
-		next := max(0, w.chestOther.openers+delta)
-		changes = append(changes, change{w.chestOtherPos, w.chestOther.openers, next})
-		w.chestOther.openers = next
+		apply(w.chestOther, w.chestOtherPos)
 	}
 	w.dim.chests.mu.Unlock()
 	for _, update := range changes {
-		block := w.dim.w.GetBlock(update.pos)
-		if !isChestBlock(block) {
-			continue
-		}
-		event, sound := "", ""
-		if update.before == 0 && update.after > 0 {
-			event = "container_open"
-			sound = "block.chest.open"
-		}
-		if update.before > 0 && update.after == 0 {
-			event = "container_close"
-			sound = "block.chest.close"
-		}
-		if event != "" {
-			s.chestLidSound(w.dim, update.pos, block, sound)
-			s.emitGameEvent(w.dim, event, float64(update.pos.X)+0.5, float64(update.pos.Y)+0.5, float64(update.pos.Z)+0.5, sess, "")
-		}
-		name, _ := world.StateOwner(block)
-		if name != "trapped_chest" {
-			continue
-		}
-		s.rsNeighborFanOut(w.dim, update.pos)
-		s.rsNeighborFanOut(w.dim, world.Pos{X: update.pos.X, Y: update.pos.Y - 1, Z: update.pos.Z})
+		s.chestOpenerEffects(sess, w.dim, update.pos, update.before, update.after, false)
 	}
 }
 

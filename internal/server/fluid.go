@@ -368,6 +368,8 @@ func (s *Server) scheduledTickStep() {
 		switch k.kind {
 		case tickFluid:
 			s.fluidTick(d, k.pos)
+		case tickChestRecheck, tickTrappedChestRecheck:
+			s.chestRecheckTick(d, k.pos, k.kind)
 		case tickBlock:
 			s.blockTick(d, k.pos)
 		case tickCommandImpulse, tickCommandRepeat:

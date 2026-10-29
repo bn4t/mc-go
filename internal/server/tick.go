@@ -650,6 +650,7 @@ func (s *Server) playerTickOwned() {
 			s.fireLocation(sess)
 		}
 		s.flushMenuCommandUpdates(sess)
+		s.validateChestMenu(sess)
 		s.playerItemTouchTick(sess)
 		s.bundleUseTick(sess)
 		s.enderEyeUseTick(sess)
