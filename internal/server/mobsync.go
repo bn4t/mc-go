@@ -28,22 +28,16 @@ import (
 // (touched) attribute set when sendPairingData builds update_attributes.
 // The rest (follow_range, attack_damage, spawn_reinforcements, ...) are
 // never client-syncable.
-var attrSyncable = map[string]bool{
-	"air_drag_modifier": true, "armor": true, "armor_toughness": true,
-	"attack_speed": true, "below_name_distance": true,
-	"block_break_speed": true, "block_interaction_range": true,
-	"bounciness": true, "burning_time": true, "camera_distance": true,
-	"explosion_knockback_resistance": true,
-	"entity_interaction_range":       true, "fall_damage_multiplier": true,
-	"flying_speed": true, "friction_modifier": true, "gravity": true,
-	"jump_strength": true, "luck": true, "max_absorption": true,
-	"max_health": true, "mining_efficiency": true,
-	"movement_efficiency": true, "movement_speed": true,
-	"name_tag_distance": true, "oxygen_bonus": true,
-	"safe_fall_distance": true, "scale": true, "sneaking_speed": true,
-	"step_height": true, "submerged_mining_speed": true,
-	"sweeping_damage_ratio": true, "water_movement_efficiency": true,
-}
+// Membership comes from the reproducible generated registry metadata.
+var attrSyncable = func() map[string]bool {
+	syncable := make(map[string]bool)
+	for name, info := range attributeInfo {
+		if info.clientSync {
+			syncable[name] = true
+		}
+	}
+	return syncable
+}()
 
 // mobSyncAttrs builds update_attributes' body for a mob: every dirty
 // syncable attribute instance, at its current base, with the effect.speed

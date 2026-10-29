@@ -62,9 +62,9 @@ reapplies them. Attack-speed updates reach the owner and tracked observers.
 Arbitrary item attribute components and broader combat remain partial.
 Attribute getters supply scaled integer results to `execute store` while keeping
 feedback unscaled; successful zero values and runtime failures retain distinct
-execution status. Effective damage, speed, scale and luck queries now enforce
-measured ranges; raw base/modifier queries preserve their values. Other ranges
-and equipment projection remain partial.
+execution status. Effective attribute queries use generated registry ranges;
+raw base/modifier queries preserve their values. Broader equipment projection
+and physical attribute consumers remain partial.
 Native NoGravity projects to client metadata at pairing and on true/false changes
 across measured living, item and boat paths. Crystal reloads retain dirty updates
 even when a flag changes back within one tick. Summoned crystal tags support
