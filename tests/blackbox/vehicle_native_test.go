@@ -88,6 +88,12 @@ func TestVehicleNativeParity(t *testing.T) {
 		sendClientInformation(t, pw)
 		sink := newChatSinkTP(pr, pw)
 		sendCommand(t, pw, "tick freeze")
+
+		sendCommand(t, pw, "execute if entity @e[tag=vehicle_native_missing_witness] run say VN_FALSE_WITNESS")
+		sendCommand(t, pw, "say VN_FALSE_WITNESS_END")
+		if structureSaidBB(waitForExactSayBB(t, sink, "VN_FALSE_WITNESS_END", 10*time.Second), "VN_FALSE_WITNESS") {
+			t.Fatal("false native predicate produced a success marker")
+		}
 		for i, condition := range []string{
 			`if data entity @e[tag=vboat,limit=1] {NoGravity:1b,CustomName:"Boat",Passengers:[{id:"minecraft:pig",NoAI:1b,Tags:["rider"]}]}`,
 			`if data entity @e[tag=vchestboat,limit=1] {CustomName:"Cargo",Items:[{Slot:0b,id:"minecraft:diamond",count:3},{Slot:26b,id:"minecraft:apple",count:2}]}`,
@@ -98,7 +104,7 @@ func TestVehicleNativeParity(t *testing.T) {
 			marker, end := fmt.Sprintf("VN_PASS%d", i), fmt.Sprintf("VN_DONE%d", i)
 			sendCommand(t, pw, "execute "+condition+" run say "+marker)
 			sendCommand(t, pw, "say "+end)
-			if !sawMarker(waitForMarker(t, sink, end, 10*time.Second), marker) {
+			if !structureSaidBB(waitForExactSayBB(t, sink, end, 10*time.Second), marker) {
 				t.Errorf("%s failed %s", addr, condition)
 			}
 		}

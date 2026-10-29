@@ -15,6 +15,7 @@ package blackbox
 // bodies — must be identical.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -33,13 +34,41 @@ func TestDataCommandParity(t *testing.T) {
 		defer c.Close()
 		_ = c.SetDeadline(time.Time{})
 		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
-		sink := newChatSink(pr, pw)
-		sink.take()
+		sendClientInformation(t, pw)
+		sink := newChatSinkTP(pr, pw)
+		sendCommand(t, pw, "tick freeze")
 		sendCommand(t, pw, "setblock 8 -59 10 minecraft:chest")
 		sendCommand(t, pw, "item replace block 8 -59 10 container.0 with minecraft:diamond 3")
 		sendCommand(t, pw, "setblock 9 -59 10 minecraft:oak_sign")
-		time.Sleep(300 * time.Millisecond)
-		sink.take()
+		sendCommand(t, pw, `execute if data block 8 -59 10 {Items:[{Slot:0b,id:"minecraft:diamond",count:3}]} if block 9 -59 10 minecraft:oak_sign run say DATA_SETUP_READY`)
+		sendCommand(t, pw, "say DATA_SETUP_END")
+		if !structureSaidBB(waitForExactSayBB(t, sink, "DATA_SETUP_END", 10*time.Second), "DATA_SETUP_READY") {
+			t.Fatal("data command arena preparation failed")
+		}
+		before := gameTimeOf(t, pw, sink)
+		step := func() []string {
+			sendCommand(t, pw, "tick step 1")
+			var lines []string
+			deadline := time.Now().Add(10 * time.Second)
+			for time.Now().Before(deadline) {
+				sendCommand(t, pw, "time query gametime")
+				time.Sleep(20 * time.Millisecond)
+				batch := sink.take()
+				lines = append(lines, batch...)
+				for _, line := range batch {
+					key, args, ok := componentArgs(line)
+					if ok && key == "commands.time.query.gametime" && len(args) > 0 {
+						if now, ok := args[0].(int64); ok && now >= before+1 {
+							before = now
+							return lines
+						}
+					}
+				}
+			}
+			t.Fatal("data command flush tick did not complete")
+			return nil
+		}
+		step() // Finish the setup sign's tick-end update before measuring.
 		var out [][]string
 		for _, cmd := range []string{
 			"data get block 8 -59 10",
@@ -62,16 +91,23 @@ func TestDataCommandParity(t *testing.T) {
 		} {
 			sink.take()
 			sendCommand(t, pw, cmd)
-			time.Sleep(350 * time.Millisecond)
 			var evs []string
-			for _, line := range sink.take() {
+			replies := 0
+			for _, line := range step() {
 				if strings.HasPrefix(line, "0x6:") {
 					evs = append(evs, "block_entity_data "+line[4:])
 					continue
 				}
+				if key, _, ok := componentArgs(line); ok && (key == "commands.time.query.gametime" || key == "commands.tick.step.success") {
+					continue
+				}
 				if tree, ok := componentTree(line, true); ok {
 					evs = append(evs, tree)
+					replies++
 				}
+			}
+			if replies != 1 {
+				t.Fatalf("%s: command %q produced %d replies: %s", addr, cmd, replies, fmt.Sprint(evs))
 			}
 			out = append(out, evs)
 		}

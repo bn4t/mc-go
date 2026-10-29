@@ -1361,50 +1361,119 @@ func TestMinecartRailParity(t *testing.T) {
 		if tag == "mc-go" {
 			addr = targets.mcgo
 		}
-		v := joinVehPair(t, addr)
-		drainChunkWindow(t, tag, v.ca, v.pra, v.pwa, 300*time.Millisecond)
-		sendCommand(t, v.pwa, "tp @s 6 -60 36 0 0")
-		sendCommand(t, v.pwa, "kill @e[type=minecart]")
+		c, pr, pw := joinPlayQuiet(t, addr, "BOATA")
+		defer c.Close()
+		_ = c.SetDeadline(time.Time{})
+		sendClientInformation(t, pw)
+		sink := newChatSinkTP(pr, pw)
+		sendCommand(t, pw, "tick freeze")
+		sendCommand(t, pw, "tp @s 6 -60 36 0 0")
+		sendCommand(t, pw, "kill @e[type=minecart]")
+		step := func(n int) {
+			before := gameTimeOf(t, pw, sink)
+			sendCommand(t, pw, fmt.Sprintf("tick step %d", n))
+			deadline := time.Now().Add(30 * time.Second)
+			for time.Now().Before(deadline) {
+				sendCommand(t, pw, "time query gametime")
+				time.Sleep(20 * time.Millisecond)
+				for _, line := range sink.take() {
+					key, args, ok := componentArgs(line)
+					if ok && key == "commands.time.query.gametime" && len(args) > 0 {
+						if now, ok := args[0].(int64); ok {
+							if now > before+int64(n) {
+								t.Fatalf("%s: stepped beyond target: got%d want%d", tag, now, before+int64(n))
+							}
+							if now == before+int64(n) {
+								return
+							}
+						}
+					}
+				}
+			}
+			t.Fatalf("%s: rail step%d did not complete", tag, n)
+		}
+		get := func(sel, path string) (float64, bool) {
+			sendCommand(t, pw, "data get entity "+sel+" "+path)
+			sendCommand(t, pw, "say RAIL_QUERY_DONE")
+			var body string
+			for _, line := range waitForExactSayBB(t, sink, "RAIL_QUERY_DONE", 10*time.Second) {
+				if key, _, ok := componentArgs(line); ok && key == "commands.data.entity.query" {
+					_, body, _ = strings.Cut(line, ":")
+				}
+			}
+			if body == "" {
+				t.Fatalf("%s: rail query %s %s produced no typed reply", tag, sel, path)
+			}
+			matches := dataNumRe.FindAllStringSubmatch(chatTextBlackbox(t, []byte(body)), -1)
+			if len(matches) == 0 {
+				t.Fatalf("%s: rail query %s %s produced no signed float", tag, sel, path)
+			}
+			value, err := strconv.ParseFloat(matches[len(matches)-1][1], 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return value, true
+		}
 		for x := 20; x <= 34; x++ {
 			// A setblock'd powered=true flips back on the next
 			// neighbor update without real redstone — a
 			// redstone_block under the rail keeps it live.
-			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -61 20 minecraft:redstone_block", x))
-			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -60 20 minecraft:powered_rail[shape=east_west,powered=true]", x))
-			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -60 22 minecraft:powered_rail[shape=east_west,powered=false]", x))
-			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -60 24 minecraft:rail[shape=east_west]", x))
+			sendCommand(t, pw, fmt.Sprintf("setblock %d -61 20 minecraft:redstone_block", x))
+			sendCommand(t, pw, fmt.Sprintf("setblock %d -60 20 minecraft:powered_rail[shape=east_west,powered=true]", x))
+			sendCommand(t, pw, fmt.Sprintf("setblock %d -60 22 minecraft:powered_rail[shape=east_west,powered=false]", x))
+			sendCommand(t, pw, fmt.Sprintf("setblock %d -60 24 minecraft:rail[shape=east_west]", x))
 		}
 		for x := 20; x <= 24; x++ {
-			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -60 26 minecraft:rail[shape=east_west]", x))
+			sendCommand(t, pw, fmt.Sprintf("setblock %d -60 26 minecraft:rail[shape=east_west]", x))
 		}
-		sendCommand(t, v.pwa, "setblock 25 -60 26 minecraft:rail[shape=south_west]")
+		sendCommand(t, pw, "setblock 25 -60 26 minecraft:rail[shape=south_west]")
 		for z := 27; z <= 34; z++ {
-			sendCommand(t, v.pwa, fmt.Sprintf("setblock 25 -60 %d minecraft:rail[shape=north_south]", z))
+			sendCommand(t, pw, fmt.Sprintf("setblock 25 -60 %d minecraft:rail[shape=north_south]", z))
 		}
 		for x := 20; x <= 22; x++ {
-			sendCommand(t, v.pwa, fmt.Sprintf("setblock %d -60 28 minecraft:rail[shape=east_west]", x))
+			sendCommand(t, pw, fmt.Sprintf("setblock %d -60 28 minecraft:rail[shape=east_west]", x))
 		}
-		sendCommand(t, v.pwa, "setblock 23 -60 28 minecraft:rail[shape=ascending_east]")
-		sendCommand(t, v.pwa, "setblock 24 -60 28 minecraft:stone")
-		sendCommand(t, v.pwa, "setblock 24 -59 28 minecraft:rail[shape=east_west]")
-		sendCommand(t, v.pwa, "setblock 25 -60 28 minecraft:stone")
-		sendCommand(t, v.pwa, "setblock 25 -59 28 minecraft:rail[shape=east_west]")
-		sendCommand(t, v.pwa, "setblock 26 -59 28 minecraft:rail[shape=east_west]")
-		time.Sleep(400 * time.Millisecond)
-		sendCommand(t, v.pwa, `summon minecraft:minecart 20 -60 20 {Motion:[0.05,0.0,0.0],Tags:["ta"]}`)
-		sendCommand(t, v.pwa, `summon minecraft:minecart 20 -60 22 {Motion:[0.4,0.0,0.0],Tags:["tb"]}`)
-		sendCommand(t, v.pwa, `summon minecraft:minecart 20 -60 24 {Motion:[0.4,0.0,0.0],Tags:["tc"]}`)
-		sendCommand(t, v.pwa, `summon minecraft:minecart 20 -60 26 {Motion:[0.3,0.0,0.0],Tags:["td"]}`)
-		sendCommand(t, v.pwa, `summon minecraft:minecart 20 -60 28 {Motion:[0.3,0.0,0.0],Tags:["te"]}`)
-		time.Sleep(2500 * time.Millisecond)
-		ax, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=ta,limit=1] Pos[0]")
-		bx, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=tb,limit=1] Pos[0]")
-		bm, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=tb,limit=1] Motion[0]")
-		cx, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=tc,limit=1] Pos[0]")
-		dx, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=td,limit=1] Pos[0]")
-		dz, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=td,limit=1] Pos[2]")
-		ex, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=te,limit=1] Pos[0]")
-		ey, _ := dataGetFloat(t, v, "data get entity @e[type=minecart,tag=te,limit=1] Pos[1]")
+		sendCommand(t, pw, "setblock 23 -60 28 minecraft:rail[shape=ascending_east]")
+		sendCommand(t, pw, "setblock 24 -60 28 minecraft:stone")
+		sendCommand(t, pw, "setblock 24 -59 28 minecraft:rail[shape=east_west]")
+		sendCommand(t, pw, "setblock 25 -60 28 minecraft:stone")
+		sendCommand(t, pw, "setblock 25 -59 28 minecraft:rail[shape=east_west]")
+		sendCommand(t, pw, "setblock 26 -59 28 minecraft:rail[shape=east_west]")
+		sendCommand(t, pw, `summon minecraft:armor_stand 20.5 -50 20.5 {Tags:["railready1"]}`)
+		sendCommand(t, pw, `summon minecraft:armor_stand 34.5 -50 20.5 {Tags:["railready2"]}`)
+		sendCommand(t, pw, "say RAIL_SETUP_END")
+		waitForExactSayBB(t, sink, "RAIL_SETUP_END", 10*time.Second)
+		ready := false
+		for attempt := 0; attempt < 40 && !ready; attempt++ {
+			step(1)
+			sendCommand(t, pw, `execute if entity @e[tag=railready1] if entity @e[tag=railready2] unless entity @e[tag=railready1,nbt={Pos:[20.5d,-50d,20.5d]}] unless entity @e[tag=railready2,nbt={Pos:[34.5d,-50d,20.5d]}] run say RAIL_READY`)
+			sendCommand(t, pw, "say RAIL_READY_END")
+			ready = structureSaidBB(waitForExactSayBB(t, sink, "RAIL_READY_END", 10*time.Second), "RAIL_READY")
+		}
+		if !ready {
+			t.Fatalf("%s: both rail chunks never began entity ticking", tag)
+		}
+		sendCommand(t, pw, "kill @e[tag=railready1]")
+		sendCommand(t, pw, "kill @e[tag=railready2]")
+		sendCommand(t, pw, `summon minecraft:minecart 20 -60 20 {Motion:[0.05,0.0,0.0],Tags:["ta"]}`)
+		sendCommand(t, pw, `summon minecraft:minecart 20 -60 22 {Motion:[0.4,0.0,0.0],Tags:["tb"]}`)
+		sendCommand(t, pw, `summon minecraft:minecart 20 -60 24 {Motion:[0.4,0.0,0.0],Tags:["tc"]}`)
+		sendCommand(t, pw, `summon minecraft:minecart 20 -60 26 {Motion:[0.3,0.0,0.0],Tags:["td"]}`)
+		sendCommand(t, pw, `summon minecraft:minecart 20 -60 28 {Motion:[0.3,0.0,0.0],Tags:["te"]}`)
+		sendCommand(t, pw, `execute if entity @e[type=minecart,tag=ta] if entity @e[type=minecart,tag=tb] if entity @e[type=minecart,tag=tc] if entity @e[type=minecart,tag=td] if entity @e[type=minecart,tag=te] run say RAIL_CARTS_READY`)
+		sendCommand(t, pw, "say RAIL_CARTS_END")
+		if !structureSaidBB(waitForExactSayBB(t, sink, "RAIL_CARTS_END", 10*time.Second), "RAIL_CARTS_READY") {
+			t.Fatalf("%s: rail carts missing before measured ticks", tag)
+		}
+		step(80)
+		ax, _ := get("@e[type=minecart,tag=ta,limit=1]", "Pos[0]")
+		bx, _ := get("@e[type=minecart,tag=tb,limit=1]", "Pos[0]")
+		bm, _ := get("@e[type=minecart,tag=tb,limit=1]", "Motion[0]")
+		cx, _ := get("@e[type=minecart,tag=tc,limit=1]", "Pos[0]")
+		dx, _ := get("@e[type=minecart,tag=td,limit=1]", "Pos[0]")
+		dz, _ := get("@e[type=minecart,tag=td,limit=1]", "Pos[2]")
+		ex, _ := get("@e[type=minecart,tag=te,limit=1]", "Pos[0]")
+		ey, _ := get("@e[type=minecart,tag=te,limit=1]", "Pos[1]")
 		// A: +0.06/tick boost to the 0.4 cap — exits the track's end
 		// at 34.5 and coasts on.
 		if ax < 33 {
@@ -1434,8 +1503,7 @@ func TestMinecartRailParity(t *testing.T) {
 		}
 		t.Logf("%s: A=%.3f B=(%.3f,m%.3f) C=%.3f D=(%.3f,%.3f) E=(%.3f,%.3f)",
 			tag, ax, bx, bm, cx, dx, dz, ex, ey)
-		v.ca.Close()
-		v.cb.Close()
+		c.Close()
 	}
 }
 
