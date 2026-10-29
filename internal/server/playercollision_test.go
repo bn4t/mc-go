@@ -31,7 +31,7 @@ func TestDripstonePositionedShapes(t *testing.T) {
 		{0, 0, -.125, -.125}, {1, 0, .11666667461395264, -.01666666567325592},
 		{-1, 0, -.125, -.125}, {17, -9, .11666667461395264, .016666680574417114},
 	} {
-		dx, dz := dripstoneOffset(tc.x, tc.z)
+		dx, _, dz := blockOffsetAt(mkBlockState(t, "pointed_dripstone", nil), world.Pos{X: tc.x, Z: tc.z})
 		if dx != tc.dx || dz != tc.dz {
 			t.Errorf("offset%d,%d got%v,%v want%v,%v", tc.x, tc.z, dx, dz, tc.dx, tc.dz)
 		}

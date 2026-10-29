@@ -7,36 +7,15 @@ import (
 	"mc-go/internal/world"
 )
 
-// cellShapeAt adds the position-dependent XZ displacement of pointed
-// dripstone to its measured SpeleothemBlock collision boxes. Other blocks
-// retain the existing cell-shape model.
+// cellShapeAt uses measured empty-context collision facts for static blocks.
+// Moving pistons and shulker boxes retain the prior conservative shape until
+// the world-dependent block-entity adapter supplies their live geometry.
 func cellShapeAt(block world.Block, pos world.Pos) []cellBox {
-	boxes := cellShape(block)
 	name, _ := world.StateOwner(block)
-	if strings.TrimPrefix(name, "minecraft:") != "pointed_dripstone" {
-		return boxes
+	if name == "moving_piston" || name == "shulker_box" || strings.HasSuffix(name, "_shulker_box") {
+		return cellShape(block)
 	}
-	dx, dz := dripstoneOffset(pos.X, pos.Z)
-	shifted := make([]cellBox, len(boxes))
-	for i, box := range boxes {
-		box[0] += dx
-		box[3] += dx
-		box[2] += dz
-		box[5] += dz
-		shifted[i] = box
-	}
-	return shifted
-}
-
-// BlockBehaviour's XZ offset uses Mth.getSeed(x,0,z), float fractions
-// widened before centering, and SpeleothemBlock's maximum shift of 1/8.
-func dripstoneOffset(x, z int) (float64, float64) {
-	seed := int64(int32(x)*int32(3129871)) ^ (int64(z) * 116129781)
-	seed = (seed*seed*42317861 + seed*11) >> 16
-	fraction := func(bits int64) float64 {
-		return math.Max(-0.125, math.Min(0.125, (float64(float32(bits&15)/15)-0.5)*0.5))
-	}
-	return fraction(seed), fraction(seed >> 8)
+	return measuredCollisionShapeAt(block, pos)
 }
 
 // playerBoxCollidesWithDims implements the measured new-collision rule:
