@@ -92,6 +92,15 @@ callback, and initial tracking eligibility is distinct from the subsequently
 loaded fields. Command-block data reload therefore preserves the executing
 block-entity identity and the accessor's original target type and coordinates.
 
+Item-on-block dispatch uses the selected hand and explicit inventory slot.
+Block-item callbacks precede main-hand default interactions and the item-use
+wrapper. Creative costs depend on which path succeeds: measured hive bottle
+harvesting shrinks the stack inside the block callback, while ordinary
+creative item uses preserve it. Native jukebox records feed the same typed
+store used by interactions, ticking, data queries and disk chunk serialization;
+client chunk enumeration is separate and must be kept in sync. Full component
+and song lifecycle parity is still under development.
+
 ## Protocol and plugin APIs
 
 External frontends can import [`api/frontend`](api/frontend/frontend.go)

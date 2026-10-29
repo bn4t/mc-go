@@ -73,15 +73,22 @@ func jukeboxSongForItem(item string) string {
 // was consumed (insert or eject); false passes to item placement —
 // vanilla's double PASS on an empty jukebox with a non-disc item.
 func (s *Server) useJukebox(sess *Session, d *dimension, pos world.Pos) bool {
+	return s.useJukeboxInHand(sess, d, pos, 0)
+}
+
+func (s *Server) useJukeboxInHand(sess *Session, d *dimension, pos world.Pos, hand int32) bool {
 	cur := d.w.GetBlock(pos)
 	if n, _ := world.StateOwner(cur); n != "jukebox" {
 		return false
 	}
 	if rec, _ := world.StateProperty(cur, "has_record"); rec == "true" {
+		if hand != 0 {
+			return false
+		}
 		s.jukeboxEject(d, pos, cur)
 		return true
 	}
-	held, slot := sess.stackForHand(0)
+	held, slot := sess.stackForHand(hand)
 	iname, _ := itemNameOf(held.ID)
 	song := jukeboxSongForItem(iname)
 	if song == "" {
@@ -220,4 +227,46 @@ func (s *Server) broadcastJukeboxNote(d *dimension, pos world.Pos) {
 	s.broadcastParticles(d.name, 65,
 		float64(pos.X)+0.5, float64(pos.Y)+1.2, float64(pos.Z)+0.5,
 		float64(rand.Intn(4))/24.0, 0, 0, 1, 0)
+}
+
+// jukeboxSaveFields exposes the same native record used by interaction and
+// ticking. An absent song omits its elapsed-time field.
+func (s *Server) jukeboxSaveFields(d *dimension, pos world.Pos, fields map[string]any) {
+	if jb := d.jukeboxes[pos]; jb != nil {
+		if !jb.disc.Empty() {
+			fields["RecordItem"] = itemNBT(jb.disc)
+		}
+		if jb.playing {
+			fields["ticks_since_song_started"] = s.TickCount() - jb.started
+		}
+	}
+}
+
+func (s *Server) restoreJukebox(d *dimension, pos world.Pos, fields map[string]any) {
+	var disc ItemStack
+	if m, ok := fields["RecordItem"].(map[string]any); ok {
+		disc = itemFromNBT(m)
+	}
+	old := d.jukeboxes[pos]
+	if old != nil && (disc.Empty() || old.disc.ID != disc.ID) && old.playing {
+		s.jukeboxStopSong(d, pos)
+	}
+	if disc.Empty() {
+		delete(d.jukeboxes, pos)
+		return
+	}
+	if d.jukeboxes == nil {
+		d.jukeboxes = map[world.Pos]*jukeboxEnt{}
+	}
+	name, _ := itemNameOf(disc.ID)
+	song := jukeboxSongForItem(name)
+	jb := &jukeboxEnt{disc: disc, song: song, songID: jukeboxSongID[song]}
+	if old != nil && old.disc.ID == disc.ID {
+		jb.started, jb.playing = old.started, old.playing
+	}
+	if elapsed, ok := nbtNumber(fields["ticks_since_song_started"]); ok && song != "" {
+		jb.started = s.TickCount() - int64(elapsed)
+		jb.playing = true
+	}
+	d.jukeboxes[pos] = jb
 }

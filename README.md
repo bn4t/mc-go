@@ -33,6 +33,10 @@ with native templates, jigsaw editor/generation,
 block-entity update coalescing, moving-piston collision timing and measured
 dropped-item pushes, container
 validity, chest events and ordinary main/offhand placement and consumption.
+Selected-hand interactions include signs, hive harvesting, ignition, growth,
+end items and disc insertion. Native jukebox records share the interaction
+store and survive measured bare-disc saves; complete component and playback
+lifecycle coverage remains in progress.
 Native boats and most minecart variants preserve measured cargo, subtype state
 and supported passenger trees through vanilla-compatible saves; player remount,
 spawner carts and complete vehicle cargo/runtime behavior remain in progress.

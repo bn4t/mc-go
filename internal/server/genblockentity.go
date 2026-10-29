@@ -123,7 +123,8 @@ func blockEntitySpecForType(typ string) (blockEntitySpec, bool) {
 // typedBlockEntityIDs are the saved ids mc-go restores into a store of
 // its own; every other id is kept as a genericBlockEntity.
 var typedBlockEntityIDs = map[string]bool{
-	"minecraft:chest": true, "minecraft:trapped_chest": true, "minecraft:sign": true,
+	"minecraft:jukebox": true,
+	"minecraft:chest":   true, "minecraft:trapped_chest": true, "minecraft:sign": true,
 	"minecraft:hanging_sign": true, "minecraft:hopper": true, "minecraft:furnace": true,
 	"minecraft:blast_furnace": true, "minecraft:smoker": true, "minecraft:lectern": true,
 	"minecraft:comparator": true, "minecraft:sculk_sensor": true,

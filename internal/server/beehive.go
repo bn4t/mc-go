@@ -244,11 +244,15 @@ func (s *Server) releaseBeesAndResetHoneyLevel(d *dimension, pos world.Pos, blk 
 // useBeehive is BeehiveBlock.useItemOn: honey_level>=5 with shears or
 // a glass bottle harvests. Reports whether the use was consumed.
 func (s *Server) useBeehive(sess *Session, d *dimension, pos world.Pos, blk world.Block) bool {
+	return s.useBeehiveInHand(sess, d, pos, blk, 0)
+}
+
+func (s *Server) useBeehiveInHand(sess *Session, d *dimension, pos world.Pos, blk world.Block, hand int32) bool {
 	hl, err := strconv.Atoi(rsPropsOf(blk)("honey_level"))
 	if err != nil || hl < 5 {
 		return false
 	}
-	held := sess.heldStack()
+	held, slot := sess.stackForHand(hand)
 	iname, _ := itemNameOf(held.ID)
 	px, py, pz, _, _, _ := sess.Pos()
 	switch iname {
@@ -260,7 +264,7 @@ func (s *Server) useBeehive(sess *Session, d *dimension, pos world.Pos, blk worl
 		if snd, ok := soundEventIDs["block.beehive.shear"]; ok {
 			s.playSoundSrc(d.name, px, py, pz, snd, 4, 1.0, 1.0, nil)
 		}
-		s.wearHeld(sess, 1)
+		s.wearSlot(sess, slot, 1)
 	case "glass_bottle":
 		held.Count--
 		if snd, ok := soundEventIDs["item.bottle.fill"]; ok {
@@ -270,7 +274,6 @@ func (s *Server) useBeehive(sess *Session, d *dimension, pos world.Pos, blk worl
 		if fid, ok := world.ItemIDs["honey_bottle"]; ok {
 			hb = ItemStack{ID: fid, Count: 1}
 		}
-		slot := invSlotForHotbar(sess.held.Load())
 		if held.Count <= 0 {
 			// shrink emptied the stack → setItemInHand(honey_bottle).
 			sess.setStack(slot, hb)

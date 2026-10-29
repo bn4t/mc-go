@@ -359,18 +359,20 @@ func (s *Server) sendOpenSignEditor(sess *Session, pos world.Pos, front bool) {
 // player holds changes no colour and sends no packet, while the holder
 // itself goes on dyeing and writing its own sign as usual.
 func (s *Server) useSign(sess *Session, d *dimension, pos world.Pos, b world.Block) {
+	s.useSignInHand(sess, d, pos, b, 0)
+}
+
+func (s *Server) useSignInHand(sess *Session, d *dimension, pos world.Pos, b world.Block, hand int32) bool {
 	if st, ok := s.signAt(d, pos); ok && st.waxed {
-		return
+		return hand == 0
 	}
 	if s.signEditorHeldByOther(d, pos, sess) {
-		return
+		return hand == 0
 	}
 	px, _, pz, _, _, _ := sess.Pos()
 	front, _ := signSideFor(px, pz, pos, b)
-	name := ""
-	if item, ok := sess.heldItem(); ok {
-		name, _ = world.ItemName(item)
-	}
+	held, slot := sess.stackForHand(hand)
+	name, _ := world.ItemName(held.ID)
 	s.ensureSign(d, pos)
 	d.signs.mu.Lock()
 	st := *d.signs.signs[pos]
@@ -379,21 +381,24 @@ func (s *Server) useSign(sess *Session, d *dimension, pos world.Pos, b world.Blo
 	side := signSideOf(st, front)
 	changed := false
 	switch {
-	case name == "glow_ink_sac" && signSideHasText(side):
+	case name == "glow_ink_sac" && signSideHasText(side) && !side.glowing:
 		side.glowing, changed = true, true
 	case name == "ink_sac" && side.glowing:
 		side.glowing, changed = false, true
 	case name == "honeycomb":
 		st.waxed, changed = true, true
 	default:
-		if c, isDye := dyeColor(name); isDye && signSideHasText(side) {
+		if c, isDye := dyeColor(name); isDye && signSideHasText(side) && c != side.color {
 			side.color, changed = c, true
 		}
 	}
 	if !changed {
+		if hand != 0 {
+			return false
+		}
 		s.claimSignEditor(d, pos, sess)
 		s.sendOpenSignEditor(sess, pos, front)
-		return
+		return true
 	}
 	d.signs.mu.Lock()
 	cur := d.signs.signs[pos]
@@ -406,8 +411,9 @@ func (s *Server) useSign(sess *Session, d *dimension, pos world.Pos, b world.Blo
 	}
 	// Survival spends the item and syncs the slot; creative keeps it.
 	if sess.mode() != GameModeCreative {
-		sess.consumeHeld(1)
+		sess.consumeSlot(slot, 1)
 	}
+	return true
 }
 
 // handleUpdateSign stores edited sign text and fans the block entity

@@ -236,6 +236,13 @@ func (s *Server) chunkBlockEntities(d *dimension, cx, cz int) []map[string]any {
 		}))
 	}
 
+	for pos := range d.jukeboxes {
+		if name, _ := world.StateOwner(d.w.GetBlock(pos)); name == "jukebox" {
+			spec, _ := blockEntityOf(d.w.GetBlock(pos))
+			add(pos, blockEntityNBT(pos, spec, func(extra map[string]any) { s.jukeboxSaveFields(d, pos, extra) }))
+		}
+	}
+
 	// Block entities kept as their saved fields, where no store above
 	// already wrote the position.
 	have := make(map[world.Pos]bool, len(out))
@@ -288,6 +295,8 @@ func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any
 		return genericSaveNBT(d, pos, g, gspec), true
 	}
 	switch spec.name {
+	case "minecraft:jukebox":
+		return blockEntityNBT(pos, spec, func(extra map[string]any) { s.jukeboxSaveFields(d, pos, extra) }), true
 	case "minecraft:comparator":
 		// ComparatorBlockEntity saves its last published analog level
 		// unconditionally - OutputSignal is there even when it is 0.
@@ -532,6 +541,10 @@ func (s *Server) chunkClientBlockEntities(d *dimension, cx, cz int) []clientBloc
 	// chunk packet's entry exists so the client registers the
 	// listener on a freshly streamed sensor.
 	for pos := range d.sculk {
+		add(pos, nil)
+	}
+
+	for pos := range d.jukeboxes {
 		add(pos, nil)
 	}
 
@@ -791,6 +804,8 @@ func (s *Server) restoreBlockEntity(d *dimension, be map[string]any) {
 	pos := world.Pos{X: int(x), Y: int(y), Z: int(z)}
 
 	switch id {
+	case "minecraft:jukebox":
+		s.restoreJukebox(d, pos, be)
 	case "minecraft:chest", "minecraft:trapped_chest":
 		c := s.chestAt(d, pos)
 		d.chests.mu.Lock()

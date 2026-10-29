@@ -355,9 +355,8 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		return
 	}
 	// Interacting with a sign dyes it, waxes it, makes its text glow,
-	// or opens its editor - it never places.
-	if blockUse && isSignLikeBlock(cur) {
-		s.useSign(sess, d, clicked, cur)
+	// or opens its editor through the main-hand default interaction.
+	if blockItemUse && isSignLikeBlock(cur) && s.useSignInHand(sess, d, clicked, cur, hand) {
 		useAck()
 		return
 	}
@@ -412,12 +411,11 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		case s.rsToggleOpenable(d, clicked, short):
 			useAck()
 			return
-		case short == "bee_nest" || short == "beehive":
-			if s.useBeehive(sess, d, clicked, cur) {
-				useAck()
-				return
-			}
 		}
+	}
+	if name, _ := world.StateOwner(cur); blockItemUse && (name == "bee_nest" || name == "beehive") && s.useBeehiveInHand(sess, d, clicked, cur, hand) {
+		useAck()
+		return
 	}
 	// LecternBlock.useItemOn runs before the menu path: a book stores
 	// onto a bookless lectern, and every other interact on a bookless
@@ -430,9 +428,9 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		return
 	}
 	// JukeboxBlock.useItemOn/useWithoutItem: a loaded jukebox ejects
-	// on any click; an empty one takes a music disc. Every other
+	// through main-hand default use; an empty one takes a disc in either hand. Every other
 	// click is a double-PASS — the held item places.
-	if name, _ := world.StateOwner(cur); blockUse && name == "jukebox" && s.useJukebox(sess, d, clicked) {
+	if name, _ := world.StateOwner(cur); blockItemUse && name == "jukebox" && s.useJukeboxInHand(sess, d, clicked, hand) {
 		useAck()
 		return
 	}
