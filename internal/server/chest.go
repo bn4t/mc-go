@@ -1050,6 +1050,9 @@ func (s *Server) emitContainerClose(sess *Session, w *openWindow) {
 	if w.chest != nil {
 		return
 	}
+	if w.container != nil && w.container.spec.shulker && sess.mode() != GameModeSpectator {
+		s.shulkerViewerChange(w.dim, w.container, -1)
+	}
 	if w.chest == nil && w.ender == nil &&
 		(w.container == nil || (!w.container.spec.shulker && w.container.block != "barrel")) {
 		return

@@ -54,13 +54,27 @@ func playerPoseContext(sess *Session) playerShapeContext {
 	return playerShapeContext{feet: feet, fallDistance: sess.fallDistance, descending: sess.sneaking, leatherBoots: !boots.Empty() && boots.ID == world.ItemIDs["leather_boots"]}
 }
 
+func (s *Server) playerWorldContextShapeAt(d *dimension, block world.Block, pos world.Pos, context playerShapeContext) []cellBox {
+	name, _ := world.StateOwner(block)
+	if name == "scaffolding" || name == "powder_snow" {
+		return playerContextShapeAt(block, pos, context)
+	}
+	return s.worldCollisionShapeAt(d, block, pos)
+}
+
+func (s *Server) playerBoxCollidesInDimension(d *dimension, ox, oy, oz, nx, ny, nz, half, height float64) bool {
+	return playerBoxCollidesWithShapes(d.w, ox, oy, oz, nx, ny, nz, half, height, func(block world.Block, pos world.Pos, context playerShapeContext) []cellBox {
+		return s.playerWorldContextShapeAt(d, block, pos, context)
+	})
+}
+
 func playerPoseBlockCollision(sess *Session, box aabb) bool {
 	context := playerPoseContext(sess)
-	for x := int(math.Floor(box[0])) - 1; x <= int(math.Floor(box[3])); x++ {
-		for y := int(math.Floor(box[1])) - 1; y <= int(math.Floor(box[4])); y++ {
-			for z := int(math.Floor(box[2])) - 1; z <= int(math.Floor(box[5])); z++ {
+	for x := int(math.Floor(box[0])) - 1; x <= int(math.Floor(box[3]))+1; x++ {
+		for y := int(math.Floor(box[1])) - 1; y <= int(math.Floor(box[4]))+1; y++ {
+			for z := int(math.Floor(box[2])) - 1; z <= int(math.Floor(box[5]))+1; z++ {
 				pos := world.Pos{X: x, Y: y, Z: z}
-				for _, shape := range playerContextShapeAt(sess.world().GetBlock(pos), pos, context) {
+				for _, shape := range sess.server.playerWorldContextShapeAt(sess.dimension(), sess.world().GetBlock(pos), pos, context) {
 					if box.intersects(aabb{float64(x) + shape[0], float64(y) + shape[1], float64(z) + shape[2], float64(x) + shape[3], float64(y) + shape[4], float64(z) + shape[5]}) {
 						return true
 					}

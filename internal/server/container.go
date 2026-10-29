@@ -407,6 +407,9 @@ type containerData struct {
 	// rebuild the menu spec before any chunk exists.
 	block string
 	item  int32
+	// Shulker animation is transient block-entity state, not saved inventory.
+	shulkerOpeners  int
+	shulkerProgress float32
 	// brewTime counts the brew down to zero and fuel is the blaze
 	// powder charges left, the brewing stand's two menu properties.
 	brewTime int32
@@ -592,6 +595,9 @@ func (s *Server) openContainer(sess *Session, pos world.Pos) {
 		s.emitContainerOpen(sess, pos)
 	}
 	sess.windowMu.Unlock()
+	if c.spec.shulker && sess.mode() != GameModeSpectator {
+		s.shulkerViewerChange(sess.dimension(), c, 1)
+	}
 
 	var b protocol.Buffer
 	b.VarInt(id)
@@ -1446,6 +1452,9 @@ func (s *Server) containerTickStep() {
 		}
 		var brewing []entry
 		for pos, c := range d.containers.containers {
+			if c.spec.shulker {
+				advanceShulkerAnimation(c)
+			}
 			if c.spec.brew {
 				brewing = append(brewing, entry{pos, c})
 			}

@@ -813,9 +813,9 @@ func placeReplaceable(b world.Block) bool {
 // for shapes that spill out of their cell).
 func worldShapes(d *dimension, box aabb) []aabb {
 	var out []aabb
-	for x := int(math.Floor(box[0])) - 1; x <= int(math.Floor(box[3])); x++ {
-		for y := int(math.Floor(box[1])) - 1; y <= int(math.Floor(box[4])); y++ {
-			for z := int(math.Floor(box[2])) - 1; z <= int(math.Floor(box[5])); z++ {
+	for x := int(math.Floor(box[0])) - 1; x <= int(math.Floor(box[3]))+1; x++ {
+		for y := int(math.Floor(box[1])) - 1; y <= int(math.Floor(box[4]))+1; y++ {
+			for z := int(math.Floor(box[2])) - 1; z <= int(math.Floor(box[5]))+1; z++ {
 				for _, c := range cellShapeAt(d.w.GetBlock(world.Pos{X: x, Y: y, Z: z}), world.Pos{X: x, Y: y, Z: z}) {
 					a := aabb{float64(x) + c[0], float64(y) + c[1], float64(z) + c[2], float64(x) + c[3], float64(y) + c[4], float64(z) + c[5]}
 					if a.intersects(box) {

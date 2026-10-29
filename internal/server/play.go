@@ -423,7 +423,7 @@ func (s *Server) playerBoxCollides(sess *Session, ox, oy, oz, nx, ny, nz float64
 		return false
 	}
 	half, height := s.playerCollisionDims(&sess.playerRecord)
-	return playerBoxCollidesWithDims(sess.world(), ox, oy, oz, nx, ny, nz, half, height)
+	return s.playerBoxCollidesInDimension(sess.dimension(), ox, oy, oz, nx, ny, nz, half, height)
 }
 
 // playerBoxCollidesIn is the standing-avatar entry point for callers without

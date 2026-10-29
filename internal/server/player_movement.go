@@ -51,7 +51,7 @@ func (s *Server) validatePlayerMovementOwned(ctx context.Context, p *playerRecor
 		return playerMovementDecision{move: move, allowed: true}
 	}
 	half, height := s.playerCollisionDims(p)
-	if p.mode() != GameModeSpectator && (target.X != from.X || target.Y != from.Y || target.Z != from.Z) && playerBoxCollidesWithDims(w, from.X, from.Y, from.Z, target.X, target.Y, target.Z, half, height) {
+	if p.mode() != GameModeSpectator && (target.X != from.X || target.Y != from.Y || target.Z != from.Z) && s.playerBoxCollidesInDimension(p.dimension(), from.X, from.Y, from.Z, target.X, target.Y, target.Z, half, height) {
 		return playerMovementDecision{move: from, correct: true}
 	}
 	return playerMovementDecision{move: move, allowed: true, correct: modified}
