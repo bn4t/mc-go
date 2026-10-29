@@ -130,18 +130,40 @@ func featureParityKeep(t *testing.T, seed int64, areas []terrainArea, keep func(
 	// MCGO_TREE_REGION names a directory caching the oracle's region
 	// files for these areas, so mc-go can be re-run against one oracle
 	// world while iterating.
+	// The oracle runs with a java agent logging its chunk decoration
+	// order (feature_tree_order_test.go).
+	agentTrace := ""
+	if s := os.Getenv("MCGO_TREE_AGENT_TRACE"); s != "" {
+		if strings.HasPrefix(s, "@") {
+			b, _ := os.ReadFile(s[1:])
+			s = strings.TrimSpace(string(b))
+		}
+		agentTrace = ";" + s
+	}
+	runOracle := func() (string, string) {
+		agent, hook := buildOrderAgent(t)
+		logPath := filepath.Join(t.TempDir(), "order.log")
+		t.Setenv("JAVA_TOOL_OPTIONS", strings.TrimSpace(os.Getenv("JAVA_TOOL_OPTIONS")+" -javaagent:"+agent+"="+hook+";"+logPath+agentTrace))
+		return vanillaTerrainFiles(t, seed, stageDatapack(ov), areas), logPath
+	}
 	region := os.Getenv("MCGO_TREE_REGION")
+	var orderLog string
 	if region == "" {
-		region = vanillaTerrainFiles(t, seed, stageDatapack(ov), areas)
+		region, orderLog = runOracle()
 	} else if _, err := os.Stat(filepath.Join(region, "done")); err != nil {
-		src := vanillaTerrainFiles(t, seed, stageDatapack(ov), areas)
+		src, lp := runOracle()
 		os.MkdirAll(region, 0o755)
 		ents, _ := os.ReadDir(src)
 		for _, e := range ents {
 			b, _ := os.ReadFile(filepath.Join(src, e.Name()))
 			os.WriteFile(filepath.Join(region, e.Name()), b, 0o644)
 		}
+		b, _ := os.ReadFile(lp)
+		os.WriteFile(filepath.Join(region, "order.log"), b, 0o644)
 		os.WriteFile(filepath.Join(region, "done"), nil, 0o644)
+		orderLog = filepath.Join(region, "order.log")
+	} else if _, err := os.Stat(filepath.Join(region, "order.log")); err == nil {
+		orderLog = filepath.Join(region, "order.log")
 	}
 	g, err := worldgen.NewGenerator(worldgen.Overlay(worldgen.Vanilla(), ov), "overworld", "overworld", seed)
 	if err != nil {
@@ -174,6 +196,39 @@ func featureParityKeep(t *testing.T, seed int64, areas []terrainArea, keep func(
 	orders := decorationOrders(areas)
 	if v, err := strconv.Atoi(os.Getenv("MCGO_TREE_ORDERS")); err == nil && v < len(orders) {
 		orders = orders[:v]
+	}
+	if orderLog != "" {
+		inArea := map[[2]int32]bool{}
+		for _, c := range orders[0] {
+			inArea[c] = true
+		}
+		logged, overlaps := readDecorationOrder(t, orderLog)
+		// The oracle also decorates a ring of chunks around each forced
+		// area (lighting needs decorated neighbours), and their trees
+		// reach into the area: replay every logged chunk within two of
+		// an area.
+		near := func(c [2]int32) bool {
+			for _, a := range areas {
+				if c[0] >= a.x0-2 && c[0] <= a.x1+2 && c[1] >= a.z0-2 && c[1] <= a.z1+2 {
+					return true
+				}
+			}
+			return false
+		}
+		var vo [][2]int32
+		for _, c := range logged {
+			if inArea[c] || near(c) {
+				vo = append(vo, c)
+				delete(inArea, c)
+			}
+		}
+		for _, c := range orders[0] {
+			if inArea[c] {
+				vo = append(vo, c)
+			}
+		}
+		t.Logf("oracle decoration order logged for %d chunks (%d overlapping neighbour decorations)", len(logged), overlaps)
+		orders = [][][2]int32{vo}
 	}
 	type result struct {
 		bad, orderDep, exempt int
@@ -316,7 +371,7 @@ func featureParityKeep(t *testing.T, seed int64, areas []terrainArea, keep func(
 	}
 	// Hill-climb the order: flip the relative order of neighbouring
 	// chunks while that lowers the total mismatch count.
-	for round := 0; round < 4 && bestSum > 0; round++ {
+	for round := 0; round < 4 && bestSum > 0 && orderLog == ""; round++ {
 		improved := false
 		for _, k := range compared {
 			for dz := int32(-1); dz <= 1 && bestSum > 0; dz++ {
@@ -343,6 +398,19 @@ func featureParityKeep(t *testing.T, seed int64, areas []terrainArea, keep func(
 		}
 	}
 	t.Logf("best decoration order: candidate %d of %d (%d = hill-climbed)", bestIdx, len(orders), len(orders))
+	if s := os.Getenv("MCGO_TREE_DUMP"); s != "" {
+		// x,z,y0,y1: both sides of one column.
+		var x, z, y0, y1 int32
+		fmt.Sscanf(s, "%d,%d,%d,%d", &x, &z, &y0, &y1)
+		chunks := decorate(bestSeq)
+		key := [2]int32{x >> 4, z >> 4}
+		if sv := readSavedChunk(t, region, key[0], key[1], minY, height); true {
+			for y := y0; y <= y1; y++ {
+				i := int((y-minY)*256 + (z&15)*16 + (x & 15))
+				t.Logf("dump %d,%d,%d: mc-go %s vanilla %s", x, y, z, protoStateString(chunks[key].Blocks[i]), sv.blocks[i])
+			}
+		}
+	}
 	total, orderDep, exempt, badChunks := 0, 0, 0, 0
 	for _, k := range compared {
 		r := best[k.key]

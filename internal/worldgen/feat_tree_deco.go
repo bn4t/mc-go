@@ -195,6 +195,9 @@ func (d placeOnGroundDeco) place(c *decoCtx) {
 func (d placeOnGroundDeco) attempt(c *decoCtx, p BlockPos) {
 	up := offset(p, 0, 1, 0)
 	ab := blockAt(c.rg, up)
+	if TreeDebug != nil {
+		treeTrace(c.rg, "try %v above=%v solid=%v hm=%d %s", p, isAir(ab), props(blockAt(c.rg, p))&(1<<bpSolidRender) != 0, treeHeightAt(c.rg, HMMotionBlockingNoLeaves, p[0], p[2]), stateName(blockAt(c.rg, p)))
+	}
 	if !(isAir(ab) || isBlock(ab, "vine")) {
 		return
 	}
