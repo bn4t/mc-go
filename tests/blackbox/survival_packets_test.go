@@ -521,12 +521,13 @@ func TestSurvivalPlaceConsumesPackets(t *testing.T) {
 		}
 	}
 
-	// Aim at the grass under the player and place against its top.
+	// Stand beside the target cell: placing a solid block through the player
+	// is refused by the measured Level.isUnobstructed placement gate.
 	var tp protocol.Buffer
 	tp.VarInt(1)
 	_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, tp.Bytes())
 	_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
-	if err := sendMovePosRotPitch(pw, 8.5, -60, 0.5, 0, 90); err != nil {
+	if err := sendMovePosRotPitch(pw, 7.5, -60, 0.5, 0, 90); err != nil {
 		t.Fatal(err)
 	}
 	var use protocol.Buffer

@@ -16736,3 +16736,19 @@ no flee; unsneak → flee). Green both legs.
   simulation area explicitly installs a plains biome around the beds and
   awaits loaded setup before sampling. Focused units cover both parent fruit
   states, roof exposure, desert and snow exclusion (2.2 s). No oracle skips.
+
+
+## Slice — unobstructed placement fixtures (2026-10-29)
+
+- **Measured:** the integrated test run on the updated implementation timed out
+  in `TestSurvivalPlaceConsumesPackets` and `TestExternalWorldFrontend`. Both
+  fixtures placed solid blocks inside their player bodies, which the existing
+  vanilla-style `placeUnobstructed` checks correctly reject. Evidence comes
+  from the existing implementation and scripted TCP clients; no new vanilla
+  behavior, table or bytecode is introduced.
+- **Implemented:** position the survival builder adjacent to its target and
+  the external world-view clients outside the edited volume, while preserving
+  reach, target positions, world assertions and existing deadlines.
+- **Pinned:** focused `TestSurvivalPlaceConsumesPackets` passes (3.70 s);
+  `TestExternalWorldFrontend` passes (65.04 s), including its separate consumer
+  module's `TestPublicWorldFixedVolume` (4.70 s). No production behavior changes.

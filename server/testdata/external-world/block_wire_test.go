@@ -197,8 +197,10 @@ func (n *nativeBlocks) expect(t *testing.T, pos worldview.Pos, key string) {
 }
 func readyNether(t *testing.T, n *nativeBlocks) {
 	t.Helper()
+	// Keep both Java players outside the edited volume: their bodies must
+	// not obstruct the solid blocks placed through the real player path.
 	j := n.j
-	if e := j.client.Command("execute in minecraft:the_nether run tp @s -0.5 70.0 -0.5"); e != nil {
+	if e := j.client.Command("execute in minecraft:the_nether run tp @s 2.5 70.0 2.5"); e != nil {
 		t.Fatal(e)
 	}
 	j.respawn(t, "minecraft:the_nether")
