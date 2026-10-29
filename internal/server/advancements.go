@@ -97,6 +97,9 @@ func (sess *Session) grantRecipeCriterion(idx int) {
 // listeners, which is why a give * never reports the crafting_table
 // criterion.
 func (sess *Session) grantAdvCriterion(adv *data.RecipeAdv, cname string) {
+	if sess.server.customAdvancement(adv.ID) {
+		return
+	}
 	sess.advMu.Lock()
 	if sess.advDone == nil {
 		sess.advDone = map[string]bool{}
@@ -195,6 +198,9 @@ func (s *Server) fireInventoryChanged(sess *Session) {
 	}
 	for i := range data.RecipeAdvs {
 		adv := &data.RecipeAdvs[i]
+		if s.customAdvancement(adv.ID) {
+			continue
+		}
 		for _, c := range adv.Conds {
 			if c.Trigger != "inventory_changed" {
 				continue
@@ -247,6 +253,9 @@ func (s *Server) fireEnterBlock(sess *Session) {
 	}
 	for i := range data.RecipeAdvs {
 		adv := &data.RecipeAdvs[i]
+		if s.customAdvancement(adv.ID) {
+			continue
+		}
 		for _, c := range adv.Conds {
 			if c.Trigger != "enter_block" || c.Block != feet {
 				continue
@@ -325,7 +334,7 @@ func (s *Server) flushAdvancements(sess *Session) {
 	// every dirty advancement it has not sent before and a progress
 	// entry for every dirty advancement — even ones whose criteria are
 	// all still locked (the client needs the criteria list to render).
-	visible := computeAdvVisibility(sess.advDone)
+	visible := computeAdvVisibilityIn(sess.advDone, sess.server.gameAdvTable(), sess.server.gameAdvChildren(), sess.server.gameAdvRoots())
 	// Vanilla emits progress only for dirty ids that are visible — an
 	// invisible advancement's progress stays server-side (measured: a
 	// criterion grant on an unlit advancement sends nothing).
@@ -368,7 +377,11 @@ func (s *Server) flushAdvancements(sess *Session) {
 	b.Bool(false) // reset: the first sync (join) already went out
 	b.VarInt(int32(len(added)))
 	for _, id := range added {
-		if def := data.AdvDefWire[id]; def != nil {
+		def := data.AdvDefWire[id]
+		if sess.server.customAdvancement(id) {
+			def = sess.server.advancementPack.wire[id]
+		}
+		if def != nil {
 			profile, err := sess.javaProfile()
 			if err != nil {
 				sess.closeQueue()
@@ -402,7 +415,7 @@ func (s *Server) flushAdvancements(sess *Session) {
 	}
 	b.VarInt(int32(len(progressIDs)))
 	for _, id := range progressIDs {
-		criteria, reqs := advCriteriaReqs(id)
+		criteria, reqs := sess.advCriteriaReqs(id)
 		b.String(id)
 		ordered := criteriaEmitOrderOf(criteria, reqs)
 		b.VarInt(int32(len(ordered)))
@@ -571,8 +584,8 @@ func criteriaEmitOrderOf(criteria []string, reqs [][]string) []string {
 
 // advCriteriaReqs returns an advancement's criteria names and
 // requirement groups regardless of which table it lives in.
-func advCriteriaReqs(id string) ([]string, [][]string) {
-	if a := gameAdvs[id]; a != nil {
+func (sess *Session) advCriteriaReqs(id string) ([]string, [][]string) {
+	if a := sess.server.gameAdvTable()[id]; a != nil {
 		return a.criteria, a.reqs
 	}
 	if a := recipeAdvByID[id]; a != nil {

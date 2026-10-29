@@ -83,14 +83,14 @@ func (s *Server) resolveTargets(player, tok string) []*Session {
 
 // advDescendants lists the advancement plus every descendant in the
 // tree (vanilla's FROM mode).
-func advDescendants(id string) []*advMeta {
+func (s *Server) advDescendants(id string) []*advMeta {
 	var out []*advMeta
 	var walk func(string)
 	walk = func(cur string) {
-		if m := gameAdvs[cur]; m != nil {
+		if m := s.gameAdvTable()[cur]; m != nil {
 			out = append(out, m)
 		}
-		for _, ch := range gameAdvChild[cur] {
+		for _, ch := range s.gameAdvChildren()[cur] {
 			walk(ch)
 		}
 	}
@@ -100,10 +100,21 @@ func advDescendants(id string) []*advMeta {
 
 // advAncestors lists the advancement plus its parent chain to the root
 // (vanilla's UNTIL mode).
-func advAncestors(id string) []*advMeta {
+func (s *Server) advAncestors(id string) []*advMeta {
+	if s.advancementPack != nil && !s.advancementPack.attached[id] {
+		if meta := s.gameAdvTable()[id]; meta != nil {
+			return []*advMeta{meta}
+		}
+		return nil
+	}
 	var out []*advMeta
+	seen := map[string]bool{}
 	for cur := id; cur != ""; {
-		m := gameAdvs[cur]
+		if seen[cur] {
+			break
+		}
+		seen[cur] = true
+		m := s.gameAdvTable()[cur]
 		if m == nil {
 			break
 		}
@@ -219,14 +230,14 @@ func (s *Server) runAdvancement(player string, args []string) reply {
 	hasCriterion := false
 	switch mode {
 	case "everything":
-		for _, m := range gameAdvs {
+		for _, m := range s.gameAdvTable() {
 			set = append(set, m)
 		}
 	case "only", "from", "through", "until":
 		if len(args) < 4 {
 			return errTokenEnd("command.unknown.command", 3)
 		}
-		meta := gameAdvs[normalizeAdvID(args[3])]
+		meta := s.gameAdvTable()[normalizeAdvID(args[3])]
 		if meta == nil {
 			return componentReply(commandError("advancement.advancementNotFound", literalStr(args[3])))
 		}
@@ -249,12 +260,12 @@ func (s *Server) runAdvancement(player string, args []string) reply {
 				}
 			}
 		case "from":
-			set = advDescendants(meta.id)
+			set = s.advDescendants(meta.id)
 		case "until":
-			set = advAncestors(meta.id)
+			set = s.advAncestors(meta.id)
 		case "through":
 			seen := map[string]bool{}
-			for _, m := range append(advAncestors(meta.id), advDescendants(meta.id)...) {
+			for _, m := range append(s.advAncestors(meta.id), s.advDescendants(meta.id)...) {
 				if !seen[m.id] {
 					seen[m.id] = true
 					set = append(set, m)

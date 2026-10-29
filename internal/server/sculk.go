@@ -225,7 +225,7 @@ func (s *Server) emitContainerOpen(sess *Session, pos world.Pos) {
 // avoidVibration grants the avoid_vibration criterion — fired when a
 // sneaking player's dampened emission reaches a listener.
 func (s *Server) avoidVibration(sess *Session) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, vc := range meta.vibrates {
 			if vc.impossible {
 				continue

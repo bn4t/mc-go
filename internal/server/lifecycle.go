@@ -235,6 +235,7 @@ func (s *Server) loadWorldDir() error {
 	}
 	s.loadPlayerMetaFiles()
 	s.loadFunctions()
+	s.loadAdvancementPacks()
 	return nil
 }
 

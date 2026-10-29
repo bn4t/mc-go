@@ -20,6 +20,7 @@ import (
 // walk, criteria for progress emission, and the kill-trigger conditions
 // decoded into a matchable form.
 type advMeta struct {
+	raw        map[string]any
 	id, parent string
 	criteria   []string // names; emit order is computed, never JSON order
 	reqs       [][]string
@@ -266,23 +267,31 @@ func init() {
 // advMeta records. keys in data.Advancements() are datapack paths
 // ("adventure/kill_a_mob") — wire ids carry the minecraft: namespace.
 func loadGameAdvs() map[string]*advMeta {
+	return parseGameAdvs(data.Advancements())
+}
+
+func parseGameAdvs(definitions map[string]map[string]any) map[string]*advMeta {
 	out := map[string]*advMeta{}
-	for path, raw := range data.Advancements() {
-		id := "minecraft:" + path
-		m := &advMeta{id: id}
+	for path, raw := range definitions {
+		id := path
+		if !strings.Contains(id, ":") {
+			id = "minecraft:" + id
+		}
+		m := &advMeta{id: id, raw: raw}
 		if reward, ok := raw["rewards"].(map[string]any); ok {
 			if points, ok := reward["experience"].(float64); ok {
 				m.experience = int32(points)
 			}
 		}
 		if p, ok := raw["parent"].(string); ok {
-			m.parent = p
+			m.parent = normalizeID(p)
 		}
 		if crit, ok := raw["criteria"].(map[string]any); ok {
 			for cname, cv := range crit {
 				m.criteria = append(m.criteria, cname)
 				cm, _ := cv.(map[string]any)
-				switch cm["trigger"] {
+				trigger, _ := cm["trigger"].(string)
+				switch normalizeID(trigger) {
 				case "minecraft:player_killed_entity":
 					m.kills = append(m.kills, parseKillCond(cname, cm["conditions"]))
 				case "minecraft:entity_killed_player":
@@ -391,8 +400,6 @@ func loadGameAdvs() map[string]*advMeta {
 			}
 		}
 		m.reqs = asGroups(raw["requirements"])
-		// Vanilla folds single-string requirement entries into one-name
-		// groups at JSON load; emit sees the same [][]string either way.
 		if len(m.reqs) == 0 {
 			for _, c := range m.criteria {
 				m.reqs = append(m.reqs, []string{c})
@@ -588,7 +595,7 @@ func (s *Server) firePlayerKilledEntity(sess *Session, victimType string, vx, vz
 func (s *Server) firePlayerKilledEntityDamage(sess *Session, victimType string, vx, vz, ax, az float64, proj bool, directType string, headOminous bool) {
 	dx, dz := vx-ax, vz-az
 	distSq := dx*dx + dz*dz
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, kc := range meta.kills {
 			if kc.impossible {
 				continue
@@ -692,7 +699,7 @@ func (s *Server) fireLocation(sess *Session) {
 	if biome == "" {
 		return
 	}
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, lc := range meta.locs {
 			if lc.impossible || !lc.biomes[biome] {
 				continue
@@ -833,7 +840,7 @@ func parseEHurtCond(cname string, conds any) ehurtCond {
 // against the hit the player took: proj is the is_projectile damage
 // tag, blocked whether a shield ate it.
 func (s *Server) fireEntityHurtPlayer(sess *Session, proj, blocked bool) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, ec := range meta.ehurts {
 			if ec.impossible || (ec.needsProj && !proj) {
 				continue
@@ -856,7 +863,7 @@ func (s *Server) fireEntityHurtPlayer(sess *Session, proj, blocked bool) {
 // item name, and dealt the raw damage amount vanilla reports (not
 // capped by the victim's remaining health).
 func (s *Server) firePlayerHurtEntity(sess *Session, directType string, proj bool, dealt float32, mainhand string, smash bool) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, hc := range meta.hurts {
 			if hc.impossible || (hc.needsProj && !proj) || (hc.needsSmash && !smash) {
 				continue
@@ -971,7 +978,7 @@ func parseConsumeCond(cname string, conds any) consumeCond {
 
 // fireConsumeItem grants consume_item criteria for one finished food.
 func (s *Server) fireConsumeItem(sess *Session, item string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, cc := range meta.consumed {
 			if cc.impossible {
 				continue
@@ -1029,7 +1036,7 @@ func parsePlacedCond(cname string, conds any) placedCond {
 
 // firePlacedBlock grants placed_block criteria for one placed block.
 func (s *Server) firePlacedBlock(sess *Session, blockName string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, pc := range meta.placed {
 			if pc.impossible || pc.block != blockName {
 				continue
@@ -1066,7 +1073,7 @@ func parseDimCond(cname string, conds any) dimCond {
 // fireChangedDimension grants changed_dimension criteria for one
 // completed hop; from/to are bare dimension names.
 func (s *Server) fireChangedDimension(sess *Session, from, to string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, dc := range meta.dims {
 			if dc.impossible {
 				continue
@@ -1165,7 +1172,7 @@ func addUsedOnBlocks(dst map[string]bool, v any) {
 // successful use-on-block interaction: the clicked block's name and
 // the used item's name must each satisfy their sets.
 func (s *Server) fireItemUsedOnBlock(sess *Session, blockName, itemName string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, uc := range meta.usedOn {
 			if uc.impossible || !uc.blocks[blockName] || !uc.toolItems[itemName] {
 				continue
@@ -1179,7 +1186,7 @@ func (s *Server) fireItemUsedOnBlock(sess *Session, blockName, itemName string) 
 // block the thrown item lands on and the item share the
 // item_used_on_block location schema.
 func (s *Server) fireAllayDropOnBlock(sess *Session, blockName, itemName string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, uc := range meta.allayDrops {
 			if uc.impossible || !uc.blocks[blockName] || !uc.toolItems[itemName] {
 				continue
@@ -1224,7 +1231,7 @@ func parseTravelCond(cname string, conds any) travelCond {
 // distSq is the horizontal distance squared between the overworld
 // portal used to leave and the one the player reappeared at.
 func (s *Server) fireNetherTravel(sess *Session, distSq float64) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, tc := range meta.travel {
 			if tc.impossible || distSq < tc.minDist*tc.minDist {
 				continue
@@ -1310,7 +1317,7 @@ func parseBreedCond(cname string, conds any) breedCond {
 // criteria with no child predicate (breed_an_animal) plus the species
 // ones (bred_all_animals).
 func (s *Server) fireBredAnimal(sess *Session, childType string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, bc := range meta.breds {
 			if bc.impossible {
 				continue
@@ -1346,7 +1353,7 @@ func parseLootCond(cname string, conds any) lootCond {
 // firePlayerGeneratesContainerLoot grants criteria whose loot_table
 // id matches the table the opened container just rolled.
 func (s *Server) firePlayerGeneratesContainerLoot(sess *Session, table string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, lc := range meta.loots {
 			if lc.impossible || lc.table != table {
 				continue
@@ -1359,7 +1366,7 @@ func (s *Server) firePlayerGeneratesContainerLoot(sess *Session, table string) {
 // fireSummonedEntity grants summoned_entity criteria for one
 // constructed entity spawn (iron golem from the pumpkin T today).
 func (s *Server) fireSummonedEntity(sess *Session, entityType string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, sc := range meta.summons {
 			if sc.impossible || sc.entityType != entityType {
 				continue
@@ -1385,7 +1392,7 @@ func (s *Server) fireGameInventoryChanged(sess *Session) {
 			items[n] = true
 		}
 	}
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, ic := range meta.inv {
 			if ic.impossible || len(ic.sets) == 0 {
 				continue
@@ -1417,7 +1424,7 @@ func (s *Server) fireGameInventoryChanged(sess *Session) {
 func (s *Server) fireEntityKilledPlayer(sess *Session, killerType string, vx, vz, kx, kz float64) {
 	dx, dz := kx-vx, kz-vz
 	distSq := dx*dx + dz*dz
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, kc := range meta.deaths {
 			if kc.impossible || kc.needsProj || kc.direct != nil {
 				continue
@@ -1500,7 +1507,7 @@ func (sess *Session) grantCriterion(meta *advMeta, cname string, skipDone bool) 
 	sess.advMu.Unlock()
 	if complete && !wasDone {
 		// PlayerAdvancements awards rewards before the completion chat.
-		sess.giveExperiencePoints(meta.experience)
+		sess.server.grantAdvancementRewards(sess, meta)
 		sess.server.announceAdvancement(sess, meta)
 	}
 	return true
@@ -1510,6 +1517,9 @@ func (sess *Session) grantCriterion(meta *advMeta, cname string, skipDone bool) 
 // vanilla's Advancement.getChatComponent does — square brackets in the
 // frame color over a title hover showing title, newline, description.
 func advChatComponent(meta *advMeta) component {
+	if !meta.hasDisplay {
+		return literal(meta.id)
+	}
 	color := advFrameColor(meta.frame)
 	descKey := meta.descKey
 	if descKey == "" {
@@ -1598,10 +1608,14 @@ func advFrameColor(frame string) string {
 // ≤3-deep stack of self+ancestors says SHOW (a done parent lights its
 // children and grandchildren; a hidden or display-less ancestor blocks).
 func computeAdvVisibility(done map[string]bool) map[string]bool {
+	return computeAdvVisibilityIn(done, gameAdvs, gameAdvChild, gameAdvRoots)
+}
+
+func computeAdvVisibilityIn(done map[string]bool, entries map[string]*advMeta, children map[string][]string, roots []string) map[string]bool {
 	vis := map[string]bool{}
 	var walk func(id string, rules []int) bool
 	walk = func(id string, rules []int) bool {
-		m := gameAdvs[id]
+		m := entries[id]
 		if m == nil {
 			return false
 		}
@@ -1617,7 +1631,7 @@ func computeAdvVisibility(done map[string]bool) map[string]bool {
 		}
 		r2 := append(append([]int{}, rules...), rule)
 		res := d
-		for _, ch := range gameAdvChild[id] {
+		for _, ch := range children[id] {
 			if walk(ch, r2) {
 				res = true
 			}
@@ -1646,7 +1660,7 @@ func computeAdvVisibility(done map[string]bool) map[string]bool {
 		// returns the pre-rule value).
 		return childRes
 	}
-	for _, root := range gameAdvRoots {
+	for _, root := range roots {
 		walk(root, nil)
 	}
 	return vis
@@ -1748,7 +1762,7 @@ func parseTameCond(cname string, conds any) tameCond {
 // fireTamedAnimal grants tame_animal criteria: bare triggers plus
 // entity_type-filtered ones.
 func (s *Server) fireTamedAnimal(sess *Session, animalType string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, tc := range meta.tames {
 			if tc.impossible {
 				continue
@@ -1792,7 +1806,7 @@ func (s *Server) fireKillNearSculk(sess *Session, x, y, z float64, dim string) {
 	if !s.sculkCatalystNear(x, y, z, dim) {
 		return
 	}
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, sc := range meta.sculks {
 			if sc.impossible {
 				continue
@@ -1829,7 +1843,7 @@ func (s *Server) sculkCatalystNear(x, y, z float64, dimName string) bool {
 
 // fireSleptInBed grants slept_in_bed criteria on bed entry.
 func (s *Server) fireSleptInBed(sess *Session) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, sc := range meta.sleeps {
 			if sc.impossible {
 				continue
@@ -1842,7 +1856,7 @@ func (s *Server) fireSleptInBed(sess *Session) {
 // fireHeroOfVillage grants hero_of_the_village criteria — vanilla's
 // RAID_WIN trigger fires on each hero at victory time.
 func (s *Server) fireHeroOfVillage(sess *Session) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, sc := range meta.heros {
 			if sc.impossible {
 				continue
@@ -1855,7 +1869,7 @@ func (s *Server) fireHeroOfVillage(sess *Session) {
 // fireRaidOmen grants raid_omen criteria — vanilla's RAID_OMEN
 // trigger fires when a player's raid_omen absorbs into a raid.
 func (s *Server) fireRaidOmen(sess *Session) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, sc := range meta.omens {
 			if sc.impossible {
 				continue
@@ -2041,7 +2055,7 @@ func parseSpearCond(cname string, conds any) spearCond {
 // fireSpearMobs grants spear_mobs criteria when a jab tick lands a
 // stab: count is the holder's distinct recently-stabbed entity count.
 func (s *Server) fireSpearMobs(sess *Session, count int) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, sc := range meta.spears {
 			if !sc.impossible && count >= sc.count {
 				sess.grantGameCriterion(meta, sc.crit)
@@ -2055,7 +2069,7 @@ func (s *Server) fireSpearMobs(sess *Session, count int) {
 // item predicate (vanilla's TriggerInstance.matches iterates the same
 // collection).
 func (s *Server) fireFishingRodHooked(sess *Session, hook *Entity, drops []ItemStack) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, fc := range meta.fished {
 			if fc.impossible {
 				continue
@@ -2084,7 +2098,7 @@ func (s *Server) fireBrewedPotion(sess *Session, it ItemStack) {
 	if potion == "" {
 		return // uncraftable/empty contents: no trigger (vanilla's Optional check)
 	}
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, bc := range meta.breweds {
 			if bc.impossible {
 				continue
@@ -2101,7 +2115,7 @@ func (s *Server) fireBrewedPotion(sess *Session, it ItemStack) {
 // item is the resulting stack, levels the option's cost (index+1).
 func (s *Server) fireEnchantedItem(sess *Session, item ItemStack, levels int32) {
 	itemName, _ := itemNameOf(item.ID)
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, ec := range meta.enchanteds {
 			if ec.impossible {
 				continue
@@ -2218,7 +2232,7 @@ func (ic *interactCond) addItem(name string) {
 // criteria against a right-click: etype is the clicked entity's type
 // name and heldName the main-hand item ("" for empty).
 func (s *Server) firePlayerInteractedEntity(sess *Session, etype, heldName string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, ic := range meta.interacts {
 			if ic.impossible {
 				continue
@@ -2240,7 +2254,7 @@ func (s *Server) firePlayerInteractedEntity(sess *Session, etype, heldName strin
 func (s *Server) fireVillagerTrade(sess *Session, e *Entity, res ItemStack) {
 	etype, _ := EntityTypeName(e.Type)
 	iname, _ := world.ItemName(res.ID)
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, ic := range meta.trades {
 			if ic.impossible {
 				continue
@@ -2262,7 +2276,7 @@ func (s *Server) fireVillagerTrade(sess *Session, e *Entity, res ItemStack) {
 // reduce to a type check each; item conditions don't exist on this
 // trigger.
 func (s *Server) fireCuredZombieVillager(sess *Session) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, ic := range meta.cures {
 			if ic.impossible {
 				continue
@@ -2345,7 +2359,7 @@ func (s *Server) fireCrafterRecipeCrafted(sess *Session, recipeID string, grid c
 	for _, st := range grid {
 		stacks = append(stacks, st)
 	}
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, rc := range meta.crafters {
 			if rc.impossible || rc.recipeID != recipeID {
 				continue
@@ -2384,7 +2398,7 @@ func (s *Server) fireCrafterRecipeCrafted(sess *Session, recipeID string, grid c
 // name of the burst source ("wind_charge").
 func (s *Server) fireFallAfterExplosion(sess *Session, impactY, apexY float64, causeType int32) {
 	name, _ := EntityTypeName(causeType)
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, fc := range meta.fallExps {
 			if fc.impossible {
 				continue
@@ -2405,7 +2419,7 @@ func (s *Server) fireFallAfterExplosion(sess *Session, impactY, apexY float64, c
 // player_interacted_with_entity, but item is the REMOVED stack
 // (wolf_armor), entity the sheared mob (wolf).
 func (s *Server) firePlayerShearedEquipment(sess *Session, etype, itemName string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, ic := range meta.sheared {
 			if ic.impossible {
 				continue
@@ -2561,7 +2575,7 @@ func (pc *pickupCond) addArmor(v any) {
 // criteria: sess is the item's thrower (the item entity's Owner), etype
 // the picking mob's type name, iname the picked stack's item name.
 func (s *Server) fireThrownItemPickedUp(sess *Session, it ItemStack, etype string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		s.runPickupConds(sess, it, etype, meta.pickups, meta)
 	}
 }
@@ -2571,7 +2585,7 @@ func (s *Server) fireThrownItemPickedUp(sess *Session, it ItemStack, etype strin
 // player, etype the owner entity's type name (allay for
 // allay_deliver_item_to_player).
 func (s *Server) fireThrownItemPickedUpByPlayer(sess *Session, it ItemStack, etype string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		s.runPickupConds(sess, it, etype, meta.pickupsByP, meta)
 	}
 }
@@ -2697,7 +2711,7 @@ func (s *Server) fireStartedRiding(sess *Session) {
 	vname, _ := EntityTypeName(ve.Type)
 	passengers := append([]int32(nil), ve.Passengers...)
 	s.entities.mu.RUnlock()
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, rc := range meta.rides {
 			if rc.impossible {
 				continue
@@ -2827,7 +2841,7 @@ func (s *Server) fireRideInLava(sess *Session) {
 	dx := x - sess.lavaRidePos[0]
 	dz := z - sess.lavaRidePos[2]
 	hdist := math.Sqrt(dx*dx + dz*dz)
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, rc := range meta.rideLava {
 			if rc.impossible {
 				continue
@@ -2928,7 +2942,7 @@ func (s *Server) fireItemDurabilityChanged(sess *Session, it ItemStack) {
 		}
 		s.entities.mu.RUnlock()
 	}
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, dc := range meta.durs {
 			if dc.impossible {
 				continue
@@ -3007,7 +3021,7 @@ func parseBeaconCond(cname string, conds any) beaconCond {
 // fireConstructBeacon grants every construct_beacon criterion whose
 // level range admits the activated pyramid depth.
 func (s *Server) fireConstructBeacon(sess *Session, levels int) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, bc := range meta.beacons {
 			if bc.impossible || float64(levels) < bc.min || float64(levels) > bc.max {
 				continue
@@ -3180,7 +3194,7 @@ func (s *Server) fireEffectsChanged(sess *Session) {
 		}
 	}
 	sess.effMu.Unlock()
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, ec := range meta.effs {
 			if ec.impossible {
 				continue
@@ -3269,7 +3283,7 @@ func parseKBACond(cname string, conds any) kbaCond {
 // fireKilledByArrow runs on a player arrow kill — vanilla's
 // KilledByArrowTrigger fires per victim with the weapon stack.
 func (s *Server) fireKilledByArrow(sess *Session, victimType, weapon string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, kc := range meta.kba {
 			if kc.impossible {
 				continue
@@ -3373,7 +3387,7 @@ func (s *Server) fireUsingItem(sess *Session) {
 	}
 	var lookType string
 	needLook := false
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, uc := range meta.usings {
 			if len(uc.lookingAt) > 0 {
 				needLook = true
@@ -3383,7 +3397,7 @@ func (s *Server) fireUsingItem(sess *Session) {
 	if needLook {
 		lookType = s.lookedAtLivingType(sess)
 	}
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, uc := range meta.usings {
 			if uc.impossible {
 				continue
@@ -3470,7 +3484,7 @@ func rayAABB(ox, oy, oz, dx, dy, dz, minx, miny, minz, maxx, maxy, maxz float64)
 // fireShotCrossbow grants shot_crossbow criteria whose item predicate
 // admits the weapon that fired — ol_betsy wants exactly "crossbow".
 func (s *Server) fireShotCrossbow(sess *Session, item string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, tc := range meta.shots {
 			if tc.impossible {
 				continue
@@ -3485,7 +3499,7 @@ func (s *Server) fireShotCrossbow(sess *Session, item string) {
 // fireUsedTotem grants used_totem criteria whose item predicate admits
 // the totem — vanilla triggers on the stack copy before it shrinks.
 func (s *Server) fireUsedTotem(sess *Session) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, tc := range meta.totems {
 			if tc.impossible {
 				continue
@@ -3506,7 +3520,7 @@ func (s *Server) fireRecipeCrafted(sess *Session, recipeID string, grid craftGri
 	for _, st := range grid {
 		stacks = append(stacks, st)
 	}
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, rc := range meta.recipes {
 			if rc.impossible || rc.recipeID != recipeID {
 				continue
@@ -3583,7 +3597,7 @@ func (fc *fillCond) addItem(name string) {
 // fireFilledBucket runs filled_bucket criteria against the bucket item
 // that resulted from the fill.
 func (s *Server) fireFilledBucket(sess *Session, bucket string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, fc := range meta.fills {
 			if fc.impossible || (len(fc.items) > 0 && !fc.items[bucket]) {
 				continue
@@ -3675,7 +3689,7 @@ func (s *Server) fireTargetHit(shooter *Session, proj *Entity, signal int) {
 	sx, _, sz, _, _, _ := shooter.Pos()
 	hdist := math.Hypot(proj.X-sx, proj.Z-sz)
 	pname, _ := EntityTypeName(proj.Type)
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, tc := range meta.targetHits {
 			if tc.impossible {
 				continue
@@ -3725,7 +3739,7 @@ func parseEnterCond(cname string, conds any) enterCond {
 // player's feet sit inside the named block — same feet check the
 // recipe listener runs, one trigger pass per tick.
 func (s *Server) fireGameEnterBlock(sess *Session, feet string) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, ec := range meta.enters {
 			if ec.impossible || ec.block == "" || ec.block != feet {
 				continue
@@ -3871,7 +3885,7 @@ func parseSlideCond(cname string, conds any) slideCond {
 // horizontal axis |cellCenter - pos| > 0.4375 + bbWidth/2 — the entity
 // slides against the block's outer face, not through its center).
 func (s *Server) fireSlideDown(sess *Session, x, y, z float64) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		hasSlides := false
 		for _, sc := range meta.slides {
 			if !sc.impossible {
@@ -4001,7 +4015,7 @@ func (s *Server) fireLevitation(sess *Session) {
 	dx := x - sess.levitationStart[0]
 	_ = z
 	dur := s.clock.count - sess.levitationStartTick
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, lc := range meta.levitates {
 			if lc.impossible {
 				continue
@@ -4142,7 +4156,7 @@ func (s *Server) fireBeeNestDestroyed(sess *Session, d *dimension, pos world.Pos
 	owner, _ := world.StateOwner(broken)
 	held := sess.heldStack()
 	bees := d.bees[pos]
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, bc := range meta.beenests {
 			if bc.impossible {
 				continue
@@ -4238,7 +4252,7 @@ func (s *Server) fireChanneledLightning(sess *Session, struck []string) {
 	if sess == nil || len(struck) == 0 {
 		return
 	}
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, cc := range meta.chans {
 			if cc.impossible {
 				continue
@@ -4350,7 +4364,7 @@ func parseLightningCond(cname string, conds any) lightningCond {
 // entities caught in the strike box (vanilla's ±15, y→y+21 AABB) and
 // firesSet = 0 when a lightning rod absorbed the bolt.
 func (s *Server) fireLightningStrike(d *dimension, x, y, z float64, firesSet int) {
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, lc := range meta.lights {
 			if lc.impossible {
 				continue
@@ -4401,7 +4415,7 @@ func (s *Server) fireLightningStrike(d *dimension, x, y, z float64, firesSet int
 // signed drop between them — vanilla's trigger takes the same three.
 func (s *Server) fireFallFromHeight(sess *Session, startY, endY float64) {
 	dist := startY - endY
-	for _, meta := range gameAdvs {
+	for _, meta := range s.gameAdvTable() {
 		for _, fc := range meta.falls {
 			if fc.impossible {
 				continue
