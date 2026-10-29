@@ -269,8 +269,9 @@ Mojang server over the wire.
   notifications. Clone also copies queued and collected block ticks across the
   entire source box, including empty filtered selections. Exact placement grouping
   and complete command schemas remain partial. Pending block callbacks retain
-  registered type and the first deadline/priority; fluid identity, chunk tick
-  persistence and sub-tick ordering remain partial.
+  registered block/fluid type and the first deadline/priority, including distinct
+  source/flowing fluid owners. Chunk tick persistence and sub-tick ordering remain
+  partial.
   Attribute getters and mutations supply measured typed execute-store results.
   Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
@@ -18554,3 +18555,11 @@ Additional integration evidence: immutable4c02d28 build/vet/tagged compilation p
 - **Measured** — Java26.2 item-component reports supply88 armor/toughness/knockback-resistance modifier rows across41 items, retaining slot-qualified IDs and zero values. Native11-stage command/packet measurements PASS54.40s include copper, iron, diamond, netherite and wolf body armor, wrong-slot exclusions and removal/reapplication. Netherite resistance is promoted float0.10000000149011612. Go1.27.3/JDK25.0.5+8; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
 - **Implemented** — A stdlib factual report extractor and independent Go-only generator produce the armor table. The generator rejects unexpected operations/slots and preserves zero amounts. This slice does not adopt the facts into runtime behavior.
 - **Pinned** — Four-file SHA256 `84492e40f366f3a1bc1951903bd0fd1c269cb69d6638145732a19d01514b6fd6`; byte-identical extraction/regeneration and existing gear/registry units PASS0.786s. TSV SHA256 `cdc00e0be61458b97748264e16f49de16e8106d994e66353fdff0089dd73bd4c`; table SHA256 `65b0fb8c9c90bf6bedc93e0c86855bb32649e44c22dc5e496025d0d861087fa2`. Commands/provenance/limits: tools/genarmorattrs/README.md; source report hash listing `work/armor-attribute-report-sha256.txt`. Live controls cover representative items, not all41 physical effects.
+
+## Slice — exact scheduled fluid owners and first requests (2026-10-29)
+
+- **Measured** — Native26.2 scheduled fluid dispatch compares exact registered owner: water does not tick replacement lava, and flowing water/lava does not tick replacement sources. Eleven positive wire controls include ordinary5/30-tick source deadlines and strict replacements without new requests. Baseline59.46s fails only five stale-owner observations in Go. Factual ServerLevel/TypedInstance/LevelChunkTicks inspection establishes identity and first-request behavior; JDK25.0.5+8/Go1.27.3, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`; no implementation text copied.
+- **Implemented** — Capture builtin source/flowing/empty fluid registration in each key, preserve first deadline/priority for duplicate owners and skip stale owners at dispatch. Different owners can coexist at one position. Intrinsic/waterlogged source water uses the water registration. Block dispatch windows, clone copies and block-only clears remain unchanged.
+- **Pinned** — Six-file SHA256 `3e0714322b2741db58788bd4739401e2a40cad43386e279aca29c66a7447bb9c`. New identity pin PASS23.46s; existing fluid/block identity/clone active/clone queued PASS21.74/36.69/28.65/49.70s. Full native/Go TestFluidParity PASS655.59s, completed before workspace reconnection (`work/scheduled-fluid-owner-full-fluid.log`). Focused owner/scheduler units PASS0.334s, broader fluid/waterlogging/collision/scheduler units PASS9.509s; build/vet pass.
+
+Chunk tick persistence/loading, chunk activation/count limits, native global sub-tick order and full pending/will-run query behavior remain separate. Existing fluid propagation/randomness limits still apply. Native disk measurements establish future SavedTick fields and relative deadlines but are not implemented by this foundation.

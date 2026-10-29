@@ -6,6 +6,7 @@ import "mc-go/internal/world"
 // them, not a later replacement at the same position (ServerLevel.tickBlock).
 func (s *Server) bindScheduledBlockTypes() {
 	s.ticks.blockType = s.scheduledBlockType
+	s.ticks.fluidType = s.scheduledFluidType
 }
 func (s *Server) scheduledBlockType(k schedKey) string {
 	d := s.dims[k.dim]

@@ -30,15 +30,16 @@ type schedKey struct {
 	dim  string
 	pos  world.Pos
 	kind tickKind
-	// Registered block owner captured when queued; fluid/unbound keys leave it empty.
+	// Registered block owner captured when queued; unbound keys leave it empty.
 	block string
+	// Registered fluid owner distinguishes source and flowing registrations.
+	fluid string
 }
 
 // tickScheduler is the pending block-tick queue.
 //
-// Pending block ticks retain their registered block type. Duplicate requests
-// keep the first deadline and priority; the untyped fluid domain retains its
-// existing policy. Due entries retain the existing
+// Pending ticks retain their registered block or fluid type. Duplicate requests
+// keep the first deadline and priority. Due entries retain the existing
 // priority/dimension/position ordering; native sub-tick ordering is separate.
 type tickScheduler struct {
 	mu     sync.Mutex
@@ -47,6 +48,7 @@ type tickScheduler struct {
 	prio   map[schedKey]int8
 	// Bound once by Server.New before the scheduler is exposed.
 	blockType   func(schedKey) string
+	fluidType   func(schedKey) string
 	active      map[schedKey]blockTickRecord
 	activeOrder []schedKey
 }
@@ -69,6 +71,9 @@ func newTickScheduler() *tickScheduler {
 }
 
 func (t *tickScheduler) typedKey(k schedKey) schedKey {
+	if k.kind == tickFluid && k.fluid == "" && t.fluidType != nil {
+		k.fluid = t.fluidType(k)
+	}
 	if k.kind != tickFluid && k.block == "" && t.blockType != nil {
 		k.block = t.blockType(k)
 	}
@@ -81,21 +86,13 @@ func (t *tickScheduler) schedule(k schedKey, at int64) {
 }
 
 // schedulePrio follows LevelChunkTicks.schedule's first-request rule: a
-// duplicate pending block position/type does not replace timing or priority.
-// Fluid keys do not yet retain their native type, so their existing policy
-// remains separate from this block-tick correction.
+// duplicate pending position/type does not replace timing or priority.
 func (t *tickScheduler) schedulePrio(k schedKey, at int64, prio int8) {
 	k = t.typedKey(k)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if prev, ok := t.queued[k]; ok {
-		if k.kind != tickFluid {
-			return
-		}
-		if prev <= at {
-			t.prio[k] = prio
-			return
-		}
+	if _, ok := t.queued[k]; ok {
+		return
 	}
 	t.queued[k] = at
 	t.prio[k] = prio

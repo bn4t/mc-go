@@ -374,6 +374,9 @@ func (s *Server) scheduledTickStep() {
 		}
 		switch k.kind {
 		case tickFluid:
+			if k.fluid != "" && s.scheduledFluidType(k) != k.fluid {
+				continue
+			}
 			s.fluidTick(d, k.pos)
 		case tickChestRecheck, tickTrappedChestRecheck:
 			s.chestRecheckTick(d, k.pos, k.kind)

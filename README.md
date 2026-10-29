@@ -121,11 +121,12 @@ Weather intensities preserve native float32 steps and project rain/thunder
 changes to clients, including initial weather for late joins. Natural/random
 weather cycling and complete duration behavior remain partial.
 
-Scheduled block callbacks retain the type that queued them; duplicate pending
-requests preserve their first deadline and priority. Clone copies scheduled block
+Scheduled block and fluid callbacks retain the registered type that queued them;
+source and flowing fluid types remain distinct. Duplicate pending requests
+preserve their first deadline and priority. Clone copies scheduled block
 work across the full source box, including collected callbacks and empty filtered
-selections. GameTest resets cancel queued and collected block callbacks. Fluid
-identity, chunk tick persistence and native sub-tick ordering remain separate work.
+selections. GameTest resets cancel queued and collected block callbacks. Chunk
+tick persistence and native sub-tick ordering remain separate work.
 
 Native structure-template lookups cache both present and missing results until
 corner unload or `/reload`; unreadable generated NBT can fall back to bundled

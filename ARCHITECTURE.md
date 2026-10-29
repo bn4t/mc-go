@@ -1115,3 +1115,10 @@ the single existing native writer serializes it. Nil ClockStates preserves the
 legacy internal writer API, while an explicit empty map remains empty. Clock-time
 GameTest setup/teardown changes only the chosen integer total and clears its
 fraction, preserving rate/pause and restoring no elapsed test time.
+
+Fluid scheduler keys retain exact builtin registered owners, distinguishing
+source from flowing water/lava. A duplicate same-position/owner request retains
+its first deadline and priority; different owners coexist. Dispatch rejects stale
+owners after replacement. Intrinsic and waterlogged source water share the water
+registration. This preserves block-only clone/clear semantics; native chunk tick
+persistence and container activation remain separate work.
