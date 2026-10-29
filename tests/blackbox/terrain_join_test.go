@@ -140,6 +140,8 @@ func collectJoin(t *testing.T, tag string, c net.Conn, pr *protocol.Reader, pw *
 			t.Fatalf("%s stream: %v", tag, err)
 		}
 		switch p.ID {
+		case server.IDPlayDisconnect:
+			t.Fatalf("%s kicked during chunk stream: %s", tag, chatTextBlackbox(t, p.Data))
 		case server.IDPlayChunkData:
 			r := protocol.NewPacketReader(p.Data)
 			x, _ := r.Int()

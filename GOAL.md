@@ -17044,3 +17044,32 @@ Exact run: `MCGO_BLACKBOX=1 MCGO_VANILLA_JAR=/workspace/mc-go/vanilla/server-26.
 - **Measured:** JDK 25.0.5 javap facts from official 26.2 `LivingEntity.calculateFallDamage`, `MobEffects` jump-boost modifier, `HayBlock.fallOn` and `HoneyBlock.fallOn` on oracle SHA-1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Landing block multiplier is a float argument multiplied by the entity's effective fall-damage multiplier, rather than replaced by it. Hay and honey use float 0.2. Effective safe distance uses normal attribute modifier order and Jump Boost adds one per level.
 - **Implemented:** `mobGrounded` finishes descent to the actual support collision top, avoiding nearly one extra block on sunk honey landings. The narrow `mobFallDamage` tail reads runtime attribute overrides/modifiers, adds Jump Boost before other modifier passes and combines the measured float block factor with effective fall-damage multiplier.
 - **Pinned:** `TestMobFallAttributesParity` passes all seven cases against vanilla (38.93 s, no skips): safe-distance base, multiplier base at an integral damage boundary, Jump Boost before multiplied-total, hay, honey, honey with safe-distance 3.5, and hay with doubled entity multiplier. The fractional honey case distinguishes the collision-top correction from the former integer-floor residual. Armor slots are explicitly cleared to exclude randomized spawn equipment/protection from the fall-attribute measurement. `work/mob-fall-final.log` records final clean-snapshot evidence; `work/mob-fall-only.go` contains current HEAD plus only the two owned method changes for staging.
+
+
+## Slice — packet framing across read deadlines (2026-10-29)
+
+- **Measured:** independent scripted protocol reads against mc-go's Reader,
+  using Go 1.27.3's network-deadline error contract. Before the fix, a deadline
+  after the first byte of a frame-length prefix made the retry return an
+  apparently valid packet with an empty payload. A retry after compression
+  negotiation returned unexpected EOF. These are deterministic local framing
+  failures; no vanilla implementation or source is used.
+- **Implemented:** Reader retains partial outer-length and bounded frame-body
+  progress when an underlying read returns a network timeout. Clearing the
+  deadline and retrying resumes the same frame. Terminal I/O errors, malformed
+  lengths and completed frames discard partial state as before. Compression
+  negotiation and existing outer/inflated length limits remain intact.
+- **Pinned:** `TestReaderResumesEveryFrameDeadline` covers all 304 plain and
+  319 compressed frame byte boundaries, then verifies the following packet.
+  Additional tests cover a three-byte length, compression negotiation, real
+  fragmented net.Pipe deadline reads and existing EOF/malformed/limit errors.
+  The complete protocol package passes (0.182 s before the additional pipe
+  cases); the final complete package with the race detector passes (1.988 s).
+  `collectJoin` now reports a received disconnect's reason instead of losing
+  it behind a later EOF. The original portal baseline separately passes
+  (136.20 s) at calmer load, with all 49 destination chunks and their light
+  matching exactly. The fixed-Reader portal and malformed-frame oracle
+  regressions are running next.
+- **Remaining:** neither the original portal EOF nor the potion drain EOF is
+  attributed to this retry bug without a captured interrupted frame. Cold
+  generation latency and complete connection-liveness parity remain separate.

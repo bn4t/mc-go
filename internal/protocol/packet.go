@@ -119,11 +119,16 @@ func (b *Buffer) Position(x, y, z int32) { _ = WritePosition(b, x, y, z) }
 func (b *Buffer) Raw(p []byte) { _, _ = b.Write(p) }
 
 // Reader reads framed packets. Compression is off until SetThreshold
-// is called with a value >= 0.
+// is called with a value >= 0. A read deadline preserves a partial frame
+// so the caller can clear the deadline and resume without losing bytes.
 type Reader struct {
 	r         io.Reader
 	threshold int32
 	noComp    bool
+	length    [5]byte
+	lengthN   int
+	frame     []byte
+	frameN    int
 }
 
 func NewReader(r io.Reader) *Reader { return &Reader{r: r, threshold: -1, noComp: true} }
@@ -146,16 +151,51 @@ func (pr *Reader) SetThreshold(n int32) {
 	pr.threshold, pr.noComp = n, false
 }
 
-func (pr *Reader) ReadPacket() (Packet, error) {
-	length, err := ReadVarInt(pr.r)
+// readFrame retains only interrupted deadline reads. Terminal I/O errors and
+// malformed lengths keep their previous behavior and discard partial state.
+func (pr *Reader) readFrame() ([]byte, error) {
+	readError := func(err error) ([]byte, error) {
+		var ne net.Error
+		if !errors.As(err, &ne) || !ne.Timeout() {
+			pr.lengthN, pr.frameN, pr.frame = 0, 0, nil
+		}
+		return nil, err
+	}
+	if pr.frame == nil {
+		for {
+			n, err := io.ReadFull(pr.r, pr.length[pr.lengthN:pr.lengthN+1])
+			pr.lengthN += n
+			if err != nil {
+				return readError(err)
+			}
+			if pr.length[pr.lengthN-1]&0x80 != 0 && pr.lengthN < len(pr.length) {
+				continue
+			}
+			length, _, err := ReadVarIntFromBytes(pr.length[:pr.lengthN])
+			pr.lengthN = 0
+			if err != nil {
+				return nil, err
+			}
+			if length < 0 || length > MaxPacketLen {
+				return nil, ErrPacketTooLarge
+			}
+			pr.frame = make([]byte, length)
+			break
+		}
+	}
+	n, err := io.ReadFull(pr.r, pr.frame[pr.frameN:])
+	pr.frameN += n
 	if err != nil {
-		return Packet{}, err
+		return readError(err)
 	}
-	if length < 0 || length > MaxPacketLen {
-		return Packet{}, ErrPacketTooLarge
-	}
-	raw := make([]byte, length)
-	if _, err := io.ReadFull(pr.r, raw); err != nil {
+	raw := pr.frame
+	pr.frame, pr.frameN = nil, 0
+	return raw, nil
+}
+
+func (pr *Reader) ReadPacket() (Packet, error) {
+	raw, err := pr.readFrame()
+	if err != nil {
 		return Packet{}, err
 	}
 	if pr.noComp {
