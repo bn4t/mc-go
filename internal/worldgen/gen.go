@@ -32,6 +32,10 @@ type Generator struct {
 	baseHeights baseHeightCache
 	structs     structState
 	pools       map[string]*templatePool
+	// Runtime planners resolve native saved templates independently of the
+	// immutable bundled-template cache used by terrain generation.
+	runtimeTemplate   func(string) map[string]any
+	runtimeBaseHeight func(int32, int32, int) int32
 }
 
 // NewGenerator builds a generator for noise settings and a biome

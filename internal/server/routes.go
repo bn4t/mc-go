@@ -62,7 +62,7 @@ func init() {
 		IDPlayEditBookSB:                 (*Server).handleEditBook,
 		IDPlayEntityTagQuerySB:           (*Server).handleEntityTagQuery,
 		IDPlayInteractSB:                 (*Server).handleInteract,
-		IDPlayJigsawGenerateSB:           (*Server).ignoreServerbound,
+		IDPlayJigsawGenerateSB:           (*Server).handleJigsawGenerate,
 
 		IDPlayKeepAliveSB:      (*Server).routeKeepAlive,
 		IDPlayLockDifficultySB: (*Server).handleLockDifficulty,
@@ -115,7 +115,7 @@ func init() {
 }
 
 // ignoreServerbound explicitly consumes packets whose behavior is not
-// modeled here. Some are no-ops; jigsaw generation and test editor actions still
+// modeled here. Some are no-ops; test editor actions still
 // include placeholder registrations for missing privileged behavior.
 // The coverage test tracks this list so omissions remain visible.
 func (s *Server) ignoreServerbound(sess *Session, p protocol.Packet) {}

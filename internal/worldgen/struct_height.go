@@ -24,6 +24,9 @@ type baseHeightCache struct {
 // heightmap type counts (HMWorldSurfaceWG: not air; HMOceanFloorWG:
 // blocks motion), the level floor when none does.
 func (g *Generator) BaseHeight(x, z int32, hm int) int32 {
+	if g.runtimeBaseHeight != nil {
+		return g.runtimeBaseHeight(x, z, hm)
+	}
 	k := baseHeightKey{x, z, hm}
 	g.baseHeights.mu.Lock()
 	v, ok := g.baseHeights.m[k]

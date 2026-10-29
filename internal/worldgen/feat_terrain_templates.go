@@ -104,6 +104,12 @@ func loadTemplate(id string) *structTemplate {
 		panic("worldgen: template " + id + ": " + err.Error())
 	}
 	root := v.(map[string]any)
+	t := templateFromNative(root)
+	templateCache[id] = t
+	return t
+}
+
+func templateFromNative(root map[string]any) *structTemplate {
 	t := &structTemplate{size: nbtPos(root["size"])}
 	blocks, _ := root["blocks"].(nbt.List)
 	if pals, ok := root["palettes"].(nbt.List); ok {
@@ -117,7 +123,6 @@ func loadTemplate(id string) *structTemplate {
 	if e, ok := root["entities"].(nbt.List); ok {
 		t.entities = len(e.Items)
 	}
-	templateCache[id] = t
 	return t
 }
 

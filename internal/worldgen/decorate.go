@@ -293,9 +293,11 @@ func stripNS(s string) string { return strings.TrimPrefix(s, "minecraft:") }
 // Region is WorldGenRegion around a chunk being decorated: the center
 // and its eight neighbours, writable within one chunk of the center.
 type Region struct {
-	g      *Generator
-	center *ProtoChunk
-	chunks map[[2]int32]*ProtoChunk
+	g             *Generator
+	center        *ProtoChunk
+	chunks        map[[2]int32]*ProtoChunk
+	runtimeBlock  func(int32, int32, int32) world.Block
+	runtimeHeight func(int, int32, int32) int32
 }
 
 // NewRegion builds a decoration region; chunks must hold the 3x3 area.
@@ -310,6 +312,9 @@ func (rg *Region) chunkAt(x, z int32) *ProtoChunk { return rg.chunk(x>>4, z>>4) 
 
 // Block is WorldGenRegion.getBlockState (air outside the region).
 func (rg *Region) Block(x, y, z int32) world.Block {
+	if rg.runtimeBlock != nil {
+		return rg.runtimeBlock(x, y, z)
+	}
 	c := rg.chunkAt(x, z)
 	if c == nil {
 		return world.Air
@@ -342,6 +347,9 @@ func (rg *Region) SetBlock(x, y, z int32, b world.Block) bool {
 
 // Height is WorldGenRegion.getHeight: the chunk's height plus one.
 func (rg *Region) Height(t int, x, z int32) int32 {
+	if rg.runtimeHeight != nil {
+		return rg.runtimeHeight(t, x, z)
+	}
 	c := rg.chunkAt(x, z)
 	if c == nil {
 		return rg.g.RS.lvMinY

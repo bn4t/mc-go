@@ -26,13 +26,13 @@ var projectionNames = [2]string{"terrain_matching", "rigid"}
 // jigsawInfo is StructureTemplate.JigsawBlockInfo at a transformed
 // position.
 type jigsawInfo struct {
-	pos                  BlockPos
-	front, top           int // FrontAndTop directions
-	rollable             bool
-	name, target, pool   string
-	placementPriority    int32
-	selectionPriority    int32
-	state                world.Block
+	pos                BlockPos
+	front, top         int // FrontAndTop directions
+	rollable           bool
+	name, target, pool string
+	placementPriority  int32
+	selectionPriority  int32
+	state              world.Block
 }
 
 // poolElement is a StructurePoolElement.
@@ -50,12 +50,12 @@ type poolElement interface {
 
 type emptyElement struct{ j json.RawMessage }
 
-func (emptyElement) projection() int                                          { return projTerrainMatching }
-func (emptyElement) jigsaws(*Generator, BlockPos, int, Random) []jigsawInfo     { return nil }
-func (emptyElement) boundingBox(BlockPos, int) BoundingBox                    { return BoundingBox{} }
-func (emptyElement) groundLevelDelta() int32                                  { return 1 }
+func (emptyElement) projection() int                                               { return projTerrainMatching }
+func (emptyElement) jigsaws(*Generator, BlockPos, int, Random) []jigsawInfo        { return nil }
+func (emptyElement) boundingBox(BlockPos, int) BoundingBox                         { return BoundingBox{} }
+func (emptyElement) groundLevelDelta() int32                                       { return 1 }
 func (emptyElement) place(*PieceContext, BlockPos, BlockPos, int, bool, bool) bool { return true }
-func (e emptyElement) raw() json.RawMessage                                   { return e.j }
+func (e emptyElement) raw() json.RawMessage                                        { return e.j }
 
 // singleElement is SinglePoolElement (legacy: LegacySinglePoolElement,
 // which ignores air as well as structure blocks, last).
@@ -343,6 +343,9 @@ func (g *Generator) compileElement(raw json.RawMessage, proj int) poolElement {
 		return emptyElement{raw}
 	case "single_pool_element", "legacy_single_pool_element":
 		e := &singleElement{j: raw, location: trimNS(o.str("location")), proj: p, legacy: t == "legacy_single_pool_element", liquid: -1}
+		if g.runtimeTemplate != nil {
+			e.tpl = templateFromNative(g.runtimeTemplate(e.location))
+		}
 		e.procs = g.compileProcSpec(o["processors"])
 		if v := o.optStr("override_liquid_settings"); v != "" {
 			e.liquid = 0
@@ -443,17 +446,18 @@ func (f *freeShape) fits(b BoundingBox) bool {
 }
 
 type jigsawConfig struct {
-	startPool       string
-	startJigsawName string
-	maxDepth        int32
-	startHeight     heightProvider
-	expansionHack   bool
-	projectHM       int // -1 none
-	maxH, maxV      int32
-	aliases         []json.RawMessage
-	padBottom       int32
-	padTop          int32
-	liquid          bool
+	startPool          string
+	startJigsawName    string
+	requireStartJigsaw bool
+	maxDepth           int32
+	startHeight        heightProvider
+	expansionHack      bool
+	projectHM          int // -1 none
+	maxH, maxV         int32
+	aliases            []json.RawMessage
+	padBottom          int32
+	padTop             int32
+	liquid             bool
 }
 
 func init() {
@@ -501,6 +505,12 @@ func jigsawFind(c *GenContext, cfg *jigsawConfig) (*GenerationStub, bool) {
 	r := c.Random
 	y := cfg.startHeight(r, genCtx{g.RS.settings.minY, g.RS.settings.height})
 	startPos := BlockPos{c.ChunkX * 16, y, c.ChunkZ * 16}
+	return jigsawFindAt(c, cfg, startPos)
+}
+
+func jigsawFindAt(c *GenContext, cfg *jigsawConfig, startPos BlockPos) (*GenerationStub, bool) {
+	g := c.G
+	r := c.Random
 	alias := g.poolAliases(cfg.aliases, startPos, c.Seed)
 	rot := int(r.NextIntN(4))
 	pool := g.pool(alias(cfg.startPool))
@@ -512,7 +522,7 @@ func jigsawFind(c *GenContext, cfg *jigsawConfig) (*GenerationStub, bool) {
 		return nil, false
 	}
 	jpos := startPos
-	if cfg.startJigsawName != "" {
+	if cfg.startJigsawName != "" || cfg.requireStartJigsaw {
 		found := false
 		for _, j := range elem.jigsaws(g, startPos, rot, r) {
 			if j.name == cfg.startJigsawName {
