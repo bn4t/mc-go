@@ -43,6 +43,28 @@ func TestBlockEntityTypeCoverage(t *testing.T) {
 	}
 }
 
+// The seeded fill is a function of the seed, stays in the container,
+// and refuses (seed 0, unmodelled tables) rather than guessing.
+func TestLootFillExact(t *testing.T) {
+	free := func(int) bool { return false }
+	a, ok := lootFillExact("minecraft:chests/simple_dungeon", 490450898064816428, chestSlots, free)
+	if !ok || len(a) == 0 {
+		t.Fatalf("simple_dungeon fill: %v %v", a, ok)
+	}
+	b, _ := lootFillExact("minecraft:chests/simple_dungeon", 490450898064816428, chestSlots, free)
+	for i, st := range a {
+		if i < 0 || i >= chestSlots || st.Empty() || b[i] != st {
+			t.Errorf("slot %d: %v vs %v", i, st, b[i])
+		}
+	}
+	if _, ok := lootFillExact("minecraft:chests/simple_dungeon", 0, chestSlots, free); ok {
+		t.Error("seed 0 filled")
+	}
+	if _, ok := lootFillExact("minecraft:chests/no_such_table", 5, chestSlots, free); ok {
+		t.Error("unknown table filled")
+	}
+}
+
 // A spawner's update tag is its saved fields without SpawnPotentials; a
 // catalyst sends nothing.
 func TestBlockEntityUpdateTag(t *testing.T) {

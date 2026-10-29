@@ -2,6 +2,7 @@ package server
 
 import (
 	"math"
+	"math/rand"
 	"strings"
 
 	"mc-go/internal/data"
@@ -400,4 +401,35 @@ func containsString(l []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// unpackLootInto fills slots from an armed loot table: vanilla's exact
+// seeded fill when lootFillExact models the table, else the approximate
+// roll scattered into random empty slots (a seed of 0 - the level's own
+// random in vanilla - rolls a fresh one).
+func unpackLootInto(slots []ItemStack, table string, seed int64) {
+	if fill, ok := lootFillExact(table, seed, len(slots), func(i int) bool { return !slots[i].Empty() }); ok {
+		for i, st := range fill {
+			slots[i] = st
+		}
+		return
+	}
+	if seed == 0 {
+		seed = rand.Int63()
+	}
+	items := rollLootTable(strings.TrimPrefix(table, "minecraft:"), seed)
+	var free []int
+	for i := range slots {
+		if slots[i].Empty() {
+			free = append(free, i)
+		}
+	}
+	for _, it := range items {
+		if len(free) == 0 {
+			break
+		}
+		i := rand.Intn(len(free))
+		slots[free[i]] = it
+		free = append(free[:i], free[i+1:]...)
+	}
 }
