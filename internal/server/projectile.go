@@ -1830,10 +1830,11 @@ func (s *Server) splashApplyMob(e, t *Entity, effects []splashEffect, prox float
 		if dur >= 0 && dur <= 20 {
 			continue
 		}
-		applied := s.mobGiveEffect(t, id, eff.amp, dur, eff.custom && eff.flags&2 == 0, &damageInfo{typeName: "indirect_magic", cause: e.arrowShooter, direct: e.ID})
+		flags := byte(14)
 		if eff.custom {
-			s.potionMobFlags(t, id, eff.amp, dur, potionSplashFlags(eff), applied)
+			flags = potionSplashFlags(eff)
 		}
+		s.mobGiveEffectFlags(t, id, eff.amp, dur, flags, &damageInfo{typeName: "indirect_magic", cause: e.arrowShooter, direct: e.ID})
 		t.MetaDirty = true
 	}
 }

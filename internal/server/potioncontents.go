@@ -478,7 +478,7 @@ func potionCloudDoses(e *Entity, now int64) []potionCloudDose {
 		return out
 	}
 	for id, inst := range e.Effects {
-		out = append(out, potionCloudDose{id, inst.amplifier, potionCloudTicks(e, id, inst, now), inst.hide, inst.flags, inst.flagsSet})
+		out = append(out, potionCloudDose{id, inst.amplifier, potionCloudTicks(e, id, inst, now), inst.hide, potionStoredFlags(inst), inst.flagsSet})
 	}
 	return out
 }

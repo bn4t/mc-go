@@ -374,6 +374,10 @@ var mobEffectImmunity = map[string][]string{
 // update_mob_effect out to trackers, and the instant arm routed
 // through the mob heal/hurt helpers.
 func (s *Server) mobGiveEffect(e *Entity, id, amplifier, ticks int32, hideParticles bool, src ...*damageInfo) bool {
+	return s.mobGiveEffectFlags(e, id, amplifier, ticks, mobEffectFlags(hideParticles), src...)
+}
+
+func (s *Server) mobGiveEffectFlags(e *Entity, id, amplifier, ticks int32, flags byte, src ...*damageInfo) bool {
 	if kn, _ := EntityTypeName(e.Type); kn != "" {
 		for _, ename := range mobEffectImmunity[kn] {
 			if eid, ok := MobEffectID(ename); ok && eid == id {
@@ -382,7 +386,7 @@ func (s *Server) mobGiveEffect(e *Entity, id, amplifier, ticks int32, hidePartic
 		}
 	}
 	now := s.clock.count
-	newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks), born: now, hide: hideParticles}
+	newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks), born: now, hide: flags&2 == 0, flags: flags, flagsSet: true}
 	if e.Effects == nil {
 		e.Effects = map[int32]mobEffectInst{}
 	}
@@ -397,12 +401,17 @@ func (s *Server) mobGiveEffect(e *Entity, id, amplifier, ticks int32, hidePartic
 			newInst.hidden = prev.hidden
 		case amplifier < prev.amplifier && shorterDur(prev, newInst, now):
 			prev.mergeHidden(newInst, now)
+			changed := potionMergeFlags(&prev, flags, false, amplifier, ticks, now)
 			e.Effects[id] = prev
+			e.MetaDirty = e.MetaDirty || changed
 			s.mobInstantEffect(e, id, amplifier, src...)
-			return false
+			return changed
 		default:
+			changed := potionMergeFlags(&prev, flags, false, amplifier, ticks, now)
+			e.Effects[id] = prev
+			e.MetaDirty = e.MetaDirty || changed
 			s.mobInstantEffect(e, id, amplifier, src...)
-			return false
+			return changed
 		}
 	}
 	e.Effects[id] = newInst

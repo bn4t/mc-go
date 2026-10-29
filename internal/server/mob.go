@@ -9066,10 +9066,7 @@ func (s *Server) cloudTickStep() {
 				if id == effectInstantHealth || id == effectInstantDamage {
 					s.mobInstantEffectScaled(mobOrSess, id, inst.amplifier, 0.5, src)
 				} else {
-					applied := s.mobGiveEffect(mobOrSess, id, inst.amplifier, ticks, inst.hide, src)
-					if dose.custom {
-						s.potionMobFlags(mobOrSess, id, inst.amplifier, ticks, dose.flags, applied)
-					}
+					s.mobGiveEffectFlags(mobOrSess, id, inst.amplifier, ticks, dose.flags, src)
 				}
 			}
 			ep.CloudRadius += ep.CloudRadiusOnUse
