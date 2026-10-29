@@ -17984,3 +17984,11 @@ Durable lesson: a stationary native query can be a genuine physics rule or an en
 **Pinned** — Final immutable displayed baseline plus eight owned files: automatic/startup PASS64.65s, eight independently required XP totals5/12/12/17/17/17/19/19, recipe-give result1, actual manual criteria for both replaced definitions, no captured criteria and exactly one initial reset. Existing advancement-command regression PASS53.67s; relevant units PASS0.337s. Final matcher-only strengthening uses exact decoded say bodies in automatic and rewards probes, with negative matcher/compile PASS0.078s; the full wire runs preceded only this strengthening. Frozen artifact SHA256 `50973eded9c4799b4c4a5179696eae295927dbaae7a83746d434a923ce9b92bc`; evidence in `work/advancement-automatic-manifest.md`.
 
 Limits: player predicates on tick criteria, migrated saved criteria after pack changes, full resource selection/ZIP/reload, custom loot overlays and complete reward-overflow ownership/delay behavior remain follow-ons. The loader correctly rejects empty criteria rather than extending unsupported JSON.
+
+## Slice — exact command-source reload readiness (2026-10-29)
+
+**Measured** — Review found the command-source reload fixture's RELOAD_READY substring also matched its unconditional RELOAD_READY_END barrier. This could bypass movement/tracking readiness. Source: existing fixture and live26.2 wire, Go1.27.3/Temurin25.0.5+8, bundle SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`.
+
+**Implemented** — Test-only migration of readiness, conditional assertions and diagnostic waits to the existing exact decoded say matcher/collector. Captured movement/tracking data and all original36 state checks remain intact.
+
+**Pinned** — TestCommandSourceReloadParity PASS21.70s on immutable e393aab plus one owned test file. Both servers independently satisfy all36 exact conditions and genuine readiness. Patch SHA256 `ef45bc2c9d355feb410726c027bf93ac13dd9b68004be3abde6eb938a87831fd`; no production or new gameplay scope change.

@@ -72,7 +72,7 @@ func TestCommandSourceReloadParity(t *testing.T) {
 			sink.take()
 			sendCommand(t, pw, `execute if entity @e[tag=reloadready1] if entity @e[tag=reloadready2] unless entity @e[tag=reloadready1,nbt={Pos:[20.5d,-50d,34.5d]}] unless entity @e[tag=reloadready2,nbt={Pos:[40.5d,-50d,34.5d]}] run say RELOAD_READY`)
 			sendCommand(t, pw, "say RELOAD_READY_END")
-			moved := sawMarker(waitForMarker(t, sink, "RELOAD_READY_END", 10*time.Second), "RELOAD_READY")
+			moved := structureSaidBB(waitForExactSayBB(t, sink, "RELOAD_READY_END", 10*time.Second), "RELOAD_READY")
 			warmWatch = append(warmWatch, watchSink.take()...)
 			prefix := fmt.Sprintf("%#x:", server.IDPlaySpawnEntity)
 			armorType, _ := server.EntityTypeID("armor_stand")
@@ -134,7 +134,7 @@ func TestCommandSourceReloadParity(t *testing.T) {
 			index++
 			sendCommand(t, pw, "execute "+condition+" run say "+marker)
 			sendCommand(t, pw, "say "+end)
-			if !sawMarker(waitForMarker(t, sink, end, 10*time.Second), marker) {
+			if !structureSaidBB(waitForExactSayBB(t, sink, end, 10*time.Second), marker) {
 				t.Errorf("%s: %s", addr, condition)
 			}
 		}
@@ -181,7 +181,7 @@ func TestCommandSourceReloadParity(t *testing.T) {
 		if len(cartIDs) != 3 {
 			sendCommand(t, pw, `data get entity @e[tag=reloadcart20,limit=1]`)
 			sendCommand(t, pw, "say RELOAD_DIAG_END")
-			t.Logf("reload entity diagnostic: %v", waitForMarker(t, sink, "RELOAD_DIAG_END", 10*time.Second))
+			t.Logf("reload entity diagnostic: %v", waitForExactSayBB(t, sink, "RELOAD_DIAG_END", 10*time.Second))
 			sink.mu.Lock()
 			t.Logf("primary packet counts: %v", sink.ids)
 			sink.mu.Unlock()
