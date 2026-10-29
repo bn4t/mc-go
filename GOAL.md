@@ -16516,3 +16516,28 @@ no flee; unsneak → flee). Green both legs.
   the vanilla leg too (pre-existing; mc-go behaves identically), and
   the mc-go sprint report is sometimes not delivered (tests fall back
   to polling the game clock).
+
+## Slice — entity items: spawn eggs, minecarts, armor stands, hanging entities useOn (2026-10-29)
+- **Measured**: `javap -c -p` on the 26.2 jar: SpawnEggItem, EntityType (spawn, getYOffset),
+  MinecartItem, AbstractMinecart, ArmorStandItem, LivingEntity, HangingEntityItem,
+  ItemFrameItem, HangingEntity, ItemFrame, Painting, VariantUtils. Spawn eggs: clicked cell
+  when its collision is empty else the face cell, the shouldOffsetY / extended-cell drop,
+  random yaw copied to the head, finalizeSpawn(SPAWN_ITEM_USE) + one ambient sound,
+  notInPeaceful types fail on peaceful, spawners take the egg. Minecarts: rails tag, bottom
+  centre +0.0625 (+0.5 ascending). Armor stands: no DOWN face, replaceable clicked cell else
+  face cell, block/entity box checks, yaw snapped to 45°, `entity.armor_stand.place`
+  (BLOCKS 0.75 0.8). Hanging entities: face cell, painting horizontal faces only, box centre
+  offsets for even sizes, survival (no collision, legacy-solid or diode support), overlap
+  refusals, painting variant = uniform among the largest placeable fits, add_entity carries
+  the attachment pos + direction, second metadata update. Survival consumes one.
+- **Implemented**: `internal/server/entityitems.go`, hooked into `handleUseItem` after the
+  block-use and item branches; hung entity spawn data/metadata; armor-stand pairing omits
+  client flags 0; sound-variant ambient for pig, cow and chicken.
+- **Pinned**: `TestEntityItemUseOnParity` — 44 cases (eggs on floor/wall/slab/fence/grass,
+  named, spawner, peaceful; four rails + stone; armor stand yaws, slab, grass, down face,
+  blocked; frames on walls/floor/ceiling/glass/fence/repeaters; paintings 1x1..4x4, no wall,
+  twice): add_entity position/rotation/data, metadata, sounds, `/data get`, held count.
+- **Remaining**: SpawnEggItem.use into water (the POV clip now exists), spawner entity id +
+  block entity update, the egg `entity_data` override, hung-entity save + `/data` keys, names
+  in minecart/hanging metadata, legacy-solid from force-solid flags, world-border entity
+  check, armor stands sinking off slabs, wolf/cat sound variants.

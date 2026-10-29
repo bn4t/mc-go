@@ -26,6 +26,18 @@ type Entity struct {
 	Yaw, Pitch, HeadYaw float32
 	Data                int32
 	VX, VY, VZ          int16
+	// HangSet marks a HangingEntity placed through its item
+	// (HangingEntityItem.useOn): HangPos is the attachment block the
+	// add_entity packet ships as its position, HangDir the clicked
+	// face's 3D data value (DATA_DIRECTION and the packet's data), and
+	// PaintingVariant the chosen painting_variant entry name.
+	HangSet         bool
+	HangDir         int32
+	HangPos         world.Pos
+	PaintingVariant string
+	// hangResend is the dirty latch setDirection/setVariant leave on a
+	// freshly hung entity: its first sendChanges re-packs them.
+	hangResend bool
 	// lastSect is the 16-block section the pairing eval last saw the
 	// entity in — vanilla's TrackedEntity.lastSectionPos.
 	lastSect [3]int
@@ -1594,9 +1606,18 @@ func encodeSpawn(e *Entity) []byte {
 	b.VarInt(e.ID)
 	b.UUID(e.UUID)
 	b.VarInt(e.Type)
-	b.Double(e.X)
-	b.Double(e.Y)
-	b.Double(e.Z)
+	if e.HangSet {
+		// Painting/ItemFrame.getAddEntityPacket: the (entity, data,
+		// BlockPos) form ships the attachment block's integer
+		// corner, not the bounding-box centre the entity sits at.
+		b.Double(float64(e.HangPos.X))
+		b.Double(float64(e.HangPos.Y))
+		b.Double(float64(e.HangPos.Z))
+	} else {
+		b.Double(e.X)
+		b.Double(e.Y)
+		b.Double(e.Z)
+	}
 	b.Raw(lpVec3(float64(e.VX)/8000, float64(e.VY)/8000, float64(e.VZ)/8000))
 	b.Byte(angleByte(e.Pitch))
 	b.Byte(angleByte(e.Yaw))
@@ -1855,6 +1876,8 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 		meta = encodePlayerAttachMeta(s.playerAttachHealth(e), e.Pose)
 	case e.Living:
 		meta = encodeLivingMetadata(e, nil)
+	case e.HangSet:
+		meta = encodeHangingMeta(e)
 	default:
 		if name, ok := EntityTypeName(e.Type); ok && isBoatEntityName(name) {
 			meta = encodeBoatMeta(e)

@@ -129,6 +129,15 @@ func (s *Server) ephemeralTickStep() {
 			if !ok {
 				continue
 			}
+			if e.hangResend {
+				// ServerEntity.sendChanges' first pass after the
+				// spawn: the entries the placement set are still
+				// dirty and go out once more.
+				e.hangResend = false
+				if meta := encodeHangingMetaDirty(e); meta != nil {
+					s.broadcastEntityMetadata(e.ID, meta)
+				}
+			}
 			e.EphemeralAge++
 			if e.EphemeralAge < 100 {
 				continue
@@ -196,6 +205,10 @@ func (s *Server) hangSurvives(e *Entity) bool {
 	d := s.dimensionByName(e.Dim)
 	if d == nil {
 		return false
+	}
+	if e.HangSet {
+		// An item-hung entity knows its facing and attachment block.
+		return s.hangingSurvives(d, e)
 	}
 	pos := floorPos(e)
 	pos.Z--
