@@ -1157,8 +1157,8 @@ func (sess *Session) containerSlotBody(window int8, slot int16, it ItemStack) []
 }
 
 // handlePickItemFromBlock implements middle-click on a block: the item
-// form of the target block is placed on the player's cursor, or in the
-// matching hotbar slot when it is already in the inventory. Vanilla
+// form of the target block is selected or placed in a suitable hotbar
+// slot. Vanilla
 // requires the block to be within reach.
 func (s *Server) handlePickItemFromBlock(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
@@ -1170,7 +1170,7 @@ func (s *Server) handlePickItemFromBlock(sess *Session, p protocol.Packet) {
 		return
 	}
 	pos := world.Pos{X: int(x), Y: int(y), Z: int(z)}
-	if !sess.withinReach(pos) {
+	if !withinReach(sess, pos, reachSurvival+1.0) {
 		return
 	}
 	blk := sess.world().GetBlock(pos)
@@ -1182,7 +1182,7 @@ func (s *Server) handlePickItemFromBlock(sess *Session, p protocol.Packet) {
 }
 
 // handlePickItemFromEntity implements middle-click on an entity: the
-// entity's item form (its spawn egg) goes to the cursor.
+// entity's item form (currently its spawn egg) is selected in the hotbar.
 func (s *Server) handlePickItemFromEntity(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
 	id, err := r.VarInt()
@@ -1193,52 +1193,12 @@ func (s *Server) handlePickItemFromEntity(sess *Session, p protocol.Packet) {
 		return
 	}
 	e, ok := s.entities.Get(id)
-	if !ok {
+	if !ok || e.Dim != sess.dimName() || !s.withinInteractRange(sess, id) {
 		return
 	}
 	if itemID, ok := pickItemForEntity(e.Type); ok {
 		sess.pickItem(itemID)
 	}
-}
-
-// pickItem resolves an item for pick-block: the existing hotbar stack
-// when the player already carries one, otherwise a new stack on the
-// cursor in creative and nothing in survival (vanilla searches the
-// inventory and only creates the stack in creative).
-func (sess *Session) pickItem(itemID int32) {
-	if itemID == 0 {
-		return
-	}
-	sess.invMu.Lock()
-	for slot := int16(0); slot < 9; slot++ {
-		if sess.inv[slotHotbarStart+slot].ID == itemID {
-			sess.invMu.Unlock()
-			sess.selectHotbar(int32(slot))
-			return
-		}
-	}
-	for slot := int16(9); slot < 36; slot++ {
-		if sess.inv[slotMainStart+slot].ID == itemID {
-			// Swap the found stack into the selected hotbar slot,
-			// which is vanilla's pick-block behavior.
-			held := sess.held.Load()
-			sess.inv[slotMainStart+slot], sess.inv[slotHotbarStart+held] =
-				sess.inv[slotHotbarStart+held], sess.inv[slotMainStart+slot]
-			sess.invMu.Unlock()
-			sess.syncInventory()
-			return
-		}
-	}
-	creative := sess.mode() == GameModeCreative
-	sess.invMu.Unlock()
-	if !creative {
-		return
-	}
-	// Creative: put the item on the cursor without disturbing the
-	// inventory, which is what vanilla does for a block the player
-	// does not carry.
-	sess.carriedMuSet(ItemStack{ID: itemID, Count: 1})
-	_ = sess.server.sendSetCursorItem(sess)
 }
 
 // sendSetCursorItem syncs the player's cursor stack (window 0).

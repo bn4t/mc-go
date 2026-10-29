@@ -150,7 +150,8 @@ Mojang server over the wire.
 - [~] Movement tracking, keep-alive, chat, tab list; stationary player pose uses
       measured collision shapes and fit tolerance; spectator UUID teleport
       copies target position/orientation and crosses dimensions (wire-pinned)
-- [~] Full inventory + container protocol (nonempty cursor drag and double-click
+- [~] Full inventory + container protocol (pick-block hotbar selection and
+  creative insertion; nonempty cursor drag and double-click
   collection for player/storage/crafting menus, offhand swaps for player/chest/
   generic storage; chest + window-0 click
   parity scripted step by step, stale-state resync, menu titles, ender
@@ -16977,3 +16978,33 @@ Validation detail: the first four-step fixture passed vanilla but observed no mc
 - **Remaining:** pale moss, nylium and grass-block spread, tall-flower duplication, full arbitrary sturdy-face geometry and identical vanilla RNG/hash-set iteration order remain outside this slice. No capacity/full-growth-parity claim.
 
 Exact run: `MCGO_BLACKBOX=1 MCGO_VANILLA_JAR=/workspace/mc-go/vanilla/server-26.2.jar go test -vet=off -tags blackbox -count=1 -v -run '^Test(BonemealMossPatch|ScheduledDispenserBoundary)Parity$' ./tests/blackbox/ -timeout 6m`, serialized with `/tmp/mcgo-oracle.lock`. Moss passes all 12 deterministic predicates and the vegetation bounds on both servers. The combined command exits 1 solely because the deliberately added scheduler-boundary measurement proves the existing tick-four discrepancy (19.26 s; ticks 0/3/5 match, tick 4 differs). Full raw local run log: `work/growth-snapshot-test.log`. Concurrent working-tree compile failures before snapshot execution did not run the oracle and are not parity results.
+
+
+## Slice — pick-block inventory selection (2026-10-29)
+
+- **Measured:** official26.2 wire behavior and Temurin25.0.5 javap facts from
+  ServerGamePacketListenerImpl.handlePickItemFromBlock/handlePickItemFromEntity/
+  tryPickItem and Inventory.findSlotMatchingItem/getSuitableHotbarSlot/pickSlot/
+  addAndPickItem. Oracle jar SHA-1
+  823e2250d24b3ddac457a60c92a6a941943fcd6a. Existing identical components match;
+  hotbar search precedes main inventory; a new creative stack goes to a suitable
+  hotbar slot. The cursor is independent. Block reach uses the clicked AABB with
+  4.5+1 slack; entity pick uses the entity AABB with3+3 slack in the player's level.
+- **Implemented:** complete27-slot main inventory search, component identity,
+  wrapping empty-hotbar preference then unenchanted fallback, creative insertion
+  with displaced-stack preservation, main-to-hotbar swaps, and selected-slot
+  acknowledgment even when a survival player lacks the item. Block/entity pick
+  reuse existing measured reach helpers; cross-dimension entities reject.
+  Player NBT now reports the actual SelectedItemSlot instead of hardcoded zero.
+- **Pinned:** TestPickBlockInventoryParity passes against vanilla and mc-go
+  without skips (20.00s), comparing creative creation, survival main-slot retrieval
+  and rejection of a renamed plain-item match. Counts/selections are
+  [1,0,17,1,1,1] on both servers. Unique command/query barriers prevent stale
+  marker matches in the fixture. TestPickItemFullHotbarPreservesDisplacedStack
+  checks unenchanted-slot preference, preservation and unchanged cursor; focused
+  units and routing/explicit-ignore checks passed (initial1.219s; latest3.451s
+  includes subsequent bundle units). Block/entity reach branches are measured in
+  bytecode and reused, but this pin does not separately exercise their boundaries.
+- **Remaining:** pick clone resolution is still incomplete for special block and
+  non-spawn-egg entity forms, and include-data item payloads are not implemented.
+  This slice establishes inventory selection behavior, not every clone result.

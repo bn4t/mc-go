@@ -2174,7 +2174,7 @@ func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 		"PortalCooldown":      int32(0),
 		"Pos":                 nbt.List{Elem: nbt.TagDouble, Items: []any{x, y, z}},
 		"Rotation":            nbt.List{Elem: nbt.TagFloat, Items: []any{yaw, pitch}},
-		"SelectedItemSlot":    int32(0),
+		"SelectedItemSlot":    sess.held.Load(),
 		"fall_distance":       sess.fallDistance,
 		"foodExhaustionLevel": sess.exhaustion,
 		"foodLevel":           sess.food,
