@@ -75,6 +75,10 @@ func (s *Server) shulkerPushItems(d *dimension, pos world.Pos, before, after flo
 // This uniaxial mover resolves actual positioned block boxes. Existing
 // overlaps do not trap an entity; only an approaching face limits travel.
 func (s *Server) clipShulkerItemMove(d *dimension, box cellBox, axis int, delta float64) float64 {
+	return s.clipBlockShapeMove(d, box, axis, delta, func(st world.Block, pos world.Pos) []cellBox { return s.worldCollisionShapeAt(d, st, pos) })
+}
+
+func (s *Server) clipBlockShapeMove(d *dimension, box cellBox, axis int, delta float64, shapeAt func(world.Block, world.Pos) []cellBox) float64 {
 	region := box
 	if delta < 0 {
 		region[axis] += delta
@@ -86,7 +90,7 @@ func (s *Server) clipShulkerItemMove(d *dimension, box cellBox, axis int, delta 
 		for y := int(math.Floor(region[1])) - 1; y <= int(math.Floor(region[4]))+1; y++ {
 			for z := int(math.Floor(region[2])) - 1; z <= int(math.Floor(region[5]))+1; z++ {
 				p := world.Pos{X: x, Y: y, Z: z}
-				for _, b := range s.worldCollisionShapeAt(d, d.w.GetBlock(p), p) {
+				for _, b := range shapeAt(d.w.GetBlock(p), p) {
 					offsets := [3]float64{float64(x), float64(y), float64(z)}
 					for i := 0; i < 3; i++ {
 						b[i] += offsets[i]

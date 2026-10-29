@@ -730,11 +730,11 @@ func (s *Server) movingPistonStep() {
 		if d == nil || !isBlockNamed(d.w.GetBlock(mp.pos), "moving_piston") {
 			continue
 		}
-		// Cleanup never pushes. Source-base noPhysics stand movement
+		// Cleanup never pushes. Source-base body movement
 		// has a separate carried-head and bounded-backoff policy.
 		if mp.ticks > 1 {
 			if mp.source && !mp.extend {
-				s.pistonSourceBaseStandPush(d, mp, .5)
+				s.pistonSourceBaseBodyPush(d, mp, .5)
 			} else {
 				s.pistonPushTick(d, mp, .5)
 			}

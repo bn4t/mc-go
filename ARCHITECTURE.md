@@ -61,11 +61,12 @@ and entity accessors for in-tree tests and embeddings; callers must not
 treat those as an unrestricted concurrent gameplay API. The new public
 extension APIs avoid those pointers.
 
-Retracting piston source-base movement has a measured route for default-size
-NoGravity armor stands. Its physical carried-head geometry differs from the
-live world-collision shape, and bounded reverse ejection preserves velocity.
-This route isolates geometry from ordinary block clipping; general entity move
-policies, cumulative piston limits and scaled variants remain separate work.
+Retracting piston source-base movement has measured routes for default-size
+NoGravity armor stands and ordinary stands/cows. Physical carried-head geometry
+differs from the live world-collision shape. Ordinary east-facing floor controls
+retain the source base's internal occupied-cell planes during directional block
+clipping and reverse ejection. General entity move policies, other ordinary-body
+directions, step-up, cumulative piston limits and scaled variants remain separate.
 
 Vehicle cargo menus bind to the live entity inventory rather than a synthetic
 block position. Native saves and data reloads share that inventory; reloads

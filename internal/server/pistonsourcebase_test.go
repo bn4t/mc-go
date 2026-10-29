@@ -25,7 +25,7 @@ func TestPistonSourceBaseNoPhysicsStandPush(t *testing.T) {
 		stands[i] = s.entities.Spawn(&Entity{Type: mustEntityType("armor_stand"), Dim: d.name, X: tc.x, Y: 160.375, Z: .5, NoGravity: true, ArmorStandMarker: tc.marker, Living: true, Health: 20})
 	}
 	for phase := 0; phase < 2; phase++ {
-		s.pistonSourceBaseStandPush(d, mp, .5)
+		s.pistonSourceBaseBodyPush(d, mp, .5)
 		for i, e := range stands {
 			if math.Abs(e.X-cases[i].want[phase]) > 1e-12 || e.Y != 160.375 || e.Z != .5 || e.MotionX != 0 || e.MotionY != 0 || e.MotionZ != 0 {
 				t.Errorf("case%d phase%d pos%v,%v,%v wantX%v", i, phase, e.X, e.Y, e.Z, cases[i].want[phase])
