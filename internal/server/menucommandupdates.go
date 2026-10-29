@@ -18,11 +18,24 @@ func menuRemoteStackEqual(a, b ItemStack) bool {
 }
 
 func (s *Server) queueMenuCommandSlot(d *dimension, pos world.Pos, slot int, old ItemStack, cookTotal int32) {
+	s.queueMenuBlockSlot(d, pos, slot, old, cookTotal, nil)
+}
+
+func (s *Server) queueMenuBlockSlot(d *dimension, pos world.Pos, slot int, old ItemStack, cookTotal int32, exclude *Session) {
 	s.sessions.Range(func(_, value any) bool {
 		sess := value.(*Session)
+		if sess == exclude {
+			return true
+		}
 		sess.windowMu.Lock()
 		w := sess.window
-		if w != nil && w.dim == d && w.pos == pos && w.ender == nil && slot < w.containerSize() {
+		if w != nil && w.dim == d && w.ender == nil {
+			mapped, matches := w.blockMenuSlot(pos, slot)
+			if !matches || mapped >= w.containerSize() {
+				sess.windowMu.Unlock()
+				return true
+			}
+			slot := mapped
 			if w.commandUpdates == nil {
 				w.commandUpdates = &menuCommandUpdates{slots: make(map[int]ItemStack)}
 			}

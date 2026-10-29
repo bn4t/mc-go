@@ -97,16 +97,18 @@ func (s *Server) removeChest(d *dimension, pos world.Pos) {
 // openWindow describes one session's open container window. dim is the
 // dimension whose block-entity store owns the container.
 type openWindow struct {
-	id        int32
-	pos       world.Pos
-	dim       *dimension
-	chest     *chestData
-	furnace   *furnaceData
-	craft     *craftTable
-	hopper    *hopperData
-	container *containerData
-	ender     *[27]ItemStack
-	kind      int32 // menu registry id
+	id                           int32
+	pos                          world.Pos
+	dim                          *dimension
+	chest                        *chestData
+	chestOther                   *chestData
+	chestFirstPos, chestOtherPos world.Pos
+	furnace                      *furnaceData
+	craft                        *craftTable
+	hopper                       *hopperData
+	container                    *containerData
+	ender                        *[27]ItemStack
+	kind                         int32 // menu registry id
 	// pendingName is the anvil's rename field for this open menu: per
 	// session, empty at open, surviving takes, gone with the window.
 	pendingName string
@@ -135,6 +137,8 @@ type openWindow struct {
 // player rows).
 func (w *openWindow) containerSize() int {
 	switch {
+	case w.chestOther != nil:
+		return 2 * chestSlots
 	case w.furnace != nil:
 		return furnaceSlots
 	case w.hopper != nil:
@@ -157,25 +161,41 @@ func (w *openWindow) menuSize() int { return w.containerSize() + 36 }
 // openChest shows the chest window and its contents to one session.
 func (s *Server) openChest(sess *Session, pos world.Pos) {
 	d := sess.dimension()
-	if ch := s.chestAt(d, pos); ch.lootTable != "" {
-		table := ch.lootTable
-		seed := ch.lootSeed
-		ch.lootTable = ""
-		ch.lootSeed = 0
-		unpackLootInto(ch.slots[:], table, seed)
-		s.firePlayerGeneratesContainerLoot(sess, table)
+	first, second, combined, blocked := s.chestView(d, pos)
+	if blocked {
+		return
+	}
+	ch := s.chestAt(d, first)
+	var other *chestData
+	if combined {
+		other = s.chestAt(d, second)
+	}
+	for _, storage := range []*chestData{ch, other} {
+		if storage != nil && storage.lootTable != "" {
+			table, seed := storage.lootTable, storage.lootSeed
+			storage.lootTable = ""
+			storage.lootSeed = 0
+			unpackLootInto(storage.slots[:], table, seed)
+			s.firePlayerGeneratesContainerLoot(sess, table)
+		}
 	}
 	id := sess.server.nextWindow.Add(1)
+	kind := int32(menuGeneric9x3)
+	title := "container.chest"
+	if combined {
+		kind = 5
+		title = "container.chestDouble"
+	}
+	w := &openWindow{id: id, pos: pos, dim: d, chest: ch, chestOther: other, chestFirstPos: first, chestOtherPos: second, kind: kind}
 	sess.windowMu.Lock()
-	sess.window = &openWindow{id: id, pos: pos, dim: sess.dimension(), chest: s.chestAt(sess.dimension(), pos), kind: menuGeneric9x3}
+	sess.window = w
 	sess.windowState = 0
 	s.emitContainerOpen(sess, pos)
 	sess.windowMu.Unlock()
-
 	var b protocol.Buffer
 	b.VarInt(id)
-	b.VarInt(menuGeneric9x3)
-	b.Raw(menuTitle("container.chest"))
+	b.VarInt(kind)
+	b.Raw(menuTitle(title))
 	_ = sess.write(sess.ids().PlayOpenScreen, b.Bytes())
 	s.sendChestContent(sess)
 }
@@ -532,7 +552,8 @@ func (sess *Session) menuStack(slot int) ItemStack {
 		}
 		w.dim.chests.mu.Lock()
 		defer w.dim.chests.mu.Unlock()
-		return w.chest.slots[slot]
+		storage, _, local := w.chestSlot(slot)
+		return storage.slots[local]
 	case slot < container+27:
 		return sess.stackAt(int16(slotMainStart + (slot - container)))
 	default:
@@ -590,9 +611,12 @@ func (sess *Session) setMenuStack(slot int, it ItemStack) {
 			return
 		}
 		w.dim.chests.mu.Lock()
-		w.chest.slots[slot] = it
+		storage, pos, local := w.chestSlot(slot)
+		old := storage.slots[local]
+		storage.slots[local] = it
 		w.dim.chests.mu.Unlock()
-		sess.server.rsContainerChanged(w.dim, w.pos)
+		sess.server.queueMenuBlockSlot(w.dim, pos, local, old, 0, sess)
+		sess.server.rsContainerChanged(w.dim, pos)
 	case slot < container+27:
 		sess.setStack(int16(slotMainStart+(slot-container)), it)
 	default:
