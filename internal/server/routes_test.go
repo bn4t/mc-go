@@ -57,7 +57,6 @@ func TestIgnoreServerboundIsDeliberate(t *testing.T) {
 	// the list explicit means adding a new no-op route requires a
 	// deliberate edit here as well.
 	wantIgnored := []string{
-		"set_test_block",
 		"test_instance_block_action",
 	}
 	got := map[string]bool{}

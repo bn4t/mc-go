@@ -101,7 +101,7 @@ func init() {
 		IDPlaySetGameRuleSB:        (*Server).handleSetGameRule,
 		IDPlaySetJigsawBlockSB:     (*Server).handleSetJigsawBlock,
 		IDPlaySetStructureBlockSB:  (*Server).handleSetStructureBlock,
-		IDPlaySetTestBlockSB:       (*Server).ignoreServerbound,
+		IDPlaySetTestBlockSB:       (*Server).handleSetTestBlock,
 		IDPlayUpdateSignSB:         (*Server).handleUpdateSign,
 
 		IDPlaySpectatorActionSB:         (*Server).handleSpectatorAction,

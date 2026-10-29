@@ -247,6 +247,9 @@ func (s *Server) restoreGenericBlockEntity(d *dimension, pos world.Pos, id strin
 	if id == jigsawEntityID {
 		fields = jigsawSavedFields(d.w.GetBlock(pos), fields)
 	}
+	if id == testBlockEntityID {
+		fields = testBlockSavedFields(fields)
+	}
 	d.genericBE[pos] = &genericBlockEntity{id: id, fields: fields}
 	if id == "minecraft:beehive" {
 		if l, ok := fields["bees"].(nbt.List); ok && len(l.Items) > 0 {
@@ -281,6 +284,9 @@ func genericBlockEntityAt(d *dimension, pos world.Pos) (*genericBlockEntity, blo
 func genericSaveFields(d *dimension, pos world.Pos, g *genericBlockEntity) map[string]any {
 	if g.id == jigsawEntityID {
 		return jigsawSavedFields(d.w.GetBlock(pos), g.fields)
+	}
+	if g.id == testBlockEntityID {
+		return testBlockSavedFields(g.fields)
 	}
 	if g.id == "minecraft:command_block" {
 		return commandBlockSavedFields(g.fields)
