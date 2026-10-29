@@ -149,6 +149,14 @@ func (t *terrainSource) ProvideChunk(x, z int) *world.BaseChunk {
 	}
 	p := t.terrain([2]int32{cx, cz})
 	worldgen.PostProcessBubbleColumns(p)
+	if t.g.Structures {
+		// Structure fences and bars connect to their neighbours.
+		near := map[[2]int32]*worldgen.ProtoChunk{}
+		for _, n := range around(cx, cz, 1) {
+			near[n] = t.terrain(n)
+		}
+		worldgen.PostProcessShapes(p, near)
+	}
 	base := protoToBase(p)
 	if t.g.Structures {
 		base.Structures = t.g.StructuresTag(cx, cz)

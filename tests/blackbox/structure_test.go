@@ -207,7 +207,7 @@ func savedPieceSummary(c map[string]any) string {
 	bb, _ := c["BB"].([]int32)
 	s := fmt.Sprintf("%s bb=%v", id, bb)
 	if id != "jigsaw" {
-		return s
+		return s + fmt.Sprintf(" O=%d GD=%d", nbtI(c["O"]), nbtI(c["GD"]))
 	}
 	el, _ := c["pool_element"].(map[string]any)
 	s += fmt.Sprintf(" pos=%d,%d,%d rot=%v gld=%d el=%s", nbtI(c["PosX"]), nbtI(c["PosY"]), nbtI(c["PosZ"]),
@@ -227,7 +227,7 @@ func goPieceSummary(p worldgen.StructurePiece) string {
 	s := fmt.Sprintf("%s bb=%v", p.Type(), bb)
 	jp, ok := p.(*worldgen.JigsawPiece)
 	if !ok {
-		return s
+		return s + fmt.Sprintf(" O=%d GD=%d", p.Orientation(), p.GenDepth())
 	}
 	var el map[string]any
 	json.Unmarshal(jp.ElementJSON(), &el)
@@ -237,6 +237,34 @@ func goPieceSummary(p worldgen.StructurePiece) string {
 		s += fmt.Sprintf(" j(%d,%d,%d,%d,%v)", j.SourceX, j.SourceGroundY, j.SourceZ, j.DeltaY, []string{"terrain_matching", "rigid"}[j.DestProjection])
 	}
 	return s
+}
+
+// startsMatch reports whether every start vanilla saved in the areas'
+// chunks has mc-go's saved compound.
+func startsMatch(t *testing.T, region string, g *worldgen.Generator, areas []terrainArea) bool {
+	for _, a := range areas {
+		for cx := a.x0; cx <= a.x1; cx++ {
+			for cz := a.z0; cz <= a.z1; cz++ {
+				c, ok := savedRegionChunk(t, region, cx, cz)
+				if !ok {
+					continue
+				}
+				st, _ := c["structures"].(map[string]any)
+				ss, _ := st["starts"].(map[string]any)
+				got := map[string]*worldgen.StructureStart{}
+				for _, s := range g.StructureStarts(cx, cz) {
+					got[s.Structure] = s
+				}
+				for k, v := range ss {
+					gs := got[strings.TrimPrefix(k, "minecraft:")]
+					if gs == nil || nbtDiff("", worldgen.StartTag(gs), v.(map[string]any)) != "" {
+						return false
+					}
+				}
+			}
+		}
+	}
+	return true
 }
 
 // compareStarts diffs every structure start saved in the areas'
@@ -453,47 +481,126 @@ func structureParity(t *testing.T, seed int64, areas []terrainArea, sets ...stri
 func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, ov map[string]json.RawMessage, areas []terrainArea) {
 	t.Helper()
 	region := vanillaStructureTerrain(t, seed, stageDatapack(ov), dim, areas)
-	g, err := worldgen.NewGenerator(worldgen.Overlay(worldgen.Vanilla(), ov), settings, biomes, seed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dim != "overworld" {
-		// The nether and end dimension types span y 0..255.
-		g.RS.SetLevelBounds(0, 256)
-	}
-	g.Structures = true
-	if n := compareStarts(t, region, g, areas); n == 0 {
-		t.Errorf("no structure starts in the compared areas")
-	}
-	writes := map[worldgen.BlockPos]map[[2]int32]world.Block{}
-	g.WriteLog = func(p worldgen.BlockPos, c [2]int32, b world.Block) {
-		m := writes[p]
-		if m == nil {
-			m = map[[2]int32]world.Block{}
-			writes[p] = m
-		}
-		m[c] = b
-	}
-	var order [][2]int32
+	// Decoration order: features of pool elements read the blocks of
+	// neighbouring chunks (a pile needs the floor a neighbour's piece
+	// places), pieces record what they placed (a mineshaft corridor's
+	// hasPlacedSpider skips later random draws, a temple's first
+	// decorating chunk fixes its height), and the real server decorates
+	// chunks concurrently. mc-go decorates the area in five orders (rows,
+	// their reverse, columns, and rows from each of the two other
+	// corners), each with a fresh generator. The base run is the first
+	// whose starts, saved after decoration as vanilla saves them, match
+	// vanilla's; a cell whose other runs differ passes when vanilla has
+	// one of their values.
+	var order, cols, xDesc, zDesc [][2]int32
 	for _, a := range areas {
 		for cz := a.z0; cz <= a.z1; cz++ {
 			for cx := a.x0; cx <= a.x1; cx++ {
 				order = append(order, [2]int32{cx, cz})
+				xDesc = append(xDesc, [2]int32{a.x1 - (cx - a.x0), cz})
+				zDesc = append(zDesc, [2]int32{cx, a.z1 - (cz - a.z0)})
+			}
+		}
+		for cx := a.x0; cx <= a.x1; cx++ {
+			for cz := a.z0; cz <= a.z1; cz++ {
+				cols = append(cols, [2]int32{cx, cz})
 			}
 		}
 	}
-	chunks := g.GenerateArea(order)
-	// Decoration order: features of pool elements read the blocks of
-	// neighbouring chunks (a pile needs the floor a neighbour's piece
-	// places), and the real server decorates chunks concurrently. mc-go
-	// decorates the area a second time in reverse order; a cell whose
-	// two mc-go results differ passes when vanilla has either.
-	g.WriteLog = nil
 	rev := make([][2]int32, len(order))
 	for i, c := range order {
 		rev[len(order)-1-i] = c
 	}
-	alt := g.GenerateArea(rev)
+	type parityRun struct {
+		g      *worldgen.Generator
+		chunks map[[2]int32]*worldgen.ProtoChunk
+		writes map[worldgen.BlockPos]map[[2]int32]world.Block
+	}
+	var runs []parityRun
+	for _, o := range [][][2]int32{order, rev, cols, xDesc, zDesc} {
+		g, err := worldgen.NewGenerator(worldgen.Overlay(worldgen.Vanilla(), ov), settings, biomes, seed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dim != "overworld" {
+			// The nether and end dimension types span y 0..255.
+			g.RS.SetLevelBounds(0, 256)
+		}
+		g.Structures = true
+		writes := map[worldgen.BlockPos]map[[2]int32]world.Block{}
+		g.WriteLog = func(p worldgen.BlockPos, c [2]int32, b world.Block) {
+			m := writes[p]
+			if m == nil {
+				m = map[[2]int32]world.Block{}
+				writes[p] = m
+			}
+			m[c] = b
+		}
+		cs := g.GenerateArea(o)
+		g.WriteLog = nil
+		// LevelChunk.postProcessGeneration's bubble columns over magma
+		// and soul sand, and the neighbour shapes of the fences and bars
+		// structure pieces marked.
+		for _, k := range order {
+			worldgen.PostProcessBubbleColumns(cs[k])
+			worldgen.PostProcessShapes(cs[k], cs)
+		}
+		runs = append(runs, parityRun{g, cs, writes})
+	}
+	base := 0
+	for i, r := range runs {
+		if startsMatch(t, region, r.g, areas) {
+			base = i
+			break
+		}
+	}
+	if base != 0 {
+		t.Logf("vanilla's starts match decoration order %d", base)
+	}
+	g, chunks, writes := runs[base].g, runs[base].chunks, runs[base].writes
+	var alts []map[[2]int32]*worldgen.ProtoChunk
+	for i, r := range runs {
+		if i != base {
+			alts = append(alts, r.chunks)
+		}
+	}
+	// The reverse order (or rows, when reverse is the base) is the
+	// block entity comparison's alternative.
+	alt := runs[1].chunks
+	if base == 1 {
+		alt = runs[0].chunks
+	}
+	// A container's loot seed passes when it is one of the first draws
+	// of the piece random of a structure referenced within a chunk of
+	// it: template data markers re-seed containers of neighbouring
+	// chunks, and the order vanilla decorates them in decides which
+	// pass a container keeps.
+	seedStreams := map[[2]int32]map[string]bool{}
+	seedFromPass := func(pos [3]int32, seed string) bool {
+		bx, bz := pos[0]>>4, pos[2]>>4
+		for dx := int32(-1); dx <= 1; dx++ {
+			for dz := int32(-1); dz <= 1; dz++ {
+				c := [2]int32{bx + dx, bz + dz}
+				m, ok := seedStreams[c]
+				if !ok {
+					m = map[string]bool{}
+					for _, r := range g.StructureReferences(c[0], c[1]) {
+						for _, l := range g.StructureRandomLongs(c[0], c[1], r.Structure, 256) {
+							m[fmt.Sprint(l)] = true
+						}
+					}
+					seedStreams[c] = m
+				}
+				if m[seed] {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if n := compareStarts(t, region, g, areas); n == 0 {
+		t.Errorf("no structure starts in the compared areas")
+	}
 	minY, height := g.RS.LevelMinY(), g.RS.LevelHeight()
 	total, orderDep, exempt, beOK, orderSens := 0, 0, 0, 0, 0
 	for _, a := range areas {
@@ -522,7 +629,12 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 						exempt++
 						continue
 					}
-					if ab := alt[[2]int32{cx, cz}].Blocks[i]; ab != p.Blocks[i] && protoStateString(ab) == w {
+					sens := false
+					for _, alt := range alts {
+						ab := alt[[2]int32{cx, cz}].Blocks[i]
+						sens = sens || ab != p.Blocks[i] && protoStateString(ab) == w
+					}
+					if sens {
 						orderSens++
 						continue
 					}
@@ -534,7 +646,7 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 				if bad > 0 {
 					t.Errorf("chunk %d,%d: %d mismatched blocks", cx, cz, bad)
 				}
-				beOK += compareStructBlockEntities(t, saved, p, cx, cz, minY)
+				beOK += compareStructBlockEntities(t, saved, p, alt[[2]int32{cx, cz}], seedFromPass, cx, cz, minY)
 				total++
 			}
 		}
@@ -550,8 +662,16 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 }
 
 // compareStructBlockEntities checks that the saved chunk's block entities sit
-// exactly where mc-go placed blocks that carry one.
-func compareStructBlockEntities(t *testing.T, saved savedChunk, p *worldgen.ProtoChunk, cx, cz, minY int32) int {
+// exactly where mc-go placed blocks that carry one. A loot table or
+// seed that differs passes when mc-go's reverse-order decoration (alt)
+// has vanilla's: a template piece's data markers re-seed containers
+// that neighbouring chunks placed earlier (shipwrecks), so the last
+// chunk decorated decides. A seed that matches neither passes when
+// seedFromPass finds it among the piece random draws of a neighbouring
+// chunk's decoration (vanilla decorates neighbouring chunks
+// concurrently, so a marker may or may not see a neighbour's chest
+// yet, and placement heights recomputed per chunk shift the draws).
+func compareStructBlockEntities(t *testing.T, saved savedChunk, p, alt *worldgen.ProtoChunk, seedFromPass func([3]int32, string) bool, cx, cz, minY int32) int {
 	t.Helper()
 	want := map[[3]int32]string{}
 	wantTag := map[[3]int32]map[string]any{}
@@ -566,6 +686,12 @@ func compareStructBlockEntities(t *testing.T, saved savedChunk, p *worldgen.Prot
 	gotTag := map[[3]int32]map[string]any{}
 	for _, be := range p.BlockEntities() {
 		gotTag[be.Pos] = be.Data
+	}
+	altTag := map[[3]int32]map[string]any{}
+	if alt != nil {
+		for _, be := range alt.BlockEntities() {
+			altTag[be.Pos] = be.Data
+		}
 	}
 	var got [][3]int32
 	for i, b := range p.Blocks {
@@ -582,10 +708,23 @@ func compareStructBlockEntities(t *testing.T, saved savedChunk, p *worldgen.Prot
 			// Loot table and seed: the template's table (or a rule's
 			// append_loot) and the seed drawn from the piece random.
 			w, g := wantTag[pos], gotTag[pos]
+			var a map[string]any
+			if alt != nil {
+				a = altTag[pos]
+			}
 			for _, k := range []string{"LootTable", "LootTableSeed"} {
 				wv, wok := w[k]
 				gv, gok := g[k]
+				av, aok := a[k]
 				if wok != gok || (wok && fmt.Sprint(wv) != fmt.Sprint(gv)) {
+					if wok == aok && (!wok || fmt.Sprint(wv) == fmt.Sprint(av)) {
+						t.Logf("chunk %d,%d: block entity %s at %v %s matches mc-go's reverse decoration order", cx, cz, want[pos], pos, k)
+						continue
+					}
+					if k == "LootTableSeed" && wok && gok && seedFromPass(pos, fmt.Sprint(wv)) {
+						t.Logf("chunk %d,%d: block entity %s at %v %s is a piece random draw of another decoration order", cx, cz, want[pos], pos, k)
+						continue
+					}
 					t.Errorf("chunk %d,%d: block entity %s at %v %s: mc-go %v, vanilla %v", cx, cz, want[pos], pos, k, gv, wv)
 				}
 			}

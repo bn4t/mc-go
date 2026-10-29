@@ -16355,3 +16355,53 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining**: gateway exits/teleport; flat-world End fight; per-part explosion hits;
   dragon-breath particles; fireball vs players; ambient growl; podium drop loot;
   explosion.player death message; the flight's lookup-table atan2.
+
+## Slice — legacy structures: ocean, nether and end (2026-10-29)
+- **Measured**: `javap` bytecode of the 26.2 jar (vanilla/versions/26.2/server-26.2.jar):
+  BuriedTreasure*, Shipwreck*, OceanRuinStructure/OceanRuinPieces, RuinedPortalStructure/
+  RuinedPortalPiece, NetherFortressStructure/NetherFortressPieces, NetherFossilStructure/
+  NetherFossilPieces, EndCityStructure/EndCityPieces, OceanMonumentStructure/
+  OceanMonumentPieces; template and loot facts from the datagen reports. Wire: region files
+  vanilla saves for the pinned areas.
+- **Implemented**: buried treasure; shipwrecks (ocean + beached, height from corner
+  heights, chest data markers); ocean ruins (cold/warm, large and cluster draws, stacked
+  templates, block rot with capped suspicious sand/gravel, per-placement floor height);
+  ruined portals (setups, air pocket, giant/normal templates, findSuitableY, netherrack
+  spread, drip columns, vines/leaves); nether fortress (bridge/castle weights, place limits,
+  112-block limit, 48..70 move, blaze spawners, chests, wart); nether fossils (height
+  search, dried ghast); end cities (towers, bridges, fat towers, houses, ship, collision
+  rule, treasure); ocean monuments (room graph, fitters, wings, penthouse; regenerated on
+  load). Structure-marked fences and bars get neighbour shapes on chunk post-processing;
+  bubble columns post-process over magma/soul sand.
+- **Pinned**: TestStructureBuriedTreasureParity, TestStructureShipwreck(Beached)Parity,
+  TestStructureOceanRuinCold/WarmParity, TestStructureRuinedPortal(Desert)Parity,
+  TestStructureNetherFortressParity, TestStructureNetherFossilPortalParity,
+  TestStructureEndCityParity, TestStructureOceanMonumentParity (two monuments): block for
+  block over interior chunks plus starts and container loot tables/seeds against vanilla's
+  saved region files. All pass after merging onto the land-structure tree.
+- **Remaining**: drowned / elder guardian / shulker entities the pieces would spawn.
+
+## Slice — legacy structures: overworld land (2026-10-29)
+- **Measured**: `javap` bytecode of the 26.2 jar: MineshaftStructure/MineshaftPieces,
+  DesertPyramidStructure/DesertPyramidPiece, JungleTemplePiece, SwampHutPiece, IglooPieces,
+  StrongholdStructure/StrongholdPieces, WoodlandMansionStructure/WoodlandMansionPieces,
+  StructurePiece / ScatteredFeaturePiece / TemplateStructurePiece bases. Wire: vanilla's
+  saved region files for the pinned areas.
+- **Implemented**: a hand-built StructurePiece base (orientation, local-to-world mapping,
+  box writers, chests) and TemplateStructurePiece with data markers; mineshafts (normal +
+  mesa: rooms, corridors with supports/torches/cobwebs/rails/spawners, crossings, stairs,
+  vertical moves, invalid-location checks); desert pyramids (fixed lowest-ground height,
+  trap room chests, cellar suspicious sand via afterPlace); jungle temples (traps,
+  dispensers, chests); swamp huts; igloos (basement, ladders, hatch); strongholds
+  (retry-until-portal-room, weights, five-crossing, fillers, caps, every room, portal
+  frame eyes, silverfish spawner); woodland mansions (grid walk, three floors, rooms,
+  carpets, doors, chests, foundation). Template placement mirrors/rotates stair shapes,
+  rails and door hinges; the shape pass covers walls, stairs, fences, bars, torches,
+  ladders on full chunks. The structure pin harness compares starts after decoration
+  and accepts cells/seeds from five decoration orders (vanilla decorates concurrently).
+- **Pinned**: TestStructureMineshaft(Mesa)Parity, TestStructureDesertPyramidParity,
+  TestStructureJungleTempleParity, TestStructureSwampHutParity, TestStructureIglooParity,
+  TestStructureStrongholdParity, TestStructureWoodlandMansionParity; every jigsaw pin
+  (villages, outposts, trail ruins, ancient city, trial chambers, bastion) re-run green.
+- **Remaining**: chest minecarts in mineshafts, witch/cat in huts, mansion mobs (entities
+  are not spawned by structure pieces yet).
