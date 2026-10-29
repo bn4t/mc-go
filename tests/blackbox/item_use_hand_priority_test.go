@@ -17,6 +17,8 @@ type handUseCase struct {
 	hand                                        int32
 	mainStart, offStart, mainEnd, offEnd        int32
 	sneak, creative, menu, book, air            bool
+	mainDamage, offDamage                       int32
+	checks                                      []string
 }
 
 func TestItemUseHandPriorityParity(t *testing.T) {
@@ -48,11 +50,16 @@ func TestItemUseHandPriorityParity(t *testing.T) {
 		{name: "main_empty_sneak_off_block_chest", off: "stone", clicked: "chest", wantBlock: "air", offStart: 5, offEnd: 5, sneak: true},
 		{name: "off_egg_air_water", main: "dirt", off: "pig_spawn_egg", clicked: "water", wantBlock: "air", entity: "pig", hand: 1, mainStart: 3, offStart: 5, mainEnd: 3, offEnd: 4, air: true},
 	}
+	checkHandUseCases(t, cases)
+}
+
+func checkHandUseCases(t *testing.T, cases []handUseCase) {
+	t.Helper()
 	targets := requireBlackboxFiles(t, map[string]string{"view-distance": "2"}, map[string]string{"ops.json": opsJSONFor("HandUse")}, nil)
 	defer targets.cleanup()
 	type result struct {
-		main, off, mainID, offID, mainDamage, offDamage int32
-		block, pigMain, pigOff, rocket, menu, book      bool
+		main, off, mainID, offID, mainDamage, offDamage    int32
+		block, pigMain, pigOff, rocket, menu, book, checks bool
 	}
 	run := func(addr string) []result {
 		conn, pr, pw := joinPlayBlackbox(t, addr, "HandUse")
@@ -300,6 +307,11 @@ func TestItemUseHandPriorityParity(t *testing.T) {
 			}
 			sendCommand(t, pw, "execute if entity @e[type=firework_rocket] run say "+markers[3])
 			sendCommand(t, pw, "execute if block 0 159 0 lectern[has_book=true] run say "+markers[4])
+			checkMarkers := make([]string, len(tc.checks))
+			for j, condition := range tc.checks {
+				checkMarkers[j] = fmt.Sprintf("HANDCHECK%d_%dX", i, j)
+				sendCommand(t, pw, condition+" run say "+checkMarkers[j])
+			}
 			end := fmt.Sprintf("HANDDONE%dX", i)
 			sendCommand(t, pw, "say "+end)
 			lines := collect(end)
@@ -311,7 +323,17 @@ func TestItemUseHandPriorityParity(t *testing.T) {
 					}
 				}
 			}
-			r := result{main: slots[36].Count, off: slots[45].Count, mainID: slots[36].ID, offID: slots[45].ID, mainDamage: slots[36].Damage, offDamage: slots[45].Damage, block: flags[0], pigMain: flags[1], pigOff: flags[2], rocket: flags[3], menu: opened, book: flags[4]}
+			allChecks := true
+			for _, marker := range checkMarkers {
+				found := false
+				for _, line := range lines {
+					if strings.HasPrefix(line, "0x21:") && strings.Contains(line, marker) {
+						found = true
+					}
+				}
+				allChecks = allChecks && found
+			}
+			r := result{checks: allChecks, main: slots[36].Count, off: slots[45].Count, mainID: slots[36].ID, offID: slots[45].ID, mainDamage: slots[36].Damage, offDamage: slots[45].Damage, block: flags[0], pigMain: flags[1], pigOff: flags[2], rocket: flags[3], menu: opened, book: flags[4]}
 			out = append(out, r)
 			t.Logf("%s %s %+v", addr, tc.name, r)
 		}
@@ -319,7 +341,7 @@ func TestItemUseHandPriorityParity(t *testing.T) {
 	}
 	vanilla, mcgo := run(targets.vanilla), run(targets.mcgo)
 	for i, tc := range cases {
-		want := result{main: tc.mainEnd, off: tc.offEnd, block: true, menu: tc.menu, book: tc.book, rocket: tc.entity == "firework_rocket"}
+		want := result{checks: true, mainDamage: tc.mainDamage, offDamage: tc.offDamage, main: tc.mainEnd, off: tc.offEnd, block: true, menu: tc.menu, book: tc.book, rocket: tc.entity == "firework_rocket"}
 		if tc.mainEnd > 0 {
 			want.mainID = world.ItemIDs[tc.main]
 		}

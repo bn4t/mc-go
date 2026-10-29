@@ -513,7 +513,11 @@ func (s *Server) tntNeighborChanged(d *dimension, pos world.Pos) {
 // one (creative keeps the item), and ITEM_USED lands for the held item.
 // Returns false when the held item is neither.
 func (s *Server) useTnt(sess *Session, d *dimension, pos world.Pos) bool {
-	held := sess.heldStack()
+	return s.useTntInHand(sess, d, pos, 0)
+}
+
+func (s *Server) useTntInHand(sess *Session, d *dimension, pos world.Pos, hand int32) bool {
+	held, slot := sess.stackForHand(hand)
 	iname, ok := itemNameOf(held.ID)
 	if !ok {
 		return false
@@ -531,9 +535,9 @@ func (s *Server) useTnt(sess *Session, d *dimension, pos world.Pos) bool {
 	}
 	s.setNaturalBlock(d, pos, world.Air)
 	if flint {
-		s.wearHeld(sess, 1)
+		s.wearSlot(sess, slot, 1)
 	} else if sess.mode() != GameModeCreative {
-		sess.setStack(invSlotForHotbar(sess.held.Load()), held.withCount(held.Count-1))
+		sess.consumeSlot(slot, 1)
 	}
 	sess.addItemStat(statUsed, held.ID, 1)
 	return true

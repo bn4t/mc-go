@@ -334,7 +334,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	// Default empty-hand interactions run only for the main hand. Explicit
 	// hand-aware block item interactions retain their separate path below.
 	blockUse := blockItemUse && hand == 0
-	if name, _ := world.StateOwner(cur); blockUse && name == "tnt" && s.useTnt(sess, d, clicked) {
+	if name, _ := world.StateOwner(cur); blockItemUse && name == "tnt" && s.useTntInHand(sess, d, clicked, hand) {
 		useAck()
 		return
 	}
@@ -474,7 +474,7 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	}
 	// FlintAndSteelItem/FireChargeItem.useOn — held-item useOn runs
 	// only after the clicked block's own use path passed.
-	if hand == 0 && s.useIgniter(sess, d, clicked, face) {
+	if s.useIgniterInHand(sess, d, clicked, face, hand) {
 		useAck()
 		return
 	}

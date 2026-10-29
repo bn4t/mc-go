@@ -67,7 +67,11 @@ func sessFaceAxisX(sess *Session) bool {
 // useIgniter runs the shared flint_and_steel / fire_charge useOn body.
 // Reports whether the packet is consumed (always — a FAIL only acks).
 func (s *Server) useIgniter(sess *Session, d *dimension, clicked world.Pos, face int32) bool {
-	held := sess.heldStack()
+	return s.useIgniterInHand(sess, d, clicked, face, 0)
+}
+
+func (s *Server) useIgniterInHand(sess *Session, d *dimension, clicked world.Pos, face int32, hand int32) bool {
+	held, slot := sess.stackForHand(hand)
 	if held.Empty() {
 		return true
 	}
@@ -87,7 +91,7 @@ func (s *Server) useIgniter(sess *Session, d *dimension, clicked world.Pos, face
 			return true
 		}
 		s.setNaturalBlock(d, clicked, lit)
-		s.igniterConsume(sess, held, charge)
+		s.igniterConsumeSlot(sess, held, slot, charge)
 		return true
 	}
 	dx, dy, dz, ok := faceOffset(face)
@@ -107,7 +111,7 @@ func (s *Server) useIgniter(sess *Session, d *dimension, clicked world.Pos, face
 	if bname, ok := world.StateOwner(placed); ok {
 		s.firePlacedBlock(sess, strings.TrimPrefix(bname, "minecraft:"))
 	}
-	s.igniterConsume(sess, held, charge)
+	s.igniterConsumeSlot(sess, held, slot, charge)
 	return true
 }
 
@@ -124,15 +128,21 @@ func (s *Server) igniterSound(d *dimension, pos world.Pos, charge bool) {
 }
 
 // igniterConsume applies the item cost: flint hurtAndBreak(1) —
-// creative-exempt through wearHeld — fire charge shrink(1), which
-// vanilla runs unconditionally (creative loses the charge).
+// creative-exempt through wearSlot. The item use creative wrapper
+// restores the fire-charge count after its successful use.
 func (s *Server) igniterConsume(sess *Session, held ItemStack, charge bool) {
+	s.igniterConsumeSlot(sess, held, invSlotForHotbar(sess.held.Load()), charge)
+}
+
+func (s *Server) igniterConsumeSlot(sess *Session, held ItemStack, slot int16, charge bool) {
 	sess.addItemStat(statUsed, held.ID, 1)
 	if charge {
-		sess.consumeHeld(1)
+		if sess.mode() != GameModeCreative {
+			sess.consumeSlot(slot, 1)
+		}
 		return
 	}
-	s.wearHeld(sess, 1)
+	s.wearSlot(sess, slot, 1)
 }
 
 // fireGetState is BaseFireBlock.getState: soul_fire on a soul base,
