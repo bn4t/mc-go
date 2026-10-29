@@ -1086,3 +1086,11 @@ binary ignore has a directory-only exception for the public Go package.
    disconnect reasons, CPU, heap, allocation rate and tracked entity count.
 6. Expand differential gameplay coverage and the conformance corpus;
    retain per-slice evidence and explicit unsupported behavior.
+
+Scheduled block dispatch retains a bounded current-dispatch record containing
+original block identity, deadline and priority. Clone snapshots this record and
+queued work before inserting destination requests; overlapping copies cannot
+recursively copy their own additions. Area clearing also cancels collected work,
+so the dispatcher skips canceled local entries. Fluid work remains independent.
+Native global sub-tick ordering and chunk queue persistence are not implemented
+by this mechanism.

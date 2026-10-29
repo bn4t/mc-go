@@ -111,8 +111,10 @@ changes to clients, including initial weather for late joins. Natural/random
 weather cycling and complete duration behavior remain partial.
 
 Scheduled block callbacks retain the type that queued them; duplicate pending
-requests preserve their first deadline and priority. Fluid identity and native
-sub-tick ordering remain separate work.
+requests preserve their first deadline and priority. Clone copies scheduled block
+work across the full source box, including collected callbacks and empty filtered
+selections. GameTest resets cancel queued and collected block callbacks. Fluid
+identity, chunk tick persistence and native sub-tick ordering remain separate work.
 
 Native structure-template lookups cache both present and missing results until
 corner unload or `/reload`; unreadable generated NBT can fall back to bundled
@@ -125,8 +127,8 @@ across copies, moves and overlapping force copies. Barrel native data access
 uses its live container storage, including supported stored item components. Strict clone suppresses callbacks and shape updates at destinations and moved
 source cells. Ordinary clone notifies neighbors after copied block entities
 are hydrated, including measured redstone-driven structure actions. Exact native
-placement grouping, datapack tags, scheduled-tick copying and exhaustive parser
-diagnostics remain in progress.
+placement grouping, datapack tags and exhaustive parser diagnostics remain in
+progress.
 
 Scripted protocol tests exercise real vanilla server behavior. A graphical
 client playtest is a separate check: client dependency downloads are currently

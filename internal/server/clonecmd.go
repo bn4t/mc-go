@@ -221,7 +221,13 @@ func (s *Server) runClone(player string, args []string) reply {
 			}
 		}
 	}
+	copyTicks := func() {
+		s.ticks.copyBlockTicks(srcDim.name, dstDim.name,
+			world.Pos{X: minX, Y: minY, Z: minZ}, world.Pos{X: maxX, Y: maxY, Z: maxZ},
+			world.Pos{X: dst[0] - minX, Y: dst[1] - minY, Z: dst[2] - minZ})
+	}
 	if len(cells) == 0 {
+		copyTicks()
 		return componentReply(commandError("commands.clone.failed"))
 	}
 	inDst := func(x, y, z int) bool {
@@ -261,5 +267,6 @@ func (s *Server) runClone(player string, args []string) reply {
 			s.rsNeighborFanOut(dstDim, world.Pos{X: dst[0] + c.rel[0], Y: dst[1] + c.rel[1], Z: dst[2] + c.rel[2]})
 		}
 	}
+	copyTicks()
 	return opsEchoReply(translatable("commands.clone.success", int32(len(cells))))
 }

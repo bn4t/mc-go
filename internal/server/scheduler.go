@@ -46,7 +46,9 @@ type tickScheduler struct {
 	queued map[schedKey]int64
 	prio   map[schedKey]int8
 	// Bound once by Server.New before the scheduler is exposed.
-	blockType func(schedKey) string
+	blockType   func(schedKey) string
+	active      map[schedKey]blockTickRecord
+	activeOrder []schedKey
 }
 
 // Vanilla TickPriority values — the schedulePrio callers' range; lower
@@ -107,12 +109,22 @@ func (t *tickScheduler) schedulePrio(k schedKey, at int64, prio int8) {
 func (t *tickScheduler) poll(now int64) []schedKey {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.active = nil
+	t.activeOrder = nil
 	var keys []schedKey
 	for at, list := range t.due {
 		if at > now {
 			continue
 		}
 		keys = append(keys, list...)
+		for _, k := range list {
+			if k.kind != tickFluid {
+				if t.active == nil {
+					t.active = map[schedKey]blockTickRecord{}
+				}
+				t.active[k] = blockTickRecord{key: k, at: at, priority: t.prio[k], pending: true}
+			}
+		}
 		delete(t.due, at)
 	}
 	if len(keys) == 0 {
@@ -138,6 +150,9 @@ func (t *tickScheduler) poll(now int64) []schedKey {
 		return a.Z < b.Z
 	})
 	for _, k := range keys {
+		if k.kind != tickFluid {
+			t.activeOrder = append(t.activeOrder, k)
+		}
 		delete(t.prio, k)
 	}
 	return keys

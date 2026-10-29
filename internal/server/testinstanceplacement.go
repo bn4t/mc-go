@@ -34,31 +34,10 @@ func (s *Server) testInstancePlace(d *dimension, pos world.Pos, data testInstanc
 			}
 		}
 	}
-	// Clear pending block work, leaving fluid scheduling independent, as in
-	// StructureUtils.clearSpaceForStructure. Stale queue entries are filtered
-	// from both scheduler indexes.
+	// Clear queued and collected block work, leaving fluid scheduling
+	// independent, as in StructureUtils.clearSpaceForStructure.
 	if s.ticks != nil {
-		s.ticks.mu.Lock()
-		for k := range s.ticks.queued {
-			if k.dim == d.name && k.kind != tickFluid && inside(k.pos) {
-				delete(s.ticks.queued, k)
-				delete(s.ticks.prio, k)
-			}
-		}
-		for at, list := range s.ticks.due {
-			kept := list[:0]
-			for _, k := range list {
-				if k.dim != d.name || k.kind == tickFluid || !inside(k.pos) {
-					kept = append(kept, k)
-				}
-			}
-			if len(kept) == 0 {
-				delete(s.ticks.due, at)
-			} else {
-				s.ticks.due[at] = kept
-			}
-		}
-		s.ticks.mu.Unlock()
+		s.ticks.clearBlockArea(d.name, low, high)
 	}
 	kept := s.blockEvents[:0]
 	for _, e := range s.blockEvents {

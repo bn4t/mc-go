@@ -360,7 +360,11 @@ func (s *Server) scheduledTickStep() {
 		return
 	}
 	due := s.ticks.poll(s.TickCount())
+	defer s.ticks.finishBlockTicks()
 	for _, k := range due {
+		if !s.ticks.claimBlockTick(k) {
+			continue
+		}
 		d := s.dims[k.dim]
 		if d == nil {
 			continue
