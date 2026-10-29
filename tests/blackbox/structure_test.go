@@ -472,6 +472,22 @@ func TestStructureTrailRuinsParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{-99, 32, -94, 39}}, "trail_ruins")
 }
 
+// TestStructureAncientCityParity pins an ancient city: the named start
+// jigsaw (city_anchor), absolute start height without projection, the
+// 116-block range, beard_box adaptation, the degradation processors and
+// the sculk feature elements. The whole city's pieces are compared; the
+// blocks of the chunks around its center.
+func TestStructureAncientCityParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{-75, -51, -67, -43}}, "ancient_cities")
+}
+
+// TestStructureTrialChambersParity pins trial chambers: uniform start
+// height, dimension padding, ignore_waterlogging liquid settings, the
+// random and random-group pool aliases and the copper bulb degradation.
+func TestStructureTrialChambersParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{-128, 3, -119, 14}}, "trial_chambers")
+}
+
 // TestStructureVillageTaigaParity pins a taiga village.
 func TestStructureVillageTaigaParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{71, -29, 78, -17}}, "villages")
