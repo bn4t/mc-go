@@ -65,8 +65,9 @@ Retracting piston source-base movement has measured routes for default-size
 NoGravity armor stands and ordinary stands/cows. Physical carried-head geometry
 differs from the live world-collision shape. Ordinary east-facing floor controls
 retain the source base's internal occupied-cell planes during directional block
-clipping and reverse ejection. General entity move policies, other ordinary-body
-directions, step-up, cumulative piston limits and scaled variants remain separate.
+clipping and reverse ejection. NoGravity/NoAI cows also have six-axis
+normal-collision pins. General entity move policies, vertical gravity/travel,
+step-up, cumulative piston limits and scaled variants remain separate.
 
 Vehicle cargo menus bind to the live entity inventory rather than a synthetic
 block position. Native saves and data reloads share that inventory; reloads
