@@ -815,32 +815,7 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 			touched = append(touched, cartographyMap, cartographyAdditional)
 		}
 	case 2:
-		if _, valid := inventorySwapSlot(button); !valid {
-			return
-		}
-		if button == 40 {
-			offhand := sess.stackAt(slotOffhand)
-			if isResult || (!offhand.Empty() && !menuAccepts(c.spec, int(slot), offhand)) {
-				break
-			}
-			s.swapMenuOffhand(sess, int(slot))
-			touched = append(touched, int(slot))
-			break
-		}
-		swap := w.menuSize() - 9 + int(button)
-		if isResult || swap < w.menuSize()-9 || swap >= w.menuSize() {
-			break
-		}
-		a := sess.menuStack(int(slot))
-		b := sess.menuStack(swap)
-		// doClick's slot.mayPlace gate: a swap into a slot that
-		// refuses the incoming stack does not happen.
-		if !menuAccepts(c.spec, int(slot), b) {
-			break
-		}
-		sess.setMenuStack(int(slot), b)
-		sess.setMenuStack(swap, a)
-		touched = append(touched, int(slot), swap)
+		touched = append(touched, s.typedMenuSwap(sess, w, int(slot), button)...)
 	case 3:
 		// Creative middle-click clone: a full stack onto the cursor,
 		// the slot unchanged. A clone carries the slot's update so the

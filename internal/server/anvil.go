@@ -92,9 +92,10 @@ const anvilDegradeChance = 0.12
 
 // The output slot's take modes, keyed by the click's mode.
 const (
-	anvilTakeHand  = 0
-	anvilTakeQuick = 1
-	anvilTakeThrow = 4
+	anvilTakeHand     = 0
+	anvilTakeQuick    = 1
+	anvilTakeThrow    = 4
+	anvilTakeSwapBase = 100 // plus an inventory slot, absent from the menu cursor
 )
 
 // anvilCompute prices the anvil's inputs: it reports the output stack,
@@ -336,17 +337,20 @@ func (s *Server) handleAnvilClick(sess *Session, w *openWindow, c *containerData
 	case 1:
 		s.anvilQuickMove(sess, w, c, int(slot))
 	case 2:
-		// Hotbar swaps ignore the accept rules, like manual
-		// placement; the result slot never swaps.
-		swap := w.menuSize() - 9 + int(button)
-		if int(slot) == anvilResult || swap < w.menuSize()-9 || swap >= w.menuSize() {
+		inv, valid := inventorySwapSlot(button)
+		if !valid {
+			return
+		}
+		if int(slot) == anvilResult {
+			if sess.stackAt(inv).Empty() {
+				s.takeAnvilResult(sess, w, c, cur, anvilTakeSwapBase+int32(inv))
+			}
 			break
 		}
-		a := sess.menuStack(int(slot))
-		b := sess.menuStack(swap)
-		sess.setMenuStack(int(slot), b)
-		sess.setMenuStack(swap, a)
-		s.anvilSyncInput(sess, w, c, []int{int(slot), swap})
+		touched := s.typedMenuSwap(sess, w, int(slot), button)
+		if len(touched) > 0 {
+			s.anvilSyncInput(sess, w, c, touched)
+		}
 	case 3:
 		if int(slot) == anvilResult {
 			break // the result slot answers a clone with nothing
@@ -509,8 +513,16 @@ func (s *Server) takeAnvilResult(sess *Session, w *openWindow, c *containerData,
 		}
 		touched = append(touched, filled...)
 	default:
-		s.setCarriedLocked(sess, out)
-		toCursor = out
+		if how >= anvilTakeSwapBase {
+			inv := int16(how - anvilTakeSwapBase)
+			sess.setStack(inv, out)
+			if sl := menuSlotForInventory(w, inv); sl >= 0 {
+				touched = append(touched, sl)
+			}
+		} else {
+			s.setCarriedLocked(sess, out)
+			toCursor = out
+		}
 	}
 	for _, sl := range touched {
 		s.anvilSendMenuSlot(sess, w, sl)
