@@ -77,15 +77,24 @@ func TestVexParity(t *testing.T) {
 		sendCommand(t, v.pwa, "kill @e[type=vex]")
 		hostileWatch(t, tp, newHostileLog(), 600*time.Millisecond)
 
-		// Leg 2 — the charge: a bare-summoned (iron sword) vex six
-		// blocks from a survival BOATA.
+		// Leg 2 — the charge: a bare-summoned (iron sword) vex a few
+		// blocks above and beside a survival BOATA. The noPhysics
+		// random move can carry a vex under the floor before its
+		// mustSee target acquisition rolls (no line of sight, no
+		// target), so a summon that never lands a hit is retried.
 		sendCommand(t, v.pwa, "gamemode survival BOATA")
 		hostileWatch(t, tp, newHostileLog(), 400*time.Millisecond)
-		lg = newHostileLog()
-		sendCommand(t, v.pwa, "summon minecraft:vex 8.5 -59 14.5")
-		hostileWatchUntil(t, tp, lg, 25*time.Second, func(l *hostileLog) bool {
-			return len(l.healthDrops(20)) > 0
-		})
+		for attempt := 0; attempt < 3; attempt++ {
+			lg = newHostileLog()
+			sendCommand(t, v.pwa, "summon minecraft:vex 8.5 -57 16.5")
+			if hostileWatchUntil(t, tp, lg, 15*time.Second, func(l *hostileLog) bool {
+				return len(l.healthDrops(20)) > 0
+			}) {
+				break
+			}
+			sendCommand(t, v.pwa, "kill @e[type=vex]")
+			hostileWatch(t, tp, nil, 400*time.Millisecond)
+		}
 		// A few more ticks for the charge-off emit.
 		hostileWatch(t, tp, lg, 400*time.Millisecond)
 		vex = lg.firstEid("vex")
