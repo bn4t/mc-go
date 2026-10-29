@@ -59,6 +59,9 @@ func (s *Server) SetOpLevel(name string, level int) {
 
 // permissionLevel resolves a player name to a permission level.
 func (s *Server) permissionLevel(name string) int {
+	if frame := s.commandFrame(name); frame != nil {
+		return frame.level
+	}
 	if !s.OpsRequired {
 		return 4
 	}

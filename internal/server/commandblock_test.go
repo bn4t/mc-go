@@ -34,3 +34,26 @@ func TestCommandBlockNativePersistence(t *testing.T) {
 		t.Fatal("command block state did not survive native save")
 	}
 }
+
+func TestCommandBlockExecutionNativePersistence(t *testing.T) {
+	s := nativeSaveTestServer(t)
+	s.SetFrozen(true)
+	s.runCommandAt("RCON", 4, "scoreboard", []string{"objectives", "add", "cb", "dummy"})
+	s.runSetblock("P", []string{"1", "0", "1", `repeating_command_block{Command:"scoreboard players add runs cb 1",auto:1b}`})
+	s.StepTicks(3)
+	if err := s.SaveWorld(); err != nil {
+		t.Fatal(err)
+	}
+	restarted := nativeSaveTestServer(t)
+	restarted.WorldDir = s.WorldDir
+	if err := restarted.LoadWorld(); err != nil {
+		t.Fatal(err)
+	}
+	fields, ok := restarted.blockEntitySaveMap(restarted.dims[dimOverworld], world.Pos{X: 1, Y: 0, Z: 1})
+	if !ok || fields["SuccessCount"] != int32(1) || fields["LastExecution"] != int64(3) || fields["auto"] != int8(1) {
+		t.Fatalf("executed command state did not survive native save: %#v", fields)
+	}
+	if _, ok := fields["LastOutput"]; !ok {
+		t.Fatal("executed command feedback did not survive native save")
+	}
+}

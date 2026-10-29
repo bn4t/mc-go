@@ -60,6 +60,11 @@ func rsAnalogSignal(d *dimension, pos world.Pos, blk world.Block) int {
 	name := strings.TrimPrefix(owner, "minecraft:")
 	prop := rsPropsOf(blk)
 	switch name {
+	case "command_block", "chain_command_block", "repeating_command_block":
+		if g, _, ok := genericBlockEntityAt(d, pos); ok {
+			return spawnerShort(g.fields, "SuccessCount", 0)
+		}
+		return 0
 	case "chest", "trapped_chest":
 		d.chests.mu.Lock()
 		defer d.chests.mu.Unlock()

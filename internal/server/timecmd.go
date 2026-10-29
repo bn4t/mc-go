@@ -8,6 +8,14 @@ import (
 	"strings"
 )
 
+type commandOutcome uint8
+
+const (
+	commandOutcomeUnknown commandOutcome = iota
+	commandSucceeded
+	commandFailed
+)
+
 // reply is what a command produced. Vanilla words its built-in replies
 // as translatable components, so a command can answer with a component
 // tree; plugins answer with plain text, which is sent as a string.
@@ -30,6 +38,9 @@ type reply struct {
 	// chains leave it off and store writes nothing.
 	result    int
 	hasResult bool
+	// outcome is explicit execution status; a successful zero-valued
+	// result differs from failure, and legacy text alone proves neither.
+	outcome commandOutcome
 	// opsEcho is sendSuccess's broadcastToOps flag: every op but the
 	// caller also hears the reply, as the gray italic admin line.
 	opsEcho bool
@@ -102,17 +113,26 @@ func (f failMark) cursor(input string) int {
 func textReply(text string) reply { return reply{text: text} }
 
 // componentReply is a component reply.
-func componentReply(c component) reply { return reply{comp: c, styled: true} }
+func componentReply(c component) reply {
+	return reply{comp: c, styled: true, outcome: componentOutcome(c)}
+}
+
+func componentOutcome(c component) commandOutcome {
+	if c.commandFailure {
+		return commandFailed
+	}
+	return commandSucceeded
+}
 
 // componentReplyWith is a component reply followed by more messages.
 func componentReplyWith(c component, extra ...component) reply {
-	return reply{comp: c, styled: true, extra: extra}
+	return reply{comp: c, styled: true, extra: extra, outcome: componentOutcome(c)}
 }
 
 // opsEchoReply is sendSuccess(_, broadcastToOps=true): the reply reaches
 // its caller and echoes to the other ops as the admin line.
 func opsEchoReply(c component) reply {
-	return reply{comp: c, styled: true, opsEcho: true}
+	return reply{comp: c, styled: true, opsEcho: true, outcome: componentOutcome(c)}
 }
 
 // opsEchoReplyWith is opsEchoReply for multi-line replies where every
@@ -122,7 +142,7 @@ func opsEchoReplyWith(c component, extra ...component) reply {
 	for i := range echoes {
 		echoes[i] = true
 	}
-	return reply{comp: c, styled: true, extra: extra, opsEcho: true, extraEcho: echoes}
+	return reply{comp: c, styled: true, extra: extra, opsEcho: true, extraEcho: echoes, outcome: componentOutcome(c)}
 }
 
 // replyEchoLast builds a reply whose only broadcastToOps line is the
@@ -131,7 +151,7 @@ func opsEchoReplyWith(c component, extra ...component) reply {
 func replyEchoLast(c component, extra ...component) reply {
 	echoes := make([]bool, len(extra))
 	echoes[len(echoes)-1] = true
-	return reply{comp: c, styled: true, extra: extra, extraEcho: echoes}
+	return reply{comp: c, styled: true, extra: extra, extraEcho: echoes, outcome: componentOutcome(c)}
 }
 
 // errToken is a parse failure at the start of a token: the real server
@@ -260,24 +280,57 @@ func (s *Server) runCommand(player, name string, args []string) (reply, bool) {
 // runCommandAt is runCommand with the caller's level spelled out —
 // console sources (RCON) carry level 4 without an op entry.
 func (s *Server) runCommandAt(player string, level int, name string, args []string) (reply, bool) {
+	if player != neutralCommandActor && s.activeCommandSource != nil {
+		var known bool
+		r := s.withCommandFrame(nil, func() reply {
+			var out reply
+			out, known = s.runCommandAt(player, level, name, args)
+			return out
+		})
+		return r, known
+	}
 	if level < commandLevel(name) {
 		return reply{}, false
 	}
+	source := s.commandFrame(player)
+	before := 0
+	if source != nil {
+		if source.results == nil {
+			source.results = &commandExecutionResults{}
+		}
+		before = source.results.completions
+	}
 	if len(args) == 0 && commandNeedsArgs[name] {
-		return errTokenEnd("command.unknown.command", 0), true
+		r := errTokenEnd("command.unknown.command", 0)
+		if source != nil {
+			r = s.finishSourceCommand(source, name, before, r)
+		}
+		return r, true
 	}
 	if fn := s.componentCommand(name); fn != nil {
-		return fn(player, args), true
+		r := fn(player, args)
+		if source != nil {
+			r = s.finishSourceCommand(source, name, before, r)
+		}
+		return r, true
 	}
 	out, ok, err := s.commands.RunE(name, player, args)
 	if err != nil {
 		log.Printf("plugin command: %v", err)
-		return textReply("Plugin command failed"), true
+		r := textReply("Plugin command failed")
+		if source != nil {
+			r = s.finishSourceCommand(source, name, before, r)
+		}
+		return r, true
 	}
 	if !ok {
 		return reply{}, false
 	}
-	return textReply(out), true
+	r := textReply(out)
+	if source != nil {
+		r = s.finishSourceCommand(source, name, before, r)
+	}
+	return r, true
 }
 
 // unknownCommand is the component vanilla replies with for a command it

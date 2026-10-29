@@ -2934,6 +2934,12 @@ func splitKV(body string) []string {
 // level a world-limited selector scopes to — and defaults to the
 // sender's current dimension when nil.
 func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, single bool, srcDim *dimension) ([]*dataEntity, *reply) {
+	var source *commandSourceFrame
+	if sender == nil {
+		// Non-player command helpers run under the dispatcher's scoped
+		// frame. Dispatch for a different actor clears it first.
+		source = s.activeCommandSource
+	}
 	if len(tok) == 0 || tok[0] != '@' {
 		if sess := s.findSessionByName(tok); sess != nil {
 			return []*dataEntity{{sess: sess}}, nil
@@ -2962,6 +2968,21 @@ func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, sin
 		}
 	}
 	if spec.variable == 's' {
+		if source != nil {
+			if source.executor == nil {
+				return []*dataEntity{}, nil
+			}
+			anchor := source.pos
+			for axis := range anchor {
+				if spec.posSet[axis] {
+					anchor[axis] = []float64{spec.x, spec.y, spec.z}[axis]
+				}
+			}
+			if !s.selMatch(&spec, source.executor, anchor[0], anchor[1], anchor[2]) {
+				return []*dataEntity{}, nil
+			}
+			return []*dataEntity{source.executor}, nil
+		}
 		if sender == nil {
 			r := componentReply(commandError("argument.entity.notfound.entity"))
 			return nil, &r
@@ -2982,7 +3003,9 @@ func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, sin
 		return []*dataEntity{self}, nil
 	}
 	ax, ay, az := float64(0), float64(0), float64(0)
-	if sender != nil && sender.execPos != nil {
+	if source != nil {
+		ax, ay, az = source.pos[0], source.pos[1], source.pos[2]
+	} else if sender != nil && sender.execPos != nil {
 		ax, ay, az = sender.execPos[0], sender.execPos[1], sender.execPos[2]
 	} else if sender != nil && sender.execEnt != nil && sender.execEnt.mob != nil {
 		ax, ay, az = sender.execEnt.mob.X, sender.execEnt.mob.Y, sender.execEnt.mob.Z
@@ -3002,6 +3025,8 @@ func (s *Server) selectDataEntities(sender *Session, tok string, tokIdx int, sin
 	dim := ""
 	if srcDim != nil {
 		dim = srcDim.name
+	} else if source != nil && source.dim != nil {
+		dim = source.dim.name
 	} else if sender != nil {
 		dim = sender.dimName()
 	}

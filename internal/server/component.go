@@ -29,6 +29,9 @@ type component struct {
 	with []any
 	// color styles the component, "red" for command errors.
 	color string
+	// commandFailure is semantic command feedback, independent of styling.
+	// It is never serialized into the text component.
+	commandFailure bool
 	// extra holds sibling components; vanilla puts a command's message
 	// in extra when it also carries a style.
 	extra []component
@@ -178,9 +181,8 @@ func translatable(key string, with ...any) component {
 // fails: an empty red literal carrying the message as its extra.
 func commandError(key string, with ...any) component {
 	return component{
-		color: "red",
-		extra: []component{translatable(key, with...)},
-		text:  "",
+		color: "red", commandFailure: true,
+		extra: []component{translatable(key, with...)}, text: "",
 	}
 }
 

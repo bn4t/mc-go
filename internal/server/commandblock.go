@@ -40,7 +40,6 @@ func (s *Server) commandBlockAt(d *dimension, pos world.Pos) *genericBlockEntity
 		return nil
 	}
 	if g, _, ok := genericBlockEntityAt(d, pos); ok {
-		g.fields = commandBlockSavedFields(g.fields)
 		return g
 	}
 	if d.genericBE == nil {
@@ -86,6 +85,12 @@ func (s *Server) commandBlockLoadTag(d *dimension, pos world.Pos, tag *snbtTag) 
 }
 
 func (s *Server) commandBlockSchedule(d *dimension, pos world.Pos, g *genericBlockEntity) {
+	s.commandBlockMarkCondition(d, pos, g)
+	name, _ := world.StateOwner(d.w.GetBlock(pos))
+	s.queueCommandBlockTick(d, pos, name)
+}
+
+func (s *Server) commandBlockMarkCondition(d *dimension, pos world.Pos, g *genericBlockEntity) bool {
 	state := d.w.GetBlock(pos)
 	met := true
 	if conditional, _ := world.StateProperty(state, "conditional"); conditional == "true" {
@@ -95,7 +100,7 @@ func (s *Server) commandBlockSchedule(d *dimension, pos world.Pos, g *genericBlo
 		met = previous != nil && spawnerShort(previous.fields, "SuccessCount", 0) > 0
 	}
 	g.fields["conditionMet"] = nbtBool(met)
-	s.scheduleBlockTick(d, pos, 1)
+	return met
 }
 
 // ServerGamePacketListenerImpl accepts edits even when command_blocks_work
@@ -157,6 +162,9 @@ func (s *Server) handleSetCommandBlock(sess *Session, p protocol.Packet) {
 	}
 	if flags&1 == 0 {
 		delete(g.fields, "LastOutput")
+	}
+	if s.gameRuleBool("minecraft:command_blocks_work") {
+		s.commandBlockUpdated(d, pos)
 	}
 	if command != "" {
 		key := "advMode.setCommand.success"

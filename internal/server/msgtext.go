@@ -54,7 +54,7 @@ func (s *Server) messageText(player, text string) component {
 		} else if i > pos {
 			extra = append(extra, literal(text[pos:i]))
 		}
-		extra = append(extra, s.selectorResult(sender, spec))
+		extra = append(extra, s.selectorResult(sender, spec, text[i:end]))
 		pos = end
 		i = end - 1
 	}
@@ -134,7 +134,24 @@ func parseDistanceRange(v string) (float64, float64) {
 // selectorResult expands a selector to the components vanilla puts in
 // its place: one entity's decorated name, a gray-comma-joined list of
 // them, or an empty literal when nothing matched.
-func (s *Server) selectorResult(sender *Session, spec messageSelector) component {
+func (s *Server) selectorResult(sender *Session, spec messageSelector, tokens ...string) component {
+	if sender == nil && s.activeCommandSource != nil && len(tokens) != 0 {
+		entities, err := s.selectDataEntities(nil, tokens[0], 0, false, s.activeCommandSource.dim)
+		if err != nil || len(entities) == 0 {
+			return literal("")
+		}
+		if len(entities) == 1 {
+			return entities[0].nameComp()
+		}
+		var extra []component
+		for i, entity := range entities {
+			if i != 0 {
+				extra = append(extra, component{color: "gray", text: ", "})
+			}
+			extra = append(extra, entity.nameComp())
+		}
+		return component{text: "", extra: extra}
+	}
 	sessions := s.selectorSessions(sender, spec)
 	switch len(sessions) {
 	case 0:

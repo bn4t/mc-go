@@ -33,6 +33,19 @@ func (s *Server) registerAdvancementCommand() {
 // the issuer, @r to a player, @a/@e to every player, a name to that
 // player.
 func (s *Server) resolveTargets(player, tok string) []*Session {
+	if source := s.commandFrame(player); source != nil && strings.HasPrefix(tok, "@") {
+		entities, err := s.selectDataEntities(nil, tok, 0, false, source.dim)
+		if err != nil {
+			return nil
+		}
+		var out []*Session
+		for _, entity := range entities {
+			if entity.sess != nil {
+				out = append(out, entity.sess)
+			}
+		}
+		return out
+	}
 	self := s.findSessionByName(player)
 	switch tok {
 	case "@s", "@p":
@@ -183,7 +196,7 @@ func normalizeAdvID(id string) string {
 // runAdvancement implements /advancement grant|revoke, operator-only.
 func (s *Server) runAdvancement(player string, args []string) reply {
 	sess := s.findSessionByName(player)
-	if sess == nil || sess.opLevel() < 2 {
+	if sess == nil && s.commandFrame(player) == nil || s.permissionLevel(player) < 2 {
 		// Hidden command, exactly as an unknown one reads.
 		return reply{comp: unknownCommand(), styled: true, fail: &failMark{}}
 	}

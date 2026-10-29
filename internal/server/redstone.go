@@ -466,6 +466,8 @@ func (s *Server) rsNeighborChanged(d *dimension, pos world.Pos) {
 		}
 	case name == "dispenser" || name == "dropper":
 		s.rsDispenserNeighbor(d, pos, blk)
+	case commandBlockName(name):
+		s.commandBlockNeighborChanged(d, pos, blk)
 	case name == "crafter":
 		s.crafterNeighborChanged(d, pos, blk)
 	case name == "tnt":

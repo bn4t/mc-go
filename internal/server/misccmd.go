@@ -362,7 +362,7 @@ func (s *Server) runRandom(player string, args []string) reply {
 		return componentReply(translatable("commands.random.sample.success", n))
 	}
 	sender := s.findSessionByName(player)
-	name := literal(player)
+	name := s.commandDisplayName(player)
 	if sender != nil {
 		name = playerChatComponent(sender)
 	}
@@ -374,7 +374,7 @@ func (s *Server) runRandom(player string, args []string) reply {
 
 func (s *Server) runSpectate(player string, args []string) reply {
 	sender := s.findSessionByName(player)
-	name := literal(player)
+	name := s.commandDisplayName(player)
 	if sender != nil {
 		name = playerChatComponent(sender)
 	}

@@ -139,7 +139,7 @@ func (sess *Session) syncXP() {
 // every target fails the command reports set.points.invalid.
 func (s *Server) runXp(player string, args []string) reply {
 	sess := s.findSessionByName(player)
-	if sess == nil || sess.opLevel() < 2 {
+	if sess == nil && s.commandFrame(player) == nil || s.permissionLevel(player) < 2 {
 		return reply{comp: unknownCommand(), styled: true, fail: &failMark{}}
 	}
 	if len(args) == 0 {

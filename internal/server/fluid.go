@@ -376,6 +376,15 @@ func (s *Server) scheduledTickStep() {
 			s.fluidTick(d, k.pos)
 		case tickBlock:
 			s.blockTick(d, k.pos)
+		case tickCommandImpulse, tickCommandRepeat:
+			expected := "command_block"
+			if k.kind == tickCommandRepeat {
+				expected = "repeating_command_block"
+			}
+			state := d.w.GetBlock(k.pos)
+			if isBlockNamed(state, expected) {
+				s.commandBlockTick(d, k.pos, state)
+			}
 		}
 	}
 }

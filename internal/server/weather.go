@@ -61,7 +61,7 @@ func (s *Server) lerpWeather(lv *atomic.Int32, on bool) {
 // vanilla command.
 func (s *Server) runWeather(player string, args []string) reply {
 	sess := s.findSessionByName(player)
-	if sess == nil || sess.opLevel() < 2 {
+	if sess == nil && s.commandFrame(player) == nil || s.permissionLevel(player) < 2 {
 		return reply{comp: unknownCommand(), styled: true, fail: &failMark{}}
 	}
 	if len(args) == 0 {

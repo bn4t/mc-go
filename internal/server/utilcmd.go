@@ -297,12 +297,9 @@ func (s *Server) runSay(player string, args []string) reply {
 	if len(args) == 0 {
 		return errTokenEnd("command.unknown.command", 0)
 	}
-	name := literal(player)
-	if sess := s.findSessionByName(player); sess != nil {
-		name = playerChatName(sess)
-	}
+	name := s.commandDisplayName(player)
 	s.broadcastDisguisedChat("say_command", name, s.messageText(player, strings.Join(args, " ")))
-	return reply{}
+	return reply{outcome: commandSucceeded}
 }
 
 // runMe implements /me <action> — the emote_command disguised chat
@@ -311,12 +308,9 @@ func (s *Server) runMe(player string, args []string) reply {
 	if len(args) == 0 {
 		return errTokenEnd("command.unknown.command", 0)
 	}
-	name := literal(player)
-	if sess := s.findSessionByName(player); sess != nil {
-		name = playerChatName(sess)
-	}
+	name := s.commandDisplayName(player)
 	s.broadcastDisguisedChat("emote_command", name, s.messageText(player, strings.Join(args, " ")))
-	return reply{}
+	return reply{outcome: commandSucceeded}
 }
 
 // runMsg implements /msg|/tell|/w <targets> <message>: player-only
@@ -330,10 +324,7 @@ func (s *Server) runMsg(player string, args []string) reply {
 		return *r
 	}
 	sender := s.findSessionByName(player)
-	name := literal(player)
-	if sender != nil {
-		name = playerChatName(sender)
-	}
+	name := s.commandDisplayName(player)
 	content := s.messageText(player, strings.Join(args[1:], " "))
 	incoming := registryEntryID("minecraft:chat_type", "minecraft:msg_command_incoming")
 	outgoing := registryEntryID("minecraft:chat_type", "minecraft:msg_command_outgoing")
@@ -346,5 +337,5 @@ func (s *Server) runMsg(player string, args []string) reply {
 			sendDisguisedChat(target, incoming, name, content, nil)
 		}
 	}
-	return reply{}
+	return reply{outcome: commandSucceeded}
 }

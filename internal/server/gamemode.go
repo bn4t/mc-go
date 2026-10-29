@@ -30,7 +30,7 @@ func parseGameMode(tok string) (byte, bool) {
 // an unknown target fails, and a trailing argument is rejected.
 func (s *Server) runGamemode(player string, args []string) reply {
 	sess := s.findSessionByName(player)
-	if sess == nil || sess.opLevel() < 2 {
+	if sess == nil && s.commandFrame(player) == nil || s.permissionLevel(player) < 2 {
 		// Hidden command, exactly as an unknown one reads.
 		return reply{comp: unknownCommand(), styled: true, fail: &failMark{}}
 	}
@@ -44,6 +44,10 @@ func (s *Server) runGamemode(player string, args []string) reply {
 		return errTokenEnd("argument.gamemode.invalid", 1, args[0])
 	}
 	target := sess
+	if source := s.commandFrame(player); source != nil && source.executor != nil {
+		target = source.executor.sess
+		sess = target
+	}
 	if len(args) > 1 {
 		target = s.resolveTarget(player, args[1])
 		if target == nil {
@@ -53,11 +57,14 @@ func (s *Server) runGamemode(player string, args []string) reply {
 	if len(args) > 2 {
 		return errToken("command.unknown.argument", 3)
 	}
+	if target == nil {
+		return componentReply(commandError("permissions.requires.player"))
+	}
 	// Vanilla's setGameMode returns false on an unchanged mode and the
 	// command emits nothing at all — no chat, no packets.
 	old := target.mode()
 	if old == mode {
-		return reply{}
+		return reply{result: 0, hasResult: true, outcome: commandSucceeded}
 	}
 	target.setMode(mode)
 	if mode != GameModeCreative && mode != GameModeSpectator {

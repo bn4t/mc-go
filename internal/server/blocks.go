@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"math"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -103,6 +104,9 @@ func (s *Server) findSessionByName(name string) *Session {
 
 // baseBlockPos returns the sender's block coordinates for "~" resolution.
 func (s *Server) baseBlockPos(player string) (int, int, int) {
+	if frame := s.commandFrame(player); frame != nil {
+		return int(math.Floor(frame.pos[0])), int(math.Floor(frame.pos[1])), int(math.Floor(frame.pos[2]))
+	}
 	if sess := s.findSessionByName(player); sess != nil {
 		if sess.execPos != nil {
 			p := sess.execPos
@@ -123,6 +127,9 @@ func (s *Server) baseBlockPos(player string) (int, int, int) {
 // dimOf returns the acting player's dimension, or the overworld when
 // the name has no session (tests, console).
 func (s *Server) dimOf(player string) *dimension {
+	if frame := s.commandFrame(player); frame != nil {
+		return frame.dim
+	}
 	if sess := s.findSessionByName(player); sess != nil {
 		return sess.dimension()
 	}
@@ -175,6 +182,11 @@ func (s *Server) runSetblock(player string, args []string) reply {
 		return textReply("Unknown block: " + args[3])
 	}
 	pos := world.Pos{X: x, Y: y, Z: z}
+	previous := d.w.GetBlock(pos)
+	var previousData map[string]any
+	if tag != nil {
+		previousData, _ = s.blockEntitySaveMap(d, pos)
+	}
 	// /setblock notifies neighbours with the NEW state — vanilla's
 	// updateNeighboursOnBlockSet reads the cell post-write.
 	s.setBlockAndBroadcastNotify(player, pos, blk, true)
@@ -282,7 +294,19 @@ func (s *Server) runSetblock(player string, args []string) reply {
 	}
 	// Success is the real server's component, three plain ints - which
 	// is what /item's own fixture setup compares.
-	return opsEchoReply(translatable("commands.setblock.success", int32(x), int32(y), int32(z)))
+	unchanged := d.w.GetBlock(pos) == previous
+	if unchanged && tag != nil {
+		currentData, _ := s.blockEntitySaveMap(d, pos)
+		unchanged = reflect.DeepEqual(previousData, currentData)
+	}
+	if unchanged {
+		r := componentReply(commandError("commands.setblock.failed"))
+		r.result, r.hasResult = 0, true
+		return r
+	}
+	r := opsEchoReply(translatable("commands.setblock.success", int32(x), int32(y), int32(z)))
+	r.result, r.hasResult = 1, true
+	return r
 }
 
 // broadcastChunk resends one column to every play-stage session holding

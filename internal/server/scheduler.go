@@ -16,6 +16,10 @@ type tickKind uint8
 const (
 	tickFluid tickKind = iota
 	tickBlock
+	// Command variants have distinct expected block types in vanilla's
+	// queue. A mode conversion must not consume the previous mode's tick.
+	tickCommandImpulse
+	tickCommandRepeat
 )
 
 // schedKey identifies one scheduled block position in one dimension.

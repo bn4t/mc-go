@@ -233,6 +233,9 @@ func (s *Server) restoreGenericBlockEntity(d *dimension, pos world.Pos, id strin
 	if d.genericBE == nil {
 		d.genericBE = map[world.Pos]*genericBlockEntity{}
 	}
+	if id == "minecraft:command_block" {
+		fields = commandBlockSavedFields(fields)
+	}
 	d.genericBE[pos] = &genericBlockEntity{id: id, fields: fields}
 	if id == "minecraft:beehive" {
 		if l, ok := fields["bees"].(nbt.List); ok && len(l.Items) > 0 {

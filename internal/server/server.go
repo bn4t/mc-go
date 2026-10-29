@@ -230,13 +230,16 @@ type Server struct {
 	listeners    map[net.Listener]struct{}
 	shuttingDown atomic.Bool
 
-	bus           *event.Bus
-	world         *world.World // overworld; also dims["minecraft:overworld"].w
-	dims          map[string]*dimension
-	commands      *plugin.Commands
-	hooks         *plugin.Hooks
-	pluginMu      sync.Mutex
-	pluginManager *plugin.Manager
+	bus      *event.Bus
+	world    *world.World // overworld; also dims["minecraft:overworld"].w
+	dims     map[string]*dimension
+	commands *plugin.Commands
+	// activeCommandSource is scoped to neutralCommandActor under simulation
+	// ownership. Normal player/network paths never read this frame.
+	activeCommandSource *commandSourceFrame
+	hooks               *plugin.Hooks
+	pluginMu            sync.Mutex
+	pluginManager       *plugin.Manager
 	// compCommands are the built-in commands that answer with a chat
 	// component rather than plain text (see timecmd.go).
 	compMu       sync.RWMutex

@@ -226,6 +226,13 @@ func TestExecuteIfParity(t *testing.T) {
 		sink.take()
 		var out [][]string
 		for _, cmd := range cmds {
+			ageStore := cmd == "execute store result entity "+sel+" Age int 1 run data get storage z:z a"
+			if ageStore {
+				// The stored value is 9. A 450 ms sleep can observe either
+				// zero or one at the tick boundary; pin ten exact ticks.
+				sendCommand(t, pw, "tick freeze")
+				waitDrained(t, pw, sink)
+			}
 			sink.take()
 			sendCommand(t, pw, cmd)
 			time.Sleep(450 * time.Millisecond)
@@ -236,6 +243,19 @@ func TestExecuteIfParity(t *testing.T) {
 				}
 			}
 			out = append(out, evs)
+			if ageStore {
+				before := gameTimeOf(t, pw, sink)
+				sendCommand(t, pw, "tick step 10")
+				deadline := time.Now().Add(10 * time.Second)
+				for gameTimeOf(t, pw, sink) < before+10 {
+					if time.Now().After(deadline) {
+						t.Fatal("age-store tick step did not complete")
+					}
+					time.Sleep(20 * time.Millisecond)
+				}
+				sendCommand(t, pw, "tick unfreeze")
+				waitDrained(t, pw, sink)
+			}
 		}
 		return out
 	}

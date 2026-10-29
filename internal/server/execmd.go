@@ -50,12 +50,18 @@ type executeContext struct {
 func (s *Server) runExecute(player string, args []string) reply {
 	ctx := executeContext{dim: s.dimOf(player), alive: true}
 	ctx.pos = s.execOrigin(player)
+	if frame := s.commandFrame(player); frame != nil {
+		ctx.ent = frame.executor
+	}
 	return s.execTail(&ctx, player, args, 1)
 }
 
 // execOrigin returns the sender's feet position — the point the
 // chain's ~ tokens start from.
 func (s *Server) execOrigin(player string) [3]float64 {
+	if frame := s.commandFrame(player); frame != nil {
+		return frame.pos
+	}
 	if sess := s.findSessionByName(player); sess != nil {
 		x, y, z, _, _, _ := sess.Pos()
 		return [3]float64{x, y, z}
@@ -68,8 +74,15 @@ func (s *Server) execOrigin(player string) [3]float64 {
 // maps args[0] onto its token index in the full input. `store` recurses
 // here for the chain its result comes from.
 func (s *Server) execTail(ctx *executeContext, player string, args []string, argTokBase int) reply {
+	source := s.commandFrame(player)
+	if source != nil {
+		defer func() { s.activeCommandSource = source }()
+	}
 	i := 0
 	for i < len(args) {
+		if source != nil {
+			s.activeCommandSource = executeSourceFrame(source, ctx)
+		}
 		bx := int(math.Floor(ctx.pos[0]))
 		by := int(math.Floor(ctx.pos[1]))
 		bz := int(math.Floor(ctx.pos[2]))
@@ -1043,6 +1056,16 @@ func (s *Server) matchesBlockPredicate(d *dimension, pos world.Pos, blk world.Bl
 // command that must actually move the target across dimensions rather
 // than just run with that context, so it bypasses the registry.
 func (s *Server) runInDimension(player string, d *dimension, sub []string) reply {
+	if source := s.commandFrame(player); source != nil {
+		child := *source
+		child.dim = d
+		return s.withCommandFrame(&child, func() reply {
+			if r, ok := s.runCommand(player, sub[0], sub[1:]); ok {
+				return r
+			}
+			return componentReply(unknownCommand())
+		})
+	}
 	switch sub[0] {
 	case "tp", "teleport":
 		// The cross-dimension player hop is the only form the legacy
@@ -1108,6 +1131,13 @@ func (s *Server) tpNeedsDimHop(player string, d *dimension, args []string) bool 
 
 // resolveTarget maps a selector token to a live session.
 func (s *Server) resolveTarget(player, tok string) *Session {
+	if source := s.commandFrame(player); source != nil && strings.HasPrefix(tok, "@") {
+		entities, err := s.selectDataEntities(nil, tok, 0, false, source.dim)
+		if err == nil && len(entities) != 0 {
+			return entities[0].sess
+		}
+		return nil
+	}
 	switch tok {
 	case "@s", "@p", "@e", "@a", "@r":
 		return s.findSessionByName(player)
@@ -1668,12 +1698,21 @@ func (s *Server) executeStore(ctx *executeContext, player string, args []string,
 		return errToken("command.unknown.argument", tokBase+next)
 	}
 	tail := s.execTail(ctx, player, args[next:], tokBase+next)
-	if !tail.hasResult {
+	if tail.fail != nil {
 		return tail
 	}
 	v := int64(tail.result)
-	if !wantResult {
-		if tail.result != 0 {
+	if wantResult {
+		if !tail.hasResult {
+			return tail
+		}
+	} else {
+		failure := tail.outcome == commandFailed || tail.comp.commandFailure
+		success := !failure && (tail.outcome == commandSucceeded || tail.hasResult)
+		if !success && !failure {
+			return tail
+		}
+		if success {
 			v = 1
 		} else {
 			v = 0
@@ -1711,6 +1750,9 @@ func typedStoreValue(typ string, v int64, scale float64) any {
 // chain's frame bound on the sender's session: the forked executor for
 // @s reads, the forked origin for ~, restored after.
 func (s *Server) execRun(ctx *executeContext, player string, sub []string, subTok int) reply {
+	if source := s.commandFrame(player); source != nil && (!s.commandExists(sub[0]) || source.level < commandLevel(sub[0])) {
+		return errToken("command.unknown.argument", subTok)
+	}
 	sess := s.findSessionByName(player)
 	if sess == nil {
 		return s.runInDimension(player, ctx.dim, sub)
@@ -1747,7 +1789,7 @@ func (s *Server) commandExists(name string) bool {
 // append in order so multi-fork leaves read like the real server's
 // back-to-back messages. The result fields track the last fork.
 func mergeReplies(dst *reply, src reply) {
-	if src.fail == nil && src.styled && src.comp.color == "red" {
+	if src.fail == nil && (src.outcome == commandFailed || src.comp.commandFailure) {
 		// A forked leaf's runtime failure replies nothing — the
 		// error only lands for a single-source (redirect) chain.
 		dst.result, dst.hasResult = src.result, src.hasResult
@@ -1807,14 +1849,18 @@ func (s *Server) executeFork(ctx *executeContext, player, kind string, args []st
 			return *serr
 		}
 	}
-	if !ctx.alive || len(cands) == 0 || sess == nil {
+	if !ctx.alive || len(cands) == 0 || sess == nil && s.commandFrame(player) == nil {
 		return reply{}
 	}
 	var merged reply
 	for _, c := range cands {
 		sub := *ctx
 		sub.forked = true
-		prevEnt, prevPos := sess.execEnt, sess.execPos
+		var prevEnt *dataEntity
+		var prevPos *[3]float64
+		if sess != nil {
+			prevEnt, prevPos = sess.execEnt, sess.execPos
+		}
 		if kind == "at" {
 			// at re-anchors the origin only: the executing entity
 			// (@s) stays the sender — position and dimension change
@@ -1826,12 +1872,18 @@ func (s *Server) executeFork(ctx *executeContext, player, kind string, args []st
 			// stay at the command source — `as @e run tp ~ ~ ~`
 			// moves each mob TO the sender, not to itself.
 			sub.ent = c
-			sess.execEnt = c
+			if sess != nil {
+				sess.execEnt = c
+			}
 		}
 		p := sub.pos
-		sess.execPos = &p
+		if sess != nil {
+			sess.execPos = &p
+		}
 		r := s.execTail(&sub, player, args[1:], tokBase+1)
-		sess.execEnt, sess.execPos = prevEnt, prevPos
+		if sess != nil {
+			sess.execEnt, sess.execPos = prevEnt, prevPos
+		}
 		if r.fail != nil {
 			return r
 		}
@@ -1868,11 +1920,14 @@ func (s *Server) executeSummon(ctx *executeContext, player string, args []string
 		e.VariantName = v
 	}
 	e.SoundVariant = rollSoundVariant(name)
-	if !ctx.alive || sess == nil {
+	if !ctx.alive || sess == nil && s.commandFrame(player) == nil {
 		return reply{}
 	}
 	sub := *ctx
 	sub.ent = &dataEntity{mob: e}
+	if sess == nil {
+		return s.execTail(&sub, player, args[1:], tokBase+1)
+	}
 	prevEnt, prevPos := sess.execEnt, sess.execPos
 	sess.execEnt = sub.ent
 	p := sub.pos
@@ -1898,7 +1953,7 @@ func (s *Server) executePositioned(ctx *executeContext, player string, args []st
 		if serr != nil {
 			return *serr
 		}
-		if !ctx.alive || len(cands) == 0 || sess == nil {
+		if !ctx.alive || len(cands) == 0 || sess == nil && s.commandFrame(player) == nil {
 			return reply{}
 		}
 		var merged reply
@@ -1906,6 +1961,14 @@ func (s *Server) executePositioned(ctx *executeContext, player string, args []st
 			sub := *ctx
 			sub.pos = c.position()
 			sub.forked = true
+			if sess == nil {
+				r := s.execTail(&sub, player, args[2:], tokBase+2)
+				if r.fail != nil {
+					return r
+				}
+				mergeReplies(&merged, r)
+				continue
+			}
 			prevPos := sess.execPos
 			p := sub.pos
 			sess.execPos = &p
