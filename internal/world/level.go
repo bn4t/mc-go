@@ -259,13 +259,14 @@ func worldGenSettings(d LevelData) map[string]any {
 			},
 		},
 	}
-	if d.Generator == "normal" {
-		// The default world preset's overworld (world_preset/normal).
+	if settings, ok := noiseLevelSettings[d.Generator]; ok {
+		// The world presets' overworld (world_preset/normal, amplified,
+		// large_biomes): the noise generator over its settings.
 		overworld = map[string]any{
 			"type": "minecraft:overworld",
 			"generator": map[string]any{
 				"type":     "minecraft:noise",
-				"settings": "minecraft:overworld",
+				"settings": "minecraft:" + settings,
 				"biome_source": map[string]any{
 					"type":   "minecraft:multi_noise",
 					"preset": "minecraft:overworld",
@@ -421,6 +422,11 @@ func ReadLevel(dir string) (LevelData, error) {
 						switch g["type"] {
 						case "minecraft:noise":
 							out.Generator = "normal"
+							for gen, set := range noiseLevelSettings {
+								if g["settings"] == "minecraft:"+set {
+									out.Generator = gen
+								}
+							}
 						case "minecraft:flat":
 							out.Generator = "flat"
 						}
@@ -445,4 +451,10 @@ func savedDataPayload(root any) (map[string]any, bool) {
 	}
 	payload, ok := m["data"].(map[string]any)
 	return payload, ok
+}
+
+// noiseLevelSettings maps the noise level types to their overworld
+// noise settings.
+var noiseLevelSettings = map[string]string{
+	"normal": "overworld", "amplified": "amplified", "large_biomes": "large_biomes",
 }

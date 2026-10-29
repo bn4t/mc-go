@@ -14,8 +14,10 @@ import (
 
 // Level types the overworld can be generated with.
 const (
-	LevelTypeFlat   = "flat"
-	LevelTypeNormal = "normal"
+	LevelTypeFlat        = "flat"
+	LevelTypeNormal      = "normal"
+	LevelTypeAmplified   = "amplified"
+	LevelTypeLargeBiomes = "large_biomes"
 )
 
 // terrainSource feeds a provided world from the noise generator.
@@ -252,11 +254,14 @@ func (s *Server) applyLevelType() error {
 	if s.LevelType == "" || s.LevelType == LevelTypeFlat {
 		return nil
 	}
-	if s.LevelType != LevelTypeNormal {
+	settings, ok := map[string]string{
+		LevelTypeNormal: "overworld", LevelTypeAmplified: "amplified", LevelTypeLargeBiomes: "large_biomes",
+	}[s.LevelType]
+	if !ok {
 		return fmt.Errorf("unknown level type %q", s.LevelType)
 	}
 	d := s.dims[dimOverworld]
-	src, err := newTerrainSource(s.WorldSeed, s.WorldgenOverlay, "overworld", "overworld", d.minY, d.height)
+	src, err := newTerrainSource(s.WorldSeed, s.WorldgenOverlay, settings, "overworld", d.minY, d.height)
 	if err != nil {
 		return err
 	}

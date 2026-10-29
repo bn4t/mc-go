@@ -380,6 +380,10 @@ func (s *Server) ApplyProperties(p *ServerProperties, serverDir string, skip map
 				s.LevelType = LevelTypeNormal
 			case "flat":
 				s.LevelType = LevelTypeFlat
+			case "amplified":
+				s.LevelType = LevelTypeAmplified
+			case "large_biomes":
+				s.LevelType = LevelTypeLargeBiomes
 			default:
 				return fmt.Errorf("level type %q is not supported", v)
 			}

@@ -16079,3 +16079,18 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:** keys mc-go does not act on yet (white-list enforcement,
   spawn-protection, hardcore, resource packs, max-tick-time, network
   compression threshold, ...) are kept and rewritten but not applied.
+
+## Slice — amplified and large_biomes world presets (2026-10-29)
+
+- **Measured:** wire/save observation of the real server's
+  `level-type=minecraft:amplified` and `minecraft:large_biomes` worlds
+  (seed 12345, features stripped), and their world_gen_settings
+  overworld generators (noise settings minecraft:amplified /
+  minecraft:large_biomes over the overworld multi-noise preset).
+- **Implemented:** level types `amplified` and `large_biomes`
+  (`-level-type`, server.properties, level.dat round trip); the data
+  driven generator runs their noise settings unchanged.
+- **Pinned:** `TestTerrainAmplifiedParity`, `TestTerrainLargeBiomesParity`
+  (18 chunks each, blocks and biome cells).
+- **Remaining:** custom flat presets (`generator-settings`), the
+  single-biome and debug presets.

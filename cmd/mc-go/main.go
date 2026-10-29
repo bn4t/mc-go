@@ -35,7 +35,7 @@ func main() {
 	rconPassword := flag.String("rcon-password", "", "RCON password; empty disables RCON like unset rcon.password")
 	enableQuery := flag.Bool("enable-query", false, "enable the GameSpy4 query listener")
 	queryAddr := flag.String("query-addr", "", "query listen address (default: the server address, like unset query.port)")
-	levelType := flag.String("level-type", "", "overworld generator for a new world: flat (default) or normal (vanilla terrain); a saved world keeps its own")
+	levelType := flag.String("level-type", "", "overworld generator for a new world: flat (default), normal (vanilla terrain), amplified or large_biomes; a saved world keeps its own")
 	propsPath := flag.String("properties", "", "vanilla server.properties to read (and complete with defaults, as the real server does); used automatically when <server-dir>/server.properties exists; command-line flags win")
 	flag.Parse()
 

@@ -85,6 +85,9 @@ func vanillaTerrainFiles(t *testing.T, seed int64, files map[string]string, area
 	return vanillaDimTerrain(t, seed, files, "overworld", areas)
 }
 
+// terrainLevelType is the level type the terrain oracle generates.
+var terrainLevelType = "minecraft:normal"
+
 // vanillaDimTerrain is vanillaTerrainFiles for any dimension
 // ("overworld", "the_nether", "the_end"): the areas are force-loaded in
 // that dimension and its region directory is returned.
@@ -98,7 +101,7 @@ func vanillaDimTerrain(t *testing.T, seed int64, files map[string]string, dim st
 	}
 	props := map[string]string{
 		"level-name":          "world",
-		"level-type":          "minecraft:normal",
+		"level-type":          terrainLevelType,
 		"generator-settings":  "{}",
 		"level-seed":          fmt.Sprint(seed),
 		"generate-structures": "false",
