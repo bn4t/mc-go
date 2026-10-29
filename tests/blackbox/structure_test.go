@@ -438,3 +438,25 @@ func compareStructBlockEntities(t *testing.T, saved savedChunk, p *worldgen.Prot
 func TestStructureVillagePlainsParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{-14, -58, -7, -48}}, "villages")
 }
+
+// TestStructureVillageDesertParity pins a desert village (sandstone
+// streets over sand, the desert farm and zombie-free processors).
+func TestStructureVillageDesertParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{-152, 33, -140, 43}}, "villages")
+}
+
+// TestStructureVillageSavannaParity pins a savanna village.
+func TestStructureVillageSavannaParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{-73, -104, -60, -92}}, "villages")
+}
+
+// TestStructureVillageSnowyParity pins a snowy village (ice and snow
+// street rules over snowy terrain).
+func TestStructureVillageSnowyParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{85, 72, 96, 78}}, "villages")
+}
+
+// TestStructureVillageTaigaParity pins a taiga village.
+func TestStructureVillageTaigaParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{71, -29, 78, -17}}, "villages")
+}

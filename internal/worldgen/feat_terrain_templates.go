@@ -93,7 +93,11 @@ func loadTemplate(id string) *structTemplate {
 	}
 	raw, ok := templateNBT(id)
 	if !ok {
-		panic("worldgen: unknown structure template " + id)
+		// StructureTemplateManager.getOrCreate: a missing template is an
+		// empty one (size zero, no palettes).
+		t := &structTemplate{}
+		templateCache[id] = t
+		return t
 	}
 	_, v, err := nbt.ReadNamed(bytes.NewReader(raw))
 	if err != nil {

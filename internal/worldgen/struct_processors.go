@@ -111,16 +111,29 @@ func jigsawReplacementProc(rg *Region, off, pivot, local BlockPos, cur *tplBlock
 }
 
 // parseBlockState is BlockStateParser.parseForBlock for
-// "ns:name[k=v,...]" (unknown properties make it fail).
+// "ns:name[k=v,...]": the reader stops after the property list, so
+// trailing characters are ignored (a template's final_state ending in
+// "]]" still parses); unknown properties or values fail.
 func parseBlockState(s string) (world.Block, bool) {
-	name, rest, hasProps := strings.Cut(s, "[")
-	b, ok := world.BlockStateOf(trimNS(strings.TrimSpace(name)), nil)
+	n := 0
+	for n < len(s) {
+		c := s[n]
+		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == ':' || c == '/' || c == '.' || c == '-' {
+			n++
+			continue
+		}
+		break
+	}
+	b, ok := world.BlockStateOf(trimNS(s[:n]), nil)
 	if !ok {
 		return world.Air, false
 	}
-	if hasProps {
-		rest = strings.TrimSuffix(strings.TrimSpace(rest), "]")
-		for _, kv := range strings.Split(rest, ",") {
+	if n < len(s) && s[n] == '[' {
+		end := strings.IndexByte(s[n:], ']')
+		if end < 0 {
+			return world.Air, false
+		}
+		for _, kv := range strings.Split(s[n+1:n+end], ",") {
 			k, v, _ := strings.Cut(kv, "=")
 			k, v = strings.TrimSpace(k), strings.TrimSpace(v)
 			if k == "" {
