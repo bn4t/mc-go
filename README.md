@@ -34,6 +34,7 @@ test-instance controller records/reset/native saves,
 block-entity update coalescing, moving-piston collision timing and measured
 dropped-item pushes, retracting source-base ejection of NoGravity armor stands,
 container validity, chest events and ordinary main/offhand placement and consumption.
+Dying mobs continue to obstruct block placement until their actual removal.
 Invalid hand values in protocol 776 item-use packets disconnect without item
 actions; broader malformed-packet coverage remains partial.
 Selected-hand interactions include signs, hive harvesting, ignition, growth,

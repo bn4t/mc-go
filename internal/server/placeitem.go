@@ -148,7 +148,7 @@ func (s *Server) placeUnobstructed(d *dimension, st world.Block, pos world.Pos) 
 	}
 	playerType := mustEntityType("player")
 	for _, e := range s.entities.All() {
-		if e.Dim != d.name || e.Type == playerType || e.Dying {
+		if e.Dim != d.name || e.Type == playerType {
 			continue
 		}
 		name, _ := EntityTypeName(e.Type)

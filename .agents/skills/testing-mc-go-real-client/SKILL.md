@@ -120,6 +120,8 @@ successful tagged native run does not establish default test compilation.
 - Frozen dying mobs can still obstruct building until removal ticks finish.
   Relocate live fixture mobs before killing when isolating another mechanic.
   Keep a separate before/after-removal control when testing that collision.
+  Establish the same entity ID through spawn, death status and actual removal
+  packets; selector absence is insufficient because selectors omit corpses.
 - Attribute replies do not prove settled body dimensions. When a clearance
   test needs settled scale, observe completed entity ticks; test immediate
   resize timing separately instead of claiming that the settled case pins it.

@@ -14,6 +14,7 @@ import (
 )
 
 type handUseCase struct {
+	bodyPhase                                      string
 	order                                          bool
 	sound                                          string
 	levelEvent                                     int32
@@ -120,6 +121,8 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 		editor := false
 		window := int32(0)
 		orderActive, warmSpawn := false, false
+		bodyActive, bodyDied, bodyRemoved := false, false, false
+		bodyID := int32(0)
 		var order []string
 		fold := func(lines []string) {
 			a, b := countHandEffectsBB(lines, effectSound, effectEvent)
@@ -136,12 +139,16 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 				}
 				r := protocol.NewPacketReader([]byte(line[sep+1:]))
 				if id == server.IDPlaySpawnEntity {
-					_, e := r.VarInt()
+					entity, e := r.VarInt()
 					_, e2 := r.Read(16)
 					typ, e3 := r.VarInt()
 					x, e4 := r.Double()
 					y, e5 := r.Double()
 					z, e6 := r.Double()
+					cowType, _ := server.EntityTypeID("cow")
+					if bodyActive && e == nil && e2 == nil && e3 == nil && e4 == nil && e5 == nil && e6 == nil && typ == cowType && math.Abs(x-.5) < 1e-6 && math.Abs(y-160) < 1e-6 && math.Abs(z-.5) < 1e-6 {
+						bodyID = entity
+					}
 					itemType, _ := server.EntityTypeID("item")
 					if e == nil && e2 == nil && e3 == nil && e4 == nil && e5 == nil && e6 == nil && typ == itemType {
 						if math.Abs(x-1.5) < 1e-6 && math.Abs(y-161.25) < 1e-6 && math.Abs(z-.5) < 1e-6 {
@@ -149,6 +156,29 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 						}
 						if orderActive && math.Abs(y-160.01) < 1e-5 && x > -.21 && x < 1.21 && z > -.21 && z < 1.21 {
 							order = append(order, "spawn")
+						}
+					}
+					continue
+				}
+				if bodyActive && id == server.IDPlayEntityEvent {
+					entity, e := r.Int()
+					event, e2 := r.Byte()
+					if e == nil && e2 == nil && entity == bodyID && event == 3 {
+						bodyDied = true
+					}
+					continue
+				}
+				if bodyActive && id == server.IDPlayRemoveEntity {
+					n, e := r.VarInt()
+					if e == nil {
+						for j := int32(0); j < n; j++ {
+							entity, err := r.VarInt()
+							if err != nil {
+								break
+							}
+							if entity == bodyID {
+								bodyRemoved = true
+							}
 						}
 					}
 					continue
@@ -277,6 +307,10 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 		var out []result
 		for i, tc := range cases {
 			warmSpawn = false
+			bodyActive = tc.bodyPhase != ""
+			bodyDied = false
+			bodyRemoved = false
+			bodyID = 0
 			orderActive = false
 			if window != 0 {
 				var b protocol.Buffer
@@ -365,6 +399,28 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 			if !ready {
 				t.Fatalf("%s %s initial hand slots main%+v off%+v", addr, tc.name, slots[36], slots[45])
 			}
+			if tc.bodyPhase != "" {
+				awaitBody := func(label string, predicate func() bool) {
+					deadline := time.Now().Add(10 * time.Second)
+					for !predicate() && time.Now().Before(deadline) {
+						fold(sink.take())
+						time.Sleep(10 * time.Millisecond)
+					}
+					if !predicate() {
+						t.Fatalf("%s %s missing body %s id%d died%v removed%v", addr, tc.name, label, bodyID, bodyDied, bodyRemoved)
+					}
+				}
+				awaitBody("spawn", func() bool { return bodyID != 0 && !bodyRemoved })
+				if tc.bodyPhase != "alive" {
+					sendCommand(t, pw, "kill @e[tag=body_fixture]")
+					awaitBody("death", func() bool { return bodyDied && !bodyRemoved })
+					if tc.bodyPhase == "retired" {
+						sendCommand(t, pw, "tick step 20")
+						awaitBody("removal", func() bool { return bodyRemoved })
+					}
+				}
+			}
+
 			setupOK := true
 			if len(tc.before) > 0 {
 				markers := make([]string, len(tc.before))
