@@ -18267,3 +18267,9 @@ Provenance: Java 26.2 wire/NBT observations, prior public progress-sweep facts, 
 - **Pinned:** immutable 6959d38 plus two owned files passes TestItemMobParity in 12.31 s. Combined cargo integration is checked separately; this pin does not expand component or command schema claims.
 
 Provenance: Java 26.2 wire, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Frozen patch 9c306ddf0281a8441988ca4b9eb28f8bc94ad8a0ed47ad34626afae4ce937ecf.
+
+## Slice — copper viewer test build boundary (2026-10-29)
+
+- **Measured:** immutable b7c0b9b builds, but default vet rejects a vanilla-only copper viewer test referencing the blackbox-tagged observer helper. The tagged native run had passed, so this was a build-mode dependency rather than a gameplay regression.
+- **Implemented:** apply the matching blackbox build tag to the copper viewer test. No runtime or test assertions change.
+- **Pinned:** immutable b7c0b9b plus the one-file tag patch passes default vet and tagged blackbox compilation (0.104 s, no tests run), using Go 1.27.3. Full default validation resumes on the corrected committed batch.
