@@ -16306,3 +16306,28 @@ no flee; unsneak → flee). Green both legs.
   popping, door and bed halves breaking together), copper chest
   oxidation merge, mossy carpet toppers, creaking heart activity by the
   environment attribute, block entity data from item components.
+
+## Slice — updateShape: supports and partner halves (2026-10-29)
+
+- **Measured:** bytecode inspection of the 107 `updateShape` overrides
+  in the 26.2 jar - the return-air families (torches and wall torches,
+  signs and hanging signs, banners, buttons, levers, ladders, hooks,
+  lanterns, pressure plates, cakes, flower pots, carpets, coral,
+  amethyst, cocoa, spore blossom, hanging roots, bells, all
+  vegetation), the partner families (`DoorBlock` halves syncing or
+  breaking, `DoublePlantBlock` and pitcher crops, `BedBlock` parts),
+  the property rewrites (note block instrument from above/below,
+  campfire signal fire, fence gate in_wall, bell single/double wall,
+  bamboo sapling to stalk, attached stems detaching, mossy carpet,
+  potent sulfur, path and farmland to dirt), and
+  `Level.destroyBlock` (2001, the cell's fluid left, loot with an
+  empty tool).
+- **Implemented:** `internal/server/shapeupdate.go` (a class-keyed
+  updateShape table reached from the neighbour survival pass before the
+  older name table; pops leave water for waterlogged blocks and drop
+  their loot).
+- **Pinned:** `TestShapeUpdateParity` (42 neighbour changes, every
+  block update against the real server); `TestPlacementParity` re-run.
+- **Remaining:** rails' neighborChanged pops, the tick families'
+  one-tick pop delay (applied at once), drowned/fluid scheduling on
+  waterlogged pops beyond the source left behind.

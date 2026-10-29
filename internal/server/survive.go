@@ -285,6 +285,12 @@ func (s *Server) checkSurvival(d *dimension, pos, changed world.Pos, notify worl
 		}
 		return
 	}
+	// The measured class table (shapeupdate.go) covers the support
+	// and partner families; the name table below keeps the tick
+	// families' placement self-checks.
+	if s.classUpdateShape(d, pos, changed, b) {
+		return
+	}
 	fn, ok := surviveFns()[name]
 	if !ok || fn(s, d, pos, b) {
 		return

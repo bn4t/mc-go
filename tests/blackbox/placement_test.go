@@ -196,6 +196,7 @@ func TestPlacementParity(t *testing.T) {
 			t.Fatal(err)
 		}
 		sendCommand(t, pw, "gamemode creative @s")
+		sendCommand(t, pw, "gamerule random_tick_speed 0")
 		sendCommand(t, pw, fmt.Sprintf("tp @s %d -60 %d", placeOriginX, placeOriginZ))
 		time.Sleep(2 * time.Second)
 		wait := func(marker string) []string {
