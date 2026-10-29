@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"math/rand"
 	"runtime"
 	"sync"
 
@@ -321,38 +323,128 @@ func (s *Server) findInitialSpawn(src *terrainSource) (int, int, int) {
 }
 
 func (s *Server) spawnPosInChunk(cx, cz int) (int, int, int, bool) {
-	c := s.world.BaseChunk(cx, cz)
-	if c == nil {
-		return 0, 0, 0, false
-	}
-	top := func(lx, lz int, pred func(world.Block) bool) int {
-		for y := c.MinY + c.Height - 1; y >= c.MinY; y-- {
-			if pred(c.At(lx, y, lz)) {
-				return y
-			}
-		}
-		return c.MinY - 1
-	}
 	for lx := 0; lx < 16; lx++ {
 		for lz := 0; lz < 16; lz++ {
-			mb := top(lx, lz, worldgen.MotionBlocking)
-			if mb < c.MinY {
-				continue
-			}
-			ws := top(lx, lz, func(b world.Block) bool { return !worldgen.IsAir(b) })
-			if ws <= mb && ws > top(lx, lz, worldgen.BlocksMotion) {
-				continue
-			}
-			for y := mb + 1; y >= c.MinY; y-- {
-				b := c.At(lx, y, lz)
-				if worldgen.HasFluid(b) {
-					break
-				}
-				if worldgen.SturdyUp(b) {
-					return cx*16 + lx, y + 1, cz*16 + lz, true
-				}
+			if y, ok := s.levelRespawnY(cx*16+lx, cz*16+lz); ok {
+				return cx*16 + lx, y, cz*16 + lz, true
 			}
 		}
 	}
 	return 0, 0, 0, false
+}
+
+// levelRespawnY is PlayerSpawnFinder.getLevelRespawnPos for a column of
+// the generated overworld: the cell above the first full-topped block
+// at or below the motion-blocking top, unless a fluid comes first or
+// the surface is a non-blocking cover over the ocean floor.
+func (s *Server) levelRespawnY(x, z int) (int, bool) {
+	c := s.world.BaseChunk(x>>4, z>>4)
+	if c == nil {
+		return 0, false
+	}
+	at := func(y int) world.Block { return s.world.GetBlock(world.Pos{X: x, Y: y, Z: z}) }
+	col := make([]world.Block, c.Height)
+	s.world.FillBox(world.Pos{X: x, Y: c.MinY, Z: z}, world.Pos{X: x, Y: c.MinY + c.Height - 1, Z: z}, col)
+	top := func(pred func(world.Block) bool) int {
+		for i := len(col) - 1; i >= 0; i-- {
+			if pred(col[i]) {
+				return c.MinY + i
+			}
+		}
+		return c.MinY - 1
+	}
+	mb := top(worldgen.MotionBlocking)
+	if mb < c.MinY {
+		return 0, false
+	}
+	ws := top(func(b world.Block) bool { return !worldgen.IsAir(b) })
+	if ws <= mb && ws > top(worldgen.BlocksMotion) {
+		return 0, false
+	}
+	for y := mb + 1; y >= c.MinY; y-- {
+		b := at(y)
+		if worldgen.HasFluid(b) {
+			return 0, false
+		}
+		if worldgen.SturdyUp(b) {
+			return y + 1, true
+		}
+	}
+	return 0, false
+}
+
+// playerSpawn is PlayerSpawnFinder.findSpawn for a new or bed-less
+// player in the generated overworld: candidates over the square of
+// respawn_radius around the world spawn, visited from a random offset
+// with a stride coprime to their count, take the first column whose
+// level respawn spot leaves the player's box free of blocks and fluid;
+// adventure mode and an exhausted search keep the spawn with its height
+// fixed up. A flat world keeps the exact spawn.
+func (s *Server) playerSpawn() (float64, float64, float64) {
+	x, y, z := s.WorldSpawn()
+	if !s.world.Provided() {
+		return x, y, z
+	}
+	sx, sy, sz := int(math.Floor(x)), int(math.Floor(y)), int(math.Floor(z))
+	if s.GameMode != GameModeAdventure {
+		r := max(0, s.gameRuleInt("minecraft:respawn_radius"))
+		// The world border is 29999984 out; only its distance clamps.
+		if dist := 29999984 - max(absInt(sx), absInt(sz)); dist < r {
+			r = dist
+		}
+		if r < 1 {
+			r = 1
+		}
+		side := 2*r + 1
+		count := min(1024, side*side)
+		stride := 17
+		if count <= 16 {
+			stride = count - 1
+		}
+		off := rand.Intn(count)
+		for i := 0; i < count; i++ {
+			idx := (off + stride*i) % count
+			cx, cz := sx+idx%side-r, sz+idx/side-r
+			if py, ok := s.levelRespawnY(cx, cz); ok && s.spawnBoxFree(cx, py, cz) {
+				return float64(cx) + 0.5, float64(py), float64(cz) + 0.5
+			}
+		}
+	}
+	return s.fixupSpawnHeight(sx, sy, sz)
+}
+
+// spawnBoxFree approximates noCollisionNoLiquid for the player's box
+// standing at (x, y, z): its two cells neither block motion nor hold
+// fluid.
+func (s *Server) spawnBoxFree(x, y, z int) bool {
+	for dy := 0; dy < 2; dy++ {
+		b := s.world.GetBlock(world.Pos{X: x, Y: y + dy, Z: z})
+		if worldgen.BlocksMotion(b) || worldgen.HasFluid(b) {
+			return false
+		}
+	}
+	return true
+}
+
+// fixupSpawnHeight is PlayerSpawnFinder.fixupSpawnHeight: rise out of
+// anything solid, then drop through free cells to the ground.
+func (s *Server) fixupSpawnHeight(x, y, z int) (float64, float64, float64) {
+	d := s.dims[dimOverworld]
+	maxY, minY := d.minY+d.height-1, d.minY
+	for !s.spawnBoxFree(x, y, z) && y < maxY {
+		y++
+	}
+	y--
+	for s.spawnBoxFree(x, y, z) && y > minY {
+		y--
+	}
+	y++
+	return float64(x) + 0.5, float64(y), float64(z) + 0.5
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }

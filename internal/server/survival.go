@@ -1211,7 +1211,7 @@ func (s *Server) respawnPlayer(sess *Session) {
 		x, y, z = float64(spawnPos[0])+0.5, float64(spawnPos[1]), float64(spawnPos[2])+0.5
 		yaw = spawnYaw
 	} else {
-		x, y, z = s.WorldSpawn()
+		x, y, z = s.playerSpawn()
 	}
 	if sess.dimension() != dest {
 		// Cross-dimension respawn: entity tracking, chunks, and

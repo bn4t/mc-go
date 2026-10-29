@@ -16007,3 +16007,22 @@ no flee; unsneak → flee). Green both legs.
   portal, exact arrival).
 - **Remaining:** `findCollisionFreePosition` is taken as the target
   (exact when the portal interior is free); non-player travellers.
+
+## Slice — player spawn finder in generated worlds (2026-10-29)
+
+- **Measured:** bytecode inspection of `PlayerSpawnFinder` (radius
+  max(0, respawn_radius) clamped by the border distance, at least 1;
+  min(1024, (2r+1)^2) candidates visited from a thread-random offset
+  with stride 17 (count-1 below 17); the first candidate whose
+  `getLevelRespawnPos` spot leaves the player box free of collision and
+  liquid wins; adventure mode and an exhausted search use
+  `fixupSpawnHeight`).
+- **Implemented:** `playerSpawn` for new players and bed-less respawns
+  in a generated overworld; the flat world keeps its exact spawn (its
+  tests rely on a fixed join position). `levelRespawnY` is shared with
+  the initial world-spawn search.
+- **Pinned:** `TestNormalWorldPlayerSpawn` (scripted: every spawn within
+  the radius, standable, spread over several columns). The start offset
+  is the server's runtime random, so no differential pin is possible.
+- **Remaining:** the flat world's join fuzz; exact collision shapes in
+  the box test.

@@ -63,7 +63,7 @@ func (s *Server) joinPlayOwned(sess *Session) bool {
 	// Joining opens the interaction gate; the client lifts it by
 	// reporting its terrain loaded.
 	sess.joinTick.Store(s.TickCount())
-	x, y, z := s.WorldSpawn()
+	x, y, z := s.playerSpawn()
 	sess.setPos(x, y, z, 0, 0, false)
 	sess.initSurvival()
 	s.applySavedPlayer(sess)

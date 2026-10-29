@@ -93,3 +93,28 @@ func TestNormalWorldSaveReload(t *testing.T) {
 		}
 	}
 }
+
+// TestNormalWorldPlayerSpawn checks PlayerSpawnFinder's contract in a
+// generated world: every spawn lies within respawn_radius of the world
+// spawn, on a full-topped block, with the player's two cells free of
+// blocks and fluid — and the random start spreads players over more
+// than one column.
+func TestNormalWorldPlayerSpawn(t *testing.T) {
+	s := normalTestServer(t, filepath.Join(t.TempDir(), "world"))
+	wx, _, wz := s.WorldSpawn()
+	seen := map[[2]int]bool{}
+	for i := 0; i < 40; i++ {
+		x, y, z := s.playerSpawn()
+		bx, by, bz := int(x-0.5), int(y), int(z-0.5)
+		if absInt(bx-int(wx-0.5)) > 10 || absInt(bz-int(wz-0.5)) > 10 {
+			t.Fatalf("spawn %v,%v,%v outside the radius of %v,%v", x, y, z, wx, wz)
+		}
+		if !worldgen.SturdyUp(s.world.GetBlock(world.Pos{X: bx, Y: by - 1, Z: bz})) || !s.spawnBoxFree(bx, by, bz) {
+			t.Fatalf("spawn %v,%v,%v not standable", x, y, z)
+		}
+		seen[[2]int{bx, bz}] = true
+	}
+	if len(seen) < 2 {
+		t.Fatalf("40 spawns landed on %d column(s)", len(seen))
+	}
+}
