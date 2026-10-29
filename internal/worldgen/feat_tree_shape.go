@@ -2,12 +2,12 @@ package worldgen
 
 import "mc-go/internal/world"
 
-// updateShape is BlockState.updateShape for the families a tree's edge
+// treeupdateShape is BlockState.updateShape for the families a tree's edge
 // update can touch: the tree's own blocks (logs, leaves, vines, cocoa,
 // propagules, moss) and the terrain or plants next to them. Families
 // whose updateShape only schedules ticks (leaves, water, mangrove
 // roots, creaking hearts) or keeps the state return it unchanged.
-func updateShape(rg *Region, st world.Block, p BlockPos, dir int, q BlockPos, nb world.Block) world.Block {
+func treeUpdateShape(rg *Region, st world.Block, p BlockPos, dir int, q BlockPos, nb world.Block) world.Block {
 	name, _ := world.StateOwner(st)
 	cls := blockClass(name)
 	switch cls[0] {
@@ -15,13 +15,13 @@ func updateShape(rg *Region, st world.Block, p BlockPos, dir int, q BlockPos, nb
 		if dir == dirDown {
 			return st
 		}
-		ns := vineUpdatedState(rg, st, p)
-		if !vineHasFaces(ns) {
+		ns := treeVineUpdatedState(rg, st, p)
+		if !treeVineHasFaces(ns) {
 			return world.Air
 		}
 		return ns
 	case "CocoaBlock":
-		if f, _ := world.StateProperty(st, "facing"); f == dirName[dir] && !cocoaSurvives(rg, st, p) {
+		if f, _ := world.StateProperty(st, "facing"); f == dirName[dir] && !treeCocoaSurvives(rg, st, p) {
 			return world.Air
 		}
 		return st
@@ -40,8 +40,8 @@ func updateShape(rg *Region, st world.Block, p BlockPos, dir int, q BlockPos, nb
 		if !canSurvive(rg, st, p) {
 			return world.Air
 		}
-		ns := mossyCarpetUpdated(rg, st, p, false)
-		if !mossyCarpetHasFaces(ns) {
+		ns := treeMossyCarpetUpdated(rg, st, p, false)
+		if !treeMossyCarpetHasFaces(ns) {
 			return world.Air
 		}
 		return ns
@@ -76,7 +76,7 @@ func updateShape(rg *Region, st world.Block, p BlockPos, dir int, q BlockPos, nb
 			return st
 		}
 	}
-	if plainVegetation(cls) {
+	if treePlainVegetation(cls) {
 		if !canSurvive(rg, st, p) {
 			return world.Air
 		}
@@ -86,7 +86,7 @@ func updateShape(rg *Region, st world.Block, p BlockPos, dir int, q BlockPos, nb
 
 // plainVegetation reports VegetationBlock families whose updateShape is
 // VegetationBlock's (or adds only a survival check).
-func plainVegetation(cls []string) bool {
+func treePlainVegetation(cls []string) bool {
 	switch cls[0] {
 	case "TallGrassBlock", "FlowerBlock", "MushroomBlock", "LeafLitterBlock", "SaplingBlock",
 		"MangrovePropaguleBlock", "DryVegetationBlock", "BushBlock", "FireflyBushBlock",
@@ -96,28 +96,28 @@ func plainVegetation(cls []string) bool {
 	return false
 }
 
-func cocoaSurvives(rg *Region, st world.Block, p BlockPos) bool {
+func treeCocoaSurvives(rg *Region, st world.Block, p BlockPos) bool {
 	f, _ := world.StateProperty(st, "facing")
 	return stateInTag(blockAt(rg, relDir(p, dirNames[f], 1)), "supports_cocoa")
 }
 
-// canAttachTo is MultifaceBlock.canAttachTo: the neighbour's support
+// treecanAttachTo is MultifaceBlock.canAttachTo: the neighbour's support
 // or collision shape has a full face towards us. The collision half is
 // derived from the full-cube collision fact (leaves have an empty
 // support shape but a full collision cube).
-func canAttachTo(rg *Region, dir int, q BlockPos) bool {
+func treeCanAttachTo(rg *Region, dir int, q BlockPos) bool {
 	b := blockAt(rg, q)
 	return sturdyFull(b, oppositeDir(dir)) || fullCollision(b)
 }
 
 var vineFaces = [6]string{"", "up", "north", "south", "west", "east"}
 
-// vineCanSupportAtFace is VineBlock.canSupportAtFace.
-func vineCanSupportAtFace(rg *Region, p BlockPos, dir int) bool {
+// treevineCanSupportAtFace is VineBlock.canSupportAtFace.
+func treeVineCanSupportAtFace(rg *Region, p BlockPos, dir int) bool {
 	if dir == dirDown {
 		return false
 	}
-	if canAttachTo(rg, dir, relDir(p, dir, 1)) {
+	if treeCanAttachTo(rg, dir, relDir(p, dir, 1)) {
 		return true
 	}
 	if dir == dirUp {
@@ -127,12 +127,12 @@ func vineCanSupportAtFace(rg *Region, p BlockPos, dir int) bool {
 	return isBlock(above, "vine") && propIs(above, vineFaces[dir], "true")
 }
 
-// vineUpdatedState is VineBlock.getUpdatedState.
-func vineUpdatedState(rg *Region, st world.Block, p BlockPos) world.Block {
+// treevineUpdatedState is VineBlock.getUpdatedState.
+func treeVineUpdatedState(rg *Region, st world.Block, p BlockPos) world.Block {
 	up := offset(p, 0, 1, 0)
 	if propIs(st, "up", "true") {
 		v := "false"
-		if canAttachTo(rg, dirDown, up) {
+		if treeCanAttachTo(rg, dirDown, up) {
 			v = "true"
 		}
 		st = withProp(st, "up", v)
@@ -142,7 +142,7 @@ func vineUpdatedState(rg *Region, st world.Block, p BlockPos) world.Block {
 		if !propIs(st, f, "true") {
 			continue
 		}
-		ok := vineCanSupportAtFace(rg, p, d)
+		ok := treeVineCanSupportAtFace(rg, p, d)
 		if !ok {
 			above := blockAt(rg, up)
 			ok = isBlock(above, "vine") && propIs(above, f, "true")
@@ -156,7 +156,7 @@ func vineUpdatedState(rg *Region, st world.Block, p BlockPos) world.Block {
 	return st
 }
 
-func vineHasFaces(st world.Block) bool {
+func treeVineHasFaces(st world.Block) bool {
 	for _, f := range vineFaces[1:] {
 		if propIs(st, f, "true") {
 			return true
@@ -165,15 +165,15 @@ func vineHasFaces(st world.Block) bool {
 	return false
 }
 
-// mossyCarpetUpdated is MossyCarpetBlock.getUpdatedState.
-func mossyCarpetUpdated(rg *Region, st world.Block, p BlockPos, tall bool) world.Block {
+// treemossyCarpetUpdated is MossyCarpetBlock.getUpdatedState.
+func treeMossyCarpetUpdated(rg *Region, st world.Block, p BlockPos, tall bool) world.Block {
 	tall = tall || propIs(st, "bottom", "true")
 	var above, below world.Block
 	haveAbove, haveBelow := false, false
 	for _, d := range horizontalDirs {
 		f := vineFaces[d]
 		var side string
-		if d != dirUp && canAttachTo(rg, d, relDir(p, d, 1)) {
+		if d != dirUp && treeCanAttachTo(rg, d, relDir(p, d, 1)) {
 			if tall {
 				side = "low"
 			} else {
@@ -203,7 +203,7 @@ func mossyCarpetUpdated(rg *Region, st world.Block, p BlockPos, tall bool) world
 	return st
 }
 
-func mossyCarpetHasFaces(st world.Block) bool {
+func treeMossyCarpetHasFaces(st world.Block) bool {
 	if propIs(st, "bottom", "true") {
 		return true
 	}
@@ -216,8 +216,8 @@ func mossyCarpetHasFaces(st world.Block) bool {
 }
 
 func init() {
-	surviveByClass["CocoaBlock"] = cocoaSurvives
+	surviveByClass["CocoaBlock"] = treeCocoaSurvives
 	surviveByClass["VineBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
-		return vineHasFaces(vineUpdatedState(rg, st, p))
+		return treeVineHasFaces(treeVineUpdatedState(rg, st, p))
 	}
 }

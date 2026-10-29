@@ -71,7 +71,7 @@ func placeLeavesRowWithHangingLeavesBelow(fp foliagePlacer, t *treeCtx, pos Bloc
 	}
 	below := offset(pos, 0, -1, 0)
 	for _, d := range horizontalDirs {
-		cw := clockWise(d)
+		cw := treeClockWise(d)
 		n := rng
 		if cw == dirSouth || cw == dirEast {
 			n = rng + e

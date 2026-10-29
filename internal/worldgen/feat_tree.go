@@ -120,8 +120,8 @@ func relDir(p BlockPos, d int, n int32) BlockPos {
 func stepX(d int) int32 { return dirOffsets[d][0] }
 func stepZ(d int) int32 { return dirOffsets[d][2] }
 
-// clockWise is Direction.getClockWise for horizontal directions.
-func clockWise(d int) int {
+// treeclockWise is Direction.getClockWise for horizontal directions.
+func treeClockWise(d int) int {
 	switch d {
 	case dirNorth:
 		return dirEast
@@ -219,10 +219,8 @@ func init() {
 func (tc *treeConfig) place(c *featCtx, r Random, origin BlockPos) bool {
 	t := &treeCtx{g: c.g, rg: c.rg, r: r, cfg: tc, roots: newJSet(), logs: newJSet(), leaves: newJSet(), decos: map[BlockPos]bool{}}
 	if !tc.doPlace(t, origin) || (t.logs.n == 0 && t.leaves.n == 0) {
-		treeTrace(t.rg, "tree %v failed", origin)
 		return false
 	}
-	treeTrace(t.rg, "tree %v logs=%d leaves=%d", origin, t.logs.n, t.leaves.n)
 	if len(tc.decorators) > 0 {
 		dc := newDecoCtx(t.g, t.rg, r, t.setDeco, t.logs.list(), t.leaves.list(), t.roots.list())
 		for _, d := range tc.decorators {
@@ -428,11 +426,11 @@ func updateShapeAtEdge(rg *Region, s *voxShape) {
 		q := relDir(p, dir, 1)
 		st := blockAt(rg, p)
 		nb := blockAt(rg, q)
-		ns := updateShape(rg, st, p, dir, q, nb)
+		ns := treeUpdateShape(rg, st, p, dir, q, nb)
 		if ns != st {
 			rg.set(p, ns)
 		}
-		nn := updateShape(rg, nb, q, oppositeDir(dir), p, ns)
+		nn := treeUpdateShape(rg, nb, q, oppositeDir(dir), p, ns)
 		if nn != nb {
 			rg.set(q, nn)
 		}

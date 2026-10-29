@@ -2,8 +2,6 @@ package blackbox
 
 import (
 	"encoding/json"
-	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -110,13 +108,28 @@ func keepTreePlaced(p string) bool {
 	return mine
 }
 
-// featureParityKeep is featureParity with a placed-feature filter.
-func featureParityKeep(t *testing.T, seed int64, areas []terrainArea, keep func(string) bool) {
+// treeParity has the real server decorate the areas with only the
+// placed features keep accepts, logging (through a java agent, see
+// feature_tree_order_test.go) the order it decorated chunks in, then
+// replays that order in mc-go and compares every chunk whose
+// neighbours were all decorated block for block.
+//
+// The order matters for trees: vanilla decorates chunks concurrently,
+// and a canopy a neighbour placed first raises a column's OCEAN_FLOOR
+// origin onto leaves, so the sapling check drops the tree and every
+// later draw of that chunk's random shifts. Vanilla also decorates
+// rings of chunks around each forced area (lighting wants decorated
+// neighbours) whose trees reach into it, so every logged chunk within
+// three of an area is replayed too.
+//
+// MCGO_TREE_REGION caches the oracle's region files and order log in a
+// directory so mc-go can be re-run against one oracle world;
+// MCGO_TREE_OVERRIDE merges extra worldgen JSON entries into both
+// sides (isolating one tree variant); MCGO_TREE_MAXBAD caps the
+// mismatches reported per chunk.
+func treeParity(t *testing.T, seed int64, areas []terrainArea, keep func(string) bool) {
 	t.Helper()
 	ov := worldgen.StageOverrides(worldgen.Vanilla(), keep, true, true)
-	// MCGO_TREE_OVERRIDE names a JSON object of extra worldgen entries
-	// ("configured_feature/x": {...}) applied to both servers, for
-	// isolating one tree variant while debugging.
 	if f := os.Getenv("MCGO_TREE_OVERRIDE"); f != "" {
 		var extra map[string]json.RawMessage
 		b, err := os.ReadFile(f)
@@ -127,27 +140,14 @@ func featureParityKeep(t *testing.T, seed int64, areas []terrainArea, keep func(
 			ov[k] = v
 		}
 	}
-	// MCGO_TREE_REGION names a directory caching the oracle's region
-	// files for these areas, so mc-go can be re-run against one oracle
-	// world while iterating.
-	// The oracle runs with a java agent logging its chunk decoration
-	// order (feature_tree_order_test.go).
-	agentTrace := ""
-	if s := os.Getenv("MCGO_TREE_AGENT_TRACE"); s != "" {
-		if strings.HasPrefix(s, "@") {
-			b, _ := os.ReadFile(s[1:])
-			s = strings.TrimSpace(string(b))
-		}
-		agentTrace = ";" + s
-	}
 	runOracle := func() (string, string) {
 		agent, hook := buildOrderAgent(t)
 		logPath := filepath.Join(t.TempDir(), "order.log")
-		t.Setenv("JAVA_TOOL_OPTIONS", strings.TrimSpace(os.Getenv("JAVA_TOOL_OPTIONS")+" -javaagent:"+agent+"="+hook+";"+logPath+agentTrace))
+		t.Setenv("JAVA_TOOL_OPTIONS", strings.TrimSpace(os.Getenv("JAVA_TOOL_OPTIONS")+" -javaagent:"+agent+"="+hook+";"+logPath))
 		return vanillaTerrainFiles(t, seed, stageDatapack(ov), areas), logPath
 	}
 	region := os.Getenv("MCGO_TREE_REGION")
-	var orderLog string
+	orderLog := filepath.Join(region, "order.log")
 	if region == "" {
 		region, orderLog = runOracle()
 	} else if _, err := os.Stat(filepath.Join(region, "done")); err != nil {
@@ -159,101 +159,37 @@ func featureParityKeep(t *testing.T, seed int64, areas []terrainArea, keep func(
 			os.WriteFile(filepath.Join(region, e.Name()), b, 0o644)
 		}
 		b, _ := os.ReadFile(lp)
-		os.WriteFile(filepath.Join(region, "order.log"), b, 0o644)
+		os.WriteFile(orderLog, b, 0o644)
 		os.WriteFile(filepath.Join(region, "done"), nil, 0o644)
-		orderLog = filepath.Join(region, "order.log")
-	} else if _, err := os.Stat(filepath.Join(region, "order.log")); err == nil {
-		orderLog = filepath.Join(region, "order.log")
 	}
 	g, err := worldgen.NewGenerator(worldgen.Overlay(worldgen.Vanilla(), ov), "overworld", "overworld", seed)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if s := os.Getenv("MCGO_TREE_TRACE"); s != "" {
-		f := strings.Split(s, ",")
-		x, _ := strconv.Atoi(f[0])
-		z, _ := strconv.Atoi(f[1])
-		worldgen.TreeDebug = func(c [2]int32, msg string) {
-			if c == [2]int32{int32(x), int32(z)} {
-				t.Log(msg)
-			}
-		}
-		defer func() { worldgen.TreeDebug = nil }()
 	}
 	minY, height := g.RS.MinY(), g.RS.Height()
 	maxBad := 5
 	if v, err := strconv.Atoi(os.Getenv("MCGO_TREE_MAXBAD")); err == nil {
 		maxBad = v
 	}
-	// Vanilla decorates chunks concurrently, so a chunk's trees can see
-	// (or not) the trees its neighbours placed first: a canopy hanging
-	// over the chunk raises the OCEAN_FLOOR origin onto leaves and the
-	// sapling check drops the tree, shifting every later draw of the
-	// chunk's random. The real order differs from run to run, so mc-go
-	// decorates the area under several orders (row sweeps in every
-	// direction, then seeded shuffles) and each chunk is judged by the
-	// order that reproduces it best.
-	orders := decorationOrders(areas)
-	if v, err := strconv.Atoi(os.Getenv("MCGO_TREE_ORDERS")); err == nil && v < len(orders) {
-		orders = orders[:v]
-	}
-	if orderLog != "" {
-		inArea := map[[2]int32]bool{}
-		for _, c := range orders[0] {
-			inArea[c] = true
-		}
-		logged, overlaps := readDecorationOrder(t, orderLog)
-		// The oracle also decorates a ring of chunks around each forced
-		// area (lighting needs decorated neighbours), and their trees
-		// reach into the area: replay every logged chunk within two of
-		// an area.
-		near := func(c [2]int32) bool {
-			for _, a := range areas {
-				if c[0] >= a.x0-2 && c[0] <= a.x1+2 && c[1] >= a.z0-2 && c[1] <= a.z1+2 {
-					return true
-				}
-			}
-			return false
-		}
-		var vo [][2]int32
-		for _, c := range logged {
-			if inArea[c] || near(c) {
-				vo = append(vo, c)
-				delete(inArea, c)
+
+	logged, overlaps := readDecorationOrder(t, orderLog)
+	near := func(c [2]int32) bool {
+		for _, a := range areas {
+			if c[0] >= a.x0-3 && c[0] <= a.x1+3 && c[1] >= a.z0-3 && c[1] <= a.z1+3 {
+				return true
 			}
 		}
-		for _, c := range orders[0] {
-			if inArea[c] {
-				vo = append(vo, c)
-			}
-		}
-		t.Logf("oracle decoration order logged for %d chunks (%d overlapping neighbour decorations)", len(logged), overlaps)
-		orders = [][][2]int32{vo}
+		return false
 	}
-	type result struct {
-		bad, orderDep, exempt int
-		msgs                  []string
-	}
-	terrain := map[[2]int32]*worldgen.ProtoChunk{}
-	for _, c := range orders[0] {
-		for dz := int32(-1); dz <= 1; dz++ {
-			for dx := int32(-1); dx <= 1; dx++ {
-				k := [2]int32{c[0] + dx, c[1] + dz}
-				if terrain[k] == nil {
-					terrain[k] = g.Terrain(k[0], k[1])
-				}
-			}
+	var order [][2]int32
+	for _, c := range logged {
+		if near(c) {
+			order = append(order, c)
 		}
 	}
-	saved := map[[2]int32]savedChunk{}
-	for _, a := range areas {
-		for cx := a.x0 + 1; cx < a.x1; cx++ {
-			for cz := a.z0 + 1; cz < a.z1; cz++ {
-				saved[[2]int32{cx, cz}] = readSavedChunk(t, region, cx, cz, minY, height)
-			}
-		}
-	}
-	var writes map[worldgen.BlockPos]map[[2]int32]world.Block
+	t.Logf("oracle decoration order: %d chunks logged, %d replayed, %d overlapping neighbour decorations", len(logged), len(order), overlaps)
+
+	writes := map[worldgen.BlockPos]map[[2]int32]world.Block{}
 	g.WriteLog = func(p worldgen.BlockPos, c [2]int32, b world.Block) {
 		m := writes[p]
 		if m == nil {
@@ -262,168 +198,63 @@ func featureParityKeep(t *testing.T, seed int64, areas []terrainArea, keep func(
 		}
 		m[c] = b
 	}
-	decorate := func(order [][2]int32) map[[2]int32]*worldgen.ProtoChunk {
-		writes = map[worldgen.BlockPos]map[[2]int32]world.Block{}
-		chunks := make(map[[2]int32]*worldgen.ProtoChunk, len(terrain))
-		for k, p := range terrain {
-			c := *p
-			c.Blocks = append([]world.Block(nil), p.Blocks...)
-			c.PostProcess = append([][3]int32(nil), p.PostProcess...)
-			c.FluidMarks = append([][3]int32(nil), p.FluidMarks...)
-			chunks[k] = &c
-		}
-		for _, c := range order {
-			g.Decorate(g.NewRegion(chunks[c], chunks))
-		}
-		return chunks
-	}
-	compare := func(ai int, key [2]int32, p *worldgen.ProtoChunk) *result {
-		r := &result{}
-		sv := saved[key]
-		cx, cz := key[0], key[1]
-		for i, w := range sv.blocks {
-			gs := protoStateString(p.Blocks[i])
-			if gs == w {
-				continue
-			}
-			pos := worldgen.BlockPos{cx*16 + int32(i&15), int32(i>>8) + minY, cz*16 + int32((i>>4)&15)}
-			if m := writes[pos]; len(m) > 1 {
-				ok := false
-				for _, b := range m {
-					ok = ok || protoStateString(b) == w
-				}
-				if ok {
-					r.orderDep++
-					continue
+	chunks := map[[2]int32]*worldgen.ProtoChunk{}
+	for _, c := range order {
+		for dz := int32(-1); dz <= 1; dz++ {
+			for dx := int32(-1); dx <= 1; dx++ {
+				k := [2]int32{c[0] + dx, c[1] + dz}
+				if chunks[k] == nil {
+					chunks[k] = g.Terrain(k[0], k[1])
 				}
 			}
-			if gs == "air" && strings.Contains(w, "[level=") {
-				r.exempt++
-				continue
-			}
-			if len(r.msgs) < maxBad {
-				r.msgs = append(r.msgs, fmt.Sprintf("area %d (%d,%d,%d): mc-go %s, vanilla %s", ai, pos[0], pos[1], pos[2], gs, w))
-			}
-			r.bad++
 		}
-		return r
 	}
-	type keyed struct {
-		ai  int
-		key [2]int32
+	for _, c := range order {
+		g.Decorate(g.NewRegion(chunks[c], chunks))
 	}
-	var compared []keyed
+
+	total, orderDep, exempt, badChunks := 0, 0, 0, 0
 	for ai, a := range areas {
 		for cx := a.x0 + 1; cx < a.x1; cx++ {
 			for cz := a.z0 + 1; cz < a.z1; cz++ {
-				compared = append(compared, keyed{ai, [2]int32{cx, cz}})
-			}
-		}
-	}
-	eval := func(order [][2]int32) (map[[2]int32]*result, int) {
-		chunks := decorate(order)
-		res := map[[2]int32]*result{}
-		sum := 0
-		for _, k := range compared {
-			r := compare(k.ai, k.key, chunks[k.key])
-			res[k.key] = r
-			sum += r.bad
-		}
-		return res, sum
-	}
-	logs := os.Getenv("MCGO_TREE_LOGS") != ""
-	var best map[[2]int32]*result
-	var bestSeq [][2]int32
-	bestSum, bestIdx := -1, 0
-	for oi, order := range orders {
-		res, sum := eval(order)
-		if oi == 0 {
-			worldgen.TreeDebug = nil
-			if logs {
-				chunks := decorate(order)
-				for _, k := range compared {
-					sv, p := saved[k.key], chunks[k.key]
-					// Lowest log per column on both sides (tree bases).
-					for i := 0; i < 256; i++ {
-						vy, gy := int32(1<<30), int32(1<<30)
-						for y := int32(0); y < height; y++ {
-							j := int(y)*256 + i
-							if vy == 1<<30 && strings.HasSuffix(strings.SplitN(sv.blocks[j], "[", 2)[0], "_log") {
-								vy = y + minY
-							}
-							if gy == 1<<30 && strings.HasSuffix(strings.SplitN(protoStateString(p.Blocks[j]), "[", 2)[0], "_log") {
-								gy = y + minY
-							}
-						}
-						if vy != gy {
-							t.Logf("log column %d,%d: vanilla %d mc-go %d", k.key[0]*16+int32(i&15), k.key[1]*16+int32(i>>4), vy, gy)
-						}
-					}
+				saved := readSavedChunk(t, region, cx, cz, minY, height)
+				p := chunks[[2]int32{cx, cz}]
+				if p == nil {
+					t.Fatalf("chunk %d,%d was not decorated by the oracle", cx, cz)
 				}
-			}
-		}
-		if bestSum < 0 || sum < bestSum {
-			best, bestSeq, bestSum, bestIdx = res, order, sum, oi
-		}
-		if sum == 0 {
-			break
-		}
-	}
-	// Hill-climb the order: flip the relative order of neighbouring
-	// chunks while that lowers the total mismatch count.
-	for round := 0; round < 4 && bestSum > 0 && orderLog == ""; round++ {
-		improved := false
-		for _, k := range compared {
-			for dz := int32(-1); dz <= 1 && bestSum > 0; dz++ {
-				for dx := int32(-1); dx <= 1 && bestSum > 0; dx++ {
-					if dx == 0 && dz == 0 {
+				bad := 0
+				for i, w := range saved.blocks {
+					gs := protoStateString(p.Blocks[i])
+					if gs == w {
 						continue
 					}
-					n := [2]int32{k.key[0] + dx, k.key[1] + dz}
-					for _, after := range []bool{false, true} {
-						order := moveRelative(bestSeq, k.key, n, after)
-						if order == nil {
+					pos := worldgen.BlockPos{cx*16 + int32(i&15), int32(i>>8) + minY, cz*16 + int32((i>>4)&15)}
+					if m := writes[pos]; len(m) > 1 {
+						ok := false
+						for _, b := range m {
+							ok = ok || protoStateString(b) == w
+						}
+						if ok {
+							orderDep++
 							continue
 						}
-						if res, sum := eval(order); sum < bestSum {
-							best, bestSeq, bestSum, bestIdx = res, order, sum, len(orders)
-							improved = true
-						}
 					}
+					if gs == "air" && strings.Contains(w, "[level=") {
+						exempt++
+						continue
+					}
+					if bad < maxBad {
+						t.Errorf("area %d (%d,%d,%d): mc-go %s, vanilla %s", ai, pos[0], pos[1], pos[2], gs, w)
+					}
+					bad++
 				}
+				if bad > 0 {
+					t.Errorf("chunk %d,%d: %d mismatched blocks", cx, cz, bad)
+					badChunks++
+				}
+				total++
 			}
 		}
-		if !improved {
-			break
-		}
-	}
-	t.Logf("best decoration order: candidate %d of %d (%d = hill-climbed)", bestIdx, len(orders), len(orders))
-	if s := os.Getenv("MCGO_TREE_DUMP"); s != "" {
-		// x,z,y0,y1: both sides of one column.
-		var x, z, y0, y1 int32
-		fmt.Sscanf(s, "%d,%d,%d,%d", &x, &z, &y0, &y1)
-		chunks := decorate(bestSeq)
-		key := [2]int32{x >> 4, z >> 4}
-		if sv := readSavedChunk(t, region, key[0], key[1], minY, height); true {
-			for y := y0; y <= y1; y++ {
-				i := int((y-minY)*256 + (z&15)*16 + (x & 15))
-				t.Logf("dump %d,%d,%d: mc-go %s vanilla %s", x, y, z, protoStateString(chunks[key].Blocks[i]), sv.blocks[i])
-			}
-		}
-	}
-	total, orderDep, exempt, badChunks := 0, 0, 0, 0
-	for _, k := range compared {
-		r := best[k.key]
-		for _, m := range r.msgs {
-			t.Error(m)
-		}
-		if r.bad > 0 {
-			t.Errorf("chunk %d,%d: %d mismatched blocks", k.key[0], k.key[1], r.bad)
-			badChunks++
-		}
-		orderDep += r.orderDep
-		exempt += r.exempt
-		total++
 	}
 	if len(worldgen.UnsupportedFeatures) > 0 {
 		t.Errorf("unsupported feature types placed nothing: %v", worldgen.UnsupportedFeatures)
@@ -434,89 +265,41 @@ func featureParityKeep(t *testing.T, seed int64, areas []terrainArea, keep func(
 	t.Logf("%d chunks compared (%d mismatched); %d order-dependent cells, %d fluid post-processing cells accepted", total, badChunks, orderDep, exempt)
 }
 
-// moveRelative returns order with c moved just before (or after) n,
-// or nil when it already is on that side.
-func moveRelative(order [][2]int32, c, n [2]int32, after bool) [][2]int32 {
-	ic, in := -1, -1
-	for i, k := range order {
-		if k == c {
-			ic = i
-		}
-		if k == n {
-			in = i
-		}
-	}
-	if ic < 0 || in < 0 || (ic > in) == after {
-		return nil
-	}
-	var out [][2]int32
-	for _, k := range order {
-		if k == c {
-			continue
-		}
-		if k == n && after {
-			out = append(out, n, c)
-			continue
-		}
-		if k == n {
-			out = append(out, c, n)
-			continue
-		}
-		out = append(out, k)
-	}
-	return out
-}
-
-// decorationOrders lists candidate chunk decoration orders: row-major
-// first, then the eight axis sweeps, then seeded shuffles.
-func decorationOrders(areas []terrainArea) [][][2]int32 {
-	var out [][][2]int32
-	for sweep := 0; sweep < 8; sweep++ {
-		var order [][2]int32
-		for _, a := range areas {
-			n := (a.x1 - a.x0 + 1) * (a.z1 - a.z0 + 1)
-			for i := int32(0); i < n; i++ {
-				w := a.x1 - a.x0 + 1
-				h := a.z1 - a.z0 + 1
-				var u, v int32
-				if sweep&4 == 0 {
-					u, v = i%w, i/w
-				} else {
-					v, u = i%h, i/h
-				}
-				if sweep&1 != 0 {
-					u = w - 1 - u
-				}
-				if sweep&2 != 0 {
-					v = h - 1 - v
-				}
-				order = append(order, [2]int32{a.x0 + u, a.z0 + v})
-			}
-		}
-		out = append(out, order)
-	}
-	rnd := rand.New(rand.NewSource(1))
-	for k := 0; k < 40; k++ {
-		order := append([][2]int32(nil), out[0]...)
-		rnd.Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
-		out = append(out, order)
-	}
-	return out
-}
-
 // TestFeatureTreeParity pins tree, fallen_tree and the huge mushrooms
-// (reached through the tree selectors) against the real server across
-// the forest families of seed 12345.
+// (with the selectors that reach them) against the real server across
+// the forest families of seed 12345. MCGO_TREE_AREAS picks a subset of
+// treeAreas by index.
 func TestFeatureTreeParity(t *testing.T) {
-	areas := treeAreas
+	idx := make([]int, len(treeAreas))
+	for i := range idx {
+		idx[i] = i
+	}
 	if s := os.Getenv("MCGO_TREE_AREAS"); s != "" {
-		areas = nil
+		idx = nil
 		for _, f := range strings.Split(s, ",") {
 			i, _ := strconv.Atoi(f)
-			areas = append(areas, treeAreas[i])
+			idx = append(idx, i)
 		}
 	}
-	featureParityKeep(t, 12345, areas, keepTreePlaced)
+	// One oracle server per group of four areas keeps its heap small.
+	cache := os.Getenv("MCGO_TREE_REGION")
+	for len(idx) > 0 {
+		n := min(4, len(idx))
+		group := idx[:n]
+		idx = idx[n:]
+		var areas []terrainArea
+		name := "areas"
+		for _, i := range group {
+			areas = append(areas, treeAreas[i])
+			name += "_" + strconv.Itoa(i)
+		}
+		t.Run(name, func(t *testing.T) {
+			if cache != "" {
+				t.Setenv("MCGO_TREE_REGION", filepath.Join(cache, name))
+			}
+			treeParity(t, 12345, areas, keepTreePlaced)
+		})
+	}
 }
 
 var treeAreas = []terrainArea{
