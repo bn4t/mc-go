@@ -534,6 +534,9 @@ var stairShapeMirror = map[string]string{"inner_left": "inner_right", "inner_rig
 
 // legacyMirror is BlockState.mirror for the states legacy pieces place.
 func legacyMirror(b world.Block, mirror int) world.Block {
+	if mirror == mirNone {
+		return b
+	}
 	out := mirrorState(b, mirror)
 	if s, ok := world.StateProperty(b, "shape"); ok {
 		if blockInTag(b, "rails") {

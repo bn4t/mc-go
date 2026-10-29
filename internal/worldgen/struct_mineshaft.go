@@ -163,7 +163,6 @@ func msGenerateAndAdd(start *msRoom, acc *[]StructurePiece, r Random, x, y, z in
 	return p
 }
 
-
 // msCreateRandom is MineshaftPieces.createRandomShaftPiece.
 func msCreateRandom(acc *[]StructurePiece, r Random, x, y, z int32, d int, depth, mtype int32) msChild {
 	n := r.NextIntN(100)
@@ -276,7 +275,6 @@ func (p *msRoom) SaveData(t map[string]any) {
 	p.msBase.SaveData(t)
 	t["Entrances"] = boxListTag(p.entrances)
 }
-
 
 // msCorridor is MineShaftCorridor.
 type msCorridor struct {
@@ -593,7 +591,7 @@ func (p *msCorridor) SaveData(t map[string]any) {
 // msCrossing is MineShaftCrossing (no orientation: world coordinates).
 type msCrossing struct {
 	msBase
-	direction   int
+	direction    int
 	isTwoFloored bool
 }
 

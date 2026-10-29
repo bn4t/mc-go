@@ -68,3 +68,12 @@ func TestStructureIglooParity(t *testing.T) {
 func TestStructureStrongholdParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{-108, 122, -100, 127}}, "strongholds")
 }
+
+// TestStructureWoodlandMansionParity pins a woodland mansion: the
+// lowest-corner start height, the mansion grid (corridor walk, edge
+// cleanup, rooms on three floors), the placer's walls, roofs,
+// corridors, carpets, doors and room templates, the chest data markers
+// and the cobblestone foundation afterPlace fills.
+func TestStructureWoodlandMansionParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{289, 437, 295, 443}}, "woodland_mansions")
+}
