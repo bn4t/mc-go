@@ -597,9 +597,13 @@ func (s *Server) dragonPlaceParts(e *Entity, d *dimension) {
 			sk.y-s5.y-float64((f21+1.5)*s12)+1.5,
 			float64((c13*1.5+f19*f21)*c12))
 	}
-	dr.inWall = s.dragonCheckWalls(e, d, dr.parts[partHead].box()) ||
-		s.dragonCheckWalls(e, d, dr.parts[partNeck].box()) ||
-		s.dragonCheckWalls(e, d, dr.parts[partBody].box())
+	// Each part performs destruction even if an earlier part hit an
+	// immune block. The measured aiStep checks all three before combining
+	// their wall flags; a short-circuit would preserve blocks near the body.
+	headBlocked := s.dragonCheckWalls(e, d, dr.parts[partHead].box())
+	neckBlocked := s.dragonCheckWalls(e, d, dr.parts[partNeck].box())
+	bodyBlocked := s.dragonCheckWalls(e, d, dr.parts[partBody].box())
+	dr.inWall = headBlocked || neckBlocked || bodyBlocked
 }
 
 func (dr *enderDragon) headYOffset() float32 {

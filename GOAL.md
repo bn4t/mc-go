@@ -17008,3 +17008,30 @@ Exact run: `MCGO_BLACKBOX=1 MCGO_VANILLA_JAR=/workspace/mc-go/vanilla/server-26.
 - **Remaining:** pick clone resolution is still incomplete for special block and
   non-spawn-egg entity forms, and include-data item payloads are not implemented.
   This slice establishes inventory selection behavior, not every clone result.
+
+
+## Slice — dragon multipart wall destruction (2026-10-29)
+
+- **Measured:** real 26.2 metadata/command wire observations in a flat world,
+  plus Temurin 25.0.5+8 `javap` facts from `EnderDragon.aiStep`.
+  Oracle jar SHA-1: `823e2250d24b3ddac457a60c92a6a941943fcd6a`.
+  With an immune bedrock block in a hovering dragon's head box, vanilla
+  still destroys a neck stone and body dragon egg. Before the fix mc-go
+  preserves both. Clear-head and disabled mob-griefing controls agree.
+  This isolates actual multipart destruction from random flight, egg
+  teleportation and crystal explosions.
+- **Implemented:** every head, neck and body wall check performs its block
+  mutations before their wall flags are combined. An immune block found
+  by an earlier part no longer suppresses later parts' destruction.
+- **Pinned:** `TestDragonWallChecksAllParts` and
+  `TestPlayerPoseCollisionShapes` pass together (3.243 s) from an immutable
+  baseline plus owned-files export, with standard vet enabled.
+  `TestDragonWallPartsParity` passes against real vanilla and mc-go
+  (36.44 s; package 36.584 s). The original unmodified
+  `TestDragonFightParity` also passes (412.10 s) from exact committed baseline
+  `7a8b42a` plus this production fix and new focused tests. Its full respawn,
+  landing, death, gateway, XP, saved-state and second-kill egg comparisons
+  remain intact. Both servers report the original egg absent after the
+  second fight.
+- **Remaining:** full dragon flight, multipart collision and fight parity are
+  not established by this focused wall-check pin.
