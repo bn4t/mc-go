@@ -1,7 +1,6 @@
 package server
 
 import (
-	"compress/gzip"
 	"math"
 	"os"
 	"path/filepath"
@@ -223,28 +222,7 @@ func (s *Server) structureBlockSave(d *dimension, pos world.Pos, g *genericBlock
 	origin := world.Pos{X: pos.X + int(nbtNumberOr(g.fields["posX"], 0)), Y: pos.Y + int(nbtNumberOr(g.fields["posY"], 1)), Z: pos.Z + int(nbtNumberOr(g.fields["posZ"], 0))}
 	author, _ := g.fields["author"].(string)
 	native := s.structureTemplateCapture(d, origin, size, !nbtTruth(g.fields["ignoreEntities"]), author)
-	if s.structureTemplates == nil {
-		s.structureTemplates = map[string]map[string]any{}
-	}
-	s.structureTemplates[name] = native
-	if !toDisk {
-		return true
-	}
-	f, e := s.structureTemplateFile(name, true)
-	if e != nil {
-		return false
-	}
-	zw := gzip.NewWriter(f)
-	disk := cloneNBTValue(native).(map[string]any)
-	delete(disk, "author") // Template author is repository-only in26.2.
-	e = nbt.WriteNamed(zw, "", disk)
-	if close := zw.Close(); e == nil {
-		e = close
-	}
-	if close := f.Close(); e == nil {
-		e = close
-	}
-	return e == nil
+	return s.structureTemplateStore(name, native, toDisk)
 }
 func (s *Server) structureBlockLoad(d *dimension, pos world.Pos, g *genericBlockEntity) string {
 	if g.fields["mode"] != "LOAD" {

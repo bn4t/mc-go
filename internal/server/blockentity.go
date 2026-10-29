@@ -287,6 +287,7 @@ func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any
 	s.structureBlockAt(d, pos)
 	s.jigsawAt(d, pos)
 	s.testBlockAt(d, pos)
+	s.testInstanceAt(d, pos)
 	spec, ok := blockEntityOf(blk)
 	if !ok {
 		return nil, false

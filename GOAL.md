@@ -37,10 +37,11 @@ Mojang server over the wire.
 - [x] Login (offline), compression
 - [~] Configuration: known packs, feature flags, registry data, tags
 - [~] Play join burst
-- [~] Full packet ID + shape coverage for all states: current play routing
-      leaves test_instance_block_action explicitly unimplemented. Structure,
-      jigsaw and test-block editors and client frame-end movement now have
-      measured coverage; complete schemas and handler semantics remain partial.
+- [~] Full packet ID + shape coverage for all states: no play route remains
+      explicitly assigned to ignoreServerbound. Structure, jigsaw, test-block
+      and test-instance controller workflows and client frame-end movement have
+      measured coverage. Complete schemas, configured GameTest execution and
+      other handler semantics remain partial; routing is not full parity.
 - [x] Encryption / online mode
 - [x] Cookie / transfer / dialog / code-of-conduct packets.
       /transfer writes play transfer (host + port); /dialog show/clear
@@ -17998,3 +17999,13 @@ Limits: player predicates on tick criteria, migrated saved criteria after pack c
 The full fd8eacc suite's sole failure used a synthetic movingPiston with Air carried state, zero lifetime, no dimension and no extension. A shape-based item mover correctly has no forward collision face for that input. The capability fixture now supplies a live east-facing stone carrier with ticks3/extendtrue/dimension and a matching moving-piston world cell. Its item must reach the measured first contact x.635 from initialx.5; the original immutable-neutral-record/entity, ordinary Java movement, generic-update and farmland controls remain intact. Production code is unchanged.
 
 Focused unit PASS0.195s; exact115c47c+onefile fixture race PASS2.434s for TestSharedAvatarRejectsEnvironmentalPositionMutation, TestSharedAvatarExclusionKeepsJavaAndNonlivingInteractions and TestPistonItemForwardFacePush (work/avatar-shaped-piston-race.log). Existing288-control piston item wire results remain unchanged. This corrects an unreachable synthetic input, without weakening the presence-only capability boundary or hiding an ordinary-entity push failure. The general non-item piston mover retains its separately documented parity limits.
+
+## Slice — test-instance controller data and native saves (2026-10-29)
+
+**Measured** — Official26.2 wire and factual packet/controller/Data/ErrorMarker, Vec3i, Rotation and NbtOps behavior; Go1.27.3, Temurin25.0.5+8, bundle SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Native invalid Data reload retains the whole current record; vectors use Java numeric conversion and booleans use nonzero numeric values. RESET uses the default barrier shell. SAVE can use a selected unregistered key, ignores AIR and intentionally ignores the native writer's success result before returning that key. Export is disabled on the normal server.
+
+**Implemented** — Typed controller records/error markers, creative/op2/target gates, nonmutating unresolved INIT/QUERY status, SET and default RESET, queued native updates, AIR-skipping native SAVE and export/missing-test feedback. Shared native template writer extracted without changing existing editor save semantics. RESET visits faces in x-fast order and skips vertically unbuildable cells without imposing a new size cap.
+
+**Pinned** — Final immutable scoped snapshot: TestTestInstanceEditorParity PASS24.27s (vanilla8.45/Go7.62), four non-square reset rotations×nine physical probes each, typed/native/gate assertions, constructor/applied-update receipts, and SAVE→LOAD preserving destination cells corresponding to AIR. Shared StructureBlockSaveLoadParity PASS17.71s; build and focused units PASS2.388s; exact marker helper passes. Tests include packet truncation/wrapping, numeric bounds, actual native persistence and invalid-record retention. Frozen12file patch SHA256 `05d527c061cbb31c7b4a18e9f424d1a3b3e7b4e146de5e0c79f9b4359a42f10e`; detailed evidence in `work/testinstance-editor-slice.md` and `work/testinstance-editor-after-v2-wire.log`.
+
+Limits: configured test registries/descriptions and template setup, combined rotations/nondefault padding/sky access, RUN lifecycle/test-block redstone, enabled export, oversized edge-range dimensions and complete malformed component/error-list validation remain open. No explicit ignored routes remain, but this does not establish complete packet semantics or GameTest parity. No graphical client proof is claimed.

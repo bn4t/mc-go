@@ -29,7 +29,8 @@ not establish complete vanilla behavior for its entire subsystem.
 
 Recent measured coverage includes command-block execution and editors,
 command-minecart activator rails, structure-block save/load and redstone actions
-with native templates, jigsaw editor/generation,
+with native templates, jigsaw editor/generation, test-block editors and
+test-instance controller records/reset/native saves,
 block-entity update coalescing, moving-piston collision timing and measured
 dropped-item pushes, container
 validity, chest events and ordinary main/offhand placement and consumption.
@@ -48,6 +49,9 @@ completion, and startup recipe replacements use their own progress and rewards.
 Complete player-predicate and rich-text/icon schemas, datapack selection/ZIP/reload,
 custom loot overlays and several vehicle/physical interactions remain in
 progress. See individual slice entries for exact tests and limitations.
+
+Configured GameTest registry/template setup and execution remain in progress;
+test-instance controller support does not yet provide the full RUN workflow.
 
 Native structure-template lookups cache both present and missing results until
 corner unload or `/reload`; unreadable generated NBT can fall back to bundled

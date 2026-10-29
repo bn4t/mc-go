@@ -94,6 +94,16 @@ placement, non-overworld planner context and complete pack resolution remain
 unverified or incomplete. These mutable resources and placement actions retain
 the simulation ownership boundary; they do not add parallel gameplay ownership.
 
+Test-block editors preserve native mode, message and powered fields. Test-instance
+controller packets preserve typed records and error markers, answer unresolved-test
+initialization/query requests, and support editing, default barrier-shell reset
+and AIR-skipping native SAVE. SAVE can use an unregistered selected resource key;
+normal-server export reports that exporting is disabled. Reset visits shell faces
+rather than the full volume, without adding a size cap to native integer dimensions.
+Oversized regions, complete text-component validation, configured registry
+descriptions/template setup and the GameTest execution lifecycle remain outside
+this measured coverage.
+
 Command blocks and command minecarts share execution mechanics while supplying
 different spatial and entity sources. Result callbacks must read the current
 source fields after each successful command leaf: a command can reload its own

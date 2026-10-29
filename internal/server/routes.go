@@ -107,7 +107,7 @@ func init() {
 		IDPlaySpectatorActionSB:         (*Server).handleSpectatorAction,
 		IDPlaySwingArmSB:                (*Server).handleSwing,
 		IDPlayTeleportToEntitySB:        (*Server).handleTeleportToEntity,
-		IDPlayTestInstanceBlockActionSB: (*Server).ignoreServerbound,
+		IDPlayTestInstanceBlockActionSB: (*Server).handleTestInstanceBlockAction,
 		IDPlayUseItemOnSB:               (*Server).handleUseItem,
 		IDPlayUseItemSB:                 (*Server).handleUseItemPacket,
 		IDPlayCustomClickActionSB:       (*Server).handleCustomClickAction,
