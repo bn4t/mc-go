@@ -383,14 +383,17 @@ type Entity struct {
 	// RadiusOnUse per victim dosed; CloudVictims is the
 	// reapplication-delay (20t) cooldown keyed by entity id. The
 	// copied potion contents ride in Effects.
-	CloudWait          int32
-	CloudDuration      int32
-	CloudWaiting       bool
-	CloudAge           int32
-	CloudRadius        float32
-	CloudRadiusPerTick float32
-	CloudRadiusOnUse   float32
-	CloudVictims       map[int32]int32
+	// CloudPotionContents names immutable bottled contents; cloud age never
+	// reduces their per-dose duration. Creeper effects keep their expiry clock.
+	CloudPotionContents string
+	CloudWait           int32
+	CloudDuration       int32
+	CloudWaiting        bool
+	CloudAge            int32
+	CloudRadius         float32
+	CloudRadiusPerTick  float32
+	CloudRadiusOnUse    float32
+	CloudVictims        map[int32]int32
 	// Ephemeral entity state for the non-living summons that run
 	// their own per-tick end conditions: FangWarmup is
 	// EvokerFangs.warmupDelayTicks (constructor 0), FangLife its

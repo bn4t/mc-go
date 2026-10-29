@@ -9057,11 +9057,14 @@ func (s *Server) cloudTickStep() {
 		if len(ep.Effects) == 0 {
 			continue
 		}
-		r2 := float64(ep.CloudRadius) * float64(ep.CloudRadius)
 		now := s.gameTime()
 		dose := func(mobOrSess *Entity) bool {
+			bb := entityBBDims(mobOrSess)
+			if mobOrSess.Y >= ep.Y+0.5 || mobOrSess.Y+bb[1] <= ep.Y {
+				return true
+			}
 			dx, dz := mobOrSess.X-ep.X, mobOrSess.Z-ep.Z
-			if dx*dx+dz*dz > r2 {
+			if dx*dx+dz*dz > float64(ep.CloudRadius)*float64(ep.CloudRadius) {
 				return true
 			}
 			ep.CloudVictims[mobOrSess.ID] = ep.CloudAge + 20
@@ -9070,11 +9073,12 @@ func (s *Server) cloudTickStep() {
 			// the spawning owner as cause (0 for ownerless clouds).
 			src := &damageInfo{typeName: "indirect_magic", cause: ep.CloudOwnerID, direct: ep.ID}
 			for id, inst := range ep.Effects {
-				ticks := int32(-1)
-				if inst.expiry >= 0 {
-					ticks = int32((inst.expiry - now) / 4) // 0.25 scale
+				ticks := potionCloudTicks(ep, id, inst, now)
+				if id == effectInstantHealth || id == effectInstantDamage {
+					s.mobInstantEffectScaled(mobOrSess, id, inst.amplifier, 0.5, src)
+				} else {
+					s.mobGiveEffect(mobOrSess, id, inst.amplifier, ticks, inst.hide, src)
 				}
-				s.mobGiveEffect(mobOrSess, id, inst.amplifier, ticks, inst.hide, src)
 			}
 			ep.CloudRadius += ep.CloudRadiusOnUse
 			return ep.CloudRadius >= 0.5
@@ -9109,19 +9113,23 @@ func (s *Server) cloudTickStep() {
 			if _, onCd := ep.CloudVictims[eid]; onCd {
 				return true
 			}
-			px, _, pz, _, _, _ := sess.Pos()
+			px, py, pz, _, _, _ := sess.Pos()
+			if py >= ep.Y+0.5 || py+1.8 <= ep.Y {
+				return true
+			}
 			dx, dz := px-ep.X, pz-ep.Z
-			if dx*dx+dz*dz > r2 {
+			if dx*dx+dz*dz > float64(ep.CloudRadius)*float64(ep.CloudRadius) {
 				return true
 			}
 			ep.CloudVictims[eid] = ep.CloudAge + 20
 			psrc := damageSource{typeName: "indirect_magic", cause: ep.CloudOwnerID, direct: ep.ID}
 			for id, inst := range ep.Effects {
-				ticks := int32(-1)
-				if inst.expiry >= 0 {
-					ticks = int32((inst.expiry - now) / 4)
+				ticks := potionCloudTicks(ep, id, inst, now)
+				if id == effectInstantHealth || id == effectInstantDamage {
+					s.applyInstantEffectScaled(sess, id, inst.amplifier, 0.5, psrc)
+				} else {
+					s.playerGiveEffect(sess, id, inst.amplifier, ticks, inst.hide, psrc)
 				}
-				s.playerGiveEffect(sess, id, inst.amplifier, ticks, inst.hide, psrc)
 			}
 			ep.CloudRadius += ep.CloudRadiusOnUse
 			return ep.CloudRadius >= 0.5

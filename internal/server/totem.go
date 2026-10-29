@@ -272,6 +272,10 @@ func (s *Server) applyMobEffectWire(sess *Session, id, amplifier int32, duration
 // ishl masks the shift to 5 bits (amplifier&31) — Go's << does not,
 // so the mask is explicit: amp 200 lands on 4<<8=1024 like vanilla.
 func (s *Server) applyInstantEffect(sess *Session, id, amplifier int32, src ...damageSource) {
+	s.applyInstantEffectScaled(sess, id, amplifier, 1, src...)
+}
+
+func (s *Server) applyInstantEffectScaled(sess *Session, id, amplifier int32, scale float64, src ...damageSource) {
 	srcs := damageSource{typeName: "magic"}
 	if len(src) > 0 {
 		srcs = src[0]
@@ -279,12 +283,12 @@ func (s *Server) applyInstantEffect(sess *Session, id, amplifier int32, src ...d
 	switch id {
 	case effectInstantHealth:
 		if !sess.dead {
-			amount := max(int32(4)<<(amplifier&31), 0)
+			amount := max(int32(math.Floor(float64(int32(4)<<(amplifier&31))*scale+0.5)), 0)
 			sess.health = min(sess.health+float32(amount), defaultHealth)
 			sess.healthDirty.Store(true)
 		}
 	case effectInstantDamage:
-		amount := max(int32(6)<<(amplifier&31), 0)
+		amount := max(int32(math.Floor(float64(int32(6)<<(amplifier&31))*scale+0.5)), 0)
 		msg := translatable("death.attack.magic", literal(sess.getName()))
 		if srcs.cause != 0 {
 			if ce, ok := s.entities.Get(srcs.cause); ok {
@@ -387,6 +391,10 @@ func (s *Server) mobGiveEffect(e *Entity, id, amplifier, ticks int32, hidePartic
 // (isHarm == isInverted picks heal). Java's ishl masks the shift to 5
 // bits; Go's << needs it explicit — amp 200 lands on <<8 like vanilla.
 func (s *Server) mobInstantEffect(e *Entity, id, amplifier int32, src ...*damageInfo) {
+	s.mobInstantEffectScaled(e, id, amplifier, 1, src...)
+}
+
+func (s *Server) mobInstantEffectScaled(e *Entity, id, amplifier int32, scale float64, src ...*damageInfo) {
 	if id != effectInstantHealth && id != effectInstantDamage {
 		return
 	}
@@ -397,13 +405,13 @@ func (s *Server) mobInstantEffect(e *Entity, id, amplifier int32, src ...*damage
 	d := &dataEntity{mob: e}
 	inverted := d.entityInTag("inverted_healing_and_harm")
 	if (id == effectInstantDamage) == inverted {
-		amount := int32(4) << (amplifier & 31)
+		amount := int32(math.Floor(float64(int32(4)<<(amplifier&31))*scale + 0.5))
 		if amount > 0 {
 			s.entities.Heal(e.ID, float32(amount))
 		}
 		return
 	}
-	if amount := int32(6) << (amplifier & 31); amount > 0 {
+	if amount := int32(math.Floor(float64(int32(6)<<(amplifier&31))*scale + 0.5)); amount > 0 {
 		s.damageMob(e, float32(amount), info.typeName, nil, info)
 	}
 }

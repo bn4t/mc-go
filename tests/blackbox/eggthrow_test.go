@@ -130,7 +130,8 @@ type eggEvent struct {
 	data    int32  // spawn packet's data field (owner id) or level_event data
 	oval    int32  // orb value decoded from an index-8 VarInt meta entry
 	hasOval bool
-	sx      float64 // spawn packet x (spawn kind only)
+	motion  [3]float64 // decoded spawn velocity
+	sx      float64    // spawn packet x (spawn kind only)
 	sy      float64
 	sz      float64
 	chat    string // raw system_chat payload bytes (chat kind only)
@@ -220,12 +221,12 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 			// velocity rides the variable-length LpVec3 — skip it
 			// properly or a moving entity's bytes leak into the
 			// pitch/yaw/data reads below.
-			_, _, _, _ = r.ReadLpVec3()
+			mx, my, mz, _ := r.ReadLpVec3()
 			_, _ = r.Byte() // pitch
 			_, _ = r.Byte() // yaw
 			_, _ = r.Byte() // head yaw
 			data, _ := r.VarInt()
-			out = append(out, eggEvent{kind: "spawn", eid: eid, etype: et, data: data, sx: sx, sy: sy, sz: sz})
+			out = append(out, eggEvent{kind: "spawn", eid: eid, etype: et, data: data, sx: sx, sy: sy, sz: sz, motion: [3]float64{mx, my, mz}})
 		case 0x63: // set_entity_data
 			r := protocol.NewPacketReader(p.Data)
 			if eid, err := r.VarInt(); err == nil {

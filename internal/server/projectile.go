@@ -562,6 +562,23 @@ func (s *Server) arrowTickStep() {
 		// reaches the flight one tick late. arrowInWater is isInWater —
 		// latched by the rescan at this tick's tail, matching where
 		// Entity.tick's water update runs after the arrow's physics.
+		// ThrowableProjectile.tick applies gravity and inertia before tracing
+		// and moving. Potions use .05 gravity (26.2 bytecode measurement).
+		if isPotion {
+			if !e.NoGravity {
+				e.MotionY -= 0.05
+			}
+			drag := float64(float32(0.99))
+			if w := s.dimWorld(e.Dim); w != nil {
+				_, wet, _, _, _, _ := entityFluidScan(w, e.X, e.Y, e.Z, 0.125, 0.25, fluidWater)
+				if wet {
+					drag = float64(float32(0.8))
+				}
+			}
+			e.MotionX *= drag
+			e.MotionY *= drag
+			e.MotionZ *= drag
+		}
 		mvx, mvy, mvz := e.MotionX, e.MotionY, e.MotionZ
 		prevInWater := e.arrowInWater
 		if sticks {
@@ -603,10 +620,10 @@ func (s *Server) arrowTickStep() {
 			if !e.NoGravity {
 				e.MotionY -= arrowGravity
 			}
-		} else {
+		} else if !isPotion {
 			grav := arrowGravity
 			switch name {
-			case "egg", "snowball", "splash_potion", "lingering_potion", "ender_pearl":
+			case "egg", "snowball", "ender_pearl":
 				grav = 0.03
 			case "llama_spit":
 				// LlamaSpit.getDefaultGravity — heavier than the other
@@ -834,10 +851,7 @@ func (s *Server) arrowTickStep() {
 				s.emitGameEvent(d, "projectile_land", e.X, e.Y, e.Z, nil, "")
 			}
 			if isPotion {
-				s.potionSplash(e, e.X, e.Y, e.Z)
-				if name == "lingering_potion" {
-					s.spawnLingeringCloud(e)
-				}
+				s.thrownPotionImpact(e, name, e.X, e.Y, e.Z)
 			}
 			if name == "egg" || name == "snowball" {
 				s.thrownItemImpact(e, name, false)
@@ -874,10 +888,7 @@ func (s *Server) arrowTickStep() {
 				s.emitGameEvent(d, "projectile_land", hx, hy, hz, nil, "")
 			}
 			if isPotion {
-				s.potionSplash(e, hx, hy, hz)
-				if name == "lingering_potion" {
-					s.spawnLingeringCloud(e)
-				}
+				s.thrownPotionImpact(e, name, hx, hy, hz)
 				s.entities.Remove(e.ID)
 				s.broadcastEntityRemove([]int32{e.ID})
 				continue
@@ -1631,30 +1642,50 @@ type splashEffect struct {
 
 // splashPotionContents is the Potions registry entries a thrown or
 // drunk splash can carry (26.2 values, javap-measured).
-var splashPotionContents = map[string][]splashEffect{
-	"harming":         {{"instant_damage", 0, 0}},
-	"healing":         {{"instant_health", 0, 0}},
-	"slowness":        {{"slowness", 1800, 0}},
-	"poison":          {{"poison", 900, 0}},
-	"weakness":        {{"weakness", 1800, 0}},
-	"regeneration":    {{"regeneration", 900, 0}},
-	"swiftness":       {{"speed", 3600, 0}},
-	"water_breathing": {{"water_breathing", 3600, 0}},
-	"fire_resistance": {{"fire_resistance", 3600, 0}},
-}
+var splashPotionContents = func() map[string][]splashEffect {
+	out := make(map[string][]splashEffect, len(potionEffects))
+	for potion, entries := range potionEffects {
+		for _, entry := range entries {
+			duration := int32(entry.duration)
+			if entry.effect == "instant_health" || entry.effect == "instant_damage" {
+				duration = 0
+			}
+			out[potion] = append(out[potion], splashEffect{entry.effect, duration, int32(entry.amplifier)})
+		}
+	}
+	return out
+}()
 
-// splashPotionColors are PotionContents.getColor's packed RGB per
-// potion id — the level-event 2002 data field clients read.
-var splashPotionColors = map[string]int32{
-	"harming":         0x430A09,
-	"healing":         0xF82423,
-	"slowness":        0x5A6C81,
-	"poison":          0x4E9331,
-	"weakness":        0x484D48,
-	"regeneration":    0xCD5CAB,
-	"swiftness":       0x7CAFC6,
-	"water_breathing": 0x2E5299,
-	"fire_resistance": 0xE49A3A,
+// Reuse the measured drinking registry and effect-color facts for every bottled
+// potion, including long/strong and mixed effects. Color weights are amp+1.
+var splashPotionColors = func() map[string]int32 {
+	out := make(map[string]int32, len(potionEffects)+1)
+	out[""] = -13083194
+	for potion := range potionEffects {
+		var r, g, b, weight int32
+		for _, e := range splashPotionContents[potion] {
+			c, w := mobEffectColors[e.name], e.amp+1
+			r += ((c >> 16) & 255) * w
+			g += ((c >> 8) & 255) * w
+			b += (c & 255) * w
+			weight += w
+		}
+		color := int32(-13083194)
+		if weight > 0 {
+			color = int32(uint32(0xff000000) | uint32((r/weight)<<16) | uint32((g/weight)<<8) | uint32(b/weight))
+		}
+		out[potion] = color
+	}
+	return out
+}()
+
+func potionLevelEvent(potion string) int32 {
+	for _, e := range splashPotionContents[potion] {
+		if e.dur == 0 {
+			return 2007
+		}
+	}
+	return 2002
 }
 
 // potionSplash is ThrownPotion.onHitAsPotion: every living entity
@@ -1674,12 +1705,12 @@ func (s *Server) potionSplash(e *Entity, x, y, z float64) {
 		s.potionSplashWater(e, x, y, z)
 		return
 	}
+	s.broadcastLevelEvent(e.Dim, potionLevelEvent(e.splashPotion), world.Pos{
+		X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z)),
+	}, splashPotionColors[e.splashPotion])
 	if len(effects) == 0 {
 		return
 	}
-	s.broadcastLevelEvent(e.Dim, 2002, world.Pos{
-		X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z)),
-	}, splashPotionColors[e.splashPotion])
 
 	s.entities.mu.RLock()
 	mobs := make([]*Entity, 0, len(s.entities.byID))
@@ -2064,7 +2095,7 @@ func (s *Server) fireballIgnites(e *Entity) bool {
 	return !ownerIsMob || s.gameRuleBool("minecraft:mob_griefing")
 }
 
-// throwHandItem is EggItem.use / SnowballItem.use: a named throw sound
+// throwHandItem handles instant player-thrown items: a named throw sound
 // at the player (PLAYERS for the egg, NEUTRAL for the snowball), the
 // projectile spawned at eye-0.1 with shootFromRotation's look vector —
 // normalize, +triangle(0.0172275*inaccuracy) per axis, *1.5 power — the
@@ -2078,6 +2109,12 @@ func (s *Server) throwHandItem(sess *Session, hand int32, st ItemStack, name str
 	entName := "egg"
 	pitchOff, power := float32(0), float64(1.5)
 	switch name {
+	case "splash_potion", "lingering_potion":
+		entName, pitchOff, power = name, -20, 0.5
+		sndID, src = 1583, 7 // SplashPotionItem.use: PLAYERS
+		if name == "lingering_potion" {
+			sndID, src = 938, 6 // LingeringPotionItem.use: NEUTRAL
+		}
 	case "snowball":
 		sndID, src = 1567, 6 // entity.snowball.throw, NEUTRAL
 		entName = "snowball"
@@ -2099,9 +2136,9 @@ func (s *Server) throwHandItem(sess *Session, hand int32, st ItemStack, name str
 		return
 	}
 	yawR := float64(yaw) * math.Pi / 180
-	pitchR := float64(pitch+pitchOff) * math.Pi / 180
+	pitchR := float64(pitch) * math.Pi / 180
 	dx := -math.Sin(yawR) * math.Cos(pitchR)
-	dy := -math.Sin(pitchR)
+	dy := -math.Sin(float64(pitch+pitchOff) * math.Pi / 180)
 	dz := math.Cos(yawR) * math.Cos(pitchR)
 	l := math.Sqrt(dx*dx + dy*dy + dz*dz)
 	// getMovementToShoot: unit look + independent triangle jitter,
@@ -2121,8 +2158,12 @@ func (s *Server) throwHandItem(sess *Session, hand int32, st ItemStack, name str
 		Data: sess.entityID.Load(), // spawn packet owner field
 	})
 	e.arrowShooter = sess.entityID.Load()
+	one := st
+	one.Count = 1
+	e.Item = one
+	e.splashPotion = st.Potion
 	s.broadcastEntitySpawn(nil, *e)
-	s.broadcastEntityMetadata(e.ID, encodeItemMetadata(ItemStack{ID: st.ID, Count: 1}))
+	s.broadcastEntityMetadata(e.ID, encodeItemMetadata(one))
 	// ItemStack.consume(1, living) shrinks unless the thrower has
 	// infinite materials (creative/spectator).
 	if m := sess.mode(); m != GameModeCreative && m != GameModeSpectator {

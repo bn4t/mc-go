@@ -140,7 +140,9 @@ Mojang server over the wire.
 - [ ] Damage, health, death, drops, XP
       First-hit player XP/value/pickup has a live-oracle pin; broader
       damage, death and drop parity remains incomplete.
-- [ ] Projectiles, vehicles, mobs, villagers
+- [~] Projectiles, vehicles, mobs, villagers; player-thrown splash/lingering
+      potions, registered variants and measured cloud doses now wire-pinned;
+      custom potion payloads and complete splash geometry remain open
 
 ### Player
 - [~] Movement tracking, keep-alive, chat, tab list; spectator UUID teleport
@@ -16833,3 +16835,34 @@ no flee; unsneak → flee). Green both legs.
   and arbitrary component override combinations are not established by these
   menu pins. Unicode compound-key hash ordering remains separate from string
   encoding; this slice does not claim complete NBT serialization ordering.
+
+
+## Slice — player-thrown potions and lingering doses (2026-10-29)
+
+- **Measured:** vanilla 26.2 wire observations and JDK 25 javap facts from
+  `ThrowablePotionItem`, `SplashPotionItem`, `LingeringPotionItem`,
+  `Projectile.shootFromRotation`, `ThrowableProjectile.tick`,
+  `AbstractThrownPotion`, `ThrownLingeringPotion` and `PotionContents`.
+  Oracle jar SHA-1: `823e2250d24b3ddac457a60c92a6a941943fcd6a`.
+- **Implemented:** player use launches splash/lingering items with retained
+  contents, owner, measured sound categories, consumption rules, speed 0.5
+  and a vertical-only -20-degree aim offset. Potion flight applies gravity
+  0.05 and drag before movement/tracing. Registered base, extended and strong
+  variants reuse the existing generated drinking-effect registry. Colors are
+  opaque and amplifier-weighted; instant effects use event 2007 and effectless
+  bottles still break visibly. Lingering impacts create radius-three clouds
+  with a 600-tick lifetime and ten-tick wait instead of immediate splash dosing.
+  Bottled dose duration remains constant at one quarter; cloud age does not
+  consume it. Doses respect vertical bounds and the current shrinking radius,
+  and instant effects use half strength through shared scaled helpers.
+- **Pinned:** `TestPlayerPotionThrowParity` passes both servers (58.90 s),
+  covering extended swiftness, delayed 2395..2400-tick doses, elevated-target
+  exclusion, frozen vertical throws, strong healing and instant heal/harm
+  controls. The clean main-plus-`TestWitchThrowParity` run passes (119.017 s).
+  Existing `TestChargedCreeperParity` and `TestCloudMetaParity` also pass;
+  `TestPotionMixedColor` pins weighted turtle-master color. No diagnostic
+  instrumentation remains.
+- **Remaining:** existing splash-distance/direct-hit geometry approximations
+  and custom potion payload support are not completed. A separate summoned
+  wind-charge observation failure in `TestHurtingRotationParity` is being
+  checked independently; this slice does not claim full projectile parity.

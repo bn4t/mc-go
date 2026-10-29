@@ -268,7 +268,7 @@ func encodeCloudWaiting(w bool) []byte {
 
 // cloudParticleARGB mixes the cloud's effect colors the way
 // PotionContents.getColor does — a per-channel integer average over
-// the live effects with a fully-opaque alpha.
+// the visible effects, weighted by amplifier+1, with a fully-opaque alpha.
 func cloudParticleARGB(effects map[int32]mobEffectInst) int32 {
 	ids := make([]int32, 0, len(effects))
 	for id := range effects {
@@ -277,14 +277,19 @@ func cloudParticleARGB(effects map[int32]mobEffectInst) int32 {
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	var r, g, b, n int32
 	for _, id := range ids {
+		inst := effects[id]
+		if inst.hide {
+			continue
+		}
+		weight := inst.amplifier + 1
 		color := int32(0)
 		if name, ok := MobEffectName(id); ok {
 			color = mobEffectColors[name]
 		}
-		r += (color >> 16) & 0xFF
-		g += (color >> 8) & 0xFF
-		b += color & 0xFF
-		n++
+		r += ((color >> 16) & 0xFF) * weight
+		g += ((color >> 8) & 0xFF) * weight
+		b += (color & 0xFF) * weight
+		n += weight
 	}
 	if n > 0 {
 		r, g, b = r/n, g/n, b/n

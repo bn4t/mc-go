@@ -157,7 +157,7 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 	// charge carry use_cooldown — an in-flight group is a silent FAIL.
 	if un, ok := itemNameOf(st.ID); ok && !st.Empty() {
 		switch un {
-		case "egg", "blue_egg", "brown_egg", "snowball", "experience_bottle", "ender_pearl", "wind_charge":
+		case "egg", "blue_egg", "brown_egg", "snowball", "experience_bottle", "ender_pearl", "wind_charge", "splash_potion", "lingering_potion":
 			if f := foodTable[un]; f.cooldown > 0 && !sess.cooldownReady(un, s.TickCount()) {
 				return
 			}
