@@ -1605,31 +1605,40 @@ func (s *Server) potionCollide(e *Entity, ox, oy, oz float64) bool {
 		targets = append(targets, t)
 	}
 	s.entities.mu.RUnlock()
+	nearest := math.Inf(1)
+	consider := func(tx, ty, tz, width, height float64) {
+		if at, hit := segmentHitsBoxT(ox, oy, oz, e.X, e.Y, e.Z, tx, ty, tz, width, height, projectilePickMargin(e.TicksLived)); hit && at < nearest {
+			nearest = at
+		}
+	}
 	for _, t := range targets {
 		if !t.Living || t.Dying || t.ID == e.ID || t.ID == e.arrowShooter || t.Dim != e.Dim {
 			continue
 		}
 		bb := entityBBDims(t)
-		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, t.X, t.Y, t.Z, bb[0], bb[1], projectilePickMargin(e.TicksLived)) {
-			return true
-		}
+		consider(t.X, t.Y, t.Z, bb[0], bb[1])
 	}
-	hit := false
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.state.Load() != StatePlay || sess.dead ||
-			sess.mode() == GameModeSpectator || sess.dimName() != e.Dim ||
-			sess.entityID.Load() == e.arrowShooter {
-			return true
-		}
-		px, py, pz, _, _, _ := sess.Pos()
-		if segmentHitsBox(ox, oy, oz, e.X, e.Y, e.Z, px, py, pz, 0.6, 1.8, projectilePickMargin(e.TicksLived)) {
-			hit = true
-			return false
+		if sess.state.Load() == StatePlay && !sess.dead && sess.mode() != GameModeSpectator && sess.dimName() == e.Dim && sess.entityID.Load() != e.arrowShooter {
+			px, py, pz, _, _, _ := sess.Pos()
+			consider(px, py, pz, 0.6, 1.8)
 		}
 		return true
 	})
-	return hit
+	if math.IsInf(nearest, 1) {
+		return false
+	}
+	// A nearer wall occludes the entity; the caller handles that block hit.
+	if _, _, _, _, bx, by, bz, hit := s.arrowBlockHit(e, ox, oy, oz); hit {
+		blockDistance := (bx-ox)*(bx-ox) + (by-oy)*(by-oy) + (bz-oz)*(bz-oz)
+		dx, dy, dz := e.X-ox, e.Y-oy, e.Z-oz
+		if blockDistance < nearest*nearest*(dx*dx+dy*dy+dz*dz) {
+			return false
+		}
+	}
+	e.X, e.Y, e.Z = ox+nearest*(e.X-ox), oy+nearest*(e.Y-oy), oz+nearest*(e.Z-oz)
+	return true
 }
 
 // splashEffect is one potion-content entry: effect name, base
@@ -1689,10 +1698,10 @@ func potionLevelEvent(potion string) int32 {
 }
 
 // potionSplash is ThrownPotion.onHitAsPotion: every living entity
-// within four blocks of the impact gets each effect — timed effects
-// scaled by the 1 - dist/4 proximity factor, instant ones applied
-// with the same scale on the amount. The 2002 level event plays the
-// splash particles and glass crack.
+// in its (4,2,4)-inflated candidate box gets each effect when the
+// impact-box to inflated-target-box distance is under four. Timed
+// doses must exceed 20 ticks. The level event carries the color and
+// distinguishes instant potions. See potionSplashProximity.
 func (s *Server) potionSplash(e *Entity, x, y, z float64) {
 	effects := splashPotionContents[e.splashPotion]
 	if e.splashPotion == "water" {
@@ -1723,14 +1732,7 @@ func (s *Server) potionSplash(e *Entity, x, y, z float64) {
 			continue
 		}
 		bb := entityBBDims(t)
-		// Vanilla measures AABB-to-AABB distance — half-width + half-
-		// height approximates it close enough for the ±4 window.
-		dx, dy, dz := x-t.X, y-(t.Y+bb[1]/2), z-t.Z
-		dist := math.Sqrt(dx*dx+dy*dy+dz*dz) - math.Max(bb[0], bb[1])/2
-		if dist < 0 {
-			dist = 0
-		}
-		prox := 1 - dist/4
+		prox := potionSplashProximity(e, x, y, z, t.X, t.Y, t.Z, bb[0], bb[1])
 		if prox <= 0 {
 			continue
 		}
@@ -1743,12 +1745,7 @@ func (s *Server) potionSplash(e *Entity, x, y, z float64) {
 			return true
 		}
 		px, py, pz, _, _, _ := sess.Pos()
-		dx, dy, dz := x-px, y-(py+0.9), z-pz
-		dist := math.Sqrt(dx*dx+dy*dy+dz*dz) - 0.75
-		if dist < 0 {
-			dist = 0
-		}
-		prox := 1 - dist/4
+		prox := potionSplashProximity(e, x, y, z, px, py, pz, 0.6, 1.8)
 		if prox <= 0 {
 			return true
 		}
@@ -1841,7 +1838,7 @@ func (s *Server) splashApplyMob(e, t *Entity, effects []splashEffect, prox float
 			continue
 		}
 		dur := int32(math.Round(float64(eff.dur) * prox))
-		if dur < 1 {
+		if dur <= 20 {
 			continue
 		}
 		mobAddEffect(t, id, eff.amp, s.clock.count+int64(dur), s.clock.count)
@@ -1887,7 +1884,7 @@ func (s *Server) splashApplyPlayer(e *Entity, sess *Session, effects []splashEff
 			continue
 		}
 		dur := int32(math.Round(float64(eff.dur) * prox))
-		if dur < 1 {
+		if dur <= 20 {
 			continue
 		}
 		s.applyMobEffectFlags(sess, id, eff.amp, dur, false)

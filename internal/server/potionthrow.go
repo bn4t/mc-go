@@ -60,3 +60,26 @@ func potionCloudTicks(e *Entity, id int32, inst mobEffectInst, now int64) int32 
 	}
 	return int32((inst.expiry - now) / 4)
 }
+
+// potionSplashProximity measures the space between the impact potion box and
+// the target box. Measured with JDK 25 javap on 26.2 ThrownSplashPotion:
+// the candidate box expands horizontally by 4 and vertically by 2, while
+// distance uses the target inflated by ProjectileUtil's age margin.
+func potionSplashProximity(e *Entity, x, y, z, tx, ty, tz, width, height float64) float64 {
+	const radius = 0.125 // potion entity width/2; its Y is the box bottom
+	if tx+width/2 <= x-radius-4 || tx-width/2 >= x+radius+4 ||
+		ty+height <= y-2 || ty >= y+2*radius+2 ||
+		tz+width/2 <= z-radius-4 || tz-width/2 >= z+radius+4 {
+		return 0
+	}
+	// ThrowableProjectile calls Projectile.tick before the hit callback, so
+	// splash sees one more tick of age than the entity sweep.
+	margin := float64(float32(projectilePickMargin(e.TicksLived + 1)))
+	gap := func(amin, amax, bmin, bmax float64) float64 {
+		return math.Max(0, math.Max(amin-bmax, bmin-amax))
+	}
+	dx := gap(x-radius, x+radius, tx-width/2-margin, tx+width/2+margin)
+	dy := gap(y, y+2*radius, ty-margin, ty+height+margin)
+	dz := gap(z-radius, z+radius, tz-width/2-margin, tz+width/2+margin)
+	return math.Max(0, 1-math.Sqrt(dx*dx+dy*dy+dz*dz)/4)
+}

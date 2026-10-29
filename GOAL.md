@@ -17187,3 +17187,25 @@ ComponentSNBT units pass (0.729 s).
 
 The isolated staged book export builds successfully; focused Book, Lectern,
 Bundle and ComponentSNBT units pass (4.113 s).
+
+
+## Slice — splash potion impact geometry (2026-10-29)
+
+- **Measured:** Temurin 25.0.5 javap facts from ThrownSplashPotion,
+  ProjectileUtil.computeMargin, ThrowableProjectile and ThrownLingeringPotion;
+  official 26.2 jar SHA-1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`.
+  Splash candidates intersect the impact box inflated by (4,2,4); dose depends
+  on the gap between potion and expanded victim boxes. The callback observes
+  the incremented projectile age. There is no separate direct-hit dose rule;
+  timed doses of 20 ticks or fewer are omitted.
+- **Implemented:** measured candidate bounds, AABB gap falloff and age margin;
+  nearest entity interception, nearer-block occlusion and exact impact location.
+  The geometric routines are isolated from subsequent custom payload changes.
+- **Pinned:** TestPotionSplashGeometryParity passes against both servers
+  (53.61 s), covering horizontal/vertical exclusion, near-target dose
+  (6236 versus 6283 ticks, within 250 ticks for independent throw jitter),
+  direct-hit cloud position and a wall shielding a farther target. Existing
+  TestPlayerPotionThrowParity also passes (56.78 s). These runs include the
+  independently verified packet-reader retry fix.
+- **Remaining:** water-only effects, nonliving hittable entities, owner
+  re-entry and pose-specific player boxes require further coverage.

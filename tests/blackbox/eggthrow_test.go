@@ -170,6 +170,18 @@ func eggDrainCollect(t *testing.T, c net.Conn, pr *protocol.Reader, pw *protocol
 			t.Fatalf("egg drain: %v", err)
 		}
 		switch p.ID {
+		case server.IDPlayDisconnect:
+			t.Fatalf("egg drain: server disconnect %q", p.Data)
+		case server.IDPlayUpdateMobEffect:
+			r := protocol.NewPacketReader(p.Data)
+			eid, e1 := r.VarInt()
+			effect, e2 := r.VarInt()
+			amp, e3 := r.VarInt()
+			duration, e4 := r.VarInt()
+			flags, e5 := r.Byte()
+			if e1 == nil && e2 == nil && e3 == nil && e4 == nil && e5 == nil {
+				out = append(out, eggEvent{kind: "effect", eid: eid, data: effect, b0: amp, oval: duration, etype: int32(flags)})
+			}
 		case server.IDPlayKeepAliveCB:
 			_ = pw.WritePacket(server.IDPlayKeepAliveSB, p.Data)
 		case server.IDPlayChunkBatchDone:
