@@ -696,6 +696,7 @@ func writeWear() {
 	hurtExempt := map[string]int{}
 	equippable := map[string]int{}
 	attackSpeed := map[string]float64{}
+	attackDamage := map[string]float64{}
 	for _, de := range dents {
 		if !strings.HasSuffix(de.Name(), ".json") {
 			continue
@@ -731,11 +732,18 @@ func writeWear() {
 		if mods, ok := c["minecraft:attribute_modifiers"].([]any); ok {
 			for _, m := range mods {
 				mod, _ := m.(map[string]any)
-				if mod == nil || mod["type"] != "minecraft:attack_speed" || mod["operation"] != "add_value" {
+				if mod == nil || mod["operation"] != "add_value" {
 					continue
 				}
 				if v, ok := mod["amount"].(float64); ok {
-					attackSpeed[name] += v
+					switch mod["type"] {
+					case "minecraft:attack_speed":
+						attackSpeed[name] += v
+					case "minecraft:attack_damage":
+						if mod["slot"] == "mainhand" && mod["id"] == "minecraft:base_attack_damage" {
+							attackDamage[name] += v
+						}
+					}
 				}
 			}
 		}
@@ -771,6 +779,11 @@ func writeWear() {
 	b.WriteString("// to get the attack speed that paces the cooldown.\n")
 	b.WriteString("var itemAttackSpeedMod = map[string]float64{\n")
 	writeSortedF(&b, attackSpeed)
+	b.WriteString("}\n\n")
+	b.WriteString("// itemAttackDamageMod is each item's mainhand base_attack_damage\n")
+	b.WriteString("// add_value modifier. Apply it with the player's other modifiers.\n")
+	b.WriteString("var itemAttackDamageMod = map[string]float64{\n")
+	writeSortedF(&b, attackDamage)
 	b.WriteString("}\n")
 	writeFile("internal/server/wear_gen.go", b.String())
 }

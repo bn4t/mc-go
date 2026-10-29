@@ -61,20 +61,35 @@ var armorPoints = map[string]float32{
 	"golden_nautilus_armor": 7, "diamond_nautilus_armor": 11, "netherite_nautilus_armor": 19,
 }
 
-// heldAttackDamage resolves the main-hand attack damage.
+// heldAttackDamage combines the player's attack_damage base/modifiers
+// with the main-hand weapon's additive modifier before cooldown scaling.
 func (sess *Session) heldAttackDamage() float32 {
-	held := sess.heldStack()
-	if held.Empty() {
-		return 1
+	base := playerAttrBases["attack_damage"]
+	mods := map[string]attrMod{}
+	if sess.server != nil && sess.server.entities != nil {
+		if player, ok := sess.server.entities.Get(sess.entityID.Load()); ok {
+			if value, present := player.AttrBase["attack_damage"]; present {
+				base = value
+			}
+			for id, modifier := range player.AttrMods["attack_damage"] {
+				mods[id] = modifier
+			}
+		}
 	}
-	name, ok := itemNameOf(held.ID)
-	if !ok {
-		return 1
+	if held := sess.heldStack(); !held.Empty() {
+		if name, ok := itemNameOf(held.ID); ok {
+			if modifier, weapon := itemAttackDamageMod[name]; weapon {
+				mods["minecraft:base_attack_damage"] = attrMod{value: modifier}
+			}
+		}
 	}
-	if dmg, ok := weaponDamage[name]; ok {
-		return dmg
+	value := attrValue(base, mods)
+	// Attributes.ATTACK_DAMAGE is ranged 0..2048; RangedAttribute
+	// sanitizes NaN to the minimum (26.2 factual constants).
+	if math.IsNaN(value) {
+		return 0
 	}
-	return 1
+	return float32(max(0, min(2048, value)))
 }
 
 // heldAttackDelayTicks is vanilla's getCurrentItemAttackStrengthDelay:

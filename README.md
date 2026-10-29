@@ -43,6 +43,9 @@ Axes, shovels, hoes and honeycomb support measured selected-hand transformations
 costs and effect recipients. Copper chest menus preserve named cargo and stay
 usable while another player waxes or scrapes the same live chest. Mixed copper
 double-chest variants, arbitrary item overrides and styled names remain partial.
+Player melee damage combines attack-damage overrides and modifiers with
+generated weapon values, including measured copper weapons. Attack-speed
+overrides, arbitrary item attribute components and broader combat remain partial.
 Native boats and most minecart variants preserve measured cargo, subtype state
 and supported passenger trees through vanilla-compatible saves. Chest boats and
 chest/hopper minecarts provide measured shared cargo menus, clicks and spectator
