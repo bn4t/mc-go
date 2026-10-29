@@ -262,7 +262,7 @@ type Session struct {
 	// (spyglass scope); 0 when nothing is in use. Vanilla fires
 	// using_item every tick while set.
 	usingItemID int32
-	// Bundle continuous-use countdown, hand and identity.
+	// Bundle continuous-use countdown, hand (1 main / 2 off), and identity.
 	bundleUseRemaining int32
 	bundleUseHand      uint8
 	bundleUseSlot      int16

@@ -238,6 +238,8 @@ func (s *Server) restoreGenericBlockEntity(d *dimension, pos world.Pos, id strin
 	}
 	if id == "minecraft:command_block" {
 		fields = commandBlockSavedFields(fields)
+		// /data reloads the existing BlockEntity/BaseCommandBlock. An
+		// executing source retains that object through result callbacks.
 		if current := d.genericBE[pos]; current != nil && current.id == id {
 			current.fields = fields
 			return

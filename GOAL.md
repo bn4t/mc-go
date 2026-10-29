@@ -18420,3 +18420,9 @@ Attribute range sanitization, equipment projection in queries/packets and full a
 - **Measured** — Immutable archive of972cc26 includes committed hand guards, combat speed, saved function events, dying placement, GameTest weather, block scheduling and NoGravity/join fixes. The subsequent252bf5a adds only the separately measured attribute command-result slice plus docs.
 - **Implemented** — Updated capability notes and agent/client-test guidance with actual application/removal/pairing receipts and remaining limits. No runtime code in this verification entry.
 - **Pinned** —972cc26 build/vet/tagged blackbox compilation and full default `go test -p 2 ./... -count=1 -timeout20m` PASS (internal/server338.007s, worldgen14.134s, public server27.017s, default blackbox138.753s).252bf5a immutable build/vet/tagged compile and affected attribute/command-source/outcome/store units PASS1.125s. Separate external module imports/builds pass for both snapshots. Logs: `work/verified-972cc26.log`, `work/verified-252bf5a.log`; per-slice entries record actual native comparisons. Default tests do not substitute for the opt-in native oracle. Graphical play remains blocked by the documented client dependency download restriction; this is not full vanilla parity.
+
+## Slice — clarify existing ownership and save comments (2026-10-29)
+
+- **Measured** — Source review confirms live shared vehicle cargo projection, local-counter active-effect durations, retained command-block identity during data reload, and bundle hand encoding1/2. These are already implemented and covered by earlier slices.
+- **Implemented** — Retain four previously unstaged comment clarifications from those slices. No executable changes.
+- **Pinned** — Exact patch inspection verifies every changed Go line is a comment. Runtime validation remains the published972cc26 full suite plus252bf5a affected checks; no new behavior or parity claim.

@@ -26,7 +26,8 @@ func (s *Server) saveEntityRegions(d *dimension) error {
 
 // captureEntityRegionsOwned renders private NBT values while entity state is owned.
 func (s *Server) captureEntityRegionsOwned(d *dimension) map[[2]int32][]map[string]any {
-	// Effects store local-counter deadlines, independent of loaded world base.
+	// Active-effect deadlines use the local simulation counter; world-age
+	// base must not be subtracted from their saved remaining durations.
 	now := s.clock.count
 	groups := map[[2]int32][]map[string]any{}
 	for _, e := range s.entities.All() {

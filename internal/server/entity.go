@@ -771,7 +771,8 @@ type Entity struct {
 	// into the save map verbatim like vanilla's loaded NBT.
 	ExtraNBT    map[string]any
 	commandCart *commandMinecartData
-	// vehicleCargo is shared by every viewer; native projections read current slots.
+	// vehicleCargo is shared by every viewer of a chest/hopper vehicle.
+	// Native save/data reads project its current slots through vehicleSavedFields.
 	vehicleCargo *containerData
 	// dataSync is a pending dirty-entries entity_metadata payload and
 	// dataSyncAttrs the attribute resend — /data mutations emit both on
