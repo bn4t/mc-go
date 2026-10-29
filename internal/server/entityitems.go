@@ -766,24 +766,12 @@ func cellShape(b world.Block) []cellBox {
 // collisionShapeEmpty is getCollisionShape(...).isEmpty().
 func collisionShapeEmpty(b world.Block) bool { return len(cellShape(b)) == 0 }
 
-// legacySolid is BlockState.isSolid's shape rule: a non-empty
-// collision shape whose bounds average at least 0.7291666 per axis or
-// reach a full block of height.
+// legacySolid is the measured BlockState.isSolid cache property. Its force
+// flags and dynamic-shape policy make collision bounds alone insufficient.
+// blocksMotion shares this property except for cobweb and bamboo sapling.
 func legacySolid(b world.Block) bool {
-	boxes := cellShape(b)
-	if len(boxes) == 0 {
-		return false
-	}
-	mn := [3]float64{1, 1, 1}
-	mx := [3]float64{0, 0, 0}
-	for _, c := range boxes {
-		for i := 0; i < 3; i++ {
-			mn[i] = math.Min(mn[i], c[i])
-			mx[i] = math.Max(mx[i], c[i+3])
-		}
-	}
-	avg := ((mx[0] - mn[0]) + (mx[1] - mn[1]) + (mx[2] - mn[2])) / 3
-	return avg >= 0.7291666666666666 || mx[1]-mn[1] >= 1
+	name, _ := world.StateOwner(b)
+	return stateShapeRow(b).blocksMotion || name == "cobweb" || name == "bamboo_sapling"
 }
 
 func isDiodeBlock(b world.Block) bool {
