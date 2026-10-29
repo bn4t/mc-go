@@ -265,3 +265,20 @@ func belowWorldLayered(d *dimension, cx, cz int) bool {
 	}
 	return false
 }
+
+// genLightAround lights the generated chunks around a write before the
+// write's own light update runs: in vanilla every chunk a write can
+// reach is already lit, and a write here must not materialize an unlit
+// neighbour's layers from virtual values. Caller holds d.lightMu.
+func genLightAround(d *dimension, pos world.Pos) {
+	if !d.w.Provided() {
+		return
+	}
+	cx, cz := pos.X>>4, pos.Z>>4
+	for dz := -1; dz <= 1; dz++ {
+		for dx := -1; dx <= 1; dx++ {
+			ensureSkyChunk(d, cx+dx, cz+dz)
+			seedGenBlockLight(d, cx+dx, cz+dz)
+		}
+	}
+}

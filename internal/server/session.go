@@ -165,11 +165,14 @@ type Session struct {
 	digDelayedPos   world.Pos
 	digDelayedTicks int
 	// Survival player state (touched only from the session read loop).
-	health       float32
-	food         int32
-	saturation   float32
-	dead         bool
-	fallDistance float64
+	health     float32
+	food       int32
+	saturation float32
+	dead       bool
+	// wonGame is set while the end credits run (the player has left
+	// the level); seenCredits records that they were shown.
+	wonGame, seenCredits bool
+	fallDistance         float64
 	// fallStartY is where the current drop began — vanilla's
 	// fall_from_height start_position reads this point.
 	fallStartY float64

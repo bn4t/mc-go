@@ -435,6 +435,11 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		useAck()
 		return
 	}
+	// EnderEyeItem.useOn — an eyeless portal frame takes the eye.
+	if s.useEnderEye(sess, d, clicked) {
+		useAck()
+		return
+	}
 	// FlintAndSteelItem/FireChargeItem.useOn — held-item useOn runs
 	// only after the clicked block's own use path passed.
 	if s.useIgniter(sess, d, clicked, face) {

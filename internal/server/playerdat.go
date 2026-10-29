@@ -52,7 +52,7 @@ func playerDatCompound(p playerPersist) map[string]any {
 		"XpTotal":                       p.XPTotal,
 		"playerGameType":                p.GameMode,
 		"previousPlayerGameType":        p.PrevGameMode,
-		"seenCredits":                   int8(0),
+		"seenCredits":                   boolByte(p.SeenCredits),
 		"spawn_extra_particles_on_fall": int8(0),
 		"fall_distance":                 float32(p.FallDistance),
 		"current_impulse_context_reset_grace_time": int64(0),
@@ -174,6 +174,7 @@ func playerFromDat(root map[string]any) playerPersist {
 	p.SleepTimer = int32(nbtNumberOr(root["SleepTimer"], 0))
 	p.PortalCooldown = int32(nbtNumberOr(root["PortalCooldown"], 0))
 	p.FallDistance = float32(nbtNumberOr(root["fall_distance"], 0))
+	p.SeenCredits = nbtNumberOr(root["seenCredits"], 0) != 0
 	p.FallFlying = nbtTruth(root["FallFlying"])
 	p.OnGround = nbtTruth(root["OnGround"])
 	p.XPLevel = int32(nbtNumberOr(root["XpLevel"], 0))

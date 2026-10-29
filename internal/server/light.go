@@ -237,6 +237,7 @@ func (s *Server) blockLightRemove(d *dimension, pos world.Pos, level int, pre ma
 func (s *Server) blockLightChanged(d *dimension, pos world.Pos, old, blk world.Block) {
 	d.lightMu.Lock()
 	defer d.lightMu.Unlock()
+	genLightAround(d, pos)
 	oe, ne := lightEmit(old), lightEmit(blk)
 	if oe == ne && lightOpacity(old) == lightOpacity(blk) {
 		return
@@ -1195,6 +1196,7 @@ func skyAddSourcesAbove(d *dimension, x, z, lowest, worldBottom int, inc *[]lqIt
 func (s *Server) skyLightChanged(d *dimension, pos world.Pos, old, blk world.Block, oldTop, newTop int32) {
 	d.lightMu.Lock()
 	defer d.lightMu.Unlock()
+	genLightAround(d, pos)
 	if !d.skylight {
 		return
 	}

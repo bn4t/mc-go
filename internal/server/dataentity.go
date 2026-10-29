@@ -2195,7 +2195,7 @@ func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 			m["sleeping_pos"] = []int32{int32(h.X), int32(h.Y), int32(h.Z)}
 		}
 	}
-	m["seenCredits"] = int8(0)
+	m["seenCredits"] = boolByte(sess.seenCredits)
 	m["playerGameType"] = int32(sess.gameMode)
 	if sess.prevGameMode >= 0 {
 		m["previousPlayerGameType"] = sess.prevGameMode

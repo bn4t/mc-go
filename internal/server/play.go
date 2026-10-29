@@ -707,9 +707,19 @@ func (s *Server) sendJoinGame(sess *Session) error {
 // field) and its motion.
 const syncRelRotDelta = 1<<3 | 1<<4 | 1<<5 | 1<<6 | 1<<7 | 1<<8
 
+// syncRelPitchDelta are an end portal arrival's Relative flags
+// (Relative.DELTA + X_ROT): an absolute yaw, the client's own pitch
+// and motion.
+const syncRelPitchDelta = 1<<4 | 1<<5 | 1<<6 | 1<<7 | 1<<8
+
 // sendSyncPosRelative sends an absolute position with relative
 // rotation (yaw/pitch deltas) and kept motion.
 func (s *Server) sendSyncPosRelative(sess *Session, x, y, z float64, dyaw, dpitch float32) error {
+	return s.sendSyncPosFlags(sess, x, y, z, dyaw, dpitch, syncRelRotDelta)
+}
+
+// sendSyncPosFlags sends a position sync with explicit Relative flags.
+func (s *Server) sendSyncPosFlags(sess *Session, x, y, z float64, yaw, pitch float32, flags int32) error {
 	id := sess.teleportNext.Add(1) - 1
 	var b protocol.Buffer
 	b.VarInt(id)
@@ -719,9 +729,9 @@ func (s *Server) sendSyncPosRelative(sess *Session, x, y, z float64, dyaw, dpitc
 	b.Double(0)
 	b.Double(0)
 	b.Double(0)
-	b.Float(dyaw)
-	b.Float(dpitch)
-	b.Int(syncRelRotDelta)
+	b.Float(yaw)
+	b.Float(pitch)
+	b.Int(flags)
 	return sess.write(sess.ids().PlaySyncPos, b.Bytes())
 }
 

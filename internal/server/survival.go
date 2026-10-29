@@ -1249,7 +1249,9 @@ func (s *Server) handleClientStatus(sess *Session, p protocol.Packet) {
 	}
 	switch action {
 	case 0: // perform respawn
-		if sess.dead {
+		if sess.wonGame {
+			s.returnThroughEnd(sess)
+		} else if sess.dead {
 			s.respawnPlayer(sess)
 		}
 	case 1: // request stats

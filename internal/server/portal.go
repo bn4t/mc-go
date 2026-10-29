@@ -52,6 +52,15 @@ func (s *Server) portalTickStep() {
 		}
 		x, y, z, _, _, _ := sess.Pos()
 		d := sess.dimension()
+		if sess.wonGame {
+			return true
+		}
+		// EndPortalBlock has no transition time: the first tick
+		// inside travels.
+		if endPortalTouch(d, x, y, z) {
+			s.travelEndPortal(sess)
+			return true
+		}
 		feet := world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}
 		insidePortal := isNetherPortal(d.w.GetBlock(feet))
 		// Vanilla (Entity.handlePortal + setAsInsidePortal +

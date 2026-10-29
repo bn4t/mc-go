@@ -49,6 +49,7 @@ type playerPersist struct {
 	SleepTimer     int32    `json:"sleep_timer,omitempty"`
 	PortalCooldown int32    `json:"portal_cooldown,omitempty"`
 	FallDistance   float32  `json:"fall_distance,omitempty"`
+	SeenCredits    bool     `json:"seen_credits,omitempty"`
 	Held           int32    `json:"held,omitempty"`
 	GameMode       int32    `json:"game_mode"`
 	// GameModeSaved marks entries that genuinely recorded a mode;
@@ -163,6 +164,7 @@ func snapshotPlayer(sess *Session) playerPersist {
 	p.Air = int32(sess.airSupply)
 	p.Absorb = sess.absorb
 	p.PortalCooldown = int32(sess.portalCooldownTicks)
+	p.SeenCredits = sess.seenCredits
 	p.Flying = sess.flying
 	p.FallFlying = sess.fallFlying
 	p.UUID = sess.getUUID()
@@ -430,6 +432,7 @@ func (s *Server) applySavedPlayer(sess *Session) {
 	sess.ender = p.Ender
 	sess.bodyArmor = p.Body
 	sess.invMu.Unlock()
+	sess.seenCredits = p.SeenCredits
 	sess.xpTotal = p.XPTotal
 	sess.xpLevel = p.XPLevel
 	sess.xpProgress = p.XPProgress

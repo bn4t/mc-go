@@ -328,6 +328,18 @@ func (s *Server) changeDimension(sess *Session, dst *dimension, x, y, z float64,
 // turn as a relative rotation (the client keeps its own facing and
 // motion) instead of an absolute one.
 func (s *Server) changeDimensionFacing(sess *Session, dst *dimension, x, y, z float64, yaw, pitch float32, relative bool, turn float32, portalCooldown int32) {
+	flags := int32(0)
+	if relative {
+		flags = syncRelRotDelta
+	}
+	s.changeDimensionSync(sess, dst, x, y, z, yaw, pitch, flags, turn, 0, portalCooldown)
+}
+
+// changeDimensionSync is the dimension change with the arrival sync's
+// Relative flags spelled out: syncYaw/syncPitch are what the packet
+// carries (deltas for the relative axes), yaw/pitch the server-side
+// result.
+func (s *Server) changeDimensionSync(sess *Session, dst *dimension, x, y, z float64, yaw, pitch float32, flags int32, syncYaw, syncPitch float32, portalCooldown int32) {
 	old := sess.dimension()
 	if old == dst {
 		s.teleportWithin(sess, x, y, z)
@@ -354,8 +366,8 @@ func (s *Server) changeDimensionFacing(sess *Session, dst *dimension, x, y, z fl
 		portalCooldown = 10
 	}
 	_ = s.sendRespawn(sess, dst, portalCooldown, 3)
-	if relative {
-		_ = s.sendSyncPosRelative(sess, x, y, z, turn, 0)
+	if flags != 0 {
+		_ = s.sendSyncPosFlags(sess, x, y, z, syncYaw, syncPitch, flags)
 	} else {
 		_ = s.sendSyncPos(sess, x, y, z)
 	}

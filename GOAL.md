@@ -16113,3 +16113,31 @@ no flee; unsneak → flee). Green both legs.
   equal).
 - **Remaining:** flat presets' `features`/`lakes` options and structure
   overrides.
+
+## Slice — end portals: eyes, activation, travel, credits (2026-10-29)
+
+- **Measured:** bytecode inspection of `EnderEyeItem.useOn` (eye set
+  without neighbour updates, comparator wake, stack shrink, level event
+  1503, ring match then 3x3 end_portal fill and global level event 1038
+  at the hole's centre), `EndPortalBlock.entityInside` /
+  `getPortalDestination` (no transition time; End spawn point
+  (100, 50, 0); `EndPlatformFeature.createEndPlatform` 5x5 obsidian at
+  y 48 under three air layers, z/x/y order; a player lands at
+  (100.5, 49, 0.5), yaw 90 absolute, pitch and motion relative), and
+  `ServerPlayer.showEndCredits` (leaves the level, WIN_GAME 0 once,
+  perform-respawn returns it home with everything kept). Wire
+  observation of the whole trip on the 26.2 server.
+- **Implemented:** `internal/server/endportal.go` (eye placement, ring
+  detection, portal fill, global level events, End travel and
+  platform, credits, the return), relative-flag dimension changes,
+  `seenCredits` persisted; writes in a generated world first light the
+  chunks around them (a write must not materialize an unlit
+  neighbour's layers from virtual values - found by this pin).
+- **Pinned:** `TestEndPortalParity`: frame ring with one eye missing in
+  a generated overworld, the last eye placed by the client (events
+  1503 then global 1038), the walk in (End arrival exact, platform and
+  the arrival window block for block with light), then an end portal
+  in the End (credits game event) and perform-respawn (home in the
+  overworld).
+- **Remaining:** the dragon fight (dragon, exit portal, gateways),
+  strongholds' frame rooms, eye of ender throwing toward strongholds.
