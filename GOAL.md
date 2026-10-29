@@ -154,7 +154,8 @@ Mojang server over the wire.
       positioned collision shapes, measured fit tolerances and effective scale; spectator UUID teleport
       copies target position/orientation and crosses dimensions (wire-pinned)
 - [~] Full inventory + container protocol (pick-block hotbar selection and
-  creative insertion; bundles preserve contents, support selection/clicks and
+  creative insertion; double chests share synchronized 54-slot views and
+  trapped chests emit per-viewer redstone power; bundles preserve contents, support selection/clicks and
   continuous held use; nonempty cursor drag and double-click
   collection for player/storage/crafting menus, offhand swaps for player/chest/
   generic storage; specialized action-menu drag/collect gestures, armor restrictions,
@@ -17511,3 +17512,11 @@ Final review proof: TestPlayerEffectTimeSprintFromFreeze invokes actual SprintTi
 - **Remaining:** unrelated fluid replacement rules and contextual entity collision behavior retain their existing coverage; this does not establish complete fluid parity.
 
 Source provenance: real 26.2 wire and Temurin 25.0.5 javap facts for FlowingFluid, Shapes and liquid-container classes; inner jar SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, oracle bundler SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Generated shape facts come from the all-state collision-data slice.
+
+## Slice — trapped chest opener power (2026-10-29)
+
+- **Measured:** Real26.2 wire and javap25 TrappedChestBlock, TrappedChestBlockEntity, ChestBlockEntity.startOpen/stopOpen and ContainerOpenersCounter. Jar SHA1 86765a5899bd9c96461036a628796b4245715058. Each half's signal is its opener count clamped0..15; strong power points downward. Opening a combined view changes both block entities. Spectators do not increment/decrement opener counts or award the use statistic. Trapped opener changes notify neighbors at the chest and below it. Successful normal/trapped player uses award open_chest/trigger_trapped_chest respectively.
+- **Implemented:** Per-block transient opener counts, both-half start/stop with one retirement per window, spectator exclusion, weak/strong redstone sources and neighbor propagation. Added normal/trapped open statistics on non-spectator opens. Counts remain outside persisted storage. This patch depends on the frozen combined-chest core and excludes command-block neighbor-engine edits in redstone.go.
+- **Pinned:** TestTrappedDoubleChestPowerParity PASS67.58s: wires alongside both halves follow1→2→1→0→1→0, spectator view leaves power unchanged, disconnect retires power, repeated actor uses award exactly3 trapped triggers. Assertions independently require every power predicate true and the actual trigger count3 on each leg; strengthened rerun PASS66.72s. Scripted unit PASS1.631s checks all weak directions, downward-only strong signal, clamp0..15, plus existing chest/admin units.
+
+Artifacts: work/trapped-chest-stage, work/trapped-chest.patch, work/trapped-chest-manifest.txt. No index/GOAL mutations. Remaining separate opener work: first/last-viewer gameevents/sounds, mode-conversion scheduled rechecks and menu invalidation. This slice does not claim those callbacks.

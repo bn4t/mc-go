@@ -155,6 +155,9 @@ func rsGetSignal(d *dimension, pos world.Pos, dir rsDir) int {
 	owner, _ := world.StateOwner(blk)
 	name := strings.TrimPrefix(owner, "minecraft:")
 	sig := rsOwnSignal(blk)
+	if name == "trapped_chest" {
+		sig = trappedChestPower(d, pos)
+	}
 	if name == "comparator" {
 		// ComparatorBlock's ownSignal is powered ? the block
 		// entity's stored output : 0 — the level lives on the BE,
@@ -233,6 +236,11 @@ func rsGetDirectSignal(d *dimension, pos world.Pos, dir rsDir) int {
 	name := strings.TrimPrefix(owner, "minecraft:")
 	prop := rsPropsOf(blk)
 	switch {
+	case name == "trapped_chest":
+		if dir == rsUp {
+			return trappedChestPower(d, pos)
+		}
+		return 0
 	case name == "lever" || strings.HasSuffix(name, "_button"):
 		if prop("powered") != "true" {
 			return 0
