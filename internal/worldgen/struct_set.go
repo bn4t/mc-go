@@ -178,6 +178,7 @@ type structState struct {
 
 	mu     sync.Mutex
 	starts map[[2]int32]*chunkStarts
+	refs   map[[2]int32][]StructureRef
 }
 
 func (g *Generator) structureState() *structState {
@@ -220,6 +221,7 @@ func (g *Generator) structureState() *structState {
 			}
 		}
 		st.starts = map[[2]int32]*chunkStarts{}
+		st.refs = map[[2]int32][]StructureRef{}
 	})
 	return st
 }

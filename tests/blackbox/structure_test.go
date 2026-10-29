@@ -241,7 +241,8 @@ func goPieceSummary(p worldgen.StructurePiece) string {
 // chunks against mc-go's; it returns the number of starts compared.
 func compareStarts(t *testing.T, region string, g *worldgen.Generator, areas []terrainArea) int {
 	t.Helper()
-	n := 0
+	n, refsCompared := 0, 0
+	defer func() { t.Logf("%d starts and %d chunks' references compared", n, refsCompared) }()
 	for _, a := range areas {
 		for cx := a.x0; cx <= a.x1; cx++ {
 			for cz := a.z0; cz <= a.z1; cz++ {
@@ -292,6 +293,38 @@ func compareStarts(t *testing.T, region string, g *worldgen.Generator, areas []t
 					if bad == 0 && len(kids.Items) == len(gs.Pieces) {
 						t.Logf("chunk %d,%d %s: %d pieces match", cx, cz, name, len(gs.Pieces))
 					}
+					// The saved compound itself, and its round trip
+					// through mc-go's loader.
+					if d := nbtDiff("", worldgen.StartTag(gs), w); d != "" {
+						t.Errorf("chunk %d,%d %s: saved start differs at %s", cx, cz, name, d)
+					}
+					loaded, err := g.LoadStart(w)
+					if err != nil {
+						t.Errorf("chunk %d,%d %s: load: %v", cx, cz, name, err)
+					} else if d := nbtDiff("", withoutBB(worldgen.StartTag(loaded)), withoutBB(w)); d != "" {
+						t.Errorf("chunk %d,%d %s: loaded start differs at %s", cx, cz, name, d)
+					}
+				}
+				// STRUCTURE_REFERENCES, in the saved LongSet order.
+				if st, _ := c["Status"].(string); st != "minecraft:structure_starts" && st != "minecraft:empty" {
+					wantRefs := map[string][]int64{}
+					if sc, ok := c["structures"].(map[string]any); ok {
+						if rs, ok := sc["References"].(map[string]any); ok {
+							for k, v := range rs {
+								wantRefs[strings.TrimPrefix(k, "minecraft:")], _ = v.([]int64)
+							}
+						}
+					}
+					gotRefs := map[string][]int64{}
+					for _, r := range g.StructureReferences(cx, cz) {
+						for _, sc := range r.Starts {
+							gotRefs[r.Structure] = append(gotRefs[r.Structure], int64(uint32(sc[0]))|int64(uint32(sc[1]))<<32)
+						}
+					}
+					if fmt.Sprint(gotRefs) != fmt.Sprint(wantRefs) {
+						t.Errorf("chunk %d,%d references: mc-go %v, vanilla %v", cx, cz, gotRefs, wantRefs)
+					}
+					refsCompared++
 				}
 				for name := range got {
 					if want[name] == nil {
@@ -302,6 +335,106 @@ func compareStarts(t *testing.T, region string, g *worldgen.Generator, areas []t
 		}
 	}
 	return n
+}
+
+// withoutBB drops the pieces' boxes from a start compound: loading a
+// jigsaw piece recomputes its box from the element
+// (PoolElementStructurePiece's load constructor), losing the expansion
+// hack's growth, as vanilla's reload does.
+func withoutBB(tag map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range tag {
+		out[k] = v
+	}
+	kids, _ := tag["Children"].(nbt.List)
+	nk := nbt.List{Elem: kids.Elem}
+	for _, c := range kids.Items {
+		m := map[string]any{}
+		for k, v := range c.(map[string]any) {
+			if k != "BB" {
+				m[k] = v
+			}
+		}
+		nk.Items = append(nk.Items, m)
+	}
+	out["Children"] = nk
+	return out
+}
+
+// nbtDiff returns the path of the first difference between two NBT
+// values ("" when equal); numbers compare by value whatever their tag
+// type (the datapack JSON mc-go saves elements from carries no tags).
+func nbtDiff(path string, a, b any) string {
+	num := func(v any) (float64, bool) {
+		switch x := v.(type) {
+		case int8:
+			return float64(x), true
+		case int16:
+			return float64(x), true
+		case int32:
+			return float64(x), true
+		case int64:
+			return float64(x), true
+		case float32:
+			return float64(x), true
+		case float64:
+			return x, true
+		}
+		return 0, false
+	}
+	if x, ok := num(a); ok {
+		y, ok := num(b)
+		if !ok || float32(x) != float32(y) {
+			return fmt.Sprintf("%s (%v vs %v)", path, a, b)
+		}
+		return ""
+	}
+	switch x := a.(type) {
+	case map[string]any:
+		y, ok := b.(map[string]any)
+		if !ok {
+			return path + " (type)"
+		}
+		for k := range y {
+			if _, ok := x[k]; !ok {
+				return path + "." + k + " (missing in mc-go)"
+			}
+		}
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if _, ok := y[k]; !ok {
+				return path + "." + k + " (extra in mc-go)"
+			}
+			if d := nbtDiff(path+"."+k, x[k], y[k]); d != "" {
+				return d
+			}
+		}
+		return ""
+	case nbt.List:
+		y, ok := b.(nbt.List)
+		if !ok || len(x.Items) != len(y.Items) {
+			return path + " (list length)"
+		}
+		for i := range x.Items {
+			if d := nbtDiff(fmt.Sprintf("%s[%d]", path, i), x.Items[i], y.Items[i]); d != "" {
+				return d
+			}
+		}
+		return ""
+	case []int32:
+		if fmt.Sprint(x) != fmt.Sprint(b) {
+			return fmt.Sprintf("%s (%v vs %v)", path, a, b)
+		}
+		return ""
+	}
+	if fmt.Sprint(a) != fmt.Sprint(b) {
+		return fmt.Sprintf("%s (%v vs %v)", path, a, b)
+	}
+	return ""
 }
 
 // structureParity runs one overworld structure pin over areas
@@ -348,8 +481,19 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 		}
 	}
 	chunks := g.GenerateArea(order)
+	// Decoration order: features of pool elements read the blocks of
+	// neighbouring chunks (a pile needs the floor a neighbour's piece
+	// places), and the real server decorates chunks concurrently. mc-go
+	// decorates the area a second time in reverse order; a cell whose
+	// two mc-go results differ passes when vanilla has either.
+	g.WriteLog = nil
+	rev := make([][2]int32, len(order))
+	for i, c := range order {
+		rev[len(order)-1-i] = c
+	}
+	alt := g.GenerateArea(rev)
 	minY, height := g.RS.LevelMinY(), g.RS.LevelHeight()
-	total, orderDep, exempt, beOK := 0, 0, 0, 0
+	total, orderDep, exempt, beOK, orderSens := 0, 0, 0, 0, 0
 	for _, a := range areas {
 		for cx := a.x0 + 1; cx < a.x1; cx++ {
 			for cz := a.z0 + 1; cz < a.z1; cz++ {
@@ -376,6 +520,10 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 						exempt++
 						continue
 					}
+					if ab := alt[[2]int32{cx, cz}].Blocks[i]; ab != p.Blocks[i] && protoStateString(ab) == w {
+						orderSens++
+						continue
+					}
 					if bad < 8 {
 						t.Errorf("(%d,%d,%d): mc-go %s, vanilla %s", pos[0], pos[1], pos[2], gs, w)
 					}
@@ -395,8 +543,8 @@ func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, 
 	if len(worldgen.UnsupportedFeatures) > 0 {
 		t.Errorf("unsupported feature types placed nothing: %v", worldgen.UnsupportedFeatures)
 	}
-	t.Logf("%d chunks compared; %d order-dependent cells, %d fluid post-processing cells accepted; %d block entities matched",
-		total, orderDep, exempt, beOK)
+	t.Logf("%d chunks compared; %d order-dependent writes, %d decoration-order sensitive cells, %d fluid post-processing cells accepted; %d block entities matched",
+		total, orderDep, orderSens, exempt, beOK)
 }
 
 // compareStructBlockEntities checks that the saved chunk's block entities sit

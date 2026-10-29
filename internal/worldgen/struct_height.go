@@ -33,7 +33,8 @@ func (g *Generator) BaseHeight(x, z int32, hm int) int32 {
 	}
 	v = g.RS.iterateNoiseColumn(x, z, hm)
 	g.baseHeights.mu.Lock()
-	if g.baseHeights.m == nil {
+	// A pure cache: dropped wholesale when it grows large.
+	if g.baseHeights.m == nil || len(g.baseHeights.m) >= 1<<20 {
 		g.baseHeights.m = map[baseHeightKey]int32{}
 	}
 	g.baseHeights.m[k] = v

@@ -12,6 +12,11 @@ import (
 // GenerationStub, StructureStart and the StructurePiece contract the
 // structure types implement.
 //
+// Starts are cached per chunk for the generator's lifetime (they are a
+// pure function of seed and data, so a save may also install them with
+// SetStructureStarts); references are a bounded cache recomputed from
+// the starts.
+//
 // Adding a structure type: register a builder in structureTypes (keyed
 // by the structure JSON "type", namespace trimmed). The builder compiles
 // the type's config once and returns findGenerationPoint: given the
@@ -20,6 +25,10 @@ import (
 // context random before the biome check passes unless the vanilla
 // structure does so in findGenerationPoint itself. Pieces implement
 // StructurePiece; PostProcess writes blocks clipped to the chunk box.
+// Non-jigsaw pieces count as rigid (ground level delta 0) for the
+// beardifier when their structure has terrain adaptation. Saving: a
+// piece type adds its fields by implementing pieceSaver and registers a
+// loader in pieceLoaders (struct_nbt.go).
 
 // BoundingBox is an inclusive block box (BoundingBox).
 type BoundingBox struct{ MinX, MinY, MinZ, MaxX, MaxY, MaxZ int32 }
@@ -272,6 +281,12 @@ func (g *Generator) createStructures(cx, cz int32) []*StructureStart {
 				}
 			}
 			e := list[i]
+			if g.structure(e.Structure).find == nil {
+				// A type without a builder would have been tried here;
+				// falling through to the next entry would place a
+				// structure vanilla does not, so the set stops.
+				break
+			}
 			if s := g.tryGenerateStructure(e.Structure, cx, cz); s != nil {
 				out = append(out, s)
 				have[s.Structure] = true
@@ -327,6 +342,32 @@ func (g *Generator) StructureReferences(cx, cz int32) []StructureRef {
 	if !g.Structures {
 		return nil
 	}
+	st := g.structureState()
+	k := [2]int32{cx, cz}
+	st.mu.Lock()
+	if r, ok := st.refs[k]; ok {
+		st.mu.Unlock()
+		return r
+	}
+	st.mu.Unlock()
+	r := g.createReferences(cx, cz)
+	st.mu.Lock()
+	if len(st.refs) >= 1<<16 {
+		st.refs = map[[2]int32][]StructureRef{}
+	}
+	st.refs[k] = r
+	st.mu.Unlock()
+	return r
+}
+
+// StructuresIntersecting returns the starts whose (adapted) box reaches
+// chunk (cx, cz): StructureManager.startsForStructure over all the
+// chunk's references.
+func (g *Generator) StructuresIntersecting(cx, cz int32) []*StructureStart {
+	return g.startsReferencing(cx, cz, nil)
+}
+
+func (g *Generator) createReferences(cx, cz int32) []StructureRef {
 	byStruct := map[string]*longOpenHashSet{}
 	minX, minZ := cx*16, cz*16
 	for x := cx - 8; x <= cx+8; x++ {
@@ -407,8 +448,7 @@ func (g *Generator) decorateStructures(rg *Region, r Random, deco int64, step in
 	chunk := [2]int32{center.CX, center.CZ}
 	minY := g.RS.lvMinY
 	chunkBox := BoundingBox{center.CX * 16, minY + 1, center.CZ * 16, center.CX*16 + 15, minY + g.RS.lvHeight - 1, center.CZ*16 + 15}
-	var refs []StructureRef
-	refsDone := false
+	refs := g.StructureReferences(center.CX, center.CZ)
 	idx := int32(0)
 	for _, name := range st.structOrder {
 		d := g.structure(name)
@@ -417,10 +457,6 @@ func (g *Generator) decorateStructures(rg *Region, r Random, deco int64, step in
 		}
 		i := idx
 		idx++
-		if !refsDone {
-			refs = g.StructureReferences(center.CX, center.CZ)
-			refsDone = true
-		}
 		for _, ref := range refs {
 			if ref.Structure != name {
 				continue
