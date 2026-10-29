@@ -57,5 +57,5 @@ func TestStructureOceanRuinWarmParity(t *testing.T) {
 // random core and closed openings, the room fitters and every room's
 // layout, the wings and penthouse, the water fill and the pillars.
 func TestStructureOceanMonumentParity(t *testing.T) {
-	structureParity(t, 12345, []terrainArea{{35, -118, 40, -113}}, "ocean_monuments")
+	structureParity(t, 12345, []terrainArea{{35, -118, 40, -113}, {74, -122, 79, -117}}, "ocean_monuments")
 }
