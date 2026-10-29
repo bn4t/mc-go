@@ -394,6 +394,10 @@ var itemKeyOverBlock = map[string]bool{
 
 func itemDisplayKey(full string) string {
 	name := shortItemName(full)
+	// Empty ItemStacks use AirBlock's translation despite having no BlockItem mapping.
+	if name == "air" {
+		return "block.minecraft.air"
+	}
 	if !itemKeyOverBlock[name] {
 		if id, ok := world.ItemID(name); ok {
 			if _, ok2 := world.ItemBlockState(id); ok2 {

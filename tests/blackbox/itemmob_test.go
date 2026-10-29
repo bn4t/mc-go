@@ -1,6 +1,7 @@
 package blackbox
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -63,20 +64,27 @@ func TestItemMobParity(t *testing.T) {
 		defer c.Close()
 		_ = c.SetDeadline(time.Time{})
 		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
-		sink := newChatSink(pr, pw)
+		sink := newChatSinkTP(pr, pw)
 		sink.cap = 1 << 20
-		time.Sleep(400 * time.Millisecond)
+		sendCommand(t, pw, "say ITEM_MOB_READY")
+		waitForExactSayBB(t, sink, "ITEM_MOB_READY", 15*time.Second)
 		var out [][]string
 		for i, cmd := range cmds {
-			sink.take()
 			t.Logf("send %d %q", i, cmd)
 			func() { defer func() { recover() }(); sendCommand(t, pw, cmd) }()
-			time.Sleep(500 * time.Millisecond)
+			marker := fmt.Sprintf("ITEM_MOB_END_%d", i)
+			sendCommand(t, pw, "say "+marker)
 			var evs []string
-			for _, line := range sink.take() {
+			for _, line := range waitForExactSayBB(t, sink, marker, 15*time.Second) {
+				if structureSaidBB([]string{line}, marker) {
+					continue
+				}
 				if tree, ok := componentTree(line, true); ok {
 					evs = append(evs, "chat "+maskUUID(tree))
 				}
+			}
+			if len(evs) == 0 {
+				t.Fatalf("cmd %q had no decoded response", cmd)
 			}
 			out = append(out, evs)
 		}

@@ -152,8 +152,8 @@ Mojang server over the wire.
 - [x] Full entity type registry
 - [~] Physics, collision, AI, pathfinding: positioned player shapes, animated
       shulker/piston collision, Marker and NoGravity armor-stand policies, shulker/piston item
-      pushes and retracting source-base NoGravity stand ejection have measured pins;
-      general physical pushing remains incomplete.
+      pushes, six-axis stand/cow shulker opening sweeps and retracting source-base
+      stand/cow ejection have measured pins; general physical pushing remains incomplete.
 - [~] Damage, health, death, drops, XP
       First-hit player XP/value/pickup has a live-oracle pin; broader
       damage, death and drop parity remains incomplete. Mob falls now use
@@ -166,9 +166,10 @@ Mojang server over the wire.
       live hidden effects and initial/update effect flags now wire-pinned.
       Native boats/rafts/chest variants and plain/chest/hopper/furnace/TNT
       minecart state, cargo and supported passenger trees survive a vanilla →
-      mc-go → vanilla handoff; player remount, spawner carts and complete
-      combat cargo destruction and other runtime behavior remain open; chest-boat and
-      chest/hopper-cart shared menus, clicks and validity have measured pins.
+      mc-go → vanilla handoff. Chest-boat and chest/hopper-cart shared menus,
+      clicks, validity, item-command slots and kill/attack cargo drops have measured
+      pins. Player remount, spawner carts, other damage causes and complete vehicle
+      runtime behavior remain open.
 
 ### Player
 - [~] Movement tracking, keep-alive, chat, tab list; player pose and movement use
@@ -230,7 +231,9 @@ Mojang server over the wire.
   advancement trigger coverage is partial; startup folder-pack displayed and
   displayless definitions, measured tab layout/overrides and announcements,
   completion XP/loot/recipe/function rewards and unattached-resource command
-  traversal are now pinned. Complete component schemas, pack ordering,
+  traversal are now pinned. Custom tick player predicates, exact JSON integer
+  coercion and server-owned completion/criterion selectors have scoped coverage.
+  Complete component schemas, pack ordering,
   ZIP/reload and custom loot overlays remain open. Scoreboard teams are
   implemented and parity-tested)
 - [~] Statistics (Award Statistics on Client Status 1: counters for
@@ -258,7 +261,10 @@ Mojang server over the wire.
   bare set_damage compounds apply, damage truncating (1-f)*max in
   float32) match the real server reply for reply (`TestItemCommandParity`),
   and the whole modifier grammar is pinned case for case
-  (`TestItemSNBTParity`)
+  (`TestItemSNBTParity`). Fill/clone share typed block filters; clone preserves
+  measured native block-entity data, strict writes and post-hydration neighbor
+  notifications. Exact placement grouping, scheduled-tick copying and complete
+  command schemas remain partial.
 - [x] World save format parity (region files)
 - [~] RCON, query, properties parity (server.properties: read,
       completed with vanilla's defaults and rewritten byte for byte -
@@ -18253,3 +18259,11 @@ Provenance: actual Java 26.2 command packets and decoded exact say witnesses, Te
 - **Pinned:** unchanged baseline FAIL 241.09 s; immutable c8143d2 plus four owned files passes 552 independent body observations per server in 271.31 s, prior 98 item observations in 121.04 s, units 3.096 s and race 25.422 s. Gravity/travel, ground step-up, existing Motion, scaled bodies, hard entity collisions, other families and player displacement remain separate.
 
 Provenance: Java 26.2 wire/NBT observations, prior public progress-sweep facts, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Frozen patch d0ffc098b3abbb075c096862aca56ee06e55a061339424181f54cc1914a9457e.
+
+## Slice — air item replies and command capture readiness (2026-10-29)
+
+- **Measured:** vanilla uses block.minecraft.air when an item command clears equipment. The unchanged 1ad53cb baseline reproduced Go's incorrect item.minecraft.air key; fixed capture sleeps also grouped unrelated replies under load.
+- **Implemented:** use the measured air translation key. Preserve all 27 living-item commands and comparisons, capturing each through an exact decoded say barrier and requiring a nonempty response. Refresh the parity matrix for the recently pinned cargo, clone, advancement and physical scopes.
+- **Pinned:** immutable 6959d38 plus two owned files passes TestItemMobParity in 12.31 s. Combined cargo integration is checked separately; this pin does not expand component or command schema claims.
+
+Provenance: Java 26.2 wire, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Frozen patch 9c306ddf0281a8441988ca4b9eb28f8bc94ad8a0ed47ad34626afae4ce937ecf.
