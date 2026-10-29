@@ -32,8 +32,8 @@ command-minecart activator rails, structure-block save/load and redstone actions
 with native templates, jigsaw editor/generation, test-block editors and
 test-instance controller records/reset/native saves,
 block-entity update coalescing, moving-piston collision timing and measured
-dropped-item pushes, container
-validity, chest events and ordinary main/offhand placement and consumption.
+dropped-item pushes, retracting source-base ejection of NoGravity armor stands,
+container validity, chest events and ordinary main/offhand placement and consumption.
 Selected-hand interactions include signs, hive harvesting, ignition, growth,
 end items and disc insertion. Native jukebox records share the interaction
 store and survive measured bare-disc saves; complete component and playback

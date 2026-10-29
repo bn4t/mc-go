@@ -151,8 +151,9 @@ Mojang server over the wire.
       chunk-generation creatures: `TestNaturalSpawn*Parity`.
 - [x] Full entity type registry
 - [~] Physics, collision, AI, pathfinding: positioned player shapes, animated
-      shulker/piston collision, Marker and NoGravity armor-stand policies and shulker/piston item
-      pushes have measured pins; general physical pushing remains incomplete.
+      shulker/piston collision, Marker and NoGravity armor-stand policies, shulker/piston item
+      pushes and retracting source-base NoGravity stand ejection have measured pins;
+      general physical pushing remains incomplete.
 - [~] Damage, health, death, drops, XP
       First-hit player XP/value/pickup has a live-oracle pin; broader
       damage, death and drop parity remains incomplete. Mob falls now use
@@ -18023,3 +18024,11 @@ Limits: copper UI, sounds, golem sorting and every double-chest pairing are not 
 Durable lessons: storage BEtype and menu eligibility are distinct consumers. Test disk serialization separately from data-query serialization; a passing query does not prove reload persistence. Verify nonempty setup before testing preservation.
 
 This persistence pin covers plain literal chest names; complete structured/styled component name codecs remain outside this slice.
+
+## Slice — retracting piston source-base ejection for NoGravity armor stands (2026-10-29)
+
+- **Measured:** Real vanilla 26.2 wire/NBT observations establish source-base retraction contacts and bounded reverse ejection in all six directions. Five contact depths plus an ignored Marker control per direction, four exact ticks, all three position and Motion components yield 864 independently required observations per server. Summon activation is witnessed through PortalCooldown before retraction; `/tick step 1` uses the existing authoritative game-time barrier. NoGravity armor stands have NORMAL piston reaction but bypass block clipping and ordinary travel, making this a deliberately narrow geometry apparatus. The physical carried source head uses SHORT when old progress exceeds .25; this differs from the world-collision head rule. Provenance: local JDK25.0.5+8 factual class/branch inspection (PistonMovingBlockEntity, ArmorStand) and actual vanilla command/query packets; unpacked 26.2 jar SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Independent Go interval geometry was written without copied implementation structure.
+- **Implemented:** A narrowly routed source-base mover selects live NoGravity non-Marker armor stands, computes swept forward-face contact and bounded reverse escape from the base, and preserves velocity. Shared independent forward-contact/positioning helpers replace equivalent item-only calculations without expanding item behavior. Neutral avatar presence records remain excluded. The first two retraction ticks move; cleanup retains the second-tick position.
+- **Pinned:** Initial east baseline FAIL57.42s in work/piston-sourcebase-before.log; expanded unchanged-production six-axis baseline FAIL229.02s in work/piston-sourcebase-matrix-before.log, with all vanilla goldens satisfied. Fixed immutable base 6846dd2f7c26c472038b64b31cf74d8f582a4c0e plus six frozen owned files: TestPistonSourceBaseEjectionParity PASS241.48s and existing TestPistonItemPushParity PASS71.38s, work/piston-sourcebase-fixed.log. Focused source-base/item-face/positioned-world-shape/neutral-avatar units PASS0.909s; race PASS2.024s, respective work/piston-sourcebase-fixed-{units,race}.log. Pure tests retain physical rod state, contact depths, Marker exclusion, position and velocity controls.
+
+Limits: ordinary clipped bodies, source-base items, real-player displacement, Small/scaled stands, cumulative piston movement limits, intermediate block effects and class-specific move overrides remain separate. NoGravity wire metadata is still incomplete. This geometry pin does not establish ordinary Entity.move clipping parity.

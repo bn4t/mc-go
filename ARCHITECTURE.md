@@ -61,6 +61,12 @@ and entity accessors for in-tree tests and embeddings; callers must not
 treat those as an unrestricted concurrent gameplay API. The new public
 extension APIs avoid those pointers.
 
+Retracting piston source-base movement has a measured route for default-size
+NoGravity armor stands. Its physical carried-head geometry differs from the
+live world-collision shape, and bounded reverse ejection preserves velocity.
+This route isolates geometry from ordinary block clipping; general entity move
+policies, cumulative piston limits and scaled variants remain separate work.
+
 ## Gameplay resources and callbacks
 
 Startup advancement definitions belong to each Server. The built-in generated
