@@ -21,8 +21,9 @@ import (
 //   - evoker_fangs: warmupDelayTicks 0, lifeTicks 22 → the fang
 //     deals its hit at warmup -8 and discards when lifeTicks runs
 //     out (~23 ticks).
-//   - eye_of_ender: life > 80 → discard; surviveAfterDeath (the ~80%
-//     roll) drops its ender_eye item.
+//   - eye_of_ender: EyeOfEnder.tick (endereye.go) — a summoned eye has
+//     no target and surviveAfterDeath false, so it drifts on its Motion
+//     and shatters (level event 2003) past 80 ticks.
 //   - ominous_item_spawner: spawnItemAfterTicks rolls
 //     nextIntBetweenInclusive(60,120); tickCount reaching it fires
 //     spawnItem() + kill(). A bare summon carries ItemStack.EMPTY,
@@ -105,16 +106,7 @@ func (s *Server) ephemeralTickStep() {
 			if !ok {
 				continue
 			}
-			e.EphemeralAge++
-			if e.EphemeralAge > 80 {
-				// surviveAfterDeath: ~80% of eyes land as an item.
-				if s.rng.nextDouble() < 0.8 {
-					if id, ok := world.ItemID("ender_eye"); ok {
-						s.spawnItemDrop(e.Dim, floorPos(e), ItemStack{ID: id, Count: 1})
-					}
-				}
-				s.ephemeralDiscard(e)
-			}
+			s.eyeTick(e)
 		case "ominous_item_spawner":
 			e, ok := s.entities.GetPtr(snap.ID)
 			if !ok {

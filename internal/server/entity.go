@@ -268,6 +268,8 @@ type Entity struct {
 	beamMeta   bool
 	// flyer is the Blaze/Ghast/Phantom goal state (flyer.go).
 	flyer *flyerState
+	// eye is a thrown EyeOfEnder's flight (endereye.go).
+	eye *eyeFlight
 	// Moving mirrors Guardian's DATA_ID_MOVING (metadata index 16,
 	// boolean): GuardianMoveControl latches it while a swim drive is
 	// live — it gates travelInWater's idle -0.005 sink and the client
