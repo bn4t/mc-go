@@ -278,6 +278,7 @@ func (s *Server) chunkBlockEntities(d *dimension, cx, cz int) []map[string]any {
 func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any, bool) {
 	blk := d.w.GetBlock(pos)
 	s.structureBlockAt(d, pos)
+	s.jigsawAt(d, pos)
 	spec, ok := blockEntityOf(blk)
 	if !ok {
 		return nil, false

@@ -99,7 +99,7 @@ func init() {
 		IDPlaySetCommandMinecartSB: (*Server).handleSetCommandMinecart,
 		IDPlayCreativeSlotSB:       (*Server).handleCreativeSlot,
 		IDPlaySetGameRuleSB:        (*Server).handleSetGameRule,
-		IDPlaySetJigsawBlockSB:     (*Server).ignoreServerbound,
+		IDPlaySetJigsawBlockSB:     (*Server).handleSetJigsawBlock,
 		IDPlaySetStructureBlockSB:  (*Server).handleSetStructureBlock,
 		IDPlaySetTestBlockSB:       (*Server).ignoreServerbound,
 		IDPlayUpdateSignSB:         (*Server).handleUpdateSign,
@@ -115,7 +115,7 @@ func init() {
 }
 
 // ignoreServerbound explicitly consumes packets whose behavior is not
-// modeled here. Some are no-ops; jigsaw and test editor actions still
+// modeled here. Some are no-ops; jigsaw generation and test editor actions still
 // include placeholder registrations for missing privileged behavior.
 // The coverage test tracks this list so omissions remain visible.
 func (s *Server) ignoreServerbound(sess *Session, p protocol.Packet) {}
