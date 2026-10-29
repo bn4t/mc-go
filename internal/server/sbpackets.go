@@ -1291,8 +1291,9 @@ func (s *Server) handleSpectatorAction(sess *Session, p protocol.Packet) {
 	s.applySpectatorSelectionOwned(sess, selection)
 }
 
-// handleTeleportToEntity moves a spectator to another player, which is
-// the only entity kind the vanilla client targets.
+// handleTeleportToEntity follows the UUID target, including loaded non-player
+// entities. Measured in 26.2 ServerGamePacketListenerImpl: spectator-only,
+// across dimensions, copying both position and look direction.
 func (s *Server) handleTeleportToEntity(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
 	id, err := r.UUID()
@@ -1302,12 +1303,34 @@ func (s *Server) handleTeleportToEntity(sess *Session, p protocol.Packet) {
 	if sess.mode() != GameModeSpectator {
 		return
 	}
-	target := s.sessionByUUID(id)
-	if target == nil || target == sess {
+	var x, y, z float64
+	var yaw, pitch float32
+	var dim string
+	if target := s.sessionByUUID(id); target != nil {
+		x, y, z, yaw, pitch, _ = target.Pos()
+		dim = target.dimName()
+	} else {
+		found := false
+		for _, e := range s.entities.All() {
+			if e.UUID == id && !e.Dormant {
+				x, y, z, yaw, pitch, dim = e.X, e.Y, e.Z, e.Yaw, e.Pitch, e.Dim
+				found = true
+				break
+			}
+		}
+		if !found {
+			return
+		}
+	}
+	if dim != sess.dimName() {
+		dst := s.dims[dim]
+		if dst == nil {
+			return
+		}
+		s.changeDimensionFacing(sess, dst, x, y, z, yaw, pitch, false, 0, 0)
 		return
 	}
-	x, y, z, _, _, _ := target.Pos()
-	s.teleportPlayerOwned(sess.getName(), x, y, z)
+	s.teleportPlayerRot(sess.getName(), x, y, z, yaw, pitch)
 }
 
 // sessionByUUID finds an online session by profile UUID.

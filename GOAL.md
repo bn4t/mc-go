@@ -142,7 +142,8 @@ Mojang server over the wire.
 - [ ] Projectiles, vehicles, mobs, villagers
 
 ### Player
-- [~] Movement tracking, keep-alive, chat, tab list
+- [~] Movement tracking, keep-alive, chat, tab list; spectator UUID teleport
+      copies target position/orientation and crosses dimensions (wire-pinned)
 - [~] Full inventory + container protocol (chest + window-0 click
   parity scripted step by step, stale-state resync, menu titles, ender
   chest over shared player storage with close/reopen/break persistence;
@@ -16696,3 +16697,20 @@ no flee; unsneak → flee). Green both legs.
   fractional damage and epsilon boundaries (1.043 s). The fixture uses a
   cleared arena, separate player identities and the admission grace period.
   Non-default fall attributes remain outside this slice.
+
+
+## Slice — spectator UUID teleport targets and orientation (2026-10-29)
+
+- **Measured:** vanilla 26.2 wire observations and JDK 25 javap measurement of
+  `ServerGamePacketListenerImpl.handleTeleportToEntityPacket`; oracle jar SHA-1
+  `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Spectators can target loaded
+  entities by UUID across dimensions, copying position and orientation.
+- **Implemented:** UUID lookup includes loaded non-player entities as well as
+  player sessions. Same-dimension travel copies yaw/pitch; cross-dimension travel
+  uses the existing facing-aware dimension transition and respawn sequence.
+- **Pinned:** `TestSpectatorTeleportEntityParity` passes against vanilla without
+  skips (32.55 s): non-spectator rejection, a pig target at yaw 75/pitch 20,
+  unknown UUID rejection, and a nether player target at yaw 110/pitch 35 with
+  a required Respawn packet. Command setup uses completion barriers so chunk
+  generation cannot race the request. The loaded cross-dimension mob case is
+  measured in bytecode but is not separately asserted by this wire fixture.
