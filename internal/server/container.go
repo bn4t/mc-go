@@ -1451,15 +1451,27 @@ func (s *Server) containerTickStep() {
 			c   *containerData
 		}
 		var brewing []entry
+		type lidStep struct {
+			pos           world.Pos
+			before, after float32
+		}
+		var lidSteps []lidStep
 		for pos, c := range d.containers.containers {
 			if c.spec.shulker {
+				before := c.shulkerProgress
 				advanceShulkerAnimation(c)
+				if c.shulkerProgress > before {
+					lidSteps = append(lidSteps, lidStep{pos, before, c.shulkerProgress})
+				}
 			}
 			if c.spec.brew {
 				brewing = append(brewing, entry{pos, c})
 			}
 		}
 		d.containers.mu.Unlock()
+		for _, step := range lidSteps {
+			s.shulkerPushItems(d, step.pos, step.before, step.after)
+		}
 		for _, e := range brewing {
 			s.brewingTick(d, e.pos, e.c)
 		}
