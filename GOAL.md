@@ -40,8 +40,9 @@ Mojang server over the wire.
 - [~] Full packet ID + shape coverage for all states: no play route remains
       explicitly assigned to ignoreServerbound. Structure, jigsaw, test-block
       and test-instance controller/built-in RUN workflows and client frame-end
-      movement have measured coverage. Complete schemas, custom GameTest execution and
-      other handler semantics remain partial; routing is not full parity.
+      movement have measured coverage. Startup custom GameTest registries and
+      signal-driven block tests now have scoped pins. Complete schemas, test
+      environments and other handler semantics remain partial; routing is not full parity.
 - [x] Encryption / online mode
 - [x] Cookie / transfer / dialog / code-of-conduct packets.
       /transfer writes play transfer (host + port); /dialog show/clear
@@ -18303,3 +18304,11 @@ Provenance: Java 26.2 wire and public Identifier codec observations, Temurin 25.
 - **Pinned:** ten independently expected native health outcomes PASS 56.56 s; focused composition/armor/attack/melee/combat units PASS 14.638 s. Three repeats of the exact sword health-14 regression passed at both 20 and 16 TPS. Actual player play_time increments establish charge. Attack speed overrides, custom item modifiers, NPC weapons and within-pass floating-point ordering remain separate.
 
 Provenance: Java 26.2 wire, official item-component reports and factual Attributes.ATTACK_DAMAGE/RangedAttribute constants; Go 1.27.3, Temurin 25.0.5+8; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Repeated genregistries output wear_gen.go SHA256 dc78fdba47153b929f30f8c8796e5637306987cacef5c4c55e092ea16c90dd93; 1,537 report-file hash listing SHA256 c1abbe5944cd585be8988f16dd8be018d6cf91eeeb1ba1d42f328e9a6df2fbcd. Generator reads vanilla/reports; the isolated regeneration linked that path to the existing vanilla/generated/reports and retained only the owned output. Frozen patch 31aa577f9bec2053a53a060e3172c7c5f2918630d55564e341607d12234e80d2.
+
+## Slice — startup GameTest registries and block-based execution (2026-10-29)
+
+- **Measured:** custom function/block-based definitions and empty all_of environments appear with canonical native registry defaults. START powers ACCEPT; simultaneous ACCEPT and FAIL accepts. Missing/multiple START, missing ACCEPT, activated FAIL, missing function and timeout use typed errors and distinct publication timing. External FAIL at runner tick 2 publishes on the following world tick; frozen player ticks do not progress the runner.
+- **Implemented:** server-owned startup catalogs and profile-specific 775/776 overlays preserve existing registry rows and append custom keys. Native test-block merges retain transient activation while saves omit it. The block runner validates START cardinality, consumes ACCEPT before FAIL and separates immediate success cleanup from delayed failure publication. Only empty/nested all_of environments are supported.
+- **Pinned:** immutable build and focused TestInstance/TestBlock/SharedAvatar units PASS 3.075 s; differential PASS 55.94 s (vanilla 17.20 s, Go 14.63 s), with 32 status phases, canonical configuration, six typed errors, power transitions and simultaneous/external signals. Existing controller SET/RESET/remove-replace/runner replacement regression PASS 36.56 s before the final short-name scan correction, which has direct discovery/redstone units. The initial custom differential failure was retained and corrected before final verification.
+
+Provenance: Java 26.2 wire and public registry codec facts, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Frozen 15-file patch ad421a780801941cb1d60d804397b2e8d1bd8dadb863bae01343e6f0126d7580. Other environments/functions, LOG reporting, retries, pack selection/ZIP/reload, nondefault geometry, active geometry edits and force-load cleanup remain incomplete or unpinned.

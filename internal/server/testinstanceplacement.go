@@ -8,7 +8,7 @@ import (
 // Registered RESET clears the test volume before placing the selected
 // template. An omitted AIR cell in the saved template therefore becomes AIR.
 func (s *Server) testInstancePlace(d *dimension, pos world.Pos, data testInstanceData) bool {
-	definition := testInstanceDefinition(data.test)
+	definition := s.testInstanceDefinition(data.test)
 	if definition == nil {
 		return false
 	}

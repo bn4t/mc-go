@@ -139,7 +139,11 @@ func (s *Server) sendRegistries(sess *Session) error {
 		return err
 	}
 	for _, reg := range profile.config.registries {
-		if err := sess.write(sess.ids().ConfigRegistryData, reg.body); err != nil {
+		body, err := s.gameTestConfigBody(reg)
+		if err != nil {
+			return err
+		}
+		if err := sess.write(sess.ids().ConfigRegistryData, body); err != nil {
 			return err
 		}
 	}

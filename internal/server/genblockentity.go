@@ -44,6 +44,8 @@ import (
 type genericBlockEntity struct {
 	id     string         // the saved id ("minecraft:mob_spawner")
 	fields map[string]any // the saved fields without the id/x/y/z frame
+	// testTriggered is transient TestBlockEntity activation, never native data.
+	testTriggered bool
 }
 
 // blockEntityTypeNames maps a block to its block entity type (no
@@ -250,6 +252,10 @@ func (s *Server) restoreGenericBlockEntity(d *dimension, pos world.Pos, id strin
 	}
 	if id == testBlockEntityID {
 		fields = testBlockSavedFields(fields)
+		if current := d.genericBE[pos]; current != nil && current.id == id {
+			current.fields = fields
+			return
+		}
 	}
 	if id == testInstanceBlockEntityID {
 		current := d.genericBE[pos]

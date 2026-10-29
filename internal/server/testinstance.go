@@ -45,7 +45,7 @@ func (s *Server) handleTestInstanceBlockAction(sess *Session, p protocol.Packet)
 		return
 	}
 	if edit.action == 0 || edit.action == 1 {
-		definition := testInstanceDefinition(edit.data.test)
+		definition := s.testInstanceDefinition(edit.data.test)
 		description := testInstanceDescription(definition)
 		var b protocol.Buffer
 		b.Raw(description.content())
@@ -106,7 +106,7 @@ func (s *Server) testInstanceSave(d *dimension, pos world.Pos, data testInstance
 		return ""
 	}
 	name := data.test
-	if def := testInstanceDefinition(data.test); def != nil {
+	if def := s.testInstanceDefinition(data.test); def != nil {
 		name, _ = def["structure"].(string)
 	}
 	if data.size[0] <= 0 || data.size[1] <= 0 || data.size[2] <= 0 {

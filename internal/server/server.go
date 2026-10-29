@@ -363,6 +363,8 @@ type Server struct {
 	blockEvents []rsBlockEvent
 	// testRun is the active server-owned registered GameTest run.
 	testRun *testInstanceRun
+	// testPack owns startup test/environment resource overrides.
+	testPack *testInstancePack
 	// movingPistons are the live moving-piston block entities — each
 	// cell a piston move covered sits as a moving_piston for vanilla's
 	// 2-tick interlude (progress += 0.5/tick, finalTick at >=1.0)

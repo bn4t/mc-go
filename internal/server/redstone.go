@@ -158,6 +158,9 @@ func rsGetSignal(d *dimension, pos world.Pos, dir rsDir) int {
 	if name == "trapped_chest" {
 		sig = trappedChestPower(d, pos)
 	}
+	if name == "test_block" {
+		sig = testBlockSignal(d, pos, blk)
+	}
 	if name == "comparator" {
 		// ComparatorBlock's ownSignal is powered ? the block
 		// entity's stored output : 0 — the level lives on the BE,
@@ -505,6 +508,8 @@ func (s *Server) rsNeighborChanged(d *dimension, pos world.Pos) {
 		} else {
 			s.rsDiodeCheckTick(d, pos, name, blk)
 		}
+	case name == "test_block":
+		s.testBlockNeighborPower(d, pos, sig)
 	case name == "piston" || name == "sticky_piston":
 		// PistonBaseBlock.neighborChanged → checkIfExtend: the
 		// quasi-powered read decides, and the move itself goes through

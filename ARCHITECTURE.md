@@ -157,11 +157,18 @@ The captured registered test adds exact description/size queries, template-name
 resolution for SAVE, and rotated volume clearing/placement for RESET. Its built-in
 `always_pass` RUN prepares the controller and barrier shell, stays frozen with the
 world, and finishes on the third world tick. Mutable template and runner state
-belong to each server. Custom test/environment registry loading, block-based tests,
-full runner reports/retries/timeouts, non-default padding/sky-access/definition
-rotation, oversized regions and complete text-component validation remain outside
-this measured coverage. Active size/rotation edits during a run, force-load ticket
-cleanup and exact live/global placement RNG interleaving are unpinned.
+belong to each server. Startup test/environment catalogs are server-owned;
+profile-specific overlays preserve captured rows and append sorted custom keys
+for protocols 775/776. Function/block-based definitions use canonical defaults;
+empty/nested all_of environments have no setup side effects. START emits power;
+receiver edges retain transient activation across native merges, but not saves.
+ACCEPT precedes FAIL. Success clears the enclosure immediately; failures publish
+on the next world tick and retain it. Setup and timeout use world ticks.
+Other functions/environments, LOG reports, retries, pack selection/ZIP/reload,
+nondefault padding/sky access/definition rotation, oversized regions and complete
+text validation remain partial. Active geometry edits, force-load cleanup, exact
+live/global placement RNG interleaving and outside notifications during strict
+clearing remain unpinned.
 
 Command blocks and command minecarts share execution mechanics while supplying
 different spatial and entity sources. Result callbacks must read the current

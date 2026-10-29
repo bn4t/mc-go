@@ -236,6 +236,9 @@ func (s *Server) loadWorldDir() error {
 	s.loadPlayerMetaFiles()
 	s.loadFunctions()
 	s.loadAdvancementPacks()
+	if err := s.loadTestInstancePacks(); err != nil {
+		return err
+	}
 	return nil
 }
 
