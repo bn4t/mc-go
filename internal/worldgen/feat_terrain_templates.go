@@ -511,8 +511,17 @@ func (t *structTemplate) placeInWorld(rg *Region, off, pivot BlockPos, s *placeS
 		}
 		placed = append(placed, b.pos)
 		inPlaced[b.pos] = true
-		if b.nbt != nil && hasBlockEntity(st) && isRandomizable(st) {
-			random.NextLong()
+		// The placed block's block entity takes the template's tag (a
+		// container first drawing its LootTableSeed from random).
+		if b.nbt != nil {
+			if be := rg.blockEntity(b.pos); be != nil {
+				tag := b.nbt
+				if isRandomizable(rg.at(b.pos)) {
+					tag = cloneNBT(b.nbt).(map[string]any)
+					tag["LootTableSeed"] = random.NextLong()
+				}
+				loadTemplateNBT(be, tag)
+			}
 		}
 		if !s.keepLiquids {
 			continue

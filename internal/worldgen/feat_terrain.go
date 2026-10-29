@@ -499,8 +499,13 @@ func placeSpring(rg *Region, s *springConfig, p BlockPos) bool {
 	return false
 }
 
-// placeMonsterRoom is MonsterRoomFeature.place (block states only; the
-// chest loot seed and spawner mob draws are consumed but not stored).
+// monsterRoomMobs is MonsterRoomFeature.MOBS, indexed by its
+// nextInt(4) draw.
+var monsterRoomMobs = [4]string{"skeleton", "zombie", "zombie", "spider"}
+
+// placeMonsterRoom is MonsterRoomFeature.place: the room, its chests
+// (each with the dungeon loot table and a drawn seed) and the spawner
+// with its drawn mob.
 func placeMonsterRoom(rg *Region, r Random, o BlockPos) bool {
 	ok := replaceableByFeatures
 	rx := r.NextIntN(2) + 2
@@ -570,18 +575,18 @@ func placeMonsterRoom(rg *Region, r Random, o BlockPos) bool {
 			}
 			safeSet(rg, q, reorientChest(rg, q, chestBlock()), ok)
 			// RandomizableContainer.setBlockEntityLootTable: the chest's
-			// block entity takes a loot seed.
-			if isBlock(rg.at(q), "chest") {
-				r.NextLong()
-			}
+			// block entity takes chests/simple_dungeon and a loot seed.
+			setBlockEntityLootTable(rg, r, q, "minecraft:chests/simple_dungeon")
 			break
 		}
 	}
 	safeSet(rg, o, spawnerBlock(), ok)
 	// MonsterRoomFeature.randomEntityId: one of four mobs for the
-	// spawner's block entity.
-	if isBlock(rg.at(o), "spawner") {
-		r.NextIntN(4)
+	// spawner's block entity (SpawnerBlockEntity.setEntityId: the next
+	// spawn data's entity id; the potentials list stays empty).
+	if be := rg.blockEntity(o); be != nil && isBlock(rg.at(o), "spawner") {
+		mob := monsterRoomMobs[r.NextIntN(4)]
+		be["SpawnData"] = map[string]any{"entity": map[string]any{"id": "minecraft:" + mob}}
 	}
 	return true
 }

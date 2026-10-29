@@ -148,11 +148,12 @@ func (d beehiveDeco) place(c *decoCtx) {
 			c.set(p, withProp(blockNamed("bee_nest"), "facing", "south"))
 			// The nest's block entity exists once the write landed
 			// (WorldGenRegion keeps a DUMMY tag), and stocking it draws
-			// 2-3 bees with a nextInt(599) each.
-			if c.rg.canWrite(p) && p[1] >= c.rg.MinY() && p[1] <= c.rg.MaxY() {
+			// 2-3 bees with a nextInt(599) each: the occupants' starting
+			// ticks_in_hive.
+			if be := c.rg.blockEntity(p); be != nil {
 				n := 2 + r.NextIntN(2)
 				for i := int32(0); i < n; i++ {
-					r.NextIntN(599)
+					storeBee(be, r.NextIntN(599))
 				}
 			}
 			return

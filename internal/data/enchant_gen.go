@@ -109,6 +109,52 @@ var InEnchantingTableOrder = []string{
 	"lunge",
 }
 
+// OnRandomLootOrder lists the on_random_loot members in declared tag
+// order (nested tags resolved in place) - the list enchant_randomly
+// indexes into.
+var OnRandomLootOrder = []string{
+	"protection",
+	"fire_protection",
+	"feather_falling",
+	"blast_protection",
+	"projectile_protection",
+	"respiration",
+	"aqua_affinity",
+	"thorns",
+	"depth_strider",
+	"sharpness",
+	"smite",
+	"bane_of_arthropods",
+	"knockback",
+	"fire_aspect",
+	"looting",
+	"sweeping_edge",
+	"efficiency",
+	"silk_touch",
+	"unbreaking",
+	"fortune",
+	"power",
+	"punch",
+	"flame",
+	"infinity",
+	"luck_of_the_sea",
+	"lure",
+	"loyalty",
+	"impaling",
+	"riptide",
+	"channeling",
+	"multishot",
+	"quick_charge",
+	"piercing",
+	"density",
+	"breach",
+	"lunge",
+	"binding_curse",
+	"vanishing_curse",
+	"frost_walker",
+	"mending",
+}
+
 // ExclusiveSets resolves one exclusive_set tag to its member
 // enchantments (compat is symmetric through either side's set).
 var ExclusiveSets = map[string][]string{

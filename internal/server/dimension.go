@@ -83,6 +83,12 @@ type dimension struct {
 	// the VibrationSystem$Data plus the saved last frequency. Entries
 	// are created when the sensor block is written and die with it.
 	sculk map[world.Pos]*sculkSensor
+	// genericBE holds the block entities mc-go keeps only as their
+	// saved fields (spawners, gateways, hives, catalysts ...), and
+	// genBEDone the generated chunks whose block entities are installed
+	// (genblockentity.go). Simulation goroutine only.
+	genericBE map[world.Pos]*genericBlockEntity
+	genBEDone map[[2]int]bool
 	// jukeboxes is every loaded jukebox block entity — the held
 	// record plus the JukeboxSongPlayer's ticking state. Entries are
 	// created on disc insert and die on eject/break/overwrite.

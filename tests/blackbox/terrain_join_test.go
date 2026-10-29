@@ -5,11 +5,13 @@ package blackbox
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"testing"
 	"time"
 
+	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
 	"mc-go/internal/server"
 	"mc-go/internal/world"
@@ -454,7 +456,22 @@ func lightMasks(t *testing.T, body []byte) [4][]uint64 {
 	r := protocol.NewPacketReader(rest)
 	n, _ := r.VarInt()
 	r.Read(int(n))
-	r.VarInt() // block entities (none without structures)
+	beCount, _ := r.VarInt()
+	if beCount != 0 {
+		// Skip the block entity array (generated chunks carry one).
+		tail := rest[len(rest)-r.Remaining():]
+		br := bytes.NewReader(tail)
+		for i := int32(0); i < beCount; i++ {
+			var hdr [3]byte
+			io.ReadFull(br, hdr[:])
+			readChunkBEVarInt(br)
+			if peek, err := readChunkBEByte(br); err == nil && peek != 0 {
+				_ = br.UnreadByte()
+				nbt.ReadUnnamed(br)
+			}
+		}
+		r = protocol.NewPacketReader(tail[len(tail)-br.Len():])
+	}
 	var out [4][]uint64
 	for i := range out {
 		out[i] = readLightMask(t, "masks", r)

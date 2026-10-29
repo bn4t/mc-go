@@ -84,6 +84,10 @@ func blockEntityOf(b world.Block) (blockEntitySpec, bool) {
 	case name == "shulker_box" || strings.HasSuffix(name, "_shulker_box"):
 		return blockEntitySpecs["shulker_box"], true
 	}
+	// Every other 26.2 block entity type (genblockentity.go).
+	if typ, ok := blockEntityTypeName(name); ok {
+		return blockEntitySpecForType(typ)
+	}
 	return blockEntitySpec{}, false
 }
 
@@ -96,6 +100,7 @@ func (s *Server) chunkBlockEntities(d *dimension, cx, cz int) []map[string]any {
 		pos world.Pos
 		nbt map[string]any
 	}
+	s.installGenBlockEntities(d, cx, cz)
 	var out []entry
 	add := func(pos world.Pos, v map[string]any) {
 		if pos.X>>4 != cx || pos.Z>>4 != cz {
@@ -133,7 +138,17 @@ func (s *Server) chunkBlockEntities(d *dimension, cx, cz int) []map[string]any {
 		spec, _ := blockEntityOf(d.w.GetBlock(pos))
 		slots := make([]ItemStack, len(c.slots))
 		copy(slots, c.slots[:])
+		lt, seed := c.lootTable, c.lootSeed
 		add(pos, blockEntityNBT(pos, spec, func(extra map[string]any) {
+			// trySaveLootTable: an unrolled loot table (a dungeon
+			// chest) is saved instead of the items.
+			if lt != "" {
+				extra["LootTable"] = lt
+				if seed != 0 {
+					extra["LootTableSeed"] = seed
+				}
+				return
+			}
 			extra["Items"] = itemsNBT(slots)
 		}))
 	}
@@ -221,6 +236,21 @@ func (s *Server) chunkBlockEntities(d *dimension, cx, cz int) []map[string]any {
 		}))
 	}
 
+	// Block entities kept as their saved fields, where no store above
+	// already wrote the position.
+	have := make(map[world.Pos]bool, len(out))
+	for _, e := range out {
+		have[e.pos] = true
+	}
+	for pos := range d.genericBE {
+		if have[pos] {
+			continue
+		}
+		if g, spec, ok := genericBlockEntityAt(d, pos); ok {
+			add(pos, genericSaveNBT(d, pos, g, spec))
+		}
+	}
+
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i].pos, out[j].pos
 		if a.X != b.X {
@@ -250,6 +280,9 @@ func (s *Server) blockEntitySaveMap(d *dimension, pos world.Pos) (map[string]any
 	spec, ok := blockEntityOf(blk)
 	if !ok {
 		return nil, false
+	}
+	if g, gspec, ok := genericBlockEntityAt(d, pos); ok && !typedBlockEntityIDs[g.id] {
+		return genericSaveNBT(d, pos, g, gspec), true
 	}
 	switch spec.name {
 	case "minecraft:comparator":
@@ -444,6 +477,12 @@ type clientBlockEntity struct {
 // order and not a property of the world; mc-go orders by position so the
 // packet is a function of the world.
 func (s *Server) chunkClientBlockEntities(d *dimension, cx, cz int) []clientBlockEntity {
+	if d.terrain != nil {
+		// The packet is built from the generated column; its block
+		// entities join the level first.
+		d.w.BaseChunk(cx, cz)
+		s.installGenBlockEntities(d, cx, cz)
+	}
 	var out []clientBlockEntity
 	add := func(pos world.Pos, nbt []byte) {
 		if pos.X>>4 != cx || pos.Z>>4 != cz {
@@ -491,6 +530,21 @@ func (s *Server) chunkClientBlockEntities(d *dimension, cx, cz int) []clientBloc
 	// listener on a freshly streamed sensor.
 	for pos := range d.sculk {
 		add(pos, nil)
+	}
+
+	// Generic block entities send their type's update tag.
+	have := make(map[world.Pos]bool, len(out))
+	for _, e := range out {
+		have[e.pos] = true
+	}
+	for pos := range d.genericBE {
+		if have[pos] || pos.X>>4 != cx || pos.Z>>4 != cz {
+			continue
+		}
+		if g, spec, ok := genericBlockEntityAt(d, pos); ok {
+			out = append(out, clientBlockEntity{pos: pos, spec: spec,
+				nbt: blockEntityUpdateTag(strings.TrimPrefix(g.id, "minecraft:"), genericSaveFields(d, pos, g))})
+		}
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -735,6 +789,15 @@ func (s *Server) restoreBlockEntity(d *dimension, be map[string]any) {
 		d.chests.mu.Lock()
 		clear(c.slots[:])
 		itemsInto(be["Items"], c.slots[:])
+		// RandomizableContainer.tryLoadLootTable: an unrolled table and
+		// its seed wait for the first opening.
+		c.lootTable, c.lootSeed = "", 0
+		if lt, ok := be["LootTable"].(string); ok && lt != "" {
+			c.lootTable = lt
+			if seed, ok := be["LootTableSeed"].(int64); ok {
+				c.lootSeed = seed
+			}
+		}
 		d.chests.mu.Unlock()
 	case "minecraft:sign", "minecraft:hanging_sign":
 		s.ensureSign(d, pos)
@@ -843,7 +906,17 @@ func (s *Server) restoreBlockEntity(d *dimension, be map[string]any) {
 		if ct, ok := nbtNumber(be["crafting_ticks_remaining"]); ok {
 			c.craftingTicks = int32(ct)
 		}
+		if lt, ok := be["LootTable"].(string); ok && lt != "" {
+			c.lootTable = lt
+			if seed, ok := be["LootTableSeed"].(int64); ok {
+				c.lootSeed = seed
+			}
+		}
 		d.containers.mu.Unlock()
+	default:
+		if !typedBlockEntityIDs[id] {
+			s.restoreGenericBlockEntity(d, pos, id, be)
+		}
 	}
 }
 

@@ -30,6 +30,11 @@ type ProtoChunk struct {
 	// PostProcess holds positions setBlock marked for post-processing
 	// (BlockState.getPostProcessPos).
 	PostProcess [][3]int32
+	// bePending holds the positions with a pending DUMMY block entity
+	// tag, beReal the configured block entities (blockentity.go).
+	bePending map[BlockPos]bool
+	beReal    map[BlockPos]map[string]any
+	beOwner   map[BlockPos]string
 }
 
 func (p *ProtoChunk) idx(x, y, z int32) int32 { return ((y-p.MinY)*16+z)*16 + x }

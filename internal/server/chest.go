@@ -156,26 +156,34 @@ func (s *Server) openChest(sess *Session, pos world.Pos) {
 	if ch := s.chestAt(d, pos); ch.lootTable != "" {
 		table := ch.lootTable
 		seed := ch.lootSeed
-		if seed == 0 {
-			seed = rand.Int63()
-		}
 		ch.lootTable = ""
 		ch.lootSeed = 0
-		// Vanilla scatters generated stacks into random empty slots.
-		items := rollLootTable(table, seed)
-		free := []int{}
-		for i := range ch.slots {
-			if ch.slots[i].Empty() {
-				free = append(free, i)
+		// A saved seed (a generated chest's) reproduces vanilla's fill
+		// exactly when the table is one lootFillExact models.
+		if fill, ok := lootFillExact(table, seed, chestSlots, func(i int) bool { return !ch.slots[i].Empty() }); ok {
+			for i, st := range fill {
+				ch.slots[i] = st
 			}
-		}
-		for _, it := range items {
-			if len(free) == 0 {
-				break
+		} else {
+			if seed == 0 {
+				seed = rand.Int63()
 			}
-			i := rand.Intn(len(free))
-			ch.slots[free[i]] = it
-			free = append(free[:i], free[i+1:]...)
+			// Vanilla scatters generated stacks into random empty slots.
+			items := rollLootTable(strings.TrimPrefix(table, "minecraft:"), seed)
+			free := []int{}
+			for i := range ch.slots {
+				if ch.slots[i].Empty() {
+					free = append(free, i)
+				}
+			}
+			for _, it := range items {
+				if len(free) == 0 {
+					break
+				}
+				i := rand.Intn(len(free))
+				ch.slots[free[i]] = it
+				free = append(free[:i], free[i+1:]...)
+			}
 		}
 		s.firePlayerGeneratesContainerLoot(sess, table)
 	}

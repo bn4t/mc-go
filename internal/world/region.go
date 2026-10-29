@@ -145,9 +145,11 @@ func sectionNBT(blocks []Block, minY, sy int, biome string, cells []string, ligh
 	}
 	states := map[string]any{"palette": pal}
 	if len(palette) > 1 {
+		// max(4, ceil(log2(palette))) bits, the width the real server
+		// (and unpackIndices) reads.
 		bpe := 4
-		for bits := 1 << uint(bpe); bits < len(palette); bpe++ {
-			bits = 1 << uint(bpe)
+		for 1<<uint(bpe) < len(palette) {
+			bpe++
 		}
 		states["data"] = packIndices(idx, bpe)
 	}
