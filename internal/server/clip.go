@@ -11,6 +11,8 @@ import (
 type stateShapes struct {
 	outline, interact uint16
 	flags             uint8
+	collision         uint16
+	blocksMotion      bool
 }
 
 const (
@@ -34,7 +36,7 @@ type bucketBlock struct {
 
 func stateShapeRow(st world.Block) stateShapes {
 	if int(st) < 0 || int(st) >= len(vanillaStateShapes) {
-		return stateShapes{outline: 1}
+		return stateShapes{outline: 1, collision: 1, blocksMotion: true}
 	}
 	return vanillaStateShapes[st]
 }

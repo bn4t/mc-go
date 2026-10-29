@@ -1,7 +1,8 @@
 // Command genshapes measures per-state block shapes the ray clip reads
 // — the outline shape (BlockStateBase.getShape with an empty collision
 // context, the block's random offset taken back out), the interaction
-// shape, canBeReplaced(Fluid) for water and lava, and each block's
+// shape, empty-context collision shape, blocksMotion, canBeReplaced(Fluid)
+// for water and lava, and each block's
 // offset kind and maximum offsets (read back from getOffset at the
 // origin, whose seed is 0: x = clamp(-0.25, ±maxH), y = -maxV; a
 // horizontal maximum at or past 0.25 never clamps, so 0.25 stands for
@@ -15,7 +16,7 @@
 // facts per state in registry (protocol) order plus the distinct shapes
 // as AABB lists.
 //
-// Usage: go run ./tools/genshapes [vanilla-dir]
+// Usage: go run ./tools/genshapes [-out path] [vanilla-dir]
 // Needs java (JDK 25) and the unpacked vanilla/versions + libraries.
 // Writes internal/server/shapes_gen.go.
 package main
@@ -23,12 +24,16 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha1"
 	"crypto/sha256"
+	"flag"
 	"fmt"
+	"go/format"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -67,11 +72,14 @@ public class Probe {
     EmptyBlockGetter g = EmptyBlockGetter.INSTANCE;
     BlockPos p = BlockPos.ZERO;
     StringBuilder sb = new StringBuilder();
+    sb.append("RUNTIME ").append(System.getProperty("java.runtime.version")).append('\n');
     int id = 0;
     for (BlockState s : Block.BLOCK_STATE_REGISTRY) {
       VoxelShape outline = s.getShape(g, p, CollisionContext.empty());
       Vec3 off = s.getOffset(p);
       outline = outline.move(-off.x, -off.y, -off.z);
+      VoxelShape collision = s.getCollisionShape(g, p, CollisionContext.empty())
+        .move(-off.x, -off.y, -off.z);
       int f = 0;
       if (s.canBeReplaced(Fluids.WATER)) f |= 1;
       if (s.canBeReplaced(Fluids.LAVA)) f |= 2;
@@ -80,7 +88,8 @@ public class Probe {
         if (c.canPlaceLiquid(null, g, p, s, Fluids.LAVA)) f |= 8;
       }
       sb.append("ROW ").append(id).append(' ').append(f).append(' ')
-        .append(boxes(outline)).append(' ').append(boxes(s.getInteractionShape(g, p))).append('\n');
+        .append(boxes(outline)).append(' ').append(boxes(s.getInteractionShape(g, p)))
+        .append(' ').append(boxes(collision)).append(' ').append(s.blocksMotion() ? 1 : 0).append('\n');
       if (s == s.getBlock().defaultBlockState()) {
         Block b = s.getBlock();
         int kind = 0;
@@ -107,15 +116,26 @@ public class Probe {
 `
 
 func main() {
+	output := flag.String("out", "internal/server/shapes_gen.go", "generated Go output path")
+	flag.Parse()
 	vdir := "vanilla"
-	if len(os.Args) > 1 {
-		vdir = os.Args[1]
+	if flag.NArg() > 0 {
+		vdir = flag.Arg(0)
 	}
 	vdir, err := filepath.Abs(vdir)
 	if err != nil {
 		log.Fatal(err)
 	}
 	jar := filepath.Join(vdir, "versions/26.2/server-26.2.jar")
+	jarData, err := os.ReadFile(jar)
+	if err != nil {
+		log.Fatal(err)
+	}
+	jarSum := sha256.Sum256(jarData)
+	var bundleSum string
+	if bundle, err := os.ReadFile(filepath.Join(vdir, "server-26.2.jar")); err == nil {
+		bundleSum = fmt.Sprintf("%x", sha1.Sum(bundle))
+	}
 	cp := []string{jar}
 	filepath.Walk(filepath.Join(vdir, "libraries"), func(p string, info os.FileInfo, err error) error {
 		if err == nil && strings.HasSuffix(p, ".jar") {
@@ -135,7 +155,7 @@ func main() {
 	if out, err := exec.Command("javac", "-cp", classpath, "-d", tmp, filepath.Join(tmp, "Probe.java")).CombinedOutput(); err != nil {
 		log.Fatalf("javac: %v\n%s", err, out)
 	}
-	cmd := exec.Command("java", "-cp", classpath+string(os.PathListSeparator)+tmp, "Probe")
+	cmd := exec.Command("java", "-Xmx1G", "-cp", classpath+string(os.PathListSeparator)+tmp, "Probe")
 	cmd.Dir = tmp
 	out, err := cmd.Output()
 	if err != nil {
@@ -151,8 +171,13 @@ func main() {
 		shapes = append(shapes, s)
 		return len(shapes) - 1
 	}
-	type row struct{ flags, outline, interact int }
+	type row struct {
+		flags, outline, interact, collision int
+		motion                              bool
+	}
 	var rows []row
+	var collisions []string
+	var javaRuntime string
 	type blk struct {
 		kind       int
 		maxH, maxV string
@@ -164,6 +189,10 @@ func main() {
 	sc.Buffer(make([]byte, 1<<20), 1<<20)
 	for sc.Scan() {
 		line := sc.Text()
+		if j := strings.Index(line, "RUNTIME "); j >= 0 {
+			javaRuntime = strings.TrimSpace(line[j+8:])
+			continue
+		}
 		if j := strings.Index(line, "BKT "); j >= 0 {
 			fmt.Fprintln(h, line[j:])
 			f := strings.Fields(line[j+4:])
@@ -187,12 +216,24 @@ func main() {
 		}
 		fmt.Fprintln(h, line[i:])
 		f := strings.Fields(line[i+4:])
+		if len(f) != 6 {
+			log.Fatalf("malformed row with %d fields", len(f))
+		}
 		id, _ := strconv.Atoi(f[0])
 		if id != len(rows) {
 			log.Fatalf("row %d out of order", id)
 		}
 		fl, _ := strconv.Atoi(f[1])
-		rows = append(rows, row{fl, intern(f[2]), intern(f[3])})
+		rows = append(rows, row{flags: fl, outline: intern(f[2]), interact: intern(f[3]), motion: f[5] == "1"})
+		collisions = append(collisions, f[4])
+	}
+	if err := sc.Err(); err != nil {
+		log.Fatal(err)
+	}
+	// Append collision-only shapes after every existing shape was interned,
+	// preserving all outline/interaction indices and replacement flags.
+	for i, shape := range collisions {
+		rows[i].collision = intern(shape)
 	}
 	if len(rows) == 0 {
 		log.Fatal("probe produced no rows")
@@ -200,6 +241,12 @@ func main() {
 	var w bytes.Buffer
 	fmt.Fprintf(&w, "// Code generated by tools/genshapes; DO NOT EDIT.\n")
 	fmt.Fprintf(&w, "// Source: 26.2 jar oracle run (public BlockStateBase / Block / VoxelShape accessors).\n")
+	fmt.Fprintf(&w, "// Tool: %s; Java runtime %s.\n", runtime.Version(), javaRuntime)
+	fmt.Fprintf(&w, "// Input unbundled jar SHA-256: %x.\n", jarSum)
+	if bundleSum != "" {
+		fmt.Fprintf(&w, "// Oracle bundle SHA-1: %s.\n", bundleSum)
+	}
+	fmt.Fprintf(&w, "// Context: EmptyBlockGetter, BlockPos.ZERO, CollisionContext.empty(); offsets removed.\n")
 	fmt.Fprintf(&w, "// States: %d; shapes: %d; output SHA-256: %x\n\n", len(rows), len(shapes), h.Sum(nil))
 	fmt.Fprintf(&w, "package server\n\n")
 	fmt.Fprintf(&w, "// vanillaShapes are the distinct shapes as AABB lists in cell coordinates;\n// entry 0 is the empty shape.\n")
@@ -219,7 +266,7 @@ func main() {
 		w.WriteString("},\n")
 	}
 	w.WriteString("}\n\n")
-	fmt.Fprintf(&w, "// vanillaStateShapes is indexed by protocol 776 state id: outline shape,\n// interaction shape, and flags (1 canBeReplaced(water), 2 canBeReplaced(lava),\n// 4 canPlaceLiquid(water), 8 canPlaceLiquid(lava) with an empty getter).\n")
+	fmt.Fprintf(&w, "// vanillaStateShapes is indexed by protocol 776 state id: outline shape,\n// interaction shape, and flags (1 canBeReplaced(water), 2 canBeReplaced(lava),\n// 4 canPlaceLiquid(water), 8 canPlaceLiquid(lava) with an empty getter),\n// collision shape index, and blocksMotion.\n")
 	fmt.Fprintf(&w, "var vanillaStateShapes = [...]stateShapes{")
 	for i, r := range rows {
 		if i%6 == 0 {
@@ -227,7 +274,7 @@ func main() {
 		} else {
 			w.WriteString(" ")
 		}
-		fmt.Fprintf(&w, "{%d, %d, %d},", r.outline, r.interact, r.flags)
+		fmt.Fprintf(&w, "{%d, %d, %d, %d, %t},", r.outline, r.interact, r.flags, r.collision, r.motion)
 	}
 	w.WriteString("\n}\n\n")
 	fmt.Fprintf(&w, "// vanillaBlockOffsets is each offset block's kind (1 XZ, 2 XYZ) and\n// maximum horizontal / vertical offset.\n")
@@ -259,8 +306,29 @@ func main() {
 		fmt.Fprintf(&w, "\t%q: {%q, %q, %q},\n", k, b[0], b[1], b[2])
 	}
 	w.WriteString("}\n")
-	if err := os.WriteFile("internal/server/shapes_gen.go", w.Bytes(), 0o644); err != nil {
+	formatted, err := format.Source(w.Bytes())
+	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("wrote %d states, %d shapes, %d offset blocks\n", len(rows), len(shapes), len(blocks))
+	if err := os.MkdirAll(filepath.Dir(*output), 0755); err != nil {
+		log.Fatal(err)
+	}
+	temp, err := os.CreateTemp(filepath.Dir(*output), ".shapes-*.go")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.Remove(temp.Name())
+	if err := temp.Chmod(0644); err != nil {
+		log.Fatal(err)
+	}
+	if _, err := temp.Write(formatted); err != nil {
+		log.Fatal(err)
+	}
+	if err := temp.Close(); err != nil {
+		log.Fatal(err)
+	}
+	if err := os.Rename(temp.Name(), *output); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("wrote %d states, %d shapes, %d offset blocks to %s\n", len(rows), len(shapes), len(blocks), *output)
 }

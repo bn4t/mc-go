@@ -17415,3 +17415,31 @@ Evidence: geometry already committed separately2f2f616. work/potion-review-ready
 Follow-on: Player effects continue while world freeze holds NPC effects/clouds; current custom drinking test pins exact initial400tick dose/flags13, bounded remaining1..400 and absent hidden chain. Timing is explicitly assigned as a separate follow-on, recorded in work/player-effect-freeze-facts.md. Water independently pinned PASS30.35s and described in work/potion-water-slice.md. Broader nonliving projectile collision/owner reentry and pose-specific player geometry remain separate ownership.
 
 Final flag/drink recheck: work/potion-flags-final.log, immutable work/potion-flags-final.test, execsession94658. TestOrdinaryEffectFlagsParity PASS35.35s (vanilla9.87/Go8.83), explicitly14/0/6/8 plus totem14; Go login15:52:52/logout15:53:01UTC. TestCustomPotionDrinkParity PASS24.23s (vanilla8.00/Go6.50), custom fresh flags13 and dose400 preserved; Go15:53:18..15:53:25UTC. Secondary lane released. No pending custom review pin.
+
+## Slice — complete empty-context collision report (2026-10-29)
+
+- **Measured:** public 26.2 BlockState/Block/VoxelShape accessors for all
+  32,366 registered states, using EmptyBlockGetter at BlockPos.ZERO and
+  CollisionContext.empty(). Collision boxes are normalized by removing the
+  state's origin offset; blocksMotion is recorded separately. Tool: Go
+  1.27.3 and Java 25.0.5+8-LTS. Official bundle SHA-1:
+  `823e2250d24b3ddac457a60c92a6a941943fcd6a`; unbundled jar SHA-256:
+  `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented:** extend the existing factual generator and state tuple
+  with collision index and blocksMotion. All 865 existing shapes and every
+  previous outline/interaction/flag triple remain unchanged. Append 54
+  collision-only shapes, yielding 919 shapes and 324 distinct collision
+  indices. The accessor restores the measured position offset and returns
+  read-only boxes. Generator output can be staged with -out and is written
+  atomically; generated provenance includes tool, input hashes, context,
+  coverage and output digest.
+- **Pinned:** registry-wide tests validate every state row and collision box;
+  focused geometry checks include open trapdoors, decorated pots, cactus,
+  copper chests, chains and empty-context scaffolding. Position checks pin
+  offset removal/restoration at three independently measured dripstone
+  positions. These and the targeted fluid tests pass together (1.514 s).
+  Regeneration compatibility checks confirm all 32,366 existing triples and
+  all 865 previous shape arrays are unchanged.
+- **Remaining:** this is an empty-getter/empty-entity-context report.
+  Entity- and block-entity-dependent consumers require their own contextual
+  policy; no complete player or entity collision parity is claimed here.
