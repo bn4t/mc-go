@@ -1753,7 +1753,7 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 		if !ok {
 			continue
 		}
-		if s.pairable(sess, &e) {
+		if s.pairable(sess, &e) && !sess.tracksEntity(e.ID) {
 			sess.setTracked(e.ID, true)
 			if err := s.sendEntityTo(sess, &e); err != nil && first == nil {
 				first = err
@@ -1776,7 +1776,7 @@ func (s *Server) sendEntitySpawnsTo(sess *Session) error {
 	s.entities.mu.RUnlock()
 	for i := range ents {
 		e := &ents[i]
-		if !s.pairable(sess, e) {
+		if !s.pairable(sess, e) || sess.tracksEntity(e.ID) {
 			continue
 		}
 		// Pair on the live entity — the snapshot copy's latch would

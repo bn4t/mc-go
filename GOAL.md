@@ -18386,3 +18386,9 @@ Wire coverage is Overworld. Other environment types/holder references, full runn
 - **Pinned** — Owned7-file patch SHA256 `36a88033139f18d73cd1ececaef7115da24a042e4b0ee688f06af4bef8ec80d0`; full internal/server PASS303.772s. Final actual identity11 PASS12.07s, water5t/lava30t six-witness regression PASS17.34s, existing redstone PASS30.67s and repeater PASS28.21s (`work/scheduled-identity-after-v3.log`).
 
 Native sub-tick ordering, collected/active tick queries, clone tick copying, fluid type identity/deduplication and scheduled block queue persistence remain separate work.
+
+## Slice — join pairing respects already tracked entities (2026-10-29)
+
+- **Measured** — Actual Java26.2 late observer NoGravity capture emits one pairing per target; unchanged Go duplicated targets already paired by initial chunk delivery. Reproduction without teleport rules out the earlier teleport attribution. Source review locates both join enumeration branches ignoring tracked state. JDK25.0.5+8 / Go1.27.3; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Both join enumeration paths skip an already tracked entity while retaining eligibility for unseen chunks.
+- **Pinned** — Scripted unit proves initial pairing is not repeated, an unseen chunk is not prematurely marked paired, and newly eligible delivery happens once. Expanded tracking/join/shared-avatar/vehicle units PASS3.503s and race PASS48.685s; combined actual NoGravity wire PASS31.48s with exact late-pair counts. Evidence `work/entity-nogravity-meta-join-units.log`, `work/entity-nogravity-meta-fixed-race.log`, `work/entity-nogravity-meta-fixed.log`.
