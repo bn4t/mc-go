@@ -458,17 +458,17 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	}
 	// BoneMealItem.useOn — a bonemealable target grows, consuming one
 	// meal in survival (creative keeps it, like the igniter path).
-	if hand == 0 && s.useBonemeal(sess, d, clicked) {
+	if s.useBonemealInHand(sess, d, clicked, hand) {
 		useAck()
 		return
 	}
 	// EnderEyeItem.useOn — an eyeless portal frame takes the eye.
 	// EndCrystalItem.useOn — obsidian or bedrock with room above.
-	if hand == 0 && s.useEndCrystal(sess, d, clicked) {
+	if s.useEndCrystalInHand(sess, d, clicked, hand) {
 		useAck()
 		return
 	}
-	if hand == 0 && s.useEnderEye(sess, d, clicked) {
+	if s.useEnderEyeInHand(sess, d, clicked, hand) {
 		useAck()
 		return
 	}
@@ -775,7 +775,11 @@ func observerPlaceState(blk world.Block, sess *Session) world.Block {
 // meal is consumed in survival, and the 1505 growth event plays at
 // the clicked cell. Returns whether the use was consumed.
 func (s *Server) useBonemeal(sess *Session, d *dimension, clicked world.Pos) bool {
-	held := sess.heldStack()
+	return s.useBonemealInHand(sess, d, clicked, 0)
+}
+
+func (s *Server) useBonemealInHand(sess *Session, d *dimension, clicked world.Pos, hand int32) bool {
+	held, slot := sess.stackForHand(hand)
 	if held.Empty() {
 		return false
 	}
@@ -788,7 +792,7 @@ func (s *Server) useBonemeal(sess *Session, d *dimension, clicked world.Pos) boo
 	}
 	sess.addItemStat(statUsed, held.ID, 1)
 	if sess.mode() != GameModeCreative {
-		sess.consumeHeld(1)
+		sess.consumeSlot(slot, 1)
 	}
 	s.broadcastLevelEvent(d.name, 1505, clicked, 15)
 	return true

@@ -39,7 +39,11 @@ func isEndPortal(b world.Block) bool {
 
 // useEnderEye is EnderEyeItem.useOn on an end portal frame.
 func (s *Server) useEnderEye(sess *Session, d *dimension, clicked world.Pos) bool {
-	held := sess.heldStack()
+	return s.useEnderEyeInHand(sess, d, clicked, 0)
+}
+
+func (s *Server) useEnderEyeInHand(sess *Session, d *dimension, clicked world.Pos, hand int32) bool {
+	held, slot := sess.stackForHand(hand)
 	if held.Empty() {
 		return false
 	}
@@ -58,7 +62,7 @@ func (s *Server) useEnderEye(sess *Session, d *dimension, clicked world.Pos) boo
 	s.rsOutputSignalWake(d, clicked)
 	sess.addItemStat(statUsed, held.ID, 1)
 	if sess.mode() != GameModeCreative {
-		sess.consumeHeld(1)
+		sess.consumeSlot(slot, 1)
 	}
 	s.broadcastLevelEvent(d.name, 1503, clicked, 0)
 	if center, ok := endPortalRing(d, clicked); ok {

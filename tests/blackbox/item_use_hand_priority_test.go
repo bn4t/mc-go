@@ -18,6 +18,7 @@ type handUseCase struct {
 	mainStart, offStart, mainEnd, offEnd        int32
 	sneak, creative, menu, book, air            bool
 	mainDamage, offDamage                       int32
+	pre, setup                                  []string
 	checks                                      []string
 }
 
@@ -203,7 +204,13 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 			collect(clearMarker)
 			sendCommand(t, pw, "fill -2 159 -3 2 164 3 air")
 			sendCommand(t, pw, "fill -2 159 -3 2 159 3 stone")
+			for _, command := range tc.pre {
+				sendCommand(t, pw, command)
+			}
 			sendCommand(t, pw, "setblock 0 159 0 "+tc.clicked)
+			for _, command := range tc.setup {
+				sendCommand(t, pw, command)
+			}
 			if tc.air {
 				sendCommand(t, pw, "fill -1 159 -2 1 159 -1 air")
 			}

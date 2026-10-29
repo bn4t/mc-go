@@ -267,7 +267,11 @@ func (s *Server) attackEndCrystal(sess *Session, e *Entity) {
 
 // useEndCrystal is EndCrystalItem.useOn.
 func (s *Server) useEndCrystal(sess *Session, d *dimension, clicked world.Pos) bool {
-	held := sess.heldStack()
+	return s.useEndCrystalInHand(sess, d, clicked, 0)
+}
+
+func (s *Server) useEndCrystalInHand(sess *Session, d *dimension, clicked world.Pos, hand int32) bool {
+	held, slot := sess.stackForHand(hand)
 	if held.Empty() {
 		return false
 	}
@@ -294,7 +298,7 @@ func (s *Server) useEndCrystal(sess *Session, d *dimension, clicked world.Pos) b
 	}
 	sess.addItemStat(statUsed, held.ID, 1)
 	if sess.mode() != GameModeCreative {
-		sess.consumeHeld(1)
+		sess.consumeSlot(slot, 1)
 	}
 	return true
 }
