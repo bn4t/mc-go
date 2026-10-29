@@ -32,6 +32,11 @@ Work lands in small, independently verified **slices**. Each slice:
    **Measured** / **Implemented** / **Pinned** bullets, and flip the
    parity-matrix checkbox notes when a matrix item's coverage changed.
 
+5. **Document** changed setup, user-visible capabilities and remaining limits
+   in README.md or ARCHITECTURE.md as applicable. Update this file and the
+   relevant `.agents/skills/*/SKILL.md` when a verified workflow changes.
+   Record evidence and limitations; a passing subset is not full parity.
+
 GOAL.md is append-mostly: new slices go at the bottom of the progress
 log; matrix checkboxes get edited in place with short notes. Do not
 restructure the file.
@@ -48,6 +53,21 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Blackbox needs `java` (JDK 25) on PATH and
   `vanilla/server-26.2.jar` — fetch + datagen per README.
 - `MCGO_TARGET=host:port` diffs an external server against vanilla.
+- Verify the committed tree from an immutable `git archive` export before
+  pushing. With concurrent agents, test committed HEAD plus only the slice's
+  owned patch; unrelated in-progress files can invalidate a test result.
+  Stage exact owned patches and new files, preserving other agents' work.
+- Synchronize protocol fixtures with observed packets or queried game ticks.
+  A command reply does not prove an earlier editor packet has been applied.
+  Keep capture active across barriers; do not drain away the spawn/update
+  packets that establish a later assertion's preconditions.
+- For exact tick windows, freeze, use `/tick step N`, and observe completion
+  through game time. `/tick sprint N` is asynchronous and measured 26.2
+  advances N+1 ticks; wall-clock sleeps are not an exact tick counter.
+- Each server leg must independently satisfy meaningful expected values.
+  Equal empty captures, stale menu caches or a decoder that truncates unknown
+  definitions do not establish parity. Diagnose fixture failures on an
+  unchanged baseline before changing production code or expectations.
 - Vanilla legs of a test boot the real jar per test — each is slow
   (~seconds), so run the tests you touched, not the whole suite, while
   iterating.
@@ -90,8 +110,14 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 
 ## Environment notes
 
-- Go is at `/usr/local/go/bin/go` (may not be on PATH); JDK 25 at
-  `~/opt/jdk25/bin` — the client/server both need class-file v25.
+- Discover installed Go/JDK paths rather than assuming a workstation path.
+  In the current managed workspace, `source /workspace/mcgo-tools/activate.sh`
+  selects Go 1.27.3 and Temurin 25.0.5+8. Minecraft 26.2 needs JDK 25
+  (class-file major version 69).
+- On this four-core managed host, limit real-oracle runs to two JVMs using
+  `/tmp/mcgo-oracle.lock` and `/tmp/mcgo-oracle-secondary.lock`, one lock per
+  top-level test invocation. These paths are local coordination conventions,
+  not prerequisites for other environments.
 - Vanilla measurements for mob goals use the unpacked jar at
   `vanilla/versions/26.2/server-26.2.jar` (created by running the
   bundler jar once, e.g. the datagen command in README.md).

@@ -204,8 +204,11 @@ Mojang server over the wire.
   and every stat-backed minecraft.<type>:<id> form) with vanilla's
   per-tick doTick poll, the add-delta stat feed (no backfill, sums
   onto manual sets), and resetStat's zero write. Non-recipe
-  advancement triggers remain open; scoreboard teams are implemented
-  and parity-tested)
+  advancement trigger coverage is partial; startup folder-pack displayless
+  definitions, completion XP/loot/recipe/function rewards and unattached-resource
+  command traversal are now pinned. Displayed custom definitions, pack ordering,
+  ZIP/reload and custom loot overlays remain open. Scoreboard teams are
+  implemented and parity-tested)
 - [~] Statistics (Award Statistics on Client Status 1: counters for
   mined/crafted/used/broken/picked_up/dropped/killed/killed_by and the
   custom family — ticked play_time/total_world_time/time_since_death/
@@ -17782,3 +17785,9 @@ Source OpenJDK25.0.5 javap StructureBlockEntity, StructureTemplate, StructurePla
 - **Measured:** vanilla 26.2 actual inventory_changed advancement reward removes the open backing chest during item pickup. The subsequent play_time scoreboard update identifies the player-tick boundary; oracle bundler SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`, JDK 25.
 - **Implemented:** no additional production hook; the real reward exercises the existing second container-validity check after player item touch.
 - **Pinned:** TestAdvancementPickupClosesMenuBeforeTickScoreParity passes (25.97s), independently requiring TakeItem before ContainerClose before the next play_time update on both servers. Only after recording that order, an authoritative window-zero resync verifies an empty cursor, three returned diamonds and one picked shard.
+
+## Slice — current implementation and verification guidance (2026-10-29)
+
+- **Measured:** accumulated 26.2 differential fixtures expose asynchronous editor completion, exact step versus sprint tick counts, unknown-definition decoder truncation and stale inventory caches after close. The managed client dependency proxy returns HTTP 403; graphical playtesting remains unverified.
+- **Implemented:** README capability/limitation summary, AGENTS documentation and immutable-export workflow, and real-client skill toolchain, timing and availability corrections. JDK 25 class-file major version is 69.
+- **Pinned:** documentation cross-checked against committed advancement, structure, container and piston slices and their recorded differential results. No new runtime behavior or graphical test success is claimed by this documentation update.

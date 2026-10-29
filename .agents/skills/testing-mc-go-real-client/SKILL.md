@@ -15,8 +15,10 @@ Prism Launcher ≥9 and Fjord Launcher both require a Microsoft account that own
 2. **Hand-written accounts.json** into Prism's data dir (~/.local/share/PrismLauncher or a portable dir): formatVersion 3, account type "Offline", `ygg:{token:"0",extra:{userName,clientToken}}`, `profile:{id,name,skin:{id,url,variant},capes:[]}`, `entitlement:{ownsMinecraft:true,canPlayMinecraft:true}`, `active:true`. This loads the account but Prism still blocks launch — only use it if you also bypass the launch gate.
 
 ## Toolchain
-- Go: `/usr/local/go/bin/go` (not on default PATH)
-- Java for the client: `/usr/local/jdk25/bin/java` — MC 26.2 needs class majorVersion 25; the system JDK 17 is too old.
+- Discover Go and Java with `command -v` and check their versions. In the
+  managed workspace, source `/workspace/mcgo-tools/activate.sh` for Go 1.27.3
+  and Temurin 25.0.5+8. MC 26.2 requires JDK 25 (class-file major version 69);
+  JDK 17 is too old.
 - mc-go: `go build -o /tmp/mc-go ./cmd/mc-go && /tmp/mc-go -addr :25565 -gamemode creative -world /tmp/mcgo-world.json`. Creative mode is better for smoke tests (instant block break, free placement).
 - Kill mc-go by exact PID (`kill <pid>`) — `pkill -f "mc-go -addr"` matches your own shell wrapper and kills your session.
 
@@ -39,8 +41,33 @@ mc-go logs NOTHING on a failed join — the client screen is your only error sur
 ## Tick-liveness check (do this before diagnosing tick-driven features)
 Survival dig, hunger drain, item despawn/pickup, furnaces, daylight advance all live in `Server.GameTick`, which only runs from `runGameLoop` (started by `startGameTicks` inside `Server.Serve`). If `main`/a frontend calls `fe.Serve(ln)` directly, that loop may never start while everything packet-driven still works.
 - Check: run `/time query gametime` twice a few seconds apart. Same number twice = the game clock is dead — every tick-driven feature will silently no-op even though packets are acked.
-- Workaround for verification: `/tick freeze` then `/tick step N` drives `GameTick` synchronously. E.g. latch a survival dig (hold LMB ~1s so START+FINISH arrive), then `/tick step 30` — the block breaks and the drop is collected, proving the pipeline and isolating the bug to the wall-clock loop.
+- For controlled verification, `/tick freeze` then `/tick step N` advances
+  the requested simulation ticks; observe actual game-time completion before
+  checking results. A command reply alone is not a completion barrier.
+  E.g. latch a survival dig, step 30 ticks and observe the final block/drop.
+  `/tick sprint N` is asynchronous and measured 26.2 advances N+1 ticks, so
+  do not use its argument as an exact elapsed-tick count.
 
 ## Notes
 - ALSA/OpenAL errors and authlib 401s in the client log are benign (no sound card, offline account).
 - Client version must match mc-go's advertised protocol (const.go: ProtocolVersion / VersionName).
+
+## Availability and evidence
+
+Check client dependencies before claiming a graphical playtest. The server
+oracle jar alone cannot launch the client: the matching client jar, libraries,
+assets, natives and a working graphical display are also required. In the
+2026-10-29 managed environment, Xvfb is installed under
+`/workspace/mcgo-tools/gui/root`, but the provider proxy returned HTTP 403 for
+`piston-meta.mojang.com`, `libraries.minecraft.net` and
+`resources.download.minecraft.net`. No graphical playtest was completed there.
+Recheck availability in a new environment; do not bypass network controls.
+Continue independent implementation and scripted protocol checks, identifying
+those checks accurately instead of describing them as real-client playtests.
+
+For timing bugs, retain actual packet order and establish preconditions from
+spawn/update receipts. Serverbound editor and command packets can complete on
+different paths. When a container closes, a cached carried stack or missing
+player-slot update may be stale: capture the timing first, then request an
+authoritative inventory resync to assert final inventory state. A resync must
+not be used to manufacture an earlier ordering claim.

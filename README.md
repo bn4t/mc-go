@@ -21,6 +21,26 @@ and finite canonical block views share that world. Parallel regions, remaining
 numeric-save migrations and complete neutral world/gameplay replication remain
 future stages.
 
+## Implementation status
+
+The server is under active parity development. The detailed supported cases
+and remaining work are tracked in [GOAL.md](GOAL.md); a checked scenario does
+not establish complete vanilla behavior for its entire subsystem.
+
+Recent measured coverage includes command-block execution and editors,
+structure-block save/load with native templates, jigsaw editor/generation,
+block-entity update coalescing, moving-piston collision timing, container
+validity and chest events. Startup folder datapacks can supply displayless
+advancement definitions with XP, built-in loot, recipe and function rewards.
+Displayed custom advancements, complete datapack selection/ZIP/reload,
+custom loot overlays and several vehicle/physical interactions remain in
+progress. See individual slice entries for exact tests and limitations.
+
+Scripted protocol tests exercise real vanilla server behavior. A graphical
+client playtest is a separate check: client dependency downloads are currently
+blocked in the managed environment. The [real-client skill](.agents/skills/testing-mc-go-real-client/SKILL.md)
+records prerequisites, the observed blocker and verification procedures.
+
 ## Clean-room rules
 
 - Go standard library only — no Minecraft libraries, no generated Mojang
