@@ -2,9 +2,7 @@ package server
 
 import "mc-go/internal/protocol"
 
-func bundleMenuSupported(w *openWindow) bool {
-	return w == nil || w.chest != nil || w.ender != nil || w.craft != nil || w.hopper != nil || w.container != nil && (w.container.spec.menu == menuGeneric9x3 || w.container.spec.menu == menuGeneric3x3 || w.container.spec.menu == menuShulkerBox)
-}
+func bundleMenuSupported(w *openWindow) bool { return gestureMenuSupported(w) }
 func bundleMenuGet(sess *Session, w *openWindow, slot int) ItemStack {
 	if w == nil {
 		return sess.stackAt(int16(slot))
@@ -25,7 +23,7 @@ func bundleMenuPut(sess *Session, w *openWindow, slot int, it ItemStack) {
 }
 func bundleMenuSlot(w *openWindow, slot int) bool {
 	if w == nil {
-		return slot >= int(slotCraftStart) && slot < int(slotCraftStart)+4 || slot >= int(slotMainStart) && slot < slotCount
+		return slot > 0 && slot < slotCount
 	}
 	return slot >= 0 && slot < w.menuSize() && (w.craft == nil || slot != 0)
 }
@@ -42,8 +40,8 @@ func (s *Server) selectBundleItem(sess *Session, slot, index int32) {
 }
 
 // handleBundleClickPacket applies 26.2's bundle item click overrides before
-// ordinary pickup. Only mutable storage/crafting slots join this adapter;
-// result and equipment slots retain their menu's own take/placement callbacks.
+// ordinary pickup. Typed slots reuse the shared menu filters, capacity,
+// take callbacks and result refresh; crafting results retain their recipe path.
 func (s *Server) handleBundleClickPacket(sess *Session, p protocol.Packet) bool {
 	r := protocol.NewPacketReader(p.Data)
 	win, err := r.VarInt()
@@ -95,12 +93,17 @@ func (s *Server) handleBundleClickPacket(sess *Session, p protocol.Packet) bool 
 	} else if !s.checkClickState(sess, w, state) {
 		return true
 	}
+
 	handled := false
 	sound := ""
+	var changes menuGestureChanges
 	if isBundle(cur) {
 		if button == 0 && !target.Empty() {
 			handled = true
-			if bundleInsert(&cur, &target) > 0 {
+			probe, source := cur, target
+			capacity := bundleInsert(&probe, &source)
+			taken := s.gestureTakeSlot(sess, w, int(slot), target.Count, capacity, &changes)
+			if bundleInsert(&cur, &taken) > 0 {
 				sound = "insert"
 			} else {
 				sound = "insert_fail"
@@ -108,26 +111,39 @@ func (s *Server) handleBundleClickPacket(sess *Session, p protocol.Packet) bool 
 		}
 		if button == 1 && target.Empty() {
 			handled = true
-			target = bundleRemove(&cur)
-			if !target.Empty() {
+			removed := bundleRemove(&cur)
+			remainder := removed
+			if !removed.Empty() && gestureSlotMayPlace(sess, w, int(slot), removed) {
+				count := min(removed.Count, gestureSlotMax(w, int(slot), removed))
+				s.gestureSetSlot(sess, w, int(slot), removed.withCount(count), &changes)
+				remainder.Count -= count
+			}
+			if !remainder.Empty() {
+				bundleInsert(&cur, &remainder)
+			} else if !removed.Empty() {
 				sound = "remove_one"
 			}
 		}
 	}
 	if !handled && isBundle(target) {
+		modifiable := gestureSlotMayPickup(sess, w, int(slot)) && gestureSlotMayPlace(sess, w, int(slot), target)
 		if button == 0 && !cur.Empty() {
 			handled = true
-			if bundleInsert(&target, &cur) > 0 {
+			if modifiable && bundleInsert(&target, &cur) > 0 {
 				sound = "insert"
+				s.gestureSetSlot(sess, w, int(slot), target, &changes)
 			} else {
 				sound = "insert_fail"
 			}
 		}
 		if button == 1 && cur.Empty() {
 			handled = true
-			cur = bundleRemove(&target)
-			if !cur.Empty() {
-				sound = "remove_one"
+			if modifiable {
+				cur = bundleRemove(&target)
+				if !cur.Empty() {
+					sound = "remove_one"
+					s.gestureSetSlot(sess, w, int(slot), target, &changes)
+				}
 			}
 		}
 		if !handled {
@@ -138,22 +154,9 @@ func (s *Server) handleBundleClickPacket(sess *Session, p protocol.Packet) bool 
 	if !handled {
 		return false
 	}
-	bundleMenuPut(sess, w, int(slot), target)
 	s.setCarriedLocked(sess, cur)
-	touched := []int{int(slot)}
-	if w == nil {
-		s.refreshCraftResult(sess)
-		sess.invState.Add(1)
-		_ = s.sendContainerContent(sess)
-		_ = s.sendCarriedItem(sess, cur)
-	} else if w.craft != nil {
-		if s.refreshTableResult(sess, w.craft) {
-			touched = append(touched, 0)
-		}
-		s.syncCraftTableSlots(sess, w, w.craft, touched)
-	} else {
-		s.syncContainerMenuSlots(sess, w, touched)
-	}
+	s.gestureSync(sess, w, &changes)
+
 	if sound != "" {
 		if id, ok := SoundEventID("item.bundle." + sound); ok {
 			x, y, z, _, _, _ := sess.Pos()

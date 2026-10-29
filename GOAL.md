@@ -17325,3 +17325,46 @@ Final staging go build ./... PASS; focused scripted criterion test ran with defa
 - **Pinned:** v2 wire passes anvil paid result collection, smithing, grindstone XP, loom repeated regenerated output/single sound, cartography reverse collection/result exclusion, beacon, unpaid anvil result initiation, capacity-limited anvil result refusal, Smithing invalid-recipe property transitions and enchanting close. v3 passes stonecutter property/result exclusion, enchanting gestures and beacon (72.71s). Armor four cases passed in v1 (69s), including creative binding removal and survival denied clicked-slot initiation. v2's single enchanting open failure remains preserved and unreproduced, not claimed fixed; helper now waits boundedly for the original response and reports read errors without retrying a use. Existing PickupAllParity, QuickCraftGridParity, QuickCraftStorageParity and SpecializedGesturesParity (furnace/hopper/brewing) all pass in work/action-gestures-v3-regression.log.
 
 Artifacts: work/action-gestures-stage, work/action-gestures.patch, work/action-gestures-manifest.txt. Stage is based on e36aa2c and excludes unrelated custom-potion stackKey additions and bundleclick changes. Independent implementation, Go stdlib only. No index or GOAL changes.
+
+## Slice — bundles in filtered and action menus (2026-10-29)
+
+- **Measured:** Temurin25.0.5 javap facts from BundleItem click overrides,
+  BundleContents.Mutable.tryTransfer, Slot.safeTake/tryRemove/safeInsert and
+  Slot.allowModification on the official26.2 jar (SHA-1
+  823e2250d24b3ddac457a60c92a6a941943fcd6a). A cursor bundle's primary take
+  delegates to safeTake with source count and computed bundle capacity.
+  Take-only slots reject when capacity cannot hold the entire source stack.
+  Secondary extraction delegates to typed safeInsert; unplaced remainder is
+  reinserted and no remove sound plays when any remains. Mutating a target
+  bundle requires mayPickup and mayPlace(existing stack), even for extraction.
+- **Implemented:** bundleclick.go now reuses menugestures.go's shared stack,
+  placement/pickup/limit, take/callback, result refresh and sync adapters. This
+  enables filtered/action/equipment slots without copying their consumption,
+  crafted-stat, XP, recipe, brewing or result recomputation logic. Selection
+  remains transient; failed safeInsert can reorder the reinserted selected item
+  exactly like removing then reinserting it. Crafting result0 remains on its
+  existing separate recipe path.
+- **Pinned:** TestBundleSpecializedParity passes both servers without skips
+  (73.24s): furnace full result absorption, whole-slot capacity refusal,
+  fitting result and blocked output placement, invalid target bundles and
+  crafted count12; brewing cap-one bottle placement with remainder, fuel and
+  ingredient filters and invalid potion-slot bundle guards. Eleven snapshot/stat
+  summaries match. TestBundleInventoryParity also passes(42.57s), preserving
+  seven existing storage/cursor snapshots. Isolated bundle units pass1.415s,
+  including the furnace onTake/capacity/crafted counter pin.
+- **Integration:** depends on menus agent's menugestures.go slice. Owned changes
+  are bundleclick.go, bundle_specialized_test.go and the corresponding blackbox
+  test. The shared adapter is owned and validated by menus_complete.
+- **Remaining:** crafting result safeTake is deliberately excluded by the shared
+  adapter, and the new wire fixture initially covers furnace/brewing rather
+  than every action/equipment menu.
+
+Observed separate gap: with an open furnace/brewing menu under /tick freeze,
+vanilla sends slot changes caused by /item replace block; mc-go currently
+updates block storage but leaves the displayed menu stale until a click/resync
+or world tick. Initial bundle pin saw the cursor and crafted statistics match
+while unchanged destination slots stayed at old displayed values. The fixture
+now forces a harmless invalid-SWAP stale-state resync after admin setup to
+isolate bundle semantics. This is a real broadcast/tick parity gap, delegated
+to menus_complete for a separate slice after gesture integration; it is not
+resolved or established equivalent by the bundle tests.
