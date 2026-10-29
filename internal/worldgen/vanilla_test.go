@@ -285,6 +285,7 @@ func TestSurfaceVsVanillaRegion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	g.Carve = os.Getenv("MCGO_WORLDGEN_CARVE") != ""
 	var chunks [][2]int32
 	for _, a := range strings.Split(os.Getenv("MCGO_WORLDGEN_CHUNKS"), ";") {
 		var x0, z0, x1, z1 int32
@@ -345,6 +346,7 @@ func TestTerrainGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	g.Carve = false
 	for k, want := range terrainGolden {
 		if got := terrainDigest(g.Terrain(k[0], k[1])); got != want {
 			t.Errorf("chunk %v: digest %s, want %s", k, got, want)

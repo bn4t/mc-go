@@ -65,8 +65,9 @@ Mojang server over the wire.
       `TestTerrainNoiseParity`; the multi-noise biome source matches cell
       for cell - `TestTerrainBiomeParity`; the surface system (rules,
       bands, iceberg/eroded-badlands extensions) matches block for block -
-      `TestTerrainSurfaceParity`; carvers, features, structures and server
-      wiring remain
+      `TestTerrainSurfaceParity`; carvers match block for block -
+      `TestTerrainCarverParity`; features, structures and server wiring
+      remain
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -15718,4 +15719,34 @@ no flee; unsneak → flee). Green both legs.
   chunks over two seeds also matched. `TestTerrainGolden` keeps digests.
 - **Remaining:** carvers, features, structures, fluid post-processing,
   nether/end, and server wiring.
+
+## Slice — worldgen carvers (2026-10-29)
+
+- **Measured:** bytecode inspection of
+  `NoiseBasedChunkGenerator.applyCarvers` (17x17 start chunks, carver
+  biome at each start chunk's minimum corner quart and y quart 0 from the
+  uncached source, `setLargeFeatureSeed(seed+index, x, z)` per listed
+  carver), `WorldCarver.carveEllipsoid`/`carveBlock`/`getCarveState`
+  (column bounds, 7-block top margin, carving mask before carve, aquifer
+  at density 0 deciding air/fluid/barrier, lava below `lava_level`,
+  shouldScheduleFluidUpdate read even when stale, grass/mycelium surface
+  flag and dirt top material), `CaveWorldCarver` (cave count, rooms,
+  thickness, branching tunnels, floor-level skip), `CanyonWorldCarver`
+  (width factors, vertical radius profile, skip), `canReach`,
+  `SurfaceSystem.topMaterial`, `Mth.sin/cos` table indexing (Go's
+  `math.Sin` reproduces Java's 65536-entry float table exactly, checked
+  against a JDK 25 dump), `WorldgenRandom.setLargeFeatureSeed`,
+  `SingleThreadedRandomSource`, and the float/int/height value
+  providers. Carver configs come from the datagen `configured_carver`
+  registry; replaceable sets from the generated block tags.
+- **Implemented:** `Generator.ApplyCarvers` (cave, cave_extra_underground,
+  canyon; nether_cave shape hooks), run by `Generator.Terrain` after the
+  surface; `providers.go` implements every float, int and height
+  provider type for later stages.
+- **Pinned:** `TestTerrainCarverParity` compares 117 chunks on two seeds
+  block for block with only features stripped (caves, canyons, flooded
+  and lava carving, aquifer barriers). Exempt: fluid that post-processing
+  ticks out of marked sources (spread and new-source formation).
+- **Remaining:** fluid post-processing itself, features, structures,
+  nether/end and server wiring.
 

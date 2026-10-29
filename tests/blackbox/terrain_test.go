@@ -410,6 +410,15 @@ func TestTerrainSurfaceParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	g.Carve = false
+	compareTerrain(t, region, g, areas)
+}
+
+// compareTerrain diffs the generator's proto chunks against the saved
+// chunks block for block, exempting only flowing fluid that post-
+// processing ticked out of a source the generator marked.
+func compareTerrain(t *testing.T, region string, g *worldgen.Generator, areas []terrainArea) {
+	t.Helper()
 	minY, height := g.RS.MinY(), g.RS.Height()
 	total, exempt := 0, 0
 	for _, a := range areas {
@@ -430,7 +439,10 @@ func TestTerrainSurfaceParity(t *testing.T) {
 					x := cx*16 + int32(i&15)
 					z := cz*16 + int32((i>>4)&15)
 					y := int32(i>>8) + minY
-					if gs == "air" && strings.Contains(w, "[level=") && !strings.HasSuffix(w, "level=0]") {
+					// Post-processing ticks each marked fluid once: it flows
+					// into neighbouring air and two adjacent sources can
+					// form a new source.
+					if gs == "air" && strings.Contains(w, "[level=") {
 						near := false
 						for _, d := range [][3]int32{{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}, {0, 1, 0}} {
 							near = near || marked[[3]int32{x + d[0], y + d[1], z + d[2]}]
@@ -453,4 +465,29 @@ func TestTerrainSurfaceParity(t *testing.T) {
 		}
 	}
 	t.Logf("%d chunks compared, %d post-processing fluid cells exempted", total, exempt)
+}
+
+// TestTerrainCarverParity pins the carver stage — the 17x17 start-chunk
+// scan with per-carver large-feature seeds, the carver biome at each
+// start chunk's corner, cave rooms and branching tunnels, canyons with
+// their width factors and vertical radius profile, the carving mask,
+// aquifer-decided carve states (including barrier cells left solid and
+// lava below the lava level), the fluid marks they leave and the
+// surface rule's top material on exposed dirt — block for block against
+// the real server with only features stripped, on two seeds.
+func TestTerrainCarverParity(t *testing.T) {
+	for _, tc := range []struct {
+		seed  int64
+		areas []terrainArea
+	}{
+		{12345, []terrainArea{{62, 62, 66, 66}, {-125, 187, -121, 191}, {-19, -19, -15, -15}, {-320, -288, -319, -287}, {368, 368, 369, 369}}},
+		{-4172144997902289642, []terrainArea{{-2, -2, 1, 1}, {1500, -1500, 1502, -1498}, {-900, 100, -898, 102}}},
+	} {
+		region := vanillaTerrain(t, tc.seed, terrainStrip{surface: true, carvers: true}, tc.areas)
+		g, err := worldgen.NewGenerator(worldgen.Vanilla(), "overworld", "overworld", tc.seed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		compareTerrain(t, region, g, tc.areas)
+	}
 }

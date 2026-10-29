@@ -11,6 +11,8 @@ type Generator struct {
 	RS       *RandomState
 	Biomes   *BiomeSource
 	zoomSeed int64
+	// Carve runs the carver stage after the surface (default on).
+	Carve bool
 
 	mu         sync.Mutex
 	biomeCache map[[2]int32][]string
@@ -27,7 +29,7 @@ func NewGenerator(data Data, settings, biomeList string, seed int64) (*Generator
 	if err != nil {
 		return nil, err
 	}
-	return &Generator{RS: rs, Biomes: bs, zoomSeed: obfuscateSeed(seed), biomeCache: map[[2]int32][]string{}}, nil
+	return &Generator{RS: rs, Biomes: bs, zoomSeed: obfuscateSeed(seed), Carve: true, biomeCache: map[[2]int32][]string{}}, nil
 }
 
 // ChunkBiomes returns (and caches) a chunk's quart biome cells.
@@ -103,5 +105,8 @@ func (g *Generator) Terrain(cx, cz int32) *ProtoChunk {
 	p.FluidMarks = col.FluidMarks
 	p.Biomes = g.ChunkBiomes(cx, cz, nil)
 	rs.BuildSurface(p, nc, g.BiomeAt)
+	if g.Carve {
+		g.ApplyCarvers(p, nc)
+	}
 	return p
 }

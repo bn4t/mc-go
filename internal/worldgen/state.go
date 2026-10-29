@@ -36,6 +36,8 @@ type RandomState struct {
 	surf          *surfaceSystem
 	biomeMu       sync.Mutex
 	biomes        map[string]*BiomeInfo
+	carverMu      sync.Mutex
+	carvers       map[string]*carverConfig
 }
 
 // NewRandomState seeds noise settings ("overworld", "nether", ...)

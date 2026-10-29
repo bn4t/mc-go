@@ -38,6 +38,7 @@ type aquifer struct {
 	loc                  []int64
 	locSet               []bool
 	skipAboveY           int32
+	sched                bool // shouldScheduleFluidUpdate from the last computeSubstance
 	minGridX, minGridY   int32
 	minGridZ             int32
 	gridSizeX, gridSizeZ int32
@@ -111,6 +112,12 @@ func (a *aquifer) status(idx int32) fluidStatus {
 // or (_, false) for "solid here" (vanilla's null), plus the
 // shouldScheduleFluidUpdate flag.
 func (a *aquifer) computeSubstance(c *Ctx, density float64) (Substance, bool, bool) {
+	sub, ok, sched := a.compute(c, density)
+	a.sched = sched
+	return sub, ok, sched
+}
+
+func (a *aquifer) compute(c *Ctx, density float64) (Substance, bool, bool) {
 	if density > 0 {
 		return 0, false, false
 	}
