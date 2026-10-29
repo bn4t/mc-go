@@ -64,13 +64,13 @@ func structureOverrides(keepFeature func(string) bool, keep ...string) map[strin
 // With MCGO_STRUCT_CACHE set to a directory, the saved region files are
 // kept there per test, seed, data pack and area and reused (iterating
 // on mc-go without rebooting the real server).
-func vanillaStructureTerrain(t *testing.T, seed int64, files map[string]string, areas []terrainArea) string {
+func vanillaStructureTerrain(t *testing.T, seed int64, files map[string]string, dim string, areas []terrainArea) string {
 	t.Helper()
 	jar := blackboxJar(t)
 	var cacheDir string
 	if c := os.Getenv("MCGO_STRUCT_CACHE"); c != "" {
 		h := sha256.New()
-		fmt.Fprint(h, seed, areas)
+		fmt.Fprint(h, seed, dim, areas)
 		keys := make([]string, 0, len(files))
 		for k := range files {
 			keys = append(keys, k)
@@ -106,7 +106,7 @@ func vanillaStructureTerrain(t *testing.T, seed int64, files map[string]string, 
 	}
 	say("tick freeze")
 	for _, a := range areas {
-		say(fmt.Sprintf("forceload add %d %d %d %d", a.x0*16, a.z0*16, a.x1*16+15, a.z1*16+15))
+		say(fmt.Sprintf("execute in minecraft:%s run forceload add %d %d %d %d", dim, a.x0*16, a.z0*16, a.x1*16+15, a.z1*16+15))
 	}
 	for i, a := range areas {
 		for cx := a.x0; cx <= a.x1; cx++ {
@@ -118,7 +118,7 @@ func vanillaStructureTerrain(t *testing.T, seed int64, files map[string]string, 
 						vanillaLogTail(t)
 						t.Fatalf("chunk %d,%d never loaded", cx, cz)
 					}
-					say(fmt.Sprintf("execute if loaded %d 0 %d run say %s", cx*16, cz*16, tag))
+					say(fmt.Sprintf("execute in minecraft:%s if loaded %d 0 %d run say %s", dim, cx*16, cz*16, tag))
 					time.Sleep(200 * time.Millisecond)
 				}
 			}
@@ -129,7 +129,7 @@ func vanillaStructureTerrain(t *testing.T, seed int64, files map[string]string, 
 	if code := wait(); code != 0 {
 		t.Fatalf("vanilla exited %d", code)
 	}
-	region := filepath.Join(dir, "world", "dimensions", "minecraft", "overworld", "region")
+	region := filepath.Join(dir, "world", "dimensions", "minecraft", dim, "region")
 	if cacheDir != "" {
 		os.MkdirAll(cacheDir, 0o755)
 		ents, _ := os.ReadDir(region)
@@ -304,15 +304,27 @@ func compareStarts(t *testing.T, region string, g *worldgen.Generator, areas []t
 	return n
 }
 
-// structureParity runs one structure pin over areas (inclusive chunk
-// rectangles); the interior chunks are compared block for block.
+// structureParity runs one overworld structure pin over areas
+// (inclusive chunk rectangles); the interior chunks are compared block
+// for block.
 func structureParity(t *testing.T, seed int64, areas []terrainArea, sets ...string) {
 	t.Helper()
-	ov := structureOverrides(nil, sets...)
-	region := vanillaStructureTerrain(t, seed, stageDatapack(ov), areas)
-	g, err := worldgen.NewGenerator(worldgen.Overlay(worldgen.Vanilla(), ov), "overworld", "overworld", seed)
+	structureParityDim(t, seed, "overworld", "overworld", "overworld", structureOverrides(nil, sets...), areas)
+}
+
+// structureParityDim is structureParity for any dimension (noise
+// settings and biome list as NewGenerator takes them) over explicit
+// stage data.
+func structureParityDim(t *testing.T, seed int64, dim, settings, biomes string, ov map[string]json.RawMessage, areas []terrainArea) {
+	t.Helper()
+	region := vanillaStructureTerrain(t, seed, stageDatapack(ov), dim, areas)
+	g, err := worldgen.NewGenerator(worldgen.Overlay(worldgen.Vanilla(), ov), settings, biomes, seed)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if dim != "overworld" {
+		// The nether and end dimension types span y 0..255.
+		g.RS.SetLevelBounds(0, 256)
 	}
 	g.Structures = true
 	if n := compareStarts(t, region, g, areas); n == 0 {
@@ -336,7 +348,7 @@ func structureParity(t *testing.T, seed int64, areas []terrainArea, sets ...stri
 		}
 	}
 	chunks := g.GenerateArea(order)
-	minY, height := g.RS.MinY(), g.RS.Height()
+	minY, height := g.RS.LevelMinY(), g.RS.LevelHeight()
 	total, orderDep, exempt, beOK := 0, 0, 0, 0
 	for _, a := range areas {
 		for cx := a.x0 + 1; cx < a.x1; cx++ {
@@ -486,6 +498,17 @@ func TestStructureAncientCityParity(t *testing.T) {
 // random and random-group pool aliases and the copper bulb degradation.
 func TestStructureTrialChambersParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{-128, 3, -119, 14}}, "trial_chambers")
+}
+
+// TestStructureBastionRemnantParity pins a bastion remnant in the
+// nether: the nether noise column heights, start height 33 without
+// projection or terrain adaptation, the bastion degradation and
+// rampart processors. The nether complex set keeps only the bastion
+// (the fortress is not a jigsaw structure).
+func TestStructureBastionRemnantParity(t *testing.T) {
+	ov := structureOverrides(nil, "nether_complexes")
+	ov["structure_set/nether_complexes"] = json.RawMessage(`{"placement":{"type":"minecraft:random_spread","salt":30084232,"separation":4,"spacing":27},"structures":[{"structure":"minecraft:bastion_remnant","weight":1}]}`)
+	structureParityDim(t, 12345, "the_nether", "nether", "nether", ov, []terrainArea{{-152, -13, -145, -8}})
 }
 
 // TestStructureVillageTaigaParity pins a taiga village.
