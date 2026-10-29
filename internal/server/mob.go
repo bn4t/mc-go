@@ -1992,7 +1992,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 				}
 			}
 			if v, ok := tag.vals["Health"]; ok {
-				e.ItemHP = int32(int16(snbtNum(v)))
+				e.ItemHP = int32(itemSavedShort(snbtToValue(v), 5))
 			}
 			if v, ok := tag.vals["Invulnerable"]; ok {
 				e.Invulnerable = snbtNum(v) != 0
@@ -2002,6 +2002,11 @@ func (s *Server) runSummon(player string, args []string) reply {
 			}
 			if v, ok := tag.vals["Fire"]; ok {
 				e.FireTicks = int32(int16(snbtNum(v)))
+			}
+		}
+		if tag != nil {
+			if save, ok := snbtToValue(tag).(map[string]any); ok {
+				applyItemTouchSave(e, save)
 			}
 		}
 		s.broadcastEntitySpawn(nil, *e)

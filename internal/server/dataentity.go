@@ -1043,6 +1043,9 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		m["Age"] = int16(e.ItemAge)
 		m["Item"] = itemNBT(e.Item)
 		m["PickupDelay"] = int16(e.PickupDelay)
+		if e.HasOwner {
+			m["Owner"] = uuidInts(e.Owner)
+		}
 	}
 	// The Zombie hierarchy writes CanBreakDoors plus the live
 	// water-conversion pair; NeutralMob types carry anger_end_time.
@@ -1350,8 +1353,8 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	}
 	name, _ := EntityTypeName(e.Type)
 	if name == "item" {
-		e.ItemHP = int32(int16(nbtNumberOr(save["Health"], 5)))
-		e.ItemAge = int32(int16(nbtNumberOr(save["Age"], 0)))
+		e.ItemHP = int32(itemSavedShort(save["Health"], 5))
+		applyItemTouchSave(e, save)
 	}
 	// attributes:[{id,base,modifiers?}] — AttributeInstance.apply
 	// writes baseValue directly (no clamp, no dirty) and replaces the

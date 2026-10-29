@@ -98,13 +98,8 @@ func (s *Server) restoreEntities(d *dimension) {
 				X:    pos[0], Y: pos[1], Z: pos[2],
 				Item: stack,
 			})
-			e.ItemHP = int32(int16(nbtNumberOr(save["Health"], 5)))
-			if v, ok := nbtFloat(save["PickupDelay"]); ok {
-				e.PickupDelay = int(v)
-			}
-			if v, ok := nbtFloat(save["Age"]); ok {
-				e.ItemAge = int32(v)
-			}
+			e.ItemHP = int32(itemSavedShort(save["Health"], 5))
+			applyItemTouchSave(e, save)
 			if mot, ok := nbtVec3(save["Motion"]); ok {
 				e.MotionX, e.MotionY, e.MotionZ = mot[0], mot[1], mot[2]
 			}

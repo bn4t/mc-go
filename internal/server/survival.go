@@ -542,7 +542,8 @@ func (s *Server) broadcastEntityMetadata(eid int32, payload []byte) {
 }
 
 // itemTickStep advances item entities one tick: gravity, pickup delay,
-// player pickup, and position sync.
+// experience-orb pickup, and position sync. Regular item touches run
+// on the player connection tick, including while the world is frozen.
 func (s *Server) itemTickStep() {
 	orbType := mustEntityType("experience_orb")
 	itemType := mustEntityType("item")
@@ -590,7 +591,7 @@ func (s *Server) itemTickStep() {
 			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 			continue
 		}
-		if e.PickupDelay > 0 {
+		if e.PickupDelay > 0 && (orb || e.PickupDelay != 32767) {
 			e.PickupDelay--
 		}
 		// ItemEntity.tick snapshots getDeltaMovement at the head of the
@@ -810,63 +811,29 @@ func (s *Server) itemTickStep() {
 		}
 		// ItemEntity.tick tail: age advances each tick and the item
 		// discards at 6000 (five minutes).
-		e.ItemAge++
+		if orb || e.ItemAge != -32768 {
+			e.ItemAge++
+		}
 		if e.ItemAge >= 6000 {
 			s.entities.Remove(e.ID)
 			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 			continue
 		}
-		if e.PickupDelay <= 0 {
-			if sess := s.pickupTarget(e, orb); sess != nil {
-				if orb {
-					// ExperienceOrb.playerTouch: the touch routes
-					// value through repairPlayerItems first — mending
-					// gear drinks it — then grants what's left, once
-					// per takeXpDelay window, discarding at count 0.
-					if sess.takeXpDelay > 0 {
-						continue
-					}
-					sess.takeXpDelay = 2
-					if remaining := s.repairPlayerItems(sess, e.OrbValue); remaining > 0 {
-						sess.addXP(remaining)
-					}
-					e.OrbCount--
-					if e.OrbCount <= 0 {
-						s.entities.Remove(e.ID)
-						s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
-					}
+		if orb && e.PickupDelay <= 0 {
+			if sess := s.pickupTarget(e, true); sess != nil {
+				// ExperienceOrb.playerTouch repairs mending gear before
+				// granting XP, once per takeXpDelay window.
+				if sess.takeXpDelay > 0 {
 					continue
 				}
-				remainder, picked := sess.addStack(e.Item)
-				if picked {
-					// ServerPlayer.take -> inventory_changed; recipe
-					// unlocks (e.g. wolf_armor_dyed) gate on it.
-					s.fireInventoryChanged(sess)
-					took := e.Item.Count
-					// ServerPlayer.onItemPickup: a picked-up item
-					// whose owner resolves fires
-					// thrown_item_picked_up_by_player for the picker
-					// (allay_deliver_item_to_player).
-					if e.Thrower != 0 {
-						if oe, ok := s.entities.Get(e.Thrower); ok {
-							if tname, ok := EntityTypeName(oe.Type); ok {
-								s.fireThrownItemPickedUpByPlayer(sess, e.Item, tname)
-							}
-						} else if s.sessionByEntityID(e.Thrower) != nil {
-							s.fireThrownItemPickedUpByPlayer(sess, e.Item, "player")
-						}
-					}
-					// Vanilla tells the client the item flies to
-					// the collector before it disappears.
-					s.broadcastTakeItem(e.Dim, e.ID, sess.entityID.Load(), e.Item.Count)
+				sess.takeXpDelay = 2
+				if remaining := s.repairPlayerItems(sess, e.OrbValue); remaining > 0 {
+					sess.addXP(remaining)
+				}
+				e.OrbCount--
+				if e.OrbCount <= 0 {
 					s.entities.Remove(e.ID)
 					s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
-					sess.addItemStat(statPickedUp, e.Item.ID, took)
-				} else if remainder != e.Item {
-					s.fireInventoryChanged(sess)
-					sess.addItemStat(statPickedUp, e.Item.ID, e.Item.Count-remainder.Count)
-					e.Item = remainder
-					s.broadcastEntityMetadata(e.ID, encodeItemMetadata(remainder))
 				}
 			}
 		}
