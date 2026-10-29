@@ -1355,6 +1355,10 @@ func (s *Server) strafeTick(e *Entity, d *dimension) {
 	}
 }
 
+// sndEnderDragonHurt is entity.ender_dragon.hurt's registry id (the
+// wire carried 590 on a measured part hit).
+const sndEnderDragonHurt = 590
+
 // dragonEyeHeight is the dragon's eye height (EntityDimensions 16x8,
 // default eye 0.85 of the height).
 const dragonEyeHeight = 8 * 0.85
@@ -1569,7 +1573,13 @@ func (s *Server) dragonHurt(e *Entity, part int, amount float32, typeName string
 		return true, 0, false
 	}
 	h := e.Health
-	dealt, _, died := s.mobHurtCore(e, amount, typeName, killer, info)
+	dealt, graced, died := s.mobHurtCore(e, amount, typeName, killer, info)
+	if !died && !graced && dealt > 0 && !e.Silent {
+		// playHurtSound: entity.ender_dragon.hurt, HOSTILE, volume 5,
+		// the voice pitch - positional at the dragon.
+		r := dr.rng
+		s.playSoundSrc(e.Dim, e.X, e.Y, e.Z, sndEnderDragonHurt, 5, 5, (r.nextFloat()-r.nextFloat())*0.2+1, nil)
+	}
 	if isSittingPhase(dr.phase) {
 		dr.sittingDamage += h - e.Health
 		if dr.sittingDamage > 0.25*e.MaxHealth {

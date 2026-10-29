@@ -4841,7 +4841,8 @@ func (s *Server) mobHurtCore(e *Entity, amount float32, typeName string, killer 
 			}
 		}
 	}
-	if d > 0 {
+	// The dragon's health rides its own tracker flush (enderdragon.go).
+	if d > 0 && e.dragon == nil {
 		s.broadcastEntityMetadata(e.ID, encodeLivingHealth(health))
 		e.ensureMetaInit()
 		e.metaSent.health = health
