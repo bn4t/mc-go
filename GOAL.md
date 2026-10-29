@@ -63,8 +63,10 @@ Mojang server over the wire.
       noise stage (density functions, cell interpolation, aquifers, ore
       veins) matches the real server block for block -
       `TestTerrainNoiseParity`; the multi-noise biome source matches cell
-      for cell - `TestTerrainBiomeParity`; surface rules, carvers,
-      features, structures and server wiring remain
+      for cell - `TestTerrainBiomeParity`; the surface system (rules,
+      bands, iceberg/eroded-badlands extensions) matches block for block -
+      `TestTerrainSurfaceParity`; carvers, features, structures and server
+      wiring remain
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -15686,4 +15688,34 @@ no flee; unsneak → flee). Green both legs.
   worker thread resolved before it in vanilla, which is not reproducible;
   a tie there can still differ. Nether parameter list, end biome source
   and the biome zoom (BiomeManager) used by surface rules remain.
+
+## Slice — worldgen surface system (2026-10-29)
+
+- **Measured:** bytecode inspection of `SurfaceSystem` (column walk from
+  WORLD_SURFACE_WG+1 down: stone depth above, depth to the next
+  non-stone below, water height; rules only replace the default block;
+  surface depth `noise*2.75+3+rand*0.25`; terracotta band generation
+  and `getBand` rounding; `erodedBadlandsExtension`,
+  `frozenOceanExtension` with its melt check, snow cap and random
+  carving), `SurfaceRules$Context` (min surface level from the
+  16-block preliminary-surface cell corners, steep from neighbour
+  heightmap columns, lazy per-xz/per-y conditions) and every
+  `SurfaceRules` condition/rule type the 26.2 trees use, `Biome`
+  temperature (frozen modifier noises, height adjustment above sea+17,
+  `PerlinSimplexNoise` legacy octave order), `BiomeManager` zoom
+  (obfuscated seed, LCG fiddle, eight-corner voronoi) and
+  `WorldGenRegion` biome reads with the section clamp.
+- **Implemented:** `worldgen.Generator.Terrain` runs noise → biomes →
+  surface into a `ProtoChunk` that keeps WORLD_SURFACE_WG and
+  OCEAN_FLOOR_WG like `Heightmap.update`; surface rules compile from the
+  noise settings JSON; biome temperatures come from the biome registry
+  entries.
+- **Pinned:** `TestTerrainSurfaceParity` compares 60 chunks over 15
+  biome families (badlands, eroded and wooded badlands, frozen/jagged
+  peaks, snowy slopes, ice spikes, mushroom fields, deep frozen and warm
+  ocean, cherry grove, pale garden, desert, swamp, mangrove swamp) block
+  for block with carvers and features stripped; dev runs on 186 more
+  chunks over two seeds also matched. `TestTerrainGolden` keeps digests.
+- **Remaining:** carvers, features, structures, fluid post-processing,
+  nether/end, and server wiring.
 

@@ -258,3 +258,101 @@ func TestBiomesVsVanillaRegion(t *testing.T) {
 	}
 	t.Logf("%d mismatches; biomes %v", bad, seen)
 }
+
+func stateName(b world.Block) string {
+	n, props, _ := world.DescribeState(b)
+	if len(props) == 0 {
+		return n
+	}
+	var kv []string
+	for k, v := range props {
+		kv = append(kv, k+"="+v)
+	}
+	sort.Strings(kv)
+	return n + "[" + strings.Join(kv, ",") + "]"
+}
+
+func TestSurfaceVsVanillaRegion(t *testing.T) {
+	dir := os.Getenv("MCGO_WORLDGEN_REGION")
+	if dir == "" {
+		t.Skip()
+	}
+	seed := int64(1)
+	if s := os.Getenv("MCGO_WORLDGEN_SEED"); s != "" {
+		fmt.Sscan(s, &seed)
+	}
+	g, err := NewGenerator(Vanilla(), "overworld", "overworld", seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var chunks [][2]int32
+	for _, a := range strings.Split(os.Getenv("MCGO_WORLDGEN_CHUNKS"), ";") {
+		var x0, z0, x1, z1 int32
+		fmt.Sscanf(a, "%d,%d,%d,%d", &x0, &z0, &x1, &z1)
+		for cx := x0; cx <= x1; cx++ {
+			for cz := z0; cz <= z1; cz++ {
+				chunks = append(chunks, [2]int32{cx, cz})
+			}
+		}
+	}
+	kinds := map[string]int{}
+	badChunks := 0
+	for _, ch := range chunks {
+		want, _ := vanillaChunk(t, dir, ch[0], ch[1], g.RS.MinY(), g.RS.Height())
+		p := g.Terrain(ch[0], ch[1])
+		bad := 0
+		for i, w := range want {
+			gn := stateName(p.Blocks[i])
+			if gn != w {
+				if strings.Contains(w, "level=") && gn == "air" {
+					continue
+				}
+				kinds[gn+"->"+w]++
+				if bad < 3 {
+					t.Errorf("chunk %v x=%d y=%d z=%d: got %s want %s", ch, i&15, int32(i>>8)+g.RS.MinY(), (i>>4)&15, gn, w)
+				}
+				bad++
+			}
+		}
+		if bad > 0 {
+			badChunks++
+		}
+	}
+	t.Logf("%d/%d chunks bad; kinds %v", badChunks, len(chunks), kinds)
+}
+
+// terrainGolden digests surface-stage chunks verified against the real
+// server (tests/blackbox TestTerrainSurfaceParity, seed 12345).
+var terrainGolden = map[[2]int32]string{
+	{-320, -288}: "ae4e01107c9238ac",
+	{-176, 112}:  "0ecde9d6ec1e16a1",
+	{368, 368}:   "473119006cae86bd",
+	{112, -96}:   "c1cda900fe87d326",
+	{48, -48}:    "28241f2747eb80f3",
+}
+
+func terrainDigest(p *ProtoChunk) string {
+	h := sha256.New()
+	for _, b := range p.Blocks {
+		h.Write([]byte(stateName(b)))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+func TestTerrainGolden(t *testing.T) {
+	g, err := NewGenerator(Vanilla(), "overworld", "overworld", 12345)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range terrainGolden {
+		if got := terrainDigest(g.Terrain(k[0], k[1])); got != want {
+			t.Errorf("chunk %v: digest %s, want %s", k, got, want)
+		}
+	}
+	if os.Getenv("MCGO_PRINT_GOLDEN") != "" {
+		for _, k := range [][2]int32{{-320, -288}, {-176, 112}, {368, 368}, {112, -96}, {48, -48}} {
+			t.Logf("{%d, %d}: %q,", k[0], k[1], terrainDigest(g.Terrain(k[0], k[1])))
+		}
+	}
+}

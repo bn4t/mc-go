@@ -374,3 +374,83 @@ func TestTerrainBiomeParity(t *testing.T) {
 	sort.Strings(names)
 	t.Logf("%d biome cells, %d biomes: %v", cells, len(names), names)
 }
+
+func protoStateString(b world.Block) string {
+	n, props, _ := world.DescribeState(b)
+	if len(props) == 0 {
+		return n
+	}
+	kv := make([]string, 0, len(props))
+	for k, v := range props {
+		kv = append(kv, k+"="+v)
+	}
+	sort.Strings(kv)
+	return n + "[" + strings.Join(kv, ",") + "]"
+}
+
+// TestTerrainSurfaceParity pins the surface stage — SurfaceSystem's
+// column walk (stone depth above/below, water height), every surface
+// rule and condition in the overworld rule tree (biome zoom, noise
+// thresholds, vertical gradients, steep, hole, temperature with the
+// frozen modifier, above preliminary surface), the terracotta bands and
+// the eroded-badlands pillar and frozen-ocean iceberg extensions — block
+// for block against the real server with carvers and features stripped.
+// Areas were chosen to hit each biome family: badlands (all three),
+// peaks and slopes, ice spikes, mushroom fields, deep frozen and warm
+// oceans, cherry grove, pale garden, desert, swamps.
+func TestTerrainSurfaceParity(t *testing.T) {
+	const seed = 12345
+	var areas []terrainArea
+	for _, c := range [][2]int32{{-320, -288}, {-176, 112}, {-272, -272}, {368, 368}, {48, -48}, {272, 272},
+		{224, 64}, {-32, 64}, {112, -96}, {-272, -240}, {32, -64}, {-208, -592}, {-144, 32}, {-112, -112}, {-160, 48}} {
+		areas = append(areas, terrainArea{c[0], c[1], c[0] + 1, c[1] + 1})
+	}
+	region := vanillaTerrain(t, seed, terrainStrip{surface: true}, areas)
+	g, err := worldgen.NewGenerator(worldgen.Vanilla(), "overworld", "overworld", seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	minY, height := g.RS.MinY(), g.RS.Height()
+	total, exempt := 0, 0
+	for _, a := range areas {
+		for cx := a.x0; cx <= a.x1; cx++ {
+			for cz := a.z0; cz <= a.z1; cz++ {
+				want := readSavedChunk(t, region, cx, cz, minY, height)
+				p := g.Terrain(cx, cz)
+				marked := map[[3]int32]bool{}
+				for _, m := range p.FluidMarks {
+					marked[m] = true
+				}
+				bad := 0
+				for i, w := range want.blocks {
+					gs := protoStateString(p.Blocks[i])
+					if gs == w {
+						continue
+					}
+					x := cx*16 + int32(i&15)
+					z := cz*16 + int32((i>>4)&15)
+					y := int32(i>>8) + minY
+					if gs == "air" && strings.Contains(w, "[level=") && !strings.HasSuffix(w, "level=0]") {
+						near := false
+						for _, d := range [][3]int32{{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}, {0, 1, 0}} {
+							near = near || marked[[3]int32{x + d[0], y + d[1], z + d[2]}]
+						}
+						if near {
+							exempt++
+							continue
+						}
+					}
+					if bad < 5 {
+						t.Errorf("(%d,%d,%d): mc-go %s, vanilla %s", x, y, z, gs, w)
+					}
+					bad++
+				}
+				if bad > 0 {
+					t.Errorf("chunk %d,%d: %d mismatched blocks", cx, cz, bad)
+				}
+				total++
+			}
+		}
+	}
+	t.Logf("%d chunks compared, %d post-processing fluid cells exempted", total, exempt)
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // settings is the part of NoiseGeneratorSettings the noise stage reads.
@@ -31,6 +32,10 @@ type RandomState struct {
 	router        Router
 	markers       []*markerDF
 	b             *builder
+	surfOnce      sync.Once
+	surf          *surfaceSystem
+	biomeMu       sync.Mutex
+	biomes        map[string]*BiomeInfo
 }
 
 // NewRandomState seeds noise settings ("overworld", "nether", ...)
