@@ -379,7 +379,7 @@ func applyCrystalSave(e *Entity, m map[string]any, summon bool) {
 		e.Silent = nbtTruth(v)
 	}
 	if v, ok := m["NoGravity"]; ok {
-		e.NoGravity = nbtTruth(v)
+		e.setNoGravity(nbtTruth(v))
 	}
 	e.crystal.beam = nil
 	if p, ok := nbtIntVec3(m["beam_target"]); ok {
