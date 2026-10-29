@@ -222,9 +222,9 @@ func readCanonicalStackTail(r *protocol.PacketReader, it ItemStack, depth int) (
 				return ItemStack{}, err
 			}
 			if typ == compWrittenBook {
-				it.BookWritten = snbtCompact(value)
+				it.BookWritten = componentSNBT(value)
 			} else {
-				it.BookWritable = snbtCompact(value)
+				it.BookWritable = componentSNBT(value)
 			}
 		case compBaseColor:
 			value, err := slotWireCount(r, 15)

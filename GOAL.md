@@ -17152,3 +17152,38 @@ Oracle commands use the immutable prebuilt `work/scheduler-fixed.test`, JDK 25 v
 
 The isolated staged bundle export builds successfully; focused Bundle and
 ComponentSNBT units pass (0.729 s).
+
+
+## Slice — editable and signed book components (2026-10-29)
+
+- **Measured:** Temurin25.0.5 javap facts from ServerboundEditBookPacket and
+  ServerGamePacketListenerImpl.handleEditBook/updateBookContents/signBook on the
+  official26.2 jar, SHA-1 823e2250d24b3ddac457a60c92a6a941943fcd6a. The wire body
+  is slot, bounded page list, bool optional-title presence and optional title;
+  pages cap at100, each page at1024 UTF-16 units, title at32. Hotbar0..8 and
+  offhand40 qualify regardless of selected slot. The writable component gates
+  editing/signing, including on another item class. Signing preserves count and
+  other components, transmutes to written_book, removes writable content and
+  writes the exact title, author name, generation0 and resolved=true.
+- **Implemented:** canonical BookWritable/BookWritten mutation and real slot
+  synchronization replace inert side maps, with offhand/nonselected hotbar
+  support, bool title parsing, Unicode limits, preserved whitespace/empty title
+  and component-bearing carriers. Empty component lists now parse correctly.
+  Safe canonical component SNBT preserves numeric/namespace text types through
+  editing, signing, native load and slot decoding. Existing wire/NBT paths
+  persist the result. Unconfigured text filtering passes through.
+- **Pinned:** TestBookEditSignParity passes against both servers without skips
+  (40.63s), comparing eleven slot snapshots: main/offhand/nonselected hotbar,
+  clear-pages default restoration, signing/name preservation, signed-book
+  rejection, numeric and empty titles, numeric/namespace/boolean-looking page
+  strings, invalid main-inventory slot and count-four component-bearing carrier
+  editing/signing. Focused Book/Lectern/Bundle/component-SNBT units pass3.455s,
+  covering UTF-16 boundaries, canonical wire/NBT roundtrips and typed strings.
+  The component-SNBT helper also preserves nested potion namespace IDs.
+- **Remaining:** default component removal flags, configured external text
+  filtering and malformed-packet disconnect behavior remain outside the modeled
+  book/component boundary. Legacy dead session side-map fields remain unused; they are not part of
+  persistence or gameplay state.
+
+The isolated staged book export builds successfully; focused Book, Lectern,
+Bundle and ComponentSNBT units pass (4.113 s).

@@ -1084,67 +1084,9 @@ func (s *Server) handleCustomClickAction(sess *Session, p protocol.Packet) {
 	}
 }
 
-// handleEditBook writes pages into the held book and quill. Vanilla
-// accepts the edit only for a writable book in the selected hotbar
-// slot; the resulting stack keeps its identity but gains the pages.
+// handleEditBook edits or signs the canonical writable-book component.
 func (s *Server) handleEditBook(sess *Session, p protocol.Packet) {
-	r := protocol.NewPacketReader(p.Data)
-	slot, err := r.VarInt()
-	if err != nil || slot < 0 || slot > 8 {
-		return
-	}
-	count, err := r.VarInt()
-	if err != nil || count < 0 || count > 100 {
-		return
-	}
-	pages := make([]string, 0, count)
-	for i := int32(0); i < count; i++ {
-		page, err := r.String()
-		if err != nil {
-			return
-		}
-		if len(page) > 1024 {
-			page = page[:1024]
-		}
-		pages = append(pages, page)
-	}
-	// Optional title: present when the client signs the book.
-	title := ""
-	if r.Remaining() > 0 {
-		if t, err := r.String(); err == nil {
-			title = t
-		}
-	}
-	if !sess.writeBook(slot, pages, title) {
-		return
-	}
-	// Vanilla acknowledges by syncing the changed slot back.
-	_ = sess.write(sess.ids().PlayContainerSlot, sess.containerSlotBody(0, int16(slotHotbarStart+slot), sess.stackAt(int16(slotHotbarStart+slot))))
-}
-
-// writeBook stores pages (and an optional title) on the hotbar stack.
-// It reports whether the slot held a writable book.
-func (sess *Session) writeBook(slot int32, pages []string, title string) bool {
-	sess.invMu.Lock()
-	defer sess.invMu.Unlock()
-	idx := int16(slotHotbarStart + slot)
-	it := sess.inv[idx]
-	if it.Empty() {
-		return false
-	}
-	name, ok := itemNameOf(it.ID)
-	if !ok {
-		return false
-	}
-	if title == "" && name != "minecraft:writable_book" {
-		return false
-	}
-	if title != "" && name != "minecraft:writable_book" && name != "minecraft:written_book" {
-		return false
-	}
-	sess.bookPages[idx] = append([]string(nil), pages...)
-	sess.bookTitle[idx] = title
-	return true
+	s.handleBookEditPacket(sess, p)
 }
 
 // containerSlotBody encodes a Set Container Slot packet: window id,

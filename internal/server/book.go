@@ -73,7 +73,7 @@ func bookContentFromNBT(comps map[string]any) (writable, written string) {
 		if p, ok := v["pages"].(nbt.List); ok {
 			pages = p
 		}
-		writable = snbtCompact(map[string]any{"pages": filterableWrapList(pages)})
+		writable = componentSNBT(map[string]any{"pages": filterableWrapList(pages)})
 	}
 	if v, ok := comps["minecraft:written_book_content"].(map[string]any); ok {
 		out := map[string]any{
@@ -92,7 +92,7 @@ func bookContentFromNBT(comps map[string]any) (writable, written string) {
 		if r := v["resolved"]; r != nil {
 			out["resolved"] = r
 		}
-		written = snbtCompact(out)
+		written = componentSNBT(out)
 	}
 	return writable, written
 }
@@ -144,7 +144,7 @@ func bookCraftCopy(raw string) string {
 		return raw
 	}
 	m["generation"] = int32(nbtNumberOr(m["generation"], 0) + 1)
-	return snbtCompact(m)
+	return componentSNBT(m)
 }
 
 // bookResolve is LecternBlockEntity.resolveBook: the written content's
@@ -158,7 +158,7 @@ func bookResolve(it ItemStack) ItemStack {
 		return it
 	}
 	v["resolved"] = int8(1)
-	it.BookWritten = snbtCompact(v)
+	it.BookWritten = componentSNBT(v)
 	return it
 }
 
@@ -290,13 +290,13 @@ func bookContentFromTag(written bool, t *snbtTag) (string, bool) {
 				m["resolved"] = int8(1)
 			}
 		}
-		return snbtCompact(m), true
+		return componentSNBT(m), true
 	}
 	pages, ok := filterableTagList(t.vals["pages"], false)
-	if !ok || pages.Elem == nbt.TagEnd {
+	if !ok {
 		return "", false
 	}
-	return snbtCompact(map[string]any{"pages": pages}), true
+	return componentSNBT(map[string]any{"pages": pages}), true
 }
 
 // filterableTagList converts a pages list tag into the value form.
