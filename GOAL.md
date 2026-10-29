@@ -59,7 +59,11 @@ Mojang server over the wire.
       `TestChunkThrottleStaysBlocked`. Live preparation retains mc-go's
       historical pending/forget order; near-window pruning and forget/batch
       ordering differences remain, as documented in the live-window slice.
-- [ ] Vanilla terrain generation (seed, noise, biomes, structures)
+- [~] Vanilla terrain generation (seed, noise, biomes, structures):
+      noise stage (density functions, cell interpolation, aquifers, ore
+      veins) matches the real server block for block -
+      `TestTerrainNoiseParity`; biomes, surface rules, carvers, features,
+      structures and server wiring remain
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -15612,3 +15616,46 @@ no flee; unsneak → flee). Green both legs.
   Disconnect normalization scans O(remembered entries); native ingestion
   normalization costs O(existing aliases + loaded players), with no heap or
   latency bound. Owned disconnect I/O and `/save-all` still block; cross-file atomicity and fsync/crash durability remain unfinished.
+
+## Slice — worldgen noise stage (2026-10-29)
+
+- **Measured:** bytecode inspection (`javap -c -p`, Temurin 25.0.5+8) of
+  the 26.2 jar (SHA-1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`):
+  `RandomSupport`, `XoroshiroRandomSource`, `LegacyRandomSource`,
+  `BitRandomSource`, `Mth.getSeed` (int-overflowing x multiply),
+  `ImprovedNoise`, `PerlinNoise` (new vs legacy octave init, `wrap`),
+  `NormalNoise`, `BlendedNoise`, `SimplexNoise`, `CubicSpline$Multipoint`
+  (float32 Hermite segments), every `DensityFunctions` node in the 26.2
+  router (incl. the new `find_top_surface`, `interval_select`, `invert`),
+  `RandomState` noise wiring (`fromHashOf`, legacy nether biome noises),
+  `NoiseChunk` (slice filling, Y→X→Z per-block lerp order vs `lerp3`
+  inside `cache_all_in_cell`, flat caches sampled at quart corners with
+  y=0, quart-aligned preliminary surface cache),
+  `Aquifer$NoiseBasedAquifer` (4-nearest jittered grid, pressure,
+  surface sampling offsets, skip-sampling ceiling, floodedness/spread/
+  lava grids), `OreVeinifier` and `NoiseBasedChunkGenerator.doFill`.
+  Data-driven parts come from the datagen worldgen registries and the
+  biome_parameters report, packed by `tools/genworldgen` (965 entries,
+  plain JSON SHA-256 `c69d55219586ed324f73c98dce63e4d16a3a2d3ba2487e03518d958a1074ec73`).
+  Wire/save observation: the real server generating seed 12345 with a
+  data pack that strips biome features/carvers and the surface rule,
+  ticks frozen, force-loaded areas saved to region files.
+- **Implemented:** `internal/worldgen`: random sources and positional
+  factories, Perlin/normal/blended/simplex noise, the density-function
+  graph parsed from the bundled JSON with markers that defer to a
+  per-chunk `NoiseChunk` (interpolators, flat caches, final-density cell
+  cache), aquifer, ore veins and the cell fill loop
+  (`RandomState.FillNoise`), returning noise-stage substances and the
+  positions the aquifer marks for fluid post-processing. Products are
+  rounded explicitly so no FMA fusion can change a bit.
+- **Pinned:** `TestTerrainNoiseParity` diffs 91 chunks (ocean floor,
+  mountains, caves, flooded/lava aquifers, copper/iron veins, both signs
+  of x/z) block for block against the real server's saved chunks; the
+  only exemption is flowing fluid produced by post-processing beside an
+  aquifer-marked source (2 cells). `TestNoiseGolden` keeps digests of
+  verified chunks for oracle-free unit runs.
+- **Remaining:** biome source, surface system (incl. frozen-ocean iceberg
+  and eroded-badlands extensions), carvers, features, structures and
+  beardifier, fluid post-processing, nether/end settings, and wiring the
+  generator into the server's world, level.dat and spawn search.
+

@@ -1,0 +1,180 @@
+package worldgen
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+
+	"mc-go/internal/nbt"
+	"mc-go/internal/world"
+)
+
+// vanillaChunk decodes one saved chunk's block states into names
+// ("stone", "water[level=0]") indexed ((y-minY)*16+z)*16+x.
+func vanillaChunk(t *testing.T, regionDir string, cx, cz int32, minY, height int32) ([]string, map[string]any) {
+	t.Helper()
+	rx, rz := cx>>5, cz>>5
+	chunks, err := world.ReadRegionFile(filepath.Join(regionDir, fmt.Sprintf("r.%d.%d.mca", rx, rz)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, ok := chunks[[2]int32{cx & 31, cz & 31}]
+	if !ok {
+		t.Fatalf("chunk %d,%d not in region", cx, cz)
+	}
+	out := make([]string, 16*16*height)
+	sections, _ := c["sections"].(nbt.List)
+	for _, sAny := range sections.Items {
+		sec := sAny.(map[string]any)
+		sy := int32(sec["Y"].(int8))
+		states, ok := sec["block_states"].(map[string]any)
+		if !ok {
+			continue
+		}
+		pal := states["palette"].(nbt.List)
+		names := make([]string, len(pal.Items))
+		for i, pAny := range pal.Items {
+			pc := pAny.(map[string]any)
+			name := strings.TrimPrefix(pc["Name"].(string), "minecraft:")
+			if pm, ok := pc["Properties"].(map[string]any); ok {
+				var kv []string
+				for k, v := range pm {
+					kv = append(kv, k+"="+v.(string))
+				}
+				sort.Strings(kv)
+				name += "[" + strings.Join(kv, ",") + "]"
+			}
+			names[i] = name
+		}
+		idx := make([]int32, 4096)
+		if data, ok := states["data"].([]int64); ok && len(names) > 1 {
+			bpe := 4
+			for 1<<uint(bpe) < len(names) {
+				bpe++
+			}
+			per := 64 / bpe
+			mask := int64(1<<uint(bpe)) - 1
+			for i := 0; i < 4096; i++ {
+				idx[i] = int32((data[i/per] >> (uint(i%per) * uint(bpe))) & mask)
+			}
+		}
+		for i := 0; i < 4096; i++ {
+			y := sy*16 + int32(i>>8)
+			if y < minY || y >= minY+height {
+				continue
+			}
+			z := int32(i>>4) & 15
+			x := int32(i) & 15
+			out[((y-minY)*16+z)*16+x] = names[idx[i]]
+		}
+	}
+	return out, c
+}
+
+var substanceNames = map[Substance]string{
+	SubDefault: "stone", SubAir: "air", SubWater: "water[level=0]", SubLava: "lava[level=0]",
+	SubCopperOre: "copper_ore", SubRawCopperBlock: "raw_copper_block", SubGranite: "granite",
+	SubDeepslateIronOre: "deepslate_iron_ore", SubRawIronBlock: "raw_iron_block", SubTuff: "tuff",
+}
+
+// TestNoiseVsVanillaRegion compares the noise stage against a vanilla
+// world generated with surface rules, carvers and features stripped
+// (MCGO_WORLDGEN_REGION=<world>/dimensions/minecraft/overworld/region,
+// seed MCGO_WORLDGEN_SEED, default 1).
+func TestNoiseVsVanillaRegion(t *testing.T) {
+	dir := os.Getenv("MCGO_WORLDGEN_REGION")
+	if dir == "" {
+		t.Skip("MCGO_WORLDGEN_REGION not set")
+	}
+	seed := int64(1)
+	if s := os.Getenv("MCGO_WORLDGEN_SEED"); s != "" {
+		fmt.Sscan(s, &seed)
+	}
+	rs, err := NewRandomState(Vanilla(), "overworld", seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	areas := "0,0,3,3"
+	if a := os.Getenv("MCGO_WORLDGEN_CHUNKS"); a != "" {
+		areas = a
+	}
+	var chunks [][2]int32
+	for _, a := range strings.Split(areas, ";") {
+		var x0, z0, x1, z1 int32
+		fmt.Sscanf(a, "%d,%d,%d,%d", &x0, &z0, &x1, &z1)
+		for cx := x0; cx <= x1; cx++ {
+			for cz := z0; cz <= z1; cz++ {
+				chunks = append(chunks, [2]int32{cx, cz})
+			}
+		}
+	}
+	total := 0
+	kinds := map[string]int{}
+	defer func() { t.Logf("mismatch kinds: %v", kinds) }()
+	for _, ch := range chunks {
+		cx, cz := ch[0], ch[1]
+		{
+			want, _ := vanillaChunk(t, dir, cx, cz, rs.MinY(), rs.Height())
+			got := rs.FillNoise(cx, cz)
+			bad := 0
+			for i, w := range want {
+				g := substanceNames[got.Cells[i]]
+				if g != w {
+					kinds[g+"->"+w]++
+					if bad < 3 {
+						y := int32(i/256) + rs.MinY()
+						t.Errorf("chunk %d,%d x=%d y=%d z=%d: got %s want %s", cx, cz, i&15, y, (i>>4)&15, g, w)
+					}
+					bad++
+				}
+			}
+			if bad > 0 {
+				t.Errorf("chunk %d,%d: %d/%d mismatches", cx, cz, bad, len(want))
+				total++
+			}
+		}
+	}
+	t.Logf("%d/%d chunks mismatched", total, len(chunks))
+}
+
+// noiseGolden digests chunks whose noise stage was verified block for
+// block against the real server (tests/blackbox TestTerrainNoiseParity,
+// seed 12345), so unit runs catch regressions without the oracle.
+var noiseGolden = map[[2]int32]string{
+	{0, 0}:      "4401f531336b9d91",
+	{-122, 188}: "52708683dc894707",
+	{314, -436}: "39cabd6f7fe3abc7",
+	{-17, -17}:  "32e81e568f9226c4",
+}
+
+func noiseDigest(c *NoiseColumn) string {
+	h := sha256.New()
+	b := make([]byte, len(c.Cells))
+	for i, s := range c.Cells {
+		b[i] = byte(s)
+	}
+	h.Write(b)
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+func TestNoiseGolden(t *testing.T) {
+	rs, err := NewRandomState(Vanilla(), "overworld", 12345)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range noiseGolden {
+		if got := noiseDigest(rs.FillNoise(k[0], k[1])); got != want {
+			t.Errorf("chunk %v: digest %s, want %s", k, got, want)
+		}
+	}
+	if os.Getenv("MCGO_PRINT_GOLDEN") != "" {
+		for _, k := range [][2]int32{{0, 0}, {-122, 188}, {314, -436}, {-17, -17}} {
+			t.Logf("{%d, %d}: %q,", k[0], k[1], noiseDigest(rs.FillNoise(k[0], k[1])))
+		}
+	}
+}
