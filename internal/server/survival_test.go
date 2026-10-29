@@ -310,6 +310,9 @@ func TestSurvivalPlaceConsumesItem(t *testing.T) {
 	s.world.SetBlock(world.Pos{X: 0, Y: 0, Z: 0}, world.Stone)
 	sess.setStack(invSlotForHotbar(0), ItemStack{ID: world.ItemIDs["dirt"], Count: 2})
 	sess.held.Store(0)
+	// Stand clear of the target cell: an obstructing player refuses
+	// the place (Level.isUnobstructed).
+	sess.setPos(0.5, 2, 0.5, 0, 90, true)
 
 	seq := int32(9)
 	// Click the stone's top face: target (0,1,0).

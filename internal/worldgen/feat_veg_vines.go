@@ -26,7 +26,7 @@ func init() {
 
 // vineAcceptable is VineBlock.isAcceptableNeighbour for the neighbour
 // of p in direction d.
-func vineAcceptable(rg *Region, p BlockPos, d int) bool { return multifaceCanAttach(rg, p, d) }
+func vineAcceptable(rg blockGetter, p BlockPos, d int) bool { return multifaceCanAttach(rg, p, d) }
 
 func vineFace(st world.Block, d int) bool {
 	v, _ := world.StateProperty(st, multifaceFaceProps[d])
@@ -34,7 +34,7 @@ func vineFace(st world.Block, d int) bool {
 }
 
 // vineSupportAt is VineBlock.canSupportAtFace.
-func vineSupportAt(rg *Region, p BlockPos, d int) bool {
+func vineSupportAt(rg blockGetter, p BlockPos, d int) bool {
 	if d == dirDown {
 		return false
 	}
@@ -49,7 +49,7 @@ func vineSupportAt(rg *Region, p BlockPos, d int) bool {
 }
 
 // vineUpdatedState is VineBlock.getUpdatedState.
-func vineUpdatedState(rg *Region, st world.Block, p BlockPos) world.Block {
+func vineUpdatedState(rg blockGetter, st world.Block, p BlockPos) world.Block {
 	if vineFace(st, dirUp) {
 		st = carpetWith(st, "up", boolStr(vineAcceptable(rg, p, dirUp)))
 	}

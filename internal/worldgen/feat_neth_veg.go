@@ -42,7 +42,7 @@ func init() {
 	// NetherFungusBlock and NetherRootsBlock.mayPlaceOn test the block
 	// below against the support tag each block registers
 	// (BlockTags.SUPPORTS_<NAME>: supports_crimson_fungus, ...).
-	nethSupportTag := func(rg *Region, st world.Block, p BlockPos) bool {
+	nethSupportTag := func(rg blockGetter, st world.Block, p BlockPos) bool {
 		name, _ := world.StateOwner(st)
 		return blockInTag(rg.at(offset(p, 0, -1, 0)), "supports_"+name)
 	}
@@ -51,11 +51,11 @@ func init() {
 	// FireBlock.canSurvive: a sturdy floor, or a flammable neighbour
 	// (isValidFireLocation). No per-state flammability fact is measured;
 	// the nether fire patches only ever test netherrack floors.
-	surviveByClass["FireBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["FireBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		return sturdyFull(rg.at(offset(p, 0, -1, 0)), dirUp)
 	}
 	// SoulFireBlock.canSurvive: its base-block tag below.
-	surviveByClass["SoulFireBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["SoulFireBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		return blockInTag(rg.at(offset(p, 0, -1, 0)), "soul_fire_base_blocks")
 	}
 }

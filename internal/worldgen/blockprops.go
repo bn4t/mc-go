@@ -35,6 +35,8 @@ const (
 	bpLiquidBlock    = 39
 	bpEmissionShift  = 40
 	bpDampeningShift = 44
+	bpCollisionFace  = 48 // + direction index: Block.isFaceFull(collision shape, dir)
+	bpNoCollision    = 54 // the collision shape is empty
 )
 
 // Directions in the sturdy-face bit order.
@@ -91,6 +93,9 @@ func sturdyCenter(b world.Block, dir int) bool {
 }
 func sturdyRigid(b world.Block, dir int) bool {
 	return props(b)&(1<<(bpSturdyRigid+dir)) != 0
+}
+func collisionFaceFull(b world.Block, dir int) bool {
+	return props(b)&(1<<(bpCollisionFace+dir)) != 0
 }
 func fullCollision(b world.Block) bool  { return props(b)&(1<<bpFullCollision) != 0 }
 func hasPostProcess(b world.Block) bool { return props(b)&(1<<bpPostProcess) != 0 }

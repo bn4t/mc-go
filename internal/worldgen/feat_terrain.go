@@ -156,17 +156,9 @@ func shouldSnow(rg *Region, b *BiomeInfo, p BlockPos) bool {
 	return canSurvive(rg, snowLayer(), p)
 }
 
-// collisionFaceFullUp approximates Block.isFaceFull(collision shape,
-// UP): full-cube collision, or a slab whose top half is filled.
-func collisionFaceFullUp(b world.Block) bool {
-	if fullCollision(b) {
-		return true
-	}
-	if t, ok := world.StateProperty(b, "type"); ok && hasClassState(b, "SlabBlock") {
-		return t == "top" || t == "double"
-	}
-	return false
-}
+// collisionFaceFullUp is Block.isFaceFull(collision shape, UP), a
+// measured per-state fact.
+func collisionFaceFullUp(b world.Block) bool { return collisionFaceFull(b, dirUp) }
 
 func hasClassState(b world.Block, class string) bool {
 	n, _ := world.StateOwner(b)
@@ -175,7 +167,7 @@ func hasClassState(b world.Block, class string) bool {
 
 func init() {
 	// SnowLayerBlock.canSurvive.
-	surviveByClass["SnowLayerBlock"] = func(rg *Region, state world.Block, p BlockPos) bool {
+	surviveByClass["SnowLayerBlock"] = func(rg blockGetter, state world.Block, p BlockPos) bool {
 		below := rg.at(offset(p, 0, -1, 0))
 		if blockInTag(below, "cannot_support_snow_layer") {
 			return false

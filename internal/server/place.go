@@ -7,6 +7,7 @@ import (
 
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
+	"mc-go/internal/worldgen"
 )
 
 // Creative block placement (Use Item On) plus the held-item tracking it
@@ -202,7 +203,8 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		}
 		cursor[i] = float64(f)
 	}
-	if _, err := r.Bool(); err != nil { // inside block
+	inside, err := r.Bool()
+	if err != nil {
 		return
 	}
 	seq := int32(-1)
@@ -453,12 +455,30 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 		useAck()
 		return
 	}
-	target := facePos
-	if target.Y < d.minY || target.Y > d.minY+d.height-1 {
+	item, ok := sess.heldItem()
+	if !ok {
+		return // empty hand: ack only
+	}
+	iname, _ := itemNameOf(item)
+	pi, ok := placeItems[strings.TrimPrefix(iname, "minecraft:")]
+	if !ok {
+		return // not a block item: ack only
+	}
+	// BlockItem.place over a BlockPlaceContext (placestate.go): the
+	// clicked block itself when replaceable, else the face neighbour,
+	// which must be replaceable in turn.
+	pc := newPlaceCtx(s, d, sess, clicked, pdir(face), cursor, inside)
+	if !pc.replaceClicked && !pc.canBeReplaced(pc.at(pc.pos)) {
 		return
 	}
-	if cur := d.w.GetBlock(target); cur != world.Air {
-		return // occupied: creative never overwrites solid
+	if pi.is("ScaffoldingBlockItem") {
+		if pc = s.scaffoldPlaceContext(pc); pc == nil {
+			return
+		}
+	}
+	target := pc.pos
+	if target.Y < d.minY || target.Y > d.minY+d.height-1 {
+		return
 	}
 	// Reach, measured like the anticheat break check: eye to
 	// target-center, so the detector and the server agree.
@@ -469,31 +489,38 @@ func (s *Server) handleUseItem(sess *Session, p protocol.Packet) {
 	if math.Sqrt(ddx*ddx+ddy*ddy+ddz*ddz) > placeReachM {
 		return
 	}
-	item, ok := sess.heldItem()
+	blk, ok := s.placementState(pc, pi)
 	if !ok {
-		return // empty hand: ack only
+		return
 	}
-	blk, ok := itemBlock(item)
-	if !ok {
-		return // not a placeable block-item: ack only
+	// DoubleHighBlockItem.placeBlock clears the cell above first (water
+	// where water was).
+	if pi.is("DoubleHighBlockItem") {
+		above := posAbove(target, 1)
+		repl := world.Air
+		if worldgen.FluidInWaterTag(d.w.GetBlock(above)) {
+			repl, _ = world.BlockState("water")
+		}
+		s.setBlockAndBroadcast(sess.getName(), above, repl)
 	}
-	// getStateForPlacement folds the connection props (fence/pane/bars)
-	// of a placed block before the write; chests fold facing + type.
-	blk = s.connectPlaceState(d, target, blk)
-	blk = s.chestPlaceState(d, target, blk, sess, face)
-	blk = s.stairsPlaceState(d, target, blk, sess, face, cursor[1])
-	blk = s.snowyPlaceState(d, target, blk)
-	blk = s.tripwirePlaceState(d, target, blk)
-	blk = s.scaffoldPlaceState(d, target, blk)
-	blk = s.hookPlaceState(d, target, blk, sess, face)
-	blk = s.multifacePlaceState(d, target, blk, sess, face)
-	blk = s.diodePlaceState(d, target, blk, sess)
-	blk = pistonPlaceState(blk, sess)
-	blk = observerPlaceState(blk, sess)
-	blk = s.crafterPlaceState(d, target, blk, sess)
-	blk = leafPlaceState(d, target, blk)
-	blk = blockStateComponentApply(blk, sess.heldStack())
 	s.setBlockAndBroadcast(sess.getName(), target, blk)
+	if bstate(d.w.GetBlock(target)) == bstate(blk) {
+		// updateBlockStateFromTag: the stack's block_state component
+		// rewrites the placed state (flag 2).
+		if nb := blockStateComponentApply(d.w.GetBlock(target), sess.heldStack()); nb != d.w.GetBlock(target) {
+			s.setBlockAndBroadcast(sess.getName(), target, nb)
+		}
+		blk = d.w.GetBlock(target)
+		s.placedByOtherHalf(sess, d, target, blk)
+	}
+	// The place sound reaches everyone but the placer, whose client
+	// plays it itself: SoundType volume (v+1)/2, pitch * 0.8.
+	if snd, ok := blockPlaceSounds[bstate(blk)]; ok {
+		if id, ok := soundEventIDs[snd.event]; ok {
+			s.playSoundSrc(d.name, float64(target.X)+0.5, float64(target.Y)+0.5, float64(target.Z)+0.5,
+				id, 4, (snd.volume+1)/2, snd.pitch*0.8, sess)
+		}
+	}
 	// BlockItem.place → Level.gameEvent(BLOCK_PLACE) at the placed
 	// position with the new state as the context: wool muffles it.
 	if n, ok := world.StateOwner(blk); ok {

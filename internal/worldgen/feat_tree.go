@@ -108,7 +108,7 @@ func validTreePos(rg *Region, p BlockPos) bool {
 
 func isAirAt(rg *Region, p BlockPos) bool { return isAir(rg.Block(p[0], p[1], p[2])) }
 
-func blockAt(rg *Region, p BlockPos) world.Block { return rg.Block(p[0], p[1], p[2]) }
+func blockAt(rg blockGetter, p BlockPos) world.Block { return rg.Block(p[0], p[1], p[2]) }
 
 func relDir(p BlockPos, d int, n int32) BlockPos {
 	o := dirOffsets[d]

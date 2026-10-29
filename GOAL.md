@@ -16261,3 +16261,48 @@ no flee; unsneak → flee). Green both legs.
   unopened container breaks, ticking of the generic store (gateway
   age, hive bees, spawner delay), trial spawner update tags, block
   entities for player-placed blocks of the generic types.
+
+## Slice — block placement: BlockItem.place and getStateForPlacement (2026-10-29)
+
+- **Measured:** bytecode inspection of `BlockItem.useOn` / `place` /
+  `getPlacementState` / `canPlace` / `placeBlock`, `BlockPlaceContext`
+  (replaceClicked, the clicked-face fallback, getNearestLookingDirections
+  with the face's opposite first), `Direction.orderedByNearest` (Mth
+  sin/cos of float radians), `fromYRot`, `RotationSegment` /
+  `SegmentedAnglePrecision`, the item classes (`StandingAndWallBlockItem`,
+  `DoubleHighBlockItem`, `BedItem`, `HangingSignItem`,
+  `GameMasterBlockItem`, `ScaffoldingBlockItem.updatePlacementContext`),
+  the 112 block classes' `getStateForPlacement`, the twelve
+  `canBeReplaced(BlockPlaceContext)` overrides, `setPlacedBy` second
+  halves, `DoorBlock.getHinge`, `WorldBorder.isWithinBounds`, and the
+  canSurvive overrides of torches, signs, banners, buttons and levers,
+  bells, lanterns, doors, rails, diodes, wire, pressure plates, candles,
+  cakes, amethyst, hooks, chorus, crops, stems, nether wart, wither
+  rose, frogspawn, dirt path, farmland, hanging moss and pitcher crops.
+  New jar-oracle facts: `tools/genplacement` (each block item's class
+  chain, block, wall block and attachment; each block's SoundType
+  place sound and note block instrument; jar sha256 in the header) and
+  `tools/genblockprops` (full collision faces per direction, empty
+  collision).
+- **Implemented:** `internal/server/placestate.go` (placement context,
+  class-dispatched placement states, canBeReplaced with context),
+  `internal/server/placeitem.go` (item classes, obstruction by
+  building-blocking entities, scaffolding extension, second halves),
+  the use-on path in `place.go` (replace-in-place targets such as grass
+  and water, waterlogging, stacking slabs, snow, pickles, candles,
+  eggs, the place sound to other players), `worldgen.CanSurvive` over a
+  live level (canSurvive families shared with worldgen in
+  `survive_blocks.go`), `HugeMushroomBlock.updateShape`.
+- **Pinned:** `TestPlacementParity` (81 placements - pillars, stairs,
+  slabs and merges, doors with hinges, double plants, beds, torches,
+  signs, hanging signs, banners, heads, buttons, levers, grindstones,
+  ladders, hooks, cocoa, trapdoors, horizontal and looking facings,
+  clicked-face facings, lanterns, replacing grass and water,
+  waterlogging, stacking, rails, wire, vines, mushroom blocks, leaves,
+  fences, walls, note block instruments, dripstone, sneak chest
+  pairing, concrete powder in water, farmland and bamboo - every block
+  update the click produced, against the real server).
+- **Remaining:** updateShape for most block classes (unsupported blocks
+  popping, door and bed halves breaking together), copper chest
+  oxidation merge, mossy carpet toppers, creaking heart activity by the
+  environment attribute, block entity data from item components.

@@ -88,15 +88,10 @@ func blockInTag(b world.Block, tag string) bool {
 // rawBrightness is getRawBrightness(pos, 0) during features: the
 // chunks are not lit yet, so the sky engine reports full light. The
 // nether has no sky engine, leaving the (unlit) block light: 0.
-func rawBrightness(rg *Region, _ BlockPos) int32 {
-	if rg != nil && rg.g.RS.settings.name == "nether" {
-		return 0
-	}
-	return 15
-}
+func rawBrightness(rg blockGetter, p BlockPos) int32 { return rg.rawBrightness(p) }
 
 // SurviveFunc is one block family's canSurvive.
-type SurviveFunc func(rg *Region, state world.Block, p BlockPos) bool
+type SurviveFunc func(rg blockGetter, state world.Block, p BlockPos) bool
 
 // surviveByClass holds canSurvive implementations keyed by vanilla
 // behaviour class; the most specific class in a block's chain wins.
@@ -105,7 +100,7 @@ var surviveByClass = map[string]SurviveFunc{}
 
 // canSurvive is BlockState.canSurvive over the decorating region, for
 // the block families worldgen places.
-func canSurvive(rg *Region, state world.Block, p BlockPos) bool {
+func canSurvive(rg blockGetter, state world.Block, p BlockPos) bool {
 	name, _ := world.StateOwner(state)
 	for _, c := range blockClass(name) {
 		if f, ok := surviveByClass[c]; ok {
@@ -186,9 +181,9 @@ func canSurvive(rg *Region, state world.Block, p BlockPos) bool {
 		return mayPlaceOn(name, cls, get(below))
 	}
 	if !surviveUnchecked[cls[0]] {
-		rg.g.featMu.Lock()
+		unsupportedSurviveMu.Lock()
 		UnsupportedSurvive[cls[0]] = true
-		rg.g.featMu.Unlock()
+		unsupportedSurviveMu.Unlock()
 	}
 	return true
 }
@@ -199,6 +194,8 @@ var surviveUnchecked = map[string]bool{"Block": true, "PumpkinBlock": true, "Rot
 // UnsupportedSurvive collects block classes whose canSurvive is not
 // modeled yet (they report true).
 var UnsupportedSurvive = map[string]bool{}
+
+var unsupportedSurviveMu sync.Mutex
 
 func isWaterAt(b world.Block) bool { return inFluidTag(b, "water") }
 
@@ -268,3 +265,39 @@ func placeDoublePlant(rg *Region, st world.Block, p BlockPos) {
 	rg.SetBlock(p[0], p[1], p[2], lower)
 	rg.SetBlock(p[0], p[1]+1, p[2], upper)
 }
+
+// blockGetter is what canSurvive reads: blocks and raw brightness. The
+// decorating Region is one; FuncGetter adapts a live level.
+type blockGetter interface {
+	Block(x, y, z int32) world.Block
+	at(p BlockPos) world.Block
+	rawBrightness(p BlockPos) int32
+}
+
+// rawBrightness is getRawBrightness(pos, 0) during features: the
+// chunks are not lit yet, so the sky engine reports full light. The
+// nether has no sky engine, leaving the (unlit) block light: 0.
+func (rg *Region) rawBrightness(BlockPos) int32 {
+	if rg.g.RS.settings.name == "nether" {
+		return 0
+	}
+	return 15
+}
+
+// FuncGetter is a blockGetter over a live level's reads.
+type FuncGetter struct {
+	Get   func(x, y, z int32) world.Block
+	Light func(p BlockPos) int32
+}
+
+func (f FuncGetter) Block(x, y, z int32) world.Block { return f.Get(x, y, z) }
+func (f FuncGetter) at(p BlockPos) world.Block        { return f.Get(p[0], p[1], p[2]) }
+func (f FuncGetter) rawBrightness(p BlockPos) int32 {
+	if f.Light == nil {
+		return 15
+	}
+	return f.Light(p)
+}
+
+// CanSurvive is BlockState.canSurvive over a live level.
+func CanSurvive(g FuncGetter, state world.Block, p BlockPos) bool { return canSurvive(g, state, p) }

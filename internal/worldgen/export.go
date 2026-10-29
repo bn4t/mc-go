@@ -109,3 +109,57 @@ func CanBeReplaced(b world.Block) bool { return isReplaceable(b) }
 
 // IsSolid is the legacy BlockState.isSolid().
 func IsSolid(b world.Block) bool { return isSolidState(b) }
+
+// Support types for FaceSturdy (SupportType FULL, CENTER, RIGID).
+const (
+	SupportFull = iota
+	SupportCenter
+	SupportRigid
+)
+
+// FaceSturdy is BlockState.isFaceSturdy for direction dir (0 down, 1
+// up, 2 north, 3 south, 4 west, 5 east) under a support type.
+func FaceSturdy(b world.Block, dir, support int) bool {
+	switch support {
+	case SupportCenter:
+		return sturdyCenter(b, dir)
+	case SupportRigid:
+		return sturdyRigid(b, dir)
+	}
+	return sturdyFull(b, dir)
+}
+
+// CollisionFaceFull is Block.isFaceFull(state.getCollisionShape(), dir).
+func CollisionFaceFull(b world.Block, dir int) bool { return collisionFaceFull(b, dir) }
+
+// InBlockTag reports b's block in a block tag (namespace trimmed).
+func InBlockTag(b world.Block, tag string) bool { return blockInTag(b, tag) }
+
+// BlockClasses is a block's behaviour class chain, most specific first.
+func BlockClasses(name string) []string { return blockClass(name) }
+
+// HasBlockClass reports whether a block's chain holds class.
+func HasBlockClass(name, class string) bool { return hasClass(name, class) }
+
+// MthSin and MthCos are Mth.sin / Mth.cos (the 65536-entry table).
+func MthSin(d float64) float32 { return mthSin(d) }
+func MthCos(d float64) float32 { return mthCos(d) }
+
+// FluidIsWater is FluidState.is(Fluids.WATER): a still water source
+// (waterlogged states included).
+func FluidIsWater(b world.Block) bool { return fluidID(b) == "water" }
+
+// FluidInWaterTag is FluidState.is(FluidTags.WATER).
+func FluidInWaterTag(b world.Block) bool { return isWaterAt(b) }
+
+// FluidAmount is FluidState.getAmount (8 for a source).
+func FluidAmount(b world.Block) int { return int(fluidAmount(b)) }
+
+// NoCollision reports an empty collision shape.
+func NoCollision(b world.Block) bool { return props(b)&(1<<bpNoCollision) != 0 }
+
+// FullCollision reports a full-cube collision shape.
+func FullCollision(b world.Block) bool { return fullCollision(b) }
+
+// MultifaceCanAttach is MultifaceBlock.canAttachTo toward dir from p.
+func MultifaceCanAttach(g FuncGetter, p BlockPos, dir int) bool { return multifaceCanAttach(g, p, dir) }

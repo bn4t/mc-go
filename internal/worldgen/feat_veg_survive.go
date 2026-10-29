@@ -17,7 +17,7 @@ func init() {
 	// GrowingPlantBlock.canSurvive: the block on the side opposite the
 	// growth direction must pass canAttachTo, then be this plant's head
 	// or body or have a sturdy face toward the growth direction.
-	surviveByClass["GrowingPlantBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["GrowingPlantBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		name, _ := world.StateOwner(st)
 		fam, ok := growingPlants[name]
 		if !ok {
@@ -33,13 +33,13 @@ func init() {
 	}
 	// BigDripleafBlock.canSurvive: below is a big dripleaf, its stem or
 	// #supports_big_dripleaf.
-	surviveByClass["BigDripleafBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["BigDripleafBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		b := rg.Block(p[0], p[1]-1, p[2])
 		return isBlock(b, "big_dripleaf") || isBlock(b, "big_dripleaf_stem") || blockInTag(b, "supports_big_dripleaf")
 	}
 	// BigDripleafStemBlock.canSurvive: stem or support below, stem or
 	// leaf above.
-	surviveByClass["BigDripleafStemBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["BigDripleafStemBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		b := rg.Block(p[0], p[1]-1, p[2])
 		a := rg.Block(p[0], p[1]+1, p[2])
 		return (isBlock(b, "big_dripleaf_stem") || blockInTag(b, "supports_big_dripleaf")) &&
@@ -48,7 +48,7 @@ func init() {
 	// SmallDripleafBlock: the upper half needs its lower half below; the
 	// lower half's mayPlaceOn is #supports_small_dripleaf, or a water
 	// source in the dripleaf's own cell over #supports_vegetation.
-	surviveByClass["SmallDripleafBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["SmallDripleafBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		b := rg.Block(p[0], p[1]-1, p[2])
 		if h, _ := world.StateProperty(st, "half"); h == "upper" {
 			bh, _ := world.StateProperty(b, "half")
@@ -61,19 +61,19 @@ func init() {
 		return fluidID(here) == "water" && blockInTag(b, "supports_vegetation")
 	}
 	// HangingRootsBlock.canSurvive: the block above is sturdy downward.
-	surviveByClass["HangingRootsBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["HangingRootsBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		return sturdyFull(rg.Block(p[0], p[1]+1, p[2]), dirDown)
 	}
 	// BambooStalkBlock / BambooSaplingBlock.canSurvive: #supports_bamboo
 	// below.
-	bamboo := func(rg *Region, st world.Block, p BlockPos) bool {
+	bamboo := func(rg blockGetter, st world.Block, p BlockPos) bool {
 		return blockInTag(rg.Block(p[0], p[1]-1, p[2]), "supports_bamboo")
 	}
 	surviveByClass["BambooStalkBlock"] = bamboo
 	surviveByClass["BambooSaplingBlock"] = bamboo
 	// MultifaceBlock.canSurvive: at least one face, and every face set
 	// attaches (MultifaceBlock.canAttachTo).
-	surviveByClass["MultifaceBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["MultifaceBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		any := false
 		for d := 0; d < 6; d++ {
 			if !multifaceHas(st, d) {
@@ -88,17 +88,17 @@ func init() {
 	}
 	// SeaPickleBlock.mayPlaceOn: the block below has a non-empty top
 	// collision face or a sturdy top.
-	surviveByClass["SeaPickleBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["SeaPickleBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		b := rg.Block(p[0], p[1]-1, p[2])
 		return topFaceNonEmpty(b) || sturdyFull(b, dirUp)
 	}
 	// SeagrassBlock.mayPlaceOn: sturdy top, not #cannot_support_seagrass.
-	surviveByClass["SeagrassBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["SeagrassBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		return seagrassBase(rg.Block(p[0], p[1]-1, p[2]))
 	}
 	// TallSeagrassBlock.canSurvive: the upper half over its lower half;
 	// the lower half on a seagrass base inside a full water cell.
-	surviveByClass["TallSeagrassBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["TallSeagrassBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		b := rg.Block(p[0], p[1]-1, p[2])
 		if h, _ := world.StateProperty(st, "half"); h == "upper" {
 			bh, _ := world.StateProperty(b, "half")
@@ -109,17 +109,17 @@ func init() {
 	}
 	// CactusFlowerBlock.mayPlaceOn: #support_override_cactus_flower or a
 	// center-sturdy top.
-	surviveByClass["CactusFlowerBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["CactusFlowerBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		b := rg.Block(p[0], p[1]-1, p[2])
 		return blockInTag(b, "support_override_cactus_flower") || sturdyCenter(b, dirUp)
 	}
 	// BaseCoralPlantTypeBlock.canSurvive: sturdy top below.
-	surviveByClass["BaseCoralPlantTypeBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["BaseCoralPlantTypeBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		return sturdyFull(rg.Block(p[0], p[1]-1, p[2]), dirUp)
 	}
 	// BaseCoralWallFanBlock.canSurvive: the block behind is sturdy on
 	// the facing side.
-	surviveByClass["BaseCoralWallFanBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["BaseCoralWallFanBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		f, _ := world.StateProperty(st, "facing")
 		d := dirNames[f]
 		o := dirOffsets[oppositeDir(d)]
@@ -128,7 +128,7 @@ func init() {
 	// SpeleothemBlock.isValidSpeleothemPlacement: the block behind the
 	// tip is sturdy toward it, or the same speleothem pointing the same
 	// way.
-	surviveByClass["SpeleothemBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["SpeleothemBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		v, _ := world.StateProperty(st, "vertical_direction")
 		d := dirNames[v]
 		o := dirOffsets[oppositeDir(d)]
@@ -142,9 +142,9 @@ func init() {
 	}
 	// GlazedTerracottaBlock has no canSurvive override (the parity
 	// tests' order probe places it).
-	surviveByClass["GlazedTerracottaBlock"] = func(*Region, world.Block, BlockPos) bool { return true }
+	surviveByClass["GlazedTerracottaBlock"] = func(blockGetter, world.Block, BlockPos) bool { return true }
 	// VineBlock.canSurvive: the shape update leaves at least one face.
-	surviveByClass["VineBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["VineBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		return vineHasFaces(vineUpdatedState(rg, st, p))
 	}
 }
@@ -198,7 +198,7 @@ func faceFullToward(b world.Block, d int) bool {
 
 // multifaceCanAttach is MultifaceBlock.canAttachTo(level, pos, dir):
 // the neighbour in dir has a full face toward pos.
-func multifaceCanAttach(rg *Region, p BlockPos, d int) bool {
+func multifaceCanAttach(rg blockGetter, p BlockPos, d int) bool {
 	o := dirOffsets[d]
 	return faceFullToward(rg.Block(p[0]+o[0], p[1]+o[1], p[2]+o[2]), oppositeDir(d))
 }

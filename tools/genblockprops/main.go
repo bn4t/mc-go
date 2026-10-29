@@ -3,7 +3,8 @@
 // replaceability, leaves, block entities, fluid state, sturdy faces
 // (full/center/rigid support per direction), full collision cube,
 // random ticking, skylight propagation, redstone conduction,
-// post-processing, light emission and dampening — by running the 26.2
+// post-processing, light emission and dampening, full collision faces
+// per direction, empty collision — by running the 26.2
 // server jar as an oracle: a small Java harness bootstraps the game's
 // registries and asks every block state through its public accessors,
 // with an empty block getter at the origin.
@@ -80,6 +81,10 @@ public class Probe {
       if (s.liquid()) b |= 1L << 39;
       b |= ((long) s.getLightEmission() & 15) << 40;
       b |= ((long) s.getLightDampening() & 15) << 44;
+      for (int i = 0; i < 6; i++) {
+        if (Block.isFaceFull(s.getCollisionShape(g, p), dirs[i])) b |= 1L << (48 + i);
+      }
+      if (s.getCollisionShape(g, p).isEmpty()) b |= 1L << 54;
       sb.append("ROW ").append(id).append(' ').append(b).append(' ').append(s.toString()).append('\n');
       if (s == s.getBlock().defaultBlockState()) {
         Class<?> c = s.getBlock().getClass();

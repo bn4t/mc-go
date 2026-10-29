@@ -275,6 +275,17 @@ func (s *Server) connectionUpdateNoCascade(d *dimension, pos, changed world.Pos)
 		s.multifaceNeighborUpdate(d, pos, changed, b)
 		return
 	}
+	if changed != pos && hasClassName(short, "HugeMushroomBlock") {
+		// HugeMushroomBlock.updateShape: the same block on a side
+		// clears that side's face.
+		if bstate(d.w.GetBlock(changed)) == short {
+			dir := dirNameForDelta(changed.X-pos.X, changed.Y-pos.Y, changed.Z-pos.Z)
+			if nb := withBool(b, dir, false); nb != b {
+				s.setSilentBlock(d, pos, nb)
+			}
+		}
+		return
+	}
 	if short == "redstone_wire" && changed != pos {
 		// RedStoneWireBlock.updateShape: DOWN pops over missing
 		// support, UP refolds everything, a horizontal change

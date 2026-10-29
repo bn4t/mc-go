@@ -96,7 +96,7 @@ func treePlainVegetation(cls []string) bool {
 	return false
 }
 
-func treeCocoaSurvives(rg *Region, st world.Block, p BlockPos) bool {
+func treeCocoaSurvives(rg blockGetter, st world.Block, p BlockPos) bool {
 	f, _ := world.StateProperty(st, "facing")
 	return stateInTag(blockAt(rg, relDir(p, dirNames[f], 1)), "supports_cocoa")
 }
@@ -105,7 +105,7 @@ func treeCocoaSurvives(rg *Region, st world.Block, p BlockPos) bool {
 // or collision shape has a full face towards us. The collision half is
 // derived from the full-cube collision fact (leaves have an empty
 // support shape but a full collision cube).
-func treeCanAttachTo(rg *Region, dir int, q BlockPos) bool {
+func treeCanAttachTo(rg blockGetter, dir int, q BlockPos) bool {
 	b := blockAt(rg, q)
 	return sturdyFull(b, oppositeDir(dir)) || fullCollision(b)
 }
@@ -113,7 +113,7 @@ func treeCanAttachTo(rg *Region, dir int, q BlockPos) bool {
 var vineFaces = [6]string{"", "up", "north", "south", "west", "east"}
 
 // treevineCanSupportAtFace is VineBlock.canSupportAtFace.
-func treeVineCanSupportAtFace(rg *Region, p BlockPos, dir int) bool {
+func treeVineCanSupportAtFace(rg blockGetter, p BlockPos, dir int) bool {
 	if dir == dirDown {
 		return false
 	}
@@ -128,7 +128,7 @@ func treeVineCanSupportAtFace(rg *Region, p BlockPos, dir int) bool {
 }
 
 // treevineUpdatedState is VineBlock.getUpdatedState.
-func treeVineUpdatedState(rg *Region, st world.Block, p BlockPos) world.Block {
+func treeVineUpdatedState(rg blockGetter, st world.Block, p BlockPos) world.Block {
 	up := offset(p, 0, 1, 0)
 	if propIs(st, "up", "true") {
 		v := "false"
@@ -217,7 +217,7 @@ func treeMossyCarpetHasFaces(st world.Block) bool {
 
 func init() {
 	surviveByClass["CocoaBlock"] = treeCocoaSurvives
-	surviveByClass["VineBlock"] = func(rg *Region, st world.Block, p BlockPos) bool {
+	surviveByClass["VineBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		return treeVineHasFaces(treeVineUpdatedState(rg, st, p))
 	}
 }
