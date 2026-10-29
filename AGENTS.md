@@ -79,6 +79,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   decoded `/say` message body. Substrings can match syntax-error echoes,
   sender names or unconditional suffix markers. Establish block-entity creation
   before sending an editor packet, then observe its applied update receipt.
+- For randomized physics, use geometry to select a direction and pin impulse
+  bounds plus displacement/velocity relations. Observe the exact first tick;
+  unrelated random samples and accumulated impulses are not exact parity pins.
 - Capture filters must explicitly retain large packets relevant to a probe.
   Advancement tab updates can exceed 4 KiB; decode runtime definitions and
   assert meaningful counts before comparing geometry or progress.

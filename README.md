@@ -35,6 +35,9 @@ block-entity update coalescing, moving-piston collision timing and measured
 dropped-item pushes, retracting source-base ejection of NoGravity armor stands,
 container validity, chest events and ordinary main/offhand placement and consumption.
 Dying mobs continue to obstruct block placement until their actual removal.
+Embedded dropped items now move with collision bypass, gravity-before-escape
+ordering and float drag in measured single-exit chambers. Partial-shape escape
+selection and embedded XP-orb movement remain in progress.
 Invalid hand values in protocol 776 item-use packets disconnect without item
 actions; broader malformed-packet coverage remains partial.
 Selected-hand interactions include signs, hive harvesting, ignition, growth,

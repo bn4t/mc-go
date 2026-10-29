@@ -126,6 +126,13 @@ successful tagged native run does not establish default test compilation.
   test needs settled scale, observe completed entity ticks; test immediate
   resize timing separately instead of claiming that the settled case pins it.
 
+## Random physics probes
+
+Constrain geometry to one outcome direction, then compare measured impulse bounds
+and displacement/velocity relations rather than random sample equality. An item
+Age1 witness isolates its first movement tick. Reject apparatus that moves during
+setup before attributing displacement to a piston or other tested action.
+
 ## Entity pairing receipts
 
 Use decimal X/Z coordinates for exact summon identities: integer coordinates are

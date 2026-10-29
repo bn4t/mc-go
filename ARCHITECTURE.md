@@ -82,6 +82,14 @@ clipping and reverse ejection. NoGravity/NoAI cows also have six-axis
 normal-collision pins. General entity move policies, vertical gravity/travel,
 step-up, cumulative piston limits and scaled variants remain separate.
 
+Embedded regular items apply fluid/gravity acceleration before closest-space
+escape velocity, then move without collision and apply float air drag/friction.
+The same float arithmetic applies to ordinary items. Five full-block single-exit
+chambers with and without gravity pin direction, bounds and motion/displacement
+relations. Neighbor selection still uses the existing NonSolid approximation;
+random sequence, partial shapes, no-exit/tied cases, embedded effects/fluids,
+initially grounded cases and XP-orb embedded movement remain incomplete.
+
 Opening shulker lids push supported native dropped items, armor stands and cows.
 Six-axis NoGravity apparatus and wall controls distinguish stand noPhysics
 bypass from cow block clipping; Marker and capability-only records are excluded.

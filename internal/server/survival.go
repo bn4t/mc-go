@@ -601,7 +601,8 @@ func (s *Server) itemTickStep() {
 		// ItemEntity.tick's noPhysics branch: when the entity box —
 		// shrunk by 1e-7 — overlaps a collision shape, vanilla calls
 		// moveTowardsClosestSpace on the box center (not the feet cell)
-		// and skips the move chain. An entity resting on a shape top
+		// before the item advances through its noPhysics move path.
+		// An entity resting on a shape top
 		// merely touches, so it never lands here.
 		halfBox, heightBox := 0.125, 0.25
 		if orb {
@@ -613,59 +614,12 @@ func (s *Server) itemTickStep() {
 		} else {
 			inside = s.itemInsideWorldCollision(s.dims[e.Dim], e.X, e.Y, e.Z, halfBox, heightBox)
 		}
-		if inside {
-			centerY := e.Y + heightBox/2
-			feet := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(centerY)), Z: int(math.Floor(e.Z))}
-			fx := e.X - float64(feet.X)
-			fy := centerY - float64(feet.Y)
-			fz := e.Z - float64(feet.Z)
-			best := math.MaxFloat64
-			axis, sign := 'y', 1.0
-			for _, d := range [5][4]int{{0, 0, -1, 'z'}, {0, 0, 1, 'z'}, {-1, 0, 0, 'x'}, {1, 0, 0, 'x'}, {0, 1, 0, 'y'}} {
-				nb := world.Pos{X: feet.X + d[0], Y: feet.Y + d[1], Z: feet.Z + d[2]}
-				if b := w.GetBlock(nb); b != world.Air && !world.NonSolid(b) {
-					continue
-				}
-				var dist float64
-				switch d[3] {
-				case 'x':
-					dist = fx
-				case 'y':
-					dist = fy
-				default:
-					dist = fz
-				}
-				s := 1.0
-				if d[0]+d[1]+d[2] < 0 {
-					s = -1.0
-				} else {
-					dist = 1.0 - dist
-				}
-				if dist < best {
-					best = dist
-					axis = rune(d[3])
-					sign = s
-				}
-			}
-			push := 0.1 + rand.Float64()*0.2
-			e.MotionX *= 0.75
-			e.MotionY *= 0.75
-			e.MotionZ *= 0.75
-			switch axis {
-			case 'x':
-				e.MotionX = push * sign
-			case 'y':
-				e.MotionY = push * sign
-			default:
-				e.MotionZ = push * sign
-			}
-			if orb {
-				// ExperienceOrb.tick flags needsSync inside its
-				// moveTowardsClosestSpace branch — the only orb sync bypass.
-				e.PosDirty = true
-				e.NeedsSync = true
-			}
-		} else if orb {
+		if inside && orb {
+			setEmbeddedEntityEscapeVelocity(w, e, heightBox)
+			e.PosDirty = true
+			e.NeedsSync = true
+		}
+		if orb && !inside {
 			// ExperienceOrb.tick: Entity.tick's updateFluidInteraction
 			// runs the current push, then the eye-in-water branch
 			// replaces gravity — the orb formula damps xz 0.99 and
@@ -729,7 +683,7 @@ func (s *Server) itemTickStep() {
 			if e.Grounded && e.MotionY < -0.03 {
 				e.MotionY = -e.MotionY * 0.4
 			}
-		} else {
+		} else if !orb {
 			// ItemEntity.tick: Entity.tick's updateFluidInteraction ran
 			// its current push; then the submersion branch replaces
 			// gravity — deeper than 0.1 in water or lava applies the
@@ -752,18 +706,29 @@ func (s *Server) itemTickStep() {
 			} else if !e.NoGravity {
 				e.MotionY -= 0.04
 			}
+			// Gravity/fluid acceleration precedes closest-space damping.
+			if inside {
+				setEmbeddedEntityEscapeVelocity(w, e, heightBox)
+			}
 			resting := e.Grounded &&
 				e.MotionX*e.MotionX+e.MotionZ*e.MotionZ <= 1e-5 &&
 				(e.ItemAge+e.ID)%4 != 0
 			if !resting {
-				s.entityMove(e, w, 0.125, 0.25, e.MotionX, e.MotionY, e.MotionZ, 0.04, 0.98, false)
-				f3 := 0.98
-				if e.Grounded {
-					f3 *= entityFrictionBelow(w, e.X, e.Y, e.Z)
+				if inside {
+					// Entity.move's noPhysics path advances without collision.
+					e.X += e.MotionX
+					e.Y += e.MotionY
+					e.Z += e.MotionZ
+				} else {
+					s.entityMove(e, w, 0.125, 0.25, e.MotionX, e.MotionY, e.MotionZ, .04, float64(float32(.98)), false)
 				}
-				e.MotionX *= f3
-				e.MotionY *= 0.98
-				e.MotionZ *= f3
+				f3 := float32(.98)
+				if e.Grounded {
+					f3 *= float32(entityFrictionBelow(w, e.X, e.Y, e.Z))
+				}
+				e.MotionX *= float64(f3)
+				e.MotionY *= float64(float32(.98))
+				e.MotionZ *= float64(f3)
 				if e.Grounded && e.MotionY < 0 {
 					e.MotionY = -e.MotionY * 0.5
 				}
