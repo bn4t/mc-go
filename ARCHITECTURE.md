@@ -114,7 +114,9 @@ inventory touching, including while the world is frozen. Startup compilation
 caches supported player/entity/context predicates in the server registry.
 Unevaluated valid conditions remain distinct from false, so inversion cannot
 turn them into awards. Biome predicates query the current world; native NBT
-views share player Tags. Numeric fields retain exact JSON tokens where their
+views share player Tags. Advancement progress predicates reuse the locked
+server-owned completion/criterion matcher, including custom resources. Numeric
+fields retain exact JSON tokens where their
 codecs consume integers, separately from typed NBT conversion.
 Replacing either captured startup recipe advancement defers the first reset
 until runtime visibility/progress is derived; replacing crafting_table also

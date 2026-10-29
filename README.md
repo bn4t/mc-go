@@ -57,7 +57,8 @@ display fields, layout, built-in tab overrides and completion announcements
 are supported. Icon counts and reward XP follow measured native JSON integer
 coercion, including fractions and overflow wrapping. Custom tick criteria support
 measured player mode/level, flags, NBT, equipment, location/biome and boolean
-conditions. Rewards fire once per completion; startup recipe replacements use
+conditions, plus advancement completion and individual criterion requirements.
+Rewards fire once per completion; startup recipe replacements use
 their own progress and rewards. Selectors query custom advancement completion
 and criterion maps using that server's definitions; unknown IDs or criteria
 remain nonmatching.

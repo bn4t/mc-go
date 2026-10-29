@@ -364,6 +364,12 @@ func compileAdvancementPlayerTypePredicate(raw any) (advancementPlayerPredicate,
 			parts = append(parts, func(_ *Server, p *Session) advancementPredicateResult {
 				return advancementPredicateBool(allowed[gamemodeNameOf(p)])
 			})
+		case "advancements":
+			part, err := compileAdvancementProgressPredicate(value)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, part)
 		case "level":
 			test, err := compileAdvancementRange(value, true)
 			if err != nil {
@@ -375,6 +381,60 @@ func compileAdvancementPlayerTypePredicate(raw any) (advancementPlayerPredicate,
 		default:
 			parts = append(parts, advancementPredicateConstant(advancementPredicateUnknown))
 		}
+	}
+	return advancementPredicateAll(parts), nil
+}
+
+// Identifier.CODEC accepts an empty path and defaults an empty namespace;
+// reference paths retain dot segments rather than becoming filesystem paths.
+func advancementReferenceID(raw string) (string, error) {
+	name, ok := jigsawIdentifier(raw)
+	if !ok {
+		return "", fmt.Errorf("invalid advancement reference")
+	}
+	return name, nil
+}
+
+func compileAdvancementProgressPredicate(raw any) (advancementPlayerPredicate, error) {
+	object, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid advancement progress map")
+	}
+	keys := make([]string, 0, len(object))
+	for key := range object {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var parts []advancementPlayerPredicate
+	for _, key := range keys {
+		id, err := advancementReferenceID(key)
+		if err != nil {
+			return nil, err
+		}
+		query := selAdv{id: id}
+		switch state := object[key].(type) {
+		case bool:
+			want := state
+			query.done = &want
+		case map[string]any:
+			names := make([]string, 0, len(state))
+			for name := range state {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				want, ok := state[name].(bool)
+				if !ok {
+					return nil, fmt.Errorf("invalid advancement criterion state")
+				}
+				query.crits = append(query.crits, selTerm{val: name, neg: !want})
+			}
+		default:
+			return nil, fmt.Errorf("invalid advancement completion state")
+		}
+		parts = append(parts, func(_ *Server, p *Session) advancementPredicateResult {
+			return advancementPredicateBool(p.advMatch(query))
+		})
 	}
 	return advancementPredicateAll(parts), nil
 }

@@ -18287,3 +18287,11 @@ Provenance: Java 26.2 wire, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0
 - **Pinned:** ten independently expected combat/noncombat query values PASS 12.18 s on immutable 799d28e plus three owned files; new operator and existing fall, scale, reach, armor and attribute-projection units PASS 2.969 s. Attack speed, query equipment exposure, command result scaling and clamping remain separate.
 
 Provenance: Java 26.2 wire, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Frozen patch 1daefca1a826c6ecf8f083bd3d804dffec60a693506a650fd70c88d3e2e4cd4d.
+
+## Slice — player advancement-progress predicates (2026-10-29)
+
+- **Measured:** native player predicates match advancement completion booleans and per-criterion maps through initial, partial, complete and revoked progress. Empty known criterion maps match; unknown references remain nonmatching but valid definitions remain manually grantable. Malformed state shapes reject the resource. Native identifier controls include empty namespace/path, dot segments and invalid syntax.
+- **Implemented:** compile the advancements field through the existing server-owned, locked progress matcher; reject malformed references and criterion states while preserving unknown handling for other unmodeled fields. Resource identifiers remain distinct from confined filesystem paths.
+- **Pinned:** baseline native 56 controls passed while Go failed; expanded final 76 controls PASS 20.20 s, existing 180-context regression PASS 17.79 s, helper/identifier units PASS 0.135 s. Actual player play_time changes synchronize callbacks. An interrupted RUN-only invocation was discarded and resumed; it was never counted as a pass.
+
+Provenance: Java 26.2 wire and public Identifier codec observations, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA1 86765a5899bd9c96461036a628796b4245715058. Frozen patch 4c5bf2d12b07b42bd91454f6739580ceb03c9549e19cc3e16f78f9bdbea79d7a. Other player fields, broad schema validation and pack selection/reload remain partial.
