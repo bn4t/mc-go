@@ -1087,6 +1087,9 @@ func (s *Server) minecartTickStep() {
 			}
 			ep.TickCount++
 		}
+		if ordinaryVehicle(name) && ep.ExtraNBT != nil {
+			ep.ExtraNBT["HasTicked"] = int8(0)
+		}
 		w := s.dimWorld(e.Dim)
 		ox, oz := ep.X, ep.Z
 		if !ep.NoGravity {

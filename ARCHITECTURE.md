@@ -681,6 +681,17 @@ MCGO_COMPACT_SAVE_REPORT=/tmp/save-probes.jsonl GOMAXPROCS=5 GOFLAGS=-buildvcs=f
 
 ## Native world saves
 
+Native entity coverage includes registered boats/rafts and chest variants, plus
+plain/chest/hopper/furnace/TNT minecarts. Their measured cargo, subtype state and
+supported passenger trees survive cross-implementation save handoff. Root
+suppression must match the loader's supported-type policy and actual passenger
+membership; unsupported parent types retain supported children as independent
+roots. Iterative tree restoration has no additional depth cutoff, and structural
+Passengers data is rebuilt from live children rather than retained as stale extra
+NBT. Player RootVehicle/remount, command-cart passenger trees and spawner carts
+remain outside this subset. Persistence support does not establish complete
+vehicle movement, cargo access or loot-generation behavior.
+
 Public `SaveWorld` with `WorldDir` reserves one unfinished native job before
 capturing level metadata, all selected dimension columns, block-entity NBT,
 light layers, entity NBT and player data under simulation ownership. The worker

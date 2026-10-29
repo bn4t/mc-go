@@ -32,6 +32,9 @@ command-minecart activator rails, structure-block save/load and redstone actions
 with native templates, jigsaw editor/generation,
 block-entity update coalescing, moving-piston collision timing, container
 validity, chest events and ordinary main/offhand placement and consumption.
+Native boats and most minecart variants preserve measured cargo, subtype state
+and supported passenger trees through vanilla-compatible saves; player remount,
+spawner carts and complete vehicle cargo/runtime behavior remain in progress.
 Startup folder datapacks can supply displayless
 advancement definitions with XP, built-in loot, recipe and function rewards.
 Displayed custom advancements, complete datapack selection/ZIP/reload,

@@ -1123,6 +1123,7 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	if typeName == "armor_stand" {
 		armorStandSavedFields(e, m)
 	}
+	vehicleSavedFields(e, typeName, m)
 	if typeName == "allay" {
 		// Allay.addAdditionalSaveData's putLong — emitted always,
 		// even at 0.
@@ -2010,6 +2011,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	if name == "command_block_minecart" {
 		commandMinecartLoad(e, save)
 	}
+	vehicleLoadFields(e, name, save)
 
 	// Dirty pack: only the entries whose tracked value moved, like
 	// SynchedEntityData.packDirty() after Entity.load. The emitted

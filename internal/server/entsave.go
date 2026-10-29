@@ -35,8 +35,13 @@ func (s *Server) captureEntityRegionsOwned(d *dimension) map[[2]int32][]map[stri
 			continue
 		}
 		name, ok := EntityTypeName(e.Type)
-		if !ok || (!e.Living && name != "item" && name != "end_crystal" && name != "command_block_minecart") {
+		if !ok || (!e.Living && name != "item" && name != "end_crystal" && name != "command_block_minecart" && !ordinaryVehicle(name)) {
 			continue
+		}
+		if e.Riding != 0 && nativePassengerTreeEntity(&e) {
+			if parent, ok := s.entities.GetPtr(e.Riding); ok && parent.Dim == d.name && !parent.Dying && nativePassengerTreeEntity(parent) && nativePassengerListed(parent, e.ID) {
+				continue
+			}
 		}
 		m := entitySaveMap(&e, now, s.entities).m
 		// entitySaveMap's caller puts id on the /data reply itself;
@@ -84,6 +89,10 @@ func (s *Server) restoreEntities(d *dimension) {
 			s.restoreCommandMinecart(d, save, pos, uuid)
 			continue
 		}
+		if ordinaryVehicle(name) {
+			s.restoreVehicleNative(d, name, save, pos, uuid)
+			continue
+		}
 		if name == "item" {
 			stack := ItemStack{}
 			if it, ok := save["Item"].(map[string]any); ok {
@@ -114,6 +123,7 @@ func (s *Server) restoreEntities(d *dimension) {
 			e.UUID = uuid
 		}
 		s.applyEntitySave(e, save)
+		s.restoreNativePassengers(d, e, save)
 		// The merge left a dirty pack queued as if a /data edit had
 		// landed; a loaded entity has no prior client state, so the
 		// tracker-attach burst alone describes it. PosDirty survives:

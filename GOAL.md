@@ -147,7 +147,11 @@ Mojang server over the wire.
       potions, registered variants, measured cloud doses and Ender Eye
       flight/use metadata now wire-pinned;
       splash query bounds and impact geometry, custom payloads/scales,
-      live hidden effects and initial/update effect flags now wire-pinned
+      live hidden effects and initial/update effect flags now wire-pinned.
+      Native boats/rafts/chest variants and plain/chest/hopper/furnace/TNT
+      minecart state, cargo and supported passenger trees survive a vanilla →
+      mc-go → vanilla handoff; player remount, spawner carts and complete
+      cargo/runtime behavior remain open.
 
 ### Player
 - [~] Movement tracking, keep-alive, chat, tab list; player pose and movement use
@@ -17839,3 +17843,9 @@ Source OpenJDK25.0.5 javap StructureBlockEntity, StructureTemplate, StructurePla
 - **Measured:** vanilla 26.2 wire and Temurin 25.0.5 javap observations of SetTestBlock/TestBlockEntity establish mode IDs/fallback, construction from actual block mode versus native missing-mode FAIL, raw message/powered fields and update behavior. Bundler SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`.
 - **Implemented:** privileged creative/op-two SetTestBlock editing, mode/message changes, canonical native save/load and raw setblock handling, shared queued block-entity refresh including no-op edits. Property updates avoid neighbor physics. The only remaining explicitly ignored serverbound route is test_instance_block_action; route coverage does not establish complete behavior.
 - **Pinned:** TestTestBlockEditorParity passes (32.47s), with 22 independent checks, exact typed first payload and update counts `[1 1 1 1 1 1 1 1 0 0]` on both servers. Immutable build/focused units pass, including malformed input, permission/target gates and two native persistence cycles. Test-block redstone/GameTest execution and the test-instance action workflow remain open.
+
+## Slice — ordinary vehicle native persistence (2026-10-29)
+
+- **Measured:** vanilla 26.2 native saves and Temurin 25.0.5 javap facts establish 27-slot chest cargo, five-slot hopper cargo, subtype fields, names/UUIDs and nested riders. Inner jar SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`; initial native measurement passes (18.68s).
+- **Implemented:** registered boat/raft/chest variants and plain/chest/hopper/furnace/TNT minecart native construction/save, cargo normalization and subtype fields. Supported roots save once with passenger trees; iterative restoration avoids an extra depth cutoff and stale passenger resurrection. Capture suppression and nested restore share the supported-type policy; unsupported parents preserve independent supported child roots. Player RootVehicle/remount, command-cart passenger trees, spawner carts, cargo access/loot generation and remaining vehicle runtime behavior are separate gaps.
+- **Pinned:** final vanilla → mc-go → vanilla native handoff passes (49.83s); existing EntitySaveParity passes (48.07s). Focused units pass (0.221s), including 80-deep restart, final-rider removal, invalid IDs, unsupported parents, duplicate exclusion and command-cart regressions. Legacy rail test's fixed 2.5-second sleep fails both this change and unchanged production; its exact-tick fixture repair is separate, and no final rail pass is claimed here.
