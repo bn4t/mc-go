@@ -18435,3 +18435,5 @@ Attribute range sanitization, equipment projection in queries/packets and full a
 
 
 Limits: the existing escape-neighbor NonSolid approximation and random generator remain unchanged. Partial shapes, tied/no-exit selection, embedded fluid/block-effect and initially grounded cases, XP-orb embedded movement, generic move overrides and source-base item pushes remain separate measurements. Rejected native moving apparatus is preserved as fixture evidence, not a piston parity claim.
+
+Root publication check: immutable4034aab build/vet and tagged blackbox compilation PASS; affected Item/Pickup/Touch/SharedAvatar server tests PASS15.894s (`work/verified-4034aab.log`). The source change is validated against the earlier published full suite plus the slice's native physics/fluid/damage and race regressions; no new full-parity claim.
