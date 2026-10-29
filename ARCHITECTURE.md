@@ -61,6 +61,37 @@ and entity accessors for in-tree tests and embeddings; callers must not
 treat those as an unrestricted concurrent gameplay API. The new public
 extension APIs avoid those pointers.
 
+## Gameplay resources and callbacks
+
+Startup advancement definitions belong to each Server. The built-in generated
+metadata remains immutable; folder-pack displayless overrides feed that server's
+command lookup, modeled trigger evaluators, visibility tree and wire definitions.
+Resource identity is separate from tree attachment: a valid definition with a
+missing or cyclic parent can still be granted and rewarded without becoming a
+visible tree node. Completion is recorded before reward callbacks, then rewards
+run XP, loot, recipes and function before the completion announcement. Functions
+use the rewarded player's source at permission level two. This covers startup
+folder packs and modeled triggers; displayed definitions, complete pack selection,
+ZIP/reload and custom loot overlays are still separate work.
+
+Structure editors, powered structure blocks and jigsaw generation reuse the
+runtime's native template repository and placement path. Placement options keep
+shape handling separate from side-effect suppression, and preserve distinct
+integrity and placement random streams. Powered SAVE captures in memory; editor
+SAVE can write native templates. Powered LOAD bypasses the editor's size-preparation
+step. Generation reuses worldgen pool planning and processors; feature-pool
+placement, non-overworld planner context and complete pack resolution remain
+unverified or incomplete. These mutable resources and placement actions retain
+the simulation ownership boundary; they do not add parallel gameplay ownership.
+
+Command blocks and command minecarts share execution mechanics while supplying
+different spatial and entity sources. Result callbacks must read the current
+source fields after each successful command leaf: a command can reload its own
+NBT or replace its block while executing. Feedback occurs before the success
+callback, and initial tracking eligibility is distinct from the subsequently
+loaded fields. Command-block data reload therefore preserves the executing
+block-entity identity and the accessor's original target type and coordinates.
+
 ## Protocol and plugin APIs
 
 External frontends can import [`api/frontend`](api/frontend/frontend.go)

@@ -28,9 +28,11 @@ and remaining work are tracked in [GOAL.md](GOAL.md); a checked scenario does
 not establish complete vanilla behavior for its entire subsystem.
 
 Recent measured coverage includes command-block execution and editors,
-structure-block save/load with native templates, jigsaw editor/generation,
+command-minecart activator rails, structure-block save/load and redstone actions
+with native templates, jigsaw editor/generation,
 block-entity update coalescing, moving-piston collision timing, container
-validity and chest events. Startup folder datapacks can supply displayless
+validity, chest events and ordinary main/offhand placement and consumption.
+Startup folder datapacks can supply displayless
 advancement definitions with XP, built-in loot, recipe and function rewards.
 Displayed custom advancements, complete datapack selection/ZIP/reload,
 custom loot overlays and several vehicle/physical interactions remain in
