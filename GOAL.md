@@ -17735,3 +17735,10 @@ Source OpenJDK25.0.5 javap StructureBlockEntity, StructureTemplate, StructurePla
 - **Measured:** Vanilla 26.2 wire and JDK 25 javap of ClearInventoryCommands and RecipeCommand; unpacked jar SHA1 `86765a5899bd9c96461036a628796b4245715058`. Clear returns the matching query count or actual bounded removal count; recipe returns newly awarded/forgotten recipes. No-change failures report failed-zero callbacks.
 - **Implemented:** Explicit result values for clear and recipe success/failure, accurate bounded-clear counts, and separate changed-recipe counts for wildcard commands. This supplies values to nested execute-store without changing command-source dispatch.
 - **Pinned:** TestInventoryCommandResultsParity PASS (118.82s), with independent result and success assertions on both servers for ten cases: clear query/removal/absence/empty and recipe give/duplicate/take/repeated take. Wildcard changed-count behavior is source-measured but not separately wire-pinned here.
+
+
+## Slice — shared template placement policies and random streams (2026-10-29)
+
+- **Measured:** Temurin 25.0.5 javap of SinglePoolElement and StructureTemplate, plus vanilla 26.2 wire; unpacked jar SHA1 `86765a5899bd9c96461036a628796b4245715058`. Jigsaw placement flags 18 suppress shape updates while retaining placement callbacks; editor strict flags 818 additionally suppress side effects. Settings and placement randomness are separate streams.
+- **Implemented:** An internal placement options adapter exposes origin/transforms, shape and side-effect policies, liquids/entities, integrity, and independent random streams. The structure editor preserves its existing defaults; generated pieces can share placement randomness.
+- **Pinned:** Structure units PASS (0.504s), including TNT callback distinctions, liquid policy and two independently measured Java Random loot seeds. Existing native save/load, seeded placement and strict-mode wire regressions PASS (17.37s, 19.31s, 36.94s). The dependent jigsaw generation comparison PASS (22.42s).

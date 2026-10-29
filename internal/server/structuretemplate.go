@@ -290,6 +290,18 @@ func (s *Server) structureBlockLoad(d *dimension, pos world.Pos, g *genericBlock
 	s.structureTemplatePlace(d, pos, g, native)
 	return "structure_block.load_success"
 }
+
+// structureTemplatePlacement separates shape handling from the stronger editor
+// strict policy. Runtime template users can share placement randomness while
+// choosing an independent stream for palette/settings decisions.
+type structureTemplatePlacement struct {
+	origin                                                    world.Pos
+	mirror, rotation                                          int32
+	integrity                                                 float32
+	knownShape, skipSideEffects, includeEntities, keepLiquids bool
+	settingsRandom, placementRandom                           *worldgen.Legacy
+}
+
 func (s *Server) structureTemplatePlace(d *dimension, pos world.Pos, g *genericBlockEntity, native map[string]any) {
 	origin := world.Pos{X: pos.X + int(nbtNumberOr(g.fields["posX"], 0)), Y: pos.Y + int(nbtNumberOr(g.fields["posY"], 1)), Z: pos.Z + int(nbtNumberOr(g.fields["posZ"], 0))}
 	mirror, rotation := int32(0), int32(0)
@@ -307,8 +319,21 @@ func (s *Server) structureTemplatePlace(d *dimension, pos world.Pos, g *genericB
 	if seed == 0 {
 		seed = time.Now().UnixNano()
 	}
-	random := worldgen.NewLegacy(seed)
-	lootRandom := worldgen.NewLegacy(seed) // Placement and settings use separate streams.
+	integrity := float32(1)
+	if f, ok := g.fields["integrity"].(float32); ok {
+		integrity = f
+	}
+	strict := nbtTruth(g.fields["strict"])
+	s.structureTemplatePlaceWithOptions(d, native, structureTemplatePlacement{
+		origin: origin, mirror: mirror, rotation: rotation, integrity: integrity,
+		knownShape: strict, skipSideEffects: strict, includeEntities: !nbtTruth(g.fields["ignoreEntities"]), keepLiquids: true,
+		settingsRandom: worldgen.NewLegacy(seed), placementRandom: worldgen.NewLegacy(seed),
+	})
+}
+
+func (s *Server) structureTemplatePlaceWithOptions(d *dimension, native map[string]any, opts structureTemplatePlacement) {
+	origin, mirror, rotation := opts.origin, opts.mirror, opts.rotation
+	random, lootRandom := opts.settingsRandom, opts.placementRandom
 	palette, _ := native["palette"].(nbt.List)
 	if palettes, ok := native["palettes"].(nbt.List); ok && len(palettes.Items) > 0 {
 		palette, _ = palettes.Items[random.NextIntN(int32(len(palettes.Items)))].(nbt.List)
@@ -329,11 +354,7 @@ func (s *Server) structureTemplatePlace(d *dimension, pos world.Pos, g *genericB
 		}
 		states[i], _ = world.BlockStateOf(strings.TrimPrefix(name, "minecraft:"), props)
 	}
-	integrity := float32(1)
-	if f, ok := g.fields["integrity"].(float32); ok {
-		integrity = f
-	}
-	strict := nbtTruth(g.fields["strict"])
+	integrity := opts.integrity
 	var placed, pendingWater []world.Pos
 	introducedSources := map[world.Pos]bool{}
 	blocks, _ := native["blocks"].(nbt.List)
@@ -363,7 +384,7 @@ func (s *Server) structureTemplatePlace(d *dimension, pos world.Pos, g *genericB
 		if tag, ok := m["nbt"].(map[string]any); ok {
 			barrier, _ := world.BlockState("barrier")
 			s.setSilentBlockWithPolicy(d, p, barrier, true, false)
-			s.setSilentBlockWithPolicy(d, p, state, strict, true)
+			s.setSilentBlockWithPolicy(d, p, state, opts.skipSideEffects, true)
 			copy := cloneNBTValue(tag).(map[string]any)
 			if worldgen.TemplateRandomizesLoot(state) {
 				copy["LootTableSeed"] = lootRandom.NextLong()
@@ -377,10 +398,13 @@ func (s *Server) structureTemplatePlace(d *dimension, pos world.Pos, g *genericB
 			}
 		} else {
 			restoreNames := structureKeepNames(d, []world.Pos{p})
-			s.setSilentBlockWithPolicy(d, p, state, strict, true)
+			s.setSilentBlockWithPolicy(d, p, state, opts.skipSideEffects, true)
 			restoreNames()
 		}
 		placed = append(placed, p)
+		if !opts.keepLiquids {
+			continue
+		}
 		if fluidIsSourceState(state) {
 			introducedSources[p] = true
 		} else if fluidContainer(d.w.GetBlock(p)) {
@@ -393,10 +417,10 @@ func (s *Server) structureTemplatePlace(d *dimension, pos world.Pos, g *genericB
 		}
 	}
 	s.structureRestorePendingWater(d, pendingWater, introducedSources)
-	if !strict {
+	if !opts.knownShape {
 		s.structureUpdateShapes(d, placed)
 	}
-	if !nbtTruth(g.fields["ignoreEntities"]) {
+	if opts.includeEntities {
 		s.structureTemplateEntities(d, origin, mirror, rotation, native)
 	}
 
