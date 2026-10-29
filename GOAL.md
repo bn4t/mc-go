@@ -17992,3 +17992,9 @@ Limits: player predicates on tick criteria, migrated saved criteria after pack c
 **Implemented** — Test-only migration of readiness, conditional assertions and diagnostic waits to the existing exact decoded say matcher/collector. Captured movement/tracking data and all original36 state checks remain intact.
 
 **Pinned** — TestCommandSourceReloadParity PASS21.70s on immutable e393aab plus one owned test file. Both servers independently satisfy all36 exact conditions and genuine readiness. Patch SHA256 `ef45bc2c9d355feb410726c027bf93ac13dd9b68004be3abde6eb938a87831fd`; no production or new gameplay scope change.
+
+## Fixture correction — neutral avatar piston capability control (2026-10-29)
+
+The full fd8eacc suite's sole failure used a synthetic movingPiston with Air carried state, zero lifetime, no dimension and no extension. A shape-based item mover correctly has no forward collision face for that input. The capability fixture now supplies a live east-facing stone carrier with ticks3/extendtrue/dimension and a matching moving-piston world cell. Its item must reach the measured first contact x.635 from initialx.5; the original immutable-neutral-record/entity, ordinary Java movement, generic-update and farmland controls remain intact. Production code is unchanged.
+
+Focused unit PASS0.195s; exact115c47c+onefile fixture race PASS2.434s for TestSharedAvatarRejectsEnvironmentalPositionMutation, TestSharedAvatarExclusionKeepsJavaAndNonlivingInteractions and TestPistonItemForwardFacePush (work/avatar-shaped-piston-race.log). Existing288-control piston item wire results remain unchanged. This corrects an unreachable synthetic input, without weakening the presence-only capability boundary or hiding an ordinary-entity push failure. The general non-item piston mover retains its separately documented parity limits.

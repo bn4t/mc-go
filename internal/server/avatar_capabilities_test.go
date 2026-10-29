@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"math"
 	"reflect"
 	"testing"
 
@@ -144,7 +145,18 @@ func TestSharedAvatarRejectsEnvironmentalPositionMutation(t *testing.T) {
 			s.entities.Update(javaEntity.ID, .5, 10.96, .5, 0, 0, false)
 			s.entities.Update(item.ID, .5, 10.96, .5, 0, 0, false)
 			if name == "piston" {
-				s.pistonPushTick(s.dims[dimOverworld], movingPiston{pos: world.Pos{X: 0, Y: 10, Z: 0}, dir: rsEast}, .5)
+				// A real carried stone sweeps its first forward face from x0
+				// to x.5. An Air/zero-progress synthetic move has no shape.
+				d := s.dims[dimOverworld]
+				mp := movingPiston{dim: d.name, pos: world.Pos{X: 0, Y: 10, Z: 0}, state: world.BlockStateMust("stone"), dir: rsEast, extend: true, ticks: 3}
+				d.w.SetBlock(mp.pos, mkBlockState(t, "moving_piston", map[string]string{"facing": "east"}))
+				s.movingPistons = []movingPiston{mp}
+				s.pistonPushTick(d, mp, .5)
+				if math.Abs(item.X-.635) > 1e-12 {
+					t.Fatalf("shaped piston item contact x%v want.635", item.X)
+				}
+				s.movingPistons = nil
+				d.w.SetBlock(mp.pos, world.Air)
 			} else {
 				s.pushEntitiesUpFarmland(s.dims[dimOverworld], world.Pos{X: 0, Y: 10, Z: 0})
 			}
