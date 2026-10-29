@@ -1349,6 +1349,11 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	// permanent modifier set outright; each entry also creates the
 	// instance, so it joins the touched set.
 	applyPackedAttrs(e, save["attributes"])
+	if e.Living {
+		e.Effects = mobEffectsFromNBT(save["active_effects"], s.clock.count)
+		e.MetaDirty = true
+		e.AttrDirty = true
+	}
 	// Tamable reload quirk: vanilla's TamableAnimal.setTame(false)
 	// — run because the merged save carries no Owner — re-asserts
 	// the wild max_health base, undoing any /attribute override
@@ -1932,7 +1937,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	}
 
 	known := map[string]bool{
-		"AbsorptionAmount": true, "Air": true, "CanPickUpLoot": true,
+		"AbsorptionAmount": true, "Air": true, "CanPickUpLoot": true, "active_effects": true,
 		"CustomName": true, "DeathTime": true, "FallFlying": true,
 		"Fire": true, "Health": true, "HurtTime": true,
 		"Invulnerable": true, "LeftHanded": true, "Motion": true,

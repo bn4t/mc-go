@@ -2232,17 +2232,18 @@ func readSlotBBTail(r *protocol.PacketReader, count, id int32) (server.ItemStack
 				}
 				it.Potion = fmt.Sprintf("h%d", pid)
 			}
-			if _, terr := r.Byte(); terr != nil { // custom_color
+			extra, terr := readPotionPayloadBB(r)
+			if terr != nil {
 				return server.ItemStack{}, 0, false, nil, terr
 			}
-			if n, terr := r.VarInt(); terr != nil { // custom_effects
-				return server.ItemStack{}, 0, false, nil, terr
-			} else if n != 0 {
-				return server.ItemStack{}, 0, false, nil, fmt.Errorf("blackbox: potion custom_effects %d", n)
-			}
-			if _, terr := r.Byte(); terr != nil { // custom_name
+			it.PotionExtra = extra
+		case 52:
+			v, terr := r.Float()
+			if terr != nil {
 				return server.ItemStack{}, 0, false, nil, terr
 			}
+			it.PotionScaleSet = true
+			it.PotionScale = v
 		case 53: // minecraft:suspicious_stew_effects: VarInt count, then
 			// (effect holder id, duration) VarInt pairs.
 			n, err := r.VarInt()

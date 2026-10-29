@@ -53,9 +53,11 @@ type ItemStack struct {
 	// therefore also not stackable with a plain box, exactly as vanilla
 	// refuses to merge stacks with different components.
 	Contents *[shulkerSlots]ItemStack `json:"contents,omitempty"`
-	// Bundle stores a canonical nested-stack list; selection is transient.
+	// Bundle holds a canonical JSON list of nested stacks; selection is transient
+	// and absent from both the vanilla wire component and persistent NBT.
 	Bundle         string `json:"bundle,omitempty"`
 	BundleSelected int32  `json:"-"`
+
 	// Ench is the minecraft:enchantments component as a canonical
 	// "name:level,name:level" string sorted by name, names stripped of
 	// the minecraft: prefix. A plain string keeps ItemStack comparable
@@ -81,10 +83,12 @@ type ItemStack struct {
 	// Potion is the minecraft:potion_contents component's potion id,
 	// minecraft: prefix stripped; empty means the holder is absent —
 	// a bare potion item ships the component EMPTY (the uncraftable
-	// potion), not water. The component's optional color/effects/
-	// custom-name fields are not modeled — brewed potions never set
-	// them.
+	// potion), not water. Extra fields live in PotionExtra.
 	Potion string `json:"potion,omitempty"`
+	// PotionExtra preserves the optional color, custom effects and name.
+	PotionExtra    string  `json:"potion_extra,omitempty"`
+	PotionScaleSet bool    `json:"potion_scale_set,omitempty"`
+	PotionScale    float32 `json:"potion_scale,omitempty"`
 	// StewEffects is the minecraft:suspicious_stew_effects component:
 	// "name:dur,..." in list order. Empty means the component is absent.
 	StewEffects string `json:"stew_effects,omitempty"`
@@ -177,7 +181,7 @@ func (it ItemStack) Stackable(other ItemStack) bool {
 		it.Name == other.Name && it.Ench == other.Ench &&
 		it.StoredEnch == other.StoredEnch && it.Bees == other.Bees &&
 		it.BlockState == other.BlockState &&
-		it.Potion == other.Potion && it.StewEffects == other.StewEffects &&
+		it.Potion == other.Potion && it.PotionExtra == other.PotionExtra && it.PotionScaleSet == other.PotionScaleSet && it.PotionScale == other.PotionScale && it.StewEffects == other.StewEffects &&
 		it.Ominous == other.Ominous &&
 		it.BannerPatterns == other.BannerPatterns &&
 		it.BottleAmpSet == other.BottleAmpSet && it.BottleAmp == other.BottleAmp &&
@@ -256,8 +260,9 @@ const (
 	// registry id (raw, not holder +1), then three absent-option
 	// bytes — custom color, custom effects list (VarInt 0), custom
 	// name.
-	compPotionContents = 51
-	compStewEffects    = 53
+	compPotionContents      = 51
+	compPotionDurationScale = 52
+	compStewEffects         = 53
 	// instrument carries InstrumentComponent: a VarInt registry holder (id+1)
 	// into the minecraft:instrument registry (admire=0, call=1,
 	// dream=2, feel=3, ponder=4, seek=5, sing=6, yearn=7 in dump order).
@@ -369,7 +374,10 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 	if it.StoredEnch != "" {
 		add++
 	}
-	if it.Potion != "" {
+	if it.PotionScaleSet {
+		add++
+	}
+	if it.Potion != "" || it.PotionExtra != "" {
 		add++
 	}
 	if it.StewEffects != "" {
@@ -474,15 +482,13 @@ func writeSlotPatch(b *protocol.Buffer, it ItemStack) {
 			b.VarInt(int32(v))
 		}
 	}
-	if it.Potion != "" {
-		if pid, ok := data.PotionIDs[it.Potion]; ok {
-			b.VarInt(compPotionContents)
-			b.Byte(1) // potion holder present: the RAW registry id
-			b.VarInt(pid)
-			b.Byte(0)   // custom_color absent
-			b.VarInt(0) // custom_effects empty
-			b.Byte(0)   // custom_name absent
-		}
+	if it.PotionScaleSet {
+		b.VarInt(compPotionDurationScale)
+		b.Float(it.PotionScale)
+	}
+	if it.Potion != "" || it.PotionExtra != "" {
+		b.VarInt(compPotionContents)
+		writePotionContents(b, it)
 	}
 	if it.StewEffects != "" {
 		// SuspiciousStewEffects STREAM_CODEC: VarInt count, then
@@ -829,74 +835,10 @@ func readSlotComponent(r *protocol.PacketReader, it *ItemStack, typ int32) error
 		}
 		sort.Strings(parts)
 		it.StoredEnch = strings.Join(parts, ",")
-	case compPotionContents: // minecraft:potion_contents
-		if tag, err := r.Byte(); err != nil {
-			return err
-		} else if tag != 0 {
-			pid, err := r.VarInt()
-			if err != nil {
-				return err
-			}
-			if name, ok := potionNamesByID[pid]; ok {
-				it.Potion = name
-			}
-		}
-		if tag, err := r.Byte(); err != nil {
-			return err
-		} else if tag != 0 {
-			if _, err := r.VarInt(); err != nil { // custom_color
-				return err
-			}
-		}
-		n, err := r.VarInt() // custom_effects
-		if err != nil {
-			return err
-		}
-		for ; n > 0; n-- {
-			// MobEffectInstance: id, amplifier, duration, ambient,
-			// showParticles, showIcon, hiddenEntry — read as far as
-			// the fixed fields go; brewed potions never carry this.
-			if _, err := r.VarInt(); err != nil {
-				return err
-			}
-			if _, err := r.VarInt(); err != nil {
-				return err
-			}
-			if _, err := r.VarInt(); err != nil {
-				return err
-			}
-			if _, err := r.Byte(); err != nil {
-				return err
-			}
-			if _, err := r.Byte(); err != nil {
-				return err
-			}
-			if _, err := r.Byte(); err != nil {
-				return err
-			}
-			if b, err := r.Byte(); err != nil {
-				return err
-			} else if b != 0 {
-				return errUnknownComponent(typ, -1)
-			}
-		}
-		if tag, err := r.Byte(); err != nil {
-			return err
-		} else if tag != 0 {
-			// custom_name: NBT string tag
-			if t2, err := r.Byte(); err != nil {
-				return err
-			} else if t2 != 0x08 {
-				return errUnknownComponent(typ, -1)
-			}
-			var nn uint16
-			if nn, err = r.UShort(); err != nil {
-				return err
-			}
-			if _, err := r.Read(int(nn)); err != nil {
-				return err
-			}
-		}
+	case compPotionDurationScale:
+		return readPotionScale(r, it)
+	case compPotionContents:
+		return readPotionContents(r, it)
 	case compStewEffects: // minecraft:suspicious_stew_effects
 		n, err := r.VarInt()
 		if err != nil {

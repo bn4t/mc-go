@@ -236,12 +236,16 @@ func encodeCloudMeta(e *Entity) []byte {
 		b.Byte(3)
 		b.Float(e.CloudRadius)
 	}
-	if len(e.Effects) > 0 {
+	if len(e.Effects) > 0 || e.Item.PotionExtra != "" {
 		entityEffect, _ := ParticleTypeID("entity_effect")
 		b.Byte(10)
 		b.Byte(16)
 		b.VarInt(entityEffect)
-		b.Int(cloudParticleARGB(e.Effects))
+		if e.Item.PotionExtra != "" {
+			b.Int(potionStackColor(e.Item))
+		} else {
+			b.Int(cloudParticleARGB(e.Effects))
+		}
 	}
 	if b.Len() == 0 {
 		return nil

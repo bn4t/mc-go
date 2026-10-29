@@ -108,6 +108,8 @@ func (t *slotProjector) component(r *protocol.PacketReader, b *protocol.Buffer, 
 			}
 			return integer()
 		})
+	case compPotionDurationScale:
+		return fixed(4)
 	case compPotionContents:
 		present, e := slotBool(r)
 		if e != nil {
@@ -143,7 +145,7 @@ func (t *slotProjector) component(r *protocol.PacketReader, b *protocol.Buffer, 
 		}
 		b.Bool(name)
 		if name {
-			return fmt.Errorf("slot: custom potion name is outside the modeled component subset")
+			return text()
 		}
 		return nil
 	case compStewEffects:

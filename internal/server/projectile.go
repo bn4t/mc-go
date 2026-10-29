@@ -1644,9 +1644,12 @@ func (s *Server) potionCollide(e *Entity, ox, oy, oz float64) bool {
 // splashEffect is one potion-content entry: effect name, base
 // duration ticks (0 = instantaneous), amplifier.
 type splashEffect struct {
-	name string
-	dur  int32
-	amp  int32
+	name   string
+	dur    int32
+	amp    int32
+	flags  byte
+	custom bool
+	scale  float64
 }
 
 // splashPotionContents is the Potions registry entries a thrown or
@@ -1659,7 +1662,7 @@ var splashPotionContents = func() map[string][]splashEffect {
 			if entry.effect == "instant_health" || entry.effect == "instant_damage" {
 				duration = 0
 			}
-			out[potion] = append(out[potion], splashEffect{entry.effect, duration, int32(entry.amplifier)})
+			out[potion] = append(out[potion], splashEffect{name: entry.effect, dur: duration, amp: int32(entry.amplifier)})
 		}
 	}
 	return out
@@ -1703,20 +1706,21 @@ func potionLevelEvent(potion string) int32 {
 // doses must exceed 20 ticks. The level event carries the color and
 // distinguishes instant potions. See potionSplashProximity.
 func (s *Server) potionSplash(e *Entity, x, y, z float64) {
-	effects := splashPotionContents[e.splashPotion]
-	if e.splashPotion == "water" {
+	stack := projectilePotionStack(e)
+	effects := potionStackEffects(stack)
+	if e.splashPotion == "water" && len(effects) == 0 {
 		// ThrownPotion.onHit's water arm: onHitAsWater, then the
 		// shared 2002 event with PotionContents' -13083194 default
 		// color (water carries no effects).
 		s.broadcastLevelEvent(e.Dim, 2002, world.Pos{
 			X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z)),
-		}, -13083194)
+		}, potionStackColor(stack))
 		s.potionSplashWater(e, x, y, z)
 		return
 	}
-	s.broadcastLevelEvent(e.Dim, potionLevelEvent(e.splashPotion), world.Pos{
+	s.broadcastLevelEvent(e.Dim, potionStackEvent(stack), world.Pos{
 		X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z)),
-	}, splashPotionColors[e.splashPotion])
+	}, potionStackColor(stack))
 	if len(effects) == 0 {
 		return
 	}
@@ -1811,37 +1815,21 @@ func (s *Server) splashApplyMob(e, t *Entity, effects []splashEffect, prox float
 		if !ok {
 			continue
 		}
-		if eff.dur <= 0 {
-			switch eff.name {
-			case "instant_health":
-				heal := float32(math.Round(4 * float64(int(1)<<uint(eff.amp)) * prox))
-				name, _ := EntityTypeName(t.Type)
-				max := float32(mobAttrSupplierBase(name, "max_health"))
-				if heal > 0 && max > 0 {
-					t.Health += heal
-					if t.Health > max {
-						t.Health = max
-					}
-					s.broadcastEntityMetadata(t.ID, encodeLivingHealth(t.Health))
-					t.ensureMetaInit()
-					t.metaSent.health = t.Health
-				}
-			case "instant_damage":
-				dmg := float32(math.Round(6 * float64(int(1)<<uint(eff.amp)) * prox))
-				if dmg > 0 {
-					s.damageMob(t, dmg, "indirect_magic",
-						s.sessionByEntityID(e.arrowShooter),
-						&damageInfo{typeName: "indirect_magic",
-							cause: e.arrowShooter, direct: e.ID})
-				}
-			}
+		if eff.name == "instant_health" || eff.name == "instant_damage" {
+			s.mobInstantEffectScaled(t, id, eff.amp, prox, &damageInfo{typeName: "indirect_magic", cause: e.arrowShooter, direct: e.ID})
 			continue
 		}
-		dur := int32(math.Round(float64(eff.dur) * prox))
-		if dur <= 20 {
+		dur := potionDurationInt(math.Round(float64(eff.dur) * prox * eff.scale))
+		if eff.dur < 0 {
+			dur = -1
+		}
+		if dur >= 0 && dur <= 20 {
 			continue
 		}
-		mobAddEffect(t, id, eff.amp, s.clock.count+int64(dur), s.clock.count)
+		applied := s.mobGiveEffect(t, id, eff.amp, dur, eff.custom && eff.flags&2 == 0, &damageInfo{typeName: "indirect_magic", cause: e.arrowShooter, direct: e.ID})
+		if eff.custom {
+			s.potionMobFlags(t, id, eff.amp, dur, potionSplashFlags(eff), applied)
+		}
 		t.MetaDirty = true
 	}
 }
@@ -1853,41 +1841,24 @@ func (s *Server) splashApplyPlayer(e *Entity, sess *Session, effects []splashEff
 		if !ok {
 			continue
 		}
-		if eff.dur <= 0 {
-			switch eff.name {
-			case "instant_health":
-				heal := float32(math.Round(4 * float64(int(1)<<uint(eff.amp)) * prox))
-				if heal > 0 && sess.health < 20 {
-					sess.health += heal
-					if sess.health > 20 {
-						sess.health = 20
-					}
-					s.sendHealth(sess)
-				}
-			case "instant_damage":
-				dmg := float32(math.Round(6 * float64(int(1)<<uint(eff.amp)) * prox))
-				if dmg > 0 {
-					attacker := "Splash Potion"
-					if sh, ok := s.entities.Get(e.arrowShooter); ok {
-						if n, ok2 := EntityTypeName(sh.Type); ok2 {
-							attacker = "entity.minecraft." + n
-						}
-					}
-					s.damageWith(sess, dmg, translatable("death.attack.indirectMagic",
-						literal(sess.getName()), translatable(attacker)), damageSource{
-						typeName: "indirect_magic",
-						cause:    e.arrowShooter,
-						direct:   e.ID,
-					})
-				}
-			}
+		if eff.name == "instant_health" || eff.name == "instant_damage" {
+			s.applyInstantEffectScaled(sess, id, eff.amp, prox, damageSource{typeName: "indirect_magic", cause: e.arrowShooter, direct: e.ID})
 			continue
 		}
-		dur := int32(math.Round(float64(eff.dur) * prox))
-		if dur <= 20 {
+		dur := potionDurationInt(math.Round(float64(eff.dur) * prox * eff.scale))
+		if eff.dur < 0 {
+			dur = -1
+		}
+		if dur >= 0 && dur <= 20 {
 			continue
 		}
-		s.applyMobEffectFlags(sess, id, eff.amp, dur, false)
+		if eff.custom {
+			flags := potionSplashFlags(eff)
+			applied := s.playerGiveEffectFlags(sess, id, eff.amp, dur, eff.flags&2 == 0, &flags)
+			s.potionPlayerFlags(sess, id, eff.amp, dur, flags, applied)
+		} else {
+			s.playerGiveEffect(sess, id, eff.amp, dur, false)
+		}
 	}
 }
 

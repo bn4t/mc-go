@@ -10,6 +10,7 @@ package server
 
 import (
 	"math"
+	"strings"
 
 	"mc-go/internal/nbt"
 	"mc-go/internal/protocol"
@@ -32,10 +33,11 @@ type mobEffectInst struct {
 	// fire checks below read rem+1 as the effective duration.
 	born int64
 	hide bool
-	// flags pins the wire flags byte when nonzero; zero derives the
-	// byte from hide (mobEffectFlags).
-	flags  byte
-	hidden *mobEffectInst
+	// flags pins the wire flags byte when nonzero or explicitly set;
+	// otherwise derive the byte from hide (mobEffectFlags).
+	flags    byte
+	flagsSet bool
+	hidden   *mobEffectInst
 }
 
 // Status-effect state on Session — small fixed map, its own mutex.
@@ -127,7 +129,7 @@ func shorterDur(this, other mobEffectInst, now int64) bool {
 }
 
 // mobEffectsNBT is the active_effects list of the entity save: each
-// instance serializes id, duration (always; -1 = infinite),
+// instance serializes id, duration (zero omitted; -1 = infinite),
 // amplifier (omitted at 0 — a /data get of it replies
 // nothing_found on vanilla), ambient/show_particles (default-omitted),
 // show_icon, and a nested hidden_effect for a queued instance.
@@ -152,13 +154,27 @@ func mobEffectNBT(id int32, e mobEffectInst, now int64) map[string]any {
 	if e.expiry >= 0 {
 		dur = e.expiry - now
 	}
-	m["duration"] = int32(dur)
-	if e.hide {
+	if dur != 0 {
+		m["duration"] = int32(dur)
+	}
+	flags := e.flags
+	if flags == 0 && !e.flagsSet {
+		flags = mobEffectFlags(e.hide)
+	}
+	if flags&1 != 0 {
+		m["ambient"] = int8(1)
+	}
+	if flags&2 == 0 {
 		m["show_particles"] = int8(0)
 	}
-	m["show_icon"] = int8(1)
+	m["show_icon"] = int8(0)
+	if flags&4 != 0 {
+		m["show_icon"] = int8(1)
+	}
 	if e.hidden != nil {
-		m["hidden_effect"] = mobEffectNBT(id, *e.hidden, now)
+		hidden := mobEffectNBT(id, *e.hidden, now)
+		delete(hidden, "id")
+		m["hidden_effect"] = hidden
 	}
 	return m
 }
@@ -207,10 +223,10 @@ func (e *mobEffectInst) mergeHidden(other mobEffectInst, now int64) {
 }
 
 // applyMobEffectFlags is applyMobEffect with the /effect hideParticles
-// flag: hiding clears bit 0x02 of vanilla's applied-effect mask 0x0E.
+// flag: hiding clears particles and icon from the fresh-effect mask 0x0E.
 // A duration < 0 is vanilla's infinite and never expires.
 func (s *Server) applyMobEffectFlags(sess *Session, id, amplifier int32, duration int32, hideParticles bool) {
-	s.applyMobEffectWire(sess, id, amplifier, duration, hideParticles, 0)
+	s.applyMobEffectWire(sess, id, amplifier, duration, hideParticles, mobEffectFlags(hideParticles))
 }
 
 // applyMobEffectWire is applyMobEffectFlags with the packet's flags
@@ -226,8 +242,9 @@ func (s *Server) applyMobEffectWire(sess *Session, id, amplifier int32, duration
 	if duration >= 0 {
 		expiry = s.clock.count + int64(duration)
 	}
-	inst := mobEffectInst{amplifier: amplifier, expiry: expiry, born: s.clock.count, hide: hideParticles, flags: flags}
+	inst := mobEffectInst{amplifier: amplifier, expiry: expiry, born: s.clock.count, hide: hideParticles, flags: flags, flagsSet: true}
 	if prev, ok := sess.effects[id]; ok {
+		inst.flags &^= 8 // onEffectUpdated does not request a fresh blend.
 		switch {
 		case prev.amplifier < amplifier:
 			// The stronger instance replaces the active one; when it is
@@ -307,6 +324,9 @@ func (s *Server) applyInstantEffectScaled(sess *Session, id, amplifier int32, sc
 // (vanilla calls onEffectStarted unconditionally at the end of
 // addEffect). True reports the store took the instance.
 func (s *Server) playerGiveEffect(t *Session, id, amplifier, ticks int32, hideParticles bool, src ...damageSource) bool {
+	return s.playerGiveEffectFlags(t, id, amplifier, ticks, hideParticles, nil, src...)
+}
+func (s *Server) playerGiveEffectFlags(t *Session, id, amplifier, ticks int32, hideParticles bool, flags *byte, src ...damageSource) bool {
 	now := s.clock.count
 	if e, live := sessEffect(t, id, now); live {
 		newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks), born: now}
@@ -318,16 +338,26 @@ func (s *Server) playerGiveEffect(t *Session, id, amplifier, ticks int32, hidePa
 		case amplifier < e.amplifier && shorterDur(e, newInst, now):
 			s.stashHiddenEffect(t, id, newInst)
 			s.applyInstantEffect(t, id, amplifier, src...)
+			if flags == nil {
+				return s.potionPlayerFlags(t, id, amplifier, ticks, mobEffectFlags(hideParticles), false)
+			}
 			return false
 		default:
 			// Declined stores still run onEffectStarted — instant
 			// effects apply (measured: a shorter re-give heals
 			// while replying give.failed).
 			s.applyInstantEffect(t, id, amplifier, src...)
+			if flags == nil {
+				return s.potionPlayerFlags(t, id, amplifier, ticks, mobEffectFlags(hideParticles), false)
+			}
 			return false
 		}
 	}
-	s.applyMobEffectFlags(t, id, amplifier, ticks, hideParticles)
+	if flags == nil {
+		s.applyMobEffectFlags(t, id, amplifier, ticks, hideParticles)
+	} else {
+		s.applyMobEffectWire(t, id, amplifier, ticks, hideParticles, *flags)
+	}
 	return true
 }
 
@@ -502,7 +532,7 @@ func (s *Server) broadcastToDim(dim string, except *Session, id int32, body []by
 func mobEffectFlags(hideParticles bool) byte {
 	flags := byte(0x0E) // particles + icon + blend — vanilla's applied-effect flags
 	if hideParticles {
-		flags &^= 0x02
+		flags &^= 0x06
 	}
 	return flags
 }
@@ -520,7 +550,7 @@ func (s *Server) sendMobEffectUpdate(sess *Session, id int32, e mobEffectInst) {
 	}
 	b.VarInt(int32(remaining))
 	flags := e.flags
-	if flags == 0 {
+	if flags == 0 && !e.flagsSet {
 		flags = mobEffectFlags(e.hide)
 	}
 	b.Byte(flags)
@@ -582,7 +612,10 @@ func (s *Server) mobEffectTickStep() {
 		for id, e := range sess.effects {
 			if e.expiry >= 0 && s.clock.count >= e.expiry {
 				if e.hidden != nil {
-					sess.effects[id] = *e.hidden
+					resumed := *e.hidden
+					resumed.flags = potionStoredFlags(resumed) &^ 8
+					resumed.flagsSet = true
+					sess.effects[id] = resumed
 					downgraded = append(downgraded, id)
 					continue
 				}
@@ -766,4 +799,66 @@ func (s *Server) broadcastMobEffect776(dim string, except *Session, body []byte,
 		_ = cache.writeMobEffect(other, body, remove)
 		return true
 	})
+}
+
+// mobEffectsFromNBT restores scalar instances plus recursively encoded Details.
+// A hidden Details record inherits its parent's effect ID; it has no id field.
+func mobEffectsFromNBT(value any, now int64) map[int32]mobEffectInst {
+	list, ok := value.(nbt.List)
+	if !ok {
+		return nil
+	}
+	out := map[int32]mobEffectInst{}
+	for _, entry := range list.Items {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, ok := m["id"].(string)
+		if !ok {
+			continue
+		}
+		id, ok := MobEffectID(strings.TrimPrefix(name, "minecraft:"))
+		if !ok {
+			continue
+		}
+		if inst, ok := mobEffectDetailsFromNBT(m, now, 0); ok {
+			out[id] = inst
+		}
+	}
+	return out
+}
+func mobEffectDetailsFromNBT(m map[string]any, now int64, depth int) (mobEffectInst, bool) {
+	if depth > 16 {
+		return mobEffectInst{}, false
+	}
+	duration := nbtNumberOr(m["duration"], 0)
+	expiry := now + int64(max(duration, 0))
+	if duration == -1 {
+		expiry = -1
+	}
+	flags := byte(8)
+	if potionBool(m, "ambient", false) {
+		flags |= 1
+	}
+	visible := potionBool(m, "show_particles", true)
+	if visible {
+		flags |= 2
+	}
+	if potionBool(m, "show_icon", visible) {
+		flags |= 4
+	}
+	inst := mobEffectInst{amplifier: potionAmplifier(m["amplifier"]), expiry: expiry, born: now, hide: !visible, flags: flags, flagsSet: true}
+	if raw, ok := m["hidden_effect"]; ok {
+		child, ok := raw.(map[string]any)
+		if !ok {
+			return mobEffectInst{}, false
+		}
+		hidden, ok := mobEffectDetailsFromNBT(child, now, depth+1)
+		if !ok {
+			return mobEffectInst{}, false
+		}
+		inst.hidden = &hidden
+	}
+	return inst, true
 }

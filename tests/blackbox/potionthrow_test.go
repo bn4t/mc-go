@@ -71,6 +71,18 @@ func TestPlayerPotionThrowParity(t *testing.T) {
 						t.Errorf("%s throw sound category %d, want %d", kind, e.b0, wantCategory)
 					}
 				}
+				effectFlags := false
+				for _, event := range ev {
+					if event.kind == "effect" && event.data == 0 {
+						effectFlags = true
+						if event.etype != 14 {
+							t.Errorf("registered %s speed flags%d, want14", kind, event.etype)
+						}
+					}
+				}
+				if !effectFlags {
+					t.Errorf("registered %s missing speed effect packet", kind)
+				}
 				eid := assertThrowSpawn(t, tc.tag, ev, kind)
 				assertHasMeta(t, tc.tag, ev, eid)
 				assertHasSlotShrink(t, tc.tag, ev)

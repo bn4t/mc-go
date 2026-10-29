@@ -1426,32 +1426,7 @@ func (s *Server) runSummon(player string, args []string) reply {
 			// {id, duration (ticks; -1 infinite), amplifier}; lazily
 			// expiry-checked like session effects.
 			if ae, ok := tag.vals["active_effects"]; ok {
-				for _, inst := range ae.items {
-					if inst == nil || inst.vals == nil {
-						continue
-					}
-					iv, ok := inst.vals["id"]
-					if !ok || iv.str == "" {
-						continue
-					}
-					eid, ok := MobEffectID(strings.TrimPrefix(iv.str, "minecraft:"))
-					if !ok {
-						continue
-					}
-					dur := int64(-1)
-					if dv, ok := inst.vals["duration"]; ok {
-						dur = int64(snbtNum(dv))
-					}
-					var amp int32
-					if av, ok := inst.vals["amplifier"]; ok {
-						amp = int32(snbtNum(av))
-					}
-					expiry := int64(-1)
-					if dur >= 0 {
-						expiry = s.clock.count + dur
-					}
-					mobAddEffect(e, eid, amp, expiry, s.clock.count)
-				}
+				e.Effects = mobEffectsFromNBT(snbtToValue(ae), s.clock.count)
 			}
 			// ConversionTime != -1 starts the zombie-villager cure
 			// countdown; ConversionPlayer is the EntityReference the
@@ -1529,37 +1504,11 @@ func (s *Server) runSummon(player string, args []string) reply {
 					e.CloudAge = int32(snbtNum(v))
 				}
 				if pc, ok := tag.vals["potion_contents"]; ok {
-					if ce, ok := pc.vals["custom_effects"]; ok {
-						for _, inst := range ce.items {
-							if inst == nil || inst.vals == nil {
-								continue
-							}
-							iv, ok := inst.vals["id"]
-							if !ok || iv.str == "" {
-								continue
-							}
-							eid, ok := MobEffectID(strings.TrimPrefix(iv.str, "minecraft:"))
-							if !ok {
-								continue
-							}
-							dur := int64(-1)
-							if dv, ok := inst.vals["duration"]; ok {
-								dur = int64(snbtNum(dv))
-							}
-							var amp int32
-							if av, ok := inst.vals["amplifier"]; ok {
-								amp = int32(snbtNum(av))
-							}
-							expiry := int64(-1)
-							if dur >= 0 {
-								expiry = s.clock.count + dur
-							}
-							if e.Effects == nil {
-								e.Effects = map[int32]mobEffectInst{}
-							}
-							e.Effects[eid] = mobEffectInst{amplifier: amp, expiry: expiry, born: s.clock.count}
-						}
+					scale := float32(1)
+					if v, ok := tag.vals["potion_duration_scale"]; ok {
+						scale = float32(snbtNum(v))
 					}
+					setCloudPotionContents(e, snbtToValue(pc), scale, s.clock.count)
 				}
 			}
 			// PrimedTnt's readAdditionalSaveData keys: fuse replaces the
@@ -9089,12 +9038,16 @@ func (s *Server) cloudTickStep() {
 			// owner): indirect_magic with the cloud as direct entity and
 			// the spawning owner as cause (0 for ownerless clouds).
 			src := &damageInfo{typeName: "indirect_magic", cause: ep.CloudOwnerID, direct: ep.ID}
-			for id, inst := range ep.Effects {
-				ticks := potionCloudTicks(ep, id, inst, now)
+			for _, dose := range potionCloudDoses(ep, now) {
+				id, ticks := dose.id, dose.ticks
+				inst := mobEffectInst{amplifier: dose.amplifier, hide: dose.hide}
 				if id == effectInstantHealth || id == effectInstantDamage {
 					s.mobInstantEffectScaled(mobOrSess, id, inst.amplifier, 0.5, src)
 				} else {
-					s.mobGiveEffect(mobOrSess, id, inst.amplifier, ticks, inst.hide, src)
+					applied := s.mobGiveEffect(mobOrSess, id, inst.amplifier, ticks, inst.hide, src)
+					if dose.custom {
+						s.potionMobFlags(mobOrSess, id, inst.amplifier, ticks, dose.flags, applied)
+					}
 				}
 			}
 			ep.CloudRadius += ep.CloudRadiusOnUse
@@ -9140,12 +9093,18 @@ func (s *Server) cloudTickStep() {
 			}
 			ep.CloudVictims[eid] = ep.CloudAge + 20
 			psrc := damageSource{typeName: "indirect_magic", cause: ep.CloudOwnerID, direct: ep.ID}
-			for id, inst := range ep.Effects {
-				ticks := potionCloudTicks(ep, id, inst, now)
+			for _, dose := range potionCloudDoses(ep, now) {
+				id, ticks := dose.id, dose.ticks
+				inst := mobEffectInst{amplifier: dose.amplifier, hide: dose.hide}
 				if id == effectInstantHealth || id == effectInstantDamage {
 					s.applyInstantEffectScaled(sess, id, inst.amplifier, 0.5, psrc)
 				} else {
-					s.playerGiveEffect(sess, id, inst.amplifier, ticks, inst.hide, psrc)
+					if dose.custom {
+						applied := s.playerGiveEffectFlags(sess, id, inst.amplifier, ticks, inst.hide, &dose.flags, psrc)
+						s.potionPlayerFlags(sess, id, inst.amplifier, ticks, dose.flags, applied)
+					} else {
+						s.playerGiveEffect(sess, id, inst.amplifier, ticks, inst.hide, psrc)
+					}
 				}
 			}
 			ep.CloudRadius += ep.CloudRadiusOnUse

@@ -48,6 +48,12 @@ func stackKey(it server.ItemStack) string {
 	if it.RepairCost != 0 {
 		key += fmt.Sprintf("[rc%d]", it.RepairCost)
 	}
+	if it.PotionScaleSet {
+		key += fmt.Sprintf("[ps%g]", it.PotionScale)
+	}
+	if it.PotionExtra != "" {
+		key += "[px" + it.PotionExtra + "]"
+	}
 	if it.Potion != "" {
 		key += fmt.Sprintf("[p%s]", it.Potion)
 	}

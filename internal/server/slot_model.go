@@ -69,33 +69,13 @@ func readCanonicalStackTail(r *protocol.PacketReader, it ItemStack, depth int) (
 				parts = append(parts, name)
 			}
 			it.PotDeco = strings.Join(parts, ",")
-		case compPotionContents:
-			present, err := slotBool(r)
-			if err != nil {
+		case compPotionDurationScale:
+			if err := readPotionScale(r, &it); err != nil {
 				return ItemStack{}, err
 			}
-			if present {
-				id, err := r.VarInt()
-				if err != nil {
-					return ItemStack{}, err
-				}
-				name, ok := potionNamesByID[id]
-				if !ok {
-					return ItemStack{}, fmt.Errorf("slot: unknown potion")
-				}
-				it.Potion = name
-			}
-			color, err := slotBool(r)
-			if err != nil || color {
-				return ItemStack{}, fmt.Errorf("slot: custom potion color unmodeled")
-			}
-			effects, err := slotWireCount(r, 256)
-			if err != nil || effects != 0 {
-				return ItemStack{}, fmt.Errorf("slot: custom potion effects unmodeled")
-			}
-			customName, err := slotBool(r)
-			if err != nil || customName {
-				return ItemStack{}, fmt.Errorf("slot: custom potion name unmodeled")
+		case compPotionContents:
+			if err := readPotionContents(r, &it); err != nil {
+				return ItemStack{}, err
 			}
 		case compBees:
 			n, err := slotWireCount(r, 1024)

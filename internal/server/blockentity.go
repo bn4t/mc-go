@@ -663,10 +663,11 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 			comps["minecraft:enchantments"] = lvls
 		}
 	}
-	if it.Potion != "" {
-		comps["minecraft:potion_contents"] = map[string]any{
-			"potion": "minecraft:" + it.Potion,
-		}
+	if it.PotionScaleSet {
+		comps["minecraft:potion_duration_scale"] = it.PotionScale
+	}
+	if it.Potion != "" || it.PotionExtra != "" {
+		comps["minecraft:potion_contents"] = potionContentsValue(it)
 	}
 	if it.Instrument != "" {
 		comps["minecraft:instrument"] = "minecraft:" + it.Instrument
@@ -955,6 +956,12 @@ func itemFromNBT(m map[string]any) ItemStack {
 	}
 	it.Count = int32(nbtNumberOr(m["count"], 1))
 	if comps, ok := m["components"].(map[string]any); ok {
+		if v, ok := comps["minecraft:potion_duration_scale"]; ok {
+			_ = setPotionScale(&it, v)
+		}
+		if v, ok := comps["minecraft:potion_contents"]; ok {
+			_ = setPotionContents(&it, v)
+		}
 		it.Contents = shulkerContentsFromNBT(comps)
 		if v, ok := comps["minecraft:bundle_contents"]; ok {
 			it.Bundle, _ = bundleContentsFromNBT(v)

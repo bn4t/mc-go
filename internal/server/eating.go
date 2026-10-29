@@ -315,10 +315,22 @@ func (s *Server) finishConsume(sess *Session, held ItemStack, name string, f foo
 
 	// PotionContents.onConsume → applyToLivingEntity: the potion's
 	// MobEffectInstance list with the default 1.0 duration scale.
-	if held.Potion != "" {
-		for _, e := range potionEffects[held.Potion] {
-			if id, ok := MobEffectID(e.effect); ok {
-				s.applyMobEffect(sess, id, int32(e.amplifier), int32(e.duration))
+	if held.Potion != "" || held.PotionExtra != "" {
+		for _, eff := range potionStackEffects(held) {
+			id, ok := MobEffectID(eff.name)
+			if !ok {
+				continue
+			}
+			if id == effectInstantHealth || id == effectInstantDamage {
+				s.applyInstantEffectScaled(sess, id, eff.amp, 1, damageSource{typeName: "indirect_magic", cause: sess.entityID.Load(), direct: sess.entityID.Load()})
+				continue
+			}
+			dur := scaledPotionTicks(eff.dur, potionDurationScale(held))
+			if eff.custom {
+				applied := s.playerGiveEffectFlags(sess, id, eff.amp, dur, eff.flags&2 == 0, &eff.flags)
+				s.potionPlayerFlags(sess, id, eff.amp, dur, eff.flags, applied)
+			} else {
+				s.playerGiveEffect(sess, id, eff.amp, dur, false)
 			}
 		}
 	}
@@ -361,7 +373,7 @@ func (s *Server) finishConsume(sess *Session, held ItemStack, name string, f foo
 			continue
 		}
 		if id, ok := MobEffectID(e.effect); ok {
-			s.applyMobEffect(sess, id, int32(e.amplifier), int32(e.duration))
+			s.applyMobEffect(sess, id, int32(e.amplifier), scaledPotionTicks(int32(e.duration), potionDurationScale(held)))
 		}
 	}
 	if f.teleport {

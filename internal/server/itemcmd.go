@@ -503,8 +503,11 @@ func stackHoverComponents(st ItemStack) map[string]any {
 	if st.Bundle != "" {
 		m["minecraft:bundle_contents"] = bundleContentsNBT(st)
 	}
-	if st.Potion != "" {
-		m["minecraft:potion_contents"] = map[string]any{"potion": "minecraft:" + st.Potion}
+	if st.PotionScaleSet {
+		m["minecraft:potion_duration_scale"] = st.PotionScale
+	}
+	if st.Potion != "" || st.PotionExtra != "" {
+		m["minecraft:potion_contents"] = potionContentsValue(st)
 	}
 	if v := bookContentNBT(st, false); v != nil {
 		m["minecraft:writable_book_content"] = v
@@ -1217,8 +1220,10 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 			case "bundle_contents":
 				it.Bundle = ""
 				it.BundleSelected = 0
+			case "potion_duration_scale":
+				it.PotionScaleSet, it.PotionScale = false, 0
 			case "potion_contents":
-				it.Potion = ""
+				it.Potion, it.PotionExtra = "", ""
 			case "writable_book_content":
 				it.BookWritable = ""
 			case "written_book_content":
@@ -1545,20 +1550,12 @@ func parseItemPatch(patch string, tokNum int) (ItemStack, reply, bool) {
 			}
 			it.BottleAmpSet = true
 			it.BottleAmp = int32(n)
+		case "potion_duration_scale":
+			if !setPotionScale(&it, snbtToValue(vtag)) {
+				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
+			}
 		case "potion_contents":
-			// potion_contents accepts a bare potion id or a compound
-			// with a potion field (potion_contents={potion="water"}).
-			// The custom color/effects/name fields are unmodeled.
-			switch vtag.kind {
-			case snbtString:
-				it.Potion = strings.TrimPrefix(vtag.str, "minecraft:")
-			case snbtCompound:
-				pv, ok := vtag.vals["potion"]
-				if !ok || pv.kind != snbtString {
-					return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
-				}
-				it.Potion = strings.TrimPrefix(pv.str, "minecraft:")
-			default:
+			if err := setPotionContents(&it, snbtToValue(vtag)); err != nil {
 				return ItemStack{}, errToken("argument.item.components.expected", tokNum), false
 			}
 		case "instrument":

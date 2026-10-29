@@ -11,12 +11,13 @@ import (
 // Evidence: javap (JDK 25) on the pinned 26.2 jar and
 // TestPlayerPotionThrowParity's vanilla wire observations.
 func (s *Server) thrownPotionImpact(e *Entity, name string, x, y, z float64) {
-	if name != "lingering_potion" || e.splashPotion == "water" {
+	stack := projectilePotionStack(e)
+	contents := potionStackEffects(stack)
+	if name != "lingering_potion" || (e.splashPotion == "water" && len(contents) == 0) {
 		s.potionSplash(e, x, y, z)
 		return
 	}
-	contents := splashPotionContents[e.splashPotion]
-	s.broadcastLevelEvent(e.Dim, potionLevelEvent(e.splashPotion), world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}, splashPotionColors[e.splashPotion])
+	s.broadcastLevelEvent(e.Dim, potionStackEvent(stack), world.Pos{X: int(math.Floor(x)), Y: int(math.Floor(y)), Z: int(math.Floor(z))}, potionStackColor(stack))
 	if len(contents) == 0 {
 		return
 	}
@@ -35,7 +36,7 @@ func (s *Server) thrownPotionImpact(e *Entity, name string, x, y, z float64) {
 		}
 	}
 	cloud := s.entities.Spawn(&Entity{Type: cloudType, Dim: e.Dim, X: x, Y: y, Z: z,
-		CloudPotionContents: e.splashPotion, CloudWait: 10, CloudDuration: 600, CloudRadius: 3, CloudRadiusPerTick: -3.0 / 600,
+		Item: stack, CloudPotionContents: e.splashPotion, CloudWait: 10, CloudDuration: 600, CloudRadius: 3, CloudRadiusPerTick: -3.0 / 600,
 		CloudRadiusOnUse: -.5, CloudVictims: map[int32]int32{}, Effects: effects, CloudOwnerID: e.arrowShooter})
 	s.broadcastEntitySpawn(nil, *cloud)
 	s.broadcastEntityMetadata(cloud.ID, encodeCloudMeta(cloud))
@@ -44,14 +45,20 @@ func (s *Server) thrownPotionImpact(e *Entity, name string, x, y, z float64) {
 // potionCloudTicks returns the immutable quarter-dose duration of a bottled
 // effect. AreaEffectCloud builds each dose from PotionContents, not its age.
 func potionCloudTicks(e *Entity, id int32, inst mobEffectInst, now int64) int32 {
-	if e.CloudPotionContents != "" {
-		for _, eff := range splashPotionContents[e.CloudPotionContents] {
+	if e.CloudPotionContents != "" || e.Item.PotionExtra != "" {
+		it := e.Item
+		it.Potion = e.CloudPotionContents
+		if e.Item.Empty() && !it.PotionScaleSet {
+			it.PotionScaleSet = true
+			it.PotionScale = .25
+		}
+		for _, eff := range potionStackEffects(it) {
 			eid, _ := MobEffectID(eff.name)
 			if eid == id {
-				if eff.dur == 0 {
+				if eff.dur <= 0 {
 					return -1
 				}
-				return eff.dur / 4
+				return scaledPotionTicks(eff.dur, potionDurationScale(it))
 			}
 		}
 	}
