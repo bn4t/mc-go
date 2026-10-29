@@ -372,11 +372,23 @@ func ownerName(d *dimension, p world.Pos) string {
 	return n
 }
 
-// A waterloggable block is not washed away: water flows into it and the
-// cell holds a source, from which it can feed neighbours again.
+// A dry container rejects flowing water. Two accessible source neighbours
+// renew Source Water in it; the filled container then feeds its neighbours.
 func TestWaterloggableFillsAndFeeds(t *testing.T) {
 	s := fluidSim(t)
 	d := s.dims[dimOverworld]
+	// Enclose the three branches so the two external sources cannot
+	// renew a separate pool around the container and mask its own feed.
+	for x := -1; x <= 3; x++ {
+		for y := -61; y <= -59; y++ {
+			for z := -2; z <= 1; z++ {
+				d.w.SetBlock(world.Pos{X: x, Y: y, Z: z}, world.BlockStateMust("stone"))
+			}
+		}
+	}
+	for _, p := range []world.Pos{{X: 0, Y: -60, Z: 0}, {X: 1, Y: -60, Z: -1}, {X: 2, Y: -60, Z: 0}} {
+		d.w.SetBlock(p, world.Air)
+	}
 	fencePos := world.Pos{X: 1, Y: -60, Z: 0}
 	fence, ok := world.BlockStateOf("oak_fence", map[string]string{
 		"east": "false", "north": "false", "south": "false", "west": "false", "waterlogged": "false",
@@ -393,12 +405,21 @@ func TestWaterloggableFillsAndFeeds(t *testing.T) {
 	if name, _ := world.StateOwner(got); name != "oak_fence" {
 		t.Fatalf("the fence is %s, want it to survive the water", name)
 	}
+	if wl, _ := world.StateProperty(got, "waterlogged"); wl != "false" {
+		t.Fatalf("one source waterlogged the fence: %s", wl)
+	}
+	s.set(d, world.Pos{X: 1, Y: -60, Z: -1}, water(t, 0))
+	for i := 0; i < 40; i++ {
+		s.GameTick()
+	}
+	got = d.w.GetBlock(fencePos)
 	if wl, _ := world.StateProperty(got, "waterlogged"); wl != "true" {
 		t.Fatalf("the fence is waterlogged=%s, want waterlogged=true", wl)
 	}
 	// The waterlogged cell reads as a source: it can feed a neighbour
 	// even after the original source is cut.
 	s.set(d, world.Pos{X: 0, Y: -60, Z: 0}, airBlock(t))
+	s.set(d, world.Pos{X: 1, Y: -60, Z: -1}, airBlock(t))
 	for i := 0; i < 40; i++ {
 		s.GameTick()
 	}

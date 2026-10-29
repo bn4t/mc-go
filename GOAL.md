@@ -103,8 +103,8 @@ Mojang server over the wire.
 - [~] Fluids: water and lava flow with vanilla's levels, drop-off,
       falling columns, equal-supply ring decay, min-slope-distance
       spread gating, source-formation gamerules and wash-away loot.
-      canPassThroughWall collision shapes and waterloggable containers
-      remain approximated. Scheduled block/fluid deadlines and repeated
+      Directional shared-face collision gates and source-only waterloggable
+      containers are wire-pinned; moving block-entity shapes remain open. Scheduled block/fluid deadlines and repeated
       intervals are now wire-pinned. Random ticks now cover the crop family — wheat/carrots/
       potatoes/beetroots, melon/pumpkin stems (attach + fruit on tagged
       supports), nether wart, cocoa, sweet berry bush, pitcher crop's
@@ -17502,3 +17502,12 @@ Scope: Player sessions. Riding non-player entities exempted by the generic TickR
 Clock-sensitive final regressions all PASS from same immutable executable: TestOrdinaryEffectFlagsParity29.38s (vanilla10.10/Go9.72); TestCustomPotionDrinkParity24.30s (vanilla7.70/Go7.30), exact flags13/dose400; TestPlayerPotionThrowParity56.96s (vanilla22.75/Go23.74), registered splash/cloud/instant and freshflags14. work/effectfreeze-regressions.log, execsession63188. Go ordinary16:01:23..33, drink16:01:50..57, throw16:02:30..54UTC. No remaining timing review pin.
 
 Final review proof: TestPlayerEffectTimeSprintFromFreeze invokes actual SprintTicks(2) starting frozen: effects age3 during n+1 world ticks, freeze restores, then paced player tick advances again. TestPlayerEffectTimeIgnoresUnadmittedSessions ensures offset and effect dispatch both skip non-ready sessions. Player effect pass now uses gameplayTickReady consistently. Focused TestPlayerEffectTime* PASS0.235s. Artifact refreshed against current02eb78b (water and NPC flags committed), preserving both slices and all other owners. Cached apply check passes.
+
+## Slice — directional fluid collision faces and source-only containers (2026-10-29)
+
+- **Measured:** vanilla's shared-face passage uses empty-context collision shapes and the union of opposing boundary slices. Complementary half slabs jointly seal a face; matching halves leave an opening. Source counting and above-cell supply use that gate, while the raw three-source crowd count does not. LiquidBlockContainer precedes blocksMotion eligibility; ordinary waterlogged containers accept source water, not Flowing Water. The corrected 38-control vanilla baseline passed every expected result, while the prior Go implementation differed (`work/fluid-shapes-sources-before.log`,20.94s). One accessible source leaves dry slabs, chests, pots and ladders dry; a second accessible source can renew source water in the destination over a solid floor.
+- **Implemented:** project the generated factual collision boxes onto the shared cell face and sweep rectangle intervals to test complete union coverage. Gate supply, spread, falling holes and slope routing consistently. Use measured per-state blocksMotion without changing world.NonSolid globally. Identify actual LiquidBlockContainer classes and their source-water acceptance flag; retain rejected containers and route accepted source water through the existing placeLiquid behavior. Lava cannot replace waterlogged containers merely because their fluid state reports water.
+- **Pinned:** registry-wide facts and targeted fluid units passed together (1.514 s); the immutable focused race suite passed (13.399 s). The immutable vanilla differential passed (36.03 s): 41 lanes, both supply-cut decay controls, four falling-routing/intact-container controls, and blocked-versus-open source renewal. The full existing FluidParity regression passed (585.24 s), with previously omitted collected scenario G, waterloggable cells, now included in the comparison. Logs: work/fluid-faces-fixed.log, work/fluid-faces-race.log, work/fluid-full-faces-fixed.log.
+- **Remaining:** unrelated fluid replacement rules and contextual entity collision behavior retain their existing coverage; this does not establish complete fluid parity.
+
+Source provenance: real 26.2 wire and Temurin 25.0.5 javap facts for FlowingFluid, Shapes and liquid-container classes; inner jar SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, oracle bundler SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Generated shape facts come from the all-state collision-data slice.

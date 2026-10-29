@@ -145,16 +145,8 @@ func fluidState(k fluidKind, level int) world.Block {
 	return fluidStateTab[k][level]
 }
 
-// replaceableByFluid reports whether a fluid may flow into this block.
-// Vanilla's rule is "the block can be replaced", which covers air and
-// the non-solid decoration blocks a fluid washes away - the same set a
-// heightmap looks through, so the world package owns it - except that
-// a cell already holding a fluid is never the target of a spread:
-// intrinsically-waterlogged blocks (kelp, seagrass, bubble columns)
-// answer a full water source to getFluidState, so
-// FlowingFluid.canMaybePassThrough's isSourceBlockOfThisType check
-// keeps both fluids out, and explicitly waterlogged blocks hold their
-// water the same way.
+// intrinsicWaterSource identifies blocks whose fluid state is source water
+// even though their block is a plant or bubble column.
 var intrinsicWaterSource = map[string]bool{
 	"kelp":          true,
 	"kelp_plant":    true,
@@ -163,6 +155,8 @@ var intrinsicWaterSource = map[string]bool{
 	"bubble_column": true,
 }
 
+// replaceableByFluid retains the replaceability check used by falling-block
+// support logic. Fluid occupancy uses the per-state facts in fluidCanHold.
 func replaceableByFluid(b world.Block) bool {
 	if !world.NonSolid(b) {
 		return false
@@ -176,30 +170,22 @@ func replaceableByFluid(b world.Block) bool {
 	return true
 }
 
-// fluidCanHold is vanilla's canHoldAnyFluid: a cell a fluid may occupy.
-// A waterloggable block (LiquidBlockContainer — anything carrying a
-// waterlogged property) answers true first, before the motion check
-// that keeps ordinary solids out, and a cell already holding fluid
-// answers true too — fluids never block motion, which is why a
-// lava-flowing cell below counts as a hole for water (water seeks lava
-// to harden it, and lava seeks water the same way). The rest is
-// replaceableByFluid minus vanilla's exclusions: the placeable blocks
-// fluids may not wash into or through (sugar cane, ladders and portals
-// hold their ground).
+// fluidCanHold is FlowingFluid.canHoldAnyFluid. LiquidBlockContainer
+// precedes blocksMotion and the explicit exclusions; other motion-free
+// blocks can be occupied even if they were absent from legacy plant lists.
 func fluidCanHold(b world.Block) bool {
+	// LiquidBlockContainer precedes the ordinary block exclusions. In
+	// particular, ladders accept water despite appearing in that list.
+	if fluidContainer(b) {
+		return true
+	}
+	if stateShapeRow(b).blocksMotion {
+		return false
+	}
 	name, _ := world.StateOwner(b)
 	switch name {
 	case "sugar_cane", "ladder", "bubble_column", "nether_portal",
 		"end_portal", "end_gateway", "structure_void":
-		return false
-	}
-	if world.HasProperty(b, "waterlogged") {
-		return true
-	}
-	if _, _, ok := fluidOf(b); ok {
-		return true
-	}
-	if !replaceableByFluid(b) {
 		return false
 	}
 	if strings.HasSuffix(name, "_door") || strings.HasSuffix(name, "_sign") {
@@ -208,15 +194,23 @@ func fluidCanHold(b world.Block) bool {
 	return true
 }
 
-// fluidWritable is canHoldSpecificFluid's container half —
-// canPlaceLiquid: a waterloggable block takes water only. Lava never
-// enters one: the cell is not even a spread candidate, so lava flows
-// around waterloggables rather than destroying them.
-func fluidWritable(kind fluidKind, b world.Block) bool {
-	if kind == fluidLava && world.HasProperty(b, "waterlogged") {
-		return false
+// fluidWritable is the container's fluid-type check. SimpleWaterloggedBlock
+// accepts Source Water, not Flowing Water: even water falling from a source
+// cannot fill it unless getNewLiquid renews a source in the destination.
+func fluidWritable(kind fluidKind, b world.Block, source bool) bool {
+	if fluidContainer(b) {
+		return kind == fluidWater && source && stateShapeRow(b).flags&shapePlaceWater != 0
 	}
 	return true
+}
+
+func fluidContainer(block world.Block) bool {
+	return vanillaBucketBlocks[bstate(block)].place != ""
+}
+
+func fluidIsSourceState(block world.Block) bool {
+	_, level, ok := fluidOf(block)
+	return ok && level == 0
 }
 
 // The three blocks a lava/water meeting can produce, resolved once on
@@ -477,7 +471,7 @@ func (s *Server) newFluidState(d *dimension, pos world.Pos, kind fluidKind) worl
 	for _, dir := range horizontalDirections {
 		nb := world.Pos{X: pos.X + dir.X, Y: pos.Y, Z: pos.Z + dir.Z}
 		k2, l2, ok := fluidOf(d.w.GetBlock(nb))
-		if !ok || k2 != kind {
+		if !ok || k2 != kind || !s.fluidCanPassThroughWall(d, pos, nb) {
 			continue
 		}
 		if l2 == 0 {
@@ -493,12 +487,13 @@ func (s *Server) newFluidState(d *dimension, pos world.Pos, kind fluidKind) worl
 	if sources >= 2 && s.canConvertToSource(kind) {
 		below := d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z})
 		bk, bl, bok := fluidOf(below)
-		if (!bok && !world.NonSolid(below)) || (bok && bk == kind && bl == 0) {
+		if stateShapeRow(below).blocksMotion || (bok && bk == kind && bl == 0) {
 			return fluidState(kind, 0)
 		}
 	}
 	// Fluid directly above turns this block into falling fluid.
-	if above, _, ok := fluidOf(d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z})); ok && above == kind {
+	up := world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z}
+	if above, _, ok := fluidOf(d.w.GetBlock(up)); ok && above == kind && s.fluidCanPassThroughWall(d, pos, up) {
 		return fluidState(kind, fluidFalling)
 	}
 	// The strongest horizontal supply wins, with equal-strength
@@ -574,9 +569,9 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 	below := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
 	if d.minY <= below.Y && below.Y < d.minY+d.height {
 		under := d.w.GetBlock(below)
-		if k2, _, isFluid := fluidOf(under); isFluid {
+		if k2, _, isFluid := fluidOf(under); isFluid && s.fluidCanPassThroughWall(d, pos, below) {
 			switch {
-			case kind == fluidLava && k2 == fluidWater:
+			case kind == fluidLava && k2 == fluidWater && fluidCanHold(under) && fluidWritable(kind, under, false):
 				// Lava reaching down into water sets the water to stone.
 				// This is the one place the two fluids meet from opposite
 				// sides of the block: the lava stays, the water hardens.
@@ -597,12 +592,12 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 			default:
 				columnBelow = k2 == kind
 			}
-		} else if fluidCanHold(under) && fluidWritable(kind, under) {
-			canFall = true
+		} else if !isFluid && fluidCanHold(under) && s.fluidCanPassThroughWall(d, pos, below) {
 			// spreadTo writes the below cell's own recompute — falling
 			// whenever this fluid feeds it, but a full source when two
 			// more source neighbours merge there (infinite water).
-			if nf := s.newFluidState(d, below, kind); nf != world.Air {
+			if nf := s.newFluidState(d, below, kind); nf != world.Air && fluidWritable(kind, under, fluidIsSourceState(nf)) {
+				canFall = true
 				s.fluidSpreadTo(d, below, nf, kind)
 			}
 		}
@@ -652,8 +647,12 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 		if ok && k2 == kind && l2 == 0 {
 			continue // canMaybePassThrough: never into a source of the same kind
 		}
-		if !ok && !(fluidCanHold(cur) && fluidWritable(kind, cur)) {
+		if !fluidCanHold(cur) || !s.fluidCanPassThroughWall(d, pos, nb) {
 			continue // not a candidate this fluid could occupy
+		}
+		next := s.newFluidState(d, nb, kind)
+		if next == world.Air || !fluidWritable(kind, cur, fluidIsSourceState(next)) {
+			continue
 		}
 		dist := 0
 		if !s.fluidIsHole(d, nb, kind) {
@@ -670,8 +669,8 @@ func (s *Server) spreadFluid(d *dimension, pos world.Pos, kind fluidKind, level 
 			// replaced from above by another fluid, so its level waits
 			// for its own scheduled tick. Other-kind fluid is likewise
 			// only traversable; lava contacts resolve through wakeLava.
-			if !ok && fluidWritable(kind, cur) {
-				nstates[i] = s.newFluidState(d, nb, kind)
+			if !ok {
+				nstates[i] = next
 			}
 		}
 	}
@@ -709,14 +708,15 @@ func (f fluidKind) slopeFindDistance(d *dimension) int {
 // into lava only where the lava is deep — a source or levels 1-4, and
 // every falling state — while the shallow tail turns it away.
 func (s *Server) fluidIsHole(d *dimension, pos world.Pos, kind fluidKind) bool {
-	below := d.w.GetBlock(world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z})
+	under := world.Pos{X: pos.X, Y: pos.Y - 1, Z: pos.Z}
+	below := d.w.GetBlock(under)
 	if k2, l2, ok := fluidOf(below); ok {
 		if k2 == kind {
-			return true
+			return s.fluidCanPassThroughWall(d, pos, under)
 		}
-		return fluidEntersBelow(kind, k2, l2)
+		return fluidCanHold(below) && fluidWritable(kind, below, false) && fluidEntersBelow(kind, k2, l2) && s.fluidCanPassThroughWall(d, pos, under)
 	}
-	return fluidCanHold(below) && fluidWritable(kind, below)
+	return fluidCanHold(below) && fluidWritable(kind, below, false) && s.fluidCanPassThroughWall(d, pos, under)
 }
 
 // fluidEntersBelow is the canBeReplacedWith answer for one fluid
@@ -750,7 +750,7 @@ func (s *Server) fluidSlopeDist(d *dimension, kind fluidKind, pos world.Pos, pas
 		if ok && k2 == kind && l2 == 0 {
 			continue // a same-kind source is not traversable
 		}
-		if !ok && !(fluidCanHold(ts) && fluidWritable(kind, ts)) {
+		if !fluidCanHold(ts) || !fluidWritable(kind, ts, false) || !s.fluidCanPassThroughWall(d, pos, tp) {
 			continue // canPassThrough: not a cell this fluid could occupy
 		}
 		// A flow (of either kind) is traversable even though it can
@@ -786,15 +786,15 @@ func rollFluidLoot(table string, state world.Block, pos world.Pos, d *dimension)
 func (s *Server) fluidSpreadTo(d *dimension, nb world.Pos, next world.Block, kind fluidKind) {
 	cur := d.w.GetBlock(nb)
 	if cur != world.Air {
-		if kind == fluidWater && world.HasProperty(cur, "waterlogged") {
+		if fluidContainer(cur) {
 			// placeLiquid: a waterloggable block is not destroyed — it
 			// keeps its state and fills with source water. No drops:
 			// the container survives, and now reads as a source.
-			if filled, ok := world.WithProperty(cur, "waterlogged", "true"); ok {
-				s.setNaturalBlock(d, nb, filled)
-				s.scheduleFluidTick(d, nb, kind.tickDelay(d))
-				s.wakeLava(d, nb)
+			if filled, _ := world.StateProperty(cur, "waterlogged"); filled == "true" || !fluidIsSourceState(next) || !fluidWritable(kind, cur, true) {
+				return
 			}
+			s.placeLiquid(nil, d, nb, cur)
+			s.wakeLava(d, nb)
 			return
 		}
 		// Water washing away a plant or redstone component drops it,

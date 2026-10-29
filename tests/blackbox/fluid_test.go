@@ -79,7 +79,7 @@ func TestFluidParity(t *testing.T) {
 // namedScenarioNames is the fixed comparison order for the scenarios
 // compared by block name rather than fluid level.
 func namedScenarioNames() []string {
-	return []string{"D: water reaching lava", "E: water falling onto lava"}
+	return []string{"D: water reaching lava", "E: water falling onto lava", "G: waterloggable cells"}
 }
 
 func sameNames(a, b map[[3]int]string) bool {
@@ -308,12 +308,10 @@ func runFluidScenarios(t *testing.T, addr, name string) fluidRun {
 	sprintTicks(t, pw, sink, 10)
 	out.levels["F3: severed pool decay @25"] = queryLevels(t, pw, sink, "water", probe)
 
-	// G: waterloggable blocks. Vanilla never washes a fence or a slab
-	// away — water enters the cell and the block survives as
-	// waterlogged=true, and the water inside reads as a source that can
-	// feed the next cell over. The slab two blocks out pins that
-	// chained feed: it only fills because the waterlogged fence cell
-	// re-spreads water through itself.
+	// G: one source produces flowing water at these dry containers.
+	// Flowing Water cannot waterlog them, so both fence and slab stay
+	// dry and survive while water travels around them. The directional
+	// face pin separately measures source renewal inside containers.
 	sendCommand(t, pw, "setblock 8 -60 -16 minecraft:oak_fence")
 	sendCommand(t, pw, "setblock 10 -60 -16 minecraft:oak_slab[type=bottom]")
 	waitDrained(t, pw, sink)
