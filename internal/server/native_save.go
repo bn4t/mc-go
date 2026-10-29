@@ -120,7 +120,7 @@ func (s *Server) captureNativeWorldSaveOwned() *nativeWorldSaveSnapshot {
 	snapshot := &nativeWorldSaveSnapshot{level: world.LevelData{
 		Dir: s.WorldDir, LevelName: s.levelName(), GameType: int32(s.GameMode),
 		Difficulty: difficultyName(difficulty), Seed: s.WorldSeed,
-		GenerateStructures: s.GenerateStructures, GameTime: s.gameTime(), DayTime: s.dayTime(),
+		GenerateStructures: s.GenerateStructures, Generator: s.LevelType, GameTime: s.gameTime(), DayTime: s.dayTime(),
 		Spawn: [3]int{floor(sx), floor(sy), floor(sz)}, GameRules: rules,
 	}}
 	for name, d := range s.dims {

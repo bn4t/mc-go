@@ -97,7 +97,7 @@ func packIndices(idx []int32, bpe int) []int64 {
 // at section index sy (block Y = minY + sy*16), reading blocks out of
 // the chunk's column array in the YZX order the data array uses.
 // Vanilla omits the data array when a section is single-palette.
-func sectionNBT(blocks []Block, minY, sy int, biome string, lights *ChunkLight) map[string]any {
+func sectionNBT(blocks []Block, minY, sy int, biome string, cells []string, lights *ChunkLight) map[string]any {
 	y0 := minY + sy*16
 	palette := []Block{}
 	palIdx := map[Block]int{}
@@ -156,9 +156,7 @@ func sectionNBT(blocks []Block, minY, sy int, biome string, lights *ChunkLight) 
 		// by sixteen - so the overworld's lowest section is -4, not 0.
 		"Y":              int8(y0 >> 4),
 		chunkBlockStates: states,
-		"biomes": map[string]any{
-			"palette": nbt.List{Elem: nbt.TagString, Items: []any{biome}},
-		},
+		"biomes":         biomesNBT(biome, cells, sy),
 	}
 	// SkyLight/BlockLight are absent where the layer never
 	// materialized, a 2048-byte nibble array where it exists - the
@@ -172,6 +170,42 @@ func sectionNBT(blocks []Block, minY, sy int, biome string, lights *ChunkLight) 
 		}
 	}
 	return sec
+}
+
+// biomesNBT writes a section's biome container: the single biome, or
+// the section's 64 cells as a palette in first-seen order with data
+// packed at ceil(log2(palette)) bits, the width the real server saves.
+func biomesNBT(biome string, cells []string, sy int) map[string]any {
+	if len(cells) < (sy+1)*64 {
+		return map[string]any{"palette": nbt.List{Elem: nbt.TagString, Items: []any{biome}}}
+	}
+	sec := cells[sy*64 : sy*64+64]
+	var pal []any
+	index := map[string]int{}
+	idx := make([]int32, 64)
+	for i, b := range sec {
+		pi, ok := index[b]
+		if !ok {
+			pi = len(pal)
+			index[b] = pi
+			pal = append(pal, b)
+		}
+		idx[i] = int32(pi)
+	}
+	out := map[string]any{"palette": nbt.List{Elem: nbt.TagString, Items: pal}}
+	if len(pal) > 1 {
+		bpe := 0
+		for 1<<uint(bpe) < len(pal) {
+			bpe++
+		}
+		per := 64 / bpe
+		data := make([]int64, (64+per-1)/per)
+		for i, v := range idx {
+			data[i/per] |= int64(v) << (uint(i%per) * uint(bpe))
+		}
+		out["data"] = data
+	}
+	return out
 }
 
 // ChunkLight is one chunk's saved light: Sky and Block map 0-based
@@ -229,6 +263,7 @@ func chunkNBT(w *World, cx, cz, minY, height int, blockEntities func(cx, cz int)
 		blocks,
 	)
 	biome := w.biomeName()
+	cells := w.ChunkBiomes(cx, cz)
 	var light *ChunkLight
 	if lights != nil {
 		light = lights(int(cx), int(cz))
@@ -237,14 +272,14 @@ func chunkNBT(w *World, cx, cz, minY, height int, blockEntities func(cx, cz int)
 	if blockEntities != nil {
 		entities = blockEntities(cx, cz)
 	}
-	return capturedChunkNBT(cx, cz, minY, height, blocks, biome, entities, light)
+	return capturedChunkNBT(cx, cz, minY, height, blocks, biome, cells, entities, light)
 }
 
-func capturedChunkNBT(cx, cz, minY, height int, blocks []Block, biome string, entities []map[string]any, light *ChunkLight) map[string]any {
+func capturedChunkNBT(cx, cz, minY, height int, blocks []Block, biome string, cells []string, entities []map[string]any, light *ChunkLight) map[string]any {
 	sections := nbt.List{Elem: nbt.TagCompound}
 	post := nbt.List{Elem: nbt.TagList}
 	for sy := 0; sy < height/16; sy++ {
-		sections.Items = append(sections.Items, sectionNBT(blocks, minY, sy, biome, light))
+		sections.Items = append(sections.Items, sectionNBT(blocks, minY, sy, biome, cells, light))
 		post.Items = append(post.Items, nbt.List{Elem: nbt.TagString})
 	}
 	be := nbt.List{Elem: nbt.TagCompound}
@@ -299,39 +334,7 @@ const (
 // highest that blocks motion, MOTION_BLOCKING that or a fluid, and
 // MOTION_BLOCKING_NO_LEAVES the same while looking through leaves.
 func heightmaps(blocks []Block, height, minY int) map[string]any {
-	var surface, ocean, motion, noLeaves [256]int32
-	for z := 0; z < 16; z++ {
-		for x := 0; x < 16; x++ {
-			col := z*16 + x
-			for y := height - 1; y >= 0; y-- {
-				b := blocks[(y*16+z)*16+x]
-				if b == Air {
-					continue
-				}
-				v := int32(y + 1)
-				if surface[col] == 0 {
-					surface[col] = v
-				}
-				name, _ := StateOwner(b)
-				leaves := strings.Contains(name, "leaves")
-				solid := !NonSolid(b)
-				if solid {
-					if ocean[col] == 0 {
-						ocean[col] = v
-					}
-					if noLeaves[col] == 0 && !leaves {
-						noLeaves[col] = v
-					}
-				}
-				if motion[col] == 0 && (solid || isFluid(name)) {
-					motion[col] = v
-				}
-				if motion[col] != 0 && surface[col] != 0 && noLeaves[col] != 0 && ocean[col] != 0 {
-					break
-				}
-			}
-		}
-	}
+	surface, ocean, motion, noLeaves := ColumnHeights(blocks, height)
 	return map[string]any{
 		"WORLD_SURFACE":             packHeightmap(surface),
 		"OCEAN_FLOOR":               packHeightmap(ocean),
@@ -462,7 +465,7 @@ func (s *DimensionSaveSnapshot) writeDir(dir string) error {
 		payloads := map[chunkKey][]byte{}
 		for _, c := range chunks {
 			var raw bytes.Buffer
-			if err := nbt.WriteNamed(&raw, "", capturedChunkNBT(int(c.X), int(c.Z), s.minY, s.height, s.chunks[c].blocks, s.biome, s.chunks[c].entities, s.chunks[c].light)); err != nil {
+			if err := nbt.WriteNamed(&raw, "", capturedChunkNBT(int(c.X), int(c.Z), s.minY, s.height, s.chunks[c].blocks, s.biome, s.chunks[c].biomes, s.chunks[c].entities, s.chunks[c].light)); err != nil {
 				return err
 			}
 			var zc bytes.Buffer
@@ -581,6 +584,10 @@ func (w *World) LoadRegion(dir string, minY, height int) error {
 			rx, rz := regionFileCoords(f)
 			cx := rx*regionChunks + int(ck.X)
 			cz := rz*regionChunks + int(ck.Z)
+			if w.base != nil {
+				w.installBaseChunk(compound, cx, cz, minY, height)
+				continue
+			}
 			w.loadChunkOverrides(compound, cx, cz, minY)
 		}
 	}

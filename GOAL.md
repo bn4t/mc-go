@@ -67,8 +67,11 @@ Mojang server over the wire.
       bands, iceberg/eroded-badlands extensions) matches block for block -
       `TestTerrainSurfaceParity`; carvers match block for block -
       `TestTerrainCarverParity`; the feature decoration framework is
-      pinned on ores - `TestFeatureOreParity`; the other feature types,
-      structures and server wiring remain
+      pinned on ores - `TestFeatureOreParity`; `-level-type normal`
+      serves the generated overworld (world spawn, streamed chunks,
+      heightmaps, biome palettes and block light match the real server -
+      `TestNormalWorldChunkParity`; save/reload - `TestNormalWorldSaveReload`);
+      the other feature types and structures remain
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -15789,3 +15792,40 @@ no flee; unsneak → flee). Green both legs.
   lakes, springs, disks, geodes, ...), MossyCarpet side growth,
   structures, fluid post-processing, nether/end and server wiring.
 
+## Slice — normal world type: generated overworld in the server (2026-10-29)
+
+- **Measured:** wire observation of a 26.2 server on `level-type=minecraft:normal`
+  (seed 12345, the stage data pack stripping features, structures off):
+  Set Default Spawn Position, every streamed Chunk Data packet's
+  heightmaps, section counts, block and biome palettes and light.
+  Bytecode inspection of `PalettedContainer.Strategy` (biomes go global
+  past 3 bits, block states past 8), `Heightmap.Types` predicates and
+  `MinecraftServer.setInitialSpawn` / `PlayerSpawnFinder.getSpawnPosInChunk`
+  (climate `findSpawnPosition` chunk, 11x11 chunk spiral). Per-state
+  light emission comes from the `tools/genblockprops` jar oracle table.
+- **Implemented:** `-level-type normal` (and level.dat's generator) swaps
+  the overworld for a provided world fed by `terrainSource`: terrain is
+  generated in parallel and ahead (7x7 around a request), decoration
+  runs one chunk at a time once a chunk's 3x3 has terrain, and a chunk
+  is handed out once its 3x3 is decorated; protos are pruned once
+  nothing can read them. The world keeps a base-chunk cache (saved
+  chunks install straight from region files; all generated chunks save
+  with per-cell biome palettes). Packet and save heightmaps use the exact
+  per-type predicates; section biome palettes follow vanilla's
+  strategy; light emission is the jar's per-state value (the curated
+  name table had 609 wrong states). Block light moved to per-section
+  arrays; a generated chunk's emitters (and its lit neighbours') are
+  spread when it is first encoded, and its neighbours are lit before
+  it is sent so light crossing its borders is in place.
+- **Pinned:** `TestNormalWorldChunkParity` joins both servers and
+  compares the world spawn and every chunk both windows streamed (42-49
+  chunks): block states, heightmaps, section counts and biome cells
+  match exactly, as does block light; `TestNormalWorldSaveReload` saves
+  and reloads a generated world (generator, spawn, edits, installed
+  chunks, deterministic regeneration).
+- **Remaining:** sky light differs in a few enclosed cave pockets where
+  vanilla holds 1-10 and mc-go 0 (8-9 of ~1100 sections; logged by the
+  test); fluid post-processing; generation speed (~70 ms of terrain per
+  chunk on one core, so a fresh join waits ~15 s on a busy 4-core box
+  against vanilla's spawn pre-generation); features beyond ores,
+  structures, nether/end generation.

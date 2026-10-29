@@ -34,6 +34,7 @@ func main() {
 	rconPassword := flag.String("rcon-password", "", "RCON password; empty disables RCON like unset rcon.password")
 	enableQuery := flag.Bool("enable-query", false, "enable the GameSpy4 query listener")
 	queryAddr := flag.String("query-addr", "", "query listen address (default: the server address, like unset query.port)")
+	levelType := flag.String("level-type", "", "overworld generator for a new world: flat (default) or normal (vanilla terrain); a saved world keeps its own")
 	flag.Parse()
 
 	s := server.New(*addr)
@@ -48,6 +49,7 @@ func main() {
 	s.QueryAddr = *queryAddr
 	s.LevelName = *levelName
 	s.WorldSeed = *seed
+	s.LevelType = *levelType
 	s.GenerateStructures = *generateStructures
 	switch strings.ToLower(*gameMode) {
 	case "survival":

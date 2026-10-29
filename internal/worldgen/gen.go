@@ -62,12 +62,40 @@ func (g *Generator) ChunkBiomes(cx, cz int32, nc *NoiseChunk) []string {
 
 // quartBiome is ChunkAccess.getNoiseBiome with the section clamp.
 func (g *Generator) quartBiome(qx, qy, qz int32) string {
-	cx, cz := qx>>2, qz>>2
-	cells := g.ChunkBiomes(cx, cz, nil)
+	return g.quartIn(g.ChunkBiomes(qx>>2, qz>>2, nil), qx, qy, qz)
+}
+
+func (g *Generator) quartIn(cells []string, qx, qy, qz int32) string {
 	minQ := floorDiv(g.RS.settings.minY, 4)
 	maxQ := minQ + g.RS.settings.height/4 - 1
 	qy = min(max(qy, minQ), maxQ)
 	return cells[((qy-minQ)*4+(qz&3))*4+(qx&3)]
+}
+
+// biomeAtNear is BiomeAt for lookups clustered around chunk (cx, cz):
+// the 3x3 chunks' cells are fetched once instead of per call.
+func (g *Generator) biomeAtNear(cx, cz int32) func(x, y, z int32) string {
+	var near [9][]string
+	quart := func(qx, qy, qz int32) string {
+		dx, dz := qx>>2-cx, qz>>2-cz
+		if dx < -1 || dx > 1 || dz < -1 || dz > 1 {
+			return g.quartBiome(qx, qy, qz)
+		}
+		i := (dz+1)*3 + dx + 1
+		if near[i] == nil {
+			near[i] = g.ChunkBiomes(qx>>2, qz>>2, nil)
+		}
+		return g.quartIn(near[i], qx, qy, qz)
+	}
+	return func(x, y, z int32) string { return zoomBiome(g.zoomSeed, x, y, z, quart) }
+}
+
+// ForgetChunk drops a chunk's cached biome cells once nothing will
+// read them again.
+func (g *Generator) ForgetChunk(cx, cz int32) {
+	g.mu.Lock()
+	delete(g.biomeCache, [2]int32{cx, cz})
+	g.mu.Unlock()
 }
 
 // BiomeAt is the zoomed per-block biome (BiomeManager.getBiome).
@@ -113,7 +141,7 @@ func (g *Generator) Terrain(cx, cz int32) *ProtoChunk {
 	}
 	p.FluidMarks = col.FluidMarks
 	p.Biomes = g.ChunkBiomes(cx, cz, nil)
-	rs.BuildSurface(p, nc, g.BiomeAt)
+	rs.BuildSurface(p, nc, g.biomeAtNear(cx, cz))
 	if g.Carve {
 		g.ApplyCarvers(p, nc)
 	}

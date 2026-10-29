@@ -338,7 +338,7 @@ func saplingRule(s *Server, d *dimension, pos world.Pos, blk world.Block) {
 // cannot see. skyDarken is the unweathered reading: 0 by day, 4 by
 // night — a 15 cell still clears the 9 the rule needs in the dark.
 func (s *Server) saplingLight(d *dimension, pos world.Pos) int {
-	v := int(d.blockLight[pos])
+	v := int(d.blockLight.get(pos))
 	if d.skylight {
 		if sky := skyEffective(d, pos) - s.skyDarken(); sky > v {
 			v = sky

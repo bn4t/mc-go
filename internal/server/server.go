@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -96,6 +97,17 @@ type Server struct {
 	// change the flat generator's terrain, but the real server keeps it
 	// and a mismatched seed is a world the two disagree about.
 	WorldSeed int64
+
+	// LevelType selects the overworld generator: "flat" (the default,
+	// vanilla's flat preset) or "normal" (the noise generator seeded by
+	// WorldSeed). A loaded level.dat's generator wins when unset.
+	LevelType string
+	// WorldgenOverlay replaces worldgen data-pack entries (keys like
+	// "biome/plains") for the normal generator, the way a world's data
+	// packs override the built-in worldgen registries.
+	WorldgenOverlay map[string]json.RawMessage
+	// terrain is the normal overworld's chunk source (nil when flat).
+	terrain *terrainSource
 
 	// LevelName is what level.dat calls the world; empty uses the
 	// world directory's base name, which is how vanilla names it.

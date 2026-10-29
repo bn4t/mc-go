@@ -3,9 +3,9 @@ package server
 import (
 	"math"
 	"strconv"
-	"strings"
 
 	"mc-go/internal/world"
+	"mc-go/internal/worldgen"
 )
 
 // Ice melt, measured off the 26.2 jar (IceBlock):
@@ -20,120 +20,13 @@ import (
 //
 // mc-go has no light engine, so blockLightAbove scans the emitters
 // that can matter: a light value above `level` needs an emitter of
-// emission E at taxicab distance < E-level — the table only lists
-// the usual sources; the scan bound keeps it cheap.
+// emission E at taxicab distance < E-level; the scan bound keeps
+// it cheap.
 
-// blockLightEmission is a curated luminance table (vanilla
-// getLightEmission). States matter: furnaces, campfires and candles
-// only emit while lit.
-var blockLightEmission = map[string]int{
-	"beacon": 15, "conduit": 15, "end_gateway": 15,
-	"fire":            15,
-	"glowstone":       15,
-	"jack_o_lantern":  15,
-	"lantern":         15,
-	"lava":            15,
-	"ochre_froglight": 15, "pearlescent_froglight": 15, "verdant_froglight": 15,
-	"sea_lantern": 15, "shroomlight": 15,
-	"end_rod": 14, "torch": 14, "wall_torch": 14,
-	"crying_obsidian": 10, "soul_campfire": 10, "soul_fire": 10,
-	"soul_lantern": 10, "soul_torch": 10, "soul_wall_torch": 10,
-	"glow_lichen": 7,
-	"ender_chest": 7, "large_amethyst_bud": 4, "amethyst_cluster": 5,
-	"medium_amethyst_bud": 3, "small_amethyst_bud": 1, "magma_block": 3,
-	"dragon_egg": 1, "brewing_stand": 1, "brown_mushroom": 1,
-	"enchanting_table": 7, "sculk_catalyst": 6,
-	"end_portal": 15, "nether_portal": 11, "lava_cauldron": 15,
-}
-
-// litEmission handles light gated on a `lit` state prop.
-var litBlockLightEmission = map[string]int{
-	"campfire": 15, "furnace": 13, "blast_furnace": 13, "smoker": 13,
-	"redstone_lamp": 15, "copper_bulb": 15, "exposed_copper_bulb": 15,
-	"oxidized_copper_bulb": 15, "weathered_copper_bulb": 15,
-	"waxed_copper_bulb": 15, "waxed_exposed_copper_bulb": 15,
-	"waxed_oxidized_copper_bulb": 15, "waxed_weathered_copper_bulb": 15,
-	"redstone_ore": 9, "redstone_torch": 7, "redstone_wall_torch": 7,
-}
-
-// stateEmission is the state-folded half of vanilla's emission table —
-// lightLevel lambdas that read properties instead of returning a
-// constant: CaveVines.emission(14) on berries, the sea pickle's
-// waterlogged 3*(pickles+1), a candle's lit 3*candles, the respawn
-// anchor's floor(15*charge/4) charge-to-level scale, and the light
-// block's level prop. (The daylight detector's inverted and the
-// lightning rod's powered 15s are redstone signal, not light — neither
-// registration sets lightLevel.) Returns -1 otherwise.
-func stateEmission(name string, b world.Block) int {
-	prop := func(key string) (int, bool) {
-		v, ok := world.StateProperty(b, key)
-		if !ok || v == "" {
-			return 0, false
-		}
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return 0, false
-		}
-		return n, true
-	}
-	switch {
-	case name == "sea_pickle":
-		if w, _ := world.StateProperty(b, "waterlogged"); w != "true" {
-			return 0
-		}
-		pickles := 1
-		if n, ok := prop("pickles"); ok {
-			pickles = n
-		}
-		return 3 * (pickles + 1)
-	case name == "cave_vines" || name == "cave_vines_plant":
-		if v, _ := world.StateProperty(b, "berries"); v == "true" {
-			return 14
-		}
-		return 0
-	case name == "light":
-		if n, ok := prop("level"); ok {
-			return n
-		}
-		return 15
-	case name == "candle_cake":
-		return 3
-	case name == "candle" || strings.HasSuffix(name, "_candle"):
-		candles := 1
-		if n, ok := prop("candles"); ok {
-			candles = n
-		}
-		return 3 * candles
-	case name == "respawn_anchor":
-		c, _ := prop("charges")
-		if c == 0 {
-			return 0
-		}
-		return 4*c - 1
-	}
-	return -1
-}
-
-// lightEmit returns a block state's block-light emission.
-func lightEmit(b world.Block) int {
-	name, ok := world.StateOwner(b)
-	if !ok {
-		return 0
-	}
-	if lit, hasLit := world.StateProperty(b, "lit"); hasLit && lit == "false" {
-		return 0
-	}
-	if e := stateEmission(name, b); e >= 0 {
-		return e
-	}
-	if e, ok := litBlockLightEmission[name]; ok {
-		return e
-	}
-	if e, ok := blockLightEmission[name]; ok {
-		return e
-	}
-	return 0
-}
+// lightEmit returns a block state's block-light emission
+// (BlockState.getLightEmission), the per-state value probed from the
+// 26.2 jar by tools/genblockprops.
+func lightEmit(b world.Block) int { return worldgen.LightEmission(b) }
 
 // blockLightAbove reports whether the block light at pos tops level —
 // scanning emitters within E-level cells of pos, the only ones that

@@ -41,6 +41,8 @@ type World struct {
 	// only the blocks; this is the pass-through for everything the
 	// blocks do not say.
 	blockEntities []map[string]any
+	// base, when set, supplies terrain chunk by chunk (NewProvided).
+	base *baseCache
 }
 
 // BlockEntities returns the block entities read by the last load, in
@@ -69,6 +71,13 @@ func NewGen(bus *event.Bus, shards int, gen func(Pos) Block) *World {
 	}
 	if gen == nil {
 		gen = flat
+	}
+	return newGenWorld(bus, shards, gen)
+}
+
+func newGenWorld(bus *event.Bus, shards int, gen func(Pos) Block) *World {
+	if shards <= 0 {
+		shards = 8
 	}
 	w := &World{bus: bus, gen: gen, stop: make(chan struct{})}
 	for i := 0; i < shards; i++ {

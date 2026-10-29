@@ -6,16 +6,20 @@ import (
 	"mc-go/api/registry"
 	"mc-go/internal/protocol"
 	"mc-go/internal/world"
+	"mc-go/internal/worldgen"
 )
 
 // chunkSnapshot contains detached, privately owned data and an immutable wire
 // mapping. Capturing requires simulation ownership; encoding does not. Workers
 // must never receive a dimension, world, session, or live block-entity pointer.
 type chunkSnapshot struct {
-	cx, cz        int
-	height        int
-	minY          int
-	biome         int32
+	cx, cz int
+	height int
+	minY   int
+	biome  int32
+	// biomes holds 64 wire biome ids per section when the world carries
+	// per-chunk biomes; nil sends the single biome.
+	biomes        []int32
 	states        []world.Block
 	blockEntities []chunkSnapshotBlockEntity
 	light         []byte
@@ -74,6 +78,22 @@ func captureProjectedChunkSnapshot(d *dimension, cx, cz int, blockEntities []cli
 		snapshot.projectionErr = fmt.Errorf("Java protocol %d has no biome %q", profile.version.Protocol, d.biome)
 		return snapshot
 	}
+	if cells := d.w.ChunkBiomes(cx, cz); len(cells) > 0 {
+		snapshot.biomes = make([]int32, len(cells))
+		ids := map[string]int32{}
+		for i, name := range cells {
+			id, ok := ids[name]
+			if !ok {
+				id = profile.registryEntryID("minecraft:worldgen/biome", name)
+				if id < 0 {
+					snapshot.projectionErr = fmt.Errorf("Java protocol %d has no biome %q", profile.version.Protocol, name)
+					return snapshot
+				}
+				ids[name] = id
+			}
+			snapshot.biomes[i] = id
+		}
+	}
 	snapshot.blockEntities = make([]chunkSnapshotBlockEntity, len(blockEntities))
 	for i, be := range blockEntities {
 		wire, err := profile.projectBuiltinRegistryID("minecraft:block_entity_type", be.spec.id)
@@ -130,9 +150,9 @@ func encodeChunkSnapshot(snapshot *chunkSnapshot) ([]byte, error) {
 	b.Int(int32(snapshot.cx))
 	b.Int(int32(snapshot.cz))
 	b.VarInt(int32(len(heightmapTypes)))
-	heightVals := packPadded(heightmapValues(snapshot.states, snapshot.height), heightmapBits)
-	for _, typ := range heightmapTypes {
-		b.VarInt(typ)
+	for _, hm := range heightmapValues(snapshot.states, snapshot.height) {
+		heightVals := packPadded(hm.vals, heightmapBits)
+		b.VarInt(hm.typ)
 		b.VarInt(int32(len(heightVals)))
 		writeLongs(&b, heightVals)
 	}
@@ -143,7 +163,7 @@ func encodeChunkSnapshot(snapshot *chunkSnapshot) ([]byte, error) {
 		biomes[i] = snapshot.biome
 	}
 	for sy := 0; sy < snapshot.height/16; sy++ {
-		var blockCount int16
+		var blockCount, fluidCount int16
 		for i, block := range snapshot.states[sy*4096 : (sy+1)*4096] {
 			wire, err := snapshot.mapping.Encode(block)
 			if err != nil {
@@ -153,14 +173,23 @@ func encodeChunkSnapshot(snapshot *chunkSnapshot) ([]byte, error) {
 			// Section counts describe the encoded presentation. A visual
 			// fallback may turn an authoritative solid into target air.
 			// Heightmaps above continue to describe authoritative geometry.
-			if wire != air {
+			// LevelChunkSection counts states that are not isAir (cave
+			// and void air included) and those carrying a fluid.
+			if wire != air && !worldgen.IsAir(block) {
 				blockCount++
+				if worldgen.HasFluid(block) {
+					fluidCount++
+				}
 			}
 		}
 		data.Short(blockCount)
-		data.Short(0) // Existing vanilla-parity fluid-count representation.
+		data.Short(fluidCount)
 		encodePalettedContainer(&data, vals, 4096, 4)
-		encodePalettedContainer(&data, biomes, 64, 1)
+		if snapshot.biomes != nil && len(snapshot.biomes) >= (sy+1)*64 {
+			encodePalettedContainer(&data, snapshot.biomes[sy*64:(sy+1)*64], 64, 1)
+		} else {
+			encodePalettedContainer(&data, biomes, 64, 1)
+		}
 	}
 	b.VarInt(int32(data.Len()))
 	b.Raw(data.Bytes())

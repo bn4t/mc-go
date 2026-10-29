@@ -82,25 +82,23 @@ func writeLongs(b *protocol.Buffer, longs []int64) {
 	}
 }
 
-// heightmapValues returns the packed heightmap entries for one column:
-// for each (z,x) column (x fastest), the highest occupied Y offset
-// from the dimension's minY, plus one. Zero means the whole column is
-// empty.
-func heightmapValues(states []world.Block, height int) []int32 {
-	vals := make([]int32, 16*16)
-	for z := 0; z < 16; z++ {
-		for x := 0; x < 16; x++ {
-			top := int32(0)
-			for y := height - 1; y >= 0; y-- {
-				if states[(y*16+z)*16+x] != world.Air {
-					top = int32(y) + 1
-					break
-				}
-			}
-			vals[z*16+x] = top
-		}
+type heightmapEntry struct {
+	typ  int32
+	vals []int32
+}
+
+// heightmapValues returns the heightmaps sent with a chunk, in
+// heightmapTypes order: for each (z,x) column (x fastest), the highest
+// Y offset from the dimension's minY matching the type's predicate,
+// plus one; zero when nothing in the column matches.
+func heightmapValues(states []world.Block, height int) []heightmapEntry {
+	surface, _, motion, noLeaves := world.ColumnHeights(states, height)
+	byType := map[int32][]int32{1: surface[:], 5: noLeaves[:], 4: motion[:]}
+	out := make([]heightmapEntry, len(heightmapTypes))
+	for i, typ := range heightmapTypes {
+		out[i] = heightmapEntry{typ, byType[typ]}
 	}
-	return vals
+	return out
 }
 
 // encodeChunk builds one Chunk Data and Update Light body for column
@@ -156,7 +154,14 @@ func encodePalettedContainer(b *protocol.Buffer, vals []int32, entries, minIndir
 	for (1 << bpe) < len(palette) {
 		bpe++
 	}
-	if bpe > 8 {
+	// PalettedContainer.Strategy: block states go linear up to 4 bits
+	// and hashed up to 8, biomes linear up to 3; past that both switch
+	// to the global palette.
+	maxIndirect := 8
+	if entries == 64 {
+		maxIndirect = 3
+	}
+	if bpe > maxIndirect {
 		// Direct: global ids, padded, no palette. Vanilla uses 15 for
 		// blocks and the registry-derived width for biomes.
 		bits := 15
@@ -226,19 +231,11 @@ func encodeLightData() []byte {
 // chunk generation lit (and emptied again) stay on the empty mask.
 func litBlockSections(d *dimension, cx, cz int) []int {
 	var out []int
-	seen := map[int]bool{}
-	for p := range d.blockLight {
-		if p.X>>4 != cx || p.Z>>4 != cz {
-			continue
+	for _, sy := range d.blockLight.litSections(cx, cz) {
+		if sec := sy - d.minY>>4; sec >= 0 && sec < d.sections() {
+			out = append(out, sec)
 		}
-		sec := (p.Y - d.minY) / 16
-		if sec < 0 || sec >= d.sections() || seen[sec] {
-			continue
-		}
-		seen[sec] = true
-		out = append(out, sec)
 	}
-	sort.Ints(out)
 	return out
 }
 
@@ -253,6 +250,20 @@ func encodeLightDataFor(d *dimension, cx, cz int) []byte {
 	// floods and the tick-end flush — serialize against them.
 	d.lightMu.Lock()
 	defer d.lightMu.Unlock()
+	if d.skylight {
+		if d.w.Provided() {
+			// A generated chunk is sent once its neighbours are lit
+			// too, so light spilling over its borders is in place.
+			for dz := -1; dz <= 1; dz++ {
+				for dx := -1; dx <= 1; dx++ {
+					genSkyChunk(d, cx+dx, cz+dz)
+					seedGenBlockLight(d, cx+dx, cz+dz)
+				}
+			}
+		}
+		ensureSkyChunk(d, cx, cz)
+		seedGenBlockLight(d, cx, cz)
+	}
 	var blockMask uint64
 	var blockArrays [][]byte
 	for _, sec := range litBlockSections(d, cx, cz) {

@@ -443,13 +443,18 @@ func (l *lockedConn) Write(p []byte) (int, error) {
 }
 
 // client dials addr and returns framed reader/writer.
+// clientDeadline bounds a fresh connection's login and configuration.
+// A normal-terrain world raises it: vanilla's configuration phase
+// (PrepareSpawnTask) generates the spawn chunks before it finishes.
+var clientDeadline = 10 * time.Second
+
 func client(t *testing.T, addr string) (net.Conn, *protocol.Reader, *protocol.Writer) {
 	t.Helper()
 	c, err := net.DialTimeout("tcp", addr, 5*time.Second)
 	if err != nil {
 		t.Fatalf("dial %s: %v", addr, err)
 	}
-	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = c.SetDeadline(time.Now().Add(clientDeadline))
 	return c, protocol.NewReader(c), protocol.NewWriter(&lockedConn{c: c})
 }
 

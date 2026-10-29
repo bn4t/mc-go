@@ -134,6 +134,9 @@ func (s *Server) loadWorld() error {
 	if s.WorldDir != "" {
 		return s.loadWorldDir()
 	}
+	if err := s.applyLevelType(); err != nil {
+		return err
+	}
 	if s.WorldPath == "" {
 		return nil
 	}
@@ -187,6 +190,9 @@ func (s *Server) loadWorldDir() error {
 		if lv.Seed != 0 && s.WorldSeed == 0 {
 			s.WorldSeed = lv.Seed
 		}
+		if s.LevelType == "" && lv.Generator != "" {
+			s.LevelType = lv.Generator
+		}
 		if lv.Spawn != [3]int{} {
 			s.setWorldSpawn(lv.Spawn[0], lv.Spawn[1], lv.Spawn[2])
 		}
@@ -206,6 +212,9 @@ func (s *Server) loadWorldDir() error {
 			}
 			s.rulesMu.Unlock()
 		}
+	}
+	if err := s.applyLevelType(); err != nil {
+		return err
 	}
 	for name, d := range s.dims {
 		if err := d.w.LoadDimension(s.WorldDir, name, d.minY, d.height); err != nil {

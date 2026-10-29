@@ -127,15 +127,12 @@ func lightGridSet(d *dimension, p world.Pos, v int, pre map[world.Pos]int) bool 
 		return false
 	}
 	if _, seen := pre[p]; !seen {
-		pre[p] = int(d.blockLight[p])
+		pre[p] = int(d.blockLight.get(p))
 	}
-	if int(d.blockLight[p]) >= v {
+	if int(d.blockLight.get(p)) >= v {
 		return false
 	}
-	if d.blockLight == nil {
-		d.blockLight = map[world.Pos]uint8{}
-	}
-	d.blockLight[p] = uint8(v)
+	d.blockLight.set(p, uint8(v))
 	ck := [2]int{p.X >> 4, p.Z >> 4}
 	if d.blkWritten == nil {
 		d.blkWritten = map[[2]int]map[int]bool{}
@@ -154,13 +151,10 @@ func lightGridDel(d *dimension, p world.Pos, pre map[world.Pos]int) {
 		return
 	}
 	if _, seen := pre[p]; !seen {
-		pre[p] = int(d.blockLight[p])
+		pre[p] = int(d.blockLight.get(p))
 	}
-	if d.blockLight != nil {
-		if _, lit := d.blockLight[p]; lit {
-			delete(d.blockLight, p)
-			lightMarkAround(d, p)
-		}
+	if d.blockLight.del(p) {
+		lightMarkAround(d, p)
 	}
 }
 
@@ -173,6 +167,10 @@ type lightItem struct {
 // value minus the neighbour's opacity to each face neighbour that
 // ends up brighter, queueing the wins as new sources.
 func (s *Server) blockLightSpread(d *dimension, pos world.Pos, level int, pre map[world.Pos]int) {
+	spreadBlockLight(d, pos, level, pre)
+}
+
+func spreadBlockLight(d *dimension, pos world.Pos, level int, pre map[world.Pos]int) {
 	if level <= 0 {
 		return
 	}
@@ -217,7 +215,7 @@ func (s *Server) blockLightRemove(d *dimension, pos world.Pos, level int, pre ma
 			if n.Y < d.minY || n.Y >= d.minY+d.height {
 				continue
 			}
-			nv := int(d.blockLight[n])
+			nv := int(d.blockLight.get(n))
 			if nv == 0 {
 				continue
 			}
@@ -255,7 +253,7 @@ func (s *Server) blockLightChanged(d *dimension, pos world.Pos, old, blk world.B
 	if oe == ne && lightOpacity(old) == lightOpacity(blk) {
 		return
 	}
-	if len(d.blockLight) == 0 && ne <= 0 {
+	if d.blockLight.len() == 0 && ne <= 0 {
 		return
 	}
 	pre := map[world.Pos]int{}
@@ -264,7 +262,7 @@ func (s *Server) blockLightChanged(d *dimension, pos world.Pos, old, blk world.B
 	s.lightSectionFlipped(d, pos, old, blk)
 	ensureSkyChunk(d, pos.X>>4, pos.Z>>4)
 	v := oe
-	if ov := int(d.blockLight[pos]); ov > v {
+	if ov := int(d.blockLight.get(pos)); ov > v {
 		v = ov
 	}
 	if v > ne {
@@ -276,7 +274,7 @@ func (s *Server) blockLightChanged(d *dimension, pos world.Pos, old, blk world.B
 	// Vanilla still marks pos's sections when the cell reads
 	// inconsistent — recomputed from neighbours it disagrees with
 	// what it holds — even when the write touched nothing.
-	if len(pre) == 0 && blkStoring(d, pos) && int(d.blockLight[pos]) != blkComputedAt(d, pos) {
+	if len(pre) == 0 && blkStoring(d, pos) && int(d.blockLight.get(pos)) != blkComputedAt(d, pos) {
 		lightMarkAround(d, pos)
 	}
 }
@@ -885,7 +883,7 @@ func blkComputedAt(d *dimension, p world.Pos) int {
 		if n.Y < d.minY || n.Y >= d.minY+d.height {
 			continue
 		}
-		if v := int(d.blockLight[n]); v > best {
+		if v := int(d.blockLight.get(n)); v > best {
 			best = v
 		}
 	}
@@ -1359,7 +1357,7 @@ func blockSectionArray(d *dimension, cx, cz, sec int) []byte {
 	for y := 0; y < 16; y++ {
 		for z := 0; z < 16; z++ {
 			for x := 0; x < 16; x++ {
-				v := d.blockLight[world.Pos{X: cx*16 + x, Y: y0 + y, Z: cz*16 + z}]
+				v := d.blockLight.get(world.Pos{X: cx*16 + x, Y: y0 + y, Z: cz*16 + z})
 				b := idx / 2
 				if idx%2 == 0 {
 					out[b] |= v
@@ -1383,7 +1381,7 @@ func blkSectionNonZero(d *dimension, cx, cz, sec int) bool {
 	for y := 0; y < 16; y++ {
 		for z := 0; z < 16; z++ {
 			for x := 0; x < 16; x++ {
-				if d.blockLight[world.Pos{X: cx*16 + x, Y: y0 + y, Z: cz*16 + z}] != 0 {
+				if d.blockLight.get(world.Pos{X: cx*16 + x, Y: y0 + y, Z: cz*16 + z}) != 0 {
 					return true
 				}
 			}

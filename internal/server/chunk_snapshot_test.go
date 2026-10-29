@@ -179,14 +179,14 @@ func TestChunkSnapshotReservationCoversDenseLightAndLargeNBT(t *testing.T) {
 	key := [2]int{0, 0}
 	d.skyGen = map[[2]int]bool{key: true}
 	d.skyLayers = map[[2]int]map[int]*[4096]byte{key: {}}
-	d.blockLight = map[world.Pos]uint8{}
+	d.blockLight = blockLightGrid{}
 	for section := 0; section < d.sections(); section++ {
 		layer := &[4096]byte{}
 		for i := range layer {
 			layer[i] = 15
 		}
 		d.skyLayers[key][section] = layer
-		d.blockLight[world.Pos{X: 0, Y: d.minY + section*16, Z: 0}] = 15
+		d.blockLight.set(world.Pos{X: 0, Y: d.minY + section*16, Z: 0}, 15)
 	}
 	entities := []clientBlockEntity{{spec: blockEntitySpec{id: 7}, nbt: make([]byte, 100001)}}
 	snapshot = captureChunkSnapshot(d, 0, 0, entities, snapshot.mapping)

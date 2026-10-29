@@ -303,7 +303,7 @@ func (s *Server) enderDaylightFlee(e *Entity) {
 		return
 	}
 	pos := world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y)), Z: int(math.Floor(e.Z))}
-	raw := int(d.blockLight[pos])
+	raw := int(d.blockLight.get(pos))
 	if sk := skyEffective(d, pos); sk > raw {
 		raw = sk
 	}

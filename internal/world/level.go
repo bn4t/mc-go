@@ -53,6 +53,10 @@ type LevelData struct {
 	// generator settings file declares.
 	Seed               int64
 	GenerateStructures bool
+	// Generator is the overworld generator: "" or "flat" for the flat
+	// preset, "normal" for the noise generator with the overworld
+	// multi-noise biome source.
+	Generator string
 	// GameTime is the tick counter that only ever moves forward, and
 	// DayTime the overworld's day clock, which /time moves.
 	GameTime int64
@@ -236,30 +240,45 @@ func levelDatCompounds(d LevelData) map[string]any {
 // both were read off the real file, not assumed: the default preset
 // does list strongholds and villages.
 func worldGenSettings(d LevelData) map[string]any {
+	overworld := map[string]any{
+		"type": "minecraft:overworld",
+		"generator": map[string]any{
+			"type": "minecraft:flat",
+			"settings": map[string]any{
+				"biome":    "minecraft:the_void",
+				"features": int8(0),
+				"lakes":    int8(0),
+				"layers": nbt.List{Elem: nbt.TagCompound, Items: []any{
+					map[string]any{"block": "minecraft:bedrock", "height": int32(1)},
+					map[string]any{"block": "minecraft:dirt", "height": int32(2)},
+					map[string]any{"block": "minecraft:grass_block", "height": int32(1)},
+				}},
+				"structure_overrides": nbt.List{Elem: nbt.TagString, Items: []any{
+					"minecraft:strongholds", "minecraft:villages",
+				}},
+			},
+		},
+	}
+	if d.Generator == "normal" {
+		// The default world preset's overworld (world_preset/normal).
+		overworld = map[string]any{
+			"type": "minecraft:overworld",
+			"generator": map[string]any{
+				"type":     "minecraft:noise",
+				"settings": "minecraft:overworld",
+				"biome_source": map[string]any{
+					"type":   "minecraft:multi_noise",
+					"preset": "minecraft:overworld",
+				},
+			},
+		}
+	}
 	return map[string]any{
 		"bonus_chest":         int8(0),
 		"generate_structures": boolByte(d.GenerateStructures),
 		"seed":                d.Seed,
 		"dimensions": map[string]any{
-			"minecraft:overworld": map[string]any{
-				"type": "minecraft:overworld",
-				"generator": map[string]any{
-					"type": "minecraft:flat",
-					"settings": map[string]any{
-						"biome":    "minecraft:the_void",
-						"features": int8(0),
-						"lakes":    int8(0),
-						"layers": nbt.List{Elem: nbt.TagCompound, Items: []any{
-							map[string]any{"block": "minecraft:bedrock", "height": int32(1)},
-							map[string]any{"block": "minecraft:dirt", "height": int32(2)},
-							map[string]any{"block": "minecraft:grass_block", "height": int32(1)},
-						}},
-						"structure_overrides": nbt.List{Elem: nbt.TagString, Items: []any{
-							"minecraft:strongholds", "minecraft:villages",
-						}},
-					},
-				},
-			},
+			"minecraft:overworld": overworld,
 			"minecraft:the_nether": map[string]any{
 				"type": "minecraft:the_nether",
 				"generator": map[string]any{
@@ -395,6 +414,18 @@ func ReadLevel(dir string) (LevelData, error) {
 			}
 			if gen, ok := payload["generate_structures"].(int8); ok {
 				out.GenerateStructures = gen != 0
+			}
+			if dims, ok := payload["dimensions"].(map[string]any); ok {
+				if ow, ok := dims["minecraft:overworld"].(map[string]any); ok {
+					if g, ok := ow["generator"].(map[string]any); ok {
+						switch g["type"] {
+						case "minecraft:noise":
+							out.Generator = "normal"
+						case "minecraft:flat":
+							out.Generator = "flat"
+						}
+					}
+				}
 			}
 		}
 	}

@@ -20,6 +20,7 @@ type DimensionSaveSnapshot struct {
 
 type dimensionSaveChunk struct {
 	blocks   []Block
+	biomes   []string
 	entities []map[string]any
 	light    *ChunkLight
 }
@@ -28,10 +29,26 @@ type dimensionSaveChunk struct {
 // all NBT and light supplied by the callbacks. It performs no serialization or IO.
 func (w *World) CaptureDimensionSave(minY, height int, entities func(cx, cz int) []map[string]any, lights func(cx, cz int) *ChunkLight) *DimensionSaveSnapshot {
 	s := &DimensionSaveSnapshot{minY: minY, height: height, biome: w.biomeName(), regions: regionChunksOf(w.Snapshot(), minY, height), chunks: make(map[chunkKey]dimensionSaveChunk)}
+	if w.base != nil {
+		// A provided world saves every chunk it generated or loaded, as
+		// the real server saves its loaded chunks: regenerating one
+		// later could differ where neighbours' features overlapped.
+		for _, k := range w.base.keys() {
+			r := chunkKey{int32(k[0] >> 5), int32(k[1] >> 5)}
+			c := chunkKey{int32(k[0]), int32(k[1])}
+			found := false
+			for _, have := range s.regions[r] {
+				found = found || have == c
+			}
+			if !found {
+				s.regions[r] = append(s.regions[r], c)
+			}
+		}
+	}
 	for _, keys := range s.regions {
 		for _, key := range keys {
 			cx, cz := int(key.X), int(key.Z)
-			c := dimensionSaveChunk{blocks: make([]Block, 16*height*16)}
+			c := dimensionSaveChunk{blocks: make([]Block, 16*height*16), biomes: w.ChunkBiomes(cx, cz)}
 			w.FillBox(Pos{cx * 16, minY, cz * 16}, Pos{cx*16 + 15, minY + height - 1, cz*16 + 15}, c.blocks)
 			if entities != nil {
 				source := entities(cx, cz)

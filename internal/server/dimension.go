@@ -105,7 +105,11 @@ type dimension struct {
 	// blkLayered tracks which sections hold a materialized block-light
 	// layer — the same eligibility set as sky — and blkStoring gates
 	// every write.
-	blockLight map[world.Pos]uint8
+	blockLight blockLightGrid
+	// genEmit caches a provided chunk's generated emitters; genLit
+	// marks chunks whose generated emitters were spread.
+	genEmit    map[[2]int][]genEmitter
+	genLit     map[[2]int]bool
 	lightDirty map[[2]int]map[int]bool
 	blkLayered map[[2]int]map[int]bool
 	// blkWritten tracks which layered block-light sections have ever
