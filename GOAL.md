@@ -18338,3 +18338,11 @@ Provenance: Java 26.2 wire and public TimeArgument API observations, Temurin 25.
 - **Pinned:** baseline FAIL 40.98 s with all native controls valid; final four disconnect/rejoin controls PASS 14.61 s, original 26 valid-hand regression PASS 15.74 s. Immutable build, vet and tagged compilation pass. This covers these enum values in protocol 776, not truncated fields, other packet enums or all legacy profiles.
 
 Provenance: Java 26.2 wire and public packet STREAM_CODEC probes, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA1 86765a5899bd9c96461036a628796b4245715058; probe SHA256 590ca8c3ab33ce4cefeb06daa7d1388835840ee6ec893365f3cb14a865b9a6e9. Frozen four-file patch c998e9de101b8b18b63bad4c6206ca9832d78bb18c75c963ffd18af272d69c18. Initial offhand setup failure occurred before the malformed action and is not packet evidence.
+
+## Slice — player attack-speed attributes (2026-10-29)
+
+- **Measured:** after 32 observed player ticks, default iron-sword damage is six, while zero effective speed leaves the attack uncharged: sword damage 1.2 and unarmed damage 0.2. Base overrides, negative additive modifiers and a total multiplier of -1 establish the same behavior. Old Go ignored them.
+- **Implemented:** include the generated mainhand modifier inside player attack_speed passes, sanitize the measured 0–1024 range and evaluate the native double reciprocal-times-20 before float32 conversion. Damage and attack-scale functions remain unchanged.
+- **Pinned:** five independent native health controls PASS 43.63 s; focused composition/range/combat units PASS 18.948 s, including bit-identical delays for every existing generated default weapon. Three repeats of exact sword health 14 passed at both 20 and 16 TPS. Custom item attribute components, attribute query/equipment projection and within-pass accumulation order remain partial.
+
+Provenance: Java 26.2 wire and factual Player/Attributes/RangedAttribute arithmetic, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Frozen three-file patch e52eac97d2c8b024328ea806fc09f124346e406f75273ee2c9d090b761457dd4. Existing generated speed data is reused without changes.

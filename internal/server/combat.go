@@ -92,17 +92,35 @@ func (sess *Session) heldAttackDamage() float32 {
 	return float32(max(0, min(2048, value)))
 }
 
-// heldAttackDelayTicks is vanilla's getCurrentItemAttackStrengthDelay:
-// (1 / attackSpeed) * 20, with attackSpeed the base 4 plus the item's
-// mainhand attribute modifier (a stone sword's -2.4 => 12.5 ticks).
+// heldAttackDelayTicks applies the mainhand modifier inside the player's
+// attack_speed passes, then evaluates (1 / speed) * 20 in double precision
+// before the final float32 conversion (Player, 26.2 factual arithmetic).
 func (sess *Session) heldAttackDelayTicks() float32 {
-	speed := float64(4.0)
-	if held := sess.heldStack(); !held.Empty() {
-		if name, ok := itemNameOf(held.ID); ok {
-			speed += itemAttackSpeedMod[name]
+	base := playerAttrBases["attack_speed"]
+	mods := map[string]attrMod{}
+	if sess.server != nil && sess.server.entities != nil {
+		if player, ok := sess.server.entities.Get(sess.entityID.Load()); ok {
+			if value, present := player.AttrBase["attack_speed"]; present {
+				base = value
+			}
+			for id, modifier := range player.AttrMods["attack_speed"] {
+				mods[id] = modifier
+			}
 		}
 	}
-	return 20.0 / float32(speed)
+	if held := sess.heldStack(); !held.Empty() {
+		if name, ok := itemNameOf(held.ID); ok {
+			if modifier, present := itemAttackSpeedMod[name]; present {
+				mods["minecraft:base_attack_speed"] = attrMod{value: modifier}
+			}
+		}
+	}
+	speed := attrValue(base, mods)
+	if math.IsNaN(speed) {
+		speed = 0
+	}
+	speed = max(0, min(1024, speed))
+	return float32(1 / speed * 20)
 }
 
 // attackScale is vanilla's getAttackStrengthScale(0.5): the charge
