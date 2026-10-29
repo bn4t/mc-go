@@ -145,7 +145,9 @@ Mojang server over the wire.
 ### Player
 - [~] Movement tracking, keep-alive, chat, tab list; spectator UUID teleport
       copies target position/orientation and crosses dimensions (wire-pinned)
-- [~] Full inventory + container protocol (chest + window-0 click
+- [~] Full inventory + container protocol (nonempty cursor drag and double-click
+  collection for player/storage/crafting menus, offhand swaps for player/chest/
+  generic storage; chest + window-0 click
   parity scripted step by step, stale-state resync, menu titles, ender
   chest over shared player storage with close/reopen/break persistence;
   creative middle-click clone, close-returns-cursor (order + full
@@ -16768,3 +16770,33 @@ no flee; unsneak → flee). Green both legs.
   moisture seven and covered moisture zero against both servers (133.24 s).
   Focused units cover exposed plains, glass cover, desert and snowy plains
   along with the cave-vine regression (2.110 s). No skips.
+
+
+## Slice — inventory drag, collection and offhand swaps (2026-10-29)
+
+- **Measured:** official 26.2 wire behavior plus JDK 25.0.5 javap facts from
+  `AbstractContainerMenu.doClick`, its quick-craft phase/type helpers,
+  `InventoryMenu` and `CraftingMenu`; oracle jar SHA-1
+  `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Earlier drag coverage used an
+  empty cursor and did not exercise distribution. New pins use actual items.
+- **Implemented:** mode-five drag state and deduplicated slot selection support
+  even distribution, right-drag single items, creative filling, stack caps,
+  single-slot pickup, interruption and close/reset. Player 2x2 and table 3x3
+  input grids recompute their result and reject result-slot distribution.
+  Mode-six collection takes partial stacks before full stacks, honors forward
+  or reverse traversal, component identity and maximum counts, and excludes
+  crafting results. Mode-two swaps recognize hotbar buttons zero through eight
+  and offhand button 40; button nine is rejected. Storage swaps preserve the
+  measured target-only menu synchronization and allow empty-hand extraction.
+- **Pinned:** `TestQuickCraftStorageParity` passes nonempty storage/player
+  distributions, creative filling and active-close reset (106.63 s).
+  `TestQuickCraftGridParity` passes both grids, producing a real crafting-table
+  result from distributed planks (49.18 s). `TestPickupAllParity` passes five
+  forward/reverse, stack-limit, player and protected-crafting-result cases
+  (124.188 s). `TestOffhandContainerSwapParity` passes occupied/empty offhand,
+  swap-back, player-window and invalid-button cases for chest and barrel
+  (61.29 s). All run against vanilla without skips.
+- **Remaining:** drag coverage excludes armor and specialized action menus;
+  collection adapters exclude action menus/hoppers needing take callbacks.
+  Offhand support retains existing specialized output/typed-slot restrictions.
+  These pins do not establish every menu's complete vanilla click semantics.

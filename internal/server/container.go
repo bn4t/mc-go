@@ -436,10 +436,10 @@ type containerData struct {
 	// (data.Recipes indexes filtered by the input item); stoneInput is
 	// the item id the list was built for — a different input item
 	// drops the selection. -1 means nothing selected / no input.
-	stoneSel     int32
-	stoneInput   int32
+	stoneSel      int32
+	stoneInput    int32
 	stoneProtocol int32
-	stoneRecipes []int
+	stoneRecipes  []int
 	// loomSel is the loom's selectedBannerPatternIndex DataSlot — the
 	// selected pattern index broadcast on Container Property 0, -1 when
 	// nothing is selected. loomPatterns is the selectable holder list
@@ -812,6 +812,18 @@ func (s *Server) handleContainerClick(sess *Session, w *openWindow, c *container
 			touched = append(touched, cartographyMap, cartographyAdditional)
 		}
 	case 2:
+		if _, valid := inventorySwapSlot(button); !valid {
+			return
+		}
+		if button == 40 {
+			offhand := sess.stackAt(slotOffhand)
+			if isResult || (!offhand.Empty() && !menuAccepts(c.spec, int(slot), offhand)) {
+				break
+			}
+			s.swapMenuOffhand(sess, int(slot))
+			touched = append(touched, int(slot))
+			break
+		}
 		swap := w.menuSize() - 9 + int(button)
 		if isResult || swap < w.menuSize()-9 || swap >= w.menuSize() {
 			break

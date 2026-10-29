@@ -109,9 +109,10 @@ type Session struct {
 	// Player inventory window (46 slots), guarded by invMu. Slots are Slots are
 	// populated from Set Creative Mode Slot and container clicks; the
 	// selected hotbar slot (0-8) picks what Use Item On places.
-	invMu   sync.RWMutex
-	inv     [slotCount]ItemStack
-	carried ItemStack
+	invMu      sync.RWMutex
+	inv        [slotCount]ItemStack
+	carried    ItemStack
+	quickCraft quickCraft // simulation-owner drag gesture
 	// ender is the player's ender chest (27 slots), which /item addresses
 	// as enderchest.N and which persists with the player.
 	ender [27]ItemStack

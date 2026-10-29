@@ -1298,6 +1298,12 @@ func creativeClone(sess *Session, it ItemStack, button byte) (ItemStack, bool) {
 // reports whether an equipment slot changed, so the caller can
 // broadcast it after the inventory lock is released.
 func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
+	if s.handleQuickCraftPacket(sess, p) {
+		return false
+	}
+	if s.handlePickupAllPacket(sess, p) {
+		return false
+	}
 	r := protocol.NewPacketReader(p.Data)
 	win, err := r.VarInt()
 	if err != nil {
@@ -1452,8 +1458,11 @@ func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
 				s.quickMoveLocked(sess, slot, slotMainStart, slotHotbarStart-1, &touched)
 			}
 		}
-	case 2: // swap with hotbar button
-		swap := int16(slotHotbarStart) + int16(button)
+	case 2: // hotbar 0..8 or offhand 40
+		swap, valid := inventorySwapSlot(button)
+		if !valid {
+			return false
+		}
 		if swap >= slotHotbarStart && swap <= slotOffhand {
 			sess.inv[slot], sess.inv[swap] = sess.inv[swap], sess.inv[slot]
 			touch(slot)

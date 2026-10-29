@@ -760,6 +760,17 @@ func (s *Server) handleChestClick(sess *Session, w *openWindow, slot int16, butt
 		}
 		sess.setMenuStack(int(slot), moving)
 	case 2:
+		if _, valid := inventorySwapSlot(button); !valid {
+			return
+		}
+		if button == 40 {
+			if w.furnace != nil && slot == furnaceOutput {
+				break
+			}
+			s.swapMenuOffhand(sess, int(slot))
+			touched = append(touched, int(slot))
+			break
+		}
 		swap := w.menuSize() - 9 + int(button)
 		if w.furnace != nil && slot == furnaceOutput {
 			break
@@ -893,6 +904,7 @@ func (s *Server) handleCloseContainer(sess *Session, p protocol.Packet) {
 	}
 	sess.window = nil
 	sess.windowMu.Unlock()
+	sess.quickCraft = quickCraft{}
 	s.menuRemoved(sess, w, false)
 	// No Container Close echo: the real server never answers a
 	// client-initiated close (four anvil closes, zero 0x11), the
