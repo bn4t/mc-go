@@ -44,6 +44,7 @@ func (r *wgRandom) Consume(n int) {
 }
 func (r *wgRandom) Fork() Random                     { return NewLegacy(r.NextLong()) }
 func (r *wgRandom) ForkPositional() PositionalRandom { return &LegacyPositional{seed: r.NextLong()} }
+
 // SetSeed reseeds the wrapped source only: WorldgenRandom.setSeed does
 // not reach LegacyRandomSource.setSeed, so a cached second Gaussian
 // survives into the next feature's seed.
