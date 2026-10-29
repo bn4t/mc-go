@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"mc-go/internal/nbt"
 	"mc-go/internal/world"
 )
 
@@ -13,8 +14,8 @@ import (
 // (JukeboxBlock/JukeboxBlockEntity/JukeboxSongPlayer):
 //   - useItemOn: has_record already set answers TRY_WITH_EMPTY_HAND
 //     regardless of the held item → the click falls through to
-//     useWithoutItem's popOutTheItem — any click on a loaded jukebox
-//     ejects (a held disc never places). An empty jukebox takes a
+//     useWithoutItem's popOutTheItem on the default main-hand path;
+//     offhand skips that default (a held disc never places). An empty jukebox takes a
 //     JUKEBOX_PLAYABLE item (a music disc) via setTheItem; anything
 //     else passes both paths → the item places.
 //   - setTheItem → notifyItemChangedInJukebox writes has_record with
@@ -24,9 +25,9 @@ import (
 //   - JukeboxSongPlayer.tick re-emits GameEvent.JUKEBOX_PLAY every 20
 //     ticks (a note particle rides it) until length_in_seconds*20,
 //     then stop(): GameEvent.JUKEBOX_STOP_PLAY + level_event 1011.
-//   - popOutTheItem drops the disc at pos+(0.5,1.01,0.5) scattered
-//     ±0.7 on xz with the default 10-tick pickup delay, then the same
-//     has_record=false/BLOCK_CHANGE pair and the stop events.
+//   - popOutTheItem clears has_record/BLOCK_CHANGE and stops playback,
+//     then drops the disc at pos+(0.5,1.01,0.5) scattered ±0.7 on xz
+//     with the default 10-tick pickup delay.
 type jukeboxEnt struct {
 	components map[string]any
 	disc       ItemStack
@@ -89,7 +90,7 @@ func (s *Server) useJukeboxInHand(sess *Session, d *dimension, pos world.Pos, ha
 		if hand != 0 {
 			return false
 		}
-		s.jukeboxEject(d, pos, cur)
+		s.jukeboxEject(d, pos)
 		return true
 	}
 	held, slot := sess.stackForHand(hand)
@@ -133,20 +134,10 @@ func (s *Server) useJukeboxInHand(sess *Session, d *dimension, pos world.Pos, ha
 	return true
 }
 
-// jukeboxEject is JukeboxBlockEntity.popOutTheItem: spawn the held
-// disc at pos+(0.5,1.01,0.5) scattered ±0.7 xz with the default
-// pickup delay, then has_record=false flag-2 + BLOCK_CHANGE and the
-// song stop (JUKEBOX_STOP_PLAY + level_event 1011).
-func (s *Server) jukeboxEject(d *dimension, pos world.Pos, cur world.Block) {
-	if !s.jukeboxPopRecord(d, pos) {
-		return
-	}
-	if nb, ok := world.WithProperty(cur, "has_record", "false"); ok {
-		s.rsWriteBlockFlag2(d, pos, nb)
-	}
-	s.emitGameEvent(d, "block_change",
-		float64(pos.X)+0.5, float64(pos.Y)+0.5, float64(pos.Z)+0.5, nil, "jukebox")
-
+// Ejection clears the block's record flag and stops playback before spawning
+// the scattered record item. Block-update packets may be batched separately.
+func (s *Server) jukeboxEject(d *dimension, pos world.Pos) {
+	s.jukeboxPopRecord(d, pos)
 }
 
 // jukeboxStopSong is JukeboxSongPlayer.stop: JUKEBOX_STOP_PLAY at the
@@ -175,15 +166,24 @@ func (s *Server) jukeboxPopRecord(d *dimension, pos world.Pos) bool {
 	if len(jb.components) == 0 {
 		delete(d.jukeboxes, pos)
 	}
+	cur := d.w.GetBlock(pos)
+	name, _ := world.StateOwner(cur)
+	if name == "jukebox" {
+		if next, ok := world.WithProperty(cur, "has_record", "false"); ok {
+			s.rsWriteBlockFlag2(d, pos, next)
+		}
+		s.emitGameEvent(d, "block_change", float64(pos.X)+.5, float64(pos.Y)+.5, float64(pos.Z)+.5, nil, "jukebox")
+	}
+	if playing {
+		s.jukeboxStopSong(d, pos)
+	}
+
 	kind, ok := EntityTypeID("item")
 	if ok {
 		radius := float64(float32(.7))
 		e := s.entities.Spawn(&Entity{Type: kind, Dim: d.name, X: float64(pos.X) + .5 + (rand.Float64()*2-1)*radius, Y: float64(pos.Y) + 1.01, Z: float64(pos.Z) + .5 + (rand.Float64()*2-1)*radius, MotionX: rand.Float64()*.2 - .1, MotionY: .2, MotionZ: rand.Float64()*.2 - .1, Item: disc, PickupDelay: 10})
 		s.broadcastEntitySpawn(nil, *e)
 		s.broadcastEntityMetadata(e.ID, encodeItemMetadata(disc))
-	}
-	if playing {
-		s.jukeboxStopSong(d, pos)
 	}
 	return true
 }
@@ -272,19 +272,72 @@ func jukeboxDiscFromNBT(fields map[string]any) ItemStack {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	ominous := jukeboxIsOminous(components)
 	entries := make([]string, 0, len(keys))
 	for _, key := range keys {
+		if ominous && (key == "minecraft:tooltip_display" || key == "minecraft:item_name" || key == "minecraft:rarity") {
+			continue
+		}
+		if key == "minecraft:map_post_processing" || key == "minecraft:trim" {
+			continue
+		}
+		if key == "minecraft:fireworks" {
+			if raw, ok := components[key].(map[string]any); ok {
+				value := cloneNBTValue(raw).(map[string]any)
+				flight := nbtNumberOr(value["flight_duration"], 0)
+				if flight < 0 {
+					flight += 256
+				}
+				value["flight_duration"] = int32(flight)
+				if _, ok := value["explosions"]; !ok {
+					value["explosions"] = nbt.List{Elem: nbt.TagCompound}
+				}
+				entries = append(entries, key+"="+componentSNBT(value))
+				continue
+			}
+		}
+		if strings.HasPrefix(key, "!") {
+			entries = append(entries, key)
+			continue
+		}
 		entries = append(entries, key+"="+componentSNBT(components[key]))
 	}
 	if patch, _, ok := parseItemPatch(strings.Join(entries, ","), 0); ok {
 		patch.ID, patch.Count = disc.ID, disc.Count
-		return patch
+		patch.Trim = disc.Trim
+		if ominous {
+			patch.Ominous = true
+			patch.BannerPatterns = ""
+		}
+		return jukeboxNestedComponents(patch, components)
 	}
 	return disc
 }
 
+// Compare modeled effective values, including native component presence.
+// Root count and client bundle selection do not identify the record.
 func jukeboxSameDisc(a, b ItemStack) bool {
-	return a.ID == b.ID && reflect.DeepEqual(jukeboxDiscComponents(a), jukeboxDiscComponents(b))
+	return reflect.DeepEqual(jukeboxComparableDisc(a), jukeboxComparableDisc(b))
+}
+
+func jukeboxComparableDisc(disc ItemStack) ItemStack {
+	disc.Count, disc.BundleSelected = 1, 0
+	name, _ := world.ItemName(disc.ID)
+	if name == "goat_horn" {
+		if disc.Instrument == "" && !disc.InstrumentRemoved {
+			disc.Instrument = "ponder_goat_horn"
+		}
+	} else if disc.Instrument == "" {
+		// Removing a component absent from the item's prototype is a no-op.
+		disc.InstrumentRemoved = false
+	}
+	if name == "firework_rocket" && disc.Fireworks == "" {
+		disc.Fireworks = "1"
+	}
+	if (name == "shulker_box" || strings.HasSuffix(name, "_shulker_box")) && disc.Contents == nil {
+		disc.Contents = new([shulkerSlots]ItemStack)
+	}
+	return disc
 }
 
 func (s *Server) restoreJukebox(d *dimension, pos world.Pos, fields map[string]any) {
@@ -292,6 +345,9 @@ func (s *Server) restoreJukebox(d *dimension, pos world.Pos, fields map[string]a
 	var disc ItemStack
 	if raw, ok := fields["RecordItem"].(map[string]any); ok {
 		disc = jukeboxDiscFromNBT(raw)
+		if disc.ID != 0 && disc.Count == 0 {
+			disc.Count = 1
+		}
 	}
 	var components map[string]any
 	if raw, ok := fields["components"].(map[string]any); ok {
@@ -333,20 +389,4 @@ func (s *Server) jukeboxAt(d *dimension, pos world.Pos) *jukeboxEnt {
 		delete(d.genericBE, pos)
 	}
 	return d.jukeboxes[pos]
-}
-
-func jukeboxDiscComponents(disc ItemStack) map[string]any {
-	components := itemComponentsNBT(disc)
-	for key, value := range stackHoverComponents(disc) {
-		components[key] = value
-	}
-	return components
-}
-
-func jukeboxDiscNBT(disc ItemStack) map[string]any {
-	fields := itemNBT(disc)
-	if components := jukeboxDiscComponents(disc); len(components) != 0 {
-		fields["components"] = components
-	}
-	return fields
 }

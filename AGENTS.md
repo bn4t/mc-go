@@ -84,6 +84,10 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   as selected-hand state and cost. Check effect recipients separately: the
   acting client can predict sounds/particles that only observers receive.
   Open-viewer continuity requires a usable menu backed by the same live object.
+- Keep persistent component codec defaults distinct from item prototype defaults.
+  An explicit empty component can differ from absence. For effect/spawn ordering,
+  establish positive tracking first; batched block packets do not expose internal
+  state-mutation order by themselves.
 - Each server leg must independently satisfy meaningful expected values.
   Equal empty captures, stale menu caches or a decoder that truncates unknown
   definitions do not establish parity. Diagnose fixture failures on an

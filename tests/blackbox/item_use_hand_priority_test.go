@@ -14,6 +14,7 @@ import (
 )
 
 type handUseCase struct {
+	order                                          bool
 	sound                                          string
 	levelEvent                                     int32
 	eventActor                                     bool
@@ -68,6 +69,7 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 	targets := requireBlackboxFiles(t, map[string]string{"view-distance": "2"}, map[string]string{"ops.json": opsJSONFor("HandUse", "HandHear")}, nil)
 	defer targets.cleanup()
 	type result struct {
+		order                                                             string
 		soundActor, soundOther, eventActor, eventOther                    int
 		menuKind, menuSlots, menuID, menuCount                            int32
 		menuTitle                                                         string
@@ -117,6 +119,8 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 		menuTitle := ""
 		editor := false
 		window := int32(0)
+		orderActive, warmSpawn := false, false
+		var order []string
 		fold := func(lines []string) {
 			a, b := countHandEffectsBB(lines, effectSound, effectEvent)
 			soundActor += a
@@ -131,6 +135,32 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 					continue
 				}
 				r := protocol.NewPacketReader([]byte(line[sep+1:]))
+				if id == server.IDPlaySpawnEntity {
+					_, e := r.VarInt()
+					_, e2 := r.Read(16)
+					typ, e3 := r.VarInt()
+					x, e4 := r.Double()
+					y, e5 := r.Double()
+					z, e6 := r.Double()
+					itemType, _ := server.EntityTypeID("item")
+					if e == nil && e2 == nil && e3 == nil && e4 == nil && e5 == nil && e6 == nil && typ == itemType {
+						if math.Abs(x-1.5) < 1e-6 && math.Abs(y-161.25) < 1e-6 && math.Abs(z-.5) < 1e-6 {
+							warmSpawn = true
+						}
+						if orderActive && math.Abs(y-160.01) < 1e-5 && x > -.21 && x < 1.21 && z > -.21 && z < 1.21 {
+							order = append(order, "spawn")
+						}
+					}
+					continue
+				}
+				if orderActive && id == server.IDPlayLevelEvent {
+					event, e := r.Int()
+					x, y, z, e2 := r.Position()
+					if e == nil && e2 == nil && event == 1011 && x == 0 && y == 159 && z == 0 {
+						order = append(order, "stop")
+					}
+					continue
+				}
 				switch id {
 				case server.IDPlayContainerSlot:
 					wid, e := r.VarInt()
@@ -246,6 +276,8 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 		}
 		var out []result
 		for i, tc := range cases {
+			warmSpawn = false
+			orderActive = false
 			if window != 0 {
 				var b protocol.Buffer
 				b.VarInt(window)
@@ -347,6 +379,18 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 					setupOK = setupOK && structureSaidBB(lines, marker)
 				}
 			}
+			if tc.order {
+				deadline := time.Now().Add(5 * time.Second)
+				for !warmSpawn && time.Now().Before(deadline) {
+					fold(sink.take())
+					time.Sleep(10 * time.Millisecond)
+				}
+				if !warmSpawn {
+					t.Fatalf("%s %s missing warm item pairing", addr, tc.name)
+				}
+			}
+			order = nil
+			orderActive = tc.order
 			effectSound, effectEvent = -1, tc.levelEvent
 			if tc.sound != "" {
 				effectSound, _ = server.SoundEventID(tc.sound)
@@ -441,7 +485,14 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 				other := collectHandWatchBB(t, watch, end)
 				soundOther, eventOther = countHandEffectsBB(other, effectSound, effectEvent)
 			}
-			r := result{soundActor: soundActor, soundOther: soundOther, eventActor: eventActor, eventOther: eventOther, menuKind: menuKind, menuSlots: menuSize, menuID: menuFirst.ID, menuCount: menuFirst.Count, menuTitle: menuTitle, setup: setupOK, checks: allChecks, editor: editor, main: slots[36].Count, off: slots[45].Count, mainID: slots[36].ID, offID: slots[45].ID, mainDamage: slots[36].Damage, offDamage: slots[45].Damage, block: flags[0], pigMain: flags[1], pigOff: flags[2], rocket: flags[3], menu: opened, book: flags[4]}
+			if tc.order {
+				deadline := time.Now().Add(5 * time.Second)
+				for len(order) < 2 && time.Now().Before(deadline) {
+					fold(sink.take())
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
+			r := result{order: strings.Join(order, ","), soundActor: soundActor, soundOther: soundOther, eventActor: eventActor, eventOther: eventOther, menuKind: menuKind, menuSlots: menuSize, menuID: menuFirst.ID, menuCount: menuFirst.Count, menuTitle: menuTitle, setup: setupOK, checks: allChecks, editor: editor, main: slots[36].Count, off: slots[45].Count, mainID: slots[36].ID, offID: slots[45].ID, mainDamage: slots[36].Damage, offDamage: slots[45].Damage, block: flags[0], pigMain: flags[1], pigOff: flags[2], rocket: flags[3], menu: opened, book: flags[4]}
 			out = append(out, r)
 			t.Logf("%s %s %+v", addr, tc.name, r)
 		}
@@ -450,6 +501,9 @@ func checkHandUseCases(t *testing.T, cases []handUseCase) {
 	vanilla, mcgo := run(targets.vanilla), run(targets.mcgo)
 	for i, tc := range cases {
 		want := result{setup: true, checks: true, editor: tc.editor, mainDamage: tc.mainDamage, offDamage: tc.offDamage, main: tc.mainEnd, off: tc.offEnd, block: true, menu: tc.menu, book: tc.book, rocket: tc.entity == "firework_rocket"}
+		if tc.order {
+			want.order = "stop,spawn"
+		}
 		if tc.sound != "" {
 			want.soundOther = 1
 		}

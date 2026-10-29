@@ -125,10 +125,15 @@ and reconciliation of saved criteria after pack changes remain separate work.
 
 Jukebox state has one typed owner across command hydration, native disk data
 and interaction. Migration retires legacy generic backing so an ejected record
-cannot reappear. Disc identity compares modeled components independently of
-count; optional elapsed-time omission can retain an existing playback clock.
+cannot reappear. A private record codec preserves modeled persistent components and explicit
+empty-container presence. Identity excludes root count/client selection and
+normalizes measured item prototype defaults; optional elapsed-time omission
+can retain an existing playback clock.
 Content ejection and block-entity retirement are separate effects, allowing
 command flags to suppress drops while still sending the stop notification.
+Interaction ejection stops playback before spawning the record; block-update
+packets can arrive later through their separate batch. General component
+presence/removal semantics and nested prototype normalization remain partial.
 
 Tool transformations use an explicit compatible block-entity write policy.
 The same live storage object remains available during on-place and neighbor

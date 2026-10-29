@@ -142,3 +142,12 @@ default capture policy. For nondeterministic layouts, first demonstrate variatio
 across unchanged native runs, normalize only those fields, and independently
 check each server's geometric constraints; equality after discarding all layout
 data is insufficient.
+
+## Component identity and effect ordering
+
+Persistent codec defaults and an item's prototype defaults are separate facts.
+An explicit empty component can differ from absence; test both identity and
+serialization before normalizing them. Before asserting spawn/effect packet
+order, establish a positive same-chunk spawn witness. Block updates can be
+batched after synchronous effects, so packet order alone does not establish
+internal mutation order.
