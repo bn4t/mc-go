@@ -19,20 +19,23 @@ import (
 // suffix and empty disables data persistence.
 
 type playerPersist struct {
-	Inv        [slotCount]ItemStack `json:"inv"`
-	Carried    ItemStack            `json:"carried"`
-	Ender      [27]ItemStack        `json:"ender"`
-	Body       ItemStack            `json:"body"`
-	XPTotal    int32                `json:"xp_total"`
-	XPLevel    int32                `json:"xp_level"`
-	XPProgress float32              `json:"xp_progress"`
-	Health     float32              `json:"health"`
-	Food       int32                `json:"food"`
-	Saturation float32              `json:"saturation"`
-	Dim        string               `json:"dim,omitempty"`
-	X          float64              `json:"x,omitempty"`
-	Y          float64              `json:"y,omitempty"`
-	Z          float64              `json:"z,omitempty"`
+	WalkSpeed  *playerAttributeJSONNumber `json:"walk_speed,omitempty"`
+	Effects    []playerEffectPersist      `json:"effects,omitempty"`
+	Attributes []playerAttributePersist   `json:"attributes,omitempty"`
+	Inv        [slotCount]ItemStack       `json:"inv"`
+	Carried    ItemStack                  `json:"carried"`
+	Ender      [27]ItemStack              `json:"ender"`
+	Body       ItemStack                  `json:"body"`
+	XPTotal    int32                      `json:"xp_total"`
+	XPLevel    int32                      `json:"xp_level"`
+	XPProgress float32                    `json:"xp_progress"`
+	Health     float32                    `json:"health"`
+	Food       int32                      `json:"food"`
+	Saturation float32                    `json:"saturation"`
+	Dim        string                     `json:"dim,omitempty"`
+	X          float64                    `json:"x,omitempty"`
+	Y          float64                    `json:"y,omitempty"`
+	Z          float64                    `json:"z,omitempty"`
 	// The fields below back the vanilla-format player file
 	// (players/data/<uuid>.dat); the JSON store carries them too.
 	UUID           [16]byte `json:"uuid,omitempty"`
@@ -148,6 +151,10 @@ func snapshotPlayer(sess *Session) playerPersist {
 	sess.invMu.RLock()
 	p := playerPersist{Inv: sess.inv, Carried: sess.carried, Ender: sess.ender, Body: sess.bodyArmor}
 	sess.invMu.RUnlock()
+	walkSpeed := playerAttributeJSONNumber(sess.playerWalkingSpeed())
+	p.WalkSpeed = &walkSpeed
+	p.Attributes = snapshotPlayerAttributes(sess)
+	p.Effects = snapshotPlayerEffects(sess)
 	p.XPTotal = sess.xpTotal
 	p.XPLevel = sess.xpLevel
 	p.XPProgress = sess.xpProgress
@@ -432,6 +439,10 @@ func (s *Server) applySavedPlayer(sess *Session) {
 	sess.ender = p.Ender
 	sess.bodyArmor = p.Body
 	sess.invMu.Unlock()
+	if p.WalkSpeed != nil {
+		sess.walkingSpeed, sess.walkingSpeedSet = p.savedWalkingSpeed(), true
+	}
+	s.restoreSavedPlayerEffects(sess, p.Effects)
 	sess.seenCredits = p.SeenCredits
 	sess.xpTotal = p.XPTotal
 	sess.xpLevel = p.XPLevel

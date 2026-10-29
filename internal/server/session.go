@@ -22,11 +22,16 @@ type Session struct {
 	playerRecord
 	id     int64
 	server *Server
-	conn   net.Conn
-	pr     *protocol.Reader
-	pw     *protocol.Writer
-	wmu    sync.Mutex
-	state  atomic.Int32
+	// Detached attribute and remaining-effect cut taken before common retirement.
+	retiredAttributes []playerAttributePersist
+	retiredEffects    []playerEffectPersist
+	walkingSpeed      float32
+	walkingSpeedSet   bool
+	conn              net.Conn
+	pr                *protocol.Reader
+	pw                *protocol.Writer
+	wmu               sync.Mutex
+	state             atomic.Int32
 	// profileProps is the session-server GameProfile properties
 	// attached to Login Success in online mode; empty offline.
 	profileProps []profileProperty

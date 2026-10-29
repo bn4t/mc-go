@@ -76,6 +76,7 @@ func (s *Server) joinPlayOwned(sess *Session) bool {
 		Dim: sess.dimName(),
 		X:   x, Y: y, Z: z,
 	}).ID)
+	s.applySavedPlayerAttributes(sess)
 	if err := s.sendJoinGame(sess); err != nil {
 		return false
 	}
@@ -183,6 +184,7 @@ func (s *Server) joinPlayOwned(sess *Session) bool {
 	if err := s.sendUpdateAttributes(sess); err != nil {
 		return false
 	}
+	s.sendSavedPlayerEffects(sess)
 	// Remote-player visibility: everyone already online spawns for the
 	// joiner right after their tab-list rows arrive, along with their
 	// equipment.
@@ -646,7 +648,7 @@ func (s *Server) sendAbilities(sess *Session) error {
 	var b protocol.Buffer
 	b.Byte(flags)
 	b.Float(0.05)
-	b.Float(0.1)
+	b.Float(sess.playerWalkingSpeed())
 	return sess.write(sess.ids().PlayAbilitiesCB, b.Bytes())
 }
 

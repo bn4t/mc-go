@@ -1814,7 +1814,9 @@ func (sess *Session) playerFallDamage(distance float64) float64 {
 func (sess *Session) playerFallDamageScaled(distance float64, multiplier float32) float64 {
 	base := playerAttrBases["safe_fall_distance"]
 	mods := map[string]attrMod{}
+	canonical := false
 	if e, ok := sess.server.entities.Get(sess.entityID.Load()); ok {
+		canonical = true
 		if v, ok := e.AttrBase["safe_fall_distance"]; ok {
 			base = v
 		}
@@ -1822,13 +1824,17 @@ func (sess *Session) playerFallDamageScaled(distance float64, multiplier float32
 			mods[k] = v
 		}
 	}
-	sess.effMu.Lock()
-	if id, ok := MobEffectID("jump_boost"); ok {
-		if effect, active := sess.effects[id]; active {
-			mods["minecraft:effect.jump_boost"] = attrMod{value: float64(effect.amplifier + 1)}
+	// Detached callers have no attribute instance; admitted players use its
+	// exact modifier set, including explicit command removal or replacement.
+	if !canonical {
+		sess.effMu.Lock()
+		if id, ok := MobEffectID("jump_boost"); ok {
+			if effect, active := sess.effects[id]; active {
+				mods["minecraft:effect.jump_boost"] = attrMod{value: float64(effect.amplifier + 1)}
+			}
 		}
+		sess.effMu.Unlock()
 	}
-	sess.effMu.Unlock()
 	safe := attrRange("safe_fall_distance", attrValue(base, mods))
 	return math.Max(0, math.Floor((distance+1e-6-safe)*float64(multiplier)*sess.sessAttr("fall_damage_multiplier", nil)))
 }

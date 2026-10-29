@@ -263,6 +263,7 @@ func (s *Server) applyMobEffectWire(sess *Session, id, amplifier int32, duration
 	}
 	sess.effects[id] = inst
 	sess.effMu.Unlock()
+	s.setPlayerEffectAttributes(sess, id, inst)
 	if id == effectLevitation {
 		x, y, z, _, _, _ := sess.Pos()
 		sess.levitationStart = []float64{x, y, z}
@@ -500,21 +501,32 @@ func (s *Server) clearMobEffects(sess *Session) {
 	sess.effects = nil
 	sess.effMu.Unlock()
 	for _, id := range ids {
-		s.removeMobEffect(sess, id)
+		s.finishRemovedMobEffect(sess, id)
 	}
 }
 
 // removeMobEffect drops one effect and emits Remove Mob Effect.
 func (s *Server) removeMobEffect(sess *Session, id int32) {
+	sess.effMu.Lock()
+	_, present := sess.effects[id]
+	delete(sess.effects, id)
+	sess.effMu.Unlock()
+	if present {
+		s.finishRemovedMobEffect(sess, id)
+	}
+}
+
+// The caller has already removed a known active instance (expiry/clear/raid),
+// or removeMobEffect captured that transition. Absent-effect requests do not
+// remove unrelated command modifiers or emit effect-removal callbacks.
+func (s *Server) finishRemovedMobEffect(sess *Session, id int32) {
 	if id == effectAbsorption {
 		sess.absorb = 0
 	}
 	if id == effectLevitation {
 		sess.levitationStart = nil
 	}
-	sess.effMu.Lock()
-	delete(sess.effects, id)
-	sess.effMu.Unlock()
+	s.removePlayerEffectAttributes(sess, id)
 	var b protocol.Buffer
 	b.VarInt(sess.entityID.Load())
 	b.VarInt(id)
@@ -634,11 +646,12 @@ func (s *Server) playerEffectTickStep() {
 		}
 		sess.effMu.Unlock()
 		for _, id := range expired {
-			s.removeMobEffect(sess, id)
+			s.finishRemovedMobEffect(sess, id)
 		}
 		for _, id := range downgraded {
 			e, live := sessEffect(sess, id, sess.effectNow())
 			if live {
+				s.setPlayerEffectAttributes(sess, id, e)
 				s.sendMobEffectUpdate(sess, id, e)
 				s.fireEffectsChanged(sess)
 			}

@@ -139,6 +139,8 @@ func (s *Server) retirePlayerStateOwned(p *playerRecord, reason string) *player.
 	}
 	state := p.snapshot()
 	if p.java != nil {
+		p.java.retiredAttributes = snapshotPlayerAttributes(p.java)
+		p.java.retiredEffects = snapshotPlayerEffects(p.java)
 		p.java.cancelLivePreparationOwned()
 	}
 	p.left = true

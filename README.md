@@ -65,6 +65,13 @@ feedback unscaled; successful zero values and runtime failures retain distinct
 execution status. Effective attribute queries use generated registry ranges;
 raw base/modifier queries preserve their values. Broader equipment projection
 and physical attribute consumers remain partial.
+Native player saves retain raw attribute bases, permanent modifiers and active
+effect lifetimes. Effect modifiers expire with the associated effect; command
+modifiers with the same ID remain when no effect owns them. Reload reapplies
+held gear and uses saved walking ability speed for the movement base, matching
+native behavior. Compact JSON saves preserve nonfinite attribute values through
+an explicit bit representation. Complete ability/effect mechanics remain partial.
+
 Native NoGravity projects to client metadata at pairing and on true/false changes
 across measured living, item and boat paths. Crystal reloads retain dirty updates
 even when a flag changes back within one tick. Summoned crystal tags support

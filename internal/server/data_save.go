@@ -194,6 +194,12 @@ func cloneDataSaveSlice[T any](from []T) []T {
 }
 
 func (clone *dataSaveCloner) player(p playerPersist) playerPersist {
+	if p.WalkSpeed != nil {
+		speed := *p.WalkSpeed
+		p.WalkSpeed = &speed
+	}
+	p.Effects = cloneSavedPlayerEffects(p.Effects)
+	p.Attributes = clonePlayerSavedAttributes(p.Attributes)
 	for i, item := range p.Inv {
 		p.Inv[i] = clone.item(item)
 	}

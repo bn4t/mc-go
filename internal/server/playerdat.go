@@ -75,17 +75,12 @@ func playerDatCompound(p playerPersist) map[string]any {
 		"invulnerable": int8(0),
 		"mayBuild":     int8(1),
 		"mayfly":       nbtBool(creative),
-		"walkSpeed":    float32(0.1),
+		"walkSpeed":    p.savedWalkingSpeed(),
 	}
-	// Vanilla instantiates a fixed set of player attributes and writes
-	// each with its base value; the four below are the ones a fresh
-	// save shows, in file order.
-	m["attributes"] = nbt.List{Elem: nbt.TagCompound, Items: []any{
-		map[string]any{"base": 3.0, "id": "minecraft:entity_interaction_range"},
-		map[string]any{"base": 60000000.0, "id": "minecraft:waypoint_transmit_range"},
-		map[string]any{"base": 4.5, "id": "minecraft:block_interaction_range"},
-		map[string]any{"base": 0.1, "id": "minecraft:movement_speed"},
-	}}
+	m["attributes"] = playerAttributeSaveList(p.Attributes)
+	if len(p.Effects) > 0 {
+		m["active_effects"] = playerEffectsSaveList(p.Effects)
+	}
 	// Inventory: mc's menu slots 9-35 are vanilla's 9-35 and 36-44 is
 	// the hotbar, which vanilla numbers 0-8.
 	inv := nbt.List{Elem: nbt.TagCompound}
@@ -159,10 +154,12 @@ func playerDatCompound(p playerPersist) map[string]any {
 }
 
 // playerFromDat reads a player file back into a playerPersist. Fields
-// mc-go does not model (score, warden tracker, attributes) are dropped;
+// mc-go does not model (score, warden tracker) are dropped;
 // everything it does model restores.
 func playerFromDat(root map[string]any) playerPersist {
 	var p playerPersist
+	p.Attributes = playerAttributesFromSave(root["attributes"])
+	p.Effects = playerEffectsFromSave(root["active_effects"])
 	p.Dim, _ = root["Dimension"].(string)
 	p.Health = float32(nbtNumberOr(root["Health"], 20))
 	p.Absorb = float32(nbtNumberOr(root["AbsorptionAmount"], 0))
@@ -248,6 +245,14 @@ func playerFromDat(root map[string]any) playerPersist {
 	}
 	if ab, ok := root["abilities"].(map[string]any); ok {
 		p.Flying = nbtTruth(ab["flying"])
+		if speed, valid := nbtDouble(ab["walkSpeed"]); valid {
+			value := playerAttributeJSONNumber(float32(speed))
+			p.WalkSpeed = &value
+		}
+	}
+	if p.WalkSpeed == nil {
+		value := playerAttributeJSONNumber(float32(.1))
+		p.WalkSpeed = &value
 	}
 	if book, ok := root["recipeBook"].(map[string]any); ok {
 		// recipes minus toBeDisplayed is the set the book already

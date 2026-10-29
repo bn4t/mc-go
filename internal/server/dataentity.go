@@ -2273,7 +2273,7 @@ func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 	}
 	m["current_impulse_context_reset_grace_time"] = int32(0)
 	// Abilities.save: the four flags follow the mode, the two speeds
-	// are fixed, flying is live state.
+	// include the loaded walking speed; flying is live state.
 	sess.modeMu.RLock()
 	gm := sess.gameMode
 	sess.modeMu.RUnlock()
@@ -2281,7 +2281,7 @@ func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 		"invulnerable": nbtBool(gm == 1 || gm == 3),
 		"mayfly":       nbtBool(gm == 1 || gm == 3),
 		"instabuild":   nbtBool(gm == 1),
-		"walkSpeed":    float32(0.1),
+		"walkSpeed":    sess.playerWalkingSpeed(),
 		"mayBuild":     nbtBool(gm <= 1),
 		"flying":       nbtBool(sess.flying),
 		"flySpeed":     float32(0.05),

@@ -1212,7 +1212,7 @@ func (s *Server) absorbRaidOmen(sess *Session, r *raid) {
 	}
 	delete(sess.effects, effectRaidOmen)
 	sess.effMu.Unlock()
-	s.removeMobEffect(sess, effectRaidOmen)
+	s.finishRemovedMobEffect(sess, effectRaidOmen)
 	r.omen += inst.amplifier + 1
 	if r.omen > raidOmenMax {
 		r.omen = raidOmenMax

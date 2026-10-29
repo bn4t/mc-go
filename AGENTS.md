@@ -102,6 +102,10 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Function probes must distinguish empty/missing groups from nonempty functions
   without return: their execute-store callbacks differ. Confirm loader acceptance
   separately from a codec's partial result, including function permission level.
+- Snapshot player-owned state before common retirement removes its entity.
+  Native permanent effect modifiers must retain their active identity/duration;
+  identifier prefixes alone do not establish ownership. Distinguish raw saved
+  bases from post-load ability overrides and float32 storage from double queries.
 - Persistence probes must copy the completed save before shutdown can replace it.
   A preexisting file is not a completion receipt: verify new identifiers, types
   and deadlines. Save workers serialize detached snapshots captured by the

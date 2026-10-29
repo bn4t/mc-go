@@ -1,0 +1,12 @@
+minecraft:absorption	minecraft:max_absorption	minecraft:effect.absorption	4.0	add_value
+minecraft:haste	minecraft:attack_speed	minecraft:effect.haste	0.10000000149011612	add_multiplied_total
+minecraft:health_boost	minecraft:max_health	minecraft:effect.health_boost	4.0	add_value
+minecraft:invisibility	minecraft:waypoint_transmit_range	minecraft:effect.waypoint_transmit_range_hide	-1.0	add_multiplied_total
+minecraft:jump_boost	minecraft:safe_fall_distance	minecraft:effect.jump_boost	1.0	add_value
+minecraft:luck	minecraft:luck	minecraft:effect.luck	1.0	add_value
+minecraft:mining_fatigue	minecraft:attack_speed	minecraft:effect.mining_fatigue	-0.10000000149011612	add_multiplied_total
+minecraft:slowness	minecraft:movement_speed	minecraft:effect.slowness	-0.15000000596046448	add_multiplied_total
+minecraft:speed	minecraft:movement_speed	minecraft:effect.speed	0.20000000298023224	add_multiplied_total
+minecraft:strength	minecraft:attack_damage	minecraft:effect.strength	3.0	add_value
+minecraft:unluck	minecraft:luck	minecraft:effect.unluck	-1.0	add_value
+minecraft:weakness	minecraft:attack_damage	minecraft:effect.weakness	-4.0	add_value

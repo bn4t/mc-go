@@ -1122,3 +1122,17 @@ its first deadline and priority; different owners coexist. Dispatch rejects stal
 owners after replacement. Intrinsic and waterlogged source water share the water
 registration. This preserves block-only clone/clear semantics; native chunk tick
 persistence and container activation remain separate work.
+
+Player retirement captures a detached attribute/effect snapshot before the
+physical entity is removed. Subsequent disconnect/kick persistence uses this
+snapshot, retaining remaining player-tick durations without offline decay.
+Native attribute packing keeps permanent command/effect modifiers and omits
+transient held equipment; the permanent category does not imply infinite effect
+lifetime. Raw maps load before the native walking-ability movement-base override.
+Effect duration, identity and modifiers remain coupled: only actual effect
+transitions remove their IDs, including command-overridden active IDs. Absent
+effect IDs remain ordinary command state. Hidden effect chains and attribute
+modifier slices are deep-copied before asynchronous save work. JSON keeps finite
+legacy numbers and represents nonfinite attribute/ability values by IEEE64 bits;
+NBT retains its native numeric types. Effect templates reproduce through
+`tools/geneffectattrs/README.md` and do not imply complete effect mechanics.

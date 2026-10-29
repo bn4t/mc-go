@@ -211,3 +211,15 @@ a fixture arena. Initial filler IDs, persistent mobs and custom-persistence ride
 need separate treatment. A neighboring valid slime spawn can consume the last
 slot while the dark arena stays empty. Capture positions/types and reproduce the
 same input on unchanged code before changing cap behavior or attempt limits.
+
+## Player attribute and effect restart probes
+
+Capture live attributes before common player retirement removes the entity.
+Save effect identity and remaining duration together with its permanent modifier;
+that persistence classification does not mean the effect lasts forever. Verify
+that an active effect's overridden ID is removed at expiry while the same command
+ID survives when no effect is active. Read raw saved fields separately from
+loaded attributes: native walking ability overrides movement base after raw
+attribute load, with float32-to-double widening. Use actual ability packets and
+finite player-tick expiry checks in both native/Go handoff directions. Keep
+finite JSON compatibility and test explicit lossless nonfinite encoding.

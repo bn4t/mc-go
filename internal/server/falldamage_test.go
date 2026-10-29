@@ -26,7 +26,17 @@ func TestPlayerFallDamageAttributes(t *testing.T) {
 	id, _ := MobEffectID("jump_boost")
 	sess.effects = map[int32]mobEffectInst{id: {amplifier: 1}}
 	e.AttrMods = map[string]map[string]attrMod{"safe_fall_distance": {"test": {value: 1, op: 2}}}
+	s.setPlayerEffectAttributes(sess, id, sess.effects[id])
 	if got := sess.playerFallDamage(9.5); got != 0 {
 		t.Fatalf("Jump Boost before total multiplier: %v", got)
+	}
+	delete(e.AttrMods["safe_fall_distance"], "test")
+	delete(e.AttrMods["safe_fall_distance"], "minecraft:effect.jump_boost")
+	if got := sess.playerFallDamage(9.5); got != 3 {
+		t.Fatalf("explicit jump modifier removal ignored: %v", got)
+	}
+	e.AttrMods["safe_fall_distance"]["minecraft:effect.jump_boost"] = attrMod{value: 6, permanent: true}
+	if got := sess.playerFallDamage(9.5); got != 0 {
+		t.Fatalf("explicit jump modifier override ignored: %v", got)
 	}
 }
