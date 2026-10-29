@@ -34,3 +34,11 @@ func TestStructureMineshaftMesaParity(t *testing.T) {
 func TestStructureDesertPyramidParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{-763, -417, -758, -412}}, "desert_pyramids")
 }
+
+// TestStructureJungleTempleParity pins a jungle temple: the average
+// ground height of the first decorating chunk, the moss stone selector
+// draws, the tripwire / redstone / piston traps, the two dispensers and
+// two chests.
+func TestStructureJungleTempleParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{-108, 9, -103, 14}}, "jungle_temples")
+}
