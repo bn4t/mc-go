@@ -6906,12 +6906,19 @@ func (s *Server) mobGrounded(e *Entity, w *world.World) bool {
 		return false
 	}
 	// Landing edge. Vanilla's fallDistance counts the whole drop —
-	// the residual down to the floor top is part of the last tick's
-	// travel — so fold e.Y's fractional remainder in first. Water
+	// the residual down to the support collision top is part of the last
+	// tick's travel. Water
 	// contact zeroes it instead (vanilla resets per tick in fluid).
 	if !e.Grounded && e.FallDist > 0 {
 		if _, _, fluid := fluidOf(w.GetBlock(below)); !fluid {
-			e.FallDist += e.Y - math.Floor(e.Y)
+			// Account only for descent remaining above the support shape.
+			// Honey/soul-sand tops are fractional; floor(feet) would add
+			// almost another block after collision already stopped the fall.
+			if top, ok := collisionTopAt(w, below); ok {
+				if remaining := e.Y - (float64(below.Y) + top); remaining > 0 {
+					e.FallDist += remaining
+				}
+			}
 			s.mobFallDamage(e, s.dims[e.Dim], below)
 		}
 		e.FallDist = 0
@@ -7029,14 +7036,24 @@ func (s *Server) mobFallDamage(e *Entity, dm *dimension, below world.Pos) {
 		}
 		return
 	}
-	safe := 3.0
-	if v, ok := entityAttrBases[name]["safe_fall_distance"]; ok {
-		safe = v
+	base := 3.0
+	if value, ok := entityAttrBases[name]["safe_fall_distance"]; ok {
+		base = value
 	}
-	mult := dmgMult
-	if v, ok := entityAttrBases[name]["fall_damage_multiplier"]; ok {
-		mult = v
+	if value, ok := e.AttrBase["safe_fall_distance"]; ok {
+		base = value
 	}
+	mods := map[string]attrMod{}
+	for id, modifier := range e.AttrMods["safe_fall_distance"] {
+		mods[id] = modifier
+	}
+	if id, ok := MobEffectID("jump_boost"); ok {
+		if effect, active := e.Effects[id]; active {
+			mods["minecraft:effect.jump_boost"] = attrMod{value: float64(effect.amplifier + 1)}
+		}
+	}
+	safe := attrRange("safe_fall_distance", attrValue(base, mods))
+	mult := float64(float32(dmgMult)) * attrRange("fall_damage_multiplier", s.mobAttr(e, name, "fall_damage_multiplier", 1))
 	dmg := int(math.Floor((fallDist + 1e-6 - safe) * mult))
 	if dmg <= 0 {
 		return

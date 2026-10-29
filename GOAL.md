@@ -140,7 +140,9 @@ Mojang server over the wire.
 - [ ] Physics, collision, AI, pathfinding
 - [ ] Damage, health, death, drops, XP
       First-hit player XP/value/pickup has a live-oracle pin; broader
-      damage, death and drop parity remains incomplete.
+      damage, death and drop parity remains incomplete. Mob falls now use
+      effective attributes, Jump Boost, landing block factors and fractional
+      support tops, with seven vanilla comparisons.
 - [~] Projectiles, vehicles, mobs, villagers; player-thrown splash/lingering
       potions, registered variants, measured cloud doses and Ender Eye
       flight/use metadata now wire-pinned;
@@ -17035,3 +17037,10 @@ Exact run: `MCGO_BLACKBOX=1 MCGO_VANILLA_JAR=/workspace/mc-go/vanilla/server-26.
   second fight.
 - **Remaining:** full dragon flight, multipart collision and fight parity are
   not established by this focused wall-check pin.
+
+
+## Slice — mob landing attribute and block scaling (2026-10-29)
+
+- **Measured:** JDK 25.0.5 javap facts from official 26.2 `LivingEntity.calculateFallDamage`, `MobEffects` jump-boost modifier, `HayBlock.fallOn` and `HoneyBlock.fallOn` on oracle SHA-1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Landing block multiplier is a float argument multiplied by the entity's effective fall-damage multiplier, rather than replaced by it. Hay and honey use float 0.2. Effective safe distance uses normal attribute modifier order and Jump Boost adds one per level.
+- **Implemented:** `mobGrounded` finishes descent to the actual support collision top, avoiding nearly one extra block on sunk honey landings. The narrow `mobFallDamage` tail reads runtime attribute overrides/modifiers, adds Jump Boost before other modifier passes and combines the measured float block factor with effective fall-damage multiplier.
+- **Pinned:** `TestMobFallAttributesParity` passes all seven cases against vanilla (38.93 s, no skips): safe-distance base, multiplier base at an integral damage boundary, Jump Boost before multiplied-total, hay, honey, honey with safe-distance 3.5, and hay with doubled entity multiplier. The fractional honey case distinguishes the collision-top correction from the former integer-floor residual. Armor slots are explicitly cleared to exclude randomized spawn equipment/protection from the fall-attribute measurement. `work/mob-fall-final.log` records final clean-snapshot evidence; `work/mob-fall-only.go` contains current HEAD plus only the two owned method changes for staging.
