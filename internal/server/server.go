@@ -361,6 +361,8 @@ type Server struct {
 	// blockEvents is Level.blockEvent's queue — piston moves fire at
 	// the tail of the tick (ServerLevel.tickBlockEvents).
 	blockEvents []rsBlockEvent
+	// testRun is the active server-owned registered GameTest run.
+	testRun *testInstanceRun
 	// movingPistons are the live moving-piston block entities — each
 	// cell a piston move covered sits as a moving_piston for vanilla's
 	// 2-tick interlude (progress += 0.5/tick, finalTick at >=1.0)

@@ -39,8 +39,8 @@ Mojang server over the wire.
 - [~] Play join burst
 - [~] Full packet ID + shape coverage for all states: no play route remains
       explicitly assigned to ignoreServerbound. Structure, jigsaw, test-block
-      and test-instance controller workflows and client frame-end movement have
-      measured coverage. Complete schemas, configured GameTest execution and
+      and test-instance controller/built-in RUN workflows and client frame-end
+      movement have measured coverage. Complete schemas, custom GameTest execution and
       other handler semantics remain partial; routing is not full parity.
 - [x] Encryption / online mode
 - [x] Cookie / transfer / dialog / code-of-conduct packets.
@@ -18131,3 +18131,13 @@ Limits: /kill only; combat, creative and explosion destruction plus nonempty loo
 **Pinned** — Final immutableee73b63 plus reviewed filter/readiness patches and three owned files:24 positive world-state witnesses PASS25.89s (vanilla3.91/Go3.16), covering chest item/potion components, waxed sign text, structure/jigsaw/command fields, move/no-spill and force-overlap furnace data with both sources proved first. Identical production passes filter24outcomes19.66s and legacyclone55commands21.50s. Earlier barrel overlap fixture exposed an unreadable source from a pre-existing accessor/store mismatch; that failure is retained and barrel repair is separate. Patch base5b5d3fd, SHA256 `a8b62bef12da4b38e84437653e917c69a9918cfcc047d76b00c850b7a290a93d`; work/clone-native-slice.md records exact source composition and logs.
 
 Limits: barrel access, exhaustive native serializers/components, clone strict callbacks, scheduled ticks, exotic activation and complete placement ordering remain separate. Final-state checks do not certify existing notify-before-hydrate ordering.
+
+## Slice — registered test-instance setup and built-in runtime (2026-10-29)
+
+**Measured** — Official26.2/protocol776 wire and existing captured registries identify minecraft:always_pass, default environment, minecraft:empty structure and one setup tick. Public packet/field and factual bytecode measurements use Go1.27.3/Temurin25.0.5+8, bundle SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Native queries return exact description/optional size; SAVE uses the definition's structure key. Frozen RUN stays cleared, exact ticks1/2 stay cleared and tick3 finishes. Active SET/RESET and controller replacement do not cancel the run; a second RUN retires the first. Initial shell-after-success assumption failed and was replaced by positively observed enclosure-before and AIR-after controls.
+
+**Implemented** — Independent immutable lookup from captured definitions; registered INIT/QUERY, native SAVE target resolution, rotated RESET volume/template handling and a server-owned built-in function runner on world ticks. Completion updates the controller currently at its original location, clears errors, removes enclosure barriers and clears test entities. Neutral presence-only incarnations are excluded from destructive clearing and shared template capture, with ordinary-entity positive controls.
+
+**Pinned** — Core immutable5b5d3fd plus owned physical implementation: TestTestInstanceRegisteredParity PASS62.83s (vanilla10.70/Go8.95), exact description/size, SAVE target, four non-square RESET rotations/holes/outside, frozen and stepped phases, enclosure/cleanup, active SET/RESET/replacement, second-run retirement and entity count1 before/count0 after completion. Final immutable1ad53cb artifact adds only two presenceOnly guards to physical behavior; native-free capability/structure/TestInstance/SharedAvatar units PASS8.022s and build passes with archive VCS stamping disabled. Final11file patch SHA256 `6bdac426ee427c70f58042c9855114b4e95679e9f176a9480f36afa0d3683a4d`; work/testinstance-runtime-stage/manifest.md distinguishes tested source versions.
+
+Limits: custom test/environment registries, block-based tests, reports/retries/timeouts, nondefault padding/sky access/definition rotation, active size/rotation cleanup geometry, oversized dimensions, complete component codecs, force-load ticket/dimension lifecycle and exact shared RNG interleaving remain separate. This is the registered built-in workflow, not full GameTest parity.

@@ -58,8 +58,11 @@ Complete player-predicate and rich-text/icon schemas, datapack selection/ZIP/rel
 custom loot overlays and several vehicle/physical interactions remain in
 progress. See individual slice entries for exact tests and limitations.
 
-Configured GameTest registry/template setup and execution remain in progress;
-test-instance controller support does not yet provide the full RUN workflow.
+Test-instance controllers resolve the built-in registered test, query its native
+template, and reset rotated template volumes. The built-in `minecraft:always_pass`
+RUN workflow observes world-tick setup and completion, including `/tick freeze`.
+Custom test/environment registries, block-based tests and the full GameTest
+runner/reporting workflow remain in progress.
 
 Native structure-template lookups cache both present and missing results until
 corner unload or `/reload`; unreadable generated NBT can fall back to bundled

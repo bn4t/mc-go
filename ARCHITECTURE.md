@@ -114,11 +114,17 @@ Test-block editors preserve native mode, message and powered fields. Test-instan
 controller packets preserve typed records and error markers, answer unresolved-test
 initialization/query requests, and support editing, default barrier-shell reset
 and AIR-skipping native SAVE. SAVE can use an unregistered selected resource key;
-normal-server export reports that exporting is disabled. Reset visits shell faces
+normal-server export reports that exporting is disabled. Barrier cleanup visits shell faces
 rather than the full volume, without adding a size cap to native integer dimensions.
-Oversized regions, complete text-component validation, configured registry
-descriptions/template setup and the GameTest execution lifecycle remain outside
-this measured coverage.
+The captured registered test adds exact description/size queries, template-name
+resolution for SAVE, and rotated volume clearing/placement for RESET. Its built-in
+`always_pass` RUN prepares the controller and barrier shell, stays frozen with the
+world, and finishes on the third world tick. Mutable template and runner state
+belong to each server. Custom test/environment registry loading, block-based tests,
+full runner reports/retries/timeouts, non-default padding/sky-access/definition
+rotation, oversized regions and complete text-component validation remain outside
+this measured coverage. Active size/rotation edits during a run, force-load ticket
+cleanup and exact live/global placement RNG interleaving are unpinned.
 
 Command blocks and command minecarts share execution mechanics while supplying
 different spatial and entity sources. Result callbacks must read the current

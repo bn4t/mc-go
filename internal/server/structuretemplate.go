@@ -198,7 +198,7 @@ func (s *Server) structureTemplateCapture(d *dimension, origin world.Pos, size [
 		for _, e := range s.entities.All() {
 			name, ok := EntityTypeName(e.Type)
 			dims := entityBBDims(&e)
-			if !ok || name == "player" || e.Dim != d.name || e.Dying || e.Riding != 0 || e.X+dims[0]/2 <= float64(origin.X) || e.X-dims[0]/2 >= float64(origin.X)+float64(size[0]) || e.Y+dims[1] <= float64(origin.Y) || e.Y >= float64(origin.Y)+float64(size[1]) || e.Z+dims[0]/2 <= float64(origin.Z) || e.Z-dims[0]/2 >= float64(origin.Z)+float64(size[2]) {
+			if !ok || e.presenceOnly || name == "player" || e.Dim != d.name || e.Dying || e.Riding != 0 || e.X+dims[0]/2 <= float64(origin.X) || e.X-dims[0]/2 >= float64(origin.X)+float64(size[0]) || e.Y+dims[1] <= float64(origin.Y) || e.Y >= float64(origin.Y)+float64(size[1]) || e.Z+dims[0]/2 <= float64(origin.Z) || e.Z-dims[0]/2 >= float64(origin.Z)+float64(size[2]) {
 				continue
 			}
 			native := entitySaveMap(&e, s.clock.count, s.entities).m

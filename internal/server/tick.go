@@ -603,6 +603,8 @@ func (s *Server) gameTickOwned() {
 	// Chunk streaming is paced on the tick, like everything else: one
 	// batch per tick per player, at the rate their client asked for.
 	s.chunkTickStep()
+	// GameTestTicker advances once per world tick, after level work.
+	s.testInstanceTickStep()
 
 	if s.bus != nil {
 		s.bus.Publish(event.TopicTick, s.TickCount())

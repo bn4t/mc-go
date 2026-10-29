@@ -45,13 +45,25 @@ func (s *Server) handleTestInstanceBlockAction(sess *Session, p protocol.Packet)
 		return
 	}
 	if edit.action == 0 || edit.action == 1 {
-		// The default registry has no selected test definition. Registry-backed
-		// descriptions and template setup are a separate runtime workflow.
-		description := translatable("test_instance.description.no_test")
-		description.color = "red"
+		definition := testInstanceDefinition(edit.data.test)
+		description := testInstanceDescription(definition)
 		var b protocol.Buffer
 		b.Raw(description.content())
-		b.Bool(false)
+		var size [3]int32
+		hasSize := false
+		if edit.action == 1 && definition != nil {
+			name, _ := definition["structure"].(string)
+			if native := s.structureTemplateGet(name); native != nil {
+				size = structureVector(native["size"])
+				hasSize = true
+			}
+		}
+		b.Bool(hasSize)
+		if hasSize {
+			for _, v := range size {
+				b.VarInt(v)
+			}
+		}
 		_ = sess.write(sess.ids().PlayTestInstanceStatus, b.Bytes())
 		return
 	}
@@ -63,6 +75,11 @@ func (s *Server) handleTestInstanceBlockAction(sess *Session, p protocol.Packet)
 	case 3:
 		s.testInstanceRemoveBarriers(d, edit.pos, data)
 		delete(g.fields, "errors")
+		if s.testInstancePlace(d, edit.pos, data) {
+			c := translatable("test_instance_block.reset_success", data.test)
+			c.color = "green"
+			s.sendSystemChatComponent(sess, c)
+		}
 		data.status = 0
 		data.errorMessage = nil
 		g.fields["data"] = data.native()
@@ -78,18 +95,22 @@ func (s *Server) handleTestInstanceBlockAction(sess *Session, p protocol.Packet)
 			s.sendSystemChatComponent(sess, c)
 		}
 	case 6:
-		s.testInstanceFeedback(sess, "test_instance_block.error.no_test", edit.pos)
+		s.testInstanceStart(sess, d, edit.pos, g, data)
 	}
 }
 
 // Without a registry definition, SAVE still uses the selected resource key.
-// AIR is omitted from game-test captures, so loading preserves those cells.
+// AIR is omitted from game-test captures; RESET clears the volume before placement.
 func (s *Server) testInstanceSave(d *dimension, pos world.Pos, data testInstanceData) string {
 	if data.test == "" {
 		return ""
 	}
+	name := data.test
+	if def := testInstanceDefinition(data.test); def != nil {
+		name, _ = def["structure"].(string)
+	}
 	if data.size[0] <= 0 || data.size[1] <= 0 || data.size[2] <= 0 {
-		return data.test
+		return name
 	}
 	origin := world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z + 1}
 	native := s.structureTemplateCapture(d, origin, data.size, !data.ignoreEntities, "")
@@ -121,13 +142,22 @@ func (s *Server) testInstanceSave(d *dimension, pos world.Pos, data testInstance
 		filtered.Items = append(filtered.Items, block)
 	}
 	native["palette"], native["blocks"] = states, filtered
-	s.structureTemplateStore(data.test, native, true)
-	return data.test
+	s.structureTemplateStore(name, native, true)
+	return name
 }
 
 // The default controller has no extra registry padding or sky-access rule.
 // Only the outer six faces lose barriers; interior blocks are untouched.
 func (s *Server) testInstanceRemoveBarriers(d *dimension, pos world.Pos, data testInstanceData) {
+	barrier, _ := world.BlockState("barrier")
+	s.testInstanceBoundary(d, pos, data, func(p world.Pos) {
+		if d.w.GetBlock(p) == barrier {
+			s.setSilentBlock(d, p, world.Air)
+		}
+	})
+}
+
+func (s *Server) testInstanceBoundary(d *dimension, pos world.Pos, data testInstanceData, visit func(world.Pos)) {
 	size := data.size
 	if data.rotation == 1 || data.rotation == 3 {
 		size[0], size[2] = size[2], size[0]
@@ -139,13 +169,6 @@ func (s *Server) testInstanceRemoveBarriers(d *dimension, pos world.Pos, data te
 		low[axis] = min(start[axis], end) - 1
 		high[axis] = max(start[axis], end) + 1
 	}
-	barrier, _ := world.BlockState("barrier")
-	visit := func(x, y, z int64) {
-		p := world.Pos{X: int(x), Y: int(y), Z: int(z)}
-		if d.w.GetBlock(p) == barrier {
-			s.setSilentBlock(d, p, world.Air)
-		}
-	}
 	// Visit just the faces, retaining x-fast coordinate order. Clipping the
 	// vertical read range skips only cells the existing build-height guard
 	// could never change; the controller dimensions are not arbitrarily capped.
@@ -155,12 +178,12 @@ func (s *Server) testInstanceRemoveBarriers(d *dimension, pos world.Pos, data te
 		for y := lowY; y <= highY; y++ {
 			if z == int64(low[2]) || z == int64(high[2]) || y == int64(low[1]) || y == int64(high[1]) {
 				for x := int64(low[0]); x <= int64(high[0]); x++ {
-					visit(x, y, z)
+					visit(world.Pos{X: int(x), Y: int(y), Z: int(z)})
 				}
 			} else {
-				visit(int64(low[0]), y, z)
+				visit(world.Pos{X: int(low[0]), Y: int(y), Z: int(z)})
 				if high[0] != low[0] {
-					visit(int64(high[0]), y, z)
+					visit(world.Pos{X: int(high[0]), Y: int(y), Z: int(z)})
 				}
 			}
 		}
