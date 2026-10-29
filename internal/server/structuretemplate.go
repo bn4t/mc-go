@@ -333,6 +333,9 @@ func (s *Server) structureTemplatePlace(d *dimension, pos world.Pos, g *genericB
 	if f, ok := g.fields["integrity"].(float32); ok {
 		integrity = f
 	}
+	strict := nbtTruth(g.fields["strict"])
+	var placed, pendingWater []world.Pos
+	introducedSources := map[world.Pos]bool{}
 	blocks, _ := native["blocks"].(nbt.List)
 	for _, v := range blocks.Items {
 		m, ok := v.(map[string]any)
@@ -352,10 +355,15 @@ func (s *Server) structureTemplatePlace(d *dimension, pos world.Pos, g *genericB
 			continue
 		}
 		state := worldgen.TransformStructureState(states[index], int(mirror), int(rotation))
+		oldFluid := d.w.GetBlock(p)
+		_, hasNBT := m["nbt"].(map[string]any)
+		if !hasNBT && oldFluid == state {
+			continue
+		}
 		if tag, ok := m["nbt"].(map[string]any); ok {
 			barrier, _ := world.BlockState("barrier")
-			s.setSilentBlock(d, p, barrier)
-			s.setSilentBlock(d, p, state)
+			s.setSilentBlockWithPolicy(d, p, barrier, true, false)
+			s.setSilentBlockWithPolicy(d, p, state, strict, true)
 			copy := cloneNBTValue(tag).(map[string]any)
 			if worldgen.TemplateRandomizesLoot(state) {
 				copy["LootTableSeed"] = lootRandom.NextLong()
@@ -365,10 +373,28 @@ func (s *Server) structureTemplatePlace(d *dimension, pos world.Pos, g *genericB
 				copy["id"] = spec.name
 				copy["x"], copy["y"], copy["z"] = int32(p.X), int32(p.Y), int32(p.Z)
 				s.restoreBlockEntity(d, copy)
+				s.structureLoadName(d, p, state, copy)
 			}
 		} else {
-			s.setSilentBlock(d, p, state)
+			restoreNames := structureKeepNames(d, []world.Pos{p})
+			s.setSilentBlockWithPolicy(d, p, state, strict, true)
+			restoreNames()
 		}
+		placed = append(placed, p)
+		if fluidIsSourceState(state) {
+			introducedSources[p] = true
+		} else if fluidContainer(d.w.GetBlock(p)) {
+			kind, _, hasFluid := fluidOf(oldFluid)
+			if hasFluid && kind == fluidWater && fluidIsSourceState(oldFluid) {
+				s.structurePlaceLiquid(d, p, d.w.GetBlock(p))
+			} else if hasFluid && kind == fluidWater {
+				pendingWater = append(pendingWater, p)
+			}
+		}
+	}
+	s.structureRestorePendingWater(d, pendingWater, introducedSources)
+	if !strict {
+		s.structureUpdateShapes(d, placed)
 	}
 	if !nbtTruth(g.fields["ignoreEntities"]) {
 		s.structureTemplateEntities(d, origin, mirror, rotation, native)

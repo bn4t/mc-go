@@ -579,10 +579,25 @@ func (s *Server) writeOnPlace(d *dimension, pos world.Pos, blk, old world.Block,
 // setSilentBlock is a flag-2 write: world update plus the usual
 // fan-out, but no neighbor survival pass.
 func (s *Server) setSilentBlock(d *dimension, pos world.Pos, blk world.Block) {
+	s.setSilentBlockWithPolicy(d, pos, blk, false, true)
+}
+
+// Native template flags can suppress callbacks and the temporary barrier
+// update independently; ordinary silent writes retain their existing policy.
+func (s *Server) setSilentBlockWithPolicy(d *dimension, pos world.Pos, blk world.Block, skipSideEffects, send bool) {
 	oldTop := columnTop(d, pos.X, pos.Z)
 	old := d.w.GetBlock(pos)
 	d.w.SetBlock(pos, blk)
-	s.writeOnPlace(d, pos, blk, old, false)
+	if skipSideEffects {
+		s.structureRetireBlockEntity(d, pos, old, blk)
+		s.genericBEOnWrite(d, pos, blk, old)
+		if name, _ := world.StateOwner(blk); commandBlockName(name) {
+			s.commandBlockAt(d, pos)
+		}
+		s.structureBlockAt(d, pos)
+	} else {
+		s.writeOnPlace(d, pos, blk, old, false)
+	}
 	// onPlace may have rewritten the cell (TNT primed on a signal
 	// self-removes) — everything downstream reads the final state.
 	blk = d.w.GetBlock(pos)
@@ -603,8 +618,10 @@ func (s *Server) setSilentBlock(d *dimension, pos world.Pos, blk world.Block) {
 	default:
 		newTop = columnTop(d, pos.X, pos.Z)
 	}
-	s.broadcastBlockState(d, pos, blk)
-	s.syncBlockEntities(d, pos, blk)
+	if send {
+		s.broadcastBlockState(d, pos, blk)
+	}
+	s.syncBlockEntitiesWithPolicy(d, pos, blk, skipSideEffects)
 	s.invalidateRandomTickSection(d, pos)
 	s.blockLightChanged(d, pos, old, blk)
 	s.skyLightChanged(d, pos, old, blk, oldTop, newTop)

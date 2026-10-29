@@ -296,6 +296,10 @@ func (s *Server) setBlockAndBroadcastInOwned(d *dimension, player string, pos wo
 // created and announced, and one that does not has any stale state
 // dropped. Shared by /setblock, digging, and fluid flow.
 func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block) {
+	s.syncBlockEntitiesWithPolicy(d, pos, blk, false)
+}
+
+func (s *Server) syncBlockEntitiesWithPolicy(d *dimension, pos world.Pos, blk world.Block, skipSideEffects bool) {
 	if spec, ok := signSpecOf(blk); ok {
 		s.ensureSign(d, pos)
 		if !s.ticking.Load() {
@@ -329,13 +333,15 @@ func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block)
 	// state dies on every write. CustomName clears here (after
 	// syncContainerBlock's removeContainer, which may still need it to
 	// copy a broken shulker's name onto the dropped box item).
-	delete(d.beNames, pos)
+	if !skipSideEffects {
+		delete(d.beNames, pos)
+	}
 	if isBeeNestBlock(blk) {
 		// BeehiveBlockEntity.setChanged: every mark-dirty re-checks
 		// isFireNearby — a nest written while a FireBlock sits in
 		// its 3x3x3 evacuates every occupant EMERGENCY. The player
 		// is null on this path: release only, nobody angers.
-		if d.bees[pos] > 0 && beeFireNearby(d, pos) {
+		if !skipSideEffects && d.bees[pos] > 0 && beeFireNearby(d, pos) {
 			s.releaseBeeOccupants(d, pos, blk, d.bees[pos], beeReleaseEmergency)
 			delete(d.bees, pos)
 		}
@@ -346,7 +352,7 @@ func (s *Server) syncBlockEntities(d *dimension, pos world.Pos, blk world.Block)
 		// dig) loses its occupants silently — they never spawn.
 		delete(d.bees, pos)
 	}
-	if isFireBlock(blk) {
+	if !skipSideEffects && isFireBlock(blk) {
 		// The neighbour-write half of the same rule: a FireBlock
 		// appearing in a nest's 3x3x3 marks that block entity
 		// changed → the same EMERGENCY evacuation.
