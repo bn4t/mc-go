@@ -357,9 +357,11 @@ func TestMcGoOnlyPortalCooldownExpiry(t *testing.T) {
 	// Use the synchronized arrival height: the two portal cells begin at
 	// that height; the obsidian cap is two blocks above it. A hardcoded
 	// y=34 placed the player's head in the cap and the move was rejected.
-	_, portalY, _ := waitTeleportBlackbox(t, c, pr, pw, 2)
+	// The arrival stands inside the portal the nether built
+	// (PortalForcer.createPortal), wherever its site search put it.
+	portalX, portalY, portalZ := waitTeleportBlackbox(t, c, pr, pw, 2)
 	packets, errors := streamPlayPacketsBlackbox(t, c, pr, pw)
-	if err := sendMovePosRot(pw, 8.5, portalY, 0.5); err != nil {
+	if err := sendMovePosRot(pw, portalX, portalY, portalZ); err != nil {
 		t.Fatal(err)
 	}
 	// One reader continuously decodes complete frames. The negative window
@@ -381,11 +383,11 @@ checkCooldown:
 	}
 	// Step out, wait past the 10-tick cooldown, step back in — the
 	// return trip now fires.
-	if err := sendMovePosRot(pw, 10.5, portalY, 0.5); err != nil {
+	if err := sendMovePosRot(pw, portalX, portalY, portalZ+2); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second)
-	if err := sendMovePosRot(pw, 8.5, portalY, 0.5); err != nil {
+	if err := sendMovePosRot(pw, portalX, portalY, portalZ); err != nil {
 		t.Fatal(err)
 	}
 	deadline2 := time.NewTimer(30 * time.Second)

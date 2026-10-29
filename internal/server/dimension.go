@@ -320,6 +320,14 @@ func (s *Server) sendRespawn(sess *Session, d *dimension, portalCooldown int32, 
 // follows: the traveler despawns for the old dimension's residents and
 // spawns for the new one's.
 func (s *Server) changeDimension(sess *Session, dst *dimension, x, y, z float64, portalCooldown int32) {
+	s.changeDimensionFacing(sess, dst, x, y, z, 0, 0, false, 0, portalCooldown)
+}
+
+// changeDimensionFacing is changeDimension arriving with a facing.
+// relative marks a portal trip: the position sync carries the yaw
+// turn as a relative rotation (the client keeps its own facing and
+// motion) instead of an absolute one.
+func (s *Server) changeDimensionFacing(sess *Session, dst *dimension, x, y, z float64, yaw, pitch float32, relative bool, turn float32, portalCooldown int32) {
 	old := sess.dimension()
 	if old == dst {
 		s.teleportWithin(sess, x, y, z)
@@ -328,9 +336,9 @@ func (s *Server) changeDimension(sess *Session, dst *dimension, x, y, z float64,
 	eid := sess.entityID.Load()
 	from := old.name
 	sess.setDimension(dst)
-	sess.setPos(x, y, z, 0, 0, false)
+	sess.setPos(x, y, z, yaw, pitch, false)
 	s.fireChangedDimension(sess, from, dst.name)
-	s.entities.Update(eid, x, y, z, 0, 0, false)
+	s.entities.Update(eid, x, y, z, yaw, pitch, false)
 	s.entities.SetDimension(eid, dst.name)
 	// Old-dimension residents drop the traveler; the client's own
 	// tracker resets with Respawn.
@@ -346,7 +354,11 @@ func (s *Server) changeDimension(sess *Session, dst *dimension, x, y, z float64,
 		portalCooldown = 10
 	}
 	_ = s.sendRespawn(sess, dst, portalCooldown, 3)
-	_ = s.sendSyncPos(sess, x, y, z)
+	if relative {
+		_ = s.sendSyncPosRelative(sess, x, y, z, turn, 0)
+	} else {
+		_ = s.sendSyncPos(sess, x, y, z)
+	}
 	_ = s.sendHealth(sess)
 
 	// Restream: drop the old window, center and fill the new one.

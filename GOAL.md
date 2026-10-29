@@ -67,7 +67,11 @@ Mojang server over the wire.
       bands, iceberg/eroded-badlands extensions) matches block for block -
       `TestTerrainSurfaceParity`; carvers match block for block -
       `TestTerrainCarverParity`; the feature decoration framework is
-      pinned on ores - `TestFeatureOreParity`; `-level-type normal`
+      pinned on ores - `TestFeatureOreParity`; trees, vegetation, ocean,
+      cave and terrain features match block for block - `TestFeatureTreeParity`,
+      `TestFeatureVeg{Surface,Ocean,Cave}Parity` and the ten terrain
+      feature pins (lakes, springs, monster rooms, disks, icebergs,
+      geodes, fossils, templates, ...); `-level-type normal`
       serves the generated overworld (world spawn, streamed chunks,
       heightmaps, biome palettes and block light match the real server -
       `TestNormalWorldChunkParity`; save/reload - `TestNormalWorldSaveReload`);
@@ -15901,3 +15905,105 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:** the shape-update half for non-fluid marks (vanilla's
   `updateFromNeighbourShapes`), post-processing lists in saved chunks,
   ticking-level timing (mc-go runs the pass once neighbours exist).
+
+## Slice — tree features (2026-10-29)
+
+- **Measured:** bytecode inspection of `TreeFeature` (max free height,
+  below-trunk handling, `updateLeaves` distance pass with its
+  re-pop and layer-index quirks, edge shape updates in face order), the
+  trunk placers (straight, forking, giant, mega_jungle, dark_oak,
+  fancy, bending, upwards_branching, cherry), foliage placers (blob,
+  fancy, bush, spruce, pine, mega_pine, jungle, acacia, dark_oak,
+  random_spread, cherry), the mangrove root placer, the tree
+  decorators (beehive incl. bee draws, place_on_ground, leave_vine,
+  trunk_vine, cocoa, alter_ground, attached_to_leaves/logs,
+  creaking_heart, pale_moss), `fallen_tree` and the huge mushrooms;
+  `java.util.HashSet<BlockPos>` iteration order (pinned against a real
+  JDK HashSet over ~28k operations incl. tree bins). A Java agent logs
+  the real server's chunk decoration order, which trees depend on.
+- **Implemented:** `internal/worldgen/feat_tree*.go`, the shared `jset`
+  HashMap model, shape updates for the families tree edges touch.
+- **Pinned:** `TestFeatureTreeParity`: 19 areas (forests, jungles,
+  taigas, dark forest with huge mushrooms, mangrove swamp, bamboo
+  jungle, mushroom fields, cherry grove, savanna, swamp, meadow,
+  windswept hills, pale garden, plains), 171 chunks block for block,
+  replaying the oracle's decoration order for every chunk within three
+  rings of an area.
+- **Remaining:** vine / mossy-carpet attachment approximates
+  "full collision face" with the full-cube fact; leaf distance ticks
+  after generation.
+
+## Slice — vegetation, ocean and underground features (2026-10-29)
+
+- **Measured:** bytecode inspection of `block_column`,
+  `vegetation_patch` / `waterlogged_vegetation_patch` (HashSet order),
+  bamboo, vines, pale moss carpet placement with side growth, kelp,
+  seagrass, sea pickle, the coral tree/claw/mushroom features,
+  `multiface_growth` (sculk vein spreading), `speleothem` /
+  `speleothem_cluster`, `large_dripstone`, `sculk_patch` (charge cursor
+  simulation), `root_system`, and the canSurvive families they place;
+  `WorldgenRandom.setSeed` leaving the cached Gaussian in place; WG
+  heightmaps freezing once features start and lazy neighbour priming.
+  The test recovers the real server's exact decoration order with a
+  probe feature (marker stacks above y 300) on one worldgen thread,
+  having measured that it decorates three rings beyond a forced area.
+- **Implemented:** `internal/worldgen/feat_veg*.go`; shared fixes in
+  proto.go, decorate.go, providers.go (trapezoid int fields), survive.go.
+- **Pinned:** `TestFeatureVegSurfaceParity` (12 biome areas, 192
+  chunks), `TestFeatureVegOceanParity` (7 ocean areas, 112 chunks),
+  `TestFeatureVegCaveParity` (lush, dripstone, deep dark and sulfur
+  caves, 160 chunks), block for block with no order-dependent cells.
+- **Remaining:** swamp's transient light-dependent mushrooms, the
+  shape-update half of post-processing, ulp-level `Math.pow`/`log`
+  differences in large dripstone.
+
+## Slice — terrain features and structure templates (2026-10-29)
+
+- **Measured:** bytecode inspection of `freeze_top_layer`, `disk`,
+  `lake`, `spring_feature`, `monster_room`, `block_blob`, `blue_ice`,
+  `desert_well`, `underwater_magma`, `iceberg` (NaN ellipse distance
+  counting as outside), `geode` (codec defaults, seed noise), `fossil`
+  and `template`; structure template placement (palette order,
+  rotation/mirror, block_rot / protected_blocks / rule / block_ignore /
+  nop processors, waterlogging, container loot-seed draws, shape
+  updates); Java `Math.sin`/`cos` reproduced in double-double (Go's
+  differed on 58% of measured arguments). `tools/genstructures` packs
+  all 1212 bundled `.nbt` templates from the jar (sha256 recorded in
+  the generated header).
+- **Implemented:** `internal/worldgen/feat_terrain*.go`,
+  `structures_gen.go`, the bubble-column post-processing step.
+- **Pinned:** `TestFeatureFreezeTopLayerParity`,
+  `TestFeatureLakeSpringRoomParity`, `TestFeatureSulfurPoolParity`
+  (order-stable chunks strictly), `TestFeatureDiskMagmaParity`,
+  `TestFeatureIcebergParity`, `TestFeatureDesertWellParity`,
+  `TestFeatureGeodeParity`, `TestFeatureFossilParity`,
+  `TestFeatureForestRockParity`, `TestFeatureTemplateParity`.
+- **Remaining:** the iceberg pin can see a few blue/packed ice cells
+  from the real server's schedule-dependent decoration order; template
+  entities and block-entity NBT; rail/stair/hinge rotation.
+
+## Slice — nether portal destinations (2026-10-29)
+
+- **Measured:** bytecode inspection of
+  `NetherPortalBlock.getPortalDestination` / `getExitPortal` /
+  `getDimensionTransitionFromExit` / `createDimensionTransition`,
+  `PortalForcer.findClosestPortalPosition` (16 / 128 column square,
+  nearest by squared distance then lowest y) and `createPortal` (spiral
+  site search over MOTION_BLOCKING columns, the free-column and
+  canHostFrame rules, the forced ledge fallback, frame and 2x3 portal),
+  `BlockUtil.getLargestRectangleAround` / `getMaxRectangleLocation`,
+  `PortalShape.getRelativePosition`; `BlockPos.spiralAround` order read
+  off a jar probe. Wire observation of both trips on the 26.2 server:
+  the arrival sync carries the rotation and motion as relative
+  (Relative.ROTATION + DELTA flags, yaw turn 0 or 90).
+- **Implemented:** `internal/server/portal_forcer.go`; portal travel
+  uses it for the exit point, portal search and creation and the
+  relative arrival place; dimension changes can arrive facing and send
+  the relative sync.
+- **Pinned:** `TestPortalDestinationParity`: in a generated world, out
+  through a hand-built overworld portal (arrival position, yaw, pitch,
+  flags exactly; the built nether portal and the whole arrival window
+  block for block with light) and back through it (finds the original
+  portal, exact arrival).
+- **Remaining:** `findCollisionFreePosition` is taken as the target
+  (exact when the portal interior is free); non-player travellers.

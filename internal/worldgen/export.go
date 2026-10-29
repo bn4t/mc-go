@@ -103,3 +103,9 @@ func LightDampening(b world.Block) int { return int(props(b) >> bpDampeningShift
 
 // PropagatesSkylightDown is BlockState.propagatesSkylightDown.
 func PropagatesSkylightDown(b world.Block) bool { return props(b)&(1<<bpSkyDown) != 0 }
+
+// CanBeReplaced is BlockState.canBeReplaced().
+func CanBeReplaced(b world.Block) bool { return isReplaceable(b) }
+
+// IsSolid is the legacy BlockState.isSolid().
+func IsSolid(b world.Block) bool { return isSolidState(b) }

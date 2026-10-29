@@ -188,7 +188,7 @@ func canSurvive(rg *Region, state world.Block, p BlockPos) bool {
 }
 
 // surviveUnchecked are classes with no canSurvive override.
-var surviveUnchecked = map[string]bool{"Block": true, "PumpkinBlock": true, "RotatedPillarBlock": true}
+var surviveUnchecked = map[string]bool{"Block": true, "PumpkinBlock": true, "RotatedPillarBlock": true, "PotentSulfurBlock": true}
 
 // UnsupportedSurvive collects block classes whose canSurvive is not
 // modeled yet (they report true).

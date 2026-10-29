@@ -701,6 +701,30 @@ func (s *Server) sendJoinGame(sess *Session) error {
 // sendSyncPos teleports the player to x,y,z. Teleport flags 0 means
 // absolute coordinates; each call issues a fresh teleport id (the spawn
 // teleport is 1) for the client to confirm.
+// syncRelRotDelta are the Relative flags a portal transition sends
+// (Relative.ROTATION + Relative.DELTA: Y_ROT, X_ROT, DELTA_X/Y/Z,
+// ROTATE_DELTA): the client keeps its rotation (turned by the yaw
+// field) and its motion.
+const syncRelRotDelta = 1<<3 | 1<<4 | 1<<5 | 1<<6 | 1<<7 | 1<<8
+
+// sendSyncPosRelative sends an absolute position with relative
+// rotation (yaw/pitch deltas) and kept motion.
+func (s *Server) sendSyncPosRelative(sess *Session, x, y, z float64, dyaw, dpitch float32) error {
+	id := sess.teleportNext.Add(1) - 1
+	var b protocol.Buffer
+	b.VarInt(id)
+	b.Double(x)
+	b.Double(y)
+	b.Double(z)
+	b.Double(0)
+	b.Double(0)
+	b.Double(0)
+	b.Float(dyaw)
+	b.Float(dpitch)
+	b.Int(syncRelRotDelta)
+	return sess.write(sess.ids().PlaySyncPos, b.Bytes())
+}
+
 func (s *Server) sendSyncPos(sess *Session, x, y, z float64) error {
 	_, _, _, yaw, pitch, _ := sess.Pos()
 	id := sess.teleportNext.Add(1) - 1

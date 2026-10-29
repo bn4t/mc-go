@@ -262,6 +262,14 @@ func normalWorldParity(t *testing.T, tp string, sections int, settle time.Durati
 		t.Errorf("world spawn: vanilla %v mc-go %v", vSpawn, mSpawn)
 	}
 
+	compareChunkStreams(t, vChunks, mChunks, sections, settle == 0)
+}
+
+// compareChunkStreams compares every chunk two servers both streamed:
+// block states (fluid cells exempt when exemptFluids), biome cells,
+// heightmaps, section counts, sky and block light and the light masks.
+func compareChunkStreams(t *testing.T, vChunks, mChunks map[[2]int32][]byte, sections int, exemptFluids bool) {
+	t.Helper()
 	minY := -64
 	if sections == 16 {
 		minY = 0
@@ -322,7 +330,7 @@ func normalWorldParity(t *testing.T, tp string, sections int, settle time.Durati
 				if a == b {
 					continue
 				}
-				if settle == 0 && (fluid(a) || fluid(b)) {
+				if exemptFluids && (fluid(a) || fluid(b)) {
 					fluidCells++
 					dirtyCols[i&255] = true
 					continue
