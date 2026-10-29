@@ -45,17 +45,6 @@ func dirTo2D(d int) int32 {
 	return -1
 }
 
-func dirFrom2D(v int32) int {
-	switch v & 3 {
-	case 0:
-		return dirSouth
-	case 1:
-		return dirWest
-	case 2:
-		return dirNorth
-	}
-	return dirEast
-}
 
 // setOrientation is StructurePiece.setOrientation: south mirrors
 // left-right, west mirrors and turns clockwise, east turns clockwise.
@@ -91,30 +80,7 @@ func loadVPBase(t map[string]any) (vpBase, error) {
 	return b, nil
 }
 
-// makeBoundingBox is StructurePiece.makeBoundingBox: a box of size
-// (w, h, d) at the corner, depth along the facing axis.
-func makeBoundingBox(x, y, z int32, dir int, w, h, d int32) BoundingBox {
-	if dir == dirNorth || dir == dirSouth {
-		return BoundingBox{x, y, z, x + w - 1, y + h - 1, z + d - 1}
-	}
-	return BoundingBox{x, y, z, x + d - 1, y + h - 1, z + w - 1}
-}
 
-// orientBox is BoundingBox.orientBox: a box of size (w, h, d) placed
-// relative to (x, y, z) with the local offset (ox, oy, oz) turned to
-// face dir.
-func orientBox(x, y, z, ox, oy, oz, w, h, d int32, dir int) BoundingBox {
-	switch dir {
-	case dirNorth:
-		return BoundingBox{x + ox, y + oy, z - d + 1 + oz, x + w - 1 + ox, y + h - 1 + oy, z + oz}
-	case dirWest:
-		return BoundingBox{x - d + 1 + oz, y + oy, z + ox, x + oz, y + h - 1 + oy, z + w - 1 + ox}
-	case dirEast:
-		return BoundingBox{x + oz, y + oy, z + ox, x + d - 1 + oz, y + h - 1 + oy, z + w - 1 + ox}
-	}
-	// south and default
-	return BoundingBox{x + ox, y + oy, z + oz, x + w - 1 + ox, y + h - 1 + oy, z + d - 1 + oz}
-}
 
 func (p *vpBase) worldX(x, z int32) int32 {
 	switch p.ori {
@@ -151,13 +117,6 @@ func (p *vpBase) worldPos(x, y, z int32) BlockPos {
 	return BlockPos{p.worldX(x, z), p.worldY(y), p.worldZ(x, z)}
 }
 
-// shapeCheckBlocks is StructurePiece.SHAPE_CHECK_BLOCKS: blocks
-// placeBlock marks for post-processing.
-var shapeCheckBlocks = map[string]bool{
-	"nether_brick_fence": true, "torch": true, "wall_torch": true, "oak_fence": true, "spruce_fence": true,
-	"dark_oak_fence": true, "pale_oak_fence": true, "acacia_fence": true, "birch_fence": true,
-	"jungle_fence": true, "ladder": true, "iron_bars": true,
-}
 
 // placeBlock is StructurePiece.placeBlock: the local position mapped,
 // clipped to box, the state mirrored and rotated by the orientation.
@@ -216,12 +175,12 @@ func (p *vpBase) generateBox(c *PieceContext, bb BoundingBox, x0, y0, z0, x1, y1
 	}
 }
 
-// blockSelector is StructurePiece.BlockSelector: next(random, x, y, z,
+// vpSelector is StructurePiece.BlockSelector: next(random, x, y, z,
 // isEdge) picks the state the box writes.
-type blockSelector func(r Random, x, y, z int32, edge bool) world.Block
+type vpSelector func(r Random, x, y, z int32, edge bool) world.Block
 
 // generateBoxSel is the BlockSelector overload of generateBox.
-func (p *vpBase) generateBoxSel(c *PieceContext, bb BoundingBox, x0, y0, z0, x1, y1, z1 int32, skipAir bool, r Random, sel blockSelector) {
+func (p *vpBase) generateBoxSel(c *PieceContext, bb BoundingBox, x0, y0, z0, x1, y1, z1 int32, skipAir bool, r Random, sel vpSelector) {
 	for y := y0; y <= y1; y++ {
 		for x := x0; x <= x1; x++ {
 			for z := z0; z <= z1; z++ {
@@ -278,10 +237,6 @@ func (p *vpBase) maybeGenerateBlock(c *PieceContext, bb BoundingBox, r Random, c
 	}
 }
 
-// isReplaceableByStructures is StructurePiece.isReplaceableByStructures.
-func isReplaceableByStructures(b world.Block) bool {
-	return isAir(b) || isLiquidState(b) || isBlock(b, "glow_lichen") || isBlock(b, "seagrass") || isBlock(b, "tall_seagrass")
-}
 
 // isLiquidState is BlockState.liquid: a LiquidBlock (water or lava
 // block, not a waterlogged one).
@@ -300,22 +255,6 @@ func (p *vpBase) fillColumnDown(c *PieceContext, st world.Block, x, y, z int32, 
 	}
 }
 
-// createChestAt is StructurePiece.createChest at a world position: a
-// chest (reoriented when st is not a chest state) with the loot table and a
-// seed drawn from r, unless outside bb or already a chest.
-func createChestAt(c *PieceContext, bb BoundingBox, r Random, pos BlockPos, table string, st world.Block) bool {
-	if !bb.IsInside(pos) || isBlock(c.Region.at(pos), "chest") {
-		return false
-	}
-	if !isBlock(st, "chest") {
-		st = reorientChest(c.Region, pos, chestBlock())
-	}
-	c.Region.set(pos, st)
-	if isBlock(c.Region.at(pos), "chest") {
-		structLootBlockEntity(c.Region, pos, table, r.NextLong())
-	}
-	return true
-}
 
 // createChest is the local-coordinate createChest.
 func (p *vpBase) createChest(c *PieceContext, bb BoundingBox, r Random, x, y, z int32, table string) bool {
@@ -336,19 +275,3 @@ func (p *vpBase) createDispenser(c *PieceContext, bb BoundingBox, r Random, x, y
 	return true
 }
 
-// stateOf builds a block state from a name and properties (panics on a
-// bad literal: these are code constants).
-func stateOf(name string, kv ...string) world.Block {
-	if len(kv) == 0 {
-		return blockNamed(name)
-	}
-	m := map[string]string{}
-	for i := 0; i+1 < len(kv); i += 2 {
-		m[kv[i]] = kv[i+1]
-	}
-	b, ok := world.BlockStateOf(name, m)
-	if !ok {
-		panic("worldgen: bad state " + name + fmt.Sprint(kv))
-	}
-	return b
-}

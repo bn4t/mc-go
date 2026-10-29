@@ -526,7 +526,7 @@ func (t *structTemplate) placeInWorld(rg *Region, off, pivot BlockPos, s *placeS
 		if s.keepLiquids {
 			fluid = rg.at(b.pos)
 		}
-		st := rotateState(mirrorState(b.state, s.mirror), s.rotation)
+		st := legacyRotate(legacyMirror(b.state, s.mirror), s.rotation)
 		if b.nbt != nil {
 			rg.set(b.pos, barrier)
 		}

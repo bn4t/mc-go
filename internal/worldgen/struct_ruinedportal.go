@@ -56,10 +56,10 @@ var (
 	rpGiantPortals = []string{"giant_portal_1", "giant_portal_2", "giant_portal_3"}
 )
 
-var mirrorEnumNames = map[int]string{mirNone: "NONE", mirLeftRight: "LEFT_RIGHT", mirFrontBack: "FRONT_BACK"}
+var rpMirrorNames = map[int]string{mirNone: "NONE", mirLeftRight: "LEFT_RIGHT", mirFrontBack: "FRONT_BACK"}
 
 func mirrorFromName(s string) int {
-	for k, v := range mirrorEnumNames {
+	for k, v := range rpMirrorNames {
 		if v == s {
 			return k
 		}
@@ -341,7 +341,7 @@ type ruinedPortalPiece struct {
 func (p *ruinedPortalPiece) SaveData(t map[string]any) {
 	p.saveTpl(t)
 	t["Rotation"] = rotationEnumNames[p.rot]
-	t["Mirror"] = mirrorEnumNames[p.mir]
+	t["Mirror"] = rpMirrorNames[p.mir]
 	t["VerticalPlacement"] = rpPlacementNames[p.placement]
 	t["Properties"] = map[string]any{
 		"cold": boolByte(p.props.cold), "mossiness": p.props.mossiness, "air_pocket": boolByte(p.props.airPocket),

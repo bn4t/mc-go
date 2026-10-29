@@ -31,8 +31,8 @@ func propDir(st world.Block, prop string) int {
 	return dirNorth
 }
 
-// relative is BlockPos.relative(dir).
-func relative(p BlockPos, dir int) BlockPos {
+// relative is BlockPos.relStep(dir).
+func relStep(p BlockPos, dir int) BlockPos {
 	o := dirOffsets[dir]
 	return offset(p, o[0], o[1], o[2])
 }
@@ -58,7 +58,7 @@ func init() {
 	// behind is sturdy on the facing side.
 	wallTorch := func(rg blockGetter, st world.Block, p BlockPos) bool {
 		f := propDir(st, "facing")
-		return sturdyFull(rg.at(relative(p, oppositeDir(f))), f)
+		return sturdyFull(rg.at(relStep(p, oppositeDir(f))), f)
 	}
 	surviveByClass["WallTorchBlock"] = wallTorch
 	surviveByClass["RedstoneWallTorchBlock"] = wallTorch
@@ -75,7 +75,7 @@ func init() {
 	surviveByClass["CandleCakeBlock"] = solidBelow
 	// WallSignBlock / WallBannerBlock: a solid block behind.
 	solidBehind := func(rg blockGetter, st world.Block, p BlockPos) bool {
-		return isSolidState(rg.at(relative(p, oppositeDir(propDir(st, "facing")))))
+		return isSolidState(rg.at(relStep(p, oppositeDir(propDir(st, "facing")))))
 	}
 	surviveByClass["WallSignBlock"] = solidBehind
 	surviveByClass["WallBannerBlock"] = solidBehind
@@ -90,7 +90,7 @@ func init() {
 	// GrindstoneBlock overrides it to true.
 	surviveByClass["FaceAttachedHorizontalDirectionalBlock"] = func(rg blockGetter, st world.Block, p BlockPos) bool {
 		d := oppositeDir(faceAttachedDir(st))
-		return sturdyFull(rg.at(relative(p, d)), oppositeDir(d))
+		return sturdyFull(rg.at(relStep(p, d)), oppositeDir(d))
 	}
 	surviveByClass["GrindstoneBlock"] = func(blockGetter, world.Block, BlockPos) bool { return true }
 	// BellBlock.canSurvive: a ceiling bell needs canSupportCenter above
@@ -110,7 +110,7 @@ func init() {
 		if d == dirUp {
 			return canSupportCenter(rg, offset(p, 0, 1, 0), dirDown)
 		}
-		return sturdyFull(rg.at(relative(p, d)), oppositeDir(d))
+		return sturdyFull(rg.at(relStep(p, d)), oppositeDir(d))
 	}
 	// LanternBlock.canSurvive: canSupportCenter toward the attachment
 	// (above when hanging, below otherwise).
@@ -119,7 +119,7 @@ func init() {
 		if propIs(st, "hanging", "true") {
 			d = dirUp
 		}
-		return canSupportCenter(rg, relative(p, d), oppositeDir(d))
+		return canSupportCenter(rg, relStep(p, d), oppositeDir(d))
 	}
 	// DoorBlock.canSurvive: the lower half on a full sturdy top, the
 	// upper half over this door.
@@ -159,7 +159,7 @@ func init() {
 		if f == dirUp || f == dirDown {
 			return false
 		}
-		return sturdyFull(rg.at(relative(p, oppositeDir(f))), f)
+		return sturdyFull(rg.at(relStep(p, oppositeDir(f))), f)
 	}
 	// ChorusPlantBlock.canSurvive: with air neither above nor below, no
 	// horizontal plant; a horizontal plant counts when the block under
@@ -169,7 +169,7 @@ func init() {
 		below := rg.at(offset(p, 0, -1, 0))
 		vertical := !isAir(rg.at(offset(p, 0, 1, 0))) && !isAir(below)
 		for _, d := range [4]int{dirNorth, dirSouth, dirWest, dirEast} {
-			q := relative(p, d)
+			q := relStep(p, d)
 			if !isBlock(rg.at(q), name) {
 				continue
 			}
@@ -196,7 +196,7 @@ func init() {
 		}
 		found := false
 		for _, d := range [4]int{dirNorth, dirSouth, dirWest, dirEast} {
-			n := rg.at(relative(p, d))
+			n := rg.at(relStep(p, d))
 			if isBlock(n, "chorus_plant") {
 				if found {
 					return false

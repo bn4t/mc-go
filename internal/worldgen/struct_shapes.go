@@ -147,22 +147,3 @@ func mirrorStair(b world.Block, mirror int) world.Block {
 	return out
 }
 
-// PostProcessShapes is the shape half of LevelChunk.postProcessGeneration
-// for cells structure pieces marked (StructurePiece.placeBlock's
-// SHAPE_CHECK_BLOCKS: fences, iron bars, torches, ladders): each still
-// holding such a block is refreshed from its neighbours
-// (Block.updateFromNeighbourShapes), reading across chunk borders
-// through chunks.
-func (g *Generator) PostProcessShapes(c *ProtoChunk, chunks map[[2]int32]*ProtoChunk) {
-	rg := &Region{g: g, center: c, chunks: chunks}
-	for _, m := range c.PostProcess {
-		x, y, z := m[0]&15, m[1], m[2]&15
-		st := c.Get(x, y, z)
-		if n, _ := world.StateOwner(st); !shapeCheckBlocks[n] {
-			continue
-		}
-		if ns := updateFromNeighbourShapes(rg, st, BlockPos(m)); ns != st {
-			c.Set(x, y, z, ns)
-		}
-	}
-}

@@ -54,7 +54,7 @@ func init() {
 					if beached {
 						// ShipwreckStructure passes (minX, xSpan, minZ,
 						// zSpan) to getLowestY(x, z, width, depth).
-						low := lowestCornerY(c, bb.MinX, bb.MaxX-bb.MinX+1, bb.MinZ, bb.MaxZ-bb.MinZ+1)
+						low := wreckLowestCornerY(c, bb.MinX, bb.MaxX-bb.MinX+1, bb.MinZ, bb.MaxZ-bb.MinZ+1)
 						y = p.beachedY(low, c.Random)
 					} else {
 						y = meanCornerY(c, bb.MinX, bb.MaxX-bb.MinX+1, bb.MinZ, bb.MaxZ-bb.MinZ+1)
@@ -94,9 +94,9 @@ func meanCornerY(c *GenContext, x, w, z, d int32) int32 {
 	return (h[0] + h[1] + h[2] + h[3]) / 4
 }
 
-// lowestCornerY is Structure.getLowestY(ctx, a, b, c, d), which reads
+// wreckLowestCornerY is Structure.getLowestY(ctx, a, b, c, d), which reads
 // its arguments as (x, z, width, depth).
-func lowestCornerY(c *GenContext, a, b, cc, d int32) int32 {
+func wreckLowestCornerY(c *GenContext, a, b, cc, d int32) int32 {
 	h := cornerHeights(c, a, cc, b, d)
 	return min(h[0], min(h[1], min(h[2], h[3])))
 }
@@ -130,12 +130,6 @@ func (p *shipwreckPiece) SaveData(t map[string]any) {
 	t["height_adjusted"] = boolByte(p.adjusted)
 }
 
-func boolByte(b bool) int8 {
-	if b {
-		return 1
-	}
-	return 0
-}
 
 // tooBig is ShipwreckPiece.isTooBigToFitInWorldGenRegion (x or y size
 // over 32).

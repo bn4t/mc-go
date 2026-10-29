@@ -152,7 +152,7 @@ func (t *terrainSource) ProvideChunk(x, z int) *world.BaseChunk {
 		for _, n := range around(cx, cz, 1) {
 			near[n] = t.terrain(n)
 		}
-		t.g.PostProcessShapes(p, near)
+		worldgen.PostProcessShapes(p, near)
 	}
 	base := protoToBase(p)
 	if t.g.Structures {

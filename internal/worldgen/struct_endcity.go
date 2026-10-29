@@ -46,7 +46,7 @@ func init() {
 				dz = -5
 			}
 			x, z := c.ChunkX*16+7, c.ChunkZ*16+7
-			pos := BlockPos{x, lowestCornerY(c, x, z, dx, dz), z}
+			pos := BlockPos{x, wreckLowestCornerY(c, x, z, dx, dz), z}
 			if pos[1] < 60 {
 				return nil, false
 			}
