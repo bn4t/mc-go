@@ -191,7 +191,7 @@ func (s *Server) stashHiddenEffect(sess *Session, id int32, inst mobEffectInst) 
 	if e.hidden == nil {
 		e.hidden = &inst
 	} else {
-		e.hidden.mergeHidden(inst, s.clock.count)
+		e.hidden.mergeHidden(inst, sess.effectNow())
 	}
 	sess.effects[id] = e
 }
@@ -240,9 +240,9 @@ func (s *Server) applyMobEffectWire(sess *Session, id, amplifier int32, duration
 	}
 	expiry := int64(-1)
 	if duration >= 0 {
-		expiry = s.clock.count + int64(duration)
+		expiry = sess.effectNow() + int64(duration)
 	}
-	inst := mobEffectInst{amplifier: amplifier, expiry: expiry, born: s.clock.count, hide: hideParticles, flags: flags, flagsSet: true}
+	inst := mobEffectInst{amplifier: amplifier, expiry: expiry, born: sess.effectNow(), hide: hideParticles, flags: flags, flagsSet: true}
 	if prev, ok := sess.effects[id]; ok {
 		inst.flags &^= 8 // onEffectUpdated does not request a fresh blend.
 		switch {
@@ -251,7 +251,7 @@ func (s *Server) applyMobEffectWire(sess *Session, id, amplifier int32, duration
 			// shorter (other.isShorterDurationThan: finite new duration
 			// <= the old remaining) vanilla pushes the old instance into
 			// the new one's hiddenEffect so it resumes afterwards.
-			if duration >= 0 && prev.expiry >= 0 && int64(duration) <= prev.expiry-s.clock.count {
+			if duration >= 0 && prev.expiry >= 0 && int64(duration) <= prev.expiry-sess.effectNow() {
 				inst.hidden = &prev
 			}
 		case prev.amplifier == amplifier:
@@ -327,7 +327,7 @@ func (s *Server) playerGiveEffect(t *Session, id, amplifier, ticks int32, hidePa
 	return s.playerGiveEffectFlags(t, id, amplifier, ticks, hideParticles, nil, src...)
 }
 func (s *Server) playerGiveEffectFlags(t *Session, id, amplifier, ticks int32, hideParticles bool, flags *byte, src ...damageSource) bool {
-	now := s.clock.count
+	now := t.effectNow()
 	if e, live := sessEffect(t, id, now); live {
 		newInst := mobEffectInst{amplifier: amplifier, expiry: effectExpiry(now, ticks), born: now}
 		switch {
@@ -553,7 +553,7 @@ func (s *Server) sendMobEffectUpdate(sess *Session, id int32, e mobEffectInst) {
 	b.VarInt(sess.entityID.Load())
 	b.VarInt(id)
 	b.VarInt(e.amplifier)
-	remaining := e.expiry - s.clock.count
+	remaining := e.expiry - sess.effectNow()
 	if e.expiry < 0 {
 		remaining = -1
 	}
@@ -573,10 +573,10 @@ func (s *Server) sendMobEffectUpdate(sess *Session, id int32, e mobEffectInst) {
 // the expiring instance carries a hiddenEffect the slot downgrades to
 // it instead of clearing (MobEffectInstance.downgradeToHiddenEffect),
 // which surfaces as an Update Mob Effect with the lower amplifier.
-func (s *Server) mobEffectTickStep() {
+func (s *Server) playerEffectTickStep() {
 	s.sessions.Range(func(_, v any) bool {
 		sess := v.(*Session)
-		if sess.state.Load() != StatePlay {
+		if !sess.gameplayTickReady() {
 			return true
 		}
 		// Per-tick applyEffectTick hooks run before the expiry sweep —
@@ -585,7 +585,7 @@ func (s *Server) mobEffectTickStep() {
 		sess.effMu.Lock()
 		badOmen, hasBadOmen := sess.effects[effectBadOmen]
 		raidOmen, hasRaidOmen := sess.effects[effectRaidOmen]
-		raidOmenDue := hasRaidOmen && raidOmen.expiry >= 0 && raidOmen.expiry-s.clock.count == 1
+		raidOmenDue := hasRaidOmen && raidOmen.expiry >= 0 && raidOmen.expiry-sess.effectNow() == 1
 		sess.effMu.Unlock()
 		if hasBadOmen {
 			s.badOmenTick(sess, badOmen)
@@ -600,7 +600,7 @@ func (s *Server) mobEffectTickStep() {
 		active := make([]mobEffectInst, 0, len(sess.effects))
 		ids := make([]int32, 0, len(sess.effects))
 		for id, inst := range sess.effects {
-			if inst.expiry >= 0 && inst.expiry-s.clock.count > 0 {
+			if inst.expiry >= 0 && inst.expiry-sess.effectNow() > 0 {
 				ids = append(ids, id)
 				active = append(active, inst)
 			}
@@ -619,7 +619,7 @@ func (s *Server) mobEffectTickStep() {
 		sess.effMu.Lock()
 		var expired, downgraded []int32
 		for id, e := range sess.effects {
-			if e.expiry >= 0 && s.clock.count >= e.expiry {
+			if e.expiry >= 0 && sess.effectNow() >= e.expiry {
 				if e.hidden != nil {
 					resumed := *e.hidden
 					resumed.flags = potionStoredFlags(resumed) &^ 8
@@ -637,7 +637,7 @@ func (s *Server) mobEffectTickStep() {
 			s.removeMobEffect(sess, id)
 		}
 		for _, id := range downgraded {
-			e, live := sessEffect(sess, id, s.clock.count)
+			e, live := sessEffect(sess, id, sess.effectNow())
 			if live {
 				s.sendMobEffectUpdate(sess, id, e)
 				s.fireEffectsChanged(sess)
@@ -645,6 +645,12 @@ func (s *Server) mobEffectTickStep() {
 		}
 		return true
 	})
+}
+
+func (s *Server) mobEffectTickStep() {
+	if !s.clock.isFrozen() {
+		s.playerEffectTickStep()
+	}
 	// The world-entity arm of LivingEntity.tickEffects: the same
 	// expiry/downgrade pass on e.Effects, remove_mob_effect /
 	// update_mob_effect out to trackers instead of the session write.
@@ -693,8 +699,8 @@ func (s *Server) mobEffectTickStep() {
 // effect instance on a player session — the session arm of
 // MobEffectInstance.tick's applyEffectTick dispatch.
 func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectInst) {
-	rem := inst.expiry - s.clock.count
-	if rem <= 0 || sess.dead || s.clock.count <= inst.born {
+	rem := inst.expiry - sess.effectNow()
+	if rem <= 0 || sess.dead || sess.effectNow() <= inst.born {
 		return
 	}
 	switch id {

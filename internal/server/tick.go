@@ -521,6 +521,7 @@ func (s *Server) gameTickOwned() {
 		s.clock.day++
 	}
 	s.clock.mu.Unlock()
+	s.compensateFrozenPlayerEffectStep()
 	// LivingEntity.baseTick's air pass plus the inside-block fluid
 	// cells run on the entity game tick: a sprint or step advances
 	// them, and players are exempt from /tick freeze so the loop
@@ -629,6 +630,7 @@ func (s *Server) playerTickOwned() {
 	if s.shuttingDown.Load() {
 		return
 	}
+	s.frozenPlayerEffectTick()
 	// Chunk-generation spawns land as chunks generate, frozen or not.
 	s.chunkGenSpawnStep()
 	s.digTickStep()

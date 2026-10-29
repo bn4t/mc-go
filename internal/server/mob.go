@@ -10549,8 +10549,8 @@ func (s *Server) elderCurseStep(e *Entity) {
 		if dx*dx+dy*dy+dz*dz >= 2500 { // closerThan(50) is strict
 			return true
 		}
-		if cur, live := sessEffect(sess, id, s.clock.count); live &&
-			cur.amplifier >= 2 && cur.expiry-s.clock.count > 1199 {
+		if cur, live := sessEffect(sess, id, sess.effectNow()); live &&
+			cur.amplifier >= 2 && cur.expiry-sess.effectNow() > 1199 {
 			return true
 		}
 		s.playerGiveEffect(sess, id, 2, 6000, false)

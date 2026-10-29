@@ -574,7 +574,7 @@ func (s *Server) potionPlayerFlags(sess *Session, id, amp, ticks int32, flags by
 	inst, ok := sess.effects[id]
 	changed := false
 	if ok {
-		changed = potionMergeFlags(&inst, flags, applied, amp, ticks, s.clock.count)
+		changed = potionMergeFlags(&inst, flags, applied, amp, ticks, sess.effectNow())
 		sess.effects[id] = inst
 	}
 	sess.effMu.Unlock()

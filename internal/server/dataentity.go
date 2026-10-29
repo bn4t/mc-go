@@ -2343,7 +2343,7 @@ func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 	sess.invMu.Unlock()
 	sess.effMu.Lock()
 	if len(sess.effects) > 0 {
-		m["active_effects"] = mobEffectsNBT(sess.effects, sess.server.clock.count)
+		m["active_effects"] = mobEffectsNBT(sess.effects, sess.effectNow())
 	}
 	sess.effMu.Unlock()
 	return m

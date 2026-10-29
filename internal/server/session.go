@@ -126,6 +126,8 @@ type Session struct {
 	// death_protection component's death effects).
 	effMu   sync.Mutex
 	effects map[int32]mobEffectInst
+	// effectFrozenTicks separates player effect age from frozen world steps.
+	effectFrozenTicks int64
 	// raidOmenPos is the village position Bad Omen converted at — the
 	// raid_omen instance consumes it to anchor the raid on expiry.
 	raidOmenPos *world.Pos

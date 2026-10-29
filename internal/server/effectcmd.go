@@ -225,7 +225,7 @@ func sessEffect(sess *Session, id int32, now int64) (mobEffectInst, bool) {
 }
 
 func sessHasEffect(sess *Session, id int32) bool {
-	_, ok := sessEffect(sess, id, sess.server.clock.count)
+	_, ok := sessEffect(sess, id, sess.effectNow())
 	return ok
 }
 
