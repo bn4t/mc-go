@@ -47,8 +47,10 @@ Native boats and most minecart variants preserve measured cargo, subtype state
 and supported passenger trees through vanilla-compatible saves. Chest boats and
 chest/hopper minecarts provide measured shared cargo menus, clicks and spectator
 restrictions. Killing cargo vehicles with `/kill` spills their inventory even
-when entity drops are disabled. Combat destruction, player remount, spawner
-carts and complete vehicle runtime behavior remain in progress.
+when entity drops are disabled. Creative and survival attack destruction also
+preserve cargo; only survival with entity drops enabled drops the vehicle item.
+Item commands access the same cargo slots. Player remount, spawner carts and
+complete vehicle runtime behavior remain in progress.
 Startup folder datapacks can supply displayed and displayless advancement
 definitions with XP, built-in loot, recipe and function rewards. Measured
 display fields, layout, built-in tab overrides and completion announcements

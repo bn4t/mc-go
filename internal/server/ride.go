@@ -882,18 +882,23 @@ func (s *Server) vehicleHurt(sess *Session, ep *Entity, amount float32) {
 	case !creative && ep.VehDamage > 40:
 		s.vehicleDestroy(ep)
 	case creative:
-		// instabuild hits discard the vehicle: removed, no drop.
+		// Instabuild omits the vehicle item, but container removal still
+		// spills cargo independently of entity_drops (26.2 wire).
+		s.spillVehicleCargo(ep)
 		s.entities.Remove(ep.ID)
 		s.broadcastEntityRemove([]int32{ep.ID})
 	}
 }
 
-// vehicleDestroy is VehicleEntity.destroy: the vehicle is removed and
-// its drop item spawns where it sat. A chest vehicle would also spill
-// its contents — unmodelled, contents are empty in practice.
+// Vehicle destruction spills cargo even when entity_drops disables the
+// vehicle item. Creative removal takes the separate no-vehicle-item path.
 func (s *Server) vehicleDestroy(ep *Entity) {
+	s.spillVehicleCargo(ep)
 	s.entities.Remove(ep.ID)
 	s.broadcastEntityRemove([]int32{ep.ID})
+	if !s.gameRuleBool("minecraft:entity_drops") {
+		return
+	}
 	name, ok := EntityTypeName(ep.Type)
 	if !ok {
 		return

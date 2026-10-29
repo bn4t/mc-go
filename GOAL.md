@@ -18229,3 +18229,11 @@ Provenance: Java 26.2 wire and CloneCommands final-notification order/strict bra
 - **Pinned:** 24 command/result cases plus positive two-target counts and armed empty-loot consumption PASS 58.92 s; focused units PASS 2.275 s. Existing ItemMob air-name mismatch was reproduced on unchanged 1ad53cb and is a separate follow-on. Modifier/component and nonempty loot coverage retain existing limits.
 
 Provenance: actual Java 26.2 wire, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Frozen cargo patch 66a3bccd4d7bb09a64965d1072076de1b3362638cadd5048646ef829c675efc1.
+
+## Slice — vehicle cargo combat drops (2026-10-29)
+
+- **Measured:** actual attack packets against chest/hopper carts and chest boats show cargo spills in creative and survival regardless of entity_drops; the vehicle item drops only in survival with that rule enabled.
+- **Implemented:** reuse the component-preserving cargo spill helper on creative removal and survival destruction, gating only the vehicle item on entity_drops. Damage accumulation is unchanged.
+- **Pinned:** all 12 mode/rule/type controls independently establish source cargo, removal, three diamonds and the expected vehicle item; differential PASS 13.65 s, focused units PASS 0.955 s. Five default-attribute netherite hits isolate drop behavior from the separately measured player attack-attribute gap. Vehicle item scatter, styled names and all damage causes remain partial.
+
+Provenance: Java 26.2 wire and VehicleEntity/ContainerEntity removal facts; Temurin 25.0.5+8, Go 1.27.3, runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Frozen patch fe8bea6cf5e21dbd2fb7e331b7a4d03d045b18ec390c35c2006360a76d482efc.
