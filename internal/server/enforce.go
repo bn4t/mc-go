@@ -1,13 +1,11 @@
 package server
 
 import (
-	"encoding/json"
 	"time"
 
 	"mc-go/api/player"
 	"mc-go/internal/event"
 	"mc-go/internal/plugin"
-	"mc-go/internal/protocol"
 )
 
 // PlayerTeleport is published on TopicPlayerTeleport for plugins (e.g.
@@ -40,11 +38,7 @@ func (s *Server) kickPlayerRecordOwned(p *playerRecord, reason string) bool {
 		return false
 	}
 	if sess := p.java; sess != nil {
-		sess.closing.Store(true)
-		js, _ := json.Marshal(map[string]string{"text": reason})
-		var b protocol.Buffer
-		b.String(string(js))
-		_ = sess.write(sess.ids().PlayDisconnect, b.Bytes())
+		s.SendPlayDisconnect(sess, reason)
 		// Retire identity now; only the real Java transport needs a flush grace.
 		go func() {
 			time.Sleep(200 * time.Millisecond)

@@ -112,6 +112,11 @@ func TestKickPlayer(t *testing.T) {
 		if pkt.id != IDPlayDisconnect {
 			t.Fatalf("kick packet = %#x", pkt.id)
 		}
+		// Reason is an NBT TAG_String root, not a VarInt-prefixed JSON
+		// string — the client fails to decode the latter.
+		if want := "\x08\x00\x09test kick"; string(pkt.data) != want {
+			t.Fatalf("kick payload = %q, want %q", pkt.data, want)
+		}
 	default:
 		t.Fatal("no kick packet queued")
 	}

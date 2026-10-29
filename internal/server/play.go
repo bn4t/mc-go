@@ -618,7 +618,7 @@ func (sess *Session) startKeepAlive() chan struct{} {
 					return
 				}
 				if sess.busy.Load() == 0 && time.Since(sess.lastAlive()) > timeout {
-					sess.server.SendPlayDisconnect(sess, `{"text":"Timed out"}`)
+					sess.server.SendPlayDisconnect(sess, "Timed out")
 					// Let the writer flush the kick before the socket
 					// goes away; the read loop exits on the close.
 					time.Sleep(200 * time.Millisecond)
@@ -752,10 +752,10 @@ func (s *Server) sendSyncPos(sess *Session, x, y, z float64) error {
 	return sess.write(sess.ids().PlaySyncPos, b.Bytes())
 }
 
-// SendPlayDisconnect kicks a play-stage session with a chat message.
+// SendPlayDisconnect kicks a play-stage session with a plain-text reason.
+// The play disconnect payload is an NBT text component; a JSON string
+// there fails the client's decode and hides the reason.
 func (s *Server) SendPlayDisconnect(sess *Session, reason string) {
 	sess.closing.Store(true)
-	var b protocol.Buffer
-	b.String(reason)
-	_ = sess.write(sess.ids().PlayDisconnect, b.Bytes())
+	_ = sess.write(sess.ids().PlayDisconnect, literal(reason).content())
 }
