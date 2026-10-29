@@ -122,6 +122,8 @@ func (s *Server) flyerStep(e *Entity, name string) bool {
 		return s.blazeStep(e)
 	case "ghast":
 		return s.ghastStep(e)
+	case "phantom":
+		return s.phantomStep(e)
 	}
 	return false
 }

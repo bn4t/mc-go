@@ -245,5 +245,7 @@ func (s *Server) flyerSummonNBT(e *Entity, name string, tag *snbtTag) {
 		if v, ok := tag.vals["ExplosionPower"]; ok {
 			e.ExplosionPower = float32(int8(int64(snbtNum(v))))
 		}
+	case "phantom":
+		s.phantomSummonNBT(e, tag)
 	}
 }

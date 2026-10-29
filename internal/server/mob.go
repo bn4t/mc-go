@@ -2577,6 +2577,10 @@ func (s *Server) summonMobRawSpawn(d *dimension, name string, x, y, z float64, n
 		e.DespawnDelay = 47999
 	}
 	summonAttrTouches(e, name, init)
+	if init && name == "phantom" {
+		// Phantom.finalizeSpawn's anchor (phantom.go).
+		s.phantomSummonInit(e)
+	}
 	return e, true
 }
 
