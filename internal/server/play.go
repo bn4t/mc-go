@@ -416,48 +416,21 @@ func (s *Server) finishJavaPlayerMoveOwned(sess *Session, from, move frontend.Mo
 // here). The water arms and the sprint arm also credit food
 // exhaustion.
 //
-// playerBoxCollides approximates vanilla's "moved wrongly" check
-// (noCollision + isEntityCollidingWithAnythingNew): the 0.6×1.8
-// player AABB at the packet's target position is scanned for solid
-// cells that the box at the current position did not already
-// overlap — dipping a toe into already-colliding blocks is
-// tolerated, entering new ones rejects the whole move.
+// playerBoxCollides tests the player's current pose box against positioned
+// block shapes, retaining vanilla's already-colliding-shape exemption.
 func (s *Server) playerBoxCollides(sess *Session, ox, oy, oz, nx, ny, nz float64) bool {
-	return playerBoxCollidesIn(sess.world(), ox, oy, oz, nx, ny, nz)
+	if sess.mode() == GameModeSpectator {
+		return false
+	}
+	half, height := s.playerCollisionDims(&sess.playerRecord)
+	return playerBoxCollidesWithDims(sess.world(), ox, oy, oz, nx, ny, nz, half, height)
 }
 
-// playerBoxCollidesIn applies the same standing-avatar collision rule for every
-// frontend. It consumes block storage, never a Java transport or session.
+// playerBoxCollidesIn is the standing-avatar entry point for callers without
+// a player record. It consumes block storage, never a transport or session.
 func playerBoxCollidesIn(w *world.World, ox, oy, oz, nx, ny, nz float64) bool {
-	const half = 0.3
-	overlapsOld := func(bx, by, bz int) bool {
-		return ox+half > float64(bx) && ox-half < float64(bx+1) &&
-			oy+1.8 > float64(by) && oy < float64(by+1) &&
-			oz+half > float64(bz) && oz-half < float64(bz+1)
-	}
-	for bx := int(math.Floor(nx - half)); float64(bx) < nx+half; bx++ {
-		for bz := int(math.Floor(nz - half)); float64(bz) < nz+half; bz++ {
-			for by := int(math.Floor(ny)); float64(by) < ny+1.8; by++ {
-				b := w.GetBlock(world.Pos{X: bx, Y: by, Z: bz})
-				if world.NonSolid(b) || moveNoCollision(b) {
-					continue
-				}
-				// Vanilla's noCollision runs the box against each cell's
-				// real VoxelShape — a move only collides when the box
-				// penetrates the shape, so along Y the box must dip below
-				// the collision top and rise above the cell bottom.
-				// Standing ON a 15/16 block (farmland, dirt_path — feet
-				// inside its cell) does not count.
-				if ny >= float64(by)+collisionTopOf(b) || ny+1.8 <= float64(by) {
-					continue
-				}
-				if !overlapsOld(bx, by, bz) {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	half, height := playerPoseDims(0)
+	return playerBoxCollidesWithDims(w, ox, oy, oz, nx, ny, nz, half, height)
 }
 
 // supportedBelow reports whether a thin slab under the player's box

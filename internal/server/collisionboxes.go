@@ -36,6 +36,26 @@ func collisionBoxesOf(blk world.Block) ([]cellBox, bool) {
 	}
 
 	switch {
+	case short == "pointed_dripstone":
+		// SpeleothemBlock.column widths6/8/10/12; only an unmerged tip
+		// has a partial vertical extent. Position offset is applied later.
+		width, low, high := 6.0, 0.0, 16.0
+		switch prop("thickness") {
+		case "tip":
+			if prop("vertical_direction") == "up" {
+				high = 11
+			} else {
+				low = 5
+			}
+		case "frustum":
+			width = 8
+		case "middle":
+			width = 10
+		case "base":
+			width = 12
+		}
+		side := (16 - width) / 32
+		return []cellBox{{side, low / 16, side, 1 - side, high / 16, 1 - side}}, true
 	case strings.HasSuffix(short, "_slab"):
 		switch prop("type") {
 		case "bottom":
