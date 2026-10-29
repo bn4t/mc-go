@@ -110,7 +110,7 @@ func TestHurtingRotationParity(t *testing.T) {
 	}
 	flight := []lane{
 		{"fireball",
-			`summon minecraft:fireball 4 -40 0 {Motion:[0.3d,0.15d,-0.35d],acceleration_power:0.01d}`,
+			`summon minecraft:fireball 4 -40 -16 {Motion:[0.3d,0.15d,-0.35d],acceleration_power:0.01d}`,
 			"@e[type=minecraft:fireball,limit=1]",
 			math.Atan2(-0.35, 0.3)*180/math.Pi + 90,
 			math.Atan2(math.Hypot(0.3, -0.35), 0.15)*180/math.Pi - 90},
@@ -120,7 +120,7 @@ func TestHurtingRotationParity(t *testing.T) {
 			math.Atan2(0.15, 0.45)*180/math.Pi + 90,
 			math.Atan2(math.Hypot(0.45, 0.15), -0.1)*180/math.Pi - 90},
 		{"wind_charge",
-			`summon minecraft:wind_charge 4 -40 0 {Motion:[0.2d,0.1d,0.15d],acceleration_power:0.01d}`,
+			`summon minecraft:wind_charge 4 -40 16 {Motion:[0.2d,0.1d,0.15d],acceleration_power:0.01d}`,
 			"@e[type=minecraft:wind_charge,limit=1]",
 			math.Atan2(0.15, 0.2)*180/math.Pi + 90,
 			math.Atan2(math.Hypot(0.2, 0.15), 0.1)*180/math.Pi - 90},
@@ -144,7 +144,8 @@ func TestHurtingRotationParity(t *testing.T) {
 		sendCommand(t, pw, "kill @e[type=!minecraft:player]")
 		// A corridor covering the whole flight window — a leftover
 		// wall would explode a lane mid-window.
-		sendCommand(t, pw, "fill -2 -46 -4 62 -34 4 minecraft:air")
+		sendCommand(t, pw, "fill -2 -46 -24 62 -34 4 minecraft:air")
+		sendCommand(t, pw, "fill -2 -46 12 62 -34 24 minecraft:air")
 		dataGetLine(t, sink, pw, "@s", "Pos")
 
 		// Edge lane: zero delta, Rotation [370,-450] — setRot mods
@@ -178,6 +179,9 @@ func TestHurtingRotationParity(t *testing.T) {
 		o.zero[0], o.zero[1] = dataGetVec2(t, sink, pw,
 			"@e[type=minecraft:small_fireball,limit=1]", "Rotation")
 
+		// The flight lanes start apart from each other: overlapping
+		// redirectable projectiles can deflect each other and reset their
+		// acceleration power, invalidating this independent-flight fixture.
 		// Flight lanes summon live back-to-back and freeze right
 		// after — each lane banks only a handful of live ticks
 		// before the freeze pins the count, keeping rem_cp1 well
@@ -196,6 +200,10 @@ func TestHurtingRotationParity(t *testing.T) {
 		}
 		readLane := func(cpIdx int) {
 			for li, l := range flight {
+				status, power := dataGetSel(t, sink, pw, l.sel, "acceleration_power")
+				if status != "query" || math.Abs(power-0.01) > 1e-6 {
+					t.Fatalf("%s %s checkpoint%d acceleration power %v (%s), want0.01; lanes must remain independent and queryable", tg.tag, l.name, cpIdx, power, status)
+				}
 				a, b := dataGetVec2(t, sink, pw, l.sel, "Rotation")
 				o.cp[li][cpIdx] = [2]float64{a, b}
 			}

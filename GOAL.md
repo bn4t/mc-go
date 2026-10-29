@@ -16866,3 +16866,23 @@ no flee; unsneak → flee). Green both legs.
   and custom potion payload support are not completed. A separate summoned
   wind-charge observation failure in `TestHurtingRotationParity` is being
   checked independently; this slice does not claim full projectile parity.
+
+
+## Slice — independent projectile lanes and measured fall expectation (2026-10-29)
+
+- **Measured:** immutable committed tree `561f126` reproduces the same
+  `TestHurtingRotationParity` wind-charge disappearance seen during potion
+  validation. Its overlapping projectile lanes allowed deflection to change
+  the intended acceleration from 0.01 to 0.1. The rotation fixture therefore
+  no longer measured independent flight. The full unit run also exposed an
+  old 8.4-block fall expectation of fractional damage, contradicting the
+  already wire-pinned default vanilla flooring rule.
+- **Implemented:** separate rotation-test lanes at z = -16, 0 and 16 while
+  retaining their original vector, angle, convergence and ratio assertions.
+  Add acceleration/queryability checkpoints to catch fixture interactions.
+  Update the existing fall-threshold unit to expect health 15 after 8.4 blocks.
+  No production behavior changes are introduced here.
+- **Pinned:** `TestHurtingRotationParity` passes against vanilla and mc-go
+  (39.77 s), with the original comparisons and the new checkpoints intact.
+  The fall expectation follows the measured floor and focused boundary pins;
+  the complete suite is rerun after its correction.

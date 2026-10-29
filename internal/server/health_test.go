@@ -150,8 +150,9 @@ func TestFallDamageThreshold(t *testing.T) {
 	}
 	sess.fallDistance = 8.4
 	s.applyFallDamage(sess)
-	if sess.health != 14.6 {
-		t.Fatalf("8.4-block fall health = %v, want 14.6", sess.health)
+	// Vanilla floors the excess distance: floor(8.4 + 1e-6 - 3) = 5.
+	if sess.health != 15 {
+		t.Fatalf("8.4-block fall health = %v, want 15", sess.health)
 	}
 	if sess.fallDistance != 0 {
 		t.Fatal("fall distance not reset")
