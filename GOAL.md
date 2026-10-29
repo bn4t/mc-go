@@ -16956,3 +16956,13 @@ no flee; unsneak → flee). Green both legs.
 - **Remaining:** generated-terrain reproduction and context-dependent collision
   shapes (including powder-snow equipment behavior) need their own pins;
   this slice does not establish complete player collision or movement parity.
+
+
+## Slice — bonemeal two-block vegetation (2026-10-29)
+
+- **Measured:** JDK Temurin 25.0.5+8 `javap -c -p` on `SeagrassBlock` and `TallGrassBlock`, official 26.2 inner jar SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. Seagrass requires the actual water block above (flowing states also qualify; waterlogged solid blocks do not), always succeeds, and writes two tall-seagrass halves with flag 2. Short grass and fern require valid vegetation substrate, air above, and room inside build height; they produce tall grass and large fern respectively, also using flag 2.
+- **Implemented:** independent `bonemealplants.go` helper reached from the shared player/dispenser bonemeal function; exact target gates and both halves, with silent writes. Existing column random growth was already implemented and covered by `TestColumnGrowthParity`, so this slice advances the next actual unsupported growth path. Correct stale age-table comment.
+- **Pinned:** `TestBonemealDoublePlantParity` passes against the real jar without skips (21.79 s; package 21.900 s), using a six-tick sprint and requiring its completion report before sampling: eight cases covering source/flowing water, waterlogged/solid exclusion, both terrestrial species and blocked controls; exact meal consumption and both grown halves are required on both servers. `go test -vet=off ./internal/server -run '^TestBonemealDoublePlantLimits$' -count=1` passes (0.242 s) and covers build height, invalid soil, and valid farmland.
+- **Remaining:** grass-block spread, moss/nylium bonemeal vegetation and tall-flower item duplication are outside this slice. Player underwater-use spread fallback is not claimed by the isolated dispenser fixture.
+
+Validation detail: the first four-step fixture passed vanilla but observed no mc-go dispenses. The existing shared scheduler polls the completed TickCount before the tick increments, so a dispenser scheduled for count+4 is polled on the fifth stepped iteration. This slice waits beyond the scheduled tick and makes no exact dispenser-timing claim. An intermediate six-step fixture passed all 20 assertions too (72.76 s); the final sprint-report fixture above removes fixed-delay sampling. Focused runs used -vet=off after an unrelated transient furnace-output symbol error from concurrent edits; parent must run full vet on the stable integrated tree.

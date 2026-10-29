@@ -914,8 +914,9 @@ var dispenseToMud = map[string]bool{
 // bonemealAgeTable — blocks where performBonemeal advances an `age`
 // property: CropBlock family grows age+nextInt(2,5) clamped to the
 // block's max; cocoa/sweet_berry/pitcher grow exactly +1 (their own
-// performBonemeal bodies). Nether wart, saplings, grass/moss/nylium and
-// seagrass paths stay unimplemented.
+// performBonemeal bodies). Saplings and two-block vegetation use separate
+// branches below. Nether wart is not a bonemeal target; grass-block patch
+// spread and moss/nylium vegetation remain unsupported.
 var bonemealAgeInc25 = map[string]int{
 	"wheat":            7,
 	"carrots":          7,
@@ -941,6 +942,9 @@ func (s *Server) bonemealGrow(d *dimension, pos world.Pos) bool {
 		return false
 	}
 	name = strings.TrimPrefix(name, "minecraft:")
+	if grown, handled := s.bonemealDoublePlant(d, pos, name); handled {
+		return grown
+	}
 	// AzaleaBlock.isBonemealSuccess: the same 45% roll the saplings
 	// make — a miss consumes nothing and fires no event.
 	if name == "azalea" || name == "flowering_azalea" {
