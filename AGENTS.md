@@ -57,6 +57,10 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   pushing. With concurrent agents, test committed HEAD plus only the slice's
   owned patch; unrelated in-progress files can invalidate a test result.
   Stage exact owned patches and new files, preserving other agents' work.
+- Validate both test build modes when adding shared blackbox helpers: default
+  `go vet ./...` and `go test -tags blackbox -run '^$' ./tests/blackbox`.
+  A vanilla-only test using tagged helpers must carry the same build tag;
+  passing its tagged oracle does not prove default test compilation.
 - Synchronize protocol fixtures with observed packets or queried game ticks.
   A command reply does not prove an earlier editor packet has been applied.
   Keep capture active across barriers; do not drain away the spawn/update

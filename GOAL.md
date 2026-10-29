@@ -18273,3 +18273,9 @@ Provenance: Java 26.2 wire, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA256 183c0
 - **Measured:** immutable b7c0b9b builds, but default vet rejects a vanilla-only copper viewer test referencing the blackbox-tagged observer helper. The tagged native run had passed, so this was a build-mode dependency rather than a gameplay regression.
 - **Implemented:** apply the matching blackbox build tag to the copper viewer test. No runtime or test assertions change.
 - **Pinned:** immutable b7c0b9b plus the one-file tag patch passes default vet and tagged blackbox compilation (0.104 s, no tests run), using Go 1.27.3. Full default validation resumes on the corrected committed batch.
+
+## Slice — publication verification and test build guidance (2026-10-29)
+
+- **Measured:** immutable 799d28e passed build, vet, tagged blackbox compilation, the full default suite and a separate external consumer build. Combined ItemMob/CargoItem vanilla comparisons passed 54.361 s. Remote master was confirmed at 799d28e702ab9027c31e287b75500ba5ed612b24 after the direct push.
+- **Implemented:** document both test build modes in AGENTS and the real-client skill so tagged helper dependencies are caught before publication. No runtime change.
+- **Pinned:** full default internal/server 317.497 s, worldgen 17.241 s, public server 12.380 s, blackbox 132.868 s and conformance 2.553 s, all passing with Go 1.27.3. These default checks do not run every opt-in native comparison or constitute graphical playtesting; per-slice native evidence and remaining parity limits still apply.

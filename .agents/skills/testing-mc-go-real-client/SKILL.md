@@ -82,6 +82,13 @@ packet cannot establish final state, capture timing and request an authoritative
 inventory resync; a resync must not manufacture an earlier ordering claim.
 
 
+## Scripted test build modes
+
+When adding protocol fixtures or shared helpers, check default `go vet ./...`
+and tagged compilation with `go test -tags blackbox -run '^$' ./tests/blackbox`.
+Keep vanilla-only tests that use tagged helpers under the same build tag. A
+successful tagged native run does not establish default test compilation.
+
 ## Scripted preconditions and shared inventory state
 
 - Complete the client terrain-loaded notification before entity-interaction
