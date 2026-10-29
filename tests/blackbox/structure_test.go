@@ -456,6 +456,22 @@ func TestStructureVillageSnowyParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{85, 72, 96, 78}}, "villages")
 }
 
+// TestStructurePillagerOutpostParity pins a pillager outpost: the
+// legacy_type_1 frequency reduction and the village exclusion zone (the
+// village set stays enabled), the tower with its feature-element decor
+// and the outpost_rot processor.
+func TestStructurePillagerOutpostParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{14, -63, 20, -57}}, "pillager_outposts", "villages")
+}
+
+// TestStructureTrailRuinsParity pins trail ruins: start height -15
+// projected to the surface, bury terrain adaptation, the capped
+// archaeology processors (suspicious gravel and sand among the rule
+// replacements) and protected blocks.
+func TestStructureTrailRuinsParity(t *testing.T) {
+	structureParity(t, 12345, []terrainArea{{-99, 32, -94, 39}}, "trail_ruins")
+}
+
 // TestStructureVillageTaigaParity pins a taiga village.
 func TestStructureVillageTaigaParity(t *testing.T) {
 	structureParity(t, 12345, []terrainArea{{71, -29, 78, -17}}, "villages")
