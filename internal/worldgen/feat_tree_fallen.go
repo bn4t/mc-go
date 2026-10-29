@@ -103,7 +103,7 @@ func (ft *fallenTree) decorate(c *featCtx, r Random, logs []BlockPos, decos []tr
 	if len(decos) == 0 {
 		return
 	}
-	dc := newDecoCtx(c.g, c.rg, r, c.rg.set, logs, nil, nil)
+	dc := newDecoCtx(c.g, c.rg, r, func(p BlockPos, b world.Block) { c.rg.set(p, b) }, logs, nil, nil)
 	for _, d := range decos {
 		d.place(dc)
 	}

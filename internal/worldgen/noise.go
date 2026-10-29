@@ -462,9 +462,3 @@ func (n *SimplexNoise) Value2D(x, y float64) float64 {
 	ab := simplexCorner(w, q, r, 0, 0.5)
 	return float64(70 * (z + aa + ab))
 }
-
-// sinJava and cosJava stand in for Java's Math.sin/cos. The spawn
-// search only truncates their products to block coordinates, and the
-// resulting world spawn is pinned by TestNormalWorldChunkParity.
-func sinJava(v float64) float64 { return math.Sin(v) }
-func cosJava(v float64) float64 { return math.Cos(v) }

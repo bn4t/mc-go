@@ -72,8 +72,8 @@ func (rs *RandomState) FindSpawnPosition() (int32, int32) {
 		r := step
 		ox, oz := bx, bz
 		for r <= maxR {
-			x := ox + int32(float64(sinJava(float64(ang)))*float64(r))
-			z := oz + int32(float64(cosJava(float64(ang)))*float64(r))
+			x := ox + int32(float64(javaSin(float64(ang)))*float64(r))
+			z := oz + int32(float64(javaCos(float64(ang)))*float64(r))
 			if f := fitness(x, z); f < bestF {
 				bestF, bx, bz = f, x, z
 			}
