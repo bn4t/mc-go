@@ -323,7 +323,8 @@ type Session struct {
 	lastHorizSq float64
 	// lastDelta is the full per-packet move vector — the spear jab
 	// reads the holder's forward speed from it.
-	lastDelta [3]float64
+	lastDelta                [3]float64
+	receivedMovementThisTick bool
 	// spearStartTick gates the kinetic jab's delay; stabbed is the
 	// holder's recentKineticEnemies (entity id -> game tick).
 	spearStartTick int64

@@ -951,6 +951,7 @@ func (s *Server) handleMoveVehicle(sess *Session, p protocol.Packet) {
 		s.sendMoveVehicle(sess, ep)
 		return
 	}
+	sess.setKnownMovement([3]float64{x - ep.X, y - ep.Y, z - ep.Z})
 	ep.X, ep.Y, ep.Z = x, y, z
 	ep.Yaw, ep.Pitch = yaw, pitch
 	ep.Grounded = onGround

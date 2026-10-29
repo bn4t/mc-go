@@ -17821,3 +17821,9 @@ Source OpenJDK25.0.5 javap StructureBlockEntity, StructureTemplate, StructurePla
 - **Measured:** selected-hand and placement controls exposed coalesced inventory updates, menu-relative slot layouts, asynchronous avatar retirement and frozen dying-body colliders. These observations come from the documented 26-case hand and ten-case placement comparisons.
 - **Implemented:** the real-client testing skill records persistent packet-driven inventory state, exact action acknowledgements, public Removed barriers and separate settled-versus-immediate resize controls.
 - **Pinned:** guidance references the passing hand comparison (18.89s), placement comparison (21.07s) and retirement control (0.233s). It does not claim the remaining collision or resize gaps are implemented.
+
+## Slice — client frame-end known movement (2026-10-29)
+
+- **Measured:** vanilla 26.2 wire and Temurin 25.0.5 javap listener/player observations establish accepted player/driver movement tracking, first-frame-end preservation and empty-frame reset; accepted rotation/status packets supply zero vectors. Bundler SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`. World ticks do not reset the frame flag.
+- **Implemented:** client_tick_end updates the existing sword/spear movement state; accepted vehicle moves share the setter after driver/speed/item gates, and player movement retains canonical/plugin validation. Explicit ignored routes now remain set_test_block and test_instance_block_action.
+- **Pinned:** five exact sword-sweep controls pass (33.64s), build and accepted/rejected movement/plugin units pass (4.339s). Mounted spear positive-damage versus exact-no-damage reset controls pass (31.34s). This additional pin does not establish damage amount/frequency parity: measured positive target HP is 76.384 vanilla versus 88.192 Go, with two contacts versus one. Spear freeze timing/minimum range and movement-speed-based sweep threshold remain separate gaps.

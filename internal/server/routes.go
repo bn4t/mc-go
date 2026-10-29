@@ -46,7 +46,7 @@ func init() {
 
 		IDPlayChunkBatchRecvSB:            (*Server).handleChunkBatchReceived,
 		IDPlayClientStatusSB:              (*Server).handleClientStatus,
-		IDPlayClientTickEndSB:             (*Server).ignoreServerbound,
+		IDPlayClientTickEndSB:             (*Server).handleClientTickEnd,
 		IDPlayClientInfoSB:                (*Server).handleClientInfo,
 		IDPlayCommandSuggestionSB:         (*Server).handleCommandSuggestion,
 		IDPlayConfigurationAcknowledgedSB: (*Server).handleConfigurationAcknowledged,

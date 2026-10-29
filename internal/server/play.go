@@ -308,9 +308,7 @@ func (s *Server) finishJavaPlayerMoveOwned(sess *Session, from, move frontend.Mo
 	if x != ox || y != oy || z != oz {
 		s.frostWalkerStep(sess, x, y, z, onGround)
 	}
-	mdx, mdz := x-ox, z-oz
-	sess.lastHorizSq = mdx*mdx + mdz*mdz
-	sess.lastDelta = [3]float64{x - ox, y - oy, z - oz}
+	sess.setKnownMovement([3]float64{x - ox, y - oy, z - oz})
 	s.awardMoveStats(sess, ox, oy, oz, x, y, z, onGround)
 	// Vanilla's entity tick runs physics between move packets: a
 	// resting entity settles onto its support and the onGround flag
