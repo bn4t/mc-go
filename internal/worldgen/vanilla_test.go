@@ -178,3 +178,83 @@ func TestNoiseGolden(t *testing.T) {
 		}
 	}
 }
+
+func vanillaBiomes(t *testing.T, c map[string]any, minY, height int32) []string {
+	out := make([]string, 16*height/4)
+	sections, _ := c["sections"].(nbt.List)
+	for _, sAny := range sections.Items {
+		sec := sAny.(map[string]any)
+		sy := int32(sec["Y"].(int8))
+		b, ok := sec["biomes"].(map[string]any)
+		if !ok {
+			continue
+		}
+		pal := b["palette"].(nbt.List)
+		names := make([]string, len(pal.Items))
+		for i, p := range pal.Items {
+			names[i] = strings.TrimPrefix(p.(string), "minecraft:")
+		}
+		idx := make([]int, 64)
+		if data, ok := b["data"].([]int64); ok && len(names) > 1 {
+			bpe := 0
+			for 1<<uint(bpe) < len(names) {
+				bpe++
+			}
+			per := 64 / bpe
+			for i := 0; i < 64; i++ {
+				idx[i] = int((data[i/per] >> (uint(i%per) * uint(bpe))) & (1<<uint(bpe) - 1))
+			}
+		}
+		for i := 0; i < 64; i++ {
+			qy := sy*4 + int32(i>>4) - minY/4
+			if qy < 0 || qy >= height/4 {
+				continue
+			}
+			out[qy*16+int32(i&15)] = names[idx[i]]
+		}
+	}
+	return out
+}
+
+func TestBiomesVsVanillaRegion(t *testing.T) {
+	dir := os.Getenv("MCGO_WORLDGEN_REGION")
+	if dir == "" {
+		t.Skip()
+	}
+	seed := int64(1)
+	if s := os.Getenv("MCGO_WORLDGEN_SEED"); s != "" {
+		fmt.Sscan(s, &seed)
+	}
+	rs, _ := NewRandomState(Vanilla(), "overworld", seed)
+	bs, err := NewMultiNoiseBiomeSource(Vanilla(), "overworld")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var chunks [][2]int32
+	for _, a := range strings.Split(os.Getenv("MCGO_WORLDGEN_CHUNKS"), ";") {
+		var x0, z0, x1, z1 int32
+		fmt.Sscanf(a, "%d,%d,%d,%d", &x0, &z0, &x1, &z1)
+		for cx := x0; cx <= x1; cx++ {
+			for cz := z0; cz <= z1; cz++ {
+				chunks = append(chunks, [2]int32{cx, cz})
+			}
+		}
+	}
+	seen := map[string]int{}
+	bad := 0
+	for _, ch := range chunks {
+		_, c := vanillaChunk(t, dir, ch[0], ch[1], rs.MinY(), rs.Height())
+		want := vanillaBiomes(t, c, rs.MinY(), rs.Height())
+		got := rs.ChunkBiomes(bs, rs.NewChunk(ch[0], ch[1]), ch[0], ch[1])
+		for i := range want {
+			seen[want[i]]++
+			if want[i] != got[i] {
+				if bad < 10 {
+					t.Errorf("chunk %v cell %d: got %s want %s", ch, i, got[i], want[i])
+				}
+				bad++
+			}
+		}
+	}
+	t.Logf("%d mismatches; biomes %v", bad, seen)
+}

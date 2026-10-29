@@ -62,8 +62,9 @@ Mojang server over the wire.
 - [~] Vanilla terrain generation (seed, noise, biomes, structures):
       noise stage (density functions, cell interpolation, aquifers, ore
       veins) matches the real server block for block -
-      `TestTerrainNoiseParity`; biomes, surface rules, carvers, features,
-      structures and server wiring remain
+      `TestTerrainNoiseParity`; the multi-noise biome source matches cell
+      for cell - `TestTerrainBiomeParity`; surface rules, carvers,
+      features, structures and server wiring remain
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -15658,4 +15659,31 @@ no flee; unsneak → flee). Green both legs.
   and eroded-badlands extensions), carvers, features, structures and
   beardifier, fluid post-processing, nether/end settings, and wiring the
   generator into the server's world, level.dat and spawn search.
+
+## Slice — multi-noise biome source (2026-10-29)
+
+- **Measured:** bytecode inspection of `Climate$Sampler.sample` (block
+  corner of the quart, router values narrowed to float),
+  `Climate.quantizeCoord` (`(long)(f*10000f)`), `Climate$Parameter`
+  distance, `Climate$ParameterPoint.fitness`, `Climate$RTree` (build:
+  stable center sorts over rotating axes, power-of-six buckets, least
+  summed extent split; search: strict-improvement descent seeded by the
+  thread's last result) and the chunk biome fill order (sections bottom
+  up, x then y then z). Parameter points come from the datagen
+  `biome_parameters/overworld` report (7594 entries) packed by
+  `tools/genworldgen`. Wire/save observation: exact fitness ties occur
+  (e.g. forest vs deep_dark at distance 250000) and the real server
+  resolves them to the previous cell's biome.
+- **Implemented:** `worldgen.BiomeSource` (report-driven parameter list,
+  rebuilt RTree) and `RandomState.ChunkBiomes`, which samples through the
+  chunk's NoiseChunk caches in vanilla's order and seeds each lookup with
+  the previous result.
+- **Pinned:** `TestTerrainBiomeParity` compares 107520 biome cells over
+  seven areas of seed -4172144997902289642 (12 biomes incl. sulfur_caves,
+  deep_dark, lush_caves, mangrove_swamp) against the real server's saved
+  section palettes, and re-checks the noise stage on those chunks.
+- **Remaining:** the very first lookup of a chunk inherits whatever the
+  worker thread resolved before it in vanilla, which is not reproducible;
+  a tie there can still differ. Nether parameter list, end biome source
+  and the biome zoom (BiomeManager) used by surface rules remain.
 
