@@ -167,7 +167,8 @@ Mojang server over the wire.
       Native boats/rafts/chest variants and plain/chest/hopper/furnace/TNT
       minecart state, cargo and supported passenger trees survive a vanilla →
       mc-go → vanilla handoff; player remount, spawner carts and complete
-      cargo/runtime behavior remain open.
+      cargo destruction and other runtime behavior remain open; chest-boat and
+      chest/hopper-cart shared menus, clicks and validity have measured pins.
 
 ### Player
 - [~] Movement tracking, keep-alive, chat, tab list; player pose and movement use
@@ -18050,3 +18051,13 @@ Limits: ordinary clipped bodies, source-base items, real-player displacement, Sm
 **Pinned** — Final immutable f255863 plus four owned files: 54 if/unless conditions, seven parser failures and three command-block LF outcomes independently pass both legs, PASS30.08s (vanilla4.34/Go2.63); relevant units0.900s. Earlier ordinary typed-NBT74case regression13.30s. LF probes establish actual command-block creation/editor receipt and one observed game tick. An additional assumed LF LastOutput diagnostic key was not established, even with larger capture; no such key claim is made. Final patch SHA256 `3bdeb1b9449a5753d786833671f941ba898a78d0745555628530800dd513243f`; detailed evidence work/block-tags-slice.md and work/block-tags-final.log.
 
 Limits: built-in tags only; runtime datapack tag loading/selection, fill/clone predicates, exhaustive error cursors/components and complete command lexing remain separate. Common parser error classes and LF execution outcomes are distinct assertions.
+
+## Slice — shared vehicle cargo menus (2026-10-29)
+
+**Measured** — Native26.2 menus and interaction packets: chest vehicles expose27 cargo slots, hopper carts5; titles include native entity names/UUID decoration; chest boats have one passenger seat, with sneak/full-seat and mounted inventory access. Eleven native scenarios PASS36.38s. Factual inspection supplied container reach and passenger capacity; Go1.27.3/Temurin25.0.5+8, inner jar SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+
+**Implemented** — Independent entity-backed shared cargo inventory integrated with generic clicks, live data reload, native saves, viewer deltas and close cleanup. Spectator menus are read-only and deny unresolved loot; ordinary validity follows current entity bounds/dimension and player eye/reach. Empty loot unpacking is measured; existing nonempty loot evaluator behavior is not newly certified.
+
+**Pinned** — Immutable0f0bcdb plus12owned files: final TestVehicleCargoParity PASS48.20s, all11cases independently expected, exact UUID/title, pickup/right-place, observed cursor-return packet before native assertions, reopen, spectator resync and survival distance boundary. Expanded cargo/native/chest/menu/container units PASS42.811s, including actual save/reload after menu mutation. Existing live TestContainerClickParity PASS131.98s. An earlier close witness failed vanilla because a command reply did not establish prior packet application; final fixture requires the actual inventory update. Patch SHA256 `30d0e901ae270a78c7f8494b15cf4ef8bfc83ebb6e489b3d8c6bb258b90431fc`; evidence work/vehicle-cargo-ui-slice.md and work/vehicle-cargo-ui-oracle-v3.log.
+
+Limits: destruction spills, /item entity container slots, full hopper/furnace/TNT vehicle runtime, spawner carts and player RootVehicle restoration remain separate. Standard cargo-vehicle bounds are covered, not arbitrary scaled vehicle variants or complete vehicle parity.

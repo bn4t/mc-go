@@ -111,6 +111,7 @@ type openWindow struct {
 	craft                        *craftTable
 	hopper                       *hopperData
 	container                    *containerData
+	vehicle                      *Entity // entity-backed cargo, never a block position
 	ender                        *[27]ItemStack
 	kind                         int32 // menu registry id
 	// pendingName is the anvil's rename field for this open menu: per
@@ -618,8 +619,13 @@ func (sess *Session) setMenuStack(slot int, it ItemStack) {
 		}
 		if w.container != nil {
 			w.dim.containers.mu.Lock()
+			old := w.container.slots[slot]
 			w.container.slots[slot] = it
 			w.dim.containers.mu.Unlock()
+			if w.vehicle != nil {
+				sess.server.queueVehicleCargoSlot(w.vehicle, slot, old, sess)
+				return
+			}
 			sess.server.rsContainerChanged(w.dim, w.pos)
 			return
 		}
@@ -1050,6 +1056,10 @@ func (s *Server) emitContainerClose(sess *Session, w *openWindow) {
 		return
 	}
 	w.closeEmitted = true
+	if w.vehicle != nil {
+		s.closeVehicleCargo(sess, w)
+		return
+	}
 	if w.chest != nil {
 		return
 	}

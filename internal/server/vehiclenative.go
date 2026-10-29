@@ -117,6 +117,7 @@ func vehicleSavedFields(e *Entity, name string, save map[string]any) {
 	if isMinecartName(name) {
 		save["FlippedRotation"] = nbtBool(e.CartFlipped)
 	}
+	vehicleCargoSavedFields(e, save)
 	if vehicleContainerSize(name) > 0 {
 		if _, loot := save["LootTable"]; loot {
 			delete(save, "Items")

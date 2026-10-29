@@ -2012,6 +2012,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		commandMinecartLoad(e, save)
 	}
 	vehicleLoadFields(e, name, save)
+	s.vehicleCargoReload(e)
 
 	// Dirty pack: only the entries whose tracked value moved, like
 	// SynchedEntityData.packDirty() after Entity.load. The emitted

@@ -36,6 +36,8 @@ func entityTypeTagHas(tag, name string) bool {
 // mountCap is vanilla's max passenger count per vehicle type.
 func mountCap(name string) int {
 	switch {
+	case isBoatEntityName(name) && vehicleContainerSize(name) > 0:
+		return 1
 	case isBoatEntityName(name), name == "camel", name == "camel_husk":
 		return 2 // Boat.canAddPassenger; camel seats two
 	case name == "minecart":
@@ -1833,5 +1835,9 @@ func (s *Server) vehicleStartJump(sess *Session, data int32) {
 // (action 5): a ridden HasCustomInventoryScreen mount runs
 // openCustomInventoryScreen — the same menu the sneak-interact opens.
 func (s *Server) vehicleOpenInventory(sess *Session) {
+	if e, ok := s.entities.GetPtr(sess.riding.Load()); ok && s.vehicleCargoInventory(e) != nil {
+		s.openVehicleCargo(sess, e)
+		return
+	}
 	s.sendMountMenu(sess, sess.riding.Load())
 }

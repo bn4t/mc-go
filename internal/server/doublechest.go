@@ -71,6 +71,9 @@ func (w *openWindow) chestSlot(slot int) (*chestData, world.Pos, int) {
 }
 
 func (w *openWindow) blockMenuSlot(pos world.Pos, slot int) (int, bool) {
+	if w.vehicle != nil {
+		return 0, false
+	}
 	if w.chestOther != nil {
 		if pos == w.chestFirstPos {
 			return slot, true

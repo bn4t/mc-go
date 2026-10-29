@@ -650,6 +650,7 @@ func (s *Server) playerTickOwned() {
 			s.fireLocation(sess)
 		}
 		s.flushMenuCommandUpdates(sess)
+		s.validateVehicleCargo(sess)
 		s.validateChestMenu(sess)
 		s.fireTickAdvancements(sess)
 		s.playerItemTouchTick(sess)

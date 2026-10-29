@@ -332,6 +332,9 @@ func (s *Server) handleInteract(sess *Session, p protocol.Packet) {
 	if s.equipMountChest(sess, id, hand, sneaking) {
 		return
 	}
+	if s.vehicleCargoInteract(sess, id, sneaking) {
+		return
+	}
 	s.openMountInventory(sess, id, sneaking)
 	s.rideVehicle(sess, id, sneaking)
 	s.tradeVillager(sess, id, hand)

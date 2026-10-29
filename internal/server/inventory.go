@@ -1245,6 +1245,9 @@ func creativeClone(sess *Session, it ItemStack, button byte) (ItemStack, bool) {
 // reports whether an equipment slot changed, so the caller can
 // broadcast it after the inventory lock is released.
 func (s *Server) handleClickContainer(sess *Session, p protocol.Packet) bool {
+	if !s.vehicleCargoClickAllowed(sess, p) {
+		return false
+	}
 	if s.handleQuickCraftPacket(sess, p) {
 		return false
 	}

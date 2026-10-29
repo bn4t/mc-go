@@ -67,6 +67,13 @@ live world-collision shape, and bounded reverse ejection preserves velocity.
 This route isolates geometry from ordinary block clipping; general entity move
 policies, cumulative piston limits and scaled variants remain separate work.
 
+Vehicle cargo menus bind to the live entity inventory rather than a synthetic
+block position. Native saves and data reloads share that inventory; reloads
+preserve its identity and queue updates for current viewers. Validity follows
+the current entity bounds, dimension and player reach. Chest boats offer one
+passenger seat before ordinary inventory access. Cargo destruction, command
+slot access and complete vehicle runtime behavior remain separate work.
+
 ## Gameplay resources and callbacks
 
 Startup advancement definitions belong to each Server. The built-in generated

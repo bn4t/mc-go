@@ -42,8 +42,10 @@ Native copper-chest storage now preserves measured cargo, and plain literal
 chest names survive native save/reload. Copper menus and transformation
 preservation are still being completed.
 Native boats and most minecart variants preserve measured cargo, subtype state
-and supported passenger trees through vanilla-compatible saves; player remount,
-spawner carts and complete vehicle cargo/runtime behavior remain in progress.
+and supported passenger trees through vanilla-compatible saves. Chest boats and
+chest/hopper minecarts provide measured shared cargo menus, clicks and spectator
+restrictions. Cargo destruction drops, player remount, spawner carts and complete
+vehicle runtime behavior remain in progress.
 Startup folder datapacks can supply displayed and displayless advancement
 definitions with XP, built-in loot, recipe and function rewards. Measured
 display fields, layout, built-in tab overrides and completion announcements
