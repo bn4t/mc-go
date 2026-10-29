@@ -985,6 +985,11 @@ func TestMcGoOnlyViewDistanceStreams(t *testing.T) {
 	addr := requireMcGoOnly(t)
 	c, pr, pw := loginStart(t, addr, "FarSight")
 	defer c.Close()
+	// Configuration and join share their own readiness budget; the generic
+	// client deadline otherwise expires before the streaming budget starts.
+	if err := c.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	readLoginSuccess(t, pr, pw, "mc-go")
 	if err := pw.WritePacket(server.IDLoginAcknowledged, nil); err != nil {
 		t.Fatal(err)

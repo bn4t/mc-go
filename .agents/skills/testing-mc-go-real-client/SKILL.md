@@ -194,3 +194,12 @@ raw saved rates and effective packet rates are separate observations. A paused
 clock can send rate zero while retaining a positive raw saved rate. Copy a
 completed save before source shutdown, then verify progression after cross-server
 reload; default-valued codec round trips alone do not establish persistence.
+
+## Socket phase deadlines
+
+A client helper's absolute deadline keeps running across login, configuration
+and Join readiness. Set the intended readiness deadline before those reads,
+then start the separate streaming deadline after Join. Do not compensate by
+reducing required chunks or dropping packet assertions. Compare unchanged and
+patched fixtures and retain any full-run failure when diagnosing load-sensitive
+readiness timeouts.
