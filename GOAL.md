@@ -18113,3 +18113,11 @@ Limits: complete rich text/item schemas and numeric migration of every existing 
 **Pinned** — Immutablee472f74 plus four owned files: TestVehicleCargoKilledDropParity PASS16.13s with positive source-cargo and drop assertions independently required on both servers. Focused units PASS5.979s cover live menu inventory, components, scatter/burst bounds, empty loot, noncontainers and idempotence. Patch SHA256 `103d13110e4441984d8294420c52eab88d130e9a1e82b0eaec2df29ca3e4cb71`; work/vehicle-cargo-killed-drop-slice.md records evidence.
 
 Limits: /kill only; combat, creative and explosion destruction plus nonempty loot evaluator parity remain separate. These results do not establish complete vehicle damage/drop behavior.
+
+## Slice — observe clone fixture destination readiness (2026-10-29)
+
+**Measured** — Existing TestCloneParity failed its two far all-air cases with an unloaded destination on both the predicate candidate94.00s and unchangedf9d6935 baseline51.46s. Its fixed four-second wait did not establish command-visible chunk readiness.
+
+**Implemented** — Test-only exact decoded readiness witness for the far destination chunk and exact decoded command barriers. All55 original command expectations remain intact; no production or timeout shortcut.
+
+**Pinned** — Immutablee472f74 plus only this fixture: TestCloneParity PASS15.70s. The same strengthened fixture also passes21.50s with the separate native-copy candidate. Sources: real26.2 wire, Go1.27.3/Temurin25.0.5+8, bundle SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Patch SHA256 `b970edb65ab538388868cfbd42330e4fb8cfa758041bf6fe96a28ce24a869b9c`. Earlier failing logs remain evidence; this resolves their fixture readiness issue without weakening assertions.

@@ -108,9 +108,22 @@ func TestCloneParity(t *testing.T) {
 		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
 		sink := newChatSink(pr, pw)
 		sink.cap = 1 << 20
-		// Let the initial chunk stream drain: replies queued behind it
-		// otherwise slide into the next command's capture window.
-		time.Sleep(4 * time.Second)
+		// The far all-air controls need chunk (4,0). Wait for actual
+		// command-visible loading; a fixed sleep races the initial stream.
+		ready := false
+		deadline := time.Now().Add(60 * time.Second)
+		for time.Now().Before(deadline) && !ready {
+			sendCommand(t, pw, "execute if loaded 66 -59 0 run say ZCL_READY")
+			sendCommand(t, pw, "say ZCL_READY_END")
+			lines := waitForExactSayBB(t, sink, "ZCL_READY_END", 10*time.Second)
+			ready = structureSaidBB(lines, "ZCL_READY")
+			if !ready {
+				time.Sleep(20 * time.Millisecond)
+			}
+		}
+		if !ready {
+			t.Fatal("clone far control chunk did not load")
+		}
 		var out [][]string
 		for i, cmd := range cmds {
 			sink.take()
@@ -127,7 +140,7 @@ func TestCloneParity(t *testing.T) {
 			for {
 				gotMarker := false
 				for _, line := range sink.take() {
-					if strings.Contains(line, marker) {
+					if structureSaidBB([]string{line}, marker) {
 						gotMarker = true
 						continue
 					}
