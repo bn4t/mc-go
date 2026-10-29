@@ -16405,3 +16405,39 @@ no flee; unsneak → flee). Green both legs.
   (villages, outposts, trail ruins, ancient city, trial chambers, bastion) re-run green.
 - **Remaining**: chest minecarts in mineshafts, witch/cat in huts, mansion mobs (entities
   are not spawned by structure pieces yet).
+
+## Slice — POV ray clip, buckets, glass bottles, boats (2026-10-29)
+- **Measured**: `javap` on the 26.2 jar: BlockGetter.clip / traverseBlocks /
+  clipWithInteractionOverride, VoxelShape.clip, AABB.clip / getDirection / clipPoint,
+  ClipContext(+$Block, $Fluid), FlowingFluid.getShape / getHeight / getOwnHeight,
+  Direction.getApproximateNearest, BlockBehaviour$Properties offset functions,
+  Item.getPlayerPOVHitResult, ServerGamePacketListenerImpl.handleUseItem,
+  ServerPlayerGameMode.useItem, BucketItem (use, emptyContents, playEmptySound,
+  getEmptySuccessItem), ItemUtils.createFilledResult, LiquidBlock / SimpleWaterloggedBlock /
+  PowderSnowBlock / BubbleColumnBlock / BarrierBlock pickupBlock, SimpleWaterloggedBlock /
+  SlabBlock / CandleBlock / CampfireBlock / DriedGhastBlock placeLiquid and canPlaceLiquid,
+  AbstractCandleBlock.extinguish, BottleItem.use, BoatItem.use / getBoat, MobBucketItem.
+  New jar-oracle generator `tools/genshapes` (javac'd harness over public BlockStateBase /
+  Block / VoxelShape accessors, empty getter at the origin; output SHA-256 in the header of
+  `internal/server/shapes_gen.go`): per-state outline and interaction shapes (offset taken
+  back out), canBeReplaced(water/lava), canPlaceLiquid(water/lava); per-block offset kind and
+  maxima; BucketPickup / LiquidBlockContainer declaring classes and pickup sounds.
+  Wire: /tick freeze still broadcasts block changes every wall tick.
+- **Implemented**: `levelClip` (voxel walk with the 1e-7 end pushes, outline clip refined by
+  the interaction face, fluid clip by mode, nearer wins, miss at the end point);
+  `playerPOVHit` from the use packet's rotation (reach 4.5, creative 5.0). BucketItem.use:
+  SOURCE_ONLY/NONE clip, pickups (sources, waterlogged blocks with the survive re-check,
+  powder snow + 2001, bubble columns, creative-only barriers), emptying into the hit cell
+  (water containers) or the face cell, sneak retry, replaceable-block break with drops,
+  ultra-warm evaporation, container placeLiquid (waterlog, candle/campfire extinguish,
+  dried ghast), same-state source writes nothing; createFilledResult and the
+  sendAllDataToRemote resync. BottleItem.use (dragon-owned breath clouds, water potions).
+  BoatItem.use (ANY clip, eye-in-pickable pass, box collision fail, yaw, consume + resync).
+  Frozen ticks now flush light and block changes.
+- **Pinned**: `TestBucketParity` — 38 uses (pickups, empties, containers, sneak, flowers and
+  grass, torches and fences via outline shapes, reach and sky misses, survival stacks,
+  bottles, boats on floor/water/walls): block updates, inventory packets and spawned
+  vehicles against the real server.
+- **Remaining**: mob buckets (MobBucketItem spawn + bucket entity data), spawn protection in
+  mayInteract, FlowingFluid's first-query shape cache (mc-go uses own height), boats'
+  entity-collision half of noCollision, the use packet's rotation snap broadcast.

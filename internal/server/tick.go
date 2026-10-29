@@ -747,6 +747,12 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 				s.simulationAction(func() {
 					if !s.shuttingDown.Load() && s.clock.isFrozen() && !s.clock.isSprinting() {
 						s.playerFluidTickStep()
+						// ServerLevel.tick runs chunkSource.tick whether or
+						// not the tick rate manager runs normally: the
+						// chunks' accumulated light and block changes still
+						// broadcast every wall tick of a freeze.
+						s.lightChangesFlushStep()
+						s.blockChangesFlushStep()
 					}
 				})
 			}

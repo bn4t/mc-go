@@ -112,6 +112,20 @@ func (s *Server) handleUseItemPacket(sess *Session, p protocol.Packet) {
 	if hand == 1 {
 		st = sess.stackAt(slotOffhand)
 	}
+	if un, ok := itemNameOf(st.ID); ok && !st.Empty() {
+		if _, bucket := bucketContents[un]; bucket {
+			s.useBucket(sess, hand, yaw, pitch, un)
+			return
+		}
+		if un == "glass_bottle" {
+			s.useGlassBottle(sess, hand, yaw, pitch)
+			return
+		}
+		if dispenseBoatEntity[un] != "" {
+			s.useBoatItem(sess, hand, yaw, pitch, un)
+			return
+		}
+	}
 	if un, ok := itemNameOf(st.ID); ok && !st.Empty() && un == "shield" {
 		sess.blocking.Store(true)
 		return
