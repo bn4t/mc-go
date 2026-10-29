@@ -17273,3 +17273,34 @@ Final staging go build ./... PASS; focused scripted criterion test ran with defa
 - **Measured:** JDK25.0.5 javap facts from official26.2 `ServerGamePacketListenerImpl.isEntityCollidingWithAnythingNew`, `SpeleothemBlock`, `BlockBehaviour.Properties.offsetType`, `Mth.getSeed`, the pointed-dripstone block registration and listener noPhysics gate. Oracle jar SHA-1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Movement checks actual positioned collision shapes against old and target boxes, both deflated by float1e-5; a block shape intersecting the old box is exempt. Pointed dripstone uses XZ offset only, float-fraction centering/clamp1/8, and thickness widths6/8/10/12 sixteenths; upward tip top11/16, downward tip bottom5/16, merged tips full-height.
 - **Implemented:** independent grouped-shape player collision helper using the live synced pose dimensions, retaining the standing-avatar entry point and exempting spectators through the measured noPhysics gate. New `cellShapeAt` applies measured signed-coordinate displacement to pointed-dripstone boxes; movement and the shared world-shape/pose query use it. Existing scalar entity physics sweeps, contextual powder-snow shapes and entity collision checks are outside this movement-validation slice. Door and trapdoor table corrections are separate slices.
 - **Pinned:** `TestPlayerMovementShapeParity` passes seventeen vanilla comparisons (29.54s, no skips): top slab/trapdoor roofs, crouching dimensions, lateral chest/panel/stair clearance, rejection upon entering a formerly clear shape in an already-overlapped cell, upward tip offset clear/reject at zero/positive/negative coordinates, downward tip lower gap, solid rejection and spectator traversal. `TestDripstonePositionedShapes` passes (0.093s), pinning every thickness plus four exact offset facts. Immutable binary `work/player-collision-complete.test` used `work/run-oracle.sh` and flock; log `work/player-collision-complete.log`. `work/player-collision-stage` contains only owned changes against HEAD00d9713, excluding concurrent watchdog/fluid edits, with SHA256 manifest.
+
+## Slice — destroyed bundles spill independent items (2026-10-29)
+
+- **Measured:** official26.2 wire observations and Temurin25.0.5 javap facts
+  from BundleItem.onDestroyed, ItemUtils.onContainerDestroyed and ItemEntity's
+  constructor/hurtServer. Jar SHA-1
+  823e2250d24b3ddac457a60c92a6a941943fcd6a. Lethal item damage invokes the item
+  callback before discard; a bundle clears its contents then spawns copied
+  contained stacks at the source's exact coordinates. New items have age and
+  pickup delay zero, health five, no owner/thrower, normal gravity, random yaw,
+  fresh X/Z velocity in[-0.1,0.1) and Y velocity0.2.
+- **Implemented:** standalone bundledestroy.go and one hook on the existing
+  lethal lava-item path. Spilled entities carry initial wire velocity and their
+  full nested components; state/ownership/motion are independent of the source.
+  Nested colored bundles can burn and spill their own contents subsequently.
+- **Pinned:** TestBundleDestructionParity passes both servers without skips
+  (22.15s), checking fresh spawn velocity bounds and exact surviving stack
+  contents after six and twelve stepped ticks. A real, acknowledged inventory
+  THROW produces the source bundle; both servers retain ancient_debris2,
+  netherite_ingot3 and nested netherite_scrap4. The earlier PlayerAction/drop
+  fixture discarded its source traffic and did not establish a vanilla drop;
+  it is not parity evidence. TestDestroyedBundleSpillDefaults passes(0.077s),
+  checking lethal-hit timing, source clearing, position, fresh delay/age/HP,
+  ownership, gravity, initial velocity/yaw and nested spill. Oracle binary was
+  built from an immutable committed export plus these four source/test changes.
+- **Remaining:** the callback currently joins the modeled lava damage path.
+  Generic item damage/explosion/cactus/fire destruction need their broader item
+  damage handlers before they can invoke it. Despawn, void discard and /kill are
+  deliberately not routed through a lethal-damage callback. Wire snapshots allow
+  the nested burn chain to complete; they do not claim exact initial lava-contact
+  tick alignment across item movement implementations.
