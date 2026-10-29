@@ -129,7 +129,7 @@ func collisionBoxesOf(blk world.Block) ([]cellBox, bool) {
 		boxes := []cellBox{{0.375, 0, 0.375, 0.625, 1.5, 0.625}}
 		for _, d := range [4]string{"north", "south", "east", "west"} {
 			if prop(d) == "true" {
-				boxes = append(boxes, crossArm(d, 0.375, 1.5, 0.5))
+				boxes = append(boxes, crossArm(d, 0.125, 1.5, 0.5))
 			}
 		}
 		return boxes, true
@@ -144,18 +144,18 @@ func collisionBoxesOf(blk world.Block) ([]cellBox, bool) {
 		}
 		for _, d := range [4]string{"north", "south", "east", "west"} {
 			if prop(d) != "" && prop(d) != "none" {
-				boxes = append(boxes, crossArm(d, 0.3125, 1.5, 0.6875))
+				boxes = append(boxes, crossArm(d, 0.1875, 1.5, 0.6875))
 			}
 		}
 		return boxes, true
 
-	case short == "iron_bars" || strings.HasSuffix(short, "_pane"):
+	case strings.HasSuffix(short, "_bars") || strings.HasSuffix(short, "_pane"):
 		// IronBarsBlock collision makeShapes(2,16,2,0,16): the center
 		// node column(2,0,16) and 2/16 plates to each connected edge.
 		boxes := []cellBox{{0.4375, 0, 0.4375, 0.5625, 1, 0.5625}}
 		for _, d := range [4]string{"north", "south", "east", "west"} {
 			if prop(d) == "true" {
-				boxes = append(boxes, crossArm(d, 0.4375, 1, 0.5))
+				boxes = append(boxes, crossArm(d, 0.0625, 1, 0.5))
 			}
 		}
 		return boxes, true
