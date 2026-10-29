@@ -192,7 +192,6 @@ func (s *Server) openChest(sess *Session, pos world.Pos) {
 	sess.windowMu.Lock()
 	sess.window = w
 	sess.windowState = 0
-	s.emitContainerOpen(sess, pos)
 	sess.windowMu.Unlock()
 	s.chestViewOpen(sess, w)
 	var b protocol.Buffer
@@ -201,6 +200,14 @@ func (s *Server) openChest(sess *Session, pos world.Pos) {
 	b.Raw(menuTitle(title))
 	_ = sess.write(sess.ids().PlayOpenScreen, b.Bytes())
 	s.sendChestContent(sess)
+	if sess.mode() != GameModeSpectator {
+		name, _ := world.StateOwner(d.w.GetBlock(pos))
+		if name == "trapped_chest" {
+			sess.addCustomStat("trigger_trapped_chest", 1)
+		} else {
+			sess.addCustomStat("open_chest", 1)
+		}
+	}
 }
 
 // mountScreenTypes is the AbstractHorse family — sneak-interacting a
@@ -981,7 +988,7 @@ func (s *Server) menuRemoved(sess *Session, w *openWindow, dropped bool) {
 	} else {
 		s.returnCarried(sess)
 	}
-	s.chestViewClose(w)
+	s.chestViewClose(sess, w)
 	if w.merchant != nil {
 		s.merchantClose(sess, w)
 	} else if w.craft != nil {
@@ -1040,6 +1047,9 @@ func (s *Server) emitContainerClose(sess *Session, w *openWindow) {
 		return
 	}
 	w.closeEmitted = true
+	if w.chest != nil {
+		return
+	}
 	if w.chest == nil && w.ender == nil &&
 		(w.container == nil || (!w.container.spec.shulker && w.container.block != "barrel")) {
 		return
