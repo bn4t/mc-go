@@ -15,3 +15,8 @@ authentication protocol or complete custom game protocol is claimed.
 Numeric Java facts reuse `conformance/testdata/mixed-profile-facts.json` and the
 existing official775/776 wire corpus. Negative observations end at explicit
 subsequent packets or typed updates, rather than socket-quiet intervals.
+
+Dimension-return movement assertions first wait for fresh avatar spawns: a
+Respawn packet alone does not establish the viewer's chunk-backed pairings.
+A deliberately unread 775/776 roundtrip also checks that movement committed
+before pairing appears in the new spawn, followed by a strict movement delta.

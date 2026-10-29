@@ -201,52 +201,89 @@ func (j *javaPeer) presence(t *testing.T, want player.State) {
 				info = true
 			}
 		case 1:
-			r := bytes.NewReader(p.Data)
-			eid, e := vi(r)
-			if e != nil {
-				t.Fatal(e)
+			if j.spawned(t, p, want) {
+				spawn = true
 			}
-			var id [16]byte
-			if _, e = io.ReadFull(r, id[:]); e != nil {
-				t.Fatal(e)
-			}
-			kind, e := vi(r)
-			if e != nil {
-				t.Fatal(e)
-			}
-			if id != want.Profile.UUID {
-				return false
-			}
-			if eid != want.EntityID || kind != j.kind {
-				t.Fatalf("Java%d avatar entity/type%d/%d want%d/%d", j.client.Protocol(), eid, kind, want.EntityID, j.kind)
-			}
-			var xyz [3]float64
-			for i := range xyz {
-				if e = binary.Read(r, binary.BigEndian, &xyz[i]); e != nil {
-					t.Fatal(e)
-				}
-			}
-			if xyz != [3]float64{want.Pose.X, want.Pose.Y, want.Pose.Z} {
-				t.Fatalf("spawn pose%v want%+v", xyz, want.Pose)
-			}
-			velocity, e := r.ReadByte()
-			if e != nil || velocity != 0 {
-				t.Fatal("stationary spawn velocity")
-			}
-			for range 3 {
-				if _, e = r.ReadByte(); e != nil {
-					t.Fatal(e)
-				}
-			}
-			data, e := vi(r)
-			if e != nil || data != 0 || r.Len() != 0 {
-				t.Fatal("spawn body boundary")
-			}
-			spawn = true
 		}
 		return info && spawn
 	})
 }
+
+// spawned validates one target avatar's complete add-entity packet. It is
+// also the readiness marker after a respawn clears a Java viewer's tracker.
+func (j *javaPeer) spawned(t *testing.T, p conformance.Packet, want player.State) bool {
+	t.Helper()
+	if p.ID != 1 {
+		return false
+	}
+	r := bytes.NewReader(p.Data)
+	eid, e := vi(r)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var id [16]byte
+	if _, e = io.ReadFull(r, id[:]); e != nil {
+		t.Fatal(e)
+	}
+	kind, e := vi(r)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if id != want.Profile.UUID {
+		return false
+	}
+	if eid != want.EntityID || kind != j.kind {
+		t.Fatalf("Java%d avatar entity/type%d/%d want%d/%d", j.client.Protocol(), eid, kind, want.EntityID, j.kind)
+	}
+	var xyz [3]float64
+	for i := range xyz {
+		if e = binary.Read(r, binary.BigEndian, &xyz[i]); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if xyz != [3]float64{want.Pose.X, want.Pose.Y, want.Pose.Z} {
+		t.Fatalf("spawn pose%v want%+v", xyz, want.Pose)
+	}
+	velocity, e := r.ReadByte()
+	if e != nil || velocity != 0 {
+		t.Fatal("stationary spawn velocity")
+	}
+	for range 3 {
+		if _, e = r.ReadByte(); e != nil {
+			t.Fatal(e)
+		}
+	}
+	data, e := vi(r)
+	if e != nil || data != 0 || r.Len() != 0 {
+		t.Fatal("spawn body boundary")
+	}
+	return true
+}
+
+func (j *javaPeer) repaired(t *testing.T, states ...player.State) {
+	t.Helper()
+	pending := make(map[player.ID]player.State, len(states))
+	for _, state := range states {
+		pending[state.ID] = state
+	}
+	j.until(t, func(p conformance.Packet) bool {
+		if p.ID != 1 {
+			return false
+		}
+		for id, state := range pending {
+			if j.spawned(t, p, state) {
+				delete(pending, id)
+			}
+		}
+		return len(pending) == 0
+	})
+}
+
+func (j *javaPeer) marker(t *testing.T, token string) {
+	t.Helper()
+	j.until(t, func(p conformance.Packet) bool { return p.ID == 0x79 && bytes.Contains(p.Data, []byte(token)) })
+}
+
 func nativeMove(body []byte) (int32, player.Pose, error) {
 	r := bytes.NewReader(body)
 	id, e := vi(r)

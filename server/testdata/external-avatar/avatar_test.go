@@ -352,6 +352,12 @@ func TestPublicAvatarSharedJavaLifecycle(t *testing.T) {
 			t.Fatalf("neutral dimension state%+v want%+v in%s", crossed, destination, dimension)
 		}
 		j.respawn(t, dimension)
+		if dimension == "minecraft:overworld" {
+			// Respawn resets the Java tracker. A late chunk batch may still
+			// introduce avatars by spawn, so establish fresh pairings before
+			// requiring subsequent movement to arrive as a delta.
+			j.repaired(t, before.self, after.self)
+		}
 	}
 	// Java mode changes are state deltas too, without exposing a neutral
 	// avatar mode/inventory action outside the presence/movement capability.
@@ -511,5 +517,49 @@ func TestPublicAvatarOverflowIsolation(t *testing.T) {
 	healthy.move(t, p)
 	for _, j := range java {
 		j.moved(t, healthy.self)
+	}
+}
+
+// A viewer that has not consumed/acknowledged the dimension's chunk batches
+// can learn an avatar's latest committed movement in its fresh spawn. Once
+// that pairing is observed, subsequent movement must be an actual delta.
+func TestPublicAvatarDelayedPairing(t *testing.T) {
+	for _, protocol := range []int32{775, 776} {
+		t.Run(fmt.Sprint(protocol), func(t *testing.T) {
+			h := newHost(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			avatar := admit(t, ctx, h.scope.core, profile("DelayedPair", byte(protocol)), player.Options{})
+			java := openJava(t, ctx, h.addr, protocol)
+			java.presence(t, avatar.self)
+			// A command on this same transport fences every earlier automatic chunk
+			// acknowledgement before the deliberately unread dimension roundtrip.
+			token := "avatar-pairing-ready"
+			if e := java.client.Command("tellraw @s \"" + token + "\""); e != nil {
+				t.Fatal(e)
+			}
+			java.marker(t, token)
+			for _, dimension := range []string{"minecraft:the_nether", "minecraft:overworld"} {
+				destination := avatar.self.Pose
+				if dimension == "minecraft:the_nether" {
+					destination.Y = 70
+				}
+				if e := java.client.Command(fmt.Sprintf("execute in %s run tp @s %.6f %.6f %.6f", dimension, destination.X, destination.Y, destination.Z)); e != nil {
+					t.Fatal(e)
+				}
+				avatar.next(t, func(update player.Update) bool {
+					return update.Kind == player.Moved && update.Player.EntityID == java.client.EntityID && update.Player.Dimension == dimension
+				})
+			}
+			moved := avatar.self.Pose
+			moved.Z += .25
+			avatar.move(t, moved)
+			java.respawn(t, "minecraft:the_nether")
+			java.respawn(t, "minecraft:overworld")
+			java.repaired(t, avatar.self)
+			moved.X += .125
+			avatar.move(t, moved)
+			java.moved(t, avatar.self)
+		})
 	}
 }
