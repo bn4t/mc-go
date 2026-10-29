@@ -3582,22 +3582,27 @@ func nbtPartialEqual(tv, pv any) bool {
 // session's advancement progress; an id the registry lacks fails
 // regardless of the requested state.
 func (sess *Session) advMatch(ad selAdv) bool {
-	if _, ok := data.Advancements()[strings.TrimPrefix(ad.id, "minecraft:")]; !ok {
+	meta := sess.server.gameAdvTable()[ad.id]
+	if meta == nil {
 		return false
 	}
-	if len(ad.crits) > 0 {
-		for _, c := range ad.crits {
-			got := false
-			if sess.advCrits != nil {
-				_, got = sess.advCrits[ad.id][c.val]
-			}
-			if got == c.neg {
-				return false
-			}
-		}
-		return true
+	sess.advMu.Lock()
+	defer sess.advMu.Unlock()
+	if ad.done != nil {
+		return sess.advDone[ad.id] == *ad.done
 	}
-	return sess.advDone[ad.id] == *ad.done
+	for _, criterion := range ad.crits {
+		// A missing criterion never satisfies a requested false state. An empty
+		// criterion map, however, imposes no constraint on a known advancement.
+		if !slices.Contains(meta.criteria, criterion.val) {
+			return false
+		}
+		_, obtained := sess.advCrits[ad.id][criterion.val]
+		if obtained == criterion.neg {
+			return false
+		}
+	}
+	return true
 }
 
 // gamemodeNameOf is the selector-visible mode name.

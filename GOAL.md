@@ -18237,3 +18237,11 @@ Provenance: actual Java 26.2 wire, Temurin 25.0.5+8 and Go 1.27.3; runtime SHA25
 - **Pinned:** all 12 mode/rule/type controls independently establish source cargo, removal, three diamonds and the expected vehicle item; differential PASS 13.65 s, focused units PASS 0.955 s. Five default-attribute netherite hits isolate drop behavior from the separately measured player attack-attribute gap. Vehicle item scatter, styled names and all damage causes remain partial.
 
 Provenance: Java 26.2 wire and VehicleEntity/ContainerEntity removal facts; Temurin 25.0.5+8, Go 1.27.3, runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8. Frozen patch fe8bea6cf5e21dbd2fb7e331b7a4d03d045b18ec390c35c2006360a76d482efc.
+
+## Slice — server-owned advancement selectors (2026-10-29)
+
+- **Measured:** native selectors query startup custom advancement completion and criteria through partial grant/revoke. Empty known criterion maps match; unknown IDs and criteria never match, including requested false. A speculative duplicate-Tags expectation was disproved by vanilla, so the existing NBT matcher stayed unchanged.
+- **Implemented:** resolve selector metadata through the session's server registry, read progress under its mutex, validate criterion membership and handle empty maps without a nil completion pointer.
+- **Pinned:** corrected baseline failed eight Go custom-progress controls; final 14 independent controls PASS 10.54 s, units PASS 1.700 s including server isolation, partial/completed/empty/unknown states and existing Tags behavior. Predicate advancement fields, pack reload and progress migration remain separate.
+
+Provenance: actual Java 26.2 command packets and decoded exact say witnesses, Temurin 25.0.5+8, Go 1.27.3; runtime SHA1 86765a5899bd9c96461036a628796b4245715058. Frozen patch eff83c41ca6e0943891bebcfdf4eb655efb9b43e4ace61cacb4dbc636f78dcd5.

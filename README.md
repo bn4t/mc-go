@@ -58,7 +58,9 @@ are supported. Icon counts and reward XP follow measured native JSON integer
 coercion, including fractions and overflow wrapping. Custom tick criteria support
 measured player mode/level, flags, NBT, equipment, location/biome and boolean
 conditions. Rewards fire once per completion; startup recipe replacements use
-their own progress and rewards.
+their own progress and rewards. Selectors query custom advancement completion
+and criterion maps using that server's definitions; unknown IDs or criteria
+remain nonmatching.
 Complete player-predicate and rich-text/icon schemas, datapack selection/ZIP/reload,
 custom loot overlays and several vehicle/physical interactions remain in
 progress. See individual slice entries for exact tests and limitations.
