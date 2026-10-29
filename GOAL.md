@@ -34,7 +34,10 @@ Mojang server over the wire.
 - [x] Login (offline), compression
 - [~] Configuration: known packs, feature flags, registry data, tags
 - [~] Play join burst
-- [ ] Full packet ID + shape coverage for all states
+- [~] Full packet ID + shape coverage for all states: current play routing
+      leaves test_instance_block_action explicitly unimplemented. Structure,
+      jigsaw and test-block editors and client frame-end movement now have
+      measured coverage; complete schemas and handler semantics remain partial.
 - [x] Encryption / online mode
 - [x] Cookie / transfer / dialog / code-of-conduct packets.
       /transfer writes play transfer (host + port); /dialog show/clear
@@ -104,19 +107,23 @@ Mojang server over the wire.
       falling columns, equal-supply ring decay, min-slope-distance
       spread gating, source-formation gamerules and wash-away loot.
       Directional shared-face collision gates and source-only waterloggable
-      containers are wire-pinned; moving block-entity shapes remain open. Scheduled block/fluid deadlines and repeated
+      containers are wire-pinned; animated shulker and moving-piston collision
+      consumers now have scoped pins, with remaining physical consumers open.
+      Scheduled block/fluid deadlines and repeated
       intervals are now wire-pinned. Random ticks now cover the crop family — wheat/carrots/
       potatoes/beetroots, melon/pumpkin stems (attach + fruit on tagged
       supports), nether wart, cocoa, sweet berry bush, pitcher crop's
       two-half growth, torchflower_crop's 1/3 pre-gate and morph into
       torchflower at maturity, farmland moisture/revert and rain hydration, turf spread
-      and shade die-back, nylium reversion (the sampler and its
-      per-section gate are in place; fire spread/decay,
-      cactus/sugar cane/bamboo/chorus columns, saplings, snow
-      form-and-melt and frosted ice remain open; cave-vine offspring fruit
-      independence is now wire-pinned; bonemeal promotes two-block vegetation
-      and regular moss patches with measured gates and consumption)
-- [x] Block entities (chests, furnaces, signs, hoppers, barrels, ...):
+      and shade die-back, nylium reversion. Existing documented pins also
+      cover fire spread/decay, cactus/sugar cane/bamboo/chorus column growth,
+      selected sapling growth, snow-layer melting and frosted ice
+      (TestFireSpreadParity, TestColumnGrowthParity, TestSaplingParity,
+      TestSnowMeltParity, TestFrostedIceParity). This is scoped coverage,
+      not complete random-growth or weather parity. Cave-vine offspring fruit
+      independence is wire-pinned; bonemeal promotes two-block vegetation
+      and regular moss patches with measured gates and consumption.
+- [~] Block entities (chests, furnaces, signs, hoppers, barrels, ...):
       saved and loaded in the real server's own chunk format, compared
       block entity for block entity both ways
       (`TestWorldBlockEntityParity`), with hopper transfer, hopper and
@@ -125,7 +132,9 @@ Mojang server over the wire.
       family's recipe sets are the data pack's own, and what each of the
       three blocks will and will not cook, at what cook time, and which
       recipe id each counts it under, are compared against the real
-      server's own blocks (`TestFurnaceRecipeParity`)
+      server's own blocks (`TestFurnaceRecipeParity`). Native structure/jigsaw
+      and test-block editor workflows and coalesced update packets now have
+      scoped coverage; complete block-entity runtime behavior remains open.
 - [~] Dimensions: overworld/nether/end worlds, nether portal travel
   with 8x coordinate scaling and auto-built return portals, Respawn
   field parity (dimension type, sea level, obfuscated seed, flat flag,
@@ -137,8 +146,10 @@ Mojang server over the wire.
       Natural spawning (caps, packs, placements, despawn) and
       chunk-generation creatures: `TestNaturalSpawn*Parity`.
 - [x] Full entity type registry
-- [ ] Physics, collision, AI, pathfinding
-- [ ] Damage, health, death, drops, XP
+- [~] Physics, collision, AI, pathfinding: positioned player shapes, animated
+      shulker/piston collision, Marker armor-stand policies and shulker item
+      pushes have measured pins; general physical pushing remains incomplete.
+- [~] Damage, health, death, drops, XP
       First-hit player XP/value/pickup has a live-oracle pin; broader
       damage, death and drop parity remains incomplete. Mob falls now use
       effective attributes, Jump Boost, landing block factors and fractional
@@ -176,8 +187,10 @@ Mojang server over the wire.
   enchantment book/item merging and prior-work pricing, the 39-level survival
   gate, charged/quick-move/poor/throw takes, the 12% degrade roll,
   invalid pairs, silent output clicks, close returns with no close
-  echo; other menus - enchanting, brewing, beacon, lectern - still
-  open)
+  echo; enchanting, brewing, beacon and lectern also have documented scoped
+  pins (TestEnchantParity, TestBrewPotionParity, TestBeaconEffectsParity,
+  TestLecternParity). Their existing coverage does not imply every gesture,
+  recipe, lifecycle or component combination is complete.)
 - [~] Survival mode: health, hunger (two-clock regen + deferred
       exhaustion drain + i-frames measured), starvation, void, death/
       respawn, item drops on death — eating/fall damage present; adventure
@@ -17861,3 +17874,9 @@ Source OpenJDK25.0.5 javap StructureBlockEntity, StructureTemplate, StructurePla
 - **Measured:** vanilla 26.2 wire/native files and Temurin 25.0.5 StructureTemplateManager observations establish cached misses and loaded templates, reload invalidation and source fallback. A complete NBT root survives bad gzip CRC or missing footer; a truncated body falls back to the bundled resource. Inner jar SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
 - **Implemented:** cache membership retains nil misses, reload clears cached results, and bounded root decoding tries bundled templates after unreadable generated roots. Datapack template sources, complete schema/data-version fixing, ZIP/selection and full asynchronous reload remain open. A new exact decoded /say helper excludes marker echoes in syntax errors and marker-prefix collisions.
 - **Pinned:** final TestStructureTemplateCacheReloadParity passes (59.33s) with actual controller NBT/update-tag receipts and independent placed gold/snow checks for valid, bad-CRC, missing-footer and truncated-body inputs. Focused structure units pass (0.466s); helper controls reject system-chat errors, sender-only text, suffixes and malformed NBT. The negative helper fixture uses the current System Chat packet constant.
+
+## Slice — reconcile stale parity-matrix notes (2026-10-29)
+
+- **Measured:** cross-checked the living matrix against its existing fire, column growth, sapling, snow/frosted-ice and specialized-menu slice records and named tests, plus current editor/physical-interaction commits. No new oracle runs are claimed for historical entries.
+- **Implemented:** replaced stale wholly-open descriptions with their documented scoped coverage, kept incomplete subsystems partial, and corrected block-entity and physical-system checkboxes so they do not imply full parity. The append-only historical slice records remain intact.
+- **Pinned:** each updated capability points to existing named tests or current measured slice records; remaining protocol, weather, growth, physics and menu combinations stay explicit.
