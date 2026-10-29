@@ -42,7 +42,8 @@ var spawnerCases = []spawnerCase{
 // MaxNearbyEntities, the gamerule and the player range gate it, animals
 // need their spawnable block and light, monsters the dark, and an empty
 // spawner only re-delays (one block event). Each case compares the 2004
-// spawn level events and the spawner's block events.
+// spawn level events and the spawner's block events over an exact frozen
+// tick-step interval, with game-time observation confirming completion.
 func TestSpawnerParity(t *testing.T) {
 	tg := requireBlackboxFiles(t, nil, map[string]string{"ops.json": opsJSONFor("Spawny")}, func(s *server.Server) {
 		s.GameMode = server.GameModeCreative
@@ -55,12 +56,37 @@ func TestSpawnerParity(t *testing.T) {
 		sink := newChatSinkTP(pr, pw)
 		sink.cap = 1 << 16
 		_ = pw.WritePacket(server.IDPlayPlayerLoadedSB, nil)
+		sendCommand(t, pw, "tick freeze")
 		sendCommand(t, pw, "gamerule random_tick_speed 0")
 		sendCommand(t, pw, "difficulty easy")
 		sendCommand(t, pw, "time set 6000")
 		sendCommand(t, pw, "gamerule advance_time false")
 		sendCommand(t, pw, "gamemode spectator @s")
 		time.Sleep(2 * time.Second)
+		// Count an exact simulated interval, regardless of host load. Retain
+		// packets while observing game time so retry events cannot be lost.
+		step := func(n int) []string {
+			before := gameTimeOf(t, pw, sink)
+			sendCommand(t, pw, fmt.Sprintf("tick step %d", n))
+			deadline := time.Now().Add(45 * time.Second)
+			var lines []string
+			for time.Now().Before(deadline) {
+				sendCommand(t, pw, "time query gametime")
+				time.Sleep(30 * time.Millisecond)
+				batch := sink.take()
+				lines = append(lines, batch...)
+				for _, line := range batch {
+					key, args, ok := componentArgs(line)
+					if ok && key == "commands.time.query.gametime" && len(args) > 0 {
+						if v, ok := args[0].(int64); ok && v == before+int64(n) {
+							return lines
+						}
+					}
+				}
+			}
+			t.Fatalf("spawner never completed exactly%d simulated ticks", n)
+			return nil
+		}
 		var out []string
 		for i, sc := range spawnerCases {
 			x, y, z := 200+60*i, -60, 40
@@ -81,12 +107,13 @@ func TestSpawnerParity(t *testing.T) {
 			time.Sleep(500 * time.Millisecond)
 			sink.take()
 			sendCommand(t, pw, fmt.Sprintf("setblock %d %d %d spawner%s", x, y+1, z, sc.nbt))
-			time.Sleep(sc.wait)
+			lines := step(int(sc.wait / (50 * time.Millisecond)))
 			sendCommand(t, pw, "gamemode spectator @s")
 			sendCommand(t, pw, fmt.Sprintf("kill @e[type=minecraft:%s,x=%d,y=%d,z=%d,distance=..12]", sc.mob, x, y, z))
 			time.Sleep(time.Second)
 			spawns, events := 0, 0
-			for _, l := range sink.take() {
+			lines = append(lines, sink.take()...)
+			for _, l := range lines {
 				i := strings.Index(l, ":")
 				if i < 0 {
 					continue

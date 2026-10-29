@@ -17756,3 +17756,10 @@ Source OpenJDK25.0.5 javap StructureBlockEntity, StructureTemplate, StructurePla
 - **Measured:** Vanilla 26.2 wire and JDK 25 bytecode facts for Block.popResource and ShulkerBoxBlock; unpacked jar SHA1 `86765a5899bd9c96461036a628796b4245715058`. With block_drops=false, stone resources and boxed shulker inventories are suppressed, while an ordinary chest still spills its contents. Break event 2001 remains visible.
 - **Implemented:** Apply the resource-drop gamerule in command destruction and retire suppressed shulker storage without producing a box. Preserve ordinary container removal effects.
 - **Pinned:** TestCommandDestroyBlockDropsRuleParity PASS (77.68s), independently checking both setblock/fill destruction for stone, chest and shulker. Exact item entity counts and stacks distinguish no drops from undecoded component-bearing items: zero, one iron-ingot stack of eight, and zero respectively; each destruction emits one break event.
+
+
+## Slice — spawner tests observe simulated time (2026-10-29)
+
+- **Measured:** The legacy spawner comparison counted different retry events after six wall-clock seconds under load, despite equal spawned mobs and matching gated cases.
+- **Implemented:** Freeze during setup, advance exact game-tick intervals, and observe game-time completion while retaining all packets. Event-count assertions remain strict.
+- **Pinned:** TestSpawnerParity PASS (87.70s) against vanilla and Go: dark zombies 3 spawn/11 block events, pigs 3/10, gated/daylight cases 0/0, empty spawner 0/1. The motivating wall-time failure log is retained; no production timing change is included.
