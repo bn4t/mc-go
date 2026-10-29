@@ -2067,6 +2067,9 @@ func (s *Server) runSummon(player string, args []string) reply {
 				}
 			}
 		}
+		if name == "command_block_minecart" {
+			s.commandMinecartLoadTag(e, tag)
+		}
 		s.broadcastEntitySpawn(nil, *e)
 		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
 	}

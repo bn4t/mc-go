@@ -353,6 +353,7 @@ func (s *Server) mobSyncFlush(e *Entity) {
 		s.mobMoveSync(e)
 	}
 	e.SyncCount++
+	prepareCommandMinecartMetadata(e)
 	if len(e.dataSync) > 0 && s.gameTime() >= e.dataSyncTick {
 		data := e.dataSync
 		e.dataSync = nil

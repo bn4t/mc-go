@@ -35,7 +35,7 @@ func (s *Server) captureEntityRegionsOwned(d *dimension) map[[2]int32][]map[stri
 			continue
 		}
 		name, ok := EntityTypeName(e.Type)
-		if !ok || (!e.Living && name != "item" && name != "end_crystal") {
+		if !ok || (!e.Living && name != "item" && name != "end_crystal" && name != "command_block_minecart") {
 			continue
 		}
 		m := entitySaveMap(&e, now, s.entities).m
@@ -78,6 +78,10 @@ func (s *Server) restoreEntities(d *dimension) {
 		}
 		if name == "ender_dragon" {
 			s.restoreEnderDragon(d, save, pos)
+			continue
+		}
+		if name == "command_block_minecart" {
+			s.restoreCommandMinecart(d, save, pos, uuid)
 			continue
 		}
 		if name == "item" {

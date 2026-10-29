@@ -17,9 +17,9 @@ type playHandler func(*Server, *Session, protocol.Packet)
 // against the vanilla server's own --reports packet table, so a packet
 // can never be silently dropped by an added or removed case.
 //
-// Packets routed to ignoreServerbound are not omissions: vanilla itself
-// performs no state change for them when they arrive from an
-// unprivileged client, and the handler comment records why.
+// ignoreServerbound includes both deliberate no-ops and placeholders for
+// unimplemented privileged editor workflows. Coverage requires an explicit
+// registration; it does not establish behavior parity for ignored packets.
 //
 // It is filled in init rather than a var initializer because the
 // configuration handshake loops back into the play stage
@@ -96,7 +96,7 @@ func init() {
 
 		IDPlayHeldChangeSB:         (*Server).handleHeld,
 		IDPlaySetCommandBlockSB:    (*Server).handleSetCommandBlock,
-		IDPlaySetCommandMinecartSB: (*Server).ignoreServerbound,
+		IDPlaySetCommandMinecartSB: (*Server).handleSetCommandMinecart,
 		IDPlayCreativeSlotSB:       (*Server).handleCreativeSlot,
 		IDPlaySetGameRuleSB:        (*Server).handleSetGameRule,
 		IDPlaySetJigsawBlockSB:     (*Server).ignoreServerbound,
@@ -114,10 +114,10 @@ func init() {
 	}
 }
 
-// ignoreServerbound is the handler for packets that vanilla itself
-// drops without a state change. Keeping them in the routing table with
-// this handler (rather than leaving them unrouted) makes the drop an
-// explicit, reviewed decision that the coverage test can see.
+// ignoreServerbound explicitly consumes packets whose behavior is not
+// modeled here. Some are no-ops; jigsaw and test editor actions still
+// include placeholder registrations for missing privileged behavior.
+// The coverage test tracks this list so omissions remain visible.
 func (s *Server) ignoreServerbound(sess *Session, p protocol.Packet) {}
 
 // routeKeepAlive consumes the client's keep-alive echo and feeds the

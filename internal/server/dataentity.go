@@ -1114,6 +1114,9 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	for k, v := range e.ExtraNBT {
 		m[k] = v
 	}
+	if typeName == "command_block_minecart" {
+		commandMinecartSavedFields(e, m)
+	}
 	if typeName == "allay" {
 		// Allay.addAdditionalSaveData's putLong — emitted always,
 		// even at 0.
@@ -1989,6 +1992,9 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		}
 	}
 	e.ExtraNBT = extras
+	if name == "command_block_minecart" {
+		commandMinecartLoad(e, save)
+	}
 
 	// Dirty pack: only the entries whose tracked value moved, like
 	// SynchedEntityData.packDirty() after Entity.load. The emitted
@@ -2003,7 +2009,11 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			b.Byte(0)
 		} else {
 			b.Byte(1)
-			writeComponentTag(&b, e.CustomName, e.CustomNameComp)
+			if name == "command_block_minecart" {
+				b.Raw(commandMinecartComponentContent(storedComponentArg(e.CustomName, e.CustomNameComp)))
+			} else {
+				writeComponentTag(&b, e.CustomName, e.CustomNameComp)
+			}
 		}
 		e.metaSent.name = e.CustomName
 	}

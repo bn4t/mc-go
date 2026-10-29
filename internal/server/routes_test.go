@@ -59,7 +59,6 @@ func TestIgnoreServerboundIsDeliberate(t *testing.T) {
 	wantIgnored := []string{
 		"client_tick_end",
 		"jigsaw_generate",
-		"set_command_minecart",
 		"set_jigsaw_block",
 		"set_structure_block",
 		"set_test_block",

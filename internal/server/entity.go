@@ -766,7 +766,8 @@ type Entity struct {
 	// ExtraNBT holds save-map fields /data entity writes that the
 	// entity model does not track individually — they round-trip back
 	// into the save map verbatim like vanilla's loaded NBT.
-	ExtraNBT map[string]any
+	ExtraNBT    map[string]any
+	commandCart *commandMinecartData
 	// dataSync is a pending dirty-entries entity_metadata payload and
 	// dataSyncAttrs the attribute resend — /data mutations emit both on
 	// the next mob sync tick, after the command's reply, like vanilla's
@@ -1912,6 +1913,8 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 	default:
 		if name, ok := EntityTypeName(e.Type); ok && isBoatEntityName(name) {
 			meta = encodeBoatMeta(e)
+		} else if ok && name == "command_block_minecart" {
+			meta = encodeCommandMinecartMetadata(e)
 		} else if ok && name == "end_crystal" {
 			meta = encodeCrystalMeta(e)
 		} else if ok && name == "wither_skull" && e.Dangerous {
