@@ -1,8 +1,6 @@
 package server
 
 import (
-	"math"
-
 	"mc-go/internal/protocol"
 )
 
@@ -10,17 +8,18 @@ import (
 // width and the full height at the feet. The scalable dims all share
 // the 0.6 half-width 0.3; SLEEPING/DYING shrink to the 0.2×0.2 fixed
 // box, and every unmapped pose (LONG_JUMPING, SITTING, ...) takes the
-// STANDING entry in vanilla's getOrDefault.
+// STANDING entry in vanilla's getOrDefault. EntityDimensions stores
+// float dimensions; widen those values only after its float half-width.
 func playerPoseDims(pose int32) (halfW, height float64) {
 	switch pose {
 	case 2, 7: // SLEEPING, DYING
-		return 0.1, 0.2
+		return float64(float32(0.1)), float64(float32(0.2))
 	case 5: // CROUCHING
-		return 0.3, 1.5
+		return float64(float32(0.3)), 1.5
 	case 1, 3, 4: // FALL_FLYING, SWIMMING, SPIN_ATTACK
-		return 0.3, 0.6
+		return float64(float32(0.3)), float64(float32(0.6))
 	default: // STANDING and every unmapped pose
-		return 0.3, 1.8
+		return float64(float32(0.3)), float64(float32(1.8))
 	}
 }
 
@@ -51,7 +50,12 @@ func (s *Server) playerCanFit(sess *Session, pose int32) bool {
 	x, y, z, _, _, _ := sess.Pos()
 	d := sess.dimension()
 	half, h := playerPoseDims(pose)
-	if entityInsideSolid(d.w, x, y, z, half, h) {
+	// Player.canPlayerFitWithinBlocksAndEntitiesWhen deflates the pose
+	// box by 1e-7. Test the full shape, including its lower and lateral
+	// bounds: a top slab above the head is not a solid cell-height column.
+	const epsilon = 1e-7
+	box := aabb{x - half + epsilon, y + epsilon, z - half + epsilon, x + half - epsilon, y + h - epsilon, z + half - epsilon}
+	if blockCollisionIn(d, box) {
 		return false
 	}
 	eid := sess.entityID.Load()
@@ -76,10 +80,7 @@ func (s *Server) playerCanFit(sess *Session, pose int32) bool {
 		}
 		bd := entityBBDims(&o)
 		oh := bd[0] / 2
-		if math.Abs(o.X-x) >= half+oh || math.Abs(o.Z-z) >= half+oh {
-			continue
-		}
-		if y < o.Y+bd[1] && y+h > o.Y {
+		if box.intersects(aabb{o.X - oh, o.Y, o.Z - oh, o.X + oh, o.Y + bd[1], o.Z + oh}) {
 			return false
 		}
 	}

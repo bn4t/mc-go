@@ -146,7 +146,8 @@ Mojang server over the wire.
       custom potion payloads and complete splash geometry remain open
 
 ### Player
-- [~] Movement tracking, keep-alive, chat, tab list; spectator UUID teleport
+- [~] Movement tracking, keep-alive, chat, tab list; stationary player pose uses
+      measured collision shapes and fit tolerance; spectator UUID teleport
       copies target position/orientation and crosses dimensions (wire-pinned)
 - [~] Full inventory + container protocol (nonempty cursor drag and double-click
   collection for player/storage/crafting menus, offhand swaps for player/chest/
@@ -16931,3 +16932,27 @@ no flee; unsneak → flee). Green both legs.
 - **Measured:** JDK 25.0.5 javap inspection of official 26.2 `LivingEntity.calculateFallDamage`, `calculateFallPower`, `aiStep`, `MobEffects` static attribute declarations and `Player.causeFallDamage`; outer oracle jar SHA-1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`. Damage floors `(distance+1e-6-safe_fall_distance)*fall_damage_multiplier`. Jump Boost adds amplifier+1 to the safe-distance attribute before other modifier passes. Slow Falling and Levitation reset accumulated fall distance each entity tick before travel.
 - **Implemented:** player landing reads effective fall attributes and honors low safe-distance overrides; Jump Boost contributes its measured additive safe-distance modifier. Existing player entity tick clears descent during Slow Falling or Levitation. Scope does not include generalized status-effect attribute synchronization or all player landing block modifiers.
 - **Pinned:** `TestPlayerFallAttributesParity` passes all seven cases against vanilla (154.233 s): safe distance, multiplier, lower safe distance, Jump Boost, Jump Boost before multiplied-total, Slow Falling and Levitation. No oracle skips. Focused fall/pose units pass in an immutable export (5.173 s), and `go vet ./...` passes on that export.
+
+
+## Slice — stationary player pose collision shapes (2026-10-29)
+
+- **Measured:** live 26.2 metadata wire observations and Temurin 25.0.5+8
+  `javap` factual inspection of `Player.canPlayerFitWithinBlocksAndEntitiesWhen`
+  and `EntityDimensions.makeBoundingBox`. Oracle jar SHA-1:
+  `823e2250d24b3ddac457a60c92a6a941943fcd6a`. The pose-fit query uses
+  actual block collision geometry and a bounding box deflated by 1e-7 on
+  each face; player dimension float values widen to double for the box.
+- **Implemented:** stationary pose fitting uses the shared collision-shape
+  query, respecting lower and lateral bounds and shapes extending out of
+  adjacent cells. Top slabs can preserve crouching and top trapdoors preserve
+  standing. Hard-entity intersection uses the same deflated query box.
+- **Pinned:** final `TestPlayerStationaryPoseFitParity` passes against real
+  vanilla and mc-go (16.71 s), comparing full-block, top/bottom slab and
+  top/bottom trapdoor roofs and standing restoration. It waits for command
+  barriers and actual pose packets; the unchanged standing control also
+  consumes and checks the settling packet batch.
+  `TestPlayerPoseCollisionShapes` passes (3.507 s) from an immutable
+  committed-baseline-plus-owned-pose-files export.
+- **Remaining:** generated-terrain reproduction and context-dependent collision
+  shapes (including powder-snow equipment behavior) need their own pins;
+  this slice does not establish complete player collision or movement parity.
