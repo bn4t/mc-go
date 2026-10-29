@@ -1271,7 +1271,7 @@ func (s *Server) projectileCollide(e *Entity, ox, oy, oz float64, flat float32, 
 			return false
 		}
 		sess := v.(*Session)
-		if sess.state.Load() != StatePlay || sess.dead || sess.mode() != GameModeSurvival {
+		if sess.state.Load() != StatePlay || sess.dead || (sess.mode() != GameModeSurvival && sess.mode() != GameModeAdventure) {
 			return true
 		}
 		if sess.entityID.Load() == e.arrowShooter {

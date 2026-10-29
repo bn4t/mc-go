@@ -1264,7 +1264,9 @@ func (s *Server) handleClientStatus(sess *Session, p protocol.Packet) {
 // applyFallDamage converts accumulated fall distance into damage on
 // landing, matching vanilla's threshold of three blocks.
 func (s *Server) applyFallDamage(sess *Session) {
-	if sess.mode() != GameModeSurvival || sess.dead || sess.fallDistance <= 3.0 {
+	// Player.causeFallDamage exempts abilities.mayfly: adventure players
+	// share survival fall damage. Measured on the 26.2 jar (JDK 25 javap).
+	if (sess.mode() != GameModeSurvival && sess.mode() != GameModeAdventure) || sess.dead || sess.fallDistance <= 3.0 {
 		sess.fallDistance = 0
 		return
 	}
@@ -1274,7 +1276,10 @@ func (s *Server) applyFallDamage(sess *Session) {
 	// Fallsounds pair (big when dmg > 4) then the landed block's
 	// SoundType.fallSound — both at the player's SoundSource (7).
 	x, y, z, _, _, _ := sess.Pos()
-	dmg := distance - 3.0
+	dmg := playerFallDamageAmount(distance)
+	if dmg == 0 {
+		return
+	}
 	snd := int32(702) // entity.generic.small_fall
 	if dmg > 4 {
 		snd = 694 // entity.generic.big_fall
@@ -1760,4 +1765,11 @@ func abs(v float64) float64 {
 		return -v
 	}
 	return v
+}
+
+// playerFallDamageAmount measures LivingEntity.calculateFallDamage with
+// default safe_fall_distance=3 and fall_damage_multiplier=1 (26.2, JDK 25
+// javap). The epsilon protects integral landing distances from float drift.
+func playerFallDamageAmount(distance float64) float64 {
+	return math.Max(0, math.Floor(distance+1e-6-3))
 }

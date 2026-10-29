@@ -158,7 +158,8 @@ Mojang server over the wire.
   open)
 - [~] Survival mode: health, hunger (two-clock regen + deferred
       exhaustion drain + i-frames measured), starvation, void, death/
-      respawn, item drops on death — eating/fall damage present
+      respawn, item drops on death — eating/fall damage present; adventure
+      projectile/fall damage and fractional fall flooring wire-pinned)
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
   shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
   /recipe give|take + RecipeBookAdd/Remove wire-parity including the
@@ -16676,3 +16677,22 @@ no flee; unsneak → flee). Green both legs.
   teleport landing after the throw on a freshly generated area, and a different stronghold
   chosen near -1200 2100 — check findNearestMapStructure's concentric-ring placement there).
 - **Remaining**: fix the two divergences above; the use's startUsingItem flag.
+
+
+## Slice — adventure damage and fractional fall flooring (2026-10-29)
+
+- **Measured:** wire observations against the official 26.2 server (SHA-1
+  `823e2250d24b3ddac457a60c92a6a941943fcd6a`) and JDK 25 javap inspection
+  of `Player.causeFallDamage` and `LivingEntity.calculateFallDamage`. Adventure
+  players remain damageable; default fall damage floors distance plus 1e-6
+  minus the three-block safe distance.
+- **Implemented:** adventure joins survival in projectile collision and player
+  fall eligibility. Default player fall damage uses the measured floor and
+  epsilon; a zero-damage landing does not emit a hurt or fall sound. Existing
+  creative/spectator exemptions remain.
+- **Pinned:** `TestProjectileAdventureParity` compares damage type and final
+  health against vanilla: an arrow leaves 18 health; a 9.5-block fall leaves
+  14 (59.665 s, no skips). `TestPlayerFallDamageAmount` covers safe distance,
+  fractional damage and epsilon boundaries (1.043 s). The fixture uses a
+  cleared arena, separate player identities and the admission grace period.
+  Non-default fall attributes remain outside this slice.
