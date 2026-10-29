@@ -42,7 +42,7 @@ func runShulkerDynamicCollisionParity(t *testing.T, facing string, start, target
 		sendCommand(t, pw, fmt.Sprintf("fill %d 159 -2 %d 159 2 stone", int(x)-2, int(x)+4))
 		sendCommand(t, d.pw, fmt.Sprintf("tp @s %.1f 160 2", x-2))
 		sendCommand(t, pw, fmt.Sprintf("setblock %d 160 0 shulker_box[facing=%s]", int(x), facing))
-		sprintTicks(t, pw, sink, 12)
+		shulkerStepTicks(t, pw, sink, 12)
 		move := func(tag string) float64 {
 			sendCommand(t, pw, fmt.Sprintf("tp @s %.2f 160 0.5", x+start))
 			// Readback confirms the teleport was consumed before the attempted move.
@@ -76,15 +76,15 @@ func runShulkerDynamicCollisionParity(t *testing.T, facing string, start, target
 			t.Fatal("shulker failed to open")
 		}
 		out = append(out, move("opened-no-tick"))
-		sprintTicks(t, pw, sink, 1)
+		shulkerStepTicks(t, pw, sink, 1)
 		out = append(out, move("opened-one-tick"))
-		sprintTicks(t, pw, sink, 9)
+		shulkerStepTicks(t, pw, sink, 9)
 		out = append(out, move("fully-open"))
 		d.close()
 		out = append(out, move("closed-no-tick"))
-		sprintTicks(t, pw, sink, 5)
+		shulkerStepTicks(t, pw, sink, 5)
 		out = append(out, move("closing-half"))
-		sprintTicks(t, pw, sink, 5)
+		shulkerStepTicks(t, pw, sink, 5)
 		out = append(out, move("fully-closed"))
 		sendCommand(t, pw, "tick unfreeze")
 		return out
@@ -101,4 +101,43 @@ func runShulkerDynamicCollisionParity(t *testing.T, facing string, start, target
 			t.Errorf("step%d vanilla=%v mcgo=%v want=%v", i, v[i], g[i], want[i])
 		}
 	}
+}
+
+// A sprint request can include an extra transition tick. Phase-sensitive
+// collision checks use stepped ticks and verify the actual game clock.
+func shulkerStepTicks(t *testing.T, pw *protocol.Writer, sink *chatSink, ticks int) {
+	t.Helper()
+	before := gameTimeOf(t, pw, sink)
+	settleDeadline := time.Now().Add(10 * time.Second)
+	for {
+		time.Sleep(150 * time.Millisecond)
+		stable := gameTimeOf(t, pw, sink)
+		if stable == before {
+			break
+		}
+		if time.Now().After(settleDeadline) {
+			t.Fatal("shulker phase clock did not freeze")
+		}
+		before = stable
+	}
+	want := before + int64(ticks)
+	sendCommand(t, pw, fmt.Sprintf("tick step %d", ticks))
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		got := gameTimeOf(t, pw, sink)
+		if got > want {
+			t.Fatalf("shulker phase advanced %d ticks, want%d", got-before, ticks)
+		}
+		if got == want {
+			// A second observation after normal server frames rejects a pending
+			// extra tick rather than accepting the first matching clock reply.
+			time.Sleep(150 * time.Millisecond)
+			if stable := gameTimeOf(t, pw, sink); stable != want {
+				t.Fatalf("shulker phase clock changed after completion: got%d want%d", stable, want)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("shulker phase never completed %d stepped ticks", ticks)
 }
