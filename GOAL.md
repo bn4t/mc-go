@@ -109,11 +109,12 @@ Mojang server over the wire.
       potatoes/beetroots, melon/pumpkin stems (attach + fruit on tagged
       supports), nether wart, cocoa, sweet berry bush, pitcher crop's
       two-half growth, torchflower_crop's 1/3 pre-gate and morph into
-      torchflower at maturity, farmland moisture/revert, turf spread
+      torchflower at maturity, farmland moisture/revert and rain hydration, turf spread
       and shade die-back, nylium reversion (the sampler and its
       per-section gate are in place; fire spread/decay,
       cactus/sugar cane/bamboo/chorus columns, saplings, snow
-      form-and-melt, frosted ice and cave vines remain open)
+      form-and-melt and frosted ice remain open; cave-vine offspring fruit
+      independence is now wire-pinned)
 - [x] Block entities (chests, furnaces, signs, hoppers, barrels, ...):
       saved and loaded in the real server's own chunk format, compared
       block entity for block entity both ways
@@ -16714,3 +16715,24 @@ no flee; unsneak → flee). Green both legs.
   a required Respawn packet. Command setup uses completion barriers so chunk
   generation cannot race the request. The loaded cross-dimension mob case is
   measured in bytecode but is not separately asserted by this wire fixture.
+
+
+## Slice — rain hydration and independent cave-vine fruit (2026-10-29)
+
+- **Measured:** JDK 25.0.5 javap inspection of `FarmlandBlock.randomTick`,
+  `Level.isRainingAt` and `CaveVinesBlock.getGrowIntoState` on the official
+  26.2 inner server jar, SHA-256
+  `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+  Rain above exposed farmland hydrates it to seven; snow/desert precipitation
+  does not. A new cave-vine tip independently rolls berries from a fresh
+  24-bit float below 0.11, including replacing a parent's true value with false.
+- **Implemented:** farmland hydration uses existing sky/biome precipitation
+  checks. Cave-vine offspring independently assign berries while the former
+  head retains its fruit as a body block.
+- **Pinned:** `TestCaveVineBerryOffspringParity` passes against vanilla with
+  multiple grown tips and berry-free offspring (165.68 s).
+  `TestFarmlandRainHydrationParity` passes exposed-moisture-seven and
+  roofed-moisture-zero predicates on both servers (117.81 s). Its bounded
+  simulation area explicitly installs a plains biome around the beds and
+  awaits loaded setup before sampling. Focused units cover both parent fruit
+  states, roof exposure, desert and snow exclusion (2.2 s). No oracle skips.

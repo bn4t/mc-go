@@ -26,8 +26,8 @@ import (
 //   - PitcherCropBlock: growth-speed roll; grow bumps age by 1 (cap 4)
 //     on the lower half when canGrow passes (lit, in build height, and
 //     room above once the new age turns it double-tall at age>=3).
-//   - FarmlandBlock: water in the 9x2x9 box at/below pos (or rain at the
-//     block above — mc-go has no weather) snaps moisture to 7; otherwise
+//   - FarmlandBlock: water in the 9x2x9 box at/above pos (or rain at the
+//     block above) snaps moisture to 7; otherwise
 //     moisture drains by 1, and at 0 with nothing in
 //     #maintains_farmland above it reverts to dirt.
 //
@@ -297,7 +297,10 @@ func (s *Server) pushEntitiesUpFarmland(d *dimension, pos world.Pos) {
 // dry-out revert to dirt.
 func farmlandRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
 	moisture, _ := intProp(b, "moisture")
-	if farmlandNearWater(s, d, pos) {
+	// FarmlandBlock.randomTick hydrates from water or rain at the cell above.
+	above := posAbove(pos, 1)
+	rain := s.fireRainingAt(d, above) && s.precipitationAt(d, above) == "rain"
+	if farmlandNearWater(s, d, pos) || rain {
 		if moisture < 7 {
 			if nb, ok := world.WithProperty(b, "moisture", "7"); ok {
 				s.setNaturalBlock(d, pos, nb)
@@ -311,7 +314,6 @@ func farmlandRule(s *Server, d *dimension, pos world.Pos, b world.Block) {
 		}
 		return
 	}
-	above := world.Pos{X: pos.X, Y: pos.Y + 1, Z: pos.Z}
 	aboveName, _ := world.StateOwner(s.rtBlock(d, above))
 	if !blockTagHas("maintains_farmland", aboveName) {
 		if dirt, ok := world.BlockStateOf("dirt", nil); ok {
@@ -650,8 +652,12 @@ func vineHeadRule(head, body string, growthDy int, cave bool) func(*Server, *dim
 		if !ok {
 			return
 		}
-		if cave && s.rng.nextDouble() < 0.11 {
-			if bb, ok := world.WithProperty(nb, "berries", "true"); ok {
+		// CaveVinesBlock.getGrowIntoState independently assigns BERRIES
+		// from a fresh 24-bit float draw (< 0.11f), including false:
+		// the parent's fruit does not carry onto the new tip.
+		if cave {
+			berries := float32(s.rng.next()>>40)/(1<<24) < float32(0.11)
+			if bb, ok := world.WithProperty(nb, "berries", strconv.FormatBool(berries)); ok {
 				nb = bb
 			}
 		}
