@@ -53,9 +53,10 @@ Startup folder datapacks can supply displayed and displayless advancement
 definitions with XP, built-in loot, recipe and function rewards. Measured
 display fields, layout, built-in tab overrides and completion announcements
 are supported. Icon counts and reward XP follow measured native JSON integer
-coercion, including fractions and overflow wrapping. Predicate-free custom tick
-criteria grant rewards once per completion, and startup recipe replacements
-use their own progress and rewards.
+coercion, including fractions and overflow wrapping. Custom tick criteria support
+measured player mode/level, flags, NBT, equipment, location/biome and boolean
+conditions. Rewards fire once per completion; startup recipe replacements use
+their own progress and rewards.
 Complete player-predicate and rich-text/icon schemas, datapack selection/ZIP/reload,
 custom loot overlays and several vehicle/physical interactions remain in
 progress. See individual slice entries for exact tests and limitations.

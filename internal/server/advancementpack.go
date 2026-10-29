@@ -18,6 +18,7 @@ type advancementRegistry struct {
 	custom   map[string]bool
 	wire     map[string][]byte
 	attached map[string]bool
+	tickers  map[string]map[string]advancementPlayerPredicate
 }
 
 func (s *Server) gameAdvTable() map[string]*advMeta {
@@ -132,6 +133,7 @@ func (s *Server) loadAdvancementPacks() {
 
 	}
 	finishAdvancementDisplayWires(reg)
+	prepareAdvancementTickPredicates(reg)
 
 	s.advancementPack = reg
 }
@@ -168,6 +170,11 @@ func validPackAdvancement(raw map[string]any) bool {
 		trigger, ok := criterion["trigger"].(string)
 		if !ok || !packAdvancementTriggers[normalizeID(trigger)] {
 			return false
+		}
+		if normalizeID(trigger) == "minecraft:tick" {
+			if _, err := compileAdvancementTickPredicate(criterion["conditions"]); err != nil {
+				return false
+			}
 		}
 	}
 	if requirements, defined := raw["requirements"]; defined && requirements != nil {

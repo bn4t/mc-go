@@ -14,32 +14,34 @@ func (s *Server) fireTickAdvancements(sess *Session) {
 	if registry == nil {
 		return
 	}
-	ids := make([]string, 0, len(registry.custom))
-	for id := range registry.custom {
+	ids := make([]string, 0, len(registry.tickers))
+	for id := range registry.tickers {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	for _, id := range ids {
-		meta := registry.entries[id]
-		criteria, _ := meta.raw["criteria"].(map[string]any)
-		names := append([]string(nil), meta.criteria...)
+		names := make([]string, 0, len(registry.tickers[id]))
+		for name := range registry.tickers[id] {
+			names = append(names, name)
+		}
 		sort.Strings(names)
 		for _, name := range names {
-			criterion, _ := criteria[name].(map[string]any)
-			trigger, _ := criterion["trigger"].(string)
-			if normalizeID(trigger) != "minecraft:tick" {
+			sess.advMu.Lock()
+			done := sess.advDone[id]
+			_, obtained := sess.advCrits[id][name]
+			sess.advMu.Unlock()
+			if done || obtained {
 				continue
 			}
-			if !unconditionalTickCriterion(criterion["conditions"]) {
-				continue
+			if registry.tickers[id][name](s, sess) == advancementPredicateTrue {
+				sess.grantGameCriterion(registry.entries[id], name)
 			}
-			sess.grantGameCriterion(meta, name)
 		}
 	}
 }
 
-// Predicate-free tick criteria are supported here; fail closed for player
-// predicates until their context codec/evaluator is modeled independently.
+// Recognize the predicate-free fast path before compiling contextual player
+// predicates. This helper alone never accepts a nonempty contextual predicate.
 func unconditionalTickCriterion(raw any) bool {
 	if raw == nil {
 		return true

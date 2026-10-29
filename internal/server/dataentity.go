@@ -2245,6 +2245,15 @@ func playerSaveMap(sess *Session, now int64, ents *Manager) map[string]any {
 			}
 		}
 	}
+	// Entity.saveWithoutId includes the nonempty scoreboard-tag set for
+	// players too. Native NBT predicates and /data share this save view.
+	if tags := tagList(&dataEntity{sess: sess}); len(tags) > 0 {
+		items := make([]any, len(tags))
+		for i, tag := range tags {
+			items[i] = tag
+		}
+		m["Tags"] = nbt.List{Elem: nbt.TagString, Items: items}
+	}
 	// Player/ServerPlayer's unconditional keys: the version stamp,
 	// dimension resource loc, and the always-on counters and flags.
 	m["DataVersion"] = int32(4903)

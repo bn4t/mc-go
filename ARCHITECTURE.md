@@ -94,8 +94,13 @@ displayless replacements; built-in wire data retains its captured icon/component
 bytes while coordinates are rewritten. Complete component schemas, pack selection,
 ZIP/reload and custom loot overlays are still separate work.
 
-Predicate-free custom tick criteria fire on connection ticks after menu
-validation and before inventory touching, including while the world is frozen.
+Custom tick criteria fire on connection ticks after menu validation and before
+inventory touching, including while the world is frozen. Startup compilation
+caches supported player/entity/context predicates in the server registry.
+Unevaluated valid conditions remain distinct from false, so inversion cannot
+turn them into awards. Biome predicates query the current world; native NBT
+views share player Tags. Numeric fields retain exact JSON tokens where their
+codecs consume integers, separately from typed NBT conversion.
 Replacing either captured startup recipe advancement defers the first reset
 until runtime visibility/progress is derived; replacing crafting_table also
 suppresses its captured recipe unlock. Complete player-predicate evaluation
