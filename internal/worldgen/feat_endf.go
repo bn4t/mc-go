@@ -45,6 +45,20 @@ func init() {
 			}
 			spikes = append(spikes, sp)
 		}
+		// EndSpikeConfiguration's crystal_invulnerable/crystal_beam_target
+		// ride onto the spike's crystal (the respawn sequence's spikes
+		// set both; the natural end_spike feature leaves them off).
+		invulnerable := false
+		if v, ok := cfg["crystal_invulnerable"]; ok {
+			jsonUnmarshal(v, &invulnerable)
+		}
+		var beam *BlockPos
+		if v, ok := cfg["crystal_beam_target"]; ok {
+			var bt []int32
+			if jsonUnmarshal(v, &bt); len(bt) == 3 {
+				beam = &BlockPos{bt[0], bt[1], bt[2]}
+			}
+		}
 		return func(c *featCtx, r Random, p BlockPos) bool {
 			ss := spikes
 			if len(ss) == 0 {
@@ -52,7 +66,14 @@ func init() {
 			}
 			for _, s := range ss {
 				if s.x>>4 == p[0]>>4 && s.z>>4 == p[2]>>4 {
-					s.place(c.rg, r)
+					yaw := s.placeWith(c.rg.MinY(), c.rg.at, func(q BlockPos, b world.Block) { c.rg.set(q, b) }, r)
+					// WorldGenRegion.addFreshEntity files the crystal
+					// with the chunk holding its position.
+					if pc := c.rg.chunkAt(s.x, s.z); pc != nil {
+						pc.Entities = append(pc.Entities, GenEntity{Type: "end_crystal",
+							X: float64(s.x) + 0.5, Y: float64(s.height + 1), Z: float64(s.z) + 0.5, Yaw: yaw,
+							Invulnerable: invulnerable, BeamTarget: beam})
+					}
 				}
 			}
 			return true
@@ -268,17 +289,17 @@ func endfSpikesFor(seed int64) []endfSpike {
 // the 5x5x4 iron-bar cage with panes joined along its walls. The end
 // crystal (one nextFloat for its yaw) stands on bedrock with fire at
 // its feet.
-func (s endfSpike) place(rg *Region, r Random) {
+func (s endfSpike) placeWith(minY int32, at func(BlockPos) world.Block, set func(BlockPos, world.Block), r Random) float32 {
 	obsidian := blockNamed("obsidian")
 	lim := s.radius*s.radius + 1
 	for z := s.z - s.radius; z <= s.z+s.radius; z++ {
-		for y := rg.MinY(); y <= s.height+10; y++ {
+		for y := minY; y <= s.height+10; y++ {
 			for x := s.x - s.radius; x <= s.x+s.radius; x++ {
 				dx, dz := x-s.x, z-s.z
 				if float64(dx*dx+dz*dz) <= float64(lim) && y < s.height {
-					rg.set(BlockPos{x, y, z}, obsidian)
+					set(BlockPos{x, y, z}, obsidian)
 				} else if y > 65 {
-					rg.set(BlockPos{x, y, z}, world.Air)
+					set(BlockPos{x, y, z}, world.Air)
 				}
 			}
 		}
@@ -305,22 +326,58 @@ func (s endfSpike) place(rg *Region, r Random) {
 					st, _ = world.WithProperty(st, "south", tf(alongZ && dz != 2))
 					st, _ = world.WithProperty(st, "west", tf(alongX && dx != -2))
 					st, _ = world.WithProperty(st, "east", tf(alongX && dx != 2))
-					rg.set(BlockPos{s.x + dx, s.height + dy, s.z + dz}, st)
+					set(BlockPos{s.x + dx, s.height + dy, s.z + dz}, st)
 				}
 			}
 		}
 	}
-	r.NextFloat()
+	yaw := r.NextFloat() * 360
 	feet := BlockPos{s.x, s.height + 1, s.z}
-	rg.set(offset(feet, 0, -1, 0), blockNamed("bedrock"))
-	rg.set(feet, endfFireAt(rg, feet))
+	set(offset(feet, 0, -1, 0), blockNamed("bedrock"))
+	set(feet, endfFireAt(at, feet))
+	return yaw
+}
+
+// GenEntity is an entity a feature added to the chunk holding its
+// position (WorldGenRegion.addFreshEntity); the server spawns it when
+// that chunk is handed out. Only the end spikes' crystals use it.
+type GenEntity struct {
+	Type         string
+	X, Y, Z      float64
+	Yaw          float32
+	Invulnerable bool
+	BeamTarget   *BlockPos
+}
+
+// EndSpike is one of EndSpikeFeature.getSpikesForLevel's spikes.
+type EndSpike struct {
+	X, Z, Radius, Height int32
+	Guarded              bool
+}
+
+// EndSpikes is EndSpikeFeature.getSpikesForLevel for a level seed.
+func EndSpikes(seed int64) []EndSpike {
+	ss := endfSpikesFor(seed)
+	out := make([]EndSpike, len(ss))
+	for i, s := range ss {
+		out[i] = EndSpike{X: s.x, Z: s.z, Radius: s.radius, Height: s.height, Guarded: s.guarded}
+	}
+	return out
+}
+
+// PlaceEndSpike is EndSpikeFeature.placeSpike against any block
+// reader/writer (the respawn sequence rebuilds spikes in the live
+// level); it returns the crystal's rolled yaw - the crystal itself is
+// the caller's to add at (x+0.5, height+1, z+0.5).
+func PlaceEndSpike(sp EndSpike, minY int32, at func(BlockPos) world.Block, set func(BlockPos, world.Block), r Random) float32 {
+	return endfSpike{x: sp.X, z: sp.Z, radius: sp.Radius, height: sp.Height, guarded: sp.Guarded}.placeWith(minY, at, set, r)
 }
 
 // endfFireAt is BaseFireBlock.getState: soul fire over its base blocks,
 // otherwise plain fire, facing flammable neighbours only when the floor
 // is neither flammable nor sturdy.
-func endfFireAt(rg *Region, p BlockPos) world.Block {
-	below := rg.at(offset(p, 0, -1, 0))
+func endfFireAt(at func(BlockPos) world.Block, p BlockPos) world.Block {
+	below := at(offset(p, 0, -1, 0))
 	if blockInTag(below, "soul_fire_base_blocks") {
 		return blockNamed("soul_fire")
 	}

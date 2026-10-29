@@ -1127,6 +1127,10 @@ type Entity struct {
 	// fishing is non-nil on a fishing_bobber: the per-hook catch state
 	// machine (owner link, timers, parked surface).
 	fishing  *fishBobber
+	// crystal is non-nil on an end_crystal (endcrystal.go), dragon on
+	// an ender_dragon (enderdragon.go).
+	crystal *endCrystal
+	dragon  *enderDragon
 	Grounded bool
 	// FallDist is Entity.fallDistance for mobs: the accumulated
 	// downward travel since the last landing, consumed by
@@ -1841,6 +1845,8 @@ func (s *Server) sendEntityTo(sess *Session, e *Entity) error {
 	default:
 		if name, ok := EntityTypeName(e.Type); ok && isBoatEntityName(name) {
 			meta = encodeBoatMeta(e)
+		} else if ok && name == "end_crystal" {
+			meta = encodeCrystalMeta(e)
 		} else if ok && name == "wither_skull" && e.Dangerous {
 			// DATA_DANGEROUS sits at index 8 behind the shared
 			// Entity chain — the pairing data carries the dirty

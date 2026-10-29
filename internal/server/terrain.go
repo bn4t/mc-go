@@ -49,6 +49,9 @@ type terrainSource struct {
 	// fresh lists handed-out chunks whose post-processing has not run.
 	freshMu sync.Mutex
 	fresh   [][2]int
+	// genEntities are the feature-placed entities (end spike crystals)
+	// of chunks handed out since the last drain (drainGenEntities).
+	genEntities []worldgen.GenEntity
 }
 
 type terrainEntry struct {
@@ -151,9 +154,12 @@ func (t *terrainSource) ProvideChunk(x, z int) *world.BaseChunk {
 		base.Structures = t.g.StructuresTag(cx, cz)
 	}
 	t.provided[[2]int32{cx, cz}] = true
-	if len(base.PostProcess) > 0 {
+	if len(base.PostProcess) > 0 || len(p.Entities) > 0 {
 		t.freshMu.Lock()
-		t.fresh = append(t.fresh, [2]int{x, z})
+		if len(base.PostProcess) > 0 {
+			t.fresh = append(t.fresh, [2]int{x, z})
+		}
+		t.genEntities = append(t.genEntities, p.Entities...)
 		t.freshMu.Unlock()
 	}
 	t.prune(cx, cz)

@@ -169,6 +169,8 @@ type dimension struct {
 	// next id is a per-dimension counter like vanilla's getUniqueId.
 	raids    map[int]*raid
 	raidNext int
+	// fight is the dimension's EnderDragonFight (generated End only).
+	fight *dragonFight
 }
 
 // sections is the chunk section count for this dimension.

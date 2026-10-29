@@ -2192,6 +2192,12 @@ func (s *Server) runSummon(player string, args []string) reply {
 	// The rest of the registry: vanilla's EntityType.create accepts
 	// every remaining type — each one spawns at its constructor
 	// defaults and runs its own tick fate in ephemeralTickStep.
+	// EndCrystal and EnderDragon carry their own entity state
+	// (endcrystal.go, enderdragon.go).
+	if name == "end_crystal" || name == "ender_dragon" {
+		s.summonEndEntity(sess.dimension(), name, x, y, z, tag)
+		return opsEchoReply(translatable("commands.summon.success", translatable("entity.minecraft."+name)))
+	}
 	if summonPlainNames[name] {
 		e := &Entity{
 			Type: mustEntityType(name),
@@ -3236,6 +3242,7 @@ func encodeLivingMetadataDirty(e *Entity, particles []byte) []byte {
 		b.Byte(0) // type: byte
 		b.Byte(fl)
 	}
+	dragonMetaDirty(e, &b)
 	if name, ok := EntityTypeName(e.Type); ok {
 		// AgeableMob's pair leads every ageable chain — DATA_BABY_ID
 		// (16) then AGE_LOCKED (17); each subtype's own data starts
@@ -3751,6 +3758,8 @@ func encodeLivingMetadata(e *Entity, particles []byte) []byte {
 		b.Byte(0) // type: byte
 		b.Byte(flags)
 	}
+	// EnderDragon.DATA_PHASE (16).
+	dragonMetaPairing(e, &b)
 	if name, ok := EntityTypeName(e.Type); ok {
 		// AgeableMob's pair leads every ageable chain — DATA_BABY_ID
 		// (16) then AGE_LOCKED (17); each subtype's own data starts
@@ -4656,6 +4665,9 @@ func (s *Server) damageMob(e *Entity, amount float32, typeName string, killer *S
 	if kn, _ := EntityTypeName(e.Type); kn == "enderman" {
 		return s.enderHurtServer(e, amount, typeName, killer, info)
 	}
+	if e.dragon != nil {
+		return s.dragonHurtServer(e, amount, typeName, killer, info)
+	}
 	return s.mobHurtCore(e, amount, typeName, killer, info)
 }
 
@@ -4849,6 +4861,12 @@ func (s *Server) mobDie(e *Entity, killer *Session, silent bool) {
 	if current, ok := s.entities.GetPtr(e.ID); ok {
 		e = current
 	}
+	if e.dragon != nil {
+		// EnderDragon.handleKillingBlow keeps the dragon alive for
+		// its death flight (enderdragon.go).
+		s.dragonDie(e, killer)
+		return
+	}
 	// LivingEntity.die posts ENTITY_DEATH at the body's position.
 	if d := s.dimensionByName(e.Dim); d != nil {
 		s.emitGameEvent(d, "entity_die", e.X, e.Y, e.Z, nil, "")
@@ -4913,7 +4931,8 @@ func (s *Server) mobTickStep() {
 	s.entities.mu.RLock()
 	mobs := make([]*Entity, 0, len(s.entities.byID))
 	for _, e := range s.entities.byID {
-		if e.Living {
+		// The ender dragon runs its own tick (enderdragon.go).
+		if e.Living && e.dragon == nil {
 			mobs = append(mobs, e)
 		}
 	}

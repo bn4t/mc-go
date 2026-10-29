@@ -40,6 +40,16 @@ func (s *Server) runKill(player string, args []string) reply {
 		if e.Dying {
 			continue
 		}
+		if ep, ok := s.entities.GetPtr(e.ID); ok && ep.dragon != nil {
+			// EnderDragon.kill: removed now, the fight told.
+			s.dragonKill(ep)
+			continue
+		}
+		if ep, ok := s.entities.GetPtr(e.ID); ok && ep.crystal != nil {
+			// EndCrystal.kill: onDestroyedBy(generic), then removal.
+			s.crystalKilled(ep)
+			continue
+		}
 		if e.Living {
 			// die() marks the mob Dying; the corpse lingers twenty
 			// ticks and flushes the dying pack before removal, like

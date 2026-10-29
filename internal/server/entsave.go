@@ -34,7 +34,7 @@ func (s *Server) captureEntityRegionsOwned(d *dimension) map[[2]int32][]map[stri
 			continue
 		}
 		name, ok := EntityTypeName(e.Type)
-		if !ok || (!e.Living && name != "item") {
+		if !ok || (!e.Living && name != "item" && name != "end_crystal") {
 			continue
 		}
 		m := entitySaveMap(&e, now, s.entities).m
@@ -77,6 +77,14 @@ func (s *Server) restoreEntities(d *dimension) {
 				uuid[i*4+2] = byte(v >> 8)
 				uuid[i*4+3] = byte(v)
 			}
+		}
+		if name == "end_crystal" {
+			s.restoreEndCrystal(d, save, pos)
+			continue
+		}
+		if name == "ender_dragon" {
+			s.restoreEnderDragon(d, save, pos)
+			continue
 		}
 		if name == "item" {
 			stack := ItemStack{}

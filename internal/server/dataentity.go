@@ -666,6 +666,9 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 	}
 	// WitherSkull's own write also emits dangerous unconditionally
 	// (putBoolean, not the is-set gate).
+	// EndCrystal / EnderDragon addAdditionalSaveData.
+	crystalSaveFields(e, m)
+	dragonSaveFields(e, m)
 	if typeName == "wither_skull" {
 		m["dangerous"] = nbtBool(e.Dangerous)
 	}
@@ -1326,6 +1329,10 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	prevSheared, prevColor := e.Sheared, e.Color
 	prevPumpkin := e.Pumpkin
 	prevBaby := e.Baby
+	if e.crystal != nil {
+		// The crystal's data rides its own dirty flush.
+		applyCrystalSave(e, save, false)
+	}
 	name, _ := EntityTypeName(e.Type)
 	// attributes:[{id,base,modifiers?}] — AttributeInstance.apply
 	// writes baseValue directly (no clamp, no dirty) and replaces the

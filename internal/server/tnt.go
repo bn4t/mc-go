@@ -270,6 +270,10 @@ func (s *Server) explodePowerFire(src *Entity, x, y, z float64, radius float32, 
 		return true
 	})
 
+	// End crystals in range take explosion damage too (removed, no
+	// chain blast).
+	s.explodeHurtEndCrystals(src, x, y, z, radius)
+
 	// interactWithBlocks, DESTROY_WITH_DECAY — the vanilla order is
 	// shuffle → per-cell onExplosionHit → popResource per dropped stack.
 	s.explodeDestroyBlocks(src, positions, radius)
