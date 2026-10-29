@@ -203,3 +203,11 @@ then start the separate streaming deadline after Join. Do not compensate by
 reducing required chunks or dropping packet assertions. Compare unchanged and
 patched fixtures and retain any full-run failure when diagnosing load-sensitive
 readiness timeouts.
+
+## Population-cap observations
+
+Count newly spawned cap-eligible entities across the relevant dimension, not only
+a fixture arena. Initial filler IDs, persistent mobs and custom-persistence riders
+need separate treatment. A neighboring valid slime spawn can consume the last
+slot while the dark arena stays empty. Capture positions/types and reproduce the
+same input on unchanged code before changing cap behavior or attempt limits.

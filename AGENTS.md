@@ -82,6 +82,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   decoded `/say` message body. Substrings can match syntax-error echoes,
   sender names or unconditional suffix markers. Establish block-entity creation
   before sending an editor packet, then observe its applied update receipt.
+- Cap/category fixtures must observe the whole eligible domain. Capture global
+  counts and new entity IDs/positions before changing retry budgets or blaming
+  production; a valid spawn outside a counted arena can consume the cap.
 - For randomized physics, use geometry to select a direction and pin impulse
   bounds plus displacement/velocity relations. Observe the exact first tick;
   unrelated random samples and accumulated impulses are not exact parity pins.

@@ -319,6 +319,7 @@ func setRuleForTest(s *Server, k, v string) {
 // getMaxSpawnClusterSize more). Persistent mobs never count.
 func TestNaturalSpawnMonsterCap(t *testing.T) {
 	s := New("unused")
+	t.Cleanup(s.Stop)
 	s.GameMode = GameModeCreative
 	s.WorldSeed = 1
 	s.SimulationDistance = 8
@@ -338,27 +339,51 @@ func TestNaturalSpawnMonsterCap(t *testing.T) {
 		filler = append(filler, e)
 	}
 	// A persistent extra changes nothing.
-	if e, ok := s.summonMob(d, "zombie", 0.5, -60, -40.5, true); ok {
-		e.PersistenceRequired = true
+	persistent, ok := s.summonMob(d, "zombie", 0.5, -60, -40.5, true)
+	if !ok {
+		t.Fatal("persistent control summon failed")
+	}
+	persistent.PersistenceRequired = true
+	initial := map[int32]bool{}
+	for _, e := range s.entities.All() {
+		initial[e.ID] = true
+	}
+	count := func(newOnly bool) int {
+		n := 0
+		for _, e := range s.entities.All() {
+			name, _ := EntityTypeName(e.Type)
+			if e.Dim != d.name || !e.Living || e.Dormant || e.presenceOnly || entityCategoryOf(name) != catMonster ||
+				e.PersistenceRequired || mobRequiresCustomPersistence(&e, name) || (newOnly && initial[e.ID]) {
+				continue
+			}
+			n++
+		}
+		return n
 	}
 	for i := 0; i < 600; i++ {
 		s.naturalSpawnDim(d, true, false)
 	}
-	if n := countMonsters(s, 3, 0); n != 0 {
-		t.Fatalf("at the 70 cap the arena gained %d monsters", n)
+	// The biome apron around the arena includes other legal spawn cells:
+	// low-altitude slimes can spawn on its daylight floor. The cap and
+	// this assertion cover the whole dimension, not only the dark box.
+	if total, fresh := count(false), count(true); total != 70 || fresh != 0 {
+		t.Fatalf("at the 70 cap: counted=%d new=%d", total, fresh)
 	}
 	s.entities.Remove(filler[0].ID)
-	for i := 0; i < 2000 && countMonsters(s, 3, 0) == 0; i++ {
+	if total := count(false); total != 69 {
+		t.Fatalf("after removing one filler: counted=%d, want69", total)
+	}
+	for i := 0; i < 2000 && count(true) == 0; i++ {
 		s.naturalSpawnDim(d, true, false)
 	}
-	n := countMonsters(s, 3, 0)
+	n := count(true)
 	if n == 0 {
 		t.Fatal("69 counted monsters still blocked spawning")
 	}
 	for i := 0; i < 600; i++ {
 		s.naturalSpawnDim(d, true, false)
 	}
-	if m := countMonsters(s, 3, 0); m > 4 {
+	if m := count(true); m > 4 {
 		t.Errorf("one free cap slot let %d monsters in (first call %d), want <= 4", m, n)
 	}
 }
