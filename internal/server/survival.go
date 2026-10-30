@@ -1309,11 +1309,11 @@ func (s *Server) hungerTickStep() {
 			return true
 		}
 		changed := false
-		// Exhaustion spends first: every four points take a saturation,
+		// Exhaustion spends first, strictly above four: take a saturation,
 		// then a food point. The exhaustion a regen heal adds drains on
 		// the NEXT tick, so its health packet still carries the old
 		// saturation.
-		for sess.exhaustion >= 4 {
+		for sess.exhaustion > 4 {
 			sess.exhaustion -= 4
 			if sess.saturation > 0 {
 				sess.saturation--

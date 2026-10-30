@@ -19469,3 +19469,12 @@ White remains distinct from absence through the existing sentinel. Custom patter
 - **Pinned** — Final structured comparison PASS27.34s; palette23.86s and jukebox21.44s regressions PASS. Actual disk save/restart tests retain the five rows and nested effect/decorations order; unit group PASS1.222s, build/vet/tagged compilation PASS. Evidence: work/native-structured-stage/manifest.json and work/native-structured-slice.md. Unowned snapshot files were checked byte-for-byte against their recorded bases.
 
 Controls use stone to avoid built-in component defaults. Explicit empty-list presence, custom or invalid identifiers/codecs and component removals remain separate.
+
+
+## Slice — strict food exhaustion threshold (2026-10-30)
+
+- **Measured** — Native food pools retain exactly four exhaustion points across player frames, spending a saturation/food quantum only above four. Short bottled Hunger199 effects produce exact three/four/five-point controls without writing player NBT. Java26.2/Temurin25.0.5+8 wire observations; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Change the existing spending predicate from greater-than-or-equal to strictly greater than four, retaining deferred regeneration exhaustion accounting. Three-file patch SHA256 5af75f3268e578b30645fb1cb1125dee79ad163d30776010ddd54b96a586d1ac.
+- **Pinned** — Final three-case native comparison PASS58.52s; committed strict HungerRegen regression PASS38.41s with matching void health sequences. Boundary units cover adjacent representable floats and repeated exact-four stability with and without saturation; unit0.759s/race4.287s PASS. Vet and default/tagged compilation PASS. Evidence: work/food-threshold-final-stage/manifest.md and work/food-threshold-final-Test*.log.
+
+This slice only fixes the threshold. Existing multi-quantum spending, fractional saturation and powder-snow behavior remain separate work.

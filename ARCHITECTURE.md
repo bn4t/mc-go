@@ -1479,3 +1479,8 @@ trigonometry and a measured float32 basis before widening components. Public
 numeric corpora pin every sine sample and representative basis outputs; command
 wire controls pin their consumer. Facing-angle interpolation and global entity
 physics retain their separate implementations and remaining precision limits.
+
+
+Food exhaustion spends only when strictly above four; an exact four remains
+until more exhaustion arrives. Deferred regeneration cost keeps its existing
+order. Fractional saturation and multiple spending quanta remain separate limits.
