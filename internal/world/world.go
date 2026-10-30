@@ -43,6 +43,9 @@ type World struct {
 	// only the blocks; this is the pass-through for everything the
 	// blocks do not say.
 	blockEntities []map[string]any
+	// Native pending records stay separate from terrain until the server restores
+	// its queues. Duplicate entries and their list order are significant.
+	savedChunkTicks map[[2]int32]SavedChunkTicks
 	// base, when set, supplies terrain chunk by chunk (NewProvided).
 	base *baseCache
 }

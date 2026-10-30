@@ -578,6 +578,7 @@ func readRegionFile(path string) (map[chunkKey]map[string]any, error) {
 // the override set sparse. Missing directories mean a fresh world.
 func (w *World) LoadRegion(dir string, minY, height int) error {
 	w.blockEntities = nil
+	w.savedChunkTicks = nil
 	regionDir := filepath.Join(dir, "region")
 	files, err := filepath.Glob(filepath.Join(regionDir, "r.*.*.mca"))
 	if err != nil {
@@ -592,6 +593,12 @@ func (w *World) LoadRegion(dir string, minY, height int) error {
 			rx, rz := regionFileCoords(f)
 			cx := rx*regionChunks + int(ck.X)
 			cz := rz*regionChunks + int(ck.Z)
+			if status, _ := compound["Status"].(string); status == "minecraft:full" {
+				if w.savedChunkTicks == nil {
+					w.savedChunkTicks = map[[2]int32]SavedChunkTicks{}
+				}
+				w.savedChunkTicks[[2]int32{int32(cx), int32(cz)}] = DecodeSavedChunkTicks(compound, cx, cz)
+			}
 			if w.base != nil {
 				w.installBaseChunk(compound, cx, cz, minY, height)
 				continue

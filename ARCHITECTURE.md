@@ -1189,3 +1189,12 @@ frontier, avoiding expansion of unreachable recursive tails or fork siblings.
 Manual/tag, startup/tick, scheduled and advancement-reward calls use this path.
 The context starts at function entry; shared budgets across outer command forks,
 max_command_forks, return/macros and complete parser continuations remain open.
+
+
+Native full-chunk loading now decodes detached scheduled-tick records separately
+from terrain. Valid list siblings survive malformed entries; registered IDs
+normalize default namespaces, numeric tags follow Java int conversion and
+priority clamps to the native range. X/Z chunk ownership is checked without
+inventing a Y-bound codec rule. Duplicate records and list order remain intact.
+This handoff alone does not activate the server scheduler; protochunk promotion
+and chunk activation policy remain separate.
