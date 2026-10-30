@@ -18827,3 +18827,10 @@ An earlier End suffix expectation was corrected from21 to22 after both servers a
 - **Pinned** — Three-file SHA256 `01d8582b35fe5485bc8a4da42cae33d95973f555ac577ba5a959f467af32523b`, base0b0405b. Native/Go8-control wire PASS38.10s with exact first-Age1 position and raw vertical velocity within1e-11; focused units0.929s, race6.541s and default compilation0.206s PASS. Direct mover units have16 combinations:2 flag states ×2 gravity defaults ×4 gaps. Source/provenance: `work/item-nogravity-restitution-fixed-stage/`, `work/item-nogravity-restitution-slice.md`.
 
 The live comparison covers regular items. Other consumers of common restitution, including XP orbs, retain separate live coverage requirements; this does not establish complete entity gravity/travel parity.
+
+
+## Slice — verify scoreboard, completion and item-physics integration (2026-10-30)
+
+- **Measured** — Verify immutable commit89d59fd containing the independently pinned scoreboard results, builtin/root completion, item escape geometry and NoGravity restitution slices. Concurrent agent work is excluded from the archive.
+- **Implemented** — No additional production changes; record the integrated verification before publication.
+- **Pinned** — Build/vet PASS; tagged blackbox compilation PASS0.191s; complete default `go test -p 2 ./... -count=1 -timeout 25m` exits0. Internal/server324.946s, world0.416s, worldgen17.088s, publicserver7.859s and default blackbox150.937s; all remaining packages pass. Evidence: `work/verified-89d59fd.log`. Individual native controls remain documented in their slices. This does not claim a full native-oracle suite, graphical-client validation or realistic-load performance completion.
