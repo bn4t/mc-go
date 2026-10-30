@@ -500,8 +500,8 @@ var commandArgSuggesters = map[string]func(*Server, *Session, []string) []string
 }
 
 // handleCommandSuggestion answers a tab-completion request with the
-// Command Suggestions Response. The completion covers the last word of
-// the request text, exactly like vanilla's ask_server suggestions.
+// Command Suggestions Response. Argument parsers select the replacement
+// range, which may cover a whole argument or only its numeric unit suffix.
 func (s *Server) handleCommandSuggestion(sess *Session, p protocol.Packet) {
 	r := protocol.NewPacketReader(p.Data)
 	tx, err := r.VarInt()
@@ -526,7 +526,7 @@ func (s *Server) handleCommandSuggestion(sess *Session, p protocol.Packet) {
 }
 
 // suggestCompletions returns the replacement range and matching values
-// for the word ending at the cursor. text is the request body, which
+// at the command cursor. text is the request body, which
 // includes the leading slash for commands.
 func (s *Server) suggestCompletions(sess *Session, text string) (start, length int, matches []string) {
 	body := text
@@ -544,13 +544,20 @@ func (s *Server) suggestCompletions(sess *Session, text string) (start, length i
 
 	if len(prior) == 0 {
 		// Completing the command name itself.
-		for _, name := range s.commands.Names() {
-			if strings.HasPrefix(name, word) {
+		prefix := strings.ToLower(word)
+		for _, name := range s.helpNames() {
+			if name != word && strings.HasPrefix(strings.ToLower(name), prefix) {
 				matches = append(matches, name)
 			}
 		}
+		if len(matches) == 0 {
+			return 0, 0, nil
+		}
 		sort.Strings(matches)
 		return start, length, matches
+	}
+	if prior[0] == "time" {
+		return s.suggestTimeArguments(sess, prior[1:], word, start)
 	}
 	provider := commandArgSuggesters[prior[0]]
 	if provider == nil {

@@ -157,7 +157,9 @@ and ticks with native float32 rounding. Builtin markers, including hidden
 markers and default-namespace aliases, advance to their next occurrence.
 Time syntax checks numeric-unit boundaries, marker identifiers and extra
 arguments before changing clocks; nested execute errors retain their input
-positions. Custom resources, broader parser cases and completions remain partial.
+positions. Builtin time completion includes clock/marker/timeline choices and
+numeric unit suffixes; root completion combines builtin and plugin commands.
+Custom resources, nested completions and broader parser cases remain partial.
 
 Weather intensities preserve native float32 steps and project rain/thunder
 changes to clients, including initial weather for late joins. Natural/random
