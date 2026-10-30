@@ -19545,3 +19545,13 @@ DATA_IS_IGNITED (18) is still never sent, so flint-and-steel ignition is not vis
 - **Pinned** — Outbound unit tests (explicit small limits, join burst, overflow cleanup, write deadline, compression FIFO) and the full `internal/server` (171.5s) and public `server` suites PASS; build, vet and tagged blackbox compilation PASS. Not yet validated over a long real-client session, and no differential blackbox run: this workstation has no vanilla jar or JDK.
 
 The count bound is still a disconnect policy that vanilla lacks. A writer stalled behind a slow socket or chunk future can still exhaust either budget.
+
+## Verification — second concurrent master integration (2026-10-30)
+
+Immutable `f342f94` preserves the fully checked `106b500` batch and remote
+`119cc40` (4096-packet default and play read logging). Build and vet pass;
+focused outbound tests PASS 2.429s, public server tests PASS 7.069s and tagged
+blackbox compilation PASS. The initial restricted-shell public tests could not
+bind loopback sockets; the same immutable tree passed with local networking
+enabled. The earlier full `106b500` default-suite evidence remains applicable;
+no new full differential or real-client soak claim is made for this small merge.
