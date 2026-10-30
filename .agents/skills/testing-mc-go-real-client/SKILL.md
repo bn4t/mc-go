@@ -299,3 +299,10 @@ For player-only self selectors, distinguish the original caller, another player
 and a nonplayer executor through actual inventory ownership. Preserve different
 item-count sentinels and include scheduled neutral-source execution; feedback
 names alone do not prove that the intended inventory changed.
+
+
+After teleporting to a transient-entity test arena, verify the destination chunk
+and authoritative actor position before summons. Login readiness alone does not
+prove that destination visibility is established. Compare a fixture correction
+on unchanged baseline and candidate source while retaining all original
+spawn, survivor and reward assertions.

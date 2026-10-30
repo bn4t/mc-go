@@ -1,6 +1,10 @@
 package blackbox
 
 import (
+	"fmt"
+	"mc-go/internal/protocol"
+	"mc-go/internal/server"
+	"strings"
 	"testing"
 	"time"
 )
@@ -41,8 +45,110 @@ func TestXpOrbMergeParity(t *testing.T) {
 			c, pr, pw := joinPlayBlackbox(t, tc.addr, "OrbMerge")
 			defer c.Close()
 			drainToJoinBlackbox(t, tc.tag, pr)
+			opening := awaitPlayReadyBlackbox(t, tc.tag, c, pr, pw)
 			sendCommand(t, pw, "gamemode spectator @s")
 			sendCommand(t, pw, "tp @s 60.5 -58 60.5 -90 0")
+			// All three orbs occupy column (3,3). A completed login does not
+			// prove this destination column is visible after the teleport.
+			arenaSeen := false
+			noteChunk := func(p protocol.Packet) {
+				if p.ID != server.IDPlayChunkData {
+					return
+				}
+				reader := protocol.NewPacketReader(p.Data)
+				x, ex := reader.Int()
+				z, ez := reader.Int()
+				if ex != nil || ez != nil {
+					t.Fatal("truncated arena chunk prefix")
+				}
+				if x == 3 && z == 3 {
+					arenaSeen = true
+				}
+			}
+			for _, p := range opening {
+				noteChunk(p)
+			}
+			sendCommand(t, pw, "data get entity @s Pos")
+			sendCommand(t, pw, "say ORB_ARENA_READY")
+			receipt := false
+			actorSeen := false
+			var actorPos [3]float64
+			_ = c.SetReadDeadline(time.Now().Add(60 * time.Second))
+			for !arenaSeen || !receipt {
+				p, err := pr.ReadPacket()
+				if err != nil {
+					t.Fatalf("%s arena readiness: chunk%t receipt%t: %v", tc.tag, arenaSeen, receipt, err)
+				}
+				noteChunk(p)
+				switch p.ID {
+				case server.IDPlaySyncPos:
+					id, err := protocol.NewPacketReader(p.Data).VarInt()
+					if err != nil {
+						t.Fatal(err)
+					}
+
+					raw := [3]float64{}
+					tpReader := protocol.NewPacketReader(p.Data)
+					_, _ = tpReader.VarInt()
+					for axis := range raw {
+						raw[axis], err = tpReader.Double()
+						if err != nil {
+							t.Fatal(err)
+						}
+					}
+					if _, err := tpReader.Read(3*8 + 2*4); err != nil {
+						t.Fatal(err)
+					}
+					flags, err := tpReader.Int()
+					if err != nil {
+						t.Fatal(err)
+					}
+					t.Logf("%s arena teleport raw%v relativeFlags%#x; confirm only, no raw position echo", tc.tag, raw, flags)
+					var ack protocol.Buffer
+					ack.VarInt(id)
+					if err := pw.WritePacket(server.IDPlayTeleportConfirmSB, ack.Bytes()); err != nil {
+						t.Fatal(err)
+					}
+				case server.IDPlayKeepAliveCB:
+					if err := pw.WritePacket(server.IDPlayKeepAliveSB, p.Data); err != nil {
+						t.Fatal(err)
+					}
+				case server.IDPlayChunkBatchDone:
+					if err := ackChunkBatch(pw); err != nil {
+						t.Fatal(err)
+					}
+				case server.IDPlayDisconnect:
+					t.Fatalf("%s arena disconnect: %x", tc.tag, p.Data)
+
+				default:
+					line := fmt.Sprintf("%#x:%s", p.ID, string(p.Data))
+					if strings.Contains(line, "data.entity.query") {
+						parsed, valid := parseSNBT(line)
+						values, list := parsed.([]any)
+						if !valid || !list || len(values) != 3 {
+							t.Fatalf("%s invalid actor Pos reply", tc.tag)
+						}
+						actorSeen = true
+						for axis := range actorPos {
+							var valid bool
+							actorPos[axis], valid = hrNum(values[axis])
+							if !valid {
+								t.Fatalf("%s invalid actor Pos component", tc.tag)
+							}
+						}
+					}
+					if structureSaidBB([]string{fmt.Sprintf("%#x:%s", p.ID, string(p.Data))}, "ORB_ARENA_READY") {
+						receipt = true
+					}
+				}
+			}
+
+			if !actorSeen || actorPos != [3]float64{60.5, -58, 60.5} {
+				t.Fatalf("%s arena actor Pos%v seen%t want60.5,-58,60.5", tc.tag, actorPos, actorSeen)
+			}
+			t.Logf("%s actual server actor Pos%v verified before summons", tc.tag, actorPos)
+			_ = c.SetReadDeadline(time.Time{})
+			t.Logf("%s arena column3,3 and teleport command receipt observed before summons", tc.tag)
 
 			sendCommand(t, pw, "summon minecraft:experience_orb 63.5 -60 60.5 {Value:5}")
 			for i := 0; i < 39; i++ {

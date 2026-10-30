@@ -98,6 +98,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Cap/category fixtures must observe the whole eligible domain. Capture global
   counts and new entity IDs/positions before changing retry budgets or blaming
   production; a valid spawn outside a counted arena can consume the cap.
+- Initial play readiness does not prove destination visibility after a teleport.
+  Before transient-entity probes, observe the arena chunk and authoritative
+  actor position; retain the original spawn/survivor/outcome assertions.
 - Physics fixtures must witness the actual block state around the measured tick.
   A requested farmland state can become dirt under a solid cover. Inspect full
   aggregate results and both native/Go failure rows before claiming a baseline.
