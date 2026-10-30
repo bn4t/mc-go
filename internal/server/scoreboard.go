@@ -527,7 +527,9 @@ func (s *Server) runScoreboard(player string, args []string) reply {
 	return errToken("command.unknown.argument", 1)
 }
 
-func (s *Server) runScoreboardObjectives(player string, args []string) reply {
+func (s *Server) runScoreboardObjectives(player string, args []string) (out reply) {
+	var commandResult int32
+	defer func() { out = scoreboardCommandResult(out, commandResult) }()
 	// args[0] == "objectives"; token indexes count the command root.
 	if len(args) < 2 {
 		return errTokenEnd("command.unknown.command", len(args))
@@ -548,6 +550,7 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 		}
 		// objectivesByName is a fastutil open map — the values() view
 		// iterates in descending mix-hash slot order.
+		commandResult = int32(len(names))
 		items := make([]component, 0, len(names))
 		for _, n := range fastutilSetOrder(names) {
 			items = append(items, s.objectiveChatComponent(n))
@@ -586,6 +589,7 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 		}
 		o := &sbObjective{criteria: criteria, display: display}
 		s.board.objectives[name] = o
+		commandResult = int32(len(s.board.objectives))
 		s.board.mu.Unlock()
 		if criteriaReadOnly(criteria) {
 			// Live criteria baseline at the objective's creation:
@@ -624,6 +628,7 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 		}
 		removedSlots := s.scoreboardSlotsLocked(name)
 		delete(s.board.objectives, name)
+		commandResult = int32(len(s.board.objectives))
 		for _, holder := range s.board.holderOrder {
 			s.removeScoreLocked(holder, name)
 		}
@@ -852,7 +857,9 @@ func parseNumberFormatArgs(args []string, start int) (*sbNumberFormat, *reply) {
 	return nil, &r
 }
 
-func (s *Server) runScoreboardPlayers(player string, args []string) reply {
+func (s *Server) runScoreboardPlayers(player string, args []string) (out reply) {
+	var commandResult int32
+	defer func() { out = scoreboardCommandResult(out, commandResult) }()
 	// args[0] == "players"; token indexes count the command root.
 	sess := s.findSessionByName(player)
 	if len(args) < 2 {
@@ -871,6 +878,7 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 			if len(holders) == 0 {
 				return componentReply(translatable("commands.scoreboard.players.list.empty"))
 			}
+			commandResult = int32(len(holders))
 			items := make([]component, 0, len(holders))
 			for _, h := range holders {
 				items = append(items, component{emptyKey: h})
@@ -893,6 +901,7 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 		if len(scores) == 0 {
 			return componentReply(translatable("commands.scoreboard.players.list.entity.empty", h.arg()))
 		}
+		commandResult = int32(len(scores))
 		head := translatable("commands.scoreboard.players.list.entity.success",
 			h.arg(), nestedCompound{key: "", value: len(scores)})
 		var extra []component
@@ -974,6 +983,7 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 				v = scoreValue(s.board.scores[h.name][objective]) - v
 			}
 			s.setScoreLocked(h.name, objective, v)
+			commandResult += v
 		}
 		s.board.mu.Unlock()
 		for _, h := range holders {
@@ -1040,6 +1050,7 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 			holder string
 			all    bool
 		}
+		commandResult = int32(len(holders))
 		var resets []reset
 		s.board.mu.Lock()
 		for _, h := range holders {
@@ -1167,6 +1178,7 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 				s.setScoreLocked(src.name, sourceObj, cur)
 			}
 			s.setScoreLocked(h.name, targetObj, v)
+			commandResult += v
 		}
 		result := scoreValue(s.board.scores[holders[0].name][targetObj])
 		s.board.mu.Unlock()
@@ -1226,6 +1238,7 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 		if len(enabled) == 0 {
 			return componentReply(commandError("commands.scoreboard.players.enable.failed"))
 		}
+		commandResult = int32(len(enabled))
 		if len(enabled) == 1 {
 			return opsEchoReply(translatable("commands.scoreboard.players.enable.success.single",
 				s.objectiveChatComponent(objective), enabled[0].arg()))
@@ -1261,6 +1274,7 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 		if !objOK {
 			return componentReply(commandError("arguments.objective.notFound", objective))
 		}
+		commandResult = int32(len(holders))
 		if sub == "name" {
 			var display any
 			if len(args) > 5 {
