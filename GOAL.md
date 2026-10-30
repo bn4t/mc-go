@@ -18993,3 +18993,10 @@ Positive infinity controls prove connection retention, not complete clamp/positi
 - **Pinned** — Three-file patch SHA256 `bbed27df679e7462e130d0f1d4232c68acec65c2b4a8bb5f8b816b2412cf4678`, base1d1818d. Native/Go inventory comparison PASS22.39s (3.20/2.45), actual named unit0.079s, build/vet/tagged compilation PASS. Units pin nil/nonplayer error classification and a bound player without an actor session. Source/provenance: `work/player-implicit-clear-manifest.md` and frozen stage. The initial unit inspected the wrong component wrapper; that assertion-only correction and failed log are retained.
 
 This fixes implicit clear only and uses the existing dispatcher. General implicit command targets, selectors and pending execute-plan semantics remain separate.
+
+
+## Slice — verify implicit clear integration (2026-10-30)
+
+- **Measured** — Verify immutable commite70cc3f with unrelated in-progress work excluded.
+- **Implemented** — No additional production changes; record the integration gates before publication.
+- **Pinned** — Build/vet PASS, tagged blackbox compilation0.273s PASS, complete default `go test -p 2 ./... -count=1 -timeout 25m` exits0: internal/server554.489s, world0.913s, worldgen24.871s, publicserver47.192s and default blackbox301.361s. All remaining packages pass. Evidence: `work/verified-e70cc3f.log`. Slice-specific native inventory/source controls remain recorded above; no full native-oracle, graphical-client or realistic-load performance claim.
