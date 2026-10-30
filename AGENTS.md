@@ -162,6 +162,10 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   including bytecode inspection by some generators; regenerate them
   rather than hand-editing. Do not commit raw jar or datagen dumps.
 - Attribute registry metadata is reproduced through `tools/genattrmetadata/README.md`: public Java getters → factual TSV → independent Go generator.
+- Default kinetic component facts use `tools/genkineticmetadata/README.md`.
+  Bind public item component initializers through the vanilla lookup; bootstrap
+  alone leaves holders unbound. Preserve promoted floats and named condition
+  roles independently from runtime evaluation.
 - Default armor modifier facts are reproduced with `tools/genarmorattrs/README.md`;
   preserve zero modifiers, slot restrictions and promoted float values.
 - New measurement and generation slices must record their source class

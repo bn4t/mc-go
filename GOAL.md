@@ -18918,3 +18918,12 @@ This changes player-only @s shared by existing handlers. It does not implement g
 - **Measured** — Verify immutable commita915dd1 with unrelated concurrent work excluded.
 - **Implemented** — No additional production changes. Document the verified disconnect/closure and inventory-ownership witness methods in AGENTS and the testing skill.
 - **Pinned** — Build/vet PASS, tagged blackbox compilation 0.082s PASS, complete default `go test -p 2 ./... -count=1 -timeout 25m` exits0: internal/server 283.141s, world 0.381s, worldgen 12.029s, publicserver 9.037s and default blackbox 129.383s. All remaining packages pass. Evidence: `work/verified-a915dd1.log`. Native controls remain recorded in the preceding slices; full native-oracle, graphical-client and realistic-load performance verification remain separate.
+
+
+## Slice — reproducible default kinetic-weapon metadata (2026-10-30)
+
+- **Measured** — Public default-item component getters expose seven kinetic weapons with independently named damage, dismount and knockback conditions, cooldown/delay, forward movement, multipliers and sounds. Damage uses relative speed while dismount uses holder speed. Promoted floats retain exact values such as 0.699999988079071 and 4.599999904632568. Java 26.2/JDK 25.0.5+8 public getters; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Add a reproducible public-getter Java extractor, checked-in factual TSV and independent validating Go generator using go/format. Bind default item component initializers through the public vanilla lookup; bootstrap alone leaves component holders unbound. The existing runtime evaluator is unchanged.
+- **Pinned** — Seven-file patch SHA256 `769c1097baf45894327eee60f823b1344719a805879882057e3b8d770e0da52b`, base2437916. Repeated native extraction and Go generation reproduce identical bytes; frozen metadata units PASS 0.086s, formatter diff empty. TSV SHA256 `81b52704953b943a67542c744d1e0df01610bff9b3fd74f3fe7ff9971a60600c`, generated Go SHA256 `839b8dee147e9e0dbb1b2c9c86c491cb31832511899622ab641e319c668e45ff`. Existing native spear probes 36.69/55.64s corroborate condition-role and multiplier differences. Reproduction: `tools/genkineticmetadata/README.md`; evidence: `work/kinetic-metadata-manifest.md`.
+
+This is factual metadata, not a runtime spear fix. Damage, knockback, dismount, use metadata, durability and arbitrary component behavior retain separate verification requirements. The initial unbound-component extraction failure is preserved in the evidence.
