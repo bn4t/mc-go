@@ -48,11 +48,24 @@ func (s *Server) selectPlayers(sender *Session, tok string, tokIdx int) ([]*Sess
 		return nil, &r
 	}
 	if spec.variable == 's' {
-		if sender == nil {
+		target := sender
+		source := s.activeCommandSource
+		if sender != nil {
+			source = s.commandFrame(sender.getName())
+		}
+		if source != nil {
+			target = nil
+			if source.executor != nil {
+				target = source.executor.sess
+			}
+		} else if sender != nil && sender.execEnt != nil {
+			target = sender.execEnt.sess
+		}
+		if target == nil {
 			r := componentReply(commandError("argument.entity.notfound.player"))
 			return nil, &r
 		}
-		return []*Session{sender}, nil
+		return []*Session{target}, nil
 	}
 	ax, ay, az := float64(0), float64(0), float64(0)
 	if spec.hasPos {

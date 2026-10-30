@@ -18902,3 +18902,12 @@ This is the queue mechanism only. Startup still uses its committed eager restora
 - **Pinned** — Four-file patch SHA256 `a1f9514578902902c788b5bea59252b0e78505a9d35e95daf32b0cc230c3492b`, base2437916. Strict 19-case native/Go comparison PASS 21.24s (6.45/5.32), mounted VehicleMove regression 41.90s and RiddenSteerable regression 38.28s. Build/vet/tagged compilation and focused units 1.676s PASS. Units cover rejected unmounted/controlling/noncontrolling sessions without state mutation and accepted finite/infinity controls. Provenance and hashes: `work/vehicle-numeric-stage/manifest.json`.
 
 The new wire matrix is unmounted; mounted invalid-state protection has direct unit coverage, with existing mounted valid-motion differential coverage retained. Player numeric validation and broader movement/authority parity remain separate.
+
+
+## Slice — player-only self-selector executor binding (2026-10-30)
+
+- **Measured** — Native partial-fork controls PASS 20.80s show a bound armor stand cannot target the caller through player-only @s. Independent inventory wire controls establish that a bound other player loses exactly two diamonds, while a scheduled neutral function can target that same player without touching the caller's one-diamond sentinel. Wire, Java 26.2/JDK 25.0.5+8; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Resolve player-only @s through a matching command source frame, then legacy executor binding, then the original sender only when neither binding exists. An existing frame with a nil or nonplayer executor returns not-found instead of falling through to stale state or the caller.
+- **Pinned** — Three-file patch SHA256 `5382edb2c44235e86df0dc23694381f36e77063cd1fbf23b13cf80798f3b2732`. Native/Go inventory comparison PASS 20.66s (3.22/2.82); named source-binding unit PASS 0.314s, full build/vet/tagged compilation PASS in the isolated export. Units cover nil executors with stale legacy bindings, nonplayers, frame precedence, neutral sources and mismatched actor frames. Evidence: `work/player-selector-binding-manifest.md` and its recorded stage/base.
+
+This changes player-only @s shared by existing handlers. It does not implement general selector geometry, outer execute batching or complete argument grammar. Native inventory controls run against the existing dispatcher independently of the pending execute-plan work.
