@@ -19232,3 +19232,12 @@ Full error style/cursor/property-parser parity and horizontal-boundary wire cove
 - **Pinned** — All22 strict controls PASS49.24s; eight named unit groups0.522s/race4.440s, default compilation0.100s and prior32-case escape regression58.62s PASS. Tests witness actual block state and first Age=1, direction/bounds, gravity and displacement-to-drag relation. Frozen evidence: work/orb-overlap-fixed-stage/ and work/orb-overlap-slice.md.
 
 The epsilon samples bound the observed threshold; they do not prove every double boundary. Embedded fluids, later trajectories, hard entity collisions and arbitrary clipping remain separate.
+
+
+## Slice — spear dismount for ordinary NPC boat riders (2026-10-30)
+
+- **Measured** — Native qualifying contacts detach adult villager/cow boat riders at recipient-specific escape positions. Source invulnerability rejects push/detach, while hurt cooldown rejection still permits detachment. Blocked/water cases fall back to boat top. Wire and controlled native static geometry observations, Java26.2/JDK25.0.5+8; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Separate contact eligibility from hurt success; remove the rider while preserving other passengers, clear riding/welded state, start boarding cooldown60 and publish passenger/position updates. Escape uses measured float arithmetic, rider dimensions/facing and existing modeled full-block floors. Four-file patch SHA256 57c8e6501e51ba98a9fb7801221ea97980506ad0531931f50de81aa8eb3a5a4a.
+- **Pinned** — Ten differential cases PASS89.28s, focused units0.083s and existing ClientTickEnd vehicle-spear regression33.79s PASS. Strict checks retain actual observer mount/unlink and movement receipts, finite exact escape positions within1e-12, health, raw motion and surviving boat. Fixture v1 failed Go requested-vehicle-UUID preparation after native passed; v2 binds the actual saved UUID to its spawn packet without weakening transition checks. Evidence: work/boat-dismount-manifest-v2.md.
+
+Coverage is adult villager/cow at default scale, wooden/netherite use, static invulnerable boats and full-cube obstruction. Other mounts/players, partial floors, entity obstruction and scaled geometry remain separate. Existing attached seat-follow Y and requested vehicle-summon UUID discrepancies remain open. Using-hand metadata, wear, moving-target speed and source-use clocks are independent follow-ons.

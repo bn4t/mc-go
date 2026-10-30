@@ -82,14 +82,12 @@ func (s *Server) spearJabTick(sess *Session) {
 			continue
 		}
 		hitAny = true
+		source := &damageInfo{typeName: "spear", cause: sess.entityID.Load(), direct: sess.entityID.Load()}
+		sourceInvulnerable := s.mobInvulnerableTo(e, "player_attack", source)
 		dmg := kineticDamage(base, relSpeed, kw.damageMultiplier)
 		if canDmg {
 			headOminous := e.Equips[equipHelmet].Ominous
-			dealt, _, died := s.damageMob(e, dmg, "player_attack", sess, &damageInfo{
-				typeName: "spear",
-				cause:    sess.entityID.Load(),
-				direct:   sess.entityID.Load(),
-			})
+			dealt, _, died := s.damageMob(e, dmg, "player_attack", sess, source)
 			if dealt > 0 {
 				s.firePlayerHurtEntity(sess, "player", false, dmg, name, false)
 				sess.addCustomStat("damage_dealt", int32(math.Round(float64(dealt*10))))
@@ -100,7 +98,7 @@ func (s *Server) spearJabTick(sess *Session) {
 				}
 			}
 		}
-		if canKb {
+		if canKb && !sourceInvulnerable {
 			resistance := s.mobKnockbackResistance(e)
 			if resistance < 1 {
 				motion := spearKnockbackMotion([3]float64{e.MotionX, e.MotionY, e.MotionZ}, resistance, lx, lz, e.Grounded)
@@ -109,7 +107,9 @@ func (s *Server) spearJabTick(sess *Session) {
 				s.broadcastEntityMotion(e.Dim, e.ID, e.MotionX, e.MotionY, e.MotionZ)
 			}
 		}
-		// Vehicle detachment for a successful dismount condition remains separate.
+		if canDismount && !sourceInvulnerable {
+			s.dismountSpearBoatRider(e)
+		}
 	}
 	if hitAny {
 		// Vanilla makeLocalHitSound is Level.playLocalSound — an empty

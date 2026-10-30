@@ -1278,8 +1278,12 @@ independently of stored velocity. Generated kinetic component facts provide
 separate damage, knockback and dismount conditions; damage uses the raw attack
 base and the promoted component multiplier. Spear knockback uses effective
 resistance, preserves airborne Y and applies measured grounded motion. The
-dragon loop, mounted-target controllers and actual spear dismounting remain
-separate.
+dragon loop and mounted-target controllers remain separate. Qualifying spear
+contacts detach ordinary NPC boat riders, publish passenger/position changes
+and start a boarding cooldown. Native full-block escape geometry and blocked
+or water fallbacks are pinned for adult villager/cow riders. Source invulnerability
+rejects contact; hurt cooldown rejection can still allow detachment. Other mounts,
+players, partial floors, scaled geometry and attached seat-follow remain partial.
 
 
 Java player rotation proposals wrap to the signed half-turn range and clamp

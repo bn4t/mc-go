@@ -146,6 +146,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Damage-source bypass checks must use the responsible cause/direct identity,
   not kill-credit attribution. Pin health, feedback and command success/result
   stores independently; rejected damage need not reject physical contact.
+  For mount transitions, require actual passenger unlink and position receipts.
+  Separate source invulnerability from hurt cooldown rejection, and bind vehicle
+  client IDs to observed saved identity when requested summon UUID is unsupported.
 - Pair raw/effective attribute queries with the physical consumer outcome. For
   healing, clear prior instant effects and observe actual player ticks before
   asserting Health; raising a maximum alone does not heal.

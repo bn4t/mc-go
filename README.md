@@ -72,9 +72,10 @@ Ordinary mob damage and melee pushes use effective resistance and generated
 species defaults. Mace waves use effective mob resistance, measured heavy-fall
 strength and fixed additive lift. Spear pushes use effective mob resistance;
 measured kinetic damage uses the raw attack-damage base and sampled target
-displacement. Mounted wooden-spear controls are pinned; broader spear targets,
-dismounting, arbitrary item attribute components, player smash motion and other
-mob consumers remain partial.
+displacement. Mounted wooden-spear controls and ordinary NPC boat dismounts are pinned,
+including blocked escape and cooldown/invulnerability behavior. Other mounts,
+partial-floor dismounts, arbitrary item attribute components, player smash
+motion and broader mob consumers remain partial.
 Scoreboard objective and score updates reach connected players only while the
 objective is displayed. First display sends the objective and score snapshot;
 slot changes and score resets follow measured packet behavior. Joining players

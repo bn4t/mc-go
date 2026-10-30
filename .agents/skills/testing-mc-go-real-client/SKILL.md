@@ -390,3 +390,10 @@ For silent operator queries, require a later packet-owner response on the same
 connection. Separate permission level from game mode, retain signed/repeated
 transaction IDs, and query another player's typed inventory/equipment to prove
 that the target's save view is used.
+
+
+For kinetic mount transitions, observe passenger attachment before the action,
+then actual unlink and position updates afterward. Check damage, motion and
+mount survival separately: source invulnerability and hurt cooldown rejection
+have different contact consequences. Match vehicle spawn IDs to actual saved
+UUIDs; requested UUID hydration is a separate behavior to measure.
