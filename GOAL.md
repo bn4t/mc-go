@@ -58,9 +58,10 @@ Mojang server over the wire.
 - [~] Sharded world, block overrides, persistence: selective snapshots preserve
       untouched region records and have native terrain/pending-tick readback.
       Scheduled containers now retire through serialized native IO; full backend
-      and entity eviction remain incomplete. Modeled native item loading
-      and positive repair-cost persistence have disk and wire controls; arbitrary
-      component preservation remains incomplete.
+      and entity eviction remain incomplete. Modeled native item loading and
+      stored enchantments, repair costs, maps, colors, banner layers, stew effects
+      and pot decorations have disk/wire controls; arbitrary components remain
+      incomplete.
 - [x] Chunk streaming, light packet. The streamed window is measured
       and matched exactly (square radius viewDistance+1 less a circular
       corner cut at viewDistance+2.75, 49/81/117/213/329 columns for view
@@ -233,7 +234,9 @@ Mojang server over the wire.
       exhaustion preserves food. Instant health/harm/saturation command durations
       and selected active-tick delivery are pinned; direct-dose coverage remains partial.
       Frozen environmental work follows the player frame instead of the command
-      poll, with strict void/air controls. Powder accrual/thaw remains a separate gap.
+      poll, with strict void/air controls. Exhaustion spends only above four;
+      fractional saturation/multiple-quanta behavior and powder accrual/thaw remain
+      separate gaps.
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
   shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
   /recipe give|take + RecipeBookAdd/Remove wire-parity including the
@@ -310,7 +313,9 @@ Mojang server over the wire.
   Player-only @s arguments use bound executors, including neutral sources;
   implicit targets and broader selector grammar remain partial. Forceload uses
   bound source position/dimension; execute-in scales X/Z in primitive and batch
-  paths, with typed intended/unintended-world controls.
+  paths, with typed intended/unintended-world controls. Execute-facing updates
+  numeric/entity feet/eyes source orientations while preserving the executor,
+  with scoped numerical and nested-function controls.
   Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
   file/tag events survive native save/restart. Startup load/tick tags and measured
@@ -19508,3 +19513,10 @@ Common item firework fields and required/optional parser admission remain separa
 - **Pinned** — New native command comparison PASS14.87s across direct/entity, nested-file, two-target, feet/eyes and local-projection controls. Unchanged anchor23.92s/dimension31.20s regressions PASS. Nine named numeric/local/source/eye units PASS0.294s with10549 unique input keys and repeated-input consistency checks; build/vet/tagged compilation PASS. Reproduction and independent seed derivation: tools/probefacingmath/README.md; evidence: work/facing-source-manifest.md.
 
 This uses the existing legacy execute fallback and retains its fork/failure/budget limits. No new grammar, global physics trig, arbitrary extreme/nonfinite domain or exact intermediate atan-bit claim is made. Public finite observations establish the measured command consumers, not all possible numerical inputs. Earlier skipped/misconfigured runs are excluded from evidence.
+
+
+## Slice — scheduled lifetime, components and facing integration verification (2026-10-30)
+
+- **Measured** — Independent native controls establish the scoped palette/structured-item/required-shape fields, strict food threshold, scheduled-container pause and execute-facing source behavior recorded in their individual slices.
+- **Implemented** — Integrated those six slices with the documented IO completion/materialization safeguards and updated the matrix, architecture, agent conventions and test guidance. Later cat/hut, firework codec/writer and powder candidates are excluded.
+- **Pinned** — Immutable5ab5edd passed build, vet, generated eye-table consistency, tagged compilation and the complete default suite; session78826 exit0. Internal server427.581s, world1.588s, worldgen47.594s, public server34.485s and default blackbox231.668s PASS. Log: work/verified-5ab5edd.log; source: /workspace/mcgo-verified-5ab5edd. This does not claim the complete live-oracle suite, GUI playtesting or production-load verification.
