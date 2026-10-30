@@ -433,7 +433,8 @@ func (s *Server) tpToPos(player, victimsTok string, coords, rot []string) reply 
 	}
 	// Coordinates resolve against the command source's position.
 	bx, by, bz := s.baseExactPos(player)
-	x, y, z := tpResolveCoords(coords, bx, by, bz, issuer)
+	rotation := s.functionSource(player).rotation
+	x, y, z := tpResolveSourceCoords(coords, bx, by, bz, rotation)
 	if !tpSpawnable(x, y, z) {
 		return componentReply(commandError("commands.teleport.invalidPosition"))
 	}
@@ -504,15 +505,20 @@ func tpSpawnable(x, y, z float64) bool {
 // doubles, ~-relative to the source position, or ^-local in the
 // source's look frame.
 func tpResolveCoords(toks []string, bx, by, bz float64, issuer *Session) (x, y, z float64) {
+	var rotation [2]float32
+	if issuer != nil {
+		_, _, _, yaw, pitch, _ := issuer.Pos()
+		rotation = [2]float32{yaw, pitch}
+	}
+	return tpResolveSourceCoords(toks, bx, by, bz, rotation)
+}
+
+func tpResolveSourceCoords(toks []string, bx, by, bz float64, rotation [2]float32) (x, y, z float64) {
 	if strings.HasPrefix(toks[0], "^") {
-		var yaw, pitch float64
-		if issuer != nil {
-			_, _, _, yw, pt, _ := issuer.Pos()
-			yaw, pitch = float64(yw), float64(pt)
-		}
+		yaw, pitch := float64(rotation[0]), float64(rotation[1])
 		yr, pr := yaw*math.Pi/180, pitch*math.Pi/180
 		fwd := [3]float64{-math.Sin(yr) * math.Cos(pr), -math.Sin(pr), math.Cos(yr) * math.Cos(pr)}
-		left := [3]float64{math.Cos(yr), 0, -math.Sin(yr)}
+		left := [3]float64{math.Cos(yr), 0, math.Sin(yr)}
 		up := [3]float64{
 			fwd[1]*left[2] - fwd[2]*left[1],
 			fwd[2]*left[0] - fwd[0]*left[2],

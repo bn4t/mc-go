@@ -1215,8 +1215,8 @@ leaves mutate state; strict max_command_forks bounds and ordered score-store
 callbacks preserve measured partial-fork behavior. Compiled leaves cover basic
 function/tag calls, scoreboard player set/add/remove/get and clear. Unsupported
 grammar falls back before effects to the existing dispatcher. Return/macros,
-complete parser continuations and rotated/anchored spatial propagation remain
-open; the plan does not establish full command-framework parity.
+complete parser continuations and anchored spatial propagation remain open;
+the plan does not establish full command-framework parity.
 
 
 Native full-chunk loading now decodes detached scheduled-tick records separately
@@ -1318,3 +1318,12 @@ Saturation potion drinking delivers one food/saturation dose regardless of
 stored duration or duration scale, without adding an active effect. Its shared
 food-dose helper does not change the separate active-tick eligibility rules.
 Splash/cloud admission and arrows' stored-status delivery remain separate.
+
+
+Execute contexts and child source frames retain rotation snapshots. At adopts
+the selected entity rotation; as preserves source rotation. Numeric/relative
+rotated and legacy rotated-as affect local teleport coordinates, including
+nested function calls. Legacy fallback also binds a source frame. Orthogonal
+yaw/pitch cases are pinned within3e-6 blocks; Go double trigonometry does not
+reproduce native float/look-table precision at arbitrary angles. Existing numeric
+parser, facing, anchor and other local-coordinate consumers remain partial.

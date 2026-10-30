@@ -146,7 +146,9 @@ measured nested, recursive, conditional and forked execution. The default
 queued calls retain their invocation source. Supported execute forms compile
 before evaluation and share outer command and fork budgets, batched predicates
 and ordered score-store callbacks. This covers basic function/tag, scoreboard
-player and clear leaves. Other grammar uses the existing dispatcher; macros,
+player and clear leaves. Source rotation propagates through measured rotated/as/at
+chains and nested functions into local teleport coordinates. Other grammar uses
+the existing dispatcher; macros,
 returns, full syntax validation and optional-cycle ordering remain partial.
 Complete player-predicate and rich-text/icon schemas, datapack selection/ZIP/reload,
 custom loot overlays and several vehicle/physical interactions remain in

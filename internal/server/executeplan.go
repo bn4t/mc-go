@@ -42,7 +42,7 @@ func (s *Server) executePlanSource(player string) *commandSourceFrame {
 func (s *Server) runExecutePlan(player string, plan *executePlan) reply {
 	return s.executePlanBudget(func() reply {
 		source := s.executePlanSource(player)
-		contexts := []executePlanContext{{context: executeContext{dim: source.dim, pos: source.pos, ent: source.executor, alive: true, forked: source.forked}}}
+		contexts := []executePlanContext{{context: executeContext{dim: source.dim, pos: source.pos, rotation: source.rotation, ent: source.executor, alive: true, forked: source.forked}}}
 		q := s.functionExecution
 		for index, step := range plan.steps {
 			if len(contexts) == 0 {
@@ -144,6 +144,7 @@ func (s *Server) applyExecutePlanStep(player string, input executePlanContext, s
 			} else {
 				next.context.pos = entity.position()
 				next.context.dim = entity.dimOf(s)
+				next.context.rotation = entityCommandRotation(entity)
 			}
 			out = append(out, next)
 		}
@@ -179,7 +180,12 @@ func (s *Server) applyExecutePlanStep(player string, input executePlanContext, s
 			return nil, nil, false
 		}
 		input.stores = &executePlanStore{previous: input.stores, holder: holder, objective: a[3], success: a[0] == "success"}
-	case "rotated", "anchored": // retain the existing dispatcher's spatial semantics
+	case "rotated":
+		for i, token := range a {
+			v, _ := parseDouble(token, float64(ctx.rotation[i]), false)
+			ctx.rotation[i] = float32(v)
+		}
+	case "anchored": // Anchor geometry is measured in the following slice.
 	}
 	return []executePlanContext{input}, nil, false
 }

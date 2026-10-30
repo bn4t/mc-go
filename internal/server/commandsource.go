@@ -51,6 +51,7 @@ func executeSourceFrame(parent *commandSourceFrame, ctx *executeContext) *comman
 	}
 	child := *parent
 	child.dim, child.pos, child.executor = ctx.dim, ctx.pos, ctx.ent
+	child.rotation = ctx.rotation
 	child.forked = ctx.forked
 	if ctx.ent != nil && ctx.ent != parent.executor {
 		child.display = ctx.ent.nameComp()

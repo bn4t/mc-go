@@ -28,8 +28,9 @@ type executeContext struct {
 	// pos is the chain's origin — where ~ resolves from; positioned,
 	// at and align move it. ent is the executor an `as`/`summon` fork
 	// binds for @s reads inside the tail.
-	pos [3]float64
-	ent *dataEntity
+	pos      [3]float64
+	rotation [2]float32
+	ent      *dataEntity
 	// forked marks a chain running inside an entity-fork modifier
 	// (as/at/positioned-as/facing-entity/rotated-as): its leaf's
 	// runtime failures are swallowed — only parse errors escape.
@@ -56,10 +57,17 @@ func (s *Server) runExecute(player string, args []string) reply {
 	}
 	ctx := executeContext{dim: s.dimOf(player), alive: true}
 	ctx.pos = s.execOrigin(player)
+	ctx.rotation = s.functionSource(player).rotation
 	if frame := s.commandFrame(player); frame != nil {
 		ctx.ent = frame.executor
 	}
-	return s.execTail(&ctx, player, args, 1)
+	source := s.commandFrame(player)
+	if source == nil {
+		source = s.functionSource(player)
+		source.level = s.permissionLevel(player)
+	}
+	ctx.ent = source.executor
+	return s.withCommandFrame(source, func() reply { return s.execTail(&ctx, player, args, 1) })
 }
 
 // execOrigin returns the sender's feet position — the point the
@@ -1920,6 +1928,7 @@ func (s *Server) executeFork(ctx *executeContext, player, kind string, args []st
 			// to the anchor's, the executor does not.
 			sub.pos = c.position()
 			sub.dim = c.dimOf(s)
+			sub.rotation = entityCommandRotation(c)
 		} else {
 			// as swaps ONLY the executor: position and dimension
 			// stay at the command source — `as @e run tp ~ ~ ~`
@@ -2059,15 +2068,13 @@ func (s *Server) executePositioned(ctx *executeContext, player string, args []st
 	return s.execTail(ctx, player, args[3:], tokBase+3)
 }
 
-// executeAim implements `rotated` and `facing`: both consume their
-// rotation arguments — unobservable without ^ local coords — and their
-// entity-sourced forms fork per match.
+// executeAim refines source rotation; entity-sourced forms fork per match.
 func (s *Server) executeAim(ctx *executeContext, player, kind string, args []string, tokBase int) reply {
 	if len(args) < 1 {
 		return errToken("command.unknown.argument", tokBase)
 	}
 	if kind == "rotated" && args[0] == "as" {
-		return s.forkOver(ctx, player, args[1:], tokBase+1)
+		return s.executeRotatedAs(ctx, player, args[1:], tokBase+1)
 	}
 	if kind == "facing" && args[0] == "entity" {
 		if len(args) < 3 {
@@ -2088,8 +2095,16 @@ func (s *Server) executeAim(ctx *executeContext, player, kind string, args []str
 	for k := 0; k < need; k++ {
 		// rotated's yaw/pitch are RotationArgument (no centering);
 		// facing's position is vec3() — x/z center, y does not.
-		if _, err := parseDouble(args[k], 0, need == 3 && k != 1); err != nil {
+		base := float64(0)
+		if kind == "rotated" {
+			base = float64(ctx.rotation[k])
+		}
+		value, err := parseDouble(args[k], base, need == 3 && k != 1)
+		if err != nil {
 			return errToken("parsing.double.expected", tokBase+k)
+		}
+		if kind == "rotated" {
+			ctx.rotation[k] = float32(value)
 		}
 	}
 	return s.execTail(ctx, player, args[need:], tokBase+need)
