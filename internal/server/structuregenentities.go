@@ -15,7 +15,7 @@ func (s *Server) structureGenEntityStep() {
 		var residents []worldgen.GenEntity
 		keep := terrain.genEntities[:0]
 		for _, entity := range terrain.genEntities {
-			if entity.Structure == "swamp_hut" {
+			if entity.Structure == "swamp_hut" || entity.Structure == "mineshaft" {
 				residents = append(residents, entity)
 			} else {
 				keep = append(keep, entity)

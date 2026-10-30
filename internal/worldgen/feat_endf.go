@@ -367,10 +367,13 @@ func (s endfSpike) placeWith(minY int32, at func(BlockPos) world.Block, set func
 // holding its position. The server admits it after that chunk is handed out.
 type GenEntity struct {
 	// Structure identifies a structure-specific finalization family.
-	Structure    string
-	Type         string
-	X, Y, Z      float64
-	Yaw          float32
+	Structure string
+	Type      string
+	X, Y, Z   float64
+	Yaw       float32
+	// Latent loot remains unopened until a container operation requests it.
+	LootTable    string
+	LootSeed     int64
 	Invulnerable bool
 	BeamTarget   *BlockPos
 }

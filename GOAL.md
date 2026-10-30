@@ -104,8 +104,9 @@ Mojang server over the wire.
       also cover ocean/nether/end structures and overworld land structures,
       including fortresses, monuments, strongholds and mansions (see the two
       legacy-structure slices dated2026-10-29). Natural swamp-hut witch/cat residents
-      and explicit swamp-hut placement have dedicated save/restart and command
-      controls; other structure-generated entities and spawn overrides remain incomplete.
+      and mineshaft chest carts have dedicated save/restart controls; explicit
+      swamp-hut placement has command pins. Other structure-generated entities
+      and spawn overrides remain incomplete.
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -19644,3 +19645,11 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 - **Measured** — Native nine-control wire matrix stores the actual changed count (four or filtered one), zero for no-change/unloaded failures, one/zero success, and retains the original sentinel for syntax failures. The prior Go handler omitted numeric callbacks and could mutate unloaded targets.
 - **Implemented** — Return changed counts and runtime-failure zero; preserve syntax callback behavior. Resolve endpoint FULL readiness and bounds before volume checks/writes without generating unavailable chunks. Preserve manual embedding behavior.
 - **Pinned** — Native/Go differential PASS 13.66s; four focused units PASS 0.641s include zero provider calls and no target materialization; unchanged 24-case fill/clone predicate regression PASS 29.01s. Immutable build/vet/tagged compilation pass. Three-file artifact `7d0594b946c8d0a62b5969aa5e0c6eafffea3ef5b52ed987baf4564c55508cc9`. Wire observations use official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Broader command grammar/readiness remains partial.
+
+## Slice — natural mineshaft chest minecart residents (2026-10-30)
+
+- **Measured** — Native seed 12345, frozen time and disabled natural spawning produce exactly two chest carts in the 70-chunk mineshaft arena: (-85.5,41.5,-20.5) with loot seed -653164966778954613, and (-28.5,37.5,84.5) with seed -4714629231958949515. Both retain the abandoned-mineshaft loot table without Items, zero rotation/motion and initial HasTicked=1. That native save key records the constructor's first-tick flag, not proof of previous ticking.
+- **Implemented** — Emit chest-cart descriptors using the already-consumed rail and loot random draws, admit them through the structure queue and preserve latent loot in existing cargo storage. Immediate native save includes already-generated carts; reload preserves their identities and seeds without duplication.
+- **Pinned** — Native initial measurement PASS 47.32s; native/Go differential and actual native-world Go restart PASS 81.98s. Exact 64-bit seeds are checked as decoded text, avoiding float precision. Worldgen units PASS 0.330s, server admission/save/reload units PASS 0.225s, cargo item regression PASS 12.43s and existing mineshaft structure regression PASS 108.52s (its 14 previously documented decoration-order cells remain accepted). Default blackbox compilation passes. Eight-file artifact `6d24d10482dcb8cf3141aae005f088e2d0dcfe215a5d1a5d4086d9d2813927b5`.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual first-tick API inspection inform independently written code. Loot unpack contents, UI interaction, full rail motion and other structure families remain separate coverage.

@@ -27,9 +27,8 @@ import (
 //     liquid block on the clipped box's faces); canBeReplaced spares
 //     planks, logs, fences and chains.
 //
-// The chest minecarts corridors spawn (MinecartChest entities) are not
-// modeled; their rail and the random draws (rail shape nextBoolean,
-// loot seed nextLong) are.
+// Chest minecarts retain their existing rail/random draws and carry a
+// descriptor to simulation-owned entity admission.
 
 // mineshaftType is MineshaftStructure.Type: wood, planks and fence.
 type mineshaftType struct{ wood, planks, fence world.Block }
@@ -390,8 +389,7 @@ func (p *msCorridor) addChildren(start *msRoom, acc *[]StructurePiece, r Random)
 }
 
 // createChest is MineShaftCorridor.createChest: a rail (random shape)
-// for a chest minecart over a non-air floor. The minecart entity is not
-// spawned; its loot seed is drawn.
+// for a chest minecart over a non-air floor, with latent container loot.
 func (p *msCorridor) createChest(c *PieceContext, bb BoundingBox, r Random, x, y, z int32) bool {
 	pos := p.worldPos(x, y, z)
 	if !bb.IsInside(pos) || !isAir(c.Region.at(pos)) || isAir(c.Region.at(offset(pos, 0, -1, 0))) {
@@ -402,7 +400,10 @@ func (p *msCorridor) createChest(c *PieceContext, bb BoundingBox, r Random, x, y
 		shape = "north_south"
 	}
 	p.placeBlock(c, stateOf("rail", "shape", shape), x, y, z, bb)
-	r.NextLong() // MinecartChest.setLootTable seed
+	seed := r.NextLong() // Keep the original decoration draw in place.
+	if chunk := c.Region.chunkAt(pos[0], pos[2]); chunk != nil {
+		chunk.Entities = append(chunk.Entities, GenEntity{Structure: "mineshaft", Type: "chest_minecart", X: float64(pos[0]) + .5, Y: float64(pos[1]) + .5, Z: float64(pos[2]) + .5, LootTable: "minecraft:chests/abandoned_mineshaft", LootSeed: seed})
+	}
 	return true
 }
 

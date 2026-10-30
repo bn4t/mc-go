@@ -422,6 +422,12 @@ func (s *Server) spawnGenEntities(d *dimension, ents []worldgen.GenEntity) {
 			s.spawnHutResident(d, g)
 			continue
 		}
+		if g.Structure == "mineshaft" {
+			if g.Type == "chest_minecart" {
+				s.spawnMineshaftCart(d, g.X, g.Y, g.Z, g.Yaw, g.LootTable, g.LootSeed)
+			}
+			continue
+		}
 		if g.Type != "end_crystal" {
 			continue
 		}

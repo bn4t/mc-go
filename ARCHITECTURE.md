@@ -1522,3 +1522,9 @@ Fill commands deliver the actual changed count to result callbacks, zero for
 runtime failure, and no numeric completion for syntax rejection. Endpoint FULL
 readiness is observed without invoking generation; existing manual embeddings
 retain their unrestricted-read convention.
+
+Natural mineshaft chest carts use the same simulation-owned generated-entity
+queue as hut residents. Generation retains the original random draws and emits
+latent loot table/seed descriptors. Fresh nonliving carts retain their initial
+first-tick save flag until the existing cart tick clears it; cargo unpacking
+continues through the existing container machinery.
