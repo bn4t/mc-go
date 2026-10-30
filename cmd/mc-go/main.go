@@ -14,7 +14,6 @@ import (
 	"mc-go/internal/plugin"
 	"mc-go/internal/server"
 
-	_ "mc-go/plugins/anticheat"
 	_ "mc-go/plugins/hello"
 )
 
