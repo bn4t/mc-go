@@ -1402,9 +1402,13 @@ The scheduler core distinguishes registered queues, detached resident containers
 with absolute deadlines, and serialized containers with pending relative delays.
 Generation-checked discard rejects stale save completions after reattachment;
 already-collected callbacks retain their dispatch lifecycle. World snapshots
-include detached records. These primitives have no runtime unload caller yet:
-actual retirement, backend eviction, IO completion and deadline pause remain
-separate integration work. Existing normal-request sub-tick ordering is unchanged.
+include detached records. Native-persistence worlds with ready controllers now
+bind scheduled-container retirement to measured FULL-admission loss. A shared
+FIFO serializes subset and full region writes; generation checks fence late
+completion, and fixed serialized delays pause through cold time. Full-save,
+disconnect and shutdown fences reconcile completion even after controller loss.
+Backend/entity eviction, full ticket timing and normal-request sub-tick ordering
+remain separate.
 
 
 Teleport relative angles resolve from the frozen command source, including
@@ -1464,8 +1468,9 @@ those records into existing regions, preserving untouched compressed bytes and
 timestamps. Empty selected tick lists clear stale work. Capture occurs under the
 simulation owner; callers must serialize all writers to the same region. Each
 region replacement is atomic, without fsync or multi-file transaction guarantees.
-This storage API is not yet bound to runtime chunk unloading. Untouched external
-records survive; selected oversized output and external-file cleanup remain open.
+Scheduled-container retirement now uses this storage API; it does not establish
+full backend/entity unloading. Untouched external records survive; selected
+oversized output and external-file cleanup remain open.
 
 
 Frozen environmental/base player work uses the same due frame as living, food

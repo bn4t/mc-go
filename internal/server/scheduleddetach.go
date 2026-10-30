@@ -33,6 +33,10 @@ func (t *tickScheduler) detachChunks(chunks map[scheduledChunk]bool) map[schedul
 				delete(t.relativeOwners, row.key)
 			}
 		}
+		if !state.serialized {
+			t.residentDetached[chunk] = true
+		}
+		delete(t.registered, chunk)
 		ids[chunk] = state.generation
 	}
 	if len(ids) == 0 {
@@ -95,7 +99,9 @@ func (t *tickScheduler) reattachChunk(chunk scheduledChunk) bool {
 			t.relativeOwners[row.key] = true
 		}
 	}
+	delete(t.residentDetached, chunk)
 	delete(t.detached, chunk)
+	t.registered[chunk] = true
 	return true
 }
 
@@ -164,5 +170,6 @@ func (t *tickScheduler) discardSerializedChunk(saved detachedTickSave) bool {
 	state.absolute = nil
 	state.members = nil
 	state.serialized = true
+	delete(t.residentDetached, saved.chunk)
 	return true
 }

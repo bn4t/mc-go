@@ -57,7 +57,8 @@ Mojang server over the wire.
 ### World
 - [~] Sharded world, block overrides, persistence: selective snapshots preserve
       untouched region records and have native terrain/pending-tick readback.
-      Runtime unload/IO binding remains incomplete. Modeled native item loading
+      Scheduled containers now retire through serialized native IO; full backend
+      and entity eviction remain incomplete. Modeled native item loading
       and positive repair-cost persistence have disk and wire controls; arbitrary
       component preservation remains incomplete.
 - [x] Chunk streaming, light packet. The streamed window is measured
@@ -302,6 +303,8 @@ Mojang server over the wire.
   measured owners, relative deadlines and priorities. Go full-chunk queue
   loading preserves duplicates and measured expiry/clone behavior. Ready-player/
   forced admission activates saved delays separately from simulation dispatch.
+  Scheduled-container retirement preserves serialized delays during cold time,
+  with generation-fenced IO and full-save/disconnect/shutdown completion controls.
   General unload/ticket lifecycles and native sub-tick ordering remain partial.
   Attribute getters and mutations supply measured typed execute-store results.
   Player-only @s arguments use bound executors, including neutral sources;
@@ -19478,3 +19481,12 @@ Controls use stone to avoid built-in component defaults. Explicit empty-list pre
 - **Pinned** — Final three-case native comparison PASS58.52s; committed strict HungerRegen regression PASS38.41s with matching void health sequences. Boundary units cover adjacent representable floats and repeated exact-four stability with and without saturation; unit0.759s/race4.287s PASS. Vet and default/tagged compilation PASS. Evidence: work/food-threshold-final-stage/manifest.md and work/food-threshold-final-Test*.log.
 
 This slice only fixes the threshold. Existing multi-quantum spending, fractional saturation and powder-snow behavior remain separate work.
+
+
+## Slice — automatic scheduled-container persistence and cold-time pause (2026-10-30)
+
+- **Measured** — Native automatically writes a materialized chunk after it loses FULL admission, without save-all, and retains its serialized callback delay across100 cold world ticks. Before this change Go aged4997 down to4897 instead. Public container/API facts and live native file/command observations, Java26.2/Temurin25.0.5+8; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Detach resident scheduled containers on admission loss, capture selected immutable columns and serialize subset/full region writes through one owner-submitted FIFO. Successful completion checks the detached generation before converting absolute resident deadlines into fixed saved delays. Reticket/edit/re-detach invalidates stale completions; failures retain rows and back off before retry. Full saves capture their own snapshots after prior IO. Completion accounting survives last-controller loss and shutdown. A pure materialization guard prevents future queue rows from loading chunks. Twelve-file patch SHA256 c92f139d25d820884024afec68adec20e117ad0684a47d109580759d6f59b50b.
+- **Pinned** — Automatic native46.33s and Go13.07s controls preserve an exact100-tick cold pause, with explicitly different unload latencies. Final guarded Go control PASS4.31s:5000→4997→4997→returned4997. Focused tests5.864s/race36.445s, build/vet/tagged compilation PASS. All12 affected native scheduler/save/load/clone/forceload regressions PASS on the preceding identical materialized path; the final delta only adds the materialization guard/comments and two negative provider tests. Those tests require zero provider calls and unchanged queued work. Evidence: work/scheduled-retirement-manifest.txt and work/scheduled-retirement-slice.md.
+
+This retires scheduled containers, not all backend blocks, entities or block entities. General ticket timing, native unload latency, normal-request sub-tick ordering and Go LastUpdate metadata remain incomplete. No-controller/manual embeddings retain their prior queue lifetime. Selective writes do not replace entity-region or level saves. Block automatic lifetime has a native wire pin; fluid containers share unit coverage, with fluid-specific automatic wire behavior still separate. Existing external-storage and per-file durability limits remain.

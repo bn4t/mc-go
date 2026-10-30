@@ -19,6 +19,7 @@ func (t *tickScheduler) restoreTickLocked(k schedKey, at int64, priority int8) {
 	if t.owners == nil {
 		t.owners = map[schedKey]bool{}
 	}
+	t.registered[scheduledChunkOf(k)] = true
 	t.owners[k] = true
 	t.nextRecordID++
 	k.recordID = t.nextRecordID

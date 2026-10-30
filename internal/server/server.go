@@ -223,6 +223,12 @@ type Server struct {
 	// Native snapshots follow the same single-job owner admission. Disconnect
 	// player writes join this receipt before touching the same native files.
 	nativeSave *nativeWorldSaveJob
+	// Native region writers share an owner-submitted FIFO, including selective
+	// retirement writes. A subset receipt never substitutes for nativeSave.
+	nativeWriteTail       <-chan struct{}
+	tickRetirement        *scheduledRetirementJob
+	tickRetirementWrite   func(*scheduledRetirementSnapshot) error
+	tickRetirementRetryAt time.Time
 	// Nil uses nativeWorldSaveSnapshot.write. Configure before use.
 	nativeSaveWrite func(snapshot *nativeWorldSaveSnapshot) error
 

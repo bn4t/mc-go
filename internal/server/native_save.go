@@ -98,10 +98,14 @@ func (s *Server) pendingNativeWorldSaveOwned() *nativeWorldSaveJob {
 // including during disconnect cleanup. The detached worker never needs this
 // owner, so waiting preserves the existing disconnect fence without deadlock.
 func (s *Server) waitNativeWorldSaveOwned() {
+	if tail := s.nativeWriteTail; tail != nil {
+		<-tail
+	}
 	if job := s.nativeSave; job != nil {
 		<-job.done
 		s.recordNativeSaveOwned(job)
 	}
+	s.scheduledRetirementOwned(false)
 }
 
 func (s *Server) startNativeWorldSaveOwned() (*nativeWorldSaveJob, error) {
@@ -115,15 +119,17 @@ func (s *Server) startNativeWorldSaveOwned() (*nativeWorldSaveJob, error) {
 	if write == nil {
 		write = func(snapshot *nativeWorldSaveSnapshot) error { return snapshot.write() }
 	}
-	go func() {
-		defer close(job.done)
+	s.submitNativeWriteOwned(job.done, func() {
 		job.err = write(snapshot)
 		job.playerErr = snapshot.playerErr
-	}()
+	})
 	return job, nil
 }
 
 func (s *Server) captureNativeWorldSaveOwned() *nativeWorldSaveSnapshot {
+	// Publish any completed retirement before packing a later full save.
+	// Otherwise a completed cold write could be overwritten by aged resident rows.
+	s.scheduledRetirementOwned(false)
 	sx, sy, sz := s.WorldSpawn()
 	rules := map[string]string{}
 	s.rulesMu.RLock()

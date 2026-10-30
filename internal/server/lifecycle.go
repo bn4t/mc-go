@@ -44,6 +44,7 @@ func (s *Server) SaveWorld() error {
 	for {
 		var job *compactWorldSaveJob
 		var native *nativeWorldSaveJob
+		var nativeTail <-chan struct{}
 		var admitted bool
 		var err error
 		s.simulationAction(func() {
@@ -54,6 +55,14 @@ func (s *Server) SaveWorld() error {
 			if s.WorldDir != "" {
 				if native = s.pendingNativeWorldSaveOwned(); native != nil {
 					return
+				}
+				if tail := s.nativeWriteTail; tail != nil {
+					select {
+					case <-tail:
+					default:
+						nativeTail = tail
+						return
+					}
 				}
 				native, err = s.startNativeWorldSaveOwned()
 				admitted = err == nil
@@ -67,6 +76,10 @@ func (s *Server) SaveWorld() error {
 		})
 		if err != nil {
 			return err
+		}
+		if nativeTail != nil {
+			<-nativeTail
+			continue
 		}
 		if native != nil {
 			<-native.done
@@ -393,16 +406,22 @@ func (s *Server) Shutdown(reason string) {
 	var save *compactWorldSaveJob
 	var dataSave *serverDataSaveJob
 	var nativeSave *nativeWorldSaveJob
+	var nativeTail <-chan struct{}
 	s.simulationAction(func() {
 		save = s.compactSave
 		dataSave = s.dataSave
 		nativeSave = s.nativeSave
+		nativeTail = s.nativeWriteTail
 	})
 	if save != nil {
 		<-save.done
 	}
 	if dataSave != nil {
 		<-dataSave.done
+	}
+	if nativeTail != nil {
+		<-nativeTail
+		s.simulationAction(func() { s.scheduledRetirementOwned(false) })
 	}
 	if nativeSave != nil {
 		<-nativeSave.done

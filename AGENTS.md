@@ -178,6 +178,12 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   Distinguish FULL/admission loss, resident detachment, serialization and physical
   discard. Reticketing must invalidate stale save completions; already-collected
   callbacks are independent of future container membership.
+- Reconcile completed IO independently of current controller presence or shutdown.
+  A new-submission guard must not discard completion accounting. Pin last-player
+  loss followed by full save, stale reticket completions and write failure/retry.
+  Negative future-row probes must assert zero provider calls: retirement must not
+  materialize chunks merely to save them. Automatic disk completion requires new
+  saved state, not file existence or a full-save shortcut.
 - Cross-dimension persistence predicates need actual destination readiness.
   A dedicated loader can establish it without moving the editor or changing
   later unqualified command contexts. Preserve strict saved-state assertions.

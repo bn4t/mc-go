@@ -455,3 +455,10 @@ For numerical command parity, retain float widths and lookup-phase boundaries
 in independent expected values. Pair complete public API sample checks with
 actual command receipts. Check duplicate/missing corpus keys; distinguish exact
 basis equality from tolerance in weighted sums, addition and scaled floors.
+
+
+For asynchronous chunk saves, distinguish automatic subset completion from a
+full-save receipt. Test last-controller loss and shutdown after completed IO,
+reticket/edit/re-detach with stale completion, and write failure/retry. Preserve
+serialized delays independently of unload latency. Future unmaterialized queue
+rows must not invoke the provider just to create a save snapshot.

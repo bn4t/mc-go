@@ -61,17 +61,19 @@ type tickScheduler struct {
 	queued map[schedKey]int64
 	prio   map[schedKey]int8
 	// Bound once by Server.New before the scheduler is exposed.
-	blockType      func(schedKey) string
-	fluidType      func(schedKey) string
-	active         map[schedKey]blockTickRecord
-	activeOrder    []schedKey
-	owners         map[schedKey]bool
-	nextRecordID   uint64
-	ownerDeadlines map[schedKey]ownerTickDeadlines
-	relative       map[scheduledChunk][]relativeScheduledTick
-	relativeOwners map[schedKey]bool
-	detached       map[scheduledChunk]*detachedTickContainer
-	nextDetachID   uint64
+	blockType        func(schedKey) string
+	fluidType        func(schedKey) string
+	active           map[schedKey]blockTickRecord
+	activeOrder      []schedKey
+	owners           map[schedKey]bool
+	nextRecordID     uint64
+	ownerDeadlines   map[schedKey]ownerTickDeadlines
+	relative         map[scheduledChunk][]relativeScheduledTick
+	relativeOwners   map[schedKey]bool
+	detached         map[scheduledChunk]*detachedTickContainer
+	nextDetachID     uint64
+	registered       map[scheduledChunk]bool
+	residentDetached map[scheduledChunk]bool
 }
 
 // Vanilla TickPriority values — the schedulePrio callers' range; lower
@@ -85,14 +87,16 @@ const (
 
 func newTickScheduler() *tickScheduler {
 	return &tickScheduler{
-		due:            map[int64][]schedKey{},
-		queued:         map[schedKey]int64{},
-		prio:           map[schedKey]int8{},
-		owners:         map[schedKey]bool{},
-		ownerDeadlines: map[schedKey]ownerTickDeadlines{},
-		relative:       map[scheduledChunk][]relativeScheduledTick{},
-		relativeOwners: map[schedKey]bool{},
-		detached:       map[scheduledChunk]*detachedTickContainer{},
+		due:              map[int64][]schedKey{},
+		queued:           map[schedKey]int64{},
+		prio:             map[schedKey]int8{},
+		owners:           map[schedKey]bool{},
+		ownerDeadlines:   map[schedKey]ownerTickDeadlines{},
+		relative:         map[scheduledChunk][]relativeScheduledTick{},
+		relativeOwners:   map[schedKey]bool{},
+		detached:         map[scheduledChunk]*detachedTickContainer{},
+		registered:       map[scheduledChunk]bool{},
+		residentDetached: map[scheduledChunk]bool{},
 	}
 }
 
@@ -124,6 +128,7 @@ func (t *tickScheduler) schedulePrio(k schedKey, at int64, prio int8) {
 	if t.owners[k] || t.relativeOwners[k] {
 		return
 	}
+	t.registered[scheduledChunkOf(k)] = true
 	t.owners[k] = true
 	if _, exists := t.queued[k]; exists {
 		t.nextRecordID++

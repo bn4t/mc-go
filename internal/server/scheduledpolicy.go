@@ -109,6 +109,7 @@ func (s *Server) prepareScheduledChunkOwned(c scheduledChunk) bool {
 }
 
 func (s *Server) activateSavedTicksOwned(manual bool) {
+	s.scheduledRetirementStepOwned(manual)
 	if s.ticks == nil || s.shuttingDown.Load() {
 		return
 	}
