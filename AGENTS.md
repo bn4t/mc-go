@@ -80,6 +80,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   timing, observe the applied controller/block state after the single action;
   command feedback alone can precede its application. For cursor return,
   observe the actual player-inventory update before querying the result.
+- Silent query probes need a following packet-owner receipt to distinguish
+  permission rejection or missing targets from an unread or stalled connection.
+  Separate operator permission from game mode and query another player too.
 - Invalid-packet probes must await the typed disconnect and actual connection
   closure. A subsequent chat reply can overtake a queued movement kick.
 - Executor-binding probes should retain distinct caller/other-player inventory

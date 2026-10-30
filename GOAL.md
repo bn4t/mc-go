@@ -19205,3 +19205,12 @@ Baseline registry dimensions are not every runtime eye getter. Interaction dimen
 - **Measured** — Verify immutable744a52e from an archive, excluding all concurrent work. This combines player head tracking, embedded orb motion and shape eligibility, cloud/splash Saturation, NPC invulnerability and generated eye anchors.
 - **Implemented** — No further runtime changes; record the combined gate and reproducible eye-table check.
 - **Pinned** — Build/vet and gencommandeyes exact check PASS; tagged compilation0.083s PASS. Full default suite PASS: internal/server333.542s, world0.285s, worldgen17.323s, public server11.676s and default blackbox172.919s; all other packages pass. Session39887 exited0, log work/verified-744a52e.log. Individual native wire coverage remains scoped to its slices; exhaustive native-suite, GUI and realistic-load coverage are not claimed.
+
+
+## Slice — canonical operator entity-tag queries (2026-10-30)
+
+- **Measured** — Native operator level2 survival queries succeed; level0/1 creative queries are silent, independently fenced by statistics replies. Missing/cross-dimension IDs are silent; signed and repeated transaction IDs echo. Typed NPC/player fields and top-level id omission are independently pinned. Native baseline14.95s; Java26.2/JDK25.0.5+8, runtime SHA1 86765a5899bd9c96461036a628796b4245715058.
+- **Implemented** — Gate entity queries at operator level2, restrict lookup to the requester dimension and serialize the target's modeled canonical save view without the outer id. Preserve nested identifiers and transaction IDs. Four-file patch SHA256 60889acb545e4e84028a17c05344b7eded2e78071784a08c818f040e3c9d0a5a.
+- **Pinned** — Differential PASS46.55s(native11.67/Go3.33), build/vet/focused units0.205s; rotation receipt23.10s, normal head12.54s and frozen head11.05s PASS. Subsequent test-only cleanup adds per-server teardown and passes the named unit0.201s; production/wire source is unchanged. Final artifacts: work/entity-tag-query-stage/, work/entity-tag-query-slice.md.
+
+Coverage is the independently checked typed subset and reuse of modeled save views, not every subtype field, byte-identical native NBT or dormant entity lookup timing. Sibling block-tag queries remain separate.

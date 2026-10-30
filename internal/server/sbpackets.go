@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"math"
 	"sort"
 	"strings"
@@ -284,10 +283,12 @@ func (s *Server) handleBlockEntityTagQuery(sess *Session, p protocol.Packet) {
 	_ = sess.write(sess.ids().PlayTagQueryCB, tagQueryBody(tx, tag))
 }
 
-// handleEntityTagQuery answers the F3+I entity query. mc-go entities
-// carry no NBT beyond their type, so the response is an empty compound
-// with the identifying fields vanilla exposes for a bare entity.
+// handleEntityTagQuery answers an operator's F3+I query with saveWithoutId.
+// An absent entity has no response, unlike the block-entity query's TAG_End.
 func (s *Server) handleEntityTagQuery(sess *Session, p protocol.Packet) {
+	if sess.opLevel() < 2 {
+		return
+	}
 	r := protocol.NewPacketReader(p.Data)
 	tx, err := r.VarInt()
 	if err != nil {
@@ -297,18 +298,11 @@ func (s *Server) handleEntityTagQuery(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
-	e, ok := s.entities.Get(id)
+	tag, ok := s.entityQueryTag(sess, id)
 	if !ok {
-		_ = sess.write(sess.ids().PlayTagQueryCB, tagQueryBody(tx, nil))
 		return
 	}
-	var buf bytes.Buffer
-	_ = nbt.WriteUnnamed(&buf, map[string]any{
-		"id":   entityTypeNameOr(e.Type),
-		"Pos":  []float64{e.X, e.Y, e.Z},
-		"UUID": dashUUID(e.UUID),
-	})
-	_ = sess.write(sess.ids().PlayTagQueryCB, tagQueryBody(tx, buf.Bytes()))
+	_ = sess.write(sess.ids().PlayTagQueryCB, tagQueryBody(tx, tag))
 }
 
 // tagQueryBody frames a Tag Query Response: transaction id, then the

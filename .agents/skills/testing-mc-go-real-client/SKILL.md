@@ -384,3 +384,9 @@ teleport receipt before reading position. Registry baseline dimensions do not
 establish runtime pose, inherited baby eyes or cached scale. Pin these variants
 separately, preserve source-order controls, and reproduce extracted constants
 through the committed probe and generator.
+
+
+For silent operator queries, require a later packet-owner response on the same
+connection. Separate permission level from game mode, retain signed/repeated
+transaction IDs, and query another player's typed inventory/equipment to prove
+that the target's save view is used.

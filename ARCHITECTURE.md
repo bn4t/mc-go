@@ -1368,3 +1368,11 @@ do not. Player eyes use cached effective scale and pose, including fixed sleepin
 and dying dimensions. Entity eyes use reproducible baseline/named-baby facts
 plus measured stand/slime variants. Runtime interaction dimensions, additional
 dynamic poses and nonplayer scale lifecycle remain partial.
+
+
+Entity-tag queries require operator level2 and resolve targets in the
+requester's dimension. Missing targets produce no response; valid requests echo
+their signed transaction ID and use the target's modeled NPC/player save view
+without its outer type identifier. Player inventory/equipment comes from the
+target, not the requester. Full subtype/default-field equivalence and dormant
+entity lookup timing remain separate.
