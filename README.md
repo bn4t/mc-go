@@ -59,7 +59,11 @@ Generated main-hand damage/speed modifiers now participate in attribute queries
 and are reapplied to retained weapons after respawn.
 Explicit removal survives an identical stack rewrite; renaming or re-equipping
 reapplies them. Attack-speed updates reach the owner and tracked observers.
-Arbitrary item attribute components and broader combat remain partial.
+Default head, chest, leg, foot and body armor modifiers also use the canonical
+attribute map, including zero toughness entries and slot restrictions. Armor
+and toughness reduce damage without counting equipped items twice; retained
+armor reapplies after respawn. Physical knockback resistance and arbitrary
+item attribute components remain partial.
 Attribute getters supply scaled integer results to `execute store` while keeping
 feedback unscaled; successful zero values and runtime failures retain distinct
 execution status. Effective attribute queries use generated registry ranges;

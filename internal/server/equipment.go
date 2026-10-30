@@ -112,6 +112,7 @@ func (s *Server) detectEquipmentUpdates(sess *Session) {
 		return
 	}
 	s.updatePlayerEquipmentAttributes(sess)
+	s.updatePlayerArmorAttributes(sess)
 	defer s.flushPlayerAttributes(sess)
 	cur := playerEquipment(sess)
 	if !sess.equipInit {

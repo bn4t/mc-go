@@ -413,7 +413,9 @@ func (sess *Session) sessArmorNames() []string {
 func (sess *Session) sessAttr(attr string, table map[string]float32) float64 {
 	base := playerAttrBases[attr]
 	mods := map[string]attrMod{}
+	materialized := false
 	if e, ok := sess.server.entities.Get(sess.entityID.Load()); ok {
+		materialized = e.playerArmorAttrsInit
 		if v, is := e.AttrBase[attr]; is {
 			base = v
 		}
@@ -421,9 +423,11 @@ func (sess *Session) sessAttr(attr string, table map[string]float32) float64 {
 			mods[k] = m
 		}
 	}
-	for i, iname := range sess.sessArmorNames() {
-		if v := table[iname]; v != 0 {
-			mods["__equip"+strconv.Itoa(i)] = attrMod{value: float64(v)}
+	if !materialized {
+		for i, iname := range sess.sessArmorNames() {
+			if v := table[iname]; v != 0 {
+				mods["__equip"+strconv.Itoa(i)] = attrMod{value: float64(v)}
+			}
 		}
 	}
 	return attrRange(attr, attrValue(base, mods))

@@ -1134,6 +1134,7 @@ func (s *Server) respawnPlayer(sess *Session) {
 	// The new life reapplies retained equipment on its next living tick.
 	if player, ok := s.entities.GetPtr(sess.entityID.Load()); ok {
 		player.playerEquipmentAttrsInit = false
+		player.playerArmorAttrsInit = false
 	}
 	s.removePlayerMenus(sess)
 	sess.dead = false

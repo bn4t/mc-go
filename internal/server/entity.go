@@ -813,6 +813,8 @@ type Entity struct {
 	// the main-hand stack changes, so explicit command removals persist.
 	playerEquipmentAttrsInit bool
 	playerAttributeStack     ItemStack
+	playerArmorAttrsInit     bool
+	playerArmorStacks        [5]ItemStack
 	// AttrTouched is the lazy AttributeMap membership: vanilla only
 	// packs attribute instances that were getInstance'd at least once
 	// — summon reads movement_speed for every living mob, setTame
