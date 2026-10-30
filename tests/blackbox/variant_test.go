@@ -163,7 +163,7 @@ func TestVariantParity(t *testing.T) {
 // DATA_VARIANT_ID (23, serializer 25) + DATA_SOUND_VARIANT_ID (24,
 // serializer 26), pig (19/28 + 20/29), cow (18/23 + 19/24), chicken
 // (17/30 + 18/31), and salmon's plain-int DATA_TYPE (17, varint —
-// small 0 / medium 1 / large 2). Defined defaults (tabby, pale,
+// small 0 / medium 1 / large 2). Defined defaults (black, pale,
 // temperate, classic sounds, medium) stay unpacked on spawn; a
 // non-default pack is a VarInt registry id.
 func TestHolderVariantParity(t *testing.T) {

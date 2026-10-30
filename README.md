@@ -447,3 +447,11 @@ MCGO_BLACKBOX=1 go test -tags blackbox -count=1 -run TestEnderStareParity ./test
 
 For playtesting mc-go with a real (unmodified, offline-mode) 26.2
 client see `.agents/skills/testing-mc-go-real-client/SKILL.md`.
+
+
+Recent bounded gameplay support includes persistent natural swamp-hut residents,
+`/place structure minecraft:swamp_hut`, correct `/fill` result counts and loaded
+endpoint checks, and player powder-snow freezing while world time is paused.
+Native item saves preserve modeled fireworks, instrument removal and ominous
+banners. These are measured subsets; see `GOAL.md` for their tests and remaining
+world, gameplay and compatibility gaps.

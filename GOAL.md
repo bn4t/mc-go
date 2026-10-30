@@ -103,8 +103,9 @@ Mojang server over the wire.
       does - `TestStructureServerSaveParity`. Documented legacy-structure pins
       also cover ocean/nether/end structures and overworld land structures,
       including fortresses, monuments, strongholds and mansions (see the two
-      legacy-structure slices dated2026-10-29). Structure-generated entities
-      and structure-specific spawn overrides remain incomplete.
+      legacy-structure slices dated2026-10-29). Natural swamp-hut witch/cat residents
+      and explicit swamp-hut placement have dedicated save/restart and command
+      controls; other structure-generated entities and spawn overrides remain incomplete.
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
