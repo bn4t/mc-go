@@ -19018,3 +19018,12 @@ The scratch native subclass bypasses construction and injects explicitly listed 
 - **Pinned** — Four-file patch SHA256 `d6931b6c71285060f87e96461027c87afd22f015f0081794acc445ceebb7ec65`, basee70cc3f. Immutable15-case native/Go wire PASS42.15s (6.64/6.57), build and combined rotation/numeric units8.624s PASS. A test-only follow-up removes an incorrect, unused observer diagnostic decoder; driver capture, admission, marker ordering and all15 assertions are unchanged, and tagged compilation0.245s PASS. Evidence: `work/player-rotation-stage/manifest.json`, `work/player-rotation-slice.md`.
 
 This pins authoritative server pose, not observer byte delivery or tracking. The removed decoder omitted variable-length spawn velocity and supplied no assertions. Physical position clamping and neutral-avatar angle policy remain separate.
+
+
+## Slice — native angle-byte precision and flooring (2026-10-30)
+
+- **Measured** — Public Mth.packDegrees on21 raw float32 inputs establishes float32 multiply/divide, floor, saturating int32 conversion and low-byte output. Cases include adjacent1.40625-degree values, negative fractions, full turns, zero, extreme floats and nonfinite inputs. Native spawn controls independently establish255/255,254/0,0/0 and128/64 yaw/pitch bytes. Public API, factual arithmetic inspection and wire, Java26.2/JDK25.0.5+8; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Correct the shared angle-byte helper to preserve measured intermediate precision, floor negative fractions and explicitly handle Java saturation. Generic entity callers remain unchanged.
+- **Pinned** — Three-file patch SHA256 `e739412663874ae4645bec315b088a91dd0a99f68cd3a7cd31c9e7a2e104b8e6`, basee70cc3f. Build/vet,21 API goldens and existing angle/spawn units PASS0.088s. Native four-case spawn baseline PASS22.73s (2.62s); native/Go differential PASS9.56s (1.04/0.65). The wire fixture decodes variable-length velocity and matches exact entity type/position before asserting actual angles. Evidence: `work/angle-byte-stage/manifest.json`, `work/angle-byte-api.measure.txt`.
+
+This pins encoding arithmetic and generic spawn angles. Player observer delivery, head initialization and complete movement packet choice/timing remain separate.

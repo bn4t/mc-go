@@ -1268,3 +1268,9 @@ Java player rotation proposals wrap to the signed half-turn range and clamp
 wrapped pitch to[-90,90] before movement hooks. Authoritative plugin replacements
 keep the shared rule's existing semantics. Server-pose controls are independent
 from observer rotation encoding and tracker delivery.
+
+
+Protocol angle bytes use native float32 scaling, mathematical floor and Java
+integer saturation before retaining the low byte. Negative fractional angles
+therefore encode correctly. This shared encoder does not supply missing tracker
+updates or establish packet ordering.

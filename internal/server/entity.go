@@ -2208,14 +2208,21 @@ func encodeTeleportEntity(id int32, x, y, z, dx, dy, dz float64, yaw, pitch floa
 	return b.Bytes()
 }
 
-// angleByte compresses degrees into a protocol angle byte,
-// wrapping full turns and negatives into [0, 256).
+// angleByte uses the protocol's float32 scale, floor, and saturating Java
+// integer conversion before retaining the low byte.
 func angleByte(deg float32) byte {
-	v := int(float64(deg)*256.0/360.0) % 256
-	if v < 0 {
-		v += 256
+	scaled := float32(deg * 256)
+	scaled = float32(scaled / 360)
+	if math.IsNaN(float64(scaled)) {
+		return 0
 	}
-	return byte(v)
+	if float64(scaled) >= math.MaxInt32 {
+		return 255
+	}
+	if float64(scaled) <= math.MinInt32 {
+		return 0
+	}
+	return byte(int32(math.Floor(float64(scaled))))
 }
 
 // arrowEffect is one custom potion instance on an arrow —
