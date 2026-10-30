@@ -286,3 +286,16 @@ export can discover the outer repository and skip paths. A successful process
 exit with no tests run is not behavioral evidence: list or run the intended
 named tests and retain their results. Explicit empty-run compilation gates are
 separate and must be labeled as compilation only.
+
+
+## Numeric packet rejection and command-source witnesses
+
+For malformed movement, wait for the typed disconnect packet and connection
+closure. A following chat reply can arrive before a queued kick, so it cannot
+prove that an invalid packet was accepted. Retain separate valid finite and
+infinity controls according to the measured packet-specific contract.
+
+For player-only self selectors, distinguish the original caller, another player
+and a nonplayer executor through actual inventory ownership. Preserve different
+item-count sentinels and include scheduled neutral-source execution; feedback
+names alone do not prove that the intended inventory changed.

@@ -18911,3 +18911,10 @@ The new wire matrix is unmounted; mounted invalid-state protection has direct un
 - **Pinned** — Three-file patch SHA256 `5382edb2c44235e86df0dc23694381f36e77063cd1fbf23b13cf80798f3b2732`. Native/Go inventory comparison PASS 20.66s (3.22/2.82); named source-binding unit PASS 0.314s, full build/vet/tagged compilation PASS in the isolated export. Units cover nil executors with stale legacy bindings, nonplayers, frame precedence, neutral sources and mismatched actor frames. Evidence: `work/player-selector-binding-manifest.md` and its recorded stage/base.
 
 This changes player-only @s shared by existing handlers. It does not implement general selector geometry, outer execute batching or complete argument grammar. Native inventory controls run against the existing dispatcher independently of the pending execute-plan work.
+
+
+## Slice — verify vehicle validation and executor binding (2026-10-30)
+
+- **Measured** — Verify immutable commita915dd1 with unrelated concurrent work excluded.
+- **Implemented** — No additional production changes. Document the verified disconnect/closure and inventory-ownership witness methods in AGENTS and the testing skill.
+- **Pinned** — Build/vet PASS, tagged blackbox compilation 0.082s PASS, complete default `go test -p 2 ./... -count=1 -timeout 25m` exits0: internal/server 283.141s, world 0.381s, worldgen 12.029s, publicserver 9.037s and default blackbox 129.383s. All remaining packages pass. Evidence: `work/verified-a915dd1.log`. Native controls remain recorded in the preceding slices; full native-oracle, graphical-client and realistic-load performance verification remain separate.

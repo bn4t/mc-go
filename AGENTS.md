@@ -78,6 +78,10 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   timing, observe the applied controller/block state after the single action;
   command feedback alone can precede its application. For cursor return,
   observe the actual player-inventory update before querying the result.
+- Invalid-packet probes must await the typed disconnect and actual connection
+  closure. A subsequent chat reply can overtake a queued movement kick.
+- Executor-binding probes should retain distinct caller/other-player inventory
+  sentinels and a nonplayer executor; cover scheduled neutral-source execution.
 - For exact tick windows, freeze, use `/tick step N`, and observe completion
   through game time. `/tick sprint N` is asynchronous and measured 26.2
   advances N+1 ticks; wall-clock sleeps are not an exact tick counter.
