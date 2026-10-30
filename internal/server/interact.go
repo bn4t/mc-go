@@ -456,28 +456,28 @@ func maceSmashBonus(fall float64) float32 {
 }
 
 // maceSmashAftermath is the hurtEnemy tail of a mace smash: the
-// attacker's fall stops dead (velocity ~0.01 up, fall distance reset
-// so the landing deals no fall damage), the smash sound + level
-// event 2013 particles play at the impact, and every living entity
+// attacker's fall distance resets, the smash sound + level event
+// 2013 particles play at the impact, and every living entity
 // inside the victim's 3.5-radius blast takes the fall-proportional
 // knockback — attacker and victim excepted.
 func (s *Server) maceSmashAftermath(sess *Session, victim Entity) {
 	snd := int32(960) // item.mace.smash_ground
-	if sess.fallDistance > 5 {
+	heavy := sess.fallDistance > 5
+	if heavy {
 		snd = 961 // item.mace.smash_ground_heavy
 	}
 	sess.fallDistance = 0
 	sess.fallStart = false
 	s.playSoundSrc(sess.dimName(), victim.X, victim.Y, victim.Z, snd, 6, 1.0, 1.0, nil)
 	s.broadcastLevelEvent(victim.Dim, 2013, world.Pos{X: int(math.Floor(victim.X)), Y: int(math.Floor(victim.Y)), Z: int(math.Floor(victim.Z))}, 750)
-	s.maceSmashKnockback(sess, victim)
+	s.maceSmashKnockback(sess, victim, heavy)
 }
 
 // maceSmashKnockback pushes every living entity inside the victim's
-// box inflated by SMASH_ATTACK_KNOCKBACK_RADIUS (3.5): vanilla scales
-// each push by (3.5 - distance) * 0.7 * (1 - knockback resistance),
-// along the direction from the victim to the entity.
-func (s *Server) maceSmashKnockback(sess *Session, victim Entity) {
+// box inflated by SMASH_ATTACK_KNOCKBACK_RADIUS (3.5). Effective resistance
+// and the pre-reset heavy-fall flag determine the horizontal impulse; affected
+// targets also receive the measured fixed lift.
+func (s *Server) maceSmashKnockback(sess *Session, victim Entity, heavy bool) {
 	s.entities.mu.RLock()
 	targets := make([]*Entity, 0, len(s.entities.byID))
 	for _, e := range s.entities.byID {
@@ -488,19 +488,15 @@ func (s *Server) maceSmashKnockback(sess *Session, victim Entity) {
 		if !e.Living || e.Dying || e.ID == victim.ID || e.ID == sess.entityID.Load() || e.Dim != victim.Dim {
 			continue
 		}
-		dx, dy, dz := e.X-victim.X, e.Y-victim.Y, e.Z-victim.Z
-		dist := math.Sqrt(dx*dx + dy*dy + dz*dz)
-		if dist > 3.5 || dist < 1e-9 {
+		motion, apply := maceWaveMotion(
+			[3]float64{e.MotionX, e.MotionY, e.MotionZ},
+			[3]float64{e.X - victim.X, e.Y - victim.Y, e.Z - victim.Z},
+			s.mobKnockbackResistance(e), heavy,
+		)
+		if !apply {
 			continue
 		}
-		res := float64(0)
-		if name, ok := EntityTypeName(e.Type); ok {
-			res = mobKnockbackResistance[name]
-		}
-		power := (3.5 - dist) * 0.7 * (1 - res)
-		e.MotionX += dx / dist * power
-		e.MotionY += 0.7 * power
-		e.MotionZ += dz / dist * power
+		e.MotionX, e.MotionY, e.MotionZ = motion[0], motion[1], motion[2]
 		s.entities.SetMotion(e.ID, e.MotionX, e.MotionY, e.MotionZ)
 		s.broadcastEntityMotion(e.Dim, e.ID, e.MotionX, e.MotionY, e.MotionZ)
 	}

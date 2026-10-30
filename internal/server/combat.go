@@ -343,7 +343,7 @@ func (sess *Session) enchantImmunity(typeName string) bool {
 }
 
 // mobKnockbackResistance is the legacy species fallback still used by
-// specialized mace and spear pushes; ordinary hurt/attack use canonical values.
+// specialized spear pushes; ordinary hurt/attack and mace use canonical values.
 var mobKnockbackResistance = map[string]float64{
 	"iron_golem": 1.0,
 }
