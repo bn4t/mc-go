@@ -19056,3 +19056,9 @@ The earlier add-time interpretation is retracted; no particular unseen tick is r
 - **Pinned** — Final main wire PASS72.75s (native27.94/Go21.47), covering161 observations and20 diagnostics; fork/callback50.25s, partial-fork17.28s, implicit-clear21.31s, function budget/source/default-limit47.78s and tag/load/tick/no-return21.99s PASS. Targeted units0.187s, full internal/server393.965s, build/vet PASS. Recovered logs confirm final exits before transport loss; the earlier socket-restricted suite is retained as a setup failure. Evidence and exact sources: `work/execute-plan-manifest.md`, `work/execute-plan-stage/`.
 
 Compiled leaves are basic function/tag calls without macro arguments, scoreboard player set/add/remove/get and clear. Modifiers cover as/at/in, numeric positioned/rotated, align/anchored, entity/score conditions and single-holder score stores. Other grammar falls back before effects; this is not full Brigadier or command-framework parity. Existing rotated/anchored spatial limitations, macros, returns and dynamic reload remain separate.
+
+## Slice — verify recovered effects, command and physics integration (2026-10-30)
+
+- **Measured** — Verify immutable commit a0cbb59 from git archive, excluding all concurrent work. This includes known-speed sampling, Java rotation normalization, angle-byte encoding, slime damping, instantaneous status delivery and parsed execute budgets.
+- **Implemented** — No additional runtime changes; record the clean integration gate after execution recovery.
+- **Pinned** — Build/vet PASS; blackbox tagged compilation0.495s PASS. Full default repository suite PASS with internal/server433.901s, world1.459s, worldgen59.095s, public server24.315s and default blackbox173.190s; all other packages pass. Session4038 exited0, log `work/verified-a0cbb59.log`. Individual native differential gates remain recorded in their slices; this is not a claim of full native-suite, GUI or realistic-load coverage.
