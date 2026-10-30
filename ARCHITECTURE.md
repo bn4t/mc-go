@@ -1327,3 +1327,9 @@ nested function calls. Legacy fallback also binds a source frame. Orthogonal
 yaw/pitch cases are pinned within3e-6 blocks; Go double trigonometry does not
 reproduce native float/look-table precision at arbitrary angles. Existing numeric
 parser, facing, anchor and other local-coordinate consumers remain partial.
+
+Teleport destinations use the bound command-source dimension, including direct
+execute chains, file functions and scheduled neutral sources. Player hops use
+the existing dimension-change lifecycle and preserve rotation when the command
+does not supply a replacement. Explicit source frames must not depend on legacy
+temporary session-dimension swaps.

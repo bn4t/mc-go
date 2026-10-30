@@ -340,7 +340,7 @@ func TestPublicAvatarSharedJavaLifecycle(t *testing.T) {
 	}
 	j.synchronized(t, target)
 	for _, dimension := range []string{"minecraft:the_nether", "minecraft:overworld"} {
-		destination := player.Pose{X: target.X, Y: target.Y, Z: target.Z}
+		destination := player.Pose{X: target.X, Y: target.Y, Z: target.Z, Yaw: target.Yaw, Pitch: target.Pitch}
 		if dimension == "minecraft:the_nether" {
 			destination.Y = 70
 		}

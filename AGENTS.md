@@ -231,3 +231,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   chat before reading post-sprint state.
 - Real-client playtesting: `.agents/skills/testing-mc-go-real-client/`
   has the launch recipe and the debugging checklist for kicks.
+
+When replacing legacy command-context swaps with explicit source frames, audit
+every spatial consumer for position, dimension and rotation. Pin direct,
+function and scheduled neutral-source dimension changes, plus public frontend
+lifecycle/window regressions. Preserve exact pose assertions; change an old
+expected value only after an independent native measurement establishes it.

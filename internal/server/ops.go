@@ -462,11 +462,11 @@ func (s *Server) tpToPos(player, victimsTok string, coords, rot []string) reply 
 		}
 	}
 	// teleportTo resolves its target level off the command source —
-	// under `execute in <dim>` that is the forked dimension (the
-	// issuer's swapped dim), not each victim's own.
+	// under `execute in <dim>` that is the command source's forked
+	// dimension, not each victim's own.
 	tdim := ""
-	if issuer != nil {
-		tdim = issuer.dimName()
+	if destination := s.dimOf(player); destination != nil {
+		tdim = destination.name
 	}
 	for _, vic := range victims {
 		// The relatives set is resolved per victim: vanilla's isDelta
@@ -607,6 +607,12 @@ func (s *Server) tpMove(v *dataEntity, x, y, z float64,
 		yaw, pitch = rotFn(yaw, pitch)
 	}
 	if v.sess != nil {
+		if tdim != "" && tdim != v.sess.dimName() {
+			if destination := s.dimensionByName(tdim); destination != nil {
+				s.changeDimensionFacing(v.sess, destination, x, y, z, yaw, pitch, false, 0, 0)
+				return
+			}
+		}
 		s.teleportPlayerRot(v.sess.getName(), x, y, z, yaw, pitch)
 		return
 	}

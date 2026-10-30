@@ -348,3 +348,8 @@ For native saved-delay aging, verify fresh LastUpdate metadata after harmless
 real changes in the measured chunks; a save reply alone may leave an unchanged
 chunk file stale. Go SaveWorld supplies a writer completion barrier, but native
 LastUpdate equivalence remains a separate claim.
+
+Explicit command source frames can bypass legacy teleport shortcuts. Verify
+actual destination dimension and retained rotation through direct commands,
+functions and scheduled neutral sources. Include public avatar and streamed
+window controls; a passing same-dimension local-coordinate pin is insufficient.
