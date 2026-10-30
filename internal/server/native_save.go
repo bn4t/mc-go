@@ -138,10 +138,12 @@ func (s *Server) captureNativeWorldSaveOwned() *nativeWorldSaveSnapshot {
 		GenerateStructures: s.GenerateStructures, Generator: s.LevelType, Flat: s.FlatPreset, GameTime: s.gameTime(), DayTime: s.dayTime(),
 		Spawn: [3]int{floor(sx), floor(sy), floor(sz)}, GameRules: rules,
 	}}
+	scheduledTicks := s.captureScheduledChunkTicksOwned()
 	for name, d := range s.dims {
-		chunks := d.w.CaptureDimensionSave(d.minY, d.height,
+		chunks := d.w.CaptureDimensionSaveWithTicks(d.minY, d.height,
 			func(cx, cz int) []map[string]any { return s.chunkBlockEntities(d, cx, cz) },
-			func(cx, cz int) *world.ChunkLight { return d.savedLight(cx, cz) })
+			func(cx, cz int) *world.ChunkLight { return d.savedLight(cx, cz) },
+			scheduledTicks[name])
 		var fight map[string]any
 		if d.fight != nil {
 			fight = d.fight.saveNBT()

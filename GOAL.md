@@ -271,8 +271,9 @@ Mojang server over the wire.
   entire source box, including empty filtered selections. Exact placement grouping
   and complete command schemas remain partial. Pending block callbacks retain
   registered block/fluid type and the first deadline/priority, including distinct
-  source/flowing fluid owners. Chunk tick persistence and sub-tick ordering remain
-  partial.
+  source/flowing fluid owners. Native chunk saves include pending ticks with
+  measured owners, relative deadlines and priorities. Go queue loading, chunk
+  activation and sub-tick ordering remain partial.
   Attribute getters and mutations supply measured typed execute-store results.
   Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
@@ -18604,3 +18605,12 @@ Physical knockback resistance, arbitrary custom attribute components, mutable ne
 - **Pinned** — Four-file patch SHA256 `e806ed54bd42b2d420b3301f20f679ba451aba774ee2cb814a77248d3a82d048`, base d267de9. New typed native/Go differential PASS 14.29s; existing time-command regression PASS 58.71s and saved-clock environment PASS 38.65s. Immutable build/vet/tagged compilation and clock units PASS 0.120s; additional tagged empty-run gate PASS 0.224s. Exact packet counts/IDs/values, rejected-input nonmutation, repeated updates, minimum-rate carry, explicit Nether selection, saved fields and execute-store results are required. Sources/logs: `work/clock-controls-slice.md`, `work/clock-controls-stage/manifest.json`.
 
 Custom clocks/timelines, full TimeArgument units/grammar/completions and hidden/periodic marker resolution remain partial. Shared deferred-source work is excluded from this patch.
+
+
+## Slice — native scheduled chunk tick writer (2026-10-30)
+
+- **Measured** — Native saved chunk lists contain exact `i` string and `x/y/z/t/p` int32 fields. After three frozen, observed steps, seven controls retain stale stone-button owner, button delay 17, repeater delay 5/priority -1, source/flowing water delay 2 and source/flowing lava delay 27. Factual SavedTick/ScheduledTick/LevelChunkTicks inspection establishes relative int narrowing and exclusion of already-collected callbacks. JDK 25.0.5+8/Go 1.27.3; bundle SHA1 `823e2250d24b3ddac457a60c92a6a941943fcd6a`, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`. The first legacy region-path probe failed; the corrected native dimension path passed 25.52s without changing expectations.
+- **Implemented** — Copy pending queues under their mutex into detached primitive records by dimension/chunk. Extend world snapshot capture with cloned tick slices and tick-only generated columns while preserving the existing API. Serialize native block_ticks/fluid_ticks through the existing asynchronous writer. Preserve owner, signed relative delay and priority; deterministic tie ordering reflects the existing model rather than claiming native insertion order.
+- **Pinned** — Eight-file patch SHA256 `2030e7bc5f6826ce211cc5d4da93a927b64b1d37b96ef0ac1905113a3116bb74`. Both source legs and real-native readback PASS 40.71s (`work/scheduled-writer-after.log`), independently asserting all seven original typed records. Copy the completed region/metadata before shutdown, then extend only the copied button delay from the already-asserted 17 to 1000 for startup. Native resave proves loading, exact remaining-1/1 steps prove expiry, stale owners remain ignored and water resumes. Immutable 4efd766 plus only this patch: world suite PASS 0.796s, native-save/snapshot/attribute-save tests PASS 3.065s, build/vet PASS, tagged compilation PASS 0.165s. Units cover detached maps/slices, tick-only negative chunks, stopped world, signed/overflow narrowing, priorities and collected-callback exclusion. Full provenance: `work/scheduled-writer-slice.md`, `work/scheduled-writer-manifest.txt`.
+
+Go chunk tick loading is not yet implemented. This verifies native readback of Go output; it does not establish Go restart preservation. Native sub-tick ordering, activation/unload pauses/count limits, malformed/duplicate record loading, custom registries and complete world metadata remain open. Snapshot size/time remain unbounded as before.

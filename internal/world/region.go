@@ -468,6 +468,8 @@ func (s *DimensionSaveSnapshot) writeDir(dir string) error {
 		for _, c := range chunks {
 			var raw bytes.Buffer
 			compound := capturedChunkNBT(int(c.X), int(c.Z), s.minY, s.height, s.chunks[c].blocks, s.biome, s.chunks[c].biomes, s.chunks[c].entities, s.chunks[c].light)
+			compound["block_ticks"] = savedTickList(s.chunks[c].ticks.Blocks)
+			compound["fluid_ticks"] = savedTickList(s.chunks[c].ticks.Fluids)
 			if st := s.chunks[c].structures; st != nil {
 				compound["structures"] = st
 			}

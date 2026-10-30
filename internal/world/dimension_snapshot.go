@@ -25,26 +25,26 @@ type dimensionSaveChunk struct {
 	light    *ChunkLight
 	// structures replaces the empty "structures" compound when set.
 	structures map[string]any
+	ticks      SavedChunkTicks
 }
 
 // CaptureDimensionSave materializes generator terrain and overrides, and copies
 // all NBT and light supplied by the callbacks. It performs no serialization or IO.
 func (w *World) CaptureDimensionSave(minY, height int, entities func(cx, cz int) []map[string]any, lights func(cx, cz int) *ChunkLight) *DimensionSaveSnapshot {
+	return w.captureDimensionSave(minY, height, entities, lights, nil)
+}
+
+func (w *World) captureDimensionSave(minY, height int, entities func(cx, cz int) []map[string]any, lights func(cx, cz int) *ChunkLight, extra []chunkKey) *DimensionSaveSnapshot {
 	s := &DimensionSaveSnapshot{minY: minY, height: height, biome: w.biomeName(), regions: regionChunksOf(w.Snapshot(), minY, height), chunks: make(map[chunkKey]dimensionSaveChunk)}
+	for _, key := range extra {
+		s.includeChunk(key)
+	}
 	if w.base != nil {
 		// A provided world saves every chunk it generated or loaded, as
 		// the real server saves its loaded chunks: regenerating one
 		// later could differ where neighbours' features overlapped.
 		for _, k := range w.base.keys() {
-			r := chunkKey{int32(k[0] >> 5), int32(k[1] >> 5)}
-			c := chunkKey{int32(k[0]), int32(k[1])}
-			found := false
-			for _, have := range s.regions[r] {
-				found = found || have == c
-			}
-			if !found {
-				s.regions[r] = append(s.regions[r], c)
-			}
+			s.includeChunk(chunkKey{int32(k[0]), int32(k[1])})
 		}
 	}
 	for _, keys := range s.regions {
@@ -141,4 +141,14 @@ func copyDimensionNBT(value any) (any, error) {
 	default:
 		return nil, fmt.Errorf("dimension save: unsupported NBT value %T", value)
 	}
+}
+
+func (s *DimensionSaveSnapshot) includeChunk(key chunkKey) {
+	r := chunkKey{key.X >> 5, key.Z >> 5}
+	for _, have := range s.regions[r] {
+		if have == key {
+			return
+		}
+	}
+	s.regions[r] = append(s.regions[r], key)
 }

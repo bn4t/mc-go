@@ -1128,8 +1128,14 @@ Fluid scheduler keys retain exact builtin registered owners, distinguishing
 source from flowing water/lava. A duplicate same-position/owner request retains
 its first deadline and priority; different owners coexist. Dispatch rejects stale
 owners after replacement. Intrinsic and waterlogged source water share the water
-registration. This preserves block-only clone/clear semantics; native chunk tick
-persistence and container activation remain separate work.
+registration. This preserves block-only clone/clear semantics.
+The simulation owner snapshots pending scheduled work into primitive per-chunk
+records before asynchronous save work. World capture clones those slices and
+includes tick-only generated columns. Native chunk lists retain registered
+owner, signed relative int32 delay and priority; already-collected callbacks
+are excluded. Output sorts by delay, priority and position because the current
+queue does not retain native sub-tick insertion order. Native-server readback
+is pinned; Go queue loading and chunk activation remain separate work.
 
 Player retirement captures a detached attribute/effect snapshot before the
 physical entity is removed. Subsequent disconnect/kick persistence uses this
