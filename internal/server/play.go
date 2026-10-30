@@ -131,6 +131,9 @@ func (s *Server) joinPlayOwned(sess *Session) bool {
 	if err := s.sendPlayerInfoTo(sess); err != nil {
 		return false
 	}
+	if err := s.sendScoreboardSnapshot(sess); err != nil {
+		return false
+	}
 	if err := s.sendInitializeBorder(sess); err != nil {
 		return false
 	}

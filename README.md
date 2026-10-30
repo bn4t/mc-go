@@ -69,8 +69,9 @@ including command modifiers and explicit removal of equipped modifiers.
 Arbitrary item attribute components and broader mob consumers remain partial.
 Scoreboard objective and score updates reach connected players only while the
 objective is displayed. First display sends the objective and score snapshot;
-slot changes and score resets follow measured packet behavior. Late-join
-scoreboard snapshots and persistence remain separate work.
+slot changes and score resets follow measured packet behavior. Joining players
+receive visible objectives and scores without rebroadcasting them to existing
+viewers. Scoreboard persistence remains separate work.
 Attribute getters supply scaled integer results to `execute store` while keeping
 feedback unscaled; successful zero values and runtime failures retain distinct
 execution status. Effective attribute queries use generated registry ranges;

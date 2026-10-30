@@ -1164,8 +1164,11 @@ Scoreboard visibility derives from display-slot assignments. Hidden objectives
 and score mutations do not broadcast updates. First tracking sends create,
 ordered display assignments and the current score snapshot; later slot changes
 use measured removal/reassignment ordering. Deleting a holder's final score
-emits the global reset form, even for a hidden objective. This covers currently
-connected viewers; a late-join snapshot hook and persistence remain separate.
+emits the global reset form, even for a hidden objective. Joining sessions receive
+a detached visible-only snapshot ordered by display slot, creating each objective
+once before its assignments and scores. Shared payload builders preserve live
+update encoding; writes target only the new session. Persistence and exhaustive
+multi-holder ordering remain separate.
 
 
 Ordinary player death uses a new-body reset distinct from restart restoration.

@@ -1387,25 +1387,7 @@ func (s *Server) broadcastObjectiveChange(name string, o *sbObjective) {
 // an unconditional component, the render-type enum, and the optional
 // number format.
 func (s *Server) sendObjective(name string, mode byte, o *sbObjective) {
-	var b protocol.Buffer
-	b.String(name)
-	b.Byte(mode)
-	if mode != 1 {
-		display := any(name)
-		if o != nil && o.display != nil {
-			display = o.display
-		}
-		b.Raw(componentAnyContent(display))
-		rt := 0
-		var format *sbNumberFormat
-		if o != nil {
-			rt = o.renderType
-			format = o.numberFormat
-		}
-		b.VarInt(int32(rt))
-		writeNumberFormat(&b, format)
-	}
-	s.broadcastToPlay(IDPlayObjectiveCB, b.Bytes())
+	s.broadcastToPlay(IDPlayObjectiveCB, scoreboardObjectivePacket(name, mode, o))
 }
 
 // writeNumberFormat writes an Optional<NumberFormat>: absent or the
@@ -1446,10 +1428,7 @@ func (s *Server) broadcastObjectiveRemove(name string) {
 
 // broadcastDisplayObjective sends Display Objective.
 func (s *Server) broadcastDisplayObjective(position int32, name string) {
-	var b protocol.Buffer
-	b.VarInt(position)
-	b.String(name)
-	s.broadcastToPlay(IDPlayDisplayObjective, b.Bytes())
+	s.broadcastToPlay(IDPlayDisplayObjective, scoreboardDisplayPacket(position, name))
 }
 
 // broadcastScore sends Update Score: value plus the per-score
@@ -1462,22 +1441,7 @@ func (s *Server) broadcastScore(entity, objective string, value int32) {
 	}
 	e := s.board.scores[entity][objective]
 	s.board.mu.Unlock()
-	var b protocol.Buffer
-	b.String(entity)
-	b.String(objective)
-	b.VarInt(value)
-	if e != nil && e.display != nil {
-		b.Bool(true)
-		b.Raw(componentAnyContent(e.display))
-	} else {
-		b.Bool(false)
-	}
-	if e != nil {
-		writeNumberFormat(&b, e.format)
-	} else {
-		b.Bool(false)
-	}
-	s.broadcastToPlay(IDPlayUpdateScore, b.Bytes())
+	s.broadcastToPlay(IDPlayUpdateScore, scoreboardScorePacket(entity, objective, value, e))
 }
 
 // broadcastScoreReset sends Reset Score.
