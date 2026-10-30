@@ -612,9 +612,8 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 		if (ax-e.X)*(ax-e.X)+(ay-e.Y)*(ay-e.Y)+(az-e.Z)*(az-e.Z) >= 9 {
 			continue
 		}
-		res := float64(0)
+		res := s.mobKnockbackResistance(&e)
 		vName, _ := EntityTypeName(e.Type)
-		res = mobKnockbackResistance[vName]
 		dmg := plan.scale * (sweepDmg + enchantDamageBonus(sess.heldStack(), vName))
 		headOminous := e.Equips[equipHelmet].Ominous
 		dealt, graced, died := s.damageMob(&e, dmg, "player_attack", sess, &damageInfo{
@@ -964,12 +963,9 @@ func (s *Server) mobAttackKnockback(sess *Session, eid int32, scale float32) {
 	if !ok {
 		return
 	}
-	res := float64(0)
-	if name, ok := EntityTypeName(e.Type); ok {
-		res = mobKnockbackResistance[name]
-	}
+	res := s.mobKnockbackResistance(&e)
 	ax, _, az, yaw, _, _ := sess.Pos()
-	vx, vy, vz := knockDelta(e.MotionX, e.MotionY, e.MotionZ, 0.4, res, ax-e.X, az-e.Z, e.Grounded)
+	vx, vy, vz := knockDelta(e.MotionX, e.MotionY, e.MotionZ, mobHurtKnockbackStrength, res, ax-e.X, az-e.Z, e.Grounded)
 	extra := float64(sess.heldStack().enchLevel("knockback")) / 2
 	sprint := sprintKnockbackHit(sess, scale)
 	if sprint {

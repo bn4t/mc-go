@@ -66,7 +66,9 @@ attribute map, including zero toughness entries and slot restrictions. Armor
 and toughness reduce damage without counting equipped items twice; retained
 armor reapplies after respawn. Player knockback uses effective resistance,
 including command modifiers and explicit removal of equipped modifiers.
-Arbitrary item attribute components and broader mob consumers remain partial.
+Ordinary mob damage and melee pushes use effective resistance and generated
+species defaults. Arbitrary item attribute components, specialized weapon pushes
+and broader mob consumers remain partial.
 Scoreboard objective and score updates reach connected players only while the
 objective is displayed. First display sends the objective and score snapshot;
 slot changes and score resets follow measured packet behavior. Joining players

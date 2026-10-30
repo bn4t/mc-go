@@ -18744,3 +18744,12 @@ Only minecraft:full chunks are handed off. Protochunk promotion/data fixing, dyn
 - **Pinned** — Six-file SHA256 `496733898723287a0edbaad3c19cb2fa9a456b09cfed678af4fb7bef29889689`, base 9bdb0e4. Native/Go 17-control wire PASS 42.75s (13.54/11.84), units 0.366s, existing health/hunger regressions 46.140s and final focused race 6.780s. Typed raw/effective/Health receipts cover damage, base30 healing, HealthBoost and command modifiers/removal, lower maximum, fractional caps and natural regeneration. An initial mixed-fixture retirement race is fixed by waiting for owned avatar retirement before legacy teardown; its failure is preserved. Manifest, source, reproduction and logs: `work/player-maxhealth-final-stage/` and `work/player-maxhealth-after-*.log`.
 
 Exact dirty-attribute action timing, full packet ordering, mob healing and per-effect cadence remain separate. The low-food branch shares the helper but has no new fractional native pin.
+
+
+## Slice — canonical ordinary mob knockback (2026-10-30)
+
+- **Measured** — Native fresh pigs with effective resistance 0/.5/-2/1/-1 take raw horizontal pushes .4000000059604645/.20000000298023224/1.2000000178813934/0/.800000011920929; old Go always uses .4. Hoglin/ravager/golem controls establish species defaults. Actual plain/sprint attacks with positive actor position and Health9 receipts establish applied actions. Java26.2/JDK25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — A bounded canonical getter reads generated species defaults, raw bases and modifiers. Ordinary hurt, melee and sweep victims use it. Hurt/plain melee strength uses float32(.4) widened to double; sweep strength is unchanged in this slice. No global integration or simulation-clock changes.
+- **Pinned** — Five-file SHA256 `febed5088556682d959675154ebf4ac5d0ab8f252e457f6d24b53f7fe07b5598`, base1ca195b. Ten-case native wire PASS43.99s at 1e-12 raw-magnitude tolerance, dedicated compact styled-SNBT decoder control PASS, nine focused server regressions PASS52.292s on identical production hunks, tagged compile PASS. Final fixture aligns explicit movement with resolved teleport position. Earlier unapplied-action and decoder failures are retained in `work/mob-knockback-manifest-v2.md`; provenance and logs use that prefix.
+
+Specialized mace/spear still use the legacy table. Mob equipment materialization and arbitrary item attributes remain separate; the new live controls cover hurt/plain/sprint, with sweep precision handled separately.

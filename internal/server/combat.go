@@ -342,8 +342,8 @@ func (sess *Session) enchantImmunity(typeName string) bool {
 	return false
 }
 
-// mobKnockbackResistance is the vanilla KNOCKBACK_RESISTANCE attribute
-// per entity type; absent types default to zero (take full knockback).
+// mobKnockbackResistance is the legacy species fallback still used by
+// specialized mace and spear pushes; ordinary hurt/attack use canonical values.
 var mobKnockbackResistance = map[string]float64{
 	"iron_golem": 1.0,
 }
@@ -384,11 +384,8 @@ func (s *Server) mobHurtKnockback(e *Entity, srcCause int32) {
 		}
 		sx, sz = se.X, se.Z
 	}
-	res := float64(0)
-	if name, ok := EntityTypeName(e.Type); ok {
-		res = mobKnockbackResistance[name]
-	}
-	vx, vy, vz := knockDelta(e.MotionX, e.MotionY, e.MotionZ, 0.4, res,
+	res := s.mobKnockbackResistance(e)
+	vx, vy, vz := knockDelta(e.MotionX, e.MotionY, e.MotionZ, mobHurtKnockbackStrength, res,
 		sx-e.X, sz-e.Z, e.Grounded)
 	s.entities.SetMotion(e.ID, vx, vy, vz)
 	s.broadcastEntityMotion(e.Dim, e.ID, vx, vy, vz)
