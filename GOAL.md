@@ -19451,3 +19451,12 @@ The wire check allows one unit of final scaled-floor rounding at1e6 scale; basis
 - **Measured** — The stored-enchantment, map/amplifier/dyed-color and local-coordinate slices have independent native controls and disk or exact numerical pins recorded above.
 - **Implemented** — Integrated those changes with current docs, agent guidance and testing workflow, keeping later palette, structured-item, unload, structure-resident and hunger candidates out of the verification tree.
 - **Pinned** — Immutable cbe7da6 passed build, vet, generated eye-table consistency, tagged compilation and the complete default suite; session59785 exit0. Internal server571.157s, world0.392s, worldgen21.726s, public server11.616s and default blackbox335.444s PASS. Log: work/verified-cbe7da6.log; immutable source export: /workspace/mcgo-verified-cbe7da6. Per-slice native comparisons establish the scoped behavior; full live-oracle, GUI and production-load coverage remain separate.
+
+
+## Slice — native palette and banner-layer item persistence (2026-10-30)
+
+- **Measured** — Eight native controls distinguish white/red/absent base_color and dye on stone, plus an ordered two-layer banner versus a plain banner. Populated enum fields use TAG_String; banner layers use ordered compound lists with namespaced patterns. Native baseline PASS2.42s/Go FAIL2.49s. Java26.2/Temurin25.0.5+8 wire observations; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Encode the existing ordinal-plus-one palette fields and modeled banner-layer sequence through a separate helper used by the common writer. Four-file patch SHA256 ff0d6f49e87bd21def502a4a5ea64dcc953f8a13113e5ad6efaa1725d04d0cb0.
+- **Pinned** — Final palette differential PASS15.72s; scalar28.84s and jukebox45.09s regressions PASS. Actual disk save/restart retains eight cases and nested white/base/dye/layer ordering; units PASS0.285s, build/vet/tagged compilation PASS. Evidence: work/native-palette-stage/manifest.json and work/native-palette-slice.md.
+
+White remains distinct from absence through the existing sentinel. Custom pattern codecs, explicit empty-list presence, component removals and synthesized ominous-banner defaults remain separate.

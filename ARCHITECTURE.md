@@ -1438,7 +1438,9 @@ now shares modeled-field decoding while retaining dedicated recursive containers
 bundles, trim, books and potions. The common writer preserves positive repair
 cost and modeled stored enchantment levels, keeping normal and stored maps
 distinct. Map IDs and explicit bottle amplifiers retain zero versus absence;
-nonzero dyed colors also persist. Dyed-color zero still lacks a presence model.
+nonzero dyed colors also persist. Base-color/dye palette values retain white
+versus absence, and modeled banner layers preserve order. Dyed-color zero still
+lacks a presence model.
 Arbitrary components, explicit empty/removal semantics and full codec/error-boundary
 parity remain incomplete.
 

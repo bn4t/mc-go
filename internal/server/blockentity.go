@@ -700,6 +700,7 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 	if it.DyedColor != 0 {
 		comps["minecraft:dyed_color"] = it.DyedColor
 	}
+	itemPaletteComponentsNBT(comps, it)
 	if it.PotionScaleSet {
 		comps["minecraft:potion_duration_scale"] = it.PotionScale
 	}
