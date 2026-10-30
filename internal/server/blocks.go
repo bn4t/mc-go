@@ -223,7 +223,7 @@ func (s *Server) runSetblock(player string, args []string) reply {
 			c.lootTable = lt.str
 		}
 		if sd, ok := tag.vals["LootTableSeed"]; ok && sd.kind == snbtNumber {
-			if n, err := strconv.ParseInt(sd.num, 10, 64); err == nil {
+			if n, err := strconv.ParseInt(strings.TrimRight(sd.num, "lL"), 10, 64); err == nil {
 				c.lootSeed = n
 			}
 		}
@@ -281,7 +281,7 @@ func (s *Server) runSetblock(player string, args []string) reply {
 					c.lootTable = lt.str
 				}
 				if sd, ok := tag.vals["LootTableSeed"]; ok && sd.kind == snbtNumber {
-					if n, err := strconv.ParseInt(sd.num, 10, 64); err == nil {
+					if n, err := strconv.ParseInt(strings.TrimRight(sd.num, "lL"), 10, 64); err == nil {
 						c.lootSeed = n
 					}
 				}
@@ -487,8 +487,7 @@ func (s *Server) runGive(player string, args []string) reply {
 
 // snbtItems parses a container block entity's `Items` list — the
 // {Slot, id, count} compounds a setblock tag carries — into per-slot
-// stacks. Item components inside entries are not modeled (the Items
-// write mirrors containerNBT's emit shape).
+// stacks, retaining the item components supported by the common item decoder.
 func snbtItems(tag *snbtTag) map[int]ItemStack {
 	list, ok := tag.vals["Items"]
 	if !ok || list.kind != snbtList {
@@ -521,7 +520,11 @@ func snbtItems(tag *snbtTag) map[int]ItemStack {
 				count = int32(n)
 			}
 		}
-		out[slot] = ItemStack{ID: id, Count: count}
+		stack := ItemStack{ID: id, Count: count}
+		if components, ok := e.vals["components"]; ok && components.kind == snbtCompound {
+			stack = setblockItemComponents(stack, snbtToValue(components).(map[string]any))
+		}
+		out[slot] = stack
 	}
 	return out
 }

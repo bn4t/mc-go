@@ -1428,3 +1428,10 @@ chooses one nearby orb and preserves the two-player-tick cooldown and mending
 before XP. Each take publishes CollectItem(count1); exhaustion removes the source.
 Default standing reach and spectator exclusion are pinned. Scaled/posed/vehicle
 reach and moving-orb pickup timing after teleport remain separate.
+
+
+Direct setblock container Items retain components supported by the common item
+patch decoder, using the lossless component string bridge and preserving stack
+identity/count. Chest and generic-container loot seeds accept typed long suffixes.
+Unknown component models retain the previous fallback; separate native item
+persistence and data-restoration readers remain incomplete.

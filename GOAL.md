@@ -19316,3 +19316,12 @@ The original fixture exposed independent setblock component and long-loot-seed h
 - **Pinned** — Six strict controls PASS34.70s with source/recipient IDs, exact XP/count/event outcomes and live actor position/mode/health/player clocks. Eleven named unit groups11.659s/race85.495s and default compilation0.083s PASS. Frozen regular-item13 controls29.49s, merge/pickup34.76s and mending26.26s PASS. Final source hashes are recorded in work/orb-touch-fixed-stage/ and work/orb-touch-slice.md.
 
 Orb physics and world age are unchanged. Scaled/posed/vehicle reach, random-choice sequence/distribution and earlier moving-orb pickup timing after teleport remain separate; this stationary slice does not establish the cause or resolution of that timing discrepancy.
+
+
+## Slice — direct container component and long-seed loading (2026-10-30)
+
+- **Measured** — Direct native setblock container NBT retains helmet damage2 and LootTableSeed42L; Go lost both despite canonical query serialization supporting those fields. The original failure and unchanged expectations are retained. Dedicated native baseline PASS13.78s. Wire observations on Java26.2/JDK25.0.5+8, runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Decode modeled item components through the existing lossless component-to-SNBT bridge and common item patch parser, preserving id/count and unknown-model fallback. Accept typed long suffixes in chest and generic-container loot-seed branches. Four-file patch SHA256 bf7c312fb6dc679d60ccc8cc924d2ba156e15b4043ace30e64061940ac6703f2.
+- **Pinned** — Direct-NBT differential PASS19.71s(native6.24/Go1.97) without item/data setup workarounds. Build/vet and focused loader/query units0.455s PASS, including damage, repair cost, namespaced numeric-looking custom name and signed long extrema. Query regression17.87s and full setblock destruction-mode regression200.39s PASS. Exact source/dependency evidence: work/setblock-container-loader-stage/ and work/setblock-container-loader-slice.md.
+
+Unsupported component models and separate itemFromNBT persistence/data restoration remain explicit follow-ons. This slice does not change block-query payload expectations or claim complete item component preservation.
