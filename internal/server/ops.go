@@ -423,8 +423,8 @@ func (s *Server) tpVictims(issuer *Session, victimsTok string) ([]*dataEntity, *
 }
 
 // tpToPos is `tp [victims] <x> <y> <z> [<yaw> <pitch>]` — coordinates
-// resolve against the source, rotation components against each
-// victim's own rotation when ~-relative.
+// resolve against the source; ~ rotation components resolve against
+// the same source rotation snapshot.
 func (s *Server) tpToPos(player, victimsTok string, coords, rot []string) reply {
 	issuer := s.findSessionByName(player)
 	victims, r := s.tpVictims(issuer, victimsTok)
@@ -444,25 +444,11 @@ func (s *Server) tpToPos(player, victimsTok string, coords, rot []string) reply 
 	}
 	var rotFn func(vyaw, vpitch float32) (float32, float32)
 	if rot != nil {
-		// Each component is absolute, or ~-relative to the victim's own
-		// rotation (Relative.Y_ROT/X_ROT in vanilla's performTeleport).
+		// Relative arguments resolve once against the source snapshot. Each
+		// victim then composes the wrapped angular delta with its own history.
 		rotFn = func(vyaw, vpitch float32) (float32, float32) {
-			yaw, pitch := vyaw, vpitch
-			vals := [2]float64{}
-			for i := 0; i < 2; i++ {
-				vals[i], _ = strconv.ParseFloat(strings.TrimPrefix(rot[i], "~"), 64)
-			}
-			if strings.HasPrefix(rot[0], "~") {
-				yaw += float32(vals[0])
-			} else {
-				yaw = float32(vals[0])
-			}
-			if strings.HasPrefix(rot[1], "~") {
-				pitch += float32(vals[1])
-			} else {
-				pitch = float32(vals[1])
-			}
-			return tpWrapDeg(yaw), tpWrapDeg(pitch)
+			result := teleportSourceRotation(rotation, [2]float32{vyaw, vpitch}, rot)
+			return result[0], result[1]
 		}
 	}
 	// teleportTo resolves its target level off the command source —
@@ -611,6 +597,8 @@ func (s *Server) tpMove(v *dataEntity, x, y, z float64,
 		yaw, pitch = rotFn(yaw, pitch)
 	}
 	if v.sess != nil {
+		// The player arrival setter reduces full turns without changing sign.
+		yaw = float32(math.Mod(float64(yaw), 360))
 		if tdim != "" && tdim != v.sess.dimName() {
 			if destination := s.dimensionByName(tdim); destination != nil {
 				s.changeDimensionFacing(v.sess, destination, x, y, z, yaw, pitch, false, 0, 0)

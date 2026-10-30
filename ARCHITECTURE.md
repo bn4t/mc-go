@@ -1405,3 +1405,11 @@ already-collected callbacks retain their dispatch lifecycle. World snapshots
 include detached records. These primitives have no runtime unload caller yet:
 actual retirement, backend eviction, IO completion and deadline pause remain
 separate integration work. Existing normal-request sub-tick ordering is unchanged.
+
+
+Teleport relative angles resolve from the frozen command source, including
+multi-target commands that also move their issuer. Each victim composes the
+wrapped angular delta with its own history before pitch bounds apply. Ordinary
+entities can retain whole-turn yaw; player arrival reduces whole turns with
+sign-preserving remainder. This command-owned state is distinct from later
+movement normalization and does not establish complete relative SyncPos parity.

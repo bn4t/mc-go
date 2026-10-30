@@ -85,6 +85,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   Separate operator permission from game mode and query another player too.
 - Invalid-packet probes must await the typed disconnect and actual connection
   closure. A subsequent chat reply can overtake a queued movement kick.
+- An automatic movement echo can normalize yaw after teleport. Immediate command
+  angle probes should exclude movement ingress or capture inside an atomic
+  function; retain actual teleport/chunk acknowledgements for physical actions.
 - Executor-binding probes should retain distinct caller/other-player inventory
   sentinels and a nonplayer executor; cover scheduled neutral-source execution.
 - For exact tick windows, freeze, use `/tick step N`, and observe completion

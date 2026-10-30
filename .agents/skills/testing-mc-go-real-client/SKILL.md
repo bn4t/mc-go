@@ -417,3 +417,10 @@ Numeric physics assertions must explicitly reject NaN and infinity before
 applying tolerance or interval comparisons. For pose-dependent outcomes,
 observe metadata for the actual actor and allow preparation to settle before
 creating the entity whose exact first tick is measured.
+
+
+For immediate teleport angle state, automatic movement echoes can hide whole-turn
+behavior by normalizing yaw afterward. Use a keepalive-only command-state probe
+or atomic function capture, while retaining actual teleport/chunk acknowledgements
+for physical-action fixtures. Player arrival remainder and later movement
+normalization are separate observations.

@@ -19289,3 +19289,12 @@ This is unbound infrastructure: no runtime caller detaches or discards container
 - **Pinned** — All eight pose/gravity controls PASS26.35s, with first Age=1, literal native displacements and float32-drag checks. All22 overlap controls rerun PASS51.27s with finite guards. The earlier single-preparation-tick swimming-to-dry setup failed native pose readiness and is retained as rejected apparatus evidence; bounded preparation occurs before orb spawn and does not relax the first-tick outcome. Manifests: work/orb-attraction-pose-stage/ and work/orb-overlap-finite-stage/.
 
 These controls use default scale and one offset. Sleeping, same-frame scale transitions, attraction while the orb itself is in fluid, broader offsets and pickup/target-selection behavior remain separate.
+
+
+## Slice — teleport angles from command-source snapshots (2026-10-30)
+
+- **Measured** — Native execute rotated90/30 with target40/50 and relative TP angles+5/-10 yields95/20. Relative composition retains entity whole-turn history, clamps pitch afterward and reduces full player arrival turns separately. Twenty-six native controls were repeated with a keepalive-only sink to exclude subsequent movement normalization. Wire observations, Java26.2/JDK25.0.5+8, runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Resolve relative angle operands from the command's frozen source rotation, compose wrapped deltas with each victim's history, clamp final pitch and apply sign-preserving player full-turn reduction. Four-file patch SHA256 d3996fa47cda279fd42ce10e7df2c4e38e5b3ef079ecad2f18392f0d47a8c29e.
+- **Pinned** — Differential PASS18.39s(native4.87/Go4.68) covers26 player/entity controls, a two-target source-mutation snapshot, nested functions and scheduled neutral sources. Source-dimension regression12.60s, arithmetic units0.075s and command/avatar regressions4.061s PASS; build/vet/tagged compilation PASS. Final post-oracle edit changes only a header comment, covered by final build/vet/units. Evidence: work/teleport-source-rotation-manifest.md.
+
+Float-token grammar, full relative SyncPos encoding and other spatial consumers remain partial. Facing and arbitrary-angle local-vector precision are independent follow-ons.
