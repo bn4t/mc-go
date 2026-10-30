@@ -19130,3 +19130,9 @@ Coverage is orthogonal yaw/pitch0/90 and relative90 with3e-6 tolerance. Go doubl
 - **Pinned** — New native/Go comparison PASS13.89s(native2.82/Go1.15), public avatar/world13.951s, unchanged dimension teleport0.71s, dimension entity scope1.53s and live-window775/7766.11s PASS. The latter independently decodes49 chunks per destination. Source/function/execute/shared-avatar units1.901s, vet/tagged compile PASS. Evidence: work/execute-dimension-fix-manifest.md.
 
 Retain the original full integration failure, old-fixture yaw mismatch, and initial LiveWindow wrong-cwd setup failure. The corrected source and exact pose assertion are verified; this entry does not claim the whole integration suite has passed until its subsequent clean run completes. Native provenance: wire, Java26.2/JDK25.0.5+8, runtime SHA1 86765a5899bd9c96461036a628796b4245715058.
+
+## Slice — verify corrected gameplay and scheduling integration (2026-10-30)
+
+- **Measured** — Recheck immutable db06aac after the source-dimension regression correction. The earlier a3fdd46 failures remain recorded; concurrent uncommitted work is excluded.
+- **Implemented** — No further runtime changes. Record the clean integration of orb movement, kinetic spear consumers, direct Saturation drinking, command fixture receipts, saved-tick admission, source rotation and dimension-aware player teleport.
+- **Pinned** — Build/vet PASS, tagged blackbox compilation0.275s PASS, full default repository suite PASS: internal/server493.539s, world0.528s, worldgen27.359s, public server35.793s, default blackbox224.618s and all other packages. Session64400 exited0; log work/verified-db06aac.log. This includes the previously failing public frontend and dimension/window regressions. Individual native pins remain in their slices; no exhaustive native-suite, GUI or realistic-load claim is added.
