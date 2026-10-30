@@ -112,7 +112,8 @@ Mojang server over the wire.
       templates, chest, sign and furnace, the ocean/beached shipwreck
       templates with supply/treasure/map chests, and the cold/warm ocean
       ruins with their large/cluster pieces, archaeology blocks and
-      underwater ruin chests included). Other structure-generated entities,
+      underwater ruin chests, and the flat-safe jungle/swamp ruined-portal
+      setups with their chests included). Other structure-generated entities,
       other explicit structures and spawn overrides remain incomplete.
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
@@ -19770,3 +19771,12 @@ Immutable `1910ee9` passes build, vet, tagged blackbox compilation and the compl
 - **Pinned** — `TestPlaceOceanRuinParity` PASS 14.38s checks both legs' success/failure replies, all six chest positions and loot tables for each variant, and the chest counts. `TestCommandOceanRuinPlacement` pins piece counts, bounds, chest positions/loot seeds and write ranges. The six placement pins re-pass (ocean ruin 14.38s, igloo 11.91s, jungle 11.78s, pyramid 12.76s, shipwreck 11.30s, swamp hut 15.34s); focused worldgen 13.531s. Build/vet/tagged compilation pass. Three-file behavior artifact `6dbb96b93e66ccb35eb6ade0518051bae5ff8fbdc9ef8731a97da9197bdb0a01`. Remaining limit: archaeology block counts and integrity rot are level-random; other template structures remain unsupported.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire observations and factual bytecode measurement (OceanRuinStructure, OceanRuinPieces) inform independently written code.
+
+
+## Slice — explicit ruined-portal command placement (2026-10-30)
+
+- **Measured** — Native `/place structure ruined_portal_jungle` at seed 1, chunk (0,0) selects `portal_8`, rotation 1, no air pocket, overgrown/vines properties, one chest at (9,-57,1) with `minecraft:chests/ruined_portal`, 15 obsidian and writes y -64..-53. `ruined_portal_swamp` selects `portal_9`, rotation 1, `on_ocean_floor`, one chest at (9,-60,3), 11 obsidian and writes y -64..-54. Both use the flat surface/ocean floor at y -61. The `partly_buried` setup clips below the floor and the mountain/ocean setups sample biomes, so those remain outside this flat-world pin.
+- **Implemented** — Accept ruined_portal_jungle and ruined_portal_swamp in the command planner; the existing template, processor, height and level-random path covers the portal, obsidian, netherrack/magma, vines/leaves and chest.
+- **Pinned** — `TestPlaceRuinedPortalParity` PASS 11.55s checks both legs' success/failure replies, both chest positions/loot tables and counts, and the obsidian counts. `TestCommandRuinedPortalPlacement` pins template/rotation/placement, chest position/loot seed, obsidian count and write ranges. The seven placement pins re-pass (ruined portal 11.55s, igloo 11.25s, jungle 11.78s, ocean ruin 13.68s, pyramid 12.56s, shipwreck 11.18s, swamp hut 15.38s); focused worldgen 13.990s. Build/vet/tagged compilation pass. Three-file behavior artifact `da27038c8712f0e1b78438f0d88f46e3efb4b65b2d196fe2c39478913410dd82`. Remaining limit: netherrack/magma/vine/leaf counts and block age are level-random; other setups and structures remain unsupported.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire observations and factual bytecode measurement (RuinedPortalStructure, RuinedPortalPiece) inform independently written code.

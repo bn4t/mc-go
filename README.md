@@ -450,15 +450,14 @@ client see `.agents/skills/testing-mc-go-real-client/SKILL.md`.
 
 
 Recent bounded gameplay support includes persistent natural swamp-hut residents,
-`/place structure minecraft:swamp_hut`, `minecraft:desert_pyramid` (cellar,
-chests and suspicious sand included), `minecraft:jungle_pyramid` (moss
-selector, traps, chests and dispensers included), `minecraft:igloo`
-(top/laboratory templates, chest, sign and furnace included) and
-`minecraft:shipwreck`/`shipwreck_beached` (ocean/beached templates and
-supply/treasure/map chests included) and `minecraft:ocean_ruin_cold`/
-`ocean_ruin_warm` (large/cluster ruins, archaeology blocks and underwater ruin
-chests included), correct `/fill` result counts and loaded endpoint checks, and
-player powder-snow freezing while world time is paused.
+`/place structure` for swamp huts, desert pyramids (cellar, chests and
+suspicious sand), jungle pyramids (moss selector, traps, chests and
+dispensers), igloos (top/laboratory templates, chest, sign and furnace),
+ocean/beached shipwrecks (supply/treasure/map chests), cold/warm ocean ruins
+(large/cluster ruins, archaeology blocks and underwater ruin chests) and
+jungle/swamp ruined portals (portal chests); correct `/fill` result counts and
+loaded endpoint checks; and player powder-snow freezing while world time is
+paused.
 Native item saves preserve modeled fireworks, instrument removal, ominous
 banners and explicit black dye. Missing base mount bounds and selected static
 seats use measured dimensions and precision. These are measured subsets; see

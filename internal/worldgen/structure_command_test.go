@@ -501,3 +501,89 @@ func TestCommandOceanRuinPlacement(t *testing.T) {
 		})
 	}
 }
+
+func TestCommandRuinedPortalPlacement(t *testing.T) {
+	cases := []struct {
+		name      string
+		template  string
+		rot, mir  int
+		placement int
+		chest     BlockPos
+		obsidian  int
+		minY      int32
+		maxY      int32
+	}{
+		{
+			name: "ruined_portal_jungle", template: "minecraft:ruined_portal/portal_8", rot: 1, mir: 0, placement: 0,
+			chest: BlockPos{9, -57, 1}, obsidian: 15, minY: -64, maxY: -53,
+		},
+		{
+			name: "ruined_portal_swamp", template: "minecraft:ruined_portal/portal_9", rot: 1, mir: 0, placement: 2,
+			chest: BlockPos{9, -60, 3}, obsidian: 11, minY: -64, maxY: -54,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plan, err := PlanCommandStructure(Vanilla(), 1, tc.name, 0, 0, -64, 384, -63, func(int32, int32, int) int32 { return -60 })
+			if err != nil || plan == nil {
+				t.Fatalf("plan %v %v", plan, err)
+			}
+			p := plan.start.Pieces[0].(*ruinedPortalPiece)
+			if p.name != tc.template || p.rot != tc.rot || p.mir != tc.mir || p.placement != tc.placement || p.props.airPocket {
+				t.Fatalf("template=%s rot=%d mir=%d placement=%d props=%+v", p.name, p.rot, p.mir, p.placement, p.props)
+			}
+			bounds := plan.Bounds()
+			chunks := map[[2]int32]*ProtoChunk{}
+			bedrock, _ := world.BlockStateOf("bedrock", nil)
+			dirt, _ := world.BlockStateOf("dirt", nil)
+			grass, _ := world.BlockStateOf("grass_block", nil)
+			for cx := bounds.MinX >> 4; cx <= bounds.MaxX>>4; cx++ {
+				for cz := bounds.MinZ >> 4; cz <= bounds.MaxZ>>4; cz++ {
+					c := NewProtoChunk(cx, cz, -64, 384)
+					for x := int32(0); x < 16; x++ {
+						for z := int32(0); z < 16; z++ {
+							c.Set(x, -64, z, bedrock)
+							c.Set(x, -63, z, dirt)
+							c.Set(x, -62, z, dirt)
+							c.Set(x, -61, z, grass)
+						}
+					}
+					chunks[[2]int32{cx, cz}] = c
+				}
+			}
+			writes, entities, blockEntities := plan.Place(chunks, NewLegacy(12345))
+			if len(writes) == 0 || len(entities) != 0 {
+				t.Fatalf("writes%d entities%v", len(writes), entities)
+			}
+			counts := map[string]int{}
+			for _, c := range chunks {
+				for _, b := range c.Blocks {
+					n, _ := world.StateOwner(b)
+					counts[n]++
+				}
+			}
+			if counts["obsidian"] != tc.obsidian || counts["chest"] != 1 {
+				t.Errorf("obsidian=%d chest=%d want%d/1", counts["obsidian"], counts["chest"], tc.obsidian)
+			}
+			chest := false
+			for _, be := range blockEntities {
+				if be.Pos == tc.chest && be.Data["LootTable"] == "minecraft:chests/ruined_portal" {
+					chest = true
+					if _, ok := be.Data["LootTableSeed"].(int64); !ok {
+						t.Error("portal chest has no loot seed")
+					}
+				}
+			}
+			if !chest {
+				t.Errorf("portal chest absent at %v", tc.chest)
+			}
+			minY, maxY := int32(1<<30), int32(-1<<30)
+			for _, w := range writes {
+				minY, maxY = min(minY, w.Position[1]), max(maxY, w.Position[1])
+			}
+			if minY != tc.minY || maxY != tc.maxY {
+				t.Errorf("write y %d..%d want%d..%d", minY, maxY, tc.minY, tc.maxY)
+			}
+		})
+	}
+}
