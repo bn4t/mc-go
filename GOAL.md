@@ -19671,3 +19671,12 @@ Official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3b
 - **Pinned** — Five-body differential PASS 29.43s; units PASS 0.101s, race PASS 1.531s, all 21 boats retain legacy bounds. Artifact f7d65ade8145b40a20baedd78a33c26d129ff9d1227e532d3dbf18957466baeb. Identical controlled pre/post runs preserve original boat assertions; an additional actual rider-position discrepancy demonstrably predates this slice and remains open. Scale/pose/multiple-seat lifecycle and complete geometry remain partial.
 
 Official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Public numeric getter facts and wire observations inform independent implementation.
+
+
+## Slice — Boat teleport fixture admission receipts (2026-10-30)
+
+- **Measured** — The old sleep-based setup could issue ride commands before admission. Controlled pre/post sources preserve every original packet/count/onGround/relative-Z/raw-Pos assertion.
+- **Implemented** — Use actual player admission, resolved teleport sinks, standing poses, grounded boat state and ordered passenger-ID receipts; log full packet arrays and actual rider positions.
+- **Pinned** — Final differential PASS 19.54s. Artifact 4d8047c8c2c9145cf111ec5c1b82d16e5ac88e64f160f090539747902faf268c. A separate new exact rider-Pos comparison fails identically before/after the static-consumer change; retained evidence is not complete mounting parity.
+
+Official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Public numeric getter facts and wire observations inform independent implementation.

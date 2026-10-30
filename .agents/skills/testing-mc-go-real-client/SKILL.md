@@ -471,3 +471,9 @@ For NPC environmental fixtures, freeze setup and reads, validate actual blocks a
 
 
 A capped freeze counter does not establish its increment: use independent uncapped player-frame windows in normal and frozen worlds. Native zero TicksFrozen is omitted, so assert canonical membership rather than an explicit zero tag. Keep stationary, re-entry and movement-path exposure claims separate.
+
+
+Mount fixtures must observe actual ordered passenger IDs after both riders are
+admitted. A command success or an older single-passenger packet is insufficient.
+Keep actual entity positions separate from relative teleport packet offsets;
+do not impose an unmeasured seat position as a setup prerequisite.
