@@ -109,10 +109,11 @@ Mojang server over the wire.
       placement have command pins (the pyramid's cellar, chest/suspicious-sand
       block entities and level-random roof selection, the jungle temple's moss
       selector, traps, chests and dispensers, the igloo's top/laboratory
-      templates, chest, sign and furnace, and the ocean/beached shipwreck
-      templates with supply/treasure/map chests included). Other
-      structure-generated entities, other explicit structures and spawn
-      overrides remain incomplete.
+      templates, chest, sign and furnace, the ocean/beached shipwreck
+      templates with supply/treasure/map chests, and the cold/warm ocean
+      ruins with their large/cluster pieces, archaeology blocks and
+      underwater ruin chests included). Other structure-generated entities,
+      other explicit structures and spawn overrides remain incomplete.
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -19760,3 +19761,12 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 ## Verification — shipwreck placement slice (2026-10-30)
 
 Immutable `1910ee9` passes build, vet, tagged blackbox compilation and the complete default `go test -p 2 ./... -count=1 -timeout 25m` suite: internal/server 237.444s, world 0.297s, worldgen 10.749s, public server 6.297s and default blackbox 104.564s; every other package passes. Targeted native controls on the same tree: `TestPlaceShipwreckParity` 10.87s and the five placement pins (shipwreck 10.73s, igloo 11.27s, jungle 11.13s, pyramid 12.38s, swamp hut 14.88s), all PASS; focused worldgen 12.764s. These are targeted vanilla comparisons, not a complete native-oracle suite, graphical-client playtest or production-load claim.
+
+
+## Slice — explicit ocean-ruin command placement (2026-10-30)
+
+- **Measured** — Native `/place structure ocean_ruin_cold` at seed 1, chunk (0,0) places 18 pieces: the large `big_brick_2`/`big_cracked_2`/`big_mossy_2` triple and a five-cluster of small `brick`/`cracked`/`mossy` triples, bounds x -34..7 and z -27..8. It has six chests (one `underwater_ruin_big` and five `underwater_ruin_small`) and cold gravel/archaeology blocks; writes y -60..-52. `ocean_ruin_warm` places six pieces (`big_warm_5` plus five small ruins), six chests and warm sand/archaeology blocks; writes y -60..-54. Both drop to the flat ocean floor at y -60.
+- **Implemented** — Accept ocean_ruin_cold and ocean_ruin_warm in the command planner. The existing template, processor, level-random and generated-block-entity path covers the large/cluster pieces, integrity rot, capped archaeology conversion and underwater ruin chests.
+- **Pinned** — `TestPlaceOceanRuinParity` PASS 14.38s checks both legs' success/failure replies, all six chest positions and loot tables for each variant, and the chest counts. `TestCommandOceanRuinPlacement` pins piece counts, bounds, chest positions/loot seeds and write ranges. The six placement pins re-pass (ocean ruin 14.38s, igloo 11.91s, jungle 11.78s, pyramid 12.76s, shipwreck 11.30s, swamp hut 15.34s); focused worldgen 13.531s. Build/vet/tagged compilation pass. Three-file behavior artifact `6dbb96b93e66ccb35eb6ade0518051bae5ff8fbdc9ef8731a97da9197bdb0a01`. Remaining limit: archaeology block counts and integrity rot are level-random; other template structures remain unsupported.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire observations and factual bytecode measurement (OceanRuinStructure, OceanRuinPieces) inform independently written code.

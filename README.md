@@ -455,8 +455,10 @@ chests and suspicious sand included), `minecraft:jungle_pyramid` (moss
 selector, traps, chests and dispensers included), `minecraft:igloo`
 (top/laboratory templates, chest, sign and furnace included) and
 `minecraft:shipwreck`/`shipwreck_beached` (ocean/beached templates and
-supply/treasure/map chests included), correct `/fill` result counts and loaded
-endpoint checks, and player powder-snow freezing while world time is paused.
+supply/treasure/map chests included) and `minecraft:ocean_ruin_cold`/
+`ocean_ruin_warm` (large/cluster ruins, archaeology blocks and underwater ruin
+chests included), correct `/fill` result counts and loaded endpoint checks, and
+player powder-snow freezing while world time is paused.
 Native item saves preserve modeled fireworks, instrument removal, ominous
 banners and explicit black dye. Missing base mount bounds and selected static
 seats use measured dimensions and precision. These are measured subsets; see

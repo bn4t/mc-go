@@ -15,8 +15,9 @@ type CommandStructurePlan struct {
 // dependency beyond the live chunk snapshots. The desert pyramid's cellar
 // and afterPlace pass, the jungle temple's selector/trap pass and the
 // igloo's bundled-template top/laboratory pass and the shipwreck's
-// ocean/beached template pass are included.
-var commandStructureNames = map[string]bool{"swamp_hut": true, "desert_pyramid": true, "jungle_pyramid": true, "igloo": true, "shipwreck": true, "shipwreck_beached": true}
+// ocean/beached template pass and the ocean ruins' cold/warm template
+// passes are included.
+var commandStructureNames = map[string]bool{"swamp_hut": true, "desert_pyramid": true, "jungle_pyramid": true, "igloo": true, "shipwreck": true, "shipwreck_beached": true, "ocean_ruin_cold": true, "ocean_ruin_warm": true}
 
 // PlanCommandStructure builds a command-placed structure start. The
 // generator stands in for the level's chunk generator: the caller supplies

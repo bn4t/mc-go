@@ -397,3 +397,107 @@ func TestCommandShipwreckPlacement(t *testing.T) {
 		})
 	}
 }
+
+func TestCommandOceanRuinPlacement(t *testing.T) {
+	cases := []struct {
+		name    string
+		pieces  int
+		bounds  BoundingBox
+		chests  map[BlockPos]string
+		writesY [2]int32
+	}{
+		{
+			name: "ocean_ruin_cold", pieces: 18,
+			bounds: BoundingBox{MinX: -34, MinY: 90, MinZ: -27, MaxX: 7, MaxY: 105, MaxZ: 8},
+			chests: map[BlockPos]string{
+				{-27, -60, -10}: "minecraft:chests/underwater_ruin_small",
+				{-31, -60, 6}:   "minecraft:chests/underwater_ruin_small",
+				{-13, -60, -23}: "minecraft:chests/underwater_ruin_small",
+				{-9, -59, -10}:  "minecraft:chests/underwater_ruin_big",
+				{1, -60, -21}:   "minecraft:chests/underwater_ruin_small",
+				{6, -60, -10}:   "minecraft:chests/underwater_ruin_small",
+			},
+			writesY: [2]int32{-60, -52},
+		},
+		{
+			name: "ocean_ruin_warm", pieces: 6,
+			bounds: BoundingBox{MinX: -34, MinY: 90, MinZ: -27, MaxX: 7, MaxY: 105, MaxZ: 8},
+			chests: map[BlockPos]string{
+				{-33, -59, 4}:   "minecraft:chests/underwater_ruin_small",
+				{-25, -60, -10}: "minecraft:chests/underwater_ruin_small",
+				{-13, -60, -24}: "minecraft:chests/underwater_ruin_small",
+				{-2, -59, -20}:  "minecraft:chests/underwater_ruin_small",
+				{-7, -60, -7}:   "minecraft:chests/underwater_ruin_big",
+				{5, -60, -10}:   "minecraft:chests/underwater_ruin_small",
+			},
+			writesY: [2]int32{-60, -54},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plan, err := PlanCommandStructure(Vanilla(), 1, tc.name, 0, 0, -64, 384, -63, func(int32, int32, int) int32 { return -60 })
+			if err != nil || plan == nil {
+				t.Fatalf("plan %v %v", plan, err)
+			}
+			if len(plan.start.Pieces) != tc.pieces {
+				t.Fatalf("pieces=%d want%d", len(plan.start.Pieces), tc.pieces)
+			}
+			if b := plan.Bounds(); b != tc.bounds {
+				t.Fatalf("bounds=%+v want%+v", b, tc.bounds)
+			}
+			bounds := plan.Bounds()
+			chunks := map[[2]int32]*ProtoChunk{}
+			bedrock, _ := world.BlockStateOf("bedrock", nil)
+			dirt, _ := world.BlockStateOf("dirt", nil)
+			grass, _ := world.BlockStateOf("grass_block", nil)
+			for cx := bounds.MinX >> 4; cx <= bounds.MaxX>>4; cx++ {
+				for cz := bounds.MinZ >> 4; cz <= bounds.MaxZ>>4; cz++ {
+					c := NewProtoChunk(cx, cz, -64, 384)
+					for x := int32(0); x < 16; x++ {
+						for z := int32(0); z < 16; z++ {
+							c.Set(x, -64, z, bedrock)
+							c.Set(x, -63, z, dirt)
+							c.Set(x, -62, z, dirt)
+							c.Set(x, -61, z, grass)
+						}
+					}
+					chunks[[2]int32{cx, cz}] = c
+				}
+			}
+			writes, entities, blockEntities := plan.Place(chunks, NewLegacy(12345))
+			if len(writes) == 0 || len(entities) != 0 {
+				t.Fatalf("writes%d entities%v", len(writes), entities)
+			}
+			counts := map[string]int{}
+			for _, c := range chunks {
+				for _, b := range c.Blocks {
+					n, _ := world.StateOwner(b)
+					counts[n]++
+				}
+			}
+			if counts["chest"] != len(tc.chests) {
+				t.Errorf("chest=%d want%d", counts["chest"], len(tc.chests))
+			}
+			seen := map[BlockPos]bool{}
+			for _, be := range blockEntities {
+				table, _ := be.Data["LootTable"].(string)
+				if want, ok := tc.chests[be.Pos]; ok && table == want {
+					seen[be.Pos] = true
+					if _, ok := be.Data["LootTableSeed"].(int64); !ok {
+						t.Errorf("chest %v has no loot seed", be.Pos)
+					}
+				}
+			}
+			if len(seen) != len(tc.chests) {
+				t.Errorf("chests %v want %v", seen, tc.chests)
+			}
+			minY, maxY := int32(1<<30), int32(-1<<30)
+			for _, w := range writes {
+				minY, maxY = min(minY, w.Position[1]), max(maxY, w.Position[1])
+			}
+			if minY != tc.writesY[0] || maxY != tc.writesY[1] {
+				t.Errorf("write y %d..%d want%d..%d", minY, maxY, tc.writesY[0], tc.writesY[1])
+			}
+		})
+	}
+}
