@@ -19280,3 +19280,12 @@ The rejected forceload-based setup exposed an independent command-source dimensi
 - **Pinned** — Twenty-seven named core/scheduler/save/clone tests PASS3.644s; focused race1.517s and build/vet PASS. Tests include concurrent completion/reattachment, snapshot isolation, duplicate membership, batch owner indexes and fluid/block saves. Native API logs and frozen source are recorded in work/scheduled-detach-core-slice.md and work/scheduled-detach-core-manifest.txt.
 
 This is unbound infrastructure: no runtime caller detaches or discards containers yet. Native unload/reload wire observations prove a separate deadline pause that the Go runtime still fails. FULL/admission loss is not assumed to equal physical unload or serialization time. Backend eviction, IO lifecycle and normal-request sub-tick ordering remain open.
+
+
+## Slice — orb pose/gravity and finite overlap controls (2026-10-30)
+
+- **Measured** — Native first-tick attraction differs with standing, forced crouching, crawling and water/sprinting swimming poses. Gravity adds its ordinary downward step while the pose-specific pull remains distinct. Wire observations on Java26.2/JDK25.0.5+8, runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Test-only coverage: require actor-specific authoritative pose metadata, actual actor position, effective scale and roof/water witnesses before spawning the measured orb. Add explicit finite displacement/motion checks to prior overlap controls. Production is unchanged. Pose patch SHA256 0573ab634465ba9c116d2efa247555bef668c90d79dfbc8ef84be3f8415d4c19; finite patch SHA256 0a9fdfe42971fcbc66f606928e482f4aaabe1c363243528ffde8ce5f499b2bd4.
+- **Pinned** — All eight pose/gravity controls PASS26.35s, with first Age=1, literal native displacements and float32-drag checks. All22 overlap controls rerun PASS51.27s with finite guards. The earlier single-preparation-tick swimming-to-dry setup failed native pose readiness and is retained as rejected apparatus evidence; bounded preparation occurs before orb spawn and does not relax the first-tick outcome. Manifests: work/orb-attraction-pose-stage/ and work/orb-overlap-finite-stage/.
+
+These controls use default scale and one offset. Sleeping, same-frame scale transitions, attraction while the orb itself is in fluid, broader offsets and pickup/target-selection behavior remain separate.

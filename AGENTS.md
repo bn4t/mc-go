@@ -177,6 +177,8 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Decode unordered registry-keyed state by ID while retaining strict counts,
   duplicate/missing-ID checks and typed value assertions. Positional map order
   is not a clock synchronization guarantee.
+- Reject nonfinite values explicitly in numeric tolerance/range assertions;
+  comparisons against NaN can otherwise pass silently.
 - Pin actual raw summon hydration as well as direct load helpers: some entity
   branches return before generic applyEntitySave. Preserve one-dose retirement
   guards and split food/status/lifetime receipts when diagnosing cloud effects.

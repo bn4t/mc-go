@@ -1392,8 +1392,10 @@ actual chunk unloading is a separate lifecycle.
 
 Experience-orb attraction targets half the authoritative player eye height,
 including effective scale, rather than a fixed vertical offset. Standing
-scales0.5,1,2 are pinned with first-tick NoGravity displacement controls;
-other poses, transitions, gravity and fluid attraction remain separate.
+scales0.5,1,2 are pinned with first-tick NoGravity displacement controls.
+Default-scale standing, forced crouch, crawl and water/sprinting swimming targets
+also have first-tick controls with gravity enabled and disabled. Sleeping,
+transitions, orb-in-fluid attraction and broader offsets remain separate.
 
 
 The scheduler core distinguishes registered queues, detached resident containers

@@ -79,7 +79,7 @@ func TestOrbInsideCollisionShapeParity(t *testing.T) {
 				for axis := range motion {
 					var valid bool
 					motion[axis], valid = hrNum(values[axis])
-					if !valid {
+					if !valid || math.IsNaN(motion[axis]) || math.IsInf(motion[axis], 0) {
 						t.Fatal("invalid orb Motion")
 					}
 				}
@@ -95,6 +95,9 @@ func TestOrbInsideCollisionShapeParity(t *testing.T) {
 					sign = 1
 				}
 				for a := range delta {
+					if math.IsNaN(delta[a]) || math.IsInf(delta[a], 0) {
+						t.Fatalf("nonfinite orb displacement on axis%d: %g", a, delta[a])
+					}
 					if a == axis {
 						if distance := sign * delta[a]; distance < .1-1e-8 || distance > .3+1e-8 {
 							t.Errorf("%s NoGravity=%t %s axis%d escape=%g want [.1,.3]", addr, noGravity, tc.name, a, distance)

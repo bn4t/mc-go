@@ -411,3 +411,9 @@ physical unload. Observe serialization time and saved relative deadlines before
 claiming a paused clock. A detached resident may retain absolute deadlines;
 reattachment and reconstruction need separate controls. Pin stale completion
 fences and already-collected callbacks independently of future queue membership.
+
+
+Numeric physics assertions must explicitly reject NaN and infinity before
+applying tolerance or interval comparisons. For pose-dependent outcomes,
+observe metadata for the actual actor and allow preparation to settle before
+creating the entity whose exact first tick is measured.
