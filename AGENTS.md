@@ -286,3 +286,10 @@ Command eye constants are reproduced with tools/gencommandeyes/README.md:
 public dimension getters and static dimension objects produce a normalized
 fixture, then an independent stdlib generator emits float32 tables. Registry
 dimensions alone do not prove runtime pose, baby inheritance or scale behavior.
+
+
+Local command-coordinate numerics are reproduced with
+`tools/probecommandmath/README.md`: public API observations form the factual
+corpus; independent Go geometry must match declared float widths and phase
+boundaries. Keep complete sample membership checks and a command-consumer wire
+pin. Basis equality alone does not prove arbitrary weighted-sum ordering.

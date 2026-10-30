@@ -19435,3 +19435,12 @@ Positive stored levels are covered; explicit empty/default/removal semantics and
 - **Pinned** — Final scalar comparison PASS18.50s; stored-enchantment16.76s and jukebox19.28s regressions PASS. Actual disk save/restart tests retain all eight cases plus nested map0/amplifier0/dye; units PASS0.353s, build/vet/tagged compilation PASS. Evidence: work/native-scalars-stage/ and work/native-scalars-slice.md.
 
 Explicit dyed-color zero still lacks a presence model. Component removals, built-in default equivalence and broader codecs remain separate; using a stone amplifier intentionally avoids inferring ominous-bottle default patch behavior.
+
+
+## Slice — local command-coordinate numerical precision (2026-10-30)
+
+- **Measured** — Public native trigonometry and LocalCoordinates APIs produce float32 sample/angle rounding that analytic double rotations miss. Near zero yaw, a local-offset control differs by roughly0.000287 blocks. A reproducible public-only probe records65536 sine samples,60 boundary trig calls and789 basis vectors across263 rotations; runtime jar SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8, JDK25. Fixture SHA256 050b0f6b91a582f6dc3a6c009239631cd95b168b9af5f83a147e497fa81c9208.
+- **Implemented** — Independently synthesize periodic float32 sine samples with Go stdlib math, preserve measured angular precision and construct the standard forward/up/left basis. The existing teleport local-coordinate resolver uses this basis. Seven-path patch SHA256 493af8fe9b59adf10a430b9e3fa7328444b0a9463f8bc28230b2ad175e9f06c4; no native implementation or global physics math is copied or replaced.
+- **Pinned** — Exact-bit numerical census PASS0.152s, with duplicate/missing-index, required-constant and complete rotation-axis checks. Native command comparison PASS27.65s across24 bounded rotations/72 coordinates; unchanged source-rotation25.37s and anchor16.75s regressions PASS. Relevant units6.301s, build/vet/tagged compilation PASS. Reproduction: tools/probecommandmath/README.md; evidence: work/command-local-math-manifest.md.
+
+The wire check allows one unit of final scaled-floor rounding at1e6 scale; basis units match exact bits. Facing-angle interpolation, global entity trigonometry, arbitrary weighted-offset sums and broader local-coordinate grammar remain separate.

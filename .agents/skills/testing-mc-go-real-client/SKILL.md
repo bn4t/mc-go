@@ -449,3 +449,9 @@ Frozen command polls and player frames are distinct clocks. Compare actual
 play_time with an independent environmental quantity while world age stays
 fixed. Validate matching mode, health and admission first; preserve strict
 outcome assertions when a repaired fixture exposes a production clock defect.
+
+
+For numerical command parity, retain float widths and lookup-phase boundaries
+in independent expected values. Pair complete public API sample checks with
+actual command receipts. Check duplicate/missing corpus keys; distinguish exact
+basis equality from tolerance in weighted sums, addition and scaled floors.

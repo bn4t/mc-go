@@ -1469,3 +1469,10 @@ Frozen environmental/base player work uses the same due frame as living, food
 and statistics; the faster command poll no longer advances it independently.
 Normal simulation stepping and flushing retain their existing policy. Powder-snow
 accrual/thaw remains world-bound and requires separate player-frame integration.
+
+
+Local teleport coordinates use independently synthesized periodic float32
+trigonometry and a measured float32 basis before widening components. Public
+numeric corpora pin every sine sample and representative basis outputs; command
+wire controls pin their consumer. Facing-angle interpolation and global entity
+physics retain their separate implementations and remaining precision limits.

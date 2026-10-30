@@ -505,15 +505,7 @@ func tpResolveCoords(toks []string, bx, by, bz float64, issuer *Session) (x, y, 
 
 func tpResolveSourceCoords(toks []string, bx, by, bz float64, rotation [2]float32) (x, y, z float64) {
 	if strings.HasPrefix(toks[0], "^") {
-		yaw, pitch := float64(rotation[0]), float64(rotation[1])
-		yr, pr := yaw*math.Pi/180, pitch*math.Pi/180
-		fwd := [3]float64{-math.Sin(yr) * math.Cos(pr), -math.Sin(pr), math.Cos(yr) * math.Cos(pr)}
-		left := [3]float64{math.Cos(yr), 0, math.Sin(yr)}
-		up := [3]float64{
-			fwd[1]*left[2] - fwd[2]*left[1],
-			fwd[2]*left[0] - fwd[0]*left[2],
-			fwd[0]*left[1] - fwd[1]*left[0],
-		}
+		left, up, fwd := commandLocalBasis(rotation)
 		var amts [3]float64
 		for i := 0; i < 3; i++ {
 			if len(toks[i]) > 1 {
