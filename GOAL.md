@@ -60,7 +60,7 @@ Mojang server over the wire.
       Scheduled containers now retire through serialized native IO; full backend
       and entity eviction remain incomplete. Modeled native item loading and
       stored enchantments, repair costs, maps, colors, banner layers, stew effects
-      and pot decorations have disk/wire controls; arbitrary components remain
+      pot decorations, fireworks and instrument removal have disk/wire controls; arbitrary components remain
       incomplete.
 - [x] Chunk streaming, light packet. The streamed window is measured
       and matched exactly (square radius viewDistance+1 less a circular
@@ -19580,5 +19580,14 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 - **Measured** — Native command controls reject missing explosion shape, including rocket children, but accept empty, flight-only and explosions-only rocket components. Each attempt has a verified diamond-count sentinel and independently expected typed post-command slot state.
 - **Implemented** — Require explosion shape; default omitted rocket flight to zero and explosions to empty. Preserve explicit empty rocket versus absent component during native reads.
 - **Pinned** — Seven-form differential PASS 23.74s; shape regression PASS 30.10s; jukebox regression PASS 29.92s; reader units, build, vet and tagged compilation pass. Four-file artifact 189c2a751d5912c98114d301668eed1e7ba53fad3b4e34102673fbf2fb83896f. Diagnostic text, cursors and unmeasured numeric bounds remain outside this pin.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.
+
+
+## Slice — common firework and removed instrument persistence (2026-10-30)
+
+- **Measured** — Native nine-row typed save-view controls preserve required explosion shapes, ordered int color lists, byte flags/flight, empty rocket compounds and explicit instrument-removal compounds; absent values and seek horn are controls.
+- **Implemented** — Encode modeled fireworks through the corrected shared explosion leaf and preserve the explicit instrument-removal marker. Empty rocket remains distinct from absence.
+- **Pinned** — Differential PASS 18.33s, codec regression PASS 16.56s and jukebox PASS 23.41s. Actual SaveWorld/LoadWorld checks nine rows and nested small_ball, empty rocket and removed horn; unit group PASS 0.862s. Build/vet/tagged compilation pass. Four-file artifact 33842005211fe65004aa4a615b88976ecc23532d1478510f7a1d70fb35b0e649. Arbitrary component/default-patch equivalence remains incomplete.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.

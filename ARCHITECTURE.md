@@ -1495,8 +1495,8 @@ order. Fractional saturation and multiple spending quanta remain separate limits
 
 
 The native firework explosion leaf always includes shape, including small_ball;
-it is a required field rather than an omitted default. Common item firework
-component coverage and parser admission rules remain separate work.
+it is a required field rather than an omitted default. Common firework component
+coverage and parser admission rules are described below.
 
 
 Native cat hydration restores known variant and sound holders. Missing fields retain existing body values; a fresh body defines black/classic. Spawn metadata omits those defaults and later tabby changes emit the matching holder. Loaded observer lifecycle and arbitrary custom holders remain unproved.
@@ -1506,3 +1506,6 @@ Natural swamp-hut piece flags emit a witch/cat descriptor once. The simulation o
 
 
 Firework command/native readers require an explosion shape. Rocket flight and explosion lists are optional; an explicit empty rocket is represented separately from absence. Typed slot controls pin admission and retained state, not all diagnostics or numeric codec bounds.
+
+
+Common native item persistence now writes modeled explosions and rockets, including required default shapes and explicit empty rocket compounds. Instrument removal persists as an explicit removal compound. Root and nested disk restart controls preserve these distinctions; arbitrary prototype/default equivalence remains incomplete.
