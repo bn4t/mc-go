@@ -462,3 +462,6 @@ full-save receipt. Test last-controller loss and shutdown after completed IO,
 reticket/edit/re-detach with stale completion, and write failure/retry. Preserve
 serialized delays independently of unload latency. Future unmaterialized queue
 rows must not invoke the provider just to create a save snapshot.
+
+
+When sampling relative saved timers, a clean native save may leave old chunk bytes. Require an independently new persisted marker in the same compound as the timer before declaring automatic unload complete; equal game time and delay can describe an earlier save. Keep activation, FULL loss, serialization, physical discard and cold timer behavior distinct.

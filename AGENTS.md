@@ -306,3 +306,6 @@ Facing-command numerical facts are reproduced with
 Keep source position/executor distinct from selected facing targets. Record the
 measured finite command domain; matching float-degree consumers does not imply
 bit-identical intermediate atan values or arbitrary nonfinite behavior.
+
+
+When sampling relative saved timers, a clean native save may leave old chunk bytes. Require an independently new persisted marker in the same compound as the timer before declaring automatic unload complete; equal game time and delay can describe an earlier save. Keep activation, FULL loss, serialization, physical discard and cold timer behavior distinct.

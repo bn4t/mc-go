@@ -19600,3 +19600,12 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 - **Pinned** — Differential PASS 16.42s, firework writer regression PASS 16.62s and jukebox PASS 20.67s. Root/nested disk restart and typed canonical map units PASS 0.455s; build/vet/tagged compilation pass. Three-file artifact c582849d3c050cd2033ced9f0ce3742a414883df9452a9302d827812275bcb16. Partial/custom metadata and unsupported components remain incomplete.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.
+
+
+## Slice — source-water automatic scheduled-container lifetime proof (2026-10-30)
+
+- **Measured** — Native clean-chunk save completion can leave older relative timer bytes. A unique before-absent/after-present gold marker in the same saved compound proves automatic unload serialization separately from a prior save at the same game time.
+- **Implemented** — Add a fixture only: activate one original 5000-tick source-water row, observe three ticks spent, prove automatic save, keep its delay unchanged for 100 cold ticks, then observe three more ticks after return. No clone, timer rearm or departure save-all.
+- **Pinned** — Native PASS 25.01s and Go PASS 5.74s: delay 5000 to 4997, cold 4997, resumed 4994, with positive source water and same-record marker. One-file artifact ee992f2a60a774a861bd43e322f7d1f74e88246710749829225bea3a8c7d3bd7. Runtime remains 47751b7. Does not pin callback consumption, flowing/lava unload, physical cache eviction or Go LastUpdate metadata.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.
