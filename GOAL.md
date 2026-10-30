@@ -55,7 +55,11 @@ Mojang server over the wire.
       nothing else on the wire to pin.
 
 ### World
-- [~] Sharded world, block overrides, persistence
+- [~] Sharded world, block overrides, persistence: selective snapshots preserve
+      untouched region records and have native terrain/pending-tick readback.
+      Runtime unload/IO binding remains incomplete. Modeled native item loading
+      and positive repair-cost persistence have disk and wire controls; arbitrary
+      component preservation remains incomplete.
 - [x] Chunk streaming, light packet. The streamed window is measured
       and matched exactly (square radius viewDistance+1 less a circular
       corner cut at viewDistance+2.75, 49/81/117/213/329 columns for view
@@ -174,7 +178,9 @@ Mojang server over the wire.
       consumes canonical resistance; sword sweep raw-motion precision is pinned.
       Spear contacts detach measured ordinary NPC boat riders, with independent
       invulnerability/cooldown controls and client transition receipts. Other
-      mount geometry and specialized weapon consumers remain partial.
+      mount geometry and specialized weapon consumers remain partial. Held spear
+      use age follows admitted player ticks while contact cooldown follows level
+      time, with independent frozen-world and stepped-world controls.
 - [~] Projectiles, vehicles, mobs, villagers; player-thrown splash/lingering
       potions, registered variants, measured cloud doses and Ender Eye
       flight/use metadata now wire-pinned;
@@ -225,6 +231,8 @@ Mojang server over the wire.
       pinned. Infinite recurring effects use actual body ticks; Peaceful
       exhaustion preserves food. Instant health/harm/saturation command durations
       and selected active-tick delivery are pinned; direct-dose coverage remains partial.
+      Frozen environmental work follows the player frame instead of the command
+      poll, with strict void/air controls. Powder accrual/thaw remains a separate gap.
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
   shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
   /recipe give|take + RecipeBookAdd/Remove wire-parity including the
@@ -297,7 +305,9 @@ Mojang server over the wire.
   General unload/ticket lifecycles and native sub-tick ordering remain partial.
   Attribute getters and mutations supply measured typed execute-store results.
   Player-only @s arguments use bound executors, including neutral sources;
-  implicit targets and broader selector grammar remain partial.
+  implicit targets and broader selector grammar remain partial. Forceload uses
+  bound source position/dimension; execute-in scales X/Z in primitive and batch
+  paths, with typed intended/unintended-world controls.
   Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
   file/tag events survive native save/restart. Startup load/tick tags and measured
@@ -19400,3 +19410,10 @@ This is storage groundwork; runtime unload and IO-lane binding remain open. Call
 - **Pinned** — Hunger21.41s, frozen-air13.64s, frozen-effect39.24s and infinite-food38.59s comparisons PASS; focused race3.847s, related units1.112s and exact-owned loop unit0.349s PASS. Build/vet/default/tagged compilation PASS. Evidence: work/frozen-player-clock-stage/manifest.md. The broader legacy PlayerFluid test remains unpassed: native setup fails independently. Isolated powder-snow probes on both pre/post-clock trees pass native full-freezing/event controls but reject Go's full-freezing precondition, confirming a separate preexisting world-bound powder accrual gap.
 
 Scope is default-rate frozen environmental cadence. Powder accrual/thaw, general rate transitions and full step/sprint ownership remain separate; no food-threshold change is included.
+
+
+## Slice — clock, source and selective-persistence integration verification (2026-10-30)
+
+- **Measured** — Independent native controls established spear clock domains, forceload source/scaling, modeled item restoration, selective region preservation and frozen player environmental cadence. Their bounded evidence and remaining gaps are recorded in the preceding slices.
+- **Implemented** — Integrated these changes with the strict hunger fixture and updated the living matrix, architecture, agent conventions and testing skill. Runtime unload binding and powder-snow accrual remain separate work.
+- **Pinned** — Immutable committed1b648d4 passed build, vet, generated eye-table consistency, tagged compilation and the complete default test suite. Internal server272.038s, world0.404s, worldgen14.169s, public server8.145s and default blackbox131.539s all PASS; session40294 exit0. Log: work/verified-1b648d4.log. This is not a claim of complete live-oracle, GUI or production-load verification.
