@@ -691,6 +691,15 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 			comps["minecraft:stored_enchantments"] = levels
 		}
 	}
+	if it.MapID != 0 {
+		comps["minecraft:map_id"] = it.MapID - 1
+	}
+	if it.BottleAmpSet {
+		comps["minecraft:ominous_bottle_amplifier"] = it.BottleAmp
+	}
+	if it.DyedColor != 0 {
+		comps["minecraft:dyed_color"] = it.DyedColor
+	}
 	if it.PotionScaleSet {
 		comps["minecraft:potion_duration_scale"] = it.PotionScale
 	}

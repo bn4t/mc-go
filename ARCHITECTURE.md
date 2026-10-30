@@ -1437,8 +1437,10 @@ Unknown component models retain the previous fallback. Native item restoration
 now shares modeled-field decoding while retaining dedicated recursive containers,
 bundles, trim, books and potions. The common writer preserves positive repair
 cost and modeled stored enchantment levels, keeping normal and stored maps
-distinct. Arbitrary components, explicit empty/removal semantics and full
-codec/error-boundary parity remain incomplete.
+distinct. Map IDs and explicit bottle amplifiers retain zero versus absence;
+nonzero dyed colors also persist. Dyed-color zero still lacks a presence model.
+Arbitrary components, explicit empty/removal semantics and full codec/error-boundary
+parity remain incomplete.
 
 
 Spear use age advances on admitted player-use passes, including during world

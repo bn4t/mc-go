@@ -19426,3 +19426,12 @@ Scope is default-rate frozen environmental cadence. Powder accrual/thaw, general
 - **Pinned** — Focused final differential PASS16.04s, with independently expected typed maps for book and dual-component item. Actual native-format disk save/restart units cover book, dual-map item and nested book; named units PASS0.453s. Build/vet/tagged compilation, jukebox15.73s and common restoration18.65s regressions PASS. Evidence: work/native-stored-enchantments-stage/manifest.json and work/native-stored-enchantments-focused-wire.log.
 
 Positive stored levels are covered; explicit empty/default/removal semantics and other modeled writer omissions remain separate. The native wire control reads the canonical save view; Go disk restart is independently asserted by the unit rather than inferred from that query.
+
+
+## Slice — native map, amplifier and dyed-color item persistence (2026-10-30)
+
+- **Measured** — Eight native item controls distinguish map IDs4/0/absent, bottle-amplifier values4/0/absent on stone, and helmet RGB1193046/absent. Native writes populated values as TAG_Int, including explicit map/amplifier zero; Go omitted all five populated values. Baseline native PASS1.57s/Go FAIL1.03s. Java26.2/Temurin25.0.5+8 wire observations; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Serialize existing modeled fields using the map ID offset sentinel, amplifier presence flag and nonzero dyed color. Three-file patch SHA256 f6d377be42fbea3d6000895a48b630b11edd21600743a35c17d9f8f05607d0de.
+- **Pinned** — Final scalar comparison PASS18.50s; stored-enchantment16.76s and jukebox19.28s regressions PASS. Actual disk save/restart tests retain all eight cases plus nested map0/amplifier0/dye; units PASS0.353s, build/vet/tagged compilation PASS. Evidence: work/native-scalars-stage/ and work/native-scalars-slice.md.
+
+Explicit dyed-color zero still lacks a presence model. Component removals, built-in default equivalence and broader codecs remain separate; using a stone amplifier intentionally avoids inferring ominous-bottle default patch behavior.
