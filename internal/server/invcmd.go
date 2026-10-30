@@ -210,10 +210,11 @@ func (s *Server) runClear(player string, args []string) reply {
 	sender := s.findSessionByName(player)
 	targets := []*Session{}
 	if len(args) == 0 {
-		if sender == nil {
-			return componentReply(commandError("argument.entity.notfound.player"))
+		var rep *reply
+		targets, rep = s.selectPlayers(sender, "@s", 0)
+		if rep != nil {
+			return componentReply(commandError("permissions.requires.player"))
 		}
-		targets = append(targets, sender)
 	} else {
 		t, rep := s.selectPlayers(sender, args[0], 1)
 		if rep != nil {

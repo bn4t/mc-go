@@ -18984,3 +18984,12 @@ Positive infinity controls prove connection retention, not complete clamp/positi
 - **Measured** — Verify immutable commit6eaa28d with all concurrent work excluded.
 - **Implemented** — No additional production changes; record integration before publication.
 - **Pinned** — Build/vet PASS, tagged blackbox compilation0.081s PASS, complete default `go test -p 2 ./... -count=1 -timeout 25m` exits0: internal/server299.672s, world0.489s, worldgen30.349s, publicserver13.197s and default blackbox150.584s. All remaining packages pass. Evidence: `work/verified-6eaa28d.log`; the preceding slice records native movement and public-avatar controls. Full native-oracle, graphical-client and realistic-load verification remain separate.
+
+
+## Slice — implicit clear target follows the executor (2026-10-30)
+
+- **Measured** — Native argumentless clear targets the bound player: a nonplayer executor cannot clear the caller, a bound other player loses its own two diamonds, and a scheduled neutral-source function can clear that player while preserving the caller's one-diamond sentinel. Native-first PASS29.10s (native4.59s). Wire plus the factual CommandSourceStack ERROR_NOT_PLAYER translation constant; Java26.2/JDK25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Resolve argumentless clear through the committed frame-first player self lookup. Nil/nonplayer executors report permissions.requires.player. Explicit targets, parser behavior and numeric results are unchanged.
+- **Pinned** — Three-file patch SHA256 `bbed27df679e7462e130d0f1d4232c68acec65c2b4a8bb5f8b816b2412cf4678`, base1d1818d. Native/Go inventory comparison PASS22.39s (3.20/2.45), actual named unit0.079s, build/vet/tagged compilation PASS. Units pin nil/nonplayer error classification and a bound player without an actor session. Source/provenance: `work/player-implicit-clear-manifest.md` and frozen stage. The initial unit inspected the wrong component wrapper; that assertion-only correction and failed log are retained.
+
+This fixes implicit clear only and uses the existing dispatcher. General implicit command targets, selectors and pending execute-plan semantics remain separate.

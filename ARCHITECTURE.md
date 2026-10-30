@@ -1206,6 +1206,8 @@ frontier, avoiding expansion of unreachable recursive tails or fork siblings.
 Manual/tag, startup/tick, scheduled and advancement-reward calls use this path.
 Player-only @s arguments use the bound executor, including neutral server-source
 frames; nil or nonplayer executors cannot fall back to the original caller.
+Argumentless clear uses that same bound player and reports the native
+requires-player failure for nonplayer sources.
 The context starts at function entry; shared budgets across outer command forks,
 max_command_forks, return/macros and complete parser continuations remain open.
 
