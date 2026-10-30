@@ -90,7 +90,9 @@ ability and initializes health from the copied maximum-health base. Retained
 equipment reapplies. Player instant healing, regeneration and food healing use
 effective maximum health; lowering that maximum clamps excess health on the
 living frame, while raising it grants no free healing. Complete ability and
-effect mechanics remain partial.
+effect mechanics remain partial. Finite regeneration, poison and wither on
+players and mobs use native zero-interval and amplifier-wrap scheduling.
+Infinite periodic effects remain separate work.
 
 Native NoGravity projects to client metadata at pairing and on true/false changes
 across measured living, item and boat paths. Crystal reloads retain dirty updates

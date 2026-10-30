@@ -717,17 +717,17 @@ func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectI
 	}
 	switch id {
 	case 19: // wither: hurt 1.0 wither() every 40>>amplifier
-		if ivl := int64(40) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 {
+		if effectPeriodicTickDue(40, inst.amplifier, rem+1) {
 			s.damageWith(sess, 1.0, translatable("death.attack.wither", literal(sess.getName())),
 				damageSource{typeName: "wither"})
 		}
 	case 18: // poison: hurt 1.0 magic() every 25>>amplifier, never below 1 hp
-		if ivl := int64(25) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 && sess.health > 1 {
+		if effectPeriodicTickDue(25, inst.amplifier, rem+1) && sess.health > 1 {
 			s.damageWith(sess, 1.0, translatable("death.attack.magic", literal(sess.getName())),
 				damageSource{typeName: "magic"})
 		}
 	case 9: // regeneration: heal 1.0 every 50>>amplifier below max
-		if ivl := int64(50) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 && sess.health < sess.server.playerMaxHealth(&sess.playerRecord) {
+		if effectPeriodicTickDue(50, inst.amplifier, rem+1) && sess.health < sess.server.playerMaxHealth(&sess.playerRecord) {
 			sess.healPlayer(1)
 		}
 	case 16: // hunger: causeFoodExhaustion every tick, players only
@@ -757,15 +757,15 @@ func (s *Server) applyEffectTickEntity(ep *Entity, id int32, inst mobEffectInst)
 	}
 	switch id {
 	case 19:
-		if ivl := int64(40) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 {
+		if effectPeriodicTickDue(40, inst.amplifier, rem+1) {
 			s.damageMob(ep, 1.0, "wither", nil, &damageInfo{typeName: "wither"})
 		}
 	case 18:
-		if ivl := int64(25) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 && ep.Health > 1 {
+		if effectPeriodicTickDue(25, inst.amplifier, rem+1) && ep.Health > 1 {
 			s.damageMob(ep, 1.0, "magic", nil, &damageInfo{typeName: "magic"})
 		}
 	case 9:
-		if ivl := int64(50) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 {
+		if effectPeriodicTickDue(50, inst.amplifier, rem+1) {
 			s.entities.Heal(ep.ID, 1.0)
 		}
 	}
