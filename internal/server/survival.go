@@ -619,6 +619,7 @@ func (s *Server) itemTickStep() {
 			setEmbeddedEntityEscapeVelocity(w, e, heightBox)
 			e.PosDirty = true
 			e.NeedsSync = true
+			s.moveExperienceOrb(e, w)
 		}
 		if orb && !inside {
 			// ExperienceOrb.tick: Entity.tick's updateFluidInteraction

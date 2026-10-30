@@ -1311,7 +1311,10 @@ Experience-orb movement retains shared collision, restitution and vibration
 effects, then applies promoted float drag/friction and its separate floor
 response. That response compares incoming vertical velocity with effective
 gravity, including NoGravity. Ordinary air and stone/slime contacts are pinned;
-embedded escape and fluid-specific movement remain separate.
+embedded full-stone escape also advances through this tail after selecting its
+impulse, while skipping ordinary gravity/fluid/follow updates. First-tick escape
+bounds and damping are pinned; partial shapes, embedded fluids and subsequent
+trajectories remain separate.
 
 
 Saturation potion drinking delivers one food/saturation dose regardless of

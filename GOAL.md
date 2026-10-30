@@ -19145,3 +19145,12 @@ Retain the original full integration failure, old-fixture yaw mismatch, and init
 - **Pinned** — Final normal differential PASS17.69s(native2.84/Go3.18), frozen23.35s(native3.19/Go3.07), focused units14.328s, build/vet/tagged compile and public frontend regression0.98s(package1.105s) PASS. Both wire cases assert exactly one head255, authoritative pitch-only update and no redundant head over four actual player ticks; frozen world age remains unchanged. Evidence: `work/player-head-slice.md`, `work/player-head-stage/`.
 
 Body packet selection/quantization remains different in the retained control. Exact tracker phase, general ground semantics, riders and broader teleport behavior are not established by this head-only slice.
+
+
+## Slice — advance embedded orbs after escape selection (2026-10-30)
+
+- **Measured** — Ten native first-Age1 controls force five air exits from stone enclosures with both gravity states. Escape speed lies in[.1,.3], off-axis motion stays zero and outgoing motion equals displacement times promoted.98f. Go selected an impulse without moving. Strict baseline FAIL23.32s contains ten passing native observations and20 Go bound/drag failures. Wire, Java26.2/JDK25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Invoke the verified orb movement tail after embedded escape selection. Keep ordinary fluid/gravity/follow logic gated outside the embedded branch. Two-file patch SHA256 `a91ed53debc544c8a2c471ac7750c24ac0c580cb1c30373d0da7ba69a4165415`, following orb movement5cad739.
+- **Pinned** — Strict ten-case differential PASS29.31s; default compile0.397s and tagged build PASS. Existing42-case ordinary orb/vibration regression PASS103.57s. Geometry selects direction while bounds and displacement–motion relations avoid comparing random sample identities. Final exits/source hashes: `work/orb-embedded-fixed-stage/manifest.json`.
+
+This pins the first actual tick inside a full stone enclosure with one air exit. Partial shapes, embedded fluids, subsequent trajectories and hard-entity collisions remain separate.
