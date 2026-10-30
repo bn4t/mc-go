@@ -1489,3 +1489,8 @@ physics retain their separate implementations and remaining precision limits.
 Food exhaustion spends only when strictly above four; an exact four remains
 until more exhaustion arrives. Deferred regeneration cost keeps its existing
 order. Fractional saturation and multiple spending quanta remain separate limits.
+
+
+The native firework explosion leaf always includes shape, including small_ball;
+it is a required field rather than an omitted default. Common item firework
+component coverage and parser admission rules remain separate work.

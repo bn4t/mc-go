@@ -15,6 +15,7 @@ const jukeboxModeledRecord = `{id:"minecraft:music_disc_cat",count:2,components:
 func TestJukeboxModeledComponentDiskAndEjection(t *testing.T) {
 	for name, record := range map[string]string{
 		"modeled":            jukeboxModeledRecord,
+		"small_ball":         `{id:"minecraft:music_disc_cat",count:2,components:{"minecraft:firework_explosion":{shape:"small_ball"},"minecraft:fireworks":{flight_duration:2b,explosions:[{shape:"star",colors:[1,2],fade_colors:[3],has_trail:1b,has_twinkle:1b},{shape:"small_ball",colors:[4]}]}}}`,
 		"ominous":            jukeboxOminousRecord,
 		"empty_container":    `{id:"minecraft:music_disc_cat",count:2,components:{"minecraft:container":[]}}`,
 		"zero_fireworks":     `{id:"minecraft:music_disc_cat",count:2,components:{"minecraft:fireworks":{}}}`,

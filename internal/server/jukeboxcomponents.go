@@ -132,10 +132,7 @@ func jukeboxDiscComponents(disc ItemStack) map[string]any {
 
 func jukeboxExplosionNBT(explosion string) map[string]any {
 	shape, colors, fades, trail, twinkle := fireworkExpParse(explosion)
-	out := map[string]any{}
-	if shape != "small_ball" {
-		out["shape"] = shape
-	}
+	out := map[string]any{"shape": shape}
 	for key, values := range map[string][]int32{"colors": colors, "fade_colors": fades} {
 		if len(values) > 0 {
 			list := nbt.List{Elem: nbt.TagInt}
