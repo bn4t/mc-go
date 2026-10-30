@@ -728,6 +728,9 @@ type Entity struct {
 	Jumping     bool
 	NoJumpDelay int
 	HColl       bool
+	// Entity base-tick displacement cache; velocity alone is not known speed.
+	knownSpeed, knownSpeedPosition [3]float64
+	knownSpeedInit                 bool
 	// ServerEntity position/rotation send state: the fixed-point
 	// (1/4096) base the last position packet was computed from, the
 	// last packed rotation bytes, ticks since the last

@@ -636,6 +636,7 @@ func (s *Server) tpTeleportTransition(e *Entity, x, y, z float64, yaw, pitch flo
 		s.tpPassengerTransition(e, pid, x, y, z, yaw, pitch, relMask, mx, my, mz, myaw, mpitch)
 	}
 	e.X, e.Y, e.Z, e.Yaw, e.Pitch = x, y, z, yaw, pitch
+	e.knownSpeedInit = false // Teleport resets the next position baseline, not the cached value.
 	// Vanilla's teleportSetPosition just repositions — the tracker
 	// emits entity_position_sync on the next sendChanges (its
 	// teleportDelay branch), never from the command itself —

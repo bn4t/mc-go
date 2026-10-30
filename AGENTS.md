@@ -125,6 +125,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   separately from a codec's partial result, including function permission level.
 - Mixed avatar/session tests must await actual owned avatar retirement before
   direct legacy session teardown; Close can return before queued retirement.
+- For native method experiments with injected state, list every injected field
+  and distinguish method behavior from real construction/world admission. Test
+  reset followed by movement before sampling; do not infer reset semantics.
 - Pair raw/effective attribute queries with the physical consumer outcome. For
   healing, clear prior instant effects and observe actual player ticks before
   asserting Health; raising a maximum alone does not heal.

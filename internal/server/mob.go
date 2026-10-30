@@ -4972,6 +4972,7 @@ func (s *Server) mobTickStep() {
 		if e.Dormant || !s.mobInSimulationRange(e) {
 			continue
 		}
+		sampleMobKnownSpeed(e)
 		// Mob.checkDespawn, ticking order matched to serverAiStep:
 		// noActionTime counts up first, then the despawn rules run —
 		// peaceful purge, persistence exemption, the >128 instant

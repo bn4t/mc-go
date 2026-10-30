@@ -19000,3 +19000,12 @@ This fixes implicit clear only and uses the existing dispatcher. General implici
 - **Measured** — Verify immutable commite70cc3f with unrelated in-progress work excluded.
 - **Implemented** — No additional production changes; record the integration gates before publication.
 - **Pinned** — Build/vet PASS, tagged blackbox compilation0.273s PASS, complete default `go test -p 2 ./... -count=1 -timeout 25m` exits0: internal/server554.489s, world0.913s, worldgen24.871s, publicserver47.192s and default blackbox301.361s. All remaining packages pass. Evidence: `work/verified-e70cc3f.log`. Slice-specific native inventory/source controls remain recorded above; no full native-oracle, graphical-client or realistic-load performance claim.
+
+
+## Slice — runtime mob known-speed sampling (2026-10-30)
+
+- **Measured** — Controlled native Entity method calls establish actual-displacement sampling, first-sample zero, retained cached speed without a tick and zero after a stationary sample. Teleport/reapplication retains the cached vector until the next sample but invalidates its baseline: a later ordinary move before that sample still yields zero. Printed final positions rule out a no-op setter and disprove the proposed C-B alternative. Factual call paths show baseTick sampling and load position reapplication. Java26.2/JDK25.0.5+8; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Add private runtime mob position/speed samples before NoAI, gated by actual mob ticking. Teleport and full data reload invalidate the baseline without immediately changing cached speed. No persisted fields or gameplay consumers change.
+- **Pinned** — Six-file patch SHA256 `529641ff6431dbaf7f2b37870478dc550acfc3f4b01a7a1716618d2a042df5de`, basee70cc3f. Frozen focused units PASS0.484s cover NoAI, parked/frozen passes, resumed/stationary ticks, teleport then ordinary movement before first/later samples, load then movement, and retained cache before sampling. Existing native spear controls corroborate stationary targets with retained velocity. Evidence: `work/known-speed-manifest-v2.md`, `work/native-known-speed-teleport-followup.log`.
+
+The scratch native subclass bypasses construction and injects explicitly listed minimal state; those method observations do not establish full constructor/world/spawn behavior. Ordinary ticking mobs are covered; the dragon loop, other entity/controller paths and spear consumer adoption remain separate.

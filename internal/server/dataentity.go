@@ -1340,6 +1340,7 @@ func nbtBool(v bool) int8 {
 // plus the movement_speed update_attributes vanilla emits on every
 // mutation.
 func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
+	e.knownSpeedInit = false // Entity.load reapplies position before the next base-tick sample.
 	prevHealth, prevName, prevNoAI := e.Health, e.CustomName, e.NoAI
 	prevOrbValue := e.OrbValue
 	prevSheared, prevColor := e.Sheared, e.Color

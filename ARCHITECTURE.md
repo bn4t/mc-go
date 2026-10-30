@@ -1255,3 +1255,10 @@ hooks, with omitted packet fields treated as zero for that check. Invalid raw
 packets disconnect; a plugin-generated invalid destination still follows shared
 correction/rejection behavior. Neutral avatar capability policy is unchanged.
 Coordinate-infinity connection controls do not establish physical clamp parity.
+
+
+Ordinary living-mob ticks maintain a runtime displacement sample independent of
+stored velocity, including NoAI bodies. Parked bodies retain their last sample.
+Teleport/data reload invalidate the next baseline while retaining the cached
+vector until sampling. This primitive is not yet consumed by spear damage; the
+dragon loop and broader controller/entity speed policies remain separate.
