@@ -18834,3 +18834,12 @@ The live comparison covers regular items. Other consumers of common restitution,
 - **Measured** — Verify immutable commit89d59fd containing the independently pinned scoreboard results, builtin/root completion, item escape geometry and NoGravity restitution slices. Concurrent agent work is excluded from the archive.
 - **Implemented** — No additional production changes; record the integrated verification before publication.
 - **Pinned** — Build/vet PASS; tagged blackbox compilation PASS0.191s; complete default `go test -p 2 ./... -count=1 -timeout 25m` exits0. Internal/server324.946s, world0.416s, worldgen17.088s, publicserver7.859s and default blackbox150.937s; all remaining packages pass. Evidence: `work/verified-89d59fd.log`. Individual native controls remain documented in their slices. This does not claim a full native-oracle suite, graphical-client validation or realistic-load performance completion.
+
+
+## Slice — scheduled-function time syntax and validation order (2026-10-30)
+
+- **Measured** — Native19-control probe PASS13.52s establishes consumed numeric-unit delimiters, invalid-unit/minimum/trailing syntax before missing-function lookup, rounded zero rejection and deferred unknown-tag acceptance. Replies include typed arguments and complete cursor styles/previews/click commands. Java26.2/JDK25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Pass the consumed unit prefix to existing time conversion, report delimiter/minimum cursors at that position, and validate mode/trailing syntax before resolving the function. Reuse the shared time token boundary helper; preserve queue identity, persistence, callback execution and deferred tag lookup.
+- **Pinned** — Three-file SHA256 `fdb9bccb204eed17c5bf0af1374ed6083dd8cfecfdaeb0e13288629e34789311`. Strict19-case native/Go wire PASS13.60s (2.13/2.10), existing scheduling regression PASS22.96s (5.32/3.98), focused units0.280s, build/vet/tagged gates PASS. Each rejected target clears no event afterward; positive function/tag requests clear exactly one. Units retain a preexisting queue and serial through invalid requests. Artifacts/provenance: `work/schedule-grammar-stage/manifest.json`, `work/schedule-grammar-slice.md` and associated logs.
+
+This closes the measured whole-token duration boundary gap. Arbitrary identifier/Unicode/whitespace semantics, broader completions and function execution remain separate scopes.

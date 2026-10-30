@@ -68,20 +68,21 @@ func (s *Server) runFunctionSchedule(args []string) reply {
 		if !ok {
 			return errToken("argument.id.invalid", 2)
 		}
-		if _, ok := s.functions[id]; !isTag && !ok {
-			return componentReply(commandError("arguments.function.unknown", id))
-		}
-		ticks, problem, number := functionScheduleTime(args[2])
+		end := timeArgumentTokenEnd(args[2])
+		ticks, problem, number := functionScheduleTime(args[2][:end])
 		switch problem {
 		case "parsing.float.expected":
 			return errToken(problem, 3)
 		case "parsing.float.invalid":
 			return errToken(problem, 3, number)
 		case "argument.time.invalid_unit":
-			return errTokenEnd(problem, 3)
+			return errTokenOff(problem, 3, end)
 		}
 		if ticks < 0 {
-			return errTokenEnd("argument.time.tick_count_too_low", 3, int32(0), ticks)
+			return errTokenOff("argument.time.tick_count_too_low", 3, end, int32(0), ticks)
+		}
+		if end < len(args[2]) {
+			return errTokenOff("command.expected.separator", 3, end)
 		}
 		replace := true
 		if len(args) > 3 {
@@ -95,6 +96,11 @@ func (s *Server) runFunctionSchedule(args []string) reply {
 			if len(args) > 4 {
 				return errToken("command.unknown.argument", 5)
 			}
+		}
+		// Function resolution is an execution failure: complete argument
+		// syntax must be validated before consulting the loaded registry.
+		if _, ok := s.functions[id]; !isTag && !ok {
+			return componentReply(commandError("arguments.function.unknown", id))
 		}
 		if ticks == 0 {
 			return componentReply(commandError("commands.schedule.same_tick"))

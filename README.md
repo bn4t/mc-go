@@ -121,7 +121,9 @@ their own progress and rewards. Selectors query custom advancement completion
 and criterion maps using that server's definitions; unknown IDs or criteria
 remain nonmatching.
 Registered startup file functions support `/schedule function` with append or
-replace and `/schedule clear`. Deadlines follow world time and frozen-world
+replace and `/schedule clear`. Duration delimiters and trailing syntax are
+validated before function lookup, without creating events for rejected requests.
+Deadlines follow world time and frozen-world
 controls; scheduled functions can summon from the server's world-spawn source.
 File and function-tag callbacks and absolute deadlines survive native saves
 and restart. Startup folder function tags support merge/replace and measured
