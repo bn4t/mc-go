@@ -47,11 +47,12 @@ func (s *Server) runPlaceStructure(player string, args []string) reply {
 	}
 	var baseHeight func(int32, int32, int) int32
 	if d.flat {
-		baseHeight = func(int32, int32, int) int32 { return -60 }
+		top := int32(d.flatTop)
+		baseHeight = func(int32, int32, int) int32 { return top }
 	} else if d.terrain != nil {
 		baseHeight = d.terrain.g.BaseHeight
 	}
-	plan, err := worldgen.PlanCommandStructure(s.jigsawRuntimeData(), s.worldSeed(), short, int32(position[0]>>4), int32(position[2]>>4), int32(d.minY), int32(d.height), baseHeight)
+	plan, err := worldgen.PlanCommandStructure(s.jigsawRuntimeData(), s.worldSeed(), short, int32(position[0]>>4), int32(position[2]>>4), int32(d.minY), int32(d.height), int32(d.seaLevel), baseHeight)
 	if err != nil || plan == nil {
 		return componentReply(commandError("commands.place.structure.failed"))
 	}
@@ -77,10 +78,13 @@ func (s *Server) runPlaceStructure(player string, args []string) reply {
 			chunks[[2]int32{cx, cz}] = chunk
 		}
 	}
-	writes, entities := plan.Place(chunks)
+	writes, entities, blockEntities := plan.Place(chunks, worldgen.NewLegacy(int64(s.rng.next())))
 	for _, write := range writes {
 		p := write.Position
 		s.setSilentBlock(d, world.Pos{X: int(p[0]), Y: int(p[1]), Z: int(p[2])}, write.State)
+	}
+	for _, be := range blockEntities {
+		s.installGenBlockEntity(d, world.Pos{X: int(be.Pos[0]), Y: int(be.Pos[1]), Z: int(be.Pos[2])}, be.Data)
 	}
 	for _, entity := range entities {
 		if entity.Type == "cat" {

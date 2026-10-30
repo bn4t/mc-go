@@ -916,7 +916,7 @@ func generateStronghold(g *Generator, c *GenContext) []StructurePiece {
 			sg.pending = append(sg.pending[:k], sg.pending[k+1:]...)
 			p.addChildren(sg, r)
 		}
-		moveBelowSeaLevel(sg.pieces, g.RS.settings.seaLevel, g.RS.lvMinY, r, 10)
+		moveBelowSeaLevel(sg.pieces, g.seaLevel(), g.RS.lvMinY, r, 10)
 		if len(sg.pieces) > 0 && sg.portal != nil {
 			return sg.pieces
 		}

@@ -36,6 +36,18 @@ type Generator struct {
 	// immutable bundled-template cache used by terrain generation.
 	runtimeTemplate   func(string) map[string]any
 	runtimeBaseHeight func(int32, int32, int) int32
+	runtimeSeaLevel   int32
+	runtimeSeaSet     bool
+}
+
+// seaLevel is ChunkGenerator.getSeaLevel: the noise settings' sea level, or
+// the runtime chunk generator's when a planner stands in for another level
+// type (the flat command world's -63).
+func (g *Generator) seaLevel() int32 {
+	if g.runtimeSeaSet {
+		return g.runtimeSeaLevel
+	}
+	return g.RS.settings.seaLevel
 }
 
 // NewGenerator builds a generator for noise settings and a biome

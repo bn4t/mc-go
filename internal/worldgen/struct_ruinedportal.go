@@ -153,7 +153,7 @@ func ruinedPortalFind(c *GenContext, setups []rpSetup) (*GenerationStub, bool) {
 			replaceBlackstone: setup.replaceWithBlackstone}
 		if setup.canBeCold {
 			b := g.Biomes.Biome(g.RS, nil, quartFromBlock(pos[0]), quartFromBlock(pos[1]), quartFromBlock(pos[2]))
-			props.cold = g.RS.BiomeInfo(b).ColdEnoughToSnow(pos[0], pos[1], pos[2], g.RS.settings.seaLevel)
+			props.cold = g.RS.BiomeInfo(b).ColdEnoughToSnow(pos[0], pos[1], pos[2], g.seaLevel())
 		}
 		p := &ruinedPortalPiece{tplPiece: newTplPiece("rupo", name, ruinedPortalSettings(g, rot, mir, setup.placement, pivot, props), pos, 0),
 			rot: rot, mir: mir, placement: setup.placement, props: props}

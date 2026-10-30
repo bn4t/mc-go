@@ -43,11 +43,15 @@ type dimension struct {
 	w                 *world.World
 	seaLevel          int32
 	flat              bool
-	coordScale        float64
-	minY              int
-	height            int
-	skylight          bool
-	biome             string
+	// flatTop is the flat generator's first free y (ChunkGenerator
+	// getBaseHeight over its layers); the command structure planner uses
+	// it in place of the noise column.
+	flatTop    int
+	coordScale float64
+	minY       int
+	height     int
+	skylight   bool
+	biome      string
 	// biomes overrides the dimension's single biome at quart
 	// granularity (4x4x4 cells), written by /fillbiome — chunk encode
 	// still ships the base palette; gameplay reads go through
@@ -236,6 +240,7 @@ func (s *Server) initDimensions() {
 			w:          s.world,
 			seaLevel:   -63,
 			flat:       true,
+			flatTop:    -60,
 			coordScale: 1,
 			minY:       MinY,
 			height:     Height,
@@ -249,6 +254,7 @@ func (s *Server) initDimensions() {
 			w:          newDimWorld(s.bus, netherGen, "minecraft:nether_wastes"),
 			seaLevel:   32,
 			flat:       true,
+			flatTop:    -60,
 			coordScale: 8,
 			minY:       0,
 			height:     256,
@@ -263,6 +269,7 @@ func (s *Server) initDimensions() {
 			w:          newDimWorld(s.bus, endGen, "minecraft:the_end"),
 			seaLevel:   0,
 			flat:       true,
+			flatTop:    -60,
 			coordScale: 1,
 			minY:       0,
 			height:     256,

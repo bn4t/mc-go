@@ -298,6 +298,9 @@ type Region struct {
 	chunks        map[[2]int32]*ProtoChunk
 	runtimeBlock  func(int32, int32, int32) world.Block
 	runtimeHeight func(int, int32, int32) int32
+	// rand is WorldGenRegion.getRandom when the region stands in for a
+	// command placement: vanilla hands it the level's random source.
+	rand Random
 }
 
 // NewRegion builds a decoration region; chunks must hold the 3x3 area.

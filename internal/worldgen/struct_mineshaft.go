@@ -783,7 +783,7 @@ func init() {
 			room := newMSRoom(0, r, x0+2, z0+2, mtype)
 			pieces := []StructurePiece{room}
 			room.addChildren(room, &pieces, r)
-			sea := g.RS.settings.seaLevel
+			sea := g.seaLevel()
 			var dy int32
 			if mesa {
 				ctr := piecesBox(pieces).Center()

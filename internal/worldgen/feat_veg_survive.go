@@ -208,6 +208,9 @@ func multifaceCanAttach(rg blockGetter, p BlockPos, d int) bool {
 // center chunk's world origin, shared by every feature of the
 // decoration pass.
 func regionRandom(rg *Region) Random {
+	if rg.rand != nil {
+		return rg.rand
+	}
 	key := weak.Make(rg)
 	regionRandMu.Lock()
 	defer regionRandMu.Unlock()

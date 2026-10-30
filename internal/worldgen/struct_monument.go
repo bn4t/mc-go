@@ -105,7 +105,7 @@ func init() {
 			g := c.G
 			x, z := c.ChunkX*16+9, c.ChunkZ*16+9
 			// BiomeSource.getBiomesWithin(x, sea level, z, 29).
-			y := g.RS.settings.seaLevel
+			y := g.seaLevel()
 			want := biomeTagSet("required_ocean_monument_surrounding", g)
 			for qz := quartFromBlock(z - 29); qz <= quartFromBlock(z+29); qz++ {
 				for qx := quartFromBlock(x - 29); qx <= quartFromBlock(x+29); qx++ {

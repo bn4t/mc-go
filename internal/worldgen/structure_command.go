@@ -10,10 +10,18 @@ type CommandStructurePlan struct {
 	start     *StructureStart
 }
 
-// PlanCommandStructure currently supports the swamp-hut builder. Other
-// structures require their own runtime terrain, template and block-entity pins.
-func PlanCommandStructure(data Data, seed int64, name string, cx, cz, minY, height int32, baseHeight func(int32, int32, int) int32) (*CommandStructurePlan, error) {
-	if name != "swamp_hut" {
+// commandStructureNames are the structures whose pieces the command planner
+// can reproduce: measured blueprints with no template or world-state
+// dependency beyond the live chunk snapshots. The desert pyramid's cellar
+// and afterPlace pass are included.
+var commandStructureNames = map[string]bool{"swamp_hut": true, "desert_pyramid": true}
+
+// PlanCommandStructure builds a command-placed structure start. The
+// generator stands in for the level's chunk generator: the caller supplies
+// its height and sea level, since the flat command world is not the noise
+// settings NewGenerator would otherwise use.
+func PlanCommandStructure(data Data, seed int64, name string, cx, cz, minY, height, seaLevel int32, baseHeight func(int32, int32, int) int32) (*CommandStructurePlan, error) {
+	if !commandStructureNames[name] {
 		return nil, nil
 	}
 	g, err := NewGenerator(data, "overworld", "overworld", seed)
@@ -22,6 +30,7 @@ func PlanCommandStructure(data Data, seed int64, name string, cx, cz, minY, heig
 	}
 	g.RS.SetLevelBounds(minY, height)
 	g.runtimeBaseHeight = baseHeight
+	g.runtimeSeaLevel, g.runtimeSeaSet = seaLevel, true
 	g.structureState()
 	definition := g.structure(name)
 	if definition.find == nil {
@@ -50,15 +59,16 @@ type CommandStructureWrite struct {
 }
 
 // Place processes each covered chunk over detached snapshots of live blocks.
-// The caller verifies readiness before capture and applies the ordered writes
-// and emitted residents on its simulation owner after planning completes.
-func (p *CommandStructurePlan) Place(chunks map[[2]int32]*ProtoChunk) ([]CommandStructureWrite, []GenEntity) {
+// The caller verifies readiness before capture and applies the ordered writes,
+// residents and block entities on its simulation owner after planning
+// completes. random stands in for the level random source vanilla passes to
+// every chunk: the same stream drives postProcess and the region random.
+func (p *CommandStructurePlan) Place(chunks map[[2]int32]*ProtoChunk, random Random) ([]CommandStructureWrite, []GenEntity, []GenBlockEntity) {
 	bounds := p.Bounds()
 	var writes []CommandStructureWrite
 	p.generator.WriteLog = func(at BlockPos, _ [2]int32, state world.Block) {
 		writes = append(writes, CommandStructureWrite{at, state})
 	}
-	random := NewLegacy(0) // The supported hut's block blueprint makes no random draws.
 	for cx := bounds.MinX >> 4; cx <= bounds.MaxX>>4; cx++ {
 		for cz := bounds.MinZ >> 4; cz <= bounds.MaxZ>>4; cz++ {
 			center := chunks[[2]int32{cx, cz}]
@@ -66,17 +76,22 @@ func (p *CommandStructurePlan) Place(chunks map[[2]int32]*ProtoChunk) ([]Command
 				continue
 			}
 			region := p.generator.NewRegion(center, chunks)
-			box := BoundingBox{cx * 16, center.MinY, cz * 16, cx*16 + 15, center.MinY + center.Height - 1, cz*16 + 15}
+			region.rand = random
+			// PlaceCommand's chunk box spans the whole level, maxY + 1
+			// inclusive, not the decoration box.
+			box := BoundingBox{cx * 16, center.MinY, cz * 16, cx*16 + 15, center.MinY + center.Height, cz*16 + 15}
 			p.start.placeInChunk(p.generator, region, random, box, [2]int32{cx, cz})
 		}
 	}
 	var entities []GenEntity
+	var blockEntities []GenBlockEntity
 	for cx := bounds.MinX >> 4; cx <= bounds.MaxX>>4; cx++ {
 		for cz := bounds.MinZ >> 4; cz <= bounds.MaxZ>>4; cz++ {
 			if chunk := chunks[[2]int32{cx, cz}]; chunk != nil {
 				entities = append(entities, chunk.Entities...)
+				blockEntities = append(blockEntities, chunk.BlockEntities()...)
 			}
 		}
 	}
-	return writes, entities
+	return writes, entities, blockEntities
 }

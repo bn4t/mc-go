@@ -1516,7 +1516,7 @@ Common native item persistence now writes modeled explosions and rockets, includ
 Common native item persistence writes and recognizes the existing complete Ominous banner aggregate. Its canonical four components preserve the eight ordered layers. Full recognition clears duplicate generic patterns; incomplete aggregates keep their supported generic representation. Arbitrary custom metadata preservation remains incomplete.
 
 
-Explicit /place structure currently supports swamp huts only. It validates the command source position and covered chunk readiness, builds an unregistered plan over detached live blocks, applies ordered writes and admits persistent residents. Natural structure caches remain untouched. Command cat finalization observes registered hut context and moon phase separately from natural hut generation. Other structures and broader coordinate/dimension semantics remain incomplete.
+Explicit /place structure supports swamp huts and desert pyramids. It validates the command source position and covered chunk readiness, builds an unregistered plan over detached live blocks, applies ordered writes, installs generated block entities and admits persistent residents. The planner receives the level generator's sea level and flat top height, and the pyramid's per-chunk postProcess and region stream come from the level random source, as PlaceCommand does. Natural structure caches remain untouched. Command cat finalization observes registered hut context and moon phase separately from natural hut generation. Other structures and broader coordinate/dimension semantics remain incomplete.
 
 Fill commands deliver the actual changed count to result callbacks, zero for
 runtime failure, and no numeric completion for syntax rejection. Endpoint FULL

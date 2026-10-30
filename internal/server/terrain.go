@@ -506,6 +506,7 @@ func (s *Server) applyFlatPreset(p *world.FlatPreset) {
 	s.world = w
 	d.w = w
 	d.biome = p.Biome
+	d.flatTop = top
 	old.Stop()
 	s.spawnMu.Lock()
 	have := s.haveSpawn

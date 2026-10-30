@@ -19,7 +19,7 @@ func init() {
 			g, r := c.G, c.Random
 			x := c.ChunkX*16 + r.NextIntN(16)
 			z := c.ChunkZ*16 + r.NextIntN(16)
-			sea := g.RS.settings.seaLevel
+			sea := g.seaLevel()
 			s := g.RS.settings
 			// WorldGenerationContext over the level and the generator.
 			ctx := genCtx{max(g.RS.lvMinY, s.minY), min(g.RS.lvHeight, s.height)}

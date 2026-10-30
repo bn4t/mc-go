@@ -105,8 +105,10 @@ Mojang server over the wire.
       including fortresses, monuments, strongholds and mansions (see the two
       legacy-structure slices dated2026-10-29). Natural swamp-hut witch/cat residents
       and mineshaft chest carts have dedicated save/restart controls; explicit
-      swamp-hut placement has command pins. Other structure-generated entities
-      and spawn overrides remain incomplete.
+      swamp-hut and desert-pyramid placement have command pins (the pyramid's
+      cellar, chest/suspicious-sand block entities and level-random roof
+      selection included). Other structure-generated entities, other
+      explicit structures and spawn overrides remain incomplete.
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -19703,3 +19705,12 @@ Immutable `c9d303a` passes build, vet, both factual generator checks, tagged bla
 Combined `77453d0` native/Go interaction checks also pass: FillCommandResult 23.58s, InsideEffects 74.38s and PlaceStructure 59.09s. Final zero-dye command/creative, physical crafting and jukebox checks pass; static mount and repaired boat teleport checks pass as recorded in their slices. These are targeted vanilla controls, not a new complete differential-suite or real-client soak claim.
 
 Implementation stopped at the user's wrap-up request. Unfinished entity-region ownership, pyramid placement, generated-cart loot and additional fixture/position investigations are preserved locally; they are not part of this published batch. Matrix items remain partial where coverage is incomplete.
+
+
+## Slice — explicit desert-pyramid command placement (2026-10-30)
+
+- **Measured** — Native `/place structure desert_pyramid` uses the chunk generator's sea level (the flat generator's -63, not the overworld noise settings' 63) and the level random source for every covered chunk's postProcess and region stream; the large-feature seed selects the 21 x 15 x 21 piece and its orientation. On a raised flat preset (grass at y 60) the full cellar fits: 238 cut sandstone, 62 chiseled sandstone, 66 orange terracotta, 2 blue terracotta, 2 sandstone slabs, 17 sandstone stairs, 9 TNT and one stone pressure plate, four chests carrying `minecraft:chests/desert_pyramid`, and 6..8 suspicious-sand cells (roof plus 5..7 potential cells) carrying `minecraft:archaeology/desert_pyramid`. The piece lowers itself 0..2 blocks from the level random; sand/sandstone counts, the cellar pair/roof and the chosen suspicious cells vary per placement. The comparison flat preset at -61 clips the cellar below the world, so the pin raises the layers while keeping the flat sea level.
+- **Implemented** — Accept desert_pyramid in the command planner, pass the level's sea level and flat top height, drive each chunk's postProcess and region random from one level-random stream, use PlaceCommand's full-height chunk box, collect generated block entities and install them through the existing generated-block-entity path. Preserve the swamp-hut path and natural structure caches.
+- **Pinned** — `TestPlaceDesertPyramidParity` PASS 14.24s (native 2.34s, Go 3.13s) checks both legs' success/failure replies, base-relative blueprint cells, trap room, four chest block entities, fixed material counts and 6..8 suspicious sand. `TestPlaceStructureParity` PASS 16.32s retains the swamp-hut pin. `TestCommandDesertPyramidPlacement` and `TestCommandStructureDetachedPlacement` PASS in the 10.50s worldgen package; build/vet/tagged compilation pass. Sixteen-file behavior artifact `5863d4920937b7412ce1d4c5e4da444b5ddaa07a86bd33c6e8d09e8247128262`. Full default `go test -p 2 ./... -count=1 -timeout 25m` exits 0: internal/server 249.762s, worldgen 11.563s, public server 6.932s and default blackbox 107.805s; every other package passes.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire observations and factual bytecode measurement (PlaceCommand, Structure.generate, StructureStart.placeInChunk, DesertPyramidStructure.afterPlace) inform independently written code. Other explicit structures, custom flat presets with non-opaque top layers, broader coordinate/dimension semantics and natural-structure registration remain incomplete.

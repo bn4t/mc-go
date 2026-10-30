@@ -200,17 +200,29 @@ func (s *Server) installGenBlockEntities(d *dimension, cx, cz int) {
 		if cur, ok := blockEntityOf(d.w.GetBlock(be.Pos)); !ok || cur.name != gen.name {
 			continue
 		}
-		typ := strings.TrimPrefix(gen.name, "minecraft:")
-		tag := blockEntityNBT(be.Pos, gen, func(m map[string]any) {
-			for k, v := range genBlockEntityDefaults(typ) {
-				m[k] = v
-			}
-			for k, v := range be.Data {
-				m[k] = cloneNBTValue(v)
-			}
-		})
-		s.restoreBlockEntity(d, tag)
+		s.installGenBlockEntity(d, be.Pos, be.Data)
 	}
+}
+
+// installGenBlockEntity promotes one generated block entity over the live
+// block at pos: the type's fresh defaults, then the fields generation wrote.
+// The live state decides the type, so a blueprint that overwrote the block
+// keeps no stale entity.
+func (s *Server) installGenBlockEntity(d *dimension, p world.Pos, data map[string]any) {
+	gen, ok := blockEntityOf(d.w.GetBlock(p))
+	if !ok {
+		return
+	}
+	typ := strings.TrimPrefix(gen.name, "minecraft:")
+	tag := blockEntityNBT(p, gen, func(m map[string]any) {
+		for k, v := range genBlockEntityDefaults(typ) {
+			m[k] = v
+		}
+		for k, v := range data {
+			m[k] = cloneNBTValue(v)
+		}
+	})
+	s.restoreBlockEntity(d, tag)
 }
 
 // restoreGenericBlockEntity keeps a saved block entity mc-go has no

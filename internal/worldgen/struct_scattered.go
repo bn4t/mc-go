@@ -102,7 +102,7 @@ func (p *scatteredPiece) updateHeightPositionToLowestGroundHeight(c *PieceContex
 func singlePieceStructure(g *Generator, width, depth int32, mk func(r Random, x, z int32) StructurePiece) func(c *GenContext) (*GenerationStub, bool) {
 	return func(c *GenContext) (*GenerationStub, bool) {
 		x0, z0 := c.ChunkX*16, c.ChunkZ*16
-		if lowestCornerY(g, x0, z0, width, depth) < g.RS.settings.seaLevel {
+		if lowestCornerY(g, x0, z0, width, depth) < g.seaLevel() {
 			return nil, false
 		}
 		mx, mz := x0+8, z0+8
