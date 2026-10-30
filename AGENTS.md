@@ -160,6 +160,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   beyond the original deadline; game time alone can precede callback completion.
   Loaded predicates are not queue-activation witnesses and must not generate
   their own readiness. Preserve dormant relative versus blocked absolute delays.
+- Cross-dimension persistence predicates need actual destination readiness.
+  A dedicated loader can establish it without moving the editor or changing
+  later unqualified command contexts. Preserve strict saved-state assertions.
 - Persistence probes must copy the completed save before shutdown can replace it.
   A preexisting file is not a completion receipt: verify new identifiers, types
   and deadlines. Save workers serialize detached snapshots captured by the

@@ -19250,3 +19250,12 @@ Coverage is adult villager/cow at default scale, wooden/netherite use, static in
 - **Pinned** — Actual actor position, effective-scale witness and first Age=1 precede three literal displacement checks and float32-drag relations. Strict comparison PASS18.67s; test-only explicit finite guards rerun PASS18.40s on unchanged production. Five named unit groups0.594s/race4.025s, default compilation0.080s and merge/pickup regression40.33s PASS. Evidence: work/orb-attraction-fixed-stage/ and work/orb-attraction-slice.md.
 
 Native coverage is standing scales0.5,1,2 at one initial offset with NoGravity orbs. Other poses, same-frame scale transitions, gravity/fluid attraction and other offsets remain separate despite broader shared getter unit coverage.
+
+
+## Slice — loaded destinations for save-completion checks (2026-10-30)
+
+- **Measured** — The committed integration run failed compact pre-save and native-format restart checks because their Nether predicates queried an unloaded destination. The independently pinned block-condition guard now rejects that query. The failed run remains recorded in work/verified-0d91d28.log; it does not establish lost persisted block data.
+- **Implemented** — Test-only correction: temporary physical-dimension loader clients establish exact dimension/loaded-position receipts while original editors retain their positions and dimensions. Local typed tellraw decoding rejects error echoes, suffix collisions, overlays and trailing data. Preserve every copied-artifact, explicit-air, later-generation and state assertion. Two-file patch SHA256 5df0c94f5784b14dac071952a588caef87c06cd2e82af78b7d8af26e9ae493e3.
+- **Pinned** — Exact decoder test PASS; both protocol775/776 compact completion/restart checks PASS2.76s and native-format checks PASS2.00s on unchanged production. Default test compilation PASS. Frozen source and rejected setup logs: work/save-readiness-fixture-manifest.txt and work/save-readiness-fixture-slice.md.
+
+The rejected forceload-based setup exposed an independent command-source dimension gap. The final fixture avoids that dependency without increasing its readiness budget or changing production. Forced-ticket persistence and complete chunk lifecycle remain separate.

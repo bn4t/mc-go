@@ -69,7 +69,7 @@ func TestNativeSaveWorldCompletionRestartWire(t *testing.T) {
 		mixedBarrier(t, clients[775], command)
 	}
 	for _, c := range clients {
-		compactSavePredicate(t, ctx, c, "minecraft:overworld", 8, 40, 8, "minecraft:oak_log[axis=x]")
+		compactSavePredicate(t, ctx, c, addr, "minecraft:overworld", 8, 40, 8, "minecraft:oak_log[axis=x]")
 	}
 	complete := make(chan error, 1)
 	go func() { complete <- s.SaveWorld() }()
@@ -122,8 +122,8 @@ func TestNativeSaveWorldCompletionRestartWire(t *testing.T) {
 	_, restartAddr, _ := nativeSavePublicServer(t, copied)
 	for _, number := range []int32{775, 776} {
 		c := compactSaveOpen(t, ctx, restartAddr, number, fmt.Sprintf("Native%d", number))
-		compactSavePredicate(t, ctx, c, "minecraft:overworld", 8, 40, 8, "minecraft:oak_log[axis=x]")
-		compactSavePredicate(t, ctx, c, "minecraft:the_nether", 8, 40, 8, "minecraft:oak_log[axis=z]")
-		compactSavePredicate(t, ctx, c, "minecraft:the_end", 8, 40, 8, "minecraft:stone")
+		compactSavePredicate(t, ctx, c, restartAddr, "minecraft:overworld", 8, 40, 8, "minecraft:oak_log[axis=x]")
+		compactSavePredicate(t, ctx, c, restartAddr, "minecraft:the_nether", 8, 40, 8, "minecraft:oak_log[axis=z]")
+		compactSavePredicate(t, ctx, c, restartAddr, "minecraft:the_end", 8, 40, 8, "minecraft:stone")
 	}
 }

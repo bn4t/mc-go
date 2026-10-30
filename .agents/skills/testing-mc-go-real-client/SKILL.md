@@ -397,3 +397,10 @@ then actual unlink and position updates afterward. Check damage, motion and
 mount survival separately: source invulnerability and hurt cooldown rejection
 have different contact consequences. Match vehicle spawn IDs to actual saved
 UUIDs; requested UUID hydration is a separate behavior to measure.
+
+
+Cross-dimension save/restart predicates must first observe the destination as
+loaded. Keep the original editor's dimension and pose intact when later commands
+are unqualified; a separate physical loader can establish readiness. Preserve
+copy-before-shutdown, explicit-air and generation-isolation assertions. Use exact
+typed state/fence tokens so an error echo cannot satisfy the check.
