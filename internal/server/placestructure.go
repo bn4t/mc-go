@@ -71,7 +71,9 @@ func (s *Server) runPlaceStructure(player string, args []string) reply {
 			for y := d.minY; y < d.minY+d.height; y++ {
 				for z := 0; z < 16; z++ {
 					for x := 0; x < 16; x++ {
-						chunk.Blocks[((y-d.minY)*16+z)*16+x] = d.w.GetBlock(world.Pos{X: int(cx)*16 + x, Y: y, Z: int(cz)*16 + z})
+						// Set maintains the WORLD_SURFACE_WG/OCEAN_FLOOR_WG
+						// maps; template pieces sample them while placing.
+						chunk.Set(int32(x), int32(y), int32(z), d.w.GetBlock(world.Pos{X: int(cx)*16 + x, Y: y, Z: int(cz)*16 + z}))
 					}
 				}
 			}

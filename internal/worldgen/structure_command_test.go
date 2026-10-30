@@ -210,3 +210,93 @@ func TestCommandJungleTemplePlacement(t *testing.T) {
 		t.Errorf("loot tables %v", loot)
 	}
 }
+
+func TestCommandIglooPlacement(t *testing.T) {
+	plan, err := PlanCommandStructure(Vanilla(), 1, "igloo", 0, 0, -64, 384, -63, func(int32, int32, int) int32 { return 61 })
+	if err != nil || plan == nil {
+		t.Fatalf("plan %v %v", plan, err)
+	}
+	// Seed 1 draws the laboratory: the top, the bottom and six middle
+	// ladder sections.
+	if len(plan.start.Pieces) != 8 {
+		t.Fatalf("pieces=%d want8", len(plan.start.Pieces))
+	}
+	bounds := plan.Bounds()
+	chunks := map[[2]int32]*ProtoChunk{}
+	bedrock, _ := world.BlockStateOf("bedrock", nil)
+	stone, _ := world.BlockStateOf("stone", nil)
+	grass, _ := world.BlockStateOf("grass_block", nil)
+	for cx := bounds.MinX >> 4; cx <= bounds.MaxX>>4; cx++ {
+		for cz := bounds.MinZ >> 4; cz <= bounds.MaxZ>>4; cz++ {
+			c := &ProtoChunk{CX: cx, CZ: cz, MinY: -64, Height: 384, Blocks: make([]world.Block, 384*256)}
+			for x := int32(0); x < 16; x++ {
+				for z := int32(0); z < 16; z++ {
+					c.Set(x, -64, z, bedrock)
+					for y := int32(-63); y < 60; y++ {
+						c.Set(x, y, z, stone)
+					}
+					c.Set(x, 60, z, grass)
+				}
+			}
+			chunks[[2]int32{cx, cz}] = c
+		}
+	}
+	writes, entities, blockEntities := plan.Place(chunks, NewLegacy(12345))
+	if len(writes) == 0 || len(entities) != 0 {
+		t.Fatalf("writes%d entities%v", len(writes), entities)
+	}
+	counts := map[string]int{}
+	for _, c := range chunks {
+		for _, b := range c.Blocks {
+			name, _ := world.StateOwner(b)
+			counts[name]++
+		}
+	}
+	for name, want := range map[string]int{
+		"snow_block": 94, "ice": 2, "chest": 1, "ladder": 22,
+		"cobweb": 1, "brewing_stand": 1, "cauldron": 0,
+	} {
+		if counts[name] != want {
+			t.Errorf("%s=%d want%d", name, counts[name], want)
+		}
+	}
+	minY, maxY := int32(1<<30), int32(-1<<30)
+	for _, w := range writes {
+		minY, maxY = min(minY, w.Position[1]), max(maxY, w.Position[1])
+	}
+	if minY != 36 || maxY != 64 {
+		t.Errorf("write y %d..%d want36..64", minY, maxY)
+	}
+	blockAt := func(p BlockPos) string {
+		for _, c := range chunks {
+			if p[0]>>4 == c.CX && p[2]>>4 == c.CZ {
+				name, _ := world.StateOwner(c.Get(p[0]&15, p[1], p[2]&15))
+				return name
+			}
+		}
+		return ""
+	}
+	for pos, want := range map[BlockPos]string{
+		{1, 38, 6}: "brewing_stand", {3, 38, 9}: "oak_wall_sign",
+		{5, 37, 6}: "chest", {5, 61, 7}: "furnace",
+	} {
+		if got := blockAt(pos); got != want {
+			t.Errorf("block %v=%s want%s", pos, got, want)
+		}
+	}
+	chests := 0
+	for _, be := range blockEntities {
+		if table, _ := be.Data["LootTable"].(string); table == "minecraft:chests/igloo_chest" {
+			chests++
+			if be.Pos != (BlockPos{5, 37, 6}) {
+				t.Errorf("chest at %v", be.Pos)
+			}
+			if _, ok := be.Data["LootTableSeed"].(int64); !ok {
+				t.Error("chest has no loot seed")
+			}
+		}
+	}
+	if chests != 1 {
+		t.Errorf("igloo chests=%d want1", chests)
+	}
+}

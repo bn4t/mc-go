@@ -105,10 +105,11 @@ Mojang server over the wire.
       including fortresses, monuments, strongholds and mansions (see the two
       legacy-structure slices dated2026-10-29). Natural swamp-hut witch/cat residents
       and mineshaft chest carts have dedicated save/restart controls; explicit
-      swamp-hut, desert-pyramid and jungle-pyramid placement have command
-      pins (the pyramid's cellar, chest/suspicious-sand block entities and
-      level-random roof selection, and the jungle temple's moss selector,
-      traps, chests and dispensers included). Other structure-generated
+      swamp-hut, desert-pyramid, jungle-pyramid and igloo placement have
+      command pins (the pyramid's cellar, chest/suspicious-sand block
+      entities and level-random roof selection, the jungle temple's moss
+      selector, traps, chests and dispensers, and the igloo's top/laboratory
+      templates, chest, sign and furnace included). Other structure-generated
       entities, other explicit structures and spawn overrides remain
       incomplete.
 - [x] Full block-state registry: all 32366 states with their property
@@ -19730,3 +19731,12 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 ## Verification — desert and jungle placement slices (2026-10-30)
 
 Immutable `b72cfa2` (the two placement slices) passes build, vet, tagged blackbox compilation and the complete default `go test -p 2 ./... -count=1 -timeout 25m` suite: internal/server 244.865s, world 0.313s, worldgen 11.522s, public server 6.862s and default blackbox 106.678s; every other package passes. The default run does not enable `MCGO_BLACKBOX`, so its blackbox package skips oracle legs. Targeted native controls run separately on the same tree: `TestPlaceStructureParity` 16.05s, `TestPlaceDesertPyramidParity` 13.38s (base y 61 native / 60 Go in that run) and `TestPlaceJungleTempleParity` 11.61s, all PASS. Focused `go test ./internal/worldgen` PASS 13.355s. These are targeted vanilla comparisons, not a complete native-oracle suite, graphical-client playtest or production-load claim.
+
+
+## Slice — explicit igloo command placement (2026-10-30)
+
+- **Measured** — Native `/place structure igloo` on the raised flat preset uses the bundled top/laboratory templates: seed 1 draws the top, the bottom and six middle ladder sections. The surface at first-free y 61 puts writes at y 36..64. Fixed counts are 94 snow blocks, 2 ice, 22 ladders, 1 cobweb, 1 brewing stand, 1 chest carrying `minecraft:chests/igloo_chest`, 1 furnace and 1 oak wall sign. Template pieces sample `WORLD_SURFACE_WG` while placing; a command snapshot filled by direct block assignment leaves that map zero and moves the pieces below the world.
+- **Implemented** — Accept igloo and fill command chunk snapshots through `ProtoChunk.Set`, so the `WORLD_SURFACE_WG`/`OCEAN_FLOOR_WG` maps track the live blocks. The existing template, level-random and generated-block-entity path places the top/laboratory, the chest marker loot, the sign and the furnace.
+- **Pinned** — `TestPlaceIglooParity` PASS 11.10s (native 2.17s, Go 1.66s) checks both legs' success/failure replies, the chest/brewing-stand/sign/furnace cells, the chest loot table and the fixed material counts. `TestCommandIglooPlacement` PASS in the worldgen package; the four placement pins re-pass (igloo 11.45s, jungle 11.93s, pyramid 12.60s, swamp hut 14.93s). Build/vet/tagged compilation pass. Three-file behavior artifact `5caa62f1509e0a8e5195e28e90cafd1a0a1b0a651e15099579b699542f174926`. Remaining limit: the laboratory presence/section count is large-feature-seeded and the template placement random is level-owned; other template structures remain unsupported.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire observations and factual bytecode measurement inform independently written code.
