@@ -1314,9 +1314,10 @@ gravity, including NoGravity. Ordinary air and stone/slime contacts are pinned;
 embedded full-stone escape also advances through this tail after selecting its
 impulse, while skipping ordinary gravity/fluid/follow updates. First-tick escape
 bounds and damping are pinned. Escape candidates now use the existing live-world
-full-collision-cube predicate, including measured partial shapes. The scalar
-initial inside-solid gate, embedded fluids, arbitrary clipping and subsequent
-trajectories remain separate.
+full-collision-cube predicate, including measured partial shapes. The initial overlap gate now uses positioned collision boxes with the existing
+1e-7 inset, preserving clear fence corners and slab gaps. Measured face-contact
+and near-boundary controls pin this distinction. Embedded fluids, arbitrary
+clipping and subsequent trajectories remain separate.
 
 
 Saturation potion drinking delivers one food/saturation dose regardless of

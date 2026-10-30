@@ -610,9 +610,9 @@ func (s *Server) itemTickStep() {
 		}
 		inside := false
 		if orb {
-			inside = entityInsideSolid(w, e.X, e.Y, e.Z, halfBox, heightBox)
+			inside = s.entityBoxInsideWorldCollision(s.dims[e.Dim], e.X, e.Y, e.Z, halfBox, heightBox)
 		} else {
-			inside = s.itemInsideWorldCollision(s.dims[e.Dim], e.X, e.Y, e.Z, halfBox, heightBox)
+			inside = s.entityBoxInsideWorldCollision(s.dims[e.Dim], e.X, e.Y, e.Z, halfBox, heightBox)
 			e.itemNoPhysics = inside
 		}
 		if inside && orb {

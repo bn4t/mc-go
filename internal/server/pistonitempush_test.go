@@ -38,7 +38,7 @@ func TestPistonItemForwardFacePush(t *testing.T) {
 				}
 				mp.ticks--
 				s.movingPistons[0] = mp
-				if s.itemInsideWorldCollision(d, e.X, e.Y, e.Z, .125, .25) {
+				if s.entityBoxInsideWorldCollision(d, e.X, e.Y, e.Z, .125, .25) {
 					t.Fatal("item remained inside live moving shape")
 				}
 			}
@@ -61,12 +61,12 @@ func TestItemInsidePositionedWorldShapes(t *testing.T) {
 		x      float64
 		inside bool
 	}{{2.7, false}, {2.3, true}, {1.4, true}, {2.625, false}} {
-		if got := s.itemInsideWorldCollision(d, tc.x, 160.5, .5, .125, .25); got != tc.inside {
+		if got := s.entityBoxInsideWorldCollision(d, tc.x, 160.5, .5, .125, .25); got != tc.inside {
 			t.Errorf("x%v inside%t want%t", tc.x, got, tc.inside)
 		}
 	}
 	s.movingPistons = nil
-	if s.itemInsideWorldCollision(d, 2.3, 160.5, .5, .125, .25) {
+	if s.entityBoxInsideWorldCollision(d, 2.3, 160.5, .5, .125, .25) {
 		t.Fatal("orphan moving block is shapeless")
 	}
 }

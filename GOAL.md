@@ -19223,3 +19223,12 @@ Coverage is the independently checked typed subset and reuse of modeled save vie
 - **Pinned** — Thirty-six wire probes PASS11.69s(native2.34/Go1.52), existing ExecuteIf173.45s and StructurePower22.34s PASS. Focused units4.722s establish zero provider calls, no false inversion, parser precedence and embedding access; build/vet/tagged compile PASS. Exact source/gates: work/blockcondition-manifest.txt and work/blockcondition-slice.md.
 
 Full error style/cursor/property-parser parity and horizontal-boundary wire coverage remain separate. The corrected readiness witness exposes the independent unloaded queue deadline gap; it does not implement queue unloading.
+
+
+## Slice — precise experience-orb overlap gate (2026-10-30)
+
+- **Measured** — Native first-tick fence/slab controls distinguish clear corners and gaps from actual overlap. Exact touch and 5e-8 overlap remain clear; 1.5e-7 slab and 2e-7 fence overlap trigger escape. Strict baseline FAIL62.51s: native22 pass, Go10 false escapes. Java26.2/JDK25.0.5+8 wire observations, runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Reuse the positioned collision-box helper and its existing 1e-7 inset for orb bodies; rename it for both item and orb callers. Escape direction and movement tail remain unchanged. Four-file patch SHA256 22277ff853711bd79717e494e8ab54905e8ca7fe0e67ed3422df7bc78afc9669.
+- **Pinned** — All22 strict controls PASS49.24s; eight named unit groups0.522s/race4.440s, default compilation0.100s and prior32-case escape regression58.62s PASS. Tests witness actual block state and first Age=1, direction/bounds, gravity and displacement-to-drag relation. Frozen evidence: work/orb-overlap-fixed-stage/ and work/orb-overlap-slice.md.
+
+The epsilon samples bound the observed threshold; they do not prove every double boundary. Embedded fluids, later trajectories, hard entity collisions and arbitrary clipping remain separate.

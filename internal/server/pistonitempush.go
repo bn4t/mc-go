@@ -38,9 +38,9 @@ func (s *Server) pistonPushItems(d *dimension, mp movingPiston, step float64) {
 	}
 }
 
-// ItemEntity's noCollision gate uses positioned collision boxes, including
+// Item and experience-orb overlap gates use positioned collision boxes, including
 // live moving blocks. Merely touching a face is not being inside it.
-func (s *Server) itemInsideWorldCollision(d *dimension, x, y, z, half, height float64) bool {
+func (s *Server) entityBoxInsideWorldCollision(d *dimension, x, y, z, half, height float64) bool {
 	if d == nil {
 		return false
 	}
