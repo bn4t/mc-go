@@ -87,8 +87,20 @@ func newChatSinkOpts(pr *protocol.Reader, pw *protocol.Writer, confirmTP bool) *
 // An external guard lets a fixture atomically write several complete frames
 // without interleaving the reader's keepalive/teleport/chunk acknowledgements.
 func newChatSinkWriteGuard(pr *protocol.Reader, pw *protocol.Writer, confirmTP bool, writeMu *sync.Mutex) *chatSink {
+	return newChatSinkPositionMode(pr, pw, confirmTP, writeMu, false)
+}
+
+// Relative-position fixtures seed this sink with an absolute teleport first.
+// Subsequent relative SyncPos fields are offsets from the preceding position.
+func newChatSinkResolvedTP(pr *protocol.Reader, pw *protocol.Writer) *chatSink {
+	return newChatSinkPositionMode(pr, pw, true, new(sync.Mutex), true)
+}
+
+func newChatSinkPositionMode(pr *protocol.Reader, pw *protocol.Writer, confirmTP bool, writeMu *sync.Mutex, resolveRelative bool) *chatSink {
 	s := &chatSink{ids: map[int32]int{}, cap: 4096}
 	go func() {
+		var position [3]float64
+		var known [3]bool
 		for {
 			p, err := pr.ReadPacket()
 			if err != nil {
@@ -121,6 +133,26 @@ func newChatSinkWriteGuard(pr *protocol.Reader, pw *protocol.Writer, confirmTP b
 				writeMu.Unlock()
 			}
 			if confirmTP && p.ID == server.IDPlaySyncPos {
+				if resolveRelative {
+					id, next, nextKnown, valid := resolveSinkTeleport(p.Data, position, known)
+					if valid {
+						position, known = next, nextKnown
+						var ack protocol.Buffer
+						ack.VarInt(id)
+						writeMu.Lock()
+						_ = pw.WritePacket(server.IDPlayTeleportConfirmSB, ack.Bytes())
+						if known[0] && known[1] && known[2] {
+							var move protocol.Buffer
+							for _, coordinate := range position {
+								move.Double(coordinate)
+							}
+							move.Byte(0)
+							_ = pw.WritePacket(server.IDPlayMovePosSB, move.Bytes())
+						}
+						writeMu.Unlock()
+					}
+					continue
+				}
 				r := protocol.NewPacketReader(p.Data)
 				if id, err := r.VarInt(); err == nil {
 					var b protocol.Buffer
@@ -598,4 +630,43 @@ func TestCaptureVanillaFluid(t *testing.T) {
 	t.Logf("\n=== C: lava reach along the x axis at z=0 ===\n%s", renderGrid(gridC, -60, -6, 6, 0, 0))
 
 	fmt.Println("fluid capture complete")
+}
+
+// Protocol 776 position bits X/Y/Z are 1/2/4. Velocity and rotation fields
+// precede the mask but do not affect the echoed position-only movement.
+func resolveSinkTeleport(data []byte, previous [3]float64, known [3]bool) (int32, [3]float64, [3]bool, bool) {
+	r := protocol.NewPacketReader(data)
+	id, err := r.VarInt()
+	if err != nil {
+		return 0, previous, known, false
+	}
+	var raw [3]float64
+	for axis := range raw {
+		raw[axis], err = r.Double()
+		if err != nil {
+			return id, previous, known, false
+		}
+	}
+	for i := 0; i < 3; i++ {
+		if _, err = r.Double(); err != nil {
+			return id, previous, known, false
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if _, err = r.Float(); err != nil {
+			return id, previous, known, false
+		}
+	}
+	flags, err := r.Int()
+	if err != nil || r.Remaining() != 0 {
+		return id, previous, known, false
+	}
+	for axis := range raw {
+		if flags&(1<<axis) == 0 {
+			previous[axis], known[axis] = raw[axis], true
+		} else if known[axis] {
+			previous[axis] += raw[axis]
+		}
+	}
+	return id, previous, known, true
 }

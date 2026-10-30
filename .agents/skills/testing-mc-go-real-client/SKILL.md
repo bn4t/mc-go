@@ -233,3 +233,15 @@ Keep writer and loader coverage explicit, and test actual remaining lifetime
 and expiry after each supported restart direction. If startup needs a longer
 fixture delay, first assert the original saved value, copy the completed save,
 and modify only the copy. Preserve the original artifact and its assertions.
+
+
+## Relative teleport acknowledgements
+
+Protocol 776 SyncPos can carry relative X/Y/Z coordinates. A scripted client
+must resolve those offsets against its known current position before sending
+absolute MovePos. An opt-in teleport-only sink must first receive an absolute
+seed; fixtures that also send their own movement must update that base too.
+Otherwise the test client can change the subject's actual position and falsely
+blame command-source semantics. Keep an independent typed position query in
+teleport/function probes. The default legacy sink is not a general position
+simulator; the stateful sink covers its measured teleport-only sequence.

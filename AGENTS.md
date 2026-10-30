@@ -60,6 +60,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Socket deadlines are absolute across login/configuration/join unless reset.
   Set the readiness budget before those reads; a streaming deadline set after
   Join cannot prevent expiry inside Join readiness. Preserve stream assertions.
+- Resolve relative SyncPos coordinates against a known client position before
+  echoing MovePos. Seed the state with an absolute teleport and keep it current
+  with any scripted client movement; raw offsets are not absolute coordinates.
 - Validate both test build modes when adding shared blackbox helpers: default
   `go vet ./...` and `go test -tags blackbox -run '^$' ./tests/blackbox`.
   A vanilla-only test using tagged helpers must carry the same build tag;

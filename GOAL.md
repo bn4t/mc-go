@@ -18657,3 +18657,10 @@ Full voxel shapes, other-axis interval tolerance, support X/Z caching, step-up, 
 - **Pinned** — Four-file SHA256 `deb7dc22b4eba01088f4add67cf7bf4342440fbf84081ee737e313d3cc182aa0`, base 01b7866. Final 38-control differential PASS 58.42s (native 6.43s, Go 6.49s), including visible metadata changes, absent/repeated resets and hidden-specific resets. Each server independently satisfies expected event order/fields and positive command feedback. Affected units PASS 4.304s and tagged compilation PASS. Logs/manifest: `work/scoreboard-tracking-parity.log`, `work/scoreboard-tracking-manifest.md`.
 
 Late-join snapshots, persistence and independent multi-holder iteration ordering remain separate; this does not claim full scoreboard synchronization. The bounded function executor is a separate slice.
+
+
+## Slice — stateful relative-teleport test sink (2026-10-30)
+
+- **Measured** — Native fixed-source function teleports produce a relative SyncPos offset (-40, 0, -42) from the previously acknowledged (50.5, -58, 50.5). The old test sink echoed that offset as absolute MovePos, corrupting the native player's position. With an absolute seed and resolved relative axes, native final typed Pos is (10.5, -58, 8.5), PASS 30.67s. This is a fixture correction, not a server movement change.
+- **Implemented** — Add an opt-in stateful teleport sink that resolves XYZ relative bits and refuses to invent an unknown base. Preserve the default sink behavior. Document absolute seeding and the need to synchronize any independent scripted movement.
+- **Pinned** — Two-file SHA256 `35353a12aafccd9b1af328775cdba0d188e0a2de4426af33c4128ed48d94d60c`. Decoder tests cover absolute/mixed/unknown/truncated fields; exact isolated default compile/vet/unit PASS 0.518s and tagged compile/vet/unit PASS 0.356s. Full default vet PASS with no diagnostics. Source/evidence: `work/teleport-sink-manifest.md`, `work/scoreboard-tracking-resolved-native.log`, `work/teleport-sink-default.log`, `work/teleport-sink-tagged.log`, `work/teleport-sink-vet.log`. Velocity/rotation simulation and arbitrary external movement are outside this helper's measured scope.
