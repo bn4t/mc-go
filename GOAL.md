@@ -159,7 +159,9 @@ Mojang server over the wire.
       actual removal; general physical pushing remains incomplete.
 - [~] Damage, health, death, drops, XP
       First-hit player XP/value/pickup has a live-oracle pin; broader
-      damage, death and drop parity remains incomplete. Mob falls now use
+      damage, death and drop parity remains incomplete. Live XP-orb counters
+      have summon/data codec pins; disk restart and orb health damage remain open.
+      Mob falls now use
       effective attributes, Jump Boost, landing block factors and fractional
       support tops, with seven vanilla comparisons. Ordinary player/mob knockback
       consumes canonical resistance; sword sweep raw-motion precision is pinned.
@@ -209,7 +211,9 @@ Mojang server over the wire.
       projectile/fall damage, fractional fall flooring, effective fall attributes and
       Jump Boost/Slow Falling/Levitation behavior wire-pinned. Effective maximum
       health bounds instant/effect/food healing and clamps settled excess health;
-      finite periodic regeneration/poison/wither amplifier cadence is pinned
+      finite periodic regeneration/poison/wither cadence and final callbacks are
+      pinned. Infinite recurring effects use actual body ticks; Peaceful
+      exhaustion preserves food. Instant-effect command dispatch remains partial.
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
   shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
   /recipe give|take + RecipeBookAdd/Remove wire-parity including the
@@ -280,6 +284,8 @@ Mojang server over the wire.
   loading preserves duplicates and measured expiry/clone behavior. Dynamic chunk
   activation and native sub-tick ordering remain partial.
   Attribute getters and mutations supply measured typed execute-store results.
+  Player-only @s arguments use bound executors, including neutral sources;
+  implicit targets and broader selector grammar remain partial.
   Startup file-function scheduling now has
   measured world-time deadlines, clear/replace/append and server-source controls;
   file/tag events survive native save/restart. Startup load/tick tags and measured
@@ -18954,3 +18960,10 @@ Scope is live query/load/summon counters and age progression. Disk restart, orb 
 - **Pinned** — Three-file patch SHA256 `6f15833394cde2048b357c839a5c2b7c1002c9a3a87453968122cae58548b4ee`, base2437916. Native/Go wire PASS22.65s (5.93/6.83), focused units0.658s, race6.993s, related effect/potion/hunger/respawn/scale/freeze units48.729s, vet/default compilation0.082s PASS. Existing finite-effect71.06s, frozen-effect28.48s and infinite-food17.67s regressions all exit0. Source/provenance: `work/effect-last-final-stage/manifest.md`.
 
 Scope is supported recurring callback cardinality. Loaded duration0 is a negative control, not command duration0 admission. Finite parked lifetime/expiry, exact within-tick reapplication and instant-effect command classification/dispatch remain separate.
+
+
+## Slice — verify orb, finite-effect and kinetic metadata integration (2026-10-30)
+
+- **Measured** — Verify immutable commit1d1818d, excluding concurrent movement, scheduler and command work.
+- **Implemented** — No additional production changes. Refresh the partial-coverage matrix and README to reflect live orb codecs, final finite callbacks and bound player selectors without marking their broader areas complete.
+- **Pinned** — Build/vet PASS, tagged blackbox compilation0.077s PASS, complete default `go test -p 2 ./... -count=1 -timeout 25m` exits0: internal/server349.380s, world0.565s, worldgen14.008s, publicserver11.512s and default blackbox198.962s. All remaining packages pass. Evidence: `work/verified-1d1818d.log`. Slice-specific native controls remain recorded separately; this does not establish a full native-oracle run, graphical-client playtest or realistic-load performance completion.

@@ -95,7 +95,8 @@ effective maximum health. Exhaustion can spend saturation in Peaceful difficulty
 while preserving food level. Lowering maximum health clamps excess health on the
 living frame, while raising it grants no free healing. Complete ability and
 effect mechanics remain partial. Finite regeneration, poison and wither on
-players and mobs use native zero-interval and amplifier-wrap scheduling.
+players and mobs use native zero-interval and amplifier-wrap scheduling,
+including the final active callback; loaded zero-duration instances remain inert.
 Infinite regeneration, poison, wither, hunger and saturation use living entity
 age and actual tick eligibility. Players continue through world freeze while
 ordinary mobs pause; ordinary respawn resets the body clock. Infinite instant
