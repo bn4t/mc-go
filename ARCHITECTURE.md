@@ -1163,3 +1163,13 @@ ordered display assignments and the current score snapshot; later slot changes
 use measured removal/reassignment ordering. Deleting a holder's final score
 emits the global reset form, even for a hidden objective. This covers currently
 connected viewers; a late-join snapshot hook and persistence remain separate.
+
+
+Ordinary player death uses a new-body reset distinct from restart restoration.
+Raw attribute bases remain, while old modifiers and effects are discarded.
+Absorption and levitation/raid origins reset with those effects; constructor
+walking ability returns to its default independently of the copied movement
+base. Initial health uses the sanitized copied maximum-health base. Copied
+instances become dirty for projection, and both equipment scans reinitialize.
+The owner receives abilities during respawn. End-return/keepEverything policy,
+complete constructor-state copying and all healing consumers remain separate.

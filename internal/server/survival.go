@@ -1131,14 +1131,10 @@ func (s *Server) respawnPlayer(sess *Session) {
 	// Respawn creates a fresh ServerPlayer; copied scale attributes refresh
 	// its constructor bounding box on the next living tick.
 	sess.collisionScale = 1
-	// The new life reapplies retained equipment on its next living tick.
-	if player, ok := s.entities.GetPtr(sess.entityID.Load()); ok {
-		player.playerEquipmentAttrsInit = false
-		player.playerArmorAttrsInit = false
-	}
+	newBodyHealth := s.resetPlayerBodyAttributes(sess)
 	s.removePlayerMenus(sess)
 	sess.dead = false
-	sess.health = defaultHealth
+	sess.health = newBodyHealth
 	sess.food = defaultFood
 	sess.saturation = defaultSaturation
 	sess.fallDistance = 0
@@ -1180,6 +1176,7 @@ func (s *Server) respawnPlayer(sess *Session) {
 		// Cross-dimension respawn: entity tracking, chunks, and
 		// dimension bookkeeping all run through changeDimension.
 		s.changeDimension(sess, dest, x, y, z, 0)
+		_ = s.sendAbilities(sess)
 		// changeDimension zeroes the view rotation; restore the spawn
 		// point's angles on the session side for selectors/tracking.
 		sess.setPos(x, y, z, spawnYaw, spawnPitch, false)
@@ -1188,6 +1185,7 @@ func (s *Server) respawnPlayer(sess *Session) {
 	}
 
 	_ = s.sendRespawn(sess, dest, 0, 0)
+	_ = s.sendAbilities(sess)
 
 	sess.setPos(x, y, z, yaw, spawnPitch, false)
 	sess.trackMu.Lock()
