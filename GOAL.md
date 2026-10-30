@@ -19417,3 +19417,12 @@ Scope is default-rate frozen environmental cadence. Powder accrual/thaw, general
 - **Measured** — Independent native controls established spear clock domains, forceload source/scaling, modeled item restoration, selective region preservation and frozen player environmental cadence. Their bounded evidence and remaining gaps are recorded in the preceding slices.
 - **Implemented** — Integrated these changes with the strict hunger fixture and updated the living matrix, architecture, agent conventions and testing skill. Runtime unload binding and powder-snow accrual remain separate work.
 - **Pinned** — Immutable committed1b648d4 passed build, vet, generated eye-table consistency, tagged compilation and the complete default test suite. Internal server272.038s, world0.404s, worldgen14.169s, public server8.145s and default blackbox131.539s all PASS; session40294 exit0. Log: work/verified-1b648d4.log. This is not a claim of complete live-oracle, GUI or production-load verification.
+
+
+## Slice — native stored-enchantment persistence (2026-10-30)
+
+- **Measured** — Native canonical item saves retain an enchanted book's stored mending/unbreaking levels and a nonbook's distinct normal protection and stored mending maps. Go retained normal enchantments but omitted stored levels. Native baseline PASS4.99s/Go FAIL1.53s. Java26.2/Temurin25.0.5+8 wire observations; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Serialize modeled stored levels through the existing enchantment-map encoder under the distinct stored_enchantments component. Three-file patch SHA256 f37e43af352355cb23927727a50e1a78b2a58a23cdbfdca857a50c9db64bffc9.
+- **Pinned** — Focused final differential PASS16.04s, with independently expected typed maps for book and dual-component item. Actual native-format disk save/restart units cover book, dual-map item and nested book; named units PASS0.453s. Build/vet/tagged compilation, jukebox15.73s and common restoration18.65s regressions PASS. Evidence: work/native-stored-enchantments-stage/manifest.json and work/native-stored-enchantments-focused-wire.log.
+
+Positive stored levels are covered; explicit empty/default/removal semantics and other modeled writer omissions remain separate. The native wire control reads the canonical save view; Go disk restart is independently asserted by the unit rather than inferred from that query.

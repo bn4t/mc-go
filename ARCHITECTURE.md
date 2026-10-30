@@ -1436,7 +1436,9 @@ identity/count. Chest and generic-container loot seeds accept typed long suffixe
 Unknown component models retain the previous fallback. Native item restoration
 now shares modeled-field decoding while retaining dedicated recursive containers,
 bundles, trim, books and potions. The common writer preserves positive repair
-cost; arbitrary components and full codec/error-boundary parity remain incomplete.
+cost and modeled stored enchantment levels, keeping normal and stored maps
+distinct. Arbitrary components, explicit empty/removal semantics and full
+codec/error-boundary parity remain incomplete.
 
 
 Spear use age advances on admitted player-use passes, including during world

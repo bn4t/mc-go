@@ -686,6 +686,11 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 			comps["minecraft:enchantments"] = lvls
 		}
 	}
+	if it.StoredEnch != "" {
+		if levels := itemComponentsNBT(ItemStack{Ench: it.StoredEnch})["minecraft:enchantments"]; levels != nil {
+			comps["minecraft:stored_enchantments"] = levels
+		}
+	}
 	if it.PotionScaleSet {
 		comps["minecraft:potion_duration_scale"] = it.PotionScale
 	}
