@@ -1394,3 +1394,12 @@ Experience-orb attraction targets half the authoritative player eye height,
 including effective scale, rather than a fixed vertical offset. Standing
 scales0.5,1,2 are pinned with first-tick NoGravity displacement controls;
 other poses, transitions, gravity and fluid attraction remain separate.
+
+
+The scheduler core distinguishes registered queues, detached resident containers
+with absolute deadlines, and serialized containers with pending relative delays.
+Generation-checked discard rejects stale save completions after reattachment;
+already-collected callbacks retain their dispatch lifecycle. World snapshots
+include detached records. These primitives have no runtime unload caller yet:
+actual retirement, backend eviction, IO completion and deadline pause remain
+separate integration work. Existing normal-request sub-tick ordering is unchanged.

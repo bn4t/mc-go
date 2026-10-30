@@ -28,6 +28,11 @@ func (s *Server) captureScheduledChunkTicksOwned() map[string]map[[2]int32]world
 	for chunk, rows := range s.ticks.relative {
 		relative[chunk] = append([]relativeScheduledTick(nil), rows...)
 	}
+	for chunk := range s.ticks.detached {
+		if saved, ok := s.ticks.snapshotDetachedChunkLocked(chunk, now); ok {
+			relative[chunk] = append(relative[chunk], saved.rows...)
+		}
+	}
 	s.ticks.mu.Unlock()
 	for _, record := range records {
 		key := s.ticks.typedKey(record.key)

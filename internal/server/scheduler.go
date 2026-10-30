@@ -39,6 +39,17 @@ type schedKey struct {
 	recordID uint64
 }
 
+// Detachment removes a container from global scheduling without changing its
+// local absolute deadlines. Only discarding a serialized resident container
+// changes its records into delays to be unpacked on a later activation.
+type detachedTickContainer struct {
+	generation uint64
+	absolute   []blockTickRecord
+	pending    []relativeScheduledTick
+	members    map[schedKey]bool
+	serialized bool
+}
+
 // tickScheduler is the pending block-tick queue.
 //
 // Pending ticks retain their registered block or fluid type. Duplicate requests
@@ -59,6 +70,8 @@ type tickScheduler struct {
 	ownerDeadlines map[schedKey]ownerTickDeadlines
 	relative       map[scheduledChunk][]relativeScheduledTick
 	relativeOwners map[schedKey]bool
+	detached       map[scheduledChunk]*detachedTickContainer
+	nextDetachID   uint64
 }
 
 // Vanilla TickPriority values — the schedulePrio callers' range; lower
@@ -79,6 +92,7 @@ func newTickScheduler() *tickScheduler {
 		ownerDeadlines: map[schedKey]ownerTickDeadlines{},
 		relative:       map[scheduledChunk][]relativeScheduledTick{},
 		relativeOwners: map[schedKey]bool{},
+		detached:       map[scheduledChunk]*detachedTickContainer{},
 	}
 }
 
@@ -104,6 +118,9 @@ func (t *tickScheduler) schedulePrio(k schedKey, at int64, prio int8) {
 	k = t.typedKey(k)
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.detached[scheduledChunkOf(k)] != nil {
+		return
+	}
 	if t.owners[k] || t.relativeOwners[k] {
 		return
 	}

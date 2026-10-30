@@ -404,3 +404,10 @@ loaded. Keep the original editor's dimension and pose intact when later commands
 are unqualified; a separate physical loader can establish readiness. Preserve
 copy-before-shutdown, explicit-air and generation-isolation assertions. Use exact
 typed state/fence tokens so an error echo cannot satisfy the check.
+
+
+For chunk scheduling, distinguish admission loss from container detachment and
+physical unload. Observe serialization time and saved relative deadlines before
+claiming a paused clock. A detached resident may retain absolute deadlines;
+reattachment and reconstruction need separate controls. Pin stale completion
+fences and already-collected callbacks independently of future queue membership.
