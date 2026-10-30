@@ -179,7 +179,8 @@ Mojang server over the wire.
       runtime behavior remain open.
 
 ### Player
-- [~] Movement tracking, keep-alive, chat, tab list; player pose and movement use
+- [~] Movement tracking, keep-alive, chat, tab list; raw player/vehicle numeric
+      rejection is wire-pinned before authority gates. Player pose and movement use
       positioned collision shapes, measured fit tolerances and effective scale; spectator UUID teleport
       copies target position/orientation and crosses dimensions (wire-pinned)
 - [~] Full inventory + container protocol (pick-block hotbar selection and
@@ -18967,3 +18968,12 @@ Scope is supported recurring callback cardinality. Loaded duration0 is a negativ
 - **Measured** — Verify immutable commit1d1818d, excluding concurrent movement, scheduler and command work.
 - **Implemented** — No additional production changes. Refresh the partial-coverage matrix and README to reflect live orb codecs, final finite callbacks and bound player selectors without marking their broader areas complete.
 - **Pinned** — Build/vet PASS, tagged blackbox compilation0.077s PASS, complete default `go test -p 2 ./... -count=1 -timeout 25m` exits0: internal/server349.380s, world0.565s, worldgen14.008s, publicserver11.512s and default blackbox198.962s. All remaining packages pass. Evidence: `work/verified-1d1818d.log`. Slice-specific native controls remain recorded separately; this does not establish a full native-oracle run, graphical-client playtest or realistic-load performance completion.
+
+
+## Slice — raw Java player movement numeric validation (2026-10-30)
+
+- **Measured** — Native25-case raw movement probe PASS32.11s (native9.67s) establishes invalid_player_movement disconnects for NaN coordinates and nonfinite rotations before terrain-loaded/teleport gates. Controls include position/rotation/status variants, nonoperators and absent-field zero defaults. Coordinate infinities and extreme finite values retain the connection. Wire and public primitive/default-getter facts, Java26.2/JDK25.0.5+8; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Add presence-aware raw validation in the Java packet adapter before movement hooks or shared consumers, reusing the numeric predicate. Rejected packets cannot mutate player/entity/known-movement/correction state. Plugin-generated invalid destinations retain the existing correction/rejection policy; shared avatar and collision rules are unchanged.
+- **Pinned** — Four-file patch SHA256 `9ba6021ca356d64db85cf9a1fada6a5582fcb3916ce606df0d392489d7eaeb08`, baseb2bf918, plus comment-only companion `3a877c542b8bc988cf49fb18f45cf776b4a6a58436875e6b691bdd6f20e80394`. Strict25 native/Go wire PASS27.98s (9.15/7.28), accepted movement/ClientTickEnd40.80s (12.39/12.27), real public frontend/avatar test1.14s (package1.272s), build/vet/focused units2.061s/tagged compilation PASS. Invalid controls require exact typed reason and actual closure. Evidence and source/log hashes: `work/player-numeric-stage/manifest.json`.
+
+Positive infinity controls prove connection retention, not complete clamp/position parity. Finite rotation wrapping, additional valid movement authority semantics and truncated-packet behavior remain separate measured scopes. No neutral-avatar disconnect policy was added.

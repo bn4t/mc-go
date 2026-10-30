@@ -1246,3 +1246,10 @@ expiration. A loaded one-tick regeneration, poison or wither instance executes
 once, while a zero-duration instance remains inert. The final path requires an
 actual entity tick; parked lifetime policy and instant-effect dispatch remain
 separate limitations.
+
+
+The Java player adapter validates raw numeric fields before shared movement
+hooks, with omitted packet fields treated as zero for that check. Invalid raw
+packets disconnect; a plugin-generated invalid destination still follows shared
+correction/rejection behavior. Neutral avatar capability policy is unchanged.
+Coordinate-infinity connection controls do not establish physical clamp parity.

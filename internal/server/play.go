@@ -230,9 +230,9 @@ type PlayerMove = event.PlayerMove
 
 // handleMove applies a movement packet to the session position. All
 // 776 movement packets carry a flags byte (0x01 on ground, 0x02
-// pushing against wall) instead of a boolean. Malformed packets (bad
-// floats, outside the world border) are dropped without touching
-// state; speed enforcement lands with the physics milestone.
+// pushing against wall) instead of a boolean. Truncated packets are ignored;
+// invalid numeric fields disconnect before shared movement validation.
+// The shared rule handles border, collision and plugin decisions.
 func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 	ids := sess.ids()
 	r := protocol.NewPacketReader(p.Data)
@@ -286,6 +286,12 @@ func (s *Server) handleMove(sess *Session, p protocol.Packet) {
 		if flags, err = r.Byte(); err != nil {
 			return
 		}
+	}
+	hasPosition := p.ID == ids.PlayMovePosSB || p.ID == ids.PlayMovePosRotSB
+	hasRotation := p.ID == ids.PlayMoveRotSB || p.ID == ids.PlayMovePosRotSB
+	if invalidPlayerPacketNumbers(hasPosition, hasRotation, x, y, z, yaw, pitch) {
+		s.disconnectWithComponent(sess, translatable("multiplayer.disconnect.invalid_player_movement"))
+		return
 	}
 	s.applyPlayerMoveOwned(sess, frontend.Movement{
 		X: x, Y: y, Z: z, Yaw: yaw, Pitch: pitch, OnGround: flags&0x01 != 0,
