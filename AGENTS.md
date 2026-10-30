@@ -315,3 +315,8 @@ For NPC environmental fixtures, freeze setup and reads, validate actual blocks a
 
 
 A capped freeze counter does not establish its increment: use independent uncapped player-frame windows in normal and frozen worlds. Native zero TicksFrozen is omitted, so assert canonical membership rather than an explicit zero tag. Keep stationary, re-entry and movement-path exposure claims separate.
+
+
+Base entity dimensions and first unrotated attachment facts are reproduced by
+`tools/genentitybounds/README.md`. Preserve existing runtime class/pose overrides;
+type-record attachment defaults are not interchangeable with live vehicle seats.

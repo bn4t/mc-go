@@ -19653,3 +19653,12 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 - **Pinned** — Native initial measurement PASS 47.32s; native/Go differential and actual native-world Go restart PASS 81.98s. Exact 64-bit seeds are checked as decoded text, avoiding float precision. Worldgen units PASS 0.330s, server admission/save/reload units PASS 0.225s, cargo item regression PASS 12.43s and existing mineshaft structure regression PASS 108.52s (its 14 previously documented decoration-order cells remain accepted). Default blackbox compilation passes. Eight-file artifact `6d24d10482dcb8cf3141aae005f088e2d0dcfe215a5d1a5d4086d9d2813927b5`.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual first-tick API inspection inform independently written code. Loot unpack contents, UI interaction, full rail motion and other structure families remain separate coverage.
+
+
+## Slice — Reproducible entity type dimensions and attachment facts (2026-10-30)
+
+- **Measured** — Public getter observations cover all 158 entity types and preserve the original dimension fixture bytes. The optional attachment output records first unrotated passenger/vehicle points; the original two-argument probe remains compatible.
+- **Implemented** — Add a validated stdlib generator and provenance-stamped numeric tables. These are type facts, not full instance geometry.
+- **Pinned** — Both generators check cleanly; registry census unit PASS 0.080s; both probe contracts reproduce the original fixture. Artifact aebd0c3c41d3c27685d7d66bca6eb821c51815187d13845d79749064fe6aab48.
+
+Official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Public numeric getter facts and wire observations inform independent implementation.
