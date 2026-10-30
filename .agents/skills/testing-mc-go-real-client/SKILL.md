@@ -468,3 +468,6 @@ When sampling relative saved timers, a clean native save may leave old chunk byt
 
 
 For NPC environmental fixtures, freeze setup and reads, validate actual blocks and bodies, and prove exact world-step completion through game time. Player frames require separate receipts; preserve original health, fire, freeze, melt and retirement outcomes when repairing synchronization.
+
+
+A capped freeze counter does not establish its increment: use independent uncapped player-frame windows in normal and frozen worlds. Native zero TicksFrozen is omitted, so assert canonical membership rather than an explicit zero tag. Keep stationary, re-entry and movement-path exposure claims separate.

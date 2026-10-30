@@ -130,7 +130,9 @@ func (s *Server) entityInsideStep() {
 		name, _ := EntityTypeName(e.Type)
 		// Entity.baseTick clears isInPowderSnow before the inside
 		// pass re-sets it for this tick's powder-snow overlap.
-		e.IsInPowderSnow = false
+		if name != "player" {
+			e.IsInPowderSnow = false
+		}
 		w, h := entityBox(name)
 		minX := int(math.Floor(e.X - float64(w)/2))
 		maxX := int(math.Floor(e.X + float64(w)/2))
@@ -266,8 +268,10 @@ func (s *Server) powderSnowInside(e *Entity, d *dimension, pos world.Pos, name s
 			s.setNaturalBlock(d, pos, world.Air)
 		}
 	}
-	e.IsInPowderSnow = true
-	if !freezeImmuneTypes[name] && e.TicksFrozen < 140 {
+	if name != "player" {
+		e.IsInPowderSnow = true
+	}
+	if name != "player" && !freezeImmuneTypes[name] && e.TicksFrozen < 140 {
 		e.TicksFrozen++
 		if e.Living {
 			e.MetaDirty = true

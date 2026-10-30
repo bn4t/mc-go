@@ -1505,18 +1505,11 @@ func (s *Server) playerFluidTickStep() {
 			s.damageWith(sess, 1, translatable("death.attack.inWall",
 				playerChatComponent(sess)), srcInWall)
 		}
-		// The freeze arm: the player record's TicksFrozen accrues via
-		// entityInsideStep's powder_snow inside effect (capped at 140)
-		// and thaws two a tick out of snow; a fully frozen living
-		// entity takes the freeze damage every forty ticks. The player
-		// type isn't freeze-immune — the hurt itself is mode-gated
-		// inside damageWith.
+		// Player freezing follows the admitted player frame, including while
+		// world age is frozen. The living pass follows the inside pass above.
 		if pe, ok := s.entities.GetPtr(sess.entityID.Load()); ok {
-			// Vanilla paces this on the entity's tickCount (every
-			// fortieth tick), not the sendChanges cadence — SyncCount
-			// stalls on player records, which let the arm fire every
-			// tick and lean on i-frames alone.
-			if pe.TicksFrozen >= 140 && sess.entityTicks%40 == 0 {
+			s.playerPowderTick(sess, pe)
+			if pe.TicksFrozen >= 140 && playerCanFreeze(sess) && sess.entityTicks%40 == 0 {
 				s.damageWith(sess, 1, translatable("death.attack.frozen",
 					playerChatComponent(sess)), srcFreeze)
 			}
@@ -1609,6 +1602,7 @@ func (s *Server) playerInsideBlocks(sess *Session) {
 		return
 	}
 	x, y, z, _, _, _ := sess.Pos()
+	s.playerPowderInside(sess, d, x, y, z)
 	lava := false
 	wet, burn := false, float32(0)
 	for bx := int(math.Floor(x - 0.3)); bx <= int(math.Floor(x+0.3)); bx++ {

@@ -235,8 +235,9 @@ Mojang server over the wire.
       and selected active-tick delivery are pinned; direct-dose coverage remains partial.
       Frozen environmental work follows the player frame instead of the command
       poll, with strict void/air controls. Exhaustion spends only above four;
-      fractional saturation/multiple-quanta behavior and powder accrual/thaw remain
-      separate gaps.
+      player powder exposure/thaw, wearable immunity and freeze damage rules have
+      actual-frame controls. Fractional saturation/multiple-quanta behavior and
+      burning/melting or swept-path freezing remain separate gaps.
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
   shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
   /recipe give|take + RecipeBookAdd/Remove wire-parity including the
@@ -19625,5 +19626,14 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 - **Measured** — The old fixed-time sprint fixture fails on unchanged code with variable native freeze/fire snapshots. It did not prove actual simulation completion.
 - **Implemented** — Complete admission, verify placed blocks and summoned bodies, freeze setup/read boundaries, and require exact game-time completion for each original world-step interval. Preserve all original compared fields and melt/corpse outcomes.
 - **Pinned** — Fixture alone on pre-powder runtime PASS 37.78s; same fixture with new powder runtime PASS 39.31s. Original powder 140, fire/soul health 8, lava health 6, immune health 20, cauldron health 9, melt and corpse controls remain. One-file artifact 44ec905d42ed00b45aa08cd531134dc5c67fbd48037cd36a1ab7fc33439dfc3f. Old failures retained; no production change.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.
+
+
+## Slice — player powder-snow frames wearables and freeze rule (2026-10-30)
+
+- **Measured** — Native normal and frozen stationary exposure gains two freeze points per actual player frame, capped at 140; dry or leather-protected bodies thaw two. Independent uncapped windows establish the rate. Eligible fully frozen players take one damage every 40 entity ticks; freeze_damage suppresses explicit and environmental freeze damage. Native omits zero TicksFrozen.
+- **Implemented** — Run player powder overlap and frame-end freezing on admitted player frames, using cached pose/scale bounds and float contact inset. Respect armor-group freeze immunity, self/tracker metadata and the shared damage rule; keep generic mob behavior separate.
+- **Pinned** — Final differential PASS 98.07s; focused race PASS 96.033s, units PASS 0.952s, FrozenPlayerAir PASS 13.15s and PlayerContextCollision PASS 14.48s. Restored InsideEffects regression PASS 39.31s, plus vet/both compile modes. Six-file artifact 94ae1706aeefbfe6193c46c8c76b4938f0ee06d94ea21c7e3ee8fa4b2e87ba49. Burning/melting, swept paths, imported freeze state and full constructor persistence remain separate.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.

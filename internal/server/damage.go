@@ -131,6 +131,9 @@ var (
 // spectator abilities make the player invulnerable to everything except
 // the bypasses_invulnerability damage types (void, /kill).
 func sessInvulnerableTo(sess *Session, typeName string) bool {
+	if typeName == "freeze" && sess.server != nil && !sess.server.gameRuleBool("minecraft:freeze_damage") {
+		return true
+	}
 	m := sess.mode()
 	if m != GameModeCreative && m != GameModeSpectator {
 		// Non-creative invulnerability also comes from equipment —

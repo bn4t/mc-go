@@ -1475,8 +1475,10 @@ oversized output and external-file cleanup remain open.
 
 Frozen environmental/base player work uses the same due frame as living, food
 and statistics; the faster command poll no longer advances it independently.
-Normal simulation stepping and flushing retain their existing policy. Powder-snow
-accrual/thaw remains world-bound and requires separate player-frame integration.
+Normal simulation stepping and flushing retain their existing policy. Player powder-snow
+accrual/thaw now follows the admitted player frame, with stationary exposure,
+wearable immunity, metadata and freeze damage controls. Burning/melting, swept
+paths and imported freeze state remain separate measurement boundaries.
 
 
 Local teleport coordinates use independently synthesized periodic float32
