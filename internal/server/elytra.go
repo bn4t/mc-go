@@ -273,7 +273,9 @@ func (s *Server) clampBoxAxis(wd *world.World, span [2]float64, d float64, axis 
 	// the box face (minX >= box.maxX), so a face already inside a cell
 	// slides free — crossing into a cell stops exactly at the entry.
 	if d > 0 {
-		for b := int(math.Ceil(face)); float64(b) <= face+d; b++ {
+		// Shape planes within native epsilon still bind, including tiny
+		// overlap introduced by earlier floating-point movement.
+		for b := int(math.Ceil(face - 1e-7)); float64(b) <= face+d; b++ {
 			if blocked(b) {
 				return math.Min(d, float64(b)-face)
 			}
@@ -285,15 +287,15 @@ func (s *Server) clampBoxAxis(wd *world.World, span [2]float64, d float64, axis 
 		// than its integer ceiling, so partial columns stop the box
 		// at their real top face.
 		best := d
-		for c := int(math.Floor(face)); float64(c)+1.0 > face+d; c-- {
+		for c := int(math.Floor(face + 1e-7)); float64(c)+1.0 > face+d; c-- {
 			top := float64(c) + shapeTop(c)
-			if shapeTop(c) > 0 && top <= face && top > face+d && top-face > best {
+			if shapeTop(c) > 0 && top <= face+1e-7 && top > face+d && top-face > best {
 				best = top - face
 			}
 		}
 		return best
 	}
-	for b := int(math.Floor(face)); float64(b) > face+d; b-- {
+	for b := int(math.Floor(face + 1e-7)); float64(b) > face+d; b-- {
 		if blocked(b - 1) {
 			return math.Max(d, float64(b)-face)
 		}

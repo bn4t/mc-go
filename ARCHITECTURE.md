@@ -1104,9 +1104,13 @@ by this mechanism.
 
 Dropped items retain the item tick's collision-bypass decision for later piston
 movement in that tick. Source-base retraction uses this retained decision, not
-a new overlap test after closest-space escape. East-facing stationary-warm
-NoGravity item controls cover contact, backoff and cleanup; other axes and
-gravity-on contacts remain separate measurements.
+a new overlap test after closest-space escape. Stationary-warm NoGravity item
+controls cover contact, backoff and cleanup in all six directions. Scalar
+collision planes include the measured 1e-7 tolerance; coordinate updates depend
+on resolved movement and the amount removed by collision, preserving tiny free
+movement. Restitution samples the legacy support point 0.2f below the feet and
+uses float32 nonliving damping, so retained gaps still bounce on slime. Full voxel
+geometry, support X/Z caching, step-up and broader entity effects remain partial.
 
 Builtin world clocks separate world age from Overworld and End totals. Each
 clock owns float32 fraction/rate and a paused flag; global advance_time changes

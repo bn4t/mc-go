@@ -125,13 +125,20 @@ func entityInsideSolid(w *world.World, x, y, z, half, height float64) bool {
 // tracks verticalCollision like setOnGroundWithMovement (any vertical
 // bound counts, ceiling hits included).
 func (s *Server) entityMove(e *Entity, w *world.World, half, height, dx, dy, dz, gravity, airDrag float64, living bool) (vCollBelow bool) {
-	if dx*dx+dy*dy+dz*dz <= 1e-7 {
+	if dx == 0 && dy == 0 && dz == 0 {
 		return false
 	}
 	cx, cy, cz, _ := s.sweepEntityBox(w, e.X, e.Y, e.Z, half, height, dx, dy, dz)
-	e.X += cx
-	e.Y += cy
-	e.Z += cz
+	// A tiny remainder after a substantial collision does not relocate the
+	// entity. Unobstructed small moves still advance; so do tiny components
+	// accompanying meaningful movement on another axis.
+	requestedSq := dx*dx + dy*dy + dz*dz
+	resolvedSq := cx*cx + cy*cy + cz*cz
+	if resolvedSq > 1e-7 || requestedSq-resolvedSq < 1e-7 {
+		e.X += cx
+		e.Y += cy
+		e.Z += cz
+	}
 	xCol, zCol := cx != dx, cz != dz
 	vColl := cy != dy
 	vCollBelow = vColl && dy < 0
@@ -222,7 +229,9 @@ func (s *Server) restituteMove(e *Entity, w *world.World, xCol, zCol, vColl, vCo
 	bounced := bounce > 0 && (xCol || zCol)
 	if vColl {
 		if vCollBelow {
-			below := w.GetBlock(world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y - 1e-5)), Z: int(math.Floor(e.Z))})
+			// Restitution reads the legacy support point, which remains below
+			// the surface when the position-update gate retains a small gap.
+			below := w.GetBlock(world.Pos{X: int(math.Floor(e.X)), Y: int(math.Floor(e.Y - float64(float32(.2)))), Z: int(math.Floor(e.Z))})
 			bname, _ := world.StateOwner(below)
 			if -dy < gravity || strings.TrimPrefix(bname, "minecraft:") == "honey_block" {
 				bounce = 0
@@ -230,7 +239,7 @@ func (s *Server) restituteMove(e *Entity, w *world.World, xCol, zCol, vColl, vCo
 				if bb := blockBounceOf(below); bb > bounce {
 					bounce = bb
 					if !living {
-						bounce *= 0.8
+						bounce = float64(float32(bounce) * float32(.8))
 					}
 				}
 			}

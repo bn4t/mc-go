@@ -33,14 +33,16 @@ with native templates, jigsaw editor/generation, test-block editors and
 test-instance controller records/reset/native saves,
 block-entity update coalescing, moving-piston collision timing and measured
 dropped-item pushes, retracting source-base ejection of NoGravity armor stands
-and measured east-facing dropped-item contact,
+and NoGravity dropped items in all six directions,
 container validity, chest events and ordinary main/offhand placement and consumption.
 Dying mobs continue to obstruct block placement until their actual removal.
 Current player bounds refresh on player frames or pose changes; hypothetical
 pose-fit dimensions use live attributes. Settled scale requires player ticks.
 Embedded dropped items now move with collision bypass, gravity-before-escape
 ordering and float drag in measured single-exit chambers. Partial-shape escape
-selection and embedded XP-orb movement remain in progress.
+selection and embedded XP-orb movement remain in progress. Measured contact
+physics now preserves tiny free movement, clips near-plane contacts and retains
+slime bounce support when collision leaves a small gap above the surface.
 Invalid hand values in protocol 776 item-use packets disconnect without item
 actions; broader malformed-packet coverage remains partial.
 Selected-hand interactions include signs, hive harvesting, ignition, growth,
