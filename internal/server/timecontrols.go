@@ -208,7 +208,7 @@ func (s *Server) runClockQuery(player string, args []string, target *clockComman
 }
 
 func (s *Server) runTimeSetForClock(player string, args []string, add bool, target *clockCommandTarget) reply {
-	if len(args) != 1 {
+	if len(args) == 0 {
 		// "/time set" with no value: the parse stops after "set".
 		return errTokenEnd("command.unknown.command", 1)
 	}
@@ -218,32 +218,30 @@ func (s *Server) runTimeSetForClock(player string, args []string, add bool, targ
 	if target != nil {
 		id, dim, hasClock = target.id, target.name, true
 	}
-	ticks, problem, number := functionScheduleTime(arg)
-	if problem != "" || !add && ticks < 0 {
+	end := timeArgumentTokenEnd(arg)
+	ticks, problem, number := functionScheduleTime(arg[:end])
+	if problem != "" || !add && (ticks < 0 || end < len(arg)) {
 		if add {
 			switch problem {
 			case "parsing.float.invalid":
 				return errToken(problem, 2, number)
 			case "argument.time.invalid_unit":
-				return errTokenEnd(problem, 2)
+				return errTokenOff(problem, 2, end)
 			default:
 				return errToken("parsing.float.expected", 2)
 			}
 		}
+		// SET also accepts a marker Identifier. If neither complete
+		// argument parses, the alternatives report their common start.
+		marker, valid := jigsawIdentifier(arg)
+		if timeMarkerPrefix(arg) != len(arg) || !valid {
+			return errToken("command.unknown.argument", 2)
+		}
+		if len(args) > 1 {
+			return errToken("command.unknown.argument", 3)
+		}
 		if !hasClock {
 			return componentReply(commandError("commands.time.no_default_clock", dim))
-		}
-		// Identifier arguments can consume an empty prefix. A leading
-		// character outside that alphabet leaves an unknown argument.
-		if n := timeMarkerPrefix(arg); n < len(arg) {
-			return errTokenOff("command.unknown.argument", 2, n)
-		}
-		marker, valid := jigsawIdentifier(arg)
-		if !valid {
-			marker = arg
-			if !strings.Contains(marker, ":") {
-				marker = "minecraft:" + marker
-			}
 		}
 		value, ok := builtinTimeMarker(marker)
 		if !ok || id != 0 {
@@ -257,6 +255,12 @@ func (s *Server) runTimeSetForClock(player string, args []string, add bool, targ
 		}
 		s.setWorldClockTotal(id, nextBuiltinTimeMarker(s.worldClockTotal(id), value))
 		return clockCommandResult(opsEchoReply(translatable("commands.time.set.time_marker", dim, marker)), clockWrappedResult(s.worldClockTotal(id)))
+	}
+	if end < len(arg) {
+		return errTokenOff("command.expected.separator", 2, end)
+	}
+	if len(args) > 1 {
+		return errToken("command.unknown.argument", 3)
 	}
 	if !hasClock {
 		return componentReply(commandError("commands.time.no_default_clock", dim))

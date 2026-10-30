@@ -1798,7 +1798,7 @@ func (s *Server) execRunNow(ctx *executeContext, player string, sub []string, su
 	}
 	sess := s.findSessionByName(player)
 	if sess == nil {
-		return s.runInDimension(player, ctx.dim, sub)
+		return rebaseExecuteLeaf(s.runInDimension(player, ctx.dim, sub), subTok)
 	}
 	prevEnt, prevPos := sess.execEnt, sess.execPos
 	sess.execEnt = ctx.ent
@@ -1811,7 +1811,7 @@ func (s *Server) execRunNow(ctx *executeContext, player string, sub []string, su
 	if !s.commandExists(sub[0]) {
 		return errToken("command.unknown.argument", subTok)
 	}
-	return s.runInDimension(player, ctx.dim, sub)
+	return rebaseExecuteLeaf(s.runInDimension(player, ctx.dim, sub), subTok)
 }
 
 // commandExists reports whether name dispatches to a registered

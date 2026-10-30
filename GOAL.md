@@ -18762,3 +18762,12 @@ Specialized mace/spear still use the legacy table. Mob equipment materialization
 - **Pinned** — Two-file SHA256 `f037fb38557ca783de929ccb1f39575a561df07fc2214703d5ffe30b16596d9d`, layered on the canonical mob slice. Native/Go wire PASS15.22s, three focused regressions PASS50.805s, tagged compile PASS. Exact health/resistance and each raw motion component within1e-12 reject reversed equal-strength ordering. Evidence/provenance: `work/mob-sweep-knockback-manifest.md` and associated logs.
 
 Measured scope is a standing unenchanted sword against fresh unarmored NoAI pigs; armor, enchantments and same-frame changes remain separate.
+
+
+## Slice — time argument grammar and redirected error cursors (2026-10-30)
+
+- **Measured** — Sixteen native syntax controls establish numeric/unit boundaries, SET numeric/identifier alternative precedence, trailing arguments, invalid marker identifiers and syntax-before-default-clock ordering. Exact cursor context includes the ten-character preview, bad suffix, styles and click suggestion. Java26.2/JDK25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Separate numeric time units from enclosing punctuation and reject malformed/extra arguments before mutation, preserving SET/ADD error differences. Two execute leaf-return wrappers rebase relative parse cursors into the enclosing input; cloned marks preserve absolute cursors and unknown-command positions.
+- **Pinned** — Six-file SHA256 `9755966c35e2fa4581862e604b62ce02b0cefc36e828310920f24ef1f9018ce3`, base1ca195b. Strict16-case wire PASS28.50s (native2.84/Go3.08), prior44 unit/marker controls PASS19.38s, general time regression PASS45.38s. Build/vet/focused units0.181s/tagged gates PASS. Neutral units cover one/two nested redirects, unknown leaves, clone ownership and absolute marks. Evidence: `work/time-grammar-stage/manifest.json`, `work/time-grammar-slice.md` and associated logs; first strict run exposed only redirected error offsets and remains preserved.
+
+Builtin completions, custom clock/timeline/marker resources and broader Unicode/command-tree behavior remain partial. Schedule's whole-token time wrapper requires a separate delimiter measurement.

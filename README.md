@@ -151,7 +151,9 @@ Explicit selection works from the Nether. Absolute and four builtin timeline
 queries include repetition counts. Decimal time arguments support days, seconds
 and ticks with native float32 rounding. Builtin markers, including hidden
 markers and default-namespace aliases, advance to their next occurrence.
-Custom resources, remaining parser edge cases and completions remain partial.
+Time syntax checks numeric-unit boundaries, marker identifiers and extra
+arguments before changing clocks; nested execute errors retain their input
+positions. Custom resources, broader parser cases and completions remain partial.
 
 Weather intensities preserve native float32 steps and project rain/thunder
 changes to clients, including initial weather for late joins. Natural/random
