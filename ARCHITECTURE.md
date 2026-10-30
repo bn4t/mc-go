@@ -1509,3 +1509,6 @@ Firework command/native readers require an explosion shape. Rocket flight and ex
 
 
 Common native item persistence now writes modeled explosions and rockets, including required default shapes and explicit empty rocket compounds. Instrument removal persists as an explicit removal compound. Root and nested disk restart controls preserve these distinctions; arbitrary prototype/default equivalence remains incomplete.
+
+
+Common native item persistence writes and recognizes the existing complete Ominous banner aggregate. Its canonical four components preserve the eight ordered layers. Full recognition clears duplicate generic patterns; incomplete aggregates keep their supported generic representation. Arbitrary custom metadata preservation remains incomplete.

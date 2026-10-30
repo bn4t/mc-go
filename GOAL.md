@@ -60,7 +60,7 @@ Mojang server over the wire.
       Scheduled containers now retire through serialized native IO; full backend
       and entity eviction remain incomplete. Modeled native item loading and
       stored enchantments, repair costs, maps, colors, banner layers, stew effects
-      pot decorations, fireworks and instrument removal have disk/wire controls; arbitrary components remain
+      pot decorations, fireworks, instrument removal and ominous banners have disk/wire controls; arbitrary components remain
       incomplete.
 - [x] Chunk streaming, light packet. The streamed window is measured
       and matched exactly (square radius viewDistance+1 less a circular
@@ -19589,5 +19589,14 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 - **Measured** — Native nine-row typed save-view controls preserve required explosion shapes, ordered int color lists, byte flags/flight, empty rocket compounds and explicit instrument-removal compounds; absent values and seek horn are controls.
 - **Implemented** — Encode modeled fireworks through the corrected shared explosion leaf and preserve the explicit instrument-removal marker. Empty rocket remains distinct from absence.
 - **Pinned** — Differential PASS 18.33s, codec regression PASS 16.56s and jukebox PASS 23.41s. Actual SaveWorld/LoadWorld checks nine rows and nested small_ball, empty rocket and removed horn; unit group PASS 0.862s. Build/vet/tagged compilation pass. Four-file artifact 33842005211fe65004aa4a615b88976ecc23532d1478510f7a1d70fb35b0e649. Arbitrary component/default-patch equivalence remains incomplete.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.
+
+
+## Slice — ominous banner aggregate native persistence (2026-10-30)
+
+- **Measured** — An actual native captain head item copied into a chest has four canonical components and eight ordered banner layers. The plain-banner control has no component patch; an exact in-function marker proves capture completion.
+- **Implemented** — Write the existing Ominous aggregate through its canonical component encoder and recognize the complete native aggregate on read, removing duplicate generic pattern representation. A partial aggregate remains generic.
+- **Pinned** — Differential PASS 16.42s, firework writer regression PASS 16.62s and jukebox PASS 20.67s. Root/nested disk restart and typed canonical map units PASS 0.455s; build/vet/tagged compilation pass. Three-file artifact c582849d3c050cd2033ced9f0ce3742a414883df9452a9302d827812275bcb16. Partial/custom metadata and unsupported components remain incomplete.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.

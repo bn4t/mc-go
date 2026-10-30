@@ -701,6 +701,11 @@ func itemComponentsNBT(it ItemStack) map[string]any {
 		comps["minecraft:dyed_color"] = it.DyedColor
 	}
 	itemPaletteComponentsNBT(comps, it)
+	if it.Ominous {
+		for name, value := range jukeboxOminousComponents() {
+			comps[name] = value
+		}
+	}
 	itemStructuredComponentsNBT(comps, it)
 	if it.PotionScaleSet {
 		comps["minecraft:potion_duration_scale"] = it.PotionScale
@@ -1038,6 +1043,10 @@ func itemFromNBT(m map[string]any) ItemStack {
 		decoded.BookWritable, decoded.BookWritten = it.BookWritable, it.BookWritten
 		decoded.Potion, decoded.PotionExtra = it.Potion, it.PotionExtra
 		decoded.PotionScaleSet, decoded.PotionScale = it.PotionScaleSet, it.PotionScale
+		if _, hasName := comps["minecraft:item_name"]; hasName && jukeboxIsOminous(comps) {
+			decoded.Ominous = true
+			decoded.BannerPatterns = ""
+		}
 		it = decoded
 	}
 	return it
