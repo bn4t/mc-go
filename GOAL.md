@@ -18893,3 +18893,12 @@ This is the queue mechanism only. Startup still uses its committed eager restora
 - **Measured** — Verify immutable commit2437916 with concurrent agent work excluded from the archive.
 - **Implemented** — No additional production changes; record the integration gates before publication. Startup still eagerly restores saved ticks; the new relative queue primitives await policy binding.
 - **Pinned** — Build/vet PASS, tagged blackbox compilation0.632s PASS, complete default `go test -p 2 ./... -count=1 -timeout 25m` exits0: internal/server407.453s, world0.283s, worldgen13.756s, publicserver9.603s and default blackbox242.998s. All remaining packages pass. Evidence: `work/verified-2437916.log`. Individual native controls remain in the preceding slices; no full native-oracle, graphical-client or realistic-load performance claim.
+
+
+## Slice — vehicle movement numeric validation (2026-10-30)
+
+- **Measured** — Corrected native 19-case probe PASS 15.51s (native 6.02s) establishes unconditional rejection of NaN coordinates and nonfinite rotations, with typed invalid_vehicle_movement disconnect and connection closure. Coordinate infinities and extreme finite values retain the connection. Validation precedes mount/load/teleport authority. The initial chat-based probe was rejected because a following chat reply could precede a queued kick. Wire and factual listener bytecode, Java 26.2/JDK 25.0.5+8; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Add a numeric predicate and four-line guard after packet decoding, before vehicle authority or movement mutation. Reuse typed disconnect handling; retain coordinate clamping and existing physics.
+- **Pinned** — Four-file patch SHA256 `a1f9514578902902c788b5bea59252b0e78505a9d35e95daf32b0cc230c3492b`, base2437916. Strict 19-case native/Go comparison PASS 21.24s (6.45/5.32), mounted VehicleMove regression 41.90s and RiddenSteerable regression 38.28s. Build/vet/tagged compilation and focused units 1.676s PASS. Units cover rejected unmounted/controlling/noncontrolling sessions without state mutation and accepted finite/infinity controls. Provenance and hashes: `work/vehicle-numeric-stage/manifest.json`.
+
+The new wire matrix is unmounted; mounted invalid-state protection has direct unit coverage, with existing mounted valid-motion differential coverage retained. Player numeric validation and broader movement/authority parity remain separate.

@@ -910,6 +910,10 @@ func (s *Server) handleMoveVehicle(sess *Session, p protocol.Packet) {
 	if err != nil {
 		return
 	}
+	if invalidVehicleNumbers(x, y, z, yaw, pitch) {
+		s.disconnectWithComponent(sess, translatable("multiplayer.disconnect.invalid_vehicle_movement"))
+		return
+	}
 	vid := sess.riding.Load()
 	if vid == 0 {
 		return

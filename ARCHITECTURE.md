@@ -1223,3 +1223,9 @@ absolute deadlines. They preserve pending membership, duplicates and list order,
 and can poll only an eligible chunk set without rescheduling blocked records.
 These primitives are not yet bound to startup chunk admission: the existing
 eager restore path remains until the separately verified policy integration.
+
+
+Vehicle movement validates NaN coordinates and nonfinite rotations before mount
+authority or movement mutation, using the native typed disconnect. Coordinate
+infinities remain on the existing clamp/speed-check path. This packet validation
+does not establish complete vehicle physics or player-movement numeric parity.
