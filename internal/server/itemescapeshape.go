@@ -81,7 +81,7 @@ func collisionShapeIsFullCube(boxes []cellBox) bool {
 	return true
 }
 
-func (s *Server) setEmbeddedItemEscapeVelocity(d *dimension, e *Entity, height float64) {
+func (s *Server) setEmbeddedWorldEscapeVelocity(d *dimension, e *Entity, height float64) {
 	setEmbeddedEscapeVelocity(e, height, func(pos world.Pos) bool {
 		return !collisionShapeIsFullCube(s.worldCollisionShapeAt(d, d.w.GetBlock(pos), pos))
 	})

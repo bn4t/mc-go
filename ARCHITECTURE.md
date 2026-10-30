@@ -1313,7 +1313,9 @@ response. That response compares incoming vertical velocity with effective
 gravity, including NoGravity. Ordinary air and stone/slime contacts are pinned;
 embedded full-stone escape also advances through this tail after selecting its
 impulse, while skipping ordinary gravity/fluid/follow updates. First-tick escape
-bounds and damping are pinned; partial shapes, embedded fluids and subsequent
+bounds and damping are pinned. Escape candidates now use the existing live-world
+full-collision-cube predicate, including measured partial shapes. The scalar
+initial inside-solid gate, embedded fluids, arbitrary clipping and subsequent
 trajectories remain separate.
 
 

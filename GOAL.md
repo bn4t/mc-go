@@ -19154,3 +19154,12 @@ Body packet selection/quantization remains different in the retained control. Ex
 - **Pinned** — Strict ten-case differential PASS29.31s; default compile0.397s and tagged build PASS. Existing42-case ordinary orb/vibration regression PASS103.57s. Geometry selects direction while bounds and displacement–motion relations avoid comparing random sample identities. Final exits/source hashes: `work/orb-embedded-fixed-stage/manifest.json`.
 
 This pins the first actual tick inside a full stone enclosure with one air exit. Partial shapes, embedded fluids, subsequent trajectories and hard-entity collisions remain separate.
+
+
+## Slice — collision-shape eligibility for orb escape (2026-10-30)
+
+- **Measured** — Native first-tick escape selects nearer horizontal air/slab/stair/trapdoor/fence candidates, while full glass/double slabs leave the upward fallback. Clear corridors isolate eligibility from clipping. Strict baseline68.17s has 32 passing native cases and 40 Go wrong-direction failures across20 partial candidates. Wire and previously recorded public full-cube census, Java26.2/JDK25.0.5+8, runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Reuse the existing live-world collision/full-cube escape callback for orbs and mechanically rename the private helper shared with items. Item predicate semantics, geometry, direction priority, impulse sampling and global material policy remain unchanged. Four-file patch SHA256 31664503b38104a0041ee88b96e1880515cea716ca26457fea5171a7d1b2ff43 follows the separate movement/embedded-tail slices.
+- **Pinned** — Strict32-case differential PASS82.38s, complete32366-state full-cube census/union/live-world units0.164s, race3.698s/default compile0.448s/tagged build PASS. Existing ten forced-air controls across both gravity states PASS51.16s. Final exits/source hashes: work/orb-shape-fixed-stage/manifest.json.
+
+The new wire cases cover NoGravity first-tick clear corridors. Scalar initial inside-solid detection, later trajectories, fluids, hard-entity collisions and arbitrary partial-shape clipping remain separate.

@@ -83,7 +83,7 @@ func TestItemEscapeEligibilityUsesLiveWorldShape(t *testing.T) {
 	check := func(name string, axis int, sign float64) {
 		t.Helper()
 		e := &Entity{X: .25, Y: 162.3, Z: .6}
-		s.setEmbeddedItemEscapeVelocity(d, e, .25)
+		s.setEmbeddedWorldEscapeVelocity(d, e, .25)
 		motion := [3]float64{e.MotionX, e.MotionY, e.MotionZ}
 		if sign*motion[axis] < .1 || sign*motion[axis] > .3 {
 			t.Fatalf("%s motion%v", name, motion)

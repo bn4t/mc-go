@@ -616,7 +616,7 @@ func (s *Server) itemTickStep() {
 			e.itemNoPhysics = inside
 		}
 		if inside && orb {
-			setEmbeddedEntityEscapeVelocity(w, e, heightBox)
+			s.setEmbeddedWorldEscapeVelocity(s.dims[e.Dim], e, heightBox)
 			e.PosDirty = true
 			e.NeedsSync = true
 			s.moveExperienceOrb(e, w)
@@ -695,7 +695,7 @@ func (s *Server) itemTickStep() {
 			}
 			// Gravity/fluid acceleration precedes closest-space damping.
 			if inside {
-				s.setEmbeddedItemEscapeVelocity(s.dims[e.Dim], e, heightBox)
+				s.setEmbeddedWorldEscapeVelocity(s.dims[e.Dim], e, heightBox)
 			}
 			resting := e.Grounded &&
 				e.MotionX*e.MotionX+e.MotionZ*e.MotionZ <= 1e-5 &&
