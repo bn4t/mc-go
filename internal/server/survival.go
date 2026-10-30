@@ -658,7 +658,8 @@ func (s *Server) itemTickStep() {
 			if e.OrbFollowing != 0 {
 				if p := s.sessionByEntityID(e.OrbFollowing); p != nil {
 					px, py, pz, _, _, _ := p.Pos()
-					dx, dy, dz := px-e.X, py+0.81-e.Y, pz-e.Z
+					eye := s.commandSourceEyeHeight(&dataEntity{sess: p})
+					dx, dy, dz := px-e.X, py+eye/2-e.Y, pz-e.Z
 					l := math.Sqrt(dx*dx + dy*dy + dz*dz)
 					if l > 0 {
 						k := 1 - l/8

@@ -19241,3 +19241,12 @@ The epsilon samples bound the observed threshold; they do not prove every double
 - **Pinned** — Ten differential cases PASS89.28s, focused units0.083s and existing ClientTickEnd vehicle-spear regression33.79s PASS. Strict checks retain actual observer mount/unlink and movement receipts, finite exact escape positions within1e-12, health, raw motion and surviving boat. Fixture v1 failed Go requested-vehicle-UUID preparation after native passed; v2 binds the actual saved UUID to its spawn packet without weakening transition checks. Evidence: work/boat-dismount-manifest-v2.md.
 
 Coverage is adult villager/cow at default scale, wooden/netherite use, static invulnerable boats and full-cube obstruction. Other mounts/players, partial floors, entity obstruction and scaled geometry remain separate. Existing attached seat-follow Y and requested vehicle-summon UUID discrepancies remain open. Using-hand metadata, wear, moving-target speed and source-use clocks are independent follow-ons.
+
+
+## Slice — scaled player eye target for orb attraction (2026-10-30)
+
+- **Measured** — Native first-tick NoGravity orb pull differs for standing player scales0.5,1,2, while Go used the default pull for all. Strict baseline FAIL16.11s: native three controls pass and Go nondefault X/Y displacements fail. Wire observations on Java26.2/JDK25.0.5+8, runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Target half the existing authoritative player eye height instead of fixed0.81. Force strength, latch/selection and movement tail remain unchanged. Two-file patch SHA256 fc3461de6d1eaef53b04c5a45749a4d77f5ee470dc2ca1da892efa5f9d8b93c4.
+- **Pinned** — Actual actor position, effective-scale witness and first Age=1 precede three literal displacement checks and float32-drag relations. Strict comparison PASS18.67s; test-only explicit finite guards rerun PASS18.40s on unchanged production. Five named unit groups0.594s/race4.025s, default compilation0.080s and merge/pickup regression40.33s PASS. Evidence: work/orb-attraction-fixed-stage/ and work/orb-attraction-slice.md.
+
+Native coverage is standing scales0.5,1,2 at one initial offset with NoGravity orbs. Other poses, same-frame scale transitions, gravity/fluid attraction and other offsets remain separate despite broader shared getter unit coverage.
