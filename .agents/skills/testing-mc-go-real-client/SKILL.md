@@ -306,3 +306,9 @@ and authoritative actor position before summons. Login readiness alone does not
 prove that destination visibility is established. Compare a fixture correction
 on unchanged baseline and candidate source while retaining all original
 spawn, survivor and reward assertions.
+
+
+For recurring effects, raise the health maximum without healing before counting
+pulses: a capped target can hide a missing final callback. Pair loaded one-tick
+and zero-duration instances, observe effect expiry, and distinguish actual body
+ticks from a merely matching world-clock phase.

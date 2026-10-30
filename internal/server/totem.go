@@ -608,11 +608,14 @@ func (s *Server) playerEffectTickStep() {
 		// 50>>amplifier (heal 1.0 below max), hunger every tick
 		// (0.005*(amplifier+1) exhaustion, player-only).
 		sess.effMu.Lock()
-		infiniteTick := s.consumeInfinitePlayerTick(sess)
+		entityTick := s.consumeInfinitePlayerTick(sess)
 		active := make([]mobEffectInst, 0, len(sess.effects))
 		ids := make([]int32, 0, len(sess.effects))
 		for id, inst := range sess.effects {
-			if (inst.expiry < 0 && infiniteTick) || (inst.expiry >= 0 && inst.expiry-sess.effectNow() > 0) {
+			remaining := inst.expiry - sess.effectNow()
+			// The deferred final finite argument is 1 at expiry. It needs
+			// an actual entity tick, just like the infinite argument path.
+			if (inst.expiry < 0 && entityTick) || (inst.expiry >= 0 && (remaining > 0 || (remaining == 0 && entityTick))) {
 				ids = append(ids, id)
 				active = append(active, inst)
 			}
@@ -684,9 +687,10 @@ func (s *Server) mobEffectTickStep() {
 		if !ok {
 			continue
 		}
-		infiniteTick := s.consumeInfiniteMobTick(ep)
+		entityTick := s.consumeInfiniteMobTick(ep)
 		for id, inst := range ep.Effects {
-			if (inst.expiry < 0 && !infiniteTick) || (inst.expiry >= 0 && inst.expiry-s.clock.count <= 0) {
+			remaining := inst.expiry - s.clock.count
+			if (inst.expiry < 0 && !entityTick) || (inst.expiry >= 0 && (remaining < 0 || (remaining == 0 && !entityTick))) {
 				continue
 			}
 			s.applyEffectTickEntity(ep, id, inst)
@@ -714,7 +718,7 @@ func (s *Server) mobEffectTickStep() {
 // MobEffectInstance.tick's applyEffectTick dispatch.
 func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectInst) {
 	rem := inst.expiry - sess.effectNow()
-	if (inst.expiry >= 0 && rem <= 0) || sess.dead || sess.effectNow() <= inst.born {
+	if (inst.expiry >= 0 && rem < 0) || sess.dead || sess.effectNow() <= inst.born {
 		return
 	}
 	duration := effectTickArgument(inst, sess.effectNow(), s.playerEffectEntityAge(sess))
@@ -758,7 +762,7 @@ func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectI
 // entity — hunger has no mob arm (players only).
 func (s *Server) applyEffectTickEntity(ep *Entity, id int32, inst mobEffectInst) {
 	rem := inst.expiry - s.clock.count
-	if (inst.expiry >= 0 && rem <= 0) || s.clock.count <= inst.born {
+	if (inst.expiry >= 0 && rem < 0) || s.clock.count <= inst.born {
 		return
 	}
 	duration := effectTickArgument(inst, s.clock.count, int64(ep.TickCount))

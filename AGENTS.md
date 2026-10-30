@@ -88,6 +88,8 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Separate a periodic predicate's phase from evidence that its entity tick ran.
   Test a due-age tick and a second call with no age advance; distinguish fresh
   respawn body clocks from live dimension-transfer continuity.
+- Check effect pulse counts with uncapped health, since a health cap can hide
+  a lost final callback. Pair one-tick effects with zero-duration negatives.
 - Player cooldowns, dimension refresh and advancement scans use player ticks. Observe `play_time`
   after the relevant item/update receipt; world tick steps and wall-clock sleeps
   do not prove that a player cooldown has elapsed. Preserve exact outcome checks.

@@ -1239,3 +1239,10 @@ including Java floating-count saturation. Orb health is separate from living
 health, and loaded zero survives construction; Value updates use the orb metadata
 slot. These live controls do not establish disk restart preservation, damage to
 orb health or complete orb movement behavior.
+
+
+Supported finite recurring effects include their final active callback before
+expiration. A loaded one-tick regeneration, poison or wither instance executes
+once, while a zero-duration instance remains inert. The final path requires an
+actual entity tick; parked lifetime policy and instant-effect dispatch remain
+separate limitations.
