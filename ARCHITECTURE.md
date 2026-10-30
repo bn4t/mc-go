@@ -1231,3 +1231,11 @@ Vehicle movement validates NaN coordinates and nonfinite rotations before mount
 authority or movement mutation, using the native typed disconnect. Coordinate
 infinities remain on the existing clamp/speed-check path. This packet validation
 does not establish complete vehicle physics or player-movement numeric parity.
+
+
+Experience orbs expose live Age, Health and Value as short NBT fields and Count
+as a positive integer. Summon and data reload share the measured counter codec,
+including Java floating-count saturation. Orb health is separate from living
+health, and loaded zero survives construction; Value updates use the orb metadata
+slot. These live controls do not establish disk restart preservation, damage to
+orb health or complete orb movement behavior.

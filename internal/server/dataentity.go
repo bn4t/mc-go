@@ -1124,6 +1124,9 @@ func entitySaveMap(e *Entity, now int64, ents *Manager) entitySave {
 		armorStandSavedFields(e, m)
 	}
 	vehicleSavedFields(e, typeName, m)
+	if typeName == "experience_orb" {
+		orbSavedFields(e, m)
+	}
 	if typeName == "allay" {
 		// Allay.addAdditionalSaveData's putLong — emitted always,
 		// even at 0.
@@ -1338,6 +1341,7 @@ func nbtBool(v bool) int8 {
 // mutation.
 func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	prevHealth, prevName, prevNoAI := e.Health, e.CustomName, e.NoAI
+	prevOrbValue := e.OrbValue
 	prevSheared, prevColor := e.Sheared, e.Color
 	prevPumpkin := e.Pumpkin
 	prevBaby := e.Baby
@@ -1359,6 +1363,9 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 	name, _ := EntityTypeName(e.Type)
 	if name == "armor_stand" {
 		armorStandLoadFields(e, save)
+	}
+	if name == "experience_orb" {
+		loadOrbSavedFields(e, save)
 	}
 	if name == "item" {
 		e.ItemHP = int32(itemSavedShort(save["Health"], 5))
@@ -1391,7 +1398,7 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			e.markAttrDirty("max_health")
 		}
 	}
-	if v, ok := nbtFloat(save["Health"]); ok {
+	if v, ok := nbtFloat(save["Health"]); ok && name != "experience_orb" {
 		// setHealth clamps to [0, getMaxHealth] — the attribute's
 		// effective value — so a merged {Health:0f} marks the mob
 		// dead and {Health:100f} lands at max, not over it.
@@ -2001,6 +2008,9 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 			known[k] = true
 		}
 	}
+	if name == "experience_orb" {
+		known["Value"], known["Count"] = true, true
+	}
 	extras := map[string]any{}
 	for k, v := range save {
 		if !known[k] {
@@ -2090,6 +2100,11 @@ func (s *Server) applyEntitySave(e *Entity, save map[string]any) {
 		b.Byte(0)
 		b.Byte(mobFlagsByte(e))
 		e.metaSent.mobFlags = mobFlagsByte(e)
+	}
+	if name == "experience_orb" && prevOrbValue != e.OrbValue {
+		b.Byte(8)
+		b.Byte(1)
+		b.VarInt(e.OrbValue)
 	}
 	if body := b.Bytes(); len(body) > 0 {
 		e.dataSync = append(body, 0xFF)

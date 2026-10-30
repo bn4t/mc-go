@@ -1085,11 +1085,9 @@ func (s *Server) runSummon(player string, args []string) reply {
 			// The legacy Saddle flag is NOT read on summon: 26.2 moves
 			// it to equipment.saddle only through EntityHorseSaddleFix's
 			// datafixer on old saves — summon NBT never sees it.
-			// ExperienceOrb's Value is the xp granted per take (count
-			// merges read it too — same-bucket merges need equal values).
-			if v, ok := tag.vals["Value"]; ok && name == "experience_orb" {
-				if n, err := strconv.Atoi(strings.TrimRight(v.num, "bBsSiIlLfFdD")); err == nil {
-					e.OrbValue = int32(n)
+			if name == "experience_orb" {
+				if save, ok := snbtToValue(tag).(map[string]any); ok {
+					loadOrbSavedFields(e, save)
 				}
 			}
 			// Allay.readAdditionalSaveData's DuplicationCooldown read:

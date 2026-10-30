@@ -87,6 +87,9 @@ type Entity struct {
 	// neighbour's count, and each player touch grants OrbValue xp and
 	// decrements it, discarding at zero.
 	OrbCount int32
+	// OrbHP is the orb health counter, default 5; its save tag is a short.
+	OrbHP                int32
+	orbHealthInitialized bool
 	// OrbFollowing is ExperienceOrb.followingPlayer — the entity id of
 	// the player being pulled toward, retargeted each tick.
 	OrbFollowing int32
@@ -1224,6 +1227,15 @@ func (m *Manager) Spawn(e *Entity) *Entity {
 	}
 	if name, _ := EntityTypeName(e.Type); name == "item" && e.ItemHP == 0 {
 		e.ItemHP = 5
+	}
+	if name, _ := EntityTypeName(e.Type); name == "experience_orb" {
+		if e.OrbHP == 0 && !e.orbHealthInitialized {
+			e.OrbHP = 5
+		}
+		e.orbHealthInitialized = true
+		if e.OrbCount <= 0 {
+			e.OrbCount = 1
+		}
 	}
 	// Entity constructs with the virtual getMaxAirSupply value.
 	airName, _ := EntityTypeName(e.Type)
