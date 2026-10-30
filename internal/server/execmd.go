@@ -28,9 +28,10 @@ type executeContext struct {
 	// pos is the chain's origin — where ~ resolves from; positioned,
 	// at and align move it. ent is the executor an `as`/`summon` fork
 	// binds for @s reads inside the tail.
-	pos      [3]float64
-	rotation [2]float32
-	ent      *dataEntity
+	pos        [3]float64
+	rotation   [2]float32
+	anchorEyes bool
+	ent        *dataEntity
 	// forked marks a chain running inside an entity-fork modifier
 	// (as/at/positioned-as/facing-entity/rotated-as): its leaf's
 	// runtime failures are swallowed — only parse errors escape.
@@ -67,6 +68,7 @@ func (s *Server) runExecute(player string, args []string) reply {
 		source.level = s.permissionLevel(player)
 	}
 	ctx.ent = source.executor
+	ctx.anchorEyes = source.anchorEyes
 	return s.withCommandFrame(source, func() reply { return s.execTail(&ctx, player, args, 1) })
 }
 
@@ -157,13 +159,14 @@ func (s *Server) execTail(ctx *executeContext, player string, args []string, arg
 			}
 			i += 2
 		case "anchored":
-			// anchored eyes|feet — only matters for ^ local coords.
+			// The eye offset applies only when resolving local coordinates.
 			if i+1 >= len(args) {
 				return errToken("argument.anchor.invalid", argTokBase+i+1)
 			}
 			if args[i+1] != "eyes" && args[i+1] != "feet" {
 				return errToken("argument.anchor.invalid", argTokBase+i+1, args[i+1])
 			}
+			ctx.anchorEyes = args[i+1] == "eyes"
 			i += 2
 		case "on":
 			// on <relation> forks onto the relation's entities — mc-go
@@ -2058,6 +2061,7 @@ func (s *Server) executePositioned(ctx *executeContext, player string, args []st
 	if len(args) < 3 {
 		return errToken("parsing.double.expected", tokBase+len(args))
 	}
+	ctx.anchorEyes = false
 	for k := 0; k < 3; k++ {
 		v, err := parseDouble(args[k], ctx.pos[k], k != 1)
 		if err != nil {

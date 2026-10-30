@@ -433,7 +433,11 @@ func (s *Server) tpToPos(player, victimsTok string, coords, rot []string) reply 
 	}
 	// Coordinates resolve against the command source's position.
 	bx, by, bz := s.baseExactPos(player)
-	rotation := s.functionSource(player).rotation
+	source := s.functionSource(player)
+	rotation := source.rotation
+	if source.anchorEyes && strings.HasPrefix(coords[0], "^") {
+		by += s.commandSourceEyeHeight(source.executor)
+	}
 	x, y, z := tpResolveSourceCoords(coords, bx, by, bz, rotation)
 	if !tpSpawnable(x, y, z) {
 		return componentReply(commandError("commands.teleport.invalidPosition"))

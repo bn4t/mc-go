@@ -6,17 +6,18 @@ package server
 // and, for execute-as, the optional entity and display name.
 type commandSourceFrame struct {
 	// Empty actor retains the original neutral-source binding.
-	actor    string
-	dim      *dimension
-	pos      [3]float64
-	rotation [2]float32
-	executor *dataEntity
-	display  component
-	level    int
-	output   func(component)
-	admin    bool
-	results  *commandExecutionResults
-	forked   bool
+	actor      string
+	dim        *dimension
+	pos        [3]float64
+	rotation   [2]float32
+	anchorEyes bool
+	executor   *dataEntity
+	display    component
+	level      int
+	output     func(component)
+	admin      bool
+	results    *commandExecutionResults
+	forked     bool
 }
 
 type commandExecutionResults struct {
@@ -52,6 +53,7 @@ func executeSourceFrame(parent *commandSourceFrame, ctx *executeContext) *comman
 	child := *parent
 	child.dim, child.pos, child.executor = ctx.dim, ctx.pos, ctx.ent
 	child.rotation = ctx.rotation
+	child.anchorEyes = ctx.anchorEyes
 	child.forked = ctx.forked
 	if ctx.ent != nil && ctx.ent != parent.executor {
 		child.display = ctx.ent.nameComp()

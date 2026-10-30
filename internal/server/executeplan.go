@@ -42,7 +42,7 @@ func (s *Server) executePlanSource(player string) *commandSourceFrame {
 func (s *Server) runExecutePlan(player string, plan *executePlan) reply {
 	return s.executePlanBudget(func() reply {
 		source := s.executePlanSource(player)
-		contexts := []executePlanContext{{context: executeContext{dim: source.dim, pos: source.pos, rotation: source.rotation, ent: source.executor, alive: true, forked: source.forked}}}
+		contexts := []executePlanContext{{context: executeContext{dim: source.dim, pos: source.pos, rotation: source.rotation, anchorEyes: source.anchorEyes, ent: source.executor, alive: true, forked: source.forked}}}
 		q := s.functionExecution
 		for index, step := range plan.steps {
 			if len(contexts) == 0 {
@@ -161,6 +161,7 @@ func (s *Server) applyExecutePlanStep(player string, input executePlanContext, s
 	case "in":
 		ctx.dim = s.dimensionByName(a[0])
 	case "positioned":
+		ctx.anchorEyes = false
 		for i, token := range a {
 			ctx.pos[i], _ = parseDouble(token, ctx.pos[i], i != 1)
 		}
@@ -185,7 +186,8 @@ func (s *Server) applyExecutePlanStep(player string, input executePlanContext, s
 			v, _ := parseDouble(token, float64(ctx.rotation[i]), false)
 			ctx.rotation[i] = float32(v)
 		}
-	case "anchored": // Anchor geometry is measured in the following slice.
+	case "anchored":
+		ctx.anchorEyes = a[0] == "eyes"
 	}
 	return []executePlanContext{input}, nil, false
 }

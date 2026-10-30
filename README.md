@@ -147,7 +147,8 @@ queued calls retain their invocation source. Supported execute forms compile
 before evaluation and share outer command and fork budgets, batched predicates
 and ordered score-store callbacks. This covers basic function/tag, scoreboard
 player and clear leaves. Source rotation propagates through measured rotated/as/at
-chains and nested functions into local teleport coordinates. Other grammar uses
+chains and nested functions into local teleport coordinates. Measured eyes/feet
+anchors use cached player pose/scale and generated entity eye constants. Other grammar uses
 the existing dispatcher; macros,
 returns, full syntax validation and optional-cycle ordering remain partial.
 Complete player-predicate and rich-text/icon schemas, datapack selection/ZIP/reload,

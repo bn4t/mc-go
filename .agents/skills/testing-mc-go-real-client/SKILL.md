@@ -377,3 +377,10 @@ Damage-source exceptions use the actual responsible entity, independently of
 kill credit. Retain creative/survival/spectator causes and bypass-tag controls,
 and check health, feedback and numeric result stores together. Measure physical
 contact separately: a rejected hurt callback can still allow native dismount.
+
+
+Eye-anchor probes need an actual source-existence witness and successful
+teleport receipt before reading position. Registry baseline dimensions do not
+establish runtime pose, inherited baby eyes or cached scale. Pin these variants
+separately, preserve source-order controls, and reproduce extracted constants
+through the committed probe and generator.

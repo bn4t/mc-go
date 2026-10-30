@@ -1215,7 +1215,7 @@ leaves mutate state; strict max_command_forks bounds and ordered score-store
 callbacks preserve measured partial-fork behavior. Compiled leaves cover basic
 function/tag calls, scoreboard player set/add/remove/get and clear. Unsupported
 grammar falls back before effects to the existing dispatcher. Return/macros,
-complete parser continuations and anchored spatial propagation remain open;
+complete parser continuations and broader spatial consumers remain open;
 the plan does not establish full command-framework parity.
 
 
@@ -1359,3 +1359,12 @@ dispatch. Bypass-tagged damage and an actual creative-player cause can bypass
 it; kill-credit identity cannot. Damage commands expose numeric results for
 accepted/rejected flag controls. Direct Manager/TNT and specialized dragon-part
 paths, unrelated cooldown outcomes and kinetic physical contact remain separate.
+
+
+Eyes/feet anchors propagate by value through source frames and function calls.
+Numeric positioned resets feet; at preserves the anchor. Local teleport
+coordinates add the current executor's modeled eye offset; relative coordinates
+do not. Player eyes use cached effective scale and pose, including fixed sleeping
+and dying dimensions. Entity eyes use reproducible baseline/named-baby facts
+plus measured stand/slime variants. Runtime interaction dimensions, additional
+dynamic poses and nonplayer scale lifecycle remain partial.

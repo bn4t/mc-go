@@ -247,3 +247,9 @@ every spatial consumer for position, dimension and rotation. Pin direct,
 function and scheduled neutral-source dimension changes, plus public frontend
 lifecycle/window regressions. Preserve exact pose assertions; change an old
 expected value only after an independent native measurement establishes it.
+
+
+Command eye constants are reproduced with tools/gencommandeyes/README.md:
+public dimension getters and static dimension objects produce a normalized
+fixture, then an independent stdlib generator emits float32 tables. Registry
+dimensions alone do not prove runtime pose, baby inheritance or scale behavior.
