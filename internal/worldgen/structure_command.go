@@ -13,8 +13,9 @@ type CommandStructurePlan struct {
 // commandStructureNames are the structures whose pieces the command planner
 // can reproduce: measured blueprints with no template or world-state
 // dependency beyond the live chunk snapshots. The desert pyramid's cellar
-// and afterPlace pass are included.
-var commandStructureNames = map[string]bool{"swamp_hut": true, "desert_pyramid": true}
+// and afterPlace pass and the jungle temple's selector/trap pass are
+// included.
+var commandStructureNames = map[string]bool{"swamp_hut": true, "desert_pyramid": true, "jungle_pyramid": true}
 
 // PlanCommandStructure builds a command-placed structure start. The
 // generator stands in for the level's chunk generator: the caller supplies

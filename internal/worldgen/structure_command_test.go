@@ -138,3 +138,75 @@ func TestCommandDesertPyramidPlacement(t *testing.T) {
 		t.Errorf("chests=%d archaeology=%d suspicious=%d", chests, archaeology, counts["suspicious_sand"])
 	}
 }
+
+func TestCommandJungleTemplePlacement(t *testing.T) {
+	plan, err := PlanCommandStructure(Vanilla(), 1, "jungle_pyramid", 0, 0, -64, 384, -63, func(int32, int32, int) int32 { return -60 })
+	if err != nil || plan == nil {
+		t.Fatalf("plan %v %v", plan, err)
+	}
+	bounds := plan.Bounds()
+	chunks := map[[2]int32]*ProtoChunk{}
+	bedrock, _ := world.BlockStateOf("bedrock", nil)
+	dirt, _ := world.BlockStateOf("dirt", nil)
+	grass, _ := world.BlockStateOf("grass_block", nil)
+	for cx := bounds.MinX >> 4; cx <= bounds.MaxX>>4; cx++ {
+		for cz := bounds.MinZ >> 4; cz <= bounds.MaxZ>>4; cz++ {
+			c := &ProtoChunk{CX: cx, CZ: cz, MinY: -64, Height: 384, Blocks: make([]world.Block, 384*256)}
+			for x := int32(0); x < 16; x++ {
+				for z := int32(0); z < 16; z++ {
+					c.Set(x, -64, z, bedrock)
+					c.Set(x, -63, z, dirt)
+					c.Set(x, -62, z, dirt)
+					c.Set(x, -61, z, grass)
+				}
+			}
+			chunks[[2]int32{cx, cz}] = c
+		}
+	}
+	writes, entities, blockEntities := plan.Place(chunks, NewLegacy(12345))
+	if len(writes) == 0 || len(entities) != 0 {
+		t.Fatalf("writes%d entities%v", len(writes), entities)
+	}
+	counts := map[string]int{}
+	for _, c := range chunks {
+		for _, b := range c.Blocks {
+			name, _ := world.StateOwner(b)
+			counts[name]++
+		}
+	}
+	for name, want := range map[string]int{
+		"chiseled_stone_bricks": 3, "cobblestone_stairs": 24, "tripwire": 5,
+		"tripwire_hook": 4, "redstone_wire": 15, "lever": 3,
+		"sticky_piston": 3, "repeater": 1, "chest": 2, "dispenser": 2,
+	} {
+		if counts[name] != want {
+			t.Errorf("%s=%d want%d", name, counts[name], want)
+		}
+	}
+	// The moss selector picks one state per selected cell; only the total is
+	// fixed (the split follows the level random in the command path).
+	if counts["cobblestone"]+counts["mossy_cobblestone"] != 1157 {
+		t.Errorf("cobblestone+mossy=%d want1157", counts["cobblestone"]+counts["mossy_cobblestone"])
+	}
+	if counts["cobblestone"] == 0 || counts["mossy_cobblestone"] == 0 {
+		t.Errorf("selector split cobble=%d mossy=%d", counts["cobblestone"], counts["mossy_cobblestone"])
+	}
+	minY, maxY := int32(1<<30), int32(-1<<30)
+	for _, w := range writes {
+		minY, maxY = min(minY, w.Position[1]), max(maxY, w.Position[1])
+	}
+	if minY != -64 || maxY != -51 {
+		t.Errorf("write y %d..%d want-64..-51", minY, maxY)
+	}
+	loot := map[string]int{}
+	for _, be := range blockEntities {
+		table, _ := be.Data["LootTable"].(string)
+		loot[table]++
+		if _, ok := be.Data["LootTableSeed"].(int64); !ok {
+			t.Errorf("%v has no loot seed", be.Pos)
+		}
+	}
+	if loot["minecraft:chests/jungle_temple"] != 2 || loot["minecraft:chests/jungle_temple_dispenser"] != 2 {
+		t.Errorf("loot tables %v", loot)
+	}
+}

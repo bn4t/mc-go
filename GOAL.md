@@ -105,10 +105,12 @@ Mojang server over the wire.
       including fortresses, monuments, strongholds and mansions (see the two
       legacy-structure slices dated2026-10-29). Natural swamp-hut witch/cat residents
       and mineshaft chest carts have dedicated save/restart controls; explicit
-      swamp-hut and desert-pyramid placement have command pins (the pyramid's
-      cellar, chest/suspicious-sand block entities and level-random roof
-      selection included). Other structure-generated entities, other
-      explicit structures and spawn overrides remain incomplete.
+      swamp-hut, desert-pyramid and jungle-pyramid placement have command
+      pins (the pyramid's cellar, chest/suspicious-sand block entities and
+      level-random roof selection, and the jungle temple's moss selector,
+      traps, chests and dispensers included). Other structure-generated
+      entities, other explicit structures and spawn overrides remain
+      incomplete.
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -19714,3 +19716,12 @@ Implementation stopped at the user's wrap-up request. Unfinished entity-region o
 - **Pinned** — `TestPlaceDesertPyramidParity` PASS 14.24s (native 2.34s, Go 3.13s) checks both legs' success/failure replies, base-relative blueprint cells, trap room, four chest block entities, fixed material counts and 6..8 suspicious sand. `TestPlaceStructureParity` PASS 16.32s retains the swamp-hut pin. `TestCommandDesertPyramidPlacement` and `TestCommandStructureDetachedPlacement` PASS in the 10.50s worldgen package; build/vet/tagged compilation pass. Sixteen-file behavior artifact `5863d4920937b7412ce1d4c5e4da444b5ddaa07a86bd33c6e8d09e8247128262`. Full default `go test -p 2 ./... -count=1 -timeout 25m` exits 0: internal/server 249.762s, worldgen 11.563s, public server 6.932s and default blackbox 107.805s; every other package passes.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire observations and factual bytecode measurement (PlaceCommand, Structure.generate, StructureStart.placeInChunk, DesertPyramidStructure.afterPlace) inform independently written code. Other explicit structures, custom flat presets with non-opaque top layers, broader coordinate/dimension semantics and natural-structure registration remain incomplete.
+
+
+## Slice — explicit jungle-pyramid command placement (2026-10-30)
+
+- **Measured** — Native `/place structure jungle_pyramid` places the 12 x 10 x 15 jungle temple on the flat comparison world's average ground height (first free y -60, writes y -64..-51). The fixed blueprint contributes 3 chiseled stone bricks, 24 cobblestone stairs, 5 tripwire cells, 4 tripwire hooks, 15 redstone-wire cells, 3 levers, 3 sticky pistons, 1 repeater, 2 chests with `minecraft:chests/jungle_temple` and 2 dispensers with `minecraft:chests/jungle_temple_dispenser`. The moss-stone selector chooses cobblestone or mossy cobblestone per selected cell from the level random: 1157 selected cells in total, split differently per placement.
+- **Implemented** — Accept jungle_pyramid in the command planner; the existing sea-level/flat-height, level-random and generated-block-entity path covers the selector, traps, chests and dispensers. No new runtime machinery beyond the allow-list.
+- **Pinned** — `TestPlaceJungleTempleParity` PASS 12.02s (native 2.09s, Go 2.18s) checks both legs' success/failure replies, twelve fixed block cells, both chests and both dispensers with their loot tables, the fixed material counts and the 1157-cell selector total. `TestCommandJungleTemplePlacement` PASS in the focused worldgen run; build/vet/tagged compilation pass. Three-file behavior artifact `05baf2acffdf01697dee1467ba6039eee485294053c1b2487b614985f9ed661c`. Remaining limit: the selector split is level-random, so only its total is pinned; other structures remain unsupported.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire observations and factual bytecode measurement inform independently written code.
