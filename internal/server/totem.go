@@ -49,6 +49,7 @@ const (
 	effectRegeneration   = 9
 	effectFireResistance = 11
 	effectAbsorption     = 21
+	effectSaturation     = 22
 	effectGlowing        = 23
 	effectLevitation     = 24
 	effectSlowFalling    = 27
@@ -277,9 +278,8 @@ func (s *Server) applyMobEffectWire(sess *Session, id, amplifier int32, duration
 			sess.absorb = pool
 		}
 	}
-	// onEffectStarted fires at the end of addEffect even when the
-	// store was declined — instant effects apply on every call.
-	s.applyInstantEffect(sess, id, amplifier)
+	// Stored instantaneous instances apply through their living ticks.
+	// Direct potion doses use applyInstantEffectScaled separately.
 	s.sendMobEffectUpdate(sess, id, inst)
 	s.fireEffectsChanged(sess)
 }
@@ -319,10 +319,9 @@ func (s *Server) applyInstantEffectScaled(sess *Session, id, amplifier int32, sc
 }
 
 // playerGiveEffect runs the player half of LivingEntity.addEffect for
-// /effect give: the update() gate decides whether the store applies —
-// declines and weaker-but-longer stash paths still fire the instant arm
-// (vanilla calls onEffectStarted unconditionally at the end of
-// addEffect). True reports the store took the instance.
+// /effect give. True reports that the update gate accepted the instance.
+// Storing or declining an instance adds no instantaneous dose; an active
+// instance delivers its effect on the next eligible living tick.
 func (s *Server) playerGiveEffect(t *Session, id, amplifier, ticks int32, hideParticles bool, src ...damageSource) bool {
 	return s.playerGiveEffectFlags(t, id, amplifier, ticks, hideParticles, nil, src...)
 }
@@ -337,16 +336,13 @@ func (s *Server) playerGiveEffectFlags(t *Session, id, amplifier, ticks int32, h
 			// duration update — apply
 		case amplifier < e.amplifier && shorterDur(e, newInst, now):
 			s.stashHiddenEffect(t, id, newInst)
-			s.applyInstantEffect(t, id, amplifier, src...)
 			if flags == nil {
 				return s.potionPlayerFlags(t, id, amplifier, ticks, mobEffectFlags(hideParticles), false)
 			}
 			return false
 		default:
-			// Declined stores still run onEffectStarted — instant
-			// effects apply (measured: a shorter re-give heals
-			// while replying give.failed).
-			s.applyInstantEffect(t, id, amplifier, src...)
+			// A declined store adds no instantaneous dose. The existing
+			// active instance retains its own living-tick schedule.
 			if flags == nil {
 				return s.potionPlayerFlags(t, id, amplifier, ticks, mobEffectFlags(hideParticles), false)
 			}
@@ -404,18 +400,15 @@ func (s *Server) mobGiveEffectFlags(e *Entity, id, amplifier, ticks int32, flags
 			changed := potionMergeFlags(&prev, flags, false, amplifier, ticks, now)
 			e.Effects[id] = prev
 			e.MetaDirty = e.MetaDirty || changed
-			s.mobInstantEffect(e, id, amplifier, src...)
 			return changed
 		default:
 			changed := potionMergeFlags(&prev, flags, false, amplifier, ticks, now)
 			e.Effects[id] = prev
 			e.MetaDirty = e.MetaDirty || changed
-			s.mobInstantEffect(e, id, amplifier, src...)
 			return changed
 		}
 	}
 	e.Effects[id] = newInst
-	s.mobInstantEffect(e, id, amplifier, src...)
 	// LivingEntity.onEffectAdded sends update_mob_effect to passengers
 	// only; trackers see the effect through entity data (particles) and
 	// the attribute-modifier resend on the next sendChanges.
@@ -723,6 +716,10 @@ func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectI
 	}
 	duration := effectTickArgument(inst, sess.effectNow(), s.playerEffectEntityAge(sess))
 	switch id {
+	case effectInstantHealth, effectInstantDamage:
+		if duration >= 1 && sess.health > 0 {
+			s.applyInstantEffect(sess, id, inst.amplifier)
+		}
 	case 19: // wither: hurt 1.0 wither() every 40>>amplifier
 		if effectPeriodicTickDue(40, inst.amplifier, duration) {
 			s.damageWith(sess, 1.0, translatable("death.attack.wither", literal(sess.getName())),
@@ -741,7 +738,7 @@ func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectI
 		if m := sess.mode(); m == GameModeSurvival || m == GameModeAdventure {
 			sess.addExhaustion(0.005 * float32(inst.amplifier+1))
 		}
-	case 22: // saturation: FoodData.eat(amplifier+1, 1.0) every tick
+	case effectSaturation: // saturation: FoodData.eat(amplifier+1, 1.0) every tick
 		if duration < 1 {
 			return
 		}
@@ -767,6 +764,10 @@ func (s *Server) applyEffectTickEntity(ep *Entity, id int32, inst mobEffectInst)
 	}
 	duration := effectTickArgument(inst, s.clock.count, int64(ep.TickCount))
 	switch id {
+	case effectInstantHealth, effectInstantDamage:
+		if duration >= 1 && ep.Health > 0 {
+			s.mobInstantEffect(ep, id, inst.amplifier)
+		}
 	case 19:
 		if effectPeriodicTickDue(40, inst.amplifier, duration) {
 			s.damageMob(ep, 1.0, "wither", nil, &damageInfo{typeName: "wither"})

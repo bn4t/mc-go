@@ -1,9 +1,10 @@
 package blackbox
 
 // TestInstantEffectParity pins instant_health / instant_damage on
-// /effect give: vanilla's HealOrHarmMobEffect applies once when the
-// instance is added — instant_health heals 4<<amplifier (clamped to
-// max health), instant_damage hurts 6<<amplifier as magic.
+// /effect give default/one-tick outcomes: instant_health heals
+// 4<<amplifier (clamped to max health), and instant_damage hurts
+// 6<<amplifier as magic. Separate frozen/multi-tick controls establish
+// active-tick delivery rather than an add-time dose.
 
 import (
 	"math"

@@ -90,6 +90,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   respawn body clocks from live dimension-transfer continuity.
 - Check effect pulse counts with uncapped health, since a health cap can hide
   a lost final callback. Pair one-tick effects with zero-duration negatives.
+- Distinguish instantaneous status tick semantics from direct potion doses.
+  Use a frozen mob and unchanged game time to test add/re-give causality before
+  any entity tick; preserve separate uncapped multi-tick and scaled-dose controls.
 - Player cooldowns, dimension refresh and advancement scans use player ticks. Observe `play_time`
   after the relevant item/update receipt; world tick steps and wall-clock sleeps
   do not prove that a player cooldown has elapsed. Preserve exact outcome checks.

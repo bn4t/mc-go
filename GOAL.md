@@ -214,7 +214,8 @@ Mojang server over the wire.
       health bounds instant/effect/food healing and clamps settled excess health;
       finite periodic regeneration/poison/wither cadence and final callbacks are
       pinned. Infinite recurring effects use actual body ticks; Peaceful
-      exhaustion preserves food. Instant-effect command dispatch remains partial.
+      exhaustion preserves food. Instant health/harm/saturation command durations
+      and selected active-tick delivery are pinned; direct-dose coverage remains partial.
 - [~] Crafting, recipes, recipe book (full data.Recipes table wired,
   shaped/shapeless/mirror/repairitem/transmute parity vs 26.2 measured;
   /recipe give|take + RecipeBookAdd/Remove wire-parity including the
@@ -19036,3 +19037,12 @@ This pins encoding arithmetic and generic spawn angles. Player observer delivery
 - **Pinned** — Three-file patch SHA256 `3c2ed81ebd231dac9a53cceee479b5e95116d4032a522d32bbc92da092619a8a`, base1d1818d. Native/Go ten-case differential PASS35.55s, six-subcase named unit0.704s, focused race2.307s and default compilation0.531s PASS; tagged binary built. Frozen source hashes verified. Evidence: `work/slime-step-fixed-stage/`, `work/slime-step-slice.md`.
 
 This corrects one existing shared block-effect input. Item wire controls and independent orb observations do not establish complete living-entity motion. The dependent orb-specific tail remains separate.
+
+
+## Slice — instantaneous command durations and active delivery (2026-10-30)
+
+- **Measured** — Public getters across all 40 built-in effects identify instant health, instant damage and saturation as instantaneous. Their command durations are ticks, defaulting to one; stored instances deliver through living ticks. Native baseline PASS26.68s versus Go FAIL27.58s exposes missing repeated/infinite doses and incorrect saturation durations. Public metadata/callback facts and wire, Java26.2/JDK25.0.5+8, runtime SHA1 `86765a5899bd9c96461036a628796b4245715058`; reproducible probe and normalized fixture are documented in `tools/probeinstanteffects/README.md`.
+- **Implemented** — Use the measured three-effect command classifier and active Health/Harm callbacks, including undead inversion. Accepted or declined storage adds no extra dose. Preserve direct scaled potion helpers, hidden-effect merging and existing saturation delivery. Correct obsolete add-time causal comments.
+- **Pinned** — Nine-file patch SHA256 `8dddd0374956fc0989c12f86a1117024c43db1188ded774d919e4b1dc0199592`, basee70cc3f, plus a comment-only clarification in the older instant-effect test. Native/Go wire PASS115.88s (27.83/33.48), units1.209s, race11.761s, related units52.178s, vet/default compilation0.157s and tool build PASS. Existing instant75.34s, thrown/cloud65.98s and custom-drink35.42s regressions PASS. Supplemental frozen re-give PASS16.20s (1.61/1.21) proves Health1 stays unchanged after acceptance and a declined weaker re-give at fixed game time, then becomes9 after exactly one strong-effect tick; supplemental compilation0.262s PASS. Final exits survived disconnect and were verified without rerunning completed checks. Evidence: `work/effect-instant-final-stage/manifest.md`.
+
+The earlier add-time interpretation is retracted; no particular unseen tick is retroactively inferred. Scope covers command-created status instances and selected direct-dose regressions, not complete potion-origin coverage, direct saturation classification, all amplifier/range cases or exact first-pulse packet ordering.

@@ -1246,8 +1246,7 @@ orb health or complete orb movement behavior.
 Supported finite recurring effects include their final active callback before
 expiration. A loaded one-tick regeneration, poison or wither instance executes
 once, while a zero-duration instance remains inert. The final path requires an
-actual entity tick; parked lifetime policy and instant-effect dispatch remain
-separate limitations.
+actual entity tick; parked lifetime policy remains a separate limitation.
 
 
 The Java player adapter validates raw numeric fields before shared movement
@@ -1280,3 +1279,10 @@ Slime walk damping reads vertical velocity after restitution for both its
 threshold and factor. A large requested fall may bounce below the damping
 threshold, and a suppressed bounce supplies zero. Collision, support selection
 and existing vibration paths remain unchanged; orb tail behavior is separate.
+
+
+Instant health, instant damage and saturation use raw command tick durations,
+with a one-tick default. Stored Health/Harm instances deliver through living
+ticks, including undead inversion; storing or declining an instance adds no
+extra dose. Direct scaled potion APIs remain separate. The complete built-in
+instantaneous classifier is reproduced by tools/probeinstanteffects.

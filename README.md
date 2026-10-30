@@ -99,8 +99,11 @@ players and mobs use native zero-interval and amplifier-wrap scheduling,
 including the final active callback; loaded zero-duration instances remain inert.
 Infinite regeneration, poison, wither, hunger and saturation use living entity
 age and actual tick eligibility. Players continue through world freeze while
-ordinary mobs pause; ordinary respawn resets the body clock. Infinite instant
-healing/harm and broader effect mechanics remain partial.
+ordinary mobs pause; ordinary respawn resets the body clock. Command-created
+instant health, instant damage and saturation use tick durations (default one);
+finite/infinite active Health/Harm instances deliver on living ticks without an
+extra dose when stored. Direct potion doses remain a separate path, with direct
+saturation classification and broader effect mechanics still partial.
 
 Native NoGravity projects to client metadata at pairing and on true/false changes
 across measured living, item and boat paths. Crystal reloads retain dirty updates

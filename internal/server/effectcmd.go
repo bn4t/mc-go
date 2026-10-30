@@ -55,7 +55,7 @@ func (s *Server) runEffectGive(player string, args []string) reply {
 	// resource first and accepts the literal "infinite" for -1 ticks.
 	// For instantaneous effects the arg is the tick count itself —
 	// giveEffect skips the *20, and the default is a single tick.
-	instant := id == effectInstantHealth || id == effectInstantDamage
+	instant := isInstantaneousEffect(id)
 	ticks := int32(600)
 	if instant {
 		ticks = 1

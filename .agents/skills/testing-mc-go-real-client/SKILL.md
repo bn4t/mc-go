@@ -312,3 +312,9 @@ For recurring effects, raise the health maximum without healing before counting
 pulses: a capped target can hide a missing final callback. Pair loaded one-tick
 and zero-duration instances, observe effect expiry, and distinguish actual body
 ticks from a merely matching world-clock phase.
+
+
+Instantaneous effect metadata does not imply an extra dose when a status is
+stored. For add/re-give causality, freeze a mob, verify unchanged game time and
+health before ticking, then observe exactly one tick. Keep uncapped multi-tick
+command effects separate from direct scaled drinking/splash/cloud doses.
