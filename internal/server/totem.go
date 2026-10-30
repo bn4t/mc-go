@@ -299,6 +299,10 @@ func (s *Server) applyInstantEffectScaled(sess *Session, id, amplifier int32, sc
 		srcs = src[0]
 	}
 	switch id {
+	case effectSaturation:
+		// Direct Saturation delivery is one FoodData dose; unlike health
+		// and harm it ignores the potion's proximity/dose scale.
+		sess.applySaturationDose(amplifier)
 	case effectInstantHealth:
 		if !sess.dead {
 			amount := max(int32(math.Floor(float64(int32(4)<<(amplifier&31))*scale+0.5)), 0)
@@ -742,16 +746,7 @@ func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectI
 		if duration < 1 {
 			return
 		}
-		nutr := inst.amplifier + 1
-		sess.food += nutr
-		if sess.food > defaultFood {
-			sess.food = defaultFood
-		}
-		sess.saturation += float32(nutr) * 2.0
-		if sess.saturation > float32(sess.food) {
-			sess.saturation = float32(sess.food)
-		}
-		sess.healthDirty.Store(true)
+		sess.applySaturationDose(inst.amplifier)
 	}
 }
 

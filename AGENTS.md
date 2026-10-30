@@ -93,6 +93,8 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Distinguish instantaneous status tick semantics from direct potion doses.
   Use a frozen mob and unchanged game time to test add/re-give causality before
   any entity tick; preserve separate uncapped multi-tick and scaled-dose controls.
+  For direct Saturation, assert food pools, consumed item and absence of active
+  status together; keep arrow stored-effect origins separate.
 - Player cooldowns, dimension refresh and advancement scans use player ticks. Observe `play_time`
   after the relevant item/update receipt; world tick steps and wall-clock sleeps
   do not prove that a player cooldown has elapsed. Before releasing a one-shot

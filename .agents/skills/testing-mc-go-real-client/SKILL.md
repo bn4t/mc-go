@@ -332,3 +332,9 @@ releasing a single use action, observe the appropriate player-tick receipt;
 retain the exact world-step budget and original damage/motion assertions.
 A returned mounted position alone does not establish that seat-follow or the
 player action pass has run.
+
+
+For direct Saturation potion delivery, assert exact food/saturation pools, the
+consumed item and absence of active status together. The direct dose ignores
+its scale; accidental status ticking must not compensate for wrong dispatch.
+Arrows add stored effects and require separate origin-specific controls.

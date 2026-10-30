@@ -19080,3 +19080,12 @@ Coverage is ordinary air and full-cube stone/slime contact. Embedded escape, flu
 - **Pinned** — Final13-case native/Go differential PASS115.55s; units0.121s and existing vehicle-spear40.39s, spear-mobs24.02s and use-sound14.68s regressions PASS. Original Go failure is retained: diagnostic evidence showed world-step completion could precede the player action pass. The fixture now observes one actual player-tick increment before release, keeping the single use action and all health/motion expectations. Sources and proof: `work/spear-consumer-manifest-v2.md`.
 
 Runtime coverage is a mounted survival holder with default wooden spear against unmounted stationary NoAI villagers. Other tiers, player or mounted targets, moving-target timing, actual dismount, durability, using-hand metadata, scaled/range conditions and enchantments remain partial.
+
+
+## Slice — direct Saturation potion drinking (2026-10-30)
+
+- **Measured** — Fresh native players receive one Saturation food dose from drinking, independent of stored duration and duration scale, with no active status. Zero/long duration and zero/half-scale controls yield saturation7 or9 from5. Baseline native3 controls pass while Go2 fail, total28.83s. Wire and public PotionContents/MobEffect callback facts, Java26.2/JDK25.0.5+8, runtime SHA1 `86765a5899bd9c96461036a628796b4245715058`.
+- **Implemented** — Drinking uses the shared three-effect instantaneous classifier; direct Saturation and active status ticks share only the food-dose operation. Their admission rules remain distinct, and Health/Harm dose scaling is unchanged. Five-file patch SHA256 `7fd22555886f1e5318580cb08c14502da101fa8d28a332dc2d8ec174cf34a28c`.
+- **Pinned** — New differential PASS38.04s(native9.71/Go10.39), existing custom potion drinking51.17s, focused units2.539s/race13.072s, vet/default compile0.469s and tagged build PASS. Tests assert consumed bottle, exact food pools and absence of a stored status together. Final exits and source manifest: `work/saturation-drink-stage/`.
+
+Splash/cloud direct dispatch and arrow stored-status origins remain separate. This does not establish arbitrary amplifier or all-origin parity.

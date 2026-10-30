@@ -1304,3 +1304,9 @@ effects, then applies promoted float drag/friction and its separate floor
 response. That response compares incoming vertical velocity with effective
 gravity, including NoGravity. Ordinary air and stone/slime contacts are pinned;
 embedded escape and fluid-specific movement remain separate.
+
+
+Saturation potion drinking delivers one food/saturation dose regardless of
+stored duration or duration scale, without adding an active effect. Its shared
+food-dose helper does not change the separate active-tick eligibility rules.
+Splash/cloud admission and arrows' stored-status delivery remain separate.

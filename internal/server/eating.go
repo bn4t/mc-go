@@ -325,7 +325,7 @@ func (s *Server) finishConsume(sess *Session, held ItemStack, name string, f foo
 			if !ok {
 				continue
 			}
-			if id == effectInstantHealth || id == effectInstantDamage {
+			if isInstantaneousEffect(id) {
 				s.applyInstantEffectScaled(sess, id, eff.amp, 1, damageSource{typeName: "indirect_magic", cause: sess.entityID.Load(), direct: sess.entityID.Load()})
 				continue
 			}
