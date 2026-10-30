@@ -19618,3 +19618,12 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 - **Pinned** — Differential PASS 17.97s checks layout, material counts, resident state, positioned source, twelve non-full-moon cat choices, result and failures. Detached plan unit PASS 0.174s; build/vet/tagged compilation pass. Five-file artifact 7a213ec181abdfc2e87561ad28a39334c988245bf07a89e919fa9ccaed23a0eb. Other structures, local coordinates, custom registries and independent cross-dimension lifecycle coverage remain incomplete.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.
+
+
+## Slice — inside-effects fixture world-step receipts (2026-10-30)
+
+- **Measured** — The old fixed-time sprint fixture fails on unchanged code with variable native freeze/fire snapshots. It did not prove actual simulation completion.
+- **Implemented** — Complete admission, verify placed blocks and summoned bodies, freeze setup/read boundaries, and require exact game-time completion for each original world-step interval. Preserve all original compared fields and melt/corpse outcomes.
+- **Pinned** — Fixture alone on pre-powder runtime PASS 37.78s; same fixture with new powder runtime PASS 39.31s. Original powder 140, fire/soul health 8, lava health 6, immune health 20, cauldron health 9, melt and corpse controls remain. One-file artifact 44ec905d42ed00b45aa08cd531134dc5c67fbd48037cd36a1ab7fc33439dfc3f. Old failures retained; no production change.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire/save observations and factual public API/bytecode measurements inform independently written code; no native implementation bodies are committed.

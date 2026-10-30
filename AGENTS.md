@@ -309,3 +309,6 @@ bit-identical intermediate atan values or arbitrary nonfinite behavior.
 
 
 When sampling relative saved timers, a clean native save may leave old chunk bytes. Require an independently new persisted marker in the same compound as the timer before declaring automatic unload complete; equal game time and delay can describe an earlier save. Keep activation, FULL loss, serialization, physical discard and cold timer behavior distinct.
+
+
+For NPC environmental fixtures, freeze setup and reads, validate actual blocks and bodies, and prove exact world-step completion through game time. Player frames require separate receipts; preserve original health, fire, freeze, melt and retirement outcomes when repairing synchronization.
