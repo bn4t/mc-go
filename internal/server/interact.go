@@ -626,8 +626,8 @@ func (s *Server) doSweepAttack(sess *Session, victimEID int32, plan attackPlan, 
 				// The hit applies the default 0.4 knockback away from
 				// the attacker inside hurt, then the sweep's own 0.4
 				// along the facing — each step halves the stored delta.
-				mx, my, mz := knockDelta(e.MotionX, e.MotionY, e.MotionZ, 0.4, res, ax-e.X, az-e.Z, e.Grounded)
-				mx, my, mz = knockDelta(mx, my, mz, 0.4, res, kx, kz, e.Grounded)
+				mx, my, mz := knockDelta(e.MotionX, e.MotionY, e.MotionZ, mobHurtKnockbackStrength, res, ax-e.X, az-e.Z, e.Grounded)
+				mx, my, mz = knockDelta(mx, my, mz, mobHurtKnockbackStrength, res, kx, kz, e.Grounded)
 				s.entities.SetMotion(e.ID, mx, my, mz)
 				s.broadcastEntityMotion(e.Dim, e.ID, mx, my, mz)
 			}

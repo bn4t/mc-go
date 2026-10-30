@@ -18753,3 +18753,12 @@ Exact dirty-attribute action timing, full packet ordering, mob healing and per-e
 - **Pinned** — Five-file SHA256 `febed5088556682d959675154ebf4ac5d0ab8f252e457f6d24b53f7fe07b5598`, base1ca195b. Ten-case native wire PASS43.99s at 1e-12 raw-magnitude tolerance, dedicated compact styled-SNBT decoder control PASS, nine focused server regressions PASS52.292s on identical production hunks, tagged compile PASS. Final fixture aligns explicit movement with resolved teleport position. Earlier unapplied-action and decoder failures are retained in `work/mob-knockback-manifest-v2.md`; provenance and logs use that prefix.
 
 Specialized mace/spear still use the legacy table. Mob equipment materialization and arbitrary item attributes remain separate; the new live controls cover hurt/plain/sprint, with sweep precision handled separately.
+
+
+## Slice — sword sweep raw-motion precision (2026-10-30)
+
+- **Measured** — A real grounded iron-sword hit leaves primary/secondary pigs at Health4/9. With secondary resistance .5, native Motion is (.037139068188825605,0,-.29284767345229623), distinguishing hurt-then-facing composition and promoted float32(.4) strength. The corrected canonical getter alone leaves about 4e-9 error from double constants. Wire Java26.2/JDK25.0.5+8; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Use the measured promoted-strength constant in both sweep steps, retaining eligibility, damage, order and integration.
+- **Pinned** — Two-file SHA256 `f037fb38557ca783de929ccb1f39575a561df07fc2214703d5ffe30b16596d9d`, layered on the canonical mob slice. Native/Go wire PASS15.22s, three focused regressions PASS50.805s, tagged compile PASS. Exact health/resistance and each raw motion component within1e-12 reject reversed equal-strength ordering. Evidence/provenance: `work/mob-sweep-knockback-manifest.md` and associated logs.
+
+Measured scope is a standing unenchanted sword against fresh unarmored NoAI pigs; armor, enchantments and same-frame changes remain separate.
