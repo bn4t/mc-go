@@ -115,6 +115,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - Cap/category fixtures must observe the whole eligible domain. Capture global
   counts and new entity IDs/positions before changing retry budgets or blaming
   production; a valid spawn outside a counted arena can consume the cap.
+- Pickup probes should establish source pairing before allowing collection,
+  then assert actual source/recipient IDs, XP or inventory changes, count and
+  retirement together. Keep world age separate from admitted player frames.
 - Initial play readiness does not prove destination visibility after a teleport.
   Before transient-entity probes, observe the arena chunk and authoritative
   actor position; retain the original spawn/survivor/outcome assertions.

@@ -2,8 +2,8 @@ package server
 
 import "math"
 
-// playerItemTouchTick belongs to Player.aiStep, so it keeps running while
-// ItemEntity age, physics and pickup-delay countdown are frozen.
+// playerItemTouchTick dispatches Player.aiStep touches for items and XP orbs.
+// It keeps running while entity age, physics and pickup delays are frozen.
 func (s *Server) playerItemTouchTick(sess *Session) {
 	if !sess.gameplayTickReady() || !sess.spawned.Load() || sess.dead || sess.health <= 0 || sess.mode() == GameModeSpectator {
 		return
@@ -23,17 +23,24 @@ func (s *Server) playerItemTouchTick(sess *Session) {
 		}
 	}
 	itemType := mustEntityType("item")
-	var nearby []*Entity
+	orbType := mustEntityType("experience_orb")
+	var nearby, nearbyOrbs []*Entity
 	s.entities.mu.RLock()
 	for _, e := range s.entities.byID {
-		if e.Type == itemType && e.Dim == sess.dimName() && e.X+.125 > minX && e.X-.125 < maxX && e.Y+.25 > minY && e.Y < maxY && e.Z+.125 > minZ && e.Z-.125 < maxZ {
+		if e.Dim != sess.dimName() {
+			continue
+		}
+		if e.Type == itemType && e.X+.125 > minX && e.X-.125 < maxX && e.Y+.25 > minY && e.Y < maxY && e.Z+.125 > minZ && e.Z-.125 < maxZ {
 			nearby = append(nearby, e)
+		} else if e.Type == orbType && e.X+.25 > minX && e.X-.25 < maxX && e.Y+.5 > minY && e.Y < maxY && e.Z+.25 > minZ && e.Z-.25 < maxZ {
+			nearbyOrbs = append(nearbyOrbs, e)
 		}
 	}
 	s.entities.mu.RUnlock()
 	for _, e := range nearby {
 		s.touchItemEntity(sess, e)
 	}
+	s.touchNearbyExperienceOrb(sess, nearbyOrbs)
 }
 
 // Inventory.add may transfer part of a stack and still return false. The

@@ -19307,3 +19307,12 @@ Float-token grammar, full relative SyncPos encoding and other spatial consumers 
 - **Pinned** — Final differential PASS21.53s(native6.85/Go1.98); entity-query regression12.71s and seeded structure/loot regression11.46s PASS. Build/vet, block/entity query units0.154s and tagged compilation PASS. Silent permission cases require a following statistics response; the Nether setup requires actual loaded-position and successful placement receipts. Evidence: work/block-tag-query-stage/ and work/block-tag-query-slice.md.
 
 The original fixture exposed independent setblock component and long-loot-seed hydration gaps. Its failures remain preserved; query setup uses canonical item/data commands without weakening typed payload expectations. Complete subtype/component fields and unloaded lookup lifecycle remain separate.
+
+
+## Slice — orb pickup on admitted player frames (2026-10-30)
+
+- **Measured** — Native players collect stationary nearby orbs while world age is frozen. Count2/Value3 yields XP6 and two CollectItem(count1) events; spectators do not collect. Default standing reach includes horizontal1.54 and excludes1.56. Strict baseline FAIL19.11s: all six native controls pass, while Go misses frozen pickups and normal pickup animations. Wire and factual player-touch branch observations, Java26.2/JDK25.0.5+8; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Include orb-sized boxes in the admitted player-touch scan, choose one nearby orb after regular items, retain cooldown2 and mending/XP ordering, emit CollectItem and retire exhausted sources. Remove the world-only pickup tail and unused fixed item-sized predicate. Five-file patch SHA256 a872a94f7fcd811c6b3796e77e3effba4005d88fb0b419bef05ef3737f468a3b.
+- **Pinned** — Six strict controls PASS34.70s with source/recipient IDs, exact XP/count/event outcomes and live actor position/mode/health/player clocks. Eleven named unit groups11.659s/race85.495s and default compilation0.083s PASS. Frozen regular-item13 controls29.49s, merge/pickup34.76s and mending26.26s PASS. Final source hashes are recorded in work/orb-touch-fixed-stage/ and work/orb-touch-slice.md.
+
+Orb physics and world age are unchanged. Scaled/posed/vehicle reach, random-choice sequence/distribution and earlier moving-orb pickup timing after teleport remain separate; this stationary slice does not establish the cause or resolution of that timing discrepancy.

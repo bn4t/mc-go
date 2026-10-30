@@ -778,24 +778,6 @@ func (s *Server) itemTickStep() {
 			s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
 			continue
 		}
-		if orb && e.PickupDelay <= 0 {
-			if sess := s.pickupTarget(e, true); sess != nil {
-				// ExperienceOrb.playerTouch repairs mending gear before
-				// granting XP, once per takeXpDelay window.
-				if sess.takeXpDelay > 0 {
-					continue
-				}
-				sess.takeXpDelay = 2
-				if remaining := s.repairPlayerItems(sess, e.OrbValue); remaining > 0 {
-					sess.addXP(remaining)
-				}
-				e.OrbCount--
-				if e.OrbCount <= 0 {
-					s.entities.Remove(e.ID)
-					s.broadcastEntityRemoveIn(e.Dim, nil, []int32{e.ID})
-				}
-			}
-		}
 	}
 }
 
@@ -1730,51 +1712,6 @@ func (s *Server) broadcastTakeItem(dim string, itemID, collectorID, amount int32
 		_ = sess.write(sess.ids().PlayTakeItem, body)
 		return true
 	})
-}
-
-// pickupTarget returns a nearby player in e's dimension able to
-// collect it.
-func (s *Server) pickupTarget(e *Entity, orb bool) *Session {
-	var target *Session
-	s.sessions.Range(func(_, v any) bool {
-		sess := v.(*Session)
-		if sess.state.Load() != StatePlay || !sess.spawned.Load() {
-			return true
-		}
-		if sess.dimName() != e.Dim {
-			return true
-		}
-		// Items: only survival and adventure players collect them.
-		// Orbs: ExperienceOrb.playerTouch has no mode gate — creative
-		// players absorb xp too; spectators are the only skip.
-		if orb {
-			if sess.mode() == GameModeSpectator {
-				return true
-			}
-		} else if m := sess.mode(); m != GameModeSurvival && m != GameModeAdventure {
-			return true
-		}
-		// ItemEntity.playerTouch: a targeted item (setTarget — /give
-		// overflow) can only be picked up by its owner.
-		if e.HasOwner && e.Owner != sess.getUUID() {
-			return true
-		}
-		// Fake items (/give's visual toss) can never be picked up.
-		if e.FakeItem {
-			return true
-		}
-		x, y, z, _, _, _ := sess.Pos()
-		// Vanilla collects an item when its 0.25-cube box touches the
-		// player's bounding box inflated by (1.0, 0.5, 1.0): half-width
-		// 0.3+1.0+0.125 horizontally, [y-0.75, y+2.3] for the item's
-		// feet vertically.
-		if abs(x-e.X) <= 1.425 && abs(z-e.Z) <= 1.425 && e.Y >= y-0.75 && e.Y <= y+2.3 {
-			target = sess
-			return false
-		}
-		return true
-	})
-	return target
 }
 
 func abs(v float64) float64 {

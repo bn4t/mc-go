@@ -42,7 +42,9 @@ Embedded dropped items now move with collision bypass, gravity-before-escape
 ordering and float drag in measured single-exit chambers. Partial-shape escape
 selection remains in progress. XP-orb escape uses precise shape overlap and
 full-cube escape candidates, with measured first-tick movement and damping;
-fluids and broader trajectories remain partial. Measured contact
+fluids and broader trajectories remain partial. Nearby XP pickup now follows
+player ticks during world freeze and emits the client collect animation.
+Measured contact
 physics now preserves tiny free movement, clips near-plane contacts and retains
 slime bounce support when collision leaves a small gap above the surface.
 Invalid hand values in protocol 776 item-use packets disconnect without item

@@ -1420,3 +1420,11 @@ block-entity view, omitting only outer storage identity, coordinates and packing
 markers. Nested items/components and unopened loot remain intact; missing block
 entities return explicit TAG_End. This route is separate from smaller client
 update tags. Full subtype coverage and unloaded lookup lifecycle remain open.
+
+
+Experience-orb pickup runs on admitted player frames alongside regular item
+touches, including while world age is frozen. The scan uses orb-sized boxes,
+chooses one nearby orb and preserves the two-player-tick cooldown and mending
+before XP. Each take publishes CollectItem(count1); exhaustion removes the source.
+Default standing reach and spectator exclusion are pinned. Scaled/posed/vehicle
+reach and moving-orb pickup timing after teleport remain separate.
