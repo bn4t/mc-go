@@ -49,8 +49,12 @@ func TestSharedAvatarExclusionKeepsJavaAndNonlivingInteractions(t *testing.T) {
 			s := simulationTestServer(t)
 			t.Cleanup(s.Stop)
 			entity := &Entity{Type: mustEntityType("falling_block"), Dim: dimOverworld, X: .5, Y: 10.4, Z: .5}
+			var java *Session
 			if kind == "java" {
 				sess := placeSession(t, s, "ActualJava", .5, 10.4, .5)
+				java = sess
+				java.initSurvival()
+				java.spawned.Store(true)
 				entity.Type = mustEntityType("player")
 				entity.UUID = sess.getUUID()
 				entity = s.entities.Spawn(entity)
@@ -69,9 +73,16 @@ func TestSharedAvatarExclusionKeepsJavaAndNonlivingInteractions(t *testing.T) {
 				}
 				entity.PortalCooldown = 5
 				s.entityInsideStep()
+				wantFrozen := int32(1)
+				if java != nil {
+					// Java contact and freezing run on the admitted player frame;
+					// the global pass still handles nonliving contact and tripwire.
+					s.playerFluidTickStep()
+					wantFrozen = 2
+				}
 				s.portalCooldownStep()
 				powered, _ := world.StateProperty(s.world.GetBlock(wirePos), "powered")
-				if powered != "true" || !entity.IsInPowderSnow || entity.TicksFrozen != 1 || entity.PortalCooldown != 4 {
+				if powered != "true" || !entity.IsInPowderSnow || entity.TicksFrozen != wantFrozen || entity.PortalCooldown != 4 {
 					t.Fatalf("ordinary inside effects changed: powered%s snow%v frozen%d portal%d", powered, entity.IsInPowderSnow, entity.TicksFrozen, entity.PortalCooldown)
 				}
 			})

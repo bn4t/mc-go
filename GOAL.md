@@ -19688,3 +19688,9 @@ Official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3b
 - **Pinned** — Command/creative differential PASS 21.11s; physical zero/undyed/nonzero crafting controls PASS 54.70s; jukebox regression PASS 24.28s. Unit group PASS 0.541s covers 16 native API goldens, root/nested disk restart, JSON/identity and protocol 775/776 trusted/creative roundtrips; immutable build/vet/tagged compilation pass. Thirteen-file artifact `6bb44d0b343ce0f939f7de9ff3e561ac62074957fdcd070ecf889f4719b8e2e5`.
 
 Official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire observations and public API numeric results inform independently written code. Numeric aliases/ranges, removal versus prototype defaults and arbitrary component models remain incomplete.
+
+## Slice — avatar capability fixture uses the player frame (2026-10-30)
+
+- **Measured** — Full immutable `77453d0` testing found one stale unit expectation: the Java-player subcase invoked only the global entity inside pass and expected one freeze point. The measured player implementation deliberately moved freezing to its admitted frame; ordinary nonliving contact remains world-bound.
+- **Implemented** — Initialize/admit the Java fixture and run its player-fluid frame, expecting the already native-pinned two-point contribution. Keep the nonliving one-point expectation, tripwire occupancy, portal cooldown and shared-avatar exclusion assertions.
+- **Pinned** — Focused avatar/powder phase checks PASS 0.595s on `77453d0` plus this one-file test-only artifact `acb4cf33dfc55cc718e987ccb7500b4b9af6502c2c110a9a2f36c618c42dc2d9`. No production code changed. The original full-run failure is retained; final combined verification follows separately.
