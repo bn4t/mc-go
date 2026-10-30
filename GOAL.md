@@ -19214,3 +19214,12 @@ Baseline registry dimensions are not every runtime eye getter. Interaction dimen
 - **Pinned** — Differential PASS46.55s(native11.67/Go3.33), build/vet/focused units0.205s; rotation receipt23.10s, normal head12.54s and frozen head11.05s PASS. Subsequent test-only cleanup adds per-server teardown and passes the named unit0.201s; production/wire source is unchanged. Final artifacts: work/entity-tag-query-stage/, work/entity-tag-query-slice.md.
 
 Coverage is the independently checked typed subset and reuse of modeled save views, not every subtype field, byte-identical native NBT or dormant entity lookup timing. Sibling block-tag queries remain separate.
+
+
+## Slice — loaded-position checks for block conditions (2026-10-30)
+
+- **Measured** — Native unavailable block positions abort both if and unless, remaining silent before run but reporting argument.pos.unloaded standalone. Loaded chunks with invalid height report argument.pos.outofworld; predicate parsing precedes runtime readiness. Native baseline5.44s passes while Go4.00s fails. Wire and public world-bound facts, Java26.2/JDK25.0.5+8, runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Check pure FULL/materialization readiness after parsing in both block-predicate branches. Legacy execution checks conditional errors before unless inversion, matching the compiled executor. Preserve no-controller embedding behavior and separate world bounds. Four-file patch SHA256 5327e97ae95bb54bb56e07ef2b24aa95f229a0d41e7b3e9ecb82b95736a061ac.
+- **Pinned** — Thirty-six wire probes PASS11.69s(native2.34/Go1.52), existing ExecuteIf173.45s and StructurePower22.34s PASS. Focused units4.722s establish zero provider calls, no false inversion, parser precedence and embedding access; build/vet/tagged compile PASS. Exact source/gates: work/blockcondition-manifest.txt and work/blockcondition-slice.md.
+
+Full error style/cursor/property-parser parity and horizontal-boundary wire coverage remain separate. The corrected readiness witness exposes the independent unloaded queue deadline gap; it does not implement queue unloading.

@@ -1376,3 +1376,10 @@ their signed transaction ID and use the target's modeled NPC/player save view
 without its outer type identifier. Player inventory/equipment comes from the
 target, not the requester. Full subtype/default-field equivalence and dormant
 entity lookup timing remain separate.
+
+
+Block conditions resolve pure FULL/materialization readiness after predicate
+parsing. Unavailable positions are runtime errors, not false predicates:
+unless cannot invert them. Terminal conditions report the position error while
+run chains stay silent. No-controller embedding access remains unchanged;
+actual chunk unloading is a separate lifecycle.

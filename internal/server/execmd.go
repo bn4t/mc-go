@@ -127,7 +127,9 @@ func (s *Server) execTail(ctx *executeContext, player string, args []string, arg
 			ctx.entityCount, ctx.entityCountd = count, counted
 			// unless runs the chain when the condition reads false —
 			// the negation folds into the AND, not after it.
-			if negate {
+			if ctx.condErr != nil {
+				ctx.alive = false
+			} else if negate {
 				cond = !cond
 			}
 			ctx.alive = ctx.alive && cond
@@ -251,7 +253,7 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 			if perr != nil {
 				return 0, false, 0, false, perr
 			}
-			if ctx.alive {
+			if ctx.alive && s.executeBlockReadReady(ctx, world.Pos{X: x, Y: y, Z: z}) {
 				cond = predicate.matches(s, ctx.dim, world.Pos{X: x, Y: y, Z: z})
 			}
 			return 5, cond, 0, false, nil
@@ -260,7 +262,7 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 		if perr != nil {
 			return 0, false, 0, false, perr
 		}
-		if ctx.alive {
+		if ctx.alive && s.executeBlockReadReady(ctx, world.Pos{X: x, Y: y, Z: z}) {
 			pos := world.Pos{X: x, Y: y, Z: z}
 			cond = s.matchesBlockPredicate(ctx.dim, pos, blk, props)
 			if cond && pattern != nil {
