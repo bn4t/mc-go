@@ -622,6 +622,7 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 			s.board.mu.Unlock()
 			return componentReply(commandError("arguments.objective.notFound", name))
 		}
+		removedSlots := s.scoreboardSlotsLocked(name)
 		delete(s.board.objectives, name)
 		for _, holder := range s.board.holderOrder {
 			s.removeScoreLocked(holder, name)
@@ -635,7 +636,7 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 			}
 		}
 		s.board.mu.Unlock()
-		s.broadcastObjectiveRemove(name)
+		s.scoreboardRemovedTracking(name, removedSlots)
 		return opsEchoReply(translatable("commands.scoreboard.objectives.remove.success",
 			s.objectiveChatComponent(name)))
 	case "setdisplay":
@@ -670,7 +671,7 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 			}
 			s.board.displaySlots[slot] = ""
 			s.board.mu.Unlock()
-			s.broadcastDisplayObjective(int32(slot), "")
+			s.scoreboardDisplayChanged(slot, cur, "", false)
 			return opsEchoReply(translatable(
 				"commands.scoreboard.objectives.display.cleared", args[2]))
 		}
@@ -688,9 +689,10 @@ func (s *Server) runScoreboardObjectives(player string, args []string) reply {
 		if s.board.displaySlots == nil {
 			s.board.displaySlots = map[int]string{}
 		}
+		alreadyVisible := s.scoreboardTrackedLocked(name)
 		s.board.displaySlots[slot] = name
 		s.board.mu.Unlock()
-		s.broadcastDisplayObjective(int32(slot), name)
+		s.scoreboardDisplayChanged(slot, cur, name, alreadyVisible)
 		return opsEchoReply(translatable(
 			"commands.scoreboard.objectives.display.set",
 			args[2], s.objectiveDisplay(name)))
@@ -1034,22 +1036,33 @@ func (s *Server) runScoreboardPlayers(player string, args []string) reply {
 				return componentReply(commandError("arguments.objective.notFound", objective))
 			}
 		}
+		type reset struct {
+			holder string
+			all    bool
+		}
+		var resets []reset
 		s.board.mu.Lock()
 		for _, h := range holders {
+			scores := s.board.scores[h.name]
 			if objective == "" {
+				if len(scores) == 0 {
+					continue
+				}
 				for _, obj := range append([]string(nil), s.board.scoreOrder[h.name]...) {
 					s.removeScoreLocked(h.name, obj)
 				}
-			} else {
+				resets = append(resets, reset{h.name, true})
+			} else if _, existed := scores[objective]; existed {
 				s.removeScoreLocked(h.name, objective)
+				resets = append(resets, reset{h.name, len(s.board.scores[h.name]) == 0})
 			}
 		}
 		s.board.mu.Unlock()
-		for _, h := range holders {
-			if objective == "" {
-				s.broadcastScoreReset(h.name, nil)
+		for _, removed := range resets {
+			if removed.all {
+				s.broadcastScoreReset(removed.holder, nil)
 			} else {
-				s.broadcastScoreReset(h.name, &objective)
+				s.broadcastScoreReset(removed.holder, &objective)
 			}
 		}
 		if len(holders) == 1 {
@@ -1354,12 +1367,18 @@ func sbParseInt(tok string, tokIdx int) (int32, *reply) {
 
 // broadcastObjectiveCreate sends Update Objectives mode 0 (create).
 func (s *Server) broadcastObjectiveCreate(name string, o *sbObjective) {
+	if !s.scoreboardTracked(name) {
+		return
+	}
 	s.sendObjective(name, 0, o)
 }
 
 // broadcastObjectiveChange sends Update Objectives mode 2 (change),
 // re-shipping display name, render type and number format.
 func (s *Server) broadcastObjectiveChange(name string, o *sbObjective) {
+	if !s.scoreboardTracked(name) {
+		return
+	}
 	s.sendObjective(name, 2, o)
 }
 
@@ -1437,6 +1456,10 @@ func (s *Server) broadcastDisplayObjective(position int32, name string) {
 // display-name and number-format overrides players display installs.
 func (s *Server) broadcastScore(entity, objective string, value int32) {
 	s.board.mu.Lock()
+	if !s.scoreboardTrackedLocked(objective) {
+		s.board.mu.Unlock()
+		return
+	}
 	e := s.board.scores[entity][objective]
 	s.board.mu.Unlock()
 	var b protocol.Buffer
@@ -1459,6 +1482,9 @@ func (s *Server) broadcastScore(entity, objective string, value int32) {
 
 // broadcastScoreReset sends Reset Score.
 func (s *Server) broadcastScoreReset(entity string, objective *string) {
+	if objective != nil && !s.scoreboardTracked(*objective) {
+		return
+	}
 	var b protocol.Buffer
 	b.String(entity)
 	if objective == nil {

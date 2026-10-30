@@ -18,6 +18,9 @@ func TestScoreboardCommands(t *testing.T) {
 	if out := s.runScoreboard("Alice", []string{"objectives", "add", "test", "dummy", `{"text":"Test Score"}`}); out.comp.translate != "commands.scoreboard.objectives.add.success" {
 		t.Fatalf("add = %v", out.comp)
 	}
+	if out := s.runScoreboard("Alice", []string{"objectives", "setdisplay", "sidebar", "test"}); out.comp.translate != "commands.scoreboard.objectives.display.set" {
+		t.Fatalf("setdisplay = %v", out.comp)
+	}
 	p, err := waitPacket(t, pr, IDPlayObjectiveCB)
 	if err != nil {
 		t.Fatal(err)
@@ -39,6 +42,17 @@ func TestScoreboardCommands(t *testing.T) {
 		t.Fatalf("display = %#v", comp)
 	}
 
+	dp, err := waitPacket(t, pr, IDPlayDisplayObjective)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dr := protocol.NewPacketReader(dp.Data)
+	position, _ := dr.VarInt()
+	sideName, _ := dr.String()
+	if position != 1 || sideName != "test" {
+		t.Fatalf("display = %d/%q", position, sideName)
+	}
+
 	if out := s.runScoreboard("Alice", []string{"players", "set", "Alice", "test", "7"}); out.comp.translate != "commands.scoreboard.players.set.success.single" {
 		t.Fatalf("set = %v", out.comp)
 	}
@@ -58,19 +72,9 @@ func TestScoreboardCommands(t *testing.T) {
 		t.Fatalf("get = %v", out.comp)
 	}
 
-	if out := s.runScoreboard("Alice", []string{"objectives", "setdisplay", "sidebar", "test"}); out.comp.translate != "commands.scoreboard.objectives.display.set" {
-		t.Fatalf("setdisplay = %v", out.comp)
-	}
-	dp, err := waitPacket(t, pr, IDPlayDisplayObjective)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dr := protocol.NewPacketReader(dp.Data)
-	position, _ := dr.VarInt()
-	sideName, _ := dr.String()
-	if position != 1 || sideName != "test" {
-		t.Fatalf("display = %d/%q", position, sideName)
-	}
+	// A second hidden score keeps this reset objective-specific.
+	s.runScoreboard("Alice", []string{"objectives", "add", "other", "dummy"})
+	s.runScoreboard("Alice", []string{"players", "set", "Alice", "other", "1"})
 
 	if out := s.runScoreboard("Alice", []string{"players", "reset", "Alice", "test"}); out.comp.translate != "commands.scoreboard.players.reset.specific.single" {
 		t.Fatalf("reset = %v", out.comp)

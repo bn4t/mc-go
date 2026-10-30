@@ -67,6 +67,10 @@ and toughness reduce damage without counting equipped items twice; retained
 armor reapplies after respawn. Player knockback uses effective resistance,
 including command modifiers and explicit removal of equipped modifiers.
 Arbitrary item attribute components and broader mob consumers remain partial.
+Scoreboard objective and score updates reach connected players only while the
+objective is displayed. First display sends the objective and score snapshot;
+slot changes and score resets follow measured packet behavior. Late-join
+scoreboard snapshots and persistence remain separate work.
 Attribute getters supply scaled integer results to `execute store` while keeping
 feedback unscaled; successful zero values and runtime failures retain distinct
 execution status. Effective attribute queries use generated registry ranges;

@@ -1155,3 +1155,11 @@ modifier slices are deep-copied before asynchronous save work. JSON keeps finite
 legacy numbers and represents nonfinite attribute/ability values by IEEE64 bits;
 NBT retains its native numeric types. Effect templates reproduce through
 `tools/geneffectattrs/README.md` and do not imply complete effect mechanics.
+
+
+Scoreboard visibility derives from display-slot assignments. Hidden objectives
+and score mutations do not broadcast updates. First tracking sends create,
+ordered display assignments and the current score snapshot; later slot changes
+use measured removal/reassignment ordering. Deleting a holder's final score
+emits the global reset form, even for a hidden objective. This covers currently
+connected viewers; a late-join snapshot hook and persistence remain separate.
