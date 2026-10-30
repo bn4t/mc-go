@@ -1353,13 +1353,13 @@ func (s *Server) hungerTickStep() {
 			}
 			changed = true
 		}
-		hurt := sess.health < defaultHealth
+		hurt := sess.health < s.playerMaxHealth(&sess.playerRecord)
 		if regen && hurt && sess.food >= 20 && sess.saturation > 0 {
 			sess.foodTickTimer++
 			if sess.foodTickTimer >= 10 {
 				sess.foodTickTimer = 0
 				amount := min(sess.saturation, 6)
-				sess.health = min(sess.health+amount/6, defaultHealth)
+				sess.healPlayer(amount / 6)
 				sess.addExhaustion(amount)
 				changed = true
 			}
@@ -1367,7 +1367,7 @@ func (s *Server) hungerTickStep() {
 			sess.foodTickTimer++
 			if sess.foodTickTimer >= 80 {
 				sess.foodTickTimer = 0
-				sess.health++
+				sess.healPlayer(1)
 				sess.addExhaustion(6)
 				changed = true
 			}

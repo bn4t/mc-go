@@ -85,7 +85,10 @@ native behavior. Compact JSON saves preserve nonfinite attribute values through
 an explicit bit representation. Ordinary death keeps raw bases but drops old
 modifiers/effects and their dependent absorption state; respawn resets walking
 ability and initializes health from the copied maximum-health base. Retained
-equipment reapplies. Complete healing, ability and effect mechanics remain partial.
+equipment reapplies. Player instant healing, regeneration and food healing use
+effective maximum health; lowering that maximum clamps excess health on the
+living frame, while raising it grants no free healing. Complete ability and
+effect mechanics remain partial.
 
 Native NoGravity projects to client metadata at pairing and on true/false changes
 across measured living, item and boat paths. Crystal reloads retain dirty updates

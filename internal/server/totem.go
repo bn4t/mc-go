@@ -302,8 +302,7 @@ func (s *Server) applyInstantEffectScaled(sess *Session, id, amplifier int32, sc
 	case effectInstantHealth:
 		if !sess.dead {
 			amount := max(int32(math.Floor(float64(int32(4)<<(amplifier&31))*scale+0.5)), 0)
-			sess.health = min(sess.health+float32(amount), defaultHealth)
-			sess.healthDirty.Store(true)
+			sess.healPlayer(float32(amount))
 		}
 	case effectInstantDamage:
 		amount := max(int32(math.Floor(float64(int32(6)<<(amplifier&31))*scale+0.5)), 0)
@@ -728,9 +727,8 @@ func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectI
 				damageSource{typeName: "magic"})
 		}
 	case 9: // regeneration: heal 1.0 every 50>>amplifier below max
-		if ivl := int64(50) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 && sess.health < defaultHealth {
-			sess.health = min(sess.health+1, defaultHealth)
-			sess.healthDirty.Store(true)
+		if ivl := int64(50) >> uint(inst.amplifier); ivl > 0 && (rem+1)%ivl == 0 && sess.health < sess.server.playerMaxHealth(&sess.playerRecord) {
+			sess.healPlayer(1)
 		}
 	case 16: // hunger: causeFoodExhaustion every tick, players only
 		if m := sess.mode(); m == GameModeSurvival || m == GameModeAdventure {

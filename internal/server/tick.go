@@ -717,6 +717,7 @@ func (s *Server) playerTickOwned() {
 		return true
 	})
 	s.playerCollisionScaleTick()
+	s.playerHealthAttributeTick()
 }
 
 // runGameLoop drives GameTick on the clock's schedule until stop
