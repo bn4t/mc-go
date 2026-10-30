@@ -57,6 +57,8 @@ type tickScheduler struct {
 	owners         map[schedKey]bool
 	nextRecordID   uint64
 	ownerDeadlines map[schedKey]ownerTickDeadlines
+	relative       map[scheduledChunk][]relativeScheduledTick
+	relativeOwners map[schedKey]bool
 }
 
 // Vanilla TickPriority values — the schedulePrio callers' range; lower
@@ -75,6 +77,8 @@ func newTickScheduler() *tickScheduler {
 		prio:           map[schedKey]int8{},
 		owners:         map[schedKey]bool{},
 		ownerDeadlines: map[schedKey]ownerTickDeadlines{},
+		relative:       map[scheduledChunk][]relativeScheduledTick{},
+		relativeOwners: map[schedKey]bool{},
 	}
 }
 
@@ -100,7 +104,7 @@ func (t *tickScheduler) schedulePrio(k schedKey, at int64, prio int8) {
 	k = t.typedKey(k)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.owners[k] {
+	if t.owners[k] || t.relativeOwners[k] {
 		return
 	}
 	t.owners[k] = true
@@ -119,6 +123,12 @@ func (t *tickScheduler) schedulePrio(k schedKey, at int64, prio int8) {
 // (which cannot happen through schedule, but can through a restored
 // save) are returned too.
 func (t *tickScheduler) poll(now int64) []schedKey {
+	return t.pollEligible(now, nil)
+}
+
+// Eligibility is a precomputed chunk set. Blocked records retain their absolute
+// deadlines and membership; they are not collected and rescheduled.
+func (t *tickScheduler) pollEligible(now int64, eligible map[scheduledChunk]bool) []schedKey {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.active = nil
@@ -128,8 +138,13 @@ func (t *tickScheduler) poll(now int64) []schedKey {
 		if at > now {
 			continue
 		}
-		keys = append(keys, list...)
+		var blocked []schedKey
 		for _, k := range list {
+			if eligible != nil && !eligible[scheduledChunkOf(k)] {
+				blocked = append(blocked, k)
+				continue
+			}
+			keys = append(keys, k)
 			if k.kind != tickFluid {
 				if t.active == nil {
 					t.active = map[schedKey]blockTickRecord{}
@@ -137,7 +152,11 @@ func (t *tickScheduler) poll(now int64) []schedKey {
 				t.active[k] = blockTickRecord{key: k, at: at, priority: t.prio[k], pending: true}
 			}
 		}
-		delete(t.due, at)
+		if len(blocked) == 0 {
+			delete(t.due, at)
+		} else {
+			t.due[at] = blocked
+		}
 	}
 	if len(keys) == 0 {
 		return nil
@@ -178,7 +197,11 @@ func (t *tickScheduler) poll(now int64) []schedKey {
 func (t *tickScheduler) pending() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return len(t.queued)
+	n := len(t.queued)
+	for _, records := range t.relative {
+		n += len(records)
+	}
+	return n
 }
 
 // isQueued reports whether a position already has a tick pending.
@@ -187,7 +210,7 @@ func (t *tickScheduler) isQueued(k schedKey) bool {
 	k = t.typedKey(k)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.owners[k]
+	return t.owners[k] || t.relativeOwners[k]
 }
 
 // queuedAt returns the due tick of a pending entry — the
@@ -211,5 +234,5 @@ func (t *tickScheduler) hasScheduled(k schedKey) bool {
 	k = t.typedKey(k)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.owners[k]
+	return t.owners[k] || t.relativeOwners[k]
 }

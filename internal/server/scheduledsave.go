@@ -24,6 +24,10 @@ func (s *Server) captureScheduledChunkTicksOwned() map[string]map[[2]int32]world
 	for key, at := range s.ticks.queued {
 		records = append(records, record{key, at, s.ticks.prio[key]})
 	}
+	relative := make(map[scheduledChunk][]relativeScheduledTick, len(s.ticks.relative))
+	for chunk, rows := range s.ticks.relative {
+		relative[chunk] = append([]relativeScheduledTick(nil), rows...)
+	}
 	s.ticks.mu.Unlock()
 	for _, record := range records {
 		key := s.ticks.typedKey(record.key)
@@ -56,6 +60,37 @@ func (s *Server) captureScheduledChunkTicksOwned() map[string]map[[2]int32]world
 			sortSavedTicks(chunk.Blocks)
 			sortSavedTicks(chunk.Fluids)
 		}
+	}
+	// Native pending saved rows precede active records, retain list order, and
+	// have no elapsed time subtracted before activation.
+	for chunk, rows := range relative {
+		if out[chunk.dim] == nil {
+			out[chunk.dim] = map[[2]int32]world.SavedChunkTicks{}
+		}
+		key := [2]int32{int32(chunk.x), int32(chunk.z)}
+		var pending world.SavedChunkTicks
+		for _, row := range rows {
+			name := row.key.block
+			if row.key.kind == tickFluid {
+				name = row.key.fluid
+			}
+			if name == "" {
+				continue
+			}
+			if !strings.ContainsRune(name, ':') {
+				name = "minecraft:" + name
+			}
+			tick := world.SavedTick{Type: name, Pos: row.key.pos, Delay: row.delay, Priority: int32(row.priority)}
+			if row.key.kind == tickFluid {
+				pending.Fluids = append(pending.Fluids, tick)
+			} else {
+				pending.Blocks = append(pending.Blocks, tick)
+			}
+		}
+		active := out[chunk.dim][key]
+		pending.Blocks = append(pending.Blocks, active.Blocks...)
+		pending.Fluids = append(pending.Fluids, active.Fluids...)
+		out[chunk.dim][key] = pending
 	}
 	return out
 }

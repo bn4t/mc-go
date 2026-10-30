@@ -1216,3 +1216,10 @@ inventing a Y-bound codec rule. Duplicate records and list order remain intact.
 The server consumes this handoff after regions and block entities load, before
 normal ticking. Protochunk promotion and dynamic chunk activation policy remain
 separate from the current eager full-chunk loader.
+
+
+Saved-tick queue primitives distinguish unactivated relative records from active
+absolute deadlines. They preserve pending membership, duplicates and list order,
+and can poll only an eligible chunk set without rescheduling blocked records.
+These primitives are not yet bound to startup chunk admission: the existing
+eager restore path remains until the separately verified policy integration.

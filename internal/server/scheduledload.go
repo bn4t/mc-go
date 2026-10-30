@@ -12,6 +12,10 @@ func (t *tickScheduler) restoreTick(k schedKey, at int64, priority int8) {
 	k.recordID = 0
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.restoreTickLocked(k, at, priority)
+}
+
+func (t *tickScheduler) restoreTickLocked(k schedKey, at int64, priority int8) {
 	if t.owners == nil {
 		t.owners = map[schedKey]bool{}
 	}
