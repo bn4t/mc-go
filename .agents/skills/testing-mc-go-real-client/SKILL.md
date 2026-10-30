@@ -338,3 +338,13 @@ For direct Saturation potion delivery, assert exact food/saturation pools, the
 consumed item and absence of active status together. The direct dose ignores
 its scale; accidental status ticking must not compensate for wrong dispatch.
 Arrows add stored effects and require separate origin-specific controls.
+
+
+Scheduled callback completion can follow a query that already reports the target
+game tick. Wait read-only for the applied result while asserting unchanged game
+time; do not add ticks, rearm the owner or replace the original delay. Distinguish
+FULL data, queue activation, entity-loaded predicates and simulation admission.
+For native saved-delay aging, verify fresh LastUpdate metadata after harmless
+real changes in the measured chunks; a save reply alone may leave an unchanged
+chunk file stale. Go SaveWorld supplies a writer completion barrier, but native
+LastUpdate equivalence remains a separate claim.

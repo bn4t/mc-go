@@ -196,6 +196,7 @@ func (s *Server) runClone(player string, args []string) reply {
 
 	// Snapshot the source cells first so move-mode self-overlap
 	// clones the pre-erase state.
+	s.activateSavedTicksOwned(false)
 	type cell struct {
 		rel [3]int
 		blk world.Block

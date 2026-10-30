@@ -274,7 +274,7 @@ func (s *Server) SetFrozen(frozen bool) {
 // step path fills it, a mid-step "step stop" zeroes it early, and a
 // caller that never filled it gets a fresh n.
 func (s *Server) StepTicks(n int64) {
-	s.simulationAction(func() { s.stepTicksOwned(n) })
+	s.simulationAction(func() { s.activateSavedTicksOwned(true); s.stepTicksOwned(n) })
 }
 
 func (s *Server) stepTicksOwned(n int64) {
@@ -366,6 +366,7 @@ func (s *Server) requestSprint(n int64) (interrupted bool) {
 // one-shot sprint with no interruption handling of their own.
 func (s *Server) SprintTicks(n int64) {
 	s.simulationAction(func() {
+		s.activateSavedTicksOwned(true)
 		if !s.requestSprint(n) {
 			s.sprintRunOwned()
 		}
@@ -506,7 +507,7 @@ func (s *Server) stopSprintOwned() bool {
 func (s *Server) GameTick() {
 	s.clock.runMu.Lock()
 	defer s.clock.runMu.Unlock()
-	s.simulationAction(s.gameTickOwned)
+	s.simulationAction(func() { s.activateSavedTicksOwned(true); s.gameTickOwned() })
 }
 
 func (s *Server) gameTickOwned() {
@@ -518,6 +519,7 @@ func (s *Server) gameTickOwned() {
 	// File load/tick functions run before the level's time pass. Their
 	// one-tick deadlines become due in the same ensuing world tick.
 	s.functionTagsStep()
+	s.activateSavedTicksOwned(false)
 	// ServerLevel.tickTime advances world age before block/fluid deadlines
 	// and the rest of the simulation. Callbacks that schedule another tick
 	// must read this same current age when computing their new deadlines.
@@ -640,6 +642,7 @@ func (s *Server) playerTickOwned() {
 	if s.shuttingDown.Load() {
 		return
 	}
+	s.activateSavedTicksOwned(false)
 	s.frozenPlayerEffectTick()
 	// Chunk-generation spawns land as chunks generate, frozen or not.
 	s.chunkGenSpawnStep()

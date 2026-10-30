@@ -348,7 +348,11 @@ func (s *Server) executeCondition(ctx *executeContext, player string, args []str
 			return 0, false, 0, false, cerr
 		}
 		if ctx.alive {
-			cond = s.chunkLoaded(ctx.dim, x>>4, z>>4)
+			if available, known := s.scheduledPositionAvailable(ctx.dim, x>>4, z>>4, true); known {
+				cond = available
+			} else {
+				cond = s.chunkLoaded(ctx.dim, x>>4, z>>4)
+			}
 		}
 		return 4, cond, 0, false, nil
 	case "function":

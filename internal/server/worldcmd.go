@@ -354,6 +354,9 @@ func (s *Server) blockPosLoaded(d *dimension, sess *Session, x, y, z int) bool {
 	if y < d.minY || y >= d.minY+d.height {
 		return false
 	}
+	if available, known := s.scheduledPositionAvailable(d, x>>4, z>>4, false); known {
+		return available
+	}
 	if sess != nil && sess.state.Load() == StatePlay && sess.dimName() == d.name {
 		return sess.hasChunk(x>>4, z>>4)
 	}

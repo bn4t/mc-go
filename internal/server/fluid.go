@@ -359,7 +359,7 @@ func (s *Server) scheduledTickStep() {
 	if s.ticks == nil {
 		return
 	}
-	due := s.ticks.poll(s.TickCount())
+	due := s.ticks.pollEligible(s.TickCount(), s.scheduledDispatchOwned())
 	defer s.ticks.finishBlockTicks()
 	for _, k := range due {
 		if !s.ticks.claimBlockTick(k) {

@@ -190,8 +190,10 @@ selections. GameTest resets cancel queued and collected block callbacks. Native
 chunk saves now write pending block/fluid callbacks with their registered owner,
 relative deadline and priority. Go restores valid full-chunk queues, retaining
 duplicate records, rejecting stale owners and preserving measured expiry and
-clone behavior across real restarts. Dynamic chunk activation and native sub-tick
-ordering remain open.
+clone behavior across real restarts. Saved delays remain relative until measured
+player/forced chunk admission activates them; due dispatch separately requires
+simulation readiness. Loaded queries do not generate their own result. General
+unload/repack, the complete ticket lifecycle and native sub-tick order remain open.
 
 Native structure-template lookups cache both present and missing results until
 corner unload or `/reload`; unreadable generated NBT can fall back to bundled

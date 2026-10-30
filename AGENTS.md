@@ -145,6 +145,10 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
   Native permanent effect modifiers must retain their active identity/duration;
   identifier prefixes alone do not establish ownership. Distinguish raw saved
   bases from post-load ability overrides and float32 storage from double queries.
+- For exact scheduled callbacks, observe applied completion without advancing
+  beyond the original deadline; game time alone can precede callback completion.
+  Loaded predicates are not queue-activation witnesses and must not generate
+  their own readiness. Preserve dormant relative versus blocked absolute delays.
 - Persistence probes must copy the completed save before shutdown can replace it.
   A preexisting file is not a completion receipt: verify new identifiers, types
   and deadlines. Save workers serialize detached snapshots captured by the

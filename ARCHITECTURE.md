@@ -1160,7 +1160,8 @@ from owner membership, so polling a loaded duplicate clears membership while
 other records may remain. Per-owner minimum indexes keep deadline queries
 constant-time; removals inspect only that owner. Restored deadlines are relative
 to game age, and existing registered-owner dispatch guards remain in force.
-Dynamic chunk activation and native sub-tick order remain separate work.
+Saved rows now activate under the bounded admission policy described below;
+complete ticket lifecycles and native sub-tick order remain separate work.
 
 Player retirement captures a detached attribute/effect snapshot before the
 physical entity is removed. Subsequent disconnect/kick persistence uses this
@@ -1224,15 +1225,22 @@ normalize default namespaces, numeric tags follow Java int conversion and
 priority clamps to the native range. X/Z chunk ownership is checked without
 inventing a Y-bound codec rule. Duplicate records and list order remain intact.
 The server consumes this handoff after regions and block entities load, before
-normal ticking. Protochunk promotion and dynamic chunk activation policy remain
-separate from the current eager full-chunk loader.
+normal ticking. Protochunk promotion and the full native ticket lifecycle remain
+separate from the current full-chunk loader.
 
 
 Saved-tick queue primitives distinguish unactivated relative records from active
 absolute deadlines. They preserve pending membership, duplicates and list order,
 and can poll only an eligible chunk set without rescheduling blocked records.
-These primitives are not yet bound to startup chunk admission: the existing
-eager restore path remains until the separately verified policy integration.
+Startup now defers saved rows until actual materialization and loading admission
+from ready players or existing forced chunks. Loading, simulation, FULL readability
+and entity-loaded predicates have separate measured radii. Due dispatch checks
+simulation admission without rearming blocked deadlines; only due buckets can
+prepare chunks. Loaded queries remain observational. Frozen player passes can
+activate queues without advancing time, while no-session manual ticking preserves
+the embedding API. Clone activates eligible source rows before copying. General
+unload/repack, temporary tickets, forced-ticket persistence and a complete
+asynchronous chunk lifecycle remain open.
 
 
 Vehicle movement validates NaN coordinates and nonfinite rotations before mount

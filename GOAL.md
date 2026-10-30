@@ -283,8 +283,9 @@ Mojang server over the wire.
   registered block/fluid type and the first deadline/priority, including distinct
   source/flowing fluid owners. Native chunk saves include pending ticks with
   measured owners, relative deadlines and priorities. Go full-chunk queue
-  loading preserves duplicates and measured expiry/clone behavior. Dynamic chunk
-  activation and native sub-tick ordering remain partial.
+  loading preserves duplicates and measured expiry/clone behavior. Ready-player/
+  forced admission activates saved delays separately from simulation dispatch.
+  General unload/ticket lifecycles and native sub-tick ordering remain partial.
   Attribute getters and mutations supply measured typed execute-store results.
   Player-only @s arguments use bound executors, including neutral sources;
   implicit targets and broader selector grammar remain partial.
@@ -19103,3 +19104,12 @@ Splash/cloud direct dispatch and arrow stored-status origins remain separate. Th
 - **Measured** — The old fixture leaked two delayed setup cleanup errors into its first item-replace capture; every later comparison passed. Retain the original181.90s failure log.
 - **Implemented** — Await an exact setup-completion say receipt before starting probe captures. Existing sleeps,450ms per-probe windows, content comparisons and exact10-tick stored Age assertions remain unchanged. Test-only patch SHA256 `b963441054e3751e271fbfbb9b5429fcf706b8b7d270c83edee9440fba50a3a8`.
 - **Pinned** — Full native26.2/Go execute-condition comparison PASS194.90s, actual final exit0. Evidence: `work/execute-if-setup-barrier-slice.md`. Other legacy timed capture windows remain outside this narrow repair.
+
+
+## Slice — saved-tick activation and simulation admission (2026-10-30)
+
+- **Measured** — Native dormant saved delays remain relative through save/restart. With view6/simulation2, activation reaches radius7, simulation radius3, FULL readability radius8 and entity-loaded queries radius6. Fresh saves show active blocked deadlines age20 while dormant rows retain17; clone excludes pending-relative rows but copies activated overdue rows. Native wire/saved metadata and factual API/bytecode measurements, Java26.2/JDK25.0.5+8, runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — Bind relative saved queues to materialized ready-player/forced admission; gate due dispatch separately on simulation readiness. Queries never generate their own positive result, future deadlines do not prepare chunks, frozen player passes can activate rows, and no-session manual ticking retains embedding behavior. Clone activates only eligible source rows. Ten-file patch SHA256 `a33082ea40448e802230bed50e77c21333be4f5a2d7ee27b5fa51fbec66a3096`.
+- **Pinned** — Original-delay two-restart differential PASS97.62s(native80.83/Go16.79), active-blocked restart135.50s(native119.18/Go16.09), focused units7.202s, build/vet PASS. Save66.83s, block/fluid identity12.97/26.95s, fluid regression55.43s, three clone regressions59.05/25.83/31.81s and GameTest registered/editor74.57/52.46s PASS. Separately repaired WorldCmd and ExecuteIf capture gates pass42.69/194.90s with original assertions. Exact sources, logs and limits: `work/scheduled-policy-manifest.txt`, `work/scheduled-policy-slice.md`.
+
+An original loader run timed out at its unchanged10-second step marker; its cause remains unresolved. Quiet baseline/policy matched runs subsequently pass6.58/6.69/6.61/6.71s with comparable tick CPU, without widening the budget. This is recorded in `work/scheduled-policy-loader-diagnosis.md`, not claimed fixed. Coverage is bounded admission, not a complete ticket manager: unload/repack, temporary tickets, forced-ticket disk persistence, native LastUpdate metadata and custom-clock interactions remain separate.

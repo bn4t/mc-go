@@ -32,7 +32,6 @@ func (s *Server) restoreScheduledChunkTicks() {
 	if s.ticks == nil {
 		return
 	}
-	now := s.TickCount()
 	for dim, d := range s.dims {
 		chunks := d.w.SavedChunkTicks()
 		keys := make([][2]int32, 0, len(chunks))
@@ -60,10 +59,10 @@ func (s *Server) restoreScheduledChunkTicks() {
 				case "trapped_chest":
 					kind = tickTrappedChestRecheck
 				}
-				s.ticks.restoreTick(schedKey{dim: dim, pos: tick.Pos, kind: kind, block: name}, now+int64(tick.Delay), int8(tick.Priority))
+				s.ticks.deferSavedTick(schedKey{dim: dim, pos: tick.Pos, kind: kind, block: name}, tick.Delay, int8(tick.Priority))
 			}
 			for _, tick := range chunk.Fluids {
-				s.ticks.restoreTick(schedKey{dim: dim, pos: tick.Pos, kind: tickFluid, fluid: strings.TrimPrefix(tick.Type, "minecraft:")}, now+int64(tick.Delay), int8(tick.Priority))
+				s.ticks.deferSavedTick(schedKey{dim: dim, pos: tick.Pos, kind: tickFluid, fluid: strings.TrimPrefix(tick.Type, "minecraft:")}, tick.Delay, int8(tick.Priority))
 			}
 		}
 	}
