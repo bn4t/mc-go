@@ -458,6 +458,7 @@ func (s *Server) dragonTick(e *Entity) {
 	s.dragonMarkDirty(e)
 	s.mobSyncFlush(e)
 	e.TickCount++
+	e.livingEffectTickSerial++
 	if e.invulnTicks > 0 {
 		e.invulnTicks--
 	}

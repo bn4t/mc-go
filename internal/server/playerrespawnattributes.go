@@ -4,6 +4,8 @@ package server
 // death, but starts the new body without its modifiers or active effects.
 // Retained equipment is materialized again by the normal equipment scan.
 func (s *Server) resetPlayerBodyAttributes(sess *Session) float32 {
+	sess.entityTicks = 0 // a fresh physical player starts at constructor age
+	sess.infiniteEffectAge, sess.infiniteEffectAgeSet = 0, false
 	sess.walkingSpeed = 0
 	sess.walkingSpeedSet = false
 	sess.effMu.Lock()

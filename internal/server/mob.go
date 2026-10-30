@@ -4981,6 +4981,7 @@ func (s *Server) mobTickStep() {
 		// patrolling), and the >32 idle 1-in-800 roll.
 		e.NoActionTime++
 		e.TickCount++
+		e.livingEffectTickSerial++
 		// Entity.tick's boardingCooldown countdown — a just-dismounted
 		// mob can't be scooped again until it reaches zero.
 		if e.BoardingCooldown > 0 {

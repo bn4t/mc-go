@@ -76,6 +76,10 @@ item attribute components and general nested-component identity remain partial.
 Player health consumers narrow the effective ranged maximum to float32 and
 share bounded float healing. Late living-frame refresh clamps excess health;
 presence-only avatars remain outside survival simulation.
+Infinite periodic effects use signed living entity age, with separate runtime
+receipts preventing repeated callbacks while that age is stationary. Finite
+remaining-duration alignment is unchanged. Ordinary respawn creates a fresh
+player body clock; live dimension transfer preserves it.
 Within-pass floating-point ordering and each gameplay consumer's integration
 remain separate coverage; this does not make every attribute consumer complete.
 

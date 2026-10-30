@@ -608,10 +608,11 @@ func (s *Server) playerEffectTickStep() {
 		// 50>>amplifier (heal 1.0 below max), hunger every tick
 		// (0.005*(amplifier+1) exhaustion, player-only).
 		sess.effMu.Lock()
+		infiniteTick := s.consumeInfinitePlayerTick(sess)
 		active := make([]mobEffectInst, 0, len(sess.effects))
 		ids := make([]int32, 0, len(sess.effects))
 		for id, inst := range sess.effects {
-			if inst.expiry >= 0 && inst.expiry-sess.effectNow() > 0 {
+			if (inst.expiry < 0 && infiniteTick) || (inst.expiry >= 0 && inst.expiry-sess.effectNow() > 0) {
 				ids = append(ids, id)
 				active = append(active, inst)
 			}
@@ -683,8 +684,9 @@ func (s *Server) mobEffectTickStep() {
 		if !ok {
 			continue
 		}
+		infiniteTick := s.consumeInfiniteMobTick(ep)
 		for id, inst := range ep.Effects {
-			if inst.expiry < 0 || inst.expiry-s.clock.count <= 0 {
+			if (inst.expiry < 0 && !infiniteTick) || (inst.expiry >= 0 && inst.expiry-s.clock.count <= 0) {
 				continue
 			}
 			s.applyEffectTickEntity(ep, id, inst)
@@ -707,27 +709,28 @@ func (s *Server) mobEffectTickStep() {
 	}
 }
 
-// applyEffectTickSession fires one periodic hook for a live finite
+// applyEffectTickSession fires one periodic hook for a live status
 // effect instance on a player session — the session arm of
 // MobEffectInstance.tick's applyEffectTick dispatch.
 func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectInst) {
 	rem := inst.expiry - sess.effectNow()
-	if rem <= 0 || sess.dead || sess.effectNow() <= inst.born {
+	if (inst.expiry >= 0 && rem <= 0) || sess.dead || sess.effectNow() <= inst.born {
 		return
 	}
+	duration := effectTickArgument(inst, sess.effectNow(), s.playerEffectEntityAge(sess))
 	switch id {
 	case 19: // wither: hurt 1.0 wither() every 40>>amplifier
-		if effectPeriodicTickDue(40, inst.amplifier, rem+1) {
+		if effectPeriodicTickDue(40, inst.amplifier, duration) {
 			s.damageWith(sess, 1.0, translatable("death.attack.wither", literal(sess.getName())),
 				damageSource{typeName: "wither"})
 		}
 	case 18: // poison: hurt 1.0 magic() every 25>>amplifier, never below 1 hp
-		if effectPeriodicTickDue(25, inst.amplifier, rem+1) && sess.health > 1 {
+		if effectPeriodicTickDue(25, inst.amplifier, duration) && sess.health > 1 {
 			s.damageWith(sess, 1.0, translatable("death.attack.magic", literal(sess.getName())),
 				damageSource{typeName: "magic"})
 		}
 	case 9: // regeneration: heal 1.0 every 50>>amplifier below max
-		if effectPeriodicTickDue(50, inst.amplifier, rem+1) && sess.health < sess.server.playerMaxHealth(&sess.playerRecord) {
+		if effectPeriodicTickDue(50, inst.amplifier, duration) && sess.health < sess.server.playerMaxHealth(&sess.playerRecord) {
 			sess.healPlayer(1)
 		}
 	case 16: // hunger: causeFoodExhaustion every tick, players only
@@ -735,6 +738,9 @@ func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectI
 			sess.addExhaustion(0.005 * float32(inst.amplifier+1))
 		}
 	case 22: // saturation: FoodData.eat(amplifier+1, 1.0) every tick
+		if duration < 1 {
+			return
+		}
 		nutr := inst.amplifier + 1
 		sess.food += nutr
 		if sess.food > defaultFood {
@@ -752,20 +758,21 @@ func (s *Server) applyEffectTickSession(sess *Session, id int32, inst mobEffectI
 // entity — hunger has no mob arm (players only).
 func (s *Server) applyEffectTickEntity(ep *Entity, id int32, inst mobEffectInst) {
 	rem := inst.expiry - s.clock.count
-	if rem <= 0 || s.clock.count <= inst.born {
+	if (inst.expiry >= 0 && rem <= 0) || s.clock.count <= inst.born {
 		return
 	}
+	duration := effectTickArgument(inst, s.clock.count, int64(ep.TickCount))
 	switch id {
 	case 19:
-		if effectPeriodicTickDue(40, inst.amplifier, rem+1) {
+		if effectPeriodicTickDue(40, inst.amplifier, duration) {
 			s.damageMob(ep, 1.0, "wither", nil, &damageInfo{typeName: "wither"})
 		}
 	case 18:
-		if effectPeriodicTickDue(25, inst.amplifier, rem+1) && ep.Health > 1 {
+		if effectPeriodicTickDue(25, inst.amplifier, duration) && ep.Health > 1 {
 			s.damageMob(ep, 1.0, "magic", nil, &damageInfo{typeName: "magic"})
 		}
 	case 9:
-		if effectPeriodicTickDue(50, inst.amplifier, rem+1) {
+		if effectPeriodicTickDue(50, inst.amplifier, duration) {
 			s.entities.Heal(ep.ID, 1.0)
 		}
 	}

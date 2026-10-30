@@ -134,6 +134,9 @@ type Session struct {
 	effects map[int32]mobEffectInst
 	// effectFrozenTicks separates player effect age from frozen world steps.
 	effectFrozenTicks int64
+	// Last actual/projected entity age consumed by infinite effects.
+	infiniteEffectAge    int64
+	infiniteEffectAgeSet bool
 	// raidOmenPos is the village position Bad Omen converted at — the
 	// raid_omen instance consumes it to anchor the raid on expiry.
 	raidOmenPos *world.Pos

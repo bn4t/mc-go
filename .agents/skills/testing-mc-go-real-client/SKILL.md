@@ -266,3 +266,13 @@ Covered farmland can change to dirt before the measurement. Require exact block
 state witnesses before and after the measured tick, and preserve invalid
 apparatus logs separately from behavioral mismatches. Inspect the complete
 aggregate result and both server legs before calling a native baseline valid.
+
+
+## Periodic effect clocks
+
+Infinite status instances use living entity age for cadence; finite instances
+use remaining duration. A due age alone does not prove a tick ran. Require an
+actual tick and a no-advance control, and distinguish frozen player ticks from
+paused mobs. Ordinary respawn creates a new body clock; live dimension transfer
+preserves it. Bound wire observation windows with player counters rather than
+claiming an exact effect-action timestamp from a command reply.

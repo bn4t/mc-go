@@ -95,7 +95,10 @@ effective maximum health; lowering that maximum clamps excess health on the
 living frame, while raising it grants no free healing. Complete ability and
 effect mechanics remain partial. Finite regeneration, poison and wither on
 players and mobs use native zero-interval and amplifier-wrap scheduling.
-Infinite periodic effects remain separate work.
+Infinite regeneration, poison, wither, hunger and saturation use living entity
+age and actual tick eligibility. Players continue through world freeze while
+ordinary mobs pause; ordinary respawn resets the body clock. Infinite instant
+healing/harm and broader effect mechanics remain partial.
 
 Native NoGravity projects to client metadata at pairing and on true/false changes
 across measured living, item and boat paths. Crystal reloads retain dirty updates

@@ -608,6 +608,9 @@ type Entity struct {
 	// TickCount is Entity.tickCount — ticks since the mob began
 	// ticking, incremented once per mob tick.
 	TickCount int32
+	// Runtime-only receipt for once-per-living-tick infinite effect dispatch.
+	livingEffectTickSerial   uint64
+	infiniteEffectTickSerial uint64
 	// CubeSize is the slime/magma_cube DATA_SIZE (metadata 16) —
 	// vanilla's internal getSize() (NBT Size+1); 0 means the
 	// defined default 1.
