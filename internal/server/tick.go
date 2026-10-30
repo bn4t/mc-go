@@ -753,7 +753,8 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 		default:
 		}
 		period := time.Duration(float64(time.Second) / s.clock.tickRate())
-		if time.Since(lastPlayerTick) >= period {
+		playerTickDue := time.Since(lastPlayerTick) >= period
+		if playerTickDue {
 			lastPlayerTick = time.Now()
 			s.simulationAction(func() {
 				s.playerTickOwned()
@@ -778,7 +779,10 @@ func (s *Server) runGameLoop(stop chan struct{}) {
 			if s.clock.isFrozen() && !s.clock.isSprinting() {
 				s.simulationAction(func() {
 					if !s.shuttingDown.Load() && s.clock.isFrozen() && !s.clock.isSprinting() {
-						s.playerFluidTickStep()
+						// The frozen 5ms command poll is not an entity tick.
+						if playerTickDue {
+							s.playerFluidTickStep()
+						}
 						// ServerLevel.tick runs chunkSource.tick whether or
 						// not the tick rate manager runs normally: the
 						// chunks' accumulated light and block changes still

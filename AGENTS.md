@@ -97,6 +97,9 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - For exact tick windows, freeze, use `/tick step N`, and observe completion
   through game time. `/tick sprint N` is asynchronous and measured 26.2
   advances N+1 ticks; wall-clock sleeps are not an exact tick counter.
+- A frozen command poll is not a player frame. Compare independent base and
+  living counters against actual play_time with world age fixed. Establish
+  matching mode, health and admission before attributing physiology differences.
 - Separate a periodic predicate's phase from evidence that its entity tick ran.
   Test a due-age tick and a second call with no age advance; distinguish fresh
   respawn body clocks from live dimension-transfer continuity.

@@ -443,3 +443,9 @@ For selective chunk saves, mutate an unselected live neighbor and verify that
 its previous disk contents, compressed bytes and timestamp survive. Check native
 readback of the selected edit and queued work. Storage compatibility does not
 prove runtime unloading, same-region writer coordination or stale IO fencing.
+
+
+Frozen command polls and player frames are distinct clocks. Compare actual
+play_time with an independent environmental quantity while world age stays
+fixed. Validate matching mode, health and admission first; preserve strict
+outcome assertions when a repaired fixture exposes a production clock defect.

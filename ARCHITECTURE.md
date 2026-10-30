@@ -1459,3 +1459,9 @@ simulation owner; callers must serialize all writers to the same region. Each
 region replacement is atomic, without fsync or multi-file transaction guarantees.
 This storage API is not yet bound to runtime chunk unloading. Untouched external
 records survive; selected oversized output and external-file cleanup remain open.
+
+
+Frozen environmental/base player work uses the same due frame as living, food
+and statistics; the faster command poll no longer advances it independently.
+Normal simulation stepping and flushing retain their existing policy. Powder-snow
+accrual/thaw remains world-bound and requires separate player-frame integration.
