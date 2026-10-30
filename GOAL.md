@@ -18630,3 +18630,12 @@ Go chunk tick loading is not yet implemented. This verifies native readback of G
 - **Pinned** — Full build and vet PASS; tagged blackbox compilation PASS 0.451s; complete default `go test -p 2 ./... -count=1 -timeout 20m` PASS, observed session 87917 exit 0. Internal/server 598.749s, world 0.948s, worldgen 57.685s, public server 36.884s, default blackbox 328.624s; all other packages pass. External consumer against the same archive builds successfully (session 40454 exit 0). Log: `work/verified-d5f80a6.log`. Armor and effect factual regeneration on the preceding 4efd766 archive were byte-identical; those generated sources are unchanged here.
 
 The slice-specific native comparisons remain the evidence for gameplay parity. This combined default suite is not a full native-oracle suite or a graphical client playtest, and the open matrix items remain open.
+
+
+## Slice — canonical player knockback resistance (2026-10-30)
+
+- **Measured** — Native player damage consumes effective resistance, including netherite gear, command bases/modifiers and the registered [-2, 1] bounds. Six-case baseline PASS 80.97s records native strengths 0.4/0.36/0.16/1.2/0/0.76 while old Go retains the inventory-only 0.36 in the last four cases. Separate removal baseline PASS 52.70s proves an explicitly removed boots modifier stays absent across an identical rewrite: native strength 0.4, old Go 0.36. Java 26.2/protocol 776; runtime SHA256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`.
+- **Implemented** — After armor materialization, physical knockback evaluates the canonical base/modifier map and generated bounds. Keep existing impulse math and the detached/uninitialized inventory fallback; do not recreate removed item modifiers from inventory.
+- **Pinned** — Three-file SHA256 `3adafe5f8b7eac4a32acef83fad092414e2ed5169271b98d358ea1c7e9b34a24`, base 667dcac. Seven-case native/Go pin PASS 87.97s and eight focused regressions PASS 42.605s, immutable tagged binary build PASS. Each case requires exact effective queries, applied damage/equipment state, actual death/respawn receipts and at least 65 player ticks. Horizontal magnitude tolerance 1.5e-4 accounts for velocity encoding; direction, vertical motion and reset packet counts are separate observables. Manifest/provenance: `work/player-knockback-manifest.md`; logs `work/player-knockback-fixed-oracle-v1.log`, `work/player-knockback-fixed-unit-v1.log`.
+
+Same-frame equip/attack timing, custom item attribute components and canonical mob knockback remain separate work.

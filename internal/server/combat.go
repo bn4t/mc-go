@@ -464,8 +464,18 @@ func (sess *Session) armorToughness() float32 {
 	return float32(sess.sessAttr("armor_toughness", armorToughness))
 }
 
-// armorKBResistOf sums knockback_resistance over the worn pieces.
+// armorKBResist reads the effective canonical resistance after equipment has
+// materialized. Detached or not-yet-initialized sessions retain the gear fallback.
 func (sess *Session) armorKBResist() float64 {
+	if sess.server != nil && sess.server.entities != nil {
+		if e, ok := sess.server.entities.Get(sess.entityID.Load()); ok && e.playerArmorAttrsInit {
+			base := playerAttrBases["knockback_resistance"]
+			if v, exists := e.AttrBase["knockback_resistance"]; exists {
+				base = v
+			}
+			return sanitizeAttributeValue("knockback_resistance", attrValue(base, e.AttrMods["knockback_resistance"]))
+		}
+	}
 	total := float64(0)
 	for i := slotArmorStart; i < slotArmorStart+4; i++ {
 		it := sess.stackAt(int16(i))

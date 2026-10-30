@@ -69,8 +69,9 @@ armor modifiers in the canonical attribute map. Per-slot snapshots preserve
 explicit removals until that slot changes; a new life reapplies retained gear.
 Initialized attack, armor and toughness consumers use that map. Raw dirty
 attributes reach owner and tracked observers through the shared serializer.
-Equipment modifiers are nonpermanent, including zero toughness rows. Physical
-knockback resistance still uses its existing inventory calculation. Arbitrary
+Equipment modifiers are nonpermanent, including zero toughness rows. Initialized
+player knockback also evaluates canonical resistance with generated bounds;
+only detached/uninitialized sessions retain inventory synthesis. Arbitrary
 item attribute components and general nested-component identity remain partial.
 Within-pass floating-point ordering and each gameplay consumer's integration
 remain separate coverage; this does not make every attribute consumer complete.

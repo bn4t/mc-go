@@ -62,8 +62,9 @@ reapplies them. Attack-speed updates reach the owner and tracked observers.
 Default head, chest, leg, foot and body armor modifiers also use the canonical
 attribute map, including zero toughness entries and slot restrictions. Armor
 and toughness reduce damage without counting equipped items twice; retained
-armor reapplies after respawn. Physical knockback resistance and arbitrary
-item attribute components remain partial.
+armor reapplies after respawn. Player knockback uses effective resistance,
+including command modifiers and explicit removal of equipped modifiers.
+Arbitrary item attribute components and broader mob consumers remain partial.
 Attribute getters supply scaled integer results to `execute store` while keeping
 feedback unscaled; successful zero values and runtime failures retain distinct
 execution status. Effective attribute queries use generated registry ranges;
