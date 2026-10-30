@@ -16,8 +16,9 @@ type CommandStructurePlan struct {
 // and afterPlace pass, the jungle temple's selector/trap pass and the
 // igloo's bundled-template top/laboratory pass and the shipwreck's
 // ocean/beached template pass, the ocean ruins' cold/warm template
-// passes and the flat-safe jungle/swamp ruined-portal setups are included.
-var commandStructureNames = map[string]bool{"swamp_hut": true, "desert_pyramid": true, "jungle_pyramid": true, "igloo": true, "shipwreck": true, "shipwreck_beached": true, "ocean_ruin_cold": true, "ocean_ruin_warm": true, "ruined_portal_jungle": true, "ruined_portal_swamp": true}
+// passes, the flat-safe jungle/swamp ruined-portal setups and the
+// nether fortress pieces are included.
+var commandStructureNames = map[string]bool{"swamp_hut": true, "desert_pyramid": true, "jungle_pyramid": true, "igloo": true, "shipwreck": true, "shipwreck_beached": true, "ocean_ruin_cold": true, "ocean_ruin_warm": true, "ruined_portal_jungle": true, "ruined_portal_swamp": true, "fortress": true}
 
 // PlanCommandStructure builds a command-placed structure start. The
 // generator stands in for the level's chunk generator: the caller supplies

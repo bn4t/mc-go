@@ -113,8 +113,10 @@ Mojang server over the wire.
       templates with supply/treasure/map chests, and the cold/warm ocean
       ruins with their large/cluster pieces, archaeology blocks and
       underwater ruin chests, and the flat-safe jungle/swamp ruined-portal
-      setups with their chests included). Other structure-generated entities,
-      other explicit structures and spawn overrides remain incomplete.
+      setups with their chests, and the nether fortress bridge/castle pieces
+      with their chests and blaze spawners included). Other structure-generated
+      entities, other explicit structures and spawn overrides remain
+      incomplete.
 - [x] Full block-state registry: all 32366 states with their property
       schemas, generated from the official report and checked back
       against it state for state
@@ -19780,3 +19782,12 @@ Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0
 - **Pinned** — `TestPlaceRuinedPortalParity` PASS 11.55s checks both legs' success/failure replies, both chest positions/loot tables and counts, and the obsidian counts. `TestCommandRuinedPortalPlacement` pins template/rotation/placement, chest position/loot seed, obsidian count and write ranges. The seven placement pins re-pass (ruined portal 11.55s, igloo 11.25s, jungle 11.78s, ocean ruin 13.68s, pyramid 12.56s, shipwreck 11.18s, swamp hut 15.38s); focused worldgen 13.990s. Build/vet/tagged compilation pass. Three-file behavior artifact `da27038c8712f0e1b78438f0d88f46e3efb4b65b2d196fe2c39478913410dd82`. Remaining limit: netherrack/magma/vine/leaf counts and block age are level-random; other setups and structures remain unsupported.
 
 Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire observations and factual bytecode measurement (RuinedPortalStructure, RuinedPortalPiece) inform independently written code.
+
+
+## Slice — explicit nether-fortress command placement (2026-10-30)
+
+- **Measured** — Native `/place structure fortress` at seed 5, chunk (0,0) in the flat overworld builds 113 bridge/castle pieces spanning x -57..85 and z 0..116: 380721 nether bricks, 1211 nether-brick fences, six `nether_bridge` chests at (-56,53,73), (-37,61,58), (-2,61,115), (11,53,105), (23,54,88) and (23,54,95), and two blaze spawners at (-4,70,30) and (43,76,58). Pillars reach y -62; the highest piece block is y 79. The command is dimension-agnostic and the fortress layout uses only the large-feature random.
+- **Implemented** — Accept fortress in the command planner. The existing multi-piece, level-random and generated-block-entity path covers the bridge/castle pieces, the nether-bridge chests and the blaze spawners.
+- **Pinned** — `TestPlaceFortressParity` PASS 47.54s (native 5.17s, Go 35.06s) with the footprint forceloaded; all six chests and both blaze spawners are checked. `TestCommandFortressPlacement` pins 113 pieces, bounds, chest/spawner positions and data, and the y -62..79 write range. All eight placement pins re-pass (fortress 47.54s, igloo 11.16s, jungle 11.54s, ocean ruin 13.63s, pyramid 12.51s, ruined portal 11.04s, shipwreck 10.83s, swamp hut 15.02s); focused worldgen 14.542s. Build/vet/tagged compilation pass. Three-file behavior artifact `eba9dded71760b6f2ef172dac2f6afc514e7a6c2490d451653d6ee77608a5adc`. Remaining limit: the fortress is large and the test forceloads its footprint; other multi-piece structures remain unsupported.
+
+Evidence uses official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8`, Temurin 25.0.5+8 and Go 1.27.3. Wire observations and factual bytecode measurement (NetherFortressStructure, NetherFortressPieces) inform independently written code.

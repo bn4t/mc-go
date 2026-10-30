@@ -587,3 +587,71 @@ func TestCommandRuinedPortalPlacement(t *testing.T) {
 		})
 	}
 }
+
+func TestCommandFortressPlacement(t *testing.T) {
+	plan, err := PlanCommandStructure(Vanilla(), 5, "fortress", 0, 0, -64, 384, -63, func(int32, int32, int) int32 { return -60 })
+	if err != nil || plan == nil {
+		t.Fatalf("plan %v %v", plan, err)
+	}
+	if len(plan.start.Pieces) != 113 {
+		t.Fatalf("pieces=%d want113", len(plan.start.Pieces))
+	}
+	bounds := plan.Bounds()
+	if bounds.MinX != -57 || bounds.MaxX != 85 || bounds.MinZ != 0 || bounds.MaxZ != 116 {
+		t.Fatalf("bounds=%+v", bounds)
+	}
+	chunks := map[[2]int32]*ProtoChunk{}
+	for cx := bounds.MinX >> 4; cx <= bounds.MaxX>>4; cx++ {
+		for cz := bounds.MinZ >> 4; cz <= bounds.MaxZ>>4; cz++ {
+			chunks[[2]int32{cx, cz}] = NewProtoChunk(cx, cz, -64, 384)
+		}
+	}
+	writes, entities, blockEntities := plan.Place(chunks, NewLegacy(12345))
+	if len(writes) == 0 || len(entities) != 0 {
+		t.Fatalf("writes%d entities%v", len(writes), entities)
+	}
+	counts := map[string]int{}
+	for _, c := range chunks {
+		for _, b := range c.Blocks {
+			n, _ := world.StateOwner(b)
+			counts[n]++
+		}
+	}
+	if counts["chest"] != 6 || counts["spawner"] != 2 {
+		t.Errorf("chest=%d spawner=%d want6/2", counts["chest"], counts["spawner"])
+	}
+	chests := map[BlockPos]bool{
+		{-56, 53, 73}: true, {-37, 61, 58}: true, {-2, 61, 115}: true,
+		{11, 53, 105}: true, {23, 54, 88}: true, {23, 54, 95}: true,
+	}
+	spawners := map[BlockPos]bool{{-4, 70, 30}: true, {43, 76, 58}: true}
+	for _, be := range blockEntities {
+		if chests[be.Pos] {
+			if be.Data["LootTable"] != "minecraft:chests/nether_bridge" {
+				t.Errorf("chest %v loot %v", be.Pos, be.Data["LootTable"])
+			}
+			if _, ok := be.Data["LootTableSeed"].(int64); !ok {
+				t.Errorf("chest %v has no loot seed", be.Pos)
+			}
+			delete(chests, be.Pos)
+		}
+		if spawners[be.Pos] {
+			sd, _ := be.Data["SpawnData"].(map[string]any)
+			ent, _ := sd["entity"].(map[string]any)
+			if ent["id"] != "minecraft:blaze" {
+				t.Errorf("spawner %v data %v", be.Pos, be.Data["SpawnData"])
+			}
+			delete(spawners, be.Pos)
+		}
+	}
+	if len(chests) != 0 || len(spawners) != 0 {
+		t.Errorf("missing chests %v spawners %v", chests, spawners)
+	}
+	minY, maxY := int32(1<<30), int32(-1<<30)
+	for _, w := range writes {
+		minY, maxY = min(minY, w.Position[1]), max(maxY, w.Position[1])
+	}
+	if minY != -62 || maxY != 79 {
+		t.Errorf("write y %d..%d want-62..79", minY, maxY)
+	}
+}
