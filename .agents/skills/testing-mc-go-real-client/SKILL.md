@@ -477,3 +477,9 @@ Mount fixtures must observe actual ordered passenger IDs after both riders are
 admitted. A command success or an older single-passenger packet is insufficient.
 Keep actual entity positions separate from relative teleport packet offsets;
 do not impose an unmeasured seat position as a setup prerequisite.
+
+
+Resource overrides must follow toolchain activation. This workspace activation
+sets GOMAXPROCS=4, and work/run-oracle.sh sources it again; use
+`work/run-oracle.sh env GOMAXPROCS=2 ...` when requesting a two-thread oracle.
+Record the effective environment rather than assuming an outer export survived.

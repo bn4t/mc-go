@@ -19694,3 +19694,12 @@ Official 26.2 runtime SHA-256 `183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3b
 - **Measured** — Full immutable `77453d0` testing found one stale unit expectation: the Java-player subcase invoked only the global entity inside pass and expected one freeze point. The measured player implementation deliberately moved freezing to its admitted frame; ordinary nonliving contact remains world-bound.
 - **Implemented** — Initialize/admit the Java fixture and run its player-fluid frame, expecting the already native-pinned two-point contribution. Keep the nonliving one-point expectation, tripwire occupancy, portal cooldown and shared-avatar exclusion assertions.
 - **Pinned** — Focused avatar/powder phase checks PASS 0.595s on `77453d0` plus this one-file test-only artifact `acb4cf33dfc55cc718e987ccb7500b4b9af6502c2c110a9a2f36c618c42dc2d9`. No production code changed. The original full-run failure is retained; final combined verification follows separately.
+
+
+## Verification — final implementation wrap-up (2026-10-30)
+
+Immutable `c9d303a` passes build, vet, both factual generator checks, tagged blackbox compilation and the complete default `go test -p 2 ./... -count=1` suite. Package durations: mc-go/internal/server 258.437s, mc-go/internal/world 0.360s, mc-go/internal/worldgen 13.174s, mc-go/server 8.198s, mc-go/tests/blackbox 116.345s. This includes the corrected Java avatar/player-frame fixture and the final zero-dye/static-dimension changes. The earlier `77453d0` full-run failure is retained above rather than counted as a pass.
+
+Combined `77453d0` native/Go interaction checks also pass: FillCommandResult 23.58s, InsideEffects 74.38s and PlaceStructure 59.09s. Final zero-dye command/creative, physical crafting and jukebox checks pass; static mount and repaired boat teleport checks pass as recorded in their slices. These are targeted vanilla controls, not a new complete differential-suite or real-client soak claim.
+
+Implementation stopped at the user's wrap-up request. Unfinished entity-region ownership, pyramid placement, generated-cart loot and additional fixture/position investigations are preserved locally; they are not part of this published batch. Matrix items remain partial where coverage is incomplete.

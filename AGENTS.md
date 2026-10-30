@@ -325,3 +325,9 @@ Presence and a zero component value are separate facts. Pin absent, explicit
 zero and nonzero through ingress, persistence and a physical consumer. Creative
 slot probes need an actual packet-owner receipt and a retained-state sentinel;
 a following chat command does not prove the slot edit was applied.
+
+
+Resource overrides must follow toolchain activation. This workspace activation
+sets GOMAXPROCS=4, and work/run-oracle.sh sources it again; use
+`work/run-oracle.sh env GOMAXPROCS=2 ...` when requesting a two-thread oracle.
+Record the effective environment rather than assuming an outer export survived.

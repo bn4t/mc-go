@@ -452,6 +452,8 @@ client see `.agents/skills/testing-mc-go-real-client/SKILL.md`.
 Recent bounded gameplay support includes persistent natural swamp-hut residents,
 `/place structure minecraft:swamp_hut`, correct `/fill` result counts and loaded
 endpoint checks, and player powder-snow freezing while world time is paused.
-Native item saves preserve modeled fireworks, instrument removal and ominous
-banners. These are measured subsets; see `GOAL.md` for their tests and remaining
+Native item saves preserve modeled fireworks, instrument removal, ominous
+banners and explicit black dye. Missing base mount bounds and selected static
+seats use measured dimensions and precision. These are measured subsets; see
+`GOAL.md` for their tests and remaining
 world, gameplay and compatibility gaps.
