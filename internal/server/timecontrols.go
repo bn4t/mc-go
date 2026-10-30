@@ -218,19 +218,34 @@ func (s *Server) runTimeSetForClock(player string, args []string, add bool, targ
 	if target != nil {
 		id, dim, hasClock = target.id, target.name, true
 	}
-	ticks, err := strconv.ParseFloat(arg, 64)
-	if err != nil || !add && ticks < 0 {
+	ticks, problem, number := functionScheduleTime(arg)
+	if problem != "" || !add && ticks < 0 {
 		if add {
-			return errToken("parsing.float.expected", 2)
+			switch problem {
+			case "parsing.float.invalid":
+				return errToken(problem, 2, number)
+			case "argument.time.invalid_unit":
+				return errTokenEnd(problem, 2)
+			default:
+				return errToken("parsing.float.expected", 2)
+			}
 		}
 		if !hasClock {
 			return componentReply(commandError("commands.time.no_default_clock", dim))
 		}
-		marker := arg
-		if !strings.Contains(marker, ":") {
-			marker = "minecraft:" + marker
+		// Identifier arguments can consume an empty prefix. A leading
+		// character outside that alphabet leaves an unknown argument.
+		if n := timeMarkerPrefix(arg); n < len(arg) {
+			return errTokenOff("command.unknown.argument", 2, n)
 		}
-		value, ok := timeMarkers[strings.TrimPrefix(marker, "minecraft:")]
+		marker, valid := jigsawIdentifier(arg)
+		if !valid {
+			marker = arg
+			if !strings.Contains(marker, ":") {
+				marker = "minecraft:" + marker
+			}
+		}
+		value, ok := builtinTimeMarker(marker)
 		if !ok || id != 0 {
 			// Builtin day markers belong to the Overworld clock.
 			// Vanilla names the missing marker by its registry key. The
@@ -240,15 +255,15 @@ func (s *Server) runTimeSetForClock(player string, args []string, add bool, targ
 			return componentReply(commandError("commands.time.no_time_marker_found",
 				"ResourceKey[minecraft:clock_time_marker / "+marker+"]", dim))
 		}
-		s.setWorldClockTotal(id, value)
+		s.setWorldClockTotal(id, nextBuiltinTimeMarker(s.worldClockTotal(id), value))
 		return clockCommandResult(opsEchoReply(translatable("commands.time.set.time_marker", dim, marker)), clockWrappedResult(s.worldClockTotal(id)))
 	}
 	if !hasClock {
 		return componentReply(commandError("commands.time.no_default_clock", dim))
 	}
-	// Vanilla converts the float argument to whole ticks, rounding to
-	// the nearest as it goes.
-	value := roundTicks(ticks)
+	// The shared TimeArgument parser applies float32 unit scaling before
+	// rounding and saturating to the command's integer tick count.
+	value := int64(ticks)
 	if add {
 		// The argument is an int, so it saturates before it is added,
 		// and the sum is reported as a long: it is a sum with the

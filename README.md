@@ -139,8 +139,10 @@ Missing native clock data starts each clock at zero; legacy level time does not
 seed absent clocks. Builtin clocks support `/time of <clock>` selection and
 `pause`, `resume` and `rate` controls, with rates from 0.00001 through 1000.
 Explicit selection works from the Nether. Absolute and four builtin timeline
-queries include repetition counts. Custom resources, complete time-argument
-grammar, marker resolution and completions remain partial.
+queries include repetition counts. Decimal time arguments support days, seconds
+and ticks with native float32 rounding. Builtin markers, including hidden
+markers and default-namespace aliases, advance to their next occurrence.
+Custom resources, remaining parser edge cases and completions remain partial.
 
 Weather intensities preserve native float32 steps and project rain/thunder
 changes to clients, including initial weather for late joins. Natural/random

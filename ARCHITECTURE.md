@@ -1126,8 +1126,11 @@ Command selection can explicitly choose either builtin clock independently of
 the source dimension. Pause/resume/rate changes preserve the fractional position
 and emit the selected clock, including repeated accepted controls. Rate parsing
 uses float32 bounds; query results retain measured long-remainder behavior and
-typed timeline errors. Custom resource overlays and complete argument/marker
-resolution remain partial.
+typed timeline errors. Set/add reuse the measured float32 time-argument parser
+for day/second/tick units and integer saturation. Six builtin markers resolve
+strictly to their next day-period occurrence, even at an exact marker boundary;
+valid identifiers normalize default namespaces before lookup. Custom resources,
+remaining delimiter/error precedence and completions remain partial.
 
 Fluid scheduler keys retain exact builtin registered owners, distinguishing
 source from flowing water/lava. A duplicate same-position/owner request retains
