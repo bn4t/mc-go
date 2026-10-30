@@ -19357,3 +19357,12 @@ Unsupported component models and separate itemFromNBT persistence/data restorati
 - **Pinned** — New strict clock comparison PASS42.01s; focused units0.170s cover delay boundary, distinct contact clock and final damage-window boundary. Final frame-end30.57s, ten-case boat95.00s and thirteen-case kinetic103.59s regressions PASS. All original health/motion/position and observer transition assertions remain. Source and proof: work/spear-use-clock-manifest-v2.md.
 
 Default components and an unchanged held stack are covered. Duplicate starts, stack-change cancellation, offhand selection, complete use-duration retirement, using-hand metadata, wear and broader mounted-target geometry remain separate. No global tick or environmental cadence policy changes.
+
+
+## Slice — forceload source routing and dimension coordinate scale (2026-10-30)
+
+- **Measured** — Native forceload uses the command source's dimension and position. Positioning before execute-in applies the level coordinate ratio: overworld128/256 becomes Nether chunk1/2; Nether128.5/256.5 becomes overworld chunk64/128. Native22-control discovery PASS16.25s. Wire observations, Java26.2/JDK25.0.5+8; runtime SHA256 183c0499c5f855570ee487dd38e141a53f0121f83a0b07a3bac2d8b6698823e8.
+- **Implemented** — Resolve forceload level/origin through the bound source. Both legacy and batch-plan execute-in paths scale X/Z by the existing old/new coordinate-scale ratio while preserving Y, rotation, anchor and executor. Six-file patch SHA256 7a4ed396fb46959fb02d4198a00e9f2dd47168ba0a96eef979eba21fb4187c8b.
+- **Pinned** — Final differential PASS17.94s(native7.00/Go1.93): exact typed replies in intended and unintended dimensions, negative/fractional columns, ranges/removals, both function-plan directions, nested restoration and scheduled neutral sources. WorldCmd15.18s, source-dimension25.71s, unchanged public avatar/world10.496s and units0.140s/regressions2.255s PASS; build/vet/tagged compilation PASS. Evidence: work/forceload-source-manifest.md.
+
+Forced-set changes do not prove actual chunk loading/ticking readiness. Existing parser/result-count limits and builtin level metadata scope remain explicit. The save-completion fixture's physical loader stays independent of this command fix.

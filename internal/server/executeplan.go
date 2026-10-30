@@ -159,7 +159,7 @@ func (s *Server) applyExecutePlanStep(player string, input executePlanContext, s
 		}
 		return []executePlanContext{next}, nil, false
 	case "in":
-		ctx.dim = s.dimensionByName(a[0])
+		setExecuteDimension(ctx, s.dimensionByName(a[0]))
 	case "positioned":
 		ctx.anchorEyes = false
 		for i, token := range a {

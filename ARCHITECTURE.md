@@ -1442,3 +1442,9 @@ freeze, beginning at0 before increment. Remembered-contact cooldown remains on
 level game time. Native controls distinguish these clocks independently and
 retain exact contact outcomes. Stack changes, duplicate starts, complete use
 retirement, hand metadata and wear remain separate.
+
+
+Forceload reads the bound command-source level and origin. Execute-in scales
+source X/Z by the old/new level coordinate ratio in both primitive and batch-plan
+paths, retaining Y, rotation, anchor and executor without moving the physical
+issuer. Forced-set responses remain distinct from actual chunk admission.

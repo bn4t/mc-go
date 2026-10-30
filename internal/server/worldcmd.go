@@ -46,9 +46,9 @@ func (s *Server) forceLoadSet(dim string) map[int64]bool {
 }
 
 // parseColumnPos parses a pos2d argument pair (ints or ~relative to the
-// sender's feet) starting at args[i], where tokBase is the pair's input
+// command-source position) starting at args[i], where tokBase is the pair's input
 // token index.
-func parseColumnPos(sess *Session, args []string, i, tokBase int) (int, int, *reply) {
+func parseColumnPos(origin [3]float64, args []string, i, tokBase int) (int, int, *reply) {
 	if len(args) <= i {
 		r := errTokenEnd("command.unknown.command", tokBase)
 		return 0, 0, &r
@@ -60,11 +60,7 @@ func parseColumnPos(sess *Session, args []string, i, tokBase int) (int, int, *re
 		}
 		// falls through: the bad first token reports parsing.int.* below
 	}
-	var bx, bz float64
-	if sess != nil {
-		px, _, pz, _, _, _ := sess.Pos()
-		bx, bz = math.Floor(px), math.Floor(pz)
-	}
+	bx, bz := math.Floor(origin[0]), math.Floor(origin[2])
 	out := [2]int{}
 	base := [2]float64{bx, bz}
 	for j := 0; j < 2 && i+j < len(args); j++ {
@@ -105,11 +101,11 @@ func chunkLong(x, z int) int64 {
 func chunkStr(x, z int) string { return fmt.Sprintf("[%d, %d]", x, z) }
 
 func (s *Server) runForceLoad(player string, args []string) reply {
-	sess := s.findSessionByName(player)
 	dim := dimOverworld
-	if sess != nil {
-		dim = sess.dimName()
+	if level := s.dimOf(player); level != nil {
+		dim = level.name
 	}
+	origin := s.execOrigin(player)
 	if len(args) == 0 {
 		return errTokenEnd("command.unknown.command", 0)
 	}
@@ -126,13 +122,13 @@ func (s *Server) runForceLoad(player string, args []string) reply {
 			}
 			return opsEchoReply(translatable("commands.forceload.removed.all", dim))
 		}
-		fx, fz, r := parseColumnPos(sess, args, 1, 2)
+		fx, fz, r := parseColumnPos(origin, args, 1, 2)
 		if r != nil {
 			return *r
 		}
 		tx, tz := fx, fz
 		if len(args) > 3 {
-			tx, tz, r = parseColumnPos(sess, args, 3, 4)
+			tx, tz, r = parseColumnPos(origin, args, 3, 4)
 			if r != nil {
 				return *r
 			}
@@ -212,7 +208,7 @@ func (s *Server) runForceLoad(player string, args []string) reply {
 				nestedCompound{key: "", value: dim},
 				nestedCompound{key: "", value: strings.Join(strs, ", ")}))
 		}
-		x, z, r := parseColumnPos(sess, args, 1, 2)
+		x, z, r := parseColumnPos(origin, args, 1, 2)
 		if r != nil {
 			return *r
 		}

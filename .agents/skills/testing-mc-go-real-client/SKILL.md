@@ -430,3 +430,10 @@ Held-use age and remembered-contact cooldown can belong to different clocks.
 Warm use with actual admitted player ticks while asserting unchanged world time;
 then test contact expiry with a separate exact simulation delta. Preserve the
 original numeric outcomes when migrating a fixture's clock domain.
+
+
+For source-level mutations, check both intended and unintended dimensions and
+compare typed reply arguments. Two incorrect handlers can agree on the wrong
+world. Cover primitive and batch-plan function leaves, and position before/after
+execute-in to expose coordinate-scale order. Forced-set success is not a chunk
+readiness receipt.

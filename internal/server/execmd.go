@@ -111,7 +111,7 @@ func (s *Server) execTail(ctx *executeContext, player string, args []string, arg
 			if d == nil {
 				return textReply("Unknown dimension: " + args[i+1])
 			}
-			ctx.dim = d
+			setExecuteDimension(ctx, d)
 			i += 2
 		case "if", "unless":
 			if i+1 >= len(args) {

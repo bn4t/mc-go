@@ -88,6 +88,10 @@ MCGO_BLACKBOX=1 go test -tags blackbox -timeout 45m -count=1 ./tests/blackbox/ #
 - An automatic movement echo can normalize yaw after teleport. Immediate command
   angle probes should exclude movement ingress or capture inside an atomic
   function; retain actual teleport/chunk acknowledgements for physical actions.
+- Source-level mutation probes must query intended and unintended dimensions
+  and check typed dimension/position arguments. Matching broken add/query
+  handlers can otherwise agree on the wrong world. Cover primitive and batch
+  leaves, including positioned-before-in coordinate-scale order.
 - Executor-binding probes should retain distinct caller/other-player inventory
   sentinels and a nonplayer executor; cover scheduled neutral-source execution.
 - For exact tick windows, freeze, use `/tick step N`, and observe completion
