@@ -3282,6 +3282,7 @@ func TestScoreboardPackets(t *testing.T) {
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, `scoreboard objectives add test dummy "Test Score"`)
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "scoreboard objectives setdisplay sidebar test")
 	for {
 		p, err := pr.ReadPacket()
 		if err != nil {
@@ -3315,6 +3316,23 @@ func TestScoreboardPackets(t *testing.T) {
 		break
 	}
 
+	for {
+		p, err := pr.ReadPacket()
+		if err != nil {
+			t.Fatalf("waiting display: %v", err)
+		}
+		if p.ID != server.IDPlayDisplayObjective {
+			continue
+		}
+		r := protocol.NewPacketReader(p.Data)
+		position, _ := r.VarInt()
+		name, _ := r.String()
+		if position != 1 || name != "test" {
+			t.Fatalf("display = %d/%q", position, name)
+		}
+		break
+	}
+
 	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "scoreboard players set Scorer test 9")
 	for {
 		p, err := pr.ReadPacket()
@@ -3334,20 +3352,23 @@ func TestScoreboardPackets(t *testing.T) {
 		break
 	}
 
-	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "scoreboard objectives setdisplay sidebar test")
+	sendChatBlackbox(t, pw, server.IDPlayChatCommandSB, "scoreboard players reset Scorer test")
 	for {
 		p, err := pr.ReadPacket()
 		if err != nil {
-			t.Fatalf("waiting display: %v", err)
+			t.Fatalf("waiting reset: %v", err)
 		}
-		if p.ID != server.IDPlayDisplayObjective {
+		if p.ID != server.IDPlayResetScore {
 			continue
 		}
 		r := protocol.NewPacketReader(p.Data)
-		position, _ := r.VarInt()
-		name, _ := r.String()
-		if position != 1 || name != "test" {
-			t.Fatalf("display = %d/%q", position, name)
+		holder, err := r.String()
+		if err != nil {
+			t.Fatal(err)
+		}
+		objective, err := r.Bool()
+		if err != nil || holder != "Scorer" || objective || r.Remaining() != 0 {
+			t.Fatalf("reset holder=%q objectivePresent=%v trailing=%d err=%v", holder, objective, r.Remaining(), err)
 		}
 		return
 	}
