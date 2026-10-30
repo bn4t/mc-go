@@ -52,7 +52,7 @@ type Server struct {
 	// OutboundPacketLimit and OutboundByteLimit bound each connection's
 	// retained outbound work, including its active socket write. Exhaustion
 	// disconnects the client rather than dropping ordered state or blocking
-	// simulation. Non-positive values select 256 packets and 8 MiB.
+	// simulation. Non-positive values select 4096 packets and 8 MiB.
 	OutboundPacketLimit int
 	OutboundByteLimit   int64
 	// WriteTimeout bounds each packet's socket write; non-positive uses 5s.

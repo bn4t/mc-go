@@ -15,7 +15,10 @@ import (
 var ErrOutboundLimit = errors.New("client outbound budget exceeded")
 
 const (
-	defaultOutboundPackets = 256
+	// The count bound is generous: a survival view with dozens of tracked
+	// mobs emits hundreds of small packets per tick, while vanilla's netty
+	// queue is unbounded. The byte budget is the memory guard.
+	defaultOutboundPackets = 4096
 	defaultOutboundBytes   = 8 << 20
 	defaultWriteTimeout    = 5 * time.Second
 )

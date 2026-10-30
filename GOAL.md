@@ -19536,3 +19536,12 @@ DATA_IS_IGNITED (18) is still never sent, so flint-and-steel ignition is not vis
 - **Measured** — The direct push was rejected because master advanced with three independent commits: creeper swell-direction accessor16/schema validation, removal of the example anticheat plugin from the default binary, and outbound disconnect-reason logging.
 - **Implemented** — Merged those commits with the verified local batch in an isolated worktree, preserving both progress logs. Applied the exact integrated delta to the shared checkout without replacing any agent work; no force push or history loss.
 - **Pinned** — Immutable merge106b500 passed build, vet, generated eye-table consistency, tagged compilation and the complete default suite; session68128 exit0. Internal server325.174s, world0.460s, worldgen21.877s, public server21.063s and default blackbox138.669s PASS. Log: work/verified-106b500.log. The remote creeper schema test is included; the environment also supplies Java for the previously unavailable unit checks. This is scoped integration evidence, not full live-client or production-load parity.
+
+
+## Slice — outbound packet budget for survival entity traffic (2026-10-30)
+
+- **Measured** — A real 26.2 client in a `-level-type normal` survival world was reset at 17:05:19. The new drop log reported `client outbound budget exceeded (256 packets, 2304 bytes queued)`: 256 small packets averaging 9 bytes, far below the 8 MiB byte budget. The natural-spawn blackbox fixture had already raised the count limit for 70+ tracked mobs and noted that vanilla's netty queue is unbounded. Wire observation only; no bytecode inspection.
+- **Implemented** — The default per-connection count bound rises from 256 to 4096 packets. The 8 MiB byte budget, five-second write deadline and FIFO-order guarantees are unchanged. Play-stage read failures other than EOF or closed connections are now logged with the player name, alongside the existing outbound drop logging.
+- **Pinned** — Outbound unit tests (explicit small limits, join burst, overflow cleanup, write deadline, compression FIFO) and the full `internal/server` (171.5s) and public `server` suites PASS; build, vet and tagged blackbox compilation PASS. Not yet validated over a long real-client session, and no differential blackbox run: this workstation has no vanilla jar or JDK.
+
+The count bound is still a disconnect policy that vanilla lacks. A writer stalled behind a slow socket or chunk future can still exhaust either budget.
